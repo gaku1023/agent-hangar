@@ -34,10 +34,15 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
 
   useEffect(() => { if (props.follow) setUnseen(0); }, [props.follow]);
 
+  // 追従中の自動スクロール（smooth）は途中で何度も scroll を発火し、その間は末尾に居ない。
+  // それで追従を切らないよう、切るのは scrollTop が前回より減ったとき、つまり利用者が上へ戻したときだけにする。
+  const lastScrollTop = useRef(0);
   const onScroll = () => {
     const el = boxRef.current; if (!el || !props.live) return;
+    const scrolledUp = el.scrollTop < lastScrollTop.current;
+    lastScrollTop.current = el.scrollTop;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    if (!atBottom && props.follow) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: false });
+    if (!atBottom && props.follow && scrolledUp) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: false });
     if (atBottom && !props.follow) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true });
   };
 
