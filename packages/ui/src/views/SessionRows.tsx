@@ -6,9 +6,12 @@ import { VirtualList } from './primitives/VirtualList.tsx';
 
 const cols = (showProject: boolean) => `16px minmax(160px, 1.2fr) minmax(200px, 2fr) ${showProject ? '120px ' : ''}72px 110px 48px 32px 80px`;
 
-export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; showProject: boolean; showSnippets?: boolean }) {
+/** 行が無いときに出す文言。emptyText で差し替えられる。 */
+const DEFAULT_EMPTY_TEXT = 'セッションはまだありません';
+
+export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; showProject: boolean; showSnippets?: boolean; emptyText?: string }) {
   const emit = useEmit();
-  if (props.rows.length === 0) return <div className="list"><div className="empty">セッションはまだありません</div></div>;
+  if (props.rows.length === 0) return <div className="list"><div className="empty">{props.emptyText ?? DEFAULT_EMPTY_TEXT}</div></div>;
   const style = { gridTemplateColumns: cols(props.showProject) };
   const head = (
     <div className="row row-head" style={style} role="row">

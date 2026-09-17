@@ -29,7 +29,7 @@ export function SessionsScreen(props: SessionsProps) {
         <span className="spacer" />
         <span className="faint mono">{props.loading ? '検索しています' : `${props.total} 件`}</span>
       </div>
-      <SessionRows rows={props.rows} height="calc(100vh - 180px)" showProject showSnippets={props.mode === 'search'} />
+      <SessionRows rows={props.rows} height="calc(100vh - 180px)" showProject showSnippets={props.mode === 'search'} emptyText={props.mode === 'search' && !props.loading ? '一致するセッションはありません' : undefined} />
     </div>
   );
 }

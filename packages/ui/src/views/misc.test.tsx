@@ -37,6 +37,19 @@ describe('SessionsScreen', () => {
     render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" /></IntentRoot>);
     expect(screen.getByText('検索しています')).toBeInTheDocument();
   });
+  it('検索で何も当たらなければ「一致するセッションはありません」', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="search" /></IntentRoot>);
+    expect(screen.getByText('一致するセッションはありません')).toBeInTheDocument();
+    expect(screen.queryByText('セッションはまだありません')).toBeNull();
+  });
+  it('全件表示で空なら「セッションはまだありません」のまま', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();
+  });
+  it('検索中は空の文言を出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" /></IntentRoot>);
+    expect(screen.queryByText('一致するセッションはありません')).toBeNull();
+  });
 });
 
 describe('SettingsScreen', () => {
@@ -74,6 +87,16 @@ describe('ToastStack', () => {
     render(<IntentRoot onIntent={onIntent}><ToastStack toasts={[{ id: '1', level: 'error', message: 'oops' }]} /></IntentRoot>);
     fireEvent.click(screen.getByText('oops'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
+  });
+});
+
+describe('SessionRows（空のとき）', () => {
+  it('emptyText を渡すとその文言、渡さなければ既定の文言', () => {
+    const { unmount } = render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} showProject emptyText="何もない" /></IntentRoot>);
+    expect(screen.getByText('何もない')).toBeInTheDocument();
+    unmount();
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} showProject /></IntentRoot>);
+    expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();
   });
 });
 
