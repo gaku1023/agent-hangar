@@ -1,0 +1,48 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { IntentRoot } from '../intent/chain.tsx';
+import type { ProjectCardProps } from '../presenters/projects.ts';
+import { HomeScreen } from './HomeScreen.tsx';
+import { ProjectScreen } from './ProjectScreen.tsx';
+import { ProjectsScreen } from './ProjectsScreen.tsx';
+
+const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, openTodoCount: 0, memoHead: null, lastOneLiner: 'last one' });
+
+describe('HomeScreen', () => {
+  it('実行中の帯とカードと最近', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><HomeScreen running={[{ id: 's1', name: 'run', projectName: 'alpha', live: 'busy', elapsed: '2 時間' }]} activeProjects={[card('alpha')]} recent={[]} /></IntentRoot>);
+    fireEvent.click(screen.getByText('run'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 's1' });
+    fireEvent.click(screen.getByText('last one'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
+  });
+  it('実行中が無ければ帯を省く', () => {
+    render(<IntentRoot onIntent={() => {}}><HomeScreen running={[]} activeProjects={[]} recent={[]} /></IntentRoot>);
+    expect(screen.queryByText('実行中')).toBeNull();
+  });
+});
+
+describe('ProjectsScreen', () => {
+  it('セクションとアーカイブ切替とステータス変更', () => {
+    const onIntent = vi.fn();
+    const onShow = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [card('alpha')] }, { status: 'paused', label: 'Paused', cards: [] }]} archivedCount={2} filter="" showArchived={false} onFilter={() => {}} onShowArchived={onShow} /></IntentRoot>);
+    fireEvent.click(screen.getByText('アーカイブを表示（2）'));
+    expect(onShow).toHaveBeenCalledWith(true);
+    fireEvent.change(screen.getByLabelText('alpha のステータス'), { target: { value: 'paused' } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'paused' });
+  });
+});
+
+describe('ProjectScreen', () => {
+  it('見つからないときの表示と、操作ボタンの Intent', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><ProjectScreen id="x" name="x" path={null} resolved={false} status="active" sessions={[]} notFound /></IntentRoot>);
+    expect(screen.getByText('プロジェクトが見つかりません')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} /></IntentRoot>);
+    fireEvent.click(screen.getByText('新規セッション'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
+    expect(screen.getByText('/w/alpha')).toBeInTheDocument();
+  });
+});
