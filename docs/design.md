@@ -158,9 +158,20 @@ type Intent =
   | { type: 'summary.toggle'; sessionId: SessionId } | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'transcript.toggle' }
+  | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
+  | { type: 'transcript.showRaw'; sessionId: SessionId; show: boolean }
+  | { type: 'transcript.follow'; sessionId: SessionId; follow: boolean }
+  | { type: 'transcript.loadMore'; sessionId: SessionId }
+  | { type: 'transcript.selectAgent'; sessionId: SessionId; agentId: string | null }
+  | { type: 'index.rebuild' }
+  | { type: 'overlay.close' }
+  | { type: 'toast.dismiss'; id: string }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'settings.update'; patch: Partial<Settings> };
 ```
+
+`transcript.follow` の `follow: false` は、利用者が自分でスクロールを上げたときだけ発行する。
+末尾へ送るスムーズスクロールの途中では発行しない。
 
 ### Mediator の状態機械
 
@@ -347,7 +358,7 @@ create table changes (
 
 ```sql
 create table transcript_files (
-  path text primary key, session_id text not null,
+  path text primary key, session_id text not null, agent_id text,
   size integer not null, mtime integer not null, indexed_bytes integer not null,
   indexer_version integer not null, last_error text
 );
@@ -358,14 +369,29 @@ create table event_index (
   session_id text not null, seq integer not null,
   kind text not null,                              -- 正規化イベントの種別
   ts integer, byte_offset integer not null, byte_length integer not null,
+  file_path_ref text not null,                     -- 位置が指すファイル
   parent_agent text,                               -- サブエージェントの ID。null は主線
-  tool_name text, file_path text,                  -- tool_call のときだけ
-  unique (session_id, seq)
+  tool_name text, file_path text                   -- tool_call のときだけ
 );
+-- 主線とサブエージェントで seq の空間を分ける。
+create unique index event_index_pos on event_index(session_id, ifnull(parent_agent, ''), seq);
 
 create virtual table event_fts using fts5 (
-  session_id unindexed, seq unindexed, role, text,
+  session_id unindexed, agent_id unindexed, seq unindexed, role, text,
   tokenize = 'trigram'
+);
+
+-- 索引から導出した統計。共有しない。
+create table session_stats (
+  session_id text primary key,
+  turns integer not null default 0,
+  model text, effort text,
+  files_changed integer not null default 0,
+  pr_url text,
+  input_tokens integer not null default 0,
+  output_tokens integer not null default 0,
+  first_ts integer, last_ts integer,
+  last_prompt text
 );
 
 create table usage_snapshots (
@@ -432,11 +458,16 @@ Claude Code の保存先と、その読み方を定める。
 - 実行中の状態は `~/.claude/sessions/<pid>.json` にあり、`sessionId`、`cwd`、`name`、`nameSource`、`status`（busy か idle）を持つ。ファイルの出現と消失が起動と終了に対応する。
 - 起動フラグは `--session-id`、`-n`、`--append-system-prompt`、`--mcp-config`、`--model`、`--effort`、`--permission-mode`、`-w`、`--add-dir`、`-r`、`--fork-session` を使う。
 
+サブエージェントの本文は主線と別のファイルで独立に伸びるので、`event_index` の一意制約は `(session_id, ifnull(parent_agent, ''), seq)` とし、主線とサブエージェントで `seq` の空間を分ける。
+セッション詳細でサブエージェントを選ぶと UI は `transcript.selectAgent` を発行し、表示する本文をそのサブエージェントのファイルに切り替える。
+
 インデクサは各ファイルのバイト位置を `transcript_files` に持ち、追記分だけを読む。
+1 セッションのファイルは主線の `<sessionId>.jsonl` を先に、`subagents/` 配下を後に読む。
 途中で切れた最終行は次回に回す。
 ファイルの変化は監視し、追記から数百ミリ秒で索引に反映する。
 `indexer_version` を上げたときは、背景で全件を作り直し、進行を「N / 総数 件」の静的な文字で示す。
 フェーズ 0 の計測では、733 ファイル 1.34GB の全件索引化が 7 秒、DB は 183MB だった。
+フェーズ 1 の実装では、791 ファイル、40 プロジェクト、1,127 セッションの全件索引化に約 15 秒かかった。
 
 ## セッションの起動と観察
 
@@ -663,6 +694,7 @@ Sessions 画面は検索画面を兼ねる。
 結果には題名、要約の 1 文、一致箇所の抜粋、日時、プロジェクトを出す。
 同じ検索を MCP の `search_sessions` で外部の AI にも提供する。
 FTS5 に渡す検索語はトークンごとに二重引用符で包む。ハイフンを含む語を素のまま渡すと列指定と解釈されてエラーになる。
+trigram は 3 文字未満の語に一致できないので、3 文字未満の語は部分一致で補う。
 意味検索は初版では持たない。
 
 ## プロジェクトの同定
@@ -874,11 +906,11 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 ## フェーズ
 
 - **フェーズ 0**：危ない前提を捨てられる小さなスクリプトで検証する。計画は `docs/plans/phase0-spikes.md`。
-- **フェーズ 1**：サーバ、インデクサ、読み取り専用の UI。Projects、セッション一覧、トランスクリプト、Sessions（検索）、土台の要約。
-- **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。
-- **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。
-- **フェーズ 4**：クラウド同期と引き継ぎ。
-- **フェーズ 5**：Tauri のシェル、ディープリンク、Releases。
+- **フェーズ 1**：サーバ、インデクサ、読み取り専用の UI。Projects、セッション一覧、トランスクリプト、Sessions（検索）、土台の要約。計画は `docs/plans/phase1-readonly.md`。
+- **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。計画は `docs/plans/phase2-launch.md`。
+- **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。計画は `docs/plans/phase3-workbench.md`（執筆中）。
+- **フェーズ 4**：クラウド同期と引き継ぎ。計画は `docs/plans/phase4-sync.md`（執筆中）。
+- **フェーズ 5**：Tauri のシェル、ディープリンク、Releases。計画は `docs/plans/phase5-desktop.md`。
 
 ## 決めた前提と未決事項
 
@@ -894,6 +926,14 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - 初回索引は背景で走らせ、UI は「N / 総数 件」の静的な文字で進行を示す。
 - Provider の第二弾は OpenCode で、`~/.local/share/opencode/opencode.db` を読む。Codex は CLI が無いため対象にしない。
 - 意味検索は持たないが、LM Studio に埋め込みモデルがあるので、将来ローカルで追加できる。
+- `event_index` の一意制約は `(session_id, ifnull(parent_agent, ''), seq)`。サブエージェントの本文は別ファイルで独立に伸びるので、主線と `seq` の空間を分ける。
+- 端末ローカルのテーブル `session_stats` を持つ。ターン数、モデル、effort、変更ファイル数、PR の URL、トークン数、最後の発言を索引から導出して置き、共有しない。
+- 土台の要約の `state` は、レジストリに生きた項目があれば `in_progress`、無ければ `done`。UI は `source = 'baseline'` の状態を控えめに描く。
+- サブエージェントは、そのファイルの先頭の記録から `subagent` イベントを作り、親の時系列でその直前にある `Agent` か `Task` のツール呼び出しの下にネストする。該当が無ければ独立した項目として出す。
+- セッションの表示名は、レジストリの `name`（`nameSource` が `user`）、本文の `custom-title`、`agent-name`、`ai-title`、最初の発言の先頭 40 字の順で決める。
+- 開発時は Vite（ポート 5173）が `/api` と `/ws` をサーバへプロキシし、プロキシがトークンを `Authorization` ヘッダに付ける。本番はサーバが `packages/ui/dist` を配信し、`index.html` の応答で `hangar_token` クッキー（HttpOnly、SameSite=Strict）を渡す。
+- 一覧の初期データは `GET /api/bootstrap` で全セッションの軽い行をまとめて返す。手元の規模（数百セッション）では 1MB 未満で、ページングは持たない。
+- UI のテストのうち `src/views/**`、`src/intent/**`、`src/Root.test.tsx` は jsdom で走らせる。Vitest の入れ子プロジェクトで環境ごとに分ける。
 
 未決事項は次のとおりである。
 
