@@ -36,19 +36,41 @@ export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoo
   return { created };
 }
 
+/** この端末の解決済みルートを返す。 */
+function resolvedRoots(db: Db, deviceId: string): RootRow[] {
+  return db.prepare('select * from project_roots where device_id = ? and resolved = 1 and deleted_at is null').all(deviceId) as RootRow[];
+}
+
+/** cwd を含むルートのうち、最も深いものを返す。 */
+function longestMatch(roots: RootRow[], cwd: string): RootRow | undefined {
+  return roots.filter((r) => cwd === r.path || cwd.startsWith(r.path + '/')).sort((a, b) => b.path.length - a.path.length)[0];
+}
+
 /** 未分類のセッションを、この端末の解決済みルートの最長一致で紐づける。 */
 export function assignSessions(db: Db, deviceId: string): number {
-  const roots = db.prepare('select * from project_roots where device_id = ? and resolved = 1 and deleted_at is null').all(deviceId) as RootRow[];
+  const roots = resolvedRoots(db, deviceId);
   const sessions = db.prepare('select * from sessions where project_id is null and deleted_at is null').all() as Record<string, unknown>[];
   let n = 0;
   for (const s of sessions) {
-    const cwd = s.cwd as string;
-    const match = roots.filter((r) => cwd === r.path || cwd.startsWith(r.path + '/')).sort((a, b) => b.path.length - a.path.length)[0];
+    const match = longestMatch(roots, s.cwd as string);
     if (!match) continue;
     upsertShared(db, 'sessions', { ...s, project_id: match.project_id }, deviceId);
     n++;
   }
   return n;
+}
+
+/**
+ * 未分類のセッション 1 件を、この端末の解決済みルートの最長一致で紐づける。
+ * 紐づけたらプロジェクトの id を返し、既に紐づいているか当たるルートが無ければ null を返す。
+ */
+export function assignSession(db: Db, deviceId: string, sessionId: string): string | null {
+  const s = db.prepare('select * from sessions where id = ? and project_id is null and deleted_at is null').get(sessionId) as Record<string, unknown> | undefined;
+  if (!s) return null;
+  const match = longestMatch(resolvedRoots(db, deviceId), s.cwd as string);
+  if (!match) return null;
+  upsertShared(db, 'sessions', { ...s, project_id: match.project_id }, deviceId);
+  return match.project_id;
 }
 
 /** この端末のルートの存在を確かめ、消えたものと戻ったものを報告する。 */

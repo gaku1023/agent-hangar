@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { assignSessions, candidateDirs, checkProjectRoots, resolveProject, syncProjectsFromWorkspace } from './registry.ts';
+import { assignSession, assignSessions, candidateDirs, checkProjectRoots, resolveProject, syncProjectsFromWorkspace } from './registry.ts';
 
 let ws: string;
 let db: Db;
@@ -58,6 +58,25 @@ describe('assignSessions', () => {
     assignSessions(db, DEV);
     expect(sessionProject('s-alpha')).toBe(pid);
     expect(sessionProject('s-alpha-sub')).toBe('p-src');
+  });
+});
+
+describe('assignSession', () => {
+  it('1 件だけを紐づけ、最長一致のルートを選ぶ', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    upsertShared(db, 'projects', { id: 'p-src', name: 'src', status: 'active', is_scratch: 0 }, DEV);
+    upsertShared(db, 'project_roots', { id: 'r-src', project_id: 'p-src', device_id: DEV, path: path.join(ws, 'alpha', 'src'), resolved: 1 }, DEV);
+    expect(assignSession(db, DEV, 's-alpha-sub')).toBe('p-src');
+    expect(sessionProject('s-alpha-sub')).toBe('p-src');
+    expect(sessionProject('s-alpha')).toBeNull();
+    expect(assignSession(db, DEV, 's-alpha')).toBe(pid);
+  });
+  it('当たるルートが無いか、既に紐づいていれば null', () => {
+    syncProjectsFromWorkspace(db, DEV, ws);
+    expect(assignSession(db, DEV, 's-other')).toBeNull();
+    expect(assignSession(db, DEV, 'いないセッション')).toBeNull();
+    assignSession(db, DEV, 's-alpha');
+    expect(assignSession(db, DEV, 's-alpha')).toBeNull();
   });
 });
 
