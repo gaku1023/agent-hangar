@@ -58,6 +58,9 @@ UI は同じサーバから配信され、HTTP で読み書きし、WebSocket �
 ターミナルは WebSocket 上の別チャネルで、node-pty の入出力をそのまま流す。
 MCP は Streamable HTTP で、共通の `/mcp` とセッション別の `/mcp/s/<sessionId>` を持つ。
 Tauri のシェルは、起動時にサーバの子プロセスを立て、終了時に止める。
+Node は PATH に頼らず、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探し、Settings で明示もできる。
+サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
+`hangar://` のディープリンクは deep-link プラグインで受ける。
 ブラウザから同じ URL を開いても同じ UI が動く。
 
 ## UI アーキテクチャ
@@ -423,8 +426,9 @@ Claude Code の保存先と、その読み方を定める。
 
 - 本文は `~/.claude/projects/<変換名>/<sessionId>.jsonl` にある。変換名は cwd の英数字以外を `-` に置き換えたもので、日本語を含むパスは不可逆になる。cwd は行内の `cwd` か `~/.claude/history.jsonl` の `project` から読む。
 - `~/.claude/history.jsonl` は利用者の発言だけの軽い索引で、初回列挙に使う。
-- ファイルの末尾には `last-prompt`、`mode`、`permission-mode`、`ai-title`、`pr-link` などのメタ行が混ざる。行の `type` で振り分け、知らない種別は `meta` として保持する。
-- サブエージェントの本文は `<sessionId>/subagents/agent-<hex>.jsonl` にあり、`isSidechain: true` で親に紐づく。
+- ファイルの末尾には `last-prompt`、`mode`、`permission-mode`、`ai-title`、`pr-link` などのメタ行が混ざる。ほかにも `bridge-session`、`agent-name`、`custom-title`、`file-history-snapshot`、`file-history-delta`、`frame-link`、`cost-state`、`relocated`、`worktree-state`、`queue-operation`、`attachment` などがある。行の `type` で振り分け、知らない種別は `meta` として保持する。
+- `user` 行の `message.content` は配列ではなく文字列のことがある。抽出は両方を受ける。
+- サブエージェントの本文は `<sessionId>/subagents/agent-<hex>.jsonl` にあり、`isSidechain: true` で親に紐づく。件数はセッション本体の 3 倍以上あり、インデクサは両方を読む。
 - 実行中の状態は `~/.claude/sessions/<pid>.json` にあり、`sessionId`、`cwd`、`name`、`nameSource`、`status`（busy か idle）を持つ。ファイルの出現と消失が起動と終了に対応する。
 - 起動フラグは `--session-id`、`-n`、`--append-system-prompt`、`--mcp-config`、`--model`、`--effort`、`--permission-mode`、`-w`、`--add-dir`、`-r`、`--fork-session` を使う。
 
@@ -432,6 +436,7 @@ Claude Code の保存先と、その読み方を定める。
 途中で切れた最終行は次回に回す。
 ファイルの変化は監視し、追記から数百ミリ秒で索引に反映する。
 `indexer_version` を上げたときは、背景で全件を作り直し、進行を「N / 総数 件」の静的な文字で示す。
+フェーズ 0 の計測では、733 ファイル 1.34GB の全件索引化が 7 秒、DB は 183MB だった。
 
 ## セッションの起動と観察
 
@@ -455,6 +460,13 @@ tmux new-session -d -s hangar-<runShort> -c <cwd> -- \
 ```
 
 `--session-id` を hangar が生成して渡すので、本文ファイルのパスは起動前に確定する。
+`--mcp-config` と `--add-dir` は可変長オプションで、直後の位置引数を飲み込む。
+起動コマンドの組み立てでは、可変長オプションを他のオプションの前に置き、初期プロンプトは必ず末尾に置く（フェーズ 0 の検証で、逆順にすると初期プロンプトが設定ファイル名として解釈されて即時終了した）。
+tmux で `claude` を直接起動すると異常終了時の出力が失われるので、薄いラッパースクリプトを介して起動し、終了コードと標準エラーをログに残してから tmux セッションを閉じる。
+hangar のセッションでは `tmux set-option -t <name> status off` でステータス行を隠す。
+新しいディレクトリで Claude を起動すると最初に信頼確認ダイアログが出るので、起動直後はターミナルを前面に出し、ダイアログが出ている旨を表示する。
+node-pty の prebuild は補助バイナリ `spawn-helper` に実行権限が無い状態で展開されることがあるため、サーバの起動時に権限を確認して直し、spawn の失敗は捕まえて接続だけを閉じる。
+tmux は `which tmux` で得た絶対パスを設定に保存して spawn する。
 起動ダイアログの必須項目はプロジェクトだけで、名前と初期プロンプトは任意である。
 model、effort、permission mode、worktree、追加ディレクトリは折りたたみに置き、既定値は利用者の Claude Code 設定に従う。
 
@@ -462,7 +474,11 @@ model、effort、permission mode、worktree、追加ディレクトリは折り�
 
 サーバは `~/.claude/sessions/` を監視し、run と結びつける。
 結びつけの鍵はセッション UUID である。
-`status` の busy と idle は、そのまま UI の状態点に反映する。
+`status` は busy、idle、waiting の 3 値で、waiting は AskUserQuestion などで利用者の入力を待っている状態である。
+UI の状態点はこの 3 値をそのまま使い、waiting は通知トーストの対象にする。
+プロンプト送信から busy まで約 0.5 秒、終了からファイルの消失まで約 0.4 秒で、500 ミリ秒間隔の監視で足りる。
+`-n` や `/rename` で付けた名前は本文にも記録として残り（`agent-name`、`custom-title`）、再開やフォークの先にも引き継がれる。
+hangar は名前を本文の記録から読み、レジストリの値で上書きする。
 tmux セッションが消えたら run を終了とみなし、`end_reason` を記録する。
 
 UI のターミナルは xterm.js で、サーバ側の node-pty が `tmux attach -t <tmux_name>` を実行して入出力を中継する。
@@ -475,7 +491,9 @@ UI のターミナルは xterm.js で、サーバ側の node-pty が `tmux attac
 「＋」で追加する各タブは、同じ cwd で利用者のログインシェルを起こした独立の tmux セッション（`hangar-<runShort>-t<n>`）である。
 tmux の window ではなく別セッションにするのは、同じ tmux セッションに複数のクライアントが attach すると「現在の window」を共有してしまい、ブラウザの 2 つのタブが互いに切り替わってしまうからである。
 シェルタブは Claude が終了しても残り、明示的に閉じるか run を片付けるときに閉じる。
-「ターミナルで開く」はタブ単位で、iTerm2 の新規ウィンドウで `tmux attach` を実行する。
+「ターミナルで開く」はタブ単位である。
+既定は `tmux attach` を書いた `.command` ファイルを `open -a Terminal` で開く経路で、AppleEvent を使わないため macOS の自動化許可が要らない。
+iTerm2 を使う設定にしたときは AppleScript で新規ウィンドウを開く。初回に macOS の自動化許可ダイアログが出るので、Settings で有効化したときに一度だけ案内し、Tauri の Info.plist に `NSAppleEventsUsageDescription` を入れる。AppleScript には 10 秒のタイムアウトを付け、失敗したら Terminal.app の経路に落とす。
 
 ### 指示の注入
 
@@ -547,8 +565,14 @@ interface Summarizer {
 既定は LM Studio である。
 OpenAI 互換の `http://127.0.0.1:1234/v1/chat/completions` に、JSON スキーマ付きで投げる。
 モデル名は Settings で選ぶ。
+既定のモデルは思考を行わない指示追従モデル（フェーズ 0 では gemma 26B が 1 件 6〜7 秒で安定した）にする。
+思考モデルは既定の出力上限を思考で使い切って本文が空になることがあるので、本文が空なら失敗として扱い、フォールバックへ回す。
+初回のモデル読み込みに 1 分近くかかるため、Settings に「要約器を試す」を置いて事前に温められるようにする。
+状態の判定基準（最後のターンが利用者への問いなら進行中）はプロンプトに明示する。
 LM Studio に繋がらないときは `claude -p --model haiku --output-format json --json-schema <schema>` に切り替える。
 こちらはサブスクリプションのレート制限を消費するので、1 時間 20 件までとし、7 日の使用率が 80% を超えたら止める。
+結果は出力 JSON の `structured_output` から読む。入力はパイプで渡し、渡すものが無いときは `< /dev/null` を付けて標準入力の待ちを避ける。
+Haiku でも思考が走り 20〜40 秒かかるため、事後生成は背景ジョブにして UI には「要約を作成中」を出す。
 
 入力は、利用者の発言を全文（1 件 2,000 字まで）、アシスタントの本文を各 600 字まで、ツール呼び出しを 1 行ずつにして、全体をおよそ 8,000 トークン相当（日本語で 12,000 字前後）に収める。
 超えるときは中盤を間引き、最初と最後を残す。
@@ -582,7 +606,9 @@ MCP は Streamable HTTP で提供する。
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
 
 `hangar mcp install` は、Claude Code の user スコープに `hangar` サーバを登録する。
-登録は利用者が明示的に実行する。
+登録は利用者が明示的に実行し、hangar は `~/.claude.json` を直接書かず `claude mcp add` を呼ぶ。
+`claude mcp add` の `--header` は可変長オプションなので、名前と URL の位置引数を先に、`--header` を最後に置く。
+Claude Code は MCP のツール定義を遅延して読むため、ツールの説明文に「agent-hangar」を含めて検索で当たるようにする。
 
 ### ディープリンク
 
@@ -621,7 +647,11 @@ exec <<<"$__hangar_input"
 ```
 
 `settings.json` は書き換えない。
+payload には `rate_limits` のほかに `session_id`、`session_name`、`cwd`、`transcript_path`、`model`、`effort`、`cost`、`context_window` が入る。
+セッションごとのモデル、effort、コンテキスト使用率、推定コストは、トランスクリプトの解析ではなくこの payload を第一の供給源にする。
+更新は定期ではなく、起動直後と応答完了のたびに 1 回である。起動直後の 1 回目は `rate_limits` が無いので、欠けた項目は直前の値を保つ。
 使用率は Claude のセッションが動いている間だけ更新されるので、ヘッダーのゲージには「最終更新 N 分前」を添える。
+追記は目印のコメント行で二重追記を避け、追記前にバックアップを取る。
 副情報として、jsonl の `usage` からトークン数と推定コストを日別とプロジェクト別に集計する。
 
 ## 検索
@@ -632,6 +662,7 @@ Sessions 画面は検索画面を兼ねる。
 絞り込みはプロジェクト、期間、Provider、実行中か終了か、触ったファイルである。
 結果には題名、要約の 1 文、一致箇所の抜粋、日時、プロジェクトを出す。
 同じ検索を MCP の `search_sessions` で外部の AI にも提供する。
+FTS5 に渡す検索語はトークンごとに二重引用符で包む。ハイフンを含む語を素のまま渡すと列指定と解釈されてエラーになる。
 意味検索は初版では持たない。
 
 ## プロジェクトの同定
@@ -672,7 +703,7 @@ active、paused、done のセクションに分けてカードを並べ、archiv
 
 ### プロジェクト詳細
 
-ヘッダーに名前、パス、ステータスの切り替え、操作（新規セッション、VS Code で開く、iTerm で開く）を置く。
+ヘッダーに名前、パス、ステータスの切り替え、操作（新規セッション、VS Code で開く、ターミナルで開く）を置く。
 メインはセッション一覧で、実行中を先頭に、その後を新しい順に並べる。
 各行には要約の題名と 1 文、状態、モデルと effort、日時、変更ファイル数と行数、PR リンク、推定コストを出し、1 行メモをその場で編集できる。
 右レールには TODO のチェックリスト、Markdown のメモ、アーティファクトのカードを置く。
@@ -712,7 +743,7 @@ active、paused、done のセクションに分けてカードを並べ、archiv
 
 - グローバル：⌘K パレット、⌘N 新規セッション、⌘⇧N スクラッチ、⌘, 設定、/ で検索欄にフォーカス。
 - タブとペーン：⌘1 から ⌘9 でタブ切替（素のブラウザでは ⌃⌥1 から ⌃⌥9）、⌘W でタブを閉じる、⌘\ で分割、⌘J でトランスクリプトペーンの開閉。
-- 一覧：j と k で上下、Enter で開く、o で iTerm、e で VS Code、m でメモ編集。
+- 一覧：j と k で上下、Enter で開く、o でターミナル、e で VS Code、m でメモ編集。
 
 ターミナルにフォーカスがあるとき、⌘ を含む組み合わせだけを hangar が受け取り、それ以外はすべてターミナルへ渡す。
 
@@ -752,6 +783,8 @@ active、paused、done のセクションに分けてカードを並べ、archiv
 同期の基盤は利用者自身の Cloudflare アカウントに置く。
 `hangar setup cloud` が wrangler の対話ログインでアカウントを選び、`packages/cloud` の Worker と D1 データベースと R2 バケットを作ってデプロイする。
 アカウント ID は設定に保存し、コードには埋め込まない。
+デプロイ直後の数秒は `workers.dev` の反映待ちで `error code: 1042` が返るので、setup は `/health` が通るまで最大 2 分試してから先へ進む。
+wrangler はプロジェクトのローカル依存として同梱する。
 setup の最後に **参加トークン** を表示する。
 参加トークンは Worker の URL と参加用の秘密を含む文字列で、他の PC では `hangar join <token>` でこれを渡す。
 Worker は参加の要求を受けて端末ごとの端末トークンを発行し、以後の要求はその端末トークンで認証する。
@@ -762,7 +795,7 @@ Worker は参加の要求を受けて端末ごとの端末トークンを発行�
 
 無料枠で収める。
 D1 の無料枠は合計 5GB、1 データベース 500MB、書き込み 1 日 10 万行で、hangar のメタデータには十分である。
-R2 の無料枠は 10GB で、gzip したトランスクリプト全体でも 300MB 前後に収まる。
+R2 の無料枠は 10GB で、gzip したトランスクリプト全体でも 750MB 前後に収まる（フェーズ 0 の実測で 1.4GB が 754MB になった）。
 上限に当たったときは Workers Paid（月 5 ドル）に上げる。
 
 ### 同期対象と暗号化
@@ -778,6 +811,7 @@ hangar 自体の設定（ワークスペースルート、ターミナルアプ�
 R2 に置くファイルは端末間で暗号化する。
 鍵は参加用の秘密から HKDF で導出し、AES-256-GCM で暗号化してから上げる。
 Cloudflare 側は中身を読めない。
+暗号化と復号は 1MB ごとのチャンクで行い、フェーズ 0 の計測では暗号化 2,700MB/s、復号 600MB/s だった。同期の律速は gzip とネットワークである。
 D1 のメタデータ（題名、TODO、メモ）は平文で持ち、将来 Worker 側の機能に使えるようにする。
 
 ファイルの一覧は D1 の `files` 表に持ち、パス、端末、SHA-256、サイズ、更新時刻、R2 の鍵を記録する。
@@ -863,6 +897,7 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 
 未決事項は次のとおりである。
 
-- Tauri から Node を起動するときの Node の探し方（Finder 起動では PATH に nvm が無い）。フェーズ 0 で確かめる。
-- `claude -p` の JSON スキーマ出力が要約の形に十分安定するか。フェーズ 0 で確かめる。
+- 未署名の `.app` を配布したときの Gatekeeper の扱い。家族に渡す手順（右クリックで開く）か署名の取得かを、フェーズ 5 で決める。
+- 対話セッションで user スコープの hangar MCP とセッション別 URL の MCP が同時に読み込まれると、同名のツールが 2 つ見える。ツール名を分けるか、片方を無効にする方法をフェーズ 2 で決める。
+- 権限確認ダイアログの待ちがレジストリで `waiting` になるか `busy` のままかは、auto モード以外で確かめる。
 - OpenCode Provider の詳細設計。フェーズ 3 以降に別文書で書く。
