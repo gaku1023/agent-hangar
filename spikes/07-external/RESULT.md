@@ -1,6 +1,6 @@
 # spike 07: iTerm2 と VS Code の外部連携
 
-判定: 条件付き合格
+判定: 合格（初回に自動化の許可が必要）
 実施日: 2026-09-17
 
 ## 確かめたこと
@@ -18,5 +18,8 @@
 - iTerm2 で開きたい場合は AppleScript が必要で、初回に macOS の自動化許可（「hangar が iTerm を制御することを許可しますか」）を利用者が承認する。Tauri の Info.plist に `NSAppleEventsUsageDescription` を入れ、Settings の「iTerm2 を使う」を有効にしたときに一度だけ許可を促す。AppleScript には `with timeout of 10 seconds` を付け、失敗したら Terminal.app の経路に落とす。
 - `.command` で開いたウィンドウは detach 後に「[Process completed]」のまま残る。ファイルの末尾で `exit` する、または Terminal の「シェルが終了したら閉じる」設定に頼らず、`tmux attach; exit` と書く。
 
+## 追記（許可承認後）
+- 利用者が macOS の自動化許可ダイアログを承認した後、同じ AppleScript は 290 ミリ秒で通り、iTerm2 の新規ウィンドウが tmux に attach した（クライアント数が増えた）。タイムアウトの原因は許可待ちで確定。
+
 ## 残った疑問
-- この環境で自動化許可のダイアログが実際に画面に出ていたかは未確認（利用者に確認する）。承認後に AppleScript が通ることをフェーズ 2 で再検証する。
+- なし。
