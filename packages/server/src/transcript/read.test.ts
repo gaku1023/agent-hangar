@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
@@ -37,6 +38,15 @@ describe('readEvents', () => {
     expect(subagentIds(db, alphaId)).toEqual(['abc123']);
     const page = readEvents(db, alphaId, { agentId: 'abc123' });
     expect(page.events.map((e) => e.kind)).toEqual(['user', 'assistant']);
+  });
+  it('サブエージェントは名前順ではなく始まった順に並ぶ', async () => {
+    // 名前の順と時刻の順が逆になるように、2 つのサブエージェントを足す。
+    const sub = path.join(dir, 'projects', '-Users-me-workspace-alpha', SESSION_ALPHA, 'subagents');
+    const line = (agentId: string, ts: string) => JSON.stringify({ type: 'user', message: { role: 'user', content: 'go' }, uuid: 'x-' + agentId, parentUuid: null, isSidechain: true, agentId, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA }) + '\n';
+    fs.writeFileSync(path.join(sub, 'agent-aaa999.jsonl'), line('aaa999', '2026-09-01T10:05:00.000Z'));
+    fs.writeFileSync(path.join(sub, 'agent-zzz111.jsonl'), line('zzz111', '2026-09-01T10:01:00.000Z'));
+    await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
+    expect(subagentIds(db, alphaId)).toEqual(['abc123', 'zzz111', 'aaa999']);
   });
   it('知らないセッションは空', () => {
     expect(readEvents(db, 'nope', {})).toEqual({ sessionId: 'nope', events: [], total: 0, nextSeq: null });

@@ -8,9 +8,12 @@ type Row = { seq: number; byte_offset: number; byte_length: number; file_path_re
 const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 2000;
 
-/** セッションに属するサブエージェントの id を昇順で返す。 */
+/**
+ * セッションに属するサブエージェントの id を、始まった順に返す。
+ * 呼び出し側は「Agent の N 番目の呼び出し」と「N 番目の id」を突き合わせるので、名前順ではなく時刻順でなければならない。
+ */
 export function subagentIds(db: Db, sessionId: string): string[] {
-  const rows = db.prepare('select distinct parent_agent a from event_index where session_id = ? and parent_agent is not null order by a').all(sessionId) as { a: string }[];
+  const rows = db.prepare('select parent_agent a from event_index where session_id = ? and parent_agent is not null group by parent_agent order by min(ts), min(seq)').all(sessionId) as { a: string }[];
   return rows.map((r) => r.a);
 }
 
