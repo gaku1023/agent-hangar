@@ -24,6 +24,7 @@ export function SettingsScreen(props: SettingsProps) {
           <button className="btn" onClick={() => emit({ type: 'index.rebuild' })}>索引を作り直す</button>
         </div>
         <div className="faint mono" style={{ marginTop: 4 }}>読み取り元 {props.claudeDir}</div>
+        <div className="faint" style={{ marginTop: 4 }}>読み取り元を変えたときは、再起動後に反映されます。</div>
       </section>
       <section>
         <h2 className="h2">この端末</h2>

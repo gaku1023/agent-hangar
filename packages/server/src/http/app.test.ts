@@ -6,7 +6,7 @@ import type { ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
-import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
+import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { createApp } from './app.ts';
 
 let dir: string;
@@ -96,7 +96,35 @@ describe('routes', () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
     const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: '/tmp/x' }) });
     expect((await r.json()).workspaceRoot).toBe('/tmp/x');
-    expect(sent.at(-1)).toMatchObject({ type: 'toast', level: 'info' });
+    expect(sent.some((e) => e.type === 'toast' && e.level === 'info')).toBe(true);
+  });
+  it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await patch({ workspaceRoot: '' })).status).toBe(400);
+    expect((await patch({ workspaceRoot: 123 })).status).toBe(400);
+    expect((await patch({ claudeDir: '  ' })).status).toBe(400);
+    expect((await patch({})).status).toBe(400);
+    expect((await patch({ token: 'stolen' })).status).toBe(400);
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir });
+  });
+  it('ワークスペースのルートを変えるとプロジェクトを登録し直して配信する', async () => {
+    const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
+    try {
+      fs.mkdirSync(`${ws2}/other`);
+      const other = db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string };
+      db.prepare('update sessions set cwd = ? where id = ?').run(`${ws2}/other`, other.id);
+      sent.length = 0;
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: ws2 }) });
+      expect(r.status).toBe(200);
+      const created = db.prepare('select id from projects where name = ?').get('other') as { id: string } | undefined;
+      expect(created).toBeDefined();
+      expect(sent.some((e) => e.type === 'project.upsert' && e.project.id === created!.id)).toBe(true);
+      const up = sent.find((e) => e.type === 'session.upsert' && e.session.id === other.id);
+      expect(up).toBeDefined();
+      expect((up as { session: { projectId: string | null } }).session.projectId).toBe(created!.id);
+    } finally {
+      fs.rmSync(ws2, { recursive: true, force: true });
+    }
   });
   it('索引の作り直しは 202', async () => {
     const r = await app.request('/api/index/rebuild', { method: 'POST', headers: H });

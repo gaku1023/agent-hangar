@@ -6,7 +6,7 @@ import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
-import { candidateDirs, resolveProject } from '../projects/registry.ts';
+import { assignSessions, candidateDirs, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { searchSessions } from '../search/search.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
 import { authMiddleware } from './auth.ts';
@@ -22,6 +22,7 @@ export type AppDeps = {
 
 const STATUSES = new Set(['active', 'paused', 'done', 'archived']);
 const RESOLVE_KINDS = new Set(['repoint', 'archive', 'unlink']);
+const SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
 const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir });
@@ -109,8 +110,31 @@ export function createApp(deps: AppDeps): Hono {
 
   api.get('/settings', (c) => c.json(toSettingsDto(deps.settings())));
   api.patch('/settings', async (c) => {
-    const patch = (await c.req.json().catch(() => ({}))) as Partial<SettingsDto>;
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    // 受け取るのは既知の項目だけにする。本文をそのまま設定に混ぜない。
+    const patch: Partial<SettingsDto> = {};
+    for (const key of SETTING_KEYS) {
+      if (!(key in body)) continue;
+      const v = body[key];
+      if (typeof v !== 'string' || v.trim() === '') return c.json({ error: `invalid ${key}` }, 400);
+      patch[key] = v;
+    }
+    if (Object.keys(patch).length === 0) return c.json({ error: 'no known settings' }, 400);
+    const before = deps.settings();
     const s = deps.updateSettings(patch);
+    // ワークスペースが変わったら、その場でプロジェクトを登録し直して結果を配る。
+    // claudeDir の変更は索引の読み取り元なので、次の起動で反映する。
+    if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== before.workspaceRoot) {
+      const unassigned = new Set((db.prepare('select id from sessions where project_id is null and deleted_at is null').all() as { id: string }[]).map((r) => r.id));
+      syncProjectsFromWorkspace(db, deviceId, patch.workspaceRoot);
+      assignSessions(db, deviceId);
+      const live = deps.live();
+      for (const p of listProjects(db, deviceId, live)) deps.hub.broadcast({ type: 'project.upsert', project: p });
+      for (const id of unassigned) {
+        const sess = getSession(db, live, id);
+        if (sess?.projectId) deps.hub.broadcast({ type: 'session.upsert', session: sess });
+      }
+    }
     deps.hub.broadcast({ type: 'toast', level: 'info', message: '設定を保存しました' });
     return c.json(toSettingsDto(s));
   });

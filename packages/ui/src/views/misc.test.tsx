@@ -62,6 +62,7 @@ describe('SettingsScreen', () => {
     fireEvent.click(screen.getByText('索引を作り直す'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'index.rebuild' });
     expect(screen.getByText('mac')).toBeInTheDocument();
+    expect(screen.getByText(/再起動後に反映されます/)).toBeInTheDocument();
   });
 });
 
