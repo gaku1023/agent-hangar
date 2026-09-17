@@ -17,7 +17,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   );
   const rowHeight = (r: SessionRowProps) => 28 + (props.showSnippets ? (r.snippets?.length ?? 0) * 20 : 0);
   return (
-    <VirtualList items={props.rows} rowHeight={28} height={props.height} keyOf={(r) => r.id} head={head} render={(r) => (
+    <VirtualList items={props.rows} rowHeight={(r) => rowHeight(r)} height={props.height} keyOf={(r) => r.id} head={head} render={(r) => (
       <div style={{ height: rowHeight(r) }}>
         <div className="row" style={style} role="row" tabIndex={0} onClick={() => emit({ type: 'session.open', id: r.id })} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'session.open', id: r.id }); }}>
           <StatusDot status={r.live} />
