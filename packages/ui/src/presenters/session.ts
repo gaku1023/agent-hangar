@@ -1,0 +1,52 @@
+import type { LiveStatus, SessionSummaryDto, TranscriptEvent } from '@agent-hangar/shared';
+import { defaultSessionView } from '../mediator/sessionView.ts';
+import type { State } from '../mediator/types.ts';
+import { eventsKey, type Store } from '../store/store.ts';
+import { absoluteTime, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, tokensLabel } from './format.ts';
+
+export type TranscriptItem =
+  | { kind: 'user' | 'assistant' | 'thinking' | 'system'; seq: number; text: string; when: string }
+  | { kind: 'tool'; seq: number; summary: string; name: string; inputJson: string; result: { text: string; isError: boolean } | null; when: string; subagent: { agentId: string; label: string } | null }
+  | { kind: 'meta'; seq: number; name: string; json: string };
+export type SessionProps = { id: string; name: string; live: LiveStatus | null; cwd: string; projectName: string | null; projectId: string | null; summary: (SessionSummaryDto & { sourceLabel: string; stateLabel: string }) | null; summaryOpen: boolean; model: string; effort: string; turns: number; tokens: string; prUrl: string | null; memo: string | null; started: string; lastActivity: string; hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean };
+
+const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
+const when = (ts: number | undefined) => (ts === undefined ? '' : absoluteTime(ts).slice(11));
+
+export function buildItems(events: TranscriptEvent[], opts: { showThinking: boolean; showRaw: boolean; subagents: string[] }): TranscriptItem[] {
+  const results = new Map<string, { text: string; isError: boolean }>();
+  for (const e of events) if (e.kind === 'tool_result') results.set(e.toolId, { text: e.text, isError: e.isError });
+  const items: TranscriptItem[] = [];
+  let nextSub = 0;
+  for (const e of events) {
+    switch (e.kind) {
+      case 'user': case 'assistant': case 'system': items.push({ kind: e.kind, seq: e.seq, text: e.text, when: when(e.ts) }); break;
+      case 'thinking': if (opts.showThinking) items.push({ kind: 'thinking', seq: e.seq, text: e.text, when: when(e.ts) }); break;
+      case 'tool_call': {
+        const sub = SUBAGENT_TOOLS.has(e.name) && opts.subagents[nextSub] ? { agentId: opts.subagents[nextSub++]!, label: e.summary } : null;
+        items.push({ kind: 'tool', seq: e.seq, summary: e.summary, name: e.name, inputJson: JSON.stringify(e.input, null, 2), result: results.get(e.toolId) ?? null, when: when(e.ts), subagent: sub });
+        break;
+      }
+      case 'tool_result': break;
+      case 'subagent': break;
+      case 'meta': if (opts.showRaw) items.push({ kind: 'meta', seq: e.seq, name: e.name, json: JSON.stringify(e.value, null, 2) }); break;
+    }
+  }
+  return items;
+}
+
+export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
+  const s = store.sessions[id];
+  const view = state.sessionView[id] ?? defaultSessionView();
+  const base = { id, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [] };
+  if (!s) return { ...base, name: id, notFound: true };
+  const slice = store.events[eventsKey(id, view.agentId)];
+  const items = buildItems(slice?.items ?? [], { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [] });
+  return {
+    ...base, name: s.name ?? '（名前なし）', live: s.live, cwd: s.cwd, projectName: s.projectId ? store.projects[s.projectId]?.name ?? null : null, projectId: s.projectId,
+    summary: s.summary ? { ...s.summary, sourceLabel: SOURCE_LABEL[s.summary.source], stateLabel: STATE_LABEL[s.summary.state] } : null,
+    model: shortModel(s.stats.model), effort: s.stats.effort ?? '', turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), prUrl: s.stats.prUrl, memo: s.memo,
+    started: relativeTime(s.startedAt, now), lastActivity: relativeTime(s.lastActivityAt, now), hasTranscript: s.hasTranscript,
+    items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.nextSeq !== null || slice.total > slice.items.length : false, notFound: false,
+  };
+}
