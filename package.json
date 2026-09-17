@@ -1,0 +1,18 @@
+{
+  "name": "agent-hangar",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspace packages/server & npm run dev --workspace packages/ui & wait"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.1"
+  }
+}
