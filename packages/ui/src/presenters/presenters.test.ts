@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ProjectDto, SessionDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
-import { relativeTime, shortModel, tokensLabel } from './format.ts';
+import { absoluteTime, relativeTime, shortModel, tokensLabel } from './format.ts';
 import { presentHome } from './home.ts';
 import { presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
@@ -28,7 +28,9 @@ describe('format', () => {
     expect(relativeTime(NOW - 2 * 3_600_000, NOW)).toBe('2 時間前');
     expect(relativeTime(NOW - 30 * 3_600_000, NOW)).toBe('昨日');
     expect(relativeTime(NOW - 5 * 86_400_000, NOW)).toBe('5 日前');
-    expect(relativeTime(NOW - 40 * 86_400_000, NOW)).toBe('2026-07-24');
+    const old = relativeTime(NOW - 40 * 86_400_000, NOW);
+    expect(old).toBe(absoluteTime(NOW - 40 * 86_400_000).slice(0, 10));
+    expect(old).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(relativeTime(null, NOW)).toBe('不明');
   });
   it('モデル名とトークン', () => {

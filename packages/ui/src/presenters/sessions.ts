@@ -12,8 +12,9 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
     let list = Object.values(store.sessions);
     if (f.projectId) list = list.filter((s) => s.projectId === f.projectId);
     if (f.running !== undefined) list = list.filter((s) => (s.live !== null) === f.running);
-    if (f.since !== undefined) list = list.filter((s) => (s.lastActivityAt ?? 0) >= f.since!);
-    if (f.until !== undefined) list = list.filter((s) => (s.lastActivityAt ?? 0) < f.until!);
+    const { since, until } = f;
+    if (since !== undefined) list = list.filter((s) => (s.lastActivityAt ?? 0) >= since);
+    if (until !== undefined) list = list.filter((s) => (s.lastActivityAt ?? 0) < until);
     const rows = sortSessions(list).map((s) => presentSessionRow(s, store, now));
     return { text: '', filter: f, projects, rows, total: rows.length, loading: false, mode: 'all' };
   }
