@@ -62,6 +62,16 @@ describe('writeBaselineIfNeeded', () => {
     expect(writeBaselineIfNeeded(db, r.sessionId, 'd', false)).toBe(false);
     expect((db.prepare('select title from session_summaries where session_id = ?').get(r.sessionId) as { title: string }).title).toBe('手書き');
   });
+  it('中身が変わらなければ書き直さない', () => {
+    const file = listTranscriptFiles(dir).find((f) => f.sessionId === SESSION_ALPHA && f.agentId === null)!;
+    const r = indexFile(db, file, { deviceId: 'd' });
+    expect(writeBaselineIfNeeded(db, r.sessionId, 'd', false)).toBe(true);
+    const before = db.prepare('select updated_at from session_summaries where session_id = ?').get(r.sessionId) as { updated_at: number };
+    const changes = (db.prepare("select count(*) c from changes where table_name = 'session_summaries'").get() as { c: number }).c;
+    expect(writeBaselineIfNeeded(db, r.sessionId, 'd', false)).toBe(false);
+    expect(db.prepare('select updated_at from session_summaries where session_id = ?').get(r.sessionId)).toEqual(before);
+    expect((db.prepare("select count(*) c from changes where table_name = 'session_summaries'").get() as { c: number }).c).toBe(changes);
+  });
   it('実行中の切り替えで state だけが変わる', () => {
     const file = listTranscriptFiles(dir).find((f) => f.sessionId === SESSION_ALPHA && f.agentId === null)!;
     const r = indexFile(db, file, { deviceId: 'd' });

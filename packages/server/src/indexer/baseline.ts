@@ -34,9 +34,12 @@ export function buildBaselineSummary(input: BaselineInput): Omit<SessionSummaryD
   return { title, oneLiner, body: lines.join('\n'), state: input.running ? 'in_progress' : 'done', nextSteps: [], source: 'baseline', sourceModel: null, basedOnTurns: input.turns };
 }
 
-/** baseline 以外の要約が既にあれば何もしない。書いたら true を返す。 */
+/**
+ * baseline 以外の要約が既にあれば何もしない。
+ * 中身が前と同じときも書かない。書いたら true を返す。
+ */
 export function writeBaselineIfNeeded(db: Db, sessionId: string, deviceId: string, running: boolean): boolean {
-  const existing = db.prepare('select source from session_summaries where session_id = ?').get(sessionId) as { source: string } | undefined;
+  const existing = db.prepare('select * from session_summaries where session_id = ?').get(sessionId) as Record<string, unknown> | undefined;
   if (existing && existing.source !== 'baseline') return false;
   const s = db.prepare('select ai_title, name, first_prompt, started_at, last_activity_at from sessions where id = ?').get(sessionId) as { ai_title: string | null; name: string | null; first_prompt: string | null; started_at: number | null; last_activity_at: number | null } | undefined;
   if (!s) return false;
@@ -44,6 +47,9 @@ export function writeBaselineIfNeeded(db: Db, sessionId: string, deviceId: strin
   const marks = EDIT_TOOLS.map(() => '?').join(',');
   const files = (db.prepare(`select distinct file_path f from event_index where session_id = ? and tool_name in (${marks}) and file_path is not null order by seq`).all(sessionId, ...EDIT_TOOLS) as { f: string }[]).map((r) => r.f);
   const sum = buildBaselineSummary({ aiTitle: s.ai_title, name: s.name, firstPrompt: s.first_prompt, lastPrompt: st?.last_prompt ?? null, files, turns: st?.turns ?? 0, startedAt: s.started_at, lastActivityAt: s.last_activity_at, running });
-  upsertShared(db, 'session_summaries', { session_id: sessionId, title: sum.title, one_liner: sum.oneLiner, body: sum.body, state: sum.state, next_steps: JSON.stringify(sum.nextSteps), source: sum.source, source_model: null, based_on_turns: sum.basedOnTurns }, deviceId, 'session_id');
+  const row: Record<string, unknown> = { session_id: sessionId, title: sum.title, one_liner: sum.oneLiner, body: sum.body, state: sum.state, next_steps: JSON.stringify(sum.nextSteps), source: sum.source, source_model: null, based_on_turns: sum.basedOnTurns };
+  // 走査のたびに同じ要約を書き直すと changes が増えるので、列がすべて同じなら書かない。
+  if (existing && existing.deleted_at === null && Object.entries(row).every(([k, v]) => existing[k] === v)) return false;
+  upsertShared(db, 'session_summaries', row, deviceId, 'session_id');
   return true;
 }
