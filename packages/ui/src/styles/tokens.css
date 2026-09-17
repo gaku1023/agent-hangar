@@ -32,6 +32,7 @@
   --dur-fast: 80ms;
   --dur: 150ms;
   --dur-slow: 250ms;
+  --dur-pop: 120ms;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
@@ -76,5 +77,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root { --dur-fast: 0ms; --dur: 0ms; --dur-slow: 0ms; }
+  :root { --dur-fast: 0ms; --dur: 0ms; --dur-slow: 0ms; --dur-pop: 0ms; }
 }
