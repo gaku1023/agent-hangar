@@ -72,6 +72,23 @@ describe('indexFile', () => {
     expect((db.prepare('select last_activity_at from sessions where id = ?').get(r.sessionId) as { last_activity_at: number }).last_activity_at).toBe(Date.parse('2026-09-01T11:00:00.000Z'));
   });
 
+  it('スラッシュコマンドの記録は turns にも first_prompt にも last_prompt にも入らない', () => {
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    const mk = (uuid: string, content: string, ts: string) => JSON.stringify({ type: 'user', message: { role: 'user', content }, uuid, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA }) + '\n';
+    fs.appendFileSync(alphaMain().path,
+      mk('u10', '<command-name>/clear</command-name><command-message>clear</command-message><command-args></command-args>', '2026-09-01T11:00:00.000Z')
+      + mk('u11', '<local-command-stdout>cleared</local-command-stdout>', '2026-09-01T11:00:01.000Z'));
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(r.appended).toBe(2);
+    const st = db.prepare('select turns, last_prompt from session_stats where session_id = ?').get(r.sessionId);
+    expect(st).toEqual({ turns: 2, last_prompt: 'b.md も同じように直して' });
+    expect((db.prepare('select first_prompt from sessions where id = ?').get(r.sessionId) as { first_prompt: string }).first_prompt).toBe('動画チャンネルの整理をしたい。まず現状を見て');
+    expect(count("select count(*) c from event_index where session_id = ? and kind = 'system'", r.sessionId)).toBe(4);
+    // system になった本文は全文検索の索引に載せない。
+    expect(count('select count(*) c from event_fts where session_id = ? and text match ?', r.sessionId, '"command-name"')).toBe(0);
+    expect(count('select count(*) c from event_fts where session_id = ? and text match ?', r.sessionId, '"cleared"')).toBe(0);
+  });
+
   it('ファイルが作り直されたら先頭から索引を作り直し、統計を二重に数えない', () => {
     indexFile(db, alphaMain(), { deviceId: DEV });
     const lines = fs.readFileSync(alphaMain().path, 'utf8').split('\n').filter(Boolean);

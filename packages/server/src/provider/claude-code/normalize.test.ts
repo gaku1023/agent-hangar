@@ -12,6 +12,15 @@ describe('normalizeRecord', () => {
     const ev = normalizeRecord({ ...base, type: 'user', isMeta: true, message: { role: 'user', content: '<caveat/>' } }, 0, null);
     expect(ev[0]!.kind).toBe('system');
   });
+  it('スラッシュコマンドの記録は isMeta が無くても system', () => {
+    const ev = normalizeRecord({ ...base, type: 'user', message: { role: 'user', content: '<command-name>/clear</command-name><command-message>clear</command-message>' } }, 0, null);
+    expect(ev).toEqual([{ kind: 'system', seq: 0, ts: Date.parse(base.timestamp), text: '<command-name>/clear</command-name><command-message>clear</command-message>' }]);
+  });
+  it('ローカルコマンドの出力も system', () => {
+    const ev = normalizeRecord({ ...base, type: 'user', message: { role: 'user', content: [{ type: 'text', text: '  <local-command-stdout>ok</local-command-stdout>' }] } }, 0, null);
+    expect(ev[0]!.kind).toBe('system');
+    expect(ev).toHaveLength(1);
+  });
   it('text と image を持つ user は attachments 付きの user 1 件', () => {
     const ev = normalizeRecord({ ...base, type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'これを見て' }, { type: 'image', source: {} }] } }, 0, null);
     expect(ev).toEqual([{ kind: 'user', seq: 0, ts: Date.parse(base.timestamp), text: 'これを見て', attachments: [{ kind: 'image' }] }]);
@@ -78,6 +87,21 @@ describe('recordFacts', () => {
     expect(recordFacts({ ...base, type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'x' }] } }).isUserTurn).toBe(true);
     expect(recordFacts({ ...base, type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'x' }] } }).isUserTurn).toBe(false);
     expect(recordFacts({ ...base, type: 'user', isMeta: true, message: { role: 'user', content: 'x' } }).isUserTurn).toBe(false);
+  });
+  it('スラッシュコマンドとローカルコマンドの記録は isUserTurn にしない', () => {
+    for (const text of [
+      '<command-name>/clear</command-name><command-message>clear</command-message>',
+      '<command-message>clear</command-message>',
+      '<command-args>x</command-args>',
+      '<local-command-caveat>c</local-command-caveat>',
+      '<local-command-stdout>out</local-command-stdout>',
+      '<system-reminder>r</system-reminder>',
+    ]) {
+      expect(recordFacts({ ...base, type: 'user', message: { role: 'user', content: text } }).isUserTurn).toBe(false);
+      expect(recordFacts({ ...base, type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }).isUserTurn).toBe(false);
+    }
+    // 途中にタグがあるだけの本文は普通の依頼として扱う。
+    expect(recordFacts({ ...base, type: 'user', message: { role: 'user', content: 'see <command-name>x</command-name>' } }).isUserTurn).toBe(true);
   });
 });
 

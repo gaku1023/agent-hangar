@@ -29,6 +29,17 @@ function contentText(content: unknown): string {
   return content.filter(isRec).map((b) => (b.type === 'text' ? str(b.text) ?? '' : '')).filter(Boolean).join('\n');
 }
 
+/**
+ * スラッシュコマンドやローカルコマンドの記録は、Claude Code が user として書くが利用者の発言ではない。
+ * 本文がこれらのタグで始まるものを見分け、system として扱う。
+ */
+const LOCAL_COMMAND_TAGS = ['<command-name>', '<command-message>', '<command-args>', '<local-command-caveat>', '<local-command-stdout>', '<system-reminder>'];
+
+export function isLocalCommandText(text: string): boolean {
+  const head = text.trimStart();
+  return LOCAL_COMMAND_TAGS.some((tag) => head.startsWith(tag));
+}
+
 export function pickFilePath(input: unknown): string | undefined {
   if (!isRec(input)) return undefined;
   return str(input.file_path) ?? str(input.path) ?? str(input.notebook_path);
@@ -53,7 +64,7 @@ export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string
 
   if (type === 'user' && msg) {
     const content = msg.content;
-    if (raw.isMeta === true) return [{ kind: 'system', seq, ts, text: contentText(content) }];
+    if (raw.isMeta === true || isLocalCommandText(contentText(content))) return [{ kind: 'system', seq, ts, text: contentText(content) }];
     if (typeof content === 'string') return [{ kind: 'user', seq, ts, text: content }];
     if (!Array.isArray(content)) return [];
     const texts: string[] = [];
@@ -116,7 +127,8 @@ export function recordFacts(raw: unknown): RecordFacts {
     case 'user': {
       if (raw.isMeta === true || !msg) break;
       const c = msg.content;
-      facts.isUserTurn = typeof c === 'string' || (Array.isArray(c) && c.some((b) => isRec(b) && b.type === 'text'));
+      const hasText = typeof c === 'string' || (Array.isArray(c) && c.some((b) => isRec(b) && b.type === 'text'));
+      facts.isUserTurn = hasText && !isLocalCommandText(contentText(c));
       break;
     }
     case 'ai-title': { const v = str(raw.aiTitle); if (v) facts.aiTitle = v; break; }
