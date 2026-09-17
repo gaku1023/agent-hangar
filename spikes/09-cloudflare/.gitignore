@@ -1,0 +1,4 @@
+worker/node_modules/
+worker/wrangler.jsonc
+worker/url.txt
+worker/deploy.log
