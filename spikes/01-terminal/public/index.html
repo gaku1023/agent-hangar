@@ -1,0 +1,21 @@
+<!-- spikes/01-terminal/public/index.html -->
+<!doctype html><meta charset="utf-8">
+<link rel="stylesheet" href="/xterm/css/xterm.css">
+<style>body{margin:0;display:grid;grid-template-columns:1fr 1fr;height:100vh;background:#111}.t{height:100vh}</style>
+<div class="t" id="a"></div><div class="t" id="b"></div>
+<script src="/xterm/lib/xterm.js"></script><script src="/fit/lib/addon-fit.js"></script>
+<script>
+for (const name of ['a', 'b']) {
+  const el = document.getElementById(name);
+  const term = new Terminal({ fontFamily: 'JetBrains Mono, Menlo, monospace', fontSize: 13 });
+  const fit = new FitAddon.FitAddon(); term.loadAddon(fit);
+  term.open(el); fit.fit();
+  const ws = new WebSocket(`ws://127.0.0.1:4190/pty?session=spike-${name}`);
+  const resize = () => ws.readyState === 1 && ws.send(JSON.stringify({ t: 'resize', cols: term.cols, rows: term.rows }));
+  ws.onopen = resize;
+  ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.t === 'data') term.write(m.d); };
+  term.onData((d) => ws.send(JSON.stringify({ t: 'data', d })));
+  new ResizeObserver(() => { fit.fit(); resize(); }).observe(el);
+  window['term_' + name] = term;
+}
+</script>
