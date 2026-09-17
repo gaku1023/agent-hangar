@@ -27,7 +27,7 @@
 - 実物の Claude セッションを起動して確かめる作業は、サブスクリプションのレート制限を消費するため、この計画全体で 3 回までとし、cwd は `~/.agent-hangar/scratch/` 配下の使い捨てディレクトリにする。
 - UI のコンポーネントは props だけで描く Passive View にし、状態を持たず、`fetch` を呼ばず、他の View を import しない。ターミナルの WebSocket と xterm.js のインスタンスは View ではなく `TerminalHost` が持つ。
 - Mediator と Presenter は DOM に依存しない純関数で、vitest の `node` 環境でテストする。View のテストだけ `jsdom` 環境で行い、xterm.js は `TerminalHost` の偽物で置き換える。
-- 見た目はライト主体で OS 設定に従ってダークも持つ。色は `:root` のトークンで定義し、ダークで再定義する。動きは 150 から 250 ミリ秒に限り、グロー、脈動、タイピング風、シマー、スケルトンは使わない。
+- 見た目は常にライトで、ダークモードは持たない。色は `:root` のトークンで定義する。動きは 150 から 250 ミリ秒に限り、グロー、脈動、タイピング風、シマー、スケルトンは使わない。
 - 日本語の文書とコメントは一文ごとに改行し、地の文でダッシュと中黒を使わない。
 - コミットメッセージは英語の Conventional Commits 形式で、末尾に `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` を付ける。パッケージ管理は npm（pnpm は使わない）。
 - フェーズ 2 ではスクラッチと昇格、TODO とメモ、アーティファクト、使用量、事後要約、分割表示、パレット、同期を実装しない。対応する Intent は Mediator が受けてトースト「この操作は次のフェーズで実装します」を出す。MCP の `get_usage` と `update_project` の TODO とメモの部分は「フェーズ 3 で対応」を返す。
@@ -5319,7 +5319,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
 }
 ```
 
-`packages/ui/src/styles/tokens.css` の `:root` に `--term-bg: #1c1b19; --term-fg: #e8e6e1;` を、ダークの再定義に `--term-bg: #121214; --term-fg: #e8e6e1;` を足す（ターミナルは両テーマで暗い面にする）。
+`packages/ui/src/styles/tokens.css` の `:root` に `--term-bg: #1c1b19; --term-fg: #e8e6e1;` を足す（UI はライトだが、ターミナルは暗い面にする）。
 
 `packages/ui/src/styles/base.css` の末尾に足す。
 

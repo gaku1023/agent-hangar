@@ -18,7 +18,7 @@
 - ディープリンクは `hangar://session/<id>`、`hangar://project/<id>`、`hangar://search?q=<text>` の三形で、ブラウザでは `http://127.0.0.1:4177/#/session/<id>` が同じ画面を開く。
 - ブラウザでも Tauri でも同じ UI が動く。UI はサーバが配信する `packages/ui/dist` で、Tauri のためのコードを UI に足さない。
 - API の `Origin` 制限（`ALLOWED_ORIGINS`）は変えない。
-- 見た目はライト主体で OS の設定に従ってダークも持つ。Tauri 固有の見た目を足さない。
+- 見た目は常にライトで、ダークモードは持たない。Tauri 固有の見た目を足さない。
 - リポジトリは public で MIT。GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` を Releases に置く。家族はそれを落として `hangar setup` を走らせる。
 - Tauri の Info.plist に `NSAppleEventsUsageDescription` を入れる（iTerm2 の AppleScript 用）。
 - 手元でのフルビルド（`tauri build`）は 73 秒かかるので 3 回までとする。`cargo check` と `cargo test` は回数を制限しない。Xcode CLT と Rust は導入済み。
@@ -194,10 +194,11 @@ describe('Info.plist', () => {
 });
 
 describe('読み込み画面', () => {
-  it('status 要素とダーク対応を持つ', () => {
+  it('status 要素を持ち、常にライトで描く', () => {
     const html = read('loading/index.html');
     expect(html).toContain('id="status"');
-    expect(html).toContain('prefers-color-scheme: dark');
+    expect(html).not.toContain('prefers-color-scheme');
+    expect(html).toContain('color-scheme" content="light"');
   });
 });
 ```
@@ -276,11 +277,10 @@ Expected: FAIL（`tauri.conf.json` が無い）
 <html lang="ja">
   <head>
     <meta charset="utf-8" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="light" />
     <title>agent-hangar</title>
     <style>
       :root { --bg: #fbfbfa; --ink: #1c1b19; --ink-2: #5f5c55; --error: #b3261e; }
-      @media (prefers-color-scheme: dark) { :root { --bg: #17171a; --ink: #e8e6e1; --ink-2: #9a978f; --error: #ef7a72; } }
       html, body { height: 100%; margin: 0; }
       body { display: grid; place-items: center; background: var(--bg); color: var(--ink-2); font: 13px/1.5 'Inter Variable', 'Hiragino Sans', sans-serif; -webkit-font-smoothing: antialiased; }
       main { max-width: 560px; padding: 16px; text-align: center; white-space: pre-wrap; }
@@ -1725,7 +1725,7 @@ git commit -m "feat(desktop): spawn bundled server, wait for health, route deep 
 
 ---
 
-### Task 7: 手動確認（ディープリンク、終了、既存サーバの採用、Node 不在、検疫属性、ダーク）
+### Task 7: 手動確認（ディープリンク、終了、既存サーバの採用、Node 不在、検疫属性、常にライト）
 
 **Files:**
 - 変更なし。問題が見つかれば該当タスクのファイルを直し、2 回目のフルビルドで再確認する
@@ -1792,10 +1792,10 @@ Expected: 元に戻る
 Run: `N=apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app/Contents/Resources/server/node_modules/better-sqlite3/build/Release/better_sqlite3.node; xattr -w com.apple.quarantine "0083;00000000;Safari;" "$N"; xattr -l "$N"; open apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app; sleep 4; xattr -l "$N"`
 Expected: 起動前は `com.apple.quarantine` が付いており、起動後は消えている。アプリは通常どおり UI を出す
 
-- [ ] **Step 8: ダークモードと `~/.claude`**
+- [ ] **Step 8: システム設定の外観と `~/.claude`**
 
-Run: システム設定の「外観」をダークに切り替える
-Expected: アプリのウィンドウが再起動なしでダークの配色に変わる。読み込み画面も同様（Step 6 のように失敗表示を出した状態で切り替えると確認できる）
+Run: システム設定の外観をダークにしてもアプリは白のまま
+Expected: 配色が変わらない。読み込み画面も同様（Step 6 のように失敗表示を出した状態で切り替えると確認できる）
 
 Run: `ls -la ~/.claude | head -5`
 Expected: hangar が書いたファイルは無い（サーバは読むだけ）
@@ -2177,7 +2177,7 @@ Task 8 の `tauri dev` と Task 9 の zip の確認はフルビルドに数え�
 - 「ディープリンク」の三形（`session`、`project`、`search?q=`）は Task 4 のテストにあり、変換先は `packages/shared/src/route.ts` の `formatRoute` と一致する。`search` の空白は `+` になるが `parseRoute` の `URLSearchParams` が空白に戻す。
 - 「配布と運用」の public、MIT、型検査とテスト、タグから `.app`、家族の `hangar setup` は Task 9 と Task 10 が担う。リポジトリに `LICENSE` が無いので Task 10 で置く。
 - 「セッション内タブ」の `NSAppleEventsUsageDescription` は Task 1 の Info.plist にあり、Task 6 Step 6 で併合を確かめる。
-- 「見た目と動き」の OS に従うダークは、UI が `prefers-color-scheme` で持つものをそのまま使い、読み込み画面も同じメディアクエリを持つ（Task 1、Task 7 Step 8）。
+- 「見た目と動き」の常にライトは、UI がダークの規則を持たないことで満たし、読み込み画面もダークの規則を持たない（Task 1、Task 7 Step 8）。
 - 未決事項の Gatekeeper は「前提」で決め、Task 10 で設計文書に反映する。
 - 型と名前の一致：`Manifest` の JSON 鍵 `nodeMajor` と `arch` は Task 2 の `manifest.json` と Task 3 の `serde(rename)` で同じ。`HANGAR_UI_DIST` は Task 2 の `server.ts` と `hangar.sh`、Task 6 の `spawn_server` で同じ。`nodePath` は Task 3 の `settings_node_path`、Task 2 の `hangar.sh`、Task 8 の `SettingsDto` で同じ鍵。`server_dir` が見る `server/` は Task 1 の `bundle.resources` の対象と同じで、`_up_/server-dist/` は保険。
 - Rust のテストは Tauri のランタイムに触れない純関数と、`/bin/sh` を使った実プロセスの試験だけで、`cargo test` が macOS の CI で回る（Task 3 の desktop ジョブ）。
