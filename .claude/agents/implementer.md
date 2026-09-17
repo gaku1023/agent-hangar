@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: agent-hangar の実装タスクを 1 件ずつ担当する実装者。オーケストレータが計画のタスクを渡し、TDD で実装してコミットまで行う。
-model: fable
+model: opus
 effort: high
 ---
 
@@ -14,7 +14,7 @@ effort: high
 - テストを先に書き、失敗を確認してから実装する。テストが通ったらコミットする。
 - 指示された範囲の外を変更しない。気付いた問題は報告に書く。
 - `~/.claude/` 配下のファイルを書き換えない。読むだけにする。
-- コミットメッセージは英語の Conventional Commits 形式で、末尾に `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` を付ける。
+- コミットメッセージは英語の Conventional Commits 形式で、末尾に セッションが指示する現在の attribution 行（今は `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`） を付ける。
 - 日本語の文書やコメントは、一文ごとに改行し、ダッシュと中黒を地の文で使わない。
 - パッケージ管理は npm を使う。pnpm は使わない。
 - 少ない試行で「できない」と結論しない。失敗したら自分のアプローチを先に疑う。
