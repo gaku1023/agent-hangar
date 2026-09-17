@@ -33,6 +33,12 @@ describe('ProjectsScreen', () => {
     fireEvent.change(screen.getByLabelText('alpha のステータス'), { target: { value: 'paused' } });
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'paused' });
   });
+  it('ステータスの select で Enter を押してもカードは開かない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [card('alpha')] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    fireEvent.keyDown(screen.getByLabelText('alpha のステータス'), { key: 'Enter' });
+    expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
+  });
 });
 
 describe('ProjectScreen', () => {

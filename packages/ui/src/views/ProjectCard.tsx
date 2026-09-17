@@ -11,7 +11,7 @@ export function ProjectCard(props: ProjectCardProps) {
     <div className="card" role="link" tabIndex={0} onClick={() => emit({ type: 'project.open', id: props.id })} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'project.open', id: props.id }); }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span className="card-title" style={{ flex: 1 }}>{props.name}</span>
-        <select className="select" aria-label={`${props.name} のステータス`} value={props.status} onClick={(e) => e.stopPropagation()} onChange={(e) => emit({ type: 'project.setStatus', id: props.id, status: e.target.value as ProjectStatus })}>
+        <select className="select" aria-label={`${props.name} のステータス`} value={props.status} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => emit({ type: 'project.setStatus', id: props.id, status: e.target.value as ProjectStatus })}>
           {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
