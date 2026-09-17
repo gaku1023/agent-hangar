@@ -156,7 +156,10 @@ export function createApp(deps: AppDeps): Hono {
       return c.html(index());
     });
     app.get('/assets/*', (c) => {
-      const file = path.resolve(dist, decodeURIComponent(c.req.path).replace(/^\//, ''));
+      // 壊れたパーセント符号化は decodeURIComponent が投げるので、そういう要求は素直に 404 にする。
+      let decoded: string;
+      try { decoded = decodeURIComponent(c.req.path); } catch { return c.notFound(); }
+      const file = path.resolve(dist, decoded.replace(/^\//, ''));
       // assets の外へ抜ける経路と存在しないファイルは 404 にする。
       if (!file.startsWith(assets + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return c.notFound();
       c.header('Content-Type', MIME[path.extname(file)] ?? 'application/octet-stream');

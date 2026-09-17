@@ -613,7 +613,8 @@ Haiku でも思考が走り 20〜40 秒かかるため、事後生成は背景�
 ### 認証
 
 サーバは 127.0.0.1 にだけバインドする。
-ブラウザで開いた他のサイトからの要求を拒むため、`Origin` ヘッダを `http://localhost:4177`、`http://127.0.0.1:4177`、`tauri://localhost` に限る。
+ブラウザで開いた他のサイトからの要求を拒むため、`Origin` ヘッダを `http://localhost:4177`、`http://127.0.0.1:4177`、`http://localhost:5173`、`http://127.0.0.1:5173`、`tauri://localhost` に限る。
+5173 の 2 つは、開発時に Vite の代理を通すための許可である。
 API と MCP は、`~/.agent-hangar/token`（権限 0600）に置いたローカルトークンを Bearer で要求する。
 UI は、サーバが index.html を配信するときに `SameSite=Strict` の HttpOnly クッキーとして同じトークンを受け取る。
 MCP クライアントには、`hangar mcp install` と `--mcp-config` がヘッダ付きの設定を書くので、利用者がトークンを扱う場面はない。

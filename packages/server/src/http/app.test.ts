@@ -149,6 +149,9 @@ describe('routes', () => {
       expect((await ui.request('/assets/..%2Findex.html')).status).toBe(404);
       expect((await ui.request('/assets/%2e%2e/index.html')).status).toBe(404);
       expect((await ui.request('/assets/missing.js')).status).toBe(404);
+      // 壊れたパーセント符号化は 500 ではなく 404 にする。
+      expect((await ui.request('/assets/%ZZ')).status).toBe(404);
+      expect((await ui.request('/assets/%E0%A4%A')).status).toBe(404);
     } finally {
       fs.rmSync(dist, { recursive: true, force: true });
     }

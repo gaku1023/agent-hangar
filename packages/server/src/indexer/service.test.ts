@@ -101,6 +101,28 @@ describe('IndexerService', () => {
     expect(svc.progress()).toEqual({ phase: 'idle', done: 4, total: 4 });
   });
 
+  it('読めないままのファイルは、中身が変わるまで一度しか知らせない', async () => {
+    fs.mkdirSync(path.join(dir, 'projects/-y'));
+    const bad = path.join(dir, 'projects/-y', 'dddddddd-0000-4000-8000-000000000001.jsonl');
+    fs.writeFileSync(bad, '{}\n');
+    fs.chmodSync(bad, 0o000);
+    cleanups.push(() => fs.chmodSync(bad, 0o600));
+    const svc = make();
+    const errors: string[] = [];
+    svc.on({ error: (e) => errors.push(e.path) });
+    await svc.fullScan();
+    expect(errors).toEqual([bad]);
+    svc.tick();
+    svc.tick();
+    expect(errors).toEqual([bad]);
+    // 中身が変わったら、もう一度知らせる。
+    fs.chmodSync(bad, 0o600);
+    fs.appendFileSync(bad, '{}\n');
+    fs.chmodSync(bad, 0o000);
+    svc.tick();
+    expect(errors).toEqual([bad, bad]);
+  });
+
   it('start は全走査してから定期 tick で追記を拾い、stop で止まる', async () => {
     const svc = make({ pollMs: 30 });
     cleanups.push(() => svc.stop());

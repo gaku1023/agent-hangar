@@ -36,8 +36,14 @@ export class RegistryWatcher {
   current(): LiveSession[] { return this.last; }
   onChange(cb: (live: LiveSession[]) => void): () => void { this.listeners.add(cb); return () => this.listeners.delete(cb); }
 
+  /**
+   * 登録ディレクトリを読み直し、変わっていたら知らせる。
+   * 読み取りが失敗しても投げない。setInterval の中なので、投げるとプロセスごと落ちる。
+   * 次の周期でやり直せばよい。
+   */
   private poll(notify: boolean): void {
-    const live = readRegistry(this.claudeDir);
+    let live: LiveSession[];
+    try { live = readRegistry(this.claudeDir); } catch { return; }
     const key = JSON.stringify(live);
     if (key === this.lastKey) return;
     this.last = live; this.lastKey = key;

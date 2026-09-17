@@ -31,6 +31,16 @@ const HISTORY_DEBOUNCE_MS = 1000;
 
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+/** ファイルの大きさと更新時刻。読めなければ固定の印を返す。 */
+function fileStamp(filePath: string): string {
+  try {
+    const st = fs.statSync(filePath);
+    return `${st.size}:${Math.floor(st.mtimeMs)}`;
+  } catch {
+    return 'unknown';
+  }
+}
+
 /**
  * transcript の全走査と監視を受け持つ。
  * ~/.claude 配下は fs.watch と読み取りだけで触り、書き込みは一切しない。
@@ -44,6 +54,8 @@ export class IndexerService {
   private debounceTimer: NodeJS.Timeout | null = null;
   private historyTimer: NodeJS.Timeout | null = null;
   private scanning = false;
+  /** 失敗を知らせたファイルと、そのときの大きさと更新時刻。同じ失敗を毎周期くり返さないために持つ。 */
+  private reportedErrors = new Map<string, string>();
 
   constructor(private readonly opts: IndexerServiceOptions) {}
 
@@ -67,6 +79,7 @@ export class IndexerService {
   private indexOne(file: DiscoveredFile, history: Map<string, HistoryEntry>): boolean {
     try {
       const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, cwdFallback: history.get(file.sessionId)?.cwd });
+      this.reportedErrors.delete(file.path);
       if (!r.changed) return false;
       if (file.agentId === null || r.appended > 0) {
         writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(file.sessionId));
@@ -80,7 +93,12 @@ export class IndexerService {
       } catch {
         // まだ行が無いか DB 側の失敗なので、通知だけに留める。
       }
-      this.emitError(file.path, message);
+      // 読めないファイルは 2 秒ごとに同じ失敗を出し続けるので、大きさか更新時刻が変わるまで黙る。
+      const stamp = fileStamp(file.path);
+      if (this.reportedErrors.get(file.path) !== stamp) {
+        this.reportedErrors.set(file.path, stamp);
+        this.emitError(file.path, message);
+      }
       return false;
     }
   }

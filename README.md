@@ -12,12 +12,13 @@ Claude Code のセッションをプロジェクト単位で束ね、起動、�
 
 ```sh
 npm install
-npx hangar setup            # ~/.agent-hangar を作り、tmux と claude と code の有無を報告する
+npm run hangar -- setup     # ~/.agent-hangar を作り、tmux と claude と code の有無を報告する
 npm run dev                 # サーバ（4177）と UI の開発サーバ（5173）を起動する
 ```
 
 開発時はブラウザで `http://127.0.0.1:5173/` を開きます。
-本番ビルドは `npm run build` の後に `npx hangar start` で、`http://127.0.0.1:4177/` から UI を配信します。
+本番ビルドは `npm run build` の後に `npm run hangar -- start` で、`http://127.0.0.1:4177/` から UI を配信します。
+npm には無関係の `hangar` という別のパッケージがあるので、`npx hangar` は使いません。
 
 hangar は `~/.claude/` を読むだけで、書き換えません。
 索引は `~/.agent-hangar/hangar.db` に置きます。

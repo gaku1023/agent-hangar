@@ -20,6 +20,27 @@ describe('RegistryWatcher', () => {
   beforeEach(() => { dir = copyFixtureClaudeDir(); vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); fs.rmSync(dir, { recursive: true, force: true }); });
 
+  it('読めないディレクトリでも落ちず、読めるようになったら通知する', () => {
+    const sessions = path.join(dir, 'sessions');
+    fs.rmSync(path.join(sessions, '12345.json'));
+    fs.chmodSync(sessions, 0o000);
+    const w = new RegistryWatcher(dir, 500);
+    const seen: unknown[] = [];
+    w.onChange((l) => seen.push(l));
+    try {
+      expect(() => w.start()).not.toThrow();
+      expect(() => vi.advanceTimersByTime(1500)).not.toThrow();
+      expect(seen).toHaveLength(0);
+      fs.chmodSync(sessions, 0o700);
+      fs.writeFileSync(path.join(sessions, '99.json'), JSON.stringify({ pid: 99, sessionId: SESSION_ALPHA, cwd: '/x', status: 'idle' }));
+      vi.advanceTimersByTime(500);
+      expect(seen).toHaveLength(1);
+    } finally {
+      fs.chmodSync(sessions, 0o700);
+      w.stop();
+    }
+  });
+
   it('変化したときだけ通知する', () => {
     const w = new RegistryWatcher(dir, 500);
     const seen: unknown[] = [];

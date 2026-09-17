@@ -104,6 +104,23 @@ describe('startServer', () => {
     }
   });
 
+  it('/ws 以外への upgrade 要求は握らずに切る', async () => {
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const sock = net.connect(s.port, '127.0.0.1');
+      await new Promise<void>((r) => sock.once('connect', r));
+      sock.write('GET /nope HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n');
+      const closed = await Promise.race([
+        new Promise<string>((r) => sock.once('close', () => r('closed'))),
+        new Promise<string>((r) => setTimeout(() => r('hanging'), 2000)),
+      ]);
+      expect(closed).toBe('closed');
+      sock.destroy();
+    } finally {
+      await s.close();
+    }
+  }, 20000);
+
   it('起動後に現れたセッションにもプロジェクトを紐づけて配信する', async () => {
     const dir = path.join(ws, 'alpha');
     fs.mkdirSync(dir);
