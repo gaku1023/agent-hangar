@@ -70,9 +70,33 @@ describe('オーバーレイ', () => {
     const c = run([intent({ type: 'overlay.close' })], b.state);
     expect(c.state.overlay).toEqual({ kind: 'none' });
   });
+  it('カードからの project.resolve.open でもダイアログを開き、開いていればキューに積む', () => {
+    const a = run([intent({ type: 'project.resolve.open', id: 'p1' })]);
+    expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(a.effects).toEqual([]);
+    const b = run([intent({ type: 'project.resolve.open', id: 'p2' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.unresolvedQueue).toEqual(['p2']);
+    const c = run([intent({ type: 'project.resolve.open', id: 'p1' })], b.state);
+    expect(c.state.unresolvedQueue).toEqual(['p2']);
+  });
   it('同じプロジェクトの重複通知は積まない', () => {
     const { state } = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p1' })]);
     expect(state.unresolvedQueue).toEqual([]);
+  });
+});
+
+describe('索引の進み', () => {
+  it('走査が終わった瞬間に bootstrap を取り直す', () => {
+    const a = run([server({ type: 'index.progress', progress: { phase: 'scanning', done: 0, total: 0 } })]);
+    expect(a.effects).toEqual([]);
+    const b = run([server({ type: 'index.progress', progress: { phase: 'indexing', done: 1, total: 3 } })], a.state);
+    expect(b.effects).toEqual([]);
+    const c = run([server({ type: 'index.progress', progress: { phase: 'idle', done: 3, total: 3 } })], b.state);
+    expect(c.effects).toEqual([{ kind: 'api.bootstrap' }]);
+    // 同じ idle が続いても取り直さない。
+    const d = run([server({ type: 'index.progress', progress: { phase: 'idle', done: 3, total: 3 } })], c.state);
+    expect(d.effects).toEqual([]);
   });
 });
 

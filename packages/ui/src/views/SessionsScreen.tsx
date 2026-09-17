@@ -1,5 +1,6 @@
 import { useEmit } from '../intent/chain.tsx';
 import type { SessionsProps } from '../presenters/sessions.ts';
+import { isComposing } from './ime.ts';
 import { SessionRows } from './SessionRows.tsx';
 
 const DAY = 86_400_000;
@@ -13,7 +14,7 @@ export function SessionsScreen(props: SessionsProps) {
   return (
     <div className="screen">
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-        <input className="input" style={{ flex: 1 }} aria-label="キーワード" placeholder="キーワード（空なら全件）" defaultValue={props.text} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'search.query', text: (e.target as HTMLInputElement).value }); }} />
+        <input className="input" style={{ flex: 1 }} aria-label="キーワード" placeholder="キーワード（空なら全件）" defaultValue={props.text} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.query', text: (e.target as HTMLInputElement).value }); }} />
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
         <select className="select" aria-label="プロジェクト" value={props.filter.projectId ?? ''} onChange={(e) => emit({ type: 'search.filter', patch: { projectId: e.target.value || undefined } })}>
@@ -25,7 +26,7 @@ export function SessionsScreen(props: SessionsProps) {
         <select className="select" aria-label="実行中" value={props.filter.running === undefined ? '' : props.filter.running ? 'running' : 'ended'} onChange={(e) => emit({ type: 'search.filter', patch: { running: e.target.value === '' ? undefined : e.target.value === 'running' } })}>
           <option value="">実行中と終了</option><option value="running">実行中</option><option value="ended">終了</option>
         </select>
-        <input className="input" aria-label="ファイル" placeholder="触ったファイル" defaultValue={props.filter.file ?? ''} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'search.filter', patch: { file: (e.target as HTMLInputElement).value || undefined } }); }} />
+        <input className="input" aria-label="ファイル" placeholder="触ったファイル" defaultValue={props.filter.file ?? ''} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.filter', patch: { file: (e.target as HTMLInputElement).value || undefined } }); }} />
         <span className="spacer" />
         <span className="faint mono">{props.loading ? '検索しています' : `${props.total} 件`}</span>
       </div>

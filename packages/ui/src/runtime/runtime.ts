@@ -44,7 +44,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       }
       case 'api.bootstrap':
-        deps.api.bootstrap().then((b) => { setStore(applyBootstrap(store, b)); dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } }); }).catch(fail);
+        deps.api.bootstrap().then((b) => {
+          setStore(applyBootstrap(store, b));
+          // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
+          for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
+          dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
+        }).catch(fail);
         return;
       case 'api.loadEvents': {
         const view = state.sessionView[e.sessionId] ?? defaultSessionView();

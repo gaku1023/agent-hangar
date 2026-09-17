@@ -1,4 +1,4 @@
-import type { Intent, ProjectStatus, ResolveAction, Route, SearchFilter, SearchParamsDto, ServerEvent, SettingsDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, Intent, ProjectStatus, ResolveAction, Route, SearchFilter, SearchParamsDto, ServerEvent, SettingsDto } from '@agent-hangar/shared';
 
 export type RuntimeEvent =
   | { type: 'ws.open' } | { type: 'ws.close' } | { type: 'hash.changed'; route: Route }
@@ -31,6 +31,8 @@ export type State = {
   screen: Screen; overlay: Overlay; connection: 'connecting' | 'connected' | 'disconnected'; reconnectAttempt: number;
   sessionView: Record<string, SessionViewState>; search: { text: string; filter: SearchFilter };
   toasts: Toast[]; unresolvedQueue: string[]; nextToastId: number;
+  /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
+  indexPhase: IndexProgressDto['phase'];
 };
 export type Step = { state: State; effects: Effect[] };
 export const NOT_YET = 'この操作は次のフェーズで実装します';

@@ -4,6 +4,7 @@ import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 import { SessionRows } from './SessionRows.tsx';
+import { Header } from './Header.tsx';
 import { SessionsScreen } from './SessionsScreen.tsx';
 import { SettingsScreen } from './SettingsScreen.tsx';
 import { ToastStack } from './ToastStack.tsx';
@@ -20,6 +21,22 @@ describe('SessionsScreen', () => {
     fireEvent.change(kw, { target: { value: 'x y' } });
     fireEvent.keyDown(kw, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: 'x y' });
+  });
+  it('日本語入力の確定の Enter では検索しない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    const kw = screen.getByLabelText('キーワード');
+    fireEvent.change(kw, { target: { value: '動画' } });
+    fireEvent.keyDown(kw, { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(kw, { key: 'Enter', keyCode: 229 });
+    expect(onIntent).not.toHaveBeenCalled();
+    fireEvent.keyDown(kw, { key: 'Enter' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '動画' });
+    const file = screen.getByLabelText('ファイル');
+    fireEvent.change(file, { target: { value: 'a.md' } });
+    onIntent.mockClear();
+    fireEvent.keyDown(file, { key: 'Enter', isComposing: true });
+    expect(onIntent).not.toHaveBeenCalled();
   });
   it('期間は since を now から N 日前にする', () => {
     const onIntent = vi.fn();
@@ -63,6 +80,19 @@ describe('SettingsScreen', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'index.rebuild' });
     expect(screen.getByText('mac')).toBeInTheDocument();
     expect(screen.getByText(/再起動後に反映されます/)).toBeInTheDocument();
+  });
+});
+
+describe('Header', () => {
+  it('日本語入力の確定の Enter では検索しない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} /></IntentRoot>);
+    const box = screen.getByRole('searchbox');
+    fireEvent.change(box, { target: { value: '動画' } });
+    fireEvent.keyDown(box, { key: 'Enter', isComposing: true });
+    expect(onIntent).not.toHaveBeenCalled();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '動画' });
   });
 });
 

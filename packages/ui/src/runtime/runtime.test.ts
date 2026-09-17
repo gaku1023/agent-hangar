@@ -59,6 +59,16 @@ describe('createRuntime', () => {
     expect(api.events).toHaveBeenLastCalledWith('s1', 1, null);
     expect(rt.getStore().events['s1:']?.items.map((e) => e.seq)).toEqual([0, 1]);
   });
+  it('bootstrap に未解決のプロジェクトがあればダイアログを開く', async () => {
+    const project = { id: 'p1', name: 'alpha', status: 'active' as const, isScratch: false, path: '/w/alpha', resolved: false, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0 };
+    const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [project, { ...project, id: 'p2', path: null, resolved: false }, { ...project, id: 'p3', resolved: true }] })) });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    // パスを持たないプロジェクトは指し直しようがないので出さない。
+    expect(rt.getState().overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(rt.getState().unresolvedQueue).toEqual([]);
+  });
   it('API の失敗はトーストになる', async () => {
     const { rt } = harness();
     rt.start();

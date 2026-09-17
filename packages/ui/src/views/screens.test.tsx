@@ -41,6 +41,16 @@ describe('ProjectsScreen', () => {
   });
 });
 
+describe('ProjectCard（見つからないとき）', () => {
+  it('「（見つかりません）」は押せて、カードは開かない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), resolved: false }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    fireEvent.click(screen.getByText('（見つかりません）'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
+    expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
+  });
+});
+
 describe('ProjectScreen', () => {
   it('見つからないときの表示と、操作ボタンの Intent', () => {
     const onIntent = vi.fn();

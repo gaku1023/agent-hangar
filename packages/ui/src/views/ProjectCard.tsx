@@ -15,7 +15,12 @@ export function ProjectCard(props: ProjectCardProps) {
           {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
-      <div className="mono faint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props.path ?? 'この端末にパスがありません'}{!props.resolved && props.path ? '（見つかりません）' : ''}</div>
+      <div className="mono faint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {props.path ?? 'この端末にパスがありません'}
+        {!props.resolved && props.path && (
+          <button className="btn" style={{ marginLeft: 8 }} onClick={(e) => { e.stopPropagation(); emit({ type: 'project.resolve.open', id: props.id }); }} onKeyDown={(e) => e.stopPropagation()}>（見つかりません）</button>
+        )}
+      </div>
       <div className="muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props.lastOneLiner ?? 'セッションはまだありません'}</div>
       <div className="faint" style={{ display: 'flex', gap: 12 }}>
         <span>{props.lastActivity}</span>

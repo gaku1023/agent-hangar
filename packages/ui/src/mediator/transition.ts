@@ -8,7 +8,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, sessionView: {}, search: { text: '', filter: {} }, toasts: [], unresolvedQueue: [], nextToastId: 1 };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, sessionView: {}, search: { text: '', filter: {} }, toasts: [], unresolvedQueue: [], nextToastId: 1, indexPhase: 'idle' };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -25,6 +25,13 @@ export function transition(state: State, input: Input): Step {
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message), effects: [] };
+    if (input.event.type === 'index.progress') {
+      // 走査中に開いた UI は、そのときの bootstrap にプロジェクトも紐づけも載っていない。
+      // 走査が終わった瞬間に取り直す。
+      const phase = input.event.progress.phase;
+      const done = phase === 'idle' && state.indexPhase !== 'idle';
+      return { state: { ...state, indexPhase: phase }, effects: done ? [{ kind: 'api.bootstrap' }] : [] };
+    }
     return { state, effects: [] };
   }
   if (input.kind === 'runtime') {
