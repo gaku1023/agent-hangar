@@ -90,6 +90,11 @@ describe('セッション表示の一時状態', () => {
   it('loadMore は次のページを要求する', () => {
     expect(run([intent({ type: 'transcript.loadMore', sessionId: 's1' })]).effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: -1 }]);
   });
+  it('サブエージェントの切替は agentId を保存して先頭から読み直す', () => {
+    const { state, effects } = run([intent({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' })]);
+    expect(state.sessionView.s1?.agentId).toBe('abc');
+    expect(effects[1]).toEqual({ kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0 });
+  });
 });
 
 describe('その他', () => {

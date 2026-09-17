@@ -25,6 +25,10 @@ export function sessionViewStep(state: State, input: Input): Step | null {
     case 'transcript.follow': return patch(state, i.sessionId, { follow: i.follow });
     case 'summary.toggle': return patch(state, i.sessionId, { summaryOpen: !(state.sessionView[i.sessionId] ?? defaultSessionView()).summaryOpen });
     case 'transcript.loadMore': return { state, effects: [{ kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: -1 }] };
+    case 'transcript.selectAgent': {
+      const r = patch(state, i.sessionId, { agentId: i.agentId });
+      return { state: r.state, effects: [...r.effects, { kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: 0 }] };
+    }
     default: return null;
   }
 }
