@@ -3,6 +3,9 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { ServerEvent } from '@agent-hangar/shared';
 import { originAllowed, tokenFromRequest } from '../http/auth.ts';
 
+/** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切る。 */
+const CLOSE_GRACE_MS = 500;
+
 /** UI へのイベント配信。接続時に ready を送り、以後は broadcast を全員に流す。 */
 export class EventHub {
   private wss: WebSocketServer | null = null;
@@ -38,10 +41,25 @@ export class EventHub {
 
   clientCount(): number { return this.clients.size; }
 
-  close(): void {
-    for (const c of this.clients) c.close();
+  /**
+   * 全員に close フレームを送り、閉じ終わるのを待つ。
+   * 応えない相手は CLOSE_GRACE_MS で terminate するので、止まったタブが終了を妨げない。
+   */
+  close(): Promise<void> {
+    const clients = [...this.clients];
     this.clients.clear();
     this.wss?.close();
     this.wss = null;
+    return new Promise<void>((resolve) => {
+      let pending = clients.length;
+      if (pending === 0) { resolve(); return; }
+      const done = () => { if (--pending === 0) { clearTimeout(timer); resolve(); } };
+      const timer = setTimeout(() => { for (const c of clients) if (c.readyState !== c.CLOSED) c.terminate(); }, CLOSE_GRACE_MS);
+      for (const c of clients) {
+        if (c.readyState === c.CLOSED) { done(); continue; }
+        c.once('close', done);
+        c.close(1001, 'server shutting down');
+      }
+    });
   }
 }

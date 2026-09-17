@@ -6,6 +6,8 @@ startServer({ port }).then((s) => {
   const stop = () => {
     if (stopping) return;
     stopping = true;
+    // 接続の後始末が終わらなくても 3 秒で終了する。
+    setTimeout(() => process.exit(0), 3000).unref();
     s.close().finally(() => process.exit(0));
   };
   process.on('SIGINT', stop);
