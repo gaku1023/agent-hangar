@@ -13,6 +13,7 @@ import { claudeCodeProvider } from '../provider/claude-code/index.ts';
 import type { LaunchInput } from '../provider/types.ts';
 import type { Tmux } from '../tmux/tmux.ts';
 import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
+import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
 const HEARTBEAT_MS = 30_000;
@@ -65,12 +66,15 @@ export class RunManager {
 
   /**
    * 外部コマンドの失敗を応答に載せる前に整える。
-   * claude の argv には --mcp-config の中にトークンが入るので、混ざり込む余地を消しておく。
+   * claude の起動の周りにはトークンとセッション別の秘密が居るので、混ざり込む余地を消しておく。
+   * どちらも 64 桁の 16 進なので、名指しの置換に加えてその形をまとめて覆う。
+   * セッション uuid は 36 桁で、git の SHA は 40 桁なので、この形に当たるのは鍵だけである。
    * 併せて 1 行に切り詰める。UI はこれをそのままトーストに出す。
    */
   private safeError(e: unknown): string {
     const line = (e instanceof Error ? e.message : String(e)).split('\n')[0]!.trim();
-    const masked = this.deps.token ? line.replaceAll(this.deps.token, '***') : line;
+    const named = this.deps.token ? line.replaceAll(this.deps.token, '***') : line;
+    const masked = named.replace(/\b[0-9a-f]{64}\b/g, '***');
     return masked.length > MAX_ERROR_LEN ? `${masked.slice(0, MAX_ERROR_LEN)}…` : masked;
   }
 
@@ -128,8 +132,10 @@ export class RunManager {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
     return {
       systemPrompt: this.injectionFor(projectId, cwd),
-      // トークンを argv に載せないため、MCP の設定は 0600 のファイルに置き、パスだけを claude に渡す。
-      mcpConfigPath: writeMcpConfig(this.deps.home, sessionId, this.mcpUrl(sessionId), this.deps.token),
+      // claude に渡すのは本体のトークンではなく、この run 専用の秘密である。
+      // 本体のトークンを渡すと、claude は自分の設定ファイルを読んで共通の /mcp と /api に回れる。
+      // 秘密を argv に載せないため、MCP の設定は 0600 のファイルに置き、パスだけを claude に渡す。
+      mcpConfigPath: writeMcpConfig(this.deps.home, sessionId, this.mcpUrl(sessionId), issueMcpSecret(this.db, sessionId, this.now())),
       name: s(params.name),
       prompt: s(params.prompt),
       model: s(params.model),
@@ -169,7 +175,7 @@ export class RunManager {
     } catch (e) {
       console.error('[runs] ログの掃除に失敗しました', e instanceof Error ? e.message : e);
     }
-    // 異常終了などで消し損ねた MCP の設定を、ここで拾う。中にトークンが入っているので残さない。
+    // 異常終了などで消し損ねた MCP の設定と秘密を、ここで拾う。中に鍵が入っているので残さない。
     this.pruneMcpConfigs(alive.map((r) => r.sessionId));
     const result: LaunchResult = { run: getRun(this.db, runId)!, sessionId: o.sessionId, tabs: listTabs(this.db, runId) };
     this.emit('runStarted', result);
@@ -182,8 +188,9 @@ export class RunManager {
     if (!row || row.ended_at !== null) return null;
     upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
     const run = getRun(this.db, runId)!;
-    // claude はもう居ない。トークンの入った設定ファイルを残さない。
+    // claude はもう居ない。秘密の入った設定ファイルを残さず、秘密そのものも無効にする。
     removeMcpConfig(this.deps.home, run.sessionId);
+    revokeMcpSecret(this.db, run.sessionId);
     this.pruneEmptySession(run);
     this.emit('runEnded', run);
     return run;
@@ -337,17 +344,23 @@ export class RunManager {
         if (e) out.push(e);
       }
     }
-    // 前回サーバが落ちた拍子に残った設定も、ここで落とす。
+    // 前回サーバが落ちた拍子に残った設定と秘密も、ここで落とす。
+    // tmux の上で生き残った run の分は残る。その claude は再起動後も同じ秘密で繋ぎに来る。
     this.pruneMcpConfigs(listAliveRuns(this.db, this.deviceId).map((r) => r.sessionId));
     return out;
   }
 
-  /** 生きている run のもの以外の MCP 設定を落とす。掃除の失敗で起動を止めない。 */
+  /** 生きている run のもの以外の MCP 設定と秘密を落とす。掃除の失敗で起動を止めない。 */
   private pruneMcpConfigs(aliveSessionIds: string[]): void {
     try {
       pruneMcpConfigs(this.deps.home, aliveSessionIds);
     } catch (e) {
       console.error('[runs] MCP 設定の掃除に失敗しました', e instanceof Error ? e.message : e);
+    }
+    try {
+      pruneMcpSecrets(this.db, aliveSessionIds);
+    } catch (e) {
+      console.error('[runs] MCP の秘密の掃除に失敗しました', e instanceof Error ? e.message : e);
     }
   }
 
