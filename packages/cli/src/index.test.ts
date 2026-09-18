@@ -102,6 +102,25 @@ describe('hangar setup', () => {
   });
 });
 
+describe('hangar cloud', () => {
+  it('未参加の端末では、status は未設定と言い、teardown は断る', async () => {
+    const s = await runCli(['cloud', 'status']);
+    expect(s.code).toBe(0);
+    expect(s.out).toContain('未設定');
+
+    const t = await runCli(['cloud', 'teardown']);
+    expect(t.code).not.toBe(0);
+    expect(t.out).toContain('クラウド同期は未設定です');
+  });
+
+  it('join は標準入力が対話でなければ、トークンを読む前に断る', async () => {
+    // 子プロセスの標準入力はパイプなので、確認を取れない。秘密を受け取る前に止まる。
+    const r = await runCli(['join']);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain('--force');
+  });
+});
+
 describe('hangar url', () => {
   it('鍵付きの URL を印字するだけで、ブラウザは開かない', async () => {
     const port = await listenHealth();

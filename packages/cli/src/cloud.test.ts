@@ -2,10 +2,12 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadCloudConfig } from '@agent-hangar/server';
-import { decodeJoinToken } from '@agent-hangar/shared';
-import { joinWorker, ROTATE_WORD, runSetupCloud, waitForHealth } from './cloud.ts';
+import { loadCloudConfig, saveCloudConfig, type CloudConfig } from '@agent-hangar/server';
+import { deriveFileKey, encryptBuffer } from '@agent-hangar/server/src/sync/crypto.ts';
+import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
+import { cloudStatus, joinWorker, OVERWRITE_WORD, rescueTargetPath, ROTATE_WORD, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
 
@@ -296,5 +298,363 @@ describe('joinWorker', () => {
     const slept: number[] = [];
     await expect(joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retries: 2 })).rejects.toThrow(/503/);
     expect(slept).toHaveLength(2);
+  });
+});
+
+// ---- Task 12: hangar join、hangar cloud status、hangar cloud teardown ----
+
+const conf = (over: Partial<CloudConfig> = {}): CloudConfig => ({
+  url: 'https://h',
+  joinSecret: 'join-secret-0000',
+  deviceToken: 'dt',
+  workerName: null,
+  accountId: null,
+  dbName: null,
+  bucketName: null,
+  joinedAt: 1,
+  ...over,
+});
+
+/** 確認の記録を取る偽物。答えは呼ばれた順に返す。 */
+function fakeConfirm(answers: boolean[]) {
+  const asked: { question: string; word: string }[] = [];
+  return {
+    asked,
+    fn: async (question: string, word: string): Promise<boolean> => {
+      asked.push({ question, word });
+      return answers.shift() ?? false;
+    },
+  };
+}
+
+describe('runJoin', () => {
+  it('宛先を見せて確認してから参加し、cloud.json を書く', async () => {
+    const { home } = dirs();
+    const token = encodeJoinToken({ url: 'https://h.workers.dev/', secret: 'sec' });
+    let bodySeen: unknown = null;
+    let authSeen: string | null = 'なし';
+    const f = (async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe('https://h.workers.dev/join');
+      bodySeen = JSON.parse(init!.body as string);
+      authSeen = (init!.headers as Record<string, string>).authorization ?? null;
+      return new Response(JSON.stringify({ deviceToken: 'dt', deviceId: device.id }), { status: 201 });
+    }) as typeof fetch;
+    const c = fakeConfirm([true]);
+    const lines: string[] = [];
+    const got = await runJoin({ home, token, device, fetch: f, sleep: async () => {}, confirm: c.fn, log: (l) => lines.push(l) });
+
+    expect(bodySeen).toEqual({ secret: 'sec', device });
+    // 参加の前は端末トークンをまだ持っていない。Authorization は付けない。
+    expect(authSeen).toBeNull();
+    expect(got).toMatchObject({ url: 'https://h.workers.dev', joinSecret: 'sec', deviceToken: 'dt', workerName: null, accountId: null, dbName: null, bucketName: null });
+    expect(loadCloudConfig(home)).toEqual(got);
+    expect(fs.statSync(path.join(home, 'cloud.json')).mode & 0o777).toBe(0o600);
+
+    // 「どこに繋ごうとしているか」を人に見せてから聞く。
+    const out = lines.join('\n');
+    expect(out).toContain('h.workers.dev');
+    expect(out).toContain('全セッション');
+    expect(c.asked).toHaveLength(1);
+    expect(c.asked[0]!.question).toContain('参加');
+  });
+
+  it('宛先の確認を断れば、参加もせず cloud.json も書かない', async () => {
+    const { home } = dirs();
+    let called = 0;
+    const f = (async () => { called++; return new Response('', { status: 201 }); }) as typeof fetch;
+    const c = fakeConfirm([false]);
+    await expect(
+      runJoin({ home, token: encodeJoinToken({ url: 'https://h', secret: 'sec' }), device, fetch: f, sleep: async () => {}, confirm: c.fn, log: () => {} }),
+    ).rejects.toThrow(/取りやめ/);
+    expect(called).toBe(0);
+    expect(loadCloudConfig(home)).toBeNull();
+  });
+
+  it('秘密が違えば、待たずにわかる文言で失敗する', async () => {
+    const { home } = dirs();
+    const f = (async () => new Response('forbidden', { status: 403 })) as typeof fetch;
+    const slept: number[] = [];
+    await expect(
+      runJoin({ home, token: encodeJoinToken({ url: 'https://h', secret: 'x' }), device, fetch: f, sleep: async (ms) => { slept.push(ms); }, confirm: async () => true, log: () => {} }),
+    ).rejects.toThrow('参加用の秘密が違います');
+    // 貼り間違えたトークンで 30 秒待たせない。
+    expect(slept).toHaveLength(0);
+    expect(loadCloudConfig(home)).toBeNull();
+  });
+
+  it('別のクラウドへの参加し直しは、復号できなくなることを伝えて合言葉で確認する', async () => {
+    const { home } = dirs();
+    const before = conf({ url: 'https://old.workers.dev', joinSecret: 'old-secret' });
+    saveCloudConfig(home, before);
+    let called = 0;
+    const f = (async () => { called++; return new Response('', { status: 201 }); }) as typeof fetch;
+    const c = fakeConfirm([true, false]);
+    const lines: string[] = [];
+    await expect(
+      runJoin({ home, token: encodeJoinToken({ url: 'https://new.workers.dev', secret: 'sec' }), device, fetch: f, sleep: async () => {}, confirm: c.fn, log: (l) => lines.push(l) }),
+    ).rejects.toThrow(/取りやめ/);
+    expect(c.asked).toHaveLength(2);
+    expect(c.asked[1]!.word).toBe(OVERWRITE_WORD);
+    const out = lines.join('\n');
+    expect(out).toContain('復号できなくなります');
+    expect(out).toContain('https://old.workers.dev');
+    expect(out).toContain('https://new.workers.dev');
+    // 断った後は 1 バイトも変えない。
+    expect(called).toBe(0);
+    expect(loadCloudConfig(home)).toEqual(before);
+  });
+
+  it('宛先が同じでも参加用の秘密が違えば、合言葉で確認する', async () => {
+    const { home } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://h.workers.dev', joinSecret: 'old-secret' }));
+    const f = (async () => new Response(JSON.stringify({ deviceToken: 'dt2', deviceId: device.id }), { status: 201 })) as typeof fetch;
+    const c = fakeConfirm([true, true]);
+    const lines: string[] = [];
+    await runJoin({ home, token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'new-secret' }), device, fetch: f, sleep: async () => {}, confirm: c.fn, log: (l) => lines.push(l) });
+    expect(c.asked.map((a) => a.word)).toEqual(['y', OVERWRITE_WORD]);
+    expect(lines.join('\n')).toContain('参加用の秘密が違います');
+    expect(loadCloudConfig(home)!.joinSecret).toBe('new-secret');
+  });
+
+  it('cloud.json が壊れていたら、参加し直さずに止める', async () => {
+    const { home } = dirs();
+    const file = path.join(home, 'cloud.json');
+    fs.writeFileSync(file, '{ こわれている');
+    let called = 0;
+    const f = (async () => { called++; return new Response('', { status: 201 }); }) as typeof fetch;
+    await expect(
+      runJoin({ home, token: encodeJoinToken({ url: 'https://h', secret: 'sec' }), device, fetch: f, sleep: async () => {}, confirm: async () => true, log: () => {} }),
+    ).rejects.toThrow(/cloud\.json/);
+    expect(called).toBe(0);
+    expect(fs.readFileSync(file, 'utf8')).toBe('{ こわれている');
+  });
+
+  it('--force は確認を省く', async () => {
+    const { home } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://old.workers.dev' }));
+    const f = (async () => new Response(JSON.stringify({ deviceToken: 'dt2', deviceId: device.id }), { status: 201 })) as typeof fetch;
+    const got = await runJoin({
+      home,
+      token: encodeJoinToken({ url: 'https://new.workers.dev', secret: 'sec' }),
+      device,
+      fetch: f,
+      sleep: async () => {},
+      force: true,
+      confirm: async () => { throw new Error('確認を聞いてはいけない'); },
+      log: () => {},
+    });
+    expect(got.url).toBe('https://new.workers.dev');
+    expect(loadCloudConfig(home)!.deviceToken).toBe('dt2');
+  });
+});
+
+describe('cloudStatus', () => {
+  it('未設定、Worker の応答、サーバの状態を並べる', async () => {
+    const { home } = dirs();
+    const dead = (async () => new Response('', { status: 500 })) as typeof fetch;
+    expect(await cloudStatus({ home, fetch: dead })).toContain('未設定');
+
+    saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't', workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' }));
+    fs.writeFileSync(path.join(home, 'token'), 'local-token');
+    let authOk = false;
+    const f = (async (input: string | URL | Request, init?: RequestInit) => {
+      const u = String(input);
+      if (u === 'https://h/health') return new Response(JSON.stringify({ ok: true, version: '0.4.0' }), { status: 200 });
+      if (u.endsWith('/api/sync/status')) {
+        authOk = (init!.headers as Record<string, string>).authorization === 'Bearer local-token';
+        return new Response(
+          JSON.stringify({ state: 'idle', pending: 2, lastPullAt: 1000, lastPushAt: 1000, deviceCount: 2, url: 'https://h', error: null, claudeConfig: { enabled: false, confirmed: false } }),
+          { status: 200 },
+        );
+      }
+      throw new Error('down');
+    }) as typeof fetch;
+    const out = await cloudStatus({ home, fetch: f, now: () => 61_000 });
+    expect(authOk).toBe(true);
+    expect(out).toContain('Worker: https://h（ok, 0.4.0）');
+    expect(out).toContain('同期: idle');
+    expect(out).toContain('未送信 2 件');
+    expect(out).toContain('端末 2 台');
+    expect(out).toContain('1 分前');
+    // アカウント ID は画面に出さない。どこにあるかだけ伝える。
+    expect(out).not.toContain('a'.repeat(32));
+    expect(out).toContain('cloud.json');
+
+    const down = await cloudStatus({
+      home,
+      fetch: (async (input: string | URL | Request) => {
+        if (String(input) === 'https://h/health') return new Response('{"ok":true,"version":"x"}', { status: 200 });
+        throw new TypeError('ECONNREFUSED');
+      }) as typeof fetch,
+    });
+    expect(down).toContain('サーバは停止中');
+  });
+
+  it('壊れている cloud.json を「未設定」と言わない', async () => {
+    const { home } = dirs();
+    fs.writeFileSync(path.join(home, 'cloud.json'), '{ こわれている');
+    const out = await cloudStatus({ home, fetch: (async () => { throw new Error('呼んではいけない'); }) as typeof fetch });
+    expect(out).not.toContain('未設定');
+    expect(out).toContain('cloud.json');
+    expect(out).toContain('復号できなくなります');
+  });
+});
+
+const MTIME = 1_700_000_000_000;
+
+/** R2 に置かれている本文 1 件分（一覧の項目と、暗号化して gzip した実体）。 */
+async function fileFixture(o: { secret: string; deviceId: string; uuid: string; text: string; seq: number }): Promise<{ entry: FileEntry; body: Buffer }> {
+  const plain = Buffer.from(o.text, 'utf8');
+  const body = await encryptBuffer(deriveFileKey(o.secret), gzipSync(plain));
+  return {
+    entry: {
+      key: `transcripts/${o.deviceId}/${o.uuid}.jsonl.gz`,
+      path: `projects/-w-p/${o.uuid}.jsonl`,
+      kind: 'transcript',
+      sha256: createHash('sha256').update(plain).digest('hex'),
+      size: plain.length,
+      mtime: MTIME,
+      encrypted: true,
+      seq: o.seq,
+      deviceId: o.deviceId,
+      uploadedAt: 1,
+      storedSize: body.length,
+    },
+    body,
+  };
+}
+
+/** Worker の代わり。端末トークンが合っているときだけ答える。 */
+function cloudFetch(files: { entry: FileEntry; body: Buffer }[], o: { token: string; missing?: string[] }) {
+  const paths: string[] = [];
+  const f = (async (input: string | URL | Request, init?: RequestInit) => {
+    const u = new URL(String(input));
+    const auth = (init?.headers as Record<string, string> | undefined)?.authorization;
+    if (auth !== `Bearer ${o.token}`) return new Response('unauthorized', { status: 401 });
+    paths.push(u.pathname);
+    if (u.pathname === '/files') {
+      const last = files.length ? files[files.length - 1]!.entry.seq : 0;
+      return new Response(JSON.stringify({ files: files.map((x) => x.entry), nextSeq: last, more: false }), { status: 200 });
+    }
+    const key = u.pathname.replace(/^\/files\//, '');
+    const hit = files.find((x) => x.entry.key === key);
+    if (!hit || o.missing?.includes(key)) return new Response('not found', { status: 404 });
+    return new Response(new Uint8Array(hit.body), { status: 200 });
+  }) as typeof fetch;
+  return { fetch: f, paths };
+}
+
+describe('runTeardown', () => {
+  it('R2 にしか無い本文を降ろし、2 段の確認の後に、ファイル、バケット、Worker、D1 を消す', async () => {
+    const { home, cloudDir } = dirs();
+    const secret = 'join-secret-0000';
+    const claudeDir = path.join(home, 'claude');
+    fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
+    saveCloudConfig(home, conf({ joinSecret: secret, deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
+    // 自分が上げた本文は、原本が手元にある。降ろし直さない。
+    const mine = await fileFixture({ secret, deviceId: 'dev-a', uuid: 'u-mine', text: '{"mine":1}\n', seq: 1 });
+    fs.mkdirSync(path.join(claudeDir, 'projects', '-w-p'), { recursive: true });
+    fs.writeFileSync(path.join(claudeDir, mine.entry.path), '{"mine":1}\n');
+    // 他端末の本文は、手元に写しが無ければ降ろす。
+    const theirs = await fileFixture({ secret, deviceId: 'dev-b', uuid: 'u-theirs', text: '{"theirs":1}\n', seq: 2 });
+    const cf = cloudFetch([mine, theirs], { token: 'dt' });
+    const w = fakeWrangler({ 'r2 object delete': () => ok(), 'r2 bucket delete': () => ok(), 'delete --name': () => ok(), 'd1 delete': () => ok() });
+    const c = fakeConfirm([true, true]);
+    const lines: string[] = [];
+
+    const done = await runTeardown({
+      home,
+      deviceId: 'dev-a',
+      claudeDir,
+      wrangler: w.runner('a'.repeat(32), cloudDir),
+      fetch: cf.fetch,
+      confirm: c.fn,
+      log: (l) => lines.push(l),
+    });
+    expect(done).toBe(true);
+
+    // 降ろしたのは他端末の 1 件だけである。
+    const saved = path.join(home, 'remote', 'dev-b', 'projects', '-w-p', 'u-theirs.jsonl');
+    expect(fs.readFileSync(saved, 'utf8')).toBe('{"theirs":1}\n');
+    expect(fs.existsSync(path.join(home, 'remote', 'dev-a'))).toBe(false);
+    expect(cf.paths).toContain('/files/transcripts/dev-b/u-theirs.jsonl.gz');
+    expect(cf.paths).not.toContain('/files/transcripts/dev-a/u-mine.jsonl.gz');
+
+    // 確認は 2 段で、1 段目は Worker の名前、2 段目は delete。
+    expect(c.asked.map((a) => a.word)).toEqual(['hangar-dev', 'delete']);
+
+    const cfg = path.join(home, 'cloud', 'wrangler.jsonc');
+    expect(w.calls.map((x) => x.args.join(' '))).toEqual([
+      `r2 object delete hangar-dev-files/transcripts/dev-a/u-mine.jsonl.gz --remote --config ${cfg}`,
+      `r2 object delete hangar-dev-files/transcripts/dev-b/u-theirs.jsonl.gz --remote --config ${cfg}`,
+      `r2 bucket delete hangar-dev-files --config ${cfg}`,
+      `delete --name hangar-dev --config ${cfg}`,
+      `d1 delete hangar-dev -y --config ${cfg}`,
+    ]);
+    expect(w.calls[3]!.input).toBe('y\n');
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+    expect(fs.existsSync(cfg)).toBe(false);
+    const out = lines.join('\n');
+    expect(out).toContain('1 件を手元へ降ろしました');
+    expect(out).toContain('他の端末の cloud.json は手で消してください');
+  });
+
+  it('確認に失敗したら何もしない', async () => {
+    const { home, cloudDir } = dirs();
+    const before = conf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });
+    saveCloudConfig(home, before);
+    const w = fakeWrangler({});
+    const c = fakeConfirm([false]);
+    const done = await runTeardown({ home, deviceId: 'dev-a', wrangler: w.runner('a'.repeat(32), cloudDir), fetch: cloudFetch([], { token: 'dt' }).fetch, confirm: c.fn, log: () => {} });
+    expect(done).toBe(false);
+    expect(w.calls).toEqual([]);
+    expect(loadCloudConfig(home)).toEqual(before);
+  });
+
+  it('降ろせない本文があれば、確認も聞かずに消すのをやめる', async () => {
+    const { home, cloudDir } = dirs();
+    const secret = 'join-secret-0000';
+    saveCloudConfig(home, conf({ joinSecret: secret, deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
+    const theirs = await fileFixture({ secret, deviceId: 'dev-b', uuid: 'u-theirs', text: '{"theirs":1}\n', seq: 1 });
+    const cf = cloudFetch([theirs], { token: 'dt', missing: [theirs.entry.key] });
+    const w = fakeWrangler({});
+    const c = fakeConfirm([true, true]);
+    await expect(
+      runTeardown({ home, deviceId: 'dev-a', wrangler: w.runner('a'.repeat(32), cloudDir), fetch: cf.fetch, confirm: c.fn, log: () => {} }),
+    ).rejects.toThrow(/降ろせ/);
+    expect(c.asked).toEqual([]);
+    expect(w.calls).toEqual([]);
+    expect(loadCloudConfig(home)).not.toBeNull();
+  });
+
+  it('鍵と相対パスが食い違う本文は、手元に置く先を決めない', () => {
+    const { home } = dirs();
+    const base: FileEntry = { key: '', path: '', kind: 'transcript', sha256: 'x', size: 1, mtime: MTIME, encrypted: true, seq: 1, deviceId: 'dev-b', uploadedAt: 1, storedSize: 1 };
+    // 正しく暗号化された別のファイルへの差し替えを、復号と SHA-256 だけでは見抜けない。
+    expect(() => rescueTargetPath(home, { ...base, key: 'transcripts/dev-b/other.jsonl.gz', path: 'projects/-w-p/u.jsonl' })).toThrow(/食い違/);
+    expect(() => rescueTargetPath(home, { ...base, key: 'transcripts/dev-b/u.jsonl.gz', path: '../../.claude/u.jsonl' })).toThrow(/食い違/);
+    expect(() => rescueTargetPath(home, { ...base, kind: 'config', key: 'config/CLAUDE.md', path: '../CLAUDE.md' })).toThrow(/食い違/);
+    // 正しい組み合わせは remote の下に収まる。
+    expect(rescueTargetPath(home, { ...base, key: 'transcripts/dev-b/u.jsonl.gz', path: 'projects/-w-p/u.jsonl' })).toBe(path.join(home, 'remote', 'dev-b', 'projects', '-w-p', 'u.jsonl'));
+    expect(rescueTargetPath(home, { ...base, kind: 'config', key: 'config/CLAUDE.md', path: 'CLAUDE.md' }).startsWith(path.join(home, 'remote'))).toBe(true);
+  });
+
+  it('参加だけの端末では実行できない', async () => {
+    const { home } = dirs();
+    saveCloudConfig(home, conf({ deviceToken: 'dt' }));
+    await expect(
+      runTeardown({ home, fetch: (async () => new Response('{}')) as typeof fetch, confirm: async () => true, log: () => {} }),
+    ).rejects.toThrow('setup cloud を実行した端末');
+  });
+
+  it('cloud.json が壊れていたら、未設定とみなさずに止める', async () => {
+    const { home, cloudDir } = dirs();
+    fs.writeFileSync(path.join(home, 'cloud.json'), '{ こわれている');
+    const w = fakeWrangler({});
+    await expect(
+      runTeardown({ home, wrangler: w.runner('a'.repeat(32), cloudDir), fetch: (async () => new Response('{}')) as typeof fetch, confirm: async () => true, log: () => {} }),
+    ).rejects.toThrow(/cloud\.json/);
+    expect(w.calls).toEqual([]);
   });
 });
