@@ -27,24 +27,32 @@
 
 ## 前提の再確認（実装開始時）
 
-この計画はフェーズ 2 と 3 が計画どおりに実装されていることを前提に、次の名前と型を使う。
-実装を始める前に Task 0 で実物のコードと照合し、食い違いを記録してから当該タスクに入る。
+この計画はフェーズ 2 と 3 の実装の上に載る。
+次の一覧は 2026-09-19 に `phase3-followups`（`899d9d8`）の実物と照合した結果で、実物の現状をそのまま写している。
+実装を始める前に Task 0 でもう一度なぞり、その間に入った変更だけを拾う。
 
-- `packages/shared/src/api.ts`：`RunDto`（`id`、`sessionId`、`deviceId`、`kind`、`tmuxName`、`pid`、`startedAt`、`endedAt`、`endReason`、`heartbeatAt`）、`EndReason = 'exited' | 'killed' | 'lost'`、`LaunchResultDto = { run; sessionId; tabs }`、`SettingsDto`（`workspaceRoot`、`claudeDir`、`tmuxPath`、`terminalApp`、`codePath` とフェーズ 3 の追加項目）、`BootstrapDto` に `runs` と `tabs`。
+- `packages/shared/src/api.ts`：`RunDto`（`id`、`sessionId`、`deviceId`、`kind`、`tmuxName`、`pid`、`startedAt`、`endedAt`、`endReason`、`heartbeatAt`）、`EndReason = 'exited' | 'killed' | 'lost'`、`LaunchResultDto = { run; sessionId; tabs }`。
+- `packages/shared/src/api.ts` の `SettingsDto`：`workspaceRoot`、`claudeDir`、`tmuxPath`、`terminalApp`、`codePath`、`lmStudioUrl`、`lmStudioModel`、`summaryFallback`、`summaryHourlyCap`。
+- `packages/shared/src/api.ts` の `BootstrapDto`：`device`、`settings`、`projects`、`sessions`、`live`、`runs`、`tabs`、`usage`、`todos`、`artifacts`、`summaryPending`、`index`、`version`。
 - `packages/shared/src/events.ts`：`run.started`、`run.upsert`、`run.ended`、`tab.upsert`。
+- `packages/shared/src/intent.ts`：`session.takeover { id; force }`、`sync.now`、`sync.pause { paused }`、`overlay.close` が定義済みである。
 - `packages/server/src/runs/queries.ts`：`aliveRunForSession(db, sessionId): RunDto | null`、`listAliveRuns(db, deviceId): RunDto[]`、`getRun(db, id)`。
-- `packages/server/src/runs/manager.ts`：`class RunManager` に `resume(sessionId): LaunchResult`、`kill(runId): RunDto`、`on(l: RunListener)`（`runStarted`、`runUpdated`、`runEnded`、`tabChanged`）、`tick()`（30 秒ごとの `heartbeat_at` 更新）、`RunError`（`status: 400 | 404 | 409`）。この計画は Task 16 で `kill(runId, reason: EndReason = 'killed')` に引数を足す。
-- `packages/server/src/http/app.ts`：`AppDeps` に `runs: RunsApi`、`external: ExternalApi`、`port`。`POST /api/runs`、`POST /api/sessions/:id/resume`、`POST /api/sessions/:id/fork` の経路。`toSettingsDto(s: Settings): SettingsDto`。
-- `packages/server/src/server.ts`：`RunManager` と `RegistryWatcher` と `IndexerService` の結線。`runs.on({...})` で hub にイベントを流す箇所。
-- `packages/server/src/config/paths.ts`：`Settings` 型と `loadSettings` と `saveSettings`。フェーズ 3 が足した項目があれば `Settings` の既定値に含める。
-- `packages/ui/src/mediator/types.ts`：`Overlay` に `newSession`、`Effect` に `api.resume` など、`State` に `launch` と `waitingSeen`。フェーズ 3 が足した `Overlay` の種別（`promote`、`newProject`、`confirm`）と `Effect`。
-- `packages/ui/src/mediator/transition.ts`：`NOT_YET_INTENTS` に残っている `sync.now`、`sync.pause`、`session.takeover`。領域の合成順（`connectionStep`、`screenStep`、`overlayStep`、`launchStep`、`liveStep`、`sessionViewStep`）。
-- `packages/ui/src/presenters/session.ts`：`SessionProps` に `run`、`canResume`、`canFork`、`trustHint`。
-- `packages/ui/src/presenters/shell.ts`：`ShellProps` と `presentShell`。フェーズ 3 が使用量ゲージの props を足していれば `Header` の props に含まれる。
-- `packages/ui/src/views/Header.tsx`：新規セッションボタンと使用量ゲージの位置。同期状態の表示はその左に置く。
-- `packages/ui/src/views/SettingsScreen.tsx`：節の並び。クラウド同期の節は「要約器」の後、「Provider」の前に置く。
-- `packages/ui/src/runtime/api.ts`：`ApiClient` の形（`resume`、`fork`、`launch` を含む）。
-- `packages/server/src/db/migrations.ts`：フェーズ 3 が足したマイグレーションの最終 `version`。この計画のマイグレーションはその次の番号にする（計画中は `version: 3` と書く）。
+- `packages/server/src/runs/manager.ts`：`class RunManager` に `start(params)`、`resume(sessionId): LaunchResult`、`fork(sessionId)`、`kill(runId): RunDto`、`on(l: RunListener)`（`runStarted`、`runUpdated`、`runEnded`、`tabChanged`）、`tick()`（`HEARTBEAT_MS = 30_000` ごとの `heartbeat_at` 更新）、`startPolling`、`linkRegistry`、`setTmux`、`recoverAtStartup`、`RunError`（`status: 400 | 404 | 409`）。`kill` の引数は `runId` の 1 つだけで、`this.end(runId, 'killed')` を返す。この計画は Task 16 で `kill(runId, reason: EndReason = 'killed')` に引数を足す。
+- `packages/server/src/http/app.ts`：`AppDeps` に `db`、`deviceId`、`deviceName`、`token`、`home`、`port`、`version`、`settings`、`updateSettings`、`live`、`indexer`、`hub`、`runs: RunsApi`、`external: ExternalApi`、`usage`、`memos`、`summary: SummaryApi`、`promote`、`uiDist?`。`POST /api/runs`、`POST /api/sessions/:id/resume`、`POST /api/sessions/:id/fork` の経路。`toSettingsDto(s: Settings): SettingsDto` は 9 項目を写す 1 行の式である。
+- `packages/server/src/server.ts`：`RunManager` と `RegistryWatcher` と `IndexerService` の結線。`indexer.on({ progress, sessionChanged, error })` と `registry.onChange(...)` と `runs.on({ runStarted, runUpdated, runEnded, tabChanged })` が hub にイベントを流す。`notifyUnresolved()` という関数は無く、起動の締めは `started = true;` と `console.log(...)` である。
+- `packages/server/src/config/paths.ts`：`Settings` は `workspaceRoot`、`claudeDir`、`tmuxPath`、`terminalApp`、`codePath`、`toolsResolved?`、`lmStudioUrl`、`lmStudioModel`、`summaryFallback`、`summaryHourlyCap`。既定値は `defaultSettings()` にあり、`loadSettings` が保存済みの値を重ねる。
+- `packages/ui/src/mediator/types.ts`：`Overlay` は `none`、`resolveProject`、`palette`、`notYet`、`newSession`、`promote`、`promoted` の 7 種別である（`newProject` と `confirm` は無い）。`State` は `screen`、`overlay`、`connection`、`reconnectAttempt`、`sessionView`、`search`、`launch`、`waitingSeen`、`promote`、`summaryFailed`、`toasts`、`unresolvedQueue`、`nextToastId`、`resolveDeferred`、`indexPhase`。`Effect` に `api.resume`、`api.fork`、`api.launch`、`api.promote`、`split.resolve` などがある。
+- `packages/ui/src/mediator/transition.ts`：`NOT_YET_INTENTS` は `['session.takeover', 'sync.now', 'sync.pause', 'project.new.open', 'project.new.submit']` の 5 件で、この計画は前の 3 つを外す。領域の合成順は `connectionStep`、`screenStep`、`launchStep`、`promoteStep`、`overlayStep`、`sessionViewStep`、`liveStep`、`workbenchStep` の 8 つである。
+- `packages/ui/src/presenters/session.ts`：`SessionProps` に `run`、`canResume`、`canFork`、`trustHint`、`split`、`canSplit`、`canPromote`、`artifacts` などがある。`canResume` と `canFork` はどちらも `s.hasTranscript && idle` である。
+- `packages/ui/src/presenters/shell.ts`：`ShellProps = { nav; crumbs; searchText; connection; index; indexLabel; usage }` で、`UsageProps = { fiveHour; sevenDay; updatedLabel }`。`presentShell(state, store, now: number)` の `now` は必須引数である。
+- `packages/ui/src/presenters/settings.ts`：`presentSettings(_state, store)` は `now` を取らない。`SettingsProps` は `workspaceRoot`、`claudeDir`、`device`、`version`、`index`、`sessionCount`、`projectCount`、`tmuxPath`、`terminalApp`、`codePath`、`mcpInstallCommand`、`lmStudioUrl`、`lmStudioModel`、`summaryFallback`、`summaryHourlyCap`、`summarizerModels`、`summarizerTest`、`statusline`、`statuslineCommand`、`usageAggregate`。
+- `packages/ui/src/views/Header.tsx`：`Header({ crumbs, searchText, connection, indexLabel, usage })` で、並びは パンくず、検索欄、`<span className="spacer" />`、`<span className="gauges">`（使用量ゲージ 2 つと最終更新）、新規セッションボタン、索引の進行、接続状態である。同期状態はこの `spacer` の直後、ゲージの手前に置く。
+- `packages/ui/src/views/SettingsScreen.tsx`：節の並びは ワークスペース、ツール、MCP、statusline、要約器、使用量、索引、この端末、次のフェーズで追加される設定 である（「Provider」の節は無い）。クラウド同期の節は「要約器」の後、「使用量」の前に置く。
+- `packages/ui/src/views/primitives/Icon.tsx`：View は `lucide-react` を直接 import せず、この `Icon` だけを通す。`ICON_NAMES` は `home`、`projects`、`sessions`、`settings`、`add`、`close`、`chevron`、`chevronDown`、`paneClose`、`paneOpen`、`agent`、`shell`、`subagent`、`tool`、`openTerminal`、`openEditor`、`stop`、`resume`、`fork`、`repoint`、`archive`、`unlink`、`warning`、`split`、`edit`、`promote` である。プロジェクトのステータスは `views/primitives/StatusSelect.tsx` を使い、素の `<select>` は書かない。
+- `packages/ui/src/styles/`：`tokens.css`、`base.css`、`workbench.css`、`split.css`、`rows.css`、`palette.css`、`settings.css` があり、`main.tsx` がこの順で import する。フェーズ 3 以降は `base.css` を太らせず、View のまとまりごとにファイルを分ける。フェーズ 4 の CSS は `sync.css` を新しく作ってそこに書く。
+- `packages/ui/src/Root.tsx`：`Root({ runtime, api?, terminals })` で、`terminals` は必須である。オーバーレイは `ResolveProjectDialog`、`NewSessionDialog`、`CommandPalette`、`PromoteDialog`、`PromotedDialog`、`ToastStack` を並べる。Esc の扱いは入力中と `resolveProject` を除く形で、依存配列は `[rt, overlayKind, shortcutTabs, selectedTabId, canSplit]` である。
+- `packages/ui/src/runtime/api.ts`：`ApiClient` は `bootstrap` から `testSummarizer` までの 33 個のメソッドを持つ（`launch`、`resume`、`fork` を含む）。`createApi` の `call` はサーバの `{ error }` を読んで Error のメッセージにし、`post` という補助を持つ。
+- `packages/server/src/db/migrations.ts`：マイグレーションは `version: 1` から `version: 5` まである（5 はフェーズ 3 の繰り越しで足した `session_summaries.source_id`）。**この計画のマイグレーションは `version: 6` である。** `sync_state` と `settings_local` と `changes` と `transcript_files` は `version: 1` と `version: 2` で作られている。
 
 ## 前提（この計画で決めたこと）
 
@@ -109,7 +117,7 @@ packages/cloud/
 packages/server/src/
   config/cloud.ts                 CloudConfig、cloudConfigPath()、loadCloudConfig()、saveCloudConfig()
   config/paths.ts                 Modify：Settings.syncClaudeConfig
-  db/migrations.ts                Modify：version 3（transcript_files.device_id、file_sync）
+  db/migrations.ts                Modify：version 6（transcript_files.device_id、file_sync）
   db/shared.ts                    Modify：onSharedWrite()
   db/queries.ts                   Modify：lock、remoteOnly、listDevices()
   sync/crypto.ts                  deriveFileKey()、encryptStream()、decryptStream()、sha256Stream()
@@ -154,7 +162,9 @@ packages/ui/src/
   views/ConfirmDialog.tsx
   views/ConfigPreviewDialog.tsx
   views/SettingsScreen.tsx        Modify：クラウド同期の節
-  Root.tsx、main.tsx              Modify：オーバーレイと focus の結線
+  views/primitives/Icon.tsx       Modify：takeover と resumeHere のアイコン名
+  styles/sync.css                 同期とロックの CSS（base.css には足さない）
+  Root.tsx、main.tsx              Modify：オーバーレイと focus と sync.css の結線
 ```
 
 ## インターフェース一覧
@@ -441,7 +451,7 @@ export function presentTakeover(state: State, store: Store): TakeoverProps | nul
 // packages/ui/src/presenters/settings.ts（追加）
 export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; paused: boolean; lastPullAt: string; pending: number; devices: { name: string; platform: string; lastSeen: string; self: boolean }[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
 export type SettingsProps = { ...; cloud: CloudSettingsProps };
-export function presentSettings(state: State, store: Store, now?: number): SettingsProps;
+export function presentSettings(state: State, store: Store, now?: number): SettingsProps;   // 既存は 2 引数。now を足し、既定は Date.now()
 
 // packages/ui/src/views（追加）
 export function SyncStatus(props: SyncProps): JSX.Element | null;
@@ -456,11 +466,23 @@ export function ConfigPreviewDialog(props: { preview: ConfigPreviewDto | null })
 
 **Files:**
 - Read: `packages/shared/src/api.ts`、`packages/shared/src/events.ts`、`packages/shared/src/intent.ts`、`packages/server/src/runs/manager.ts`、`packages/server/src/runs/queries.ts`、`packages/server/src/http/app.ts`、`packages/server/src/server.ts`、`packages/server/src/config/paths.ts`、`packages/server/src/db/migrations.ts`、`packages/ui/src/mediator/types.ts`、`packages/ui/src/mediator/transition.ts`、`packages/ui/src/presenters/session.ts`、`packages/ui/src/presenters/shell.ts`、`packages/ui/src/presenters/settings.ts`、`packages/ui/src/runtime/api.ts`、`packages/ui/src/views/Header.tsx`、`packages/ui/src/views/SettingsScreen.tsx`
-- Create: `docs/plans/phase4-mismatches.md`（食い違いがあったときだけ）
+- Create: `docs/plans/phase4-mismatches.md`（この再確認で新しい食い違いが出たときだけ）
 
 **Interfaces:**
 - Consumes: 「前提の再確認」の一覧。
 - Produces: 食い違いの一覧。各タスクの実装者は着手前にこの一覧を読む。
+
+> **2026-09-19 に実施済み。** `phase3-followups`（`899d9d8`）の実物と照合し、見つかった食い違いはこの計画の本文に直接取り込んだ。
+> 記録は `.superpowers/sdd/phase4-sync/task-0-report.md` にある。
+> このタスクは「その後にコードが動いていないか」を確かめる短い再点検として残す。
+> 主な確定事項は次のとおりである。
+>
+> - マイグレーションの最終番号は `5` なので、この計画のマイグレーションは **`version: 6`** である。
+> - `NOT_YET_INTENTS` は 5 件（`session.takeover`、`sync.now`、`sync.pause`、`project.new.open`、`project.new.submit`）で、この計画が外す 3 つは残っている。
+> - `RunManager.kill` の引数は `runId` の 1 つだけである。
+> - 領域の合成順は 8 つ（`connectionStep`、`screenStep`、`launchStep`、`promoteStep`、`overlayStep`、`sessionViewStep`、`liveStep`、`workbenchStep`）である。
+> - `SettingsScreen` に「Provider」の節は無い。クラウド同期は「要約器」と「使用量」の間に置く。
+> - CSS は `base.css` に足さず、`packages/ui/src/styles/sync.css` を新しく作る。
 
 - [ ] **Step 1: フェーズ 2 の名前を grep で確かめる**
 
@@ -476,7 +498,7 @@ grep -n "export type Settings" packages/server/src/config/paths.ts
 grep -n "version: " packages/server/src/db/migrations.ts
 ```
 
-Expected: すべての名前が見つかる。`kill(` の引数が `runId: string` だけであること、`migrations.ts` の最後の `version` の番号を書き留める。
+Expected: すべての名前が見つかる。`kill(runId: string)` の引数が 1 つだけであること、`migrations.ts` の最後の `version` が `5` であることを確かめる（増えていれば、この計画の `version: 6` をその次の番号に読み替える）。
 
 - [ ] **Step 2: UI 側の名前を grep で確かめる**
 
@@ -489,14 +511,15 @@ grep -n "export type SettingsProps" packages/ui/src/presenters/settings.ts
 grep -n "resume(\|fork(\|launch(" packages/ui/src/runtime/api.ts
 grep -n "新規セッション\|usage\|Gauge" packages/ui/src/views/Header.tsx
 grep -n "<h2 className=\"h2\">" packages/ui/src/views/SettingsScreen.tsx
+ls packages/ui/src/styles packages/ui/src/views/primitives
 ```
 
-Expected: `NOT_YET_INTENTS` に `'sync.now'`、`'sync.pause'`、`'session.takeover'` が残っている。`Overlay` の種別と `Effect` の一覧を書き留める。
+Expected: 「前提の再確認」の一覧と一致する。`NOT_YET_INTENTS` は 5 件で、合成順は 8 つで、`Overlay` は 7 種別である。
 
 - [ ] **Step 3: 食い違いを記録する**
 
-食い違いが無ければこの Step は飛ばす。
-あれば `docs/plans/phase4-mismatches.md` に次の形で書く。
+「前提の再確認」と一致していればこの Step は飛ばす。
+2026-09-19 の照合の後にコードが動いていたときだけ、`docs/plans/phase4-mismatches.md` に次の形で書く。
 
 ```markdown
 # フェーズ 4 の前提との食い違い
@@ -506,7 +529,7 @@ Expected: `NOT_YET_INTENTS` に `'sync.now'`、`'sync.pause'`、`'session.takeov
 | `RunManager.kill(runId)` | `kill(runId, opts)` | Task 16、Task 17 | 第二引数の形を実物に合わせる |
 ```
 
-`migrations.ts` の最後の `version` が 2 でなければ、Task 8 の `version: 3` をその次の番号に読み替える旨をここに書く。
+`migrations.ts` の最後の `version` が 5 でなければ、Task 8 の `version: 6` をその次の番号に読み替える旨をここに書く。
 
 - [ ] **Step 4: コミット**
 
@@ -528,7 +551,7 @@ git commit -m "docs: record mismatches between phase 4 plan and phase 2/3 code"
 
 **Interfaces:**
 - Produces: 「インターフェース一覧」の `packages/shared/src/cloud.ts` の全部と、`api.ts`、`events.ts`、`intent.ts` の追加項目。
-- `SessionDto` に `lock` と `remoteOnly` を足すので、フェーズ 1 から 3 のテストで `SessionDto` を丸ごと `toEqual` している箇所は `lock: null, remoteOnly: false` を足す（`packages/server/src/db/queries.test.ts`、`packages/ui/src/store/store.test.ts`、`packages/ui/src/presenters/presenters.test.ts`）。
+- `SessionDto` に `lock` と `remoteOnly` を足すので、フェーズ 1 から 3 のテストで `SessionDto` を丸ごと組み立てている箇所に `lock: null, remoteOnly: false` を足す。2026-09-19 時点の対象は `packages/server/src/db/queries.test.ts`、`packages/shared/src/api.test.ts`、`packages/ui/src/store/store.test.ts`、`packages/ui/src/presenters/presenters.test.ts`、`packages/ui/src/presenters/palette.test.ts`、`packages/ui/src/runtime/runtime.test.ts`、`packages/ui/src/Root.test.tsx`、`packages/ui/src/views/misc.test.tsx`、`packages/ui/src/views/SessionScreen.test.tsx`、`packages/ui/src/views/SessionRows.test.tsx` の 10 ファイルである。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -2132,7 +2155,7 @@ git commit -m "feat(server): cloud client over fetch and an in-memory fake with 
 
 ---
 
-### Task 8: cloud.json、マイグレーション 3、sync_state、書き込みの通知
+### Task 8: cloud.json、マイグレーション 6、sync_state、書き込みの通知
 
 **Files:**
 - Create: `packages/server/src/config/cloud.ts`、`packages/server/src/sync/state.ts`
@@ -2142,7 +2165,7 @@ git commit -m "feat(server): cloud client over fetch and an in-memory fake with 
 **Interfaces:**
 - Produces: 「インターフェース一覧」の `config/cloud.ts`、`sync/state.ts`、`onSharedWrite`。
 - `Settings` に `syncClaudeConfig: boolean`（既定 false）を足す。`loadSettings` の既定値に含める。
-- マイグレーション `version: 3`（Task 0 で確かめた最終番号の次に読み替える）：
+- マイグレーション `version: 6`（実物の最終番号は 5 である。Task 0 でさらに増えていたら、その次の番号に読み替える）：
   ```sql
   alter table transcript_files add column device_id text;
   create index transcript_files_device on transcript_files(session_id, device_id);
@@ -2221,7 +2244,7 @@ describe('SyncStateStore', () => {
 ```ts
 import { onSharedWrite, softDeleteShared, upsertShared } from './shared.ts';
 
-describe('マイグレーション 3 と書き込みの通知', () => {
+describe('マイグレーション 6 と書き込みの通知', () => {
   it('transcript_files.device_id と file_sync がある', () => {
     const db = openDb(':memory:');
     const cols = (db.prepare('pragma table_info(transcript_files)').all() as { name: string }[]).map((c) => c.name);
@@ -2319,7 +2342,7 @@ export class SyncStateStore {
 
 ```ts
   {
-    version: 3,
+    version: 6,
     sql: `
 alter table transcript_files add column device_id text;
 create index transcript_files_device on transcript_files(session_id, device_id);
@@ -3477,9 +3500,17 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
 import { readOrCreateDevice } from '@agent-hangar/server';
 import { runSetupCloud } from './cloud.ts';
 
-const setup = program.command('setup').description('データディレクトリを用意し、ツールとワークスペースを確認する')
+// 既存の setup の option と action は 1 文字も変えない。
+// 戻り値を const に受けて、その下に子コマンドをぶら下げるだけにする。
+const setup = program
+  .command('setup')
+  .description('データディレクトリを用意し、ツールとワークスペースを確認し、statusline への追記を提案する')
   .option('--workspace <dir>', 'ワークスペースのルート')
-  .action((o: { workspace?: string }) => { console.log(formatSetupReport(runSetup({ home: hangarHome(), workspaceRoot: o.workspace }))); });
+  .option('--yes', '問いかけをすべて承諾する')
+  .option('--skip-statusline', 'statusline への追記を提案しない')
+  .action(async (o: { workspace?: string; yes?: boolean; skipStatusline?: boolean }) => {
+    ...フェーズ 1 と 3 の中身をそのまま...
+  });
 setup.command('cloud').description('自分の Cloudflare アカウントに同期用の Worker と D1 と R2 を作ってデプロイする')
   .option('--name <name>', 'Worker の名前（D1 は同名、R2 は <name>-files）', 'hangar')
   .option('--rotate-secret', '参加用の秘密を作り直す')
@@ -3490,7 +3521,7 @@ setup.command('cloud').description('自分の Cloudflare アカウントに同�
   });
 ```
 
-既存の `program.command('setup')...action(...)` の呼び出しはこの形に置き換える。
+既存の `program.command('setup')...action(...)` は、戻り値を `const setup` に受ける形に替えるだけで、option と action の中身は変えない。
 `packages/cli/package.json` の `dependencies` に `"@agent-hangar/shared": "*"` を足す。
 
 - [ ] **Step 5: テストと型検査**
@@ -3756,7 +3787,7 @@ git commit -m "feat(cli): hangar join, cloud status and double-confirmed cloud t
 - Test: `packages/server/src/sync/uploader.test.ts`
 
 **Interfaces:**
-- Consumes: `transcriptKey`、`FileMetaIn`（shared）、`CloudClient`（`sync/client.ts`）、`encryptStream`、`sha256Stream`（`sync/crypto.ts`）、`SyncStateStore`（`sync/state.ts`）、`Timers`（`sync/engine.ts`）、`file_sync`（マイグレーション 3）。
+- Consumes: `transcriptKey`、`FileMetaIn`（shared）、`CloudClient`（`sync/client.ts`）、`encryptStream`、`sha256Stream`（`sync/crypto.ts`）、`SyncStateStore`（`sync/state.ts`）、`Timers`（`sync/engine.ts`）、`file_sync`（マイグレーション 6）。
 - Produces:
   ```ts
   export type UploadTarget = { path: string; sessionId: string; agentId: string | null };   // sessionId は Claude の UUID
@@ -4352,12 +4383,14 @@ export function forgetTranscriptFile(db: Db, filePath: string): void {
   const remote = opts.remote === true;
   // 他端末の写しは sessions を作らない。行がまだ届いていなければ次の走査に回す。
   if (remote && !tf && findSession(db, file.sessionId) === null) {
-    return { sessionId: '', providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, skipped: true };
+    return { sessionId: '', providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [], skipped: true };
   }
 ```
 
-`return { sessionId: tf.session_id, ... }` の 2 か所と最後の `return` に `skipped: false` を足す。
-トランザクションの中の `sessionId` の決め方と、末尾の 2 文を次に置き換える。
+`IndexFileResult` にはフェーズ 3 が足した `artifactIds: string[]` があるので、新しい `skipped: boolean` はその後ろに足す。
+早い `return`（`tf` が新しくて読み直さない 1 か所）と最後の `return` に `skipped: false` を足す。
+トランザクションの中の `sessionId` を決める 1 文と、`transcript_files` の upsert の 1 文と、末尾の `applySessionFacts` の分岐の 1 文を次に置き換える。
+`usage_daily` へ書く 2 文と、その後の `artifactIdsOut = [...artifactIds];` はそのまま残す。
 
 ```ts
     sessionId = tf?.session_id ?? (remote ? findSession(db, file.sessionId)! : ensureSession(db, file.sessionId, cwd, opts.deviceId));
@@ -4448,28 +4481,23 @@ export type IndexerServiceOptions = {
   private indexOne(file: DiscoveredFile, history: Map<string, HistoryEntry>): boolean {
     try {
       const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, cwdFallback: history.get(file.sessionId)?.cwd, remote: file.deviceId !== null });
+      this.reportedErrors.delete(file.path);
       if (!r.changed) return false;
       // 土台の要約は共有テーブルなので、本文を持つ端末だけが書く。
       if (file.deviceId === null && (file.agentId === null || r.appended > 0)) {
         writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(file.sessionId));
       }
-      for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: file.sessionId, agentId: file.agentId, appended: r.appended, deviceId: file.deviceId, path: file.path });
+      for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: file.sessionId, agentId: file.agentId, appended: r.appended, artifactIds: r.artifactIds, deviceId: file.deviceId, path: file.path });
       return true;
     } catch (e) {
-      const message = errorMessage(e);
-      try {
-        this.opts.db.prepare('update transcript_files set last_error = ? where path = ?').run(message, file.path);
-      } catch {
-        // まだ行が無いか DB 側の失敗なので、通知だけに留める。
-      }
-      this.emitError(file.path, message);
-      return false;
+      // catch の中はフェーズ 3 のまま変えない（last_error の書き込みと reportedErrors による間引き）。
+      ...既存のとおり...
     }
   }
 ```
 
 `fullScan` の `const files = listTranscriptFiles(this.opts.claudeDir);` を `const files = this.targets();` に、`tick` の `for (const f of listTranscriptFiles(this.opts.claudeDir))` を `for (const f of this.targets())` に替える。
-`IndexerListener` の `sessionChanged` に `deviceId: string | null` と `path: string` を足す（本文の上げ手がファイルのパスを要る）。
+`IndexerListener` の `sessionChanged` に `deviceId: string | null` と `path: string` を足す（本文の上げ手がファイルのパスを要る）。既存の `artifactIds: string[]` は残す。
 `start()` で、`remoteRoot` があれば作ってから監視する。
 
 ```ts
@@ -4731,7 +4759,7 @@ git commit -m "feat(server): download remote transcripts and index them alongsid
 - Test: `packages/server/src/db/queries.test.ts`（追加）
 
 **Interfaces:**
-- Consumes: `SessionLockDto`、`DeviceDto`、`SessionDto`（shared、Task 1）。`transcript_files.device_id`（Task 8 のマイグレーション 3）。
+- Consumes: `SessionLockDto`、`DeviceDto`、`SessionDto`（shared、Task 1）。`transcript_files.device_id`（Task 8 のマイグレーション 6）。
 - Produces:
   ```ts
   export const LOCK_STALE_MS = 120_000;
@@ -6356,7 +6384,8 @@ git commit -m "feat(server): opt-in Claude config sync with home rewriting, prev
 
 - [ ] **Step 1: 失敗するテストを書く**
 
-`packages/server/src/http/app.test.ts` の `createApp` の呼び出しに次の項目を足す（フェーズ 2 と 3 が足した `runs`、`external`、`port` はそのまま残す）。
+`packages/server/src/http/app.test.ts` の `createApp` の呼び出しに次の項目を足す。
+フェーズ 2 と 3 が足した `port`、`runs`、`external`、`usage`、`memos`、`summary`、`promote` はそのまま残す（下の抜粋では省いてある）。
 
 ```ts
   const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false } };
@@ -6382,7 +6411,7 @@ git commit -m "feat(server): opt-in Claude config sync with home rewriting, prev
   });
 ```
 
-`let settings = { workspaceRoot: ws, claudeDir: dir, syncClaudeConfig: false };` にする。
+既存の `let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };` に `syncClaudeConfig: false` を足す。
 次の `describe` を足す。
 
 ```ts
@@ -6582,17 +6611,20 @@ const DEVICE_TOUCH_MS = 600_000;
   });
 ```
 
-`indexer.on({...})` の `sessionChanged` に上げ手への通知を足す。
+`indexer.on({...})` の `sessionChanged` は、フェーズ 3 の中身（未紐づけの割り当て、`tellUnassigned`、`transcript.appended`、`artifact.upsert` の配布）をそのまま残し、次の 2 点だけを足す。
 
 ```ts
     sessionChanged: (e) => {
-      const s = getSession(db, registry.current(), e.sessionId, { deviceId: device.id });
+      // 手元のファイルだけを上げる。他端末の写しは持ち主が上げる。
       if (e.deviceId === null) uploader?.noteChanged({ path: e.path, sessionId: e.providerSessionId, agentId: e.agentId });
-      if (!s) return;
-      hub.broadcast({ type: 'session.upsert', session: s });
-      if (e.appended > 0) hub.broadcast({ type: 'transcript.appended', sessionId: e.sessionId, count: e.appended });
+      ...フェーズ 3 の中身をそのまま...
+      // getSession はロックを出すために自端末の ID を渡す形に替える。
+      const s = getSession(db, registry.current(), e.sessionId, { deviceId: device.id });
+      ...以降もそのまま...
     },
 ```
+
+`server.ts` で `getSession(db, registry.current(), ...)` を呼んでいる箇所（`indexer.on` と `registry.onChange` の中）は、どれも第 4 引数に `{ deviceId: device.id }` を渡す形に替える。
 
 同期のイベントを hub に流す。
 
@@ -6644,6 +6676,7 @@ const DEVICE_TOUCH_MS = 600_000;
     return runs.resume(sessionId);
   };
 
+  // RunManager.on は listener を足せるので、フェーズ 2 と 3 の runs.on({...}) はそのまま残し、2 つ目として登録する。
   runs.on({ runEnded: (r) => { const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(r.sessionId) as { p: string } | undefined)?.p; if (uuid) void uploader?.flushSession(uuid); } });
 ```
 
@@ -6659,17 +6692,19 @@ const DEVICE_TOUCH_MS = 600_000;
 ```
 
 `updateSettings` で Claude Code 設定の状態を同期エンジンに伝える。
+既存の `runs.setTmux(t)` と `relay.setTmux(t)` は消さず、その後ろに 1 行足す。
 
 ```ts
     updateSettings: (patch) => {
       settings = { ...settings, ...patch };
       saveSettings(home, settings);
+      ...フェーズ 2 の tmux の差し替えをそのまま...
       engine.setClaudeConfigStatus({ enabled: settings.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });
       return settings;
     },
 ```
 
-起動の最後（`notifyUnresolved()` の後）に足す。
+起動の最後（`started = true;` の後、`console.log(...)` の前）に足す。
 
 ```ts
   const touchDevice = () => {
@@ -6972,14 +7007,17 @@ export function takeoverStep(state: State, input: Input): Step | null {
 import { syncStep } from './sync.ts';
 import { takeoverStep } from './takeover.ts';
 
+// 既存の initialState() の末尾に 2 項目を足す（他の項目は消さない）。
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, sessionView: {}, search: { text: '', filter: {} }, toasts: [], unresolvedQueue: [], nextToastId: 1, sync: { kind: 'off' }, pending: 0 };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0 };
 }
 
-  for (const step of [connectionStep, screenStep, overlayStep, syncStep, takeoverStep, sessionViewStep]) {
+  // 既存の 8 つの順は変えず、overlayStep の後ろに syncStep と takeoverStep を挟む。
+  // takeoverStep はオーバーレイを開け閉めするが overlay.close を横取りしないので、promoteStep より後で問題ない。
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, overlayStep, syncStep, takeoverStep, sessionViewStep, liveStep, workbenchStep]) {
 ```
 
-`NOT_YET_INTENTS` から `'session.takeover'`、`'sync.now'`、`'sync.pause'` を消す。
+`NOT_YET_INTENTS` から `'session.takeover'`、`'sync.now'`、`'sync.pause'` を消す（`'project.new.open'` と `'project.new.submit'` は残る）。
 
 - [ ] **Step 4: ストアを実装する**
 
@@ -7176,30 +7214,31 @@ export class ApiConflictError extends Error {
 ```
 
 `ApiClient` に「インターフェース一覧」の 11 個のメソッドを足し、`call` の失敗の扱いを替える。
+既存の `call` は本文を 1 度だけ読んで `{ error }` を Error のメッセージにしているので、その読み取りを使い回して 409 だけを分ける。
 
 ```ts
     if (!r.ok) {
-      if (r.status === 409) {
-        const body = (await r.json().catch(() => null)) as ResumeHereConflictDto | null;
-        if (body?.error === 'local_smaller') throw new ApiConflictError(body);
-      }
-      throw new Error(`${r.status} ${path}`);
+      // サーバが { error } を返せばその理由を、無ければ状態番号と経路を投げる。
+      const body = (await r.json().catch(() => null)) as { error?: string; localSize?: number; remoteSize?: number } | null;
+      // 「この PC で再開」の 409 だけは、確認ダイアログを出すために型の付いた失敗にする。
+      if (r.status === 409 && body?.error === 'local_smaller') throw new ApiConflictError(body as ResumeHereConflictDto);
+      throw new Error(body?.error ?? `${r.status} ${path}`);
     }
 ```
 
-`createApi` の返り値に足す。
+`createApi` の返り値に足す（`post` は既存の補助である）。
 
 ```ts
     syncStatus: () => call('/api/sync/status'),
-    syncNow: () => call('/api/sync/now', { method: 'POST' }),
-    syncPause: (paused) => call('/api/sync/pause', { method: 'POST', body: JSON.stringify({ paused }) }),
-    syncFocus: () => call('/api/sync/focus', { method: 'POST' }),
-    takeover: (sessionId, force) => call(`/api/sessions/${sessionId}/takeover`, { method: 'POST', body: JSON.stringify({ force }) }),
-    takeoverCancel: (sessionId) => call(`/api/sessions/${sessionId}/takeover/cancel`, { method: 'POST' }),
-    resumeHere: (sessionId, overwrite) => call(`/api/sessions/${sessionId}/resume-here`, { method: 'POST', body: JSON.stringify({ overwrite }) }),
+    syncNow: () => post('/api/sync/now'),
+    syncPause: (paused) => post('/api/sync/pause', { paused }),
+    syncFocus: () => post('/api/sync/focus'),
+    takeover: (sessionId, force) => post(`/api/sessions/${sessionId}/takeover`, { force }),
+    takeoverCancel: (sessionId) => post(`/api/sessions/${sessionId}/takeover/cancel`),
+    resumeHere: (sessionId, overwrite) => post(`/api/sessions/${sessionId}/resume-here`, { overwrite }),
     joinToken: () => call('/api/sync/joinToken'),
     configPreview: () => call('/api/sync/config/preview'),
-    configPull: () => call('/api/sync/config/pull', { method: 'POST' }),
+    configPull: () => post('/api/sync/config/pull'),
     devices: () => call('/api/devices'),
 ```
 
@@ -7384,7 +7423,8 @@ import type { IndexProgressDto, Route, SyncStateKind } from '@agent-hangar/share
 import { relativeTime } from './format.ts';
 
 export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; paused: boolean };
-export type ShellProps = { nav: NavItem[]; crumbs: { label: string; route?: Route }[]; searchText: string; connection: State['connection']; index: IndexProgressDto; indexLabel: string | null; sync: SyncProps };
+// 既存の ShellProps の末尾に sync を足す。usage はフェーズ 3 の項目なので消さない。
+export type ShellProps = { nav: NavItem[]; crumbs: { label: string; route?: Route }[]; searchText: string; connection: State['connection']; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps };
 
 /** ヘッダーに出す同期の一行。off の端末では出さない。 */
 function syncProps(state: State, now: number): SyncProps {
@@ -7399,9 +7439,10 @@ function syncProps(state: State, now: number): SyncProps {
   return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, paused: s.kind === 'paused' };
 }
 
-export function presentShell(state: State, store: Store, now: number = Date.now()): ShellProps {
+// 引数はこれまでのまま（now は必須）。返り値に sync を足す。
+export function presentShell(state: State, store: Store, now: number): ShellProps {
   ...これまでの組み立て...
-  return { nav: ..., crumbs, searchText: state.search.text, connection: state.connection, index: idx, indexLabel, sync: syncProps(state, now) };
+  return { nav: ..., crumbs, searchText: state.search.text, connection: state.connection, index: idx, indexLabel, usage, sync: syncProps(state, now) };
 }
 ```
 
@@ -7414,8 +7455,11 @@ import type { Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
 
 export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; paused: boolean; lastPullAt: string; pending: number; devices: { name: string; platform: string; lastSeen: string; self: boolean }[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
-export type SettingsProps = { workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; sessionCount: number; projectCount: number; cloud: CloudSettingsProps };
+// 既存の SettingsProps の末尾に cloud を足す。
+// フェーズ 3 までの項目（tmuxPath、terminalApp、codePath、mcpInstallCommand、lmStudio*、summary*、summarizer*、statusline*、usageAggregate）は消さない。
+export type SettingsProps = { workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; sessionCount: number; projectCount: number; ...フェーズ 3 までの項目...; cloud: CloudSettingsProps };
 
+// 第 3 引数 now を新しく足す（既存の呼び出しは 2 引数なので既定値を置く）。
 export function presentSettings(_state: State, store: Store, now: number = Date.now()): SettingsProps {
   const sync = store.sync;
   const cloud: CloudSettingsProps = {
@@ -7430,29 +7474,31 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
     syncClaudeConfig: store.settings?.syncClaudeConfig ?? false,
     configConfirmed: sync?.claudeConfig.confirmed ?? false,
   };
-  return { workspaceRoot: store.settings?.workspaceRoot ?? '', claudeDir: store.settings?.claudeDir ?? '', device: store.device, version: store.version, index: store.index, sessionCount: Object.keys(store.sessions).length, projectCount: Object.keys(store.projects).length, cloud };
+  return { ...これまでの組み立て..., cloud };
 }
 ```
 
 - [ ] **Step 4: session.ts と takeover.ts を直す**
 
-`packages/ui/src/presenters/session.ts` の `SessionProps` に `lock`、`remoteOnly`、`canResumeHere` を足し、`canResume` にロックと写しだけの条件を掛ける。
+`packages/ui/src/presenters/session.ts` の `SessionProps` に `lock`、`remoteOnly`、`canResumeHere` を足し、`canResume` と `canFork` にロックと写しだけの条件を掛ける。
 
 ```ts
 export type SessionProps = { ...これまでの項目...; lock: { deviceName: string; stale: boolean; heartbeat: string } | null; remoteOnly: boolean; canResume: boolean; canResumeHere: boolean };
 ```
 
-`presentSession` の `base` に `lock: null, remoteOnly: false, canResume: false, canResumeHere: false` を足し、`s` がある側の返り値に足す。
+`presentSession` の `base` に `lock: null, remoteOnly: false, canResumeHere: false` を足し（`canResume` と `canFork` は `base` に既にある）、`s` がある側の返り値に足す。
 
 ```ts
     lock: s.lock ? { deviceName: s.lock.deviceName, stale: s.lock.stale, heartbeat: relativeTime(s.lock.heartbeatAt, now) } : null,
     remoteOnly: s.remoteOnly,
     // 他端末が動かしている間は再開せず、引き継ぎに回す。手元に本文が無いときは先にコピーする。
-    canResume: s.hasTranscript && s.lock === null && !s.remoteOnly,
+    // 実物は canResume も canFork も `s.hasTranscript && idle` なので、その式に条件を掛ける。
+    canResume: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
+    canFork: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
     canResumeHere: s.remoteOnly && s.lock === null,
 ```
 
-フェーズ 2 が `canResume` を組み立てている場合は、その式に `&& s.lock === null && !s.remoteOnly` を掛ける。
+`base`（セッションが無いときの返り値）にも `lock: null, remoteOnly: false, canResumeHere: false` を足す。`canResume` と `canFork` は `base` に既にある。
 
 `packages/ui/src/presenters/takeover.ts`：
 
@@ -7511,8 +7557,8 @@ git commit -m "feat(ui): presenters for sync status, session lock and the takeov
 ### Task 23: ヘッダーの同期状態とセッション画面のロック
 
 **Files:**
-- Create: `packages/ui/src/views/SyncStatus.tsx`
-- Modify: `packages/ui/src/views/Header.tsx`、`packages/ui/src/views/Shell.tsx`、`packages/ui/src/views/SessionScreen.tsx`
+- Create: `packages/ui/src/views/SyncStatus.tsx`、`packages/ui/src/styles/sync.css`
+- Modify: `packages/ui/src/views/Header.tsx`、`packages/ui/src/views/Shell.tsx`、`packages/ui/src/views/SessionScreen.tsx`、`packages/ui/src/views/primitives/Icon.tsx`、`packages/ui/src/main.tsx`
 - Test: `packages/ui/src/views/Shell.test.tsx`（追加）、`packages/ui/src/views/SessionScreen.test.tsx`（追加）
 
 **Interfaces:**
@@ -7521,11 +7567,13 @@ git commit -m "feat(ui): presenters for sync status, session lock and the takeov
   ```ts
   // views/SyncStatus.tsx
   export function SyncStatus(props: SyncProps): JSX.Element | null;
-  // views/Header.tsx
-  export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string; connection: ShellProps['connection']; indexLabel: string | null; sync: SyncProps }): JSX.Element;
+  // views/Header.tsx（usage はフェーズ 3 の既存 props なので残す）
+  export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string; connection: ShellProps['connection']; indexLabel: string | null; usage: UsageProps; sync: SyncProps }): JSX.Element;
   ```
 - `SyncStatus` は props だけで描き、状態を持たない。`visible` が false なら何も描かない。文言の右に「今すぐ同期」と「一時停止」「再開」を置き、押すと `sync.now` と `sync.pause` の Intent を出す。
-- `Shell` は `props.sync` を `Header` に渡す。位置は索引の進行と接続状態の左にする（フェーズ 3 の使用量ゲージがあれば、そのさらに左）。
+- `Shell` は `props.sync` を `Header` に渡す。位置は `<span className="spacer" />` の直後、使用量ゲージの手前にする。
+- アイコンは `views/primitives/Icon.tsx` を通してだけ使う。View から `lucide-react` を直接 import しない。新しいボタンのために `ICONS` に 2 つ足す。
+- CSS は `base.css` に足さず、新しい `packages/ui/src/styles/sync.css` に書いて `main.tsx` から import する（フェーズ 3 で決めた、View のまとまりごとに分ける方針に従う）。
 - セッション画面は、ロックがあれば見出しの下に「<端末名> で実行中」と最終確認の時刻を出し、再開とフォークを無効にして「引き継ぐ」を出す。`stale` なら「応答がありません」を添える。`canResumeHere` なら「この PC で再開」を出す。
 - 色は既存のトークンを使い、暗い配色は持たない（2026-09-17 の決定）。
 
@@ -7552,7 +7600,7 @@ git commit -m "feat(ui): presenters for sync status, session lock and the takeov
   });
 ```
 
-`packages/ui/src/views/SessionScreen.test.tsx` の `base` に `lock: null, remoteOnly: false, canResume: true, canResumeHere: false` を足し、次を足す。
+`packages/ui/src/views/SessionScreen.test.tsx` の `base` に `lock: null, remoteOnly: false, canResumeHere: false` を足す（`canResume` と `canFork` は既にあるので、この describe では `true` にしておく）。そのうえで次を足す。
 
 ```ts
   it('他端末で実行中なら再開を止めて引き継ぎを出す', () => {
@@ -7611,25 +7659,37 @@ export function SyncStatus(props: SyncProps) {
 }
 ```
 
-`packages/ui/src/views/Header.tsx` の props に `sync: SyncProps` を足し、`<span className="spacer" />` の後ろ、索引の進行の手前に `<SyncStatus {...props.sync} />` を置く。
-`packages/ui/src/views/Shell.tsx` の `Header` の呼び出しに `sync={props.sync}` を足す。
+`packages/ui/src/views/Header.tsx` の props に `sync: SyncProps` を足し、`<span className="spacer" />` の直後、`<span className="gauges">` の手前に `<SyncStatus {...props.sync} />` を置く。既存の `usage` の props と使用量ゲージはそのまま残す。
+`packages/ui/src/views/Shell.tsx` の `Header` の呼び出しに `sync={props.sync}` を足す（既存の `usage={props.usage}` は残す）。
 
-`packages/ui/src/styles/base.css` に小さいボタンを足す（`.btn` の定義のすぐ後ろ）。
+`packages/ui/src/styles/sync.css` を新しく作る。色と大きさは `tokens.css` にある名前だけを使う。
 
 ```css
+/* 同期の一行と、そこに並べる小さいボタン。 */
 .btn-sm { height: calc(var(--row-h) - 6px); padding: 0 calc(var(--u) * 2); font-size: var(--fs-sm); }
 ```
+
+`packages/ui/src/main.tsx` の `import './styles/settings.css';` の後ろに `import './styles/sync.css';` を足す。
 
 - [ ] **Step 4: セッション画面を直す**
 
 `packages/ui/src/views/SessionScreen.tsx` のボタンの並びを替える。
 
+先に `packages/ui/src/views/primitives/Icon.tsx` の `ICONS` に 2 つ足す（import も同じ行に加える）。
+
+```ts
+  takeover: ArrowLeftRight,
+  resumeHere: Download,
+```
+
+そのうえで、既存の「再開」と「フォーク」の行はそのままに、その間に 2 つのボタンを差し込む。既存の `<Icon name="..." />` は消さない。
+
 ```tsx
-        <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.resume', id })}>再開</button>
-        <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.fork', id })}>フォーク</button>
-        {props.canResumeHere && <button className="btn" onClick={() => emit({ type: 'session.resumeHere', id })}>この PC で再開</button>}
-        {props.lock && <button className="btn btn-primary" onClick={() => emit({ type: 'session.takeover', id, force: false })}>引き継ぐ</button>}
-        <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}>VS Code で開く</button>
+        <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.resume', id })}><Icon name="resume" />再開</button>
+        <button className="btn" disabled={!props.canFork} onClick={() => emit({ type: 'session.fork', id })}><Icon name="fork" />フォーク</button>
+        {props.canResumeHere && <button className="btn" onClick={() => emit({ type: 'session.resumeHere', id })}><Icon name="resumeHere" />この PC で再開</button>}
+        {props.lock && <button className="btn btn-primary" onClick={() => emit({ type: 'session.takeover', id, force: false })}><Icon name="takeover" />引き継ぐ</button>}
+        <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}><Icon name="openEditor" />VS Code で開く</button>
 ```
 
 その下の一行（`cwd` などを並べている `div`）の中に足す。
@@ -7642,7 +7702,7 @@ export function SyncStatus(props: SyncProps) {
 ```
 
 `!props.hasTranscript && <span>本文がありません</span>` はそのまま残す。
-`packages/ui/src/styles/base.css` に足す。色は `tokens.css` にある名前だけを使う。
+`packages/ui/src/styles/sync.css` に足す（`base.css` には足さない）。色は `tokens.css` にある名前だけを使う。
 
 ```css
 .lock { color: var(--accent); }
@@ -7657,7 +7717,7 @@ Expected: PASS（Shell 1 件、SessionScreen 4 件を足した数）
 - [ ] **Step 6: コミット**
 
 ```bash
-git add packages/ui/src/views packages/ui/src/styles
+git add packages/ui/src/views packages/ui/src/styles packages/ui/src/main.tsx
 git commit -m "feat(ui): header sync status and session lock with takeover and resume-here"
 ```
 
@@ -7681,8 +7741,9 @@ git commit -m "feat(ui): header sync status and session lock with takeover and r
 - `TakeoverDialog` は段階の文言と、`canForce` のときだけ「強制引き継ぎ」、`canCancel` のときだけ「やめる」を出す。終わった段階では「閉じる」だけを出す。
 - `ConfirmDialog` は手元と写しの大きさを並べ、「上書きして再開」で `session.resumeHere { overwrite: true }` を出す。
 - `ConfigPreviewDialog` は取り込む内容の一覧（作成、上書き、競合、変更なし）を出し、「取り込む」で `sync.config.apply` を出す。まだ一覧が来ていなければ読み込み中と出す。
-- Settings の「クラウド同期」の節は「要約器」の後、「Provider」の前に置く。中身は状態（URL、最終 pull、未送信件数、端末の一覧）、「今すぐ同期」「一時停止」、「参加トークンを表示」（押すまで隠し、表示時に注意書きを添える）、Claude Code 設定の同期のチェックと「取り込み内容を確認」である。
-- Root はオーバーレイに 3 つのダイアログを足し、`presentShell` と `presentSettings` に `now` を渡す。
+- Settings の「クラウド同期」の節は「要約器」の後、「使用量」の前に置く（実物に「Provider」の節は無い）。中身は状態（URL、最終 pull、未送信件数、端末の一覧）、「今すぐ同期」「一時停止」、「参加トークンを表示」（押すまで隠し、表示時に注意書きを添える）、Claude Code 設定の同期のチェックと「取り込み内容を確認」である。
+- 「次のフェーズで追加される設定」の節は、中身がクラウド同期と引き継ぎだけなので、節ごと消す。
+- Root はオーバーレイに 3 つのダイアログを足し、`presentSettings` に `now` を渡す（`presentShell` には既に渡している）。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -7791,7 +7852,7 @@ describe('ConfigPreviewDialog', () => {
   it('引き継ぎのオーバーレイが出て、更新で段階が進む', async () => {
     const { rt, deps, handlers } = make();
     rt.start();
-    render(<Root runtime={rt} api={deps.api} />);
+    render(<Root runtime={rt} api={deps.api} terminals={terminals} />);   // terminals は Root.test.tsx の既存の偽物
     act(() => handlers[0]!.onOpen());
     await flush();
     act(() => rt.emit({ type: 'session.takeover', id: 's1', force: false }));
@@ -7914,7 +7975,7 @@ export function ConfigPreviewDialog(props: { preview: ConfigPreviewDto | null })
 
 - [ ] **Step 4: Settings の節と Root を直す**
 
-`packages/ui/src/views/SettingsScreen.tsx` に節を足す（「この端末」の前、フェーズ 3 の「要約器」の後ろ）。参加トークンは押すまで出さない。
+`packages/ui/src/views/SettingsScreen.tsx` に節を足す（フェーズ 3 の「要約器」の後ろ、「使用量」の前）。参加トークンは押すまで出さない。
 
 ```tsx
       <section>
@@ -7957,7 +8018,7 @@ export function ConfigPreviewDialog(props: { preview: ConfigPreviewDto | null })
       </section>
 ```
 
-「次のフェーズで追加される設定」の文言から「クラウド同期」を消す。
+末尾の「次のフェーズで追加される設定」の節（`<h2 className="h2">次のフェーズで追加される設定</h2>` とその下の 1 行）は、中身がこのフェーズで実装するものだけなので節ごと消す。
 
 `packages/ui/src/Root.tsx` を直す。
 
@@ -7967,30 +8028,29 @@ import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
 import { ConfirmDialog } from './views/ConfirmDialog.tsx';
 import { TakeoverDialog } from './views/TakeoverDialog.tsx';
 
-  const shell = presentShell(state, store, now);
-  ...
+  // presentShell は既に now を受け取っている。presentSettings にだけ now を渡す形に替える。
     case 'settings': body = <SettingsScreen {...presentSettings(state, store, now)} />; break;
 
   const takeover = presentTakeover(state, store);
+  // 既存の overlays の並びは変えず、3 つを足すだけにする。
   const overlays = (
     <>
       {unresolvedId && <ResolveProjectDialog ... />}
+      {newSession && <NewSessionDialog ... />}
+      {overlay.kind === 'palette' && <CommandPalette ... />}
+      {overlay.kind === 'promote' && <PromoteDialog ... />}
+      {overlay.kind === 'promoted' && <PromotedDialog ... />}
       {takeover && <TakeoverDialog {...takeover} />}
       {overlay.kind === 'confirm' && <ConfirmDialog confirm={overlay.confirm} />}
       {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
-      {overlay.kind === 'palette' && ...}
       <ToastStack toasts={state.toasts} />
     </>
   );
 ```
 
-Esc でオーバーレイを閉じられるように、キーボードの効果を広げる。
-
-```tsx
-      if (e.key === 'Escape' && overlay.kind !== 'none') rt.emit({ type: overlay.kind === 'palette' ? 'palette.close' : 'overlay.close' });
-```
-
-`useEffect` の依存配列は `[rt, overlay.kind]` にする。
+Esc の扱いはフェーズ 3 のまま変えない。
+入力中（`typing`）と `resolveProject` を除く条件も、依存配列 `[rt, overlayKind, shortcutTabs, selectedTabId, canSplit]` もそのままにする。
+`takeover`、`confirm`、`configPreview` は `overlayKind !== 'none'` に入るので、これだけで Esc が効く。
 
 - [ ] **Step 5: テストと型検査**
 
@@ -8171,7 +8231,7 @@ git commit -m "docs: record the real cloudflare run for phase 4 sync"
 
 **Files:**
 - Modify: `docs/design.md`、`README.md`
-- Read: `docs/plans/phase4-sync.md`（この計画の「前提（この計画で決めたこと）」）、`docs/plans/phase4-real-run.md`（あれば）、`docs/plans/phase4-mismatches.md`（あれば）
+- Read: `docs/plans/phase4-sync.md`（この計画の「前提（この計画で決めたこと）」）、`docs/plans/phase4-real-run.md`（あれば）、`docs/plans/phase4-mismatches.md`（あれば）、`.superpowers/sdd/phase4-sync/task-0-report.md`
 
 **Interfaces:**
 - Consumes: 実装した全タスクの結果。
@@ -8200,7 +8260,7 @@ git commit -m "docs: record the real cloudflare run for phase 4 sync"
   - 参加トークンは `{url, secret}` の JSON を base64url にした文字列で、Settings からいつでも再表示できる。
   - 端末ローカルの `file_sync` で、上げ下ろしの最後の SHA-256 を持つ。
   - 引き継ぎの握手は `takeover_requests` の同期に乗せ、専用の通信路を持たない。
-- 「フェーズ」のフェーズ 4 の行から「（執筆中）」を外す。
+- 「フェーズ」のフェーズ 4 の行（`docs/design.md` の 997 行目あたり）を、実装済みの表現に直す。
 
 - [ ] **Step 3: 逸脱を記録する**
 
@@ -8265,8 +8325,8 @@ npm run hangar -- cloud teardown       # Worker と D1 と R2 を消す（2 段�
 Run: `npx markdownlint-cli2 docs/design.md README.md 2>/dev/null || true`
 Expected: 設定していなければ何も出ない。目視で、一文ごとに改行されていること、地の文にダッシュと中黒が無いこと、コードブロックの言語指定があることを確かめる。
 
-Run: `grep -n "執筆中" docs/design.md`
-Expected: フェーズ 4 の行が残っていない（フェーズ 3 と 5 の行は残ってよい）。
+Run: `grep -n "フェーズ 4" docs/design.md README.md`
+Expected: 「フェーズ 4 で実装する」と未来形で書いてある箇所（`packages/cloud` の説明など）が残っていない。
 
 - [ ] **Step 6: コミット**
 
@@ -8307,4 +8367,5 @@ git commit -m "docs: fold phase 4 sync decisions into the design doc and documen
 - UI は props だけで描く Passive View のままである。`SyncStatus`、`TakeoverDialog`、`ConfirmDialog`、`ConfigPreviewDialog` は状態を持たず、`fetch` を呼ばず、Intent だけを出す。暗い配色は足していない。
 - 設計文書に無い Intent（`session.resumeHere`、`session.takeover.cancel`、`sync.config.preview`、`sync.config.apply`、`sync.joinToken.show`）と ServerEvent（`sync.status`、`sync.applied`、`takeover.update`、`devices.update`）を足した。Task 26 で設計文書に反映する。
 - 設計文書が「差分を上げる」と書いている本文の同期は、R2 が部分更新を持たないのでファイル全体の上げ直しにした。Task 13 に理由を書き、Task 26 で設計文書を直す。
-- フェーズ 2 と 3 の実装との食い違いは Task 0 で先に洗い出す。`RunManager.kill` の第二引数（Task 16）、マイグレーションの版番号（Task 8）、`SessionProps.canResume` の有無（Task 22）、Settings の節の並び（Task 24）が、食い違いの出やすい箇所である。
+- フェーズ 2 と 3 の実装との照合は 2026-09-19 に済ませ、結果をこの計画の本文に取り込んだ（記録は `.superpowers/sdd/phase4-sync/task-0-report.md`）。直した主な箇所は、マイグレーションの版番号（Task 8 は `version: 6`）、`IndexFileResult.artifactIds` と `IndexerListener.artifactIds`（Task 14）、`server.ts` の `sessionChanged` と `updateSettings` の既存の中身（Task 19）、`initialState` と領域の合成順（Task 20）、`call` の `{ error }` の読み取り（Task 21）、`ShellProps.usage` と `SettingsProps` のフェーズ 3 の項目（Task 22）、アイコンの使い方と CSS の置き場（Task 23）、Settings の節の並びと Root の Esc の扱い（Task 24）である。
+- CSS は `base.css` を太らせず `packages/ui/src/styles/sync.css` に分ける。アイコンは `views/primitives/Icon.tsx` を通してだけ使い、プロジェクトのステータスは `StatusSelect` を使う。どちらもフェーズ 3 で決めた約束である。
