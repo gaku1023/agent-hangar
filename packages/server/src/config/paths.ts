@@ -24,7 +24,20 @@ export type Settings = {
   summaryFallback: boolean;
   /** Claude のヘッドレスを 1 時間に何件まで呼ぶか。 */
   summaryHourlyCap: number;
+  /**
+   * ループバックの外の要約器を許すかどうか。
+   * 要約器には会話の本文が送られるので、既定では手元だけに閉じる。
+   */
+  allowExternalSummarizer: boolean;
 };
+
+/** 要約器の宛先に既定で許すホスト。 */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
+/** 要約器の URL が手元を指しているか。読めない文字列は手元とみなさない。 */
+export function isLoopbackSummarizerUrl(v: string): boolean {
+  try { return LOOPBACK_HOSTS.has(new URL(v).hostname); } catch { return false; }
+}
 
 export function hangarHome(): string {
   return process.env.HANGAR_HOME ?? path.join(os.homedir(), '.agent-hangar');
@@ -59,13 +72,17 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
 }
 
 export function loadSettings(home: string): Settings {
   const file = path.join(home, 'settings.json');
   if (!fs.existsSync(file)) return defaultSettings();
-  return { ...defaultSettings(), ...(JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<Settings>) };
+  const s = { ...defaultSettings(), ...(JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<Settings>) };
+  // 許しの無い外部の宛先は、読み込みのときに既定へ戻す。
+  // 手で書き換えた settings.json や、この制限より前に保存された設定から、会話の本文が外へ出ていかないようにする。
+  if (!s.allowExternalSummarizer && !isLoopbackSummarizerUrl(s.lmStudioUrl)) s.lmStudioUrl = defaultSettings().lmStudioUrl;
+  return s;
 }
 
 export function saveSettings(home: string, s: Settings): void {

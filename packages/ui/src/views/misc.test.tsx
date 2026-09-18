@@ -73,7 +73,7 @@ describe('SessionsScreen', () => {
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, sessionCount: 3, projectCount: 2,
   tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, mcpInstallCommand: 'npm run hangar -- mcp install',
-  lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20,
+  lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   statuslineCommand: 'npm run hangar -- statusline install',
@@ -156,12 +156,27 @@ describe('SettingsScreen のフェーズ 3', () => {
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'http://127.0.0.1:2345' } });
     fireEvent.click(screen.getByText('要約器の設定を保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false } });
     fireEvent.change(screen.getByLabelText('モデル'), { target: { value: 'qwen' } });
     fireEvent.click(screen.getByLabelText('Claude へ切り替える'));
     fireEvent.change(screen.getByLabelText('1 時間の上限'), { target: { value: '5' } });
     fireEvent.click(screen.getByText('要約器の設定を保存'));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryFallback: false, summaryHourlyCap: 5 } });
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false } });
+  });
+  it('外部の要約器を許すときは、本文が送られることを書く', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    // 既定では許していないので、警告は出さない。
+    expect(screen.queryByText(/会話の本文/)).toBeNull();
+    fireEvent.click(screen.getByLabelText('外部の要約器を許す'));
+    expect(screen.getByText(/会話の本文/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'https://summarizer.example.com' } });
+    fireEvent.click(screen.getByText('要約器の設定を保存'));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'https://summarizer.example.com', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: true } });
+    // サーバから届いた値が入りのときは、最初から警告を出す。
+    rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ allowExternalSummarizer: true, lmStudioUrl: 'https://summarizer.example.com' })} /></IntentRoot>);
+    expect((screen.getByLabelText('外部の要約器を許す') as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText(/会話の本文/)).toBeTruthy();
   });
   it('1 時間の上限は 1 以上 200 以下の整数の入力欄である', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
@@ -185,7 +200,7 @@ describe('SettingsScreen のフェーズ 3', () => {
     fireEvent.change(cap, { target: { value: '12' } });
     expect(screen.queryByText('1 から 200 までの整数を入れてください')).toBeNull();
     fireEvent.click(screen.getByText('要約器の設定を保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 12 } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 12, allowExternalSummarizer: false } });
   });
   it('モデルの一覧の状態を出し分ける', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ summarizerModels: null })} /></IntentRoot>);

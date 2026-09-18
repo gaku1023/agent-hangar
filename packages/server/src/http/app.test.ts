@@ -88,7 +88,7 @@ beforeEach(async () => {
   await indexer.fullScan();
   db.prepare('update sessions set cwd = ? where provider_session_id = ?').run(`${ws}/alpha`, SESSION_ALPHA);
   syncProjectsFromWorkspace(db, 'd', ws); assignSessions(db, 'd');
-  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
+  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
   runs = fakeRuns();
   external = fakeExternal();
   usage = new UsageTracker(db);
@@ -196,7 +196,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false });
   });
   it('ワークスペースのルートを変えるとプロジェクトを登録し直して配信する', async () => {
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
@@ -225,7 +225,7 @@ describe('routes', () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.runs).toEqual([run]);
     expect(body.tabs).toHaveLength(2);
-    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
+    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false });
   });
   it('起動、再開、フォーク、停止', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -451,6 +451,24 @@ describe('routes', () => {
     expect((await patch({ summaryFallback: 'yes' })).status).toBe(400);
     expect((await (await patch({ lmStudioModel: null })).json()).lmStudioModel).toBeNull();
   });
+  it('要約器の宛先は、既定ではループバックだけを受ける', async () => {
+    const patch = (body: unknown) => post('/api/settings', body, 'PATCH');
+    // 会話の本文はこの宛先へ送られる。外部のホストは、明示の許可が無ければ断る。
+    const bad = await patch({ lmStudioUrl: 'https://attacker.example.com/collect' });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/外部の要約器/);
+    expect((await json(await get('/api/settings'))).body.lmStudioUrl).toBe('http://127.0.0.1:1234');
+    for (const u of ['http://127.0.0.1:1234', 'http://localhost:4321', 'http://[::1]:1234']) {
+      expect([u, (await patch({ lmStudioUrl: u })).status]).toEqual([u, 200]);
+    }
+    // 許しを立てたときだけ通り、外部の宛先であることは設定に残る。
+    expect((await patch({ allowExternalSummarizer: true, lmStudioUrl: 'https://attacker.example.com/collect' })).status).toBe(200);
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ allowExternalSummarizer: true, lmStudioUrl: 'https://attacker.example.com/collect' });
+    // 許しを下ろすときは、宛先も戻してもらう。外部のまま無効にはできない。
+    expect((await patch({ allowExternalSummarizer: false })).status).toBe(400);
+    expect((await patch({ allowExternalSummarizer: false, lmStudioUrl: 'http://127.0.0.1:1234' })).status).toBe(200);
+    expect((await patch({ allowExternalSummarizer: 'yes' })).status).toBe(400);
+  });
   it('MCP の経路が mount されている', async () => {
     const r = await app.request('/mcp', { method: 'POST', headers: { ...H, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } }) });
     expect(r.status).toBe(200);
@@ -462,7 +480,7 @@ describe('routes', () => {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
       fs.mkdirSync(path.join(dist, 'assets'));
       fs.writeFileSync(path.join(dist, 'assets', 'a.js'), 'console.log(1)');
-      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
+      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
       const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), uiDist: dist });
       const r = await ui.request('/');
       expect(r.status).toBe(200);

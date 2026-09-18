@@ -15,6 +15,7 @@ export function SettingsScreen(props: SettingsProps) {
   const [lmModel, setLmModel] = useState(props.lmStudioModel ?? '');
   const [fallback, setFallback] = useState(props.summaryFallback);
   const [cap, setCap] = useState(String(props.summaryHourlyCap));
+  const [allowExternal, setAllowExternal] = useState(props.allowExternalSummarizer);
   const [capError, setCapError] = useState(false);
   // サーバが正規化した値、たとえば tmux の絶対パスを入力欄に反映する。
   useEffect(() => { setWs(props.workspaceRoot); }, [props.workspaceRoot]);
@@ -25,6 +26,7 @@ export function SettingsScreen(props: SettingsProps) {
   useEffect(() => { setLmModel(props.lmStudioModel ?? ''); }, [props.lmStudioModel]);
   useEffect(() => { setFallback(props.summaryFallback); }, [props.summaryFallback]);
   useEffect(() => { setCap(String(props.summaryHourlyCap)); }, [props.summaryHourlyCap]);
+  useEffect(() => { setAllowExternal(props.allowExternalSummarizer); }, [props.allowExternalSummarizer]);
   useEffect(() => { setCapError(false); }, [props.summaryHourlyCap]);
   // 1 時間の上限は 1 以上 200 以下の整数だけを受け付ける。
   // 空のまま送ると 0 になって、Claude への切り替えが黙って止まってしまう。
@@ -36,7 +38,7 @@ export function SettingsScreen(props: SettingsProps) {
   const saveSummarizer = () => {
     if (!capValid) { setCapError(true); return; }
     setCapError(false);
-    emit({ type: 'settings.update', patch: { lmStudioUrl: lmUrl, lmStudioModel: lmModel || null, summaryFallback: fallback, summaryHourlyCap: capNumber } });
+    emit({ type: 'settings.update', patch: { lmStudioUrl: lmUrl, lmStudioModel: lmModel || null, summaryFallback: fallback, summaryHourlyCap: capNumber, allowExternalSummarizer: allowExternal } });
   };
 
   // 変えた項目だけを送る。
@@ -122,6 +124,8 @@ export function SettingsScreen(props: SettingsProps) {
         </div>
         {props.summarizerModels === null && <div className="faint" style={{ marginTop: 4 }}>読み込んでいます</div>}
         {props.summarizerModels?.length === 0 && <div className="faint" style={{ marginTop: 4 }}>LM Studio に繋がりません</div>}
+        <label className="settings-row"><input type="checkbox" aria-label="外部の要約器を許す" checked={allowExternal} onChange={(e) => setAllowExternal(e.target.checked)} /><span>手元の外にある要約器を許す</span></label>
+        {allowExternal && <div className="error" role="alert" style={{ marginTop: 4 }}>会話の本文（利用者の発言とアシスタントの応答）が {lmUrl || 'この宛先'} へ送られます。宛先を確かめてください。</div>}
         <label className="settings-row"><input type="checkbox" aria-label="Claude へ切り替える" checked={fallback} onChange={(e) => setFallback(e.target.checked)} /><span>LM Studio が使えないとき Claude へ切り替える</span></label>
         <label className="settings-row"><span>1 時間の上限</span><input className="input mono" type="number" min={1} max={200} step={1} style={{ width: 72 }} aria-label="1 時間の上限" value={cap} onChange={(e) => { setCap(e.target.value); setCapError(false); }} /><span className="faint">件。1 から 200 まで。7 日の使用率が 80% を超えたら切り替えません。</span></label>
         {capError && <div className="error" role="alert" style={{ marginTop: 4 }}>1 から 200 までの整数を入れてください</div>}

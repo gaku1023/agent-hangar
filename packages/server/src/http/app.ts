@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { newId, type ArtifactDto, type BootstrapDto, type IndexProgressDto, type LaunchParams, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ServerEvent, type SettingsDto, type SummarizerTestDto, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
-import type { Settings } from '../config/paths.ts';
+import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
 import { statuslineStatus } from '../config/statusline.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
@@ -72,7 +72,7 @@ const BODY_LIMITS = {
 } as const;
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer });
 const numberOr = (v: string | undefined): number | undefined => (v ? Number(v) : undefined);
 const isEnoent = (e: unknown): boolean => (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
 
@@ -289,7 +289,20 @@ export function createApp(deps: AppDeps): Hono {
       if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) return c.json({ error: 'summaryHourlyCap は 1 以上の整数です' }, 400);
       patch.summaryHourlyCap = v;
     }
+    if ('allowExternalSummarizer' in body) {
+      const v = body.allowExternalSummarizer;
+      if (typeof v !== 'boolean') return c.json({ error: 'allowExternalSummarizer は true か false です' }, 400);
+      patch.allowExternalSummarizer = v;
+    }
     if (Object.keys(patch).length === 0) return c.json({ error: '更新できる設定が含まれていません' }, 400);
+    // 要約器には会話の本文が送られる。宛先は既定でループバックだけにし、明示の許しがあるときだけ外へ出す。
+    // 許しと宛先は同じ要求で見る。片方ずつ変えて素通りする隙間を作らない。
+    const cur = deps.settings();
+    const allowExternal = patch.allowExternalSummarizer ?? cur.allowExternalSummarizer;
+    const nextLmUrl = patch.lmStudioUrl ?? cur.lmStudioUrl;
+    if (!allowExternal && !isLoopbackSummarizerUrl(nextLmUrl)) {
+      return c.json({ error: '要約器の宛先は 127.0.0.1 か localhost だけです。会話の本文が送られるため、外部の要約器は Settings で明示的に許してから指定してください' }, 400);
+    }
     const before = deps.settings();
     const s = deps.updateSettings(patch);
     // ワークスペースが変わったら、その場でプロジェクトを登録し直して結果を配る。
