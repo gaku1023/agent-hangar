@@ -68,12 +68,23 @@ export class SummaryJob {
     return !!s && this.deps.live().some((l) => l.sessionId === s.p);
   }
 
-  /** 受け付けたら true。force でなければ stale とレジストリの不在を確かめる。 */
-  enqueue(sessionId: string, force = false): boolean {
+  /**
+   * 受け付けたら true。
+   * 既定では、土台かどうか（`isSummaryStale`）とレジストリの不在の両方を確かめる。
+   * `force` は両方を飛ばす。手動の作り直しで使う。
+   * `ignoreLive` はレジストリの判定だけを飛ばす。
+   * run を止めた直後は、レジストリの読み取りが 500 ミリ秒周期のキャッシュなので必ず「生きている」と出る。
+   * 呼び手が run の終了を知っている場面では `ignoreLive` を使う。
+   * 土台かどうかと 5 ターンの判定はそのまま残る。
+   */
+  enqueue(sessionId: string, opts: boolean | { force?: boolean; ignoreLive?: boolean } = false): boolean {
+    const force = opts === true || (typeof opts === 'object' && opts.force === true);
+    const ignoreLive = force || (typeof opts === 'object' && opts.ignoreLive === true);
     if (this.running === sessionId || this.queue.includes(sessionId)) return false;
     const hasBody = this.deps.db.prepare('select 1 from event_index where session_id = ? and parent_agent is null limit 1').get(sessionId);
     if (!hasBody) return false;
-    if (!force && (!isSummaryStale(this.deps.db, sessionId) || this.isLive(sessionId))) return false;
+    if (!force && !isSummaryStale(this.deps.db, sessionId)) return false;
+    if (!ignoreLive && this.isLive(sessionId)) return false;
     this.queue.push(sessionId);
     this.emit({ type: 'summary.pending', sessionId });
     void this.drain();

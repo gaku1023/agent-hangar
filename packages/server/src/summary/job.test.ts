@@ -94,6 +94,21 @@ describe('SummaryJob', () => {
     expect(String(warn.mock.calls[0]?.[0])).toContain('summary.pending');
     warn.mockRestore();
   });
+  it('run の終了直後は ignoreLive で受理する。土台かどうかと 5 ターンの判定は残る', async () => {
+    // レジストリのキャッシュは 500 ミリ秒遅れるので、kill の直後はまだ生きて見える。
+    const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/x', pid: 1 }];
+    const job = make([fake('lmstudio', { model: 'qwen3-27b' })], live);
+    expect(job.enqueue(alphaId)).toBe(false);
+    expect(job.enqueue(alphaId, { ignoreLive: true })).toBe(true);
+    await job.idle();
+    expect((db.prepare('select source, based_on_turns from session_summaries where session_id = ?').get(alphaId) as { source: string; based_on_turns: number })).toMatchObject({ source: 'post_hoc', based_on_turns: 2 });
+    expect(job.enqueue(alphaId, { ignoreLive: true })).toBe(false);
+    db.prepare('update session_stats set turns = 7 where session_id = ?').run(alphaId);
+    expect(job.enqueue(alphaId, { ignoreLive: true })).toBe(true);
+    await job.idle();
+    expect(job.enqueue(alphaId, { force: true })).toBe(true);
+    await job.idle();
+  });
   it('モデル名を言わない要約器なら source_model は要約器の id に落ちる', async () => {
     const job = make([fake('lmstudio')]);
     job.enqueue(alphaId, true);
