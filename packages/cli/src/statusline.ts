@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import readline from 'node:readline';
-import { appendStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineSnippet } from '@agent-hangar/server';
+import { appendStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineSnippet, statuslineSnippetUpToDate } from '@agent-hangar/server';
 
 export type Ask = (question: string) => Promise<boolean>;
 
@@ -36,13 +36,22 @@ export async function runStatuslineInstall(o: {
     log(statuslineSnippet(o.port));
     return { installed: false, message: 'スクリプトが見つかりません' };
   }
-  if (fs.readFileSync(r.scriptPath, 'utf8').includes(STATUSLINE_MARKER)) { log('既に追記されています'); return { installed: true, message: '既に追記されています' }; }
-  log(`追記先: ${r.scriptPath}`);
-  log('追記する内容:');
+  // 目印だけを見て終わると、トークンを argv に載せる古い形が入ったまま残る。中身まで見て差し替える。
+  const has = fs.readFileSync(r.scriptPath, 'utf8').includes(STATUSLINE_MARKER);
+  if (has && statuslineSnippetUpToDate(r.scriptPath, o.port)) { log('既に追記されています'); return { installed: true, message: '既に追記されています' }; }
+  log(`${has ? '差し替え先' : '追記先'}: ${r.scriptPath}`);
+  if (has) log('古い形のスニペットが入っています。トークンを curl の引数に載せない形に差し替えます。');
+  log(`${has ? '差し替える' : '追記する'}内容:`);
   log(statuslineSnippet(o.port));
-  if (!o.yes && !(await ask('この内容を追記しますか？追記前にバックアップを取ります。'))) return { installed: false, message: '追記しませんでした' };
+  const question = has ? 'この内容に差し替えますか？差し替え前にバックアップを取ります。' : 'この内容を追記しますか？追記前にバックアップを取ります。';
+  if (!o.yes && !(await ask(question))) return { installed: false, message: has ? '差し替えませんでした' : '追記しませんでした' };
   const done = appendStatuslineSnippet(r.scriptPath, o.port);
+  if (!done.changed) {
+    // 目印はあるのに範囲を読み取れない。手で書き換えられているので、こちらからは触らない。
+    log('スニペットの範囲を読み取れなかったので、何も変えませんでした。手で入れ替えてください。');
+    return { installed: true, message: '変えませんでした' };
+  }
   if (done.backup) log(`バックアップ: ${done.backup}`);
-  log('追記しました。次に Claude Code を起動すると、使用量がヘッダーに出ます。');
-  return { installed: true, message: '追記しました' };
+  log(`${has ? '差し替えました' : '追記しました'}。次に Claude Code を起動すると、使用量がヘッダーに出ます。`);
+  return { installed: true, message: has ? '差し替えました' : '追記しました' };
 }

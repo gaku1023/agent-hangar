@@ -51,7 +51,10 @@ describe('SummaryJob', () => {
     expect(job.pending()).toEqual([]);
     expect(seen[0]).toMatchObject({ sessionId: alphaId, turns: 2, running: false });
     const row = db.prepare('select * from session_summaries where session_id = ?').get(alphaId) as Record<string, unknown>;
-    expect(row).toMatchObject({ title: 'T', source: 'post_hoc', source_model: 'qwen3-27b', based_on_turns: 2 });
+    // どの要約器が書いたかは source_id に入れる。source_model はモデル名だけを持つ。
+    expect(row).toMatchObject({ title: 'T', source: 'post_hoc', source_id: 'lmstudio', source_model: 'qwen3-27b', based_on_turns: 2 });
+    const upsert = sent.find((e) => e.type === 'session.upsert');
+    expect(upsert?.type === 'session.upsert' && upsert.session.summary).toMatchObject({ sourceId: 'lmstudio', sourceModel: 'qwen3-27b' });
     expect(sent.map((e) => e.type)).toEqual(['summary.pending', 'session.upsert', 'summary.updated']);
     expect(job.enqueue(alphaId)).toBe(false);     // もう stale ではない
     expect(job.enqueue(alphaId, true)).toBe(true);
@@ -67,7 +70,7 @@ describe('SummaryJob', () => {
     const job2 = make([fake('lmstudio', { fail: true }), fake('claude-headless', { model: 'haiku' })]);
     job2.enqueue(alphaId);
     await job2.idle();
-    expect((db.prepare('select source_model from session_summaries where session_id = ?').get(alphaId) as { source_model: string }).source_model).toBe('haiku');
+    expect(db.prepare('select source_id, source_model from session_summaries where session_id = ?').get(alphaId)).toEqual({ source_id: 'claude-headless', source_model: 'haiku' });
   });
   it('実行中のセッションは受け付けず、force なら受け付ける。本文の無いセッションも受け付けない', async () => {
     const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 1 }];
@@ -109,11 +112,11 @@ describe('SummaryJob', () => {
     expect(job.enqueue(alphaId, { force: true })).toBe(true);
     await job.idle();
   });
-  it('モデル名を言わない要約器なら source_model は要約器の id に落ちる', async () => {
+  it('モデル名を言わない要約器なら source_model は null で、source_id だけが残る', async () => {
     const job = make([fake('lmstudio')]);
     job.enqueue(alphaId, true);
     await job.idle();
-    expect((db.prepare('select source_model from session_summaries where session_id = ?').get(alphaId) as { source_model: string }).source_model).toBe('lmstudio');
+    expect(db.prepare('select source_id, source_model from session_summaries where session_id = ?').get(alphaId)).toEqual({ source_id: 'lmstudio', source_model: null });
   });
   it('直列に走り、test は DB に書かない', async () => {
     const job = make([fake('lmstudio', { delayMs: 20, model: 'qwen3-27b' })]);

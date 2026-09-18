@@ -34,7 +34,8 @@ export function sessionViewStep(state: State, input: Input): Step | null {
     switch (ev.type) {
       case 'transcript.appended': {
         const open = currentSession(state) === ev.sessionId;
-        return { state, effects: open ? [{ kind: 'api.loadEvents', sessionId: ev.sessionId, fromSeq: -1 }] : [] };
+        // 追記は末尾に足すだけでよい。-1（過去へ遡る）を出すと、全件を読み終えるまで古い側が 500 件ずつ入ってしまう。
+        return { state, effects: open ? [{ kind: 'api.loadEvents', sessionId: ev.sessionId, fromSeq: -2 }] : [] };
       }
       case 'run.started': {
         if (currentSession(state) !== ev.run.sessionId) return { state, effects: [] };

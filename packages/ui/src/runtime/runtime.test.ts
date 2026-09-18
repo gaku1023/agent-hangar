@@ -5,8 +5,8 @@ import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 }, projects: [], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
-const page = (from: number, next: number | null): EventsPageDto => ({ sessionId: 's1', events: [{ kind: 'user', seq: from, text: 'x' }], total: 3, nextSeq: next });
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false }, projects: [], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
+const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1', events: seqs.map((seq) => ({ kind: 'user', seq, text: 'x' })), total, nextSeq: null });
 
 /** ターミナルの偽物。React の外で持つ接続の代わりに、呼ばれた tabId を並べる。 */
 function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: string[] } {
@@ -17,7 +17,8 @@ function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: st
 function harness(overrides: Partial<ApiClient> = {}) {
   const api: ApiClient = {
     bootstrap: vi.fn(async () => boot),
-    events: vi.fn(async (_s, from) => page(from, from === 0 ? 1 : null)),
+    // 3 件のうち、開くと最新の 1 件、遡ると 1 つ古い 1 件、追記の取り込みでは前向きに 1 件。
+    events: vi.fn(async (_s, q) => (q.latest ? page([2], 3) : q.beforeSeq !== undefined ? page([q.beforeSeq - 1], 3) : page([q.fromSeq!], 4))),
     subagents: vi.fn(async () => []),
     search: vi.fn(async () => ({ hits: [], total: 0 })),
     setProjectStatus: vi.fn(async () => { throw new Error('500 /api/projects/p1'); }),
@@ -58,17 +59,38 @@ describe('createRuntime', () => {
     expect(rt.getStore().bootstrapped).toBe(true);
     expect(rt.getState().screen).toEqual({ name: 'projects' });
   });
-  it('session 画面で先頭ページを読み、loadMore で次のページを追記する', async () => {
+  it('session 画面は最新の側から読み、loadMore は過去へ遡る', async () => {
     const { rt, api, setHash } = harness();
     rt.start();
     setHash('#/session/s1');
     await flush();
-    expect(api.events).toHaveBeenCalledWith('s1', 0, null);
-    expect(rt.getStore().events['s1:']?.items).toHaveLength(1);
+    expect(api.events).toHaveBeenCalledWith('s1', { latest: true, agentId: null });
+    expect(rt.getStore().events['s1:']?.items.map((e) => e.seq)).toEqual([2]);
     rt.emit({ type: 'transcript.loadMore', sessionId: 's1' });
     await flush();
-    expect(api.events).toHaveBeenLastCalledWith('s1', 1, null);
-    expect(rt.getStore().events['s1:']?.items.map((e) => e.seq)).toEqual([0, 1]);
+    // 持っている中でいちばん古い seq より前を求める。
+    expect(api.events).toHaveBeenLastCalledWith('s1', { beforeSeq: 2, agentId: null });
+    expect([...rt.getStore().events['s1:']!.items.map((e) => e.seq)].sort()).toEqual([1, 2]);
+  });
+  it('追記が届いたら、持っている中でいちばん新しい seq の次から前向きに読む', async () => {
+    const { rt, api, setHash } = harness();
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's1', count: 1 } });
+    await flush();
+    expect(api.events).toHaveBeenLastCalledWith('s1', { fromSeq: 3, agentId: null });
+    expect([...rt.getStore().events['s1:']!.items.map((e) => e.seq)].sort()).toEqual([2, 3]);
+  });
+  it('すべて読み終えていれば loadMore はサーバを呼ばない', async () => {
+    const { rt, api, setHash } = harness({ events: vi.fn(async () => page([0, 1, 2], 3)) });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(api.events).toHaveBeenCalledTimes(1);
+    rt.emit({ type: 'transcript.loadMore', sessionId: 's1' });
+    await flush();
+    expect(api.events).toHaveBeenCalledTimes(1);
   });
   it('本文を読むときにサブエージェントの一覧も取り、同じセッションでは取り直さない', async () => {
     const { rt, api, setHash } = harness({ subagents: vi.fn(async () => ['agent-1']) });
@@ -371,7 +393,7 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getState().toasts).toEqual([]);
   });
   it('要約器を試すと結果がストアに入る', async () => {
-    const testSummarizer = vi.fn(async () => ({ ok: true as const, id: 'lmstudio' as const, ms: 12, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done' as const, nextSteps: [], source: 'post_hoc' as const, sourceModel: 'gemma', basedOnTurns: 3 } }));
+    const testSummarizer = vi.fn(async () => ({ ok: true as const, id: 'lmstudio' as const, ms: 12, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done' as const, nextSteps: [], source: 'post_hoc' as const, sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } }));
     const { rt, wsHandlers } = harness({ testSummarizer });
     rt.start();
     wsHandlers[0]!.onOpen();
@@ -425,5 +447,26 @@ describe('フェーズ 3 の効果', () => {
     rt.emit({ type: 'todo.add', projectId: 'p1', text: '買う' });
     await flush();
     expect(focus).toHaveBeenLastCalledWith('todoInput');
+  });
+});
+
+describe('繰り越しの掃除', () => {
+  it('別のセッションを開くと、前のセッションの本文を落とす', async () => {
+    // 画面に入るたび fromSeq 0 から読み直すので、開いていないセッションの本文は持たない。
+    const { rt, setHash } = harness();
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    rt.emit({ type: 'transcript.loadMore', sessionId: 's1' });
+    await flush();
+    expect(rt.getStore().events['s1:']?.items).toHaveLength(2);
+    setHash('#/session/s2');
+    await flush();
+    expect(Object.keys(rt.getStore().events)).toEqual(['s2:']);
+    // 戻れば読み直す。
+    setHash('#/session/s1');
+    await flush();
+    expect(Object.keys(rt.getStore().events)).toEqual(['s1:']);
+    expect(rt.getStore().events['s1:']?.items).toHaveLength(1);
   });
 });

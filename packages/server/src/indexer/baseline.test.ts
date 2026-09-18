@@ -23,7 +23,7 @@ describe('buildBaselineSummary', () => {
     expect(s.title).toBe('動画チャンネルの整理');
     expect(s.oneLiner).toBe('動画チャンネルの整理をしたい。まず現状を見て');
     expect(s.body).toBe('最初の依頼：動画チャンネルの整理をしたい。まず現状を見て\n最後の依頼：b.md も同じように直して\n触ったファイル：a.md\n2 ターン、4 分');
-    expect(s).toMatchObject({ state: 'done', nextSteps: [], source: 'baseline', sourceModel: null, basedOnTurns: 2 });
+    expect(s).toMatchObject({ state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2 });
   });
   it('ai-title が無ければ名前、それも無ければ最初の発言の先頭 40 字', () => {
     expect(buildBaselineSummary({ ...base, aiTitle: null }).title).toBe('channels-cleanup');

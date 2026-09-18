@@ -1,6 +1,24 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
+import { MIGRATIONS } from './migrations.ts';
 import { openDb } from './open.ts';
 import { softDeleteShared, upsertShared } from './shared.ts';
+
+/** version 以下のマイグレーションだけを当てた実物のファイルを作る。既存の DB からの移行を試すため。 */
+function openDbAt(file: string, version: number): void {
+  const db = new Database(file);
+  db.exec('create table if not exists schema_migrations (version integer primary key, applied_at integer not null)');
+  for (const m of MIGRATIONS.filter((m) => m.version <= version)) {
+    db.exec(m.sql);
+    db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
+  }
+  db.close();
+}
+
+const LATEST = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 
 describe('openDb', () => {
   it('共有テーブル、ローカルテーブル、FTS を作る', () => {
@@ -19,16 +37,44 @@ describe('openDb', () => {
     const db = openDb(':memory:');
     const names = (db.prepare("select name from sqlite_master where type = 'table' order by name").all() as { name: string }[]).map((r) => r.name);
     expect(names).toEqual(expect.arrayContaining(['session_live_stats', 'artifact_calls', 'usage_daily']));
-    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(3);
     db.prepare('insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)').run('u1', 'claude-opus-4-1', 'high', 50_000, 200_000, 0.12, 1);
-    db.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s1', '2026-09-01', 10, 2);
+    db.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?)').run('s1', '2026-09-01', '/a.jsonl', 10, 2);
     expect(db.prepare('select count(*) c from usage_daily').get()).toEqual({ c: 1 });
   });
-  it('FTS5 trigram で日本語の部分一致ができる', () => {
+  it('version 4 で usage_daily がファイル別になり、artifact_versions に artifact_id の索引がある', () => {
     const db = openDb(':memory:');
-    db.prepare('insert into event_fts (session_id, seq, role, text) values (?,?,?,?)').run('s1', 0, 'user', '動画チャンネルの整理をしたい');
-    const rows = db.prepare("select seq from event_fts where text match ?").all('"チャンネル"');
-    expect(rows).toHaveLength(1);
+    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(LATEST);
+    const cols = (db.prepare("select name from pragma_table_info('usage_daily')").all() as { name: string }[]).map((r) => r.name);
+    expect(cols).toContain('file_path');
+    // 同じセッションの同じ日でも、ファイルが違えば別の行になる。
+    const ins = db.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?)');
+    ins.run('s1', '2026-09-01', '/main.jsonl', 10, 2);
+    ins.run('s1', '2026-09-01', '/sub.jsonl', 5, 1);
+    expect(db.prepare('select count(*) c from usage_daily').get()).toEqual({ c: 2 });
+    const idx = (db.prepare("select name from sqlite_master where type = 'index' and tbl_name = 'artifact_versions'").all() as { name: string }[]).map((r) => r.name);
+    expect(idx).toContain('artifact_versions_artifact');
+  });
+  it('マイグレーション 3 からでも 4 からでも 5 からでも上げられ、日別は空になって作り直しに回る', () => {
+    // 移した値は「どのファイル由来か」を持たないので、消し方も残し方も正しくならない。
+    // だから移行では空にして、索引の作り直しで積み直す。
+    for (const from of [3, 4, 5]) {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
+      const file = path.join(tmp, 'hangar.db');
+      openDbAt(file, from);
+      const old = new Database(file);
+      if (from >= 4) old.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?)').run('s1', '2026-09-01', '/p/s1.jsonl', 10, 2);
+      else old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s1', '2026-09-01', 10, 2);
+      old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1.jsonl', 's1', null, 1, 1, 1, 1);
+      old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1-sub.jsonl', 's1', 'ag1', 1, 1, 1, 1);
+      old.close();
+      const db = openDb(file);
+      expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v, `from ${from}`).toBe(6);
+      expect(db.prepare('select count(*) c from usage_daily').get(), `from ${from}`).toEqual({ c: 0 });
+      // 索引済みの印を 0 に戻してあるので、次の走査で全ファイルが積み直される。
+      expect(db.prepare('select count(*) c from transcript_files where indexer_version = 0').get(), `from ${from}`).toEqual({ c: 2 });
+      db.close();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

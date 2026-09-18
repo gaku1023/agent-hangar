@@ -38,7 +38,7 @@ let memos: MemoStore;
 let summary: SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] };
 /** ワークスペースから登録される唯一のプロジェクト alpha の id。 */
 let list0ProjectId: () => string;
-const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceModel: 'lmstudio', basedOnTurns: 3 } };
+const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: null, basedOnTurns: 3 } };
 
 /** 経路の検査だけをしたいので、RunManager は呼び出しを記録する偽物に差し替える。 */
 function fakeRuns(): RunsApi {
@@ -88,7 +88,7 @@ beforeEach(async () => {
   await indexer.fullScan();
   db.prepare('update sessions set cwd = ? where provider_session_id = ?').run(`${ws}/alpha`, SESSION_ALPHA);
   syncProjectsFromWorkspace(db, 'd', ws); assignSessions(db, 'd');
-  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
+  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
   runs = fakeRuns();
   external = fakeExternal();
   usage = new UsageTracker(db);
@@ -117,11 +117,12 @@ describe('auth', () => {
     const other = createApp({ ...deps, port: 4198 });
     // 403 かどうかだけを見たいので、状態を変えない本文を送る（存在しない path なので 400 になる）。
     const req = (origin: string) => other.request('/api/projects', { method: 'POST', headers: { ...H, origin, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) });
-    for (const o of ['http://127.0.0.1:4198', 'http://localhost:4198', 'http://127.0.0.1:5173', 'http://localhost:5173', 'tauri://localhost']) {
+    for (const o of ['http://127.0.0.1:4198', 'http://localhost:4198', 'tauri://localhost']) {
       expect([o, (await req(o)).status]).toEqual([o, 400]);
     }
     // 無関係の Origin と、待ち受けていないポートは 403 のままにする。許可を広げない。
-    for (const o of ['https://evil.example', 'http://127.0.0.1:4177', 'http://localhost:4177', 'http://127.0.0.1:4199']) {
+    // 開発用の Vite の 5173 も、配ったものでは断る。
+    for (const o of ['https://evil.example', 'http://127.0.0.1:4177', 'http://localhost:4177', 'http://127.0.0.1:4199', 'http://127.0.0.1:5173', 'http://localhost:5173']) {
       expect([o, (await req(o)).status]).toEqual([o, 403]);
     }
     // MCP の入口も同じ考え方でそろえる。開発用の Vite だけは MCP に要らない。
@@ -129,6 +130,59 @@ describe('auth', () => {
     expect((await mcp('http://127.0.0.1:4198')).status).toBe(200);
     expect((await mcp('http://127.0.0.1:4177')).status).toBe(403);
     expect((await mcp('https://evil.example')).status).toBe(403);
+  });
+
+  // 127.0.0.1 の別のポートは「同一サイト」なので、SameSite=Strict のクッキーが載る。
+  // Content-Type を text/plain にすれば前検査も起きないので、クッキーだけで書き込めてしまっていた。
+  // ブラウザは本文を送るとき必ず Content-Length を付ける。本文の型の検査はそれを見る。
+  const cookieOnlyPost = (headers: Record<string, string>) => {
+    const body = JSON.stringify({ name: 'x', path: '/nonexistent' });
+    return app.request('/api/projects', { method: 'POST', headers: { cookie: `hangar_token=${TOKEN}`, 'content-length': String(body.length), ...headers }, body });
+  };
+
+  it('クッキーだけの書き込みは Sec-Fetch-Site で断る', async () => {
+    // 5173 の Origin はもう許可一覧に無いので、まず Origin で 403 になる。
+    expect((await cookieOnlyPost({ origin: 'http://127.0.0.1:5173', 'sec-fetch-site': 'same-site', 'content-type': 'text/plain;charset=UTF-8' })).status).toBe(403);
+    // Origin を送らない経路でも、Sec-Fetch-Site が same-site なら断る。
+    expect((await cookieOnlyPost({ 'sec-fetch-site': 'same-site', 'content-type': 'text/plain;charset=UTF-8' })).status).toBe(403);
+    expect((await cookieOnlyPost({ 'sec-fetch-site': 'cross-site', 'content-type': 'application/json' })).status).toBe(403);
+    // どの検査で断ったかを分からせない。Origin の拒否と同じ応答にそろえる。
+    const r = await cookieOnlyPost({ 'sec-fetch-site': 'same-site', 'content-type': 'application/json' });
+    expect([r.status, ((await r.json()) as { error: string }).error]).toEqual([403, 'origin not allowed']);
+  });
+
+  it('本文を送る要求は application/json だけを受ける', async () => {
+    expect((await cookieOnlyPost({ 'sec-fetch-site': 'same-origin', 'content-type': 'text/plain;charset=UTF-8' })).status).toBe(415);
+    expect((await cookieOnlyPost({ 'sec-fetch-site': 'same-origin', 'content-type': 'application/x-www-form-urlencoded' })).status).toBe(415);
+    // 型が正しければ今までどおり経路まで届く（存在しない path なので 400 になる）。
+    expect((await cookieOnlyPost({ 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' })).status).toBe(400);
+  });
+
+  it('正しい経路は今までどおり通る', async () => {
+    // Bearer を付けた curl は Sec-Fetch-Site を送らない。
+    expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) })).status).toBe(400);
+    // 本文を持たない curl -X POST は Content-Length も Transfer-Encoding も付けない。今までどおり通す。
+    expect((await app.request('/api/index/rebuild', { method: 'POST', headers: H })).status).toBe(202);
+    // ブラウザで開いた UI は same-origin になる。
+    expect((await cookieOnlyPost({ origin: 'http://127.0.0.1:4177', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' })).status).toBe(400);
+    // 本文を持たない POST は Content-Type を問わない。
+    expect((await app.request('/api/index/rebuild', { method: 'POST', headers: { ...H, 'sec-fetch-site': 'same-origin' } })).status).toBe(202);
+  });
+
+  it('開発のときは Vite の 5173 を通す', async () => {
+    vi.stubEnv('HANGAR_DEV', '1');
+    try {
+      // npm run dev では Vite のプロキシが Authorization を足して中継する。
+      // ブラウザから見た宛先は 5173 なので Sec-Fetch-Site は same-origin、Origin は 5173 になる。
+      const viaProxy = await app.request('/api/projects', { method: 'POST', headers: { ...H, origin: 'http://127.0.0.1:5173', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) });
+      expect(viaProxy.status).toBe(400);
+      // 5173 のページが直に叩く形も、開発のときだけは通す。
+      expect((await cookieOnlyPost({ origin: 'http://127.0.0.1:5173', 'sec-fetch-site': 'same-site', 'content-type': 'application/json' })).status).toBe(400);
+      // 開発でも、まったく別のサイトからは通さない。
+      expect((await cookieOnlyPost({ origin: 'https://evil.example', 'sec-fetch-site': 'cross-site', 'content-type': 'application/json' })).status).toBe(403);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -167,6 +221,19 @@ describe('routes', () => {
     expect((await json(await get(`/api/sessions/${alpha.id}/events?agentId=abc123`))).body.events).toHaveLength(2);
     expect((await get('/api/sessions/nope')).status).toBe(404);
   });
+  it('本文は最新の側からも、その手前へも読める', async () => {
+    const { body: sessions } = await json(await get('/api/sessions'));
+    const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
+    const { body: latest } = await json(await get(`/api/sessions/${alpha.id}/events?latest=1&limit=5`));
+    expect(latest.events.map((e: { seq: number }) => e.seq)).toEqual([12, 13, 14, 15, 16]);
+    expect(latest.total).toBe(17);
+    // 末尾から読んだページに「次の前向きのページ」は無い。
+    expect(latest.nextSeq).toBeNull();
+    const { body: older } = await json(await get(`/api/sessions/${alpha.id}/events?before=12&limit=5`));
+    expect(older.events.map((e: { seq: number }) => e.seq)).toEqual([7, 8, 9, 10, 11]);
+    // 先頭より古い行は無い。
+    expect((await json(await get(`/api/sessions/${alpha.id}/events?before=0`))).body.events).toEqual([]);
+  });
   it('本文ファイルが消えていれば 404', async () => {
     const { body: sessions } = await json(await get('/api/sessions'));
     const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
@@ -196,7 +263,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false });
   });
   it('ワークスペースのルートを変えるとプロジェクトを登録し直して配信する', async () => {
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
@@ -225,7 +292,7 @@ describe('routes', () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.runs).toEqual([run]);
     expect(body.tabs).toHaveLength(2);
-    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
+    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false });
   });
   it('起動、再開、フォーク、停止', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -283,6 +350,21 @@ describe('routes', () => {
     expect(bad.status).toBe(500);
     expect((await bad.json()).error).toBe('code が無い');
   });
+  it('外部連携の失敗は、トークンを伏せて 1 行に切り詰めて返す', async () => {
+    const { body: sessions } = await json(await get('/api/sessions'));
+    const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
+    const fail = (message: string) => (external.openEditor as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error(message));
+    fail(`spawn failed: --mcp-config {"token":"${TOKEN}"}\n2 行目`);
+    const r = await post(`/api/sessions/${alpha.id}/open-editor`);
+    expect(r.status).toBe(500);
+    const msg = (await r.json()).error as string;
+    expect(msg).not.toContain(TOKEN);
+    expect(msg).toContain('***');
+    expect(msg).not.toContain('2 行目');
+    fail('あ'.repeat(500));
+    const long = await post(`/api/sessions/${alpha.id}/open-editor`);
+    expect(((await long.json()).error as string).length).toBeLessThanOrEqual(201);
+  });
   it('プロジェクトの作成', async () => {
     fs.mkdirSync(`${ws}/beta`);
     const r = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'beta', path: `${ws}/beta` }) });
@@ -319,7 +401,7 @@ describe('routes', () => {
     expect(sent.find((e) => e.type === 'usage.update')).toMatchObject({ usage: { fiveHour: { usedPercent: 47 }, sevenDay: { usedPercent: 7 } } });
     expect((await json(await get('/api/usage'))).body).toMatchObject({ fiveHour: { usedPercent: 47 } });
     expect((await json(await get(`/api/sessions/${await alphaId()}`))).body.stats.contextPercent).toBe(25);
-    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: H, body: 'not json' })).status).toBe(400);
+    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: 'not json' })).status).toBe(400);
     // 認証は他の /api と同じ。トークンが無ければ受け付けない。
     expect((await app.request('/api/ingest/statusline', { method: 'POST', body: '{}' })).status).toBe(401);
     const agg = await json(await get('/api/usage/aggregate?days=30'));
@@ -364,6 +446,14 @@ describe('routes', () => {
     expect(external.openUrl).toHaveBeenCalledWith('https://claude.ai/code/artifact/manual');
     expect((await post(`/api/artifacts/${art.id}/open-editor`)).status).toBe(404);
     expect((await post('/api/artifacts/nope/open')).status).toBe(404);
+    // 入力の誤りは 400 のまま、DB の失敗は 500 にする。
+    const bad = await post(`/api/projects/${pid}/artifacts`, { url: 'https://example.com' });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/claude\.ai/);
+    db.exec('drop table artifacts');
+    const broken = await post(`/api/projects/${pid}/artifacts`, { url: 'https://claude.ai/code/artifact/manual-2' });
+    expect(broken.status).toBe(500);
+    expect((await broken.json()).error).toMatch(/追加できませんでした/);
   });
   it('セッションのメモ、昇格、要約', async () => {
     const id = await alphaId();
@@ -380,12 +470,14 @@ describe('routes', () => {
     expect(s.status).toBe(202);
     // 手動の作り直しは土台かどうかもレジストリも問わない。
     expect(summary.enqueued).toContainEqual([id, { force: true }]);
-    await get(`/api/sessions/${id}/events?fromSeq=0`);
+    await get(`/api/sessions/${id}/events?latest=1`);
     // セッションを開いたときは既定のまま（土台かどうかとレジストリの両方を見る）。
+    // 画面を開く呼び出しは最新の側を求める呼び出しなので、契機はそこに付ける。
     expect(summary.enqueued).toContainEqual([id, undefined]);
     summary.enqueued.length = 0;
     await get(`/api/sessions/${id}/events?fromSeq=5`);
-    await get(`/api/sessions/${id}/events?agentId=abc123`);
+    await get(`/api/sessions/${id}/events?before=5`);
+    await get(`/api/sessions/${id}/events?latest=1&agentId=abc123`);
     expect(summary.enqueued).toEqual([]);
     expect((await json(await get('/api/summarizer/models'))).body).toEqual({ models: ['gemma'] });
     expect((await json(await post('/api/summarizer/test'))).body).toEqual(testResult);
@@ -397,7 +489,7 @@ describe('routes', () => {
     const r = await post(`/api/sessions/${id}/summarize`);
     expect(r.status).toBe(202);
     expect(await r.json()).toEqual({ accepted: false });
-    expect((await get(`/api/sessions/${id}/events?fromSeq=0`)).status).toBe(200);
+    expect((await get(`/api/sessions/${id}/events?latest=1`)).status).toBe(200);
   });
   it('本文の上限はバイト数で測り、超えたら 413', async () => {
     const pid = list0ProjectId();
@@ -407,7 +499,7 @@ describe('routes', () => {
     expect(sent.some((e) => e.type === 'memo.update')).toBe(false);
     expect((await post(`/api/projects/${pid}/todos`, { text: 'あ'.repeat(2000) })).status).toBe(413);
     expect((await post(`/api/projects/${pid}/artifacts`, { url: 'https://claude.ai/code/artifact/' + 'a'.repeat(3000) })).status).toBe(413);
-    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: H, body: JSON.stringify({ session_id: 'あ'.repeat(100 * 1024) }) })).status).toBe(413);
+    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ session_id: 'あ'.repeat(100 * 1024) }) })).status).toBe(413);
     expect((await post(`/api/sessions/${await alphaId()}`, { memo: 'あ'.repeat(2000) }, 'PATCH')).status).toBe(413);
     // 経路ごとの指定が無い本文にも既定の上限が効く。
     expect((await post('/api/settings', { workspaceRoot: 'あ'.repeat(40 * 1024) }, 'PATCH')).status).toBe(413);
@@ -428,23 +520,57 @@ describe('routes', () => {
     expect((await patch({ summaryFallback: 'yes' })).status).toBe(400);
     expect((await (await patch({ lmStudioModel: null })).json()).lmStudioModel).toBeNull();
   });
+  it('要約器の宛先は、既定ではループバックだけを受ける', async () => {
+    const patch = (body: unknown) => post('/api/settings', body, 'PATCH');
+    // 会話の本文はこの宛先へ送られる。外部のホストは、明示の許可が無ければ断る。
+    const bad = await patch({ lmStudioUrl: 'https://attacker.example.com/collect' });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/外部の要約器/);
+    expect((await json(await get('/api/settings'))).body.lmStudioUrl).toBe('http://127.0.0.1:1234');
+    for (const u of ['http://127.0.0.1:1234', 'http://localhost:4321', 'http://[::1]:1234']) {
+      expect([u, (await patch({ lmStudioUrl: u })).status]).toEqual([u, 200]);
+    }
+    // 許しを立てたときだけ通り、外部の宛先であることは設定に残る。
+    expect((await patch({ allowExternalSummarizer: true, lmStudioUrl: 'https://attacker.example.com/collect' })).status).toBe(200);
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ allowExternalSummarizer: true, lmStudioUrl: 'https://attacker.example.com/collect' });
+    // 許しを下ろすときは、宛先も戻してもらう。外部のまま無効にはできない。
+    expect((await patch({ allowExternalSummarizer: false })).status).toBe(400);
+    expect((await patch({ allowExternalSummarizer: false, lmStudioUrl: 'http://127.0.0.1:1234' })).status).toBe(200);
+    expect((await patch({ allowExternalSummarizer: 'yes' })).status).toBe(400);
+  });
   it('MCP の経路が mount されている', async () => {
     const r = await app.request('/mcp', { method: 'POST', headers: { ...H, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } }) });
     expect(r.status).toBe(200);
     expect((await app.request('/mcp', { method: 'POST', body: '{}' })).status).toBe(401);
   });
-  it('uiDist があれば / でクッキーを付けて index.html を返し、assets も配る', async () => {
+  it('uiDist があれば 鍵付きの / でクッキーを配り、assets も配る', async () => {
     const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-dist-'));
     try {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
       fs.mkdirSync(path.join(dist, 'assets'));
       fs.writeFileSync(path.join(dist, 'assets', 'a.js'), 'console.log(1)');
-      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
+      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
       const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), uiDist: dist });
-      const r = await ui.request('/');
+      // 鍵を持たない GET / にはクッキーを配らない。curl 1 本でトークンが取れてはいけない。
+      const bare = await ui.request('/');
+      expect(bare.status).toBe(401);
+      expect(bare.headers.get('set-cookie')).toBeNull();
+      const notice = await bare.text();
+      expect(notice).not.toContain(TOKEN);
+      expect(notice).toContain('hangar start');
+      // 鍵が違うときも同じ扱いにする。
+      const wrong = await ui.request('/?t=nope');
+      expect(wrong.status).toBe(401);
+      expect(wrong.headers.get('set-cookie')).toBeNull();
+      // 鍵付きで開くと、ここでクッキーに換わる。ブックマークから開き直せるよう Max-Age を付ける。
+      const r = await ui.request(`/?t=${TOKEN}`);
       expect(r.status).toBe(200);
-      expect(r.headers.get('set-cookie')).toBe(`hangar_token=${TOKEN}; HttpOnly; SameSite=Strict; Path=/`);
+      expect(r.headers.get('set-cookie')).toBe(`hangar_token=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
       expect(await r.text()).toBe('<html>hi</html>');
+      // 一度クッキーを持てば、鍵の無い URL でもそのまま開ける。
+      const again = await ui.request('/', { headers: { cookie: `hangar_token=${TOKEN}` } });
+      expect(again.status).toBe(200);
+      expect(await again.text()).toBe('<html>hi</html>');
       const a = await ui.request('/assets/a.js');
       expect(a.status).toBe(200);
       expect(a.headers.get('content-type')).toBe('text/javascript');

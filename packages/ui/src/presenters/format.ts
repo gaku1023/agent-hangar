@@ -44,6 +44,8 @@ export function tokensLabel(n: number): string {
 
 export const STATE_LABEL = { in_progress: '進行中', done: '完了', blocked: '詰まっている', abandoned: '中断' } as const;
 export const SOURCE_LABEL = { baseline: '自動', in_session: 'セッション', post_hoc: '事後' } as const;
+/** 要約器の id を短い名前にする。表に無い id はそのまま出す。 */
+export const SUMMARIZER_LABEL: Record<string, string> = { lmstudio: 'lmstudio', 'claude-headless': 'claude' };
 export const STATUS_LABEL = { active: 'Active', paused: 'Paused', done: 'Done', archived: 'Archived' } as const;
 
 /** 使用率の表示。値が無いときは「未取得」にする。 */

@@ -2,7 +2,7 @@ import type { LiveStatus, RunKind, SessionSummaryDto, TranscriptEvent } from '@a
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasRunOf, tabsOf, type Store } from '../store/store.ts';
-import { absoluteTime, costLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, tokensLabel } from './format.ts';
+import { absoluteTime, costLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
 
 export type TranscriptItem =
@@ -10,7 +10,20 @@ export type TranscriptItem =
   | { kind: 'tool'; seq: number; summary: string; name: string; inputJson: string; result: { text: string; isError: boolean } | null; when: string; subagent: { agentId: string; label: string } | null }
   | { kind: 'meta'; seq: number; name: string; json: string };
 export type TabItemProps = { id: string; title: string; kind: 'agent' | 'shell'; selected: boolean; closable: boolean };
-export type SessionProps = { id: string; name: string; live: LiveStatus | null; cwd: string; projectName: string | null; projectId: string | null; summary: (SessionSummaryDto & { sourceLabel: string; stateLabel: string }) | null; summaryOpen: boolean; model: string; effort: string; turns: number; tokens: string; prUrl: string | null; memo: string | null; started: string; lastActivity: string; hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; contextPercent: number | null; cost: string; artifacts: ArtifactCardProps[]; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean };
+
+/**
+ * 要約に使った要約器とモデルの表示。
+ * 種類は `sourceId`（要約器の id）が決める。モデル名から推し量らない。
+ * `sourceId` を持たない古い行は、どの要約器が書いたか分からないので「不明」と出す。
+ * 要約器を通していない要約（土台とセッション内）は、どちらも持たないので札を出さない。
+ */
+export function summarizerLabel(sourceId: string | null, sourceModel: string | null): string | null {
+  if (!sourceId) return sourceModel ? `不明 / ${sourceModel}` : null;
+  const kind = SUMMARIZER_LABEL[sourceId] ?? sourceId;
+  return sourceModel && sourceModel !== kind ? `${kind} / ${sourceModel}` : kind;
+}
+
+export type SessionProps = { id: string; name: string; live: LiveStatus | null; cwd: string; projectName: string | null; projectId: string | null; summary: (SessionSummaryDto & { sourceLabel: string; stateLabel: string; summarizerLabel: string | null; generatedAt: string }) | null; summaryOpen: boolean; model: string; effort: string; turns: number; tokens: string; prUrl: string | null; memo: string | null; started: string; lastActivity: string; hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; contextPercent: number | null; cost: string; artifacts: ArtifactCardProps[]; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean };
 
 const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
 const when = (ts: number | undefined) => (ts === undefined ? '' : absoluteTime(ts).slice(11));
@@ -45,7 +58,12 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
   const slice = store.events[eventsKey(id, view.agentId)];
-  const items = buildItems(slice?.items ?? [], { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [] });
+  // 本文は最新の側から読み、遡ったページは store の後ろに足される。並びは表示の直前にここで戻す。
+  // 走査して崩れているときだけ並べ直すので、遡っていない間は写しも取らない。
+  const raw = slice?.items ?? [];
+  let sorted = true;
+  for (let i = 1; i < raw.length; i++) if (raw[i]!.seq < raw[i - 1]!.seq) { sorted = false; break; }
+  const items = buildItems(sorted ? raw : [...raw].sort((a, b) => a.seq - b.seq), { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [] });
   const run = currentRunOf(store, id);
   const alive = aliveRunOf(store, id) !== null;
   const open = run ? tabsOf(store, run.id) : [];
@@ -57,10 +75,10 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const right = view.split && canSplit && selectedTab ? open.find((t) => t.id === view.splitTab && t.id !== selectedTab) ?? open.find((t) => t.id !== selectedTab) ?? null : null;
   return {
     ...base, name: s.name ?? '（名前なし）', live: s.live, cwd: s.cwd, projectName: s.projectId ? store.projects[s.projectId]?.name ?? null : null, projectId: s.projectId,
-    summary: s.summary ? { ...s.summary, sourceLabel: SOURCE_LABEL[s.summary.source], stateLabel: STATE_LABEL[s.summary.state] } : null,
+    summary: s.summary ? { ...s.summary, sourceLabel: SOURCE_LABEL[s.summary.source], stateLabel: STATE_LABEL[s.summary.state], summarizerLabel: summarizerLabel(s.summary.sourceId, s.summary.sourceModel), generatedAt: absoluteTime(s.summary.updatedAt) } : null,
     model: shortModel(s.stats.model), effort: s.stats.effort ?? '', turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), prUrl: s.stats.prUrl, memo: s.memo,
     started: relativeTime(s.startedAt, now), lastActivity: relativeTime(s.lastActivityAt, now), hasTranscript: s.hasTranscript,
-    items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.nextSeq !== null || slice.total > slice.items.length : false, notFound: false,
+    items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length : false, notFound: false,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(run.startedAt, now) } : null,
     tabs, selectedTab, trustHint: alive && s.live === null, canResume: s.hasTranscript && idle, canFork: s.hasTranscript && idle,
     contextPercent: s.stats.contextPercent, cost: costLabel(s.stats.costUsd),

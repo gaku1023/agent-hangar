@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -91,7 +92,7 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
   });
 
   it('tmux の失敗を返すときはトークンを伏せ、1 行に切り詰める', () => {
-    // argv には --mcp-config の中にトークンが入るので、stderr をそのまま応答に載せない。
+    // 外部コマンドの stderr には何が混じるか分からないので、そのまま応答に載せない。
     const noisy = path.join(home, 'noisy-tmux.sh');
     fs.writeFileSync(noisy, '#!/bin/sh\necho "new-session failed: Authorization: Bearer SECRET-TOKEN-123" >&2\necho "2 行目" >&2\nexit 1\n', { mode: 0o755 });
     const rm = make({ tmux: new Tmux({ tmuxPath: noisy }), token: 'SECRET-TOKEN-123' });
@@ -119,8 +120,11 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
 
     const args = await launchedArgs(r.run.id);
     expect(args[0]).toBe('--mcp-config');
-    expect(JSON.parse(args[1]!).mcpServers.hangar.url).toBe(`http://127.0.0.1:4177/mcp/s/${r.sessionId}`);
-    expect(JSON.parse(args[1]!).mcpServers.hangar.headers.Authorization).toBe('Bearer tok');
+    // 渡すのは JSON ではなくファイルのパスである。中身にトークンが入るので argv には載せない。
+    expect(args[1]).toBe(path.join(home, 'mcp', `${r.sessionId}.json`));
+    const cfg = JSON.parse(fs.readFileSync(args[1]!, 'utf8')) as { mcpServers: { hangar: { url: string; headers: { Authorization: string } } } };
+    expect(cfg.mcpServers.hangar.url).toBe(`http://127.0.0.1:4177/mcp/s/${r.sessionId}`);
+    expect(cfg.mcpServers.hangar.headers.Authorization).toBe('Bearer tok');
     expect(args.at(-2)).toBe('やって');
     expect(args).toContain('--model');
     const uuid = args[args.indexOf('--session-id') + 1]!;
@@ -404,7 +408,8 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     expect(args.slice(i - 2, i + 3)).toEqual(['-r', 'u-old', '--fork-session', '--session-id', args[i + 2]]);
     const s = db.prepare('select * from sessions where id = ?').get(f.sessionId) as Record<string, unknown>;
     expect(s).toMatchObject({ provider_session_id: args[i + 2], project_id: 'p1', cwd, name: null });
-    expect(JSON.parse(args[1]!).mcpServers.hangar.url).toBe(`http://127.0.0.1:4177/mcp/s/${f.sessionId}`);
+    expect(args[1]).toBe(path.join(home, 'mcp', `${f.sessionId}.json`));
+    expect(JSON.parse(fs.readFileSync(args[1]!, 'utf8')).mcpServers.hangar.url).toBe(`http://127.0.0.1:4177/mcp/s/${f.sessionId}`);
   });
 
   it('cwd が無ければ 400', () => {
@@ -638,5 +643,47 @@ describe.skipIf(!TMUX)('tmux が一瞬消えたとき（tmux 上）', () => {
     expect(tmux!.hasSession(t.tmuxName)).toBe(true);
     rm.kill(r.run.id);
     await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+  });
+});
+
+describe.skipIf(!TMUX)('トークンを argv に載せない（tmux 上）', () => {
+  // 64 桁の 16 進。実物のトークンと同じ形にして、ps から拾えないことを確かめる。
+  const TOKEN = 'a1b2c3d4'.repeat(8);
+
+  it('claude の argv にトークンが出ず、ps からも読めない', async () => {
+    const rm = make({ token: TOKEN });
+    const r = rm.start({ projectId: 'p1' });
+    const args = await launchedArgs(r.run.id);
+    expect(args.join(' ')).not.toContain(TOKEN);
+    expect(args.join(' ')).not.toContain('Bearer');
+
+    const cfgPath = args[1]!;
+    expect(fs.statSync(cfgPath).mode & 0o777).toBe(0o600);
+    expect(fs.readFileSync(cfgPath, 'utf8')).toContain(`Bearer ${TOKEN}`);
+
+    // 実際に ps で確かめる。偽の claude が動いている間に読む。
+    const ps = execFileSync('ps', ['-axww', '-o', 'command='], { encoding: 'utf8' });
+    expect(ps).toContain('fake-claude');
+    expect(ps).not.toContain(TOKEN);
+
+    // run が終わったら設定ファイルは残さない。
+    rm.kill(r.run.id);
+    expect(fs.existsSync(cfgPath)).toBe(false);
+  });
+
+  it('消し忘れた設定ファイルは、次の起動と起動時の回復で拾う', async () => {
+    const rm = make({ token: TOKEN });
+    const stale = path.join(home, 'mcp', '00000000-0000-7000-8000-000000000000.json');
+    fs.mkdirSync(path.dirname(stale), { recursive: true });
+    fs.writeFileSync(stale, '{}', { mode: 0o600 });
+    const r = rm.start({ projectId: 'p1' });
+    await launchedArgs(r.run.id);
+    expect(fs.existsSync(stale)).toBe(false);
+    // 動いている run のものは残す。
+    expect(fs.existsSync(path.join(home, 'mcp', `${r.sessionId}.json`))).toBe(true);
+
+    fs.writeFileSync(stale, '{}', { mode: 0o600 });
+    make({ token: TOKEN, tmux: null }).recoverAtStartup();
+    expect(fs.existsSync(stale)).toBe(false);
   });
 });

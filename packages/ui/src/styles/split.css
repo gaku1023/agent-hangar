@@ -25,3 +25,12 @@
 .hint-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .session-artifacts { padding: 4px 0; }
 .tab-action { padding: 0 6px; }
+
+/* トランスクリプトの仮想スクロール（フェーズ 3 の繰り越し） */
+/* 窓の外にある行の高さは .tr-rows の上下の余白で持つ。
+   base.css の .tr は gap で行を離しているが、gap は測った高さに入らないので、
+   間隔を行の器の下余白に移し、offsetHeight がそのまま行の占める高さになるようにする。
+   .msg は align-self で左右と中央に寄るので、器も縦の flex にして寄せ方を保つ。
+   .tr は高さの決まったスクロール箱なので、器が縮まないように flex: none を付ける。 */
+.tr-rows { display: flex; flex-direction: column; flex: none; }
+.tr-row { display: flex; flex-direction: column; flex: none; padding-bottom: calc(var(--u) * 2); }

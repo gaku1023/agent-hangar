@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
 import { Command } from 'commander';
-import { defaultClaudeDir, hangarHome, loadSettings, startServer } from '@agent-hangar/server';
+import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateToken, startServer } from '@agent-hangar/server';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { formatSetupReport, runSetup } from './setup.ts';
 import { runStatuslineInstall } from './statusline.ts';
+import { entryUrl } from './url.ts';
 
 const program = new Command().name('hangar').description('agent-hangar のコマンド');
 
@@ -30,8 +31,15 @@ program
   .command('start')
   .description('サーバを起動する')
   .option('--port <n>', 'ポート', '4177')
-  .action(async (o: { port: string }) => {
+  .option('--no-open', 'ブラウザを開かない')
+  .action(async (o: { port: string; open: boolean }) => {
     const s = await startServer({ port: Number(o.port) });
+    // 鍵はここでだけ印字する。サーバのログには載せない。
+    const url = entryUrl(s.port, readOrCreateToken(hangarHome()));
+    console.log('');
+    console.log(`この URL から開いてください: ${url}`);
+    console.log('鍵はページを開いた時点でクッキーに変わり、URL からは消えます。以後はブックマークから開けます。');
+    if (o.open) spawn('open', [url], { stdio: 'ignore', detached: true }).unref();
     let stopping = false;
     const stop = () => {
       if (stopping) return;
@@ -63,7 +71,8 @@ program
   .description('ブラウザで UI を開く')
   .option('--port <n>', 'ポート', '4177')
   .action((o: { port: string }) => {
-    spawn('open', [`http://127.0.0.1:${o.port}/`], { stdio: 'ignore', detached: true }).unref();
+    // 鍵付きで開く。クッキーを持っているブラウザなら鍵は使われず、そのまま開く。
+    spawn('open', [entryUrl(Number(o.port), readOrCreateToken(hangarHome()))], { stdio: 'ignore', detached: true }).unref();
   });
 
 const mcp = program.command('mcp').description('Claude Code への MCP 登録');
@@ -73,7 +82,7 @@ mcp
   .description('user スコープに hangar を登録する')
   .option('--port <n>', 'ポート', '4177')
   .action(async (o: { port: string }) => {
-    const r = await runMcpInstall({ home: hangarHome(), port: Number(o.port) });
+    const r = await runMcpInstall({ home: hangarHome(), port: Number(o.port), claudeJson: claudeJsonPath() });
     console.log(r.message);
     if (!r.ok) process.exitCode = 1;
   });

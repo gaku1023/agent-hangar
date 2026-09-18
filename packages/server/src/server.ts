@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { listArtifacts } from './artifacts/queries.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { openDb } from './db/open.ts';
+import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
+import { openDb, type Db } from './db/open.ts';
 import { getProject, getSession, listProjects } from './db/queries.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './external/open.ts';
 import { createApp, type ExternalApi } from './http/app.ts';
@@ -54,6 +55,53 @@ const RUN_POLL_MS = 2000;
  */
 export const RUN_ENDED_SUMMARY_OPTS = { ignoreLive: true } as const;
 
+/**
+ * close が要約のジョブを待つ上限。
+ * 要約は DB に書き込むので、待たずに閉じると閉じた DB に触れることになる。
+ * 一方で待ちに上限が無いと、応答しない要約器に終了が引きずられる。
+ * LM Studio の 1 件はおおむね数秒で終わるので 5 秒あればたいてい待ち切れ、
+ * それでも終わらないときは諦めて閉じる（SummaryJob は書き込みの失敗を summary.failed に流す）。
+ */
+export const CLOSE_SUMMARY_WAIT_MS = 5_000;
+
+/**
+ * この端末のルートの存在を確かめ、消えたものを知らせ、戻ったものの取りこぼしを拾う。
+ * ルートが消えている間に現れたセッションは、解決済みのルートに当たらないので未分類のまま残る。
+ * 戻ったときに紐づけ直さないと、次の起動まで未分類のままになり、プロジェクトにも出てこない。
+ * 戻ったルートが無いときは何もしない。起動時の 1 回目はたいていこちらを通るので、全件を舐めない。
+ * 消えたものの検出と project.unresolved の配信は前のままである。
+ */
+export function checkRoots(o: { db: Db; deviceId: string; live: () => LiveSessionDto[]; broadcast: (ev: ServerEvent) => void }): { unresolved: string[]; recovered: string[] } {
+  const r = checkProjectRoots(o.db, o.deviceId);
+  for (const id of r.unresolved) o.broadcast({ type: 'project.unresolved', projectId: id });
+  if (r.recovered.length === 0) return r;
+  const unassigned = (o.db.prepare('select id from sessions where project_id is null and deleted_at is null').all() as { id: string }[]).map((x) => x.id);
+  assignSessions(o.db, o.deviceId);
+  const live = o.live();
+  // 戻ったプロジェクトと、紐づけ直しで中身が変わったプロジェクトを配る。
+  const touched = new Set(r.recovered);
+  for (const id of unassigned) {
+    const s = getSession(o.db, live, id);
+    if (!s?.projectId) continue;
+    touched.add(s.projectId);
+    o.broadcast({ type: 'session.upsert', session: s });
+  }
+  for (const id of touched) {
+    const p = getProject(o.db, o.deviceId, live, id);
+    if (p) o.broadcast({ type: 'project.upsert', project: p });
+  }
+  return r;
+}
+
+/** 要約のジョブが空になるまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
+export function waitForSummaryIdle(job: { idle(): Promise<void> }, ms: number = CLOSE_SUMMARY_WAIT_MS): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    job.idle().then(() => true),
+    new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms); timer.unref?.(); }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
 type Fetch = ReturnType<typeof createApp>['fetch'];
 
@@ -89,6 +137,21 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const registry = new RegistryWatcher(claudeDir);
   const indexer = new IndexerService({ db, deviceId: device.id, claudeDir, isRunning: (id) => registry.current().some((l) => l.sessionId === id) });
 
+  // 起動の途中かどうか。最初の全走査では未分類のセッションを数えきれないほど流すので、知らせるのは起動後だけにする。
+  let started = false;
+  // 未分類だと知らせたセッション。本文が伸びるたびに同じ知らせを出さないために持つ。
+  const toldUnassigned = new Set<string>();
+  /**
+   * どのルートの配下でもない cwd のセッションは「未分類」に残る（設計どおり）。
+   * ただし黙って残ると利用者は気付けないので、セッションごとに 1 度だけ知らせる。
+   * ここで勝手にプロジェクトを作ることはしない。紐づけは利用者が決める。
+   */
+  const tellUnassigned = (sessionId: string, cwd: string): void => {
+    if (!started || toldUnassigned.has(sessionId)) return;
+    toldUnassigned.add(sessionId);
+    hub.broadcast({ type: 'toast', level: 'info', message: `どのプロジェクトにも属さないセッションが現れました（${cwd}）。未分類のまま置いてあります` });
+  };
+
   indexer.on({
     progress: (p) => hub.broadcast({ type: 'index.progress', progress: p }),
     sessionChanged: (e) => {
@@ -101,6 +164,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (assigned) {
         const p = getProject(db, device.id, registry.current(), assigned);
         if (p) hub.broadcast({ type: 'project.upsert', project: p });
+      } else if (row && row.project_id === null) {
+        tellUnassigned(e.sessionId, s.cwd);
       }
       if (e.appended > 0) hub.broadcast({ type: 'transcript.appended', sessionId: e.sessionId, count: e.appended });
       // 索引化が拾ったアーティファクトを配る。
@@ -249,14 +314,16 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     const p = listProjects(db, device.id, registry.current()).find((x) => x.id === m.projectId);
     if (p) hub.broadcast({ type: 'project.upsert', project: p });
   });
-  const notifyUnresolved = () => { for (const id of checkProjectRoots(db, device.id).unresolved) hub.broadcast({ type: 'project.unresolved', projectId: id }); };
-  notifyUnresolved();
-  const rootTimer = setInterval(notifyUnresolved, ROOT_CHECK_MS);
+  const checkRootsNow = () => checkRoots({ db, deviceId: device.id, live: () => registry.current(), broadcast: (ev) => hub.broadcast(ev) });
+  checkRootsNow();
+  const rootTimer = setInterval(checkRootsNow, ROOT_CHECK_MS);
   rootTimer.unref();
   // 前回の終了時に生きていた run のうち、tmux セッションが残っていないものを lost で閉じる。
   const lost = runs.recoverAtStartup();
   if (lost.length) console.log(`[runs] tmux セッションの無い run を ${lost.length} 件 lost で閉じました`);
   runs.startPolling(RUN_POLL_MS);
+  // ここまでで既存のセッションの紐づけは済んでいる。以後に現れた未分類だけを知らせる。
+  started = true;
 
   console.log(`agent-hangar listening on http://${host}:${port}${settings.tmuxPath ? '' : '（tmux が見つからないため起動は使えません）'}`);
   return {
@@ -273,6 +340,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       await hub.close();
       server.closeAllConnections?.();
       await new Promise<void>((r) => server.close(() => r()));
+      // 走っている要約は DB に書き込む。閉じた DB に触れさせないよう、ここで待ち切ってから閉じる。
+      // 新しい受け付けは HTTP も run の終了も止まった後なので、待ち行列はもう増えない。
+      if (!(await waitForSummaryIdle(summary, CLOSE_SUMMARY_WAIT_MS))) {
+        console.warn(`[summary] 要約の終了を ${CLOSE_SUMMARY_WAIT_MS} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
+      }
       db.close();
     },
   };

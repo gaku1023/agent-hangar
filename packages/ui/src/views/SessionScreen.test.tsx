@@ -9,7 +9,7 @@ import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalHostContext } from './TerminalPane.tsx';
 
-const base: SessionProps = { id: 's1', name: 'name', live: 'busy', cwd: '/w/alpha', projectName: 'alpha', projectId: 'p1', summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceModel: null, basedOnTurns: 2, updatedAt: 1, sourceLabel: '自動', stateLabel: '進行中' }, summaryOpen: false, model: 'fable 5.1', effort: 'high', turns: 2, tokens: '1.2M', prUrl: null, memo: null, started: '2 時間前', lastActivity: '1 分前', hasTranscript: true,
+const base: SessionProps = { id: 's1', name: 'name', live: 'busy', cwd: '/w/alpha', projectName: 'alpha', projectId: 'p1', summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1, sourceLabel: '自動', stateLabel: '進行中', summarizerLabel: null, generatedAt: '1970-01-01 09:00' }, summaryOpen: false, model: 'fable 5.1', effort: 'high', turns: 2, tokens: '1.2M', prUrl: null, memo: null, started: '2 時間前', lastActivity: '1 分前', hasTranscript: true,
   items: [
     { kind: 'user', seq: 0, text: 'hi', when: '10:00' },
     { kind: 'tool', seq: 1, summary: 'Agent x', name: 'Agent', inputJson: '{}', result: { text: 'done', isError: false }, when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } },
@@ -29,7 +29,7 @@ describe('SessionScreen', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'summary.toggle', sessionId: 's1' });
     fireEvent.click(screen.getByLabelText('思考を表示'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.showThinking', sessionId: 's1', show: true });
-    fireEvent.click(screen.getByText('続きを読み込む（残り 6 件）'));
+    fireEvent.click(screen.getByText('古い行を読み込む（残り 6 件）'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.loadMore', sessionId: 's1' });
     fireEvent.change(screen.getByLabelText('サブエージェント'), { target: { value: 'abc' } });
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
@@ -39,6 +39,17 @@ describe('SessionScreen', () => {
     expect(screen.getByText('BODY')).toBeInTheDocument();
     expect(screen.getByText('next1')).toBeInTheDocument();
     expect(screen.getByText('自動')).toBeInTheDocument();
+  });
+  it('開いた要約は要約器の種類とモデル名と生成の時刻も出す', () => {
+    const summary = { ...base.summary!, source: 'post_hoc' as const, sourceLabel: '事後', sourceModel: 'gemma-4-26b-a4b-it-heretic', summarizerLabel: 'lmstudio / gemma-4-26b-a4b-it-heretic', generatedAt: '2026-09-19 02:36' };
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} summary={summary} terminalStatus={null} summaryOpen /></IntentRoot>);
+    const line = screen.getByTestId('summary-source');
+    expect(line).toHaveTextContent('事後');
+    expect(line).toHaveTextContent('lmstudio / gemma-4-26b-a4b-it-heretic');
+    expect(line).toHaveTextContent('2026-09-19 02:36');
+    // 要約器を通していない土台の要約では、種類とモデルの欄そのものを出さない。
+    rerender(<IntentRoot onIntent={() => {}}><SessionScreen {...base} summary={{ ...summary, summarizerLabel: null }} terminalStatus={null} summaryOpen /></IntentRoot>);
+    expect(screen.getByTestId('summary-source')).not.toHaveTextContent('lmstudio');
   });
   it('ツール呼び出しは畳まれ、エラーは印が付き、サブエージェントへ飛べる', () => {
     const onIntent = vi.fn();

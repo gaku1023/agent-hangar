@@ -142,7 +142,8 @@ export class SummaryJob {
       state: r.out.state,
       next_steps: JSON.stringify(r.out.nextSteps),
       source: 'post_hoc',
-      source_model: r.out.model ?? r.id,
+      source_id: r.id,
+      source_model: r.out.model ?? null,
       based_on_turns: input.turns,
     }, this.deps.deviceId, 'session_id');
     const s = getSession(this.deps.db, this.deps.live(), sessionId);
@@ -158,7 +159,7 @@ export class SummaryJob {
       ok: true,
       id: r.id,
       ms: r.ms,
-      summary: { title: r.out.title, oneLiner: r.out.oneLiner, body: r.out.body, state: r.out.state, nextSteps: r.out.nextSteps, source: 'post_hoc', sourceModel: r.out.model ?? r.id, basedOnTurns: input.turns },
+      summary: { title: r.out.title, oneLiner: r.out.oneLiner, body: r.out.body, state: r.out.state, nextSteps: r.out.nextSteps, source: 'post_hoc', sourceId: r.id, sourceModel: r.out.model ?? null, basedOnTurns: input.turns },
     };
   }
 }

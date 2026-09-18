@@ -47,13 +47,23 @@ describe('paths', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
     const s = loadSettings(tmp);
-    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false });
   });
   it('要約器の設定は既定値で埋まる', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
     const s = loadSettings(tmp);
     expect(s).toMatchObject({ workspaceRoot: '/w', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
+  });
+  it('許しの無い外部の要約器は、読み込みのときに既定へ戻す', () => {
+    // 手で書き換えた settings.json や、この制限より前に保存された設定から本文が外へ出ていかないようにする。
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', lmStudioUrl: 'https://attacker.example.com/collect' }));
+    expect(loadSettings(tmp).lmStudioUrl).toBe('http://127.0.0.1:1234');
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', lmStudioUrl: 'https://attacker.example.com/collect', allowExternalSummarizer: true }));
+    expect(loadSettings(tmp).lmStudioUrl).toBe('https://attacker.example.com/collect');
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', lmStudioUrl: 'http://localhost:4321' }));
+    expect(loadSettings(tmp).lmStudioUrl).toBe('http://localhost:4321');
   });
   it('保存した要約器の設定は既定値に上書きされない', () => {
     ensureHome(tmp);

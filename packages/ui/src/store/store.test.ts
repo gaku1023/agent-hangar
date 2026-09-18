@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, MemoDto, RunDto, SessionDto, TabDto, TodoDto } from '@agent-hangar/shared';
-import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applyServerEvent, artifactsOf, currentRunOf, eventsKey, initialStore, pruneRuns, tabsOf, todosOf } from './store.ts';
+import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, pruneEvents, pruneRuns, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null } });
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0' };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0' };
 
 describe('store', () => {
   it('bootstrap を正規化して入れる', () => {
@@ -149,5 +149,53 @@ describe('フェーズ 3 のストア', () => {
     s = applyServerEvent(s, { type: 'summary.pending', sessionId: 's1' });
     s = applyServerEvent(s, { type: 'summary.failed', sessionId: 's1', message: 'x' });
     expect(s.summaryPending.s1).toBeUndefined();
+  });
+});
+
+describe('フェーズ 3 の繰り越し', () => {
+  it('フェーズ 3 の項目を返さないサーバでも、既定値で埋めて画面を立てる', () => {
+    // 古いサーバは usage、todos、artifacts、summaryPending を返さない。
+    const old = { ...boot } as Partial<BootstrapDto>;
+    delete old.usage; delete old.todos; delete old.artifacts; delete old.summaryPending;
+    const s = applyBootstrap(initialStore(), old as BootstrapDto);
+    expect(s.bootstrapped).toBe(true);
+    expect(s.usage).toEqual(emptyUsage());
+    expect(s.todos).toEqual({});
+    expect(s.artifacts).toEqual({});
+    expect(s.summaryPending).toEqual({});
+  });
+  it('最終公開が同じアーティファクトは id の昇順で、届いた順に依らない', () => {
+    const ids = ['ab', 'aa', 'ac'];
+    const fill = (order: string[]) => order.reduce((s, id) => applyServerEvent(s, { type: 'artifact.upsert', artifact: art(id, 'p1', 5) }), initialStore());
+    expect(artifactsOf(fill(ids), {}).map((a) => a.id)).toEqual(['aa', 'ab', 'ac']);
+    expect(artifactsOf(fill([...ids].reverse()), {}).map((a) => a.id)).toEqual(['aa', 'ab', 'ac']);
+    // 新しいものが先という並びは変わらない。
+    let s = fill(ids);
+    s = applyServerEvent(s, { type: 'artifact.upsert', artifact: art('zz', 'p1', 9) });
+    expect(artifactsOf(s, {}).map((a) => a.id)).toEqual(['zz', 'aa', 'ab', 'ac']);
+  });
+  it('本文の掃除は、開いていないセッションのぶんだけ落とす', () => {
+    // 「もっと読む」で積んだページは、開いている限り残す。
+    const first = { sessionId: 's1', events: [{ kind: 'user' as const, seq: 0, text: 'a' }], total: 2, nextSeq: 1 };
+    const more = { sessionId: 's1', events: [{ kind: 'assistant' as const, seq: 1, text: 'b' }], total: 2, nextSeq: null };
+    let s = applyEventsPage(initialStore(), eventsKey('s1', null), first, false);
+    s = applyEventsPage(s, eventsKey('s1', null), more, true);
+    s = applyEventsPage(s, eventsKey('s1', 'agent-1'), first, false);
+    s = applyEventsPage(s, eventsKey('s2', null), first, false);
+    s = applyEventsPage(s, eventsKey('s3', null), first, false);
+    const pruned = pruneEvents(s, ['s1']);
+    expect(Object.keys(pruned.events).sort()).toEqual(['s1:', 's1:agent-1']);
+    expect(pruned.events[eventsKey('s1', null)]?.items.map((e) => e.seq)).toEqual([0, 1]);
+    // 落とすものが無ければ同じ参照を返す。
+    expect(pruneEvents(pruned, ['s1'])).toBe(pruned);
+  });
+  it('セッションを渡り歩いても、掃除を挟めば本文は溜まらない', () => {
+    let s = initialStore();
+    for (let i = 0; i < 20; i++) {
+      const id = `s${i}`;
+      s = applyEventsPage(s, eventsKey(id, null), { sessionId: id, events: [{ kind: 'user', seq: 0, text: 'a' }], total: 1, nextSeq: null }, false);
+      s = pruneEvents(s, [id]);
+    }
+    expect(Object.keys(s.events)).toEqual(['s19:']);
   });
 });

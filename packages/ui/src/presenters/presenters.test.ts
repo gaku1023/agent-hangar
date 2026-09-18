@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, ProjectDto, RunDto, SessionDto, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, RunDto, SessionDto, SessionSummaryDto, TabDto, TodoDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
@@ -16,7 +16,7 @@ import { presentShell } from './shell.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -124,6 +124,47 @@ describe('presentSession', () => {
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
     expect(q.summaryOpen).toBe(true);
   });
+  it('遡って足したページも seq の順に並べ、残りは総数と持っている数で決める', () => {
+    let store = storeWith();
+    const k = eventsKey('s1', null);
+    // 画面を開いたときは最新の側のページが入る。
+    store = applyEventsPage(store, k, { sessionId: 's1', total: 4, nextSeq: null, events: [
+      { kind: 'user', seq: 2, ts: NOW, text: 'newer' },
+      { kind: 'assistant', seq: 3, text: 'newest' },
+    ] }, false);
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ hasMore: true, loaded: 2, total: 4 });
+    // 遡ったページは後ろに足されるが、表示は seq の順に戻す。
+    store = applyEventsPage(store, k, { sessionId: 's1', total: 4, nextSeq: null, events: [
+      { kind: 'user', seq: 0, ts: NOW, text: 'oldest' },
+      { kind: 'assistant', seq: 1, text: 'older' },
+    ] }, true);
+    const p = presentSession(initialState(), store, NOW, 's1');
+    expect(p.items.map((i) => i.seq)).toEqual([0, 1, 2, 3]);
+    expect(p.items.map((i) => ('text' in i ? i.text : ''))).toEqual(['oldest', 'older', 'newer', 'newest']);
+    expect(p).toMatchObject({ hasMore: false, loaded: 4 });
+  });
+  it('要約の詳細に出す要約器とモデルと生成の時刻を作る', () => {
+    const store = storeWith();
+    const at = NOW - 3_600_000;
+    const sum = (over: Partial<SessionSummaryDto>): SessionSummaryDto => ({ title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: null, sourceModel: null, basedOnTurns: 5, updatedAt: at, ...over });
+    store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'lmstudio', sourceModel: 'gemma-4-26b-a4b-it-heretic' }) });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ sourceLabel: '事後', summarizerLabel: 'lmstudio / gemma-4-26b-a4b-it-heretic', generatedAt: absoluteTime(at) });
+    // 種類は source_id が決める。モデル名から推測しない。
+    store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'claude-headless', sourceModel: 'haiku' }) });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'claude / haiku' });
+    // claude を名に含むモデルを LM Studio で使っても、lmstudio のままである。
+    store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'lmstudio', sourceModel: 'claude-ish-7b' }) });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'lmstudio / claude-ish-7b' });
+    // モデル名を言えなかったときは種類だけを出す。
+    store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'lmstudio', sourceModel: null }) });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'lmstudio' });
+    // source_id を持たない古い行は、種類が分からないので不明と出す。
+    store.sessions.s1 = session('s1', { summary: sum({ sourceId: null, sourceModel: 'gemma-4-26b-a4b-it-heretic' }) });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: '不明 / gemma-4-26b-a4b-it-heretic' });
+    // 土台の要約は要約器を通していないので、種類もモデルも無い。
+    store.sessions.s1 = session('s1');
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: null, generatedAt: absoluteTime(1) });
+  });
   it('無いセッションは notFound。run だけ先に届いていれば読み込み中', () => {
     expect(presentSession(initialState(), storeWith(), NOW, 'zz')).toMatchObject({ notFound: true, loadingSession: false });
     const store = storeWith();
@@ -211,7 +252,7 @@ describe('presentNewSession', () => {
 describe('presentSettings（フェーズ 2）', () => {
   it('ツールのパスと MCP のコマンド', () => {
     const store = storeWith();
-    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, mcpInstallCommand: 'npm run hangar -- mcp install' });
     store.settings = null;
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', codePath: null });
@@ -321,7 +362,7 @@ describe('presentSettings のフェーズ 3 の項目', () => {
   it('要約器と statusline と使用量の集計を渡す', () => {
     const store: Store = {
       ...initialStore(),
-      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5 },
+      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false },
       statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true },
       summarizerModels: ['gemma', 'qwen'],
       usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 10, outputTokens: 2, sessions: 1 }], projects: [] },

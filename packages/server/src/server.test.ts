@@ -7,12 +7,14 @@ import WebSocket from 'ws';
 import type { ServerEvent, SessionDto } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { openDb } from './db/open.ts';
+import { upsertShared } from './db/shared.ts';
 import { IndexerService } from './indexer/service.ts';
+import { checkProjectRoots } from './projects/registry.ts';
 import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../test/fixtures.ts';
-import { RUN_ENDED_SUMMARY_OPTS, startServer, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_SUMMARY_WAIT_MS, RUN_ENDED_SUMMARY_OPTS, startServer, waitForSummaryIdle, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -31,22 +33,25 @@ afterEach(() => {
 const tokenOf = () => fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
 
 /** 実際の Claude Code と同じ配置で、発言 1 つだけの本文ファイルを置く。 */
-function writeTranscript(cwd: string, sessionId: string, text: string): void {
+function writeTranscript(cwd: string, sessionId: string, text: string, uuid = 'u1'): void {
   const dir = path.join(claudeDir, 'projects', mangleCwd(cwd));
   fs.mkdirSync(dir, { recursive: true });
-  const rec = { type: 'user', message: { role: 'user', content: text }, uuid: 'u1', parentUuid: null, isSidechain: false, timestamp: '2026-09-01T10:00:00.000Z', cwd, sessionId };
-  fs.writeFileSync(path.join(dir, `${sessionId}.jsonl`), JSON.stringify(rec) + '\n');
+  const rec = { type: 'user', message: { role: 'user', content: text }, uuid, parentUuid: null, isSidechain: false, timestamp: '2026-09-01T10:00:00.000Z', cwd, sessionId };
+  const file = path.join(dir, `${sessionId}.jsonl`);
+  if (uuid === 'u1') fs.writeFileSync(file, JSON.stringify(rec) + '\n');
+  else fs.appendFileSync(file, JSON.stringify(rec) + '\n');
 }
 
 /** 配信を貯めておき、条件に合うものが来るまで待つ。待ち始める前に来たものも見る。 */
 function collector(port: number, token: string) {
-  const sock = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
+  const sock = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { authorization: `Bearer ${token}` } });
   const seen: ServerEvent[] = [];
   const waiters = new Set<() => void>();
   sock.on('message', (d) => { seen.push(JSON.parse(String(d)) as ServerEvent); for (const w of [...waiters]) w(); });
   const opened = new Promise<void>((resolve, reject) => { sock.once('open', () => resolve()); sock.once('error', reject); });
   return {
     opened,
+    all: () => seen as readonly ServerEvent[],
     close: () => sock.terminate(),
     waitFor<T extends ServerEvent>(pred: (e: ServerEvent) => e is T, ms = 8000): Promise<T> {
       return new Promise<T>((resolve, reject) => {
@@ -81,13 +86,13 @@ describe('startServer', () => {
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
     expect(s.port).toBeGreaterThan(0);
     const token = fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
-    const ws = new WebSocket(`ws://127.0.0.1:${s.port}/ws?token=${token}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${s.port}/ws`, { headers: { authorization: `Bearer ${token}` } });
     const ready = await new Promise<string>((resolve, reject) => { ws.once('message', (d) => resolve(String(d))); ws.once('error', reject); });
     expect(JSON.parse(ready).type).toBe('ready');
     // close フレームに応えない相手。ブラウザのタブが止まっているときや代理を挟むときに起こる。
     const stalled = net.connect(s.port, '127.0.0.1');
     await new Promise<void>((r) => stalled.once('connect', r));
-    stalled.write(`GET /ws?token=${token} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+    stalled.write(`GET /ws HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer ${token}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
     const upgraded = await new Promise<string>((r) => stalled.once('data', (d) => r(String(d))));
     expect(upgraded.startsWith('HTTP/1.1 101')).toBe(true);
     // fetch は keep-alive で接続を残す。
@@ -101,6 +106,25 @@ describe('startServer', () => {
     expect(result).toBe('closed');
     ws.terminate();
     stalled.destroy();
+  });
+
+  it('/ws はクエリ文字列のトークンを受け付けない', async () => {
+    // URL は Referer、代理のログ、シェルの履歴、ブラウザの履歴に残る。秘密をそこに置く経路を残さない。
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const open = (url: string, headers: Record<string, string> = {}) => new Promise<WebSocket>((resolve, reject) => {
+      const sock = new WebSocket(url, { headers });
+      sock.once('open', () => resolve(sock));
+      sock.once('error', reject);
+    });
+    try {
+      await expect(open(`ws://127.0.0.1:${s.port}/ws?token=${tokenOf()}`)).rejects.toThrow(/401/);
+      const viaHeader = await open(`ws://127.0.0.1:${s.port}/ws`, { authorization: `Bearer ${tokenOf()}` });
+      viaHeader.terminate();
+      const viaCookie = await open(`ws://127.0.0.1:${s.port}/ws`, { cookie: `hangar_token=${tokenOf()}` });
+      viaCookie.terminate();
+    } finally {
+      await s.close();
+    }
   });
 
   it('claudeDir を渡すと settings ではなくそれを読む', async () => {
@@ -138,7 +162,7 @@ describe('startServer', () => {
     try {
       const sock = net.connect(s.port, '127.0.0.1');
       await new Promise<void>((r) => sock.once('connect', r));
-      sock.write(`GET /ws/pty?tab=nope&token=${tokenOf()} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+      sock.write(`GET /ws/pty?tab=nope HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer ${tokenOf()}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
       const first = await Promise.race([
         new Promise<string>((r) => sock.once('data', (d) => r(String(d)))),
         new Promise<string>((r) => setTimeout(() => r('応答なしで切られた'), 2000)),
@@ -191,6 +215,36 @@ describe('startServer', () => {
     }
   }, 20000);
 
+  it('どのルートにも属さないセッションが現れたら、黙って未割り当てにせず知らせる', async () => {
+    const dir = path.join(ws, 'alpha');
+    fs.mkdirSync(dir);
+    writeTranscript(dir, 'bbbbbbbb-0000-4000-8000-000000000011', 'first');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir }));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const c = collector(s.port, tokenOf());
+    const toastCount = () => c.all().filter((e) => e.type === 'toast' && e.message.includes(outside)).length;
+    try {
+      await c.opened;
+      // ワークスペースの外の cwd。どのルートにも当たらない。
+      writeTranscript(outside, 'bbbbbbbb-0000-4000-8000-000000000012', 'stray');
+      const ev = await c.waitFor((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert' && e.session.providerSessionId === 'bbbbbbbb-0000-4000-8000-000000000012');
+      // 勝手にプロジェクトを作らない。設計どおり「未分類」に残す。
+      expect(ev.session.projectId).toBeNull();
+      const toast = await c.waitFor((e): e is Extract<ServerEvent, { type: 'toast' }> => e.type === 'toast' && e.message.includes(outside));
+      expect(toast.level).toBe('info');
+      // 同じセッションが伸びても、知らせるのは 1 度だけにする。
+      writeTranscript(outside, 'bbbbbbbb-0000-4000-8000-000000000012', 'more', 'u2');
+      await c.waitFor((e): e is Extract<ServerEvent, { type: 'transcript.appended' }> => e.type === 'transcript.appended' && e.sessionId === ev.session.id);
+      await new Promise((r) => setTimeout(r, 500));
+      expect(toastCount()).toBe(1);
+    } finally {
+      c.close();
+      await s.close();
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  }, 20000);
+
   it('実行中の登録が消えたら要約の状態を done に書き替える', async () => {
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
     const token = tokenOf();
@@ -207,6 +261,101 @@ describe('startServer', () => {
       await s.close();
     }
   }, 20000);
+});
+
+describe('ルートの復帰', () => {
+  /** ルートが 1 つ消えている（resolved = 0）プロジェクトと、その配下の未分類セッションを作る。 */
+  function fixture(dir: string) {
+    const db = openDb(':memory:');
+    upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
+    upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: dir, resolved: 0 }, 'd');
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', project_id: null, cwd: path.join(dir, 'sub'), home_device: 'd' }, 'd');
+    return db;
+  }
+  const projectIdOf = (db: ReturnType<typeof openDb>) => (db.prepare('select project_id from sessions where id = ?').get('s1') as { project_id: string | null }).project_id;
+
+  it('存在を確かめるだけでは、戻ったルートの配下のセッションは未分類のまま残る', () => {
+    // 繰り越しの再現。checkProjectRoots は resolved を 1 に戻すが、配下のセッションには触れない。
+    const db = fixture(ws);
+    try {
+      expect(checkProjectRoots(db, 'd')).toEqual({ unresolved: [], recovered: ['p1'] });
+      expect(projectIdOf(db)).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('ルートが戻ったら未分類のセッションを紐づけ直して配る', () => {
+    const db = fixture(ws);
+    const sent: ServerEvent[] = [];
+    try {
+      const r = checkRoots({ db, deviceId: 'd', live: () => [], broadcast: (ev) => sent.push(ev) });
+      expect(r.recovered).toEqual(['p1']);
+      expect(projectIdOf(db)).toBe('p1');
+      expect(sent.filter((e) => e.type === 'session.upsert').map((e) => (e as Extract<ServerEvent, { type: 'session.upsert' }>).session.id)).toEqual(['s1']);
+      expect(sent.filter((e) => e.type === 'project.upsert').map((e) => (e as Extract<ServerEvent, { type: 'project.upsert' }>).project.id)).toEqual(['p1']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('消えたルートの検出と project.unresolved の配信は前のまま', () => {
+    const gone = path.join(ws, 'no-such-dir');
+    const db = openDb(':memory:');
+    const sent: ServerEvent[] = [];
+    try {
+      upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
+      upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: gone, resolved: 1 }, 'd');
+      const r = checkRoots({ db, deviceId: 'd', live: () => [], broadcast: (ev) => sent.push(ev) });
+      expect(r.unresolved).toEqual(['p1']);
+      expect(sent).toEqual([{ type: 'project.unresolved', projectId: 'p1' }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('戻ったルートが無ければ紐づけ直しも配信もしない', () => {
+    // 起動時の 1 回目はたいていここを通る。無駄に全件を舐めない。
+    const db = openDb(':memory:');
+    const sent: ServerEvent[] = [];
+    try {
+      upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
+      upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: ws, resolved: 1 }, 'd');
+      upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', project_id: null, cwd: '/somewhere/else', home_device: 'd' }, 'd');
+      expect(checkRoots({ db, deviceId: 'd', live: () => [], broadcast: (ev) => sent.push(ev) })).toEqual({ unresolved: [], recovered: [] });
+      expect(sent).toEqual([]);
+      expect(projectIdOf(db)).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('close の要約待ち', () => {
+  it('走っている要約が終わるまで待つ', async () => {
+    // 終了の途中で要約が書き込みに来ると、閉じた DB に触れてしまう。
+    let finish = () => {};
+    const job = { idle: () => new Promise<void>((r) => { finish = r; }) };
+    let settled: boolean | null = null;
+    const waiting = waitForSummaryIdle(job, 2000).then((v) => { settled = v; return v; });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(settled).toBeNull();
+    finish();
+    expect(await waiting).toBe(true);
+  });
+  it('上限を超えたら諦めて閉じる', async () => {
+    // 終わらない要約に終了が引きずられないよう、待ち時間には上限を置く。
+    const job = { idle: () => new Promise<void>(() => {}) };
+    const t = Date.now();
+    expect(await waitForSummaryIdle(job, 50)).toBe(false);
+    expect(Date.now() - t).toBeLessThan(2000);
+  });
+  it('待ち行列が空ならすぐ返る', async () => {
+    const t = Date.now();
+    expect(await waitForSummaryIdle({ idle: () => Promise.resolve() }, CLOSE_SUMMARY_WAIT_MS)).toBe(true);
+    expect(Date.now() - t).toBeLessThan(1000);
+    expect(CLOSE_SUMMARY_WAIT_MS).toBeGreaterThanOrEqual(1000);
+  });
 });
 
 describe('要約の契機', () => {

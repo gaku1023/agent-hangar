@@ -9,7 +9,7 @@ import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { assignSessions } from '../projects/registry.ts';
-import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
+import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { callTool, ToolError, TOOL_NAMES, type ToolDeps } from './tools.ts';
 
 let dir: string;
@@ -160,5 +160,70 @@ describe('MCP tools', () => {
     for (const [name, args] of SESSION_TOOL_CALLS) {
       expect(() => call(name, { ...args, session_id: SESSION_ALPHA })).toThrow(ToolError);
     }
+  });
+});
+
+describe('セッション別 URL は、そのセッションとそのプロジェクトに閉じる', () => {
+  let otherId: string;
+  const scoped = () => ({ sessionId: alphaId });
+  beforeEach(() => {
+    upsertShared(db, 'projects', { id: 'p2', name: 'other', status: 'active', is_scratch: 0 }, 'd');
+    upsertShared(db, 'project_roots', { id: 'r2', project_id: 'p2', device_id: 'd', path: '/Users/me/other', resolved: 1 }, 'd');
+    assignSessions(db, 'd');
+    otherId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string }).id;
+  });
+
+  it('get_transcript は別のセッションの本文を渡さない', () => {
+    // 共通 URL からは読める。閉じ込めは URL でセッションが決まっているときだけ効く。
+    expect((call('get_transcript', { session_id: otherId }).events as unknown[]).length).toBeGreaterThan(0);
+    expect(() => call('get_transcript', { session_id: otherId }, scoped())).toThrow(ToolError);
+    // 自分のセッションは、明示しても省いても読める。
+    expect(call('get_transcript', { session_id: alphaId }, scoped()).session_id).toBe(alphaId);
+    expect(call('get_transcript', {}, scoped()).session_id).toBe(alphaId);
+  });
+
+  it('セッションを取るほかの道具も、別のセッションを断る', () => {
+    for (const [name, args] of SESSION_TOOL_CALLS) {
+      expect(() => call(name, { ...args, session_id: otherId }, scoped())).toThrow(ToolError);
+    }
+    // 別のセッションのメモも要約も書かれていない。
+    expect((db.prepare('select memo from sessions where id = ?').get(otherId) as { memo: string | null }).memo).toBeNull();
+    expect((db.prepare('select title from session_summaries where session_id = ?').get(otherId) as { title: string } | undefined)?.title).not.toBe('T');
+  });
+
+  it('list_projects は自分のプロジェクトだけを返す', () => {
+    expect((call('list_projects') as unknown as { id: string }[]).map((p) => p.id).sort()).toEqual(['p1', 'p2']);
+    expect((callTool(deps, scoped(), 'list_projects', {}) as { id: string }[]).map((p) => p.id)).toEqual(['p1']);
+  });
+
+  it('get_project と update_project は別のプロジェクトを断る', () => {
+    expect(() => call('get_project', { project_id: 'p2' }, scoped())).toThrow(ToolError);
+    expect(() => call('update_project', { project_id: 'p2', status: 'archived', append_memo: '注入' }, scoped())).toThrow(ToolError);
+    expect((db.prepare('select status from projects where id = ?').get('p2') as { status: string }).status).toBe('active');
+    expect(fs.existsSync(path.join(home, 'projects', 'p2', 'memo.md'))).toBe(false);
+    // 自分のプロジェクトは触れる。
+    expect(call('get_project', { project_id: 'p1' }, scoped()).id).toBe('p1');
+    expect(call('update_project', { project_id: 'p1', append_memo: 'ok' }, scoped()).memo).toBe('ok');
+  });
+
+  it('list_sessions と search_sessions は自分のプロジェクトの外を見せない', () => {
+    const list = callTool(deps, scoped(), 'list_sessions', {}) as { id: string }[];
+    expect(list.map((s) => s.id)).toEqual([alphaId]);
+    expect(() => call('list_sessions', { project_id: 'p2' }, scoped())).toThrow(ToolError);
+    const r = callTool(deps, scoped(), 'search_sessions', { query: 'a' }) as { hits: { session_id: string }[] };
+    expect(r.hits.every((h) => h.session_id === alphaId)).toBe(true);
+    expect(() => call('search_sessions', { query: 'a', project_id: 'p2' }, scoped())).toThrow(ToolError);
+  });
+
+  it('create_session は別のプロジェクトで起動しない', () => {
+    expect(() => call('create_session', { project_id: 'p2', prompt: 'x' }, scoped())).toThrow(ToolError);
+    expect(started).toEqual([]);
+    call('create_session', { project_id: 'p1' }, scoped());
+    expect(started).toHaveLength(1);
+  });
+
+  it('open_in_hangar は別のプロジェクトのリンクを返さない', () => {
+    expect(() => call('open_in_hangar', { project_id: 'p2' }, scoped())).toThrow(ToolError);
+    expect(call('open_in_hangar', { project_id: 'p1' }, scoped()).url).toContain('p1');
   });
 });

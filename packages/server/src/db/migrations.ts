@@ -162,4 +162,49 @@ create index artifact_versions_session on artifact_versions(session_id);
 create index todos_project on todos(project_id, position);
 `,
   },
+  {
+    // usage_daily の鍵に「どのファイル由来か」を足す。
+    // 主線を作り直すときに、そのファイルのぶんだけを消せるようにするため。
+    // 既存の行をどう扱うかは version 6 で改めている。
+    version: 4,
+    sql: `
+alter table usage_daily rename to usage_daily_v3;
+create table usage_daily (
+  session_id text not null, day text not null, file_path text not null,
+  input_tokens integer not null default 0, output_tokens integer not null default 0,
+  primary key (session_id, file_path, day)
+);
+insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens)
+  select u.session_id, u.day,
+    ifnull((select t.path from transcript_files t where t.session_id = u.session_id and t.agent_id is null order by t.path limit 1), ''),
+    u.input_tokens, u.output_tokens
+  from usage_daily_v3 u;
+drop table usage_daily_v3;
+create index artifact_versions_artifact on artifact_versions(artifact_id);
+`,
+  },
+  {
+    // どの要約器が書いた要約かを持つ列を足す。
+    // これまでは source_model（モデルの名前）しか無く、UI が名前から種類を当てていた。
+    // 既存の行の値はモデルの名前なので、どの要約器が書いたかは分からない。
+    // 推測して焼き付けると、後から嘘だったことを確かめられなくなるので、null のままにして UI では不明と出す。
+    version: 5,
+    sql: `
+alter table session_summaries add column source_id text;
+`,
+  },
+  {
+    // version 4 より前の日別の行は「どのファイル由来か」を持たない。
+    // どのファイルに寄せても、作り直しの消し方が正しくならない。
+    // 主線に寄せれば、そのセッションを作り直したときにサブエージェントぶんまで消える。
+    // どのファイルでもない印にすれば、作り直しの delete に当たらず同じ日を二重に数える。
+    // なので寄せるのをやめて空にし、索引済みの印を 0 に戻して全ファイルを作り直しに回す。
+    // 日別は次の全走査で積み直され、そこから先はファイル別に正しく消せる。
+    // 代償は、積み直しが終わるまで日別が欠けることと、全走査が一度だけ重くなることである。
+    version: 6,
+    sql: `
+delete from usage_daily;
+update transcript_files set indexer_version = 0;
+`,
+  },
 ];

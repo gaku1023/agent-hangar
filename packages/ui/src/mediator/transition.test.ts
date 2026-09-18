@@ -84,6 +84,38 @@ describe('オーバーレイ', () => {
     const { state } = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p1' })]);
     expect(state.unresolvedQueue).toEqual([]);
   });
+  // 「あとで」を選んだプロジェクトは、同じ起動の間は聞き直さない。
+  // 覚えるのは Mediator の状態だけなので、サーバを立て直せばまた聞く。
+  it('あとでを選んだプロジェクトは、次の bootstrap でも聞き直さない', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' })]);
+    const b = run([intent({ type: 'overlay.close' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p2' });
+    const c = run([intent({ type: 'overlay.close' })], b.state);
+    expect(c.state.overlay).toEqual({ kind: 'none' });
+    const again = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' })], c.state);
+    expect(again.state.overlay).toEqual({ kind: 'none' });
+    expect(again.state.unresolvedQueue).toEqual([]);
+  });
+  // 利用者が自分で解決しにいったときは、あとでを選んだ後でも開き、そこで覚えを忘れる。
+  // 開き直したうえでまたあとでを選んだら、覚え直して次の通知では出さない。
+  it('project.resolve.open は覚えを忘れ、あとでで閉じれば覚え直す', () => {
+    const later = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'overlay.close' })]).state;
+    expect(later.resolveDeferred).toEqual(['p1']);
+    const a = run([intent({ type: 'project.resolve.open', id: 'p1' })], later);
+    expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(a.state.resolveDeferred).toEqual([]);
+    const b = run([intent({ type: 'overlay.close' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    expect(b.state.resolveDeferred).toEqual(['p1']);
+    expect(run([server({ type: 'project.unresolved', projectId: 'p1' })], b.state).state.overlay).toEqual({ kind: 'none' });
+  });
+  // 解決してしまえば覚えは要らない。次に同じ id が未解決になったら、また聞く。
+  it('project.resolve で決めたら覚えを持ち越さない', () => {
+    const later = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'overlay.close' })]).state;
+    const a = run([intent({ type: 'project.resolve.open', id: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })], later);
+    expect(a.state.resolveDeferred).toEqual([]);
+    expect(run([server({ type: 'project.unresolved', projectId: 'p1' })], a.state).state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+  });
 });
 
 describe('索引の進み', () => {
@@ -108,10 +140,11 @@ describe('セッション表示の一時状態', () => {
   });
   it('本文の追記は開いているセッションだけ読み直す', () => {
     const open = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]).state;
-    expect(run([server({ type: 'transcript.appended', sessionId: 's1', count: 2 })], open).effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: -1 }]);
+    // -2 は追記の取り込み。末尾に足すだけで、過去へ遡らない。
+    expect(run([server({ type: 'transcript.appended', sessionId: 's1', count: 2 })], open).effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: -2 }]);
     expect(run([server({ type: 'transcript.appended', sessionId: 's2', count: 2 })], open).effects).toEqual([]);
   });
-  it('loadMore は次のページを要求する', () => {
+  it('loadMore は過去へ遡るページを要求する', () => {
     expect(run([intent({ type: 'transcript.loadMore', sessionId: 's1' })]).effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: -1 }]);
   });
   it('サブエージェントの切替は agentId を保存して先頭から読み直す', () => {
@@ -303,6 +336,35 @@ describe('昇格', () => {
     const un = run([server({ type: 'project.unresolved', projectId: 'p1' })]).state;
     expect(run([intent({ type: 'nav.go', to: { name: 'home' } })], un).state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
   });
+  // 送信していないのに届いた完了や失敗で、開いているものを書き換えない。
+  // ただし黙って捨てると、送信の直後に閉じた利用者が結果を知れないので、トーストでは知らせる。
+  it('昇格の最中でなければ状態は変えず、結果をトーストで知らせる', () => {
+    const base = run([server({ type: 'project.unresolved', projectId: 'p1' })]).state;
+    const a = run([runtime({ type: 'promote.done', projectId: 'p9', moved: true, reason: null })], base);
+    expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(a.state.promote).toEqual({ kind: 'idle' });
+    expect(a.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトに昇格しました' }]);
+    const b = run([runtime({ type: 'promote.failed', message: '同じ名前があります' })], base);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.promote).toEqual({ kind: 'idle' });
+    expect(b.effects).toEqual([{ kind: 'toast', level: 'error', message: '同じ名前があります' }]);
+    // ダイアログを開いただけで、まだ送っていないときも開き直さない。
+    const open = run([intent({ type: 'session.promote.open', id: 's1' })]).state;
+    const c = run([runtime({ type: 'promote.done', projectId: 'p9', moved: true, reason: null })], open);
+    expect(c.state.overlay).toEqual({ kind: 'promote', sessionId: 's1' });
+  });
+  // 送信の直後にダイアログを閉じても、失敗はトーストで届く。
+  it('送信の直後に閉じても、失敗のトーストは出る', () => {
+    const sent = run([
+      intent({ type: 'session.promote.open', id: 's1' }),
+      intent({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: false }),
+      intent({ type: 'overlay.close' }),
+    ]).state;
+    expect(sent.overlay).toEqual({ kind: 'none' });
+    const a = run([runtime({ type: 'promote.failed', message: '同じ名前があります' })], sent);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.effects).toEqual([{ kind: 'toast', level: 'error', message: '同じ名前があります' }]);
+  });
   it('名前を検査し、失敗はダイアログに残す', () => {
     const open = run([intent({ type: 'session.promote.open', id: 's1' })]).state;
     const bad = run([intent({ type: 'session.promote.submit', id: 's1', name: 'a/b', gitInit: false, moveFiles: false })], open);
@@ -385,6 +447,15 @@ describe('パレット', () => {
     const f = run([intent({ type: 'palette.run', command: { id: 'nope', label: '' } })], opened());
     expect(f.state.overlay).toEqual({ kind: 'none' });
     expect(f.effects).toEqual([]);
+  });
+  // パレットが開いていないのにコマンドが届いても、開いている別のダイアログを消さない。
+  it('パレットが開いていなければオーバーレイを閉じない', () => {
+    const un = run([server({ type: 'project.unresolved', projectId: 'p1' })]).state;
+    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:settings', label: '設定' } })], un);
+    expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+    const b = run([intent({ type: 'palette.run', command: { id: 'nope', label: '' } })], un);
+    expect(b.state).toEqual(un);
   });
 });
 

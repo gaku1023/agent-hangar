@@ -1,10 +1,13 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MIGRATIONS } from '../db/migrations.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { listTranscriptFiles } from '../provider/claude-code/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
-import { indexFile } from './indexFile.ts';
+import { indexFile, INDEXER_VERSION } from './indexFile.ts';
 import { localDay } from '../usage/aggregate.ts';
 
 let dir: string;
@@ -25,6 +28,21 @@ const artifactCall = (toolId: string, input: Record<string, unknown>, ts = '2026
 const artifactResult = (toolId: string, text: string, ts = '2026-09-01T12:00:03.000Z') =>
   ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: text }] }, uuid: `u-${toolId}`, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
 const appendJson = (p: string, ...recs: unknown[]) => { for (const r of recs) fs.appendFileSync(p, JSON.stringify(r) + '\n'); };
+
+/** version 以下のマイグレーションだけを当てた実物のファイルの DB を作り、中身を仕込む。 */
+function seedOldDb(file: string, version: number, seed: (db: Db) => void): void {
+  const raw = new Database(file) as unknown as Db;
+  raw.exec('create table if not exists schema_migrations (version integer primary key, applied_at integer not null)');
+  for (const m of MIGRATIONS.filter((m) => m.version <= version)) {
+    raw.exec(m.sql);
+    raw.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
+  }
+  seed(raw);
+  raw.close();
+}
+
+const insSession = 'insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?,?,?,?,?,?,?)';
+const insFile = 'insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)';
 
 describe('indexFile', () => {
   it('本体ファイルを索引化し、sessions と session_stats を埋める', () => {
@@ -167,7 +185,7 @@ describe('indexFile', () => {
 
   it('usage_daily に日別のトークンを積み、作り直しで二重にしない', () => {
     const r = indexFile(db, alphaMain(), { deviceId: DEV });
-    const rows = () => db.prepare('select day, input_tokens i, output_tokens o from usage_daily where session_id = ? order by day').all(r.sessionId) as { day: string; i: number; o: number }[];
+    const rows = () => db.prepare('select day, sum(input_tokens) i, sum(output_tokens) o from usage_daily where session_id = ? group by day order by day').all(r.sessionId) as { day: string; i: number; o: number }[];
     // フィクスチャの記録はすべて 2026-09-01 の UTC 10 時台なので、ローカル時刻でも 1 日に収まる。
     const day = localDay(Date.parse('2026-09-01T10:00:05.000Z'));
     expect(rows()).toEqual([{ day, i: 1110, o: 140 }]);
@@ -178,6 +196,77 @@ describe('indexFile', () => {
     indexFile(db, alphaSub(), { deviceId: DEV });
     expect(rows()).toHaveLength(1);
     expect(rows()[0]!.o).toBe(140 + 3);
+  });
+
+  it('移行前の日別が残っていた DB でも、積み直したあとに二重に数えない', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-old-'));
+    const file = path.join(tmp, 'hangar.db');
+    const day = localDay(Date.parse('2026-09-01T10:00:05.000Z'));
+    // 版 3 の DB には、どのファイル由来か分からない日別の行がある。
+    seedOldDb(file, 3, (old) => {
+      old.prepare(insSession).run('s-alpha', 'claude-code', SESSION_ALPHA, '/Users/me/workspace/alpha', DEV, 1, DEV);
+      old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s-alpha', day, 999, 99);
+    });
+    const upgraded = openDb(file);
+    indexFile(upgraded, alphaMain(), { deviceId: DEV });
+    indexFile(upgraded, alphaSub(), { deviceId: DEV });
+    const sum = (d: Db) => d.prepare('select sum(input_tokens) i, sum(output_tokens) o from usage_daily').get() as { i: number; o: number };
+    // まっさらな DB に同じファイルを索引した結果と一致する（古い行は 1 つも足されない）。
+    const fresh = openDb(':memory:');
+    indexFile(fresh, alphaMain(), { deviceId: DEV });
+    indexFile(fresh, alphaSub(), { deviceId: DEV });
+    expect(sum(upgraded)).toEqual(sum(fresh));
+    upgraded.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('移行のあとは索引済みのファイルも作り直しに回り、日別が積み直される', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-old-'));
+    const file = path.join(tmp, 'hangar.db');
+    const main = alphaMain();
+    const st = fs.statSync(main.path);
+    // 版 3 の DB では、このファイルは最後まで索引済みになっている。
+    seedOldDb(file, 3, (old) => {
+      old.prepare(insSession).run('s-alpha', 'claude-code', SESSION_ALPHA, '/Users/me/workspace/alpha', DEV, 1, DEV);
+      old.prepare(insFile).run(main.path, 's-alpha', null, st.size, Math.floor(st.mtimeMs), st.size, INDEXER_VERSION);
+      old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s-alpha', localDay(Date.parse('2026-09-01T10:00:05.000Z')), 999, 99);
+    });
+    const upgraded = openDb(file);
+    // 移行が印を戻しているので、大きさも更新時刻も同じでも飛ばさない。
+    const r = indexFile(upgraded, main, { deviceId: DEV });
+    expect(r.changed).toBe(true);
+    expect(upgraded.prepare('select sum(input_tokens) i, sum(output_tokens) o from usage_daily').get()).toEqual({ i: 1110, o: 140 });
+    upgraded.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('主線を作り直してもサブエージェントぶんの日別は残る', () => {
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    const sum = () => (db.prepare('select ifnull(sum(input_tokens), 0) i, ifnull(sum(output_tokens), 0) o from usage_daily where session_id = ?').get(r.sessionId) as { i: number; o: number });
+    const mainOnly = sum();
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    const withSub = sum();
+    expect(withSub.o).toBeGreaterThan(mainOnly.o);
+    // 主線だけを作り直しても、サブエージェントのファイル由来の日別は失われない。
+    db.prepare('update transcript_files set indexer_version = 0 where agent_id is null').run();
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(sum()).toEqual(withSub);
+  });
+
+  it('1 回の索引化でセッションのプロジェクトを引くのは一度だけ', () => {
+    const r0 = indexFile(db, alphaMain(), { deviceId: DEV });
+    const url2 = 'https://claude.ai/code/artifact/0199a2b3-1111-7000-8000-000000000003';
+    appendJson(alphaMain().path,
+      artifactCall('toolu_p1', { file_path: missing(), description: '一つ目' }), artifactResult('toolu_p1', `Published at ${ART_URL}`),
+      artifactCall('toolu_p2', { file_path: missing(), description: '二つ目' }, '2026-09-01T12:10:00.000Z'), artifactResult('toolu_p2', `Published at ${url2}`, '2026-09-01T12:10:03.000Z'));
+    const orig = db.prepare.bind(db);
+    let n = 0;
+    db.prepare = ((sql: string) => { if (/select project_id from sessions/.test(sql)) n++; return orig(sql); }) as typeof db.prepare;
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    db.prepare = orig;
+    expect(r.sessionId).toBe(r0.sessionId);
+    expect(r.artifactIds).toHaveLength(2);
+    expect(n).toBe(1);
   });
 
   it('サブエージェントの公開は主線の作り直しで消えない', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { claudeCodeProvider } from './index.ts';
 
-const base = { systemPrompt: 'SYS', mcpUrl: 'http://127.0.0.1:4177/mcp/s/s1', token: 'tok' };
+const base = { systemPrompt: 'SYS', mcpConfigPath: '/home/.agent-hangar/mcp/s1.json' };
 const BIN = '/opt/homebrew/bin/claude';
 
 /** フラグの直後の値を取る。 */
@@ -18,7 +18,8 @@ describe('claudeCodeProvider.launchCommand', () => {
     expect(valueOf(argv, '--session-id')).toBe('u1');
     expect(argv).not.toContain('-r');
     expect(argv.at(-1)).toBe('やって');
-    expect(JSON.parse(valueOf(argv, '--mcp-config')!).mcpServers.hangar.url).toBe(base.mcpUrl);
+    // トークンの入る JSON ではなく、0600 のファイルのパスを渡す。
+    expect(valueOf(argv, '--mcp-config')).toBe(base.mcpConfigPath);
   });
 });
 

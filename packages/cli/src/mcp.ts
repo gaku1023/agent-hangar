@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { ensureHome, readOrCreateToken } from '@agent-hangar/server';
+import { ensureHome, readOrCreateToken, upsertUserMcpServer } from '@agent-hangar/server';
 
 /** notFound は、コマンド自体を起こせなかったこと。終了コードでは区別できない。 */
 export type CliResult = { status: number; stdout: string; stderr: string; notFound?: boolean };
@@ -16,11 +16,6 @@ export const execCli: CliExec = (cmd, args) => {
   const notFound = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
   return { status: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? (r.error ? r.error.message : ''), notFound };
 };
-
-/** `--header` は可変長オプションなので、名前と URL の位置引数を先に置く（フェーズ 0 で確認）。 */
-export function mcpAddArgs(o: { port: number; token: string }): string[] {
-  return ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'hangar', `http://127.0.0.1:${o.port}/mcp`, '--header', `Authorization: Bearer ${o.token}`];
-}
 
 export function mcpRemoveArgs(): string[] {
   return ['mcp', 'remove', '--scope', 'user', 'hangar'];
@@ -42,16 +37,21 @@ function failure(what: string, r: CliResult): string {
 }
 
 /**
- * ~/.claude.json は hangar が直接書かず、claude mcp add に任せる。
+ * user スコープの登録は claude mcp add に任せず、~/.claude.json の mcpServers.hangar を自分で書く。
+ * claude mcp add はヘッダの値を argv で受け取るので、64 桁のトークンが ps から読めてしまう。
+ * claude が入っているかどうかだけは先に確かめる。入っていない端末に登録しても意味が無いためである。
  * 登録したポートで hangar が応答しないときは、登録自体は済ませたうえで起動を促す。
  * ここで止めると、まだ起動していない端末で先に登録しておく使い方ができなくなる。
  */
-export async function runMcpInstall(o: { home: string; port: number; exec?: CliExec; probe?: PortProbe }): Promise<{ ok: boolean; message: string }> {
+export async function runMcpInstall(o: { home: string; port: number; claudeJson: string; exec?: CliExec; probe?: PortProbe }): Promise<{ ok: boolean; message: string }> {
   ensureHome(o.home);
   const token = readOrCreateToken(o.home);
-  const r = (o.exec ?? execCli)('claude', mcpAddArgs({ port: o.port, token }));
-  if (r.notFound) return { ok: false, message: CLAUDE_MISSING };
-  if (r.status !== 0) return { ok: false, message: failure('claude mcp add', r) };
+  if ((o.exec ?? execCli)('claude', ['--version']).notFound) return { ok: false, message: CLAUDE_MISSING };
+  try {
+    upsertUserMcpServer(o.claudeJson, 'hangar', { type: 'http', url: `http://127.0.0.1:${o.port}/mcp`, headers: { Authorization: `Bearer ${token}` } });
+  } catch (e) {
+    return { ok: false, message: `${o.claudeJson} の書き換えに失敗しました: ${e instanceof Error ? e.message : String(e)}` };
+  }
   const done = `user スコープに MCP サーバ hangar をポート ${o.port} で登録しました。`;
   if (await (o.probe ?? probeHangar)(o.port)) return { ok: true, message: `${done}claude mcp list で Connected を確認できます。` };
   // ポートがずれていても気付く手掛かりが無いので、ここで言う。

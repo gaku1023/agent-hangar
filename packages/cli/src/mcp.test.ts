@@ -4,57 +4,83 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execCli, mcpAddArgs, mcpRemoveArgs, probeHangar, runMcpInstall, runMcpUninstall, type CliExec } from './mcp.ts';
+import { execCli, mcpRemoveArgs, probeHangar, runMcpInstall, runMcpUninstall, type CliExec } from './mcp.ts';
 
-describe('mcpAddArgs', () => {
-  it('名前と URL を先に、--header を最後に置く', () => {
-    const a = mcpAddArgs({ port: 4177, token: 'tok' });
-    expect(a).toEqual(['mcp', 'add', '--scope', 'user', '--transport', 'http', 'hangar', 'http://127.0.0.1:4177/mcp', '--header', 'Authorization: Bearer tok']);
-    expect(a.indexOf('--header')).toBe(a.length - 2);
+describe('mcpRemoveArgs', () => {
+  it('user スコープの hangar を外す', () => {
     expect(mcpRemoveArgs()).toEqual(['mcp', 'remove', '--scope', 'user', 'hangar']);
   });
 });
 
 describe('runMcpInstall', () => {
   let home: string;
-  beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mcp-')); });
+  let claudeJson: string;
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mcp-'));
+    claudeJson = path.join(home, 'claude.json');
+  });
   afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); });
-  /** 登録したことにする exec。呼ばれた引数を記録する。 */
-  const okExec = (calls: string[][]): CliExec => (cmd, args) => { calls.push([cmd, ...args]); return { status: 0, stdout: 'Added', stderr: '' }; };
+  /** claude は居ることにする。呼ばれた引数を記録する。 */
+  const okExec = (calls: string[][]): CliExec => (cmd, args) => { calls.push([cmd, ...args]); return { status: 0, stdout: '2.1.0', stderr: '' }; };
+  const readServers = () => (JSON.parse(fs.readFileSync(claudeJson, 'utf8')) as { mcpServers: Record<string, unknown> }).mcpServers;
 
-  it('claude mcp add を呼び、成功と失敗を報告する。メッセージにトークンを出さない', async () => {
+  it('user スコープの設定を自分で書き、トークンを argv にも応答にも出さない', async () => {
     const calls: string[][] = [];
-    const ok = await runMcpInstall({ home, port: 4177, exec: okExec(calls), probe: async () => true });
+    const ok = await runMcpInstall({ home, port: 4177, claudeJson, exec: okExec(calls), probe: async () => true });
     const token = fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
-    expect(calls[0]![0]).toBe('claude');
-    expect(calls[0]!.at(-1)).toBe(`Authorization: Bearer ${token}`);
     expect(ok.ok).toBe(true);
+    expect(readServers().hangar).toEqual({ type: 'http', url: 'http://127.0.0.1:4177/mcp', headers: { Authorization: `Bearer ${token}` } });
+    // claude mcp add は値を argv で受け取るので、どの呼び出しにもトークンを渡さない。
+    expect(calls.flat().join(' ')).not.toContain(token);
+    expect(calls.flat().join(' ')).not.toContain('Bearer');
     expect(ok.message).not.toContain(token);
-    const ng = await runMcpInstall({ home, port: 4177, exec: () => ({ status: 1, stdout: '', stderr: 'usage: claude mcp add' }), probe: async () => true });
-    expect(ng).toEqual({ ok: false, message: 'claude mcp add に失敗しました: usage: claude mcp add' });
-    expect((await runMcpUninstall({ exec: () => ({ status: 0, stdout: '', stderr: '' }) })).ok).toBe(true);
+    // 設定ファイルは他人に読ませない。
+    expect(fs.statSync(claudeJson).mode & 0o077).toBe(0);
   });
 
-  it('claude が見つからないときは、入れ方と PATH を案内する', async () => {
+  it('既にある設定の他の項目を消さず、hangar だけを差し替える', async () => {
+    fs.writeFileSync(claudeJson, JSON.stringify({ userID: 'u1', mcpServers: { other: { type: 'stdio', command: 'x' }, hangar: { type: 'http', url: 'http://127.0.0.1:1/mcp' } } }), { mode: 0o600 });
+    await runMcpInstall({ home, port: 4200, claudeJson, exec: okExec([]), probe: async () => true });
+    const j = JSON.parse(fs.readFileSync(claudeJson, 'utf8')) as { userID: string; mcpServers: Record<string, { url?: string }> };
+    expect(j.userID).toBe('u1');
+    expect(j.mcpServers.other).toEqual({ type: 'stdio', command: 'x' });
+    expect(j.mcpServers.hangar!.url).toBe('http://127.0.0.1:4200/mcp');
+  });
+
+  it('壊れた設定ファイルは上書きせず、失敗として返す', async () => {
+    fs.writeFileSync(claudeJson, '{ これは JSON ではない', { mode: 0o600 });
+    const r = await runMcpInstall({ home, port: 4177, claudeJson, exec: okExec([]), probe: async () => true });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain(claudeJson);
+    expect(fs.readFileSync(claudeJson, 'utf8')).toBe('{ これは JSON ではない');
+  });
+
+  it('claude が見つからないときは、入れ方と PATH を案内し、設定も書かない', async () => {
     // spawnSync の `spawnSync claude ENOENT` をそのまま出しても、次に何をすればよいか分からない。
     const missing: CliExec = () => ({ status: 1, stdout: '', stderr: 'spawnSync claude ENOENT', notFound: true });
-    const r = await runMcpInstall({ home, port: 4177, exec: missing, probe: async () => true });
+    const r = await runMcpInstall({ home, port: 4177, claudeJson, exec: missing, probe: async () => true });
     expect(r.ok).toBe(false);
     expect(r.message).toContain('Claude Code が見つかりません');
     expect(r.message).toContain('PATH');
     expect(r.message).not.toContain('ENOENT');
+    expect(fs.existsSync(claudeJson)).toBe(false);
     const u = await runMcpUninstall({ exec: missing });
     expect(u.ok).toBe(false);
     expect(u.message).toContain('Claude Code が見つかりません');
   });
 
+  it('claude mcp remove の失敗はそのまま返す', async () => {
+    const ng = await runMcpUninstall({ exec: () => ({ status: 1, stdout: '', stderr: 'usage: claude mcp remove' }) });
+    expect(ng).toEqual({ ok: false, message: 'claude mcp remove に失敗しました: usage: claude mcp remove' });
+    expect((await runMcpUninstall({ exec: () => ({ status: 0, stdout: '', stderr: '' }) })).ok).toBe(true);
+  });
+
   it('登録するポートで hangar が応答しなければ、登録は済ませたうえで起動を促す', async () => {
     // 既定の 4177 ではないポートを常用する人は、ずれても気付く手掛かりが無い。
     const ports: number[] = [];
-    const calls: string[][] = [];
-    const r = await runMcpInstall({ home, port: 4200, exec: okExec(calls), probe: async (p) => { ports.push(p); return false; } });
+    const r = await runMcpInstall({ home, port: 4200, claudeJson, exec: okExec([]), probe: async (p) => { ports.push(p); return false; } });
     expect(ports).toEqual([4200]);
-    expect(calls[0]).toContain('http://127.0.0.1:4200/mcp');
+    expect((readServers().hangar as { url: string }).url).toBe('http://127.0.0.1:4200/mcp');
     // 登録自体は続ける。起動の前に登録しておく使い方を塞がないため。
     expect(r.ok).toBe(true);
     expect(r.message).toContain('4200');
@@ -62,7 +88,7 @@ describe('runMcpInstall', () => {
   });
 
   it('応答するときは起動の案内を出さない', async () => {
-    const r = await runMcpInstall({ home, port: 4200, exec: okExec([]), probe: async () => true });
+    const r = await runMcpInstall({ home, port: 4200, claudeJson, exec: okExec([]), probe: async () => true });
     expect(r.ok).toBe(true);
     expect(r.message).not.toContain('hangar start');
   });

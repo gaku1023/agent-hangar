@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { newId, type ArtifactDto, type BootstrapDto, type IndexProgressDto, type LaunchParams, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ServerEvent, type SettingsDto, type SummarizerTestDto, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
-import { addManualArtifact, getArtifact, listArtifacts } from '../artifacts/queries.ts';
-import type { Settings } from '../config/paths.ts';
+import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
+import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
 import { statuslineStatus } from '../config/statusline.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
@@ -17,7 +17,7 @@ import { RunError, type RunManager } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
-import { authMiddleware } from './auth.ts';
+import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
 export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget'>;
@@ -70,9 +70,45 @@ const BODY_LIMITS = {
   todo: 4 * 1024,
   url: 2 * 1024,
 } as const;
+/**
+ * トークンのクッキーの寿命。
+ * 期限を書かないとブラウザを閉じたときに消え、そのたびに鍵付きの URL が要る。
+ * ブックマークから開き直せるように 1 年残す。
+ */
+const ENTRY_COOKIE_MAX_AGE = 31536000;
+/** UI の HTML と一緒に配るトークンのクッキー。 */
+const entryCookie = (token: string) => `hangar_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${ENTRY_COOKIE_MAX_AGE}`;
+/**
+ * 鍵を持たずに GET / を叩いたときに返す案内。
+ * トークンは書かない。ここは認証の前なので、誰が見ているか分からない。
+ */
+const ENTRY_NOTICE_HTML = `<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-hangar</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; display: grid; place-items: center; min-height: 100vh; background: #f7f7f8; color: #1b1b1f; font-family: system-ui, sans-serif; line-height: 1.8; }
+  main { max-width: 34rem; padding: 2rem; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  p { margin: 0 0 0.75rem; color: #44454b; }
+  code { background: #ececef; border-radius: 4px; padding: 0.1em 0.4em; font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<main>
+<h1>認証できていません</h1>
+<p><code>hangar start</code> が印字した鍵付きの URL から開いてください。</p>
+<p>一度そこから開けば、このブラウザには鍵が残ります。次からはブックマークでそのまま開けます。</p>
+</main>
+</body>
+</html>
+`;
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer });
 const numberOr = (v: string | undefined): number | undefined => (v ? Number(v) : undefined);
 const isEnoent = (e: unknown): boolean => (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
 
@@ -117,13 +153,27 @@ function runResult<T>(c: Context, fn: () => T, status: 200 | 201 = 200) {
   }
 }
 
+/** 応答に載せる失敗の文言の上限。RunManager と同じ長さにする。 */
+const MAX_ERROR_LEN = 200;
+
+/**
+ * 外部コマンドの失敗を応答に載せる前に整える。
+ * RunManager.safeError と同じ覆いである。いまの呼び先にトークンは渡らないが、
+ * 覆いが片方にしか無いと、呼び先が増えたときに漏れる。
+ */
+export function safeExternalMessage(e: unknown, token: string): string {
+  const line = (e instanceof Error ? e.message : String(e)).split('\n')[0]!.trim();
+  const masked = token ? line.replaceAll(token, '***') : line;
+  return masked.length > MAX_ERROR_LEN ? `${masked.slice(0, MAX_ERROR_LEN)}…` : masked;
+}
+
 /** 外部連携の失敗は 500 で理由を返す。UI はこれをそのままトーストに出す。 */
-async function externalResult(c: Context, fn: () => Promise<unknown>, empty = false) {
+async function externalResult(c: Context, token: string, fn: () => Promise<unknown>, empty = false) {
   try {
     const r = await fn();
     return empty ? c.body(null, 204) : c.json(r as object);
   } catch (e) {
-    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    return c.json({ error: safeExternalMessage(e, token) }, 500);
   }
 }
 
@@ -140,6 +190,8 @@ export function createApp(deps: AppDeps): Hono {
   const broadcastProject = (id: string) => { const p = getProject(db, deviceId, deps.live(), id); if (p) deps.hub.broadcast({ type: 'project.upsert', project: p }); };
   const broadcastSession = (id: string) => { const s = getSession(db, deps.live(), id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
+  // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
+  const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
 
   api.get('/bootstrap', (c) => {
     const live = deps.live();
@@ -205,12 +257,15 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/sessions/:id/events', (c) => {
     const q = c.req.query();
     const id = c.req.param('id');
-    // セッションを開いたとき（先頭ページ、主線）に事後要約の契機を与える。受け付けの可否は応答に影響しない。
-    if ((q.fromSeq === undefined || q.fromSeq === '0') && !q.agentId) {
+    // 画面を開くと最新の側を求めてくる。そこが「セッションを開いたとき（主線）」なので、事後要約の契機はここに付ける。
+    // 遡るとき（before）と追記を取り込むとき（fromSeq）は契機にしない。受け付けの可否は応答に影響しない。
+    if (q.latest === '1' && !q.agentId) {
       try { deps.summary.enqueue(id); } catch { /* 要約の失敗で本文の読み出しを止めない */ }
     }
+    // before は 0 を渡せなければならないので、numberOr（空文字と 0 を undefined にする）は使わない。
+    const before = q.before === undefined || q.before === '' || !Number.isFinite(Number(q.before)) ? undefined : Number(q.before);
     try {
-      return c.json(readEvents(db, id, { fromSeq: numberOr(q.fromSeq), limit: numberOr(q.limit), agentId: q.agentId || null }));
+      return c.json(readEvents(db, id, { fromSeq: numberOr(q.fromSeq), limit: numberOr(q.limit), agentId: q.agentId || null, latest: q.latest === '1', beforeSeq: before }));
     } catch (e) {
       // 索引はあるのに本文ファイルが消えている場合だけ 404 にし、他は 500 に任せる。
       if (isEnoent(e)) return c.json({ error: 'このセッションの本文ファイルが見つかりません。Settings の「索引を作り直す」を試してください' }, 404);
@@ -273,7 +328,20 @@ export function createApp(deps: AppDeps): Hono {
       if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) return c.json({ error: 'summaryHourlyCap は 1 以上の整数です' }, 400);
       patch.summaryHourlyCap = v;
     }
+    if ('allowExternalSummarizer' in body) {
+      const v = body.allowExternalSummarizer;
+      if (typeof v !== 'boolean') return c.json({ error: 'allowExternalSummarizer は true か false です' }, 400);
+      patch.allowExternalSummarizer = v;
+    }
     if (Object.keys(patch).length === 0) return c.json({ error: '更新できる設定が含まれていません' }, 400);
+    // 要約器には会話の本文が送られる。宛先は既定でループバックだけにし、明示の許しがあるときだけ外へ出す。
+    // 許しと宛先は同じ要求で見る。片方ずつ変えて素通りする隙間を作らない。
+    const cur = deps.settings();
+    const allowExternal = patch.allowExternalSummarizer ?? cur.allowExternalSummarizer;
+    const nextLmUrl = patch.lmStudioUrl ?? cur.lmStudioUrl;
+    if (!allowExternal && !isLoopbackSummarizerUrl(nextLmUrl)) {
+      return c.json({ error: '要約器の宛先は 127.0.0.1 か localhost だけです。会話の本文が送られるため、外部の要約器は Settings で明示的に許してから指定してください' }, 400);
+    }
     const before = deps.settings();
     const s = deps.updateSettings(patch);
     // ワークスペースが変わったら、その場でプロジェクトを登録し直して結果を配る。
@@ -331,14 +399,14 @@ export function createApp(deps: AppDeps): Hono {
     if (!t || t.runId !== run.id) return c.json({ error: 'タブが見つかりません' }, 404);
     // 終了した run の Claude のタブは繋ぎ先がもう無い。シェルタブは終了後も開いてよい。
     if (!deps.runs.attachTarget(tabId)) return c.json({ error: 'この run は終了しています' }, 409);
-    return externalResult(c, () => deps.external.openTerminal({ tmuxName: t.tmuxName }));
+    return external(c, () => deps.external.openTerminal({ tmuxName: t.tmuxName }));
   });
   api.post('/sessions/:id/resume', (c) => runResult(c, () => deps.runs.resume(c.req.param('id')), 201));
   api.post('/sessions/:id/fork', (c) => runResult(c, () => deps.runs.fork(c.req.param('id')), 201));
   api.post('/sessions/:id/open-editor', (c) => {
     const s = getSession(db, deps.live(), c.req.param('id'));
     if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
-    return externalResult(c, () => deps.external.openEditor({ target: s.cwd }), true);
+    return external(c, () => deps.external.openEditor({ target: s.cwd }), true);
   });
   api.post('/projects', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
@@ -367,12 +435,12 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/projects/:id/open-editor', (c) => {
     const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
     if (!p?.path) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    return externalResult(c, () => deps.external.openEditor({ target: p.path! }), true);
+    return external(c, () => deps.external.openEditor({ target: p.path! }), true);
   });
   api.post('/projects/:id/open-terminal', (c) => {
     const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
     if (!p?.path) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    return externalResult(c, () => deps.external.openDirTerminal({ dir: p.path! }));
+    return external(c, () => deps.external.openDirTerminal({ dir: p.path! }));
   });
 
   // 使用量。statusline スクリプトが curl で送る。他の /api と同じ Bearer 認証を通す。
@@ -466,20 +534,26 @@ export function createApp(deps: AppDeps): Hono {
     const body = (b.value ?? {}) as { url?: unknown };
     if (typeof body.url !== 'string') return c.json({ error: 'url は必須です' }, 400);
     let a: ArtifactDto;
-    try { a = addManualArtifact(db, deviceId, id, body.url); } catch (e) { return c.json({ error: e instanceof Error ? e.message : String(e) }, 400); }
+    // 入力の誤りだけを 400 にする。DB の失敗などは呼び手の直しようが無いので 500 で返す。
+    try {
+      a = addManualArtifact(db, deviceId, id, body.url);
+    } catch (e) {
+      if (e instanceof ArtifactInputError) return c.json({ error: e.message }, 400);
+      return c.json({ error: 'アーティファクトを追加できませんでした' }, 500);
+    }
     deps.hub.broadcast({ type: 'artifact.upsert', artifact: a });
     return c.json(a, 201);
   });
   api.post('/artifacts/:id/open', (c) => {
     const a = getArtifact(db, c.req.param('id'));
     if (!a) return c.json({ error: 'アーティファクトが見つかりません' }, 404);
-    return externalResult(c, () => deps.external.openUrl(a.url), true);
+    return external(c, () => deps.external.openUrl(a.url), true);
   });
   api.post('/artifacts/:id/open-editor', (c) => {
     const a = getArtifact(db, c.req.param('id'));
     if (!a) return c.json({ error: 'アーティファクトが見つかりません' }, 404);
     if (!a.filePath || !a.fileExists) return c.json({ error: '元のファイルが見つかりません' }, 404);
-    return externalResult(c, () => deps.external.openEditor({ target: a.filePath! }), true);
+    return external(c, () => deps.external.openEditor({ target: a.filePath! }), true);
   });
 
   // セッションの 1 行メモ、昇格、事後要約。
@@ -540,7 +614,13 @@ export function createApp(deps: AppDeps): Hono {
     const assets = path.join(dist, 'assets');
     const index = () => fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
     app.get('/', (c) => {
-      c.header('Set-Cookie', `hangar_token=${deps.token}; HttpOnly; SameSite=Strict; Path=/`);
+      // 鍵付きの URL で開かれたか、もうクッキーを持っているときだけ UI を配る。
+      // 素の GET / にクッキーを配ると、curl 1 本で誰でもトークンを取れてしまう。
+      const authed = tokenEquals(c.req.query('t'), deps.token) || tokenEquals(tokenFromRequest(c.req.raw.headers, c.req.header('cookie')), deps.token);
+      c.header('Cache-Control', 'no-store');
+      if (!authed) return c.html(ENTRY_NOTICE_HTML, 401);
+      // ここで鍵をクッキーに換える。URL に残った鍵は UI が history.replaceState で消す。
+      c.header('Set-Cookie', entryCookie(deps.token));
       return c.html(index());
     });
     app.get('/assets/*', (c) => {

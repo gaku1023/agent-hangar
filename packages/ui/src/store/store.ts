@@ -36,7 +36,11 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: b.usage, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])) };
+  // フェーズ 3 で増えた項目は、それより古いサーバには無い。
+  // 型の上では必ずあるので、欠けていたときだけ既定値で埋める。
+  // 版が古いことは画面には出さない。
+  const old = b as Partial<BootstrapDto>;
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: old.usage ?? emptyUsage(), todos: byId(old.todos ?? []), artifacts: byId(old.artifacts ?? []), summaryPending: Object.fromEntries((old.summaryPending ?? []).map((id) => [id, true as const])) };
 }
 
 function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): Record<string, SessionDto> {
@@ -178,6 +182,20 @@ export function pruneRuns(store: Store, keepSessionIds: Iterable<string>): Store
   };
 }
 
+/** 開いていないセッションのトランスクリプトを落とす。
+ * events はセッションと（サブエージェントごとの）ページを溜めるだけで、放っておくと際限なく伸びる。
+ * 落とすのは古い側ではなく、開いていないセッションのぶんである。
+ * セッション画面に入るたびに fromSeq 0 から読み直す（applyEventsPage の append が false）ので、
+ * 開いていないセッションの分は、戻れば必ず取り直される。
+ * 「もっと読む」で遡ったページは、そのセッションを開いている限り残る。
+ */
+export function pruneEvents(store: Store, keepSessionIds: Iterable<string>): Store {
+  const keep = new Set(keepSessionIds);
+  const entries = Object.entries(store.events).filter(([k]) => [...keep].some((id) => k.startsWith(id + ':')));
+  if (entries.length === Object.keys(store.events).length) return store;
+  return { ...store, events: Object.fromEntries(entries) };
+}
+
 /** プロジェクトの TODO を position の昇順で返す。
  * 完了した項目も同じ並びに残す。
  */
@@ -187,9 +205,10 @@ export function todosOf(store: Store, projectId: string): TodoDto[] {
 
 /** アーティファクトを最終公開の新しい順で返す。
  * projectId と sessionId は与えられたものだけで絞る。
+ * 最終公開が同じものは id の昇順にして、届いた順で並びが変わらないようにする。
  */
 export function artifactsOf(store: Store, opts: { projectId?: string; sessionId?: string }): ArtifactDto[] {
   return Object.values(store.artifacts)
     .filter((a) => (opts.projectId === undefined || a.projectId === opts.projectId) && (opts.sessionId === undefined || a.sessionIds.includes(opts.sessionId)))
-    .sort((a, b) => b.lastPublishedAt - a.lastPublishedAt);
+    .sort((a, b) => b.lastPublishedAt - a.lastPublishedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
