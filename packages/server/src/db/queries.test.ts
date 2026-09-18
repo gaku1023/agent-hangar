@@ -134,6 +134,17 @@ describe('フェーズ 3 の項目', () => {
     const again = getSession(db, live, alpha.id)!;
     expect(again.stats).toMatchObject({ model: 'claude-opus-4-1', effort: 'max', contextPercent: 25, costUsd: 0.1234 });
   });
+  it('cwd がちょうどスクラッチのルートなら fromScratch は偽', () => {
+    upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
+    upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/scratch', resolved: 1 }, 'd');
+    const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    // スクラッチの起動は必ず <root>/<yyyymmdd-HHmmss> に入るので、ルート自身は下に含めない。
+    db.prepare('update sessions set cwd = ? where id = ?').run('/Users/me/.agent-hangar/scratch', alpha.id);
+    expect(getSession(db, live, alpha.id)!.fromScratch).toBe(false);
+    // 名前がルートで始まるだけの隣のディレクトリも下ではない。
+    db.prepare('update sessions set cwd = ? where id = ?').run('/Users/me/.agent-hangar/scratchpad', alpha.id);
+    expect(getSession(db, live, alpha.id)!.fromScratch).toBe(false);
+  });
   it('別の端末のスクラッチのルートでは fromScratch が反転しない', () => {
     upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
     upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/scratch', resolved: 1 }, 'd');

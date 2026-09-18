@@ -118,7 +118,9 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>): Sess
   };
   // スクラッチのルートの下で始まり、なお別のプロジェクトに属しているセッションを昇格の対象として印す。
   // cwd はそのセッションを持つ端末のパスなので、ルートも同じ端末のものだけを見る。
-  const underScratch = r.scratch_root !== null && (r.cwd === r.scratch_root || r.cwd.startsWith(r.scratch_root + '/'));
+  // スクラッチの起動は必ず <root>/<yyyymmdd-HHmmss> に入るので、ルート自身は下に含めない。
+  // projects/scratch.ts の isUnderScratch と同じ判定である。
+  const underScratch = r.scratch_root !== null && r.cwd.startsWith(r.scratch_root + '/');
   return {
     id: r.id,
     provider: r.provider,
