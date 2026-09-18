@@ -21,16 +21,25 @@ export function aggregateUsage(db: Db, opts: { days: number; now?: number }): Us
     where u.day >= ? and s.deleted_at is null
     group by u.day order by u.day desc`).all(since) as { day: string; i: number; o: number; n: number }[])
     .map((r) => ({ day: r.day, inputTokens: r.i, outputTokens: r.o, sessions: r.n }));
+  // プロジェクト別も日別と同じ窓、同じ供給源（usage_daily）で束ねる。
+  // session_stats の全期間の和を使うと、同じ画面に並ぶ 2 つの合計が突き合わせられない。
+  // 先にセッションごとにまとめてから束ねるのは、推定コストをセッション 1 件につき一度だけ足すためである。
   const projects = (db.prepare(`
-    select s.project_id pid, p.name name, sum(st.input_tokens) i, sum(st.output_tokens) o, count(*) n,
+    with win as (
+      select u.session_id sid, sum(u.input_tokens) i, sum(u.output_tokens) o
+      from usage_daily u
+      join sessions s on s.id = u.session_id
+      where u.day >= ? and s.deleted_at is null
+      group by u.session_id
+    )
+    select s.project_id pid, p.name name, sum(w.i) i, sum(w.o) o, count(*) n,
       sum(ls.cost_usd) cost, count(ls.cost_usd) cost_n
-    from sessions s
-    join session_stats st on st.session_id = s.id
+    from win w
+    join sessions s on s.id = w.sid
     left join projects p on p.id = s.project_id
     left join session_live_stats ls on ls.provider_session_id = s.provider_session_id
-    where s.deleted_at is null
     group by s.project_id
-    order by i desc`).all() as { pid: string | null; name: string | null; i: number; o: number; n: number; cost: number | null; cost_n: number }[])
+    order by i desc`).all(since) as { pid: string | null; name: string | null; i: number; o: number; n: number; cost: number | null; cost_n: number }[])
     .map((r) => ({ projectId: r.pid, name: r.name ?? '未分類', inputTokens: r.i, outputTokens: r.o, costUsd: r.cost_n > 0 ? r.cost : null, sessions: r.n }));
   return { days, projects };
 }
