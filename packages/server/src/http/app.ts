@@ -117,13 +117,27 @@ function runResult<T>(c: Context, fn: () => T, status: 200 | 201 = 200) {
   }
 }
 
+/** 応答に載せる失敗の文言の上限。RunManager と同じ長さにする。 */
+const MAX_ERROR_LEN = 200;
+
+/**
+ * 外部コマンドの失敗を応答に載せる前に整える。
+ * RunManager.safeError と同じ覆いである。いまの呼び先にトークンは渡らないが、
+ * 覆いが片方にしか無いと、呼び先が増えたときに漏れる。
+ */
+export function safeExternalMessage(e: unknown, token: string): string {
+  const line = (e instanceof Error ? e.message : String(e)).split('\n')[0]!.trim();
+  const masked = token ? line.replaceAll(token, '***') : line;
+  return masked.length > MAX_ERROR_LEN ? `${masked.slice(0, MAX_ERROR_LEN)}…` : masked;
+}
+
 /** 外部連携の失敗は 500 で理由を返す。UI はこれをそのままトーストに出す。 */
-async function externalResult(c: Context, fn: () => Promise<unknown>, empty = false) {
+async function externalResult(c: Context, token: string, fn: () => Promise<unknown>, empty = false) {
   try {
     const r = await fn();
     return empty ? c.body(null, 204) : c.json(r as object);
   } catch (e) {
-    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    return c.json({ error: safeExternalMessage(e, token) }, 500);
   }
 }
 
@@ -140,6 +154,8 @@ export function createApp(deps: AppDeps): Hono {
   const broadcastProject = (id: string) => { const p = getProject(db, deviceId, deps.live(), id); if (p) deps.hub.broadcast({ type: 'project.upsert', project: p }); };
   const broadcastSession = (id: string) => { const s = getSession(db, deps.live(), id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
+  // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
+  const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
 
   api.get('/bootstrap', (c) => {
     const live = deps.live();
@@ -331,14 +347,14 @@ export function createApp(deps: AppDeps): Hono {
     if (!t || t.runId !== run.id) return c.json({ error: 'タブが見つかりません' }, 404);
     // 終了した run の Claude のタブは繋ぎ先がもう無い。シェルタブは終了後も開いてよい。
     if (!deps.runs.attachTarget(tabId)) return c.json({ error: 'この run は終了しています' }, 409);
-    return externalResult(c, () => deps.external.openTerminal({ tmuxName: t.tmuxName }));
+    return external(c, () => deps.external.openTerminal({ tmuxName: t.tmuxName }));
   });
   api.post('/sessions/:id/resume', (c) => runResult(c, () => deps.runs.resume(c.req.param('id')), 201));
   api.post('/sessions/:id/fork', (c) => runResult(c, () => deps.runs.fork(c.req.param('id')), 201));
   api.post('/sessions/:id/open-editor', (c) => {
     const s = getSession(db, deps.live(), c.req.param('id'));
     if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
-    return externalResult(c, () => deps.external.openEditor({ target: s.cwd }), true);
+    return external(c, () => deps.external.openEditor({ target: s.cwd }), true);
   });
   api.post('/projects', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
@@ -367,12 +383,12 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/projects/:id/open-editor', (c) => {
     const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
     if (!p?.path) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    return externalResult(c, () => deps.external.openEditor({ target: p.path! }), true);
+    return external(c, () => deps.external.openEditor({ target: p.path! }), true);
   });
   api.post('/projects/:id/open-terminal', (c) => {
     const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
     if (!p?.path) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    return externalResult(c, () => deps.external.openDirTerminal({ dir: p.path! }));
+    return external(c, () => deps.external.openDirTerminal({ dir: p.path! }));
   });
 
   // 使用量。statusline スクリプトが curl で送る。他の /api と同じ Bearer 認証を通す。
@@ -479,13 +495,13 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/artifacts/:id/open', (c) => {
     const a = getArtifact(db, c.req.param('id'));
     if (!a) return c.json({ error: 'アーティファクトが見つかりません' }, 404);
-    return externalResult(c, () => deps.external.openUrl(a.url), true);
+    return external(c, () => deps.external.openUrl(a.url), true);
   });
   api.post('/artifacts/:id/open-editor', (c) => {
     const a = getArtifact(db, c.req.param('id'));
     if (!a) return c.json({ error: 'アーティファクトが見つかりません' }, 404);
     if (!a.filePath || !a.fileExists) return c.json({ error: '元のファイルが見つかりません' }, 404);
-    return externalResult(c, () => deps.external.openEditor({ target: a.filePath! }), true);
+    return external(c, () => deps.external.openEditor({ target: a.filePath! }), true);
   });
 
   // セッションの 1 行メモ、昇格、事後要約。

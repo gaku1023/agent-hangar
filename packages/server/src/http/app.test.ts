@@ -283,6 +283,21 @@ describe('routes', () => {
     expect(bad.status).toBe(500);
     expect((await bad.json()).error).toBe('code が無い');
   });
+  it('外部連携の失敗は、トークンを伏せて 1 行に切り詰めて返す', async () => {
+    const { body: sessions } = await json(await get('/api/sessions'));
+    const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
+    const fail = (message: string) => (external.openEditor as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error(message));
+    fail(`spawn failed: --mcp-config {"token":"${TOKEN}"}\n2 行目`);
+    const r = await post(`/api/sessions/${alpha.id}/open-editor`);
+    expect(r.status).toBe(500);
+    const msg = (await r.json()).error as string;
+    expect(msg).not.toContain(TOKEN);
+    expect(msg).toContain('***');
+    expect(msg).not.toContain('2 行目');
+    fail('あ'.repeat(500));
+    const long = await post(`/api/sessions/${alpha.id}/open-editor`);
+    expect(((await long.json()).error as string).length).toBeLessThanOrEqual(201);
+  });
   it('プロジェクトの作成', async () => {
     fs.mkdirSync(`${ws}/beta`);
     const r = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'beta', path: `${ws}/beta` }) });
