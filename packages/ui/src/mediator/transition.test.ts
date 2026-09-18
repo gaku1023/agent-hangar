@@ -135,7 +135,7 @@ describe('その他', () => {
     expect(effects[2]).toEqual({ kind: 'api.rebuildIndex' });
   });
   it('次のフェーズの操作はトーストで知らせる', () => {
-    const { state, effects } = run([intent({ type: 'session.promote.open', id: 's1' }), intent({ type: 'split.toggle' })]);
+    const { state, effects } = run([intent({ type: 'sync.now' }), intent({ type: 'session.takeover', id: 's1', force: false })]);
     expect(effects).toEqual([{ kind: 'toast', level: 'info', message: 'この操作は次のフェーズで実装します' }, { kind: 'toast', level: 'info', message: 'この操作は次のフェーズで実装します' }]);
     expect(state).toEqual(initialState());
   });
@@ -148,7 +148,7 @@ const onSession = (id = 's1') => run([runtime({ type: 'hash.changed', route: { n
 describe('起動', () => {
   it('ダイアログを開き、送信で submitting になり、done で画面へ移る', () => {
     const a = run([intent({ type: 'session.new.open', projectId: 'p1' })]);
-    expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1' });
+    expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
     expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
     const b = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n' } })], a.state);
     expect(b.state.launch).toEqual({ kind: 'submitting' });
@@ -163,7 +163,7 @@ describe('起動', () => {
   it('失敗はダイアログを開いたまま failed になり、閉じると idle に戻る', () => {
     const a = run([intent({ type: 'session.new.open' }), intent({ type: 'session.new.submit', params: { projectId: 'p1' } }), runtime({ type: 'launch.failed', message: 'tmux が見つかりません' })]);
     expect(a.state.launch).toEqual({ kind: 'failed', message: 'tmux が見つかりません' });
-    expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: null });
+    expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: false });
     // ダイアログの中に同じ文言が出るので、トーストは重ねない。
     expect(a.effects.filter((e) => (e as { kind: string }).kind === 'toast')).toEqual([]);
     // 再開とフォークはダイアログを持たないので、そのときだけトーストで知らせる。
@@ -172,9 +172,13 @@ describe('起動', () => {
     const b = run([intent({ type: 'overlay.close' })], a.state);
     expect(b.state).toMatchObject({ overlay: { kind: 'none' }, launch: { kind: 'idle' } });
   });
-  it('プロジェクト無しの送信は failed、スクラッチは次のフェーズ', () => {
+  it('プロジェクト無しの送信は failed、スクラッチはプロジェクトを選ばずに開く', () => {
     expect(run([intent({ type: 'session.new.submit', params: {} })]).state.launch).toEqual({ kind: 'failed', message: 'プロジェクトを選んでください' });
-    expect(run([intent({ type: 'session.new.open', scratch: true })]).effects).toEqual([{ kind: 'toast', level: 'info', message: 'この操作は次のフェーズで実装します' }]);
+    const s = run([intent({ type: 'session.new.open', scratch: true })]);
+    expect(s.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
+    expect(s.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
+    // スクラッチはプロジェクトが無くても送信できる。
+    expect(run([intent({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
   it('再開、フォーク、停止、外部で開くは API 効果', () => {
     const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1' }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' }), intent({ type: 'project.openEditor', id: 'p1' }), intent({ type: 'project.openTerminalApp', id: 'p1' })]);
@@ -264,5 +268,144 @@ describe('設定', () => {
   it('terminalApp を含まない保存では案内を出さない', () => {
     const { effects } = run([intent({ type: 'settings.update', patch: { tmuxPath: '/opt/homebrew/bin/tmux' } })]);
     expect(effects).toEqual([{ kind: 'api.updateSettings', patch: { tmuxPath: '/opt/homebrew/bin/tmux' } }]);
+  });
+});
+
+describe('昇格', () => {
+  it('ダイアログを開き、送信して完了ダイアログに移る', () => {
+    const a = run([intent({ type: 'session.promote.open', id: 's1' })]);
+    expect(a.state.overlay).toEqual({ kind: 'promote', sessionId: 's1' });
+    expect(a.effects).toEqual([{ kind: 'focus', target: 'promoteName' }]);
+    const b = run([intent({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: true, moveFiles: true })], a.state);
+    expect(b.state.promote).toEqual({ kind: 'submitting' });
+    expect(b.effects).toEqual([{ kind: 'api.promote', sessionId: 's1', name: 'newp', gitInit: true, moveFiles: true }]);
+    const dup = run([intent({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: true, moveFiles: true })], b.state);
+    expect(dup.effects).toEqual([]);
+    const c = run([runtime({ type: 'promote.done', projectId: 'p9', moved: true, reason: null })], b.state);
+    expect(c.state.overlay).toEqual({ kind: 'promoted', projectId: 'p9', moved: true, reason: null });
+    expect(c.state.promote).toEqual({ kind: 'idle' });
+    const d = run([intent({ type: 'overlay.close' })], c.state);
+    expect(d.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('名前を検査し、失敗はダイアログに残す', () => {
+    const open = run([intent({ type: 'session.promote.open', id: 's1' })]).state;
+    const bad = run([intent({ type: 'session.promote.submit', id: 's1', name: 'a/b', gitInit: false, moveFiles: false })], open);
+    expect(bad.state.promote).toEqual({ kind: 'failed', message: '名前に / は使えません' });
+    expect(bad.effects).toEqual([]);
+    const empty = run([intent({ type: 'session.promote.submit', id: 's1', name: '  ', gitInit: false, moveFiles: false })], open);
+    expect(empty.state.promote).toEqual({ kind: 'failed', message: '名前を入力してください' });
+    const sent = run([intent({ type: 'session.promote.submit', id: 's1', name: 'ok', gitInit: false, moveFiles: false })], open);
+    const failed = run([runtime({ type: 'promote.failed', message: '同じ名前があります' })], sent.state);
+    expect(failed.state.promote).toEqual({ kind: 'failed', message: '同じ名前があります' });
+    expect(failed.state.overlay).toEqual({ kind: 'promote', sessionId: 's1' });
+    expect(failed.effects).toEqual([{ kind: 'toast', level: 'error', message: '同じ名前があります' }]);
+  });
+});
+
+describe('作業台の操作', () => {
+  it('TODO とメモとアーティファクトと要約は api 効果になる', () => {
+    const r = run([
+      intent({ type: 'todo.add', projectId: 'p1', text: '買う' }),
+      intent({ type: 'todo.toggle', id: 't1' }),
+      intent({ type: 'todo.remove', id: 't1' }),
+      intent({ type: 'memo.save', projectId: 'p1', markdown: '# m' }),
+      intent({ type: 'session.setMemo', id: 's1', text: '一行' }),
+      intent({ type: 'artifact.open', id: 'a1' }),
+      intent({ type: 'artifact.openEditor', id: 'a1' }),
+      intent({ type: 'artifact.add', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' }),
+      intent({ type: 'summary.regenerate', sessionId: 's1' }),
+      intent({ type: 'summarizer.test' }),
+    ]);
+    expect(r.effects).toEqual([
+      { kind: 'api.addTodo', projectId: 'p1', text: '買う' }, { kind: 'focus', target: 'todoInput' },
+      { kind: 'api.toggleTodo', id: 't1' }, { kind: 'api.removeTodo', id: 't1' },
+      { kind: 'api.saveMemo', projectId: 'p1', markdown: '# m' },
+      { kind: 'api.setSessionMemo', sessionId: 's1', text: '一行' },
+      { kind: 'api.openArtifact', id: 'a1' },
+      { kind: 'api.openArtifactEditor', id: 'a1' },
+      { kind: 'api.addArtifact', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' },
+      { kind: 'api.regenerateSummary', sessionId: 's1' },
+      { kind: 'api.testSummarizer' },
+    ]);
+    expect(r.state).toEqual(initialState());
+  });
+  it('空の TODO と空の URL は何もしない', () => {
+    const r = run([intent({ type: 'todo.add', projectId: 'p1', text: '   ' }), intent({ type: 'artifact.add', projectId: 'p1', url: ' ' })]);
+    expect(r.effects).toEqual([]);
+  });
+  it('split.resize は中間層で処理済みなので無視する', () => {
+    const r = run([intent({ type: 'split.resize', ratio: 0.3 })]);
+    expect(r.effects).toEqual([]);
+    expect(r.state).toEqual(initialState());
+  });
+  it('要約の失敗は画面に残し、次の pending で消える', () => {
+    const a = run([server({ type: 'summary.failed', sessionId: 's1', message: 'LM Studio に繋がりません' })]);
+    expect(a.state.summaryFailed).toEqual({ s1: 'LM Studio に繋がりません' });
+    const b = run([server({ type: 'summary.pending', sessionId: 's1' })], a.state);
+    expect(b.state.summaryFailed).toEqual({});
+    const c = run([server({ type: 'summary.failed', sessionId: 's1', message: 'x' }), server({ type: 'summary.updated', sessionId: 's1' })]);
+    expect(c.state.summaryFailed).toEqual({});
+  });
+});
+
+describe('パレット', () => {
+  const opened = () => run([intent({ type: 'palette.open' })]).state;
+  it('コマンドを実行して閉じる', () => {
+    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:new-scratch', label: 'スクラッチで始める' } })], opened());
+    expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
+    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
+    const b = run([intent({ type: 'palette.run', command: { id: 'cmd:settings', label: '設定' } })], opened());
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+    const c = run([intent({ type: 'palette.run', command: { id: 'cmd:rebuild-index', label: '索引を作り直す' } })], opened());
+    expect(c.effects).toEqual([{ kind: 'api.rebuildIndex' }]);
+    const d = run([intent({ type: 'palette.run', command: { id: 'project:p1', label: 'alpha' } })], opened());
+    expect(d.effects).toEqual([{ kind: 'navigate', route: { name: 'project', id: 'p1' } }]);
+    const e = run([intent({ type: 'palette.run', command: { id: 'session:s1', label: 'x' } })], opened());
+    expect(e.effects).toEqual([{ kind: 'navigate', route: { name: 'session', id: 's1' } }]);
+    const f = run([intent({ type: 'palette.run', command: { id: 'nope', label: '' } })], opened());
+    expect(f.state.overlay).toEqual({ kind: 'none' });
+    expect(f.effects).toEqual([]);
+  });
+});
+
+describe('分割', () => {
+  it('開くときはランタイムに右のタブを決めさせ、閉じるときはその場で消す', () => {
+    const on = onSession('s1');
+    const a = run([intent({ type: 'split.toggle' })], on);
+    expect(a.effects).toEqual([{ kind: 'split.resolve', sessionId: 's1' }]);
+    expect(a.state.sessionView.s1?.split).toBeFalsy();
+    const b = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: 't2' })], a.state);
+    expect(b.state.sessionView.s1).toMatchObject({ split: true, splitTab: 't2' });
+    expect(b.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: b.state.sessionView.s1 }]);
+    const c = run([intent({ type: 'split.toggle' })], b.state);
+    expect(c.state.sessionView.s1).toMatchObject({ split: false, splitTab: null });
+    expect(c.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: c.state.sessionView.s1 }]);
+  });
+  it('タブが 1 つしか無ければトーストを出す', () => {
+    const a = run([intent({ type: 'split.toggle' })], onSession('s1'));
+    const b = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: null })], a.state);
+    expect(b.state.sessionView.s1?.split).toBeFalsy();
+    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '分割にはタブが 2 つ必要です' }]);
+  });
+  it('分割中に右のタブを選ぶと左右が入れ替わる', () => {
+    let s = run([intent({ type: 'tab.select', tabId: 't1' })], onSession('s1')).state;
+    s = run([intent({ type: 'split.toggle' })], s).state;
+    s = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: 't2' })], s).state;
+    const r = run([intent({ type: 'tab.select', tabId: 't2' })], s);
+    expect(r.state.sessionView.s1).toMatchObject({ selectedTab: 't2', splitTab: 't1' });
+  });
+  it('セッション画面にいないときの split.toggle は何もしない', () => {
+    const r = run([intent({ type: 'split.toggle' })]);
+    expect(r.effects).toEqual([]);
+  });
+});
+
+describe('画面に入るときの読み込み', () => {
+  it('プロジェクト画面はメモを、設定画面は付属の値を読む', () => {
+    const p = run([runtime({ type: 'hash.changed', route: { name: 'project', id: 'p1' } })]);
+    expect(p.effects).toEqual([{ kind: 'api.loadMemo', projectId: 'p1' }]);
+    const s = run([runtime({ type: 'hash.changed', route: { name: 'settings' } })]);
+    expect(s.effects).toEqual([{ kind: 'api.loadSettingsExtras' }]);
   });
 });

@@ -3,7 +3,11 @@ import type { IndexProgressDto, Intent, LaunchParams, ProjectStatus, ResolveActi
 export type RuntimeEvent =
   | { type: 'ws.open' } | { type: 'ws.close' } | { type: 'hash.changed'; route: Route }
   | { type: 'api.failed'; message: string } | { type: 'search.done'; params: SearchParamsDto }
-  | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string };
+  | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string }
+  | { type: 'promote.done'; projectId: string; moved: boolean; reason: string | null }
+  | { type: 'promote.failed'; message: string }
+  // 分割の右に置くタブはストアを見ないと決まらないので、ランタイムが決めて返す。
+  | { type: 'split.resolved'; sessionId: string; tabId: string | null };
 
 export type Input =
   | { kind: 'intent'; intent: Intent }
@@ -28,13 +32,31 @@ export type Effect =
   | { kind: 'ws.connect' } | { kind: 'ws.reconnectAfter'; ms: number }
   | { kind: 'focus'; target: FocusTarget }
   | { kind: 'toast'; level: 'info' | 'error'; message: string }
-  | { kind: 'storage.save'; key: string; value: unknown };
+  | { kind: 'storage.save'; key: string; value: unknown }
+  | { kind: 'api.addTodo'; projectId: string; text: string }
+  | { kind: 'api.toggleTodo'; id: string }
+  | { kind: 'api.removeTodo'; id: string }
+  | { kind: 'api.loadMemo'; projectId: string }
+  | { kind: 'api.saveMemo'; projectId: string; markdown: string }
+  | { kind: 'api.setSessionMemo'; sessionId: string; text: string }
+  | { kind: 'api.openArtifact'; id: string }
+  | { kind: 'api.openArtifactEditor'; id: string }
+  | { kind: 'api.addArtifact'; projectId: string; url: string }
+  | { kind: 'api.promote'; sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }
+  | { kind: 'api.regenerateSummary'; sessionId: string }
+  | { kind: 'api.loadSettingsExtras' }
+  | { kind: 'api.testSummarizer' }
+  | { kind: 'split.resolve'; sessionId: string };
 
 export type Screen = { name: 'booting' } | Route;
-export type FocusTarget = 'search' | 'newSessionName' | 'terminal';
-export type Overlay = { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' } | { kind: 'newSession'; projectId: string | null } | { kind: 'notYet'; feature: string };
+export type FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput';
+export type Overlay =
+  | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' } | { kind: 'notYet'; feature: string }
+  | { kind: 'newSession'; projectId: string | null; scratch: boolean }
+  | { kind: 'promote'; sessionId: string }
+  | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null };
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting' } | { kind: 'failed'; message: string };
-export type SessionViewState = { agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean };
+export type SessionViewState = { agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null };
 export type Toast = { id: string; level: 'info' | 'error'; message: string };
 export type State = {
   screen: Screen; overlay: Overlay; connection: 'connecting' | 'connected' | 'disconnected'; reconnectAttempt: number;
@@ -43,6 +65,10 @@ export type State = {
   launch: LaunchState;
   /** すでにトーストで知らせた waiting のセッション。busy に戻ったら忘れる。 */
   waitingSeen: string[];
+  /** 昇格ダイアログの進み。起動と同じ形の状態を使う。 */
+  promote: LaunchState;
+  /** 事後要約に失敗したセッション。ヘッダーの要約の横に出す。 */
+  summaryFailed: Record<string, string>;
   toasts: Toast[]; unresolvedQueue: string[]; nextToastId: number;
   /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
   indexPhase: IndexProgressDto['phase'];

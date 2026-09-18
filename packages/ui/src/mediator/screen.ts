@@ -23,6 +23,8 @@ export function screenStep(state: State, input: Input): Step | null {
     const left = state.screen.name === 'session' ? state.screen.id : null;
     if (left && !(route.name === 'session' && route.id === left)) effects.push({ kind: 'terminal.disconnectSession', sessionId: left });
     if (route.name === 'session') effects.push({ kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0 }, { kind: 'terminal.connect', sessionId: route.id, tabId: null });
+    if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id });
+    if (route.name === 'settings') effects.push({ kind: 'api.loadSettingsExtras' });
     if (route.name === 'sessions') {
       const text = route.q ?? '';
       next = { ...next, search: { ...state.search, text } };
