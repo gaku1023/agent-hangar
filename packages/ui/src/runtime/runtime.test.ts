@@ -250,6 +250,24 @@ const p3Run = (id: string, sessionId: string): RunDto => ({ id, sessionId, devic
 const p3Tab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt: null });
 
 describe('フェーズ 3 の効果', () => {
+  it('TODO の追加は前後の空白を落として渡し、削除は id をそのまま渡す', async () => {
+    const addTodo = vi.fn(async (projectId: string, text: string) => ({ id: 't9', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1 }));
+    const removeTodo = vi.fn(async (id: string) => p3Todo(id, false));
+    const { rt, wsHandlers } = harness({ addTodo, removeTodo });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'todo.add', projectId: 'p1', text: '  牛乳を買う  ' });
+    await flush();
+    expect(addTodo).toHaveBeenCalledWith('p1', '牛乳を買う');
+    // 空白だけの入力は API まで届かない。
+    rt.emit({ type: 'todo.add', projectId: 'p1', text: '   ' });
+    await flush();
+    expect(addTodo).toHaveBeenCalledTimes(1);
+    rt.emit({ type: 'todo.remove', id: 't9' });
+    await flush();
+    expect(removeTodo).toHaveBeenCalledWith('t9');
+  });
   it('TODO の反転はストアの現在値から done を決める', async () => {
     const setTodoDone = vi.fn(async (id: string, done: boolean) => p3Todo(id, done));
     const { rt, wsHandlers } = harness({ setTodoDone });
@@ -344,6 +362,8 @@ describe('フェーズ 3 の効果', () => {
     setHash('#/settings');
     await flush();
     expect(usageAggregate).toHaveBeenCalledWith(30);
+    expect(statusline).toHaveBeenCalledTimes(1);
+    expect(summarizerModels).toHaveBeenCalledTimes(1);
     expect(rt.getStore().statusline?.installed).toBe(true);
     expect(rt.getStore().usageAggregate?.days).toHaveLength(1);
     expect(rt.getStore().summarizerModels).toEqual([]);
@@ -358,7 +378,13 @@ describe('フェーズ 3 の効果', () => {
     await flush();
     rt.emit({ type: 'summarizer.test' });
     await flush();
+    expect(testSummarizer).toHaveBeenCalledTimes(1);
     expect(rt.getStore().summarizerTest).toMatchObject({ ok: true, id: 'lmstudio', ms: 12 });
+    // もう一度試すと、結果が届くまでの間は前回の結果が消えている。
+    rt.emit({ type: 'summarizer.test' });
+    expect(rt.getStore().summarizerTest).toBeNull();
+    await flush();
+    expect(rt.getStore().summarizerTest).toMatchObject({ ok: true });
   });
   it('事後要約の作り直しは呼ぶだけで、進みはサーバから届く', async () => {
     const regenerateSummary = vi.fn(async () => {});
