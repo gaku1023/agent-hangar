@@ -1,10 +1,18 @@
-# フェーズ 4 実装計画（クラウド同期と引き継ぎ）
+# フェーズ 4 実装計画（クラウド同期）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 利用者自身の Cloudflare アカウントに置いた Worker と D1 と R2 を介して、hangar のメタデータ、セッションの本文、Claude Code のユーザー設定を端末間で同期し、他端末で実行中のセッションを握手で引き継げる状態にする。
+> **2026-09-19 の設計判断（利用者に確認済み）。**
+> このフェーズでは**引き継ぎ（握手による run の受け渡し）を実装しない**。
+> 他端末で実行中のセッションは「ロック中」と見せるだけにし、手元で続けたいときは「この PC で再開」で本文を降ろして新しい run を立てる。
+> 同期の中でいちばん複雑な部分を、2 台で使う実感が無いまま作らないためである。
+> Task 16 は中身を残したまま「このフェーズでは実装しない」として据え置き、Task 17 は「この PC で再開」だけを残す。
+> 同期は「自分の端末同士」のための機能であり、他人と 1 つの箱を共有する使い方は想定しない。
+> 判断の全文は `.superpowers/sdd/phase4-sync/decisions.md` にある。
 
-**Architecture:** `packages/cloud` の Hono Worker が、参加トークンによる端末登録、サーバ側連番付きの変更ログ（D1）、暗号化済みファイルの置き場（R2 と D1 の索引）を提供する。ローカルサーバの `SyncEngine` は `changes` の未送信分を 1 秒のデバウンスで push し、起動時と前面化と 30 秒ごとに pull して行単位の LWW で適用する。本文は `TranscriptUploader` が gzip と AES-256-GCM で包んで端末別の鍵に上げ、`RemotePuller` が他端末の分を `~/.agent-hangar/remote/<端末 ID>/` に降ろして既存のインデクサで索引化する。引き継ぎは `takeover_requests` 行の同期に乗せた握手で、要求側の `TakeoverCoordinator` と保持側の `TakeoverResponder` がフェーズ 2 の `RunManager` を操作する。UI は Mediator に `sync` 領域と `takeover` オーバーレイを足し、ヘッダーに同期状態、セッション画面にロック表示と引き継ぎを出す。
+**Goal:** 利用者自身の Cloudflare アカウントに置いた Worker と D1 と R2 を介して、hangar のメタデータ、セッションの本文、Claude Code のユーザー設定を自分の端末間で同期し、他端末で実行中のセッションをロックとして見せ、手元に本文を降ろして再開できる状態にする。
+
+**Architecture:** `packages/cloud` の Hono Worker が、参加トークンによる端末登録、サーバ側連番付きの変更ログ（D1）、暗号化済みファイルの置き場（R2 と D1 の索引）を提供する。ローカルサーバの `SyncEngine` は `changes` の未送信分を 1 秒のデバウンスで push し、起動時と前面化と 30 秒ごとに pull して行単位の LWW で適用する。本文は `TranscriptUploader` が gzip と AES-256-GCM で包んで端末別の鍵に上げ、`RemotePuller` が他端末の分を `~/.agent-hangar/remote/<端末 ID>/` に降ろして既存のインデクサで索引化する。他端末に生きた run があるセッションはロックとして見せ、「この PC で再開」は `copyTranscriptForResume` で本文を手元へ写してからフェーズ 2 の `RunManager.resume` を呼ぶ。UI は Mediator に `sync` 領域と `resumeHere` 領域を足し、ヘッダーに同期状態、セッション画面にロック表示と「この PC で再開」を出す。
 
 **Tech Stack:** フェーズ 1 と 2 の構成に加えて、wrangler 4（`^4.133.0`、`packages/cloud` のローカル依存）、@cloudflare/workers-types 4、@cloudflare/vitest-pool-workers（`^0.9.0`）、hono 4（Worker でも同じ版）、Node 22 の `node:crypto`（HKDF、AES-256-GCM）と `node:zlib`（gzip）。
 
@@ -12,15 +20,17 @@
 
 ## Global Constraints
 
-- `~/.claude/` 配下への書き込みは、利用者が明示的に押した「この PC で再開」と「引き継ぐ」による本文ファイルのコピーと、Settings で明示的に有効化した Claude Code 設定の取り込みだけに限る。それ以外の経路（インデクサ、pull、テスト）は `~/.claude` を読むだけにする。テストは `HANGAR_CLAUDE_DIR` と `HANGAR_HOME` を一時ディレクトリに向けて行い、実物の `~/.claude` と `~/.agent-hangar` と実物の Cloudflare アカウントに触れない。
+- `~/.claude/` 配下への書き込みは、利用者が明示的に押した「この PC で再開」による本文ファイルのコピーと、Settings で明示的に有効化した Claude Code 設定の取り込みだけに限る。それ以外の経路（インデクサ、pull、テスト）は `~/.claude` を読むだけにする。テストは `HANGAR_CLAUDE_DIR` と `HANGAR_HOME` を一時ディレクトリに向けて行い、実物の `~/.claude` と `~/.agent-hangar` と実物の Cloudflare アカウントに触れない。
 - サーバは `127.0.0.1` のポート `4177` にだけバインドする。同期の設定は `~/.agent-hangar/cloud.json`（権限 0600）、他端末の本文は `~/.agent-hangar/remote/<端末 ID>/projects/<変換名>/<sessionId>.jsonl`、上書き前のバックアップは `~/.agent-hangar/backups/` に置く。
 - 共有テーブルの行は `id`（UUID v7）、`updated_at`（ミリ秒）、`deleted_at`、`origin_device` を持ち、ローカルの書き込みは必ず `upsertShared` と `softDeleteShared` を通して `changes` に 1 行を追記する。pull で受けた行の適用だけは `changes` に追記せず直接書く。競合は行単位で `updated_at` の新しい方を採る。
 - メタデータは変更の 1 秒後に未送信分をまとめて push する。pull は起動時、ウィンドウの前面化、30 秒ごと、セッション起動の直前（2 秒で諦める）に行う。本文は変化の 30 秒後に上げ、run の終了で確定する。Claude Code の設定は変化の 5 秒後に push し、起動時と 30 秒ごとに pull する。
 - R2 に置くファイルは、参加用の秘密から HKDF（SHA-256）で導出した鍵で AES-256-GCM により 1MB ごとに暗号化する。本文の鍵は `transcripts/<端末 ID>/<sessionId>.jsonl.gz` で端末ごとに分け、上書きは起きない。D1 のメタデータは平文で持つ。
-- 他端末に生きた run（`ended_at` が null で `heartbeat_at` が 2 分以内）があるセッションはロックされているとみなす。引き継ぎは `takeover_requests` の `requested` と `acked` の握手で行い、heartbeat が 2 分以上古いときだけ `forced` の強制引き継ぎを出す。保持側は Claude が busy なら idle を最大 60 秒待つ。
+- `~/.claude` へ書き戻すときは、既存のファイルを上書きする前に必ず `~/.agent-hangar/backups/` へ控えを取る。控えを取れなかったファイルは書き戻さない。何を書き換えたかを利用者が後から追えるようにするためである。
+- 他端末に生きた run（`ended_at` が null で `heartbeat_at` が 2 分以内）があるセッションはロックされているとみなし、UI では「<端末名> で実行中」と見せて再開とフォークを止める。**このフェーズでは握手による引き継ぎを実装しない。** 手元で続けたいときは「この PC で再開」で本文を降ろし、新しい run を立てる。
 - Cloudflare のアカウント ID はコードに埋め込まず `cloud.json` に保存する。wrangler は `packages/cloud` のローカル依存として同梱し、`hangar setup cloud` はデプロイ後に `/health` が通るまで最大 2 分試す。
-- 無料枠に収める。D1 は合計 5GB、1 データベース 500MB、書き込み 1 日 10 万行、R2 は 10GB を上限として見積もる。
-- 単体テストは実物の Cloudflare に接続しない。Worker のテストはローカルの D1 と R2（vitest-pool-workers）で、サーバのテストはメモリ上の偽のクライアントで行う。実物で確かめるのは Task 25 だけで、デプロイの前と片付けの前に利用者の確認を取る。
+- 無料枠に収める。D1 は合計 5GB、1 データベース 500MB、書き込み 1 日 10 万行、R2 は 10GB を上限として見積もる。見積もった上限の **80% に達したら同期を自動で一時停止し、トーストで知らせる**。課金される形にはしない。
+- push には最小間隔（既定 10 秒）を置く。実行中のセッションは本文が伸びるたびに共有テーブルへ書き込むので、デバウンスだけでは 2 秒ごとに push してしまい、端末 2 台で 1 日の枠を超えうる。
+- 単体テストは実物の Cloudflare に接続しない。Worker のテストはローカルの D1 と R2（vitest-pool-workers）で、サーバのテストはメモリ上の偽のクライアントで行う。実物で確かめるのは Task 25 だけで、そこでは `hangar-dev` という試し用の名前で資源を作り、終わったら消す。本番の箱はこのフェーズでは作らない。デプロイの前と片付けの前に利用者の確認を取る。
 - UI のコンポーネントは props だけで描く Passive View にし、状態を持たず、`fetch` を呼ばず、他の View を import しない。Mediator と Presenter は DOM に依存しない純関数で、vitest の `node` 環境でテストする。View のテストだけ `jsdom` 環境で行う。
 - 日本語の文書とコメントは一文ごとに改行し、地の文でダッシュと中黒を使わない。
 - コミットメッセージは英語の Conventional Commits 形式で、末尾に `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` を付ける。パッケージ管理は npm（pnpm は使わない）。
@@ -42,7 +52,7 @@
 - `packages/server/src/server.ts`：`RunManager` と `RegistryWatcher` と `IndexerService` の結線。`indexer.on({ progress, sessionChanged, error })` と `registry.onChange(...)` と `runs.on({ runStarted, runUpdated, runEnded, tabChanged })` が hub にイベントを流す。`notifyUnresolved()` という関数は無く、起動の締めは `started = true;` と `console.log(...)` である。
 - `packages/server/src/config/paths.ts`：`Settings` は `workspaceRoot`、`claudeDir`、`tmuxPath`、`terminalApp`、`codePath`、`toolsResolved?`、`lmStudioUrl`、`lmStudioModel`、`summaryFallback`、`summaryHourlyCap`。既定値は `defaultSettings()` にあり、`loadSettings` が保存済みの値を重ねる。
 - `packages/ui/src/mediator/types.ts`：`Overlay` は `none`、`resolveProject`、`palette`、`notYet`、`newSession`、`promote`、`promoted` の 7 種別である（`newProject` と `confirm` は無い）。`State` は `screen`、`overlay`、`connection`、`reconnectAttempt`、`sessionView`、`search`、`launch`、`waitingSeen`、`promote`、`summaryFailed`、`toasts`、`unresolvedQueue`、`nextToastId`、`resolveDeferred`、`indexPhase`。`Effect` に `api.resume`、`api.fork`、`api.launch`、`api.promote`、`split.resolve` などがある。
-- `packages/ui/src/mediator/transition.ts`：`NOT_YET_INTENTS` は `['session.takeover', 'sync.now', 'sync.pause', 'project.new.open', 'project.new.submit']` の 5 件で、この計画は前の 3 つを外す。領域の合成順は `connectionStep`、`screenStep`、`launchStep`、`promoteStep`、`overlayStep`、`sessionViewStep`、`liveStep`、`workbenchStep` の 8 つである。
+- `packages/ui/src/mediator/transition.ts`：`NOT_YET_INTENTS` は `['session.takeover', 'sync.now', 'sync.pause', 'project.new.open', 'project.new.submit']` の 5 件で、この計画は `sync.now` と `sync.pause` の 2 つだけを外す（`session.takeover` は残す）。領域の合成順は `connectionStep`、`screenStep`、`launchStep`、`promoteStep`、`overlayStep`、`sessionViewStep`、`liveStep`、`workbenchStep` の 8 つである。
 - `packages/ui/src/presenters/session.ts`：`SessionProps` に `run`、`canResume`、`canFork`、`trustHint`、`split`、`canSplit`、`canPromote`、`artifacts` などがある。`canResume` と `canFork` はどちらも `s.hasTranscript && idle` である。
 - `packages/ui/src/presenters/shell.ts`：`ShellProps = { nav; crumbs; searchText; connection; index; indexLabel; usage }` で、`UsageProps = { fiveHour; sevenDay; updatedLabel }`。`presentShell(state, store, now: number)` の `now` は必須引数である。
 - `packages/ui/src/presenters/settings.ts`：`presentSettings(_state, store)` は `now` を取らない。`SettingsProps` は `workspaceRoot`、`claudeDir`、`device`、`version`、`index`、`sessionCount`、`projectCount`、`tmuxPath`、`terminalApp`、`codePath`、`mcpInstallCommand`、`lmStudioUrl`、`lmStudioModel`、`summaryFallback`、`summaryHourlyCap`、`summarizerModels`、`summarizerTest`、`statusline`、`statuslineCommand`、`usageAggregate`。
@@ -61,11 +71,11 @@
 
 - **Worker の D1 スキーマ**：共有テーブルをそのまま写さず、`rows`（`table_name:row_id` を鍵にした最新行の写し）と `changes`（サーバ側連番の追記ログ）の 2 表で持つ。Worker は受けた変更を `rows` の `updated_at` と比べて新しいものだけ採り、採ったものだけを `changes` に積む。新しい端末の初回 pull は `GET /rows` で `rows` の写しを受け、以後は `GET /changes?since=` で差分を受ける。`changes` は受信から 14 日を過ぎ、かつ 30 日以内に接続した全端末が読み終えた連番までを、push の 200 回に 1 回削る。
 - **スキーマの適用**：Worker は起動後の最初の要求で `create table if not exists` を実行して自分のスキーマを整える（isolate ごとに 1 回）。`hangar setup cloud` は D1 のマイグレーションコマンドを呼ばない。
-- **参加用の秘密の登録**：setup が生成した秘密の SHA-256 を `wrangler secret put JOIN_SECRET_HASH` で Worker の secret として渡し、Worker はスキーマを整えるときにその値を `join_secrets` に写す。これで秘密のハッシュは D1 にあり、setup は対話なしで済む。同じ端末で `hangar setup cloud --rotate-secret` を再実行すると新しい秘密に差し替え、古い行は `revoked_at` を立てる。
+- **参加用の秘密の登録**：setup が生成した秘密の SHA-256 を `wrangler secret put JOIN_SECRET_HASH` で Worker の secret として渡し、Worker はスキーマを整えるときにその値を `join_secrets` に写す。これで秘密のハッシュは D1 にあり、setup は対話なしで済む。同じ端末で `hangar setup cloud --rotate-secret` を再実行すると新しい秘密に差し替え、古い行は `revoked_at` を立てる。**参加用の秘密は `deriveFileKey` の入力でもあるので、差し替えると R2 の既存ファイルがどの端末でも復号できなくなる。** そのため `--rotate-secret` は確認を必須にし、先に R2 を空にするか、本文を手元へ降ろし終えていることを求める。
 - **端末トークン**：`POST /join` は 32 バイトの乱数を base64url にした端末トークンを返し、D1 には SHA-256 だけを置く。同じ端末 ID で再度参加するとトークンを差し替える（前のトークンは無効になる）。
 - **Worker の名前と資源名**：既定は Worker `hangar`、D1 `hangar`、R2 `hangar-files`。`--name <n>` を渡すと Worker `<n>`、D1 `<n>`、R2 `<n>-files` にする。実物確認では `hangar-dev` を使う。
 - **wrangler の設定ファイル**：リポジトリの `packages/cloud/wrangler.jsonc` はローカル開発とテスト専用で、`database_id` はダミーである。setup は実物の値を入れた設定を `~/.agent-hangar/cloud/wrangler.jsonc` に書き、`main` はリポジトリ内の `packages/cloud/src/index.ts` の絶対パスにする。アカウント ID は wrangler の環境変数 `CLOUDFLARE_ACCOUNT_ID` で渡し、設定ファイルにも書かない。
-- **参加トークンの形**：`{ "url": "<Worker の URL>", "secret": "<参加用の秘密>" }` を JSON にして base64url にした文字列。`hangar join <token>` と Settings の「参加トークンの発行」（同じ文字列を再表示）で使う。
+- **参加トークンの形**：`{ "url": "<Worker の URL>", "secret": "<参加用の秘密>" }` を JSON にして base64url にした文字列。`hangar join <token>` と Settings の「参加トークンの発行」（同じ文字列を再表示）で使う。**渡す相手は自分の別の端末に限る。** 他人と 1 つの箱を共有する使い方は想定せず、別の人は自分の Cloudflare アカウントで `setup cloud` を走らせる。
 - **`cloud.json` の内容**：`url`、`joinSecret`、`deviceToken`、`workerName`、`accountId`（参加だけの端末では null）、`dbName`、`bucketName`、`joinedAt`。権限 0600。`hangar join` はサーバが動いている間に実行してもよいが、同期はサーバの再起動後に始まる（CLI がその旨を表示する）。
 - **暗号化ファイルの形式**：先頭に `HGR1`（4 バイト）と 8 バイトの乱数の nonce 接頭辞を置き、続けてチャンクごとに `flag`（1 バイト、最終チャンクなら 1）、`len`（4 バイト、big endian）、暗号文、認証タグ（16 バイト）を並べる。nonce は接頭辞と 4 バイトのチャンク番号の連結、AAD はチャンク番号と `flag` である。フェーズ 0 の形式（連番 nonce と `len` 付きチャンク）に接頭辞と `flag` を足したのは、同じ鍵でファイルごとに nonce が重複する状態を避け、末尾の切り詰めを検出するためである。鍵は `hkdfSync('sha256', joinSecret, 'hangar-salt-v1', 'hangar-file-v1', 32)` で、salt は全端末で同じ定数にする（端末ごとに変えると他端末の本文を復号できない）。
 - **サブエージェントの本文**：主線と同じく上げる。鍵は `transcripts/<端末 ID>/<sessionId>/subagents/agent-<hex>.jsonl.gz`。
@@ -74,18 +84,22 @@
 - **他端末のセッションへの書き込み**：`remote/` の本文を索引化するときは `sessions` と `session_summaries` に書かず（本文の持ち主が同期してくる）、端末ローカルの `event_index`、`event_fts`、`session_stats`、`transcript_files` だけを書く。
 - **`SessionDto` の追加項目**：`lock`（他端末の生きた run。`deviceId`、`deviceName`、`runId`、`heartbeatAt`、`stale`）と `remoteOnly`（手元に本文ファイルが無く他端末の写しだけがある）。`hasTranscript` は写しがあれば true のままにし、閲覧と検索を許す。
 - **「この PC で再開」の Intent**：`session.resumeHere { id; overwrite?: boolean }` を足す。手元に同じ ID の本文が既にあり、そのサイズが他端末の写し以上なら手元をそのまま使って再開する。手元の方が小さければ 409 を返し、UI が確認ダイアログを出し、承諾されたら手元を `~/.agent-hangar/backups/transcripts/` に写してから置き換える。写しが複数の端末にあるときは更新時刻が最新のものを使う。
-- **引き継ぎの終了理由**：`EndReason` に `taken_over` を足す。保持側は `RunManager.kill(runId, 'taken_over')` で run を閉じる。強制引き継ぎでは要求側が相手の `runs` 行を `ended_at` と `end_reason = 'taken_over'` で閉じて push し、相手は復帰時に `forced` を見て自分の側でも閉じる。
-- **引き継ぎの待ち時間**：要求側は `acked` を 90 秒待ち、来なければ「強制引き継ぎ」を提案する。保持側は idle を 1 秒間隔で最大 60 秒待つ。
-- **強制引き継ぎ後の本文**：保持側は `forced` を見たセッションを「譲った」として記録し（`sync_state` の `yielded:<sessionUuid>`）、以後その本文を上げない。そのセッションを手元で再開したときに記録を消す。
+- **引き継ぎ（このフェーズでは実装しない）**：`EndReason` に `taken_over` を足すこと、`takeover_requests` の握手、`sync_state` の `yielded:<sessionUuid>` による「譲った」記録は、2026-09-19 の判断で後のフェーズに送った。`EndReason` は `'exited' | 'killed' | 'lost'` のままにし、`RunManager.kill` の署名も変えない。`takeover_requests` はフェーズ 1 のマイグレーションで既にある表なので `SHARED_TABLES` には残すが、このフェーズでは誰も書かない。据え置いた設計は Task 16 と Task 17 の後半に残してある。
 - **Claude Code の設定の対象**：`CLAUDE.md`、`settings.json`、`settings.json` の `statusLine.command` が指す `~/.claude` 配下のスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`。`node_modules`、`.git`、`__pycache__`、`.venv`、シンボリックリンク、1MB を超えるファイルは除く。削除は同期しない。実物の `~/.claude` では `memory/` がプロジェクト名ごとのディレクトリを持ち、`projects/<変換名>/memory/` に自動メモリがある。
 - **`$HOME` の書き換え**：push では設定ファイル（UTF-8 として読めるもの）の中のホームディレクトリの絶対パスを `__HANGAR_HOME__` に置き換え、pull では各端末のホームに戻す。`$HOME` そのものを目印にすると、設定ファイルに元からある `$HOME` の文字列（hooks のコマンドなど）を絶対パスに変えてしまうため、衝突しない目印を使う。SHA-256 は置き換え後の内容で計算し、端末間で同じ内容なら同じ値になる。
-- **Claude Code の設定の同期の有効化**：`Settings.syncClaudeConfig`（既定 false、端末ローカル）を有効にし、かつ Settings の「取り込み内容を確認」で一覧を見て「取り込む」を押すまで、`~/.claude` には何も書かない。push はチェックだけで始まる。既存ファイルを上書きする前に `~/.agent-hangar/backups/claude-config/` に写す。
+- **Claude Code の設定の同期の有効化**：`Settings.syncClaudeConfig`（既定 false、端末ローカル）を有効にし、かつ Settings の「取り込み内容を確認」で一覧を見て「取り込む」を押すまで、`~/.claude` には何も書かない。push はチェックだけで始まる。
+- **設定の書き戻しの控え**：一度「取り込む」を押した後は 30 秒ごとの pull で自動的に書き戻すが、**既存ファイルを上書きする前に必ず `~/.agent-hangar/backups/claude-config/<yyyyMMdd-HHmmss>/<相対パス>` へ控えを取る**。控えの書き込みに失敗したファイルはその回では書き戻さず、`onToast` で知らせて次の pull に回す。控えが取れないまま上書きする経路は作らない。同じ回の書き戻しは 1 つのタイムスタンプのディレクトリにまとめ、利用者が「いつ何を書き換えられたか」を後から追えるようにする。
 - **設定の競合**：最後に同期した SHA-256 を `file_sync` に持ち、手元と相手の両方がそこから変わっていたら競合とする。更新時刻の新しい方を本来のパスに置き、古い方を `<name>.conflict-<端末名>-<yyyyMMdd-HHmmss>` として隣に置き、トーストで知らせる。
+- **メモの競合**：`project_memos` は共有テーブルなので「新しい方を採る」規則は変えないが、**負けた方の本文を捨てない**。pull で自分の書いた `project_memos` の行が上書きされるとき、上書き前の markdown を `<プロジェクトのメモの隣>/memo.conflict-<端末名>-<yyyyMMdd-HHmmss>.md` として書き出し、トーストで知らせる。メモは利用者が手で書いた文章なので、黙って消えると取り返せない。
 - **push の単位**：1 回の `POST /changes` は 40 行まで。Worker は 1 行につき `changes` の挿入と `rows` の更新の 2 文を `batch` で実行するので、1 バッチは 81 文以内になる。
+- **push の最小間隔**：連続する push の間を既定 10 秒空ける（`SyncEngine` の `pushMinGapMs`）。デバウンスは「変更が止まってから 1 秒」なので、実行中のセッションのように変更が途切れない相手には効かない。`pushNow` と `syncNow`（利用者が押した「今すぐ同期」）は間隔を無視する。
+- **無料枠の見張り**：`sync_state` に日付ごとの `quota:<yyyy-MM-dd>` を持ち、その日に送った `changes` の行数と要求の回数を数える。D1 の書き込み 1 日 10 万行の **80%（8 万行）** か、Worker の要求 1 日 10 万回の 80% に達したら、`SyncEngine` が自分で `setPaused(true)` にして `sync.status` を `paused` にし、トーストで「無料枠の 80% に達したので同期を止めました」と知らせる。日付が変われば数え直し、一時停止は自動では解けない（利用者が Settings かヘッダーで「同期を再開」を押す）。
 - **pull の単位**：`GET /changes` と `GET /rows` と `GET /files` は 500 行まで返し、`more` が true なら続けて要求する。
+- **圧縮で落ちた変更の検出**：Worker は `changes` を削るときに、削り終えた連番を `meta` の `changes_floor` に残す。`GET /changes?since=` の `since` が `changes_floor` より小さければ、その端末は削られた区間を読み逃しているので、変更を返さずに `410` と `{ error: 'gone', floor }` を返す。受けた端末は `snapshotDone` を落として `GET /rows` からの全件の再同期をやり直す。黙って新しい分だけ返すと、読み逃した行が永遠に届かない。
 - **自分の変更の除外**：Worker は認証した端末の変更を `GET /changes` の結果から除く。`GET /rows` は除かない（DB を失った端末の復旧に使う）。ローカルの適用は `changes` 由来なら自端末を飛ばし、`rows` 由来なら飛ばさない。
 - **端末行**：サーバ起動時と 10 分ごとに自端末の `devices` 行（`last_seen_at`）を `upsertShared` で書く。Settings の端末一覧はこの表を出す。
 - **ローカルの `changes` の掃除**：push 済みで 7 日を過ぎた行は push のたびに消す。
+- **片付けの前の取り込み**：`hangar cloud teardown` は、R2 にしか無い本文（手元にも `remote/` にも降りていないもの）があれば、先にそれを降ろすことを必須にする。降ろし終えるか、利用者が「降ろさずに消す」と明示するまで、R2 とバケットを消さない。
 - **セッション起動直前の pull の差し込み位置**：`RunManager.start` は同期関数なので触らず、HTTP の `POST /api/runs`、`POST /api/sessions/:id/resume`、`POST /api/sessions/:id/fork` の手前で `SyncEngine.pullBeforeLaunch(2000)` を待つ。
 - **前面化の通知**：UI は `window` の `focus` イベントを `RuntimeEvent window.focus` にし、効果 `api.syncFocus` で `POST /api/sync/focus` を叩く。サーバは前回の pull から 5 秒以内なら何もしない。
 - **Worker のテスト**：`@cloudflare/vitest-pool-workers` を使う。同じ vitest で workerd 上の D1 と R2 のローカル実装に対して `SELF.fetch` できるため、miniflare を直接組むより設定が少ない。vitest 5 と組み合わせられない場合は、`miniflare` の `new Miniflare({...}).dispatchFetch` に切り替える（テストの中身は同じ）。
@@ -94,13 +108,14 @@
 ## ファイル構成
 
 フェーズ 1 から 3 のファイルに次を足す。`Modify` は既存のファイルである。
+引き継ぎのために置く予定だったファイル（`sync/takeover.ts`、`mediator/takeover.ts`、`presenters/takeover.ts`、`views/TakeoverDialog.tsx`）は、このフェーズでは作らない。
 
 ```
 packages/shared/src/
   cloud.ts                        同期の契約（ChangeIn、ChangeOut、FileEntry、JoinRequest、参加トークン、SHARED_TABLES、TABLE_PK）
-  api.ts                          Modify：SessionLockDto、SessionDto.lock と remoteOnly、SyncStatusDto、TakeoverUpdateDto、DeviceDto、ConfigPreviewDto、EndReason に taken_over、SettingsDto.syncClaudeConfig、BootstrapDto.sync と devices
-  events.ts                       Modify：sync.status、sync.applied、takeover.update、devices.update
-  intent.ts                       Modify：session.resumeHere、sync.config.preview、sync.config.apply、sync.joinToken.show、session.takeover.cancel
+  api.ts                          Modify：SessionLockDto、SessionDto.lock と remoteOnly、SyncStatusDto、DeviceDto、ConfigPreviewDto、ResumeHereConflictDto、SettingsDto.syncClaudeConfig、BootstrapDto.sync と devices
+  events.ts                       Modify：sync.status、sync.applied、devices.update
+  intent.ts                       Modify：session.resumeHere、sync.config.preview、sync.config.apply、sync.joinToken.show
   index.ts                        Modify：cloud.ts の再エクスポート
 packages/cloud/
   package.json                    hono、wrangler、workers-types、vitest-pool-workers
@@ -127,15 +142,14 @@ packages/server/src/
   sync/engine.ts                  SyncEngine
   sync/uploader.ts                TranscriptUploader、transcriptKey()
   sync/puller.ts                  RemotePuller、remoteTranscriptPath()
-  sync/copy.ts                    copyTranscriptForResume()
-  sync/takeover.ts                requesterStep()、responderStep()、TakeoverCoordinator、TakeoverResponder
-  sync/claudeConfig.ts            listConfigFiles()、normalizeHome()、denormalizeHome()、ClaudeConfigSync
+  sync/copy.ts                    copyTranscriptForResume()、timestampLabel()
+  sync/claudeConfig.ts            listConfigFiles()、normalizeHome()、denormalizeHome()、backupBeforeWrite()、ClaudeConfigSync
+  sync/quota.ts                   QuotaCounter（無料枠の 80% で一時停止）
   provider/types.ts               Modify：DiscoveredFile.deviceId
   provider/claude-code/discover.ts  Modify：listRemoteTranscriptFiles()、selectFilesToIndex()
   indexer/indexFile.ts            Modify：remote モード、forgetTranscriptFile()
   indexer/service.ts              Modify：remoteRoot、選別
-  runs/manager.ts                 Modify：kill(runId, reason)
-  http/app.ts                     Modify：/api/sync/*、takeover、resume-here、beforeLaunch、bootstrap
+  http/app.ts                     Modify：/api/sync/*、resume-here、beforeLaunch、bootstrap
   server.ts                       Modify：結線
 packages/server/test/
   fake-cloud.ts                   FakeCloudClient
@@ -144,25 +158,23 @@ packages/cli/src/
   cloud.ts                        runSetupCloud()、runJoin()、cloudStatus()、runTeardown()、waitForHealth()
   index.ts                        Modify：setup cloud、join、cloud status、cloud teardown
 packages/ui/src/
-  mediator/types.ts               Modify：SyncState、Overlay の takeover と confirm と configPreview、効果、RuntimeEvent
+  mediator/types.ts               Modify：SyncState、Overlay の confirm と configPreview、効果、RuntimeEvent
   mediator/sync.ts                syncStep()
-  mediator/takeover.ts            takeoverStep()
-  mediator/transition.ts          Modify：合成、NOT_YET から除去
+  mediator/resumeHere.ts          resumeHereStep()
+  mediator/transition.ts          Modify：合成、NOT_YET から sync.now と sync.pause を除去
   store/store.ts                  Modify：sync、devices、joinToken、configPreview
-  runtime/api.ts                  Modify：syncStatus、syncNow、syncPause、syncFocus、takeover、takeoverCancel、resumeHere、joinToken、configPreview、configPull、devices
+  runtime/api.ts                  Modify：syncStatus、syncNow、syncPause、syncFocus、resumeHere、joinToken、configPreview、configPull、devices
   runtime/runtime.ts              Modify：window.focus、新しい効果、409 の扱い
   presenters/shell.ts             Modify：sync
   presenters/session.ts           Modify：lock、remoteOnly、canResume、canResumeHere
   presenters/settings.ts          Modify：cloud
-  presenters/takeover.ts          presentTakeover()
   views/SyncStatus.tsx            ヘッダーの同期状態
   views/Header.tsx                Modify：SyncStatus の配置
-  views/SessionScreen.tsx         Modify：ロック表示、引き継ぐ、この PC で再開
-  views/TakeoverDialog.tsx
+  views/SessionScreen.tsx         Modify：ロック表示、この PC で再開
   views/ConfirmDialog.tsx
   views/ConfigPreviewDialog.tsx
   views/SettingsScreen.tsx        Modify：クラウド同期の節
-  views/primitives/Icon.tsx       Modify：takeover と resumeHere のアイコン名
+  views/primitives/Icon.tsx       Modify：resumeHere のアイコン名
   styles/sync.css                 同期とロックの CSS（base.css には足さない）
   Root.tsx、main.tsx              Modify：オーバーレイと focus と sync.css の結線
 ```
@@ -174,7 +186,7 @@ packages/ui/src/
 
 ```ts
 // packages/shared/src/cloud.ts
-export type SharedTable = 'devices' | 'projects' | 'project_roots' | 'sessions' | 'runs' | 'run_tabs' | 'session_summaries' | 'todos' | 'project_memos' | 'artifacts' | 'artifact_versions' | 'takeover_requests';
+export type SharedTable = 'devices' | 'projects' | 'project_roots' | 'sessions' | 'runs' | 'run_tabs' | 'session_summaries' | 'todos' | 'project_memos' | 'artifacts' | 'artifact_versions' | 'takeover_requests';   // takeover_requests はフェーズ 1 からある表。このフェーズでは誰も書かない
 export const SHARED_TABLES: readonly SharedTable[];
 export const TABLE_PK: Record<SharedTable, string>;                 // session_summaries と project_memos 以外は 'id'
 export type ChangeOp = 'upsert' | 'delete';
@@ -199,13 +211,10 @@ export function transcriptKey(deviceId: string, sessionUuid: string, agentId: st
 export function configKey(rel: string): string;                     // 'config/' + rel
 
 // packages/shared/src/api.ts（追加と変更）
-export type EndReason = 'exited' | 'killed' | 'lost' | 'taken_over';
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
 export type SessionDto = { ...フェーズ 1 から 3 の項目...; lock: SessionLockDto | null; remoteOnly: boolean };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
 export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean } };
-export type TakeoverPhase = 'requested' | 'waiting' | 'acked' | 'copying' | 'resumed' | 'timeout' | 'failed' | 'cancelled';
-export type TakeoverUpdateDto = { sessionId: string; requestId: string | null; phase: TakeoverPhase; force: boolean; message: string | null; elapsedMs: number };
 export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean };
 export type ConfigPreviewAction = 'create' | 'overwrite' | 'conflict' | 'skip';
 export type ConfigPreviewEntryDto = { path: string; action: ConfigPreviewAction; localMtime: number | null; remoteMtime: number; remoteDevice: string; size: number };
@@ -217,12 +226,10 @@ export type BootstrapDto = { ...; sync: SyncStatusDto; devices: DeviceDto[] };
 // packages/shared/src/events.ts（追加）
   | { type: 'sync.status'; status: SyncStatusDto }
   | { type: 'sync.applied'; table: SharedTable; rowId: string }
-  | { type: 'takeover.update'; update: TakeoverUpdateDto }
   | { type: 'devices.update'; devices: DeviceDto[] }
 
 // packages/shared/src/intent.ts（追加）
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
-  | { type: 'session.takeover.cancel'; id: SessionId }
   | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
   | { type: 'sync.joinToken.show' }
 
@@ -277,7 +284,7 @@ export class FakeCloudClient implements CloudClient {
 }
 
 // packages/server/src/sync/state.ts
-export type SyncStateKey = 'lastSeq' | 'filesSeq' | 'lastPushAt' | 'lastPullAt' | 'paused' | 'lastError' | 'configPullConfirmed' | 'snapshotDone';
+export type SyncStateKey = 'lastSeq' | 'filesSeq' | 'lastPushAt' | 'lastPullAt' | 'paused' | 'lastError' | 'configPullConfirmed' | 'snapshotDone' | `quota:${string}`;
 export class SyncStateStore {
   constructor(db: Db);
   get(key: SyncStateKey): string | null;
@@ -292,8 +299,18 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: { ownDeviceId: string
 export function applyRemoteBatch(db: Db, changes: ChangeOut[], o: { ownDeviceId: string; skipOwn: boolean }): ChangeOut[];   // 適用した変更を返す
 
 // packages/server/src/sync/engine.ts
-export type SyncEngineDeps = { db: Db; deviceId: string; client: CloudClient | null; now?: () => number; timers?: { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout; setInterval: typeof setInterval; clearInterval: typeof clearInterval }; pushDebounceMs?: number; pullIntervalMs?: number; focusMinGapMs?: number; url?: string | null };
-export type SyncListener = { status?(s: SyncStatusDto): void; applied?(c: ChangeOut): void; pulled?(): void };
+export type SyncEngineDeps = { db: Db; deviceId: string; client: CloudClient | null; now?: () => number; timers?: { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout; setInterval: typeof setInterval; clearInterval: typeof clearInterval }; pushDebounceMs?: number; pushMinGapMs?: number; pullIntervalMs?: number; focusMinGapMs?: number; url?: string | null; quota?: QuotaCounter };
+export type SyncListener = { status?(s: SyncStatusDto): void; applied?(c: ChangeOut): void; pulled?(): void; toast?(level: 'info' | 'error', message: string): void };
+
+// packages/server/src/sync/quota.ts
+export const QUOTA_LIMITS = { d1Writes: 100_000, requests: 100_000 } as const;
+export const QUOTA_STOP_RATIO = 0.8;
+export class QuotaCounter {
+  constructor(o: { state: SyncStateStore; now?: () => number; limits?: typeof QUOTA_LIMITS; ratio?: number });
+  note(o: { rows?: number; requests?: number }): void;   // 日付ごとに足す
+  today(): { rows: number; requests: number };
+  exceeded(): boolean;                                   // どちらかが 80% に達したら true
+}
 export class SyncEngine {
   constructor(deps: SyncEngineDeps);
   on(l: SyncListener): () => void;
@@ -317,7 +334,7 @@ export type UploaderDeps = { db: Db; deviceId: string; claudeDir: string; client
 export class TranscriptUploader {
   constructor(deps: UploaderDeps);
   noteChanged(f: { path: string; sessionId: string; agentId: string | null }): void;   // 30 秒後に上げる。sessionId は Claude の UUID
-  flushSession(sessionUuid: string): Promise<void>;   // run 終了と引き継ぎで即時に上げる
+  flushSession(sessionUuid: string): Promise<void>;   // run の終了で即時に上げる
   flushAll(): Promise<void>;
   uploadFile(f: { path: string; sessionId: string; agentId: string | null }): Promise<'uploaded' | 'unchanged' | 'skipped'>;
   stop(): void;
@@ -337,7 +354,7 @@ export function timestampLabel(ts: number): string;                 // yyyyMMdd-
 export type CopyResult = { kind: 'copied'; target: string; from: string; bytes: number; backedUp: string | null } | { kind: 'kept'; target: string } | { kind: 'ask'; localSize: number; remoteSize: number } | { kind: 'none' };
 export function copyTranscriptForResume(o: { db: Db; home: string; claudeDir: string; sessionId: string; overwrite: boolean; now?: () => number }): CopyResult;
 
-// packages/server/src/sync/takeover.ts
+// packages/server/src/sync/takeover.ts（このフェーズでは作らない。Task 16 と Task 17 の後半に据え置いた設計）
 export type RequesterState = { phase: TakeoverPhase; requestId: string | null; runId: string; sessionId: string; force: boolean; since: number; message: string | null };
 export type RequesterInput = { kind: 'start'; now: number } | { kind: 'applied'; state: 'acked' | 'cancelled' | 'forced'; requestId: string } | { kind: 'tick'; now: number } | { kind: 'copied' } | { kind: 'resumed' } | { kind: 'failed'; message: string } | { kind: 'cancel' };
 export type RequesterAction = { kind: 'writeRequest'; state: 'requested' | 'forced' | 'cancelled' } | { kind: 'endRemoteRun' } | { kind: 'push' } | { kind: 'pullAndCopy' } | { kind: 'resume' } | { kind: 'notify' };
@@ -364,12 +381,13 @@ export function normalizeHome(text: string, home: string): string;
 export function denormalizeHome(text: string, home: string): string;
 export function isTextBuffer(buf: Buffer): boolean;
 export type ClaudeConfigDeps = { db: Db; deviceId: string; deviceName: string; claudeDir: string; home: string; client: CloudClient; key: Buffer; state: SyncStateStore; enabled: () => boolean; onToast: (level: 'info' | 'error', message: string) => void; now?: () => number; debounceMs?: number; timers?: SyncEngineDeps['timers']; homeDir?: string };
+export function backupBeforeWrite(o: { home: string; claudeDir: string; rel: string; stamp: string }): string | null;   // 控えの置き先。既存ファイルが無ければ null
 export class ClaudeConfigSync {
   constructor(deps: ClaudeConfigDeps);
   start(): void; stop(): void;
   pushChanged(): Promise<number>;
   preview(entries?: FileEntry[]): ConfigPreviewDto;   // 省くと最後の pull で見た一覧を使う
-  applyPull(entries: FileEntry[]): Promise<{ applied: number; conflicts: number }>;   // 有効かつ確認済みのときだけ書く
+  applyPull(entries: FileEntry[]): Promise<{ applied: number; conflicts: number; backedUp: number }>;   // 有効かつ確認済みのときだけ書く。上書きの前に必ず控えを取る
   confirm(): void;
   pendingRemote(): FileEntry[];           // 最後の pull で見た設定ファイルの一覧
 }
@@ -391,9 +409,8 @@ export type IndexerListener = { progress?: ...; sessionChanged?: (e: { sessionId
 
 // packages/server/src/http/app.ts（AppDeps の追加）
 export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onFocus' | 'pullBeforeLaunch'>;
-export type TakeoverApi = { request(sessionId: string, force: boolean): { requestId: string }; cancel(sessionId: string): void };
 export type ConfigSyncApi = { preview(): ConfigPreviewDto; pull(): Promise<{ applied: number; conflicts: number }> };
-export type AppDeps = { ...; sync: SyncApi; takeover: TakeoverApi | null; resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto; configSync: ConfigSyncApi | null; joinToken: () => string | null; devices: () => DeviceDto[] };
+export type AppDeps = { ...; sync: SyncApi; resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto; configSync: ConfigSyncApi | null; joinToken: () => string | null; devices: () => DeviceDto[] };
 
 // packages/cli/src/wrangler.ts
 export type ExecResult = { code: number; stdout: string; stderr: string };
@@ -413,16 +430,16 @@ export function runTeardown(o: { home: string; wrangler?: WranglerRunner; fetch?
 
 // packages/ui/src/mediator/types.ts（追加）
 export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
-export type Overlay = ... | { kind: 'takeover'; sessionId: string; phase: TakeoverPhase; force: boolean; message: string | null } | { kind: 'confirm'; confirm: { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number } } | { kind: 'configPreview' };
+export type Overlay = ... | { kind: 'confirm'; confirm: { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number } } | { kind: 'configPreview' };
 export type RuntimeEvent = ... | { type: 'window.focus' } | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number };
-export type Effect = ... | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' } | { kind: 'api.takeover'; sessionId: string; force: boolean } | { kind: 'api.takeoverCancel'; sessionId: string } | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean } | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' };
+export type Effect = ... | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' } | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean } | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' };
 export type ConfirmRequest = { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number };
 export type State = { ...; sync: SyncState; pending: number };
 
-// packages/ui/src/mediator/sync.ts と takeover.ts
+// packages/ui/src/mediator/sync.ts と resumeHere.ts
 export function toSyncState(s: SyncStatusDto): SyncState;
 export function syncStep(state: State, input: Input): Step | null;
-export function takeoverStep(state: State, input: Input): Step | null;
+export function resumeHereStep(state: State, input: Input): Step | null;
 
 // packages/ui/src/store/store.ts（追加）
 export type Store = { ...; sync: SyncStatusDto | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null };
@@ -431,7 +448,7 @@ export function applyConfigPreview(store: Store, preview: ConfigPreviewDto | nul
 
 // packages/ui/src/runtime/api.ts（追加）
 export class ApiConflictError extends Error { constructor(public readonly body: ResumeHereConflictDto); }
-export type ApiClient = { ...; syncStatus(): Promise<SyncStatusDto>; syncNow(): Promise<SyncStatusDto>; syncPause(paused: boolean): Promise<SyncStatusDto>; syncFocus(): Promise<void>; takeover(sessionId: string, force: boolean): Promise<{ requestId: string }>; takeoverCancel(sessionId: string): Promise<void>; resumeHere(sessionId: string, overwrite: boolean): Promise<LaunchResultDto>; joinToken(): Promise<{ token: string | null }>; configPreview(): Promise<ConfigPreviewDto>; configPull(): Promise<{ applied: number; conflicts: number }>; devices(): Promise<DeviceDto[]> };
+export type ApiClient = { ...; syncStatus(): Promise<SyncStatusDto>; syncNow(): Promise<SyncStatusDto>; syncPause(paused: boolean): Promise<SyncStatusDto>; syncFocus(): Promise<void>; resumeHere(sessionId: string, overwrite: boolean): Promise<LaunchResultDto>; joinToken(): Promise<{ token: string | null }>; configPreview(): Promise<ConfigPreviewDto>; configPull(): Promise<{ applied: number; conflicts: number }>; devices(): Promise<DeviceDto[]> };
 
 // packages/ui/src/runtime/runtime.ts（追加）
 export type RuntimeDeps = { ...; onWindowFocus?: (cb: () => void) => () => void };
@@ -444,9 +461,6 @@ export function presentShell(state: State, store: Store, now?: number): ShellPro
 // packages/ui/src/presenters/session.ts（追加）
 export type SessionProps = { ...; lock: { deviceName: string; stale: boolean; heartbeat: string } | null; remoteOnly: boolean; canResume: boolean; canResumeHere: boolean };
 
-// packages/ui/src/presenters/takeover.ts
-export type TakeoverProps = { sessionId: string; sessionName: string; deviceName: string; phase: TakeoverPhase; force: boolean; message: string | null; canForce: boolean; canCancel: boolean; stepLabel: string };
-export function presentTakeover(state: State, store: Store): TakeoverProps | null;
 
 // packages/ui/src/presenters/settings.ts（追加）
 export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; paused: boolean; lastPullAt: string; pending: number; devices: { name: string; platform: string; lastSeen: string; self: boolean }[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
@@ -455,7 +469,6 @@ export function presentSettings(state: State, store: Store, now?: number): Setti
 
 // packages/ui/src/views（追加）
 export function SyncStatus(props: SyncProps): JSX.Element | null;
-export function TakeoverDialog(props: TakeoverProps): JSX.Element;
 export function ConfirmDialog(props: { confirm: ConfirmRequest }): JSX.Element;
 export function ConfigPreviewDialog(props: { preview: ConfigPreviewDto | null }): JSX.Element;
 ```
@@ -478,7 +491,7 @@ export function ConfigPreviewDialog(props: { preview: ConfigPreviewDto | null })
 > 主な確定事項は次のとおりである。
 >
 > - マイグレーションの最終番号は `5` なので、この計画のマイグレーションは **`version: 6`** である。
-> - `NOT_YET_INTENTS` は 5 件（`session.takeover`、`sync.now`、`sync.pause`、`project.new.open`、`project.new.submit`）で、この計画が外す 3 つは残っている。
+> - `NOT_YET_INTENTS` は 5 件（`session.takeover`、`sync.now`、`sync.pause`、`project.new.open`、`project.new.submit`）である。この計画が外すのは `sync.now` と `sync.pause` の 2 つで、`session.takeover` は残す。
 > - `RunManager.kill` の引数は `runId` の 1 つだけである。
 > - 領域の合成順は 8 つ（`connectionStep`、`screenStep`、`launchStep`、`promoteStep`、`overlayStep`、`sessionViewStep`、`liveStep`、`workbenchStep`）である。
 > - `SettingsScreen` に「Provider」の節は無い。クラウド同期は「要約器」と「使用量」の間に置く。
@@ -666,15 +679,12 @@ export function configKey(rel: string): string {
 
 - [ ] **Step 4: api.ts、events.ts、intent.ts、index.ts を直す**
 
-`packages/shared/src/api.ts` に足す（`EndReason` はフェーズ 2 の定義を置き換える）。
+`packages/shared/src/api.ts` に足す。`EndReason` はフェーズ 2 の定義のまま変えない（引き継ぎを実装しないので `taken_over` は要らない）。
 
 ```ts
-export type EndReason = 'exited' | 'killed' | 'lost' | 'taken_over';
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
 export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean } };
-export type TakeoverPhase = 'requested' | 'waiting' | 'acked' | 'copying' | 'resumed' | 'timeout' | 'failed' | 'cancelled';
-export type TakeoverUpdateDto = { sessionId: string; requestId: string | null; phase: TakeoverPhase; force: boolean; message: string | null; elapsedMs: number };
 export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean };
 export type ConfigPreviewAction = 'create' | 'overwrite' | 'conflict' | 'skip';
 export type ConfigPreviewEntryDto = { path: string; action: ConfigPreviewAction; localMtime: number | null; remoteMtime: number; remoteDevice: string; size: number };
@@ -684,20 +694,19 @@ export type ResumeHereConflictDto = { error: 'local_smaller'; localSize: number;
 
 `SessionDto` の末尾に `lock: SessionLockDto | null; remoteOnly: boolean` を、`SettingsDto` に `syncClaudeConfig: boolean` を、`BootstrapDto` に `sync: SyncStatusDto; devices: DeviceDto[]` を足す。
 
-`packages/shared/src/events.ts` の `ServerEvent` に足す（import に `DeviceDto`、`SyncStatusDto`、`TakeoverUpdateDto` と `./cloud.ts` の `SharedTable` を加える）。
+`packages/shared/src/events.ts` の `ServerEvent` に足す（import に `DeviceDto`、`SyncStatusDto` と `./cloud.ts` の `SharedTable` を加える）。
 
 ```ts
   | { type: 'sync.status'; status: SyncStatusDto }
   | { type: 'sync.applied'; table: SharedTable; rowId: string }
-  | { type: 'takeover.update'; update: TakeoverUpdateDto }
   | { type: 'devices.update'; devices: DeviceDto[] }
 ```
 
 `packages/shared/src/intent.ts` の `Intent` に足す（`session.takeover` の行の直後）。
+`session.takeover` そのものはフェーズ 2 からある定義のまま残し、このフェーズでは実装しない（`NOT_YET_INTENTS` に残る）。
 
 ```ts
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
-  | { type: 'session.takeover.cancel'; id: SessionId }
   | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
   | { type: 'sync.joinToken.show' }
 ```
@@ -720,7 +729,7 @@ Expected: PASS。`npm run typecheck` 全体は server と ui の `SessionDto` �
 
 ```bash
 git add packages/shared/src
-git commit -m "feat(shared): cloud sync contracts, lock and sync DTOs, takeover events and intents"
+git commit -m "feat(shared): cloud sync contracts, lock and sync DTOs, resume-here intents"
 ```
 
 ---
@@ -1160,6 +1169,8 @@ git commit -m "feat(cloud): join with hashed secret and per-device bearer tokens
   ```
 - `POST /changes`：本文 `{ changes: ChangeIn[] }`。40 行を超えるか形が違えば 400。同じ鍵が重複していれば `updatedAt` の大きい方だけを見る。`rows` の `updated_at` 以上のものは `skipped`、それ以外は `changes` に追記して `rows` を更新し `accepted` に数える。`devices.last_seen_at` を更新する。応答は `{ seq: 現在の最大連番, accepted, skipped }`。`seq % 200 === 0` のとき圧縮を走らせる。
 - `GET /changes?since=<seq>&limit=<n>`：認証した端末以外の変更を `seq` 昇順で返す。`more` が false のときの `nextSeq` は表全体の最大連番（自端末の末尾の変更を飛ばすため）。`devices.last_pulled_seq` を `nextSeq` に更新する。
+- **圧縮で落ちた区間の検出**：圧縮は削り終えた連番を `meta` の `changes_floor` に書く。`GET /changes` は `since < changes_floor` のとき、変更を返さずに `410` と `{ error: 'gone', floor }` を返す。その端末は削られた区間を読み逃しているので、黙って新しい分だけを渡すと欠落が永久に残る。受けた端末は `GET /rows` から全件を取り直す（Task 10）。`since === 0` の端末も `changes_floor > 0` なら 410 になるが、初回は `GET /rows` を先に読むので実際には通らない。
+- 圧縮のテストに「削った後に古い `since` で引くと 410 が返り、`floor` が入っている」を 1 件足す。
 - `GET /rows?after=<k>&limit=<n>`：`rows` を `k` 昇順で返す。`seq` は現在の最大連番。新しい端末の初回だけが使う。
 
 - [ ] **Step 1: 失敗するテストを書く**
@@ -2389,15 +2400,17 @@ git commit -m "feat(server): cloud config file, sync state store, file_sync tabl
 
 ---
 
-### Task 9: SyncEngine の push（デバウンス、バッチ、オフラインの積み残し）
+### Task 9: SyncEngine の push（デバウンス、最小間隔、バッチ、無料枠の見張り、オフラインの積み残し）
 
 **Files:**
-- Create: `packages/server/src/sync/engine.ts`、`packages/server/test/fake-timers.ts`
-- Test: `packages/server/src/sync/engine.test.ts`
+- Create: `packages/server/src/sync/engine.ts`、`packages/server/src/sync/quota.ts`、`packages/server/test/fake-timers.ts`
+- Test: `packages/server/src/sync/engine.test.ts`、`packages/server/src/sync/quota.test.ts`
 
 **Interfaces:**
 - Consumes: `onSharedWrite`、`SyncStateStore`、`CloudClient`、`CloudError`、`MAX_PUSH_BATCH`、`FakeCloudClient`。
-- Produces: 「インターフェース一覧」の `SyncEngine` のうち `constructor`、`on`、`status`、`start`（push とタイマーの部分）、`stop`、`noteLocalChange`、`pushNow`、`setPaused`、`pending`、`setClaudeConfigStatus`。`pullNow`、`syncNow`、`pullBeforeLaunch`、`onFocus` は Task 10 で足す（この Task では `pullNow` は空実装で `{ applied: 0 }` を返す）。
+- Produces: 「インターフェース一覧」の `SyncEngine` のうち `constructor`、`on`、`status`、`start`（push とタイマーの部分）、`stop`、`noteLocalChange`、`pushNow`、`setPaused`、`pending`、`setClaudeConfigStatus`。`pullNow`、`syncNow`、`pullBeforeLaunch`、`onFocus` は Task 10 で足す（この Task では `pullNow` は空実装で `{ applied: 0 }` を返す）。`QuotaCounter` も全部ここで作る。
+- **push の最小間隔**：`pushMinGapMs`（既定 10_000）を置く。デバウンスの期限が来ても、前回の push から `pushMinGapMs` 経っていなければ、残り時間だけタイマーを引き直す。デバウンスは「変更が止まってから 1 秒」なので、実行中のセッションのように変更が途切れない相手には効かないためである。利用者が押した `pushNow` と `syncNow` は間隔を無視する。
+- **無料枠の見張り**：`QuotaCounter` が `sync_state` の `quota:<yyyy-MM-dd>` に「その日に送った行数」と「その日に出した要求の回数」を JSON で持つ。push のたびに `note({ rows, requests: 1 })` を呼び、`exceeded()`（既定の上限 10 万のどちらかが 80% に達した）になったら `setPaused(true)` にして `toast('info', '無料枠の 80% に達したので同期を止めました。Settings で再開できます')` を出す。日付が変われば数え直す。一時停止は自動では解けず、利用者が「同期を再開」を押すまで止まる。
 - テスト用の時計：
   ```ts
   // packages/server/test/fake-timers.ts
@@ -2720,14 +2733,31 @@ export class SyncEngine {
 
 - [ ] **Step 5: テストと型検査**
 
-Run: `npx vitest run packages/server/src/sync/engine`
-Expected: PASS（7 件）
+Run: `npx vitest run packages/server/src/sync`
+Expected: PASS（engine 7 件に、最小間隔 1 件と無料枠 2 件を足した数）
+
+足すテストは次の 3 件である。
+
+```ts
+  it('前回の push から 10 秒経つまでは、デバウンスの期限が来ても送らない', async () => {
+    // noteLocalChange → advance(1000) で 1 回目の push。
+    // すぐ次の変更を入れて advance(1000) しても送らず、advance(9000) で送る。
+  });
+  it('利用者の syncNow は最小間隔を無視する', async () => {
+    // 1 回目の push の直後に syncNow() を呼ぶと、待たずに送る。
+  });
+  it('無料枠の 80% に達したら自分で一時停止してトーストを出す', async () => {
+    // QuotaCounter の上限を小さくして、push を繰り返す。
+    // status().state が 'paused' になり、listener の toast が 1 度だけ呼ばれる。
+    // 日付をまたぐと数えは 0 に戻るが、paused は解けない。
+  });
+```
 
 - [ ] **Step 6: コミット**
 
 ```bash
-git add packages/server/src/sync/engine.ts packages/server/src/sync/engine.test.ts packages/server/test/fake-timers.ts
-git commit -m "feat(server): sync engine push loop with debounce, batching and offline queue"
+git add packages/server/src/sync/engine.ts packages/server/src/sync/engine.test.ts packages/server/src/sync/quota.ts packages/server/src/sync/quota.test.ts packages/server/test/fake-timers.ts
+git commit -m "feat(server): sync engine push loop with debounce, min gap, free-tier guard and offline queue"
 ```
 
 ---
@@ -2741,6 +2771,8 @@ git commit -m "feat(server): sync engine push loop with debounce, batching and o
 
 **Interfaces:**
 - Produces: 「インターフェース一覧」の `apply.ts` の全部と、`SyncEngine` の `pullNow`、`syncNow`、`pullBeforeLaunch`、`onFocus`。
+- **メモの競合**：`project_memos` の行を他端末の変更で上書きするとき、手元の `markdown` が相手と違えば、上書きの前に手元の本文を `<そのプロジェクトのメモの隣>/memo.conflict-<端末名>-<yyyyMMdd-HHmmss>.md` として書き出し、`onToast` で知らせる。行の採り方（`updated_at` の新しい方）は変えない。メモは利用者が手で書いた文章なので、黙って消えると取り返せない。`applyRemoteChange` は DB しか触らないので、書き出しは `applyRemoteBatch` の呼び手（`SyncEngine`）に `onMemoConflict?: (o: { projectId: string; markdown: string; deviceName: string }) => void` を渡して行う。テストでは呼ばれたことだけを確かめる。
+- **圧縮で落ちた変更の検出**：`GET /changes?since=` が `410` と `{ error: 'gone', floor }` を返したら、`lastSeq` と `snapshotDone` を消して `GET /rows` からの全件の再同期をやり直す。Worker が古い `changes` を削った後に、その区間を読み逃した端末が「新しい分だけ」を受け取って永久に欠落したままになるのを防ぐ。再同期は 1 回の pull の中で続けて行い、`onToast` で「同期を作り直しました」と知らせる。
 - 適用の規則：共有テーブル以外は飛ばす。`skipOwn` なら自端末の変更を飛ばす。ローカル行の `updated_at` が変更の `updatedAt` 以上なら飛ばす。payload はローカルの列だけに絞り、主キーと `updated_at` は変更の値で上書きし、`delete` で `deleted_at` が無ければ `updatedAt` を入れる。真偽値は 0 と 1 に、オブジェクトは JSON 文字列に、undefined は null に変える。`changes` には追記しない。
 - `upsert` では `deleted_at` を必ず書く（payload に無ければ null）。`upsertShared` は conflict のときに渡された列しか書かないので、削除済みの行が届いた `upsert` で生き返らない状態が起こりうる。適用の経路ではこれを避ける。
 - `project_roots` は `unique (project_id, device_id)` を `deleted_at` で除いていないので、同じ組を別の `id` で持つ行が他端末から届くと挿入が失敗する。適用の前に同じ組の別の行を探し、`updated_at` が新しい方を残して古い行を物理削除する（両端末が同じ規則で解くので結果は揃う）。どちらもフェーズ 1 では起こらないが、他端末の行が届くと起こる。
@@ -3802,7 +3834,7 @@ git commit -m "feat(cli): hangar join, cloud status and double-confirmed cloud t
   }
   ```
 - 「ファイル構成」は `uploader.ts` に `transcriptKey()` と書いてあるが、鍵の組み立ては shared の `transcriptKey` をそのまま使い、`uploader.ts` では定義し直さない。
-- 上げる規則：`noteChanged` の 1 件目から 30 秒後に、そのとき待ち行列にあるファイルをまとめて上げる（窓はずらさないので、書き込みが続くセッションでも 30 秒ごとに上がる）。`flushSession` は run の終了と引き継ぎから呼び、待たずに上げる。
+- 上げる規則：`noteChanged` の 1 件目から 30 秒後に、そのとき待ち行列にあるファイルをまとめて上げる（窓はずらさないので、書き込みが続くセッションでも 30 秒ごとに上がる）。`flushSession` は run の終了から呼び、待たずに上げる。
 - 1 ファイルの手順は、平文の SHA-256 を取り、`file_sync` の同じ鍵の値と同じなら `unchanged`、違えば gzip して `encryptStream` に通し、`PUT /files/<鍵>` に流し、`file_sync` を書く。
 - R2 は部分更新ができないので、変化のたびにファイル全体を上げ直す。設計文書の「差分を上げる」はこの形で実現する（Task 26 で反映する）。
 - 一時停止中、`sync_state` の `yielded:<sessionUuid>` が立っているセッション、`claudeDir` の外のパス、消えたファイルは `skipped` にする。
@@ -4939,7 +4971,16 @@ git commit -m "feat(server): session lock from remote live runs, remoteOnly flag
 
 ---
 
-### Task 16: 引き継ぎの状態機械と終了理由 taken_over
+### Task 16: 引き継ぎの状態機械と終了理由 taken_over（このフェーズでは実装しない）
+
+> **このタスクはフェーズ 4 では実装しない。** 2026-09-19 の判断である。
+> 理由は、2 台で使う実感が無いまま、同期の中でいちばん複雑な部分（握手、時間切れ、強制引き継ぎ、譲った記録）を作らないためである。
+> 他端末で実行中のセッションは Task 15 の `lock` で「実行中」と見せ、手元で続けたいときは Task 17 の「この PC で再開」で本文を降ろして新しい run を立てる。
+> 引き継ぎが無いと、他端末の run はそのまま走り続け、同じセッションの本文が 2 か所で伸びうる。
+> その状態は Task 14 の「手元を優先して 1 つだけ索引化する」規則で見た目は壊れないが、本文が枝分かれすることは受け入れる。
+> **中身は後のフェーズで拾えるように残してある。** 実装者はこのタスクを飛ばし、Task 17 へ進む。
+> 拾うときに要るものは、`EndReason` への `taken_over` の追加、`RunManager.kill(runId, reason)` への引数の追加、`sync_state` の `yielded:<sessionUuid>`、`takeover_requests` への書き込み、UI の `takeover` オーバーレイである。
+> どれもこのフェーズの計画からは外してあるので、拾うときはこのタスクの記述を起点に足し直す。
 
 **Files:**
 - Create: `packages/server/src/sync/takeover.ts`
@@ -5195,15 +5236,19 @@ git commit -m "feat(server): takeover handshake state machines and taken_over en
 
 ---
 
-### Task 17: この PC で再開のコピーと引き継ぎの結線
+### Task 17: この PC で再開のコピー
+
+> **このタスクは Step 1 から Step 3 までを実装する。**
+> Step 4 以降の「引き継ぎの結線」は、Task 16 と同じ理由でフェーズ 4 では実装しない（2026-09-19 の判断）。
+> 後のフェーズで拾えるように記述は残してあるので、実装者は Step 3 の後に Step 7 の `copy` のテストだけを走らせ、Step 8 の `copy.ts` だけをコミットして Task 18 へ進む。
 
 **Files:**
 - Create: `packages/server/src/sync/copy.ts`
-- Modify: `packages/server/src/sync/takeover.ts`
-- Test: `packages/server/src/sync/copy.test.ts`、`packages/server/src/sync/takeover.test.ts`（追加）
+- Modify: `packages/server/src/sync/takeover.ts`（このフェーズでは触らない）
+- Test: `packages/server/src/sync/copy.test.ts`、`packages/server/src/sync/takeover.test.ts`（このフェーズでは触らない）
 
 **Interfaces:**
-- Consumes: `requesterStep`、`responderStep`、`isTakeoverDone`（Task 16）、`SyncEngine`、`RemotePuller`、`TranscriptUploader`、`SyncStateStore`、`remoteTranscriptPath`、`mangleCwd`、`upsertShared`、`newId`、`RunError`（`runs/manager.ts`）。
+- Consumes: `RemotePuller`、`remoteTranscriptPath`、`mangleCwd`、`RunError`（`runs/manager.ts`）。Step 4 以降は `requesterStep`、`responderStep`、`isTakeoverDone`（Task 16）、`SyncEngine`、`TranscriptUploader`、`SyncStateStore`、`upsertShared`、`newId` も使うが、このフェーズでは使わない。
 - Produces:
   ```ts
   // sync/copy.ts
@@ -5390,7 +5435,10 @@ export function copyTranscriptForResume(o: { db: Db; home: string; claudeDir: st
 }
 ```
 
-- [ ] **Step 4: 引き継ぎの結線の失敗するテストを書く**
+- [ ] **Step 4: 引き継ぎの結線の失敗するテストを書く（このフェーズでは飛ばす）**
+
+> ここから Step 6 までは Task 16 と対になる引き継ぎの結線である。
+> フェーズ 4 では実装しない。記述は後のフェーズのために残す。
 
 `packages/server/src/sync/takeover.test.ts` に足す。
 
@@ -5804,13 +5852,13 @@ export class TakeoverResponder {
 - [ ] **Step 7: テストと型検査**
 
 Run: `npx vitest run packages/server/src/sync && npx tsc -p packages/server`
-Expected: PASS（copy 5 件、takeover 14 件）
+Expected: PASS（copy 5 件。takeover の 14 件はこのフェーズでは書かない）
 
 - [ ] **Step 8: コミット**
 
 ```bash
-git add packages/server/src/sync/copy.ts packages/server/src/sync/copy.test.ts packages/server/src/sync/takeover.ts packages/server/src/sync/takeover.test.ts
-git commit -m "feat(server): copy remote transcripts for resume and wire the takeover handshake"
+git add packages/server/src/sync/copy.ts packages/server/src/sync/copy.test.ts
+git commit -m "feat(server): copy remote transcripts down for resume on this machine"
 ```
 
 ---
@@ -5833,13 +5881,15 @@ git commit -m "feat(server): copy remote transcripts for resume and wire the tak
   export function normalizeHome(text: string, home: string): string;
   export function denormalizeHome(text: string, home: string): string;
   export function isTextBuffer(buf: Buffer): boolean;
+  /** 上書きの前に控えを取る。既存ファイルが無ければ何もせず null を返す。写せなければ throw する。 */
+  export function backupBeforeWrite(o: { home: string; claudeDir: string; rel: string; stamp: string }): string | null;
   export type ClaudeConfigDeps = { db: Db; deviceId: string; deviceName: string; claudeDir: string; home: string; client: CloudClient; key: Buffer; state: SyncStateStore; enabled: () => boolean; onToast: (level: 'info' | 'error', message: string) => void; now?: () => number; debounceMs?: number; timers?: Timers; homeDir?: string };
   export class ClaudeConfigSync {
     constructor(deps: ClaudeConfigDeps);
     start(): void; stop(): void;
     pushChanged(): Promise<number>;
     preview(entries?: FileEntry[]): ConfigPreviewDto;
-    applyPull(entries: FileEntry[]): Promise<{ applied: number; conflicts: number }>;
+    applyPull(entries: FileEntry[]): Promise<{ applied: number; conflicts: number; backedUp: number }>;
     confirm(): void;
     pendingRemote(): FileEntry[];
   }
@@ -5847,7 +5897,10 @@ git commit -m "feat(server): copy remote transcripts for resume and wire the tak
 - 対象は `CLAUDE.md`、`settings.json`、`settings.json` の `statusLine.command` が指す `~/.claude` 配下のスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`。`node_modules`、`.git`、`__pycache__`、`.venv`、シンボリックリンク、1MB を超えるファイルは外す。削除は同期しない。
 - push は `Settings.syncClaudeConfig`（`enabled()`）が true のときだけ動き、変化の 5 秒後にまとめて上げる。UTF-8 として読めるファイルはホームの絶対パスを `__HANGAR_HOME__` に置き換えてから上げる。SHA-256 は置き換えた後の内容で取るので、ホームの違う端末でも同じ値になる。
 - pull は `enabled()` に加えて `confirm()`（`sync_state` の `configPullConfirmed`）が要る。確認の前でも `applyPull` は受け取った一覧を覚えるので、Settings の「取り込み内容を確認」が乾いた一覧を出せる。
-- 書き込みの前に `~/.agent-hangar/backups/claude-config/<相対パス>-<時刻>` に写す。競合（手元も相手も前回の同期から変わっている）は、更新時刻の新しい方を本来のパスに置き、古い方を `<名前>.conflict-<端末名>-<時刻>` として隣に置き、トーストで知らせる。
+- **控えは必須である。** 既存のファイルを上書きする前に、必ず `~/.agent-hangar/backups/claude-config/<yyyyMMdd-HHmmss>/<相対パス>` へ写す。1 回の `applyPull` は 1 つのタイムスタンプのディレクトリを使い、その回に何を書き換えたかがひとまとまりで残るようにする。
+- 控えの書き込みに失敗したファイルは、**その回では書き戻さない**。`onToast('error', ...)` で知らせ、次の pull に回す。控えが取れないまま `~/.claude` を上書きする経路は作らない。
+- これは利用者が確認した危険（一度「取り込む」を押すと、以後は 30 秒ごとの pull で無確認に上書きされる）への答えである。無確認の上書きそのものは許すが、**書き換えた内容は必ず復元できる形で残す**。`applyPull` は控えを取った件数を `backedUp` として返し、Settings のトーストに出す。
+- 競合（手元も相手も前回の同期から変わっている）は、更新時刻の新しい方を本来のパスに置き、古い方を `<名前>.conflict-<端末名>-<時刻>` として隣に置き、トーストで知らせる。競合でも控えは取る。
 - これは `~/.claude` への 2 つある書き込みのうちの 1 つで、利用者が Settings で明示的に有効にして確認したときだけ動く。
 
 - [ ] **Step 1: 失敗するテストを書く**
@@ -5998,15 +6051,15 @@ describe('preview と applyPull', () => {
     db.prepare('insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
       .run('config/CLAUDE.md', 'config', 'CLAUDE.md', 'dev-b', sha256Hex('# local\n'), 8, NOW - 10_000, 1, NOW);
     const c = make();
-    expect(await c.applyPull([e])).toEqual({ applied: 0, conflicts: 0 });
+    expect(await c.applyPull([e])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
     expect(fs.readFileSync(path.join(claudeDir, 'CLAUDE.md'), 'utf8')).toBe('# local\n');
     expect(c.pendingRemote().map((x) => x.key)).toEqual(['config/CLAUDE.md']);
     c.confirm();
     expect(c.preview().confirmed).toBe(true);
-    expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 0 });
+    expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 0, backedUp: 1 });
     expect(fs.readFileSync(path.join(claudeDir, 'CLAUDE.md'), 'utf8')).toBe(`# from ${HOME_DIR}/work\n`);
-    expect(fs.readdirSync(path.join(home, 'backups', 'claude-config'))).toEqual([`CLAUDE.md-${STAMP}`]);
-    expect(fs.readFileSync(path.join(home, 'backups', 'claude-config', `CLAUDE.md-${STAMP}`), 'utf8')).toBe('# local\n');
+    expect(fs.readdirSync(path.join(home, 'backups', 'claude-config'))).toEqual([STAMP]);
+    expect(fs.readFileSync(path.join(home, 'backups', 'claude-config', STAMP, 'CLAUDE.md'), 'utf8')).toBe('# local\n');
     c.stop();
   });
   it('両方が変わっていたら新しい方を残し、古い方を conflict として隣に置く', async () => {
@@ -6016,7 +6069,7 @@ describe('preview と applyPull', () => {
       .run('config/memory/x.md', 'config', 'memory/x.md', 'dev-b', sha256Hex('base\n'), 5, NOW - 120_000, 1, NOW);
     const c = make();
     c.confirm();
-    expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 1 });
+    expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 1, backedUp: 1 });
     expect(fs.readFileSync(path.join(claudeDir, 'memory/x.md'), 'utf8')).toBe('remote\n');
     const conflicts = fs.readdirSync(path.join(claudeDir, 'memory')).filter((f) => f.includes('.conflict-'));
     expect(conflicts).toEqual([`x.md.conflict-mac-${STAMP}`]);
@@ -6031,7 +6084,7 @@ describe('preview と applyPull', () => {
       .run('config/memory/x.md', 'config', 'memory/x.md', 'dev-b', sha256Hex('base\n'), 5, NOW - 120_000, 1, NOW);
     const c = make();
     c.confirm();
-    expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 1 });
+    expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 1, backedUp: 0 });
     expect(fs.readFileSync(path.join(claudeDir, 'memory/x.md'), 'utf8')).toBe('local\n');
     expect(fs.readFileSync(path.join(claudeDir, 'memory', `x.md.conflict-mini-${STAMP}`), 'utf8')).toBe('remote\n');
     c.stop();
@@ -6281,23 +6334,38 @@ export class ClaudeConfigSync {
     return Buffer.concat(chunks);
   }
 
-  /** 上書きの前に控えを取る。~/.agent-hangar/backups/claude-config/<相対パス>-<時刻>。 */
-  private backupAndWrite(abs: string, rel: string, content: Buffer): void {
-    if (fs.existsSync(abs)) {
-      const b = path.join(backupsRoot(this.deps.home), 'claude-config', `${rel}-${timestampLabel(this.now())}`);
-      fs.mkdirSync(path.dirname(b), { recursive: true });
-      fs.copyFileSync(abs, b);
-    }
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, content);
+  /**
+   * 上書きの前に控えを取る。~/.agent-hangar/backups/claude-config/<stamp>/<相対パス>。
+   * 1 回の applyPull は同じ stamp を使い、その回に書き換えた分がひとまとまりで残る。
+   * 既存ファイルが無ければ控えは要らないので null を返す。
+   * 写せなければ throw して、呼び手にそのファイルの書き戻しをやめさせる。
+   */
+  private backup(abs: string, rel: string, stamp: string): string | null {
+    if (!fs.existsSync(abs)) return null;
+    const b = path.join(backupsRoot(this.deps.home), 'claude-config', stamp, ...rel.split('/'));
+    fs.mkdirSync(path.dirname(b), { recursive: true });
+    fs.copyFileSync(abs, b);
+    return b;
   }
 
-  async applyPull(entries: FileEntry[]): Promise<{ applied: number; conflicts: number }> {
+  /** 控えを取ってから書く。控えに失敗したら書かない。 */
+  private backupAndWrite(abs: string, rel: string, content: Buffer, stamp: string): boolean {
+    // ここで throw したら呼び手の catch が拾い、このファイルは次の pull に回る。
+    const kept = this.backup(abs, rel, stamp);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, content);
+    return kept !== null;
+  }
+
+  async applyPull(entries: FileEntry[]): Promise<{ applied: number; conflicts: number; backedUp: number }> {
     this.lastRemote = entries.filter((e) => e.deviceId !== this.deps.deviceId);
-    if (!this.deps.enabled() || !this.confirmed()) return { applied: 0, conflicts: 0 };
+    if (!this.deps.enabled() || !this.confirmed()) return { applied: 0, conflicts: 0, backedUp: 0 };
     let applied = 0;
     let conflicts = 0;
+    let backedUp = 0;
     let localWon = false;
+    // この回の控えの置き場。1 回の取り込みを 1 つのディレクトリにまとめる。
+    const runStamp = timestampLabel(this.now());
     for (const e of this.lastRemote) {
       try {
         const d = this.decide(e);
@@ -6312,7 +6380,7 @@ export class ClaudeConfigSync {
           if (d.remoteNewer) {
             const keep = `${abs}.conflict-${safeName(this.deps.deviceName)}-${stamp}`;
             fs.copyFileSync(abs, keep);
-            this.backupAndWrite(abs, e.path, content);
+            if (this.backupAndWrite(abs, e.path, content, runStamp)) backedUp++;
             this.deps.onToast('info', `${e.path} が競合しました。手元の内容を ${path.basename(keep)} に残しました`);
           } else {
             const other = `${abs}.conflict-${safeName(this.deviceName(e.deviceId))}-${stamp}`;
@@ -6321,17 +6389,19 @@ export class ClaudeConfigSync {
             this.deps.onToast('info', `${e.path} が競合しました。相手の内容を ${path.basename(other)} に置きました`);
           }
         } else {
-          this.backupAndWrite(abs, e.path, content);
+          if (this.backupAndWrite(abs, e.path, content, runStamp)) backedUp++;
         }
         this.remember(e, e.sha256);
         applied++;
       } catch (err) {
+        // 控えに失敗した分もここに落ちる。そのファイルは書き戻していないので、次の pull でやり直す。
         this.deps.onToast('error', `${e.path} の取り込みに失敗しました: ${errorMessage(err)}`);
       }
     }
+    if (backedUp > 0) this.deps.onToast('info', `上書きした ${backedUp} 件の控えを ~/.agent-hangar/backups/claude-config/${runStamp}/ に置きました`);
     // 手元が勝った競合は、相手に追いつかせるためにすぐ push する。
     if (localWon) await this.pushChanged();
-    return { applied, conflicts };
+    return { applied, conflicts, backedUp };
   }
 }
 ```
@@ -6339,7 +6409,25 @@ export class ClaudeConfigSync {
 - [ ] **Step 4: テストと型検査**
 
 Run: `npx vitest run packages/server/src/sync/claudeConfig && npx tsc -p packages/server`
-Expected: PASS（9 件）
+Expected: PASS（控えに失敗したファイルを書き戻さない 1 件を足した数）
+
+足すテストは次の 1 件である。
+
+```ts
+  it('控えを取れなければそのファイルを書き戻さない', async () => {
+    const e = await remotePut('CLAUDE.md', 'remote\n', { mtime: NOW });
+    write('CLAUDE.md', '# local\n', NOW - 60_000);
+    // backups/claude-config を同名のファイルで塞ぎ、控えのディレクトリを作れなくする。
+    fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'backups', 'claude-config'), 'x');
+    const c = make();
+    c.confirm();
+    expect(await c.applyPull([e])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(fs.readFileSync(path.join(claudeDir, 'CLAUDE.md'), 'utf8')).toBe('# local\n');
+    expect(toasts.some((t) => t.level === 'error')).toBe(true);
+    c.stop();
+  });
+```
 
 - [ ] **Step 5: コミット**
 
@@ -6357,14 +6445,13 @@ git commit -m "feat(server): opt-in Claude config sync with home rewriting, prev
 - Test: `packages/server/src/http/app.test.ts`（追加）
 
 **Interfaces:**
-- Consumes: `SyncEngine`、`TranscriptUploader`、`RemotePuller`、`ClaudeConfigSync`、`TakeoverCoordinator`、`TakeoverResponder`、`copyTranscriptForResume`、`listDevices`、`loadCloudConfig`、`deriveFileKey`、`HttpCloudClient`、`encodeJoinToken`。
+- Consumes: `SyncEngine`、`QuotaCounter`、`TranscriptUploader`、`RemotePuller`、`ClaudeConfigSync`、`copyTranscriptForResume`、`listDevices`、`loadCloudConfig`、`deriveFileKey`、`HttpCloudClient`、`encodeJoinToken`。
 - Produces:
   ```ts
   // http/app.ts
   export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onFocus' | 'pullBeforeLaunch'>;
-  export type TakeoverApi = { request(sessionId: string, force: boolean): { requestId: string }; cancel(sessionId: string): void };
   export type ConfigSyncApi = { preview(): ConfigPreviewDto; pull(): Promise<{ applied: number; conflicts: number }> };
-  export type AppDeps = { ...フェーズ 1 から 3 の項目...; sync: SyncApi; takeover: TakeoverApi | null; resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto; configSync: ConfigSyncApi | null; joinToken: () => string | null; devices: () => DeviceDto[] };
+  export type AppDeps = { ...フェーズ 1 から 3 の項目...; sync: SyncApi; resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto; configSync: ConfigSyncApi | null; joinToken: () => string | null; devices: () => DeviceDto[] };
   ```
 - 経路（すべて `/api` の下で認証必須）：
   - `GET /sync/status` → `SyncStatusDto`。
@@ -6375,12 +6462,11 @@ git commit -m "feat(server): opt-in Claude config sync with home rewriting, prev
   - `GET /sync/joinToken` → `{ token: string | null }`。setup を走らせていない端末では null。
   - `GET /sync/config/preview` → `ConfigPreviewDto`。同期が未設定なら 404。
   - `POST /sync/config/pull` → `{ applied, conflicts }`。同期が未設定なら 404。
-  - `POST /sessions/:id/takeover` 本文 `{ force?: boolean }` → `{ requestId }`。未設定なら 404、`RunError` はその状態番号。
-  - `POST /sessions/:id/takeover/cancel` → 202。
   - `POST /sessions/:id/resume-here` 本文 `{ overwrite?: boolean }` → `LaunchResultDto`、または 409 で `ResumeHereConflictDto`。
 - `GET /bootstrap` に `sync` と `devices` を足し、`listSessions` と `getSession` に自端末の ID を渡してロックを出す。`toSettingsDto` に `syncClaudeConfig` を足す。
 - `POST /runs`、`POST /sessions/:id/resume`、`POST /sessions/:id/fork` の先頭で `await deps.sync.pullBeforeLaunch(2000)` を待つ。結果は捨ててよい（間に合わなくても起動する）。
-- `server.ts` は `cloud.json` があればクラウドの部品を組み立て、無ければ `SyncEngine` を `client: null` で作る（状態は `off`）。組み立ての順は、`SyncStateStore` → `SyncEngine` → `TranscriptUploader` → `RemotePuller` → `ClaudeConfigSync` → `TakeoverCoordinator` と `TakeoverResponder` である。
+- `server.ts` は `cloud.json` があればクラウドの部品を組み立て、無ければ `SyncEngine` を `client: null` で作る（状態は `off`）。組み立ての順は、`SyncStateStore` → `QuotaCounter` → `SyncEngine` → `TranscriptUploader` → `RemotePuller` → `ClaudeConfigSync` である。引き継ぎの部品（`TakeoverCoordinator` と `TakeoverResponder`）はこのフェーズでは作らない。
+- `SyncEngine` の `toast` と `RemotePuller` の `onMemoConflict` は `hub.broadcast({ type: 'toast', ... })` に繋ぐ。無料枠の 80% で止まったこと、メモの競合を隣に残したこと、設定の控えを置いたことは、どれもトーストで利用者に届く。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -6397,14 +6483,13 @@ git commit -m "feat(server): opt-in Claude config sync with home rewriting, prev
     onFocus: async () => { calls.push('focus'); },
     pullBeforeLaunch: async () => { calls.push('beforeLaunch'); return true; },
   };
-  const takeover = { request: (id: string, force: boolean) => { calls.push(`takeover:${id}:${force}`); return { requestId: 'q1' }; }, cancel: (id: string) => { calls.push(`cancel:${id}`); } };
   let resumeHereResult: LaunchResultDto | ResumeHereConflictDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'resume', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [] };
   const configSync = { preview: () => ({ entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 5, remoteDevice: 'mini', size: 3 }], confirmed: false }), pull: async () => ({ applied: 1, conflicts: 0 }) };
   app = createApp({
     db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, version: '0.0.0-test',
     settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }),
     live: () => [], indexer, hub: { broadcast: (e) => sent.push(e) },
-    sync, takeover, configSync,
+    sync, configSync,
     resumeHere: (id, overwrite) => { calls.push(`resumeHere:${id}:${overwrite}`); return resumeHereResult; },
     joinToken: () => 'tok-abc',
     devices: () => [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true }],
@@ -6441,12 +6526,6 @@ describe('同期の経路', () => {
     expect(p.body.entries[0]).toMatchObject({ path: 'CLAUDE.md', action: 'create' });
     expect((await json(await post('/api/sync/config/pull'))).body).toEqual({ applied: 1, conflicts: 0 });
   });
-  it('引き継ぎと取り消し', async () => {
-    const id = (await json(await get('/api/sessions'))).body[0].id;
-    expect((await json(await post(`/api/sessions/${id}/takeover`, { force: true }))).body).toEqual({ requestId: 'q1' });
-    expect((await post(`/api/sessions/${id}/takeover/cancel`)).status).toBe(202);
-    expect(calls).toEqual([`takeover:${id}:true`, `cancel:${id}`]);
-  });
   it('この PC で再開は 409 で写しとの大きさを返す', async () => {
     const id = (await json(await get('/api/sessions'))).body[0].id;
     expect((await json(await post(`/api/sessions/${id}/resume-here`))).body.sessionId).toBe('s1');
@@ -6474,7 +6553,6 @@ import { listDevices } from '../db/queries.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 
 export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onFocus' | 'pullBeforeLaunch'>;
-export type TakeoverApi = { request(sessionId: string, force: boolean): { requestId: string }; cancel(sessionId: string): void };
 export type ConfigSyncApi = { preview(): ConfigPreviewDto; pull(): Promise<{ applied: number; conflicts: number }> };
 ```
 
@@ -6482,7 +6560,6 @@ export type ConfigSyncApi = { preview(): ConfigPreviewDto; pull(): Promise<{ app
 
 ```ts
   sync: SyncApi;
-  takeover: TakeoverApi | null;
   resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto;
   configSync: ConfigSyncApi | null;
   joinToken: () => string | null;
@@ -6521,22 +6598,6 @@ const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspac
   api.get('/sync/config/preview', (c) => (deps.configSync ? c.json(deps.configSync.preview()) : c.json({ error: 'cloud sync is not configured' }, 404)));
   api.post('/sync/config/pull', async (c) => (deps.configSync ? c.json(await deps.configSync.pull()) : c.json({ error: 'cloud sync is not configured' }, 404)));
 
-  api.post('/sessions/:id/takeover', async (c) => {
-    if (!deps.takeover) return c.json({ error: 'cloud sync is not configured' }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { force?: boolean };
-    try {
-      return c.json(deps.takeover.request(c.req.param('id'), body.force === true));
-    } catch (e) {
-      const r = runError(e);
-      if (r) return c.json({ error: r.message }, r.status);
-      throw e;
-    }
-  });
-  api.post('/sessions/:id/takeover/cancel', (c) => {
-    if (!deps.takeover) return c.json({ error: 'cloud sync is not configured' }, 404);
-    deps.takeover.cancel(c.req.param('id'));
-    return c.body(null, 202);
-  });
   api.post('/sessions/:id/resume-here', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { overwrite?: boolean };
     try {
@@ -6561,7 +6622,7 @@ const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspac
 `packages/server/src/server.ts` に足す。まず import と定数。
 
 ```ts
-import { encodeJoinToken, type EndReason, type LaunchResultDto, type ResumeHereConflictDto, type TakeoverUpdateDto } from '@agent-hangar/shared';
+import { encodeJoinToken, type LaunchResultDto, type ResumeHereConflictDto } from '@agent-hangar/shared';
 import { RunError } from './runs/manager.ts';   // フェーズ 2 で既に import していれば足さない
 import { loadCloudConfig, remoteRoot } from './config/cloud.ts';
 import { listDevices } from './db/queries.ts';
@@ -6573,7 +6634,6 @@ import { deriveFileKey } from './sync/crypto.ts';
 import { SyncEngine } from './sync/engine.ts';
 import { RemotePuller } from './sync/puller.ts';
 import { SyncStateStore } from './sync/state.ts';
-import { TakeoverCoordinator, TakeoverResponder } from './sync/takeover.ts';
 import { TranscriptUploader } from './sync/uploader.ts';
 
 const DEVICE_TOUCH_MS = 600_000;
@@ -6650,29 +6710,14 @@ const DEVICE_TOUCH_MS = 600_000;
   });
 ```
 
-引き継ぎと「この PC で再開」を組み立てる（`runs` はフェーズ 2 の `RunManager`）。
+「この PC で再開」を組み立てる（`runs` はフェーズ 2 の `RunManager`）。
 
 ```ts
-  const takeoverDeps = client && uploader && puller
-    ? {
-        db, deviceId: device.id, engine, puller, uploader, state: syncState, home, claudeDir,
-        runs: { resume: (id: string) => runs.resume(id), kill: (runId: string, reason?: EndReason) => runs.kill(runId, reason) },
-        isBusy: (uuid: string) => registry.current().some((l) => l.sessionId === uuid && l.status === 'busy'),
-        onUpdate: (u: TakeoverUpdateDto) => hub.broadcast({ type: 'takeover.update', update: u }),
-        onToast: toast,
-      }
-    : null;
-  const coordinator = takeoverDeps ? new TakeoverCoordinator(takeoverDeps) : null;
-  const responder = takeoverDeps ? new TakeoverResponder(takeoverDeps) : null;
-
   /** 他端末の本文を手元に写してから再開する。~/.claude への書き込みはここだけを通る。 */
   const resumeHere = (sessionId: string, overwrite: boolean): LaunchResultDto | ResumeHereConflictDto => {
     const r = copyTranscriptForResume({ db, home, claudeDir, sessionId, overwrite });
     if (r.kind === 'ask') return { error: 'local_smaller', localSize: r.localSize, remoteSize: r.remoteSize };
     if (r.kind === 'none') throw new RunError(400, 'このセッションの本文がありません');
-    const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(sessionId) as { p: string } | undefined)?.p;
-    // 手元で再開したら持ち主が戻るので、譲った記録を消す。
-    if (uuid) syncState.setYielded(uuid, false);
     return runs.resume(sessionId);
   };
 
@@ -6684,7 +6729,6 @@ const DEVICE_TOUCH_MS = 600_000;
 
 ```ts
     sync: engine,
-    takeover: coordinator,
     resumeHere,
     configSync: configSync ? { preview: () => configSync.preview(), pull: async () => { const entries = configSync.pendingRemote(); configSync.confirm(); return configSync.applyPull(entries); } } : null,
     joinToken: () => (cloud ? encodeJoinToken({ url: cloud.url, secret: cloud.joinSecret }) : null),
@@ -6720,15 +6764,12 @@ const DEVICE_TOUCH_MS = 600_000;
   await engine.start();
   if (puller) await puller.pullNow().catch((e: unknown) => console.error('[files]', e));
   configSync?.start();
-  responder?.start();
 ```
 
 `close` の先頭に足す。
 
 ```ts
       clearInterval(deviceTimer);
-      coordinator?.stop();
-      responder?.stop();
       configSync?.stop();
       uploader?.stop();
       engine.stop();
@@ -6759,47 +6800,45 @@ Expected: PASS（app の同期 5 件と server の 1 件を含む）
 
 ```bash
 git add packages/server/src/http packages/server/src/server.ts packages/server/src/server.test.ts
-git commit -m "feat(server): sync, takeover and resume-here HTTP routes wired into the server"
+git commit -m "feat(server): sync and resume-here HTTP routes wired into the server"
 ```
 
 ---
 
-### Task 20: Mediator の同期領域と引き継ぎ領域、ストア
+### Task 20: Mediator の同期領域とこの PC で再開の領域、ストア
 
 **Files:**
-- Create: `packages/ui/src/mediator/sync.ts`、`packages/ui/src/mediator/takeover.ts`
+- Create: `packages/ui/src/mediator/sync.ts`、`packages/ui/src/mediator/resumeHere.ts`
 - Modify: `packages/ui/src/mediator/types.ts`、`packages/ui/src/mediator/transition.ts`、`packages/ui/src/store/store.ts`
 - Test: `packages/ui/src/mediator/transition.test.ts`（追加）、`packages/ui/src/store/store.test.ts`（追加）
 
 **Interfaces:**
-- Consumes: `SyncStatusDto`、`SyncStateKind`、`TakeoverPhase`、`TakeoverUpdateDto`、`DeviceDto`、`ConfigPreviewDto`（shared、Task 1）。
+- Consumes: `SyncStatusDto`、`SyncStateKind`、`DeviceDto`、`ConfigPreviewDto`（shared、Task 1）。
 - Produces:
   ```ts
   // mediator/types.ts（追加）
   export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
   export type Overlay = ...フェーズ 1 から 3 の種別...
-    | { kind: 'takeover'; sessionId: string; phase: TakeoverPhase; force: boolean; message: string | null }
     | { kind: 'confirm'; confirm: { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number } }
     | { kind: 'configPreview' };
   export type RuntimeEvent = ... | { type: 'window.focus' } | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number };
   export type Effect = ...
     | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
-    | { kind: 'api.takeover'; sessionId: string; force: boolean } | { kind: 'api.takeoverCancel'; sessionId: string }
     | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
     | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' };
   export type State = { ...; sync: SyncState; pending: number };
   // mediator/sync.ts
   export function syncStep(state: State, input: Input): Step | null;
   export function toSyncState(s: SyncStatusDto): SyncState;
-  // mediator/takeover.ts
-  export function takeoverStep(state: State, input: Input): Step | null;
+  // mediator/resumeHere.ts
+  export function resumeHereStep(state: State, input: Input): Step | null;
   // store/store.ts（追加）
   export type Store = { ...; sync: SyncStatusDto | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null };
   export function applyJoinToken(store: Store, token: string | null): Store;
   export function applyConfigPreview(store: Store, preview: ConfigPreviewDto | null): Store;
   ```
-- 領域の合成順は `connectionStep`、`screenStep`、`overlayStep`、`syncStep`、`takeoverStep`、`sessionViewStep` にする。`overlayStep` の `overlay.close` が先に来るので、引き継ぎと確認と下見のオーバーレイも Esc と外側のクリックで閉じられる。
-- `NOT_YET_INTENTS` から `sync.now`、`sync.pause`、`session.takeover` を外す。
+- 領域の合成順は実物の 8 つを変えず、`overlayStep` の後ろに `syncStep` と `resumeHereStep` を挟む。`overlayStep` の `overlay.close` が先に来るので、確認と下見のオーバーレイも Esc と外側のクリックで閉じられる。
+- `NOT_YET_INTENTS` から `sync.now` と `sync.pause` を外す。**`session.takeover` は残す**（引き継ぎはこのフェーズで実装しないので、押すと「次のフェーズで実装します」と出る）。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -6837,29 +6876,7 @@ describe('同期', () => {
   });
 });
 
-describe('引き継ぎ', () => {
-  it('引き継ぐでオーバーレイを開き、更新で段階が進む', () => {
-    const a = run([intent({ type: 'session.takeover', id: 's1', force: false })]);
-    expect(a.state.overlay).toEqual({ kind: 'takeover', sessionId: 's1', phase: 'requested', force: false, message: null });
-    expect(a.effects).toEqual([{ kind: 'api.takeover', sessionId: 's1', force: false }]);
-    const b = run([server({ type: 'takeover.update', update: { sessionId: 's1', requestId: 'q1', phase: 'waiting', force: false, message: null, elapsedMs: 1000 } })], a.state);
-    expect(b.state.overlay).toMatchObject({ kind: 'takeover', phase: 'waiting' });
-    const c = run([server({ type: 'takeover.update', update: { sessionId: 's1', requestId: 'q1', phase: 'timeout', force: false, message: '相手が応答しません', elapsedMs: 90_000 } })], b.state);
-    expect(c.state.overlay).toMatchObject({ phase: 'timeout', message: '相手が応答しません' });
-    const d = run([intent({ type: 'session.takeover', id: 's1', force: true })], c.state);
-    expect(d.state.overlay).toMatchObject({ phase: 'requested', force: true });
-    expect(d.effects).toEqual([{ kind: 'api.takeover', sessionId: 's1', force: true }]);
-  });
-  it('他のセッションの更新では開かない', () => {
-    const a = run([intent({ type: 'session.takeover', id: 's1', force: false })]);
-    const b = run([server({ type: 'takeover.update', update: { sessionId: 's2', requestId: 'q2', phase: 'waiting', force: false, message: null, elapsedMs: 1 } })], a.state);
-    expect(b.state.overlay).toMatchObject({ sessionId: 's1', phase: 'requested' });
-  });
-  it('取り消しでオーバーレイを閉じ、効果を出す', () => {
-    const a = run([intent({ type: 'session.takeover', id: 's1', force: false }), intent({ type: 'session.takeover.cancel', id: 's1' })]);
-    expect(a.state.overlay).toEqual({ kind: 'none' });
-    expect(a.effects.at(-1)).toEqual({ kind: 'api.takeoverCancel', sessionId: 's1' });
-  });
+describe('この PC で再開', () => {
   it('この PC で再開の 409 は確認ダイアログになり、承諾で上書きを送る', () => {
     const a = run([intent({ type: 'session.resumeHere', id: 's1' })]);
     expect(a.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: false }]);
@@ -6869,9 +6886,10 @@ describe('引き継ぎ', () => {
     expect(c.state.overlay).toEqual({ kind: 'none' });
     expect(c.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: true }]);
   });
-  it('同期の操作は未実装の案内を出さない', () => {
-    const { effects } = run([intent({ type: 'sync.now' }), intent({ type: 'session.takeover', id: 's1', force: false })]);
-    expect(effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
+  it('同期の操作は未実装の案内を出さないが、引き継ぎは出す', () => {
+    expect(run([intent({ type: 'sync.now' })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
+    // 引き継ぎはこのフェーズでは実装しないので、NOT_YET_INTENTS に残っている。
+    expect(run([intent({ type: 'session.takeover', id: 's1', force: false })]).effects).toEqual([{ kind: 'toast', level: 'info', message: NOT_YET }]);
   });
 });
 ```
@@ -6911,16 +6929,16 @@ Expected: FAIL（`sync` が State に無い、`./sync.ts` が無い）
 
 - [ ] **Step 3: 型と領域を実装する**
 
-`packages/ui/src/mediator/types.ts` に足す（`import type { ConfigPreviewDto, DeviceDto, SyncStatusDto, TakeoverPhase, TakeoverUpdateDto } from '@agent-hangar/shared';` を先頭に足す）。
+`packages/ui/src/mediator/types.ts` に足す（`import type { ConfigPreviewDto, DeviceDto, SyncStatusDto } from '@agent-hangar/shared';` を先頭に足す）。
 
 ```ts
 export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
 export type ConfirmRequest = { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number };
 ```
 
-`Overlay` に `| { kind: 'takeover'; sessionId: string; phase: TakeoverPhase; force: boolean; message: string | null } | { kind: 'confirm'; confirm: ConfirmRequest } | { kind: 'configPreview' }` を足す。
+`Overlay` に `| { kind: 'confirm'; confirm: ConfirmRequest } | { kind: 'configPreview' }` を足す。
 `RuntimeEvent` に `| { type: 'window.focus' } | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number }` を足す。
-`Effect` に「インターフェース一覧」の 9 つの効果を足す。
+`Effect` に「インターフェース一覧」の 7 つの効果を足す。
 `State` に `sync: SyncState; pending: number;` を足す。
 
 `packages/ui/src/mediator/sync.ts`：
@@ -6959,65 +6977,46 @@ export function syncStep(state: State, input: Input): Step | null {
 }
 ```
 
-`packages/ui/src/mediator/takeover.ts`：
+`packages/ui/src/mediator/resumeHere.ts`：
 
 ```ts
 import type { Input, State, Step } from './types.ts';
 
-const OPEN_PHASES = new Set(['requested', 'waiting', 'acked', 'copying']);
-
-/** takeover 領域：引き継ぎのオーバーレイと、この PC で再開の確認。 */
-export function takeoverStep(state: State, input: Input): Step | null {
-  if (input.kind === 'server' && input.event.type === 'takeover.update') {
-    const u = input.event.update;
-    const o = state.overlay;
-    if (o.kind === 'takeover' && o.sessionId === u.sessionId) {
-      return { state: { ...state, overlay: { kind: 'takeover', sessionId: u.sessionId, phase: u.phase, force: u.force, message: u.message } }, effects: [] };
-    }
-    // 別の窓から始まった引き継ぎでも、進行中なら出す。
-    if (o.kind === 'none' && OPEN_PHASES.has(u.phase)) {
-      return { state: { ...state, overlay: { kind: 'takeover', sessionId: u.sessionId, phase: u.phase, force: u.force, message: u.message } }, effects: [] };
-    }
-    return { state, effects: [] };
-  }
+/**
+ * resumeHere 領域：他端末の本文を手元に降ろして再開するときの確認。
+ * 引き継ぎ（session.takeover）はこのフェーズでは実装しないので、ここでは扱わない。
+ */
+export function resumeHereStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime' && input.event.type === 'api.conflict' && input.event.kind === 'resumeHere') {
     const e = input.event;
     return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: e.sessionId, localSize: e.localSize, remoteSize: e.remoteSize } } }, effects: [] };
   }
-  if (input.kind !== 'intent') return null;
+  if (input.kind !== 'intent' || input.intent.type !== 'session.resumeHere') return null;
   const i = input.intent;
-  switch (i.type) {
-    case 'session.takeover':
-      return { state: { ...state, overlay: { kind: 'takeover', sessionId: i.id, phase: 'requested', force: i.force, message: null } }, effects: [{ kind: 'api.takeover', sessionId: i.id, force: i.force }] };
-    case 'session.takeover.cancel':
-      return { state: { ...state, overlay: { kind: 'none' } }, effects: [{ kind: 'api.takeoverCancel', sessionId: i.id }] };
-    case 'session.resumeHere': {
-      const overwrite = i.overwrite === true;
-      const overlay = overwrite && state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
-      return { state: { ...state, overlay }, effects: [{ kind: 'api.resumeHere', sessionId: i.id, overwrite }] };
-    }
-    default: return null;
-  }
+  const overwrite = i.overwrite === true;
+  // 確認ダイアログから承諾したときだけ閉じる。ボタンから直接呼ばれたときは触らない。
+  const overlay = overwrite && state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
+  return { state: { ...state, overlay }, effects: [{ kind: 'api.resumeHere', sessionId: i.id, overwrite }] };
 }
 ```
 
 `packages/ui/src/mediator/transition.ts` を直す。
 
 ```ts
+import { resumeHereStep } from './resumeHere.ts';
 import { syncStep } from './sync.ts';
-import { takeoverStep } from './takeover.ts';
 
 // 既存の initialState() の末尾に 2 項目を足す（他の項目は消さない）。
 export function initialState(): State {
   return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0 };
 }
 
-  // 既存の 8 つの順は変えず、overlayStep の後ろに syncStep と takeoverStep を挟む。
-  // takeoverStep はオーバーレイを開け閉めするが overlay.close を横取りしないので、promoteStep より後で問題ない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, overlayStep, syncStep, takeoverStep, sessionViewStep, liveStep, workbenchStep]) {
+  // 既存の 8 つの順は変えず、overlayStep の後ろに syncStep と resumeHereStep を挟む。
+  // resumeHereStep はオーバーレイを開け閉めするが overlay.close を横取りしないので、promoteStep より後で問題ない。
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, overlayStep, syncStep, resumeHereStep, sessionViewStep, liveStep, workbenchStep]) {
 ```
 
-`NOT_YET_INTENTS` から `'session.takeover'`、`'sync.now'`、`'sync.pause'` を消す（`'project.new.open'` と `'project.new.submit'` は残る）。
+`NOT_YET_INTENTS` から `'sync.now'` と `'sync.pause'` を消す。**`'session.takeover'` は残す**（引き継ぎはこのフェーズで実装しない）。残るのは `['session.takeover', 'project.new.open', 'project.new.submit']` の 3 件である。
 
 - [ ] **Step 4: ストアを実装する**
 
@@ -7057,7 +7056,7 @@ Expected: PASS。`tsc` は Presenter と View がまだ新しい項目を使っ�
 
 ```bash
 git add packages/ui/src/mediator packages/ui/src/store
-git commit -m "feat(ui): mediator sync and takeover regions with store slices for devices and previews"
+git commit -m "feat(ui): mediator sync and resume-here regions with store slices for devices and previews"
 ```
 
 ---
@@ -7079,8 +7078,6 @@ git commit -m "feat(ui): mediator sync and takeover regions with store slices fo
     syncNow(): Promise<SyncStatusDto>;
     syncPause(paused: boolean): Promise<SyncStatusDto>;
     syncFocus(): Promise<void>;
-    takeover(sessionId: string, force: boolean): Promise<{ requestId: string }>;
-    takeoverCancel(sessionId: string): Promise<void>;
     resumeHere(sessionId: string, overwrite: boolean): Promise<LaunchResultDto>;
     joinToken(): Promise<{ token: string | null }>;
     configPreview(): Promise<ConfigPreviewDto>;
@@ -7102,8 +7099,6 @@ git commit -m "feat(ui): mediator sync and takeover regions with store slices fo
     syncNow: vi.fn(async () => syncStatus),
     syncPause: vi.fn(async () => ({ ...syncStatus, state: 'paused' as const })),
     syncFocus: vi.fn(async () => {}),
-    takeover: vi.fn(async () => ({ requestId: 'q1' })),
-    takeoverCancel: vi.fn(async () => {}),
     resumeHere: vi.fn(async () => launchResult),
     joinToken: vi.fn(async () => ({ token: 'tok' })),
     configPreview: vi.fn(async () => ({ entries: [], confirmed: false })),
@@ -7134,7 +7129,7 @@ const launchResult: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', device
 次の `describe` を足す。
 
 ```ts
-describe('同期と引き継ぎ', () => {
+describe('同期とこの PC で再開', () => {
   it('今すぐ同期と一時停止はストアの sync を差し替える', async () => {
     const { rt, api } = harness();
     rt.start();
@@ -7158,15 +7153,6 @@ describe('同期と引き継ぎ', () => {
     fireFocus();
     await flush();
     expect(api.syncFocus).toHaveBeenCalledTimes(1);
-  });
-  it('引き継ぎと取り消しを送る', async () => {
-    const { rt, api } = harness();
-    rt.start();
-    rt.emit({ type: 'session.takeover', id: 's1', force: false });
-    rt.emit({ type: 'session.takeover.cancel', id: 's1' });
-    await flush();
-    expect(api.takeover).toHaveBeenCalledWith('s1', false);
-    expect(api.takeoverCancel).toHaveBeenCalledWith('s1');
   });
   it('この PC で再開の 409 は確認ダイアログになる', async () => {
     const { rt, api } = harness({ resumeHere: vi.fn(async () => { throw new ApiConflictError({ error: 'local_smaller', localSize: 10, remoteSize: 99 }); }) });
@@ -7213,7 +7199,7 @@ export class ApiConflictError extends Error {
 }
 ```
 
-`ApiClient` に「インターフェース一覧」の 11 個のメソッドを足し、`call` の失敗の扱いを替える。
+`ApiClient` に「インターフェース一覧」の 9 個のメソッドを足し、`call` の失敗の扱いを替える。
 既存の `call` は本文を 1 度だけ読んで `{ error }` を Error のメッセージにしているので、その読み取りを使い回して 409 だけを分ける。
 
 ```ts
@@ -7233,8 +7219,6 @@ export class ApiConflictError extends Error {
     syncNow: () => post('/api/sync/now'),
     syncPause: (paused) => post('/api/sync/pause', { paused }),
     syncFocus: () => post('/api/sync/focus'),
-    takeover: (sessionId, force) => post(`/api/sessions/${sessionId}/takeover`, { force }),
-    takeoverCancel: (sessionId) => post(`/api/sessions/${sessionId}/takeover/cancel`),
     resumeHere: (sessionId, overwrite) => post(`/api/sessions/${sessionId}/resume-here`, { overwrite }),
     joinToken: () => call('/api/sync/joinToken'),
     configPreview: () => call('/api/sync/config/preview'),
@@ -7264,8 +7248,6 @@ export type RuntimeDeps = {
       case 'api.syncPause': deps.api.syncPause(e.paused).then((s) => setStore({ ...store, sync: s })).catch(fail); return;
       // 前面化は静かに失敗させる。窓を触るたびに赤い通知が出ると邪魔になる。
       case 'api.syncFocus': deps.api.syncFocus().catch(() => {}); return;
-      case 'api.takeover': deps.api.takeover(e.sessionId, e.force).catch(fail); return;
-      case 'api.takeoverCancel': deps.api.takeoverCancel(e.sessionId).catch(fail); return;
       case 'api.resumeHere':
         deps.api.resumeHere(e.sessionId, e.overwrite).catch((err: unknown) => {
           if (err instanceof ApiConflictError) dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: e.sessionId, localSize: err.body.localSize, remoteSize: err.body.remoteSize } });
@@ -7298,21 +7280,20 @@ export type RuntimeDeps = {
 - [ ] **Step 5: テストと型検査**
 
 Run: `npx vitest run packages/ui/src/runtime && npx tsc -p packages/ui`
-Expected: PASS（同期と引き継ぎ 5 件を含む）
+Expected: PASS（同期とこの PC で再開の 4 件を含む）
 
 - [ ] **Step 6: コミット**
 
 ```bash
 git add packages/ui/src/runtime packages/ui/src/main.tsx
-git commit -m "feat(ui): sync and takeover api client methods, window focus pulls and 409 conflicts"
+git commit -m "feat(ui): sync api client methods, window focus pulls and 409 conflicts"
 ```
 
 ---
 
-### Task 22: Presenter の同期、ロック、引き継ぎ
+### Task 22: Presenter の同期とロック
 
 **Files:**
-- Create: `packages/ui/src/presenters/takeover.ts`
 - Modify: `packages/ui/src/presenters/shell.ts`、`packages/ui/src/presenters/session.ts`、`packages/ui/src/presenters/settings.ts`
 - Test: `packages/ui/src/presenters/presenters.test.ts`（追加）
 
@@ -7330,20 +7311,16 @@ git commit -m "feat(ui): sync and takeover api client methods, window focus pull
   export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; paused: boolean; lastPullAt: string; pending: number; devices: { name: string; platform: string; lastSeen: string; self: boolean }[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
   export type SettingsProps = { ...; cloud: CloudSettingsProps };
   export function presentSettings(state: State, store: Store, now?: number): SettingsProps;
-  // presenters/takeover.ts
-  export type TakeoverProps = { sessionId: string; sessionName: string; deviceName: string; phase: TakeoverPhase; force: boolean; message: string | null; canForce: boolean; canCancel: boolean; stepLabel: string };
-  export function presentTakeover(state: State, store: Store): TakeoverProps | null;
   ```
 - `presentShell` と `presentSettings` に相対時刻のための `now` を足す（既定は `Date.now()`）。Root は `useNow()` の値を渡す。
-- 他端末で実行中のセッションは、再開とフォークを無効にして「引き継ぐ」を出す。手元に本文が無いセッション（`remoteOnly`）は「この PC で再開」を出す。
+- 他端末で実行中のセッションは、再開とフォークを無効にする。手元に本文が無く、誰も動かしていないセッション（`remoteOnly` かつ `lock === null`）は「この PC で再開」を出す。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
 `packages/ui/src/presenters/presenters.test.ts` に足す（`session()` の作り手には Task 1 で `lock: null, remoteOnly: false` が入っている）。
 
 ```ts
-import type { SyncStatusDto, TakeoverPhase } from '@agent-hangar/shared';
-import { presentTakeover } from './takeover.ts';
+import type { SyncStatusDto } from '@agent-hangar/shared';
 
 const NOW = 1_700_000_000_000;
 const withSync = (over: Partial<SyncStatusDto> = {}): SyncStatusDto => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, ...over });
@@ -7368,7 +7345,7 @@ describe('同期の Presenter', () => {
 });
 
 describe('セッションのロック', () => {
-  it('他端末で実行中なら再開を止めて引き継ぎを出す', () => {
+  it('他端末で実行中なら再開もこの PC で再開も止める', () => {
     const store = { ...initialStore(), sessions: { s1: { ...session('s1', 'u1'), lock, remoteOnly: true } } };
     const p = presentSession(initialState(), store, NOW, 's1');
     expect(p.lock).toEqual({ deviceName: 'mini', stale: false, heartbeat: '1 分前' });
@@ -7388,31 +7365,12 @@ describe('セッションのロック', () => {
     expect(p).toMatchObject({ lock: null, remoteOnly: false, canResume: true, canResumeHere: false });
   });
 });
-
-describe('presentTakeover', () => {
-  const store = { ...initialStore(), sessions: { s1: { ...session('s1', 'u1'), name: 'アルファ', lock } } };
-  const overlayState = (phase: TakeoverPhase, force = false) => ({ ...initialState(), overlay: { kind: 'takeover' as const, sessionId: 's1', phase, force, message: null } });
-
-  it('オーバーレイが無ければ null', () => {
-    expect(presentTakeover(initialState(), store)).toBeNull();
-  });
-  it('段階ごとの文言と、強制と取り消しの可否', () => {
-    expect(presentTakeover(overlayState('waiting'), store)).toMatchObject({ sessionName: 'アルファ', deviceName: 'mini', stepLabel: '相手の応答を待っています', canCancel: true, canForce: false });
-    expect(presentTakeover(overlayState('timeout'), store)).toMatchObject({ stepLabel: '相手が応答しません', canForce: true, canCancel: false });
-    expect(presentTakeover(overlayState('resumed'), store)).toMatchObject({ stepLabel: 'このパソコンで再開しました', canForce: false, canCancel: false });
-    expect(presentTakeover(overlayState('copying', true), store)).toMatchObject({ force: true, stepLabel: '本文を取り込んでいます', canForce: false });
-  });
-  it('heartbeat が古ければ最初から強制を出せる', () => {
-    const stale = { ...store, sessions: { s1: { ...store.sessions.s1!, lock: { ...lock, stale: true } } } };
-    expect(presentTakeover(overlayState('waiting'), stale)).toMatchObject({ canForce: true });
-  });
-});
 ```
 
 - [ ] **Step 2: 失敗を確かめる**
 
 Run: `npx vitest run packages/ui/src/presenters`
-Expected: FAIL（`sync` が ShellProps に無い、`./takeover.ts` が無い）
+Expected: FAIL（`sync` が ShellProps に無い、`lock` が SessionProps に無い）
 
 - [ ] **Step 3: shell.ts と settings.ts を直す**
 
@@ -7478,7 +7436,7 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
 }
 ```
 
-- [ ] **Step 4: session.ts と takeover.ts を直す**
+- [ ] **Step 4: session.ts を直す**
 
 `packages/ui/src/presenters/session.ts` の `SessionProps` に `lock`、`remoteOnly`、`canResumeHere` を足し、`canResume` と `canFork` にロックと写しだけの条件を掛ける。
 
@@ -7491,7 +7449,7 @@ export type SessionProps = { ...これまでの項目...; lock: { deviceName: st
 ```ts
     lock: s.lock ? { deviceName: s.lock.deviceName, stale: s.lock.stale, heartbeat: relativeTime(s.lock.heartbeatAt, now) } : null,
     remoteOnly: s.remoteOnly,
-    // 他端末が動かしている間は再開せず、引き継ぎに回す。手元に本文が無いときは先にコピーする。
+    // 他端末が動かしている間は再開もフォークもさせない。手元で続けたいときは「この PC で再開」に回す。
     // 実物は canResume も canFork も `s.hasTranscript && idle` なので、その式に条件を掛ける。
     canResume: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
     canFork: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
@@ -7500,56 +7458,16 @@ export type SessionProps = { ...これまでの項目...; lock: { deviceName: st
 
 `base`（セッションが無いときの返り値）にも `lock: null, remoteOnly: false, canResumeHere: false` を足す。`canResume` と `canFork` は `base` に既にある。
 
-`packages/ui/src/presenters/takeover.ts`：
-
-```ts
-import type { TakeoverPhase } from '@agent-hangar/shared';
-import type { State } from '../mediator/types.ts';
-import type { Store } from '../store/store.ts';
-
-export type TakeoverProps = { sessionId: string; sessionName: string; deviceName: string; phase: TakeoverPhase; force: boolean; message: string | null; canForce: boolean; canCancel: boolean; stepLabel: string };
-
-const STEP_LABEL: Record<TakeoverPhase, string> = {
-  requested: '要求を送りました',
-  waiting: '相手の応答を待っています',
-  acked: '相手が応じました',
-  copying: '本文を取り込んでいます',
-  resumed: 'このパソコンで再開しました',
-  timeout: '相手が応答しません',
-  failed: '引き継ぎに失敗しました',
-  cancelled: '引き継ぎをやめました',
-};
-
-/** 引き継ぎのオーバーレイ。開いていなければ null。 */
-export function presentTakeover(state: State, store: Store): TakeoverProps | null {
-  const o = state.overlay;
-  if (o.kind !== 'takeover') return null;
-  const s = store.sessions[o.sessionId];
-  const stale = s?.lock?.stale === true;
-  return {
-    sessionId: o.sessionId,
-    sessionName: s?.name ?? o.sessionId,
-    deviceName: s?.lock?.deviceName ?? '他の端末',
-    phase: o.phase,
-    force: o.force,
-    message: o.message,
-    canForce: !o.force && (o.phase === 'timeout' || ((o.phase === 'requested' || o.phase === 'waiting') && stale)),
-    canCancel: o.phase === 'requested' || o.phase === 'waiting',
-    stepLabel: STEP_LABEL[o.phase],
-  };
-}
-```
-
 - [ ] **Step 5: テストと型検査**
 
 Run: `npx vitest run packages/ui/src/presenters && npx tsc -p packages/ui`
-Expected: PASS（同期 2 件、ロック 3 件、引き継ぎ 3 件を含む）。`tsc` は View がまだ `sync` の props を受けていない分で失敗が残る（Task 23 で直す）。
+Expected: PASS（同期 2 件、ロック 3 件を含む）。`tsc` は View がまだ `sync` の props を受けていない分で失敗が残る（Task 23 で直す）。
 
 - [ ] **Step 6: コミット**
 
 ```bash
 git add packages/ui/src/presenters
-git commit -m "feat(ui): presenters for sync status, session lock and the takeover dialog"
+git commit -m "feat(ui): presenters for sync status, session lock and resume-here"
 ```
 
 ---
@@ -7572,9 +7490,9 @@ git commit -m "feat(ui): presenters for sync status, session lock and the takeov
   ```
 - `SyncStatus` は props だけで描き、状態を持たない。`visible` が false なら何も描かない。文言の右に「今すぐ同期」と「一時停止」「再開」を置き、押すと `sync.now` と `sync.pause` の Intent を出す。
 - `Shell` は `props.sync` を `Header` に渡す。位置は `<span className="spacer" />` の直後、使用量ゲージの手前にする。
-- アイコンは `views/primitives/Icon.tsx` を通してだけ使う。View から `lucide-react` を直接 import しない。新しいボタンのために `ICONS` に 2 つ足す。
+- アイコンは `views/primitives/Icon.tsx` を通してだけ使う。View から `lucide-react` を直接 import しない。新しいボタンのために `ICONS` に 1 つ足す。
 - CSS は `base.css` に足さず、新しい `packages/ui/src/styles/sync.css` に書いて `main.tsx` から import する（フェーズ 3 で決めた、View のまとまりごとに分ける方針に従う）。
-- セッション画面は、ロックがあれば見出しの下に「<端末名> で実行中」と最終確認の時刻を出し、再開とフォークを無効にして「引き継ぐ」を出す。`stale` なら「応答がありません」を添える。`canResumeHere` なら「この PC で再開」を出す。
+- セッション画面は、ロックがあれば見出しの下に「<端末名> で実行中」と最終確認の時刻を出し、再開とフォークを無効にする。`stale` なら「応答がありません」を添える。`canResumeHere` なら「この PC で再開」を出す。引き継ぎのボタンはこのフェーズでは出さない。
 - 色は既存のトークンを使い、暗い配色は持たない（2026-09-17 の決定）。
 
 - [ ] **Step 1: 失敗するテストを書く**
@@ -7603,14 +7521,12 @@ git commit -m "feat(ui): presenters for sync status, session lock and the takeov
 `packages/ui/src/views/SessionScreen.test.tsx` の `base` に `lock: null, remoteOnly: false, canResumeHere: false` を足す（`canResume` と `canFork` は既にあるので、この describe では `true` にしておく）。そのうえで次を足す。
 
 ```ts
-  it('他端末で実行中なら再開を止めて引き継ぎを出す', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} canResume={false} lock={{ deviceName: 'mini', stale: false, heartbeat: '1 分前' }} /></IntentRoot>);
+  it('他端末で実行中なら再開とフォークを止める', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} canResume={false} canFork={false} lock={{ deviceName: 'mini', stale: false, heartbeat: '1 分前' }} /></IntentRoot>);
     expect(screen.getByText('mini で実行中')).toBeInTheDocument();
     expect(screen.getByText('最終確認 1 分前')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '再開' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: '引き継ぐ' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.takeover', id: 's1', force: false });
+    expect(screen.getByRole('button', { name: 'フォーク' })).toBeDisabled();
   });
   it('応答が無いロックはその旨を添える', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} canResume={false} lock={{ deviceName: 'mini', stale: true, heartbeat: '5 分前' }} /></IntentRoot>);
@@ -7623,9 +7539,8 @@ git commit -m "feat(ui): presenters for sync status, session lock and the takeov
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
     expect(screen.getByText('本文は他の端末にあります')).toBeInTheDocument();
   });
-  it('ロックが無ければ引き継ぎもこの PC で再開も出ない', () => {
+  it('ロックが無ければこの PC で再開は出ない', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} /></IntentRoot>);
-    expect(screen.queryByRole('button', { name: '引き継ぐ' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'この PC で再開' })).toBeNull();
     expect(screen.getByRole('button', { name: '再開' })).not.toBeDisabled();
   });
@@ -7675,20 +7590,18 @@ export function SyncStatus(props: SyncProps) {
 
 `packages/ui/src/views/SessionScreen.tsx` のボタンの並びを替える。
 
-先に `packages/ui/src/views/primitives/Icon.tsx` の `ICONS` に 2 つ足す（import も同じ行に加える）。
+先に `packages/ui/src/views/primitives/Icon.tsx` の `ICONS` に 1 つ足す（import も同じ行に加える）。
 
 ```ts
-  takeover: ArrowLeftRight,
   resumeHere: Download,
 ```
 
-そのうえで、既存の「再開」と「フォーク」の行はそのままに、その間に 2 つのボタンを差し込む。既存の `<Icon name="..." />` は消さない。
+そのうえで、既存の「再開」と「フォーク」の行はそのままに、その後ろに 1 つボタンを差し込む。既存の `<Icon name="..." />` は消さない。
 
 ```tsx
         <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.resume', id })}><Icon name="resume" />再開</button>
         <button className="btn" disabled={!props.canFork} onClick={() => emit({ type: 'session.fork', id })}><Icon name="fork" />フォーク</button>
         {props.canResumeHere && <button className="btn" onClick={() => emit({ type: 'session.resumeHere', id })}><Icon name="resumeHere" />この PC で再開</button>}
-        {props.lock && <button className="btn btn-primary" onClick={() => emit({ type: 'session.takeover', id, force: false })}><Icon name="takeover" />引き継ぐ</button>}
         <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}><Icon name="openEditor" />VS Code で開く</button>
 ```
 
@@ -7718,32 +7631,30 @@ Expected: PASS（Shell 1 件、SessionScreen 4 件を足した数）
 
 ```bash
 git add packages/ui/src/views packages/ui/src/styles packages/ui/src/main.tsx
-git commit -m "feat(ui): header sync status and session lock with takeover and resume-here"
+git commit -m "feat(ui): header sync status and session lock with resume-here"
 ```
 
 ---
 
-### Task 24: 引き継ぎと確認と取り込みのダイアログ、Settings のクラウドの節、Root の結線
+### Task 24: 確認と取り込みのダイアログ、Settings のクラウドの節、Root の結線
 
 **Files:**
-- Create: `packages/ui/src/views/TakeoverDialog.tsx`、`packages/ui/src/views/ConfirmDialog.tsx`、`packages/ui/src/views/ConfigPreviewDialog.tsx`、`packages/ui/src/views/dialogs.test.tsx`
+- Create: `packages/ui/src/views/ConfirmDialog.tsx`、`packages/ui/src/views/ConfigPreviewDialog.tsx`、`packages/ui/src/views/dialogs.test.tsx`
 - Modify: `packages/ui/src/views/SettingsScreen.tsx`、`packages/ui/src/Root.tsx`
 - Test: `packages/ui/src/views/dialogs.test.tsx`、`packages/ui/src/views/screens.test.tsx`（追加）、`packages/ui/src/Root.test.tsx`（追加）
 
 **Interfaces:**
-- Consumes: `TakeoverProps`、`presentTakeover`（Task 22）、`ConfirmRequest`（Task 20）、`ConfigPreviewDto`、`CloudSettingsProps`。
+- Consumes: `ConfirmRequest`（Task 20）、`ConfigPreviewDto`、`CloudSettingsProps`（Task 22）。
 - Produces:
   ```ts
-  export function TakeoverDialog(props: TakeoverProps): JSX.Element;
   export function ConfirmDialog(props: { confirm: ConfirmRequest }): JSX.Element;
   export function ConfigPreviewDialog(props: { preview: ConfigPreviewDto | null }): JSX.Element;
   ```
-- `TakeoverDialog` は段階の文言と、`canForce` のときだけ「強制引き継ぎ」、`canCancel` のときだけ「やめる」を出す。終わった段階では「閉じる」だけを出す。
 - `ConfirmDialog` は手元と写しの大きさを並べ、「上書きして再開」で `session.resumeHere { overwrite: true }` を出す。
 - `ConfigPreviewDialog` は取り込む内容の一覧（作成、上書き、競合、変更なし）を出し、「取り込む」で `sync.config.apply` を出す。まだ一覧が来ていなければ読み込み中と出す。
 - Settings の「クラウド同期」の節は「要約器」の後、「使用量」の前に置く（実物に「Provider」の節は無い）。中身は状態（URL、最終 pull、未送信件数、端末の一覧）、「今すぐ同期」「一時停止」、「参加トークンを表示」（押すまで隠し、表示時に注意書きを添える）、Claude Code 設定の同期のチェックと「取り込み内容を確認」である。
-- 「次のフェーズで追加される設定」の節は、中身がクラウド同期と引き継ぎだけなので、節ごと消す。
-- Root はオーバーレイに 3 つのダイアログを足し、`presentSettings` に `now` を渡す（`presentShell` には既に渡している）。
+- 「次のフェーズで追加される設定」の節は残し、文言を引き継ぎだけに絞る（クラウド同期はこのフェーズで実装するため）。
+- Root はオーバーレイに 2 つのダイアログを足し、`presentSettings` に `now` を渡す（`presentShell` には既に渡している）。
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -7753,38 +7664,8 @@ git commit -m "feat(ui): header sync status and session lock with takeover and r
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
-import type { TakeoverProps } from '../presenters/takeover.ts';
 import { ConfigPreviewDialog } from './ConfigPreviewDialog.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
-import { TakeoverDialog } from './TakeoverDialog.tsx';
-
-const takeover: TakeoverProps = { sessionId: 's1', sessionName: 'アルファ', deviceName: 'mini', phase: 'waiting', force: false, message: null, canForce: false, canCancel: true, stepLabel: '相手の応答を待っています' };
-
-describe('TakeoverDialog', () => {
-  it('段階と相手の端末を出し、やめるが Intent になる', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><TakeoverDialog {...takeover} /></IntentRoot>);
-    expect(screen.getByText('相手の応答を待っています')).toBeInTheDocument();
-    expect(screen.getByText('mini')).toBeInTheDocument();
-    expect(screen.getByText('アルファ')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.takeover.cancel', id: 's1' });
-  });
-  it('時間切れでは強制引き継ぎを出す', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><TakeoverDialog {...takeover} phase="timeout" stepLabel="相手が応答しません" canForce canCancel={false} /></IntentRoot>);
-    fireEvent.click(screen.getByRole('button', { name: '強制引き継ぎ' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.takeover', id: 's1', force: true });
-    expect(screen.getByText('相手の hangar が止まっている場合に使います。相手の run を終了として記録します。')).toBeInTheDocument();
-  });
-  it('終わったら閉じるだけを出す', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><TakeoverDialog {...takeover} phase="resumed" stepLabel="このパソコンで再開しました" canCancel={false} /></IntentRoot>);
-    expect(screen.queryByRole('button', { name: 'やめる' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
-  });
-});
 
 describe('ConfirmDialog', () => {
   it('大きさを並べ、上書きして再開を出す', () => {
@@ -7846,26 +7727,9 @@ describe('ConfigPreviewDialog', () => {
   });
 ```
 
-`packages/ui/src/Root.test.tsx` の `boot` に `sync` と `devices` を足し、偽 API に Task 21 の 11 個のメソッドを足したうえで、次を足す。
-
-```ts
-  it('引き継ぎのオーバーレイが出て、更新で段階が進む', async () => {
-    const { rt, deps, handlers } = make();
-    rt.start();
-    render(<Root runtime={rt} api={deps.api} terminals={terminals} />);   // terminals は Root.test.tsx の既存の偽物
-    act(() => handlers[0]!.onOpen());
-    await flush();
-    act(() => rt.emit({ type: 'session.takeover', id: 's1', force: false }));
-    await flush();
-    expect(screen.getByRole('dialog', { name: '引き継ぎ' })).toBeInTheDocument();
-    act(() => rt.dispatch({ kind: 'server', event: { type: 'takeover.update', update: { sessionId: 's1', requestId: 'q1', phase: 'resumed', force: false, message: null, elapsedMs: 5 } } }));
-    await flush();
-    expect(screen.getByText('このパソコンで再開しました')).toBeInTheDocument();
-    act(() => rt.emit({ type: 'overlay.close' }));
-    await flush();
-    expect(screen.queryByRole('dialog', { name: '引き継ぎ' })).toBeNull();
-  });
-```
+`packages/ui/src/Root.test.tsx` の `boot` に `sync` と `devices` を足し、偽 API に Task 21 の 9 個のメソッドを足す。
+このフェーズで足すオーバーレイは確認と取り込みの下見だけで、どちらも既存のテストが通る形なので、Root には新しいテストを足さない。
+既存のテストが `BootstrapDto` と `ApiClient` の新しい項目で落ちないようにするのが、ここでの作業である。
 
 - [ ] **Step 2: 失敗を確かめる**
 
@@ -7873,35 +7737,6 @@ Run: `npx vitest run packages/ui/src/views packages/ui/src/Root`
 Expected: FAIL（ダイアログが無い、`cloud` の節が無い）
 
 - [ ] **Step 3: ダイアログを書く**
-
-`packages/ui/src/views/TakeoverDialog.tsx`：
-
-```tsx
-import { useEmit } from '../intent/chain.tsx';
-import type { TakeoverProps } from '../presenters/takeover.ts';
-
-/** 引き継ぎの進み具合を出す。状態は持たず、段階は props で受ける。 */
-export function TakeoverDialog(props: TakeoverProps) {
-  const emit = useEmit();
-  return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-label="引き継ぎ">
-      <div className="dialog">
-        <div><b>{props.sessionName}</b> を <b>{props.deviceName}</b> から引き継ぎます。</div>
-        <div className="muted">{props.stepLabel}</div>
-        {props.message && <div className="faint">{props.message}</div>}
-        {props.canForce && <div className="faint">相手の hangar が止まっている場合に使います。相手の run を終了として記録します。</div>}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <span className="spacer" />
-          {props.canForce && <button className="btn" onClick={() => emit({ type: 'session.takeover', id: props.sessionId, force: true })}>強制引き継ぎ</button>}
-          {props.canCancel
-            ? <button className="btn" onClick={() => emit({ type: 'session.takeover.cancel', id: props.sessionId })}>やめる</button>
-            : <button className="btn" onClick={() => emit({ type: 'overlay.close' })}>閉じる</button>}
-        </div>
-      </div>
-    </div>
-  );
-}
-```
 
 `packages/ui/src/views/ConfirmDialog.tsx`：
 
@@ -8018,21 +7853,18 @@ export function ConfigPreviewDialog(props: { preview: ConfigPreviewDto | null })
       </section>
 ```
 
-末尾の「次のフェーズで追加される設定」の節（`<h2 className="h2">次のフェーズで追加される設定</h2>` とその下の 1 行）は、中身がこのフェーズで実装するものだけなので節ごと消す。
+末尾の「次のフェーズで追加される設定」の節は残し、下の 1 行を「他端末セッションの引き継ぎ（他端末で実行中のセッションを、握手して受け取る）。」に替える。クラウド同期はこのフェーズで実装したので文言から外し、引き継ぎだけを残す。
 
 `packages/ui/src/Root.tsx` を直す。
 
 ```tsx
-import { presentTakeover } from './presenters/takeover.ts';
 import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
 import { ConfirmDialog } from './views/ConfirmDialog.tsx';
-import { TakeoverDialog } from './views/TakeoverDialog.tsx';
 
   // presentShell は既に now を受け取っている。presentSettings にだけ now を渡す形に替える。
     case 'settings': body = <SettingsScreen {...presentSettings(state, store, now)} />; break;
 
-  const takeover = presentTakeover(state, store);
-  // 既存の overlays の並びは変えず、3 つを足すだけにする。
+  // 既存の overlays の並びは変えず、2 つを足すだけにする。
   const overlays = (
     <>
       {unresolvedId && <ResolveProjectDialog ... />}
@@ -8040,7 +7872,6 @@ import { TakeoverDialog } from './views/TakeoverDialog.tsx';
       {overlay.kind === 'palette' && <CommandPalette ... />}
       {overlay.kind === 'promote' && <PromoteDialog ... />}
       {overlay.kind === 'promoted' && <PromotedDialog ... />}
-      {takeover && <TakeoverDialog {...takeover} />}
       {overlay.kind === 'confirm' && <ConfirmDialog confirm={overlay.confirm} />}
       {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
       <ToastStack toasts={state.toasts} />
@@ -8050,18 +7881,18 @@ import { TakeoverDialog } from './views/TakeoverDialog.tsx';
 
 Esc の扱いはフェーズ 3 のまま変えない。
 入力中（`typing`）と `resolveProject` を除く条件も、依存配列 `[rt, overlayKind, shortcutTabs, selectedTabId, canSplit]` もそのままにする。
-`takeover`、`confirm`、`configPreview` は `overlayKind !== 'none'` に入るので、これだけで Esc が効く。
+`confirm` と `configPreview` は `overlayKind !== 'none'` に入るので、これだけで Esc が効く。
 
 - [ ] **Step 5: テストと型検査**
 
 Run: `npx vitest run packages/ui && npx tsc -p packages/ui`
-Expected: PASS（ダイアログ 6 件、Settings 2 件、Root 1 件を足した数）
+Expected: PASS（ダイアログ 3 件、Settings 2 件を足した数）
 
 - [ ] **Step 6: コミット**
 
 ```bash
 git add packages/ui/src/views packages/ui/src/Root.tsx packages/ui/src/Root.test.tsx
-git commit -m "feat(ui): takeover, overwrite and config preview dialogs with the settings cloud section"
+git commit -m "feat(ui): overwrite and config preview dialogs with the settings cloud section"
 ```
 
 ---
@@ -8159,19 +7990,21 @@ ls -l "$HANGAR_B/remote"/*/projects/-tmp-hangar-dev/
 HANGAR_HOME="$HANGAR_B" node -e "const D=require('node:path').join(process.env.HANGAR_HOME,'hangar.db');const db=new (require('better-sqlite3'))(D);console.log(db.prepare('select key, device_id, size from file_sync').all());"
 ```
 
-- [ ] **Step 6: 引き継ぎを 1 回通す**
+- [ ] **Step 6: ロックとこの PC で再開を 1 回通す**
 
 A で `claude` のセッションを起動する（UI の「新規セッション」か、A のセッション画面の「再開」）。
-B の同じセッションの画面に「<A の端末名> で実行中」と「引き継ぐ」が出ることを確かめ、「引き継ぐ」を押す。
+B の同じセッションの画面に「<A の端末名> で実行中」が出て、再開とフォークが押せなくなることを確かめる。
+次に A のセッションを止め（ロックが消えるのを待ち）、B で「この PC で再開」を押す。
 
 Expected:
-- A の hangar がトーストで引き継ぎの要求を知らせ、Claude が idle になってから tmux のセッションを閉じる。
-- A の run が `taken_over` で終わる。
-- B が本文を `$CLAUDE_B/projects/<変換名>/<uuid>.jsonl` にコピーして `claude -r` を起動する。
-- B のダイアログが「このパソコンで再開しました」になる。
-- A の UI ではそのセッションが「<B の端末名> で実行中」に変わる。
+- ロックの間、B では再開とフォークが無効で、最終確認の時刻が出る。
+- A を止めて 30 秒以内に、B のロックの表示が消える。
+- B の「この PC で再開」が本文を `$CLAUDE_B/projects/<変換名>/<uuid>.jsonl` にコピーして `claude -r` を起動する。
+- 手元にも同じ ID の本文があり、そちらが小さいときだけ確認ダイアログが出る。「上書きして再開」で `$HANGAR_B/backups/transcripts/` に控えが残る。
 
-tmux か claude が無くて実際の起動ができない環境では、この Step を飛ばさずに、`runs` 行を手で作って握手だけを確かめる。
+引き継ぎ（握手して run を受け取る）はこのフェーズでは実装しないので、確かめない。
+
+tmux か claude が無くて実際の起動ができない環境では、`runs` 行を手で作ってロックの表示だけを確かめる。
 
 ```bash
 HANGAR_HOME="$HANGAR_A" node -e "
@@ -8187,7 +8020,21 @@ db.prepare('insert into changes (table_name,row_id,op,payload,updated_at,device_
 "
 ```
 
-この行が B に届いた後、B で「引き継ぐ」を押し、A 側が `acked` を返して run が `taken_over` で閉じることを確かめる。
+この行が B に届いた後、B のセッション画面に「<A の端末名> で実行中」が出て、再開が無効になることを確かめる。
+
+- [ ] **Step 6b: Claude Code の設定の同期と控えを 1 回通す**
+
+B の Settings で「Claude Code の設定を同期する」を入れ、「取り込み内容を確認」から「取り込む」を押す。
+
+Expected:
+- A の `$CLAUDE_A/CLAUDE.md` が B の `$CLAUDE_B/CLAUDE.md` に降りる。
+- 上書きが起きたファイルの控えが `$HANGAR_B/backups/claude-config/<yyyyMMdd-HHmmss>/` に残る。
+- トーストに「上書きした N 件の控えを ... に置きました」が出る。
+- 実物の `~/.claude` には何も書かれていない（`HANGAR_CLAUDE_DIR` を向けているため）。
+
+```bash
+find "$HANGAR_B/backups/claude-config" -type f | head
+```
 
 - [ ] **Step 7: 結果を記録する**
 
@@ -8202,6 +8049,7 @@ db.prepare('insert into changes (table_name,row_id,op,payload,updated_at,device_
 実物確認が終わりました。作った資源を消します。
   消すもの: Worker hangar-dev、D1 hangar-dev（同期したメタデータごと）、R2 hangar-dev-files（上げた本文ごと）
   残るもの: 手元の $HOME/.hangar-dev-a と $HOME/.hangar-dev-b（後で手で消せます）
+  本番の箱はこのフェーズでは作りません。使い始めるときに改めて setup cloud を走らせます。
   費用: ここまでの利用はすべて無料枠の中で、課金は発生していません。
 消してよいですか。
 ```
@@ -8215,7 +8063,7 @@ npx wrangler d1 info hangar-dev --config packages/cloud/wrangler.jsonc
 npx wrangler r2 bucket list --config packages/cloud/wrangler.jsonc | grep hangar-dev
 ```
 
-Expected: teardown が R2 のオブジェクト、バケット、Worker、D1 を順に消し、最後の 2 つのコマンドが何も見つけない。
+Expected: teardown は先に「R2 にしか無い本文」を手元へ降ろし、それから R2 のオブジェクト、バケット、Worker、D1 を順に消す。最後の 2 つのコマンドが何も見つけない。
 残った失敗があれば teardown が一覧で出すので、その分だけ手で消す。
 
 - [ ] **Step 10: コミット**
@@ -8245,21 +8093,25 @@ git commit -m "docs: record the real cloudflare run for phase 4 sync"
 - 「構成と setup」に、Worker の D1 は共有テーブルをそのまま写さず `rows` と `changes` の 2 表で持つこと、スキーマは Worker が起動後の最初の要求で整えること、参加用の秘密のハッシュは `wrangler secret put JOIN_SECRET_HASH` で渡すこと、端末トークンは 32 バイトの乱数で D1 にはハッシュだけを置くこと、資源名は既定で Worker と D1 が `hangar`、R2 が `hangar-files` で `--name` で変えられること、`~/.agent-hangar/cloud/wrangler.jsonc` に実物の設定を書きアカウント ID は環境変数で渡すことを足す。
 - 「同期対象と暗号化」に、暗号化ファイルの形式（`HGR1` と 8 バイトの nonce 接頭辞、チャンクごとの `flag` と `len` と認証タグ、AAD はチャンク番号と `flag`）と、鍵の導出（`hkdfSync('sha256', joinSecret, 'hangar-salt-v1', 'hangar-file-v1', 32)`）を足す。
 - 「同期対象と暗号化」の本文の説明を、**差分ではなくファイル全体を gzip して上げ直す**形に直す。R2 は部分更新ができないためである。サブエージェントの本文も `transcripts/<端末 ID>/<sessionId>/subagents/agent-<hex>.jsonl.gz` で上げることを足す。
-- 「同期対象と暗号化」の設定の同期に、対象の一覧（`CLAUDE.md`、`settings.json`、statusline スクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`）、除外（`node_modules`、`.git`、`__pycache__`、`.venv`、シンボリックリンク、1MB 超）、削除は同期しないこと、`$HOME` ではなく `__HANGAR_HOME__` を目印に使うこと、Settings での明示の有効化と取り込み前の確認が要ることを足す。
-- 「タイミングと競合」に、push は 1 回 40 行まで、pull は 1 回 500 行まで、ローカルの `changes` は push 済みで 7 日を過ぎたら消すこと、Worker の `changes` は 14 日と全端末の読み終わりで削ること、`GET /changes` は自端末の変更を除き `GET /rows` は除かないことを足す。
-- 「他端末セッションのロックと引き継ぎ」に、要求側は `acked` を 90 秒待つこと、保持側は idle を最大 60 秒待つこと、`EndReason` に `taken_over` を足したこと、引き継ぎを終えた側は「譲った」記録を持ち以後その本文を上げないこと、「この PC で再開」は手元の本文の方が小さいときだけ確認を出し上書きの前に控えを取ることを足す。
+- 「同期対象と暗号化」の設定の同期に、対象の一覧（`CLAUDE.md`、`settings.json`、statusline スクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`）、除外（`node_modules`、`.git`、`__pycache__`、`.venv`、シンボリックリンク、1MB 超）、削除は同期しないこと、`$HOME` ではなく `__HANGAR_HOME__` を目印に使うこと、Settings での明示の有効化と取り込み前の確認が要ること、**上書きの前に必ず `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ書き戻さないこと**を足す。
+- 「タイミングと競合」に、push は 1 回 40 行まで、pull は 1 回 500 行まで、push には最小間隔 10 秒があること、ローカルの `changes` は push 済みで 7 日を過ぎたら消すこと、Worker の `changes` は 14 日と全端末の読み終わりで削ること、削った区間を読み逃した端末には `410` を返して全件の再同期を求めること、`GET /changes` は自端末の変更を除き `GET /rows` は除かないこと、無料枠の 80% で同期を自動で一時停止することを足す。
+- 「タイミングと競合」に、メモの競合では負けた方の本文を `memo.conflict-<端末名>-<時刻>.md` として隣に残すことを足す。
+- 「他端末セッションのロックと引き継ぎ」を、**このフェーズではロックと「この PC で再開」までを実装し、握手による引き継ぎは後のフェーズに送った**という形に直す。ロックの判定（他端末の生きた run、heartbeat が 2 分以内）、ロック中は再開とフォークを止めること、「この PC で再開」は手元の本文の方が小さいときだけ確認を出し上書きの前に控えを取ることを書く。引き継ぎの段落は「未実装」と明示して残し、`EndReason` に `taken_over` は足していないことを添える。
 - 他端末の本文の索引化について、`sessions` と `session_summaries` には書かず端末ローカルの表だけを書くこと、同じセッションの本文は手元を優先し無ければ最新の写しを 1 つだけ索引化すること（譲ったセッションは手元を優先しない）を足す。
 
 - [ ] **Step 2: データモデルと原則を直す**
 
 - 「端末ローカルのテーブル」の `transcript_files` に `device_id text`（null は手元）を足し、`file_sync` 表を足す。
-- 「共有テーブル」の `takeover_requests` の説明に、`state` の遷移（`requested` → `acked` か `forced` か `cancelled`）を 1 行で添える。
-- 「原則」の「読み取り専用」の例外を、実装に合わせて 3 つにする。他端末の本文のコピー、Settings で有効にした Claude Code 設定の取り込み、statusline スクリプトへの追記である。
+- 「共有テーブル」の `takeover_requests` の説明に、`state` の遷移（`requested` → `acked` か `forced` か `cancelled`）を 1 行で添え、**フェーズ 4 では誰も書かない表である**ことを添える。
+- 「原則」の「読み取り専用」の例外を、実装に合わせて 3 つにする。「この PC で再開」による他端末の本文のコピー、Settings で有効にした Claude Code 設定の取り込み、statusline スクリプトへの追記である。後の 2 つは控えを取ってから書くことも添える。
 - 「決めた前提と未決事項」に次を足す。
   - Worker の D1 は `rows` と `changes` の 2 表で持ち、共有テーブルの形をそのまま写さない。
   - 参加トークンは `{url, secret}` の JSON を base64url にした文字列で、Settings からいつでも再表示できる。
   - 端末ローカルの `file_sync` で、上げ下ろしの最後の SHA-256 を持つ。
-  - 引き継ぎの握手は `takeover_requests` の同期に乗せ、専用の通信路を持たない。
+  - 引き継ぎの握手は `takeover_requests` の同期に乗せる設計だが、フェーズ 4 では実装しない。ロックの表示と「この PC で再開」までに絞った（2026-09-19 の判断）。
+  - 同期は自分の端末同士のためのもので、他人と 1 つの箱を共有しない。別の人は自分の Cloudflare アカウントで `setup cloud` を走らせる。
+  - 無料枠の 80% で同期を自動で一時停止し、トーストで知らせる。課金される形にはしない。
+  - `setup cloud --rotate-secret` は R2 の既存ファイルを復号できなくするので、確認を必須にする。`cloud teardown` は R2 にしか無い本文を先に降ろす。
 - 「フェーズ」のフェーズ 4 の行（`docs/design.md` の 997 行目あたり）を、実装済みの表現に直す。
 
 - [ ] **Step 3: 逸脱を記録する**
@@ -8276,10 +8128,12 @@ git commit -m "docs: record the real cloudflare run for phase 4 sync"
 ````markdown
 ## クラウド同期（フェーズ 4）
 
-自分の Cloudflare アカウントに Worker と D1 と R2 を置き、端末間でセッションを同期します。
-無料枠（Workers 10 万要求/日、D1 5GB、R2 10GB）に収まる規模です。
+自分の Cloudflare アカウントに Worker と D1 と R2 を置き、**自分の端末の間で**セッションを同期します。
+無料枠（Workers 10 万要求/日、D1 5GB、R2 10GB）に収まる規模で、枠の 80% に達したら同期を自動で止めます。
+他の人と 1 つの箱を共有する使い方は想定していません。
+別の人が使うときは、その人の Cloudflare アカウントで `setup cloud` を走らせます。
 
-### 1 台目（同期を始める人）
+### 1 台目（同期を始める端末）
 
 ```sh
 npm run hangar -- setup cloud          # wrangler のログイン、資源の作成、デプロイ、参加トークンの表示
@@ -8288,9 +8142,9 @@ npm run hangar -- cloud status         # Worker とローカルサーバの状�
 
 最後に出る **参加トークン** を控えます。
 後から見るときは、UI の Settings のクラウド同期の節で「参加トークンを表示」を押します。
-このトークンを持つ人はセッションを読み書きできるので、渡す相手に気をつけてください。
+このトークンを持つ人はセッションを読み書きできるので、自分の端末以外には渡さないでください。
 
-### 2 台目（家族や別の PC）
+### 2 台目（自分の別の PC）
 
 ```sh
 npm run hangar -- setup                # ~/.agent-hangar を作る
@@ -8298,27 +8152,30 @@ npm run hangar -- join <参加トークン>   # 端末を登録し、cloud.json 
 npm run hangar -- start                # 再起動すると同期が始まる
 ```
 
-別の人が自分のアカウントで独立に使いたいときは、`join` ではなくその人の環境で `setup cloud` を走らせます。
+別の人が使いたいときは、`join` ではなくその人の環境で `setup cloud` を走らせます。
 デプロイは人ごとに独立し、データは混ざりません。
 
 ### 同期するもの
 
 - hangar のメタデータ（プロジェクト、セッション、要約、TODO、メモ）
 - セッションの本文（gzip して AES-256-GCM で暗号化。鍵は参加用の秘密から導くので、Cloudflare 側は中身を読めません）
-- Claude Code のユーザー設定（既定は off。Settings で有効にし、取り込む内容を確認してから `~/.claude` に書きます）
+- Claude Code のユーザー設定（既定は off。Settings で有効にし、取り込む内容を確認してから `~/.claude` に書きます。上書きする前に必ず `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取るので、何を書き換えられたかは後から追えます）
 
-他の端末で実行中のセッションは「<端末名> で実行中」と出て、「引き継ぐ」で握手して受け取れます。
-相手が応答しないときだけ「強制引き継ぎ」が出ます。
+他の端末で実行中のセッションは「<端末名> で実行中」と出て、再開とフォークが押せなくなります。
+その端末を止めてから「この PC で再開」を押すと、本文を手元に降ろして続きから始められます。
+実行中のまま奪い取る「引き継ぎ」は、まだ作っていません。
 
 ### やめるとき
 
 ```sh
 npm run hangar -- cloud teardown       # Worker と D1 と R2 を消す（2 段の確認あり、取り消せません）
 ```
+
+`teardown` は、クラウドにしか無い本文を先に手元へ降ろしてから消します。
 ````
 
 `hangar` は `~/.claude/` を読むだけ、という説明を、次の 2 つが例外であると直す。
-他端末の本文を「この PC で再開」と「引き継ぐ」でコピーするときと、Settings で有効にした Claude Code 設定の取り込みである。
+他端末の本文を「この PC で再開」でコピーするときと、Settings で有効にした Claude Code 設定の取り込みである。
 
 - [ ] **Step 5: 文書を読み直す**
 
@@ -8347,25 +8204,27 @@ git commit -m "docs: fold phase 4 sync decisions into the design doc and documen
 3. Task 7（CloudClient と偽物）← Task 6 と Task 1。Task 7 の後に Task 9 → Task 10（同期エンジン）。
 4. Task 11 → Task 12（CLI）。Task 8 の後なら Worker 側の完成を待たずに書ける（`/health` と `/join` の形だけに依存する）。
 5. Task 13（上げ手）と Task 14（降ろし手と索引化）は Task 7 と Task 8 の後に並列。Task 15（DTO）も並列。
-6. Task 16（状態機械）→ Task 17（引き継ぎの結線。Task 13、Task 14、Task 15 を使う）。並列に Task 18（設定の同期。Task 7 と Task 17 の `timestampLabel` に依存するので、Task 17 の Step 3 の後に始める）。
+6. **Task 16 は飛ばす**（引き継ぎはこのフェーズでは実装しない）。Task 17 の Step 1 から Step 3（この PC で再開のコピー）を実装し、その後ろに Task 18（設定の同期。Task 7 と Task 17 の `timestampLabel` に依存するので、Task 17 の Step 3 の後に始める）。
 7. Task 19（HTTP とサーバの結線）← Task 13 から Task 18 の全部。
 8. Task 20 → Task 21 → Task 22 →（Task 23、Task 24 は Task 22 の後に並列）。UI は Task 1 の型だけに依存するので、サーバ側の Task 13 以降と並列に進めてよい。
 9. Task 19 と Task 24 が終わってから Task 25（実物確認）、最後に Task 26（文書）。
 
+実装するタスクは 26 件のうち **25 件**である（Task 16 は据え置き、Task 17 は Step 3 までで止める）。
+
 ## 自己点検（計画の作成時に確認したこと）
 
-- 設計文書の「クラウド同期」の全項目に対応するタスクがある。構成と setup は Task 2 から Task 5 と Task 11、参加は Task 3 と Task 12、メタデータは Task 9 と Task 10、本文は Task 13 と Task 14、Claude Code 設定は Task 18、ロックと引き継ぎは Task 15 から Task 17、UI は Task 20 から Task 24、無料枠と片付けは Task 12 と Task 25。
-- `~/.claude` への書き込みは 2 か所だけである。`copyTranscriptForResume`（Task 17、「この PC で再開」と「引き継ぐ」から呼ぶ）と `ClaudeConfigSync.applyPull`（Task 18、Settings で有効にして取り込みを確認したときだけ書く）である。インデクサと pull と索引化は `~/.claude` を読むだけで、他端末の本文は `~/.agent-hangar/remote/` に置く。設計文書の「原則」の例外が 3 つ（本文のコピー、設定の取り込み、statusline への追記）に増えるので、Task 26 で反映する。
+- 設計文書の「クラウド同期」の全項目に対応するタスクがある。構成と setup は Task 2 から Task 5 と Task 11、参加は Task 3 と Task 12、メタデータは Task 9 と Task 10、本文は Task 13 と Task 14、Claude Code 設定は Task 18、ロックとこの PC で再開は Task 15 と Task 17、UI は Task 20 から Task 24、無料枠と片付けは Task 9 と Task 12 と Task 25。引き継ぎ（Task 16）だけは 2026-09-19 の判断で後のフェーズに送った。
+- `~/.claude` への書き込みは 2 か所だけである。`copyTranscriptForResume`（Task 17、「この PC で再開」から呼ぶ）と `ClaudeConfigSync.applyPull`（Task 18、Settings で有効にして取り込みを確認したときだけ書く）である。どちらも上書きの前に `~/.agent-hangar/backups/` へ控えを取り、控えが取れなければ書かない。インデクサと pull と索引化は `~/.claude` を読むだけで、他端末の本文は `~/.agent-hangar/remote/` に置く。設計文書の「原則」の例外が 3 つ（本文のコピー、設定の取り込み、statusline への追記）に増えるので、Task 26 で反映する。
 - 実物の Cloudflare に触るのは Task 25 だけである。Worker のテストはローカルの D1 と R2（vitest-pool-workers）で、サーバのテストは `FakeCloudClient` で行う。Task 25 はデプロイの前と片付けの前に利用者の確認を取り、無料枠に収まることを明示する。
-- 型の名前が前後のタスクで一致していること。`DiscoveredFile.deviceId` は Task 14 で足し、Task 19 の結線と Task 13 の上げ手が同じ意味（null は手元）で使う。`UploadTarget` は Task 13 で定義し、Task 19 が `sessionChanged` から組み立てる。`timestampLabel` は Task 17 の `copy.ts` で定義し、Task 18 の競合ファイル名が使う。`SyncListener` は Task 9 で定義し、Task 17 の `TakeoverDeps.engine` が構造型として受ける。
-- 「インターフェース一覧」に載せた `TakeoverDeps` は Task 17 で構造型に変えた（`runs.listAlive` を落とし、`engine` と `puller` と `uploader` を必要なメソッドだけにした）。テストが偽物を渡せるようにするためで、一覧も書き換えてある。
+- 型の名前が前後のタスクで一致していること。`DiscoveredFile.deviceId` は Task 14 で足し、Task 19 の結線と Task 13 の上げ手が同じ意味（null は手元）で使う。`UploadTarget` は Task 13 で定義し、Task 19 が `sessionChanged` から組み立てる。`timestampLabel` は Task 17 の `copy.ts` で定義し、Task 18 の競合ファイル名と控えのディレクトリ名が使う。`QuotaCounter` は Task 9 で定義し、Task 19 の結線が渡す。
 - `changes` の行は 1 論理変更に 1 行とは限らない。未送信の行は `(table_name, row_id)` ごとにまとめられるので、push は `pushed_at is null` を `seq` 昇順に 40 行ずつ取り、送れた行にだけ `pushed_at` を書く形にしてある（Task 9）。
 - `project_roots` の `unique (project_id, device_id)` が `deleted_at` を除いていないことと、`upsertShared` が conflict で `deleted_at` を消さないことは、フェーズ 1 では届かないが他端末の行が来ると届く。どちらも適用の経路（Task 10）で明示的に処理し、テストを付けた。
-- ロックの判定と引き継ぎの要求は同じ条件（他端末の `ended_at` が null で `deleted_at` が null の run）で引く。`LOCK_STALE_MS` は `db/queries.ts` に 1 つだけ置き、Task 15 と Task 17 が共有する。
-- 本文の索引化は、同じセッションの同じ位置につき常に 1 ファイルだけを対象にする。手元を優先し、譲ったセッションだけは最新の写しを採る（Task 14）。この規則が無いと、引き継いだ後に古い手元の写しを索引化し続けることになる。
-- 引き継ぎで両側が「譲った」記録を持つ理由を Task 16 に書いた。`acked` の筋でも記録するので、譲った側の一覧と検索が新しい持ち主の本文に追従する。
-- UI は props だけで描く Passive View のままである。`SyncStatus`、`TakeoverDialog`、`ConfirmDialog`、`ConfigPreviewDialog` は状態を持たず、`fetch` を呼ばず、Intent だけを出す。暗い配色は足していない。
-- 設計文書に無い Intent（`session.resumeHere`、`session.takeover.cancel`、`sync.config.preview`、`sync.config.apply`、`sync.joinToken.show`）と ServerEvent（`sync.status`、`sync.applied`、`takeover.update`、`devices.update`）を足した。Task 26 で設計文書に反映する。
+- ロックの判定は他端末の `ended_at` が null で `deleted_at` が null の run で引く。`LOCK_STALE_MS` は `db/queries.ts` に 1 つだけ置く（Task 15）。
+- 本文の索引化は、同じセッションの同じ位置につき常に 1 ファイルだけを対象にする。手元を優先し、無ければ更新時刻が最新の写しを採る（Task 14）。`isYielded` は引き継ぎのための逃げ道なので、このフェーズでは常に false を返す。
+- 引き継ぎを作らないことで、他端末の run は止まらずに走り続け、同じセッションの本文が 2 か所で伸びうる。手元を優先する索引化の規則で見た目は壊れないが、本文が枝分かれすることは受け入れる。この割り切りは Task 16 の冒頭に書いた。
+- UI は props だけで描く Passive View のままである。`SyncStatus`、`ConfirmDialog`、`ConfigPreviewDialog` は状態を持たず、`fetch` を呼ばず、Intent だけを出す。暗い配色は足していない。
+- 設計文書に無い Intent（`session.resumeHere`、`sync.config.preview`、`sync.config.apply`、`sync.joinToken.show`）と ServerEvent（`sync.status`、`sync.applied`、`devices.update`）を足した。Task 26 で設計文書に反映する。
+- 2026-09-19 の設計判断（引き継ぎを作らない、設定の書き戻しに控えを必須にする、無料枠の 80% で止める、メモの競合を隣に残す、`hangar-dev` で試して消す、箱は共有しない）と、オーケストレータの裁定 4 件（`--rotate-secret` の確認、push の最小間隔、`changes` の圧縮で落ちた区間の検出、`teardown` の前の取り込み）を、この計画に取り込んだ。全文は `.superpowers/sdd/phase4-sync/decisions.md` にある。
 - 設計文書が「差分を上げる」と書いている本文の同期は、R2 が部分更新を持たないのでファイル全体の上げ直しにした。Task 13 に理由を書き、Task 26 で設計文書を直す。
 - フェーズ 2 と 3 の実装との照合は 2026-09-19 に済ませ、結果をこの計画の本文に取り込んだ（記録は `.superpowers/sdd/phase4-sync/task-0-report.md`）。直した主な箇所は、マイグレーションの版番号（Task 8 は `version: 6`）、`IndexFileResult.artifactIds` と `IndexerListener.artifactIds`（Task 14）、`server.ts` の `sessionChanged` と `updateSettings` の既存の中身（Task 19）、`initialState` と領域の合成順（Task 20）、`call` の `{ error }` の読み取り（Task 21）、`ShellProps.usage` と `SettingsProps` のフェーズ 3 の項目（Task 22）、アイコンの使い方と CSS の置き場（Task 23）、Settings の節の並びと Root の Esc の扱い（Task 24）である。
 - CSS は `base.css` を太らせず `packages/ui/src/styles/sync.css` に分ける。アイコンは `views/primitives/Icon.tsx` を通してだけ使い、プロジェクトのステータスは `StatusSelect` を使う。どちらもフェーズ 3 で決めた約束である。
