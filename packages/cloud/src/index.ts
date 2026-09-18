@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { authMiddleware } from './auth.ts';
+import { changesApp, rowsApp } from './changes.ts';
 import type { Env, Vars } from './env.ts';
 import { joinHandler } from './join.ts';
 import { ensureSchema } from './schema.ts';
@@ -25,8 +26,8 @@ app.use('/rows/*', authMiddleware());
 app.use('/files', authMiddleware());
 app.use('/files/*', authMiddleware());
 
-// 認証が通ることを確かめるための仮の経路である。Task 4 が本物に置き換える。
-app.get('/changes', (c) => c.json({ changes: [], nextSeq: 0, more: false }));
+app.route('/changes', changesApp);
+app.route('/rows', rowsApp);
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 app.onError((e, c) => c.json({ error: e.message }, 500));
