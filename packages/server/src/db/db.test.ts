@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { MIGRATIONS } from './migrations.ts';
 import { openDb } from './open.ts';
-import { softDeleteShared, upsertShared } from './shared.ts';
+import { onSharedWrite, softDeleteShared, upsertShared } from './shared.ts';
 
 /** version 以下のマイグレーションだけを当てた実物のファイルを作る。既存の DB からの移行を試すため。 */
 function openDbAt(file: string, version: number): void {
@@ -131,5 +131,45 @@ describe('upsertShared', () => {
     expect((db.prepare("select op from changes order by seq desc limit 1").get() as { op: string }).op).toBe('delete');
     // 未送信の upsert は delete に置き換わる。
     expect(db.prepare('select count(*) c from changes').get()).toEqual({ c: 1 });
+  });
+});
+
+describe('マイグレーション 8 と書き込みの通知', () => {
+  it('transcript_files.device_id と file_sync がある', () => {
+    const db = openDb(':memory:');
+    const cols = (db.prepare('pragma table_info(transcript_files)').all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toContain('device_id');
+    expect(db.prepare("select name from sqlite_master where name = 'file_sync'").get()).toBeTruthy();
+    const idx = (db.prepare("select name from sqlite_master where type = 'index'").all() as { name: string }[]).map((r) => r.name);
+    expect(idx).toContain('transcript_files_device');
+    expect(idx).toContain('file_sync_path');
+    db.prepare('insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
+      .run('transcript:/p/s1.jsonl', 'transcript', '/p/s1.jsonl', 'd1', 'a'.repeat(64), 10, 1, null, 2);
+    expect(db.prepare('select count(*) c from file_sync').get()).toEqual({ c: 1 });
+  });
+  it('古い DB からでも上げられ、既存の transcript_files の device_id は null になる', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig8-'));
+    const file = path.join(tmp, 'hangar.db');
+    openDbAt(file, 7);
+    const old = new Database(file);
+    old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1.jsonl', 's1', null, 1, 1, 1, 1);
+    old.close();
+    const db = openDb(file);
+    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(LATEST);
+    expect(db.prepare('select device_id from transcript_files where path = ?').get('/p/s1.jsonl')).toEqual({ device_id: null });
+    db.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+  it('onSharedWrite は upsert と delete の後に呼ばれ、解除できる', () => {
+    const db = openDb(':memory:');
+    const seen: string[] = [];
+    const other = openDb(':memory:');
+    const off = onSharedWrite((t, id, d) => { if (d === db) seen.push(`${t}:${id}`); });
+    upsertShared(other, 'projects', { id: 'px', name: 'x', status: 'active' }, 'd');
+    upsertShared(db, 'projects', { id: 'p1', name: 'a', status: 'active' }, 'd');
+    softDeleteShared(db, 'projects', 'p1', 'd');
+    off();
+    upsertShared(db, 'projects', { id: 'p2', name: 'b', status: 'active' }, 'd');
+    expect(seen).toEqual(['projects:p1', 'projects:p1']);
   });
 });

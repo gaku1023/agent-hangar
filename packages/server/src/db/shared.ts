@@ -9,6 +9,23 @@ function dropUnpushed(db: Db, table: string, rowId: string): void {
   db.prepare('delete from changes where table_name = ? and row_id = ? and pushed_at is null').run(table, rowId);
 }
 
+const writeListeners = new Set<(table: string, rowId: string, db: Db) => void>();
+
+/**
+ * 共有テーブルへの書き込みの後に呼ばれる購読を足す。
+ * 同期エンジンが push のデバウンスに使う。
+ * 戻り値を呼ぶと購読を外す。
+ */
+export function onSharedWrite(cb: (table: string, rowId: string, db: Db) => void): () => void {
+  writeListeners.add(cb);
+  return () => { writeListeners.delete(cb); };
+}
+
+/** トランザクションが終わった後に同期的に呼ぶ。複数の DB を開くときのために、書いた Db も渡す。 */
+function notify(db: Db, table: string, rowId: string): void {
+  for (const cb of writeListeners) cb(table, rowId, db);
+}
+
 /** 共有テーブルへの書き込み。updated_at と origin_device を補い、changes に追記する。 */
 export function upsertShared(db: Db, table: string, row: Record<string, unknown>, deviceId: string, pk = 'id'): void {
   const full: Record<string, unknown> = { ...row, updated_at: Date.now(), origin_device: deviceId };
@@ -23,6 +40,7 @@ export function upsertShared(db: Db, table: string, row: Record<string, unknown>
       .run(table, String(full[pk]), 'upsert', JSON.stringify(stored), full.updated_at, deviceId);
   });
   write();
+  notify(db, table, String(full[pk]));
 }
 
 /** 共有テーブルの行を論理削除し、changes に delete を追記する。 */
@@ -36,4 +54,5 @@ export function softDeleteShared(db: Db, table: string, id: string, deviceId: st
       .run(table, id, 'delete', JSON.stringify(stored), now, deviceId);
   });
   write();
+  notify(db, table, id);
 }
