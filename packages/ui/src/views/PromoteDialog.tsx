@@ -33,7 +33,7 @@ export function PromoteDialog(props: PromoteProps) {
 
   return (
     <div className="overlay" onClick={() => emit({ type: 'overlay.close' })}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label="プロジェクトに昇格" onClick={(e) => e.stopPropagation()}>
+      <div className="dialog dialog-promote" role="dialog" aria-modal="true" aria-label="プロジェクトに昇格" onClick={(e) => e.stopPropagation()}>
         <b className="dialog-title"><Icon name="promote" />プロジェクトに昇格</b>
         <div className="faint">{props.sessionName} の作業をワークスペースの下に移します。</div>
         <label className="field" htmlFor="promote-name">プロジェクト名
@@ -64,7 +64,7 @@ export function PromotedDialog(props: PromotedProps) {
   const emit = useEmit();
   return (
     <div className="overlay" onClick={() => emit({ type: 'overlay.close' })}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label="昇格しました" onClick={(e) => e.stopPropagation()}>
+      <div className="dialog dialog-wide dialog-promote" role="dialog" aria-modal="true" aria-label="昇格しました" onClick={(e) => e.stopPropagation()}>
         <b className="dialog-title"><Icon name="promote" />{props.projectName} に昇格しました</b>
         <div className="faint">{props.moved ? 'ファイルを移しました' : (props.reason ?? 'ファイルは移していません')}</div>
         <div className="dialog-foot">

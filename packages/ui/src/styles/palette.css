@@ -14,6 +14,10 @@
 .palette-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: calc(var(--u) * 65); font-size: var(--fs-xs); }
 .palette .empty { padding: calc(var(--u) * 6); }
 
-/* 昇格ダイアログ。見出しのアイコンと、チェックボックスの 1 行。 */
+/* 昇格ダイアログ。見出しのアイコンと、チェックボックスの 1 行。
+   完了のダイアログはボタンが 3 つ並ぶので、480px の器では入り切らず語の途中で折り返していた。
+   器を dialog-wide に広げたうえで、ボタンの中では折り返さず、それでも入らないときはボタンごと次の行へ落とす。 */
 .dialog-title { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
 .field-row { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.dialog-promote .dialog-foot { flex-wrap: wrap; row-gap: calc(var(--u) * 2); }
+.dialog-promote .btn { white-space: nowrap; }

@@ -8,6 +8,9 @@ import type { PaletteItem } from '../presenters/palette.ts';
 import { CommandPalette } from './CommandPalette.tsx';
 import { PromoteDialog, PromotedDialog } from './PromoteDialog.tsx';
 
+// new URL(..., import.meta.url) は Vite が資産の URL に書き換えるので、パスを自分で組む。
+const paletteCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'styles', 'palette.css'), 'utf8');
+
 const items: PaletteItem[] = [
   { id: 'cmd:new-session', label: '新規セッション', hint: '⌘N', kind: 'command' },
   { id: 'project:p1', label: 'alpha', hint: '/w/alpha', kind: 'project' },
@@ -142,9 +145,7 @@ describe('PromoteDialog', () => {
     for (const label of ['git init する', 'ファイルを移動する']) {
       expect(screen.getByLabelText(label).closest('label')?.className, label).toBe('field-row');
     }
-    // new URL(..., import.meta.url) は Vite が資産の URL に書き換えるので、パスを自分で組む。
-    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'styles', 'palette.css'), 'utf8');
-    expect(css).toContain('.field-row {');
+    expect(paletteCss).toContain('.field-row {');
   });
 
   it('やめると Esc で閉じる', () => {
@@ -167,6 +168,17 @@ describe('PromotedDialog', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'p9' });
     fireEvent.click(screen.getByText('プロジェクトを開く'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.open', id: 'p9' });
+  });
+
+  // 3 つのボタンが 480px の器に収まらず、日本語の語の途中で 2 行に割れていた。
+  // 器を広げ、ボタンの中では折り返さず、入り切らないときはボタンごと次の行へ落とす。
+  it('ボタンが語の途中で折り返さない', () => {
+    render(<IntentRoot onIntent={() => {}}><PromotedDialog projectId="p9" projectName="newp" moved reason={null} /></IntentRoot>);
+    const dialog = screen.getByRole('dialog', { name: '昇格しました' });
+    expect(dialog.classList.contains('dialog-wide')).toBe(true);
+    expect(dialog.classList.contains('dialog-promote')).toBe(true);
+    expect(paletteCss).toContain('.dialog-promote .btn { white-space: nowrap; }');
+    expect(paletteCss).toContain('.dialog-promote .dialog-foot { flex-wrap: wrap;');
   });
 
   it('移動しなかった理由を出す', () => {
