@@ -1,7 +1,7 @@
 import { formatRoute, parseRoute, type Intent, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
-import type { SessionViewState } from '../mediator/types.ts';
+import type { FocusTarget, SessionViewState } from '../mediator/types.ts';
 import { applyBootstrap, applyEventsPage, applySearch, applyServerEvent, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
 import type { WsClient } from './ws.ts';
@@ -12,7 +12,7 @@ export type RuntimeDeps = {
   location: { getHash(): string; setHash(h: string): void; onHashChange(cb: () => void): () => void };
   storage: { get(key: string): unknown; set(key: string, value: unknown): void; keys(): string[] };
   setTimeout: (fn: () => void, ms: number) => unknown;
-  focus?: (target: 'search') => void;
+  focus?: (target: FocusTarget) => void;
 };
 
 export type Runtime = {

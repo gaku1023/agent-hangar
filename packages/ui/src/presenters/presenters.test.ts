@@ -105,7 +105,7 @@ describe('presentSession', () => {
     expect(p.items[1]).toMatchObject({ kind: 'tool', summary: 'Agent x', result: { text: 'done', isError: false }, subagent: { agentId: 'abc', label: 'Agent x' } });
     expect(p).toMatchObject({ name: 'name-s1', live: 'busy', tokens: '1.2M', turns: 2, loaded: 6, total: 6, hasMore: false, projectName: 'alpha' });
     expect(p.summary).toMatchObject({ title: 't', sourceLabel: '自動', stateLabel: '完了' });
-    const state = { ...initialState(), sessionView: { s1: { agentId: null, showThinking: true, showRaw: true, follow: true, summaryOpen: true } } };
+    const state = { ...initialState(), sessionView: { s1: { agentId: null, showThinking: true, showRaw: true, follow: true, summaryOpen: true, selectedTab: null, transcriptOpen: true } } };
     const q = presentSession(state, store, NOW, 's1');
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
     expect(q.summaryOpen).toBe(true);

@@ -18,7 +18,7 @@ export function screenStep(state: State, input: Input): Step | null {
     const route = input.event.route;
     const effects: Effect[] = [];
     let next: State = { ...state, screen: route };
-    if (route.name === 'session') effects.push({ kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0 });
+    if (route.name === 'session') effects.push({ kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0 }, { kind: 'terminal.connect', sessionId: route.id, tabId: null });
     if (route.name === 'sessions') {
       const text = route.q ?? '';
       next = { ...next, search: { ...state.search, text } };

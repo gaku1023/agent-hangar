@@ -1,7 +1,7 @@
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
 
 export function defaultSessionView(): SessionViewState {
-  return { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false };
+  return { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: null, transcriptOpen: true };
 }
 
 function patch(state: State, id: string, p: Partial<SessionViewState>): Step {
@@ -11,11 +11,37 @@ function patch(state: State, id: string, p: Partial<SessionViewState>): Step {
   return { state: { ...state, sessionView: { ...state.sessionView, [id]: next } }, effects };
 }
 
-/** sessionView 領域：セッション画面の一時状態。localStorage に保存し、同期しない。 */
+const currentSession = (state: State): string | null => (state.screen.name === 'session' ? state.screen.id : null);
+const viewOf = (state: State, id: string) => state.sessionView[id] ?? defaultSessionView();
+
+/** sessionView 領域：セッション画面の一時状態とターミナル接続の開閉。localStorage に保存し、同期しない。 */
 export function sessionViewStep(state: State, input: Input): Step | null {
-  if (input.kind === 'server' && input.event.type === 'transcript.appended') {
-    const open = state.screen.name === 'session' && state.screen.id === input.event.sessionId;
-    return { state, effects: open ? [{ kind: 'api.loadEvents', sessionId: input.event.sessionId, fromSeq: -1 }] : [] };
+  if (input.kind === 'server') {
+    const ev = input.event;
+    switch (ev.type) {
+      case 'transcript.appended': {
+        const open = currentSession(state) === ev.sessionId;
+        return { state, effects: open ? [{ kind: 'api.loadEvents', sessionId: ev.sessionId, fromSeq: -1 }] : [] };
+      }
+      case 'run.started': {
+        if (currentSession(state) !== ev.run.sessionId) return { state, effects: [] };
+        const r = patch(state, ev.run.sessionId, { selectedTab: null });
+        return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId: ev.run.sessionId, tabId: ev.run.id }] };
+      }
+      case 'run.ended': return { state, effects: [{ kind: 'terminal.disconnect', tabId: ev.run.id }] };
+      case 'tab.upsert': {
+        const t = ev.tab;
+        if (t.closedAt !== null) {
+          if (viewOf(state, t.sessionId).selectedTab !== t.id) return { state, effects: [{ kind: 'terminal.disconnect', tabId: t.id }] };
+          const r = patch(state, t.sessionId, { selectedTab: null });
+          return { state: r.state, effects: [...r.effects, { kind: 'terminal.disconnect', tabId: t.id }, { kind: 'terminal.connect', sessionId: t.sessionId, tabId: null }] };
+        }
+        if (currentSession(state) !== t.sessionId || t.kind !== 'shell') return { state, effects: [] };
+        const r = patch(state, t.sessionId, { selectedTab: t.id });
+        return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId: t.sessionId, tabId: t.id }, { kind: 'focus', target: 'terminal' }] };
+      }
+      default: return null;
+    }
   }
   if (input.kind !== 'intent') return null;
   const i = input.intent;
@@ -23,11 +49,32 @@ export function sessionViewStep(state: State, input: Input): Step | null {
     case 'transcript.showThinking': return patch(state, i.sessionId, { showThinking: i.show });
     case 'transcript.showRaw': return patch(state, i.sessionId, { showRaw: i.show });
     case 'transcript.follow': return patch(state, i.sessionId, { follow: i.follow });
-    case 'summary.toggle': return patch(state, i.sessionId, { summaryOpen: !(state.sessionView[i.sessionId] ?? defaultSessionView()).summaryOpen });
+    case 'summary.toggle': return patch(state, i.sessionId, { summaryOpen: !viewOf(state, i.sessionId).summaryOpen });
     case 'transcript.loadMore': return { state, effects: [{ kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: -1 }] };
     case 'transcript.selectAgent': {
       const r = patch(state, i.sessionId, { agentId: i.agentId });
       return { state: r.state, effects: [...r.effects, { kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: 0 }] };
+    }
+    case 'transcript.toggle': {
+      const sid = currentSession(state);
+      return sid ? patch(state, sid, { transcriptOpen: !viewOf(state, sid).transcriptOpen }) : { state, effects: [] };
+    }
+    case 'tab.open': {
+      if (i.kind === 'shell') return { state, effects: [{ kind: 'api.openTab', sessionId: i.sessionId }] };
+      const r = patch(state, i.sessionId, { selectedTab: null });
+      return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId: i.sessionId, tabId: null }] };
+    }
+    case 'tab.select': {
+      const sid = currentSession(state);
+      if (!sid) return { state, effects: [] };
+      const r = patch(state, sid, { selectedTab: i.tabId });
+      return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId: sid, tabId: i.tabId }, { kind: 'focus', target: 'terminal' }] };
+    }
+    case 'tab.close': {
+      const sid = currentSession(state);
+      const close: Effect = { kind: 'api.closeTab', tabId: i.tabId };
+      if (sid && viewOf(state, sid).selectedTab === i.tabId) { const r = patch(state, sid, { selectedTab: null }); return { state: r.state, effects: [...r.effects, close] }; }
+      return { state, effects: [close] };
     }
     default: return null;
   }
