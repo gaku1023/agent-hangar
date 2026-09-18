@@ -47,7 +47,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   };
 
   return (
-    <div ref={boxRef} className="tr" onScroll={onScroll} style={{ overflow: 'auto', height: 'calc(100vh - 260px)', padding: '8px 0' }}>
+    <div ref={boxRef} className="tr" onScroll={onScroll}>
       {props.items.length === 0 && !props.loading && <div className="empty">本文がありません</div>}
       {props.items.map((it) => {
         switch (it.kind) {

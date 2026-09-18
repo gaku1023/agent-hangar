@@ -26,7 +26,8 @@ const runtime = createRuntime({
   },
   setTimeout: (fn, ms) => window.setTimeout(fn, ms),
   terminals,
-  focus: (t) => { if (t === 'search') document.getElementById('global-search')?.focus(); },
+  // ダイアログは状態が変わった次の描画で現れるので、フォーカスは次のフレームで当てる。
+  focus: (t) => { requestAnimationFrame(() => document.getElementById(t === 'search' ? 'global-search' : 'new-session-name')?.focus()); },
 });
 runtime.start();
-createRoot(document.getElementById('root')!).render(<Root runtime={runtime} api={api} />);
+createRoot(document.getElementById('root')!).render(<Root runtime={runtime} api={api} terminals={terminals} />);

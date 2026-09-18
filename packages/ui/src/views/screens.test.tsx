@@ -61,4 +61,12 @@ describe('ProjectScreen', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
     expect(screen.getByText('/w/alpha')).toBeInTheDocument();
   });
+  it('プロジェクトの操作は project.* の Intent', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} /></IntentRoot>);
+    fireEvent.click(screen.getByText('VS Code で開く'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.openEditor', id: 'alpha' });
+    fireEvent.click(screen.getByText('ターミナルで開く'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.openTerminalApp', id: 'alpha' });
+  });
 });

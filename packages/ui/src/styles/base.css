@@ -78,7 +78,8 @@ a:hover { text-decoration: underline; }
 .fold[open] .fold-arrow { transform: rotate(90deg); }
 
 /* トランスクリプト */
-.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+/* 高さは CSS だけで決める。実行中の画面では .tr-pane の側が上書きしてペーンに追随する。 */
+.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); height: calc(100vh - 260px); overflow: auto; padding: calc(var(--u) * 2) 0; }
 .msg { max-width: 80ch; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); white-space: pre-wrap; word-break: break-word; }
 .msg-user { background: var(--accent-soft); align-self: flex-end; }
 .msg-assistant { background: var(--surface); border: 1px solid var(--line); align-self: flex-start; }

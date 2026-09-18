@@ -21,8 +21,8 @@ export function ProjectScreen(props: ProjectProps) {
           <select className="select" aria-label="ステータス" value={props.status} onChange={(e) => emit({ type: 'project.setStatus', id: props.id, status: e.target.value as ProjectStatus })}>{STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
           <span className="spacer" />
           <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.id })}>新規セッション</button>
-          <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: '' })}>VS Code で開く</button>
-          <button className="btn" onClick={() => emit({ type: 'session.openTerminalApp', runId: '' })}>ターミナルで開く</button>
+          <button className="btn" onClick={() => emit({ type: 'project.openEditor', id: props.id })}>VS Code で開く</button>
+          <button className="btn" onClick={() => emit({ type: 'project.openTerminalApp', id: props.id })}>ターミナルで開く</button>
         </div>
         <div className="mono faint" style={{ marginBottom: 12 }}>{props.path ?? 'この端末にパスがありません'}{!props.resolved && props.path ? '（見つかりません）' : ''}</div>
         <SessionRows rows={props.sessions} height="calc(100vh - 200px)" showProject={false} />

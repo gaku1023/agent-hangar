@@ -3,9 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, ServerEvent } from '@agent-hangar/shared';
 import { Root } from './Root.tsx';
 import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
+import type { TerminalHost } from './runtime/terminals.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
+
+// ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
+const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), subscribe: () => () => {}, dispose: vi.fn() };
 
 function make() {
   let hash = '#/';
@@ -17,8 +21,7 @@ function make() {
     location: { getHash: () => hash, setHash: (h) => { hash = h; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); } },
     storage: { get: () => undefined, set: () => {}, keys: () => [] },
     setTimeout: (fn, ms) => setTimeout(fn, ms),
-    // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
-    terminals: { connect: () => {}, disconnect: () => {}, mount: () => {}, status: () => null, fit: () => {}, focus: () => {}, subscribe: () => () => {}, dispose: () => {} },
+    terminals,
   };
   const rt = createRuntime(deps);
   return { rt, deps, handlers, setHash: deps.location.setHash };
@@ -29,7 +32,7 @@ describe('Root', () => {
   it('起動から Home、Projects へ遷移、未解決ダイアログ', async () => {
     const { rt, deps, handlers, setHash } = make();
     rt.start();
-    render(<Root runtime={rt} api={deps.api} />);
+    render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
     expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
     act(() => handlers[0]!.onOpen());
     await flush();
@@ -46,7 +49,7 @@ describe('Root', () => {
     vi.useFakeTimers();
     const { rt, deps } = make();
     rt.start();
-    render(<Root runtime={rt} api={deps.api} />);
+    render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
     act(() => rt.dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message: 'hello' } }));
     expect(screen.getByText('hello')).toBeInTheDocument();
     act(() => { vi.advanceTimersByTime(5100); });
@@ -56,7 +59,7 @@ describe('Root', () => {
   it('キーボード。/ で検索欄にフォーカスし、⌘K でパレットが開き、Esc で閉じる', async () => {
     const { rt, deps, handlers } = make();
     rt.start();
-    render(<Root runtime={rt} api={deps.api} />);
+    render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
     act(() => handlers[0]!.onOpen());
     await flush();
     fireEvent.keyDown(window, { key: '/' });
@@ -72,5 +75,17 @@ describe('Root', () => {
     await flush();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+  it('⌘N と新規ボタンで起動ダイアログが開き、閉じられる', async () => {
+    const { rt, deps, handlers } = make();
+    rt.start();
+    render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
+    act(() => handlers[0]!.onOpen());
+    await flush();
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
+    expect(screen.getByRole('dialog', { name: '新しいセッション' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /alpha/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByText('やめる'));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

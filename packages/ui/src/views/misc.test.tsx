@@ -81,6 +81,15 @@ describe('SettingsScreen', () => {
     expect(screen.getByText('mac')).toBeInTheDocument();
     expect(screen.getByText(/再起動後に反映されます/)).toBeInTheDocument();
   });
+  it('ツールのパスとターミナルアプリを保存する', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen workspaceRoot="/w" claudeDir="/c" tmuxPath="/opt/homebrew/bin/tmux" terminalApp="terminal" codePath={null} mcpInstallCommand="npx hangar mcp install" device={{ id: 'd', name: 'mac' }} version="0.2.0" index={{ phase: 'idle', done: 3, total: 3 }} sessionCount={3} projectCount={1} /></IntentRoot>);
+    fireEvent.change(screen.getByLabelText('ターミナルアプリ'), { target: { value: 'iterm' } });
+    fireEvent.change(screen.getByLabelText('code のパス'), { target: { value: '/usr/local/bin/code' } });
+    fireEvent.click(screen.getByText('ツールの設定を保存'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: '/usr/local/bin/code' } });
+    expect(screen.getByText('npx hangar mcp install')).toBeInTheDocument();
+  });
 });
 
 describe('Header', () => {

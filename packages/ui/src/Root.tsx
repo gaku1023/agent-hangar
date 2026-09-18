@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useReducer, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
 import { IntentRoot } from './intent/chain.tsx';
 import { presentHome } from './presenters/home.ts';
+import { presentNewSession } from './presenters/newSession.ts';
 import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
 import { presentSession } from './presenters/session.ts';
@@ -10,7 +11,9 @@ import { presentSettings } from './presenters/settings.ts';
 import { presentShell } from './presenters/shell.ts';
 import { createApi, type ApiClient } from './runtime/api.ts';
 import type { Runtime } from './runtime/runtime.ts';
+import type { TerminalHost } from './runtime/terminals.ts';
 import { HomeScreen } from './views/HomeScreen.tsx';
+import { NewSessionDialog } from './views/NewSessionDialog.tsx';
 import { ProjectScreen } from './views/ProjectScreen.tsx';
 import { ProjectsScreen } from './views/ProjectsScreen.tsx';
 import { ResolveProjectDialog } from './views/ResolveProjectDialog.tsx';
@@ -18,6 +21,7 @@ import { SessionScreen } from './views/SessionScreen.tsx';
 import { SessionsScreen } from './views/SessionsScreen.tsx';
 import { SettingsScreen } from './views/SettingsScreen.tsx';
 import { Shell } from './views/Shell.tsx';
+import { TerminalHostContext } from './views/TerminalPane.tsx';
 import { ToastStack } from './views/ToastStack.tsx';
 
 /** 相対時刻のために現在時刻を一定間隔で更新する。 */
@@ -27,10 +31,17 @@ function useNow(intervalMs = 30_000): number {
   return now;
 }
 
-export function Root(props: { runtime: Runtime; api?: ApiClient }) {
+/** TerminalHost の状態が変わるたびに再描画する。接続の状態は React の外にあるからである。 */
+function useTerminalHost(host: TerminalHost): void {
+  const [, force] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => host.subscribe(force), [host]);
+}
+
+export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: TerminalHost }) {
   const rt = props.runtime;
   const { state, store } = useRuntime(rt);
   const now = useNow();
+  useTerminalHost(props.terminals);
   const [projectFilter, setProjectFilter] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [candidates, setCandidates] = useState<string[]>([]);
@@ -50,7 +61,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient }) {
   useEffect(() => { if (unresolvedId) queryCandidates(store.projects[unresolvedId]?.name ?? ''); else setCandidates([]); }, [unresolvedId]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // キーボード。
-  // / で検索欄にフォーカスし、⌘K か Ctrl+K でパレットを開き、Esc はパレットだけを閉じる。
+  // / で検索欄にフォーカスし、⌘K か Ctrl+K でパレットを開き、⌘N か Ctrl+N で起動ダイアログを開き、Esc はパレットだけを閉じる。
+  // xterm の入力欄は TEXTAREA なので、ターミナルに打った / を横取りしない。
   const paletteOpen = overlay.kind === 'palette';
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -58,6 +70,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient }) {
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (e.key === '/' && !typing) { e.preventDefault(); document.getElementById('global-search')?.focus(); }
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); rt.emit({ type: 'palette.open' }); }
+      if (e.key === 'n' && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); rt.emit({ type: 'session.new.open' }); }
       if (e.key === 'Escape' && paletteOpen) rt.emit({ type: 'palette.close' });
     };
     window.addEventListener('keydown', onKey);
@@ -71,21 +84,34 @@ export function Root(props: { runtime: Runtime; api?: ApiClient }) {
     case 'home': body = <HomeScreen {...presentHome(state, store, now)} />; break;
     case 'projects': body = <ProjectsScreen {...presentProjects(state, store, now, projectFilter, showArchived)} filter={projectFilter} showArchived={showArchived} onFilter={setProjectFilter} onShowArchived={setShowArchived} />; break;
     case 'project': body = <ProjectScreen {...presentProject(state, store, now, state.screen.id)} />; break;
-    case 'session': body = <SessionScreen {...presentSession(state, store, now, state.screen.id)} terminalStatus={null} />; break;
+    case 'session': {
+      const p = presentSession(state, store, now, state.screen.id);
+      body = <SessionScreen {...p} terminalStatus={p.selectedTab ? props.terminals.status(p.selectedTab) : null} />;
+      break;
+    }
     // 検索欄は defaultValue なので、外からの文言リセットで作り直せるように key を付ける。
     case 'sessions': body = <SessionsScreen key={state.search.text} {...presentSessions(state, store, now)} />; break;
     case 'settings': body = <SettingsScreen {...presentSettings(state, store)} />; break;
   }
 
+  // 起動ダイアログはプロジェクトが変わったら作り直す。入力欄が非制御で、defaultValue を作り直しでしか変えられないからである。
+  const newSession = presentNewSession(state, store);
   const overlays = (
     <>
       {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}
+      {newSession && <NewSessionDialog key={newSession.projectId ?? ''} {...newSession} />}
       {overlay.kind === 'palette' && <div className="overlay" onClick={() => rt.emit({ type: 'palette.close' })}><div className="dialog" onClick={(e) => e.stopPropagation()}><b>コマンドパレット</b><div className="faint">次のフェーズで使えるようになります。Esc か外側のクリックで閉じます。</div></div></div>}
       <ToastStack toasts={state.toasts} />
     </>
   );
 
-  return <IntentRoot onIntent={rt.emit}><Shell {...shell} overlays={overlays}>{body}</Shell></IntentRoot>;
+  return (
+    <IntentRoot onIntent={rt.emit}>
+      <TerminalHostContext.Provider value={props.terminals}>
+        <Shell {...shell} overlays={overlays}>{body}</Shell>
+      </TerminalHostContext.Provider>
+    </IntentRoot>
+  );
 }
 
 const apiCache = new WeakMap<Runtime, ApiClient>();
