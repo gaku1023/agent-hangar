@@ -108,3 +108,12 @@ a:hover { text-decoration: underline; }
 .toast[data-level='error'] { background: var(--error); color: #fff; }
 @keyframes slide { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
 .progress { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* 起動ダイアログの入力欄 */
+.field { display: flex; flex-direction: column; gap: var(--u); font-size: var(--fs-sm); color: var(--ink-2); }
+.field .input, .field .select { color: var(--ink); }
+.field textarea.input { height: auto; padding: var(--u) calc(var(--u) * 2); resize: vertical; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--u) * 2); }
+.dialog-wide { width: 560px; }
+.dialog-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+.error { color: var(--error); font-size: var(--fs-sm); }

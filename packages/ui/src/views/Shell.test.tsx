@@ -19,6 +19,8 @@ describe('Shell', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '動画' });
     expect(screen.getByText('body')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
+    fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
   });
   it('切断と索引の進行を表示する', () => {
     render(<IntentRoot onIntent={() => {}}><Shell {...props} connection="disconnected" indexLabel="索引 3 / 9 件" overlays={null}><div /></Shell></IntentRoot>);
