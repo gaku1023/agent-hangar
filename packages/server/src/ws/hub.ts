@@ -22,7 +22,8 @@ export class EventHub {
       if (url.pathname !== opts.path) return;
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
-      const token = tokenFromRequest(headers, req.headers.cookie) ?? url.searchParams.get('token');
+      // トークンはヘッダかクッキーだけで受ける。クエリに置くと Referer や代理のログに秘密が残る。
+      const token = tokenFromRequest(headers, req.headers.cookie);
       if (!originAllowed(req.headers.origin, opts.port) || token !== opts.token) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();

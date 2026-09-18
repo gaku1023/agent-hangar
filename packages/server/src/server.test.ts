@@ -44,7 +44,7 @@ function writeTranscript(cwd: string, sessionId: string, text: string, uuid = 'u
 
 /** 配信を貯めておき、条件に合うものが来るまで待つ。待ち始める前に来たものも見る。 */
 function collector(port: number, token: string) {
-  const sock = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
+  const sock = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { authorization: `Bearer ${token}` } });
   const seen: ServerEvent[] = [];
   const waiters = new Set<() => void>();
   sock.on('message', (d) => { seen.push(JSON.parse(String(d)) as ServerEvent); for (const w of [...waiters]) w(); });
@@ -86,13 +86,13 @@ describe('startServer', () => {
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
     expect(s.port).toBeGreaterThan(0);
     const token = fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
-    const ws = new WebSocket(`ws://127.0.0.1:${s.port}/ws?token=${token}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${s.port}/ws`, { headers: { authorization: `Bearer ${token}` } });
     const ready = await new Promise<string>((resolve, reject) => { ws.once('message', (d) => resolve(String(d))); ws.once('error', reject); });
     expect(JSON.parse(ready).type).toBe('ready');
     // close フレームに応えない相手。ブラウザのタブが止まっているときや代理を挟むときに起こる。
     const stalled = net.connect(s.port, '127.0.0.1');
     await new Promise<void>((r) => stalled.once('connect', r));
-    stalled.write(`GET /ws?token=${token} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+    stalled.write(`GET /ws HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer ${token}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
     const upgraded = await new Promise<string>((r) => stalled.once('data', (d) => r(String(d))));
     expect(upgraded.startsWith('HTTP/1.1 101')).toBe(true);
     // fetch は keep-alive で接続を残す。
@@ -106,6 +106,25 @@ describe('startServer', () => {
     expect(result).toBe('closed');
     ws.terminate();
     stalled.destroy();
+  });
+
+  it('/ws はクエリ文字列のトークンを受け付けない', async () => {
+    // URL は Referer、代理のログ、シェルの履歴、ブラウザの履歴に残る。秘密をそこに置く経路を残さない。
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const open = (url: string, headers: Record<string, string> = {}) => new Promise<WebSocket>((resolve, reject) => {
+      const sock = new WebSocket(url, { headers });
+      sock.once('open', () => resolve(sock));
+      sock.once('error', reject);
+    });
+    try {
+      await expect(open(`ws://127.0.0.1:${s.port}/ws?token=${tokenOf()}`)).rejects.toThrow(/401/);
+      const viaHeader = await open(`ws://127.0.0.1:${s.port}/ws`, { authorization: `Bearer ${tokenOf()}` });
+      viaHeader.terminate();
+      const viaCookie = await open(`ws://127.0.0.1:${s.port}/ws`, { cookie: `hangar_token=${tokenOf()}` });
+      viaCookie.terminate();
+    } finally {
+      await s.close();
+    }
   });
 
   it('claudeDir を渡すと settings ではなくそれを読む', async () => {
@@ -143,7 +162,7 @@ describe('startServer', () => {
     try {
       const sock = net.connect(s.port, '127.0.0.1');
       await new Promise<void>((r) => sock.once('connect', r));
-      sock.write(`GET /ws/pty?tab=nope&token=${tokenOf()} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+      sock.write(`GET /ws/pty?tab=nope HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer ${tokenOf()}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
       const first = await Promise.race([
         new Promise<string>((r) => sock.once('data', (d) => r(String(d)))),
         new Promise<string>((r) => setTimeout(() => r('応答なしで切られた'), 2000)),

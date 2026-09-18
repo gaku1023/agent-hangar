@@ -38,7 +38,8 @@ export class PtyRelay {
       if (url.pathname !== path) return;
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
-      const token = tokenFromRequest(headers, req.headers.cookie) ?? url.searchParams.get('token');
+      // トークンはヘッダかクッキーだけで受ける。クエリに置くと Referer や代理のログに秘密が残る。
+      const token = tokenFromRequest(headers, req.headers.cookie);
       if (!originAllowed(req.headers.origin, this.deps.port) || token !== this.deps.token) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
       const name = this.deps.resolveTab(url.searchParams.get('tab') ?? '');
       if (!name || !this.deps.tmux) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
