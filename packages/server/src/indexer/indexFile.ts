@@ -3,6 +3,7 @@ import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { readNewLines } from '../provider/claude-code/lines.ts';
+import { artifactCallOf, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
 import { indexTexts, normalizeRecord, recordFacts } from '../provider/claude-code/normalize.ts';
 import type { DiscoveredFile } from '../provider/types.ts';
 
@@ -11,7 +12,7 @@ export const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const FTS_MAX_CHARS = 20000;
 
 export type IndexFileOptions = { deviceId: string; indexerVersion?: number; cwdFallback?: string };
-export type IndexFileResult = { sessionId: string; providerSessionId: string; appended: number; changed: boolean; badLines: number };
+export type IndexFileResult = { sessionId: string; providerSessionId: string; appended: number; changed: boolean; badLines: number; artifactIds: string[] };
 
 type TfRow = { path: string; session_id: string; agent_id: string | null; size: number; mtime: number; indexed_bytes: number; indexer_version: number };
 
@@ -44,7 +45,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
   const tf = db.prepare('select * from transcript_files where path = ?').get(file.path) as TfRow | undefined;
   const sameVersion = tf?.indexer_version === version;
   if (tf && sameVersion && tf.size === stat.size && tf.mtime === mtime) {
-    return { sessionId: tf.session_id, providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0 };
+    return { sessionId: tf.session_id, providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [] };
   }
   const from = tf && sameVersion ? tf.indexed_bytes : 0;
   const read = readNewLines(file.path, from);
@@ -62,6 +63,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
 
   let appended = 0;
   let sessionId = '';
+  let artifactIdsOut: string[] = [];
   const run = db.transaction(() => {
     const facts = parsed.map((p) => recordFacts(p.rec));
     const cwd = facts.find((f) => f.cwd)?.cwd ?? opts.cwdFallback ?? '';
@@ -70,6 +72,16 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
       db.prepare("delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(sessionId, agentKey);
       db.prepare("delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(sessionId, agentKey);
     }
+    // 主線の作り直しでは、このセッションの版と呼び出しの控えを消してから積み直す。
+    // サブエージェントのファイルだけの作り直しで主線の版を消さないよう、主線に限る。
+    if (reset && file.agentId === null) {
+      db.prepare('delete from artifact_versions where session_id = ? and deleted_at is null').run(sessionId);
+      db.prepare('delete from artifact_calls where session_id = ?').run(sessionId);
+    }
+    const artifactIds = new Set<string>();
+    const insCall = db.prepare('insert into artifact_calls (tool_id, session_id, file_path, description, favicon) values (?,?,?,?,?) on conflict(tool_id) do update set file_path = excluded.file_path, description = excluded.description, favicon = excluded.favicon');
+    const getCall = db.prepare('select file_path, description, favicon from artifact_calls where tool_id = ? and session_id = ?');
+    const projectOf = () => (db.prepare('select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null }).project_id;
     // seq は主線とサブエージェントで別々に振り、続きは既存の最大値の次から始める。
     let seq = reset ? 0 : ((db.prepare("select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ?").get(sessionId, agentKey) as { m: number | null }).m ?? -1) + 1;
     const acc: Acc = { userTurns: 0, input: 0, output: 0 };
@@ -79,6 +91,14 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
         insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, p.offset, p.length, file.path, file.agentId, toolName, filePath);
+        if (ev.kind === 'tool_call' && ev.name === 'Artifact') {
+          const c = artifactCallOf(ev.input);
+          insCall.run(ev.toolId, sessionId, c.filePath, c.description, c.favicon);
+        } else if (ev.kind === 'tool_result') {
+          const url = parsePublishedUrl(ev.text);
+          const call = url ? (getCall.get(ev.toolId, sessionId) as { file_path: string | null; description: string | null; favicon: string | null } | undefined) : undefined;
+          if (url && call) artifactIds.add(recordArtifactPublish(db, opts.deviceId, { sessionId, projectId: projectOf(), url, publishedAt: ev.ts ?? Date.now(), call: { filePath: call.file_path, description: call.description, favicon: call.favicon } }));
+        }
       }
       for (const t of indexTexts(events)) insFts.run(sessionId, file.agentId, t.seq, t.role, t.text.slice(0, FTS_MAX_CHARS));
       seq += events.length;
@@ -106,9 +126,10 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
       .run(file.path, sessionId, file.agentId, stat.size, mtime, read.nextByte, version);
     if (file.agentId === null) applySessionFacts(db, sessionId, acc, reset, opts.deviceId);
     else refreshFilesChanged(db, sessionId);
+    artifactIdsOut = [...artifactIds];
   });
   run();
-  return { sessionId, providerSessionId: file.sessionId, appended, changed: true, badLines };
+  return { sessionId, providerSessionId: file.sessionId, appended, changed: true, badLines, artifactIds: artifactIdsOut };
 }
 
 /** 編集系ツールが触ったファイル数を event_index から数え直す。サブエージェントの編集も含む。 */

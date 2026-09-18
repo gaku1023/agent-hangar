@@ -133,4 +133,26 @@ describe('indexFile', () => {
     const r = indexFile(db, { path: p, sessionId: 'bbbbbbbb-0000-4000-8000-000000000009', agentId: null }, { deviceId: DEV, cwdFallback: '/Users/me/workspace/alpha' });
     expect((db.prepare('select cwd from sessions where id = ?').get(r.sessionId) as { cwd: string }).cwd).toBe('/Users/me/workspace/alpha');
   });
+
+  it('Artifact の呼び出しと結果からアーティファクトを作り、追記で結果だけ届いても結びつける', () => {
+    const r0 = indexFile(db, alphaMain(), { deviceId: DEV });
+    const url = 'https://claude.ai/code/artifact/0199a2b3-1111-7000-8000-000000000001';
+    const call = { type: 'assistant', message: { role: 'assistant', model: 'claude-fable-5-1', content: [{ type: 'tool_use', id: 'toolu_art', name: 'Artifact', input: { file_path: '/tmp/none.html', description: '週報', favicon: '📊' } }], usage: { input_tokens: 0, output_tokens: 1 } }, uuid: 'a9', timestamp: '2026-09-01T12:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA };
+    fs.appendFileSync(alphaMain().path, JSON.stringify(call) + '\n');
+    const r1 = indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(r1.artifactIds).toEqual([]);
+    expect(db.prepare('select * from artifact_calls where tool_id = ?').get('toolu_art')).toMatchObject({ session_id: r0.sessionId, file_path: '/tmp/none.html', description: '週報', favicon: '📊' });
+    const result = { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_art', content: `Published /tmp/none.html at ${url}` }] }, uuid: 'u9', timestamp: '2026-09-01T12:00:03.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA };
+    fs.appendFileSync(alphaMain().path, JSON.stringify(result) + '\n');
+    const r2 = indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(r2.artifactIds).toHaveLength(1);
+    const art = db.prepare('select * from artifacts where id = ?').get(r2.artifactIds[0]) as Record<string, unknown>;
+    expect(art).toMatchObject({ url, title: '週報', favicon: '📊', first_published_at: Date.parse('2026-09-01T12:00:03.000Z') });
+    expect((db.prepare('select count(*) c from artifact_versions where session_id = ?').get(r0.sessionId) as { c: number }).c).toBe(1);
+    // 作り直しても版は増えない。
+    db.prepare('update transcript_files set indexer_version = 0').run();
+    const r3 = indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(r3.artifactIds).toHaveLength(1);
+    expect((db.prepare('select count(*) c from artifact_versions where session_id = ?').get(r0.sessionId) as { c: number }).c).toBe(1);
+  });
 });
