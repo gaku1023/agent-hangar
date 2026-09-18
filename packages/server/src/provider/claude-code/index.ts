@@ -7,15 +7,16 @@ import type { LaunchInput, Provider } from '../types.ts';
  */
 export const claudeCodeProvider: Pick<Provider, 'id' | 'launchCommand' | 'resumeCommand'> = {
   id: 'claude-code',
-  launchCommand(input: LaunchInput): string[] {
-    return ['claude', ...buildClaudeArgs(input)];
+  /** 実行ファイルは呼び手が決める。設定や環境変数で差し替えられるので、ここに `claude` を書かない。 */
+  launchCommand(bin: string, input: LaunchInput): string[] {
+    return [bin, ...buildClaudeArgs(input)];
   },
   /** フォークには新しい UUID が要る。空のまま組み立てると --session-id '' という壊れたコマンドになるので、ここで弾く。 */
-  resumeCommand(input: Omit<LaunchInput, 'mode'>, session: { providerSessionId: string }, fork: boolean, newSessionUuid?: string): string[] {
+  resumeCommand(bin: string, input: Omit<LaunchInput, 'mode'>, session: { providerSessionId: string }, fork: boolean, newSessionUuid?: string): string[] {
     if (fork && !newSessionUuid?.trim()) throw new Error('フォークには新しいセッションの UUID が必要です');
     const mode = fork
       ? { kind: 'fork' as const, sessionUuid: session.providerSessionId, newSessionUuid: newSessionUuid!.trim() }
       : { kind: 'resume' as const, sessionUuid: session.providerSessionId };
-    return ['claude', ...buildClaudeArgs({ ...input, mode })];
+    return [bin, ...buildClaudeArgs({ ...input, mode })];
   },
 };

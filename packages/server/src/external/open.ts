@@ -37,9 +37,16 @@ const hash8 = (s: string) => crypto.createHash('sha1').update(s).digest('hex').s
 /** ファイル名に使える形だけ通し、そうでなければハッシュにする。cmd/ の外に書かせない。 */
 const fileSafe = (name: string) => (/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name) ? name : hash8(name));
 
+/**
+ * tmux attach のコマンド行。
+ * target は `=` を付けた完全一致にする。素の名前だと tmux が前方一致に落ちて、
+ * 終了した run の `hangar-abc12` がそのシェルタブ `hangar-abc12-t1` に繋がってしまう。
+ */
+const attachLine = (tmuxPath: string, tmuxName: string) => `${sq(tmuxPath)} attach -t ${sq(`=${tmuxName}`)}`;
+
 /** tmux attach を書いた .command。AppleEvent を使わないので macOS の自動化の許可が要らない。 */
 export function writeAttachCommand(home: string, tmuxPath: string, tmuxName: string): string {
-  return writeCommand(path.join(cmdDir(home), `attach-${fileSafe(tmuxName)}.command`), `${sq(tmuxPath)} attach -t ${sq(tmuxName)}`);
+  return writeCommand(path.join(cmdDir(home), `attach-${fileSafe(tmuxName)}.command`), attachLine(tmuxPath, tmuxName));
 }
 
 /** ディレクトリに cd する .command。ファイル名はパスのハッシュにして、どんな文字でも安全に置ける。 */
@@ -76,7 +83,7 @@ async function openCommand(o: { app: TerminalApp; command: string; file: () => s
 export function openInTerminalApp(o: { home: string; tmuxPath: string; tmuxName: string; app: TerminalApp; exec?: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
   return openCommand({
     app: o.app,
-    command: `${sq(o.tmuxPath)} attach -t ${sq(o.tmuxName)}`,
+    command: attachLine(o.tmuxPath, o.tmuxName),
     file: () => writeAttachCommand(o.home, o.tmuxPath, o.tmuxName),
     exec: o.exec ?? execFile,
   });

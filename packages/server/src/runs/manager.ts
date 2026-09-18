@@ -2,11 +2,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { newId, shortId, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
-import { upsertShared } from '../db/shared.ts';
+import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
-import { buildClaudeArgs } from '../launch/args.ts';
 import { renderInjection } from '../launch/injection.ts';
 import { ensureWrapperScript, runLogPath } from '../launch/wrapper.ts';
+import { claudeCodeProvider } from '../provider/claude-code/index.ts';
 import type { LaunchInput } from '../provider/types.ts';
 import type { Tmux } from '../tmux/tmux.ts';
 import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
@@ -110,6 +110,17 @@ export class RunManager {
     return renderInjection({ projectName: p?.name ?? '未分類', projectPath: cwd, memo, todos });
   }
 
+  /**
+   * --add-dir に渡す値を整える。
+   * --add-dir は可変長オプションなので、`-` で始まる値はそのまま claude のフラグとして食われる。
+   * `addDirs: ["--dangerously-skip-permissions"]` のような指定を通さない。
+   */
+  private addDirs(params: LaunchParams): string[] {
+    const dirs = (params.addDirs ?? []).map((d) => d.trim()).filter(Boolean);
+    for (const d of dirs) if (d.startsWith('-')) throw new RunError(400, `addDirs にフラグのような値は使えません: ${d}`);
+    return dirs;
+  }
+
   private baseInput(sessionId: string, projectId: string | null, cwd: string, params: LaunchParams): Omit<LaunchInput, 'mode'> {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
     return {
@@ -122,19 +133,22 @@ export class RunManager {
       effort: s(params.effort),
       permissionMode: s(params.permissionMode),
       worktree: s(params.worktree),
-      addDirs: (params.addDirs ?? []).map((d) => d.trim()).filter(Boolean),
+      addDirs: this.addDirs(params),
     };
   }
 
-  /** run の行を作り、tmux セッションで claude を起こす。失敗したら run を閉じて 400 を投げる。 */
-  private launch(o: { sessionId: string; cwd: string; kind: RunKind; input: LaunchInput; params: LaunchParams }): LaunchResult {
+  /**
+   * run の行を作り、tmux セッションで claude を起こす。失敗したら run を閉じて 400 を投げる。
+   * claude の argv は provider が組み立てたものをそのまま受け取る。
+   */
+  private launch(o: { sessionId: string; cwd: string; kind: RunKind; command: string[]; params: LaunchParams }): LaunchResult {
     const tmux = this.precheck(o.cwd);
     const runId = newId();
     const tmuxName = `hangar-${shortId(runId)}`;
     const wrapper = ensureWrapperScript(this.deps.home);
     const log = runLogPath(this.deps.home, runId);
     // ラッパーはプロセス置換を使うので、sh ではなく bash で起こす。
-    const command = ['env', `HANGAR_RUN_ID=${runId}`, 'bash', wrapper, log, this.deps.claudeBin, ...buildClaudeArgs(o.input)];
+    const command = ['env', `HANGAR_RUN_ID=${runId}`, 'bash', wrapper, log, ...o.command];
     const now = this.now();
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(o.params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
@@ -155,14 +169,31 @@ export class RunManager {
     if (!row || row.ended_at !== null) return null;
     upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
     const run = getRun(this.db, runId)!;
+    this.pruneEmptySession(run);
     this.emit('runEnded', run);
     return run;
+  }
+
+  /**
+   * 起動に失敗した新規セッションの行を消す。
+   * claude 自体が起動できないと（フラグ違い、モデル名違い、インストール破損）本文は永久に生まれず、
+   * 名前も本文も無いセッションが一覧の先頭に残る。再開もフォークもできず、消す道も無い。
+   * 消すのは、この run が新規の start で、本文が 1 件も無く、他に run も無いときだけにする。
+   */
+  private pruneEmptySession(run: RunDto): void {
+    if (run.kind !== 'start') return;
+    const hasBody = this.db.prepare('select 1 from transcript_files where session_id = ? limit 1').get(run.sessionId);
+    if (hasBody) return;
+    const other = this.db.prepare('select 1 from runs where session_id = ? and id <> ? and deleted_at is null limit 1').get(run.sessionId, run.id);
+    if (other) return;
+    softDeleteShared(this.db, 'sessions', run.sessionId, this.deps.deviceId);
   }
 
   /** 新しいセッションを起こす。検査をすべて先に済ませてから行を作る。 */
   start(params: LaunchParams): LaunchResult {
     if (params.scratch) throw new RunError(400, 'スクラッチはフェーズ 3 で実装します');
     if (!params.projectId) throw new RunError(400, 'projectId は必須です');
+    this.addDirs(params);
     const p = this.project(params.projectId);
     if (!p.path || !p.resolved) throw new RunError(400, 'プロジェクトのディレクトリがこの端末で見つかりません');
     this.precheck(p.path);
@@ -172,7 +203,8 @@ export class RunManager {
     const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, name: params.name?.trim() || null, started_at: now, last_activity_at: now }, this.deps.deviceId);
     const input: LaunchInput = { ...this.baseInput(sessionId, p.id, p.path, params), mode: { kind: 'start', sessionUuid } };
-    return this.launch({ sessionId, cwd: p.path, kind: 'start', input, params });
+    const command = claudeCodeProvider.launchCommand(this.deps.claudeBin, input);
+    return this.launch({ sessionId, cwd: p.path, kind: 'start', command, params });
   }
 
   private session(sessionId: string): SessionRow {
@@ -193,8 +225,8 @@ export class RunManager {
   resume(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s);
-    const input: LaunchInput = { ...this.baseInput(s.id, s.project_id, s.cwd, {}), mode: { kind: 'resume', sessionUuid: s.provider_session_id } };
-    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', input, params: { projectId: s.project_id ?? undefined } });
+    const command = claudeCodeProvider.resumeCommand(this.deps.claudeBin, this.baseInput(s.id, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, false);
+    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command, params: { projectId: s.project_id ?? undefined } });
   }
 
   /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐので null にする。 */
@@ -208,16 +240,18 @@ export class RunManager {
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(newSessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, project_id: s.project_id, name: null, started_at: now, last_activity_at: now }, this.deps.deviceId);
-    const input: LaunchInput = { ...this.baseInput(newSessionId, s.project_id, s.cwd, {}), mode: { kind: 'fork', sessionUuid: s.provider_session_id, newSessionUuid: newUuid } };
-    return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', input, params: { projectId: s.project_id ?? undefined } });
+    const command = claudeCodeProvider.resumeCommand(this.deps.claudeBin, this.baseInput(newSessionId, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, true, newUuid);
+    return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined } });
   }
 
   /** tmux の一覧を 1 回読み、消えた run とタブを閉じ、古い heartbeat を更新する。 */
   tick(): { ended: RunDto[]; closedTabs: TabDto[] } {
-    // tmux が無いのは「観測できない」であって「動いていない」ではない。
-    // ここで一覧を空と見なすと、設定から tmuxPath を外した瞬間に、実際には動いている run が全部 exited になる。
-    if (!this.deps.tmux) return { ended: [], closedTabs: [] };
-    const names = new Set(this.deps.tmux.listSessions());
+    // tmux が無いのも、tmux を呼べなかったのも「観測できない」であって「動いていない」ではない。
+    // ここで一覧を空と見なすと、設定から tmuxPath を外した瞬間や、
+    // tmux のバイナリが一瞬消えた隙に、実際には動いている run が全部 exited になって二度と戻らない。
+    const listed = this.deps.tmux?.listSessions() ?? null;
+    if (listed === null) return { ended: [], closedTabs: [] };
+    const names = new Set(listed);
     const ended: RunDto[] = [];
     const closedTabs: TabDto[] = [];
     const now = this.now();
@@ -242,9 +276,15 @@ export class RunManager {
     return { ended, closedTabs };
   }
 
-  /** サーバ起動時に、生きているはずの run のうち tmux セッションが無いものを lost で閉じる。 */
+  /**
+   * サーバ起動時に、生きているはずの run のうち tmux セッションが無いものを lost で閉じる。
+   * tmux の設定が無いときは、そのセッションにはもう繋げないので閉じてよい。
+   * tmux を呼べなかったときは観測できていないので、何も閉じない。
+   */
   recoverAtStartup(): RunDto[] {
-    const names = new Set(this.deps.tmux ? this.deps.tmux.listSessions() : []);
+    const listed = this.deps.tmux ? this.deps.tmux.listSessions() : [];
+    if (listed === null) return [];
+    const names = new Set(listed);
     const out: RunDto[] = [];
     for (const run of listAliveRuns(this.db, this.deviceId)) {
       if (!names.has(run.tmuxName)) {
@@ -364,5 +404,19 @@ export class RunManager {
 
   getTab(id: string): TabDto | null {
     return getTab(this.db, id);
+  }
+
+  /**
+   * 端末として繋いでよいタブ。繋げないものは null にする。
+   * 終了した run の Claude のタブは繋ぎ先の tmux セッションがもう無い。
+   * そこへ attach しようとすると tmux の前方一致で同じ run のシェルタブに落ち、
+   * 利用者は Claude のペインのつもりで自分のシェルに打鍵してしまう。
+   * シェルタブは run が終わった後も残るので、そちらは繋いでよい。
+   */
+  attachTarget(tabId: string): TabDto | null {
+    const t = this.getTab(tabId);
+    if (!t) return null;
+    if (t.kind === 'agent' && this.getRun(t.runId)?.endedAt != null) return null;
+    return t;
   }
 }

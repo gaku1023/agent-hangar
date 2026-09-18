@@ -28,6 +28,6 @@ export interface Provider {
   watch(onChange: (path: string) => void): () => void;
   readEvents(file: string, fromByte: number): { events: TranscriptEvent[]; offset: number; length: number }[];
   liveStatus(): LiveSession[];
-  launchCommand(input: LaunchInput): string[];
-  resumeCommand(input: Omit<LaunchInput, 'mode'>, session: { providerSessionId: string }, fork: boolean, newSessionUuid?: string): string[];
+  launchCommand(bin: string, input: LaunchInput): string[];
+  resumeCommand(bin: string, input: Omit<LaunchInput, 'mode'>, session: { providerSessionId: string }, fork: boolean, newSessionUuid?: string): string[];
 }

@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { shortId, type TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
-import { TMUX, testSocketName, waitFor } from '../../test/tmux.ts';
+import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { RunError, RunManager } from './manager.ts';
 
@@ -16,6 +16,7 @@ let home: string;
 let cwd: string;
 let fake: { bin: string; argsFile: string };
 let tmux: Tmux | null;
+const socketPath = testSocketPath();
 
 beforeEach(() => {
   db = openDb(':memory:');
@@ -26,8 +27,9 @@ beforeEach(() => {
   upsertShared(db, 'project_roots', { id: 'pr1', project_id: 'p1', device_id: 'd', path: cwd, resolved: 1 }, 'd');
   upsertShared(db, 'projects', { id: 'p2', name: 'lost', status: 'active', is_scratch: 0 }, 'd');
   upsertShared(db, 'project_roots', { id: 'pr2', project_id: 'p2', device_id: 'd', path: '/nonexistent', resolved: 0 }, 'd');
-  tmux = TMUX ? new Tmux({ tmuxPath: TMUX, socketName: testSocketName() }) : null;
+  tmux = TMUX ? new Tmux({ tmuxPath: TMUX, socketPath }) : null;
 });
+afterAll(() => removeTestSocket(socketPath));
 afterEach(() => {
   tmux?.killServer();
   fs.rmSync(home, { recursive: true, force: true });
@@ -355,5 +357,148 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     const before = db.prepare('select count(*) c from sessions').get() as { c: number };
     expect(() => make().fork(id)).toThrow(expect.objectContaining({ status: 400 }));
     expect(db.prepare('select count(*) c from sessions').get()).toEqual(before);
+  });
+});
+
+/** 行だけを作って生きている run にする。tmux を使わずに寿命の処理を見るために使う。 */
+function seedRun(o: { runId?: string; sessionId?: string; kind?: 'start' | 'resume' | 'fork'; tabId?: string; endedAt?: number } = {}): { runId: string; sessionId: string; tabId: string } {
+  const sessionId = o.sessionId ?? 's1';
+  const runId = o.runId ?? 'r1';
+  const tabId = o.tabId ?? 't1';
+  const cur = db.prepare('select id from sessions where id = ?').get(sessionId) as { id: string } | undefined;
+  if (!cur) upsertShared(db, 'sessions', { id: sessionId, provider: 'claude-code', provider_session_id: `u-${sessionId}`, cwd, home_device: 'd', last_activity_at: 1 }, 'd');
+  upsertShared(db, 'runs', { id: runId, session_id: sessionId, device_id: 'd', kind: o.kind ?? 'start', tmux_name: `hangar-${runId}`, pid: null, launch_params: '{}', started_at: 1, ended_at: o.endedAt ?? null, end_reason: o.endedAt ? 'exited' : null, heartbeat_at: 1 }, 'd');
+  upsertShared(db, 'run_tabs', { id: tabId, run_id: runId, tmux_name: `hangar-${runId}-t1`, title: 'シェル 1', created_at: 1, closed_at: null }, 'd');
+  return { runId, sessionId, tabId };
+}
+
+/** 決まった終了コードと出力を返す偽の tmux を書く。 */
+function fakeTmux(body: string): Tmux {
+  const bin = path.join(home, `fake-tmux-${Math.random().toString(16).slice(2)}.sh`);
+  fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  return new Tmux({ tmuxPath: bin });
+}
+
+describe('tmux を呼べないとき（tmux 不要）', () => {
+  it('tick は tmux の呼び出しが失敗したら何も閉じない', () => {
+    // tmuxPath のバイナリが消えている状態。brew upgrade の symlink の張り替えでも起きる。
+    seedRun();
+    const rm = make({ tmux: new Tmux({ tmuxPath: path.join(home, 'gone-tmux') }) });
+    const ended: string[] = [];
+    rm.on({ runEnded: (r) => ended.push(r.id) });
+    expect(rm.tick()).toEqual({ ended: [], closedTabs: [] });
+    expect(ended).toEqual([]);
+    expect(rm.getRun('r1')?.endedAt).toBeNull();
+    expect(rm.getTab('t1')?.closedAt).toBeNull();
+  });
+
+  it('recoverAtStartup も tmux の呼び出しが失敗したら何も閉じない', () => {
+    seedRun();
+    const rm = make({ tmux: fakeTmux('echo "lost server" >&2\nexit 1') });
+    expect(rm.recoverAtStartup()).toEqual([]);
+    expect(rm.getRun('r1')?.endedAt).toBeNull();
+    expect(rm.getTab('t1')?.closedAt).toBeNull();
+  });
+
+  it('tmux サーバが動いていないだけなら、run もタブも閉じる', () => {
+    // 呼び出しは成功していて、本当にセッションが 1 つも無い。これは観測できている。
+    seedRun();
+    const rm = make({ tmux: fakeTmux('echo "no server running on /tmp/tmux-501/default" >&2\nexit 1') });
+    const r = rm.tick();
+    expect(r.ended.map((x) => x.id)).toEqual(['r1']);
+    expect(r.closedTabs.map((x) => x.id)).toEqual(['t1']);
+  });
+});
+
+describe('起動に失敗した run の後始末（tmux 不要）', () => {
+  const deletedAt = (sessionId: string) => (db.prepare('select deleted_at from sessions where id = ?').get(sessionId) as { deleted_at: number | null }).deleted_at;
+
+  it('本文の無い start の run が終わったら、空のセッション行も消す', () => {
+    // claude がフラグ違いなどで起動できないと、本文は永久に生まれない。
+    // 消さないと、名前も本文も無いセッションが一覧の先頭に居座り、再開もフォークも削除もできない。
+    const { runId, sessionId } = seedRun();
+    const rm = make({ tmux: null });
+    rm.kill(runId);
+    expect(deletedAt(sessionId)).not.toBeNull();
+  });
+
+  it('本文のあるセッションは残す', () => {
+    const { runId, sessionId } = seedRun();
+    addTranscript(sessionId);
+    const rm = make({ tmux: null });
+    rm.kill(runId);
+    expect(deletedAt(sessionId)).toBeNull();
+  });
+
+  it('他に run が残っているセッションは残す', () => {
+    const { runId, sessionId } = seedRun();
+    seedRun({ runId: 'r2', tabId: 't2' });
+    const rm = make({ tmux: null });
+    rm.kill(runId);
+    expect(deletedAt(sessionId)).toBeNull();
+  });
+
+  it('再開やフォークの run では消さない。元の本文が読めなくなる', () => {
+    const { runId, sessionId } = seedRun({ kind: 'resume' });
+    const rm = make({ tmux: null });
+    rm.kill(runId);
+    expect(deletedAt(sessionId)).toBeNull();
+  });
+});
+
+describe('端末に繋いでよいタブ（tmux 不要）', () => {
+  it('終了した run の Claude のタブは繋がせず、シェルタブは繋げる', () => {
+    // run が終わってもシェルタブは残る。Claude のタブだけは繋ぎ先が消えていて、
+    // 素の名前で attach するとそのシェルタブに落ちるので、ここで塞ぐ。
+    const { runId, tabId } = seedRun({ endedAt: 2 });
+    const rm = make({ tmux: null });
+    expect(rm.getTab(runId)?.kind).toBe('agent');
+    expect(rm.attachTarget(runId)).toBeNull();
+    expect(rm.attachTarget(tabId)?.tmuxName).toBe(`hangar-${runId}-t1`);
+    expect(rm.attachTarget('nope')).toBeNull();
+  });
+
+  it('生きている run の Claude のタブは繋げる', () => {
+    const { runId } = seedRun();
+    const rm = make({ tmux: null });
+    expect(rm.attachTarget(runId)?.kind).toBe('agent');
+  });
+});
+
+describe('addDirs の検査（tmux 不要）', () => {
+  it('- で始まる値は 400 で弾き、行を作らない', () => {
+    // --add-dir は可変長オプションなので、値がそのまま claude のフラグとして食われる。
+    const rm = make({ tmux: null });
+    expect(() => rm.start({ projectId: 'p1', addDirs: ['--dangerously-skip-permissions'] })).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('addDirs') }));
+    expect(() => rm.start({ projectId: 'p1', addDirs: ['-p'] })).toThrow(/addDirs/);
+    // 普通のディレクトリはここでは弾かない。先の検査に進んで tmux で止まる。
+    expect(() => rm.start({ projectId: 'p1', addDirs: [cwd] })).toThrow(/tmux/);
+    expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
+  });
+});
+
+describe.skipIf(!TMUX)('tmux が一瞬消えたとき（tmux 上）', () => {
+  it('tmuxPath の symlink が外れても、生きている run とタブを閉じない', async () => {
+    // brew upgrade tmux は symlink を張り替えるので、2 秒周期の tick に十分入る。
+    const link = path.join(home, 'tmux-link');
+    fs.symlinkSync(TMUX!, link);
+    const rm = make({ tmux: new Tmux({ tmuxPath: link, socketPath }) });
+    const r = rm.start({ projectId: 'p1' });
+    const t = rm.openTab(r.run.id);
+
+    fs.unlinkSync(link);
+    expect(rm.tick()).toEqual({ ended: [], closedTabs: [] });
+    expect(rm.recoverAtStartup()).toEqual([]);
+    expect(rm.listAlive().runs.map((x) => x.id)).toEqual([r.run.id]);
+    expect(rm.listAlive().tabs.map((x) => x.id)).toEqual([r.run.id, t.id]);
+
+    // 戻ってきたら、また観測できる。tmux の上ではどちらも動き続けている。
+    fs.symlinkSync(TMUX!, link);
+    expect(rm.tick()).toEqual({ ended: [], closedTabs: [] });
+    expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
+    expect(tmux!.hasSession(t.tmuxName)).toBe(true);
+    rm.kill(r.run.id);
+    await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
   });
 });

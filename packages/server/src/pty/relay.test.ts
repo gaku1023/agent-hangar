@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import { TMUX, testSocketName, waitFor } from '../../test/tmux.ts';
+import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { PtyRelay, type PtyProcess, type PtySpawn } from './relay.ts';
 
@@ -117,8 +117,12 @@ describe('PtyRelay（偽の spawn）', () => {
 });
 
 describe.skipIf(!TMUX)('PtyRelay（実物の tmux と node-pty）', () => {
-  const tmux = new Tmux({ tmuxPath: TMUX ?? 'tmux', socketName: testSocketName() });
-  afterAll(() => tmux.killServer());
+  const socketPath = testSocketPath();
+  const tmux = new Tmux({ tmuxPath: TMUX ?? 'tmux', socketPath });
+  afterAll(() => {
+    tmux.killServer();
+    removeTestSocket(socketPath);
+  });
   it('tmux セッションに attach して入出力が通る', async () => {
     const { nodePtySpawn } = await import('./nodePty.ts');
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-pty-real-'));

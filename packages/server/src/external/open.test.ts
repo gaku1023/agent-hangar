@@ -26,7 +26,8 @@ describe('.command ファイル', () => {
     const a = writeAttachCommand(home, '/opt/homebrew/bin/tmux', 'hangar-ab12cd34');
     expect(a).toBe(path.join(home, 'cmd', 'attach-hangar-ab12cd34.command'));
     expect(fs.statSync(a).mode & 0o777).toBe(0o755);
-    expect(fs.readFileSync(a, 'utf8')).toBe("#!/usr/bin/env bash\n'/opt/homebrew/bin/tmux' attach -t 'hangar-ab12cd34'\nexit\n");
+    // target は完全一致にする。素の名前だと tmux が前方一致で別のセッションに繋ぐ。
+    expect(fs.readFileSync(a, 'utf8')).toBe("#!/usr/bin/env bash\n'/opt/homebrew/bin/tmux' attach -t '=hangar-ab12cd34'\nexit\n");
     const c = writeCdCommand(home, "/Users/me/work space/it's");
     expect(fs.readFileSync(c, 'utf8')).toBe('#!/usr/bin/env bash\ncd \'/Users/me/work space/it\'\\\'\'s\' && exec "${SHELL:-/bin/zsh}" -l\nexit\n');
   });
@@ -46,7 +47,7 @@ describe('openInTerminalApp', () => {
     const script = calls[0]!.args[1]!;
     expect(script).toContain('with timeout of 10 seconds');
     expect(script).toContain('tell application "iTerm"');
-    expect(script).toContain(`create window with default profile command "'/t/tmux' attach -t 'hangar-x'"`);
+    expect(script).toContain(`create window with default profile command "'/t/tmux' attach -t '=hangar-x'"`);
   });
   it('iterm に渡すコマンドも tmux のパスと名前を引用符で包む', async () => {
     // 設定から来る tmuxPath にスペースや ; や $() が混じっても、シェルの意味を持たせない。
@@ -55,10 +56,10 @@ describe('openInTerminalApp', () => {
     await openInTerminalApp({ home, tmuxPath, tmuxName, app: 'iterm', exec: exec() });
     const script = calls[0]!.args[1]!;
     const command = JSON.parse(script.split('create window with default profile command ')[1]!.split('\n')[0]!) as string;
-    expect(command).toBe("'/o p t/tmux; echo pwned $(id) `id`' attach -t 'hangar-x'\\''; echo pwned #'");
+    expect(command).toBe("'/o p t/tmux; echo pwned $(id) `id`' attach -t '=hangar-x'\\''; echo pwned #'");
     // 実際のシェルに語へ分けさせ、置換も追加のコマンドも起きないことを確かめる。
     const words = execFileSync('/bin/bash', ['-c', `set -- ${command}; printf '%s\\n' "$@"`], { encoding: 'utf8' });
-    expect(words.split('\n').slice(0, -1)).toEqual([tmuxPath, 'attach', '-t', tmuxName]);
+    expect(words.split('\n').slice(0, -1)).toEqual([tmuxPath, 'attach', '-t', `=${tmuxName}`]);
   });
   it('iterm が失敗したら Terminal.app に落とす', async () => {
     const r = await openInTerminalApp({ home, tmuxPath: '/t/tmux', tmuxName: 'hangar-x', app: 'iterm', exec: exec({ osascript: 1 }) });
@@ -80,7 +81,7 @@ describe('writeAttachCommand のファイル名', () => {
     const f = writeAttachCommand(home, '/t/tmux', '../../evil');
     expect(path.dirname(f)).toBe(path.join(home, 'cmd'));
     expect(path.basename(f)).toMatch(/^attach-[0-9a-f]{8}\.command$/);
-    expect(fs.readFileSync(f, 'utf8')).toBe("#!/usr/bin/env bash\n'/t/tmux' attach -t '../../evil'\nexit\n");
+    expect(fs.readFileSync(f, 'utf8')).toBe("#!/usr/bin/env bash\n'/t/tmux' attach -t '=../../evil'\nexit\n");
   });
 });
 

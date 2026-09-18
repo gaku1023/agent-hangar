@@ -2,21 +2,68 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { TMUX, testSocketName, waitFor } from '../../test/tmux.ts';
+import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from './tmux.ts';
 
-const tmux = TMUX ? new Tmux({ tmuxPath: TMUX, socketName: testSocketName() }) : null;
-afterAll(() => tmux?.killServer());
+const socketPath = testSocketPath();
+const tmux = TMUX ? new Tmux({ tmuxPath: TMUX, socketPath }) : null;
+afterAll(() => {
+  tmux?.killServer();
+  removeTestSocket(socketPath);
+});
+
+/** 決まった終了コードと出力を返す偽の tmux を書く。 */
+function fakeTmux(body: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-faketmux-'));
+  const bin = path.join(dir, 'tmux');
+  fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  return bin;
+}
 
 describe('Tmux.args', () => {
-  it('ソケット名を先頭に付ける', () => {
+  it('ソケットの指定を先頭に付ける', () => {
     expect(new Tmux({ tmuxPath: '/x/tmux', socketName: 's' }).args('ls')).toEqual(['-L', 's', 'ls']);
+    expect(new Tmux({ tmuxPath: '/x/tmux', socketPath: '/tmp/d/tmux.sock' }).args('ls')).toEqual(['-S', '/tmp/d/tmux.sock', 'ls']);
     expect(new Tmux({ tmuxPath: '/x/tmux' }).args('ls')).toEqual(['ls']);
-    expect(new Tmux({ tmuxPath: '/x/tmux', socketName: 's' }).attachArgs('n')).toEqual(['-L', 's', 'attach', '-t', 'n']);
+  });
+  it('attach の target も完全一致にする', () => {
+    // 素の名前だと tmux が前方一致に落ちて、終了した run の Claude タブがシェルタブに繋がる。
+    expect(new Tmux({ tmuxPath: '/x/tmux', socketName: 's' }).attachArgs('n')).toEqual(['-L', 's', 'attach', '-t', '=n']);
+  });
+});
+
+describe('Tmux.listSessions（偽の tmux）', () => {
+  it('tmux を呼べなければ null を返す', () => {
+    expect(new Tmux({ tmuxPath: '/nonexistent/tmux' }).listSessions()).toBeNull();
+  });
+  it('サーバが動いていないだけなら空配列を返す', () => {
+    const bin = fakeTmux('echo "no server running on /tmp/tmux-501/default" >&2\nexit 1');
+    expect(new Tmux({ tmuxPath: bin }).listSessions()).toEqual([]);
+  });
+  it('それ以外の失敗は null を返す。観測できないことと動いていないことは違う', () => {
+    const bin = fakeTmux('echo "lost server" >&2\nexit 1');
+    expect(new Tmux({ tmuxPath: bin }).listSessions()).toBeNull();
+  });
+  it('成功したらセッション名を返す', () => {
+    const bin = fakeTmux('echo "hangar-a"\necho "hangar-b"\nexit 0');
+    expect(new Tmux({ tmuxPath: bin }).listSessions()).toEqual(['hangar-a', 'hangar-b']);
   });
 });
 
 describe.skipIf(!TMUX)('Tmux（実物）', () => {
+  it('ソケットは一時ディレクトリの中に置き、消せる', () => {
+    const p = testSocketPath();
+    const t = new Tmux({ tmuxPath: TMUX!, socketPath: p });
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-tmux-'));
+    t.newSession({ name: 'hangar-test-sock', cwd, command: ['sh', '-c', 'sleep 30'] });
+    expect(fs.existsSync(p)).toBe(true);
+    t.killServer();
+    removeTestSocket(p);
+    expect(fs.existsSync(p)).toBe(false);
+    expect(fs.existsSync(path.dirname(p))).toBe(false);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
   it('セッションを作り、見つけ、オプションを変え、消す', async () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-tmux-'));
     const name = 'hangar-test-a';
@@ -71,6 +118,24 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
 
     tmux!.killSession(long);
     await waitFor(() => !tmux!.hasSession(long));
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('attach の target はシェルタブに落ちない', async () => {
+    // run が終わってシェルタブだけが残った状態。素の名前だと tmux が前方一致でこれに当てる。
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-tmux-'));
+    const shellTab = 'hangar-test-f-t1';
+    tmux!.newSession({ name: shellTab, cwd, command: ['sh', '-c', 'sleep 30'] });
+    const target = tmux!.attachArgs('hangar-test-f').at(-1)!;
+    expect(target).toBe('=hangar-test-f');
+    // 素の名前は前方一致でシェルタブに当たる。attach は tty が無いところまで進む。
+    expect(tmux!.run('has-session', '-t', 'hangar-test-f').code).toBe(0);
+    expect(tmux!.run('attach', '-t', 'hangar-test-f').stderr).toContain('not a terminal');
+    // 完全一致ならセッションそのものが見つからない。
+    expect(tmux!.run('has-session', '-t', target).code).not.toBe(0);
+    expect(tmux!.run('attach', '-t', target).stderr).toContain("can't find session");
+    tmux!.killSession(shellTab);
+    await waitFor(() => !tmux!.hasSession(shellTab));
     fs.rmSync(cwd, { recursive: true, force: true });
   });
 

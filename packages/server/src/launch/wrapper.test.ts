@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
-import { TMUX, testSocketName, waitFor } from '../../test/tmux.ts';
+import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { ensureWrapperScript, runLogPath, wrapperScript } from './wrapper.ts';
 
@@ -29,8 +29,12 @@ describe('ensureWrapperScript', () => {
 });
 
 describe.skipIf(!TMUX)('ラッパー（tmux 上）', () => {
-  const tmux = new Tmux({ tmuxPath: TMUX ?? 'tmux', socketName: testSocketName() });
-  afterAll(() => tmux.killServer());
+  const socketPath = testSocketPath();
+  const tmux = new Tmux({ tmuxPath: TMUX ?? 'tmux', socketPath });
+  afterAll(() => {
+    tmux.killServer();
+    removeTestSocket(socketPath);
+  });
 
   it('正常終了ではすぐ閉じ、ログに exit=0 と引数が残る', async () => {
     const wrapper = ensureWrapperScript(home);
