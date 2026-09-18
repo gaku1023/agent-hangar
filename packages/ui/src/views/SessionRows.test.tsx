@@ -1,8 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
 import { SessionRows } from './SessionRows.tsx';
+import { existsSync, readFileSync } from 'node:fs';
+
+// dom の project では import.meta.url が file にならず、?raw も空文字になるので、cwd から辿って読む。
+const rowsCssPath = ['packages/ui/src/styles/rows.css', 'src/styles/rows.css'].map((r) => `${process.cwd()}/${r}`).find(existsSync);
+const rowsCss = readFileSync(rowsCssPath!, 'utf8');
 
 const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, stateLabel: '完了', model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', memo: null, hasTranscript: true, cost: '', runId: null });
 
@@ -130,5 +135,58 @@ describe('SessionRows のフェーズ 3', () => {
     fireEvent.click(screen.getByLabelText('名前 s1 のメモを編集'));
     expect(onIntent).not.toHaveBeenCalled();
     expect(screen.getByLabelText('名前 s1 のメモ')).toBeTruthy();
+  });
+});
+
+describe('一覧のフォーカスの見え方', () => {
+  it('一覧にフォーカスが当たったら accent の輪郭を出す', () => {
+    // base.css の :focus-visible と同じ詳細度なので、blanket な outline: none は輪郭を消してしまう。
+    expect(rowsCss).not.toMatch(/\.rows-host\s*\{[^}]*outline:\s*none/);
+    const rule = rowsCss.match(/\.rows-host:focus-visible\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toContain('var(--accent)');
+    expect(rule).toMatch(/outline:\s*2px solid/);
+  });
+  it('マウスで押しただけのときは輪郭を出さない', () => {
+    expect(rowsCss).toMatch(/\.rows-host:focus:not\(:focus-visible\)\s*\{[^}]*outline:\s*none/);
+  });
+});
+
+describe('カーソルの行を見える位置へ運ぶ', () => {
+  let calls: { el: Element; arg: unknown }[] = [];
+  beforeEach(() => {
+    calls = [];
+    // jsdom は scrollIntoView を実装していないので、呼ばれたことだけを見る。
+    (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView = function (this: Element, arg: unknown) { calls.push({ el: this, arg }); };
+  });
+  afterEach(() => { delete (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView; });
+
+  it('j で選んだ行を可視範囲へ寄せる', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} showProject={false} /></IntentRoot>);
+    const list = screen.getByTestId('session-rows');
+    fireEvent.keyDown(list, { key: 'j' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.el.textContent).toContain('名前 s1');
+    expect(calls[0]!.arg).toEqual({ block: 'nearest' });
+    fireEvent.keyDown(list, { key: 'j' });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.el.textContent).toContain('名前 s2');
+  });
+  it('k でも寄せ、選んでいないうちは動かさない', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} showProject={false} /></IntentRoot>);
+    const list = screen.getByTestId('session-rows');
+    fireEvent.keyDown(list, { key: 'x' });
+    expect(calls).toHaveLength(0);
+    fireEvent.keyDown(list, { key: 'j' });
+    fireEvent.keyDown(list, { key: 'j' });
+    fireEvent.keyDown(list, { key: 'k' });
+    expect(calls[calls.length - 1]!.el.textContent).toContain('名前 s1');
+  });
+  it('メモの編集に入っただけでは動かさない', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} showProject={false} /></IntentRoot>);
+    const list = screen.getByTestId('session-rows');
+    fireEvent.keyDown(list, { key: 'j' });
+    const before = calls.length;
+    fireEvent.keyDown(list, { key: 'm' });
+    expect(calls).toHaveLength(before);
   });
 });

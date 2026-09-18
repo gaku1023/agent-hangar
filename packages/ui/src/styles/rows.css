@@ -1,7 +1,16 @@
 /* セッション行の 1 行メモ（Task 24） */
 
-/* 一覧そのものがフォーカスを受ける。枠は出さず、カーソルの行の面で場所を示す。 */
-.rows-host {
+/* 一覧そのものがフォーカスを受ける。
+   j と k は一覧にフォーカスがあるときだけ効くので、当たっていることが見えないと「効かない」と受け取られる。
+   base.css の :focus-visible とは詳細度が並ぶため、ここで blanket に outline: none と書くと輪郭ごと消えてしまう。 */
+.rows-host:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--r);
+}
+
+/* マウスで押しただけのときは輪郭を出さない。 */
+.rows-host:focus:not(:focus-visible) {
   outline: none;
 }
 

@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
 import { Icon } from './primitives/Icon.tsx';
@@ -19,6 +19,17 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   // 編集中のセッションの id。null なら編集していない。
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+
+  const hostRef = useRef<HTMLDivElement>(null);
+
+  // 仮想リストは画面の外の行を描かないので、カーソルが可視範囲を出たら見える位置まで運ぶ。
+  // これをしないと、見えていない行が選ばれたまま Enter で開けてしまう。
+  useEffect(() => {
+    if (cursor < 0) return;
+    const el = hostRef.current?.querySelector('[data-cursor="true"]');
+    // jsdom のように scrollIntoView を持たない環境では何もしない。
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+  }, [cursor]);
 
   const startEdit = (r: SessionRowProps) => { setEditing(r.id); setDraft(r.memo ?? ''); };
   const commit = (id: string) => { emit({ type: 'session.setMemo', id, text: draft }); setEditing(null); };
@@ -49,7 +60,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   );
   const rowHeight = (r: SessionRowProps) => 28 + (props.showSnippets ? (r.snippets?.length ?? 0) * 20 : 0);
   return (
-    <div className="rows-host" data-testid="session-rows" tabIndex={0} onKeyDown={onKeyDown}>
+    <div className="rows-host" data-testid="session-rows" ref={hostRef} tabIndex={0} onKeyDown={onKeyDown}>
       <VirtualList items={props.rows} rowHeight={(r) => rowHeight(r)} height={props.height} keyOf={(r) => r.id} head={head} render={(r, i) => (
         <div style={{ height: rowHeight(r) }}>
           <div className="row" style={style} role="row" tabIndex={0} data-cursor={i === cursor ? 'true' : undefined}
