@@ -427,3 +427,24 @@ describe('フェーズ 3 の効果', () => {
     expect(focus).toHaveBeenLastCalledWith('todoInput');
   });
 });
+
+describe('繰り越しの掃除', () => {
+  it('別のセッションを開くと、前のセッションの本文を落とす', async () => {
+    // 画面に入るたび fromSeq 0 から読み直すので、開いていないセッションの本文は持たない。
+    const { rt, setHash } = harness();
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    rt.emit({ type: 'transcript.loadMore', sessionId: 's1' });
+    await flush();
+    expect(rt.getStore().events['s1:']?.items).toHaveLength(2);
+    setHash('#/session/s2');
+    await flush();
+    expect(Object.keys(rt.getStore().events)).toEqual(['s2:']);
+    // 戻れば読み直す。
+    setHash('#/session/s1');
+    await flush();
+    expect(Object.keys(rt.getStore().events)).toEqual(['s1:']);
+    expect(rt.getStore().events['s1:']?.items).toHaveLength(1);
+  });
+});

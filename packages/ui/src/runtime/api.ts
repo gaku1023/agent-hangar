@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, TabDto, TerminalApp, TodoDto, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
 export type ApiClient = {
   bootstrap(): Promise<BootstrapDto>;
@@ -21,7 +21,6 @@ export type ApiClient = {
   projectOpenEditor(projectId: string): Promise<void>;
   projectOpenTerminal(projectId: string): Promise<{ app: TerminalApp; fellBack: boolean }>;
   createProject(name: string, path: string): Promise<ProjectDto>;
-  usage(): Promise<UsageDto>;
   usageAggregate(days: number): Promise<UsageAggregateDto>;
   statusline(): Promise<StatuslineStatusDto>;
   addTodo(projectId: string, text: string): Promise<TodoDto>;
@@ -77,7 +76,6 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     projectOpenEditor: (projectId) => post(`/api/projects/${projectId}/open-editor`),
     projectOpenTerminal: (projectId) => post(`/api/projects/${projectId}/open-terminal`),
     createProject: (name, path) => post('/api/projects', { name, path }),
-    usage: () => call('/api/usage'),
     usageAggregate: (days) => call(`/api/usage/aggregate${qs({ days })}`),
     statusline: () => call('/api/statusline'),
     addTodo: (projectId, text) => post(`/api/projects/${projectId}/todos`, { text }),

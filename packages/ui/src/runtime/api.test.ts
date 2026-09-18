@@ -42,7 +42,6 @@ describe('createApi（フェーズ 2）', () => {
 describe('フェーズ 3 の経路', () => {
   it('経路とメソッドと本文が合っている', async () => {
     const { api, calls } = harness();
-    await api.usage();
     await api.usageAggregate(30);
     await api.statusline();
     await api.addTodo('p1', '買う');
@@ -56,18 +55,18 @@ describe('フェーズ 3 の経路', () => {
     await api.summarizerModels();
     await api.testSummarizer();
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'GET /api/usage', 'GET /api/usage/aggregate?days=30', 'GET /api/statusline',
+      'GET /api/usage/aggregate?days=30', 'GET /api/statusline',
       'POST /api/projects/p1/todos', 'PATCH /api/todos/t1', 'DELETE /api/todos/t1',
       'GET /api/projects/p1/memo', 'PUT /api/projects/p1/memo', 'PATCH /api/sessions/s1',
       'POST /api/projects/p1/artifacts', 'POST /api/sessions/s1/promote',
       'GET /api/summarizer/models', 'POST /api/summarizer/test',
     ]);
-    expect(JSON.parse(String(calls[3]!.body))).toEqual({ text: '買う' });
-    expect(JSON.parse(String(calls[4]!.body))).toEqual({ done: true });
-    expect(JSON.parse(String(calls[7]!.body))).toEqual({ markdown: '# m' });
-    expect(JSON.parse(String(calls[8]!.body))).toEqual({ memo: '一行' });
-    expect(JSON.parse(String(calls[9]!.body))).toEqual({ url: 'https://claude.ai/code/artifact/x' });
-    expect(JSON.parse(String(calls[10]!.body))).toEqual({ name: 'n', gitInit: true, moveFiles: false });
+    expect(JSON.parse(String(calls[2]!.body))).toEqual({ text: '買う' });
+    expect(JSON.parse(String(calls[3]!.body))).toEqual({ done: true });
+    expect(JSON.parse(String(calls[6]!.body))).toEqual({ markdown: '# m' });
+    expect(JSON.parse(String(calls[7]!.body))).toEqual({ memo: '一行' });
+    expect(JSON.parse(String(calls[8]!.body))).toEqual({ url: 'https://claude.ai/code/artifact/x' });
+    expect(JSON.parse(String(calls[9]!.body))).toEqual({ name: 'n', gitInit: true, moveFiles: false });
   });
   it('本文を返さない経路は undefined を返す', async () => {
     const no = harness(204);

@@ -2,7 +2,7 @@ import { formatRoute, parseRoute, type Intent, type LaunchResultDto, type Server
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { FocusTarget, SessionViewState } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -81,7 +81,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.bootstrap().then((b) => {
           // 取り直しは混ぜるので、そのついでに参照されなくなった run を落とす。
           // 見ているセッションの run は、まだ画面が引くので残す。
-          setStore(pruneRuns(applyBootstrap(store, b), state.screen.name === 'session' ? [state.screen.id] : []));
+          // 本文も同じ基準で落とす。
+          const open = state.screen.name === 'session' ? [state.screen.id] : [];
+          setStore(pruneEvents(pruneRuns(applyBootstrap(store, b), open), open));
           // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
           for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
@@ -95,7 +97,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         if (cur?.loading) return;
         let from = e.fromSeq;
         let append = true;
-        if (from === 0) append = false;
+        if (from === 0) {
+          append = false;
+          // 画面に入るたび先頭から読み直すので、この時点で開いていないセッションの本文を落とす。
+          setStore(pruneEvents(store, [e.sessionId]));
+        }
         else if (from === -1) { from = cur?.nextSeq ?? (cur && cur.total > cur.items.length ? cur.items.length : -1); if (from < 0) return; }
         setStore(setEventsLoading(store, key, true));
         deps.api.events(e.sessionId, from, view.agentId).then((p) => setStore(applyEventsPage(store, key, p, append))).catch((err) => { setStore(setEventsLoading(store, key, false)); fail(err); });

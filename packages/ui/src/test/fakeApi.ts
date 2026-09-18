@@ -4,7 +4,7 @@ import type { ApiClient } from '../runtime/api.ts';
 type Extras = Pick<
   ApiClient,
   | 'launch' | 'resume' | 'fork' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
-  | 'usage' | 'usageAggregate' | 'statusline' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
+  | 'usageAggregate' | 'statusline' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
 >;
 
@@ -26,7 +26,6 @@ export function fakeApiExtras(): Extras {
     projectOpenEditor: vi.fn(async () => {}),
     projectOpenTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
     createProject: vi.fn(async () => unused()),
-    usage: vi.fn(async () => ({ fiveHour: null, sevenDay: null, updatedAt: null })),
     usageAggregate: vi.fn(async () => ({ days: [], projects: [] })),
     statusline: vi.fn(async () => ({ command: null, scriptPath: null, installed: false })),
     addTodo: vi.fn(async (projectId: string, text: string) => ({ id: 't1', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1 })),
