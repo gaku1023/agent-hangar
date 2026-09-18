@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { MAX_PUSH_BATCH } from '@agent-hangar/shared';
-import { goneFloor } from '../src/sync/client.ts';
+import { CloudError, goneFloor } from '../src/sync/client.ts';
 import { FakeCloudClient } from './fake-cloud.ts';
 
 const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId, updated_at: updatedAt }, updatedAt });
@@ -143,5 +143,96 @@ describe('FakeCloudClient', () => {
     expect(a.asDevice('b').offline).toBe(true);
     a.offline = false;
     expect(await a.health()).toEqual({ ok: true, version: 'fake' });
+  });
+
+  it('Worker と同じ厳しさで行の形を断る', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    const bad = (over: Record<string, unknown>) => [{ ...ch('p1', 1), ...over }] as never;
+    await expect(a.pushChanges(bad({ op: 'drop' }))).rejects.toMatchObject({ status: 400 });
+    await expect(a.pushChanges(bad({ payload: 'not-an-object' }))).rejects.toMatchObject({ status: 400 });
+    await expect(a.pushChanges(bad({ payload: [1, 2] }))).rejects.toMatchObject({ status: 400 });
+    await expect(a.pushChanges(bad({ payload: null }))).rejects.toMatchObject({ status: 400 });
+    await expect(a.pushChanges(bad({ updatedAt: Number.NaN }))).rejects.toMatchObject({ status: 400 });
+    await expect(a.pushChanges(bad({ updatedAt: Number.POSITIVE_INFINITY }))).rejects.toMatchObject({ status: 400 });
+    await expect(a.pushChanges(bad({ updatedAt: '1' }))).rejects.toMatchObject({ status: 400 });
+    await expect(a.pushChanges(bad({ rowId: '' }))).rejects.toMatchObject({ status: 400 });
+    await expect(a.pushChanges(bad({ tableName: 'nope' }))).rejects.toMatchObject({ status: 400 });
+    // 1 行でも形が違えば塊ごと断り、ストアには何も入らない。
+    await expect(a.pushChanges([ch('p1', 1), { ...ch('p2', 1), op: 'drop' } as never])).rejects.toMatchObject({ status: 400 });
+    expect(a.changes).toHaveLength(0);
+    expect(a.rows.size).toBe(0);
+    expect(await a.pushChanges([ch('p1', 1), { ...ch('p2', 2), op: 'delete' as const }])).toEqual({ seq: 2, accepted: 2, skipped: 0 });
+  });
+
+  it('path の .. と絶対パスと制御文字を断る', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    const body = () => Readable.from([Buffer.from('x')]);
+    const key = 'transcripts/a/u1.gz';
+    await expect(a.putFile(meta(key, { path: '../../../../etc/passwd' }), body())).rejects.toMatchObject({ status: 400 });
+    await expect(a.putFile(meta(key, { path: '/etc/passwd' }), body())).rejects.toMatchObject({ status: 400 });
+    await expect(a.putFile(meta(key, { path: 'a/../b' }), body())).rejects.toMatchObject({ status: 400 });
+    await expect(a.putFile(meta(key, { path: 'a/./b' }), body())).rejects.toMatchObject({ status: 400 });
+    await expect(a.putFile(meta(key, { path: 'a//b' }), body())).rejects.toMatchObject({ status: 400 });
+    await expect(a.putFile(meta(key, { path: 'a\u0000b' }), body())).rejects.toMatchObject({ status: 400 });
+    await expect(a.putFile(meta(key, { path: '' }), body())).rejects.toMatchObject({ status: 400 });
+    expect((await a.listFiles(0, 500)).files).toEqual([]);
+    // 空白と日本語は置ける（R2 の鍵ではなく手元の相対パスなので）。
+    expect(await a.putFile(meta(key, { path: 'projects/-x/メモ 1.jsonl' }), body())).toEqual({ seq: 1 });
+  });
+
+  it('unauthorized は 401 を全メソッドで返す', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    await a.pushChanges([ch('p1', 1)]);
+    a.unauthorized = true;
+    const shape = { status: 401, message: JSON.stringify({ error: 'unauthorized' }) };
+    await expect(a.health()).rejects.toMatchObject(shape);
+    await expect(a.pushChanges([ch('p2', 1)])).rejects.toMatchObject(shape);
+    await expect(a.pullChanges(0, 500)).rejects.toMatchObject(shape);
+    await expect(a.snapshot(null, 500)).rejects.toMatchObject(shape);
+    await expect(a.listFiles(0, 500)).rejects.toMatchObject(shape);
+    await expect(a.getFile('transcripts/a/u.gz')).rejects.toMatchObject(shape);
+    await expect(a.deleteFile('transcripts/a/u.gz')).rejects.toMatchObject(shape);
+    await expect(a.putFile(meta('transcripts/a/u.gz'), Readable.from([Buffer.from('x')]))).rejects.toMatchObject(shape);
+    expect(a.changes).toHaveLength(1);
+    // 端末をまたいで効き、offline の方が先に立つ。
+    expect(a.asDevice('b').unauthorized).toBe(true);
+    a.offline = true;
+    await expect(a.health()).rejects.toMatchObject({ status: 0 });
+    a.offline = false;
+    a.unauthorized = false;
+    expect(await a.health()).toEqual({ ok: true, version: 'fake' });
+  });
+
+  it('limit は Worker の clampLimit と同じに丸める', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    await a.pushChanges([ch('p1', 1), ch('p2', 1)]);
+    const b = a.asDevice('b');
+    // 0 と NaN は既定（PULL_LIMIT）として扱う。Worker の `Number(v) || PULL_LIMIT` と同じ。
+    for (const limit of [0, Number.NaN]) {
+      const p = await b.pullChanges(0, limit);
+      expect(p.changes.map((c) => c.seq)).toEqual([1, 2]);
+      expect(p).toMatchObject({ nextSeq: 2, more: false });
+    }
+    // 負の数は 1 に、PULL_LIMIT より大きい数は PULL_LIMIT に丸める。
+    const neg = await b.pullChanges(0, -5);
+    expect(neg.changes.map((c) => c.seq)).toEqual([1]);
+    expect(neg).toMatchObject({ nextSeq: 1, more: true });
+    expect((await b.pullChanges(0, 10_000)).changes).toHaveLength(2);
+    const s = await b.snapshot(null, -5);
+    expect(s.changes.map((c) => c.rowId)).toEqual(['p1']);
+    expect(s.nextAfter).toBe('projects:p1');
+    expect((await b.snapshot(null, 0)).nextAfter).toBe(null);
+    expect((await b.listFiles(0, 0))).toMatchObject({ nextSeq: 0, more: false });
+  });
+
+  it('断りの本文は Worker と同じ JSON の形にする', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    const body = () => Readable.from([Buffer.from('x')]);
+    const msg = async (p: Promise<unknown>) => (await p.catch((e: CloudError) => e.message)) as string;
+    expect(await msg(a.pushChanges([{ ...ch('p1', 1), op: 'drop' } as never]))).toBe(JSON.stringify({ error: 'invalid body' }));
+    expect(await msg(a.getFile('other/u1'))).toBe(JSON.stringify({ error: 'invalid key' }));
+    expect(await msg(a.asDevice('b').deleteFile('transcripts/a/u1.gz'))).toBe(JSON.stringify({ error: 'forbidden' }));
+    expect(await msg(a.getFile('transcripts/a/nope.gz'))).toBe(JSON.stringify({ error: 'not found' }));
+    expect(await msg(a.putFile(meta('transcripts/a/u1.gz', { sha256: 'zz' }), body()))).toBe(JSON.stringify({ error: 'invalid headers' }));
   });
 });

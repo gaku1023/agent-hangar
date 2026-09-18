@@ -17,6 +17,25 @@ function fakeFetch(handler: (c: Call) => Response | Promise<Response>): { fetch:
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } });
 
+const sleep = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms).unref(); });
+
+/**
+ * 終わらない本体。
+ * 少しずつバイトを垂らし続けるので、undici の bodyTimeout は毎回振り出しに戻る。
+ * 全体の締め切りが無いと永久に読み続けることになる。
+ */
+function dripStream(): ReadableStream<Uint8Array> {
+  let stopped = false;
+  return new ReadableStream<Uint8Array>({
+    async pull(ctrl) {
+      await sleep(5);
+      if (stopped) return;
+      ctrl.enqueue(new TextEncoder().encode('{'));
+    },
+    cancel() { stopped = true; },
+  });
+}
+
 /**
  * 要求ヘッダを形で比べるための覆い。
  * Bearer の値は伏せ字にするので、テストが落ちても端末トークンが差分に出ない。
@@ -142,5 +161,99 @@ describe('HttpCloudClient', () => {
     expect(goneFloor(new CloudError(410, 'nonsense'))).toBe(null);
     expect(goneFloor(new CloudError(404, JSON.stringify({ error: 'gone', floor: 1 })))).toBe(null);
     expect(goneFloor(new Error('boom'))).toBe(null);
+  });
+
+  it('GET には content-type を付けない', async () => {
+    const { fetch, calls } = fakeFetch(() => json({ ok: true, version: '1' }));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    await c.health();
+    expect(headersOf(calls[0]!)['content-type']).toBeUndefined();
+  });
+
+  it('鍵の形が違えば fetch に出る前に 400 で断る', async () => {
+    const { fetch, calls } = fakeFetch(() => json({ seq: 1 }));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    await expect(c.getFile('other/u1')).rejects.toMatchObject({ status: 400 });
+    await expect(c.getFile('transcripts/d/../e/u1')).rejects.toMatchObject({ status: 400 });
+    await expect(c.getFile('transcripts/d/u 1.gz')).rejects.toMatchObject({ status: 400 });
+    await expect(c.deleteFile('transcripts/d/u?x=1')).rejects.toMatchObject({ status: 400 });
+    await expect(c.putFile({ key: 'config/../x', path: 'x', kind: 'config', sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: false }, Readable.from([Buffer.from('x')]))).rejects.toMatchObject({ status: 400 });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('2xx の本文が読めなければ CloudError(0) にする', async () => {
+    const broken = () => new Response(new ReadableStream({ start(ctrl) { ctrl.enqueue(new TextEncoder().encode('{"a"')); ctrl.error(new Error('接続が切れた')); } }), { status: 200 });
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch: fakeFetch(broken).fetch });
+    const e1 = await c.health().catch((x: unknown) => x);
+    expect(e1).toBeInstanceOf(CloudError);
+    expect(e1).toMatchObject({ status: 0 });
+    const html = new HttpCloudClient({ url: 'https://h', token: 't', fetch: fakeFetch(() => new Response('<html>Cloudflare</html>', { status: 200 })).fetch });
+    const e2 = await html.health().catch((x: unknown) => x);
+    expect(e2).toBeInstanceOf(CloudError);
+    expect(e2).toMatchObject({ status: 0 });
+  });
+
+  it('getFile の本体が途中で切れたら CloudError(0) にする', async () => {
+    const broken = () => new Response(new ReadableStream({ start(ctrl) { ctrl.enqueue(new TextEncoder().encode('ab')); ctrl.error(new Error('接続が切れた')); } }), { status: 200 });
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch: fakeFetch(broken).fetch });
+    const body = await c.getFile('transcripts/d/u.jsonl.gz');
+    const e = await (async () => { for await (const _ of body) { /* 読み切る */ } })().catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    expect(e).toMatchObject({ status: 0 });
+  });
+
+  it('応答が返らない要求は時間切れで CloudError(0) にする', async () => {
+    const { fetch, calls } = fakeFetch(() => new Promise<Response>(() => {}));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', timeoutMs: 20, fetch });
+    const e = await c.pullChanges(0, 500).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    expect(e).toMatchObject({ status: 0 });
+    expect((e as CloudError).message).toContain('timeout');
+    // fetch にも signal を渡すので、本物の undici は socket ごと切れる。
+    const signal = (calls[0]!.init as { signal?: AbortSignal }).signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal!.aborted).toBe(true);
+  });
+
+  it('本文が垂れ続けるだけの応答も時間切れで切る', async () => {
+    const drip = () => new Response(dripStream(), { status: 200 });
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', timeoutMs: 30, fetch: fakeFetch(drip).fetch });
+    const e = await c.listFiles(0, 500).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    expect(e).toMatchObject({ status: 0 });
+    expect((e as CloudError).message).toContain('timeout');
+  });
+
+  it('putFile と getFile は転送用の長い時間切れを使う', async () => {
+    const hang = new HttpCloudClient({ url: 'https://h', token: 't', transferTimeoutMs: 20, fetch: fakeFetch(() => new Promise<Response>(() => {})).fetch });
+    const up = await hang.putFile({ key: 'transcripts/d/u.jsonl.gz', path: 'p/u.jsonl', kind: 'transcript', sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: true }, Readable.from([Buffer.from('x')])).catch((x: unknown) => x);
+    expect(up).toMatchObject({ status: 0 });
+    expect((up as CloudError).message).toContain('timeout');
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', transferTimeoutMs: 30, fetch: fakeFetch(() => new Response(dripStream(), { status: 200 })).fetch });
+    const body = await c.getFile('transcripts/d/u.jsonl.gz');
+    const e = await (async () => { for await (const _ of body) { /* 垂れ続ける */ } })().catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    expect(e).toMatchObject({ status: 0 });
+    expect((e as CloudError).message).toContain('timeout');
+  });
+
+  it('時間切れは小さい応答と転送で別に持てる', async () => {
+    // 小さい応答の時間切れを短くしても、転送はその値に引きずられない。
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', timeoutMs: 15, transferTimeoutMs: 2000, fetch: fakeFetch(async () => { await sleep(60); return json({ seq: 1 }, 201); }).fetch });
+    await expect(c.health()).rejects.toMatchObject({ status: 0 });
+    expect(await c.putFile({ key: 'transcripts/d/u.jsonl.gz', path: 'p/u.jsonl', kind: 'transcript', sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: true }, Readable.from([Buffer.from('x')]))).toEqual({ seq: 1 });
+  });
+
+  it('無事に終わった要求は見張りのタイマーを残さない', async () => {
+    // 5 分のタイマーが残ると vitest が終われない。終わった要求の分だけ増えていないことを見る。
+    const timers = () => process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
+    const before = timers();
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch: fakeFetch(() => json({ ok: true, version: '1' })).fetch });
+    await c.health();
+    const body = await new HttpCloudClient({ url: 'https://h', token: 't', fetch: fakeFetch(() => new Response('ab', { status: 200 })).fetch }).getFile('transcripts/d/u.jsonl.gz');
+    let text = '';
+    for await (const ch of body) text += ch;
+    expect(text).toBe('ab');
+    expect(timers()).toBe(before);
   });
 });

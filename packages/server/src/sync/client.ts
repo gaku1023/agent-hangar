@@ -2,6 +2,7 @@ import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import {
   CLOUD_HEADERS,
+  isSafeRelPath,
   type ChangeIn,
   type FileMetaIn,
   type ListFilesResponse,
@@ -11,7 +12,7 @@ import {
 } from '@agent-hangar/shared';
 
 /**
- * クラウドの応答が 2xx でなかったときと、そもそも繋がらなかったとき（status 0）に投げる。
+ * クラウドの応答が 2xx でなかったときと、そもそも決着しなかったとき（status 0）に投げる。
  * message は応答本文の先頭 200 字なので、Worker の応答本文に秘密を入れてはいけない。
  */
 export class CloudError extends Error {
@@ -21,10 +22,13 @@ export class CloudError extends Error {
   }
 }
 
+const toCloudError = (e: unknown): CloudError => (e instanceof CloudError ? e : new CloudError(0, e instanceof Error ? e.message : String(e)));
+
 /**
  * `GET /changes?since=` が圧縮で消えた区間を指したときの floor を読む。
  * Worker は 410 と `{ error: 'gone', floor }` を返す。
  * それ以外なら null なので、呼び手は全件の再同期に切り替えるかどうかをこれで決める。
+ * floor は 0 でありうるので、受け手は `if (floor !== null)` で見ること。
  */
 export function goneFloor(e: unknown): number | null {
   if (!(e instanceof CloudError) || e.status !== 410) return null;
@@ -34,6 +38,52 @@ export function goneFloor(e: unknown): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * R2 の鍵として Worker が受け取る形か。
+ * Worker の `validKey` と同じ物差しで、端末の側でも送る前に断る。
+ * 空白や `?` や `#` が混ざった鍵を組み立てると要求そのものが壊れるので、URL にする前に見る。
+ */
+export function isValidFileKey(key: string): boolean {
+  return /^(transcripts|config)\//.test(key) && /^[A-Za-z0-9._\-/]+$/.test(key) && isSafeRelPath(key);
+}
+
+/** 小さい応答（changes、rows、files の一覧、health）の締め切り。 */
+export const DEFAULT_TIMEOUT_MS = 30_000;
+/** 本体を運ぶ経路（putFile、getFile）の締め切り。 */
+export const DEFAULT_TRANSFER_TIMEOUT_MS = 300_000;
+
+/**
+ * 1 回の要求の締め切り。
+ * `signal` は fetch にも渡すので、本物の undici なら socket ごと切れる。
+ * `race` は手元でも切るためのもので、応答の本体が少しずつ垂れてくる筋を止める。
+ * undici の bodyTimeout はバイトが届くたびに振り出しに戻るので、全体の上限はこちらで持つしかない。
+ */
+class Deadline {
+  private readonly controller = new AbortController();
+  private readonly timer: NodeJS.Timeout;
+
+  constructor(private readonly ms: number) {
+    this.timer = setTimeout(() => this.controller.abort(this.error()), ms);
+    this.timer.unref();
+  }
+
+  get signal(): AbortSignal { return this.controller.signal; }
+
+  error(): CloudError { return new CloudError(0, `timeout after ${this.ms}ms`); }
+
+  race<T>(p: Promise<T>): Promise<T> {
+    return Promise.race([
+      p,
+      new Promise<never>((_, reject) => {
+        if (this.signal.aborted) reject(this.error());
+        else this.signal.addEventListener('abort', () => reject(this.error()), { once: true });
+      }),
+    ]);
+  }
+
+  clear(): void { clearTimeout(this.timer); }
 }
 
 /** 端末から見た Worker。HttpCloudClient が本物、FakeCloudClient（test/fake-cloud.ts）がメモリ上の偽物。 */
@@ -48,12 +98,22 @@ export interface CloudClient {
   deleteFile(key: string): Promise<void>;
 }
 
-export type HttpCloudClientOptions = { url: string; token: string; fetch?: typeof fetch };
+export type HttpCloudClientOptions = {
+  url: string;
+  token: string;
+  fetch?: typeof fetch;
+  /** 小さい応答の締め切り。既定は 30 秒。 */
+  timeoutMs?: number;
+  /** 本体を運ぶ経路の締め切り。既定は 5 分。 */
+  transferTimeoutMs?: number;
+};
 
 /** fetch で Worker を叩く実装。token はヘッダにだけ載せ、URL にもログにも出さない。 */
 export class HttpCloudClient implements CloudClient {
   private readonly base: string;
   private readonly fetchFn: typeof fetch;
+  private readonly timeoutMs: number;
+  private readonly transferTimeoutMs: number;
   /**
    * 端末トークンは閉じ込めて持つ。
    * 文字列の項目にすると console.log(client) や JSON.stringify(client) で読めてしまう。
@@ -63,37 +123,65 @@ export class HttpCloudClient implements CloudClient {
   constructor(o: HttpCloudClientOptions) {
     this.base = o.url.replace(/\/+$/, '');
     this.fetchFn = o.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
+    this.timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.transferTimeoutMs = o.transferTimeoutMs ?? DEFAULT_TRANSFER_TIMEOUT_MS;
     const token = o.token;
     this.authorization = () => `Bearer ${token}`;
   }
 
-  private async raw(path: string, init: RequestInit & { duplex?: 'half' } = {}): Promise<Response> {
+  /**
+   * 要求を投げて応答の見出しまでを受ける。
+   * 締め切りは呼び手が本体を読み終えるまで生きているので、Deadline は返して呼び手が clear する。
+   */
+  private async send(path: string, init: RequestInit & { duplex?: 'half' }, ms: number): Promise<{ res: Response; d: Deadline }> {
+    const d = new Deadline(ms);
     let res: Response;
     try {
       // authorization は後ろに置く。呼び手のヘッダで取り違えて外れることがない。
-      res = await this.fetchFn(`${this.base}${path}`, {
-        ...init,
-        headers: { ...((init.headers as Record<string, string> | undefined) ?? {}), authorization: this.authorization() },
-      } as RequestInit);
+      res = await d.race(
+        this.fetchFn(`${this.base}${path}`, {
+          ...init,
+          signal: d.signal,
+          headers: { ...((init.headers as Record<string, string> | undefined) ?? {}), authorization: this.authorization() },
+        } as RequestInit),
+      );
     } catch (e) {
-      throw new CloudError(0, e instanceof Error ? e.message : String(e));
+      d.clear();
+      throw toCloudError(e);
     }
-    if (!res.ok) throw new CloudError(res.status, (await res.text().catch(() => '')).slice(0, 200) || `HTTP ${res.status}`);
-    return res;
+    if (!res.ok) {
+      const text = await d.race(res.text()).catch(() => '');
+      d.clear();
+      throw new CloudError(res.status, text.slice(0, 200) || `HTTP ${res.status}`);
+    }
+    return { res, d };
   }
 
-  private async json<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const res = await this.raw(path, { ...init, headers: { 'content-type': 'application/json', ...((init.headers as Record<string, string> | undefined) ?? {}) } });
-    return (await res.json()) as T;
+  /** 応答の本体を JSON として読む。読み取りの失敗も CloudError(0) に揃える。 */
+  private async json<T>(path: string, init: RequestInit = {}, ms = this.timeoutMs): Promise<T> {
+    const { res, d } = await this.send(path, init, ms);
+    try {
+      return (await d.race(res.json())) as T;
+    } catch (e) {
+      void res.body?.cancel().catch(() => {});
+      throw toCloudError(e);
+    } finally {
+      d.clear();
+    }
+  }
+
+  private requireValidKey(key: string): void {
+    if (!isValidFileKey(key)) throw new CloudError(400, JSON.stringify({ error: 'invalid key' }));
   }
 
   health() { return this.json<{ ok: boolean; version: string }>('/health'); }
-  pushChanges(changes: ChangeIn[]) { return this.json<PushChangesResponse>('/changes', { method: 'POST', body: JSON.stringify({ changes }) }); }
+  pushChanges(changes: ChangeIn[]) { return this.json<PushChangesResponse>('/changes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ changes }) }); }
   pullChanges(since: number, limit: number) { return this.json<PullChangesResponse>(`/changes?since=${since}&limit=${limit}`); }
   snapshot(after: string | null, limit: number) { return this.json<SnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }
   listFiles(since: number, limit: number) { return this.json<ListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
+    this.requireValidKey(meta.key);
     const headers: Record<string, string> = {
       [CLOUD_HEADERS.path]: meta.path,
       [CLOUD_HEADERS.kind]: meta.kind,
@@ -104,18 +192,43 @@ export class HttpCloudClient implements CloudClient {
       'content-type': 'application/octet-stream',
     };
     // 本文は貯めずに流す。duplex: 'half' はストリームを body にするときに要る。
-    const res = await this.raw(`/files/${meta.key}`, { method: 'PUT', headers, body: Readable.toWeb(body) as unknown as BodyInit, duplex: 'half' });
-    const v = (await res.json()) as { seq: number };
+    const v = await this.json<{ seq: number }>(
+      `/files/${meta.key}`,
+      { method: 'PUT', headers, body: Readable.toWeb(body) as unknown as BodyInit, duplex: 'half' } as RequestInit,
+      this.transferTimeoutMs,
+    );
     return { seq: v.seq };
   }
 
   async getFile(key: string): Promise<Readable> {
-    const res = await this.raw(`/files/${key}`);
-    if (!res.body) return Readable.from([]);
-    return Readable.fromWeb(res.body as unknown as WebReadableStream);
+    this.requireValidKey(key);
+    const { res, d } = await this.send(`/files/${key}`, {}, this.transferTimeoutMs);
+    if (!res.body) {
+      d.clear();
+      return Readable.from([]);
+    }
+    const src = Readable.fromWeb(res.body as unknown as WebReadableStream);
+    // 締め切りが来たら本体ごと畳む。垂れ流しのままの応答で呼び手が永久に待たないようにする。
+    const onAbort = (): void => { src.destroy(d.error()); };
+    d.signal.addEventListener('abort', onAbort, { once: true });
+    return Readable.from(
+      (async function* () {
+        try {
+          yield* src;
+        } catch (e) {
+          throw toCloudError(e);
+        } finally {
+          d.signal.removeEventListener('abort', onAbort);
+          d.clear();
+        }
+      })(),
+    );
   }
 
   async deleteFile(key: string): Promise<void> {
-    await this.raw(`/files/${key}`, { method: 'DELETE' });
+    this.requireValidKey(key);
+    const { res, d } = await this.send(`/files/${key}`, { method: 'DELETE' }, this.timeoutMs);
+    d.clear();
+    void res.body?.cancel().catch(() => {});
   }
 }
