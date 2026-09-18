@@ -11,11 +11,11 @@ import { SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput
 let dir: string; let db: Db; let alphaId: string;
 const sent: ServerEvent[] = [];
 const out: SummaryOutput = { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [] };
-function fake(id: Summarizer['id'], o: { available?: boolean; fail?: boolean; delayMs?: number; seen?: SummaryInput[] } = {}): Summarizer {
+function fake(id: Summarizer['id'], o: { available?: boolean; fail?: boolean; delayMs?: number; seen?: SummaryInput[]; model?: string } = {}): Summarizer {
   return {
     id,
     available: async () => o.available ?? true,
-    summarize: async (input) => { o.seen?.push(input); if (o.delayMs) await new Promise((r) => setTimeout(r, o.delayMs)); if (o.fail) throw new SummarizerError(id, `${id} failed`); return out; },
+    summarize: async (input) => { o.seen?.push(input); if (o.delayMs) await new Promise((r) => setTimeout(r, o.delayMs)); if (o.fail) throw new SummarizerError(id, `${id} failed`); return o.model ? { ...out, model: o.model } : out; },
   };
 }
 beforeEach(async () => {
@@ -42,7 +42,7 @@ describe('isSummaryStale', () => {
 describe('SummaryJob', () => {
   it('受け付けて pending を配り、要約を post_hoc で書いて配る', async () => {
     const seen: SummaryInput[] = [];
-    const job = make([fake('lmstudio', { seen })]);
+    const job = make([fake('lmstudio', { seen, model: 'qwen3-27b' })]);
     expect(job.enqueue(alphaId)).toBe(true);
     expect(job.enqueue(alphaId)).toBe(false);
     expect(job.pending()).toEqual([alphaId]);
@@ -51,7 +51,7 @@ describe('SummaryJob', () => {
     expect(job.pending()).toEqual([]);
     expect(seen[0]).toMatchObject({ sessionId: alphaId, turns: 2, running: false });
     const row = db.prepare('select * from session_summaries where session_id = ?').get(alphaId) as Record<string, unknown>;
-    expect(row).toMatchObject({ title: 'T', source: 'post_hoc', source_model: 'lmstudio', based_on_turns: 2 });
+    expect(row).toMatchObject({ title: 'T', source: 'post_hoc', source_model: 'qwen3-27b', based_on_turns: 2 });
     expect(sent.map((e) => e.type)).toEqual(['summary.pending', 'session.upsert', 'summary.updated']);
     expect(job.enqueue(alphaId)).toBe(false);     // もう stale ではない
     expect(job.enqueue(alphaId, true)).toBe(true);
@@ -64,10 +64,10 @@ describe('SummaryJob', () => {
     expect(sent.at(-1)).toEqual({ type: 'summary.failed', sessionId: alphaId, message: 'claude-headless failed' });
     expect((db.prepare('select source from session_summaries where session_id = ?').get(alphaId) as { source: string }).source).toBe('baseline');
     sent.length = 0;
-    const job2 = make([fake('lmstudio', { fail: true }), fake('claude-headless')]);
+    const job2 = make([fake('lmstudio', { fail: true }), fake('claude-headless', { model: 'haiku' })]);
     job2.enqueue(alphaId);
     await job2.idle();
-    expect((db.prepare('select source_model from session_summaries where session_id = ?').get(alphaId) as { source_model: string }).source_model).toBe('claude-headless');
+    expect((db.prepare('select source_model from session_summaries where session_id = ?').get(alphaId) as { source_model: string }).source_model).toBe('haiku');
   });
   it('実行中のセッションは受け付けず、force なら受け付ける。本文の無いセッションも受け付けない', async () => {
     const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 1 }];
@@ -94,8 +94,14 @@ describe('SummaryJob', () => {
     expect(String(warn.mock.calls[0]?.[0])).toContain('summary.pending');
     warn.mockRestore();
   });
+  it('モデル名を言わない要約器なら source_model は要約器の id に落ちる', async () => {
+    const job = make([fake('lmstudio')]);
+    job.enqueue(alphaId, true);
+    await job.idle();
+    expect((db.prepare('select source_model from session_summaries where session_id = ?').get(alphaId) as { source_model: string }).source_model).toBe('lmstudio');
+  });
   it('直列に走り、test は DB に書かない', async () => {
-    const job = make([fake('lmstudio', { delayMs: 20 })]);
+    const job = make([fake('lmstudio', { delayMs: 20, model: 'qwen3-27b' })]);
     const beta = (db.prepare("select id from sessions where provider_session_id = 'aaaaaaaa-0000-4000-8000-000000000003'").get() as { id: string }).id;
     job.enqueue(alphaId, true); job.enqueue(beta, true);
     expect(job.pending()).toEqual([alphaId, beta]);
@@ -103,7 +109,7 @@ describe('SummaryJob', () => {
     expect(sent.filter((e) => e.type === 'summary.updated').map((e) => (e as { sessionId: string }).sessionId)).toEqual([alphaId, beta]);
     const before = (db.prepare('select count(*) c from changes').get() as { c: number }).c;
     const r = await job.test();
-    expect(r).toMatchObject({ ok: true, id: 'lmstudio', summary: { title: 'T', source: 'post_hoc' } });
+    expect(r).toMatchObject({ ok: true, id: 'lmstudio', summary: { title: 'T', source: 'post_hoc', sourceModel: 'qwen3-27b' } });
     expect((db.prepare('select count(*) c from changes').get() as { c: number }).c).toBe(before);
     const bad = await make([fake('lmstudio', { fail: true }), fake('claude-headless', { available: false })]).test();
     expect(bad).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: 'lmstudio failed' }, { id: 'claude-headless', message: '使えません（接続できないか、上限に達しています）' }] });

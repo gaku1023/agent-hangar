@@ -57,7 +57,7 @@ export class LmStudioSummarizer implements Summarizer {
       throw new SummarizerError(this.id, `LM Studio に接続できません: ${e instanceof Error ? e.message : String(e)}`);
     }
     if (!r.ok) throw new SummarizerError(this.id, `LM Studio が ${r.status} を返しました`);
-    const j = (await r.json()) as { choices?: { message?: { content?: unknown } }[] };
+    const j = (await r.json()) as { model?: unknown; choices?: { message?: { content?: unknown } }[] };
     const content = j.choices?.[0]?.message?.content;
     if (typeof content !== 'string' || !content.trim()) throw new SummarizerError(this.id, '本文が空でした（思考モデルの可能性があります）');
     let parsed: unknown;
@@ -68,6 +68,8 @@ export class LmStudioSummarizer implements Summarizer {
     }
     const out = parseSummaryOutput(parsed);
     if (!out) throw new SummarizerError(this.id, '本文がスキーマの形ではありません');
-    return out;
+    // 応答が名乗ったモデル名を優先し、無ければ投げたモデル名を使う。
+    const used = typeof j.model === 'string' && j.model.trim() ? j.model : model;
+    return { ...out, model: used || 'lmstudio:auto' };
   }
 }

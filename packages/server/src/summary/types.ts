@@ -1,7 +1,8 @@
 import type { SummarizerId, SummaryState } from '@agent-hangar/shared';
 
 export type SummaryInput = { sessionId: string; text: string; turns: number; running: boolean; titleHint: string | null };
-export type SummaryOutput = { title: string; oneLiner: string; body: string; state: SummaryState; nextSteps: string[] };
+/** model は実際に使ったモデルの名前。要約器が入れる（本文の JSON には無い）。 */
+export type SummaryOutput = { title: string; oneLiner: string; body: string; state: SummaryState; nextSteps: string[]; model?: string };
 
 /** 要約器は差し替え可能な部品。available が偽か summarize が失敗したら次の要約器へ回す。 */
 export interface Summarizer {

@@ -15,7 +15,7 @@ describe('ClaudeHeadlessSummarizer', () => {
     expect(s.id).toBe('claude-headless');
     expect(await s.available()).toBe(true);
     const out = await s.summarize(CANNED_INPUT);
-    expect(out).toEqual({ title: 'T', oneLiner: 'O', body: 'B', state: 'in_progress', nextSteps: ['n'] });
+    expect(out).toEqual({ title: 'T', oneLiner: 'O', body: 'B', state: 'in_progress', nextSteps: ['n'], model: 'haiku' });
     const [cmd, args, stdin, timeout] = spawn.mock.calls[0]!;
     expect(cmd).toBe('/usr/local/bin/claude');
     expect(args.slice(0, 6)).toEqual(['-p', '--model', 'haiku', '--output-format', 'json', '--json-schema']);

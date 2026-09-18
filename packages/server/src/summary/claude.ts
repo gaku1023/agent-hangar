@@ -73,6 +73,6 @@ export class ClaudeHeadlessSummarizer implements Summarizer {
     if (so === undefined) throw new SummarizerError(this.id, '出力に structured_output がありません');
     const out = parseSummaryOutput(so);
     if (!out) throw new SummarizerError(this.id, 'structured_output がスキーマの形ではありません');
-    return out;
+    return { ...out, model: 'haiku' };
   }
 }
