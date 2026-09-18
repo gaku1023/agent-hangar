@@ -30,6 +30,10 @@ export type Intent =
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
   | { type: 'session.takeover'; id: SessionId; force: boolean }
+  | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
+  | { type: 'session.takeover.cancel'; id: SessionId }
+  | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
+  | { type: 'sync.joinToken.show' }
   | { type: 'summary.toggle'; sessionId: SessionId } | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
