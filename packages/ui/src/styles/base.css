@@ -138,3 +138,16 @@ a:hover { text-decoration: underline; }
 
 /* アイコン。大きさと線幅は Icon.tsx が決める。色は置かれた場所の文字色に従う。 */
 .icon { flex: none; }
+
+/* プロジェクトのステータス。色は data-status からトークンを引く。文字でも状態を示しているので、色は補助である。 */
+.status-select { font-weight: 500; border-color: transparent; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.status-select[data-status='active'] { color: var(--st-active); background: var(--st-active-soft); }
+.status-select[data-status='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.status-select[data-status='done'] { color: var(--st-done); background: var(--st-done-soft); }
+.status-select[data-status='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
+.status-select:focus-visible { border-color: var(--accent); }
+.st-dot { display: inline-block; width: 8px; height: 8px; margin-right: calc(var(--u) * 2); border-radius: 50%; background: var(--st-archived); vertical-align: middle; position: relative; top: -1px; }
+.st-dot[data-status='active'] { background: var(--st-active); }
+.st-dot[data-status='paused'] { background: var(--st-paused); }
+.st-dot[data-status='done'] { background: var(--st-done); }
+.st-dot[data-status='archived'] { background: var(--st-archived); }

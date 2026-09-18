@@ -26,3 +26,29 @@ describe('base.css', () => {
     expect(base).toContain('animation: pop var(--dur-pop) var(--ease)');
   });
 });
+
+/** WCAG の相対輝度とコントラスト比。 */
+const lum = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+};
+const contrast = (a: string, b: string) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi! + 0.05) / (lo! + 0.05); };
+const token = (name: string) => css.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6});`))?.[1] ?? '';
+
+describe('プロジェクトのステータスの色', () => {
+  const statuses = ['active', 'paused', 'done', 'archived'];
+  it('ステータスごとに文字色と淡い地色を持つ', () => {
+    for (const s of statuses) { expect(token(`--st-${s}`), s).toMatch(/^#/); expect(token(`--st-${s}-soft`), s).toMatch(/^#/); }
+  });
+  it('淡い地色の上の文字は 4.5:1 以上で読める', () => {
+    for (const s of statuses) expect(contrast(token(`--st-${s}`), token(`--st-${s}-soft`)), s).toBeGreaterThanOrEqual(4.5);
+  });
+  it('色だけで 4 つを見分けられる（互いに違う色である）', () => {
+    expect(new Set(statuses.map((s) => token(`--st-${s}`))).size).toBe(4);
+  });
+  it('base.css は data-status でトークンを引き、色を直書きしない', () => {
+    for (const s of statuses) expect(base, s).toContain(`[data-status='${s}']`);
+    const block = base.slice(base.indexOf('/* プロジェクトのステータス'));
+    expect(block).not.toMatch(/#[0-9a-fA-F]{3,6}/);
+  });
+});

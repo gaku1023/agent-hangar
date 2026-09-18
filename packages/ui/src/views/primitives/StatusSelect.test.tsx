@@ -1,0 +1,35 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { ProjectStatusDot, StatusSelect } from './StatusSelect.tsx';
+
+describe('StatusSelect', () => {
+  it('いまのステータスを data-status に出し、4 つの選択肢を持つ', () => {
+    render(<StatusSelect label="alpha のステータス" value="paused" onChange={() => {}} />);
+    const sel = screen.getByLabelText('alpha のステータス') as HTMLSelectElement;
+    expect(sel.getAttribute('data-status')).toBe('paused');
+    expect(sel.value).toBe('paused');
+    expect([...sel.options].map((o) => o.value)).toEqual(['active', 'paused', 'done', 'archived']);
+  });
+  it('選び直すと新しいステータスを渡す', () => {
+    const onChange = vi.fn();
+    render(<StatusSelect label="s" value="active" onChange={onChange} />);
+    fireEvent.change(screen.getByLabelText('s'), { target: { value: 'done' } });
+    expect(onChange).toHaveBeenCalledWith('done');
+  });
+  it('クリックとキー入力は親へ伝えない（カードを開かせない）', () => {
+    const onParent = vi.fn();
+    render(<div onClick={onParent} onKeyDown={onParent}><StatusSelect label="s" value="active" onChange={() => {}} /></div>);
+    fireEvent.click(screen.getByLabelText('s'));
+    fireEvent.keyDown(screen.getByLabelText('s'), { key: 'Enter' });
+    expect(onParent).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProjectStatusDot', () => {
+  it('飾りの点で、ステータスを data-status に出す', () => {
+    const { container } = render(<ProjectStatusDot status="done" />);
+    const dot = container.querySelector('.st-dot')!;
+    expect(dot.getAttribute('data-status')).toBe('done');
+    expect(dot.getAttribute('aria-hidden')).toBe('true');
+  });
+});

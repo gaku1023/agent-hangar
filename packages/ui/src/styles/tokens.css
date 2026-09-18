@@ -15,6 +15,14 @@
   --waiting: #a2452f;
   --ended: #9a968e;
   --error: #b3261e;
+  --st-active: #2a57b8;
+  --st-active-soft: #e8eefc;
+  --st-paused: #8a5a0b;
+  --st-paused-soft: #faefd9;
+  --st-done: #2b7048;
+  --st-done-soft: #e3f1e8;
+  --st-archived: #66625b;
+  --st-archived-soft: #edebe6;
   --term-bg: #1c1b19;
   --term-fg: #e8e6e1;
   --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { ProjectCardProps } from '../presenters/projects.ts';
@@ -83,5 +83,19 @@ describe('プロジェクトまわりのアイコン', () => {
   it('見つからないプロジェクトのカードは警告のアイコンを出す', () => {
     render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('gone'), resolved: false }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
     expect(iconOf(screen.getByRole('button', { name: /見つかりません/ }))).toBe('warning');
+  });
+});
+
+describe('プロジェクトのステータスの色', () => {
+  it('カードの select と詳細画面の select が data-status を持つ', () => {
+    render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'paused', label: 'Paused', cards: [{ ...card('alpha'), status: 'paused' }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    expect(screen.getByLabelText('alpha のステータス').getAttribute('data-status')).toBe('paused');
+    cleanup();
+    render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="done" sessions={[]} notFound={false} /></IntentRoot>);
+    expect(screen.getByLabelText('ステータス').getAttribute('data-status')).toBe('done');
+  });
+  it('セクションの見出しにステータスの色の点が付く', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [] }, { status: 'done', label: 'Done', cards: [] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    expect([...container.querySelectorAll('.section-head .st-dot')].map((d) => d.getAttribute('data-status'))).toEqual(['active', 'done']);
   });
 });

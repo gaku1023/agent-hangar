@@ -1,10 +1,8 @@
-import type { ProjectStatus } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { ProjectProps } from '../presenters/project.ts';
 import { SessionRows } from './SessionRows.tsx';
 import { Icon } from './primitives/Icon.tsx';
-
-const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
+import { StatusSelect } from './primitives/StatusSelect.tsx';
 
 /**
  * プロジェクト詳細画面。
@@ -19,7 +17,7 @@ export function ProjectScreen(props: ProjectProps) {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
           <h1 className="h1" style={{ margin: 0 }}>{props.name}</h1>
-          <select className="select" aria-label="ステータス" value={props.status} onChange={(e) => emit({ type: 'project.setStatus', id: props.id, status: e.target.value as ProjectStatus })}>{STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+          <StatusSelect label="ステータス" value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />
           <span className="spacer" />
           <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.id })}><Icon name="add" />新規セッション</button>
           <button className="btn" onClick={() => emit({ type: 'project.openEditor', id: props.id })}><Icon name="openEditor" />VS Code で開く</button>
