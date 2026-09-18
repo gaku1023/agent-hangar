@@ -11,7 +11,7 @@ import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.
 import { RunError } from '../runs/manager.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
-import { createApp, type AppDeps, type ExternalApi, type RunsApi, type SummaryApi } from './app.ts';
+import { createApp, type AppDeps, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts } from './app.ts';
 
 let dir: string;
 let db: Db;
@@ -35,7 +35,7 @@ let runs: RunsApi;
 let external: ExternalApi;
 let usage: UsageTracker;
 let memos: MemoStore;
-let summary: SummaryApi & { enqueued: [string, boolean | undefined][] };
+let summary: SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] };
 /** ワークスペースから登録される唯一のプロジェクト alpha の id。 */
 let list0ProjectId: () => string;
 const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceModel: 'lmstudio', basedOnTurns: 3 } };
@@ -69,10 +69,10 @@ function fakeExternal(): ExternalApi {
   };
 }
 
-function fakeSummary(): SummaryApi & { enqueued: [string, boolean | undefined][] } {
-  const s: SummaryApi & { enqueued: [string, boolean | undefined][] } = {
+function fakeSummary(): SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] } {
+  const s: SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] } = {
     enqueued: [],
-    enqueue: (id, force) => { s.enqueued.push([id, force]); return true; },
+    enqueue: (id, opts) => { s.enqueued.push([id, opts]); return true; },
     pending: () => ['pending-1'],
     test: async () => testResult,
     listModels: async () => ['gemma'],
@@ -378,8 +378,10 @@ describe('routes', () => {
     expect((await post(`/api/sessions/${id}/promote`, { gitInit: false })).status).toBe(400);
     const s = await post(`/api/sessions/${id}/summarize`);
     expect(s.status).toBe(202);
-    expect(summary.enqueued).toContainEqual([id, true]);
+    // 手動の作り直しは土台かどうかもレジストリも問わない。
+    expect(summary.enqueued).toContainEqual([id, { force: true }]);
     await get(`/api/sessions/${id}/events?fromSeq=0`);
+    // セッションを開いたときは既定のまま（土台かどうかとレジストリの両方を見る）。
     expect(summary.enqueued).toContainEqual([id, undefined]);
     summary.enqueued.length = 0;
     await get(`/api/sessions/${id}/events?fromSeq=5`);

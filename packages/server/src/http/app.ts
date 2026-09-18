@@ -29,8 +29,13 @@ export type ExternalApi = {
   /** 既定のブラウザで URL を開く。アーティファクトの「開く」で使う。 */
   openUrl(url: string): Promise<void>;
 };
+/**
+ * 要約の受け付け方。true は従来どおり force と同じ。
+ * ignoreLive はレジストリの生存判定だけを飛ばす。土台かどうかと 5 ターンの判定は残る。
+ */
+export type SummaryEnqueueOpts = boolean | { force?: boolean; ignoreLive?: boolean };
 /** SummaryJob のうち HTTP から触る部分だけ。 */
-export type SummaryApi = { enqueue(sessionId: string, force?: boolean): boolean; pending(): string[]; test(): Promise<SummarizerTestDto>; listModels(): Promise<string[]> };
+export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts): boolean; pending(): string[]; test(): Promise<SummarizerTestDto>; listModels(): Promise<string[]> };
 export type AppDeps = {
   db: Db; deviceId: string; deviceName: string; token: string; home: string; port: number; version: string;
   settings: () => Settings; updateSettings: (patch: Partial<SettingsDto>) => Settings;
@@ -520,7 +525,7 @@ export function createApp(deps: AppDeps): Hono {
     // 受け付けられなくても 202 を返す。UI は accepted を見て「作成中」を出すかどうかだけを決める。
     // 要約は補助の機能なので、受け付けが投げても 500 にせず accepted: false で返す（GET /events と同じ扱い）。
     let accepted = false;
-    try { accepted = deps.summary.enqueue(id, true); } catch { accepted = false; }
+    try { accepted = deps.summary.enqueue(id, { force: true }); } catch { accepted = false; }
     return c.json({ accepted }, 202);
   });
   api.get('/summarizer/models', async (c) => c.json({ models: await deps.summary.listModels() }));

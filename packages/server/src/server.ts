@@ -44,6 +44,16 @@ export const WS_PATHS = new Set(['/ws', '/ws/pty']);
 /** tmux の一覧を見て run の終了を拾う間隔。 */
 const RUN_POLL_MS = 2000;
 
+/**
+ * run が終わったときの要約の受け付け方。
+ * RunManager.kill は tmux kill-session の直後に同期で runEnded を出すが、
+ * レジストリは ~/.claude/sessions を 500 ミリ秒周期で読んだキャッシュなので、
+ * その瞬間は必ず「生きている」と出て受理を断ってしまう。
+ * run の終了はこちらが知っているので、生存判定だけを飛ばす。
+ * 土台かどうかと 5 ターンの判定は残す。
+ */
+export const RUN_ENDED_SUMMARY_OPTS = { ignoreLive: true } as const;
+
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
 type Fetch = ReturnType<typeof createApp>['fetch'];
 
@@ -167,7 +177,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     },
     runUpdated: (run) => hub.broadcast({ type: 'run.upsert', run }),
     // run が終わったときは事後要約の契機になる。受け付けの可否は SummaryJob が決める。
-    runEnded: (run) => { hub.broadcast({ type: 'run.ended', run }); summary.enqueue(run.sessionId); },
+    runEnded: (run) => { hub.broadcast({ type: 'run.ended', run }); summary.enqueue(run.sessionId, RUN_ENDED_SUMMARY_OPTS); },
     tabChanged: (tab) => hub.broadcast({ type: 'tab.upsert', tab }),
   });
 
@@ -199,7 +209,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     },
     live: () => registry.current(), indexer, hub, runs, external, usage, memos,
     summary: {
-      enqueue: (id, force) => summary.enqueue(id, force),
+      enqueue: (id, opts) => summary.enqueue(id, opts),
       pending: () => summary.pending(),
       test: () => summary.test(),
       // 一覧は設定のモデルに依らないので、その場限りの問い合わせ用に作る。
