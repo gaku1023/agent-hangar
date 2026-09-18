@@ -731,7 +731,11 @@ exec <<<"$__hangar_input"
 
 `settings.json` は書き換えない。
 payload には `rate_limits` のほかに `session_id`、`session_name`、`cwd`、`transcript_path`、`model`、`effort`、`cost`、`context_window` が入る。
-セッションごとのモデル、effort、コンテキスト使用率、推定コストは、トランスクリプトの解析ではなくこの payload を第一の供給源にする。
+セッションごとのモデルと effort は、この payload を第一の供給源にし、無ければトランスクリプトの解析から得た値を使う。
+コンテキスト使用率と推定コストは、この payload だけが供給源である。
+窓の大きさ（`context_window_size`）は payload にしか無く、推定コストは価格表を持たない方針なので、どちらも jsonl からは導けないためである。
+したがって statusline の追記を入れていない間は、この 2 つはどのセッションでも出ない。
+出ないときは、ヘッダーの使用量ゲージと同じく「未取得」と出す。
 更新は定期ではなく、起動直後と応答完了のたびに 1 回である。起動直後の 1 回目は `rate_limits` が無いので、欠けた項目は直前の値を保つ。
 使用率は Claude のセッションが動いている間だけ更新されるので、ヘッダーのゲージには「最終更新 N 分前」を添える。
 追記は目印のコメント行で二重追記を避け、追記前にバックアップを取る。
@@ -1022,7 +1026,7 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 以下はフェーズ 3 の実装で決めた前提である。
 
 - 使用量の保存：statusline の payload は `usage_snapshots(at, payload)` に生の JSON で積み、直近 500 件だけ残す。5 時間と 7 日の値は `UsageTracker` がメモリに持ち、サーバ起動時に新しい順へ走査して両方の窓が埋まるまで読む。`rate_limits` の無い payload では直前の値を保ち、`updatedAt` も更新しない（ゲージの「最終更新」は使用率が届いた時刻を指す）。
-- セッションごとの付帯情報：payload の `model`、`effort`、`context_window`、`cost` は端末ローカルの `session_live_stats` に Claude の UUID（`provider_session_id`）を鍵として置く。`SessionDto.stats` の `model` と `effort` はこの表を `session_stats` より優先する。`contextPercent` は `current_usage` の入力とキャッシュのトークンの和を `context_window_size` で割った百分率で、`current_usage` が無い 1 回目は書かない。`costUsd` は `cost.total_cost_usd`。
+- セッションごとの付帯情報：payload の `model`、`effort`、`context_window`、`cost` は端末ローカルの `session_live_stats` に Claude の UUID（`provider_session_id`）を鍵として置く。`SessionDto.stats` の `model` と `effort` はこの表を `session_stats` より優先し、この表に無ければ索引から導いた `session_stats` の値を使う。`contextPercent` と `costUsd` は `session_live_stats` にしか供給源が無く、statusline の追記を入れていないセッションでは常に null になる（UI は「未取得」と出す）。`contextPercent` は `current_usage` の入力とキャッシュのトークンの和を `context_window_size` で割った百分率で、`current_usage` が無い 1 回目は書かない。`costUsd` は `cost.total_cost_usd`。
 - statusline の追記先：`~/.claude/settings.json` の `statusLine.command` から先頭の `bash `、`sh `、`zsh ` を除いた最初の語を `~` 展開し、ファイルとして存在すればそこへ追記する。存在しなければ追記せず、スニペットと手順を印字する。追記位置は 1 行目が `#!` で始まればその直後、そうでなければ先頭で、目印の行があれば何もしない。バックアップは同じディレクトリの `<name>.bak-<yyyymmddHHMMSS>`。
 - statusline のスニペットは、トークンを `${HANGAR_HOME:-$HOME/.agent-hangar}/token` から読み、ポートは追記時の値を埋め込む（`hangar statusline install --port <n>`）。`exec <<<` を使うので、追記先のスクリプトは bash か zsh である必要がある。
 - jsonl の使用量の集計：端末ローカルの `usage_daily(session_id, day, input_tokens, output_tokens)` を索引化のときに埋める。`day` はイベントの `timestamp` をローカル時刻で `YYYY-MM-DD` にしたもの。プロジェクト別は `session_stats` のトークン数を `sessions.project_id` で束ねる。推定コストは価格表を持たず、statusline の `cost.total_cost_usd` を持つセッションの和だけを出す（1 件も無ければ null）。
@@ -1048,6 +1052,7 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - UI の CSS は `base.css` に足さず、View ごとのファイル（`workbench.css`、`split.css`、`rows.css`、`palette.css`、`settings.css`）に分けて `main.tsx` から `base.css` の後に読み込む。
 - 既知の限界：`usage_daily` は主線の索引の作り直しでセッション単位に消すので、主線の jsonl だけが縮んだときサブエージェント分の集計が失われる。削除をやめると作り直しで二重に数えるため、まれな取りこぼしを受け入れる。
 - 既知の限界：プロジェクトのメモは、ファイルの mtime が DB の `updated_at` より古いと DB の内容がファイルに書き戻される。外部のエディタで書いた直後にファイルの時刻が巻き戻る状況では、その編集が失われる。
+- 既知の限界：run を hangar から止めたとき、事後要約がその場では走らないことがある。セッションの生存を 500 ミリ秒周期のキャッシュで見ているため、止めた直後は「実行中」と判定されて `enqueue` が受け付けないためである。この場合の要約は、後でそのセッションを開き直したときに作られる。
 
 未決事項は次のとおりである。
 
