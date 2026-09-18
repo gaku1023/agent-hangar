@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { Command } from 'commander';
 import { hangarHome, startServer } from '@agent-hangar/server';
+import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { formatSetupReport, runSetup } from './setup.ts';
 
 const program = new Command().name('hangar').description('agent-hangar のコマンド');
@@ -51,6 +52,27 @@ program
   .option('--port <n>', 'ポート', '4177')
   .action((o: { port: string }) => {
     spawn('open', [`http://127.0.0.1:${o.port}/`], { stdio: 'ignore', detached: true }).unref();
+  });
+
+const mcp = program.command('mcp').description('Claude Code への MCP 登録');
+
+mcp
+  .command('install')
+  .description('user スコープに hangar を登録する')
+  .option('--port <n>', 'ポート', '4177')
+  .action((o: { port: string }) => {
+    const r = runMcpInstall({ home: hangarHome(), port: Number(o.port) });
+    console.log(r.message);
+    if (!r.ok) process.exitCode = 1;
+  });
+
+mcp
+  .command('uninstall')
+  .description('user スコープの hangar を削除する')
+  .action(() => {
+    const r = runMcpUninstall();
+    console.log(r.message);
+    if (!r.ok) process.exitCode = 1;
   });
 
 program.parseAsync(process.argv).catch((e) => {
