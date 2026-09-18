@@ -252,9 +252,17 @@ describe('routes', () => {
   });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
-    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: '/tmp/x' }) });
-    expect((await r.json()).workspaceRoot).toBe('/tmp/x');
+    // 実在しないルートと、ファイルを指したルートの両方で 500 にしないことを見る。
+    // 以前は固定の /tmp/x を使っていたので、そこにファイルがあると落ちた。
+    const missing = path.join(ws, 'no-such-root');
+    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: missing }) });
+    expect((await r.json()).workspaceRoot).toBe(missing);
     expect(sent.some((e) => e.type === 'toast' && e.level === 'info')).toBe(true);
+    const asFile = path.join(ws, 'root-is-a-file');
+    fs.writeFileSync(asFile, 'x');
+    const r2 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: asFile }) });
+    expect(r2.status).toBe(200);
+    expect((await r2.json()).workspaceRoot).toBe(asFile);
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
