@@ -44,3 +44,60 @@ export function ensureWrapperScript(home: string): string {
 export function runLogPath(home: string, runId: string): string {
   return path.join(home, 'logs', `run-${runId}.log`);
 }
+
+/** 残す run のログの件数。個人用の道具なので、件数の上限だけで足りる。 */
+export const MAX_RUN_LOGS = 50;
+
+type LogFile = { name: string; path: string; runId: string; mtime: number };
+
+/** logs ディレクトリの run-<id>.log を、日時付きで拾う。読めないものは黙って飛ばす。 */
+function listRunLogs(dir: string): LogFile[] {
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const out: LogFile[] = [];
+  for (const name of names) {
+    const m = /^run-(.+)\.log$/.exec(name);
+    if (!m) continue;
+    const full = path.join(dir, name);
+    try {
+      const st = fs.statSync(full);
+      if (!st.isFile()) continue;
+      out.push({ name, path: full, runId: m[1]!, mtime: st.mtimeMs });
+    } catch {
+      continue;
+    }
+  }
+  return out;
+}
+
+/**
+ * 古い run のログを落とす。放っておくと run のたびに増え続けるためである。
+ * 新しいものから max 件を残し、動いている run のログは古くても残す。
+ * 走っている claude が書いている先を消すと、その run の記録が途中で切れる。
+ * 消せた名前を返す。
+ */
+export function pruneRunLogs(home: string, aliveRunIds: Iterable<string>, max = MAX_RUN_LOGS): string[] {
+  const dir = path.join(home, 'logs');
+  const alive = new Set(aliveRunIds);
+  // 新しい順に数える。日時が同じなら名前で並べて、どれが残るかを決めておく。
+  const files = listRunLogs(dir).sort((a, b) => b.mtime - a.mtime || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const removed: string[] = [];
+  let kept = 0;
+  for (const f of files) {
+    if (alive.has(f.runId) || kept < max) {
+      kept++;
+      continue;
+    }
+    try {
+      fs.rmSync(f.path, { force: true });
+      removed.push(f.name);
+    } catch {
+      // 消せないログは次の起動でまた当たる。掃除の失敗で起動を止めない。
+    }
+  }
+  return removed;
+}

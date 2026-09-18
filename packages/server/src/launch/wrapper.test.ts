@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
-import { ensureWrapperScript, runLogPath, wrapperScript } from './wrapper.ts';
+import { ensureWrapperScript, MAX_RUN_LOGS, pruneRunLogs, runLogPath, wrapperScript } from './wrapper.ts';
 
 let home: string;
 beforeEach(() => {
@@ -26,6 +26,49 @@ describe('ensureWrapperScript', () => {
     ensureWrapperScript(home);
     expect(fs.statSync(p).mtimeMs).toBe(before);
     expect(runLogPath(home, 'r1')).toBe(path.join(home, 'logs', 'run-r1.log'));
+  });
+});
+
+describe('pruneRunLogs', () => {
+  const logs = () => path.join(home, 'logs');
+  /** run-<id>.log を、番号が大きいほど新しい日時で置く。 */
+  const writeLog = (runId: string, mtime: number) => {
+    fs.mkdirSync(logs(), { recursive: true });
+    const f = runLogPath(home, runId);
+    fs.writeFileSync(f, 'x');
+    fs.utimesSync(f, mtime, mtime);
+    return f;
+  };
+
+  it('新しいものから上限の件数だけ残し、古いものを落とす', () => {
+    for (let i = 0; i < 5; i++) writeLog(`r${i}`, 1000 + i);
+    expect(pruneRunLogs(home, [], 3).sort()).toEqual(['run-r0.log', 'run-r1.log']);
+    expect(fs.readdirSync(logs()).sort()).toEqual(['run-r2.log', 'run-r3.log', 'run-r4.log']);
+    // 上限に足りていれば何も消さない。
+    expect(pruneRunLogs(home, [], 3)).toEqual([]);
+  });
+
+  it('動いている run のログは、いくら古くても残す', () => {
+    // ここで消すと、走っている claude が書き込んでいるログが途中で消える。
+    writeLog('alive', 1);
+    for (let i = 0; i < 4; i++) writeLog(`r${i}`, 1000 + i);
+    expect(pruneRunLogs(home, ['alive'], 2).sort()).toEqual(['run-r0.log', 'run-r1.log']);
+    expect(fs.readdirSync(logs()).sort()).toEqual(['run-alive.log', 'run-r2.log', 'run-r3.log']);
+  });
+
+  it('run のログでないファイルには触らず、ログの置き場が無くても投げない', () => {
+    expect(pruneRunLogs(home, [], 1)).toEqual([]);
+    fs.mkdirSync(logs(), { recursive: true });
+    fs.writeFileSync(path.join(logs(), 'notes.txt'), 'x');
+    fs.mkdirSync(path.join(logs(), 'run-dir.log'));
+    writeLog('r1', 1000);
+    writeLog('r2', 2000);
+    expect(pruneRunLogs(home, [], 1)).toEqual(['run-r1.log']);
+    expect(fs.readdirSync(logs()).sort()).toEqual(['notes.txt', 'run-dir.log', 'run-r2.log']);
+  });
+
+  it('既定の上限は 1 件以上である', () => {
+    expect(MAX_RUN_LOGS).toBeGreaterThan(0);
   });
 });
 

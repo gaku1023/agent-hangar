@@ -5,7 +5,7 @@ import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
-import { ensureWrapperScript, runLogPath } from '../launch/wrapper.ts';
+import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
 import { hasTranscriptFile } from '../provider/claude-code/discover.ts';
 import { claudeCodeProvider } from '../provider/claude-code/index.ts';
 import type { LaunchInput } from '../provider/types.ts';
@@ -158,6 +158,13 @@ export class RunManager {
     } catch (e) {
       this.end(runId, 'exited');
       throw new RunError(400, `tmux の起動に失敗しました: ${this.safeError(e)}`);
+    }
+    // ログは run ごとに増えるので、起動のついでに古いものを落とす。
+    // 動いている run のログは残す。書いている途中のログを消すと、その run の記録が切れる。
+    try {
+      pruneRunLogs(this.deps.home, listAliveRuns(this.db, this.deps.deviceId).map((r) => r.id));
+    } catch (e) {
+      console.error('[runs] ログの掃除に失敗しました', e instanceof Error ? e.message : e);
     }
     const result: LaunchResult = { run: getRun(this.db, runId)!, sessionId: o.sessionId, tabs: listTabs(this.db, runId) };
     this.emit('runStarted', result);

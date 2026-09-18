@@ -10,6 +10,7 @@ import { mangleCwd } from '../provider/claude-code/discover.ts';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
+import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
 import { RunError, RunManager } from './manager.ts';
 
 let db: Db;
@@ -528,6 +529,33 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
     const rm = make({ tmux: null });
     rm.kill(runId);
     expect(deletedAt(sessionId)).toBeNull();
+  });
+});
+
+describe('run のログの掃除（tmux 不要）', () => {
+  it('起動のたびに古いログを落とし、動いている run のログは残す', () => {
+    // ログは run ごとに増える。消す経路が無いと、使うほど際限なく溜まる。
+    const logs = path.join(home, 'logs');
+    fs.mkdirSync(logs, { recursive: true });
+    const put = (runId: string, mtime: number) => {
+      const f = path.join(logs, `run-${runId}.log`);
+      fs.writeFileSync(f, 'x');
+      fs.utimesSync(f, mtime, mtime);
+    };
+    // r1 は動いている run のログで、いちばん古い。
+    seedRun();
+    put('r1', 1);
+    const old = Array.from({ length: MAX_RUN_LOGS + 5 }, (_, i) => `old${i}`);
+    old.forEach((id, i) => put(id, 1000 + i));
+
+    // tmux を呼ばずに起動を最後まで通す。ログの掃除だけを見たい。
+    make({ tmux: fakeTmux('exit 0') }).start({ projectId: 'p1' });
+
+    const names = fs.readdirSync(logs);
+    expect(names).toContain('run-r1.log');
+    expect(names).toHaveLength(MAX_RUN_LOGS + 1);
+    expect(names).toContain(`run-${old.at(-1)}.log`);
+    expect(names).not.toContain('run-old0.log');
   });
 });
 
