@@ -210,6 +210,10 @@ export class RunManager {
   /** 新しいセッションを起こす。検査をすべて先に済ませてから行を作る。 */
   start(params: LaunchParams): LaunchResult {
     this.addDirs(params);
+    // スクラッチは擬似プロジェクトの行と使い捨てのディレクトリを作ってしまうので、
+    // 後の precheck を待たずに、ここで tmux の有無だけ先に確かめる。
+    // これが無いと、tmux の無い端末で起動を試すたびに空のディレクトリが溜まる。
+    if (params.scratch) this.tmux();
     // スクラッチは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
     // projectId が一緒に来ていても scratch を優先する。
     const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);

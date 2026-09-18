@@ -40,7 +40,12 @@ export function newScratchDir(home: string, now: Date = new Date()): string {
   }
 }
 
-/** cwd がスクラッチのルートの下（ルートそのものは含まない）にあるか。 */
+/**
+ * cwd がスクラッチのルートの下（ルートそのものは含まない）にあるか。
+ * 綴りの違いで判定が変わらないよう、どちらも path.resolve で正規化してから比べる。
+ * 末尾の区切り、重なった区切り、`.` と `..` はここで消える。
+ * symlink までは辿らないので、cwd は保存されたときの綴りのまま比べられる。
+ */
 export function isUnderScratch(home: string, cwd: string): boolean {
-  return cwd.startsWith(scratchRoot(home) + path.sep);
+  return path.resolve(cwd).startsWith(path.resolve(scratchRoot(home)) + path.sep);
 }

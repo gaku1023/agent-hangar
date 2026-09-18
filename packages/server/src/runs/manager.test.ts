@@ -61,6 +61,18 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
   });
+  it('tmux が無ければ scratch は擬似プロジェクトも使い捨てディレクトリも作らない', () => {
+    // 検査はすべて行を作る前に済ませる。tmux の無い端末で何度失敗しても、
+    // 擬似プロジェクトの行と空のディレクトリが溜まってはならない。
+    const rm = make({ tmux: null });
+    for (let i = 0; i < 3; i++) expect(() => rm.start({ scratch: true })).toThrow(/tmux/);
+    expect(db.prepare('select count(*) c from projects where is_scratch = 1').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count(*) c from project_roots').get()).toEqual({ c: 2 });
+    expect(fs.existsSync(path.join(home, 'scratch'))).toBe(false);
+    expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
+  });
+
   it('tmux new-session が失敗したら run 行は exited で閉じ、400 を投げる', () => {
     // 事前検査は通るが、tmux のバイナリが無い。行を作った後に失敗する唯一の経路である。
     const rm = make({ tmux: new Tmux({ tmuxPath: path.join(home, 'gone-tmux') }) });
