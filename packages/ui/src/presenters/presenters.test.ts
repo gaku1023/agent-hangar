@@ -164,6 +164,15 @@ describe('presentSession（実行中）', () => {
     store.sessions.s1 = { ...store.sessions.s1!, live: null };
     expect(presentSession(initialState(), store, NOW, 's1').trustHint).toBe(true);
   });
+  it('選んでいたタブが閉じたら Claude タブに戻る', () => {
+    const store = storeWith();
+    store.runs = { r1: runDto('r1', 's1') };
+    store.tabs = { r1: tabDto('r1', 'r1', 'agent'), t1: tabDto('t1', 'r1', 'shell', 9) };
+    const state = { ...initialState(), sessionView: { s1: { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: 't1', transcriptOpen: true } } };
+    const p = presentSession(state, store, NOW, 's1');
+    expect(p.selectedTab).toBe('r1');
+    expect(p.tabs).toEqual([{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }]);
+  });
   it('run が無ければ再開できる。送信中は不可', () => {
     const store = storeWith();
     store.sessions.s2 = { ...store.sessions.s2!, live: null };
