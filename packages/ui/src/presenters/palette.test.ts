@@ -45,6 +45,23 @@ describe('presentPalette', () => {
     const c = presentPalette(withPalette(), store(), 'zzzz')!;
     expect(c.items).toEqual([]);
   });
+  it('後から届いた新しいセッションが 30 件の枠から落ちない', () => {
+    // session.upsert は辞書の末尾に鍵を足すので、積んだ順のままだと新しいセッションが枠の外に出てしまう。
+    const many: Record<string, SessionDto> = {};
+    for (let i = 0; i < 60; i++) many[`x${i}`] = { ...session(`x${i}`, `セッション ${i}`, null), lastActivityAt: 1000 + i };
+    const fresh = { ...session('fresh', 'いま起こしたセッション', null), lastActivityAt: 9999 };
+    const p = presentPalette(withPalette(), { ...store(), sessions: { ...many, fresh } }, '')!;
+    expect(p.items.map((i) => i.id)).toContain('session:fresh');
+    expect(p.items.filter((i) => i.kind === 'session')[0]!.id).toBe('session:fresh');
+  });
+  it('後から届いた新しいプロジェクトもセッションより上に残る', () => {
+    const many: Record<string, ProjectDto> = {};
+    for (let i = 0; i < 40; i++) many[`q${i}`] = { ...project(`q${i}`, `古い ${i}`), lastActivityAt: 1000 + i };
+    const fresh = { ...project('fresh', '新しい'), lastActivityAt: 9999 };
+    const p = presentPalette(withPalette(), { ...store(), projects: { ...many, fresh } }, '')!;
+    expect(p.items.map((i) => i.id)).toContain('project:fresh');
+    expect(p.items.filter((i) => i.kind === 'project')[0]!.id).toBe('project:fresh');
+  });
   it('30 件までに切る', () => {
     const many: Record<string, SessionDto> = {};
     for (let i = 0; i < 60; i++) many[`x${i}`] = session(`x${i}`, `セッション ${i}`, null);

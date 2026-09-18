@@ -1,6 +1,10 @@
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 
+/** 最後の活動が新しい順。時刻が同じか無いものは id の順にして、並びを決定的にする。 */
+const byRecency = <T extends { id: string; lastActivityAt: number | null }>(items: T[]): T[] =>
+  [...items].sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0) || a.id.localeCompare(b.id));
+
 export type PaletteItem = { id: string; label: string; hint: string; kind: 'command' | 'project' | 'session' };
 export type PaletteProps = { query: string; items: PaletteItem[] };
 
@@ -52,14 +56,16 @@ export function presentPalette(state: State, store: Store, query: string): Palet
   };
   for (const c of COMMANDS) push(c, c.label);
   // スクラッチの擬似プロジェクトはカードに出さないので、ここがその画面への唯一の入口になる。
-  for (const p of Object.values(store.projects)) push({ id: `project:${p.id}`, label: p.name, hint: p.path ?? 'この端末にパスがありません', kind: 'project' }, p.name);
-  for (const s of Object.values(store.sessions)) {
+  for (const p of byRecency(Object.values(store.projects))) push({ id: `project:${p.id}`, label: p.name, hint: p.path ?? 'この端末にパスがありません', kind: 'project' }, p.name);
+  for (const s of byRecency(Object.values(store.sessions))) {
     const label = s.name ?? '（名前なし）';
     const hint = s.summary?.oneLiner ?? s.firstPrompt ?? '';
     push({ id: `session:${s.id}`, label, hint, kind: 'session' }, `${label} ${hint}`);
   }
   // 点が同じときは種類の順に並べ、それも同じなら積んだ順のままにする。
-  // 入力が空のときはすべてが同じ点なので、コマンドの並びは上の宣言の順になる。
+  // 入力が空のときはすべてが同じ点なので、コマンドの並びは上の宣言の順、
+  // プロジェクトとセッションの並びは最後の活動が新しい順になる。
+  // 辞書に入った順で積むと、後から session.upsert で届いた新しいセッションが 30 件の枠から落ちるので、積む前に並べ替える。
   scored.sort((a, b) => b.score - a.score || KIND_ORDER[a.item.kind] - KIND_ORDER[b.item.kind] || a.at - b.at);
   return { query, items: scored.slice(0, LIMIT).map((s) => s.item) };
 }
