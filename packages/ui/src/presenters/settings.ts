@@ -1,6 +1,10 @@
-import type { IndexProgressDto, StatuslineStatusDto, SummarizerTestDto, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, StatuslineStatusDto, SummarizerTestDto, SyncStateKind, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
+import { relativeTime } from './format.ts';
+
+export type CloudDeviceProps = { name: string; platform: string; lastSeen: string; self: boolean };
+export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; paused: boolean; lastPullAt: string; pending: number; devices: CloudDeviceProps[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
 
 export type SettingsProps = {
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; sessionCount: number; projectCount: number;
@@ -8,11 +12,28 @@ export type SettingsProps = {
   lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean;
   summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
   statusline: StatuslineStatusDto | null; statuslineCommand: string; usageAggregate: UsageAggregateDto | null;
+  cloud: CloudSettingsProps;
 };
 
-export function presentSettings(_state: State, store: Store): SettingsProps {
+// now は相対時刻のためだけに使う。フェーズ 3 までの呼び出しは 2 引数なので既定値を置く。
+export function presentSettings(_state: State, store: Store, now: number = Date.now()): SettingsProps {
   const s = store.settings;
+  const sync = store.sync;
+  // 同期の状態が届いていない端末と、off が届いている端末は同じ「設定していない」扱いにする。
+  const cloud: CloudSettingsProps = {
+    configured: sync !== null && sync.state !== 'off',
+    url: sync?.url ?? null,
+    state: sync?.state ?? 'off',
+    paused: sync?.state === 'paused',
+    lastPullAt: relativeTime(sync?.lastPullAt ?? null, now),
+    pending: sync?.pending ?? 0,
+    devices: store.devices.map((d) => ({ name: d.name, platform: d.platform, lastSeen: relativeTime(d.lastSeenAt, now), self: d.self })),
+    joinToken: store.joinToken,
+    syncClaudeConfig: s?.syncClaudeConfig ?? false,
+    configConfirmed: sync?.claudeConfig.confirmed ?? false,
+  };
   return {
+    cloud,
     workspaceRoot: s?.workspaceRoot ?? '', claudeDir: s?.claudeDir ?? '', device: store.device, version: store.version, index: store.index,
     sessionCount: Object.keys(store.sessions).length, projectCount: Object.keys(store.projects).length,
     tmuxPath: s?.tmuxPath ?? null, terminalApp: s?.terminalApp ?? 'terminal', codePath: s?.codePath ?? null, mcpInstallCommand: 'npm run hangar -- mcp install',
