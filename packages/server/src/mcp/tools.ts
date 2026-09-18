@@ -47,10 +47,48 @@ const num = (v: unknown): number | undefined => (typeof v === 'number' && Number
 const bool = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : undefined);
 const strs = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined);
 
-/** 引数の session_id、無ければセッション別 URL のセッション。どちらも無ければ失敗させる。 */
+/**
+ * 引数の session_id、無ければセッション別 URL のセッション。どちらも無ければ失敗させる。
+ * セッション別 URL では、そのセッション以外の id を黙って無視せずに断る。
+ * 黙って読み替えると、呼び手は別のセッションを触ったつもりのまま結果を受け取ってしまう。
+ */
 function sessionIdOf(ctx: ToolContext, args: Record<string, unknown>): string {
-  const id = str(args.session_id) ?? ctx.sessionId;
-  if (!id) throw new ToolError('session_id が必要です（セッション別 URL では省略できます）');
+  const given = str(args.session_id);
+  if (ctx.sessionId) {
+    if (given && given !== ctx.sessionId) throw new ToolError(`この MCP の URL はセッション ${ctx.sessionId} 専用です。ほかの session_id は指定できません`);
+    return ctx.sessionId;
+  }
+  if (!given) throw new ToolError('session_id が必要です（セッション別 URL では省略できます）');
+  return given;
+}
+
+/**
+ * セッション別 URL が閉じ込めるプロジェクト。
+ * 共通 URL では undefined、そのセッションがまだプロジェクトに属していなければ null になる。
+ */
+function scopeProjectId(deps: ToolDeps, ctx: ToolContext): string | null | undefined {
+  if (!ctx.sessionId) return undefined;
+  return requireSession(deps, ctx.sessionId).projectId;
+}
+
+const NO_PROJECT = 'このセッションはまだプロジェクトに属していないため、プロジェクトの道具は使えません';
+
+/** 引数の project_id を枠に照らし、枠の外を指していれば断る。返すのは枠そのものである。 */
+function projectScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string | null | undefined {
+  const scope = scopeProjectId(deps, ctx);
+  const given = str(args.project_id);
+  if (scope !== undefined && given && given !== scope) {
+    throw new ToolError(scope === null ? NO_PROJECT : `この MCP の URL はプロジェクト ${scope} に閉じています。ほかの project_id は指定できません`);
+  }
+  return scope;
+}
+
+/** プロジェクトを 1 件に決める道具のための project_id。 */
+function projectIdOf(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string {
+  const scope = projectScope(deps, ctx, args);
+  if (scope === null) throw new ToolError(NO_PROJECT);
+  const id = scope ?? str(args.project_id);
+  if (!id) throw new ToolError('project_id が必要です');
   return id;
 }
 
@@ -92,16 +130,16 @@ function requireProject(deps: ToolDeps, id: string): ProjectDto {
 
 const url = (deps: ToolDeps, route: string) => `http://127.0.0.1:${deps.port}/#/${route}`;
 
-export function listProjectsTool(deps: ToolDeps) {
-  return listProjects(deps.db, deps.deviceId, deps.live()).map((p) => ({
+export function listProjectsTool(deps: ToolDeps, ctx: ToolContext) {
+  const scope = scopeProjectId(deps, ctx);
+  return listProjects(deps.db, deps.deviceId, deps.live()).filter((p) => scope === undefined || p.id === scope).map((p) => ({
     id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved,
     open_todo_count: p.openTodoCount, running_count: p.runningCount, last_activity_at: p.lastActivityAt,
   }));
 }
 
-export function getProjectTool(deps: ToolDeps, args: Record<string, unknown>) {
-  const id = str(args.project_id);
-  if (!id) throw new ToolError('project_id が必要です');
+export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  const id = projectIdOf(deps, ctx, args);
   const p = requireProject(deps, id);
   const memo = deps.memos.read(id)?.markdown ?? null;
   const todos = todoBriefs(deps, id);
@@ -113,8 +151,7 @@ export function getProjectTool(deps: ToolDeps, args: Record<string, unknown>) {
 
 /** status、add_todos、toggle_todos、append_memo を受け、変えた表ごとにイベントを配る。 */
 export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
-  const id = str(args.project_id);
-  if (!id) throw new ToolError('project_id が必要です');
+  const id = projectIdOf(deps, ctx, args);
   const row = deps.db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
   if (!row) throw new ToolError(`プロジェクトが見つかりません: ${id}`);
   // status を「省略」と「型違いの値」で区別する。str() だけでは数値や null が黙って無視される。
@@ -156,8 +193,11 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
   };
 }
 
-export function listSessionsTool(deps: ToolDeps, args: Record<string, unknown>) {
-  let list = listSessions(deps.db, deps.live(), { projectId: str(args.project_id) });
+export function listSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  const scope = projectScope(deps, ctx, args);
+  let list = listSessions(deps.db, deps.live(), { projectId: scope === undefined ? str(args.project_id) : (scope ?? undefined) });
+  // プロジェクトに属していないセッションの URL では、そのセッション自身だけを見せる。
+  if (scope === null) list = list.filter((s) => s.id === ctx.sessionId);
   const running = bool(args.running);
   if (running !== undefined) list = list.filter((s) => (s.live !== null) === running);
   // 負数の limit を slice にそのまま渡すと末尾から削る意味になるので、下限を 0 で押さえる。
@@ -165,10 +205,13 @@ export function listSessionsTool(deps: ToolDeps, args: Record<string, unknown>) 
   return list.slice(0, limit).map(sessionBrief);
 }
 
-export function searchSessionsTool(deps: ToolDeps, args: Record<string, unknown>) {
+export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const q = str(args.query) ?? '';
+  const scope = projectScope(deps, ctx, args);
+  // プロジェクトに属していないセッションの URL では、横断の検索を渡さない。
+  if (scope === null) throw new ToolError(NO_PROJECT);
   const runningIds = new Set(deps.live().map((l) => l.sessionId));
-  const r = searchSessions(deps.db, { q, projectId: str(args.project_id), since: num(args.since), until: num(args.until), file: str(args.file), limit: num(args.limit) }, runningIds);
+  const r = searchSessions(deps.db, { q, projectId: scope ?? str(args.project_id), since: num(args.since), until: num(args.until), file: str(args.file), limit: num(args.limit) }, runningIds);
   const hits = r.hits.map((h) => {
     const s = getSession(deps.db, deps.live(), h.sessionId);
     return {
@@ -197,9 +240,8 @@ export function getTranscriptTool(deps: ToolDeps, ctx: ToolContext, args: Record
   return { session_id: id, events: page.events.filter(keep), total: page.total, next_seq: page.nextSeq };
 }
 
-export function createSessionTool(deps: ToolDeps, args: Record<string, unknown>) {
-  const projectId = str(args.project_id);
-  if (!projectId) throw new ToolError('project_id が必要です');
+export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  const projectId = projectIdOf(deps, ctx, args);
   const r = deps.runs.start({
     projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
@@ -244,7 +286,7 @@ export function getUsageTool(deps: ToolDeps) {
 
 export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   // 実在しない ID を死んだリンクにして返さない。打ち間違いはここで失敗させる。
-  const projectId = str(args.project_id);
+  const projectId = str(args.project_id) ? projectIdOf(deps, ctx, args) : undefined;
   if (projectId) {
     requireProject(deps, projectId);
     return { url: url(deps, `project/${projectId}`), deep_link: `hangar://project/${projectId}` };
@@ -257,13 +299,13 @@ export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<
 /** 名前で振り分ける。MCP の層はこれを content に包むだけにする。 */
 export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: Record<string, unknown>): unknown {
   switch (name) {
-    case 'list_projects': return listProjectsTool(deps);
-    case 'get_project': return getProjectTool(deps, args);
+    case 'list_projects': return listProjectsTool(deps, ctx);
+    case 'get_project': return getProjectTool(deps, ctx, args);
     case 'update_project': return updateProjectTool(deps, ctx, args);
-    case 'list_sessions': return listSessionsTool(deps, args);
-    case 'search_sessions': return searchSessionsTool(deps, args);
+    case 'list_sessions': return listSessionsTool(deps, ctx, args);
+    case 'search_sessions': return searchSessionsTool(deps, ctx, args);
     case 'get_transcript': return getTranscriptTool(deps, ctx, args);
-    case 'create_session': return createSessionTool(deps, args);
+    case 'create_session': return createSessionTool(deps, ctx, args);
     case 'set_session_summary': return setSessionSummaryTool(deps, ctx, args);
     case 'set_session_memo': return setSessionMemoTool(deps, ctx, args);
     case 'get_usage': return getUsageTool(deps);
