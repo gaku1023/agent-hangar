@@ -50,15 +50,18 @@ describe('RollingNumber', () => {
   });
 });
 
+// 同期を設定していない端末のヘッダー。フェーズ 3 のゲージの検査はこの形のままである。
+const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, paused: false };
+
 describe('Header', () => {
   it('2 つのゲージと最終更新を出す', () => {
-    render(<IntentRoot onIntent={() => {}}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, updatedLabel: '10 分前' }} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
     expect(screen.getByLabelText('5 時間の使用率')).toBeTruthy();
     expect(screen.getByLabelText('7 日の使用率')).toBeTruthy();
     expect(screen.getByText('最終更新 10 分前')).toBeTruthy();
   });
   it('最終更新が無ければ添えない', () => {
-    render(<IntentRoot onIntent={() => {}}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
     expect(screen.queryByText(/最終更新/)).toBeNull();
     expect(screen.getAllByText('未取得')).toHaveLength(2);
   });

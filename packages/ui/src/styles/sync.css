@@ -1,0 +1,14 @@
+/* 同期の一行（ヘッダー）と、セッション画面のロックの札（フェーズ 4） */
+
+/* ヘッダーの真ん中に置く同期の一行。
+   使用量ゲージと並ぶので、詰まったら文言の側から縮める。 */
+.sync { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-size: var(--fs-sm); }
+.sync > .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+.sync-error { color: var(--error); }
+
+/* ヘッダーの高さに収める小さいボタン。.btn を上書きするので .btn と一緒に付ける。 */
+.btn-sm { height: calc(var(--row-h) - 6px); padding: 0 calc(var(--u) * 2); font-size: var(--fs-sm); }
+
+/* 他端末が握っている間の札。応答が途絶えたら警告の色にする。 */
+.lock { color: var(--accent); }
+.warn { color: var(--waiting); }

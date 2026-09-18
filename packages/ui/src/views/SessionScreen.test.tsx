@@ -16,7 +16,7 @@ const base: SessionProps = { id: 's1', name: 'name', live: 'busy', cwd: '/w/alph
     { kind: 'tool', seq: 2, summary: 'Edit /a', name: 'Edit', inputJson: '{}', result: { text: 'File not found', isError: true }, when: '10:02', subagent: null },
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
-  contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false };
+  contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false };
 
 describe('SessionScreen', () => {
   it('ヘッダー、要約の開閉、切替、続きの読み込み', () => {
@@ -206,6 +206,53 @@ describe('フェーズ 3 のセッション画面', () => {
     withHost(<SessionScreen {...running} canSplit terminalStatus="connected" />);
     expect(screen.queryByTestId('split')).toBeNull();
     expect(screen.getAllByTestId(/^term-/)).toHaveLength(1);
+  });
+});
+
+describe('フェーズ 4 のセッション画面', () => {
+  const lock = { deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' };
+  const staleLock = { deviceName: 'mini', stale: true, heartbeat: '5 分前', label: 'mini が応答がありません' };
+  it('他端末で実行中なら再開とフォークを止める', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} lock={lock} /></IntentRoot>);
+    expect(screen.getByText('mini で実行中')).toBeInTheDocument();
+    expect(screen.getByText('最終確認 1 分前')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '再開' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'フォーク' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'この PC で再開' })).toBeNull();
+  });
+  // 文言は presenter の lock.label をそのまま出す。View は色だけを変える。
+  it('応答が無いロックは警告の色で出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} lock={staleLock} /></IntentRoot>);
+    expect(screen.getByText('mini が応答がありません')).toHaveClass('warn');
+    expect(screen.getByText('最終確認 5 分前')).toBeInTheDocument();
+    expect(screen.queryByText('mini で実行中')).toBeNull();
+    expect(screen.getByText('mini が応答がありません')).not.toHaveClass('lock');
+  });
+  it('写しだけのセッションはこの PC で再開を出す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} remoteOnly canResumeHere /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
+    expect(screen.getByText('本文は他の端末にあります')).toBeInTheDocument();
+  });
+  // Ruling 14。相手が落ちて heartbeat だけ残った状態を行き止まりにしない。
+  it('応答の無いロックからもこの PC で再開に逃げられる', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} lock={staleLock} canResumeHere /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
+    expect(screen.getByRole('button', { name: '再開' })).toBeDisabled();
+  });
+  it('ロックが無ければこの PC で再開は出ない', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
+    expect(screen.queryByRole('button', { name: 'この PC で再開' })).toBeNull();
+    expect(screen.queryByText('本文は他の端末にあります')).toBeNull();
+    expect(screen.getByRole('button', { name: '再開' })).not.toBeDisabled();
+  });
+  // 引き継ぎはこのフェーズでは作らない（利用者の決定 1）。
+  it('引き継ぎのボタンは出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} lock={lock} /></IntentRoot>);
+    expect(screen.queryByRole('button', { name: /引き継/ })).toBeNull();
   });
 });
 
