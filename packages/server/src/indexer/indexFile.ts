@@ -5,6 +5,7 @@ import { upsertShared } from '../db/shared.ts';
 import { readNewLines } from '../provider/claude-code/lines.ts';
 import { artifactCallOf, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
 import { indexTexts, normalizeRecord, recordFacts } from '../provider/claude-code/normalize.ts';
+import { localDay } from '../usage/aggregate.ts';
 import type { DiscoveredFile } from '../provider/types.ts';
 
 export const INDEXER_VERSION = 1;
@@ -21,6 +22,7 @@ type Acc = {
   cwd?: string; firstTs?: number; lastTs?: number; firstPrompt?: string; lastPrompt?: string;
   aiTitle?: string; customTitle?: string; agentName?: string; prUrl?: string; model?: string; effort?: string;
   userTurns: number; input: number; output: number;
+  daily: Map<string, { input: number; output: number }>;
 };
 
 /** provider と provider_session_id の組で sessions を引き、無ければ作って hangar 側の id を返す。 */
@@ -78,13 +80,15 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
       db.prepare('delete from artifact_versions where session_id = ? and deleted_at is null').run(sessionId);
       db.prepare('delete from artifact_calls where session_id = ?').run(sessionId);
     }
+    // 主線の作り直しでは日別の集計も消す。サブエージェントのぶんは主線の次の走査で積み直される。
+    if (reset && file.agentId === null) db.prepare('delete from usage_daily where session_id = ?').run(sessionId);
     const artifactIds = new Set<string>();
     const insCall = db.prepare('insert into artifact_calls (tool_id, session_id, file_path, description, favicon) values (?,?,?,?,?) on conflict(tool_id) do update set file_path = excluded.file_path, description = excluded.description, favicon = excluded.favicon');
     const getCall = db.prepare('select file_path, description, favicon from artifact_calls where tool_id = ? and session_id = ?');
     const projectOf = () => (db.prepare('select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null }).project_id;
     // seq は主線とサブエージェントで別々に振り、続きは既存の最大値の次から始める。
     let seq = reset ? 0 : ((db.prepare("select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ?").get(sessionId, agentKey) as { m: number | null }).m ?? -1) + 1;
-    const acc: Acc = { userTurns: 0, input: 0, output: 0 };
+    const acc: Acc = { userTurns: 0, input: 0, output: 0, daily: new Map() };
     parsed.forEach((p, i) => {
       const events = normalizeRecord(p.rec, seq, file.agentId);
       for (const ev of events) {
@@ -119,11 +123,18 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
       if (f.prUrl) acc.prUrl = f.prUrl;
       if (f.model) acc.model = f.model;
       if (f.effort) acc.effort = f.effort;
-      if (f.usage) { acc.input += f.usage.input; acc.output += f.usage.output; }
+      if (f.usage) {
+        acc.input += f.usage.input; acc.output += f.usage.output;
+        const day = localDay(f.ts ?? Date.now());
+        const cur = acc.daily.get(day) ?? { input: 0, output: 0 };
+        acc.daily.set(day, { input: cur.input + f.usage.input, output: cur.output + f.usage.output });
+      }
     });
     db.prepare(`insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version, last_error) values (?,?,?,?,?,?,?,null)
       on conflict(path) do update set session_id = excluded.session_id, agent_id = excluded.agent_id, size = excluded.size, mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes, indexer_version = excluded.indexer_version, last_error = null`)
       .run(file.path, sessionId, file.agentId, stat.size, mtime, read.nextByte, version);
+    const upDaily = db.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?) on conflict(session_id, day) do update set input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens');
+    for (const [day, v] of acc.daily) upDaily.run(sessionId, day, v.input, v.output);
     if (file.agentId === null) applySessionFacts(db, sessionId, acc, reset, opts.deviceId);
     else refreshFilesChanged(db, sessionId);
     artifactIdsOut = [...artifactIds];

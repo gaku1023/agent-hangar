@@ -5,6 +5,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { listTranscriptFiles } from '../provider/claude-code/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { indexFile } from './indexFile.ts';
+import { localDay } from '../usage/aggregate.ts';
 
 let dir: string;
 let db: Db;
@@ -154,5 +155,20 @@ describe('indexFile', () => {
     const r3 = indexFile(db, alphaMain(), { deviceId: DEV });
     expect(r3.artifactIds).toHaveLength(1);
     expect((db.prepare('select count(*) c from artifact_versions where session_id = ?').get(r0.sessionId) as { c: number }).c).toBe(1);
+  });
+
+  it('usage_daily に日別のトークンを積み、作り直しで二重にしない', () => {
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    const rows = () => db.prepare('select day, input_tokens i, output_tokens o from usage_daily where session_id = ? order by day').all(r.sessionId) as { day: string; i: number; o: number }[];
+    // フィクスチャの記録はすべて 2026-09-01 の UTC 10 時台なので、ローカル時刻でも 1 日に収まる。
+    const day = localDay(Date.parse('2026-09-01T10:00:05.000Z'));
+    expect(rows()).toEqual([{ day, i: 1110, o: 140 }]);
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    expect(rows()[0]!.i).toBeGreaterThan(1110);
+    db.prepare('update transcript_files set indexer_version = 0').run();
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]!.o).toBe(140 + 3);
   });
 });
