@@ -36,7 +36,7 @@ export async function runStatuslineInstall(o: {
     log(statuslineSnippet(o.port));
     return { installed: false, message: 'スクリプトが見つかりません' };
   }
-  if (fs.readFileSync(r.scriptPath, 'utf8').includes(STATUSLINE_MARKER)) return { installed: true, message: '既に追記されています' };
+  if (fs.readFileSync(r.scriptPath, 'utf8').includes(STATUSLINE_MARKER)) { log('既に追記されています'); return { installed: true, message: '既に追記されています' }; }
   log(`追記先: ${r.scriptPath}`);
   log('追記する内容:');
   log(statuslineSnippet(o.port));
