@@ -17,7 +17,7 @@ import { RunError, type RunManager } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
-import { authMiddleware } from './auth.ts';
+import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
 export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget'>;
@@ -70,6 +70,42 @@ const BODY_LIMITS = {
   todo: 4 * 1024,
   url: 2 * 1024,
 } as const;
+/**
+ * トークンのクッキーの寿命。
+ * 期限を書かないとブラウザを閉じたときに消え、そのたびに鍵付きの URL が要る。
+ * ブックマークから開き直せるように 1 年残す。
+ */
+const ENTRY_COOKIE_MAX_AGE = 31536000;
+/** UI の HTML と一緒に配るトークンのクッキー。 */
+const entryCookie = (token: string) => `hangar_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${ENTRY_COOKIE_MAX_AGE}`;
+/**
+ * 鍵を持たずに GET / を叩いたときに返す案内。
+ * トークンは書かない。ここは認証の前なので、誰が見ているか分からない。
+ */
+const ENTRY_NOTICE_HTML = `<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-hangar</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; display: grid; place-items: center; min-height: 100vh; background: #f7f7f8; color: #1b1b1f; font-family: system-ui, sans-serif; line-height: 1.8; }
+  main { max-width: 34rem; padding: 2rem; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  p { margin: 0 0 0.75rem; color: #44454b; }
+  code { background: #ececef; border-radius: 4px; padding: 0.1em 0.4em; font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<main>
+<h1>認証できていません</h1>
+<p><code>hangar start</code> が印字した鍵付きの URL から開いてください。</p>
+<p>一度そこから開けば、このブラウザには鍵が残ります。次からはブックマークでそのまま開けます。</p>
+</main>
+</body>
+</html>
+`;
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
 export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer });
@@ -575,7 +611,13 @@ export function createApp(deps: AppDeps): Hono {
     const assets = path.join(dist, 'assets');
     const index = () => fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
     app.get('/', (c) => {
-      c.header('Set-Cookie', `hangar_token=${deps.token}; HttpOnly; SameSite=Strict; Path=/`);
+      // 鍵付きの URL で開かれたか、もうクッキーを持っているときだけ UI を配る。
+      // 素の GET / にクッキーを配ると、curl 1 本で誰でもトークンを取れてしまう。
+      const authed = tokenEquals(c.req.query('t'), deps.token) || tokenEquals(tokenFromRequest(c.req.raw.headers, c.req.header('cookie')), deps.token);
+      c.header('Cache-Control', 'no-store');
+      if (!authed) return c.html(ENTRY_NOTICE_HTML, 401);
+      // ここで鍵をクッキーに換える。URL に残った鍵は UI が history.replaceState で消す。
+      c.header('Set-Cookie', entryCookie(deps.token));
       return c.html(index());
     });
     app.get('/assets/*', (c) => {

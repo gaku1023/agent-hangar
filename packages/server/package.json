@@ -6,7 +6,7 @@
   "main": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc -p .",
-    "dev": "tsx watch src/main.ts",
+    "dev": "HANGAR_DEV=1 tsx watch src/main.ts",
     "start": "tsx src/main.ts"
   },
   "dependencies": {

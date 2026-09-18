@@ -117,11 +117,12 @@ describe('auth', () => {
     const other = createApp({ ...deps, port: 4198 });
     // 403 かどうかだけを見たいので、状態を変えない本文を送る（存在しない path なので 400 になる）。
     const req = (origin: string) => other.request('/api/projects', { method: 'POST', headers: { ...H, origin, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) });
-    for (const o of ['http://127.0.0.1:4198', 'http://localhost:4198', 'http://127.0.0.1:5173', 'http://localhost:5173', 'tauri://localhost']) {
+    for (const o of ['http://127.0.0.1:4198', 'http://localhost:4198', 'tauri://localhost']) {
       expect([o, (await req(o)).status]).toEqual([o, 400]);
     }
     // 無関係の Origin と、待ち受けていないポートは 403 のままにする。許可を広げない。
-    for (const o of ['https://evil.example', 'http://127.0.0.1:4177', 'http://localhost:4177', 'http://127.0.0.1:4199']) {
+    // 開発用の Vite の 5173 も、配ったものでは断る。
+    for (const o of ['https://evil.example', 'http://127.0.0.1:4177', 'http://localhost:4177', 'http://127.0.0.1:4199', 'http://127.0.0.1:5173', 'http://localhost:5173']) {
       expect([o, (await req(o)).status]).toEqual([o, 403]);
     }
     // MCP の入口も同じ考え方でそろえる。開発用の Vite だけは MCP に要らない。
@@ -129,6 +130,59 @@ describe('auth', () => {
     expect((await mcp('http://127.0.0.1:4198')).status).toBe(200);
     expect((await mcp('http://127.0.0.1:4177')).status).toBe(403);
     expect((await mcp('https://evil.example')).status).toBe(403);
+  });
+
+  // 127.0.0.1 の別のポートは「同一サイト」なので、SameSite=Strict のクッキーが載る。
+  // Content-Type を text/plain にすれば前検査も起きないので、クッキーだけで書き込めてしまっていた。
+  // ブラウザは本文を送るとき必ず Content-Length を付ける。本文の型の検査はそれを見る。
+  const cookieOnlyPost = (headers: Record<string, string>) => {
+    const body = JSON.stringify({ name: 'x', path: '/nonexistent' });
+    return app.request('/api/projects', { method: 'POST', headers: { cookie: `hangar_token=${TOKEN}`, 'content-length': String(body.length), ...headers }, body });
+  };
+
+  it('クッキーだけの書き込みは Sec-Fetch-Site で断る', async () => {
+    // 5173 の Origin はもう許可一覧に無いので、まず Origin で 403 になる。
+    expect((await cookieOnlyPost({ origin: 'http://127.0.0.1:5173', 'sec-fetch-site': 'same-site', 'content-type': 'text/plain;charset=UTF-8' })).status).toBe(403);
+    // Origin を送らない経路でも、Sec-Fetch-Site が same-site なら断る。
+    expect((await cookieOnlyPost({ 'sec-fetch-site': 'same-site', 'content-type': 'text/plain;charset=UTF-8' })).status).toBe(403);
+    expect((await cookieOnlyPost({ 'sec-fetch-site': 'cross-site', 'content-type': 'application/json' })).status).toBe(403);
+    // どの検査で断ったかを分からせない。Origin の拒否と同じ応答にそろえる。
+    const r = await cookieOnlyPost({ 'sec-fetch-site': 'same-site', 'content-type': 'application/json' });
+    expect([r.status, ((await r.json()) as { error: string }).error]).toEqual([403, 'origin not allowed']);
+  });
+
+  it('本文を送る要求は application/json だけを受ける', async () => {
+    expect((await cookieOnlyPost({ 'sec-fetch-site': 'same-origin', 'content-type': 'text/plain;charset=UTF-8' })).status).toBe(415);
+    expect((await cookieOnlyPost({ 'sec-fetch-site': 'same-origin', 'content-type': 'application/x-www-form-urlencoded' })).status).toBe(415);
+    // 型が正しければ今までどおり経路まで届く（存在しない path なので 400 になる）。
+    expect((await cookieOnlyPost({ 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' })).status).toBe(400);
+  });
+
+  it('正しい経路は今までどおり通る', async () => {
+    // Bearer を付けた curl は Sec-Fetch-Site を送らない。
+    expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) })).status).toBe(400);
+    // 本文を持たない curl -X POST は Content-Length も Transfer-Encoding も付けない。今までどおり通す。
+    expect((await app.request('/api/index/rebuild', { method: 'POST', headers: H })).status).toBe(202);
+    // ブラウザで開いた UI は same-origin になる。
+    expect((await cookieOnlyPost({ origin: 'http://127.0.0.1:4177', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' })).status).toBe(400);
+    // 本文を持たない POST は Content-Type を問わない。
+    expect((await app.request('/api/index/rebuild', { method: 'POST', headers: { ...H, 'sec-fetch-site': 'same-origin' } })).status).toBe(202);
+  });
+
+  it('開発のときは Vite の 5173 を通す', async () => {
+    vi.stubEnv('HANGAR_DEV', '1');
+    try {
+      // npm run dev では Vite のプロキシが Authorization を足して中継する。
+      // ブラウザから見た宛先は 5173 なので Sec-Fetch-Site は same-origin、Origin は 5173 になる。
+      const viaProxy = await app.request('/api/projects', { method: 'POST', headers: { ...H, origin: 'http://127.0.0.1:5173', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) });
+      expect(viaProxy.status).toBe(400);
+      // 5173 のページが直に叩く形も、開発のときだけは通す。
+      expect((await cookieOnlyPost({ origin: 'http://127.0.0.1:5173', 'sec-fetch-site': 'same-site', 'content-type': 'application/json' })).status).toBe(400);
+      // 開発でも、まったく別のサイトからは通さない。
+      expect((await cookieOnlyPost({ origin: 'https://evil.example', 'sec-fetch-site': 'cross-site', 'content-type': 'application/json' })).status).toBe(403);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -334,7 +388,7 @@ describe('routes', () => {
     expect(sent.find((e) => e.type === 'usage.update')).toMatchObject({ usage: { fiveHour: { usedPercent: 47 }, sevenDay: { usedPercent: 7 } } });
     expect((await json(await get('/api/usage'))).body).toMatchObject({ fiveHour: { usedPercent: 47 } });
     expect((await json(await get(`/api/sessions/${await alphaId()}`))).body.stats.contextPercent).toBe(25);
-    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: H, body: 'not json' })).status).toBe(400);
+    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: 'not json' })).status).toBe(400);
     // 認証は他の /api と同じ。トークンが無ければ受け付けない。
     expect((await app.request('/api/ingest/statusline', { method: 'POST', body: '{}' })).status).toBe(401);
     const agg = await json(await get('/api/usage/aggregate?days=30'));
@@ -430,7 +484,7 @@ describe('routes', () => {
     expect(sent.some((e) => e.type === 'memo.update')).toBe(false);
     expect((await post(`/api/projects/${pid}/todos`, { text: 'あ'.repeat(2000) })).status).toBe(413);
     expect((await post(`/api/projects/${pid}/artifacts`, { url: 'https://claude.ai/code/artifact/' + 'a'.repeat(3000) })).status).toBe(413);
-    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: H, body: JSON.stringify({ session_id: 'あ'.repeat(100 * 1024) }) })).status).toBe(413);
+    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ session_id: 'あ'.repeat(100 * 1024) }) })).status).toBe(413);
     expect((await post(`/api/sessions/${await alphaId()}`, { memo: 'あ'.repeat(2000) }, 'PATCH')).status).toBe(413);
     // 経路ごとの指定が無い本文にも既定の上限が効く。
     expect((await post('/api/settings', { workspaceRoot: 'あ'.repeat(40 * 1024) }, 'PATCH')).status).toBe(413);
@@ -474,7 +528,7 @@ describe('routes', () => {
     expect(r.status).toBe(200);
     expect((await app.request('/mcp', { method: 'POST', body: '{}' })).status).toBe(401);
   });
-  it('uiDist があれば / でクッキーを付けて index.html を返し、assets も配る', async () => {
+  it('uiDist があれば 鍵付きの / でクッキーを配り、assets も配る', async () => {
     const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-dist-'));
     try {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
@@ -482,10 +536,26 @@ describe('routes', () => {
       fs.writeFileSync(path.join(dist, 'assets', 'a.js'), 'console.log(1)');
       const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
       const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), uiDist: dist });
-      const r = await ui.request('/');
+      // 鍵を持たない GET / にはクッキーを配らない。curl 1 本でトークンが取れてはいけない。
+      const bare = await ui.request('/');
+      expect(bare.status).toBe(401);
+      expect(bare.headers.get('set-cookie')).toBeNull();
+      const notice = await bare.text();
+      expect(notice).not.toContain(TOKEN);
+      expect(notice).toContain('hangar start');
+      // 鍵が違うときも同じ扱いにする。
+      const wrong = await ui.request('/?t=nope');
+      expect(wrong.status).toBe(401);
+      expect(wrong.headers.get('set-cookie')).toBeNull();
+      // 鍵付きで開くと、ここでクッキーに換わる。ブックマークから開き直せるよう Max-Age を付ける。
+      const r = await ui.request(`/?t=${TOKEN}`);
       expect(r.status).toBe(200);
-      expect(r.headers.get('set-cookie')).toBe(`hangar_token=${TOKEN}; HttpOnly; SameSite=Strict; Path=/`);
+      expect(r.headers.get('set-cookie')).toBe(`hangar_token=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
       expect(await r.text()).toBe('<html>hi</html>');
+      // 一度クッキーを持てば、鍵の無い URL でもそのまま開ける。
+      const again = await ui.request('/', { headers: { cookie: `hangar_token=${TOKEN}` } });
+      expect(again.status).toBe(200);
+      expect(await again.text()).toBe('<html>hi</html>');
       const a = await ui.request('/assets/a.js');
       expect(a.status).toBe(200);
       expect(a.headers.get('content-type')).toBe('text/javascript');

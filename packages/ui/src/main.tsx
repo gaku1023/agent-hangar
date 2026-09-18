@@ -10,6 +10,7 @@ import './styles/palette.css';
 import './styles/settings.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
+import { stripEntryToken } from './runtime/entryToken.ts';
 import { createRuntime } from './runtime/runtime.ts';
 import { createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
@@ -18,6 +19,10 @@ import { createXterm } from './runtime/xterm.ts';
 // フォーカスの対象と、それを持つ要素の id の対応。
 // ターミナルは DOM の id では掴めないので、TerminalHost が別に受け持つ。
 const FOCUS_IDS = { search: 'global-search', newSessionName: 'new-session-name', palette: 'palette-input', promoteName: 'promote-name', todoInput: 'todo-input' } as const;
+
+// 鍵付きの URL で開かれたときは、サーバがもうクッキーを配り終えている。
+// 履歴に鍵を残さないよう、ここで URL から消す。ハッシュの経路は残す。
+stripEntryToken(location.href, (u) => history.replaceState(null, '', u));
 
 const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const api = createApi();
