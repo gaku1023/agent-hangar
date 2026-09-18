@@ -24,7 +24,9 @@ export function authMiddleware(token: string): MiddlewareHandler {
   return async (c, next) => {
     if (!originAllowed(c.req.header('origin'))) return c.json({ error: 'origin not allowed' }, 403);
     const got = tokenFromRequest(c.req.raw.headers, c.req.header('cookie'));
-    if (got !== token) return c.json({ error: 'unauthorized' }, 401);
+    // クッキーは UI の HTML を配るときに発行するので、トークンが変わった後の
+    // 開きっぱなしのタブはここに落ちる。UI はこの文をそのままトーストに出す。
+    if (got !== token) return c.json({ error: '認証が切れました。ページを再読み込みしてください' }, 401);
     await next();
   };
 }

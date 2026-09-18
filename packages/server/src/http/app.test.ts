@@ -308,9 +308,11 @@ describe('失敗の理由', () => {
     expect(await reason(await patch('/api/settings', { token: 'stolen' }))).toBe('更新できる設定が含まれていません');
   });
 
-  it('認証の拒否は機械向けの語を残す', async () => {
-    // ここはブラウザの UI が普段は踏まない経路で、読み手は curl や別サイトからの要求である。
-    expect(await reason(await get('/api/bootstrap', {}))).toBe('unauthorized');
+  it('認証が通らない失敗は日本語で、Origin の拒否は機械向けの語を残す', async () => {
+    // クッキーは UI の HTML を配る経路で発行するので、トークンが変わった後に
+    // 開きっぱなしのタブが API を叩くと 401 になり、この文がそのままトーストに出る。
+    expect(await reason(await get('/api/bootstrap', {}))).toBe('認証が切れました。ページを再読み込みしてください');
+    // Origin の拒否は別サイトからの要求を入口で断る応答で、利用者の画面には届かない。
     expect(await reason(await get('/api/bootstrap', { ...H, origin: 'https://evil.example' }))).toBe('origin not allowed');
   });
 });
