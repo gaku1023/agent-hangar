@@ -20,14 +20,21 @@ describe('which', () => {
 });
 
 describe('resolveToolPaths', () => {
+  const base = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null };
   it('null の項目だけを埋める', () => {
-    const s = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: '/keep/code' };
-    const r = resolveToolPaths(s, (c) => (c === 'tmux' ? '/opt/homebrew/bin/tmux' : '/found/' + c));
+    const r = resolveToolPaths({ ...base, codePath: '/keep/code' }, (c) => (c === 'tmux' ? '/opt/homebrew/bin/tmux' : '/found/' + c));
     expect(r.tmuxPath).toBe('/opt/homebrew/bin/tmux');
     expect(r.codePath).toBe('/keep/code');
   });
   it('見つからなければ null のまま', () => {
-    const s = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null };
-    expect(resolveToolPaths(s, () => null)).toEqual(s);
+    expect(resolveToolPaths(base, () => null)).toEqual({ ...base, toolsResolved: true });
+  });
+  it('一度探した後は、利用者が外した null をそのままにする', () => {
+    // Settings で tmuxPath を空にしたのに、起動のたびに which の結果が入ると
+    // 「tmux を使わない」設定が固定できない。
+    const once = resolveToolPaths(base, () => '/found/tool');
+    expect(once.toolsResolved).toBe(true);
+    const cleared = { ...once, tmuxPath: null };
+    expect(resolveToolPaths(cleared, () => '/found/tool')).toEqual(cleared);
   });
 });

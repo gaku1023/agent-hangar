@@ -35,10 +35,18 @@ describe('paths', () => {
     saveSettings(tmp, { ...s, workspaceRoot: '/tmp/ws' });
     expect(loadSettings(tmp).workspaceRoot).toBe('/tmp/ws');
   });
+  it('設定は 0600 で保存し、緩い権限のまま残さない', () => {
+    // claudeDir や workspaceRoot は端末の中身を明かすので、token や device.json と同じ扱いにする。
+    ensureHome(tmp);
+    const file = path.join(tmp, 'settings.json');
+    fs.writeFileSync(file, '{}', { mode: 0o644 });
+    saveSettings(tmp, loadSettings(tmp));
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
   it('古い settings.json に無い項目は既定値で埋める', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
     const s = loadSettings(tmp);
-    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null });
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false });
   });
 });

@@ -14,7 +14,12 @@ export function which(cmd: string, env: NodeJS.ProcessEnv = process.env): string
   return null;
 }
 
-/** 設定に無いツールのパスを探して埋める。既に入っている値は変えない。 */
+/**
+ * 設定に無いツールのパスを探して埋める。既に入っている値は変えない。
+ * 探すのは最初の一度だけにする。毎回埋め直すと、利用者が Settings で空にした tmuxPath が
+ * 次の起動で which の結果に戻ってしまい、「tmux を使わない」設定が固定できない。
+ */
 export function resolveToolPaths(s: Settings, whichFn: (cmd: string) => string | null = which): Settings {
-  return { ...s, tmuxPath: s.tmuxPath ?? whichFn('tmux'), codePath: s.codePath ?? whichFn('code') };
+  if (s.toolsResolved) return s;
+  return { ...s, tmuxPath: s.tmuxPath ?? whichFn('tmux'), codePath: s.codePath ?? whichFn('code'), toolsResolved: true };
 }

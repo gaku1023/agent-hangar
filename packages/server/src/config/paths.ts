@@ -5,7 +5,18 @@ import path from 'node:path';
 import { newId, type TerminalApp } from '@agent-hangar/shared';
 
 export type DeviceInfo = { id: string; name: string; platform: string };
-export type Settings = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null };
+export type Settings = {
+  workspaceRoot: string;
+  claudeDir: string;
+  tmuxPath: string | null;
+  terminalApp: TerminalApp;
+  codePath: string | null;
+  /**
+   * ツールのパスを一度探したかどうか。二度目からは、利用者が空にした null をそのまま尊重する。
+   * この項目が無い古い settings.json は、まだ探していないものとして扱う。
+   */
+  toolsResolved?: boolean;
+};
 
 export function hangarHome(): string {
   return process.env.HANGAR_HOME ?? path.join(os.homedir(), '.agent-hangar');
@@ -40,7 +51,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false };
 }
 
 export function loadSettings(home: string): Settings {
@@ -50,5 +61,8 @@ export function loadSettings(home: string): Settings {
 }
 
 export function saveSettings(home: string, s: Settings): void {
-  fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify(s, null, 2) + '\n');
+  // token や device.json と同じ 0600 にする。mode は新しく作るときにしか効かないので、既にある分は chmod で直す。
+  const file = path.join(home, 'settings.json');
+  fs.writeFileSync(file, JSON.stringify(s, null, 2) + '\n', { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
 }
