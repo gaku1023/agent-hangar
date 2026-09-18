@@ -363,6 +363,9 @@ describe('パレット', () => {
     expect(d.effects).toEqual([{ kind: 'navigate', route: { name: 'project', id: 'p1' } }]);
     const e = run([intent({ type: 'palette.run', command: { id: 'session:s1', label: 'x' } })], opened());
     expect(e.effects).toEqual([{ kind: 'navigate', route: { name: 'session', id: 's1' } }]);
+    const g = run([intent({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新しいセッション' } })], opened());
+    expect(g.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: false });
+    expect(g.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
     const f = run([intent({ type: 'palette.run', command: { id: 'nope', label: '' } })], opened());
     expect(f.state.overlay).toEqual({ kind: 'none' });
     expect(f.effects).toEqual([]);
@@ -370,6 +373,12 @@ describe('パレット', () => {
 });
 
 describe('分割', () => {
+  // 左に left、右に right を置いた分割中のセッション画面を作る。
+  const split = (left: string, right: string) => {
+    let s = run([intent({ type: 'tab.select', tabId: left })], onSession('s1')).state;
+    s = run([intent({ type: 'split.toggle' })], s).state;
+    return run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: right })], s).state;
+  };
   it('開くときはランタイムに右のタブを決めさせ、閉じるときはその場で消す', () => {
     const on = onSession('s1');
     const a = run([intent({ type: 'split.toggle' })], on);
@@ -389,11 +398,25 @@ describe('分割', () => {
     expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '分割にはタブが 2 つ必要です' }]);
   });
   it('分割中に右のタブを選ぶと左右が入れ替わる', () => {
-    let s = run([intent({ type: 'tab.select', tabId: 't1' })], onSession('s1')).state;
-    s = run([intent({ type: 'split.toggle' })], s).state;
-    s = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: 't2' })], s).state;
-    const r = run([intent({ type: 'tab.select', tabId: 't2' })], s);
+    const r = run([intent({ type: 'tab.select', tabId: 't2' })], split('t1', 't2'));
     expect(r.state.sessionView.s1).toMatchObject({ selectedTab: 't2', splitTab: 't1' });
+  });
+  it('右のタブが閉じたら分割を畳む', () => {
+    const s = split('t1', 't2');
+    const a = run([server({ type: 'tab.upsert', tab: { ...tabDto('t2', 'r1', 5), sessionId: 's1' } })], s);
+    expect(a.state.sessionView.s1).toMatchObject({ selectedTab: 't1', split: false, splitTab: null });
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: a.state.sessionView.s1 }, { kind: 'terminal.disconnect', tabId: 't2' }]);
+  });
+  it('tab.close で右のタブを閉じても分割を畳む', () => {
+    const s = split('t1', 't2');
+    const a = run([intent({ type: 'tab.close', tabId: 't2' })], s);
+    expect(a.state.sessionView.s1).toMatchObject({ selectedTab: 't1', split: false, splitTab: null });
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: a.state.sessionView.s1 }, { kind: 'api.closeTab', tabId: 't2' }]);
+  });
+  it('左のタブが閉じても右は残す', () => {
+    const s = split('t1', 't2');
+    const a = run([intent({ type: 'tab.close', tabId: 't1' })], s);
+    expect(a.state.sessionView.s1).toMatchObject({ selectedTab: null, split: true, splitTab: 't2' });
   });
   it('セッション画面にいないときの split.toggle は何もしない', () => {
     const r = run([intent({ type: 'split.toggle' })]);

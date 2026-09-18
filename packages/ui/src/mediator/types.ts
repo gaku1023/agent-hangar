@@ -65,9 +65,15 @@ export type State = {
   launch: LaunchState;
   /** すでにトーストで知らせた waiting のセッション。busy に戻ったら忘れる。 */
   waitingSeen: string[];
-  /** 昇格ダイアログの進み。起動と同じ形の状態を使う。 */
+  /**
+   * 昇格ダイアログの進み。
+   * 起動と同じ形の状態を使う。
+   */
   promote: LaunchState;
-  /** 事後要約に失敗したセッション。ヘッダーの要約の横に出す。 */
+  /**
+   * 事後要約に失敗したセッション。
+   * ヘッダーの要約の横に出す。
+   */
   summaryFailed: Record<string, string>;
   toasts: Toast[]; unresolvedQueue: string[]; nextToastId: number;
   /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
