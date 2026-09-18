@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
-import { FakeTimers } from '../../test/fake-timers.ts';
+import { FakeTimers, flush } from '../../test/fake-timers.ts';
 import { SyncEngine } from './engine.ts';
 import { QuotaCounter } from './quota.ts';
 import { SyncStateStore } from './state.ts';
@@ -216,5 +216,207 @@ describe('SyncEngine の push', () => {
     expect(e.status().claudeConfig).toEqual({ enabled: true, confirmed: false });
     expect(seen).toEqual([{ enabled: true, confirmed: false }]);
     e.stop();
+  });
+});
+
+/**
+ * pull は 2 端末で確かめる。
+ * FakeCloudClient の asDevice は同じストアを別端末として見せるので、a が push したものを b が受け取れる。
+ */
+describe('SyncEngine の pull', () => {
+  let dbB: Db;
+  let cloudB: FakeCloudClient;
+  const makeB = (over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}) =>
+    new SyncEngine({ db: dbB, deviceId: 'b', client: cloudB, now: () => timers.now, timers, url: 'https://h', ...over });
+  /** upsertShared の updated_at は実時間の Date.now() なので、書き込みの前に実時間を少し進めて順序を確実にする。 */
+  const realDelay = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms); });
+
+  beforeEach(() => { dbB = openDb(':memory:'); cloudB = cloud.asDevice('b'); });
+
+  it('初回は rows の写しを受け、以後は差分を受け、changes には積まない', async () => {
+    const a = make();
+    await a.start();
+    project('p1');
+    await a.pushNow();
+    const b = makeB();
+    const applied: string[] = [];
+    let pulled = 0;
+    b.on({ applied: (c) => applied.push(`${c.tableName}:${c.rowId}`), pulled: () => pulled++ });
+    await b.start();
+    expect((dbB.prepare('select name from projects where id = ?').get('p1') as { name: string }).name).toBe('p1');
+    expect((dbB.prepare('select count(*) c from changes').get() as { c: number }).c).toBe(0);
+    expect(applied).toEqual(['projects:p1']);
+    expect(pulled).toBe(1);
+    expect(b.state.get('snapshotDone')).toBe('1');
+    expect(b.state.getNumber('lastSeq', -1)).toBe(1);
+    expect(cloudB.calls.filter((c) => c.method === 'snapshot')).toHaveLength(1);
+    project('p2');
+    await a.pushNow();
+    await b.pullNow();
+    expect(applied).toEqual(['projects:p1', 'projects:p2']);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(2);
+    expect(cloudB.calls.filter((c) => c.method === 'pullChanges').at(-1)?.args[0]).toBe(1);
+    expect(b.status()).toMatchObject({ state: 'idle', lastPullAt: timers.now });
+    a.stop(); b.stop();
+  });
+
+  it('30 秒ごとに push と pull を回す', async () => {
+    const a = make();
+    const b = makeB();
+    await a.start(); await b.start();
+    project('p1');
+    await timers.advance(30_000);
+    expect(dbB.prepare('select 1 from projects where id = ?').get('p1')).toBeTruthy();
+    a.stop(); b.stop();
+  });
+
+  it('両端末が同じ行を変えたら updated_at の新しい方に揃う', async () => {
+    const a = make(); const b = makeB();
+    await a.start(); await b.start();
+    project('p1', 'from-a');
+    await a.pushNow(); await b.pullNow();
+    timers.now += 10; await realDelay(2);
+    upsertShared(dbB, 'projects', { ...(dbB.prepare('select * from projects where id = ?').get('p1') as Record<string, unknown>), name: 'from-b' }, 'b');
+    timers.now += 10; await realDelay(2);
+    upsertShared(db, 'projects', { ...(db.prepare('select * from projects where id = ?').get('p1') as Record<string, unknown>), name: 'from-a-2' }, 'a');
+    await b.pushNow(); await a.pushNow();
+    await a.pullNow(); await b.pullNow();
+    const nameA = (db.prepare('select name from projects where id = ?').get('p1') as { name: string }).name;
+    const nameB = (dbB.prepare('select name from projects where id = ?').get('p1') as { name: string }).name;
+    expect(nameA).toBe(nameB);
+    expect(nameA).toBe('from-a-2');
+    a.stop(); b.stop();
+  });
+
+  it('圧縮で消えた区間を指したら、全件の写しから作り直す', async () => {
+    const a = make();
+    await a.start();
+    project('p1');
+    await a.pushNow();
+    const b = makeB();
+    await b.start();
+    expect(b.state.getNumber('lastSeq', -1)).toBe(1);
+
+    project('p2'); await a.pushNow();
+    project('p3'); await a.pushNow();
+    // b がまだ読んでいない区間を Worker が圧縮で削った。
+    cloud.compact(3);
+
+    const applied: string[] = [];
+    const toasts: string[] = [];
+    b.on({ applied: (c) => applied.push(c.rowId), toast: (_l, m) => toasts.push(m) });
+    await b.pullNow();
+
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]).toContain('作り直');
+    expect(applied).toEqual(['p2', 'p3']);
+    expect((dbB.prepare('select id from projects order by id').all() as { id: string }[]).map((r) => r.id)).toEqual(['p1', 'p2', 'p3']);
+    expect(b.state.get('snapshotDone')).toBe('1');
+    expect(b.state.getNumber('lastSeq', -1)).toBe(3);
+    expect(cloudB.calls.filter((c) => c.method === 'snapshot')).toHaveLength(2);
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    a.stop(); b.stop();
+  });
+
+  it('410 の後の写しは最後のページまで読み切ってから差分に戻る', async () => {
+    const a = make();
+    await a.start();
+    project('p1');
+    await a.pushNow();
+    // Worker の 1 ページの大きさを小さくして、写しが複数ページに割れる状況を作る。
+    const paged = cloud.asDevice('b');
+    const origSnap = paged.snapshot.bind(paged);
+    let pageLimit = 500;
+    paged.snapshot = (after) => origSnap(after, pageLimit);
+    const b = makeB({ client: paged });
+    await b.start();
+
+    for (const id of ['p2', 'p3', 'p4', 'p5']) { project(id); await a.pushNow(); }
+    cloud.compact(5);
+    pageLimit = 2;
+    await b.pullNow();
+
+    // 途中のページで止めて since だけ進めると、ここで p3 以降を永久に取りこぼす。
+    expect(paged.calls.filter((c) => c.method === 'snapshot')).toHaveLength(1 + 3);
+    expect((dbB.prepare('select id from projects order by id').all() as { id: string }[]).map((r) => r.id)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5']);
+    expect(b.state.getNumber('lastSeq', -1)).toBe(5);
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    a.stop(); b.stop();
+  });
+
+  it('メモが他端末の新しい版で上書きされるとき、手元の本文を呼び手へ渡す', async () => {
+    const conflicts: { projectId: string; markdown: string; deviceName: string }[] = [];
+    const a = make();
+    await a.start();
+    project('p1');
+    await a.pushNow();
+    const b = makeB({ onMemoConflict: (o: { projectId: string; markdown: string; deviceName: string }) => conflicts.push(o) });
+    await b.start();
+    upsertShared(dbB, 'devices', { id: 'b', name: 'MacBook', platform: 'darwin' }, 'b');
+    upsertShared(dbB, 'project_memos', { project_id: 'p1', markdown: '手元のメモ' }, 'b', 'project_id');
+    await realDelay(2);
+    upsertShared(db, 'project_memos', { project_id: 'p1', markdown: '相手のメモ' }, 'a', 'project_id');
+    await a.pushNow();
+    await b.pullNow();
+    expect(conflicts).toEqual([{ projectId: 'p1', markdown: '手元のメモ', deviceName: 'MacBook' }]);
+    expect((dbB.prepare('select markdown from project_memos where project_id = ?').get('p1') as { markdown: string }).markdown).toBe('相手のメモ');
+    a.stop(); b.stop();
+  });
+
+  it('pull の要求も無料枠に数える', async () => {
+    const b = makeB();
+    await b.start();
+    // 初回は snapshot 1 回と changes 1 回である。
+    expect(b.quota.today().requests).toBe(2);
+    await b.pullNow();
+    expect(b.quota.today().requests).toBe(3);
+    b.stop();
+  });
+
+  it('pullBeforeLaunch は 2 秒で諦め、pull 自体は続く', async () => {
+    let release: () => void = () => {};
+    const slow = cloud.asDevice('b');
+    const orig = slow.pullChanges.bind(slow);
+    slow.pullChanges = (since, limit) => new Promise((r) => { release = () => { void orig(since, limit).then(r); }; });
+    slow.snapshot = async () => ({ changes: [], nextAfter: null, seq: 0 });
+    const b = makeB({ client: slow });
+    b.state.set('snapshotDone', true);
+    const p = b.pullBeforeLaunch(2000);
+    await timers.advance(2000);
+    expect(await p).toBe(false);
+    release();
+    await flush();
+    expect(b.status().state).toBe('idle');
+    const fast = makeB();
+    fast.state.set('snapshotDone', true);
+    expect(await fast.pullBeforeLaunch(2000)).toBe(true);
+    cloudB.offline = true;
+    expect(await fast.pullBeforeLaunch(2000)).toBe(false);
+    cloudB.offline = false;
+  });
+
+  it('onFocus は 5 秒以内の連続では pull しない', async () => {
+    const b = makeB();
+    await b.start();
+    const n = () => cloudB.calls.filter((c) => c.method === 'pullChanges').length;
+    const before = n();
+    await b.onFocus();
+    expect(n()).toBe(before);
+    timers.now += 6000;
+    await b.onFocus();
+    expect(n()).toBe(before + 1);
+    b.stop();
+  });
+
+  it('pull の失敗は error になり、次の成功で消える', async () => {
+    const b = makeB();
+    await b.start();
+    cloudB.offline = true;
+    await b.pullNow();
+    expect(b.status()).toMatchObject({ state: 'error' });
+    cloudB.offline = false;
+    await b.pullNow();
+    expect(b.status()).toMatchObject({ state: 'idle', error: null });
+    b.stop();
   });
 });

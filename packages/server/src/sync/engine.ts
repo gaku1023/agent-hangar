@@ -1,7 +1,8 @@
-import { MAX_PUSH_BATCH, type ChangeIn, type ChangeOp, type ChangeOut, type SharedTable, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
+import { MAX_PUSH_BATCH, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOut, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onSharedWrite } from '../db/shared.ts';
-import { CloudError, type CloudClient } from './client.ts';
+import { applyRemoteBatch, type MemoConflict } from './apply.ts';
+import { CloudError, goneFloor, type CloudClient } from './client.ts';
 import { QuotaCounter, quotaDayKey } from './quota.ts';
 import { SyncStateStore } from './state.ts';
 
@@ -13,6 +14,12 @@ export type SyncEngineDeps = {
   now?: () => number; timers?: Timers;
   pushDebounceMs?: number; pushMinGapMs?: number; pullIntervalMs?: number; focusMinGapMs?: number;
   quota?: QuotaCounter;
+  /**
+   * 他端末の新しいメモで手元のメモを上書きする直前に呼ばれる。
+   * 呼び手は負けた本文を memo.conflict-<端末名>-<時刻>.md として隣に残す。
+   * 投げるとその行は適用しない（控えの取れないまま利用者の文章を消さない）。
+   */
+  onMemoConflict?: (o: MemoConflict) => void;
 };
 
 export type SyncListener = {
@@ -34,6 +41,7 @@ const PUSH_DEBOUNCE_MS = 1_000;
 const PUSH_MIN_GAP_MS = 10_000;
 const PULL_INTERVAL_MS = 30_000;
 const QUOTA_PAUSED_MESSAGE = '無料枠の 80% に達したので同期を止めました。Settings で再開できます';
+const RESYNC_MESSAGE = 'クラウドの変更ログが古くなっていたので、同期を作り直しました';
 
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
 
@@ -210,7 +218,7 @@ export class SyncEngine {
    * 止めるのは 1 日に 1 度だけで、利用者が再開を押した後はその日は押し返さない。
    * 一時停止そのものは日付が変わっても自動では解けない。
    */
-  private guardQuota(): boolean {
+  protected guardQuota(): boolean {
     const day = quotaDayKey(this.now());
     if (this.quotaPausedDay === day || this.paused) return false;
     if (!this.quota.exceeded()) return false;
@@ -226,7 +234,119 @@ export class SyncEngine {
     this.emitStatus();
   }
 
-  // pull 系は Task 10 で実装する。
-  pullNow(): Promise<{ applied: number }> { return Promise.resolve({ applied: 0 }); }
-  async syncNow(): Promise<void> { await this.pushNow(); await this.pullNow(); }
+  /** 利用者が押した「今すぐ同期」と定期実行の入口。走っている pull があればそれに相乗りする。 */
+  pullNow(): Promise<{ applied: number }> {
+    if (!this.deps.client || this.paused) return Promise.resolve({ applied: 0 });
+    if (this.pulling) return this.pulling;
+    this.pulling = this.doPull(this.deps.client).finally(() => { this.pulling = null; this.emitStatus(); });
+    this.emitStatus();
+    return this.pulling;
+  }
+
+  /**
+   * クラウドへの 1 要求。無料枠は「届いた要求」だけを数える。
+   * そもそも繋がらなかったとき（CloudError の status 0）は Worker を呼んでいないので数えない。
+   */
+  private async request<T>(call: () => Promise<T>): Promise<T> {
+    try {
+      const v = await call();
+      this.quota.note({ requests: 1 });
+      return v;
+    } catch (e) {
+      if (e instanceof CloudError && e.status !== 0) this.quota.note({ requests: 1 });
+      throw e;
+    }
+  }
+
+  private applyPage(changes: ChangeOut[], skipOwn: boolean): number {
+    const applied = applyRemoteBatch(this.deps.db, changes, { ownDeviceId: this.deps.deviceId, skipOwn, onMemoConflict: this.deps.onMemoConflict });
+    for (const c of applied) this.emit('applied', c);
+    return applied.length;
+  }
+
+  /**
+   * 写しと差分を 1 巡読む。
+   *
+   * 写し（GET /rows）は nextAfter が null になるまで読み切ってから lastSeq を進める。
+   * 途中のページで止めて lastSeq だけ進めると、読まなかった鍵は差分にも載らないので永久に欠ける。
+   * Worker は端末がどこまで読んだかを覚えていないので、やり直せるのはこちら側だけである。
+   */
+  private async pullPass(client: CloudClient, count: { applied: number }): Promise<void> {
+    if (this.state.get('snapshotDone') !== '1') {
+      let after: string | null = null;
+      let seq = 0;
+      do {
+        const cursor: string | null = after;
+        const page: SnapshotResponse = await this.request(() => client.snapshot(cursor, PULL_LIMIT));
+        count.applied += this.applyPage(page.changes, false);
+        after = page.nextAfter;
+        seq = page.seq;
+      } while (after !== null);
+      this.state.set('lastSeq', Math.max(seq, this.state.getNumber('lastSeq', 0)));
+      this.state.set('snapshotDone', true);
+    }
+    let since = this.state.getNumber('lastSeq', 0);
+    for (;;) {
+      const at = since;
+      const page = await this.request(() => client.pullChanges(at, PULL_LIMIT));
+      count.applied += this.applyPage(page.changes, true);
+      since = page.nextSeq;
+      this.state.set('lastSeq', since);
+      if (!page.more) break;
+    }
+  }
+
+  /**
+   * 1 回の pull。
+   * GET /changes が 410 と { error: 'gone', floor } を返したら、圧縮でその区間が消えている。
+   * 差分では追いつけないので、lastSeq と snapshotDone を捨てて写しから作り直す。
+   * これが無いと、しばらく繋がらなかった端末が消えた区間の変更を永久に取りこぼす。
+   */
+  protected async doPull(client: CloudClient): Promise<{ applied: number }> {
+    const count = { applied: 0 };
+    try {
+      try {
+        await this.pullPass(client, count);
+      } catch (e) {
+        if (goneFloor(e) === null) throw e;
+        this.state.set('lastSeq', null);
+        this.state.set('snapshotDone', null);
+        this.emit('toast', 'info', RESYNC_MESSAGE);
+        // 作り直しは写しから始まるので、ここで二度目の 410 は出ない（出たら普通の失敗として扱う）。
+        await this.pullPass(client, count);
+      }
+      this.state.set('lastPullAt', this.now());
+      this.clearError();
+      this.emit('pulled');
+    } catch (e) {
+      this.fail(e);
+    }
+    // 途中で止めると写しが半端なまま snapshotDone が立ちうるので、枠の見張りは 1 巡終えてから当てる。
+    this.guardQuota();
+    return { applied: count.applied };
+  }
+
+  /** 利用者が押した「今すぐ同期」。push してから pull する。最小間隔は見ない。 */
+  async syncNow(): Promise<void> {
+    await this.pushNow();
+    await this.pullNow();
+  }
+
+  /** セッション起動の直前に呼ぶ。2 秒で諦めるが pull 自体は続く。 */
+  async pullBeforeLaunch(timeoutMs = 2000): Promise<boolean> {
+    if (!this.deps.client || this.paused) return false;
+    let timer: NodeJS.Timeout | null = null;
+    const gaveUp = new Promise<boolean>((r) => { timer = this.timers.setTimeout(() => r(false), timeoutMs); });
+    const done = this.pulling ?? this.pullNow();
+    const result = await Promise.race([done.then(() => this.lastError === null, () => false), gaveUp]);
+    if (timer) this.timers.clearTimeout(timer);
+    return result;
+  }
+
+  /** ウィンドウの前面化。前回の pull から 5 秒以内なら何もしない。 */
+  async onFocus(): Promise<void> {
+    const last = this.state.getNumber('lastPullAt', 0);
+    if (this.now() - last < (this.deps.focusMinGapMs ?? 5000)) return;
+    await this.pullNow();
+  }
 }
