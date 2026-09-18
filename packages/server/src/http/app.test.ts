@@ -193,6 +193,10 @@ describe('routes', () => {
     const d = await app.request('/api/runs/r1/tabs/t1', { method: 'DELETE', headers: H });
     expect((await d.json()).closedAt).toBe(3);
     expect(runs.closeTab).toHaveBeenCalledWith('t1');
+    // 別の run の URL から他人のタブを閉じさせない。閉じると相手の tmux セッションが落ちる。
+    expect((await app.request('/api/runs/r2/tabs/t1', { method: 'DELETE', headers: H })).status).toBe(404);
+    expect((await app.request('/api/runs/r1/tabs/nope', { method: 'DELETE', headers: H })).status).toBe(404);
+    expect(runs.closeTab).toHaveBeenCalledTimes(1);
   });
   it('ターミナルで開く、VS Code で開く', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -224,6 +228,12 @@ describe('routes', () => {
     expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id: p.id } });
     expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) })).status).toBe(400);
     expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: '', path: ws }) })).status).toBe(400);
+    // .. を含むパスは正規化してから入れる。生のまま入れると前方一致でセッションが当たらなくなる。
+    const again = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'beta again', path: `${ws}/beta/../beta` }) });
+    expect(again.status).toBe(200);
+    expect((await again.json()).id).toBe(p.id);
+    expect(db.prepare('select count(*) c from project_roots where deleted_at is null').get()).toEqual({ c: 2 });
+    expect(db.prepare("select count(*) c from project_roots where path like '%..%'").get()).toEqual({ c: 0 });
   });
   it('設定の新しい項目を検査する', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });

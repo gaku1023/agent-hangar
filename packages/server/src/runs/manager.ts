@@ -13,6 +13,8 @@ import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, list
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
 const HEARTBEAT_MS = 30_000;
+/** 応答に載せる外部コマンドの失敗の長さの上限。 */
+const MAX_ERROR_LEN = 200;
 
 /** HTTP の状態コードを持つ失敗。呼び手はそのまま応答に使える。 */
 export class RunError extends Error {
@@ -56,6 +58,17 @@ export class RunManager {
   /** Settings で tmuxPath が変わったときに差し替える。生きている run はそのまま観測を続ける。 */
   setTmux(tmux: Tmux | null): void {
     this.deps.tmux = tmux;
+  }
+
+  /**
+   * 外部コマンドの失敗を応答に載せる前に整える。
+   * claude の argv には --mcp-config の中にトークンが入るので、混ざり込む余地を消しておく。
+   * 併せて 1 行に切り詰める。UI はこれをそのままトーストに出す。
+   */
+  private safeError(e: unknown): string {
+    const line = (e instanceof Error ? e.message : String(e)).split('\n')[0]!.trim();
+    const masked = this.deps.token ? line.replaceAll(this.deps.token, '***') : line;
+    return masked.length > MAX_ERROR_LEN ? `${masked.slice(0, MAX_ERROR_LEN)}…` : masked;
   }
 
   private now(): number {
@@ -129,7 +142,7 @@ export class RunManager {
       tmux.setOption(tmuxName, 'status', 'off');
     } catch (e) {
       this.end(runId, 'exited');
-      throw new RunError(400, `tmux の起動に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      throw new RunError(400, `tmux の起動に失敗しました: ${this.safeError(e)}`);
     }
     const result: LaunchResult = { run: getRun(this.db, runId)!, sessionId: o.sessionId, tabs: listTabs(this.db, runId) };
     this.emit('runStarted', result);
@@ -321,7 +334,7 @@ export class RunManager {
       tmux.newSession({ name: tmuxName, cwd: s.cwd, command: [shell, '-l'] });
       tmux.setOption(tmuxName, 'status', 'off');
     } catch (e) {
-      throw new RunError(400, `シェルの起動に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      throw new RunError(400, `シェルの起動に失敗しました: ${this.safeError(e)}`);
     }
     const id = newId();
     upsertShared(this.db, 'run_tabs', { id, run_id: runId, tmux_name: tmuxName, title: `シェル ${n}`, created_at: this.now(), closed_at: null }, this.deviceId);

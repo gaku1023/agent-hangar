@@ -54,6 +54,18 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
   });
+  it('tmux の失敗を返すときはトークンを伏せ、1 行に切り詰める', () => {
+    // argv には --mcp-config の中にトークンが入るので、stderr をそのまま応答に載せない。
+    const noisy = path.join(home, 'noisy-tmux.sh');
+    fs.writeFileSync(noisy, '#!/bin/sh\necho "new-session failed: Authorization: Bearer SECRET-TOKEN-123" >&2\necho "2 行目" >&2\nexit 1\n', { mode: 0o755 });
+    const rm = make({ tmux: new Tmux({ tmuxPath: noisy }), token: 'SECRET-TOKEN-123' });
+    let message = '';
+    try { rm.start({ projectId: 'p1' }); } catch (e) { message = (e as Error).message; }
+    expect(message).toContain('tmux の起動に失敗しました');
+    expect(message).not.toContain('SECRET-TOKEN-123');
+    expect(message).not.toContain('\n');
+    expect(message).not.toContain('2 行目');
+  });
 });
 
 describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {

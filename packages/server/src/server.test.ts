@@ -121,6 +121,44 @@ describe('startServer', () => {
     }
   }, 20000);
 
+  it('/ws/pty は PtyRelay が引き取り、無いタブには 404 を返す', async () => {
+    // 番人に切られると応答が無いまま終わる。404 が返るのは relay が attach されている証拠である。
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const sock = net.connect(s.port, '127.0.0.1');
+      await new Promise<void>((r) => sock.once('connect', r));
+      sock.write(`GET /ws/pty?tab=nope&token=${tokenOf()} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+      const first = await Promise.race([
+        new Promise<string>((r) => sock.once('data', (d) => r(String(d)))),
+        new Promise<string>((r) => setTimeout(() => r('応答なしで切られた'), 2000)),
+      ]);
+      expect(first.split('\r\n')[0]).toBe('HTTP/1.1 404 Not Found');
+      sock.destroy();
+    } finally {
+      await s.close();
+    }
+  }, 20000);
+
+  it('run の経路が載り、hangar の外で実行中のセッションの再開は 409 になる', async () => {
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const token = tokenOf();
+    const api = (p: string, init?: RequestInit) => fetch(`http://127.0.0.1:${s.port}${p}`, { ...init, headers: { authorization: `Bearer ${token}` } });
+    try {
+      const runs = await api('/api/runs');
+      expect(runs.status).toBe(200);
+      expect(await runs.json()).toEqual({ runs: [], tabs: [] });
+      const list = (await (await api('/api/sessions')).json()) as SessionDto[];
+      const alpha = list.find((x) => x.providerSessionId === SESSION_ALPHA)!;
+      // フィクスチャの登録ファイルが alpha を実行中にしている。
+      // isLive が結ばれていないと、ここは cwd が無いことによる 400 になってしまう。
+      const r = await api(`/api/sessions/${alpha.id}/resume`, { method: 'POST' });
+      expect(r.status).toBe(409);
+      expect(((await r.json()) as { error: string }).error).toContain('hangar の外');
+    } finally {
+      await s.close();
+    }
+  }, 20000);
+
   it('起動後に現れたセッションにもプロジェクトを紐づけて配信する', async () => {
     const dir = path.join(ws, 'alpha');
     fs.mkdirSync(dir);

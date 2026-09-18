@@ -206,7 +206,14 @@ export function createApp(deps: AppDeps): Hono {
   api.delete('/runs/:id', (c) => runResult(c, () => deps.runs.kill(c.req.param('id'))));
   // タブの追加と削除は本文を取らない。UI は content-type だけを付けた空の要求を送る。
   api.post('/runs/:id/tabs', (c) => runResult(c, () => deps.runs.openTab(c.req.param('id')), 201));
-  api.delete('/runs/:id/tabs/:tabId', (c) => runResult(c, () => deps.runs.closeTab(c.req.param('tabId'))));
+  api.delete('/runs/:id/tabs/:tabId', (c) => {
+    // closeTab は持ち主を確かめないので、ここで URL の run のタブかを見る。
+    // 見ないと、別の run の URL から他人のタブの tmux セッションを落とせてしまう。
+    const tabId = c.req.param('tabId');
+    const t = deps.runs.getTab(tabId);
+    if (!t || t.runId !== c.req.param('id')) return c.json({ error: 'タブが見つかりません' }, 404);
+    return runResult(c, () => deps.runs.closeTab(tabId));
+  });
   api.post('/runs/:id/open-terminal', async (c) => {
     const run = deps.runs.getRun(c.req.param('id'));
     if (!run) return c.json({ error: 'run が見つかりません' }, 404);
@@ -229,9 +236,18 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/projects', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; path?: unknown };
     const name = typeof body.name === 'string' ? body.name.trim() : '';
-    const dir = typeof body.path === 'string' ? body.path : '';
+    const raw = typeof body.path === 'string' ? body.path.trim() : '';
     if (!name) return c.json({ error: 'name は必須です' }, 400);
+    // `..` や末尾の `/` が残ると project_roots の前方一致に cwd が当たらず、
+    // そのプロジェクトには永久にセッションが紐づかない。必ず正規化してから入れる。
+    const dir = raw ? path.resolve(raw) : '';
     if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return c.json({ error: 'path が存在するディレクトリではありません' }, 400);
+    // 同じディレクトリを二重に登録しない。syncProjectsFromWorkspace と同じ判定にそろえる。
+    const known = db.prepare('select project_id from project_roots where device_id = ? and path = ? and deleted_at is null').get(deviceId, dir) as { project_id: string } | undefined;
+    if (known) {
+      const p = getProject(db, deviceId, deps.live(), known.project_id);
+      if (p) return c.json(p);
+    }
     const id = newId();
     upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0 }, deviceId);
     upsertShared(db, 'project_roots', { id: newId(), project_id: id, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
