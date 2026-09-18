@@ -100,11 +100,18 @@ describe('SettingsScreen', () => {
     expect(screen.getByLabelText('ターミナルアプリ')).toHaveValue('iterm');
     expect(screen.getByLabelText('code のパス')).toHaveValue('/usr/local/bin/code');
   });
-  it('何も変えずに保存しても terminalApp は送らない', () => {
+  it('何も変えていなければツールの保存は押せない', () => {
+    // 空の patch はサーバが 400 にするので、押せないようにする。
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen workspaceRoot="/w" claudeDir="/c" tmuxPath="/opt/homebrew/bin/tmux" terminalApp="iterm" codePath={null} mcpInstallCommand="npx hangar mcp install" device={null} version="0.2.0" index={{ phase: 'idle', done: 0, total: 0 }} sessionCount={0} projectCount={0} /></IntentRoot>);
-    fireEvent.click(screen.getByText('ツールの設定を保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: {} });
+    const save = screen.getByText('ツールの設定を保存');
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(onIntent).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('code のパス'), { target: { value: '/usr/local/bin/code' } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { codePath: '/usr/local/bin/code' } });
   });
 });
 
