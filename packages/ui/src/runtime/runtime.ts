@@ -152,7 +152,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   }
 
   function dispatch(input: Input): void {
-    if (input.kind === 'server') setStore(applyServerEvent(store, input.event));
+    if (input.kind === 'server') {
+      setStore(applyServerEvent(store, input.event));
+      // 本文が伸びたセッションは、サブエージェントが増えているかもしれない。
+      // ここでは取りに行かず、次に本文を読むときに取り直させる。
+      // 本文を読むのは画面に出ているセッションだけなので、見ていないセッションの分は無駄に取らない。
+      if (input.event.type === 'transcript.appended') subagentsAsked.delete(input.event.sessionId);
+    }
     const r = transition(state, input);
     if (r.state !== state) { state = r.state; notify(); }
     for (const eff of r.effects) runEffect(eff);

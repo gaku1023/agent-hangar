@@ -87,6 +87,23 @@ describe('createRuntime', () => {
     await flush();
     expect(api.subagents).toHaveBeenLastCalledWith('s2');
   });
+  it('本文が伸びたセッションはサブエージェントを取り直す', async () => {
+    let ids = ['agent-1'];
+    const { rt, api, setHash } = harness({ subagents: vi.fn(async () => ids) });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(rt.getStore().subagents.s1).toEqual(['agent-1']);
+    ids = ['agent-1', 'agent-2'];
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's1', count: 1 } });
+    await flush();
+    expect(api.subagents).toHaveBeenCalledTimes(2);
+    expect(rt.getStore().subagents.s1).toEqual(['agent-1', 'agent-2']);
+    // 伸びていないセッションは取り直さない。
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's2', count: 1 } });
+    await flush();
+    expect(api.subagents).toHaveBeenCalledTimes(2);
+  });
   it('bootstrap に未解決のプロジェクトがあればダイアログを開く', async () => {
     const project = { id: 'p1', name: 'alpha', status: 'active' as const, isScratch: false, path: '/w/alpha', resolved: false, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0 };
     const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [project, { ...project, id: 'p2', path: null, resolved: false }, { ...project, id: 'p3', resolved: true }] })) });
