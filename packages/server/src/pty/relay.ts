@@ -8,10 +8,18 @@ export type PtyProcess = { pid: number; onData(cb: (d: string) => void): void; o
 export type PtySpawn = (file: string, args: string[], opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv }) => PtyProcess;
 type Deps = { token: string; tmux: Tmux | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn };
 
+/** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切り、pty を落とす。 */
+const CLOSE_GRACE_MS = 500;
+
+function killQuietly(p: PtyProcess): void {
+  try { p.kill(); } catch { /* 既に終わっている */ }
+}
+
 /** /ws/pty?tab=<tabId> で node-pty の `tmux attach` を中継する。複数のクライアントが同じ tmux セッションに attach してよい。 */
 export class PtyRelay {
   private wss = new WebSocketServer({ noServer: true });
-  private clients = new Set<WebSocket>();
+  /** 接続と、その接続が抱えている tmux attach の pty。close で確実に回収するために紐づけて持つ。 */
+  private clients = new Map<WebSocket, PtyProcess>();
   constructor(private readonly deps: Deps) {}
 
   /**
@@ -44,7 +52,7 @@ export class PtyRelay {
       ws.close(1011, 'spawn failed');
       return;
     }
-    this.clients.add(ws);
+    this.clients.set(ws, p);
     p.onData((d) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'data', d })); });
     p.onExit(() => { if (ws.readyState === ws.OPEN) ws.close(1000, 'exited'); });
     ws.on('message', (raw) => {
@@ -54,9 +62,34 @@ export class PtyRelay {
       else if (m.t === 'data' && typeof m.d === 'string') p.write(m.d);
     });
     // 殺すのは attach しているクライアントだけで、tmux セッションはそのまま残す。
-    ws.on('close', () => { this.clients.delete(ws); try { p.kill(); } catch { /* 既に終わっている */ } });
+    ws.on('close', () => { this.clients.delete(ws); killQuietly(p); });
   }
 
   clientCount(): number { return this.clients.size; }
-  close(): void { for (const c of this.clients) c.close(); this.clients.clear(); this.wss.close(); }
+
+  /**
+   * 全員に close フレームを送る。
+   * 応えない相手は CLOSE_GRACE_MS で terminate し、その接続の pty もここで落とす。
+   * close イベントの発火を当てにすると、止まったタブが tmux attach のプロセスを残してしまう。
+   */
+  close(): void {
+    const entries = [...this.clients];
+    this.clients.clear();
+    this.wss.close();
+    if (entries.length === 0) return;
+    let pending = entries.length;
+    const timer = setTimeout(() => {
+      for (const [ws, p] of entries) {
+        if (ws.readyState !== ws.CLOSED) ws.terminate();
+        killQuietly(p);
+      }
+    }, CLOSE_GRACE_MS);
+    timer.unref();
+    const done = (): void => { if (--pending === 0) clearTimeout(timer); };
+    for (const [ws] of entries) {
+      if (ws.readyState === ws.CLOSED) { done(); continue; }
+      ws.once('close', done);
+      ws.close(1001, 'server shutting down');
+    }
+  }
 }

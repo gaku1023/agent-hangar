@@ -1,4 +1,5 @@
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -85,6 +86,24 @@ describe('PtyRelay（偽の spawn）', () => {
     const again = await connect(`tab=t1&token=${TOKEN}`);
     expect(await again.closed).toBe(1011);
   });
+  it('close フレームに応えない相手でも、猶予のあとに pty を落とす', async () => {
+    const f = fakeSpawn();
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: () => 'hangar-a', spawn: f.spawn });
+    await listen(relay);
+    // close フレームに応えない相手。止まったタブや代理を挟んだときに起こる。
+    const stalled = net.connect(port, '127.0.0.1');
+    await new Promise<void>((r) => stalled.once('connect', r));
+    stalled.write(`GET /ws/pty?tab=t1&token=${TOKEN} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+    const upgraded = await new Promise<string>((r) => stalled.once('data', (d) => r(String(d))));
+    expect(upgraded.startsWith('HTTP/1.1 101')).toBe(true);
+    await waitFor(() => f.procs.length === 1);
+    expect(relay.clientCount()).toBe(1);
+    relay.close();
+    expect(f.procs[0]!.killed).toBe(false);
+    await waitFor(() => f.procs[0]!.killed, 3000);
+    stalled.destroy();
+  });
   it('プロセスの終了で接続を閉じる', async () => {
     const f = fakeSpawn();
     relay.close(); await new Promise<void>((r) => server.close(() => r()));
@@ -111,6 +130,8 @@ describe.skipIf(!TMUX)('PtyRelay（実物の tmux と node-pty）', () => {
     ws.send(JSON.stringify({ t: 'data', d: 'echo hangar-pty-ok\r' }));
     await waitFor(() => msgs.some((m) => m.t === 'data' && (m.d ?? '').includes('hangar-pty-ok')), 8000);
     ws.close();
+    // 切れるのは attach しているクライアントだけで、tmux セッションは残る。ここが壊れると利用者の作業が消える。
+    await waitFor(() => tmux.hasSession('hangar-pty-real'));
     fs.rmSync(cwd, { recursive: true, force: true });
   });
 });
