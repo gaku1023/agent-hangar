@@ -54,6 +54,24 @@ const RUN_POLL_MS = 2000;
  */
 export const RUN_ENDED_SUMMARY_OPTS = { ignoreLive: true } as const;
 
+/**
+ * close が要約のジョブを待つ上限。
+ * 要約は DB に書き込むので、待たずに閉じると閉じた DB に触れることになる。
+ * 一方で待ちに上限が無いと、応答しない要約器に終了が引きずられる。
+ * LM Studio の 1 件はおおむね数秒で終わるので 5 秒あればたいてい待ち切れ、
+ * それでも終わらないときは諦めて閉じる（SummaryJob は書き込みの失敗を summary.failed に流す）。
+ */
+export const CLOSE_SUMMARY_WAIT_MS = 5_000;
+
+/** 要約のジョブが空になるまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
+export function waitForSummaryIdle(job: { idle(): Promise<void> }, ms: number = CLOSE_SUMMARY_WAIT_MS): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    job.idle().then(() => true),
+    new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms); timer.unref?.(); }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
 type Fetch = ReturnType<typeof createApp>['fetch'];
 
@@ -89,6 +107,21 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const registry = new RegistryWatcher(claudeDir);
   const indexer = new IndexerService({ db, deviceId: device.id, claudeDir, isRunning: (id) => registry.current().some((l) => l.sessionId === id) });
 
+  // 起動の途中かどうか。最初の全走査では未分類のセッションを数えきれないほど流すので、知らせるのは起動後だけにする。
+  let started = false;
+  // 未分類だと知らせたセッション。本文が伸びるたびに同じ知らせを出さないために持つ。
+  const toldUnassigned = new Set<string>();
+  /**
+   * どのルートの配下でもない cwd のセッションは「未分類」に残る（設計どおり）。
+   * ただし黙って残ると利用者は気付けないので、セッションごとに 1 度だけ知らせる。
+   * ここで勝手にプロジェクトを作ることはしない。紐づけは利用者が決める。
+   */
+  const tellUnassigned = (sessionId: string, cwd: string): void => {
+    if (!started || toldUnassigned.has(sessionId)) return;
+    toldUnassigned.add(sessionId);
+    hub.broadcast({ type: 'toast', level: 'info', message: `どのプロジェクトにも属さないセッションが現れました（${cwd}）。未分類のまま置いてあります` });
+  };
+
   indexer.on({
     progress: (p) => hub.broadcast({ type: 'index.progress', progress: p }),
     sessionChanged: (e) => {
@@ -101,6 +134,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (assigned) {
         const p = getProject(db, device.id, registry.current(), assigned);
         if (p) hub.broadcast({ type: 'project.upsert', project: p });
+      } else if (row && row.project_id === null) {
+        tellUnassigned(e.sessionId, s.cwd);
       }
       if (e.appended > 0) hub.broadcast({ type: 'transcript.appended', sessionId: e.sessionId, count: e.appended });
       // 索引化が拾ったアーティファクトを配る。
@@ -257,6 +292,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const lost = runs.recoverAtStartup();
   if (lost.length) console.log(`[runs] tmux セッションの無い run を ${lost.length} 件 lost で閉じました`);
   runs.startPolling(RUN_POLL_MS);
+  // ここまでで既存のセッションの紐づけは済んでいる。以後に現れた未分類だけを知らせる。
+  started = true;
 
   console.log(`agent-hangar listening on http://${host}:${port}${settings.tmuxPath ? '' : '（tmux が見つからないため起動は使えません）'}`);
   return {
@@ -273,6 +310,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       await hub.close();
       server.closeAllConnections?.();
       await new Promise<void>((r) => server.close(() => r()));
+      // 走っている要約は DB に書き込む。閉じた DB に触れさせないよう、ここで待ち切ってから閉じる。
+      // 新しい受け付けは HTTP も run の終了も止まった後なので、待ち行列はもう増えない。
+      if (!(await waitForSummaryIdle(summary, CLOSE_SUMMARY_WAIT_MS))) {
+        console.warn(`[summary] 要約の終了を ${CLOSE_SUMMARY_WAIT_MS} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
+      }
       db.close();
     },
   };

@@ -49,9 +49,18 @@ export function writeAttachCommand(home: string, tmuxPath: string, tmuxName: str
   return writeCommand(path.join(cmdDir(home), `attach-${fileSafe(tmuxName)}.command`), attachLine(tmuxPath, tmuxName));
 }
 
+/**
+ * ディレクトリに cd するコマンド行。
+ * 既定の shell の決め方は iTerm2 の経路と .command の経路で必ず同じにする。
+ * 別々に書くと、同じ操作なのに経路で違う shell が立ち上がる。
+ * $SHELL が無い環境（launchd から起きた GUI など）では /bin/zsh に落とし、
+ * パスに空白があっても割れないように引用符で包む。
+ */
+const cdLine = (dir: string) => `cd ${sq(dir)} && exec "\${SHELL:-/bin/zsh}" -l`;
+
 /** ディレクトリに cd する .command。ファイル名はパスのハッシュにして、どんな文字でも安全に置ける。 */
 export function writeCdCommand(home: string, dir: string): string {
-  return writeCommand(path.join(cmdDir(home), `open-${hash8(dir)}.command`), `cd ${sq(dir)} && exec "\${SHELL:-/bin/zsh}" -l`);
+  return writeCommand(path.join(cmdDir(home), `open-${hash8(dir)}.command`), cdLine(dir));
 }
 
 /** -g はウィンドウを前面に出さない指定で、利用者の作業を奪わないために要る。 */
@@ -92,7 +101,7 @@ export function openInTerminalApp(o: { home: string; tmuxPath: string; tmuxName:
 export function openDirInTerminalApp(o: { home: string; dir: string; app: TerminalApp; exec?: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
   return openCommand({
     app: o.app,
-    command: `cd ${sq(o.dir)} && exec $SHELL -l`,
+    command: cdLine(o.dir),
     file: () => writeCdCommand(o.home, o.dir),
     exec: o.exec ?? execFile,
   });

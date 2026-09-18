@@ -12,7 +12,7 @@ import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../test/fixtures.ts';
-import { RUN_ENDED_SUMMARY_OPTS, startServer, WS_PATHS } from './server.ts';
+import { CLOSE_SUMMARY_WAIT_MS, RUN_ENDED_SUMMARY_OPTS, startServer, waitForSummaryIdle, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -31,11 +31,13 @@ afterEach(() => {
 const tokenOf = () => fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
 
 /** 実際の Claude Code と同じ配置で、発言 1 つだけの本文ファイルを置く。 */
-function writeTranscript(cwd: string, sessionId: string, text: string): void {
+function writeTranscript(cwd: string, sessionId: string, text: string, uuid = 'u1'): void {
   const dir = path.join(claudeDir, 'projects', mangleCwd(cwd));
   fs.mkdirSync(dir, { recursive: true });
-  const rec = { type: 'user', message: { role: 'user', content: text }, uuid: 'u1', parentUuid: null, isSidechain: false, timestamp: '2026-09-01T10:00:00.000Z', cwd, sessionId };
-  fs.writeFileSync(path.join(dir, `${sessionId}.jsonl`), JSON.stringify(rec) + '\n');
+  const rec = { type: 'user', message: { role: 'user', content: text }, uuid, parentUuid: null, isSidechain: false, timestamp: '2026-09-01T10:00:00.000Z', cwd, sessionId };
+  const file = path.join(dir, `${sessionId}.jsonl`);
+  if (uuid === 'u1') fs.writeFileSync(file, JSON.stringify(rec) + '\n');
+  else fs.appendFileSync(file, JSON.stringify(rec) + '\n');
 }
 
 /** 配信を貯めておき、条件に合うものが来るまで待つ。待ち始める前に来たものも見る。 */
@@ -47,6 +49,7 @@ function collector(port: number, token: string) {
   const opened = new Promise<void>((resolve, reject) => { sock.once('open', () => resolve()); sock.once('error', reject); });
   return {
     opened,
+    all: () => seen as readonly ServerEvent[],
     close: () => sock.terminate(),
     waitFor<T extends ServerEvent>(pred: (e: ServerEvent) => e is T, ms = 8000): Promise<T> {
       return new Promise<T>((resolve, reject) => {
@@ -191,6 +194,36 @@ describe('startServer', () => {
     }
   }, 20000);
 
+  it('どのルートにも属さないセッションが現れたら、黙って未割り当てにせず知らせる', async () => {
+    const dir = path.join(ws, 'alpha');
+    fs.mkdirSync(dir);
+    writeTranscript(dir, 'bbbbbbbb-0000-4000-8000-000000000011', 'first');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir }));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const c = collector(s.port, tokenOf());
+    const toastCount = () => c.all().filter((e) => e.type === 'toast' && e.message.includes(outside)).length;
+    try {
+      await c.opened;
+      // ワークスペースの外の cwd。どのルートにも当たらない。
+      writeTranscript(outside, 'bbbbbbbb-0000-4000-8000-000000000012', 'stray');
+      const ev = await c.waitFor((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert' && e.session.providerSessionId === 'bbbbbbbb-0000-4000-8000-000000000012');
+      // 勝手にプロジェクトを作らない。設計どおり「未分類」に残す。
+      expect(ev.session.projectId).toBeNull();
+      const toast = await c.waitFor((e): e is Extract<ServerEvent, { type: 'toast' }> => e.type === 'toast' && e.message.includes(outside));
+      expect(toast.level).toBe('info');
+      // 同じセッションが伸びても、知らせるのは 1 度だけにする。
+      writeTranscript(outside, 'bbbbbbbb-0000-4000-8000-000000000012', 'more', 'u2');
+      await c.waitFor((e): e is Extract<ServerEvent, { type: 'transcript.appended' }> => e.type === 'transcript.appended' && e.sessionId === ev.session.id);
+      await new Promise((r) => setTimeout(r, 500));
+      expect(toastCount()).toBe(1);
+    } finally {
+      c.close();
+      await s.close();
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  }, 20000);
+
   it('実行中の登録が消えたら要約の状態を done に書き替える', async () => {
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
     const token = tokenOf();
@@ -207,6 +240,33 @@ describe('startServer', () => {
       await s.close();
     }
   }, 20000);
+});
+
+describe('close の要約待ち', () => {
+  it('走っている要約が終わるまで待つ', async () => {
+    // 終了の途中で要約が書き込みに来ると、閉じた DB に触れてしまう。
+    let finish = () => {};
+    const job = { idle: () => new Promise<void>((r) => { finish = r; }) };
+    let settled: boolean | null = null;
+    const waiting = waitForSummaryIdle(job, 2000).then((v) => { settled = v; return v; });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(settled).toBeNull();
+    finish();
+    expect(await waiting).toBe(true);
+  });
+  it('上限を超えたら諦めて閉じる', async () => {
+    // 終わらない要約に終了が引きずられないよう、待ち時間には上限を置く。
+    const job = { idle: () => new Promise<void>(() => {}) };
+    const t = Date.now();
+    expect(await waitForSummaryIdle(job, 50)).toBe(false);
+    expect(Date.now() - t).toBeLessThan(2000);
+  });
+  it('待ち行列が空ならすぐ返る', async () => {
+    const t = Date.now();
+    expect(await waitForSummaryIdle({ idle: () => Promise.resolve() }, CLOSE_SUMMARY_WAIT_MS)).toBe(true);
+    expect(Date.now() - t).toBeLessThan(1000);
+    expect(CLOSE_SUMMARY_WAIT_MS).toBeGreaterThanOrEqual(1000);
+  });
 });
 
 describe('要約の契機', () => {

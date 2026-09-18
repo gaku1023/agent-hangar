@@ -8,6 +8,13 @@ export { memoHead } from '../db/queries.ts';
 
 type Row = { project_id: string; markdown: string; updated_at: number };
 
+/** 控えのファイル名に使う yyyymmddHHMMSS（端末の時刻）。 */
+function stamp(t: number): string {
+  const d = new Date(t);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
 /**
  * プロジェクトのメモ。
  * SQLite の project_memos を同期の正とし、~/.agent-hangar/projects/<projectId>/memo.md にも同じ内容を置く。
@@ -45,6 +52,25 @@ export class MemoStore {
     fs.writeFileSync(file, markdown);
     const t = new Date(updatedAt);
     fs.utimesSync(file, t, t);
+  }
+
+  /**
+   * 書き戻しで消える本文を、同じディレクトリに控えとして残す。
+   * 名前は memo.md.bak-<yyyymmddHHMMSS> で、同じ秒に 2 度来たら連番を足す。
+   * 既にある控えは決して上書きしない。控えは古くなっても消さない。
+   * 残せたら真を返す。残せなければ偽を返し、呼び手は書き戻しをやめてファイルを残す。
+   */
+  private backup(file: string, markdown: string): boolean {
+    const base = `${file}.bak-${stamp(Date.now())}`;
+    try {
+      let name = base;
+      for (let i = 2; fs.existsSync(name); i++) name = `${base}-${i}`;
+      fs.writeFileSync(name, markdown);
+      return true;
+    } catch (e) {
+      console.error(`[memo] 控えを残せませんでした（${file}）: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
   }
 
   /**
@@ -87,6 +113,7 @@ export class MemoStore {
    * ファイルと DB を突き合わせる。
    * ファイルが新しく中身が違えばファイルを正として DB を直す。
    * ファイルが無いか古いときは DB を正として写しを書き戻す（利用者のファイルは消さない）。
+   * 書き戻しで中身が変わるときは、消える本文の控えを同じディレクトリに残す。
    */
   reconcile(projectId: string): { changed: boolean; memo: MemoDto | null } {
     const file = this.memoPath(projectId);
@@ -106,6 +133,9 @@ export class MemoStore {
       if (markdown === r.markdown) return { changed: false, memo: this.toDto(r) };
       if (mtime <= r.updated_at) {
         // ファイルの方が古い。DB が正なので、写しを直しておく。
+        // ここで消えるのは利用者がファイルに書いた本文なので、先に控えを残す。
+        // 控えを残せなかったときは書き戻さず、ファイルの方を残す。
+        if (!this.backup(file, markdown)) return { changed: false, memo: this.toDto(r) };
         this.writeFile(projectId, r.markdown, r.updated_at);
         return { changed: false, memo: this.toDto(r) };
       }

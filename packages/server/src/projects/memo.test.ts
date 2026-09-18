@@ -11,6 +11,14 @@ let db: Db;
 beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-memo-')); db = openDb(':memory:'); upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd'); });
 afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); });
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** p1 のメモのディレクトリにある控えの名前。 */
+const backups = (m: MemoStore) => fs.readdirSync(path.dirname(m.memoPath('p1'))).filter((n) => n.startsWith('memo.md.bak-')).sort();
+/** ファイルに本文を書き、mtime を DB より古くする。 */
+function stale(m: MemoStore, updatedAt: number, markdown: string): void {
+  fs.writeFileSync(m.memoPath('p1'), markdown);
+  const past = new Date(updatedAt - 5000);
+  fs.utimesSync(m.memoPath('p1'), past, past);
+}
 
 describe('MemoStore', () => {
   it('write は DB とファイルの両方に書き、read はそれを返す', () => {
@@ -46,6 +54,42 @@ describe('MemoStore', () => {
     expect(m.reconcile('p1').changed).toBe(false);
     expect(m.read('p1')!.markdown).toBe('db wins');
     expect(fs.readFileSync(m.memoPath('p1'), 'utf8')).toBe('db wins');
+  });
+  it('書き戻しで消える本文は控えに残す', () => {
+    const m = new MemoStore({ db, deviceId: 'd', home });
+    const w = m.write('p1', 'db wins');
+    // 利用者がファイルに書いたが、mtime が DB より古い。DB が勝つので、この本文は書き戻しで消える。
+    stale(m, w.updatedAt, '利用者が書いた本文');
+    expect(m.reconcile('p1').changed).toBe(false);
+    expect(fs.readFileSync(m.memoPath('p1'), 'utf8')).toBe('db wins');
+    const baks = backups(m);
+    expect(baks).toHaveLength(1);
+    expect(baks[0]).toMatch(/^memo\.md\.bak-\d{14}(-\d+)?$/);
+    expect(fs.readFileSync(path.join(path.dirname(m.memoPath('p1')), baks[0]!), 'utf8')).toBe('利用者が書いた本文');
+  });
+  it('中身が DB と同じときと、ファイルが無いときは控えを作らない', () => {
+    const m = new MemoStore({ db, deviceId: 'd', home });
+    const w = m.write('p1', 'same');
+    // 中身は同じで mtime だけ古い。消えるものが無いので控えは要らない。
+    const past = new Date(w.updatedAt - 5000);
+    fs.utimesSync(m.memoPath('p1'), past, past);
+    expect(m.reconcile('p1').changed).toBe(false);
+    expect(backups(m)).toEqual([]);
+    fs.rmSync(m.memoPath('p1'));
+    expect(m.reconcile('p1').changed).toBe(false);
+    expect(backups(m)).toEqual([]);
+  });
+  it('控えは上書きせず積み上がる', () => {
+    const m = new MemoStore({ db, deviceId: 'd', home });
+    const w = m.write('p1', 'db wins');
+    stale(m, w.updatedAt, '一度目');
+    m.reconcile('p1');
+    stale(m, w.updatedAt, '二度目');
+    m.reconcile('p1');
+    const dir = path.dirname(m.memoPath('p1'));
+    const baks = backups(m);
+    expect(baks).toHaveLength(2);
+    expect(baks.map((n) => fs.readFileSync(path.join(dir, n), 'utf8')).sort()).toEqual(['一度目', '二度目']);
   });
   it('watch は外部の編集を取り込んで知らせる', async () => {
     const m = new MemoStore({ db, deviceId: 'd', home, debounceMs: 50 });

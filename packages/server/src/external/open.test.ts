@@ -74,6 +74,15 @@ describe('openInTerminalApp', () => {
     expect(r.app).toBe('terminal');
     expect(fs.readFileSync(calls[0]!.args[3]!, 'utf8')).toContain("cd '/w/alpha'");
   });
+  it('ディレクトリを開くとき、iterm と .command は同じ shell の決め方を使う', async () => {
+    // 同じ操作なのに経路で違う shell が立ち上がらないようにする。
+    // $SHELL を見て、無ければ同じ既定に落ちる。引用符で包んでパスの空白でも割れないようにする。
+    await openDirInTerminalApp({ home, dir: '/w/alpha', app: 'iterm', exec: exec() });
+    const script = calls[0]!.args[1]!;
+    const command = JSON.parse(script.split('create window with default profile command ')[1]!.split('\n')[0]!) as string;
+    expect(command).toBe(`cd '/w/alpha' && exec "\${SHELL:-/bin/zsh}" -l`);
+    expect(fs.readFileSync(writeCdCommand(home, '/w/alpha'), 'utf8')).toBe(`#!/usr/bin/env bash\n${command}\nexit\n`);
+  });
 });
 
 describe('writeAttachCommand のファイル名', () => {
