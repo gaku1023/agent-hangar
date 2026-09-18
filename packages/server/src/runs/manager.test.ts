@@ -11,7 +11,7 @@ import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
-import { RunError, RunManager } from './manager.ts';
+import { RunManager } from './manager.ts';
 
 let db: Db;
 let home: string;
@@ -52,9 +52,8 @@ const launchedArgs = async (runId: string) => {
 };
 
 describe('RunManager.start の入力検査（tmux 不要）', () => {
-  it('scratch、projectId 無し、無いプロジェクト、未解決のプロジェクトを拒む', () => {
+  it('projectId 無し、無いプロジェクト、未解決のプロジェクトを拒む', () => {
     const rm = make({ tmux: null });
-    expect(() => rm.start({ scratch: true })).toThrow(RunError);
     expect(() => rm.start({})).toThrow(/projectId/);
     expect(() => rm.start({ projectId: 'nope' })).toThrow(expect.objectContaining({ status: 404 }));
     expect(() => rm.start({ projectId: 'p2' })).toThrow(expect.objectContaining({ status: 400 }));
@@ -62,6 +61,18 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
   });
+  it('tmux が無ければ scratch は擬似プロジェクトも使い捨てディレクトリも作らない', () => {
+    // 検査はすべて行を作る前に済ませる。tmux の無い端末で何度失敗しても、
+    // 擬似プロジェクトの行と空のディレクトリが溜まってはならない。
+    const rm = make({ tmux: null });
+    for (let i = 0; i < 3; i++) expect(() => rm.start({ scratch: true })).toThrow(/tmux/);
+    expect(db.prepare('select count(*) c from projects where is_scratch = 1').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count(*) c from project_roots').get()).toEqual({ c: 2 });
+    expect(fs.existsSync(path.join(home, 'scratch'))).toBe(false);
+    expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
+  });
+
   it('tmux new-session が失敗したら run 行は exited で閉じ、400 を投げる', () => {
     // 事前検査は通るが、tmux のバイナリが無い。行を作った後に失敗する唯一の経路である。
     const rm = make({ tmux: new Tmux({ tmuxPath: path.join(home, 'gone-tmux') }) });
@@ -124,6 +135,20 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(rm.listAlive().runs.map((x) => x.id)).toEqual([r.run.id]);
     expect(rm.getRun(r.run.id)?.tmuxName).toBe(r.run.tmuxName);
     expect(rm.getTab(r.run.id)?.kind).toBe('agent');
+  });
+
+  it('scratch は新しいディレクトリを作り、スクラッチのプロジェクトに属するセッションを起動する', async () => {
+    const rm = make();
+    // projectId が一緒に来ても scratch を優先する。
+    const r = rm.start({ scratch: true, projectId: 'p1', name: 'scratchy' });
+    const s = db.prepare('select cwd, project_id, name from sessions where id = ?').get(r.sessionId) as { cwd: string; project_id: string; name: string };
+    expect(s.cwd.startsWith(path.join(home, 'scratch') + path.sep)).toBe(true);
+    expect(fs.statSync(s.cwd).isDirectory()).toBe(true);
+    expect(s.name).toBe('scratchy');
+    expect(db.prepare('select is_scratch, name from projects where id = ?').get(s.project_id)).toEqual({ is_scratch: 1, name: 'スクラッチ' });
+    const args = await launchedArgs(r.run.id);
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('プロジェクト：スクラッチ（' + s.cwd + '）');
+    expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
   });
 
   it('ディレクトリが無ければ 400 で、run の行は残らない', () => {

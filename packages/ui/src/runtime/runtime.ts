@@ -14,7 +14,8 @@ export type RuntimeDeps = {
   storage: { get(key: string): unknown; set(key: string, value: unknown): void; keys(): string[] };
   setTimeout: (fn: () => void, ms: number) => unknown;
   terminals: TerminalHost;
-  focus?: (target: FocusTarget) => void;
+  /** terminal だけはランタイムが自分で処理するので、ここへは渡らない。 */
+  focus?: (target: Exclude<FocusTarget, 'terminal'>) => void;
 };
 
 export type Runtime = {
@@ -142,6 +143,53 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         else deps.focus?.(e.target);
         return;
       case 'toast': dispatch({ kind: 'server', event: { type: 'toast', level: e.level, message: e.message } }); return;
+      case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
+      case 'api.toggleTodo': {
+        // 反転の基準はストアの現在値にする。View は done の値を持たない。
+        const t = store.todos[e.id];
+        if (!t) return;
+        deps.api.setTodoDone(e.id, !t.done).catch(fail);
+        return;
+      }
+      case 'api.removeTodo': deps.api.removeTodo(e.id).catch(fail); return;
+      case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
+      // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。
+      case 'api.saveMemo': deps.api.saveMemo(e.projectId, e.markdown).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
+      case 'api.setSessionMemo': deps.api.setSessionMemo(e.sessionId, e.text).then((s) => setStore({ ...store, sessions: { ...store.sessions, [s.id]: s } })).catch(fail); return;
+      case 'api.openArtifact': deps.api.openArtifact(e.id).catch(fail); return;
+      case 'api.openArtifactEditor': deps.api.openArtifactEditor(e.id).catch(fail); return;
+      case 'api.addArtifact': deps.api.addArtifact(e.projectId, e.url).then((a) => setStore({ ...store, artifacts: { ...store.artifacts, [a.id]: a } })).catch(fail); return;
+      case 'api.promote':
+        deps.api.promote(e.sessionId, { name: e.name, gitInit: e.gitInit, moveFiles: e.moveFiles })
+          .then((r) => {
+            setStore({ ...store, projects: { ...store.projects, [r.project.id]: r.project }, sessions: { ...store.sessions, [r.session.id]: r.session } });
+            dispatch({ kind: 'runtime', event: { type: 'promote.done', projectId: r.project.id, moved: r.moved, reason: r.reason } });
+          })
+          .catch((err) => dispatch({ kind: 'runtime', event: { type: 'promote.failed', message: errMsg(err) } }));
+        return;
+      // 進みと結果は summary.pending と summary.updated で届くので、ここでは待たない。
+      case 'api.regenerateSummary': deps.api.regenerateSummary(e.sessionId).catch(fail); return;
+      case 'api.loadSettingsExtras':
+        deps.api.statusline().then((s) => setStore({ ...store, statusline: s })).catch(fail);
+        deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
+        // LM Studio が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
+        deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));
+        return;
+      case 'api.testSummarizer':
+        // 前回の結果を先に消して、試している最中だと分かるようにする。
+        setStore({ ...store, summarizerTest: null });
+        deps.api.testSummarizer().then((r) => setStore({ ...store, summarizerTest: r })).catch(fail);
+        return;
+      case 'split.resolve': {
+        // 左は選択中のタブ、無ければ先頭。右はそれと違う最初のタブ。2 つ無ければ null を返す。
+        const view = state.sessionView[e.sessionId] ?? defaultSessionView();
+        const run = currentRunOf(store, e.sessionId);
+        const tabs = run ? tabsOf(store, run.id) : [];
+        const left = view.selectedTab ?? tabs[0]?.id ?? null;
+        const right = tabs.find((t) => t.id !== left) ?? null;
+        dispatch({ kind: 'runtime', event: { type: 'split.resolved', sessionId: e.sessionId, tabId: right ? right.id : null } });
+        return;
+      }
       case 'storage.save': deps.storage.set(e.key, e.value); return;
       default: {
         // 効果を足したときに処理を忘れると、ここで型が合わなくなる。

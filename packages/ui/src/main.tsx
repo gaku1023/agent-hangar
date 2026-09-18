@@ -3,12 +3,21 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import './styles/tokens.css';
 import './styles/base.css';
+import './styles/workbench.css';
+import './styles/split.css';
+import './styles/rows.css';
+import './styles/palette.css';
+import './styles/settings.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
 import { createRuntime } from './runtime/runtime.ts';
 import { createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
 import { createXterm } from './runtime/xterm.ts';
+
+// フォーカスの対象と、それを持つ要素の id の対応。
+// ターミナルは DOM の id では掴めないので、TerminalHost が別に受け持つ。
+const FOCUS_IDS = { search: 'global-search', newSessionName: 'new-session-name', palette: 'palette-input', promoteName: 'promote-name', todoInput: 'todo-input' } as const;
 
 const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const api = createApi();
@@ -27,7 +36,7 @@ const runtime = createRuntime({
   setTimeout: (fn, ms) => window.setTimeout(fn, ms),
   terminals,
   // ダイアログは状態が変わった次の描画で現れるので、フォーカスは次のフレームで当てる。
-  focus: (t) => { requestAnimationFrame(() => document.getElementById(t === 'search' ? 'global-search' : 'new-session-name')?.focus()); },
+  focus: (t) => { requestAnimationFrame(() => document.getElementById(FOCUS_IDS[t])?.focus()); },
 });
 runtime.start();
 createRoot(document.getElementById('root')!).render(<Root runtime={runtime} api={api} terminals={terminals} />);

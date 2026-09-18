@@ -10,7 +10,7 @@ import { ensureSession, indexFile } from './indexFile.ts';
 
 export type IndexerListener = {
   progress?: (p: IndexProgressDto) => void;
-  sessionChanged?: (e: { sessionId: string; providerSessionId: string; agentId: string | null; appended: number }) => void;
+  sessionChanged?: (e: { sessionId: string; providerSessionId: string; agentId: string | null; appended: number; artifactIds: string[] }) => void;
   error?: (e: { path: string; message: string }) => void;
 };
 
@@ -84,7 +84,7 @@ export class IndexerService {
       if (file.agentId === null || r.appended > 0) {
         writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(file.sessionId));
       }
-      for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: file.sessionId, agentId: file.agentId, appended: r.appended });
+      for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: file.sessionId, agentId: file.agentId, appended: r.appended, artifactIds: r.artifactIds });
       return true;
     } catch (e) {
       const message = errorMessage(e);

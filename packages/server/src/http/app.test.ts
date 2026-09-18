@@ -2,18 +2,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LaunchParams, LaunchResultDto, RunDto, ServerEvent, SettingsDto, TabDto } from '@agent-hangar/shared';
+import type { LaunchParams, LaunchResultDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { MemoStore } from '../projects/memo.ts';
+import { PromoteError } from '../projects/promote.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { RunError } from '../runs/manager.ts';
+import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
-import { createApp, type ExternalApi, type RunsApi } from './app.ts';
+import { createApp, type AppDeps, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts } from './app.ts';
 
 let dir: string;
 let db: Db;
 let ws: string;
 let app: ReturnType<typeof createApp>;
+let deps: AppDeps;
 const sent: ServerEvent[] = [];
 const TOKEN = 'test-token';
 const H = { authorization: `Bearer ${TOKEN}` };
@@ -29,6 +33,12 @@ const deadAgentTab: TabDto = { ...agentTab, id: 'dead', runId: 'dead', tmuxName:
 const deadShellTab: TabDto = { ...shellTab, id: 'dead-t1', runId: 'dead', tmuxName: 'hangar-dead-t1' };
 let runs: RunsApi;
 let external: ExternalApi;
+let usage: UsageTracker;
+let memos: MemoStore;
+let summary: SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] };
+/** ワークスペースから登録される唯一のプロジェクト alpha の id。 */
+let list0ProjectId: () => string;
+const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceModel: 'lmstudio', basedOnTurns: 3 } };
 
 /** 経路の検査だけをしたいので、RunManager は呼び出しを記録する偽物に差し替える。 */
 function fakeRuns(): RunsApi {
@@ -55,7 +65,19 @@ function fakeExternal(): ExternalApi {
     openTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
     openDirTerminal: vi.fn(async () => ({ app: 'iterm' as const, fellBack: true })),
     openEditor: vi.fn(async () => {}),
+    openUrl: vi.fn(async () => {}),
   };
+}
+
+function fakeSummary(): SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] } {
+  const s: SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] } = {
+    enqueued: [],
+    enqueue: (id, opts) => { s.enqueued.push([id, opts]); return true; },
+    pending: () => ['pending-1'],
+    test: async () => testResult,
+    listModels: async () => ['gemma'],
+  };
+  return s;
 }
 
 beforeEach(async () => {
@@ -66,10 +88,20 @@ beforeEach(async () => {
   await indexer.fullScan();
   db.prepare('update sessions set cwd = ? where provider_session_id = ?').run(`${ws}/alpha`, SESSION_ALPHA);
   syncProjectsFromWorkspace(db, 'd', ws); assignSessions(db, 'd');
-  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null };
+  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
   runs = fakeRuns();
   external = fakeExternal();
-  app = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: '0.0.0-test', settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }), live: () => [], indexer, hub: { broadcast: (e) => sent.push(e) }, runs, external });
+  usage = new UsageTracker(db);
+  memos = new MemoStore({ db, deviceId: 'd', home: ws });
+  summary = fakeSummary();
+  list0ProjectId = () => (db.prepare("select id from projects where name = 'alpha'").get() as { id: string }).id;
+  deps = {
+    db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: '0.0.0-test',
+    settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }), live: () => [], indexer,
+    hub: { broadcast: (e) => sent.push(e) }, runs, external, usage, memos, summary,
+    promote: (o) => { if (o.name === 'taken') throw new PromoteError(409, 'あります'); return { projectId: list0ProjectId(), moved: o.moveFiles, reason: null }; },
+  };
+  app = createApp(deps);
 });
 afterEach(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }); });
 
@@ -79,6 +111,24 @@ describe('auth', () => {
     expect((await get('/api/bootstrap', { ...H, origin: 'https://evil.example' })).status).toBe(403);
     expect((await get('/api/bootstrap', { cookie: `hangar_token=${TOKEN}` })).status).toBe(200);
     expect((await get('/health', {})).status).toBe(200);
+  });
+  it('許可する Origin は実際に待ち受けているポートに追随する', async () => {
+    // 4177 以外で立てたとき、UI はそのポートの Origin を送る。決め打ちだと書き込みが全部 403 になる。
+    const other = createApp({ ...deps, port: 4198 });
+    // 403 かどうかだけを見たいので、状態を変えない本文を送る（存在しない path なので 400 になる）。
+    const req = (origin: string) => other.request('/api/projects', { method: 'POST', headers: { ...H, origin, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) });
+    for (const o of ['http://127.0.0.1:4198', 'http://localhost:4198', 'http://127.0.0.1:5173', 'http://localhost:5173', 'tauri://localhost']) {
+      expect([o, (await req(o)).status]).toEqual([o, 400]);
+    }
+    // 無関係の Origin と、待ち受けていないポートは 403 のままにする。許可を広げない。
+    for (const o of ['https://evil.example', 'http://127.0.0.1:4177', 'http://localhost:4177', 'http://127.0.0.1:4199']) {
+      expect([o, (await req(o)).status]).toEqual([o, 403]);
+    }
+    // MCP の入口も同じ考え方でそろえる。開発用の Vite だけは MCP に要らない。
+    const mcp = (origin: string) => other.request('/mcp', { method: 'POST', headers: { ...H, origin, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } }) });
+    expect((await mcp('http://127.0.0.1:4198')).status).toBe(200);
+    expect((await mcp('http://127.0.0.1:4177')).status).toBe(403);
+    expect((await mcp('https://evil.example')).status).toBe(403);
   });
 });
 
@@ -146,7 +196,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
   });
   it('ワークスペースのルートを変えるとプロジェクトを登録し直して配信する', async () => {
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
@@ -175,7 +225,7 @@ describe('routes', () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.runs).toEqual([run]);
     expect(body.tabs).toHaveLength(2);
-    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null });
+    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
   });
   it('起動、再開、フォーク、停止', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -256,6 +306,128 @@ describe('routes', () => {
     expect((await patch({ tmuxPath: 3 })).status).toBe(400);
     expect((await (await patch({ codePath: null })).json()).codePath).toBeNull();
   });
+  const post = (p: string, body?: unknown, method = 'POST') => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const alphaId = async () => { const { body } = await json(await get('/api/sessions')); return body.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA).id as string; };
+
+  it('statusline の受け口と使用量', async () => {
+    const first = { session_id: SESSION_ALPHA, model: { id: 'claude-opus-4-1' }, effort: 'high', context_window: { context_window_size: 200000, current_usage: null } };
+    expect((await post('/api/ingest/statusline', first)).status).toBe(204);
+    expect(sent.filter((e) => e.type === 'usage.update')).toHaveLength(0);
+    expect(sent.at(-1)).toMatchObject({ type: 'session.upsert', session: { providerSessionId: SESSION_ALPHA, stats: { model: 'claude-opus-4-1' } } });
+    const second = { ...first, context_window: { context_window_size: 200000, current_usage: { input_tokens: 50000 } }, rate_limits: { five_hour: { used_percentage: 47, resets_at: 1 }, seven_day: { used_percentage: 7, resets_at: 2 } } };
+    expect((await post('/api/ingest/statusline', second)).status).toBe(204);
+    expect(sent.find((e) => e.type === 'usage.update')).toMatchObject({ usage: { fiveHour: { usedPercent: 47 }, sevenDay: { usedPercent: 7 } } });
+    expect((await json(await get('/api/usage'))).body).toMatchObject({ fiveHour: { usedPercent: 47 } });
+    expect((await json(await get(`/api/sessions/${await alphaId()}`))).body.stats.contextPercent).toBe(25);
+    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: H, body: 'not json' })).status).toBe(400);
+    // 認証は他の /api と同じ。トークンが無ければ受け付けない。
+    expect((await app.request('/api/ingest/statusline', { method: 'POST', body: '{}' })).status).toBe(401);
+    const agg = await json(await get('/api/usage/aggregate?days=30'));
+    expect(agg.status).toBe(200);
+    expect(agg.body.projects.length).toBeGreaterThan(0);
+    expect((await get('/api/usage/aggregate?days=0')).status).toBe(400);
+    expect((await json(await get('/api/statusline'))).body).toEqual({ command: null, scriptPath: null, installed: false });
+    expect((await json(await get('/api/bootstrap'))).body).toMatchObject({ usage: { fiveHour: { usedPercent: 47 } }, todos: [], artifacts: [], summaryPending: ['pending-1'] });
+  });
+  it('TODO とメモ', async () => {
+    const pid = list0ProjectId();
+    const a = await post(`/api/projects/${pid}/todos`, { text: '最初' });
+    expect(a.status).toBe(201);
+    const todo = await a.json();
+    expect(todo).toMatchObject({ projectId: pid, text: '最初', done: false, position: 1 });
+    expect(sent.at(-2)).toMatchObject({ type: 'todos.update', projectId: pid, todos: [{ id: todo.id }] });
+    expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id: pid, openTodoCount: 1 } });
+    expect((await post(`/api/projects/${pid}/todos`, { text: '  ' })).status).toBe(400);
+    expect((await post('/api/projects/nope/todos', { text: 'x' })).status).toBe(404);
+    expect((await (await post(`/api/todos/${todo.id}`, { done: true }, 'PATCH')).json()).done).toBe(true);
+    expect((await post('/api/todos/nope', { done: true }, 'PATCH')).status).toBe(404);
+    expect((await json(await get(`/api/projects/${pid}/todos`))).body).toHaveLength(1);
+    expect((await app.request(`/api/todos/${todo.id}`, { method: 'DELETE', headers: H })).status).toBe(200);
+    expect((await json(await get(`/api/projects/${pid}/todos`))).body).toEqual([]);
+    expect((await json(await get(`/api/projects/${pid}/memo`))).body).toEqual({ projectId: pid, markdown: '', updatedAt: 0 });
+    const m = await post(`/api/projects/${pid}/memo`, { markdown: '# alpha\n本文' }, 'PUT');
+    expect((await m.json()).markdown).toBe('# alpha\n本文');
+    expect(sent.at(-2)).toMatchObject({ type: 'memo.update', memo: { projectId: pid } });
+    expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { memoHead: '# alpha' } });
+    expect(fs.readFileSync(memos.memoPath(pid), 'utf8')).toBe('# alpha\n本文');
+    expect((await post(`/api/projects/${pid}/memo`, { markdown: 3 }, 'PUT')).status).toBe(400);
+  });
+  it('アーティファクト', async () => {
+    const pid = list0ProjectId();
+    const a = await post(`/api/projects/${pid}/artifacts`, { url: 'https://claude.ai/code/artifact/manual' });
+    expect(a.status).toBe(201);
+    const art = await a.json();
+    expect(sent.at(-1)).toMatchObject({ type: 'artifact.upsert', artifact: { id: art.id } });
+    expect((await post(`/api/projects/${pid}/artifacts`, { url: 'https://example.com' })).status).toBe(400);
+    expect((await json(await get(`/api/artifacts?projectId=${pid}`))).body).toHaveLength(1);
+    expect((await post(`/api/artifacts/${art.id}/open`)).status).toBe(204);
+    expect(external.openUrl).toHaveBeenCalledWith('https://claude.ai/code/artifact/manual');
+    expect((await post(`/api/artifacts/${art.id}/open-editor`)).status).toBe(404);
+    expect((await post('/api/artifacts/nope/open')).status).toBe(404);
+  });
+  it('セッションのメモ、昇格、要約', async () => {
+    const id = await alphaId();
+    const r = await post(`/api/sessions/${id}`, { memo: '一行' }, 'PATCH');
+    expect((await r.json()).memo).toBe('一行');
+    expect(sent.at(-1)).toMatchObject({ type: 'session.upsert', session: { id, memo: '一行' } });
+    expect((await post('/api/sessions/nope', { memo: 'x' }, 'PATCH')).status).toBe(404);
+    const p = await post(`/api/sessions/${id}/promote`, { name: 'newp', gitInit: false, moveFiles: true });
+    expect(p.status).toBe(201);
+    expect(await p.json()).toMatchObject({ moved: true, reason: null, project: { id: list0ProjectId() }, session: { id } });
+    expect((await post(`/api/sessions/${id}/promote`, { name: 'taken', gitInit: false, moveFiles: false })).status).toBe(409);
+    expect((await post(`/api/sessions/${id}/promote`, { gitInit: false })).status).toBe(400);
+    const s = await post(`/api/sessions/${id}/summarize`);
+    expect(s.status).toBe(202);
+    // 手動の作り直しは土台かどうかもレジストリも問わない。
+    expect(summary.enqueued).toContainEqual([id, { force: true }]);
+    await get(`/api/sessions/${id}/events?fromSeq=0`);
+    // セッションを開いたときは既定のまま（土台かどうかとレジストリの両方を見る）。
+    expect(summary.enqueued).toContainEqual([id, undefined]);
+    summary.enqueued.length = 0;
+    await get(`/api/sessions/${id}/events?fromSeq=5`);
+    await get(`/api/sessions/${id}/events?agentId=abc123`);
+    expect(summary.enqueued).toEqual([]);
+    expect((await json(await get('/api/summarizer/models'))).body).toEqual({ models: ['gemma'] });
+    expect((await json(await post('/api/summarizer/test'))).body).toEqual(testResult);
+  });
+  it('要約の受け付けが投げても呼び手の操作は成立する', async () => {
+    // 要約は補助の機能なので、受け付けに失敗しても 500 にしない。GET /events と同じ扱いにそろえる。
+    const id = await alphaId();
+    summary.enqueue = () => { throw new Error('要約器が壊れています'); };
+    const r = await post(`/api/sessions/${id}/summarize`);
+    expect(r.status).toBe(202);
+    expect(await r.json()).toEqual({ accepted: false });
+    expect((await get(`/api/sessions/${id}/events?fromSeq=0`)).status).toBe(200);
+  });
+  it('本文の上限はバイト数で測り、超えたら 413', async () => {
+    const pid = list0ProjectId();
+    // 日本語は 1 文字 3 バイト。文字数で測ると上限の 3 倍まで通ってしまう。
+    expect((await post(`/api/projects/${pid}/memo`, { markdown: 'あ'.repeat(400 * 1024) }, 'PUT')).status).toBe(413);
+    expect(memos.read(pid)).toBeNull();
+    expect(sent.some((e) => e.type === 'memo.update')).toBe(false);
+    expect((await post(`/api/projects/${pid}/todos`, { text: 'あ'.repeat(2000) })).status).toBe(413);
+    expect((await post(`/api/projects/${pid}/artifacts`, { url: 'https://claude.ai/code/artifact/' + 'a'.repeat(3000) })).status).toBe(413);
+    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: H, body: JSON.stringify({ session_id: 'あ'.repeat(100 * 1024) }) })).status).toBe(413);
+    expect((await post(`/api/sessions/${await alphaId()}`, { memo: 'あ'.repeat(2000) }, 'PATCH')).status).toBe(413);
+    // 経路ごとの指定が無い本文にも既定の上限が効く。
+    expect((await post('/api/settings', { workspaceRoot: 'あ'.repeat(40 * 1024) }, 'PATCH')).status).toBe(413);
+    const big = await post(`/api/projects/${pid}/memo`, { markdown: 'あ'.repeat(400 * 1024) }, 'PUT');
+    expect((await big.json()).error).toMatch(/大きすぎます/);
+    // 上限の内側はこれまでどおり通る。
+    expect((await post(`/api/projects/${pid}/memo`, { markdown: 'あ'.repeat(1000) }, 'PUT')).status).toBe(200);
+    expect((await post(`/api/projects/${pid}/todos`, { text: 'あ'.repeat(100) })).status).toBe(201);
+  });
+  it('要約器の設定を検査する', async () => {
+    const patch = (body: unknown) => post('/api/settings', body, 'PATCH');
+    expect(await (await patch({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5 })).json()).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5 });
+    expect((await patch({ lmStudioUrl: 'ftp://x' })).status).toBe(400);
+    // host の無い URL は繋ぎ先にならない。
+    expect((await patch({ lmStudioUrl: 'http://' })).status).toBe(400);
+    expect((await patch({ lmStudioUrl: 'http' })).status).toBe(400);
+    expect((await patch({ summaryHourlyCap: 0 })).status).toBe(400);
+    expect((await patch({ summaryFallback: 'yes' })).status).toBe(400);
+    expect((await (await patch({ lmStudioModel: null })).json()).lmStudioModel).toBeNull();
+  });
   it('MCP の経路が mount されている', async () => {
     const r = await app.request('/mcp', { method: 'POST', headers: { ...H, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } }) });
     expect(r.status).toBe(200);
@@ -267,7 +439,8 @@ describe('routes', () => {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
       fs.mkdirSync(path.join(dist, 'assets'));
       fs.writeFileSync(path.join(dist, 'assets', 'a.js'), 'console.log(1)');
-      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => ({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null }), updateSettings: () => ({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null }), live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), uiDist: dist });
+      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
+      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), uiDist: dist });
       const r = await ui.request('/');
       expect(r.status).toBe(200);
       expect(r.headers.get('set-cookie')).toBe(`hangar_token=${TOKEN}; HttpOnly; SameSite=Strict; Path=/`);

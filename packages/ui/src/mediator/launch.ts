@@ -1,4 +1,4 @@
-import { NOT_YET, type Input, type State, type Step } from './types.ts';
+import type { Input, State, Step } from './types.ts';
 
 /** launch 領域：起動ダイアログ、送信中、失敗。再開とフォークも同じ送信中の状態を使う。 */
 export function launchStep(state: State, input: Input): Step | null {
@@ -21,11 +21,11 @@ export function launchStep(state: State, input: Input): Step | null {
   const i = input.intent;
   switch (i.type) {
     case 'session.new.open':
-      if (i.scratch) return { state, effects: [{ kind: 'toast', level: 'info', message: NOT_YET }] };
-      return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
+      // スクラッチはプロジェクトを選ばずに開く。ダイアログ側でプロジェクトの選択欄を隠す。
+      return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
     case 'session.new.submit':
       if (state.launch.kind === 'submitting') return { state, effects: [] };
-      if (!i.params.projectId) return { state: { ...state, launch: { kind: 'failed', message: 'プロジェクトを選んでください' } }, effects: [] };
+      if (!i.params.projectId && !i.params.scratch) return { state: { ...state, launch: { kind: 'failed', message: 'プロジェクトを選んでください' } }, effects: [] };
       return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.launch', params: i.params }] };
     case 'overlay.close':
       // newSession のときだけ横取りする。

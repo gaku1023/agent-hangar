@@ -1,9 +1,12 @@
 import type { ProjectsProps } from '../presenters/projects.ts';
 import { ProjectCard } from './ProjectCard.tsx';
+import { useFlip } from './primitives/flip.ts';
 import { ProjectStatusDot } from './primitives/StatusSelect.tsx';
 
 /** Projects 画面。絞り込みとアーカイブ表示は画面内だけの一時状態なので Root が useState で持ち、props で受け取る。 */
 export function ProjectsScreen(props: ProjectsProps & { filter: string; showArchived: boolean; onFilter: (s: string) => void; onShowArchived: (b: boolean) => void }) {
+  // ステータスを変えるとカードが別のセクションへ移るので、その移動だけを FLIP で見せる。
+  const flipRef = useFlip(props.sections.flatMap((s) => s.cards.map((c) => `${s.status}:${c.id}`)));
   return (
     <div className="screen">
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
@@ -15,7 +18,7 @@ export function ProjectsScreen(props: ProjectsProps & { filter: string; showArch
       {props.sections.map((s) => (
         <section key={s.status}>
           <div className="section-head"><h2 className="h2"><ProjectStatusDot status={s.status} />{s.label}</h2><span className="faint">{s.cards.length}</span></div>
-          {s.cards.length === 0 ? <div className="faint" style={{ padding: '4px 0 8px' }}>なし</div> : <div className="cards">{s.cards.map((c) => <ProjectCard key={c.id} {...c} />)}</div>}
+          {s.cards.length === 0 ? <div className="faint" style={{ padding: '4px 0 8px' }}>なし</div> : <div className="cards">{s.cards.map((c) => <div key={c.id} className="card-slot" ref={flipRef(`${s.status}:${c.id}`)}><ProjectCard {...c} /></div>)}</div>}
         </section>
       ))}
     </div>

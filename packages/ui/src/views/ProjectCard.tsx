@@ -24,6 +24,11 @@ export function ProjectCard(props: ProjectCardProps) {
         {props.runningCount > 0 && <span>実行中 {props.runningCount}</span>}
         {props.openTodoCount > 0 && <span>TODO {props.openTodoCount}</span>}
       </div>
+      {props.memoHead && <div className="faint card-memo">{props.memoHead}</div>}
+      <div className="card-foot">
+        <span className="spacer" />
+        <button className="btn" onClick={(e) => { e.stopPropagation(); emit({ type: 'session.new.open', projectId: props.id }); }} onKeyDown={(e) => e.stopPropagation()}><Icon name="add" />ここで新規</button>
+      </div>
     </div>
   );
 }

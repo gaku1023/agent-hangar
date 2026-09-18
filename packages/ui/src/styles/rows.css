@@ -1,0 +1,52 @@
+/* セッション行の 1 行メモ（Task 24） */
+
+/* 一覧そのものがフォーカスを受ける。
+   j と k は一覧にフォーカスがあるときだけ効くので、当たっていることが見えないと「効かない」と受け取られる。
+   base.css の :focus-visible とは詳細度が並ぶため、ここで blanket に outline: none と書くと輪郭ごと消えてしまう。 */
+.rows-host:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--r);
+}
+
+/* マウスで押しただけのときは輪郭を出さない。 */
+.rows-host:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* カーソルの行。フォーカスの枠とは別の表し方にして、両方が同時に出ても読めるようにする。 */
+.row[data-cursor='true'] {
+  background: var(--accent-soft);
+}
+
+.memo-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.memo-cell .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memo-input {
+  height: 22px;
+  width: 100%;
+  padding: 0 4px;
+}
+
+/* 鉛筆は行にポインタが乗るか、行の中に焦点があるときだけ出す。 */
+.memo-pencil {
+  visibility: hidden;
+  padding: 0 4px;
+  font-size: var(--fs-xs);
+  transition: opacity 180ms ease;
+}
+
+.row:hover .memo-pencil,
+.row:focus-within .memo-pencil {
+  visibility: visible;
+}

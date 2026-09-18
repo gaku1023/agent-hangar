@@ -5,5 +5,5 @@
   "type": "module",
   "bin": { "hangar": "./bin/hangar.mjs" },
   "scripts": { "typecheck": "tsc -p ." },
-  "dependencies": { "@agent-hangar/server": "*", "commander": "^15.0.0", "tsx": "^4.23.13" }
+  "dependencies": { "@agent-hangar/server": "*", "@agent-hangar/shared": "*", "commander": "^15.0.0", "tsx": "^4.23.13" }
 }

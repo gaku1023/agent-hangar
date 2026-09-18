@@ -1,0 +1,60 @@
+/* 使用量ゲージ、TODO、メモ、アーティファクト、プロジェクト画面の右レール（Task 22） */
+
+/* 使用量ゲージ。幅 48px、高さ 6px の棒で、80% 以上は警告色にする。 */
+.gauges { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
+.gauge { display: inline-flex; align-items: center; gap: var(--u); }
+.gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.gauge-fill { display: block; height: 100%; background: var(--accent); transition: width var(--dur-slow) var(--ease), background var(--dur) var(--ease); }
+.gauge-fill[data-high='true'] { background: var(--waiting); }
+.gauge-num { font-size: var(--fs-xs); color: var(--ink-3); min-width: 32px; }
+.gauge-updated { font-size: var(--fs-xs); white-space: nowrap; }
+
+/* 数字の縦回転。古い値を上へ、新しい値を下から上へ動かす。 */
+.roll { position: relative; display: inline-block; overflow: hidden; height: 1.2em; vertical-align: bottom; }
+.roll-old { position: absolute; inset: 0; }
+.roll-new { display: block; }
+.roll[data-rolling='true'] .roll-old { animation: roll-up var(--dur) var(--ease) forwards; }
+.roll[data-rolling='true'] .roll-new { animation: roll-in var(--dur) var(--ease); }
+@keyframes roll-up { to { transform: translateY(-1.2em); opacity: 0; } }
+@keyframes roll-in { from { transform: translateY(1.2em); } }
+
+/* TODO。完了は打消し線で同じ並びに残す。 */
+.todos { display: flex; flex-direction: column; gap: var(--u); }
+.todo-list { list-style: none; margin: 0; padding: 0; }
+.todo { display: flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); }
+.todo-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--dur) var(--ease); }
+.todo[data-done='true'] .todo-text { text-decoration: line-through; color: var(--ink-3); }
+.todo-del { visibility: hidden; padding: 0 calc(var(--u) * 1.5); }
+.todo:hover .todo-del, .todo:focus-within .todo-del { visibility: visible; }
+
+/* 右レールの一行の追加欄。入力が伸び、ボタンは縮まない。 */
+.rail-add { display: flex; gap: var(--u); }
+.rail-add .input { flex: 1; min-width: 0; }
+.rail-add .btn { flex: none; }
+
+/* メモ。保存は右端に置き、外部の更新の知らせは左に並べる。 */
+.memo-area { width: 100%; resize: vertical; }
+.memo-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+
+/* アーティファクトのカード。右レールでは 1 列に積む。 */
+.artifacts { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.artifact { cursor: pointer; padding: calc(var(--u) * 2); }
+.artifact-head { display: flex; align-items: center; gap: calc(var(--u) * 1.5); min-width: 0; }
+.artifact-favicon { flex: none; }
+.artifact-head .card-title { flex: 1; font-size: var(--fs); min-width: 0; }
+.artifact-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+
+/* プロジェクト画面。右レールは 280px で、隠すと本体が全幅になる。 */
+.project-screen { display: grid; grid-template-columns: 1fr 280px; gap: calc(var(--u) * 4); }
+.project-screen[data-rail='closed'] { grid-template-columns: 1fr; }
+.project-main { min-width: 0; }
+.project-head { display: flex; align-items: center; gap: calc(var(--u) * 3); margin-bottom: var(--u); }
+.project-path { margin-bottom: calc(var(--u) * 3); }
+.rail { display: flex; flex-direction: column; gap: calc(var(--u) * 4); min-width: 0; }
+
+/* プロジェクトのカードは FLIP のために 1 枚ずつ器に入れる。器は格子の升目いっぱいに広がる。 */
+.card-slot { display: flex; min-width: 0; }
+.card-slot > .card { flex: 1; min-width: 0; }
+.card-memo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-foot { display: flex; }

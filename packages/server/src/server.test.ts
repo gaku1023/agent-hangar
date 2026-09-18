@@ -5,9 +5,14 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerEvent, SessionDto } from '@agent-hangar/shared';
+import type { LiveSessionDto } from '@agent-hangar/shared';
+import { openDb } from './db/open.ts';
+import { IndexerService } from './indexer/service.ts';
 import { mangleCwd } from './provider/claude-code/discover.ts';
+import { SummaryJob } from './summary/job.ts';
+import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../test/fixtures.ts';
-import { startServer, WS_PATHS } from './server.ts';
+import { RUN_ENDED_SUMMARY_OPTS, startServer, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -202,4 +207,29 @@ describe('startServer', () => {
       await s.close();
     }
   }, 20000);
+});
+
+describe('要約の契機', () => {
+  it('run の終了はレジストリが生きていると言っても要約を受け付ける', async () => {
+    // tmux を落とした直後でも、~/.claude/sessions を 500 ミリ秒周期で読むキャッシュは
+    // 必ず「生きている」と出る。run の終了を知っている側は、その判定を当てにしない。
+    const db = openDb(':memory:');
+    try {
+      await new IndexerService({ db, deviceId: 'd', claudeDir, isRunning: () => false }).fullScan();
+      const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+      const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: ws, pid: 1 }];
+      const summarizer: Summarizer = { id: 'lmstudio', available: async () => true, summarize: async () => ({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [] }) };
+      const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [summarizer], live: () => live, hub: { broadcast: () => {} } });
+      // セッションを開いたときの契機は、レジストリが生きていると言う間は受け付けない。
+      expect(job.enqueue(id)).toBe(false);
+      // run の終了の契機は受け付ける。こちらは run が終わったことを知っている。
+      expect(job.enqueue(id, RUN_ENDED_SUMMARY_OPTS)).toBe(true);
+      await job.idle();
+      expect((db.prepare('select source from session_summaries where session_id = ?').get(id) as { source: string }).source).toBe('post_hoc');
+      // 飛ばすのはレジストリの判定だけである。土台でなくなった後は、もう受け付けない。
+      expect(job.enqueue(id, RUN_ENDED_SUMMARY_OPTS)).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
 });

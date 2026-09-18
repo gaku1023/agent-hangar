@@ -1,4 +1,4 @@
-import type { BootstrapDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, TabDto, TranscriptEvent } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean };
 export type Store = {
@@ -8,12 +8,24 @@ export type Store = {
   events: Record<string, EventsSlice>; subagents: Record<string, string[]>;
   search: { params: SearchParamsDto | null; result: SearchResultDto | null; loading: boolean };
   index: IndexProgressDto;
+  usage: UsageDto; todos: Record<string, TodoDto>; memos: Record<string, MemoDto>; artifacts: Record<string, ArtifactDto>;
+  summaryPending: Record<string, true>;
+  // 設定画面に入ったときだけ読む値。
+  // 未取得は null で、View は「読み込んでいます」を出す。
+  usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
 };
+
+export const emptyUsage = (): UsageDto => ({ fiveHour: null, sevenDay: null, updatedAt: null });
 
 export const eventsKey = (sessionId: string, agentId: string | null): string => `${sessionId}:${agentId ?? ''}`;
 
 export function initialStore(): Store {
-  return { bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 } };
+  return {
+    bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {},
+    search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
+    usage: emptyUsage(), todos: {}, memos: {}, artifacts: {}, summaryPending: {},
+    usageAggregate: null, statusline: null, summarizerModels: null, summarizerTest: null,
+  };
 }
 
 const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object.fromEntries(items.map((i) => [i.id, i]));
@@ -24,7 +36,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index };
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: b.usage, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])) };
 }
 
 function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): Record<string, SessionDto> {
@@ -54,6 +66,25 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
       let touched = false;
       for (const [k, v] of Object.entries(store.events)) if (k.startsWith(ev.sessionId + ':')) { out[k] = { ...v, total: v.total + ev.count }; touched = true; }
       return touched ? { ...store, events: out } : store;
+    }
+    case 'usage.update': return { ...store, usage: ev.usage };
+    case 'todos.update': {
+      // そのプロジェクトの TODO を一覧で置き換える。
+      // 消えた項目は落ちる。
+      const todos: Record<string, TodoDto> = {};
+      for (const [id, t] of Object.entries(store.todos)) if (t.projectId !== ev.projectId) todos[id] = t;
+      for (const t of ev.todos) todos[t.id] = t;
+      return { ...store, todos };
+    }
+    case 'memo.update': return { ...store, memos: { ...store.memos, [ev.memo.projectId]: ev.memo } };
+    case 'artifact.upsert': return { ...store, artifacts: { ...store.artifacts, [ev.artifact.id]: ev.artifact } };
+    case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true } };
+    case 'summary.updated': case 'summary.failed': {
+      // 本文の差し替えは session.upsert が行う。
+      // ここは待ちの印を消すだけである。
+      if (!store.summaryPending[ev.sessionId]) return store;
+      const { [ev.sessionId]: _drop, ...rest } = store.summaryPending;
+      return { ...store, summaryPending: rest };
     }
     default: return store;
   }
@@ -145,4 +176,20 @@ export function pruneRuns(store: Store, keepSessionIds: Iterable<string>): Store
     runs: Object.fromEntries(Object.entries(store.runs).filter(([id]) => !drop.has(id))),
     tabs: Object.fromEntries(Object.entries(store.tabs).filter(([, t]) => !drop.has(t.runId))),
   };
+}
+
+/** プロジェクトの TODO を position の昇順で返す。
+ * 完了した項目も同じ並びに残す。
+ */
+export function todosOf(store: Store, projectId: string): TodoDto[] {
+  return Object.values(store.todos).filter((t) => t.projectId === projectId).sort((a, b) => a.position - b.position);
+}
+
+/** アーティファクトを最終公開の新しい順で返す。
+ * projectId と sessionId は与えられたものだけで絞る。
+ */
+export function artifactsOf(store: Store, opts: { projectId?: string; sessionId?: string }): ArtifactDto[] {
+  return Object.values(store.artifacts)
+    .filter((a) => (opts.projectId === undefined || a.projectId === opts.projectId) && (opts.sessionId === undefined || a.sessionIds.includes(opts.sessionId)))
+    .sort((a, b) => b.lastPublishedAt - a.lastPublishedAt);
 }

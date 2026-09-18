@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { BootstrapDto, RunDto, SessionDto, TabDto } from '@agent-hangar/shared';
-import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applyServerEvent, currentRunOf, eventsKey, initialStore, pruneRuns, tabsOf } from './store.ts';
+import type { ArtifactDto, BootstrapDto, MemoDto, RunDto, SessionDto, TabDto, TodoDto } from '@agent-hangar/shared';
+import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applyServerEvent, artifactsOf, currentRunOf, eventsKey, initialStore, pruneRuns, tabsOf, todosOf } from './store.ts';
 
-const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0 } });
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0' };
+const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null } });
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0' };
 
 describe('store', () => {
   it('bootstrap を正規化して入れる', () => {
@@ -109,5 +109,45 @@ describe('runs と tabs', () => {
     }
     expect(Object.keys(s.runs)).toEqual([]);
     expect(Object.keys(s.tabs)).toEqual([]);
+  });
+});
+
+const todo = (id: string, projectId: string, position: number, done = false): TodoDto => ({ id, projectId, text: id, done, position, sessionId: null, updatedAt: 1 });
+const art = (id: string, projectId: string | null, last: number, sessionIds: string[] = ['s1']): ArtifactDto => ({ id, projectId, url: `https://claude.ai/code/artifact/${id}`, title: id, description: null, favicon: '📊', filePath: null, fileExists: false, firstPublishedAt: 1, lastPublishedAt: last, versionCount: 1, sessionIds });
+
+describe('フェーズ 3 のストア', () => {
+  it('bootstrap は使用量と TODO とアーティファクトと要約の待ちを入れる', () => {
+    const s = applyBootstrap(initialStore(), { ...boot, usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: null, updatedAt: 9 }, todos: [todo('t2', 'p1', 2), todo('t1', 'p1', 1)], artifacts: [art('a1', 'p1', 5)], summaryPending: ['s1'] });
+    expect(s.usage.fiveHour?.usedPercent).toBe(47);
+    expect(todosOf(s, 'p1').map((t) => t.id)).toEqual(['t1', 't2']);
+    expect(artifactsOf(s, { projectId: 'p1' }).map((a) => a.id)).toEqual(['a1']);
+    expect(s.summaryPending).toEqual({ s1: true });
+  });
+  it('todos.update はそのプロジェクトだけを置き換える', () => {
+    let s = applyBootstrap(initialStore(), { ...boot, todos: [todo('t1', 'p1', 1), todo('t2', 'p1', 2), todo('t9', 'p2', 1)] });
+    s = applyServerEvent(s, { type: 'todos.update', projectId: 'p1', todos: [todo('t2', 'p1', 2, true)] });
+    expect(todosOf(s, 'p1').map((t) => [t.id, t.done])).toEqual([['t2', true]]);
+    expect(todosOf(s, 'p2').map((t) => t.id)).toEqual(['t9']);
+  });
+  it('usage、memo、artifact、要約の待ちのイベントを取り込む', () => {
+    let s = applyBootstrap(initialStore(), boot);
+    s = applyServerEvent(s, { type: 'usage.update', usage: { fiveHour: null, sevenDay: { usedPercent: 7, resetsAt: 2 }, updatedAt: 3 } });
+    expect(s.usage.sevenDay?.usedPercent).toBe(7);
+    const memo: MemoDto = { projectId: 'p1', markdown: '# m', updatedAt: 4 };
+    s = applyServerEvent(s, { type: 'memo.update', memo });
+    expect(s.memos.p1).toEqual(memo);
+    s = applyServerEvent(s, { type: 'artifact.upsert', artifact: art('a1', 'p1', 5) });
+    s = applyServerEvent(s, { type: 'artifact.upsert', artifact: art('a2', 'p1', 9) });
+    s = applyServerEvent(s, { type: 'artifact.upsert', artifact: art('a3', 'p2', 7, ['s2']) });
+    expect(artifactsOf(s, { projectId: 'p1' }).map((a) => a.id)).toEqual(['a2', 'a1']);
+    expect(artifactsOf(s, { sessionId: 's2' }).map((a) => a.id)).toEqual(['a3']);
+    expect(artifactsOf(s, {}).map((a) => a.id)).toEqual(['a2', 'a3', 'a1']);
+    s = applyServerEvent(s, { type: 'summary.pending', sessionId: 's1' });
+    expect(s.summaryPending.s1).toBe(true);
+    s = applyServerEvent(s, { type: 'summary.updated', sessionId: 's1' });
+    expect(s.summaryPending.s1).toBeUndefined();
+    s = applyServerEvent(s, { type: 'summary.pending', sessionId: 's1' });
+    s = applyServerEvent(s, { type: 'summary.failed', sessionId: 's1', message: 'x' });
+    expect(s.summaryPending.s1).toBeUndefined();
   });
 });

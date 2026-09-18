@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, EventsPageDto, LaunchResultDto, ServerEvent } from '@agent-hangar/shared';
+import type { BootstrapDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, TabDto, TodoDto } from '@agent-hangar/shared';
 import type { ApiClient } from './api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 }, projects: [], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
 const page = (from: number, next: number | null): EventsPageDto => ({ sessionId: 's1', events: [{ kind: 'user', seq: from, text: 'x' }], total: 3, nextSeq: next });
 
 /** ターミナルの偽物。React の外で持つ接続の代わりに、呼ばれた tabId を並べる。 */
@@ -23,7 +23,7 @@ function harness(overrides: Partial<ApiClient> = {}) {
     setProjectStatus: vi.fn(async () => { throw new Error('500 /api/projects/p1'); }),
     resolveProject: vi.fn(async () => ({})),
     candidates: vi.fn(async () => []),
-    updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, ...p })),
+    updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, ...p })),
     rebuildIndex: vi.fn(async () => {}),
     ...fakeApiExtras(),
     ...overrides,
@@ -40,9 +40,10 @@ function harness(overrides: Partial<ApiClient> = {}) {
     storage: { get: (k) => store.get(k), set: (k, v) => store.set(k, v), keys: () => [...store.keys()] },
     setTimeout: (fn, ms) => timers.push({ fn, ms }),
     terminals: fakeTerminals(),
+    focus: vi.fn(),
   };
   const rt = createRuntime(deps);
-  return { rt, api, wsHandlers, timers, store, terminals: deps.terminals as ReturnType<typeof fakeTerminals>, setHash: deps.location.setHash };
+  return { rt, api, wsHandlers, timers, store, terminals: deps.terminals as ReturnType<typeof fakeTerminals>, setHash: deps.location.setHash, focus: deps.focus as ReturnType<typeof vi.fn> };
 }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -239,5 +240,190 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'session.openTerminalApp', runId: 'r1' });
     await flush();
     expect(rt.getState().toasts[0]?.message).toContain('Terminal.app');
+  });
+});
+
+const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
+const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null } };
+const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1 });
+const p3Run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
+const p3Tab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt: null });
+
+describe('フェーズ 3 の効果', () => {
+  it('TODO の追加は前後の空白を落として渡し、削除は id をそのまま渡す', async () => {
+    const addTodo = vi.fn(async (projectId: string, text: string) => ({ id: 't9', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1 }));
+    const removeTodo = vi.fn(async (id: string) => p3Todo(id, false));
+    const { rt, wsHandlers } = harness({ addTodo, removeTodo });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'todo.add', projectId: 'p1', text: '  牛乳を買う  ' });
+    await flush();
+    expect(addTodo).toHaveBeenCalledWith('p1', '牛乳を買う');
+    // 空白だけの入力は API まで届かない。
+    rt.emit({ type: 'todo.add', projectId: 'p1', text: '   ' });
+    await flush();
+    expect(addTodo).toHaveBeenCalledTimes(1);
+    rt.emit({ type: 'todo.remove', id: 't9' });
+    await flush();
+    expect(removeTodo).toHaveBeenCalledWith('t9');
+  });
+  it('TODO の反転はストアの現在値から done を決める', async () => {
+    const setTodoDone = vi.fn(async (id: string, done: boolean) => p3Todo(id, done));
+    const { rt, wsHandlers } = harness({ setTodoDone });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    wsHandlers[0]!.onEvent({ type: 'todos.update', projectId: 'p1', todos: [p3Todo('t1', false)] });
+    rt.emit({ type: 'todo.toggle', id: 't1' });
+    await flush();
+    expect(setTodoDone).toHaveBeenCalledWith('t1', true);
+    wsHandlers[0]!.onEvent({ type: 'todos.update', projectId: 'p1', todos: [p3Todo('t1', true)] });
+    rt.emit({ type: 'todo.toggle', id: 't1' });
+    await flush();
+    expect(setTodoDone).toHaveBeenLastCalledWith('t1', false);
+    setTodoDone.mockClear();
+    rt.emit({ type: 'todo.toggle', id: 'nope' });
+    await flush();
+    expect(setTodoDone).not.toHaveBeenCalled();
+  });
+  it('メモは読み込みと保存の両方でストアに入る', async () => {
+    const memo = vi.fn(async (projectId: string): Promise<MemoDto> => ({ projectId, markdown: '# 読んだ', updatedAt: 5 }));
+    const saveMemo = vi.fn(async (projectId: string, markdown: string): Promise<MemoDto> => ({ projectId, markdown, updatedAt: 6 }));
+    const { rt, wsHandlers, setHash } = harness({ memo, saveMemo });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    setHash('#/project/p1');
+    await flush();
+    expect(memo).toHaveBeenCalledWith('p1');
+    expect(rt.getStore().memos.p1?.markdown).toBe('# 読んだ');
+    rt.emit({ type: 'memo.save', projectId: 'p1', markdown: '# 書いた' });
+    await flush();
+    expect(saveMemo).toHaveBeenCalledWith('p1', '# 書いた');
+    expect(rt.getStore().memos.p1).toEqual({ projectId: 'p1', markdown: '# 書いた', updatedAt: 6 });
+  });
+  it('セッションのメモはストアのセッションを差し替える', async () => {
+    const setSessionMemo = vi.fn(async (sessionId: string, text: string): Promise<SessionDto> => ({ ...p3Session, id: sessionId, memo: text }));
+    const { rt, wsHandlers } = harness({ setSessionMemo });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'session.setMemo', id: 's1', text: '覚え書き' });
+    await flush();
+    expect(setSessionMemo).toHaveBeenCalledWith('s1', '覚え書き');
+    expect(rt.getStore().sessions.s1?.memo).toBe('覚え書き');
+  });
+  it('昇格は成功でストアを更新して promote.done、失敗で promote.failed になる', async () => {
+    const promote = vi.fn(async () => ({ project: p3Project('p9'), session: p3Session, moved: true, reason: null }));
+    const { rt, wsHandlers } = harness({ promote });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: true });
+    await flush();
+    expect(promote).toHaveBeenCalledWith('s1', { name: 'newp', gitInit: false, moveFiles: true });
+    expect(rt.getStore().projects.p9?.name).toBe('p9');
+    expect(rt.getState().overlay).toEqual({ kind: 'promoted', projectId: 'p9', moved: true, reason: null });
+    const bad = harness({ promote: vi.fn(async () => { throw new Error('409 /api/sessions/s1/promote'); }) });
+    bad.rt.start();
+    bad.wsHandlers[0]!.onOpen();
+    await flush();
+    bad.rt.emit({ type: 'session.promote.submit', id: 's1', name: 'taken', gitInit: false, moveFiles: false });
+    await flush();
+    expect(bad.rt.getState().promote).toEqual({ kind: 'failed', message: '409 /api/sessions/s1/promote' });
+  });
+  it('アーティファクトは開くだけの操作と、追加でストアに入る操作がある', async () => {
+    const artifact = { id: 'a1', projectId: 'p1', url: 'https://x/1', title: null, description: null, favicon: null, filePath: null, fileExists: false, firstPublishedAt: 1, lastPublishedAt: 1, versionCount: 1, sessionIds: [] };
+    const addArtifact = vi.fn(async () => artifact);
+    const openArtifact = vi.fn(async () => {});
+    const openArtifactEditor = vi.fn(async () => {});
+    const { rt, wsHandlers } = harness({ addArtifact, openArtifact, openArtifactEditor });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'artifact.add', projectId: 'p1', url: 'https://x/1' });
+    rt.emit({ type: 'artifact.open', id: 'a1' });
+    rt.emit({ type: 'artifact.openEditor', id: 'a1' });
+    await flush();
+    expect(addArtifact).toHaveBeenCalledWith('p1', 'https://x/1');
+    expect(openArtifact).toHaveBeenCalledWith('a1');
+    expect(openArtifactEditor).toHaveBeenCalledWith('a1');
+    expect(rt.getStore().artifacts.a1).toEqual(artifact);
+  });
+  it('設定画面に入ると statusline と集計とモデル一覧を読む', async () => {
+    const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
+    const usageAggregate = vi.fn(async () => ({ days: [{ day: '2026-09-18', inputTokens: 1, outputTokens: 2, sessions: 1 }], projects: [] }));
+    const summarizerModels = vi.fn(async () => { throw new Error('ECONNREFUSED'); });
+    const { rt, wsHandlers, setHash } = harness({ statusline, usageAggregate, summarizerModels });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    setHash('#/settings');
+    await flush();
+    expect(usageAggregate).toHaveBeenCalledWith(30);
+    expect(statusline).toHaveBeenCalledTimes(1);
+    expect(summarizerModels).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().statusline?.installed).toBe(true);
+    expect(rt.getStore().usageAggregate?.days).toHaveLength(1);
+    expect(rt.getStore().summarizerModels).toEqual([]);
+    // LM Studio に繋がらないのは普通の状態なので、トーストにしない。
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('要約器を試すと結果がストアに入る', async () => {
+    const testSummarizer = vi.fn(async () => ({ ok: true as const, id: 'lmstudio' as const, ms: 12, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done' as const, nextSteps: [], source: 'post_hoc' as const, sourceModel: 'gemma', basedOnTurns: 3 } }));
+    const { rt, wsHandlers } = harness({ testSummarizer });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'summarizer.test' });
+    await flush();
+    expect(testSummarizer).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().summarizerTest).toMatchObject({ ok: true, id: 'lmstudio', ms: 12 });
+    // もう一度試すと、結果が届くまでの間は前回の結果が消えている。
+    rt.emit({ type: 'summarizer.test' });
+    expect(rt.getStore().summarizerTest).toBeNull();
+    await flush();
+    expect(rt.getStore().summarizerTest).toMatchObject({ ok: true });
+  });
+  it('事後要約の作り直しは呼ぶだけで、進みはサーバから届く', async () => {
+    const regenerateSummary = vi.fn(async () => {});
+    const { rt, wsHandlers } = harness({ regenerateSummary });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'summary.regenerate', sessionId: 's1' });
+    await flush();
+    expect(regenerateSummary).toHaveBeenCalledWith('s1');
+  });
+  it('分割は選択中でない最初のタブを右にし、タブが 1 つなら null を返す', async () => {
+    const { rt, wsHandlers, setHash } = harness();
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    setHash('#/session/s1');
+    await flush();
+    wsHandlers[0]!.onEvent({ type: 'run.started', run: p3Run('r1', 's1'), tabs: [p3Tab('t1', 'r1', 'agent')] });
+    rt.emit({ type: 'split.toggle' });
+    await flush();
+    expect(rt.getState().sessionView.s1?.split).toBeFalsy();
+    expect(rt.getState().toasts.at(-1)?.message).toBe('分割にはタブが 2 つ必要です');
+    wsHandlers[0]!.onEvent({ type: 'tab.upsert', tab: p3Tab('t2', 'r1', 'shell') });
+    rt.emit({ type: 'tab.select', tabId: 't1' });
+    rt.emit({ type: 'split.toggle' });
+    await flush();
+    expect(rt.getState().sessionView.s1).toMatchObject({ split: true, splitTab: 't2' });
+  });
+  it('focus の新しい対象は deps.focus に渡る', async () => {
+    const { rt, wsHandlers, focus } = harness();
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'session.promote.open', id: 's1' });
+    expect(rt.getState().overlay).toEqual({ kind: 'promote', sessionId: 's1' });
+    expect(focus).toHaveBeenCalledWith('promoteName');
+    rt.emit({ type: 'todo.add', projectId: 'p1', text: '買う' });
+    await flush();
+    expect(focus).toHaveBeenLastCalledWith('todoInput');
   });
 });

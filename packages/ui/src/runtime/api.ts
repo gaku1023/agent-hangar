@@ -1,4 +1,4 @@
-import type { BootstrapDto, EventsPageDto, LaunchParams, LaunchResultDto, ProjectDto, ProjectStatus, ResolveAction, RunDto, SearchParamsDto, SearchResultDto, SettingsDto, TabDto, TerminalApp } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, TabDto, TerminalApp, TodoDto, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 export type ApiClient = {
   bootstrap(): Promise<BootstrapDto>;
@@ -21,6 +21,23 @@ export type ApiClient = {
   projectOpenEditor(projectId: string): Promise<void>;
   projectOpenTerminal(projectId: string): Promise<{ app: TerminalApp; fellBack: boolean }>;
   createProject(name: string, path: string): Promise<ProjectDto>;
+  usage(): Promise<UsageDto>;
+  usageAggregate(days: number): Promise<UsageAggregateDto>;
+  statusline(): Promise<StatuslineStatusDto>;
+  addTodo(projectId: string, text: string): Promise<TodoDto>;
+  setTodoDone(id: string, done: boolean): Promise<TodoDto>;
+  removeTodo(id: string): Promise<TodoDto>;
+  memo(projectId: string): Promise<MemoDto>;
+  saveMemo(projectId: string, markdown: string): Promise<MemoDto>;
+  setSessionMemo(sessionId: string, memo: string): Promise<SessionDto>;
+  addArtifact(projectId: string, url: string): Promise<ArtifactDto>;
+  openArtifact(id: string): Promise<void>;
+  openArtifactEditor(id: string): Promise<void>;
+  promote(sessionId: string, body: { name: string; gitInit: boolean; moveFiles: boolean }): Promise<PromoteResultDto>;
+  /** 202 と { accepted } が返るが、本文は使わない。結果は summary.pending と summary.updated で届く。 */
+  regenerateSummary(sessionId: string): Promise<void>;
+  summarizerModels(): Promise<{ models: string[] }>;
+  testSummarizer(): Promise<SummarizerTestDto>;
 };
 
 /** 相対 URL の `/api/...` を叩く薄いクライアント。
@@ -60,5 +77,21 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     projectOpenEditor: (projectId) => post(`/api/projects/${projectId}/open-editor`),
     projectOpenTerminal: (projectId) => post(`/api/projects/${projectId}/open-terminal`),
     createProject: (name, path) => post('/api/projects', { name, path }),
+    usage: () => call('/api/usage'),
+    usageAggregate: (days) => call(`/api/usage/aggregate${qs({ days })}`),
+    statusline: () => call('/api/statusline'),
+    addTodo: (projectId, text) => post(`/api/projects/${projectId}/todos`, { text }),
+    setTodoDone: (id, done) => call(`/api/todos/${id}`, { method: 'PATCH', body: JSON.stringify({ done }) }),
+    removeTodo: (id) => call(`/api/todos/${id}`, { method: 'DELETE' }),
+    memo: (projectId) => call(`/api/projects/${projectId}/memo`),
+    saveMemo: (projectId, markdown) => call(`/api/projects/${projectId}/memo`, { method: 'PUT', body: JSON.stringify({ markdown }) }),
+    setSessionMemo: (sessionId, memo) => call(`/api/sessions/${sessionId}`, { method: 'PATCH', body: JSON.stringify({ memo }) }),
+    addArtifact: (projectId, url) => post(`/api/projects/${projectId}/artifacts`, { url }),
+    openArtifact: (id) => post(`/api/artifacts/${id}/open`),
+    openArtifactEditor: (id) => post(`/api/artifacts/${id}/open-editor`),
+    promote: (sessionId, body) => post(`/api/sessions/${sessionId}/promote`, body),
+    regenerateSummary: (sessionId) => post(`/api/sessions/${sessionId}/summarize`),
+    summarizerModels: () => call('/api/summarizer/models'),
+    testSummarizer: () => post('/api/summarizer/test'),
   };
 }

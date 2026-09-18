@@ -1,7 +1,10 @@
-import type { LaunchParams, LiveSessionDto, ProjectDto, ProjectStatus, ServerEvent, SessionDto, SummaryState, TranscriptEvent } from '@agent-hangar/shared';
+import type { LaunchParams, LiveSessionDto, ProjectDto, ProjectStatus, ServerEvent, SessionDto, SummaryState, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
+import { listArtifacts } from '../artifacts/queries.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
+import type { MemoStore } from '../projects/memo.ts';
+import { addTodo, listTodos, setTodoDone } from '../projects/todos.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { readEvents } from '../transcript/read.ts';
@@ -13,6 +16,8 @@ export type ToolDeps = {
   live: () => LiveSessionDto[];
   runs: { start(params: LaunchParams): LaunchResult };
   hub: { broadcast(ev: ServerEvent): void };
+  usage: () => UsageDto;
+  memos: MemoStore;
 };
 /** セッション別 URL では、そのセッションに固定される。共通 URL では null。 */
 export type ToolContext = { sessionId: string | null };
@@ -30,7 +35,6 @@ export const TOOL_NAMES = [
   'create_session', 'set_session_summary', 'set_session_memo', 'get_usage', 'open_in_hangar',
 ] as const;
 
-const NOT_YET = 'フェーズ 3 で対応します';
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
 const STATES: SummaryState[] = ['in_progress', 'done', 'blocked', 'abandoned'];
 /** 一覧で返す件数の既定値。呼び手が limit を指定すればそちらを使う。 */
@@ -69,6 +73,11 @@ function sessionBrief(s: SessionDto) {
   };
 }
 
+/** プロジェクトの TODO を MCP の綴りで返す。 */
+function todoBriefs(deps: ToolDeps, projectId: string) {
+  return listTodos(deps.db, projectId).map((t) => ({ id: t.id, text: t.text, done: t.done, session_id: t.sessionId }));
+}
+
 function requireSession(deps: ToolDeps, id: string): SessionDto {
   const s = getSession(deps.db, deps.live(), id);
   if (!s) throw new ToolError(`セッションが見つかりません: ${id}`);
@@ -94,15 +103,16 @@ export function getProjectTool(deps: ToolDeps, args: Record<string, unknown>) {
   const id = str(args.project_id);
   if (!id) throw new ToolError('project_id が必要です');
   const p = requireProject(deps, id);
-  const memo = (deps.db.prepare('select markdown from project_memos where project_id = ? and deleted_at is null').get(id) as { markdown: string } | undefined)?.markdown ?? null;
-  const todos = (deps.db.prepare('select id, text, done from todos where project_id = ? and deleted_at is null order by position').all(id) as { id: string; text: string; done: number }[])
-    .map((t) => ({ id: t.id, text: t.text, done: t.done === 1 }));
+  const memo = deps.memos.read(id)?.markdown ?? null;
+  const todos = todoBriefs(deps, id);
   const recent = listSessions(deps.db, deps.live(), { projectId: id }).slice(0, RECENT_SESSIONS).map(sessionBrief);
-  // アーティファクトの抽出はフェーズ 3 なので、いまは空で返す。
-  return { id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved, last_activity_at: p.lastActivityAt, memo, todos, recent_sessions: recent, artifacts: [] };
+  const artifacts = listArtifacts(deps.db, { projectId: id })
+    .map((a) => ({ id: a.id, url: a.url, title: a.title, favicon: a.favicon, last_published_at: a.lastPublishedAt, version_count: a.versionCount }));
+  return { id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved, last_activity_at: p.lastActivityAt, open_todo_count: p.openTodoCount, memo, todos, recent_sessions: recent, artifacts };
 }
 
-export function updateProjectTool(deps: ToolDeps, args: Record<string, unknown>) {
+/** status、add_todos、toggle_todos、append_memo を受け、変えた表ごとにイベントを配る。 */
+export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const id = str(args.project_id);
   if (!id) throw new ToolError('project_id が必要です');
   const row = deps.db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
@@ -114,9 +124,36 @@ export function updateProjectTool(deps: ToolDeps, args: Record<string, unknown>)
     upsertShared(deps.db, 'projects', { ...row, status }, deps.deviceId);
     deps.hub.broadcast({ type: 'project.upsert', project: getProject(deps.db, deps.deviceId, deps.live(), id)! });
   }
-  const ignored = ['add_todos', 'toggle_todos', 'append_memo'].filter((k) => args[k] !== undefined);
+  const adds = strs(args.add_todos) ?? [];
+  const toggles = strs(args.toggle_todos) ?? [];
+  if (adds.length || toggles.length) {
+    // 全部成功か全部失敗にする。
+    // 途中で失敗して書き込みだけが残ると、todos.update を配らないまま DB が進み、UI と食い違ったまま気付けない。
+    deps.db.transaction(() => {
+      for (const t of adds) addTodo(deps.db, deps.deviceId, { projectId: id, text: t, sessionId: ctx.sessionId });
+      for (const tid of toggles) {
+        const cur = deps.db.prepare('select done from todos where id = ? and project_id = ? and deleted_at is null').get(tid, id) as { done: number } | undefined;
+        if (!cur) throw new ToolError(`TODO が見つかりません: ${tid}`);
+        setTodoDone(deps.db, deps.deviceId, tid, cur.done !== 1);
+      }
+    })();
+    deps.hub.broadcast({ type: 'todos.update', projectId: id, todos: listTodos(deps.db, id) });
+  }
+  const append = typeof args.append_memo === 'string' ? args.append_memo : undefined;
+  const appended = append !== undefined && append.trim() !== '';
+  if (appended) {
+    const cur = deps.memos.read(id)?.markdown ?? '';
+    const memo = deps.memos.write(id, cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${append}` : append);
+    deps.hub.broadcast({ type: 'memo.update', memo });
+  }
+  // TODO とメモの変更で ProjectDto の openTodoCount と memoHead が変わるので、最後にもう一度配る。
   const p = getProject(deps.db, deps.deviceId, deps.live(), id)!;
-  return { project: { id: p.id, name: p.name, status: p.status }, not_yet: ignored.length ? { fields: ignored, message: NOT_YET } : null };
+  if (adds.length || toggles.length || appended) deps.hub.broadcast({ type: 'project.upsert', project: p });
+  return {
+    project: { id: p.id, name: p.name, status: p.status, open_todo_count: p.openTodoCount },
+    todos: todoBriefs(deps, id),
+    memo: deps.memos.read(id)?.markdown ?? null,
+  };
 }
 
 export function listSessionsTool(deps: ToolDeps, args: Record<string, unknown>) {
@@ -198,6 +235,13 @@ export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Recor
   return { ok: true, session_id: id };
 }
 
+/** statusline から届いた最新の使用率。まだ届いていない窓は null になる。 */
+export function getUsageTool(deps: ToolDeps) {
+  const u = deps.usage();
+  const w = (x: { usedPercent: number; resetsAt: number | null } | null) => (x ? { used_percentage: x.usedPercent, resets_at: x.resetsAt } : null);
+  return { five_hour: w(u.fiveHour), seven_day: w(u.sevenDay), updated_at: u.updatedAt };
+}
+
 export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   // 実在しない ID を死んだリンクにして返さない。打ち間違いはここで失敗させる。
   const projectId = str(args.project_id);
@@ -215,15 +259,14 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
   switch (name) {
     case 'list_projects': return listProjectsTool(deps);
     case 'get_project': return getProjectTool(deps, args);
-    case 'update_project': return updateProjectTool(deps, args);
+    case 'update_project': return updateProjectTool(deps, ctx, args);
     case 'list_sessions': return listSessionsTool(deps, args);
     case 'search_sessions': return searchSessionsTool(deps, args);
     case 'get_transcript': return getTranscriptTool(deps, ctx, args);
     case 'create_session': return createSessionTool(deps, args);
     case 'set_session_summary': return setSessionSummaryTool(deps, ctx, args);
     case 'set_session_memo': return setSessionMemoTool(deps, ctx, args);
-    // 使用量はフェーズ 3 の範囲なので、いまは断りだけを返す。
-    case 'get_usage': return { not_yet: NOT_YET };
+    case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
     default: throw new ToolError(`知らないツールです: ${name}`);
   }

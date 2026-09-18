@@ -3,7 +3,9 @@ import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { readNewLines } from '../provider/claude-code/lines.ts';
+import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
 import { indexTexts, normalizeRecord, recordFacts } from '../provider/claude-code/normalize.ts';
+import { localDay } from '../usage/aggregate.ts';
 import type { DiscoveredFile } from '../provider/types.ts';
 
 export const INDEXER_VERSION = 1;
@@ -11,7 +13,7 @@ export const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const FTS_MAX_CHARS = 20000;
 
 export type IndexFileOptions = { deviceId: string; indexerVersion?: number; cwdFallback?: string };
-export type IndexFileResult = { sessionId: string; providerSessionId: string; appended: number; changed: boolean; badLines: number };
+export type IndexFileResult = { sessionId: string; providerSessionId: string; appended: number; changed: boolean; badLines: number; artifactIds: string[] };
 
 type TfRow = { path: string; session_id: string; agent_id: string | null; size: number; mtime: number; indexed_bytes: number; indexer_version: number };
 
@@ -20,6 +22,7 @@ type Acc = {
   cwd?: string; firstTs?: number; lastTs?: number; firstPrompt?: string; lastPrompt?: string;
   aiTitle?: string; customTitle?: string; agentName?: string; prUrl?: string; model?: string; effort?: string;
   userTurns: number; input: number; output: number;
+  daily: Map<string, { input: number; output: number }>;
 };
 
 /** provider と provider_session_id の組で sessions を引き、無ければ作って hangar 側の id を返す。 */
@@ -44,7 +47,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
   const tf = db.prepare('select * from transcript_files where path = ?').get(file.path) as TfRow | undefined;
   const sameVersion = tf?.indexer_version === version;
   if (tf && sameVersion && tf.size === stat.size && tf.mtime === mtime) {
-    return { sessionId: tf.session_id, providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0 };
+    return { sessionId: tf.session_id, providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [] };
   }
   const from = tf && sameVersion ? tf.indexed_bytes : 0;
   const read = readNewLines(file.path, from);
@@ -62,6 +65,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
 
   let appended = 0;
   let sessionId = '';
+  let artifactIdsOut: string[] = [];
   const run = db.transaction(() => {
     const facts = parsed.map((p) => recordFacts(p.rec));
     const cwd = facts.find((f) => f.cwd)?.cwd ?? opts.cwdFallback ?? '';
@@ -70,15 +74,34 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
       db.prepare("delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(sessionId, agentKey);
       db.prepare("delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(sessionId, agentKey);
     }
+    // 作り直しでも artifact_versions は消さない。
+    // 同じ版を二重に積まない仕組みが recordArtifactPublish にあるので、積み直すだけで冪等になる。
+    // 一度公開されたものが後から公開されなかったことにはならないので、残っていて正しい。
+    // artifact_calls は結果が来るまでの端末ローカルの控えなので、主線の作り直しでは消してから積み直す。
+    if (reset && file.agentId === null) db.prepare('delete from artifact_calls where session_id = ?').run(sessionId);
+    // 主線の作り直しでは日別の集計も消す。サブエージェントのぶんは主線の次の走査で積み直される。
+    if (reset && file.agentId === null) db.prepare('delete from usage_daily where session_id = ?').run(sessionId);
+    const artifactIds = new Set<string>();
+    const insCall = db.prepare('insert into artifact_calls (tool_id, session_id, file_path, description, favicon) values (?,?,?,?,?) on conflict(tool_id) do update set file_path = excluded.file_path, description = excluded.description, favicon = excluded.favicon');
+    const getCall = db.prepare('select file_path, description, favicon from artifact_calls where tool_id = ? and session_id = ?');
+    const projectOf = () => (db.prepare('select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null }).project_id;
     // seq は主線とサブエージェントで別々に振り、続きは既存の最大値の次から始める。
     let seq = reset ? 0 : ((db.prepare("select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ?").get(sessionId, agentKey) as { m: number | null }).m ?? -1) + 1;
-    const acc: Acc = { userTurns: 0, input: 0, output: 0 };
+    const acc: Acc = { userTurns: 0, input: 0, output: 0, daily: new Map() };
     parsed.forEach((p, i) => {
       const events = normalizeRecord(p.rec, seq, file.agentId);
       for (const ev of events) {
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
         insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, p.offset, p.length, file.path, file.agentId, toolName, filePath);
+        if (ev.kind === 'tool_call' && ev.name === 'Artifact' && isArtifactPublish(ev.input)) {
+          const c = artifactCallOf(ev.input);
+          insCall.run(ev.toolId, sessionId, c.filePath, c.description, c.favicon);
+        } else if (ev.kind === 'tool_result') {
+          const url = parsePublishedUrl(ev.text);
+          const call = url ? (getCall.get(ev.toolId, sessionId) as { file_path: string | null; description: string | null; favicon: string | null } | undefined) : undefined;
+          if (url && call) artifactIds.add(recordArtifactPublish(db, opts.deviceId, { sessionId, projectId: projectOf(), url, publishedAt: ev.ts ?? Date.now(), call: { filePath: call.file_path, description: call.description, favicon: call.favicon } }));
+        }
       }
       for (const t of indexTexts(events)) insFts.run(sessionId, file.agentId, t.seq, t.role, t.text.slice(0, FTS_MAX_CHARS));
       seq += events.length;
@@ -99,16 +122,24 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
       if (f.prUrl) acc.prUrl = f.prUrl;
       if (f.model) acc.model = f.model;
       if (f.effort) acc.effort = f.effort;
-      if (f.usage) { acc.input += f.usage.input; acc.output += f.usage.output; }
+      if (f.usage) {
+        acc.input += f.usage.input; acc.output += f.usage.output;
+        const day = localDay(f.ts ?? Date.now());
+        const cur = acc.daily.get(day) ?? { input: 0, output: 0 };
+        acc.daily.set(day, { input: cur.input + f.usage.input, output: cur.output + f.usage.output });
+      }
     });
     db.prepare(`insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version, last_error) values (?,?,?,?,?,?,?,null)
       on conflict(path) do update set session_id = excluded.session_id, agent_id = excluded.agent_id, size = excluded.size, mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes, indexer_version = excluded.indexer_version, last_error = null`)
       .run(file.path, sessionId, file.agentId, stat.size, mtime, read.nextByte, version);
+    const upDaily = db.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?) on conflict(session_id, day) do update set input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens');
+    for (const [day, v] of acc.daily) upDaily.run(sessionId, day, v.input, v.output);
     if (file.agentId === null) applySessionFacts(db, sessionId, acc, reset, opts.deviceId);
     else refreshFilesChanged(db, sessionId);
+    artifactIdsOut = [...artifactIds];
   });
   run();
-  return { sessionId, providerSessionId: file.sessionId, appended, changed: true, badLines };
+  return { sessionId, providerSessionId: file.sessionId, appended, changed: true, badLines, artifactIds: artifactIdsOut };
 }
 
 /** 編集系ツールが触ったファイル数を event_index から数え直す。サブエージェントの編集も含む。 */

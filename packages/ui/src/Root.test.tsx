@@ -7,12 +7,12 @@ import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
 
 // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
 const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), subscribe: () => () => {}, dispose: vi.fn() };
 
-const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0 } };
+const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null } };
 
 function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost } = {}) {
   const b = over.boot ?? boot;
@@ -31,6 +31,19 @@ function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?:
   return { rt, deps, handlers, setHash: deps.location.setHash, terminals: deps.terminals };
 }
 const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
+
+const rootRun = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
+const rootTab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '')), closedAt: null });
+
+/** 起動が終わったところまで進めた Root。ショートカットのテストの出発点である。 */
+async function mounted(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost } = {}) {
+  const m = make({ boot: { ...boot, sessions: [session] }, ...over });
+  m.rt.start();
+  render(<Root runtime={m.rt} api={m.deps.api} terminals={m.terminals} />);
+  act(() => m.handlers[0]!.onOpen());
+  await flush();
+  return { ...m, wsHandlers: m.handlers };
+}
 
 describe('Root', () => {
   it('起動から Home、Projects へ遷移、未解決ダイアログ', async () => {
@@ -71,9 +84,10 @@ describe('Root', () => {
     // 入力中の / は横取りしない。
     fireEvent.keyDown(document.getElementById('global-search')!, { key: '/' });
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
-    expect(screen.getByText('コマンドパレット')).toBeInTheDocument();
+    // 仮の板を本物のパレットに差し替えたので、見出しの文字ではなく入力欄のラベルで探す。
+    expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(screen.queryByText('コマンドパレット')).toBeNull();
+    expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
     // Esc は未解決ダイアログを閉じない。
     act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
     await flush();
@@ -115,5 +129,113 @@ describe('Root', () => {
     act(() => setHash('#/session/s1'));
     await flush();
     expect(screen.getByText('ターミナルに接続できませんでした')).toBeInTheDocument();
+  });
+});
+
+describe('フェーズ 3 のショートカットとオーバーレイ', () => {
+  const key = (init: KeyboardEventInit) => fireEvent.keyDown(window, init);
+
+  it('グローバルのキーが Intent になる', async () => {
+    const { rt } = await mounted();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ key: 'k', metaKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'palette.open' });
+    key({ key: 'n', metaKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'session.new.open', scratch: false });
+    key({ key: 'N', metaKey: true, shiftKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });
+    key({ key: ',', metaKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+  });
+
+  it('セッション画面でタブと分割とトランスクリプトのキーが効く', async () => {
+    const { rt, wsHandlers, setHash } = await mounted();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent'), rootTab('t2', 'r1', 'shell')] }));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ key: '2', metaKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'tab.select', tabId: 't2' });
+    key({ key: '2', ctrlKey: true, altKey: true });
+    expect(emit).toHaveBeenLastCalledWith({ type: 'tab.select', tabId: 't2' });
+    key({ key: '\\', metaKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'split.toggle' });
+    key({ key: 'j', metaKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'transcript.toggle' });
+  });
+
+  it('タブが 1 つだけなら ⌘\\ は何も出さない', async () => {
+    const { rt, wsHandlers, setHash } = await mounted();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent')] }));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ key: '\\', metaKey: true });
+    expect(emit).not.toHaveBeenCalledWith({ type: 'split.toggle' });
+  });
+
+  it('⌘W は閉じられるタブのときだけ tab.close を出す', async () => {
+    const { rt, wsHandlers, setHash } = await mounted();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent'), rootTab('t2', 'r1', 'shell')] }));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ key: 'w', metaKey: true });
+    expect(emit).not.toHaveBeenCalledWith({ type: 'tab.close', tabId: 't1' });
+    act(() => rt.emit({ type: 'tab.select', tabId: 't2' }));
+    await flush();
+    key({ key: 'w', metaKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
+  });
+
+  it('ターミナルにフォーカスがあるときは ⌘ を含むものだけを受ける', async () => {
+    const { rt } = await mounted();
+    const host = document.createElement('div');
+    host.className = 'term-host';
+    const inner = document.createElement('div');
+    host.appendChild(inner);
+    document.body.appendChild(host);
+    const emit = vi.spyOn(rt, 'emit');
+    fireEvent.keyDown(inner, { key: '/', bubbles: true });
+    expect(emit).not.toHaveBeenCalled();
+    fireEvent.keyDown(inner, { key: 'k', metaKey: true, bubbles: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'palette.open' });
+    host.remove();
+  });
+
+  it('パレットの入力は Root が持ち、閉じると空に戻る', async () => {
+    const { rt } = await mounted();
+    act(() => rt.emit({ type: 'palette.open' }));
+    await flush();
+    const input = screen.getByLabelText('コマンドを検索') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'alp' } });
+    expect((screen.getByLabelText('コマンドを検索') as HTMLInputElement).value).toBe('alp');
+    act(() => rt.emit({ type: 'palette.close' }));
+    await flush();
+    act(() => rt.emit({ type: 'palette.open' }));
+    await flush();
+    expect((screen.getByLabelText('コマンドを検索') as HTMLInputElement).value).toBe('');
+  });
+
+  it('昇格のダイアログと完了のダイアログが出る', async () => {
+    const { rt } = await mounted();
+    act(() => rt.emit({ type: 'session.promote.open', id: 's1' }));
+    await flush();
+    expect(screen.getByLabelText('プロジェクト名')).toBeTruthy();
+    act(() => rt.dispatch({ kind: 'runtime', event: { type: 'promote.done', projectId: 'p1', moved: true, reason: null } }));
+    await flush();
+    expect(screen.getByText('この場所で新しいセッションを開始')).toBeTruthy();
+  });
+
+  it('Esc は未解決のダイアログだけは閉じず、ほかのオーバーレイは閉じる', async () => {
+    const { rt } = await mounted();
+    act(() => rt.emit({ type: 'session.promote.open', id: 's1' }));
+    await flush();
+    key({ key: 'Escape' });
+    await flush();
+    expect(screen.queryByLabelText('プロジェクト名')).toBeNull();
   });
 });

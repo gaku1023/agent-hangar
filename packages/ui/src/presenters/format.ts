@@ -45,3 +45,13 @@ export function tokensLabel(n: number): string {
 export const STATE_LABEL = { in_progress: '進行中', done: '完了', blocked: '詰まっている', abandoned: '中断' } as const;
 export const SOURCE_LABEL = { baseline: '自動', in_session: 'セッション', post_hoc: '事後' } as const;
 export const STATUS_LABEL = { active: 'Active', paused: 'Paused', done: 'Done', archived: 'Archived' } as const;
+
+/** 使用率の表示。値が無いときは「未取得」にする。 */
+export function percentLabel(n: number | null): string {
+  return n === null ? '未取得' : `${Math.round(n)}%`;
+}
+
+/** 推定コスト。値が無いときは空文字にして、行の桁を崩さない。 */
+export function costLabel(n: number | null): string {
+  return n === null ? '' : `$${n.toFixed(2)}`;
+}

@@ -1,9 +1,11 @@
 import { serve } from '@hono/node-server';
+import { execFile } from 'node:child_process';
 import type http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { listArtifacts } from './artifacts/queries.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
-import { resolveToolPaths } from './config/tools.ts';
+import { resolveToolPaths, which } from './config/tools.ts';
 import { openDb } from './db/open.ts';
 import { getProject, getSession, listProjects } from './db/queries.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './external/open.ts';
@@ -11,16 +13,25 @@ import { createApp, type ExternalApi } from './http/app.ts';
 import { writeBaselineIfNeeded } from './indexer/baseline.ts';
 import { IndexerService } from './indexer/service.ts';
 import { ensureWrapperScript } from './launch/wrapper.ts';
+import { MemoStore } from './projects/memo.ts';
+import { promoteSession } from './projects/promote.ts';
 import { assignSession, assignSessions, checkProjectRoots, syncProjectsFromWorkspace } from './projects/registry.ts';
+import { ensureScratchProject } from './projects/scratch.ts';
 import { RegistryWatcher } from './provider/claude-code/registry.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
 import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
 import { RunManager } from './runs/manager.ts';
+import { aliveRunForSession } from './runs/queries.ts';
+import { ClaudeHeadlessSummarizer } from './summary/claude.ts';
+import { SummaryJob } from './summary/job.ts';
+import { LmStudioSummarizer } from './summary/lmstudio.ts';
+import type { Summarizer } from './summary/types.ts';
 import { Tmux } from './tmux/tmux.ts';
+import { UsageTracker } from './usage/statusline.ts';
 import { EventHub } from './ws/hub.ts';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 const ROOT_CHECK_MS = 30_000;
 
@@ -32,6 +43,16 @@ const ROOT_CHECK_MS = 30_000;
 export const WS_PATHS = new Set(['/ws', '/ws/pty']);
 /** tmux の一覧を見て run の終了を拾う間隔。 */
 const RUN_POLL_MS = 2000;
+
+/**
+ * run が終わったときの要約の受け付け方。
+ * RunManager.kill は tmux kill-session の直後に同期で runEnded を出すが、
+ * レジストリは ~/.claude/sessions を 500 ミリ秒周期で読んだキャッシュなので、
+ * その瞬間は必ず「生きている」と出て受理を断ってしまう。
+ * run の終了はこちらが知っているので、生存判定だけを飛ばす。
+ * 土台かどうかと 5 ターンの判定は残す。
+ */
+export const RUN_ENDED_SUMMARY_OPTS = { ignoreLive: true } as const;
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
 type Fetch = ReturnType<typeof createApp>['fetch'];
@@ -82,6 +103,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
         if (p) hub.broadcast({ type: 'project.upsert', project: p });
       }
       if (e.appended > 0) hub.broadcast({ type: 'transcript.appended', sessionId: e.sessionId, count: e.appended });
+      // 索引化が拾ったアーティファクトを配る。
+      for (const a of listArtifacts(db, { ids: e.artifactIds })) hub.broadcast({ type: 'artifact.upsert', artifact: a });
     },
     error: (e) => console.error('[indexer]', e.path, e.message),
   });
@@ -129,8 +152,22 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // hangar の外で動いている Claude を再開すると二重起動になるので、レジストリを見て弾く。
     isLive: (providerSessionId) => registry.current().some((l) => l.sessionId === providerSessionId),
   });
+  const usage = new UsageTracker(db);
+  const memos = new MemoStore({ db, deviceId: device.id, home });
+  const claudeBin = process.env.HANGAR_CLAUDE_BIN ?? which('claude');
+  // Claude への切り替えの件数はプロセスの寿命で数えるので、要約器はここで 1 度だけ作り、
+  // 設定の変更は列の組み立てで反映する。毎回作り直すと 1 時間の窓が空になる。
+  const claudeSummarizer = () => new ClaudeHeadlessSummarizer({ claudeBin, hourlyCap: settings.summaryHourlyCap, usage: () => usage.current() });
+  let claude = claudeSummarizer();
+  const summarizers = (): Summarizer[] => {
+    const list: Summarizer[] = [new LmStudioSummarizer({ baseUrl: settings.lmStudioUrl, model: settings.lmStudioModel })];
+    if (settings.summaryFallback) list.push(claude);
+    return list;
+  };
+  const summary = new SummaryJob({ db, deviceId: device.id, summarizers, live: () => registry.current(), hub });
+
   // 終了した run の Claude のタブには繋がせない。attachTarget がその判断を持つ。
-  const relay = new PtyRelay({ token, tmux: tmuxOf(settings), resolveTab: (id) => runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn });
+  const relay = new PtyRelay({ token, port, tmux: tmuxOf(settings), resolveTab: (id) => runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn });
 
   runs.on({
     runStarted: (r) => {
@@ -139,7 +176,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (s) hub.broadcast({ type: 'session.upsert', session: s });
     },
     runUpdated: (run) => hub.broadcast({ type: 'run.upsert', run }),
-    runEnded: (run) => hub.broadcast({ type: 'run.ended', run }),
+    // run が終わったときは事後要約の契機になる。受け付けの可否は SummaryJob が決める。
+    runEnded: (run) => { hub.broadcast({ type: 'run.ended', run }); summary.enqueue(run.sessionId, RUN_ENDED_SUMMARY_OPTS); },
     tabChanged: (tab) => hub.broadcast({ type: 'tab.upsert', tab }),
   });
 
@@ -151,6 +189,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     },
     openDirTerminal: ({ dir }) => openDirInTerminalApp({ home, dir, app: settings.terminalApp }),
     openEditor: ({ target }) => openInEditor({ codePath: settings.codePath, target }),
+    openUrl: (url) => new Promise<void>((resolve, reject) => execFile('open', [url], (err) => (err ? reject(err) : resolve()))),
   };
 
   const uiDist = opts.uiDist ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
@@ -164,13 +203,32 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const t = tmuxOf(settings);
       runs.setTmux(t);
       relay.setTmux(t);
+      // 上限だけは要約器が内側に持つので、変わったときに作り直す。
+      if (patch.summaryHourlyCap !== undefined) claude = claudeSummarizer();
       return settings;
     },
-    live: () => registry.current(), indexer, hub, runs, external, uiDist,
+    live: () => registry.current(), indexer, hub, runs, external, usage, memos,
+    summary: {
+      enqueue: (id, opts) => summary.enqueue(id, opts),
+      pending: () => summary.pending(),
+      test: () => summary.test(),
+      // 一覧は設定のモデルに依らないので、その場限りの問い合わせ用に作る。
+      listModels: () => new LmStudioSummarizer({ baseUrl: settings.lmStudioUrl, model: null }).listModels(),
+    },
+    promote: (o) => promoteSession({
+      db, deviceId: device.id, home, workspaceRoot: settings.workspaceRoot,
+      // hangar の run だけでなく、hangar の外で動いている Claude も「実行中」と見なす。
+      runAlive: (id) => {
+        if (aliveRunForSession(db, id) !== null) return true;
+        const s = db.prepare('select provider_session_id p from sessions where id = ?').get(id) as { p: string } | undefined;
+        return !!s && registry.current().some((l) => l.sessionId === s.p);
+      },
+    }, o),
+    uiDist,
   });
   handler = app.fetch;
 
-  hub.attach(server, { path: '/ws', token });
+  hub.attach(server, { path: '/ws', token, port });
   relay.attach(server, '/ws/pty');
   // 経路を握る側は path が違えば黙って返すので、最後に未知の経路を切る番人を置く。
   // upgrade を受けた時点でこの接続は HTTP 側の管理から外れるため、誰も引き取らないと相手が待ち続ける。
@@ -183,6 +241,14 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   await indexer.start();
   syncProjectsFromWorkspace(db, device.id, settings.workspaceRoot);
   assignSessions(db, device.id);
+  ensureScratchProject(db, device.id, home);
+  // メモは DB とファイルの両方にある。起動時に食い違いを直し、以後はファイルの外部編集を監視で取り込む。
+  for (const m of memos.reconcileAll()) hub.broadcast({ type: 'memo.update', memo: m });
+  const stopMemoWatch = memos.watch((m) => {
+    hub.broadcast({ type: 'memo.update', memo: m });
+    const p = listProjects(db, device.id, registry.current()).find((x) => x.id === m.projectId);
+    if (p) hub.broadcast({ type: 'project.upsert', project: p });
+  });
   const notifyUnresolved = () => { for (const id of checkProjectRoots(db, device.id).unresolved) hub.broadcast({ type: 'project.unresolved', projectId: id }); };
   notifyUnresolved();
   const rootTimer = setInterval(notifyUnresolved, ROOT_CHECK_MS);
@@ -197,6 +263,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     port,
     close: async () => {
       clearInterval(rootTimer);
+      stopMemoWatch();
       runs.stop();
       indexer.stop();
       registry.stop();

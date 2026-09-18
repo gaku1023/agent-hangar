@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { nav: [{ route: { name: 'home' as const }, label: 'Home', current: true }, { route: { name: 'projects' as const }, label: 'Projects', current: false }], crumbs: [{ label: 'Projects', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', connection: 'connected' as const, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null };
+const props = { nav: [{ route: { name: 'home' as const }, label: 'Home', current: true }, { route: { name: 'projects' as const }, label: 'Projects', current: false }], crumbs: [{ label: 'Projects', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', connection: 'connected' as const, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null } };
 
 describe('Shell', () => {
   it('ナビと検索が Intent になる', () => {

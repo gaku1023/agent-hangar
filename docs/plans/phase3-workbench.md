@@ -41,7 +41,7 @@ Task 0 で実物のコードと照合し、食い違いがあれば該当タス�
 | `ServerEvent` | `run.started`、`run.upsert`、`run.ended`、`tab.upsert` がある | Task 1、Task 18 |
 | `Intent` | `project.openEditor`、`project.openTerminalApp`、`session.openTerminalApp { runId; tabId? }` がある | Task 1、Task 24 |
 | `Settings`（server） | `packages/server/src/config/paths.ts`：`SettingsDto` と同じ項目。`loadSettings` は `{ ...defaultSettings(), ...JSON }` で欠けた項目を埋める | Task 15、Task 16 |
-| `RunManager` | `packages/server/src/runs/manager.ts`：`start(params: LaunchParams): LaunchResult`、`RunError(status, message)`、`on({ runEnded })`、`private project()`、`private launch()`、`private baseInput()`、`deps.home`、`deps.now` | Task 11、Task 16 |
+| `RunManager` | `packages/server/src/runs/manager.ts`：`start(params: LaunchParams): LaunchResult`、`RunError(status, message)`、`on({ runEnded })`、`private project()`、`private addDirs()`、`private precheck()`、`private launch({ sessionId; cwd; kind; command; params })`、`private baseInput()`、`deps.home`、`deps.now` | Task 11、Task 16 |
 | `aliveRunForSession` | `packages/server/src/runs/queries.ts`：`(db, sessionId) => RunDto \| null` | Task 12 |
 | `ToolDeps`、`callTool`、`TOOL_NAMES` | `packages/server/src/mcp/tools.ts`：`ToolDeps = { db; deviceId; port; live; runs; hub }`。`updateProjectTool` は `not_yet` を返し、`get_usage` は `{ not_yet }` を返す | Task 10 |
 | `buildMcpServer` | `packages/server/src/mcp/app.ts`：`reg(name, description, schema)` の並び。`get_usage` と `update_project` の説明文に「フェーズ 3 で対応する」がある | Task 10 |
@@ -49,20 +49,23 @@ Task 0 で実物のコードと照合し、食い違いがあれば該当タス�
 | `AppDeps`、`ExternalApi`、`RunsApi`、`toSettingsDto` | `packages/server/src/http/app.ts`：`AppDeps = { db; deviceId; deviceName; token; home; port; version; settings; updateSettings; live; indexer; hub; runs; external; uiDist? }`。`PATCH /api/settings` が項目ごとに検査する | Task 16 |
 | `startServer` の結線 | `packages/server/src/server.ts`：`runs.on({ runStarted, runUpdated, runEnded, tabChanged })`、`registry.onChange`、`indexer.on({ sessionChanged })`、`external` の組み立て、`updateSettings` で `saveSettings` | Task 16 |
 | `renderInjection`、`injectionFor` | `packages/server/src/launch/injection.ts` と `RunManager.injectionFor` が `project_memos.markdown` と `todos`（未完 10 件）を DB から読む | Task 9（変更なしで実データが乗ることを確かめる） |
-| `Store` | `packages/ui/src/store/store.ts`：`runs`、`tabs`、`applyLaunch`、`aliveRunOf`、`currentRunOf`、`tabsOf` | Task 17 |
+| `Store` | `packages/ui/src/store/store.ts`：`runs`、`tabs`、`applyLaunch`、`aliveRunOf`、`currentRunOf`、`tabsOf`、`hasRunOf`、`runningSessionIds`、`pruneRuns`。`applyBootstrap` は `runs` と `tabs` だけ差し替えずに混ぜる | Task 17 |
 | `ApiClient` | `packages/ui/src/runtime/api.ts`：`call` が `{ error }` を優先して投げる。`post` の補助がある | Task 17 |
-| `RuntimeDeps`、`createRuntime` | `packages/ui/src/runtime/runtime.ts`：`terminals: TerminalHost`、`focus?: (target: 'search' \| 'newSessionName') => void`、`resolveTab(sessionId, tabId)`、`launched`、`launchFailed`、`fail`、`toast` | Task 19 |
-| Mediator の型 | `packages/ui/src/mediator/types.ts`：`Overlay` に `newSession { projectId }`、`LaunchState`、`SessionViewState = { agentId; showThinking; showRaw; follow; summaryOpen; selectedTab; transcriptOpen }`、`State.launch`、`State.waitingSeen`、`Effect` の `terminal.connect` と `focus` | Task 18 |
+| `RuntimeDeps`、`createRuntime` | `packages/ui/src/runtime/runtime.ts`：`terminals: TerminalHost`、`focus?: (target: FocusTarget) => void`、`resolveTab(sessionId, tabId)`、`launched`（`launch.done` に `runId` も載せる）、`launchFailed`、`fail`、`toast` | Task 19 |
+| Mediator の型 | `packages/ui/src/mediator/types.ts`：`FocusTarget = 'search' \| 'newSessionName' \| 'terminal'`、`Overlay` に `newSession { projectId: string \| null }` と `palette` と `notYet { feature }`、`LaunchState`、`SessionViewState = { agentId; showThinking; showRaw; follow; summaryOpen; selectedTab; transcriptOpen }`、`State.launch`、`State.waitingSeen`、`State.indexPhase`、`Effect` の `terminal.connect` と `focus`（`target: FocusTarget`）、`RuntimeEvent.launch.done = { sessionId; runId }` | Task 18 |
 | `launchStep`、`sessionViewStep`、`transition` | `packages/ui/src/mediator/launch.ts`（`session.new.open` の `scratch` は NOT_YET トースト）、`sessionView.ts`（`tab.*`、`transcript.toggle`）、`transition.ts` の `NOT_YET_INTENTS` | Task 18 |
 | `presentSession`、`SessionProps` | `packages/ui/src/presenters/session.ts`：`run`、`tabs`、`selectedTab`、`transcriptOpen`、`trustHint`、`canResume`、`canFork` | Task 20 |
-| `presentNewSession`、`NewSessionProps` | `packages/ui/src/presenters/newSession.ts`：`{ projects; projectId; submitting; error }` | Task 20、Task 23 |
+| `presentNewSession`、`NewSessionProps` | `packages/ui/src/presenters/newSession.ts`：`{ projects: { id; name; path }[]; projectId; submitting; error }`。一覧は `p.resolved && p.status !== 'archived'` で絞り、名前順に並べる | Task 20、Task 23 |
 | `presentSettings`、`SettingsProps` | `packages/ui/src/presenters/settings.ts`：`tmuxPath`、`terminalApp`、`codePath`、`mcpInstallCommand` | Task 20、Task 26 |
 | `TabStrip`、`TerminalPane`、`TerminalHostContext` | `packages/ui/src/views/TabStrip.tsx`、`TerminalPane.tsx`：`TabStrip({ sessionId, tabs, canAdd })`、`TerminalPane({ tabId, status, hint })` | Task 23 |
 | `SessionScreen` | `packages/ui/src/views/SessionScreen.tsx`：`SessionScreen(props: SessionProps & { terminalStatus })`。実行中は `.split` の 2 列 | Task 23 |
-| `NewSessionDialog` | `packages/ui/src/views/NewSessionDialog.tsx`：`NewSessionDialog(props: NewSessionProps)`。プロジェクトの `select` の `aria-label` は「プロジェクト」 | Task 23 |
+| `NewSessionDialog` | `packages/ui/src/views/NewSessionDialog.tsx`：`NewSessionDialog(props: NewSessionProps)`。入力欄はすべて非制御で、`useRef<HTMLFormElement>` と `FormData` から送信時にまとめて読む（`useState` は持たない）。プロジェクトの欄は `<label className="field" htmlFor="new-session-project">プロジェクト` と `<select id="new-session-project" name="projectId">` で、`aria-label` は付けない | Task 23 |
 | `SettingsScreen` | `packages/ui/src/views/SettingsScreen.tsx`：「次のフェーズで追加される設定」の節がある | Task 26 |
 | `Root`、`main.tsx` | `Root({ runtime, api?, terminals })`。キー処理は `/`、⌘K、⌘N。パレットは仮の `.dialog` | Task 27 |
+| `Icon` | `packages/ui/src/views/primitives/Icon.tsx`：`Icon({ name, label? })`。`lucide-react` を直接 import してよいのはこのファイルだけで、名前は `ICONS` の鍵に限る。足りない名前は `ICONS` に追加してから使う | Task 22 から Task 27 |
+| `StatusSelect`、`ProjectStatusDot`、`StatusDot` | `packages/ui/src/views/primitives/StatusSelect.tsx`：`StatusSelect({ label, value, onChange })` と `ProjectStatusDot({ status })`。プロジェクトのステータスの `<select>` を View が自前で書かない。`StatusDot.tsx` の `StatusDot({ status, title? })` は run の生死用 | Task 22 |
 | `.field`、`.grid2` | `packages/ui/src/styles/base.css` にある | Task 22、Task 23、Task 26 |
+| `.split` | `packages/ui/src/styles/base.css`：`SessionScreen` がターミナルとトランスクリプトの 2 列に使う既存の規則。フェーズ 3 の `SplitPane` は別名（`.split-h`）にして上書きしない | Task 23 |
 | テスト補助 | `packages/ui/src/test/fakeApi.ts` の `fakeApiExtras()`、`packages/server/test/fixtures.ts` の `copyFixtureClaudeDir`、`SESSION_ALPHA` | Task 17、Task 6 |
 
 ### Task 0: フェーズ 2 の実装との照合
@@ -74,36 +77,73 @@ Task 0 で実物のコードと照合し、食い違いがあれば該当タス�
 - Consumes: 上の表のすべて。
 - Produces: 食い違いの一覧と、直したタスク。
 
-- [ ] **Step 1: shared の型を照合する**
+> **照合済み（2026-09-19、`330f5da` 時点）。** Step 1 から Step 4 の grep をすべて実行し、食い違いを各タスクに反映した。反映の内訳は Step 5 に記す。
+
+- [x] **Step 1: shared の型を照合する**
 
 Run: `grep -n 'tmuxPath\|runs: RunDto\|run.started\|tab.upsert\|project.openEditor\|tabId?' packages/shared/src/api.ts packages/shared/src/events.ts packages/shared/src/intent.ts`
 Expected: `SettingsDto` に `tmuxPath`、`terminalApp`、`codePath`、`BootstrapDto` に `runs` と `tabs`、`ServerEvent` に `run.started` と `tab.upsert`、`Intent` に `project.openEditor` と `session.openTerminalApp` の `tabId?` がある。無い名前があれば Task 1 の「置き換え前」の形をその実物に合わせる。
 
-- [ ] **Step 2: サーバの結線と RunManager を照合する**
+- [x] **Step 2: サーバの結線と RunManager を照合する**
 
 Run: `grep -n 'export class RunManager\|start(params\|private project(\|private launch(\|private baseInput(\|class RunError\|runEnded' packages/server/src/runs/manager.ts && grep -n 'export type AppDeps\|export type ExternalApi\|export function toSettingsDto\|api.patch(./settings\|app.route(./mcp' packages/server/src/http/app.ts && grep -n 'runs.on(\|indexer.on(\|updateSettings:\|const external' packages/server/src/server.ts && grep -n 'export type Exec\|export async function openInEditor\|export function openInEditor' packages/server/src/external/open.ts`
 Expected: すべての行が見つかる。`RunManager.start` の先頭が `if (params.scratch) throw new RunError(400, ...)` であることを確かめる（Task 11 がこの行を置き換える）。`AppDeps` の項目名が違えば Task 16 の `AppDeps` をその実物に合わせて広げる。
 
-- [ ] **Step 3: MCP のツールを照合する**
+- [x] **Step 3: MCP のツールを照合する**
 
 Run: `grep -n 'not_yet\|NOT_YET\|get_usage\|export function updateProjectTool\|export function getProjectTool\|export type ToolDeps' packages/server/src/mcp/tools.ts && grep -n "reg('get_usage'\|reg('update_project'\|reg('get_project'" packages/server/src/mcp/app.ts && grep -n 'not_yet' packages/server/src/mcp/tools.test.ts`
 Expected: `updateProjectTool` が `not_yet` を返し、`get_usage` が `{ not_yet: NOT_YET }` を返し、テストに `not_yet` の期待がある。Task 10 はこれらを置き換える。
 
-- [ ] **Step 4: UI の Mediator、ランタイム、Presenter、View を照合する**
+- [x] **Step 4: UI の Mediator、ランタイム、Presenter、View を照合する**
 
 Run: `grep -n 'selectedTab\|transcriptOpen\|waitingSeen\|newSession' packages/ui/src/mediator/types.ts && grep -n 'NOT_YET_INTENTS' packages/ui/src/mediator/transition.ts && grep -n 'i.scratch' packages/ui/src/mediator/launch.ts && grep -n 'resolveTab\|terminals: TerminalHost\|focus?:' packages/ui/src/runtime/runtime.ts && grep -n 'export type SessionProps\|canResume\|trustHint' packages/ui/src/presenters/session.ts && grep -n 'export function TabStrip\|export function TerminalPane\|export const TerminalHostContext' packages/ui/src/views/TabStrip.tsx packages/ui/src/views/TerminalPane.tsx && grep -n 'コマンドパレット\|metaKey' packages/ui/src/Root.tsx && grep -n '\.field\|\.grid2' packages/ui/src/styles/base.css && ls packages/ui/src/test/fakeApi.ts`
 Expected: すべて見つかる。`NOT_YET_INTENTS` の中身を書き留め、Task 18 の置き換え後の集合が「フェーズ 3 で実装する Intent を除いたもの」になっているかを確かめる。
 
-- [ ] **Step 5: 食い違いを記録する**
+照合の結果、`packages/ui/src/mediator/transition.ts` の `NOT_YET_INTENTS` は次の 17 件だった。
 
-食い違いがあれば、この文書の該当タスクの「置き換え前」の引用と「置き換え後」のコードを実物に合わせて直し、`docs/plans/phase3-workbench.md` の変更としてコミットする。
+```ts
+const NOT_YET_INTENTS = new Set(['session.promote.open', 'session.promote.submit', 'session.takeover', 'session.setMemo', 'split.toggle', 'todo.add', 'todo.toggle', 'todo.remove', 'memo.save', 'artifact.open', 'artifact.add', 'summary.regenerate', 'sync.now', 'sync.pause', 'project.new.open', 'project.new.submit', 'palette.run']);
+```
+
+このうちフェーズ 3 で実装するのは `session.promote.open`、`session.promote.submit`、`session.setMemo`、`split.toggle`、`todo.add`、`todo.toggle`、`todo.remove`、`memo.save`、`artifact.open`、`artifact.add`、`summary.regenerate`、`palette.run` の 12 件で、残る 5 件（`session.takeover`、`sync.now`、`sync.pause`、`project.new.open`、`project.new.submit`）が Task 18 の置き換え後の集合と一致する。
+
+- [x] **Step 5: 食い違いを記録する**
+
+照合で見つかった食い違いと、この文書に入れた直しは次のとおり。
+
+| タスク | 食い違い | 直し |
+| --- | --- | --- |
+| 前提の表 | `RuntimeDeps.focus` を `(target: 'search' \| 'newSessionName') => void` と書いていたが、実物は `FocusTarget`（`'terminal'` を含む）を使う | 表を実物に合わせ、Task 18 と Task 19 を `FocusTarget` を広げる形に直した |
+| 前提の表 | `Overlay` に `palette` と `notYet` があり、`newSession.projectId` は `string \| null`。`State` に `indexPhase` がある | 表に書き足した |
+| 前提の表 | `NewSessionDialog` は非制御フォームで、プロジェクトの `select` に `aria-label` は無い | 表を実物に合わせ、Task 23 の Step 6 を書き直した |
+| 前提の表 | フェーズ 2 の後に `Icon`、`StatusSelect`、`ProjectStatusDot` が入った | 表に行を足し、Task 22 から Task 24 の View を使う形に直した |
+| Task 10 | `getProjectTool` の `.slice(0, 10)` は実物の定数 `RECENT_SESSIONS` | 定数を使う形に直した |
+| Task 11 | `start` の置き換えが `this.addDirs(params)` と `this.precheck(...)` を落とし、`this.launch` に `command` ではなく `input` を渡していた | 実物の呼び出しに合わせた |
+| Task 15 | `Settings` の置き換えが `toolsResolved?: boolean` を落としていた | 残した |
+| Task 16 | `GET /sessions/:id/events` の置き換えが 404 の文言を実物と違うものにしていた | 実物の文言に戻した |
+| Task 16 | `indexer.on({ sessionChanged })` の置き換えが、起動後に現れたセッションを `assignSession` で紐づけて `project.upsert` を配る処理を落としていた | 残した |
+| Task 18 | `RuntimeEvent.launch.done` から `runId` が落ちていた（実物の `launched` が渡している） | 残した |
+| Task 18 | `Effect` の `focus` を素の合併に展開していた（実物は `FocusTarget`） | `FocusTarget` を広げる形にした |
+| Task 18 | `initialState` と `State` から `indexPhase` が落ちていた | 残した |
+| Task 18 | `transition.ts` の import の置き換えが `ITERM_HINT` と 2 行の再エクスポートを落としていた | 残した |
+| Task 18 | `sessionViewStep` への追加位置の指示が実物の構造と合わなかった | `server` の塊の後、`intent` の塊の前と書き直した |
+| Task 19 | `RuntimeDeps.focus` の置き換えが実物の `FocusTarget` を無視していた | `Exclude<FocusTarget, 'terminal'>` にした |
+| Task 20 | `NewSessionProps` の置き換えが `path` と `resolved`／`archived` の絞り込みを落としていた | 残した |
+| Task 22 | `ProjectScreen` の置き換えが素の `<select>` を書き、ボタンの `Icon` を落としていた | `StatusSelect` と `Icon` を使う形にした |
+| Task 22 | `TodoList` と `ArtifactCards` が文字の `x` とアイコン無しのボタンを書いていた | `Icon` の `close`、`add`、`openEditor` を使う形にした |
+| Task 23 | `SplitPane` が既存の `.split` と同じ類名を使い、`SessionScreen` の 2 列の規則を上書きしていた | `.split-h` に改めた |
+| Task 23 | `TabStrip` の分割ボタンが文字の `◫` を直に書いていた | `Icon` の `split` を足して使う形にした |
+| Task 23 | `NewSessionDialog` の置き換えが、実物に無い `useState` と別の骨格を前提にしていた | 実物の非制御フォームに対する最小の差分に書き直した |
+| Task 23 | `TabStrip` のテストが `TabItemProps` の項目を `canClose` と書いていた（実物は `closable`） | `closable` に直した |
+| Task 23 | `NewSessionDialog` のテストの `projects` に `path` が無かった | 足した |
+| Task 23 | セッション画面の「プロジェクトに昇格」ボタンだけアイコンが無かった | `Icon` の `promote` を足して使う形にした |
+| Task 24 | メモの鉛筆ボタンが文字の「鉛筆」だった。`VirtualList.render` は既に添字を渡している | `Icon` の `edit` を足して使う形にし、`VirtualList` の但し書きを事実に直した |
+| Task 27 | `paletteOpen` は実物の `Root.tsx` に既にある | 二重に宣言しないと書き足した |
 
 ```bash
 git add docs/plans/phase3-workbench.md
 git commit -m "docs: reconcile phase 3 plan with the phase 2 implementation"
 ```
-
-食い違いが無ければコミットは不要で、次のタスクへ進む。
 
 ---
 
@@ -419,7 +459,7 @@ export type Effect = ...
   | { kind: 'api.regenerateSummary'; sessionId: string }
   | { kind: 'api.loadSettingsExtras' } | { kind: 'api.testSummarizer' }
   | { kind: 'split.resolve'; sessionId: string }      // 右に置くタブをストアから決めて split.resolved を返す
-  | { kind: 'focus'; target: 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput' };
+  | { kind: 'focus'; target: FocusTarget };   // FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput'
 export type Overlay = ... | { kind: 'newSession'; projectId: string | null; scratch: boolean } | { kind: 'promote'; sessionId: string } | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null };
 export type SessionViewState = { ...; split: boolean; splitTab: string | null };
 export type State = { ...; promote: LaunchState; summaryFailed: Record<string, string> };
@@ -2377,7 +2417,7 @@ export function getProjectTool(deps: ToolDeps, args: Record<string, unknown>) {
   if (!p) throw new ToolError(`プロジェクトが見つかりません: ${id}`);
   const memo = deps.memos.read(id)?.markdown ?? null;
   const todos = listTodos(deps.db, id).map((t) => ({ id: t.id, text: t.text, done: t.done, session_id: t.sessionId }));
-  const recent = listSessions(deps.db, deps.live(), { projectId: id }).slice(0, 10).map(sessionBrief);
+  const recent = listSessions(deps.db, deps.live(), { projectId: id }).slice(0, RECENT_SESSIONS).map(sessionBrief);
   const artifacts = listArtifacts(deps.db, { projectId: id }).map((a) => ({ id: a.id, url: a.url, title: a.title, favicon: a.favicon, last_published_at: a.lastPublishedAt, version_count: a.versionCount }));
   return { id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved, last_activity_at: p.lastActivityAt, open_todo_count: p.openTodoCount, memo, todos, recent_sessions: recent, artifacts };
 }
@@ -2578,19 +2618,24 @@ export function isUnderScratch(home: string, cwd: string): boolean {
 
 ```ts
   start(params: LaunchParams): LaunchResult {
+    // フェーズ 2 と同じく、検査をすべて先に済ませてから行を作る。
+    this.addDirs(params);
     // スクラッチは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。projectId が来ていても scratch を優先する。
     const p = params.scratch
       ? this.scratchProject()
       : (() => { if (!params.projectId) throw new RunError(400, 'projectId は必須です'); return this.project(params.projectId); })();
     if (!p.path || !p.resolved) throw new RunError(400, 'プロジェクトのディレクトリがこの端末で見つかりません');
+    // スクラッチのディレクトリは precheck より先に作る。precheck は cwd が実在するかを見る。
     const cwd = params.scratch ? newScratchDir(this.deps.home, new Date(this.now())) : p.path;
+    this.precheck(cwd);
     const sessionUuid = crypto.randomUUID();
     const sessionId = ensureSession(this.db, sessionUuid, cwd, this.deps.deviceId);
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, name: params.name?.trim() || null, started_at: now, last_activity_at: now }, this.deps.deviceId);
     const input: LaunchInput = { ...this.baseInput(sessionId, p.id, cwd, params), mode: { kind: 'start', sessionUuid } };
-    return this.launch({ sessionId, cwd, kind: 'start', input, params });
+    const command = claudeCodeProvider.launchCommand(this.deps.claudeBin, input);
+    return this.launch({ sessionId, cwd, kind: 'start', command, params });
   }
 
   private scratchProject(): ProjectInfo {
@@ -3719,10 +3764,25 @@ Expected: FAIL
 `packages/server/src/config/paths.ts` の `Settings` と `defaultSettings` を置き換える。
 
 ```ts
-export type Settings = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number };
+export type Settings = {
+  workspaceRoot: string;
+  claudeDir: string;
+  tmuxPath: string | null;
+  terminalApp: TerminalApp;
+  codePath: string | null;
+  /**
+   * ツールのパスを一度探したかどうか。二度目からは、利用者が空にした null をそのまま尊重する。
+   * この項目が無い古い settings.json は、まだ探していないものとして扱う。
+   */
+  toolsResolved?: boolean;
+  lmStudioUrl: string;
+  lmStudioModel: string | null;
+  summaryFallback: boolean;
+  summaryHourlyCap: number;
+};
 
 function defaultSettings(): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
 }
 ```
 
@@ -3782,7 +3842,8 @@ export function toSettingsDto(s: Settings): SettingsDto {
     try {
       return c.json(readEvents(db, id, { fromSeq: numberOr(q.fromSeq), limit: numberOr(q.limit), agentId: q.agentId || null }));
     } catch (e) {
-      if (isEnoent(e)) return c.json({ error: 'transcript not found' }, 404);
+      // 索引はあるのに本文ファイルが消えている場合だけ 404 にし、他は 500 に任せる。
+      if (isEnoent(e)) return c.json({ error: 'このセッションの本文ファイルが見つかりません。Settings の「索引を作り直す」を試してください' }, 404);
       throw e;
     }
   });
@@ -3975,8 +4036,18 @@ import { which } from './config/tools.ts';
 
 ```ts
     sessionChanged: (e) => {
+      // 起動後に現れたセッションは project_id が空のままなので、ここで紐づけてから配る（フェーズ 2 のまま）。
+      const row = db.prepare('select project_id from sessions where id = ?').get(e.sessionId) as { project_id: string | null } | undefined;
+      const assigned = row && row.project_id === null ? assignSession(db, device.id, e.sessionId) : null;
       const s = getSession(db, registry.current(), e.sessionId);
-      if (s) { hub.broadcast({ type: 'session.upsert', session: s }); if (e.appended > 0) hub.broadcast({ type: 'transcript.appended', sessionId: e.sessionId, count: e.appended }); }
+      if (!s) return;
+      hub.broadcast({ type: 'session.upsert', session: s });
+      if (assigned) {
+        const p = getProject(db, device.id, registry.current(), assigned);
+        if (p) hub.broadcast({ type: 'project.upsert', project: p });
+      }
+      if (e.appended > 0) hub.broadcast({ type: 'transcript.appended', sessionId: e.sessionId, count: e.appended });
+      // フェーズ 3 の追加分。索引化が拾ったアーティファクトを配る。
       for (const a of listArtifacts(db, { ids: e.artifactIds })) hub.broadcast({ type: 'artifact.upsert', artifact: a });
     },
 ```
@@ -4351,7 +4422,7 @@ Task 1 で足し忘れた Intent を 1 つここで足す。
     | { kind: 'api.regenerateSummary'; sessionId: string }
     | { kind: 'api.loadSettingsExtras' } | { kind: 'api.testSummarizer' }
     | { kind: 'split.resolve'; sessionId: string }
-    | { kind: 'focus'; target: 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput' };
+    | { kind: 'focus'; target: FocusTarget };   // FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput'
   export type Overlay = ...フェーズ 2... | { kind: 'newSession'; projectId: string | null; scratch: boolean } | { kind: 'promote'; sessionId: string } | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null };
   export type SessionViewState = { agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null };
   export type State = { ...フェーズ 2...; promote: LaunchState; summaryFailed: Record<string, string> };
@@ -4570,23 +4641,28 @@ Expected: FAIL
 
 - [ ] **Step 4: types.ts を広げる**
 
-`packages/ui/src/mediator/types.ts` の `RuntimeEvent`、`Effect`、`Overlay`、`SessionViewState`、`State` を置き換える。
+`packages/ui/src/mediator/types.ts` の `RuntimeEvent`、`FocusTarget`、`Effect`、`Overlay`、`SessionViewState`、`State` を置き換える。
 
 ```ts
 export type RuntimeEvent =
   | { type: 'ws.open' } | { type: 'ws.close' } | { type: 'hash.changed'; route: Route }
   | { type: 'api.failed'; message: string } | { type: 'search.done'; params: SearchParamsDto }
-  | { type: 'launch.done'; sessionId: string } | { type: 'launch.failed'; message: string }
+  | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string }
   | { type: 'promote.done'; projectId: string; moved: boolean; reason: string | null }
   | { type: 'promote.failed'; message: string }
   // 分割の右に置くタブはストアを見ないと決まらないので、ランタイムが決めて返す。
   | { type: 'split.resolved'; sessionId: string; tabId: string | null };
 ```
 
-`Effect` の `focus` の行を置き換え、末尾に足す。
+`FocusTarget` を広げる（`Effect` の `focus` の行は `target: FocusTarget` のままでよい）。
 
 ```ts
-  | { kind: 'focus'; target: 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput' }
+export type FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput';
+```
+
+`Effect` の末尾に足す。
+
+```ts
   | { kind: 'api.addTodo'; projectId: string; text: string }
   | { kind: 'api.toggleTodo'; id: string }
   | { kind: 'api.removeTodo'; id: string }
@@ -4618,6 +4694,8 @@ export type State = {
   promote: LaunchState;
   // 事後要約に失敗したセッション。ヘッダーの要約の横に 1 度だけ出す。
   summaryFailed: Record<string, string>;
+  /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ（フェーズ 2 のまま）。 */
+  indexPhase: IndexProgressDto['phase'];
 };
 ```
 
@@ -4734,7 +4812,7 @@ export function defaultSessionView(): SessionViewState {
 }
 ```
 
-`sessionViewStep` の先頭（`transcript.appended` の分岐の後）に足す。
+`sessionViewStep` の `if (input.kind === 'server') { ... }` の塊の後、`if (input.kind !== 'intent') return null;` の前に足す。
 
 ```ts
   if (input.kind === 'runtime' && input.event.type === 'split.resolved') {
@@ -4812,13 +4890,16 @@ import { promoteStep } from './promote.ts';
 import { screenStep } from './screen.ts';
 import { sessionViewStep } from './sessionView.ts';
 import { workbenchStep } from './workbench.ts';
-import { NOT_YET, type Effect, type Input, type State, type Step } from './types.ts';
+import { ITERM_HINT, NOT_YET, type Effect, type Input, type State, type Step } from './types.ts';
+
+export type { State, Input, Effect, Step } from './types.ts';
+export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
   return {
     screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0,
     sessionView: {}, search: { text: '', filter: {} }, toasts: [], unresolvedQueue: [], nextToastId: 1,
-    launch: { kind: 'idle' }, waitingSeen: [], promote: { kind: 'idle' }, summaryFailed: {},
+    launch: { kind: 'idle' }, waitingSeen: [], promote: { kind: 'idle' }, summaryFailed: {}, indexPhase: 'idle',
   };
 }
 
@@ -4862,7 +4943,7 @@ git commit -m "feat(ui): mediator regions for promote, workbench, split and pale
 - Consumes: Task 17 の `ApiClient` と `todosOf`、フェーズ 2 の `currentRunOf` と `tabsOf` と `TerminalHost`、Task 18 の `Effect` と `RuntimeEvent`。
 - Produces:
   ```ts
-  export type RuntimeDeps = { ...フェーズ 2...; focus?: (target: 'search' | 'newSessionName' | 'palette' | 'promoteName' | 'todoInput') => void };
+  export type RuntimeDeps = { ...フェーズ 2...; focus?: (target: Exclude<FocusTarget, 'terminal'>) => void };
   ```
 - 効果の実装：
   - `api.addTodo` / `api.removeTodo`：呼ぶだけ。一覧の更新はサーバの `todos.update` が配る。
@@ -5015,18 +5096,13 @@ Expected: FAIL
 - [ ] **Step 3: RuntimeDeps を広げる**
 
 `packages/ui/src/runtime/runtime.ts` の `RuntimeDeps` の `focus` を置き換える。
+`terminal` はランタイムが自分で処理するので、`deps.focus` へは渡らない。
 
 ```ts
-  focus?: (target: 'search' | 'newSessionName' | 'palette' | 'promoteName' | 'todoInput') => void;
+  focus?: (target: Exclude<FocusTarget, 'terminal'>) => void;
 ```
 
-import に足す。
-
-```ts
-import { currentRunOf, tabsOf } from './../store/store.ts';
-```
-
-（フェーズ 2 で既に import していればそのまま使う。）
+`FocusTarget`、`currentRunOf`、`tabsOf`、`defaultSessionView` はフェーズ 2 で既に import してあるので、import の追加は要らない。
 
 - [ ] **Step 4: 効果を実装する**
 
@@ -5130,7 +5206,7 @@ git commit -m "feat(ui): runtime effects for todos, memos, artifacts, promote, s
   // presenters/session.ts
   export type SessionProps = { ...フェーズ 2...; contextPercent: number | null; cost: string; artifacts: ArtifactCardProps[]; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean };
   // presenters/newSession.ts
-  export type NewSessionProps = { projects: { id: string; name: string }[]; projectId: string | null; submitting: boolean; error: string | null; scratch: boolean };
+  export type NewSessionProps = { projects: { id: string; name: string; path: string | null }[]; projectId: string | null; submitting: boolean; error: string | null; scratch: boolean };
   // presenters/settings.ts
   export type SettingsProps = { ...フェーズ 2...; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; statusline: StatuslineStatusDto | null; statuslineCommand: string; usageAggregate: UsageAggregateDto | null };
   ```
@@ -5426,12 +5502,13 @@ import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
 `packages/ui/src/presenters/newSession.ts` の `NewSessionProps` に `scratch: boolean` を足し、`presentNewSession` でオーバーレイから読む。
 
 ```ts
-export type NewSessionProps = { projects: { id: string; name: string }[]; projectId: string | null; submitting: boolean; error: string | null; scratch: boolean };
+export type NewSessionProps = { projects: { id: string; name: string; path: string | null }[]; projectId: string | null; submitting: boolean; error: string | null; scratch: boolean };
 
+/** 起動ダイアログ。overlay が newSession のときだけ props を作る。 */
 export function presentNewSession(state: State, store: Store): NewSessionProps | null {
   if (state.overlay.kind !== 'newSession') return null;
-  // スクラッチはプロジェクトを選ばないので、一覧は空でよい。
-  const projects = Object.values(store.projects).filter((p) => !p.isScratch).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).map((p) => ({ id: p.id, name: p.name }));
+  // スクラッチの擬似プロジェクトは選ばせない。絞り込みと並びはフェーズ 2 のまま。
+  const projects = Object.values(store.projects).filter((p) => !p.isScratch && p.resolved && p.status !== 'archived').sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, path: p.path }));
   return { projects, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch };
 }
 ```
@@ -5825,7 +5902,7 @@ describe('ProjectScreen の右レール', () => {
     expect(screen.getByLabelText('TODO を追加')).toBeTruthy();
     expect(screen.getByLabelText('メモ')).toBeTruthy();
     expect(screen.getByText('題名 a1')).toBeTruthy();
-    fireEvent.click(screen.getByText('右レールを隠す'));
+    fireEvent.click(screen.getByLabelText('右レールを隠す'));
     expect(screen.queryByLabelText('TODO を追加')).toBeNull();
   });
   it('スクラッチのプロジェクトは操作を絞る', () => {
@@ -5929,6 +6006,7 @@ export function useFlip(keys: string[]): (key: string) => (el: HTMLElement | nul
 import { useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { TodoItemProps } from '../presenters/project.ts';
+import { Icon } from './primitives/Icon.tsx';
 
 /** プロジェクトの TODO。並び替えは持たず、完了した項目も同じ並びに打消し線で残す。 */
 export function TodoList(props: { projectId: string; todos: TodoItemProps[] }) {
@@ -5943,13 +6021,13 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[] }) {
           <li key={t.id} className="todo" data-done={t.done ? 'true' : undefined}>
             <input type="checkbox" checked={t.done} aria-label={t.text} onChange={() => emit({ type: 'todo.toggle', id: t.id })} />
             <span className="todo-text">{t.text}</span>
-            <button className="btn todo-del" aria-label={`${t.text} を削除`} onClick={() => emit({ type: 'todo.remove', id: t.id })}>x</button>
+            <button className="btn todo-del" aria-label={`${t.text} を削除`} onClick={() => emit({ type: 'todo.remove', id: t.id })}><Icon name="close" /></button>
           </li>
         ))}
       </ul>
       <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
         <input id="todo-input" className="input" style={{ flex: 1 }} aria-label="TODO を追加" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); }} />
-        <button className="btn" onClick={add}>追加</button>
+        <button className="btn" onClick={add}><Icon name="add" />追加</button>
       </div>
     </div>
   );
@@ -5998,6 +6076,7 @@ export function MemoEditor(props: { projectId: string; markdown: string; updated
 import { useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { ArtifactCardProps } from '../presenters/project.ts';
+import { Icon } from './primitives/Icon.tsx';
 
 /** アーティファクトのカード。クリックはサーバ側の `open <url>` で既定のブラウザに開く。 */
 export function ArtifactCards(props: { projectId: string | null; artifacts: ArtifactCardProps[]; canAdd: boolean }) {
@@ -6018,14 +6097,14 @@ export function ArtifactCards(props: { projectId: string | null; artifacts: Arti
             <span>{a.lastPublished}</span>
             <span>更新 {a.versionCount} 回</span>
             <span className="spacer" />
-            {a.canOpenEditor && <button className="btn" onClick={(e) => { e.stopPropagation(); emit({ type: 'artifact.openEditor', id: a.id }); }}>VS Code で開く</button>}
+            {a.canOpenEditor && <button className="btn" onClick={(e) => { e.stopPropagation(); emit({ type: 'artifact.openEditor', id: a.id }); }}><Icon name="openEditor" />VS Code で開く</button>}
           </div>
         </div>
       ))}
       {props.canAdd && props.projectId && (
         <div style={{ display: 'flex', gap: 4 }}>
           <input className="input mono" style={{ flex: 1 }} aria-label="アーティファクトの URL" placeholder="https://claude.ai/code/artifact/..." value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); }} />
-          <button className="btn" onClick={add}>追加</button>
+          <button className="btn" onClick={add}><Icon name="add" />追加</button>
         </div>
       )}
     </div>
@@ -6058,7 +6137,7 @@ import に `UsageGauge` と `UsageProps` を足す。
       {props.memoHead && <div className="faint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props.memoHead}</div>}
       <div style={{ display: 'flex' }}>
         <span className="spacer" />
-        <button className="btn" onClick={(e) => { e.stopPropagation(); emit({ type: 'session.new.open', projectId: props.id }); }}>ここで新規</button>
+        <button className="btn" onClick={(e) => { e.stopPropagation(); emit({ type: 'session.new.open', projectId: props.id }); }}><Icon name="add" />ここで新規</button>
       </div>
 ```
 
@@ -6082,15 +6161,14 @@ export function ProjectsScreen(props: ProjectsProps & { filter: string; showArch
 
 ```tsx
 import { useState } from 'react';
-import type { ProjectStatus } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { ProjectProps } from '../presenters/project.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
 import { MemoEditor } from './MemoEditor.tsx';
 import { SessionRows } from './SessionRows.tsx';
 import { TodoList } from './TodoList.tsx';
-
-const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
+import { Icon } from './primitives/Icon.tsx';
+import { StatusSelect } from './primitives/StatusSelect.tsx';
 
 /** プロジェクト詳細画面。右レールは TODO とメモとアーティファクトで、折りたためる。 */
 export function ProjectScreen(props: ProjectProps) {
@@ -6102,14 +6180,14 @@ export function ProjectScreen(props: ProjectProps) {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
           <h1 className="h1" style={{ margin: 0 }}>{props.name}</h1>
-          {!props.isScratch && <select className="select" aria-label="ステータス" value={props.status} onChange={(e) => emit({ type: 'project.setStatus', id: props.id, status: e.target.value as ProjectStatus })}>{STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>}
+          {!props.isScratch && <StatusSelect label="ステータス" value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />}
           <span className="spacer" />
           {props.isScratch
-            ? <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', scratch: true })}>スクラッチで始める</button>
-            : <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.id })}>新規セッション</button>}
-          {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openEditor', id: props.id })}>VS Code で開く</button>}
-          {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openTerminalApp', id: props.id })}>ターミナルで開く</button>}
-          <button className="btn" onClick={() => setRailOpen(!railOpen)}>{railOpen ? '右レールを隠す' : '右レールを出す'}</button>
+            ? <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', scratch: true })}><Icon name="add" />スクラッチで始める</button>
+            : <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.id })}><Icon name="add" />新規セッション</button>}
+          {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openEditor', id: props.id })}><Icon name="openEditor" />VS Code で開く</button>}
+          {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openTerminalApp', id: props.id })}><Icon name="openTerminal" />ターミナルで開く</button>}
+          <button className="btn" aria-label={railOpen ? '右レールを隠す' : '右レールを出す'} onClick={() => setRailOpen(!railOpen)}><Icon name={railOpen ? 'paneClose' : 'paneOpen'} /></button>
         </div>
         <div className="mono faint" style={{ marginBottom: 12 }}>{props.path ?? 'この端末にパスがありません'}{!props.resolved && props.path ? '（見つかりません）' : ''}</div>
         <SessionRows rows={props.sessions} height="calc(100vh - 200px)" showProject={false} />
@@ -6281,10 +6359,10 @@ describe('フェーズ 3 のセッション画面', () => {
 describe('TabStrip の分割ボタン', () => {
   it('タブが 1 つなら押せない', () => {
     const onIntent = vi.fn();
-    const { rerender } = render(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={[{ id: 't1', title: 'Claude', kind: 'agent', selected: true, canClose: false }]} canAdd canSplit={false} split={false} /></IntentRoot>);
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={[{ id: 't1', title: 'Claude', kind: 'agent', selected: true, closable: false }]} canAdd canSplit={false} split={false} /></IntentRoot>);
     const btn = screen.getByLabelText('分割') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
-    rerender(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={[{ id: 't1', title: 'Claude', kind: 'agent', selected: true, canClose: false }, { id: 't2', title: 'シェル 1', kind: 'shell', selected: false, canClose: true }]} canAdd canSplit split={false} /></IntentRoot>);
+    rerender(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={[{ id: 't1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't2', title: 'シェル 1', kind: 'shell', selected: false, closable: true }]} canAdd canSplit split={false} /></IntentRoot>);
     fireEvent.click(screen.getByLabelText('分割'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'split.toggle' });
   });
@@ -6293,7 +6371,7 @@ describe('TabStrip の分割ボタン', () => {
 describe('NewSessionDialog のスクラッチ', () => {
   it('スクラッチではプロジェクトを選ばせず、scratch を付けて送る', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha' }]} projectId={null} submitting={false} error={null} scratch /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha' }]} projectId={null} submitting={false} error={null} scratch /></IntentRoot>);
     expect(screen.queryByLabelText('プロジェクト')).toBeNull();
     expect(screen.getByText('スクラッチで始める')).toBeTruthy();
     fireEvent.click(screen.getByText('起動'));
@@ -6357,7 +6435,8 @@ export function SplitPane(props: { left: ReactNode; right: ReactNode }) {
   }, []);
   return (
     <IntentBoundary handle={handle}>
-      <div className="split" data-testid="split" ref={hostRef} style={{ gridTemplateColumns: `${ratio}fr 6px ${Number((1 - ratio).toFixed(4))}fr` }}>
+      {/* 類名は split-h にする。.split はフェーズ 2 の SessionScreen がターミナルとトランスクリプトの 2 列に使っている。 */}
+      <div className="split-h" data-testid="split" ref={hostRef} style={{ gridTemplateColumns: `${ratio}fr 6px ${Number((1 - ratio).toFixed(4))}fr` }}>
         <div className="split-pane">{props.left}</div>
         <Divider hostRef={hostRef} ratio={ratio} />
         <div className="split-pane">{props.right}</div>
@@ -6369,10 +6448,13 @@ export function SplitPane(props: { left: ReactNode; right: ReactNode }) {
 
 - [ ] **Step 4: TabStrip に分割ボタンを足す**
 
-`packages/ui/src/views/TabStrip.tsx` の props に `canSplit: boolean; split: boolean` を足し、「＋」のボタンの隣に置く。
+`packages/ui/src/views/primitives/Icon.tsx` の `ICONS` に `split: Columns2` を足す（`Columns2` を `lucide-react` の import に加える）。
+View は `lucide-react` を直接 import しないので、新しいアイコンは必ずここを通す。
+
+`packages/ui/src/views/TabStrip.tsx` の props に `canSplit: boolean; split: boolean` を足し、シェルタブを追加するボタンの隣に置く。
 
 ```tsx
-      <button className="btn tab-action" aria-label="分割" aria-pressed={props.split} disabled={!props.canSplit} title={props.canSplit ? '分割（⌘\\）' : 'タブが 2 つ必要です'} onClick={() => emit({ type: 'split.toggle' })}>◫</button>
+      <button className="btn tab-action" aria-label="分割" aria-pressed={props.split} disabled={!props.canSplit} title={props.canSplit ? '分割（⌘\\）' : 'タブが 2 つ必要です'} onClick={() => emit({ type: 'split.toggle' })}><Icon name="split" /></button>
 ```
 
 - [ ] **Step 5: SessionScreen を広げる**
@@ -6409,8 +6491,11 @@ import { UsageGauge } from './primitives/UsageGauge.tsx';
 
 ```tsx
         {props.fromScratch && <span className="faint">再開すると cwd はスクラッチのままです</span>}
-        {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id: props.id })}>プロジェクトに昇格</button>}
+        {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id: props.id })}><Icon name="promote" />プロジェクトに昇格</button>}
 ```
+
+ヘッダーの操作のボタンはフェーズ 2 からすべて `Icon` を伴うので、`packages/ui/src/views/primitives/Icon.tsx` の `ICONS` に `promote: FolderUp` を足す（`FolderUp` を `lucide-react` の import に加える）。
+`Icon` は `SessionScreen.tsx` が既に import している。
 
 ヘッダーの下、本体の前にアーティファクトの帯を足す。
 
@@ -6435,47 +6520,50 @@ import { UsageGauge } from './primitives/UsageGauge.tsx';
 - [ ] **Step 6: NewSessionDialog にスクラッチを足す**
 
 `packages/ui/src/views/NewSessionDialog.tsx` を直す。
+フェーズ 2 のこの View は非制御フォームで、`useRef<HTMLFormElement>` と `FormData` から送信のときにまとめて読む。
+`useState` は持たない。その骨格を保ったまま、次の 3 か所だけを変える。
+
+`submit` の `params` の組み立ての先頭を置き換える。
 
 ```tsx
-export function NewSessionDialog(props: NewSessionProps) {
-  ...フェーズ 2 の useState はそのまま...
-  const submit = () => {
+    const params: LaunchParams = {};
     // スクラッチはプロジェクトを持たず、サーバが使い捨てのディレクトリを作る。
-    const params: LaunchParams = props.scratch ? { scratch: true } : { projectId: projectId ?? undefined };
-    if (name.trim()) params.name = name.trim();
-    if (prompt.trim()) params.prompt = prompt.trim();
-    if (model) params.model = model;
-    if (effort) params.effort = effort;
-    if (permissionMode) params.permissionMode = permissionMode;
-    emit({ type: 'session.new.submit', params });
-  };
-  return (
-    <div className="overlay" onClick={() => emit({ type: 'overlay.close' })}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <b>{props.scratch ? 'スクラッチで始める' : '新規セッション'}</b>
+    if (props.scratch) params.scratch = true;
+    else { const projectId = text('projectId'); if (projectId) params.projectId = projectId; }
+```
+
+見出しを置き換える。
+
+```tsx
+        <b>{props.scratch ? 'スクラッチで始める' : '新しいセッション'}</b>
+```
+
+プロジェクトの `label` を置き換える（スクラッチのときは選択欄を出さず、断りを 1 行出す）。
+`label` の文字と `htmlFor`、`option` に出すパスの表示はフェーズ 2 のまま残す。
+
+```tsx
         {props.scratch
           ? <div className="faint">~/.agent-hangar/scratch/ の下に日時のディレクトリを作って起動します。後からプロジェクトに昇格できます。</div>
-          : <label className="field"><span>プロジェクト</span><select className="select" aria-label="プロジェクト" value={projectId ?? ''} onChange={(e) => setProjectId(e.target.value || null)}><option value="">選んでください</option>{props.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
-        ...残りの入力欄はフェーズ 2 のまま...
-        {props.error && <div className="faint" style={{ color: 'var(--error)' }}>{props.error}</div>}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <span className="spacer" />
-          <button className="btn" onClick={() => emit({ type: 'overlay.close' })}>やめる</button>
-          <button className="btn btn-primary" disabled={props.submitting} onClick={submit}>起動</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+          : (
+            <label className="field" htmlFor="new-session-project">プロジェクト
+              <select id="new-session-project" className="select" name="projectId" defaultValue={props.projectId ?? ''}>
+                <option value="">選んでください</option>
+                {props.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.path ? `　${p.path}` : ''}</option>)}
+              </select>
+            </label>
+          )}
 ```
+
+名前、初期プロンプト、`Fold` の中の詳細（model、effort、permission mode、worktree、追加ディレクトリ）、`dialog-foot` の並びはフェーズ 2 のままにする。
 
 - [ ] **Step 7: CSS を足す**
 
 `packages/ui/src/styles/base.css` の末尾に足す。
 
 ```css
-/* 分割。幅は grid のトラックで持ち、仕切りは 6px の掴める帯にする。 */
-.split { display: grid; height: 100%; min-height: 0; transition: grid-template-columns var(--dur) var(--ease); }
+/* 分割。幅は grid のトラックで持ち、仕切りは 6px の掴める帯にする。
+   既存の .split（SessionScreen のターミナルとトランスクリプトの 2 列）は上書きしない。 */
+.split-h { display: grid; height: 100%; min-height: 0; transition: grid-template-columns var(--dur) var(--ease); }
 .split-pane { min-width: 0; min-height: 0; overflow: hidden; }
 .split-divider { cursor: col-resize; background: var(--line); }
 .split-divider:hover, .split-divider:focus-visible { background: var(--line-strong); outline: none; }
@@ -6599,6 +6687,7 @@ Expected: FAIL
 import { useRef, useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
+import { Icon } from './primitives/Icon.tsx';
 import { RelativeTime } from './primitives/RelativeTime.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { VirtualList } from './primitives/VirtualList.tsx';
@@ -6664,7 +6753,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
                 ? <input className="input memo-input" autoFocus aria-label={`${r.name} のメモ`} value={draft} onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(r.id); } if (e.key === 'Escape') { e.preventDefault(); setEditing(null); } }}
                     onBlur={() => setEditing(null)} />
-                : <><span className="muted">{r.memo ?? ''}</span><button className="btn memo-pencil" aria-label={`${r.name} のメモを編集`} onClick={() => startEdit(r)}>鉛筆</button></>}
+                : <><span className="muted">{r.memo ?? ''}</span><button className="btn memo-pencil" aria-label={`${r.name} のメモを編集`} onClick={() => startEdit(r)}><Icon name="edit" /></button></>}
             </span>
             <span className="cell cell-right"><RelativeTime label={r.when} abs={r.whenAbs} /></span>
           </div>
@@ -6676,8 +6765,8 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
 }
 ```
 
-`VirtualList` の `render` が添字を渡していなければ、`render: (item: T, index: number) => ReactNode` に広げる。
-`packages/ui/src/views/primitives/VirtualList.tsx` の `render` の呼び出しを `props.render(item, start + i)` にする。
+`packages/ui/src/views/primitives/VirtualList.tsx` の `render` は既に `(item: T, index: number) => ReactNode` なので、そのまま使える。
+`packages/ui/src/views/primitives/Icon.tsx` の `ICONS` に `edit: Pencil` を足す（`Pencil` を `lucide-react` の import に加える）。
 
 - [ ] **Step 4: CSS を足す**
 
@@ -7339,9 +7428,10 @@ state を足す。
 ```tsx
   // パレットの入力の文字は Root が持つ。Mediator には入れない一時の値である。
   const [paletteQuery, setPaletteQuery] = useState('');
-  const paletteOpen = overlay.kind === 'palette';
   useEffect(() => { if (!paletteOpen) setPaletteQuery(''); }, [paletteOpen]);
 ```
+
+`paletteOpen` はフェーズ 2 の `Root.tsx` に既にあるので、二重に宣言しない。
 
 `presentShell(state, store)` を `presentShell(state, store, now)` に直す。
 

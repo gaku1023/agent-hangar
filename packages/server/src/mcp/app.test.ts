@@ -1,14 +1,18 @@
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { MemoStore } from '../projects/memo.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { createMcpApp } from './app.ts';
 import { TOOL_NAMES } from './tools.ts';
 
 let dir: string;
+let home: string;
 let db: Db;
 let alphaId: string;
 let app: ReturnType<typeof createMcpApp>;
@@ -17,15 +21,17 @@ const H = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json'
 
 beforeEach(async () => {
   dir = copyFixtureClaudeDir();
+  home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mcpapp-'));
   db = openDb(':memory:');
   await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
   upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
   upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: '/Users/me/workspace/alpha', resolved: 1 }, 'd');
   assignSessions(db, 'd');
   alphaId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
-  app = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], hub: { broadcast: () => {} }, runs: { start: () => { throw new Error('not in this test'); } } });
+  app = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], hub: { broadcast: () => {} }, runs: { start: () => { throw new Error('not in this test'); } },
+    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: 'd', home }) });
 });
-afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(home, { recursive: true, force: true }); });
 
 /** JSON でも SSE でも 1 件目の JSON-RPC 応答を取り出す。 */
 async function rpc(path: string, method: string, params: unknown, id = 1, headers: Record<string, string> = H): Promise<{ status: number; body: { result?: Record<string, unknown>; error?: { message: string } } }> {

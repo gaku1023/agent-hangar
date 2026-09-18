@@ -16,6 +16,14 @@ export type Settings = {
    * この項目が無い古い settings.json は、まだ探していないものとして扱う。
    */
   toolsResolved?: boolean;
+  /** 事後要約に使う LM Studio の入口。末尾の / は付けない。 */
+  lmStudioUrl: string;
+  /** 使うモデルの id。null なら LM Studio が読み込んでいる先頭のモデルに任せる。 */
+  lmStudioModel: string | null;
+  /** LM Studio が使えないときに Claude のヘッドレスへ落とすかどうか。 */
+  summaryFallback: boolean;
+  /** Claude のヘッドレスを 1 時間に何件まで呼ぶか。 */
+  summaryHourlyCap: number;
 };
 
 export function hangarHome(): string {
@@ -51,7 +59,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 };
 }
 
 export function loadSettings(home: string): Settings {

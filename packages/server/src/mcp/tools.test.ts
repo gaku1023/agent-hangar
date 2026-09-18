@@ -1,14 +1,19 @@
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
+import { recordArtifactPublish } from '../artifacts/extract.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { MemoStore } from '../projects/memo.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { callTool, ToolError, TOOL_NAMES, type ToolDeps } from './tools.ts';
 
 let dir: string;
+let home: string;
 let db: Db;
 let alphaId: string;
 const sent: ServerEvent[] = [];
@@ -17,16 +22,18 @@ const started: unknown[] = [];
 let deps: ToolDeps;
 
 beforeEach(async () => {
-  dir = copyFixtureClaudeDir(); db = openDb(':memory:'); sent.length = 0; started.length = 0;
+  dir = copyFixtureClaudeDir(); home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mcp-')); db = openDb(':memory:'); sent.length = 0; started.length = 0;
   await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
   upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
   upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: '/Users/me/workspace/alpha', resolved: 1 }, 'd');
   assignSessions(db, 'd');
   alphaId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
   deps = { db, deviceId: 'd', port: 4177, live: () => live, hub: { broadcast: (e) => sent.push(e) },
-    runs: { start: (p) => { started.push(p); return { run: { id: 'r1', sessionId: 'sNew', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sNew', tabs: [] }; } } };
+    runs: { start: (p) => { started.push(p); return { run: { id: 'r1', sessionId: 'sNew', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sNew', tabs: [] }; } },
+    usage: () => ({ fiveHour: { usedPercent: 47, resetsAt: 1_760_000_000_000 }, sevenDay: null, updatedAt: 5 }),
+    memos: new MemoStore({ db, deviceId: 'd', home }) };
 });
-afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(home, { recursive: true, force: true }); });
 
 const call = (name: string, args: Record<string, unknown> = {}, ctx = { sessionId: null as string | null }) => callTool(deps, ctx, name, args) as Record<string, unknown>;
 
@@ -47,13 +54,37 @@ describe('MCP tools', () => {
     expect(p).toMatchObject({ id: 'p1', memo: null, todos: [], artifacts: [] });
     expect((p.recent_sessions as { id: string }[]).map((s) => s.id)).toEqual([alphaId]);
     expect(() => call('get_project', { project_id: 'nope' })).toThrow(ToolError);
+    call('update_project', { project_id: 'p1', add_todos: ['a'], append_memo: 'm' });
+    recordArtifactPublish(db, 'd', { sessionId: alphaId, projectId: 'p1', url: 'https://claude.ai/code/artifact/z', publishedAt: 7, call: { filePath: null, description: 'Z', favicon: '🧪' } });
+    const p2 = call('get_project', { project_id: 'p1' });
+    expect(p2.memo).toBe('m');
+    expect((p2.todos as unknown[]).length).toBe(1);
+    expect(p2.artifacts).toEqual([{ id: expect.any(String), url: 'https://claude.ai/code/artifact/z', title: 'Z', favicon: '🧪', last_published_at: 7, version_count: 1 }]);
   });
-  it('update_project は status だけ書き、TODO とメモは not_yet', () => {
-    const r = call('update_project', { project_id: 'p1', status: 'paused', add_todos: ['x'] });
+  it('update_project は status、TODO、メモを書き、イベントを配る', () => {
+    const r = call('update_project', { project_id: 'p1', status: 'paused', add_todos: ['x', 'y'], append_memo: '## 追記' }, { sessionId: alphaId });
     expect((r.project as { status: string }).status).toBe('paused');
-    expect(r.not_yet).toEqual({ fields: ['add_todos'], message: 'フェーズ 3 で対応します' });
-    expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id: 'p1', status: 'paused' } });
+    expect((r.todos as { text: string; done: boolean; session_id: string | null }[]).map((t) => [t.text, t.done, t.session_id])).toEqual([['x', false, alphaId], ['y', false, alphaId]]);
+    expect(r.memo).toBe('## 追記');
+    expect(sent.map((e) => e.type)).toEqual(['project.upsert', 'todos.update', 'memo.update', 'project.upsert']);
+    const ids = (r.todos as { id: string }[]).map((t) => t.id);
+    const r2 = call('update_project', { project_id: 'p1', toggle_todos: [ids[0]!], append_memo: '続き' });
+    expect((r2.todos as { done: boolean }[]).map((t) => t.done)).toEqual([true, false]);
+    expect(r2.memo).toBe('## 追記\n\n続き');
+    expect((r2.project as { open_todo_count: number }).open_todo_count).toBe(1);
     expect(() => call('update_project', { project_id: 'p1', status: 'bogus' })).toThrow(ToolError);
+    expect(() => call('update_project', { project_id: 'p1', toggle_todos: ['nope'] })).toThrow(/nope/);
+  });
+  it('update_project の TODO の書き込みは全部成功か全部失敗', () => {
+    const r = call('update_project', { project_id: 'p1', add_todos: ['x'] });
+    const id = (r.todos as { id: string }[])[0]!.id;
+    sent.length = 0;
+    expect(() => call('update_project', { project_id: 'p1', add_todos: ['y'], toggle_todos: [id, 'nope'] })).toThrow(/nope/);
+    // 途中まで書いた分を残さない。イベントを配らずに DB だけ進むと、UI と食い違ったまま気付けない。
+    expect(sent).toEqual([]);
+    const p = call('get_project', { project_id: 'p1' });
+    expect((p.todos as { text: string; done: boolean }[]).map((t) => [t.text, t.done])).toEqual([['x', false]]);
+    expect(p.open_todo_count).toBe(1);
   });
   it('update_project は文字列でない status を黙って無視しない', () => {
     expect(() => call('update_project', { project_id: 'p1', status: 12345 })).toThrow(ToolError);
@@ -107,7 +138,7 @@ describe('MCP tools', () => {
   it('set_session_memo、get_usage、open_in_hangar', () => {
     expect(call('set_session_memo', { session_id: alphaId, text: 'メモ' })).toEqual({ ok: true, session_id: alphaId });
     expect((db.prepare('select memo from sessions where id = ?').get(alphaId) as { memo: string }).memo).toBe('メモ');
-    expect(call('get_usage')).toEqual({ not_yet: 'フェーズ 3 で対応します' });
+    expect(call('get_usage')).toEqual({ five_hour: { used_percentage: 47, resets_at: 1_760_000_000_000 }, seven_day: null, updated_at: 5 });
     expect(call('open_in_hangar', { session_id: alphaId })).toEqual({ url: `http://127.0.0.1:4177/#/session/${alphaId}`, deep_link: `hangar://session/${alphaId}` });
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);

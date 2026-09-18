@@ -1,10 +1,13 @@
 import { useEffect, useReducer, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
 import { IntentRoot } from './intent/chain.tsx';
+import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentHome } from './presenters/home.ts';
 import { presentNewSession } from './presenters/newSession.ts';
+import { presentPalette } from './presenters/palette.ts';
 import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
+import { presentPromote, presentPromoted } from './presenters/promote.ts';
 import { presentSession } from './presenters/session.ts';
 import { presentSessions } from './presenters/sessions.ts';
 import { presentSettings } from './presenters/settings.ts';
@@ -12,10 +15,13 @@ import { presentShell } from './presenters/shell.ts';
 import { createApi, type ApiClient } from './runtime/api.ts';
 import type { Runtime } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
+import { currentRunOf, tabsOf } from './store/store.ts';
+import { CommandPalette } from './views/CommandPalette.tsx';
 import { HomeScreen } from './views/HomeScreen.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
 import { ProjectScreen } from './views/ProjectScreen.tsx';
 import { ProjectsScreen } from './views/ProjectsScreen.tsx';
+import { PromoteDialog, PromotedDialog } from './views/PromoteDialog.tsx';
 import { ResolveProjectDialog } from './views/ResolveProjectDialog.tsx';
 import { SessionScreen } from './views/SessionScreen.tsx';
 import { SessionsScreen } from './views/SessionsScreen.tsx';
@@ -60,24 +66,65 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const queryCandidates = (name: string) => { if (unresolvedId) (props.api ?? apiFromRuntime(rt)).candidates(unresolvedId, name).then(setCandidates).catch(() => setCandidates([])); };
   useEffect(() => { if (unresolvedId) queryCandidates(store.projects[unresolvedId]?.name ?? ''); else setCandidates([]); }, [unresolvedId]);   // eslint-disable-line react-hooks/exhaustive-deps
 
+  // パレットの入力の文字は Root が持つ。
+  // ダイアログの外へ出ない一時の値なので、Mediator には入れない。
+  const overlayKind = overlay.kind;
+  const paletteOpen = overlayKind === 'palette';
+  const [paletteQuery, setPaletteQuery] = useState('');
+  useEffect(() => { if (!paletteOpen) setPaletteQuery(''); }, [paletteOpen]);
+
+  // ショートカットの対象になる、いま見ているセッションのタブ。
+  const sessionId = state.screen.name === 'session' ? state.screen.id : null;
+  const shortcutRun = sessionId ? currentRunOf(store, sessionId) : null;
+  const shortcutTabs = shortcutRun ? tabsOf(store, shortcutRun.id) : [];
+  const shortcutView = sessionId ? state.sessionView[sessionId] ?? defaultSessionView() : null;
+  const selectedTabId = shortcutView?.selectedTab ?? shortcutTabs[0]?.id ?? null;
+  // TabStrip の分割ボタンと同じ条件で、タブが 2 つ無いときは ⌘\ を出さない。
+  const canSplit = shortcutTabs.length >= 2;
+
   // キーボード。
-  // / で検索欄にフォーカスし、⌘K か Ctrl+K でパレットを開き、⌘N か Ctrl+N で起動ダイアログを開き、Esc はパレットだけを閉じる。
   // xterm の入力欄は TEXTAREA なので、ターミナルに打った / を横取りしない。
-  const paletteOpen = overlay.kind === 'palette';
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      // ターミナルにフォーカスがあるときは、⌘ を含む組み合わせだけを hangar が処理する。
+      // それ以外は preventDefault せずに xterm へ渡す。
+      const inTerminal = !!el?.closest?.('.term-host');
+      if (inTerminal && !e.metaKey) return;
+      const digit = /^[1-9]$/.test(e.key) ? Number(e.key) : 0;
+      if (digit && (e.metaKey || (e.ctrlKey && e.altKey))) {
+        e.preventDefault();
+        const t = shortcutTabs[digit - 1];
+        if (t) rt.emit({ type: 'tab.select', tabId: t.id });
+        return;
+      }
+      if (e.metaKey && e.key === 'w') {
+        e.preventDefault();
+        const t = shortcutTabs.find((x) => x.id === selectedTabId);
+        if (t && t.kind === 'shell') rt.emit({ type: 'tab.close', tabId: t.id });
+        return;
+      }
+      if (e.metaKey && e.key === '\\') { e.preventDefault(); if (canSplit) rt.emit({ type: 'split.toggle' }); return; }
+      if (e.metaKey && e.key === 'j') { e.preventDefault(); rt.emit({ type: 'transcript.toggle' }); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); rt.emit({ type: 'palette.open' }); return; }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); rt.emit({ type: 'session.new.open', scratch: e.shiftKey }); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') { e.preventDefault(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return; }
+      // Esc はオーバーレイを閉じる。
+      // 未解決のプロジェクトだけは決めてもらうまで閉じない。
+      // 入力欄にフォーカスがあるときは、その入力欄を持つダイアログが自分で Esc を処理するので二重に出さない。
+      if (e.key === 'Escape' && !typing && overlayKind !== 'none' && overlayKind !== 'resolveProject') {
+        rt.emit(overlayKind === 'palette' ? { type: 'palette.close' } : { type: 'overlay.close' });
+        return;
+      }
       if (e.key === '/' && !typing) { e.preventDefault(); document.getElementById('global-search')?.focus(); }
-      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); rt.emit({ type: 'palette.open' }); }
-      if (e.key === 'n' && (e.metaKey || e.ctrlKey) && !e.shiftKey) { e.preventDefault(); rt.emit({ type: 'session.new.open' }); }
-      if (e.key === 'Escape' && paletteOpen) rt.emit({ type: 'palette.close' });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, paletteOpen]);
+  }, [rt, overlayKind, shortcutTabs, selectedTabId, canSplit]);
 
-  const shell = presentShell(state, store);
+  const shell = presentShell(state, store, now);
   let body: ReactNode;
   if (!store.bootstrapped || state.screen.name === 'booting') body = <div className="empty">読み込んでいます</div>;
   else switch (state.screen.name) {
@@ -100,7 +147,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     <>
       {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}
       {newSession && <NewSessionDialog key={newSession.projectId ?? ''} {...newSession} />}
-      {overlay.kind === 'palette' && <div className="overlay" onClick={() => rt.emit({ type: 'palette.close' })}><div className="dialog" onClick={(e) => e.stopPropagation()}><b>コマンドパレット</b><div className="faint">次のフェーズで使えるようになります。Esc か外側のクリックで閉じます。</div></div></div>}
+      {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery)!} onQuery={setPaletteQuery} />}
+      {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
+      {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
       <ToastStack toasts={state.toasts} />
     </>
   );

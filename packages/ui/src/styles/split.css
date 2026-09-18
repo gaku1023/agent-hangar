@@ -1,0 +1,27 @@
+/* タブの分割（Task 23） */
+
+/* 幅は grid のトラックで持ち、仕切りは 6px の掴める帯にする。
+   高さは外側から受け取る。フェーズ 2 の .split（ターミナルとトランスクリプトの 2 列）の
+   左の列に入るので、100% でその高さをそのまま受け継ぐ。
+   既存の .split は上書きしない。 */
+.split-h { display: grid; height: 100%; min-height: 0; transition: grid-template-columns var(--dur) var(--ease); }
+/* 掴んでいる間は transition を切る。
+   実測（Chrome、幅 1000px、0.5 から 0.3 へ）では、transition があると 21ms で 418px、73ms で 317px と遅れ、
+   目的の 298px に届くのは 154ms 後だった。transition なしでは 21ms の時点で 298px である。 */
+.split-h[data-dragging='true'] { transition: none; }
+.split-pane { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.split-pane > .term-pane { flex: 1; min-height: 0; }
+.split-divider { cursor: col-resize; background: var(--line); transition: background var(--dur) var(--ease); }
+.split-divider:hover { background: var(--line-strong); }
+/* base.css の :focus-visible（--accent の 2px の輪郭、offset 1px）を消さない。
+   帯そのものも --accent で塗り、輪郭との間の 1px を --surface で抜く。
+   こうすると、左が暗いターミナル（--term-bg）でも右が白い面でも、隣り合う色との差が 3:1 を超える。
+   --accent #2f5fd0 と --surface #ffffff の比は 5.5:1、--line #e6e4df からの変化の比は 4.5:1 である。 */
+.split-divider:focus-visible { background: var(--accent); box-shadow: 0 0 0 1px var(--surface); }
+
+/* セッションヘッダーのコンテキスト使用率と、アーティファクトの帯と、タブ列の分割ボタン。 */
+.gauge-wrap { display: inline-flex; align-items: center; gap: 4px; }
+/* 未取得のときに Settings へ導く 1 行。行の他の文字と同じ大きさで、色だけ --accent にする。 */
+.hint-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.session-artifacts { padding: 4px 0; }
+.tab-action { padding: 0 6px; }
