@@ -187,6 +187,36 @@ describe('圧縮', () => {
     expect(await meta('changes_floor')).toBeNull();
   });
 
+  it('圧縮で changes が空になっても連番は巻き戻らない', async () => {
+    await push(tokA, [ch('p1', 1)]);
+    await pull(tokB, 0);
+    await pull(tokA, 0);
+    await ageChanges();
+    await setNextSeq(205);
+    await push(tokB, [ch('p2', 1)]); // 連番 206 で圧縮が走る
+    expect(await seqs()).toEqual([206]);
+    // 圧縮は押し込まれたばかりの 1 件だけは残すので、要求 1 回では空にならない。
+    // ここでは、その 1 件も 14 日を過ぎて次の周の圧縮に消された後を作る。
+    // 条件は compact() の delete と同じものである。
+    await ageChanges();
+    await cloud.env.DB.prepare('delete from changes where seq <= ? and received_at < ?').bind(206, Date.now() - 14 * DAY).run();
+    expect(await seqs()).toEqual([]);
+
+    expect((await rows(tokA)).seq).toBe(206);
+    expect(await pull(tokB, 1)).toEqual({ changes: [], nextSeq: 206, more: false });
+    const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
+    expect(dev?.last_pulled_seq).toBe(206);
+    // 次の push も連番を振り直さない。
+    expect((await pushed(tokA, [ch('p9', 1)])).seq).toBe(207);
+  });
+
+  it('でたらめに大きい since は読み位置を水増ししない', async () => {
+    await push(tokA, [ch('p1', 1)]);
+    expect(await pull(tokB, 999_999)).toEqual({ changes: [], nextSeq: 1, more: false });
+    const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
+    expect(dev?.last_pulled_seq).toBe(1); // ここが水増しされると、圧縮が未読の変更まで消しにいく
+  });
+
   it('圧縮で消えた区間を指す since は 410 と floor を返し、未読の変更を黙って落とさない', async () => {
     const tokC = await join('dev-c');
     await push(tokA, [ch('p1', 1)]);

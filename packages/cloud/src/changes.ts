@@ -22,6 +22,8 @@ export const DEVICE_ACTIVE_MS = 30 * 86_400_000;
 export const META_CHANGES_FLOOR = 'changes_floor';
 /** 最後に圧縮を試したときの最大連番。起動条件をここからの差で測る。 */
 export const META_LAST_COMPACT_SEQ = 'last_compact_seq';
+/** これまでに振った連番の高水位。圧縮で行が消えても、連番をここより戻さない。 */
+export const META_SEQ_HIGH = 'seq_high';
 
 const TABLES = new Set<string>(SHARED_TABLES);
 const keyOf = (c: { tableName: string; rowId: string }): string => `${c.tableName}:${c.rowId}`;
@@ -55,7 +57,22 @@ const toOut = (r: ChangeRow): ChangeOut => ({
   deviceId: r.device_id,
 });
 
-const maxSeq = async (db: D1Database): Promise<number> => (await db.prepare('select ifnull(max(seq), 0) s from changes').first<{ s: number }>())!.s;
+/**
+ * サーバの連番の高水位である。
+ *
+ * `max(seq) from changes` だけで測ってはいけない。
+ * 圧縮が末尾まで消した後に 0 へ戻り、pull の `nextSeq` と snapshot の `seq` が巻き戻る。
+ * 受け取った端末は `lastSeq` を下げ、取り込み済みの変更をもう一度読むか、
+ * `GET /rows` から 0 を受けて取り直しの輪から出られなくなる。
+ *
+ * 行が消えるのは `compact()` のときだけで、そこで必ず高水位を `meta` に刻む。
+ * だから残っている最大の連番と `meta` の高水位の大きい方を採れば、どちらの側が欠けても後戻りしない。
+ */
+const maxSeq = async (db: D1Database): Promise<number> =>
+  (await db
+    .prepare('select max((select ifnull(max(seq), 0) from changes), ifnull((select cast(value as integer) from meta where key = ?), 0)) s')
+    .bind(META_SEQ_HIGH)
+    .first<{ s: number }>())!.s;
 
 const clampLimit = (v: string | undefined): number => Math.min(Math.max(Number(v ?? PULL_LIMIT) || PULL_LIMIT, 1), PULL_LIMIT);
 
@@ -93,7 +110,8 @@ async function compact(db: D1Database, now: number, seq: number): Promise<void> 
     .first<{ m: number | null }>();
   const upto = active?.m ?? 0;
   const cutoff = now - COMPACT_AGE_MS;
-  const stmts: D1PreparedStatement[] = [putMetaInt(db, META_LAST_COMPACT_SEQ, seq)];
+  // 行を消す前に高水位を刻む。ここが `changes` の行を消す唯一の場所なので、ここで刻めば連番は後戻りしない。
+  const stmts: D1PreparedStatement[] = [putMetaInt(db, META_LAST_COMPACT_SEQ, seq), raiseMetaInt(db, META_SEQ_HIGH, seq)];
   if (upto > 0) {
     const doomed = await db
       .prepare('select ifnull(max(seq), 0) f from changes where seq <= ? and received_at < ?')
@@ -183,7 +201,9 @@ changesApp.get('/', async (c) => {
   const more = rows.results.length > limit;
   const page = rows.results.slice(0, limit);
   // 最後まで返せたときは表全体の末尾まで進める。自端末の変更で止まったままにしないためである。
-  const nextSeq = more ? page[page.length - 1]!.seq : Math.max(await maxSeq(db), since);
+  // 末尾は高水位そのものにする。`since` との大きい方を採ると、端末が送ってきた値が
+  // そのまま `last_pulled_seq` に入り、圧縮がまだ誰も読んでいない変更まで消しにいく。
+  const nextSeq = more ? page[page.length - 1]!.seq : await maxSeq(db);
   await db.prepare('update devices set last_seen_at = ?, last_pulled_seq = max(last_pulled_seq, ?) where id = ?').bind(Date.now(), nextSeq, device.id).run();
   const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more };
   return c.json(res);
