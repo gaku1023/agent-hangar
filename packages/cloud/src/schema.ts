@@ -36,13 +36,18 @@ async function doEnsure(env: Env): Promise<void> {
   await env.DB.batch(SCHEMA_STATEMENTS.map((s) => env.DB.prepare(s)));
   const hash = env.JOIN_SECRET_HASH?.trim();
   if (!hash) return;
+  const known = await env.DB.prepare('select revoked_at from join_secrets where secret_hash = ?').bind(hash).first<{ revoked_at: number | null }>();
+  // 既に知っている秘密なら、有効でも回収済みでも何もしない。
+  // 一度回収した秘密を復活させてはいけない。
+  // `ensureSchema` は cold start のたびに走るので、復活を許すと D1 での回収が次の起動で必ず取り消される。
+  // 古い秘密を持ったままの端末が hangar setup cloud をやり直すと、回収した秘密が戻り、新しい秘密が回収されてしまう。
+  if (known) return;
   const now = Date.now();
-  const cur = await env.DB.prepare('select secret_hash from join_secrets where revoked_at is null').all<{ secret_hash: string }>();
-  if (cur.results.some((r) => r.secret_hash === hash)) return;
   await env.DB.batch([
     env.DB.prepare('update join_secrets set revoked_at = ? where revoked_at is null').bind(now),
+    // 同時に来た要求どうしがぶつかっても、先に入れた行をそのままにする。
     env.DB
-      .prepare('insert into join_secrets (id, secret_hash, created_at, revoked_at) values (?, ?, ?, null) on conflict(secret_hash) do update set revoked_at = null')
+      .prepare('insert into join_secrets (id, secret_hash, created_at, revoked_at) values (?, ?, ?, null) on conflict(secret_hash) do nothing')
       .bind(crypto.randomUUID(), hash, now),
   ]);
 }
