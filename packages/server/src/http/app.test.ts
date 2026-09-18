@@ -558,6 +558,8 @@ describe('routes', () => {
       const notice = await bare.text();
       expect(notice).not.toContain(TOKEN);
       expect(notice).toContain('hangar start');
+      // 起動した後に URL を見直す道も案内する。案内にトークンそのものは出さない。
+      expect(notice).toContain('hangar url');
       // 鍵が違うときも同じ扱いにする。
       const wrong = await ui.request('/?t=nope');
       expect(wrong.status).toBe(401);

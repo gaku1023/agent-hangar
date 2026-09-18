@@ -101,6 +101,7 @@ const ENTRY_NOTICE_HTML = `<!doctype html>
 <main>
 <h1>認証できていません</h1>
 <p><code>hangar start</code> が印字した鍵付きの URL から開いてください。</p>
+<p>その URL は、端末で <code>hangar url</code> を実行すれば何度でも出せます。</p>
 <p>一度そこから開けば、このブラウザには鍵が残ります。次からはブックマークでそのまま開けます。</p>
 </main>
 </body>
