@@ -1,5 +1,6 @@
 import { Command } from 'commander';
-import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateToken, startServer } from '@agent-hangar/server';
+import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, startServer } from '@agent-hangar/server';
+import { runSetupCloud } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage, startErrorMessage } from './probe.ts';
 import { formatSetupReport, runSetup } from './setup.ts';
@@ -8,7 +9,9 @@ import { entryUrl, openInBrowser } from './url.ts';
 
 const program = new Command().name('hangar').description('agent-hangar のコマンド');
 
-program
+// setup はサブコマンド（setup cloud）の親でもある。
+// commander では親に action を残したまま子を足せるので、既定の動作はこの action のままである。
+const setup = program
   .command('setup')
   .description('データディレクトリを用意し、ツールとワークスペースを確認し、statusline への追記を提案する')
   .option('--workspace <dir>', 'ワークスペースのルート')
@@ -25,6 +28,17 @@ program
     }
     console.log('');
     console.log('MCP の登録は hangar mcp install で行えます。');
+  });
+
+setup
+  .command('cloud')
+  .description('自分の Cloudflare アカウントに同期用の Worker と D1 と R2 を作ってデプロイする')
+  .option('--name <name>', 'Worker の名前（D1 は同名、R2 は <name>-files）', 'hangar')
+  .option('--rotate-secret', '参加用の秘密を作り直す（既存の暗号化ファイルが復号できなくなる。確認を求める）')
+  .action(async (o: { name: string; rotateSecret?: boolean }) => {
+    const home = hangarHome();
+    const device = readOrCreateDevice(home);
+    await runSetupCloud({ home, device, name: o.name, rotateSecret: o.rotateSecret });
   });
 
 program

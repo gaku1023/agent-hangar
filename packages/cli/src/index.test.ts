@@ -88,6 +88,20 @@ async function waitOpened(timeoutMs = 3000): Promise<string> {
   }
 }
 
+describe('hangar setup', () => {
+  it('サブコマンドを足しても setup 自身の動作は変わらない', async () => {
+    const r = await runCli(['setup', '--skip-statusline']);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('データディレクトリ:');
+    expect(r.out).toContain('MCP の登録は hangar mcp install で行えます。');
+    const h = await runCli(['setup', '--help']);
+    expect(h.out).toContain('--skip-statusline');
+    expect(h.out).toContain('--workspace');
+    // setup cloud がぶら下がっている。
+    expect(h.out).toContain('cloud');
+  });
+});
+
 describe('hangar url', () => {
   it('鍵付きの URL を印字するだけで、ブラウザは開かない', async () => {
     const port = await listenHealth();
