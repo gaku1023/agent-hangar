@@ -241,3 +241,30 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     expect(screen.queryByLabelText('プロジェクト名')).toBeNull();
   });
 });
+
+describe('フェーズ 4 のオーバーレイ', () => {
+  const key = (init: KeyboardEventInit) => fireEvent.keyDown(window, init);
+
+  it('本文の 409 で確認のダイアログが出て、Esc で閉じる', async () => {
+    const { rt } = await mounted();
+    act(() => rt.dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1024, remoteSize: 4096 } }));
+    await flush();
+    expect(screen.getByRole('dialog', { name: '上書きの確認' })).toBeInTheDocument();
+    expect(screen.getByText('他の端末の本文 4.0 KB')).toBeInTheDocument();
+    // Esc の扱いはフェーズ 3 のままで、新しいオーバーレイも overlayKind !== 'none' の枝で閉じる。
+    key({ key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: '上書きの確認' })).toBeNull();
+  });
+
+  it('取り込みの下見は store の一覧をそのまま出す', async () => {
+    const { rt } = await mounted({ api: { configPreview: async () => ({ confirmed: false, entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 2, remoteDevice: 'mini', size: 10 }] }) } });
+    act(() => rt.emit({ type: 'sync.config.preview' }));
+    await flush();
+    expect(screen.getByRole('dialog', { name: '取り込み内容の確認' })).toBeInTheDocument();
+    expect(screen.getByText('CLAUDE.md')).toBeInTheDocument();
+    key({ key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: '取り込み内容の確認' })).toBeNull();
+  });
+});

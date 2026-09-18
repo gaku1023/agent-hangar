@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
-import type { SettingsProps } from '../presenters/settings.ts';
+import type { CloudSettingsProps, SettingsProps } from '../presenters/settings.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 import { SessionRows } from './SessionRows.tsx';
 import { Header } from './Header.tsx';
@@ -78,6 +78,14 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   statuslineCommand: 'npm run hangar -- statusline install',
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
+  cloud: { configured: false, url: null, state: 'off', paused: false, lastPullAt: '不明', pending: 0, devices: [], joinToken: null, syncClaudeConfig: false, configConfirmed: false },
+  ...over,
+});
+
+const cloudProps = (over: Partial<CloudSettingsProps> = {}): CloudSettingsProps => ({
+  configured: true, url: 'https://h.workers.dev', state: 'idle', paused: false, lastPullAt: '1 分前', pending: 2,
+  devices: [{ name: 'mac', platform: 'darwin', lastSeen: '今', self: true }, { name: 'mini', platform: 'darwin', lastSeen: '3 分前', self: false }],
+  joinToken: null, syncClaudeConfig: false, configConfirmed: false,
   ...over,
 });
 
@@ -234,17 +242,85 @@ describe('SettingsScreen のフェーズ 3', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ usageAggregate: null })} /></IntentRoot>);
     expect(screen.getByText('使用量を読み込んでいます')).toBeTruthy();
   });
-  it('次のフェーズの節はクラウド同期だけを残す', () => {
+});
+
+describe('SettingsScreen のクラウド同期', () => {
+  it('Settings のクラウド同期の節', () => {
+    const onIntent = vi.fn();
+    const cloud = cloudProps();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud })} /></IntentRoot>);
+    expect(screen.getByText('https://h.workers.dev')).toBeInTheDocument();
+    expect(screen.getByText('未送信 2 件')).toBeInTheDocument();
+    expect(screen.getByText('mini')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '参加トークンを表示' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.joinToken.show' });
+    fireEvent.click(screen.getByLabelText('Claude Code の設定を同期する'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { syncClaudeConfig: true } });
+    rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ joinToken: 'tok-abc', syncClaudeConfig: true }) })} /></IntentRoot>);
+    expect(screen.getByText('tok-abc')).toBeInTheDocument();
+    expect(screen.getByText('このトークンを持つ人は、あなたのセッションを読み書きできます。渡す相手に気をつけてください。')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '取り込み内容を確認' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.config.preview' });
+  });
+  it('同期が未設定なら参加の案内を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ configured: false, url: null, state: 'off', lastPullAt: '不明', pending: 0, devices: [] }) })} /></IntentRoot>);
+    expect(screen.getByText('hangar setup cloud か hangar join <token> で始められます')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '今すぐ同期' })).toBeNull();
+  });
+  it('今すぐ同期と一時停止の Intent', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
+    fireEvent.click(screen.getByRole('button', { name: '一時停止' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.pause', paused: true });
+    // 一時停止中は、同じボタンが再開になる。
+    rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ state: 'paused', paused: true }) })} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '同期を再開' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'sync.pause', paused: false });
+  });
+  it('参加トークンは押すまで出さず、消えたら表示のボタンに戻る', () => {
+    // 全セッションの読み書き権を持つ秘密なので、画面に出したままにしない。
+    // ランタイムが 120 秒で store から消すので、props が null に戻ったらボタンの姿に戻る。
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
+    expect(screen.queryByText('tok-abc')).toBeNull();
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ joinToken: 'tok-abc' }) })} /></IntentRoot>);
+    expect(screen.getByText('tok-abc')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '参加トークンを表示' })).toBeNull();
+    expect(screen.getByText('120 秒で自動的に消えます。1Password などに写してください。')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
+    expect(screen.queryByText('tok-abc')).toBeNull();
+    expect(screen.getByRole('button', { name: '参加トークンを表示' })).toBeInTheDocument();
+  });
+  it('設定の同期を切っているあいだは取り込みの確認を押せない', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
+    expect(screen.getByRole('button', { name: '取り込み内容を確認' })).toBeDisabled();
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ syncClaudeConfig: true }) })} /></IntentRoot>);
+    expect(screen.getByRole('button', { name: '取り込み内容を確認' })).toBeEnabled();
+  });
+  it('取り込みの対象と控えの置き場と、確認がまだであることを書く', () => {
+    // 利用者の決定 2 と 12。何を書き換えるかと、控えがどこに残るかを押す前に見せる。
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ syncClaudeConfig: true }) })} /></IntentRoot>);
+    expect(screen.getByText(/CLAUDE\.md、settings\.json、statusline のスクリプト、skills、memory、projects の memory/)).toBeInTheDocument();
+    expect(screen.getByText(/~\/\.agent-hangar\/backups\/claude-config\//)).toBeInTheDocument();
+    expect(screen.getByText('まだ取り込みを確認していません。確認するまで ~/.claude には書き込みません。')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ syncClaudeConfig: true, configConfirmed: true }) })} /></IntentRoot>);
+    expect(screen.queryByText(/まだ取り込みを確認していません/)).toBeNull();
+    expect(screen.getByText('取り込みを確認済みです。')).toBeInTheDocument();
+  });
+  it('次のフェーズで追加される設定の節は残っていない', () => {
+    // クラウド同期はこのフェーズで実装し、引き継ぎは作らないと決まった（利用者の決定 1）ので、節ごと消した。
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
-    expect(screen.getByText(/クラウド同期/)).toBeTruthy();
-    expect(screen.queryByText(/statusline への追記、要約器/)).toBeNull();
+    expect(screen.queryByText('次のフェーズで追加される設定')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'クラウド同期' })).toBeInTheDocument();
   });
 });
 
 describe('Header', () => {
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} /></IntentRoot>);
+    // sync は Task 23 が Header に足した props である。この節が見るのは検索欄だけなので、出さない形で渡す。
+    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, paused: false }} /></IntentRoot>);
     const box = screen.getByRole('searchbox');
     fireEvent.change(box, { target: { value: '動画' } });
     fireEvent.keyDown(box, { key: 'Enter', isComposing: true });

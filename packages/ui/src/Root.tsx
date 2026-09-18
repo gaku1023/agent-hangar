@@ -17,6 +17,8 @@ import type { Runtime } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
 import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
+import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
+import { ConfirmDialog } from './views/ConfirmDialog.tsx';
 import { HomeScreen } from './views/HomeScreen.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
 import { ProjectScreen } from './views/ProjectScreen.tsx';
@@ -138,7 +140,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     }
     // 検索欄は defaultValue なので、外からの文言リセットで作り直せるように key を付ける。
     case 'sessions': body = <SessionsScreen key={state.search.text} {...presentSessions(state, store, now)} />; break;
-    case 'settings': body = <SettingsScreen {...presentSettings(state, store)} />; break;
+    case 'settings': body = <SettingsScreen {...presentSettings(state, store, now)} />; break;
   }
 
   // 起動ダイアログはプロジェクトが変わったら作り直す。入力欄が非制御で、defaultValue を作り直しでしか変えられないからである。
@@ -150,6 +152,10 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery)!} onQuery={setPaletteQuery} />}
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
+      {overlay.kind === 'confirm' && <ConfirmDialog confirm={overlay.confirm} />}
+      {/* 取り込みの下見は押したときだけ取りに来る一時の値なので、Presenter を通さず store から直に渡す。 */}
+      {/* 未解決ダイアログの候補と同じ扱いである。 */}
+      {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
       <ToastStack toasts={state.toasts} />
     </>
   );
