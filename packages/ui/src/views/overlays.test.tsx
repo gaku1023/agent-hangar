@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
@@ -16,7 +19,7 @@ describe('CommandPalette', () => {
     const onIntent = vi.fn();
     const onQuery = vi.fn();
     render(<IntentRoot onIntent={onIntent}><CommandPalette query="" items={items} onQuery={onQuery} /></IntentRoot>);
-    const input = screen.getByLabelText('コマンドパレット');
+    const input = screen.getByLabelText('コマンドを検索');
     expect(input.getAttribute('id')).toBe('palette-input');
     fireEvent.change(input, { target: { value: 'al' } });
     expect(onQuery).toHaveBeenCalledWith('al');
@@ -30,20 +33,20 @@ describe('CommandPalette', () => {
     render(<IntentRoot onIntent={onIntent}><CommandPalette query="" items={items} onQuery={() => {}} /></IntentRoot>);
     fireEvent.click(screen.getByText('動画の変換'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'session:s1', label: '動画の変換' } });
-    fireEvent.keyDown(screen.getByLabelText('コマンドパレット'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText('コマンドを検索'), { key: 'Escape' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.close' });
   });
 
   it('端で止まり、項目が無ければ何も起きない', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><CommandPalette query="" items={items} onQuery={() => {}} /></IntentRoot>);
-    const input = screen.getByLabelText('コマンドパレット');
+    const input = screen.getByLabelText('コマンドを検索');
     fireEvent.keyDown(input, { key: 'ArrowUp' });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新規セッション' } });
     onIntent.mockClear();
     rerender(<IntentRoot onIntent={onIntent}><CommandPalette query="zzz" items={[]} onQuery={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByLabelText('コマンドパレット'), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByLabelText('コマンドを検索'), { key: 'Enter' });
     expect(onIntent).not.toHaveBeenCalled();
     expect(screen.getByText('一致する項目がありません')).toBeTruthy();
   });
@@ -51,15 +54,15 @@ describe('CommandPalette', () => {
   // palette.open は focus の効果を出さないので、入力欄へのフォーカスはパレット自身が当てる。
   it('開いた時点で入力欄にフォーカスが当たる', () => {
     render(<IntentRoot onIntent={() => {}}><CommandPalette query="" items={items} onQuery={() => {}} /></IntentRoot>);
-    expect(document.activeElement).toBe(screen.getByLabelText('コマンドパレット'));
+    expect(document.activeElement).toBe(screen.getByLabelText('コマンドを検索'));
   });
 
   it('入力が変わると選択は先頭に戻る', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><CommandPalette query="" items={items} onQuery={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByLabelText('コマンドパレット'), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByLabelText('コマンドを検索'), { key: 'ArrowDown' });
     rerender(<IntentRoot onIntent={onIntent}><CommandPalette query="a" items={items} onQuery={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByLabelText('コマンドパレット'), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByLabelText('コマンドを検索'), { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新規セッション' } });
   });
 
@@ -67,8 +70,18 @@ describe('CommandPalette', () => {
   it('変換中の Enter では実行しない', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><CommandPalette query="" items={items} onQuery={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByLabelText('コマンドパレット'), { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(screen.getByLabelText('コマンドを検索'), { key: 'Enter', isComposing: true });
     expect(onIntent).not.toHaveBeenCalled();
+  });
+
+  // 器は読み上げに対してダイアログである。
+  // 入力欄とは別の名前を付けて、どちらも名前で引けるようにする。
+  it('器は名前を持つ modal なダイアログである', () => {
+    render(<IntentRoot onIntent={() => {}}><CommandPalette query="" items={items} onQuery={() => {}} /></IntentRoot>);
+    const dialog = screen.getByRole('dialog', { name: 'コマンドパレット' });
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(dialog.classList.contains('palette')).toBe(true);
+    expect(dialog.contains(screen.getByLabelText('コマンドを検索'))).toBe(true);
   });
 
   it('外側を押すと閉じ、中身を押しても閉じない', () => {
@@ -120,6 +133,18 @@ describe('PromoteDialog', () => {
     render(<IntentRoot onIntent={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting error="同じ名前があります" /></IntentRoot>);
     expect((screen.getByText('昇格') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('同じ名前があります')).toBeTruthy();
+  });
+
+  // 2 つの選択は palette.css の .field-row で並べる。
+  // 同じ名前の指定が settings.css にもあったので、こちら側の指定が残っていることを見張る。
+  it('選択の行は palette.css の .field-row で並ぶ', () => {
+    render(<IntentRoot onIntent={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting={false} error={null} /></IntentRoot>);
+    for (const label of ['git init する', 'ファイルを移動する']) {
+      expect(screen.getByLabelText(label).closest('label')?.className, label).toBe('field-row');
+    }
+    // new URL(..., import.meta.url) は Vite が資産の URL に書き換えるので、パスを自分で組む。
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'styles', 'palette.css'), 'utf8');
+    expect(css).toContain('.field-row {');
   });
 
   it('やめると Esc で閉じる', () => {

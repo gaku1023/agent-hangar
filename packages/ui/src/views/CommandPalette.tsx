@@ -37,14 +37,16 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
 
   return (
     <div className="overlay" onClick={() => emit({ type: 'palette.close' })}>
-      <div className="dialog palette" onClick={(e) => e.stopPropagation()}>
+      {/* 器は読み上げに対してダイアログである。
+          器と入力欄には別の名前を付ける。同じ名前だと、名前で引いたときに 2 つ見つかって区別できない。 */}
+      <div className="dialog palette" role="dialog" aria-modal="true" aria-label="コマンドパレット" onClick={(e) => e.stopPropagation()}>
         {/* 入力欄と一覧は combobox と listbox の組で結ぶ。
             選択位置は DOM のフォーカスではなく aria-activedescendant で伝えるので、打鍵は入力欄に残る。 */}
         <input
           ref={input}
           id="palette-input"
           className="input palette-input"
-          aria-label="コマンドパレット"
+          aria-label="コマンドを検索"
           role="combobox"
           aria-expanded
           aria-controls="palette-list"
