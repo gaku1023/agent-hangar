@@ -103,6 +103,9 @@ export function SettingsScreen(props: SettingsProps) {
         )}
         <div className="faint" style={{ marginTop: 4 }}>使用量ゲージはこの追記だけが供給源です。追記は端末から行い、UI からは書き換えません。</div>
         <pre className="mono snippet">{props.statuslineCommand}</pre>
+        {/* 追記されるスニペットの宛先はこのコマンドの --port で決まる。 */}
+        {/* 既定の 4177 のまま追記すると、別のポートで動かしているサーバには届かない。 */}
+        <div className="faint" style={{ marginTop: 4 }}>{'サーバが 4177 以外で動いているときは --port <番号> を付けてください。'}</div>
       </section>
       <section>
         <h2 className="h2">要約器</h2>

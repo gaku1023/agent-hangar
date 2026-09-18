@@ -134,6 +134,11 @@ describe('SettingsScreen のフェーズ 3', () => {
     expect(screen.getByText('npx hangar statusline install')).toBeTruthy();
     expect(screen.getByText('/h/.claude/statusline.sh')).toBeTruthy();
   });
+  it('statusline の案内にポートの指定を添える', () => {
+    // 4177 以外で動いているサーバに、4177 宛てのスニペットを追記させない。
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    expect(screen.getByText('サーバが 4177 以外で動いているときは --port <番号> を付けてください。')).toBeTruthy();
+  });
   it('追記済みならそう出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ statusline: { command: 'bash x', scriptPath: '/h/x', installed: true } })} /></IntentRoot>);
     expect(screen.getByText('追記済みです')).toBeTruthy();
