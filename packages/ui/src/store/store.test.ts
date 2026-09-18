@@ -73,4 +73,12 @@ describe('runs と tabs', () => {
     expect(aliveRunOf(s, 's1')?.id).toBe('r1');
     expect(tabsOf(s, 'r1')).toHaveLength(1);
   });
+  it('bootstrap を取り直しても、すでに知っている run と tab は消えない', () => {
+    // 終了した run のスクロールバックを見ている最中に取り直しても、画面が変わらないようにする。
+    let s = applyBootstrap(initialStore(), { ...boot, runs: [run('r1', 's1', 9)], tabs: [tab('r1', 'r1', 'agent'), tab('t1', 'r1', 'shell')] });
+    s = applyBootstrap(s, { ...boot, runs: [run('r2', 's2')], tabs: [tab('r2', 'r2', 'agent')] });
+    expect(Object.keys(s.runs).sort()).toEqual(['r1', 'r2']);
+    expect(tabsOf(s, 'r1').map((t) => t.id)).toEqual(['r1', 't1']);
+    expect(aliveRunOf(s, 's2')?.id).toBe('r2');
+  });
 });

@@ -69,6 +69,14 @@ describe('presentHome', () => {
     expect(p.recent.map((r) => r.id)).toEqual(['s1', 's3', 's2']);
     expect(p.recent[0]).toMatchObject({ name: 'name-s1', projectName: 'alpha', live: 'busy', model: 'fable 5.1', effort: 'high', stateLabel: '完了', when: '1 分前' });
   });
+  it('hangar が起こした run も実行中に出す', () => {
+    // 信頼確認のダイアログ待ちの run は Claude のレジストリにまだ載らない。
+    const store = storeWith();
+    store.runs = { r2: runDto('r2', 's2'), r3: runDto('r3', 's3', NOW) };
+    const p = presentHome(initialState(), store, NOW);
+    expect(p.running.map((r) => r.id)).toEqual(['s1', 's2']);
+    expect(p.running[1]!.live).toBeNull();
+  });
 });
 
 describe('presentProjects', () => {
@@ -114,8 +122,11 @@ describe('presentSession', () => {
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
     expect(q.summaryOpen).toBe(true);
   });
-  it('無いセッションは notFound', () => {
-    expect(presentSession(initialState(), storeWith(), NOW, 'zz').notFound).toBe(true);
+  it('無いセッションは notFound。run だけ先に届いていれば読み込み中', () => {
+    expect(presentSession(initialState(), storeWith(), NOW, 'zz')).toMatchObject({ notFound: true, loadingSession: false });
+    const store = storeWith();
+    store.runs = { r9: runDto('r9', 'zz') };
+    expect(presentSession(initialState(), store, NOW, 'zz')).toMatchObject({ notFound: false, loadingSession: true });
   });
 });
 

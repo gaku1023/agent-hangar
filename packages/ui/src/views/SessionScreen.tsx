@@ -12,6 +12,8 @@ const ENDED_HINT = 'Claude は終了しました。シェルタブは残って�
 export function SessionScreen(props: SessionProps & { terminalStatus: TerminalStatus | null }) {
   const emit = useEmit();
   if (props.notFound) return <div className="screen"><div className="empty">セッションが見つかりません</div></div>;
+  // run は知っているのに、そのセッションの情報がまだ届いていない状態。
+  if (props.loadingSession) return <div className="screen"><div className="empty">セッションを読み込んでいます</div></div>;
   const id = props.id;
   const run = props.run;
 

@@ -13,7 +13,7 @@ const base: SessionProps = { id: 's1', name: 'name', live: 'busy', cwd: '/w/alph
     { kind: 'tool', seq: 1, summary: 'Agent x', name: 'Agent', inputJson: '{}', result: { text: 'done', isError: false }, when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } },
     { kind: 'tool', seq: 2, summary: 'Edit /a', name: 'Edit', inputJson: '{}', result: { text: 'File not found', isError: true }, when: '10:02', subagent: null },
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
-  ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true };
+  ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true };
 
 describe('SessionScreen', () => {
   it('ヘッダー、要約の開閉、切替、続きの読み込み', () => {
@@ -53,6 +53,11 @@ describe('SessionScreen', () => {
   it('見つからないとき', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} notFound /></IntentRoot>);
     expect(screen.getByText('セッションが見つかりません')).toBeInTheDocument();
+  });
+  it('セッションの情報がまだ届いていないときは読み込み中', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} loadingSession /></IntentRoot>);
+    expect(screen.getByText('セッションを読み込んでいます')).toBeInTheDocument();
+    expect(screen.queryByText('セッションが見つかりません')).toBeNull();
   });
 });
 

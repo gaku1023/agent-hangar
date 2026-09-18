@@ -18,8 +18,13 @@ export function initialStore(): Store {
 
 const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object.fromEntries(items.map((i) => [i.id, i]));
 
+/** bootstrap を入れる。
+ * runs と tabs だけは差し替えずに混ぜる。
+ * サーバが返すのは生きた run と開いたシェルタブが残る run だけなので、
+ * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
+ */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: byId(b.runs), tabs: byId(b.tabs), index: b.index };
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index };
 }
 
 function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): Record<string, SessionDto> {
@@ -83,6 +88,18 @@ export function applyLaunch(store: Store, r: LaunchResultDto): Store {
 }
 
 const newest = (runs: RunDto[]): RunDto | null => runs.sort((a, b) => b.startedAt - a.startedAt)[0] ?? null;
+
+/** そのセッションの run を 1 つでも知っているか。
+ * WebSocket の session.upsert より先に HTTP の起動の応答が返るので、これで「読み込んでいます」を出し分ける。
+ */
+export function hasRunOf(store: Store, sessionId: string): boolean {
+  return Object.values(store.runs).some((r) => r.sessionId === sessionId);
+}
+
+/** 終わっていない run があるセッションの id。 */
+export function runningSessionIds(store: Store): Set<string> {
+  return new Set(Object.values(store.runs).filter((r) => r.endedAt === null).map((r) => r.sessionId));
+}
 
 /** 終わっていない最新の run。 */
 export function aliveRunOf(store: Store, sessionId: string): RunDto | null {
