@@ -14,7 +14,7 @@ import { readEvents, subagentIds } from '../transcript/read.ts';
 import { authMiddleware } from './auth.ts';
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
-export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab'>;
+export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */
 export type ExternalApi = {
   openTerminal(o: { tmuxName: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
@@ -218,13 +218,13 @@ export function createApp(deps: AppDeps): Hono {
     const run = deps.runs.getRun(c.req.param('id'));
     if (!run) return c.json({ error: 'run が見つかりません' }, 404);
     const body = (await c.req.json().catch(() => ({}))) as { tabId?: string };
-    let tmuxName = run.tmuxName;
-    if (body.tabId) {
-      const t = deps.runs.getTab(body.tabId);
-      if (!t || t.runId !== run.id) return c.json({ error: 'タブが見つかりません' }, 404);
-      tmuxName = t.tmuxName;
-    }
-    return externalResult(c, () => deps.external.openTerminal({ tmuxName }));
+    // tabId を省いたときは Claude のタブを開く。タブ 0 の id は run の id である。
+    const tabId = body.tabId ?? run.id;
+    const t = deps.runs.getTab(tabId);
+    if (!t || t.runId !== run.id) return c.json({ error: 'タブが見つかりません' }, 404);
+    // 終了した run の Claude のタブは繋ぎ先がもう無い。シェルタブは終了後も開いてよい。
+    if (!deps.runs.attachTarget(tabId)) return c.json({ error: 'この run は終了しています' }, 409);
+    return externalResult(c, () => deps.external.openTerminal({ tmuxName: t.tmuxName }));
   });
   api.post('/sessions/:id/resume', (c) => runResult(c, () => deps.runs.resume(c.req.param('id')), 201));
   api.post('/sessions/:id/fork', (c) => runResult(c, () => deps.runs.fork(c.req.param('id')), 201));

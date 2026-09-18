@@ -127,7 +127,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // hangar の外で動いている Claude を再開すると二重起動になるので、レジストリを見て弾く。
     isLive: (providerSessionId) => registry.current().some((l) => l.sessionId === providerSessionId),
   });
-  const relay = new PtyRelay({ token, tmux: tmuxOf(settings), resolveTab: (id) => runs.getTab(id)?.tmuxName ?? null, spawn: nodePtySpawn });
+  // 終了した run の Claude のタブには繋がせない。attachTarget がその判断を持つ。
+  const relay = new PtyRelay({ token, tmux: tmuxOf(settings), resolveTab: (id) => runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn });
 
   runs.on({
     runStarted: (r) => {

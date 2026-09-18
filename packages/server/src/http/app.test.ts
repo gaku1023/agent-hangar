@@ -24,6 +24,9 @@ const run: RunDto = { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', t
 const agentTab: TabDto = { id: 'r1', runId: 'r1', sessionId: 's1', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r1', createdAt: 1, closedAt: null };
 const shellTab: TabDto = { id: 't1', runId: 'r1', sessionId: 's1', kind: 'shell', title: 'シェル 1', tmuxName: 'hangar-r1-t1', createdAt: 2, closedAt: null };
 const launched: LaunchResultDto = { run, sessionId: 's1', tabs: [agentTab] };
+const endedRun: RunDto = { ...run, id: 'dead', tmuxName: 'hangar-dead', endedAt: 9, endReason: 'exited' };
+const deadAgentTab: TabDto = { ...agentTab, id: 'dead', runId: 'dead', tmuxName: 'hangar-dead' };
+const deadShellTab: TabDto = { ...shellTab, id: 'dead-t1', runId: 'dead', tmuxName: 'hangar-dead-t1' };
 let runs: RunsApi;
 let external: ExternalApi;
 
@@ -37,8 +40,13 @@ function fakeRuns(): RunsApi {
     openTab: vi.fn((): TabDto => shellTab),
     closeTab: vi.fn((): TabDto => ({ ...shellTab, closedAt: 3 })),
     listAlive: vi.fn((): { runs: RunDto[]; tabs: TabDto[] } => ({ runs: [run], tabs: [agentTab, shellTab] })),
-    getRun: vi.fn((id: string): RunDto | null => (id === 'r1' ? run : null)),
-    getTab: vi.fn((id: string): TabDto | null => (id === 't1' ? shellTab : id === 'r1' ? agentTab : null)),
+    getRun: vi.fn((id: string): RunDto | null => (id === 'r1' ? run : id === 'dead' ? endedRun : null)),
+    getTab: vi.fn((id: string): TabDto | null => (id === 't1' ? shellTab : id === 'r1' ? agentTab : id === 'dead' ? deadAgentTab : id === 'dead-t1' ? deadShellTab : null)),
+    // 終了した run の Claude のタブだけは繋がせない。繋ぎ先の tmux セッションがもう無い。
+    attachTarget: vi.fn((id: string): TabDto | null => {
+      const t = id === 't1' ? shellTab : id === 'r1' ? agentTab : id === 'dead' ? deadAgentTab : id === 'dead-t1' ? deadShellTab : null;
+      return t && t.kind === 'agent' && t.runId === 'dead' ? null : t;
+    }),
   };
 }
 
@@ -206,6 +214,12 @@ describe('routes', () => {
     expect(external.openTerminal).toHaveBeenLastCalledWith({ tmuxName: 'hangar-r1' });
     expect((await post('/api/runs/r1/open-terminal', { tabId: 'nope' })).status).toBe(404);
     expect((await post('/api/runs/nope/open-terminal', {})).status).toBe(404);
+    // 終了した run の Claude のタブは開かせない。素の名前で attach すると同じ run のシェルタブに落ちる。
+    expect((await post('/api/runs/dead/open-terminal', {})).status).toBe(409);
+    expect((await post('/api/runs/dead/open-terminal', { tabId: 'dead' })).status).toBe(409);
+    // シェルタブは run が終わった後も開いてよい。
+    expect((await post('/api/runs/dead/open-terminal', { tabId: 'dead-t1' })).status).toBe(200);
+    expect(external.openTerminal).toHaveBeenLastCalledWith({ tmuxName: 'hangar-dead-t1' });
     const { body: sessions } = await json(await get('/api/sessions'));
     const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`)).status).toBe(204);
