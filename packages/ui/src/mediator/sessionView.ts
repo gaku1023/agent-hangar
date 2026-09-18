@@ -32,9 +32,12 @@ export function sessionViewStep(state: State, input: Input): Step | null {
       case 'tab.upsert': {
         const t = ev.tab;
         if (t.closedAt !== null) {
-          if (viewOf(state, t.sessionId).selectedTab !== t.id) return { state, effects: [{ kind: 'terminal.disconnect', tabId: t.id }] };
+          const off: Effect = { kind: 'terminal.disconnect', tabId: t.id };
+          if (viewOf(state, t.sessionId).selectedTab !== t.id) return { state, effects: [off] };
           const r = patch(state, t.sessionId, { selectedTab: null });
-          return { state: r.state, effects: [...r.effects, { kind: 'terminal.disconnect', tabId: t.id }, { kind: 'terminal.connect', sessionId: t.sessionId, tabId: null }] };
+          // 繋ぎ直すのは、いま見ているセッションのタブが閉じたときだけ。
+          const back: Effect[] = currentSession(state) === t.sessionId ? [{ kind: 'terminal.connect', sessionId: t.sessionId, tabId: null }] : [];
+          return { state: r.state, effects: [...r.effects, off, ...back] };
         }
         if (currentSession(state) !== t.sessionId || t.kind !== 'shell') return { state, effects: [] };
         const r = patch(state, t.sessionId, { selectedTab: t.id });

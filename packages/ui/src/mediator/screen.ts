@@ -18,6 +18,10 @@ export function screenStep(state: State, input: Input): Step | null {
     const route = input.event.route;
     const effects: Effect[] = [];
     let next: State = { ...state, screen: route };
+    // 見ていないセッションの接続は残さない。
+    // xterm とバッファは残るので、戻れば tmux attach が現在の画面を描き直す。
+    const left = state.screen.name === 'session' ? state.screen.id : null;
+    if (left && !(route.name === 'session' && route.id === left)) effects.push({ kind: 'terminal.disconnectSession', sessionId: left });
     if (route.name === 'session') effects.push({ kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0 }, { kind: 'terminal.connect', sessionId: route.id, tabId: null });
     if (route.name === 'sessions') {
       const text = route.q ?? '';

@@ -24,6 +24,7 @@ export type Effect =
   | { kind: 'api.openTerminalApp'; runId: string; tabId: string | null } | { kind: 'api.openEditor'; sessionId: string }
   | { kind: 'api.projectOpenEditor'; projectId: string } | { kind: 'api.projectOpenTerminal'; projectId: string }
   | { kind: 'terminal.connect'; sessionId: string; tabId: string | null } | { kind: 'terminal.disconnect'; tabId: string }
+  | { kind: 'terminal.disconnectSession'; sessionId: string }
   | { kind: 'ws.connect' } | { kind: 'ws.reconnectAfter'; ms: number }
   | { kind: 'focus'; target: FocusTarget }
   | { kind: 'toast'; level: 'info' | 'error'; message: string }

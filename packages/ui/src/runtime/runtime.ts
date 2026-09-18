@@ -118,6 +118,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.projectOpenTerminal': deps.api.projectOpenTerminal(e.projectId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
       case 'terminal.connect': { const id = resolveTab(e.sessionId, e.tabId); if (id) deps.terminals.connect(id); return; }
       case 'terminal.disconnect': deps.terminals.disconnect(e.tabId); return;
+      case 'terminal.disconnectSession':
+        for (const t of Object.values(store.tabs)) if (t.sessionId === e.sessionId) deps.terminals.disconnect(t.id);
+        return;
       case 'ws.connect': ws?.connect(); return;
       case 'ws.reconnectAfter': deps.setTimeout(() => ws?.connect(), e.ms); return;
       case 'focus':

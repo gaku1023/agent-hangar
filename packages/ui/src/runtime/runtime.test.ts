@@ -161,6 +161,18 @@ describe('起動とターミナル', () => {
     await flush();
     expect(api.closeTab).toHaveBeenCalledWith('r1', 't1');
   });
+  it('セッションを渡り歩いても、離れたセッションの接続は残らない', () => {
+    const forSession = (sid: string) => ({ run: { ...launched.run, id: `r-${sid}`, sessionId: sid }, tabs: [{ ...launched.tabs[0]!, id: `r-${sid}`, runId: `r-${sid}`, sessionId: sid }] });
+    const { rt, terminals, setHash } = harness();
+    rt.start();
+    for (const sid of ['s1', 's2', 's3']) { const r = forSession(sid); rt.dispatch({ kind: 'server', event: { type: 'run.started', run: r.run, tabs: r.tabs } }); }
+    setHash('#/session/s1');
+    setHash('#/session/s2');
+    setHash('#/session/s3');
+    setHash('#/');
+    expect(terminals.connected).toEqual(['r-s1', 'r-s2', 'r-s3']);
+    expect(terminals.disconnected).toEqual(['r-s1', 'r-s2', 'r-s3']);
+  });
   it('iTerm2 から Terminal.app に落ちたらトーストで知らせる', async () => {
     const { rt } = harness({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
     rt.start();

@@ -208,6 +208,28 @@ describe('タブと接続', () => {
     expect(c.effects.slice(1)).toEqual([{ kind: 'terminal.disconnect', tabId: 't1' }, { kind: 'terminal.connect', sessionId: 's1', tabId: null }]);
     expect(run([server({ type: 'run.ended', run: runDto('r1', 's1', 9) })], c.state).effects).toEqual([{ kind: 'terminal.disconnect', tabId: 'r1' }]);
   });
+  it('セッション画面を離れると、そのセッションの接続を切る', () => {
+    // 見ていないセッションの PTY と tmux attach を残さない。
+    const s = onSession('s1');
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'home' } })], s).effects).toEqual([{ kind: 'terminal.disconnectSession', sessionId: 's1' }]);
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's2' } })], s).effects).toEqual([
+      { kind: 'terminal.disconnectSession', sessionId: 's1' },
+      { kind: 'api.loadEvents', sessionId: 's2', fromSeq: 0 },
+      { kind: 'terminal.connect', sessionId: 's2', tabId: null },
+    ]);
+    // 同じセッションに入り直すときは切らない。
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], s).effects).toEqual([
+      { kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0 },
+      { kind: 'terminal.connect', sessionId: 's1', tabId: null },
+    ]);
+  });
+  it('見ていないセッションのタブが閉じても、そのセッションに繋ぎ直さない', () => {
+    const chosen = run([intent({ type: 'tab.select', tabId: 't9' })], onSession('s2')).state;
+    const away = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], chosen).state;
+    const r = run([server({ type: 'tab.upsert', tab: { ...tabDto('t9', 'r9', 5), sessionId: 's2' } })], away);
+    expect(r.state.sessionView.s2?.selectedTab).toBeNull();
+    expect(r.effects.filter((e) => String((e as { kind: string }).kind).startsWith('terminal.'))).toEqual([{ kind: 'terminal.disconnect', tabId: 't9' }]);
+  });
   it('トランスクリプトの折りたたみ', () => {
     const a = run([intent({ type: 'transcript.toggle' })], onSession());
     expect(a.state.sessionView.s1?.transcriptOpen).toBe(false);
