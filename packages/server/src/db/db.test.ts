@@ -317,3 +317,51 @@ describe('購読の失敗のログ', () => {
     expect(lines[0]).toContain('projects:p1');
   });
 });
+
+describe('ログの組み立ての頑丈さ', () => {
+  it('name の getter が投げても、書き込み側に抜けない', () => {
+    const db = openDb(':memory:');
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { lines.push(String(a[0])); });
+    // 例外の name を読むだけで投げる。中 1 で塞いだ穴が、ログを組み立てる側から開き直らないこと。
+    const evil = new Error('本文');
+    Object.defineProperty(evil, 'name', { get() { throw new Error('name の getter で失敗'); } });
+    const seen: string[] = [];
+    const offBad = onSharedWrite(() => { throw evil; });
+    const offGood = onSharedWrite((_t, id, d) => { if (d === db) seen.push(id); });
+    expect(() => upsertShared(db, 'projects', PROJECT('p1'), 'd')).not.toThrow();
+    offBad();
+    offGood();
+    spy.mockRestore();
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 1 });
+    expect(seen).toEqual(['p1']);
+    expect(lines).toHaveLength(1);
+  });
+  it('本物のクラス名は出る', () => {
+    const db = openDb(':memory:');
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { lines.push(String(a[0])); });
+    class SummarizerTimeoutError extends Error {}
+    // 依存先が投げる本物の例外（better-sqlite3 の SqliteError）も、自前の派生も、名前が残ること。
+    let sqliteError: unknown;
+    try { db.prepare('select 1 from 存在しない表'); } catch (e) { sqliteError = e; }
+    for (const [e, want] of [[new TypeError('x'), 'TypeError'], [new SummarizerTimeoutError('x'), 'SummarizerTimeoutError'], [sqliteError, 'SqliteError']] as const) {
+      const off = onSharedWrite(() => { throw e; });
+      upsertShared(db, 'projects', PROJECT('p1'), 'd');
+      off();
+      expect(lines[lines.length - 1], want).toContain(want);
+    }
+    spy.mockRestore();
+    // name を書き換えて識別子の形をした秘密を入れても、クラス名の側が出る。
+    const masked = new TypeError('x');
+    masked.name = 'a'.repeat(32);
+    const more: string[] = [];
+    const spy2 = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { more.push(String(a[0])); });
+    const off = onSharedWrite(() => { throw masked; });
+    upsertShared(db, 'projects', PROJECT('p2'), 'd');
+    off();
+    spy2.mockRestore();
+    expect(more[0]).toContain('TypeError');
+    expect(more[0]).not.toContain('a'.repeat(32));
+  });
+});

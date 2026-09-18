@@ -42,12 +42,27 @@ function logSafe(v: string): string {
 
 /**
  * 例外の種類だけを取る。
- * クラス名の形（識別子、40 字まで）をしていない name は伏せる。
- * 同期の購読は URL とトークンを扱う層なので、name に文脈を足した例外から秘密が漏れないようにする。
+ * 見るのは name ではなくクラス名である。
+ * name は誰でも書き換えられるので、識別子の形をした秘密（32 桁のアカウント ID など）が入っていると通ってしまう。
+ * クラス名の形（識別子、40 字まで）をしていないものは伏せる。
  */
 function errorKind(e: unknown): string {
   if (!(e instanceof Error)) return logSafe(typeof e);
-  return /^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(e.name) ? e.name : 'Error';
+  const kind = (e.constructor as { name?: unknown } | undefined)?.name;
+  return typeof kind === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(kind) ? kind : 'Error';
+}
+
+/**
+ * ログの 1 行を組み立てて出す。組み立ての最中に何が起きても外へ出さない。
+ * 例外の name や constructor は getter でありうるので、削る処理そのものが投げうる。
+ * ここを囲わないと、購読の例外を握ったつもりが書き込んだ側まで抜ける。
+ */
+function logSafely(build: () => string): void {
+  try {
+    console.error(build());
+  } catch {
+    try { console.error('[sync] ログの行を組み立てられませんでした'); } catch { /* ここまで来たら何もできない */ }
+  }
 }
 
 /** 購読を 1 つずつ包んで呼ぶ。1 つの失敗で残りと呼び手を巻き込まない。 */
@@ -57,7 +72,7 @@ function deliver(db: Db, table: string, rowId: string): void {
       cb(table, rowId, db);
     } catch (e) {
       // 例外のメッセージには秘密が載りうるので出さない。どの行で、どの種類の失敗かだけを、削ってから残す。
-      console.error(`[sync] 共有テーブルの購読が失敗しました（${logSafe(table)}:${logSafe(rowId)}、${errorKind(e)}）`);
+      logSafely(() => `[sync] 共有テーブルの購読が失敗しました（${logSafe(table)}:${logSafe(rowId)}、${errorKind(e)}）`);
     }
   }
 }
@@ -83,7 +98,7 @@ function drain(db: Db): void {
       deliver(db, p.table, p.rowId);
     }
   } catch (e) {
-    console.error(`[sync] 溜めた書き込みの通知を配れませんでした（${errorKind(e)}）`);
+    logSafely(() => `[sync] 溜めた書き込みの通知を配れませんでした（${errorKind(e)}）`);
   }
 }
 
