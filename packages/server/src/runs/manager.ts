@@ -194,7 +194,10 @@ export class RunManager {
 
   /** tmux の一覧を 1 回読み、消えた run とタブを閉じ、古い heartbeat を更新する。 */
   tick(): { ended: RunDto[]; closedTabs: TabDto[] } {
-    const names = new Set(this.deps.tmux ? this.deps.tmux.listSessions() : []);
+    // tmux が無いのは「観測できない」であって「動いていない」ではない。
+    // ここで一覧を空と見なすと、設定から tmuxPath を外した瞬間に、実際には動いている run が全部 exited になる。
+    if (!this.deps.tmux) return { ended: [], closedTabs: [] };
+    const names = new Set(this.deps.tmux.listSessions());
     const ended: RunDto[] = [];
     const closedTabs: TabDto[] = [];
     const now = this.now();
@@ -293,6 +296,29 @@ export class RunManager {
     upsertShared(this.db, 'run_tabs', { ...row, closed_at: now }, this.deviceId);
     const run = this.db.prepare('select session_id from runs where id = ?').get(row.run_id) as { session_id: string };
     const tab: TabDto = { id: row.id as string, runId: row.run_id as string, sessionId: run.session_id, kind: 'shell', title: (row.title as string | null) ?? 'シェル', tmuxName: row.tmux_name as string, createdAt: row.created_at as number, closedAt: now };
+    this.emit('tabChanged', tab);
+    return tab;
+  }
+
+  /** 同じ cwd で利用者のログインシェルを起こした独立の tmux セッションをタブとして足す。 */
+  openTab(runId: string): TabDto {
+    const run = getRun(this.db, runId);
+    if (!run) throw new RunError(404, 'run が見つかりません');
+    const s = this.session(run.sessionId);
+    const tmux = this.precheck(s.cwd);
+    // 番号は閉じた行も数えて振る。閉じたタブの番号は再利用しない。
+    const n = (this.db.prepare('select count(*) c from run_tabs where run_id = ?').get(runId) as { c: number }).c + 1;
+    const tmuxName = `${run.tmuxName}-t${n}`;
+    const shell = this.deps.shell ?? process.env.SHELL ?? '/bin/zsh';
+    try {
+      tmux.newSession({ name: tmuxName, cwd: s.cwd, command: [shell, '-l'] });
+      tmux.setOption(tmuxName, 'status', 'off');
+    } catch (e) {
+      throw new RunError(400, `シェルの起動に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const id = newId();
+    upsertShared(this.db, 'run_tabs', { id, run_id: runId, tmux_name: tmuxName, title: `シェル ${n}`, created_at: this.now(), closed_at: null }, this.deviceId);
+    const tab = getTab(this.db, id)!;
     this.emit('tabChanged', tab);
     return tab;
   }

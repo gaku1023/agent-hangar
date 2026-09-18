@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { shortId } from '@agent-hangar/shared';
+import { shortId, type TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
@@ -112,6 +112,22 @@ describe('RunManager の回復と結びつけ（tmux 不要）', () => {
     expect(rm.recoverAtStartup()).toEqual([]);
   });
 
+  it('tick は tmux が無ければ何も閉じない。観測できないことと動いていないことは違う', () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-nope', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    upsertShared(db, 'run_tabs', { id: 't1', run_id: 'r1', tmux_name: 'hangar-nope-t1', title: 'シェル 1', created_at: 1, closed_at: null }, 'd');
+    const rm = make({ tmux: null });
+    const ended: string[] = [];
+    rm.on({ runEnded: (r) => ended.push(r.id) });
+    expect(rm.tick()).toEqual({ ended: [], closedTabs: [] });
+    expect(ended).toEqual([]);
+    expect(rm.getRun('r1')?.endedAt).toBeNull();
+    expect(rm.getTab('t1')?.closedAt).toBeNull();
+    // 起動時の回復は別である。サーバが落ちている間の tmux は本当に失われている。
+    expect(rm.recoverAtStartup().map((r) => r.id)).toEqual(['r1']);
+    expect(rm.getTab('t1')).toBeNull();
+  });
+
   it('linkRegistry は Claude の UUID で run を引いて pid を書く', () => {
     upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
     upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
@@ -198,6 +214,63 @@ describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
     const rm2 = make();
     expect(rm2.recoverAtStartup()).toEqual([]);
     expect(rm2.getRun(r.run.id)?.endedAt).toBeNull();
+  });
+});
+
+describe.skipIf(!TMUX)('シェルタブ（tmux 上）', () => {
+  it('openTab は連番の tmux セッションを作り、closeTab は閉じ、番号は再利用しない', async () => {
+    const rm = make();
+    const tabs: TabDto[] = [];
+    rm.on({ tabChanged: (t) => tabs.push(t) });
+    const r = rm.start({ projectId: 'p1' });
+    const t1 = rm.openTab(r.run.id);
+    expect(t1).toMatchObject({ runId: r.run.id, sessionId: r.sessionId, kind: 'shell', title: 'シェル 1', tmuxName: `${r.run.tmuxName}-t1`, closedAt: null });
+    expect(tmux!.hasSession(t1.tmuxName)).toBe(true);
+    expect(tmux!.run('show-options', '-t', `=${t1.tmuxName}:`, 'status').stdout.trim()).toBe('status off');
+    const t2 = rm.openTab(r.run.id);
+    expect(t2.tmuxName).toBe(`${r.run.tmuxName}-t2`);
+    expect(rm.listAlive().tabs.map((t) => t.id)).toEqual([r.run.id, t1.id, t2.id]);
+    const closed = rm.closeTab(t1.id);
+    expect(closed.closedAt).not.toBeNull();
+    await waitFor(() => !tmux!.hasSession(t1.tmuxName));
+    expect(rm.getTab(t1.id)).toBeNull();
+    expect(rm.openTab(r.run.id).tmuxName).toBe(`${r.run.tmuxName}-t3`);
+    expect(tabs.map((t) => [t.title, t.closedAt === null])).toEqual([['シェル 1', true], ['シェル 2', true], ['シェル 1', false], ['シェル 3', true]]);
+  });
+
+  it('tick は利用者が exit したタブを閉じ、kill はタブごと片付ける', async () => {
+    const rm = make();
+    const r = rm.start({ projectId: 'p1' });
+    const t1 = rm.openTab(r.run.id);
+    tmux!.killSession(t1.tmuxName);
+    await waitFor(() => !tmux!.hasSession(t1.tmuxName));
+    expect(rm.tick().closedTabs.map((t) => t.id)).toEqual([t1.id]);
+    expect(rm.tick().closedTabs).toEqual([]);
+    const t2 = rm.openTab(r.run.id);
+    rm.kill(r.run.id);
+    await waitFor(() => !tmux!.hasSession(t2.tmuxName) && !tmux!.hasSession(r.run.tmuxName));
+    expect(rm.getTab(t2.id)).toBeNull();
+    expect(rm.listAlive()).toEqual({ runs: [], tabs: [] });
+  });
+
+  it('recoverAtStartup は run を残したまま、消えたタブだけを閉じる', async () => {
+    const rm = make();
+    const r = rm.start({ projectId: 'p1' });
+    const t1 = rm.openTab(r.run.id);
+    const t2 = rm.openTab(r.run.id);
+    tmux!.killSession(t1.tmuxName);
+    await waitFor(() => !tmux!.hasSession(t1.tmuxName));
+    const rm2 = make();
+    expect(rm2.recoverAtStartup()).toEqual([]);
+    expect(rm2.getTab(t1.id)).toBeNull();
+    expect(rm2.listAlive().tabs.map((t) => t.id)).toEqual([r.run.id, t2.id]);
+  });
+
+  it('無い run には 404、Claude のタブは閉じられない', () => {
+    const rm = make();
+    expect(() => rm.openTab('nope')).toThrow(expect.objectContaining({ status: 404 }));
+    const r = rm.start({ projectId: 'p1' });
+    expect(() => rm.closeTab(r.run.id)).toThrow(expect.objectContaining({ status: 400 }));
   });
 });
 
