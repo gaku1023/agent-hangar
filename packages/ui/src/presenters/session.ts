@@ -28,7 +28,8 @@ export type SessionProps = { id: string; name: string; live: LiveStatus | null; 
 /**
  * 他端末がそのセッションを握っている間の表示。
  * heartbeat が途絶えていても（stale）ロックは外さず、文言だけを「応答がありません」に変える。
- * 消えた端末を理由に横取りさせないための形で、手元で続けたいときは新しい run を立てる。
+ * 消えた端末を理由に同じ run を横取りさせないための形である。
+ * ただし行き止まりにはせず、stale のときは「この PC で再開」だけを開けて新しい run に逃がす（Ruling 14）。
  */
 export type SessionLockProps = { deviceName: string; stale: boolean; heartbeat: string; label: string };
 
@@ -96,7 +97,9 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     // 他端末が動かしている間は再開もフォークもさせない。手元に写ししか無いセッションも同じである。
     // 手元で続けたいときは「この PC で再開」に回して、本文を降ろしてから新しい run を立てる。
     canResume: s.hasTranscript && idle && s.lock === null && !s.remoteOnly, canFork: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
-    lock: lockProps(s.lock, now), remoteOnly: s.remoteOnly, canResumeHere: s.remoteOnly && s.lock === null,
+    // Ruling 14。heartbeat が途絶えたロック（stale）は行き止まりにせず、「この PC で再開」だけを開ける。
+    // 相手の run は止めに行かないので、同じ run の続きである再開とフォークは閉じたままにする。
+    lock: lockProps(s.lock, now), remoteOnly: s.remoteOnly, canResumeHere: s.lock === null ? s.remoteOnly : s.lock.stale,
     contextPercent: s.stats.contextPercent, cost: costLabel(s.stats.costUsd),
     artifacts: artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(a, now)),
     summaryPending: store.summaryPending[id] === true, summaryError: state.summaryFailed[id] ?? null,

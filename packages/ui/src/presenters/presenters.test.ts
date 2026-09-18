@@ -496,12 +496,24 @@ describe('セッションのロック（フェーズ 4）', () => {
     expect(p.canFork).toBe(false);
     expect(p.canResumeHere).toBe(false);
   });
-  it('heartbeat が途絶えたロックは応答がありませんと見せる。それでも再開はさせない', () => {
+  it('heartbeat が途絶えたロックは応答がありませんと見せ、この PC で再開だけを開ける（Ruling 14）', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ heartbeatAt: NOW - 600_000, stale: true }) }) } };
     const p = presentSession(initialState(), store, NOW, 's1');
     expect(p.lock).toEqual({ deviceName: 'mini', stale: true, heartbeat: '10 分前', label: 'mini が応答がありません' });
+    // 相手の run を止めには行かないので、同じ run の続きである再開とフォークは閉じたままにする。
     expect(p.canResume).toBe(false);
     expect(p.canFork).toBe(false);
+    expect(p.canResumeHere).toBe(true);
+  });
+  it('stale のロックは、写しだけのセッションでもこの PC で再開ができる', () => {
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: true }), remoteOnly: true }) } };
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ remoteOnly: true, canResume: false, canFork: false, canResumeHere: true });
+  });
+  it('生きているロックでは、写しの有無にかかわらずこの PC で再開を閉じる', () => {
+    const local: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }) }) } };
+    expect(presentSession(initialState(), local, NOW, 's1').canResumeHere).toBe(false);
+    const remote: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }), remoteOnly: true }) } };
+    expect(presentSession(initialState(), remote, NOW, 's1').canResumeHere).toBe(false);
   });
   it('写しだけで誰も動かしていなければ、この PC で再開ができる', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: null, remoteOnly: true }) } };
