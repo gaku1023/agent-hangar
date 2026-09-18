@@ -1,17 +1,29 @@
 import { spawn } from 'node:child_process';
 import { Command } from 'commander';
-import { hangarHome, startServer } from '@agent-hangar/server';
+import { defaultClaudeDir, hangarHome, loadSettings, startServer } from '@agent-hangar/server';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { formatSetupReport, runSetup } from './setup.ts';
+import { runStatuslineInstall } from './statusline.ts';
 
 const program = new Command().name('hangar').description('agent-hangar のコマンド');
 
 program
   .command('setup')
-  .description('データディレクトリを用意し、ツールとワークスペースを確認する')
+  .description('データディレクトリを用意し、ツールとワークスペースを確認し、statusline への追記を提案する')
   .option('--workspace <dir>', 'ワークスペースのルート')
-  .action((o: { workspace?: string }) => {
-    console.log(formatSetupReport(runSetup({ home: hangarHome(), workspaceRoot: o.workspace })));
+  .option('--yes', '問いかけをすべて承諾する')
+  .option('--skip-statusline', 'statusline への追記を提案しない')
+  .action(async (o: { workspace?: string; yes?: boolean; skipStatusline?: boolean }) => {
+    const home = hangarHome();
+    const r = runSetup({ home, workspaceRoot: o.workspace });
+    console.log(formatSetupReport(r));
+    if (!o.skipStatusline && !r.statusline.installed) {
+      console.log('');
+      const claudeDir = loadSettings(home).claudeDir || defaultClaudeDir();
+      await runStatuslineInstall({ claudeDir, port: 4177, yes: o.yes ?? false });
+    }
+    console.log('');
+    console.log('MCP の登録は hangar mcp install で行えます。');
   });
 
 program
@@ -73,6 +85,19 @@ mcp
     const r = await runMcpUninstall();
     console.log(r.message);
     if (!r.ok) process.exitCode = 1;
+  });
+
+const statusline = program.command('statusline').description('statusline スクリプトへの追記');
+
+statusline
+  .command('install')
+  .description('使用量をサーバへ渡すスニペットを statusline スクリプトに追記する（承諾を求め、バックアップを取る）')
+  .option('--port <n>', 'ポート', '4177')
+  .option('--yes', '問わずに追記する')
+  .action(async (o: { port: string; yes?: boolean }) => {
+    const claudeDir = loadSettings(hangarHome()).claudeDir || defaultClaudeDir();
+    const r = await runStatuslineInstall({ claudeDir, port: Number(o.port), yes: o.yes ?? false });
+    if (!r.installed) process.exitCode = 1;
   });
 
 program.parseAsync(process.argv).catch((e) => {
