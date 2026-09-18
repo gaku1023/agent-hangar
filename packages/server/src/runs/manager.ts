@@ -179,16 +179,21 @@ export class RunManager {
    * 起動に失敗した新規セッションの行を消す。
    * claude 自体が起動できないと（フラグ違い、モデル名違い、インストール破損）本文は永久に生まれず、
    * 名前も本文も無いセッションが一覧の先頭に残る。再開もフォークもできず、消す道も無い。
-   * 消すのは、この run が新規の start で、本文がどこにも無く、他に run も無いときだけにする。
+   * 消すのは、この run が新規の start で、本文がどこにも無く、開いたシェルタブも他の run も無いときだけにする。
    */
   private pruneEmptySession(run: RunDto): void {
     if (run.kind !== 'start') return;
     const s = this.db.prepare('select provider_session_id, cwd from sessions where id = ?').get(run.sessionId) as { provider_session_id: string; cwd: string } | undefined;
     if (!s) return;
+    // 開いたシェルタブが残っているなら、そのシェルは tmux の上でまだ動いている。
+    // セッションを消すと、UI から到達も停止もできないシェルになる。
+    const openTab = this.db.prepare('select 1 from run_tabs where run_id = ? and closed_at is null and deleted_at is null limit 1').get(run.id);
+    if (openTab) return;
     const indexed = this.db.prepare('select 1 from transcript_files where session_id = ? limit 1').get(run.sessionId);
     // 索引はファイルに遅れて付くので、DB だけでは「本文が無い」と決められない。
     // 書かれた直後に run が終わった本文まで消すと、jsonl が残っていてもこの行は二度と戻らない。
-    if (indexed || hasTranscriptFile(this.deps.claudeDir, s.provider_session_id, s.cwd)) return;
+    // claudeDir を読めなかったときも、本文が無いとは言えないので見送る。
+    if (indexed || hasTranscriptFile(this.deps.claudeDir, s.provider_session_id, s.cwd) !== false) return;
     const other = this.db.prepare('select 1 from runs where session_id = ? and id <> ? and deleted_at is null limit 1').get(run.sessionId, run.id);
     if (other) return;
     softDeleteShared(this.db, 'sessions', run.sessionId, this.deps.deviceId);
@@ -260,6 +265,14 @@ export class RunManager {
     const ended: RunDto[] = [];
     const closedTabs: TabDto[] = [];
     const now = this.now();
+    // 消えたタブを先に閉じる。run を閉じるときの後始末が、既に死んだシェルタブを
+    // 「まだ動いている」と読み違えないようにするため。
+    for (const t of this.openShellTabs()) {
+      if (!names.has(t.tmuxName)) {
+        const c = this.closeTabRow(t.id);
+        if (c) closedTabs.push(c);
+      }
+    }
     for (const run of listAliveRuns(this.db, this.deviceId)) {
       if (!names.has(run.tmuxName)) {
         const e = this.end(run.id, 'exited');
@@ -270,12 +283,6 @@ export class RunManager {
         const row = this.db.prepare('select * from runs where id = ?').get(run.id) as Record<string, unknown>;
         upsertShared(this.db, 'runs', { ...row, heartbeat_at: now }, this.deviceId);
         this.emit('runUpdated', getRun(this.db, run.id)!);
-      }
-    }
-    for (const t of this.openShellTabs()) {
-      if (!names.has(t.tmuxName)) {
-        const c = this.closeTabRow(t.id);
-        if (c) closedTabs.push(c);
       }
     }
     return { ended, closedTabs };
@@ -291,13 +298,14 @@ export class RunManager {
     if (listed === null) return [];
     const names = new Set(listed);
     const out: RunDto[] = [];
+    // tick と同じく、消えたタブを先に閉じる。
+    for (const t of this.openShellTabs()) if (!names.has(t.tmuxName)) this.closeTabRow(t.id);
     for (const run of listAliveRuns(this.db, this.deviceId)) {
       if (!names.has(run.tmuxName)) {
         const e = this.end(run.id, 'lost');
         if (e) out.push(e);
       }
     }
-    for (const t of this.openShellTabs()) if (!names.has(t.tmuxName)) this.closeTabRow(t.id);
     return out;
   }
 

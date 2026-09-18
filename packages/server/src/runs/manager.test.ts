@@ -25,6 +25,7 @@ beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-home-'));
   cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-cwd-'));
   claudeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-claude-'));
+  fs.mkdirSync(path.join(claudeDir, 'projects'));
   fake = writeFakeClaude(home);
   upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
   upsertShared(db, 'project_roots', { id: 'pr1', project_id: 'p1', device_id: 'd', path: cwd, resolved: 1 }, 'd');
@@ -203,6 +204,20 @@ describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
     expect(ended).toEqual([r.run.id]);
     expect(rm.getRun(r.run.id)).toMatchObject({ endReason: 'exited' });
     expect(rm.tick().ended).toEqual([]);
+  });
+
+  it('Claude だけが落ちても、生きているシェルタブとセッションは残る', async () => {
+    const rm = make();
+    const r = rm.start({ projectId: 'p1' });
+    const t = rm.openTab(r.run.id);
+    tmux!.killSession(r.run.tmuxName);
+    await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+    expect(rm.tick().ended.map((x) => x.id)).toEqual([r.run.id]);
+    expect(rm.getTab(t.id)?.closedAt).toBeNull();
+    expect(tmux!.hasSession(t.tmuxName)).toBe(true);
+    expect((db.prepare('select deleted_at from sessions where id = ?').get(r.sessionId) as { deleted_at: number | null }).deleted_at).toBeNull();
+    rm.closeTab(t.id);
+    await waitFor(() => !tmux!.hasSession(t.tmuxName));
   });
 
   it('tick は 30 秒ごとに heartbeat を更新する', () => {
@@ -455,6 +470,30 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
     fs.mkdirSync(sub, { recursive: true });
     fs.writeFileSync(path.join(sub, 'agent-abc123.jsonl'), '{}\n');
     const rm = make({ tmux: null });
+    rm.kill(runId);
+    expect(deletedAt(sessionId)).toBeNull();
+  });
+
+  it('生きたシェルタブが残っている run では消さない（tick 経由）', () => {
+    // Claude の tmux セッションだけが消え、シェルタブは動いている状態。
+    // ここで消すと、生きているシェルに UI から到達も停止もできなくなる。
+    const { runId, sessionId, tabId } = seedRun();
+    const rm = make({ tmux: fakeTmux('echo "hangar-r1-t1"\nexit 0') });
+    expect(rm.tick().ended.map((x) => x.id)).toEqual([runId]);
+    expect(rm.getTab(tabId)?.closedAt).toBeNull();
+    expect(deletedAt(sessionId)).toBeNull();
+  });
+
+  it('シェルタブも消えていれば tick 経由でも消す', () => {
+    const { runId, sessionId } = seedRun();
+    const rm = make({ tmux: fakeTmux('exit 0') });
+    expect(rm.tick().ended.map((x) => x.id)).toEqual([runId]);
+    expect(deletedAt(sessionId)).not.toBeNull();
+  });
+
+  it('claudeDir が読めないときは見送る。観測できないことと本文が無いことは違う', () => {
+    const { runId, sessionId } = seedRun();
+    const rm = make({ tmux: null, claudeDir: '/nonexistent/claude' });
     rm.kill(runId);
     expect(deletedAt(sessionId)).toBeNull();
   });

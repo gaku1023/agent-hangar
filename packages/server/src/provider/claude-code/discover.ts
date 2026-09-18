@@ -50,8 +50,10 @@ function hasSessionFilesIn(projectDir: string, sessionUuid: string): boolean {
  * 索引の `transcript_files` はまだ行が入っていないことがあるので、
  * 「本文があるか」を消す側の判断に使うときはこちらを見る。
  * cwd が分かっていれば素直な場所を先に見て、外れていても全部のプロジェクトを当たる。
+ * projects を読めなかったときは null を返す。
+ * 読めないことと本文が無いことは違うので、呼び手が「無い」として扱わないようにする。
  */
-export function hasTranscriptFile(claudeDir: string, sessionUuid: string, cwd?: string | null): boolean {
+export function hasTranscriptFile(claudeDir: string, sessionUuid: string, cwd?: string | null): boolean | null {
   if (!sessionUuid) return false;
   const root = path.join(claudeDir, 'projects');
   if (cwd && hasSessionFilesIn(path.join(root, mangleCwd(cwd)), sessionUuid)) return true;
@@ -59,7 +61,7 @@ export function hasTranscriptFile(claudeDir: string, sessionUuid: string, cwd?: 
   try {
     dirs = fs.readdirSync(root, { withFileTypes: true });
   } catch {
-    return false;
+    return null;
   }
   return dirs.some((d) => d.isDirectory() && hasSessionFilesIn(path.join(root, d.name), sessionUuid));
 }

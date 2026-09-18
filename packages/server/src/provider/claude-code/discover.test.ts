@@ -50,7 +50,8 @@ describe('hasTranscriptFile', () => {
     // SESSION_BETA は history にしか出てこない。jsonl はどこにも無い。
     expect(hasTranscriptFile(FIXTURE_CLAUDE_DIR, SESSION_BETA)).toBe(false);
     expect(hasTranscriptFile(FIXTURE_CLAUDE_DIR, '00000000-0000-0000-0000-000000000000')).toBe(false);
-    expect(hasTranscriptFile('/nonexistent/dir', SESSION_ALPHA)).toBe(false);
+    // projects を読めないのは「観測できない」であって「本文が無い」ではない。
+    expect(hasTranscriptFile('/nonexistent/dir', SESSION_ALPHA)).toBeNull();
     expect(hasTranscriptFile(FIXTURE_CLAUDE_DIR, '')).toBe(false);
   });
 });
