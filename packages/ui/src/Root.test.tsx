@@ -210,14 +210,14 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    const input = screen.getByLabelText('コマンドパレット') as HTMLInputElement;
+    const input = screen.getByLabelText('コマンドを検索') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'alp' } });
-    expect((screen.getByLabelText('コマンドパレット') as HTMLInputElement).value).toBe('alp');
+    expect((screen.getByLabelText('コマンドを検索') as HTMLInputElement).value).toBe('alp');
     act(() => rt.emit({ type: 'palette.close' }));
     await flush();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    expect((screen.getByLabelText('コマンドパレット') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('コマンドを検索') as HTMLInputElement).value).toBe('');
   });
 
   it('昇格のダイアログと完了のダイアログが出る', async () => {
