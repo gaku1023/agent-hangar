@@ -13,11 +13,12 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[] }) {
     <div className="todos">
       {props.todos.length === 0 && <div className="faint">TODO はまだありません</div>}
       <ul className="todo-list">
-        {props.todos.map((t) => (
+        {/* 同じ文言の項目が並ぶことがあるので、読み上げの名前に何件目かを混ぜて一意にする。 */}
+        {props.todos.map((t, i) => (
           <li key={t.id} className="todo" data-done={t.done ? 'true' : undefined}>
-            <input type="checkbox" checked={t.done} aria-label={t.text} onChange={() => emit({ type: 'todo.toggle', id: t.id })} />
+            <input type="checkbox" checked={t.done} aria-label={`${t.text}（${i + 1} 件目）`} onChange={() => emit({ type: 'todo.toggle', id: t.id })} />
             <span className="todo-text">{t.text}</span>
-            <button className="btn todo-del" aria-label={`${t.text} を削除`} onClick={() => emit({ type: 'todo.remove', id: t.id })}><Icon name="close" /></button>
+            <button className="btn todo-del" aria-label={`${t.text}（${i + 1} 件目）を削除`} onClick={() => emit({ type: 'todo.remove', id: t.id })}><Icon name="close" /></button>
           </li>
         ))}
       </ul>

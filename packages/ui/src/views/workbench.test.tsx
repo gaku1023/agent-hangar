@@ -3,15 +3,18 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { ArtifactCardProps } from '../presenters/project.ts';
+import type { ProjectCardProps } from '../presenters/projects.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
 import { Header } from './Header.tsx';
 import { MemoEditor } from './MemoEditor.tsx';
+import { ProjectCard } from './ProjectCard.tsx';
 import { ProjectScreen } from './ProjectScreen.tsx';
 import { TodoList } from './TodoList.tsx';
 import { RollingNumber } from './primitives/RollingNumber.tsx';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
 
 const art = (id: string, over: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: '題名 ' + id, description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/' + id, lastPublished: '1 分前', versionCount: 2, canOpenEditor: false, ...over });
+const card = (over: Partial<ProjectCardProps> = {}): ProjectCardProps => ({ id: 'p1', name: 'alpha', path: '/w/alpha', resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 0, openTodoCount: 0, memoHead: null, lastOneLiner: null, ...over });
 const wrap = (node: ReactNode, onIntent = vi.fn()) => { render(<IntentRoot onIntent={onIntent}>{node}</IntentRoot>); return onIntent; };
 
 describe('UsageGauge', () => {
@@ -68,9 +71,9 @@ describe('TodoList', () => {
     fireEvent.change(input, { target: { value: '書く' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'todo.add', projectId: 'p1', text: '書く' });
-    fireEvent.click(screen.getByLabelText('買う'));
+    fireEvent.click(screen.getByLabelText('買う（1 件目）'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'todo.toggle', id: 't1' });
-    fireEvent.click(screen.getByLabelText('済んだ を削除'));
+    fireEvent.click(screen.getByLabelText('済んだ（2 件目）を削除'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'todo.remove', id: 't2' });
     expect(input.getAttribute('id')).toBe('todo-input');
   });
@@ -79,6 +82,13 @@ describe('TodoList', () => {
     fireEvent.keyDown(screen.getByLabelText('TODO を追加'), { key: 'Enter' });
     expect(onIntent).not.toHaveBeenCalled();
     expect(screen.getByText('TODO はまだありません')).toBeTruthy();
+  });
+  it('同じ文言の TODO が並んでもラベルが重ならない', () => {
+    const onIntent = wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '買う', done: false }, { id: 't2', text: '買う', done: true }]} />);
+    fireEvent.click(screen.getByLabelText('買う（2 件目）'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'todo.toggle', id: 't2' });
+    fireEvent.click(screen.getByLabelText('買う（1 件目）を削除'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'todo.remove', id: 't1' });
   });
   it('日本語の変換中の Enter では追加しない', () => {
     const onIntent = wrap(<TodoList projectId="p1" todos={[]} />);
@@ -110,6 +120,20 @@ describe('MemoEditor', () => {
     expect(screen.getByText('外部で更新されました')).toBeTruthy();
     fireEvent.click(screen.getByText('読み込む'));
     expect((screen.getByLabelText('メモ') as HTMLTextAreaElement).value).toBe('# 外');
+  });
+  it('自分の保存が戻ってきただけなら外部の更新と言わない', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# a" updatedAt={1} /></IntentRoot>);
+    const area = screen.getByLabelText('メモ') as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: '# b' } });
+    fireEvent.click(screen.getByText('保存'));
+    // 保存の直後に書き足す。ここで自分の保存がサーバから戻ってくる。
+    fireEvent.change(area, { target: { value: '# b の続き' } });
+    rerender(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# b" updatedAt={2} /></IntentRoot>);
+    expect(screen.queryByText('外部で更新されました')).toBeNull();
+    expect(area.value).toBe('# b の続き');
+    // 本当に外から書き換わったときだけ知らせる。
+    rerender(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# 外" updatedAt={3} /></IntentRoot>);
+    expect(screen.getByText('外部で更新されました')).toBeTruthy();
   });
   it('書き換えていなければ保存できない', () => {
     wrap(<MemoEditor projectId="p1" markdown="# a" updatedAt={1} />);
@@ -151,5 +175,20 @@ describe('ProjectScreen の右レール', () => {
     wrap(<ProjectScreen {...props} isScratch />);
     expect(screen.getByText('スクラッチで始める')).toBeTruthy();
     expect(screen.queryByText('新規セッション')).toBeNull();
+  });
+});
+
+describe('ProjectCard の追加分', () => {
+  it('メモの 1 行目を出し、ここで新規は親のクリックを巻き込まない', () => {
+    const onIntent = wrap(<ProjectCard {...card({ memoHead: '買い物の段取り' })} />);
+    expect(screen.getByText('買い物の段取り')).toBeTruthy();
+    fireEvent.click(screen.getByText('ここで新規'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'p1' });
+    expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'p1' });
+  });
+  it('メモが無ければその行を出さない', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectCard {...card()} /></IntentRoot>);
+    expect(container.querySelector('.card-memo')).toBeNull();
+    expect(screen.getByText('ここで新規')).toBeTruthy();
   });
 });

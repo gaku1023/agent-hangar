@@ -11,9 +11,16 @@ export function MemoEditor(props: { projectId: string; markdown: string; updated
   const [draft, setDraft] = useState(props.markdown);
   const [base, setBase] = useState({ markdown: props.markdown, updatedAt: props.updatedAt });
   const dirty = draft !== base.markdown;
-  const external = props.updatedAt > base.updatedAt && dirty;
+  // base.markdown は「最後に自分が知っているサーバの中身」である。
+  // 保存したらそれを base に入れるので、自分の保存が戻ってきたときは中身が base と一致する。
+  // 時刻だけを見ると自分の保存を外部の更新と誤報するので、中身が違うことも条件に入れる。
+  const external = props.updatedAt > base.updatedAt && props.markdown !== base.markdown && dirty;
   useEffect(() => {
-    if (props.updatedAt <= base.updatedAt || draft !== base.markdown) return;
+    if (props.updatedAt <= base.updatedAt) return;
+    // 中身が base と同じなら自分の保存が戻ってきただけである。下書きは残し、時刻だけを進める。
+    if (props.markdown === base.markdown) { setBase({ markdown: props.markdown, updatedAt: props.updatedAt }); return; }
+    // 下書きがあるなら黙って捨てない。external が知らせ、読み込むボタンに任せる。
+    if (draft !== base.markdown) return;
     setBase({ markdown: props.markdown, updatedAt: props.updatedAt });
     setDraft(props.markdown);
   }, [props.markdown, props.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
