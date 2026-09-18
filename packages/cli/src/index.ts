@@ -60,8 +60,8 @@ mcp
   .command('install')
   .description('user スコープに hangar を登録する')
   .option('--port <n>', 'ポート', '4177')
-  .action((o: { port: string }) => {
-    const r = runMcpInstall({ home: hangarHome(), port: Number(o.port) });
+  .action(async (o: { port: string }) => {
+    const r = await runMcpInstall({ home: hangarHome(), port: Number(o.port) });
     console.log(r.message);
     if (!r.ok) process.exitCode = 1;
   });
@@ -69,8 +69,8 @@ mcp
 mcp
   .command('uninstall')
   .description('user スコープの hangar を削除する')
-  .action(() => {
-    const r = runMcpUninstall();
+  .action(async () => {
+    const r = await runMcpUninstall();
     console.log(r.message);
     if (!r.ok) process.exitCode = 1;
   });
