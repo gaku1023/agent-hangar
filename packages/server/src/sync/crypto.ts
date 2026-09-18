@@ -7,6 +7,8 @@ const PREFIX_LEN = 8;
 const HEADER_LEN = MAGIC.length + PREFIX_LEN;
 const TAG_LEN = 16;
 const FRAME_HEAD = 5; // flag(1) + len(4)
+// 他端末が書いた本文は外から来た入力である。長さの申告をそのまま信じて溜め込まない。
+const MAX_FRAME_LEN = CHUNK_SIZE + 64;
 
 /** 参加用の秘密から HKDF（SHA-256）でファイル鍵を導く。salt と info は全端末で同じ定数にする。 */
 export function deriveFileKey(joinSecret: string): Buffer {
@@ -76,6 +78,7 @@ export function decryptStream(key: Buffer): Transform {
           if (finished) throw new Error('最終チャンクの後にデータがあります');
           const flag = buf[0]!;
           const len = buf.readUInt32BE(1);
+          if (len > MAX_FRAME_LEN) throw new Error('チャンクの長さの申告が上限を超えています');
           if (buf.length < FRAME_HEAD + len + TAG_LEN) break;
           const body = buf.subarray(FRAME_HEAD, FRAME_HEAD + len);
           const tag = buf.subarray(FRAME_HEAD + len, FRAME_HEAD + len + TAG_LEN);

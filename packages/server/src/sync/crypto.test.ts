@@ -61,3 +61,24 @@ describe('sha256', () => {
     await pipeline(Readable.from([]), async function* (s) { for await (const c of s) yield c; });
   });
 });
+
+describe('壊れた長さの申告', () => {
+  it('len に巨大な値を書いた入力は、溜め込む前に error になる', async () => {
+    const head = Buffer.alloc(5);
+    head[0] = 0;
+    head.writeUInt32BE(0x7fffffff, 1);
+    const broken = Buffer.concat([Buffer.from('HGR1'), randomBytes(8), head, randomBytes(64)]);
+    await expect(decryptBuffer(key, broken)).rejects.toThrow(/上限|too large/);
+  });
+  it('上限ちょうどまでは受け付け、1 バイト超えたら断る', async () => {
+    const frame = (len: number) => {
+      const head = Buffer.alloc(5);
+      head[0] = 0;
+      head.writeUInt32BE(len, 1);
+      return Buffer.concat([Buffer.from('HGR1'), randomBytes(8), head]);
+    };
+    // 上限ちょうどは長さの検査を通り、本体が足りないので切り詰めとして落ちる。
+    await expect(decryptBuffer(key, frame(CHUNK_SIZE + 64))).rejects.toThrow(/切り詰め|truncated/);
+    await expect(decryptBuffer(key, frame(CHUNK_SIZE + 65))).rejects.toThrow(/上限|too large/);
+  });
+});
