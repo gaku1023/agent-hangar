@@ -140,10 +140,11 @@ describe('セッション表示の一時状態', () => {
   });
   it('本文の追記は開いているセッションだけ読み直す', () => {
     const open = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]).state;
-    expect(run([server({ type: 'transcript.appended', sessionId: 's1', count: 2 })], open).effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: -1 }]);
+    // -2 は追記の取り込み。末尾に足すだけで、過去へ遡らない。
+    expect(run([server({ type: 'transcript.appended', sessionId: 's1', count: 2 })], open).effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: -2 }]);
     expect(run([server({ type: 'transcript.appended', sessionId: 's2', count: 2 })], open).effects).toEqual([]);
   });
-  it('loadMore は次のページを要求する', () => {
+  it('loadMore は過去へ遡るページを要求する', () => {
     expect(run([intent({ type: 'transcript.loadMore', sessionId: 's1' })]).effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: -1 }]);
   });
   it('サブエージェントの切替は agentId を保存して先頭から読み直す', () => {

@@ -29,7 +29,7 @@ describe('SessionScreen', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'summary.toggle', sessionId: 's1' });
     fireEvent.click(screen.getByLabelText('思考を表示'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.showThinking', sessionId: 's1', show: true });
-    fireEvent.click(screen.getByText('続きを読み込む（残り 6 件）'));
+    fireEvent.click(screen.getByText('古い行を読み込む（残り 6 件）'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.loadMore', sessionId: 's1' });
     fireEvent.change(screen.getByLabelText('サブエージェント'), { target: { value: 'abc' } });
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });

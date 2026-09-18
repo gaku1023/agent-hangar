@@ -139,12 +139,36 @@ describe('Transcript の仮想スクロール', () => {
     fireEvent.click(t.getByText('サブエージェント abc を見る'));
     expect(t.onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
   });
-  it('続きを読み込むボタンと新着の知らせは仮想化の外に残る', () => {
+  it('古い行を読み込むボタンと新着の知らせは仮想化の外に残る', () => {
     const t = draw({ items: many(5000), follow: false, hasMore: true, remaining: 12 });
     t.scrollTo(200_000);
-    expect(t.getByText('続きを読み込む（残り 12 件）')).toBeInTheDocument();
+    expect(t.getByText('古い行を読み込む（残り 12 件）')).toBeInTheDocument();
     t.redraw({ items: many(5010), hasMore: true, remaining: 12 });
     expect(t.getByText('新着 10 件')).toBeInTheDocument();
+  });
+  it('古い行を読み込むボタンは行の上に出る', () => {
+    // 押すと過去が前に入るので、ボタンは一覧の上でなければ向きが噛み合わない。
+    const t = draw({ items: many(100), follow: false, hasMore: true, remaining: 42 });
+    const btn = t.getByText('古い行を読み込む（残り 42 件）');
+    const rows = t.container.querySelector('.tr-rows')!;
+    expect(btn.compareDocumentPosition(rows) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it('古い行を前に足しても、見ている行はその場に留まる', () => {
+    const t = draw({ items: many(500, 500), follow: false });
+    t.scrollTo(10_000);
+    const before = t.seqs();
+    t.redraw({ items: [...many(500, 0), ...many(500, 500)] });
+    // 1 行 56px の見積もりで 500 行が前に入るので、その分だけ位置を送る。
+    expect(t.el.scrollTop).toBe(10_000 + 500 * 56);
+    expect(t.seqs()).toEqual(before);
+  });
+  it('過去へ遡って行が増えても新着の数は動かない', () => {
+    const t = draw({ items: many(500, 500), follow: false, live: true, hasMore: true, remaining: 500 });
+    t.redraw({ items: [...many(500, 500), ...many(3, 1000)] });
+    expect(t.getByText('新着 3 件')).toBeInTheDocument();
+    // 古い行を 500 件読み込んでも、新着は 3 件のままである。
+    t.redraw({ items: [...many(500, 0), ...many(500, 500), ...many(3, 1000)] });
+    expect(t.getByText('新着 3 件')).toBeInTheDocument();
   });
 });
 

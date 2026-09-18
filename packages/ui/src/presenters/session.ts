@@ -58,7 +58,12 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
   const slice = store.events[eventsKey(id, view.agentId)];
-  const items = buildItems(slice?.items ?? [], { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [] });
+  // 本文は最新の側から読み、遡ったページは store の後ろに足される。並びは表示の直前にここで戻す。
+  // 走査して崩れているときだけ並べ直すので、遡っていない間は写しも取らない。
+  const raw = slice?.items ?? [];
+  let sorted = true;
+  for (let i = 1; i < raw.length; i++) if (raw[i]!.seq < raw[i - 1]!.seq) { sorted = false; break; }
+  const items = buildItems(sorted ? raw : [...raw].sort((a, b) => a.seq - b.seq), { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [] });
   const run = currentRunOf(store, id);
   const alive = aliveRunOf(store, id) !== null;
   const open = run ? tabsOf(store, run.id) : [];
@@ -73,7 +78,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     summary: s.summary ? { ...s.summary, sourceLabel: SOURCE_LABEL[s.summary.source], stateLabel: STATE_LABEL[s.summary.state], summarizerLabel: summarizerLabel(s.summary.sourceId, s.summary.sourceModel), generatedAt: absoluteTime(s.summary.updatedAt) } : null,
     model: shortModel(s.stats.model), effort: s.stats.effort ?? '', turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), prUrl: s.stats.prUrl, memo: s.memo,
     started: relativeTime(s.startedAt, now), lastActivity: relativeTime(s.lastActivityAt, now), hasTranscript: s.hasTranscript,
-    items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.nextSeq !== null || slice.total > slice.items.length : false, notFound: false,
+    items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length : false, notFound: false,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(run.startedAt, now) } : null,
     tabs, selectedTab, trustHint: alive && s.live === null, canResume: s.hasTranscript && idle, canFork: s.hasTranscript && idle,
     contextPercent: s.stats.contextPercent, cost: costLabel(s.stats.costUsd),

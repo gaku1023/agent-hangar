@@ -3,7 +3,7 @@ import { initialState, transition, type Effect, type Input, type State } from '.
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { FocusTarget, SessionViewState } from '../mediator/types.ts';
 import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
-import type { ApiClient } from './api.ts';
+import type { ApiClient, EventsQuery } from './api.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 
@@ -95,16 +95,31 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const key = eventsKey(e.sessionId, view.agentId);
         const cur = store.events[key];
         if (cur?.loading) return;
-        let from = e.fromSeq;
+        // 持っている行の seq の幅。古い側にも新しい側にも足すので、両端が要る。
+        // 遡ったページは後ろに足されて並びが崩れるため、最小と最大は走査で出す。
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (const ev of cur?.items ?? []) { if (ev.seq < lo) lo = ev.seq; if (ev.seq > hi) hi = ev.seq; }
+        const have = cur !== undefined && cur.items.length > 0;
+        let q: EventsQuery;
         let append = true;
-        if (from === 0) {
+        if (e.fromSeq === 0) {
+          // 画面を開いた。最新の側から読み、持っていたものは置き換える。
           append = false;
-          // 画面に入るたび先頭から読み直すので、この時点で開いていないセッションの本文を落とす。
+          q = { latest: true, agentId: view.agentId };
+          // 画面に入るたび読み直すので、この時点で開いていないセッションの本文を落とす。
           setStore(pruneEvents(store, [e.sessionId]));
+        } else if (e.fromSeq === -1) {
+          // 過去へ遡る。読み終えていれば何も求めない。
+          if (!have) q = { latest: true, agentId: view.agentId };
+          else if (cur!.total > cur!.items.length) q = { beforeSeq: lo, agentId: view.agentId };
+          else return;
+        } else {
+          // 追記が届いた。持っている中でいちばん新しい seq の次から前向きに読み、末尾に足す。
+          q = { fromSeq: have ? hi + 1 : 0, agentId: view.agentId };
         }
-        else if (from === -1) { from = cur?.nextSeq ?? (cur && cur.total > cur.items.length ? cur.items.length : -1); if (from < 0) return; }
         setStore(setEventsLoading(store, key, true));
-        deps.api.events(e.sessionId, from, view.agentId).then((p) => setStore(applyEventsPage(store, key, p, append))).catch((err) => { setStore(setEventsLoading(store, key, false)); fail(err); });
+        deps.api.events(e.sessionId, q).then((p) => setStore(applyEventsPage(store, key, p, append))).catch((err) => { setStore(setEventsLoading(store, key, false)); fail(err); });
         return;
       }
       case 'api.search': {

@@ -34,6 +34,34 @@ describe('readEvents', () => {
     expect(p2.events[0]!.seq).toBe(5);
     expect(p2.nextSeq).toBeNull();
   });
+  it('latest は末尾から limit 件を返し、nextSeq は付けない', () => {
+    const p = readEvents(db, alphaId, { latest: true, limit: 5 });
+    expect(p.events.map((e) => e.seq)).toEqual([12, 13, 14, 15, 16]);
+    expect(p.total).toBe(17);
+    // 末尾から読んだページに「次の前向きのページ」は無い。
+    expect(p.nextSeq).toBeNull();
+  });
+  it('latest は件数が足りなければ全件を返す', () => {
+    const p = readEvents(db, alphaId, { latest: true, limit: 100 });
+    expect(p.events.map((e) => e.seq)).toEqual([...Array(17).keys()]);
+    expect(p.nextSeq).toBeNull();
+  });
+  it('beforeSeq はその手前の limit 件を返す', () => {
+    const p = readEvents(db, alphaId, { beforeSeq: 12, limit: 5 });
+    expect(p.events.map((e) => e.seq)).toEqual([7, 8, 9, 10, 11]);
+    expect(p.nextSeq).toBeNull();
+  });
+  it('beforeSeq が先頭に届いたら残りだけを返す', () => {
+    expect(readEvents(db, alphaId, { beforeSeq: 3, limit: 10 }).events.map((e) => e.seq)).toEqual([0, 1, 2]);
+  });
+  it('beforeSeq より古い行が無ければ空', () => {
+    const p = readEvents(db, alphaId, { beforeSeq: 0, limit: 10 });
+    expect(p.events).toEqual([]);
+    expect(p.total).toBe(17);
+  });
+  it('末尾から読む道でもサブエージェントを読める', () => {
+    expect(readEvents(db, alphaId, { agentId: 'abc123', latest: true, limit: 1 }).events.map((e) => e.kind)).toEqual(['assistant']);
+  });
   it('サブエージェントの本文を agentId で読む', () => {
     expect(subagentIds(db, alphaId)).toEqual(['abc123']);
     const page = readEvents(db, alphaId, { agentId: 'abc123' });

@@ -1,8 +1,15 @@
 import type { ArtifactDto, BootstrapDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
+/**
+ * 本文の読み出しの向き。
+ * latest は末尾から（画面を開いたとき）、beforeSeq はその手前へ（過去へ遡るとき）、
+ * fromSeq はそこから前向きへ（追記を取り込むとき）。
+ */
+export type EventsQuery = { agentId: string | null; latest?: boolean; beforeSeq?: number; fromSeq?: number };
+
 export type ApiClient = {
   bootstrap(): Promise<BootstrapDto>;
-  events(sessionId: string, fromSeq: number, agentId: string | null): Promise<EventsPageDto>;
+  events(sessionId: string, q: EventsQuery): Promise<EventsPageDto>;
   subagents(sessionId: string): Promise<string[]>;
   search(params: SearchParamsDto): Promise<SearchResultDto>;
   setProjectStatus(id: string, status: ProjectStatus): Promise<ProjectDto>;
@@ -57,7 +64,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
   const post = <T>(path: string, body?: unknown) => call<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
   return {
     bootstrap: () => call('/api/bootstrap'),
-    events: (sessionId, fromSeq, agentId) => call(`/api/sessions/${sessionId}/events${qs({ fromSeq, agentId })}`),
+    events: (sessionId, q) => call(`/api/sessions/${sessionId}/events${qs({ latest: q.latest ? 1 : undefined, before: q.beforeSeq, fromSeq: q.fromSeq, agentId: q.agentId })}`),
     subagents: (sessionId) => call(`/api/sessions/${sessionId}/subagents`),
     search: (params) => call(`/api/search${qs(params)}`),
     setProjectStatus: (id, status) => call(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),

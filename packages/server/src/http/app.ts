@@ -257,12 +257,15 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/sessions/:id/events', (c) => {
     const q = c.req.query();
     const id = c.req.param('id');
-    // セッションを開いたとき（先頭ページ、主線）に事後要約の契機を与える。受け付けの可否は応答に影響しない。
-    if ((q.fromSeq === undefined || q.fromSeq === '0') && !q.agentId) {
+    // 画面を開くと最新の側を求めてくる。そこが「セッションを開いたとき（主線）」なので、事後要約の契機はここに付ける。
+    // 遡るとき（before）と追記を取り込むとき（fromSeq）は契機にしない。受け付けの可否は応答に影響しない。
+    if (q.latest === '1' && !q.agentId) {
       try { deps.summary.enqueue(id); } catch { /* 要約の失敗で本文の読み出しを止めない */ }
     }
+    // before は 0 を渡せなければならないので、numberOr（空文字と 0 を undefined にする）は使わない。
+    const before = q.before === undefined || q.before === '' || !Number.isFinite(Number(q.before)) ? undefined : Number(q.before);
     try {
-      return c.json(readEvents(db, id, { fromSeq: numberOr(q.fromSeq), limit: numberOr(q.limit), agentId: q.agentId || null }));
+      return c.json(readEvents(db, id, { fromSeq: numberOr(q.fromSeq), limit: numberOr(q.limit), agentId: q.agentId || null, latest: q.latest === '1', beforeSeq: before }));
     } catch (e) {
       // 索引はあるのに本文ファイルが消えている場合だけ 404 にし、他は 500 に任せる。
       if (isEnoent(e)) return c.json({ error: 'このセッションの本文ファイルが見つかりません。Settings の「索引を作り直す」を試してください' }, 404);

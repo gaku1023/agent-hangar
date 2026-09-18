@@ -75,9 +75,13 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   const [, remeasured] = useReducer((n: number) => n + 1, 0);
   // 器のスクロール位置と高さ。これが変わったときだけ窓を引き直す。
   const [box, setBox] = useState({ top: 0, height: 0, rowsTop: 0 });
-  // 追従を切っている間に増えた件数だけを、この View の局所状態として持つ。
+  // 追従を切っている間に届いた新着の件数だけを、この View の局所状態として持つ。
   const [unseen, setUnseen] = useState(0);
-  const lastCount = useRef(props.items.length);
+  // 行は seq の順に並んでいるので、いちばん新しい seq は末尾から取れる。
+  const n = props.items.length;
+  const maxSeq = n > 0 ? props.items[n - 1]!.seq : null;
+  // 追うのをやめた時点で見えていた最大の seq。新着はこれより新しい行だけを数える。
+  const seenMax = useRef<number | null>(maxSeq);
 
   const measureBox = useCallback(() => {
     const el = boxRef.current;
@@ -100,16 +104,24 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   }, [measureBox]);
 
   useEffect(() => {
-    const added = props.items.length - lastCount.current;
-    lastCount.current = props.items.length;
+    if (!props.follow) {
+      // 件数の増分では数えない。過去へ遡って行が増えた分まで新着に混ざるからである。
+      const base = seenMax.current;
+      if (base === null) { seenMax.current = maxSeq; setUnseen(0); return; }
+      let added = 0;
+      for (const it of props.items) if (it.seq > base) added++;
+      setUnseen(added);
+      return;
+    }
+    seenMax.current = maxSeq;
     if (props.follow) {
       // 末尾まで 1 画面より離れているときに滑らかに動かすと、窓の外の空白を延々と流すことになる。
       // その距離なら跳ばし、すぐ近くのときだけ滑らかに寄せる。jsdom には scrollIntoView が無いので、存在するときだけ呼ぶ。
       const el = boxRef.current;
       if (el && el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) el.scrollTop = el.scrollHeight;
       else endRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
-    } else if (added > 0) setUnseen((n) => n + added);
-  }, [props.items.length, props.follow]);
+    }
+  }, [maxSeq, n, props.follow]);
 
   useEffect(() => { if (props.follow) setUnseen(0); }, [props.follow]);
 
@@ -130,7 +142,6 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   };
 
   // 高さは描くたびに積み直す。5,000 行でも足し算 5,000 回で、描画そのものより十分に軽い。
-  const n = props.items.length;
   const offsets = new Array<number>(n + 1);
   offsets[0] = 0;
   for (let i = 0; i < n; i++) {
@@ -156,6 +167,21 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     usedRows.set(drawn[i]!.seq, { top: offsets[idx]!, height: offsets[idx + 1]! - offsets[idx]! });
   }
 
+  // 過去へ遡ったときは行が前に入る。増えた分だけスクロール位置を下へ送らないと、見ている行が古い側へ飛ぶ。
+  const firstSeq = n > 0 ? props.items[0]!.seq : null;
+  const prevFirstSeq = useRef<number | null>(firstSeq);
+  useLayoutEffect(() => {
+    const prev = prevFirstSeq.current;
+    prevFirstSeq.current = firstSeq;
+    if (props.follow || prev === null || firstSeq === null || firstSeq >= prev) return;
+    const added = props.items.findIndex((it) => it.seq === prev);
+    const el = boxRef.current;
+    if (added <= 0 || !el) return;
+    el.scrollTop += offsets[added]!;
+    lastScrollTop.current = el.scrollTop;
+    measureBox();
+  });
+
   useLayoutEffect(() => {
     let changed = false;
     // 見ている位置より上にある行の高さが変わった分。この差だけスクロール位置をずらせば、見ている行は動かない。
@@ -176,6 +202,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     if (props.follow && el) el.scrollTop = el.scrollHeight;
     // 遡っている最中は、上の行が伸び縮みした分だけスクロール位置を送って、見ている行をその場に留める。
     else if (el && above !== 0) el.scrollTop += above;
+    if (el) lastScrollTop.current = el.scrollTop;
     // scrollTop を書き換えても scroll は同じ間に届かないので、ここで測り直して窓を合わせる。
     measureBox();
     remeasured();
@@ -188,12 +215,13 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   return (
     <div ref={boxRef} className="tr" onScroll={onScroll}>
       {n === 0 && !props.loading && <div className="empty">本文がありません</div>}
+      {/* 押すと過去が前に入るので、ボタンは一覧の上に置く。窓の外にあるので仮想化の対象にしない。 */}
+      {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : `古い行を読み込む（残り ${props.remaining} 件）`}</button>}
       <div ref={rowsRef} className="tr-rows" style={{ paddingTop: padTop, paddingBottom: padBottom }}>
         {drawn.map((it) => (
           <div key={it.seq} className="tr-row" data-seq={it.seq} ref={setRowEl(it.seq)}>{renderItem(props.sessionId, it)}</div>
         ))}
       </div>
-      {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : `続きを読み込む（残り ${props.remaining} 件）`}</button>}
       {props.live && !props.follow && unseen > 0 && <button className="btn btn-primary new-banner" onClick={() => emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true })}>新着 {unseen} 件</button>}
       <div ref={endRef} />
     </div>

@@ -124,6 +124,25 @@ describe('presentSession', () => {
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
     expect(q.summaryOpen).toBe(true);
   });
+  it('遡って足したページも seq の順に並べ、残りは総数と持っている数で決める', () => {
+    let store = storeWith();
+    const k = eventsKey('s1', null);
+    // 画面を開いたときは最新の側のページが入る。
+    store = applyEventsPage(store, k, { sessionId: 's1', total: 4, nextSeq: null, events: [
+      { kind: 'user', seq: 2, ts: NOW, text: 'newer' },
+      { kind: 'assistant', seq: 3, text: 'newest' },
+    ] }, false);
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ hasMore: true, loaded: 2, total: 4 });
+    // 遡ったページは後ろに足されるが、表示は seq の順に戻す。
+    store = applyEventsPage(store, k, { sessionId: 's1', total: 4, nextSeq: null, events: [
+      { kind: 'user', seq: 0, ts: NOW, text: 'oldest' },
+      { kind: 'assistant', seq: 1, text: 'older' },
+    ] }, true);
+    const p = presentSession(initialState(), store, NOW, 's1');
+    expect(p.items.map((i) => i.seq)).toEqual([0, 1, 2, 3]);
+    expect(p.items.map((i) => ('text' in i ? i.text : ''))).toEqual(['oldest', 'older', 'newer', 'newest']);
+    expect(p).toMatchObject({ hasMore: false, loaded: 4 });
+  });
   it('要約の詳細に出す要約器とモデルと生成の時刻を作る', () => {
     const store = storeWith();
     const at = NOW - 3_600_000;

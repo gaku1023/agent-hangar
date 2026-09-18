@@ -17,7 +17,7 @@ export type Input =
 export type Effect =
   | { kind: 'navigate'; route: Route }
   | { kind: 'api.bootstrap' }
-  | { kind: 'api.loadEvents'; sessionId: string; fromSeq: number }     // -1 は「次のページ」
+  | { kind: 'api.loadEvents'; sessionId: string; fromSeq: number }     // 0 は「開いた（最新側）」、-1 は「過去へ遡る」、-2 は「追記の取り込み」
   | { kind: 'api.search'; params: SearchParamsDto }
   | { kind: 'api.setProjectStatus'; projectId: string; status: ProjectStatus }
   | { kind: 'api.resolveProject'; projectId: string; action: ResolveAction }

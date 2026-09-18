@@ -221,6 +221,19 @@ describe('routes', () => {
     expect((await json(await get(`/api/sessions/${alpha.id}/events?agentId=abc123`))).body.events).toHaveLength(2);
     expect((await get('/api/sessions/nope')).status).toBe(404);
   });
+  it('本文は最新の側からも、その手前へも読める', async () => {
+    const { body: sessions } = await json(await get('/api/sessions'));
+    const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
+    const { body: latest } = await json(await get(`/api/sessions/${alpha.id}/events?latest=1&limit=5`));
+    expect(latest.events.map((e: { seq: number }) => e.seq)).toEqual([12, 13, 14, 15, 16]);
+    expect(latest.total).toBe(17);
+    // 末尾から読んだページに「次の前向きのページ」は無い。
+    expect(latest.nextSeq).toBeNull();
+    const { body: older } = await json(await get(`/api/sessions/${alpha.id}/events?before=12&limit=5`));
+    expect(older.events.map((e: { seq: number }) => e.seq)).toEqual([7, 8, 9, 10, 11]);
+    // 先頭より古い行は無い。
+    expect((await json(await get(`/api/sessions/${alpha.id}/events?before=0`))).body.events).toEqual([]);
+  });
   it('本文ファイルが消えていれば 404', async () => {
     const { body: sessions } = await json(await get('/api/sessions'));
     const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
@@ -457,12 +470,14 @@ describe('routes', () => {
     expect(s.status).toBe(202);
     // 手動の作り直しは土台かどうかもレジストリも問わない。
     expect(summary.enqueued).toContainEqual([id, { force: true }]);
-    await get(`/api/sessions/${id}/events?fromSeq=0`);
+    await get(`/api/sessions/${id}/events?latest=1`);
     // セッションを開いたときは既定のまま（土台かどうかとレジストリの両方を見る）。
+    // 画面を開く呼び出しは最新の側を求める呼び出しなので、契機はそこに付ける。
     expect(summary.enqueued).toContainEqual([id, undefined]);
     summary.enqueued.length = 0;
     await get(`/api/sessions/${id}/events?fromSeq=5`);
-    await get(`/api/sessions/${id}/events?agentId=abc123`);
+    await get(`/api/sessions/${id}/events?before=5`);
+    await get(`/api/sessions/${id}/events?latest=1&agentId=abc123`);
     expect(summary.enqueued).toEqual([]);
     expect((await json(await get('/api/summarizer/models'))).body).toEqual({ models: ['gemma'] });
     expect((await json(await post('/api/summarizer/test'))).body).toEqual(testResult);
@@ -474,7 +489,7 @@ describe('routes', () => {
     const r = await post(`/api/sessions/${id}/summarize`);
     expect(r.status).toBe(202);
     expect(await r.json()).toEqual({ accepted: false });
-    expect((await get(`/api/sessions/${id}/events?fromSeq=0`)).status).toBe(200);
+    expect((await get(`/api/sessions/${id}/events?latest=1`)).status).toBe(200);
   });
   it('本文の上限はバイト数で測り、超えたら 413', async () => {
     const pid = list0ProjectId();
