@@ -76,6 +76,12 @@ export type State = {
    */
   summaryFailed: Record<string, string>;
   toasts: Toast[]; unresolvedQueue: string[]; nextToastId: number;
+  /**
+   * 未解決のまま「あとで」を選んだプロジェクト。
+   * bootstrap のたびに同じことを聞かれないように覚える。
+   * 永続させないので、サーバを立て直せばまた聞く。
+   */
+  resolveDeferred: string[];
   /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
   indexPhase: IndexProgressDto['phase'];
 };

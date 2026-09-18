@@ -11,6 +11,8 @@ function nameError(name: string): string | null {
 export function promoteStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime') {
     const e = input.event;
+    // 送信中でなければ、遅れて届いた結果で状態を書き換えない。
+    if ((e.type === 'promote.done' || e.type === 'promote.failed') && state.promote.kind !== 'submitting') return null;
     if (e.type === 'promote.done') return { state: { ...state, overlay: { kind: 'promoted', projectId: e.projectId, moved: e.moved, reason: e.reason }, promote: { kind: 'idle' } }, effects: [] };
     if (e.type === 'promote.failed') return { state: { ...state, promote: { kind: 'failed', message: e.message } }, effects: [{ kind: 'toast', level: 'error', message: e.message }] };
     return null;

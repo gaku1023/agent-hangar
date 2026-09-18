@@ -7,6 +7,7 @@ import { IntentRoot } from '../intent/chain.tsx';
 import type { PaletteItem } from '../presenters/palette.ts';
 import { CommandPalette } from './CommandPalette.tsx';
 import { PromoteDialog, PromotedDialog } from './PromoteDialog.tsx';
+import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 
 // new URL(..., import.meta.url) は Vite が資産の URL に書き換えるので、パスを自分で組む。
 const paletteCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'styles', 'palette.css'), 'utf8');
@@ -159,6 +160,16 @@ describe('PromoteDialog', () => {
   });
 });
 
+// 未解決プロジェクトのダイアログだけは、決めるまで閉じない性質を保つ。
+describe('ResolveProjectDialog', () => {
+  it('覆いの外側を押しても閉じない', () => {
+    const onIntent = vi.fn();
+    const { container } = render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    fireEvent.click(container.querySelector('.overlay')!);
+    expect(onIntent).not.toHaveBeenCalled();
+  });
+});
+
 describe('PromotedDialog', () => {
   it('移動の可否と次の一手を出す', () => {
     const onIntent = vi.fn();
@@ -179,6 +190,17 @@ describe('PromotedDialog', () => {
     expect(dialog.classList.contains('dialog-promote')).toBe(true);
     expect(paletteCss).toContain('.dialog-promote .btn { white-space: nowrap; }');
     expect(paletteCss).toContain('.dialog-promote .dialog-foot { flex-wrap: wrap;');
+  });
+
+  // 完了ダイアログは読んで終わりなので、覆いの外側を押しても閉じる。
+  // 閉じないと、左のナビをマウスで押せないまま閉じ込められる。
+  it('覆いの外側を押すと閉じ、中身を押しても閉じない', () => {
+    const onIntent = vi.fn();
+    const { container } = render(<IntentRoot onIntent={onIntent}><PromotedDialog projectId="p9" projectName="newp" moved reason={null} /></IntentRoot>);
+    fireEvent.click(container.querySelector('.dialog')!);
+    expect(onIntent).not.toHaveBeenCalled();
+    fireEvent.click(container.querySelector('.overlay')!);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
   });
 
   it('移動しなかった理由を出す', () => {

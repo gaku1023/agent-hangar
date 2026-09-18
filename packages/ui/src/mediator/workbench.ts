@@ -8,7 +8,8 @@ function splitId(id: string): [string, string] {
 }
 
 function paletteRun(state: State, command: PaletteCommand): Step {
-  const closed: State = { ...state, overlay: { kind: 'none' } };
+  // 閉じるのはパレット自身だけ。別のダイアログが開いているときに走っても、それは消さない。
+  const closed: State = state.overlay.kind === 'palette' ? { ...state, overlay: { kind: 'none' } } : state;
   const [kind, rest] = splitId(command.id);
   if (kind === 'project') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'project', id: rest } }] };
   if (kind === 'session') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'session', id: rest } }] };

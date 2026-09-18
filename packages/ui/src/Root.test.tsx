@@ -225,6 +225,8 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     act(() => rt.emit({ type: 'session.promote.open', id: 's1' }));
     await flush();
     expect(screen.getByLabelText('プロジェクト名')).toBeTruthy();
+    // promote.done は送信中のときだけ効くので、先に送信まで進める。
+    act(() => rt.emit({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: false }));
     act(() => rt.dispatch({ kind: 'runtime', event: { type: 'promote.done', projectId: 'p1', moved: true, reason: null } }));
     await flush();
     expect(screen.getByText('この場所で新しいセッションを開始')).toBeTruthy();
