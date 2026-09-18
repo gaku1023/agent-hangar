@@ -10,9 +10,9 @@ const items: TranscriptItem[] = [
 ];
 
 // jsdom はレイアウトを持たないので、寸法とスクロール位置を定義して流し込む。
-function setup(follow: boolean) {
+function setup(follow: boolean, live = true) {
   const onIntent = vi.fn();
-  const { container } = render(<IntentRoot onIntent={onIntent}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={follow} live remaining={0} /></IntentRoot>);
+  const { container } = render(<IntentRoot onIntent={onIntent}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={follow} live={live} remaining={0} /></IntentRoot>);
   const el = container.querySelector('.tr') as HTMLDivElement;
   Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true });
   Object.defineProperty(el, 'clientHeight', { value: 200, configurable: true });
@@ -39,6 +39,18 @@ describe('Transcript の追従', () => {
     expect(onIntent).not.toHaveBeenCalled();
     scrollTo(790);
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: true });
+  });
+  it('終了したセッションでも上へ戻ったら追従を切る', () => {
+    // live が null のセッションこそ読み返す対象である。追うのをやめられないと遡れない。
+    const { onIntent, scrollTo } = setup(true, false);
+    scrollTo(600); scrollTo(500);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
+  });
+  it('終了したセッションでは末尾に着いても追従に戻さない', () => {
+    // 新着が届かないので、末尾に貼り付け直す意味がない。
+    const { onIntent, scrollTo } = setup(false, false);
+    scrollTo(790);
+    expect(onIntent).not.toHaveBeenCalled();
   });
 });
 
@@ -133,6 +145,48 @@ describe('Transcript の仮想スクロール', () => {
     expect(t.getByText('続きを読み込む（残り 12 件）')).toBeInTheDocument();
     t.redraw({ items: many(5010), hasMore: true, remaining: 12 });
     expect(t.getByText('新着 10 件')).toBeInTheDocument();
+  });
+});
+
+describe('終了したセッションのトランスクリプト', () => {
+  it('終了したセッションでも遡れて、遡った位置が保たれる', () => {
+    const t = draw({ items: many(5000), follow: true, live: false });
+    t.scrollTo(999_000);
+    t.scrollTo(100_000);
+    expect(t.onIntent).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
+    // 親が追うのをやめた状態を返したら、その位置の行が出て、末尾へ引き戻されない。
+    t.redraw({ follow: false });
+    const seqs = t.seqs();
+    expect(seqs[0]).toBeGreaterThan(0);
+    expect(seqs.at(-1)).toBeLessThan(4999);
+    expect(t.el.scrollTop).toBe(100_000);
+  });
+  it('高さを測り直しても、見ている行はその場に留まる', () => {
+    // 1 行の見積もりは 56px なので、scrollTop 10,000 は 178 行目の 32px 目にあたる。
+    // 測り直しで窓の中の行が 200px になると、178 行目より上では 167 から 177 までの 11 行が 56 から 200 へ変わる。
+    // 上に増えた 11 * (200 - 56) = 1,584px だけ scrollTop を足せば、178 行目の 32px 目に留まる。
+    const t = draw({ items: many(5000), follow: false, live: false });
+    t.scrollTo(10_000);
+    const topSeq = () => {
+      const rows = t.container.querySelector('.tr-rows') as HTMLElement;
+      let y = parseFloat(rows.style.paddingTop || '0');
+      for (const el of t.container.querySelectorAll('.tr-row')) {
+        const h = (el as HTMLElement).offsetHeight || 56;
+        if (y + h > t.el.scrollTop) return Number(el.getAttribute('data-seq'));
+        y += h;
+      }
+      return -1;
+    };
+    expect(topSeq()).toBe(178);
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return this.classList.contains('tr-row') ? 200 : 0; } });
+    try {
+      t.redraw({});
+      expect(t.el.scrollTop).toBe(11_584);
+      expect(topSeq()).toBe(178);
+    } finally {
+      if (desc) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', desc);
+    }
   });
 });
 

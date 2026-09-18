@@ -119,12 +119,14 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   const onScroll = () => {
     const el = boxRef.current; if (!el) return;
     measureBox();
-    if (!props.live) return;
     const scrolledUp = el.scrollTop < lastScrollTop.current;
     lastScrollTop.current = el.scrollTop;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    // 上へ戻したら追うのをやめる。終了したセッションこそ読み返す対象なので、ここで live は見ない。
+    // 追っている間は窓が末尾に張り付くので、切れないままだと遡っても窓の外の空白しか出ない。
     if (!atBottom && props.follow && scrolledUp) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: false });
-    if (atBottom && !props.follow) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true });
+    // 末尾に着いたら追うのに戻すのは、新着が届くセッションだけでよい。live を見るのはこちらだけである。
+    if (atBottom && !props.follow && props.live) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true });
   };
 
   // 高さは描くたびに積み直す。5,000 行でも足し算 5,000 回で、描画そのものより十分に軽い。
@@ -146,20 +148,36 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   const padTop = offsets[first] ?? 0;
   const padBottom = Math.max(total - (offsets[last + 1] ?? 0), 0);
 
+  // この描画で実際に使った行の上端と高さ。測り直したあとに、どれだけ位置がずれたかを出すために控える。
+  const drawn = props.items.slice(first, last + 1);
+  const usedRows = new Map<number, { top: number; height: number }>();
+  for (let i = 0; i < drawn.length; i++) {
+    const idx = first + i;
+    usedRows.set(drawn[i]!.seq, { top: offsets[idx]!, height: offsets[idx + 1]! - offsets[idx]! });
+  }
+
   useLayoutEffect(() => {
     let changed = false;
+    // 見ている位置より上にある行の高さが変わった分。この差だけスクロール位置をずらせば、見ている行は動かない。
+    let above = 0;
     for (const [seq, el] of rowEls.current) {
       const h = el.offsetHeight;
       // jsdom では高さが 0 になる。そのときは見積もりのままにして、測れた行だけを覚える。
       if (h <= 0) continue;
-      const prev = measured.current.get(seq);
-      if (prev !== undefined && Math.abs(prev - h) < 1) continue;
+      const used = usedRows.get(seq);
+      if (!used || Math.abs(used.height - h) < 1) continue;
+      if (used.top + used.height <= viewTop) above += h - used.height;
       measured.current.set(seq, h);
       changed = true;
     }
     if (!changed) return;
+    const el = boxRef.current;
     // 測り直しで全体の高さが動くので、追っている間はその場で下端へ寄せ直す。
-    if (props.follow && boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
+    if (props.follow && el) el.scrollTop = el.scrollHeight;
+    // 遡っている最中は、上の行が伸び縮みした分だけスクロール位置を送って、見ている行をその場に留める。
+    else if (el && above !== 0) el.scrollTop += above;
+    // scrollTop を書き換えても scroll は同じ間に届かないので、ここで測り直して窓を合わせる。
+    measureBox();
     remeasured();
   });
 
@@ -171,7 +189,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     <div ref={boxRef} className="tr" onScroll={onScroll}>
       {n === 0 && !props.loading && <div className="empty">本文がありません</div>}
       <div ref={rowsRef} className="tr-rows" style={{ paddingTop: padTop, paddingBottom: padBottom }}>
-        {props.items.slice(first, last + 1).map((it) => (
+        {drawn.map((it) => (
           <div key={it.seq} className="tr-row" data-seq={it.seq} ref={setRowEl(it.seq)}>{renderItem(props.sessionId, it)}</div>
         ))}
       </div>
