@@ -1,18 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import type { ProjectDto, SessionDto } from '@agent-hangar/shared';
+import type { ProjectDto, RunDto, SessionDto, TabDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
 import { absoluteTime, relativeTime, shortModel, tokensLabel } from './format.ts';
 import { presentHome } from './home.ts';
+import { presentNewSession } from './newSession.ts';
 import { presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
 import { presentSession } from './session.ts';
 import { presentSessions } from './sessions.ts';
+import { presentSettings } from './settings.ts';
 import { presentShell } from './shell.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10 }, ...over });
+const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
+const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
   const s = initialStore();
   s.bootstrapped = true;
@@ -128,5 +132,66 @@ describe('presentSessions', () => {
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
     expect(r.rows[0]!.snippets).toEqual([{ seq: 1, text: '…hi…' }]);
+  });
+});
+
+describe('presentSession（実行中）', () => {
+  it('run とタブと選択、信頼ダイアログの案内、再開の可否', () => {
+    const store = storeWith();
+    store.runs = { r1: runDto('r1', 's1') };
+    store.tabs = { r1: tabDto('r1', 'r1', 'agent'), t1: tabDto('t1', 'r1', 'shell'), t0: tabDto('t0', 'r1', 'shell', 9) };
+    const p = presentSession(initialState(), store, NOW, 's1');
+    expect(p.run).toEqual({ id: 'r1', kind: 'start', alive: true, started: '1 分前' });
+    expect(p.tabs).toEqual([{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'シェル t1', kind: 'shell', selected: false, closable: true }]);
+    expect(p.selectedTab).toBe('r1');
+    expect(p).toMatchObject({ trustHint: false, canResume: false, canFork: false, transcriptOpen: true });
+    const state = { ...initialState(), sessionView: { s1: { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: 't1', transcriptOpen: false } } };
+    const q = presentSession(state, store, NOW, 's1');
+    expect(q.selectedTab).toBe('t1');
+    expect(q.tabs[1]!.selected).toBe(true);
+    expect(q.transcriptOpen).toBe(false);
+    store.sessions.s1 = { ...store.sessions.s1!, live: null };
+    expect(presentSession(initialState(), store, NOW, 's1').trustHint).toBe(true);
+  });
+  it('run が無ければ再開できる。送信中は不可', () => {
+    const store = storeWith();
+    store.sessions.s2 = { ...store.sessions.s2!, live: null };
+    expect(presentSession(initialState(), store, NOW, 's2')).toMatchObject({ run: null, tabs: [], selectedTab: null, canResume: true, canFork: true, trustHint: false });
+    expect(presentSession({ ...initialState(), launch: { kind: 'submitting' } }, store, NOW, 's2').canResume).toBe(false);
+    store.sessions.s2 = { ...store.sessions.s2!, hasTranscript: false };
+    expect(presentSession(initialState(), store, NOW, 's2').canResume).toBe(false);
+  });
+  it('終了した run でもシェルタブが残っていれば run を出し、Claude タブは alive でない', () => {
+    const store = storeWith();
+    store.sessions.s2 = { ...store.sessions.s2!, live: null };
+    store.runs = { r1: runDto('r1', 's2', NOW) };
+    store.tabs = { r1: { ...tabDto('r1', 'r1', 'agent'), sessionId: 's2' }, t1: { ...tabDto('t1', 'r1', 'shell'), sessionId: 's2' } };
+    const p = presentSession(initialState(), store, NOW, 's2');
+    expect(p.run).toMatchObject({ id: 'r1', alive: false });
+    expect(p.canResume).toBe(true);
+    expect(p.tabs.map((t) => t.id)).toEqual(['r1', 't1']);
+  });
+});
+
+describe('presentNewSession', () => {
+  it('オーバーレイが newSession のときだけ、解決済みでアーカイブでないプロジェクトを出す', () => {
+    const store = storeWith();
+    store.projects.gone = { ...project('gone'), resolved: false };
+    expect(presentNewSession(initialState(), store)).toBeNull();
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: 'beta' }, launch: { kind: 'failed' as const, message: 'x' } };
+    const p = presentNewSession(state, store)!;
+    expect(p.projects.map((x) => x.id)).toEqual(['alpha', 'beta']);
+    expect(p).toMatchObject({ projectId: 'beta', submitting: false, error: 'x' });
+    expect(presentNewSession({ ...state, launch: { kind: 'submitting' } }, store)!.submitting).toBe(true);
+  });
+});
+
+describe('presentSettings（フェーズ 2）', () => {
+  it('ツールのパスと MCP のコマンド', () => {
+    const store = storeWith();
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null };
+    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, mcpInstallCommand: 'npx hangar mcp install' });
+    store.settings = null;
+    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', codePath: null });
   });
 });

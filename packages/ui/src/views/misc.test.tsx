@@ -72,7 +72,7 @@ describe('SessionsScreen', () => {
 describe('SettingsScreen', () => {
   it('保存と作り直し', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SettingsScreen workspaceRoot="/w" claudeDir="/c" device={{ id: 'd', name: 'mac' }} version="0.1.0" index={{ phase: 'idle', done: 3, total: 3 }} sessionCount={3} projectCount={1} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen workspaceRoot="/w" claudeDir="/c" tmuxPath={null} terminalApp="terminal" codePath={null} mcpInstallCommand="npx hangar mcp install" device={{ id: 'd', name: 'mac' }} version="0.1.0" index={{ phase: 'idle', done: 3, total: 3 }} sessionCount={3} projectCount={1} /></IntentRoot>);
     fireEvent.change(screen.getByLabelText('ワークスペースのルート'), { target: { value: '/w2' } });
     fireEvent.click(screen.getByText('保存'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '/w2' } });
