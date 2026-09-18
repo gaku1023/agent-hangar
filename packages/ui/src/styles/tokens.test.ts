@@ -46,6 +46,10 @@ describe('プロジェクトのステータスの色', () => {
   it('色だけで 4 つを見分けられる（互いに違う色である）', () => {
     expect(new Set(statuses.map((s) => token(`--st-${s}`))).size).toBe(4);
   });
+  it('フォーカスの輪は外側の 1 本だけにし、透明な select 自身の輪は消して二重にしない', () => {
+    expect(base).toContain('.status-pill:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }');
+    expect(base).toContain('.status-select:focus-visible { outline: none; }');
+  });
   it('base.css は data-status でトークンを引き、色を直書きしない', () => {
     for (const s of statuses) expect(base, s).toContain(`[data-status='${s}']`);
     const block = base.slice(base.indexOf('/* プロジェクトのステータス'));

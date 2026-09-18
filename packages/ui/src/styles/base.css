@@ -140,14 +140,20 @@ a:hover { text-decoration: underline; }
 .icon { flex: none; }
 
 /* プロジェクトのステータス。色は data-status からトークンを引く。文字でも状態を示しているので、色は補助である。 */
-.status-select { font-weight: 500; border-color: transparent; transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
-.status-select[data-status='active'] { color: var(--st-active); background: var(--st-active-soft); }
-.status-select[data-status='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
-.status-select[data-status='done'] { color: var(--st-done); background: var(--st-done-soft); }
-.status-select[data-status='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
-.status-select:focus-visible { border-color: var(--accent); }
-.st-dot { display: inline-block; width: 8px; height: 8px; margin-right: calc(var(--u) * 2); border-radius: 50%; background: var(--st-archived); vertical-align: middle; position: relative; top: -1px; }
+/* 見た目は .status-face が描き、透明な本物の select をその上に重ねて操作と読み上げを任せる。 */
+.status-pill { position: relative; display: inline-flex; align-items: center; height: var(--row-h); border-radius: var(--r); font-weight: 500; color: var(--st-archived); background: var(--st-archived-soft); transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.status-pill[data-status='active'] { color: var(--st-active); background: var(--st-active-soft); }
+.status-pill[data-status='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.status-pill[data-status='done'] { color: var(--st-done); background: var(--st-done-soft); }
+.status-pill[data-status='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
+.status-pill:hover { filter: brightness(0.97); }
+.status-pill:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.status-face { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 2); pointer-events: none; }
+.status-select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; font: inherit; }
+.status-select:focus-visible { outline: none; }
+.st-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 .st-dot[data-status='active'] { background: var(--st-active); }
 .st-dot[data-status='paused'] { background: var(--st-paused); }
 .st-dot[data-status='done'] { background: var(--st-done); }
 .st-dot[data-status='archived'] { background: var(--st-archived); }
+.h2 .st-dot { margin-right: calc(var(--u) * 2); vertical-align: middle; position: relative; top: -1px; }

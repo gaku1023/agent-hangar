@@ -1,4 +1,4 @@
-import { Archive, Bot, ChevronRight, Code, FolderSearch, Folder, GitFork, House, MessagesSquare, PanelRightClose, PanelRightOpen, Plus, RotateCcw, Settings, Square, SquareTerminal, Terminal, TriangleAlert, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
+import { Archive, Bot, ChevronDown, ChevronRight, Code, FolderSearch, Folder, GitFork, House, MessagesSquare, PanelRightClose, PanelRightOpen, Plus, RotateCcw, Settings, Square, SquareTerminal, Terminal, TriangleAlert, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
 
 /** hangar の言葉からアイコンへの対応。View は lucide-react を直接 import せず、ここだけを通す。 */
 const ICONS = {
@@ -9,6 +9,7 @@ const ICONS = {
   add: Plus,
   close: X,
   chevron: ChevronRight,
+  chevronDown: ChevronDown,
   paneClose: PanelRightClose,
   paneOpen: PanelRightOpen,
   agent: Bot,
