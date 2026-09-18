@@ -124,6 +124,21 @@ describe('presentSession', () => {
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
     expect(q.summaryOpen).toBe(true);
   });
+  it('要約の詳細に出す要約器とモデルと生成の時刻を作る', () => {
+    const store = storeWith();
+    const at = NOW - 3_600_000;
+    store.sessions.s1 = session('s1', { summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'post_hoc', sourceModel: 'gemma-4-26b-a4b-it-heretic', basedOnTurns: 5, updatedAt: at } });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ sourceLabel: '事後', summarizerLabel: 'lmstudio / gemma-4-26b-a4b-it-heretic', generatedAt: absoluteTime(at) });
+    // claude -p のフォールバックは必ず haiku と書くので、種類は claude に寄せる。
+    store.sessions.s1 = session('s1', { summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'post_hoc', sourceModel: 'haiku', basedOnTurns: 5, updatedAt: at } });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'claude / haiku' });
+    // モデル名を言えなかったときは要約器の id だけが入る。同じ名前を 2 回並べない。
+    store.sessions.s1 = session('s1', { summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'post_hoc', sourceModel: 'lmstudio:auto', basedOnTurns: 5, updatedAt: at } });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'lmstudio' });
+    // 土台の要約は要約器を通していないので、種類もモデルも無い。
+    store.sessions.s1 = session('s1');
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: null, generatedAt: absoluteTime(1) });
+  });
   it('無いセッションは notFound。run だけ先に届いていれば読み込み中', () => {
     expect(presentSession(initialState(), storeWith(), NOW, 'zz')).toMatchObject({ notFound: true, loadingSession: false });
     const store = storeWith();

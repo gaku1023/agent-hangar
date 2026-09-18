@@ -79,7 +79,10 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>
           <div>{props.summary.body}</div>
           {props.summary.nextSteps.length > 0 && <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>{props.summary.nextSteps.map((n, i) => <li key={i}>{n}</li>)}</ul>}
-          <div className="faint" style={{ marginTop: 8 }}>出所 <span>{props.summary.sourceLabel}</span>、{props.summary.basedOnTurns} ターン時点</div>
+          {/* 何がこの要約を書いたのかは、作り直すかどうかの判断に要る。
+              要約器の種類とモデル名は source_model からしか分からないので、presenter で 1 つの札にまとめて受け取る。
+              土台の要約には要約器が無いので、そのときは札ごと出さない。 */}
+          <div className="faint" data-testid="summary-source" style={{ marginTop: 8 }}>出所 <span>{props.summary.sourceLabel}</span>{props.summary.summarizerLabel && <>、<span className="mono">{props.summary.summarizerLabel}</span></>}、{props.summary.basedOnTurns} ターン時点、{props.summary.generatedAt} 生成</div>
         </div>
       )}
     </div>
