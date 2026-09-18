@@ -506,10 +506,35 @@ describe('同期とこの PC で再開', () => {
     await flush();
     expect(api.syncNow).toHaveBeenCalled();
     expect(rt.getStore().sync?.state).toBe('idle');
+    // Mediator も同じ応答で揃う。ヘッダは state.sync を読む。
+    expect(rt.getState().sync).toEqual({ kind: 'idle', lastAt: 2 });
     rt.emit({ type: 'sync.pause', paused: true });
     await flush();
     expect(api.syncPause).toHaveBeenCalledWith(true);
     expect(rt.getStore().sync?.state).toBe('paused');
+    expect(rt.getState().sync).toEqual({ kind: 'paused' });
+  });
+  it('bootstrap の sync と devices は Mediator にも入る', async () => {
+    // 読み込み直した直後にヘッダの同期表示が空にならないことを固定する。
+    const device = { id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false };
+    const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sync: { ...syncStatus, pending: 4 }, devices: [device] })) });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(rt.getState().sync).toEqual({ kind: 'idle', lastAt: 2 });
+    expect(rt.getState().pending).toBe(4);
+    expect(rt.getStore().devices).toEqual([device]);
+  });
+  it('sync を持たない古いサーバの bootstrap では何もしない', async () => {
+    const { sync: _s, devices: _d, ...older } = boot;
+    const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => older as BootstrapDto) });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(rt.getStore().bootstrapped).toBe(true);
+    expect(rt.getState().sync).toEqual({ kind: 'off' });
+    expect(rt.getState().pending).toBe(0);
+    expect(rt.getStore().devices).toEqual([]);
   });
   it('窓が前面に来たら syncFocus を呼び、失敗してもトーストを出さない', async () => {
     const { rt, api, fireFocus } = harness({ syncFocus: vi.fn(async () => { throw new Error('500 /api/sync/focus'); }) });
