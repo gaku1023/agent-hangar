@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { newId, shortId, type LaunchParams, type LaunchResultDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
+import { newId, shortId, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
@@ -9,7 +9,10 @@ import { renderInjection } from '../launch/injection.ts';
 import { ensureWrapperScript, runLogPath } from '../launch/wrapper.ts';
 import type { LaunchInput } from '../provider/types.ts';
 import type { Tmux } from '../tmux/tmux.ts';
-import { getRun, getTab, listActiveRuns, listTabs } from './queries.ts';
+import { getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
+
+/** 生きた run の heartbeat をこの間隔で更新する。 */
+const HEARTBEAT_MS = 30_000;
 
 /** HTTP の状態コードを持つ失敗。呼び手はそのまま応答に使える。 */
 export class RunError extends Error {
@@ -33,9 +36,10 @@ function isDirectory(p: string): boolean {
   }
 }
 
-/** run の寿命を管理する。この段階では起動だけで、終了検知と heartbeat とシェルタブは後の課題で足す。 */
+/** run の寿命を管理する。起動、終了検知、heartbeat、停止、レジストリとの結びつけを持つ。 */
 export class RunManager {
   private listeners = new Set<RunListener>();
+  private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly deps: RunManagerDeps) {}
 
@@ -150,6 +154,120 @@ export class RunManager {
     upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, name: params.name?.trim() || null, started_at: now, last_activity_at: now }, this.deps.deviceId);
     const input: LaunchInput = { ...this.baseInput(sessionId, p.id, p.path, params), mode: { kind: 'start', sessionUuid } };
     return this.launch({ sessionId, cwd: p.path, kind: 'start', input, params });
+  }
+
+  /** tmux の一覧を 1 回読み、消えた run とタブを閉じ、古い heartbeat を更新する。 */
+  tick(): { ended: RunDto[]; closedTabs: TabDto[] } {
+    const names = new Set(this.deps.tmux ? this.deps.tmux.listSessions() : []);
+    const ended: RunDto[] = [];
+    const closedTabs: TabDto[] = [];
+    const now = this.now();
+    for (const run of listAliveRuns(this.db, this.deviceId)) {
+      if (!names.has(run.tmuxName)) {
+        const e = this.end(run.id, 'exited');
+        if (e) ended.push(e);
+        continue;
+      }
+      if (now - run.heartbeatAt >= HEARTBEAT_MS) {
+        const row = this.db.prepare('select * from runs where id = ?').get(run.id) as Record<string, unknown>;
+        upsertShared(this.db, 'runs', { ...row, heartbeat_at: now }, this.deviceId);
+        this.emit('runUpdated', getRun(this.db, run.id)!);
+      }
+    }
+    for (const t of this.openShellTabs()) {
+      if (!names.has(t.tmuxName)) {
+        const c = this.closeTabRow(t.id);
+        if (c) closedTabs.push(c);
+      }
+    }
+    return { ended, closedTabs };
+  }
+
+  /** サーバ起動時に、生きているはずの run のうち tmux セッションが無いものを lost で閉じる。 */
+  recoverAtStartup(): RunDto[] {
+    const names = new Set(this.deps.tmux ? this.deps.tmux.listSessions() : []);
+    const out: RunDto[] = [];
+    for (const run of listAliveRuns(this.db, this.deviceId)) {
+      if (!names.has(run.tmuxName)) {
+        const e = this.end(run.id, 'lost');
+        if (e) out.push(e);
+      }
+    }
+    for (const t of this.openShellTabs()) if (!names.has(t.tmuxName)) this.closeTabRow(t.id);
+    return out;
+  }
+
+  private get deviceId(): string {
+    return this.deps.deviceId;
+  }
+
+  /** レジストリ（~/.claude/sessions）の項目を Claude の UUID で run に結びつけ、pid を書く。 */
+  linkRegistry(live: LiveSessionDto[]): void {
+    const byUuid = new Map(live.map((l) => [l.sessionId, l]));
+    for (const run of listAliveRuns(this.db, this.deviceId)) {
+      const s = this.db.prepare('select provider_session_id from sessions where id = ?').get(run.sessionId) as { provider_session_id: string } | undefined;
+      const l = s ? byUuid.get(s.provider_session_id) : undefined;
+      if (!l || l.pid === run.pid) continue;
+      const row = this.db.prepare('select * from runs where id = ?').get(run.id) as Record<string, unknown>;
+      upsertShared(this.db, 'runs', { ...row, pid: l.pid }, this.deviceId);
+      this.emit('runUpdated', getRun(this.db, run.id)!);
+    }
+  }
+
+  /** run を止める。タブも閉じ、killed で終わらせる。 */
+  kill(runId: string): RunDto {
+    const run = getRun(this.db, runId);
+    if (!run) throw new RunError(404, 'run が見つかりません');
+    if (run.endedAt !== null) throw new RunError(409, 'この run は終了しています');
+    for (const t of listTabs(this.db, runId)) if (t.kind === 'shell') this.closeTab(t.id);
+    this.deps.tmux?.killSession(run.tmuxName);
+    return this.end(runId, 'killed') ?? run;
+  }
+
+  /** 終了検知の周期起動。tick の失敗でサーバが落ちないよう、必ず捕まえる。 */
+  startPolling(intervalMs = 2000): void {
+    if (this.timer) return;
+    this.timer = setInterval(() => {
+      try {
+        this.tick();
+      } catch (e) {
+        console.error('[runs]', e instanceof Error ? e.message : e);
+      }
+    }, intervalMs);
+    this.timer.unref?.();
+  }
+
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  /** 開いているシェルタブ。Claude が終了した run のタブも含める。 */
+  private openShellTabs(): TabDto[] {
+    return listActiveRuns(this.db, this.deviceId)
+      .flatMap((r) => listTabs(this.db, r.id))
+      .filter((t) => t.kind === 'shell');
+  }
+
+  /** run_tabs の行を閉じる。tmux は触らない。 */
+  private closeTabRow(tabId: string): TabDto | null {
+    const row = this.db.prepare('select * from run_tabs where id = ? and deleted_at is null').get(tabId) as Record<string, unknown> | undefined;
+    if (!row || row.closed_at !== null) return null;
+    const now = this.now();
+    upsertShared(this.db, 'run_tabs', { ...row, closed_at: now }, this.deviceId);
+    const run = this.db.prepare('select session_id from runs where id = ?').get(row.run_id) as { session_id: string };
+    const tab: TabDto = { id: row.id as string, runId: row.run_id as string, sessionId: run.session_id, kind: 'shell', title: (row.title as string | null) ?? 'シェル', tmuxName: row.tmux_name as string, createdAt: row.created_at as number, closedAt: now };
+    this.emit('tabChanged', tab);
+    return tab;
+  }
+
+  /** シェルタブを閉じる。Claude のタブは run の停止でしか閉じられない。 */
+  closeTab(tabId: string): TabDto {
+    const t = getTab(this.db, tabId);
+    if (!t) throw new RunError(404, 'タブが見つかりません');
+    if (t.kind === 'agent') throw new RunError(400, 'Claude のタブは閉じられません。停止を使ってください');
+    this.deps.tmux?.killSession(t.tmuxName);
+    return this.closeTabRow(tabId) ?? t;
   }
 
   /** 生きた run と、開いたシェルタブが残る run。UI の bootstrap と GET /api/runs が使う。 */

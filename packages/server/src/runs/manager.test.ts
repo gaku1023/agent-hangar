@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { shortId } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -95,5 +95,107 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(rm.listAlive().runs).toEqual([]);
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     fs.mkdirSync(cwd);
+  });
+});
+
+describe('RunManager の回復と結びつけ（tmux 不要）', () => {
+  it('recoverAtStartup は tmux の無い run を lost で閉じる', () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-nope', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    const rm = make({ tmux: null });
+    const ended: string[] = [];
+    rm.on({ runEnded: (r) => ended.push(r.endReason ?? '') });
+    expect(rm.recoverAtStartup().map((r) => r.id)).toEqual(['r1']);
+    expect(ended).toEqual(['lost']);
+    expect(rm.getRun('r1')).toMatchObject({ endReason: 'lost' });
+    expect(rm.recoverAtStartup()).toEqual([]);
+  });
+
+  it('linkRegistry は Claude の UUID で run を引いて pid を書く', () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    const rm = make({ tmux: null });
+    const updated: number[] = [];
+    rm.on({ runUpdated: (r) => updated.push(r.pid ?? -1) });
+    const live = (pid: number) => [{ sessionId: 'u1', status: 'busy' as const, name: null, nameSource: null, cwd, pid }];
+    rm.linkRegistry(live(4242));
+    expect(rm.getRun('r1')?.pid).toBe(4242);
+    rm.linkRegistry(live(4242));
+    expect(updated).toEqual([4242]);
+    rm.linkRegistry([]);
+    expect(rm.getRun('r1')?.pid).toBe(4242);
+  });
+
+  it('kill は無い run に 404、閉じた run に 409', () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r0', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-x', pid: null, launch_params: '{}', started_at: 1, ended_at: 2, end_reason: 'exited', heartbeat_at: 1 }, 'd');
+    const rm = make({ tmux: null });
+    expect(() => rm.kill('nope')).toThrow(expect.objectContaining({ status: 404 }));
+    expect(() => rm.kill('r0')).toThrow(expect.objectContaining({ status: 409 }));
+  });
+
+  it('startPolling は tick が投げてもサーバを落とさず、stop で止まる', async () => {
+    const rm = make({ tmux: null });
+    const boom = vi.spyOn(rm, 'tick').mockImplementation(() => {
+      throw new Error('tmux が壊れた');
+    });
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      rm.startPolling(1);
+      await waitFor(() => boom.mock.calls.length >= 2);
+      rm.stop();
+      const seen = boom.mock.calls.length;
+      await new Promise((r) => setTimeout(r, 20));
+      expect(boom.mock.calls.length).toBe(seen);
+      expect(quiet.mock.calls.length).toBeGreaterThan(0);
+    } finally {
+      rm.stop();
+      boom.mockRestore();
+      quiet.mockRestore();
+    }
+  });
+});
+
+describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
+  it('tick は tmux セッションが消えた run を exited で閉じる', async () => {
+    fake = writeFakeClaude(home, { sleepSec: 0 });
+    const rm = make();
+    const ended: string[] = [];
+    rm.on({ runEnded: (r) => ended.push(r.id) });
+    const r = rm.start({ projectId: 'p1' });
+    await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+    expect(rm.tick().ended.map((x) => x.id)).toEqual([r.run.id]);
+    expect(ended).toEqual([r.run.id]);
+    expect(rm.getRun(r.run.id)).toMatchObject({ endReason: 'exited' });
+    expect(rm.tick().ended).toEqual([]);
+  });
+
+  it('tick は 30 秒ごとに heartbeat を更新する', () => {
+    let t = 1_000_000;
+    const rm = make({ now: () => t });
+    const r = rm.start({ projectId: 'p1' });
+    t += 10_000;
+    expect(rm.tick().ended).toEqual([]);
+    expect(rm.getRun(r.run.id)?.heartbeatAt).toBe(1_000_000);
+    t += 21_000;
+    rm.tick();
+    expect(rm.getRun(r.run.id)?.heartbeatAt).toBe(1_031_000);
+  });
+
+  it('kill は tmux を殺して killed で閉じる', async () => {
+    const rm = make();
+    const r = rm.start({ projectId: 'p1' });
+    const k = rm.kill(r.run.id);
+    expect(k).toMatchObject({ id: r.run.id, endReason: 'killed' });
+    await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+    expect(rm.listAlive().runs).toEqual([]);
+  });
+
+  it('recoverAtStartup は tmux が生きている run を残す', () => {
+    const rm = make();
+    const r = rm.start({ projectId: 'p1' });
+    const rm2 = make();
+    expect(rm2.recoverAtStartup()).toEqual([]);
+    expect(rm2.getRun(r.run.id)?.endedAt).toBeNull();
   });
 });
