@@ -17,8 +17,9 @@ export class EventHub {
     this.wss = new WebSocketServer({ noServer: true });
     server.on('upgrade', (req, socket, head) => {
       const url = new URL(req.url ?? '/', 'http://x');
-      // upgrade を受けた時点でこの接続は HTTP 側の管理から外れるので、引き取らないなら自分で切る。
-      if (url.pathname !== opts.path) { socket.destroy(); return; }
+      // 一致しない経路は黙って返し、同じ server に載る別の WebSocket サーバに譲る。
+      // どこも引き取らなかった要求を切るのは server.ts の役目である。
+      if (url.pathname !== opts.path) return;
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
       const token = tokenFromRequest(headers, req.headers.cookie) ?? url.searchParams.get('token');

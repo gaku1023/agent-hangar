@@ -1,0 +1,116 @@
+import http from 'node:http';
+import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import WebSocket from 'ws';
+import { TMUX, testSocketName, waitFor } from '../../test/tmux.ts';
+import { Tmux } from '../tmux/tmux.ts';
+import { PtyRelay, type PtyProcess, type PtySpawn } from './relay.ts';
+
+type Msg = { t: string; d?: string; message?: string };
+type FakeProc = PtyProcess & { written: string[]; sizes: number[][]; killed: boolean; emitData: (d: string) => void; emitExit: () => void };
+let server: http.Server;
+let port: number;
+let relay: PtyRelay;
+const TOKEN = 'tok';
+
+function fakeSpawn(): { spawn: PtySpawn; procs: FakeProc[] } {
+  const procs: FakeProc[] = [];
+  const spawn: PtySpawn = () => {
+    let onData: (d: string) => void = () => {};
+    let onExit: (e: { exitCode: number }) => void = () => {};
+    const p = { pid: 1, written: [] as string[], sizes: [] as number[][], killed: false,
+      onData: (cb: (d: string) => void) => { onData = cb; }, onExit: (cb: (e: { exitCode: number }) => void) => { onExit = cb; },
+      write: (d: string) => { p.written.push(d); onData('echo:' + d); }, resize: (c: number, r: number) => { p.sizes.push([c, r]); }, kill: () => { p.killed = true; },
+      emitData: (d: string) => onData(d), emitExit: () => onExit({ exitCode: 0 }) };
+    procs.push(p);
+    return p;
+  };
+  return { spawn, procs };
+}
+
+async function listen(r: PtyRelay): Promise<void> {
+  server = http.createServer((_q, res) => { res.statusCode = 404; res.end(); });
+  r.attach(server, '/ws/pty');
+  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', () => ok()));
+  port = (server.address() as { port: number }).port;
+}
+function connect(q: string): Promise<{ ws: WebSocket; msgs: Msg[]; closed: Promise<number> }> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/pty?${q}`);
+    const msgs: Msg[] = [];
+    const closed = new Promise<number>((r) => ws.on('close', (code) => r(code)));
+    ws.on('message', (raw) => msgs.push(JSON.parse(raw.toString()) as Msg));
+    ws.on('open', () => resolve({ ws, msgs, closed }));
+    ws.on('error', reject);
+  });
+}
+afterEach(async () => { relay?.close(); await new Promise<void>((r) => server?.close(() => r())); });
+
+describe('PtyRelay（偽の spawn）', () => {
+  const tmux = new Tmux({ tmuxPath: '/x/tmux', socketName: 'fake' });
+  beforeEach(async () => { relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: (t) => (t === 't1' ? 'hangar-a' : null), spawn: fakeSpawn().spawn }); await listen(relay); });
+
+  it('トークンが無ければ 401、知らないタブは 404', async () => {
+    await expect(connect('tab=t1')).rejects.toThrow(/401/);
+    await expect(connect(`tab=nope&token=${TOKEN}`)).rejects.toThrow(/404/);
+  });
+  it('入出力とリサイズを中継し、切断で attach を殺す', async () => {
+    const f = fakeSpawn();
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: () => 'hangar-a', spawn: vi.fn(f.spawn) });
+    await listen(relay);
+    const { ws, msgs, closed } = await connect(`tab=t1&token=${TOKEN}`);
+    await waitFor(() => f.procs.length === 1);
+    ws.send(JSON.stringify({ t: 'resize', cols: 100, rows: 30 }));
+    ws.send(JSON.stringify({ t: 'data', d: 'ls\r' }));
+    ws.send('not json');
+    await waitFor(() => msgs.length === 1);
+    expect(msgs[0]).toEqual({ t: 'data', d: 'echo:ls\r' });
+    expect(f.procs[0]!.sizes).toEqual([[100, 30]]);
+    expect(relay.clientCount()).toBe(1);
+    ws.close();
+    await closed;
+    await waitFor(() => f.procs[0]!.killed);
+    expect(relay.clientCount()).toBe(0);
+  });
+  it('spawn の失敗は error を送って 1011 で閉じ、サーバは生きている', async () => {
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: () => 'hangar-a', spawn: () => { throw new Error('posix_spawnp failed'); } });
+    await listen(relay);
+    const { msgs, closed } = await connect(`tab=t1&token=${TOKEN}`);
+    expect(await closed).toBe(1011);
+    expect(msgs[0]).toMatchObject({ t: 'error', message: expect.stringContaining('posix_spawnp') });
+    const again = await connect(`tab=t1&token=${TOKEN}`);
+    expect(await again.closed).toBe(1011);
+  });
+  it('プロセスの終了で接続を閉じる', async () => {
+    const f = fakeSpawn();
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: () => 'hangar-a', spawn: f.spawn });
+    await listen(relay);
+    const { closed } = await connect(`tab=t1&token=${TOKEN}`);
+    await waitFor(() => f.procs.length === 1);
+    f.procs[0]!.emitExit();
+    expect(await closed).toBe(1000);
+  });
+});
+
+describe.skipIf(!TMUX)('PtyRelay（実物の tmux と node-pty）', () => {
+  const tmux = new Tmux({ tmuxPath: TMUX ?? 'tmux', socketName: testSocketName() });
+  afterAll(() => tmux.killServer());
+  it('tmux セッションに attach して入出力が通る', async () => {
+    const { nodePtySpawn } = await import('./nodePty.ts');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-pty-real-'));
+    tmux.newSession({ name: 'hangar-pty-real', cwd, command: ['sh'] });
+    relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: () => 'hangar-pty-real', spawn: nodePtySpawn });
+    await listen(relay);
+    const { ws, msgs } = await connect(`tab=x&token=${TOKEN}`);
+    ws.send(JSON.stringify({ t: 'resize', cols: 80, rows: 24 }));
+    ws.send(JSON.stringify({ t: 'data', d: 'echo hangar-pty-ok\r' }));
+    await waitFor(() => msgs.some((m) => m.t === 'data' && (m.d ?? '').includes('hangar-pty-ok')), 8000);
+    ws.close();
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+});

@@ -96,6 +96,12 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const addr = server.address();
   const port = addr && typeof addr === 'object' ? addr.port : opts.port ?? 4177;
   hub.attach(server, { path: '/ws', token });
+  // 経路を握る側は path が違えば黙って返すので、最後に未知の経路を切る番人を置く。
+  // upgrade を受けた時点でこの接続は HTTP 側の管理から外れるため、誰も引き取らないと相手が待ち続ける。
+  const wsPaths = new Set(['/ws']);
+  server.on('upgrade', (req, socket) => {
+    if (!wsPaths.has(new URL(req.url ?? '/', 'http://x').pathname)) socket.destroy();
+  });
 
   registry.start();
   liveIds = new Set(registry.current().map((l) => l.sessionId));
