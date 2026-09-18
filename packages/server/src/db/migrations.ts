@@ -207,4 +207,17 @@ delete from usage_daily;
 update transcript_files set indexer_version = 0;
 `,
   },
+  {
+    // run ごとの MCP の秘密。本体のトークンとは別の鍵を claude に配るための置き場である。
+    // 端末ローカルの表にする（共有テーブルの列を持たないので、同期の changes にも載らない）。
+    // サーバの再起動をまたいで生きる run があるので、メモリではなくここに置く。
+    version: 7,
+    sql: `
+create table mcp_secrets (
+  session_id text primary key,
+  secret text not null,
+  created_at integer not null
+);
+`,
+  },
 ];

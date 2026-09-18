@@ -558,6 +558,8 @@ describe('routes', () => {
       const notice = await bare.text();
       expect(notice).not.toContain(TOKEN);
       expect(notice).toContain('hangar start');
+      // 起動した後に URL を見直す道も案内する。案内にトークンそのものは出さない。
+      expect(notice).toContain('hangar url');
       // 鍵が違うときも同じ扱いにする。
       const wrong = await ui.request('/?t=nope');
       expect(wrong.status).toBe(401);
@@ -582,6 +584,27 @@ describe('routes', () => {
       // 壊れたパーセント符号化は 500 ではなく 404 にする。
       expect((await ui.request('/assets/%ZZ')).status).toBe(404);
       expect((await ui.request('/assets/%E0%A4%A')).status).toBe(404);
+    } finally {
+      fs.rmSync(dist, { recursive: true, force: true });
+    }
+  });
+  it('/ は枠に嵌められない見出しを返す', async () => {
+    const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-dist-'));
+    try {
+      fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
+      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
+      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), uiDist: dist });
+      // SameSite=Strict はポートを数えない。手元の別のポートに置かれたページが、認証済みの UI を枠に入れられてしまう。
+      for (const r of [await ui.request(`/?t=${TOKEN}`), await ui.request('/', { headers: { cookie: `hangar_token=${TOKEN}` } }), await ui.request('/')]) {
+        expect(r.headers.get('x-frame-options')).toBe('DENY');
+        const csp = r.headers.get('content-security-policy') ?? '';
+        expect(csp).toContain("frame-ancestors 'none'");
+        expect(csp).toContain("default-src 'self'");
+        expect(csp).toContain("object-src 'none'");
+      }
+      // 枠として要求されても、見出しが付いている以上ブラウザは描かない。
+      const framed = await ui.request('/', { headers: { cookie: `hangar_token=${TOKEN}`, 'sec-fetch-dest': 'iframe', 'sec-fetch-site': 'same-site' } });
+      expect(framed.headers.get('x-frame-options')).toBe('DENY');
     } finally {
       fs.rmSync(dist, { recursive: true, force: true });
     }

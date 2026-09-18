@@ -1,6 +1,16 @@
 import fs from 'node:fs';
 import readline from 'node:readline';
-import { appendStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineSnippet, statuslineSnippetUpToDate } from '@agent-hangar/server';
+import {
+  appendStatuslineSnippet,
+  ensureHome,
+  hangarHome,
+  readOrCreateToken,
+  resolveStatuslineScript,
+  STATUSLINE_MARKER,
+  statuslineSnippet,
+  statuslineSnippetUpToDate,
+  writeStatuslineHeaderFile,
+} from '@agent-hangar/server';
 
 export type Ask = (question: string) => Promise<boolean>;
 
@@ -18,16 +28,25 @@ export function promptYesNo(question: string): Promise<boolean> {
 /**
  * statusline スクリプトへスニペットを追記する。
  * 追記先が見つからなければ手順を印字して終わり、見つかれば承諾を得てからバックアップと追記を行う。
+ *
+ * どちらの道でも、先に hangar 自身の置き場へヘッダのファイルを置く。
+ * スニペットはこのファイルからトークンを読むので、無ければ何も送らずに素通しする。
+ * 手で入れる人にも要るものなので、スクリプトが見つからないときも置いておく。
  */
 export async function runStatuslineInstall(o: {
   claudeDir: string;
   port: number;
   yes: boolean;
+  /** hangar 自身の置き場。テストは一時ディレクトリを渡す。 */
+  home?: string;
   ask?: Ask;
   log?: (s: string) => void;
 }): Promise<{ installed: boolean; message: string }> {
   const log = o.log ?? ((s: string) => console.log(s));
   const ask = o.ask ?? promptYesNo;
+  const home = o.home ?? hangarHome();
+  ensureHome(home);
+  writeStatuslineHeaderFile(home, readOrCreateToken(home));
   const r = resolveStatuslineScript(o.claudeDir);
   if (!r.scriptPath) {
     log(r.command ? `statusLine.command は「${r.command}」で、ファイルとして見つからないため自動では追記しません。` : 'settings.json に statusLine.command がありません。');

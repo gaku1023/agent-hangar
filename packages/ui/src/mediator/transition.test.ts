@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Input } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
+import { persistedSessionView } from './sessionView.ts';
 
 function run(inputs: Input[], start: State = initialState()) {
   const effects: unknown[] = [];
@@ -229,7 +230,7 @@ describe('タブと接続', () => {
     const s = onSession();
     const a = run([intent({ type: 'tab.select', tabId: 't1' })], s);
     expect(a.state.sessionView.s1?.selectedTab).toBe('t1');
-    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: a.state.sessionView.s1 }, { kind: 'terminal.connect', sessionId: 's1', tabId: 't1' }, { kind: 'focus', target: 'terminal' }]);
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(a.state.sessionView.s1!) }, { kind: 'terminal.connect', sessionId: 's1', tabId: 't1' }, { kind: 'focus', target: 'terminal' }]);
     expect(run([intent({ type: 'tab.open', sessionId: 's1', kind: 'shell' })], s).effects).toEqual([{ kind: 'api.openTab', sessionId: 's1' }]);
     const b = run([intent({ type: 'tab.close', tabId: 't1' })], a.state);
     expect(b.state.sessionView.s1?.selectedTab).toBeNull();
@@ -239,7 +240,7 @@ describe('タブと接続', () => {
   it('run の開始と終了、タブの出現と消失', () => {
     const s = onSession();
     const a = run([server({ type: 'run.started', run: runDto('r1', 's1'), tabs: [] })], s);
-    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: a.state.sessionView.s1 }, { kind: 'terminal.connect', sessionId: 's1', tabId: 'r1' }]);
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(a.state.sessionView.s1!) }, { kind: 'terminal.connect', sessionId: 's1', tabId: 'r1' }]);
     expect(run([server({ type: 'run.started', run: runDto('r2', 's2'), tabs: [] })], s).effects).toEqual([]);
     const b = run([server({ type: 'tab.upsert', tab: tabDto('t1', 'r1') })], a.state);
     expect(b.state.sessionView.s1?.selectedTab).toBe('t1');
@@ -473,10 +474,10 @@ describe('分割', () => {
     expect(a.state.sessionView.s1?.split).toBeFalsy();
     const b = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: 't2' })], a.state);
     expect(b.state.sessionView.s1).toMatchObject({ split: true, splitTab: 't2' });
-    expect(b.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: b.state.sessionView.s1 }]);
+    expect(b.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(b.state.sessionView.s1!) }]);
     const c = run([intent({ type: 'split.toggle' })], b.state);
     expect(c.state.sessionView.s1).toMatchObject({ split: false, splitTab: null });
-    expect(c.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: c.state.sessionView.s1 }]);
+    expect(c.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(c.state.sessionView.s1!) }]);
   });
   it('タブが 1 つしか無ければトーストを出す', () => {
     const a = run([intent({ type: 'split.toggle' })], onSession('s1'));
@@ -492,13 +493,13 @@ describe('分割', () => {
     const s = split('t1', 't2');
     const a = run([server({ type: 'tab.upsert', tab: { ...tabDto('t2', 'r1', 5), sessionId: 's1' } })], s);
     expect(a.state.sessionView.s1).toMatchObject({ selectedTab: 't1', split: false, splitTab: null });
-    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: a.state.sessionView.s1 }, { kind: 'terminal.disconnect', tabId: 't2' }]);
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(a.state.sessionView.s1!) }, { kind: 'terminal.disconnect', tabId: 't2' }]);
   });
   it('tab.close で右のタブを閉じても分割を畳む', () => {
     const s = split('t1', 't2');
     const a = run([intent({ type: 'tab.close', tabId: 't2' })], s);
     expect(a.state.sessionView.s1).toMatchObject({ selectedTab: 't1', split: false, splitTab: null });
-    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: a.state.sessionView.s1 }, { kind: 'api.closeTab', tabId: 't2' }]);
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(a.state.sessionView.s1!) }, { kind: 'api.closeTab', tabId: 't2' }]);
   });
   it('左のタブが閉じたら分割を畳み、次のタブで復活させない', () => {
     const s = split('t1', 't2');

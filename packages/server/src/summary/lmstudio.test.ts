@@ -1,3 +1,4 @@
+import http from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 import { CANNED_INPUT } from './input.ts';
 import { LmStudioSummarizer } from './lmstudio.ts';
@@ -62,5 +63,44 @@ describe('LmStudioSummarizer', () => {
     await expect(new LmStudioSummarizer({ baseUrl: 'http://x', model: 'm', fetch: f2 }).summarize(CANNED_INPUT)).rejects.toThrow(/形/);
     const f3 = vi.fn(async () => ok({ error: 'boom' }, 500)) as unknown as typeof fetch;
     await expect(new LmStudioSummarizer({ baseUrl: 'http://x', model: 'm', fetch: f3 }).summarize(CANNED_INPUT)).rejects.toThrow(/500/);
+  });
+  it('リダイレクトを追わない。3xx は失敗として扱う', async () => {
+    const seen: (string | undefined)[] = [];
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(init?.redirect);
+      if (String(url).endsWith('/v1/models')) return ok(models);
+      return new Response(null, { status: 307, headers: { location: 'http://moved.example/collect' } });
+    }) as unknown as typeof fetch;
+    const s = new LmStudioSummarizer({ baseUrl: 'http://127.0.0.1:1234', model: 'gemma-4-26b', fetch: fetchFn });
+    await expect(s.summarize(CANNED_INPUT)).rejects.toThrow(SummarizerError);
+    await expect(s.summarize(CANNED_INPUT)).rejects.toThrow(/リダイレクト/);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((r) => r === 'manual')).toBe(true);
+  });
+  it('実測。307 を返す宛先へ投げても、飛ばし先には本文が届かない', async () => {
+    // 手元だけで閉じた再現。A も B も 127.0.0.1 に立て、外へは 1 バイトも出さない。
+    const got: { path: string; body: string }[] = [];
+    const b = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => { got.push({ path: req.url ?? '', body }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{}'); });
+    });
+    await new Promise<void>((r) => b.listen(0, '127.0.0.1', r));
+    const bPort = (b.address() as { port: number }).port;
+    const a = http.createServer((req, res) => {
+      if ((req.url ?? '').endsWith('/v1/models')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(models)); return; }
+      res.writeHead(307, { location: `http://127.0.0.1:${bPort}/collect` });
+      res.end();
+    });
+    await new Promise<void>((r) => a.listen(0, '127.0.0.1', r));
+    const aPort = (a.address() as { port: number }).port;
+    try {
+      const s = new LmStudioSummarizer({ baseUrl: `http://127.0.0.1:${aPort}`, model: 'gemma-4-26b', timeoutMs: 5000 });
+      await expect(s.summarize(CANNED_INPUT)).rejects.toThrow(/リダイレクト/);
+      expect(got).toEqual([]);
+    } finally {
+      await new Promise<void>((r) => a.close(() => r()));
+      await new Promise<void>((r) => b.close(() => r()));
+    }
   });
 });

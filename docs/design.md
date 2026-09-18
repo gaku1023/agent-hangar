@@ -53,7 +53,7 @@ pnpm は手元で壊れているため使わない。
 - `packages/ui`：React と Vite による UI。Root から始まる階層、Passive View、Intent チェーン、Mediator。
 - `packages/cloud`：Cloudflare Worker。Hono でサーバとコードを共有し、D1 と R2 を扱う。フェーズ 4 で実装する。
 - `apps/desktop`：Tauri v2 のシェル。サーバを子プロセスとして起動し、ウィンドウに UI を表示する。フェーズ 5 で実装する。
-- `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`mcp install` を提供する。
+- `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`url`、`mcp install` を提供する。
 
 ### プロセスと通信
 
@@ -180,6 +180,11 @@ type Intent =
 
 `transcript.follow` の `follow: false` は、利用者が自分でスクロールを上げたときだけ発行する。
 末尾へ送るスムーズスクロールの途中では発行しない。
+
+`follow` は `localStorage` に残さない。
+`SessionViewState` の他の項目は残すが、`follow` だけは保存の形から落とし、読み戻すときにも落として既定の真に戻す。
+遡るために一度上へスクロールすると `follow: false` が焼き付き、次からそのセッションが最古の側で開いてしまうためである。
+古い保存に残っている `follow` も、読み戻しのときに捨てる。
 
 `split.resize` は `SplitPane` の `IntentBoundary` が処理して止めるので、Root にも Mediator にも届かない。
 
@@ -667,6 +672,12 @@ Settings の「手元の外にある要約器を許す」を入れたときだ�
 この印を入れている間は、Settings に「会話の本文がこの宛先へ送られます」という警告を出し、宛先の URL を添える。
 設定ファイルを手で書き換えて外の宛先を入れても、読み込みのときに既定へ戻す。
 
+要約器への問い合わせはリダイレクトを追わない（`redirect: 'manual'`）。
+追うと、ループバックだと思って許した宛先が 302 を返すだけで、会話の本文が外のホストへ送られてしまう。
+宛先の検査は最初の URL にしか効かないので、追わないことでしか塞げない。
+3xx が返ったときは失敗として扱い、次の要約器へ回す。
+モデル一覧の問い合わせも同じで、リダイレクトが返れば一覧は空として扱う。
+
 LM Studio に繋がらないときは `claude -p --model haiku --output-format json --json-schema <schema>` に切り替える。
 こちらはサブスクリプションのレート制限を消費するので、1 時間 20 件までとし、7 日の使用率が 80% を超えたら止める。
 結果は出力 JSON の `structured_output` から読む。入力はパイプで渡し、渡すものが無いときは `< /dev/null` を付けて標準入力の待ちを避ける。
@@ -686,8 +697,13 @@ API と MCP は、`~/.agent-hangar/token`（権限 0600）に置いたローカ�
 
 UI を初めて開くときは、鍵を載せた入口の URL を使う。
 `hangar start` は起動のたびに `http://127.0.0.1:4177/?t=<トークン>` を印字し、`--no-open` を渡していなければ既定のブラウザでそれを開く。
-`hangar open` も同じ URL を開く。
-鍵をここでだけ印字するのは、サーバのログに載せないためである。
+`hangar open` も同じ URL を印字してから開く。
+ただし `hangar open` は、開く前に `/health` を見て、サーバが動いていなければ開かずに終了コード 1 で終わる。
+`hangar url` は同じ URL を印字するだけで、ブラウザは開かない。
+起動の後に鍵付きの URL を見直す道はこれだけで、401 の案内もこのコマンドを指す。
+鍵を端末にだけ印字するのは、サーバのログに載せないためである。
+`hangar start` が待ち受けに失敗したときは、生のスタックではなく日本語の 1 行を出して終了コード 1 で終わる。
+使用中のポート、権限の無いポート、そのほかの失敗を、それぞれ次の一手の分かる文にする。
 
 `GET /` は、クエリの `t` か、既に持っているクッキーのどちらかが合うときだけ UI の HTML を配る。
 合わないときは案内だけを書いた HTML を 401 で返し、トークンは配らない。
@@ -695,6 +711,15 @@ UI を初めて開くときは、鍵を載せた入口の URL を使う。
 配るときに同じトークンを `HttpOnly`、`SameSite=Strict`、`Path=/`、有効期間 1 年のクッキーとして発行する。
 UI は `history.replaceState` で URL から `?t=` を消すので、鍵はアドレス欄に残らない。
 以後はブックマークから鍵無しで開ける。
+
+`GET /` の応答には、鍵の有無に関わらず `X-Frame-Options: DENY` と CSP を付ける。
+`SameSite=Strict` の「サイト」はポートを数えないので、手元の別のポートに置かれたページに枠で嵌められると、クッキーの載った UI を被せて押させる手が成り立つ。
+枠を止めるために `frame-ancestors 'none'` と `X-Frame-Options` の両方を返す。
+CSP の残りは配っている `dist` の作りに合わせて絞る。
+インライン script は無いので `script-src 'self'` だけでよく、style は React の style 属性と xterm が実行時に書くので `'unsafe-inline'` が要る。
+font と img は `@fontsource` の woff と favicon の SVG のために `data:` を許す。
+`connect-src` は同じ元と、ターミナルの WebSocket のためのループバックだけにする。
+`object-src 'none'`、`base-uri 'none'`、`form-action 'self'` も付ける。
 
 #### 入口の 3 つの検査
 
@@ -725,8 +750,32 @@ MCP クライアントには、`hangar mcp install` と `--mcp-config` がヘッ
 引数は `ps -ww -o command=` で同じ機械の誰にでも読めるためである。
 run を起こすときの `--mcp-config` には、JSON の文字列ではなく `~/.agent-hangar/mcp/<sessionId>.json`（権限 0600）のパスを渡し、run の終了でそのファイルを消す。
 消し損ねた分は、次の起動と起動時の回復で、生きている run のもの以外をまとめて消す。
-statusline のスニペットは、`curl` の `--variable` と `--expand-header` で環境変数からトークンを読む。
-この 2 つは curl 8.3 以降にある。
+statusline のスニペットは、`~/.agent-hangar/statusline-header`（権限 0600）に置いた `Authorization: Bearer <トークン>` の 1 行を `curl -H @<ファイル>` で読む。
+`-H @<ファイル>` は中身をヘッダの行として読むので、curl の argv にはファイルの名前しか出ない。
+この書き方は curl 7.55 以降にある。
+鍵付きの URL をブラウザで開くときも、`open <URL>` ではなく `osascript -` に標準入力で AppleScript を流し込む。
+`open <URL>` だと鍵の載った URL が argv に出て、同じ利用者のどのプロセスからも `ps` で読めるためである。
+
+#### run ごとの MCP の秘密
+
+hangar が起こす `claude` には、本体のトークンを渡さない。
+run を起こすたびに 32 バイトの秘密を作り、`--mcp-config` のファイルにはその秘密を書く。
+本体のトークンを渡すと、その `claude` は自分の `--mcp-config`（0600 だが、読めるのは他ならぬ自分である）から鍵を取り出し、共通の `/mcp` と `/api` に回れてしまう。
+閉じ込めは URL ではなく鍵で行う必要がある。
+
+秘密が開けるのは、その run のセッションの `/mcp/s/<sessionId>` だけである。
+共通の `/mcp` と `/api` 配下はどちらも通らない。
+本体のトークンは今までどおり両方を開けるので、`hangar mcp install` が登録する共通の URL は変わらない。
+照合は長さを見てから定数時間の比較を行う。
+
+置き場は端末ローカルの `mcp_secrets`（マイグレーション 7、`session_id` を主鍵にして `secret` と `created_at` を持つ）である。
+共有テーブルの列を持たないので、`upsertShared` を通さず、同期の `changes` にも載らない。
+サーバのメモリに持たないのは、tmux の上で生きている run がサーバの再起動をまたいで残るためである。
+その `claude` は再起動の後も同じ秘密で繋ぎに来る。
+
+秘密は run の終了で消す。
+消し損ねたものは、次の起動と起動時の回復のときに、生きている run のもの以外をまとめて落とす。
+`--mcp-config` のファイルの後始末と同じ扱いである。
 
 ### ツール
 
@@ -760,7 +809,19 @@ MCP は Streamable HTTP で提供する。
 `claude mcp add` にはヘッダの値をファイルや標準入力から受ける口が無く、`${HANGAR_TOKEN}` と書いても展開されずにそのまま保存されることを実物で確かめた。
 書き換えは同じディレクトリに書いてから `rename` する形で、他の項目と他の MCP サーバには触れない。
 ファイルが JSON として壊れているときは、上書きせずに失敗として返す。
+
+ここは hangar が利用者の設定を書き換える数少ない場所なので、次の 4 つを守る。
+
+- **ロックを取ってから書く。** 実体の隣に `<実体>.hangar-lock` を `O_EXCL` で作り、取れるまで 2 秒だけ待つ。取れなければ何も書かずに「Claude Code が設定を書いている最中のようです」と返す。落ちたプロセスが残したロックで永久に失敗しないよう、更新から 10 秒より古いものだけは残骸とみなして消し、取り直す。ロックを取った後も、読んでから書くまでの間に Claude Code が書いたかもしれないので、書く直前にもう一度読んでから併合する。
+- **シンボリックリンクはリンクのまま残す。** 途中のディレクトリも含めてリンクを解き、実体の隣に一時ファイルを書いて `rename` する。dotfiles のリポジトリへ `~/.claude.json` をリンクしている人の設定を、実ファイルで置き換えないためである。リンク先がまだ無いときは、その場所に作る。
+- **権限は新規 0600、既存は保つ。** 既にあるファイルは利用者が決めた権限をそのまま使う。ただしここにはトークンを書くので、group や other に 1 つでも立っていれば 0600 へ狭め、狭めたことを端末に知らせる。
+- **書く前に控えを取る。** もとのファイルを `~/.agent-hangar/backups/claude.json-<yyyymmddHHMMSS>`（権限 0600）へ写してから書く。同じ秒に 2 度来たら連番を足し、既にある控えは上書きしない。控えが取れなければ書かない。控えの置き場を `~/.agent-hangar` の下にするのは、`~/.claude` の中に hangar のファイルを増やさないためである。
+
 `claude` が PATH に無いときは登録もしない。
+書いた後は、書いたトークンそのもので `GET /api/usage` を 1 回叩いて確かめる。
+`/health` は認証を通さないので、通っても「そのポートで何かが応答する」ことしか分からず、`HANGAR_HOME` がサーバとずれていれば別のトークンを書いたまま成功と言ってしまう。
+認証が通らなかったときは失敗として返し、書いたトークンの置き場と `HANGAR_HOME` の食い違いを印字する（トークンそのものは印字しない）。
+そのポートで誰も応答しないときだけは、起動前の登録を塞がないために成功のまま起動を促す。
 削除は `claude mcp remove` に任せる。こちらはトークンを渡さないので、argv の問題が無い。
 Claude Code は MCP のツール定義を遅延して読むため、ツールの説明文に「agent-hangar」を含めて検索で当たるようにする。
 
@@ -798,18 +859,29 @@ Tauri のシェルは `hangar://` スキームを登録する。
 # agent-hangar: 使用量をローカルサーバへ渡す。失敗は無視する。
 __hangar_input=$(cat)
 __hangar_home="${HANGAR_HOME:-$HOME/.agent-hangar}"
-__hangar_token=$(cat "$__hangar_home/token" 2>/dev/null)
-printf '%s' "$__hangar_input" | HANGAR_TOKEN="$__hangar_token" curl -s -m 0.3 -X POST \
-  -H 'Content-Type: application/json' \
-  --variable '%HANGAR_TOKEN' --expand-header 'Authorization: Bearer {{HANGAR_TOKEN}}' \
-  --data-binary @- http://127.0.0.1:4177/api/ingest/statusline >/dev/null 2>&1 &
+__hangar_header="$__hangar_home/statusline-header"
+if [ -r "$__hangar_header" ]; then
+  printf '%s' "$__hangar_input" | curl -s -m 0.3 -X POST \
+    -H 'Content-Type: application/json' \
+    -H @"$__hangar_header" \
+    --data-binary @- http://127.0.0.1:4177/api/ingest/statusline >/dev/null 2>&1 &
+fi
 exec <<<"$__hangar_input"
 ```
 
-トークンは環境変数で curl に渡す。
+トークンはファイルから curl に渡す。
 `-H "Authorization: Bearer $(cat ...)"` と書くとシェルが先に展開するので、64 桁が curl の argv に載り、statusline が走るたびに `ps` から読める。
-curl の `--variable %NAME` は環境変数を読み、`--expand-header` がその値をヘッダに差し込む。
-この 2 つは curl 8.3 以降にある（手元の 8.7.1 で確認した）。
+`-H @<ファイル>` はファイルの中身をヘッダの行として読むので、argv にはファイルの名前しか出ない。
+この書き方は curl 7.55 以降にある（手元の 8.7.1 で実測した）。
+`--variable` と `--expand-header` でも隠せるが、そちらは curl 8.3 以降にしか無く、古い curl では要求を出す前に終わる。
+しかもその失敗は `>/dev/null 2>&1` に消えるので、利用者には何も見えないまま使用量だけが止まる。
+
+読ませるファイルは `~/.agent-hangar/statusline-header`（権限 0600）で、中身は `Authorization: Bearer <トークン>` の 1 行である。
+64 桁だけが入った `token` は、そのままではヘッダの行にならないので、token を唯一の出どころにしてここへ書き写す。
+このファイルはサーバの起動のたびに用意する。
+`hangar statusline install` のときにしか置かないと、`~/.agent-hangar` を消した利用者はこのファイルを持たないまま statusline だけが残る。
+スニペットは読めなければ何も送らずに素通しするので、使用量が何も言わずに止まってしまう。
+中身と権限がトークンと揃っているときは触らず、トークンが作り直されていれば書き直す。
 
 `settings.json` は書き換えない。
 payload には `rate_limits` のほかに `session_id`、`session_name`、`cwd`、`transcript_path`、`model`、`effort`、`cost`、`context_window` が入る。
@@ -1133,7 +1205,9 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - 使用量の保存：statusline の payload は `usage_snapshots(at, payload)` に生の JSON で積み、直近 500 件だけ残す。5 時間と 7 日の値は `UsageTracker` がメモリに持ち、サーバ起動時に新しい順へ走査して両方の窓が埋まるまで読む。`rate_limits` の無い payload では直前の値を保ち、`updatedAt` も更新しない（ゲージの「最終更新」は使用率が届いた時刻を指す）。
 - セッションごとの付帯情報：payload の `model`、`effort`、`context_window`、`cost` は端末ローカルの `session_live_stats` に Claude の UUID（`provider_session_id`）を鍵として置く。`SessionDto.stats` の `model` と `effort` はこの表を `session_stats` より優先し、この表に無ければ索引から導いた `session_stats` の値を使う。`contextPercent` と `costUsd` は `session_live_stats` にしか供給源が無く、statusline の追記を入れていないセッションでは常に null になる（UI は「未取得」と出す）。`contextPercent` は `current_usage` の入力とキャッシュのトークンの和を `context_window_size` で割った百分率で、`current_usage` が無い 1 回目は書かない。`costUsd` は `cost.total_cost_usd`。
 - statusline の追記先：`~/.claude/settings.json` の `statusLine.command` から先頭の `bash `、`sh `、`zsh ` を除いた最初の語を `~` 展開し、ファイルとして存在すればそこへ追記する。存在しなければ追記せず、スニペットと手順を印字する。追記位置は 1 行目が `#!` で始まればその直後、そうでなければ先頭で、目印の行があって中身も今の形と同じなら何もしない。バックアップは同じディレクトリの `<name>.bak-<yyyymmddHHMMSS>`。
-- statusline のスニペットは、トークンを `${HANGAR_HOME:-$HOME/.agent-hangar}/token` から読み、環境変数 `HANGAR_TOKEN` に入れて curl の `--variable` と `--expand-header` で渡す。ポートは追記時の値を埋め込む（`hangar statusline install --port <n>`）。`exec <<<` を使うので、追記先のスクリプトは bash か zsh である必要がある。
+- statusline のスニペットは、`${HANGAR_HOME:-$HOME/.agent-hangar}/statusline-header` を `curl -H @<ファイル>` で読む。ファイルには `Authorization: Bearer <トークン>` の 1 行が入り、権限は 0600 である。読めないときは何も送らずに素通しする（`if [ -r ... ]` で包む）。ポートは追記時の値を埋め込む（`hangar statusline install --port <n>`）。`exec <<<` を使うので、追記先のスクリプトは bash か zsh である必要がある。
+- ヘッダのファイルを用意する場所：`hangar statusline install` と、サーバの起動時の両方で用意する。起動時はトークンを読むのと同じところで、無ければ作り、トークンと食い違えば書き直し、他人に読める権限なら 0600 へ狭める。中身も権限も揃っているときは触らない（毎回書き直すと mtime だけが動く）。install のときにしか置かないと、`~/.agent-hangar` を消した利用者の使用量が、何のエラーも出ないまま止まる。
+- 入っているスニペットの差し替え：目印の行があるだけでは何もしないとせず、目印から `exec <<<"$__hangar_input"` までの範囲を読み取り、今の形と違えばその範囲だけを差し替える。トークンを argv に載せる古い形が残り続けないようにするためである。目印はあるのに終わりの行が見つからないときは、手で書き換えられているとみなして何もしない。
 - jsonl の使用量の集計：端末ローカルの `usage_daily(session_id, day, file_path, input_tokens, output_tokens)` を索引化のときに埋める。鍵は（`session_id`、`file_path`、`day`）で、索引の作り直しではそのファイルのぶんだけを消してから積み直す。主線とサブエージェントは別のファイルなので、片方を積み直しても他方の集計は残る。`day` はイベントの `timestamp` をローカル時刻で `YYYY-MM-DD` にしたもの。プロジェクト別は `session_stats` のトークン数を `sessions.project_id` で束ねる。推定コストは価格表を持たず、statusline の `cost.total_cost_usd` を持つセッションの和だけを出す（1 件も無ければ null）。
 - アーティファクトの抽出：`Artifact` ツールの呼び出しを `artifact_calls(tool_id, session_id, file_path, description, favicon)` に控え、結果の本文から URL を取り出せたときだけ公開とみなす。記録するのは `action` が無いか `publish` のときだけで、`read` や `list` は公開ではない。`artifacts` は URL で 1 件にまとめ、`first_published_at` は最小、`last_published_at` は最大を保ち、説明と favicon は新しい公開の値で上書きする。
 - アーティファクトの版：`artifact_versions` は（`artifact_id`、`session_id`、`published_at`）が同じ行が既にあれば追加しない。索引の作り直しでは版を消さず、同じ行を書き直すだけにする。消すとサブエージェント由来の版が巻き添えになり、`changes` にも削除が残らないためである。版はアーティファクト単位で引くので、`artifact_versions(artifact_id)` に索引を置く。
@@ -1161,6 +1235,8 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - ルートの復帰：消えていたディレクトリが戻ってルートが解決に戻ったら、その時点で未分類だったセッションを紐づけ直し、紐づいたセッションの `session.upsert` と、戻ったぶんおよび中身が変わったぶんの `project.upsert` を配る。戻ったルートが 1 つも無いときは何もしない（起動時の 1 回目はたいていこちらを通る）。
 - 外部のターミナルで開くときの shell：`.command` の経路と iTerm2 の経路で同じ 1 行（`cd <dir> && exec "${SHELL:-/bin/zsh}" -l`）を使う。別々に書くと、同じ操作なのに経路で違う shell が立つ。`$SHELL` が無い環境では `/bin/zsh` に落とす。
 - トランスクリプトの仮想スクロール：一覧の `VirtualList` は広げず、`Transcript.tsx` に専用の窓を持つ。行の高さは描いた後の `offsetHeight` を `seq` ごとに覚え、まだ描いていない行は文字数からの見積もりで置く。窓の上下には 600px を余分に描く。「追う」の間は、窓をスクロール位置ではなく末尾に留める。DOM に載る行の数は件数によらない（jsdom で高さ 600px の器に入れると、500 行でも 5,000 行でも末尾で 22 行、途中で 33 行）。
+- 遡ったときの位置合わせ：「追う」をやめている間は、器の上端に掛かっている行の `seq` と、その行の上端からのずれを目印として持つ。見積もりで置いた行の高さを測り直したときと、「古い行を読み込む」で前に行が入ったときは、目印の行の上端を今分かっている高さで出し直し、ずれを足した位置へ器を戻す。目印を持たずに `scrollTop` だけで合わせると、前に入った行のぶんだけ見ていた場所が飛ぶ。`scrollTop` を書き換えても `scroll` は同じ間に届かないので、動かしたときはその場で窓を測り直す。
+- `follow` は永続化しない：`SessionViewState` の保存の形から `follow` を落とし、読み戻すときにも落として既定の真に戻す。上へ一度スクロールしただけで `follow: false` が焼き付き、次からそのセッションが最古の側で開くのを避ける。
 - 要約の帯の「詳細」：本文と次の一手に加えて、出所（土台、セッション内、事後）、要約器の種類とモデル名、何ターン時点か、生成の時刻を出す。要約器を通していない要約は種類とモデル名の札を出さない。
 - `store.events`：開いていないセッションのトランスクリプトを落とす。古いページを削るのではないので、「もっと読む」で遡ったぶんは、そのセッションを開いている限り残る。落としたぶんは、セッション画面に入るたび先頭から読み直すので取り直される。
 - 古いサーバの `bootstrap`：フェーズ 3 で増えた項目（`usage`、`todos`、`artifacts`、`summaryPending`）が欠けていても画面は立つ。欠けた項目は空として埋め、版が古いことは画面に出さない。

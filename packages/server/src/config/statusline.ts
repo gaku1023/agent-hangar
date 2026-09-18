@@ -11,28 +11,79 @@ export const STATUSLINE_MARKER = '# agent-hangar: 使用量をローカルサー
 /** スニペットの終わりの行。目印と合わせて、入っているスニペットの範囲を決める。 */
 const SNIPPET_END = 'exec <<<"$__hangar_input"';
 
+/** スニペットが curl に読ませるヘッダのファイル。トークンそのものではなく、ヘッダ 1 行が入る。 */
+export const STATUSLINE_HEADER_FILE = 'statusline-header';
+
+export function statuslineHeaderPath(home: string): string {
+  return path.join(home, STATUSLINE_HEADER_FILE);
+}
+
+/**
+ * curl に読ませる `Authorization: Bearer <トークン>` の 1 行を置く。
+ *
+ * token とは別のファイルにする。`-H @<ファイル>` はファイルの中身をヘッダの行として読むので、
+ * 64 桁だけが入った token をそのまま渡すことはできない。
+ * token を唯一の出どころのままにして、ここはそこから作る控えとして扱う。
+ * 中身はトークンと同じ重さなので 0600 で置き、既にあるファイルの権限も 0600 に直す。
+ */
+export function writeStatuslineHeaderFile(home: string, token: string): string {
+  const file = statuslineHeaderPath(home);
+  fs.writeFileSync(file, `Authorization: Bearer ${token}\n`, { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+  return file;
+}
+
+/**
+ * ヘッダのファイルが無いか、トークンと食い違うか、他人に読める権限なら置き直す。
+ *
+ * サーバの起動のたびに呼ぶ。
+ * 置き場ごと消した利用者は、statusline install をやり直すまでヘッダのファイルを持たない。
+ * スニペットは読めなければ何も送らずに素通しするので、使用量が静かに止まり、利用者には何も見えない。
+ * トークンと同じところで用意すれば、トークンが作り直されたときも次の起動で揃う。
+ *
+ * 中身も権限も合っているときは触らない。
+ * 毎回書き直すと mtime だけが動き、ファイルを見張っている道具に無駄な知らせが出る。
+ */
+export function ensureStatuslineHeaderFile(home: string, token: string): string {
+  const file = statuslineHeaderPath(home);
+  try {
+    const ok = fs.readFileSync(file, 'utf8') === `Authorization: Bearer ${token}\n` && (fs.statSync(file).mode & 0o777) === 0o600;
+    if (ok) return file;
+  } catch {
+    // 無い、または読めない。下で置き直す。
+  }
+  return writeStatuslineHeaderFile(home, token);
+}
+
 /**
  * 設計文書のスニペット。
  * 標準入力を読んでサーバへ背景で送り、同じ内容を元のスクリプトの標準入力に戻す。
- * トークンは HANGAR_HOME があればそこから読む。
+ * ヘッダのファイルは HANGAR_HOME があればそこから読む。
  * 既定は従来どおり ~/.agent-hangar である。
  *
- * トークンは環境変数で curl に渡す。
+ * トークンは curl の argv に載せない。
  * `-H "Authorization: Bearer $(cat ...)"` と書くとシェルが先に展開するので、
  * 64 桁が curl の argv に載り、statusline が走るたびに ps から読める。
- * curl の --variable %NAME は環境変数を読み、--expand-header がそれをヘッダに差し込む。
- * この 2 つは curl 8.3 以降にある（手元は 8.7.1 で確認）。
+ * `-H @<ファイル>` は中身をヘッダの行として読むので、argv にはファイルの名前しか出ない。
+ * この書き方は curl 7.55 以降にある（手元の 8.7.1 で実測した）。
+ * --variable と --expand-header でも隠せるが、そちらは curl 8.3 以降にしか無く、
+ * 古い curl では要求を出す前に終わるうえ、失敗が >/dev/null 2>&1 に消えて利用者に何も見えない。
+ *
+ * ヘッダのファイルが無いか読めないときは、何も送らずに素通しする。
+ * hangar の都合で利用者の statusline の表示を壊さないためである。
  */
 export function statuslineSnippet(port: number): string {
   return [
     STATUSLINE_MARKER,
     '__hangar_input=$(cat)',
     '__hangar_home="${HANGAR_HOME:-$HOME/.agent-hangar}"',
-    '__hangar_token=$(cat "$__hangar_home/token" 2>/dev/null)',
-    `printf '%s' "$__hangar_input" | HANGAR_TOKEN="$__hangar_token" curl -s -m 0.3 -X POST \\`,
-    `  -H 'Content-Type: application/json' \\`,
-    `  --variable '%HANGAR_TOKEN' --expand-header 'Authorization: Bearer {{HANGAR_TOKEN}}' \\`,
-    `  --data-binary @- http://127.0.0.1:${port}/api/ingest/statusline >/dev/null 2>&1 &`,
+    `__hangar_header="$__hangar_home/${STATUSLINE_HEADER_FILE}"`,
+    'if [ -r "$__hangar_header" ]; then',
+    `  printf '%s' "$__hangar_input" | curl -s -m 0.3 -X POST \\`,
+    `    -H 'Content-Type: application/json' \\`,
+    '    -H @"$__hangar_header" \\',
+    `    --data-binary @- http://127.0.0.1:${port}/api/ingest/statusline >/dev/null 2>&1 &`,
+    'fi',
     SNIPPET_END,
     '',
   ].join('\n');

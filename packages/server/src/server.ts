@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listArtifacts } from './artifacts/queries.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
+import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
 import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
@@ -123,6 +124,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const home = opts.home ?? hangarHome();
   ensureHome(home);
   const token = readOrCreateToken(home);
+  // statusline が curl に読ませるヘッダのファイルは、トークンと同じところで用意する。
+  // install のときにしか置かないと、置き場を消した利用者の使用量が何も言わずに止まる。
+  ensureStatuslineHeaderFile(home, token);
   const device = readOrCreateDevice(home);
   // tmux と code のパスが設定に無ければここで探して書き戻す。GUI 起動の貧弱な PATH でも見つけられる。
   let settings: Settings = resolveToolPaths(loadSettings(home));

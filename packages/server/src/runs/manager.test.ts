@@ -2,7 +2,9 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Hono } from 'hono';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { authMiddleware } from '../http/auth.ts';
 import { shortId, type TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -12,7 +14,10 @@ import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
+import { createMcpApp } from '../mcp/app.ts';
+import { MemoStore } from '../projects/memo.ts';
 import { RunManager } from './manager.ts';
+import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
 
 let db: Db;
 let home: string;
@@ -124,7 +129,9 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(args[1]).toBe(path.join(home, 'mcp', `${r.sessionId}.json`));
     const cfg = JSON.parse(fs.readFileSync(args[1]!, 'utf8')) as { mcpServers: { hangar: { url: string; headers: { Authorization: string } } } };
     expect(cfg.mcpServers.hangar.url).toBe(`http://127.0.0.1:4177/mcp/s/${r.sessionId}`);
-    expect(cfg.mcpServers.hangar.headers.Authorization).toBe('Bearer tok');
+    // 渡すのは本体のトークンではなく、この run 専用の秘密である。
+    expect(cfg.mcpServers.hangar.headers.Authorization).toBe(`Bearer ${mcpSecretFor(db, r.sessionId)}`);
+    expect(cfg.mcpServers.hangar.headers.Authorization).not.toContain('tok');
     expect(args.at(-2)).toBe('やって');
     expect(args).toContain('--model');
     const uuid = args[args.indexOf('--session-id') + 1]!;
@@ -659,7 +666,9 @@ describe.skipIf(!TMUX)('トークンを argv に載せない（tmux 上）', () 
 
     const cfgPath = args[1]!;
     expect(fs.statSync(cfgPath).mode & 0o777).toBe(0o600);
-    expect(fs.readFileSync(cfgPath, 'utf8')).toContain(`Bearer ${TOKEN}`);
+    // 設定ファイルにも本体のトークンは書かない。入るのはこの run 専用の秘密だけである。
+    expect(fs.readFileSync(cfgPath, 'utf8')).not.toContain(TOKEN);
+    expect(fs.readFileSync(cfgPath, 'utf8')).toContain(`Bearer ${mcpSecretFor(db, r.sessionId)}`);
 
     // 実際に ps で確かめる。偽の claude が動いている間に読む。
     const ps = execFileSync('ps', ['-axww', '-o', 'command='], { encoding: 'utf8' });
@@ -685,5 +694,59 @@ describe.skipIf(!TMUX)('トークンを argv に載せない（tmux 上）', () 
     fs.writeFileSync(stale, '{}', { mode: 0o600 });
     make({ token: TOKEN, tmux: null }).recoverAtStartup();
     expect(fs.existsSync(stale)).toBe(false);
+  });
+});
+
+describe.skipIf(!TMUX)('run に配る秘密は、その run の入口しか開けない（tmux 上）', () => {
+  // 64 桁の 16 進。実物のトークンと同じ形にする。
+  const TOKEN = 'a1b2c3d4'.repeat(8);
+  const rpcBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } } });
+  const hdr = (secret: string) => ({ authorization: `Bearer ${secret}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' });
+  const mcp = () => createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], hub: { broadcast: () => {} }, runs: { start: () => { throw new Error('not in this test'); } },
+    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: 'd', home }) });
+
+  /** --mcp-config に書かれた鍵。閉じ込められた claude が自分で読める唯一の鍵である。 */
+  const credential = (cfgPath: string): string => (JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { mcpServers: { hangar: { headers: { Authorization: string } } } }).mcpServers.hangar.headers.Authorization.replace('Bearer ', '');
+
+  it('設定ファイルの鍵は本体のトークンではなく、共通 /mcp を開けない', async () => {
+    const rm = make({ token: TOKEN });
+    const r = rm.start({ projectId: 'p1' });
+    const args = await launchedArgs(r.run.id);
+    const got = credential(args[1]!);
+    expect(got).not.toBe(TOKEN);
+    expect(got).toBe(mcpSecretFor(db, r.sessionId));
+    const app = mcp();
+    // 自分の入口は開く。
+    expect((await app.request(`/s/${r.sessionId}`, { method: 'POST', headers: hdr(got), body: rpcBody })).status).toBe(200);
+    // 共通の入口は開かない。ここが開くと、他のプロジェクトのメモに書けてしまう。
+    expect((await app.request('/', { method: 'POST', headers: hdr(got), body: rpcBody })).status).toBe(401);
+    // /api も開かない。
+    const api = new Hono();
+    api.use('*', authMiddleware(TOKEN, 4177));
+    api.get('/bootstrap', (c) => c.json({ ok: true }));
+    expect((await api.request('/bootstrap', { headers: hdr(got) })).status).toBe(401);
+  });
+
+  it('run が終わったら秘密は無効になる', async () => {
+    const rm = make({ token: TOKEN });
+    const r = rm.start({ projectId: 'p1' });
+    const args = await launchedArgs(r.run.id);
+    const got = credential(args[1]!);
+    rm.kill(r.run.id);
+    expect(mcpSecretFor(db, r.sessionId)).toBeNull();
+    expect((await mcp().request(`/s/${r.sessionId}`, { method: 'POST', headers: hdr(got), body: rpcBody })).status).toBe(401);
+  });
+
+  it('消し忘れた秘密は、次の起動と起動時の回復で拾う', async () => {
+    const rm = make({ token: TOKEN });
+    issueMcpSecret(db, '00000000-0000-7000-8000-000000000000', 1);
+    const r = rm.start({ projectId: 'p1' });
+    await launchedArgs(r.run.id);
+    expect(mcpSecretFor(db, '00000000-0000-7000-8000-000000000000')).toBeNull();
+    expect(mcpSecretFor(db, r.sessionId)).not.toBeNull();
+
+    issueMcpSecret(db, '00000000-0000-7000-8000-000000000000', 1);
+    make({ token: TOKEN, tmux: null }).recoverAtStartup();
+    expect(mcpSecretFor(db, '00000000-0000-7000-8000-000000000000')).toBeNull();
   });
 });

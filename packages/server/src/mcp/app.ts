@@ -1,8 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { Hono, type MiddlewareHandler } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import { tokenFromRequest } from '../http/auth.ts';
+import { tokenEquals, tokenFromRequest } from '../http/auth.ts';
+import { mcpSecretMatches } from '../runs/secrets.ts';
 import { callTool, type ToolContext, type ToolDeps } from './tools.ts';
 
 export const MCP_VERSION = '0.2.0';
@@ -47,30 +48,41 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
 }
 
 /**
- * MCP 専用の認証。
+ * MCP 専用の入口の検査。
  * Origin が無い要求は通す。MCP クライアントは Origin を送らないので、ここで弾くと一切使えなくなる。
+ *
+ * 鍵は 2 種類ある。
+ * 本体のトークンはどちらの入口も開ける。`hangar mcp install` が user スコープに登録する共通の URL がこれを使う。
+ * run に配るセッション別の秘密は、その run のセッションの入口だけを開ける。
+ * hangar が起こした claude には後者しか渡さない。
+ * 本体のトークンを渡すと、その claude は自分の `--mcp-config`（自分は読める）から鍵を取り出し、
+ * 共通の `/mcp` と `/api` に回れてしまう。URL で閉じ込めても、鍵が共通なら閉じない。
+ *
+ * 断る理由は区別せずにそろえる。攻撃者に手掛かりを与えない。
  */
-function mcpAuth(token: string, port: number): MiddlewareHandler {
-  return async (c, next) => {
-    const origin = c.req.header('origin');
-    if (origin !== undefined && !mcpAllowedOrigins(port).includes(origin)) return c.json({ error: 'origin not allowed' }, 403);
-    if (tokenFromRequest(c.req.raw.headers, c.req.header('cookie')) !== token) return c.json({ error: 'unauthorized' }, 401);
-    await next();
-  };
+function mcpGuard(c: Context, deps: { token: string; port: number; db: ToolDeps['db'] }, sessionId: string | null): Response | null {
+  const origin = c.req.header('origin');
+  if (origin !== undefined && !mcpAllowedOrigins(deps.port).includes(origin)) return c.json({ error: 'origin not allowed' }, 403);
+  const got = tokenFromRequest(c.req.raw.headers, c.req.header('cookie'));
+  if (tokenEquals(got, deps.token)) return null;
+  if (sessionId !== null && mcpSecretMatches(deps.db, sessionId, got)) return null;
+  return c.json({ error: 'unauthorized' }, 401);
 }
 
 /** 状態を持たない Streamable HTTP。要求ごとにサーバとトランスポートを作る。 */
 export function createMcpApp(deps: ToolDeps & { token: string }): Hono {
   const app = new Hono();
-  app.use('*', mcpAuth(deps.token, deps.port));
   const handle = async (req: Request, sessionId: string | null) => {
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await buildMcpServer(deps, { sessionId }).connect(transport);
     return transport.handleRequest(req);
   };
-  app.all('/', (c) => handle(c.req.raw, null));
+  app.all('/', (c) => mcpGuard(c, deps, null) ?? handle(c.req.raw, null));
   app.all('/s/:sessionId', (c) => {
     const id = c.req.param('sessionId');
+    // 鍵の検査を先に済ませる。セッションの有無を、鍵を持たない相手に教えない。
+    const denied = mcpGuard(c, deps, id);
+    if (denied) return denied;
     if (!deps.db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id)) return c.json({ error: 'session not found' }, 404);
     return handle(c.req.raw, id);
   });
