@@ -65,6 +65,11 @@ export class MemoStore {
     return this.row(projectId)!;
   }
 
+  /** そのプロジェクトが DB にあるか。無い id のメモを書くと外部キー違反になる。 */
+  private projectExists(projectId: string): boolean {
+    return this.db.prepare('select 1 from projects where id = ?').get(projectId) !== undefined;
+  }
+
   read(projectId: string): MemoDto | null {
     this.reconcile(projectId);
     const r = this.row(projectId);
@@ -86,6 +91,9 @@ export class MemoStore {
   reconcile(projectId: string): { changed: boolean; memo: MemoDto | null } {
     const file = this.memoPath(projectId);
     const r = this.row(projectId);
+    // 知らないプロジェクトのディレクトリは放っておく。
+    // 消さないし、取り込んで外部キー違反で落ちることもしない。
+    if (!r && !this.projectExists(projectId)) return { changed: false, memo: null };
     if (!fs.existsSync(file)) {
       if (r) this.writeFile(projectId, r.markdown, r.updated_at);
       return { changed: false, memo: r ? this.toDto(r) : null };
@@ -112,8 +120,13 @@ export class MemoStore {
     const out: MemoDto[] = [];
     for (const d of fs.readdirSync(root, { withFileTypes: true })) {
       if (!d.isDirectory()) continue;
-      const r = this.reconcile(d.name);
-      if (r.changed && r.memo) out.push(r.memo);
+      // 1 つのディレクトリの失敗で起動時の照合を止めない。
+      try {
+        const r = this.reconcile(d.name);
+        if (r.changed && r.memo) out.push(r.memo);
+      } catch {
+        // 読めないディレクトリは次の変化で拾う。
+      }
     }
     return out;
   }

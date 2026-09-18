@@ -61,6 +61,22 @@ describe('MemoStore', () => {
     expect(seen).toEqual(['edited outside']);
     expect(m.reconcileAll()).toEqual([]);
   });
+  it('DB に無いプロジェクトのディレクトリがあっても落ちず、他のプロジェクトの照合は続く', () => {
+    const m = new MemoStore({ db, deviceId: 'd', home });
+    const ghost = path.join(home, 'projects', 'ghost', 'memo.md');
+    fs.mkdirSync(path.dirname(ghost), { recursive: true });
+    fs.writeFileSync(ghost, '知らないプロジェクトのメモ');
+    const w = m.write('p1', 'v1');
+    fs.writeFileSync(m.memoPath('p1'), 'edited outside');
+    const future = new Date(w.updatedAt + 5000);
+    fs.utimesSync(m.memoPath('p1'), future, future);
+
+    expect(m.reconcile('ghost')).toEqual({ changed: false, memo: null });
+    expect(m.read('ghost')).toBeNull();
+    expect(m.reconcileAll()).toEqual([{ projectId: 'p1', markdown: 'edited outside', updatedAt: w.updatedAt + 5000 }]);
+    // 知らないディレクトリのファイルは消さないし切り詰めない。
+    expect(fs.readFileSync(ghost, 'utf8')).toBe('知らないプロジェクトのメモ');
+  });
   it('memoHead を db/queries.ts から再エクスポートする', async () => {
     const memo = await import('./memo.ts');
     const queries = await import('../db/queries.ts');
