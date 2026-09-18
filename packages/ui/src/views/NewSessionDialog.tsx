@@ -44,35 +44,35 @@ export function NewSessionDialog(props: NewSessionProps) {
     <div className="overlay" role="dialog" aria-modal="true" aria-label="新しいセッション" onKeyDown={onKeyDown}>
       <form ref={form} className="dialog dialog-wide" onSubmit={(e) => e.preventDefault()}>
         <b>新しいセッション</b>
-        <label className="field">プロジェクト
-          <select className="select" name="projectId" aria-label="プロジェクト" defaultValue={props.projectId ?? ''}>
+        <label className="field" htmlFor="new-session-project">プロジェクト
+          <select id="new-session-project" className="select" name="projectId" defaultValue={props.projectId ?? ''}>
             <option value="">選んでください</option>
             {props.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.path ? `　${p.path}` : ''}</option>)}
           </select>
         </label>
-        <label className="field">名前（任意）
-          <input id="new-session-name" className="input" name="name" aria-label="名前" defaultValue="" placeholder="一覧での表示名" />
+        <label className="field" htmlFor="new-session-name">名前（任意）
+          <input id="new-session-name" className="input" name="name" defaultValue="" placeholder="一覧での表示名" />
         </label>
-        <label className="field">初期プロンプト（任意）
-          <textarea className="input" name="prompt" aria-label="初期プロンプト" rows={4} defaultValue="" />
+        <label className="field" htmlFor="new-session-prompt">初期プロンプト（任意）
+          <textarea id="new-session-prompt" className="input" name="prompt" rows={4} defaultValue="" />
         </label>
         <Fold summary="詳細（model、effort、permission mode、worktree、追加ディレクトリ）">
           <div className="grid2">
-            <label className="field">model
-              <input className="input mono" name="model" aria-label="model" defaultValue="" placeholder="空なら Claude Code の設定" />
+            <label className="field" htmlFor="new-session-model">model
+              <input id="new-session-model" className="input mono" name="model" defaultValue="" placeholder="空なら Claude Code の設定" />
             </label>
-            <label className="field">effort
-              <input className="input mono" name="effort" aria-label="effort" defaultValue="" placeholder="空なら Claude Code の設定" />
+            <label className="field" htmlFor="new-session-effort">effort
+              <input id="new-session-effort" className="input mono" name="effort" defaultValue="" placeholder="空なら Claude Code の設定" />
             </label>
-            <label className="field">permission mode
-              <input className="input mono" name="permissionMode" aria-label="permission mode" defaultValue="" placeholder="空なら Claude Code の設定" />
+            <label className="field" htmlFor="new-session-permission-mode">permission mode
+              <input id="new-session-permission-mode" className="input mono" name="permissionMode" defaultValue="" placeholder="空なら Claude Code の設定" />
             </label>
-            <label className="field">worktree
-              <input className="input mono" name="worktree" aria-label="worktree" defaultValue="" placeholder="空なら通常の作業ディレクトリ" />
+            <label className="field" htmlFor="new-session-worktree">worktree
+              <input id="new-session-worktree" className="input mono" name="worktree" defaultValue="" placeholder="空なら通常の作業ディレクトリ" />
             </label>
           </div>
-          <label className="field">追加ディレクトリ（1 行 1 つ）
-            <textarea className="input mono" name="addDirs" aria-label="追加ディレクトリ" rows={2} defaultValue="" />
+          <label className="field" htmlFor="new-session-add-dirs">追加ディレクトリ（1 行 1 つ）
+            <textarea id="new-session-add-dirs" className="input mono" name="addDirs" rows={2} defaultValue="" />
           </label>
         </Fold>
         <div className="faint">新しいディレクトリでは Claude が信頼確認のダイアログを出します。起動したあとにターミナルで答えてください。</div>
