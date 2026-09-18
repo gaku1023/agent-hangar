@@ -108,6 +108,35 @@ describe('startServer', () => {
     stalled.destroy();
   });
 
+  it('起動でヘッダのファイルを用意する。~/.agent-hangar を消しても使用量が静かに止まらない', async () => {
+    // statusline はヘッダのファイルが読めなければ何も送らない。
+    // 置き場ごと消した利用者のために、トークンと同じところで起動のたびに用意する。
+    const header = path.join(home, 'statusline-header');
+    expect(fs.existsSync(header)).toBe(false);
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      expect(fs.readFileSync(header, 'utf8')).toBe(`Authorization: Bearer ${tokenOf()}\n`);
+      expect(fs.statSync(header).mode & 0o777).toBe(0o600);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('トークンを作り直すと、ヘッダのファイルも次の起動で揃う', async () => {
+    const header = path.join(home, 'statusline-header');
+    const first = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    await first.close();
+    const old = tokenOf();
+    fs.rmSync(path.join(home, 'token'));
+    const second = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      expect(tokenOf()).not.toBe(old);
+      expect(fs.readFileSync(header, 'utf8')).toBe(`Authorization: Bearer ${tokenOf()}\n`);
+    } finally {
+      await second.close();
+    }
+  });
+
   it('/ws はクエリ文字列のトークンを受け付けない', async () => {
     // URL は Referer、代理のログ、シェルの履歴、ブラウザの履歴に残る。秘密をそこに置く経路を残さない。
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });

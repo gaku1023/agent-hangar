@@ -34,6 +34,28 @@ export function writeStatuslineHeaderFile(home: string, token: string): string {
 }
 
 /**
+ * ヘッダのファイルが無いか、トークンと食い違うか、他人に読める権限なら置き直す。
+ *
+ * サーバの起動のたびに呼ぶ。
+ * 置き場ごと消した利用者は、statusline install をやり直すまでヘッダのファイルを持たない。
+ * スニペットは読めなければ何も送らずに素通しするので、使用量が静かに止まり、利用者には何も見えない。
+ * トークンと同じところで用意すれば、トークンが作り直されたときも次の起動で揃う。
+ *
+ * 中身も権限も合っているときは触らない。
+ * 毎回書き直すと mtime だけが動き、ファイルを見張っている道具に無駄な知らせが出る。
+ */
+export function ensureStatuslineHeaderFile(home: string, token: string): string {
+  const file = statuslineHeaderPath(home);
+  try {
+    const ok = fs.readFileSync(file, 'utf8') === `Authorization: Bearer ${token}\n` && (fs.statSync(file).mode & 0o777) === 0o600;
+    if (ok) return file;
+  } catch {
+    // 無い、または読めない。下で置き直す。
+  }
+  return writeStatuslineHeaderFile(home, token);
+}
+
+/**
  * 設計文書のスニペット。
  * 標準入力を読んでサーバへ背景で送り、同じ内容を元のスクリプトの標準入力に戻す。
  * ヘッダのファイルは HANGAR_HOME があればそこから読む。

@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
+import { appendStatuslineSnippet, ensureStatuslineHeaderFile, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
 
 let dir: string;
 let home: string;
@@ -97,6 +97,50 @@ describe('writeStatuslineHeaderFile', () => {
     fs.chmodSync(file, 0o644);
     writeStatuslineHeaderFile(hangarHome, TOKEN);
     expect(fs.readFileSync(file, 'utf8')).toBe(`Authorization: Bearer ${TOKEN}\n`);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe('ensureStatuslineHeaderFile', () => {
+  const TOKEN = 'e'.repeat(64);
+
+  it('ファイルが無ければ 0600 で作る', () => {
+    const hangarHome = path.join(home, '.agent-hangar-ensure1');
+    fs.mkdirSync(hangarHome, { recursive: true });
+    const file = ensureStatuslineHeaderFile(hangarHome, TOKEN);
+    expect(file).toBe(statuslineHeaderPath(hangarHome));
+    expect(fs.readFileSync(file, 'utf8')).toBe(`Authorization: Bearer ${TOKEN}\n`);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it('中身と権限が合っていれば書き直さない', () => {
+    const hangarHome = path.join(home, '.agent-hangar-ensure2');
+    fs.mkdirSync(hangarHome, { recursive: true });
+    const file = ensureStatuslineHeaderFile(hangarHome, TOKEN);
+    const before = fs.statSync(file).mtimeMs;
+    // mtime の分解能で同じ値にならないよう、書き込みの有無が分かる時刻に戻しておく。
+    const past = new Date(before - 60_000);
+    fs.utimesSync(file, past, past);
+    ensureStatuslineHeaderFile(hangarHome, TOKEN);
+    // mtime はナノ秒から丸められるので、1 ミリ秒の幅で見る。書き直していれば今の時刻に飛ぶ。
+    expect(Math.abs(fs.statSync(file).mtimeMs - past.getTime())).toBeLessThan(1);
+  });
+
+  it('トークンが作り直されていれば書き直す', () => {
+    const hangarHome = path.join(home, '.agent-hangar-ensure3');
+    fs.mkdirSync(hangarHome, { recursive: true });
+    ensureStatuslineHeaderFile(hangarHome, TOKEN);
+    const next = 'd'.repeat(64);
+    const file = ensureStatuslineHeaderFile(hangarHome, next);
+    expect(fs.readFileSync(file, 'utf8')).toBe(`Authorization: Bearer ${next}\n`);
+  });
+
+  it('中身が合っていても他人に読める権限なら狭める', () => {
+    const hangarHome = path.join(home, '.agent-hangar-ensure4');
+    fs.mkdirSync(hangarHome, { recursive: true });
+    const file = ensureStatuslineHeaderFile(hangarHome, TOKEN);
+    fs.chmodSync(file, 0o644);
+    ensureStatuslineHeaderFile(hangarHome, TOKEN);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   });
 });
