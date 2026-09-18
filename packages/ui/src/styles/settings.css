@@ -1,8 +1,9 @@
 /* Settings の statusline、要約器、使用量（Task 26） */
 
 /* ラベルと入力を横に並べる行。チェックボックスと小さな数値の入力に使う。 */
-.field-row { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); }
-.field-row .input { color: var(--ink); }
+/* palette.css の .field-row とは別物なので、設定画面だけの名前にしている。 */
+.settings-row { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); }
+.settings-row .input { color: var(--ink); }
 
 /* 設定の小さな表。行高は一覧と揃える。 */
 .mini { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }

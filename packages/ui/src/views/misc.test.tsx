@@ -158,6 +158,30 @@ describe('SettingsScreen のフェーズ 3', () => {
     fireEvent.click(screen.getByText('要約器の設定を保存'));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryFallback: false, summaryHourlyCap: 5 } });
   });
+  it('1 時間の上限は 1 以上 200 以下の整数の入力欄である', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const cap = screen.getByLabelText('1 時間の上限') as HTMLInputElement;
+    expect(cap.type).toBe('number');
+    expect(cap.min).toBe('1');
+    expect(cap.max).toBe('200');
+    expect(cap.step).toBe('1');
+  });
+  it('1 時間の上限が整数でなければ保存せず案内を出す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const cap = screen.getByLabelText('1 時間の上限');
+    // 空は 0 に、文字は NaN になってしまうので、送る前に弾く。
+    for (const bad of ['', '0', '-3', '1.5', '201']) {
+      fireEvent.change(cap, { target: { value: bad } });
+      fireEvent.click(screen.getByText('要約器の設定を保存'));
+      expect(onIntent).not.toHaveBeenCalled();
+      expect(screen.getByText('1 から 200 までの整数を入れてください')).toBeTruthy();
+    }
+    fireEvent.change(cap, { target: { value: '12' } });
+    expect(screen.queryByText('1 から 200 までの整数を入れてください')).toBeNull();
+    fireEvent.click(screen.getByText('要約器の設定を保存'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 12 } });
+  });
   it('モデルの一覧の状態を出し分ける', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ summarizerModels: null })} /></IntentRoot>);
     expect(screen.getByText('読み込んでいます')).toBeTruthy();
