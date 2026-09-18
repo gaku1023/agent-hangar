@@ -6,11 +6,10 @@ import { NewSessionDialog } from './NewSessionDialog.tsx';
 const projects = [{ id: 'p1', name: 'alpha', path: '/w/alpha' }, { id: 'p2', name: 'beta', path: '/w/beta' }];
 
 describe('NewSessionDialog', () => {
-  it('プロジェクトを選ぶまで起動できず、選んで起動すると params を出す', () => {
+  it('選んで起動すると params を出す', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={projects} projectId={null} submitting={false} error={null} /></IntentRoot>);
     const start = screen.getByRole('button', { name: '起動' });
-    expect(start).toBeDisabled();
     fireEvent.change(screen.getByLabelText('プロジェクト'), { target: { value: 'p1' } });
     fireEvent.change(screen.getByLabelText('名前'), { target: { value: 'n' } });
     fireEvent.change(screen.getByLabelText('初期プロンプト'), { target: { value: 'やって' } });
@@ -28,6 +27,15 @@ describe('NewSessionDialog', () => {
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     expect(onIntent).toHaveBeenCalledTimes(2);
     expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+  it('プロジェクトを選ばずに押しても起動を出し、projectId は入れない', () => {
+    // 未選択の判定は Mediator が持ち、失敗のメッセージが error として戻ってくる。
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={projects} projectId={null} submitting={false} error={null} /></IntentRoot>);
+    const start = screen.getByRole('button', { name: '起動' });
+    expect(start).toBeEnabled();
+    fireEvent.click(start);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.submit', params: {} });
   });
   it('送信中と失敗の表示', () => {
     render(<IntentRoot onIntent={() => {}}><NewSessionDialog projects={projects} projectId="p1" submitting error="tmux が見つかりません" /></IntentRoot>);

@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useRef, type KeyboardEvent } from 'react';
 import type { LaunchParams } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
@@ -10,19 +10,20 @@ const textKeys: TextKey[] = ['name', 'prompt', 'model', 'effort', 'permissionMod
 
 /**
  * 起動ダイアログ。必須はプロジェクトだけで、空欄は params に含めない（利用者の Claude Code の設定に従わせるため）。
- * 入力欄は非制御にして、送信のときにフォームからまとめて読む。
- * 選んだプロジェクトだけは起動ボタンの有効無効に効くので、その値だけを持つ。
+ * 入力欄はすべて非制御にして、送信のときにフォームからまとめて読む。View は状態を持たない。
+ * プロジェクトが未選択のまま送っても止めない。未選択の判定は Mediator が持ち、失敗のメッセージが error として戻ってくる。
  */
 export function NewSessionDialog(props: NewSessionProps) {
   const emit = useEmit();
   const form = useRef<HTMLFormElement>(null);
-  const [projectId, setProjectId] = useState(props.projectId ?? '');
 
   const submit = () => {
-    if (!projectId || props.submitting || !form.current) return;
+    if (props.submitting || !form.current) return;
     const data = new FormData(form.current);
     const text = (key: string): string => { const v = data.get(key); return typeof v === 'string' ? v.trim() : ''; };
-    const params: LaunchParams = { projectId };
+    const params: LaunchParams = {};
+    const projectId = text('projectId');
+    if (projectId) params.projectId = projectId;
     for (const key of textKeys) { const v = text(key); if (v) params[key] = v; }
     const dirs = text('addDirs').split('\n').map((d) => d.trim()).filter(Boolean);
     if (dirs.length) params.addDirs = dirs;
@@ -44,7 +45,7 @@ export function NewSessionDialog(props: NewSessionProps) {
       <form ref={form} className="dialog dialog-wide" onSubmit={(e) => e.preventDefault()}>
         <b>新しいセッション</b>
         <label className="field">プロジェクト
-          <select className="select" name="projectId" aria-label="プロジェクト" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+          <select className="select" name="projectId" aria-label="プロジェクト" defaultValue={props.projectId ?? ''}>
             <option value="">選んでください</option>
             {props.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.path ? `　${p.path}` : ''}</option>)}
           </select>
@@ -79,7 +80,7 @@ export function NewSessionDialog(props: NewSessionProps) {
         <div className="dialog-foot">
           <button type="button" className="btn" onClick={() => emit({ type: 'overlay.close' })}>やめる</button>
           <span className="spacer" />
-          <button type="button" className="btn btn-primary" disabled={!projectId || props.submitting} onClick={submit}>{props.submitting ? '起動しています' : '起動'}</button>
+          <button type="button" className="btn btn-primary" disabled={props.submitting} onClick={submit}>{props.submitting ? '起動しています' : '起動'}</button>
         </div>
       </form>
     </div>
