@@ -150,16 +150,18 @@ type Intent =
   | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
   | { type: 'todo.add'; projectId: ProjectId; text: string } | { type: 'todo.toggle'; id: TodoId } | { type: 'todo.remove'; id: TodoId }
   | { type: 'memo.save'; projectId: ProjectId; markdown: string }
-  | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string }
+  | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.openEditor'; id: ArtifactId }
+  | { type: 'artifact.add'; projectId: ProjectId; url: string }
   | { type: 'session.open'; id: SessionId } | { type: 'session.setMemo'; id: SessionId; text: string }
   | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams }
   | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId } | { type: 'session.kill'; runId: RunId }
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
-  | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; moveFiles: boolean }
+  | { type: 'session.promote.open'; id: SessionId }
+  | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
   | { type: 'session.takeover'; id: SessionId; force: boolean }
   | { type: 'summary.toggle'; sessionId: SessionId } | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
-  | { type: 'split.toggle' } | { type: 'transcript.toggle' }
+  | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
   | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
   | { type: 'transcript.showRaw'; sessionId: SessionId; show: boolean }
   | { type: 'transcript.follow'; sessionId: SessionId; follow: boolean }
@@ -169,11 +171,13 @@ type Intent =
   | { type: 'overlay.close' }
   | { type: 'toast.dismiss'; id: string }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
-  | { type: 'settings.update'; patch: Partial<Settings> };
+  | { type: 'settings.update'; patch: Partial<Settings> } | { type: 'summarizer.test' };
 ```
 
 `transcript.follow` の `follow: false` は、利用者が自分でスクロールを上げたときだけ発行する。
 末尾へ送るスムーズスクロールの途中では発行しない。
+
+`split.resize` は `SplitPane` の `IntentBoundary` が処理して止めるので、Root にも Mediator にも届かない。
 
 ### Mediator の状態機械
 
@@ -402,6 +406,28 @@ create table usage_snapshots (
   at integer primary key, payload text not null    -- statusline から受けた JSON
 );
 
+-- statusline の payload から取る、セッションごとの付帯情報。
+create table session_live_stats (
+  provider_session_id text primary key,
+  model text, effort text,
+  context_used integer, context_size integer,
+  cost_usd real,
+  updated_at integer not null
+);
+
+-- Artifact ツールの呼び出しの控え。結果と突き合わせるために持つ。
+create table artifact_calls (
+  tool_id text primary key, session_id text not null,
+  file_path text, description text, favicon text
+);
+
+-- jsonl の usage から導いた日別のトークン数。
+create table usage_daily (
+  session_id text not null, day text not null,
+  input_tokens integer not null default 0, output_tokens integer not null default 0,
+  primary key (session_id, day)
+);
+
 create table sync_state (key text primary key, value text not null);
 create table settings_local (key text primary key, value text not null);
 ```
@@ -564,14 +590,19 @@ MCP の URL はセッション別（`/mcp/s/<sessionId>`）なので、ツール
 リポジトリ名を決める前に使い捨てのセッションを回したい、という用途のために **スクラッチ** を用意する。
 「スクラッチで始める」は `~/.agent-hangar/scratch/<yyyymmdd-HHmmss>/` を作り、そこを cwd にセッションを起動する。
 スクラッチのセッションは `is_scratch = 1` の擬似プロジェクトに属する。
+この擬似プロジェクトは端末ごとに 1 つで、どのスクラッチのディレクトリで起動したセッションもすべてここに属する。
 
-セッション画面の「プロジェクトに昇格」は、名前を受け取って次を行う。
+セッション画面の「プロジェクトに昇格」は、名前とチェックボックス 2 つ（`git init` するか、ファイルを移すか）を受け取って次を行う。
 
 1. `<workspaceRoot>/<name>` を作り、チェックが入っていれば `git init` する。
 2. 新しいプロジェクト行と、この端末の `project_roots` を作る。
 3. セッションの `project_id` を新プロジェクトに変える。
 4. セッションの run がすべて終了していれば、スクラッチ内のファイルを新ディレクトリへ移動する。run が生きていれば移動はせず、その旨を表示する。
 5. 「この場所で新しいセッションを開始」を提案する。
+
+run が生きている間はファイルを移さず、`moved: false` と理由を返す。
+移動の途中で失敗したら、そこまでに移したものを逆順に戻してから理由を返す。
+cwd の実体がスクラッチの外を指すシンボリックリンクのときも移さない。
 
 本文ファイルの cwd は変わらないので、昇格後にこのセッションを再開すると cwd はスクラッチのままである。
 再開ボタンにはその注意を添える。
@@ -589,6 +620,10 @@ MCP の URL はセッション別（`/mcp/s/<sessionId>`）なので、ツール
 - **事後生成**：run 終了時に要約が土台のままか、最後の更新から 5 ターン以上進んでいれば、要約器で作り直す。セッションを開いたときも同じ条件で作る。`source = 'post_hoc'`。
 
 過去の全件を背景で埋めることはしない。
+
+事後生成の契機は、run が終わったときと、セッション画面を開いて先頭ページを読んだときの 2 つである。
+要約器は LM Studio を先に試し、使えないときだけ `claude -p` に切り替える。
+切り替えは 1 時間あたりの件数（既定 20）と 7 日の使用率 80% で止め、`claude` が PATH に無ければ使わない。
 
 要約器は差し替え可能な部品にする。
 
@@ -646,6 +681,9 @@ MCP は Streamable HTTP で提供する。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
 
+`update_project` は TODO の追加と完了の切り替え、メモの追記を行い、TODO の書き込みは全部成功か全部失敗のどちらかにする（途中で失敗したものが残らない）。
+`get_usage` は 5 時間と 7 日の使用率と最終更新時刻を返し、statusline が一度も届いていなければ値は null になる。
+
 `hangar mcp install` は、Claude Code の user スコープに `hangar` サーバを登録する。
 登録は利用者が明示的に実行し、hangar は `~/.claude.json` を直接書かず `claude mcp add` を呼ぶ。
 `claude mcp add` の `--header` は可変長オプションなので、名前と URL の位置引数を先に、`--header` を最後に置く。
@@ -671,6 +709,10 @@ Tauri のシェルは `hangar://` スキームを登録する。
 元ファイルが残っていれば「VS Code で開く」も付ける。
 利用者は URL を手で追加できる。
 
+呼び出しと結果は別の記録にあり、追記の境目で分かれることがあるので、端末ローカルの `artifact_calls` に呼び出しを控えて結果と突き合わせる。
+題名は表示のたびに計算せず、公開を記録するときに決めて `artifacts.title` に書く。
+カードのクリックは `POST /api/artifacts/:id/open` でサーバが `open` を実行する（ブラウザの `window.open` は使わない）。
+
 ## 使用量
 
 5 時間と 7 日のレート制限の使用率は、ディスクには保存されていない。
@@ -693,6 +735,8 @@ payload には `rate_limits` のほかに `session_id`、`session_name`、`cwd`�
 更新は定期ではなく、起動直後と応答完了のたびに 1 回である。起動直後の 1 回目は `rate_limits` が無いので、欠けた項目は直前の値を保つ。
 使用率は Claude のセッションが動いている間だけ更新されるので、ヘッダーのゲージには「最終更新 N 分前」を添える。
 追記は目印のコメント行で二重追記を避け、追記前にバックアップを取る。
+追記を行うのは `hangar setup` の手順 4 と `hangar statusline install` の 2 つだけで、どちらも利用者の承諾を求める。
+UI とサーバは追記の有無を `GET /api/statusline` で読むだけで、書き込む経路もボタンも持たない。
 副情報として、jsonl の `usage` からトークン数と推定コストを日別とプロジェクト別に集計する。
 
 ## 検索
@@ -781,6 +825,8 @@ xterm のインスタンスとスクロールバッファは残すので、戻�
 ### Settings
 
 ワークスペースルート、ターミナルアプリ、VS Code のパス、MCP 登録、statusline への追記、tmux の有無、要約器（LM Studio の URL とモデル、フォールバックの上限）、クラウド同期（状態、参加トークンの発行、一時停止）、Provider の一覧を置く。
+statusline の節は追記の有無と追記先のパスを出すだけで、書き込むボタンは持たない（追記は CLI から行う）。
+使用量の節には、直近 30 日の日別（日、入力トークン、出力トークン、セッション数）と、プロジェクト別（名前、トークン、推定コスト、セッション数）の 2 つの小さな表を置く。
 診断として、サーバのログの末尾と索引の進行を出す。
 
 ### ショートカット
@@ -790,6 +836,9 @@ xterm のインスタンスとスクロールバッファは残すので、戻�
 - 一覧：j と k で上下、Enter で開く、o でターミナル、e で VS Code、m でメモ編集。
 
 ターミナルにフォーカスがあるとき、⌘ を含む組み合わせだけを hangar が受け取り、それ以外はすべてターミナルへ渡す。
+判定は `keydown` の `target` が `.term-host` の中にあるかで行い、渡すものは `preventDefault` せずに xterm へ落とす。
+タブ切替は ⌘1 から ⌘9 と ⌃⌥1 から ⌃⌥9 の両方を常に受け付ける（Tauri かブラウザかの判別は持たない）。
+ただし ⌃⌥ の側は ⌘ を含まないので、ターミナルにフォーカスがある間はターミナルへ渡る。
 
 ## 見た目と動き
 
@@ -802,6 +851,7 @@ xterm のインスタンスとスクロールバッファは残すので、戻�
 ステータスごとに文字色と淡い地色のトークン（`--st-<status>`、`--st-<status>-soft`）を持ち、ステータスの部品と見出しの点が `data-status` からそれを引く。
 ステータスの部品は、文字、その右の塗りつぶしの丸、矢印の順に自前で描き、透明にした本物の `select` をその上に重ねる。
 素の `select` の中には要素を置けないためで、選択肢の一覧、キーボード操作、読み上げは `select` がそのまま受け持つ。
+この部品は `views/primitives/StatusSelect.tsx` の `StatusSelect`（選べる場所）と `ProjectStatusDot`（読むだけの場所）だけを通して使い、View が `<select>` を自分で書くことはしない。
 淡い地色の上の文字は 4.5:1 以上のコントラストを保つ。
 ステータスは常に文字でも示すので、色は補助である。
 グラデーション、グロー、ガラス、影の多用はしない。
@@ -969,8 +1019,38 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - PTY の中継は `/ws/pty?tab=<tabId>` で、`/ws` と同じ認証を通す。WebSocket が閉じたら `tmux attach` のクライアントだけを殺し、tmux セッションは残す。
 - 起動ダイアログの model、effort、permission mode、worktree、追加ディレクトリは空欄を既定にし、空欄の項目は起動引数に含めない。
 
+以下はフェーズ 3 の実装で決めた前提である。
+
+- 使用量の保存：statusline の payload は `usage_snapshots(at, payload)` に生の JSON で積み、直近 500 件だけ残す。5 時間と 7 日の値は `UsageTracker` がメモリに持ち、サーバ起動時に新しい順へ走査して両方の窓が埋まるまで読む。`rate_limits` の無い payload では直前の値を保ち、`updatedAt` も更新しない（ゲージの「最終更新」は使用率が届いた時刻を指す）。
+- セッションごとの付帯情報：payload の `model`、`effort`、`context_window`、`cost` は端末ローカルの `session_live_stats` に Claude の UUID（`provider_session_id`）を鍵として置く。`SessionDto.stats` の `model` と `effort` はこの表を `session_stats` より優先する。`contextPercent` は `current_usage` の入力とキャッシュのトークンの和を `context_window_size` で割った百分率で、`current_usage` が無い 1 回目は書かない。`costUsd` は `cost.total_cost_usd`。
+- statusline の追記先：`~/.claude/settings.json` の `statusLine.command` から先頭の `bash `、`sh `、`zsh ` を除いた最初の語を `~` 展開し、ファイルとして存在すればそこへ追記する。存在しなければ追記せず、スニペットと手順を印字する。追記位置は 1 行目が `#!` で始まればその直後、そうでなければ先頭で、目印の行があれば何もしない。バックアップは同じディレクトリの `<name>.bak-<yyyymmddHHMMSS>`。
+- statusline のスニペットは、トークンを `${HANGAR_HOME:-$HOME/.agent-hangar}/token` から読み、ポートは追記時の値を埋め込む（`hangar statusline install --port <n>`）。`exec <<<` を使うので、追記先のスクリプトは bash か zsh である必要がある。
+- jsonl の使用量の集計：端末ローカルの `usage_daily(session_id, day, input_tokens, output_tokens)` を索引化のときに埋める。`day` はイベントの `timestamp` をローカル時刻で `YYYY-MM-DD` にしたもの。プロジェクト別は `session_stats` のトークン数を `sessions.project_id` で束ねる。推定コストは価格表を持たず、statusline の `cost.total_cost_usd` を持つセッションの和だけを出す（1 件も無ければ null）。
+- アーティファクトの抽出：`Artifact` ツールの呼び出しを `artifact_calls(tool_id, session_id, file_path, description, favicon)` に控え、結果の本文から URL を取り出せたときだけ公開とみなす。記録するのは `action` が無いか `publish` のときだけで、`read` や `list` は公開ではない。`artifacts` は URL で 1 件にまとめ、`first_published_at` は最小、`last_published_at` は最大を保ち、説明と favicon は新しい公開の値で上書きする。
+- アーティファクトの版：`artifact_versions` は（`artifact_id`、`session_id`、`published_at`）が同じ行が既にあれば追加しない。索引の作り直しでは版を消さず、同じ行を書き直すだけにする。消すとサブエージェント由来の版が巻き添えになり、`changes` にも削除が残らないためである。
+- アーティファクトの題名：表示のたびに計算せず、公開を記録するときに決めて `artifacts.title` に書く。元ファイルがあれば先頭 64KB の `<title>`、無ければ説明文の先頭 60 字を使う。手で足した URL は題名 null で、UI は URL の末尾を出す。
+- TODO の並び：`position` は追加のたびにそのプロジェクトの最大値に 1 を足す。並び替えの操作は持たず、完了した項目も同じ並びに打消し線を引いて残す。削除は論理削除。`todos.session_id` はセッション別 MCP URL の `update_project` から足したときだけ入る。
+- メモの正：`project_memos.markdown` とファイル `~/.agent-hangar/projects/<projectId>/memo.md` の両方に書く。読むときはファイルの mtime が DB の `updated_at` より新しく中身が違えばファイルを正として DB を直す。`~/.agent-hangar/projects/` を `fs.watch`（再帰）で見て、300 ミリ秒のデバウンスで取り込んで `memo.update` を配る。`memoHead` は空行でない最初の行の先頭 80 字で、全文は `GET /api/projects/:id/memo` で読む。
+- スクラッチの擬似プロジェクト：端末ごとに 1 つで、名前は「スクラッチ」、この端末の `project_roots.path` は `~/.agent-hangar/scratch`。ディレクトリ名は `<yyyymmdd-HHmmss>`（ローカル時刻、同じ秒に 2 つ作るときは `-2`、`-3`）。Projects 画面と Home のカードにはこの行を出さず、Sessions 画面の絞り込みには出す。
+- スクラッチかどうかの判定は、スクラッチのルートの下にあるかで行い、ルート自身は含めない。`scratch_root` は `project_roots` を端末で絞って引く。
+- 昇格：`POST /api/sessions/:id/promote { name, gitInit, moveFiles }`。`name` は `/` を含まない 1 字以上で、`<workspaceRoot>/<name>` が既にあれば 409。移動は先に全件の衝突を調べてから `fs.renameSync` で行い、途中で失敗したら逆順に戻す。`moveFiles` が真でも run が生きていれば移動せず、`moved: false` と理由を返す。
+- `SessionDto.fromScratch`：cwd がスクラッチのルートの下で、属するプロジェクトがスクラッチでないときに真にする。セッション画面は真のとき「再開すると cwd はスクラッチのままです」を添える。
+- 分割の持ち方：`SessionViewState` に `split: boolean` と `splitTab: string | null` を持つ。左は選択中のタブ、右は `splitTab` で、幅は `SplitPane` の中の状態にして保存しない（0.5 に戻る）。分割の右に置いたタブが閉じたら `splitTab` を null にし、`split` も偽に戻す。
+- 分割にタブが 2 つ要ることの判定は、Mediator がストアを見ないので、`split.resolve` の効果を受けたランタイムが決めて `split.resolved` で返す。Mediator は返ってきた結果で状態を変えるか、トースト「分割にはタブが 2 つ必要です」を出すかを選ぶ。
+- パレットの項目：コマンドは新規セッション、スクラッチで始める、設定、索引を作り直すの 4 つで、これにプロジェクト（`project:<id>`）とセッション（`session:<id>`、名前と要約の 1 文で照合）を足す。照合は部分列一致で、一致位置が前で連続しているほど高い点を付け、同点は積んだ順にして上位 30 件を出す。入力欄の文字は Root の `useState` が持ち、Mediator には入れない。
+- 要約器の設定：`SettingsDto` に `lmStudioUrl`（既定 `http://127.0.0.1:1234`）、`lmStudioModel`（既定 null で、null なら `/v1/models` の最初のモデル）、`summaryFallback`（既定 true）、`summaryHourlyCap`（既定 20）を持つ。
+- 要約の入力：主線の全イベントを読み（サブエージェントは含めない）、`user` は 2,000 字、`assistant` は 600 字、`tool_call` は 1 行に切り、`thinking`、`tool_result`、`system`、`meta` は捨てる。全体が 12,000 字を超えたら先頭 30% と末尾 30% を残し、中盤を「[... N 件を省略 ...]」に置き換える。
+- 要約ジョブの契機：run の終了と、セッション画面を開いたときの先頭ページの読み込みの 2 つで `enqueue` する。受け付けるのは要約が土台のままか最後の更新から 5 ターン以上進んだときだけで、実行中のセッションは受け付けない（セッション自身の `set_session_summary` に任せる）。「要約を作り直す」は条件を無視する。ジョブは 1 セッション 1 件で、直列に走る。
+- 要約の配信が失敗しても待ち行列は進める。配信の失敗は 1 行だけ記録し、次のジョブを止めない。
+- Claude への切り替えの上限：呼び出しの時刻をメモリに持ち、直近 1 時間の件数が上限に達していれば使わない。7 日の使用率が 80 以上でも使わず、`claude` が PATH に無ければ使わない。サーバを再起動すると件数は 0 に戻る。
+- MCP の `update_project` の TODO の書き込みは、全部成功か全部失敗のどちらかにする。途中で失敗したものが残ったままイベントだけ配られないようにするためである。
+- `GET /api/bootstrap` は `usage`、`todos`（全プロジェクトの未削除）、`artifacts`（全件）、`summaryPending`（作成中のセッション ID）も返す。メモの全文は含めない。
+- UI の CSS は `base.css` に足さず、View ごとのファイル（`workbench.css`、`split.css`、`rows.css`、`palette.css`、`settings.css`）に分けて `main.tsx` から `base.css` の後に読み込む。
+- 既知の限界：`usage_daily` は主線の索引の作り直しでセッション単位に消すので、主線の jsonl だけが縮んだときサブエージェント分の集計が失われる。削除をやめると作り直しで二重に数えるため、まれな取りこぼしを受け入れる。
+- 既知の限界：プロジェクトのメモは、ファイルの mtime が DB の `updated_at` より古いと DB の内容がファイルに書き戻される。外部のエディタで書いた直後にファイルの時刻が巻き戻る状況では、その編集が失われる。
+
 未決事項は次のとおりである。
 
 - 未署名の `.app` を配布したときの Gatekeeper の扱い。家族に渡す手順（右クリックで開く）か署名の取得かを、フェーズ 5 で決める。
 - 権限確認ダイアログの待ちがレジストリで `waiting` になるか `busy` のままかは、auto モード以外で確かめる。
-- OpenCode Provider の詳細設計。フェーズ 3 以降に別文書で書く。
+- OpenCode Provider の詳細設計。フェーズ 5 以降に別文書で書く（フェーズ 3 では扱わなかった）。
