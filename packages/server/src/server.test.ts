@@ -7,7 +7,7 @@ import WebSocket from 'ws';
 import type { ServerEvent, SessionDto } from '@agent-hangar/shared';
 import { mangleCwd } from './provider/claude-code/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../test/fixtures.ts';
-import { startServer } from './server.ts';
+import { startServer, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -66,6 +66,12 @@ async function until<T>(fn: () => Promise<T | null>, ms = 8000): Promise<T> {
 }
 
 describe('startServer', () => {
+  it('番人は attach している経路をすべて許す', () => {
+    // 番人の集合から経路が抜けると、101 を返した直後の接続を番人が切ってしまう。
+    // その状態は upgrade が失敗する経路からは観測できないので、ここで集合そのものを見る。
+    expect([...WS_PATHS].sort()).toEqual(['/ws', '/ws/pty']);
+  });
+
   it('WebSocket と keep-alive の接続が残っていても close は 2 秒以内に終わる', async () => {
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
     expect(s.port).toBeGreaterThan(0);

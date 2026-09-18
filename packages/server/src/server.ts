@@ -23,6 +23,13 @@ import { EventHub } from './ws/hub.ts';
 export const VERSION = '0.2.0';
 
 const ROOT_CHECK_MS = 30_000;
+
+/**
+ * WebSocket の upgrade を受け付ける経路。
+ * ここに無い経路は番人が切る。attach する側とこの集合が食い違うと、
+ * 101 を返した直後の接続を番人が切ってしまうので、定数を正本にして両方から参照する。
+ */
+export const WS_PATHS = new Set(['/ws', '/ws/pty']);
 /** tmux の一覧を見て run の終了を拾う間隔。 */
 const RUN_POLL_MS = 2000;
 
@@ -164,9 +171,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   relay.attach(server, '/ws/pty');
   // 経路を握る側は path が違えば黙って返すので、最後に未知の経路を切る番人を置く。
   // upgrade を受けた時点でこの接続は HTTP 側の管理から外れるため、誰も引き取らないと相手が待ち続ける。
-  const wsPaths = new Set(['/ws', '/ws/pty']);
   server.on('upgrade', (req, socket) => {
-    if (!wsPaths.has(new URL(req.url ?? '/', 'http://x').pathname)) socket.destroy();
+    if (!WS_PATHS.has(new URL(req.url ?? '/', 'http://x').pathname)) socket.destroy();
   });
 
   registry.start();
