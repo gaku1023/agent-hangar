@@ -13,8 +13,8 @@ export type LaunchInput = {
   name?: string;
   prompt?: string;
   systemPrompt: string;
-  mcpUrl: string;
-  token: string;
+  /** MCP の設定を書いた 0600 のファイル。トークンを argv に載せないため、パスだけを渡す。 */
+  mcpConfigPath: string;
   model?: string;
   effort?: string;
   permissionMode?: string;

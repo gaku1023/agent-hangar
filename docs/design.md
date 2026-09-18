@@ -30,7 +30,7 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
 
 設計を貫く原則を先に置く。
 
-- **読み取り専用**：Claude Code のディレクトリ（`~/.claude/`）にあるファイルを、hangar は書き換えない。例外は、利用者が明示的に押した操作で他端末のセッション本文をコピーする場合と、statusline スクリプトへの追記だけである。
+- **読み取り専用**：Claude Code のディレクトリ（`~/.claude/`）にあるファイルを、hangar は書き換えない。例外は、利用者が明示的に押した操作で他端末のセッション本文をコピーする場合と、statusline スクリプトへの追記だけである。`hangar mcp install` は `~/.claude.json` の `mcpServers.hangar` だけを書き換える（このファイルは `~/.claude/` の外にある）。
 - **ファイルを消さない**：hangar は利用者のファイルを削除しない。プロジェクトの削除は紐づけの解除であり、ディレクトリには触れない。例外はスクラッチを昇格するときの移動だけである。
 - **サーバが正**：状態はローカルサーバが持ち、UI は描画に必要な値だけを受け取る。ブラウザでも Tauri でも同じ UI が動く。
 - **Provider 非依存の表示**：トランスクリプトは正規化した共通形式に変換して描く。表示コードは Claude Code の jsonl 形式を知らない。
@@ -516,7 +516,7 @@ tmux new-session -d -s hangar-<runShort> -c <cwd> -- \
   env HANGAR_RUN_ID=<runId> \
   bash ~/.agent-hangar/bin/hangar-run.sh ~/.agent-hangar/logs/run-<runId>.log \
   claude \
-    --mcp-config '{"mcpServers":{"hangar":{"type":"http","url":"http://127.0.0.1:4177/mcp/s/<sessionId>","headers":{"Authorization":"Bearer <token>"}}}}' \
+    --mcp-config ~/.agent-hangar/mcp/<sessionId>.json \
     [--add-dir <dir>]... \
     --session-id <sessionUuid> -n "<name>" \
     --append-system-prompt "<生成した指示>" \
@@ -525,6 +525,10 @@ tmux new-session -d -s hangar-<runShort> -c <cwd> -- \
 ```
 
 `--session-id` を hangar が生成して渡すので、本文ファイルのパスは起動前に確定する。
+`--mcp-config` には JSON の文字列ではなく、権限 0600 のファイルのパスを渡す。
+JSON には Bearer トークンが入るので、文字列で渡すと claude の argv に載り、同じ利用者の権限で動く任意のプロセスが `ps` から 64 桁を読めてしまう。
+ファイルは `~/.agent-hangar/mcp/<sessionId>.json` に置き、run が終わったときに消す。
+消し損ねたものは、次の起動と起動時の回復のときに、生きている run のぶんを残して落とす。
 `--mcp-config` と `--add-dir` は可変長オプションで、直後の位置引数を飲み込む。
 起動コマンドの組み立てでは、可変長オプションを他のオプションの前に置き、初期プロンプトは必ず末尾に置く（フェーズ 0 の検証で、逆順にすると初期プロンプトが設定ファイル名として解釈されて即時終了した）。
 tmux で `claude` を直接起動すると異常終了時の出力が失われるので、薄いラッパースクリプトを介して起動し、終了コードと標準エラーをログに残してから tmux セッションを閉じる。
@@ -671,6 +675,8 @@ MCP クライアントは `Origin` を送らないので、ヘッダが無い要
 API と MCP は、`~/.agent-hangar/token`（権限 0600）に置いたローカルトークンを Bearer で要求する。
 UI は、サーバが index.html を配信するときに `SameSite=Strict` の HttpOnly クッキーとして同じトークンを受け取る。
 MCP クライアントには、`hangar mcp install` と `--mcp-config` がヘッダ付きの設定を書くので、利用者がトークンを扱う場面はない。
+トークンは、どの経路でもプロセスの引数には載せない。
+引数は `ps` から誰にでも読めるためである。
 
 ### ツール
 
@@ -694,8 +700,13 @@ MCP は Streamable HTTP で提供する。
 `get_usage` は 5 時間と 7 日の使用率と最終更新時刻を返し、statusline が一度も届いていなければ値は null になる。
 
 `hangar mcp install` は、Claude Code の user スコープに `hangar` サーバを登録する。
-登録は利用者が明示的に実行し、hangar は `~/.claude.json` を直接書かず `claude mcp add` を呼ぶ。
-`claude mcp add` の `--header` は可変長オプションなので、名前と URL の位置引数を先に、`--header` を最後に置く。
+登録は利用者が明示的に実行し、`~/.claude.json` の `mcpServers.hangar` だけを hangar が書き換える。
+`claude mcp add` を呼ばないのは、`--header` の値が argv に載り、トークンが `ps` から読めるためである。
+`claude mcp add` にはヘッダの値をファイルや標準入力から受ける口が無く、`${HANGAR_TOKEN}` と書いても展開されずにそのまま保存されることを実物で確かめた。
+書き換えは同じディレクトリに書いてから `rename` する形で、他の項目と他の MCP サーバには触れない。
+ファイルが JSON として壊れているときは、上書きせずに失敗として返す。
+`claude` が PATH に無いときは登録もしない。
+削除は `claude mcp remove` に任せる。こちらはトークンを渡さないので、argv の問題が無い。
 Claude Code は MCP のツール定義を遅延して読むため、ツールの説明文に「agent-hangar」を含めて検索で当たるようにする。
 
 ### ディープリンク
@@ -731,12 +742,19 @@ Tauri のシェルは `hangar://` スキームを登録する。
 ```sh
 # agent-hangar: 使用量をローカルサーバへ渡す。失敗は無視する。
 __hangar_input=$(cat)
-printf '%s' "$__hangar_input" | curl -s -m 0.3 -X POST \
+__hangar_home="${HANGAR_HOME:-$HOME/.agent-hangar}"
+__hangar_token=$(cat "$__hangar_home/token" 2>/dev/null)
+printf '%s' "$__hangar_input" | HANGAR_TOKEN="$__hangar_token" curl -s -m 0.3 -X POST \
   -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $(cat "$HOME/.agent-hangar/token" 2>/dev/null)" \
+  --variable '%HANGAR_TOKEN' --expand-header 'Authorization: Bearer {{HANGAR_TOKEN}}' \
   --data-binary @- http://127.0.0.1:4177/api/ingest/statusline >/dev/null 2>&1 &
 exec <<<"$__hangar_input"
 ```
+
+トークンは環境変数で curl に渡す。
+`-H "Authorization: Bearer $(cat ...)"` と書くとシェルが先に展開するので、64 桁が curl の argv に載り、statusline が走るたびに `ps` から読める。
+curl の `--variable %NAME` は環境変数を読み、`--expand-header` がその値をヘッダに差し込む。
+この 2 つは curl 8.3 以降にある（手元の 8.7.1 で確認した）。
 
 `settings.json` は書き換えない。
 payload には `rate_limits` のほかに `session_id`、`session_name`、`cwd`、`transcript_path`、`model`、`effort`、`cost`、`context_window` が入る。
@@ -750,6 +768,8 @@ payload には `rate_limits` のほかに `session_id`、`session_name`、`cwd`�
 更新は定期ではなく、起動直後と応答完了のたびに 1 回である。起動直後の 1 回目は `rate_limits` が無いので、欠けた項目は直前の値を保つ。
 使用率は Claude のセッションが動いている間だけ更新されるので、ヘッダーのゲージには「最終更新 N 分前」を添える。
 追記は目印のコメント行で二重追記を避け、追記前にバックアップを取る。
+既に入っているスニペットが今の形と違うときは、目印の行から `exec <<<` の行までを差し替える。
+目印だけを見て何もしないと、トークンを argv に載せる古い形が入ったまま残るためである。
 追記を行うのは `hangar setup` の手順 4 と `hangar statusline install` の 2 つだけで、どちらも利用者の承諾を求める。
 UI とサーバは追記の有無を `GET /api/statusline` で読むだけで、書き込む経路もボタンも持たない。
 副情報として、jsonl の `usage` からトークン数と推定コストを日別とプロジェクト別に集計する。
@@ -1046,8 +1066,8 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 
 - 使用量の保存：statusline の payload は `usage_snapshots(at, payload)` に生の JSON で積み、直近 500 件だけ残す。5 時間と 7 日の値は `UsageTracker` がメモリに持ち、サーバ起動時に新しい順へ走査して両方の窓が埋まるまで読む。`rate_limits` の無い payload では直前の値を保ち、`updatedAt` も更新しない（ゲージの「最終更新」は使用率が届いた時刻を指す）。
 - セッションごとの付帯情報：payload の `model`、`effort`、`context_window`、`cost` は端末ローカルの `session_live_stats` に Claude の UUID（`provider_session_id`）を鍵として置く。`SessionDto.stats` の `model` と `effort` はこの表を `session_stats` より優先し、この表に無ければ索引から導いた `session_stats` の値を使う。`contextPercent` と `costUsd` は `session_live_stats` にしか供給源が無く、statusline の追記を入れていないセッションでは常に null になる（UI は「未取得」と出す）。`contextPercent` は `current_usage` の入力とキャッシュのトークンの和を `context_window_size` で割った百分率で、`current_usage` が無い 1 回目は書かない。`costUsd` は `cost.total_cost_usd`。
-- statusline の追記先：`~/.claude/settings.json` の `statusLine.command` から先頭の `bash `、`sh `、`zsh ` を除いた最初の語を `~` 展開し、ファイルとして存在すればそこへ追記する。存在しなければ追記せず、スニペットと手順を印字する。追記位置は 1 行目が `#!` で始まればその直後、そうでなければ先頭で、目印の行があれば何もしない。バックアップは同じディレクトリの `<name>.bak-<yyyymmddHHMMSS>`。
-- statusline のスニペットは、トークンを `${HANGAR_HOME:-$HOME/.agent-hangar}/token` から読み、ポートは追記時の値を埋め込む（`hangar statusline install --port <n>`）。`exec <<<` を使うので、追記先のスクリプトは bash か zsh である必要がある。
+- statusline の追記先：`~/.claude/settings.json` の `statusLine.command` から先頭の `bash `、`sh `、`zsh ` を除いた最初の語を `~` 展開し、ファイルとして存在すればそこへ追記する。存在しなければ追記せず、スニペットと手順を印字する。追記位置は 1 行目が `#!` で始まればその直後、そうでなければ先頭で、目印の行があって中身も今の形と同じなら何もしない。バックアップは同じディレクトリの `<name>.bak-<yyyymmddHHMMSS>`。
+- statusline のスニペットは、トークンを `${HANGAR_HOME:-$HOME/.agent-hangar}/token` から読み、環境変数 `HANGAR_TOKEN` に入れて curl の `--variable` と `--expand-header` で渡す。ポートは追記時の値を埋め込む（`hangar statusline install --port <n>`）。`exec <<<` を使うので、追記先のスクリプトは bash か zsh である必要がある。
 - jsonl の使用量の集計：端末ローカルの `usage_daily(session_id, day, file_path, input_tokens, output_tokens)` を索引化のときに埋める。鍵は（`session_id`、`file_path`、`day`）で、索引の作り直しではそのファイルのぶんだけを消してから積み直す。主線とサブエージェントは別のファイルなので、片方を積み直しても他方の集計は残る。`day` はイベントの `timestamp` をローカル時刻で `YYYY-MM-DD` にしたもの。プロジェクト別は `session_stats` のトークン数を `sessions.project_id` で束ねる。推定コストは価格表を持たず、statusline の `cost.total_cost_usd` を持つセッションの和だけを出す（1 件も無ければ null）。
 - アーティファクトの抽出：`Artifact` ツールの呼び出しを `artifact_calls(tool_id, session_id, file_path, description, favicon)` に控え、結果の本文から URL を取り出せたときだけ公開とみなす。記録するのは `action` が無いか `publish` のときだけで、`read` や `list` は公開ではない。`artifacts` は URL で 1 件にまとめ、`first_published_at` は最小、`last_published_at` は最大を保ち、説明と favicon は新しい公開の値で上書きする。
 - アーティファクトの版：`artifact_versions` は（`artifact_id`、`session_id`、`published_at`）が同じ行が既にあれば追加しない。索引の作り直しでは版を消さず、同じ行を書き直すだけにする。消すとサブエージェント由来の版が巻き添えになり、`changes` にも削除が残らないためである。版はアーティファクト単位で引くので、`artifact_versions(artifact_id)` に索引を置く。

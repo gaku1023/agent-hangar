@@ -5,6 +5,7 @@ import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
+import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../launch/mcpConfig.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
 import { ensureScratchProject, newScratchDir } from '../projects/scratch.ts';
 import { hasTranscriptFile } from '../provider/claude-code/discover.ts';
@@ -127,8 +128,8 @@ export class RunManager {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
     return {
       systemPrompt: this.injectionFor(projectId, cwd),
-      mcpUrl: this.mcpUrl(sessionId),
-      token: this.deps.token,
+      // トークンを argv に載せないため、MCP の設定は 0600 のファイルに置き、パスだけを claude に渡す。
+      mcpConfigPath: writeMcpConfig(this.deps.home, sessionId, this.mcpUrl(sessionId), this.deps.token),
       name: s(params.name),
       prompt: s(params.prompt),
       model: s(params.model),
@@ -162,11 +163,14 @@ export class RunManager {
     }
     // ログは run ごとに増えるので、起動のついでに古いものを落とす。
     // 動いている run のログは残す。書いている途中のログを消すと、その run の記録が切れる。
+    const alive = listAliveRuns(this.db, this.deps.deviceId);
     try {
-      pruneRunLogs(this.deps.home, listAliveRuns(this.db, this.deps.deviceId).map((r) => r.id));
+      pruneRunLogs(this.deps.home, alive.map((r) => r.id));
     } catch (e) {
       console.error('[runs] ログの掃除に失敗しました', e instanceof Error ? e.message : e);
     }
+    // 異常終了などで消し損ねた MCP の設定を、ここで拾う。中にトークンが入っているので残さない。
+    this.pruneMcpConfigs(alive.map((r) => r.sessionId));
     const result: LaunchResult = { run: getRun(this.db, runId)!, sessionId: o.sessionId, tabs: listTabs(this.db, runId) };
     this.emit('runStarted', result);
     return result;
@@ -178,6 +182,8 @@ export class RunManager {
     if (!row || row.ended_at !== null) return null;
     upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
     const run = getRun(this.db, runId)!;
+    // claude はもう居ない。トークンの入った設定ファイルを残さない。
+    removeMcpConfig(this.deps.home, run.sessionId);
     this.pruneEmptySession(run);
     this.emit('runEnded', run);
     return run;
@@ -331,7 +337,18 @@ export class RunManager {
         if (e) out.push(e);
       }
     }
+    // 前回サーバが落ちた拍子に残った設定も、ここで落とす。
+    this.pruneMcpConfigs(listAliveRuns(this.db, this.deviceId).map((r) => r.sessionId));
     return out;
+  }
+
+  /** 生きている run のもの以外の MCP 設定を落とす。掃除の失敗で起動を止めない。 */
+  private pruneMcpConfigs(aliveSessionIds: string[]): void {
+    try {
+      pruneMcpConfigs(this.deps.home, aliveSessionIds);
+    } catch (e) {
+      console.error('[runs] MCP 設定の掃除に失敗しました', e instanceof Error ? e.message : e);
+    }
   }
 
   private get deviceId(): string {
