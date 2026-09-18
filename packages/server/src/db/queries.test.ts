@@ -134,6 +134,19 @@ describe('フェーズ 3 の項目', () => {
     const again = getSession(db, live, alpha.id)!;
     expect(again.stats).toMatchObject({ model: 'claude-opus-4-1', effort: 'max', contextPercent: 25, costUsd: 0.1234 });
   });
+  it('別の端末のスクラッチのルートでは fromScratch が反転しない', () => {
+    upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
+    upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/scratch', resolved: 1 }, 'd');
+    upsertShared(db, 'projects', { id: 'scratch-other', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'other');
+    upsertShared(db, 'project_roots', { id: 'rs-other', project_id: 'scratch-other', device_id: 'other', path: '/Users/other/.agent-hangar/scratch', resolved: 1 }, 'other');
+    // 別の端末のルートの方が新しくても、この端末のセッションの判定には使わない。
+    db.prepare('update project_roots set updated_at = ? where id = ?').run(Date.now() + 1000, 'rs-other');
+    const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    db.prepare('update sessions set cwd = ? where id = ?').run('/Users/me/.agent-hangar/scratch/20260901-100000', alpha.id);
+    expect(getSession(db, live, alpha.id)!.fromScratch).toBe(true);
+    db.prepare('update sessions set cwd = ? where id = ?').run('/Users/other/.agent-hangar/scratch/20260901-100000', alpha.id);
+    expect(getSession(db, live, alpha.id)!.fromScratch).toBe(false);
+  });
   it('fromScratch はスクラッチの下にあって別のプロジェクトに属するときだけ真', () => {
     upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
     upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/scratch', resolved: 1 }, 'd');

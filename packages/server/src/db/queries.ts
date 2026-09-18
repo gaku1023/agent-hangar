@@ -43,7 +43,7 @@ type SessionRow = {
 const SESSION_SELECT = `
 select s.*, exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null) has_transcript,
   p.is_scratch project_is_scratch,
-  (select r.path from project_roots r join projects sp on sp.id = r.project_id where sp.is_scratch = 1 and sp.deleted_at is null and r.deleted_at is null order by r.updated_at desc limit 1) scratch_root,
+  (select r.path from project_roots r join projects sp on sp.id = r.project_id where r.device_id = s.home_device and sp.is_scratch = 1 and sp.deleted_at is null and r.deleted_at is null order by r.updated_at desc limit 1) scratch_root,
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
   st.turns st_turns, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
   ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost
@@ -117,6 +117,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>): Sess
     costUsd: r.ls_cost,
   };
   // スクラッチのルートの下で始まり、なお別のプロジェクトに属しているセッションを昇格の対象として印す。
+  // cwd はそのセッションを持つ端末のパスなので、ルートも同じ端末のものだけを見る。
   const underScratch = r.scratch_root !== null && (r.cwd === r.scratch_root || r.cwd.startsWith(r.scratch_root + '/'));
   return {
     id: r.id,
