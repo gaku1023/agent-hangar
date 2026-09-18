@@ -11,12 +11,13 @@ import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.
 import { RunError } from '../runs/manager.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
-import { createApp, type ExternalApi, type RunsApi, type SummaryApi } from './app.ts';
+import { createApp, type AppDeps, type ExternalApi, type RunsApi, type SummaryApi } from './app.ts';
 
 let dir: string;
 let db: Db;
 let ws: string;
 let app: ReturnType<typeof createApp>;
+let deps: AppDeps;
 const sent: ServerEvent[] = [];
 const TOKEN = 'test-token';
 const H = { authorization: `Bearer ${TOKEN}` };
@@ -94,12 +95,13 @@ beforeEach(async () => {
   memos = new MemoStore({ db, deviceId: 'd', home: ws });
   summary = fakeSummary();
   list0ProjectId = () => (db.prepare("select id from projects where name = 'alpha'").get() as { id: string }).id;
-  app = createApp({
+  deps = {
     db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: '0.0.0-test',
     settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }), live: () => [], indexer,
     hub: { broadcast: (e) => sent.push(e) }, runs, external, usage, memos, summary,
     promote: (o) => { if (o.name === 'taken') throw new PromoteError(409, 'あります'); return { projectId: list0ProjectId(), moved: o.moveFiles, reason: null }; },
-  });
+  };
+  app = createApp(deps);
 });
 afterEach(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }); });
 
@@ -109,6 +111,24 @@ describe('auth', () => {
     expect((await get('/api/bootstrap', { ...H, origin: 'https://evil.example' })).status).toBe(403);
     expect((await get('/api/bootstrap', { cookie: `hangar_token=${TOKEN}` })).status).toBe(200);
     expect((await get('/health', {})).status).toBe(200);
+  });
+  it('許可する Origin は実際に待ち受けているポートに追随する', async () => {
+    // 4177 以外で立てたとき、UI はそのポートの Origin を送る。決め打ちだと書き込みが全部 403 になる。
+    const other = createApp({ ...deps, port: 4198 });
+    // 403 かどうかだけを見たいので、状態を変えない本文を送る（存在しない path なので 400 になる）。
+    const req = (origin: string) => other.request('/api/projects', { method: 'POST', headers: { ...H, origin, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) });
+    for (const o of ['http://127.0.0.1:4198', 'http://localhost:4198', 'http://127.0.0.1:5173', 'http://localhost:5173', 'tauri://localhost']) {
+      expect([o, (await req(o)).status]).toEqual([o, 400]);
+    }
+    // 無関係の Origin と、待ち受けていないポートは 403 のままにする。許可を広げない。
+    for (const o of ['https://evil.example', 'http://127.0.0.1:4177', 'http://localhost:4177', 'http://127.0.0.1:4199']) {
+      expect([o, (await req(o)).status]).toEqual([o, 403]);
+    }
+    // MCP の入口も同じ考え方でそろえる。開発用の Vite だけは MCP に要らない。
+    const mcp = (origin: string) => other.request('/mcp', { method: 'POST', headers: { ...H, origin, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } }) });
+    expect((await mcp('http://127.0.0.1:4198')).status).toBe(200);
+    expect((await mcp('http://127.0.0.1:4177')).status).toBe(403);
+    expect((await mcp('https://evil.example')).status).toBe(403);
   });
 });
 

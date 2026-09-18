@@ -130,7 +130,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/health', (c) => c.json({ ok: true, version: deps.version }));
 
   const api = new Hono();
-  api.use('*', authMiddleware(deps.token));
+  api.use('*', authMiddleware(deps.token, deps.port));
 
   const broadcastProject = (id: string) => { const p = getProject(db, deviceId, deps.live(), id); if (p) deps.hub.broadcast({ type: 'project.upsert', project: p }); };
   const broadcastSession = (id: string) => { const s = getSession(db, deps.live(), id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };

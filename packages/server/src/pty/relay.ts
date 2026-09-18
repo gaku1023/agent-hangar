@@ -6,7 +6,7 @@ import type { Tmux } from '../tmux/tmux.ts';
 
 export type PtyProcess = { pid: number; onData(cb: (d: string) => void): void; onExit(cb: (e: { exitCode: number }) => void): void; write(d: string): void; resize(cols: number, rows: number): void; kill(): void };
 export type PtySpawn = (file: string, args: string[], opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv }) => PtyProcess;
-type Deps = { token: string; tmux: Tmux | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn };
+type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; tmux: Tmux | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn };
 
 /** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切り、pty を落とす。 */
 const CLOSE_GRACE_MS = 500;
@@ -39,7 +39,7 @@ export class PtyRelay {
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
       const token = tokenFromRequest(headers, req.headers.cookie) ?? url.searchParams.get('token');
-      if (!originAllowed(req.headers.origin) || token !== this.deps.token) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
+      if (!originAllowed(req.headers.origin, this.deps.port) || token !== this.deps.token) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
       const name = this.deps.resolveTab(url.searchParams.get('tab') ?? '');
       if (!name || !this.deps.tmux) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
       this.wss.handleUpgrade(req, socket, head, (ws) => this.serve(ws, name));

@@ -157,7 +157,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const summary = new SummaryJob({ db, deviceId: device.id, summarizers, live: () => registry.current(), hub });
 
   // 終了した run の Claude のタブには繋がせない。attachTarget がその判断を持つ。
-  const relay = new PtyRelay({ token, tmux: tmuxOf(settings), resolveTab: (id) => runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn });
+  const relay = new PtyRelay({ token, port, tmux: tmuxOf(settings), resolveTab: (id) => runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn });
 
   runs.on({
     runStarted: (r) => {
@@ -218,7 +218,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   handler = app.fetch;
 
-  hub.attach(server, { path: '/ws', token });
+  hub.attach(server, { path: '/ws', token, port });
   relay.attach(server, '/ws/pty');
   // 経路を握る側は path が違えば黙って返すので、最後に未知の経路を切る番人を置く。
   // upgrade を受けた時点でこの接続は HTTP 側の管理から外れるため、誰も引き取らないと相手が待ち続ける。

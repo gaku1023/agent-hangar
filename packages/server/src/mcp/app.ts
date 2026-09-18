@@ -10,8 +10,11 @@ export const MCP_VERSION = '0.2.0';
 /**
  * MCP の入口が受け付ける Origin。
  * http/auth.ts の一覧とは別にする。開発用の 5173 は MCP に要らないためである。
+ * ポートは決め打ちにせず、実際に待ち受けているものから組み立てる。
  */
-export const MCP_ALLOWED_ORIGINS = ['http://localhost:4177', 'http://127.0.0.1:4177', 'tauri://localhost'];
+export function mcpAllowedOrigins(port: number): string[] {
+  return [`http://127.0.0.1:${port}`, `http://localhost:${port}`, 'tauri://localhost'];
+}
 
 /** 説明文に「agent-hangar」を含める。Claude Code はツール定義を遅延して読むので、検索で当たる語が要る。 */
 const D = (s: string) => `agent-hangar: ${s}`;
@@ -47,10 +50,10 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
  * MCP 専用の認証。
  * Origin が無い要求は通す。MCP クライアントは Origin を送らないので、ここで弾くと一切使えなくなる。
  */
-function mcpAuth(token: string): MiddlewareHandler {
+function mcpAuth(token: string, port: number): MiddlewareHandler {
   return async (c, next) => {
     const origin = c.req.header('origin');
-    if (origin !== undefined && !MCP_ALLOWED_ORIGINS.includes(origin)) return c.json({ error: 'origin not allowed' }, 403);
+    if (origin !== undefined && !mcpAllowedOrigins(port).includes(origin)) return c.json({ error: 'origin not allowed' }, 403);
     if (tokenFromRequest(c.req.raw.headers, c.req.header('cookie')) !== token) return c.json({ error: 'unauthorized' }, 401);
     await next();
   };
@@ -59,7 +62,7 @@ function mcpAuth(token: string): MiddlewareHandler {
 /** 状態を持たない Streamable HTTP。要求ごとにサーバとトランスポートを作る。 */
 export function createMcpApp(deps: ToolDeps & { token: string }): Hono {
   const app = new Hono();
-  app.use('*', mcpAuth(deps.token));
+  app.use('*', mcpAuth(deps.token, deps.port));
   const handle = async (req: Request, sessionId: string | null) => {
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await buildMcpServer(deps, { sessionId }).connect(transport);

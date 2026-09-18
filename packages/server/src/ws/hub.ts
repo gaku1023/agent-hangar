@@ -13,7 +13,7 @@ export class EventHub {
   constructor(private readonly version: string) {}
 
   /** upgrade 要求のうち path が一致するものだけを受け、Origin とトークンで検査する。 */
-  attach(server: http.Server, opts: { path: string; token: string }): void {
+  attach(server: http.Server, opts: { path: string; token: string; port: number }): void {
     this.wss = new WebSocketServer({ noServer: true });
     server.on('upgrade', (req, socket, head) => {
       const url = new URL(req.url ?? '/', 'http://x');
@@ -23,7 +23,7 @@ export class EventHub {
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
       const token = tokenFromRequest(headers, req.headers.cookie) ?? url.searchParams.get('token');
-      if (!originAllowed(req.headers.origin) || token !== opts.token) {
+      if (!originAllowed(req.headers.origin, opts.port) || token !== opts.token) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;

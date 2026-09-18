@@ -31,6 +31,7 @@ function fakeSpawn(): { spawn: PtySpawn; procs: FakeProc[] } {
   return { spawn, procs };
 }
 
+// port は許可する Origin の組み立てにしか使わない。この試験の ws クライアントは Origin を送らないので 0 で足りる。
 async function listen(r: PtyRelay): Promise<void> {
   server = http.createServer((_q, res) => { res.statusCode = 404; res.end(); });
   r.attach(server, '/ws/pty');
@@ -51,7 +52,7 @@ afterEach(async () => { relay?.close(); await new Promise<void>((r) => server?.c
 
 describe('PtyRelay（偽の spawn）', () => {
   const tmux = new Tmux({ tmuxPath: '/x/tmux', socketName: 'fake' });
-  beforeEach(async () => { relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: (t) => (t === 't1' ? 'hangar-a' : null), spawn: fakeSpawn().spawn }); await listen(relay); });
+  beforeEach(async () => { relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: (t) => (t === 't1' ? 'hangar-a' : null), spawn: fakeSpawn().spawn }); await listen(relay); });
 
   it('トークンが無ければ 401、知らないタブは 404', async () => {
     await expect(connect('tab=t1')).rejects.toThrow(/401/);
@@ -60,7 +61,7 @@ describe('PtyRelay（偽の spawn）', () => {
   it('入出力とリサイズを中継し、切断で attach を殺す', async () => {
     const f = fakeSpawn();
     relay.close(); await new Promise<void>((r) => server.close(() => r()));
-    relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: () => 'hangar-a', spawn: vi.fn(f.spawn) });
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-a', spawn: vi.fn(f.spawn) });
     await listen(relay);
     const { ws, msgs, closed } = await connect(`tab=t1&token=${TOKEN}`);
     await waitFor(() => f.procs.length === 1);
@@ -78,7 +79,7 @@ describe('PtyRelay（偽の spawn）', () => {
   });
   it('spawn の失敗は error を送って 1011 で閉じ、サーバは生きている', async () => {
     relay.close(); await new Promise<void>((r) => server.close(() => r()));
-    relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: () => 'hangar-a', spawn: () => { throw new Error('posix_spawnp failed'); } });
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-a', spawn: () => { throw new Error('posix_spawnp failed'); } });
     await listen(relay);
     const { msgs, closed } = await connect(`tab=t1&token=${TOKEN}`);
     expect(await closed).toBe(1011);
@@ -89,7 +90,7 @@ describe('PtyRelay（偽の spawn）', () => {
   it('close フレームに応えない相手でも、猶予のあとに pty を落とす', async () => {
     const f = fakeSpawn();
     relay.close(); await new Promise<void>((r) => server.close(() => r()));
-    relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: () => 'hangar-a', spawn: f.spawn });
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-a', spawn: f.spawn });
     await listen(relay);
     // close フレームに応えない相手。止まったタブや代理を挟んだときに起こる。
     const stalled = net.connect(port, '127.0.0.1');
@@ -107,7 +108,7 @@ describe('PtyRelay（偽の spawn）', () => {
   it('プロセスの終了で接続を閉じる', async () => {
     const f = fakeSpawn();
     relay.close(); await new Promise<void>((r) => server.close(() => r()));
-    relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: () => 'hangar-a', spawn: f.spawn });
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-a', spawn: f.spawn });
     await listen(relay);
     const { closed } = await connect(`tab=t1&token=${TOKEN}`);
     await waitFor(() => f.procs.length === 1);
@@ -127,7 +128,7 @@ describe.skipIf(!TMUX)('PtyRelay（実物の tmux と node-pty）', () => {
     const { nodePtySpawn } = await import('./nodePty.ts');
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-pty-real-'));
     tmux.newSession({ name: 'hangar-pty-real', cwd, command: ['sh'] });
-    relay = new PtyRelay({ token: TOKEN, tmux, resolveTab: () => 'hangar-pty-real', spawn: nodePtySpawn });
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-pty-real', spawn: nodePtySpawn });
     await listen(relay);
     const { ws, msgs } = await connect(`tab=x&token=${TOKEN}`);
     ws.send(JSON.stringify({ t: 'resize', cols: 80, rows: 24 }));
