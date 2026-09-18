@@ -1,9 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineSnippet, statuslineStatus } from './statusline.ts';
+import { appendStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
 
 let dir: string;
 let home: string;
@@ -24,6 +26,17 @@ async function waitForFile(file: string, timeoutMs = 5000): Promise<void> {
   }
 }
 
+/** スクリプトを bash で走らせ、標準出力を返す。curl は PATH の先頭を差し替えられる。 */
+function runScript(script: string, hangarHome: string, input: string, binDir?: string): Promise<string> {
+  const PATH = binDir ? `${binDir}:${process.env.PATH ?? ''}` : (process.env.PATH ?? '');
+  const child = spawn('bash', [script], { env: { ...process.env, PATH, HANGAR_HOME: hangarHome }, stdio: ['pipe', 'pipe', 'ignore'] });
+  let out = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (c: string) => (out += c));
+  child.stdin.end(input);
+  return new Promise((r) => child.on('close', () => r(out)));
+}
+
 const settings = (command: unknown) => fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command } }));
 
 describe('statuslineSnippet', () => {
@@ -35,40 +48,80 @@ describe('statuslineSnippet', () => {
     expect(s.endsWith('\n')).toBe(true);
   });
 
-  it('トークンは HANGAR_HOME があればそこから読む', () => {
+  it('ヘッダのファイルは HANGAR_HOME があればそこから読む', () => {
     const s = statuslineSnippet(4177);
     expect(s).toContain('${HANGAR_HOME:-$HOME/.agent-hangar}');
-    expect(s).toContain('"$__hangar_home/token"');
-    expect(s).not.toContain('$HOME/.agent-hangar/token');
+    expect(s).toContain('"$__hangar_home/statusline-header"');
+    expect(s).not.toContain('$HOME/.agent-hangar/statusline-header');
   });
 
-  it('トークンを curl の引数に載せず、環境変数から渡す', () => {
+  it('トークンを curl の引数に載せず、ヘッダのファイルから読ませる', () => {
     // -H "Authorization: Bearer $(cat ...)" はシェルが展開してから curl を起こすので、
     // curl の argv に 64 桁がそのまま載り、statusline が走るたびに ps から読める。
+    // --variable と --expand-header でも隠せるが、それは curl 8.3 以降にしか無く、
+    // 古い curl では無警告で壊れる。-H @<ファイル> は 7.55 以降にあり、同じだけ隠せる。
     const s = statuslineSnippet(4177);
     expect(s).not.toContain('Bearer $(cat');
     expect(s).not.toMatch(/-H ["']Authorization: Bearer \$/);
-    expect(s).toContain('HANGAR_TOKEN="$__hangar_token"');
-    expect(s).toContain("--variable '%HANGAR_TOKEN'");
-    expect(s).toContain("--expand-header 'Authorization: Bearer {{HANGAR_TOKEN}}'");
+    expect(s).not.toContain('--variable');
+    expect(s).not.toContain('--expand-header');
+    expect(s).toContain('-H @"$__hangar_header"');
+  });
+
+  it('ヘッダのファイルが読めなければ、何もせずに素通しする', () => {
+    const s = statuslineSnippet(4177);
+    expect(s).toContain('if [ -r "$__hangar_header" ]; then');
+    // 送らない場合でも、元のスクリプトへ標準入力を戻す行は if の外にある。
+    expect(s.split('\n').at(-2)).toBe('exec <<<"$__hangar_input"');
+  });
+});
+
+describe('writeStatuslineHeaderFile', () => {
+  const TOKEN = 'f'.repeat(64);
+
+  it('ヘッダ 1 行だけを 0600 で置き、token とは別の名前にする', () => {
+    const hangarHome = path.join(home, '.agent-hangar');
+    fs.mkdirSync(hangarHome, { recursive: true });
+    const file = writeStatuslineHeaderFile(hangarHome, TOKEN);
+    expect(file).toBe(statuslineHeaderPath(hangarHome));
+    expect(file).toBe(path.join(hangarHome, 'statusline-header'));
+    expect(fs.readFileSync(file, 'utf8')).toBe(`Authorization: Bearer ${TOKEN}\n`);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it('既にあるファイルは中身を入れ替え、他人に読める権限なら狭める', () => {
+    const hangarHome = path.join(home, '.agent-hangar2');
+    fs.mkdirSync(hangarHome, { recursive: true });
+    const file = statuslineHeaderPath(hangarHome);
+    fs.writeFileSync(file, 'Authorization: Bearer 古い\n', { mode: 0o600 });
+    fs.chmodSync(file, 0o644);
+    writeStatuslineHeaderFile(hangarHome, TOKEN);
+    expect(fs.readFileSync(file, 'utf8')).toBe(`Authorization: Bearer ${TOKEN}\n`);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   });
 });
 
 describe('statusline のスニペットを実際に走らせる', () => {
   const TOKEN = 'a1b2c3d4'.repeat(8);
 
-  it('curl の argv にトークンが出ず、ps からも読めない。値は環境変数で届く', async () => {
+  /** HANGAR_HOME になる置き場を用意し、ヘッダのファイルを置く。 */
+  function hangarHomeWithHeader(): string {
     const hangarHome = path.join(home, '.agent-hangar');
     fs.mkdirSync(hangarHome, { recursive: true });
-    fs.writeFileSync(path.join(hangarHome, 'token'), TOKEN, { mode: 0o600 });
-    // PATH の先頭に偽の curl を置く。受け取った argv と環境変数を記録し、少し待ってから終わる。
+    writeStatuslineHeaderFile(hangarHome, TOKEN);
+    return hangarHome;
+  }
+
+  it('curl の argv にトークンが出ず、ps からも読めない', async () => {
+    const hangarHome = hangarHomeWithHeader();
+    // PATH の先頭に偽の curl を置く。受け取った argv を記録し、少し待ってから終わる。
     const bin = path.join(home, 'bin');
     fs.mkdirSync(bin, { recursive: true });
     const argsFile = path.join(home, 'curl-args.bin');
-    const envFile = path.join(home, 'curl-env.txt');
+    const doneFile = path.join(home, 'curl-done.txt');
     fs.writeFileSync(
       path.join(bin, 'curl'),
-      ['#!/bin/sh', `for a in "$@"; do printf '%s\\000' "$a" >> "${argsFile}"; done`, `printf '%s' "$HANGAR_TOKEN" > "${envFile}"`, 'cat > /dev/null', 'sleep 2', ''].join('\n'),
+      ['#!/bin/sh', `for a in "$@"; do printf '%s\\000' "$a" >> "${argsFile}"; done`, 'cat > /dev/null', `printf ok > "${doneFile}"`, 'sleep 2', ''].join('\n'),
       { mode: 0o755 },
     );
     const script = path.join(home, 'sl.sh');
@@ -76,15 +129,62 @@ describe('statusline のスニペットを実際に走らせる', () => {
 
     const child = spawn('bash', [script], { env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, HANGAR_HOME: hangarHome }, stdio: ['pipe', 'ignore', 'ignore'] });
     child.stdin.end('{"session_id":"x"}');
-    await waitForFile(envFile);
+    await waitForFile(doneFile);
 
     // 偽の curl が動いている間に ps を読む。
     const ps = execFileSync('ps', ['-axww', '-o', 'command='], { encoding: 'utf8' });
     expect(ps).toContain('/api/ingest/statusline');
     expect(ps).not.toContain(TOKEN);
-    expect(fs.readFileSync(argsFile, 'utf8')).not.toContain(TOKEN);
-    // 環境変数では届いている。届かなければ認証が通らず、使用量が入らなくなる。
-    expect(fs.readFileSync(envFile, 'utf8')).toBe(TOKEN);
+    const args = fs.readFileSync(argsFile, 'utf8');
+    expect(args).not.toContain(TOKEN);
+    // トークンではなく、ヘッダのファイルの名前だけが argv に載る。
+    expect(args).toContain(`@${statuslineHeaderPath(hangarHome)}`);
+  });
+
+  it('本物の curl で、本文と Authorization がそのまま届く', async () => {
+    const hangarHome = hangarHomeWithHeader();
+    const got: { auth?: string; type?: string; body: string }[] = [];
+    const server = createServer((req, res) => {
+      let b = '';
+      req.on('data', (c) => (b += c));
+      req.on('end', () => {
+        got.push({ auth: req.headers.authorization, type: req.headers['content-type'], body: b });
+        res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const script = path.join(home, 'real.sh');
+      fs.writeFileSync(script, `#!/usr/bin/env bash\n${statuslineSnippet(port)}cat\n`, { mode: 0o755 });
+      const out = await runScript(script, hangarHome, '{"session_id":"x"}');
+      // 元のスクリプトには、読んだ標準入力が戻る（here-string なので末尾に改行が付く）。
+      expect(out).toBe('{"session_id":"x"}\n');
+      const until = Date.now() + 5000;
+      while (got.length === 0 && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+      expect(got).toHaveLength(1);
+      expect(got[0]!.auth).toBe(`Bearer ${TOKEN}`);
+      expect(got[0]!.type).toBe('application/json');
+      expect(got[0]!.body).toBe('{"session_id":"x"}');
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
+  it('ヘッダのファイルが無ければ、何も送らずに素通しする', async () => {
+    const hangarHome = path.join(home, '.agent-hangar-empty');
+    fs.mkdirSync(hangarHome, { recursive: true });
+    const bin = path.join(home, 'bin2');
+    fs.mkdirSync(bin, { recursive: true });
+    const calledFile = path.join(home, 'curl-called.txt');
+    fs.writeFileSync(path.join(bin, 'curl'), ['#!/bin/sh', `printf called > "${calledFile}"`, ''].join('\n'), { mode: 0o755 });
+    const script = path.join(home, 'quiet.sh');
+    fs.writeFileSync(script, `#!/usr/bin/env bash\n${statuslineSnippet(4177)}cat\n`, { mode: 0o755 });
+    const out = await runScript(script, hangarHome, '{"session_id":"y"}', bin);
+    // statusline の表示は壊さない。
+    expect(out).toBe('{"session_id":"y"}\n');
+    await new Promise((r) => setTimeout(r, 200));
+    expect(fs.existsSync(calledFile)).toBe(false);
   });
 });
 
@@ -130,27 +230,46 @@ describe('appendStatuslineSnippet', () => {
     expect(fs.readFileSync(file, 'utf8')).toContain(':4199/');
   });
 
-  it('古い形のスニペットは、バックアップを取って今の形に差し替える', () => {
-    // 目印だけ見て何もしないと、トークンを argv に載せる古いスニペットが入ったまま残る。
-    const old = [
-      STATUSLINE_MARKER,
-      '__hangar_input=$(cat)',
-      '__hangar_home="${HANGAR_HOME:-$HOME/.agent-hangar}"',
-      `printf '%s' "$__hangar_input" | curl -s -m 0.3 -X POST \\`,
-      `  -H 'Content-Type: application/json' \\`,
-      '  -H "Authorization: Bearer $(cat "$__hangar_home/token" 2>/dev/null)" \\',
-      '  --data-binary @- http://127.0.0.1:4177/api/ingest/statusline >/dev/null 2>&1 &',
-      'exec <<<"$__hangar_input"',
-      '',
-    ].join('\n');
-    const file = path.join(dir, 'old.sh');
+  /** トークンを argv に載せていた最初の形。 */
+  const OLD_ARGV_FORM = [
+    STATUSLINE_MARKER,
+    '__hangar_input=$(cat)',
+    '__hangar_home="${HANGAR_HOME:-$HOME/.agent-hangar}"',
+    `printf '%s' "$__hangar_input" | curl -s -m 0.3 -X POST \\`,
+    `  -H 'Content-Type: application/json' \\`,
+    '  -H "Authorization: Bearer $(cat "$__hangar_home/token" 2>/dev/null)" \\',
+    '  --data-binary @- http://127.0.0.1:4177/api/ingest/statusline >/dev/null 2>&1 &',
+    'exec <<<"$__hangar_input"',
+    '',
+  ].join('\n');
+
+  /** curl 8.3 以降を要る形。それより古い curl では無警告で壊れる。 */
+  const OLD_VARIABLE_FORM = [
+    STATUSLINE_MARKER,
+    '__hangar_input=$(cat)',
+    '__hangar_home="${HANGAR_HOME:-$HOME/.agent-hangar}"',
+    '__hangar_token=$(cat "$__hangar_home/token" 2>/dev/null)',
+    `printf '%s' "$__hangar_input" | HANGAR_TOKEN="$__hangar_token" curl -s -m 0.3 -X POST \\`,
+    `  -H 'Content-Type: application/json' \\`,
+    `  --variable '%HANGAR_TOKEN' --expand-header 'Authorization: Bearer {{HANGAR_TOKEN}}' \\`,
+    '  --data-binary @- http://127.0.0.1:4177/api/ingest/statusline >/dev/null 2>&1 &',
+    'exec <<<"$__hangar_input"',
+    '',
+  ].join('\n');
+
+  it.each([
+    ['トークンを argv に載せる形', OLD_ARGV_FORM, 'Bearer $(cat'],
+    ['curl 8.3 以降を要る形', OLD_VARIABLE_FORM, '--expand-header'],
+  ])('古い形のスニペット（%s）は、バックアップを取って今の形に差し替える', (_name, old, gone) => {
+    // 目印だけ見て何もしないと、古いスニペットが入ったまま残る。
+    const file = path.join(dir, `old-${_name}.sh`);
     fs.writeFileSync(file, `#!/bin/bash\n${old}echo hi\n`, { mode: 0o755 });
     const r = appendStatuslineSnippet(file, 4177);
     expect(r.changed).toBe(true);
     expect(r.backup).not.toBeNull();
     const after = fs.readFileSync(file, 'utf8');
-    expect(after).not.toContain('Bearer $(cat');
-    expect(after).toContain('--expand-header');
+    expect(after).not.toContain(gone);
+    expect(after).toContain('-H @"$__hangar_header"');
     expect(after).toBe(`#!/bin/bash\n${statuslineSnippet(4177)}echo hi\n`);
     expect(fs.statSync(file).mode & 0o777).toBe(0o755);
     // 二度目は変えない。
