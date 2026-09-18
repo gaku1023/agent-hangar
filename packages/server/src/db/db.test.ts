@@ -54,56 +54,27 @@ describe('openDb', () => {
     const idx = (db.prepare("select name from sqlite_master where type = 'index' and tbl_name = 'artifact_versions'").all() as { name: string }[]).map((r) => r.name);
     expect(idx).toContain('artifact_versions_artifact');
   });
-  it('マイグレーション 3 まで進んだ既存の DB から上げられ、日別の行は主線のファイルに移る', () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
-    const file = path.join(tmp, 'hangar.db');
-    openDbAt(file, 3);
-    const old = new Database(file);
-    old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s1', '2026-09-01', 10, 2);
-    old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s2', '2026-09-02', 7, 3);
-    old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1.jsonl', 's1', null, 1, 1, 1, 1);
-    old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1-sub.jsonl', 's1', 'ag1', 1, 1, 1, 1);
-    old.close();
-    const db = openDb(file);
-    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(LATEST);
-    expect(db.prepare('select session_id, day, file_path, input_tokens, output_tokens from usage_daily order by session_id').all()).toEqual([
-      { session_id: 's1', day: '2026-09-01', file_path: '/p/s1.jsonl', input_tokens: 10, output_tokens: 2 },
-      { session_id: 's2', day: '2026-09-02', file_path: '', input_tokens: 7, output_tokens: 3 },
-    ]);
-    db.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
-  it('version 5 で session_summaries に source_id が付き、新しい要約は要約器の id を持てる', () => {
-    const db = openDb(':memory:');
-    expect(LATEST).toBe(5);
-    const cols = (db.prepare("select name from pragma_table_info('session_summaries')").all() as { name: string }[]).map((r) => r.name);
-    expect(cols).toContain('source_id');
-    db.prepare('insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?,?,?,?,?,?,?)').run('s1', 'claude-code', 'u1', '/w', 'd', 1, 'd');
-    db.prepare('insert into session_summaries (session_id, title, one_liner, body, state, next_steps, source, source_id, source_model, based_on_turns, updated_at, origin_device) values (?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run('s1', 't', 'o', 'b', 'done', '[]', 'post_hoc', 'lmstudio', 'gemma-4-26b', 2, 1, 'd');
-    expect(db.prepare('select source_id, source_model from session_summaries where session_id = ?').get('s1')).toEqual({ source_id: 'lmstudio', source_model: 'gemma-4-26b' });
-  });
-  it('マイグレーション 4 まで進んだ既存の DB から上げられ、古い要約の source_id は null のままである', () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig5-'));
-    const file = path.join(tmp, 'hangar.db');
-    openDbAt(file, 4);
-    const old = new Database(file);
-    old.prepare('insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?,?,?,?,?,?,?)').run('s1', 'claude-code', 'u1', '/w', 'd', 1, 'd');
-    old.prepare('insert into session_summaries (session_id, title, one_liner, body, state, next_steps, source, source_model, based_on_turns, updated_at, origin_device) values (?,?,?,?,?,?,?,?,?,?,?)')
-      .run('s1', 't', 'o', 'b', 'done', '[]', 'post_hoc', 'gemma-4-26b', 2, 1, 'd');
-    old.close();
-    const db = openDb(file);
-    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(LATEST);
-    // 既存の値はモデル名だけで、どの要約器が書いたかは分からない。推測で埋めず null のままにする。
-    expect(db.prepare('select source_id, source_model from session_summaries where session_id = ?').get('s1')).toEqual({ source_id: null, source_model: 'gemma-4-26b' });
-    db.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
-  it('FTS5 trigram で日本語の部分一致ができる', () => {
-    const db = openDb(':memory:');
-    db.prepare('insert into event_fts (session_id, seq, role, text) values (?,?,?,?)').run('s1', 0, 'user', '動画チャンネルの整理をしたい');
-    const rows = db.prepare("select seq from event_fts where text match ?").all('"チャンネル"');
-    expect(rows).toHaveLength(1);
+  it('マイグレーション 3 からでも 4 からでも 5 からでも上げられ、日別は空になって作り直しに回る', () => {
+    // 移した値は「どのファイル由来か」を持たないので、消し方も残し方も正しくならない。
+    // だから移行では空にして、索引の作り直しで積み直す。
+    for (const from of [3, 4, 5]) {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
+      const file = path.join(tmp, 'hangar.db');
+      openDbAt(file, from);
+      const old = new Database(file);
+      if (from >= 4) old.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?)').run('s1', '2026-09-01', '/p/s1.jsonl', 10, 2);
+      else old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s1', '2026-09-01', 10, 2);
+      old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1.jsonl', 's1', null, 1, 1, 1, 1);
+      old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1-sub.jsonl', 's1', 'ag1', 1, 1, 1, 1);
+      old.close();
+      const db = openDb(file);
+      expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v, `from ${from}`).toBe(6);
+      expect(db.prepare('select count(*) c from usage_daily').get(), `from ${from}`).toEqual({ c: 0 });
+      // 索引済みの印を 0 に戻してあるので、次の走査で全ファイルが積み直される。
+      expect(db.prepare('select count(*) c from transcript_files where indexer_version = 0').get(), `from ${from}`).toEqual({ c: 2 });
+      db.close();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

@@ -165,9 +165,7 @@ create index todos_project on todos(project_id, position);
   {
     // usage_daily の鍵に「どのファイル由来か」を足す。
     // 主線を作り直すときに、そのファイルのぶんだけを消せるようにするため。
-    // 既存の行はセッション単位の和なので、そのセッションの主線のファイルに寄せて移す。
-    // 主線のファイルが transcript_files に無い行は移し先が無いので空文字のままにする。
-    // この行は索引の作り直しでは消えず、そのセッションが積み直されるときに主線のファイルの行と並ぶ。
+    // 既存の行をどう扱うかは version 6 で改めている。
     version: 4,
     sql: `
 alter table usage_daily rename to usage_daily_v3;
@@ -193,6 +191,20 @@ create index artifact_versions_artifact on artifact_versions(artifact_id);
     version: 5,
     sql: `
 alter table session_summaries add column source_id text;
+`,
+  },
+  {
+    // version 4 より前の日別の行は「どのファイル由来か」を持たない。
+    // どのファイルに寄せても、作り直しの消し方が正しくならない。
+    // 主線に寄せれば、そのセッションを作り直したときにサブエージェントぶんまで消える。
+    // どのファイルでもない印にすれば、作り直しの delete に当たらず同じ日を二重に数える。
+    // なので寄せるのをやめて空にし、索引済みの印を 0 に戻して全ファイルを作り直しに回す。
+    // 日別は次の全走査で積み直され、そこから先はファイル別に正しく消せる。
+    // 代償は、積み直しが終わるまで日別が欠けることと、全走査が一度だけ重くなることである。
+    version: 6,
+    sql: `
+delete from usage_daily;
+update transcript_files set indexer_version = 0;
 `,
   },
 ];
