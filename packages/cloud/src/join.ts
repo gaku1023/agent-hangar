@@ -1,21 +1,45 @@
-import type { JoinRequest, JoinResponse } from '@agent-hangar/shared';
+import { isSafeKeyId, type JoinRequest, type JoinResponse } from '@agent-hangar/shared';
 import type { Context } from 'hono';
 import { timingSafeEqualHex } from './auth.ts';
 import type { Env, Vars } from './env.ts';
 import { randomToken, sha256Hex } from './util.ts';
 
+const MAX_NAME_CHARS = 128;
+const MAX_PLATFORM_CHARS = 32;
+
+/** C0 と DEL と C1。改行と NUL を名前に混ぜられると、ログと控えの名前が壊れる。 */
+const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f]/;
+
+/** ファイル名に入れると困る文字。控えは `memo.conflict-<端末名>-<時刻>.md` という名前になる。 */
+const NAME_BANNED_RE = /[<>:"/\\|?*]/;
+
+/**
+ * 端末の名前。
+ * ホスト名がそのまま入るので、空白と非 ASCII は通す。
+ * 制御文字とパスの区切りだけを断る。
+ */
+const isSafeName = (s: string): boolean => s.trim().length > 0 && s.length <= MAX_NAME_CHARS && !CONTROL_RE.test(s) && !NAME_BANNED_RE.test(s);
+
+/** `process.platform` がそのまま入る。短い ASCII だけを通す。 */
+const isSafePlatform = (s: string): boolean => s.length <= MAX_PLATFORM_CHARS && isSafeKeyId(s);
+
+/**
+ * 参加を申し込んだ端末の形。
+ * **ID は共有の `isSafeKeyId` で見る。**
+ * ID は `rows.device_id` にも R2 の鍵（`transcripts/<端末 ID>/...`）にも入るので、
+ * スラッシュや `..` を通すと、出口の検査を 1 つ抜けただけで他端末の領域に届いてしまう。
+ * 入口で断るのが本筋である。
+ */
 const isDevice = (d: unknown): d is JoinRequest['device'] => {
   const o = d as Partial<JoinRequest['device']> | null;
   return (
     !!o &&
     typeof o.id === 'string' &&
-    o.id.length > 0 &&
-    o.id.length <= 64 &&
+    isSafeKeyId(o.id) &&
     typeof o.name === 'string' &&
-    o.name.length > 0 &&
-    o.name.length <= 128 &&
+    isSafeName(o.name) &&
     typeof o.platform === 'string' &&
-    o.platform.length <= 32
+    isSafePlatform(o.platform)
   );
 };
 

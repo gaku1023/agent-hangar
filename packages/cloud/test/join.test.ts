@@ -90,6 +90,46 @@ describe('POST /join', () => {
     expect(none?.c).toBe(0);
   });
 
+  it('端末 ID の形が違えば参加させない', async () => {
+    // ID は rows.device_id にも R2 の鍵（transcripts/<ID>/...）にも入る。入口で断る。
+    const bad = ['dev-a/evil', '../x', 'a/../b', '.', '..', '', ' ', 'a b', 'a\u0000b', 'a\nb', '-lead', '.lead', 'dev\\evil', 'デバイス', 'x'.repeat(65)];
+    for (const id of bad) {
+      const r = await post({ secret: SECRET, device: { ...device, id } });
+      expect([JSON.stringify(id), r.status]).toEqual([JSON.stringify(id), 400]);
+    }
+    const none = await cloud.env.DB.prepare('select count(*) c from devices').first<{ c: number }>();
+    expect(none?.c).toBe(0);
+    for (const id of ['dev-a', 'a.b_c-1', '0198e1c3-7f2a-7b51-9d3e-4f6a8b2c1d0e', 'x'.repeat(64)]) {
+      const r = await post({ secret: SECRET, device: { ...device, id } });
+      expect([id, r.status]).toEqual([id, 201]);
+    }
+  });
+
+  it('端末の名前と platform も形を見る', async () => {
+    // 名前は応答にも控えの名前にも出る。制御文字とパスの区切りを通さない。
+    const badNames = ['', '   ', 'bad\nname', 'bad\u0000name', 'bad\u007fname', 'a/b', 'a\\b', 'a:b', 'a*b', 'x'.repeat(129)];
+    for (const name of badNames) {
+      const r = await post({ secret: SECRET, device: { ...device, name } });
+      expect([JSON.stringify(name), r.status]).toEqual([JSON.stringify(name), 400]);
+    }
+    const badPlatforms = ['', ' ', 'dar win', 'darwin/x', 'darwin\u0000', '-darwin', 'x'.repeat(33)];
+    for (const platform of badPlatforms) {
+      const r = await post({ secret: SECRET, device: { ...device, platform } });
+      expect([JSON.stringify(platform), r.status]).toEqual([JSON.stringify(platform), 400]);
+    }
+    const none = await cloud.env.DB.prepare('select count(*) c from devices').first<{ c: number }>();
+    expect(none?.c).toBe(0);
+    // ホスト名は空白と非 ASCII を含みうる。ここは通す。
+    for (const name of ['MacBook Pro', 'さとうの Mac', 'mini.local', 'x'.repeat(128)]) {
+      const r = await post({ secret: SECRET, device: { ...device, name } });
+      expect([name.slice(0, 12), r.status]).toEqual([name.slice(0, 12), 201]);
+    }
+    for (const platform of ['darwin', 'win32', 'linux']) {
+      const r = await post({ secret: SECRET, device: { ...device, platform } });
+      expect([platform, r.status]).toEqual([platform, 201]);
+    }
+  });
+
   it('revoke された秘密は使えない', async () => {
     await seedSecret('join-secret-2');
     expect((await post({ secret: SECRET, device })).status).toBe(403);
