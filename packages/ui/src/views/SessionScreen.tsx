@@ -1,3 +1,4 @@
+import { formatRoute } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalStatus } from '../runtime/terminals.ts';
@@ -37,14 +38,21 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       </div>
       <div className="mono faint" style={{ display: 'flex', gap: 16, margin: '4px 0 8px', flexWrap: 'wrap' }}>
         <span>{props.cwd}</span><span>{props.model}{props.effort ? ` · ${props.effort}` : ''}</span>
-        {/* コンテキストの使用率は statusline から届く。80% を超えると色が変わる。 */}
-        <span className="gauge-wrap" title="コンテキスト使用率">
-          <span className="faint">コンテキスト</span>
-          <span className="gauge-bar" role="meter" aria-label="コンテキスト使用率" aria-valuenow={props.contextPercent ?? undefined} aria-valuemin={0} aria-valuemax={100}>
-            <span className="gauge-fill" data-high={(props.contextPercent ?? 0) >= 80 ? 'true' : undefined} style={{ width: `${Math.max(0, Math.min(100, props.contextPercent ?? 0))}%` }} />
-          </span>
-        </span>
-        {props.cost && <span className="mono muted">{props.cost}</span>}
+        {/* コンテキストの使用率と推定コストは statusline の追記からしか届かない。
+            追記を入れていなければずっと null なので、空の棒ではなく「未取得」と書く。
+            0% と見分けが付かない見せ方にしない。ヘッダーの使用量ゲージと言い方を揃える。 */}
+        {props.contextPercent === null
+          ? <span className="faint">コンテキスト 未取得</span>
+          : (
+            <span className="gauge-wrap" title="コンテキスト使用率">
+              <span className="faint">コンテキスト</span>
+              <span className="gauge-bar" role="meter" aria-label="コンテキスト使用率" aria-valuenow={props.contextPercent} aria-valuemin={0} aria-valuemax={100}>
+                <span className="gauge-fill" data-high={props.contextPercent >= 80 ? 'true' : undefined} style={{ width: `${Math.max(0, Math.min(100, props.contextPercent))}%` }} />
+              </span>
+            </span>
+          )}
+        {props.cost ? <span className="mono muted">{props.cost}</span> : <span className="faint">コスト 未取得</span>}
+        {props.contextPercent === null && !props.cost && <a className="hint-link" href={formatRoute({ name: 'settings' })} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: { name: 'settings' } }); }}>statusline を入れると出ます</a>}
         <span>{props.turns} ターン</span><span>{props.tokens} tokens</span>
         {props.prUrl && <a href={props.prUrl} target="_blank" rel="noreferrer">PR</a>}
         <span>開始 {props.started}</span><span>最終 {props.lastActivity}</span>

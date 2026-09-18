@@ -150,6 +150,20 @@ describe('フェーズ 3 のセッション画面', () => {
     expect(screen.getByText('$1.20')).toBeInTheDocument();
     expect(screen.getByText('題名')).toBeInTheDocument();
   });
+  it('コンテキストとコストが未取得ならバーを描かず、設定へ導く', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
+    expect(screen.queryByLabelText('コンテキスト使用率')).toBeNull();
+    expect(screen.getByText('コンテキスト 未取得')).toBeInTheDocument();
+    expect(screen.getByText('コスト 未取得')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('statusline を入れると出ます'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+  });
+  it('値があるときは未取得の断りも案内も出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...p3} terminalStatus={null} /></IntentRoot>);
+    expect(screen.queryByText(/未取得/)).toBeNull();
+    expect(screen.queryByText('statusline を入れると出ます')).toBeNull();
+  });
   it('要約の作成中と失敗を出す', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SessionScreen {...p3} summaryPending terminalStatus={null} /></IntentRoot>);
     expect(screen.getByText('要約を作成しています')).toBeInTheDocument();

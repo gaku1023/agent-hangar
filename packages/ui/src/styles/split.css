@@ -21,5 +21,7 @@
 
 /* セッションヘッダーのコンテキスト使用率と、アーティファクトの帯と、タブ列の分割ボタン。 */
 .gauge-wrap { display: inline-flex; align-items: center; gap: 4px; }
+/* 未取得のときに Settings へ導く 1 行。行の他の文字と同じ大きさで、色だけ --accent にする。 */
+.hint-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .session-artifacts { padding: 4px 0; }
 .tab-action { padding: 0 6px; }
