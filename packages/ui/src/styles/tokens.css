@@ -15,6 +15,8 @@
   --waiting: #a2452f;
   --ended: #9a968e;
   --error: #b3261e;
+  --term-bg: #1c1b19;
+  --term-fg: #e8e6e1;
   --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
   --fs-xs: 11px;

@@ -117,3 +117,20 @@ a:hover { text-decoration: underline; }
 .dialog-wide { width: 560px; }
 .dialog-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
 .error { color: var(--error); font-size: var(--fs-sm); }
+
+/* タブの帯とターミナルの器 */
+.tabs { display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--line); height: var(--row-h); margin-bottom: calc(var(--u) * 2); }
+.tab { display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 3); height: var(--row-h); border-bottom: 2px solid transparent; cursor: pointer; color: var(--ink-2); transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), background var(--dur-fast) var(--ease); }
+.tab:hover { background: var(--surface-2); }
+.tab-selected { color: var(--ink); border-bottom-color: var(--accent); }
+.tab-close, .tab-add { border: 0; background: transparent; color: var(--ink-2); cursor: pointer; height: calc(var(--u) * 5); width: calc(var(--u) * 5); border-radius: var(--r); }
+.tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
+.split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 240px); transition: grid-template-columns var(--dur-slow) var(--ease); }
+.term-pane { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border-radius: var(--r-lg); overflow: hidden; }
+.term-host { flex: 1; min-height: 0; padding: var(--u); }
+.term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
+.term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }
+.term-status-error { color: var(--error); opacity: 1; }
+.tr-pane { min-width: 0; border-left: 1px solid var(--line); padding-left: calc(var(--u) * 2); overflow: hidden; display: flex; flex-direction: column; }
+.tr-pane .tr { height: auto; flex: 1; }
+.tr-toggle { border: 0; background: transparent; cursor: pointer; color: var(--ink-2); height: var(--row-h); align-self: flex-start; }

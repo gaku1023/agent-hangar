@@ -71,7 +71,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient }) {
     case 'home': body = <HomeScreen {...presentHome(state, store, now)} />; break;
     case 'projects': body = <ProjectsScreen {...presentProjects(state, store, now, projectFilter, showArchived)} filter={projectFilter} showArchived={showArchived} onFilter={setProjectFilter} onShowArchived={setShowArchived} />; break;
     case 'project': body = <ProjectScreen {...presentProject(state, store, now, state.screen.id)} />; break;
-    case 'session': body = <SessionScreen {...presentSession(state, store, now, state.screen.id)} />; break;
+    case 'session': body = <SessionScreen {...presentSession(state, store, now, state.screen.id)} terminalStatus={null} />; break;
     // 検索欄は defaultValue なので、外からの文言リセットで作り直せるように key を付ける。
     case 'sessions': body = <SessionsScreen key={state.search.text} {...presentSessions(state, store, now)} />; break;
     case 'settings': body = <SettingsScreen {...presentSettings(state, store)} />; break;
