@@ -100,6 +100,53 @@ describe('promoteSession', () => {
     expect(fs.existsSync(path.join(ws, 'clash', 'a.txt'))).toBe(false);
   });
 
+  it('移動の途中で失敗したら、移したものをスクラッチに戻して理由を返す', () => {
+    // zz は書き込み権限が無いディレクトリなので、親をまたぐ rename が EACCES で落ちる。
+    // 名前順に a.txt、sub、zz と移すので、失敗するのは 2 つ移した後である。
+    const zz = path.join(dir, 'zz');
+    fs.mkdirSync(zz);
+    fs.writeFileSync(path.join(zz, 'c.txt'), 'C');
+    fs.chmodSync(zz, 0o555);
+    try {
+      const r = promoteSession(deps(), { sessionId: 's1', name: 'partial', gitInit: false, moveFiles: true });
+      expect(r).toMatchObject({ moved: false, reason: expect.stringContaining('戻しました') });
+      expect(r.reason).not.toMatch(/EACCES.*\n/);
+      // 元に戻っている。移動先は空である。
+      expect(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8')).toBe('A');
+      expect(fs.readFileSync(path.join(dir, 'sub', 'b.txt'), 'utf8')).toBe('B');
+      expect(fs.readFileSync(path.join(zz, 'c.txt'), 'utf8')).toBe('C');
+      expect(fs.readdirSync(path.join(ws, 'partial'))).toEqual([]);
+    } finally {
+      fs.chmodSync(zz, 0o755);
+    }
+  });
+
+  it('移動を始められなければ、何も動かさずに理由を返す', () => {
+    fs.chmodSync(dir, 0o555);
+    try {
+      const r = promoteSession(deps(), { sessionId: 's1', name: 'stuck', gitInit: false, moveFiles: true });
+      expect(r).toMatchObject({ moved: false, reason: expect.stringContaining('残っています') });
+      expect(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8')).toBe('A');
+      expect(fs.readdirSync(path.join(ws, 'stuck'))).toEqual([]);
+    } finally {
+      fs.chmodSync(dir, 0o755);
+    }
+  });
+
+  it('cwd がスクラッチの外を指すシンボリックリンクなら、その先のファイルを移さない', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-pro-out-'));
+    fs.writeFileSync(path.join(outside, 'secret.txt'), 'S');
+    const link = path.join(path.dirname(dir), 'linked');
+    fs.symlinkSync(outside, link);
+    upsertShared(db, 'sessions', { id: 's2', provider: 'claude-code', provider_session_id: 'u2', cwd: link, home_device: 'd', project_id: scratchId }, 'd');
+    const r = promoteSession(deps(), { sessionId: 's2', name: 'linkproj', gitInit: false, moveFiles: true });
+    expect(r).toMatchObject({ moved: false, reason: expect.stringContaining('スクラッチの外') });
+    expect(fs.readFileSync(path.join(outside, 'secret.txt'), 'utf8')).toBe('S');
+    expect(fs.existsSync(path.join(ws, 'linkproj', 'secret.txt'))).toBe(false);
+    expect(fs.existsSync(link)).toBe(true);
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
   it('スクラッチのディレクトリが既に無ければ、移動せず理由を返す', () => {
     fs.rmSync(dir, { recursive: true, force: true });
     const r = promoteSession(deps(), { sessionId: 's1', name: 'gone', gitInit: false, moveFiles: true });
