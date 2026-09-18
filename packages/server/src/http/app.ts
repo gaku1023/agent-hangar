@@ -53,13 +53,54 @@ const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
 const PATH_SETTING_KEYS = ['tmuxPath', 'codePath'] as const;
 const TERMINAL_APPS = new Set<string>(['terminal', 'iterm']);
-/** statusline の payload の上限。これを超える本文は読み捨てる。 */
-const MAX_STATUSLINE_BYTES = 256 * 1024;
+/**
+ * 本文の大きさの上限。かならずバイト数で測る。
+ * 文字数で測ると、日本語は 1 文字 3 バイトなので上限の 3 倍まで通ってしまう。
+ */
+const BODY_LIMITS = {
+  /** 経路ごとの指定が無い JSON の本文。 */
+  default: 64 * 1024,
+  statusline: 256 * 1024,
+  memo: 1024 * 1024,
+  todo: 4 * 1024,
+  url: 2 * 1024,
+} as const;
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
 export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap });
 const numberOr = (v: string | undefined): number | undefined => (v ? Number(v) : undefined);
 const isEnoent = (e: unknown): boolean => (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
+
+/** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
+function parseHttpUrl(v: string): URL | null {
+  let u: URL;
+  try { u = new URL(v); } catch { return null; }
+  return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname !== '' ? u : null;
+}
+
+/**
+ * 本文をバイト数で測ってから読む。上限を超えていれば null を返し、呼び手は 413 にする。
+ * Content-Length があれば読む前に切り、無ければ読んでから測る。
+ */
+async function readBody(c: Context, limit: number): Promise<string | null> {
+  const declared = Number(c.req.header('content-length'));
+  if (Number.isFinite(declared) && declared > limit) return null;
+  const text = await c.req.text();
+  return Buffer.byteLength(text) > limit ? null : text;
+}
+
+/** 本文を読んで JSON にする。壊れた JSON と空の本文は undefined にして、呼び手の既定値に任せる。 */
+async function readJson(c: Context, limit: number): Promise<{ tooLarge: true } | { tooLarge: false; value: unknown }> {
+  const text = await readBody(c, limit);
+  if (text === null) return { tooLarge: true };
+  try {
+    return { tooLarge: false, value: JSON.parse(text) as unknown };
+  } catch {
+    return { tooLarge: false, value: undefined };
+  }
+}
+
+const tooLargeResult = (c: Context, limit: number) => c.json({ error: `本文が大きすぎます（上限は ${Math.round(limit / 1024)}KB です）` }, 413);
 
 /** RunError は status 付きで返し、それ以外は投げ直す。 */
 function runResult<T>(c: Context, fn: () => T, status: 200 | 201 = 200) {
@@ -123,7 +164,9 @@ export function createApp(deps: AppDeps): Hono {
   });
   api.patch('/projects/:id', async (c) => {
     const id = c.req.param('id');
-    const body = (await c.req.json().catch(() => ({}))) as { status?: string };
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { status?: string };
     if (!body.status || !STATUSES.has(body.status)) return c.json({ error: 'ステータスは active、paused、done、archived のいずれかです' }, 400);
     const row = db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
     if (!row) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
@@ -135,7 +178,9 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/projects/:id/candidates', (c) => c.json(candidateDirs(deps.settings().workspaceRoot, c.req.query('name') ?? '')));
   api.post('/projects/:id/resolve', async (c) => {
     const id = c.req.param('id');
-    const action = (await c.req.json().catch(() => null)) as ResolveAction | null;
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const action = (b.value ?? null) as ResolveAction | null;
     if (!action || !RESOLVE_KINDS.has(action.kind)) return c.json({ error: '操作の種類が正しくありません。repoint、archive、unlink のいずれかを指定してください' }, 400);
     if (action.kind === 'repoint' && (typeof action.path !== 'string' || !fs.existsSync(action.path))) return c.json({ error: '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください' }, 400);
     if (!getProject(db, deviceId, deps.live(), id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
@@ -178,7 +223,9 @@ export function createApp(deps: AppDeps): Hono {
 
   api.get('/settings', (c) => c.json(toSettingsDto(deps.settings())));
   api.patch('/settings', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as Record<string, unknown>;
     // 受け取るのは既知の項目だけにする。本文をそのまま設定に混ぜない。
     const patch: Partial<SettingsDto> = {};
     for (const key of TEXT_SETTING_KEYS) {
@@ -201,7 +248,8 @@ export function createApp(deps: AppDeps): Hono {
     }
     if ('lmStudioUrl' in body) {
       const v = body.lmStudioUrl;
-      if (typeof v !== 'string' || !/^https?:\/\//.test(v)) return c.json({ error: 'lmStudioUrl は http か https で始まる URL です' }, 400);
+      // host の無い http:// は繋ぎ先にならないので、形だけでなく URL として読めることを確かめる。
+      if (typeof v !== 'string' || !parseHttpUrl(v)) return c.json({ error: 'lmStudioUrl は http か https の URL です' }, 400);
       // 末尾の / は付けない。呼び出し側が /v1/... を足すので、二重の / を作らない。
       patch.lmStudioUrl = v.replace(/\/+$/, '');
     }
@@ -249,7 +297,9 @@ export function createApp(deps: AppDeps): Hono {
 
   api.get('/runs', (c) => c.json(deps.runs.listAlive()));
   api.post('/runs', async (c) => {
-    const params = (await c.req.json().catch(() => null)) as LaunchParams | null;
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const params = (b.value ?? null) as LaunchParams | null;
     if (!params || typeof params !== 'object') return c.json({ error: '本文が JSON ではありません' }, 400);
     return runResult(c, () => deps.runs.start(params), 201);
   });
@@ -267,7 +317,9 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/runs/:id/open-terminal', async (c) => {
     const run = deps.runs.getRun(c.req.param('id'));
     if (!run) return c.json({ error: 'run が見つかりません' }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { tabId?: string };
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { tabId?: string };
     // tabId を省いたときは Claude のタブを開く。タブ 0 の id は run の id である。
     const tabId = body.tabId ?? run.id;
     const t = deps.runs.getTab(tabId);
@@ -284,7 +336,9 @@ export function createApp(deps: AppDeps): Hono {
     return externalResult(c, () => deps.external.openEditor({ target: s.cwd }), true);
   });
   api.post('/projects', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; path?: unknown };
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { name?: unknown; path?: unknown };
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const raw = typeof body.path === 'string' ? body.path.trim() : '';
     if (!name) return c.json({ error: 'name は必須です' }, 400);
@@ -318,8 +372,8 @@ export function createApp(deps: AppDeps): Hono {
 
   // 使用量。statusline スクリプトが curl で送る。他の /api と同じ Bearer 認証を通す。
   api.post('/ingest/statusline', async (c) => {
-    const text = await c.req.text();
-    if (text.length > MAX_STATUSLINE_BYTES) return c.json({ error: '本文が大きすぎます' }, 413);
+    const text = await readBody(c, BODY_LIMITS.statusline);
+    if (text === null) return tooLargeResult(c, BODY_LIMITS.statusline);
     let raw: unknown;
     try { raw = JSON.parse(text); } catch { return c.json({ error: '本文が JSON ではありません' }, 400); }
     const r = deps.usage.ingest(raw);
@@ -352,14 +406,18 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/projects/:id/todos', async (c) => {
     const id = c.req.param('id');
     if (!requireProject(id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
+    const b = await readJson(c, BODY_LIMITS.todo);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
+    const body = (b.value ?? {}) as { text?: unknown };
     if (typeof body.text !== 'string' || !body.text.trim()) return c.json({ error: 'text は必須です' }, 400);
     const t = addTodo(db, deviceId, { projectId: id, text: body.text });
     todosChanged(id);
     return c.json(t, 201);
   });
   api.patch('/todos/:id', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { done?: unknown };
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { done?: unknown };
     if (typeof body.done !== 'boolean') return c.json({ error: 'done は true か false です' }, 400);
     const t = setTodoDone(db, deviceId, c.req.param('id'), body.done);
     if (!t) return c.json({ error: 'TODO が見つかりません' }, 404);
@@ -383,7 +441,9 @@ export function createApp(deps: AppDeps): Hono {
   api.put('/projects/:id/memo', async (c) => {
     const id = c.req.param('id');
     if (!requireProject(id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { markdown?: unknown };
+    const b = await readJson(c, BODY_LIMITS.memo);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.memo);
+    const body = (b.value ?? {}) as { markdown?: unknown };
     if (typeof body.markdown !== 'string') return c.json({ error: 'markdown は文字列です' }, 400);
     const m = deps.memos.write(id, body.markdown);
     deps.hub.broadcast({ type: 'memo.update', memo: m });
@@ -396,7 +456,9 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/projects/:id/artifacts', async (c) => {
     const id = c.req.param('id');
     if (!requireProject(id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { url?: unknown };
+    const b = await readJson(c, BODY_LIMITS.url);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.url);
+    const body = (b.value ?? {}) as { url?: unknown };
     if (typeof body.url !== 'string') return c.json({ error: 'url は必須です' }, 400);
     let a: ArtifactDto;
     try { a = addManualArtifact(db, deviceId, id, body.url); } catch (e) { return c.json({ error: e instanceof Error ? e.message : String(e) }, 400); }
@@ -420,7 +482,9 @@ export function createApp(deps: AppDeps): Hono {
     const id = c.req.param('id');
     const row = db.prepare('select * from sessions where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
     if (!row) return c.json({ error: 'セッションが見つかりません' }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { memo?: unknown };
+    const b = await readJson(c, BODY_LIMITS.todo);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
+    const body = (b.value ?? {}) as { memo?: unknown };
     if (typeof body.memo !== 'string') return c.json({ error: 'memo は文字列です' }, 400);
     upsertShared(db, 'sessions', { ...row, memo: body.memo.trim() || null }, deviceId);
     const s = getSession(db, deps.live(), id)!;
@@ -429,7 +493,9 @@ export function createApp(deps: AppDeps): Hono {
   });
   api.post('/sessions/:id/promote', async (c) => {
     const id = c.req.param('id');
-    const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; gitInit?: unknown; moveFiles?: unknown };
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { name?: unknown; gitInit?: unknown; moveFiles?: unknown };
     if (typeof body.name !== 'string') return c.json({ error: 'name は必須です' }, 400);
     const before = getSession(db, deps.live(), id);
     if (!before) return c.json({ error: 'セッションが見つかりません' }, 404);
@@ -452,7 +518,10 @@ export function createApp(deps: AppDeps): Hono {
     const id = c.req.param('id');
     if (!getSession(db, deps.live(), id)) return c.json({ error: 'セッションが見つかりません' }, 404);
     // 受け付けられなくても 202 を返す。UI は accepted を見て「作成中」を出すかどうかだけを決める。
-    return c.json({ accepted: deps.summary.enqueue(id, true) }, 202);
+    // 要約は補助の機能なので、受け付けが投げても 500 にせず accepted: false で返す（GET /events と同じ扱い）。
+    let accepted = false;
+    try { accepted = deps.summary.enqueue(id, true); } catch { accepted = false; }
+    return c.json({ accepted }, 202);
   });
   api.get('/summarizer/models', async (c) => c.json({ models: await deps.summary.listModels() }));
   api.post('/summarizer/test', async (c) => c.json(await deps.summary.test()));

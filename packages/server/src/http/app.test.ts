@@ -368,10 +368,40 @@ describe('routes', () => {
     expect((await json(await get('/api/summarizer/models'))).body).toEqual({ models: ['gemma'] });
     expect((await json(await post('/api/summarizer/test'))).body).toEqual(testResult);
   });
+  it('要約の受け付けが投げても呼び手の操作は成立する', async () => {
+    // 要約は補助の機能なので、受け付けに失敗しても 500 にしない。GET /events と同じ扱いにそろえる。
+    const id = await alphaId();
+    summary.enqueue = () => { throw new Error('要約器が壊れています'); };
+    const r = await post(`/api/sessions/${id}/summarize`);
+    expect(r.status).toBe(202);
+    expect(await r.json()).toEqual({ accepted: false });
+    expect((await get(`/api/sessions/${id}/events?fromSeq=0`)).status).toBe(200);
+  });
+  it('本文の上限はバイト数で測り、超えたら 413', async () => {
+    const pid = list0ProjectId();
+    // 日本語は 1 文字 3 バイト。文字数で測ると上限の 3 倍まで通ってしまう。
+    expect((await post(`/api/projects/${pid}/memo`, { markdown: 'あ'.repeat(400 * 1024) }, 'PUT')).status).toBe(413);
+    expect(memos.read(pid)).toBeNull();
+    expect(sent.some((e) => e.type === 'memo.update')).toBe(false);
+    expect((await post(`/api/projects/${pid}/todos`, { text: 'あ'.repeat(2000) })).status).toBe(413);
+    expect((await post(`/api/projects/${pid}/artifacts`, { url: 'https://claude.ai/code/artifact/' + 'a'.repeat(3000) })).status).toBe(413);
+    expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: H, body: JSON.stringify({ session_id: 'あ'.repeat(100 * 1024) }) })).status).toBe(413);
+    expect((await post(`/api/sessions/${await alphaId()}`, { memo: 'あ'.repeat(2000) }, 'PATCH')).status).toBe(413);
+    // 経路ごとの指定が無い本文にも既定の上限が効く。
+    expect((await post('/api/settings', { workspaceRoot: 'あ'.repeat(40 * 1024) }, 'PATCH')).status).toBe(413);
+    const big = await post(`/api/projects/${pid}/memo`, { markdown: 'あ'.repeat(400 * 1024) }, 'PUT');
+    expect((await big.json()).error).toMatch(/大きすぎます/);
+    // 上限の内側はこれまでどおり通る。
+    expect((await post(`/api/projects/${pid}/memo`, { markdown: 'あ'.repeat(1000) }, 'PUT')).status).toBe(200);
+    expect((await post(`/api/projects/${pid}/todos`, { text: 'あ'.repeat(100) })).status).toBe(201);
+  });
   it('要約器の設定を検査する', async () => {
     const patch = (body: unknown) => post('/api/settings', body, 'PATCH');
     expect(await (await patch({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5 })).json()).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5 });
     expect((await patch({ lmStudioUrl: 'ftp://x' })).status).toBe(400);
+    // host の無い URL は繋ぎ先にならない。
+    expect((await patch({ lmStudioUrl: 'http://' })).status).toBe(400);
+    expect((await patch({ lmStudioUrl: 'http' })).status).toBe(400);
     expect((await patch({ summaryHourlyCap: 0 })).status).toBe(400);
     expect((await patch({ summaryFallback: 'yes' })).status).toBe(400);
     expect((await (await patch({ lmStudioModel: null })).json()).lmStudioModel).toBeNull();
