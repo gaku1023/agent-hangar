@@ -122,3 +122,24 @@ export function currentRunOf(store: Store, sessionId: string): RunDto | null {
 export function tabsOf(store: Store, runId: string): TabDto[] {
   return Object.values(store.tabs).filter((t) => t.runId === runId && t.closedAt === null).sort((a, b) => (a.kind === b.kind ? a.createdAt - b.createdAt : a.kind === 'agent' ? -1 : 1));
 }
+
+/** 参照されなくなった run とそのタブを落とす。
+ * applyBootstrap が runs と tabs を混ぜるので、放っておくと終わった run と閉じたタブが溜まり続ける。
+ * 残すのは、終わっていない run、開いたタブが残る run（currentRunOf が拾う）、
+ * それと keepSessionIds のセッションの run である。
+ * 落とす run のタブは、開いたものが 1 つも無いので、一緒に落としても画面は変わらない。
+ */
+export function pruneRuns(store: Store, keepSessionIds: Iterable<string>): Store {
+  const keep = new Set(keepSessionIds);
+  const drop = new Set<string>();
+  for (const r of Object.values(store.runs)) {
+    if (r.endedAt === null || keep.has(r.sessionId) || tabsOf(store, r.id).length > 0) continue;
+    drop.add(r.id);
+  }
+  if (drop.size === 0) return store;
+  return {
+    ...store,
+    runs: Object.fromEntries(Object.entries(store.runs).filter(([id]) => !drop.has(id))),
+    tabs: Object.fromEntries(Object.entries(store.tabs).filter(([, t]) => !drop.has(t.runId))),
+  };
+}

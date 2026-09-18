@@ -192,6 +192,30 @@ describe('起動とターミナル', () => {
     expect(terminals.connected).toEqual(['r-s1', 'r-s2', 'r-s3']);
     expect(terminals.disconnected).toEqual(['r-s1', 'r-s2', 'r-s3']);
   });
+  it('bootstrap を取り直すたびに、参照されなくなった run を落とす', async () => {
+    const ended = { ...launched.run, endedAt: 2, endReason: 'exited' as const };
+    const closed = { ...launched.tabs[0]!, closedAt: 3 };
+    const seed = (rt: ReturnType<typeof harness>['rt']) => {
+      rt.dispatch({ kind: 'server', event: { type: 'run.started', run: launched.run, tabs: launched.tabs } });
+      rt.dispatch({ kind: 'server', event: { type: 'run.ended', run: ended } });
+      rt.dispatch({ kind: 'server', event: { type: 'tab.upsert', tab: closed } });
+    };
+    const a = harness();
+    a.rt.start();
+    seed(a.rt);
+    a.wsHandlers[0]!.onOpen();
+    await flush();
+    expect(a.rt.getStore().runs.r1).toBeUndefined();
+    expect(a.rt.getStore().tabs.r1).toBeUndefined();
+    // 見ているセッションの run は残す。
+    const b = harness();
+    b.rt.start();
+    seed(b.rt);
+    b.setHash('#/session/s1');
+    b.wsHandlers[0]!.onOpen();
+    await flush();
+    expect(b.rt.getStore().runs.r1).toBeDefined();
+  });
   it('iTerm2 から Terminal.app に落ちたらトーストで知らせる', async () => {
     const { rt } = harness({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
     rt.start();

@@ -2,7 +2,7 @@ import { formatRoute, parseRoute, type Intent, type LaunchResultDto, type Server
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { FocusTarget, SessionViewState } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -78,7 +78,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.bootstrap':
         deps.api.bootstrap().then((b) => {
-          setStore(applyBootstrap(store, b));
+          // 取り直しは混ぜるので、そのついでに参照されなくなった run を落とす。
+          // 見ているセッションの run は、まだ画面が引くので残す。
+          setStore(pruneRuns(applyBootstrap(store, b), state.screen.name === 'session' ? [state.screen.id] : []));
           // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
           for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });

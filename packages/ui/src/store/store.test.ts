@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BootstrapDto, RunDto, SessionDto, TabDto } from '@agent-hangar/shared';
-import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applyServerEvent, currentRunOf, eventsKey, initialStore, tabsOf } from './store.ts';
+import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applyServerEvent, currentRunOf, eventsKey, initialStore, pruneRuns, tabsOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0 } });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0' };
@@ -80,5 +80,21 @@ describe('runs と tabs', () => {
     expect(Object.keys(s.runs).sort()).toEqual(['r1', 'r2']);
     expect(tabsOf(s, 'r1').map((t) => t.id)).toEqual(['r1', 't1']);
     expect(aliveRunOf(s, 's2')?.id).toBe('r2');
+  });
+  it('掃除は、終わっていて開いたタブも参照も無い run だけを落とす', () => {
+    // bootstrap で混ぜた分が溜まり続けないように、画面が参照しうるものだけを残す。
+    const s = applyBootstrap(initialStore(), {
+      ...boot,
+      runs: [run('r1', 's1', 9), run('r2', 's2'), run('r3', 's3', 9), run('r4', 's4', 9)],
+      tabs: [tab('r1', 'r1', 'agent', 8), tab('t1', 'r1', 'shell', 8), tab('r3', 'r3', 'agent', 8), tab('t3', 'r3', 'shell'), tab('r4', 'r4', 'agent', 8)],
+    });
+    const pruned = pruneRuns(s, ['s4']);
+    // r2 は実行中、r3 は開いたシェルタブが残る、r4 は画面が見ているセッションのもの。
+    expect(Object.keys(pruned.runs).sort()).toEqual(['r2', 'r3', 'r4']);
+    // 落とした run のタブも一緒に消える。
+    expect(Object.keys(pruned.tabs).sort()).toEqual(['r3', 'r4', 't3']);
+    expect(currentRunOf(pruned, 's3')?.id).toBe('r3');
+    // 落とすものが無ければ同じ参照を返す。
+    expect(pruneRuns(pruned, ['s4'])).toBe(pruned);
   });
 });
