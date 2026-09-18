@@ -35,7 +35,36 @@ export function listTranscriptFiles(claudeDir: string): DiscoveredFile[] {
   return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
-export type HistoryEntry = { cwd: string; firstTs: number; lastTs: number; firstDisplay: string; count: number };
+/** そのディレクトリに、このセッションの本体かサブエージェントの jsonl があるか。 */
+function hasSessionFilesIn(projectDir: string, sessionUuid: string): boolean {
+  if (fs.existsSync(path.join(projectDir, `${sessionUuid}.jsonl`))) return true;
+  try {
+    return fs.readdirSync(path.join(projectDir, sessionUuid, 'subagents')).some((f) => /^agent-[0-9a-zA-Z]+\.jsonl$/.test(f));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * そのセッションの jsonl が 1 つでもあるかを、ファイルの実体で確かめる。
+ * 索引の `transcript_files` はまだ行が入っていないことがあるので、
+ * 「本文があるか」を消す側の判断に使うときはこちらを見る。
+ * cwd が分かっていれば素直な場所を先に見て、外れていても全部のプロジェクトを当たる。
+ */
+export function hasTranscriptFile(claudeDir: string, sessionUuid: string, cwd?: string | null): boolean {
+  if (!sessionUuid) return false;
+  const root = path.join(claudeDir, 'projects');
+  if (cwd && hasSessionFilesIn(path.join(root, mangleCwd(cwd)), sessionUuid)) return true;
+  let dirs: fs.Dirent[];
+  try {
+    dirs = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  return dirs.some((d) => d.isDirectory() && hasSessionFilesIn(path.join(root, d.name), sessionUuid));
+}
+
+export type HistoryEntry ={ cwd: string; firstTs: number; lastTs: number; firstDisplay: string; count: number };
 
 /** ~/.claude/history.jsonl を読み、セッション ID ごとにまとめる。 */
 export function readHistoryIndex(claudeDir: string): Map<string, HistoryEntry> {

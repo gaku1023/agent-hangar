@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FIXTURE_CLAUDE_DIR, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from '../../../test/fixtures.ts';
-import { listTranscriptFiles, mangleCwd, readHistoryIndex } from './discover.ts';
+import { hasTranscriptFile, listTranscriptFiles, mangleCwd, readHistoryIndex } from './discover.ts';
 
 describe('mangleCwd', () => {
   it('英数字以外を 1 文字ずつ - にする', () => {
@@ -35,5 +35,22 @@ describe('readHistoryIndex', () => {
   });
   it('history.jsonl が無ければ空の Map', () => {
     expect(readHistoryIndex('/nonexistent/dir').size).toBe(0);
+  });
+});
+
+describe('hasTranscriptFile', () => {
+  it('本体でもサブエージェントでも、1 つでもあれば真', () => {
+    expect(hasTranscriptFile(FIXTURE_CLAUDE_DIR, SESSION_ALPHA, '/Users/me/workspace/alpha')).toBe(true);
+    // cwd が分からなくても、また外れていても、全部のプロジェクトを当たる。
+    expect(hasTranscriptFile(FIXTURE_CLAUDE_DIR, SESSION_ALPHA)).toBe(true);
+    expect(hasTranscriptFile(FIXTURE_CLAUDE_DIR, SESSION_ALPHA, '/nowhere')).toBe(true);
+    expect(hasTranscriptFile(FIXTURE_CLAUDE_DIR, SESSION_OTHER)).toBe(true);
+  });
+  it('本文の無いセッションと無いディレクトリは偽', () => {
+    // SESSION_BETA は history にしか出てこない。jsonl はどこにも無い。
+    expect(hasTranscriptFile(FIXTURE_CLAUDE_DIR, SESSION_BETA)).toBe(false);
+    expect(hasTranscriptFile(FIXTURE_CLAUDE_DIR, '00000000-0000-0000-0000-000000000000')).toBe(false);
+    expect(hasTranscriptFile('/nonexistent/dir', SESSION_ALPHA)).toBe(false);
+    expect(hasTranscriptFile(FIXTURE_CLAUDE_DIR, '')).toBe(false);
   });
 });

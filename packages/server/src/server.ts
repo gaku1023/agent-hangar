@@ -124,6 +124,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const runs = new RunManager({
     db, deviceId: device.id, home, tmux: tmuxOf(settings), port, token,
     claudeBin: process.env.HANGAR_CLAUDE_BIN ?? 'claude',
+    // 起動に失敗した run の後始末で、本文の jsonl があるかを実体で確かめるために要る。
+    claudeDir,
     // hangar の外で動いている Claude を再開すると二重起動になるので、レジストリを見て弾く。
     isLive: (providerSessionId) => registry.current().some((l) => l.sessionId === providerSessionId),
   });

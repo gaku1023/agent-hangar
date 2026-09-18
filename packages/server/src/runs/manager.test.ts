@@ -6,6 +6,7 @@ import { shortId, type TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
+import { mangleCwd } from '../provider/claude-code/discover.ts';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
@@ -16,12 +17,14 @@ let home: string;
 let cwd: string;
 let fake: { bin: string; argsFile: string };
 let tmux: Tmux | null;
+let claudeDir: string;
 const socketPath = testSocketPath();
 
 beforeEach(() => {
   db = openDb(':memory:');
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-home-'));
   cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-cwd-'));
+  claudeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-claude-'));
   fake = writeFakeClaude(home);
   upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
   upsertShared(db, 'project_roots', { id: 'pr1', project_id: 'p1', device_id: 'd', path: cwd, resolved: 1 }, 'd');
@@ -34,10 +37,11 @@ afterEach(() => {
   tmux?.killServer();
   fs.rmSync(home, { recursive: true, force: true });
   fs.rmSync(cwd, { recursive: true, force: true });
+  fs.rmSync(claudeDir, { recursive: true, force: true });
 });
 
 const make = (over: Partial<ConstructorParameters<typeof RunManager>[0]> = {}) =>
-  new RunManager({ db, deviceId: 'd', home, tmux, claudeBin: fake.bin, port: 4177, token: 'tok', shell: 'sh', ...over });
+  new RunManager({ db, deviceId: 'd', home, tmux, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', ...over });
 
 /** 偽の claude が記録した引数を待って読む。最後の要素は HANGAR_RUN_ID の値である。 */
 const launchedArgs = async (runId: string) => {
@@ -425,6 +429,31 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
   it('本文のあるセッションは残す', () => {
     const { runId, sessionId } = seedRun();
     addTranscript(sessionId);
+    const rm = make({ tmux: null });
+    rm.kill(runId);
+    expect(deletedAt(sessionId)).toBeNull();
+  });
+
+  it('索引がまだでも、jsonl があるセッションは残す', () => {
+    // claude が本文を書いた直後に run が終わると、transcript_files の行はまだ無い。
+    // DB だけを見て消すと、本文のあるセッションが UI から永久に見えなくなる。
+    const { runId, sessionId } = seedRun();
+    const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(sessionId) as { p: string }).p;
+    const dir = path.join(claudeDir, 'projects', mangleCwd(cwd));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${uuid}.jsonl`), '{}\n');
+    const rm = make({ tmux: null });
+    rm.kill(runId);
+    expect(deletedAt(sessionId)).toBeNull();
+  });
+
+  it('サブエージェントの jsonl しか無くても残す', () => {
+    const { runId, sessionId } = seedRun();
+    const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(sessionId) as { p: string }).p;
+    // 本体の jsonl と揃いの場所に置かれるとは限らないので、別のプロジェクトディレクトリに置く。
+    const sub = path.join(claudeDir, 'projects', 'other-project', uuid, 'subagents');
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(path.join(sub, 'agent-abc123.jsonl'), '{}\n');
     const rm = make({ tmux: null });
     rm.kill(runId);
     expect(deletedAt(sessionId)).toBeNull();
