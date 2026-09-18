@@ -8,6 +8,7 @@ import { presentHome } from './home.ts';
 import { presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
+import { presentSessionRow } from './row.ts';
 import { presentSession } from './session.ts';
 import { presentSessions } from './sessions.ts';
 import { presentSettings } from './settings.ts';
@@ -329,6 +330,70 @@ describe('presentSettings のフェーズ 3 の項目', () => {
     expect(p).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, summarizerModels: ['gemma', 'qwen'], statuslineCommand: 'npx hangar statusline install' });
     expect(p.statusline?.installed).toBe(true);
     expect(p.usageAggregate?.days).toHaveLength(1);
+    expect(p.summarizerTest).toBeNull();
+  });
+});
+
+describe('presentSessionRow のコストと run', () => {
+  it('コストは通貨の記号と小数 2 桁。値が無ければ空文字で桁を崩さない', () => {
+    const store = storeWith();
+    expect(presentSessionRow(session('s1', { stats: { ...session('s1').stats, costUsd: 12.5 } }), store, NOW).cost).toBe('$12.50');
+    expect(presentSessionRow(session('s1', { stats: { ...session('s1').stats, costUsd: 0.005 } }), store, NOW).cost).toBe('$0.01');
+    expect(presentSessionRow(session('s1', { stats: { ...session('s1').stats, costUsd: 0 } }), store, NOW).cost).toBe('$0.00');
+    expect(presentSessionRow(session('s1'), store, NOW).cost).toBe('');
+  });
+  it('runId は生きている run の id。run が無いか終わっていれば null', () => {
+    const store = storeWith();
+    expect(presentSessionRow(store.sessions.s1!, store, NOW).runId).toBeNull();
+    store.runs = { r1: runDto('r1', 's1'), r0: runDto('r0', 's2', NOW) };
+    expect(presentSessionRow(store.sessions.s1!, store, NOW).runId).toBe('r1');
+    expect(presentSessionRow(store.sessions.s2!, store, NOW).runId).toBeNull();
+  });
+  it('行を組み立てる画面にもコストと run が乗る', () => {
+    const store = storeWith();
+    store.runs = { r1: runDto('r1', 's1') };
+    store.sessions.s1 = { ...store.sessions.s1!, stats: { ...store.sessions.s1!.stats, costUsd: 3 } };
+    expect(presentHome(initialState(), store, NOW).recent[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
+    expect(presentProject(initialState(), store, NOW, 'alpha').sessions[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
+  });
+});
+
+describe('presentSession のフェーズ 3 の項目（値が無いとき）', () => {
+  it('スクラッチでないプロジェクトは昇格できない。無い値はそのまま空にする', () => {
+    const store = storeWith();
+    store.sessions.s1 = { ...store.sessions.s1!, fromScratch: true };
+    store.artifacts = { a1: artDto('a1'), a9: artDto('a9', { sessionIds: ['s9'] }) };
+    const p = presentSession(initialState(), store, NOW, 's1');
+    expect(p.canPromote).toBe(false);
+    expect(p.fromScratch).toBe(true);
+    expect(p.summaryPending).toBe(false);
+    expect(p.summaryError).toBeNull();
+    expect(p.contextPercent).toBeNull();
+    expect(p.cost).toBe('');
+    // 別のセッションのアーティファクトは出さない。
+    expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
+  });
+  it('プロジェクトに属さないセッションは昇格できない', () => {
+    const store = storeWith();
+    expect(presentSession(initialState(), store, NOW, 's3').canPromote).toBe(false);
+  });
+});
+
+describe('presentProject の右レール（端）', () => {
+  it('スクラッチには印が付く。無いプロジェクトの右レールは空', () => {
+    const store: Store = { ...initialStore(), projects: { sc: scratchProject() } };
+    expect(presentProject(initialState(), store, NOW, 'sc').isScratch).toBe(true);
+    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], memo: null, artifacts: [] });
+  });
+});
+
+describe('presentSettings の既定値', () => {
+  it('設定がまだ届いていないときの要約器の既定と null の項目', () => {
+    const p = presentSettings(initialState(), initialStore());
+    expect(p).toMatchObject({ lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
+    expect(p.statusline).toBeNull();
+    expect(p.summarizerModels).toBeNull();
+    expect(p.usageAggregate).toBeNull();
     expect(p.summarizerTest).toBeNull();
   });
 });
