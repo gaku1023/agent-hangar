@@ -16,4 +16,8 @@ describe('claudeCodeProvider', () => {
     const fork = claudeCodeProvider.resumeCommand(base, { providerSessionId: 'u1' }, true, 'u2');
     expect(fork).toEqual(['claude', ...buildClaudeArgs({ ...base, mode: { kind: 'fork', sessionUuid: 'u1', newSessionUuid: 'u2' } })]);
   });
+  it('フォークで新しい UUID が無ければ投げる', () => {
+    expect(() => claudeCodeProvider.resumeCommand(base, { providerSessionId: 'u1' }, true)).toThrow(/UUID/);
+    expect(() => claudeCodeProvider.resumeCommand(base, { providerSessionId: 'u1' }, true, '  ')).toThrow(/UUID/);
+  });
 });

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { shortId } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { ensureSession } from '../indexer/indexFile.ts';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, testSocketName, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
@@ -197,5 +198,69 @@ describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
     const rm2 = make();
     expect(rm2.recoverAtStartup()).toEqual([]);
     expect(rm2.getRun(r.run.id)?.endedAt).toBeNull();
+  });
+});
+
+/** 既に本文のあるセッションを作る。再開とフォークの元になる。 */
+function seedOldSession(withTranscript = true): string {
+  const id = ensureSession(db, 'u-old', cwd, 'd');
+  const cur = db.prepare('select * from sessions where id = ?').get(id) as Record<string, unknown>;
+  upsertShared(db, 'sessions', { ...cur, project_id: 'p1', name: 'old' }, 'd');
+  if (withTranscript) addTranscript(id);
+  return id;
+}
+
+/** そのセッションに本文の jsonl があることにする。 */
+function addTranscript(sessionId: string): void {
+  db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/x/u-old.jsonl', sessionId, null, 10, 1, 10, 1);
+}
+
+describe('resume と fork の入力検査（tmux 不要）', () => {
+  it('無いセッション、本文なし、実行中は拒む', () => {
+    const rm = make({ tmux: null, isLive: (u) => u === 'u-old' });
+    expect(() => rm.resume('nope')).toThrow(expect.objectContaining({ status: 404 }));
+    const noBody = seedOldSession(false);
+    expect(() => rm.resume(noBody)).toThrow(expect.objectContaining({ status: 400 }));
+    addTranscript(noBody);
+    expect(() => rm.resume(noBody)).toThrow(expect.objectContaining({ status: 409 }));
+    expect(() => rm.fork(noBody)).toThrow(expect.objectContaining({ status: 409 }));
+  });
+});
+
+describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
+  it('resume は同じセッションに kind = resume の run を作り、-r で起動する', async () => {
+    const id = seedOldSession();
+    const rm = make();
+    const r = rm.resume(id);
+    expect(r.sessionId).toBe(id);
+    expect(r.run.kind).toBe('resume');
+    const args = await launchedArgs(r.run.id);
+    expect(args.slice(0, 1)).toEqual(['--mcp-config']);
+    expect(args.indexOf('-r')).toBe(2);
+    expect(args[3]).toBe('u-old');
+    expect(args).not.toContain('--session-id');
+    expect(args).not.toContain('-n');
+    expect(args.at(-2)).toBe(args[args.indexOf('--append-system-prompt') + 1]);
+    expect(() => rm.resume(id)).toThrow(expect.objectContaining({ status: 409 }));
+  });
+
+  it('fork は新しいセッション行と kind = fork の run を作る', async () => {
+    const id = seedOldSession();
+    const rm = make();
+    const f = rm.fork(id);
+    expect(f.sessionId).not.toBe(id);
+    expect(f.run).toMatchObject({ kind: 'fork', sessionId: f.sessionId });
+    const args = await launchedArgs(f.run.id);
+    const i = args.indexOf('--fork-session');
+    expect(args.slice(i - 2, i + 3)).toEqual(['-r', 'u-old', '--fork-session', '--session-id', args[i + 2]]);
+    const s = db.prepare('select * from sessions where id = ?').get(f.sessionId) as Record<string, unknown>;
+    expect(s).toMatchObject({ provider_session_id: args[i + 2], project_id: 'p1', cwd, name: null });
+    expect(JSON.parse(args[1]!).mcpServers.hangar.url).toBe(`http://127.0.0.1:4177/mcp/s/${f.sessionId}`);
+  });
+
+  it('cwd が無ければ 400', () => {
+    const id = seedOldSession();
+    db.prepare('update sessions set cwd = ? where id = ?').run('/nonexistent/cwd', id);
+    expect(() => make().resume(id)).toThrow(expect.objectContaining({ status: 400 }));
   });
 });

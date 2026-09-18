@@ -9,7 +9,7 @@ import { renderInjection } from '../launch/injection.ts';
 import { ensureWrapperScript, runLogPath } from '../launch/wrapper.ts';
 import type { LaunchInput } from '../provider/types.ts';
 import type { Tmux } from '../tmux/tmux.ts';
-import { getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
+import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
 const HEARTBEAT_MS = 30_000;
@@ -27,6 +27,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
 export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string; port: number; token: string; shell?: string; isLive?: (providerSessionId: string) => boolean; now?: () => number };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
+type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
 
 function isDirectory(p: string): boolean {
   try {
@@ -154,6 +155,41 @@ export class RunManager {
     upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, name: params.name?.trim() || null, started_at: now, last_activity_at: now }, this.deps.deviceId);
     const input: LaunchInput = { ...this.baseInput(sessionId, p.id, p.path, params), mode: { kind: 'start', sessionUuid } };
     return this.launch({ sessionId, cwd: p.path, kind: 'start', input, params });
+  }
+
+  private session(sessionId: string): SessionRow {
+    const s = this.db.prepare('select * from sessions where id = ? and deleted_at is null').get(sessionId) as SessionRow | undefined;
+    if (!s) throw new RunError(404, 'セッションが見つかりません');
+    return s;
+  }
+
+  /** 再開できる状態かを確かめる。本文の有無、hangar の run、hangar の外で動いている Claude は、どれも別の原因である。 */
+  private assertResumable(s: SessionRow): void {
+    const hasBody = this.db.prepare('select 1 from transcript_files where session_id = ? and agent_id is null limit 1').get(s.id);
+    if (!hasBody) throw new RunError(400, 'このセッションには本文がありません');
+    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, 'このセッションは実行中です');
+    if (this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, 'このセッションは hangar の外で実行中です');
+  }
+
+  /** 同じ cwd で claude -r <uuid> を実行し、同じセッションに kind = 'resume' の run を付ける。 */
+  resume(sessionId: string): LaunchResult {
+    const s = this.session(sessionId);
+    this.assertResumable(s);
+    const input: LaunchInput = { ...this.baseInput(s.id, s.project_id, s.cwd, {}), mode: { kind: 'resume', sessionUuid: s.provider_session_id } };
+    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', input, params: { projectId: s.project_id ?? undefined } });
+  }
+
+  /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐので null にする。 */
+  fork(sessionId: string): LaunchResult {
+    const s = this.session(sessionId);
+    this.assertResumable(s);
+    const newUuid = crypto.randomUUID();
+    const newSessionId = ensureSession(this.db, newUuid, s.cwd, this.deps.deviceId);
+    const now = this.now();
+    const cur = this.db.prepare('select * from sessions where id = ?').get(newSessionId) as Record<string, unknown>;
+    upsertShared(this.db, 'sessions', { ...cur, project_id: s.project_id, name: null, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    const input: LaunchInput = { ...this.baseInput(newSessionId, s.project_id, s.cwd, {}), mode: { kind: 'fork', sessionUuid: s.provider_session_id, newSessionUuid: newUuid } };
+    return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', input, params: { projectId: s.project_id ?? undefined } });
   }
 
   /** tmux の一覧を 1 回読み、消えた run とタブを閉じ、古い heartbeat を更新する。 */
