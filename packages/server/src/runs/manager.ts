@@ -53,6 +53,11 @@ export class RunManager {
     for (const l of this.listeners) (l[k] as ((a: typeof arg) => void) | undefined)?.(arg);
   }
 
+  /** Settings で tmuxPath が変わったときに差し替える。生きている run はそのまま観測を続ける。 */
+  setTmux(tmux: Tmux | null): void {
+    this.deps.tmux = tmux;
+  }
+
   private now(): number {
     return this.deps.now?.() ?? Date.now();
   }

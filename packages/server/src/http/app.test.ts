@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ServerEvent, SettingsDto } from '@agent-hangar/shared';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LaunchParams, LaunchResultDto, RunDto, ServerEvent, SettingsDto, TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
+import { RunError } from '../runs/manager.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
-import { createApp } from './app.ts';
+import { createApp, type ExternalApi, type RunsApi } from './app.ts';
 
 let dir: string;
 let db: Db;
@@ -19,6 +20,36 @@ const H = { authorization: `Bearer ${TOKEN}` };
 const get = (p: string, headers: Record<string, string> = H) => app.request(p, { headers });
 const json = async (r: Response) => ({ status: r.status, body: await r.json() });
 
+const run: RunDto = { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 };
+const agentTab: TabDto = { id: 'r1', runId: 'r1', sessionId: 's1', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r1', createdAt: 1, closedAt: null };
+const shellTab: TabDto = { id: 't1', runId: 'r1', sessionId: 's1', kind: 'shell', title: 'シェル 1', tmuxName: 'hangar-r1-t1', createdAt: 2, closedAt: null };
+const launched: LaunchResultDto = { run, sessionId: 's1', tabs: [agentTab] };
+let runs: RunsApi;
+let external: ExternalApi;
+
+/** 経路の検査だけをしたいので、RunManager は呼び出しを記録する偽物に差し替える。 */
+function fakeRuns(): RunsApi {
+  return {
+    start: vi.fn((p: LaunchParams): LaunchResultDto => { if (!p.projectId) throw new RunError(400, 'projectId は必須です'); return launched; }),
+    resume: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
+    fork: vi.fn((): LaunchResultDto => ({ ...launched, sessionId: 's2', run: { ...run, kind: 'fork', sessionId: 's2' } })),
+    kill: vi.fn((id: string): RunDto => { if (id !== 'r1') throw new RunError(404, 'run が見つかりません'); return { ...run, endedAt: 2, endReason: 'killed' }; }),
+    openTab: vi.fn((): TabDto => shellTab),
+    closeTab: vi.fn((): TabDto => ({ ...shellTab, closedAt: 3 })),
+    listAlive: vi.fn((): { runs: RunDto[]; tabs: TabDto[] } => ({ runs: [run], tabs: [agentTab, shellTab] })),
+    getRun: vi.fn((id: string): RunDto | null => (id === 'r1' ? run : null)),
+    getTab: vi.fn((id: string): TabDto | null => (id === 't1' ? shellTab : id === 'r1' ? agentTab : null)),
+  };
+}
+
+function fakeExternal(): ExternalApi {
+  return {
+    openTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
+    openDirTerminal: vi.fn(async () => ({ app: 'iterm' as const, fellBack: true })),
+    openEditor: vi.fn(async () => {}),
+  };
+}
+
 beforeEach(async () => {
   dir = copyFixtureClaudeDir(); db = openDb(':memory:'); sent.length = 0;
   ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app-'));
@@ -28,7 +59,9 @@ beforeEach(async () => {
   db.prepare('update sessions set cwd = ? where provider_session_id = ?').run(`${ws}/alpha`, SESSION_ALPHA);
   syncProjectsFromWorkspace(db, 'd', ws); assignSessions(db, 'd');
   let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null };
-  app = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, version: '0.0.0-test', settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }), live: () => [], indexer, hub: { broadcast: (e) => sent.push(e) } });
+  runs = fakeRuns();
+  external = fakeExternal();
+  app = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: '0.0.0-test', settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }), live: () => [], indexer, hub: { broadcast: (e) => sent.push(e) }, runs, external });
 });
 afterEach(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }); });
 
@@ -130,13 +163,87 @@ describe('routes', () => {
     const r = await app.request('/api/index/rebuild', { method: 'POST', headers: H });
     expect(r.status).toBe(202);
   });
+  it('bootstrap は runs と tabs と新しい settings を含む', async () => {
+    const { body } = await json(await get('/api/bootstrap'));
+    expect(body.runs).toEqual([run]);
+    expect(body.tabs).toHaveLength(2);
+    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null });
+  });
+  it('起動、再開、フォーク、停止', async () => {
+    const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const r = await post('/api/runs', { projectId: 'p1', name: 'n' });
+    expect(r.status).toBe(201);
+    expect(await r.json()).toEqual(launched);
+    expect(runs.start).toHaveBeenCalledWith({ projectId: 'p1', name: 'n' });
+    expect((await post('/api/runs', {})).status).toBe(400);
+    expect((await post('/api/runs')).status).toBe(400);
+    expect((await post('/api/sessions/s1/resume')).status).toBe(201);
+    expect((await post('/api/sessions/busy/resume')).status).toBe(409);
+    const f = await post('/api/sessions/s1/fork');
+    expect((await f.json()).sessionId).toBe('s2');
+    const k = await app.request('/api/runs/r1', { method: 'DELETE', headers: H });
+    expect((await k.json()).endReason).toBe('killed');
+    expect((await app.request('/api/runs/nope', { method: 'DELETE', headers: H })).status).toBe(404);
+    expect((await json(await get('/api/runs'))).body.tabs).toHaveLength(2);
+  });
+  it('タブの追加と削除', async () => {
+    const r = await app.request('/api/runs/r1/tabs', { method: 'POST', headers: H });
+    expect(r.status).toBe(201);
+    expect((await r.json()).tmuxName).toBe('hangar-r1-t1');
+    const d = await app.request('/api/runs/r1/tabs/t1', { method: 'DELETE', headers: H });
+    expect((await d.json()).closedAt).toBe(3);
+    expect(runs.closeTab).toHaveBeenCalledWith('t1');
+  });
+  it('ターミナルで開く、VS Code で開く', async () => {
+    const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    expect(await (await post('/api/runs/r1/open-terminal', { tabId: 't1' })).json()).toEqual({ app: 'terminal', fellBack: false });
+    expect(external.openTerminal).toHaveBeenCalledWith({ tmuxName: 'hangar-r1-t1' });
+    await post('/api/runs/r1/open-terminal', {});
+    expect(external.openTerminal).toHaveBeenLastCalledWith({ tmuxName: 'hangar-r1' });
+    expect((await post('/api/runs/r1/open-terminal', { tabId: 'nope' })).status).toBe(404);
+    expect((await post('/api/runs/nope/open-terminal', {})).status).toBe(404);
+    const { body: sessions } = await json(await get('/api/sessions'));
+    const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`)).status).toBe(204);
+    expect(external.openEditor).toHaveBeenCalledWith({ target: `${ws}/alpha` });
+    expect((await post('/api/sessions/nope/open-editor')).status).toBe(404);
+    const { body: list } = await json(await get('/api/projects'));
+    expect((await post(`/api/projects/${list[0].id}/open-editor`)).status).toBe(204);
+    expect(await (await post(`/api/projects/${list[0].id}/open-terminal`)).json()).toEqual({ app: 'iterm', fellBack: true });
+    (external.openEditor as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('code が無い'));
+    const bad = await post(`/api/sessions/${alpha.id}/open-editor`);
+    expect(bad.status).toBe(500);
+    expect((await bad.json()).error).toBe('code が無い');
+  });
+  it('プロジェクトの作成', async () => {
+    fs.mkdirSync(`${ws}/beta`);
+    const r = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'beta', path: `${ws}/beta` }) });
+    expect(r.status).toBe(201);
+    const p = await r.json();
+    expect(p).toMatchObject({ name: 'beta', path: `${ws}/beta`, resolved: true, status: 'active' });
+    expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id: p.id } });
+    expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) })).status).toBe(400);
+    expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: '', path: ws }) })).status).toBe(400);
+  });
+  it('設定の新しい項目を検査する', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect(await (await patch({ terminalApp: 'iterm', tmuxPath: '/opt/homebrew/bin/tmux' })).json()).toMatchObject({ terminalApp: 'iterm', tmuxPath: '/opt/homebrew/bin/tmux' });
+    expect((await patch({ terminalApp: 'kitty' })).status).toBe(400);
+    expect((await patch({ tmuxPath: 3 })).status).toBe(400);
+    expect((await (await patch({ codePath: null })).json()).codePath).toBeNull();
+  });
+  it('MCP の経路が mount されている', async () => {
+    const r = await app.request('/mcp', { method: 'POST', headers: { ...H, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } }) });
+    expect(r.status).toBe(200);
+    expect((await app.request('/mcp', { method: 'POST', body: '{}' })).status).toBe(401);
+  });
   it('uiDist があれば / でクッキーを付けて index.html を返し、assets も配る', async () => {
     const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-dist-'));
     try {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
       fs.mkdirSync(path.join(dist, 'assets'));
       fs.writeFileSync(path.join(dist, 'assets', 'a.js'), 'console.log(1)');
-      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, version: 'v', settings: () => ({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null }), updateSettings: () => ({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null }), live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, uiDist: dist });
+      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => ({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null }), updateSettings: () => ({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null }), live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), uiDist: dist });
       const r = await ui.request('/');
       expect(r.status).toBe(200);
       expect(r.headers.get('set-cookie')).toBe(`hangar_token=${TOKEN}; HttpOnly; SameSite=Strict; Path=/`);

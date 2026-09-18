@@ -1,33 +1,69 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { Hono } from 'hono';
-import type { BootstrapDto, IndexProgressDto, LiveSessionDto, ResolveAction, ServerEvent, SettingsDto } from '@agent-hangar/shared';
+import { Hono, type Context } from 'hono';
+import { newId, type BootstrapDto, type IndexProgressDto, type LaunchParams, type LiveSessionDto, type ResolveAction, type ServerEvent, type SettingsDto, type TerminalApp } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
+import { createMcpApp } from '../mcp/app.ts';
 import { assignSessions, candidateDirs, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
+import { RunError, type RunManager } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
 import { authMiddleware } from './auth.ts';
 
+/** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
+export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab'>;
+/** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */
+export type ExternalApi = {
+  openTerminal(o: { tmuxName: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
+  openDirTerminal(o: { dir: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
+  openEditor(o: { target: string }): Promise<void>;
+};
 export type AppDeps = {
-  db: Db; deviceId: string; deviceName: string; token: string; home: string; version: string;
+  db: Db; deviceId: string; deviceName: string; token: string; home: string; port: number; version: string;
   settings: () => Settings; updateSettings: (patch: Partial<SettingsDto>) => Settings;
   live: () => LiveSessionDto[];
   indexer: { progress(): IndexProgressDto; rebuild(): Promise<void> };
   hub: { broadcast(ev: ServerEvent): void };
+  runs: RunsApi;
+  external: ExternalApi;
   uiDist?: string;
 };
 
 const STATUSES = new Set(['active', 'paused', 'done', 'archived']);
 const RESOLVE_KINDS = new Set(['repoint', 'archive', 'unlink']);
-const SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
+/** 空にできない文字列の設定。 */
+const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
+/** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
+const PATH_SETTING_KEYS = ['tmuxPath', 'codePath'] as const;
+const TERMINAL_APPS = new Set<string>(['terminal', 'iterm']);
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
-const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath });
 const numberOr = (v: string | undefined): number | undefined => (v ? Number(v) : undefined);
 const isEnoent = (e: unknown): boolean => (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
+
+/** RunError は status 付きで返し、それ以外は投げ直す。 */
+function runResult<T>(c: Context, fn: () => T, status: 200 | 201 = 200) {
+  try {
+    return c.json(fn() as object, status);
+  } catch (e) {
+    if (e instanceof RunError) return c.json({ error: e.message }, e.status);
+    throw e;
+  }
+}
+
+/** 外部連携の失敗は 500 で理由を返す。UI はこれをそのままトーストに出す。 */
+async function externalResult(c: Context, fn: () => Promise<unknown>, empty = false) {
+  try {
+    const r = await fn();
+    return empty ? c.body(null, 204) : c.json(r as object);
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+}
 
 /** HTTP API を組み立てる。/api 配下は認証必須で、/health と UI 配信だけが素通しになる。 */
 export function createApp(deps: AppDeps): Hono {
@@ -41,15 +77,15 @@ export function createApp(deps: AppDeps): Hono {
 
   api.get('/bootstrap', (c) => {
     const live = deps.live();
+    const alive = deps.runs.listAlive();
     const body: BootstrapDto = {
       device: { id: deviceId, name: deps.deviceName },
       settings: toSettingsDto(deps.settings()),
       projects: listProjects(db, deviceId, live),
       sessions: listSessions(db, live),
       live,
-      // runs と tabs は Task 14 で本物を返すまでの暫定値である。
-      runs: [],
-      tabs: [],
+      runs: alive.runs,
+      tabs: alive.tabs,
       index: deps.indexer.progress(),
       version: deps.version,
     };
@@ -116,11 +152,23 @@ export function createApp(deps: AppDeps): Hono {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     // 受け取るのは既知の項目だけにする。本文をそのまま設定に混ぜない。
     const patch: Partial<SettingsDto> = {};
-    for (const key of SETTING_KEYS) {
+    for (const key of TEXT_SETTING_KEYS) {
       if (!(key in body)) continue;
       const v = body[key];
-      if (typeof v !== 'string' || v.trim() === '') return c.json({ error: `invalid ${key}` }, 400);
+      if (typeof v !== 'string' || v.trim() === '') return c.json({ error: `${key} は空にできません` }, 400);
       patch[key] = v;
+    }
+    for (const key of PATH_SETTING_KEYS) {
+      if (!(key in body)) continue;
+      const v = body[key];
+      if (v !== null && typeof v !== 'string') return c.json({ error: `${key} は文字列か null です` }, 400);
+      // 空文字は「未設定」と同じ意味なので null に寄せる。
+      patch[key] = typeof v === 'string' && v.trim() !== '' ? v : null;
+    }
+    if ('terminalApp' in body) {
+      const v = body.terminalApp;
+      if (typeof v !== 'string' || !TERMINAL_APPS.has(v)) return c.json({ error: 'terminalApp は terminal か iterm です' }, 400);
+      patch.terminalApp = v as TerminalApp;
     }
     if (Object.keys(patch).length === 0) return c.json({ error: 'no known settings' }, 400);
     const before = deps.settings();
@@ -148,7 +196,63 @@ export function createApp(deps: AppDeps): Hono {
     return c.body(null, 202);
   });
 
+
+  api.get('/runs', (c) => c.json(deps.runs.listAlive()));
+  api.post('/runs', async (c) => {
+    const params = (await c.req.json().catch(() => null)) as LaunchParams | null;
+    if (!params || typeof params !== 'object') return c.json({ error: '本文が JSON ではありません' }, 400);
+    return runResult(c, () => deps.runs.start(params), 201);
+  });
+  api.delete('/runs/:id', (c) => runResult(c, () => deps.runs.kill(c.req.param('id'))));
+  // タブの追加と削除は本文を取らない。UI は content-type だけを付けた空の要求を送る。
+  api.post('/runs/:id/tabs', (c) => runResult(c, () => deps.runs.openTab(c.req.param('id')), 201));
+  api.delete('/runs/:id/tabs/:tabId', (c) => runResult(c, () => deps.runs.closeTab(c.req.param('tabId'))));
+  api.post('/runs/:id/open-terminal', async (c) => {
+    const run = deps.runs.getRun(c.req.param('id'));
+    if (!run) return c.json({ error: 'run が見つかりません' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { tabId?: string };
+    let tmuxName = run.tmuxName;
+    if (body.tabId) {
+      const t = deps.runs.getTab(body.tabId);
+      if (!t || t.runId !== run.id) return c.json({ error: 'タブが見つかりません' }, 404);
+      tmuxName = t.tmuxName;
+    }
+    return externalResult(c, () => deps.external.openTerminal({ tmuxName }));
+  });
+  api.post('/sessions/:id/resume', (c) => runResult(c, () => deps.runs.resume(c.req.param('id')), 201));
+  api.post('/sessions/:id/fork', (c) => runResult(c, () => deps.runs.fork(c.req.param('id')), 201));
+  api.post('/sessions/:id/open-editor', (c) => {
+    const s = getSession(db, deps.live(), c.req.param('id'));
+    if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
+    return externalResult(c, () => deps.external.openEditor({ target: s.cwd }), true);
+  });
+  api.post('/projects', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; path?: unknown };
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const dir = typeof body.path === 'string' ? body.path : '';
+    if (!name) return c.json({ error: 'name は必須です' }, 400);
+    if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return c.json({ error: 'path が存在するディレクトリではありません' }, 400);
+    const id = newId();
+    upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0 }, deviceId);
+    upsertShared(db, 'project_roots', { id: newId(), project_id: id, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
+    const p = getProject(db, deviceId, deps.live(), id)!;
+    deps.hub.broadcast({ type: 'project.upsert', project: p });
+    return c.json(p, 201);
+  });
+  api.post('/projects/:id/open-editor', (c) => {
+    const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
+    if (!p?.path) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
+    return externalResult(c, () => deps.external.openEditor({ target: p.path! }), true);
+  });
+  api.post('/projects/:id/open-terminal', (c) => {
+    const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
+    if (!p?.path) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
+    return externalResult(c, () => deps.external.openDirTerminal({ dir: p.path! }));
+  });
+
   app.route('/api', api);
+  // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, hub: deps.hub }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);

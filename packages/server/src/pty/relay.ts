@@ -22,6 +22,11 @@ export class PtyRelay {
   private clients = new Map<WebSocket, PtyProcess>();
   constructor(private readonly deps: Deps) {}
 
+  /** Settings で tmuxPath が変わったときに差し替える。既に attach している接続はそのまま残る。 */
+  setTmux(tmux: Tmux | null): void {
+    this.deps.tmux = tmux;
+  }
+
   /**
    * upgrade 要求のうち path が一致するものだけを受ける。
    * 一致しないものは黙って返し、別の WebSocket サーバに譲る。
