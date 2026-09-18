@@ -1,10 +1,9 @@
-import { spawn } from 'node:child_process';
 import { Command } from 'commander';
 import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateToken, startServer } from '@agent-hangar/server';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { formatSetupReport, runSetup } from './setup.ts';
 import { runStatuslineInstall } from './statusline.ts';
-import { entryUrl } from './url.ts';
+import { entryUrl, openInBrowser } from './url.ts';
 
 const program = new Command().name('hangar').description('agent-hangar のコマンド');
 
@@ -39,7 +38,7 @@ program
     console.log('');
     console.log(`この URL から開いてください: ${url}`);
     console.log('鍵はページを開いた時点でクッキーに変わり、URL からは消えます。以後はブックマークから開けます。');
-    if (o.open) spawn('open', [url], { stdio: 'ignore', detached: true }).unref();
+    if (o.open) openInBrowser(url);
     let stopping = false;
     const stop = () => {
       if (stopping) return;
@@ -72,7 +71,8 @@ program
   .option('--port <n>', 'ポート', '4177')
   .action((o: { port: string }) => {
     // 鍵付きで開く。クッキーを持っているブラウザなら鍵は使われず、そのまま開く。
-    spawn('open', [entryUrl(Number(o.port), readOrCreateToken(hangarHome()))], { stdio: 'ignore', detached: true }).unref();
+    // 鍵は argv に載せない。openInBrowser が標準入力から渡す。
+    openInBrowser(entryUrl(Number(o.port), readOrCreateToken(hangarHome())));
   });
 
 const mcp = program.command('mcp').description('Claude Code への MCP 登録');

@@ -106,6 +106,28 @@ const ENTRY_NOTICE_HTML = `<!doctype html>
 </body>
 </html>
 `;
+/**
+ * UI に付ける守りの見出し。
+ * `SameSite=Strict` の「サイト」はポートを数えないので、手元の別のポートに置かれたページでもクッキーは載る。
+ * 枠に嵌めて被せて押させる手を止めるため、frame-ancestors と X-Frame-Options の両方を返す。
+ * ほかの指示は、配っている dist の作りに合わせて絞っている。
+ * インライン script は無いので script-src は 'self' だけでよい。
+ * style は React の style 属性と xterm が実行時に書くので 'unsafe-inline' が要る。
+ * font は @fontsource が data: の woff を含むので data: を許す。favicon も data: の SVG である。
+ * connect は同じ元と、ターミナルの WebSocket のためのループバックだけにする。
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "connect-src 'self' ws://127.0.0.1:* ws://localhost:*",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
 export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer });
@@ -618,6 +640,9 @@ export function createApp(deps: AppDeps): Hono {
       // 素の GET / にクッキーを配ると、curl 1 本で誰でもトークンを取れてしまう。
       const authed = tokenEquals(c.req.query('t'), deps.token) || tokenEquals(tokenFromRequest(c.req.raw.headers, c.req.header('cookie')), deps.token);
       c.header('Cache-Control', 'no-store');
+      // 鍵の有無に関わらず付ける。枠に嵌められるのは、認証が通ったあとの姿である。
+      c.header('X-Frame-Options', 'DENY');
+      c.header('Content-Security-Policy', CSP);
       if (!authed) return c.html(ENTRY_NOTICE_HTML, 401);
       // ここで鍵をクッキーに換える。URL に残った鍵は UI が history.replaceState で消す。
       c.header('Set-Cookie', entryCookie(deps.token));
