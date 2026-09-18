@@ -127,12 +127,16 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const adds = strs(args.add_todos) ?? [];
   const toggles = strs(args.toggle_todos) ?? [];
   if (adds.length || toggles.length) {
-    for (const t of adds) addTodo(deps.db, deps.deviceId, { projectId: id, text: t, sessionId: ctx.sessionId });
-    for (const tid of toggles) {
-      const cur = deps.db.prepare('select done from todos where id = ? and project_id = ? and deleted_at is null').get(tid, id) as { done: number } | undefined;
-      if (!cur) throw new ToolError(`TODO が見つかりません: ${tid}`);
-      setTodoDone(deps.db, deps.deviceId, tid, cur.done !== 1);
-    }
+    // 全部成功か全部失敗にする。
+    // 途中で失敗して書き込みだけが残ると、todos.update を配らないまま DB が進み、UI と食い違ったまま気付けない。
+    deps.db.transaction(() => {
+      for (const t of adds) addTodo(deps.db, deps.deviceId, { projectId: id, text: t, sessionId: ctx.sessionId });
+      for (const tid of toggles) {
+        const cur = deps.db.prepare('select done from todos where id = ? and project_id = ? and deleted_at is null').get(tid, id) as { done: number } | undefined;
+        if (!cur) throw new ToolError(`TODO が見つかりません: ${tid}`);
+        setTodoDone(deps.db, deps.deviceId, tid, cur.done !== 1);
+      }
+    })();
     deps.hub.broadcast({ type: 'todos.update', projectId: id, todos: listTodos(deps.db, id) });
   }
   const append = typeof args.append_memo === 'string' ? args.append_memo : undefined;

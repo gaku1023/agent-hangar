@@ -75,6 +75,17 @@ describe('MCP tools', () => {
     expect(() => call('update_project', { project_id: 'p1', status: 'bogus' })).toThrow(ToolError);
     expect(() => call('update_project', { project_id: 'p1', toggle_todos: ['nope'] })).toThrow(/nope/);
   });
+  it('update_project の TODO の書き込みは全部成功か全部失敗', () => {
+    const r = call('update_project', { project_id: 'p1', add_todos: ['x'] });
+    const id = (r.todos as { id: string }[])[0]!.id;
+    sent.length = 0;
+    expect(() => call('update_project', { project_id: 'p1', add_todos: ['y'], toggle_todos: [id, 'nope'] })).toThrow(/nope/);
+    // 途中まで書いた分を残さない。イベントを配らずに DB だけ進むと、UI と食い違ったまま気付けない。
+    expect(sent).toEqual([]);
+    const p = call('get_project', { project_id: 'p1' });
+    expect((p.todos as { text: string; done: boolean }[]).map((t) => [t.text, t.done])).toEqual([['x', false]]);
+    expect(p.open_todo_count).toBe(1);
+  });
   it('update_project は文字列でない status を黙って無視しない', () => {
     expect(() => call('update_project', { project_id: 'p1', status: 12345 })).toThrow(ToolError);
     expect(() => call('update_project', { project_id: 'p1', status: null })).toThrow(ToolError);
