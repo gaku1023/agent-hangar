@@ -2,7 +2,7 @@ import { formatRoute, parseRoute, type Intent, type LaunchResultDto, type Server
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { FocusTarget, SessionViewState } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applySearch, applyServerEvent, currentRunOf, eventsKey, initialStore, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -43,6 +43,17 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
 
+  /** サブエージェントの一覧を 1 回だけ取る。
+   * 本文の読み込みと同じ経路で呼ぶが、ページを継ぎ足すたびに取り直す必要はない。
+   * 失敗したセッションも覚えておき、画面を行き来するたびに同じ失敗を繰り返さない。
+   */
+  const subagentsAsked = new Set<string>();
+  function loadSubagents(sessionId: string): void {
+    if (subagentsAsked.has(sessionId)) return;
+    subagentsAsked.add(sessionId);
+    deps.api.subagents(sessionId).then((ids) => setStore(applySubagents(store, sessionId, ids))).catch(fail);
+  }
+
   /** 繋ぐタブを決める。
    * 指定が無ければ選択中のタブ、無ければ現在の run の Claude タブ。
    * 終了した run の Claude タブには繋がない。
@@ -74,6 +85,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         }).catch(fail);
         return;
       case 'api.loadEvents': {
+        loadSubagents(e.sessionId);
         const view = state.sessionView[e.sessionId] ?? defaultSessionView();
         const key = eventsKey(e.sessionId, view.agentId);
         const cur = store.events[key];

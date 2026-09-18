@@ -69,6 +69,24 @@ describe('createRuntime', () => {
     expect(api.events).toHaveBeenLastCalledWith('s1', 1, null);
     expect(rt.getStore().events['s1:']?.items.map((e) => e.seq)).toEqual([0, 1]);
   });
+  it('本文を読むときにサブエージェントの一覧も取り、同じセッションでは取り直さない', async () => {
+    const { rt, api, setHash } = harness({ subagents: vi.fn(async () => ['agent-1']) });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(api.subagents).toHaveBeenCalledWith('s1');
+    expect(rt.getStore().subagents.s1).toEqual(['agent-1']);
+    // 続きを読んでも、画面を離れて戻っても取り直さない。
+    rt.emit({ type: 'transcript.loadMore', sessionId: 's1' });
+    setHash('#/');
+    setHash('#/session/s1');
+    await flush();
+    expect(api.subagents).toHaveBeenCalledTimes(1);
+    // 別のセッションでは取る。
+    setHash('#/session/s2');
+    await flush();
+    expect(api.subagents).toHaveBeenLastCalledWith('s2');
+  });
   it('bootstrap に未解決のプロジェクトがあればダイアログを開く', async () => {
     const project = { id: 'p1', name: 'alpha', status: 'active' as const, isScratch: false, path: '/w/alpha', resolved: false, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0 };
     const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [project, { ...project, id: 'p2', path: null, resolved: false }, { ...project, id: 'p3', resolved: true }] })) });

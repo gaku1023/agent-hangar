@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, ServerEvent } from '@agent-hangar/shared';
+import type { BootstrapDto, RunDto, ServerEvent, SessionDto, TabDto } from '@agent-hangar/shared';
 import { Root } from './Root.tsx';
+import type { ApiClient } from './runtime/api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
@@ -11,20 +12,23 @@ const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { works
 // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
 const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), subscribe: () => () => {}, dispose: vi.fn() };
 
-function make() {
+const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0 } };
+
+function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost } = {}) {
+  const b = over.boot ?? boot;
   let hash = '#/';
   const hashListeners = new Set<() => void>();
   const handlers: { onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void }[] = [];
   const deps: RuntimeDeps = {
-    api: { bootstrap: async () => boot, events: async () => ({ sessionId: '', events: [], total: 0, nextSeq: null }), subagents: async () => [], search: async () => ({ hits: [], total: 0 }), setProjectStatus: async () => boot.projects[0]!, resolveProject: async () => ({}), candidates: async () => ['/w/alpha2'], updateSettings: async (p) => ({ ...boot.settings, ...p }), rebuildIndex: async () => {}, ...fakeApiExtras() },
+    api: { bootstrap: async () => b, events: async () => ({ sessionId: '', events: [], total: 0, nextSeq: null }), subagents: async () => [], search: async () => ({ hits: [], total: 0 }), setProjectStatus: async () => b.projects[0]!, resolveProject: async () => ({}), candidates: async () => ['/w/alpha2'], updateSettings: async (p) => ({ ...b.settings, ...p }), rebuildIndex: async () => {}, ...fakeApiExtras(), ...over.api },
     ws: (h) => { handlers.push(h); return { connect: () => {}, close: () => {} }; },
     location: { getHash: () => hash, setHash: (h) => { hash = h; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); } },
     storage: { get: () => undefined, set: () => {}, keys: () => [] },
     setTimeout: (fn, ms) => setTimeout(fn, ms),
-    terminals,
+    terminals: over.terminals ?? terminals,
   };
   const rt = createRuntime(deps);
-  return { rt, deps, handlers, setHash: deps.location.setHash };
+  return { rt, deps, handlers, setHash: deps.location.setHash, terminals: deps.terminals };
 }
 const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
@@ -87,5 +91,29 @@ describe('Root', () => {
     expect(screen.getByRole('option', { name: /alpha/ })).toBeInTheDocument();
     fireEvent.click(screen.getByText('やめる'));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('セッションを開くとサブエージェントの一覧が届き、選択欄が出る', async () => {
+    const { rt, deps, handlers, setHash } = make({ boot: { ...boot, sessions: [session] }, api: { subagents: async () => ['agent-1'] } });
+    rt.start();
+    render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
+    act(() => handlers[0]!.onOpen());
+    await flush();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    const select = screen.getByLabelText('サブエージェント') as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).toEqual(['', 'agent-1']);
+  });
+  it('ターミナルの状態は SessionScreen まで届く', async () => {
+    const run: RunDto = { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: Date.now(), endedAt: null, endReason: null, heartbeatAt: 1 };
+    const tab: TabDto = { id: 'r1', runId: 'r1', sessionId: 's1', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r1', createdAt: 1, closedAt: null };
+    const host: TerminalHost = { ...terminals, status: () => 'error' };
+    const { rt, deps, handlers, setHash } = make({ boot: { ...boot, sessions: [session], runs: [run], tabs: [tab] }, terminals: host });
+    rt.start();
+    render(<Root runtime={rt} api={deps.api} terminals={host} />);
+    act(() => handlers[0]!.onOpen());
+    await flush();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    expect(screen.getByText('ターミナルに接続できませんでした')).toBeInTheDocument();
   });
 });
