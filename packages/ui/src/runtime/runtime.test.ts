@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, TabDto, TodoDto } from '@agent-hangar/shared';
-import type { ApiClient } from './api.ts';
+import type { BootstrapDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusDto, TabDto, TodoDto } from '@agent-hangar/shared';
+import { ApiConflictError, type ApiClient } from './api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false }, projects: [], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false } }, devices: [] };
+const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false } };
+const launchResult: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'resume', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [] };
 const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1', events: seqs.map((seq) => ({ kind: 'user', seq, text: 'x' })), total, nextSeq: null });
 
 /** ターミナルの偽物。React の外で持つ接続の代わりに、呼ばれた tabId を並べる。 */
@@ -27,8 +29,18 @@ function harness(overrides: Partial<ApiClient> = {}) {
     updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, ...p })),
     rebuildIndex: vi.fn(async () => {}),
     ...fakeApiExtras(),
+    syncStatus: vi.fn(async () => syncStatus),
+    syncNow: vi.fn(async () => syncStatus),
+    syncPause: vi.fn(async () => ({ ...syncStatus, state: 'paused' as const })),
+    syncFocus: vi.fn(async () => {}),
+    resumeHere: vi.fn(async () => launchResult),
+    joinToken: vi.fn(async () => ({ token: 'tok' })),
+    configPreview: vi.fn(async () => ({ entries: [], confirmed: false })),
+    configPull: vi.fn(async () => ({ applied: 2, conflicts: 1 })),
+    devices: vi.fn(async () => []),
     ...overrides,
   };
+  const focusListeners = new Set<() => void>();
   let hash = '#/';
   const hashListeners = new Set<() => void>();
   const wsHandlers: { onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void }[] = [];
@@ -42,9 +54,10 @@ function harness(overrides: Partial<ApiClient> = {}) {
     setTimeout: (fn, ms) => timers.push({ fn, ms }),
     terminals: fakeTerminals(),
     focus: vi.fn(),
+    onWindowFocus: (cb) => { focusListeners.add(cb); return () => focusListeners.delete(cb); },
   };
   const rt = createRuntime(deps);
-  return { rt, api, wsHandlers, timers, store, terminals: deps.terminals as ReturnType<typeof fakeTerminals>, setHash: deps.location.setHash, focus: deps.focus as ReturnType<typeof vi.fn> };
+  return { rt, api, wsHandlers, timers, store, terminals: deps.terminals as ReturnType<typeof fakeTerminals>, setHash: deps.location.setHash, focus: deps.focus as ReturnType<typeof vi.fn>, fireFocus: () => { for (const l of focusListeners) l(); } };
 }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -482,5 +495,83 @@ describe('繰り越しの掃除', () => {
     await flush();
     expect(Object.keys(rt.getStore().events)).toEqual(['s1:']);
     expect(rt.getStore().events['s1:']?.items).toHaveLength(1);
+  });
+});
+
+describe('同期とこの PC で再開', () => {
+  it('今すぐ同期と一時停止はストアの sync を差し替える', async () => {
+    const { rt, api } = harness();
+    rt.start();
+    rt.emit({ type: 'sync.now' });
+    await flush();
+    expect(api.syncNow).toHaveBeenCalled();
+    expect(rt.getStore().sync?.state).toBe('idle');
+    rt.emit({ type: 'sync.pause', paused: true });
+    await flush();
+    expect(api.syncPause).toHaveBeenCalledWith(true);
+    expect(rt.getStore().sync?.state).toBe('paused');
+  });
+  it('窓が前面に来たら syncFocus を呼び、失敗してもトーストを出さない', async () => {
+    const { rt, api, fireFocus } = harness({ syncFocus: vi.fn(async () => { throw new Error('500 /api/sync/focus'); }) });
+    rt.start();
+    fireFocus();
+    await flush();
+    expect(api.syncFocus).toHaveBeenCalledTimes(1);
+    expect(rt.getState().toasts).toEqual([]);
+    rt.stop();
+    fireFocus();
+    await flush();
+    expect(api.syncFocus).toHaveBeenCalledTimes(1);
+  });
+  it('この PC で再開の 409 は確認ダイアログになる', async () => {
+    const { rt, api } = harness({ resumeHere: vi.fn(async () => { throw new ApiConflictError({ error: 'local_smaller', localSize: 10, remoteSize: 99 }); }) });
+    rt.start();
+    rt.emit({ type: 'session.resumeHere', id: 's1' });
+    await flush();
+    expect(api.resumeHere).toHaveBeenCalledWith('s1', false);
+    expect(rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's1', localSize: 10, remoteSize: 99 } });
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('この PC で再開が通れば run がストアに入る', async () => {
+    const { rt, api } = harness();
+    rt.start();
+    rt.emit({ type: 'session.resumeHere', id: 's1', overwrite: true });
+    await flush();
+    expect(api.resumeHere).toHaveBeenCalledWith('s1', true);
+    expect(rt.getStore().runs.r1?.sessionId).toBe('s1');
+  });
+  it('この PC で再開の 409 以外の失敗はトーストになる', async () => {
+    const { rt } = harness({ resumeHere: vi.fn(async () => { throw new Error('本文を降ろせませんでした'); }) });
+    rt.start();
+    rt.emit({ type: 'session.resumeHere', id: 's1' });
+    await flush();
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    expect(rt.getState().toasts[0]?.message).toContain('本文を降ろせませんでした');
+  });
+  it('参加トークンと設定の下見と取り込み', async () => {
+    const { rt, api } = harness();
+    rt.start();
+    rt.emit({ type: 'sync.joinToken.show' });
+    await flush();
+    expect(rt.getStore().joinToken).toBe('tok');
+    rt.emit({ type: 'sync.config.preview' });
+    await flush();
+    expect(api.configPreview).toHaveBeenCalled();
+    expect(rt.getStore().configPreview).toEqual({ entries: [], confirmed: false });
+    rt.emit({ type: 'sync.config.apply' });
+    await flush();
+    expect(api.configPull).toHaveBeenCalled();
+    expect(rt.getState().toasts[0]?.message).toContain('2 件');
+  });
+  it('参加トークンはしばらく置くと自分で消える', async () => {
+    const { rt, timers } = harness();
+    rt.start();
+    rt.emit({ type: 'sync.joinToken.show' });
+    await flush();
+    expect(rt.getStore().joinToken).toBe('tok');
+    const timer = timers.find((t) => t.ms >= 10_000);
+    expect(timer).toBeDefined();
+    timer!.fn();
+    expect(rt.getStore().joinToken).toBeNull();
   });
 });

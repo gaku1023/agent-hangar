@@ -1,4 +1,9 @@
-import type { ArtifactDto, BootstrapDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, ResumeHereConflictDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusDto, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+
+/** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
+export class ApiConflictError extends Error {
+  constructor(public readonly body: ResumeHereConflictDto) { super('local_smaller'); this.name = 'ApiConflictError'; }
+}
 
 /**
  * 本文の読み出しの向き。
@@ -44,6 +49,18 @@ export type ApiClient = {
   regenerateSummary(sessionId: string): Promise<void>;
   summarizerModels(): Promise<{ models: string[] }>;
   testSummarizer(): Promise<SummarizerTestDto>;
+  // ここから下はクラウド同期（フェーズ 4）である。
+  syncStatus(): Promise<SyncStatusDto>;
+  syncNow(): Promise<SyncStatusDto>;
+  syncPause(paused: boolean): Promise<SyncStatusDto>;
+  /** 窓が前面に来たことをサーバに伝えて pull を促す。サーバ側で間引く。 */
+  syncFocus(): Promise<void>;
+  resumeHere(sessionId: string, overwrite: boolean): Promise<LaunchResultDto>;
+  /** 全セッションの読み書き権を持つ秘密なので、押したときだけ取りに行く。 */
+  joinToken(): Promise<{ token: string | null }>;
+  configPreview(): Promise<ConfigPreviewDto>;
+  configPull(): Promise<{ applied: number; conflicts: number }>;
+  devices(): Promise<DeviceDto[]>;
 };
 
 /** 相対 URL の `/api/...` を叩く薄いクライアント。
@@ -54,7 +71,10 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     const r = await fetchFn(path, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
     if (!r.ok) {
       // サーバが { error } を返せばその理由を、無ければ状態番号と経路を投げる。
-      const body = (await r.json().catch(() => null)) as { error?: string } | null;
+      // 応答の本文は 1 度しか読めないので、読み取りはこの 1 回だけにする。
+      const body = (await r.json().catch(() => null)) as { error?: string; localSize?: number; remoteSize?: number } | null;
+      // 「この PC で再開」の 409 だけは、確認ダイアログを出すために型の付いた失敗にする。
+      if (r.status === 409 && body?.error === 'local_smaller') throw new ApiConflictError(body as ResumeHereConflictDto);
       throw new Error(body?.error ?? `${r.status} ${path}`);
     }
     if (r.status === 202 || r.status === 204) return undefined as T;
@@ -98,5 +118,14 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     regenerateSummary: (sessionId) => post(`/api/sessions/${sessionId}/summarize`),
     summarizerModels: () => call('/api/summarizer/models'),
     testSummarizer: () => post('/api/summarizer/test'),
+    syncStatus: () => call('/api/sync/status'),
+    syncNow: () => post('/api/sync/now'),
+    syncPause: (paused) => post('/api/sync/pause', { paused }),
+    syncFocus: () => post('/api/sync/focus'),
+    resumeHere: (sessionId, overwrite) => post(`/api/sessions/${sessionId}/resume-here`, { overwrite }),
+    joinToken: () => call('/api/sync/joinToken'),
+    configPreview: () => call('/api/sync/config/preview'),
+    configPull: () => post('/api/sync/config/pull'),
+    devices: () => call('/api/devices'),
   };
 }
