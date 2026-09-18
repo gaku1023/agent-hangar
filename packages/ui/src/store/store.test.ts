@@ -81,20 +81,33 @@ describe('runs と tabs', () => {
     expect(tabsOf(s, 'r1').map((t) => t.id)).toEqual(['r1', 't1']);
     expect(aliveRunOf(s, 's2')?.id).toBe('r2');
   });
-  it('掃除は、終わっていて開いたタブも参照も無い run だけを落とす', () => {
+  it('掃除は、終わっていてシェルタブも参照も無い run だけを落とす', () => {
     // bootstrap で混ぜた分が溜まり続けないように、画面が参照しうるものだけを残す。
+    // agent タブはサーバが run から合成するので closedAt は常に null である。
     const s = applyBootstrap(initialStore(), {
       ...boot,
       runs: [run('r1', 's1', 9), run('r2', 's2'), run('r3', 's3', 9), run('r4', 's4', 9)],
-      tabs: [tab('r1', 'r1', 'agent', 8), tab('t1', 'r1', 'shell', 8), tab('r3', 'r3', 'agent', 8), tab('t3', 'r3', 'shell'), tab('r4', 'r4', 'agent', 8)],
+      tabs: [tab('r1', 'r1', 'agent'), tab('t1', 'r1', 'shell', 8), tab('r2', 'r2', 'agent'), tab('r3', 'r3', 'agent'), tab('t3', 'r3', 'shell'), tab('r4', 'r4', 'agent')],
     });
     const pruned = pruneRuns(s, ['s4']);
     // r2 は実行中、r3 は開いたシェルタブが残る、r4 は画面が見ているセッションのもの。
     expect(Object.keys(pruned.runs).sort()).toEqual(['r2', 'r3', 'r4']);
-    // 落とした run のタブも一緒に消える。
-    expect(Object.keys(pruned.tabs).sort()).toEqual(['r3', 'r4', 't3']);
+    // 落とした run のタブは、閉じたシェルタブも agent タブも一緒に消える。
+    expect(Object.keys(pruned.tabs).sort()).toEqual(['r2', 'r3', 'r4', 't3']);
     expect(currentRunOf(pruned, 's3')?.id).toBe('r3');
     // 落とすものが無ければ同じ参照を返す。
     expect(pruneRuns(pruned, ['s4'])).toBe(pruned);
+  });
+  it('起動と終了を繰り返しても、掃除を挟めば溜まらない', () => {
+    // サーバは生きた run と開いたシェルタブが残る run しか返さないので、終わった run は bootstrap から消える。
+    let s = initialStore();
+    for (let i = 0; i < 20; i++) {
+      const r = run(`r${i}`, `s${i}`);
+      s = applyServerEvent(s, { type: 'run.started', run: r, tabs: [tab(`r${i}`, `r${i}`, 'agent')] });
+      s = applyServerEvent(s, { type: 'run.ended', run: { ...r, endedAt: 9 } });
+      s = pruneRuns(applyBootstrap(s, boot), []);
+    }
+    expect(Object.keys(s.runs)).toEqual([]);
+    expect(Object.keys(s.tabs)).toEqual([]);
   });
 });

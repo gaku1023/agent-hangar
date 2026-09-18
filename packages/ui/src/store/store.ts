@@ -125,15 +125,18 @@ export function tabsOf(store: Store, runId: string): TabDto[] {
 
 /** 参照されなくなった run とそのタブを落とす。
  * applyBootstrap が runs と tabs を混ぜるので、放っておくと終わった run と閉じたタブが溜まり続ける。
- * 残すのは、終わっていない run、開いたタブが残る run（currentRunOf が拾う）、
+ * 残すのは、終わっていない run、開いたシェルタブが残る run（currentRunOf が拾う）、
  * それと keepSessionIds のセッションの run である。
- * 落とす run のタブは、開いたものが 1 つも無いので、一緒に落としても画面は変わらない。
+ * 残す条件は currentRunOf と同じ述語にする。
+ * agent タブはサーバが run から合成していて closedAt が常に null なので、
+ * 「開いたタブがあるか」で見ると、どの run も落ちなくなる。
+ * 落とす run の agent タブは、run が終わったときに接続を切ってあるので、一緒に落としてよい。
  */
 export function pruneRuns(store: Store, keepSessionIds: Iterable<string>): Store {
   const keep = new Set(keepSessionIds);
   const drop = new Set<string>();
   for (const r of Object.values(store.runs)) {
-    if (r.endedAt === null || keep.has(r.sessionId) || tabsOf(store, r.id).length > 0) continue;
+    if (r.endedAt === null || keep.has(r.sessionId) || tabsOf(store, r.id).some((t) => t.kind === 'shell')) continue;
     drop.add(r.id);
   }
   if (drop.size === 0) return store;
