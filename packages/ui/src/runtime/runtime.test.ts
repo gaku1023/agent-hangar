@@ -565,13 +565,18 @@ describe('同期とこの PC で再開', () => {
     expect(api.resumeHere).toHaveBeenCalledWith('s1', true);
     expect(rt.getStore().runs.r1?.sessionId).toBe('s1');
   });
-  it('この PC で再開の 409 以外の失敗はトーストになる', async () => {
-    const { rt } = harness({ resumeHere: vi.fn(async () => { throw new Error('本文を降ろせませんでした'); }) });
+  it('この PC で再開の 409 以外の失敗はトーストになり、もう一度押せる', async () => {
+    const { rt, api } = harness({ resumeHere: vi.fn(async () => { throw new Error('500 /api/sessions/s1/resume-here'); }) });
     rt.start();
     rt.emit({ type: 'session.resumeHere', id: 's1' });
     await flush();
     expect(rt.getState().overlay).toEqual({ kind: 'none' });
-    expect(rt.getState().toasts[0]?.message).toContain('本文を降ろせませんでした');
+    expect(rt.getState().toasts[0]?.message).toContain('500 /api/sessions/s1/resume-here');
+    // 送信中が解けていないと、二重送信の歯止めに引っかかって二度と押せなくなる。
+    expect(rt.getState().launch).toEqual({ kind: 'failed', message: '500 /api/sessions/s1/resume-here' });
+    rt.emit({ type: 'session.resumeHere', id: 's1' });
+    await flush();
+    expect(api.resumeHere).toHaveBeenCalledTimes(2);
   });
   it('参加トークンと設定の下見と取り込み', async () => {
     const { rt, api } = harness();

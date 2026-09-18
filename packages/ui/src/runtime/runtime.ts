@@ -233,7 +233,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.resumeHere(e.sessionId, e.overwrite).then(launched).catch((err: unknown) => {
           // 手元の本文の方が小さいときの 409 だけは、トーストではなく確認ダイアログにする。
           if (err instanceof ApiConflictError) dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: e.sessionId, localSize: err.body.localSize, remoteSize: err.body.remoteSize } });
-          else fail(err);
+          // それ以外は起動の失敗である。launch.failed でないと送信中が解けず、二度と押せなくなる。
+          else launchFailed(err);
         });
         return;
       case 'api.configPreview': deps.api.configPreview().then((p) => setStore(applyConfigPreview(store, p))).catch(fail); return;
