@@ -220,7 +220,7 @@ export function setSessionSummaryTool(deps: ToolDeps, ctx: ToolContext, args: Re
   upsertShared(deps.db, 'session_summaries', {
     session_id: id, title, one_liner: oneLiner, body, state,
     next_steps: JSON.stringify(strs(args.next_steps) ?? []),
-    source: 'in_session', source_model: null, based_on_turns: turns,
+    source: 'in_session', source_id: null, source_model: null, based_on_turns: turns,
   }, deps.deviceId, 'session_id');
   deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id)! });
   return { ok: true, session_id: id };

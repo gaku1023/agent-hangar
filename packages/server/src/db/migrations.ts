@@ -185,4 +185,14 @@ drop table usage_daily_v3;
 create index artifact_versions_artifact on artifact_versions(artifact_id);
 `,
   },
+  {
+    // どの要約器が書いた要約かを持つ列を足す。
+    // これまでは source_model（モデルの名前）しか無く、UI が名前から種類を当てていた。
+    // 既存の行の値はモデルの名前なので、どの要約器が書いたかは分からない。
+    // 推測して焼き付けると、後から嘘だったことを確かめられなくなるので、null のままにして UI では不明と出す。
+    version: 5,
+    sql: `
+alter table session_summaries add column source_id text;
+`,
+  },
 ];

@@ -38,7 +38,7 @@ let memos: MemoStore;
 let summary: SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] };
 /** ワークスペースから登録される唯一のプロジェクト alpha の id。 */
 let list0ProjectId: () => string;
-const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceModel: 'lmstudio', basedOnTurns: 3 } };
+const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: null, basedOnTurns: 3 } };
 
 /** 経路の検査だけをしたいので、RunManager は呼び出しを記録する偽物に差し替える。 */
 function fakeRuns(): RunsApi {

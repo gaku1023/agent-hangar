@@ -371,7 +371,7 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getState().toasts).toEqual([]);
   });
   it('要約器を試すと結果がストアに入る', async () => {
-    const testSummarizer = vi.fn(async () => ({ ok: true as const, id: 'lmstudio' as const, ms: 12, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done' as const, nextSteps: [], source: 'post_hoc' as const, sourceModel: 'gemma', basedOnTurns: 3 } }));
+    const testSummarizer = vi.fn(async () => ({ ok: true as const, id: 'lmstudio' as const, ms: 12, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done' as const, nextSteps: [], source: 'post_hoc' as const, sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } }));
     const { rt, wsHandlers } = harness({ testSummarizer });
     rt.start();
     wsHandlers[0]!.onOpen();

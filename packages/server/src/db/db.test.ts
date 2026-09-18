@@ -18,6 +18,8 @@ function openDbAt(file: string, version: number): void {
   db.close();
 }
 
+const LATEST = MIGRATIONS[MIGRATIONS.length - 1]!.version;
+
 describe('openDb', () => {
   it('共有テーブル、ローカルテーブル、FTS を作る', () => {
     const db = openDb(':memory:');
@@ -41,7 +43,7 @@ describe('openDb', () => {
   });
   it('version 4 で usage_daily がファイル別になり、artifact_versions に artifact_id の索引がある', () => {
     const db = openDb(':memory:');
-    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(4);
+    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(LATEST);
     const cols = (db.prepare("select name from pragma_table_info('usage_daily')").all() as { name: string }[]).map((r) => r.name);
     expect(cols).toContain('file_path');
     // 同じセッションの同じ日でも、ファイルが違えば別の行になる。
@@ -63,11 +65,37 @@ describe('openDb', () => {
     old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1-sub.jsonl', 's1', 'ag1', 1, 1, 1, 1);
     old.close();
     const db = openDb(file);
-    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(4);
+    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(LATEST);
     expect(db.prepare('select session_id, day, file_path, input_tokens, output_tokens from usage_daily order by session_id').all()).toEqual([
       { session_id: 's1', day: '2026-09-01', file_path: '/p/s1.jsonl', input_tokens: 10, output_tokens: 2 },
       { session_id: 's2', day: '2026-09-02', file_path: '', input_tokens: 7, output_tokens: 3 },
     ]);
+    db.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+  it('version 5 で session_summaries に source_id が付き、新しい要約は要約器の id を持てる', () => {
+    const db = openDb(':memory:');
+    expect(LATEST).toBe(5);
+    const cols = (db.prepare("select name from pragma_table_info('session_summaries')").all() as { name: string }[]).map((r) => r.name);
+    expect(cols).toContain('source_id');
+    db.prepare('insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?,?,?,?,?,?,?)').run('s1', 'claude-code', 'u1', '/w', 'd', 1, 'd');
+    db.prepare('insert into session_summaries (session_id, title, one_liner, body, state, next_steps, source, source_id, source_model, based_on_turns, updated_at, origin_device) values (?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run('s1', 't', 'o', 'b', 'done', '[]', 'post_hoc', 'lmstudio', 'gemma-4-26b', 2, 1, 'd');
+    expect(db.prepare('select source_id, source_model from session_summaries where session_id = ?').get('s1')).toEqual({ source_id: 'lmstudio', source_model: 'gemma-4-26b' });
+  });
+  it('マイグレーション 4 まで進んだ既存の DB から上げられ、古い要約の source_id は null のままである', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig5-'));
+    const file = path.join(tmp, 'hangar.db');
+    openDbAt(file, 4);
+    const old = new Database(file);
+    old.prepare('insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?,?,?,?,?,?,?)').run('s1', 'claude-code', 'u1', '/w', 'd', 1, 'd');
+    old.prepare('insert into session_summaries (session_id, title, one_liner, body, state, next_steps, source, source_model, based_on_turns, updated_at, origin_device) values (?,?,?,?,?,?,?,?,?,?,?)')
+      .run('s1', 't', 'o', 'b', 'done', '[]', 'post_hoc', 'gemma-4-26b', 2, 1, 'd');
+    old.close();
+    const db = openDb(file);
+    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(LATEST);
+    // 既存の値はモデル名だけで、どの要約器が書いたかは分からない。推測で埋めず null のままにする。
+    expect(db.prepare('select source_id, source_model from session_summaries where session_id = ?').get('s1')).toEqual({ source_id: null, source_model: 'gemma-4-26b' });
     db.close();
     fs.rmSync(tmp, { recursive: true, force: true });
   });

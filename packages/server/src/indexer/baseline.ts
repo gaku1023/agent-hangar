@@ -31,7 +31,7 @@ export function buildBaselineSummary(input: BaselineInput): Omit<SessionSummaryD
   lines.push(names.length === 0 ? '触ったファイル：なし' : `触ったファイル：${names.slice(0, 5).join(', ')}${names.length > 5 ? ` ほか ${names.length - 5} 件` : ''}`);
   const duration = input.startedAt !== null && input.lastActivityAt !== null ? formatDuration(input.lastActivityAt - input.startedAt) : '期間不明';
   lines.push(`${input.turns} ターン、${duration}`);
-  return { title, oneLiner, body: lines.join('\n'), state: input.running ? 'in_progress' : 'done', nextSteps: [], source: 'baseline', sourceModel: null, basedOnTurns: input.turns };
+  return { title, oneLiner, body: lines.join('\n'), state: input.running ? 'in_progress' : 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: input.turns };
 }
 
 /**
@@ -47,7 +47,7 @@ export function writeBaselineIfNeeded(db: Db, sessionId: string, deviceId: strin
   const marks = EDIT_TOOLS.map(() => '?').join(',');
   const files = (db.prepare(`select distinct file_path f from event_index where session_id = ? and tool_name in (${marks}) and file_path is not null order by seq`).all(sessionId, ...EDIT_TOOLS) as { f: string }[]).map((r) => r.f);
   const sum = buildBaselineSummary({ aiTitle: s.ai_title, name: s.name, firstPrompt: s.first_prompt, lastPrompt: st?.last_prompt ?? null, files, turns: st?.turns ?? 0, startedAt: s.started_at, lastActivityAt: s.last_activity_at, running });
-  const row: Record<string, unknown> = { session_id: sessionId, title: sum.title, one_liner: sum.oneLiner, body: sum.body, state: sum.state, next_steps: JSON.stringify(sum.nextSteps), source: sum.source, source_model: null, based_on_turns: sum.basedOnTurns };
+  const row: Record<string, unknown> = { session_id: sessionId, title: sum.title, one_liner: sum.oneLiner, body: sum.body, state: sum.state, next_steps: JSON.stringify(sum.nextSteps), source: sum.source, source_id: null, source_model: null, based_on_turns: sum.basedOnTurns };
   // 走査のたびに同じ要約を書き直すと changes が増えるので、列がすべて同じなら書かない。
   if (existing && existing.deleted_at === null && Object.entries(row).every(([k, v]) => existing[k] === v)) return false;
   upsertShared(db, 'session_summaries', row, deviceId, 'session_id');
