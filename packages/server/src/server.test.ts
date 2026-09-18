@@ -7,12 +7,14 @@ import WebSocket from 'ws';
 import type { ServerEvent, SessionDto } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { openDb } from './db/open.ts';
+import { upsertShared } from './db/shared.ts';
 import { IndexerService } from './indexer/service.ts';
+import { checkProjectRoots } from './projects/registry.ts';
 import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../test/fixtures.ts';
-import { CLOSE_SUMMARY_WAIT_MS, RUN_ENDED_SUMMARY_OPTS, startServer, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_SUMMARY_WAIT_MS, RUN_ENDED_SUMMARY_OPTS, startServer, waitForSummaryIdle, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -240,6 +242,74 @@ describe('startServer', () => {
       await s.close();
     }
   }, 20000);
+});
+
+describe('ルートの復帰', () => {
+  /** ルートが 1 つ消えている（resolved = 0）プロジェクトと、その配下の未分類セッションを作る。 */
+  function fixture(dir: string) {
+    const db = openDb(':memory:');
+    upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
+    upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: dir, resolved: 0 }, 'd');
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', project_id: null, cwd: path.join(dir, 'sub'), home_device: 'd' }, 'd');
+    return db;
+  }
+  const projectIdOf = (db: ReturnType<typeof openDb>) => (db.prepare('select project_id from sessions where id = ?').get('s1') as { project_id: string | null }).project_id;
+
+  it('存在を確かめるだけでは、戻ったルートの配下のセッションは未分類のまま残る', () => {
+    // 繰り越しの再現。checkProjectRoots は resolved を 1 に戻すが、配下のセッションには触れない。
+    const db = fixture(ws);
+    try {
+      expect(checkProjectRoots(db, 'd')).toEqual({ unresolved: [], recovered: ['p1'] });
+      expect(projectIdOf(db)).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('ルートが戻ったら未分類のセッションを紐づけ直して配る', () => {
+    const db = fixture(ws);
+    const sent: ServerEvent[] = [];
+    try {
+      const r = checkRoots({ db, deviceId: 'd', live: () => [], broadcast: (ev) => sent.push(ev) });
+      expect(r.recovered).toEqual(['p1']);
+      expect(projectIdOf(db)).toBe('p1');
+      expect(sent.filter((e) => e.type === 'session.upsert').map((e) => (e as Extract<ServerEvent, { type: 'session.upsert' }>).session.id)).toEqual(['s1']);
+      expect(sent.filter((e) => e.type === 'project.upsert').map((e) => (e as Extract<ServerEvent, { type: 'project.upsert' }>).project.id)).toEqual(['p1']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('消えたルートの検出と project.unresolved の配信は前のまま', () => {
+    const gone = path.join(ws, 'no-such-dir');
+    const db = openDb(':memory:');
+    const sent: ServerEvent[] = [];
+    try {
+      upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
+      upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: gone, resolved: 1 }, 'd');
+      const r = checkRoots({ db, deviceId: 'd', live: () => [], broadcast: (ev) => sent.push(ev) });
+      expect(r.unresolved).toEqual(['p1']);
+      expect(sent).toEqual([{ type: 'project.unresolved', projectId: 'p1' }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('戻ったルートが無ければ紐づけ直しも配信もしない', () => {
+    // 起動時の 1 回目はたいていここを通る。無駄に全件を舐めない。
+    const db = openDb(':memory:');
+    const sent: ServerEvent[] = [];
+    try {
+      upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
+      upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: ws, resolved: 1 }, 'd');
+      upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', project_id: null, cwd: '/somewhere/else', home_device: 'd' }, 'd');
+      expect(checkRoots({ db, deviceId: 'd', live: () => [], broadcast: (ev) => sent.push(ev) })).toEqual({ unresolved: [], recovered: [] });
+      expect(sent).toEqual([]);
+      expect(projectIdOf(db)).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
 });
 
 describe('close の要約待ち', () => {

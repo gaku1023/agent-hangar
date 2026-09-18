@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { listArtifacts } from './artifacts/queries.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { openDb } from './db/open.ts';
+import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
+import { openDb, type Db } from './db/open.ts';
 import { getProject, getSession, listProjects } from './db/queries.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './external/open.ts';
 import { createApp, type ExternalApi } from './http/app.ts';
@@ -62,6 +63,35 @@ export const RUN_ENDED_SUMMARY_OPTS = { ignoreLive: true } as const;
  * それでも終わらないときは諦めて閉じる（SummaryJob は書き込みの失敗を summary.failed に流す）。
  */
 export const CLOSE_SUMMARY_WAIT_MS = 5_000;
+
+/**
+ * この端末のルートの存在を確かめ、消えたものを知らせ、戻ったものの取りこぼしを拾う。
+ * ルートが消えている間に現れたセッションは、解決済みのルートに当たらないので未分類のまま残る。
+ * 戻ったときに紐づけ直さないと、次の起動まで未分類のままになり、プロジェクトにも出てこない。
+ * 戻ったルートが無いときは何もしない。起動時の 1 回目はたいていこちらを通るので、全件を舐めない。
+ * 消えたものの検出と project.unresolved の配信は前のままである。
+ */
+export function checkRoots(o: { db: Db; deviceId: string; live: () => LiveSessionDto[]; broadcast: (ev: ServerEvent) => void }): { unresolved: string[]; recovered: string[] } {
+  const r = checkProjectRoots(o.db, o.deviceId);
+  for (const id of r.unresolved) o.broadcast({ type: 'project.unresolved', projectId: id });
+  if (r.recovered.length === 0) return r;
+  const unassigned = (o.db.prepare('select id from sessions where project_id is null and deleted_at is null').all() as { id: string }[]).map((x) => x.id);
+  assignSessions(o.db, o.deviceId);
+  const live = o.live();
+  // 戻ったプロジェクトと、紐づけ直しで中身が変わったプロジェクトを配る。
+  const touched = new Set(r.recovered);
+  for (const id of unassigned) {
+    const s = getSession(o.db, live, id);
+    if (!s?.projectId) continue;
+    touched.add(s.projectId);
+    o.broadcast({ type: 'session.upsert', session: s });
+  }
+  for (const id of touched) {
+    const p = getProject(o.db, o.deviceId, live, id);
+    if (p) o.broadcast({ type: 'project.upsert', project: p });
+  }
+  return r;
+}
 
 /** 要約のジョブが空になるまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
 export function waitForSummaryIdle(job: { idle(): Promise<void> }, ms: number = CLOSE_SUMMARY_WAIT_MS): Promise<boolean> {
@@ -284,9 +314,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     const p = listProjects(db, device.id, registry.current()).find((x) => x.id === m.projectId);
     if (p) hub.broadcast({ type: 'project.upsert', project: p });
   });
-  const notifyUnresolved = () => { for (const id of checkProjectRoots(db, device.id).unresolved) hub.broadcast({ type: 'project.unresolved', projectId: id }); };
-  notifyUnresolved();
-  const rootTimer = setInterval(notifyUnresolved, ROOT_CHECK_MS);
+  const checkRootsNow = () => checkRoots({ db, deviceId: device.id, live: () => registry.current(), broadcast: (ev) => hub.broadcast(ev) });
+  checkRootsNow();
+  const rootTimer = setInterval(checkRootsNow, ROOT_CHECK_MS);
   rootTimer.unref();
   // 前回の終了時に生きていた run のうち、tmux セッションが残っていないものを lost で閉じる。
   const lost = runs.recoverAtStartup();
