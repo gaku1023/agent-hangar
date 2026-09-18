@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
+import type { SettingsProps } from '../presenters/settings.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 import { SessionRows } from './SessionRows.tsx';
 import { Header } from './Header.tsx';
@@ -69,10 +70,21 @@ describe('SessionsScreen', () => {
   });
 });
 
+const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
+  workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, sessionCount: 3, projectCount: 2,
+  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, mcpInstallCommand: 'npx hangar mcp install',
+  lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20,
+  summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
+  statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
+  statuslineCommand: 'npx hangar statusline install',
+  usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
+  ...over,
+});
+
 describe('SettingsScreen', () => {
   it('保存と作り直し', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SettingsScreen workspaceRoot="/w" claudeDir="/c" tmuxPath={null} terminalApp="terminal" codePath={null} mcpInstallCommand="npx hangar mcp install" device={{ id: 'd', name: 'mac' }} version="0.1.0" index={{ phase: 'idle', done: 3, total: 3 }} sessionCount={3} projectCount={1} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ version: '0.1.0', index: { phase: 'idle', done: 3, total: 3 }, projectCount: 1 })} /></IntentRoot>);
     fireEvent.change(screen.getByLabelText('ワークスペースのルート'), { target: { value: '/w2' } });
     fireEvent.click(screen.getByText('保存'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '/w2' } });
@@ -83,7 +95,7 @@ describe('SettingsScreen', () => {
   });
   it('ツールのパスとターミナルアプリを保存する', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SettingsScreen workspaceRoot="/w" claudeDir="/c" tmuxPath="/opt/homebrew/bin/tmux" terminalApp="terminal" codePath={null} mcpInstallCommand="npx hangar mcp install" device={{ id: 'd', name: 'mac' }} version="0.2.0" index={{ phase: 'idle', done: 3, total: 3 }} sessionCount={3} projectCount={1} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ version: '0.2.0', index: { phase: 'idle', done: 3, total: 3 }, projectCount: 1 })} /></IntentRoot>);
     fireEvent.change(screen.getByLabelText('ターミナルアプリ'), { target: { value: 'iterm' } });
     fireEvent.change(screen.getByLabelText('code のパス'), { target: { value: '/usr/local/bin/code' } });
     fireEvent.click(screen.getByText('ツールの設定を保存'));
@@ -92,9 +104,9 @@ describe('SettingsScreen', () => {
     expect(screen.getByText('npx hangar mcp install')).toBeInTheDocument();
   });
   it('サーバが正規化した値に入力欄が追従する', () => {
-    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen workspaceRoot="/w" claudeDir="/c" tmuxPath="tmux" terminalApp="terminal" codePath={null} mcpInstallCommand="npx hangar mcp install" device={null} version="0.2.0" index={{ phase: 'idle', done: 0, total: 0 }} sessionCount={0} projectCount={0} /></IntentRoot>);
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ tmuxPath: 'tmux', device: null, version: '0.2.0', sessionCount: 0, projectCount: 0 })} /></IntentRoot>);
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('tmux');
-    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen workspaceRoot="/w2" claudeDir="/c" tmuxPath="/opt/homebrew/bin/tmux" terminalApp="iterm" codePath="/usr/local/bin/code" mcpInstallCommand="npx hangar mcp install" device={null} version="0.2.0" index={{ phase: 'idle', done: 0, total: 0 }} sessionCount={0} projectCount={0} /></IntentRoot>);
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ workspaceRoot: '/w2', terminalApp: 'iterm', codePath: '/usr/local/bin/code', device: null, version: '0.2.0', sessionCount: 0, projectCount: 0 })} /></IntentRoot>);
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('/opt/homebrew/bin/tmux');
     expect(screen.getByLabelText('ワークスペースのルート')).toHaveValue('/w2');
     expect(screen.getByLabelText('ターミナルアプリ')).toHaveValue('iterm');
@@ -103,7 +115,7 @@ describe('SettingsScreen', () => {
   it('何も変えていなければツールの保存は押せない', () => {
     // 空の patch はサーバが 400 にするので、押せないようにする。
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SettingsScreen workspaceRoot="/w" claudeDir="/c" tmuxPath="/opt/homebrew/bin/tmux" terminalApp="iterm" codePath={null} mcpInstallCommand="npx hangar mcp install" device={null} version="0.2.0" index={{ phase: 'idle', done: 0, total: 0 }} sessionCount={0} projectCount={0} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ terminalApp: 'iterm', device: null, version: '0.2.0' })} /></IntentRoot>);
     const save = screen.getByText('ツールの設定を保存');
     expect(save).toBeDisabled();
     fireEvent.click(save);
@@ -112,6 +124,72 @@ describe('SettingsScreen', () => {
     expect(save).toBeEnabled();
     fireEvent.click(save);
     expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { codePath: '/usr/local/bin/code' } });
+  });
+});
+
+describe('SettingsScreen のフェーズ 3', () => {
+  it('statusline の状態と追記のコマンドを出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    expect(screen.getByText('まだ追記されていません')).toBeTruthy();
+    expect(screen.getByText('npx hangar statusline install')).toBeTruthy();
+    expect(screen.getByText('/h/.claude/statusline.sh')).toBeTruthy();
+  });
+  it('追記済みならそう出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ statusline: { command: 'bash x', scriptPath: '/h/x', installed: true } })} /></IntentRoot>);
+    expect(screen.getByText('追記済みです')).toBeTruthy();
+  });
+  it('statusline の設定が無いときは案内を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ statusline: { command: null, scriptPath: null, installed: false } })} /></IntentRoot>);
+    expect(screen.getByText('statusLine の設定が見つかりません')).toBeTruthy();
+  });
+  it('statusline がまだ届いていなければ読み込み中を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ statusline: null, summarizerModels: [] })} /></IntentRoot>);
+    expect(screen.getByText('読み込んでいます')).toBeTruthy();
+  });
+  it('要約器の URL とモデルとフォールバックを保存する', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'http://127.0.0.1:2345' } });
+    fireEvent.click(screen.getByText('要約器の設定を保存'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 } });
+    fireEvent.change(screen.getByLabelText('モデル'), { target: { value: 'qwen' } });
+    fireEvent.click(screen.getByLabelText('Claude へ切り替える'));
+    fireEvent.change(screen.getByLabelText('1 時間の上限'), { target: { value: '5' } });
+    fireEvent.click(screen.getByText('要約器の設定を保存'));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryFallback: false, summaryHourlyCap: 5 } });
+  });
+  it('モデルの一覧の状態を出し分ける', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ summarizerModels: null })} /></IntentRoot>);
+    expect(screen.getByText('読み込んでいます')).toBeTruthy();
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ summarizerModels: [] })} /></IntentRoot>);
+    expect(screen.getByText('LM Studio に繋がりません')).toBeTruthy();
+  });
+  it('要約器を試すと summarizer.test を出し、結果を出す', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    fireEvent.click(screen.getByText('要約器を試す'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'summarizer.test' });
+    rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ summarizerTest: { ok: true, id: 'lmstudio', ms: 820, summary: { title: '題', oneLiner: '1 文', body: '本文', state: 'done', nextSteps: [], source: 'post_hoc', sourceModel: 'gemma', basedOnTurns: 3 } } })} /></IntentRoot>);
+    expect(screen.getByText('lmstudio で成功しました（820 ミリ秒）')).toBeTruthy();
+    expect(screen.getByText('1 文')).toBeTruthy();
+    rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ summarizerTest: { ok: false, tried: [{ id: 'lmstudio', message: 'ECONNREFUSED' }, { id: 'claude-headless', message: '上限に達しています' }] } })} /></IntentRoot>);
+    expect(screen.getByText('lmstudio: ECONNREFUSED')).toBeTruthy();
+    expect(screen.getByText('claude-headless: 上限に達しています')).toBeTruthy();
+  });
+  it('使用量の 2 つの表を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    expect(screen.getByText('2026-09-18')).toBeTruthy();
+    expect(screen.getByText('alpha')).toBeTruthy();
+    expect(screen.getByText('$1.50')).toBeTruthy();
+  });
+  it('集計がまだ無ければ読み込み中を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ usageAggregate: null })} /></IntentRoot>);
+    expect(screen.getByText('使用量を読み込んでいます')).toBeTruthy();
+  });
+  it('次のフェーズの節はクラウド同期だけを残す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    expect(screen.getByText(/クラウド同期/)).toBeTruthy();
+    expect(screen.queryByText(/statusline への追記、要約器/)).toBeNull();
   });
 });
 

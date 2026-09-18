@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { SettingsDto, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
+import { costLabel, tokensLabel } from '../presenters/format.ts';
 import type { SettingsProps } from '../presenters/settings.ts';
 
 /** 設定画面。保持する状態は入力途中の値だけで、保存で settings.update を出す。 */
@@ -10,11 +11,22 @@ export function SettingsScreen(props: SettingsProps) {
   const [tmuxPath, setTmuxPath] = useState(props.tmuxPath ?? '');
   const [terminalApp, setTerminalApp] = useState<TerminalApp>(props.terminalApp);
   const [codePath, setCodePath] = useState(props.codePath ?? '');
+  const [lmUrl, setLmUrl] = useState(props.lmStudioUrl);
+  const [lmModel, setLmModel] = useState(props.lmStudioModel ?? '');
+  const [fallback, setFallback] = useState(props.summaryFallback);
+  const [cap, setCap] = useState(String(props.summaryHourlyCap));
   // サーバが正規化した値、たとえば tmux の絶対パスを入力欄に反映する。
   useEffect(() => { setWs(props.workspaceRoot); }, [props.workspaceRoot]);
   useEffect(() => { setTmuxPath(props.tmuxPath ?? ''); }, [props.tmuxPath]);
   useEffect(() => { setTerminalApp(props.terminalApp); }, [props.terminalApp]);
   useEffect(() => { setCodePath(props.codePath ?? ''); }, [props.codePath]);
+  useEffect(() => { setLmUrl(props.lmStudioUrl); }, [props.lmStudioUrl]);
+  useEffect(() => { setLmModel(props.lmStudioModel ?? ''); }, [props.lmStudioModel]);
+  useEffect(() => { setFallback(props.summaryFallback); }, [props.summaryFallback]);
+  useEffect(() => { setCap(String(props.summaryHourlyCap)); }, [props.summaryHourlyCap]);
+  // 要約器は 4 項目をまとめて送る。
+  // 空の patch にならないので、ツールの保存のような無効化はいらない。
+  const saveSummarizer = () => emit({ type: 'settings.update', patch: { lmStudioUrl: lmUrl, lmStudioModel: lmModel || null, summaryFallback: fallback, summaryHourlyCap: Number(cap) } });
 
   // 変えた項目だけを送る。
   // terminalApp を毎回入れると、iTerm2 の許可案内が保存のたびに出る。
@@ -64,6 +76,74 @@ export function SettingsScreen(props: SettingsProps) {
         <pre className="mono" style={{ margin: '8px 0 0' }}>{props.mcpInstallCommand}</pre>
       </section>
       <section>
+        <h2 className="h2">statusline</h2>
+        {props.statusline === null && <div className="faint">読み込んでいます</div>}
+        {props.statusline && props.statusline.scriptPath === null && (
+          <>
+            <div className="muted">statusLine の設定が見つかりません</div>
+            <div className="faint" style={{ marginTop: 4 }}>Claude Code の /statusline でスクリプトを作ってから、下のコマンドを実行してください。</div>
+          </>
+        )}
+        {props.statusline?.scriptPath && (
+          <>
+            <div className="muted">{props.statusline.installed ? '追記済みです' : 'まだ追記されていません'}</div>
+            <div className="faint mono">{props.statusline.scriptPath}</div>
+          </>
+        )}
+        <div className="faint" style={{ marginTop: 4 }}>使用量ゲージはこの追記だけが供給源です。追記は端末から行い、UI からは書き換えません。</div>
+        <pre className="mono snippet">{props.statuslineCommand}</pre>
+      </section>
+      <section>
+        <h2 className="h2">要約器</h2>
+        <div className="grid2">
+          <label className="field"><span>LM Studio の URL</span>
+            <input className="input mono" aria-label="LM Studio の URL" value={lmUrl} onChange={(e) => setLmUrl(e.target.value)} />
+          </label>
+          <label className="field"><span>モデル</span>
+            <select className="select" aria-label="モデル" value={lmModel} onChange={(e) => setLmModel(e.target.value)}>
+              <option value="">自動（最初のモデル）</option>
+              {(props.summarizerModels ?? []).map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
+        </div>
+        {props.summarizerModels === null && <div className="faint" style={{ marginTop: 4 }}>読み込んでいます</div>}
+        {props.summarizerModels?.length === 0 && <div className="faint" style={{ marginTop: 4 }}>LM Studio に繋がりません</div>}
+        <label className="field-row"><input type="checkbox" aria-label="Claude へ切り替える" checked={fallback} onChange={(e) => setFallback(e.target.checked)} /><span>LM Studio が使えないとき Claude へ切り替える</span></label>
+        <label className="field-row"><span>1 時間の上限</span><input className="input mono" style={{ width: 72 }} aria-label="1 時間の上限" value={cap} onChange={(e) => setCap(e.target.value)} /><span className="faint">件。7 日の使用率が 80% を超えたら切り替えません。</span></label>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button className="btn btn-primary" onClick={saveSummarizer}>要約器の設定を保存</button>
+          <button className="btn" onClick={() => emit({ type: 'summarizer.test' })}>要約器を試す</button>
+        </div>
+        {props.summarizerTest?.ok === true && (
+          <div style={{ marginTop: 4 }}>
+            <div className="muted">{props.summarizerTest.id} で成功しました（{props.summarizerTest.ms} ミリ秒）</div>
+            <div className="faint">{props.summarizerTest.summary.oneLiner}</div>
+          </div>
+        )}
+        {props.summarizerTest?.ok === false && (
+          <ul className="faint" style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+            {props.summarizerTest.tried.map((t) => <li key={t.id}>{t.id}: {t.message}</li>)}
+          </ul>
+        )}
+      </section>
+      <section>
+        <h2 className="h2">使用量</h2>
+        {props.usageAggregate === null && <div className="faint">使用量を読み込んでいます</div>}
+        {props.usageAggregate && (
+          <div className="grid2">
+            <table className="mini"><caption className="faint">直近 30 日</caption>
+              <thead><tr><th>日</th><th className="cell-right">入力</th><th className="cell-right">出力</th><th className="cell-right">件</th></tr></thead>
+              <tbody>{props.usageAggregate.days.map((d) => <tr key={d.day}><td className="mono">{d.day}</td><td className="mono cell-right">{tokensLabel(d.inputTokens)}</td><td className="mono cell-right">{tokensLabel(d.outputTokens)}</td><td className="mono cell-right">{d.sessions}</td></tr>)}</tbody>
+            </table>
+            <table className="mini"><caption className="faint">プロジェクト別</caption>
+              <thead><tr><th>名前</th><th className="cell-right">トークン</th><th className="cell-right">コスト</th><th className="cell-right">件</th></tr></thead>
+              <tbody>{props.usageAggregate.projects.map((p) => <tr key={p.projectId ?? 'none'}><td>{p.name}</td><td className="mono cell-right">{tokensLabel(p.inputTokens + p.outputTokens)}</td><td className="mono cell-right">{costLabel(p.costUsd)}</td><td className="mono cell-right">{p.sessions}</td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+        <div className="faint" style={{ marginTop: 4 }}>コストは statusline が渡した値の合計です。渡されていないセッションは含みません。</div>
+      </section>
+      <section>
         <h2 className="h2">索引</h2>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <span className="mono muted">{props.index.phase === 'idle' ? `${props.sessionCount} セッション、${props.projectCount} プロジェクト` : `${props.index.phase} ${props.index.done} / ${props.index.total}`}</span>
@@ -79,7 +159,7 @@ export function SettingsScreen(props: SettingsProps) {
       </section>
       <section>
         <h2 className="h2">次のフェーズで追加される設定</h2>
-        <div className="faint">statusline への追記、要約器、クラウド同期。</div>
+        <div className="faint">クラウド同期（状態、参加トークンの発行、一時停止）と他端末セッションの引き継ぎ。</div>
       </section>
     </div>
   );

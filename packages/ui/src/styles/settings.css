@@ -1,1 +1,15 @@
 /* Settings の statusline、要約器、使用量（Task 26） */
+
+/* ラベルと入力を横に並べる行。チェックボックスと小さな数値の入力に使う。 */
+.field-row { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); }
+.field-row .input { color: var(--ink); }
+
+/* 設定の小さな表。行高は一覧と揃える。 */
+.mini { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.mini caption { text-align: left; padding-bottom: 2px; }
+.mini th { text-align: left; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.mini td, .mini th { height: 22px; padding: 0 4px; }
+.mini td.cell-right, .mini th.cell-right { text-align: right; }
+
+/* 端末で実行するコマンドの囲み。 */
+.snippet { margin: calc(var(--u) * 2) 0 0; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 8px; overflow-x: auto; font-size: var(--fs-sm); }
