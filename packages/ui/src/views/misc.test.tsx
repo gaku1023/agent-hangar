@@ -211,6 +211,10 @@ describe('SettingsScreen のフェーズ 3', () => {
     expect(screen.getByText('alpha')).toBeTruthy();
     expect(screen.getByText('$1.50')).toBeTruthy();
   });
+  it('トークンは期間のとおりでコストは走り全体の累計だと添える', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    expect(screen.getByText('トークン数は期間のとおりですが、推定コストはそのセッションの走り全体の累計です。')).toBeTruthy();
+  });
   it('集計がまだ無ければ読み込み中を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ usageAggregate: null })} /></IntentRoot>);
     expect(screen.getByText('使用量を読み込んでいます')).toBeTruthy();

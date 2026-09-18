@@ -157,6 +157,9 @@ export function SettingsScreen(props: SettingsProps) {
           </div>
         )}
         <div className="faint" style={{ marginTop: 4 }}>コストは statusline が渡した値の合計です。渡されていないセッションは含みません。</div>
+        {/* コストの供給源は cost.total_cost_usd で、そのセッションの走り全体の累計である。 */}
+        {/* 日ごとの内訳が無いので、期間で切り分けられない。 */}
+        <div className="faint">トークン数は期間のとおりですが、推定コストはそのセッションの走り全体の累計です。</div>
       </section>
       <section>
         <h2 className="h2">索引</h2>
