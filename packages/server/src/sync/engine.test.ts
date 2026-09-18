@@ -344,6 +344,35 @@ describe('SyncEngine の pull', () => {
     a.stop(); b.stop();
   });
 
+  it('写しを読み終える前に更新された行を取りこぼさない', async () => {
+    const a = make();
+    await a.start();
+    for (const id of ['p1', 'p2', 'p3', 'p4', 'p5']) project(id);
+    await a.pushNow();
+
+    const paged = cloud.asDevice('b');
+    const origSnap = paged.snapshot.bind(paged);
+    let pages = 0;
+    paged.snapshot = async (after) => {
+      const page = await origSnap(after, 2);
+      pages++;
+      // 1 ページ目を返した後に、もう読み終えた鍵（p1）が他端末で更新された。
+      // この変更の連番は、最後のページが返す seq より小さい。
+      if (pages === 1) {
+        await realDelay(2);
+        upsertShared(db, 'projects', { ...(db.prepare('select * from projects where id = ?').get('p1') as Record<string, unknown>), name: 'updated' }, 'a');
+        await a.pushNow();
+      }
+      return page;
+    };
+
+    const b = makeB({ client: paged });
+    await b.start();
+    // 最後のページの seq を since にすると、この変更は二度と届かない。
+    expect((dbB.prepare('select name from projects where id = ?').get('p1') as { name: string }).name).toBe('updated');
+    a.stop(); b.stop();
+  });
+
   it('メモが他端末の新しい版で上書きされるとき、手元の本文を呼び手へ渡す', async () => {
     const conflicts: { projectId: string; markdown: string; deviceName: string }[] = [];
     const a = make();

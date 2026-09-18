@@ -1,12 +1,52 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { SHARED_TABLES, TABLE_PK, type ChangeOut, type SharedTable } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { safeDeviceLabel, timestampLabel } from './copy.ts';
 
 /** 親から子の順。pull の適用はこの順に並べ替える。 */
 export const SHARED_APPLY_ORDER: readonly SharedTable[] = SHARED_TABLES;
 const ORDER = new Map<string, number>(SHARED_APPLY_ORDER.map((t, i) => [t, i]));
 
-/** 他端末の新しい版に負けた、手元のメモの本文。呼び手がファイルとして隣に残す。 */
+/**
+ * 他端末の新しい版に負けた、手元のメモの本文。呼び手がファイルとして隣に残す。
+ * `deviceName` は devices の表示名そのままである（トーストに出す用）。
+ * **パスに混ぜるときは必ず `writeMemoConflictCopy` を通すこと。**
+ * 参加の入口は名前に空白と `.` と日本語を通すので、そのままファイル名にすると扱いにくい名前になる。
+ */
 export type MemoConflict = { projectId: string; markdown: string; deviceName: string };
+
+/** 同じ秒に作る写しの上限。ここまで当たるのは異常なので、無限に回さずに投げる。 */
+const MAX_CONFLICT_COPIES = 100;
+
+/**
+ * 負けたメモの本文を、そのプロジェクトのメモの隣に残す。書けた写しのパスを返す。
+ *
+ * 名前は `memo.conflict-<畳んだ端末名>-<yyyyMMdd-HHmmss>.md` である。
+ * 端末名は `safeDeviceLabel` で畳む。畳んだ名前は元と 1 対 1 ではない
+ * （「さとうの Mac」と「たなかの Mac」はどちらも `Mac` になる）ので、同じ名前に当たりうる。
+ * そのときは `-2`、`-3` と連番を足す。
+ *
+ * 書き出しは `wx`（無ければ作る、あれば失敗）で開く。
+ * `existsSync` で見てから書くと、その隙に割り込まれて写しが写しを潰す。
+ * 負けた方を残すのがこの仕組みの目的なので、既にあるファイルは決して上書きしない。
+ *
+ * 書けなければ投げる。呼び手（`onMemoConflict`）がそのまま投げ返せば、その行は適用されない。
+ */
+export function writeMemoConflictCopy(memoFile: string, o: MemoConflict, now = Date.now()): string {
+  const dir = path.dirname(memoFile);
+  fs.mkdirSync(dir, { recursive: true });
+  const base = `memo.conflict-${safeDeviceLabel(o.deviceName)}-${timestampLabel(now)}`;
+  for (let i = 1; ; i++) {
+    const file = path.join(dir, i === 1 ? `${base}.md` : `${base}-${i}.md`);
+    try {
+      fs.writeFileSync(file, o.markdown, { flag: 'wx' });
+      return file;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST' || i >= MAX_CONFLICT_COPIES) throw e;
+    }
+  }
+}
 
 export type ApplyOptions = {
   ownDeviceId: string;

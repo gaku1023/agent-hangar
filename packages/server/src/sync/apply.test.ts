@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangeOut } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { applyRemoteBatch, applyRemoteChange } from './apply.ts';
+import { applyRemoteBatch, applyRemoteChange, writeMemoConflictCopy } from './apply.ts';
 
 const ch = (over: Partial<ChangeOut> & { rowId: string; updatedAt: number }): ChangeOut => ({ seq: 1, tableName: 'projects', op: 'upsert', deviceId: 'b', payload: { id: over.rowId, name: 'remote', status: 'active', is_scratch: 0, updated_at: over.updatedAt, deleted_at: null, origin_device: 'b' }, ...over });
 const o = { ownDeviceId: 'a', skipOwn: true };
@@ -132,5 +135,51 @@ describe('applyRemoteBatch', () => {
     expect((db.prepare('select count(*) c from projects').get() as { c: number }).c).toBe(1);
     expect(err).toHaveBeenCalled();
     err.mockRestore();
+  });
+});
+
+/** 負けたメモの写しは、畳んだ端末名で名付け、既にあるファイルを決して潰さない。 */
+describe('writeMemoConflictCopy', () => {
+  const dirs: string[] = [];
+  const tmp = (): string => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-memo-')); dirs.push(d); return d; };
+  afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
+
+  const at = Date.UTC(2026, 8, 19, 3, 4, 5);
+  const conflict = (deviceName: string, markdown = '手元のメモ') => ({ projectId: 'p1', markdown, deviceName });
+
+  it('端末名を畳んでからファイル名に入れる', () => {
+    const dir = tmp();
+    const file = writeMemoConflictCopy(path.join(dir, 'memo.md'), conflict('さとうの Mac'), at);
+    expect(path.dirname(file)).toBe(dir);
+    expect(path.basename(file)).toMatch(/^memo\.conflict-Mac-\d{8}-\d{6}\.md$/);
+    expect(fs.readFileSync(file, 'utf8')).toBe('手元のメモ');
+  });
+
+  it('畳むと何も残らない名前でも、端末ごとに違う名前になる', () => {
+    const dir = tmp();
+    const one = writeMemoConflictCopy(path.join(dir, 'memo.md'), conflict('さとうのマック'), at);
+    const two = writeMemoConflictCopy(path.join(dir, 'memo.md'), conflict('たなかのマック'), at);
+    expect(path.basename(one)).toMatch(/^memo\.conflict-device-[0-9a-f]{8}-\d{8}-\d{6}\.md$/);
+    expect(path.basename(two)).not.toBe(path.basename(one));
+  });
+
+  it('同じ名前が既にあれば連番を足し、元のファイルを潰さない', () => {
+    const dir = tmp();
+    const first = writeMemoConflictCopy(path.join(dir, 'memo.md'), conflict('Mac', '1 つめ'), at);
+    // 畳んだ名前は元と 1 対 1 ではないので、別の端末でも同じ名前に当たりうる。
+    const second = writeMemoConflictCopy(path.join(dir, 'memo.md'), conflict('さとうの Mac', '2 つめ'), at);
+    const third = writeMemoConflictCopy(path.join(dir, 'memo.md'), conflict('Mac', '3 つめ'), at);
+    expect(second).not.toBe(first);
+    expect(third).not.toBe(second);
+    expect(fs.readFileSync(first, 'utf8')).toBe('1 つめ');
+    expect(fs.readFileSync(second, 'utf8')).toBe('2 つめ');
+    expect(fs.readFileSync(third, 'utf8')).toBe('3 つめ');
+    expect(fs.readdirSync(dir).sort()).toHaveLength(3);
+  });
+
+  it('メモの置き場がまだ無ければ作る', () => {
+    const dir = tmp();
+    const file = writeMemoConflictCopy(path.join(dir, 'projects', 'p1', 'memo.md'), conflict('Mac'), at);
+    expect(fs.existsSync(file)).toBe(true);
   });
 });

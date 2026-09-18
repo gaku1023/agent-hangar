@@ -274,15 +274,21 @@ export class SyncEngine {
   private async pullPass(client: CloudClient, count: { applied: number }): Promise<void> {
     if (this.state.get('snapshotDone') !== '1') {
       let after: string | null = null;
-      let seq = 0;
+      /**
+       * 差分に戻る位置は、写しの **最初のページ**の seq である。
+       * 読み終えるまでの間に他端末が行を更新すると、その変更の連番は最後のページの seq より小さくなりうる。
+       * 大きい方を since にすると、もう読み終えた鍵の更新を二度と受け取れない。
+       * 取りこぼすより、同じ変更をもう一度受け取る方が安全である（適用は updated_at の比較で冪等である）。
+       */
+      let seq: number | null = null;
       do {
         const cursor: string | null = after;
         const page: SnapshotResponse = await this.request(() => client.snapshot(cursor, PULL_LIMIT));
         count.applied += this.applyPage(page.changes, false);
         after = page.nextAfter;
-        seq = page.seq;
+        if (seq === null) seq = page.seq;
       } while (after !== null);
-      this.state.set('lastSeq', Math.max(seq, this.state.getNumber('lastSeq', 0)));
+      this.state.set('lastSeq', seq ?? 0);
       this.state.set('snapshotDone', true);
     }
     let since = this.state.getNumber('lastSeq', 0);
