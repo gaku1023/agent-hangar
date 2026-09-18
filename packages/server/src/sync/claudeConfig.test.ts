@@ -10,7 +10,7 @@ import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ClaudeConfigSync, CONFIG_MAX_BYTES, denormalizeHome, HOME_MARKER, isConfigPath, isTextBuffer, listConfigFiles, normalizeHome, type ClaudeConfigDeps } from './claudeConfig.ts';
-import { timestampLabel } from './copy.ts';
+import { safeDeviceLabel, timestampLabel } from './copy.ts';
 import { decryptBuffer, deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
 import { SyncStateStore } from './state.ts';
 
@@ -94,9 +94,12 @@ describe('listConfigFiles', () => {
   it('競合の控えと書きかけの一時ファイルは同期の対象にしない', () => {
     write('memory/x.md', 'local\n');
     write('memory/x.md.conflict-mini-20240101-000000', 'other\n');
+    write('memory/x.md.conflict-Mac-20240101-000000-2', 'other too\n');
     write('memory/x.md.hangar-tmp-1-abcdef', 'partial\n');
     expect(listConfigFiles(claudeDir).map((f) => f.rel)).toEqual(['memory/x.md']);
     expect(isConfigPath('memory/x.md.conflict-mini-20240101-000000')).toBe(false);
+    // 畳んだ端末名と連番が付いた形でも、同期の対象に戻ってこない。
+    expect(isConfigPath(`memory/x.md.conflict-${safeDeviceLabel('さとうの Mac')}-20240101-000000-2`)).toBe(false);
   });
 
   it('statusLine が ~/.claude の外を指していれば拾わない', () => {
@@ -222,6 +225,51 @@ describe('preview と applyPull', () => {
     // 手元が勝った分は相手に追いつかせる。競合の控え自体は上げない。
     expect([...cloud.files.keys()].filter((k) => k.startsWith('config/'))).toEqual(['config/memory/x.md']);
     expect(await plainUploaded('config/memory/x.md')).toBe('local\n');
+    c.stop();
+  });
+
+  it('端末の名前は畳んでからファイル名に入れる', async () => {
+    const e = await remotePut('memory/x.md', 'remote\n', { mtime: NOW });
+    write('memory/x.md', 'local\n', NOW - 60_000);
+    seedSynced('memory/x.md', 'base\n', NOW - 120_000);
+    upsertShared(db, 'devices', { id: 'dev-b', name: 'たなかの MacBook Pro', platform: 'darwin', last_seen_at: NOW }, 'dev-b');
+    const c = make({ deviceName: 'さとうの Mac' });
+    c.confirm();
+    expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 1, backedUp: 1 });
+    expect(safeDeviceLabel('さとうの Mac')).toBe('Mac');
+    expect(fs.readdirSync(path.join(claudeDir, 'memory')).filter((f) => f.includes('.conflict-'))).toEqual([`x.md.conflict-Mac-${STAMP}`]);
+    expect(fs.readFileSync(path.join(claudeDir, 'memory', `x.md.conflict-Mac-${STAMP}`), 'utf8')).toBe('local\n');
+    c.stop();
+  });
+
+  it('同じ名前の写しが既にあれば連番を足して潰さない', async () => {
+    const e = await remotePut('memory/x.md', 'remote\n', { mtime: NOW });
+    write('memory/x.md', 'local\n', NOW - 60_000);
+    seedSynced('memory/x.md', 'base\n', NOW - 120_000);
+    // 別名の端末（「たなかの Mac」）が同じ秒に残した写しがあるとする。
+    const taken = write(`memory/x.md.conflict-Mac-${STAMP}`, '先にあった写し\n');
+    const c = make({ deviceName: 'さとうの Mac' });
+    c.confirm();
+    expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 1, backedUp: 1 });
+    expect(fs.readFileSync(taken, 'utf8')).toBe('先にあった写し\n');
+    expect(fs.readFileSync(path.join(claudeDir, 'memory', `x.md.conflict-Mac-${STAMP}-2`), 'utf8')).toBe('local\n');
+    expect(fs.readFileSync(path.join(claudeDir, 'memory/x.md'), 'utf8')).toBe('remote\n');
+    expect(toasts.some((t) => t.message.includes(`x.md.conflict-Mac-${STAMP}-2`))).toBe(true);
+    c.stop();
+  });
+
+  it('相手の分を隣に置くときも既存の写しを潰さない', async () => {
+    const e = await remotePut('memory/x.md', 'remote\n', { mtime: NOW - 60_000 });
+    write('memory/x.md', 'local\n', NOW);
+    seedSynced('memory/x.md', 'base\n', NOW - 120_000);
+    const taken = write(`memory/x.md.conflict-mini-${STAMP}`, '先にあった写し\n');
+    const c = make();
+    c.confirm();
+    expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 1, backedUp: 0 });
+    expect(fs.readFileSync(taken, 'utf8')).toBe('先にあった写し\n');
+    expect(fs.readFileSync(path.join(claudeDir, 'memory', `x.md.conflict-mini-${STAMP}-2`), 'utf8')).toBe('remote\n');
+    // 競合の写しは、連番の付いた形でも相手に上げ直さない。
+    expect([...cloud.files.keys()].filter((k) => k.startsWith('config/'))).toEqual(['config/memory/x.md']);
     c.stop();
   });
 

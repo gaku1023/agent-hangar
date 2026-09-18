@@ -9,7 +9,7 @@ import { configKey, isSafeRelPath, type ConfigPreviewAction, type ConfigPreviewD
 import { backupsRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
 import type { CloudClient } from './client.ts';
-import { timestampLabel } from './copy.ts';
+import { safeDeviceLabel, timestampLabel } from './copy.ts';
 import { decryptStream, encryptStream, sha256Hex } from './crypto.ts';
 import type { Timers } from './engine.ts';
 import type { SyncStateStore } from './state.ts';
@@ -32,10 +32,15 @@ const SCRIPT_RE = /^[^/]+\.(sh|bash|zsh|js|mjs|cjs|ts|py|rb|pl)$/;
 /** 控えの世代のディレクトリ名（timestampLabel と同じ形）。 */
 const STAMP_RE = /^\d{8}-\d{6}$/;
 const BACKUP_SUBDIR = 'claude-config';
+/**
+ * 競合の写しの名前を何回まで試すか。
+ * 畳んだ端末名は元の名前と 1 対 1 ではない（「さとうの Mac」も「たなかの Mac」も Mac になる）ので、
+ * 同じ秒に同じ名前が当たることがある。当たったら連番を足して、先にある写しを潰さない。
+ */
+const MAX_CONFLICT_TRIES = 50;
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
 const toPosix = (p: string): string => p.split(path.sep).join('/');
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-const safeName = (s: string): string => s.replace(/[^A-Za-z0-9._-]/g, '-');
 
 export type ConfigFile = { rel: string; abs: string; size: number; mtime: number };
 
@@ -157,6 +162,45 @@ function writeAtomically(abs: string, content: Buffer, mode: number): void {
     try { fs.rmSync(tmp, { force: true }); } catch { /* 片付けられなくても本物は無事である */ }
     throw e;
   }
+}
+
+/**
+ * まだ無い名前のときだけ書く。既にあれば false を返し、中身には一切触らない。
+ * `wx` で開くので、確かめてから書くまでの隙間で割り込まれることがない。
+ */
+function writeNewFile(abs: string, content: Buffer, mode: number): boolean {
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  let fd: number;
+  try {
+    fd = fs.openSync(abs, 'wx', mode);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw e;
+  }
+  try {
+    fs.writeFileSync(fd, content);
+    fs.fsyncSync(fd);
+  } catch (e) {
+    try { fs.rmSync(abs, { force: true }); } catch { /* 片付けられなくても、名前は自分が作ったものである */ }
+    throw e;
+  } finally { fs.closeSync(fd); }
+  // 作るときの mode は umask で削られるので、狙いどおりの権限に直す。
+  fs.chmodSync(abs, mode);
+  return true;
+}
+
+/**
+ * 負けた方を `<名前>.conflict-<端末名>-<時刻>` として隣に残す（利用者の決定 6）。
+ * 端末名は safeDeviceLabel で畳むので、同じ名前に当たりうる。
+ * 当たったら連番を足す。写しが写しを潰したら、残す意味が無くなる。
+ */
+function writeConflictCopy(baseAbs: string, label: string, stamp: string, content: Buffer, mode: number): string {
+  const head = `${baseAbs}.conflict-${label}-${stamp}`;
+  for (let i = 1; i <= MAX_CONFLICT_TRIES; i++) {
+    const cand = i === 1 ? head : `${head}-${i}`;
+    if (writeNewFile(cand, content, mode)) return cand;
+  }
+  throw new Error('競合の写しを置く名前が空いていません');
 }
 
 /** 既存の権限を引き継ぐ。無ければ、shebang のあるものだけ実行できる形にする。 */
@@ -416,16 +460,16 @@ export class ClaudeConfigSync {
         const abs = path.join(this.deps.claudeDir, ...e.path.split('/'));
         if (d.action === 'conflict' && !d.remoteNewer) {
           // 手元の方が新しい。相手の分を隣に置くだけで、手元は触らない。控えも要らない。
-          const other = `${abs}.conflict-${safeName(this.deviceName(e.deviceId))}-${runStamp}`;
-          writeAtomically(other, content, 0o600);
+          const other = writeConflictCopy(abs, safeDeviceLabel(this.deviceName(e.deviceId)), runStamp, content, 0o600);
           conflicts++;
           localWon = true;
           this.deps.onToast('info', `${e.path} が競合しました。相手の内容を ${path.basename(other)} に置きました`);
         } else if (d.action === 'conflict') {
           // 相手の方が新しい。控えを先に取り、取れたときだけ手元の写しを隣に残して書き換える。
-          if (this.backupAndWriteConflict(e.path, abs, content, runStamp)) backedUp++;
+          const r = this.backupAndWriteConflict(e.path, abs, content, runStamp);
+          if (r.kept) backedUp++;
           conflicts++;
-          this.deps.onToast('info', `${e.path} が競合しました。手元の内容を ${path.basename(abs)}.conflict-${safeName(this.deps.deviceName)}-${runStamp} に残しました`);
+          this.deps.onToast('info', `${e.path} が競合しました。手元の内容を ${path.basename(r.keep)} に残しました`);
         } else if (this.backupAndWrite(e.path, content, runStamp)) backedUp++;
         this.remember(e, e.sha256);
         applied++;
@@ -447,12 +491,11 @@ export class ClaudeConfigSync {
    * 競合で相手が勝つ側の書き込み。
    * 控え、手元の写し、上書きの順に行う。控えが取れなければ写しも作らず、~/.claude は 1 バイトも変わらない。
    */
-  private backupAndWriteConflict(rel: string, abs: string, content: Buffer, stamp: string): boolean {
+  private backupAndWriteConflict(rel: string, abs: string, content: Buffer, stamp: string): { kept: string | null; keep: string } {
     const kept = backupBeforeWrite({ home: this.deps.home, claudeDir: this.deps.claudeDir, rel, stamp });
-    const keep = `${abs}.conflict-${safeName(this.deps.deviceName)}-${stamp}`;
     const local = fs.readFileSync(abs);
-    writeAtomically(keep, local, modeFor(abs, local));
+    const keep = writeConflictCopy(abs, safeDeviceLabel(this.deps.deviceName), stamp, local, modeFor(abs, local));
     writeAtomically(abs, content, modeFor(abs, content));
-    return kept !== null;
+    return { kept, keep };
   }
 }
