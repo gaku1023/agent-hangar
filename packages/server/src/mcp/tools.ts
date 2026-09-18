@@ -1,4 +1,4 @@
-import type { LaunchParams, LiveSessionDto, ProjectStatus, ServerEvent, SessionDto, SummaryState, TranscriptEvent } from '@agent-hangar/shared';
+import type { LaunchParams, LiveSessionDto, ProjectDto, ProjectStatus, ServerEvent, SessionDto, SummaryState, TranscriptEvent } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -75,6 +75,12 @@ function requireSession(deps: ToolDeps, id: string): SessionDto {
   return s;
 }
 
+function requireProject(deps: ToolDeps, id: string): ProjectDto {
+  const p = getProject(deps.db, deps.deviceId, deps.live(), id);
+  if (!p) throw new ToolError(`プロジェクトが見つかりません: ${id}`);
+  return p;
+}
+
 const url = (deps: ToolDeps, route: string) => `http://127.0.0.1:${deps.port}/#/${route}`;
 
 export function listProjectsTool(deps: ToolDeps) {
@@ -87,8 +93,7 @@ export function listProjectsTool(deps: ToolDeps) {
 export function getProjectTool(deps: ToolDeps, args: Record<string, unknown>) {
   const id = str(args.project_id);
   if (!id) throw new ToolError('project_id が必要です');
-  const p = getProject(deps.db, deps.deviceId, deps.live(), id);
-  if (!p) throw new ToolError(`プロジェクトが見つかりません: ${id}`);
+  const p = requireProject(deps, id);
   const memo = (deps.db.prepare('select markdown from project_memos where project_id = ? and deleted_at is null').get(id) as { markdown: string } | undefined)?.markdown ?? null;
   const todos = (deps.db.prepare('select id, text, done from todos where project_id = ? and deleted_at is null order by position').all(id) as { id: string; text: string; done: number }[])
     .map((t) => ({ id: t.id, text: t.text, done: t.done === 1 }));
@@ -102,9 +107,10 @@ export function updateProjectTool(deps: ToolDeps, args: Record<string, unknown>)
   if (!id) throw new ToolError('project_id が必要です');
   const row = deps.db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
   if (!row) throw new ToolError(`プロジェクトが見つかりません: ${id}`);
-  const status = str(args.status);
-  if (status !== undefined) {
-    if (!STATUSES.includes(status as ProjectStatus)) throw new ToolError(`status は ${STATUSES.join('、')} のいずれかです`);
+  // status を「省略」と「型違いの値」で区別する。str() だけでは数値や null が黙って無視される。
+  if (args.status !== undefined) {
+    const status = args.status;
+    if (typeof status !== 'string' || !STATUSES.includes(status as ProjectStatus)) throw new ToolError(`status は ${STATUSES.join('、')} のいずれかです`);
     upsertShared(deps.db, 'projects', { ...row, status }, deps.deviceId);
     deps.hub.broadcast({ type: 'project.upsert', project: getProject(deps.db, deps.deviceId, deps.live(), id)! });
   }
@@ -117,7 +123,9 @@ export function listSessionsTool(deps: ToolDeps, args: Record<string, unknown>) 
   let list = listSessions(deps.db, deps.live(), { projectId: str(args.project_id) });
   const running = bool(args.running);
   if (running !== undefined) list = list.filter((s) => (s.live !== null) === running);
-  return list.slice(0, num(args.limit) ?? DEFAULT_LIST_LIMIT).map(sessionBrief);
+  // 負数の limit を slice にそのまま渡すと末尾から削る意味になるので、下限を 0 で押さえる。
+  const limit = Math.max(num(args.limit) ?? DEFAULT_LIST_LIMIT, 0);
+  return list.slice(0, limit).map(sessionBrief);
 }
 
 export function searchSessionsTool(deps: ToolDeps, args: Record<string, unknown>) {
@@ -191,9 +199,14 @@ export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Recor
 }
 
 export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  // 実在しない ID を死んだリンクにして返さない。打ち間違いはここで失敗させる。
   const projectId = str(args.project_id);
-  if (projectId) return { url: url(deps, `project/${projectId}`), deep_link: `hangar://project/${projectId}` };
+  if (projectId) {
+    requireProject(deps, projectId);
+    return { url: url(deps, `project/${projectId}`), deep_link: `hangar://project/${projectId}` };
+  }
   const id = sessionIdOf(ctx, args);
+  requireSession(deps, id);
   return { url: url(deps, `session/${id}`), deep_link: `hangar://session/${id}` };
 }
 

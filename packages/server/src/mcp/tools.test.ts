@@ -30,6 +30,14 @@ afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
 const call = (name: string, args: Record<string, unknown> = {}, ctx = { sessionId: null as string | null }) => callTool(deps, ctx, name, args) as Record<string, unknown>;
 
+/** session_id を取るツールと、それ以外の必須引数。存在の検査をまとめて確かめる。 */
+const SESSION_TOOL_CALLS: [string, Record<string, unknown>][] = [
+  ['get_transcript', {}],
+  ['set_session_summary', { title: 'T', one_liner: 'O', body: 'B', state: 'done', next_steps: [] }],
+  ['set_session_memo', { text: 'メモ' }],
+  ['open_in_hangar', {}],
+];
+
 describe('MCP tools', () => {
   it('list_projects と get_project', () => {
     const list = call('list_projects') as unknown as Record<string, unknown>[];
@@ -47,12 +55,21 @@ describe('MCP tools', () => {
     expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id: 'p1', status: 'paused' } });
     expect(() => call('update_project', { project_id: 'p1', status: 'bogus' })).toThrow(ToolError);
   });
+  it('update_project は文字列でない status を黙って無視しない', () => {
+    expect(() => call('update_project', { project_id: 'p1', status: 12345 })).toThrow(ToolError);
+    expect(() => call('update_project', { project_id: 'p1', status: null })).toThrow(ToolError);
+    expect((db.prepare('select status from projects where id = ?').get('p1') as { status: string }).status).toBe('active');
+  });
   it('list_sessions は running と limit で絞る', () => {
     expect((call('list_sessions') as unknown as unknown[]).length).toBe(3);
     const running = call('list_sessions', { running: true }) as unknown as { id: string; live: string }[];
     expect(running).toEqual([expect.objectContaining({ id: alphaId, live: 'busy' })]);
     expect((call('list_sessions', { running: false, limit: 1 }) as unknown as unknown[]).length).toBe(1);
     expect((call('list_sessions', { project_id: 'p1' }) as unknown as unknown[]).length).toBe(1);
+  });
+  it('list_sessions は負数の limit を 0 件として扱う', () => {
+    expect((call('list_sessions', { limit: -1 }) as unknown as unknown[]).length).toBe(0);
+    expect((call('list_sessions', { limit: 0 }) as unknown as unknown[]).length).toBe(0);
   });
   it('search_sessions は抜粋と再開コマンドを返す', () => {
     const r = call('search_sessions', { query: 'チャンネル' });
@@ -96,5 +113,21 @@ describe('MCP tools', () => {
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
     expect(TOOL_NAMES).toHaveLength(11);
+  });
+  it('open_in_hangar は実在しない ID を死んだリンクにしない', () => {
+    expect(() => call('open_in_hangar', { session_id: 'ghost-session' })).toThrow(ToolError);
+    expect(() => call('open_in_hangar', { project_id: 'ghost-project' })).toThrow(ToolError);
+    expect(() => call('open_in_hangar', {}, { sessionId: 'ghost-session' })).toThrow(ToolError);
+  });
+  it('セッションを取るツールは実在しない session_id を拒む', () => {
+    for (const [name, args] of SESSION_TOOL_CALLS) {
+      expect(() => call(name, { ...args, session_id: 'ghost-session' })).toThrow(ToolError);
+    }
+  });
+  it('セッションを取るツールは Claude の UUID を session_id として受け付けない', () => {
+    // session_id は hangar の sessions.id である。provider_session_id を渡しても当たってはならない。
+    for (const [name, args] of SESSION_TOOL_CALLS) {
+      expect(() => call(name, { ...args, session_id: SESSION_ALPHA })).toThrow(ToolError);
+    }
   });
 });
