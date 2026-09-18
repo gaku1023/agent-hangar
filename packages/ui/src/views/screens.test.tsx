@@ -6,6 +6,8 @@ import { HomeScreen } from './HomeScreen.tsx';
 import { ProjectScreen } from './ProjectScreen.tsx';
 import { ProjectsScreen } from './ProjectsScreen.tsx';
 
+// Task 22 で ProjectProps に増えた右レールの分。この節が見るのはヘッダーの操作だけなので空にする。
+const rail = { isScratch: false, todos: [], memo: null, artifacts: [] };
 const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, openTodoCount: 0, memoHead: null, lastOneLiner: 'last one' });
 
 describe('HomeScreen', () => {
@@ -54,16 +56,16 @@ describe('ProjectCard（見つからないとき）', () => {
 describe('ProjectScreen', () => {
   it('見つからないときの表示と、操作ボタンの Intent', () => {
     const onIntent = vi.fn();
-    const { rerender } = render(<IntentRoot onIntent={onIntent}><ProjectScreen id="x" name="x" path={null} resolved={false} status="active" sessions={[]} notFound /></IntentRoot>);
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><ProjectScreen id="x" name="x" path={null} resolved={false} status="active" sessions={[]} notFound {...rail} /></IntentRoot>);
     expect(screen.getByText('プロジェクトが見つかりません')).toBeInTheDocument();
-    rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} /></IntentRoot>);
+    rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
     fireEvent.click(screen.getByText('新規セッション'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
     expect(screen.getByText('/w/alpha')).toBeInTheDocument();
   });
   it('プロジェクトの操作は project.* の Intent', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
     fireEvent.click(screen.getByText('VS Code で開く'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.openEditor', id: 'alpha' });
     fireEvent.click(screen.getByText('ターミナルで開く'));
@@ -75,7 +77,7 @@ const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('d
 
 describe('プロジェクトまわりのアイコン', () => {
   it('ProjectScreen の操作ボタン', () => {
-    render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
     expect(iconOf(screen.getByRole('button', { name: '新規セッション' }))).toBe('add');
     expect(iconOf(screen.getByRole('button', { name: 'VS Code で開く' }))).toBe('openEditor');
     expect(iconOf(screen.getByRole('button', { name: 'ターミナルで開く' }))).toBe('openTerminal');
@@ -91,7 +93,7 @@ describe('プロジェクトのステータスの色', () => {
     render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'paused', label: 'Paused', cards: [{ ...card('alpha'), status: 'paused' }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
     expect(screen.getByLabelText('alpha のステータス').getAttribute('data-status')).toBe('paused');
     cleanup();
-    render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="done" sessions={[]} notFound={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="done" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
     expect(screen.getByLabelText('ステータス').getAttribute('data-status')).toBe('done');
   });
   it('セクションの見出しにステータスの色の点が付く', () => {

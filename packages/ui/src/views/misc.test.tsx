@@ -196,7 +196,7 @@ describe('SettingsScreen のフェーズ 3', () => {
 describe('Header', () => {
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} /></IntentRoot>);
     const box = screen.getByRole('searchbox');
     fireEvent.change(box, { target: { value: '動画' } });
     fireEvent.keyDown(box, { key: 'Enter', isComposing: true });
