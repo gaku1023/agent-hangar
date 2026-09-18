@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, EventsPageDto, ServerEvent } from '@agent-hangar/shared';
 import type { ApiClient } from './api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
+import { fakeApiExtras } from '../test/fakeApi.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
 const page = (from: number, next: number | null): EventsPageDto => ({ sessionId: 's1', events: [{ kind: 'user', seq: from, text: 'x' }], total: 3, nextSeq: next });
@@ -17,6 +18,7 @@ function harness(overrides: Partial<ApiClient> = {}) {
     candidates: vi.fn(async () => []),
     updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, ...p })),
     rebuildIndex: vi.fn(async () => {}),
+    ...fakeApiExtras(),
     ...overrides,
   };
   let hash = '#/';

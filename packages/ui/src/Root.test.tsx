@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, ServerEvent } from '@agent-hangar/shared';
 import { Root } from './Root.tsx';
 import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
+import { fakeApiExtras } from './test/fakeApi.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
 
@@ -11,7 +12,7 @@ function make() {
   const hashListeners = new Set<() => void>();
   const handlers: { onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void }[] = [];
   const deps: RuntimeDeps = {
-    api: { bootstrap: async () => boot, events: async () => ({ sessionId: '', events: [], total: 0, nextSeq: null }), subagents: async () => [], search: async () => ({ hits: [], total: 0 }), setProjectStatus: async () => boot.projects[0]!, resolveProject: async () => ({}), candidates: async () => ['/w/alpha2'], updateSettings: async (p) => ({ ...boot.settings, ...p }), rebuildIndex: async () => {} },
+    api: { bootstrap: async () => boot, events: async () => ({ sessionId: '', events: [], total: 0, nextSeq: null }), subagents: async () => [], search: async () => ({ hits: [], total: 0 }), setProjectStatus: async () => boot.projects[0]!, resolveProject: async () => ({}), candidates: async () => ['/w/alpha2'], updateSettings: async (p) => ({ ...boot.settings, ...p }), rebuildIndex: async () => {}, ...fakeApiExtras() },
     ws: (h) => { handlers.push(h); return { connect: () => {}, close: () => {} }; },
     location: { getHash: () => hash, setHash: (h) => { hash = h; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); } },
     storage: { get: () => undefined, set: () => {}, keys: () => [] },

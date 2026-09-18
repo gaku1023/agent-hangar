@@ -1,9 +1,10 @@
-import type { BootstrapDto, EventsPageDto, IndexProgressDto, LiveSessionDto, ProjectDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, TranscriptEvent } from '@agent-hangar/shared';
+import type { BootstrapDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, TabDto, TranscriptEvent } from '@agent-hangar/shared';
 
 export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean };
 export type Store = {
   bootstrapped: boolean; version: string; device: { id: string; name: string } | null; settings: SettingsDto | null;
   projects: Record<string, ProjectDto>; sessions: Record<string, SessionDto>; live: LiveSessionDto[];
+  runs: Record<string, RunDto>; tabs: Record<string, TabDto>;
   events: Record<string, EventsSlice>; subagents: Record<string, string[]>;
   search: { params: SearchParamsDto | null; result: SearchResultDto | null; loading: boolean };
   index: IndexProgressDto;
@@ -12,13 +13,13 @@ export type Store = {
 export const eventsKey = (sessionId: string, agentId: string | null): string => `${sessionId}:${agentId ?? ''}`;
 
 export function initialStore(): Store {
-  return { bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], events: {}, subagents: {}, search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 } };
+  return { bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 } };
 }
 
 const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object.fromEntries(items.map((i) => [i.id, i]));
 
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, index: b.index };
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: byId(b.runs), tabs: byId(b.tabs), index: b.index };
 }
 
 function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): Record<string, SessionDto> {
@@ -40,6 +41,9 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'session.upsert': return { ...store, sessions: { ...store.sessions, [ev.session.id]: ev.session } };
     case 'live.update': return { ...store, live: ev.live, sessions: relive(store.sessions, ev.live) };
     case 'index.progress': return { ...store, index: ev.progress };
+    case 'run.started': return applyLaunch(store, { run: ev.run, sessionId: ev.run.sessionId, tabs: ev.tabs });
+    case 'run.upsert': case 'run.ended': return { ...store, runs: { ...store.runs, [ev.run.id]: ev.run } };
+    case 'tab.upsert': return { ...store, tabs: { ...store.tabs, [ev.tab.id]: ev.tab } };
     case 'transcript.appended': {
       const out = { ...store.events };
       let touched = false;
@@ -69,4 +73,35 @@ export function applySearch(store: Store, params: SearchParamsDto, result: Searc
 
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {
   return { ...store, subagents: { ...store.subagents, [sessionId]: ids } };
+}
+
+/** 起動の結果を入れる。
+ * run.started と同じ扱いにする。
+ */
+export function applyLaunch(store: Store, r: LaunchResultDto): Store {
+  return { ...store, runs: { ...store.runs, [r.run.id]: r.run }, tabs: { ...store.tabs, ...byId(r.tabs) } };
+}
+
+const newest = (runs: RunDto[]): RunDto | null => runs.sort((a, b) => b.startedAt - a.startedAt)[0] ?? null;
+
+/** 終わっていない最新の run。 */
+export function aliveRunOf(store: Store, sessionId: string): RunDto | null {
+  return newest(Object.values(store.runs).filter((r) => r.sessionId === sessionId && r.endedAt === null));
+}
+
+/** 生きた run があればそれ。
+ * 無ければ、開いたシェルタブが残っている最新の run。
+ */
+export function currentRunOf(store: Store, sessionId: string): RunDto | null {
+  const alive = aliveRunOf(store, sessionId);
+  if (alive) return alive;
+  const withTabs = Object.values(store.runs).filter((r) => r.sessionId === sessionId && tabsOf(store, r.id).some((t) => t.kind === 'shell'));
+  return newest(withTabs);
+}
+
+/** 閉じていないタブ。
+ * agent を先頭に、あとは createdAt の順。
+ */
+export function tabsOf(store: Store, runId: string): TabDto[] {
+  return Object.values(store.tabs).filter((t) => t.runId === runId && t.closedAt === null).sort((a, b) => (a.kind === b.kind ? a.createdAt - b.createdAt : a.kind === 'agent' ? -1 : 1));
 }

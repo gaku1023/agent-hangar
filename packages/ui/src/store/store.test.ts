@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { BootstrapDto, SessionDto } from '@agent-hangar/shared';
-import { applyBootstrap, applyEventsPage, applyServerEvent, eventsKey, initialStore } from './store.ts';
+import type { BootstrapDto, RunDto, SessionDto, TabDto } from '@agent-hangar/shared';
+import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applyServerEvent, currentRunOf, eventsKey, initialStore, tabsOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0 } });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0' };
@@ -40,5 +40,37 @@ describe('store', () => {
     let s = applyEventsPage(initialStore(), eventsKey('s1', null), { sessionId: 's1', events: [], total: 0, nextSeq: null }, false);
     s = applyServerEvent(s, { type: 'transcript.appended', sessionId: 's1', count: 1 });
     expect(s.events[eventsKey('s1', null)]?.total).toBe(1);
+  });
+});
+
+const run = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: Number(id.slice(1)), endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
+const tab = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt });
+
+describe('runs と tabs', () => {
+  it('run.started は run と tabs を入れ、tab.upsert と run.ended は差し替える', () => {
+    let s = initialStore();
+    s = applyServerEvent(s, { type: 'run.started', run: run('r1', 's1'), tabs: [tab('r1', 'r1', 'agent')] });
+    expect(aliveRunOf(s, 's1')?.id).toBe('r1');
+    s = applyServerEvent(s, { type: 'tab.upsert', tab: tab('t2', 'r1', 'shell') });
+    s = applyServerEvent(s, { type: 'tab.upsert', tab: tab('t1', 'r1', 'shell') });
+    expect(tabsOf(s, 'r1').map((t) => t.id)).toEqual(['r1', 't1', 't2']);
+    s = applyServerEvent(s, { type: 'tab.upsert', tab: tab('t1', 'r1', 'shell', 5) });
+    expect(tabsOf(s, 'r1').map((t) => t.id)).toEqual(['r1', 't2']);
+    s = applyServerEvent(s, { type: 'run.ended', run: run('r1', 's1', 9) });
+    expect(aliveRunOf(s, 's1')).toBeNull();
+    expect(currentRunOf(s, 's1')?.id).toBe('r1');
+    s = applyServerEvent(s, { type: 'tab.upsert', tab: tab('t2', 'r1', 'shell', 6) });
+    expect(currentRunOf(s, 's1')).toBeNull();
+  });
+  it('applyLaunch と最新の run', () => {
+    let s = applyLaunch(initialStore(), { run: run('r1', 's1', 3), sessionId: 's1', tabs: [] });
+    s = applyLaunch(s, { run: run('r2', 's1'), sessionId: 's1', tabs: [tab('r2', 'r2', 'agent')] });
+    expect(aliveRunOf(s, 's1')?.id).toBe('r2');
+    expect(applyServerEvent(s, { type: 'run.upsert', run: { ...run('r2', 's1'), pid: 7 } }).runs.r2?.pid).toBe(7);
+  });
+  it('bootstrap の runs と tabs を入れる', () => {
+    const s = applyBootstrap(initialStore(), { ...boot, runs: [run('r1', 's1')], tabs: [tab('r1', 'r1', 'agent')] });
+    expect(aliveRunOf(s, 's1')?.id).toBe('r1');
+    expect(tabsOf(s, 'r1')).toHaveLength(1);
   });
 });
