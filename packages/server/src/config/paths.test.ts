@@ -35,4 +35,10 @@ describe('paths', () => {
     saveSettings(tmp, { ...s, workspaceRoot: '/tmp/ws' });
     expect(loadSettings(tmp).workspaceRoot).toBe('/tmp/ws');
   });
+  it('古い settings.json に無い項目は既定値で埋める', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
+    const s = loadSettings(tmp);
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null });
+  });
 });

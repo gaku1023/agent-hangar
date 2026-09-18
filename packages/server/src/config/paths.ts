@@ -2,10 +2,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { newId } from '@agent-hangar/shared';
+import { newId, type TerminalApp } from '@agent-hangar/shared';
 
 export type DeviceInfo = { id: string; name: string; platform: string };
-export type Settings = { workspaceRoot: string; claudeDir: string };
+export type Settings = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null };
 
 export function hangarHome(): string {
   return process.env.HANGAR_HOME ?? path.join(os.homedir(), '.agent-hangar');
@@ -40,7 +40,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir() };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null };
 }
 
 export function loadSettings(home: string): Settings {
