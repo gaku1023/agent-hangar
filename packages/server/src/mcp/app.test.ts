@@ -56,7 +56,8 @@ describe('createMcpApp', () => {
     const list = await rpc('/', 'tools/list', {}, 2);
     const tools = list.body.result!.tools as { name: string; description: string }[];
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
-    for (const t of tools) expect(t.description, t.name).toContain('agent-hangar');
+    // 説明文は先頭が `agent-hangar:` である。含むだけの検査では、途中に紛れ込んでも通ってしまう。
+    for (const t of tools) expect(t.description, t.name).toMatch(/^agent-hangar:/);
   });
   it('tools/call は結果を text に包む', async () => {
     const r = await rpc('/', 'tools/call', { name: 'list_projects', arguments: {} }, 3);

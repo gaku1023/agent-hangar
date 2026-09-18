@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,6 +26,35 @@ describe('ensureWrapperScript', () => {
     ensureWrapperScript(home);
     expect(fs.statSync(p).mtimeMs).toBe(before);
     expect(runLogPath(home, 'r1')).toBe(path.join(home, 'logs', 'run-r1.log'));
+  });
+});
+
+describe('ラッパーの引用（bash を直接呼ぶ）', () => {
+  it('空白と引用符を含むログのパスとコマンドの引数を、そのまま渡す', () => {
+    // 引用が抜けると、ログは別々のファイルに散り、引数は単語に割れて claude に届く。
+    const wrapper = ensureWrapperScript(home);
+    const log = path.join(home, 'ログ の 置き場', 'run "x" it\'s.log');
+    const fake = writeFakeClaude(home, { sleepSec: 0, exitCode: 0 });
+    const args = ['a b', "it's", '"quoted"', '$HOME', '*', 'tab\there'];
+    const r = spawnSync('bash', [wrapper, log, fake.bin, ...args], { encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    // 記録された最後の要素は HANGAR_RUN_ID（ここでは未設定なので空）である。
+    expect(readArgs(fake.argsFile).slice(0, -1)).toEqual(args);
+    expect(fs.existsSync(log)).toBe(true);
+    const body = fs.readFileSync(log, 'utf8');
+    expect(body).toContain(`cmd=${fake.bin}`);
+    expect(body).toMatch(/exit=0/);
+    // ログの置き場が単語に割れていれば、別の名前のファイルが増える。
+    expect(fs.readdirSync(path.dirname(log))).toEqual([path.basename(log)]);
+  });
+
+  it('空白を含むログのパスでも、標準エラーを 1 つのファイルに複写する', async () => {
+    const wrapper = ensureWrapperScript(home);
+    const log = path.join(home, 'ログ dir', 'run 1.log');
+    const r = spawnSync('bash', [wrapper, log, 'sh', '-c', 'echo "駄目でした" >&2; exit 0'], { encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    // tee はプロセス置換の中で動くので、bash が終わった時点ではまだ書き終えていないことがある。
+    await waitFor(() => fs.readFileSync(log, 'utf8').includes('駄目でした'));
   });
 });
 

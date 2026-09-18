@@ -61,6 +61,23 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
   });
+  it('tmux new-session が失敗したら run 行は exited で閉じ、400 を投げる', () => {
+    // 事前検査は通るが、tmux のバイナリが無い。行を作った後に失敗する唯一の経路である。
+    const rm = make({ tmux: new Tmux({ tmuxPath: path.join(home, 'gone-tmux') }) });
+    const ended: string[] = [];
+    rm.on({ runEnded: (r) => ended.push(r.endReason ?? '') });
+    expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('tmux の起動に失敗しました') }));
+    // 行は消さずに閉じる。起動を試みた事実は残す。
+    const rows = db.prepare('select id, ended_at, end_reason from runs').all() as { id: string; ended_at: number | null; end_reason: string | null }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.end_reason).toBe('exited');
+    expect(rows[0]!.ended_at).not.toBeNull();
+    expect(ended).toEqual(['exited']);
+    expect(rm.listAlive()).toEqual({ runs: [], tabs: [] });
+    // 本文の生まれなかったセッション行は、後始末で消える。
+    expect((db.prepare('select deleted_at from sessions').get() as { deleted_at: number | null }).deleted_at).not.toBeNull();
+  });
+
   it('tmux の失敗を返すときはトークンを伏せ、1 行に切り詰める', () => {
     // argv には --mcp-config の中にトークンが入るので、stderr をそのまま応答に載せない。
     const noisy = path.join(home, 'noisy-tmux.sh');
