@@ -242,7 +242,7 @@ describe('SessionRows（空のとき）', () => {
 });
 
 describe('SessionRows（抜粋つき）', () => {
-  const row = (id: string, snippets: { seq: number; text: string }[]): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '完了', model: 'fable 5.1', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, snippets });
+  const row = (id: string, snippets: { seq: number; text: string }[]): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '完了', model: 'fable 5.1', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, cost: '', runId: null, snippets });
   it('抜粋の数が違う行も全部描き、高さは行ごとに決める', () => {
     render(<IntentRoot onIntent={() => {}}><SessionRows rows={[row('a', [{ seq: 1, text: 'snip a1' }]), row('b', [{ seq: 1, text: 'snip b1' }, { seq: 2, text: 'snip b2' }, { seq: 3, text: 'snip b3' }])]} height={400} showProject showSnippets /></IntentRoot>);
     expect(screen.getByText('na')).toBeInTheDocument();
