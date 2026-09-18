@@ -33,10 +33,31 @@ const UUID_RE = /^[0-9a-fA-F-]{36}$/;
 
 const HASH_BUF = 1 << 20;
 
+/** 競合ファイルの名前に入れる端末名の長さの上限。 */
+const MAX_DEVICE_LABEL = 32;
+
 /** バックアップと競合ファイルの名前に使う時刻。 */
 export function timestampLabel(ts: number): string {
   const d = new Date(ts);
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+/**
+ * 端末の名前を、競合ファイルの名前に埋め込める形に畳む。
+ *
+ * 参加の入口は名前に空白と `.` を通すので（ホスト名が「さとうの Mac」のような形を取りうる）、
+ * ここで英数字とハイフンとアンダースコアだけに落とす。
+ * それ以外（空白、`.`、記号、制御文字、非 ASCII）は続く分をまとめて 1 文字のハイフンにする。
+ *
+ * 日本語だけの名前は畳むと何も残らないので、そのときは名前の SHA-256 の頭 8 桁を付けた
+ * `device-<8 桁>` に倒す。既定の名前を 1 つに決めてしまうと、日本語名の端末が 2 台あったときに
+ * 競合ファイルの名前が同じになって見分けが付かなくなる。指紋にしておけば端末ごとに別の名前になる。
+ */
+export function safeDeviceLabel(name: string): string {
+  const trimmed = name.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+  const label = trimmed.slice(0, MAX_DEVICE_LABEL).replace(/-+$/g, '');
+  if (label !== '') return label;
+  return `device-${crypto.createHash('sha256').update(name, 'utf8').digest('hex').slice(0, 8)}`;
 }
 
 /**

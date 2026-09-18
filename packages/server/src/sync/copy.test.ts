@@ -4,7 +4,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { copyTranscriptForResume, timestampLabel } from './copy.ts';
+import { copyTranscriptForResume, safeDeviceLabel, timestampLabel } from './copy.ts';
 import { sha256Hex } from './crypto.ts';
 import { remoteTranscriptPath } from './puller.ts';
 
@@ -144,5 +144,54 @@ describe('copyTranscriptForResume', () => {
 
   it('timestampLabel は秒までの並べ替えできる文字列', () => {
     expect(timestampLabel(new Date(2026, 8, 18, 9, 5, 7).getTime())).toBe('20260918-090507');
+  });
+});
+
+describe('safeDeviceLabel', () => {
+  it('英数字とハイフンとアンダースコアだけを残す', () => {
+    expect(safeDeviceLabel('mini')).toBe('mini');
+    expect(safeDeviceLabel('dev_b-1')).toBe('dev_b-1');
+    expect(safeDeviceLabel('MacBook Pro')).toBe('MacBook-Pro');
+    expect(safeDeviceLabel('my  mac\tbook')).toBe('my-mac-book');
+    expect(safeDeviceLabel('sato.local')).toBe('sato-local');
+  });
+
+  it('日本語のホスト名は ASCII の部分を残し、残らなければ指紋付きの既定の名前にする', () => {
+    expect(safeDeviceLabel('さとうの Mac')).toBe('Mac');
+    const only = safeDeviceLabel('さとうのマック');
+    expect(only).toMatch(/^device-[0-9a-f]{8}$/);
+    // 同じ名前なら同じ、違う名前なら違う。日本語名の端末が 2 台あっても見分けが付く。
+    expect(safeDeviceLabel('さとうのマック')).toBe(only);
+    expect(safeDeviceLabel('たなかのマック')).not.toBe(only);
+  });
+
+  it('空文字と記号だけの名前でも必ず使える名前を返す', () => {
+    for (const n of ['', '   ', '...', '!!!', '\u0000\u0001']) {
+      expect(safeDeviceLabel(n)).toMatch(/^device-[0-9a-f]{8}$/);
+    }
+  });
+
+  it('パスとして危ない名前も畳む', () => {
+    expect(safeDeviceLabel('../evil')).toBe('evil');
+    expect(safeDeviceLabel('a/b\\c')).toBe('a-b-c');
+    expect(safeDeviceLabel('.')).toMatch(/^device-[0-9a-f]{8}$/);
+    expect(safeDeviceLabel('..')).toMatch(/^device-[0-9a-f]{8}$/);
+  });
+
+  it('長すぎる名前は 32 字までに切り、末尾にハイフンを残さない', () => {
+    const long = safeDeviceLabel('a'.repeat(100));
+    expect(long).toBe('a'.repeat(32));
+    // 切った先がちょうど区切りに当たっても、末尾にハイフンを残さない。
+    expect(safeDeviceLabel(`${'b'.repeat(31)} tail`)).toBe('b'.repeat(31));
+    expect(safeDeviceLabel(`${'c'.repeat(30)} tail`)).toBe(`${'c'.repeat(30)}-t`);
+    expect(safeDeviceLabel('x'.repeat(200)).length).toBeLessThanOrEqual(32);
+  });
+
+  it('返す名前はそのままファイル名に使える', () => {
+    for (const n of ['さとうの Mac', 'MacBook Pro', '../evil', '', 'a'.repeat(100)]) {
+      const label = safeDeviceLabel(n);
+      expect(label).toMatch(/^[A-Za-z0-9_-]{1,32}$/);
+      expect(path.basename(label)).toBe(label);
+    }
   });
 });
