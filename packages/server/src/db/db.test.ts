@@ -173,3 +173,55 @@ describe('マイグレーション 8 と書き込みの通知', () => {
     expect(seen).toEqual(['projects:p1', 'projects:p1']);
   });
 });
+
+describe('onSharedWrite の頑丈さ', () => {
+  it('購読が投げても、呼び手にも他の購読にも波及しない', () => {
+    const db = openDb(':memory:');
+    const seen: string[] = [];
+    const offBad = onSharedWrite(() => { throw new Error('購読の中で失敗'); });
+    const offGood = onSharedWrite((t, id, d) => { if (d === db) seen.push(`${t}:${id}`); });
+    expect(() => upsertShared(db, 'projects', { id: 'p1', name: 'a', status: 'active' }, 'd')).not.toThrow();
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 1 });
+    // 先に登録した購読が投げても、後ろの購読は呼ばれる。
+    expect(seen).toEqual(['projects:p1']);
+    expect(() => softDeleteShared(db, 'projects', 'p1', 'd')).not.toThrow();
+    expect(seen).toEqual(['projects:p1', 'projects:p1']);
+    offBad();
+    offGood();
+  });
+  it('外側のトランザクションの中では確定してから通知する', async () => {
+    const db = openDb(':memory:');
+    const seen: { id: string; inTransaction: boolean; updatedAt: number }[] = [];
+    const off = onSharedWrite((_t, id, d) => {
+      if (d !== db) return;
+      const r = d.prepare('select updated_at from projects where id = ?').get(id) as { updated_at: number };
+      seen.push({ id, inTransaction: d.inTransaction, updatedAt: r.updated_at });
+    });
+    // MemoStore.adoptFile と同じ形。upsertShared を外側のトランザクションで包み、確定前に updated_at を直す。
+    db.transaction(() => {
+      upsertShared(db, 'projects', { id: 'p1', name: 'a', status: 'active' }, 'd');
+      db.prepare('update projects set updated_at = ? where id = ?').run(4242, 'p1');
+      expect(seen).toEqual([]);
+    })();
+    await Promise.resolve();
+    off();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.inTransaction).toBe(false);
+    // 確定前の updated_at（今の時刻）ではなく、確定後の値が読める。
+    expect(seen[0]!.updatedAt).toBe(4242);
+  });
+  it('外側が巻き戻ったら通知しない', async () => {
+    const db = openDb(':memory:');
+    const seen: string[] = [];
+    const off = onSharedWrite((_t, id, d) => { if (d === db) seen.push(id); });
+    expect(() => db.transaction(() => {
+      upsertShared(db, 'projects', { id: 'p1', name: 'a', status: 'active' }, 'd');
+      throw new Error('外側で失敗');
+    })()).toThrow('外側で失敗');
+    await Promise.resolve();
+    off();
+    expect(seen).toEqual([]);
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count(*) c from changes').get()).toEqual({ c: 0 });
+  });
+});
