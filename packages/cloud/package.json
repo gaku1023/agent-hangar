@@ -1,0 +1,21 @@
+{
+  "name": "@agent-hangar/cloud",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@agent-hangar/shared": "*",
+    "hono": "^4.13.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260918.1",
+    "esbuild": "^0.28.2",
+    "miniflare": "^4.20260730.0",
+    "wrangler": "^4.133.0"
+  }
+}

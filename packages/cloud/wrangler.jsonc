@@ -1,0 +1,13 @@
+{
+  // ローカル開発とテスト専用の設定である。
+  // 実物のデプロイでは hangar setup cloud が ~/.agent-hangar/cloud/wrangler.jsonc に別の設定を書く。
+  // 実物のアカウント ID とデータベース ID と Worker の URL をここに書かない。
+  // JOIN_SECRET_HASH は wrangler secret で入れるので、このファイルには書かない。
+  "name": "hangar-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [{ "binding": "DB", "database_name": "hangar-local", "database_id": "00000000-0000-0000-0000-000000000000" }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "hangar-local-files" }],
+  "vars": {}
+}
