@@ -32,15 +32,19 @@ function writeCommand(file: string, line: string): string {
   return file;
 }
 
+const hash8 = (s: string) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 8);
+
+/** ファイル名に使える形だけ通し、そうでなければハッシュにする。cmd/ の外に書かせない。 */
+const fileSafe = (name: string) => (/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name) ? name : hash8(name));
+
 /** tmux attach を書いた .command。AppleEvent を使わないので macOS の自動化の許可が要らない。 */
 export function writeAttachCommand(home: string, tmuxPath: string, tmuxName: string): string {
-  return writeCommand(path.join(cmdDir(home), `attach-${tmuxName}.command`), `${sq(tmuxPath)} attach -t ${sq(tmuxName)}`);
+  return writeCommand(path.join(cmdDir(home), `attach-${fileSafe(tmuxName)}.command`), `${sq(tmuxPath)} attach -t ${sq(tmuxName)}`);
 }
 
 /** ディレクトリに cd する .command。ファイル名はパスのハッシュにして、どんな文字でも安全に置ける。 */
 export function writeCdCommand(home: string, dir: string): string {
-  const hash = crypto.createHash('sha1').update(dir).digest('hex').slice(0, 8);
-  return writeCommand(path.join(cmdDir(home), `open-${hash}.command`), `cd ${sq(dir)} && exec "\${SHELL:-/bin/zsh}" -l`);
+  return writeCommand(path.join(cmdDir(home), `open-${hash8(dir)}.command`), `cd ${sq(dir)} && exec "\${SHELL:-/bin/zsh}" -l`);
 }
 
 /** -g はウィンドウを前面に出さない指定で、利用者の作業を奪わないために要る。 */
@@ -72,7 +76,7 @@ async function openCommand(o: { app: TerminalApp; command: string; file: () => s
 export function openInTerminalApp(o: { home: string; tmuxPath: string; tmuxName: string; app: TerminalApp; exec?: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
   return openCommand({
     app: o.app,
-    command: `${o.tmuxPath} attach -t ${o.tmuxName}`,
+    command: `${sq(o.tmuxPath)} attach -t ${sq(o.tmuxName)}`,
     file: () => writeAttachCommand(o.home, o.tmuxPath, o.tmuxName),
     exec: o.exec ?? execFile,
   });

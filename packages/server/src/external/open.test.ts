@@ -1,8 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openDirInTerminalApp, openInEditor, openInTerminalApp, writeAttachCommand, writeCdCommand, type Exec } from './open.ts';
+import { execFile, openDirInTerminalApp, openInEditor, openInTerminalApp, writeAttachCommand, writeCdCommand, type Exec } from './open.ts';
 
 let home: string;
 let calls: { cmd: string; args: string[] }[];
@@ -45,7 +46,19 @@ describe('openInTerminalApp', () => {
     const script = calls[0]!.args[1]!;
     expect(script).toContain('with timeout of 10 seconds');
     expect(script).toContain('tell application "iTerm"');
-    expect(script).toContain('create window with default profile command "/t/tmux attach -t hangar-x"');
+    expect(script).toContain(`create window with default profile command "'/t/tmux' attach -t 'hangar-x'"`);
+  });
+  it('iterm に渡すコマンドも tmux のパスと名前を引用符で包む', async () => {
+    // 設定から来る tmuxPath にスペースや ; や $() が混じっても、シェルの意味を持たせない。
+    const tmuxPath = "/o p t/tmux; echo pwned $(id) `id`";
+    const tmuxName = "hangar-x'; echo pwned #";
+    await openInTerminalApp({ home, tmuxPath, tmuxName, app: 'iterm', exec: exec() });
+    const script = calls[0]!.args[1]!;
+    const command = JSON.parse(script.split('create window with default profile command ')[1]!.split('\n')[0]!) as string;
+    expect(command).toBe("'/o p t/tmux; echo pwned $(id) `id`' attach -t 'hangar-x'\\''; echo pwned #'");
+    // 実際のシェルに語へ分けさせ、置換も追加のコマンドも起きないことを確かめる。
+    const words = execFileSync('/bin/bash', ['-c', `set -- ${command}; printf '%s\\n' "$@"`], { encoding: 'utf8' });
+    expect(words.split('\n').slice(0, -1)).toEqual([tmuxPath, 'attach', '-t', tmuxName]);
   });
   it('iterm が失敗したら Terminal.app に落とす', async () => {
     const r = await openInTerminalApp({ home, tmuxPath: '/t/tmux', tmuxName: 'hangar-x', app: 'iterm', exec: exec({ osascript: 1 }) });
@@ -59,6 +72,26 @@ describe('openInTerminalApp', () => {
     const r = await openDirInTerminalApp({ home, dir: '/w/alpha', app: 'terminal', exec: exec() });
     expect(r.app).toBe('terminal');
     expect(fs.readFileSync(calls[0]!.args[3]!, 'utf8')).toContain("cd '/w/alpha'");
+  });
+});
+
+describe('writeAttachCommand のファイル名', () => {
+  it('ファイル名に使えない名前はハッシュにして cmd/ の外に出さない', () => {
+    const f = writeAttachCommand(home, '/t/tmux', '../../evil');
+    expect(path.dirname(f)).toBe(path.join(home, 'cmd'));
+    expect(path.basename(f)).toMatch(/^attach-[0-9a-f]{8}\.command$/);
+    expect(fs.readFileSync(f, 'utf8')).toBe("#!/usr/bin/env bash\n'/t/tmux' attach -t '../../evil'\nexit\n");
+  });
+});
+
+describe('execFile', () => {
+  it('終了コードを返し、投げない', async () => {
+    expect(await execFile(process.execPath, ['-e', 'process.stdout.write("o"); process.stderr.write("e")'])).toEqual({ code: 0, stdout: 'o', stderr: 'e' });
+    expect((await execFile(process.execPath, ['-e', 'process.exit(3)'])).code).toBe(3);
+  });
+  it('起動できないときとタイムアウトは code 1 にする', async () => {
+    expect((await execFile(path.join(home, 'no-such-command'), [])).code).toBe(1);
+    expect((await execFile(process.execPath, ['-e', 'setTimeout(() => {}, 30_000)'], { timeoutMs: 500 })).code).toBe(1);
   });
 });
 
