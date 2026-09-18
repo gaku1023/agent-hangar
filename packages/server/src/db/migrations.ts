@@ -162,4 +162,27 @@ create index artifact_versions_session on artifact_versions(session_id);
 create index todos_project on todos(project_id, position);
 `,
   },
+  {
+    // usage_daily の鍵に「どのファイル由来か」を足す。
+    // 主線を作り直すときに、そのファイルのぶんだけを消せるようにするため。
+    // 既存の行はセッション単位の和なので、そのセッションの主線のファイルに寄せて移す。
+    // 主線のファイルが transcript_files に無い行は移し先が無いので空文字のままにする。
+    // この行は索引の作り直しでは消えず、そのセッションが積み直されるときに主線のファイルの行と並ぶ。
+    version: 4,
+    sql: `
+alter table usage_daily rename to usage_daily_v3;
+create table usage_daily (
+  session_id text not null, day text not null, file_path text not null,
+  input_tokens integer not null default 0, output_tokens integer not null default 0,
+  primary key (session_id, file_path, day)
+);
+insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens)
+  select u.session_id, u.day,
+    ifnull((select t.path from transcript_files t where t.session_id = u.session_id and t.agent_id is null order by t.path limit 1), ''),
+    u.input_tokens, u.output_tokens
+  from usage_daily_v3 u;
+drop table usage_daily_v3;
+create index artifact_versions_artifact on artifact_versions(artifact_id);
+`,
+  },
 ];

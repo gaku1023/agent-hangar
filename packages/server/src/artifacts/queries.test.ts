@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { recordArtifactPublish } from './extract.ts';
-import { addManualArtifact, getArtifact, listArtifacts } from './queries.ts';
+import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from './queries.ts';
 
 function seed() {
   const db = openDb(':memory:');
@@ -52,8 +52,22 @@ describe('artifacts/queries', () => {
     const m = addManualArtifact(db, 'd', 'p1', 'https://claude.ai/code/artifact/manual-1', 500);
     expect(m).toMatchObject({ projectId: 'p1', title: null, versionCount: 0, sessionIds: [], firstPublishedAt: 500, lastPublishedAt: 500 });
     expect(addManualArtifact(db, 'd', 'p2', 'https://claude.ai/code/artifact/a').id).toBe(a);
+    // 入力の誤りは ArtifactInputError で返す。呼び手はこれだけを 400 にする。
+    expect(() => addManualArtifact(db, 'd', 'p1', 'https://example.com/x')).toThrow(ArtifactInputError);
     expect(() => addManualArtifact(db, 'd', 'p1', 'https://example.com/x')).toThrow(/claude\.ai/);
-    expect(() => addManualArtifact(db, 'd', 'p1', 'not a url')).toThrow();
+    expect(() => addManualArtifact(db, 'd', 'p1', 'not a url')).toThrow(ArtifactInputError);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('一覧は版をまとめて 1 回の問い合わせで取る', () => {
+    const { db, tmp } = seed();
+    const orig = db.prepare.bind(db);
+    let n = 0;
+    db.prepare = ((sql: string) => { if (/from artifact_versions/.test(sql)) n++; return orig(sql); }) as typeof db.prepare;
+    const all = listArtifacts(db);
+    db.prepare = orig;
+    expect(all).toHaveLength(2);
+    expect(n).toBe(1);
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -65,6 +79,8 @@ describe('artifacts/queries', () => {
     expect(getArtifact(db, a)).toBeNull();
     const again = addManualArtifact(db, 'd', 'p2', url, 900);
     expect(again.id).toBe(a);
+    // 足し直したときのプロジェクトを反映する。
+    expect(again.projectId).toBe('p2');
     expect(listArtifacts(db).map((x) => x.id)).toContain(a);
     fs.rmSync(tmp, { recursive: true, force: true });
   });

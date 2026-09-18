@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { newId, type ArtifactDto, type BootstrapDto, type IndexProgressDto, type LaunchParams, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ServerEvent, type SettingsDto, type SummarizerTestDto, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
-import { addManualArtifact, getArtifact, listArtifacts } from '../artifacts/queries.ts';
+import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import type { Settings } from '../config/paths.ts';
 import { statuslineStatus } from '../config/statusline.ts';
 import type { Db } from '../db/open.ts';
@@ -466,7 +466,13 @@ export function createApp(deps: AppDeps): Hono {
     const body = (b.value ?? {}) as { url?: unknown };
     if (typeof body.url !== 'string') return c.json({ error: 'url は必須です' }, 400);
     let a: ArtifactDto;
-    try { a = addManualArtifact(db, deviceId, id, body.url); } catch (e) { return c.json({ error: e instanceof Error ? e.message : String(e) }, 400); }
+    // 入力の誤りだけを 400 にする。DB の失敗などは呼び手の直しようが無いので 500 で返す。
+    try {
+      a = addManualArtifact(db, deviceId, id, body.url);
+    } catch (e) {
+      if (e instanceof ArtifactInputError) return c.json({ error: e.message }, 400);
+      return c.json({ error: 'アーティファクトを追加できませんでした' }, 500);
+    }
     deps.hub.broadcast({ type: 'artifact.upsert', artifact: a });
     return c.json(a, 201);
   });

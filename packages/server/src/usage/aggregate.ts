@@ -13,7 +13,13 @@ export function localDay(ts: number): string {
 export function aggregateUsage(db: Db, opts: { days: number; now?: number }): UsageAggregateDto {
   const now = opts.now ?? Date.now();
   const since = localDay(now - (opts.days - 1) * 86_400_000);
-  const days = (db.prepare('select day, sum(input_tokens) i, sum(output_tokens) o, count(distinct session_id) n from usage_daily where day >= ? group by day order by day desc').all(since) as { day: string; i: number; o: number; n: number }[])
+  // 論理削除したセッションはプロジェクト別でも数えないので、日別でも同じように外す。
+  const days = (db.prepare(`
+    select u.day day, sum(u.input_tokens) i, sum(u.output_tokens) o, count(distinct u.session_id) n
+    from usage_daily u
+    join sessions s on s.id = u.session_id
+    where u.day >= ? and s.deleted_at is null
+    group by u.day order by u.day desc`).all(since) as { day: string; i: number; o: number; n: number }[])
     .map((r) => ({ day: r.day, inputTokens: r.i, outputTokens: r.o, sessions: r.n }));
   const projects = (db.prepare(`
     select s.project_id pid, p.name name, sum(st.input_tokens) i, sum(st.output_tokens) o, count(*) n,

@@ -364,6 +364,14 @@ describe('routes', () => {
     expect(external.openUrl).toHaveBeenCalledWith('https://claude.ai/code/artifact/manual');
     expect((await post(`/api/artifacts/${art.id}/open-editor`)).status).toBe(404);
     expect((await post('/api/artifacts/nope/open')).status).toBe(404);
+    // 入力の誤りは 400 のまま、DB の失敗は 500 にする。
+    const bad = await post(`/api/projects/${pid}/artifacts`, { url: 'https://example.com' });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/claude\.ai/);
+    db.exec('drop table artifacts');
+    const broken = await post(`/api/projects/${pid}/artifacts`, { url: 'https://claude.ai/code/artifact/manual-2' });
+    expect(broken.status).toBe(500);
+    expect((await broken.json()).error).toMatch(/追加できませんでした/);
   });
   it('セッションのメモ、昇格、要約', async () => {
     const id = await alphaId();

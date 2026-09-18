@@ -79,12 +79,16 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     // 一度公開されたものが後から公開されなかったことにはならないので、残っていて正しい。
     // artifact_calls は結果が来るまでの端末ローカルの控えなので、主線の作り直しでは消してから積み直す。
     if (reset && file.agentId === null) db.prepare('delete from artifact_calls where session_id = ?').run(sessionId);
-    // 主線の作り直しでは日別の集計も消す。サブエージェントのぶんは主線の次の走査で積み直される。
-    if (reset && file.agentId === null) db.prepare('delete from usage_daily where session_id = ?').run(sessionId);
+    // 日別の集計は和を持つので、作り直しでは消してから積み直さないと二重に数える。
+    // 鍵にファイルのパスを持たせてあるので、消すのはこのファイル由来のぶんだけでよい。
+    // 主線を作り直しても、サブエージェントのファイル由来の日別はそのまま残る。
+    if (reset) db.prepare('delete from usage_daily where session_id = ? and file_path = ?').run(sessionId, file.path);
     const artifactIds = new Set<string>();
     const insCall = db.prepare('insert into artifact_calls (tool_id, session_id, file_path, description, favicon) values (?,?,?,?,?) on conflict(tool_id) do update set file_path = excluded.file_path, description = excluded.description, favicon = excluded.favicon');
     const getCall = db.prepare('select file_path, description, favicon from artifact_calls where tool_id = ? and session_id = ?');
-    const projectOf = () => (db.prepare('select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null }).project_id;
+    // 同じ索引化の中でセッションのプロジェクトは変わらないので、一度引いたら覚えておく。
+    let project: { id: string | null } | null = null;
+    const projectOf = () => (project ??= { id: (db.prepare('select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null }).project_id }).id;
     // seq は主線とサブエージェントで別々に振り、続きは既存の最大値の次から始める。
     let seq = reset ? 0 : ((db.prepare("select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ?").get(sessionId, agentKey) as { m: number | null }).m ?? -1) + 1;
     const acc: Acc = { userTurns: 0, input: 0, output: 0, daily: new Map() };
@@ -132,8 +136,8 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     db.prepare(`insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version, last_error) values (?,?,?,?,?,?,?,null)
       on conflict(path) do update set session_id = excluded.session_id, agent_id = excluded.agent_id, size = excluded.size, mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes, indexer_version = excluded.indexer_version, last_error = null`)
       .run(file.path, sessionId, file.agentId, stat.size, mtime, read.nextByte, version);
-    const upDaily = db.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?) on conflict(session_id, day) do update set input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens');
-    for (const [day, v] of acc.daily) upDaily.run(sessionId, day, v.input, v.output);
+    const upDaily = db.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?) on conflict(session_id, file_path, day) do update set input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens');
+    for (const [day, v] of acc.daily) upDaily.run(sessionId, day, file.path, v.input, v.output);
     if (file.agentId === null) applySessionFacts(db, sessionId, acc, reset, opts.deviceId);
     else refreshFilesChanged(db, sessionId);
     artifactIdsOut = [...artifactIds];

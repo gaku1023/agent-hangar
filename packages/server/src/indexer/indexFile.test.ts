@@ -167,7 +167,7 @@ describe('indexFile', () => {
 
   it('usage_daily に日別のトークンを積み、作り直しで二重にしない', () => {
     const r = indexFile(db, alphaMain(), { deviceId: DEV });
-    const rows = () => db.prepare('select day, input_tokens i, output_tokens o from usage_daily where session_id = ? order by day').all(r.sessionId) as { day: string; i: number; o: number }[];
+    const rows = () => db.prepare('select day, sum(input_tokens) i, sum(output_tokens) o from usage_daily where session_id = ? group by day order by day').all(r.sessionId) as { day: string; i: number; o: number }[];
     // フィクスチャの記録はすべて 2026-09-01 の UTC 10 時台なので、ローカル時刻でも 1 日に収まる。
     const day = localDay(Date.parse('2026-09-01T10:00:05.000Z'));
     expect(rows()).toEqual([{ day, i: 1110, o: 140 }]);
@@ -178,6 +178,35 @@ describe('indexFile', () => {
     indexFile(db, alphaSub(), { deviceId: DEV });
     expect(rows()).toHaveLength(1);
     expect(rows()[0]!.o).toBe(140 + 3);
+  });
+
+  it('主線を作り直してもサブエージェントぶんの日別は残る', () => {
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    const sum = () => (db.prepare('select ifnull(sum(input_tokens), 0) i, ifnull(sum(output_tokens), 0) o from usage_daily where session_id = ?').get(r.sessionId) as { i: number; o: number });
+    const mainOnly = sum();
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    const withSub = sum();
+    expect(withSub.o).toBeGreaterThan(mainOnly.o);
+    // 主線だけを作り直しても、サブエージェントのファイル由来の日別は失われない。
+    db.prepare('update transcript_files set indexer_version = 0 where agent_id is null').run();
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(sum()).toEqual(withSub);
+  });
+
+  it('1 回の索引化でセッションのプロジェクトを引くのは一度だけ', () => {
+    const r0 = indexFile(db, alphaMain(), { deviceId: DEV });
+    const url2 = 'https://claude.ai/code/artifact/0199a2b3-1111-7000-8000-000000000003';
+    appendJson(alphaMain().path,
+      artifactCall('toolu_p1', { file_path: missing(), description: '一つ目' }), artifactResult('toolu_p1', `Published at ${ART_URL}`),
+      artifactCall('toolu_p2', { file_path: missing(), description: '二つ目' }, '2026-09-01T12:10:00.000Z'), artifactResult('toolu_p2', `Published at ${url2}`, '2026-09-01T12:10:03.000Z'));
+    const orig = db.prepare.bind(db);
+    let n = 0;
+    db.prepare = ((sql: string) => { if (/select project_id from sessions/.test(sql)) n++; return orig(sql); }) as typeof db.prepare;
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    db.prepare = orig;
+    expect(r.sessionId).toBe(r0.sessionId);
+    expect(r.artifactIds).toHaveLength(2);
+    expect(n).toBe(1);
   });
 
   it('サブエージェントの公開は主線の作り直しで消えない', () => {
