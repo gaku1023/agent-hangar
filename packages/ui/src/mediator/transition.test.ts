@@ -287,6 +287,22 @@ describe('昇格', () => {
     const d = run([intent({ type: 'overlay.close' })], c.state);
     expect(d.state.overlay).toEqual({ kind: 'none' });
   });
+  it('完了ダイアログは画面を移ると閉じる', () => {
+    const done = run([
+      intent({ type: 'session.promote.open', id: 's1' }),
+      intent({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: false }),
+      runtime({ type: 'promote.done', projectId: 'p9', moved: true, reason: null }),
+    ]).state;
+    const a = run([intent({ type: 'nav.go', to: { name: 'home' } })], done);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'home' } }]);
+    // 戻るボタンやパレットのようにハッシュから画面が変わる経路でも閉じる。
+    const b = run([runtime({ type: 'hash.changed', route: { name: 'settings' } })], done);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    // 未解決プロジェクトのダイアログは決めるまで残す。
+    const un = run([server({ type: 'project.unresolved', projectId: 'p1' })]).state;
+    expect(run([intent({ type: 'nav.go', to: { name: 'home' } })], un).state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+  });
   it('名前を検査し、失敗はダイアログに残す', () => {
     const open = run([intent({ type: 'session.promote.open', id: 's1' })]).state;
     const bad = run([intent({ type: 'session.promote.submit', id: 's1', name: 'a/b', gitInit: false, moveFiles: false })], open);
@@ -413,10 +429,13 @@ describe('分割', () => {
     expect(a.state.sessionView.s1).toMatchObject({ selectedTab: 't1', split: false, splitTab: null });
     expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: a.state.sessionView.s1 }, { kind: 'api.closeTab', tabId: 't2' }]);
   });
-  it('左のタブが閉じても右は残す', () => {
+  it('左のタブが閉じたら分割を畳み、次のタブで復活させない', () => {
     const s = split('t1', 't2');
     const a = run([intent({ type: 'tab.close', tabId: 't1' })], s);
-    expect(a.state.sessionView.s1).toMatchObject({ selectedTab: null, split: true, splitTab: 't2' });
+    expect(a.state.sessionView.s1).toMatchObject({ selectedTab: null, split: false, splitTab: null });
+    // 畳んだ後にシェルタブが増えても、押していない ⌘\ の分割を勝手に復活させない。
+    const b = run([server({ type: 'tab.upsert', tab: tabDto('t3', 'r1') })], a.state);
+    expect(b.state.sessionView.s1).toMatchObject({ selectedTab: 't3', split: false, splitTab: null });
   });
   it('セッション画面にいないときの split.toggle は何もしない', () => {
     const r = run([intent({ type: 'split.toggle' })]);

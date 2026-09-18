@@ -13,14 +13,14 @@ function patch(state: State, id: string, p: Partial<SessionViewState>): Step {
 
 /**
  * 閉じたタブが左右どちらかの枠に居たら、その枠を空ける差分を返す。
- * 右が空いたら分割そのものを畳む。
- * 右の枠が空のままの画面を出さないためである。
+ * 左右のどちらが閉じても相手だけでは分割が成立しないので、そのときは分割ごと畳む。
+ * 片側だけ空けて split を真のまま残すと、次にタブが増えた瞬間に押していない分割が復活してしまう。
  * どちらの枠にも居なければ null を返す。
  */
 function closedTabPatch(cur: SessionViewState, tabId: string): Partial<SessionViewState> | null {
   const p: Partial<SessionViewState> = {};
   if (cur.selectedTab === tabId) p.selectedTab = null;
-  if (cur.splitTab === tabId) { p.split = false; p.splitTab = null; }
+  if (cur.splitTab === tabId || (cur.split && cur.selectedTab === tabId)) { p.split = false; p.splitTab = null; }
   return Object.keys(p).length ? p : null;
 }
 

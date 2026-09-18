@@ -1,5 +1,5 @@
 import type { SearchParamsDto } from '@agent-hangar/shared';
-import type { Effect, Input, State, Step } from './types.ts';
+import type { Effect, Input, Overlay, State, Step } from './types.ts';
 
 export function searchParams(state: State): SearchParamsDto {
   const f = state.search.filter;
@@ -12,12 +12,21 @@ export function searchParams(state: State): SearchParamsDto {
   return p;
 }
 
+/**
+ * 画面を移るときに消えてよいオーバーレイを閉じる。
+ * 昇格の完了ダイアログは読んで終わりなので、画面から離れたら残さない。
+ * 未解決プロジェクトのダイアログはキューを持ち、決めるまで閉じない種類なのでここでは触らない。
+ */
+function closeTransient(state: State): Overlay {
+  return state.overlay.kind === 'promoted' ? { kind: 'none' } : state.overlay;
+}
+
 /** screen 領域：どの画面にいるか。URL のハッシュが正で、Intent は navigate 効果を出すだけ。 */
 export function screenStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime' && input.event.type === 'hash.changed') {
     const route = input.event.route;
     const effects: Effect[] = [];
-    let next: State = { ...state, screen: route };
+    let next: State = { ...state, screen: route, overlay: closeTransient(state) };
     // 見ていないセッションの接続は残さない。
     // xterm とバッファは残るので、戻れば tmux attach が現在の画面を描き直す。
     const left = state.screen.name === 'session' ? state.screen.id : null;
@@ -35,11 +44,11 @@ export function screenStep(state: State, input: Input): Step | null {
   if (input.kind !== 'intent') return null;
   const i = input.intent;
   switch (i.type) {
-    case 'nav.go': return { state, effects: [{ kind: 'navigate', route: i.to }] };
-    case 'project.open': return { state, effects: [{ kind: 'navigate', route: { name: 'project', id: i.id } }] };
-    case 'session.open': return { state, effects: [{ kind: 'navigate', route: { name: 'session', id: i.id } }] };
+    case 'nav.go': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: i.to }] };
+    case 'project.open': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'project', id: i.id } }] };
+    case 'session.open': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'session', id: i.id } }] };
     case 'search.query': {
-      const next = { ...state, search: { ...state.search, text: i.text } };
+      const next = { ...state, overlay: closeTransient(state), search: { ...state.search, text: i.text } };
       return { state: next, effects: [{ kind: 'navigate', route: i.text ? { name: 'sessions', q: i.text } : { name: 'sessions' } }] };
     }
     case 'search.filter': {
