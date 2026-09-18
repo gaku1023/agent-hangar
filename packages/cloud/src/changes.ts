@@ -25,6 +25,34 @@ export const META_LAST_COMPACT_SEQ = 'last_compact_seq';
 /** これまでに振った連番の高水位。圧縮で行が消えても、連番をここより戻さない。 */
 export const META_SEQ_HIGH = 'seq_high';
 
+/**
+ * 1 行の payload（直列化した後のバイト数）の上限である。
+ *
+ * D1 は 1 つの TEXT の値を 2,000,000 バイトで打ち切るので、それを超える行は必ず 500 になる。
+ * 500 は端末から見ると一時的な失敗なので、同じ batch を永久に送り直して、その端末の push が止まる。
+ * 手前で 413 に落として、端末がその行を諦められるようにする。
+ *
+ * 128 KiB にした根拠は 3 つである。
+ * D1 の限界の 2,000,000 バイトから十分に遠いこと。
+ * 共有テーブルに載るいちばん長いものはメモの本文（決定 5 で D1 に平文で置く）で、
+ * 日本語なら 1 文字 3 バイトなので 4 万字あまり、原稿用紙 100 枚を超えること。
+ * 1 回の push は 40 行までなので、要求 1 本を 5 MiB に抑えられること。
+ *
+ * ここに置いてあるが、本来は `packages/shared/src/cloud.ts` の `MAX_PUSH_BATCH` の隣にある方がよい。
+ * 端末が積む前に弾ければ、断られる往復そのものが要らなくなる。
+ */
+export const MAX_ROW_BYTES = 128 * 1024;
+
+/**
+ * 413 の本文に載せる `rowId` の文字数の上限である。
+ *
+ * `packages/server/src/sync/client.ts` の `CloudError` は応答本文の先頭 200 字しか持たない。
+ * 超えると端末の手元で JSON として読めなくなるので、本文は何があっても 200 字に収める。
+ * 実物の `rowId` は UUID（36 字）までなので、切り詰めが効くのは壊れた入力のときだけである。
+ */
+export const MAX_ROW_ID_CHARS = 64;
+
+const ENC = new TextEncoder();
 const TABLES = new Set<string>(SHARED_TABLES);
 const keyOf = (c: { tableName: string; rowId: string }): string => `${c.tableName}:${c.rowId}`;
 
@@ -126,6 +154,27 @@ async function compact(db: D1Database, now: number, seq: number): Promise<void> 
   await db.batch(stmts);
 }
 
+/**
+ * 鏡（`rows`）の 1 行を書く文である。
+ *
+ * `where excluded.updated_at > rows.updated_at` が要である。
+ * いまの値を読むのは `batch` の外なので、同じ行への push が 2 本重なると両方が `accepted` になる。
+ * 守りが無いと、後に流れた方が無条件で鏡を上書きし、古い方が残りうる。
+ * `changes` には両方が載るので追いかけている端末は困らないが、`GET /rows` で取り直した端末は古い値をつかむ。
+ *
+ * 同着（`updated_at` が等しい）は書き換えない。
+ * 本体の `prev >= updatedAt` は先に着いた方を残すので、その決着と揃えてある。
+ *
+ * テストが文の順序を入れ替えて確かめられるように輸出している。
+ * 本番の文をそのまま使わせるためで、テストの中に SQL を写すと、実装を変えたときに追従しない。
+ */
+export const mirrorUpsert = (db: D1Database, k: string, c: ChangeIn, deviceId: string, payload: string): D1PreparedStatement =>
+  db
+    .prepare(
+      'insert into rows (k, table_name, row_id, op, payload, updated_at, device_id) values (?, ?, ?, ?, ?, ?, ?) on conflict(k) do update set op = excluded.op, payload = excluded.payload, updated_at = excluded.updated_at, device_id = excluded.device_id where excluded.updated_at > rows.updated_at',
+    )
+    .bind(k, c.tableName, c.rowId, c.op, payload, c.updatedAt, deviceId);
+
 export const changesApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 /** 端末から届いた変更を受ける。行ごとに `updated_at` の新しい方を採り、採った分だけ連番を振る。 */
@@ -135,16 +184,37 @@ changesApp.post('/', async (c) => {
   const device = c.get('device');
   const db = c.env.DB;
   const now = Date.now();
+  // payload はここで 1 回だけ直列化し、大きさの検査と書き込みで同じ文字列を使う。
+  const incoming = (body.changes as ChangeIn[]).map((row) => {
+    const payload = JSON.stringify(row.payload);
+    return { row, payload, bytes: ENC.encode(payload).byteLength };
+  });
+  // 大きすぎる行は名指しで断る。端末はその行だけを諦めて、残りを送り直せばよい。
+  const oversize = incoming.filter((x) => x.bytes > MAX_ROW_BYTES);
+  if (oversize.length) {
+    const first = oversize[0]!;
+    return c.json(
+      {
+        error: 'payload too large',
+        limit: MAX_ROW_BYTES,
+        count: oversize.length,
+        // 名指しは先頭の 1 件だけにする。全部並べると本文が 200 字を超え、端末の側で JSON として読めなくなる。
+        // 端末は名指しされた 1 件を落として送り直せばよく、次の 1 件があれば次の 413 で名指しされる。
+        row: { tableName: first.row.tableName, rowId: first.row.rowId.slice(0, MAX_ROW_ID_CHARS), bytes: first.bytes },
+      },
+      413,
+    );
+  }
   // 同じ鍵の重複は updatedAt の大きい方だけを見る。
-  const latest = new Map<string, ChangeIn>();
+  const latest = new Map<string, (typeof incoming)[number]>();
   let skipped = 0;
-  for (const ch of body.changes as ChangeIn[]) {
-    const k = keyOf(ch);
+  for (const item of incoming) {
+    const k = keyOf(item.row);
     const cur = latest.get(k);
-    if (!cur) latest.set(k, ch);
+    if (!cur) latest.set(k, item);
     else {
       skipped++;
-      if (ch.updatedAt > cur.updatedAt) latest.set(k, ch);
+      if (item.row.updatedAt > cur.row.updatedAt) latest.set(k, item);
     }
   }
   const keys = [...latest.keys()];
@@ -158,26 +228,19 @@ changesApp.post('/', async (c) => {
   }
   const stmts: D1PreparedStatement[] = [];
   let accepted = 0;
-  for (const [k, ch] of latest) {
+  for (const [k, { row, payload }] of latest) {
     const prev = current.get(k);
-    if (prev !== undefined && prev >= ch.updatedAt) {
+    if (prev !== undefined && prev >= row.updatedAt) {
       skipped++;
       continue;
     }
     accepted++;
-    const payload = JSON.stringify(ch.payload);
     stmts.push(
       db
         .prepare('insert into changes (table_name, row_id, op, payload, updated_at, device_id, received_at) values (?, ?, ?, ?, ?, ?, ?)')
-        .bind(ch.tableName, ch.rowId, ch.op, payload, ch.updatedAt, device.id, now),
+        .bind(row.tableName, row.rowId, row.op, payload, row.updatedAt, device.id, now),
     );
-    stmts.push(
-      db
-        .prepare(
-          'insert into rows (k, table_name, row_id, op, payload, updated_at, device_id) values (?, ?, ?, ?, ?, ?, ?) on conflict(k) do update set op = excluded.op, payload = excluded.payload, updated_at = excluded.updated_at, device_id = excluded.device_id',
-        )
-        .bind(k, ch.tableName, ch.rowId, ch.op, payload, ch.updatedAt, device.id),
-    );
+    stmts.push(mirrorUpsert(db, k, row, device.id, payload));
   }
   stmts.push(db.prepare('update devices set last_seen_at = ? where id = ?').bind(now, device.id));
   await db.batch(stmts);

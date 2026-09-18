@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ChangeIn, ChangeOut } from '@agent-hangar/shared';
+import { MAX_ROW_BYTES, MAX_ROW_ID_CHARS, mirrorUpsert } from '../src/changes.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
@@ -48,6 +49,16 @@ const ch = (rowId: string, updatedAt: number, name = rowId): ChangeIn => ({
   payload: { id: rowId, name, status: 'active', is_scratch: 0, updated_at: updatedAt, deleted_at: null, origin_device: 'x' },
   updatedAt,
 });
+
+/** 直列化した payload がちょうど `bytes` バイトになる 1 件を作る。詰め物は ASCII なので文字数とバイト数が一致する。 */
+const sized = (rowId: string, bytes: number): ChangeIn => {
+  const base = ch(rowId, 1);
+  const pad = bytes - JSON.stringify({ ...base.payload, note: '' }).length;
+  if (pad < 0) throw new Error('小さすぎる');
+  return { ...base, payload: { ...base.payload, note: 'x'.repeat(pad) } };
+};
+
+const bodyOf = async (r: Response): Promise<Record<string, unknown>> => (await r.json()) as Record<string, unknown>;
 
 const payloadOf = async (k: string): Promise<Record<string, unknown>> =>
   JSON.parse((await cloud.env.DB.prepare('select payload from rows where k = ?').bind(k).first<{ payload: string }>())!.payload) as Record<string, unknown>;
@@ -147,6 +158,89 @@ describe('GET /changes と GET /rows', () => {
     const r2 = await rows(tokA, r.nextAfter!, 2);
     expect(r2.changes.map((c) => c.rowId)).toEqual(['p3']);
     expect(r2.nextAfter).toBeNull();
+  });
+});
+
+describe('1 行の大きさ', () => {
+  it('上限を超える payload は 413 で断り、その行を名指しする', async () => {
+    const r = await push(tokA, [sized('p1', MAX_ROW_BYTES + 1)]);
+    expect(r.status).toBe(413);
+    expect(await bodyOf(r)).toEqual({
+      error: 'payload too large',
+      limit: MAX_ROW_BYTES,
+      count: 1,
+      row: { tableName: 'projects', rowId: 'p1', bytes: MAX_ROW_BYTES + 1 },
+    });
+    // 何も書かないので、同じ要求を投げ直しても結果は変わらない。
+    expect(await seqs()).toEqual([]);
+    expect((await cloud.env.DB.prepare('select count(*) c from rows').first<{ c: number }>())!.c).toBe(0);
+  });
+
+  it('413 の本文は、端末が切り詰めた後も JSON として読める 200 字に収まる', async () => {
+    // CloudError は応答本文の先頭 200 字しか持たない。超えると goneFloor と同じ形の読み取りが全部こける。
+    const long = { ...sized('x'.repeat(300), MAX_ROW_BYTES + 1), tableName: 'session_summaries' as const };
+    const r = await push(tokA, Array.from({ length: 40 }, (_, i) => ({ ...long, rowId: `${'u'.repeat(120)}-${i}` })));
+    expect(r.status).toBe(413);
+    const text = await r.text();
+    expect(text.length).toBeLessThanOrEqual(200);
+    expect(() => JSON.parse(text.slice(0, 200))).not.toThrow();
+    const body = JSON.parse(text) as { count: number; row: { rowId: string } };
+    expect(body.count).toBe(40);
+    expect(body.row.rowId.length).toBe(MAX_ROW_ID_CHARS);
+  });
+
+  it('上限ちょうどは通る', async () => {
+    expect(await pushed(tokA, [sized('p1', MAX_ROW_BYTES)])).toEqual({ seq: 1, accepted: 1, skipped: 0 });
+  });
+
+  it('大きさは文字数ではなくバイト数で見る', async () => {
+    const jp = ch('p1', 1);
+    const wide = { ...jp, payload: { ...jp.payload, note: 'あ'.repeat(MAX_ROW_BYTES / 2) } }; // 文字数は上限の半分、バイト数は 1.5 倍
+    const r = await push(tokA, [wide]);
+    expect(r.status).toBe(413);
+    expect(await bodyOf(r)).toMatchObject({ count: 1, row: { rowId: 'p1' } });
+  });
+
+  it('名指しされた行を落として送り直せば通るので、端末は永久再送に入らない', async () => {
+    const batch = [ch('p1', 1), sized('p2', MAX_ROW_BYTES + 100), ch('p3', 1), sized('p4', MAX_ROW_BYTES + 200)];
+    const r1 = await push(tokA, batch);
+    expect(r1.status).toBe(413);
+    expect(await bodyOf(r1)).toMatchObject({ count: 2, row: { rowId: 'p2' } });
+    expect(await seqs()).toEqual([]);
+    // 名指しの 1 件を落として送り直すと、次の 1 件が名指しされる。
+    const r2 = await push(tokA, [batch[0]!, batch[2]!, batch[3]!]);
+    expect(r2.status).toBe(413);
+    expect(await bodyOf(r2)).toMatchObject({ count: 1, row: { rowId: 'p4' } });
+    // 断られた 2 件を落とせば通る。40 行なら最大 40 往復で必ず抜ける。
+    expect(await pushed(tokA, [batch[0]!, batch[2]!])).toEqual({ seq: 2, accepted: 2, skipped: 0 });
+  });
+});
+
+describe('鏡（rows）の書き込み', () => {
+  it('古い書き込みが後から届いても、鏡には新しい方が残る', async () => {
+    await push(tokA, [ch('p1', 200, 'new')]);
+    // 同じ行への push が 2 本重なり、どちらも rows を空だと読んだ後で、古い方が後から書きに来た状況である。
+    // 本番と同じ文を、順序だけ入れ替えて流す。
+    const stale = ch('p1', 100, 'old');
+    await mirrorUpsert(cloud.env.DB, 'projects:p1', stale, 'dev-b', JSON.stringify(stale.payload)).run();
+    const row = await cloud.env.DB.prepare('select payload, updated_at, device_id from rows where k = ?')
+      .bind('projects:p1')
+      .first<{ payload: string; updated_at: number; device_id: string }>();
+    expect(JSON.parse(row!.payload).name).toBe('new');
+    expect(row!.updated_at).toBe(200);
+    expect(row!.device_id).toBe('dev-a');
+  });
+
+  it('新しい書き込みは今までどおり鏡を進める', async () => {
+    await push(tokA, [ch('p1', 100, 'old')]);
+    const fresh = ch('p1', 300, 'new');
+    await mirrorUpsert(cloud.env.DB, 'projects:p1', fresh, 'dev-b', JSON.stringify(fresh.payload)).run();
+    const row = await cloud.env.DB.prepare('select payload, updated_at, device_id from rows where k = ?')
+      .bind('projects:p1')
+      .first<{ payload: string; updated_at: number; device_id: string }>();
+    expect(JSON.parse(row!.payload).name).toBe('new');
+    expect(row!.updated_at).toBe(300);
+    expect(row!.device_id).toBe('dev-b');
   });
 });
 
