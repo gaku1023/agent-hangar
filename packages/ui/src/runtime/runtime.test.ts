@@ -126,13 +126,14 @@ describe('起動とターミナル', () => {
     expect(rt.getState()).toMatchObject({ launch: { kind: 'idle' }, overlay: { kind: 'none' }, screen: { name: 'session', id: 's1' } });
     expect(terminals.connected).toEqual(['r1']);
   });
-  it('起動の失敗はトーストと failed', async () => {
+  it('起動の失敗は failed だけで、トーストは重ねない', async () => {
     const { rt } = harness({ launch: vi.fn(async () => { throw new Error('tmux が見つかりません'); }) });
     rt.start();
+    rt.emit({ type: 'session.new.open', projectId: 'p1' });
     rt.emit({ type: 'session.new.submit', params: { projectId: 'p1' } });
     await flush();
     expect(rt.getState().launch).toEqual({ kind: 'failed', message: 'tmux が見つかりません' });
-    expect(rt.getState().toasts[0]).toMatchObject({ level: 'error', message: 'tmux が見つかりません' });
+    expect(rt.getState().toasts).toEqual([]);
   });
   it('セッション画面に入ると生きた run の Claude タブに繋ぎ、終了した run には繋がない', async () => {
     const { rt, terminals, setHash } = harness();

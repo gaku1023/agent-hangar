@@ -87,8 +87,24 @@ describe('SettingsScreen', () => {
     fireEvent.change(screen.getByLabelText('ターミナルアプリ'), { target: { value: 'iterm' } });
     fireEvent.change(screen.getByLabelText('code のパス'), { target: { value: '/usr/local/bin/code' } });
     fireEvent.click(screen.getByText('ツールの設定を保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: '/usr/local/bin/code' } });
+    // 変えた項目だけを送る。terminalApp を毎回入れると iTerm2 の案内が保存のたびに出る。
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { terminalApp: 'iterm', codePath: '/usr/local/bin/code' } });
     expect(screen.getByText('npx hangar mcp install')).toBeInTheDocument();
+  });
+  it('サーバが正規化した値に入力欄が追従する', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen workspaceRoot="/w" claudeDir="/c" tmuxPath="tmux" terminalApp="terminal" codePath={null} mcpInstallCommand="npx hangar mcp install" device={null} version="0.2.0" index={{ phase: 'idle', done: 0, total: 0 }} sessionCount={0} projectCount={0} /></IntentRoot>);
+    expect(screen.getByLabelText('tmux のパス')).toHaveValue('tmux');
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen workspaceRoot="/w2" claudeDir="/c" tmuxPath="/opt/homebrew/bin/tmux" terminalApp="iterm" codePath="/usr/local/bin/code" mcpInstallCommand="npx hangar mcp install" device={null} version="0.2.0" index={{ phase: 'idle', done: 0, total: 0 }} sessionCount={0} projectCount={0} /></IntentRoot>);
+    expect(screen.getByLabelText('tmux のパス')).toHaveValue('/opt/homebrew/bin/tmux');
+    expect(screen.getByLabelText('ワークスペースのルート')).toHaveValue('/w2');
+    expect(screen.getByLabelText('ターミナルアプリ')).toHaveValue('iterm');
+    expect(screen.getByLabelText('code のパス')).toHaveValue('/usr/local/bin/code');
+  });
+  it('何も変えずに保存しても terminalApp は送らない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen workspaceRoot="/w" claudeDir="/c" tmuxPath="/opt/homebrew/bin/tmux" terminalApp="iterm" codePath={null} mcpInstallCommand="npx hangar mcp install" device={null} version="0.2.0" index={{ phase: 'idle', done: 0, total: 0 }} sessionCount={0} projectCount={0} /></IntentRoot>);
+    fireEvent.click(screen.getByText('ツールの設定を保存'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: {} });
   });
 });
 

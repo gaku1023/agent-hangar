@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { TerminalApp } from '@agent-hangar/shared';
+import { useEffect, useState } from 'react';
+import type { SettingsDto, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { SettingsProps } from '../presenters/settings.ts';
 
@@ -10,6 +10,23 @@ export function SettingsScreen(props: SettingsProps) {
   const [tmuxPath, setTmuxPath] = useState(props.tmuxPath ?? '');
   const [terminalApp, setTerminalApp] = useState<TerminalApp>(props.terminalApp);
   const [codePath, setCodePath] = useState(props.codePath ?? '');
+  // サーバが正規化した値、たとえば tmux の絶対パスを入力欄に反映する。
+  useEffect(() => { setWs(props.workspaceRoot); }, [props.workspaceRoot]);
+  useEffect(() => { setTmuxPath(props.tmuxPath ?? ''); }, [props.tmuxPath]);
+  useEffect(() => { setTerminalApp(props.terminalApp); }, [props.terminalApp]);
+  useEffect(() => { setCodePath(props.codePath ?? ''); }, [props.codePath]);
+
+  // 変えた項目だけを送る。
+  // terminalApp を毎回入れると、iTerm2 の許可案内が保存のたびに出る。
+  const toolsPatch = (): Partial<SettingsDto> => {
+    const patch: Partial<SettingsDto> = {};
+    const tmux = tmuxPath.trim() || null;
+    const code = codePath.trim() || null;
+    if (tmux !== props.tmuxPath) patch.tmuxPath = tmux;
+    if (terminalApp !== props.terminalApp) patch.terminalApp = terminalApp;
+    if (code !== props.codePath) patch.codePath = code;
+    return patch;
+  };
   return (
     <div className="screen" style={{ maxWidth: 720 }}>
       <h1 className="h1">Settings</h1>
@@ -38,7 +55,7 @@ export function SettingsScreen(props: SettingsProps) {
           </label>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <button className="btn btn-primary" onClick={() => emit({ type: 'settings.update', patch: { tmuxPath: tmuxPath.trim() || null, terminalApp, codePath: codePath.trim() || null } })}>ツールの設定を保存</button>
+          <button className="btn btn-primary" onClick={() => emit({ type: 'settings.update', patch: toolsPatch() })}>ツールの設定を保存</button>
         </div>
         <div className="faint" style={{ marginTop: 4 }}>iTerm2 は AppleScript で開くため、初回に macOS の自動化の許可ダイアログが出ます。失敗したときは Terminal.app で開きます。</div>
       </section>

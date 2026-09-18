@@ -164,7 +164,11 @@ describe('起動', () => {
     const a = run([intent({ type: 'session.new.open' }), intent({ type: 'session.new.submit', params: { projectId: 'p1' } }), runtime({ type: 'launch.failed', message: 'tmux が見つかりません' })]);
     expect(a.state.launch).toEqual({ kind: 'failed', message: 'tmux が見つかりません' });
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: null });
-    expect(a.effects.at(-1)).toEqual({ kind: 'toast', level: 'error', message: 'tmux が見つかりません' });
+    // ダイアログの中に同じ文言が出るので、トーストは重ねない。
+    expect(a.effects.filter((e) => (e as { kind: string }).kind === 'toast')).toEqual([]);
+    // 再開とフォークはダイアログを持たないので、そのときだけトーストで知らせる。
+    const r = run([intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.failed', message: 'tmux が見つかりません' })]);
+    expect(r.effects.at(-1)).toEqual({ kind: 'toast', level: 'error', message: 'tmux が見つかりません' });
     const b = run([intent({ type: 'overlay.close' })], a.state);
     expect(b.state).toMatchObject({ overlay: { kind: 'none' }, launch: { kind: 'idle' } });
   });
@@ -256,5 +260,9 @@ describe('設定', () => {
   it('iTerm2 を選ぶと許可ダイアログの案内を出す', () => {
     const { effects } = run([intent({ type: 'settings.update', patch: { terminalApp: 'iterm' } })]);
     expect(effects).toEqual([{ kind: 'api.updateSettings', patch: { terminalApp: 'iterm' } }, { kind: 'toast', level: 'info', message: 'iTerm2 で開くとき、初回に macOS の自動化の許可ダイアログが出ます' }]);
+  });
+  it('terminalApp を含まない保存では案内を出さない', () => {
+    const { effects } = run([intent({ type: 'settings.update', patch: { tmuxPath: '/opt/homebrew/bin/tmux' } })]);
+    expect(effects).toEqual([{ kind: 'api.updateSettings', patch: { tmuxPath: '/opt/homebrew/bin/tmux' } }]);
   });
 });

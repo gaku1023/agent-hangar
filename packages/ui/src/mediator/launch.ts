@@ -8,7 +8,13 @@ export function launchStep(state: State, input: Input): Step | null {
       const overlay = state.overlay.kind === 'newSession' ? { kind: 'none' as const } : state.overlay;
       return { state: { ...state, launch: { kind: 'idle' }, overlay }, effects: [{ kind: 'navigate', route: { name: 'session', id: ev.sessionId } }] };
     }
-    if (ev.type === 'launch.failed') return { state: { ...state, launch: { kind: 'failed', message: ev.message } }, effects: [{ kind: 'toast', level: 'error', message: ev.message }] };
+    if (ev.type === 'launch.failed') {
+      // 起動ダイアログが開いていれば、その中に同じ文言が出るのでトーストは重ねない。
+      // 再開とフォークはダイアログを持たないので、そのときだけトーストで知らせる。
+      const shown = state.overlay.kind === 'newSession';
+      const next = { ...state, launch: { kind: 'failed' as const, message: ev.message } };
+      return { state: next, effects: shown ? [] : [{ kind: 'toast', level: 'error', message: ev.message }] };
+    }
     return null;
   }
   if (input.kind !== 'intent') return null;
