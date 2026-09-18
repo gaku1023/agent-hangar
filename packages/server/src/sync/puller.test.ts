@@ -4,7 +4,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { FileEntry, FileMetaIn } from '@agent-hangar/shared';
+import { transcriptKey, type FileEntry, type FileMetaIn } from '@agent-hangar/shared';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
@@ -137,5 +137,92 @@ describe('RemotePuller', () => {
     // 台帳にあっても手元に実体が無ければ飛ばす。
     fs.rmSync(best.path);
     expect(p.latestRemoteMain(UUID)!.deviceId).toBe('dev-b');
+  });
+
+  it('上げる側の鍵の形と、降ろす側の鍵と相対パスの検査が一致する', async () => {
+    // uploader は path に path.relative(claudeDir, ファイル) を、key に shared の transcriptKey を使う。
+    // どちらか片方の形が変わったら、ここが落ちて気付けるようにしておく。
+    const claudeDir = path.join(path.sep, 'c');
+    const cases: { agentId: string | null; file: string }[] = [
+      { agentId: null, file: path.join(claudeDir, 'projects', '-w-alpha', `${UUID}.jsonl`) },
+      { agentId: 'abc123', file: path.join(claudeDir, 'projects', '-w-alpha', UUID, 'subagents', 'agent-abc123.jsonl') },
+    ];
+    for (const c of cases) {
+      const rel = path.relative(claudeDir, c.file).split(path.sep).join('/');
+      await putRemote('dev-b', rel, `body-${c.agentId}\n`, transcriptKey('dev-b', UUID, c.agentId));
+    }
+    const p = make();
+    expect(await p.pullNow()).toEqual({ downloaded: 2, configEntries: 0 });
+    expect(errors).toEqual([]);
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`), 'utf8')).toBe('body-null\n');
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}/subagents/agent-abc123.jsonl`), 'utf8')).toBe('body-abc123\n');
+  });
+
+  it('同じ項目で続けて失敗したら 3 回で諦めて先に進む', async () => {
+    const enc = await encryptBuffer(key, gzipSync(Buffer.from('body\n')));
+    const badKey = `transcripts/dev-b/${UUID}.jsonl.gz`;
+    await cloud.asDevice('dev-b').putFile({ key: badKey, path: `projects/-w-alpha/${UUID}.jsonl`, kind: 'transcript', sha256: 'f'.repeat(64), size: 5, mtime: 1, encrypted: true }, Readable.from([enc]));
+    const other = '33333333-3333-4333-8333-333333333333';
+    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'good\n', `transcripts/dev-b/${other}.jsonl.gz`);
+    const p = make();
+    // 同じ回の後ろの項目は降ろす。止まるのは filesSeq を進めることだけである。
+    expect(await p.pullNow()).toEqual({ downloaded: 1, configEntries: 0 });
+    expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${other}.jsonl`))).toBe(true);
+    expect(state.getNumber('filesSeq', -1)).toBe(0);
+    // 2 回目も手前で止まるので、降ろし終えた本文まで毎回読み直しに掛かる。
+    expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 0 });
+    expect(state.getNumber('filesSeq', -1)).toBe(0);
+    // 3 回目で諦め、ようやく filesSeq が進む。
+    expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 0 });
+    expect(state.getNumber('filesSeq', -1)).toBe(2);
+    // 鳴らすのは 1 回目と諦めたときだけで、間は黙る。
+    expect(errors.map((e) => e.key)).toEqual([badKey, badKey]);
+    expect(errors[0]!.message).toContain('SHA-256');
+    expect(errors[1]!.message).toContain('飛ばします');
+    expect(p.skippedEntries()).toEqual([{ key: badKey, attempts: 3, message: expect.stringContaining('SHA-256') }]);
+    // 諦めた後はもう試さないし、鳴らさない。
+    expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 0 });
+    expect(errors).toHaveLength(2);
+  });
+
+  it('上げ直された本文は諦めた後でももう一度試す', async () => {
+    const enc = await encryptBuffer(key, gzipSync(Buffer.from('body\n')));
+    const k = `transcripts/dev-b/${UUID}.jsonl.gz`;
+    const rel = `projects/-w-alpha/${UUID}.jsonl`;
+    for (let i = 0; i < 3; i++) {
+      await cloud.asDevice('dev-b').putFile({ key: k, path: rel, kind: 'transcript', sha256: 'f'.repeat(64), size: 5, mtime: 1, encrypted: true }, Readable.from([enc]));
+    }
+    const p = make();
+    // 同じ指紋のまま置き直されても、数えるのは指紋ごとなので 3 回で諦める。
+    for (let i = 0; i < 3; i++) await p.pullNow();
+    expect(p.skippedEntries()).toHaveLength(1);
+    // 中身が変わった（指紋が変わった）ら、数え直して取り直す。
+    await putRemote('dev-b', rel, 'fixed\n', k);
+    expect(await p.pullNow()).toEqual({ downloaded: 1, configEntries: 0 });
+    expect(p.skippedEntries()).toEqual([]);
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', rel), 'utf8')).toBe('fixed\n');
+  });
+
+  it('設定の取り込みも 3 回で諦めて先に進む', async () => {
+    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/CLAUDE.md', 'config');
+    const p = make({ onConfigEntries: async () => { throw new Error('書けません'); } });
+    await p.pullNow();
+    expect(state.getNumber('filesSeq', -1)).toBe(0);
+    await p.pullNow();
+    expect(state.getNumber('filesSeq', -1)).toBe(0);
+    await p.pullNow();
+    expect(state.getNumber('filesSeq', -1)).toBe(1);
+    expect(errors).toHaveLength(2);
+    expect(errors[1]!.message).toContain('飛ばします');
+  });
+
+  it('置き場は 0700、降ろした本文は 0600 で置く', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    const p = make();
+    await p.pullNow();
+    const target = remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`);
+    expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+    const dirs = [path.join(home, 'remote'), path.join(home, 'remote', 'dev-b'), path.join(home, 'remote', 'dev-b', 'projects'), path.dirname(target)];
+    for (const d of dirs) expect([d, fs.statSync(d).mode & 0o777]).toEqual([d, 0o700]);
   });
 });

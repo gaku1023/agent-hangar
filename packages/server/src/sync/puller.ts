@@ -23,6 +23,23 @@ export type PullerDeps = {
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /**
+ * 同じ項目で続けて失敗してよい回数。これを超えたら飛ばして先に進む。
+ * 1 件の直らない失敗（復号できない本文、書けない置き場）で filesSeq を止め続けると、
+ * その後ろの本文が一生降りてこない。全部が止まるより、一部が降りてこない方がましである。
+ */
+const MAX_ATTEMPTS = 3;
+
+/** 置き場は本人だけが読める。中身は他端末の会話の本文である。 */
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
+
+/** 設定の取り込みの失敗を数えるときの鍵。本文の鍵（transcripts/... か config/...）と衝突しない名前にする。 */
+const CONFIG_BATCH = '(config)';
+
+/** 続けて失敗した回数。指紋が変わったら中身が変わったということなので、数え直して取り直す。 */
+type Failure = { fingerprint: string; count: number; message: string };
+
+/**
  * 他端末の本文の置き場。
  * 相対パスは projects/ の下に限り、端末 ID も名前として安全な文字だけを許す。
  * ここを通さずに R2 の申告した文字列で組み立てると、~/.claude のような外の場所へ書けてしまう。
@@ -52,7 +69,33 @@ function checkKeyMatchesPath(e: FileEntry): void {
  * 書き込む先は ~/.agent-hangar/remote の下だけで、~/.claude には一切触らない。
  */
 export class RemotePuller {
+  private readonly failures = new Map<string, Failure>();
+
   constructor(private readonly deps: PullerDeps) {}
+
+  /** 降ろすのを諦めた項目。利用者に見せるために残す（同じ失敗を毎回の pull で鳴らさないため）。 */
+  skippedEntries(): { key: string; attempts: number; message: string }[] {
+    return [...this.failures.entries()]
+      .filter(([, f]) => f.count >= MAX_ATTEMPTS)
+      .map(([key, f]) => ({ key, attempts: f.count, message: f.message }));
+  }
+
+  /**
+   * 1 件の失敗を数える。
+   * まだ諦めていなければ true を返す（呼び手は filesSeq をこの項目の手前で止める）。
+   * 鳴らすのは 1 回目と諦めたときだけである。間で毎回鳴らすと、2 秒ごとの pull が同じ失敗で埋まる。
+   */
+  private noteFailure(key: string, fingerprint: string, message: string): boolean {
+    const prev = this.failures.get(key);
+    const count = prev && prev.fingerprint === fingerprint ? prev.count + 1 : 1;
+    this.failures.set(key, { fingerprint, count, message });
+    if (count < MAX_ATTEMPTS) {
+      if (count === 1) this.deps.onError?.(key, message);
+      return true;
+    }
+    if (count === MAX_ATTEMPTS) this.deps.onError?.(key, `${MAX_ATTEMPTS} 回続けて失敗したので、この項目は飛ばします: ${message}`);
+    return false;
+  }
 
   async pullNow(): Promise<{ downloaded: number; configEntries: number }> {
     let since = this.deps.state.getNumber('filesSeq', 0);
@@ -67,9 +110,9 @@ export class RemotePuller {
         if (e.kind === 'config') { configs.push(e); continue; }
         try {
           if (await this.download(e)) downloaded++;
+          this.failures.delete(e.key);
         } catch (err) {
-          minFailed = minFailed === null ? e.seq : Math.min(minFailed, e.seq);
-          this.deps.onError?.(e.key, errorMessage(err));
+          if (this.noteFailure(e.key, e.sha256, errorMessage(err))) minFailed = minFailed === null ? e.seq : Math.min(minFailed, e.seq);
         }
       }
       advanceTo = page.nextSeq;
@@ -80,11 +123,15 @@ export class RemotePuller {
     if (configs.length > 0 && this.deps.onConfigEntries) {
       try {
         await this.deps.onConfigEntries(configs);
+        this.failures.delete(CONFIG_BATCH);
       } catch (err) {
         // 設定の取り込みが落ちた回も、その項目より手前で止めて次の pull で渡し直す。
-        const first = configs.reduce((a, c) => Math.min(a, c.seq), Infinity);
-        minFailed = minFailed === null ? first : Math.min(minFailed, first);
-        this.deps.onError?.(configs[0]!.key, errorMessage(err));
+        // ここも諦める道が要る。取り込めない設定 1 件で本文まで止まる方が困る。
+        const seqs = configs.map((c) => c.seq);
+        if (this.noteFailure(CONFIG_BATCH, seqs.join(','), errorMessage(err))) {
+          const first = Math.min(...seqs);
+          minFailed = minFailed === null ? first : Math.min(minFailed, first);
+        }
       }
     }
     // 失敗した項目より手前で止めて、次の pull で取り直す。
@@ -98,17 +145,20 @@ export class RemotePuller {
     const target = remoteTranscriptPath(this.deps.home, e.deviceId, e.path);
     const prev = this.deps.db.prepare('select sha256 from file_sync where key = ?').get(e.key) as { sha256: string } | undefined;
     if (prev?.sha256 === e.sha256 && fs.existsSync(target)) return false;
-    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: DIR_MODE });
     // 直接の宛先には書かない。
     // 切り詰められた入力では error が出る前に 1 チャンク分の平文が流れるので、
     // 途中まで書けたファイルが本物として残ると索引器がそれを読んでしまう。
     // 一時ファイルに書き切り、SHA-256 が合ったものだけを rename で本物にする。
     const tmp = `${target}.part`;
     try {
+      // 前の回の残骸があると mode が引き継がれないので、必ず作り直す。
+      fs.rmSync(tmp, { force: true });
       const body = await this.deps.client.getFile(e.key);
+      const sink = () => fs.createWriteStream(tmp, { mode: FILE_MODE });
       // pipeline でつなぐ。裸の pipe だと復号の error が未処理になってプロセスごと落ちる。
-      if (e.encrypted) await pipeline(body, decryptStream(this.deps.key), createGunzip(), fs.createWriteStream(tmp));
-      else await pipeline(body, createGunzip(), fs.createWriteStream(tmp));
+      if (e.encrypted) await pipeline(body, decryptStream(this.deps.key), createGunzip(), sink());
+      else await pipeline(body, createGunzip(), sink());
       const sha = await sha256Stream(fs.createReadStream(tmp));
       if (sha !== e.sha256) throw new Error(`本文の SHA-256 が一致しません: ${e.key}`);
       fs.renameSync(tmp, target);

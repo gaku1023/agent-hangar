@@ -202,4 +202,14 @@ describe('他端末の本文の索引化', () => {
     expect(count('select count(*) c from transcript_files')).toBe(3);
     svc.stop();
   });
+
+  it('start は remote の置き場を 0700 で作る', async () => {
+    const root = path.join(remote, 'not-yet');
+    const svc = new IndexerService({ db, deviceId: 'dev-a', claudeDir, remoteRoot: root, isRunning: () => false, pollMs: 10_000 });
+    cleanups.push(() => svc.stop());
+    await svc.start();
+    // 他端末の会話の本文を置くので、~/.agent-hangar/mcp と同じく本人だけが読める。
+    expect(fs.statSync(root).mode & 0o777).toBe(0o700);
+    svc.stop();
+  });
 });

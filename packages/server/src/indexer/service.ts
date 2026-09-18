@@ -221,7 +221,8 @@ export class IndexerService {
     }
     // 他端末の本文は puller が書き足すので、置き場も同じように見張る。
     if (this.opts.remoteRoot) {
-      fs.mkdirSync(this.opts.remoteRoot, { recursive: true });
+      // 他端末の会話の本文なので、本人だけが読める権限で作る（puller 側も同じ 0700 で作る）。
+      fs.mkdirSync(this.opts.remoteRoot, { recursive: true, mode: 0o700 });
       try {
         const w = fs.watch(this.opts.remoteRoot, { recursive: true }, schedule);
         w.on('error', (e) => this.emitError(this.opts.remoteRoot!, `fs.watch error: ${errorMessage(e)}`));
