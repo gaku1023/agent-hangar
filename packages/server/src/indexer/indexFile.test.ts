@@ -17,6 +17,14 @@ const files = () => listTranscriptFiles(dir);
 const alphaMain = () => files().find((f) => f.sessionId === SESSION_ALPHA && f.agentId === null)!;
 const alphaSub = () => files().find((f) => f.sessionId === SESSION_ALPHA && f.agentId === 'abc123')!;
 const count = (sql: string, ...args: unknown[]) => (db.prepare(sql).get(...args) as { c: number }).c;
+/** 題名の解決が本物のファイルを読むので、確実に存在しないパスを渡す。 */
+const missing = () => path.join(dir, 'no-such-artifact.html');
+const ART_URL = 'https://claude.ai/code/artifact/0199a2b3-1111-7000-8000-000000000001';
+const artifactCall = (toolId: string, input: Record<string, unknown>, ts = '2026-09-01T12:00:00.000Z') =>
+  ({ type: 'assistant', message: { role: 'assistant', model: 'claude-fable-5-1', content: [{ type: 'tool_use', id: toolId, name: 'Artifact', input }], usage: { input_tokens: 0, output_tokens: 1 } }, uuid: `a-${toolId}`, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+const artifactResult = (toolId: string, text: string, ts = '2026-09-01T12:00:03.000Z') =>
+  ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: text }] }, uuid: `u-${toolId}`, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+const appendJson = (p: string, ...recs: unknown[]) => { for (const r of recs) fs.appendFileSync(p, JSON.stringify(r) + '\n'); };
 
 describe('indexFile', () => {
   it('本体ファイルを索引化し、sessions と session_stats を埋める', () => {
@@ -138,12 +146,12 @@ describe('indexFile', () => {
   it('Artifact の呼び出しと結果からアーティファクトを作り、追記で結果だけ届いても結びつける', () => {
     const r0 = indexFile(db, alphaMain(), { deviceId: DEV });
     const url = 'https://claude.ai/code/artifact/0199a2b3-1111-7000-8000-000000000001';
-    const call = { type: 'assistant', message: { role: 'assistant', model: 'claude-fable-5-1', content: [{ type: 'tool_use', id: 'toolu_art', name: 'Artifact', input: { file_path: '/tmp/none.html', description: '週報', favicon: '📊' } }], usage: { input_tokens: 0, output_tokens: 1 } }, uuid: 'a9', timestamp: '2026-09-01T12:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA };
+    const call = artifactCall('toolu_art', { file_path: missing(), description: '週報', favicon: '📊' });
     fs.appendFileSync(alphaMain().path, JSON.stringify(call) + '\n');
     const r1 = indexFile(db, alphaMain(), { deviceId: DEV });
     expect(r1.artifactIds).toEqual([]);
-    expect(db.prepare('select * from artifact_calls where tool_id = ?').get('toolu_art')).toMatchObject({ session_id: r0.sessionId, file_path: '/tmp/none.html', description: '週報', favicon: '📊' });
-    const result = { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_art', content: `Published /tmp/none.html at ${url}` }] }, uuid: 'u9', timestamp: '2026-09-01T12:00:03.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA };
+    expect(db.prepare('select * from artifact_calls where tool_id = ?').get('toolu_art')).toMatchObject({ session_id: r0.sessionId, file_path: missing(), description: '週報', favicon: '📊' });
+    const result = artifactResult('toolu_art', `Published ${missing()} at ${url}`, '2026-09-01T12:00:03.000Z');
     fs.appendFileSync(alphaMain().path, JSON.stringify(result) + '\n');
     const r2 = indexFile(db, alphaMain(), { deviceId: DEV });
     expect(r2.artifactIds).toHaveLength(1);
@@ -170,5 +178,41 @@ describe('indexFile', () => {
     indexFile(db, alphaSub(), { deviceId: DEV });
     expect(rows()).toHaveLength(1);
     expect(rows()[0]!.o).toBe(140 + 3);
+  });
+
+  it('サブエージェントの公開は主線の作り直しで消えない', () => {
+    const r0 = indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    const subUrl = 'https://claude.ai/code/artifact/0199a2b3-1111-7000-8000-000000000002';
+    appendJson(alphaMain().path, artifactCall('toolu_main', { file_path: missing(), description: '主線' }), artifactResult('toolu_main', `Published at ${ART_URL}`));
+    appendJson(alphaSub().path, artifactCall('toolu_sub', { file_path: missing(), description: 'サブ' }, '2026-09-01T12:04:00.000Z'), artifactResult('toolu_sub', `Published at ${subUrl}`, '2026-09-01T12:05:00.000Z'));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    expect(count('select count(*) c from artifact_versions where session_id = ?', r0.sessionId)).toBe(2);
+    // 主線だけを作り直しても、サブエージェント由来の版は残る。
+    db.prepare('update transcript_files set indexer_version = 0 where agent_id is null').run();
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(r.artifactIds).toHaveLength(1);
+    expect(count('select count(*) c from artifact_versions where session_id = ?', r0.sessionId)).toBe(2);
+    // 版が 1 件も無いアーティファクトを残さない。
+    expect(count('select count(*) c from artifacts a where not exists (select 1 from artifact_versions v where v.artifact_id = a.id and v.deleted_at is null)')).toBe(0);
+  });
+
+  it('publish 以外の Artifact の呼び出しは公開として記録しない', () => {
+    const r0 = indexFile(db, alphaMain(), { deviceId: DEV });
+    appendJson(alphaMain().path,
+      artifactCall('toolu_read', { action: 'read', url: ART_URL }), artifactResult('toolu_read', `Read the page at ${ART_URL}`),
+      artifactCall('toolu_list', { action: 'list' }), artifactResult('toolu_list', `1. Weekly ${ART_URL}`),
+      artifactCall('toolu_del', { action: 'delete', url: ART_URL }), artifactResult('toolu_del', `Deleted ${ART_URL}`));
+    const r1 = indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(r1.artifactIds).toEqual([]);
+    expect(count('select count(*) c from artifacts')).toBe(0);
+    expect(count('select count(*) c from artifact_versions')).toBe(0);
+    expect(count('select count(*) c from artifact_calls where session_id = ?', r0.sessionId)).toBe(0);
+    // action を明に書いた publish は記録する。
+    appendJson(alphaMain().path, artifactCall('toolu_pub', { action: 'publish', file_path: missing(), description: '週報' }), artifactResult('toolu_pub', `Published at ${ART_URL}`));
+    const r2 = indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(r2.artifactIds).toHaveLength(1);
+    expect(count('select count(*) c from artifact_versions')).toBe(1);
   });
 });

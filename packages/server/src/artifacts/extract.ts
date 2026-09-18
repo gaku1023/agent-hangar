@@ -18,6 +18,17 @@ export function parsePublishedUrl(text: string): string | null {
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 
+/**
+ * 公開の呼び出しかどうか。
+ * action を書かなければ publish なので、無いときと 'publish' のときだけ真。
+ * read と list と delete などの結果にも URL は現れるので、ここで弾かないと公開でないものを版として積んでしまう。
+ */
+export function isArtifactPublish(input: unknown): boolean {
+  if (typeof input !== 'object' || input === null) return true;
+  const action = (input as Record<string, unknown>).action;
+  return action === undefined || action === null || action === 'publish';
+}
+
 export function artifactCallOf(input: unknown): ArtifactCall {
   if (typeof input !== 'object' || input === null) return { filePath: null, description: null, favicon: null };
   const i = input as Record<string, unknown>;
@@ -52,7 +63,7 @@ export function resolveArtifactTitle(filePath: string | null, description: strin
       const t = decode(m[1]!).replace(/\s+/g, ' ').trim();
       if (t) return t;
     }
-    return null;
+    // ファイルは読めたが題名が無いので、説明へ落とす。
   }
   return description ? [...description].slice(0, 60).join('') : null;
 }

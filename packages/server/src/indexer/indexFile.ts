@@ -3,7 +3,7 @@ import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { readNewLines } from '../provider/claude-code/lines.ts';
-import { artifactCallOf, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
+import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
 import { indexTexts, normalizeRecord, recordFacts } from '../provider/claude-code/normalize.ts';
 import { localDay } from '../usage/aggregate.ts';
 import type { DiscoveredFile } from '../provider/types.ts';
@@ -74,12 +74,11 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
       db.prepare("delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(sessionId, agentKey);
       db.prepare("delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(sessionId, agentKey);
     }
-    // 主線の作り直しでは、このセッションの版と呼び出しの控えを消してから積み直す。
-    // サブエージェントのファイルだけの作り直しで主線の版を消さないよう、主線に限る。
-    if (reset && file.agentId === null) {
-      db.prepare('delete from artifact_versions where session_id = ? and deleted_at is null').run(sessionId);
-      db.prepare('delete from artifact_calls where session_id = ?').run(sessionId);
-    }
+    // 作り直しでも artifact_versions は消さない。
+    // 同じ版を二重に積まない仕組みが recordArtifactPublish にあるので、積み直すだけで冪等になる。
+    // 一度公開されたものが後から公開されなかったことにはならないので、残っていて正しい。
+    // artifact_calls は結果が来るまでの端末ローカルの控えなので、主線の作り直しでは消してから積み直す。
+    if (reset && file.agentId === null) db.prepare('delete from artifact_calls where session_id = ?').run(sessionId);
     // 主線の作り直しでは日別の集計も消す。サブエージェントのぶんは主線の次の走査で積み直される。
     if (reset && file.agentId === null) db.prepare('delete from usage_daily where session_id = ?').run(sessionId);
     const artifactIds = new Set<string>();
@@ -95,7 +94,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
         insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, p.offset, p.length, file.path, file.agentId, toolName, filePath);
-        if (ev.kind === 'tool_call' && ev.name === 'Artifact') {
+        if (ev.kind === 'tool_call' && ev.name === 'Artifact' && isArtifactPublish(ev.input)) {
           const c = artifactCallOf(ev.input);
           insCall.run(ev.toolId, sessionId, c.filePath, c.description, c.favicon);
         } else if (ev.kind === 'tool_result') {
