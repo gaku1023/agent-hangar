@@ -49,6 +49,29 @@ describe('SplitPane', () => {
     expect(screen.getByText('左')).toBeInTheDocument();
     expect(screen.getByText('右')).toBeInTheDocument();
   });
+  it('仕切りは今の割合を読み上げに出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SplitPane left={<div>左</div>} right={<div>右</div>} /></IntentRoot>);
+    const sep = screen.getByRole('separator');
+    expect(sep).toHaveAttribute('aria-orientation', 'vertical');
+    expect(sep).toHaveAttribute('aria-valuemin', '20');
+    expect(sep).toHaveAttribute('aria-valuemax', '80');
+    expect(sep).toHaveAttribute('aria-valuenow', '50');
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(sep, { key: 'ArrowRight' });
+    expect(sep).toHaveAttribute('aria-valuenow', '60');
+    expect(sep).toHaveAttribute('aria-valuetext', '左 60%');
+  });
+  it('ドラッグの間だけ transition を切る', () => {
+    render(<IntentRoot onIntent={() => {}}><SplitPane left={<div>左</div>} right={<div>右</div>} /></IntentRoot>);
+    const host = screen.getByTestId('split');
+    host.getBoundingClientRect = rect(1000);
+    expect(host).not.toHaveAttribute('data-dragging');
+    fireEvent.pointerDown(screen.getByRole('separator'), { clientX: 500 });
+    expect(host).toHaveAttribute('data-dragging', 'true');
+    fireEvent.pointerMove(window, { clientX: 300 });
+    expect(host).toHaveAttribute('data-dragging', 'true');
+    fireEvent.pointerUp(window);
+    expect(host).not.toHaveAttribute('data-dragging');
+  });
   it('境界を通らない Intent はそのまま上へ渡す', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SplitPane left={<Emitter />} right={<div>右</div>} /></IntentRoot>);
