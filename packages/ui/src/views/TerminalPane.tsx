@@ -18,7 +18,8 @@ export function TerminalPane(props: { tabId: string; status: TerminalStatus | nu
   return (
     <div className="term-pane">
       {props.hint && <div className="term-hint" role="status">{props.hint}</div>}
-      <div ref={ref} className="term-host" data-tab={props.tabId} onClick={() => host?.focus(props.tabId)} />
+      {/* key を付けて、タブが変わったら枠ごと作り直す。前のタブの xterm の要素を残さないためである。 */}
+      <div key={props.tabId} ref={ref} className="term-host" data-tab={props.tabId} onClick={() => host?.focus(props.tabId)} />
       {props.status === 'closed' && <div className="term-status">接続していません</div>}
       {props.status === 'connecting' && <div className="term-status">接続しています</div>}
       {props.status === 'error' && <div className="term-status term-status-error">ターミナルに接続できませんでした</div>}

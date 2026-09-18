@@ -16,7 +16,7 @@ function fakeTerm(): FakeTerm {
   const data: ((d: string) => void)[] = []; const resize: ((s: { cols: number; rows: number }) => void)[] = [];
   const t: FakeTerm = {
     cols: 80, rows: 24, element: null, written: [], opened: null, fitted: 0, focused: 0, disposed: false,
-    open(el) { t.opened = el; t.element = { parentElement: el } as unknown as HTMLElement; },
+    open(el) { t.opened = el; t.element = { parentElement: el, remove() { (t.element as unknown as { parentElement: HTMLElement | null }).parentElement = null; } } as unknown as HTMLElement; },
     write(d) { t.written.push(d); },
     onData(cb) { data.push(cb); return { dispose() {} }; },
     onResize(cb) { resize.push(cb); return { dispose() {} }; },
@@ -67,6 +67,42 @@ describe('createTerminalHost', () => {
     expect(terms[0]!.written.at(-1)).toContain('pty spawn failed');
     expect(host.status('t1')).toBe('error');
     expect(host.status('nope')).toBeNull();
+  });
+  it('同じ枠に別のタブを mount したら、前のタブの要素を外す', () => {
+    // 1 つの枠に xterm の要素が積み上がると、見えている端末と入力先がずれる。
+    const { host, terms } = make();
+    const el = { appendChild: vi.fn() } as unknown as HTMLElement;
+    host.mount('t1', el);
+    host.mount('t2', el);
+    expect(terms[0]!.element?.parentElement).toBeNull();
+    expect(terms[1]!.opened).toBe(el);
+    host.mount('t1', el);
+    expect(terms[1]!.element?.parentElement).toBeNull();
+    expect((el as unknown as { appendChild: ReturnType<typeof vi.fn> }).appendChild).toHaveBeenCalledWith(terms[0]!.element);
+  });
+  it('open の前に来た focus は mount のあとに当てる', () => {
+    const { host, terms } = make();
+    host.connect('t1');
+    host.focus('t1');
+    expect(terms[0]!.focused).toBe(0);
+    host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+    expect(terms[0]!.focused).toBe(1);
+    // 当て終わった保留は消えるので、別の枠に移しただけでは当たらない。
+    host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+    expect(terms[0]!.focused).toBe(1);
+  });
+  it('壊れた本文では落ちず、dispose は購読も捨てる', () => {
+    const { host, terms } = make();
+    const changes = vi.fn();
+    host.subscribe(changes);
+    host.connect('t1');
+    expect(() => FakeWs.all[0]!.onmessage!({ data: 'null' })).not.toThrow();
+    expect(() => FakeWs.all[0]!.onmessage!({ data: '"x"' })).not.toThrow();
+    expect(terms[0]!.written).toEqual([]);
+    host.dispose();
+    changes.mockClear();
+    host.connect('t1');
+    expect(changes).not.toHaveBeenCalled();
   });
   it('mount は初回に open し、2 回目は要素を移す', () => {
     const { host, terms } = make();

@@ -6,11 +6,13 @@ type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus;
 
 /**
  * タブごとの xterm と WebSocket を React の外で持つ。
- * 画面を離れても接続とバッファとスクロール位置を保ち、run の終了とタブを閉じたときだけ切る。
+ * xterm とバッファとスクロール位置は残したまま、run の終了とタブを閉じたときとセッション画面を離れたときに接続を切る。
  */
 export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; createTerminal: () => TerminalLike; wsFactory?: (url: string) => WebSocket }): TerminalHost {
   const entries = new Map<string, Entry>();
   const listeners = new Set<() => void>();
+  /** open の前に来た focus。open していない xterm には入力欄がないので、mount のあとに当て直す。 */
+  let pendingFocus: string | null = null;
   const notify = () => { for (const l of listeners) l(); };
   const setStatus = (e: Entry, s: TerminalStatus) => { if (e.status !== s) { e.status = s; notify(); } };
   const ensure = (tabId: string): Entry => {
@@ -29,8 +31,10 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       setStatus(e, 'connecting');
       ws.onopen = () => { setStatus(e, 'connected'); send(e, { t: 'resize', cols: e.term.cols, rows: e.term.rows }); };
       ws.onmessage = (m) => {
-        let msg: { t?: string; d?: unknown; message?: unknown };
-        try { msg = JSON.parse(String(m.data)) as typeof msg; } catch { return; }
+        let parsed: unknown;
+        try { parsed = JSON.parse(String(m.data)); } catch { return; }
+        if (typeof parsed !== 'object' || parsed === null) return;
+        const msg = parsed as { t?: unknown; d?: unknown; message?: unknown };
         if (msg.t === 'data' && typeof msg.d === 'string') e.term.write(msg.d);
         else if (msg.t === 'error') { e.term.write(`\r\n[agent-hangar] ${String(msg.message)}\r\n`); setStatus(e, 'error'); }
       };
@@ -50,14 +54,25 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     },
     mount(tabId, el) {
       const e = ensure(tabId);
+      // 同じ枠に別のタブの要素が残っていると、見えている端末と入力先がずれる。
+      for (const [id, other] of entries) if (id !== tabId && other.term.element?.parentElement === el) other.term.element.remove();
       if (!e.opened) { e.term.open(el); e.opened = true; }
       else if (e.term.element && e.term.element.parentElement !== el) el.appendChild(e.term.element);
       e.term.fit();
+      if (pendingFocus === tabId) { pendingFocus = null; e.term.focus(); }
     },
     status: (tabId) => entries.get(tabId)?.status ?? null,
     fit: (tabId) => entries.get(tabId)?.term.fit(),
-    focus: (tabId) => entries.get(tabId)?.term.focus(),
+    focus(tabId) {
+      const e = entries.get(tabId);
+      if (!e?.opened) { pendingFocus = tabId; return; }
+      if (pendingFocus === tabId) pendingFocus = null;
+      e.term.focus();
+    },
     subscribe(cb) { listeners.add(cb); return () => { listeners.delete(cb); }; },
-    dispose() { for (const e of entries.values()) { e.ws?.close(); for (const s of e.subs) s.dispose(); e.term.dispose(); } entries.clear(); },
+    dispose() {
+      for (const e of entries.values()) { e.ws?.close(); for (const s of e.subs) s.dispose(); e.term.dispose(); }
+      entries.clear(); listeners.clear(); pendingFocus = null;
+    },
   };
 }
