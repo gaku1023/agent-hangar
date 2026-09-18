@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -77,6 +77,22 @@ describe('SummaryJob', () => {
     await job.idle();
     const beta = (db.prepare("select id from sessions where provider_session_id = 'aaaaaaaa-0000-4000-8000-000000000002'").get() as { id: string }).id;
     expect(job.enqueue(beta, true)).toBe(false);
+  });
+  it('配信が失敗しても待ち行列は進む', async () => {
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const boom = { broadcast: (e: ServerEvent) => { sent.push(e); throw new Error('socket closed'); } };
+    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [fake('lmstudio')], live: () => [], hub: boom });
+    const other = (db.prepare("select id from sessions where provider_session_id = 'aaaaaaaa-0000-4000-8000-000000000003'").get() as { id: string }).id;
+    expect(job.enqueue(alphaId, true)).toBe(true);
+    expect(job.enqueue(other, true)).toBe(true);
+    await job.idle();
+    expect(job.pending()).toEqual([]);
+    for (const id of [alphaId, other]) {
+      expect((db.prepare('select source from session_summaries where session_id = ?').get(id) as { source: string }).source).toBe('post_hoc');
+    }
+    expect(warn).toHaveBeenCalled();
+    expect(String(warn.mock.calls[0]?.[0])).toContain('summary.pending');
+    warn.mockRestore();
   });
   it('直列に走り、test は DB に書かない', async () => {
     const job = make([fake('lmstudio', { delayMs: 20 })]);

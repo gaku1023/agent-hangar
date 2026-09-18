@@ -45,6 +45,19 @@ export class SummaryJob {
 
   private now(): number { return this.deps.now?.() ?? Date.now(); }
 
+  /**
+   * 配信の失敗でジョブを止めない。
+   * 購読者が切れているだけで待ち行列が取り残されると、そのセッションの要約が二度と進まなくなる。
+   * 握りつぶしたことが分かるように、種別と理由だけを 1 行に残す（本文と秘密は出さない）。
+   */
+  private emit(ev: ServerEvent): void {
+    try {
+      this.deps.hub.broadcast(ev);
+    } catch (e) {
+      console.error(`[summary] 配信に失敗しました（${ev.type}）: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   /** 実行中の 1 件と待ち行列。bootstrap の summaryPending に載せる。 */
   pending(): string[] {
     return [...(this.running ? [this.running] : []), ...this.queue];
@@ -62,7 +75,7 @@ export class SummaryJob {
     if (!hasBody) return false;
     if (!force && (!isSummaryStale(this.deps.db, sessionId) || this.isLive(sessionId))) return false;
     this.queue.push(sessionId);
-    this.deps.hub.broadcast({ type: 'summary.pending', sessionId });
+    this.emit({ type: 'summary.pending', sessionId });
     void this.drain();
     return true;
   }
@@ -81,7 +94,7 @@ export class SummaryJob {
       try {
         await this.summarizeOne(id);
       } catch (e) {
-        this.deps.hub.broadcast({ type: 'summary.failed', sessionId: id, message: e instanceof Error ? e.message : String(e) });
+        this.emit({ type: 'summary.failed', sessionId: id, message: e instanceof Error ? e.message : String(e) });
       } finally {
         this.running = null;
       }
@@ -122,8 +135,8 @@ export class SummaryJob {
       based_on_turns: input.turns,
     }, this.deps.deviceId, 'session_id');
     const s = getSession(this.deps.db, this.deps.live(), sessionId);
-    if (s) this.deps.hub.broadcast({ type: 'session.upsert', session: s });
-    this.deps.hub.broadcast({ type: 'summary.updated', sessionId });
+    if (s) this.emit({ type: 'session.upsert', session: s });
+    this.emit({ type: 'summary.updated', sessionId });
   }
 
   /** Settings の「要約器を試す」。決め打ちの入力を投げ、DB には書かない。 */
