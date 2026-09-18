@@ -1,7 +1,9 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
+import { upsertShared } from '../db/shared.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA } from '../../test/fixtures.ts';
 import { IndexerService } from './service.ts';
 
@@ -138,5 +140,66 @@ describe('IndexerService', () => {
     fs.appendFileSync(alphaPath(), userLine(SESSION_ALPHA, '/Users/me/workspace/alpha', 'もう一度', 'u10', '2026-09-01T11:01:00.000Z'));
     await new Promise<void>((r) => setTimeout(r, 120));
     expect(count('select count(*) c from event_index')).toBe(afterStop);
+  });
+});
+
+describe('他端末の本文の索引化', () => {
+  const u = '11111111-1111-4111-8111-111111111111';
+  const line = (text: string) => JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, cwd: '/w/alpha', timestamp: '2026-09-01T00:00:00.000Z' }) + '\n';
+  let claudeDir: string;
+  let remote: string;
+  beforeEach(() => {
+    claudeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cd-'));
+    remote = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rr-'));
+  });
+  afterEach(() => {
+    fs.rmSync(claudeDir, { recursive: true, force: true });
+    fs.rmSync(remote, { recursive: true, force: true });
+  });
+
+  it('remote の写しを索引化し、手元の本文が現れたら写しを落とす', async () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: u, cwd: '/w/alpha', home_device: 'dev-b' }, 'dev-b');
+    const rp = path.join(remote, 'dev-b', 'projects', '-w-alpha', `${u}.jsonl`);
+    fs.mkdirSync(path.dirname(rp), { recursive: true });
+    fs.writeFileSync(rp, line('remote-body'));
+    const svc = new IndexerService({ db, deviceId: 'dev-a', claudeDir, remoteRoot: remote, isRunning: () => false });
+    const seen: { deviceId: string | null; path: string }[] = [];
+    svc.on({ sessionChanged: (e) => seen.push({ deviceId: e.deviceId, path: e.path }) });
+    await svc.fullScan();
+    expect(db.prepare('select device_id from transcript_files where session_id = ?').get('s1')).toEqual({ device_id: 'dev-b' });
+    expect(count('select count(*) c from event_index where session_id = ?', 's1')).toBe(1);
+    expect(seen).toEqual([{ deviceId: 'dev-b', path: rp }]);
+    // 他端末の写しからは土台の要約を書かない（共有テーブルなので本文を持つ端末だけが書く）。
+    expect(count('select count(*) c from session_summaries')).toBe(0);
+
+    const lp = path.join(claudeDir, 'projects', '-w-alpha', `${u}.jsonl`);
+    fs.mkdirSync(path.dirname(lp), { recursive: true });
+    fs.writeFileSync(lp, line('local-body') + line('local-body-2'));
+    await svc.fullScan();
+    expect(db.prepare('select path, device_id from transcript_files where session_id = ?').all('s1')).toEqual([{ path: lp, device_id: null }]);
+    expect(count('select count(*) c from event_index where session_id = ?', 's1')).toBe(2);
+    svc.stop();
+  });
+
+  it('sessions の行がまだ届いていない写しは飛ばし、届いたら索引化する', async () => {
+    const rp = path.join(remote, 'dev-b', 'projects', '-w-alpha', `${u}.jsonl`);
+    fs.mkdirSync(path.dirname(rp), { recursive: true });
+    fs.writeFileSync(rp, line('remote-body'));
+    const svc = new IndexerService({ db, deviceId: 'dev-a', claudeDir, remoteRoot: remote, isRunning: () => false });
+    await svc.fullScan();
+    expect(count('select count(*) c from sessions')).toBe(0);
+    expect(count('select count(*) c from transcript_files')).toBe(0);
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: u, cwd: '/w/alpha', home_device: 'dev-b' }, 'dev-b');
+    await svc.fullScan();
+    expect(count('select count(*) c from event_index where session_id = ?', 's1')).toBe(1);
+    svc.stop();
+  });
+
+  it('remoteRoot を渡さなければ手元だけを索引化する', async () => {
+    const svc = make();
+    await svc.fullScan();
+    expect(count('select count(*) c from transcript_files where device_id is not null')).toBe(0);
+    expect(count('select count(*) c from transcript_files')).toBe(3);
+    svc.stop();
   });
 });

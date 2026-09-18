@@ -12,8 +12,9 @@ export const INDEXER_VERSION = 1;
 export const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const FTS_MAX_CHARS = 20000;
 
-export type IndexFileOptions = { deviceId: string; indexerVersion?: number; cwdFallback?: string };
-export type IndexFileResult = { sessionId: string; providerSessionId: string; appended: number; changed: boolean; badLines: number; artifactIds: string[] };
+/** remote が true なら他端末から降ろした写しである。sessions と session_summaries には書かない。 */
+export type IndexFileOptions = { deviceId: string; indexerVersion?: number; cwdFallback?: string; remote?: boolean };
+export type IndexFileResult = { sessionId: string; providerSessionId: string; appended: number; changed: boolean; badLines: number; artifactIds: string[]; skipped: boolean };
 
 type TfRow = { path: string; session_id: string; agent_id: string | null; size: number; mtime: number; indexed_bytes: number; indexer_version: number };
 
@@ -34,6 +35,25 @@ export function ensureSession(db: Db, providerSessionId: string, cwd: string, de
   return id;
 }
 
+/** provider と provider_session_id の組で sessions を引く。無ければ null。 */
+export function findSession(db: Db, providerSessionId: string): string | null {
+  const row = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ?").get(providerSessionId) as { id: string } | undefined;
+  return row ? row.id : null;
+}
+
+/** 索引化をやめたファイルの索引と行を消す。同じ位置のファイルは常に 1 つだけ索引化する前提に立つ。 */
+export function forgetTranscriptFile(db: Db, filePath: string): void {
+  const row = db.prepare('select session_id, agent_id from transcript_files where path = ?').get(filePath) as { session_id: string; agent_id: string | null } | undefined;
+  if (!row) return;
+  const agentKey = row.agent_id ?? '';
+  const run = db.transaction(() => {
+    db.prepare("delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(row.session_id, agentKey);
+    db.prepare("delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(row.session_id, agentKey);
+    db.prepare('delete from transcript_files where path = ?').run(filePath);
+  });
+  run();
+}
+
 /**
  * 1 つの transcript ファイルを索引化する。
  * 前回から size も mtime も版も変わっていなければ何もしない。
@@ -45,9 +65,14 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
   const stat = fs.statSync(file.path);
   const mtime = Math.floor(stat.mtimeMs);
   const tf = db.prepare('select * from transcript_files where path = ?').get(file.path) as TfRow | undefined;
+  const remote = opts.remote === true;
+  // 他端末の写しは sessions を作らない。行がまだ届いていなければ次の走査に回す。
+  if (remote && !tf && findSession(db, file.sessionId) === null) {
+    return { sessionId: '', providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [], skipped: true };
+  }
   const sameVersion = tf?.indexer_version === version;
   if (tf && sameVersion && tf.size === stat.size && tf.mtime === mtime) {
-    return { sessionId: tf.session_id, providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [] };
+    return { sessionId: tf.session_id, providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [], skipped: false };
   }
   const from = tf && sameVersion ? tf.indexed_bytes : 0;
   const read = readNewLines(file.path, from);
@@ -69,7 +94,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
   const run = db.transaction(() => {
     const facts = parsed.map((p) => recordFacts(p.rec));
     const cwd = facts.find((f) => f.cwd)?.cwd ?? opts.cwdFallback ?? '';
-    sessionId = tf?.session_id ?? ensureSession(db, file.sessionId, cwd, opts.deviceId);
+    sessionId = tf?.session_id ?? (remote ? findSession(db, file.sessionId)! : ensureSession(db, file.sessionId, cwd, opts.deviceId));
     if (reset) {
       db.prepare("delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(sessionId, agentKey);
       db.prepare("delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(sessionId, agentKey);
@@ -133,17 +158,18 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
         acc.daily.set(day, { input: cur.input + f.usage.input, output: cur.output + f.usage.output });
       }
     });
-    db.prepare(`insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version, last_error) values (?,?,?,?,?,?,?,null)
-      on conflict(path) do update set session_id = excluded.session_id, agent_id = excluded.agent_id, size = excluded.size, mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes, indexer_version = excluded.indexer_version, last_error = null`)
-      .run(file.path, sessionId, file.agentId, stat.size, mtime, read.nextByte, version);
+    db.prepare(`insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version, last_error) values (?,?,?,?,?,?,?,?,null)
+      on conflict(path) do update set session_id = excluded.session_id, agent_id = excluded.agent_id, device_id = excluded.device_id, size = excluded.size, mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes, indexer_version = excluded.indexer_version, last_error = null`)
+      .run(file.path, sessionId, file.agentId, file.deviceId, stat.size, mtime, read.nextByte, version);
     const upDaily = db.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?) on conflict(session_id, file_path, day) do update set input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens');
     for (const [day, v] of acc.daily) upDaily.run(sessionId, day, file.path, v.input, v.output);
-    if (file.agentId === null) applySessionFacts(db, sessionId, acc, reset, opts.deviceId);
-    else refreshFilesChanged(db, sessionId);
+    if (file.agentId !== null) refreshFilesChanged(db, sessionId);
+    else if (remote) writeSessionStats(db, sessionId, acc, reset);
+    else applySessionFacts(db, sessionId, acc, reset, opts.deviceId);
     artifactIdsOut = [...artifactIds];
   });
   run();
-  return { sessionId, providerSessionId: file.sessionId, appended, changed: true, badLines, artifactIds: artifactIdsOut };
+  return { sessionId, providerSessionId: file.sessionId, appended, changed: true, badLines, artifactIds: artifactIdsOut, skipped: false };
 }
 
 /** 編集系ツールが触ったファイル数を event_index から数え直す。サブエージェントの編集も含む。 */
@@ -153,7 +179,7 @@ function refreshFilesChanged(db: Db, sessionId: string): void {
   db.prepare('insert into session_stats (session_id, files_changed) values (?, ?) on conflict(session_id) do update set files_changed = excluded.files_changed').run(sessionId, n);
 }
 
-/** 主線から得た事実を sessions と session_stats に重ねる。sessions は全列を読んでから差分を乗せて upsertShared に渡す。 */
+/** 主線から得た事実を sessions と session_stats に重ねる。sessions は全列を読んでから差分を乗せて upsertShared に渡す。他端末の写しではこの関数を呼ばない。 */
 function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, deviceId: string): void {
   const cur = db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
   const next: Record<string, unknown> = { ...cur };
@@ -168,6 +194,11 @@ function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, 
   if (JSON.stringify(next) !== JSON.stringify(Object.fromEntries(Object.entries(cur).filter(([k]) => k !== 'updated_at' && k !== 'origin_device')))) {
     upsertShared(db, 'sessions', next, deviceId);
   }
+  writeSessionStats(db, sessionId, acc, reset);
+}
+
+/** 索引から導いた統計。session_stats は端末ローカルの表なので、他端末の写しから書いてよい。 */
+function writeSessionStats(db: Db, sessionId: string, acc: Acc, reset: boolean): void {
   const st = db.prepare('select * from session_stats where session_id = ?').get(sessionId) as Record<string, unknown> | undefined;
   const base = reset || !st ? { turns: 0, input_tokens: 0, output_tokens: 0 } : { turns: st.turns as number, input_tokens: st.input_tokens as number, output_tokens: st.output_tokens as number };
   db.prepare(`insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt) values (?,?,?,?,?,?,?,?,?,?)

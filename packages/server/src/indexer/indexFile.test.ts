@@ -7,7 +7,8 @@ import { MIGRATIONS } from '../db/migrations.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { listTranscriptFiles } from '../provider/claude-code/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
-import { indexFile, INDEXER_VERSION } from './indexFile.ts';
+import { upsertShared } from '../db/shared.ts';
+import { findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
 import { localDay } from '../usage/aggregate.ts';
 
 let dir: string;
@@ -157,7 +158,7 @@ describe('indexFile', () => {
   it('記録に cwd が無ければ cwdFallback を使う', () => {
     const p = path.join(dir, 'projects/-Users-me-workspace-alpha/bbbbbbbb-0000-4000-8000-000000000009.jsonl');
     fs.writeFileSync(p, JSON.stringify({ type: 'ai-title', aiTitle: 'x', sessionId: 'bbbbbbbb-0000-4000-8000-000000000009' }) + '\n');
-    const r = indexFile(db, { path: p, sessionId: 'bbbbbbbb-0000-4000-8000-000000000009', agentId: null }, { deviceId: DEV, cwdFallback: '/Users/me/workspace/alpha' });
+    const r = indexFile(db, { path: p, sessionId: 'bbbbbbbb-0000-4000-8000-000000000009', agentId: null, deviceId: null }, { deviceId: DEV, cwdFallback: '/Users/me/workspace/alpha' });
     expect((db.prepare('select cwd from sessions where id = ?').get(r.sessionId) as { cwd: string }).cwd).toBe('/Users/me/workspace/alpha');
   });
 
@@ -303,5 +304,54 @@ describe('indexFile', () => {
     const r2 = indexFile(db, alphaMain(), { deviceId: DEV });
     expect(r2.artifactIds).toHaveLength(1);
     expect(count('select count(*) c from artifact_versions')).toBe(1);
+  });
+});
+
+describe('他端末の写しの索引化', () => {
+  const u = '11111111-1111-4111-8111-111111111111';
+  const remoteFile = (root: string, text: string): string => {
+    const p = path.join(root, 'dev-b', 'projects', '-w-alpha', `${u}.jsonl`);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, text);
+    return p;
+  };
+  const line = (role: 'user' | 'assistant', text: string) => JSON.stringify({ type: role, message: { role, content: [{ type: 'text', text }] }, cwd: '/w/alpha', timestamp: '2026-09-01T00:00:00.000Z' }) + '\n';
+  let remoteDir: string;
+  beforeEach(() => { remoteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rem-')); });
+  afterEach(() => { fs.rmSync(remoteDir, { recursive: true, force: true }); });
+
+  it('sessions の行がまだ無ければ飛ばす', () => {
+    const p = remoteFile(remoteDir, line('user', 'hello'));
+    const r = indexFile(db, { path: p, sessionId: u, agentId: null, deviceId: 'dev-b' }, { deviceId: 'dev-a', remote: true });
+    expect(r).toMatchObject({ changed: false, skipped: true });
+    expect(count('select count(*) c from sessions')).toBe(0);
+    expect(count('select count(*) c from changes')).toBe(0);
+  });
+
+  it('sessions があれば索引と統計だけ書き、共有テーブルには書かない', () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: u, cwd: '/w/alpha', home_device: 'dev-b' }, 'dev-b');
+    const before = db.prepare('select updated_at from sessions where id = ?').get('s1') as { updated_at: number };
+    const changesBefore = count('select count(*) c from changes');
+    const p = remoteFile(remoteDir, line('user', 'hello'));
+    const r = indexFile(db, { path: p, sessionId: u, agentId: null, deviceId: 'dev-b' }, { deviceId: 'dev-a', remote: true });
+    expect(r).toMatchObject({ sessionId: 's1', changed: true, skipped: false });
+    expect(count('select count(*) c from event_index where session_id = ?', 's1')).toBeGreaterThan(0);
+    expect(db.prepare('select turns from session_stats where session_id = ?').get('s1')).toEqual({ turns: 1 });
+    expect(db.prepare('select device_id from transcript_files where path = ?').get(p)).toEqual({ device_id: 'dev-b' });
+    expect(db.prepare('select updated_at from sessions where id = ?').get('s1')).toEqual(before);
+    expect(count('select count(*) c from changes')).toBe(changesBefore);
+    expect(findSession(db, u)).toBe('s1');
+    expect(findSession(db, 'nope')).toBeNull();
+  });
+
+  it('forgetTranscriptFile は索引と行を消す', () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: u, cwd: '/w/alpha', home_device: 'dev-b' }, 'dev-b');
+    const p = remoteFile(remoteDir, line('user', 'hello'));
+    indexFile(db, { path: p, sessionId: u, agentId: null, deviceId: 'dev-b' }, { deviceId: 'dev-a', remote: true });
+    forgetTranscriptFile(db, p);
+    expect(db.prepare('select 1 from transcript_files where path = ?').get(p)).toBeUndefined();
+    expect(count('select count(*) c from event_index where session_id = ?', 's1')).toBe(0);
+    expect(count("select count(*) c from event_fts where session_id = 's1'")).toBe(0);
+    forgetTranscriptFile(db, '/nope');
   });
 });
