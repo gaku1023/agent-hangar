@@ -11,7 +11,7 @@ import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
-import { RunError, RunManager } from './manager.ts';
+import { RunManager } from './manager.ts';
 
 let db: Db;
 let home: string;
@@ -52,9 +52,8 @@ const launchedArgs = async (runId: string) => {
 };
 
 describe('RunManager.start の入力検査（tmux 不要）', () => {
-  it('scratch、projectId 無し、無いプロジェクト、未解決のプロジェクトを拒む', () => {
+  it('projectId 無し、無いプロジェクト、未解決のプロジェクトを拒む', () => {
     const rm = make({ tmux: null });
-    expect(() => rm.start({ scratch: true })).toThrow(RunError);
     expect(() => rm.start({})).toThrow(/projectId/);
     expect(() => rm.start({ projectId: 'nope' })).toThrow(expect.objectContaining({ status: 404 }));
     expect(() => rm.start({ projectId: 'p2' })).toThrow(expect.objectContaining({ status: 400 }));
@@ -124,6 +123,20 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(rm.listAlive().runs.map((x) => x.id)).toEqual([r.run.id]);
     expect(rm.getRun(r.run.id)?.tmuxName).toBe(r.run.tmuxName);
     expect(rm.getTab(r.run.id)?.kind).toBe('agent');
+  });
+
+  it('scratch は新しいディレクトリを作り、スクラッチのプロジェクトに属するセッションを起動する', async () => {
+    const rm = make();
+    // projectId が一緒に来ても scratch を優先する。
+    const r = rm.start({ scratch: true, projectId: 'p1', name: 'scratchy' });
+    const s = db.prepare('select cwd, project_id, name from sessions where id = ?').get(r.sessionId) as { cwd: string; project_id: string; name: string };
+    expect(s.cwd.startsWith(path.join(home, 'scratch') + path.sep)).toBe(true);
+    expect(fs.statSync(s.cwd).isDirectory()).toBe(true);
+    expect(s.name).toBe('scratchy');
+    expect(db.prepare('select is_scratch, name from projects where id = ?').get(s.project_id)).toEqual({ is_scratch: 1, name: 'スクラッチ' });
+    const args = await launchedArgs(r.run.id);
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('プロジェクト：スクラッチ（' + s.cwd + '）');
+    expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
   });
 
   it('ディレクトリが無ければ 400 で、run の行は残らない', () => {

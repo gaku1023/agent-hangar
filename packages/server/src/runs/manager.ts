@@ -6,6 +6,7 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
+import { ensureScratchProject, newScratchDir } from '../projects/scratch.ts';
 import { hasTranscriptFile } from '../provider/claude-code/discover.ts';
 import { claudeCodeProvider } from '../provider/claude-code/index.ts';
 import type { LaunchInput } from '../provider/types.ts';
@@ -208,20 +209,33 @@ export class RunManager {
 
   /** 新しいセッションを起こす。検査をすべて先に済ませてから行を作る。 */
   start(params: LaunchParams): LaunchResult {
-    if (params.scratch) throw new RunError(400, 'スクラッチはフェーズ 3 で実装します');
-    if (!params.projectId) throw new RunError(400, 'projectId は必須です');
     this.addDirs(params);
-    const p = this.project(params.projectId);
+    // スクラッチは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
+    // projectId が一緒に来ていても scratch を優先する。
+    const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);
     if (!p.path || !p.resolved) throw new RunError(400, 'プロジェクトのディレクトリがこの端末で見つかりません');
-    this.precheck(p.path);
+    // スクラッチのディレクトリは precheck より先に作る。precheck は cwd が実在するかを見るためである。
+    const cwd = params.scratch ? newScratchDir(this.deps.home, new Date(this.now())) : p.path;
+    this.precheck(cwd);
     const sessionUuid = crypto.randomUUID();
-    const sessionId = ensureSession(this.db, sessionUuid, p.path, this.deps.deviceId);
+    const sessionId = ensureSession(this.db, sessionUuid, cwd, this.deps.deviceId);
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, name: params.name?.trim() || null, started_at: now, last_activity_at: now }, this.deps.deviceId);
-    const input: LaunchInput = { ...this.baseInput(sessionId, p.id, p.path, params), mode: { kind: 'start', sessionUuid } };
+    const input: LaunchInput = { ...this.baseInput(sessionId, p.id, cwd, params), mode: { kind: 'start', sessionUuid } };
     const command = claudeCodeProvider.launchCommand(this.deps.claudeBin, input);
-    return this.launch({ sessionId, cwd: p.path, kind: 'start', command, params });
+    return this.launch({ sessionId, cwd, kind: 'start', command, params });
+  }
+
+  /** scratch ではないときの起動先。projectId は必須である。 */
+  private namedProject(projectId: string | undefined): ProjectInfo {
+    if (!projectId) throw new RunError(400, 'projectId は必須です');
+    return this.project(projectId);
+  }
+
+  /** この端末のスクラッチの擬似プロジェクト。無ければ作る。 */
+  private scratchProject(): ProjectInfo {
+    return this.project(ensureScratchProject(this.db, this.deps.deviceId, this.deps.home));
   }
 
   private session(sessionId: string): SessionRow {
