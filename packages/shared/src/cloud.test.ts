@@ -101,3 +101,26 @@ describe('鍵の組み立ての検査', () => {
     expect(() => transcriptKey('d', 'u/subagents/agent-x', null)).toThrow('ID');
   });
 });
+
+describe('折り返された参加トークン', () => {
+  const t: JoinToken = { url: 'https://hangar.example.workers.dev', secret: 'S3CRET-0123456789-abcdefghij' };
+  const token = encodeJoinToken(t);
+  it('途中に改行や空白が入っていても読める', () => {
+    // 1Password やメールに貼ると折り返しが入る。空白の個数で成否が変わってはいけない。
+    for (const n of [1, 2, 3, 4, 5]) {
+      const wrapped = token.slice(0, 20) + '\n'.repeat(n) + token.slice(20);
+      expect(decodeJoinToken(wrapped)).toEqual(t);
+      expect(decodeJoinToken(token.slice(0, 20) + ' '.repeat(n) + token.slice(20))).toEqual(t);
+    }
+    // 80 字ごとに折り返した形も読める。
+    expect(decodeJoinToken(token.replace(/(.{20})/g, '$1\r\n'))).toEqual(t);
+    expect(decodeJoinToken('  ' + token + '\n')).toEqual(t);
+  });
+  it('空白だけでは別のトークンにならない', () => {
+    expect(decodeJoinToken(token.replace(/(.{7})/g, '$1 \t\n'))).toEqual(decodeJoinToken(token));
+    expect(() => decodeJoinToken('   \n\t  ')).toThrow('参加トークン');
+  });
+  it('長さの上限は空白を取り除く前に見る', () => {
+    expect(() => decodeJoinToken(' '.repeat(MAX_JOIN_TOKEN_CHARS + 1))).toThrow('参加トークンが長すぎます');
+  });
+});

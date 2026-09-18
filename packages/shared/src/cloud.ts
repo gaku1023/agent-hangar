@@ -82,9 +82,11 @@ export function encodeJoinToken(t: JoinToken): string {
  * 例外の文言は固定の 3 種類だけにして、入力も秘密も断片すら載せない。
  */
 export function decodeJoinToken(s: string): JoinToken {
-  if (s.length > MAX_JOIN_TOKEN_CHARS) throw new Error('参加トークンが長すぎます');
+  if (s.length > MAX_JOIN_TOKEN_CHARS) throw new Error('参加トークンが長すぎます'); // 長さは空白を取り除く前に見る。
+  // 1Password やメールを経由すると途中に折り返しが入る。空白は base64url の文字ではないので、取り除いてから読む。
+  const t = s.replace(/\s+/g, '');
   let v: unknown;
-  try { v = JSON.parse(fromB64Url(s.trim())); } catch { throw new Error('参加トークンを読めません'); }
+  try { v = JSON.parse(fromB64Url(t)); } catch { throw new Error('参加トークンを読めません'); }
   const o = v as Partial<JoinToken> | null;
   if (!o || typeof o.url !== 'string' || !o.url || typeof o.secret !== 'string' || !o.secret) throw new Error('参加トークンの形式が違います');
   if (!isAllowedJoinUrl(o.url)) throw new Error('参加トークンの宛先が不正です');
