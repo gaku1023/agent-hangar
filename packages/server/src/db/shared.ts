@@ -32,14 +32,32 @@ export function onSharedWrite(cb: SharedWriteListener): () => void {
   return () => { writeListeners.delete(cb); };
 }
 
+/**
+ * ログに出してよい形に削る。
+ * 行 ID も表名も内部で作る値だが、そのまま出すと改行で偽のログ行を作られ、長い値で行が溢れる。
+ */
+function logSafe(v: string): string {
+  return v.replace(/[^\w:.@-]/g, '?').slice(0, 64);
+}
+
+/**
+ * 例外の種類だけを取る。
+ * クラス名の形（識別子、40 字まで）をしていない name は伏せる。
+ * 同期の購読は URL とトークンを扱う層なので、name に文脈を足した例外から秘密が漏れないようにする。
+ */
+function errorKind(e: unknown): string {
+  if (!(e instanceof Error)) return logSafe(typeof e);
+  return /^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(e.name) ? e.name : 'Error';
+}
+
 /** 購読を 1 つずつ包んで呼ぶ。1 つの失敗で残りと呼び手を巻き込まない。 */
 function deliver(db: Db, table: string, rowId: string): void {
   for (const cb of [...writeListeners]) {
     try {
       cb(table, rowId, db);
     } catch (e) {
-      // 例外のメッセージには秘密が載りうるので出さない。どの行で、どの種類の失敗かだけを残す。
-      console.error(`[sync] 共有テーブルの購読が失敗しました（${table}:${rowId}、${e instanceof Error ? e.name : typeof e}）`);
+      // 例外のメッセージには秘密が載りうるので出さない。どの行で、どの種類の失敗かだけを、削ってから残す。
+      console.error(`[sync] 共有テーブルの購読が失敗しました（${logSafe(table)}:${logSafe(rowId)}、${errorKind(e)}）`);
     }
   }
 }
@@ -52,11 +70,20 @@ function drain(db: Db): void {
   try {
     if (!db.open) return;
     // 巻き戻っていれば changes の行ごと消えている。起きなかった書き込みを同期に乗せない。
-    // 同じ行をもう一度書いたときも、古い方は dropUnpushed で消えているので新しい通知だけが残る。
-    const alive = db.prepare('select 1 from changes where seq = ?');
-    for (const p of queue) if (alive.get(p.seq) !== undefined) deliver(db, p.table, p.rowId);
+    // seq だけで見ると足りない。changes.seq は autoincrement なので、巻き戻すと sqlite_sequence ごと戻り、
+    // 次の書き込みが同じ seq を取り直す。表名と行 ID も一致を見て、別の行の seq を借りないようにする。
+    const alive = db.prepare('select 1 from changes where seq = ? and table_name = ? and row_id = ?');
+    // 同じ行を巻き戻して書き直した場合は両方が生きたまま通る。その行は本当に書かれているので配るが、1 回にまとめる。
+    const done = new Set<string>();
+    for (const p of queue) {
+      const key = `${p.table}\u0000${p.rowId}`;
+      if (done.has(key)) continue;
+      if (alive.get(p.seq, p.table, p.rowId) === undefined) continue;
+      done.add(key);
+      deliver(db, p.table, p.rowId);
+    }
   } catch (e) {
-    console.error(`[sync] 溜めた書き込みの通知を配れませんでした（${e instanceof Error ? e.name : typeof e}）`);
+    console.error(`[sync] 溜めた書き込みの通知を配れませんでした（${errorKind(e)}）`);
   }
 }
 

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MIGRATIONS } from './migrations.ts';
 import { openDb } from './open.ts';
 import { onSharedWrite, softDeleteShared, upsertShared } from './shared.ts';
@@ -223,5 +223,97 @@ describe('onSharedWrite の頑丈さ', () => {
     expect(seen).toEqual([]);
     expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from changes').get()).toEqual({ c: 0 });
+  });
+});
+
+const PROJECT = (id: string) => ({ id, name: 'a', status: 'active' });
+
+describe('巻き戻しの抑止', () => {
+  it('巻き戻した後に seq を取り直しても、起きなかった書き込みを配らない', async () => {
+    const db = openDb(':memory:');
+    const seen: string[] = [];
+    const off = onSharedWrite((_t, id, d) => { if (d === db) seen.push(id); });
+    // 索引器と同じ形。1 ファイル目のトランザクションが巻き戻り、2 ファイル目が同じジョブで成功する。
+    // changes.seq は autoincrement なので、巻き戻すと sqlite_sequence ごと戻り、2 ファイル目が同じ seq を取り直す。
+    expect(() => db.transaction(() => {
+      upsertShared(db, 'projects', PROJECT('file1'), 'd');
+      throw new Error('1 ファイル目で失敗');
+    })()).toThrow();
+    db.transaction(() => { upsertShared(db, 'projects', PROJECT('file2'), 'd'); })();
+    await Promise.resolve();
+    off();
+    expect(seen).toEqual(['file2']);
+    expect(db.prepare('select id from projects').all()).toEqual([{ id: 'file2' }]);
+  });
+  it('同じ行を巻き戻して書き直しても 1 回しか配らない', async () => {
+    const db = openDb(':memory:');
+    const seen: string[] = [];
+    const off = onSharedWrite((_t, id, d) => { if (d === db) seen.push(id); });
+    expect(() => db.transaction(() => {
+      upsertShared(db, 'projects', PROJECT('p1'), 'd');
+      throw new Error('失敗');
+    })()).toThrow();
+    db.transaction(() => { upsertShared(db, 'projects', PROJECT('p1'), 'd'); })();
+    await Promise.resolve();
+    off();
+    expect(seen).toEqual(['p1']);
+  });
+  it('入れ子の savepoint が巻き戻った分は配らない', async () => {
+    const db = openDb(':memory:');
+    const seen: string[] = [];
+    const off = onSharedWrite((_t, id, d) => { if (d === db) seen.push(id); });
+    const inner = db.transaction(() => {
+      upsertShared(db, 'projects', PROJECT('INNER_ROLLED_BACK'), 'd');
+      throw new Error('内側で失敗');
+    });
+    db.transaction(() => {
+      try { inner(); } catch { /* 内側だけを巻き戻して続ける */ }
+      upsertShared(db, 'projects', PROJECT('OUTER_OK'), 'd');
+    })();
+    await Promise.resolve();
+    off();
+    expect(seen).toEqual(['OUTER_OK']);
+    expect(db.prepare('select id from projects').all()).toEqual([{ id: 'OUTER_OK' }]);
+  });
+});
+
+describe('購読の失敗のログ', () => {
+  it('例外の種類も行 ID も削ってから出す', () => {
+    const db = openDb(':memory:');
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { lines.push(String(a[0])); });
+    // name に文脈を足した例外。フェーズ 4 の購読は URL とトークンを扱う層なので、こう書かれうる。
+    const e = new Error('本文');
+    e.name = 'FetchError https://h.workers.dev/?token=DEVICE-TOKEN-XYZ\n[sync] 偽の行';
+    const off = onSharedWrite(() => { throw e; });
+    upsertShared(db, 'projects', PROJECT('p1\n[sync] 偽の行'), 'd');
+    off();
+    spy.mockRestore();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toContain('\n');
+    expect(lines[0]).not.toContain('DEVICE-TOKEN-XYZ');
+    expect(lines[0]).not.toContain('h.workers.dev');
+    expect(lines[0]).not.toContain('偽の行');
+  });
+  it('長すぎる行 ID は刈る', () => {
+    const db = openDb(':memory:');
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { lines.push(String(a[0])); });
+    const off = onSharedWrite(() => { throw new Error('x'); });
+    upsertShared(db, 'projects', PROJECT('z'.repeat(500)), 'd');
+    off();
+    spy.mockRestore();
+    expect(lines[0]!.length).toBeLessThan(200);
+  });
+  it('本物のクラス名はそのまま出す', () => {
+    const db = openDb(':memory:');
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { lines.push(String(a[0])); });
+    const off = onSharedWrite(() => { throw new TypeError('x'); });
+    upsertShared(db, 'projects', PROJECT('p1'), 'd');
+    off();
+    spy.mockRestore();
+    expect(lines[0]).toContain('TypeError');
+    expect(lines[0]).toContain('projects:p1');
   });
 });

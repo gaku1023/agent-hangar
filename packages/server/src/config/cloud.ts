@@ -79,17 +79,44 @@ export function loadCloudConfig(home: string): CloudConfig | null {
   return readCloudConfig(home).config;
 }
 
+/** 書きかけの一時ファイルの名前の頭。 */
+const TMP_PREFIX = 'cloud.json.tmp-';
+
+/** これより古い一時ファイルは、落ちて取り残されたものとみなす。 */
+const TMP_STALE_MS = 60_000;
+
+/**
+ * 落ちて取り残された一時ファイルを掃く。
+ * 中身は古い joinSecret と deviceToken の写しなので、置きっぱなしにしない。
+ * setup cloud --rotate-secret で秘密を回した後も、残骸だけが古い秘密を持ち続けることになる。
+ * いま別のプロセスが書いている最中のものは消さないよう、古いものだけに絞る。
+ */
+function sweepStaleTemps(home: string, now: number): void {
+  let names: string[];
+  try { names = fs.readdirSync(home); } catch { return; }
+  for (const name of names) {
+    if (!name.startsWith(TMP_PREFIX)) continue;
+    const file = path.join(home, name);
+    try {
+      if (now - fs.statSync(file).mtimeMs < TMP_STALE_MS) continue;
+      fs.rmSync(file, { force: true });
+    } catch { /* 掃けなくても本題は続ける */ }
+  }
+}
+
 /**
  * cloud.json を書く。
  * 同じ入れ物の中に 0600 の一時ファイルを新しく作ってから rename で被せる。
  * 切り詰めて書き直すと、途中で落ちたときに壊れた cloud.json が残る。
  * joinSecret は deriveFileKey の入力なので、それを失うと R2 の本文を誰も復号できなくなる。
  * 一時ファイルを最初から 0600 で作るので、既にある緩い権限のファイルへ平文を晒す一瞬も無くなる。
+ * 書く前に、前に落ちて取り残された一時ファイルも掃く。
  */
 export function saveCloudConfig(home: string, c: CloudConfig): void {
   ensureHome(home);
+  sweepStaleTemps(home, Date.now());
   const file = cloudConfigPath(home);
-  const tmp = `${file}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+  const tmp = path.join(home, `${TMP_PREFIX}${process.pid}-${crypto.randomBytes(6).toString('hex')}`);
   let fd: number | null = null;
   try {
     // wx は既にある名前では失敗する。symlink を追って別の場所へ書くこともない。

@@ -105,3 +105,23 @@ describe('readCloudConfig', () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 });
+
+describe('一時ファイルの残骸', () => {
+  it('次に書くときに古い残骸を掃き、いま書いている最中のものは残す', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cloud-'));
+    saveCloudConfig(home, SAMPLE);
+    // SIGKILL で openSync と renameSync の間に落ちた残骸。中身は古い joinSecret の写しである。
+    const stale = path.join(home, 'cloud.json.tmp-9999-deadbeefdead');
+    fs.writeFileSync(stale, JSON.stringify({ ...SAMPLE, joinSecret: 'OLD-SECRET' }), { mode: 0o600 });
+    const old = Date.now() / 1000 - 3600;
+    fs.utimesSync(stale, old, old);
+    // 別のプロセスがいま書いている最中の一時ファイル。これは消さない。
+    const fresh = path.join(home, 'cloud.json.tmp-1234-abcdefabcdef');
+    fs.writeFileSync(fresh, 'writing', { mode: 0o600 });
+    fs.writeFileSync(path.join(home, 'keep.txt'), 'x');
+    saveCloudConfig(home, { ...SAMPLE, joinSecret: 's2' });
+    expect(fs.readdirSync(home).sort()).toEqual(['cloud.json', 'cloud.json.tmp-1234-abcdefabcdef', 'keep.txt']);
+    expect(loadCloudConfig(home)?.joinSecret).toBe('s2');
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+});

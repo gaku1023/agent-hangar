@@ -36,3 +36,15 @@ describe('SyncStateStore', () => {
     expect((db.prepare('select count(*) c from sync_state').get() as { c: number }).c).toBe(1);
   });
 });
+
+describe('SyncStateKey', () => {
+  it('quota の鍵を受ける', () => {
+    const s = new SyncStateStore(openDb(':memory:'));
+    // QuotaCounter が日ごとの呼び出し回数を数えるのに使う。as で押し込まずに渡せること。
+    const key = `quota:${'2026-09-19'}` as const;
+    expect(s.getNumber(key, 0)).toBe(0);
+    s.set(key, 3);
+    expect(s.getNumber(key, 0)).toBe(3);
+    expect(s.get(key)).toBe('3');
+  });
+});

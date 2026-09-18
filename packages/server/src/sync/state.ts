@@ -1,6 +1,9 @@
 import type { Db } from '../db/open.ts';
 
-/** sync_state に置く鍵。端末ごとの同期の進み具合と、止まっている理由を持つ。 */
+/**
+ * sync_state に置く鍵。端末ごとの同期の進み具合と、止まっている理由を持つ。
+ * quota:<yyyy-MM-dd> は QuotaCounter が日ごとの呼び出し回数を数えるのに使う。
+ */
 export type SyncStateKey =
   | 'lastSeq'
   | 'filesSeq'
@@ -9,7 +12,8 @@ export type SyncStateKey =
   | 'paused'
   | 'lastError'
   | 'configPullConfirmed'
-  | 'snapshotDone';
+  | 'snapshotDone'
+  | `quota:${string}`;
 
 /**
  * sync_state（端末ローカル）の薄い包み。
