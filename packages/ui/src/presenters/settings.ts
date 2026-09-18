@@ -15,9 +15,9 @@ export function presentSettings(_state: State, store: Store): SettingsProps {
   return {
     workspaceRoot: s?.workspaceRoot ?? '', claudeDir: s?.claudeDir ?? '', device: store.device, version: store.version, index: store.index,
     sessionCount: Object.keys(store.sessions).length, projectCount: Object.keys(store.projects).length,
-    tmuxPath: s?.tmuxPath ?? null, terminalApp: s?.terminalApp ?? 'terminal', codePath: s?.codePath ?? null, mcpInstallCommand: 'npx hangar mcp install',
+    tmuxPath: s?.tmuxPath ?? null, terminalApp: s?.terminalApp ?? 'terminal', codePath: s?.codePath ?? null, mcpInstallCommand: 'npm run hangar -- mcp install',
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? true, summaryHourlyCap: s?.summaryHourlyCap ?? 20,
     summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest,
-    statusline: store.statusline, statuslineCommand: 'npx hangar statusline install', usageAggregate: store.usageAggregate,
+    statusline: store.statusline, statuslineCommand: 'npm run hangar -- statusline install', usageAggregate: store.usageAggregate,
   };
 }

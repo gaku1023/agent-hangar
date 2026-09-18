@@ -72,11 +72,11 @@ describe('SessionsScreen', () => {
 
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, sessionCount: 3, projectCount: 2,
-  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, mcpInstallCommand: 'npx hangar mcp install',
+  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, mcpInstallCommand: 'npm run hangar -- mcp install',
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20,
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
-  statuslineCommand: 'npx hangar statusline install',
+  statuslineCommand: 'npm run hangar -- statusline install',
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
   ...over,
 });
@@ -101,7 +101,7 @@ describe('SettingsScreen', () => {
     fireEvent.click(screen.getByText('ツールの設定を保存'));
     // 変えた項目だけを送る。terminalApp を毎回入れると iTerm2 の案内が保存のたびに出る。
     expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { terminalApp: 'iterm', codePath: '/usr/local/bin/code' } });
-    expect(screen.getByText('npx hangar mcp install')).toBeInTheDocument();
+    expect(screen.getByText('npm run hangar -- mcp install')).toBeInTheDocument();
   });
   it('サーバが正規化した値に入力欄が追従する', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ tmuxPath: 'tmux', device: null, version: '0.2.0', sessionCount: 0, projectCount: 0 })} /></IntentRoot>);
@@ -131,7 +131,7 @@ describe('SettingsScreen のフェーズ 3', () => {
   it('statusline の状態と追記のコマンドを出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     expect(screen.getByText('まだ追記されていません')).toBeTruthy();
-    expect(screen.getByText('npx hangar statusline install')).toBeTruthy();
+    expect(screen.getByText('npm run hangar -- statusline install')).toBeTruthy();
     expect(screen.getByText('/h/.claude/statusline.sh')).toBeTruthy();
   });
   it('statusline の案内にポートの指定を添える', () => {
