@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { ensureHome, readOrCreateToken, upsertUserMcpServer } from '@agent-hangar/server';
 
 /** notFound は、コマンド自体を起こせなかったこと。終了コードでは区別できない。 */
@@ -42,20 +43,28 @@ function failure(what: string, r: CliResult): string {
  * claude が入っているかどうかだけは先に確かめる。入っていない端末に登録しても意味が無いためである。
  * 登録したポートで hangar が応答しないときは、登録自体は済ませたうえで起動を促す。
  * ここで止めると、まだ起動していない端末で先に登録しておく使い方ができなくなる。
+ *
+ * 書き換えは利用者の設定に手を入れる操作なので、控えを ~/.agent-hangar/backups に取ってから行う。
+ * 控えが取れないときと、別のプロセスが書いている最中のときは、何も書かずに失敗として返す。
  */
-export async function runMcpInstall(o: { home: string; port: number; claudeJson: string; exec?: CliExec; probe?: PortProbe }): Promise<{ ok: boolean; message: string }> {
+export async function runMcpInstall(o: { home: string; port: number; claudeJson: string; exec?: CliExec; probe?: PortProbe; lockWaitMs?: number }): Promise<{ ok: boolean; message: string }> {
   ensureHome(o.home);
   const token = readOrCreateToken(o.home);
   if ((o.exec ?? execCli)('claude', ['--version']).notFound) return { ok: false, message: CLAUDE_MISSING };
+  const lines: string[] = [];
   try {
-    upsertUserMcpServer(o.claudeJson, 'hangar', { type: 'http', url: `http://127.0.0.1:${o.port}/mcp`, headers: { Authorization: `Bearer ${token}` } });
+    const server = { type: 'http', url: `http://127.0.0.1:${o.port}/mcp`, headers: { Authorization: `Bearer ${token}` } };
+    const r = upsertUserMcpServer(o.claudeJson, 'hangar', server, { backupDir: path.join(o.home, 'backups'), lockWaitMs: o.lockWaitMs });
+    if (r.backup) lines.push(`書き換える前の控え: ${r.backup}`);
+    if (r.tightened) lines.push(`${r.file} は他人にも読める権限だったので、トークンを書く前に 0600 へ狭めました。`);
   } catch (e) {
     return { ok: false, message: `${o.claudeJson} の書き換えに失敗しました: ${e instanceof Error ? e.message : String(e)}` };
   }
   const done = `user スコープに MCP サーバ hangar をポート ${o.port} で登録しました。`;
-  if (await (o.probe ?? probeHangar)(o.port)) return { ok: true, message: `${done}claude mcp list で Connected を確認できます。` };
+  const tail = lines.length ? `\n${lines.join('\n')}` : '';
+  if (await (o.probe ?? probeHangar)(o.port)) return { ok: true, message: `${done}claude mcp list で Connected を確認できます。${tail}` };
   // ポートがずれていても気付く手掛かりが無いので、ここで言う。
-  return { ok: true, message: `${done}\nただし、そのポートで hangar が応答しません。\`hangar start --port ${o.port}\` で起動してから、claude mcp list で Connected を確認してください。` };
+  return { ok: true, message: `${done}\nただし、そのポートで hangar が応答しません。\`hangar start --port ${o.port}\` で起動してから、claude mcp list で Connected を確認してください。${tail}` };
 }
 
 export async function runMcpUninstall(o: { exec?: CliExec } = {}): Promise<{ ok: boolean; message: string }> {

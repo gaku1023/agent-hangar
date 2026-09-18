@@ -87,6 +87,39 @@ describe('runMcpInstall', () => {
     expect(r.message).toContain('hangar start --port 4200');
   });
 
+  it('書き換える前に控えを取り、その場所を告げる', async () => {
+    fs.writeFileSync(claudeJson, JSON.stringify({ userID: 'u1' }), { mode: 0o600 });
+    const log = await runMcpInstall({ home, port: 4177, claudeJson, exec: okExec([]), probe: async () => true });
+    const backups = path.join(home, 'backups');
+    const files = fs.readdirSync(backups);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^claude\.json-\d{14}$/);
+    expect(JSON.parse(fs.readFileSync(path.join(backups, files[0]!), 'utf8'))).toEqual({ userID: 'u1' });
+    expect(log.message).toContain(path.join(backups, files[0]!));
+  });
+
+  it('別のプロセスが書いている最中なら、登録せずに閉じるよう促す', async () => {
+    fs.writeFileSync(claudeJson, JSON.stringify({ userID: 'u1' }), { mode: 0o600 });
+    const lock = `${fs.realpathSync(claudeJson)}.hangar-lock`;
+    fs.writeFileSync(lock, '99999 held');
+    try {
+      const r = await runMcpInstall({ home, port: 4177, claudeJson, exec: okExec([]), probe: async () => true, lockWaitMs: 50 });
+      expect(r.ok).toBe(false);
+      expect(r.message).toContain('Claude Code が設定を書いている最中のようです');
+      expect(JSON.parse(fs.readFileSync(claudeJson, 'utf8'))).toEqual({ userID: 'u1' });
+    } finally {
+      fs.unlinkSync(lock);
+    }
+  });
+
+  it('他人にも読める設定ファイルは、トークンを書く前に 0600 へ狭めて告げる', async () => {
+    fs.writeFileSync(claudeJson, JSON.stringify({ userID: 'u1' }), { mode: 0o600 });
+    fs.chmodSync(claudeJson, 0o644);
+    const r = await runMcpInstall({ home, port: 4177, claudeJson, exec: okExec([]), probe: async () => true });
+    expect(fs.statSync(claudeJson).mode & 0o777).toBe(0o600);
+    expect(r.message).toContain('0600');
+  });
+
   it('応答するときは起動の案内を出さない', async () => {
     const r = await runMcpInstall({ home, port: 4200, claudeJson, exec: okExec([]), probe: async () => true });
     expect(r.ok).toBe(true);
