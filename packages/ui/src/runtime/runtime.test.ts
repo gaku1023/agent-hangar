@@ -160,6 +160,20 @@ describe('createRuntime', () => {
     b.rt.start();
     expect(b.rt.getState().sessionView.s1).toMatchObject({ showThinking: true, showRaw: true, follow: true });
   });
+  it('保存済みの follow: false を無視し、開いた直後は必ず追う', () => {
+    // 遡るために一度上へスクロールしただけで follow: false が焼き付くと、次から最古の側で開いてしまう。
+    const b = harness();
+    b.store.set('sv:s1', { showThinking: true, follow: false });
+    b.rt.start();
+    expect(b.rt.getState().sessionView.s1).toMatchObject({ showThinking: true, follow: true });
+  });
+  it('follow は localStorage に残さない', () => {
+    const a = harness();
+    a.rt.start();
+    a.rt.emit({ type: 'transcript.follow', sessionId: 's1', follow: false });
+    expect(a.rt.getState().sessionView.s1).toMatchObject({ follow: false });
+    expect(Object.keys(a.store.get('sv:s1') as object)).not.toContain('follow');
+  });
   it('subscribe は状態かストアが変わるたびに呼ばれる', () => {
     const { rt } = harness();
     const cb = vi.fn();

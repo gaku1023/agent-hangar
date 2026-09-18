@@ -82,6 +82,9 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   const maxSeq = n > 0 ? props.items[n - 1]!.seq : null;
   // 追うのをやめた時点で見えていた最大の seq。新着はこれより新しい行だけを数える。
   const seenMax = useRef<number | null>(maxSeq);
+  // 見ている行の目印（その行の seq と、器の上端からその行の上端までのずれ）。
+  // 利用者がスクロールしたときだけ取り直し、それ以外の理由で位置が動いたらこの行へ戻す。
+  const anchor = useRef<{ seq: number; delta: number } | null>(null);
 
   const measureBox = useCallback(() => {
     const el = boxRef.current;
@@ -139,6 +142,10 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     if (!atBottom && props.follow && scrolledUp) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: false });
     // 末尾に着いたら追うのに戻すのは、新着が届くセッションだけでよい。live を見るのはこちらだけである。
     if (atBottom && !props.follow && props.live) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true });
+    // いま器の上端に掛かっている行を目印にする。描いてある内容はこの描画の offsets と一致している。
+    const top = Math.max(el.scrollTop - box.rowsTop, 0);
+    const at = rowWindow(offsets, top, top).first;
+    anchor.current = n > 0 && at < n ? { seq: props.items[at]!.seq, delta: top - offsets[at]! } : null;
   };
 
   // 高さは描くたびに積み直す。5,000 行でも足し算 5,000 回で、描画そのものより十分に軽い。
@@ -167,45 +174,47 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     usedRows.set(drawn[i]!.seq, { top: offsets[idx]!, height: offsets[idx + 1]! - offsets[idx]! });
   }
 
-  // 過去へ遡ったときは行が前に入る。増えた分だけスクロール位置を下へ送らないと、見ている行が古い側へ飛ぶ。
+  // 行が前に入ったか、並びか器の位置が変わったか。目印を当て直すのはこのときと、高さを測り直したときだけでよい。
   const firstSeq = n > 0 ? props.items[0]!.seq : null;
-  const prevFirstSeq = useRef<number | null>(firstSeq);
-  useLayoutEffect(() => {
-    const prev = prevFirstSeq.current;
-    prevFirstSeq.current = firstSeq;
-    if (props.follow || prev === null || firstSeq === null || firstSeq >= prev) return;
-    const added = props.items.findIndex((it) => it.seq === prev);
-    const el = boxRef.current;
-    if (added <= 0 || !el) return;
-    el.scrollTop += offsets[added]!;
-    lastScrollTop.current = el.scrollTop;
-    measureBox();
-  });
+  const layoutKey = `${n}:${firstSeq}:${maxSeq}:${box.rowsTop}`;
+  const lastLayoutKey = useRef(layoutKey);
 
   useLayoutEffect(() => {
     let changed = false;
     // 見ている位置より上にある行の高さが変わった分。この差だけスクロール位置をずらせば、見ている行は動かない。
-    let above = 0;
     for (const [seq, el] of rowEls.current) {
       const h = el.offsetHeight;
       // jsdom では高さが 0 になる。そのときは見積もりのままにして、測れた行だけを覚える。
       if (h <= 0) continue;
       const used = usedRows.get(seq);
       if (!used || Math.abs(used.height - h) < 1) continue;
-      if (used.top + used.height <= viewTop) above += h - used.height;
       measured.current.set(seq, h);
       changed = true;
     }
-    if (!changed) return;
+    const shifted = lastLayoutKey.current !== layoutKey;
+    lastLayoutKey.current = layoutKey;
     const el = boxRef.current;
-    // 測り直しで全体の高さが動くので、追っている間はその場で下端へ寄せ直す。
-    if (props.follow && el) el.scrollTop = el.scrollHeight;
-    // 遡っている最中は、上の行が伸び縮みした分だけスクロール位置を送って、見ている行をその場に留める。
-    else if (el && above !== 0) el.scrollTop += above;
-    if (el) lastScrollTop.current = el.scrollTop;
+    if (!el) { if (changed) remeasured(); return; }
+    let moved = false;
+    if (props.follow) {
+      // 測り直しで全体の高さが動くので、追っている間はその場で下端へ寄せ直す。
+      if (changed) { el.scrollTop = el.scrollHeight; moved = true; }
+    } else if (changed || shifted) {
+      // 目印の行の上端を、いま分かっている高さで出し直して、そこへ戻す。
+      // 前に入った行の見積もりの誤差も、窓の中の行の測り直しも、まとめてここで吸収する。
+      const a = anchor.current;
+      const idx = a ? props.items.findIndex((it) => it.seq === a.seq) : -1;
+      if (a && idx >= 0) {
+        let top = 0;
+        for (let i = 0; i < idx; i++) top += measured.current.get(props.items[i]!.seq) ?? estimateRow(props.items[i]!);
+        const rowsTop = rowsRef.current ? rowsRef.current.offsetTop - el.offsetTop : box.rowsTop;
+        const want = Math.max(top + a.delta + rowsTop, 0);
+        if (Math.abs(el.scrollTop - want) >= 1) { el.scrollTop = want; moved = true; }
+      }
+    }
     // scrollTop を書き換えても scroll は同じ間に届かないので、ここで測り直して窓を合わせる。
-    measureBox();
-    remeasured();
+    if (moved) { lastScrollTop.current = el.scrollTop; measureBox(); }
+    if (changed) remeasured();
   });
 
   const setRowEl = (seq: number) => (el: HTMLDivElement | null) => {

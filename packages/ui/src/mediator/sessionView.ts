@@ -4,10 +4,20 @@ export function defaultSessionView(): SessionViewState {
   return { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: null, transcriptOpen: true, split: false, splitTab: null };
 }
 
+/**
+ * localStorage に残す形。follow だけは残さない。
+ * 遡るために一度上へスクロールすると follow: false が焼き付き、次からそのセッションは最古の側で開いてしまう。
+ * 追うかどうかはその場の操作で決まるものなので、開くたびに既定（真）から始める。
+ */
+export function persistedSessionView(v: SessionViewState): Omit<SessionViewState, 'follow'> {
+  const { follow: _drop, ...rest } = v;
+  return rest;
+}
+
 function patch(state: State, id: string, p: Partial<SessionViewState>): Step {
   const cur = state.sessionView[id] ?? defaultSessionView();
   const next = { ...cur, ...p };
-  const effects: Effect[] = [{ kind: 'storage.save', key: `sv:${id}`, value: next }];
+  const effects: Effect[] = [{ kind: 'storage.save', key: `sv:${id}`, value: persistedSessionView(next) }];
   return { state: { ...state, sessionView: { ...state.sessionView, [id]: next } }, effects };
 }
 

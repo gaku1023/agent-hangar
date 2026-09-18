@@ -241,7 +241,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     subscribe: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
     start() {
       const sv: Record<string, SessionViewState> = {};
-      for (const k of deps.storage.keys()) if (k.startsWith('sv:')) { const v = deps.storage.get(k); if (v && typeof v === 'object') sv[k.slice(3)] = { ...defaultSessionView(), ...(v as Partial<SessionViewState>) }; }
+      for (const k of deps.storage.keys()) {
+        if (!k.startsWith('sv:')) continue;
+        const v = deps.storage.get(k);
+        if (!v || typeof v !== 'object') continue;
+        // follow は残さない決まりだが、古い保存に残っていることがある。読み戻すときに落として既定（真）に戻す。
+        const { follow: _ignore, ...rest } = v as Partial<SessionViewState>;
+        sv[k.slice(3)] = { ...defaultSessionView(), ...rest };
+      }
       state = { ...state, sessionView: sv };
       ws = deps.ws({
         onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),

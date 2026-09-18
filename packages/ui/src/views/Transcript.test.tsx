@@ -162,6 +162,36 @@ describe('Transcript の仮想スクロール', () => {
     expect(t.el.scrollTop).toBe(10_000 + 500 * 56);
     expect(t.seqs()).toEqual(before);
   });
+  it('古い行を前に足しても、高さを測り直しても、見ていた行は 1px も動かない', () => {
+    // 行の器だけが 200px の世界を作る。前に入る 500 行の見積もり（56px）は実寸と食い違う。
+    // 窓の外の行は描かれないので測れない。それでも見ていた行は動いてはならない。
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return this.classList.contains('tr-row') ? 200 : 0; } });
+    try {
+      const t = draw({ items: many(500, 500), follow: false, hasMore: true, remaining: 500 });
+      t.scrollTo(10_000);
+      // 窓の真ん中の行が、器の上端から何 px のところに見えているか。
+      const at = (seq: number) => {
+        const rows = t.container.querySelector('.tr-rows') as HTMLElement;
+        let y = parseFloat(rows.style.paddingTop || '0');
+        for (const el of t.container.querySelectorAll('.tr-row')) {
+          if (Number(el.getAttribute('data-seq')) === seq) return y - t.el.scrollTop;
+          y += (el as HTMLElement).offsetHeight || 56;
+        }
+        return null;
+      };
+      const seqs = t.seqs();
+      const target = seqs[Math.floor(seqs.length / 2)]!;
+      const before = at(target);
+      expect(before).not.toBeNull();
+      t.redraw({ items: [...many(500, 0), ...many(500, 500)] });
+      const after = at(target);
+      expect(after).not.toBeNull();
+      expect(Math.abs(after! - before!)).toBeLessThan(1);
+    } finally {
+      if (desc) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', desc);
+    }
+  });
   it('過去へ遡って行が増えても新着の数は動かない', () => {
     const t = draw({ items: many(500, 500), follow: false, live: true, hasMore: true, remaining: 500 });
     t.redraw({ items: [...many(500, 500), ...many(3, 1000)] });
