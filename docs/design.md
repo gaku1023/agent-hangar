@@ -145,14 +145,16 @@ type Intent =
   | { type: 'search.query'; text: string } | { type: 'search.filter'; patch: Partial<SearchFilter> }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; name: string; gitInit: boolean; startSession: boolean }
+  | { type: 'project.resolve.open'; id: ProjectId }
   | { type: 'project.resolve'; id: ProjectId; action: { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' } }
+  | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
   | { type: 'todo.add'; projectId: ProjectId; text: string } | { type: 'todo.toggle'; id: TodoId } | { type: 'todo.remove'; id: TodoId }
   | { type: 'memo.save'; projectId: ProjectId; markdown: string }
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string }
   | { type: 'session.open'; id: SessionId } | { type: 'session.setMemo'; id: SessionId; text: string }
   | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams }
   | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId } | { type: 'session.kill'; runId: RunId }
-  | { type: 'session.openTerminalApp'; runId: RunId } | { type: 'session.openEditor'; sessionId: SessionId }
+  | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; moveFiles: boolean }
   | { type: 'session.takeover'; id: SessionId; force: boolean }
   | { type: 'summary.toggle'; sessionId: SessionId } | { type: 'summary.regenerate'; sessionId: SessionId }
@@ -198,8 +200,8 @@ type Intent =
 | 任意 | `nav.go(to)` | `to` | URL 更新 |
 | `overlay: none` | `session.new.open` | `overlay: newSession` | フォーカスを名前欄へ |
 | `launch: idle` | `session.new.submit` | `launch: submitting` | `POST /api/runs` |
-| `launch: submitting` | `ServerEvent.runStarted` | `launch: idle`, `screen: session(id)` | ターミナル接続 |
-| `launch: submitting` | `ServerEvent.runFailed` | `launch: failed` | トースト |
+| `launch: submitting` | `POST /api/runs` の応答 | `launch: idle`, `screen: session(id)` | ターミナル接続 |
+| `launch: submitting` | `POST /api/runs` の失敗 | `launch: failed` | ダイアログ内に理由 |
 | `session(id)` | `tab.open(shell)` | タブ追加 | `POST /api/runs/:id/tabs` |
 | `session(id)` | `session.takeover` | `overlay: takeover` | `POST /api/sessions/:id/takeover` |
 | 任意 | `ServerEvent.projectUnresolved(id)` | `overlay: resolveProject(id)` | なし |
@@ -485,10 +487,13 @@ iTerm2 のネイティブペインに変わるのを避けるためである。
 ```sh
 tmux new-session -d -s hangar-<runShort> -c <cwd> -- \
   env HANGAR_RUN_ID=<runId> \
-  claude --session-id <sessionUuid> -n "<name>" \
-    --append-system-prompt "<生成した指示>" \
+  bash ~/.agent-hangar/bin/hangar-run.sh ~/.agent-hangar/logs/run-<runId>.log \
+  claude \
     --mcp-config '{"mcpServers":{"hangar":{"type":"http","url":"http://127.0.0.1:4177/mcp/s/<sessionId>","headers":{"Authorization":"Bearer <token>"}}}}' \
-    [--model <m>] [--effort <e>] [--permission-mode <p>] [-w <name>] [--add-dir <dir>]... \
+    [--add-dir <dir>]... \
+    --session-id <sessionUuid> -n "<name>" \
+    --append-system-prompt "<生成した指示>" \
+    [--model <m>] [--effort <e>] [--permission-mode <p>] [-w <name>] \
     ["<初期プロンプト>"]
 ```
 
@@ -617,6 +622,8 @@ Haiku でも思考が走り 20〜40 秒かかるため、事後生成は背景�
 サーバは 127.0.0.1 にだけバインドする。
 ブラウザで開いた他のサイトからの要求を拒むため、`Origin` ヘッダを `http://localhost:4177`、`http://127.0.0.1:4177`、`http://localhost:5173`、`http://127.0.0.1:5173`、`tauri://localhost` に限る。
 5173 の 2 つは、開発時に Vite の代理を通すための許可である。
+MCP はこの一覧を使わず、`http://localhost:4177`、`http://127.0.0.1:4177`、`tauri://localhost` の 3 つに限る。
+MCP クライアントは `Origin` を送らないので、ヘッダが無い要求は通す。
 API と MCP は、`~/.agent-hangar/token`（権限 0600）に置いたローカルトークンを Bearer で要求する。
 UI は、サーバが index.html を配信するときに `SameSite=Strict` の HttpOnly クッキーとして同じトークンを受け取る。
 MCP クライアントには、`hangar mcp install` と `--mcp-config` がヘッダ付きの設定を書くので、利用者がトークンを扱う場面はない。
@@ -748,7 +755,9 @@ active、paused、done のセクションに分けてカードを並べ、archiv
 
 実行中のセッションは、ターミナルを主、ライブトランスクリプトを従に置く。
 上部にタブ列があり、タブ 0 が Claude、以降がシェルである。
-開いた実行中セッションはタブとして保持し、切り替えてもターミナル接続とスクロール位置を維持する。
+セッション画面を離れると、そのセッションのターミナル接続は切る。
+xterm のインスタンスとスクロールバッファは残すので、戻ればすぐ描かれ、`tmux attach` が現在の画面を描き直す。
+接続を持ち続けると、渡り歩いたセッションの数だけ `tmux attach` のプロセスが残るためである。
 2 つのタブを横に並べる分割表示ができる。
 トランスクリプトペーンは横に折りたためる。
 
@@ -785,6 +794,7 @@ active、paused、done のセクションに分けてカードを並べ、archiv
 ## 見た目と動き
 
 常にライトで、ダークモードは持たない。
+例外はターミナルの面だけで、そこは端末エミュレータの慣習に合わせて暗い配色（`--term-bg`、`--term-fg`）にする。
 参照するのは Linear である。
 色はデザイントークンとして `:root` に定義する。
 面は白と淡いグレー、アクセントは 1 色、状態色（busy、idle、終了、エラー）は控えめな彩度にする。
@@ -911,8 +921,8 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - **フェーズ 0**：危ない前提を捨てられる小さなスクリプトで検証する。計画は `docs/plans/phase0-spikes.md`。
 - **フェーズ 1**：サーバ、インデクサ、読み取り専用の UI。Projects、セッション一覧、トランスクリプト、Sessions（検索）、土台の要約。計画は `docs/plans/phase1-readonly.md`。
 - **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。計画は `docs/plans/phase2-launch.md`。
-- **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。計画は `docs/plans/phase3-workbench.md`（執筆中）。
-- **フェーズ 4**：クラウド同期と引き継ぎ。計画は `docs/plans/phase4-sync.md`（執筆中）。
+- **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。計画は `docs/plans/phase3-workbench.md`。
+- **フェーズ 4**：クラウド同期と引き継ぎ。計画は `docs/plans/phase4-sync.md`。
 - **フェーズ 5**：Tauri のシェル、ディープリンク、Releases。計画は `docs/plans/phase5-desktop.md`。
 
 ## 決めた前提と未決事項
@@ -937,11 +947,18 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - 開発時は Vite（ポート 5173）が `/api` と `/ws` をサーバへプロキシし、プロキシがトークンを `Authorization` ヘッダに付ける。本番はサーバが `packages/ui/dist` を配信し、`index.html` の応答で `hangar_token` クッキー（HttpOnly、SameSite=Strict）を渡す。
 - 一覧の初期データは `GET /api/bootstrap` で全セッションの軽い行をまとめて返す。手元の規模（数百セッション）では 1MB 未満で、ページングは持たない。
 - UI のテストのうち `src/views/**`、`src/intent/**`、`src/Root.test.tsx` は jsdom で走らせる。Vitest の入れ子プロジェクトで環境ごとに分ける。
-- ダークモードは持たない（2026-09-17 の決定）。OS のダーク設定にも従わない。
+- ダークモードは持たない（2026-09-17 の決定）。OS のダーク設定にも従わない。ターミナルの面だけが例外である。
+- タブ 0（Claude）の ID は run の ID そのもので、`run_tabs` に行は作らない。シェルタブの ID は `run_tabs.id` である。
+- tmux のセッション名は run が `hangar-<shortId(runId)>`、シェルタブが `hangar-<runShort>-t<n>` で、`<n>` は閉じたものを含むタブ数に 1 を足す。閉じた番号は再利用しない。
+- tmux の target は必ず `=<name>` の完全一致で指定する。素の名前は前方一致に落ちるので、`hangar-X` が消えているとそのシェルタブ `hangar-X-t1` に当たる。
+- `tmux` の呼び出しに失敗したときは「セッションが無い」ではなく「観測できなかった」として扱い、生きた run を閉じない。`tmux` が一瞬入れ替わるだけで、動いている run が全部終了扱いになるためである。
+- `claude` の起動に失敗し、本文ファイルも索引の行も無く、他に run も無いセッションの行は消す。残すと再開もフォークもできない空の行が一覧の先頭に溜まる。
+- 対話セッションで user スコープの `hangar` と `--mcp-config` の `hangar` が同時に読まれても、Claude Code は名前で併合するので `/mcp` には 1 つだけ出る（2026-09-18 に実機で確認）。
+- PTY の中継は `/ws/pty?tab=<tabId>` で、`/ws` と同じ認証を通す。WebSocket が閉じたら `tmux attach` のクライアントだけを殺し、tmux セッションは残す。
+- 起動ダイアログの model、effort、permission mode、worktree、追加ディレクトリは空欄を既定にし、空欄の項目は起動引数に含めない。
 
 未決事項は次のとおりである。
 
 - 未署名の `.app` を配布したときの Gatekeeper の扱い。家族に渡す手順（右クリックで開く）か署名の取得かを、フェーズ 5 で決める。
-- 対話セッションで user スコープの hangar MCP とセッション別 URL の MCP が同時に読み込まれると、同名のツールが 2 つ見える。ツール名を分けるか、片方を無効にする方法をフェーズ 2 で決める。
 - 権限確認ダイアログの待ちがレジストリで `waiting` になるか `busy` のままかは、auto モード以外で確かめる。
 - OpenCode Provider の詳細設計。フェーズ 3 以降に別文書で書く。
