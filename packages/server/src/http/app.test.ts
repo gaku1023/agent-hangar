@@ -125,7 +125,7 @@ describe('routes', () => {
     }
     const r = await get(`/api/sessions/${alpha.id}/events`);
     expect(r.status).toBe(404);
-    expect(await r.json()).toEqual({ error: 'transcript not found' });
+    expect(await r.json()).toEqual({ error: 'このセッションの本文ファイルが見つかりません。Settings の「索引を作り直す」を試してください' });
   });
   it('検索', async () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
@@ -286,5 +286,31 @@ describe('routes', () => {
     } finally {
       fs.rmSync(dist, { recursive: true, force: true });
     }
+  });
+});
+
+describe('失敗の理由', () => {
+  const patch = (p: string, body: unknown) => app.request(p, { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const post = (p: string, body: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const reason = async (r: Response) => ((await r.json()) as { error: string }).error;
+
+  it('利用者に見える失敗は日本語で理由を返す', async () => {
+    // UI は本文の error をそのままトーストに出す。経路によって英語と日本語が混ざらないようにする。
+    const { body: list } = await json(await get('/api/projects'));
+    const id = list[0].id;
+    expect(await reason(await get('/api/projects/nope'))).toBe('プロジェクトが見つかりません');
+    expect(await reason(await patch(`/api/projects/${id}`, { status: 'bogus' }))).toBe('ステータスは active、paused、done、archived のいずれかです');
+    expect(await reason(await patch('/api/projects/nope', { status: 'done' }))).toBe('プロジェクトが見つかりません');
+    expect(await reason(await post(`/api/projects/${id}/resolve`, { kind: 'bogus' }))).toBe('操作の種類が正しくありません。repoint、archive、unlink のいずれかを指定してください');
+    expect(await reason(await post(`/api/projects/${id}/resolve`, { kind: 'repoint', path: `${ws}/nowhere` }))).toBe('指定したディレクトリが見つかりません。存在するディレクトリを選び直してください');
+    expect(await reason(await post('/api/projects/nope/resolve', { kind: 'archive' }))).toBe('プロジェクトが見つかりません');
+    expect(await reason(await get('/api/sessions/nope'))).toBe('セッションが見つかりません');
+    expect(await reason(await patch('/api/settings', { token: 'stolen' }))).toBe('更新できる設定が含まれていません');
+  });
+
+  it('認証の拒否は機械向けの語を残す', async () => {
+    // ここはブラウザの UI が普段は踏まない経路で、読み手は curl や別サイトからの要求である。
+    expect(await reason(await get('/api/bootstrap', {}))).toBe('unauthorized');
+    expect(await reason(await get('/api/bootstrap', { ...H, origin: 'https://evil.example' }))).toBe('origin not allowed');
   });
 });

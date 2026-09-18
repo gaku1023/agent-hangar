@@ -95,14 +95,14 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/projects', (c) => c.json(listProjects(db, deviceId, deps.live())));
   api.get('/projects/:id', (c) => {
     const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
-    return p ? c.json(p) : c.json({ error: 'not found' }, 404);
+    return p ? c.json(p) : c.json({ error: 'プロジェクトが見つかりません' }, 404);
   });
   api.patch('/projects/:id', async (c) => {
     const id = c.req.param('id');
     const body = (await c.req.json().catch(() => ({}))) as { status?: string };
-    if (!body.status || !STATUSES.has(body.status)) return c.json({ error: 'invalid status' }, 400);
+    if (!body.status || !STATUSES.has(body.status)) return c.json({ error: 'ステータスは active、paused、done、archived のいずれかです' }, 400);
     const row = db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
-    if (!row) return c.json({ error: 'not found' }, 404);
+    if (!row) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
     upsertShared(db, 'projects', { ...row, status: body.status }, deviceId);
     const p = getProject(db, deviceId, deps.live(), id)!;
     deps.hub.broadcast({ type: 'project.upsert', project: p });
@@ -112,9 +112,9 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/projects/:id/resolve', async (c) => {
     const id = c.req.param('id');
     const action = (await c.req.json().catch(() => null)) as ResolveAction | null;
-    if (!action || !RESOLVE_KINDS.has(action.kind)) return c.json({ error: 'invalid action' }, 400);
-    if (action.kind === 'repoint' && (typeof action.path !== 'string' || !fs.existsSync(action.path))) return c.json({ error: 'path not found' }, 400);
-    if (!getProject(db, deviceId, deps.live(), id)) return c.json({ error: 'not found' }, 404);
+    if (!action || !RESOLVE_KINDS.has(action.kind)) return c.json({ error: '操作の種類が正しくありません。repoint、archive、unlink のいずれかを指定してください' }, 400);
+    if (action.kind === 'repoint' && (typeof action.path !== 'string' || !fs.existsSync(action.path))) return c.json({ error: '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください' }, 400);
+    if (!getProject(db, deviceId, deps.live(), id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
     resolveProject(db, deviceId, id, action);
     const p = getProject(db, deviceId, deps.live(), id);
     if (p) deps.hub.broadcast({ type: 'project.upsert', project: p });
@@ -126,7 +126,7 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/sessions', (c) => c.json(listSessions(db, deps.live(), { projectId: c.req.query('projectId') })));
   api.get('/sessions/:id', (c) => {
     const s = getSession(db, deps.live(), c.req.param('id'));
-    return s ? c.json(s) : c.json({ error: 'not found' }, 404);
+    return s ? c.json(s) : c.json({ error: 'セッションが見つかりません' }, 404);
   });
   api.get('/sessions/:id/events', (c) => {
     const q = c.req.query();
@@ -134,7 +134,7 @@ export function createApp(deps: AppDeps): Hono {
       return c.json(readEvents(db, c.req.param('id'), { fromSeq: numberOr(q.fromSeq), limit: numberOr(q.limit), agentId: q.agentId || null }));
     } catch (e) {
       // 索引はあるのに本文ファイルが消えている場合だけ 404 にし、他は 500 に任せる。
-      if (isEnoent(e)) return c.json({ error: 'transcript not found' }, 404);
+      if (isEnoent(e)) return c.json({ error: 'このセッションの本文ファイルが見つかりません。Settings の「索引を作り直す」を試してください' }, 404);
       throw e;
     }
   });
@@ -170,7 +170,7 @@ export function createApp(deps: AppDeps): Hono {
       if (typeof v !== 'string' || !TERMINAL_APPS.has(v)) return c.json({ error: 'terminalApp は terminal か iterm です' }, 400);
       patch.terminalApp = v as TerminalApp;
     }
-    if (Object.keys(patch).length === 0) return c.json({ error: 'no known settings' }, 400);
+    if (Object.keys(patch).length === 0) return c.json({ error: '更新できる設定が含まれていません' }, 400);
     const before = deps.settings();
     const s = deps.updateSettings(patch);
     // ワークスペースが変わったら、その場でプロジェクトを登録し直して結果を配る。
