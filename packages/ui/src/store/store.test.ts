@@ -211,6 +211,18 @@ describe('store の同期', () => {
     expect(s.devices).toHaveLength(1);
     expect(applyServerEvent(s, { type: 'sync.applied', table: 'projects', rowId: 'p1' })).toBe(s);
   });
+  it('bootstrap が運ぶ sync と devices をそのまま入れる', () => {
+    const sync = { state: 'idle' as const, url: 'https://h', lastPushAt: 1000, lastPullAt: 2000, pending: 5, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false } };
+    const s = applyBootstrap(initialStore(), { ...boot, sync, devices: [{ id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false }] });
+    expect(s.sync).toEqual(sync);
+    expect(s.devices).toHaveLength(1);
+  });
+  it('sync と devices を持たない古いサーバでも壊れない', () => {
+    const { sync: _sync, devices: _devices, ...older } = boot;
+    const s = applyBootstrap(initialStore(), older as BootstrapDto);
+    expect(s.sync).toBeNull();
+    expect(s.devices).toEqual([]);
+  });
   it('参加トークンと設定の下見を持つ', () => {
     let s = initialStore();
     expect(s.joinToken).toBeNull();

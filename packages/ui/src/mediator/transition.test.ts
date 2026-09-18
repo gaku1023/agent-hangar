@@ -597,10 +597,62 @@ describe('この PC で再開', () => {
     expect(closed.effects).toEqual([]);
   });
   it('確認ダイアログを閉じても、待っている未解決プロジェクトは順番に出る', () => {
-    const queued = run([server({ type: 'project.unresolved', projectId: 'p1' }), runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })]);
+    // p1 が出ていて p2 が待っているところへ 409 が割り込む。
+    const queued = run([
+      server({ type: 'project.unresolved', projectId: 'p1' }),
+      server({ type: 'project.unresolved', projectId: 'p2' }),
+      runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 }),
+    ]);
     expect(queued.state.overlay.kind).toBe('confirm');
-    const closed = run([intent({ type: 'overlay.close' })], queued.state);
-    expect(closed.state.overlay).toEqual({ kind: 'none' });
+    // 追い出された p1 はキューの先頭に戻る。並びは p1、p2 のままである。
+    expect(queued.state.unresolvedQueue).toEqual(['p1', 'p2']);
+    const a = run([intent({ type: 'overlay.close' })], queued.state);
+    expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    const b = run([intent({ type: 'overlay.close' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p2' });
+    const c = run([intent({ type: 'overlay.close' })], b.state);
+    expect(c.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('409 の割り込みは、出ていた未解決プロジェクトを落とさない', () => {
+    const r = run([server({ type: 'project.unresolved', projectId: 'p1' }), runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })]);
+    expect(r.state.overlay.kind).toBe('confirm');
+    expect(r.state.unresolvedQueue).toEqual(['p1']);
+    // 確認を閉じれば、割り込まれた p1 がそのまま出直す。
+    expect(run([intent({ type: 'overlay.close' })], r.state).state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+  });
+  it('409 が二度届いても、同じ未解決プロジェクトを二重に積まない', () => {
+    const conflict = runtime({ type: 'api.conflict' as const, kind: 'resumeHere' as const, sessionId: 's1', localSize: 1, remoteSize: 2 });
+    const r = run([server({ type: 'project.unresolved', projectId: 'p1' }), conflict, conflict]);
+    expect(r.state.unresolvedQueue).toEqual(['p1']);
+  });
+  it('この PC で再開は二重送信を捨てる', () => {
+    // 起動と昇格と同じ歯止めで、run が 2 つ立つのを防ぐ。
+    const a = run([intent({ type: 'session.resumeHere', id: 's1' }), intent({ type: 'session.resumeHere', id: 's1' })]);
+    expect(a.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: false }]);
+    expect(a.state.launch).toEqual({ kind: 'submitting' });
+    // 409 は要求が終わった合図でもある。ここで解かないと確認に答えられない。
+    const b = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })], a.state);
+    expect(b.state.launch).toEqual({ kind: 'idle' });
+    // 承諾の二連打も 1 回しか飛ばない。
+    const c = run([intent({ type: 'session.resumeHere', id: 's1', overwrite: true }), intent({ type: 'session.resumeHere', id: 's1', overwrite: true })], b.state);
+    expect(c.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: true }]);
+    expect(c.state.launch).toEqual({ kind: 'submitting' });
+    // 起動と同じ状態を使うので、結果が届けば launchStep が idle に戻す。
+    const d = run([runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], c.state);
+    expect(d.state.launch).toEqual({ kind: 'idle' });
+    // 解けたあとはまた押せる。
+    expect(run([intent({ type: 'session.resumeHere', id: 's1' })], d.state).effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: false }]);
+  });
+  it('確認が出ている最中に接続が切れて戻っても、確認はそのまま残る', () => {
+    const open = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 10, remoteSize: 99 })]);
+    const r = run([runtime({ type: 'ws.close' }), runtime({ type: 'ws.open' })], open.state);
+    expect(r.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's1', localSize: 10, remoteSize: 99 } });
+    expect(r.effects.at(-1)).toEqual({ kind: 'api.bootstrap' });
+  });
+  it('別のセッションに移っても確認はそのまま残る', () => {
+    const open = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 10, remoteSize: 99 })]);
+    const r = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's2' } })], open.state);
+    expect(r.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's1', localSize: 10, remoteSize: 99 } });
   });
   it('確認ダイアログが出ていないときの再開は、開いているオーバーレイを閉じない', () => {
     const open = run([intent({ type: 'palette.open' })]);
