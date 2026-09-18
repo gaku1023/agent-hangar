@@ -1,6 +1,7 @@
 import type { ProjectStatus } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { ProjectCardProps } from '../presenters/projects.ts';
+import { Icon } from './primitives/Icon.tsx';
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
 
@@ -18,7 +19,7 @@ export function ProjectCard(props: ProjectCardProps) {
       <div className="mono faint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {props.path ?? 'この端末にパスがありません'}
         {!props.resolved && props.path && (
-          <button className="btn" style={{ marginLeft: 8 }} onClick={(e) => { e.stopPropagation(); emit({ type: 'project.resolve.open', id: props.id }); }} onKeyDown={(e) => e.stopPropagation()}>（見つかりません）</button>
+          <button className="btn" style={{ marginLeft: 8 }} onClick={(e) => { e.stopPropagation(); emit({ type: 'project.resolve.open', id: props.id }); }} onKeyDown={(e) => e.stopPropagation()}><Icon name="warning" />（見つかりません）</button>
         )}
       </div>
       <div className="muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{props.lastOneLiner ?? 'セッションはまだありません'}</div>

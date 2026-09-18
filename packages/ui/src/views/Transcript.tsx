@@ -2,16 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { TranscriptItem } from '../presenters/session.ts';
 import { Fold } from './primitives/Fold.tsx';
+import { Icon } from './primitives/Icon.tsx';
 
 function ToolItem({ sessionId, item }: { sessionId: string; item: Extract<TranscriptItem, { kind: 'tool' }> }) {
   const emit = useEmit();
   return (
     <div className={`tool ${item.result?.isError ? 'tool-error' : ''}`}>
-      <Fold summary={<><span className="mono">{item.summary}</span><span className="faint mono" style={{ marginLeft: 'auto' }}>{item.when}</span></>}>
+      <Fold summary={<><Icon name="tool" /><span className="mono">{item.summary}</span><span className="faint mono" style={{ marginLeft: 'auto' }}>{item.when}</span></>}>
         <div className="tool-body mono">{item.inputJson}</div>
         {item.result && <div className="tool-body mono" style={{ marginTop: 4 }}>{item.result.text || '（出力なし）'}</div>}
       </Fold>
-      {item.subagent && <div className="sub"><button className="btn" onClick={() => emit({ type: 'transcript.selectAgent', sessionId, agentId: item.subagent!.agentId })}>サブエージェント {item.subagent.agentId} を見る</button></div>}
+      {item.subagent && <div className="sub"><button className="btn" onClick={() => emit({ type: 'transcript.selectAgent', sessionId, agentId: item.subagent!.agentId })}><Icon name="subagent" />サブエージェント {item.subagent.agentId} を見る</button></div>}
     </div>
   );
 }

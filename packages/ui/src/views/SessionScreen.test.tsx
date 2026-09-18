@@ -103,3 +103,37 @@ describe('SessionScreen（実行中）', () => {
     expect(screen.getByText('再開')).toBeEnabled();
   });
 });
+
+const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('data-icon') ?? null;
+
+describe('SessionScreen のアイコン', () => {
+  it('操作ボタンは文字の名前を保ったままアイコンを持つ', () => {
+    withHost(<SessionScreen {...running} terminalStatus="connected" />);
+    expect(iconOf(screen.getByRole('button', { name: 'ターミナルで開く' }))).toBe('openTerminal');
+    expect(iconOf(screen.getByRole('button', { name: '停止' }))).toBe('stop');
+    expect(iconOf(screen.getByRole('button', { name: '再開' }))).toBe('resume');
+    expect(iconOf(screen.getByRole('button', { name: 'フォーク' }))).toBe('fork');
+    expect(iconOf(screen.getByRole('button', { name: 'VS Code で開く' }))).toBe('openEditor');
+  });
+  it('タブは種類ごとのアイコンを持ち、閉じると追加は読み上げ名を保つ', () => {
+    withHost(<SessionScreen {...running} terminalStatus="connected" />);
+    expect(iconOf(screen.getByRole('tab', { name: /Claude/ }))).toBe('agent');
+    expect(iconOf(screen.getByRole('tab', { name: /シェル 1/ }))).toBe('shell');
+    expect(iconOf(screen.getByRole('button', { name: 'シェル 1 を閉じる' }))).toBe('close');
+    expect(iconOf(screen.getByRole('button', { name: 'シェルタブを追加' }))).toBe('add');
+  });
+  it('トランスクリプトの開閉は向きの違うアイコンになる', () => {
+    withHost(<SessionScreen {...running} terminalStatus="connected" />);
+    expect(iconOf(screen.getByRole('button', { name: 'トランスクリプトを閉じる' }))).toBe('paneClose');
+    cleanup();
+    withHost(<SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" />);
+    expect(iconOf(screen.getByRole('button', { name: 'トランスクリプトを開く' }))).toBe('paneOpen');
+  });
+  it('ツール呼び出しとサブエージェントと折りたたみの矢印', () => {
+    render(<IntentRoot onIntent={vi.fn()}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
+    const tool = screen.getByText('Edit /a').closest('.tool')!;
+    expect(tool.querySelector('.fold-arrow svg')?.getAttribute('data-icon')).toBe('chevron');
+    expect(tool.querySelector('.fold-head svg[data-icon="tool"]')).not.toBeNull();
+    expect(iconOf(screen.getByRole('button', { name: 'サブエージェント abc を見る' }))).toBe('subagent');
+  });
+});

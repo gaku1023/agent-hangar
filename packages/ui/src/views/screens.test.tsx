@@ -70,3 +70,18 @@ describe('ProjectScreen', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.openTerminalApp', id: 'alpha' });
   });
 });
+
+const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('data-icon') ?? null;
+
+describe('プロジェクトまわりのアイコン', () => {
+  it('ProjectScreen の操作ボタン', () => {
+    render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} /></IntentRoot>);
+    expect(iconOf(screen.getByRole('button', { name: '新規セッション' }))).toBe('add');
+    expect(iconOf(screen.getByRole('button', { name: 'VS Code で開く' }))).toBe('openEditor');
+    expect(iconOf(screen.getByRole('button', { name: 'ターミナルで開く' }))).toBe('openTerminal');
+  });
+  it('見つからないプロジェクトのカードは警告のアイコンを出す', () => {
+    render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('gone'), resolved: false }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    expect(iconOf(screen.getByRole('button', { name: /見つかりません/ }))).toBe('warning');
+  });
+});

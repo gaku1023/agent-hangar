@@ -2,6 +2,7 @@ import { useEmit } from '../intent/chain.tsx';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalStatus } from '../runtime/terminals.ts';
 import { StatusDot } from './primitives/StatusDot.tsx';
+import { Icon } from './primitives/Icon.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
 import { Transcript } from './Transcript.tsx';
@@ -24,11 +25,11 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         <h1 className="h1" style={{ margin: 0 }}>{props.name}</h1>
         {props.projectName && <a href="#" onClick={(e) => { e.preventDefault(); if (props.projectId) emit({ type: 'project.open', id: props.projectId }); }}>{props.projectName}</a>}
         <span className="spacer" />
-        {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined })}>ターミナルで開く</button>}
-        {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.kill', runId: run.id })}>停止</button>}
-        <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.resume', id })}>再開</button>
-        <button className="btn" disabled={!props.canFork} onClick={() => emit({ type: 'session.fork', id })}>フォーク</button>
-        <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}>VS Code で開く</button>
+        {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined })}><Icon name="openTerminal" />ターミナルで開く</button>}
+        {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.kill', runId: run.id })}><Icon name="stop" />停止</button>}
+        <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.resume', id })}><Icon name="resume" />再開</button>
+        <button className="btn" disabled={!props.canFork} onClick={() => emit({ type: 'session.fork', id })}><Icon name="fork" />フォーク</button>
+        <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}><Icon name="openEditor" />VS Code で開く</button>
       </div>
       <div className="mono faint" style={{ display: 'flex', gap: 16, margin: '4px 0 8px', flexWrap: 'wrap' }}>
         <span>{props.cwd}</span><span>{props.model}{props.effort ? ` · ${props.effort}` : ''}</span><span>{props.turns} ターン</span><span>{props.tokens} tokens</span>
@@ -81,7 +82,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         <div className="split" style={{ gridTemplateColumns: props.transcriptOpen ? 'minmax(0, 1fr) minmax(320px, 38%)' : 'minmax(0, 1fr) 28px' }}>
           <TerminalPane tabId={props.selectedTab} status={props.terminalStatus} hint={hint} />
           <aside className="tr-pane">
-            <button className="tr-toggle" aria-label={props.transcriptOpen ? 'トランスクリプトを閉じる' : 'トランスクリプトを開く'} onClick={() => emit({ type: 'transcript.toggle' })}>{props.transcriptOpen ? '⟩' : '⟨'}</button>
+            <button className="tr-toggle" aria-label={props.transcriptOpen ? 'トランスクリプトを閉じる' : 'トランスクリプトを開く'} onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>
             {props.transcriptOpen && <>{toggles}{transcript}</>}
           </aside>
         </div>

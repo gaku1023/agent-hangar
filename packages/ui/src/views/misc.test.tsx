@@ -175,3 +175,13 @@ describe('SessionRows（抜粋つき）', () => {
     expect(wrapOf('nb').style.height).toBe('88px');
   });
 });
+
+describe('ResolveProjectDialog のアイコン', () => {
+  it('三つの解決はそれぞれのアイコンを持つ', () => {
+    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    const iconOf = (name: string) => screen.getByRole('button', { name }).querySelector('svg')?.getAttribute('data-icon') ?? null;
+    expect(iconOf('この場所にする')).toBe('repoint');
+    expect(iconOf('アーカイブにする')).toBe('archive');
+    expect(iconOf('紐づけを削除')).toBe('unlink');
+  });
+});

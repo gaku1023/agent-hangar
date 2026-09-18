@@ -28,3 +28,15 @@ describe('Shell', () => {
     expect(screen.getByText('索引 3 / 9 件')).toBeInTheDocument();
   });
 });
+
+const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('data-icon') ?? null;
+
+describe('Shell のアイコン', () => {
+  it('ナビの各項目と新規セッションのボタンにアイコンが付く', () => {
+    render(<IntentRoot onIntent={vi.fn()}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
+    const nav = screen.getByRole('navigation');
+    expect(iconOf(within(nav).getByRole('link', { name: 'Home' }))).toBe('home');
+    expect(iconOf(within(nav).getByRole('link', { name: 'Projects' }))).toBe('projects');
+    expect(iconOf(screen.getByRole('button', { name: '新規セッション' }))).toBe('add');
+  });
+});

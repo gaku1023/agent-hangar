@@ -2,6 +2,7 @@ import { formatRoute } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import { isComposing } from './ime.ts';
 import type { ShellProps } from '../presenters/shell.ts';
+import { Icon } from './primitives/Icon.tsx';
 
 export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string; connection: ShellProps['connection']; indexLabel: string | null }) {
   const emit = useEmit();
@@ -15,7 +16,7 @@ export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string
       <input id="global-search" className="input search-box" type="search" role="searchbox" placeholder="セッションを検索（/）" defaultValue={props.searchText}
         onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.query', text: (e.target as HTMLInputElement).value }); }} />
       <span className="spacer" />
-      <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open' })}>新規セッション</button>
+      <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open' })}><Icon name="add" />新規セッション</button>
       {props.indexLabel && <span className="progress">{props.indexLabel}</span>}
       <span className="conn" data-state={props.connection}>{props.connection === 'connected' ? '接続中' : props.connection === 'connecting' ? '接続しています' : '再接続中'}</span>
     </header>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
+import { Icon } from './primitives/Icon.tsx';
 
 type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 
@@ -18,12 +19,12 @@ export function ResolveProjectDialog(props: { projectId: string; name: string; p
           {props.candidates.length > 0 && <div className="list" style={{ marginBottom: 8 }}>{props.candidates.map((c) => <div key={c} className="row mono" style={{ gridTemplateColumns: '1fr' }} role="option" aria-selected={c === path} onClick={() => setPath(c)}>{c}</div>)}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <input className="input mono" style={{ flex: 1 }} aria-label="新しいパス" value={path} onChange={(e) => { setPath(e.target.value); props.onQueryCandidates(e.target.value.split('/').pop() ?? ''); }} placeholder="/Users/you/workspace/..." />
-            <button className="btn btn-primary" disabled={!path} onClick={() => resolve({ kind: 'repoint', path })}>この場所にする</button>
+            <button className="btn btn-primary" disabled={!path} onClick={() => resolve({ kind: 'repoint', path })}><Icon name="repoint" />この場所にする</button>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn" onClick={() => resolve({ kind: 'archive' })}>アーカイブにする</button>
-          <button className="btn" onClick={() => resolve({ kind: 'unlink' })}>紐づけを削除</button>
+          <button className="btn" onClick={() => resolve({ kind: 'archive' })}><Icon name="archive" />アーカイブにする</button>
+          <button className="btn" onClick={() => resolve({ kind: 'unlink' })}><Icon name="unlink" />紐づけを削除</button>
           <span className="spacer" />
           <button className="btn" onClick={() => emit({ type: 'overlay.close' })}>あとで</button>
         </div>
