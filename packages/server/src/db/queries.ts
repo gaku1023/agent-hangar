@@ -94,6 +94,9 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>): Sess
     prUrl: r.st_pr,
     inputTokens: r.st_in ?? 0,
     outputTokens: r.st_out ?? 0,
+    // 文脈の残りと費用は Task 2 で列が入るまで null にする。
+    contextPercent: null,
+    costUsd: null,
   };
   return {
     id: r.id,
@@ -102,6 +105,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>): Sess
     projectId: r.project_id,
     name: displayName(r, live),
     cwd: r.cwd,
+    fromScratch: false,
     firstPrompt: r.first_prompt,
     aiTitle: r.ai_title,
     startedAt: r.started_at,

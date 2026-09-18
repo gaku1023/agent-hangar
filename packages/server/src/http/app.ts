@@ -41,7 +41,9 @@ const PATH_SETTING_KEYS = ['tmuxPath', 'codePath'] as const;
 const TERMINAL_APPS = new Set<string>(['terminal', 'iterm']);
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath });
+/** 要約まわりの既定値。Settings に項目が入るまでの暫定で、Task 16 と Task 17 で実物に差し替える。 */
+const SUMMARY_SETTING_DEFAULTS = { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 } as const;
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, ...SUMMARY_SETTING_DEFAULTS });
 const numberOr = (v: string | undefined): number | undefined => (v ? Number(v) : undefined);
 const isEnoent = (e: unknown): boolean => (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
 
@@ -86,6 +88,11 @@ export function createApp(deps: AppDeps): Hono {
       live,
       runs: alive.runs,
       tabs: alive.tabs,
+      // 使用率、todo、成果物、要約待ちは Task 5 以降で実物を入れる。
+      usage: { fiveHour: null, sevenDay: null, updatedAt: null },
+      todos: [],
+      artifacts: [],
+      summaryPending: [],
       index: deps.indexer.progress(),
       version: deps.version,
     };

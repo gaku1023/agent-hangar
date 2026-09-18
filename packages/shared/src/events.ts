@@ -1,4 +1,4 @@
-import type { IndexProgressDto, LiveSessionDto, ProjectDto, RunDto, SessionDto, TabDto } from './api.ts';
+import type { ArtifactDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SessionDto, TabDto, TodoDto, UsageDto } from './api.ts';
 
 export type ServerEvent =
   | { type: 'ready'; version: string }
@@ -12,4 +12,11 @@ export type ServerEvent =
   | { type: 'run.upsert'; run: RunDto }
   | { type: 'run.ended'; run: RunDto }
   | { type: 'tab.upsert'; tab: TabDto }
+  | { type: 'usage.update'; usage: UsageDto }
+  | { type: 'todos.update'; projectId: string; todos: TodoDto[] }
+  | { type: 'memo.update'; memo: MemoDto }
+  | { type: 'artifact.upsert'; artifact: ArtifactDto }
+  | { type: 'summary.pending'; sessionId: string }
+  | { type: 'summary.updated'; sessionId: string }
+  | { type: 'summary.failed'; sessionId: string; message: string }
   | { type: 'toast'; level: 'info' | 'error'; message: string };
