@@ -13,7 +13,8 @@ export function presentProjectCard(p: ProjectDto, store: Store, now: number): Pr
 
 export function presentProjects(_state: State, store: Store, now: number, filter: string, showArchived: boolean): ProjectsProps {
   const needle = filter.trim().toLowerCase();
-  const all = Object.values(store.projects).filter((p) => !needle || p.name.toLowerCase().includes(needle)).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
+  // スクラッチの擬似プロジェクトはカードに出さない。Sessions 画面の絞り込みには残る。
+  const all = Object.values(store.projects).filter((p) => !p.isScratch).filter((p) => !needle || p.name.toLowerCase().includes(needle)).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
   const statuses: ProjectStatus[] = showArchived ? ['active', 'paused', 'done', 'archived'] : ['active', 'paused', 'done'];
   return { sections: statuses.map((status) => ({ status, label: STATUS_LABEL[status], cards: all.filter((p) => p.status === status).map((p) => presentProjectCard(p, store, now)) })), archivedCount: all.filter((p) => p.status === 'archived').length };
 }

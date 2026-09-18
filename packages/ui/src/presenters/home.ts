@@ -13,7 +13,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
   // 信頼確認のダイアログ待ちの run が Home のどこにも出ないと、セッション画面への戻り道がなくなる。
   const alive = runningSessionIds(store);
   const running = sortSessions(sessions.filter((s) => s.live !== null || alive.has(s.id))).map((s) => ({ id: s.id, name: s.name ?? '（名前なし）', projectName: s.projectId ? store.projects[s.projectId]?.name ?? null : null, live: s.live, elapsed: durationLabel(now - (s.startedAt ?? now)) }));
-  const activeProjects = Object.values(store.projects).filter((p) => p.status === 'active').sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).map((p) => presentProjectCard(p, store, now));
+  const activeProjects = Object.values(store.projects).filter((p) => p.status === 'active' && !p.isScratch).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).map((p) => presentProjectCard(p, store, now));
   const recent = sortSessions(sessions).slice(0, 30).map((s) => presentSessionRow(s, store, now));
   return { running, activeProjects, recent };
 }

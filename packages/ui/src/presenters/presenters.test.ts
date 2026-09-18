@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { ProjectDto, RunDto, SessionDto, TabDto } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, RunDto, SessionDto, TabDto, TodoDto } from '@agent-hangar/shared';
+import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
-import { absoluteTime, relativeTime, shortModel, tokensLabel } from './format.ts';
+import { absoluteTime, costLabel, percentLabel, relativeTime, shortModel, tokensLabel } from './format.ts';
 import { presentHome } from './home.ts';
 import { presentNewSession } from './newSession.ts';
-import { presentProject } from './project.ts';
+import { presentArtifactCard, presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
 import { presentSession } from './session.ts';
 import { presentSessions } from './sessions.ts';
@@ -52,7 +53,7 @@ describe('presentShell', () => {
     const state = { ...initialState(), screen: { name: 'project' as const, id: 'alpha' } };
     const store = storeWith();
     store.index = { phase: 'indexing', done: 10, total: 40 };
-    const p = presentShell(state, store);
+    const p = presentShell(state, store, NOW);
     expect(p.nav.find((n) => n.current)?.label).toBe('Projects');
     expect(p.crumbs.map((c) => c.label)).toEqual(['Projects', 'alpha']);
     expect(p.indexLabel).toBe('索引 10 / 40 件');
@@ -117,7 +118,7 @@ describe('presentSession', () => {
     expect(p.items[1]).toMatchObject({ kind: 'tool', summary: 'Agent x', result: { text: 'done', isError: false }, subagent: { agentId: 'abc', label: 'Agent x' } });
     expect(p).toMatchObject({ name: 'name-s1', live: 'busy', tokens: '1.2M', turns: 2, loaded: 6, total: 6, hasMore: false, projectName: 'alpha' });
     expect(p.summary).toMatchObject({ title: 't', sourceLabel: '自動', stateLabel: '完了' });
-    const state = { ...initialState(), sessionView: { s1: { agentId: null, showThinking: true, showRaw: true, follow: true, summaryOpen: true, selectedTab: null, transcriptOpen: true } } };
+    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), showThinking: true, showRaw: true, summaryOpen: true } } };
     const q = presentSession(state, store, NOW, 's1');
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
     expect(q.summaryOpen).toBe(true);
@@ -156,7 +157,7 @@ describe('presentSession（実行中）', () => {
     expect(p.tabs).toEqual([{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'シェル t1', kind: 'shell', selected: false, closable: true }]);
     expect(p.selectedTab).toBe('r1');
     expect(p).toMatchObject({ trustHint: false, canResume: false, canFork: false, transcriptOpen: true });
-    const state = { ...initialState(), sessionView: { s1: { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: 't1', transcriptOpen: false } } };
+    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), selectedTab: 't1', transcriptOpen: false } } };
     const q = presentSession(state, store, NOW, 's1');
     expect(q.selectedTab).toBe('t1');
     expect(q.tabs[1]!.selected).toBe(true);
@@ -168,7 +169,7 @@ describe('presentSession（実行中）', () => {
     const store = storeWith();
     store.runs = { r1: runDto('r1', 's1') };
     store.tabs = { r1: tabDto('r1', 'r1', 'agent'), t1: tabDto('t1', 'r1', 'shell', 9) };
-    const state = { ...initialState(), sessionView: { s1: { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: 't1', transcriptOpen: true } } };
+    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), selectedTab: 't1' } } };
     const p = presentSession(state, store, NOW, 's1');
     expect(p.selectedTab).toBe('r1');
     expect(p.tabs).toEqual([{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }]);
@@ -198,7 +199,7 @@ describe('presentNewSession', () => {
     const store = storeWith();
     store.projects.gone = { ...project('gone'), resolved: false };
     expect(presentNewSession(initialState(), store)).toBeNull();
-    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: 'beta' }, launch: { kind: 'failed' as const, message: 'x' } };
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: 'beta', scratch: false }, launch: { kind: 'failed' as const, message: 'x' } };
     const p = presentNewSession(state, store)!;
     expect(p.projects.map((x) => x.id)).toEqual(['alpha', 'beta']);
     expect(p).toMatchObject({ projectId: 'beta', submitting: false, error: 'x' });
@@ -213,5 +214,121 @@ describe('presentSettings（フェーズ 2）', () => {
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, mcpInstallCommand: 'npx hangar mcp install' });
     store.settings = null;
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', codePath: null });
+  });
+});
+
+const todoDto = (id: string, position: number, done = false): TodoDto => ({ id, projectId: 'p1', text: `やる ${id}`, done, position, sessionId: null, updatedAt: 1 });
+const artDto = (id: string, over: Partial<ArtifactDto> = {}): ArtifactDto => ({ id, projectId: 'p1', url: `https://claude.ai/code/artifact/${id}`, title: `題名 ${id}`, description: '説明', favicon: '📊', filePath: null, fileExists: false, firstPublishedAt: NOW - 100_000, lastPublishedAt: NOW - 60_000, versionCount: 2, sessionIds: ['s1'], ...over });
+const scratchProject = (): ProjectDto => ({ ...project('sc'), name: 'スクラッチ', isScratch: true, path: '/h/.agent-hangar/scratch', lastActivityAt: NOW });
+
+describe('書式', () => {
+  it('percentLabel と costLabel', () => {
+    expect(percentLabel(null)).toBe('未取得');
+    expect(percentLabel(47.4)).toBe('47%');
+    expect(percentLabel(0)).toBe('0%');
+    expect(costLabel(null)).toBe('');
+    expect(costLabel(1.234)).toBe('$1.23');
+  });
+});
+
+describe('presentShell の使用量', () => {
+  it('値が無ければ null、あれば百分率と最終更新', () => {
+    const empty = presentShell(initialState(), initialStore(), NOW);
+    expect(empty.usage).toEqual({ fiveHour: null, sevenDay: null, updatedLabel: null });
+    const store = { ...initialStore(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
+    expect(presentShell(initialState(), store, NOW).usage).toEqual({ fiveHour: 47, sevenDay: 7, updatedLabel: '10 分前' });
+  });
+});
+
+describe('presentProject の右レール', () => {
+  it('TODO とメモとアーティファクトを並べ、スクラッチは印を付ける', () => {
+    const store: Store = {
+      ...initialStore(),
+      projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW, openTodoCount: 1, memoHead: '# alpha' } },
+      todos: { t2: todoDto('t2', 2, true), t1: todoDto('t1', 1) },
+      memos: { p1: { projectId: 'p1', markdown: '# alpha\n本文', updatedAt: 5 } },
+      artifacts: { a1: artDto('a1'), a2: artDto('a2', { projectId: 'p2' }) },
+    };
+    const p = presentProject(initialState(), store, NOW, 'p1');
+    expect(p.todos).toEqual([{ id: 't1', text: 'やる t1', done: false }, { id: 't2', text: 'やる t2', done: true }]);
+    expect(p.memo).toEqual({ markdown: '# alpha\n本文', updatedAt: 5 });
+    expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
+    expect(p.isScratch).toBe(false);
+  });
+  it('アーティファクトのカードは題名と最終公開と編集の可否を持つ', () => {
+    expect(presentArtifactCard(artDto('a1'), NOW)).toEqual({ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false });
+    const manual = presentArtifactCard(artDto('a2', { title: null, favicon: null, description: null, filePath: '/w/alpha/x.html', fileExists: true }), NOW);
+    expect(manual).toMatchObject({ title: 'a2', favicon: '📄', canOpenEditor: true });
+  });
+});
+
+describe('presentProjects と presentHome（スクラッチ）', () => {
+  it('スクラッチのプロジェクトはカードに出さない', () => {
+    const store: Store = { ...initialStore(), projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW }, sc: scratchProject() } };
+    expect(presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards.map((c) => c.id)).toEqual(['p1']);
+    expect(presentHome(initialState(), store, NOW).activeProjects.map((c) => c.id)).toEqual(['p1']);
+  });
+  it('起動ダイアログの選択肢からも外す。並びは名前順のまま', () => {
+    const store: Store = { ...storeWith(), projects: { ...storeWith().projects, sc: scratchProject() } };
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    const p = presentNewSession(state, store)!;
+    expect(p.projects.map((x) => x.id)).toEqual(['alpha', 'beta']);
+    expect(p.scratch).toBe(false);
+    expect(presentNewSession({ ...state, overlay: { kind: 'newSession', projectId: null, scratch: true } }, store)!.scratch).toBe(true);
+  });
+});
+
+describe('presentSession のフェーズ 3 の項目', () => {
+  it('コンテキストとコストと要約の状態と昇格の可否', () => {
+    const base = session('s1');
+    const store: Store = {
+      ...initialStore(),
+      projects: { sc: scratchProject() },
+      sessions: { s1: { ...base, projectId: 'sc', fromScratch: false, stats: { ...base.stats, contextPercent: 25, costUsd: 0.5 } } },
+      artifacts: { a1: artDto('a1') },
+      summaryPending: { s1: true as const },
+    };
+    const state = { ...initialState(), summaryFailed: { s1: 'LM Studio に繋がりません' } };
+    const p = presentSession(state, store, NOW, 's1');
+    expect(p.contextPercent).toBe(25);
+    expect(p.cost).toBe('$0.50');
+    expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
+    expect(p.summaryPending).toBe(true);
+    expect(p.summaryError).toBe('LM Studio に繋がりません');
+    expect(p.canPromote).toBe(true);
+    expect(p.fromScratch).toBe(false);
+    expect(p.canSplit).toBe(false);
+    expect(p.split).toBeNull();
+  });
+  it('分割はタブが 2 つ以上あるときだけ左右を返す', () => {
+    const store = storeWith();
+    store.runs = { r1: runDto('r1', 's1') };
+    store.tabs = { t1: { ...tabDto('t1', 'r1', 'agent'), createdAt: 1 }, t2: { ...tabDto('t2', 'r1', 'shell'), createdAt: 2 } };
+    const view = { ...defaultSessionView(), selectedTab: 't1', split: true, splitTab: 't9' };
+    const state = { ...initialState(), sessionView: { s1: view } };
+    const p = presentSession(state, store, NOW, 's1');
+    expect(p.canSplit).toBe(true);
+    // splitTab が閉じたタブを指していたら、左と違う最初のタブに落とす。
+    expect(p.split).toEqual({ left: 't1', right: 't2' });
+    const off = presentSession({ ...state, sessionView: { s1: { ...view, split: false } } }, store, NOW, 's1');
+    expect(off.split).toBeNull();
+    expect(off.canSplit).toBe(true);
+  });
+});
+
+describe('presentSettings のフェーズ 3 の項目', () => {
+  it('要約器と statusline と使用量の集計を渡す', () => {
+    const store: Store = {
+      ...initialStore(),
+      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5 },
+      statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true },
+      summarizerModels: ['gemma', 'qwen'],
+      usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 10, outputTokens: 2, sessions: 1 }], projects: [] },
+    };
+    const p = presentSettings(initialState(), store);
+    expect(p).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, summarizerModels: ['gemma', 'qwen'], statuslineCommand: 'npx hangar statusline install' });
+    expect(p.statusline?.installed).toBe(true);
+    expect(p.usageAggregate?.days).toHaveLength(1);
+    expect(p.summarizerTest).toBeNull();
   });
 });
