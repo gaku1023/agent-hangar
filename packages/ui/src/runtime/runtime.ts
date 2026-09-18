@@ -1,9 +1,10 @@
-import { formatRoute, parseRoute, type Intent, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type Intent, type LaunchResultDto, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { FocusTarget, SessionViewState } from '../mediator/types.ts';
-import { applyBootstrap, applyEventsPage, applySearch, applyServerEvent, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applySearch, applyServerEvent, currentRunOf, eventsKey, initialStore, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
+import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 
 export type RuntimeDeps = {
@@ -12,6 +13,7 @@ export type RuntimeDeps = {
   location: { getHash(): string; setHash(h: string): void; onHashChange(cb: () => void): () => void };
   storage: { get(key: string): unknown; set(key: string, value: unknown): void; keys(): string[] };
   setTimeout: (fn: () => void, ms: number) => unknown;
+  terminals: TerminalHost;
   focus?: (target: FocusTarget) => void;
 };
 
@@ -21,6 +23,8 @@ export type Runtime = {
   subscribe(cb: () => void): () => void;
   start(): void; stop(): void;
 };
+
+const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
 
 /** Mediator の効果を実行し、サーバとブラウザの出来事を入力に変える。 */
 export function createRuntime(deps: RuntimeDeps): Runtime {
@@ -33,7 +37,25 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let searchSeq = 0;
   let unsubHash: (() => void) | null = null;
 
-  const fail = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: e instanceof Error ? e.message : String(e) } });
+  const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+  const fail = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } });
+  const toast = (message: string) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message } });
+  const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
+  const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
+
+  /** 繋ぐタブを決める。
+   * 指定が無ければ選択中のタブ、無ければ現在の run の Claude タブ。
+   * 終了した run の Claude タブには繋がない。
+   */
+  function resolveTab(sessionId: string, tabId: string | null): string | null {
+    const run = currentRunOf(store, sessionId);
+    if (!run) return null;
+    const open = tabsOf(store, run.id);
+    const pick = tabId ?? state.sessionView[sessionId]?.selectedTab ?? run.id;
+    const tab = open.find((t) => t.id === pick) ?? open[0];
+    if (!tab || (tab.kind === 'agent' && run.endedAt !== null)) return null;
+    return tab.id;
+  }
 
   function runEffect(e: Effect): void {
     switch (e.kind) {
@@ -74,11 +96,41 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.resolveProject': deps.api.resolveProject(e.projectId, e.action).catch(fail); return;
       case 'api.updateSettings': deps.api.updateSettings(e.patch).then((s) => setStore({ ...store, settings: s })).catch(fail); return;
       case 'api.rebuildIndex': deps.api.rebuildIndex().catch(fail); return;
+      case 'api.launch': deps.api.launch(e.params).then(launched).catch(launchFailed); return;
+      case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;
+      case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
+      case 'api.killRun': deps.api.killRun(e.runId).then((run) => setStore(applyServerEvent(store, { type: 'run.ended', run }))).catch(fail); return;
+      case 'api.openTab': {
+        const run = aliveRunOf(store, e.sessionId);
+        if (!run) { fail(new Error('実行中の run がありません')); return; }
+        deps.api.openTab(run.id).then((tab) => setStore(applyServerEvent(store, { type: 'tab.upsert', tab }))).catch(fail);
+        return;
+      }
+      case 'api.closeTab': {
+        const tab = store.tabs[e.tabId];
+        if (!tab) return;
+        deps.api.closeTab(tab.runId, tab.id).then((t) => setStore(applyServerEvent(store, { type: 'tab.upsert', tab: t }))).catch(fail);
+        return;
+      }
+      case 'api.openTerminalApp': deps.api.openTerminalApp(e.runId, e.tabId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
+      case 'api.openEditor': deps.api.openEditor(e.sessionId).catch(fail); return;
+      case 'api.projectOpenEditor': deps.api.projectOpenEditor(e.projectId).catch(fail); return;
+      case 'api.projectOpenTerminal': deps.api.projectOpenTerminal(e.projectId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
+      case 'terminal.connect': { const id = resolveTab(e.sessionId, e.tabId); if (id) deps.terminals.connect(id); return; }
+      case 'terminal.disconnect': deps.terminals.disconnect(e.tabId); return;
       case 'ws.connect': ws?.connect(); return;
       case 'ws.reconnectAfter': deps.setTimeout(() => ws?.connect(), e.ms); return;
-      case 'focus': deps.focus?.(e.target); return;
+      case 'focus':
+        if (e.target === 'terminal') { if (state.screen.name === 'session') { const id = resolveTab(state.screen.id, null); if (id) deps.terminals.focus(id); } }
+        else deps.focus?.(e.target);
+        return;
       case 'toast': dispatch({ kind: 'server', event: { type: 'toast', level: e.level, message: e.message } }); return;
       case 'storage.save': deps.storage.set(e.key, e.value); return;
+      default: {
+        // 効果を足したときに処理を忘れると、ここで型が合わなくなる。
+        const _exhaustive: never = e;
+        return _exhaustive;
+      }
     }
   }
 
@@ -107,6 +159,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       unsubHash = deps.location.onHashChange(() => dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } }));
       ws.connect();
     },
-    stop() { ws?.close(); unsubHash?.(); },
+    stop() { ws?.close(); unsubHash?.(); deps.terminals.dispose(); },
   };
 }

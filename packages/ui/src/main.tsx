@@ -6,12 +6,18 @@ import './styles/base.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
 import { createRuntime } from './runtime/runtime.ts';
+import { createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
+import { createXterm } from './runtime/xterm.ts';
 
+const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const api = createApi();
+// ターミナルの接続は React の外で持つ。
+// 画面を行き来してもバッファとスクロール位置が残る。
+const terminals = createTerminalHost({ wsUrl: (tab) => `${wsProto}://${location.host}/ws/pty?tab=${encodeURIComponent(tab)}`, createTerminal: createXterm });
 const runtime = createRuntime({
   api,
-  ws: (h) => createWs({ url: `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`, ...h }),
+  ws: (h) => createWs({ url: `${wsProto}://${location.host}/ws`, ...h }),
   location: { getHash: () => location.hash, setHash: (h) => { location.hash = h; }, onHashChange: (cb) => { window.addEventListener('hashchange', cb); return () => window.removeEventListener('hashchange', cb); } },
   storage: {
     get: (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : undefined; } catch { return undefined; } },
@@ -19,6 +25,7 @@ const runtime = createRuntime({
     keys: () => { try { return Object.keys(localStorage); } catch { return []; } },
   },
   setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+  terminals,
   focus: (t) => { if (t === 'search') document.getElementById('global-search')?.focus(); },
 });
 runtime.start();

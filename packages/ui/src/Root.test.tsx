@@ -17,6 +17,8 @@ function make() {
     location: { getHash: () => hash, setHash: (h) => { hash = h; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); } },
     storage: { get: () => undefined, set: () => {}, keys: () => [] },
     setTimeout: (fn, ms) => setTimeout(fn, ms),
+    // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
+    terminals: { connect: () => {}, disconnect: () => {}, mount: () => {}, status: () => null, fit: () => {}, focus: () => {}, subscribe: () => () => {}, dispose: () => {} },
   };
   const rt = createRuntime(deps);
   return { rt, deps, handlers, setHash: deps.location.setHash };

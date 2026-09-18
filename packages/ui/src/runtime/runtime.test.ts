@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, EventsPageDto, ServerEvent } from '@agent-hangar/shared';
+import type { BootstrapDto, EventsPageDto, LaunchResultDto, ServerEvent } from '@agent-hangar/shared';
 import type { ApiClient } from './api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
+import type { TerminalHost } from './terminals.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
 const page = (from: number, next: number | null): EventsPageDto => ({ sessionId: 's1', events: [{ kind: 'user', seq: from, text: 'x' }], total: 3, nextSeq: next });
+
+/** ターミナルの偽物。React の外で持つ接続の代わりに、呼ばれた tabId を並べる。 */
+function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: string[] } {
+  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), subscribe: () => () => {}, dispose: () => {} };
+  return h;
+}
 
 function harness(overrides: Partial<ApiClient> = {}) {
   const api: ApiClient = {
@@ -32,9 +39,10 @@ function harness(overrides: Partial<ApiClient> = {}) {
     location: { getHash: () => hash, setHash: (h) => { hash = h; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); } },
     storage: { get: (k) => store.get(k), set: (k, v) => store.set(k, v), keys: () => [...store.keys()] },
     setTimeout: (fn, ms) => timers.push({ fn, ms }),
+    terminals: fakeTerminals(),
   };
   const rt = createRuntime(deps);
-  return { rt, api, wsHandlers, timers, store, setHash: deps.location.setHash };
+  return { rt, api, wsHandlers, timers, store, terminals: deps.terminals as ReturnType<typeof fakeTerminals>, setHash: deps.location.setHash };
 }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -100,5 +108,64 @@ describe('createRuntime', () => {
     rt.subscribe(cb);
     rt.dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message: 'x' } });
     expect(cb).toHaveBeenCalled();
+  });
+});
+
+const launched: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [{ id: 'r1', runId: 'r1', sessionId: 's1', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r1', createdAt: 1, closedAt: null }] };
+
+describe('起動とターミナル', () => {
+  it('起動に成功するとストアに run が入り、セッション画面へ移ってターミナルに繋ぐ', async () => {
+    const { rt, api, terminals, setHash } = harness({ launch: vi.fn(async () => launched) });
+    rt.start();
+    setHash('#/');
+    rt.emit({ type: 'session.new.open', projectId: 'p1' });
+    rt.emit({ type: 'session.new.submit', params: { projectId: 'p1' } });
+    await flush();
+    expect(api.launch).toHaveBeenCalledWith({ projectId: 'p1' });
+    expect(rt.getStore().runs.r1).toBeDefined();
+    expect(rt.getState()).toMatchObject({ launch: { kind: 'idle' }, overlay: { kind: 'none' }, screen: { name: 'session', id: 's1' } });
+    expect(terminals.connected).toEqual(['r1']);
+  });
+  it('起動の失敗はトーストと failed', async () => {
+    const { rt } = harness({ launch: vi.fn(async () => { throw new Error('tmux が見つかりません'); }) });
+    rt.start();
+    rt.emit({ type: 'session.new.submit', params: { projectId: 'p1' } });
+    await flush();
+    expect(rt.getState().launch).toEqual({ kind: 'failed', message: 'tmux が見つかりません' });
+    expect(rt.getState().toasts[0]).toMatchObject({ level: 'error', message: 'tmux が見つかりません' });
+  });
+  it('セッション画面に入ると生きた run の Claude タブに繋ぎ、終了した run には繋がない', async () => {
+    const { rt, terminals, setHash } = harness();
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: launched.run, tabs: launched.tabs } });
+    setHash('#/session/s1');
+    expect(terminals.connected).toEqual(['r1']);
+    rt.dispatch({ kind: 'server', event: { type: 'run.ended', run: { ...launched.run, endedAt: 2, endReason: 'exited' } } });
+    expect(terminals.disconnected).toEqual(['r1']);
+    setHash('#/session/s1');
+    expect(terminals.connected).toEqual(['r1']);
+  });
+  it('tab.open は run を引いて API を呼び、届いたタブに繋ぐ', async () => {
+    const tab = { id: 't1', runId: 'r1', sessionId: 's1', kind: 'shell' as const, title: 'シェル 1', tmuxName: 'hangar-r1-t1', createdAt: 2, closedAt: null };
+    const { rt, api, terminals, setHash } = harness({ openTab: vi.fn(async () => tab) });
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: launched.run, tabs: launched.tabs } });
+    setHash('#/session/s1');
+    rt.emit({ type: 'tab.open', sessionId: 's1', kind: 'shell' });
+    await flush();
+    expect(api.openTab).toHaveBeenCalledWith('r1');
+    rt.dispatch({ kind: 'server', event: { type: 'tab.upsert', tab } });
+    expect(terminals.connected).toEqual(['r1', 't1']);
+    expect(terminals.focus).toHaveBeenCalledWith('t1');
+    rt.emit({ type: 'tab.close', tabId: 't1' });
+    await flush();
+    expect(api.closeTab).toHaveBeenCalledWith('r1', 't1');
+  });
+  it('iTerm2 から Terminal.app に落ちたらトーストで知らせる', async () => {
+    const { rt } = harness({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
+    rt.start();
+    rt.emit({ type: 'session.openTerminalApp', runId: 'r1' });
+    await flush();
+    expect(rt.getState().toasts[0]?.message).toContain('Terminal.app');
   });
 });
