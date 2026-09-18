@@ -140,6 +140,9 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>): Sess
     live: live?.status ?? null,
     summary,
     stats,
+    // フェーズ 4 の Task 15 が opts.deviceId から実際のロックを埋める。それまでは常に手元のものとして扱う。
+    lock: null,
+    remoteOnly: false,
   };
 }
 
