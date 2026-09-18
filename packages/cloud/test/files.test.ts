@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CLOUD_HEADERS, type FileEntry } from '@agent-hangar/shared';
+import { CLOUD_HEADERS, encodeHeaderText, isHeaderSafe, isValidFileKey, type FileEntry } from '@agent-hangar/shared';
 import { validKey } from '../src/files.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
@@ -236,6 +236,41 @@ describe('鍵の検査', () => {
     await expect(put(tokB, 'config/a.md', 'x', configMeta('skills/日本語/SKILL.md'))).rejects.toThrow();
   });
 
+  it('符号化した見出しを復号して索引に載せ、端から端まで通す', async () => {
+    // 非 ASCII は見出しに直接載せられないので、端末が `encodeHeaderText` で符号化して送る。
+    // Worker は同じ共有の関数で復号する。片方だけ変えると、索引に百分率のままの文字列が残る。
+    const path = 'skills/日本語 メモ/SKILL.md';
+    const key = `config/${path}`;
+    const wire = encodeHeaderText(path)!;
+    expect(isHeaderSafe(wire)).toBe(true);
+    const r = await put(tokB, key, 'x', configMeta(wire));
+    expect(r.status).toBe(201);
+    const e = (await list(tokA)).files[0]!;
+    expect([e.key, e.path]).toEqual([key, path]);
+    expect(await (await get(tokA, key)).text()).toBe('x');
+    // R2 の customMetadata は見出しのままの形で持つ（値も ByteString しか運べない）。
+    expect((await cloud.env.BUCKET.head(key))?.customMetadata?.path).toBe(wire);
+    expect((await del(tokB, key)).status).toBe(204);
+  });
+
+  it('百分率の形が壊れた path の見出しは 400', async () => {
+    for (const wire of ['%', '%zz', '%E3%81', 'a/%2E%2E/b', '%2Fabs']) {
+      expect([wire, (await put(tokB, 'config/a.md', 'x', configMeta(wire))).status]).toEqual([wire, 400]);
+    }
+    expect(await keysInR2()).toEqual([]);
+  });
+
+  it('鍵の形の物差しは端末と 1 つを共有する', () => {
+    // `isValidFileKey` は端末側（`packages/server/src/sync/client.ts`）も通る共有の判定である。
+    // ここがずれると、端末で作れる鍵が Worker で 400 になる（またはその逆になる）。
+    for (const key of ['transcripts/dev-a/u1.jsonl.gz', 'config/skills/日本語 メモ/SKILL.md', 'config/memory/🐕.md', 'config/a%b.md']) {
+      expect([key, isValidFileKey(key), validKey(key, 'dev-a', 'GET')]).toEqual([key, true, true]);
+    }
+    for (const key of ['other/u1', 'transcripts', 'transcripts/', 'transcripts/../x', 'transcripts/./x', 'transcripts//x', '/transcripts/x', `config/${'あ'.repeat(400)}`]) {
+      expect([key, isValidFileKey(key), validKey(key, 'dev-a', 'GET')]).toEqual([key, false, false]);
+    }
+  });
+
   it('長すぎる鍵は 400（R2 の鍵の上限に当てて 500 にしない）', async () => {
     const rel = 'あ'.repeat(400); // 400 文字だが UTF-8 では 1200 バイトで、R2 の 1024 バイトを超える
     expect((await put(tokB, `config/${rel}`, 'x', configMeta('a.md'))).status).toBe(400);
@@ -276,13 +311,20 @@ describe('端末の境目', () => {
     expect((await del(tokB, `config/${rel}`)).status).toBe(204);
   });
 
-  it('端末 ID にスラッシュを混ぜても、他端末の接頭辞の下には書けない', async () => {
-    const tokEvil = await join('dev-a/evil');
-    expect((await put(tokEvil, 'transcripts/dev-a/evil/u1.gz', 'x')).status).toBe(403);
-    expect((await put(tokEvil, 'transcripts/dev-a/u1.gz', 'x')).status).toBe(403);
+  it('端末 ID にスラッシュを混ぜた形は、参加の入口でも鍵の検査でも通らない', async () => {
+    // 入口で断る（Task 3 が `0b6467b` で足した検査）。そもそもこの端末は作れない。
+    const r = await cloud.SELF.fetch('https://x/join', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ secret: SECRET, device: { id: 'dev-a/evil', name: 'evil', platform: 'darwin' } }),
+    });
+    expect(r.status).toBe(400);
+    // 入口を抜けたとしても、鍵の検査でも断る。層は 2 つある。
+    expect(validKey('transcripts/dev-a/evil/u1.gz', 'dev-a/evil', 'PUT')).toBe(false);
+    expect(validKey('transcripts/dev-a/u1.gz', 'dev-a/evil', 'PUT')).toBe(false);
+    // config は端末 ID を見ないので、今までどおり書ける。
+    expect(validKey('config/a.md', 'dev-a/evil', 'PUT')).toBe(true);
     expect(await keysInR2()).toEqual([]);
-    // config は今までどおり書ける。
-    expect((await put(tokEvil, 'config/a.md', 'x', configMeta('a.md'))).status).toBe(201);
   });
 
   it('認証が無ければ files のどの経路も 401', async () => {

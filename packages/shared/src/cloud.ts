@@ -112,6 +112,74 @@ export function isSafeRelPath(rel: string): boolean {
 }
 
 /**
+ * 見出しに載せてよい値か。
+ * HTTP の見出しの値は ByteString（0x00 から 0xff）しか運べず、
+ * さらに制御文字を入れると要求そのものが壊れるので、印字できる ASCII だけに限る。
+ */
+export function isHeaderSafe(s: string): boolean {
+  return !/[^ -~]/.test(s);
+}
+
+/**
+ * 見出しに載せる文字列の符号化。
+ *
+ * 非 ASCII をそのまま見出しに渡すと、Node の fetch（undici）は送る前に
+ * `TypeError: Cannot convert argument to a ByteString ...` を投げる。
+ * 要求が届かないので Worker 側では直せない。端末が符号化して送り、Worker が復号する。
+ *
+ * `/` は読みやすさのために残す（`%` は必ず `%25` になるので往復できる）。
+ * 単独のサロゲートなど符号化できない文字列は null を返す。
+ */
+export function encodeHeaderText(s: string): string | null {
+  try {
+    return encodeURIComponent(s).replace(/%2F/g, '/');
+  } catch {
+    return null;
+  }
+}
+
+/** encodeHeaderText の逆。百分率の形が壊れていれば null を返す（例外を投げない）。 */
+export function decodeHeaderText(s: string): string | null {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return null;
+  }
+}
+
+/** R2 の鍵の長さの上限。超えると R2 が投げるので、その手前で 400 にして 500 を出さない。 */
+export const MAX_KEY_BYTES = 1024;
+
+/** 鍵の 1 段目に許す接頭辞。 */
+export type KeyPrefix = 'transcripts' | 'config';
+
+/**
+ * R2 の鍵を接頭辞と、その先の相対パスに割る。形が違えば null。
+ * Worker（`packages/cloud/src/files.ts`）と端末（`packages/server/src/sync/client.ts`）が
+ * この 1 つの物差しを共有する。片方だけ厳しいと、端末で組み立てられる鍵が Worker で 400 になる。
+ */
+export function splitFileKey(key: string): { prefix: KeyPrefix; rel: string } | null {
+  const i = key.indexOf('/');
+  if (i < 0) return null;
+  const prefix = key.slice(0, i);
+  if (prefix !== 'transcripts' && prefix !== 'config') return null;
+  const rel = key.slice(i + 1);
+  if (!isSafeRelPath(rel)) return null;
+  if (new TextEncoder().encode(key).length > MAX_KEY_BYTES) return null;
+  return { prefix, rel };
+}
+
+/** 権限を抜きにした、鍵の形だけの検査。日本語と空白は通る（`~/.claude` の名前は選べない）。 */
+export function isValidFileKey(key: string): boolean {
+  return splitFileKey(key) !== null;
+}
+
+/** 鍵を URL のパスに載せる形。断片ごとに符号化するので、`/` は潰れない。 */
+export function encodeFileKeyPath(key: string): string {
+  return key.split('/').map(encodeURIComponent).join('/');
+}
+
+/**
  * R2 の鍵。端末ごとに分けるので、同じセッション ID の本文が端末間で上書きされない。
  * ID は他端末から届いた値が混ざる経路があるので、組み立ての側でも形を検査する。
  * 検査が無いと、スラッシュ入りのセッション ID がサブエージェントの鍵と衝突して上書きし合う。

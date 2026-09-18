@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { configKey, decodeJoinToken, encodeJoinToken, isAllowedJoinUrl, isSafeRelPath, type JoinToken, MAX_ID_CHARS, MAX_JOIN_TOKEN_CHARS, MAX_JOIN_URL_CHARS, MAX_REL_PATH_CHARS, SHARED_TABLES, TABLE_PK, transcriptKey } from './cloud.ts';
+import { configKey, decodeHeaderText, decodeJoinToken, encodeFileKeyPath, encodeHeaderText, encodeJoinToken, isAllowedJoinUrl, isHeaderSafe, isSafeRelPath, isValidFileKey, MAX_KEY_BYTES, splitFileKey, type JoinToken, MAX_ID_CHARS, MAX_JOIN_TOKEN_CHARS, MAX_JOIN_URL_CHARS, MAX_REL_PATH_CHARS, SHARED_TABLES, TABLE_PK, transcriptKey } from './cloud.ts';
 
 describe('参加トークン', () => {
   it('URL と秘密を base64url の JSON で往復する', () => {
@@ -122,5 +122,100 @@ describe('折り返された参加トークン', () => {
   });
   it('長さの上限は空白を取り除く前に見る', () => {
     expect(() => decodeJoinToken(' '.repeat(MAX_JOIN_TOKEN_CHARS + 1))).toThrow('参加トークンが長すぎます');
+  });
+});
+
+describe('見出しに載せる文字列の符号化', () => {
+  // HTTP の見出しの値は ByteString しか運べない。
+  // 非 ASCII を渡すと Node の fetch は送る前に TypeError を投げるので、Worker 側では直せない。
+  const cases = [
+    'projects/-x/u1.jsonl',
+    'projects/-Users-satog-作業/メモ 1.jsonl',
+    'skills/日本語 メモ/SKILL.md',
+    'a%2Fb',
+    'a%',
+    '100% でき/た.md',
+    'emoji/🐕.md',
+    "quote'and\"and`.md",
+    'tab\tと改行\nと復帰\r.md',
+    'ぜんぶ'.repeat(50),
+  ];
+
+  it('往復して元に戻る', () => {
+    for (const s of cases) {
+      const wire = encodeHeaderText(s);
+      expect(wire, s).not.toBeNull();
+      expect(decodeHeaderText(wire!), s).toBe(s);
+    }
+  });
+
+  it('符号化した結果は見出しに載せられる ASCII だけになる', () => {
+    for (const s of cases) {
+      const wire = encodeHeaderText(s)!;
+      expect(isHeaderSafe(wire), wire).toBe(true);
+      // 実物の見出しに載せられることを undici の検査そのもので確かめる。
+      expect(() => new Headers({ 'x-hangar-path': wire })).not.toThrow();
+    }
+    // 符号化しないと落ちる。これが直そうとしている現象である。
+    expect(() => new Headers({ 'x-hangar-path': 'メモ' })).toThrow(TypeError);
+  });
+
+  it('スラッシュは読みやすさのために残し、百分率は必ず符号化する', () => {
+    expect(encodeHeaderText('a/b/c.md')).toBe('a/b/c.md');
+    expect(encodeHeaderText('a b')).toBe('a%20b');
+    expect(encodeHeaderText('a%2Fb')).toBe('a%252Fb');
+    expect(decodeHeaderText('a%252Fb')).toBe('a%2Fb');
+  });
+
+  it('形が壊れていれば null にする（例外を投げない）', () => {
+    expect(decodeHeaderText('%')).toBeNull();
+    expect(decodeHeaderText('%zz')).toBeNull();
+    expect(decodeHeaderText('%E3%81')).toBeNull();
+    expect(encodeHeaderText('\ud800')).toBeNull(); // 単独のサロゲート
+  });
+
+  it('isHeaderSafe は制御文字と非 ASCII を断る', () => {
+    expect(isHeaderSafe('a/b c%20d')).toBe(true);
+    expect(isHeaderSafe('')).toBe(true);
+    expect(isHeaderSafe('メモ')).toBe(false);
+    expect(isHeaderSafe('a\nb')).toBe(false);
+    expect(isHeaderSafe('a\u0000b')).toBe(false);
+    expect(isHeaderSafe('a\u007fb')).toBe(false);
+  });
+});
+
+describe('R2 の鍵の形', () => {
+  it('接頭辞とその先の相対パスに割る', () => {
+    expect(splitFileKey('transcripts/dev-a/u1.jsonl.gz')).toEqual({ prefix: 'transcripts', rel: 'dev-a/u1.jsonl.gz' });
+    expect(splitFileKey('config/skills/日本語 メモ/SKILL.md')).toEqual({ prefix: 'config', rel: 'skills/日本語 メモ/SKILL.md' });
+  });
+
+  it('日本語と空白を通し、脱出と空の断片を断る', () => {
+    // 利用者の `~/.claude` の名前は選べないので、ASCII に限ると日本語のスキルが端末側で止まる。
+    for (const ok of ['config/skills/日本語 メモ/SKILL.md', 'config/memory/🐕.md', 'transcripts/dev-a/u1.jsonl.gz', 'config/a%b.md']) {
+      expect(isValidFileKey(ok), ok).toBe(true);
+    }
+    for (const ng of ['', 'other/u1', 'transcripts', 'transcripts/', '/transcripts/a', 'transcripts/../etc', 'transcripts/./a', 'transcripts//a', 'transcripts/a\u0000b', 'config/' + 'あ'.repeat(400)]) {
+      expect(isValidFileKey(ng), ng).toBe(false);
+    }
+  });
+
+  it('長さはバイトで測る（R2 の上限に当てて 500 を出さない）', () => {
+    expect(isValidFileKey('config/' + 'a'.repeat(500))).toBe(true);
+    expect(isValidFileKey('config/' + 'a'.repeat(513))).toBe(false); // 相対パスの字数の上限
+    expect(new TextEncoder().encode('config/' + 'あ'.repeat(400)).length).toBeGreaterThan(MAX_KEY_BYTES);
+  });
+
+  it('URL に載せるときは断片ごとに符号化して / を残す', () => {
+    expect(encodeFileKeyPath('transcripts/dev-a/u1.jsonl.gz')).toBe('transcripts/dev-a/u1.jsonl.gz');
+    expect(encodeFileKeyPath('config/skills/日本語 メモ/SKILL.md')).toBe('config/skills/%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E3%83%A1%E3%83%A2/SKILL.md');
+    expect(encodeFileKeyPath('config/a%b.md')).toBe('config/a%25b.md');
+    // 受け取る側が断片ごとに復号すれば元に戻る。
+    for (const key of ['config/skills/日本語 メモ/SKILL.md', 'config/a%b.md', 'config/? #.md']) {
+      expect(encodeFileKeyPath(key).split('/').map(decodeURIComponent).join('/')).toBe(key);
+    }
+    // URL に置いても壊れない。
+    expect(new URL(`https://h/files/${encodeFileKeyPath('config/skills/日本語 メモ/SKILL.md')}`).pathname)
+      .toBe('/files/config/skills/%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E3%83%A1%E3%83%A2/SKILL.md');
   });
 });

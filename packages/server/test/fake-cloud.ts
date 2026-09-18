@@ -3,6 +3,9 @@ import {
   MAX_PUSH_BATCH,
   PULL_LIMIT,
   SHARED_TABLES,
+  decodeHeaderText,
+  encodeHeaderText,
+  isHeaderSafe,
   isSafeRelPath,
   type ChangeIn,
   type ChangeOut,
@@ -194,17 +197,35 @@ export class FakeCloudClient implements CloudClient {
     if (!isInt(meta.size) || !isInt(meta.mtime)) bad();
   }
 
+  /**
+   * 見出しに載せて Worker が復号するまでを写す。
+   * 符号化できない値と ASCII にならない値は、実物と同じく送る前に落ちる。
+   * 往復して元に戻らない値をここで拾うので、符号化と復号が食い違ったまま緑にならない。
+   */
+  private overTheWire(path: string): string {
+    const wire = encodeHeaderText(path);
+    if (wire === null || !isHeaderSafe(wire)) {
+      throw new CloudError(0, `Cannot convert argument to a ByteString because the character at index 0 has a value greater than 255`);
+    }
+    const back = decodeHeaderText(wire);
+    if (back === null || back !== path) throw new CloudError(400, errorBody('invalid headers'));
+    return back;
+  }
+
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
     this.guard('putFile', meta);
     this.checkKey(meta.key, true);
     this.checkMeta(meta);
+    // path は見出しで運ぶので、偽物も同じ符号化を通す。
+    // 通らない値は実物では undici が送る前に TypeError を投げる（CloudError(0) になる）。
+    const path = this.overTheWire(meta.path);
     const chunks: Buffer[] = [];
     for await (const c of body) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as Uint8Array));
     const buf = Buffer.concat(chunks);
     // 置き直すと新しい seq になる（Worker は古い索引を消して入れ直す）。
     const seq = ++this.store.fileSeq;
     this.store.files.set(meta.key, {
-      entry: { ...meta, seq, deviceId: this.deviceId, uploadedAt: this.store.now(), storedSize: buf.length },
+      entry: { ...meta, path, seq, deviceId: this.deviceId, uploadedAt: this.store.now(), storedSize: buf.length },
       body: buf,
     });
     return { seq };

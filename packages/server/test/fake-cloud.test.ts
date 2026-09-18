@@ -235,4 +235,31 @@ describe('FakeCloudClient', () => {
     expect(await msg(a.getFile('transcripts/a/nope.gz'))).toBe(JSON.stringify({ error: 'not found' }));
     expect(await msg(a.putFile(meta('transcripts/a/u1.gz', { sha256: 'zz' }), body()))).toBe(JSON.stringify({ error: 'invalid headers' }));
   });
+
+  it('日本語と空白を含む鍵と path が端から端まで通る', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a', now: () => 5 });
+    const key = 'config/skills/日本語 メモ/SKILL.md';
+    const path = 'skills/日本語 メモ/SKILL.md';
+    const m = { key, path, kind: 'config' as const, sha256: 'b'.repeat(64), size: 3, mtime: 1, encrypted: true };
+    expect(await a.putFile(m, Readable.from([Buffer.from('abc')]))).toEqual({ seq: 1 });
+    // 一覧に出るのは符号化する前の形である（Worker は復号してから索引に載せる）。
+    const l = await a.asDevice('b').listFiles(0, 500);
+    expect(l.files[0]).toMatchObject({ key, path, deviceId: 'a', seq: 1 });
+    let text = '';
+    for await (const c of await a.asDevice('b').getFile(key)) text += c;
+    expect(text).toBe('abc');
+    await a.deleteFile(key);
+    expect((await a.listFiles(0, 500)).files).toEqual([]);
+  });
+
+  it('見出しで運べない path は実物と同じところで落ちる', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    const body = () => Readable.from([Buffer.from('x')]);
+    // 単独のサロゲートは符号化できない。実物は undici が送る前に TypeError を投げる（status 0 になる）。
+    const e = await a.putFile(meta('transcripts/a/u1.gz', { path: '\ud800' }), body()).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    expect(e).toMatchObject({ status: 0 });
+    expect((e as CloudError).message).toContain('ByteString');
+    expect(a.files.size).toBe(0);
+  });
 });

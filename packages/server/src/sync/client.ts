@@ -2,7 +2,10 @@ import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import {
   CLOUD_HEADERS,
+  encodeFileKeyPath,
+  encodeHeaderText,
   isSafeRelPath,
+  isValidFileKey,
   type ChangeIn,
   type FileMetaIn,
   type ListFilesResponse,
@@ -42,12 +45,10 @@ export function goneFloor(e: unknown): number | null {
 
 /**
  * R2 の鍵として Worker が受け取る形か。
- * Worker の `validKey` と同じ物差しで、端末の側でも送る前に断る。
- * 空白や `?` や `#` が混ざった鍵を組み立てると要求そのものが壊れるので、URL にする前に見る。
+ * 判定の本体は共有（`packages/shared/src/cloud.ts`）にあり、Worker の `validKey` と同じ物差しである。
+ * ここで独自に字種を狭めると、日本語や空白を含む `~/.claude` のファイルが端末側だけで止まる。
  */
-export function isValidFileKey(key: string): boolean {
-  return /^(transcripts|config)\//.test(key) && /^[A-Za-z0-9._\-/]+$/.test(key) && isSafeRelPath(key);
-}
+export { isValidFileKey } from '@agent-hangar/shared';
 
 /** 小さい応答（changes、rows、files の一覧、health）の締め切り。 */
 export const DEFAULT_TIMEOUT_MS = 30_000;
@@ -182,8 +183,13 @@ export class HttpCloudClient implements CloudClient {
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
     this.requireValidKey(meta.key);
+    // 見出しの値は ByteString しか運べない。
+    // 符号化せずに日本語を渡すと undici が送る前に TypeError を投げるので、ここで符号化する。
+    // 復号は Worker が同じ共有の関数で行う。
+    const wirePath = isSafeRelPath(meta.path) ? encodeHeaderText(meta.path) : null;
+    if (wirePath === null) throw new CloudError(400, JSON.stringify({ error: 'invalid headers' }));
     const headers: Record<string, string> = {
-      [CLOUD_HEADERS.path]: meta.path,
+      [CLOUD_HEADERS.path]: wirePath,
       [CLOUD_HEADERS.kind]: meta.kind,
       [CLOUD_HEADERS.sha256]: meta.sha256,
       [CLOUD_HEADERS.size]: String(meta.size),
@@ -193,7 +199,7 @@ export class HttpCloudClient implements CloudClient {
     };
     // 本文は貯めずに流す。duplex: 'half' はストリームを body にするときに要る。
     const v = await this.json<{ seq: number }>(
-      `/files/${meta.key}`,
+      `/files/${encodeFileKeyPath(meta.key)}`,
       { method: 'PUT', headers, body: Readable.toWeb(body) as unknown as BodyInit, duplex: 'half' } as RequestInit,
       this.transferTimeoutMs,
     );
@@ -202,7 +208,7 @@ export class HttpCloudClient implements CloudClient {
 
   async getFile(key: string): Promise<Readable> {
     this.requireValidKey(key);
-    const { res, d } = await this.send(`/files/${key}`, {}, this.transferTimeoutMs);
+    const { res, d } = await this.send(`/files/${encodeFileKeyPath(key)}`, {}, this.transferTimeoutMs);
     if (!res.body) {
       d.clear();
       return Readable.from([]);
@@ -227,7 +233,7 @@ export class HttpCloudClient implements CloudClient {
 
   async deleteFile(key: string): Promise<void> {
     this.requireValidKey(key);
-    const { res, d } = await this.send(`/files/${key}`, { method: 'DELETE' }, this.timeoutMs);
+    const { res, d } = await this.send(`/files/${encodeFileKeyPath(key)}`, { method: 'DELETE' }, this.timeoutMs);
     d.clear();
     void res.body?.cancel().catch(() => {});
   }

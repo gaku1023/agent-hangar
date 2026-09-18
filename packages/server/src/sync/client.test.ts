@@ -1,7 +1,8 @@
 import { Readable } from 'node:stream';
 import { inspect } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { CloudError, goneFloor, HttpCloudClient } from './client.ts';
+import { decodeHeaderText, isHeaderSafe } from '@agent-hangar/shared';
+import { CloudError, goneFloor, HttpCloudClient, isValidFileKey } from './client.ts';
 
 type Call = { url: string; init: RequestInit };
 
@@ -9,6 +10,11 @@ function fakeFetch(handler: (c: Call) => Response | Promise<Response>): { fetch:
   const calls: Call[] = [];
   const f = (async (input: string | URL | Request, init?: RequestInit) => {
     const c = { url: String(input), init: init ?? {} };
+    // undici と同じ検査をここで通す。
+    // 見出しの値は ByteString しか運べず、非 ASCII は送る前に TypeError になる。
+    // URL も同じで、組み立てた文字列がそのまま要求になるわけではない。
+    new Headers(c.init.headers as Record<string, string> | undefined);
+    new URL(c.url);
     calls.push(c);
     return handler(c);
   }) as typeof fetch;
@@ -175,10 +181,13 @@ describe('HttpCloudClient', () => {
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
     await expect(c.getFile('other/u1')).rejects.toMatchObject({ status: 400 });
     await expect(c.getFile('transcripts/d/../e/u1')).rejects.toMatchObject({ status: 400 });
-    await expect(c.getFile('transcripts/d/u 1.gz')).rejects.toMatchObject({ status: 400 });
-    await expect(c.deleteFile('transcripts/d/u?x=1')).rejects.toMatchObject({ status: 400 });
+    await expect(c.deleteFile('transcripts/d/u\u0000.gz')).rejects.toMatchObject({ status: 400 });
     await expect(c.putFile({ key: 'config/../x', path: 'x', kind: 'config', sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: false }, Readable.from([Buffer.from('x')]))).rejects.toMatchObject({ status: 400 });
     expect(calls).toHaveLength(0);
+    // 空白と `?` は Worker が通すので、端末も通して URL の側で符号化する。
+    await c.deleteFile('transcripts/d/u 1?x.gz');
+    expect(calls[0]!.url).toBe('https://h/files/transcripts/d/u%201%3Fx.gz');
+    expect(new URL(calls[0]!.url).search).toBe('');
   });
 
   it('2xx の本文が読めなければ CloudError(0) にする', async () => {
@@ -255,5 +264,60 @@ describe('HttpCloudClient', () => {
     for await (const ch of body) text += ch;
     expect(text).toBe('ab');
     expect(timers()).toBe(before);
+  });
+
+  it('日本語と空白を含む path を見出しに載せられる形で送る', async () => {
+    // 符号化しないと undici が送る前に TypeError を投げる。Worker では直せない。
+    const path = 'projects/-Users-satog-作業/メモ 1.jsonl';
+    const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    expect(await c.putFile({ key: 'transcripts/d/u.jsonl.gz', path, kind: 'transcript', sha256: 'a'.repeat(64), size: 3, mtime: 5, encrypted: true }, Readable.from([Buffer.from('abc')]))).toEqual({ seq: 1 });
+    const wire = headersOf(calls[0]!)['x-hangar-path']!;
+    expect(isHeaderSafe(wire)).toBe(true);
+    expect(wire).toBe('projects/-Users-satog-%E4%BD%9C%E6%A5%AD/%E3%83%A1%E3%83%A2%201.jsonl');
+    // Worker は同じ物差しで復号する。
+    expect(decodeHeaderText(wire)).toBe(path);
+  });
+
+  it('日本語と空白を含む鍵を通し、URL では断片ごとに符号化する', async () => {
+    const key = 'config/skills/日本語 メモ/SKILL.md';
+    const { fetch, calls } = fakeFetch((c) => (c.init.method === 'PUT' ? json({ seq: 2 }, 201) : c.init.method === 'DELETE' ? new Response(null, { status: 204 }) : new Response('body', { status: 200 })));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    await c.putFile({ key, path: 'skills/日本語 メモ/SKILL.md', kind: 'config', sha256: 'b'.repeat(64), size: 1, mtime: 1, encrypted: true }, Readable.from([Buffer.from('x')]));
+    const expected = 'https://h/files/config/skills/%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E3%83%A1%E3%83%A2/SKILL.md';
+    expect(calls[0]!.url).toBe(expected);
+    let text = '';
+    for await (const ch of await c.getFile(key)) text += ch;
+    expect(text).toBe('body');
+    expect(calls[1]!.url).toBe(expected);
+    await c.deleteFile(key);
+    expect(calls[2]!.url).toBe(expected);
+    // 断片ごとの復号で元の鍵に戻る（Worker の受け取りと同じ）。
+    expect(new URL(calls[0]!.url).pathname.slice('/files/'.length).split('/').map(decodeURIComponent).join('/')).toBe(key);
+  });
+
+  it('鍵の検査は Worker と同じ物差しにする', async () => {
+    const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    // 端末の側だけが厳しいと、Worker が受け取れる鍵を送る前に落とす。
+    for (const key of ['config/skills/日本語 メモ/SKILL.md', 'config/memory/🐕.md', 'transcripts/d/u 1.jsonl.gz']) {
+      expect(isValidFileKey(key), key).toBe(true);
+      await expect(c.getFile(key)).resolves.toBeDefined();
+    }
+    expect(calls).toHaveLength(3);
+    for (const key of ['other/u1', 'transcripts/d/../e/u1', 'transcripts//u1', 'config/', 'transcripts/d/u\u0000.gz']) {
+      await expect(c.getFile(key), key).rejects.toMatchObject({ status: 400 });
+    }
+    expect(calls).toHaveLength(3);
+  });
+
+  it('見出しに載せられない path は送る前に 400 で断る', async () => {
+    const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    const meta = (path: string) => ({ key: 'transcripts/d/u.jsonl.gz', path, kind: 'transcript' as const, sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: true });
+    for (const path of ['../../etc/passwd', '/etc/passwd', 'a/../b', '', 'a\u0000b', '\ud800']) {
+      await expect(c.putFile(meta(path), Readable.from([Buffer.from('x')])), path).rejects.toMatchObject({ status: 400 });
+    }
+    expect(calls).toHaveLength(0);
   });
 });

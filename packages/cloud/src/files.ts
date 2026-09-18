@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { CLOUD_HEADERS, PULL_LIMIT, isSafeKeyId, isSafeRelPath, type FileEntry, type FileKind, type ListFilesResponse } from '@agent-hangar/shared';
+import { CLOUD_HEADERS, MAX_KEY_BYTES, PULL_LIMIT, decodeHeaderText, isSafeKeyId, isSafeRelPath, splitFileKey, type FileEntry, type FileKind, type ListFilesResponse } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
 
 type FileRow = {
@@ -30,26 +30,10 @@ const toEntry = (r: FileRow): FileEntry => ({
   uploadedAt: r.uploaded_at,
 });
 
-/** R2 の鍵の上限である。超えると R2 が投げるので、その手前で 400 にして 500 を出さない。 */
-export const MAX_KEY_BYTES = 1024;
-
-/** 鍵の 1 段目に許す接頭辞である。 */
-type Prefix = 'transcripts' | 'config';
-
-/** 鍵を接頭辞と、その先の相対パスに割る。形が違えば null である。 */
-function splitKey(key: string): { prefix: Prefix; rel: string } | null {
-  const i = key.indexOf('/');
-  if (i < 0) return null;
-  const prefix = key.slice(0, i);
-  if (prefix !== 'transcripts' && prefix !== 'config') return null;
-  const rel = key.slice(i + 1);
-  // 相対パスの物差しは端末側と共有する（`packages/shared/src/cloud.ts`）。
-  // ここで独自の文字種の表を持つと、日本語や空白を含む `~/.claude` のファイルが
-  // 端末側では鍵を作れるのに Worker で 400 になる、という食い違いが起きる。
-  if (!isSafeRelPath(rel)) return null;
-  if (new TextEncoder().encode(key).length > MAX_KEY_BYTES) return null;
-  return { prefix, rel };
-}
+// R2 の鍵の上限である。物差しは端末側と共有する（`packages/shared/src/cloud.ts`）。
+// ここで独自の文字種の表を持つと、日本語や空白を含む `~/.claude` のファイルが
+// 端末側では鍵を作れるのに Worker で 400 になる、という食い違いが起きる。
+export { MAX_KEY_BYTES };
 
 /**
  * 鍵の形と権限である。
@@ -58,7 +42,7 @@ function splitKey(key: string): { prefix: Prefix; rel: string } | null {
  * `GET` は形さえ合っていれば誰でもよい。他端末の本文を降ろすのが同期の目的だからである。
  */
 export function validKey(key: string, deviceId: string, method: 'PUT' | 'GET' | 'DELETE'): boolean {
-  const s = splitKey(key);
+  const s = splitFileKey(key);
   if (!s) return false;
   if (method === 'GET' || s.prefix === 'config') return true;
   // 端末 ID にスラッシュが混ざっていると、他端末の接頭辞の下に潜り込める。
@@ -180,7 +164,10 @@ filesApp.put('/:key{.+}', async (c) => {
   if (!keyShapeOk(key)) return c.json({ error: 'invalid key' }, 400);
   if (!validKey(key, device.id, 'PUT')) return c.json({ error: 'forbidden' }, 403);
   const h = (name: string): string | undefined => c.req.header(name);
-  const path = h(CLOUD_HEADERS.path);
+  // 見出しの値は ByteString しか運べないので、端末は `encodeHeaderText` で符号化して送る。
+  // 復号は共有の関数で行う。片方だけ変えると、索引に百分率のままの文字列が黙って残る。
+  const wirePath = h(CLOUD_HEADERS.path);
+  const path = wirePath === undefined ? undefined : (decodeHeaderText(wirePath) ?? undefined);
   const kind = h(CLOUD_HEADERS.kind);
   const sha = h(CLOUD_HEADERS.sha256);
   const size = toInt(h(CLOUD_HEADERS.size));
@@ -194,7 +181,8 @@ filesApp.put('/:key{.+}', async (c) => {
   const body = c.req.raw.body;
   if (!body) return c.json({ error: 'empty body' }, 400);
   // customMetadata の値も見出し由来なので、ここに秘密は入らない（path と sha と端末 ID だけ）。
-  const storedSize = await storeBody(c.env.BUCKET, key, body, { path, sha256: sha, device: device.id });
+  // customMetadata の値も見出しとして運ばれるので、符号化したままの形で置く。
+  const storedSize = await storeBody(c.env.BUCKET, key, body, { path: wirePath!, sha256: sha, device: device.id });
   if (storedSize === null) return c.json({ error: 'too large' }, 413);
   const now = Date.now();
   const r = await c.env.DB.batch([
