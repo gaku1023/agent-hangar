@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { SyncStatusDto } from '@agent-hangar/shared';
 import type { Input } from './types.ts';
+import { NOT_YET } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
 import { persistedSessionView } from './sessionView.ts';
 
@@ -169,7 +171,7 @@ describe('その他', () => {
     expect(effects[2]).toEqual({ kind: 'api.rebuildIndex' });
   });
   it('次のフェーズの操作はトーストで知らせる', () => {
-    const { state, effects } = run([intent({ type: 'sync.now' }), intent({ type: 'session.takeover', id: 's1', force: false })]);
+    const { state, effects } = run([intent({ type: 'project.new.open' }), intent({ type: 'session.takeover', id: 's1', force: false })]);
     expect(effects).toEqual([{ kind: 'toast', level: 'info', message: 'この操作は次のフェーズで実装します' }, { kind: 'toast', level: 'info', message: 'この操作は次のフェーズで実装します' }]);
     expect(state).toEqual(initialState());
   });
@@ -521,5 +523,100 @@ describe('画面に入るときの読み込み', () => {
     expect(p.effects).toEqual([{ kind: 'api.loadMemo', projectId: 'p1' }]);
     const s = run([runtime({ type: 'hash.changed', route: { name: 'settings' } })]);
     expect(s.effects).toEqual([{ kind: 'api.loadSettingsExtras' }]);
+  });
+});
+
+const status = (over: Partial<SyncStatusDto> = {}): SyncStatusDto => ({ state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, ...over });
+
+describe('同期', () => {
+  it('sync.status が領域の状態と未送信件数になる', () => {
+    const a = run([server({ type: 'sync.status', status: status() })]);
+    expect(a.state.sync).toEqual({ kind: 'idle', lastAt: 200 });
+    expect(a.state.pending).toBe(0);
+    const b = run([server({ type: 'sync.status', status: status({ state: 'error', error: '切れました', pending: 3 }) })]);
+    expect(b.state.sync).toEqual({ kind: 'error', message: '切れました' });
+    expect(b.state.pending).toBe(3);
+    expect(run([server({ type: 'sync.status', status: status({ state: 'paused' }) })]).state.sync).toEqual({ kind: 'paused' });
+    expect(run([server({ type: 'sync.status', status: status({ state: 'off', url: null }) })]).state.sync).toEqual({ kind: 'off' });
+    expect(run([server({ type: 'sync.status', status: status({ state: 'pushing' }) })]).state.sync).toEqual({ kind: 'pushing' });
+    expect(run([server({ type: 'sync.status', status: status({ state: 'pulling' }) })]).state.sync).toEqual({ kind: 'pulling' });
+  });
+  it('idle の最終時刻は pull を優先し、pull が無ければ push を採る', () => {
+    expect(run([server({ type: 'sync.status', status: status({ lastPullAt: null }) })]).state.sync).toEqual({ kind: 'idle', lastAt: 100 });
+    expect(run([server({ type: 'sync.status', status: status({ lastPullAt: null, lastPushAt: null }) })]).state.sync).toEqual({ kind: 'idle', lastAt: null });
+  });
+  it('error の本文が無いときは既定の文言にする', () => {
+    expect(run([server({ type: 'sync.status', status: status({ state: 'error', error: null }) })]).state.sync).toEqual({ kind: 'error', message: '同期に失敗しました' });
+  });
+  it('今すぐ同期、一時停止、前面化が効果になる', () => {
+    const { effects } = run([intent({ type: 'sync.now' }), intent({ type: 'sync.pause', paused: true }), runtime({ type: 'window.focus' })]);
+    expect(effects).toEqual([{ kind: 'api.syncNow' }, { kind: 'api.syncPause', paused: true }, { kind: 'api.syncFocus' }]);
+  });
+  it('参加トークンの再表示と設定の下見と取り込み', () => {
+    const a = run([intent({ type: 'sync.joinToken.show' })]);
+    expect(a.effects).toEqual([{ kind: 'api.joinToken' }]);
+    const b = run([intent({ type: 'sync.config.preview' })]);
+    expect(b.state.overlay).toEqual({ kind: 'configPreview' });
+    expect(b.effects).toEqual([{ kind: 'api.configPreview' }]);
+    const c = run([intent({ type: 'sync.config.apply' })], b.state);
+    expect(c.state.overlay).toEqual({ kind: 'none' });
+    expect(c.effects).toEqual([{ kind: 'api.configPull' }]);
+  });
+  it('sync.applied は Mediator の状態を変えない', () => {
+    const r = run([server({ type: 'sync.applied', table: 'sessions', rowId: 's1' })]);
+    expect(r.state).toEqual(initialState());
+    expect(r.effects).toEqual([]);
+  });
+});
+
+describe('この PC で再開', () => {
+  it('この PC で再開の 409 は確認ダイアログになり、承諾で上書きを送る', () => {
+    const a = run([intent({ type: 'session.resumeHere', id: 's1' })]);
+    expect(a.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: false }]);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    const b = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 10, remoteSize: 99 })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's1', localSize: 10, remoteSize: 99 } });
+    const c = run([intent({ type: 'session.resumeHere', id: 's1', overwrite: true })], b.state);
+    expect(c.state.overlay).toEqual({ kind: 'none' });
+    expect(c.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: true }]);
+  });
+  // Ruling 7: resumeHere 領域と overlay 領域の相互作用。
+  it('確認ダイアログは Esc と外側のクリック（overlay.close）で閉じ、何も送らない', () => {
+    const open = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 10, remoteSize: 99 })]);
+    expect(open.state.overlay.kind).toBe('confirm');
+    const closed = run([intent({ type: 'overlay.close' })], open.state);
+    expect(closed.state.overlay).toEqual({ kind: 'none' });
+    expect(closed.effects).toEqual([]);
+    // 閉じても昇格や起動の状態を巻き込まない。
+    expect(closed.state).toEqual(initialState());
+  });
+  it('設定の下見のダイアログも overlay.close で閉じ、取り込みは走らない', () => {
+    const open = run([intent({ type: 'sync.config.preview' })]);
+    const closed = run([intent({ type: 'overlay.close' })], open.state);
+    expect(closed.state.overlay).toEqual({ kind: 'none' });
+    expect(closed.effects).toEqual([]);
+  });
+  it('確認ダイアログを閉じても、待っている未解決プロジェクトは順番に出る', () => {
+    const queued = run([server({ type: 'project.unresolved', projectId: 'p1' }), runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })]);
+    expect(queued.state.overlay.kind).toBe('confirm');
+    const closed = run([intent({ type: 'overlay.close' })], queued.state);
+    expect(closed.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('確認ダイアログが出ていないときの再開は、開いているオーバーレイを閉じない', () => {
+    const open = run([intent({ type: 'palette.open' })]);
+    const r = run([intent({ type: 'session.resumeHere', id: 's1', overwrite: true })], open.state);
+    expect(r.state.overlay).toEqual({ kind: 'palette' });
+    expect(r.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: true }]);
+  });
+  it('409 の確認は他端末のセッションごとに置き換わる', () => {
+    const a = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })]);
+    const b = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's2', localSize: 3, remoteSize: 4 })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's2', localSize: 3, remoteSize: 4 } });
+  });
+  it('同期の操作は未実装の案内を出さないが、引き継ぎは出す', () => {
+    expect(run([intent({ type: 'sync.now' })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
+    expect(run([intent({ type: 'sync.pause', paused: false })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
+    // 引き継ぎはこのフェーズでは実装しないので、NOT_YET_INTENTS に残っている。
+    expect(run([intent({ type: 'session.takeover', id: 's1', force: false })]).effects).toEqual([{ kind: 'toast', level: 'info', message: NOT_YET }]);
   });
 });

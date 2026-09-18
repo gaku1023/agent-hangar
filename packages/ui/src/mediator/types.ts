@@ -7,7 +7,11 @@ export type RuntimeEvent =
   | { type: 'promote.done'; projectId: string; moved: boolean; reason: string | null }
   | { type: 'promote.failed'; message: string }
   // 分割の右に置くタブはストアを見ないと決まらないので、ランタイムが決めて返す。
-  | { type: 'split.resolved'; sessionId: string; tabId: string | null };
+  | { type: 'split.resolved'; sessionId: string; tabId: string | null }
+  // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
+  | { type: 'window.focus' }
+  // サーバが 409 で断ったときに、ランタイムがこの形に直して返す。
+  | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number };
 
 export type Input =
   | { kind: 'intent'; intent: Intent }
@@ -46,15 +50,24 @@ export type Effect =
   | { kind: 'api.regenerateSummary'; sessionId: string }
   | { kind: 'api.loadSettingsExtras' }
   | { kind: 'api.testSummarizer' }
-  | { kind: 'split.resolve'; sessionId: string };
+  | { kind: 'split.resolve'; sessionId: string }
+  | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
+  | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
+  | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' };
 
 export type Screen = { name: 'booting' } | Route;
 export type FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput';
+/** 同期の見え方。サーバの SyncStatusDto を UI が描く形に写したもの。 */
+export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
+/** 押し切る前に一言聞く必要があるもの。いまは他端末の本文を手元の本文で上書きする場面だけである。 */
+export type ConfirmRequest = { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number };
 export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' } | { kind: 'notYet'; feature: string }
   | { kind: 'newSession'; projectId: string | null; scratch: boolean }
   | { kind: 'promote'; sessionId: string }
-  | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null };
+  | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
+  | { kind: 'confirm'; confirm: ConfirmRequest }
+  | { kind: 'configPreview' };
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting' } | { kind: 'failed'; message: string };
 export type SessionViewState = { agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null };
 export type Toast = { id: string; level: 'info' | 'error'; message: string };
@@ -84,6 +97,10 @@ export type State = {
   resolveDeferred: string[];
   /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
   indexPhase: IndexProgressDto['phase'];
+  /** クラウド同期の見え方。同期を設定していなければ off のままである。 */
+  sync: SyncState;
+  /** まだ送れていない変更の件数。ヘッダーの同期表示に出す。 */
+  pending: number;
 };
 export type Step = { state: State; effects: Effect[] };
 export const NOT_YET = 'この操作は次のフェーズで実装します';

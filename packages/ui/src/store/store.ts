@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusDto, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean };
 export type Store = {
@@ -13,6 +13,9 @@ export type Store = {
   // 設定画面に入ったときだけ読む値。
   // 未取得は null で、View は「読み込んでいます」を出す。
   usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
+  // クラウド同期（フェーズ 4）。同期を設定していない間は sync が off のまま届く。
+  // joinToken と configPreview は押したときだけ取りに行く値なので、未取得は null である。
+  sync: SyncStatusDto | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
 };
 
 export const emptyUsage = (): UsageDto => ({ fiveHour: null, sevenDay: null, updatedAt: null });
@@ -25,6 +28,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     usage: emptyUsage(), todos: {}, memos: {}, artifacts: {}, summaryPending: {},
     usageAggregate: null, statusline: null, summarizerModels: null, summarizerTest: null,
+    sync: null, devices: [], joinToken: null, configPreview: null,
   };
 }
 
@@ -40,7 +44,7 @@ export function applyBootstrap(store: Store, b: BootstrapDto): Store {
   // 型の上では必ずあるので、欠けていたときだけ既定値で埋める。
   // 版が古いことは画面には出さない。
   const old = b as Partial<BootstrapDto>;
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: old.usage ?? emptyUsage(), todos: byId(old.todos ?? []), artifacts: byId(old.artifacts ?? []), summaryPending: Object.fromEntries((old.summaryPending ?? []).map((id) => [id, true as const])) };
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: old.usage ?? emptyUsage(), todos: byId(old.todos ?? []), artifacts: byId(old.artifacts ?? []), summaryPending: Object.fromEntries((old.summaryPending ?? []).map((id) => [id, true as const])), sync: old.sync ?? null, devices: old.devices ?? [] };
 }
 
 function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): Record<string, SessionDto> {
@@ -82,6 +86,8 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     }
     case 'memo.update': return { ...store, memos: { ...store.memos, [ev.memo.projectId]: ev.memo } };
     case 'artifact.upsert': return { ...store, artifacts: { ...store.artifacts, [ev.artifact.id]: ev.artifact } };
+    case 'sync.status': return { ...store, sync: ev.status };
+    case 'devices.update': return { ...store, devices: ev.devices };
     case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true } };
     case 'summary.updated': case 'summary.failed': {
       // 本文の差し替えは session.upsert が行う。
@@ -212,3 +218,9 @@ export function artifactsOf(store: Store, opts: { projectId?: string; sessionId?
     .filter((a) => (opts.projectId === undefined || a.projectId === opts.projectId) && (opts.sessionId === undefined || a.sessionIds.includes(opts.sessionId)))
     .sort((a, b) => b.lastPublishedAt - a.lastPublishedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
+
+/** 参加トークンを入れる。押して見せたあとに null で伏せ直せる。 */
+export function applyJoinToken(store: Store, token: string | null): Store { return { ...store, joinToken: token }; }
+
+/** Claude Code の設定の下見を入れる。閉じるときに null で捨てる。 */
+export function applyConfigPreview(store: Store, preview: ConfigPreviewDto | null): Store { return { ...store, configPreview: preview }; }
