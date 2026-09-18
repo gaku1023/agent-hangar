@@ -183,6 +183,8 @@ export class RunManager {
   fork(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s);
+    // 新しい行を作る前に起動できるかを確かめる。失敗しても本文の無いセッションが残らないようにするため。
+    this.precheck(s.cwd);
     const newUuid = crypto.randomUUID();
     const newSessionId = ensureSession(this.db, newUuid, s.cwd, this.deps.deviceId);
     const now = this.now();

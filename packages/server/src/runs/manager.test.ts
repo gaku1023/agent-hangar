@@ -336,4 +336,12 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     db.prepare('update sessions set cwd = ? where id = ?').run('/nonexistent/cwd', id);
     expect(() => make().resume(id)).toThrow(expect.objectContaining({ status: 400 }));
   });
+
+  it('cwd が無ければ fork も 400 で、セッションの行は増えない', () => {
+    const id = seedOldSession();
+    db.prepare('update sessions set cwd = ? where id = ?').run('/nonexistent/cwd', id);
+    const before = db.prepare('select count(*) c from sessions').get() as { c: number };
+    expect(() => make().fork(id)).toThrow(expect.objectContaining({ status: 400 }));
+    expect(db.prepare('select count(*) c from sessions').get()).toEqual(before);
+  });
 });
