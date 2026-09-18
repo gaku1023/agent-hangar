@@ -6,6 +6,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { copyTranscriptForResume, timestampLabel } from './copy.ts';
 import { sha256Hex } from './crypto.ts';
+import { remoteTranscriptPath } from './puller.ts';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
 const NOW = 1_700_000_000_000;
@@ -15,10 +16,15 @@ let claudeDir: string;
 
 const target = () => path.join(claudeDir, 'projects', '-w-alpha', `${UUID}.jsonl`);
 
-/** 他端末から降ろした写しと、その台帳の 1 行を作る。sha256 は実物の中身から取る。 */
-const seedRemote = (device: string, text: string, mtime: number, sha = sha256Hex(text)): string => {
-  const rel = `projects/-w-alpha/${UUID}.jsonl`;
-  const p = path.join(home, 'remote', device, ...rel.split('/'));
+const REL = `projects/-w-alpha/${UUID}.jsonl`;
+
+/**
+ * 他端末から降ろした写しと、その台帳の 1 行を作る。
+ * 置き場は puller の remoteTranscriptPath そのもので組み立てる。
+ * copy.ts が別の規則で組み立てていたら、ここで置いた写しは見つからずテストが落ちる。
+ */
+const seedRemote = (device: string, text: string, mtime: number, sha = sha256Hex(text), rel = REL): string => {
+  const p = remoteTranscriptPath(home, device, rel);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, text);
   fs.utimesSync(p, new Date(mtime), new Date(mtime));
@@ -114,6 +120,26 @@ describe('copyTranscriptForResume', () => {
   it('セッションの UUID が名前として不正なら書かない', () => {
     db.prepare('update sessions set provider_session_id = ? where id = ?').run('../../../evil', 's1');
     expect(() => copy()).toThrow(/セッション/);
+  });
+
+  it('写しを探す場所は puller の remoteTranscriptPath と同じである', () => {
+    seedRemote('dev-b', 'body\n', NOW);
+    const r = copy();
+    expect(r).toMatchObject({ kind: 'copied', from: remoteTranscriptPath(home, 'dev-b', REL) });
+    // 手で組み立てた場所とも一致することを見ておく（規則が変わったらどちらかが必ず落ちる）。
+    expect((r as { from: string }).from).toBe(path.join(home, 'remote', 'dev-b', 'projects', '-w-alpha', `${UUID}.jsonl`));
+  });
+
+  it('projects の外を指す台帳の行は、ファイルがあっても使わない', () => {
+    const rel = `skills/${UUID}.jsonl`;
+    const p = path.join(home, 'remote', 'dev-b', ...rel.split('/'));
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, 'outside\n');
+    db.prepare('insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
+      .run(`transcripts/dev-b/${UUID}.jsonl.gz`, 'transcript', rel, 'dev-b', sha256Hex('outside\n'), 8, NOW, 1, NOW);
+    // remoteTranscriptPath が projects/ の下だけを許すので、ここで弾かれる。
+    expect(() => remoteTranscriptPath(home, 'dev-b', rel)).toThrow();
+    expect(copy()).toEqual({ kind: 'none' });
   });
 
   it('timestampLabel は秒までの並べ替えできる文字列', () => {

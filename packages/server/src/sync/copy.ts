@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { backupsRoot, remoteRoot } from '../config/cloud.ts';
+import { backupsRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
 import { mangleCwd } from '../provider/claude-code/discover.ts';
+import { remoteTranscriptPath } from './puller.ts';
 
 export type CopyResult =
   | { kind: 'copied'; target: string; from: string; bytes: number; backedUp: string | null }
@@ -59,21 +60,10 @@ function sha256File(file: string): string {
 }
 
 /**
- * 他端末から降ろした写しの置き場。
- * Task 14 の `remoteTranscriptPath` と同じ規則である。
- * puller.ts が入ったら、この関数を消してそちらを import する。
- */
-function remoteCopyPath(home: string, deviceId: string, rel: string): string {
-  if (!/^[A-Za-z0-9._-]+$/.test(deviceId)) throw new Error(`端末 ID が不正です: ${deviceId}`);
-  const norm = path.posix.normalize(rel);
-  if (!norm.startsWith('projects/') || norm.includes('..') || norm.startsWith('/')) throw new Error(`本文の相対パスが不正です: ${rel}`);
-  return path.join(remoteRoot(home), deviceId, ...norm.split('/'));
-}
-
-/**
  * 選んだ写しが台帳の指紋と一致するか確かめる。
  * ここで通したものだけが ~/.claude の本物を置き換えるので、
  * 降ろした後に壊れた（あるいは差し替えられた）写しを上書きに使わない。
+ * file_sync の sha256 と size は平文の jsonl のものである（uploader が上げる前に取り、puller が復号して展開した後に突き合わせる）。
  */
 function verifiedAgainstLedger(db: Db, pick: RemotePick, sessionUuid: string): boolean {
   const row = db.prepare('select sha256, size from file_sync where key = ?')
@@ -85,7 +75,10 @@ function verifiedAgainstLedger(db: Db, pick: RemotePick, sessionUuid: string): b
   try { return sha256File(pick.path) === row.sha256; } catch { return false; }
 }
 
-/** 台帳と食い違う写しを飛ばしながら、使える写しを 1 つ選ぶ。 */
+/**
+ * 台帳と食い違う写しを飛ばしながら、使える写しを 1 つ選ぶ。
+ * 置き場の組み立ては puller の remoteTranscriptPath に任せる。規則を 2 か所に持つと、片方だけ変わったときに黙って外れる。
+ */
 function chooseRemote(o: CopyOptions, sessionUuid: string): RemotePick | null {
   if (o.pickRemote) {
     const pick = o.pickRemote(sessionUuid);
@@ -95,7 +88,7 @@ function chooseRemote(o: CopyOptions, sessionUuid: string): RemotePick | null {
     .all(`transcripts/%/${sessionUuid}.jsonl.gz`) as { path: string; device_id: string; size: number; mtime: number }[];
   for (const r of rows) {
     let p: string;
-    try { p = remoteCopyPath(o.home, r.device_id, r.path); } catch { continue; }
+    try { p = remoteTranscriptPath(o.home, r.device_id, r.path); } catch { continue; }
     if (!fs.existsSync(p)) continue;
     const pick: RemotePick = { deviceId: r.device_id, path: p, size: fs.statSync(p).size, mtime: r.mtime };
     if (verifiedAgainstLedger(o.db, pick, sessionUuid)) return pick;
