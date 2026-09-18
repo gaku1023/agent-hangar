@@ -13,6 +13,11 @@ describe('parseStatusline', () => {
     expect(parseStatusline('x')).toBeNull();
     expect(parseStatusline(null)).toBeNull();
   });
+  it('トークンの項目を 1 つも持たない current_usage は null にする', () => {
+    expect(parseStatusline({ context_window: { current_usage: { output_tokens: 7 } } })).toMatchObject({ contextUsed: null });
+    expect(parseStatusline({ context_window: { current_usage: {} } })).toMatchObject({ contextUsed: null });
+    expect(parseStatusline({ context_window: { current_usage: { input_tokens: 0, output_tokens: 7 } } })).toMatchObject({ contextUsed: 0 });
+  });
 });
 
 describe('UsageTracker', () => {
@@ -36,6 +41,16 @@ describe('UsageTracker', () => {
     const ls = db.prepare('select * from session_live_stats where provider_session_id = ?').get('u1') as Record<string, unknown>;
     // 3 回目の payload は current_usage が null なので、2 回目の値を保つ。cost は 3 回目の値。
     expect(ls).toMatchObject({ model: 'claude-opus-4-1', effort: 'high', context_used: 50_000, context_size: 200_000, cost_usd: 0.05, updated_at: 3_000 });
+  });
+  it('トークンの項目を持たない current_usage は既存の context_used を上書きしない', () => {
+    const db = openDb(':memory:');
+    let t = 1_000;
+    const tr = new UsageTracker(db, { now: () => t });
+    tr.ingest(second);
+    t = 2_000;
+    tr.ingest({ ...first, context_window: { context_window_size: 200_000, current_usage: { output_tokens: 7 } } });
+    const ls = db.prepare('select * from session_live_stats where provider_session_id = ?').get('u1') as Record<string, unknown>;
+    expect(ls).toMatchObject({ context_used: 50_000, context_size: 200_000, updated_at: 2_000 });
   });
   it('起動時に直近のスナップショットから復元し、古いものを keep 件に切る', () => {
     const db = openDb(':memory:');

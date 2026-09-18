@@ -24,11 +24,17 @@ function window_(v: unknown): RateWindowDto | null {
   return { usedPercent: used, resetsAt: resets === null ? null : resets * 1000 };
 }
 
-/** current_usage はトークン数のオブジェクトか、数値か、null。 */
+/**
+ * current_usage はトークン数のオブジェクトか、数値か、null。
+ * 入力側のトークンの項目を 1 つも持たないときは 0 ではなく null を返す。
+ * 0 を返すと session_live_stats の coalesce が既存の値を 0 で上書きしてしまう。
+ */
 function contextUsed(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (!isRec(v)) return null;
-  return (num(v.input_tokens) ?? 0) + (num(v.cache_creation_input_tokens) ?? 0) + (num(v.cache_read_input_tokens) ?? 0);
+  const parts = [num(v.input_tokens), num(v.cache_creation_input_tokens), num(v.cache_read_input_tokens)];
+  if (parts.every((n) => n === null)) return null;
+  return parts.reduce<number>((a, n) => a + (n ?? 0), 0);
 }
 
 export function parseStatusline(raw: unknown): StatuslinePayload | null {
