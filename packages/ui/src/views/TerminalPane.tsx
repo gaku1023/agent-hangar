@@ -16,7 +16,7 @@ export function TerminalPane(props: { tabId: string; status: TerminalStatus | nu
     return () => ro?.disconnect();
   }, [host, props.tabId]);
   return (
-    <div className="term-pane">
+    <div className="term-pane" data-testid={`term-${props.tabId}`}>
       {props.hint && <div className="term-hint" role="status">{props.hint}</div>}
       {/* key を付けて、タブが変わったら枠ごと作り直す。前のタブの xterm の要素を残さないためである。 */}
       <div key={props.tabId} ref={ref} className="term-host" data-tab={props.tabId} onClick={() => host?.focus(props.tabId)} />

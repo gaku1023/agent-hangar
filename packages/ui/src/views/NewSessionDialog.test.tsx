@@ -11,14 +11,14 @@ const projects = [{ id: 'p1', name: 'alpha', path: '/w/alpha' }, { id: 'p2', nam
  */
 function collectParams(): LaunchParams[] {
   const out: LaunchParams[] = [];
-  render(<IntentRoot onIntent={(i) => { if (i.type === 'session.new.submit') out.push(i.params); }}><NewSessionDialog projects={projects} projectId={null} submitting={false} error={null} /></IntentRoot>);
+  render(<IntentRoot onIntent={(i) => { if (i.type === 'session.new.submit') out.push(i.params); }}><NewSessionDialog projects={projects} projectId={null} submitting={false} error={null} scratch={false} /></IntentRoot>);
   return out;
 }
 
 describe('NewSessionDialog', () => {
   it('選んで起動すると params を出す', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={projects} projectId={null} submitting={false} error={null} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={projects} projectId={null} submitting={false} error={null} scratch={false} /></IntentRoot>);
     const start = screen.getByRole('button', { name: '起動' });
     fireEvent.change(screen.getByLabelText('プロジェクト'), { target: { value: 'p1' } });
     fireEvent.change(screen.getByLabelText('名前（任意）'), { target: { value: 'n' } });
@@ -30,7 +30,7 @@ describe('NewSessionDialog', () => {
   });
   it('初期プロジェクトが選ばれ、Esc とやめるで閉じる', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={projects} projectId="p2" submitting={false} error={null} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={projects} projectId="p2" submitting={false} error={null} scratch={false} /></IntentRoot>);
     expect((screen.getByLabelText('プロジェクト') as HTMLSelectElement).value).toBe('p2');
     expect(screen.getByRole('button', { name: '起動' })).toBeEnabled();
     fireEvent.click(screen.getByText('やめる'));
@@ -49,7 +49,7 @@ describe('NewSessionDialog', () => {
   });
   it('読み上げの名前は可視ラベルと一致する', () => {
     // 「（任意）」を落とすと、読み上げでは必須かどうかが分からなくなる。
-    render(<IntentRoot onIntent={() => {}}><NewSessionDialog projects={projects} projectId={null} submitting={false} error={null} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog projects={projects} projectId={null} submitting={false} error={null} scratch={false} /></IntentRoot>);
     expect(screen.getByRole('combobox', { name: 'プロジェクト' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '名前（任意）' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '初期プロンプト（任意）' })).toBeInTheDocument();
@@ -68,14 +68,14 @@ describe('NewSessionDialog', () => {
     expect(Object.keys(params[0]!).sort()).toEqual(['model', 'projectId']);
   });
   it('送信中と失敗の表示', () => {
-    render(<IntentRoot onIntent={() => {}}><NewSessionDialog projects={projects} projectId="p1" submitting error="tmux が見つかりません" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog projects={projects} projectId="p1" submitting error="tmux が見つかりません" scratch={false} /></IntentRoot>);
     expect(screen.getByRole('button', { name: '起動しています' })).toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('tmux が見つかりません');
     expect(screen.getByText(/信頼確認/)).toBeInTheDocument();
   });
   it('変換中の Enter では起動しない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={projects} projectId="p1" submitting={false} error={null} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={projects} projectId="p1" submitting={false} error={null} scratch={false} /></IntentRoot>);
     const name = screen.getByLabelText('名前（任意）');
     fireEvent.change(name, { target: { value: 'なまえ' } });
     fireEvent.keyDown(name, { key: 'Enter', keyCode: 229 });

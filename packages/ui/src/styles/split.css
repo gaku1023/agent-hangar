@@ -1,1 +1,16 @@
 /* タブの分割（Task 23） */
+
+/* 幅は grid のトラックで持ち、仕切りは 6px の掴める帯にする。
+   高さは外側から受け取る。フェーズ 2 の .split（ターミナルとトランスクリプトの 2 列）の
+   左の列に入るので、100% でその高さをそのまま受け継ぐ。
+   既存の .split は上書きしない。 */
+.split-h { display: grid; height: 100%; min-height: 0; transition: grid-template-columns var(--dur) var(--ease); }
+.split-pane { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.split-pane > .term-pane { flex: 1; min-height: 0; }
+.split-divider { cursor: col-resize; background: var(--line); transition: background var(--dur) var(--ease); }
+.split-divider:hover, .split-divider:focus-visible { background: var(--line-strong); outline: none; }
+
+/* セッションヘッダーのコンテキスト使用率と、アーティファクトの帯と、タブ列の分割ボタン。 */
+.gauge-wrap { display: inline-flex; align-items: center; gap: 4px; }
+.session-artifacts { padding: 4px 0; }
+.tab-action { padding: 0 6px; }

@@ -22,8 +22,9 @@ export function NewSessionDialog(props: NewSessionProps) {
     const data = new FormData(form.current);
     const text = (key: string): string => { const v = data.get(key); return typeof v === 'string' ? v.trim() : ''; };
     const params: LaunchParams = {};
-    const projectId = text('projectId');
-    if (projectId) params.projectId = projectId;
+    // スクラッチはプロジェクトを持たず、サーバが使い捨てのディレクトリを作る。
+    if (props.scratch) params.scratch = true;
+    else { const projectId = text('projectId'); if (projectId) params.projectId = projectId; }
     for (const key of textKeys) { const v = text(key); if (v) params[key] = v; }
     const dirs = text('addDirs').split('\n').map((d) => d.trim()).filter(Boolean);
     if (dirs.length) params.addDirs = dirs;
@@ -43,13 +44,17 @@ export function NewSessionDialog(props: NewSessionProps) {
   return (
     <div className="overlay" role="dialog" aria-modal="true" aria-label="新しいセッション" onKeyDown={onKeyDown}>
       <form ref={form} className="dialog dialog-wide" onSubmit={(e) => e.preventDefault()}>
-        <b>新しいセッション</b>
-        <label className="field" htmlFor="new-session-project">プロジェクト
-          <select id="new-session-project" className="select" name="projectId" defaultValue={props.projectId ?? ''}>
-            <option value="">選んでください</option>
-            {props.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.path ? `　${p.path}` : ''}</option>)}
-          </select>
-        </label>
+        <b>{props.scratch ? 'スクラッチで始める' : '新しいセッション'}</b>
+        {props.scratch
+          ? <div className="faint">~/.agent-hangar/scratch/ の下に日時のディレクトリを作って起動します。後からプロジェクトに昇格できます。</div>
+          : (
+            <label className="field" htmlFor="new-session-project">プロジェクト
+              <select id="new-session-project" className="select" name="projectId" defaultValue={props.projectId ?? ''}>
+                <option value="">選んでください</option>
+                {props.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.path ? `　${p.path}` : ''}</option>)}
+              </select>
+            </label>
+          )}
         <label className="field" htmlFor="new-session-name">名前（任意）
           <input id="new-session-name" className="input" name="name" defaultValue="" placeholder="一覧での表示名" />
         </label>

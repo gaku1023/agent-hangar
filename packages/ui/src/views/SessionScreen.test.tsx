@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
+import { NewSessionDialog } from './NewSessionDialog.tsx';
 import { SessionScreen } from './SessionScreen.tsx';
+import { TabStrip } from './TabStrip.tsx';
 import { TerminalHostContext } from './TerminalPane.tsx';
 
 const base: SessionProps = { id: 's1', name: 'name', live: 'busy', cwd: '/w/alpha', projectName: 'alpha', projectId: 'p1', summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceModel: null, basedOnTurns: 2, updatedAt: 1, sourceLabel: '自動', stateLabel: '進行中' }, summaryOpen: false, model: 'fable 5.1', effort: 'high', turns: 2, tokens: '1.2M', prUrl: null, memo: null, started: '2 時間前', lastActivity: '1 分前', hasTranscript: true,
@@ -13,7 +15,8 @@ const base: SessionProps = { id: 's1', name: 'name', live: 'busy', cwd: '/w/alph
     { kind: 'tool', seq: 1, summary: 'Agent x', name: 'Agent', inputJson: '{}', result: { text: 'done', isError: false }, when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } },
     { kind: 'tool', seq: 2, summary: 'Edit /a', name: 'Edit', inputJson: '{}', result: { text: 'File not found', isError: true }, when: '10:02', subagent: null },
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
-  ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true };
+  ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
+  contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false };
 
 describe('SessionScreen', () => {
   it('ヘッダー、要約の開閉、切替、続きの読み込み', () => {
@@ -135,5 +138,83 @@ describe('SessionScreen のアイコン', () => {
     expect(tool.querySelector('.fold-arrow svg')?.getAttribute('data-icon')).toBe('chevron');
     expect(tool.querySelector('.fold-head svg[data-icon="tool"]')).not.toBeNull();
     expect(iconOf(screen.getByRole('button', { name: 'サブエージェント abc を見る' }))).toBe('subagent');
+  });
+});
+
+const p3: SessionProps = { ...base, contextPercent: 62, cost: '$1.20', artifacts: [{ id: 'a1', title: '題名', description: null, favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 1, canOpenEditor: false }] };
+
+describe('フェーズ 3 のセッション画面', () => {
+  it('コンテキストとコストとアーティファクトを出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...p3} terminalStatus={null} /></IntentRoot>);
+    expect(screen.getByLabelText('コンテキスト使用率').getAttribute('aria-valuenow')).toBe('62');
+    expect(screen.getByText('$1.20')).toBeInTheDocument();
+    expect(screen.getByText('題名')).toBeInTheDocument();
+  });
+  it('要約の作成中と失敗を出す', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SessionScreen {...p3} summaryPending terminalStatus={null} /></IntentRoot>);
+    expect(screen.getByText('要約を作成しています')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={() => {}}><SessionScreen {...p3} summaryError="LM Studio に繋がりません" terminalStatus={null} /></IntentRoot>);
+    expect(screen.getByText('要約を作成できませんでした')).toBeInTheDocument();
+  });
+  it('スクラッチの注意書きと昇格ボタン', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionScreen {...p3} fromScratch terminalStatus={null} /></IntentRoot>);
+    expect(screen.getByText('再開すると cwd はスクラッチのままです')).toBeInTheDocument();
+    expect(screen.queryByText('プロジェクトに昇格')).toBeNull();
+    rerender(<IntentRoot onIntent={onIntent}><SessionScreen {...p3} canPromote terminalStatus={null} /></IntentRoot>);
+    fireEvent.click(screen.getByText('プロジェクトに昇格'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.promote.open', id: p3.id });
+  });
+  it('要約を作り直すボタン', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionScreen {...p3} terminalStatus={null} /></IntentRoot>);
+    fireEvent.click(screen.getByText('要約を作り直す'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'summary.regenerate', sessionId: p3.id });
+  });
+  it('分割の指定があれば 2 つのターミナルを並べる', () => {
+    withHost(<SessionScreen {...running} canSplit split={{ left: 'r1', right: 't1' }} terminalStatus="connected" />);
+    expect(screen.getByTestId('split')).toBeInTheDocument();
+    expect(screen.getAllByTestId(/^term-/)).toHaveLength(2);
+    expect(host.mount).toHaveBeenCalledWith('t1', expect.anything());
+  });
+  it('分割していなければターミナルは 1 つ', () => {
+    withHost(<SessionScreen {...running} canSplit terminalStatus="connected" />);
+    expect(screen.queryByTestId('split')).toBeNull();
+    expect(screen.getAllByTestId(/^term-/)).toHaveLength(1);
+  });
+});
+
+describe('TabStrip の分割ボタン', () => {
+  const one = [{ id: 't1', title: 'Claude', kind: 'agent' as const, selected: true, closable: false }];
+  const two = [...one, { id: 't2', title: 'シェル 1', kind: 'shell' as const, selected: false, closable: true }];
+  it('タブが 1 つなら押せない', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={one} canAdd canSplit={false} split={false} /></IntentRoot>);
+    expect(screen.getByLabelText('分割')).toBeDisabled();
+    rerender(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={two} canAdd canSplit split={false} /></IntentRoot>);
+    fireEvent.click(screen.getByLabelText('分割'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'split.toggle' });
+  });
+  it('分割中は押された状態にする', () => {
+    render(<IntentRoot onIntent={() => {}}><TabStrip sessionId="s1" tabs={two} canAdd canSplit split /></IntentRoot>);
+    expect(screen.getByLabelText('分割')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('NewSessionDialog のスクラッチ', () => {
+  it('スクラッチではプロジェクトを選ばせず、scratch を付けて送る', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha' }]} projectId={null} submitting={false} error={null} scratch /></IntentRoot>);
+    expect(screen.queryByLabelText('プロジェクト')).toBeNull();
+    expect(screen.getByText('スクラッチで始める')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('起動'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.submit', params: expect.objectContaining({ scratch: true }) });
+  });
+  it('スクラッチでないときはプロジェクトを選ばせ、scratch を付けない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha' }]} projectId="p1" submitting={false} error={null} scratch={false} /></IntentRoot>);
+    expect(screen.getByLabelText('プロジェクト')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('起動'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.submit', params: { projectId: 'p1' } });
   });
 });
