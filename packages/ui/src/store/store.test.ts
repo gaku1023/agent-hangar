@@ -3,7 +3,7 @@ import type { BootstrapDto, SessionDto } from '@agent-hangar/shared';
 import { applyBootstrap, applyEventsPage, applyServerEvent, eventsKey, initialStore } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0 } });
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c' }, projects: [], sessions: [session('s1', 'u1')], live: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0' };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0' };
 
 describe('store', () => {
   it('bootstrap を正規化して入れる', () => {
