@@ -15,6 +15,15 @@ describe('openDb', () => {
     const n = () => (db.prepare('select count(*) c from schema_migrations').get() as { c: number }).c;
     expect(n()).toBeGreaterThan(0);
   });
+  it('version 3 の端末ローカルの表がある', () => {
+    const db = openDb(':memory:');
+    const names = (db.prepare("select name from sqlite_master where type = 'table' order by name").all() as { name: string }[]).map((r) => r.name);
+    expect(names).toEqual(expect.arrayContaining(['session_live_stats', 'artifact_calls', 'usage_daily']));
+    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(3);
+    db.prepare('insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)').run('u1', 'claude-opus-4-1', 'high', 50_000, 200_000, 0.12, 1);
+    db.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s1', '2026-09-01', 10, 2);
+    expect(db.prepare('select count(*) c from usage_daily').get()).toEqual({ c: 1 });
+  });
   it('FTS5 trigram で日本語の部分一致ができる', () => {
     const db = openDb(':memory:');
     db.prepare('insert into event_fts (session_id, seq, role, text) values (?,?,?,?)').run('s1', 0, 'user', '動画チャンネルの整理をしたい');

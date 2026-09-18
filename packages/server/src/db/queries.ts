@@ -15,6 +15,8 @@ type SessionRow = {
   last_activity_at: number | null;
   memo: string | null;
   has_transcript: number;
+  project_is_scratch: number | null;
+  scratch_root: string | null;
   sum_title: string | null;
   sum_one: string | null;
   sum_body: string | null;
@@ -31,15 +33,25 @@ type SessionRow = {
   st_pr: string | null;
   st_in: number | null;
   st_out: number | null;
+  ls_model: string | null;
+  ls_effort: string | null;
+  ls_used: number | null;
+  ls_size: number | null;
+  ls_cost: number | null;
 };
 
 const SESSION_SELECT = `
 select s.*, exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null) has_transcript,
+  p.is_scratch project_is_scratch,
+  (select r.path from project_roots r join projects sp on sp.id = r.project_id where sp.is_scratch = 1 and sp.deleted_at is null and r.deleted_at is null order by r.updated_at desc limit 1) scratch_root,
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
-  st.turns st_turns, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out
+  st.turns st_turns, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
+  ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost
 from sessions s
+left join projects p on p.id = s.project_id
 left join session_summaries m on m.session_id = s.id and m.deleted_at is null
 left join session_stats st on st.session_id = s.id
+left join session_live_stats ls on ls.provider_session_id = s.provider_session_id
 where s.deleted_at is null`;
 
 /**
@@ -71,6 +83,12 @@ function parseNextSteps(raw: string | null): string[] {
   }
 }
 
+/** コンテキスト使用率。分母が無いか 0 なら null。 */
+export function contextPercent(used: number | null, size: number | null): number | null {
+  if (used === null || size === null || size <= 0) return null;
+  return Math.round((used / size) * 1000) / 10;
+}
+
 function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const summary: SessionSummaryDto | null = r.sum_title !== null
@@ -86,18 +104,20 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>): Sess
         updatedAt: r.sum_updated ?? 0,
       }
     : null;
+  // statusline の値を優先し、無いときだけ索引の値を使う。
   const stats: SessionStatsDto = {
     turns: r.st_turns ?? 0,
-    model: r.st_model,
-    effort: r.st_effort,
+    model: r.ls_model ?? r.st_model,
+    effort: r.ls_effort ?? r.st_effort,
     filesChanged: r.st_files ?? 0,
     prUrl: r.st_pr,
     inputTokens: r.st_in ?? 0,
     outputTokens: r.st_out ?? 0,
-    // 文脈の残りと費用は Task 2 で列が入るまで null にする。
-    contextPercent: null,
-    costUsd: null,
+    contextPercent: contextPercent(r.ls_used, r.ls_size),
+    costUsd: r.ls_cost,
   };
+  // スクラッチのルートの下で始まり、なお別のプロジェクトに属しているセッションを昇格の対象として印す。
+  const underScratch = r.scratch_root !== null && (r.cwd === r.scratch_root || r.cwd.startsWith(r.scratch_root + '/'));
   return {
     id: r.id,
     provider: r.provider,
@@ -105,7 +125,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>): Sess
     projectId: r.project_id,
     name: displayName(r, live),
     cwd: r.cwd,
-    fromScratch: false,
+    fromScratch: underScratch && r.project_is_scratch !== 1,
     firstPrompt: r.first_prompt,
     aiTitle: r.ai_title,
     startedAt: r.started_at,
@@ -158,14 +178,25 @@ type ProjectRow = {
   path: string | null;
   resolved: number | null;
   last_activity_at: number | null;
+  open_todos: number;
+  memo_markdown: string | null;
 };
 
 const PROJECT_SELECT = `
 select p.id, p.name, p.status, p.is_scratch, p.updated_at, r.path, r.resolved,
-  (select max(s.last_activity_at) from sessions s where s.project_id = p.id and s.deleted_at is null) last_activity_at
+  (select max(s.last_activity_at) from sessions s where s.project_id = p.id and s.deleted_at is null) last_activity_at,
+  (select count(*) from todos t where t.project_id = p.id and t.done = 0 and t.deleted_at is null) open_todos,
+  (select m.markdown from project_memos m where m.project_id = p.id and m.deleted_at is null) memo_markdown
 from projects p
 left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null
 where p.deleted_at is null`;
+
+/** メモの先頭。空行でない最初の行の先頭 80 字。 */
+export function memoHead(markdown: string | null): string | null {
+  if (!markdown) return null;
+  const line = markdown.split('\n').map((l) => l.trim()).find((l) => l.length > 0);
+  return line ? [...line].slice(0, 80).join('') : null;
+}
 
 function toProjectDto(r: ProjectRow, db: Db, liveIds: Set<string>): ProjectDto {
   const psids = (db.prepare('select provider_session_id p from sessions where project_id = ? and deleted_at is null').all(r.id) as { p: string }[]).map((x) => x.p);
@@ -178,8 +209,8 @@ function toProjectDto(r: ProjectRow, db: Db, liveIds: Set<string>): ProjectDto {
     resolved: r.resolved === 1,
     lastActivityAt: r.last_activity_at,
     runningCount: psids.filter((p) => liveIds.has(p)).length,
-    openTodoCount: 0,
-    memoHead: null,
+    openTodoCount: r.open_todos,
+    memoHead: memoHead(r.memo_markdown),
     updatedAt: r.updated_at,
   };
 }

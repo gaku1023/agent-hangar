@@ -139,4 +139,27 @@ create table sync_state (key text primary key, value text not null);
 create table settings_local (key text primary key, value text not null);
 `,
   },
+  {
+    version: 3,
+    sql: `
+create table session_live_stats (
+  provider_session_id text primary key,
+  model text, effort text,
+  context_used integer, context_size integer,
+  cost_usd real,
+  updated_at integer not null
+);
+create table artifact_calls (
+  tool_id text primary key, session_id text not null,
+  file_path text, description text, favicon text
+);
+create table usage_daily (
+  session_id text not null, day text not null,
+  input_tokens integer not null default 0, output_tokens integer not null default 0,
+  primary key (session_id, day)
+);
+create index artifact_versions_session on artifact_versions(session_id);
+create index todos_project on todos(project_id, position);
+`,
+  },
 ];

@@ -114,3 +114,34 @@ describe('getProject', () => {
     expect(getProject(db, 'd', live, 'p1')).toEqual(listProjects(db, 'd', live)[0]);
   });
 });
+
+describe('フェーズ 3 の項目', () => {
+  it('openTodoCount と memoHead はプロジェクトに付く', () => {
+    upsertShared(db, 'todos', { id: 't1', project_id: 'p1', text: 'a', done: 0, position: 1, session_id: null }, 'd');
+    upsertShared(db, 'todos', { id: 't2', project_id: 'p1', text: 'b', done: 1, position: 2, session_id: null }, 'd');
+    upsertShared(db, 'todos', { id: 't3', project_id: 'p1', text: 'c', done: 0, position: 3, session_id: null }, 'd');
+    db.prepare('update todos set deleted_at = 1 where id = ?').run('t3');
+    upsertShared(db, 'project_memos', { project_id: 'p1', markdown: '\n\n# 見出し\n本文' }, 'd', 'project_id');
+    const p = getProject(db, 'd', live, 'p1')!;
+    expect(p.openTodoCount).toBe(1);
+    expect(p.memoHead).toBe('# 見出し');
+    expect(listProjects(db, 'd', live)[0]).toMatchObject({ openTodoCount: 1, memoHead: '# 見出し' });
+  });
+  it('statusline の値が stats に乗り、無ければ索引の値', () => {
+    const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    expect(alpha.stats).toMatchObject({ model: 'claude-fable-5-1', effort: 'high', contextPercent: null, costUsd: null });
+    db.prepare('insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)').run(SESSION_ALPHA, 'claude-opus-4-1', 'max', 50_000, 200_000, 0.1234, 1);
+    const again = getSession(db, live, alpha.id)!;
+    expect(again.stats).toMatchObject({ model: 'claude-opus-4-1', effort: 'max', contextPercent: 25, costUsd: 0.1234 });
+  });
+  it('fromScratch はスクラッチの下にあって別のプロジェクトに属するときだけ真', () => {
+    upsertShared(db, 'projects', { id: 'scratch', name: 'スクラッチ', status: 'active', is_scratch: 1 }, 'd');
+    upsertShared(db, 'project_roots', { id: 'rs', project_id: 'scratch', device_id: 'd', path: '/Users/me/.agent-hangar/scratch', resolved: 1 }, 'd');
+    const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    expect(alpha.fromScratch).toBe(false);
+    db.prepare('update sessions set cwd = ? where id = ?').run('/Users/me/.agent-hangar/scratch/20260901-100000', alpha.id);
+    expect(getSession(db, live, alpha.id)!.fromScratch).toBe(true);
+    db.prepare("update sessions set project_id = 'scratch' where id = ?").run(alpha.id);
+    expect(getSession(db, live, alpha.id)!.fromScratch).toBe(false);
+  });
+});
