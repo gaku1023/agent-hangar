@@ -885,6 +885,16 @@ describe('設定の往復', () => {
     }
   });
 
+  // 前後の空白に意味は無い。パス系の設定と同じ扱いにそろえる。
+  it('lmStudioModel は前後の空白を落として保存する', async () => {
+    const r = await patch({ lmStudioModel: '  gemma-3  ' });
+    expect(r.status).toBe(200);
+    expect((await r.json()).lmStudioModel).toBe('gemma-3');
+    expect((await json(await get('/api/settings'))).body.lmStudioModel).toBe('gemma-3');
+    // 空白だけの文字列は「未設定」と同じに扱う。
+    expect((await (await patch({ lmStudioModel: '   ' })).json()).lmStudioModel).toBeNull();
+  });
+
   it('Claude Code 設定の同期は、入れて、切って、また入れられる', async () => {
     // UI のチェックは settings.update の patch を 1 つ送るだけである。
     for (const want of [true, false, true]) {

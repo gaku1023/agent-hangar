@@ -384,7 +384,9 @@ export function createApp(deps: AppDeps): Hono {
     if ('lmStudioModel' in body) {
       const v = body.lmStudioModel;
       if (v !== null && typeof v !== 'string') return c.json({ error: 'lmStudioModel は文字列か null です' }, 400);
-      patch.lmStudioModel = typeof v === 'string' && v.trim() !== '' ? v : null;
+      // 空文字と空白だけの文字列は「未設定」と同じ意味なので null に寄せる。
+      // 前後の空白は落とす。パス系の設定と同じ扱いにそろえる。
+      patch.lmStudioModel = typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
     }
     if ('summaryFallback' in body) {
       const v = body.summaryFallback;
