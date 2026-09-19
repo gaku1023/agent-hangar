@@ -69,19 +69,33 @@ export function isConfigPath(rel: string): boolean {
   return /^projects\/[^/]+\/memory\/.+/.test(rel);
 }
 
+/** ホームを指す書き方。どれも `~/.claude/...` と同じに読む。 */
+const HOME_PREFIXES = ['~', '$HOME', '${HOME}', HOME_MARKER];
+
 /**
- * コマンド行の先頭の 1 語を、claudeDir からの相対パスとして読む。
+ * コマンド行を語に割る。引用符で囲まれた分は 1 語にまとめる。
+ * `sh ~/.claude/statusline.sh --short` のような書き方から道を取り出すために要る。
+ */
+function commandTokens(cmd: string): string[] {
+  const out: string[] = [];
+  const re = /"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g;
+  for (let m = re.exec(cmd); m !== null; m = re.exec(cmd)) {
+    if (m[1] !== undefined) out.push(m[1].replace(/\\(.)/g, '$1'));
+    else if (m[2] !== undefined) out.push(m[2]);
+    else out.push(m[3]!);
+  }
+  return out;
+}
+
+/**
+ * 1 つの語を、claudeDir からの相対パスとして読む。外を指していれば null。
  * `~/.claude/x.sh` と `$HOME/.claude/x.sh` は、ホームの下の `.claude` ではなく claudeDir を指すものとして解く。
  * HANGAR_CLAUDE_DIR で置き場を変えていても、意味（設定の入れ物の中）が変わらないようにするためである。
  */
-function relFromCommand(cmd: string, claudeDir: string, homeDir: string): string | null {
-  const t = cmd.trim();
-  if (!t) return null;
-  const quoted = /^"([^"]+)"|^'([^']+)'/.exec(t);
-  const first = quoted ? (quoted[1] ?? quoted[2])! : t.split(/\s+/)[0]!;
+function relFromToken(token: string, claudeDir: string, homeDir: string): string | null {
   let rest: string | null = null;
-  for (const prefix of ['~', '$HOME', '${HOME}', HOME_MARKER]) {
-    if (first === prefix || first.startsWith(`${prefix}/`)) { rest = first.slice(prefix.length); break; }
+  for (const prefix of HOME_PREFIXES) {
+    if (token === prefix || token.startsWith(`${prefix}/`)) { rest = token.slice(prefix.length); break; }
   }
   let abs: string;
   if (rest !== null) {
@@ -89,24 +103,49 @@ function relFromCommand(cmd: string, claudeDir: string, homeDir: string): string
     if (rest.startsWith('/.claude/')) abs = path.resolve(claudeDir, rest.slice('/.claude/'.length));
     else abs = path.resolve(homeDir, rest.replace(/^\//, ''));
   } else {
-    abs = path.isAbsolute(first) ? path.resolve(first) : path.resolve(claudeDir, first);
+    abs = path.isAbsolute(token) ? path.resolve(token) : path.resolve(claudeDir, token);
   }
   const rel = toPosix(path.relative(claudeDir, abs));
-  return rel && !rel.startsWith('..') && !path.isAbsolute(rel) && isSafeRelPath(rel) ? rel : null;
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !isSafeRelPath(rel)) return null;
+  return OURS_RE.test(rel) ? null : rel;
 }
 
-/** settings.json の statusLine.command が ~/.claude 配下を指していれば、その相対パスを返す。 */
-export function statusLineRel(claudeDir: string, homeDir: string = os.homedir()): string | null {
+/** settings.json の statusLine.command をそのまま返す。空と読めないものは null。 */
+export function statusLineCommand(claudeDir: string): string | null {
   try {
     const s = JSON.parse(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8')) as { statusLine?: { command?: string } };
     const cmd = s.statusLine?.command;
-    if (typeof cmd !== 'string' || !cmd) return null;
-    const rel = relFromCommand(cmd, claudeDir, homeDir);
-    return rel && !OURS_RE.test(rel) ? rel : null;
+    return typeof cmd === 'string' && cmd.trim() !== '' ? cmd : null;
   } catch {
     // 読めない、JSON でない、statusLine が無い。どれも「スクリプトは無い」と同じに扱う。
     return null;
   }
+}
+
+/**
+ * statusLine.command が指す ~/.claude 配下のスクリプトの相対パスを返す。
+ *
+ * コマンド行の先頭の 1 語だけを見ると、`sh ~/.claude/statusline.sh` のような書き方で
+ * 先頭が `sh` になり、スクリプトが同期の対象から落ちる。
+ * そこで語ごとに見て、設定の入れ物の中を指す最初の 1 つを採る。
+ *
+ * 道の形をした語（`/` を含むか、ホームを指す書き方で始まる語）は、実物が無くても採る。
+ * 裸の名前（`statusline.sh`）は、実物があるときだけ採る。
+ * この線引きが無いと、`sh` を `<claudeDir>/sh` と読んで取り違える。
+ * `-` で始まる語は指定なので見ない。
+ */
+export function statusLineRel(claudeDir: string, homeDir: string = os.homedir()): string | null {
+  const cmd = statusLineCommand(claudeDir);
+  if (cmd === null) return null;
+  for (const token of commandTokens(cmd)) {
+    if (token.startsWith('-')) continue;
+    const rel = relFromToken(token, claudeDir, homeDir);
+    if (rel === null) continue;
+    const shaped = token.includes('/') || HOME_PREFIXES.some((p) => token === p || token.startsWith(`${p}/`));
+    if (shaped) return rel;
+    try { if (fs.lstatSync(path.join(claudeDir, ...rel.split('/'))).isFile()) return rel; } catch { /* 無ければ次の語へ */ }
+  }
+  return null;
 }
 
 /** 同期する Claude Code の設定ファイルを相対パス順に集める。 */
@@ -540,7 +579,22 @@ export class ClaudeConfigSync {
         this.reportOnce(`push:${f.rel}`, `${f.size}:${f.mtime}`, `${f.rel} の同期に失敗しました: ${errorMessage(e)}`);
       }
     }
+    this.checkStatusLine();
     return n;
+  }
+
+  /**
+   * statusLine.command からスクリプトの道を読み取れないときに知らせる。
+   * 黙って落とすと、相手の端末には「存在しないスクリプトを指す settings.json」だけが降りる。
+   * 片肺で降りるぶん、何も降りないより分かりにくい。
+   * 中身が変わるまでは 1 度しか鳴らさない（コマンドの中身そのものはトーストに載せない）。
+   */
+  private checkStatusLine(): void {
+    const cmd = statusLineCommand(this.deps.claudeDir);
+    if (cmd === null) return;
+    const id = 'statusline';
+    if (statusLineRel(this.deps.claudeDir, this.homeDir()) !== null) { this.clearReported(id); return; }
+    this.reportOnce(id, sha256Hex(cmd), 'settings.json の statusLine が指すスクリプトを ~/.claude の中に見つけられません。そのスクリプトは同期されません');
   }
 
   private deviceName(id: string): string {

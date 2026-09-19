@@ -10,7 +10,7 @@ import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { CloudClient } from './client.ts';
-import { ClaudeConfigSync, CONFIG_MAX_BYTES, denormalizeHome, HOME_MARKER, isConfigPath, isTextBuffer, listConfigFiles, normalizeHome, type ClaudeConfigDeps } from './claudeConfig.ts';
+import { ClaudeConfigSync, CONFIG_MAX_BYTES, denormalizeHome, HOME_MARKER, isConfigPath, isTextBuffer, listConfigFiles, normalizeHome, statusLineRel, type ClaudeConfigDeps } from './claudeConfig.ts';
 import { safeDeviceLabel, timestampLabel } from './copy.ts';
 import { decryptBuffer, deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
 import { SyncStateStore } from './state.ts';
@@ -110,9 +110,30 @@ describe('listConfigFiles', () => {
     expect(isConfigPath('memory/x.md.conflict-Mac-20240101-000000/inner.md')).toBe(false);
   });
 
+  it('statusLine にインタプリタや引数が付いていてもスクリプトを拾う', () => {
+    write('statusline.sh', 'echo hi\n');
+    for (const cmd of [
+      'sh ~/.claude/statusline.sh',
+      'bash ~/.claude/statusline.sh --short',
+      '/bin/zsh "$HOME/.claude/statusline.sh"',
+      "sh '~/.claude/statusline.sh'",
+      'node ${HOME}/.claude/statusline.sh',
+      '~/.claude/statusline.sh',
+      'statusline.sh',
+      '"~/.claude/statusline.sh" --plain',
+    ]) {
+      write('settings.json', JSON.stringify({ statusLine: { command: cmd } }));
+      expect([cmd, statusLineRel(claudeDir, HOME_DIR)]).toEqual([cmd, 'statusline.sh']);
+      expect([cmd, listConfigFiles(claudeDir, HOME_DIR).map((f) => f.rel)]).toEqual([cmd, ['settings.json', 'statusline.sh']]);
+    }
+  });
+
   it('statusLine が ~/.claude の外を指していれば拾わない', () => {
-    write('settings.json', JSON.stringify({ statusLine: { command: '/usr/local/bin/statusline.sh' } }));
-    expect(listConfigFiles(claudeDir).map((f) => f.rel)).toEqual(['settings.json']);
+    for (const cmd of ['/usr/local/bin/statusline.sh', 'sh /usr/local/bin/statusline.sh', 'sh ~/elsewhere/statusline.sh', 'sh', 'sh -c "echo hi"']) {
+      write('settings.json', JSON.stringify({ statusLine: { command: cmd } }));
+      expect([cmd, statusLineRel(claudeDir, HOME_DIR)]).toEqual([cmd, null]);
+      expect([cmd, listConfigFiles(claudeDir, HOME_DIR).map((f) => f.rel)]).toEqual([cmd, ['settings.json']]);
+    }
   });
 });
 
@@ -165,6 +186,23 @@ describe('push', () => {
     const c = make();
     expect(await c.pushChanged()).toBe(0);
     expect(cloud.files.size).toBe(0);
+    c.stop();
+  });
+
+  it('statusLine からスクリプトを読み取れなければ知らせる。ただし 1 度だけ', async () => {
+    write('CLAUDE.md', 'x\n');
+    write('settings.json', JSON.stringify({ statusLine: { command: 'sh /usr/local/bin/statusline.sh' } }));
+    const c = make();
+    await c.pushChanged();
+    await c.pushChanged();
+    const said = toasts.filter((t) => t.level === 'error' && t.message.includes('statusLine'));
+    expect(said.length).toBe(1);
+    // 見つかる形に直せば鳴りやむ。
+    write('statusline.sh', 'echo hi\n');
+    write('settings.json', JSON.stringify({ statusLine: { command: 'sh ~/.claude/statusline.sh' } }));
+    await c.pushChanged();
+    expect(toasts.filter((t) => t.level === 'error' && t.message.includes('statusLine')).length).toBe(1);
+    expect([...cloud.files.keys()].sort()).toContain('config/dev-a/statusline.sh');
     c.stop();
   });
 
