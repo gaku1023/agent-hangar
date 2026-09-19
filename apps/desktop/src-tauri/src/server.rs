@@ -62,13 +62,26 @@ impl ServerProcess {
         matches!(self.child.try_wait(), Ok(None))
     }
 
-    /// SIGTERM を送って 2 秒待ち、まだ生きていれば SIGKILL。サーバは SIGTERM で DB を閉じてから終わる。
+    /// SIGTERM を送ってから SIGKILL に移るまでの猶予。
+    /// サーバの `close` は、走っている押し出しと要約が終わるのを最悪で
+    /// config 3 秒、uploader 3 秒、sync 3 秒、summary 5 秒まで待つ（`packages/server/src/server.ts`）。
+    /// 猶予が短いと、その待ちの最中に切られて書きかけの押し出しが落ちる。
+    /// 普段は待ちが起きないので SIGTERM の直後に終わり、この猶予は使い切らない。
+    /// 8 秒は最悪の場合の保険である。
+    pub const STOP_GRACE: Duration = Duration::from_secs(8);
+
+    /// SIGTERM を送って猶予まで待ち、まだ生きていれば SIGKILL。サーバは SIGTERM で DB を閉じてから終わる。
     pub fn stop(&mut self) {
+        self.stop_within(Self::STOP_GRACE);
+    }
+
+    /// 猶予を指定して止める。試験が実時間を使わずに SIGKILL の経路を踏むために分けてある。
+    pub fn stop_within(&mut self, grace: Duration) {
         unsafe {
             libc::kill(self.child.id() as libc::pid_t, libc::SIGTERM);
         }
         let t0 = Instant::now();
-        while t0.elapsed() < Duration::from_secs(2) {
+        while t0.elapsed() < grace {
             if !self.is_running() {
                 return;
             }
@@ -190,6 +203,29 @@ mod tests {
         p.stop();
         assert!(!p.is_running());
         assert!(t0.elapsed() < Duration::from_secs(2));
+    }
+
+    // SIGTERM を無視する子は、猶予を使い切ってから SIGKILL で止める。
+    // 猶予の途中で切らないこと（走っている押し出しを待つため）も同時に見る。
+    #[test]
+    fn stop_waits_the_grace_then_kills() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("server.mjs"),
+            "trap '' TERM\nwhile :; do sleep 0.1; done\n",
+        )
+        .unwrap();
+        let log = home.path().join("desktop.log");
+        let mut p = spawn_server(Path::new("/bin/sh"), dir.path(), home.path(), &log).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(p.is_running());
+        let t0 = Instant::now();
+        p.stop_within(Duration::from_millis(400));
+        let waited = t0.elapsed();
+        assert!(!p.is_running());
+        assert!(waited >= Duration::from_millis(400), "{waited:?}");
+        assert!(waited < Duration::from_secs(2), "{waited:?}");
     }
 
     #[test]

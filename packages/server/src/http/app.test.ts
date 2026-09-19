@@ -142,6 +142,19 @@ describe('auth', () => {
     expect((await get('/api/bootstrap', { cookie: `hangar_token=${TOKEN}` })).status).toBe(200);
     expect((await get('/health', {})).status).toBe(200);
   });
+
+  // .app は起動のたびに 4177 の /health を叩き、200 かつ ok が真で version が文字列のときだけ
+  // 「hangar がいる」と見なす（apps/desktop/src-tauri/src/health.rs の is_healthy がこれに依存している）。
+  // version を外すと .app は既存のサーバを見つけられず、同梱サーバの起動も諦める。
+  // 片側だけ変えられないよう、応答の形をここで固定する。
+  it('/health は ok と文字列の version を返す', async () => {
+    const res = await get('/health', {});
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; version: unknown };
+    expect(body).toEqual({ ok: true, version: '0.0.0-test' });
+    expect(typeof body.version).toBe('string');
+  });
+
   it('許可する Origin は実際に待ち受けているポートに追随する', async () => {
     // 4177 以外で立てたとき、UI はそのポートの Origin を送る。決め打ちだと書き込みが全部 403 になる。
     const other = createApp({ ...deps, port: 4198 });

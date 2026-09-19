@@ -631,7 +631,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   await engine.start();
   if (puller) await pullFiles();
   configSync?.start();
-  // fs.watch の recursive は Linux では効かない。定期の push を足しておけば、監視が無くても揃う。
+  // 監視だけに頼らず、定期の push も足しておく。
+  // 監視が張れない置き場所や、取りこぼした編集があっても、次の周期で揃う。
+  // ここには以前「fs.watch の recursive は Linux では効かない」と書いてあったが、
+  // Node 22 では Linux でも効くことを容器で確かめたので直した。
   // 一時停止のあいだは押し出さない（pushChanged 自身も enabled() で同じ判定を通る）。
   const configTimer = configSync
     ? setInterval(() => {
