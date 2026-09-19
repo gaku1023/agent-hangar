@@ -26,19 +26,35 @@ type Acc = {
   daily: Map<string, { input: number; output: number }>;
 };
 
-/** provider と provider_session_id の組で sessions を引き、無ければ作って hangar 側の id を返す。 */
+type SessionRow = { id: string; deleted_at: number | null };
+
+/** provider と provider_session_id の組で sessions の行を引く。論理削除された行も返す。 */
+function sessionRow(db: Db, providerSessionId: string): SessionRow | undefined {
+  return db.prepare("select id, deleted_at from sessions where provider = 'claude-code' and provider_session_id = ?").get(providerSessionId) as SessionRow | undefined;
+}
+
+/**
+ * provider と provider_session_id の組で sessions を引き、無ければ作って hangar 側の id を返す。
+ * 論理削除された行でも、その id をそのまま返す。
+ * sessions は (provider, provider_session_id) が unique なので、別の id で作り直すと insert が落ちる。
+ * 削除された会話を索引に積み直さない判断は indexFile の入口に置いてある。
+ * ここで消えた行を飛ばすと、本文の無いセッションを掃除する syncHistoryOnly と run の開始が行を作れなくなる。
+ */
 export function ensureSession(db: Db, providerSessionId: string, cwd: string, deviceId: string): string {
-  const row = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ?").get(providerSessionId) as { id: string } | undefined;
+  const row = sessionRow(db, providerSessionId);
   if (row) return row.id;
   const id = newId();
   upsertShared(db, 'sessions', { id, provider: 'claude-code', provider_session_id: providerSessionId, cwd, home_device: deviceId }, deviceId);
   return id;
 }
 
-/** provider と provider_session_id の組で sessions を引く。無ければ null。 */
+/**
+ * provider と provider_session_id の組で sessions を引く。無ければ null。
+ * 論理削除された行は「無い」として扱う。他端末から降りてきた写しを、消したはずの会話に積み直さないためである。
+ */
 export function findSession(db: Db, providerSessionId: string): string | null {
-  const row = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ?").get(providerSessionId) as { id: string } | undefined;
-  return row ? row.id : null;
+  const row = sessionRow(db, providerSessionId);
+  return row && row.deleted_at === null ? row.id : null;
 }
 
 /** 索引化をやめたファイルの索引と行を消す。同じ位置のファイルは常に 1 つだけ索引化する前提に立つ。 */
@@ -70,6 +86,17 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
   const mtime = Math.floor(stat.mtimeMs);
   const tf = db.prepare('select * from transcript_files where path = ?').get(file.path) as TfRow | undefined;
   const remote = opts.remote === true;
+  // 論理削除したセッションは掘り起こさない。
+  // 一覧にも検索にも出ないまま event_index と event_fts と usage_daily だけが太り、
+  // 使用量のゲージは usage_daily を見るので、消したはずの会話のトークンが数え直される。
+  // 消えたセッションのファイルが再び現れても、ここで見送るだけにする。
+  // 既にある索引の行は消さない。行を消すかどうかは利用者の決めごとで、走査が勝手に決めてよいことではない。
+  const known = tf
+    ? (db.prepare('select id, deleted_at from sessions where id = ?').get(tf.session_id) as SessionRow | undefined)
+    : sessionRow(db, file.sessionId);
+  if (known && known.deleted_at !== null) {
+    return { sessionId: known.id, providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [], skipped: true };
+  }
   // 他端末の写しは sessions を作らない。行がまだ届いていなければ次の走査に回す。
   if (remote && !tf && findSession(db, file.sessionId) === null) {
     return { sessionId: '', providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [], skipped: true };
