@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
+import { CloudError } from './client.ts';
 import { decryptBuffer, deriveFileKey, sha256Hex } from './crypto.ts';
 import { SyncStateStore } from './state.ts';
 import { TranscriptUploader } from './uploader.ts';
@@ -31,6 +32,16 @@ const make = () => new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, cl
 const plainBuf = async (k: string) => gunzipSync(await decryptBuffer(key, cloud.files.get(k)!.body));
 const plain = async (k: string) => (await plainBuf(k)).toString();
 const puts = () => cloud.calls.filter((c) => c.method === 'putFile').length;
+const skipRow = () => state.get(`skipped:${MAIN_KEY}`);
+
+/** putFile を指定の状態で断る。呼ばれた回数は puts() で数えられるように calls に残す。 */
+const failPut = (status: number) => {
+  cloud.putFile = (meta: FileMetaIn, body: Readable) => {
+    cloud.calls.push({ method: 'putFile', args: [meta] });
+    body.resume();
+    return Promise.reject(new CloudError(status, `HTTP ${status}`));
+  };
+};
 
 beforeEach(() => {
   db = openDb(':memory:');
@@ -167,6 +178,87 @@ describe('TranscriptUploader', () => {
     expect(entry.sha256).toBe(sha256Hex(big));
     expect(sha256Hex(await plainBuf(MAIN_KEY))).toBe(sha256Hex(big));
     expect(db.prepare('select sha256, size from file_sync where key = ?').get(MAIN_KEY)).toMatchObject({ sha256: sha256Hex(big), size: big.length });
+    up.stop();
+  });
+
+  // 413（本文が 100MiB を超えた）、400（鍵や見出しの形）、403（他端末の鍵）は、
+  // 何度送り直しても同じ答えが返る。待ち行列に残すと、その分の転送量を無料枠から永久に削り続ける。
+  it.each([413, 400, 403])('直りようのない %i は諦めて送り直さず、知らせるのは 1 度だけ', async (status) => {
+    const up = make();
+    failPut(status);
+    up.noteChanged({ path: mainFile(), sessionId: UUID, agentId: null });
+    await timers.advance(30_000);
+    await up.idle();
+    expect(puts()).toBe(1);
+    expect(errors).toHaveLength(1);
+    await up.flushAll();
+    await up.flushAll();
+    expect(puts()).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(skipRow()).not.toBeNull();
+    expect(up.skippedUploads()).toMatchObject([{ key: MAIN_KEY }]);
+    up.stop();
+  });
+
+  it.each([500, 503, 408, 429])('%i は一時の失敗として待ち行列に残し、復帰で送る', async (status) => {
+    const up = make();
+    const realPut = cloud.putFile.bind(cloud);
+    failPut(status);
+    up.noteChanged({ path: mainFile(), sessionId: UUID, agentId: null });
+    await timers.advance(30_000);
+    await up.idle();
+    expect(puts()).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(skipRow()).toBeNull();
+    cloud.putFile = realPut;
+    await up.flushAll();
+    expect(cloud.files.size).toBe(1);
+    up.stop();
+  });
+
+  it('諦めた項目は、30 分たつか起こし直すまで雲に触らない', async () => {
+    const f = { path: mainFile(), sessionId: UUID, agentId: null };
+    const up = make();
+    failPut(413);
+    expect(await up.uploadFile(f)).toBe('skipped');
+    expect(puts()).toBe(1);
+    expect(errors).toHaveLength(1);
+    // 待ち行列に残さないだけでなく、直に呼ばれても雲に触らない。
+    expect(await up.uploadFile(f)).toBe('skipped');
+    expect(puts()).toBe(1);
+    // 30 分たったら 1 度だけ試す。同じ中身で同じ相手なので、鳴らし直さない。
+    timers.now += 30 * 60_000;
+    expect(await up.uploadFile(f)).toBe('skipped');
+    expect(puts()).toBe(2);
+    expect(errors).toHaveLength(1);
+    // 中身が伸びても窓は開かない。大きすぎて断られた相手に、大きくなった本文を送り直す意味は無い。
+    fs.appendFileSync(mainFile(), '{"a":2}\n');
+    expect(await up.uploadFile(f)).toBe('skipped');
+    expect(puts()).toBe(2);
+    // 起こし直したら 1 度だけ試す。
+    const up2 = make();
+    expect(await up2.uploadFile(f)).toBe('skipped');
+    expect(puts()).toBe(3);
+    // 中身が入れ替わって小さくなったら、通るようになりうるのでその場で試す。
+    fs.writeFileSync(mainFile(), '{}\n');
+    expect(await up2.uploadFile(f)).toBe('skipped');
+    expect(puts()).toBe(4);
+    up.stop();
+    up2.stop();
+  });
+
+  it('上げ直せたら諦めた記録を消す', async () => {
+    const f = { path: mainFile(), sessionId: UUID, agentId: null };
+    const up = make();
+    const realPut = cloud.putFile.bind(cloud);
+    failPut(400);
+    expect(await up.uploadFile(f)).toBe('skipped');
+    expect(skipRow()).not.toBeNull();
+    cloud.putFile = realPut;
+    timers.now += 30 * 60_000;
+    expect(await up.uploadFile(f)).toBe('uploaded');
+    expect(skipRow()).toBeNull();
+    expect(up.skippedUploads()).toEqual([]);
     up.stop();
   });
 

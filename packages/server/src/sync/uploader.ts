@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import { isSafeRelPath, transcriptKey, type FileMetaIn } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
-import type { CloudClient } from './client.ts';
+import { CloudError, type CloudClient } from './client.ts';
 import { encryptStream, sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
 import type { SyncStateStore } from './state.ts';
@@ -27,12 +27,56 @@ const agentIdOfKey = (key: string): string | null => /\/subagents\/agent-([0-9a-
 /** LIKE のパターンに使う前に、ワイルドカード（% と _）を無害にする。端末 ID には _ が入りうる。 */
 const escapeLike = (s: string): string => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
+const SKIP_PREFIX = 'skipped:';
+/**
+ * 諦めた項目をもう一度試す間隔。
+ * RemotePuller と同じ値にしてある（降ろす側と上げる側で挙動を揃える）。
+ */
+export const RETRY_SKIPPED_AFTER_MS = 30 * 60_000;
+
+/**
+ * 何度やり直しても同じ答えが返る失敗かどうか。
+ * 4xx は相手が「この要求は受け取らない」と言っているので、送り直しても結果は変わらない。
+ * 408（時間切れ）と 429（多すぎる）は後で通るので除く。
+ * 5xx と 0（繋がらなかった）は一時の失敗として待ち行列に残す。
+ */
+const isPermanentStatus = (status: number): boolean => status >= 400 && status < 500 && status !== 408 && status !== 429;
+
 /**
  * 何度やり直しても上がらない失敗。
- * 鍵に使えない ID がそれで、待ち行列に残して繰り返しても結果は変わらない。
- * 黙って落とさず onError には必ず流す。
+ * 鍵に使えない ID と、4xx で断られた本文がそれで、待ち行列に残して繰り返しても結果は変わらない。
+ * silent は「同じ相手で既に知らせた」印で、そのときだけ onError を鳴らさない。
  */
-class PermanentUploadError extends Error {}
+class PermanentUploadError extends Error {
+  constructor(message: string, readonly silent = false) { super(message); }
+}
+
+/**
+ * 上げるのを諦めた項目の控え。
+ * sync_state の skipped:<R2 の鍵> に JSON で残す。
+ * メモリに置くと起こし直した時点で消え、諦めたことを利用者に答えられなくなる。
+ * RemotePuller の控えと同じ鍵の並びに置くが、鍵に自端末の ID が入るので互いの行は交わらない
+ * （形も違うので、取り違えて読んでも parse ではじかれる）。
+ */
+type SkipRecord = { sha: string; size: number; status: number; message: string; at: number };
+
+/** 控えを読む。手で書き換えられた行や、降ろす側の形の行は、同期を止めずに黙って捨てる。 */
+function parseSkip(raw: string): SkipRecord | null {
+  try {
+    const v = JSON.parse(raw) as Partial<SkipRecord>;
+    if (typeof v.sha !== 'string' || !v.sha) return null;
+    if (typeof v.size !== 'number' || !Number.isFinite(v.size)) return null;
+    return {
+      sha: v.sha,
+      size: v.size,
+      status: typeof v.status === 'number' ? v.status : 0,
+      message: typeof v.message === 'string' ? v.message : '',
+      at: typeof v.at === 'number' && Number.isFinite(v.at) ? v.at : 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /** 流れていくバイト列の指紋を取るだけの通り道。中身は持たない。 */
 const hashTap = (h: Hash): Transform =>
@@ -47,6 +91,8 @@ const hashTap = (h: Hash): Transform =>
  */
 export class TranscriptUploader {
   private readonly pending = new Map<string, UploadTarget>();
+  /** この処理系で、諦めた項目を試し直した鍵。起こし直すと空に戻る。 */
+  private readonly retriedSinceBoot = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
   private chain: Promise<unknown> = Promise.resolve();
   private stopped = false;
@@ -116,6 +162,56 @@ export class TranscriptUploader {
     try { return transcriptKey(this.deps.deviceId, sessionUuid, agentId); } catch { return null; }
   }
 
+  private readSkip(key: string): SkipRecord | null {
+    const raw = this.deps.state.get(`${SKIP_PREFIX}${key}`);
+    return raw === null ? null : parseSkip(raw);
+  }
+
+  private clearSkip(key: string): void { this.deps.state.set(`${SKIP_PREFIX}${key}`, null); }
+
+  /**
+   * 諦めた項目を残し、知らせるかどうかを決める。
+   * 同じ中身で同じ相手に断られたときは鳴らさない（30 分ごとに同じ知らせが出ると、本当の失敗が埋もれる）。
+   */
+  private noteSkip(key: string, rec: SkipRecord, prev: SkipRecord | null): boolean {
+    this.deps.state.set(`${SKIP_PREFIX}${key}`, JSON.stringify(rec));
+    this.retriedSinceBoot.add(key); // いま試したので、この処理系での「起こし直しの 1 回」は使い切っている。
+    return !prev || prev.sha !== rec.sha || prev.status !== rec.status;
+  }
+
+  /**
+   * 諦めた項目を、もう一度雲に出してよいか。
+   * 直りようのない失敗なので、次のどれかに当たるまでは雲に触らない。
+   * 1. この処理系で起こしてから一度も試していない（起こし直したら 1 度だけ試す）。
+   * 2. 前の失敗から 30 分たった。
+   * 3. 中身が入れ替わって前より小さくなった（大きすぎて断られた相手が、通るようになりうる唯一の変化である）。
+   */
+  private mayRetrySkipped(key: string, rec: SkipRecord, sha: string, size: number): boolean {
+    if (!this.retriedSinceBoot.has(key)) { this.retriedSinceBoot.add(key); return true; }
+    if (this.now() - rec.at >= RETRY_SKIPPED_AFTER_MS) return true;
+    return sha !== rec.sha && size < rec.size;
+  }
+
+  /**
+   * 上げるのを諦めた項目。利用者に見せるために残してある。
+   * sync_state から読むので、サーバを起こし直した後も答えられる。
+   */
+  skippedUploads(): { key: string; status: number; message: string; at: number }[] {
+    const rows = this.deps.db.prepare('select key, value from sync_state where key like ? order by key').all(`${SKIP_PREFIX}%`) as { key: string; value: string }[];
+    const out: { key: string; status: number; message: string; at: number }[] = [];
+    for (const r of rows) {
+      const rec = parseSkip(r.value);
+      if (rec) out.push({ key: r.key.slice(SKIP_PREFIX.length), status: rec.status, message: rec.message, at: rec.at });
+    }
+    return out;
+  }
+
+  /** 失敗を利用者へ知らせる。同じ相手で既に知らせた諦めだけは、鳴らさずに控えの更新で済ませる。 */
+  private report(p: string, e: unknown): void {
+    if (e instanceof PermanentUploadError && e.silent) return;
+    this.deps.onError?.(p, errorMessage(e));
+  }
+
   private async attempt(f: UploadTarget): Promise<void> {
     try {
       await this.upload(f);
@@ -123,7 +219,7 @@ export class TranscriptUploader {
     } catch (e) {
       // 送信の失敗は待ち行列に残して次の機会に送り直す。直りようのない失敗だけ下ろす。
       if (e instanceof PermanentUploadError) this.pending.delete(f.path);
-      this.deps.onError?.(f.path, errorMessage(e));
+      this.report(f.path, e);
     }
   }
 
@@ -135,7 +231,7 @@ export class TranscriptUploader {
         return r;
       } catch (e) {
         if (e instanceof PermanentUploadError) this.pending.delete(f.path);
-        this.deps.onError?.(f.path, errorMessage(e));
+        this.report(f.path, e);
         return 'skipped' as const;
       }
     });
@@ -159,8 +255,12 @@ export class TranscriptUploader {
     const size = st.size;
     const source = (): Readable => (size === 0 ? Readable.from([]) : fs.createReadStream(f.path, { start: 0, end: size - 1 }));
     const sha = await sha256Stream(source());
+    const skip = this.readSkip(key);
     const prev = this.deps.db.prepare('select sha256 from file_sync where key = ?').get(key) as { sha256: string } | undefined;
-    if (prev?.sha256 === sha) return 'unchanged';
+    if (prev?.sha256 === sha) { if (skip) this.clearSkip(key); return 'unchanged'; }
+    // 直りようのない失敗で諦めた相手には、窓が開くまで雲に触らない。
+    // 本文は変化のたびに全体を上げ直すので、送り直すたびに転送量を無料枠から削ることになる。
+    if (skip && !this.mayRetrySkipped(key, skip, sha, size)) return 'skipped';
 
     const meta: FileMetaIn = { key, path: rel, kind: 'transcript', sha256: sha, size, mtime: Math.floor(st.mtimeMs), encrypted: true };
     // R2 は部分更新ができないので、変化のたびにファイル全体を gzip して上げ直す。
@@ -180,8 +280,15 @@ export class TranscriptUploader {
     } catch (e) {
       body.destroy();
       await pump;
+      // 4xx（408 と 429 を除く）は何度送っても同じ答えなので、ここで諦めて控えに残す。
+      if (e instanceof CloudError && isPermanentStatus(e.status)) {
+        const rec: SkipRecord = { sha, size, status: e.status, message: e.message, at: this.now() };
+        const ring = this.noteSkip(key, rec, skip);
+        throw new PermanentUploadError(`この本文は上げられないので、いったん諦めます（${e.status}）: ${e.message}`, !ring);
+      }
       throw e;
     }
+    if (skip) this.clearSkip(key);
     // 送ったバイト列そのものの指紋を meta と突き合わせる。
     // 食い違ったら file_sync に書かない。書くと「上げ済み」と見なして二度と直らない。
     if (sent.digest('hex') !== sha) throw new Error('上げている最中に本文が入れ替わりました');
