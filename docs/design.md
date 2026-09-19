@@ -52,7 +52,7 @@ pnpm は手元で壊れているため使わない。
 - `packages/server`：ローカルサーバ。Hono による HTTP と WebSocket、MCP サーバ、SQLite（better-sqlite3）、インデクサ、tmux 制御、node-pty、要約器、同期エンジン。
 - `packages/ui`：React と Vite による UI。Root から始まる階層、Passive View、Intent チェーン、Mediator。
 - `packages/cloud`：Cloudflare Worker。Hono でサーバとコードを共有し、D1 と R2 を扱う。フェーズ 4 で実装した。
-- `apps/desktop`：Tauri v2 のシェル。サーバを子プロセスとして起動し、ウィンドウに UI を表示する。フェーズ 5 で実装する。
+- `apps/desktop`：Tauri v2 のシェル。サーバを子プロセスとして起動し、ウィンドウに UI を表示する。フェーズ 5 で実装した。
 - `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`url`、`mcp install`、`statusline install`、`cloud status`、`cloud teardown` を提供する。
 
 ### プロセスと通信
@@ -62,10 +62,11 @@ UI は同じサーバから配信され、HTTP で読み書きし、WebSocket �
 ターミナルは WebSocket 上の別チャネルで、node-pty の入出力をそのまま流す。
 MCP は Streamable HTTP で、共通の `/mcp` とセッション別の `/mcp/s/<sessionId>` を持つ。
 Tauri のシェルは、起動時にサーバの子プロセスを立て、終了時に止める。
-Node は PATH に頼らず、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探し、Settings で明示もできる。
+Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探す。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
 `hangar://` のディープリンクは deep-link プラグインで受ける。
-ブラウザから同じ URL を開いても同じ UI が動く。
+ブラウザからも同じ UI が動くが、入口は鍵付きの URL に限る。
+鍵の無い要求には 401 で `hangar url` を案内する画面を返す。
 Tauri のシェルは、サーバを esbuild の単一ファイル `server.mjs` にまとめ、ネイティブモジュールと UI とともに `.app` に同梱する。
 ネイティブモジュールは Node の ABI に縛られるため、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、探索ではそれと一致する Node だけを採る。
 起動時に 4177 で既にサーバが応答していれば、そのサーバを採用して子プロセスを起こさない。
@@ -1392,10 +1393,10 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 - 既知の限界：R2 と D1 の `files` に孤児が残ったとき、それを掃除する者がいない。`PUT` は R2、D1 の順なので、間で倒れると索引に無い本体が残る。端末が消えたときに `transcripts/<端末 ID>/` を畳む道も無い。
 - 既知の限界：`~/.agent-hangar/backups/` のうち、本文の上書きの控え（`transcripts/`）とメモの控え（`memos/`）は消さないので伸び続ける。設定の取り込みの控え（`claude-config/`）だけが 20 世代で刈られる。
 - 既知の限界：フェーズ 4 の実物確認は、1 台の Mac の上で `HANGAR_HOME` と `HANGAR_CLAUDE_DIR` を分けて 2 端末を模して行った（2026-09-19 の決定）。実際に別のマシンから参加することは確かめていない。
-- 配布版の同梱形態：サーバと CLI を esbuild で単一ファイル（`server.mjs`、`cli.mjs`）にまとめ、UI、ネイティブモジュール、`bin/hangar`、Worker のソース、`manifest.json` とともに `.app` の `Contents/Resources/server/` へ置く。実測で 11MB である。Node 本体は同梱しない。
+- 配布版の同梱形態：サーバと CLI を esbuild で単一ファイル（`server.mjs`、`cli.mjs`）にまとめ、UI、ネイティブモジュール、`bin/hangar`、Worker のソース、`manifest.json` とともに `.app` の `Contents/Resources/server/` へ置く。UI の sourcemap は入れないので、実測で 7.7MB である。Node 本体は同梱しない。
 - Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
 - 配布ターゲットは Apple silicon の macOS 13 以降だけ。prebuild も `darwin-arm64` しか入れない。全アーキを入れると `node-pty` の win32 だけで 58MB になる。Intel と Windows は作らない。
-- Gatekeeper：署名も公証もせず、zip と SHA-256 の checksum を添えて配る。利用者の手順は、`.app` を `/Applications` へ移してから検疫属性を外すことである。アプリ自身も起動時に同梱サーバの検疫属性を外すが、展開したままダブルクリックすると App Translocation の読み取り専用の写しで走り、そこでは書き込めないので効かない（2026-09-20 の決定）。
+- Gatekeeper：Developer ID での署名も公証もせず、zip と SHA-256 の checksum を添えて配る（リンカが付ける ad-hoc 署名だけが残る）。利用者の手順は、`.app` を `/Applications` へ移してから検疫属性を外すことである。アプリ自身も同梱サーバを起こす前に検疫属性を外すが、展開したままダブルクリックすると App Translocation の読み取り専用の写しで走り、そこでは書き込めないので効かない（2026-09-20 の決定）。
 - 二重起動：single-instance のプラグインを入れない。起動時に 4177 が既に応答していれば、そのサーバを採用して子プロセスを起こさない。ブラウザや `hangar start` で先に起きているサーバと食い合わないためである。
 - wrangler は同梱しない。205MB あり、`.app` の大きさが 20 倍近くになる。配布版の `hangar setup cloud` は、wrangler が見つからないことを告げて止まる。クラウド同期を使う端末は、リポジトリを clone して設定する。
 - 覚え書き：`HANGAR_CLAUDE_DIR` は hangar が読む設定の置き場で、起こされた `claude` が見るのは `CLAUDE_CONFIG_DIR` である。普段はどちらも `~/.claude` なので食い違わないが、試しの環境を分けるときは両方を向ける。

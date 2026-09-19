@@ -6,23 +6,32 @@ Claude Code のセッションをプロジェクト単位で束ね、起動、�
 ## 現状
 
 フェーズ 5（デスクトップ配布）まで実装済みです。
-macOS の `.app` を GitHub Releases から入れると、サーバの起動をアプリに任せて使えます。
+macOS の `.app` を入れると、サーバの起動をアプリに任せて使えます（配布の状況は次の節にあります）。
 フェーズ 4 のクラウド同期では、自分の Cloudflare アカウントに Worker と D1 と R2 を置き、自分の端末の間でセッションのメタデータと本文と Claude Code の設定を同期できます。
 フェーズ 3 までで入った、使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブの分割、事後要約、コマンドパレットと、フェーズ 2 までで入った tmux でのセッション起動、ブラウザに埋め込んだターミナル、セッション内のシェルタブ、MCP、外部アプリとの連携もそのまま使えます。
 実行中のセッションを他端末から奪う「引き継ぎ」は後のフェーズで、計画は `docs/plans/` にあります。
 
 ## インストール（配布版）
 
-macOS 13 以降の Apple silicon 向けの `.app` を GitHub Releases に置いています。
-署名も公証もしていないので、初回だけ Gatekeeper の解除が要ります。
+対象は macOS 13 以降の Apple silicon です。
+`.app` は GitHub Releases で配る予定で、最初のタグ（`v0.1.0`）はまだ打っていません。
+それまでは、このリポジトリを clone して「開発」の手順でビルドしてください。
+Developer ID での署名も公証もしないので、初回だけ Gatekeeper の解除が要ります。
+
+セッションを起こすのは Claude Code 本体なので、`claude` と tmux が先に要ります（tmux は `brew install tmux`）。
+どちらが入っているかは、5 段目の `hangar setup` が報告します。
 
 1. Releases から `Hangar-vX.Y.Z-macos-arm64.zip` を落として展開します。
    checksum を確かめるには、同じ場所の `.sha256` も落として `shasum -a 256 -c Hangar-vX.Y.Z-macos-arm64.zip.sha256` を実行します。
 
 2. 展開した `Hangar.app` を `/Applications` へ移します。
 
+   Finder でドラッグするのが確実です。
+   端末からなら `mv ~/Downloads/Hangar.app /Applications/` でも移せます。
+   ただし `mv` では検疫属性が残ったままなので、次の段を必ず実行してください。
+
    移す前にダブルクリックしないでください。
-   macOS は展開したままの `.app` を読み取り専用の場所へ写して起動します（App Translocation）。
+   macOS は展開したままの `.app` を読み取り専用の場所へ写して起動することがあります（App Translocation）。
    写しの中ではアプリが自分の同梱物に書き込めないので、後述の検疫属性の解除が効きません。
 
 3. 検疫属性を外します。
@@ -35,8 +44,9 @@ macOS 13 以降の Apple silicon 向けの `.app` を GitHub Releases に置い�
    `/Applications/Hangar.app` を一度開き、出たダイアログを閉じてから、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。
    macOS 14 以前では、`Hangar.app` を右クリックして「開く」を選ぶ方法も使えます。
 
-   アプリ自身も起動のたびに同梱サーバの検疫属性を外しますが、これが効くのは `/Applications` へ移した後だけです。
-   App Translocation の写しは書き込めないからです。
+   アプリ自身も、同梱サーバを子プロセスとして起こす前に検疫属性を外します。
+   4177 で既に動いているサーバを見つけた回は、サーバを起こさないのでこの処理も走りません。
+   どちらにしても、これが効くのは `/Applications` へ移した後だけです。
 
 4. Node 22 を入れます（`nvm install 22` が簡単です）。
 
@@ -51,9 +61,17 @@ macOS 13 以降の Apple silicon 向けの `.app` を GitHub Releases に置い�
    hangar setup
    ```
 
+   `bin/hangar` はリンク越しに呼ばれても自分の実体を辿るので、同梱物と Node を見失いません。
+   `hangar setup` は `~/.agent-hangar` を用意し、tmux と claude と code の有無を報告します。
+
 6. `Hangar.app` を開きます。
 
-   ブラウザで `http://127.0.0.1:4177/` を開いても同じ画面が出ます。
+   同じ画面はブラウザからも使えますが、入口は鍵付きの URL だけです。
+   `hangar url` を実行し、印字された `http://127.0.0.1:4177/?t=<トークン>` を開いてください。
+   鍵の無い `http://127.0.0.1:4177/` は 401 になり、`hangar url` を案内する画面を返します。
+   4177 は同じ機械で動くどのプログラムからも叩けるので、鍵が無ければセッションの本文を誰からでも読み出されてしまうためです。
+   開いた後の鍵の扱いは「UI の開き方」に書いてあります。
+
    `open hangar://session/<id>` のようなリンクでアプリの画面を直接開けます。
    受け付ける形は `hangar://session/<id>`、`hangar://project/<id>`、`hangar://search?q=<検索語>` の三つです。
 
@@ -67,6 +85,10 @@ wrangler が 205MB あるので同梱していないためです。
 
 配布の版とサーバの版は別々に進みます。
 `.app` は `0.1.0`、サーバは `0.3.0` です（サーバの版は `/health` が返します）。
+
+ここから先の「使い方」と「使い方（フェーズ 3）」は、このリポジトリを clone した形で書いてあります。
+配布版だけを入れた人は、`npm run hangar --` を `hangar` に読み替えてください（`hangar mcp install`、`hangar statusline install` のように）。
+`npm install` と `npm run dev` は開発用なので要りません。
 
 ## 使い方
 
@@ -273,12 +295,15 @@ npm test
 デスクトップ版のビルドには Xcode Command Line Tools と Rust が要ります。
 
 ```sh
+npm install                           # 先に済ませる。tauri build が better-sqlite3 と node-pty の実体を写すため
 npm run build                         # UI を作る
 cd apps/desktop && npx tauri build    # server-dist を作り、.app を src-tauri/target/release/bundle/macos に出す
 ```
 
 `.app` に入るのは、esbuild でまとめた `server.mjs` と `cli.mjs`、UI、`better-sqlite3` と `node-pty` の darwin-arm64 の prebuild、`bin/hangar`、Worker のソース、`manifest.json` です。
-実測で 11MB でした。
+UI の sourcemap は入れません。
+UI の写しの 68 パーセント（実測 2.19MB）が `.map` で、利用者の役に立たないためです。
+実測で 7.7MB でした。
 
 配布は、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json` の版を揃えてから `git tag vX.Y.Z && git push origin vX.Y.Z` で行います。
 GitHub Actions が型検査とテストを回し、`.app` を zip と checksum 付きで Releases に置きます。
