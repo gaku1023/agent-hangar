@@ -445,6 +445,20 @@ describe('routes', () => {
     expect(db.prepare('select count(*) c from project_roots where deleted_at is null').get()).toEqual({ c: 2 });
     expect(db.prepare("select count(*) c from project_roots where path like '%..%'").get()).toEqual({ c: 0 });
   });
+  // 末尾の / や .. を生のまま入れると project_roots の前方一致に cwd が当たらず、
+  // 直したつもりのプロジェクトにセッションが一件も紐づかない。
+  it('repoint は正規化したパスを入れ、セッションが紐づく', async () => {
+    const id = list0ProjectId();
+    const moved = path.join(ws, 'moved');
+    fs.mkdirSync(path.join(moved, 'src'), { recursive: true });
+    // 紐づけ直しが動くのは未分類のセッションだけなので、1 件を moved の下に置く。
+    const other = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string }).id;
+    db.prepare('update sessions set cwd = ?, project_id = null where id = ?').run(path.join(moved, 'src'), other);
+    const r = await post(`/api/projects/${id}/resolve`, { kind: 'repoint', path: `${path.join(ws, 'alpha', '..', 'moved')}/` });
+    expect(r.status).toBe(200);
+    expect(db.prepare('select path from project_roots where project_id = ? and deleted_at is null').get(id)).toEqual({ path: moved });
+    expect((await json(await get(`/api/sessions/${other}`))).body.projectId).toBe(id);
+  });
   it('設定の新しい項目を検査する', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     expect(await (await patch({ terminalApp: 'iterm', tmuxPath: '/opt/homebrew/bin/tmux' })).json()).toMatchObject({ terminalApp: 'iterm', tmuxPath: '/opt/homebrew/bin/tmux' });

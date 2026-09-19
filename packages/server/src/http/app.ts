@@ -302,9 +302,13 @@ export function createApp(deps: AppDeps): Hono {
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
     const action = (b.value ?? null) as ResolveAction | null;
     if (!action || !RESOLVE_KINDS.has(action.kind)) return c.json({ error: '操作の種類が正しくありません。repoint、archive、unlink のいずれかを指定してください' }, 400);
-    if (action.kind === 'repoint' && (typeof action.path !== 'string' || !fs.existsSync(action.path))) return c.json({ error: '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください' }, 400);
+    // repoint のパスは、存在を確かめる前に正規化する。検査する値と保存する値を 1 つにしておく。
+    // `..` や末尾の `/` が残ると project_roots の前方一致に cwd が当たらず、
+    // そのプロジェクトには永久にセッションが紐づかない（POST /api/projects と同じ理由である）。
+    const target: ResolveAction = action.kind === 'repoint' && typeof action.path === 'string' ? { kind: 'repoint', path: path.resolve(action.path) } : action;
+    if (target.kind === 'repoint' && (typeof target.path !== 'string' || !fs.existsSync(target.path))) return c.json({ error: '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください' }, 400);
     if (!getProject(db, deviceId, deps.live(), id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    resolveProject(db, deviceId, id, action);
+    resolveProject(db, deviceId, id, target);
     const p = getProject(db, deviceId, deps.live(), id);
     if (p) deps.hub.broadcast({ type: 'project.upsert', project: p });
     // 紐づけが変わったセッションを絞り込めないので、全件を流して UI 側で置き換えてもらう。

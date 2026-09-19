@@ -104,6 +104,18 @@ describe('resolveProject', () => {
     expect(root(pid!)).toMatchObject({ path: path.join(ws, 'alpha-moved'), resolved: 1 });
     expect(sessionProject('s-moved')).toBe(pid);
   });
+  // 末尾の / や .. が残ると longestMatch の前方一致（cwd === path か cwd.startsWith(path + '/')）が
+  // 一件も当たらず、直したつもりのプロジェクトにセッションが永久に紐づかない。
+  it('repoint のパスは正規化してから入れる', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    assignSessions(db, DEV);
+    fs.renameSync(path.join(ws, 'alpha'), path.join(ws, 'alpha-moved'));
+    checkProjectRoots(db, DEV);
+    addSession('s-moved', path.join(ws, 'alpha-moved', 'src'));
+    resolveProject(db, DEV, pid!, { kind: 'repoint', path: path.join(ws, 'beta', '..', 'alpha-moved') + '/' });
+    expect(root(pid!)).toMatchObject({ path: path.join(ws, 'alpha-moved'), resolved: 1 });
+    expect(sessionProject('s-moved')).toBe(pid);
+  });
   it('archive は status を archived にする', () => {
     const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
     resolveProject(db, DEV, pid!, { kind: 'archive' });
