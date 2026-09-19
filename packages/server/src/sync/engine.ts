@@ -1,7 +1,7 @@
 import { MAX_PUSH_BATCH, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOut, type PushChangesResponse, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onSharedWrite } from '../db/shared.ts';
-import { applyRemoteBatch, type MemoConflict } from './apply.ts';
+import { applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
 import { CloudError, goneFloor, type CloudClient } from './client.ts';
 import { D1_WRITES_PER_DEVICE_TOUCH, QuotaCounter, pushD1Writes, quotaDayKey } from './quota.ts';
 import { SyncStateStore } from './state.ts';
@@ -20,6 +20,12 @@ export type SyncEngineDeps = {
    * 投げるとその行は適用しない（控えの取れないまま利用者の文章を消さない）。
    */
   onMemoConflict?: (o: MemoConflict) => void;
+  /**
+   * セッションのメモを他端末の新しい版で上書きしたときに呼ばれる。
+   * 控えのファイルはもう書かれている（apply.ts が ~/.agent-hangar/backups/memos/ に残す）ので、
+   * ここでやることは利用者に置き場を知らせることだけである。投げても適用は止まらない。
+   */
+  onSessionMemoBackup?: (o: SessionMemoBackup) => void;
 };
 
 export type SyncListener = {
@@ -327,7 +333,7 @@ export class SyncEngine {
   }
 
   private applyPage(changes: ChangeOut[], skipOwn: boolean): number {
-    const applied = applyRemoteBatch(this.deps.db, changes, { ownDeviceId: this.deps.deviceId, skipOwn, onMemoConflict: this.deps.onMemoConflict });
+    const applied = applyRemoteBatch(this.deps.db, changes, { ownDeviceId: this.deps.deviceId, skipOwn, onMemoConflict: this.deps.onMemoConflict, onSessionMemoBackup: this.deps.onSessionMemoBackup });
     for (const c of applied) this.emit('applied', c);
     return applied.length;
   }

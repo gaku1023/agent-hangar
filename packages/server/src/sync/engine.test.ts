@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -421,6 +424,42 @@ describe('SyncEngine の pull', () => {
     expect(conflicts).toEqual([{ projectId: 'p1', markdown: '手元のメモ', deviceName: 'MacBook' }]);
     expect((dbB.prepare('select markdown from project_memos where project_id = ?').get('p1') as { markdown: string }).markdown).toBe('相手のメモ');
     a.stop(); b.stop();
+  });
+
+  it('セッションのメモが他端末の新しい版で消えるとき、控えの知らせを呼び手へ渡す', async () => {
+    const saved = process.env.HANGAR_HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-engine-'));
+    process.env.HANGAR_HOME = home;
+    try {
+      const backups: { sessionId: string; markdown: string; deviceName: string; backupFile: string }[] = [];
+      const a = make();
+      await a.start();
+      upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/x', home_device: 'a' }, 'a');
+      await a.pushNow();
+
+      const b = makeB({ onSessionMemoBackup: (o) => backups.push(o) });
+      await b.start();
+      upsertShared(dbB, 'devices', { id: 'b', name: 'MacBook', platform: 'darwin' }, 'b');
+      const localRow = dbB.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
+      upsertShared(dbB, 'sessions', { ...localRow, memo: '手元のメモ' }, 'b');
+
+      // 相手がメモを消しにくる。消える側なので、控えを残してから上書きする。
+      await realDelay(2);
+      const remoteRow = db.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
+      upsertShared(db, 'sessions', { ...remoteRow, memo: null }, 'a');
+      await a.pushNow();
+      await b.pullNow();
+
+      expect(backups).toHaveLength(1);
+      expect(backups[0]).toMatchObject({ sessionId: 's1', markdown: '手元のメモ', deviceName: 'MacBook' });
+      expect(path.basename(backups[0]!.backupFile)).toMatch(/^session-s1-\d{8}-\d{6}\.md$/);
+      expect(fs.readFileSync(backups[0]!.backupFile, 'utf8')).toBe('手元のメモ');
+      expect((dbB.prepare('select memo from sessions where id = ?').get('s1') as { memo: string | null }).memo).toBeNull();
+      a.stop(); b.stop();
+    } finally {
+      if (saved === undefined) delete process.env.HANGAR_HOME; else process.env.HANGAR_HOME = saved;
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it('pull の要求も無料枠に数える', async () => {
