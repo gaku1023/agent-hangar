@@ -8,7 +8,7 @@ import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers, flush } from '../../test/fake-timers.ts';
 import { CloudError } from './client.ts';
 import { SyncEngine } from './engine.ts';
-import { QuotaCounter } from './quota.ts';
+import { QUOTA_STOP_RATIO, QuotaCounter } from './quota.ts';
 import { SyncStateStore } from './state.ts';
 
 let db: Db;
@@ -427,6 +427,39 @@ describe('SyncEngine の pull', () => {
     await b.pullNow();
     expect(conflicts).toEqual([{ projectId: 'p1', markdown: '手元のメモ', deviceName: 'MacBook' }]);
     expect((dbB.prepare('select markdown from project_memos where project_id = ?').get('p1') as { markdown: string }).markdown).toBe('相手のメモ');
+    a.stop(); b.stop();
+  });
+
+  it('2 台で使っても、アカウント全体で 80% を超える前に両方が止まる', async () => {
+    // 無料枠はアカウントごとなので、端末ごとに 80% で止めると 2 台では 160% まで走ってしまう。
+    const limits = { d1Writes: 1_000, requests: 1_000_000 };
+    const dA = countingD1(cloud);
+    const dB = countingD1(cloudB);
+    const a = make({ quotaLimits: limits });
+    const b = makeB({ quotaLimits: limits });
+    await a.start();
+    await b.start();
+
+    // 互いの端末を知る（devices の行が両方の DB に入る）。
+    upsertShared(db, 'devices', { id: 'a', name: 'A', platform: 'darwin' }, 'a');
+    upsertShared(dbB, 'devices', { id: 'b', name: 'B', platform: 'darwin' }, 'b');
+    await a.pushNow(); await b.pushNow();
+    await a.pullNow(); await b.pullNow();
+    expect(a.status().deviceCount).toBe(2);
+    expect(b.status().deviceCount).toBe(2);
+
+    let n = 0;
+    while ((a.status().state !== 'paused' || b.status().state !== 'paused') && n < 2_000) {
+      if (a.status().state !== 'paused') project(`a${n}`);
+      if (b.status().state !== 'paused') upsertShared(dbB, 'projects', { id: `b${n}`, name: `b${n}`, status: 'active', is_scratch: 0 }, 'b');
+      n++;
+      await timers.advance(2_000);
+    }
+    expect(a.status().state).toBe('paused');
+    expect(b.status().state).toBe('paused');
+    // 2 台ぶんを足しても、アカウントの枠そのものは超えない。
+    expect(dA.rows + dB.rows).toBeLessThan(limits.d1Writes);
+    expect(dA.rows + dB.rows).toBeGreaterThanOrEqual(limits.d1Writes * QUOTA_STOP_RATIO);
     a.stop(); b.stop();
   });
 

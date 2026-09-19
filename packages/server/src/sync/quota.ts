@@ -86,16 +86,43 @@ const count = (v: unknown): number => (typeof v === 'number' && Number.isFinite(
 export class QuotaCounter {
   private readonly state: SyncStateStore;
   private readonly nowFn: () => number;
+  private readonly deviceCountFn: () => number;
   readonly limits: QuotaLimits;
   readonly ratio: number;
   /** 最後に書いた日の鍵。日付が変わったら、この行を消して sync_state を溜めない。 */
   private lastKey: string | null = null;
 
-  constructor(o: { state: SyncStateStore; now?: () => number; limits?: QuotaLimits; ratio?: number }) {
+  constructor(o: { state: SyncStateStore; now?: () => number; limits?: QuotaLimits; ratio?: number; deviceCount?: () => number }) {
     this.state = o.state;
     this.nowFn = o.now ?? (() => Date.now());
     this.limits = o.limits ?? QUOTA_LIMITS;
     this.ratio = o.ratio ?? QUOTA_STOP_RATIO;
+    this.deviceCountFn = o.deviceCount ?? (() => 1);
+  }
+
+  /**
+   * 枠を分け合う端末の数。
+   * 読めない値（0 以下、数でない、小数）は 1 台として扱う。
+   * 少なく見積もると割り当てが増えて止まるのが遅れるので、迷ったら 1 に倒さずに切り捨てる。
+   */
+  private devices(): number {
+    const n = this.deviceCountFn();
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+  }
+
+  /**
+   * この端末が止まる水準である。
+   *
+   * **無料枠はアカウントごとで、端末ごとではない。**
+   * 端末が自分の書き込みだけを見て 80% で止めると、2 台ではアカウント全体で 160% まで走ってしまう。
+   * そこで割り当てを端末の数で割り、全員が使い切っても合計が 80% に収まるようにする。
+   *
+   * 代償は、動いているのが 1 台だけの日に、使えるはずの枠の半分で止まることである。
+   * 決定 4 は「遅れるより早い方がまし」なので、この倒し方を選んだ（止まっても利用者が再開できる）。
+   */
+  stopAt(): QuotaLimits {
+    const n = this.devices();
+    return { d1Writes: (this.limits.d1Writes * this.ratio) / n, requests: (this.limits.requests * this.ratio) / n };
   }
 
   /** その日の鍵。`quota:<yyyy-MM-dd>` は SyncStateKey の一覧には無いので、包みに渡すときだけ被せる。 */
@@ -125,9 +152,10 @@ export class QuotaCounter {
     this.state.set(key as SyncStateKey, JSON.stringify(next));
   }
 
-  /** 行数と要求の回数のどちらかが上限の 80% に達したか。 */
+  /** 行数と要求の回数のどちらかが、この端末の割り当て（stopAt）に達したか。 */
   exceeded(): boolean {
     const t = this.today();
-    return t.rows >= this.limits.d1Writes * this.ratio || t.requests >= this.limits.requests * this.ratio;
+    const stop = this.stopAt();
+    return t.rows >= stop.d1Writes || t.requests >= stop.requests;
   }
 }

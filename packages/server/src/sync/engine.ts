@@ -3,7 +3,7 @@ import type { Db } from '../db/open.ts';
 import { onSharedWrite } from '../db/shared.ts';
 import { applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
 import { CloudError, goneFloor, type CloudClient } from './client.ts';
-import { D1_WRITES_PER_DEVICE_TOUCH, QuotaCounter, pushD1Writes, quotaDayKey } from './quota.ts';
+import { D1_WRITES_PER_DEVICE_TOUCH, QuotaCounter, pushD1Writes, quotaDayKey, type QuotaLimits } from './quota.ts';
 import { SyncStateStore } from './state.ts';
 
 /** 時計は必ず注入する。テストは FakeTimers（packages/server/test/fake-timers.ts）を渡す。 */
@@ -14,6 +14,8 @@ export type SyncEngineDeps = {
   now?: () => number; timers?: Timers;
   pushDebounceMs?: number; pushMinGapMs?: number; pullIntervalMs?: number; focusMinGapMs?: number;
   quota?: QuotaCounter;
+  /** 既定の QuotaCounter に渡す上限。テストが枠を縮めるために使う。quota を直に渡したときは見ない。 */
+  quotaLimits?: QuotaLimits;
   /**
    * 他端末の新しいメモで手元のメモを上書きする直前に呼ばれる。
    * 呼び手は負けた本文を memo.conflict-<端末名>-<時刻>.md として隣に残す。
@@ -113,7 +115,8 @@ export class SyncEngine {
   constructor(protected readonly deps: SyncEngineDeps) {
     this.state = new SyncStateStore(deps.db);
     this.timers = deps.timers ?? REAL_TIMERS;
-    this.quota = deps.quota ?? new QuotaCounter({ state: this.state, now: () => this.now() });
+    // 枠はアカウントごとなので、端末の数で割った割り当てで見張る（quota.ts の stopAt）。
+    this.quota = deps.quota ?? new QuotaCounter({ state: this.state, now: () => this.now(), limits: deps.quotaLimits, deviceCount: () => this.deviceCount() });
   }
 
   protected now(): number { return this.deps.now ? this.deps.now() : Date.now(); }
@@ -142,6 +145,12 @@ export class SyncEngine {
 
   pending(): number { return (this.deps.db.prepare('select count(*) c from changes where pushed_at is null').get() as { c: number }).c; }
 
+  /**
+   * この箱を分け合っている端末の数。
+   * 他端末の行は初回の pull（写し）で必ず入るので、まとまった量を書く頃には出揃っている。
+   */
+  deviceCount(): number { return (this.deps.db.prepare('select count(*) c from devices where deleted_at is null').get() as { c: number }).c; }
+
   status(): SyncStatusDto {
     const state: SyncStateKind = !this.deps.client ? 'off'
       : this.paused ? 'paused'
@@ -150,7 +159,7 @@ export class SyncEngine {
       : this.lastError ? 'error'
       : 'idle';
     const num = (k: 'lastPushAt' | 'lastPullAt') => { const v = this.state.get(k); return v === null ? null : Number(v); };
-    const deviceCount = (this.deps.db.prepare('select count(*) c from devices where deleted_at is null').get() as { c: number }).c;
+    const deviceCount = this.deviceCount();
     return {
       state,
       url: this.deps.url ?? null,

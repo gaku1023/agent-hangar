@@ -8,8 +8,8 @@ let db: Db;
 let state: SyncStateStore;
 let now = Date.UTC(2026, 8, 19, 10, 0, 0);
 
-const make = (limits?: { d1Writes: number; requests: number }, ratio?: number) =>
-  new QuotaCounter({ state, now: () => now, limits, ratio });
+const make = (limits?: { d1Writes: number; requests: number }, ratio?: number, deviceCount?: () => number) =>
+  new QuotaCounter({ state, now: () => now, limits, ratio, deviceCount });
 
 /** sync_state の行を直に読む。quota の鍵は SyncStateKey の外なので、包みを通さずに見る。 */
 const raw = (key: string): string | null =>
@@ -78,6 +78,30 @@ describe('QuotaCounter', () => {
     expect(q.exceeded()).toBe(false);
     q.note({ requests: 1 });
     expect(q.exceeded()).toBe(true);
+  });
+
+  it('枠はアカウント全体のものなので、端末の数で割る', () => {
+    // 1 台なら今までどおり 80%。
+    expect(make({ d1Writes: 1_000, requests: 1_000 }).stopAt()).toEqual({ d1Writes: 800, requests: 800 });
+    // 2 台なら 1 台あたり 40%。合わせて 80% である。
+    expect(make({ d1Writes: 1_000, requests: 1_000 }, undefined, () => 2).stopAt()).toEqual({ d1Writes: 400, requests: 400 });
+    expect(make({ d1Writes: 1_000, requests: 1_000 }, undefined, () => 4).stopAt()).toEqual({ d1Writes: 200, requests: 200 });
+  });
+
+  it('2 台なら自分のぶんが半分に達した時点で止める', () => {
+    const q = make({ d1Writes: 1_000, requests: 1_000_000 }, undefined, () => 2);
+    q.note({ rows: 399 });
+    expect(q.exceeded()).toBe(false);
+    q.note({ rows: 1 });
+    expect(q.exceeded()).toBe(true);
+  });
+
+  it('端末の数が読めないときは 1 台として扱う', () => {
+    for (const n of [0, -1, Number.NaN, 0.5]) {
+      expect(make({ d1Writes: 1_000, requests: 1_000 }, undefined, () => n).stopAt().d1Writes).toBe(800);
+    }
+    // 台数が増えれば、割り当ては減るだけで増えることはない。
+    expect(make({ d1Writes: 1_000, requests: 1_000 }, undefined, () => 3).stopAt().d1Writes).toBeCloseTo(266.67, 1);
   });
 
   it('割合は差し替えられる', () => {
