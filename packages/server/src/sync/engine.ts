@@ -26,6 +26,11 @@ export type SyncEngineDeps = {
    * ここでやることは利用者に置き場を知らせることだけである。投げても適用は止まらない。
    */
   onSessionMemoBackup?: (o: SessionMemoBackup) => void;
+  /**
+   * 控えの置き場の親（~/.agent-hangar）。省くと環境変数から引くので、
+   * 一時ディレクトリで起こしたつもりが実物へ書く事故になる。結線側から必ず渡す。
+   */
+  home?: string;
 };
 
 export type SyncListener = {
@@ -333,7 +338,7 @@ export class SyncEngine {
   }
 
   private applyPage(changes: ChangeOut[], skipOwn: boolean): number {
-    const applied = applyRemoteBatch(this.deps.db, changes, { ownDeviceId: this.deps.deviceId, skipOwn, onMemoConflict: this.deps.onMemoConflict, onSessionMemoBackup: this.deps.onSessionMemoBackup });
+    const applied = applyRemoteBatch(this.deps.db, changes, { ownDeviceId: this.deps.deviceId, skipOwn, home: this.deps.home, onMemoConflict: this.deps.onMemoConflict, onSessionMemoBackup: this.deps.onSessionMemoBackup });
     for (const c of applied) this.emit('applied', c);
     return applied.length;
   }

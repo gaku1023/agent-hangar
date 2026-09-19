@@ -261,7 +261,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const rawClient = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
   const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
   const engine = new SyncEngine({
-    db, deviceId: device.id, client: rawClient, url: cloud?.url ?? null,
+    db, deviceId: device.id, client: rawClient, url: cloud?.url ?? null, home,
     // 負けた手元のメモは隣に残す。名前の組み立ても既存の写しの守りも writeMemoConflictCopy が持っている。
     // ここで投げれば、その行は適用されない（控えの無いまま利用者の文章を消さない）。
     onMemoConflict: (o) => {
