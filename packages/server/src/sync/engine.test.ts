@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
-import { FakeTimers, flush } from '../../test/fake-timers.ts';
+import { FakeTimers } from '../../test/fake-timers.ts';
 import { CloudError } from './client.ts';
 import { SyncEngine } from './engine.ts';
 import { QUOTA_STOP_RATIO, QuotaCounter } from './quota.ts';
@@ -119,6 +119,7 @@ describe('SyncEngine の push', () => {
     expect(unpushed()).toBe(1);
     e.setPaused(false);
     await timers.advance(1000);
+    await e.idle();
     expect(unpushed()).toBe(0);
     const e2 = make();
     expect(e2.status().state).toBe('idle');
@@ -303,7 +304,12 @@ describe('SyncEngine の pull', () => {
     const b = makeB();
     await a.start(); await b.start();
     project('p1');
-    await timers.advance(30_000);
+    // タイマーから始まる push と pull は誰も約束を持たないので、段ごとに idle() で待ち合わせる。
+    // マイクロタスクの回数で待つと、非同期の終わる回が端末ごとに変わるぶん取りこぼす。
+    await timers.advance(10_000);
+    await a.idle();
+    await timers.advance(20_000);
+    await b.idle();
     expect(dbB.prepare('select 1 from projects where id = ?').get('p1')).toBeTruthy();
     a.stop(); b.stop();
   });
@@ -521,7 +527,7 @@ describe('SyncEngine の pull', () => {
     await timers.advance(2000);
     expect(await p).toBe(false);
     release();
-    await flush();
+    await b.idle();
     expect(b.status().state).toBe('idle');
     const fast = makeB();
     fast.state.set('snapshotDone', true);
@@ -622,10 +628,12 @@ describe('SyncEngine の失敗の見せ方', () => {
     cloud.pushChanges = async () => { throw new CloudError(400, '{"error":"invalid body"}'); };
     project('p1');
     await timers.advance(1_000);
+    await e.idle();
     expect(e.status()).toMatchObject({ state: 'error', pending: 1 });
 
     // 定期実行は push の後に pull を回す。pull は通るが、送れていない事実は消えない。
     await timers.advance(5 * 60_000);
+    await e.idle();
     expect(e.status()).toMatchObject({ state: 'error', pending: 1 });
     expect(e.status().error).toContain('invalid body');
     expect(e.state.get('lastError')).toContain('invalid body');

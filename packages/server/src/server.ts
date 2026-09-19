@@ -211,6 +211,12 @@ export function checkRoots(o: { db: Db; deviceId: string; live: () => LiveSessio
  */
 export const CLOSE_UPLOAD_WAIT_MS = 3_000;
 
+/**
+ * close が同期の押し出しを待つ上限。
+ * 設定の押し出しもメタデータの push も 1 要求ぶんなので、本文の転送より短くてよい。
+ */
+export const CLOSE_IDLE_WAIT_MS = 3_000;
+
 /** idle() が返るまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
 export function waitForIdle(job: { idle(): Promise<void> }, ms: number): Promise<boolean> {
   let timer: NodeJS.Timeout | undefined;
@@ -230,6 +236,21 @@ export async function stopUploader(up: { idle(): Promise<void>; stop(): void } |
   const done = await waitForIdle(up, ms);
   if (!done) console.warn(`[upload] 本文の送信を ${ms} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
   up.stop();
+  return done;
+}
+
+/**
+ * 走っている仕事が終わるのを待ってから止める。上限までに終われば真を返す。
+ *
+ * タイマーから始まった push は誰も約束を持たないので、待たずに stop すると途中で切れる。
+ * 設定の同期（ClaudeConfigSync）とメタデータの同期（SyncEngine）が、どちらもこの形である。
+ * 上限を超えたときも必ず止める。終了が通信に引きずられる方が困る。
+ */
+export async function stopAfterIdle(job: { idle(): Promise<void>; stop(): void } | null, label: string, ms: number = CLOSE_IDLE_WAIT_MS): Promise<boolean> {
+  if (!job) return true;
+  const done = await waitForIdle(job, ms);
+  if (!done) console.warn(`[${label}] 走っている同期を ${ms} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
+  job.stop();
   return done;
 }
 
@@ -640,10 +661,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       clearInterval(deviceTimer);
       if (configTimer) clearInterval(configTimer);
       if (uploadTimer) clearInterval(uploadTimer);
-      configSync?.stop();
-      // 走っている上げを待ってから止める。待たずに止めると putFile が途中で切れる。
+      // 走っている押し出しを待ってから止める。待たずに止めると putFile と pushChanges が途中で切れる。
+      await stopAfterIdle(configSync, 'config');
       await stopUploader(uploader);
-      engine.stop();
+      await stopAfterIdle(engine, 'sync');
       stopMemoWatch();
       runs.stop();
       indexer.stop();
