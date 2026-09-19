@@ -62,7 +62,12 @@ export function dbPath(home: string): string {
 }
 
 export function ensureHome(home: string): void {
+  // 中の hangar.db と desktop.log は 0644 なので、置き場所が緩いと同じ機械の別の利用者に全セッションの記録が読める。
+  // mode は新しく作るときにしか効かないので、既にある置き場所は chmod で直す。
+  // デスクトップの .app が先に 0755 で作った手元や、古い版が残した手元も、起動のたびにここで直る。
+  // 利用者が 0700 より厳しくした権限は緩めない。
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  if (fs.statSync(home).mode & 0o077) fs.chmodSync(home, 0o700);
 }
 
 export function readOrCreateToken(home: string): string {

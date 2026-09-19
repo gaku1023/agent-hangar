@@ -97,11 +97,30 @@ fn redact(text: &str, token: &str) -> String {
     text.replace(token, "***")
 }
 
+/// データの置き場所を用意する。無ければ 0700 で作り、あれば権限を確かめて直す。
+/// 中の `hangar.db`（全セッションの記録）と `desktop.log` は 0644 なので、
+/// ここが 0755 だと同じ機械の別の利用者に中身が読める。
+/// サーバ側の `ensureHome` と同じ意思をここでも守る。
+/// 既に 0755 で作られてしまった手元も直るように、作るときだけでなく起動のたびに確かめる。
+/// 利用者が 0700 より厳しくした権限は緩めない。
+fn ensure_hangar_home(home: &std::path::Path) {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let _ = std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(home);
+    if let Ok(md) = std::fs::metadata(home) {
+        if md.is_dir() && md.permissions().mode() & 0o077 != 0 {
+            let _ = std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+}
+
 /// `~/.agent-hangar/desktop.log` に 1 行追記する。サーバの標準出力も同じファイルに流れる。
 /// 入場の鍵は決してここへ書かない。
 fn log(line: &str) {
     let home = paths::hangar_home();
-    let _ = std::fs::create_dir_all(&home);
+    ensure_hangar_home(&home);
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -190,16 +209,57 @@ fn page_loaded(app: &AppHandle, server_page: bool) {
     }
 }
 
+/// ログに残すディープリンクの長さの上限（バイト）。
+/// `deeplink.rs` の 2048 バイトの上限は形の検査の中にあり、ログには効かない。
+const LOG_URL_MAX: usize = 200;
+
+/// ログへ書く前に URL を丸める。
+/// macOS では同じ機械の誰でも `open hangar://...` を実行できるので、
+/// 上限を置かないと外から何度でも `desktop.log` を太らせられる。
+/// 切ったことが分かるように、元の長さを添える。
+fn url_for_log(u: &str) -> String {
+    if u.len() <= LOG_URL_MAX {
+        return u.to_string();
+    }
+    // 多バイト文字の途中で切らない。
+    let mut cut = LOG_URL_MAX;
+    while cut > 0 && !u.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}... (全 {} バイト)", &u[..cut], u.len())
+}
+
 /// 届いた URL をハッシュに直して流す。起動時の取りこぼしを防ぐため、
 /// `on_open_url` と `get_current` の両方からここへ来る。
 fn handle_urls(app: &AppHandle, urls: &[url::Url]) {
     for u in urls {
-        log(&format!("deep link {u}"));
+        log(&format!("deep link {}", url_for_log(u.as_str())));
         match deeplink::deep_link_to_hash(u.as_str()) {
             Some(hash) => apply_hash(app, hash),
             None => log("deep link ignored"),
         }
     }
+}
+
+/// `server_dir` が返した置き場所を受け取ってよいか決める。
+/// `HANGAR_SERVER_DIR` はその置き場所を任意の木へ動かせるので、開発（`dev`）のときだけ認める。
+/// 配布版で認めると、環境変数を書ける相手が指した木に `strip_quarantine` が
+/// `xattr -rd` を再帰で掛け、その中の JavaScript を Node が走らせることになる。
+/// 配布版では、アプリのリソースの中に収まっている置き場所だけを受け取る。
+/// symlink と `..` で外へ抜けられないように、実体の場所へ直してから比べる。
+fn accept_server_dir(
+    dir: std::path::PathBuf,
+    resource_dir: &std::path::Path,
+    dev: bool,
+) -> Option<std::path::PathBuf> {
+    if dev {
+        return Some(dir);
+    }
+    let inside = match (dir.canonicalize(), resource_dir.canonicalize()) {
+        (Ok(d), Ok(r)) => d.starts_with(r),
+        _ => false,
+    };
+    inside.then_some(dir)
 }
 
 /// 同梱サーバを起こす。成功したら `Ok(())`。
@@ -233,6 +293,13 @@ fn start_server(
         .map_err(|e| format!("リソースの場所が分かりません: {e}"))?;
     let dir = server::server_dir(&resource_dir)
         .ok_or_else(|| format!("同梱のサーバが見つかりません: {}", resource_dir.display()))?;
+    let dir = accept_server_dir(dir, &resource_dir, cfg!(debug_assertions)).ok_or_else(|| {
+        concat!(
+            "HANGAR_SERVER_DIR は開発のときだけ効きます。\n",
+            "配布版はアプリの中に同梱したサーバだけを使います。"
+        )
+        .to_string()
+    })?;
     server::strip_quarantine(&dir);
     let manifest = node::read_manifest(&dir)?;
     let candidates = node::candidate_paths(&paths::user_home(), hangar_home);
@@ -319,7 +386,7 @@ fn wait_for_server(app: &AppHandle, addr: SocketAddr, deadline: Duration) -> Res
 /// 起動の本体。別スレッドで走り、ウィンドウはその間読み込み画面を出している。
 fn boot(app: AppHandle) {
     let hangar_home = paths::hangar_home();
-    let _ = std::fs::create_dir_all(&hangar_home);
+    ensure_hangar_home(&hangar_home);
     let addr: SocketAddr = ([127, 0, 0, 1], server::PORT).into();
 
     if let Err(msg) = start_server(&app, &hangar_home, addr) {
@@ -487,6 +554,73 @@ mod tests {
             "url http://x/?t=*** が開けません"
         );
         assert_eq!(redact("abc", ""), "abc");
+    }
+
+    // データの置き場所は 0700 で作る。
+    // 中の hangar.db と desktop.log は 0644 なので、ここが緩いと同じ機械の別の利用者に全セッションの記録が読める。
+    // 既に 0755 で作られている手元も、起動のたびに直す。
+    #[test]
+    fn the_data_dir_is_created_private_and_tightened_every_time() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("nested/.agent-hangar");
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        ensure_hangar_home(&home);
+        assert_eq!(mode(&home), 0o700, "作るときに 0700 になっていない");
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o755)).unwrap();
+        ensure_hangar_home(&home);
+        assert_eq!(mode(&home), 0o700, "既にある 0755 を直していない");
+        // 利用者がより厳しくした権限は緩めない。
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o500)).unwrap();
+        ensure_hangar_home(&home);
+        assert_eq!(mode(&home), 0o500);
+    }
+
+    // HANGAR_SERVER_DIR による差し替えは開発のときだけ効かせる。
+    // 配布版でこれを認めると、環境変数を書ける相手が任意の木を指させられる。
+    // その木には strip_quarantine が xattr -rd を再帰で掛け、中の JavaScript が Node で走る。
+    #[test]
+    fn a_server_dir_outside_the_resources_is_only_taken_in_development() {
+        let res = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let bundled = res.path().join("server");
+        std::fs::create_dir_all(&bundled).unwrap();
+        // 同梱の置き場所は配布版でもそのまま使う。
+        assert_eq!(
+            accept_server_dir(bundled.clone(), res.path(), false),
+            Some(bundled.clone())
+        );
+        // リソースの外は配布版では受け取らない。開発では受け取る。
+        let out = outside.path().to_path_buf();
+        assert_eq!(accept_server_dir(out.clone(), res.path(), false), None);
+        assert_eq!(
+            accept_server_dir(out.clone(), res.path(), true),
+            Some(out.clone())
+        );
+        // `..` を挟んで字面だけ中に見える形も、実体の場所で見分ける。
+        let sibling = res.path().join("..").join(out.file_name().unwrap());
+        assert!(sibling.starts_with(res.path()), "字面では中に見えるはず");
+        assert_eq!(accept_server_dir(sibling.clone(), res.path(), false), None);
+        assert_eq!(
+            accept_server_dir(sibling.clone(), res.path(), true),
+            Some(sibling)
+        );
+    }
+
+    // 届いた URL は形の検査より前にログへ行く。
+    // 長さに上限を置き、同じ機械の誰かが何度も投げてログを太らせられないようにする。
+    #[test]
+    fn a_long_deep_link_is_cut_before_it_reaches_the_log() {
+        let short = "hangar://session/42";
+        assert_eq!(url_for_log(short), short);
+        let long = format!("hangar://search?q={}", "あ".repeat(4000));
+        let cut = url_for_log(&long);
+        assert!(cut.len() <= LOG_URL_MAX + 40, "{}", cut.len());
+        assert!(cut.starts_with("hangar://search?q="));
+        // 切ったことと元の長さが分かるようにする。
+        assert!(cut.contains(&long.len().to_string()), "{cut}");
+        // 多バイト文字の途中では切らない。
+        assert!(cut.chars().all(|c| c != '\u{fffd}'));
     }
 }
 

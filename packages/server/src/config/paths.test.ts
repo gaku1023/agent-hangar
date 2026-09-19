@@ -13,6 +13,20 @@ describe('paths', () => {
     expect(hangarHome()).toBe(tmp);
     expect(dbPath(tmp)).toBe(path.join(tmp, 'hangar.db'));
   });
+  it('置き場所は 0700 で作り、既にあるものも 0700 に直す', () => {
+    // 中の hangar.db と desktop.log は 0644 なので、置き場所が 0755 だと同じ機械の別の利用者に記録が読める。
+    // デスクトップの .app が先に作った置き場所が 0755 のままでも、起動のたびにここで直る。
+    const home = path.join(tmp, 'home');
+    ensureHome(home);
+    expect(fs.statSync(home).mode & 0o777).toBe(0o700);
+    fs.chmodSync(home, 0o755);
+    ensureHome(home);
+    expect(fs.statSync(home).mode & 0o777).toBe(0o700);
+    // 利用者がより厳しくした権限は緩めない。
+    fs.chmodSync(home, 0o500);
+    ensureHome(home);
+    expect(fs.statSync(home).mode & 0o777).toBe(0o500);
+  });
   it('トークンは一度だけ作り、0600 で保存する', () => {
     ensureHome(tmp);
     const a = readOrCreateToken(tmp);
