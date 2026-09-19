@@ -33,6 +33,17 @@ const SCRIPT_RE = /^[^/]+\.(sh|bash|zsh|js|mjs|cjs|ts|py|rb|pl)$/;
 const STAMP_RE = /^\d{8}-\d{6}$/;
 const BACKUP_SUBDIR = 'claude-config';
 /**
+ * まだ取り込んでいない相手の設定の一覧を残す `sync_state` の鍵。
+ *
+ * RemotePuller は onConfigEntries を呼んだ後に filesSeq を進めるので、
+ * 確認を押さずにサーバを起こし直すと、同じ項目は二度と届かない。
+ * 一覧をメモリだけに持つと、2 回目の起動で下見が永久に空になり、初回の確認に辿り着けなくなる。
+ * SyncStateStore の鍵の型はこのモジュールから増やせないので、同じ表に自前の文で読み書きする。
+ */
+const PENDING_KEY = 'configPending';
+/** 残す一覧の上限。初参加で全部が載ることがあるので、青天井にしない。 */
+const MAX_PENDING = 2000;
+/**
  * 競合の写しの名前を何回まで試すか。
  * 畳んだ端末名は元の名前と 1 対 1 ではない（「さとうの Mac」も「たなかの Mac」も Mac になる）ので、
  * 同じ秒に同じ名前が当たることがある。当たったら連番を足して、先にある写しを潰さない。
@@ -351,6 +362,20 @@ export type ClaudeConfigDeps = {
 };
 
 type SyncRow = { sha256: string };
+
+/**
+ * 残しておいた一覧の 1 件が、相手の設定の項目として読めるか。
+ * 自分で書いた JSON だが、手で書き換えられることも版が変わることもあるので、読むときに形を見る。
+ */
+function isConfigEntry(v: unknown): v is FileEntry {
+  const e = v as Partial<FileEntry> | null;
+  return (
+    !!e && typeof e.key === 'string' && typeof e.path === 'string' && e.kind === 'config' &&
+    typeof e.sha256 === 'string' && typeof e.size === 'number' && typeof e.mtime === 'number' &&
+    typeof e.seq === 'number' && typeof e.deviceId === 'string' &&
+    typeof e.uploadedAt === 'number' && typeof e.storedSize === 'number' && typeof e.encrypted === 'boolean'
+  );
+}
 type Decision = { action: ConfigPreviewAction; localMtime: number | null; remoteNewer: boolean; blocked: string | null };
 
 /**
@@ -361,7 +386,6 @@ type Decision = { action: ConfigPreviewAction; localMtime: number | null; remote
 export class ClaudeConfigSync {
   private watcher: fs.FSWatcher | null = null;
   private timer: NodeJS.Timeout | null = null;
-  private lastRemote: FileEntry[] = [];
 
   constructor(private readonly deps: ClaudeConfigDeps) {}
 
@@ -373,7 +397,39 @@ export class ClaudeConfigSync {
   confirm(): void { this.deps.state.set('configPullConfirmed', true); }
   /** 自動の書き戻しをやめる。一度押したら二度と止められない形にしない（決定 2 の危険 E1）。 */
   unconfirm(): void { this.deps.state.set('configPullConfirmed', null); }
-  pendingRemote(): FileEntry[] { return this.lastRemote; }
+  /** まだ取り込んでいない相手の設定。メモリではなく sync_state から読むので、起こし直しても消えない。 */
+  pendingRemote(): FileEntry[] { return this.readPending(); }
+
+  private readPending(): FileEntry[] {
+    const row = this.deps.db.prepare('select value from sync_state where key = ?').get(PENDING_KEY) as { value: string } | undefined;
+    if (!row) return [];
+    let v: unknown;
+    try { v = JSON.parse(row.value); } catch { return []; }
+    if (!Array.isArray(v)) return [];
+    // 残した後に対象の決まりが変わっていることもあるので、読むたびに今の物差しで絞る。
+    return v.filter(isConfigEntry).filter((e) => e.deviceId !== this.deps.deviceId && this.pullable(e.path));
+  }
+
+  private writePending(list: FileEntry[]): void {
+    if (list.length === 0) {
+      this.deps.db.prepare('delete from sync_state where key = ?').run(PENDING_KEY);
+      return;
+    }
+    this.deps.db.prepare('insert into sync_state (key, value) values (?, ?) on conflict(key) do update set value = excluded.value')
+      .run(PENDING_KEY, JSON.stringify(list.slice(0, MAX_PENDING)));
+  }
+
+  /** 残してある一覧に、今届いた分を重ねる。同じ鍵は新しい seq の方を採る。 */
+  private mergePending(incoming: FileEntry[]): FileEntry[] {
+    const byKey = new Map<string, FileEntry>();
+    for (const e of this.readPending()) byKey.set(e.key, e);
+    for (const e of incoming) {
+      if (!isConfigEntry(e) || e.deviceId === this.deps.deviceId || !this.pullable(e.path)) continue;
+      const cur = byKey.get(e.key);
+      if (!cur || e.seq >= cur.seq) byKey.set(e.key, e);
+    }
+    return [...byKey.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  }
 
   start(): void {
     if (this.watcher) return;
@@ -496,7 +552,7 @@ export class ClaudeConfigSync {
   }
 
   preview(entries?: FileEntry[]): ConfigPreviewDto {
-    const list = (entries ?? this.lastRemote).filter((e) => e.deviceId !== this.deps.deviceId && this.pullable(e.path));
+    const list = (entries ?? this.readPending()).filter((e) => e.deviceId !== this.deps.deviceId && this.pullable(e.path));
     const sorted = [...list].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     return {
       confirmed: this.confirmed(),
@@ -553,21 +609,25 @@ export class ClaudeConfigSync {
 
   async applyPull(entries: FileEntry[]): Promise<{ applied: number; conflicts: number; backedUp: number }> {
     // 確認の前でも一覧は覚える。Settings の「取り込み内容を確認」が乾いた一覧を出せるようにするためである。
-    this.lastRemote = entries.filter((e) => e.deviceId !== this.deps.deviceId && this.pullable(e.path));
+    // 覚え先は sync_state なので、確認を押さないままサーバを起こし直しても消えない。
+    const pending = this.mergePending(entries);
+    this.writePending(pending);
     if (!this.deps.enabled() || !this.confirmed()) return { applied: 0, conflicts: 0, backedUp: 0 };
     let applied = 0;
     let conflicts = 0;
     let backedUp = 0;
     let localWon = false;
     const written = new Set<string>();
+    // 片付いた鍵。失敗した分は一覧に残し、次の取り込みと次の起動でやり直せるようにする。
+    const done = new Set<string>();
     // この回の控えの置き場。1 回の取り込みを 1 つのディレクトリにまとめ、何を書き換えたかがひとまとまりで残るようにする。
     const runStamp = timestampLabel(this.now());
-    for (const e of this.lastRemote) {
+    for (const e of pending) {
       try {
         if (e.size > CONFIG_MAX_BYTES) throw new Error('設定ファイルが上限を超えています');
         const d = this.decide(e);
         if (d.blocked !== null) { this.deps.onToast('error', `${e.path} を取り込めません: ${d.blocked}`); continue; }
-        if (d.action === 'skip') { this.remember(e, e.sha256); continue; }
+        if (d.action === 'skip') { this.remember(e, e.sha256); done.add(e.key); continue; }
         const raw = await this.fetchPlain(e.key);
         // 平文の指紋で突き合わせる。鍵は全端末で共通なので、復号できたという事実だけでは差し替えを見抜けない。
         if (sha256Hex(raw) !== e.sha256) throw new Error('SHA-256 が一致しません');
@@ -589,6 +649,7 @@ export class ClaudeConfigSync {
         } else if (this.backupAndWrite(e.path, abs, content, runStamp)) backedUp++;
         written.add(e.path);
         this.remember(e, e.sha256);
+        done.add(e.key);
         applied++;
       } catch (err) {
         // 控えに失敗した分もここに落ちる。そのファイルは書き戻していないので、次の pull でやり直す。
@@ -600,6 +661,8 @@ export class ClaudeConfigSync {
       this.pruneBackups();
     }
     this.markStatusLineExecutable(written);
+    // 片付いた分だけ一覧から落とす。残りは次の取り込みと次の起動でもう一度出る。
+    this.writePending(pending.filter((e) => !done.has(e.key)));
     // 手元が勝った競合は、相手に追いつかせるためにすぐ push する。
     if (localWon) await this.pushChanged();
     return { applied, conflicts, backedUp };

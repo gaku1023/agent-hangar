@@ -231,6 +231,44 @@ describe('preview と applyPull', () => {
     c.stop();
   });
 
+  it('サーバを起こし直しても、まだ取り込んでいない相手の設定が下見に出る', async () => {
+    const e1 = await remotePut('CLAUDE.md', '# remote\n');
+    const e2 = await remotePut('settings.json', '{"model":"opus"}\n');
+    const first = make();
+    // 確認の前なので何も書かない。puller はこの後 filesSeq を進めるので、同じ項目は二度と届かない。
+    expect(await first.applyPull([e1, e2])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(first.preview().entries.map((x) => x.path)).toEqual(['CLAUDE.md', 'settings.json']);
+    first.stop();
+
+    // ここで hangar stop / start に当たる。新しい ClaudeConfigSync はメモリを引き継がない。
+    const second = make();
+    expect(second.preview().entries.map((x) => x.path)).toEqual(['CLAUDE.md', 'settings.json']);
+    expect(second.pendingRemote().map((x) => x.key)).toEqual(['config/CLAUDE.md', 'config/settings.json']);
+    second.confirm();
+    // puller からは何も届かなくても、残っている一覧から取り込める。
+    expect(await second.applyPull([])).toEqual({ applied: 2, conflicts: 0, backedUp: 0 });
+    expect(fs.readFileSync(path.join(claudeDir, 'CLAUDE.md'), 'utf8')).toBe('# remote\n');
+    expect(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8')).toBe('{"model":"opus"}\n');
+    // 取り込んだものは下見から消える。
+    expect(second.preview().entries).toEqual([]);
+    expect(second.pendingRemote()).toEqual([]);
+    second.stop();
+  });
+
+  it('取り込みに失敗した分は残り、起こし直した後も下見に出る', async () => {
+    const e = await remotePut('memory/x.md', 'remote\n');
+    write('memory/x.md', 'local\n');
+    seedSynced('memory/x.md', 'local\n');
+    const first = make();
+    first.confirm();
+    // 指紋が合わないので書かない。
+    expect(await first.applyPull([{ ...e, sha256: sha256Hex('すりかえ\n') }])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    first.stop();
+    const second = make();
+    expect(second.pendingRemote().map((x) => x.key)).toEqual(['config/memory/x.md']);
+    second.stop();
+  });
+
   it('両方が変わっていたら新しい方を残し、古い方を conflict として隣に置く', async () => {
     const e = await remotePut('memory/x.md', 'remote\n', { mtime: NOW });
     write('memory/x.md', 'local\n', NOW - 60_000);
