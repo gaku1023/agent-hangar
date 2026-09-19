@@ -34,6 +34,11 @@ export type Settings = {
    * 既定は false である。他端末の設定が手元の ~/.claude を書き換えるので、利用者が明示的に入れたときだけ動かす。
    */
   syncClaudeConfig: boolean;
+  /**
+   * 同梱サーバを起こすときに使う Node の場所。
+   * null と空文字は「指定なし」で、起動側が既定の探索に戻る。
+   */
+  nodePath?: string | null;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
@@ -77,7 +82,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null };
 }
 
 export function loadSettings(home: string): Settings {

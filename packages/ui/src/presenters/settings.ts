@@ -14,6 +14,8 @@ export type SettingsProps = {
   summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
   statusline: StatuslineStatusDto | null; statuslineCommand: string; usageAggregate: UsageAggregateDto | null;
   cloud: CloudSettingsProps;
+  /** 同梱サーバを起こす Node の場所。未指定は空文字で表す。 */
+  nodePath: string;
 };
 
 // now は相対時刻のためだけに使う。フェーズ 3 までの呼び出しは 2 引数なので既定値を置く。
@@ -41,5 +43,6 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? true, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,
     summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest,
     statusline: store.statusline, statuslineCommand: 'npm run hangar -- statusline install', usageAggregate: store.usageAggregate,
+    nodePath: s?.nodePath ?? '',
   };
 }

@@ -437,6 +437,13 @@ describe('presentSettings の既定値', () => {
     expect(p.usageAggregate).toBeNull();
     expect(p.summarizerTest).toBeNull();
   });
+  it('nodePath は無ければ空文字、あればそのまま', () => {
+    expect(presentSettings(initialState(), initialStore()).nodePath).toBe('');
+    const store: Store = { ...initialStore(), settings: fullSettings() };
+    expect(presentSettings(initialState(), store).nodePath).toBe('');
+    const withNode: Store = { ...initialStore(), settings: fullSettings({ nodePath: '/x/node' }) };
+    expect(presentSettings(initialState(), withNode).nodePath).toBe('/x/node');
+  });
 });
 
 const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, ...over });

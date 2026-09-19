@@ -301,7 +301,20 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null });
+  });
+  it('nodePath は保存でき、空なら null に戻る', async () => {
+    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: ' /opt/node22/bin/node ' }) });
+    expect(r.status).toBe(200);
+    expect((await r.json()).nodePath).toBe('/opt/node22/bin/node');
+    expect((await json(await get('/api/settings'))).body.nodePath).toBe('/opt/node22/bin/node');
+    expect((await json(await get('/api/bootstrap'))).body.settings.nodePath).toBe('/opt/node22/bin/node');
+    const r2 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: '' }) });
+    expect(r2.status).toBe(200);
+    expect((await r2.json()).nodePath).toBeNull();
+    // 文字列でも null でもない値は弾く。
+    const r3 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: 7 }) });
+    expect(r3.status).toBe(400);
   });
   it('ワークスペースのルートを変えるとプロジェクトを登録し直して配信する', async () => {
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
@@ -330,7 +343,7 @@ describe('routes', () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.runs).toEqual([run]);
     expect(body.tabs).toHaveLength(2);
-    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false });
+    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null });
   });
   it('起動、再開、フォーク、停止', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -828,6 +841,7 @@ describe('設定の往復', () => {
         ['summaryHourlyCap', 7],
         ['allowExternalSummarizer', true],
         ['syncClaudeConfig', true],
+        ['nodePath', '/opt/node22/bin/node'],
       ];
       for (const [key, value] of cases) {
         const r = await patch({ [key]: value });
