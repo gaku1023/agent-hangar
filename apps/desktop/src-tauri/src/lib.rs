@@ -16,3 +16,7 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+pub mod deeplink;
+pub mod health;
+pub mod node;
+pub mod paths;
