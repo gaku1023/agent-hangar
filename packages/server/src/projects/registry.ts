@@ -8,7 +8,9 @@ type RootRow = { id: string; project_id: string; device_id: string; path: string
 
 /** ルート直下の、隠しでないディレクトリを名前順に返す。 */
 function childDirs(root: string): string[] {
-  if (!fs.existsSync(root)) return [];
+  // 無いパスも、ディレクトリでないパスも「子は無い」として扱う。
+  // 設定でワークスペースのルートにファイルを指されたときに 500 にしないため。
+  if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
   return fs.readdirSync(root, { withFileTypes: true })
     .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
     .map((d) => path.join(root, d.name))

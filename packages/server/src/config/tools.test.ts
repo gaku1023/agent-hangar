@@ -21,7 +21,7 @@ describe('which', () => {
 });
 
 describe('resolveToolPaths', () => {
-  const base: Settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
+  const base: Settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
   it('null の項目だけを埋める', () => {
     const r = resolveToolPaths({ ...base, codePath: '/keep/code' }, (c) => (c === 'tmux' ? '/opt/homebrew/bin/tmux' : '/found/' + c));
     expect(r.tmuxPath).toBe('/opt/homebrew/bin/tmux');

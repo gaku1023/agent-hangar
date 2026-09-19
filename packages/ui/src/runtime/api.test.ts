@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createApi } from './api.ts';
+import { ApiConflictError, createApi } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -77,5 +77,44 @@ describe('フェーズ 3 の経路', () => {
     const accepted = harness(202, { accepted: true });
     await expect(accepted.api.regenerateSummary('s1')).resolves.toBeUndefined();
     expect(accepted.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/sessions/s1/summarize']);
+  });
+});
+
+describe('フェーズ 4 の同期の経路', () => {
+  it('経路とメソッドと本文が合っている', async () => {
+    const { api, calls } = harness();
+    await api.syncStatus();
+    await api.syncNow();
+    await api.syncPause(true);
+    await api.resumeHere('s1', false);
+    await api.joinToken();
+    await api.configPreview();
+    await api.configPull();
+    await api.devices();
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'GET /api/sync/status', 'POST /api/sync/now', 'POST /api/sync/pause',
+      'POST /api/sessions/s1/resume-here', 'GET /api/sync/joinToken',
+      'GET /api/sync/config/preview', 'POST /api/sync/config/pull', 'GET /api/devices',
+    ]);
+    expect(JSON.parse(String(calls[2]!.body))).toEqual({ paused: true });
+    expect(JSON.parse(String(calls[3]!.body))).toEqual({ overwrite: false });
+  });
+  it('前面化は本文を返さない', async () => {
+    const no = harness(204);
+    await expect(no.api.syncFocus()).resolves.toBeUndefined();
+    expect(no.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/sync/focus']);
+  });
+  it('この PC で再開の 409 だけが ApiConflictError になる', async () => {
+    const conflict = harness(409, { error: 'local_smaller', localSize: 10, remoteSize: 99 });
+    await expect(conflict.api.resumeHere('s1', false)).rejects.toBeInstanceOf(ApiConflictError);
+    // 本文は 1 度しか読めないので、読み取りが 1 回で済んでいることを中身で確かめる。
+    const err = await conflict.api.resumeHere('s1', false).catch((e: unknown) => e);
+    expect((err as ApiConflictError).body).toEqual({ error: 'local_smaller', localSize: 10, remoteSize: 99 });
+    // 同じ 409 でも別の理由なら、これまでどおりのトーストになる Error である。
+    const other = harness(409, { error: '他の端末が実行中です' });
+    const e2 = await other.api.resumeHere('s1', true).catch((e: unknown) => e);
+    expect(e2).toBeInstanceOf(Error);
+    expect(e2).not.toBeInstanceOf(ApiConflictError);
+    expect((e2 as Error).message).toBe('他の端末が実行中です');
   });
 });

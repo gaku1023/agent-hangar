@@ -3,8 +3,10 @@ import { launchStep } from './launch.ts';
 import { liveStep } from './live.ts';
 import { overlayStep } from './overlay.ts';
 import { promoteStep } from './promote.ts';
+import { resumeHereStep } from './resumeHere.ts';
 import { screenStep } from './screen.ts';
 import { sessionViewStep } from './sessionView.ts';
+import { syncStep } from './sync.ts';
 import { workbenchStep } from './workbench.ts';
 import { ITERM_HINT, NOT_YET, type Effect, type Input, type State, type Step } from './types.ts';
 
@@ -12,7 +14,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], nextToastId: 1, indexPhase: 'idle' };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0 };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -20,13 +22,15 @@ function pushToast(state: State, level: 'info' | 'error', message: string): Stat
 }
 
 /** フェーズ 4 以降に残る操作だけ。フェーズ 3 で実装した Intent はここから外した。 */
-const NOT_YET_INTENTS = new Set(['session.takeover', 'sync.now', 'sync.pause', 'project.new.open', 'project.new.submit']);
+const NOT_YET_INTENTS = new Set(['session.takeover', 'project.new.open', 'project.new.submit']);
 
 /** 直交する領域の状態機械を順に試し、最初に応答した領域の結果を採る。残りは横断的な入力。 */
 export function transition(state: State, input: Input): Step {
   // promoteStep は overlay.close を横取りするので overlayStep より前に置く。
+  // syncStep と resumeHereStep は overlayStep の後ろに置く。
+  // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, overlayStep, sessionViewStep, liveStep, workbenchStep]) {
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, overlayStep, syncStep, resumeHereStep, sessionViewStep, liveStep, workbenchStep]) {
     const r = step(state, input);
     if (r) return r;
   }

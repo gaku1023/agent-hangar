@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerEvent, SessionDto } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
+import { Readable } from 'node:stream';
+import { saveCloudConfig } from './config/cloud.ts';
+import { dbPath } from './config/paths.ts';
+import { D1_WRITES_PER_DEVICE_TOUCH, QuotaCounter } from './sync/quota.ts';
+import { SyncStateStore } from './sync/state.ts';
 import { openDb } from './db/open.ts';
 import { upsertShared } from './db/shared.ts';
 import { IndexerService } from './indexer/service.ts';
@@ -13,8 +19,8 @@ import { checkProjectRoots } from './projects/registry.ts';
 import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
-import { copyFixtureClaudeDir, SESSION_ALPHA } from '../test/fixtures.ts';
-import { checkRoots, CLOSE_SUMMARY_WAIT_MS, RUN_ENDED_SUMMARY_OPTS, startServer, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
+import { checkRoots, CLOSE_SUMMARY_WAIT_MS, CLOSE_UPLOAD_WAIT_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, RUN_ENDED_SUMMARY_OPTS, startServer, stopUploader, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -106,6 +112,73 @@ describe('startServer', () => {
     expect(result).toBe('closed');
     ws.terminate();
     stalled.destroy();
+  });
+
+  it('cloud.json が無ければ同期は off で、経路は動く', async () => {
+    // 参加していない端末でも、同期の経路は 404 にならずに「off」を返す。
+    // 実物のクラウドには一切触らない（cloud.json が無いので client は作られない）。
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const token = tokenOf();
+      const api = (p: string, init?: RequestInit) => fetch(`http://127.0.0.1:${s.port}${p}`, { ...init, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init?.headers ?? {}) } });
+      const status = await (await api('/api/sync/status')).json() as { state: string; url: string | null; pending: number; skipped: unknown[] };
+      expect(status).toMatchObject({ state: 'off', url: null, pending: expect.any(Number) });
+      expect(status.skipped).toEqual([]);
+      // 参加していないので、参加トークンも設定の同期も無い。
+      expect(await (await api('/api/sync/joinToken')).json()).toEqual({ token: null });
+      expect((await api('/api/sync/config/preview')).status).toBe(404);
+      expect((await api('/api/sync/config/pull', { method: 'POST' })).status).toBe(404);
+      expect((await api('/api/sync/focus', { method: 'POST' })).status).toBe(202);
+      expect((await api('/api/sync/now', { method: 'POST' })).status).toBe(200);
+      // 自端末は起動のたびに devices へ書き込まれる。
+      const b = await (await api('/api/bootstrap')).json() as { devices: { id: string; self: boolean }[]; sync: { state: string } };
+      expect(b.devices.some((d) => d.self)).toBe(true);
+      expect(b.sync.state).toBe('off');
+      const devices = await (await api('/api/devices')).json() as { self: boolean }[];
+      expect(devices.some((d) => d.self)).toBe(true);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('cloud.json があれば部品が組み上がり、繋がらなくても起動は終わる', async () => {
+    // 宛先は誰も待ち受けていないループバックである。実物のクラウドには触らない。
+    // ここで見たいのは、cloud.json から client と鍵と上げ下ろしの部品が組み上がり、
+    // 状態が off ではなくなり、参加トークンが作れることである。
+    saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const token = tokenOf();
+      const api = (p: string) => fetch(`http://127.0.0.1:${s.port}${p}`, { headers: { authorization: `Bearer ${token}` } });
+      const status = await (await api('/api/sync/status')).json() as { state: string; url: string | null };
+      // 繋がらないので idle にはならないが、off でもない（off は「参加していない」の意味である）。
+      expect(status.state).not.toBe('off');
+      expect(status.url).toBe('http://127.0.0.1:9');
+      // 参加トークンは中身を見ない。秘密が差分やログに出ないようにする。
+      const jt = await (await api('/api/sync/joinToken')).json() as { token: string | null };
+      expect(typeof jt.token).toBe('string');
+      expect((jt.token ?? '').length).toBeGreaterThan(0);
+      // 設定の同期の部品も組み上がっている（未確認なので confirmed は false）。
+      const preview = await (await api('/api/sync/config/preview')).json() as { entries: unknown[]; confirmed: boolean };
+      expect(preview.confirmed).toBe(false);
+      expect(Array.isArray(preview.entries)).toBe(true);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('この PC で再開は、本文が無ければ 400 で理由を返す', async () => {
+    // 経路が copyTranscriptForResume まで繋がっていることを、~/.claude を書き換えない側から確かめる。
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const r = await fetch(`http://127.0.0.1:${s.port}/api/sessions/nope/resume-here`, {
+        method: 'POST', headers: { authorization: `Bearer ${tokenOf()}`, 'content-type': 'application/json' }, body: JSON.stringify({ overwrite: false }),
+      });
+      expect(r.status).toBe(400);
+      expect(await r.json()).toEqual({ error: 'このセッションの本文がありません' });
+    } finally {
+      await s.close();
+    }
   });
 
   it('起動でヘッダのファイルを用意する。~/.agent-hangar を消しても使用量が静かに止まらない', async () => {
@@ -387,6 +460,233 @@ describe('close の要約待ち', () => {
   });
 });
 
+describe('close の本文の上げ待ち', () => {
+  /** TranscriptUploader と同じ形の立て替え。idle が返るまで stop を呼んではいけない。 */
+  const fakeUploader = () => {
+    const calls: string[] = [];
+    let finish = () => {};
+    return {
+      calls,
+      finish: () => finish(),
+      idle: () => new Promise<void>((r) => { finish = () => { calls.push('idle'); r(); }; }),
+      stop: () => { calls.push('stop'); },
+    };
+  };
+
+  it('走っている上げが終わってから止める', async () => {
+    // デバウンスのタイマーが始めた上げは誰も約束を持たない。
+    // 待たずに stop すると putFile が途中で切れ、その本文は次の起動までやり直しになる。
+    const up = fakeUploader();
+    let settled: boolean | null = null;
+    const waiting = stopUploader(up, 2000).then((v) => { settled = v; return v; });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(settled).toBeNull();
+    expect(up.calls).toEqual([]);
+    up.finish();
+    expect(await waiting).toBe(true);
+    // 上げ終わってから止める、という順でなければならない。
+    expect(up.calls).toEqual(['idle', 'stop']);
+  });
+
+  it('上限を超えたら諦めて止める', async () => {
+    // 大きな本文 1 件で hangar stop が固まらないようにする。
+    const up = fakeUploader();
+    const t = Date.now();
+    expect(await stopUploader(up, 50)).toBe(false);
+    expect(Date.now() - t).toBeLessThan(2000);
+    // 諦めたときも必ず止める。
+    expect(up.calls).toEqual(['stop']);
+  });
+
+  it('上げ手が無ければ何もしない', async () => {
+    expect(await stopUploader(null)).toBe(true);
+    // 上限は数秒に収める。終了が転送に引きずられない長さである。
+    expect(CLOSE_UPLOAD_WAIT_MS).toBeGreaterThanOrEqual(1000);
+    expect(CLOSE_UPLOAD_WAIT_MS).toBeLessThanOrEqual(5000);
+  });
+});
+
+describe('一時停止は外と話さない', () => {
+  /** 受けた要求を記録するだけの立て替えの Worker。実物のクラウドには触らない。 */
+  async function recorder(): Promise<{ url: string; seen: string[]; close: () => Promise<void> }> {
+    const seen: string[] = [];
+    const srv = http.createServer((req, res) => {
+      seen.push(`${req.method} ${(req.url ?? '').split('?')[0]}`);
+      req.resume();
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.end('{"error":"no"}');
+    });
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const port = (srv.address() as net.AddressInfo).port;
+    return {
+      url: `http://127.0.0.1:${port}`,
+      seen,
+      close: async () => { srv.closeAllConnections?.(); await new Promise<void>((r) => srv.close(() => r())); },
+    };
+  }
+
+  /** startServer より先に DB を作って、同期を止めた状態にしておく。 */
+  function presetPaused(): void {
+    const db = openDb(dbPath(home));
+    try { db.prepare("insert into sync_state (key, value) values ('paused', '1') on conflict(key) do update set value = '1'").run(); } finally { db.close(); }
+  }
+
+  it('止めていなければ起動でクラウドを叩く', async () => {
+    // この確かめ方でクラウドとの往復が見えることを、先に固定しておく。
+    const rec = await recorder();
+    saveCloudConfig(home, { url: rec.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      expect(rec.seen.length).toBeGreaterThan(0);
+    } finally {
+      await s.close();
+      await rec.close();
+    }
+  });
+
+  it('一時停止のあいだは、起動のファイルの取り込みも含めて 1 度も叩かない', async () => {
+    // 「一時停止」は外と話すのをやめることである。無料枠 80% で自分から止まったときも同じである。
+    // 止まっているあいだに R2 へ出入りする経路が残っていると、課金されない約束が崩れる。
+    const rec = await recorder();
+    saveCloudConfig(home, { url: rec.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    presetPaused();
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const status = await (await fetch(`http://127.0.0.1:${s.port}/api/sync/status`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json() as { state: string };
+      expect(status.state).toBe('paused');
+      expect(rec.seen).toEqual([]);
+    } finally {
+      await s.close();
+      await rec.close();
+    }
+  });
+
+  it('設定の同期は、切っているときと一時停止のあいだは押し出さない', () => {
+    // fs.watch からの push も 60 秒ごとの push も、この判定を通ってから出る。
+    expect(configSyncActive({ syncClaudeConfig: true, paused: false })).toBe(true);
+    expect(configSyncActive({ syncClaudeConfig: true, paused: true })).toBe(false);
+    expect(configSyncActive({ syncClaudeConfig: false, paused: false })).toBe(false);
+    expect(configSyncActive({ syncClaudeConfig: false, paused: true })).toBe(false);
+  });
+});
+
+/**
+ * ファイルの出し入れの行数を Worker のスキーマから出し直す。
+ * 無料枠が数えているのは文の数ではなく rows_written で、索引への書き込みも 1 行ずつ数える。
+ * schema.ts は読むだけで、書き換えない。
+ */
+describe('ファイルの出し入れの勘定は Worker のスキーマから出す', () => {
+  const schema = fs.readFileSync(new URL('../../cloud/src/schema.ts', import.meta.url), 'utf8');
+  const filesBody = (): string => {
+    const m = schema.match(/create table if not exists files \(([\s\S]*?)\)'/);
+    if (!m?.[1]) throw new Error('files の create table が見つからない');
+    return m[1];
+  };
+  /** files に張られた索引の数。明示の create index と、unique や text の主キーに SQLite が自分で張るもの。 */
+  const filesIndexes = (): number => {
+    const body = filesBody();
+    const explicit = [...schema.matchAll(/create index if not exists (\w+) on (\w+)\(([^)]*)\)/g)].filter((m) => m[2] === 'files').length;
+    // seq integer primary key は rowid そのものなので索引を増やさない。
+    const pk = /integer primary key/.test(body) ? 0 : /primary key/.test(body) ? 1 : 0;
+    return explicit + pk + (body.match(/ unique/g) ?? []).length;
+  };
+  /** autoincrement の表は insert のたびに sqlite_sequence の 1 行も動かす（delete では動かない）。 */
+  const sequenceRow = (): number => (/autoincrement/.test(filesBody()) ? 1 : 0);
+
+  it('files には索引が 2 つある（key の unique と files_kind）', () => {
+    expect(filesIndexes()).toBe(2);
+    expect(sequenceRow()).toBe(1);
+  });
+
+  it('PUT は delete と insert と devices の更新で 8 行である', () => {
+    // packages/cloud/src/files.ts の batch は delete と insert と devices の更新の 3 文である。
+    const del = 1 + filesIndexes();
+    const ins = 1 + filesIndexes() + sequenceRow();
+    expect(D1_WRITES_PER_FILE_PUT).toBe(del + ins + D1_WRITES_PER_DEVICE_TOUCH);
+    expect(D1_WRITES_PER_FILE_PUT).toBe(8);
+  });
+
+  it('DELETE は本体と索引だけで 3 行である', () => {
+    // devices は触らず、sqlite_sequence は delete では動かない。
+    expect(D1_WRITES_PER_FILE_DELETE).toBe(1 + filesIndexes());
+    expect(D1_WRITES_PER_FILE_DELETE).toBe(3);
+  });
+});
+
+describe('セッションのメモの控えの知らせ', () => {
+  it('どの端末に負けて、どこに残したかを言う', () => {
+    // 控えはもうファイルになっている。知らせが無いと、利用者は消えたようにしか見えない。
+    const m = sessionMemoBackupMessage({ sessionId: 's1', markdown: '手元のメモ', deviceName: 'mini', backupFile: '/tmp/backups/memos/session-s1-20260919-101112.md' });
+    expect(m).toContain('mini');
+    expect(m).toContain('/tmp/backups/memos/session-s1-20260919-101112.md');
+    // 本文そのものはトーストに出さない（メモは長い文章になりうる）。
+    expect(m).not.toContain('手元のメモ');
+  });
+});
+
+describe('無料枠の勘定', () => {
+  /** 呼ばれた名前を記録するだけの立て替え。中身は使わない。 */
+  const stubClient = (calls: string[]) => ({
+    health: async () => { calls.push('health'); return { ok: true, version: 'v' }; },
+    pushChanges: async () => { calls.push('pushChanges'); return { seq: 1, accepted: 1, skipped: 0 }; },
+    pullChanges: async () => { calls.push('pullChanges'); return { changes: [], nextSeq: 0, more: false }; },
+    snapshot: async () => { calls.push('snapshot'); return { changes: [], nextAfter: null, seq: 0 }; },
+    putFile: async () => { calls.push('putFile'); return { seq: 1 }; },
+    getFile: async () => { calls.push('getFile'); return Readable.from([]); },
+    listFiles: async () => { calls.push('listFiles'); return { files: [], nextSeq: 0, more: false }; },
+    deleteFile: async () => { calls.push('deleteFile'); },
+  });
+
+  const counter = () => {
+    const db = openDb(':memory:');
+    return { db, quota: new QuotaCounter({ state: new SyncStateStore(db) }) };
+  };
+
+  it('エンジンが自分で数える経路には二重に掛けない', async () => {
+    // push と pull と写しは SyncEngine が自分で数える。包みでも数えると 2 倍になる。
+    const { db, quota } = counter();
+    try {
+      const calls: string[] = [];
+      const c = countingClient(stubClient(calls), quota);
+      await c.pushChanges([]);
+      await c.pullChanges(0, 1);
+      await c.snapshot(null, 1);
+      expect(calls).toEqual(['pushChanges', 'pullChanges', 'snapshot']);
+      expect(quota.today()).toEqual({ rows: 0, requests: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('ファイルの出し入れは要求と D1 の書き込みの両方を数える', async () => {
+    // PUT /files/<鍵> は R2 に置くだけでなく D1 の files にも書く。
+    // 要求の側しか数えないと、D1 の 80% の見張りが実際より遅れて効く。
+    const { db, quota } = counter();
+    try {
+      const calls: string[] = [];
+      const c = countingClient(stubClient(calls), quota);
+      await c.putFile({ key: 'transcripts/d/u.jsonl.gz', path: 'projects/p/u.jsonl', kind: 'transcript', sha256: 'x', size: 1, mtime: 1, encrypted: true }, Readable.from([]));
+      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT, requests: 1 });
+      await c.getFile('transcripts/d/u.jsonl.gz');
+      await c.listFiles(0, 1);
+      await c.health();
+      // 読むだけの経路は D1 に 1 行も書かない。
+      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT, requests: 4 });
+      await c.deleteFile('transcripts/d/u.jsonl.gz');
+      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT + D1_WRITES_PER_FILE_DELETE, requests: 5 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('数えるのは文の数ではなく行数である', () => {
+    // 文の数（PUT が 3 文、DELETE が 1 文）で数えると、索引への書き込みが丸ごと抜ける。
+    // 行数の出どころは下の「ファイルの出し入れの勘定は Worker のスキーマから出す」にある。
+    expect(D1_WRITES_PER_FILE_PUT).toBeGreaterThan(3);
+    expect(D1_WRITES_PER_FILE_DELETE).toBeGreaterThan(1);
+  });
+});
+
 describe('要約の契機', () => {
   it('run の終了はレジストリが生きていると言っても要約を受け付ける', async () => {
     // tmux を落とした直後でも、~/.claude/sessions を 500 ミリ秒周期で読むキャッシュは
@@ -409,5 +709,74 @@ describe('要約の契機', () => {
     } finally {
       db.close();
     }
+  });
+});
+
+/**
+ * 索引は「変化したファイル」しか知らせないので、参加より前に索引が済んでいた本文は
+ * 取り残しの走査が無いと誰も上げない。
+ * 利用者は先に hangar を使い、後からクラウドを足すので、この入り方が普通である。
+ */
+describe('参加より前に索引が済んでいた本文の追いつき', () => {
+  /** PUT された鍵を覚えるだけの立て替えの Worker。実物のクラウドには触らない。 */
+  async function fileSink(): Promise<{ url: string; puts: string[]; close: () => Promise<void> }> {
+    const puts: string[] = [];
+    let seq = 0;
+    const srv = http.createServer((req, res) => {
+      const url = (req.url ?? '').split('?')[0] ?? '';
+      const send = (body: unknown) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+      if (req.method === 'PUT' && url.startsWith('/files/')) {
+        req.resume();
+        req.on('end', () => { puts.push(decodeURIComponent(url.slice('/files/'.length))); send({ seq: ++seq }); });
+        return;
+      }
+      req.resume();
+      if (url === '/changes' && req.method === 'POST') return send({ seq: 0, accepted: 0, skipped: 0 });
+      if (url === '/changes') return send({ changes: [], nextSeq: 0, more: false });
+      if (url === '/rows') return send({ changes: [], nextAfter: null, seq: 0 });
+      if (url === '/files') return send({ files: [], nextSeq: 0, more: false });
+      return send({ ok: true, version: 'fake' });
+    });
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const port = (srv.address() as net.AddressInfo).port;
+    return {
+      url: `http://127.0.0.1:${port}`,
+      puts,
+      close: async () => { srv.closeAllConnections?.(); await new Promise<void>((r) => srv.close(() => r())); },
+    };
+  }
+
+  it('起動の走査が、手元にあって上がっていない本文を上げる', async () => {
+    // 1 台目。クラウドはまだ無い。ここで 3 件の本文が索引される。
+    const first = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      await until(async () => {
+        const db = openDb(dbPath(home));
+        try { return (db.prepare('select count(*) c from transcript_files').get() as { c: number }).c === 3 ? true : null; } finally { db.close(); }
+      });
+    } finally {
+      await first.close();
+    }
+
+    // 後からクラウドに参加する。本文のファイルには一切触らないので、索引は何も知らせない。
+    const sink = await fileSink();
+    saveCloudConfig(home, { url: sink.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const keys = await until(async () => (sink.puts.length >= 3 ? sink.puts : null));
+      const suffixes = keys.map((k) => k.replace(/^transcripts\/[^/]+\//, '')).sort();
+      expect(suffixes).toEqual([`${SESSION_ALPHA}.jsonl.gz`, `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`, `${SESSION_OTHER}.jsonl.gz`].sort());
+      // 上げ終わったものを上げ直さない。
+      await new Promise((r) => setTimeout(r, 300));
+      expect(sink.puts.length).toBe(3);
+    } finally {
+      await s.close();
+      await sink.close();
+    }
+  });
+
+  it('走査の間隔は設定の同期と揃えてある', () => {
+    // 片方だけ直すと、また兄弟の経路が食い違う。
+    expect(UPLOAD_SWEEP_MS).toBe(60_000);
   });
 });

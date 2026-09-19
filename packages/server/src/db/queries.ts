@@ -1,4 +1,4 @@
-import type { LiveSessionDto, ProjectDto, SessionDto, SessionStatsDto, SessionSummaryDto } from '@agent-hangar/shared';
+import type { DeviceDto, LiveSessionDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionSummaryDto } from '@agent-hangar/shared';
 import type { Db } from './open.ts';
 
 /** sessions に要約と統計と本文の有無を左結合した 1 行。 */
@@ -15,6 +15,7 @@ type SessionRow = {
   last_activity_at: number | null;
   memo: string | null;
   has_transcript: number;
+  has_local: number;
   project_is_scratch: number | null;
   scratch_root: string | null;
   sum_title: string | null;
@@ -43,6 +44,7 @@ type SessionRow = {
 
 const SESSION_SELECT = `
 select s.*, exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null) has_transcript,
+  exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null and t.device_id is null) has_local,
   p.is_scratch project_is_scratch,
   (select r.path from project_roots r join projects sp on sp.id = r.project_id where r.device_id = s.home_device and sp.is_scratch = 1 and sp.deleted_at is null and r.deleted_at is null order by r.updated_at desc limit 1) scratch_root,
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_id sum_source_id, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
@@ -90,7 +92,40 @@ export function contextPercent(used: number | null, size: number | null): number
   return Math.round((used / size) * 1000) / 10;
 }
 
-function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>): SessionDto {
+/** 他端末の run が生きているとみなす heartbeat の猶予。これを過ぎたロックは stale として見せる。 */
+export const LOCK_STALE_MS = 120_000;
+
+export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number };
+
+type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number };
+
+/**
+ * 他端末で生きている run を、セッションごとに 1 つ拾う。
+ * 自端末の run は「実行中」として live に出るので、ロックには含めない。
+ * heartbeat が古い run もロックのままにして、stale を立てて「応答がありません」と見せる。
+ */
+function lockMap(db: Db, selfDeviceId: string | undefined, now: number): Map<string, SessionLockDto> {
+  const out = new Map<string, SessionLockDto>();
+  if (!selfDeviceId) return out;
+  const rows = db.prepare(`
+    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at
+    from runs r left join devices d on d.id = r.device_id and d.deleted_at is null
+    where r.ended_at is null and r.deleted_at is null and r.device_id <> ?
+    order by r.heartbeat_at`).all(selfDeviceId) as LockRow[];
+  // heartbeat の昇順なので、同じセッションでは後から来た新しい行が残る。
+  for (const r of rows) {
+    out.set(r.session_id, {
+      deviceId: r.device_id,
+      deviceName: r.device_name ?? r.device_id,
+      runId: r.run_id,
+      heartbeatAt: r.heartbeat_at,
+      stale: now - r.heartbeat_at > LOCK_STALE_MS,
+    });
+  }
+  return out;
+}
+
+function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const summary: SessionSummaryDto | null = r.sum_title !== null
     ? {
@@ -140,6 +175,9 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>): Sess
     live: live?.status ?? null,
     summary,
     stats,
+    lock: locks.get(r.id) ?? null,
+    // 本文はあるが手元の主線が無いとき、閲覧の前に本文を降ろす必要がある。
+    remoteOnly: r.has_transcript === 1 && r.has_local === 0,
   };
 }
 
@@ -150,7 +188,7 @@ const liveMapOf = (live: LiveSessionDto[]) => new Map(live.map((l) => [l.session
  * セッション一覧。
  * last_activity_at の降順で、null は末尾に置く。
  */
-export function listSessions(db: Db, live: LiveSessionDto[], opts: { projectId?: string; ids?: string[] } = {}): SessionDto[] {
+export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryOptions = {}): SessionDto[] {
   const where: string[] = [];
   const args: unknown[] = [];
   if (opts.projectId) {
@@ -165,12 +203,20 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: { projectId?:
   const sql = `${SESSION_SELECT}${where.length ? ' and ' + where.join(' and ') : ''} order by s.last_activity_at desc nulls last, s.started_at desc nulls last, s.id`;
   const rows = db.prepare(sql).all(...args) as SessionRow[];
   const lm = liveMapOf(live);
-  return rows.map((r) => toSessionDto(r, lm));
+  const locks = lockMap(db, opts.deviceId, opts.now ? opts.now() : Date.now());
+  return rows.map((r) => toSessionDto(r, lm, locks));
 }
 
-export function getSession(db: Db, live: LiveSessionDto[], id: string): SessionDto | null {
+export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { deviceId?: string; now?: () => number } = {}): SessionDto | null {
   const r = db.prepare(`${SESSION_SELECT} and s.id = ?`).get(id) as SessionRow | undefined;
-  return r ? toSessionDto(r, liveMapOf(live)) : null;
+  return r ? toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, opts.now ? opts.now() : Date.now())) : null;
+}
+
+/** Settings の端末一覧。最終確認の新しい順で、自端末に印を付ける。 */
+export function listDevices(db: Db, selfId: string): DeviceDto[] {
+  const rows = db.prepare('select id, name, platform, last_seen_at from devices where deleted_at is null order by last_seen_at desc nulls last, name')
+    .all() as { id: string; name: string; platform: string; last_seen_at: number | null }[];
+  return rows.map((r) => ({ id: r.id, name: r.name, platform: r.platform, lastSeenAt: r.last_seen_at, self: r.id === selfId }));
 }
 
 /** projects にこの端末の project_roots と最終活動を左結合した 1 行。 */

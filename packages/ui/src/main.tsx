@@ -8,6 +8,7 @@ import './styles/split.css';
 import './styles/rows.css';
 import './styles/palette.css';
 import './styles/settings.css';
+import './styles/sync.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
@@ -42,6 +43,8 @@ const runtime = createRuntime({
   terminals,
   // ダイアログは状態が変わった次の描画で現れるので、フォーカスは次のフレームで当てる。
   focus: (t) => { requestAnimationFrame(() => document.getElementById(FOCUS_IDS[t])?.focus()); },
+  // 窓に戻ってきたら他端末の変更を引く。間引きはサーバ側で行う。
+  onWindowFocus: (cb) => { window.addEventListener('focus', cb); return () => window.removeEventListener('focus', cb); },
 });
 runtime.start();
 createRoot(document.getElementById('root')!).render(<Root runtime={runtime} api={api} terminals={terminals} />);

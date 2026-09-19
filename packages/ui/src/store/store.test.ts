@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, MemoDto, RunDto, SessionDto, TabDto, TodoDto } from '@agent-hangar/shared';
-import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, pruneEvents, pruneRuns, tabsOf, todosOf } from './store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, pruneEvents, pruneRuns, tabsOf, todosOf } from './store.ts';
 
-const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null } });
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0' };
+const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false });
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false } }, devices: [] };
 
 describe('store', () => {
   it('bootstrap を正規化して入れる', () => {
@@ -197,5 +197,43 @@ describe('フェーズ 3 の繰り越し', () => {
       s = pruneEvents(s, [id]);
     }
     expect(Object.keys(s.events)).toEqual(['s19:']);
+  });
+});
+
+describe('store の同期', () => {
+  it('bootstrap の sync と devices を入れ、イベントで差し替える', () => {
+    let s = applyBootstrap(initialStore(), boot);
+    expect(s.sync?.state).toBe('off');
+    expect(s.devices).toEqual([]);
+    s = applyServerEvent(s, { type: 'sync.status', status: { state: 'pushing', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 4, error: null, deviceCount: 2, claudeConfig: { enabled: true, confirmed: true } } });
+    expect(s.sync).toMatchObject({ state: 'pushing', pending: 4 });
+    s = applyServerEvent(s, { type: 'devices.update', devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true }] });
+    expect(s.devices).toHaveLength(1);
+    expect(applyServerEvent(s, { type: 'sync.applied', table: 'projects', rowId: 'p1' })).toBe(s);
+  });
+  it('bootstrap が運ぶ sync と devices をそのまま入れる', () => {
+    const sync = { state: 'idle' as const, url: 'https://h', lastPushAt: 1000, lastPullAt: 2000, pending: 5, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false } };
+    const s = applyBootstrap(initialStore(), { ...boot, sync, devices: [{ id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false }] });
+    expect(s.sync).toEqual(sync);
+    expect(s.devices).toHaveLength(1);
+  });
+  it('sync と devices を持たない古いサーバでも壊れない', () => {
+    const { sync: _sync, devices: _devices, ...older } = boot;
+    const s = applyBootstrap(initialStore(), older as BootstrapDto);
+    expect(s.sync).toBeNull();
+    expect(s.devices).toEqual([]);
+  });
+  it('参加トークンと設定の下見を持つ', () => {
+    let s = initialStore();
+    expect(s.joinToken).toBeNull();
+    expect(s.configPreview).toBeNull();
+    expect(s.sync).toBeNull();
+    expect(s.devices).toEqual([]);
+    s = applyJoinToken(s, 'tok');
+    expect(s.joinToken).toBe('tok');
+    s = applyConfigPreview(s, { entries: [], confirmed: true });
+    expect(s.configPreview).toEqual({ entries: [], confirmed: true });
+    expect(applyJoinToken(s, null).joinToken).toBeNull();
+    expect(applyConfigPreview(s, null).configPreview).toBeNull();
   });
 });

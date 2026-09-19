@@ -1,5 +1,6 @@
 import { Command } from 'commander';
-import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateToken, startServer } from '@agent-hangar/server';
+import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, startServer } from '@agent-hangar/server';
+import { cloudStatus, promptWord, readJoinToken, runJoin, runSetupCloud, runTeardown } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage, startErrorMessage } from './probe.ts';
 import { formatSetupReport, runSetup } from './setup.ts';
@@ -8,7 +9,9 @@ import { entryUrl, openInBrowser } from './url.ts';
 
 const program = new Command().name('hangar').description('agent-hangar のコマンド');
 
-program
+// setup はサブコマンド（setup cloud）の親でもある。
+// commander では親に action を残したまま子を足せるので、既定の動作はこの action のままである。
+const setup = program
   .command('setup')
   .description('データディレクトリを用意し、ツールとワークスペースを確認し、statusline への追記を提案する')
   .option('--workspace <dir>', 'ワークスペースのルート')
@@ -25,6 +28,59 @@ program
     }
     console.log('');
     console.log('MCP の登録は hangar mcp install で行えます。');
+  });
+
+setup
+  .command('cloud')
+  .description('自分の Cloudflare アカウントに同期用の Worker と D1 と R2 を作ってデプロイする')
+  .option('--name <name>', 'Worker の名前（D1 は同名、R2 は <name>-files）', 'hangar')
+  .option('--rotate-secret', '参加用の秘密を作り直す（既存の暗号化ファイルが復号できなくなる。確認を求める）')
+  .action(async (o: { name: string; rotateSecret?: boolean }) => {
+    const home = hangarHome();
+    const device = readOrCreateDevice(home);
+    await runSetupCloud({ home, device, name: o.name, rotateSecret: o.rotateSecret });
+  });
+
+program
+  .command('join [token]')
+  .description('参加トークンでクラウド同期に参加する（トークンは引数を省くと標準入力から受け取る）')
+  .option('--force', '確認を省いて参加する（既存の cloud.json も上書きする）')
+  .action(async (token: string | undefined, o: { force?: boolean }) => {
+    // 秘密は argv に載せない。引数で渡されたときは、残ることを伝える。
+    if (token !== undefined) {
+      console.log('注意: 参加トークンを引数で渡しました。ps とシェルの履歴に残ります。次からは引数なしの hangar join を使ってください。');
+    }
+    // 確認は標準入力で取る。トークンを流し込んだ後の標準入力ではもう聞けないので、先に断る。
+    if (!process.stdin.isTTY && !o.force) {
+      throw new Error('標準入力が対話ではないので確認を取れません。端末から実行するか、--force を付けてください');
+    }
+    const home = hangarHome();
+    const t = token ?? (await readJoinToken());
+    await runJoin({ home, token: t, device: readOrCreateDevice(home), force: o.force, confirm: promptWord });
+  });
+
+const cloud = program.command('cloud').description('クラウド同期の管理');
+
+cloud
+  .command('status')
+  .description('クラウド同期の状態を表示する')
+  .option('--port <n>', 'ポート', '4177')
+  .action(async (o: { port: string }) => {
+    console.log(await cloudStatus({ home: hangarHome(), port: Number(o.port) }));
+  });
+
+cloud
+  .command('teardown')
+  .description('Worker と D1 と R2 を消す（取り消せない。消す前に R2 の本文を手元へ降ろす）')
+  .action(async () => {
+    const home = hangarHome();
+    const ok = await runTeardown({
+      home,
+      deviceId: readOrCreateDevice(home).id,
+      claudeDir: loadSettings(home).claudeDir || defaultClaudeDir(),
+      confirm: promptWord,
+    });
+    if (!ok) process.exitCode = 1;
   });
 
 program

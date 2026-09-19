@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, ProjectDto, RunDto, SessionDto, SessionSummaryDto, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, RunDto, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusDto, TabDto, TodoDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
@@ -16,7 +16,7 @@ import { presentShell } from './shell.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -252,7 +252,7 @@ describe('presentNewSession', () => {
 describe('presentSettings（フェーズ 2）', () => {
   it('ツールのパスと MCP のコマンド', () => {
     const store = storeWith();
-    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, mcpInstallCommand: 'npm run hangar -- mcp install' });
     store.settings = null;
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', codePath: null });
@@ -362,7 +362,7 @@ describe('presentSettings のフェーズ 3 の項目', () => {
   it('要約器と statusline と使用量の集計を渡す', () => {
     const store: Store = {
       ...initialStore(),
-      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false },
+      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false, syncClaudeConfig: false },
       statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true },
       summarizerModels: ['gemma', 'qwen'],
       usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 10, outputTokens: 2, sessions: 1 }], projects: [] },
@@ -436,5 +436,100 @@ describe('presentSettings の既定値', () => {
     expect(p.summarizerModels).toBeNull();
     expect(p.usageAggregate).toBeNull();
     expect(p.summarizerTest).toBeNull();
+  });
+});
+
+const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, ...over });
+const syncStatus = (over: Partial<SyncStatusDto> = {}): SyncStatusDto => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, ...over });
+const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
+
+describe('同期の Presenter（フェーズ 4）', () => {
+  it('ヘッダーの同期状態は種別ごとに文言が変わる', () => {
+    const s = { ...initialState(), sync: { kind: 'idle' as const, lastAt: NOW - 60_000 }, pending: 2 };
+    expect(presentShell(s, initialStore(), NOW).sync).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: 2, paused: false });
+    expect(presentShell({ ...s, sync: { kind: 'off' } }, initialStore(), NOW).sync).toMatchObject({ visible: false, state: 'off', label: '' });
+    expect(presentShell({ ...s, sync: { kind: 'pushing' } }, initialStore(), NOW).sync).toMatchObject({ visible: true, state: 'pushing', label: '送信中' });
+    expect(presentShell({ ...s, sync: { kind: 'pulling' } }, initialStore(), NOW).sync).toMatchObject({ state: 'pulling', label: '受信中' });
+    expect(presentShell({ ...s, sync: { kind: 'paused' } }, initialStore(), NOW).sync).toMatchObject({ state: 'paused', label: '一時停止中', paused: true });
+    expect(presentShell({ ...s, sync: { kind: 'error', message: '切れました' } }, initialStore(), NOW).sync).toMatchObject({ state: 'error', label: '同期エラー: 切れました' });
+    // まだ一度も往復していない間は、時刻の代わりに準備中と出す。
+    expect(presentShell({ ...s, sync: { kind: 'idle', lastAt: null } }, initialStore(), NOW).sync).toMatchObject({ state: 'idle', label: '同期の準備中' });
+  });
+  it('同期の行を足してもフェーズ 3 の使用量ゲージは残る', () => {
+    const store = storeWith();
+    store.usage = { fiveHour: { usedPercent: 40, resetsAt: null }, sevenDay: null, updatedAt: NOW - 60_000 };
+    const p = presentShell({ ...initialState(), sync: { kind: 'idle', lastAt: NOW } }, store, NOW);
+    expect(p.usage).toEqual({ fiveHour: 40, sevenDay: null, updatedLabel: '1 分前' });
+    expect(p.sync.visible).toBe(true);
+  });
+  it('Settings のクラウドの節', () => {
+    const store: Store = { ...initialStore(), sync: syncStatus({ pending: 3 }), devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: NOW - 120_000, self: true }], joinToken: 'tok', settings: fullSettings({ syncClaudeConfig: true }) };
+    const p = presentSettings(initialState(), store, NOW).cloud;
+    expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok', syncClaudeConfig: true, configConfirmed: false });
+    expect(p.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeen: '2 分前', self: true }]);
+    const paused = presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'paused', claudeConfig: { enabled: true, confirmed: true } }) }, NOW).cloud;
+    expect(paused).toMatchObject({ configured: true, state: 'paused', paused: true, configConfirmed: true });
+  });
+  it('同期を設定していない端末のクラウドの節', () => {
+    const p = presentSettings(initialState(), initialStore(), NOW).cloud;
+    expect(p).toMatchObject({ configured: false, url: null, state: 'off', paused: false, pending: 0, lastPullAt: '不明', joinToken: null, syncClaudeConfig: false, configConfirmed: false });
+    expect(p.devices).toEqual([]);
+    // off が届いているだけの端末も「設定していない」と同じ扱いにする。
+    expect(presentSettings(initialState(), { ...initialStore(), sync: syncStatus({ state: 'off', url: null }) }, NOW).cloud.configured).toBe(false);
+  });
+  it('フェーズ 3 までの Settings の項目は消えていない', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), settings: fullSettings({ tmuxPath: '/t' }) }, NOW);
+    expect(p).toMatchObject({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/t', terminalApp: 'terminal', mcpInstallCommand: 'npm run hangar -- mcp install', statuslineCommand: 'npm run hangar -- statusline install', summaryHourlyCap: 20 });
+  });
+  it('now を渡さない既存の呼び出しも通る', () => {
+    expect(presentSettings(initialState(), initialStore()).cloud.state).toBe('off');
+  });
+});
+
+describe('セッションのロック（フェーズ 4）', () => {
+  it('他端末で実行中なら再開もフォークもこの PC で再開も止める', () => {
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto(), remoteOnly: true }) } };
+    const p = presentSession(initialState(), store, NOW, 's1');
+    expect(p.lock).toEqual({ deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' });
+    expect(p.remoteOnly).toBe(true);
+    expect(p.canResume).toBe(false);
+    expect(p.canFork).toBe(false);
+    expect(p.canResumeHere).toBe(false);
+  });
+  it('heartbeat が途絶えたロックは応答がありませんと見せ、この PC で再開だけを開ける（Ruling 14）', () => {
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ heartbeatAt: NOW - 600_000, stale: true }) }) } };
+    const p = presentSession(initialState(), store, NOW, 's1');
+    expect(p.lock).toEqual({ deviceName: 'mini', stale: true, heartbeat: '10 分前', label: 'mini が応答がありません' });
+    // 相手の run を止めには行かないので、同じ run の続きである再開とフォークは閉じたままにする。
+    expect(p.canResume).toBe(false);
+    expect(p.canFork).toBe(false);
+    expect(p.canResumeHere).toBe(true);
+  });
+  it('stale のロックは、写しだけのセッションでもこの PC で再開ができる', () => {
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: true }), remoteOnly: true }) } };
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ remoteOnly: true, canResume: false, canFork: false, canResumeHere: true });
+  });
+  it('生きているロックでは、写しの有無にかかわらずこの PC で再開を閉じる', () => {
+    const local: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }) }) } };
+    expect(presentSession(initialState(), local, NOW, 's1').canResumeHere).toBe(false);
+    const remote: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }), remoteOnly: true }) } };
+    expect(presentSession(initialState(), remote, NOW, 's1').canResumeHere).toBe(false);
+  });
+  it('写しだけで誰も動かしていなければ、この PC で再開ができる', () => {
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: null, remoteOnly: true }) } };
+    const p = presentSession(initialState(), store, NOW, 's1');
+    expect(p.lock).toBeNull();
+    expect(p.canResumeHere).toBe(true);
+    expect(p.canResume).toBe(false);
+    expect(p.canFork).toBe(false);
+  });
+  it('手元に本文があってロックが無ければ普通に再開できる', () => {
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1') } };
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ lock: null, remoteOnly: false, canResume: true, canFork: true, canResumeHere: false });
+  });
+  it('本文が無いセッションと、そもそも無いセッションはロックの欄を空にする', () => {
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { hasTranscript: false }) } };
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ lock: null, remoteOnly: false, canResume: false, canResumeHere: false });
+    expect(presentSession(initialState(), store, NOW, 'zz')).toMatchObject({ notFound: true, lock: null, remoteOnly: false, canResumeHere: false });
   });
 });

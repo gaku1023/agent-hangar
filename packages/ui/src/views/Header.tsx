@@ -1,11 +1,12 @@
 import { formatRoute } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import { isComposing } from './ime.ts';
-import type { ShellProps, UsageProps } from '../presenters/shell.ts';
+import type { ShellProps, SyncProps, UsageProps } from '../presenters/shell.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
+import { SyncStatus } from './SyncStatus.tsx';
 
-export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string; connection: ShellProps['connection']; indexLabel: string | null; usage: UsageProps }) {
+export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string; connection: ShellProps['connection']; indexLabel: string | null; usage: UsageProps; sync: SyncProps }) {
   const emit = useEmit();
   return (
     <header className="header">
@@ -17,6 +18,7 @@ export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string
       <input id="global-search" className="input search-box" type="search" role="searchbox" placeholder="セッションを検索（/）" defaultValue={props.searchText}
         onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.query', text: (e.target as HTMLInputElement).value }); }} />
       <span className="spacer" />
+      <SyncStatus {...props.sync} />
       {/* 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。 */}
       <span className="gauges">
         <UsageGauge label="5 時間の使用率" percent={props.usage.fiveHour} />

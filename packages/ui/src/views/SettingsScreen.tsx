@@ -146,6 +146,52 @@ export function SettingsScreen(props: SettingsProps) {
         )}
       </section>
       <section>
+        <h2 className="h2">クラウド同期</h2>
+        {!props.cloud.configured && <div className="faint">hangar setup cloud か hangar join &lt;token&gt; で始められます</div>}
+        {props.cloud.configured && (
+          <>
+            <div className="mono muted">{props.cloud.url}</div>
+            <div className="faint" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+              <span>状態 {props.cloud.state}</span>
+              <span>最終 pull {props.cloud.lastPullAt}</span>
+              <span>未送信 {props.cloud.pending} 件</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <button className="btn" onClick={() => emit({ type: 'sync.now' })}>今すぐ同期</button>
+              <button className="btn" onClick={() => emit({ type: 'sync.pause', paused: !props.cloud.paused })}>{props.cloud.paused ? '同期を再開' : '一時停止'}</button>
+              {/* 参加トークンは全セッションの読み書き権を持つ秘密なので、押すまで取りに行かない。 */}
+              {/* 出したあとはランタイムが 120 秒で store から消すので、props が null に戻ればこのボタンの姿に戻る。 */}
+              {props.cloud.joinToken === null && <button className="btn" onClick={() => emit({ type: 'sync.joinToken.show' })}>参加トークンを表示</button>}
+            </div>
+            {props.cloud.joinToken !== null && (
+              <div style={{ marginTop: 8 }}>
+                <div className="mono" style={{ wordBreak: 'break-all' }}>{props.cloud.joinToken}</div>
+                <div className="faint">このトークンを持つ人は、あなたのセッションを読み書きできます。渡す相手に気をつけてください。</div>
+                <div className="faint">120 秒で自動的に消えます。1Password などに写してください。</div>
+              </div>
+            )}
+            <div className="list" style={{ marginTop: 8 }}>
+              {props.cloud.devices.map((d) => (
+                <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
+                  <span>{d.name}{d.self && <span className="faint"> この端末</span>}</span>
+                  <span className="faint">{d.platform}</span>
+                  <span className="faint">{d.lastSeen}</span>
+                </div>
+              ))}
+            </div>
+            <label className="settings-row">
+              <input type="checkbox" aria-label="Claude Code の設定を同期する" checked={props.cloud.syncClaudeConfig} onChange={(e) => emit({ type: 'settings.update', patch: { syncClaudeConfig: e.target.checked } })} />
+              <span>Claude Code の設定を同期する</span>
+            </label>
+            <div className="faint" style={{ marginTop: 4 }}>CLAUDE.md、settings.json、statusline のスクリプト、skills、memory、projects の memory を端末間で合わせます。</div>
+            {/* 利用者の決定 2。~/.claude を書き換える前に必ず控えを取り、何を書き換えたかを後から読めるようにする。 */}
+            <div className="faint">~/.claude に書き込むので、取り込む前に内容を確認します。上書きの前の控えは ~/.agent-hangar/backups/claude-config/&lt;日時&gt;/ に残ります。</div>
+            {props.cloud.syncClaudeConfig && <div className="faint">{props.cloud.configConfirmed ? '取り込みを確認済みです。' : 'まだ取り込みを確認していません。確認するまで ~/.claude には書き込みません。'}</div>}
+            <button className="btn" style={{ marginTop: 8 }} disabled={!props.cloud.syncClaudeConfig} onClick={() => emit({ type: 'sync.config.preview' })}>取り込み内容を確認</button>
+          </>
+        )}
+      </section>
+      <section>
         <h2 className="h2">使用量</h2>
         {props.usageAggregate === null && <div className="faint">使用量を読み込んでいます</div>}
         {props.usageAggregate && (
@@ -178,10 +224,6 @@ export function SettingsScreen(props: SettingsProps) {
         <h2 className="h2">この端末</h2>
         <div className="mono muted">{props.device?.name}<span className="faint"> {props.device?.id}</span></div>
         <div className="faint mono">agent-hangar {props.version}</div>
-      </section>
-      <section>
-        <h2 className="h2">次のフェーズで追加される設定</h2>
-        <div className="faint">クラウド同期（状態、参加トークンの発行、一時停止）と他端末セッションの引き継ぎ。</div>
       </section>
     </div>
   );

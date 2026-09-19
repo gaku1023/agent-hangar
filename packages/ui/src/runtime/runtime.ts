@@ -1,9 +1,9 @@
-import { formatRoute, parseRoute, type Intent, type LaunchResultDto, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusDto } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { FocusTarget, SessionViewState } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyEventsPage, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
-import type { ApiClient, EventsQuery } from './api.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
+import { ApiConflictError, type ApiClient, type EventsQuery } from './api.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 
@@ -16,6 +16,8 @@ export type RuntimeDeps = {
   terminals: TerminalHost;
   /** terminal だけはランタイムが自分で処理するので、ここへは渡らない。 */
   focus?: (target: Exclude<FocusTarget, 'terminal'>) => void;
+  /** 窓が前面に来たことを知らせる。返り値で購読を外す。 */
+  onWindowFocus?: (cb: () => void) => () => void;
 };
 
 export type Runtime = {
@@ -26,6 +28,8 @@ export type Runtime = {
 };
 
 const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
+/** 参加トークンをストアに置いておく上限。全セッションの読み書き権を持つ秘密なので、写し終わる頃に自分で消す。 */
+const JOIN_TOKEN_TTL_MS = 120_000;
 
 /** Mediator の効果を実行し、サーバとブラウザの出来事を入力に変える。 */
 export function createRuntime(deps: RuntimeDeps): Runtime {
@@ -37,12 +41,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let ws: WsClient | null = null;
   let searchSeq = 0;
   let unsubHash: (() => void) | null = null;
+  let unsubFocus: (() => void) | null = null;
 
   const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
   const fail = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } });
   const toast = (message: string) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
+  const syncStatus = (status: SyncStatusDto) => dispatch({ kind: 'server', event: { type: 'sync.status', status } });
 
   /** サブエージェントの一覧を 1 回だけ取る。
    * 本文の読み込みと同じ経路で呼ぶが、ページを継ぎ足すたびに取り直す必要はない。
@@ -84,6 +90,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // 本文も同じ基準で落とす。
           const open = state.screen.name === 'session' ? [state.screen.id] : [];
           setStore(pruneEvents(pruneRuns(applyBootstrap(store, b), open), open));
+          // 同期の状態と端末の一覧は Mediator が持つので、読み込み直すたびに入れ直す。
+          // ここで流さないと、次の sync.status が届くまでヘッダの同期表示が空になる。
+          // 古いサーバはこの 2 つを持たないので、そのときは何もしない。
+          const older = b as Partial<BootstrapDto>;
+          if (older.sync) dispatch({ kind: 'server', event: { type: 'sync.status', status: older.sync } });
+          if (older.devices) dispatch({ kind: 'server', event: { type: 'devices.update', devices: older.devices } });
           // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
           for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
@@ -212,6 +224,28 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       }
       case 'storage.save': deps.storage.set(e.key, e.value); return;
+      // 返ってきた状態は sync.status と同じ経路に載せる。ストアと Mediator の両方が一度に揃う。
+      case 'api.syncNow': deps.api.syncNow().then(syncStatus).catch(fail); return;
+      case 'api.syncPause': deps.api.syncPause(e.paused).then(syncStatus).catch(fail); return;
+      // 前面化は静かに失敗させる。窓を触るたびに赤い通知が出ると邪魔になる。
+      case 'api.syncFocus': deps.api.syncFocus().catch(() => {}); return;
+      case 'api.resumeHere':
+        deps.api.resumeHere(e.sessionId, e.overwrite).then(launched).catch((err: unknown) => {
+          // 手元の本文の方が小さいときの 409 だけは、トーストではなく確認ダイアログにする。
+          if (err instanceof ApiConflictError) dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: e.sessionId, localSize: err.body.localSize, remoteSize: err.body.remoteSize } });
+          // それ以外は起動の失敗である。launch.failed でないと送信中が解けず、二度と押せなくなる。
+          else launchFailed(err);
+        });
+        return;
+      case 'api.configPreview': deps.api.configPreview().then((p) => setStore(applyConfigPreview(store, p))).catch(fail); return;
+      case 'api.configPull': deps.api.configPull().then((r) => toast(`${r.applied} 件を取り込みました（競合 ${r.conflicts} 件）`)).catch(fail); return;
+      case 'api.joinToken':
+        deps.api.joinToken().then((r) => {
+          setStore(applyJoinToken(store, r.token));
+          // 秘密をストアに残し続けない。同じトークンがまだ出ているときだけ消す。
+          if (r.token !== null) deps.setTimeout(() => { if (store.joinToken === r.token) setStore(applyJoinToken(store, null)); }, JOIN_TOKEN_TTL_MS);
+        }).catch(fail);
+        return;
       default: {
         // 効果を足したときに処理を忘れると、ここで型が合わなくなる。
         const _exhaustive: never = e;
@@ -256,8 +290,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         onEvent: (ev) => dispatch({ kind: 'server', event: ev }),
       });
       unsubHash = deps.location.onHashChange(() => dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } }));
+      unsubFocus = deps.onWindowFocus?.(() => dispatch({ kind: 'runtime', event: { type: 'window.focus' } })) ?? null;
       ws.connect();
     },
-    stop() { ws?.close(); unsubHash?.(); deps.terminals.dispose(); },
+    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; deps.terminals.dispose(); },
   };
 }

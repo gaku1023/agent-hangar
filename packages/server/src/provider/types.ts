@@ -1,6 +1,7 @@
 import type { LiveSessionDto, TranscriptEvent } from '@agent-hangar/shared';
 
-export type DiscoveredFile = { path: string; sessionId: string; agentId: string | null };
+/** deviceId が null なら手元（~/.claude）のファイル。文字列ならその端末から降ろした写しである。 */
+export type DiscoveredFile = { path: string; sessionId: string; agentId: string | null; deviceId: string | null };
 export type LiveSession = LiveSessionDto;
 
 export type LaunchMode =

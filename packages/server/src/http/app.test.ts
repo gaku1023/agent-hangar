@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LaunchParams, LaunchResultDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, TabDto } from '@agent-hangar/shared';
+import type { LaunchParams, LaunchResultDto, ResumeHereConflictDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
+import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { PromoteError } from '../projects/promote.ts';
@@ -11,7 +12,7 @@ import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.
 import { RunError } from '../runs/manager.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
-import { createApp, type AppDeps, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts } from './app.ts';
+import { createApp, type AppDeps, type ConfigSyncApi, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts, type SyncApi } from './app.ts';
 
 let dir: string;
 let db: Db;
@@ -80,7 +81,35 @@ function fakeSummary(): SummaryApi & { enqueued: [string, SummaryEnqueueOpts | u
   return s;
 }
 
+/** 同期の偽物。呼ばれた順を calls に残すので、経路が本当に部品を呼んだかを見られる。 */
+const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false } };
+const calls: string[] = [];
+let skipped: { key: string; attempts: number; message: string }[] = [];
+let resumeHereResult: LaunchResultDto | ResumeHereConflictDto = launched;
+const fakeSync = (): SyncApi => ({
+  status: () => syncStatus,
+  syncNow: async () => { calls.push('syncNow'); },
+  setPaused: (p: boolean) => { calls.push(`pause:${p}`); },
+  onFocus: async () => { calls.push('focus'); },
+  pullBeforeLaunch: async () => { calls.push('beforeLaunch'); return true; },
+});
+const fakeConfigSync = (): ConfigSyncApi => ({
+  preview: () => ({ entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 5, remoteDevice: 'mini', size: 3 }], confirmed: false }),
+  pull: async () => { calls.push('configPull'); return { applied: 1, conflicts: 0 }; },
+});
+const syncDeps = () => ({
+  sync: fakeSync(),
+  syncSkipped: () => skipped,
+  configSync: fakeConfigSync(),
+  resumeHere: (id: string, overwrite: boolean) => { calls.push(`resumeHere:${id}:${overwrite}`); return resumeHereResult; },
+  joinToken: () => 'tok-abc' as string | null,
+  devices: () => [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true }],
+});
+
 beforeEach(async () => {
+  calls.length = 0;
+  skipped = [];
+  resumeHereResult = launched;
   dir = copyFixtureClaudeDir(); db = openDb(':memory:'); sent.length = 0;
   ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app-'));
   fs.mkdirSync(`${ws}/alpha`);
@@ -88,7 +117,7 @@ beforeEach(async () => {
   await indexer.fullScan();
   db.prepare('update sessions set cwd = ? where provider_session_id = ?').run(`${ws}/alpha`, SESSION_ALPHA);
   syncProjectsFromWorkspace(db, 'd', ws); assignSessions(db, 'd');
-  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
+  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
   runs = fakeRuns();
   external = fakeExternal();
   usage = new UsageTracker(db);
@@ -100,6 +129,7 @@ beforeEach(async () => {
     settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }), live: () => [], indexer,
     hub: { broadcast: (e) => sent.push(e) }, runs, external, usage, memos, summary,
     promote: (o) => { if (o.name === 'taken') throw new PromoteError(409, 'あります'); return { projectId: list0ProjectId(), moved: o.moveFiles, reason: null }; },
+    ...syncDeps(),
   };
   app = createApp(deps);
 });
@@ -252,9 +282,17 @@ describe('routes', () => {
   });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
-    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: '/tmp/x' }) });
-    expect((await r.json()).workspaceRoot).toBe('/tmp/x');
+    // 実在しないルートと、ファイルを指したルートの両方で 500 にしないことを見る。
+    // 以前は固定の /tmp/x を使っていたので、そこにファイルがあると落ちた。
+    const missing = path.join(ws, 'no-such-root');
+    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: missing }) });
+    expect((await r.json()).workspaceRoot).toBe(missing);
     expect(sent.some((e) => e.type === 'toast' && e.level === 'info')).toBe(true);
+    const asFile = path.join(ws, 'root-is-a-file');
+    fs.writeFileSync(asFile, 'x');
+    const r2 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: asFile }) });
+    expect(r2.status).toBe(200);
+    expect((await r2.json()).workspaceRoot).toBe(asFile);
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -263,7 +301,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false });
   });
   it('ワークスペースのルートを変えるとプロジェクトを登録し直して配信する', async () => {
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
@@ -292,7 +330,7 @@ describe('routes', () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.runs).toEqual([run]);
     expect(body.tabs).toHaveLength(2);
-    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false });
+    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false });
   });
   it('起動、再開、フォーク、停止', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -549,8 +587,8 @@ describe('routes', () => {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
       fs.mkdirSync(path.join(dist, 'assets'));
       fs.writeFileSync(path.join(dist, 'assets', 'a.js'), 'console.log(1)');
-      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
-      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), uiDist: dist });
+      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
+      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), ...syncDeps(), uiDist: dist });
       // 鍵を持たない GET / にはクッキーを配らない。curl 1 本でトークンが取れてはいけない。
       const bare = await ui.request('/');
       expect(bare.status).toBe(401);
@@ -592,8 +630,8 @@ describe('routes', () => {
     const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-dist-'));
     try {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
-      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
-      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), uiDist: dist });
+      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
+      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), ...syncDeps(), uiDist: dist });
       // SameSite=Strict はポートを数えない。手元の別のポートに置かれたページが、認証済みの UI を枠に入れられてしまう。
       for (const r of [await ui.request(`/?t=${TOKEN}`), await ui.request('/', { headers: { cookie: `hangar_token=${TOKEN}` } }), await ui.request('/')]) {
         expect(r.headers.get('x-frame-options')).toBe('DENY');
@@ -636,5 +674,189 @@ describe('失敗の理由', () => {
     expect(await reason(await get('/api/bootstrap', {}))).toBe('認証が切れました。ページを再読み込みしてください');
     // Origin の拒否は別サイトからの要求を入口で断る応答で、利用者の画面には届かない。
     expect(await reason(await get('/api/bootstrap', { ...H, origin: 'https://evil.example' }))).toBe('origin not allowed');
+  });
+});
+
+describe('同期の経路', () => {
+  const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+
+  it('同期の経路も認証の下にある', async () => {
+    // 参加トークンは全セッションの読み書き権を持つ。鍵の無い要求と別サイトからの要求は入口で断る。
+    for (const p of ['/api/sync/status', '/api/sync/joinToken', '/api/devices', '/api/sync/config/preview']) {
+      expect((await get(p, {})).status).toBe(401);
+      expect((await get(p, { ...H, origin: 'https://evil.example' })).status).toBe(403);
+    }
+    const noAuth = await app.request('/api/sync/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paused: true }) });
+    expect(noAuth.status).toBe(401);
+    expect(calls).toEqual([]);
+  });
+
+  it('bootstrap に sync と devices が乗り、設定に syncClaudeConfig が出る', async () => {
+    const { body } = await json(await get('/api/bootstrap'));
+    expect(body.sync).toMatchObject({ state: 'idle', pending: 0, deviceCount: 2 });
+    expect(body.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true }]);
+    expect(body.settings.syncClaudeConfig).toBe(false);
+    expect(body.sessions[0].lock).toBeNull();
+    expect(body.sessions[0].remoteOnly).toBe(false);
+  });
+
+  it('status、now、pause、focus', async () => {
+    expect((await json(await get('/api/sync/status'))).body.state).toBe('idle');
+    expect((await json(await post('/api/sync/now'))).body.state).toBe('idle');
+    expect((await post('/api/sync/pause', { paused: true })).status).toBe(200);
+    expect((await post('/api/sync/pause', { paused: 'yes' })).status).toBe(400);
+    expect((await post('/api/sync/focus')).status).toBe(202);
+    expect(calls).toEqual(['syncNow', 'pause:true', 'focus']);
+  });
+
+  it('降ろすのを諦めた項目が同期の状態に乗る', async () => {
+    // onError は 1 度しか鳴らないので、鳴った後に画面を開いた利用者はここでしか気付けない。
+    skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }];
+    expect((await json(await get('/api/sync/status'))).body.skipped).toEqual(skipped);
+    expect((await json(await get('/api/bootstrap'))).body.sync.skipped).toEqual(skipped);
+  });
+
+  it('参加トークンと端末一覧と設定の下見', async () => {
+    expect((await json(await get('/api/sync/joinToken'))).body).toEqual({ token: 'tok-abc' });
+    expect((await json(await get('/api/devices'))).body).toHaveLength(1);
+    const p = await json(await get('/api/sync/config/preview'));
+    expect(p.body.entries[0]).toMatchObject({ path: 'CLAUDE.md', action: 'create' });
+    expect((await json(await post('/api/sync/config/pull'))).body).toEqual({ applied: 1, conflicts: 0 });
+    expect(calls).toEqual(['configPull']);
+  });
+
+  it('同期が未設定なら設定の経路は 404 で、参加トークンは null', async () => {
+    app = createApp({ ...deps, configSync: null, joinToken: () => null });
+    expect((await get('/api/sync/config/preview')).status).toBe(404);
+    expect((await post('/api/sync/config/pull')).status).toBe(404);
+    expect((await json(await get('/api/sync/joinToken'))).body).toEqual({ token: null });
+  });
+
+  it('この PC で再開は 409 で写しとの大きさを返す', async () => {
+    const id = (await json(await get('/api/sessions'))).body[0].id;
+    expect((await json(await post(`/api/sessions/${id}/resume-here`))).body.sessionId).toBe('s1');
+    resumeHereResult = { error: 'local_smaller', localSize: 10, remoteSize: 99 };
+    const r = await json(await post(`/api/sessions/${id}/resume-here`, { overwrite: false }));
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'local_smaller', localSize: 10, remoteSize: 99 });
+    expect(calls).toEqual([`resumeHere:${id}:false`, `resumeHere:${id}:false`]);
+  });
+
+  it('この PC で再開の RunError は status と理由を返す', async () => {
+    app = createApp({ ...deps, resumeHere: () => { throw new RunError(400, 'このセッションの本文がありません'); } });
+    const r = await json(await post('/api/sessions/s1/resume-here', { overwrite: true }));
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ error: 'このセッションの本文がありません' });
+  });
+
+  it('起動と再開とフォークの前に pull を待つ', async () => {
+    await post('/api/runs', { projectId: 'p1', name: 'n' });
+    await post('/api/sessions/s1/resume');
+    await post('/api/sessions/s1/fork');
+    expect(calls.filter((c) => c === 'beforeLaunch')).toHaveLength(3);
+  });
+
+  it('他端末で走っている run はロックとして出る', async () => {
+    // listSessions と getSession に自端末の ID を渡さないと、ロックは一切出ない。
+    const all = (await json(await get('/api/sessions'))).body as { id: string; projectId: string | null }[];
+    const target = all.find((s) => s.projectId !== null)!;
+    const id = target.id;
+    upsertShared(db, 'devices', { id: 'mini', name: 'mini', platform: 'darwin', last_seen_at: Date.now(), deleted_at: null }, 'mini');
+    upsertShared(db, 'runs', {
+      id: 'remote-run', session_id: id, device_id: 'mini', kind: 'start', tmux_name: 'hangar-remote',
+      pid: null, launch_params: '{}', started_at: Date.now(), ended_at: null, end_reason: null, heartbeat_at: Date.now(), deleted_at: null,
+    }, 'mini');
+    const lock = { deviceId: 'mini', deviceName: 'mini', runId: 'remote-run', stale: false };
+    expect((await json(await get('/api/sessions'))).body.find((s: { id: string }) => s.id === id).lock).toMatchObject(lock);
+    expect((await json(await get(`/api/sessions/${id}`))).body.lock).toMatchObject(lock);
+    expect((await json(await get('/api/bootstrap'))).body.sessions.find((s: { id: string }) => s.id === id).lock).toMatchObject(lock);
+    const byProject = (await json(await get(`/api/sessions?projectId=${target.projectId!}`))).body as { id: string; lock: unknown }[];
+    expect(byProject.find((s) => s.id === id)?.lock).toMatchObject(lock);
+  });
+});
+
+describe('設定の変更でロックを消さない', () => {
+  it('ワークスペースを変えたときの配り直しにもロックが乗る', async () => {
+    // 配り直しの 1 か所だけ deviceId が抜けていると、サーバはロックを持っているのに
+    // 配信はロック無しの SessionDto を送り、UI の store がそれで置き換えて画面から消える。
+    const all = (await json(await get('/api/sessions'))).body as { id: string; projectId: string | null }[];
+    const orphan = all.find((s) => s.projectId === null)!;
+    // このセッションが新しいワークスペースの下に入るようにして、紐づけ直しの配信に載せる。
+    const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws2-'));
+    try {
+      fs.mkdirSync(path.join(ws2, 'beta'));
+      db.prepare('update sessions set cwd = ? where id = ?').run(path.join(ws2, 'beta'), orphan.id);
+      upsertShared(db, 'devices', { id: 'mini', name: 'mini', platform: 'darwin', last_seen_at: Date.now(), deleted_at: null }, 'mini');
+      upsertShared(db, 'runs', {
+        id: 'remote-run', session_id: orphan.id, device_id: 'mini', kind: 'start', tmux_name: 'hangar-remote',
+        pid: null, launch_params: '{}', started_at: Date.now(), ended_at: null, end_reason: null, heartbeat_at: Date.now(), deleted_at: null,
+      }, 'mini');
+      sent.length = 0;
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: ws2 }) });
+      expect(r.status).toBe(200);
+      const upserts = sent.filter((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert');
+      const mine = upserts.find((e) => e.session.id === orphan.id);
+      expect(mine).toBeDefined();
+      expect(mine!.session.lock).toMatchObject({ deviceId: 'mini', deviceName: 'mini', runId: 'remote-run' });
+      // 配った後に引き直しても同じ姿である（配信だけが違う、という形を作らない）。
+      expect((await json(await get(`/api/sessions/${orphan.id}`))).body.lock).toMatchObject({ deviceId: 'mini' });
+    } finally {
+      fs.rmSync(ws2, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('設定の往復', () => {
+  const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+  it('SettingsDto の項目はすべて UI から往復できる', async () => {
+    // 受け口に 1 つでも項目が足りないと、UI の操作は 400 で弾かれ、その機能が丸ごと死ぬ。
+    // 実物の確認では syncClaudeConfig がそれで、Claude Code 設定の同期を UI から入れられなかった。
+    const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws3-'));
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cd-'));
+    try {
+      // 1 項目ずつ送って、応答と GET の両方に載ることを見る。UI は 1 項目だけの patch を送る。
+      const cases: [keyof SettingsDto, unknown][] = [
+        ['workspaceRoot', ws2],
+        ['claudeDir', dir2],
+        ['tmuxPath', '/opt/homebrew/bin/tmux'],
+        ['terminalApp', 'iterm'],
+        ['codePath', '/usr/local/bin/code'],
+        ['lmStudioUrl', 'http://127.0.0.1:9999'],
+        ['lmStudioModel', 'gemma-3'],
+        ['summaryFallback', false],
+        ['summaryHourlyCap', 7],
+        ['allowExternalSummarizer', true],
+        ['syncClaudeConfig', true],
+      ];
+      for (const [key, value] of cases) {
+        const r = await patch({ [key]: value });
+        expect([key, r.status]).toEqual([key, 200]);
+        expect([key, (await r.json())[key]]).toEqual([key, value]);
+        expect([key, (await json(await get('/api/settings'))).body[key]]).toEqual([key, value]);
+      }
+      // 受け口の項目が DTO の項目とそろっていることを、抜けが出たら落ちる形で見る。
+      const dto = (await json(await get('/api/settings'))).body as SettingsDto;
+      expect(cases.map(([k]) => k).sort()).toEqual(Object.keys(dto).sort());
+    } finally {
+      fs.rmSync(ws2, { recursive: true, force: true });
+      fs.rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it('Claude Code 設定の同期は、入れて、切って、また入れられる', async () => {
+    // UI のチェックは settings.update の patch を 1 つ送るだけである。
+    for (const want of [true, false, true]) {
+      const r = await patch({ syncClaudeConfig: want });
+      expect(r.status).toBe(200);
+      expect((await r.json()).syncClaudeConfig).toBe(want);
+      expect((await json(await get('/api/bootstrap'))).body.settings.syncClaudeConfig).toBe(want);
+    }
+  });
+
+  it('真偽値でない syncClaudeConfig は 400 で断る', async () => {
+    const r = await patch({ syncClaudeConfig: 'yes' });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toBe('syncClaudeConfig は true か false です');
   });
 });

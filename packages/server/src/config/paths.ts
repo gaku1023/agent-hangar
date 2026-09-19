@@ -29,6 +29,11 @@ export type Settings = {
    * 要約器には会話の本文が送られるので、既定では手元だけに閉じる。
    */
   allowExternalSummarizer: boolean;
+  /**
+   * ~/.claude の設定（CLAUDE.md、settings.json、commands、agents、skills）を端末の間で同期するかどうか。
+   * 既定は false である。他端末の設定が手元の ~/.claude を書き換えるので、利用者が明示的に入れたときだけ動かす。
+   */
+  syncClaudeConfig: boolean;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
@@ -72,7 +77,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
 }
 
 export function loadSettings(home: string): Settings {

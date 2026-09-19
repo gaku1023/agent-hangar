@@ -9,9 +9,10 @@ export function mangleCwd(cwd: string): string {
 
 const UUID_RE = /^[0-9a-f-]{36}$/;
 
-/** ~/.claude/projects 配下の本体とサブエージェントの jsonl をパス順に列挙する。 */
-export function listTranscriptFiles(claudeDir: string): DiscoveredFile[] {
-  const root = path.join(claudeDir, 'projects');
+const byPath = (a: DiscoveredFile, b: DiscoveredFile): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+
+/** 1 つの projects ディレクトリから本体とサブエージェントの jsonl をパス順に集める。 */
+function listUnderProjects(root: string, deviceId: string | null): DiscoveredFile[] {
   if (!fs.existsSync(root)) return [];
   const out: DiscoveredFile[] = [];
   for (const proj of fs.readdirSync(root, { withFileTypes: true })) {
@@ -21,18 +22,67 @@ export function listTranscriptFiles(claudeDir: string): DiscoveredFile[] {
       const full = path.join(pd, entry.name);
       if (entry.isFile() && entry.name.endsWith('.jsonl')) {
         const sessionId = entry.name.slice(0, -'.jsonl'.length);
-        if (UUID_RE.test(sessionId)) out.push({ path: full, sessionId, agentId: null });
+        if (UUID_RE.test(sessionId)) out.push({ path: full, sessionId, agentId: null, deviceId });
       } else if (entry.isDirectory() && UUID_RE.test(entry.name)) {
         const sub = path.join(full, 'subagents');
         if (!fs.existsSync(sub)) continue;
         for (const f of fs.readdirSync(sub)) {
           const m = /^agent-([0-9a-zA-Z]+)\.jsonl$/.exec(f);
-          if (m) out.push({ path: path.join(sub, f), sessionId: entry.name, agentId: m[1]! });
+          if (m) out.push({ path: path.join(sub, f), sessionId: entry.name, agentId: m[1]!, deviceId });
         }
       }
     }
   }
-  return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return out.sort(byPath);
+}
+
+/** ~/.claude/projects 配下の本体とサブエージェントの jsonl をパス順に列挙する。 */
+export function listTranscriptFiles(claudeDir: string): DiscoveredFile[] {
+  return listUnderProjects(path.join(claudeDir, 'projects'), null);
+}
+
+/** ~/.agent-hangar/remote 配下を端末ごとに歩き、他端末から降ろした写しを列挙する。 */
+export function listRemoteTranscriptFiles(remoteRootDir: string): DiscoveredFile[] {
+  if (!fs.existsSync(remoteRootDir)) return [];
+  const out: DiscoveredFile[] = [];
+  for (const dev of fs.readdirSync(remoteRootDir, { withFileTypes: true })) {
+    if (!dev.isDirectory()) continue;
+    out.push(...listUnderProjects(path.join(remoteRootDir, dev.name, 'projects'), dev.name));
+  }
+  return out;
+}
+
+export type SelectOptions = { statOf?: (p: string) => { mtimeMs: number } | null; isYielded?: (sessionUuid: string) => boolean };
+
+const defaultStat = (p: string): { mtimeMs: number } | null => {
+  try { return fs.statSync(p); } catch { return null; }
+};
+
+/**
+ * 同じセッションの同じ位置（主線かサブエージェント）にあるファイルから、索引化する 1 つを選ぶ。
+ * 手元のファイルを優先し、無ければ更新時刻が最新の写しを採る。
+ * 引き継ぎで譲ったセッションは持ち主が他端末なので、手元を優先しない。
+ * 選ばれなかったものは drop に入る。呼び手が forgetTranscriptFile で索引から外す。
+ */
+export function selectFilesToIndex(files: DiscoveredFile[], opts: SelectOptions = {}): { index: DiscoveredFile[]; drop: DiscoveredFile[] } {
+  const statOf = opts.statOf ?? defaultStat;
+  const groups = new Map<string, DiscoveredFile[]>();
+  for (const f of files) {
+    const k = `${f.sessionId}:${f.agentId ?? ''}`;
+    const g = groups.get(k);
+    if (g) g.push(f);
+    else groups.set(k, [f]);
+  }
+  const index: DiscoveredFile[] = [];
+  const drop: DiscoveredFile[] = [];
+  for (const g of groups.values()) {
+    const yielded = opts.isYielded?.(g[0]!.sessionId) === true;
+    const locals = g.filter((f) => f.deviceId === null);
+    const pool = !yielded && locals.length > 0 ? locals : g;
+    const chosen = pool.reduce((a, b) => ((statOf(b.path)?.mtimeMs ?? 0) > (statOf(a.path)?.mtimeMs ?? 0) ? b : a));
+    for (const f of g) (f === chosen ? index : drop).push(f);
+  }
+  return { index: index.sort(byPath), drop: drop.sort(byPath) };
 }
 
 /** そのディレクトリに、このセッションの本体かサブエージェントの jsonl があるか。 */

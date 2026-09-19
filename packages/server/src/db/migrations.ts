@@ -220,4 +220,22 @@ create table mcp_secrets (
 );
 `,
   },
+  {
+    // クラウド同期のための列と表。
+    // transcript_files.device_id は、その本文がどの端末のものかを持つ（他端末から降ろした本文と自分の本文を分けるため）。
+    // 既存の行は自分の端末のものだが、ここで焼き付けずに null のままにする。
+    // 端末の id は DB ではなく device.json にあり、マイグレーションからは読めないからである。
+    // file_sync は R2 との同期の台帳で、同じ内容を二度上げないための指紋と、上げたときの seq を持つ。
+    version: 8,
+    sql: `
+alter table transcript_files add column device_id text;
+create index transcript_files_device on transcript_files(session_id, device_id);
+create table file_sync (
+  key text primary key, kind text not null, path text not null, device_id text not null,
+  sha256 text not null, size integer not null, mtime integer not null,
+  remote_seq integer, synced_at integer not null
+);
+create index file_sync_path on file_sync(kind, path);
+`,
+  },
 ];

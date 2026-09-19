@@ -3,14 +3,14 @@ import path from 'node:path';
 import type { IndexProgressDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { listTranscriptFiles, readHistoryIndex, type HistoryEntry } from '../provider/claude-code/discover.ts';
+import { listRemoteTranscriptFiles, listTranscriptFiles, readHistoryIndex, selectFilesToIndex, type HistoryEntry } from '../provider/claude-code/discover.ts';
 import type { DiscoveredFile } from '../provider/types.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
-import { ensureSession, indexFile } from './indexFile.ts';
+import { ensureSession, forgetTranscriptFile, indexFile } from './indexFile.ts';
 
 export type IndexerListener = {
   progress?: (p: IndexProgressDto) => void;
-  sessionChanged?: (e: { sessionId: string; providerSessionId: string; agentId: string | null; appended: number; artifactIds: string[] }) => void;
+  sessionChanged?: (e: { sessionId: string; providerSessionId: string; agentId: string | null; appended: number; artifactIds: string[]; deviceId: string | null; path: string }) => void;
   error?: (e: { path: string; message: string }) => void;
 };
 
@@ -21,6 +21,9 @@ export type IndexerServiceOptions = {
   isRunning: (providerSessionId: string) => boolean;
   pollMs?: number;
   debounceMs?: number;
+  /** 他端末の本文の置き場（~/.agent-hangar/remote）。渡さなければ手元だけを索引化する。 */
+  remoteRoot?: string;
+  isYielded?: (sessionUuid: string) => boolean;
 };
 
 /** 進行中の走査に付ける段階。rebuild のときだけ rebuilding になる。 */
@@ -75,16 +78,28 @@ export class IndexerService {
     for (const l of this.listeners) l.error?.({ path: filePath, message });
   }
 
+  /** 索引化するファイルを選び、外れたものを索引から落とす。 */
+  private targets(): DiscoveredFile[] {
+    const local = listTranscriptFiles(this.opts.claudeDir);
+    const remote = this.opts.remoteRoot ? listRemoteTranscriptFiles(this.opts.remoteRoot) : [];
+    const { index, drop } = selectFilesToIndex([...local, ...remote], { isYielded: this.opts.isYielded });
+    for (const d of drop) {
+      try { forgetTranscriptFile(this.opts.db, d.path); } catch (e) { this.emitError(d.path, errorMessage(e)); }
+    }
+    return index;
+  }
+
   /** 1 ファイルを索引化し、変わっていたら土台の要約を書いて sessionChanged を出す。 */
   private indexOne(file: DiscoveredFile, history: Map<string, HistoryEntry>): boolean {
     try {
-      const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, cwdFallback: history.get(file.sessionId)?.cwd });
+      const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, cwdFallback: history.get(file.sessionId)?.cwd, remote: file.deviceId !== null });
       this.reportedErrors.delete(file.path);
       if (!r.changed) return false;
-      if (file.agentId === null || r.appended > 0) {
+      // 土台の要約は共有テーブルなので、本文を持つ端末だけが書く。
+      if (file.deviceId === null && (file.agentId === null || r.appended > 0)) {
         writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(file.sessionId));
       }
-      for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: file.sessionId, agentId: file.agentId, appended: r.appended, artifactIds: r.artifactIds });
+      for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: file.sessionId, agentId: file.agentId, appended: r.appended, artifactIds: r.artifactIds, deviceId: file.deviceId, path: file.path });
       return true;
     } catch (e) {
       const message = errorMessage(e);
@@ -109,7 +124,7 @@ export class IndexerService {
     this.scanning = true;
     try {
       this.setProgress({ phase: 'scanning', done: 0, total: 0 });
-      const files = listTranscriptFiles(this.opts.claudeDir);
+      const files = this.targets();
       const history = readHistoryIndex(this.opts.claudeDir);
       let changed = 0;
       this.setProgress({ phase, done: 0, total: files.length });
@@ -132,7 +147,7 @@ export class IndexerService {
   tick(): { changed: number } {
     const history = readHistoryIndex(this.opts.claudeDir);
     let changed = 0;
-    for (const f of listTranscriptFiles(this.opts.claudeDir)) if (this.indexOne(f, history)) changed++;
+    for (const f of this.targets()) if (this.indexOne(f, history)) changed++;
     return { changed };
   }
 
@@ -203,6 +218,18 @@ export class IndexerService {
       for (const w of this.watchers) w.on('error', (e) => this.emitError(projects, `fs.watch error: ${errorMessage(e)}`));
     } catch (e) {
       this.emitError(projects, `fs.watch failed, polling only: ${errorMessage(e)}`);
+    }
+    // 他端末の本文は puller が書き足すので、置き場も同じように見張る。
+    if (this.opts.remoteRoot) {
+      // 他端末の会話の本文なので、本人だけが読める権限で作る（puller 側も同じ 0700 で作る）。
+      fs.mkdirSync(this.opts.remoteRoot, { recursive: true, mode: 0o700 });
+      try {
+        const w = fs.watch(this.opts.remoteRoot, { recursive: true }, schedule);
+        w.on('error', (e) => this.emitError(this.opts.remoteRoot!, `fs.watch error: ${errorMessage(e)}`));
+        this.watchers.push(w);
+      } catch (e) {
+        this.emitError(this.opts.remoteRoot, `fs.watch failed, polling only: ${errorMessage(e)}`);
+      }
     }
     this.pollTimer = setInterval(() => this.safeTick(), this.opts.pollMs ?? 2000);
   }

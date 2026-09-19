@@ -7,12 +7,12 @@ import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1' };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false } }, devices: [] };
 
 // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
 const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), subscribe: () => () => {}, dispose: vi.fn() };
 
-const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null } };
+const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false };
 
 function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost } = {}) {
   const b = over.boot ?? boot;
@@ -239,5 +239,32 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     key({ key: 'Escape' });
     await flush();
     expect(screen.queryByLabelText('プロジェクト名')).toBeNull();
+  });
+});
+
+describe('フェーズ 4 のオーバーレイ', () => {
+  const key = (init: KeyboardEventInit) => fireEvent.keyDown(window, init);
+
+  it('本文の 409 で確認のダイアログが出て、Esc で閉じる', async () => {
+    const { rt } = await mounted();
+    act(() => rt.dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1024, remoteSize: 4096 } }));
+    await flush();
+    expect(screen.getByRole('dialog', { name: '上書きの確認' })).toBeInTheDocument();
+    expect(screen.getByText('他の端末の本文 4.0 KB')).toBeInTheDocument();
+    // Esc の扱いはフェーズ 3 のままで、新しいオーバーレイも overlayKind !== 'none' の枝で閉じる。
+    key({ key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: '上書きの確認' })).toBeNull();
+  });
+
+  it('取り込みの下見は store の一覧をそのまま出す', async () => {
+    const { rt } = await mounted({ api: { configPreview: async () => ({ confirmed: false, entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 2, remoteDevice: 'mini', size: 10 }] }) } });
+    act(() => rt.emit({ type: 'sync.config.preview' }));
+    await flush();
+    expect(screen.getByRole('dialog', { name: '取り込み内容の確認' })).toBeInTheDocument();
+    expect(screen.getByText('CLAUDE.md')).toBeInTheDocument();
+    key({ key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: '取り込み内容の確認' })).toBeNull();
   });
 });

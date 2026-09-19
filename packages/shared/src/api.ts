@@ -9,10 +9,10 @@ export type SessionStatsDto = { turns: number; model: string | null; effort: str
 /** sourceId は書いた要約器の id。source_id を持たない古い行と、要約器を通さない要約では null になる。 */
 export type SessionSummaryDto = { title: string; oneLiner: string; body: string; state: SummaryState; nextSteps: string[]; source: SummarySource; sourceId: string | null; sourceModel: string | null; basedOnTurns: number; updatedAt: number };
 export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number };
-export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean };
-export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean };
+export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean };
+export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; syncClaudeConfig: boolean };
 export type IndexProgressDto = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: number; total: number };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string };
+export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusDto; devices: DeviceDto[] };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; running?: boolean; file?: string; limit?: number };
 export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string }[] };
@@ -40,3 +40,16 @@ export type ArtifactDto = { id: string; projectId: string | null; url: string; t
 export type PromoteResultDto = { project: ProjectDto; session: SessionDto; moved: boolean; reason: string | null };
 export type SummarizerId = 'lmstudio' | 'claude-headless';
 export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summary: Omit<SessionSummaryDto, 'updatedAt'> } | { ok: false; tried: { id: SummarizerId; message: string }[] };
+
+/** ここから下はクラウド同期（フェーズ 4）の DTO である。 */
+/** 他端末がそのセッションを実行中であることの印。stale は heartbeat が途切れていることを示す。 */
+export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
+export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
+export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean } };
+export type TakeoverPhase = 'requested' | 'waiting' | 'acked' | 'copying' | 'resumed' | 'timeout' | 'failed' | 'cancelled';
+export type TakeoverUpdateDto = { sessionId: string; requestId: string | null; phase: TakeoverPhase; force: boolean; message: string | null; elapsedMs: number };
+export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean };
+export type ConfigPreviewAction = 'create' | 'overwrite' | 'conflict' | 'skip';
+export type ConfigPreviewEntryDto = { path: string; action: ConfigPreviewAction; localMtime: number | null; remoteMtime: number; remoteDevice: string; size: number };
+export type ConfigPreviewDto = { entries: ConfigPreviewEntryDto[]; confirmed: boolean };
+export type ResumeHereConflictDto = { error: 'local_smaller'; localSize: number; remoteSize: number };

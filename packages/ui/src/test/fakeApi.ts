@@ -6,9 +6,10 @@ type Extras = Pick<
   | 'launch' | 'resume' | 'fork' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
   | 'usageAggregate' | 'statusline' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
+  | 'syncStatus' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
 >;
 
-/** フェーズ 2 とフェーズ 3 で増えた API の偽物。
+/** フェーズ 2 からフェーズ 4 で増えた API の偽物。
  * テストは必要なものだけ上書きする。
  * 返り値を使うテストが無い関数は、呼ばれたら投げる。
  */
@@ -41,5 +42,16 @@ export function fakeApiExtras(): Extras {
     regenerateSummary: vi.fn(async () => {}),
     summarizerModels: vi.fn(async () => ({ models: ['gemma'] })),
     testSummarizer: vi.fn(async () => ({ ok: false as const, tried: [] })),
+    // フェーズ 4 の同期。状態を返すものは、使うテストが自分で上書きする。
+    syncStatus: vi.fn(async () => unused()),
+    syncNow: vi.fn(async () => unused()),
+    syncPause: vi.fn(async () => unused()),
+    syncFocus: vi.fn(async () => {}),
+    resumeHere: vi.fn(async () => unused()),
+    // 参加トークンは押したときだけ取りに行く値なので、既定は未発行の null にする。
+    joinToken: vi.fn(async () => ({ token: null })),
+    configPreview: vi.fn(async () => ({ entries: [], confirmed: false })),
+    configPull: vi.fn(async () => ({ applied: 0, conflicts: 0 })),
+    devices: vi.fn(async () => []),
   };
 }

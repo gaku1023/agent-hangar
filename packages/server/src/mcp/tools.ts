@@ -117,7 +117,7 @@ function todoBriefs(deps: ToolDeps, projectId: string) {
 }
 
 function requireSession(deps: ToolDeps, id: string): SessionDto {
-  const s = getSession(deps.db, deps.live(), id);
+  const s = getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId });
   if (!s) throw new ToolError(`セッションが見つかりません: ${id}`);
   return s;
 }
@@ -143,7 +143,7 @@ export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   const p = requireProject(deps, id);
   const memo = deps.memos.read(id)?.markdown ?? null;
   const todos = todoBriefs(deps, id);
-  const recent = listSessions(deps.db, deps.live(), { projectId: id }).slice(0, RECENT_SESSIONS).map(sessionBrief);
+  const recent = listSessions(deps.db, deps.live(), { projectId: id, deviceId: deps.deviceId }).slice(0, RECENT_SESSIONS).map(sessionBrief);
   const artifacts = listArtifacts(deps.db, { projectId: id })
     .map((a) => ({ id: a.id, url: a.url, title: a.title, favicon: a.favicon, last_published_at: a.lastPublishedAt, version_count: a.versionCount }));
   return { id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved, last_activity_at: p.lastActivityAt, open_todo_count: p.openTodoCount, memo, todos, recent_sessions: recent, artifacts };
@@ -195,7 +195,7 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
 
 export function listSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const scope = projectScope(deps, ctx, args);
-  let list = listSessions(deps.db, deps.live(), { projectId: scope === undefined ? str(args.project_id) : (scope ?? undefined) });
+  let list = listSessions(deps.db, deps.live(), { projectId: scope === undefined ? str(args.project_id) : (scope ?? undefined), deviceId: deps.deviceId });
   // プロジェクトに属していないセッションの URL では、そのセッション自身だけを見せる。
   if (scope === null) list = list.filter((s) => s.id === ctx.sessionId);
   const running = bool(args.running);
@@ -213,7 +213,7 @@ export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Recor
   const runningIds = new Set(deps.live().map((l) => l.sessionId));
   const r = searchSessions(deps.db, { q, projectId: scope ?? str(args.project_id), since: num(args.since), until: num(args.until), file: str(args.file), limit: num(args.limit) }, runningIds);
   const hits = r.hits.map((h) => {
-    const s = getSession(deps.db, deps.live(), h.sessionId);
+    const s = getSession(deps.db, deps.live(), h.sessionId, { deviceId: deps.deviceId });
     return {
       session_id: h.sessionId,
       title: s?.summary?.title ?? s?.name ?? null,
@@ -264,7 +264,7 @@ export function setSessionSummaryTool(deps: ToolDeps, ctx: ToolContext, args: Re
     next_steps: JSON.stringify(strs(args.next_steps) ?? []),
     source: 'in_session', source_id: null, source_model: null, based_on_turns: turns,
   }, deps.deviceId, 'session_id');
-  deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id)! });
+  deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId })! });
   return { ok: true, session_id: id };
 }
 
@@ -273,7 +273,7 @@ export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Recor
   requireSession(deps, id);
   const row = deps.db.prepare('select * from sessions where id = ?').get(id) as Record<string, unknown>;
   upsertShared(deps.db, 'sessions', { ...row, memo: typeof args.text === 'string' ? args.text : '' }, deps.deviceId);
-  deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id)! });
+  deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId })! });
   return { ok: true, session_id: id };
 }
 

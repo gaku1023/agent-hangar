@@ -34,6 +34,9 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.kill', runId: run.id })}><Icon name="stop" />停止</button>}
         <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.resume', id })}><Icon name="resume" />再開</button>
         <button className="btn" disabled={!props.canFork} onClick={() => emit({ type: 'session.fork', id })}><Icon name="fork" />フォーク</button>
+        {/* 本文が他端末にあるときと、相手の heartbeat が途絶えたとき（Ruling 14）の逃げ道。
+            出す条件は canResumeHere 単独にする。lock の有無で枝分かれさせると、途絶えた側が行き止まりになる。 */}
+        {props.canResumeHere && <button className="btn" onClick={() => emit({ type: 'session.resumeHere', id })}><Icon name="resumeHere" />この PC で再開</button>}
         <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}><Icon name="openEditor" />VS Code で開く</button>
       </div>
       <div className="mono faint" style={{ display: 'flex', gap: 16, margin: '4px 0 8px', flexWrap: 'wrap' }}>
@@ -57,6 +60,11 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {props.prUrl && <a href={props.prUrl} target="_blank" rel="noreferrer">PR</a>}
         <span>開始 {props.started}</span><span>最終 {props.lastActivity}</span>
         {run && <span>run {run.kind} {run.started}</span>}
+        {/* ロックの文言は presenter が lock.label に組み立てている（「<端末名> で実行中」「<端末名> が応答がありません」）。
+            View は色だけを変え、最終確認の時刻を添えてどれだけ途絶えているかを見せる。 */}
+        {props.lock && <span className={props.lock.stale ? 'warn' : 'lock'}>{props.lock.label}</span>}
+        {props.lock && <span>最終確認 {props.lock.heartbeat}</span>}
+        {props.remoteOnly && <span>本文は他の端末にあります</span>}
         {!props.hasTranscript && <span>本文がありません</span>}
       </div>
     </>
