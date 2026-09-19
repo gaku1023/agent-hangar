@@ -396,6 +396,13 @@ export function createApp(deps: AppDeps): Hono {
       if (typeof v !== 'boolean') return c.json({ error: 'allowExternalSummarizer は true か false です' }, 400);
       patch.allowExternalSummarizer = v;
     }
+    // Claude Code 設定の同期の入り切り。UI のチェックはこの項目だけを送る。
+    // ここが無いと patch が空になり、切り替えが「更新できる設定が含まれていません」で弾かれる。
+    if ('syncClaudeConfig' in body) {
+      const v = body.syncClaudeConfig;
+      if (typeof v !== 'boolean') return c.json({ error: 'syncClaudeConfig は true か false です' }, 400);
+      patch.syncClaudeConfig = v;
+    }
     if (Object.keys(patch).length === 0) return c.json({ error: '更新できる設定が含まれていません' }, 400);
     // 要約器には会話の本文が送られる。宛先は既定でループバックだけにし、明示の許しがあるときだけ外へ出す。
     // 許しと宛先は同じ要求で見る。片方ずつ変えて素通りする隙間を作らない。

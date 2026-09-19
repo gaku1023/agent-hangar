@@ -805,3 +805,58 @@ describe('設定の変更でロックを消さない', () => {
     }
   });
 });
+
+describe('設定の往復', () => {
+  const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+  it('SettingsDto の項目はすべて UI から往復できる', async () => {
+    // 受け口に 1 つでも項目が足りないと、UI の操作は 400 で弾かれ、その機能が丸ごと死ぬ。
+    // 実物の確認では syncClaudeConfig がそれで、Claude Code 設定の同期を UI から入れられなかった。
+    const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws3-'));
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cd-'));
+    try {
+      // 1 項目ずつ送って、応答と GET の両方に載ることを見る。UI は 1 項目だけの patch を送る。
+      const cases: [keyof SettingsDto, unknown][] = [
+        ['workspaceRoot', ws2],
+        ['claudeDir', dir2],
+        ['tmuxPath', '/opt/homebrew/bin/tmux'],
+        ['terminalApp', 'iterm'],
+        ['codePath', '/usr/local/bin/code'],
+        ['lmStudioUrl', 'http://127.0.0.1:9999'],
+        ['lmStudioModel', 'gemma-3'],
+        ['summaryFallback', false],
+        ['summaryHourlyCap', 7],
+        ['allowExternalSummarizer', true],
+        ['syncClaudeConfig', true],
+      ];
+      for (const [key, value] of cases) {
+        const r = await patch({ [key]: value });
+        expect([key, r.status]).toEqual([key, 200]);
+        expect([key, (await r.json())[key]]).toEqual([key, value]);
+        expect([key, (await json(await get('/api/settings'))).body[key]]).toEqual([key, value]);
+      }
+      // 受け口の項目が DTO の項目とそろっていることを、抜けが出たら落ちる形で見る。
+      const dto = (await json(await get('/api/settings'))).body as SettingsDto;
+      expect(cases.map(([k]) => k).sort()).toEqual(Object.keys(dto).sort());
+    } finally {
+      fs.rmSync(ws2, { recursive: true, force: true });
+      fs.rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it('Claude Code 設定の同期は、入れて、切って、また入れられる', async () => {
+    // UI のチェックは settings.update の patch を 1 つ送るだけである。
+    for (const want of [true, false, true]) {
+      const r = await patch({ syncClaudeConfig: want });
+      expect(r.status).toBe(200);
+      expect((await r.json()).syncClaudeConfig).toBe(want);
+      expect((await json(await get('/api/bootstrap'))).body.settings.syncClaudeConfig).toBe(want);
+    }
+  });
+
+  it('真偽値でない syncClaudeConfig は 400 で断る', async () => {
+    const r = await patch({ syncClaudeConfig: 'yes' });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toBe('syncClaudeConfig は true か false です');
+  });
+});
