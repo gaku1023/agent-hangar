@@ -49,9 +49,10 @@ export type ConfigFile = { rel: string; abs: string; size: number; mtime: number
  * statusLine のスクリプトはここに入らないので、listConfigFiles が別に見る。
  */
 export function isConfigPath(rel: string): boolean {
-  if (!isSafeRelPath(rel) || OURS_RE.test(rel)) return false;
+  if (!isSafeRelPath(rel)) return false;
   if (EXCLUDE_FILES.has(path.posix.basename(rel))) return false;
-  if (rel.split('/').some((seg) => EXCLUDE_DIRS.has(seg))) return false;
+  // 段ごとに見る。`x.md.conflict-Mac-.../inner.md` のように、写しの名前のディレクトリの中も対象に戻さない。
+  if (rel.split('/').some((seg) => EXCLUDE_DIRS.has(seg) || OURS_RE.test(seg))) return false;
   if (ROOT_FILES.includes(rel)) return true;
   if (TREES.some((t) => rel.startsWith(`${t}/`))) return true;
   return /^projects\/[^/]+\/memory\/.+/.test(rel);
@@ -107,7 +108,7 @@ export function listConfigFiles(claudeDir: string, homeDir: string = os.homedir(
     if (st.isSymbolicLink() || !st.isFile() || st.size > CONFIG_MAX_BYTES) return;
     const rel = toPosix(path.relative(claudeDir, abs));
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !isSafeRelPath(rel)) return;
-    if (OURS_RE.test(rel) || EXCLUDE_FILES.has(path.posix.basename(rel))) return;
+    if (rel.split('/').some((seg) => OURS_RE.test(seg)) || EXCLUDE_FILES.has(path.posix.basename(rel))) return;
     found.set(rel, { rel, abs, size: st.size, mtime: Math.floor(st.mtimeMs) });
   };
   const walk = (dir: string): void => {
@@ -116,7 +117,7 @@ export function listConfigFiles(claudeDir: string, homeDir: string = os.homedir(
     for (const e of entries) {
       if (e.isSymbolicLink()) continue;
       const abs = path.join(dir, e.name);
-      if (e.isDirectory()) { if (!EXCLUDE_DIRS.has(e.name)) walk(abs); }
+      if (e.isDirectory()) { if (!EXCLUDE_DIRS.has(e.name) && !OURS_RE.test(e.name)) walk(abs); }
       else add(abs);
     }
   };
@@ -131,9 +132,31 @@ export function listConfigFiles(claudeDir: string, homeDir: string = os.homedir(
   return [...found.values()].sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
 }
 
-/** ホームの絶対パスを目印に置き換える。$HOME の文字列はそのまま残す。 */
-export function normalizeHome(text: string, home: string): string { return text.split(home).join(HOME_MARKER); }
-export function denormalizeHome(text: string, home: string): string { return text.split(HOME_MARKER).join(home); }
+const MARKER_HEAD = '__HANGAR_HOME';
+const MARKER_ESC = `${MARKER_HEAD}E`;
+const reEscape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * ホームの絶対パスを目印に置き換える。$HOME の文字列はそのまま残す。
+ *
+ * 往復が閉じるように 2 つの細工をしている（レビューの中 2）。
+ *
+ * 1. 中身にもともとある `__HANGAR_HOME` を `__HANGAR_HOMEE` に逃がしてから置き換える。
+ *    逃がさないと、`__HANGAR_HOME__` と書いた行が相手の端末でホームの絶対パスに化ける。
+ *    このプロジェクト自身の memory はこの文字列を本文に含む。
+ * 2. ホームのパスの後ろが、名前を続けられない文字か行末のときだけ置き換える。
+ *    `/Users/me` と `/Users/meeting` を切り違えない。
+ */
+export function normalizeHome(text: string, home: string): string {
+  const escaped = text.split(MARKER_HEAD).join(MARKER_ESC);
+  if (!home) return escaped;
+  return escaped.replace(new RegExp(`${reEscape(home)}(?=$|[^A-Za-z0-9_.\\-])`, 'g'), HOME_MARKER);
+}
+
+/** normalizeHome の逆。目印はホームに、逃がした分はもとの文字列に戻す。 */
+export function denormalizeHome(text: string, home: string): string {
+  return text.replace(new RegExp(`${reEscape(MARKER_HEAD)}(E|__)`, 'g'), (_m, tail: string) => (tail === '__' ? home : MARKER_HEAD));
+}
 
 /** UTF-8 のテキストとして扱えるか。NUL を含むものと往復できないものは扱わない。 */
 export function isTextBuffer(buf: Buffer): boolean {
@@ -142,12 +165,57 @@ export function isTextBuffer(buf: Buffer): boolean {
 }
 
 /**
+ * 枠そのものはリンクでも構わない（`~/.claude` を別の場所に張っている運用がある）。
+ * 解いた実体を枠にして、その中から出ないことを見る。
+ */
+function fenceOf(root: string): string {
+  try { return fs.realpathSync(root); } catch { return path.resolve(root); }
+}
+
+/**
+ * root の下の相対パスを、**段ごとに lstat しながら**絶対パスに直す。
+ * 途中のどの段がシンボリックリンクでも投げる。
+ *
+ * 利用者の決定 12 は「シンボリックリンクは対象から外す」である。
+ * 上げる側は歩きながらリンクを飛ばしていたが、降ろす側は末端しか見ていなかった。
+ * `~/.claude/skills` が別の場所へのリンクだと、`path.join` はその先を指し、
+ * `mkdirSync({ recursive: true })` も `rename` もリンクを辿って ~/.claude の外に書く。
+ *
+ * 塞ぎ方を「段ごとの lstat」にしたのは、外に出たかどうかを後から判定するのではなく、
+ * **リンクを 1 度も辿らせない**方が意図に近いからである（決定 12 の言葉どおりである）。
+ * 足りない段は recursive を使わず 1 段ずつ自分で作るので、作る途中でリンクを踏むこともない。
+ * 最後に親の realpath が枠の中にあることも見て、競合状態の取りこぼしに備える
+ * （`config/claudeJson.ts` と `projects/promote.ts` が同じ作法である）。
+ */
+function resolveUnder(root: string, rel: string, o: { create?: boolean } = {}): string {
+  const segs = rel.split('/');
+  if (segs.length === 0 || segs.some((s) => s === '' || s === '.' || s === '..')) throw new Error('相対パスの形が不正です');
+  const fence = fenceOf(root);
+  let cur = fence;
+  for (let i = 0; i < segs.length; i++) {
+    cur = path.join(cur, segs[i]!);
+    const here = segs.slice(0, i + 1).join('/');
+    let st: fs.Stats | null;
+    try { st = fs.lstatSync(cur); } catch { st = null; }
+    if (st?.isSymbolicLink()) throw new Error(`${here} がシンボリックリンクなので、設定の入れ物の外に出ます`);
+    if (i === segs.length - 1) break;
+    if (st && !st.isDirectory()) throw new Error(`${here} がディレクトリではありません`);
+    if (!st && o.create) fs.mkdirSync(cur, { mode: 0o700 });
+  }
+  const parent = path.dirname(cur);
+  let real: string;
+  try { real = fs.realpathSync(parent); } catch { real = parent; }
+  if (real !== fence && !real.startsWith(fence + path.sep)) throw new Error(`${rel} は設定の入れ物の外を指しています`);
+  return cur;
+}
+
+/**
  * 同じ入れ物に一時ファイルを作ってから rename で被せる。
  * 直に書くと、途中で落ちたときに切れた settings.json が ~/.claude に残り、Claude Code がそれを読む。
  * mode を渡すと作るときの権限に使う（上書きでは元のファイルの権限をそのまま引き継ぐ）。
+ * 呼び手は必ず resolveUnder で解いた abs を渡す。ここでは入れ物を作らない。
  */
 function writeAtomically(abs: string, content: Buffer, mode: number): void {
-  fs.mkdirSync(path.dirname(abs), { recursive: true });
   const tmp = `${abs}.hangar-tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
   try {
     const fd = fs.openSync(tmp, 'wx', mode);
@@ -169,7 +237,6 @@ function writeAtomically(abs: string, content: Buffer, mode: number): void {
  * `wx` で開くので、確かめてから書くまでの隙間で割り込まれることがない。
  */
 function writeNewFile(abs: string, content: Buffer, mode: number): boolean {
-  fs.mkdirSync(path.dirname(abs), { recursive: true });
   let fd: number;
   try {
     fd = fs.openSync(abs, 'wx', mode);
@@ -195,6 +262,19 @@ function writeNewFile(abs: string, content: Buffer, mode: number): boolean {
  * 当たったら連番を足す。写しが写しを潰したら、残す意味が無くなる。
  */
 function writeConflictCopy(baseAbs: string, label: string, stamp: string, content: Buffer, mode: number): string {
+  const dir = path.dirname(baseAbs);
+  const prefix = `${path.basename(baseAbs)}.conflict-${label}-`;
+  // 同じ中身の写しが既にあるなら作らない。
+  // 手元が勝った競合の後の push が失敗し続けると、取り込みのたびに同じ写しが積もる（レビューの中 4）。
+  let names: string[] = [];
+  try { names = fs.readdirSync(dir); } catch { /* 読めなければ作る側に倒す */ }
+  for (const n of names) {
+    if (!n.startsWith(prefix)) continue;
+    const cand = path.join(dir, n);
+    try {
+      if (fs.lstatSync(cand).isFile() && fs.readFileSync(cand).equals(content)) return cand;
+    } catch { /* 読めないものは比べない */ }
+  }
   const head = `${baseAbs}.conflict-${label}-${stamp}`;
   for (let i = 1; i <= MAX_CONFLICT_TRIES; i++) {
     const cand = i === 1 ? head : `${head}-${i}`;
@@ -203,10 +283,14 @@ function writeConflictCopy(baseAbs: string, label: string, stamp: string, conten
   throw new Error('競合の写しを置く名前が空いていません');
 }
 
-/** 既存の権限を引き継ぐ。無ければ、shebang のあるものだけ実行できる形にする。 */
-function modeFor(abs: string, content: Buffer): number {
-  try { return fs.statSync(abs).mode & 0o777; } catch { /* 無ければ既定に落ちる */ }
-  return content.subarray(0, 2).toString() === '#!' ? 0o700 : 0o600;
+/**
+ * 既存の権限を引き継ぐ。
+ * 無ければ 0600 で置く。相手から届いただけのファイルに実行の許しは付けない（レビューの中 3）。
+ * 実行できる形にするのは、`settings.json` の statusLine がそれを指したときだけで、取り込みの最後に行う。
+ */
+function modeFor(abs: string, _content: Buffer): number {
+  try { return fs.lstatSync(abs).mode & 0o777; } catch { /* 無ければ既定に落ちる */ }
+  return 0o600;
 }
 
 /**
@@ -214,24 +298,46 @@ function modeFor(abs: string, content: Buffer): number {
  * 置き場は ~/.agent-hangar/backups/claude-config/<yyyyMMdd-HHmmss>/<相対パス> である。
  * 既存ファイルが無ければ控えは要らないので何もせず null を返す。
  * 写せなければ throw する。呼び手はそのファイルの書き戻しをやめ、次の pull に回す。
+ *
+ * 写す元も resolveUnder で解く。途中の段がリンクだと、~/.claude の外のファイルを控えに取ってしまう。
+ * 同じ stamp に同じ相対パスの控えが既にあるときは、`-2`、`-3` と連番を足して**先にある控えを潰さない**。
+ * 秒の分解能しか無いので、同じ秒に 2 度取り込むと利用者の元の中身が失われていた（レビューの中 1）。
  */
 export function backupBeforeWrite(o: { home: string; claudeDir: string; rel: string; stamp: string }): string | null {
-  const abs = path.join(o.claudeDir, ...o.rel.split('/'));
+  const abs = resolveUnder(o.claudeDir, o.rel);
   let st: fs.Stats;
   try { st = fs.lstatSync(abs); } catch { return null; }
   if (!st.isFile()) return null;
-  const dest = path.join(backupsRoot(o.home), BACKUP_SUBDIR, o.stamp, ...o.rel.split('/'));
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  // 控えも一時ファイルと rename で置く。途中までの控えは履歴として当てにならない。
-  const tmp = `${dest}.hangar-tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
-  try {
-    fs.copyFileSync(abs, tmp, fs.constants.COPYFILE_EXCL);
-    fs.renameSync(tmp, dest);
-  } catch (e) {
-    try { fs.rmSync(tmp, { force: true }); } catch { /* 残っても控えの置き場の中である */ }
-    throw e;
+  const stampRoot = path.join(backupsRoot(o.home), BACKUP_SUBDIR, o.stamp);
+  fs.mkdirSync(stampRoot, { recursive: true });
+  const head = resolveUnder(stampRoot, o.rel, { create: true });
+  for (let i = 1; i <= MAX_CONFLICT_TRIES; i++) {
+    const dest = i === 1 ? head : `${head}-${i}`;
+    // 控えも一時ファイルと rename で置く。途中までの控えは履歴として当てにならない。
+    const tmp = `${dest}.hangar-tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
+    try {
+      fs.copyFileSync(abs, tmp, fs.constants.COPYFILE_EXCL);
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* 残っても控えの置き場の中である */ }
+      throw e;
+    }
+    try {
+      // 空いている名前を `wx` で押さえてから被せる。rename だけだと先にある控えを潰す。
+      fs.closeSync(fs.openSync(dest, 'wx', 0o600));
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* 同上 */ }
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw e;
+    }
+    try {
+      fs.renameSync(tmp, dest);
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* 同上 */ }
+      throw e;
+    }
+    return dest;
   }
-  return dest;
+  throw new Error('控えを置く名前が空いていません');
 }
 
 export type ClaudeConfigDeps = {
@@ -265,6 +371,8 @@ export class ClaudeConfigSync {
   private confirmed(): boolean { return this.deps.state.get('configPullConfirmed') === '1'; }
 
   confirm(): void { this.deps.state.set('configPullConfirmed', true); }
+  /** 自動の書き戻しをやめる。一度押したら二度と止められない形にしない（決定 2 の危険 E1）。 */
+  unconfirm(): void { this.deps.state.set('configPullConfirmed', null); }
   pendingRemote(): FileEntry[] { return this.lastRemote; }
 
   start(): void {
@@ -319,6 +427,9 @@ export class ClaudeConfigSync {
     for (const f of listConfigFiles(this.deps.claudeDir, this.homeDir())) {
       try {
         const content = this.normalizedBytes(fs.readFileSync(f.abs));
+        // 目印は元のパスより長いので、置き換えた後に上限を超えることがある。
+        // 上げてしまうと、相手の端末では毎回断られて直らない（レビューの軽微 2）。
+        if (content.length > CONFIG_MAX_BYTES) throw new Error('目印に置き換えると上限を超えます');
         const sha = sha256Hex(content);
         const key = configKey(f.rel);
         if (this.syncedSha(key) === sha) continue;
@@ -360,7 +471,11 @@ export class ClaudeConfigSync {
 
   /** 相手の 1 件を、手元の状態と前回の同期と突き合わせて分類する。 */
   private decide(e: FileEntry): Decision {
-    const abs = path.join(this.deps.claudeDir, ...e.path.split('/'));
+    let abs: string;
+    // 読むところから枠の中に閉じ込める。途中の段がリンクだと、~/.claude の外の中身を読んで比べてしまう。
+    try { abs = resolveUnder(this.deps.claudeDir, e.path); } catch (err) {
+      return { action: 'skip', localMtime: null, remoteNewer: false, blocked: errorMessage(err) };
+    }
     let st: fs.Stats | null;
     try { st = fs.lstatSync(abs); } catch { st = null; }
     // 通常ファイル以外を rename で被せると、シンボリックリンクやディレクトリを黙って壊す。
@@ -415,9 +530,8 @@ export class ClaudeConfigSync {
   }
 
   /** 控えを取ってから書く。控えが取れなければ throw して、呼び手にそのファイルの書き戻しをやめさせる。 */
-  private backupAndWrite(rel: string, content: Buffer, stamp: string): boolean {
+  private backupAndWrite(rel: string, abs: string, content: Buffer, stamp: string): boolean {
     const kept = backupBeforeWrite({ home: this.deps.home, claudeDir: this.deps.claudeDir, rel, stamp });
-    const abs = path.join(this.deps.claudeDir, ...rel.split('/'));
     writeAtomically(abs, content, modeFor(abs, content));
     return kept !== null;
   }
@@ -445,6 +559,7 @@ export class ClaudeConfigSync {
     let conflicts = 0;
     let backedUp = 0;
     let localWon = false;
+    const written = new Set<string>();
     // この回の控えの置き場。1 回の取り込みを 1 つのディレクトリにまとめ、何を書き換えたかがひとまとまりで残るようにする。
     const runStamp = timestampLabel(this.now());
     for (const e of this.lastRemote) {
@@ -457,7 +572,8 @@ export class ClaudeConfigSync {
         // 平文の指紋で突き合わせる。鍵は全端末で共通なので、復号できたという事実だけでは差し替えを見抜けない。
         if (sha256Hex(raw) !== e.sha256) throw new Error('SHA-256 が一致しません');
         const content = isTextBuffer(raw) ? Buffer.from(denormalizeHome(raw.toString('utf8'), this.homeDir()), 'utf8') : raw;
-        const abs = path.join(this.deps.claudeDir, ...e.path.split('/'));
+        // 書く直前にもう一度解く。足りない段はここで 1 段ずつ作る（recursive はリンクを辿るので使わない）。
+        const abs = resolveUnder(this.deps.claudeDir, e.path, { create: true });
         if (d.action === 'conflict' && !d.remoteNewer) {
           // 手元の方が新しい。相手の分を隣に置くだけで、手元は触らない。控えも要らない。
           const other = writeConflictCopy(abs, safeDeviceLabel(this.deviceName(e.deviceId)), runStamp, content, 0o600);
@@ -470,7 +586,8 @@ export class ClaudeConfigSync {
           if (r.kept) backedUp++;
           conflicts++;
           this.deps.onToast('info', `${e.path} が競合しました。手元の内容を ${path.basename(r.keep)} に残しました`);
-        } else if (this.backupAndWrite(e.path, content, runStamp)) backedUp++;
+        } else if (this.backupAndWrite(e.path, abs, content, runStamp)) backedUp++;
+        written.add(e.path);
         this.remember(e, e.sha256);
         applied++;
       } catch (err) {
@@ -482,9 +599,27 @@ export class ClaudeConfigSync {
       this.deps.onToast('info', `上書きした ${backedUp} 件の控えを ~/.agent-hangar/backups/${BACKUP_SUBDIR}/${runStamp}/ に置きました`);
       this.pruneBackups();
     }
+    this.markStatusLineExecutable(written);
     // 手元が勝った競合は、相手に追いつかせるためにすぐ push する。
     if (localWon) await this.pushChanged();
     return { applied, conflicts, backedUp };
+  }
+
+  /**
+   * この回に書いたものが statusLine の指し先なら、最後に実行の許しを付ける。
+   * 相手から届いただけのファイルは 0600 で置くので（レビューの中 3）、
+   * 同じ回に settings.json が先に届いていても後に届いていても、ここで一度だけ揃う。
+   */
+  private markStatusLineExecutable(written: Set<string>): void {
+    const sl = statusLineRel(this.deps.claudeDir, this.homeDir());
+    if (!sl || !written.has(sl)) return;
+    try {
+      const abs = resolveUnder(this.deps.claudeDir, sl);
+      const mode = fs.lstatSync(abs).mode & 0o777;
+      if ((mode & 0o100) === 0) fs.chmodSync(abs, mode | 0o100);
+    } catch (e) {
+      this.deps.onToast('error', `${sl} に実行の許しを付けられません: ${errorMessage(e)}`);
+    }
   }
 
   /**

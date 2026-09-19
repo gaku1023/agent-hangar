@@ -9,6 +9,7 @@ import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import type { CloudClient } from './client.ts';
 import { ClaudeConfigSync, CONFIG_MAX_BYTES, denormalizeHome, HOME_MARKER, isConfigPath, isTextBuffer, listConfigFiles, normalizeHome, type ClaudeConfigDeps } from './claudeConfig.ts';
 import { safeDeviceLabel, timestampLabel } from './copy.ts';
 import { decryptBuffer, deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
@@ -102,6 +103,13 @@ describe('listConfigFiles', () => {
     expect(isConfigPath(`memory/x.md.conflict-${safeDeviceLabel('さとうの Mac')}-20240101-000000-2`)).toBe(false);
   });
 
+  it('競合の写しの名前を持つディレクトリの中身も対象にしない', () => {
+    write('memory/x.md', 'local\n');
+    write('memory/x.md.conflict-Mac-20240101-000000/inner.md', 'inner\n');
+    expect(listConfigFiles(claudeDir).map((f) => f.rel)).toEqual(['memory/x.md']);
+    expect(isConfigPath('memory/x.md.conflict-Mac-20240101-000000/inner.md')).toBe(false);
+  });
+
   it('statusLine が ~/.claude の外を指していれば拾わない', () => {
     write('settings.json', JSON.stringify({ statusLine: { command: '/usr/local/bin/statusline.sh' } }));
     expect(listConfigFiles(claudeDir).map((f) => f.rel)).toEqual(['settings.json']);
@@ -115,6 +123,21 @@ describe('ホームの書き換え', () => {
     expect(n).toBe(`cmd ${HOME_MARKER}/.claude/x.sh\nalt $HOME/.claude/x.sh\n`);
     expect(denormalizeHome(n, '/home/you')).toBe('cmd /home/you/.claude/x.sh\nalt $HOME/.claude/x.sh\n');
     expect(denormalizeHome(n, HOME_DIR)).toBe(text);
+  });
+
+  it('中身にある目印そのものは化けずに往復する', () => {
+    const text = `メモ: 目印そのもの ${HOME_MARKER} を書いた行と /Users/me/work\n`;
+    const n = normalizeHome(text, HOME_DIR);
+    expect(denormalizeHome(n, HOME_DIR)).toBe(text);
+    // 相手の端末でも、目印だった文字列はホームのパスに化けない。
+    expect(denormalizeHome(n, '/home/you')).toBe(`メモ: 目印そのもの ${HOME_MARKER} を書いた行と /home/you/work\n`);
+  });
+
+  it('ホームのパスが別のパスの接頭辞でも切り違えない', () => {
+    const text = 'see /Users/meeting/notes.md and /Users/me/work and "/Users/me"\n';
+    const n = normalizeHome(text, HOME_DIR);
+    expect(n).toBe(`see /Users/meeting/notes.md and ${HOME_MARKER}/work and "${HOME_MARKER}"\n`);
+    expect(denormalizeHome(n, '/home/you')).toBe('see /Users/meeting/notes.md and /home/you/work and "/home/you"\n');
   });
 
   it('isTextBuffer は NUL を含むものを弾く', () => {
@@ -142,6 +165,16 @@ describe('push', () => {
     const c = make();
     expect(await c.pushChanged()).toBe(0);
     expect(cloud.files.size).toBe(0);
+    c.stop();
+  });
+
+  it('目印に替えて上限を超えるものは上げない', async () => {
+    // /Users/me（9 字）が __HANGAR_HOME__（15 字）に伸びる分で、1MB を跨ぐ。
+    write('memory/many.md', '/Users/me/'.repeat(100_000));
+    const c = make();
+    expect(await c.pushChanged()).toBe(0);
+    expect(cloud.files.size).toBe(0);
+    expect(toasts.some((t) => t.level === 'error' && t.message.includes('上限'))).toBe(true);
     c.stop();
   });
 
@@ -289,6 +322,49 @@ describe('preview と applyPull', () => {
     c.stop();
   });
 
+  it('同じ秒に 2 度取り込んでも先の控えを潰さない', async () => {
+    write('CLAUDE.md', '元の内容\n', NOW - 60_000);
+    const c = make();
+    c.confirm();
+    const e1 = await remotePut('CLAUDE.md', '1 回目の相手\n', { mtime: NOW });
+    expect(await c.applyPull([e1])).toMatchObject({ backedUp: 1 });
+    const e2 = await remotePut('CLAUDE.md', '2 回目の相手\n', { mtime: NOW });
+    expect(await c.applyPull([e2])).toMatchObject({ backedUp: 1 });
+    expect(fs.readFileSync(path.join(claudeDir, 'CLAUDE.md'), 'utf8')).toBe('2 回目の相手\n');
+    // 同じ秒なので世代は 1 つだが、利用者の元の内容も 1 回目の内容も残る。
+    expect(fs.readdirSync(backupDir())).toEqual([STAMP]);
+    expect(fs.readFileSync(path.join(backupDir(), STAMP, 'CLAUDE.md'), 'utf8')).toBe('元の内容\n');
+    expect(fs.readFileSync(path.join(backupDir(), STAMP, 'CLAUDE.md-2'), 'utf8')).toBe('1 回目の相手\n');
+    c.stop();
+  });
+
+  it('push が通らない間も同じ写しを積み上げない', async () => {
+    const offline: CloudClient = {
+      health: () => cloud.health(),
+      pushChanges: (c) => cloud.pushChanges(c),
+      pullChanges: (s, l) => cloud.pullChanges(s, l),
+      snapshot: (a, l) => cloud.snapshot(a, l),
+      putFile: async () => { throw new Error('圏外です'); },
+      getFile: (k) => cloud.getFile(k),
+      listFiles: (s, l) => cloud.listFiles(s, l),
+      deleteFile: (k) => cloud.deleteFile(k),
+    };
+    const e = await remotePut('memory/x.md', 'remote\n', { mtime: NOW - 60_000 });
+    write('memory/x.md', 'local\n', NOW);
+    seedSynced('memory/x.md', 'base\n', NOW - 120_000);
+    let t = NOW;
+    const c = make({ client: offline, now: () => t });
+    c.confirm();
+    for (let i = 0; i < 3; i++) {
+      t = NOW + i * 60_000;
+      expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 1, backedUp: 0 });
+    }
+    expect(fs.readdirSync(path.join(claudeDir, 'memory')).filter((f) => f.includes('.conflict-')))
+      .toEqual([`x.md.conflict-mini-${STAMP}`]);
+    expect(fs.readFileSync(path.join(claudeDir, 'memory/x.md'), 'utf8')).toBe('local\n');
+    c.stop();
+  });
+
   it('控えの世代は上限までで、古いものから消える', async () => {
     let t = NOW;
     const c = make({ now: () => t, backupGenerations: 2 });
@@ -351,6 +427,35 @@ describe('受け取りの守り', () => {
     c.stop();
   });
 
+  it('途中のディレクトリがリンクでも ~/.claude の外に作らない', async () => {
+    // レビューの D1。claudeDir/skills を外へのリンクにして、相手から skills/evil/SKILL.md を降ろす。
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
+    fs.symlinkSync(outside, path.join(claudeDir, 'skills'));
+    const e = await remotePut('skills/evil/SKILL.md', '外に書けた\n');
+    const c = make();
+    c.confirm();
+    expect(await c.applyPull([e])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(fs.existsSync(path.join(outside, 'evil'))).toBe(false);
+    expect(toasts.some((t) => t.level === 'error')).toBe(true);
+    c.stop();
+  });
+
+  it('途中のディレクトリがリンクでも ~/.claude の外の既存ファイルを上書きしない', async () => {
+    // レビューの D2。claudeDir/memory を外へのリンクにして、その先にある既存ファイルを狙う。
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
+    fs.writeFileSync(path.join(outside, 'x.md'), '外の大事な内容\n');
+    fs.symlinkSync(outside, path.join(claudeDir, 'memory'));
+    const e = await remotePut('memory/x.md', '相手の内容\n', { mtime: NOW });
+    const c = make();
+    c.confirm();
+    expect(await c.applyPull([e])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(fs.readFileSync(path.join(outside, 'x.md'), 'utf8')).toBe('外の大事な内容\n');
+    // 外のファイルを控えに取ることもしない。
+    expect(fs.existsSync(backupDir())).toBe(false);
+    expect(toasts.some((t) => t.level === 'error')).toBe(true);
+    c.stop();
+  });
+
   it('手元がシンボリックリンクなら書き戻さない', async () => {
     write('real.md', 'real\n');
     fs.mkdirSync(path.join(claudeDir, 'memory'), { recursive: true });
@@ -384,6 +489,27 @@ describe('受け取りの守り', () => {
     const abs = path.join(claudeDir, 'statusline.sh');
     expect(fs.readFileSync(abs, 'utf8')).toBe('#!/bin/sh\necho hi\n');
     expect(fs.statSync(abs).mode & 0o100).toBe(0o100);
+    c.stop();
+  });
+
+  it('statusLine が指していないスクリプトには実行の許しを付けない', async () => {
+    const e = await remotePut('helper.sh', '#!/bin/sh\necho hi\n');
+    const c = make();
+    c.confirm();
+    expect(await c.applyPull([e])).toMatchObject({ applied: 1 });
+    expect(fs.statSync(path.join(claudeDir, 'helper.sh')).mode & 0o111).toBe(0);
+    c.stop();
+  });
+
+  it('確認は取り消せる', async () => {
+    const e = await remotePut('CLAUDE.md', '# remote\n');
+    const c = make();
+    c.confirm();
+    expect(c.preview().confirmed).toBe(true);
+    c.unconfirm();
+    expect(c.preview().confirmed).toBe(false);
+    expect(await c.applyPull([e])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(fs.existsSync(path.join(claudeDir, 'CLAUDE.md'))).toBe(false);
     c.stop();
   });
 
