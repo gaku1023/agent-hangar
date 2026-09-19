@@ -19,8 +19,8 @@ import { checkProjectRoots } from './projects/registry.ts';
 import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
-import { copyFixtureClaudeDir, SESSION_ALPHA } from '../test/fixtures.ts';
-import { checkRoots, CLOSE_SUMMARY_WAIT_MS, CLOSE_UPLOAD_WAIT_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, RUN_ENDED_SUMMARY_OPTS, startServer, stopUploader, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
+import { checkRoots, CLOSE_SUMMARY_WAIT_MS, CLOSE_UPLOAD_WAIT_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, RUN_ENDED_SUMMARY_OPTS, startServer, stopUploader, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -709,5 +709,74 @@ describe('要約の契機', () => {
     } finally {
       db.close();
     }
+  });
+});
+
+/**
+ * 索引は「変化したファイル」しか知らせないので、参加より前に索引が済んでいた本文は
+ * 取り残しの走査が無いと誰も上げない。
+ * 利用者は先に hangar を使い、後からクラウドを足すので、この入り方が普通である。
+ */
+describe('参加より前に索引が済んでいた本文の追いつき', () => {
+  /** PUT された鍵を覚えるだけの立て替えの Worker。実物のクラウドには触らない。 */
+  async function fileSink(): Promise<{ url: string; puts: string[]; close: () => Promise<void> }> {
+    const puts: string[] = [];
+    let seq = 0;
+    const srv = http.createServer((req, res) => {
+      const url = (req.url ?? '').split('?')[0] ?? '';
+      const send = (body: unknown) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+      if (req.method === 'PUT' && url.startsWith('/files/')) {
+        req.resume();
+        req.on('end', () => { puts.push(decodeURIComponent(url.slice('/files/'.length))); send({ seq: ++seq }); });
+        return;
+      }
+      req.resume();
+      if (url === '/changes' && req.method === 'POST') return send({ seq: 0, accepted: 0, skipped: 0 });
+      if (url === '/changes') return send({ changes: [], nextSeq: 0, more: false });
+      if (url === '/rows') return send({ changes: [], nextAfter: null, seq: 0 });
+      if (url === '/files') return send({ files: [], nextSeq: 0, more: false });
+      return send({ ok: true, version: 'fake' });
+    });
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const port = (srv.address() as net.AddressInfo).port;
+    return {
+      url: `http://127.0.0.1:${port}`,
+      puts,
+      close: async () => { srv.closeAllConnections?.(); await new Promise<void>((r) => srv.close(() => r())); },
+    };
+  }
+
+  it('起動の走査が、手元にあって上がっていない本文を上げる', async () => {
+    // 1 台目。クラウドはまだ無い。ここで 3 件の本文が索引される。
+    const first = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      await until(async () => {
+        const db = openDb(dbPath(home));
+        try { return (db.prepare('select count(*) c from transcript_files').get() as { c: number }).c === 3 ? true : null; } finally { db.close(); }
+      });
+    } finally {
+      await first.close();
+    }
+
+    // 後からクラウドに参加する。本文のファイルには一切触らないので、索引は何も知らせない。
+    const sink = await fileSink();
+    saveCloudConfig(home, { url: sink.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const keys = await until(async () => (sink.puts.length >= 3 ? sink.puts : null));
+      const suffixes = keys.map((k) => k.replace(/^transcripts\/[^/]+\//, '')).sort();
+      expect(suffixes).toEqual([`${SESSION_ALPHA}.jsonl.gz`, `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`, `${SESSION_OTHER}.jsonl.gz`].sort());
+      // 上げ終わったものを上げ直さない。
+      await new Promise((r) => setTimeout(r, 300));
+      expect(sink.puts.length).toBe(3);
+    } finally {
+      await s.close();
+      await sink.close();
+    }
+  });
+
+  it('走査の間隔は設定の同期と揃えてある', () => {
+    // 片方だけ直すと、また兄弟の経路が食い違う。
+    expect(UPLOAD_SWEEP_MS).toBe(60_000);
   });
 });

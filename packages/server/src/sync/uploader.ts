@@ -4,7 +4,7 @@ import path from 'node:path';
 import { PassThrough, Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
-import { isSafeRelPath, transcriptKey, type FileMetaIn } from '@agent-hangar/shared';
+import { isSafeKeyId, isSafeRelPath, transcriptKey, type FileMetaIn } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { CloudError, type CloudClient } from './client.ts';
 import { encryptStream, sha256Stream } from './crypto.ts';
@@ -21,6 +21,14 @@ export type UploaderDeps = {
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
 /** 本文の変化のたびにファイル全体を上げ直すので、窓を短くすると転送量が跳ねる。 */
 const DEBOUNCE_MS = 30_000;
+/**
+ * 取り残しの走査が 1 度に積む数。
+ * 本文は 1 件が数 MB になるので、初回の一括（フェーズ 0 の実測で gzip 後 750MB 前後）を
+ * 一気に積まず、少しずつ流す。上げる仕事は 1 本の鎖に並ぶので、同時に流れるのは常に 1 件である。
+ */
+const SWEEP_BATCH = 20;
+/** 走査で読む行数の余裕。諦めた記録で落ちる分を見越して多めに引き、上限まで詰めてから積む。 */
+const SWEEP_SCAN_MULT = 5;
 const toPosix = (p: string): string => p.split(path.sep).join('/');
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const agentIdOfKey = (key: string): string | null => /\/subagents\/agent-([0-9a-zA-Z]+)\.jsonl\.gz$/.exec(key)?.[1] ?? null;
@@ -78,6 +86,9 @@ function parseSkip(raw: string): SkipRecord | null {
   }
 }
 
+/** 取り残しの走査が引く 1 行。uuid は Claude のセッション ID（R2 の鍵に入る方）である。 */
+type SweepRow = { path: string; uuid: string; agentId: string | null; size: number };
+
 /** 流れていくバイト列の指紋を取るだけの通り道。中身は持たない。 */
 const hashTap = (h: Hash): Transform =>
   new Transform({
@@ -93,6 +104,7 @@ export class TranscriptUploader {
   private readonly pending = new Map<string, UploadTarget>();
   /** この処理系で、諦めた項目を試し直した鍵。起こし直すと空に戻る。 */
   private readonly retriedSinceBoot = new Set<string>();
+  private sweepStmt: ReturnType<Db['prepare']> | null = null;
   private timer: NodeJS.Timeout | null = null;
   private chain: Promise<unknown> = Promise.resolve();
   private stopped = false;
@@ -108,7 +120,7 @@ export class TranscriptUploader {
     this.pending.set(f.path, f);
     if (this.timer) return;
     // 窓はずらさない。書き込みが続くセッションでも、30 秒に 1 度は上がる。
-    this.timer = this.timers.setTimeout(() => { this.timer = null; void this.flushAll(); }, this.deps.debounceMs ?? DEBOUNCE_MS);
+    this.timer = this.timers.setTimeout(() => { this.timer = null; this.startFlush(); }, this.deps.debounceMs ?? DEBOUNCE_MS);
     (this.timer as { unref?: () => void }).unref?.();
   }
 
@@ -130,6 +142,59 @@ export class TranscriptUploader {
       await c.then(() => undefined, () => undefined);
       if (this.chain === c) return; // 待っている間に新しい仕事が並んだら、それも待つ。
     }
+  }
+
+  /** 誰も戻り値を待たない上げを始める。約束を捨てるので、拾い漏れた失敗で落ちないように畳んでおく。 */
+  private startFlush(): void { void this.flushAll().catch(() => {}); }
+
+  /**
+   * 取り残しの走査。
+   * 手元の台帳（transcript_files）と上げた台帳（file_sync）を突き合わせ、まだ上がっていない本文を積む。
+   * 索引は「変化したファイル」しか知らせないので、これが無いと参加より前に索引が済んでいた本文は
+   * ファイルが動くまで永久に上がらない（設定の同期の pushChanged と同じ役目である）。
+   * 戻り値は新たに積んだ件数である。
+   */
+  sweep(limit: number = SWEEP_BATCH): number {
+    if (this.stopped || limit <= 0) return 0;
+    // 止まっているあいだは外と話さない。走査で積んでも上げずに捨てるだけなので、そもそも引かない。
+    if (this.deps.isPaused()) return 0;
+    if (!isSafeKeyId(this.deps.deviceId)) return 0;
+    const rows = this.sweepStatement().all({ head: `transcripts/${this.deps.deviceId}/`, limit: limit * SWEEP_SCAN_MULT }) as SweepRow[];
+    let queued = 0;
+    for (const r of rows) {
+      if (queued >= limit) break;
+      if (this.pending.has(r.path)) continue; // 既に並んでいる。
+      const key = this.safeKey(r.uuid, r.agentId);
+      if (key === null) continue; // 鍵に使えない ID は上げようがない。走査では黙って飛ばす。
+      const rec = this.readSkip(key);
+      // 諦めた項目を毎回また積まない。窓が開くまでは引かない。
+      if (rec && !this.mayRetrySkipped(key, rec, r.size, null)) continue;
+      this.noteChanged({ path: r.path, sessionId: r.uuid, agentId: r.agentId });
+      queued++;
+    }
+    // 走査で拾ったものは、もう遅れている。デバウンスの窓を待たずに流す。
+    if (queued > 0) this.startFlush();
+    return queued;
+  }
+
+  /**
+   * 上がっていない本文を引く 1 文。
+   * file_sync に行が無いものと、索引が見た大きさより小さいものしか上げていないものを拾う。
+   * 本文は末尾に足されるだけなので、上げた大きさが索引の見た大きさ以上なら取り残しは無い。
+   * 突き合わせを大きさで先に絞っておくと、走査のたびに全部の指紋を取り直さずに済む。
+   */
+  private sweepStatement(): ReturnType<Db['prepare']> {
+    this.sweepStmt ??= this.deps.db.prepare(`
+      select t.path as path, s.provider_session_id as uuid, t.agent_id as agentId, t.size as size
+      from transcript_files t
+      join sessions s on s.id = t.session_id
+      left join file_sync fs on fs.key = (case when t.agent_id is null
+        then @head || s.provider_session_id || '.jsonl.gz'
+        else @head || s.provider_session_id || '/subagents/agent-' || t.agent_id || '.jsonl.gz' end)
+      where t.device_id is null and (fs.key is null or fs.size < t.size)
+      order by t.mtime desc
+      limit @limit`);
+    return this.sweepStmt;
   }
 
   flushAll(): Promise<void> {
@@ -186,10 +251,11 @@ export class TranscriptUploader {
    * 2. 前の失敗から 30 分たった。
    * 3. 中身が入れ替わって前より小さくなった（大きすぎて断られた相手が、通るようになりうる唯一の変化である）。
    */
-  private mayRetrySkipped(key: string, rec: SkipRecord, sha: string, size: number): boolean {
-    if (!this.retriedSinceBoot.has(key)) { this.retriedSinceBoot.add(key); return true; }
+  private mayRetrySkipped(key: string, rec: SkipRecord, size: number, sha: string | null): boolean {
+    // 数えるのは noteSkip の側だけにする。ここで印を付けると、走査の判定が上げる側の 1 回分を食ってしまう。
+    if (!this.retriedSinceBoot.has(key)) return true;
     if (this.now() - rec.at >= RETRY_SKIPPED_AFTER_MS) return true;
-    return sha !== rec.sha && size < rec.size;
+    return size < rec.size && sha !== rec.sha;
   }
 
   /**
@@ -260,7 +326,7 @@ export class TranscriptUploader {
     if (prev?.sha256 === sha) { if (skip) this.clearSkip(key); return 'unchanged'; }
     // 直りようのない失敗で諦めた相手には、窓が開くまで雲に触らない。
     // 本文は変化のたびに全体を上げ直すので、送り直すたびに転送量を無料枠から削ることになる。
-    if (skip && !this.mayRetrySkipped(key, skip, sha, size)) return 'skipped';
+    if (skip && !this.mayRetrySkipped(key, skip, size, sha)) return 'skipped';
 
     const meta: FileMetaIn = { key, path: rel, kind: 'transcript', sha256: sha, size, mtime: Math.floor(st.mtimeMs), encrypted: true };
     // R2 は部分更新ができないので、変化のたびにファイル全体を gzip して上げ直す。

@@ -60,6 +60,12 @@ const FLUSH_AGAIN_MS = 5_000;
  * fs.watch の recursive は macOS と Windows だけなので、Linux では監視だけでは変化に気付けない。
  */
 const CONFIG_PUSH_MS = 60_000;
+/**
+ * 上がっていない本文を拾い直す走査の間隔。
+ * 索引は「変化したファイル」しか知らせないので、これが無いと参加より前に索引が済んでいた本文は
+ * ファイルが動くまで永久に上がらない。設定の定期 push と同じ役目なので、間隔も揃えてある。
+ */
+export const UPLOAD_SWEEP_MS = 60_000;
 
 /**
  * `files` の 1 行を書くときに動く索引の数。
@@ -611,6 +617,18 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       }, CONFIG_PUSH_MS)
     : null;
   configTimer?.unref();
+  /**
+   * 索引が済んでいるのにまだ上がっていない本文を拾い直す。
+   * 起動で 1 度と、そのあとは一定間隔で回す。
+   * 1 回に積む数は uploader が抑えるので、初回の一括でも少しずつ流れる。
+   */
+  const sweepUploads = (): void => {
+    if (!uploader) return;
+    try { uploader.sweep(); } catch (e) { console.error('[upload]', e instanceof Error ? e.message : e); }
+  };
+  sweepUploads();
+  const uploadTimer = uploader ? setInterval(sweepUploads, UPLOAD_SWEEP_MS) : null;
+  uploadTimer?.unref();
 
   console.log(`agent-hangar listening on http://${host}:${port}${settings.tmuxPath ? '' : '（tmux が見つからないため起動は使えません）'}`);
   return {
@@ -619,6 +637,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       clearInterval(rootTimer);
       clearInterval(deviceTimer);
       if (configTimer) clearInterval(configTimer);
+      if (uploadTimer) clearInterval(uploadTimer);
       configSync?.stop();
       // 走っている上げを待ってから止める。待たずに止めると putFile が途中で切れる。
       await stopUploader(uploader);

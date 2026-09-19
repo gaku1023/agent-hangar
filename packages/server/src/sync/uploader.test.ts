@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -5,7 +6,7 @@ import type { Readable } from 'node:stream';
 import { gunzipSync } from 'node:zlib';
 import type { FileMetaIn } from '@agent-hangar/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { FakeCloudClient } from '../../test/fake-cloud.ts';
+import { FakeCloudClient, MAX_BODY_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { CloudError } from './client.ts';
@@ -41,6 +42,23 @@ const failPut = (status: number) => {
     body.resume();
     return Promise.reject(new CloudError(status, `HTTP ${status}`));
   };
+};
+
+/** 索引が済んだ状態を作る。sessions と transcript_files の形は IndexerService が書くものに合わせる。 */
+const addSession = (uuid: string) => {
+  db.prepare('insert or ignore into sessions (id, provider, provider_session_id, cwd, started_at, last_activity_at, home_device, origin_device, updated_at) values (?,?,?,?,?,?,?,?,?)')
+    .run(`s-${uuid}`, 'claude-code', uuid, '/Users/me/workspace/alpha', 1, 1, 'dev-a', 'dev-a', 1);
+};
+const addIndexed = (file: string, uuid: string, agentId: string | null, deviceId: string | null = null) => {
+  addSession(uuid);
+  const st = fs.statSync(file);
+  db.prepare('insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?,?)')
+    .run(file, `s-${uuid}`, agentId, deviceId, st.size, Math.floor(st.mtimeMs), st.size, 2);
+};
+/** 索引が本文の続きを見た状態にする（手元の方が上げたものより新しい）。 */
+const reindexed = (file: string) => {
+  const st = fs.statSync(file);
+  db.prepare('update transcript_files set size = ?, mtime = ? where path = ?').run(st.size, Math.floor(st.mtimeMs), file);
 };
 
 beforeEach(() => {
@@ -269,5 +287,130 @@ describe('TranscriptUploader', () => {
     expect(await plain(MAIN_KEY)).toBe('');
     expect(cloud.files.get(MAIN_KEY)!.entry).toMatchObject({ size: 0, sha256: sha256Hex('') });
     up.stop();
+  });
+});
+
+/**
+ * 索引は「変化したファイル」しか知らせないので、参加より前に索引が済んでいた本文は誰も上げない。
+ * 手元の台帳（transcript_files）と上げた台帳（file_sync）を突き合わせて拾い直す。
+ */
+describe('TranscriptUploader の取り残しの走査', () => {
+  const sub = () => path.join(projDir(), UUID, 'subagents', 'agent-abc123.jsonl');
+  const SUB_KEY = `transcripts/dev-a/${UUID}/subagents/agent-abc123.jsonl.gz`;
+
+  it('参加より前に索引が済んでいた本文を積んで上げる', async () => {
+    write(sub(), '{"s":1}\n');
+    addIndexed(mainFile(), UUID, null);
+    addIndexed(sub(), UUID, 'abc123');
+    const up = make();
+    expect(up.sweep()).toBe(2);
+    await up.idle();
+    expect([...cloud.files.keys()].sort()).toEqual([SUB_KEY, MAIN_KEY].sort());
+    expect((db.prepare('select count(*) c from file_sync').get() as { c: number }).c).toBe(2);
+    // 上がってしまえば、次の走査は何も積まない。
+    expect(up.sweep()).toBe(0);
+    expect(puts()).toBe(2);
+    up.stop();
+  });
+
+  it('手元の方が新しければ積み直す', async () => {
+    addIndexed(mainFile(), UUID, null);
+    const up = make();
+    expect(up.sweep()).toBe(1);
+    await up.idle();
+    expect(up.sweep()).toBe(0);
+    fs.appendFileSync(mainFile(), '{"a":2}\n');
+    reindexed(mainFile());
+    expect(up.sweep()).toBe(1);
+    await up.idle();
+    expect(await plain(MAIN_KEY)).toBe('{"a":1}\n{"a":2}\n');
+    up.stop();
+  });
+
+  it('一度に積む数には上限がある', async () => {
+    for (let i = 0; i < 5; i++) {
+      const uuid = `22222222-2222-4222-8222-00000000000${i}`;
+      const f = path.join(projDir(), `${uuid}.jsonl`);
+      write(f, `{"n":${i}}\n`);
+      addIndexed(f, uuid, null);
+    }
+    const up = make();
+    expect(up.sweep(2)).toBe(2);
+    await up.idle();
+    expect(puts()).toBe(2);
+    expect(up.sweep(2)).toBe(2);
+    await up.idle();
+    expect(puts()).toBe(4);
+    up.stop();
+  });
+
+  it('他端末から降ろした写しは積まない（持ち主が上げる）', () => {
+    addIndexed(mainFile(), UUID, null, 'dev-b');
+    const up = make();
+    expect(up.sweep()).toBe(0);
+    up.stop();
+  });
+
+  it('一時停止のあいだは積まない', () => {
+    addIndexed(mainFile(), UUID, null);
+    paused = true;
+    const up = make();
+    expect(up.sweep()).toBe(0);
+    up.stop();
+  });
+
+  it('諦めた記録に載っているものを毎回また積まない', async () => {
+    addIndexed(mainFile(), UUID, null);
+    const up = make();
+    failPut(413);
+    expect(up.sweep()).toBe(1);
+    await up.idle();
+    expect(puts()).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(up.sweep()).toBe(0);
+    expect(up.sweep()).toBe(0);
+    expect(puts()).toBe(1);
+    // 窓が開いたら、走査からも 1 度だけ試す。
+    timers.now += 30 * 60_000;
+    expect(up.sweep()).toBe(1);
+    await up.idle();
+    expect(puts()).toBe(2);
+    up.stop();
+  });
+
+  /**
+   * 413 の経路を端から端まで通す。
+   * 手で組み立てた CloudError では、実物が本当に断る大きさかどうかまでは分からない。
+   * 偽物は実物の Worker と同じ 100MiB を持っているので、ここを通れば本番でも同じ道になる。
+   */
+  it('実物と同じ上限で断られた本文は、諦めて走査からも外れる', { timeout: 120_000 }, async () => {
+    // gzip の効かない中身にする。圧縮で上限を下回ると、この検査は意味を失う。
+    const block = randomBytes(1024 * 1024);
+    fs.writeFileSync(mainFile(), '');
+    for (let i = 0; i < MAX_BODY_BYTES / block.length + 1; i++) fs.appendFileSync(mainFile(), block);
+    expect(fs.statSync(mainFile()).size).toBeGreaterThan(MAX_BODY_BYTES);
+    addIndexed(mainFile(), UUID, null);
+    const up = make();
+    expect(up.sweep()).toBe(1);
+    await up.idle();
+    expect(puts()).toBe(1);
+    expect(cloud.files.size).toBe(0);
+    expect((db.prepare('select count(*) c from file_sync').get() as { c: number }).c).toBe(0);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.message).toContain('413');
+    expect(skipRow()).not.toBeNull();
+    // 待ち行列から落ちている。走査も積み直さない。
+    await up.flushAll();
+    expect(up.sweep()).toBe(0);
+    expect(up.sweep()).toBe(0);
+    expect(puts()).toBe(1);
+    up.stop();
+  });
+
+  it('stop の後は積まない', () => {
+    addIndexed(mainFile(), UUID, null);
+    const up = make();
+    up.stop();
+    expect(up.sweep()).toBe(0);
   });
 });
