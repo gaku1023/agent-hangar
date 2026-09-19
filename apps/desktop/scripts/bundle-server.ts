@@ -29,8 +29,14 @@ export const PREBUILD_ARCH = 'darwin-arm64';
  */
 const SKIP_IN_NATIVE = /^(deps|src|test|third_party|scripts|node_modules|binding\.gyp|build\/Release\/obj(\.target)?)(\/|$)/;
 
-/** packages/cloud のうち、Worker のデプロイに要らない中身。 */
-const SKIP_IN_CLOUD = /^(test|node_modules|\.wrangler)(\/|$)/;
+/**
+ * packages/cloud のうち、同梱に要らない中身。
+ * デプロイに要らないもの（試験、依存、wrangler の作業場）に加えて、秘密と記録も落とす。
+ * .dev.vars と .env には Worker の秘密が入り、ログには実物のアカウントの様子が残る。
+ * CI は clean な checkout から作るので公開の Release には入らないが、
+ * 手元で bundle-server を回して .app を人に渡す道がある。
+ */
+const SKIP_IN_CLOUD = /^(test|node_modules|\.wrangler)(\/|$)|(^|\/)\.dev\.vars(\.|$)|(^|\/)\.env(\.|$)|\.log$/;
 
 /** UI の写しのうち、配布物に要らない中身。 */
 const SKIP_IN_UI = /\.map$/;
@@ -38,7 +44,9 @@ const SKIP_IN_UI = /\.map$/;
 /**
  * 同梱した cloud/ に置く目印の名前。
  * packages/cli/src/cloud.ts の requireCloudDir() がこの名前を見て、配布版からのデプロイを断る。
- * 片方だけ変えると断れなくなるので、名前は両方で揃える（試験が両側を押さえている）。
+ * 片方だけ変えると断れなくなるので、名前は両方で揃える。
+ * 揃っていることは apps/desktop/test/bundle-server.test.ts が、
+ * packages/cli/src/cloud.ts の宣言を読んで突き合わせる。
  */
 export const BUNDLED_CLOUD_MARKER = '.bundled';
 
@@ -69,6 +77,14 @@ function copyTree(src: string, dest: string, skip: RegExp, extra?: (rel: string)
       return extra ? extra(rel) : true;
     },
   });
+}
+
+/**
+ * packages/cloud を同梱用に写す。
+ * 何を落とすかを試験から確かめられるように、bundleServer と同じ道をここに切り出してある。
+ */
+export function copyCloudTree(src: string, dest: string): void {
+  copyTree(src, dest, SKIP_IN_CLOUD);
 }
 
 export async function bundleServer(opts: BundleOptions): Promise<{ files: string[] }> {
@@ -113,7 +129,7 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
   // Worker のソースを同梱する。
   // 単一ファイルにまとめると CLI から packages/cloud への相対が届かなくなるので、bin/hangar が
   // HANGAR_CLOUD_DIR でここを指す。
-  copyTree(path.join(opts.repoRoot, 'packages/cloud'), path.join(opts.outDir, 'cloud'), SKIP_IN_CLOUD);
+  copyCloudTree(path.join(opts.repoRoot, 'packages/cloud'), path.join(opts.outDir, 'cloud'));
   // 同梱した写しである目印を置く。
   // ここには wrangler も hono も入っていないのでデプロイはできないが、
   // .app をリポジトリの中や node_modules を持つディレクトリの下に置くと、親をたどって拾った

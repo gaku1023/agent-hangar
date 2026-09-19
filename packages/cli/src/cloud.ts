@@ -64,6 +64,7 @@ export function defaultCloudDir(): string {
  * 配布版の .app に同梱した cloud/ の目印。
  * 同梱の写しには wrangler も hono も入っていないので、そこからはデプロイできない。
  * apps/desktop/scripts/bundle-server.ts がこの名前のファイルを置く。
+ * 名前が両側で揃っていることは apps/desktop/test/bundle-server.test.ts が突き合わせる。
  */
 export const BUNDLED_CLOUD_MARKER = '.bundled';
 
