@@ -386,8 +386,27 @@ type Decision = { action: ConfigPreviewAction; localMtime: number | null; remote
 export class ClaudeConfigSync {
   private watcher: fs.FSWatcher | null = null;
   private timer: NodeJS.Timeout | null = null;
+  /**
+   * 同じ失敗を鳴らし続けないための覚え書き。鍵ごとに「鳴らしたときの中身の印」を持つ。
+   *
+   * 取り込みは 30 秒ごとに回るので、直しようのない 1 件（手元がリンクである、指紋が合わない、など）が
+   * あると画面が鳴り続ける。索引器の reportedErrors と Task 14 の間引きと同じ考えで、
+   * 最初の 1 度だけ鳴らし、中身が変わったら数え直す。
+   * 起こし直すと忘れるので、そのときだけもう一度鳴る（Task 14 と同じ割り切りである）。
+   */
+  private readonly reportedErrors = new Map<string, string>();
 
   constructor(private readonly deps: ClaudeConfigDeps) {}
+
+  /** 印が前と同じなら黙る。違えば鳴らして覚え直す。 */
+  private reportOnce(id: string, stamp: string, message: string): void {
+    if (this.reportedErrors.get(id) === stamp) return;
+    this.reportedErrors.set(id, stamp);
+    this.deps.onToast('error', message);
+  }
+
+  /** 片付いたら忘れる。次に同じところで転んだら、また 1 度だけ鳴る。 */
+  private clearReported(id: string): void { this.reportedErrors.delete(id); }
 
   private get timers(): Timers { return this.deps.timers ?? REAL_TIMERS; }
   private now(): number { return this.deps.now ? this.deps.now() : Date.now(); }
@@ -488,7 +507,7 @@ export class ClaudeConfigSync {
         if (content.length > CONFIG_MAX_BYTES) throw new Error('目印に置き換えると上限を超えます');
         const sha = sha256Hex(content);
         const key = configKey(f.rel);
-        if (this.syncedSha(key) === sha) continue;
+        if (this.syncedSha(key) === sha) { this.clearReported(`push:${f.rel}`); continue; }
         const meta: FileMetaIn = { key, path: f.rel, kind: 'config', sha256: sha, size: content.length, mtime: f.mtime, encrypted: true };
         const body = new PassThrough();
         const pump = pipeline(Readable.from([content]), createGzip(), encryptStream(this.deps.key), body);
@@ -501,9 +520,11 @@ export class ClaudeConfigSync {
           throw e;
         }
         this.remember({ ...meta, deviceId: this.deps.deviceId, seq }, sha);
+        this.clearReported(`push:${f.rel}`);
         n++;
       } catch (e) {
-        this.deps.onToast('error', `${f.rel} の同期に失敗しました: ${errorMessage(e)}`);
+        // 上げられない理由が直るまで中身は変わらないので、中身の印が同じうちは 1 度しか鳴らさない。
+        this.reportOnce(`push:${f.rel}`, `${f.size}:${f.mtime}`, `${f.rel} の同期に失敗しました: ${errorMessage(e)}`);
       }
     }
     return n;
@@ -626,8 +647,8 @@ export class ClaudeConfigSync {
       try {
         if (e.size > CONFIG_MAX_BYTES) throw new Error('設定ファイルが上限を超えています');
         const d = this.decide(e);
-        if (d.blocked !== null) { this.deps.onToast('error', `${e.path} を取り込めません: ${d.blocked}`); continue; }
-        if (d.action === 'skip') { this.remember(e, e.sha256); done.add(e.key); continue; }
+        if (d.blocked !== null) { this.reportOnce(`pull:${e.key}`, e.sha256, `${e.path} を取り込めません: ${d.blocked}`); continue; }
+        if (d.action === 'skip') { this.remember(e, e.sha256); done.add(e.key); this.clearReported(`pull:${e.key}`); continue; }
         const raw = await this.fetchPlain(e.key);
         // 平文の指紋で突き合わせる。鍵は全端末で共通なので、復号できたという事実だけでは差し替えを見抜けない。
         if (sha256Hex(raw) !== e.sha256) throw new Error('SHA-256 が一致しません');
@@ -650,10 +671,12 @@ export class ClaudeConfigSync {
         written.add(e.path);
         this.remember(e, e.sha256);
         done.add(e.key);
+        this.clearReported(`pull:${e.key}`);
         applied++;
       } catch (err) {
         // 控えに失敗した分もここに落ちる。そのファイルは書き戻していないので、次の pull でやり直す。
-        this.deps.onToast('error', `${e.path} の取り込みに失敗しました: ${errorMessage(err)}`);
+        // 一覧に残る分は毎回ここへ来るので、相手の中身が変わるまでは 1 度しか鳴らさない。
+        this.reportOnce(`pull:${e.key}`, e.sha256, `${e.path} の取り込みに失敗しました: ${errorMessage(err)}`);
       }
     }
     if (backedUp > 0) {

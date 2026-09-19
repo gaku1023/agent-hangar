@@ -508,6 +508,54 @@ describe('受け取りの守り', () => {
     c.stop();
   });
 
+  it('直しようのない失敗は 1 度だけ鳴らし、相手の中身が変われば鳴り直す', async () => {
+    const e = await remotePut('memory/x.md', 'remote\n');
+    write('memory/x.md', 'local\n');
+    seedSynced('memory/x.md', 'local\n');
+    const c = make();
+    c.confirm();
+    const errors = (): number => toasts.filter((t) => t.level === 'error').length;
+    const bad = { ...e, sha256: sha256Hex('すりかえ\n') };
+    expect(await c.applyPull([bad])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(errors()).toBe(1);
+    // 30 秒ごとの取り込みで同じ項目が何度も来ても、鳴らすのは 1 度きりである。
+    expect(await c.applyPull([bad])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(await c.applyPull([])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(errors()).toBe(1);
+    // 相手が書き換えたら指紋が変わるので、あらためて知らせる。
+    const bad2 = { ...e, sha256: sha256Hex('別のすりかえ\n'), seq: e.seq + 1 };
+    expect(await c.applyPull([bad2])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(errors()).toBe(2);
+    c.stop();
+  });
+
+  it('取り込めない理由が続いても鳴らすのは 1 度だけで、直れば取り込める', async () => {
+    write('real.md', 'real\n');
+    fs.mkdirSync(path.join(claudeDir, 'memory'), { recursive: true });
+    const link = path.join(claudeDir, 'memory', 'x.md');
+    fs.symlinkSync(path.join(claudeDir, 'real.md'), link);
+    const e = await remotePut('memory/x.md', 'remote\n');
+    const c = make();
+    c.confirm();
+    await c.applyPull([e]);
+    await c.applyPull([e]);
+    expect(toasts.filter((t) => t.level === 'error').length).toBe(1);
+    // 利用者がリンクを外せば、一覧に残っているので次の取り込みで入る。
+    fs.unlinkSync(link);
+    expect(await c.applyPull([])).toEqual({ applied: 1, conflicts: 0, backedUp: 0 });
+    expect(fs.readFileSync(link, 'utf8')).toBe('remote\n');
+    c.stop();
+  });
+
+  it('上げられないファイルも 1 度だけ鳴らす', async () => {
+    write('memory/many.md', '/Users/me/'.repeat(100_000));
+    const c = make();
+    expect(await c.pushChanged()).toBe(0);
+    expect(await c.pushChanged()).toBe(0);
+    expect(toasts.filter((t) => t.level === 'error').length).toBe(1);
+    c.stop();
+  });
+
   it('自端末が上げた分は取り込みの一覧に載せない', async () => {
     const e = await remotePut('CLAUDE.md', '# mine\n', { device: 'dev-a' });
     const c = make();
