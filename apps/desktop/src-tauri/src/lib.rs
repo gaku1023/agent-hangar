@@ -178,7 +178,7 @@ fn apply_hash(app: &AppHandle, hash: String) {
     };
     if let Some(w) = app.get_webview_window("main") {
         if let Some(h) = now {
-            let _ = w.eval(&deeplink::hash_to_js(&h));
+            let _ = w.eval(deeplink::hash_to_js(&h));
         }
         // 貯めた場合もウィンドウは前へ出す。利用者はリンクを踏んだのだから、画面はこちらを向く。
         let _ = w.unminimize();
@@ -433,7 +433,7 @@ fn boot(app: AppHandle) {
             .unwrap()
             .navigation_failed();
         // 例外の文言に URL が混じることがある。鍵を伏せてから出す。
-        return fail(
+        fail(
             &app,
             &format!(
                 "サーバの画面（ポート {}）へ移れません: {}",
@@ -442,6 +442,47 @@ fn boot(app: AppHandle) {
             ),
         );
     }
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
+        .manage(AppState {
+            server: Mutex::new(None),
+            ui: Mutex::new(Ui::default()),
+        })
+        // 頁の読み込みが終わる前の評価は捨てられることがある。
+        // 出しそこねた文言と、navigate の最中に届いたリンクをここで流す。
+        .on_page_load(|webview, payload| {
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                page_loaded(webview.app_handle(), is_server_page(payload.url()));
+            }
+        })
+        .setup(|app| {
+            log("setup");
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                handle_urls(&handle, &event.urls());
+            });
+            // 起動そのものがディープリンクで起きた場合、`on_open_url` より前に URL が届いていることがある。
+            // 公式の手順どおり `get_current` でも拾う。同じ URL を二度扱っても行き先は変わらない。
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                handle_urls(app.handle(), &urls);
+            }
+            let handle = app.handle().clone();
+            std::thread::spawn(move || boot(handle));
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                if let Some(mut p) = app.state::<AppState>().server.lock().unwrap().take() {
+                    p.stop();
+                    log("server stopped");
+                }
+            }
+        });
 }
 
 #[cfg(test)]
@@ -622,45 +663,4 @@ mod tests {
         // 多バイト文字の途中では切らない。
         assert!(cut.chars().all(|c| c != '\u{fffd}'));
     }
-}
-
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_deep_link::init())
-        .manage(AppState {
-            server: Mutex::new(None),
-            ui: Mutex::new(Ui::default()),
-        })
-        // 頁の読み込みが終わる前の評価は捨てられることがある。
-        // 出しそこねた文言と、navigate の最中に届いたリンクをここで流す。
-        .on_page_load(|webview, payload| {
-            if matches!(payload.event(), PageLoadEvent::Finished) {
-                page_loaded(webview.app_handle(), is_server_page(payload.url()));
-            }
-        })
-        .setup(|app| {
-            log("setup");
-            let handle = app.handle().clone();
-            app.deep_link().on_open_url(move |event| {
-                handle_urls(&handle, &event.urls());
-            });
-            // 起動そのものがディープリンクで起きた場合、`on_open_url` より前に URL が届いていることがある。
-            // 公式の手順どおり `get_current` でも拾う。同じ URL を二度扱っても行き先は変わらない。
-            if let Ok(Some(urls)) = app.deep_link().get_current() {
-                handle_urls(app.handle(), &urls);
-            }
-            let handle = app.handle().clone();
-            std::thread::spawn(move || boot(handle));
-            Ok(())
-        })
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app, event| {
-            if let RunEvent::Exit = event {
-                if let Some(mut p) = app.state::<AppState>().server.lock().unwrap().take() {
-                    p.stop();
-                    log("server stopped");
-                }
-            }
-        });
 }
