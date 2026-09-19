@@ -2,11 +2,12 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, saveCloudConfig } from '@agent-hangar/server';
 import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { cloudStatus, joinWorker, OVERWRITE_WORD, rescueTargetPath, RENAME_WORD, ROTATE_WORD, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
+import { cloudStatus, joinWorker, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
 
@@ -862,5 +863,107 @@ describe('runTeardown', () => {
       runTeardown({ home, wrangler: w.runner('a'.repeat(32), cloudDir), fetch: (async () => new Response('{}')) as typeof fetch, confirm: async () => true, log: () => {} }),
     ).rejects.toThrow(/cloud\.json/);
     expect(w.calls).toEqual([]);
+  });
+});
+
+// ---- 実物の片付けで見つかった 4 件 ----
+
+/** process.stdin を差し替えて呼ぶ。終わったら必ず戻す。 */
+async function withStdin<T>(stream: Readable, fn: () => Promise<T>): Promise<T> {
+  const original = Object.getOwnPropertyDescriptor(process, 'stdin')!;
+  Object.defineProperty(process, 'stdin', { configurable: true, value: stream });
+  try {
+    return await fn();
+  } finally {
+    Object.defineProperty(process, 'stdin', original);
+  }
+}
+
+describe('promptWord', () => {
+  it('標準入力が空（EOF）なら、断った扱いで返る', async () => {
+    // /dev/null を渡された場面である。
+    // question の callback は EOF では呼ばれないので、close を拾わないと約束が解けないまま node が落ちる。
+    // 落ちると 中止しました も出ず、終了コードが 0 になって「消えた」と取り違えられる。
+    const empty = Readable.from([]);
+    const answered = await withStdin(empty, () => promptWord('本当に消しますか。', 'delete'));
+    expect(answered).toBe(false);
+  }, 3000);
+
+  it('聞いているあいだだけ標準入力を掴み、答えた後は手放す', async () => {
+    // 掴んだままだと、最後の行まで印字してもプロセスが終わらない（実物の片付けで踏んだ）。
+    // pause だけでは足りず、unref まで要ることは実測で確かめてある。
+    const calls: string[] = [];
+    const io = Object.assign(new PassThrough(), {
+      ref: () => { calls.push('ref'); },
+      unref: () => { calls.push('unref'); },
+    });
+    const answered = await withStdin(io, async () => {
+      const p = promptWord('本当に消しますか。', 'delete');
+      io.write('delete\n');
+      return p;
+    });
+    expect(answered).toBe(true);
+    expect(calls).toEqual(['ref', 'unref']);
+    expect(io.isPaused()).toBe(true);
+    io.destroy();
+  }, 3000);
+
+  it('合言葉が違えば false を返す', async () => {
+    const io = new PassThrough();
+    const answered = await withStdin(io, async () => {
+      const p = promptWord('本当に消しますか。', 'delete');
+      io.write('  delete-not  \n');
+      return p;
+    });
+    expect(answered).toBe(false);
+    io.destroy();
+  }, 3000);
+});
+
+describe('失敗の理由の見せ方', () => {
+  it('wrangler の理由の行まで出し、長い 16 進は伏せる', async () => {
+    const { home, cloudDir } = dirs();
+    fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
+    const account = 'a'.repeat(32);
+    saveCloudConfig(home, conf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: account, dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
+    // 実物の wrangler は、見出しの行の 2 行あとに本当の理由を出す。
+    const stderr = [
+      `\u001b[31m✘ [ERROR]\u001b[0m A request to the Cloudflare API (/accounts/${account}/r2/buckets/hangar-dev-files) failed.`,
+      '',
+      `  The bucket you tried to delete (hangar-dev-files) is not empty (account ${account}). [code: 10008]`,
+    ].join('\n');
+    const w = fakeWrangler({ 'r2 bucket delete': () => ({ code: 1, stdout: '', stderr }) });
+    const lines: string[] = [];
+    const done = await runTeardown({
+      home,
+      deviceId: 'dev-a',
+      wrangler: w.runner(account, cloudDir),
+      fetch: cloudFetch([], { token: 'dt' }).fetch,
+      confirm: fakeConfirm([true, true]).fn,
+      log: (l) => lines.push(l),
+    });
+    expect(done).toBe(false);
+    const out = lines.join('\n');
+    expect(out).toContain('[code: 10008]');
+    expect(out).toContain('is not empty');
+    // アカウント ID は伏せる。色の指定も残さない。
+    expect(out).not.toContain(account);
+    expect(out).not.toContain('\u001b[');
+  });
+});
+
+describe('設定の退避先', () => {
+  it('端末ごとに分ける。2 台の同じ名前の設定が重ならない', () => {
+    const { home } = dirs();
+    const base: FileEntry = { key: '', path: '', kind: 'config', sha256: 'x', size: 1, mtime: MTIME, encrypted: true, seq: 1, deviceId: 'dev-b', uploadedAt: 1, storedSize: 1 };
+    const b = rescueTargetPath(home, { ...base, deviceId: 'dev-b', key: 'config/dev-b/CLAUDE.md', path: 'CLAUDE.md' });
+    const c2 = rescueTargetPath(home, { ...base, deviceId: 'dev-c', key: 'config/dev-c/CLAUDE.md', path: 'CLAUDE.md' });
+    expect(b).not.toBe(c2);
+    expect(b).toContain(path.join('remote', 'dev-b'));
+    expect(c2).toContain(path.join('remote', 'dev-c'));
+    expect(b.startsWith(path.join(home, 'remote') + path.sep)).toBe(true);
+    // 端末 ID の入れ物は本文と同じで、その下に設定を置く。
+    expect(b).toBe(path.join(home, 'remote', 'dev-b', '_config', 'CLAUDE.md'));
   });
 });

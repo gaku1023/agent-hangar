@@ -8,7 +8,7 @@ import { createGunzip } from 'node:zlib';
 import { type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream } from '@agent-hangar/server';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
-import { configKey, decodeJoinToken, encodeJoinToken, isSafeRelPath, PULL_LIMIT, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
+import { configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, PULL_LIMIT, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
 import { parseAccountId, parseDatabaseId, parseWorkerUrl, WranglerRunner } from './wrangler.ts';
 
 export type DeviceLike = { id: string; name: string; platform: string };
@@ -73,15 +73,56 @@ export const sha256Hex = (s: string): string => createHash('sha256').update(s).d
 const realSleep = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout(r, ms));
 const realFetch: typeof fetch = (...a) => fetch(...a);
 
-/** 合言葉をそのまま打ってもらう確認。 */
-export function promptWord(question: string, word: string): Promise<boolean> {
+/**
+ * 標準入力を、聞いているあいだだけ掴む。
+ * 掴みっぱなしだと、最後の行まで印字してもプロセスが終わらない（実物の片付けで踏んだ）。
+ * 手放しっぱなしだと、次の問いを待っているあいだに他に誰も待っていなければ node が終わる。
+ * pause だけでは足りず、unref まで要ることは実測で確かめた。
+ */
+function holdStdin(on: boolean): void {
+  const s = process.stdin as NodeJS.ReadStream & { ref?: () => void; unref?: () => void };
+  try {
+    if (on) s.ref?.();
+    else {
+      s.pause();
+      s.unref?.();
+    }
+  } catch {
+    // 差し替えられた入力では効かないことがある。聞くこと自体は続けられる。
+  }
+}
+
+/**
+ * 標準入力から 1 行だけ聞く。
+ * 入力が閉じられている（/dev/null、EOF）ときは空文字を返す。
+ * readline の question の callback は EOF では呼ばれないので、close を拾わないと約束が解けないまま
+ * node が落ちる。落ちると 中止しました も出ず、終了コードが 0 になって「消えた」と取り違えられる。
+ */
+export function askLine(prompt: string): Promise<string> {
+  // 既に終わっている入力に readline を被せても close すら来ない。先に断る。
+  if (process.stdin.readableEnded) {
+    process.stdout.write(prompt);
+    return Promise.resolve('');
+  }
+  holdStdin(true);
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) =>
-    rl.question(`${question}\n続けるなら ${word} と入力してください: `, (a) => {
+  return new Promise<string>((resolve) => {
+    let answered = false;
+    const done = (a: string): void => {
+      if (answered) return;
+      answered = true;
       rl.close();
-      resolve(a.trim() === word);
-    }),
-  );
+      holdStdin(false);
+      resolve(a);
+    };
+    rl.on('close', () => done(''));
+    rl.question(prompt, done);
+  });
+}
+
+/** 合言葉をそのまま打ってもらう確認。打たれなければ（EOF も）断った扱いにする。 */
+export async function promptWord(question: string, word: string): Promise<boolean> {
+  return (await askLine(`${question}\n続けるなら ${word} と入力してください: `)).trim() === word;
 }
 
 /** 標準入力から一度に受け取る上限。参加トークンは 200 字ほどなので、これを超える入力は貼り間違いである。 */
@@ -104,12 +145,7 @@ export async function readJoinToken(): Promise<string> {
     }
     return Buffer.concat(chunks).toString('utf8');
   }
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    return await new Promise<string>((resolve) => rl.question('参加トークンを貼り付けてください（1Password の項目から）: ', resolve));
-  } finally {
-    rl.close();
-  }
+  return askLine('参加トークンを貼り付けてください（1Password の項目から）: ');
 }
 
 /** /health が通るまで待つ。デプロイ直後は workers.dev の反映待ちで error code 1042 が返る。 */
@@ -509,13 +545,34 @@ const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
 
 /**
- * 設定ファイルの写しの置き場。
- * 端末 ID の入れ物と混ざらないよう、ID には使えない字（先頭の _）で始める。
+ * 設定ファイルの写しを置く入れ物の名前。
+ * 端末 ID の下に置く（remote/<端末 ID>/_config/<相対パス>）ので、本文と同じ並びになる。
+ * 本文は必ず projects/ の下なので、この名前と衝突しない。
  */
 const CONFIG_DIR = '_config';
 
 /** 一覧を何回まで辿るか。進まない応答や、際限のない一覧で回り続けないための歯止めである。 */
 const MAX_FILE_PAGES = 200;
+
+/** 失敗の報告に載せる wrangler の出力の行数の上限。 */
+const MAX_REASON_LINES = 12;
+
+/**
+ * wrangler の出力を、報告に載せられる形にする。
+ * 1 行目だけを取ると、本当の理由（[code: 10008] など）が落ちて、どの案内に当たるのか読めない。
+ * アカウント ID のような長い 16 進は伏せる。色の指定も落とす。
+ */
+export function cleanWranglerError(text: string, maxLines = MAX_REASON_LINES): string[] {
+  const lines = text
+    // eslint-disable-next-line no-control-regex -- 端末の色指定を落とす
+    .replace(/\u001b\[[0-9;]*[A-Za-z]/g, '')
+    .replace(/\b[0-9a-f]{32,}\b/gi, '<伏せた>')
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim() !== '');
+  if (lines.length <= maxLines) return lines;
+  return [...lines.slice(0, maxLines), `（残り ${lines.length - maxLines} 行は省きました）`];
+}
 
 export type RescueResult = { downloaded: number; already: number; failed: { key: string; message: string }[] };
 
@@ -528,8 +585,11 @@ export type RescueResult = { downloaded: number; already: number; failed: { key:
  */
 export function rescueTargetPath(home: string, e: FileEntry): string {
   if (e.kind === 'config') {
+    if (!isSafeKeyId(e.deviceId)) throw new Error(`端末 ID が不正です: ${e.deviceId}`);
     if (!isSafeRelPath(e.path) || e.key !== configKey(e.deviceId, e.path)) throw new Error(`設定ファイルの鍵と相対パスが食い違っています: ${e.key}`);
-    return path.join(remoteRoot(home), CONFIG_DIR, ...e.path.split('/'));
+    // 端末ごとに分ける。分けないと、2 台の同じ名前の設定（CLAUDE.md など）が同じ場所へ降りて、
+    // 中身が違えば後から降ろした方が前の方を消してしまう。R2 の鍵も端末ごとに分かれている。
+    return path.join(remoteRoot(home), e.deviceId, CONFIG_DIR, ...e.path.split('/'));
   }
   const parts = path.posix.normalize(e.path).split('/');
   const suffix = parts.slice(2).join('/');
@@ -680,12 +740,16 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   const withCfg = fs.existsSync(cfg) ? ['--config', cfg] : [];
   const wr = o.wrangler ?? new WranglerRunner({ cloudDir: o.cloudDir ?? defaultCloudDir(), accountId: c.accountId, log });
   const deleted: string[] = [];
-  const failures: string[] = [];
+  const failures: { label: string; reason: string[] }[] = [];
   const step = async (label: string, args: string[], input?: string): Promise<void> => {
     const r = await wr.run(args, input);
     if (r.code !== 0) {
-      failures.push(`${label}: ${(r.stderr || r.stdout).trim().split('\n')[0] ?? ''}`);
+      // 1 行目は wrangler の見出し（A request to the Cloudflare API ... failed.）で、
+      // 本当の理由（bucket is not empty [code: 10008] など）はその後ろにある。最後まで見せる。
+      const reason = cleanWranglerError(`${r.stderr}\n${r.stdout}`);
+      failures.push({ label, reason });
       log(`失敗: ${label}`);
+      for (const l of reason) log(`  ${l}`);
     } else {
       deleted.push(label);
       log(`完了: ${label}`);
@@ -704,7 +768,10 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
       for (const d of deleted) log(`  ${d}`);
     }
     log('残ったもの:');
-    for (const f of failures) log(`  ${f}`);
+    for (const f of failures) {
+      log(`  ${f.label}`);
+      for (const l of f.reason) log(`    ${l}`);
+    }
     log('');
     log(`${cloudConfigPath(o.home)} は消していません。Worker の名前とアカウントと参加用の秘密がここにしか無いからです。`);
     log('直してから hangar cloud teardown をもう一度実行すれば、残った分だけ続きから消せます。');
