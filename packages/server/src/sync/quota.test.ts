@@ -1,7 +1,8 @@
+import fs from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { SyncStateStore } from './state.ts';
-import { D1_WRITES_PER_CHANGE, D1_WRITES_PER_DEVICE_TOUCH, QUOTA_LIMITS, QUOTA_STOP_RATIO, QuotaCounter, pushD1Writes, quotaDayKey } from './quota.ts';
+import { D1_WRITES_PER_CHANGE, D1_WRITES_PER_CHANGE_ROW, D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_MIRROR_ROW, QUOTA_LIMITS, QUOTA_STOP_RATIO, QuotaCounter, pushD1Writes, quotaDayKey } from './quota.ts';
 
 let db: Db;
 let state: SyncStateStore;
@@ -108,24 +109,86 @@ describe('QuotaCounter', () => {
 });
 
 describe('pushD1Writes', () => {
-  it('Worker が採った 1 行につき 2 行、要求ごとに devices の 1 行を数える', () => {
-    expect(D1_WRITES_PER_CHANGE).toBe(2);
+  it('Worker が採った 1 行につき 4 行、要求ごとに devices の 1 行を数える', () => {
+    expect(D1_WRITES_PER_CHANGE_ROW).toBe(2);
+    expect(D1_WRITES_PER_MIRROR_ROW).toBe(2);
+    expect(D1_WRITES_PER_CHANGE).toBe(4);
     expect(D1_WRITES_PER_DEVICE_TOUCH).toBe(1);
-    expect(pushD1Writes(40, 40)).toBe(81);
-    expect(pushD1Writes(1, 1)).toBe(3);
+    expect(pushD1Writes(40, 40)).toBe(161);
+    expect(pushD1Writes(1, 1)).toBe(5);
   });
 
   it('同着で弾かれた行は数えない', () => {
     // 40 行送って 1 行も採られなければ、書かれるのは devices の 1 行だけである。
     expect(pushD1Writes(0, 40)).toBe(1);
-    expect(pushD1Writes(10, 40)).toBe(21);
+    expect(pushD1Writes(10, 40)).toBe(41);
   });
 
   it('accepted が読めない応答では、送った行数で代用する', () => {
-    expect(pushD1Writes(undefined, 10)).toBe(21);
-    expect(pushD1Writes(null, 10)).toBe(21);
-    expect(pushD1Writes('たくさん', 10)).toBe(21);
-    expect(pushD1Writes(-1, 10)).toBe(21);
-    expect(pushD1Writes(Number.NaN, 10)).toBe(21);
+    expect(pushD1Writes(undefined, 10)).toBe(41);
+    expect(pushD1Writes(null, 10)).toBe(41);
+    expect(pushD1Writes('たくさん', 10)).toBe(41);
+    expect(pushD1Writes(-1, 10)).toBe(41);
+    expect(pushD1Writes(Number.NaN, 10)).toBe(41);
+  });
+
+  it('実物の 1 日の数字を再現する（文 220 に対し 369 行）', () => {
+    // Task 25 の実測。2 台を 1 日動かして、採られた行 74、devices を触る要求 73 だった。
+    // 手元の数え（旧）は 2*74 + 73 = 221 で、D1 の write_queries_24h の 220 と合っていた。
+    // D1 の rows_written_24h は 369 で、そこに索引への書き込みが入っている。
+    const accepted = 74;
+    const deviceTouches = 73;
+    const rowsWritten = accepted * D1_WRITES_PER_CHANGE + deviceTouches * D1_WRITES_PER_DEVICE_TOUCH;
+    expect(rowsWritten).toBe(369);
+    // 文の数に対する倍率。実測は 369 / 220 = 1.68 だった。
+    const statements = accepted * 2 + deviceTouches;
+    expect(rowsWritten / statements).toBeCloseTo(1.67, 2);
+  });
+});
+
+/**
+ * 勘定の根拠は Worker のスキーマである。
+ * 表に索引が増えれば rows_written も増えるので、数えだけ古いまま残らないようにここで縛る。
+ * schema.ts は読むだけで、書き換えない。
+ */
+describe('D1 の書き込みの勘定は Worker のスキーマから出す', () => {
+  const schema = fs.readFileSync(new URL('../../../cloud/src/schema.ts', import.meta.url), 'utf8');
+  const createTable = (t: string): string => {
+    const m = schema.match(new RegExp(`create table if not exists ${t} \\(([\\s\\S]*?)\\)'`));
+    if (!m?.[1]) throw new Error(`${t} の create table が見つからない`);
+    return m[1];
+  };
+  /** 明示の create index の数。 */
+  const explicitIndexes = (t: string): string[] =>
+    [...schema.matchAll(/create index if not exists (\w+) on (\w+)\(([^)]*)\)/g)].filter((m) => m[2] === t).map((m) => m[1]!);
+  /** SQLite が自分で張る索引の数。integer primary key は rowid そのものなので索引を作らない。 */
+  const implicitIndexes = (t: string): number => {
+    const body = createTable(t);
+    const pk = /integer primary key/.test(body) ? 0 : /primary key/.test(body) ? 1 : 0;
+    return pk + (body.match(/ unique/g) ?? []).length;
+  };
+  /** insert 1 行が rows_written を進める行数。本体 1 行に、触れた索引ごとに 1 行である。 */
+  const insertCost = (t: string): number => 1 + explicitIndexes(t).length + implicitIndexes(t);
+
+  it('changes への insert は本体と changes_device で 2 行である', () => {
+    expect(explicitIndexes('changes')).toEqual(['changes_device']);
+    expect(implicitIndexes('changes')).toBe(0);   // seq integer primary key は rowid
+    expect(insertCost('changes')).toBe(D1_WRITES_PER_CHANGE_ROW);
+  });
+
+  it('rows の upsert は本体と k の暗黙の索引で 2 行である', () => {
+    expect(explicitIndexes('rows')).toEqual([]);
+    expect(implicitIndexes('rows')).toBe(1);      // k text primary key
+    expect(insertCost('rows')).toBe(D1_WRITES_PER_MIRROR_ROW);
+  });
+
+  it('devices の last_seen_at と last_pulled_seq はどの索引にも載らないので 1 行である', () => {
+    const body = createTable('devices');
+    for (const col of ['last_seen_at', 'last_pulled_seq']) {
+      expect(explicitIndexes('devices').length).toBe(0);
+      // 主キーでも unique でもない列なので、update しても索引は動かない。
+      expect(new RegExp(`${col}[^,]*(primary key|unique)`).test(body)).toBe(false);
+    }
+    expect(D1_WRITES_PER_DEVICE_TOUCH).toBe(1);
   });
 });

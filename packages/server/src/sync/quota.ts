@@ -10,19 +10,43 @@ export const QUOTA_STOP_RATIO = 0.8;
 export type QuotaDay = { rows: number; requests: number };
 
 /**
- * Worker が push の 1 行につき D1 へ書く行数である。
+ * 無料枠が数えているのは「文の数」ではなく `rows_written`、つまり **索引への書き込みを含む行数**である。
+ * 1 文が進める行数は「本体の 1 行 + その文が触れた索引ごとに 1 行」になる。
+ * 根拠は `packages/cloud/src/schema.ts` の索引の数で、`quota.test.ts` がスキーマを読んで縛っている。
+ *
+ * Task 25 の実測（2 台を 1 日）でも、この勘定で `rows_written_24h` の 369 がそのまま再現する。
+ * 採られた行 74 と devices を触る要求 73 で、74 * 4 + 73 = 369 である。
+ */
+
+/**
+ * `changes` への insert 1 行ぶんである。
+ * 本体の 1 行と、`changes_device`（`device_id, seq`）の索引で 1 行である。
+ * `seq` は `integer primary key` なので rowid そのもので、索引は増えない。
+ */
+export const D1_WRITES_PER_CHANGE_ROW = 2;
+
+/**
+ * 鏡（`rows`）の upsert 1 行ぶんである。
+ * 本体の 1 行と、`k text primary key` に SQLite が自分で張る索引で 1 行である。
+ * 既にある行を更新するだけなら索引は動かないが、見分けが付かないので入れた方（多い方）で数える。
+ */
+export const D1_WRITES_PER_MIRROR_ROW = 2;
+
+/**
+ * Worker が push の 1 行を受けるたびに D1 へ書く行数である。
  *
  * `packages/cloud/src/changes.ts` は、採った 1 行ごとに `changes` への insert と鏡（`rows`）の upsert を
  * 必ず 2 文積む（240 行から 243 行）。
- * 数えるのが「端末が送った論理行数」だと、実際の書き込みの半分しか見えない。
+ * その 2 文が、索引も入れて 4 行を進める。
  */
-export const D1_WRITES_PER_CHANGE = 2;
+export const D1_WRITES_PER_CHANGE = D1_WRITES_PER_CHANGE_ROW + D1_WRITES_PER_MIRROR_ROW;
 
 /**
  * 1 要求につき `devices` を 1 行更新する経路ぶんである。
  *
  * `POST /changes` は末尾で `last_seen_at` を書き（245 行）、
  * `GET /changes` も `last_seen_at` と `last_pulled_seq` を書く（270 行）。
+ * どちらの列も主キーでも unique でもないので、索引は動かず 1 行のままである。
  * `GET /rows` は読むだけなので 0 である。
  */
 export const D1_WRITES_PER_DEVICE_TOUCH = 1;

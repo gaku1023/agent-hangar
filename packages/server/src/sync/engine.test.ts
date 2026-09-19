@@ -25,7 +25,11 @@ const pushBatches = () => cloud.calls.filter((c) => c.method === 'pushChanges').
  * Worker が実際に D1 へ書く行数を数える覆い。
  * packages/cloud/src/changes.ts の書き込みをそのまま写してある。
  *
- * - POST /changes … 採った 1 行につき changes への insert と rows の鏡で 2 行、加えて devices の last_seen_at で 1 行。
+ * 数えるのは D1 の rows_written、つまり索引への書き込みを含む行数である。
+ *
+ * - POST /changes … 採った 1 行につき 4 行。
+ *   changes への insert が本体と changes_device の索引で 2 行、rows の鏡が本体と k の暗黙の索引で 2 行である。
+ *   加えて 1 要求につき devices の last_seen_at で 1 行（どの索引にも載らない列なので 1 行のまま）。
  * - GET /changes … devices の last_seen_at と last_pulled_seq で 1 行。
  * - GET /rows … 読むだけで 0 行。
  *
@@ -35,7 +39,7 @@ function countingD1(c: FakeCloudClient): { readonly rows: number } {
   let rows = 0;
   const push = c.pushChanges.bind(c);
   const pull = c.pullChanges.bind(c);
-  c.pushChanges = async (changes) => { const r = await push(changes); rows += r.accepted * 2 + 1; return r; };
+  c.pushChanges = async (changes) => { const r = await push(changes); rows += r.accepted * (2 + 2) + 1; return r; };
   c.pullChanges = async (since, limit) => { const r = await pull(since, limit); rows += 1; return r; };
   return { get rows() { return rows; } };
 }
@@ -198,8 +202,8 @@ describe('SyncEngine の push', () => {
 
     for (let i = 0; i < 8; i++) project(`p${i}`);
     await e.pushNow();
-    // 8 行の push で 8*2+1、start() の初回 pull で 1。上限 10 の 80% は 8 なので超えている。
-    expect(quota.today().rows).toBe(8 * 2 + 1 + 1);
+    // 8 行の push で 8*4+1、start() の初回 pull で 1。上限 10 の 80% は 8 なので超えている。
+    expect(quota.today().rows).toBe(8 * 4 + 1 + 1);
     expect(e.status().state).toBe('paused');
     expect(toasts).toHaveLength(1);
     expect(toasts[0]?.level).toBe('info');
@@ -528,9 +532,9 @@ describe('SyncEngine の無料枠の見張り', () => {
     for (let i = 0; i < 50; i++) project(`p${i}`);
     await e.pushNow();
     await e.pullNow();
-    // 50 行は 40 と 10 の 2 バッチに割れる。push は (40*2+1) + (10*2+1)。
+    // 50 行は 40 と 10 の 2 バッチに割れる。push は (40*4+1) + (10*4+1)。
     // pull は start() の初回と明示の pullNow で 1 行ずつ（GET /rows は 0 行）。
-    expect(d1.rows).toBe(40 * 2 + 1 + (10 * 2 + 1) + 2);
+    expect(d1.rows).toBe(40 * 4 + 1 + (10 * 4 + 1) + 2);
     expect(e.quota.today().rows).toBe(d1.rows);
     e.stop();
   });
