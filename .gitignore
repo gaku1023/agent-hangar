@@ -3,3 +3,7 @@ dist/
 coverage/
 *.tsbuildinfo
 .DS_Store
+apps/desktop/server-dist/*
+!apps/desktop/server-dist/.gitkeep
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/

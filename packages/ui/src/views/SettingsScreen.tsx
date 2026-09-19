@@ -16,6 +16,7 @@ export function SettingsScreen(props: SettingsProps) {
   const [fallback, setFallback] = useState(props.summaryFallback);
   const [cap, setCap] = useState(String(props.summaryHourlyCap));
   const [allowExternal, setAllowExternal] = useState(props.allowExternalSummarizer);
+  const [nodePath, setNodePath] = useState(props.nodePath);
   const [capError, setCapError] = useState(false);
   // サーバが正規化した値、たとえば tmux の絶対パスを入力欄に反映する。
   useEffect(() => { setWs(props.workspaceRoot); }, [props.workspaceRoot]);
@@ -27,6 +28,7 @@ export function SettingsScreen(props: SettingsProps) {
   useEffect(() => { setFallback(props.summaryFallback); }, [props.summaryFallback]);
   useEffect(() => { setCap(String(props.summaryHourlyCap)); }, [props.summaryHourlyCap]);
   useEffect(() => { setAllowExternal(props.allowExternalSummarizer); }, [props.allowExternalSummarizer]);
+  useEffect(() => { setNodePath(props.nodePath); }, [props.nodePath]);
   useEffect(() => { setCapError(false); }, [props.summaryHourlyCap]);
   // 1 時間の上限は 1 以上 200 以下の整数だけを受け付ける。
   // 空のまま送ると 0 になって、Claude への切り替えが黙って止まってしまう。
@@ -224,6 +226,14 @@ export function SettingsScreen(props: SettingsProps) {
         <h2 className="h2">この端末</h2>
         <div className="mono muted">{props.device?.name}<span className="faint"> {props.device?.id}</span></div>
         <div className="faint mono">agent-hangar {props.version}</div>
+      </section>
+      <section>
+        <h2 className="h2">デスクトップアプリ</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="input mono" style={{ flex: 1 }} aria-label="Node のパス" placeholder="/opt/homebrew/bin/node" value={nodePath} onChange={(e) => setNodePath(e.target.value)} />
+          <button className="btn" onClick={() => emit({ type: 'settings.update', patch: { nodePath: nodePath.trim() || null } })}>Node のパスを保存</button>
+        </div>
+        <div className="faint" style={{ marginTop: 4 }}>空なら /opt/homebrew/bin/node、/usr/local/bin/node、nvm の順に探します。同梱サーバと同じメジャー版の Node が必要です。</div>
       </section>
     </div>
   );

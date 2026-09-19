@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
-import { FakeTimers, flush } from '../../test/fake-timers.ts';
+import { FakeTimers } from '../../test/fake-timers.ts';
 import { CloudError } from './client.ts';
 import { SyncEngine } from './engine.ts';
 import { QUOTA_STOP_RATIO, QuotaCounter } from './quota.ts';
@@ -119,6 +119,7 @@ describe('SyncEngine の push', () => {
     expect(unpushed()).toBe(1);
     e.setPaused(false);
     await timers.advance(1000);
+    await e.idle();
     expect(unpushed()).toBe(0);
     const e2 = make();
     expect(e2.status().state).toBe('idle');
@@ -154,6 +155,45 @@ describe('SyncEngine の push', () => {
     project('p1');
     await timers.advance(2000);
     expect(unpushed()).toBe(1);
+    expect(timers.pendingCount()).toBe(0);
+  });
+
+  it('クラウドが応答しないとき、stop の後は要求を 1 件も出さない', async () => {
+    // 要求は「出した時点」で数える。偽クラウドの calls は応答を返した時点に積まれるので、
+    // 届かないまま止まっている回を数えられない。
+    let issued = 0;
+    const waiting: (() => void)[] = [];
+    let answering = false;
+    const realSnapshot = cloud.snapshot.bind(cloud);
+    const realPush = cloud.pushChanges.bind(cloud);
+    const realPull = cloud.pullChanges.bind(cloud);
+    cloud.snapshot = ((after: string | null, limit: number) => { issued++; return realSnapshot(after, limit); }) as typeof cloud.snapshot;
+    cloud.pushChanges = ((batch: Parameters<typeof realPush>[0]) => { issued++; return realPush(batch); }) as typeof cloud.pushChanges;
+    // pull だけを止めて、応答が定期実行の周期より遅い状況を作る。
+    // クラウドへ届かないときは応答も 30 秒待ちなので、鎖は減るより速く伸びる。
+    cloud.pullChanges = ((since: number, limit: number) => {
+      issued++;
+      if (answering) return realPull(since, limit);
+      return new Promise((resolve, reject) => { waiting.push(() => { realPull(since, limit).then(resolve, reject); }); });
+    }) as typeof cloud.pullChanges;
+
+    const e = make();
+    const startup = e.start();
+    // 応答が返らないあいだに、定期実行を 5 回ぶん鎖へ積む。
+    for (let i = 0; i < 5; i++) await timers.advance(30_000);
+    expect(issued).toBeGreaterThan(0);
+
+    e.stop();
+    const afterStop = issued;
+
+    // 止めた後で応答を返し、鎖が捌けるまで待つ。
+    answering = true;
+    for (const w of waiting.splice(0)) w();
+    await startup;
+    await e.idle();
+
+    // 止めたら止まる。鎖に並んだ tick は先頭の検査で譲るので、追加の要求は 0 件である。
+    expect(issued - afterStop).toBe(0);
     expect(timers.pendingCount()).toBe(0);
   });
 
@@ -303,7 +343,12 @@ describe('SyncEngine の pull', () => {
     const b = makeB();
     await a.start(); await b.start();
     project('p1');
-    await timers.advance(30_000);
+    // タイマーから始まる push と pull は誰も約束を持たないので、段ごとに idle() で待ち合わせる。
+    // マイクロタスクの回数で待つと、非同期の終わる回が端末ごとに変わるぶん取りこぼす。
+    await timers.advance(10_000);
+    await a.idle();
+    await timers.advance(20_000);
+    await b.idle();
     expect(dbB.prepare('select 1 from projects where id = ?').get('p1')).toBeTruthy();
     a.stop(); b.stop();
   });
@@ -521,7 +566,7 @@ describe('SyncEngine の pull', () => {
     await timers.advance(2000);
     expect(await p).toBe(false);
     release();
-    await flush();
+    await b.idle();
     expect(b.status().state).toBe('idle');
     const fast = makeB();
     fast.state.set('snapshotDone', true);
@@ -622,10 +667,12 @@ describe('SyncEngine の失敗の見せ方', () => {
     cloud.pushChanges = async () => { throw new CloudError(400, '{"error":"invalid body"}'); };
     project('p1');
     await timers.advance(1_000);
+    await e.idle();
     expect(e.status()).toMatchObject({ state: 'error', pending: 1 });
 
     // 定期実行は push の後に pull を回す。pull は通るが、送れていない事実は消えない。
     await timers.advance(5 * 60_000);
+    await e.idle();
     expect(e.status()).toMatchObject({ state: 'error', pending: 1 });
     expect(e.status().error).toContain('invalid body');
     expect(e.state.get('lastError')).toContain('invalid body');

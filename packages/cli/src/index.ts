@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, startServer } from '@agent-hangar/server';
+import { claudeJsonPath, defaultClaudeDir, hangarHome, installShutdown, loadSettings, readOrCreateDevice, readOrCreateToken, startServer } from '@agent-hangar/server';
 import { cloudStatus, promptWord, readJoinToken, runJoin, runSetupCloud, runTeardown } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage, startErrorMessage } from './probe.ts';
@@ -90,8 +90,11 @@ program
   .option('--no-open', 'ブラウザを開かない')
   .action(async (o: { port: string; open: boolean }) => {
     let s: Awaited<ReturnType<typeof startServer>>;
+    const startup = startServer({ port: Number(o.port) });
+    // 受け口は解決を待たずに立てる。理由は packages/server/src/main.ts と同じである。
+    installShutdown(startup);
     try {
-      s = await startServer({ port: Number(o.port) });
+      s = await startup;
     } catch (e) {
       // 生のスタックを 11 行出しても、次に何をすればよいかは分からない。
       console.error(startErrorMessage(e, Number(o.port)));
@@ -104,16 +107,6 @@ program
     console.log('鍵はページを開いた時点でクッキーに変わり、URL からは消えます。以後はブックマークから開けます。');
     console.log('この URL を出し直すには hangar url を実行してください。');
     if (o.open) openInBrowser(url);
-    let stopping = false;
-    const stop = () => {
-      if (stopping) return;
-      stopping = true;
-      // 接続の後始末が終わらなくても 3 秒で終了する。
-      setTimeout(() => process.exit(0), 3000).unref();
-      s.close().finally(() => process.exit(0));
-    };
-    process.on('SIGINT', stop);
-    process.on('SIGTERM', stop);
   });
 
 program

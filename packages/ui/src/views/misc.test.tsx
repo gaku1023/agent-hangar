@@ -79,6 +79,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   statuslineCommand: 'npm run hangar -- statusline install',
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
   cloud: { configured: false, url: null, state: 'off', paused: false, lastPullAt: '不明', pending: 0, devices: [], joinToken: null, syncClaudeConfig: false, configConfirmed: false },
+  nodePath: '',
   ...over,
 });
 
@@ -100,6 +101,21 @@ describe('SettingsScreen', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'index.rebuild' });
     expect(screen.getByText('mac')).toBeInTheDocument();
     expect(screen.getByText(/再起動後に反映されます/)).toBeInTheDocument();
+  });
+  it('Node のパスを保存でき、空なら null を送る', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    fireEvent.change(screen.getByLabelText('Node のパス'), { target: { value: '/opt/node22/bin/node' } });
+    fireEvent.click(screen.getByText('Node のパスを保存'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { nodePath: '/opt/node22/bin/node' } });
+    fireEvent.change(screen.getByLabelText('Node のパス'), { target: { value: '  ' } });
+    fireEvent.click(screen.getByText('Node のパスを保存'));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { nodePath: null } });
+  });
+  it('サーバが正規化した Node のパスを入力欄に反映する', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ nodePath: '/opt/homebrew/bin/node' })} /></IntentRoot>);
+    expect(screen.getByLabelText('Node のパス')).toHaveValue('/opt/homebrew/bin/node');
   });
   it('ツールのパスとターミナルアプリを保存する', () => {
     const onIntent = vi.fn();

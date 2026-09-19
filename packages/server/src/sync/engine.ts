@@ -111,6 +111,15 @@ export class SyncEngine {
   private quotaPausedDay: string | null = null;
   /** 413 で諦めた行。同じ行で何度も知らせない。 */
   private readonly oversizeTold = new Set<string>();
+  /**
+   * タイマーから始めた仕事を並べる 1 本の鎖。
+   *
+   * `pushNow` と `pullNow` は約束を返すが、タイマーの中から投げっぱなしで始めた回は誰も持たない。
+   * 持たないと、終了処理は走っている送信を待てず、テストは「マイクロタスクを何回流したか」でしか待てない。
+   * 回数で待つ書き方は、非同期の終わる回が端末ごとに変わるぶん、macOS では通って Linux では落ちる
+   * （sync/claudeConfig.ts の押し出しが実際にそうなった）。鎖に並べて `idle()` で待ち合わせる。
+   */
+  private chain: Promise<unknown> = Promise.resolve();
 
   constructor(protected readonly deps: SyncEngineDeps) {
     this.state = new SyncStateStore(deps.db);
@@ -174,16 +183,55 @@ export class SyncEngine {
 
   setClaudeConfigStatus(s: { enabled: boolean; confirmed: boolean }): void { this.claudeConfig = { ...s }; this.emitStatus(); }
 
+  /** 仕事を鎖の末尾につなぐ。前の仕事が転んでも次は走る。 */
+  private enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.chain.then(work, work);
+    this.chain = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  /**
+   * 止めた後は走らない仕事を鎖の末尾につなぐ。
+   *
+   * タイマーが並べた時点では、その仕事はまだ走っていない。
+   * クラウドが応答しないあいだは鎖が減るより速く伸びるので、
+   * 印を見ずに並べると `stop()` の後も要求が出続ける（実測で pull が 24 回、7.3 秒）。
+   * 鎖の先頭で `started` を見て、止まっていたら何もせずに譲る。
+   */
+  private enqueueWhileStarted(work: () => Promise<unknown>): void {
+    void this.enqueue(async () => { if (!this.started) return; await work(); }).catch(() => {});
+  }
+
+  /**
+   * タイマーから始めた仕事と、走っている push と pull が終わるまで待つ。
+   * 待っている間に新しく並んだぶんも待つので、戻ったときは何も走っていない。
+   */
+  async idle(): Promise<void> {
+    const settled = (p: Promise<unknown> | null): Promise<void> => (p ? p.then(() => undefined, () => undefined) : Promise.resolve());
+    for (;;) {
+      const c = this.chain;
+      const push = this.pushing;
+      const pull = this.pulling;
+      await Promise.all([settled(c), settled(push), settled(pull)]);
+      if (this.chain === c && this.pushing === push && this.pulling === pull) return;
+    }
+  }
+
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
     this.offWrite = onSharedWrite((_t, _id, db) => { if (db === this.deps.db) this.noteLocalChange(); });
     if (!this.deps.client) { this.emitStatus(); return; }
-    this.pullTimer = this.timers.setInterval(() => { void this.tick(); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
+    this.pullTimer = this.timers.setInterval(() => { this.enqueueWhileStarted(() => this.tick()); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
     unref(this.pullTimer);
     await this.syncNow();
   }
 
+  /**
+   * 止める。
+   * `started` を降ろすと、鎖に並んでいる仕事は先頭の検査で譲るので、以後は 1 件も要求を出さない。
+   * 既に走り出している push と pull は最後まで走る。呼び手は `idle()` で待ち合わせてから止める。
+   */
   stop(): void {
     this.started = false;
     this.offWrite?.(); this.offWrite = null;
@@ -215,7 +263,7 @@ export class SyncEngine {
       this.pushTimer = null;
       const wait = this.pushGapRemaining();
       if (wait > 0) { this.schedulePush(wait); return; }
-      void this.pushNow();
+      this.enqueueWhileStarted(() => this.pushNow());
     }, delayMs);
     unref(this.pushTimer);
   }
@@ -318,7 +366,7 @@ export class SyncEngine {
 
   setPaused(paused: boolean): void {
     this.state.set('paused', paused);
-    if (!paused && this.started && this.deps.client) { this.noteLocalChange(); void this.pullNow(); }
+    if (!paused && this.started && this.deps.client) { this.noteLocalChange(); this.enqueueWhileStarted(() => this.pullNow()); }
     this.emitStatus();
   }
 

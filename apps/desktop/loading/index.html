@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="light" />
+    <title>agent-hangar</title>
+    <style>
+      :root { --bg: #fbfbfa; --ink: #1c1b19; --ink-2: #5f5c55; --error: #b3261e; }
+      html, body { height: 100%; margin: 0; }
+      body { display: grid; place-items: center; background: var(--bg); color: var(--ink-2); font: 13px/1.5 'Inter Variable', 'Hiragino Sans', sans-serif; -webkit-font-smoothing: antialiased; }
+      main { max-width: 560px; padding: 16px; text-align: center; white-space: pre-wrap; }
+      h1 { font-size: 15px; font-weight: 600; color: var(--ink); margin: 0 0 8px; }
+      /* 失敗の文言には手で打つコマンドや長いパスが混ざる。選んで写せるようにし、枠からはみ出さないようにする。 */
+      #status[data-level='error'] { color: var(--error); text-align: left; font-family: 'JetBrains Mono Variable', Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>agent-hangar</h1>
+      <p id="status">サーバを起動しています</p>
+    </main>
+  </body>
+</html>

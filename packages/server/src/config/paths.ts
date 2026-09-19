@@ -34,6 +34,11 @@ export type Settings = {
    * 既定は false である。他端末の設定が手元の ~/.claude を書き換えるので、利用者が明示的に入れたときだけ動かす。
    */
   syncClaudeConfig: boolean;
+  /**
+   * 同梱サーバを起こすときに使う Node の場所。
+   * null と空文字は「指定なし」で、起動側が既定の探索に戻る。
+   */
+  nodePath?: string | null;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
@@ -57,7 +62,12 @@ export function dbPath(home: string): string {
 }
 
 export function ensureHome(home: string): void {
+  // 中の hangar.db と desktop.log は 0644 なので、置き場所が緩いと同じ機械の別の利用者に全セッションの記録が読める。
+  // mode は新しく作るときにしか効かないので、既にある置き場所は chmod で直す。
+  // デスクトップの .app が先に 0755 で作った手元や、古い版が残した手元も、起動のたびにここで直る。
+  // 利用者が 0700 より厳しくした権限は緩めない。
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  if (fs.statSync(home).mode & 0o077) fs.chmodSync(home, 0o700);
 }
 
 export function readOrCreateToken(home: string): string {
@@ -77,7 +87,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null };
 }
 
 export function loadSettings(home: string): Settings {

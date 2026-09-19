@@ -142,6 +142,19 @@ describe('auth', () => {
     expect((await get('/api/bootstrap', { cookie: `hangar_token=${TOKEN}` })).status).toBe(200);
     expect((await get('/health', {})).status).toBe(200);
   });
+
+  // .app は起動のたびに 4177 の /health を叩き、200 かつ ok が真で version が文字列のときだけ
+  // 「hangar がいる」と見なす（apps/desktop/src-tauri/src/health.rs の is_healthy がこれに依存している）。
+  // version を外すと .app は既存のサーバを見つけられず、同梱サーバの起動も諦める。
+  // 片側だけ変えられないよう、応答の形をここで固定する。
+  it('/health は ok と文字列の version を返す', async () => {
+    const res = await get('/health', {});
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; version: unknown };
+    expect(body).toEqual({ ok: true, version: '0.0.0-test' });
+    expect(typeof body.version).toBe('string');
+  });
+
   it('許可する Origin は実際に待ち受けているポートに追随する', async () => {
     // 4177 以外で立てたとき、UI はそのポートの Origin を送る。決め打ちだと書き込みが全部 403 になる。
     const other = createApp({ ...deps, port: 4198 });
@@ -301,7 +314,20 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null });
+  });
+  it('nodePath は保存でき、空なら null に戻る', async () => {
+    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: ' /opt/node22/bin/node ' }) });
+    expect(r.status).toBe(200);
+    expect((await r.json()).nodePath).toBe('/opt/node22/bin/node');
+    expect((await json(await get('/api/settings'))).body.nodePath).toBe('/opt/node22/bin/node');
+    expect((await json(await get('/api/bootstrap'))).body.settings.nodePath).toBe('/opt/node22/bin/node');
+    const r2 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: '' }) });
+    expect(r2.status).toBe(200);
+    expect((await r2.json()).nodePath).toBeNull();
+    // 文字列でも null でもない値は弾く。
+    const r3 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: 7 }) });
+    expect(r3.status).toBe(400);
   });
   it('ワークスペースのルートを変えるとプロジェクトを登録し直して配信する', async () => {
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
@@ -330,7 +356,7 @@ describe('routes', () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.runs).toEqual([run]);
     expect(body.tabs).toHaveLength(2);
-    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false });
+    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null });
   });
   it('起動、再開、フォーク、停止', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -828,6 +854,7 @@ describe('設定の往復', () => {
         ['summaryHourlyCap', 7],
         ['allowExternalSummarizer', true],
         ['syncClaudeConfig', true],
+        ['nodePath', '/opt/node22/bin/node'],
       ];
       for (const [key, value] of cases) {
         const r = await patch({ [key]: value });

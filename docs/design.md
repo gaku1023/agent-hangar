@@ -52,7 +52,7 @@ pnpm は手元で壊れているため使わない。
 - `packages/server`：ローカルサーバ。Hono による HTTP と WebSocket、MCP サーバ、SQLite（better-sqlite3）、インデクサ、tmux 制御、node-pty、要約器、同期エンジン。
 - `packages/ui`：React と Vite による UI。Root から始まる階層、Passive View、Intent チェーン、Mediator。
 - `packages/cloud`：Cloudflare Worker。Hono でサーバとコードを共有し、D1 と R2 を扱う。フェーズ 4 で実装した。
-- `apps/desktop`：Tauri v2 のシェル。サーバを子プロセスとして起動し、ウィンドウに UI を表示する。フェーズ 5 で実装する。
+- `apps/desktop`：Tauri v2 のシェル。サーバを子プロセスとして起動し、ウィンドウに UI を表示する。フェーズ 5 で実装した。
 - `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`url`、`mcp install`、`statusline install`、`cloud status`、`cloud teardown` を提供する。
 
 ### プロセスと通信
@@ -62,10 +62,14 @@ UI は同じサーバから配信され、HTTP で読み書きし、WebSocket �
 ターミナルは WebSocket 上の別チャネルで、node-pty の入出力をそのまま流す。
 MCP は Streamable HTTP で、共通の `/mcp` とセッション別の `/mcp/s/<sessionId>` を持つ。
 Tauri のシェルは、起動時にサーバの子プロセスを立て、終了時に止める。
-Node は PATH に頼らず、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探し、Settings で明示もできる。
+Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探す。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
 `hangar://` のディープリンクは deep-link プラグインで受ける。
-ブラウザから同じ URL を開いても同じ UI が動く。
+ブラウザからも同じ UI が動くが、入口は鍵付きの URL に限る。
+鍵の無い要求には 401 で `hangar url` を案内する画面を返す。
+Tauri のシェルは、サーバを esbuild の単一ファイル `server.mjs` にまとめ、ネイティブモジュールと UI とともに `.app` に同梱する。
+ネイティブモジュールは Node の ABI に縛られるため、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、探索ではそれと一致する Node だけを採る。
+起動時に 4177 で既にサーバが応答していれば、そのサーバを採用して子プロセスを起こさない。
 
 ## UI アーキテクチャ
 
@@ -1257,9 +1261,13 @@ heartbeat は 30 秒ごとの push で更新する。
 
 ## 配布と運用
 
-リポジトリは public にし、MIT ライセンスで公開する。
+リポジトリは public で、MIT ライセンスで公開している（`LICENSE`、著作権者は `gaku1023`）。
 GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` をビルドして Releases に置く。
-家族はそれをダウンロードし、`hangar setup` と `hangar setup cloud` を走らせる。
+`.app` は署名せず、zip と SHA-256 の checksum を添える。
+利用者はそれをダウンロードして `/Applications` へ移し、検疫属性を `xattr -rd com.apple.quarantine` で外すか、システム設定の「このまま開く」で許可してから、`hangar setup` を走らせる。
+移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
+クラウド同期の設定は `.app` の同梱 CLI からは行えない。
+wrangler を同梱していないので、リポジトリを clone した場所から `setup cloud` を走らせる。
 
 `hangar setup` は次を行う。
 
@@ -1276,7 +1284,7 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。計画は `docs/plans/phase2-launch.md`。
 - **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。併せて、鍵付きの入口と入口の 3 つの検査（Origin、`Sec-Fetch-Site`、`Content-Type`）を入れた。計画は `docs/plans/phase3-workbench.md`。
 - **フェーズ 4**：クラウド同期。Worker と D1 と R2 の setup、メタデータと本文と Claude Code 設定の同期、無料枠の見張り、他端末のロックと「この PC で再開」まで実装した。引き継ぎの握手は作らず、後のフェーズへ送った。計画は `docs/plans/phase4-sync.md`、実物での確認は `docs/plans/phase4-real-run.md`。
-- **フェーズ 5**：Tauri のシェル、ディープリンク、Releases。計画は `docs/plans/phase5-desktop.md`。
+- **フェーズ 5**：デスクトップ配布。Tauri v2 のシェル、サーバの同梱と子プロセスとしての起動、Node の探索、`hangar://` のディープリンク、タグから `.app` を作る Releases のワークフローまで実装した。署名と公証は行わない。計画は `docs/plans/phase5-desktop.md`。
 
 ## 決めた前提と未決事項
 
@@ -1386,11 +1394,26 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - 既知の限界：R2 と D1 の `files` に孤児が残ったとき、それを掃除する者がいない。`PUT` は R2、D1 の順なので、間で倒れると索引に無い本体が残る。端末が消えたときに `transcripts/<端末 ID>/` を畳む道も無い。
 - 既知の限界：`~/.agent-hangar/backups/` のうち、本文の上書きの控え（`transcripts/`）とメモの控え（`memos/`）は消さないので伸び続ける。設定の取り込みの控え（`claude-config/`）だけが 20 世代で刈られる。
 - 既知の限界：フェーズ 4 の実物確認は、1 台の Mac の上で `HANGAR_HOME` と `HANGAR_CLAUDE_DIR` を分けて 2 端末を模して行った（2026-09-19 の決定）。実際に別のマシンから参加することは確かめていない。
+- 配布版の同梱形態：サーバと CLI を esbuild で単一ファイル（`server.mjs`、`cli.mjs`）にまとめ、UI、ネイティブモジュール、`bin/hangar`、Worker のソース、`manifest.json` とともに `.app` の `Contents/Resources/server/` へ置く。UI の sourcemap は入れないので、実測で 7.7MB である。Node 本体は同梱しない。
+- Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
+- 配布ターゲットは Apple silicon の macOS 13 以降だけ。prebuild も `darwin-arm64` しか入れない。全アーキを入れると `node-pty` の win32 だけで 58MB になる。Intel と Windows は作らない。
+- Gatekeeper：Developer ID での署名も公証もせず、zip と SHA-256 の checksum を添えて配る（2026-09-20 の決定）。
+  Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
+  署名しないという決めのもとでは、これが既定の姿である。
+  利用者の手順は、`.app` を `/Applications` へ移してから検疫属性を外すことである。
+  移動を先に置くのは順序の実測による。
+  検疫属性が付いたまま開くと、App Translocation の案内より先に Gatekeeper のダイアログが出る。
+  翻訳された場所からプロセスは起動するが、ウィンドウは出ずログにも 1 行も書かれないので、利用者が最初に見るのはアプリの案内ではなく macOS の拒否である。
+  アプリ自身も同梱サーバを起こす前に検疫属性を外すが、読み取り専用の写しでは書き込めないので効かない。
+- 二重起動：single-instance のプラグインを入れない。起動時に 4177 が既に応答していれば、そのサーバを採用して子プロセスを起こさない。ブラウザや `hangar start` で先に起きているサーバと食い合わないためである。
+- wrangler は同梱しない。205MB あり、`.app` の大きさが 20 倍近くになる。配布版の `hangar setup cloud` は、wrangler が見つからないことを告げて止まる。クラウド同期を使う端末は、リポジトリを clone して設定する。
+- 既知の限界：フェーズ 5 の実物確認（2026-09-20）で見ていないものが二つある。
+  App Translocation の案内の画面そのものは、Gatekeeper のダイアログを人が承認しないと先へ進まないので、通しでは見ていない（案内の枝は単体試験で押さえてある）。
+  システム設定の外観をダークにしたときの見え方は、利用者の環境を変えるので確かめず、配信される UI に `prefers-color-scheme` の規則が 1 件も無いことの確認で代えた。
 - 覚え書き：`HANGAR_CLAUDE_DIR` は hangar が読む設定の置き場で、起こされた `claude` が見るのは `CLAUDE_CONFIG_DIR` である。普段はどちらも `~/.claude` なので食い違わないが、試しの環境を分けるときは両方を向ける。
 
 未決事項は次のとおりである。
 
-- 未署名の `.app` を配布したときの Gatekeeper の扱い。家族に渡す手順（右クリックで開く）か署名の取得かを、フェーズ 5 で決める。
 - 権限確認ダイアログの待ちがレジストリで `waiting` になるか `busy` のままかは、auto モード以外で確かめる。
 - OpenCode Provider の詳細設計。フェーズ 5 以降に別文書で書く（フェーズ 3 では扱わなかった）。
 - 引き継ぎの握手。`takeover_requests` を使う設計はこの文書に残したまま、実装は後のフェーズへ送った。2 台で使い続けて、本文の枝分かれが実際に困るかどうかを見てから決める。

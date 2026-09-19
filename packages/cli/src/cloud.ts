@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
@@ -47,9 +48,73 @@ export const ROTATE_WORD = 'rotate';
 /** 別の名前や別のクラウドへ乗り換えるときの合言葉。前の資源が置き去りになる。 */
 export const RENAME_WORD = 'replace';
 
-/** リポジトリ内の packages/cloud。CLI の src からの相対で探す。 */
+/**
+ * packages/cloud の置き場。
+ * 配布版では CLI が単一ファイルにまとまるので、import.meta.url からの相対ではリポジトリの外を指してしまう。
+ * そのため HANGAR_CLOUD_DIR を先に見る。
+ * 無ければ従来どおり CLI の src からの相対で探す。
+ */
 export function defaultCloudDir(): string {
+  const fromEnv = process.env.HANGAR_CLOUD_DIR;
+  if (fromEnv) return path.resolve(fromEnv);
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cloud');
+}
+
+/**
+ * 配布版の .app に同梱した cloud/ の目印。
+ * 同梱の写しには wrangler も hono も入っていないので、そこからはデプロイできない。
+ * apps/desktop/scripts/bundle-server.ts がこの名前のファイルを置く。
+ */
+export const BUNDLED_CLOUD_MARKER = '.bundled';
+
+/**
+ * wrangler deploy が読むもの。
+ * wrangler だけを見ていると、hono や共有パッケージが無い環境でデプロイの途中で分かりにくく落ちる。
+ */
+const CLOUD_DEPS: [specifier: string, name: string][] = [
+  ['wrangler/package.json', 'wrangler'],
+  ['hono', 'hono'],
+  ['@agent-hangar/shared', '@agent-hangar/shared'],
+];
+
+/**
+ * Worker のデプロイに要るものが揃っているかを確かめてから場所を返す。
+ * 揃っていなければ、何がどこに無いのかを述べて止める。
+ * 黙って wrangler を呼ぶと、意味の分からない終了コードだけが残る。
+ *
+ * 依存の解決だけでは足りない。
+ * createRequire の解決は親をたどるので、.app をリポジトリの中や node_modules を持つディレクトリの下に
+ * 置くと、無関係な wrangler を拾って検査が素通りし、実物のアカウントに資源を作ってしまう。
+ * そのため、同梱の写しであること自体を目印で先に見る。
+ */
+export function requireCloudDir(): string {
+  const dir = defaultCloudDir();
+  const where = process.env.HANGAR_CLOUD_DIR ? 'HANGAR_CLOUD_DIR' : 'この CLI の置き場からの相対';
+  for (const rel of [['src', 'index.ts'], ['wrangler.jsonc'], ['package.json']]) {
+    if (!fs.existsSync(path.join(dir, ...rel))) {
+      throw new Error(`Worker のソース（${rel.join('/')}）が ${dir} にありません（${where}で決めました）。HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
+    }
+  }
+  let name: string | undefined;
+  try {
+    name = (JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')) as { name?: string }).name;
+  } catch {
+    name = undefined;
+  }
+  if (name !== '@agent-hangar/cloud') {
+    throw new Error(`${dir} は packages/cloud ではありません（${where}で決めました。package.json の name は ${name ?? '読めません'}）。HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
+  }
+  if (fs.existsSync(path.join(dir, BUNDLED_CLOUD_MARKER))) {
+    throw new Error(`${dir} は配布版に同梱した写しなので、ここからはデプロイできません。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行してください`);
+  }
+  for (const [specifier, dep] of CLOUD_DEPS) {
+    try {
+      createRequire(path.join(dir, 'package.json')).resolve(specifier);
+    } catch {
+      throw new Error(`${dep} が ${dir} から見つかりません。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行してください`);
+    }
+  }
+  return dir;
 }
 
 /** 実物のアカウント ID とデータベース ID を書く先。git に載せないので ~/.agent-hangar の下に置く。 */
@@ -314,7 +379,7 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
   const log = o.log ?? ((l: string) => console.log(l));
   const fetchFn = o.fetch ?? realFetch;
   const sleep = o.sleep ?? realSleep;
-  const cloudDir = o.cloudDir ?? defaultCloudDir();
+  const cloudDir = o.cloudDir ?? requireCloudDir();
   const name = o.name ?? 'hangar';
   const dbName = name;
   const bucketName = `${name}-files`;
@@ -738,7 +803,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   const cfg = wranglerConfigPath(o.home);
   // 設定ファイルが無ければ付けない。無いパスを --config に渡すと、どの手順も始まらずに終わる。
   const withCfg = fs.existsSync(cfg) ? ['--config', cfg] : [];
-  const wr = o.wrangler ?? new WranglerRunner({ cloudDir: o.cloudDir ?? defaultCloudDir(), accountId: c.accountId, log });
+  const wr = o.wrangler ?? new WranglerRunner({ cloudDir: o.cloudDir ?? requireCloudDir(), accountId: c.accountId, log });
   const deleted: string[] = [];
   const failures: { label: string; reason: string[] }[] = [];
   const step = async (label: string, args: string[], input?: string): Promise<void> => {

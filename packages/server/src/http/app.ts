@@ -81,7 +81,7 @@ const RESOLVE_KINDS = new Set(['repoint', 'archive', 'unlink']);
 /** 空にできない文字列の設定。 */
 const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
-const PATH_SETTING_KEYS = ['tmuxPath', 'codePath'] as const;
+const PATH_SETTING_KEYS = ['tmuxPath', 'codePath', 'nodePath'] as const;
 const TERMINAL_APPS = new Set<string>(['terminal', 'iterm']);
 /**
  * 本文の大きさの上限。かならずバイト数で測る。
@@ -156,7 +156,7 @@ const CSP = [
 ].join('; ');
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, syncClaudeConfig: s.syncClaudeConfig });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, syncClaudeConfig: s.syncClaudeConfig, nodePath: s.nodePath ?? null });
 const numberOr = (v: string | undefined): number | undefined => (v ? Number(v) : undefined);
 const isEnoent = (e: unknown): boolean => (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
 
@@ -362,7 +362,8 @@ export function createApp(deps: AppDeps): Hono {
       const v = body[key];
       if (v !== null && typeof v !== 'string') return c.json({ error: `${key} は文字列か null です` }, 400);
       // 空文字は「未設定」と同じ意味なので null に寄せる。
-      patch[key] = typeof v === 'string' && v.trim() !== '' ? v : null;
+      // 前後の空白は落とす。空白付きのままでは、そのパスで起動できない。
+      patch[key] = typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
     }
     if ('terminalApp' in body) {
       const v = body.terminalApp;
