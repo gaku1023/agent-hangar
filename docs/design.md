@@ -30,15 +30,15 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
 
 設計を貫く原則を先に置く。
 
-- **読み取り専用**：Claude Code の設定とデータを、hangar は原則として読むだけで書き換えない。例外は次の 4 つだけである。
+- **読み取り専用**：Claude Code の設定とデータを、hangar は原則として読むだけで書き換えない。`~/.claude` の中へ書く例外は次の 3 つだけである。
   - statusline スクリプトへの追記。承諾を求め、追記の前に同じディレクトリへバックアップを取る。
-  - 利用者が明示的に押した「この PC で再開」で、他端末のセッション本文を `~/.claude/projects/` に写すこと。
-  - フェーズ 4 のクラウド同期で、他端末から引いた Claude Code のユーザー設定を書き戻すこと。
-  - `hangar mcp install` が `~/.claude.json` の `mcpServers.hangar` を書き換えること。このファイルは `~/.claude/` の外にあるが、Claude Code の設定である点は同じなので例外に数える。`claude mcp add` に任せないのは、`--header` の値が argv に載り、64 桁のトークンが同じ機械の誰からでも `ps` で読めるためである。削除は今までどおり `claude mcp remove` に任せる（こちらはトークンを渡さない）。
+  - 利用者が明示的に押した「この PC で再開」で、他端末のセッション本文を `~/.claude/projects/` に写すこと。手元の本文を上書きするときは `~/.agent-hangar/backups/transcripts/` へ控えを取り、控えが取れなければ写さない。
+  - クラウド同期で、他端末から引いた Claude Code のユーザー設定を書き戻すこと。Settings で明示的に有効にし、取り込む内容を確認したときだけ書く。上書きの前に `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。
+  - 加えて、`~/.claude/` の外にある `~/.claude.json` の `mcpServers.hangar` を `hangar mcp install` が書き換える。Claude Code の設定である点は同じなので例外に数える。`claude mcp add` に任せないのは、`--header` の値が argv に載り、64 桁のトークンが同じ機械の誰からでも `ps` で読めるためである。削除は今までどおり `claude mcp remove` に任せる（こちらはトークンを渡さない）。
 - **ファイルを消さない**：hangar は利用者のファイルを削除しない。プロジェクトの削除は紐づけの解除であり、ディレクトリには触れない。例外はスクラッチを昇格するときの移動だけである。
 - **サーバが正**：状態はローカルサーバが持ち、UI は描画に必要な値だけを受け取る。ブラウザでも Tauri でも同じ UI が動く。
 - **Provider 非依存の表示**：トランスクリプトは正規化した共通形式に変換して描く。表示コードは Claude Code の jsonl 形式を知らない。
-- **同期前提のスキーマ**：初版では同期しないが、データはすべて端末間で同期できる形で持つ。
+- **同期前提のスキーマ**：データはすべて端末間で同期できる形で持つ。フェーズ 1 から 3 では同期せずにこの形だけを保ち、フェーズ 4 で実際に同期した。
 - **軽い索引**：巨大な jsonl を DB に丸ごと写さない。索引と検索用テキストだけを持ち、本文はファイルから読む。
 
 ## 全体構成
@@ -51,9 +51,9 @@ pnpm は手元で壊れているため使わない。
 - `packages/shared`：正規化トランスクリプトの型、API と MCP の契約、Intent の型、要約の型。サーバ、UI、Worker のすべてが依存する。
 - `packages/server`：ローカルサーバ。Hono による HTTP と WebSocket、MCP サーバ、SQLite（better-sqlite3）、インデクサ、tmux 制御、node-pty、要約器、同期エンジン。
 - `packages/ui`：React と Vite による UI。Root から始まる階層、Passive View、Intent チェーン、Mediator。
-- `packages/cloud`：Cloudflare Worker。Hono でサーバとコードを共有し、D1 と R2 を扱う。フェーズ 4 で実装する。
+- `packages/cloud`：Cloudflare Worker。Hono でサーバとコードを共有し、D1 と R2 を扱う。フェーズ 4 で実装した。
 - `apps/desktop`：Tauri v2 のシェル。サーバを子プロセスとして起動し、ウィンドウに UI を表示する。フェーズ 5 で実装する。
-- `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`url`、`mcp install` を提供する。
+- `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`url`、`mcp install`、`statusline install`、`cloud status`、`cloud teardown` を提供する。
 
 ### プロセスと通信
 
@@ -163,6 +163,10 @@ type Intent =
   | { type: 'session.promote.open'; id: SessionId }
   | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
   | { type: 'session.takeover'; id: SessionId; force: boolean }
+  | { type: 'session.takeover.cancel'; id: SessionId }
+  | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
+  | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
+  | { type: 'sync.joinToken.show' }
   | { type: 'summary.toggle'; sessionId: SessionId } | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
@@ -177,6 +181,10 @@ type Intent =
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'settings.update'; patch: Partial<Settings> } | { type: 'summarizer.test' };
 ```
+
+`session.takeover` と `session.takeover.cancel` は型にあるだけで、これを出すボタンはどの View にも無い。
+引き継ぎをフェーズ 4 で作らなかったためである（後述）。
+押しても何も起きない口を生やさないために、View からは `session.resumeHere` だけを出す。
 
 `transcript.follow` の `follow: false` は、利用者が自分でスクロールを上げたときだけ発行する。
 末尾へ送るスムーズスクロールの途中では発行しない。
@@ -199,7 +207,7 @@ type Intent =
 領域ごとに小さな状態機械を書き、`transition` はそれらを合成する。
 
 - `screen`：`booting | home | projects | project(id) | session(id) | sessions(query) | settings`。
-- `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | takeover(sessionId) | confirm(kind)`。
+- `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。引き継ぎのダイアログは作らなかったので `takeover(sessionId)` は無い。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
 - `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉、要約パネルの開閉。
 - `launch`：`idle | submitting | failed(message)`。
 - `connection`：`connecting | connected | disconnected`。
@@ -216,7 +224,8 @@ type Intent =
 | `launch: submitting` | `POST /api/runs` の応答 | `launch: idle`, `screen: session(id)` | ターミナル接続 |
 | `launch: submitting` | `POST /api/runs` の失敗 | `launch: failed` | ダイアログ内に理由 |
 | `session(id)` | `tab.open(shell)` | タブ追加 | `POST /api/runs/:id/tabs` |
-| `session(id)` | `session.takeover` | `overlay: takeover` | `POST /api/sessions/:id/takeover` |
+| `launch: idle` | `session.resumeHere` | `launch: submitting` | `POST /api/sessions/:id/resume-here` |
+| `launch: submitting` | 409（手元の本文の方が小さい） | `overlay: confirm('overwriteTranscript')`, `launch: idle` | なし |
 | 任意 | `ServerEvent.projectUnresolved(id)` | `overlay: resolveProject(id)` | なし |
 | `connection: connected` | WebSocket 切断 | `disconnected` | 再接続タイマー |
 
@@ -345,6 +354,8 @@ create table artifact_versions (
   updated_at integer not null, deleted_at integer, origin_device text not null
 );
 
+-- 引き継ぎの握手の台帳。state は requested から acked か forced か cancelled へ一方向に進む。
+-- フェーズ 4 では誰もこの表に書かない。引き継ぎを作らなかったためである（後述）。
 create table takeover_requests (
   id text primary key, run_id text not null references runs(id),
   from_device text not null, requested_at integer not null,
@@ -359,7 +370,7 @@ create table takeover_requests (
 同期エンジンはこの表の未送信分を送る。
 受け取った変更はこの表に積まず、行へ直接適用する。
 この表に載るのは自分の端末が起こした変更だけなので、未送信の行は同じ `(table_name, row_id)` ごとに 1 行へまとめてよい。
-初版では同期しないが、この表は最初から作る。
+この表はフェーズ 1 から作ってあり、フェーズ 4 の同期エンジンが初めて読み手になった。
 
 ```sql
 create table changes (
@@ -378,7 +389,8 @@ create table changes (
 create table transcript_files (
   path text primary key, session_id text not null, agent_id text,
   size integer not null, mtime integer not null, indexed_bytes integer not null,
-  indexer_version integer not null, last_error text
+  indexer_version integer not null, last_error text,
+  device_id text                                   -- その本文がどの端末のものか。null は手元
 );
 
 -- 1 イベント 1 行。本文は持たず、ファイル内の位置だけを持つ。
@@ -436,6 +448,16 @@ create table usage_daily (
   session_id text not null, day text not null, file_path text not null,
   input_tokens integer not null default 0, output_tokens integer not null default 0,
   primary key (session_id, file_path, day)
+);
+
+-- R2 との同期の台帳。同じ中身を二度上げず、降ろしたものが本物かを確かめるために持つ。
+-- sha256 は上げる側も降ろす側も、圧縮と暗号化の前の平文の指紋である。
+create table file_sync (
+  key text primary key,                            -- R2 の鍵
+  kind text not null,                              -- 'transcript' | 'config'
+  path text not null, device_id text not null,
+  sha256 text not null, size integer not null, mtime integer not null,
+  remote_seq integer, synced_at integer not null
 );
 
 create table sync_state (key text primary key, value text not null);
@@ -978,7 +1000,9 @@ xterm のインスタンスとスクロールバッファは残すので、戻�
 ヘッダーには名前、状態、要約（題名と 1 文、パネルで全部）、1 行メモ、モデルと effort、コンテキスト使用率を出す。
 要約のパネルを開くと、本文と次の一手に加えて、出所、要約器の種類とモデル名、何ターン時点か、生成の時刻を出す。
 何がこの要約を書いたのかは、作り直すかどうかの判断に要るためである。
-他端末で実行中なら「MacBook で実行中」の表示と「引き継ぐ」ボタンを出し、再開は無効にする。
+他端末で実行中なら「MacBook で実行中」（heartbeat が 2 分より古ければ「MacBook が応答がありません」）の表示を出し、再開とフォークは無効にする。
+手元に本文が無いセッションと、ロックが `stale` になったセッションには「この PC で再開」を出す。
+「引き継ぐ」は作らなかった。
 
 トランスクリプトはチャット形式で描く。
 利用者の発言とアシスタントの本文を吹き出しにし、ツール呼び出しは 1 行に折りたたんでクリックで展開する。
@@ -1004,7 +1028,9 @@ DOM に載る行の数は件数によらず一定で、「追う」と「もっ�
 
 ### Settings
 
-ワークスペースルート、ターミナルアプリ、VS Code のパス、MCP 登録、statusline への追記、tmux の有無、要約器（LM Studio の URL とモデル、フォールバックの上限、手元の外にある要約器を許す印）、クラウド同期（状態、参加トークンの発行、一時停止）、Provider の一覧を置く。
+ワークスペースルート、ターミナルアプリ、VS Code のパス、MCP 登録、statusline への追記、tmux の有無、要約器（LM Studio の URL とモデル、フォールバックの上限、手元の外にある要約器を許す印）、クラウド同期、Provider の一覧を置く。
+クラウド同期の節には、同期の状態と今すぐ同期と一時停止、参加している端末の一覧、参加トークンの再表示、Claude Code の設定を同期する印と取り込む内容の下見を置く。
+参加トークンは押したときだけ出し、120 秒で自動的に消して表示のボタンに戻る。
 statusline の節は追記の有無と追記先のパスを出すだけで、書き込むボタンは持たない（追記は CLI から行う）。
 使用量の節には、直近 30 日の日別（日、入力トークン、出力トークン、セッション数）と、プロジェクト別（名前、トークン、推定コスト、セッション数）の 2 つの小さな表を置く。
 推定コストの列には、そのセッションの走り全体の累計であることを添える。
@@ -1066,84 +1092,168 @@ View は `lucide-react` を直接 import せず、hangar の言葉（`fork`、`r
 
 ## クラウド同期
 
+フェーズ 4 で実装した。
+実物の Cloudflare で通した記録は `docs/plans/phase4-real-run.md` にある。
+
 ### 構成と setup
 
 同期の基盤は利用者自身の Cloudflare アカウントに置く。
 `hangar setup cloud` が wrangler の対話ログインでアカウントを選び、`packages/cloud` の Worker と D1 データベースと R2 バケットを作ってデプロイする。
-アカウント ID は設定に保存し、コードには埋め込まない。
+資源の名前は既定で Worker と D1 が `hangar`、R2 が `hangar-files` で、`--name` で変えられる（`--name x` なら Worker と D1 が `x`、R2 が `x-files`）。
+実物の設定は `~/.agent-hangar/cloud/wrangler.jsonc`（権限 0600）に書き出し、そこへ D1 の ID と R2 のバケット名を埋める。
+アカウント ID はこのファイルにもコードにも書かず、wrangler を呼ぶたびに環境変数で渡す。
 デプロイ直後の数秒は `workers.dev` の反映待ちで `error code: 1042` が返るので、setup は `/health` が通るまで最大 2 分試してから先へ進む。
 wrangler はプロジェクトのローカル依存として同梱する。
 setup の最後に **参加トークン** を表示する。
-参加トークンは Worker の URL と参加用の秘密を含む文字列で、他の PC では `hangar join <token>` でこれを渡す。
-Worker は参加の要求を受けて端末ごとの端末トークンを発行し、以後の要求はその端末トークンで認証する。
-参加用の秘密は D1 にハッシュで保存する。
+参加トークンは Worker の URL と参加用の秘密を `{url, secret}` の JSON にして base64url で包んだ文字列で、他の PC では `hangar join` でこれを渡す。
+Worker は参加の要求を受けて端末ごとの端末トークン（32 バイトの乱数）を発行し、以後の要求はその端末トークンで認証する。
+参加用の秘密も端末トークンも、D1 にはハッシュだけを置く。
+参加用の秘密のハッシュは `wrangler secret put JOIN_SECRET_HASH` で Worker に渡し、設定ファイルには書かない。
 
-家族に渡すときは、その人が自分のアカウントで同じ `hangar setup cloud` を走らせる。
+同期は自分の端末同士のためのもので、他人と 1 つの箱を共有しない。
+別の人が使うときは、その人が自分の Cloudflare アカウントで同じ `hangar setup cloud` を走らせる。
 デプロイは人ごとに独立し、データは混ざらない。
+
+Worker の D1 は、端末側の共有テーブルの形をそのまま写さない。
+`changes`（変更の列）と `rows`（行の鏡）の 2 表だけを持ち、表の名前と行 ID と payload を文字列として預かる。
+共有テーブルに列が増えても Worker を直さずに済むからである。
+スキーマは Worker が起動後の最初の要求で整える（`ensureSchema`）。
+マイグレーションの手順を別に持たず、cold start のたびに `create table if not exists` を通す形である。
+
+手元のサーバ側の入口は、フェーズ 3 で入れた鍵付きの入口と入口の 3 つの検査（Origin、`Sec-Fetch-Site`、`Content-Type`）をそのまま通る。
+同期のために足した `/api/sync/*` と `/api/devices` と `/api/sessions/:id/resume-here` も同じ関門の後ろにある。
+Worker の側はブラウザから触らないので、端末トークンの照合だけを行う。
 
 無料枠で収める。
 D1 の無料枠は合計 5GB、1 データベース 500MB、書き込み 1 日 10 万行で、hangar のメタデータには十分である。
 R2 の無料枠は 10GB で、gzip したトランスクリプト全体でも 750MB 前後に収まる（フェーズ 0 の実測で 1.4GB が 754MB になった）。
 上限に当たったときは Workers Paid（月 5 ドル）に上げる。
 
+実物で測った所要は次のとおりである。
+`hangar setup cloud` は 16 秒で終わる（D1 の作成、R2 の作成、`wrangler deploy`、`secret put`、`/health` の待ち、`/join` まで）。
+`hangar start` は同期を入れた後も 1.0 秒から 1.1 秒で、起動の最後の 1 往復で待たされない（APAC のリージョンで 1 往復が数十ミリ秒）。
+`hangar cloud teardown` は 14 秒から 18 秒である（wrangler の呼び出しが 15 回で、1 回あたり 1 秒ほどである）。
+
 ### 同期対象と暗号化
 
 同期するものは三つである。
 
 - **hangar のメタデータ**：共有テーブルの全行。D1 に置く。
-- **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip して R2 に置く。鍵は `transcripts/<端末 ID>/<sessionId>.jsonl.gz` で、端末ごとに分ける。
-- **Claude Code のユーザー設定**：`~/.claude/CLAUDE.md`、`skills/`、`memory/`、`settings.json`、statusline スクリプト。R2 に置く。絶対パスを含む設定は、`$HOME` を基準にした相対形で保存し、各端末で書き戻す。
+- **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip して R2 に置く。鍵は主線が `transcripts/<端末 ID>/<セッションの UUID>.jsonl.gz`、サブエージェントが `transcripts/<端末 ID>/<セッションの UUID>/subagents/agent-<hex>.jsonl.gz` で、端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。
+- **Claude Code のユーザー設定**：`~/.claude/CLAUDE.md`、`settings.json`、`settings.json` の `statusLine.command` が指すスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`。R2 に置く。鍵は `config/<端末 ID>/<相対パス>` で、本文と同じく端末ごとに分ける。
 
 hangar 自体の設定（ワークスペースルート、ターミナルアプリ）と UI の一時状態は同期しない。
 
+本文は差分ではなく、**変わるたびにファイル全体を gzip して上げ直す**。
+R2 は部分更新を持たないので、末尾だけを足す道が無いためである。
+同じ中身を二度上げないために、端末ローカルの `file_sync` に前回の指紋（平文の SHA-256）と大きさと更新時刻を残す。
+
+設定の同期で上げないものは、`node_modules` と `.git` と `__pycache__` と `.venv` の各段、シンボリックリンク、1MB を超えるファイル、`.DS_Store`、そして同期自身が作る `*.conflict-*` などの写しである。
+写しを対象に戻すと、競合のファイルが端末間で無限に増える。
+**削除は同期しない。**
+片方で消したファイルが、もう片方から消えることはない。
+ホームの絶対パスは `$HOME` ではなく `__HANGAR_HOME__` という目印に置き換えて上げ、降ろすときに各端末のホームへ戻す。
+`$HOME` をそのまま使うと、ホームの綴りが違う端末で指紋が揃わない。
+設定の同期は Settings で明示的に有効にしたときだけ動き、初めて取り込むときは下見の一覧を見せて確認を取る。
+`~/.claude` を上書きする前には必ず `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。
+控えは 20 世代を残し、古いものから消す。
+
 R2 に置くファイルは端末間で暗号化する。
-鍵は参加用の秘密から HKDF で導出し、AES-256-GCM で暗号化してから上げる。
+鍵は参加用の秘密から `hkdfSync('sha256', joinSecret, 'hangar-salt-v1', 'hangar-file-v1', 32)` で導き、AES-256-GCM で暗号化してから上げる。
 Cloudflare 側は中身を読めない。
-暗号化と復号は 1MB ごとのチャンクで行い、フェーズ 0 の計測では暗号化 2,700MB/s、復号 600MB/s だった。同期の律速は gzip とネットワークである。
-D1 のメタデータ（題名、TODO、メモ）は平文で持ち、将来 Worker 側の機能に使えるようにする。
+形式は、先頭に `HGR1` の 4 バイトと 8 バイトの nonce 接頭辞を置き、その後ろに 1MB ごとのチャンクを並べる。
+チャンクは `flag`（1 バイト、最後のチャンクだけ 1）と `len`（4 バイト）と本体と 16 バイトの認証タグからなり、nonce は接頭辞にチャンク番号を継いで作る。
+AAD にチャンク番号と `flag` を入れるので、並べ替え、複製、欠落、途中での打ち切りは、どれも認証タグで落ちる。
+`len` には上限（1MB + 64 バイト）を置く。
+他端末が書いた本文は外から来た入力なので、相手の申告する長さをそのまま信じて溜め込まない。
+フェーズ 0 の計測では暗号化 2,700MB/s、復号 600MB/s で、同期の律速は gzip とネットワークである。
+D1 のメタデータ（題名、要約、TODO、メモ）は平文で持ち、将来 Worker 側の機能に使えるようにする。
 
 ファイルの一覧は D1 の `files` 表に持ち、パス、端末、SHA-256、サイズ、更新時刻、R2 の鍵を記録する。
+降ろす側は、この指紋と実際に降りた中身の指紋を突き合わせる。
+暗号化そのものは「鍵の同じ別のファイルへの差し替え」を見抜けないので、鍵と指紋の突き合わせがその守りになる。
 
 ### タイミングと競合
 
 メタデータは、ローカルで変更した 1 秒後に `changes` の未送信分をまとめて push する。
+ただし push には最小間隔 10 秒があり、実行中のセッション 1 本で 2 秒ごとに送り続けることはしない。
+1 回の push は 40 行まで、1 回の pull は 500 行までである。
 pull は起動時、ウィンドウが前面に来たとき、30 秒ごと、セッション起動の直前（2 秒で諦める）に行う。
-Worker は受け取った変更を D1 に適用し、サーバ側の連番を付けて保存する。
+Worker は受け取った変更を `changes` に積み、`rows` の鏡を更新して、サーバ側の連番を付ける。
 pull は連番以降の変更を返す。
 競合は行単位で `updated_at` の新しい方を採用する。
 
-トランスクリプトは、jsonl の変化を検知して 30 秒のデバウンスで差分を上げ、run の終了で確定する。
-他端末の新着は pull で全部取り込み、`~/.agent-hangar/remote/<端末 ID>/` に置いて手元で索引化する。
-これで検索は全端末で揃う。
+`GET /changes` は自分の端末が起こした変更を除いて返す。
+自分で送った行をそのまま受け取っても、適用しても何も変わらないうえ、読む量だけが倍になるからである。
+一方 `GET /rows`（全件の取り直し）は除かない。
+これは参加した直後や取りこぼした後に、現在の全行を手に入れるための道なので、自端末の行も要る。
 
-Claude Code の設定は、変化を検知して 5 秒のデバウンスで push し、起動時と 30 秒ごとに pull する。
-両端末で同じファイルを変えていたら新しい方を採用し、古い方を `<name>.conflict-<端末>-<時刻>` として隣に残して通知する。
+積みっぱなしにしないための刈り込みが 2 つある。
+端末ローカルの `changes` は、push 済みで 7 日を過ぎた行を消す。
+Worker の `changes` は、受信から 14 日を過ぎ、かつ接続した全端末が読み終えた連番までを消す。
+消した区間の上端は `meta.changes_floor` に残し、`GET /changes?since=` がそれより前を求めてきたら `410` と `{ error: 'gone', floor }` を返して、全件の取り直しを求める。
+これが無いと、長く止めていた端末が変更を黙って取りこぼす。
+
+無料枠の 80% に達したら、同期を自動で一時停止してトーストで知らせる。
+課金される形にはしない。
+数えるのは Worker が D1 へ書いた行数（索引への書き込みを含む）と、こちらが出した要求の回数で、どちらも 1 日 10 万が枠である。
+止めるのは 1 日に 1 度だけにする。
+毎回止めると、利用者が「再開」を押した直後にまた止まり、その日いっぱい押せないボタンになる。
+
+トランスクリプトは、jsonl の変化を検知して 30 秒のデバウンスでファイル全体を上げ直し、run の終了で確定する。
+他端末の新着は pull で全部取り込み、`~/.agent-hangar/remote/<端末 ID>/`（0700、ファイルは 0600）に置いて手元で索引化する。
+これで検索は全端末で揃う。
+降ろせないファイルが 1 つあっても後ろが止まらないように、同じ項目で 3 回続けて失敗したら飛ばして先へ進む。
+飛ばした項目は `sync_state` に残し、中身が入れ替わったとき、サーバを起こし直したとき、30 分ごとの 3 つの機会で試し直す。
+
+Claude Code の設定は、変化を検知して 5 秒のデバウンスで push し、加えて 60 秒ごとに変わったものを送る。
+`fs.watch` の recursive は macOS と Windows にしか無いので、定期の走査を併せ持つ。
+起動のたびに 1 度、全体を走査してから上げる（指紋が同じものは上がらない）。
+これが無いと、同期を入れて起こし直しても `~/.claude` に触るまで 1 件も上がらない。
+両端末で同じファイルを変えていたら新しい方を採用し、古い方を `<name>.conflict-<端末名>-<時刻>` として隣に残して通知する。
+実物では、片方の書き換えが相手に降りるまで 10 秒から 30 秒だった。
+
+プロジェクトのメモ（`project_memos`）とセッションのメモ（`sessions.memo`）は、行の競合では新しい方を採る規則をそのまま使う。
+ただし負けた方の本文を捨てない。
+プロジェクトのメモは `memo.conflict-<端末名>-<時刻>.md` として隣に残し、セッションのメモは `~/.agent-hangar/backups/memos/session-<セッション ID>-<時刻>.md` に残す。
+どちらも、控えが書けなかったらその行を適用しない。
+上書きを進めると、利用者が手で書いた文章が黙って消えるからである。
 
 オフラインのときは `changes` に積んだままにし、復帰時に順に送る。
 ヘッダーの同期状態には最終同期時刻、未送信件数、エラーを出し、「今すぐ同期」と「一時停止」を置く。
 D1 の Time Travel（無料枠で 7 日）で巻き戻せる。
 
-### 他端末セッションのロックと引き継ぎ
+### 他端末セッションのロックと「この PC で再開」
 
 他端末のセッションは、閲覧と検索は常にできる。
 「この PC で再開」は明示操作で、その端末の最新の本文を `~/.claude/projects/<変換名>/<sessionId>.jsonl` にコピーしてから `claude -r` を実行する。
-これが Claude のディレクトリへの唯一の書き込みである。
 
-他端末に生きた run（`ended_at` が null で、`heartbeat_at` が 2 分以内）があるセッションは、ロックされているとみなす。
-UI は「<端末名> で実行中」と表示し、再開を無効にして「引き継ぐ」を出す。
+他端末に生きた run（`ended_at` が null で `deleted_at` が null）があるセッションは、**heartbeat の新旧にかかわらず**ロックされているとみなす。
+heartbeat が 2 分（`LOCK_STALE_MS`）より古いときは、ロックを解かずに `stale` の印を立てる。
+古い heartbeat でロックを解いてしまうと、相手がまだ走っているのに手元から再開できてしまうからである。
+UI は `stale` でないとき「<端末名> で実行中」、`stale` のとき「<端末名> が応答がありません」と表示する。
+ロックされている間は再開とフォークを止める。
+`stale` のときだけは「この PC で再開」を押せるようにする。
+相手が落ちて heartbeat だけが残った状態を、行き止まりにしないためである。
 heartbeat は 30 秒ごとの push で更新する。
 
-引き継ぎは次の握手で行う。
+「この PC で再開」は、手元に同じセッションの本文があり、それが降ろす本文より**小さいときだけ**確認を出す。
+承諾したら、上書きの前に `~/.agent-hangar/backups/transcripts/<sessionId>-<時刻>.jsonl` へ控えを取る。
+控えが取れなければ `~/.claude` を触らずに戻る。
+手元の方が大きいか同じときは、黙って上書きしない。
 
-1. こちらが `takeover_requests` に `requested` を書いて push する。
-2. 相手の hangar は次の pull（最大 30 秒後）で要求を見る。Claude が busy なら idle を最大 60 秒待つ。
-3. 相手は本文を R2 に確定し、tmux セッションを閉じて run を終了し、要求を `acked` にして push する。
-4. こちらは `acked` を見て本文をコピーし、再開する。
+**引き継ぎは実装していない。**
+2026-09-19 の判断で、ロックの表示と「この PC で再開」までに絞り、`takeover_requests` を使った握手は後のフェーズへ送った。
+2 台で使う実感が無いまま、同期の中でいちばん複雑な部分を作らないためである。
+`takeover_requests` の表と `Intent` の `session.takeover` は残っているが、誰も書かず誰も出さない。
+`EndReason` に `taken_over` は足していない。
+引き継ぎが無いので、他端末の run はこちらの操作では止まらない。
+「この PC で再開」は本文を降ろして手元で新しい run を立てるだけなので、同じセッションの本文が 2 か所で伸びうる。
+この枝分かれは受け入れる。
 
-相手の heartbeat が 2 分以上古いときは、スリープ中とみなして「強制引き継ぎ」を出す。
-強制引き継ぎは R2 にある最新の本文で再開し、要求を `forced` にする。
-相手は復帰時に `forced` を見て自分の run を閉じ、以後その本文を上げない。
-同じセッション ID の本文は端末ごとに別の鍵で置くので、上書きは起きない。
+他端末の本文を索引化するときは、共有テーブルの `sessions` と `session_summaries` には書かず、端末ローカルの表（`transcript_files`、`event_index`、`event_fts`）だけを書く。
+同じセッションの同じ位置につき索引化するファイルは常に 1 つで、手元の本文があればそれを優先し、無ければ更新時刻が最新の写しを 1 つだけ採る。
+本文が 2 か所で伸びても、見た目が二重にならないようにするためである。
 
 ## 配布と運用
 
@@ -1164,8 +1274,8 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - **フェーズ 0**：危ない前提を捨てられる小さなスクリプトで検証する。計画は `docs/plans/phase0-spikes.md`。
 - **フェーズ 1**：サーバ、インデクサ、読み取り専用の UI。Projects、セッション一覧、トランスクリプト、Sessions（検索）、土台の要約。計画は `docs/plans/phase1-readonly.md`。
 - **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。計画は `docs/plans/phase2-launch.md`。
-- **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。計画は `docs/plans/phase3-workbench.md`。
-- **フェーズ 4**：クラウド同期と引き継ぎ。計画は `docs/plans/phase4-sync.md`。
+- **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。併せて、鍵付きの入口と入口の 3 つの検査（Origin、`Sec-Fetch-Site`、`Content-Type`）を入れた。計画は `docs/plans/phase3-workbench.md`。
+- **フェーズ 4**：クラウド同期。Worker と D1 と R2 の setup、メタデータと本文と Claude Code 設定の同期、無料枠の見張り、他端末のロックと「この PC で再開」まで実装した。引き継ぎの握手は作らず、後のフェーズへ送った。計画は `docs/plans/phase4-sync.md`、実物での確認は `docs/plans/phase4-real-run.md`。
 - **フェーズ 5**：Tauri のシェル、ディープリンク、Releases。計画は `docs/plans/phase5-desktop.md`。
 
 ## 決めた前提と未決事項
@@ -1174,7 +1284,7 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 異論があれば、この文書を直してから実装を変える。
 
 - ポートは 4177 固定。データディレクトリは `~/.agent-hangar/`。
-- ID は UUID v7。マイグレーションは番号付き SQL をアプリ起動時に適用する。版は 6 まで進んでいる（4 で `usage_daily` の鍵に `file_path` を足して `artifact_versions(artifact_id)` の索引を置き、5 で `session_summaries` に `source_id` を足し、6 で `usage_daily` を空にして `transcript_files.indexer_version` を 0 に戻した）。版 6 は、`file_path` を持たない古い行をどちらに寄せても作り直しの消し方が正しくならないための積み直しである。全ファイルが索引の作り直しに回るので、実物の DB では約 35 秒かかり、その間だけ日別の使用量が欠ける。
+- ID は UUID v7。マイグレーションは番号付き SQL をアプリ起動時に適用する。版は 8 まで進んでいる（4 で `usage_daily` の鍵に `file_path` を足して `artifact_versions(artifact_id)` の索引を置き、5 で `session_summaries` に `source_id` を足し、6 で `usage_daily` を空にして `transcript_files.indexer_version` を 0 に戻し、7 で `mcp_secrets` を作り、8 で `transcript_files` に `device_id` と索引を足して `file_sync` を作った）。版 6 は、`file_path` を持たない古い行をどちらに寄せても作り直しの消し方が正しくならないための積み直しである。全ファイルが索引の作り直しに回るので、実物の DB では約 35 秒かかり、その間だけ日別の使用量が欠ける。版 8 の `device_id` は既存の行では null のままにする。端末の ID は DB ではなく `device.json` にあり、マイグレーションからは読めないためである。
 - FTS5 のトークナイザは trigram。
 - R2 の鍵は端末 ID を含み、同じセッション ID の本文が端末ごとに分岐しても上書きしない。
 - Claude 側で利用者が付けた名前（`nameSource` が `user`）は、hangar が保持する名前より優先する。
@@ -1245,8 +1355,46 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 - 未解決のプロジェクトで「あとで」を選んだら、同じ起動の間はもう聞かない。覚えるのは Mediator の状態だけで永続化しないので、立て直せばまた聞く。利用者が自分で開きにきたときは覚えを忘れて出す。
 - 既知の限界：プロジェクトのメモは、ファイルの mtime が DB の `updated_at` より古いと DB の内容がファイルに書き戻される。外部のエディタで書いた直後にファイルの時刻が巻き戻る状況では、その編集は画面から消える。消える本文は同じディレクトリに `memo.md.bak-<yyyymmddHHMMSS>` として残るので、手で拾い直せる。
 
+以下はフェーズ 4 の実装で決めた前提である。
+2026-09-19 に利用者と決めたものと、実装と実物確認で分かって計画から変えたものが混ざっている。
+
+- Worker の D1 は `rows` と `changes` の 2 表で持ち、共有テーブルの形をそのまま写さない。表の名前と行 ID と payload を文字列として預かるので、共有テーブルに列が増えても Worker を直さずに済む。
+- 参加トークンは `{url, secret}` の JSON を base64url にした文字列で、Settings からいつでも再表示できる。表示した後 120 秒で自動的に消し、`localStorage` にも残さない。
+- 貼るときに折り返しが入っていてもよい。1Password の項目から貼る前提なので、空白と改行を落としてから読む。
+- 参加トークンの URL は入口の検査を通す。素の `https:` の origin と、`127.0.0.1` と `localhost` の `http:` だけを許し、ユーザ情報つきとパスつきは拒む。敵対的なトークンを貼られると、その端末の本文と要約とメモが相手のサーバへ上がるためである。
+- 端末ローカルの `file_sync` で、上げ下ろしの最後の SHA-256 を持つ。指紋は上げる側も降ろす側も、圧縮と暗号化の前の平文のものである。
+- 本文は差分ではなくファイル全体を上げ直す。R2 が部分更新を持たないためである。
+- 設定の R2 の鍵にも端末 ID を入れて `config/<端末 ID>/<相対パス>` にする。入れずに実物で 2 台を動かすと、同じ鍵を奪い合って、負けた端末が「SHA-256 が一致しません」で永久に取り込めなくなった（2026-09-19 の実物確認で判明）。
+- 引き継ぎの握手は `takeover_requests` の同期に乗せる設計だが、フェーズ 4 では実装しなかった。ロックの表示と「この PC で再開」までに絞った（2026-09-19 の判断）。`EndReason` に `taken_over` は足さない。
+- ロックは他端末の生きた run で引き、heartbeat の新旧では解かない。2 分を超えたら `stale` を立て、そのときだけ「この PC で再開」を押せるようにする。
+- 同期は自分の端末同士のためのもので、他人と 1 つの箱を共有しない。別の人は自分の Cloudflare アカウントで `setup cloud` を走らせる。
+- 無料枠の 80% で同期を自動で一時停止し、トーストで知らせる。課金される形にはしない。止めるのは 1 日に 1 度だけにする。
+- 無料枠の数えは「Worker が D1 へ書いた行数」で行う。比べる相手が D1 の 1 日 10 万行なので、文の数で数えると単位が合わず、見張りが効かない。索引への書き込みも数に入れる。
+- 数えに入れていないものが 3 つある。`changes` の圧縮で走る D1 の書き込み、`join` のときの `devices` の upsert、cold start ごとの `ensureSchema` である。圧縮は同期を 14 日以上続けてから効き始め、実際の書き込みが数えの最大 1.5 倍になりうる。無料プランは上限を超えても課金されず要求が断られるだけなので、このフェーズでは数えない。
+- `setup cloud --rotate-secret` は R2 の既存ファイルを復号できなくするので、確認を必須にする。確認は `y/N` ではなく合言葉を打たせる形にする。秘密がまだ無いときだけ確認を省く。
+- `cloud teardown` は、R2 にしか無い本文を先に手元へ降ろす。1 件でも降ろせなければ、確認を聞く前に中止して wrangler を 1 度も呼ばない。wrangler の呼び出しが 1 つでも失敗したら、手元の `cloud.json` を消さずに 0 以外で終わる。
+- Worker のテストは `@cloudflare/vitest-pool-workers` を使わず、miniflare 4 の使い捨てハーネスで行う。pool の最新版が peer に vitest 4 を要求し、vitest 5 を許す版が 1 つも無いためである。実物の Cloudflare に触らない要件は、ローカルの workerd で満たしている。
+- R2 の覚え書き（`customMetadata`）の上限（2048 バイト）を超えたら、断らずに `path` を落として通す。正本は D1 の `files` なので、冗長な写しのために深い日本語の道にある本文を永久に同期できなくする方が筋が悪い。
+- ファイルのパスは見出し（`x-hangar-path`）に符号化して載せる。URL に載せると、利用者のホームの構造が Cloudflare の要求ログに残る。素のまま見出しに載せる道は、非 ASCII のときに Node の fetch が送る前に落ちるので使えない。
+- 1 回の push は 40 行まで、1 回の pull は 500 行まで、push の最小間隔は 10 秒。ローカルの `changes` は push 済みで 7 日、Worker の `changes` は 14 日と全端末の読み終わりで刈る。
+- 降ろせない本文が 1 件あっても後ろを止めない。3 回続けて失敗したら飛ばし、中身が入れ替わったとき、起こし直したとき、30 分ごとに試し直す。諦めた件数は `SyncStatusDto` に無いので、画面からは確かめられない。
+- `~/.agent-hangar/remote` は 0700、降ろしたファイルは 0600 にする。中身は他端末の会話の本文である。
+- 設定の同期の対象は削除を運ばない。片方で消したファイルは、もう片方からは消えない。
+- 設定の取り込みは、途中のディレクトリがシンボリックリンクでも辿らない。段ごとに `lstat` して、リンクに当たったらその項目を諦める。realpath で後から判定する形にすると、`~/.claude` の外の既存ファイルを上書きする筋が残る。
+- 取り込んだ設定ファイルの更新時刻は、相手の端末で編集した時刻に合わせる。`utimes` がナノ秒の端を落とすので往復のたびに 1 ミリ秒未満のずれが出るが、判定はミリ秒で行うので影響しない。
+- Intent に `session.resumeHere`、`sync.config.preview`、`sync.config.apply`、`sync.joinToken.show` を、`ServerEvent` に `sync.status`、`sync.applied`、`devices.update` を足した。
+- 既知の限界：R2 と D1 の `files` に孤児が残ったとき、それを掃除する者がいない。`PUT` は R2、D1 の順なので、間で倒れると索引に無い本体が残る。端末が消えたときに `transcripts/<端末 ID>/` を畳む道も無い。
+- 既知の限界：`~/.agent-hangar/backups/` のうち、本文の上書きの控え（`transcripts/`）とメモの控え（`memos/`）は消さないので伸び続ける。設定の取り込みの控え（`claude-config/`）だけが 20 世代で刈られる。
+- 既知の限界：フェーズ 4 の実物確認は、1 台の Mac の上で `HANGAR_HOME` と `HANGAR_CLAUDE_DIR` を分けて 2 端末を模して行った（2026-09-19 の決定）。実際に別のマシンから参加することは確かめていない。
+- 覚え書き：`HANGAR_CLAUDE_DIR` は hangar が読む設定の置き場で、起こされた `claude` が見るのは `CLAUDE_CONFIG_DIR` である。普段はどちらも `~/.claude` なので食い違わないが、試しの環境を分けるときは両方を向ける。
+
 未決事項は次のとおりである。
 
 - 未署名の `.app` を配布したときの Gatekeeper の扱い。家族に渡す手順（右クリックで開く）か署名の取得かを、フェーズ 5 で決める。
 - 権限確認ダイアログの待ちがレジストリで `waiting` になるか `busy` のままかは、auto モード以外で確かめる。
 - OpenCode Provider の詳細設計。フェーズ 5 以降に別文書で書く（フェーズ 3 では扱わなかった）。
+- 引き継ぎの握手。`takeover_requests` を使う設計はこの文書に残したまま、実装は後のフェーズへ送った。2 台で使い続けて、本文の枝分かれが実際に困るかどうかを見てから決める。
+- 圧縮ぶんの D1 の書き込みを数えに入れるかどうか。同期を 14 日以上続けた実測を取ってから決める。
+- R2 と D1 の `files` の孤児を掃除する道と、端末が消えたときの `transcripts/<端末 ID>/` の始末。
+- 降ろすのを諦めた本文の件数を画面に出すかどうか。直すなら `SyncStatusDto` と `presenters/shell.ts` と `SyncStatus.tsx` の 3 か所である。
+- `findSession` と `ensureSession` が `deleted_at` を見ていないこと。削除の見え方そのものを変える話なので、手元と写しで規則がずれないように一度にまとめて直す。
