@@ -38,7 +38,7 @@ import { copyTranscriptForResume } from './sync/copy.ts';
 import { deriveFileKey } from './sync/crypto.ts';
 import { SyncEngine } from './sync/engine.ts';
 import { RemotePuller } from './sync/puller.ts';
-import type { QuotaCounter } from './sync/quota.ts';
+import { D1_WRITES_PER_DEVICE_TOUCH, type QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { TranscriptUploader } from './sync/uploader.ts';
 import { Tmux } from './tmux/tmux.ts';
@@ -62,17 +62,40 @@ const FLUSH_AGAIN_MS = 5_000;
 const CONFIG_PUSH_MS = 60_000;
 
 /**
- * `PUT /files/<鍵>` が D1 に書く行数。
- * Worker は R2 に置いた後、`files` の delete と insert、`devices` の last_seen_at を 1 つの batch で書く
- * （`packages/cloud/src/files.ts` の 239 行から 246 行）。
- * R2 に置くことだけを数えると、D1 の 80% の見張りが実際の 3 分の 1 の速さでしか動かない。
+ * `files` の 1 行を書くときに動く索引の数。
+ * `key text not null unique` に SQLite が自分で張る索引と、`files_kind` の 2 つである
+ * （`packages/cloud/src/schema.ts`）。
+ * `seq integer primary key` は rowid そのものなので索引を増やさない。
  */
-export const D1_WRITES_PER_FILE_PUT = 3;
+const FILES_INDEXES = 2;
+/**
+ * `files` への insert が余分に動かす `sqlite_sequence` の 1 行。
+ *
+ * `seq` は `autoincrement` なので、insert のたびに `sqlite_sequence` の行が進む（delete では動かない）。
+ * better-sqlite3 で実際に確かめた（insert 2 回で seq が 1 から 2 に進み、delete では変わらない）。
+ * D1 の `rows_written` がこの内部の表を数えるかどうかは、公開の定義からは決められない。
+ * 実測の 369 行は「数える」「数えない」のどちらの分け方でも同じ合計になるので、実物でも決着しない。
+ * **決められないときは多い方で数える。** 少なく数えると枠を越えてから止まり、課金されない約束が崩れる。
+ */
+const D1_WRITES_PER_AUTOINCREMENT = 1;
+
+/**
+ * `PUT /files/<鍵>` が D1 に書く行数。
+ *
+ * Worker は R2 に置いた後、`files` の delete と insert、`devices` の last_seen_at を 1 つの batch で書く
+ * （`packages/cloud/src/files.ts` の 242 行から 248 行）。
+ * 無料枠が見ているのは文の数ではなく `rows_written` で、索引への書き込みも 1 行ずつ数える。
+ * 内訳は delete が 1 + 索引 2、insert が 1 + 索引 2 + `sqlite_sequence` 1、`devices` の更新が 1 である。
+ * 同じ鍵へ上げ直すたびに delete が当たるので、当たる方（多い方）で数える。
+ */
+export const D1_WRITES_PER_FILE_PUT = (1 + FILES_INDEXES) + (1 + FILES_INDEXES + D1_WRITES_PER_AUTOINCREMENT) + D1_WRITES_PER_DEVICE_TOUCH;
 /**
  * `DELETE /files/<鍵>` が D1 に書く行数。
- * `files` から 1 行消すだけである（同 269 行）。R2 の削除は D1 に書かない。
+ * `files` から 1 行消すだけである（同 272 行）。本体 1 行と索引 2 行で 3 行になる。
+ * `devices` は触らず、`sqlite_sequence` は delete では動かない。
+ * R2 の削除は D1 に書かない。
  */
-export const D1_WRITES_PER_FILE_DELETE = 1;
+export const D1_WRITES_PER_FILE_DELETE = 1 + FILES_INDEXES;
 
 /**
  * R2 への出し入れを無料枠の勘定に入れるための包み。

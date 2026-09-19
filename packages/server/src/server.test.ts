@@ -10,7 +10,7 @@ import type { LiveSessionDto } from '@agent-hangar/shared';
 import { Readable } from 'node:stream';
 import { saveCloudConfig } from './config/cloud.ts';
 import { dbPath } from './config/paths.ts';
-import { QuotaCounter } from './sync/quota.ts';
+import { D1_WRITES_PER_DEVICE_TOUCH, QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { openDb } from './db/open.ts';
 import { upsertShared } from './db/shared.ts';
@@ -570,6 +570,49 @@ describe('一時停止は外と話さない', () => {
   });
 });
 
+/**
+ * ファイルの出し入れの行数を Worker のスキーマから出し直す。
+ * 無料枠が数えているのは文の数ではなく rows_written で、索引への書き込みも 1 行ずつ数える。
+ * schema.ts は読むだけで、書き換えない。
+ */
+describe('ファイルの出し入れの勘定は Worker のスキーマから出す', () => {
+  const schema = fs.readFileSync(new URL('../../cloud/src/schema.ts', import.meta.url), 'utf8');
+  const filesBody = (): string => {
+    const m = schema.match(/create table if not exists files \(([\s\S]*?)\)'/);
+    if (!m?.[1]) throw new Error('files の create table が見つからない');
+    return m[1];
+  };
+  /** files に張られた索引の数。明示の create index と、unique や text の主キーに SQLite が自分で張るもの。 */
+  const filesIndexes = (): number => {
+    const body = filesBody();
+    const explicit = [...schema.matchAll(/create index if not exists (\w+) on (\w+)\(([^)]*)\)/g)].filter((m) => m[2] === 'files').length;
+    // seq integer primary key は rowid そのものなので索引を増やさない。
+    const pk = /integer primary key/.test(body) ? 0 : /primary key/.test(body) ? 1 : 0;
+    return explicit + pk + (body.match(/ unique/g) ?? []).length;
+  };
+  /** autoincrement の表は insert のたびに sqlite_sequence の 1 行も動かす（delete では動かない）。 */
+  const sequenceRow = (): number => (/autoincrement/.test(filesBody()) ? 1 : 0);
+
+  it('files には索引が 2 つある（key の unique と files_kind）', () => {
+    expect(filesIndexes()).toBe(2);
+    expect(sequenceRow()).toBe(1);
+  });
+
+  it('PUT は delete と insert と devices の更新で 8 行である', () => {
+    // packages/cloud/src/files.ts の batch は delete と insert と devices の更新の 3 文である。
+    const del = 1 + filesIndexes();
+    const ins = 1 + filesIndexes() + sequenceRow();
+    expect(D1_WRITES_PER_FILE_PUT).toBe(del + ins + D1_WRITES_PER_DEVICE_TOUCH);
+    expect(D1_WRITES_PER_FILE_PUT).toBe(8);
+  });
+
+  it('DELETE は本体と索引だけで 3 行である', () => {
+    // devices は触らず、sqlite_sequence は delete では動かない。
+    expect(D1_WRITES_PER_FILE_DELETE).toBe(1 + filesIndexes());
+    expect(D1_WRITES_PER_FILE_DELETE).toBe(3);
+  });
+});
+
 describe('セッションのメモの控えの知らせ', () => {
   it('どの端末に負けて、どこに残したかを言う', () => {
     // 控えはもうファイルになっている。知らせが無いと、利用者は消えたようにしか見えない。
@@ -636,11 +679,11 @@ describe('無料枠の勘定', () => {
     }
   });
 
-  it('Worker が 1 回の出し入れで D1 に書く行数と合っている', () => {
-    // packages/cloud/src/files.ts の PUT は files の delete と insert と devices の更新で 3 文、
-    // DELETE は files の delete だけで 1 文である（R2 の削除は D1 に書かない）。
-    expect(D1_WRITES_PER_FILE_PUT).toBe(3);
-    expect(D1_WRITES_PER_FILE_DELETE).toBe(1);
+  it('数えるのは文の数ではなく行数である', () => {
+    // 文の数（PUT が 3 文、DELETE が 1 文）で数えると、索引への書き込みが丸ごと抜ける。
+    // 行数の出どころは下の「ファイルの出し入れの勘定は Worker のスキーマから出す」にある。
+    expect(D1_WRITES_PER_FILE_PUT).toBeGreaterThan(3);
+    expect(D1_WRITES_PER_FILE_DELETE).toBeGreaterThan(1);
   });
 });
 
