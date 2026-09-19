@@ -15,7 +15,7 @@ import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../test/fixtures.ts';
-import { checkRoots, CLOSE_SUMMARY_WAIT_MS, RUN_ENDED_SUMMARY_OPTS, startServer, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_SUMMARY_WAIT_MS, CLOSE_UPLOAD_WAIT_MS, RUN_ENDED_SUMMARY_OPTS, startServer, stopUploader, waitForSummaryIdle, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -452,6 +452,52 @@ describe('close の要約待ち', () => {
     expect(await waitForSummaryIdle({ idle: () => Promise.resolve() }, CLOSE_SUMMARY_WAIT_MS)).toBe(true);
     expect(Date.now() - t).toBeLessThan(1000);
     expect(CLOSE_SUMMARY_WAIT_MS).toBeGreaterThanOrEqual(1000);
+  });
+});
+
+describe('close の本文の上げ待ち', () => {
+  /** TranscriptUploader と同じ形の立て替え。idle が返るまで stop を呼んではいけない。 */
+  const fakeUploader = () => {
+    const calls: string[] = [];
+    let finish = () => {};
+    return {
+      calls,
+      finish: () => finish(),
+      idle: () => new Promise<void>((r) => { finish = () => { calls.push('idle'); r(); }; }),
+      stop: () => { calls.push('stop'); },
+    };
+  };
+
+  it('走っている上げが終わってから止める', async () => {
+    // デバウンスのタイマーが始めた上げは誰も約束を持たない。
+    // 待たずに stop すると putFile が途中で切れ、その本文は次の起動までやり直しになる。
+    const up = fakeUploader();
+    let settled: boolean | null = null;
+    const waiting = stopUploader(up, 2000).then((v) => { settled = v; return v; });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(settled).toBeNull();
+    expect(up.calls).toEqual([]);
+    up.finish();
+    expect(await waiting).toBe(true);
+    // 上げ終わってから止める、という順でなければならない。
+    expect(up.calls).toEqual(['idle', 'stop']);
+  });
+
+  it('上限を超えたら諦めて止める', async () => {
+    // 大きな本文 1 件で hangar stop が固まらないようにする。
+    const up = fakeUploader();
+    const t = Date.now();
+    expect(await stopUploader(up, 50)).toBe(false);
+    expect(Date.now() - t).toBeLessThan(2000);
+    // 諦めたときも必ず止める。
+    expect(up.calls).toEqual(['stop']);
+  });
+
+  it('上げ手が無ければ何もしない', async () => {
+    expect(await stopUploader(null)).toBe(true);
+    // 上限は数秒に収める。終了が転送に引きずられない長さである。
+    expect(CLOSE_UPLOAD_WAIT_MS).toBeGreaterThanOrEqual(1000);
+    expect(CLOSE_UPLOAD_WAIT_MS).toBeLessThanOrEqual(5000);
   });
 });
 

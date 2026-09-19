@@ -139,13 +139,39 @@ export function checkRoots(o: { db: Db; deviceId: string; live: () => LiveSessio
   return r;
 }
 
-/** 要約のジョブが空になるまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
-export function waitForSummaryIdle(job: { idle(): Promise<void> }, ms: number = CLOSE_SUMMARY_WAIT_MS): Promise<boolean> {
+/**
+ * close が本文の上げを待つ上限。
+ * 上げは R2 への転送なので、切れるとその 1 件は次の起動までやり直しになる。
+ * 一方で待ちに上限が無いと、大きな本文 1 件で hangar stop が固まる。
+ * 転送そのものの締め切りは client 側で 5 分なので、終了はここで先に諦める。
+ */
+export const CLOSE_UPLOAD_WAIT_MS = 3_000;
+
+/** idle() が返るまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
+export function waitForIdle(job: { idle(): Promise<void> }, ms: number): Promise<boolean> {
   let timer: NodeJS.Timeout | undefined;
   return Promise.race([
     job.idle().then(() => true),
     new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms); timer.unref?.(); }),
   ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
+/**
+ * 走っている本文の上げを待ってから止める。上限までに終われば真を返す。
+ * 待たずに stop すると、デバウンスのタイマーが始めた putFile が途中で切れる。
+ * 上限を超えたときも必ず止める。終了が転送に引きずられる方が困る。
+ */
+export async function stopUploader(up: { idle(): Promise<void>; stop(): void } | null, ms: number = CLOSE_UPLOAD_WAIT_MS): Promise<boolean> {
+  if (!up) return true;
+  const done = await waitForIdle(up, ms);
+  if (!done) console.warn(`[upload] 本文の送信を ${ms} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
+  up.stop();
+  return done;
+}
+
+/** 要約のジョブが空になるまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
+export function waitForSummaryIdle(job: { idle(): Promise<void> }, ms: number = CLOSE_SUMMARY_WAIT_MS): Promise<boolean> {
+  return waitForIdle(job, ms);
 }
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
@@ -525,7 +551,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       clearInterval(deviceTimer);
       if (configTimer) clearInterval(configTimer);
       configSync?.stop();
-      uploader?.stop();
+      // 走っている上げを待ってから止める。待たずに止めると putFile が途中で切れる。
+      await stopUploader(uploader);
       engine.stop();
       stopMemoWatch();
       runs.stop();
