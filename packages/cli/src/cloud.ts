@@ -44,6 +44,9 @@ const JOIN_TIMEOUT_MS = 30_000;
 /** --rotate-secret の確認で打ってもらう合言葉。y の押し間違いでは通らないようにする。 */
 export const ROTATE_WORD = 'rotate';
 
+/** 別の名前や別のクラウドへ乗り換えるときの合言葉。前の資源が置き去りになる。 */
+export const RENAME_WORD = 'replace';
+
 /** リポジトリ内の packages/cloud。CLI の src からの相対で探す。 */
 export function defaultCloudDir(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cloud');
@@ -222,6 +225,35 @@ async function confirmRotate(log: (l: string) => void, confirm: ConfirmWord): Pr
   if (!(await confirm('本当に参加用の秘密を作り直しますか。', ROTATE_WORD))) throw new Error('参加用の秘密の作り直しを取りやめました');
 }
 
+/**
+ * いまの cloud.json が別の Worker を指しているときの警告と確認。
+ * teardown は cloud.json に書いてある名前しか見ないので、黙って書き換えると前の資源に手が届かなくなる。
+ * hangar-dev で試してから本番を作る段取り（決定 7 と決定 9）で、まさにここを通る。
+ */
+async function confirmRename(log: (l: string) => void, prev: CloudConfig, name: string, confirm: ConfirmWord): Promise<void> {
+  log('');
+  if (prev.workerName) {
+    log(`警告: この端末は既に Worker ${prev.workerName} を作っています。`);
+    log('');
+    log(`  いまの資源: Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}（${prev.url}）`);
+    log(`  これから作る資源: Worker ${name}、D1 ${name}、R2 ${name}-files`);
+    log('');
+    log(`${name} で作り直すと、cloud.json の宛先が新しい方へ移ります。`);
+    log(`teardown は cloud.json に書いてある名前しか見ないので、前の資源（Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}）は、この端末からは片付けられなくなります。`);
+    log('Cloudflare のダッシュボードで消すことになり、消すまで無料枠を食い続けます。');
+    log(`先に片付けるなら、ここで中止して hangar cloud teardown を実行してください（いまの cloud.json は ${prev.workerName} を指しています）。`);
+  } else {
+    log('警告: この端末は他の端末が作ったクラウドに参加しています。');
+    log('');
+    log(`  いまの宛先: ${prev.url}`);
+    log(`  これから作る資源: Worker ${name}、D1 ${name}、R2 ${name}-files`);
+    log('');
+    log('自分の Worker を作ると、cloud.json の宛先がそちらへ移り、いまのクラウドとの同期は止まります。');
+    log('参加用の秘密は引き継ぐので、既に降ろした本文はそのまま読めます。');
+  }
+  if (!(await confirm('本当に新しい資源を作って cloud.json を移しますか。', RENAME_WORD))) throw new Error('cloud.json の乗り換えを取りやめました');
+}
+
 /** 参加トークンの渡し方の案内。標準出力に出す以上、残るものは残ると伝える。 */
 function printJoinToken(log: (l: string) => void, joinToken: string): void {
   log('');
@@ -257,6 +289,9 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
   const read = readCloudConfig(o.home);
   if (read.state === 'broken') throw new Error(brokenConfigMessage(o.home));
   const prev = read.config;
+  // 名前が変わる（または参加だけの端末が自分の Worker を作る）ときは、前の資源が置き去りになる。
+  // 資源を 1 つも作る前に、何が届かなくなるかを見せて確認する。
+  if (prev && prev.workerName !== name) await confirmRename(log, prev, name, o.confirm ?? promptWord);
   if (o.rotateSecret && prev) await confirmRotate(log, o.confirm ?? promptWord);
   if (o.rotateSecret && !prev) log('まだ参加用の秘密がないので、作り直しではなく新しく作ります。');
   const secret = prev && !o.rotateSecret ? prev.joinSecret : randomBytes(32).toString('base64url');
@@ -519,6 +554,10 @@ export async function listAllFiles(client: Pick<CloudClient, 'listFiles'>): Prom
 
 /** 1 件を降ろす。復号して gzip を解き、指紋が合ったものだけを本物の名前にする。 */
 async function downloadOne(client: Pick<CloudClient, 'getFile'>, e: FileEntry, target: string, key: Buffer): Promise<void> {
+  // 決定 5 のとおり、本文は必ず暗号化して置く。puller と同じ判定にする。
+  // 申告を鵜呑みにして平文の道を開けておくと、参加用の秘密を持たない Worker の側から
+  // ~/.agent-hangar/remote に中身を仕込める（sha256 は索引も本体も相手が握るので守りにならない）。
+  if (!e.encrypted) throw new Error(`本文が暗号化されていません: ${e.key}`);
   fs.mkdirSync(path.dirname(target), { recursive: true, mode: DIR_MODE });
   const tmp = `${target}.part`;
   try {
@@ -526,8 +565,7 @@ async function downloadOne(client: Pick<CloudClient, 'getFile'>, e: FileEntry, t
     const body = await client.getFile(e.key);
     const sink = (): fs.WriteStream => fs.createWriteStream(tmp, { mode: FILE_MODE });
     // pipeline でつなぐ。裸の pipe だと復号の error が未処理になってプロセスごと落ちる。
-    if (e.encrypted) await pipeline(body, decryptStream(key), createGunzip(), sink());
-    else await pipeline(body, createGunzip(), sink());
+    await pipeline(body, decryptStream(key), createGunzip(), sink());
     const sha = await sha256Stream(fs.createReadStream(tmp));
     if (sha !== e.sha256) throw new Error(`本文の SHA-256 が一致しません: ${e.key}`);
     fs.renameSync(tmp, target);
@@ -594,7 +632,8 @@ export type TeardownOptions = {
 /**
  * Worker、R2、D1 を消す。setup cloud を実行した端末だけが使え、確認を 2 段で取る。
  * 消す前に、R2 にしか無い本文を手元へ降ろす。1 件でも降ろせなければ、何も消さずに止める。
- * 途中の失敗は表示して先へ進み、最後にまとめて報告する。
+ * Cloudflare 側が全部消えたときだけ、手元の cloud.json と wrangler.jsonc を消す。
+ * 1 つでも残ったら手元の設定を残して false を返す。もう一度実行すれば続きから消せる。
  */
 export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   const log = o.log ?? ((l: string) => console.log(l));
@@ -640,6 +679,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   // 設定ファイルが無ければ付けない。無いパスを --config に渡すと、どの手順も始まらずに終わる。
   const withCfg = fs.existsSync(cfg) ? ['--config', cfg] : [];
   const wr = o.wrangler ?? new WranglerRunner({ cloudDir: o.cloudDir ?? defaultCloudDir(), accountId: c.accountId, log });
+  const deleted: string[] = [];
   const failures: string[] = [];
   const step = async (label: string, args: string[], input?: string): Promise<void> => {
     const r = await wr.run(args, input);
@@ -647,23 +687,46 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
       failures.push(`${label}: ${(r.stderr || r.stdout).trim().split('\n')[0] ?? ''}`);
       log(`失敗: ${label}`);
     } else {
+      deleted.push(label);
       log(`完了: ${label}`);
     }
   };
 
+  /**
+   * 途中で止めるときの報告。
+   * 手元の cloud.json は残す。Worker の名前もアカウントも参加用の秘密もここにしか無いので、
+   * 消すと、残った資源を片付ける道も R2 の本文を復号する道も同時に失う。
+   */
+  const stopHere = (): false => {
+    log('');
+    if (deleted.length > 0) {
+      log('消えたもの:');
+      for (const d of deleted) log(`  ${d}`);
+    }
+    log('残ったもの:');
+    for (const f of failures) log(`  ${f}`);
+    log('');
+    log(`${cloudConfigPath(o.home)} は消していません。Worker の名前とアカウントと参加用の秘密がここにしか無いからです。`);
+    log('直してから hangar cloud teardown をもう一度実行すれば、残った分だけ続きから消せます。');
+    log('R2 のバケットが「空でない」で消せないときは、索引に無いオブジェクトが残っています。ダッシュボードでバケットを空にしてから実行してください。');
+    return false;
+  };
+
+  // R2 を先に空にする。
   // --remote を付ける。付けないと wrangler は手元の miniflare の入れ物を消して、R2 には何もしない。
   for (const e of entries) await step(`R2 object ${e.key}`, ['r2', 'object', 'delete', `${c.bucketName}/${e.key}`, '--remote', ...withCfg]);
   await step(`R2 bucket ${c.bucketName}`, ['r2', 'bucket', 'delete', c.bucketName, ...withCfg]);
+  // Worker は R2 の中身へ手が届く唯一の入口である（GET /files と GET /files/<key>）。
+  // オブジェクトが残っているうちに消すと、次の teardown は一覧すら読めず、本文も降ろせなくなる。
+  if (failures.length > 0) return stopHere();
+
   await step(`Worker ${c.workerName}`, ['delete', '--name', c.workerName, ...withCfg], 'y\n');
   await step(`D1 ${c.dbName}`, ['d1', 'delete', c.dbName, '-y', ...withCfg]);
+  if (failures.length > 0) return stopHere();
 
   fs.rmSync(cloudConfigPath(o.home), { force: true });
   fs.rmSync(cfg, { force: true });
-  if (failures.length > 0) {
-    log('残った失敗:');
-    for (const f of failures) log(`  ${f}`);
-    log('残った資源は Cloudflare のダッシュボードから消してください。');
-  }
   log('cloud.json を消しました。他の端末の cloud.json は手で消してください。');
+  log(`手元へ降ろした本文は ${remoteRoot(o.home)} に残っています。`);
   return true;
 }

@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, saveCloudConfig } from '@agent-hangar/server';
 import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { cloudStatus, joinWorker, OVERWRITE_WORD, rescueTargetPath, ROTATE_WORD, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
+import { cloudStatus, joinWorker, OVERWRITE_WORD, rescueTargetPath, RENAME_WORD, ROTATE_WORD, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
 
@@ -207,6 +207,62 @@ describe('runSetupCloud', () => {
     ).rejects.toThrow(/cloud\.json/);
     // 壊れたファイルには触らない。wrangler も一度も呼ばない。
     expect(fs.readFileSync(file, 'utf8')).toBe('{ こわれている');
+    expect(w.calls).toHaveLength(0);
+  });
+
+  it('別の名前で作り直すときは、前の資源が置き去りになることを見せて確認する', async () => {
+    const { home, cloudDir } = dirs();
+    const before = JSON.stringify({
+      url: 'https://hangar-dev.gaku.workers.dev',
+      joinSecret: 'keep-this-secret-value-000000000000000000',
+      deviceToken: 'old',
+      workerName: 'hangar-dev',
+      accountId: ACCOUNT,
+      dbName: 'hangar-dev',
+      bucketName: 'hangar-dev-files',
+      joinedAt: 1,
+    });
+    fs.writeFileSync(path.join(home, 'cloud.json'), before);
+    const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
+    const asked: { question: string; word: string }[] = [];
+    const lines: string[] = [];
+    await expect(
+      runSetupCloud({
+        home,
+        device,
+        name: 'hangar',
+        wrangler: w.runner(null, cloudDir),
+        fetch: fakeFetch().fetch,
+        sleep: async () => {},
+        cloudDir,
+        log: (l) => lines.push(l),
+        confirm: async (question, word) => { asked.push({ question, word }); return false; },
+      }),
+    ).rejects.toThrow(/取りやめ/);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.word).toBe(RENAME_WORD);
+    // 置き去りになる資源を名指しで見せる。teardown は cloud.json しか見ないので、届かなくなる。
+    const out = lines.join('\n');
+    expect(out).toContain('hangar-dev');
+    expect(out).toContain('hangar-dev-files');
+    expect(out).toContain('片付けられなくなります');
+    // 断ったら資源にも cloud.json にも触らない。
+    expect(w.calls).toHaveLength(0);
+    expect(fs.readFileSync(path.join(home, 'cloud.json'), 'utf8')).toBe(before);
+  });
+
+  it('参加だけの端末で setup cloud を走らせるときも確認する', async () => {
+    const { home, cloudDir } = dirs();
+    fs.writeFileSync(
+      path.join(home, 'cloud.json'),
+      JSON.stringify({ url: 'https://other.gaku.workers.dev', joinSecret: 'k', deviceToken: 'old', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 }),
+    );
+    const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
+    const lines: string[] = [];
+    await expect(
+      runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch().fetch, sleep: async () => {}, cloudDir, log: (l) => lines.push(l), confirm: async () => false }),
+    ).rejects.toThrow(/取りやめ/);
+    expect(lines.join('\n')).toContain('https://other.gaku.workers.dev');
     expect(w.calls).toHaveLength(0);
   });
 
@@ -559,9 +615,11 @@ describe('cloudStatus', () => {
 const MTIME = 1_700_000_000_000;
 
 /** R2 に置かれている本文 1 件分（一覧の項目と、暗号化して gzip した実体）。 */
-async function fileFixture(o: { secret: string; deviceId: string; uuid: string; text: string; seq: number }): Promise<{ entry: FileEntry; body: Buffer }> {
+async function fileFixture(o: { secret: string; deviceId: string; uuid: string; text: string; seq: number; encrypted?: boolean }): Promise<{ entry: FileEntry; body: Buffer }> {
   const plain = Buffer.from(o.text, 'utf8');
-  const body = await encryptBuffer(deriveFileKey(o.secret), gzipSync(plain));
+  const encrypted = o.encrypted ?? true;
+  // 秘密を持たない相手は暗号化できない。平文の gzip をそのまま置く形も作れるようにしておく。
+  const body = encrypted ? await encryptBuffer(deriveFileKey(o.secret), gzipSync(plain)) : gzipSync(plain);
   return {
     entry: {
       key: `transcripts/${o.deviceId}/${o.uuid}.jsonl.gz`,
@@ -570,7 +628,7 @@ async function fileFixture(o: { secret: string; deviceId: string; uuid: string; 
       sha256: createHash('sha256').update(plain).digest('hex'),
       size: plain.length,
       mtime: MTIME,
-      encrypted: true,
+      encrypted,
       seq: o.seq,
       deviceId: o.deviceId,
       uploadedAt: 1,
@@ -682,6 +740,98 @@ describe('runTeardown', () => {
     expect(c.asked).toEqual([]);
     expect(w.calls).toEqual([]);
     expect(loadCloudConfig(home)).not.toBeNull();
+  });
+
+  it('暗号化されていない本文は受け取らず、消すのもやめる', async () => {
+    const { home, cloudDir } = dirs();
+    const secret = 'join-secret-0000';
+    saveCloudConfig(home, conf({ joinSecret: secret, deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' }));
+    // Worker が握っているのは秘密の SHA-256 だけなので、正しく暗号化した本文は作れない。
+    // 平文を通す道が残っていると、Worker の側から remote の下に中身を仕込める。
+    const planted = await fileFixture({ secret, deviceId: 'dev-b', uuid: 'u-planted', text: '{"planted":"by the worker"}\n', seq: 1, encrypted: false });
+    const cf = cloudFetch([planted], { token: 'dt' });
+    const w = fakeWrangler({});
+    const c = fakeConfirm([true, true]);
+    await expect(
+      runTeardown({ home, deviceId: 'dev-a', wrangler: w.runner('a'.repeat(32), cloudDir), fetch: cf.fetch, confirm: c.fn, log: () => {} }),
+    ).rejects.toThrow(/降ろせ/);
+    expect(fs.existsSync(path.join(home, 'remote', 'dev-b', 'projects', '-w-p', 'u-planted.jsonl'))).toBe(false);
+    expect(c.asked).toEqual([]);
+    expect(w.calls).toEqual([]);
+  });
+
+  it('R2 を空にできなければ Worker も D1 も消さず、手元の設定を残す', async () => {
+    const { home, cloudDir } = dirs();
+    fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
+    const before = conf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });
+    saveCloudConfig(home, before);
+    // 索引に無い孤児が 1 つでもあれば、バケットは「空でない」で消せない（Task 5 の申し送り）。
+    const w = fakeWrangler({ 'r2 bucket delete': () => ({ code: 1, stdout: '', stderr: 'The bucket you tried to delete is not empty' }) });
+    const c = fakeConfirm([true, true]);
+    const lines: string[] = [];
+    const done = await runTeardown({
+      home,
+      deviceId: 'dev-a',
+      wrangler: w.runner('a'.repeat(32), cloudDir),
+      fetch: cloudFetch([], { token: 'dt' }).fetch,
+      confirm: c.fn,
+      log: (l) => lines.push(l),
+    });
+    expect(done).toBe(false);
+    // Worker は R2 の中身へ手が届く唯一の入口である。オブジェクトが残っているうちは消さない。
+    expect(w.calls.map((x) => x.args[0])).toEqual(['r2']);
+    // 在り処（Worker 名、アカウント、参加用の秘密）を消さない。消すとやり直せなくなる。
+    expect(loadCloudConfig(home)).toEqual(before);
+    expect(fs.existsSync(path.join(home, 'cloud', 'wrangler.jsonc'))).toBe(true);
+    const out = lines.join('\n');
+    expect(out).toContain('残ったもの');
+    expect(out).toContain('hangar cloud teardown');
+
+    // 直してからもう一度走らせれば、続きから消せる。
+    const w2 = fakeWrangler({ 'r2 bucket delete': () => ok(), 'delete --name': () => ok(), 'd1 delete': () => ok() });
+    const again = await runTeardown({
+      home,
+      deviceId: 'dev-a',
+      wrangler: w2.runner('a'.repeat(32), cloudDir),
+      fetch: cloudFetch([], { token: 'dt' }).fetch,
+      confirm: fakeConfirm([true, true]).fn,
+      log: () => {},
+    });
+    expect(again).toBe(true);
+    expect(w2.calls.map((x) => x.args.slice(0, 2).join(' '))).toEqual(['r2 bucket', 'delete --name', 'd1 delete']);
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+  });
+
+  it('Worker の削除に失敗したら、手元の設定を残して 消えたものと残ったものを並べる', async () => {
+    const { home, cloudDir } = dirs();
+    fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
+    const before = conf({ deviceToken: 'dt', workerName: 'hangar-dev', accountId: 'a'.repeat(32), dbName: 'hangar-dev', bucketName: 'hangar-dev-files' });
+    saveCloudConfig(home, before);
+    const w = fakeWrangler({
+      'r2 bucket delete': () => ok(),
+      'delete --name': () => ({ code: 1, stdout: '', stderr: 'Authentication error [code: 10000]' }),
+      'd1 delete': () => ok(),
+    });
+    const lines: string[] = [];
+    const done = await runTeardown({
+      home,
+      deviceId: 'dev-a',
+      wrangler: w.runner('a'.repeat(32), cloudDir),
+      fetch: cloudFetch([], { token: 'dt' }).fetch,
+      confirm: fakeConfirm([true, true]).fn,
+      log: (l) => lines.push(l),
+    });
+    expect(done).toBe(false);
+    expect(loadCloudConfig(home)).toEqual(before);
+    expect(fs.existsSync(path.join(home, 'cloud', 'wrangler.jsonc'))).toBe(true);
+    const out = lines.join('\n');
+    expect(out).toContain('消えたもの');
+    expect(out).toContain(`R2 bucket ${before.bucketName}`);
+    expect(out).toContain(`D1 ${before.dbName}`);
+    expect(out).toContain('残ったもの');
+    expect(out).toContain(`Worker ${before.workerName}`);
   });
 
   it('鍵と相対パスが食い違う本文は、手元に置く先を決めない', () => {
