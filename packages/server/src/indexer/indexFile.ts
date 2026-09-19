@@ -49,6 +49,10 @@ export function forgetTranscriptFile(db: Db, filePath: string): void {
   const run = db.transaction(() => {
     db.prepare("delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(row.session_id, agentKey);
     db.prepare("delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(row.session_id, agentKey);
+    // 日別の集計はこのファイル由来のぶんを鍵に持っている。
+    // 残すと、同じ会話を別のパス（写しから手元へ切り替わったとき）で積み直したぶんと足し合わさり、
+    // event_index が正しいのに使用量のゲージだけが静かに倍になる。indexFile の reset 側と同じ 1 文である。
+    db.prepare('delete from usage_daily where session_id = ? and file_path = ?').run(row.session_id, filePath);
     db.prepare('delete from transcript_files where path = ?').run(filePath);
   });
   run();

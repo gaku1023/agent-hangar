@@ -18,6 +18,7 @@ export type PullerDeps = {
   state: SyncStateStore;
   onConfigEntries?: (entries: FileEntry[]) => Promise<void>;
   onError?: (key: string, message: string) => void;
+  now?: () => number;
 };
 
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -36,8 +37,47 @@ const FILE_MODE = 0o600;
 /** 設定の取り込みの失敗を数えるときの鍵。本文の鍵（transcripts/... か config/...）と衝突しない名前にする。 */
 const CONFIG_BATCH = '(config)';
 
-/** 続けて失敗した回数。指紋が変わったら中身が変わったということなので、数え直して取り直す。 */
-type Failure = { fingerprint: string; count: number; message: string };
+/**
+ * 諦めた項目をもう一度試す間隔。
+ * 起こし直したときと指紋が変わったときに加えて、動かしたままでも取り戻せるようにする。
+ */
+export const RETRY_SKIPPED_AFTER_MS = 30 * 60_000;
+
+const SKIP_PREFIX = 'skipped:';
+
+/**
+ * 降ろすのを諦めた項目の控え。
+ * sync_state に JSON で残す。メモリに置くと、起こし直した時点で痕跡ごと消えて二度と取り戻せない。
+ * filesSeq は先へ進んでしまうので、一覧には二度と載らない。控えた項目そのものから降ろし直す。
+ */
+type SkipRecord = {
+  /** 降ろし直すのに要る項目そのもの。設定は同じ回に届いた並びを全部持つ。 */
+  entries: FileEntry[];
+  /** 中身が変わったかを見る印。変われば数え直して取り直す。 */
+  fingerprint: string;
+  /** 続けて失敗した回数。起こし直しても引き継ぐので、起動のたびに鳴らし直さない。 */
+  count: number;
+  message: string;
+  at: number;
+};
+
+/** 控えを読む。手で書き換えられた行や古い形の行は、同期を止めずに黙って捨てる。 */
+function parseSkip(raw: string): SkipRecord | null {
+  try {
+    const v = JSON.parse(raw) as Partial<SkipRecord>;
+    if (!Array.isArray(v.entries) || v.entries.length === 0) return null;
+    if (typeof v.fingerprint !== 'string' || typeof v.count !== 'number' || !Number.isFinite(v.count)) return null;
+    return {
+      entries: v.entries as FileEntry[],
+      fingerprint: v.fingerprint,
+      count: v.count,
+      message: typeof v.message === 'string' ? v.message : '',
+      at: typeof v.at === 'number' ? v.at : 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 他端末の本文の置き場。
@@ -69,39 +109,105 @@ function checkKeyMatchesPath(e: FileEntry): void {
  * 書き込む先は ~/.agent-hangar/remote の下だけで、~/.claude には一切触らない。
  */
 export class RemotePuller {
-  private readonly failures = new Map<string, Failure>();
+  /** この RemotePuller で最後に諦めた項目を試し直した時刻。null なら起こし直した直後である。 */
+  private lastRetryAt: number | null = null;
+  private readonly now: () => number;
 
-  constructor(private readonly deps: PullerDeps) {}
+  constructor(private readonly deps: PullerDeps) {
+    this.now = deps.now ?? (() => Date.now());
+  }
 
-  /** 降ろすのを諦めた項目。利用者に見せるために残す（同じ失敗を毎回の pull で鳴らさないため）。 */
+  private skipKey(key: string): `skipped:${string}` { return `${SKIP_PREFIX}${key}`; }
+
+  private readSkip(key: string): SkipRecord | null {
+    const raw = this.deps.state.get(this.skipKey(key));
+    return raw === null ? null : parseSkip(raw);
+  }
+
+  private writeSkip(key: string, rec: SkipRecord): void { this.deps.state.set(this.skipKey(key), JSON.stringify(rec)); }
+
+  private clearSkip(key: string): void { this.deps.state.set(this.skipKey(key), null); }
+
+  /** 控えを全部読む。壊れた行は飛ばす。 */
+  private allSkips(): { key: string; rec: SkipRecord }[] {
+    const rows = this.deps.db.prepare('select key, value from sync_state where key like ? order by key').all(`${SKIP_PREFIX}%`) as { key: string; value: string }[];
+    const out: { key: string; rec: SkipRecord }[] = [];
+    for (const r of rows) {
+      const rec = parseSkip(r.value);
+      if (rec) out.push({ key: r.key.slice(SKIP_PREFIX.length), rec });
+    }
+    return out;
+  }
+
+  /**
+   * 降ろすのを諦めた項目。利用者に見せるために残す。
+   * sync_state から読むので、サーバを起こし直した後も答えられる。
+   */
   skippedEntries(): { key: string; attempts: number; message: string }[] {
-    return [...this.failures.entries()]
-      .filter(([, f]) => f.count >= MAX_ATTEMPTS)
-      .map(([key, f]) => ({ key, attempts: f.count, message: f.message }));
+    return this.allSkips()
+      .filter(({ rec }) => rec.count >= MAX_ATTEMPTS)
+      .map(({ key, rec }) => ({ key, attempts: rec.count, message: rec.message }));
   }
 
   /**
    * 1 件の失敗を数える。
    * まだ諦めていなければ true を返す（呼び手は filesSeq をこの項目の手前で止める）。
    * 鳴らすのは 1 回目と諦めたときだけである。間で毎回鳴らすと、2 秒ごとの pull が同じ失敗で埋まる。
+   * 数は sync_state に残るので、起こし直しても 1 から数え直さない。
    */
-  private noteFailure(key: string, fingerprint: string, message: string): boolean {
-    const prev = this.failures.get(key);
+  private noteFailure(key: string, entries: FileEntry[], fingerprint: string, message: string): boolean {
+    const prev = this.readSkip(key);
     const count = prev && prev.fingerprint === fingerprint ? prev.count + 1 : 1;
-    this.failures.set(key, { fingerprint, count, message });
+    this.writeSkip(key, { entries, fingerprint, count, message, at: this.now() });
     if (count < MAX_ATTEMPTS) {
       if (count === 1) this.deps.onError?.(key, message);
       return true;
     }
-    if (count === MAX_ATTEMPTS) this.deps.onError?.(key, `${MAX_ATTEMPTS} 回続けて失敗したので、この項目は飛ばします: ${message}`);
+    if (count === MAX_ATTEMPTS) this.deps.onError?.(key, `${MAX_ATTEMPTS} 回続けて失敗したので、この項目はいったん飛ばします: ${message}`);
     return false;
   }
 
+  /**
+   * 諦めた項目をもう一度試す。
+   * filesSeq は先へ進んでいて一覧には載らないので、控えた項目そのものから降ろし直す。
+   * 失敗しても鳴らさない（諦めたときに 1 度鳴らしてある）。数だけ足して控えに残し続ける。
+   */
+  private async retrySkipped(): Promise<{ downloaded: number; configEntries: number }> {
+    let downloaded = 0;
+    let configEntries = 0;
+    for (const { key, rec } of this.allSkips()) {
+      // まだ諦めていないものは filesSeq が手前で止まっているので、通常の経路で取り直される。
+      if (rec.count < MAX_ATTEMPTS) continue;
+      try {
+        if (key === CONFIG_BATCH) {
+          if (!this.deps.onConfigEntries) continue;
+          await this.deps.onConfigEntries(rec.entries);
+          configEntries += rec.entries.length;
+        } else if (await this.download(rec.entries[0]!)) {
+          downloaded++;
+        }
+        this.clearSkip(key);
+      } catch (err) {
+        this.writeSkip(key, { ...rec, count: rec.count + 1, message: errorMessage(err), at: this.now() });
+      }
+    }
+    return { downloaded, configEntries };
+  }
+
   async pullNow(): Promise<{ downloaded: number; configEntries: number }> {
+    let downloaded = 0;
+    let retriedConfigs = 0;
+    const startedAt = this.now();
+    // 諦めた項目を取り戻す機会。起こし直した直後（lastRetryAt が無い）と、間隔が空いたときに試す。
+    if (this.lastRetryAt === null || startedAt - this.lastRetryAt >= RETRY_SKIPPED_AFTER_MS) {
+      this.lastRetryAt = startedAt;
+      const again = await this.retrySkipped();
+      downloaded += again.downloaded;
+      retriedConfigs += again.configEntries;
+    }
     let since = this.deps.state.getNumber('filesSeq', 0);
     let advanceTo = since;
     let minFailed: number | null = null;
-    let downloaded = 0;
     const configs: FileEntry[] = [];
     for (;;) {
       const page = await this.deps.client.listFiles(since, PULL_LIMIT);
@@ -109,10 +215,9 @@ export class RemotePuller {
         if (e.deviceId === this.deps.deviceId) continue;
         if (e.kind === 'config') { configs.push(e); continue; }
         try {
-          if (await this.download(e)) downloaded++;
-          this.failures.delete(e.key);
+          if (await this.download(e)) { downloaded++; this.clearSkip(e.key); }
         } catch (err) {
-          if (this.noteFailure(e.key, e.sha256, errorMessage(err))) minFailed = minFailed === null ? e.seq : Math.min(minFailed, e.seq);
+          if (this.noteFailure(e.key, [e], e.sha256, errorMessage(err))) minFailed = minFailed === null ? e.seq : Math.min(minFailed, e.seq);
         }
       }
       advanceTo = page.nextSeq;
@@ -123,12 +228,12 @@ export class RemotePuller {
     if (configs.length > 0 && this.deps.onConfigEntries) {
       try {
         await this.deps.onConfigEntries(configs);
-        this.failures.delete(CONFIG_BATCH);
+        this.clearSkip(CONFIG_BATCH);
       } catch (err) {
         // 設定の取り込みが落ちた回も、その項目より手前で止めて次の pull で渡し直す。
         // ここも諦める道が要る。取り込めない設定 1 件で本文まで止まる方が困る。
         const seqs = configs.map((c) => c.seq);
-        if (this.noteFailure(CONFIG_BATCH, seqs.join(','), errorMessage(err))) {
+        if (this.noteFailure(CONFIG_BATCH, configs, seqs.join(','), errorMessage(err))) {
           const first = Math.min(...seqs);
           minFailed = minFailed === null ? first : Math.min(minFailed, first);
         }
@@ -136,7 +241,7 @@ export class RemotePuller {
     }
     // 失敗した項目より手前で止めて、次の pull で取り直す。
     this.deps.state.set('filesSeq', minFailed !== null ? minFailed - 1 : advanceTo);
-    return { downloaded, configEntries: configs.length };
+    return { downloaded, configEntries: configs.length + retriedConfigs };
   }
 
   /** 1 件を降ろす。既に同じ指紋の実体があれば false を返して何もしない。 */
@@ -170,7 +275,7 @@ export class RemotePuller {
     fs.utimesSync(target, new Date(e.mtime), new Date(e.mtime));
     this.deps.db.prepare(`insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)
       on conflict(key) do update set path = excluded.path, device_id = excluded.device_id, sha256 = excluded.sha256, size = excluded.size, mtime = excluded.mtime, remote_seq = excluded.remote_seq, synced_at = excluded.synced_at`)
-      .run(e.key, 'transcript', e.path, e.deviceId, e.sha256, e.size, e.mtime, e.seq, Date.now());
+      .run(e.key, 'transcript', e.path, e.deviceId, e.sha256, e.size, e.mtime, e.seq, this.now());
     return true;
   }
 

@@ -315,7 +315,7 @@ describe('他端末の写しの索引化', () => {
     fs.writeFileSync(p, text);
     return p;
   };
-  const line = (role: 'user' | 'assistant', text: string) => JSON.stringify({ type: role, message: { role, content: [{ type: 'text', text }] }, cwd: '/w/alpha', timestamp: '2026-09-01T00:00:00.000Z' }) + '\n';
+  const line = (role: 'user' | 'assistant', text: string) => JSON.stringify({ type: role, message: { role, content: [{ type: 'text', text }], ...(role === 'assistant' ? { usage: { input_tokens: 1000, output_tokens: 500 } } : {}) }, cwd: '/w/alpha', timestamp: '2026-09-01T00:00:00.000Z' }) + '\n';
   let remoteDir: string;
   beforeEach(() => { remoteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rem-')); });
   afterEach(() => { fs.rmSync(remoteDir, { recursive: true, force: true }); });
@@ -346,12 +346,15 @@ describe('他端末の写しの索引化', () => {
 
   it('forgetTranscriptFile は索引と行を消す', () => {
     upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: u, cwd: '/w/alpha', home_device: 'dev-b' }, 'dev-b');
-    const p = remoteFile(remoteDir, line('user', 'hello'));
+    const p = remoteFile(remoteDir, line('user', 'hello') + line('assistant', 'hi'));
     indexFile(db, { path: p, sessionId: u, agentId: null, deviceId: 'dev-b' }, { deviceId: 'dev-a', remote: true });
+    expect(count('select count(*) c from usage_daily where file_path = ?', p)).toBe(1);
     forgetTranscriptFile(db, p);
     expect(db.prepare('select 1 from transcript_files where path = ?').get(p)).toBeUndefined();
     expect(count('select count(*) c from event_index where session_id = ?', 's1')).toBe(0);
     expect(count("select count(*) c from event_fts where session_id = 's1'")).toBe(0);
+    // 日別の集計も落とす。残すと、同じ本文を別のパスで数え直したときにトークンが倍になる。
+    expect(count('select count(*) c from usage_daily where file_path = ?', p)).toBe(0);
     forgetTranscriptFile(db, '/nope');
   });
 });

@@ -8,7 +8,7 @@ import { transcriptKey, type FileEntry, type FileMetaIn } from '@agent-hangar/sh
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
-import { RemotePuller, remoteTranscriptPath } from './puller.ts';
+import { RemotePuller, remoteTranscriptPath, RETRY_SKIPPED_AFTER_MS } from './puller.ts';
 import { SyncStateStore } from './state.ts';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
@@ -224,5 +224,80 @@ describe('RemotePuller', () => {
     expect(fs.statSync(target).mode & 0o777).toBe(0o600);
     const dirs = [path.join(home, 'remote'), path.join(home, 'remote', 'dev-b'), path.join(home, 'remote', 'dev-b', 'projects'), path.dirname(target)];
     for (const d of dirs) expect([d, fs.statSync(d).mode & 0o777]).toEqual([d, 0o700]);
+  });
+
+  it('諦めた本文は、原因が直ってサーバを起こし直せば降りてくる', async () => {
+    // レビューの scratchpad/giveup2.ts の筋。置き場を普通のファイルで塞いで一時的な事故を作る。
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
+    fs.writeFileSync(path.join(home, 'remote'), 'ふさぐ');
+    const p = make();
+    for (let i = 0; i < 3; i++) await p.pullNow();
+    expect(p.skippedEntries()).toHaveLength(1);
+    expect(state.getNumber('filesSeq', -1)).toBe(1);
+    // 事故を直して、サーバを起こし直す（新しい RemotePuller を作る）。
+    fs.rmSync(path.join(home, 'remote'));
+    const p2 = make();
+    // 諦めた記録は起こし直しても残っている。
+    expect(p2.skippedEntries()).toEqual([{ key: `transcripts/dev-b/${UUID}.jsonl.gz`, attempts: 3, message: expect.any(String) }]);
+    // filesSeq は進んだままなので一覧には載らないが、諦めた記録から取り直す。
+    expect(await p2.pullNow()).toEqual({ downloaded: 1, configEntries: 0 });
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`), 'utf8')).toBe('body\n');
+    expect(p2.skippedEntries()).toEqual([]);
+    expect((db.prepare('select count(*) c from file_sync').get() as { c: number }).c).toBe(1);
+  });
+
+  it('諦めた記録は起こし直しても数を引き継ぎ、鳴らし直さない', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
+    fs.writeFileSync(path.join(home, 'remote'), 'ふさぐ');
+    const p = make();
+    await p.pullNow();
+    expect(errors).toHaveLength(1); // 1 回目だけ鳴る
+    const p2 = make();
+    await p2.pullNow();
+    // 起こし直しても数は 1 から数え直さない。2 回目なので黙る。
+    expect(errors).toHaveLength(1);
+    const p3 = make();
+    await p3.pullNow();
+    // 3 回目で諦めたことだけを 1 度鳴らす。
+    expect(errors).toHaveLength(2);
+    expect(errors[1]!.message).toContain('飛ばします');
+    expect(p3.skippedEntries()[0]!.attempts).toBe(3);
+    // 以降、何度起こし直しても鳴らない。
+    const p4 = make();
+    await p4.pullNow();
+    await p4.pullNow();
+    expect(errors).toHaveLength(2);
+    expect(p4.skippedEntries()[0]!.attempts).toBeGreaterThan(3);
+  });
+
+  it('諦めた本文は、起こし直さなくても時間が経てば取り直す', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
+    fs.writeFileSync(path.join(home, 'remote'), 'ふさぐ');
+    let clock = 1_000_000;
+    const p = make({ now: () => clock });
+    for (let i = 0; i < 3; i++) await p.pullNow();
+    expect(p.skippedEntries()).toHaveLength(1);
+    fs.rmSync(path.join(home, 'remote'));
+    // 間隔が空くまでは取り直さない。
+    clock += 60_000;
+    expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 0 });
+    expect(p.skippedEntries()).toHaveLength(1);
+    // 間隔が空いたら取り直す。
+    clock += RETRY_SKIPPED_AFTER_MS;
+    expect(await p.pullNow()).toEqual({ downloaded: 1, configEntries: 0 });
+    expect(p.skippedEntries()).toEqual([]);
+  });
+
+  it('諦めた設定も起こし直せば渡し直す', async () => {
+    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/CLAUDE.md', 'config');
+    const p = make({ onConfigEntries: async () => { throw new Error('書けません'); } });
+    for (let i = 0; i < 3; i++) await p.pullNow();
+    expect(p.skippedEntries()).toHaveLength(1);
+    expect(state.getNumber('filesSeq', -1)).toBe(1);
+    const seen: FileEntry[][] = [];
+    const p2 = make({ onConfigEntries: async (e) => { seen.push(e); } });
+    expect(await p2.pullNow()).toEqual({ downloaded: 0, configEntries: 1 });
+    expect(seen[0]!.map((e) => e.key)).toEqual(['config/CLAUDE.md']);
+    expect(p2.skippedEntries()).toEqual([]);
   });
 });

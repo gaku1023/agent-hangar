@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA } from '../../test/fixtures.ts';
+import { aggregateUsage } from '../usage/aggregate.ts';
 import { IndexerService } from './service.ts';
 
 let dir: string;
@@ -210,6 +211,33 @@ describe('他端末の本文の索引化', () => {
     await svc.start();
     // 他端末の会話の本文を置くので、~/.agent-hangar/mcp と同じく本人だけが読める。
     expect(fs.statSync(root).mode & 0o777).toBe(0o700);
+    svc.stop();
+  });
+
+  it('写しから手元へ切り替わってもトークンの集計が二重にならない', async () => {
+    // レビューの scratchpad/usage.ts の筋。「この PC で再開」の主動線そのものである。
+    const withUsage = JSON.stringify({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 1000, output_tokens: 500 } },
+      cwd: '/w/alpha', timestamp: '2026-09-01T00:00:00.000Z',
+    }) + '\n';
+    const body = line('hello') + withUsage;
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: u, cwd: '/w/alpha', home_device: 'dev-b' }, 'dev-b');
+    const rp = path.join(remote, 'dev-b', 'projects', '-w-alpha', `${u}.jsonl`);
+    fs.mkdirSync(path.dirname(rp), { recursive: true });
+    fs.writeFileSync(rp, body);
+    const svc = new IndexerService({ db, deviceId: 'dev-a', claudeDir, remoteRoot: remote, isRunning: () => false });
+    await svc.fullScan();
+    const at = Date.parse('2026-09-01T12:00:00.000Z');
+    expect(aggregateUsage(db, { days: 7, now: at }).days).toEqual([{ day: '2026-09-01', inputTokens: 1000, outputTokens: 500, sessions: 1 }]);
+
+    // 同じ会話が手元にも現れて、写しが索引から外れる。
+    const lp = path.join(claudeDir, 'projects', '-w-alpha', `${u}.jsonl`);
+    fs.mkdirSync(path.dirname(lp), { recursive: true });
+    fs.writeFileSync(lp, body);
+    await svc.fullScan();
+    expect(count('select count(*) c from usage_daily')).toBe(1);
+    expect(aggregateUsage(db, { days: 7, now: at }).days).toEqual([{ day: '2026-09-01', inputTokens: 1000, outputTokens: 500, sessions: 1 }]);
     svc.stop();
   });
 });
