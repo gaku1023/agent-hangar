@@ -7,7 +7,7 @@ import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, saveCloudConfig } from '@agent-hangar/server';
 import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { cloudStatus, joinWorker, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
+import { cloudStatus, defaultCloudDir, joinWorker, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
 
@@ -965,5 +965,33 @@ describe('設定の退避先', () => {
     expect(b.startsWith(path.join(home, 'remote') + path.sep)).toBe(true);
     // 端末 ID の入れ物は本文と同じで、その下に設定を置く。
     expect(b).toBe(path.join(home, 'remote', 'dev-b', '_config', 'CLAUDE.md'));
+  });
+});
+
+describe('Worker のソースの置き場', () => {
+  const saved = process.env.HANGAR_CLOUD_DIR;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.HANGAR_CLOUD_DIR;
+    else process.env.HANGAR_CLOUD_DIR = saved;
+  });
+
+  it('HANGAR_CLOUD_DIR があればそこを使う。配布版は単一ファイルなので相対では探せない', () => {
+    const { cloudDir } = dirs();
+    process.env.HANGAR_CLOUD_DIR = cloudDir;
+    expect(defaultCloudDir()).toBe(cloudDir);
+  });
+
+  it('環境変数が無ければリポジトリ内の packages/cloud を指す', () => {
+    delete process.env.HANGAR_CLOUD_DIR;
+    expect(defaultCloudDir().endsWith(path.join('packages', 'cloud'))).toBe(true);
+    expect(fs.existsSync(path.join(defaultCloudDir(), 'src', 'index.ts'))).toBe(true);
+    expect(requireCloudDir()).toBe(defaultCloudDir());
+  });
+
+  it('ソースが無ければ、どこを見たかと何をすればよいかを述べて止まる', () => {
+    const { cloudDir } = dirs();
+    process.env.HANGAR_CLOUD_DIR = cloudDir;
+    expect(() => requireCloudDir()).toThrow(/HANGAR_CLOUD_DIR/);
+    expect(() => requireCloudDir()).toThrow(/src\/index\.ts/);
   });
 });

@@ -515,7 +515,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     openUrl: (url) => new Promise<void>((resolve, reject) => execFile('open', [url], (err) => (err ? reject(err) : resolve()))),
   };
 
-  const uiDist = opts.uiDist ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
+  // 配布版（Tauri のバンドル）では UI の置き場所を環境変数で受ける。
+  // 無ければリポジトリ内の packages/ui/dist を使う。
+  const uiDist = opts.uiDist ?? process.env.HANGAR_UI_DIST ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
   const app = createApp({
     db, deviceId: device.id, deviceName: device.name, token, home, port, version: VERSION,
     settings: () => settings,

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
@@ -47,9 +48,35 @@ export const ROTATE_WORD = 'rotate';
 /** 別の名前や別のクラウドへ乗り換えるときの合言葉。前の資源が置き去りになる。 */
 export const RENAME_WORD = 'replace';
 
-/** リポジトリ内の packages/cloud。CLI の src からの相対で探す。 */
+/**
+ * packages/cloud の置き場。
+ * 配布版では CLI が単一ファイルにまとまるので、import.meta.url からの相対ではリポジトリの外を指してしまう。
+ * そのため HANGAR_CLOUD_DIR を先に見る。
+ * 無ければ従来どおり CLI の src からの相対で探す。
+ */
 export function defaultCloudDir(): string {
+  const fromEnv = process.env.HANGAR_CLOUD_DIR;
+  if (fromEnv) return path.resolve(fromEnv);
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cloud');
+}
+
+/**
+ * Worker のデプロイに要るものが揃っているかを確かめてから場所を返す。
+ * 揃っていなければ、何がどこに無いのかを述べて止める。
+ * 黙って wrangler を呼ぶと、意味の分からない終了コードだけが残る。
+ */
+export function requireCloudDir(): string {
+  const dir = defaultCloudDir();
+  const where = process.env.HANGAR_CLOUD_DIR ? 'HANGAR_CLOUD_DIR' : 'この CLI の置き場からの相対';
+  if (!fs.existsSync(path.join(dir, 'src', 'index.ts'))) {
+    throw new Error(`Worker のソース（src/index.ts）が ${dir} にありません（${where}で決めました）。HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
+  }
+  try {
+    createRequire(path.join(dir, 'package.json')).resolve('wrangler/package.json');
+  } catch {
+    throw new Error(`wrangler が ${dir} から見つかりません。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行してください`);
+  }
+  return dir;
 }
 
 /** 実物のアカウント ID とデータベース ID を書く先。git に載せないので ~/.agent-hangar の下に置く。 */
@@ -314,7 +341,7 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
   const log = o.log ?? ((l: string) => console.log(l));
   const fetchFn = o.fetch ?? realFetch;
   const sleep = o.sleep ?? realSleep;
-  const cloudDir = o.cloudDir ?? defaultCloudDir();
+  const cloudDir = o.cloudDir ?? requireCloudDir();
   const name = o.name ?? 'hangar';
   const dbName = name;
   const bucketName = `${name}-files`;
@@ -738,7 +765,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
   const cfg = wranglerConfigPath(o.home);
   // 設定ファイルが無ければ付けない。無いパスを --config に渡すと、どの手順も始まらずに終わる。
   const withCfg = fs.existsSync(cfg) ? ['--config', cfg] : [];
-  const wr = o.wrangler ?? new WranglerRunner({ cloudDir: o.cloudDir ?? defaultCloudDir(), accountId: c.accountId, log });
+  const wr = o.wrangler ?? new WranglerRunner({ cloudDir: o.cloudDir ?? requireCloudDir(), accountId: c.accountId, log });
   const deleted: string[] = [];
   const failures: { label: string; reason: string[] }[] = [];
   const step = async (label: string, args: string[], input?: string): Promise<void> => {
