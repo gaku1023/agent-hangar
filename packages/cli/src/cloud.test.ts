@@ -328,7 +328,7 @@ describe('joinWorker', () => {
   });
 
   it('打ち切りの文面は宛先と次に見る先を示す', async () => {
-    const e = await joinWorker('https://black-hole.invalid', 'SECRET-abcdef', device, { fetch: blackHole(), sleep: async () => {}, timeoutMs: 20 }).catch((x: unknown) => x as Error);
+    const e: Error = await joinWorker('https://black-hole.invalid', 'SECRET-abcdef', device, { fetch: blackHole(), sleep: async () => {}, timeoutMs: 20 }).then(() => { throw new Error('打ち切られるはずが通った'); }, (x: unknown) => x as Error);
     expect(e.message).toContain('https://black-hole.invalid');
     expect(e.message).toContain('20 ミリ秒');
     expect(e.message).toContain('/health');
