@@ -1,7 +1,10 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { SHARED_TABLES, TABLE_PK, type ChangeOut, type SharedTable } from '@agent-hangar/shared';
+import { backupsRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
+import { hangarHome } from '../config/paths.ts';
 import { safeDeviceLabel, timestampLabel } from './copy.ts';
 
 /** 親から子の順。pull の適用はこの順に並べ替える。 */
@@ -36,11 +39,18 @@ const MAX_CONFLICT_COPIES = 100;
 export function writeMemoConflictCopy(memoFile: string, o: MemoConflict, now = Date.now()): string {
   const dir = path.dirname(memoFile);
   fs.mkdirSync(dir, { recursive: true });
-  const base = `memo.conflict-${safeDeviceLabel(o.deviceName)}-${timestampLabel(now)}`;
+  return writeWithoutClobbering(dir, `memo.conflict-${safeDeviceLabel(o.deviceName)}-${timestampLabel(now)}`, o.markdown);
+}
+
+/**
+ * `<dir>/<base>.md` に書く。既にあれば `-2`、`-3` と連番を足す。
+ * `wx`（無ければ作る、あれば失敗）で開くので、`existsSync` の後の隙に割り込まれない。
+ */
+function writeWithoutClobbering(dir: string, base: string, body: string, mode?: number): string {
   for (let i = 1; ; i++) {
     const file = path.join(dir, i === 1 ? `${base}.md` : `${base}-${i}.md`);
     try {
-      fs.writeFileSync(file, o.markdown, { flag: 'wx' });
+      fs.writeFileSync(file, body, mode === undefined ? { flag: 'wx' } : { flag: 'wx', mode });
       return file;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST' || i >= MAX_CONFLICT_COPIES) throw e;
@@ -48,11 +58,29 @@ export function writeMemoConflictCopy(memoFile: string, o: MemoConflict, now = D
   }
 }
 
+/** 他端末が寄こした ID の形。ファイル名に混ぜる前に見る。 */
+const SAFE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * 他端末が寄こした ID を、ファイル名に混ぜられる形にする。
+ * 想定どおりの形ならそのまま使い、そうでなければ指紋に倒す。
+ * `../` を含む ID をそのまま名前にすると、控えが入れ物の外へ出る。
+ */
+const safeId = (id: string): string => (SAFE_ID_RE.test(id) ? id : `id-${crypto.createHash('sha256').update(id, 'utf8').digest('hex').slice(0, 16)}`);
+
+/** セッションのメモの控えを残したあとの知らせ。ファイルはもう書けているので、トーストに使うだけである。 */
+export type SessionMemoBackup = { sessionId: string; markdown: string; deviceName: string; backupFile: string };
+
 export type ApplyOptions = {
   ownDeviceId: string;
   skipOwn: boolean;
   /** project_memos を上書きする前に呼ばれる。投げたらその行は適用しない（手元の本文を消さない）。 */
   onMemoConflict?: (o: MemoConflict) => void;
+  /**
+   * sessions.memo の控えを残した後に呼ばれる。
+   * 控えはもうファイルになっているので、ここで投げても適用は止めない（トーストのための口である）。
+   */
+  onSessionMemoBackup?: (o: SessionMemoBackup) => void;
 };
 
 const colCache = new WeakMap<Db, Map<string, Set<string>>>();
@@ -97,6 +125,43 @@ function noteMemoConflict(db: Db, c: ChangeOut, row: Record<string, unknown>, o:
 }
 
 /**
+ * セッションのメモが他端末の新しい版で消えるとき、負けた本文を控えの入れ物に残す。
+ * 残せたら true、残せなかったら false（呼び手は上書きを見送る）。
+ *
+ * project_memos と違って `sessions.memo` は DB の列なので、隣に置くファイルが無い。
+ * 置き場が無いからといって黙って消してよい文章ではない（UI からも MCP の set_session_memo からも書ける）。
+ * そこで `~/.agent-hangar/backups/memos/session-<セッション ID>-<時刻>.md` に残す。
+ * 他端末の会話の断片が入るので、入れ物は 0700、控えは 0600 にする。
+ */
+function backupSessionMemo(db: Db, c: ChangeOut, row: Record<string, unknown>, o: ApplyOptions): boolean {
+  if (c.tableName !== 'sessions') return true;
+  // payload に memo が無ければ、その列は上書きされない（do update set に載らない）。
+  if (!Object.prototype.hasOwnProperty.call(row, 'memo')) return true;
+  const local = db.prepare('select memo, origin_device from sessions where id = ?').get(c.rowId) as { memo?: unknown; origin_device?: unknown } | undefined;
+  if (!local || typeof local.memo !== 'string' || local.memo.trim() === '') return true;
+  // 意味の無い控えを増やさない。相手と同じ本文なら残すものが無い。
+  if (row.memo === local.memo) return true;
+  const author = typeof local.origin_device === 'string' && local.origin_device.length > 0 ? local.origin_device : o.ownDeviceId;
+  let file: string;
+  try {
+    const dir = path.join(backupsRoot(hangarHome()), 'memos');
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.chmodSync(dir, 0o700);
+    file = writeWithoutClobbering(dir, `session-${safeId(c.rowId)}-${timestampLabel(Date.now())}`, local.memo, 0o600);
+  } catch (e) {
+    console.error('[sync] セッションのメモの控えを残せなかったので上書きを見送りました', safeId(c.rowId), e instanceof Error ? e.message : e);
+    return false;
+  }
+  // 控えはもうファイルになっている。知らせが失敗しても上書きは止めない。
+  try {
+    o.onSessionMemoBackup?.({ sessionId: c.rowId, markdown: local.memo, deviceName: deviceName(db, author), backupFile: file });
+  } catch (e) {
+    console.error('[sync] セッションのメモの控えを知らせられませんでした', safeId(c.rowId), e instanceof Error ? e.message : e);
+  }
+  return true;
+}
+
+/**
  * pull で受けた 1 行を適用する。updated_at の新しい方を採り、changes には追記しない。
  * payload はローカルの列だけに絞るので、相手の版が新しくて列が多くても壊れない。
  */
@@ -125,6 +190,7 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
     }
   }
   if (!noteMemoConflict(db, c, row, o)) return 'skipped';
+  if (!backupSessionMemo(db, c, row, o)) return 'skipped';
   const keys = Object.keys(row);
   const sets = keys.filter((k) => k !== pk).map((k) => `${k} = excluded.${k}`).join(', ');
   db.prepare(`insert into ${c.tableName} (${keys.join(', ')}) values (${keys.map(() => '?').join(', ')}) on conflict(${pk}) do update set ${sets}`).run(...keys.map((k) => bindable(row[k])));
