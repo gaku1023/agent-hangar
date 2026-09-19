@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { newId, type ArtifactDto, type BootstrapDto, type IndexProgressDto, type LaunchParams, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ServerEvent, type SettingsDto, type SummarizerTestDto, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { newId, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type SummarizerTestDto, type SyncStatusDto, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
 import { statuslineStatus } from '../config/statusline.ts';
@@ -15,6 +15,7 @@ import { assignSessions, candidateDirs, resolveProject, syncProjectsFromWorkspac
 import { addTodo, listTodos, removeTodo, setTodoDone } from '../projects/todos.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
+import type { SyncEngine } from '../sync/engine.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
@@ -36,6 +37,20 @@ export type ExternalApi = {
 export type SummaryEnqueueOpts = boolean | { force?: boolean; ignoreLive?: boolean };
 /** SummaryJob のうち HTTP から触る部分だけ。 */
 export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts): boolean; pending(): string[]; test(): Promise<SummarizerTestDto>; listModels(): Promise<string[]> };
+/** SyncEngine のうち HTTP から触る部分だけ。 */
+export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onFocus' | 'pullBeforeLaunch'>;
+/**
+ * Claude Code 設定の同期のうち HTTP から触る部分だけ。
+ * ClaudeConfigSync に pull() は無いので、呼び手が applyPull(pendingRemote()) の形に包んで渡す。
+ */
+export type ConfigSyncApi = { preview(): ConfigPreviewDto; pull(): Promise<{ applied: number; conflicts: number }> };
+/**
+ * 降ろすのを諦めた本文。RemotePuller.skippedEntries() をそのまま載せる。
+ * onError は 1 度しか鳴らないので、鳴った後に画面を開いた利用者はここでしか気付けない。
+ */
+export type SyncSkippedDto = { key: string; attempts: number; message: string };
+/** 同期の状態の応答。SyncStatusDto に、諦めた項目の一覧を足したものである。 */
+export type SyncStatusBody = SyncStatusDto & { skipped: SyncSkippedDto[] };
 export type AppDeps = {
   db: Db; deviceId: string; deviceName: string; token: string; home: string; port: number; version: string;
   settings: () => Settings; updateSettings: (patch: Partial<SettingsDto>) => Settings;
@@ -48,6 +63,16 @@ export type AppDeps = {
   memos: MemoStore;
   summary: SummaryApi;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null };
+  sync: SyncApi;
+  /** 降ろすのを諦めた項目。渡さなければ空として扱う。 */
+  syncSkipped?: () => SyncSkippedDto[];
+  /** 他端末の本文を手元に写してから再開する。写しより手元が小さいときだけ 409 の本体を返す。 */
+  resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto;
+  /** 同期を設定していない端末では null。そのとき設定の経路は 404 を返す。 */
+  configSync: ConfigSyncApi | null;
+  /** 参加トークン。setup を走らせていない端末では null。全セッションの読み書き権を持つので、ログには出さない。 */
+  joinToken: () => string | null;
+  devices: () => DeviceDto[];
   uiDist?: string;
 };
 
@@ -211,22 +236,34 @@ export function createApp(deps: AppDeps): Hono {
   api.use('*', authMiddleware(deps.token, deps.port));
 
   const broadcastProject = (id: string) => { const p = getProject(db, deviceId, deps.live(), id); if (p) deps.hub.broadcast({ type: 'project.upsert', project: p }); };
-  const broadcastSession = (id: string) => { const s = getSession(db, deps.live(), id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };
+  /**
+   * セッションを引くときは必ず自端末の ID を渡す。
+   * 渡さないと lockMap が空のまま返るので、他端末で走っている run が「ロック中」として出てこない。
+   */
+  const session = (id: string) => getSession(db, deps.live(), id, { deviceId });
+  const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
+  const broadcastSession = (id: string) => { const s = session(id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
   const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
+  /** 同期の状態。諦めた項目を添えて返す。 */
+  const syncStatus = (): SyncStatusBody => ({ ...deps.sync.status(), skipped: deps.syncSkipped?.() ?? [] });
+  /**
+   * セッションを起こす前に、他端末の変更を 2 秒だけ待って取り込む。
+   * 間に合わなくても起動は続ける。同期の失敗で起動を止めない。
+   */
+  const beforeLaunch = () => deps.sync.pullBeforeLaunch(2000).catch(() => false);
 
   api.get('/bootstrap', (c) => {
     const live = deps.live();
     const alive = deps.runs.listAlive();
     const body: BootstrapDto = {
-      // フェーズ 4 の Task 19 が実際の同期の状態と端末の一覧に差し替える。
-      sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false } },
-      devices: [],
+      sync: syncStatus(),
+      devices: deps.devices(),
       device: { id: deviceId, name: deps.deviceName },
       settings: toSettingsDto(deps.settings()),
       projects: listProjects(db, deviceId, live),
-      sessions: listSessions(db, live),
+      sessions: listSessions(db, live, { deviceId }),
       live,
       runs: alive.runs,
       tabs: alive.tabs,
@@ -271,13 +308,13 @@ export function createApp(deps: AppDeps): Hono {
     const p = getProject(db, deviceId, deps.live(), id);
     if (p) deps.hub.broadcast({ type: 'project.upsert', project: p });
     // 紐づけが変わったセッションを絞り込めないので、全件を流して UI 側で置き換えてもらう。
-    for (const s of listSessions(db, deps.live())) deps.hub.broadcast({ type: 'session.upsert', session: s });
+    for (const s of sessions()) deps.hub.broadcast({ type: 'session.upsert', session: s });
     return c.json(p ?? { id, unlinked: true });
   });
 
-  api.get('/sessions', (c) => c.json(listSessions(db, deps.live(), { projectId: c.req.query('projectId') })));
+  api.get('/sessions', (c) => c.json(sessions({ projectId: c.req.query('projectId') })));
   api.get('/sessions/:id', (c) => {
-    const s = getSession(db, deps.live(), c.req.param('id'));
+    const s = session(c.req.param('id'));
     return s ? c.json(s) : c.json({ error: 'セッションが見つかりません' }, 404);
   });
   api.get('/sessions/:id/events', (c) => {
@@ -393,6 +430,39 @@ export function createApp(deps: AppDeps): Hono {
     return c.body(null, 202);
   });
 
+  // 同期。どれも既存の authMiddleware の下にあり、鍵付きの入口と 3 つの検査を通る。
+  api.get('/sync/status', (c) => c.json(syncStatus()));
+  api.post('/sync/now', async (c) => { await deps.sync.syncNow(); return c.json(syncStatus()); });
+  api.post('/sync/pause', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { paused?: unknown };
+    if (typeof body.paused !== 'boolean') return c.json({ error: 'paused は true か false です' }, 400);
+    deps.sync.setPaused(body.paused);
+    // 再開は pull を投げっぱなしにするので、直後のこの状態は pulling になりうる。
+    return c.json(syncStatus());
+  });
+  // 前面化は待たせない。間引き（前の pull から 5 秒）は SyncEngine.onFocus の中にある。
+  api.post('/sync/focus', (c) => { void deps.sync.onFocus().catch(() => {}); return c.body(null, 202); });
+  api.get('/devices', (c) => c.json(deps.devices()));
+  // 参加トークンは全セッションの読み書き権を持つ。ログには出さず、UI が押したときだけ取りに来る。
+  api.get('/sync/joinToken', (c) => c.json({ token: deps.joinToken() }));
+  api.get('/sync/config/preview', (c) => (deps.configSync ? c.json(deps.configSync.preview()) : c.json({ error: 'クラウド同期が設定されていません' }, 404)));
+  api.post('/sync/config/pull', async (c) => (deps.configSync ? c.json(await deps.configSync.pull()) : c.json({ error: 'クラウド同期が設定されていません' }, 404)));
+
+  // 他端末の本文を手元に写してから再開する。手元の方が小さいときだけ 409 で確認を求める。
+  api.post('/sessions/:id/resume-here', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { overwrite?: unknown };
+    try {
+      const r = deps.resumeHere(c.req.param('id'), body.overwrite === true);
+      return 'error' in r ? c.json(r, 409) : c.json(r);
+    } catch (e) {
+      if (e instanceof RunError) return c.json({ error: e.message }, e.status);
+      throw e;
+    }
+  });
 
   api.get('/runs', (c) => c.json(deps.runs.listAlive()));
   api.post('/runs', async (c) => {
@@ -400,6 +470,8 @@ export function createApp(deps: AppDeps): Hono {
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
     const params = (b.value ?? null) as LaunchParams | null;
     if (!params || typeof params !== 'object') return c.json({ error: '本文が JSON ではありません' }, 400);
+    // 他端末の最新を先に取り込む。間に合わなくても起動する（結果は見ない）。
+    await beforeLaunch();
     return runResult(c, () => deps.runs.start(params), 201);
   });
   api.delete('/runs/:id', (c) => runResult(c, () => deps.runs.kill(c.req.param('id'))));
@@ -427,10 +499,10 @@ export function createApp(deps: AppDeps): Hono {
     if (!deps.runs.attachTarget(tabId)) return c.json({ error: 'この run は終了しています' }, 409);
     return external(c, () => deps.external.openTerminal({ tmuxName: t.tmuxName }));
   });
-  api.post('/sessions/:id/resume', (c) => runResult(c, () => deps.runs.resume(c.req.param('id')), 201));
-  api.post('/sessions/:id/fork', (c) => runResult(c, () => deps.runs.fork(c.req.param('id')), 201));
+  api.post('/sessions/:id/resume', async (c) => { await beforeLaunch(); return runResult(c, () => deps.runs.resume(c.req.param('id')), 201); });
+  api.post('/sessions/:id/fork', async (c) => { await beforeLaunch(); return runResult(c, () => deps.runs.fork(c.req.param('id')), 201); });
   api.post('/sessions/:id/open-editor', (c) => {
-    const s = getSession(db, deps.live(), c.req.param('id'));
+    const s = session(c.req.param('id'));
     if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
     return external(c, () => deps.external.openEditor({ target: s.cwd }), true);
   });
@@ -592,7 +664,7 @@ export function createApp(deps: AppDeps): Hono {
     const body = (b.value ?? {}) as { memo?: unknown };
     if (typeof body.memo !== 'string') return c.json({ error: 'memo は文字列です' }, 400);
     upsertShared(db, 'sessions', { ...row, memo: body.memo.trim() || null }, deviceId);
-    const s = getSession(db, deps.live(), id)!;
+    const s = session(id)!;
     deps.hub.broadcast({ type: 'session.upsert', session: s });
     return c.json(s);
   });
@@ -602,17 +674,17 @@ export function createApp(deps: AppDeps): Hono {
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
     const body = (b.value ?? {}) as { name?: unknown; gitInit?: unknown; moveFiles?: unknown };
     if (typeof body.name !== 'string') return c.json({ error: 'name は必須です' }, 400);
-    const before = getSession(db, deps.live(), id);
+    const before = session(id);
     if (!before) return c.json({ error: 'セッションが見つかりません' }, 404);
     try {
       const r = deps.promote({ sessionId: id, name: body.name, gitInit: body.gitInit === true, moveFiles: body.moveFiles === true });
       const project = getProject(db, deviceId, deps.live(), r.projectId)!;
-      const session = getSession(db, deps.live(), id)!;
+      const updated = session(id)!;
       deps.hub.broadcast({ type: 'project.upsert', project });
       // 昇格元のスクラッチはセッションが 1 件減るので、そちらも配り直す。
       if (before.projectId && before.projectId !== r.projectId) broadcastProject(before.projectId);
-      deps.hub.broadcast({ type: 'session.upsert', session });
-      const out: PromoteResultDto = { project, session, moved: r.moved, reason: r.reason };
+      deps.hub.broadcast({ type: 'session.upsert', session: updated });
+      const out: PromoteResultDto = { project, session: updated, moved: r.moved, reason: r.reason };
       return c.json(out, 201);
     } catch (e) {
       if (e instanceof PromoteError) return c.json({ error: e.message }, e.status);
@@ -621,7 +693,7 @@ export function createApp(deps: AppDeps): Hono {
   });
   api.post('/sessions/:id/summarize', (c) => {
     const id = c.req.param('id');
-    if (!getSession(db, deps.live(), id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    if (!session(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
     // 受け付けられなくても 202 を返す。UI は accepted を見て「作成中」を出すかどうかだけを決める。
     // 要約は補助の機能なので、受け付けが投げても 500 にせず accepted: false で返す（GET /events と同じ扱い）。
     let accepted = false;

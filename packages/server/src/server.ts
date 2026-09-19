@@ -4,12 +4,14 @@ import type http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listArtifacts } from './artifacts/queries.ts';
+import { readCloudConfig, remoteRoot } from './config/cloud.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
+import { encodeJoinToken, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
-import { getProject, getSession, listProjects } from './db/queries.ts';
+import { getProject, getSession, listDevices, listProjects } from './db/queries.ts';
+import { upsertShared } from './db/shared.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './external/open.ts';
 import { createApp, type ExternalApi } from './http/app.ts';
 import { writeBaselineIfNeeded } from './indexer/baseline.ts';
@@ -23,12 +25,22 @@ import { RegistryWatcher } from './provider/claude-code/registry.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
 import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
-import { RunManager } from './runs/manager.ts';
+import { RunError, RunManager } from './runs/manager.ts';
 import { aliveRunForSession } from './runs/queries.ts';
 import { ClaudeHeadlessSummarizer } from './summary/claude.ts';
 import { SummaryJob } from './summary/job.ts';
 import { LmStudioSummarizer } from './summary/lmstudio.ts';
 import type { Summarizer } from './summary/types.ts';
+import { writeMemoConflictCopy } from './sync/apply.ts';
+import { ClaudeConfigSync } from './sync/claudeConfig.ts';
+import { HttpCloudClient, type CloudClient } from './sync/client.ts';
+import { copyTranscriptForResume } from './sync/copy.ts';
+import { deriveFileKey } from './sync/crypto.ts';
+import { SyncEngine } from './sync/engine.ts';
+import { RemotePuller } from './sync/puller.ts';
+import type { QuotaCounter } from './sync/quota.ts';
+import { SyncStateStore } from './sync/state.ts';
+import { TranscriptUploader } from './sync/uploader.ts';
 import { Tmux } from './tmux/tmux.ts';
 import { UsageTracker } from './usage/statusline.ts';
 import { EventHub } from './ws/hub.ts';
@@ -36,6 +48,38 @@ import { EventHub } from './ws/hub.ts';
 export const VERSION = '0.3.0';
 
 const ROOT_CHECK_MS = 30_000;
+/** devices に最終確認を書き込む間隔。 */
+const DEVICE_TOUCH_MS = 600_000;
+/**
+ * run の終了から 2 度目の flushSession までの待ち。
+ * Claude は終了の直前まで本文に書き足すので、終了の直後の 1 回だけだと最後の数行が上がらない。
+ */
+const FLUSH_AGAIN_MS = 5_000;
+/**
+ * Claude Code 設定の定期 push の間隔。
+ * fs.watch の recursive は macOS と Windows だけなので、Linux では監視だけでは変化に気付けない。
+ */
+const CONFIG_PUSH_MS = 60_000;
+
+/**
+ * R2 への出し入れを無料枠の勘定に入れるための包み。
+ * SyncEngine は自分の要求を自分で数えるが、本文と設定の上げ下ろしは engine を通らないので、
+ * ここで数えないと「課金されない」という約束が勘定の抜けで崩れる。
+ * 止めるのは engine の guardQuota に任せる（止めた日を覚えていて、再開の直後に押し返さない）。
+ */
+function countingClient(inner: CloudClient, quota: QuotaCounter): CloudClient {
+  const note = <T>(p: Promise<T>): Promise<T> => { quota.note({ requests: 1 }); return p; };
+  return {
+    health: () => note(inner.health()),
+    pushChanges: (c) => note(inner.pushChanges(c)),
+    pullChanges: (s, l) => note(inner.pullChanges(s, l)),
+    snapshot: (a, l) => note(inner.snapshot(a, l)),
+    putFile: (m: FileMetaIn, b) => note(inner.putFile(m, b)),
+    getFile: (k) => note(inner.getFile(k)),
+    listFiles: (s, l) => note(inner.listFiles(s, l)),
+    deleteFile: (k) => note(inner.deleteFile(k)),
+  };
+}
 
 /**
  * WebSocket の upgrade を受け付ける経路。
@@ -82,7 +126,8 @@ export function checkRoots(o: { db: Db; deviceId: string; live: () => LiveSessio
   // 戻ったプロジェクトと、紐づけ直しで中身が変わったプロジェクトを配る。
   const touched = new Set(r.recovered);
   for (const id of unassigned) {
-    const s = getSession(o.db, live, id);
+    // ロックを出すために自端末の ID を渡す。渡さないと他端末の run が一切見えない。
+    const s = getSession(o.db, live, id, { deviceId: o.deviceId });
     if (!s?.projectId) continue;
     touched.add(s.projectId);
     o.broadcast({ type: 'session.upsert', session: s });
@@ -139,7 +184,60 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const db = openDb(dbPath(home));
   const hub = new EventHub(VERSION);
   const registry = new RegistryWatcher(claudeDir);
-  const indexer = new IndexerService({ db, deviceId: device.id, claudeDir, isRunning: (id) => registry.current().some((l) => l.sessionId === id) });
+
+  // クラウド同期。cloud.json が無ければ client は null で、同期の状態は off になる。
+  const cloudRead = readCloudConfig(home);
+  const cloud = cloudRead.config;
+  if (cloudRead.state === 'broken') {
+    // 「壊れている」を「未参加」と同じに扱わない。
+    // 参加し直すと別の joinSecret が入り、R2 にある既存の暗号化ファイルを誰も復号できなくなる。
+    console.error('[sync] ~/.agent-hangar/cloud.json を読めませんでした。同期は止めたままにします。hangar cloud status で確かめてください（参加し直すと既存の本文を復号できなくなります）');
+  }
+  const toast = (level: 'info' | 'error', message: string) => hub.broadcast({ type: 'toast', level, message });
+  const syncState = new SyncStateStore(db);
+  const rawClient = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
+  const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
+  const engine = new SyncEngine({
+    db, deviceId: device.id, client: rawClient, url: cloud?.url ?? null,
+    // 負けた手元のメモは隣に残す。名前の組み立ても既存の写しの守りも writeMemoConflictCopy が持っている。
+    // ここで投げれば、その行は適用されない（控えの無いまま利用者の文章を消さない）。
+    onMemoConflict: (o) => {
+      const file = writeMemoConflictCopy(memos.memoPath(o.projectId), o);
+      toast('info', `メモが競合しました。手元の内容を ${path.basename(file)} に残しました`);
+    },
+  });
+  // 本文と設定の出し入れは engine を通らないので、無料枠の勘定に入るように包んでから渡す。
+  const client = rawClient ? countingClient(rawClient, engine.quota) : null;
+  const uploader = client
+    ? new TranscriptUploader({
+        db, deviceId: device.id, claudeDir, client, key: fileKey, state: syncState,
+        isPaused: () => engine.status().state === 'paused',
+        onError: (p, m) => console.error('[upload]', p, m),
+      })
+    : null;
+  const configSync = client
+    ? new ClaudeConfigSync({
+        db, deviceId: device.id, deviceName: device.name, claudeDir, home, client, key: fileKey, state: syncState,
+        enabled: () => settings.syncClaudeConfig, onToast: toast,
+      })
+    : null;
+  const puller = client
+    ? new RemotePuller({
+        db, deviceId: device.id, home, client, key: fileKey, state: syncState,
+        onConfigEntries: async (entries: FileEntry[]) => { await configSync?.applyPull(entries); },
+        // 鳴るのは 1 回目と諦めたときだけなので、そのままトーストに出してよい。
+        // 見逃した利用者のために、諦めた項目は同期の状態（syncSkipped）にも残る。
+        onError: (k, m) => { console.error('[pull]', k, m); toast('error', `本文を降ろせませんでした（${k}）: ${m}`); },
+      })
+    : null;
+
+  const indexer = new IndexerService({
+    db, deviceId: device.id, claudeDir,
+    isRunning: (id) => registry.current().some((l) => l.sessionId === id),
+    // 他端末から降ろした本文も索引化の対象にする。譲ったセッションは相手が持ち主なので見ない。
+    remoteRoot: remoteRoot(home),
+    isYielded: (uuid) => syncState.isYielded(uuid),
+  });
 
   // 起動の途中かどうか。最初の全走査では未分類のセッションを数えきれないほど流すので、知らせるのは起動後だけにする。
   let started = false;
@@ -159,10 +257,13 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   indexer.on({
     progress: (p) => hub.broadcast({ type: 'index.progress', progress: p }),
     sessionChanged: (e) => {
+      // 手元のファイルだけを上げる。他端末の写し（deviceId が入っているもの）は持ち主が上げる。
+      if (e.deviceId === null) uploader?.noteChanged({ path: e.path, sessionId: e.providerSessionId, agentId: e.agentId });
       // 起動後に現れたセッションは project_id が空のままなので、ここで紐づけてから配る。
       const row = db.prepare('select project_id from sessions where id = ?').get(e.sessionId) as { project_id: string | null } | undefined;
       const assigned = row && row.project_id === null ? assignSession(db, device.id, e.sessionId) : null;
-      const s = getSession(db, registry.current(), e.sessionId);
+      // ロックを出すために自端末の ID を渡す。
+      const s = getSession(db, registry.current(), e.sessionId, { deviceId: device.id });
       if (!s) return;
       hub.broadcast({ type: 'session.upsert', session: s });
       if (assigned) {
@@ -192,7 +293,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const sessionId = sessionIdOf(providerSessionId);
       if (!sessionId) continue;
       writeBaselineIfNeeded(db, sessionId, device.id, now.has(providerSessionId));
-      const s = getSession(db, live, sessionId);
+      const s = getSession(db, live, sessionId, { deviceId: device.id });
       if (s) hub.broadcast({ type: 'session.upsert', session: s });
     }
     for (const p of listProjects(db, device.id, live)) hub.broadcast({ type: 'project.upsert', project: p });
@@ -241,13 +342,69 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   runs.on({
     runStarted: (r) => {
       hub.broadcast({ type: 'run.started', run: r.run, tabs: r.tabs });
-      const s = getSession(db, registry.current(), r.sessionId);
+      const s = getSession(db, registry.current(), r.sessionId, { deviceId: device.id });
       if (s) hub.broadcast({ type: 'session.upsert', session: s });
     },
     runUpdated: (run) => hub.broadcast({ type: 'run.upsert', run }),
     // run が終わったときは事後要約の契機になる。受け付けの可否は SummaryJob が決める。
     runEnded: (run) => { hub.broadcast({ type: 'run.ended', run }); summary.enqueue(run.sessionId, RUN_ENDED_SUMMARY_OPTS); },
     tabChanged: (tab) => hub.broadcast({ type: 'tab.upsert', tab }),
+  });
+
+  /**
+   * ファイルの取り込みは 1 本の鎖に並べる。
+   * RemotePuller は自分では重なりを防がないので、起動時の 1 回と pulled の合図が重なると、
+   * 同じ鍵を 2 本の流れが同じ一時ファイルへ書き、filesSeq も互いに上書きし合う。
+   */
+  let filePull: Promise<unknown> = Promise.resolve();
+  const pullFiles = (): Promise<unknown> => {
+    filePull = filePull
+      .catch(() => undefined)
+      .then(() => puller?.pullNow())
+      .catch((e: unknown) => console.error('[files]', e instanceof Error ? e.message : e));
+    return filePull;
+  };
+
+  // 同期のイベントを hub に流す。pull で入れ替わった行は、そのまま画面に届ける。
+  engine.on({
+    status: (s) => hub.broadcast({ type: 'sync.status', status: s }),
+    toast: (level, message) => toast(level, message),
+    applied: (c) => {
+      hub.broadcast({ type: 'sync.applied', table: c.tableName, rowId: c.rowId });
+      if (c.tableName === 'sessions' || c.tableName === 'runs' || c.tableName === 'session_summaries') {
+        const sessionId = c.tableName === 'runs'
+          ? (db.prepare('select session_id s from runs where id = ?').get(c.rowId) as { s: string } | undefined)?.s ?? null
+          : c.rowId;
+        const s = sessionId ? getSession(db, registry.current(), sessionId, { deviceId: device.id }) : null;
+        if (s) hub.broadcast({ type: 'session.upsert', session: s });
+      }
+      if (c.tableName === 'projects' || c.tableName === 'project_roots') {
+        for (const p of listProjects(db, device.id, registry.current())) hub.broadcast({ type: 'project.upsert', project: p });
+      }
+      if (c.tableName === 'devices') hub.broadcast({ type: 'devices.update', devices: listDevices(db, device.id) });
+    },
+    // メタデータの pull の後に、ファイルの新着を取りに行く。
+    pulled: () => { void pullFiles(); },
+  });
+
+  /** 他端末の本文を手元に写してから再開する。~/.claude への本文の書き込みはここだけを通る。 */
+  const resumeHere = (sessionId: string, overwrite: boolean): LaunchResultDto | ResumeHereConflictDto => {
+    const r = copyTranscriptForResume({ db, home, claudeDir, sessionId, overwrite });
+    if (r.kind === 'ask') return { error: 'local_smaller', localSize: r.localSize, remoteSize: r.remoteSize };
+    if (r.kind === 'none') throw new RunError(400, 'このセッションの本文がありません');
+    return runs.resume(sessionId);
+  };
+
+  // RunManager.on は listener を足せるので、上の登録はそのまま残して 2 つ目として足す。
+  runs.on({
+    runEnded: (r) => {
+      const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(r.sessionId) as { p: string } | undefined)?.p;
+      if (!uuid) return;
+      // 終了の直後に 1 回。Claude は終わる直前まで書き足すので、少し置いてもう 1 回上げ直す。
+      void uploader?.flushSession(uuid);
+      const again = setTimeout(() => { void uploader?.flushSession(uuid); }, FLUSH_AGAIN_MS);
+      again.unref();
+    },
   });
 
   // 設定は書き替わるので、外部連携は呼ばれた時点の settings を読む。
@@ -274,6 +431,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       relay.setTmux(t);
       // 上限だけは要約器が内側に持つので、変わったときに作り直す。
       if (patch.summaryHourlyCap !== undefined) claude = claudeSummarizer();
+      // Claude Code 設定の同期の入り切りは、ヘッダと Settings の表示に載せる。
+      engine.setClaudeConfigStatus({ enabled: settings.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });
       return settings;
     },
     live: () => registry.current(), indexer, hub, runs, external, usage, memos,
@@ -293,6 +452,15 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
         return !!s && registry.current().some((l) => l.sessionId === s.p);
       },
     }, o),
+    sync: engine,
+    // 降ろすのを諦めた項目。onError は 1 度しか鳴らないので、状態にも載せて後から見られるようにする。
+    syncSkipped: () => puller?.skippedEntries() ?? [],
+    resumeHere,
+    // ClaudeConfigSync に pull() は無いので、確認を立ててから applyPull(pendingRemote()) を呼ぶ形に包む。
+    configSync: configSync ? { preview: () => configSync.preview(), pull: async () => { const entries = configSync.pendingRemote(); configSync.confirm(); return configSync.applyPull(entries); } } : null,
+    // 参加トークンは全セッションの読み書き権を持つ。作るのはここだけで、ログにも例外にも出さない。
+    joinToken: () => (cloud ? encodeJoinToken({ url: cloud.url, secret: cloud.joinSecret }) : null),
+    devices: () => listDevices(db, device.id),
     uiDist,
   });
   handler = app.fetch;
@@ -329,11 +497,36 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // ここまでで既存のセッションの紐づけは済んでいる。以後に現れた未分類だけを知らせる。
   started = true;
 
+  /** 自端末の生存を devices に刻む。他端末の Settings の一覧と、ロックの端末名がここから出る。 */
+  const touchDevice = (): void => {
+    const row = db.prepare('select * from devices where id = ?').get(device.id) as Record<string, unknown> | undefined;
+    upsertShared(db, 'devices', { ...(row ?? {}), id: device.id, name: device.name, platform: device.platform, last_seen_at: Date.now(), deleted_at: null }, device.id);
+    hub.broadcast({ type: 'devices.update', devices: listDevices(db, device.id) });
+  };
+  touchDevice();
+  const deviceTimer = setInterval(touchDevice, DEVICE_TOUCH_MS);
+  deviceTimer.unref();
+
+  engine.setClaudeConfigStatus({ enabled: settings.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });
+  await engine.start();
+  if (puller) await pullFiles();
+  configSync?.start();
+  // fs.watch の recursive は Linux では効かない。定期の push を足しておけば、監視が無くても揃う。
+  const configTimer = configSync
+    ? setInterval(() => { void configSync.pushChanged().catch((e: unknown) => console.error('[config]', e instanceof Error ? e.message : e)); }, CONFIG_PUSH_MS)
+    : null;
+  configTimer?.unref();
+
   console.log(`agent-hangar listening on http://${host}:${port}${settings.tmuxPath ? '' : '（tmux が見つからないため起動は使えません）'}`);
   return {
     port,
     close: async () => {
       clearInterval(rootTimer);
+      clearInterval(deviceTimer);
+      if (configTimer) clearInterval(configTimer);
+      configSync?.stop();
+      uploader?.stop();
+      engine.stop();
       stopMemoWatch();
       runs.stop();
       indexer.stop();

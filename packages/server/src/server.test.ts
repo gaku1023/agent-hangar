@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerEvent, SessionDto } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
+import { saveCloudConfig } from './config/cloud.ts';
 import { openDb } from './db/open.ts';
 import { upsertShared } from './db/shared.ts';
 import { IndexerService } from './indexer/service.ts';
@@ -106,6 +107,73 @@ describe('startServer', () => {
     expect(result).toBe('closed');
     ws.terminate();
     stalled.destroy();
+  });
+
+  it('cloud.json が無ければ同期は off で、経路は動く', async () => {
+    // 参加していない端末でも、同期の経路は 404 にならずに「off」を返す。
+    // 実物のクラウドには一切触らない（cloud.json が無いので client は作られない）。
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const token = tokenOf();
+      const api = (p: string, init?: RequestInit) => fetch(`http://127.0.0.1:${s.port}${p}`, { ...init, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init?.headers ?? {}) } });
+      const status = await (await api('/api/sync/status')).json() as { state: string; url: string | null; pending: number; skipped: unknown[] };
+      expect(status).toMatchObject({ state: 'off', url: null, pending: expect.any(Number) });
+      expect(status.skipped).toEqual([]);
+      // 参加していないので、参加トークンも設定の同期も無い。
+      expect(await (await api('/api/sync/joinToken')).json()).toEqual({ token: null });
+      expect((await api('/api/sync/config/preview')).status).toBe(404);
+      expect((await api('/api/sync/config/pull', { method: 'POST' })).status).toBe(404);
+      expect((await api('/api/sync/focus', { method: 'POST' })).status).toBe(202);
+      expect((await api('/api/sync/now', { method: 'POST' })).status).toBe(200);
+      // 自端末は起動のたびに devices へ書き込まれる。
+      const b = await (await api('/api/bootstrap')).json() as { devices: { id: string; self: boolean }[]; sync: { state: string } };
+      expect(b.devices.some((d) => d.self)).toBe(true);
+      expect(b.sync.state).toBe('off');
+      const devices = await (await api('/api/devices')).json() as { self: boolean }[];
+      expect(devices.some((d) => d.self)).toBe(true);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('cloud.json があれば部品が組み上がり、繋がらなくても起動は終わる', async () => {
+    // 宛先は誰も待ち受けていないループバックである。実物のクラウドには触らない。
+    // ここで見たいのは、cloud.json から client と鍵と上げ下ろしの部品が組み上がり、
+    // 状態が off ではなくなり、参加トークンが作れることである。
+    saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const token = tokenOf();
+      const api = (p: string) => fetch(`http://127.0.0.1:${s.port}${p}`, { headers: { authorization: `Bearer ${token}` } });
+      const status = await (await api('/api/sync/status')).json() as { state: string; url: string | null };
+      // 繋がらないので idle にはならないが、off でもない（off は「参加していない」の意味である）。
+      expect(status.state).not.toBe('off');
+      expect(status.url).toBe('http://127.0.0.1:9');
+      // 参加トークンは中身を見ない。秘密が差分やログに出ないようにする。
+      const jt = await (await api('/api/sync/joinToken')).json() as { token: string | null };
+      expect(typeof jt.token).toBe('string');
+      expect((jt.token ?? '').length).toBeGreaterThan(0);
+      // 設定の同期の部品も組み上がっている（未確認なので confirmed は false）。
+      const preview = await (await api('/api/sync/config/preview')).json() as { entries: unknown[]; confirmed: boolean };
+      expect(preview.confirmed).toBe(false);
+      expect(Array.isArray(preview.entries)).toBe(true);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('この PC で再開は、本文が無ければ 400 で理由を返す', async () => {
+    // 経路が copyTranscriptForResume まで繋がっていることを、~/.claude を書き換えない側から確かめる。
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const r = await fetch(`http://127.0.0.1:${s.port}/api/sessions/nope/resume-here`, {
+        method: 'POST', headers: { authorization: `Bearer ${tokenOf()}`, 'content-type': 'application/json' }, body: JSON.stringify({ overwrite: false }),
+      });
+      expect(r.status).toBe(400);
+      expect(await r.json()).toEqual({ error: 'このセッションの本文がありません' });
+    } finally {
+      await s.close();
+    }
   });
 
   it('起動でヘッダのファイルを用意する。~/.agent-hangar を消しても使用量が静かに止まらない', async () => {
