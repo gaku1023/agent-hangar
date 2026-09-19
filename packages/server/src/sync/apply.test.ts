@@ -189,21 +189,29 @@ describe('writeMemoConflictCopy', () => {
  * 他端末の新しい版に負けた本文は、控えの入れ物に残してから上書きする。
  */
 describe('applyRemoteChange のセッションのメモ', () => {
+  /** 呼び手が明に渡す置き場。控えはここに書かれる。 */
   let home: string;
+  /** HANGAR_HOME が指す置き場。home を渡さなかったときだけ使われる。 */
+  let envHome: string;
   let saved: string | undefined;
+  /** 控えの置き場を明に渡す形。実物の ~/.agent-hangar には絶対に書かない。 */
+  let so: { ownDeviceId: string; skipOwn: boolean; home: string };
 
   beforeEach(() => {
     saved = process.env.HANGAR_HOME;
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-'));
-    process.env.HANGAR_HOME = home;
+    envHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-env-'));
+    // 落ちても実物へ書かないための二重の備え。テストが見るのは home の方である。
+    process.env.HANGAR_HOME = envHome;
+    so = { ...o, home };
   });
   afterEach(() => {
     if (saved === undefined) delete process.env.HANGAR_HOME; else process.env.HANGAR_HOME = saved;
-    fs.rmSync(home, { recursive: true, force: true });
+    for (const d of [home, envHome]) fs.rmSync(d, { recursive: true, force: true });
   });
 
-  const memosDir = () => path.join(home, 'backups', 'memos');
-  const listBackups = (): string[] => (fs.existsSync(memosDir()) ? fs.readdirSync(memosDir()).sort() : []);
+  const memosDir = (root = home) => path.join(root, 'backups', 'memos');
+  const listBackups = (root = home): string[] => (fs.existsSync(memosDir(root)) ? fs.readdirSync(memosDir(root)).sort() : []);
 
   const seed = (memo: string | null, id = 's1') => {
     const db = openDb(':memory:');
@@ -223,7 +231,7 @@ describe('applyRemoteChange のセッションのメモ', () => {
     const db = seed('手元のセッションメモ');
     const seen: { sessionId: string; markdown: string; deviceName: string; backupFile: string }[] = [];
     const at = localUpdatedAt(db) + 1;
-    expect(applyRemoteChange(db, session('s1', '相手のメモ', at), { ...o, onSessionMemoBackup: (x) => seen.push(x) })).toBe('applied');
+    expect(applyRemoteChange(db, session('s1', '相手のメモ', at), { ...so, onSessionMemoBackup: (x) => seen.push(x) })).toBe('applied');
 
     const files = listBackups();
     expect(files).toHaveLength(1);
@@ -238,18 +246,18 @@ describe('applyRemoteChange のセッションのメモ', () => {
   it('消される側でも控えを残す（相手が memo を空にしたとき）', () => {
     const db = seed('消えると困る文章');
     const at = localUpdatedAt(db) + 1;
-    expect(applyRemoteChange(db, session('s1', null, at), o)).toBe('applied');
+    expect(applyRemoteChange(db, session('s1', null, at), so)).toBe('applied');
     expect(listBackups()).toHaveLength(1);
     expect(fs.readFileSync(path.join(memosDir(), listBackups()[0]!), 'utf8')).toBe('消えると困る文章');
   });
 
   it('手元が空か、相手と同じなら何も書かない', () => {
     const empty = seed(null);
-    expect(applyRemoteChange(empty, session('s1', '相手のメモ', localUpdatedAt(empty) + 1), o)).toBe('applied');
+    expect(applyRemoteChange(empty, session('s1', '相手のメモ', localUpdatedAt(empty) + 1), so)).toBe('applied');
     const blank = seed('   ');
-    expect(applyRemoteChange(blank, session('s1', '相手のメモ', localUpdatedAt(blank) + 1), o)).toBe('applied');
+    expect(applyRemoteChange(blank, session('s1', '相手のメモ', localUpdatedAt(blank) + 1), so)).toBe('applied');
     const same = seed('同じ文章');
-    expect(applyRemoteChange(same, session('s1', '同じ文章', localUpdatedAt(same) + 1), o)).toBe('applied');
+    expect(applyRemoteChange(same, session('s1', '同じ文章', localUpdatedAt(same) + 1), so)).toBe('applied');
     expect(listBackups()).toEqual([]);
   });
 
@@ -257,7 +265,7 @@ describe('applyRemoteChange のセッションのメモ', () => {
     const db = seed('手元のセッションメモ');
     const c = session('s1', null, localUpdatedAt(db) + 1);
     delete (c.payload as Record<string, unknown>).memo;
-    expect(applyRemoteChange(db, c, o)).toBe('applied');
+    expect(applyRemoteChange(db, c, so)).toBe('applied');
     expect(listBackups()).toEqual([]);
     expect((db.prepare('select memo from sessions where id = ?').get('s1') as { memo: string }).memo).toBe('手元のセッションメモ');
   });
@@ -268,7 +276,7 @@ describe('applyRemoteChange のセッションのメモ', () => {
     fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
     fs.writeFileSync(memosDir(), 'not a directory');
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(applyRemoteChange(db, session('s1', '相手のメモ', localUpdatedAt(db) + 1), o)).toBe('skipped');
+    expect(applyRemoteChange(db, session('s1', '相手のメモ', localUpdatedAt(db) + 1), so)).toBe('skipped');
     expect((db.prepare('select memo from sessions where id = ?').get('s1') as { memo: string }).memo).toBe('手元のセッションメモ');
     expect(err).toHaveBeenCalled();
     err.mockRestore();
@@ -276,24 +284,31 @@ describe('applyRemoteChange のセッションのメモ', () => {
 
   it('同じ秒に 2 度来ても既存の控えを潰さない', () => {
     const db = seed('1 つめ');
-    applyRemoteChange(db, session('s1', '相手のメモ', localUpdatedAt(db) + 1), o);
+    applyRemoteChange(db, session('s1', '相手のメモ', localUpdatedAt(db) + 1), so);
     upsertShared(db, 'sessions', { ...(db.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>), memo: '2 つめ' }, 'a');
-    applyRemoteChange(db, session('s1', 'さらに新しい', localUpdatedAt(db) + 1), o);
+    applyRemoteChange(db, session('s1', 'さらに新しい', localUpdatedAt(db) + 1), so);
     const bodies = listBackups().map((f) => fs.readFileSync(path.join(memosDir(), f), 'utf8')).sort();
     expect(bodies).toEqual(['1 つめ', '2 つめ']);
   });
 
   it('入れ物は 0700、控えは 0600 にする', () => {
     const db = seed('手元のセッションメモ');
-    applyRemoteChange(db, session('s1', '相手のメモ', localUpdatedAt(db) + 1), o);
+    applyRemoteChange(db, session('s1', '相手のメモ', localUpdatedAt(db) + 1), so);
     expect(fs.statSync(memosDir()).mode & 0o777).toBe(0o700);
     expect(fs.statSync(path.join(memosDir(), listBackups()[0]!)).mode & 0o777).toBe(0o600);
+  });
+
+  it('home を渡さなければ hangarHome() に落ちる（呼び手は必ず渡すこと）', () => {
+    const db = seed('手元のセッションメモ');
+    expect(applyRemoteChange(db, session('s1', '相手のメモ', localUpdatedAt(db) + 1), o)).toBe('applied');
+    expect(listBackups()).toEqual([]);
+    expect(listBackups(envHome)).toHaveLength(1);
   });
 
   it('他端末が寄こした ID をそのままパスに混ぜない', () => {
     const db = seed('手元のセッションメモ', '../evil');
     const at = localUpdatedAt(db, '../evil') + 1;
-    expect(applyRemoteChange(db, session('../evil', '相手のメモ', at), o)).toBe('applied');
+    expect(applyRemoteChange(db, session('../evil', '相手のメモ', at), so)).toBe('applied');
     const files = listBackups();
     expect(files).toHaveLength(1);
     expect(files[0]).toMatch(/^session-id-[0-9a-f]{16}-\d{8}-\d{6}\.md$/);

@@ -81,6 +81,12 @@ export type ApplyOptions = {
    * 控えはもうファイルになっているので、ここで投げても適用は止めない（トーストのための口である）。
    */
   onSessionMemoBackup?: (o: SessionMemoBackup) => void;
+  /**
+   * 控えの置き場の親（`~/.agent-hangar` に当たるもの）。
+   * 省くと `hangarHome()` に落ちるが、**呼び手は必ず明に渡すこと。**
+   * 環境変数に頼ると、一時置き場で起こしたサーバやテストが実物の `~/.agent-hangar` に書いてしまう。
+   */
+  home?: string;
 };
 
 const colCache = new WeakMap<Db, Map<string, Set<string>>>();
@@ -144,7 +150,7 @@ function backupSessionMemo(db: Db, c: ChangeOut, row: Record<string, unknown>, o
   const author = typeof local.origin_device === 'string' && local.origin_device.length > 0 ? local.origin_device : o.ownDeviceId;
   let file: string;
   try {
-    const dir = path.join(backupsRoot(hangarHome()), 'memos');
+    const dir = path.join(backupsRoot(o.home ?? hangarHome()), 'memos');
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.chmodSync(dir, 0o700);
     file = writeWithoutClobbering(dir, `session-${safeId(c.rowId)}-${timestampLabel(Date.now())}`, local.memo, 0o600);
