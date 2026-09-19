@@ -3,8 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { transcriptKey, type FileEntry, type FileMetaIn } from '@agent-hangar/shared';
+import type { CloudClient } from './client.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
@@ -34,7 +35,7 @@ beforeEach(() => {
   state = new SyncStateStore(db);
   errors.length = 0;
 });
-afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); fs.rmSync(home, { recursive: true, force: true }); });
 
 describe('remoteTranscriptPath', () => {
   it('remote/<端末>/<相対パス> を組み立て、怪しい相対パスは拒む', () => {
@@ -299,5 +300,64 @@ describe('RemotePuller', () => {
     expect(await p2.pullNow()).toEqual({ downloaded: 0, configEntries: 1 });
     expect(seen[0]!.map((e) => e.key)).toEqual(['config/CLAUDE.md']);
     expect(p2.skippedEntries()).toEqual([]);
+  });
+
+  it('平文と申告された本文は受け取らない', async () => {
+    // 決定 5 は「本文は暗号化して R2 に置く」である。受け取る側でも申告を鵜呑みにしない。
+    const body = '{"a":1}\n';
+    await cloud.asDevice('dev-b').putFile(
+      { key: `transcripts/dev-b/${UUID}.jsonl.gz`, path: `projects/-w-alpha/${UUID}.jsonl`, kind: 'transcript', sha256: sha256Hex(body), size: Buffer.byteLength(body), mtime: 1, encrypted: false },
+      Readable.from([gzipSync(Buffer.from(body))]),
+    );
+    const p = make();
+    expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 0 });
+    expect(errors[0]!.message).toContain('暗号化');
+    expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`))).toBe(false);
+  });
+
+  it('rename の前に fsync してから本物にする', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    const fsyncSpy = vi.spyOn(fs, 'fsyncSync');
+    const renameSpy = vi.spyOn(fs, 'renameSync');
+    const p = make();
+    expect(await p.pullNow()).toEqual({ downloaded: 1, configEntries: 0 });
+    expect(fsyncSpy).toHaveBeenCalled();
+    expect(renameSpy).toHaveBeenCalled();
+    // 電源が落ちても書き掛けが本物の名前で残らないよう、順序は fsync が先である（copy.ts と同じ規則）。
+    expect(fsyncSpy.mock.invocationCallOrder[0]!).toBeLessThan(renameSpy.mock.invocationCallOrder[0]!);
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`), 'utf8')).toBe('{"a":1}\n');
+  });
+
+  it('一覧が手前を指す応答でも filesSeq を戻さない', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
+    // nextSeq が since より手前を指す壊れた応答。実物の Worker は返さないが、防具として確かめる。
+    const rewinding: CloudClient = {
+      health: () => cloud.health(),
+      pushChanges: (c) => cloud.pushChanges(c),
+      pullChanges: (s, l) => cloud.pullChanges(s, l),
+      snapshot: (a, l) => cloud.snapshot(a, l),
+      putFile: (m, b) => cloud.putFile(m, b),
+      getFile: (k) => cloud.getFile(k),
+      deleteFile: (k) => cloud.deleteFile(k),
+      listFiles: async (s, l) => ({ ...(await cloud.listFiles(s, l)), files: [], nextSeq: 0, more: false }),
+    };
+    state.set('filesSeq', 5);
+    await make({ client: rewinding }).pullNow();
+    expect(state.getNumber('filesSeq', -1)).toBe(5);
+  });
+
+  it('filesSeq をわざと 0 に戻して取り直す筋は、後退を止める防具に邪魔されない', async () => {
+    // 410 を受けた全件の取り直しのように、呼び手が意図して 0 に戻す道がある。
+    // 後退を止める防具は「その回の since より下がらない」だけなので、この道は普通に進む。
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
+    const other = '44444444-4444-4444-8444-444444444444';
+    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'body2\n', `transcripts/dev-b/${other}.jsonl.gz`);
+    const p = make();
+    expect(await p.pullNow()).toEqual({ downloaded: 2, configEntries: 0 });
+    expect(state.getNumber('filesSeq', -1)).toBe(2);
+    state.set('filesSeq', 0);
+    // 手元に実体があって指紋も合うので降ろし直しはしないが、filesSeq は先頭まで戻る。
+    expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 0 });
+    expect(state.getNumber('filesSeq', -1)).toBe(2);
   });
 });

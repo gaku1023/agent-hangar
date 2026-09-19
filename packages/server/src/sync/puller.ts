@@ -220,7 +220,10 @@ export class RemotePuller {
           if (this.noteFailure(e.key, [e], e.sha256, errorMessage(err))) minFailed = minFailed === null ? e.seq : Math.min(minFailed, e.seq);
         }
       }
-      advanceTo = page.nextSeq;
+      // その回の出発点より下がらないようにする。
+      // 壊れた応答（手前を指す nextSeq）で filesSeq を巻き戻すと、降ろし済みの項目を延々と読み直す。
+      // 呼び手が意図して filesSeq を 0 に戻す道（全件の取り直し）は、出発点そのものが 0 なので邪魔しない。
+      advanceTo = Math.max(advanceTo, page.nextSeq);
       // 進まない応答で回り続けない。
       if (!page.more || page.nextSeq <= since) break;
       since = page.nextSeq;
@@ -247,6 +250,9 @@ export class RemotePuller {
   /** 1 件を降ろす。既に同じ指紋の実体があれば false を返して何もしない。 */
   private async download(e: FileEntry): Promise<boolean> {
     checkKeyMatchesPath(e);
+    // 決定 5 のとおり、本文は必ず暗号化して置く。
+    // 申告を鵜呑みにして平文の道を開けておくと、暗号化していない本文が降りてくる筋が残る。
+    if (!e.encrypted) throw new Error(`本文が暗号化されていません: ${e.key}`);
     const target = remoteTranscriptPath(this.deps.home, e.deviceId, e.path);
     const prev = this.deps.db.prepare('select sha256 from file_sync where key = ?').get(e.key) as { sha256: string } | undefined;
     if (prev?.sha256 === e.sha256 && fs.existsSync(target)) return false;
@@ -260,12 +266,14 @@ export class RemotePuller {
       // 前の回の残骸があると mode が引き継がれないので、必ず作り直す。
       fs.rmSync(tmp, { force: true });
       const body = await this.deps.client.getFile(e.key);
-      const sink = () => fs.createWriteStream(tmp, { mode: FILE_MODE });
       // pipeline でつなぐ。裸の pipe だと復号の error が未処理になってプロセスごと落ちる。
-      if (e.encrypted) await pipeline(body, decryptStream(this.deps.key), createGunzip(), sink());
-      else await pipeline(body, createGunzip(), sink());
+      await pipeline(body, decryptStream(this.deps.key), createGunzip(), fs.createWriteStream(tmp, { mode: FILE_MODE }));
       const sha = await sha256Stream(fs.createReadStream(tmp));
       if (sha !== e.sha256) throw new Error(`本文の SHA-256 が一致しません: ${e.key}`);
+      // 本物の名前を付ける前に落とし切る。電源が落ちても、中身の無いファイルが本物として残らない。
+      // copy.ts の copyOverAtomically と同じ規則である。
+      const fd = fs.openSync(tmp, 'r+');
+      try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
       fs.renameSync(tmp, target);
     } catch (err) {
       fs.rmSync(tmp, { force: true });
