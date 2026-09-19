@@ -182,7 +182,8 @@ export class FakeCloudClient implements CloudClient {
   /** 鍵の形と権限。transcripts は自端末の分にだけ書ける。config は誰でも書ける。GET は誰でも。 */
   private checkKey(key: string, write: boolean): void {
     if (!isValidFileKey(key)) throw new CloudError(400, errorBody('invalid key'));
-    if (write && key.startsWith('transcripts/') && !key.startsWith(`transcripts/${this.deviceId}/`)) throw new CloudError(403, errorBody('forbidden'));
+    // 書けるのは自分の接頭辞の下だけ。config も transcripts と同じ守りである（実物の validKey と揃える）。
+    if (write && !key.startsWith(`transcripts/${this.deviceId}/`) && !key.startsWith(`config/${this.deviceId}/`)) throw new CloudError(403, errorBody('forbidden'));
   }
 
   /**

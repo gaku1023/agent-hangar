@@ -66,11 +66,11 @@ describe('RemotePuller', () => {
 
   it('自端末の分は降ろさず、設定は呼び出し側に渡す', async () => {
     await putRemote('dev-a', `projects/-w-alpha/${UUID}.jsonl`, 'mine\n');
-    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/CLAUDE.md', 'config');
+    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/dev-b/CLAUDE.md', 'config');
     const seen: FileEntry[][] = [];
     const p = make({ onConfigEntries: async (e) => { seen.push(e); } });
     expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 1 });
-    expect(seen[0]!.map((e) => e.key)).toEqual(['config/CLAUDE.md']);
+    expect(seen[0]!.map((e) => e.key)).toEqual(['config/dev-b/CLAUDE.md']);
     expect(fs.existsSync(path.join(home, 'remote', 'dev-a'))).toBe(false);
   });
 
@@ -117,7 +117,7 @@ describe('RemotePuller', () => {
   });
 
   it('設定の取り込みが失敗した回は filesSeq を進めない', async () => {
-    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/CLAUDE.md', 'config');
+    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/dev-b/CLAUDE.md', 'config');
     const p = make({ onConfigEntries: async () => { throw new Error('書けません'); } });
     expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 1 });
     expect(state.getNumber('filesSeq', -1)).toBe(0);
@@ -205,7 +205,7 @@ describe('RemotePuller', () => {
   });
 
   it('設定の取り込みも 3 回で諦めて先に進む', async () => {
-    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/CLAUDE.md', 'config');
+    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/dev-b/CLAUDE.md', 'config');
     const p = make({ onConfigEntries: async () => { throw new Error('書けません'); } });
     await p.pullNow();
     expect(state.getNumber('filesSeq', -1)).toBe(0);
@@ -290,7 +290,7 @@ describe('RemotePuller', () => {
   });
 
   it('諦めた設定も起こし直せば渡し直す', async () => {
-    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/CLAUDE.md', 'config');
+    await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/dev-b/CLAUDE.md', 'config');
     const p = make({ onConfigEntries: async () => { throw new Error('書けません'); } });
     for (let i = 0; i < 3; i++) await p.pullNow();
     expect(p.skippedEntries()).toHaveLength(1);
@@ -298,7 +298,7 @@ describe('RemotePuller', () => {
     const seen: FileEntry[][] = [];
     const p2 = make({ onConfigEntries: async (e) => { seen.push(e); } });
     expect(await p2.pullNow()).toEqual({ downloaded: 0, configEntries: 1 });
-    expect(seen[0]!.map((e) => e.key)).toEqual(['config/CLAUDE.md']);
+    expect(seen[0]!.map((e) => e.key)).toEqual(['config/dev-b/CLAUDE.md']);
     expect(p2.skippedEntries()).toEqual([]);
   });
 

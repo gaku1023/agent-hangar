@@ -528,7 +528,7 @@ export type RescueResult = { downloaded: number; already: number; failed: { key:
  */
 export function rescueTargetPath(home: string, e: FileEntry): string {
   if (e.kind === 'config') {
-    if (!isSafeRelPath(e.path) || e.key !== configKey(e.path)) throw new Error(`設定ファイルの鍵と相対パスが食い違っています: ${e.key}`);
+    if (!isSafeRelPath(e.path) || e.key !== configKey(e.deviceId, e.path)) throw new Error(`設定ファイルの鍵と相対パスが食い違っています: ${e.key}`);
     return path.join(remoteRoot(home), CONFIG_DIR, ...e.path.split('/'));
   }
   const parts = path.posix.normalize(e.path).split('/');

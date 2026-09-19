@@ -83,15 +83,21 @@ describe('FakeCloudClient', () => {
     await expect(a.getFile('transcripts/a/nope')).rejects.toMatchObject({ status: 404 });
   });
 
-  it('config はどの端末でも書け、置き直すと新しい seq になる', async () => {
+  it('config も自分の接頭辞の下だけに書け、置き直すと新しい seq になる', async () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
-    const key = 'config/skills/x/SKILL.md';
+    const key = 'config/a/skills/x/SKILL.md';
     const m = meta(key, { kind: 'config', path: 'skills/x/SKILL.md', size: 1 });
     expect(await a.putFile(m, Readable.from([Buffer.from('1')]))).toEqual({ seq: 1 });
-    expect(await a.asDevice('b').putFile(m, Readable.from([Buffer.from('2')]))).toEqual({ seq: 2 });
+    // 端末ごとに写しを持つので、別の端末は自分の接頭辞へ置く。他人の下へは書けない。
+    await expect(a.asDevice('b').putFile(m, Readable.from([Buffer.from('2')]))).rejects.toMatchObject({ status: 403 });
+    expect(await a.asDevice('b').putFile({ ...m, key: 'config/b/skills/x/SKILL.md' }, Readable.from([Buffer.from('2')]))).toEqual({ seq: 2 });
+    // 鍵が別なので写しは 2 つ並ぶ。どちらを採るかは受け取る側（claudeConfig）が相対パスで決める。
     const l = await a.listFiles(0, 500);
-    expect(l.files.map((f) => [f.seq, f.deviceId])).toEqual([[2, 'b']]);
+    expect(l.files.map((f) => [f.seq, f.deviceId])).toEqual([[1, 'a'], [2, 'b']]);
     expect((await a.listFiles(1, 500)).files.map((f) => f.seq)).toEqual([2]);
+    // 同じ鍵へ置き直したときは、古い索引が消えて新しい seq になる。
+    expect(await a.putFile(m, Readable.from([Buffer.from('3')]))).toEqual({ seq: 3 });
+    expect((await a.listFiles(0, 500)).files.map((f) => [f.seq, f.deviceId])).toEqual([[2, 'b'], [3, 'a']]);
   });
 
   it('DELETE は自端末の分だけ消せる', async () => {
@@ -238,7 +244,7 @@ describe('FakeCloudClient', () => {
 
   it('日本語と空白を含む鍵と path が端から端まで通る', async () => {
     const a = new FakeCloudClient({ deviceId: 'a', now: () => 5 });
-    const key = 'config/skills/日本語 メモ/SKILL.md';
+    const key = 'config/a/skills/日本語 メモ/SKILL.md';
     const path = 'skills/日本語 メモ/SKILL.md';
     const m = { key, path, kind: 'config' as const, sha256: 'b'.repeat(64), size: 3, mtime: 1, encrypted: true };
     expect(await a.putFile(m, Readable.from([Buffer.from('abc')]))).toEqual({ seq: 1 });

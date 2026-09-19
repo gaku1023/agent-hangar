@@ -840,10 +840,10 @@ describe('runTeardown', () => {
     // 正しく暗号化された別のファイルへの差し替えを、復号と SHA-256 だけでは見抜けない。
     expect(() => rescueTargetPath(home, { ...base, key: 'transcripts/dev-b/other.jsonl.gz', path: 'projects/-w-p/u.jsonl' })).toThrow(/食い違/);
     expect(() => rescueTargetPath(home, { ...base, key: 'transcripts/dev-b/u.jsonl.gz', path: '../../.claude/u.jsonl' })).toThrow(/食い違/);
-    expect(() => rescueTargetPath(home, { ...base, kind: 'config', key: 'config/CLAUDE.md', path: '../CLAUDE.md' })).toThrow(/食い違/);
+    expect(() => rescueTargetPath(home, { ...base, kind: 'config', key: 'config/dev-b/CLAUDE.md', path: '../CLAUDE.md' })).toThrow(/食い違/);
     // 正しい組み合わせは remote の下に収まる。
     expect(rescueTargetPath(home, { ...base, key: 'transcripts/dev-b/u.jsonl.gz', path: 'projects/-w-p/u.jsonl' })).toBe(path.join(home, 'remote', 'dev-b', 'projects', '-w-p', 'u.jsonl'));
-    expect(rescueTargetPath(home, { ...base, kind: 'config', key: 'config/CLAUDE.md', path: 'CLAUDE.md' }).startsWith(path.join(home, 'remote'))).toBe(true);
+    expect(rescueTargetPath(home, { ...base, kind: 'config', key: 'config/dev-b/CLAUDE.md', path: 'CLAUDE.md' }).startsWith(path.join(home, 'remote'))).toBe(true);
   });
 
   it('参加だけの端末では実行できない', async () => {
