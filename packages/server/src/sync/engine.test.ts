@@ -4,7 +4,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { FakeCloudClient } from '../../test/fake-cloud.ts';
+import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers, flush } from '../../test/fake-timers.ts';
 import { CloudError } from './client.ts';
 import { SyncEngine } from './engine.ts';
@@ -689,6 +689,40 @@ describe('SyncEngine の 413（大きすぎる行）', () => {
     await e.pushNow();
     expect(unpushed()).toBe(0);
     expect(toasts).toHaveLength(1);
+    e.stop();
+  });
+
+  it('偽クラウドの実物の上限でも、大きすぎるメモだけが諦められて残りは届く', async () => {
+    // ここだけは 413 を手で組み立てず、偽クラウドに実物の上限（128 KiB）で断らせる。
+    // 手で組み立てた本文とずれていれば、この 1 件だけが落ちる。
+    const e = make();
+    await e.start();
+    const toasts: { level: string; message: string }[] = [];
+    e.on({ toast: (level, message) => toasts.push({ level, message }) });
+
+    project('p1'); project('p2');
+    // 日本語は 1 文字 3 バイトなので、これで確実に上限を超える。
+    const huge = 'あ'.repeat(MAX_ROW_BYTES / 2);
+    upsertShared(db, 'project_memos', { project_id: 'p1', markdown: huge }, 'a', 'project_id');
+    expect(unpushed()).toBe(3);
+
+    await e.pushNow();
+
+    // 大きすぎる 1 行だけが落ち、同じ塊にいた 2 行は普通に届く。
+    expect(cloud.changes.map((c) => `${c.tableName}:${c.rowId}`)).toEqual(['projects:p1', 'projects:p2']);
+    expect(unpushed()).toBe(0);
+    expect(e.status()).toMatchObject({ state: 'idle', error: null });
+
+    // 諦めたことは 1 度だけ知らせる。上限は Worker の 128 KiB のまま伝える。
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.level).toBe('error');
+    expect(toasts[0]?.message).toContain('project_memos');
+    expect(toasts[0]?.message).toContain('上限 128 KiB');
+    // 知らせに本文そのものを混ぜない。
+    expect(toasts[0]?.message).not.toContain('ああ');
+
+    // 手元の本文は消えていない。届かないだけである。
+    expect((db.prepare('select markdown from project_memos where project_id = ?').get('p1') as { markdown: string }).markdown).toBe(huge);
     e.stop();
   });
 
