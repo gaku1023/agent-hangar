@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { SyncStateStore } from './state.ts';
-import { QUOTA_LIMITS, QUOTA_STOP_RATIO, QuotaCounter, quotaDayKey } from './quota.ts';
+import { D1_WRITES_PER_CHANGE, D1_WRITES_PER_DEVICE_TOUCH, QUOTA_LIMITS, QUOTA_STOP_RATIO, QuotaCounter, pushD1Writes, quotaDayKey } from './quota.ts';
 
 let db: Db;
 let state: SyncStateStore;
@@ -104,5 +104,28 @@ describe('QuotaCounter', () => {
     expect(q.today()).toEqual({ rows: 0, requests: 0 });
     q.note({ rows: 1.7, requests: 1 });
     expect(q.today()).toEqual({ rows: 1, requests: 1 });
+  });
+});
+
+describe('pushD1Writes', () => {
+  it('Worker が採った 1 行につき 2 行、要求ごとに devices の 1 行を数える', () => {
+    expect(D1_WRITES_PER_CHANGE).toBe(2);
+    expect(D1_WRITES_PER_DEVICE_TOUCH).toBe(1);
+    expect(pushD1Writes(40, 40)).toBe(81);
+    expect(pushD1Writes(1, 1)).toBe(3);
+  });
+
+  it('同着で弾かれた行は数えない', () => {
+    // 40 行送って 1 行も採られなければ、書かれるのは devices の 1 行だけである。
+    expect(pushD1Writes(0, 40)).toBe(1);
+    expect(pushD1Writes(10, 40)).toBe(21);
+  });
+
+  it('accepted が読めない応答では、送った行数で代用する', () => {
+    expect(pushD1Writes(undefined, 10)).toBe(21);
+    expect(pushD1Writes(null, 10)).toBe(21);
+    expect(pushD1Writes('たくさん', 10)).toBe(21);
+    expect(pushD1Writes(-1, 10)).toBe(21);
+    expect(pushD1Writes(Number.NaN, 10)).toBe(21);
   });
 });

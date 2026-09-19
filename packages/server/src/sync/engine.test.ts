@@ -3,6 +3,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers, flush } from '../../test/fake-timers.ts';
+import { CloudError } from './client.ts';
 import { SyncEngine } from './engine.ts';
 import { QuotaCounter } from './quota.ts';
 import { SyncStateStore } from './state.ts';
@@ -16,6 +17,35 @@ const make = (over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}) =
 const unpushed = () => (db.prepare('select count(*) c from changes where pushed_at is null').get() as { c: number }).c;
 const project = (id: string, name = id) => upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0 }, 'a');
 const pushBatches = () => cloud.calls.filter((c) => c.method === 'pushChanges').map((c) => (c.args[0] as unknown[]).length);
+
+/**
+ * Worker が実際に D1 へ書く行数を数える覆い。
+ * packages/cloud/src/changes.ts の書き込みをそのまま写してある。
+ *
+ * - POST /changes … 採った 1 行につき changes への insert と rows の鏡で 2 行、加えて devices の last_seen_at で 1 行。
+ * - GET /changes … devices の last_seen_at と last_pulled_seq で 1 行。
+ * - GET /rows … 読むだけで 0 行。
+ *
+ * 枠の見張りが「実際の書き込み」に追随しているかを、偽物の側から独立に測るために使う。
+ */
+function countingD1(c: FakeCloudClient): { readonly rows: number } {
+  let rows = 0;
+  const push = c.pushChanges.bind(c);
+  const pull = c.pullChanges.bind(c);
+  c.pushChanges = async (changes) => { const r = await push(changes); rows += r.accepted * 2 + 1; return r; };
+  c.pullChanges = async (since, limit) => { const r = await pull(since, limit); rows += 1; return r; };
+  return { get rows() { return rows; } };
+}
+
+/** Worker が 413 で断る相手を作る。名指しは先頭の 1 件だけで、本文は 200 字に収まる。 */
+const rejectOversize = (c: FakeCloudClient, tooBig: (rowId: string) => boolean, bytes = 200_000): void => {
+  const push = c.pushChanges.bind(c);
+  c.pushChanges = async (changes) => {
+    const bad = changes.find((x) => tooBig(x.rowId));
+    if (!bad) return push(changes);
+    throw new CloudError(413, JSON.stringify({ error: 'payload too large', limit: 131_072, count: 1, row: { tableName: bad.tableName, rowId: bad.rowId, bytes } }));
+  };
+};
 
 beforeEach(() => {
   db = openDb(':memory:');
@@ -165,7 +195,8 @@ describe('SyncEngine の push', () => {
 
     for (let i = 0; i < 8; i++) project(`p${i}`);
     await e.pushNow();
-    expect(quota.today().rows).toBe(8);
+    // 8 行の push で 8*2+1、start() の初回 pull で 1。上限 10 の 80% は 8 なので超えている。
+    expect(quota.today().rows).toBe(8 * 2 + 1 + 1);
     expect(e.status().state).toBe('paused');
     expect(toasts).toHaveLength(1);
     expect(toasts[0]?.level).toBe('info');
@@ -447,5 +478,168 @@ describe('SyncEngine の pull', () => {
     await b.pullNow();
     expect(b.status()).toMatchObject({ state: 'idle', error: null });
     b.stop();
+  });
+});
+
+describe('SyncEngine の無料枠の見張り', () => {
+  it('数えが Worker の実際の D1 書き込みと一致する', async () => {
+    const d1 = countingD1(cloud);
+    const e = make();
+    await e.start();
+    for (let i = 0; i < 50; i++) project(`p${i}`);
+    await e.pushNow();
+    await e.pullNow();
+    // 50 行は 40 と 10 の 2 バッチに割れる。push は (40*2+1) + (10*2+1)。
+    // pull は start() の初回と明示の pullNow で 1 行ずつ（GET /rows は 0 行）。
+    expect(d1.rows).toBe(40 * 2 + 1 + (10 * 2 + 1) + 2);
+    expect(e.quota.today().rows).toBe(d1.rows);
+    e.stop();
+  });
+
+  it('Worker が同着で弾いた行は、書き込みとして数えない', async () => {
+    const d1 = countingD1(cloud);
+    const e = make();
+    await e.start();
+    project('p1');
+    await e.pushNow();
+    const after = e.quota.today().rows;
+    // 同じ行を同じ updated_at のまま送り直すと、Worker は skipped にして 1 行も書かない。
+    db.prepare('update changes set pushed_at = null').run();
+    await e.pushNow();
+    expect(e.quota.today().rows).toBe(after + 1);   // devices の 1 行だけ
+    expect(e.quota.today().rows).toBe(d1.rows);
+    e.stop();
+  });
+
+  it('実際の D1 書き込みが無料枠の 80% を超える前に止まる', async () => {
+    const limits = { d1Writes: 1_000, requests: 1_000_000 };
+    const d1 = countingD1(cloud);
+    const quota = new QuotaCounter({ state: new SyncStateStore(db), now: () => timers.now, limits });
+    const e = make({ quota });
+    await e.start();
+    let n = 0;
+    // 索引器と同じ刻みで共有テーブルを書き続ける。
+    while (e.status().state !== 'paused' && n < 3_000) { project(`p${n++}`); await timers.advance(2_000); }
+    expect(e.status().state).toBe('paused');
+    // 止まった時点で、実際の書き込みは 80%（800 行）の前後に収まっていなければならない。
+    // 1 バッチ（40 行 = 81 行の書き込み）の行き過ぎまでは避けられないが、枠の 1000 は超えない。
+    expect(d1.rows).toBeGreaterThanOrEqual(limits.d1Writes * 0.8);
+    expect(d1.rows).toBeLessThan(limits.d1Writes);
+    expect(quota.today().rows).toBe(d1.rows);
+    e.stop();
+  });
+
+  it('pull の 1 要求も devices の 1 行として数える', async () => {
+    const e = make();
+    await e.start();
+    const before = e.quota.today().rows;
+    await e.pullNow();
+    expect(e.quota.today().rows).toBe(before + 1);
+    e.stop();
+  });
+});
+
+describe('SyncEngine の失敗の見せ方', () => {
+  it('push が落ち続けている間は、pull が通っても error のままになる', async () => {
+    const e = make();
+    await e.start();
+    cloud.pushChanges = async () => { throw new CloudError(400, '{"error":"invalid body"}'); };
+    project('p1');
+    await timers.advance(1_000);
+    expect(e.status()).toMatchObject({ state: 'error', pending: 1 });
+
+    // 定期実行は push の後に pull を回す。pull は通るが、送れていない事実は消えない。
+    await timers.advance(5 * 60_000);
+    expect(e.status()).toMatchObject({ state: 'error', pending: 1 });
+    expect(e.status().error).toContain('invalid body');
+    expect(e.state.get('lastError')).toContain('invalid body');
+    expect(e.status().lastPullAt).not.toBeNull();
+
+    // 直れば消える。
+    cloud.pushChanges = FakeCloudClient.prototype.pushChanges.bind(cloud);
+    await e.pushNow();
+    expect(e.status()).toMatchObject({ state: 'idle', error: null, pending: 0 });
+    e.stop();
+  });
+
+  it('pull が落ちている間は、push が通っても error のままになる', async () => {
+    const e = make();
+    await e.start();
+    cloud.pullChanges = async () => { throw new CloudError(500, 'boom'); };
+    await e.pullNow();
+    expect(e.status().state).toBe('error');
+    project('p1');
+    await timers.advance(1_000);
+    expect(unpushed()).toBe(0);
+    expect(e.status()).toMatchObject({ state: 'error' });
+    expect(e.status().error).toContain('boom');
+    e.stop();
+  });
+
+  it('送るものが無くなれば push の失敗は消える', async () => {
+    const e = make();
+    await e.start();
+    cloud.pushChanges = async () => { throw new CloudError(400, '{"error":"invalid body"}'); };
+    project('p1');
+    await timers.advance(1_000);
+    expect(e.status().state).toBe('error');
+    // 行が消えれば（7 日の掃除や諦めの後）、送れていないものは無い。
+    db.prepare('update changes set pushed_at = ?').run(timers.now);
+    await e.pushNow();
+    expect(e.status()).toMatchObject({ state: 'idle', error: null });
+    e.stop();
+  });
+});
+
+describe('SyncEngine の 413（大きすぎる行）', () => {
+  it('名指しされた行を諦めて先へ進み、1 度だけ知らせる', async () => {
+    const e = make();
+    await e.start();
+    const toasts: { level: string; message: string }[] = [];
+    e.on({ toast: (level, message) => toasts.push({ level, message }) });
+    project('p1'); project('big'); project('p2');
+    rejectOversize(cloud, (id) => id === 'big');
+
+    await e.pushNow();
+    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
+    expect(unpushed()).toBe(0);
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.level).toBe('error');
+    expect(toasts[0]?.message).toContain('big');
+    expect(e.status()).toMatchObject({ state: 'idle', error: null });
+
+    // 同じ行がまた大きいまま書き直されても、知らせるのは 1 度だけである。
+    project('big');
+    await e.pushNow();
+    expect(unpushed()).toBe(0);
+    expect(toasts).toHaveLength(1);
+    e.stop();
+  });
+
+  it('413 の名指しが手元に無ければ、その push を止める（永久に送り直さない）', async () => {
+    const e = make();
+    await e.start();
+    project('p1');
+    let calls = 0;
+    cloud.pushChanges = async () => {
+      calls++;
+      throw new CloudError(413, JSON.stringify({ error: 'payload too large', limit: 131_072, count: 1, row: { tableName: 'projects', rowId: 'knows-nothing', bytes: 200_000 } }));
+    };
+    await e.pushNow();
+    expect(calls).toBe(1);
+    expect(unpushed()).toBe(1);
+    expect(e.status().state).toBe('error');
+    e.stop();
+  });
+
+  it('413 を繰り返す相手でも、10 分で諦めて push が止まらない', async () => {
+    const e = make();
+    await e.start();
+    rejectOversize(cloud, (id) => id.startsWith('big'));
+    project('big1'); project('big2'); project('p1');
+    await timers.advance(10 * 60_000);
+    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1']);
+    expect(unpushed()).toBe(0);
+    e.stop();
   });
 });

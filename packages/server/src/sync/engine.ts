@@ -1,9 +1,9 @@
-import { MAX_PUSH_BATCH, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOut, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
+import { MAX_PUSH_BATCH, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOut, type PushChangesResponse, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onSharedWrite } from '../db/shared.ts';
 import { applyRemoteBatch, type MemoConflict } from './apply.ts';
 import { CloudError, goneFloor, type CloudClient } from './client.ts';
-import { QuotaCounter, quotaDayKey } from './quota.ts';
+import { D1_WRITES_PER_DEVICE_TOUCH, QuotaCounter, pushD1Writes, quotaDayKey } from './quota.ts';
 import { SyncStateStore } from './state.ts';
 
 /** 時計は必ず注入する。テストは FakeTimers（packages/server/test/fake-timers.ts）を渡す。 */
@@ -50,6 +50,26 @@ type ChangeRow = { seq: number; table_name: SharedTable; row_id: string; op: Cha
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const unref = (h: NodeJS.Timeout): void => { (h as { unref?: () => void }).unref?.(); };
 
+type OversizeRow = { tableName: string; rowId: string; bytes: number; limit: number };
+
+/**
+ * 413 の本文から、Worker が名指しした「大きすぎる行」を読む。
+ * 本文は `{ error, limit, count, row: { tableName, rowId, bytes } }` で、200 字に収まるよう 1 件だけが載る。
+ * 413 でないもの、読めないもの、名前の無いものはすべて null である（goneFloor と同じ作りである）。
+ */
+function oversizeRow(e: unknown): OversizeRow | null {
+  if (!(e instanceof CloudError) || e.status !== 413) return null;
+  try {
+    const v = JSON.parse(e.message) as { limit?: unknown; row?: { tableName?: unknown; rowId?: unknown; bytes?: unknown } };
+    const r = v?.row;
+    if (!r || typeof r.tableName !== 'string' || typeof r.rowId !== 'string' || r.rowId === '') return null;
+    const num = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : 0);
+    return { tableName: r.tableName, rowId: r.rowId, bytes: num(r.bytes), limit: num(v.limit) };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * メタデータの同期。changes の未送信分を 1 秒のデバウンスで push し、pull で受けた変更を LWW で適用する。
  * client が null なら off で、changes は積むだけになる。
@@ -65,11 +85,19 @@ export class SyncEngine {
   private offWrite: (() => void) | null = null;
   private pushing: Promise<{ pushed: number }> | null = null;
   protected pulling: Promise<{ applied: number }> | null = null;
-  private lastError: string | null = null;
+  /**
+   * 失敗の理由は push と pull で別に持つ。
+   * 1 本にすると、定期実行が push の後に pull を回すたびに、成功した pull が push の失敗を消してしまう。
+   * 送れていない行が積み上がっているのに画面が idle になるのは、いちばん見せてはいけない嘘である。
+   */
+  private pushError: string | null = null;
+  private pullError: string | null = null;
   private claudeConfig = { enabled: false, confirmed: false };
   private started = false;
   /** 無料枠で止めた日。同じ日に二度は止めない（利用者が再開を押した後に押し返さない）。 */
   private quotaPausedDay: string | null = null;
+  /** 413 で諦めた行。同じ行で何度も知らせない。 */
+  private readonly oversizeTold = new Set<string>();
 
   constructor(protected readonly deps: SyncEngineDeps) {
     this.state = new SyncStateStore(deps.db);
@@ -88,9 +116,18 @@ export class SyncEngine {
 
   protected emitStatus(): void { this.emit('status', this.status()); }
 
+  /**
+   * いま見せるべき失敗の理由。
+   * push の失敗を先に見せる。送れていない行が残る方が、受け取れていないより取り返しがつかない。
+   */
+  protected get lastError(): string | null { return this.pushError ?? this.pullError; }
+
   /** 失敗の理由を残す。CloudError の message は応答本文の先頭 200 字なので、Worker は本文に秘密を入れない。 */
-  protected fail(e: unknown): void { this.lastError = errorMessage(e); this.state.set('lastError', this.lastError); }
-  protected clearError(): void { this.lastError = null; this.state.set('lastError', null); }
+  protected failPush(e: unknown): void { this.pushError = errorMessage(e); this.persistError(); }
+  protected failPull(e: unknown): void { this.pullError = errorMessage(e); this.persistError(); }
+  protected clearPushError(): void { if (this.pushError === null) return; this.pushError = null; this.persistError(); }
+  protected clearPullError(): void { if (this.pullError === null) return; this.pullError = null; this.persistError(); }
+  private persistError(): void { this.state.set('lastError', this.lastError); }
 
   pending(): number { return (this.deps.db.prepare('select count(*) c from changes where pushed_at is null').get() as { c: number }).c; }
 
@@ -191,26 +228,57 @@ export class SyncEngine {
         tableName: r.table_name, rowId: r.row_id, op: r.op,
         payload: JSON.parse(r.payload) as Record<string, unknown>, updatedAt: r.updated_at,
       }));
+      let res: PushChangesResponse;
       try {
-        await client.pushChanges(batch);
+        res = await client.pushChanges(batch);
       } catch (e) {
-        // status 0 は届いていないので要求に数えない。届いた失敗は枠を使っている。
+        // 断られた要求は D1 に 1 行も書かせていないが、Worker の要求としては 1 回ぶん使っている。
+        // status 0 はそもそも届いていないので数えない。
         if (e instanceof CloudError && e.status !== 0) this.quota.note({ requests: 1 });
-        this.fail(e);
+        // 大きすぎる行は何度送っても同じ答えが返る。諦めて先へ進まないと、この塊で push が永久に止まる。
+        if (this.dropOversize(e, rows)) continue;
+        this.failPush(e);
         this.guardQuota();
         return { pushed };
       }
       const now = this.now();
       db.prepare(`update changes set pushed_at = ? where seq in (${rows.map(() => '?').join(',')})`).run(now, ...rows.map((r) => r.seq));
       this.state.set('lastPushAt', now);
-      this.clearError();
-      this.quota.note({ rows: rows.length, requests: 1 });
+      this.clearPushError();
+      this.quota.note({ rows: pushD1Writes(res?.accepted, rows.length), requests: 1 });
       pushed += rows.length;
       // 止めたら残りは送らない。送れていない行は pushed_at が null のまま残るので、再開で続きから出る。
       if (this.guardQuota()) return { pushed };
     }
+    // 未送信が 1 行も残っていないのだから、push は通っている。
+    // ここまで来ずに戻った回（失敗と枠での停止）では理由が残るので、状態が嘘にならない。
+    this.clearPushError();
     db.prepare('delete from changes where pushed_at is not null and pushed_at < ?').run(this.now() - LOCAL_CHANGES_KEEP_MS);
     return { pushed };
+  }
+
+  /**
+   * 413 で名指しされた行を諦める。
+   *
+   * Worker は payload が 128 KiB を超える行を 413 で断り、本文で先頭の 1 件を名指しする。
+   * 同じ塊を送り直しても必ず同じ答えが返るので、その行に pushed_at を打って先へ進める。
+   * 手元の本文はそのまま残るが、他の端末には届かない。だから 1 度だけ利用者に知らせる。
+   *
+   * 名指しが読めないときと、名指しされた行がこの塊に無いときは false を返す。
+   * 諦める先が分からないまま continue すると、同じ塊を永久に送り直すことになる。
+   */
+  private dropOversize(e: unknown, rows: ChangeRow[]): boolean {
+    const named = oversizeRow(e);
+    if (!named) return false;
+    const hit = rows.find((r) => r.table_name === named.tableName && r.row_id === named.rowId);
+    if (!hit) return false;
+    this.deps.db.prepare('update changes set pushed_at = ? where seq = ?').run(this.now(), hit.seq);
+    const key = `${named.tableName}:${named.rowId}`;
+    if (this.oversizeTold.has(key)) return true;
+    this.oversizeTold.add(key);
+    const kib = (n: number) => Math.round(n / 1024);
+    this.emit('toast', 'error', `${named.tableName} の 1 行（${named.rowId}）が大きすぎるので同期できません（${kib(named.bytes)} KiB、上限 ${kib(named.limit)} KiB）。手元には残りますが、他の端末には届きません`);
+    return true;
   }
 
   /**
@@ -247,10 +315,10 @@ export class SyncEngine {
    * クラウドへの 1 要求。無料枠は「届いた要求」だけを数える。
    * そもそも繋がらなかったとき（CloudError の status 0）は Worker を呼んでいないので数えない。
    */
-  private async request<T>(call: () => Promise<T>): Promise<T> {
+  private async request<T>(call: () => Promise<T>, d1Rows = 0): Promise<T> {
     try {
       const v = await call();
-      this.quota.note({ requests: 1 });
+      this.quota.note({ rows: d1Rows, requests: 1 });
       return v;
     } catch (e) {
       if (e instanceof CloudError && e.status !== 0) this.quota.note({ requests: 1 });
@@ -283,6 +351,7 @@ export class SyncEngine {
       let seq: number | null = null;
       do {
         const cursor: string | null = after;
+        // GET /rows は読むだけで D1 に 1 行も書かない。
         const page: SnapshotResponse = await this.request(() => client.snapshot(cursor, PULL_LIMIT));
         count.applied += this.applyPage(page.changes, false);
         after = page.nextAfter;
@@ -294,7 +363,8 @@ export class SyncEngine {
     let since = this.state.getNumber('lastSeq', 0);
     for (;;) {
       const at = since;
-      const page = await this.request(() => client.pullChanges(at, PULL_LIMIT));
+      // GET /changes は devices の last_seen_at と last_pulled_seq を 1 行書く。
+      const page = await this.request(() => client.pullChanges(at, PULL_LIMIT), D1_WRITES_PER_DEVICE_TOUCH);
       count.applied += this.applyPage(page.changes, true);
       since = page.nextSeq;
       this.state.set('lastSeq', since);
@@ -322,10 +392,10 @@ export class SyncEngine {
         await this.pullPass(client, count);
       }
       this.state.set('lastPullAt', this.now());
-      this.clearError();
+      this.clearPullError();
       this.emit('pulled');
     } catch (e) {
-      this.fail(e);
+      this.failPull(e);
     }
     // 途中で止めると写しが半端なまま snapshotDone が立ちうるので、枠の見張りは 1 巡終えてから当てる。
     this.guardQuota();
@@ -344,7 +414,8 @@ export class SyncEngine {
     let timer: NodeJS.Timeout | null = null;
     const gaveUp = new Promise<boolean>((r) => { timer = this.timers.setTimeout(() => r(false), timeoutMs); });
     const done = this.pulling ?? this.pullNow();
-    const result = await Promise.race([done.then(() => this.lastError === null, () => false), gaveUp]);
+    // 見るのは pull の結果だけである。push が落ちていても、起動前に要るのは他端末の変更が届いたことだけである。
+    const result = await Promise.race([done.then(() => this.pullError === null, () => false), gaveUp]);
     if (timer) this.timers.clearTimeout(timer);
     return result;
   }
