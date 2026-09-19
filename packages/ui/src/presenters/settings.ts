@@ -3,7 +3,8 @@ import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
 
-export type CloudDeviceProps = { name: string; platform: string; lastSeen: string; self: boolean };
+// id は一覧の React の key に使う。1 台の Mac で 2 端末を模すと名前も最終確認も揃うので、一意なのは id だけである。
+export type CloudDeviceProps = { id: string; name: string; platform: string; lastSeen: string; self: boolean };
 export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; paused: boolean; lastPullAt: string; pending: number; devices: CloudDeviceProps[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
 
 export type SettingsProps = {
@@ -27,7 +28,7 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
     paused: sync?.state === 'paused',
     lastPullAt: relativeTime(sync?.lastPullAt ?? null, now),
     pending: sync?.pending ?? 0,
-    devices: store.devices.map((d) => ({ name: d.name, platform: d.platform, lastSeen: relativeTime(d.lastSeenAt, now), self: d.self })),
+    devices: store.devices.map((d) => ({ id: d.id, name: d.name, platform: d.platform, lastSeen: relativeTime(d.lastSeenAt, now), self: d.self })),
     joinToken: store.joinToken,
     syncClaudeConfig: s?.syncClaudeConfig ?? false,
     configConfirmed: sync?.claudeConfig.confirmed ?? false,

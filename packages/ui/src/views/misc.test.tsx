@@ -84,7 +84,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
 
 const cloudProps = (over: Partial<CloudSettingsProps> = {}): CloudSettingsProps => ({
   configured: true, url: 'https://h.workers.dev', state: 'idle', paused: false, lastPullAt: '1 分前', pending: 2,
-  devices: [{ name: 'mac', platform: 'darwin', lastSeen: '今', self: true }, { name: 'mini', platform: 'darwin', lastSeen: '3 分前', self: false }],
+  devices: [{ id: 'dev-a', name: 'mac', platform: 'darwin', lastSeen: '今', self: true }, { id: 'dev-b', name: 'mini', platform: 'darwin', lastSeen: '3 分前', self: false }],
   joinToken: null, syncClaudeConfig: false, configConfirmed: false,
   ...over,
 });
@@ -307,6 +307,19 @@ describe('SettingsScreen のクラウド同期', () => {
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ syncClaudeConfig: true, configConfirmed: true }) })} /></IntentRoot>);
     expect(screen.queryByText(/まだ取り込みを確認していません/)).toBeNull();
     expect(screen.getByText('取り込みを確認済みです。')).toBeInTheDocument();
+  });
+  it('同じ名前の端末が並んでも React の key が重ならない', () => {
+    // 1 台の Mac で 2 端末を模すと、名前も最終確認も揃う（final-review の中 5）。
+    // 一意なのは端末 ID だけなので、key はそこから取る。
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const devices = [
+      { id: 'dev-a', name: 'MacBook-Pro.local', platform: 'darwin', lastSeen: '6 分前', self: true },
+      { id: 'dev-b', name: 'MacBook-Pro.local', platform: 'darwin', lastSeen: '6 分前', self: false },
+    ];
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ devices }) })} /></IntentRoot>);
+    expect(screen.getAllByText('darwin')).toHaveLength(2);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('same key'))).toBe(false);
+    warn.mockRestore();
   });
   it('次のフェーズで追加される設定の節は残っていない', () => {
     // クラウド同期はこのフェーズで実装し、引き継ぎは作らないと決まった（利用者の決定 1）ので、節ごと消した。

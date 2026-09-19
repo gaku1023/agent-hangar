@@ -172,7 +172,7 @@ export function SettingsScreen(props: SettingsProps) {
             )}
             <div className="list" style={{ marginTop: 8 }}>
               {props.cloud.devices.map((d) => (
-                <div key={d.name + d.lastSeen} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
+                <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
                   <span>{d.name}{d.self && <span className="faint"> この端末</span>}</span>
                   <span className="faint">{d.platform}</span>
                   <span className="faint">{d.lastSeen}</span>

@@ -466,7 +466,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
     const store: Store = { ...initialStore(), sync: syncStatus({ pending: 3 }), devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: NOW - 120_000, self: true }], joinToken: 'tok', settings: fullSettings({ syncClaudeConfig: true }) };
     const p = presentSettings(initialState(), store, NOW).cloud;
     expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok', syncClaudeConfig: true, configConfirmed: false });
-    expect(p.devices).toEqual([{ name: 'mac', platform: 'darwin', lastSeen: '2 分前', self: true }]);
+    expect(p.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeen: '2 分前', self: true }]);
     const paused = presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'paused', claudeConfig: { enabled: true, confirmed: true } }) }, NOW).cloud;
     expect(paused).toMatchObject({ configured: true, state: 'paused', paused: true, configConfirmed: true });
   });
