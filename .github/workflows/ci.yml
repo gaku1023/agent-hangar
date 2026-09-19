@@ -3,6 +3,10 @@ on:
   push:
     branches: [main]
   pull_request:
+# 既定の権限に頼らず、読み取りだけを渡す。
+# public のリポジトリなので、ここを明記しないと設定次第で書き込みの持ち主が走る。
+permissions:
+  contents: read
 jobs:
   check:
     runs-on: ubuntu-latest
