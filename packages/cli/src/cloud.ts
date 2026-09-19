@@ -5,13 +5,9 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { cloudConfigPath, type CloudConfig, readCloudConfig, remoteRoot, saveCloudConfig } from '@agent-hangar/server';
+import { type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream } from '@agent-hangar/server';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
-import type { CloudClient } from '@agent-hangar/server/src/sync/client.ts';
-import { HttpCloudClient } from '@agent-hangar/server/src/sync/client.ts';
-import { decryptStream, deriveFileKey, sha256Stream } from '@agent-hangar/server/src/sync/crypto.ts';
-import { remoteTranscriptPath } from '@agent-hangar/server/src/sync/puller.ts';
 import { configKey, decodeJoinToken, encodeJoinToken, isSafeRelPath, PULL_LIMIT, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
 import { parseAccountId, parseDatabaseId, parseWorkerUrl, WranglerRunner } from './wrangler.ts';
 
