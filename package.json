@@ -2,7 +2,7 @@
   "name": "agent-hangar",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": ["packages/*", "apps/*"],
   "engines": { "node": ">=22" },
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",

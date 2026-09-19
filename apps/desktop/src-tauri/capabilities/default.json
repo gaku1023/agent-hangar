@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "メインウィンドウの権限。UI はサーバの URL から読み込むので、Tauri の JS API は使わない。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
