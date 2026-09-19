@@ -11,7 +11,7 @@
 | D1 | `hangar-dev` | 表は 6 つ、大きさは 106kB |
 | R2 | `hangar-dev-files` | 最初の確認では本文 2 件と設定 5 件の計 7 件（通し直しの後は計 12 件。末尾の節を見よ） |
 
-片付け（`hangar cloud teardown`）はまだ実行していない。
+片付け（`hangar cloud teardown`）は 2026-09-19 の 21 時ごろに実行して、3 つとも消した（末尾の節を見よ）。
 
 ## 手元の置き場
 
@@ -230,8 +230,8 @@ $ ps -axo pid=,ppid=,command= | grep index.ts
 | `d1 info --json` から UUID を拾う形 | 効いた。`parseDatabaseId` は一発で当てた |
 | 生成した `wrangler.jsonc`（先頭に `//` の注釈）を wrangler が読めるか | 読めた。`deploy` も `secret put` も `d1 info` も通った |
 | `engine.start()` が起動の最後で 1 往復待つので `hangar start` が遅くなるか | ならない。空の状態でも、本文と設定が入った状態でも 1.0 秒から 1.1 秒だった |
-| `wrangler delete --name` が通るか | 未確認（片付けの段で確かめる） |
-| 2 回目の `r2 object delete` が既に無い鍵で落ちないか | 未確認（片付けの段で確かめる） |
+| `wrangler delete --name` が通るか | 通った（片付けの節を見よ） |
+| 2 回目の `r2 object delete` が既に無い鍵で落ちないか | 落ちない（片付けの節を見よ） |
 
 ## 無料枠の勘定
 
@@ -275,8 +275,6 @@ $ ps -axo pid=,ppid=,command= | grep index.ts
 - 実際に別のマシンから参加すること。
   この確認は 1 台の Mac の上で 2 つの置き場を分けただけである（決定 13）。
   README にその旨を書く（Task 26）。
-- 片付け（`hangar cloud teardown`）。
-  利用者の確認を取ってから実行する。
 - ブラウザの UI での見た目。
   この確認は HTTP の API を直に叩いて確かめた。
 
@@ -474,19 +472,193 @@ $ kill 42646 42647
 `e654243` で索引の書き込みも数えるようにしたので、最初の確認のときより `rows` が多く伸びる。
 D1 の `rows_written_24h` との突き合わせは、この通し直しでは取っていない。
 
-### いまの状態
+### この節を書き終えた時点の状態
 
-サーバ 2 本は動かしたままである。
+サーバ 2 本は動かしたままだった。
 
 | 役割 | 包みの PID | 本体の PID | ポート |
 | --- | --- | --- | --- |
 | 端末 A | 79660 | 79667 | 4187 |
 | 端末 B | 85222 | 85230 | 4197 |
 
-止めるときは `ps -p <pid> -Eww -o command=` で `HANGAR_HOME=/Users/satog/.hangar-dev-*` を確かめてから、
-包みの PID にだけ `kill` を送ればよい。
-ポート番号で止めてはいけない。
+R2 には本文 2 件と設定 10 件の計 12 件があった。
+この 2 本を止めるところから、次の節の片付けが始まる。
 
-片付け（`hangar cloud teardown`）はまだ実行していない。
-R2 には本文 2 件と設定 10 件の計 12 件がある。
-`~/.hangar-dev-claude-a` と `~/.hangar-dev-claude-b` には、同時書きの確認で出来た競合の写しが 1 件ずつ残っている。
+## 片付け（`hangar cloud teardown` を実物で走らせた）
+
+2026-09-19 の 21 時ごろ、利用者の承諾を得て、作った資源を 3 つとも消した。
+本番の片付けの手順そのものを確かめるために、手で wrangler を叩くのではなく `hangar cloud teardown` を走らせた。
+
+### 止めたサーバ
+
+動かしたままにしてあった 2 本を、包みの PID にだけ `kill` を送って止めた。
+
+```
+$ ps -p 79660 -Eww -o command=   （HANGAR_HOME=/Users/satog/.hangar-dev-a を確かめた）
+$ ps -p 85222 -Eww -o command=   （HANGAR_HOME=/Users/satog/.hangar-dev-b を確かめた）
+$ kill 79660 85222
+（79660、79667、85222、85230 の 4 つとも消えた）
+```
+
+ポート番号では止めていない。
+利用者が 4177 と 5173 を使っている見込みがあるからである。
+
+### わざと失敗させた仕掛け
+
+「1 つでも失敗したら手元の設定を残して 0 以外で終わるか」を実物で見るために、
+索引に載っていないオブジェクトを 1 件だけ R2 に置いてから `teardown` を走らせた。
+
+```
+$ wrangler r2 object put hangar-dev-files/orphan-teardown-test --file=... --remote --config ...
+Upload complete.
+```
+
+`teardown` は索引に載っている 12 件しか消さないので、この 1 件が残って `r2 bucket delete` が失敗する。
+実際の利用者が「ダッシュボードから手で置いたファイルが残っていた」ときに起きる止まり方と同じである。
+
+### 通った手順
+
+失敗する形で 3 回、成功する形で 1 回走らせた。
+1 回の `teardown` は 14 秒から 18 秒で終わる（wrangler の呼び出しが 15 回で、1 回あたり 1 秒ほどである）。
+
+| 回 | 仕掛け | 結果 |
+| --- | --- | --- |
+| 1 | 孤児あり | 12 件の object delete は全部成功。`r2 bucket delete` が失敗して止まった |
+| 2 | 孤児あり | 同じ。消えている 12 件をもう一度消しても全部成功した |
+| 3 | 孤児あり | 同じ。終了コード 1 を取れた |
+| 4 | 孤児を消した | 最後まで通った。終了コード 0 |
+
+最後の 1 回の末尾はこうである。
+
+```
+$ wrangler r2 bucket delete hangar-dev-files --config /Users/satog/.hangar-dev-a/cloud/wrangler.jsonc
+完了: R2 bucket hangar-dev-files
+$ wrangler delete --name hangar-dev --config /Users/satog/.hangar-dev-a/cloud/wrangler.jsonc
+完了: Worker hangar-dev
+$ wrangler d1 delete hangar-dev -y --config /Users/satog/.hangar-dev-a/cloud/wrangler.jsonc
+完了: D1 hangar-dev
+cloud.json を消しました。他の端末の cloud.json は手で消してください。
+手元へ降ろした本文は /Users/satog/.hangar-dev-a/remote に残っています。
+```
+
+### 保留にしていた 4 つの答え
+
+| 確認 | 答え | 根拠 |
+| --- | --- | --- |
+| `wrangler delete --name` が通るか | 通る | 4 回目で `完了: Worker hangar-dev` が出て、後から一覧でも消えていた |
+| 2 回目の `r2 object delete` が既に無い鍵で落ちないか | 落ちない | 2 回目と 3 回目と 4 回目で、同じ 12 件を消し直して 12 件とも終了コード 0 だった |
+| 消す前に R2 の中身を手元へ降ろす動きが働くか | 働く | 1 回目で 5 件を降ろし、7 件は既に手元にあると数えた。2 回目以降は 12 件とも既に手元にあると数えた |
+| 1 つでも失敗したら手元の設定を残して 0 以外で終わるか | そのとおり | 3 回目の終了コードは 1 で、`cloud.json` と `wrangler.jsonc` は更新時刻ごとそのまま残っていた |
+
+降ろしたものの数え方は、鍵ごとに SHA-256 を突き合わせる形である。
+2 回目以降が「既に手元にある」に変わったのは、1 回目で降ろした写しが残っているからで、同じものを何度も取り直さない。
+
+### 新しく見つかったこと（直していない）
+
+#### 1 失敗の理由が 1 行目しか出ない
+
+止まったときの報告はこうである。
+
+```
+残ったもの:
+  R2 bucket hangar-dev-files: ✘ [ERROR] A request to the Cloudflare API (/accounts/<伏せた>/r2/buckets/hangar-dev-files) failed.
+```
+
+同じコマンドを手で走らせると、理由は 2 行あとに出る。
+
+```
+The bucket you tried to delete (hangar-dev-files) is not empty (account <伏せた>). [code: 10008]
+```
+
+`step()` が `(r.stderr || r.stdout).trim().split('\n')[0]` を取るので、wrangler の見出しの行だけが残って理由が落ちる。
+`stopHere()` が「空でないときは索引に無いオブジェクトが残っています」と案内してくれるので詰まりはしないが、
+`[code: 10008]` まで出した方が、案内のどれに当たるのかがすぐ分かる。
+
+#### 2 標準入力が開いたままだと、終わった後もプロセスが残る
+
+合言葉を 2 つとも与えた後、`teardown` は最後の行まで印字してから終わらなかった。
+包みの標準入力を閉じると、その場で終了コードを返した。
+`promptWord` が `readline` を閉じた後も標準入力が掴まれたままになっているためだと思われる。
+端末から手で打つときにどうなるかは、この片付けでは確かめていない。
+
+#### 3 標準入力が空（EOF）だと、何も言わずに 0 で終わる
+
+`teardown` に `/dev/null` を渡すと、1 つ目の合言葉を聞いたところで何も印字せずに終了コード 0 で終わった。
+
+```
+続けるなら hangar-dev と入力してください: （ここで終わる。中止しました は出ない）
+```
+
+`readline` の `question` は入力が閉じられても呼び出し側へ返らないので、`runTeardown` の約束が解けないまま
+node が落ちる。
+`rl.on('close')` で空文字を返すようにすれば、`中止しました` を出して 1 で終われる。
+自動化から `teardown` を呼ぶ人が、消えたと取り違える余地がある。
+
+#### 4 設定の退避先に端末 ID が入らない
+
+`rescueTargetPath` は、本文を `remote/<端末 ID>/projects/...` に置くのに対して、
+設定は `remote/_config/<相対パス>` に置く。
+2 台の同じ名前の設定は同じ場所へ降りるので、後から降ろした方が前の方を上書きする。
+この片付けでは A と B の設定の中身が揃っていたので、実害は出ていない（降ろした 5 件はすべて片方の鍵のもので、
+もう片方は SHA-256 が一致して「既に手元にある」と数えられた）。
+中身が違う 2 台なら、片方の写しが失われる。
+
+### 消し残しが無いことの確かめ
+
+```
+$ wrangler d1 list
+（hangar-dev は消えた。magoflix と yohaku はそのまま）
+$ wrangler r2 bucket list
+（hangar-dev-files は消えた。magoflix-media はそのまま）
+$ wrangler deployments list --name hangar-dev
+✘ [ERROR] ... This Worker does not exist on your account. [code: 10007]
+$ curl -s -o /dev/null -w '%{http_code}' https://hangar-dev.<アカウント>.workers.dev/health
+404   （本文は error code 1042）
+```
+
+`magoflix`、`yohaku`、`magoflix-media` には一度も触れていない。
+消したのは `hangar-dev`（Worker）、`hangar-dev`（D1）、`hangar-dev-files`（R2）の 3 つだけである。
+
+手元の試し用の入れ物 5 つも消した。
+
+```
+$ rm -rf /Users/satog/.hangar-dev-a /Users/satog/.hangar-dev-b \
+         /Users/satog/.hangar-dev-claude-a /Users/satog/.hangar-dev-claude-b /Users/satog/.hangar-dev-ws
+$ ls -la ~ | grep hangar
+drwx------   14 satog  staff  448 Sep 19 04:44 .agent-hangar
+```
+
+### 実物の `~/.claude` と `~/.agent-hangar`
+
+片付けの前後で `ls -la` を取って比べた。
+
+```
+--- ~/.claude ---
+2,3c2,3
+< drwxr-xr-x   40 satog  staff     1280 Sep 19 20:52 .
+< drwxr-xr-x+ 163 satog  staff     5216 Sep 19 20:54 ..
+---
+> drwxr-xr-x   40 satog  staff     1280 Sep 19 21:10 .
+> drwxr-xr-x+ 158 satog  staff     5056 Sep 19 21:21 ..
+30,31c30,31
+< -rw-------    1 satog  staff      275 Sep 19 20:52 policy-limits.json
+< -rw-------    1 satog  staff      223 Sep 19 20:52 policy-limits.json.stamp.json
+---
+> -rw-------    1 satog  staff      275 Sep 19 21:10 policy-limits.json
+> -rw-------    1 satog  staff      223 Sep 19 21:10 policy-limits.json.stamp.json
+
+--- ~/.agent-hangar ---
+3c3
+< drwxr-xr-x+ 163 satog  staff       5216 Sep 19 20:54 ..
+---
+> drwxr-xr-x+ 158 satog  staff       5056 Sep 19 21:21 ..
+```
+
+`..` の項目の数が 163 から 158 に減ったのは、`$HOME` から `.hangar-dev-*` を 5 つ消したぶんである。
+`policy-limits.json` と その `.stamp.json` は、この作業をしている Claude Code 自身が定期に書き直しているものである。
+項目の数は前後とも 40 で、名前の増減は 1 件も無い。
+`~/.claude.json` に `hangar-dev` は 0 件で、`~/.claude/projects` にも試し用の入れ物は無い。
+`~/.agent-hangar` は `..` の行以外に 1 文字も変わっていない。
+
+実物の `claude` は、片付けのあいだ 1 度も起こしていない。
+通算は 3 回のままで、決定 11 の上限 4 回に対して 1 回の余地が残っている。
