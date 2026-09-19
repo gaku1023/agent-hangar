@@ -1265,6 +1265,7 @@ heartbeat は 30 秒ごとの push で更新する。
 GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` をビルドして Releases に置く。
 `.app` は署名せず、zip と SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、検疫属性を `xattr -rd com.apple.quarantine` で外すか、システム設定の「このまま開く」で許可してから、`hangar setup` を走らせる。
+移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
 クラウド同期の設定は `.app` の同梱 CLI からは行えない。
 wrangler を同梱していないので、リポジトリを clone した場所から `setup cloud` を走らせる。
 
@@ -1396,9 +1397,19 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 - 配布版の同梱形態：サーバと CLI を esbuild で単一ファイル（`server.mjs`、`cli.mjs`）にまとめ、UI、ネイティブモジュール、`bin/hangar`、Worker のソース、`manifest.json` とともに `.app` の `Contents/Resources/server/` へ置く。UI の sourcemap は入れないので、実測で 7.7MB である。Node 本体は同梱しない。
 - Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
 - 配布ターゲットは Apple silicon の macOS 13 以降だけ。prebuild も `darwin-arm64` しか入れない。全アーキを入れると `node-pty` の win32 だけで 58MB になる。Intel と Windows は作らない。
-- Gatekeeper：Developer ID での署名も公証もせず、zip と SHA-256 の checksum を添えて配る（リンカが付ける ad-hoc 署名だけが残る）。利用者の手順は、`.app` を `/Applications` へ移してから検疫属性を外すことである。アプリ自身も同梱サーバを起こす前に検疫属性を外すが、展開したままダブルクリックすると App Translocation の読み取り専用の写しで走り、そこでは書き込めないので効かない（2026-09-20 の決定）。
+- Gatekeeper：Developer ID での署名も公証もせず、zip と SHA-256 の checksum を添えて配る（2026-09-20 の決定）。
+  Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
+  署名しないという決めのもとでは、これが既定の姿である。
+  利用者の手順は、`.app` を `/Applications` へ移してから検疫属性を外すことである。
+  移動を先に置くのは順序の実測による。
+  検疫属性が付いたまま開くと、App Translocation の案内より先に Gatekeeper のダイアログが出る。
+  翻訳された場所からプロセスは起動するが、ウィンドウは出ずログにも 1 行も書かれないので、利用者が最初に見るのはアプリの案内ではなく macOS の拒否である。
+  アプリ自身も同梱サーバを起こす前に検疫属性を外すが、読み取り専用の写しでは書き込めないので効かない。
 - 二重起動：single-instance のプラグインを入れない。起動時に 4177 が既に応答していれば、そのサーバを採用して子プロセスを起こさない。ブラウザや `hangar start` で先に起きているサーバと食い合わないためである。
 - wrangler は同梱しない。205MB あり、`.app` の大きさが 20 倍近くになる。配布版の `hangar setup cloud` は、wrangler が見つからないことを告げて止まる。クラウド同期を使う端末は、リポジトリを clone して設定する。
+- 既知の限界：フェーズ 5 の実物確認（2026-09-20）で見ていないものが二つある。
+  App Translocation の案内の画面そのものは、Gatekeeper のダイアログを人が承認しないと先へ進まないので、通しでは見ていない（案内の枝は単体試験で押さえてある）。
+  システム設定の外観をダークにしたときの見え方は、利用者の環境を変えるので確かめず、配信される UI に `prefers-color-scheme` の規則が 1 件も無いことの確認で代えた。
 - 覚え書き：`HANGAR_CLAUDE_DIR` は hangar が読む設定の置き場で、起こされた `claude` が見るのは `CLAUDE_CONFIG_DIR` である。普段はどちらも `~/.claude` なので食い違わないが、試しの環境を分けるときは両方を向ける。
 
 未決事項は次のとおりである。
