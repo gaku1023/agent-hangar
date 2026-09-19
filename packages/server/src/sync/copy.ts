@@ -118,13 +118,57 @@ function chooseRemote(o: CopyOptions, sessionUuid: string): RemotePick | null {
 }
 
 /**
+ * root の下の相対パスを、**段ごとに lstat しながら**絶対パスに直す。
+ * 途中のどの段がシンボリックリンクでも投げる。末端の 1 段も見る。
+ *
+ * `path.join` はリンクの先を指し、`mkdirSync({ recursive: true })` も `rename` も
+ * リンクを辿るので、`~/.claude/projects/<潰した cwd>` がリンクだと ~/.claude の外のファイルが
+ * 他端末の本文で置き換わる（枝の最終レビューの中 1）。
+ *
+ * 塞ぎ方を「段ごとの lstat」にしたのは、外に出たかどうかを後から判定するのではなく、
+ * **リンクを 1 度も辿らせない**方が意図に近いからである。
+ * realpath で後から見る方式だと、入れ物の中で完結するリンクを通してしまう。
+ * 足りない段は recursive を使わず 1 段ずつ自分で作るので、作る途中でリンクを踏むこともない。
+ * 最後に親の realpath が枠の中にあることも見て、競合状態の取りこぼしに備える。
+ *
+ * 形は claudeConfig.ts の `resolveUnder` と揃えてある（あちらは設定の取り込みの側で同じ穴を塞いだ）。
+ * 返すパスは呼び手が渡した root の綴りのままにする。枠の検査だけ realpath で行う。
+ */
+function resolveUnder(root: string, rel: string, label: string, o: { create?: boolean } = {}): string {
+  const segs = rel.split('/');
+  if (segs.length === 0 || segs.some((x) => x === '' || x === '.' || x === '..')) throw new Error('相対パスの形が不正です');
+  let fence: string;
+  try { fence = fs.realpathSync(root); } catch { fence = path.resolve(root); }
+  const base = path.resolve(root);
+  let cur = base;
+  for (let i = 0; i < segs.length; i++) {
+    cur = path.join(cur, segs[i]!);
+    const here = segs.slice(0, i + 1).join('/');
+    let st: fs.Stats | null;
+    try { st = fs.lstatSync(cur); } catch { st = null; }
+    if (st?.isSymbolicLink()) throw new Error(`${here} がシンボリックリンクなので、${label}の外に出ます`);
+    if (i === segs.length - 1) break;
+    if (st && !st.isDirectory()) throw new Error(`${here} がディレクトリではありません`);
+    if (!st && o.create) fs.mkdirSync(cur, { mode: 0o700 });
+  }
+  const parent = path.dirname(cur);
+  let real: string;
+  // まだ無い入れ物は realpath を引けないので、そのときは綴りのまま見る。
+  // 綴りの側の枠（base）は cur の組み立て方から必ず満たすが、あると分かっている入れ物は realpath で見る。
+  try { real = fs.realpathSync(parent); } catch { real = parent; }
+  const under = (p: string, f: string): boolean => p === f || p.startsWith(f + path.sep);
+  if (!under(real, fence) && !under(real, base)) throw new Error(`${rel} は${label}の外を指しています`);
+  return cur;
+}
+
+/**
  * コピー先の入れ物に一時ファイルを作ってから rename で被せる。
  * 直に書くと、途中で落ちたときに切れた jsonl が本物として残り、Claude Code がそれを読む。
  * これは ~/.claude の本文を置き換えるためのもので、先にあるファイルを意図して潰す。
  * 潰してはいけない控えの側は backupBeforeOverwrite を使う。
+ * 呼び手は必ず resolveUnder で解いたパスを渡す。ここでは入れ物を作らない。
  */
 function copyOverAtomically(from: string, to: string): void {
-  fs.mkdirSync(path.dirname(to), { recursive: true });
   const tmp = `${to}.hangar-tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
   try {
     fs.copyFileSync(from, tmp, fs.constants.COPYFILE_EXCL);
@@ -154,11 +198,12 @@ const MAX_BACKUP_TRIES = 100;
  * この形は claudeConfig.ts の `backupBeforeWrite` と apply.ts の `writeMemoConflictCopy` と揃えてある。
  */
 function backupBeforeOverwrite(target: string, home: string, sessionUuid: string, now: number): string {
-  const dir = path.join(backupsRoot(home), 'transcripts');
-  fs.mkdirSync(dir, { recursive: true });
+  const root = backupsRoot(home);
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   const base = `${sessionUuid}-${timestampLabel(now)}`;
   for (let i = 1; i <= MAX_BACKUP_TRIES; i++) {
-    const dest = path.join(dir, i === 1 ? `${base}.jsonl` : `${base}-${i}.jsonl`);
+    // 控えの置き場も段ごとに解く。transcripts がリンクだと控えが控えの外へ出る。
+    const dest = resolveUnder(root, `transcripts/${i === 1 ? `${base}.jsonl` : `${base}-${i}.jsonl`}`, '控えの置き場', { create: true });
     const tmp = `${dest}.hangar-tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
     try {
       fs.copyFileSync(target, tmp, fs.constants.COPYFILE_EXCL);
@@ -197,7 +242,10 @@ export function copyTranscriptForResume(o: CopyOptions): CopyResult {
     .get(o.sessionId) as { provider_session_id: string; cwd: string } | undefined;
   if (!s) return { kind: 'none' };
   if (!UUID_RE.test(s.provider_session_id)) throw new Error('セッションの識別子がファイル名として不正です');
-  const target = path.join(o.claudeDir, 'projects', mangleCwd(s.cwd), `${s.provider_session_id}.jsonl`);
+  // 途中の段がリンクだと ~/.claude の外のファイルを置き換えてしまうので、段ごとに解く。
+  // ここでは入れ物を作らない。書くと決まるまで ~/.claude に足跡を残さない。
+  const rel = `projects/${mangleCwd(s.cwd)}/${s.provider_session_id}.jsonl`;
+  const target = resolveUnder(o.claudeDir, rel, '~/.claude');
   const best = chooseRemote(o, s.provider_session_id);
   if (!best) return fs.existsSync(target) ? { kind: 'kept', target } : { kind: 'none' };
   const local = fs.existsSync(target) ? fs.statSync(target) : null;
@@ -214,6 +262,6 @@ export function copyTranscriptForResume(o: CopyOptions): CopyResult {
       throw new Error(`控えを取れなかったので本文を置き換えませんでした: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  copyOverAtomically(best.path, target);
+  copyOverAtomically(best.path, resolveUnder(o.claudeDir, rel, '~/.claude', { create: true }));
   return { kind: 'copied', target, from: best.path, bytes: best.size, backedUp };
 }

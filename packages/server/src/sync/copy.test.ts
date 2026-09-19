@@ -138,6 +138,49 @@ describe('copyTranscriptForResume', () => {
     expect(fs.readdirSync(path.dirname(target()))).toEqual([`${UUID}.jsonl`]);
   });
 
+  it('projects の途中がシンボリックリンクなら、~/.claude の外へ書かない', () => {
+    // リンクを作る実験は一時ディレクトリの中だけで行う。
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
+    const kept = path.join(outside, `${UUID}.jsonl`);
+    fs.writeFileSync(kept, 'MINE-IMPORTANT\n');
+    fs.mkdirSync(path.join(claudeDir, 'projects'), { recursive: true });
+    fs.symlinkSync(outside, path.join(claudeDir, 'projects', '-w-alpha'));
+    seedRemote('dev-b', 'REMOTE-BODY-that-is-longer\n', NOW);
+    expect(() => copy(true)).toThrow(/シンボリックリンク/);
+    expect(fs.readFileSync(kept, 'utf8')).toBe('MINE-IMPORTANT\n');
+  });
+
+  it('手元に何も無くても、リンクの先には作らない', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
+    fs.mkdirSync(path.join(claudeDir, 'projects'), { recursive: true });
+    fs.symlinkSync(outside, path.join(claudeDir, 'projects', '-w-alpha'));
+    seedRemote('dev-b', 'body\n', NOW);
+    expect(() => copy()).toThrow(/シンボリックリンク/);
+    expect(fs.readdirSync(outside)).toEqual([]);
+  });
+
+  it('コピー先そのものがシンボリックリンクなら書かない', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
+    const kept = path.join(outside, 'elsewhere.jsonl');
+    fs.writeFileSync(kept, 'MINE\n');
+    fs.mkdirSync(path.dirname(target()), { recursive: true });
+    fs.symlinkSync(kept, target());
+    seedRemote('dev-b', 'REMOTE-BODY-that-is-longer\n', NOW);
+    expect(() => copy(true)).toThrow(/シンボリックリンク/);
+    expect(fs.readFileSync(kept, 'utf8')).toBe('MINE\n');
+  });
+
+  it('控えの置き場の途中がシンボリックリンクなら、控えも本文も書かない', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
+    fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
+    fs.symlinkSync(outside, path.join(home, 'backups', 'transcripts'));
+    seedRemote('dev-b', 'remote-longer\n', NOW);
+    writeLocal('short\n');
+    expect(() => copy(true)).toThrow(/控え/);
+    expect(fs.readFileSync(target(), 'utf8')).toBe('short\n');
+    expect(fs.readdirSync(outside)).toEqual([]);
+  });
+
   it('セッションの UUID が名前として不正なら書かない', () => {
     db.prepare('update sessions set provider_session_id = ? where id = ?').run('../../../evil', 's1');
     expect(() => copy()).toThrow(/セッション/);
