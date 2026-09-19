@@ -1,9 +1,18 @@
 /* 同期の一行（ヘッダー）と、セッション画面のロックの札（フェーズ 4） */
 
 /* ヘッダーの真ん中に置く同期の一行。
-   使用量ゲージと並ぶので、詰まったら文言の側から縮める。 */
-.sync { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-size: var(--fs-sm); }
-.sync > .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+   ヘッダーは 1 行の flex なので、幅が足りなくなると子はどれも縮み、
+   日本語は 1 文字ごとに折り返せてしまう（「接続/中」「新規セッショ/ン」のように崩れる）。
+   そこで、この一行の中で縮んでよいのは文言だけにし、縮む役もこの一行が引き受ける。 */
+/* ヘッダーは grid の 1fr の列に載っている。
+   その列の下限は中身の min-content なので、min-width を外さないと、
+   同期の一行が増えたぶんだけ列そのものが広がって画面が横に溢れる。 */
+.header { min-width: 0; }
+.sync { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs-sm); flex: 0 1000 auto; min-width: 0; }
+/* ボタンと「未送信 N」は縮ませない。折り返すと 44px の帯から溢れる。 */
+.sync > * { flex: none; white-space: nowrap; }
+/* 文言だけが縮む。溢れたら省略記号にし、全文は title で読めるようにする。 */
+.sync > .sync-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sync-error { color: var(--error); }
 
 /* ヘッダーの高さに収める小さいボタン。.btn を上書きするので .btn と一緒に付ける。 */

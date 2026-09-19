@@ -11,7 +11,8 @@ export function SyncStatus(props: SyncProps) {
   if (!props.visible) return null;
   return (
     <span className="sync" data-state={props.state}>
-      <span className={props.state === 'error' ? 'mono sync-error' : 'mono faint'}>{props.label}</span>
+      {/* 幅が足りないと省略記号に切り詰まるので、全文は title から読めるようにする。 */}
+      <span className={props.state === 'error' ? 'mono sync-label sync-error' : 'mono sync-label faint'} title={props.label}>{props.label}</span>
       {/* 0 件のときに「未送信 0」と出すと、止まっているように見える。溜まっているときだけ出す。 */}
       {props.pending > 0 && <span className="faint">未送信 {props.pending}</span>}
       <button className="btn btn-sm" onClick={() => emit({ type: 'sync.now' })}>今すぐ同期</button>
