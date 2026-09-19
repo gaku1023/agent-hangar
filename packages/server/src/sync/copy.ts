@@ -118,8 +118,10 @@ function chooseRemote(o: CopyOptions, sessionUuid: string): RemotePick | null {
 }
 
 /**
- * 同じ入れ物に一時ファイルを作ってから rename で被せる。
+ * コピー先の入れ物に一時ファイルを作ってから rename で被せる。
  * 直に書くと、途中で落ちたときに切れた jsonl が本物として残り、Claude Code がそれを読む。
+ * これは ~/.claude の本文を置き換えるためのもので、先にあるファイルを意図して潰す。
+ * 潰してはいけない控えの側は backupBeforeOverwrite を使う。
  */
 function copyOverAtomically(from: string, to: string): void {
   fs.mkdirSync(path.dirname(to), { recursive: true });
@@ -133,6 +135,56 @@ function copyOverAtomically(from: string, to: string): void {
     try { fs.rmSync(tmp, { force: true }); } catch { /* 片付けられなくても本物は無事である */ }
     throw e;
   }
+}
+
+/** 同じ秒に取る控えの上限。ここまで当たるのは異常なので、無限に回さずに投げる。 */
+const MAX_BACKUP_TRIES = 100;
+
+/**
+ * 上書きの前に控えを取り、置けた場所を返す。
+ *
+ * 名前は `<uuid>-<yyyyMMdd-HHmmss>.jsonl` で、時刻は秒までしか持たない。
+ * 同じ秒に 2 度上書きすると名前が当たるので、`-2`、`-3` と連番を足す。
+ * 控えは「上書きする前の姿を残す」ためのものなので、控えが控えを潰すとその回の直前の姿が失われる。
+ * 空いている名前は `wx`（無ければ作る、あれば失敗）で押さえる。
+ * `existsSync` で見てから書くと、その隙に割り込まれて同じことが起きる。
+ *
+ * 控えも一時ファイルと rename で置く。途中までの控えは履歴として当てにならない。
+ * 置けなければ投げる。呼び手は ~/.claude を触らずに戻る。
+ * この形は claudeConfig.ts の `backupBeforeWrite` と apply.ts の `writeMemoConflictCopy` と揃えてある。
+ */
+function backupBeforeOverwrite(target: string, home: string, sessionUuid: string, now: number): string {
+  const dir = path.join(backupsRoot(home), 'transcripts');
+  fs.mkdirSync(dir, { recursive: true });
+  const base = `${sessionUuid}-${timestampLabel(now)}`;
+  for (let i = 1; i <= MAX_BACKUP_TRIES; i++) {
+    const dest = path.join(dir, i === 1 ? `${base}.jsonl` : `${base}-${i}.jsonl`);
+    const tmp = `${dest}.hangar-tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+    try {
+      fs.copyFileSync(target, tmp, fs.constants.COPYFILE_EXCL);
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* 残っても控えの置き場の中である */ }
+      throw e;
+    }
+    try {
+      // 空いている名前を wx で押さえてから被せる。rename だけだと先にある控えを潰す。
+      fs.closeSync(fs.openSync(dest, 'wx', 0o600));
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* 同上 */ }
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw e;
+    }
+    try {
+      const fd = fs.openSync(tmp, 'r+');
+      try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      fs.renameSync(tmp, dest);
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* 同上 */ }
+      throw e;
+    }
+    return dest;
+  }
+  throw new Error('控えを置く名前が空いていません');
 }
 
 /**
@@ -155,15 +207,12 @@ export function copyTranscriptForResume(o: CopyOptions): CopyResult {
 
   let backedUp: string | null = null;
   if (local) {
-    const now = o.now ? o.now() : Date.now();
-    const dest = path.join(backupsRoot(o.home), 'transcripts', `${s.provider_session_id}-${timestampLabel(now)}.jsonl`);
     try {
-      copyOverAtomically(target, dest);
+      backedUp = backupBeforeOverwrite(target, o.home, s.provider_session_id, o.now ? o.now() : Date.now());
     } catch (e) {
       // 控えが取れないなら書かない。何を消したか後から追えない上書きは作らない。
       throw new Error(`控えを取れなかったので本文を置き換えませんでした: ${e instanceof Error ? e.message : String(e)}`);
     }
-    backedUp = dest;
   }
   copyOverAtomically(best.path, target);
   return { kind: 'copied', target, from: best.path, bytes: best.size, backedUp };

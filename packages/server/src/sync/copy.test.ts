@@ -91,6 +91,27 @@ describe('copyTranscriptForResume', () => {
     expect(fs.readFileSync(target(), 'utf8')).toBe('remote-longer\n');
   });
 
+  it('同じ秒に 2 度上書きしても、先の控えを潰さない', () => {
+    const dir = path.join(home, 'backups', 'transcripts');
+    const at = (n: number) => path.join(dir, n === 1 ? `${UUID}-${timestampLabel(NOW)}.jsonl` : `${UUID}-${timestampLabel(NOW)}-${n}.jsonl`);
+    seedRemote('dev-b', 'remote-longer\n', NOW);
+
+    writeLocal('first\n');
+    expect((copy(true) as { backedUp: string }).backedUp).toBe(at(1));
+    writeLocal('second\n');
+    expect((copy(true) as { backedUp: string }).backedUp).toBe(at(2));
+    writeLocal('third\n');
+    expect((copy(true) as { backedUp: string }).backedUp).toBe(at(3));
+
+    // 3 回分の直前の姿がすべて残っている。
+    expect(fs.readFileSync(at(1), 'utf8')).toBe('first\n');
+    expect(fs.readFileSync(at(2), 'utf8')).toBe('second\n');
+    expect(fs.readFileSync(at(3), 'utf8')).toBe('third\n');
+    // 一時ファイルは残らない。
+    expect(fs.readdirSync(dir).sort()).toEqual([at(1), at(2), at(3)].map((p) => path.basename(p)).sort());
+    expect(fs.readFileSync(target(), 'utf8')).toBe('remote-longer\n');
+  });
+
   it('台帳の SHA-256 と中身が合わない写しは使わず、合う写しへ落とす', () => {
     const good = seedRemote('dev-b', 'good-body\n', NOW - 10_000);
     seedRemote('dev-c', 'tampered\n', NOW, 'f'.repeat(64));
