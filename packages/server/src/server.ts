@@ -165,13 +165,33 @@ const RUN_POLL_MS = 2000;
 export const RUN_ENDED_SUMMARY_OPTS = { ignoreLive: true } as const;
 
 /**
- * close が要約のジョブを待つ上限。
- * 要約は DB に書き込むので、待たずに閉じると閉じた DB に触れることになる。
- * 一方で待ちに上限が無いと、応答しない要約器に終了が引きずられる。
- * LM Studio の 1 件はおおむね数秒で終わるので 5 秒あればたいてい待ち切れ、
- * それでも終わらないときは諦めて閉じる（SummaryJob は書き込みの失敗を summary.failed に流す）。
+ * 終了に使う時間の予算。
+ *
+ * 数を別々に持つと、片方だけ直されて必ず食い違う。
+ * 実際に「close が最悪 14 秒、番犬が 3 秒、.app の猶予が 8 秒」という三すくみになり、
+ * 番犬が close を切るので db.close() まで届かなかった。
+ * これからは 1 本の締め切りを決め、残りをそこから導く。
+ *
+ * 1. `CLOSE_DEADLINE_MS` … `close()` 全体の締め切りである。
+ *    段ごとに別々の上限を数えず、この 1 本の締め切りに対して待つので、待ちの和はこれを超えない。
+ * 2. `STOP_WATCHDOG_MS` … SIGTERM を受けてから `process.exit(0)` を呼ぶ番犬である（`installShutdown`）。
+ *    締め切りより後でなければ、`close()` を途中で切って `db.close()` に届かない。
+ *    締め切りの後に残る仕事（WebSocket の畳み、listen の解放、WAL の畳み）のぶんの余裕を足してある。
+ * 3. `.app` の `STOP_GRACE`（apps/desktop/src-tauri/src/server.rs） … SIGTERM から SIGKILL までの猶予である。
+ *    番犬より後でなければ、サーバが自分で降りる前に殺される。
+ *
+ * 普段は待つものが無いので、⌘Q からウィンドウが消えるまでは数ミリ秒である。
+ * この予算が効くのは、クラウドが応答しないときのように待ちが出た回だけである。
+ * 3 つの大小関係は server.test.ts の「終了の時間の予算」が押さえている。
+ * ここを変えるときは、必ず 3 つとも見直すこと。
  */
-export const CLOSE_SUMMARY_WAIT_MS = 5_000;
+export const CLOSE_DEADLINE_MS = 5_000;
+
+/**
+ * SIGTERM か SIGINT を受けてから、後始末の終わりを待たずに `process.exit(0)` を呼ぶまで。
+ * `CLOSE_DEADLINE_MS` より後でなければならない。
+ */
+export const STOP_WATCHDOG_MS = 8_000;
 
 /**
  * この端末のルートの存在を確かめ、消えたものを知らせ、戻ったものの取りこぼしを拾う。
@@ -203,20 +223,6 @@ export function checkRoots(o: { db: Db; deviceId: string; live: () => LiveSessio
   return r;
 }
 
-/**
- * close が本文の上げを待つ上限。
- * 上げは R2 への転送なので、切れるとその 1 件は次の起動までやり直しになる。
- * 一方で待ちに上限が無いと、大きな本文 1 件で hangar stop が固まる。
- * 転送そのものの締め切りは client 側で 5 分なので、終了はここで先に諦める。
- */
-export const CLOSE_UPLOAD_WAIT_MS = 3_000;
-
-/**
- * close が同期の押し出しを待つ上限。
- * 設定の押し出しもメタデータの push も 1 要求ぶんなので、本文の転送より短くてよい。
- */
-export const CLOSE_IDLE_WAIT_MS = 3_000;
-
 /** idle() が返るまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
 export function waitForIdle(job: { idle(): Promise<void> }, ms: number): Promise<boolean> {
   let timer: NodeJS.Timeout | undefined;
@@ -231,7 +237,7 @@ export function waitForIdle(job: { idle(): Promise<void> }, ms: number): Promise
  * 待たずに stop すると、デバウンスのタイマーが始めた putFile が途中で切れる。
  * 上限を超えたときも必ず止める。終了が転送に引きずられる方が困る。
  */
-export async function stopUploader(up: { idle(): Promise<void>; stop(): void } | null, ms: number = CLOSE_UPLOAD_WAIT_MS): Promise<boolean> {
+export async function stopUploader(up: { idle(): Promise<void>; stop(): void } | null, ms: number = CLOSE_DEADLINE_MS): Promise<boolean> {
   if (!up) return true;
   const done = await waitForIdle(up, ms);
   if (!done) console.warn(`[upload] 本文の送信を ${ms} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
@@ -246,7 +252,7 @@ export async function stopUploader(up: { idle(): Promise<void>; stop(): void } |
  * 設定の同期（ClaudeConfigSync）とメタデータの同期（SyncEngine）が、どちらもこの形である。
  * 上限を超えたときも必ず止める。終了が通信に引きずられる方が困る。
  */
-export async function stopAfterIdle(job: { idle(): Promise<void>; stop(): void } | null, label: string, ms: number = CLOSE_IDLE_WAIT_MS): Promise<boolean> {
+export async function stopAfterIdle(job: { idle(): Promise<void>; stop(): void } | null, label: string, ms: number = CLOSE_DEADLINE_MS): Promise<boolean> {
   if (!job) return true;
   const done = await waitForIdle(job, ms);
   if (!done) console.warn(`[${label}] 走っている同期を ${ms} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
@@ -255,8 +261,54 @@ export async function stopAfterIdle(job: { idle(): Promise<void>; stop(): void }
 }
 
 /** 要約のジョブが空になるまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
-export function waitForSummaryIdle(job: { idle(): Promise<void> }, ms: number = CLOSE_SUMMARY_WAIT_MS): Promise<boolean> {
+export function waitForSummaryIdle(job: { idle(): Promise<void> }, ms: number = CLOSE_DEADLINE_MS): Promise<boolean> {
   return waitForIdle(job, ms);
+}
+
+/**
+ * SIGINT と SIGTERM の受け口を立て、止める手続きを返す。
+ *
+ * **`startServer()` を待たずに呼ぶこと。**
+ * HTTP の待ち受けと `/health` は `startServer()` の途中で先に生きる。
+ * `.app` はその `/health` を準備完了の合図にしてウィンドウを移すので、
+ * 解決を待ってから受け口を立てると、その間に届いた SIGTERM が既定の扱いでプロセスを即座に殺し、
+ * `close()` が 1 行も走らない（`db.close()` も走らない）。
+ * 起動の途中で信号が来たときは、起動が終わり次第 `close()` を走らせる。
+ *
+ * 番犬は後始末が終わらなくても必ず降りるための保険である。
+ * `CLOSE_DEADLINE_MS` より後に置く（その理由は同じところに書いてある）。
+ *
+ * process への依存は引数で差し替えられる。試験は偽の受け口と偽の exit を渡す。
+ */
+export function installShutdown(
+  startup: Promise<{ close(): Promise<void> }>,
+  o: {
+    on?: (signal: 'SIGINT' | 'SIGTERM', handler: () => void) => void;
+    exit?: (code: number) => void;
+    setTimeout?: typeof setTimeout;
+    watchdogMs?: number;
+  } = {},
+): () => void {
+  const on = o.on ?? ((signal, handler) => { process.on(signal, handler); });
+  const exit = o.exit ?? ((code: number) => process.exit(code));
+  const setTimer = o.setTimeout ?? setTimeout;
+  const watchdogMs = o.watchdogMs ?? STOP_WATCHDOG_MS;
+  let stopping = false;
+  const stop = (): void => {
+    if (stopping) return;
+    stopping = true;
+    // 後始末が終わらなくても必ず降りる。
+    // unref してあるので、これ 1 本だけのためにイベントループは生き延びない。
+    const timer = setTimer(() => exit(0), watchdogMs);
+    (timer as { unref?: () => void }).unref?.();
+    // 起動の途中なら、起動が終わってから閉じる。起動そのものが転んだ回は閉じるものが無い。
+    void startup.then((s) => s.close(), () => undefined).catch(() => undefined).finally(() => exit(0));
+  };
+  on('SIGINT', stop);
+  on('SIGTERM', stop);
+  // 起動が転んだときに、誰も受け取らない拒否を残さない。呼び手は自分の分を別に受け取る。
+  void startup.catch(() => undefined);
+  return stop;
 }
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
@@ -628,8 +680,12 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   deviceTimer.unref();
 
   engine.setClaudeConfigStatus({ enabled: settings.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });
-  await engine.start();
-  if (puller) await pullFiles();
+  // 最初の同期の完了を待たない。
+  // クラウドが応答しないと push と pull がそれぞれ 30 秒待つので、待つと startServer の解決が 90 秒遅れる。
+  // その間 /health は 200 を返しているので、準備完了だと見た相手からの SIGTERM が受け口の無い時刻に届く。
+  // 走り出した push と pull は engine.idle() が掴んでいるので、close() は取りこぼさない。
+  void engine.start().catch((e: unknown) => console.error('[sync]', e instanceof Error ? e.message : e));
+  if (puller) void pullFiles();
   configSync?.start();
   // 監視だけに頼らず、定期の push も足しておく。
   // 監視が張れない置き場所や、取りこぼした編集があっても、次の周期で揃う。
@@ -660,14 +716,22 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   return {
     port,
     close: async () => {
+      // 待ちの上限は 1 本の締め切りで持つ。
+      // 段ごとに数えると和が番犬の上限を超え、db.close() まで届かない（レビューの指摘 2）。
+      const deadline = Date.now() + CLOSE_DEADLINE_MS;
+      const left = (): number => Math.max(0, deadline - Date.now());
       clearInterval(rootTimer);
       clearInterval(deviceTimer);
       if (configTimer) clearInterval(configTimer);
       if (uploadTimer) clearInterval(uploadTimer);
       // 走っている押し出しを待ってから止める。待たずに止めると putFile と pushChanges が途中で切れる。
-      await stopAfterIdle(configSync, 'config');
-      await stopUploader(uploader);
-      await stopAfterIdle(engine, 'sync');
+      await stopAfterIdle(configSync, 'config', left());
+      await stopUploader(uploader, left());
+      await stopAfterIdle(engine, 'sync', left());
+      // 降ろしの鎖も締め切りまでは待つ。
+      // 起動の 1 回目は startServer を待たせないので、閉じる側と重なりうるようになった。
+      // 待ち切れなくても DB を閉じる。降ろしは一時ファイルに書いてから置き換えるので、切れても半端は残らない。
+      await Promise.race([filePull.then(() => undefined, () => undefined), new Promise<void>((r) => { const t = setTimeout(r, left()); t.unref?.(); })]);
       stopMemoWatch();
       runs.stop();
       indexer.stop();
@@ -680,8 +744,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       await new Promise<void>((r) => server.close(() => r()));
       // 走っている要約は DB に書き込む。閉じた DB に触れさせないよう、ここで待ち切ってから閉じる。
       // 新しい受け付けは HTTP も run の終了も止まった後なので、待ち行列はもう増えない。
-      if (!(await waitForSummaryIdle(summary, CLOSE_SUMMARY_WAIT_MS))) {
-        console.warn(`[summary] 要約の終了を ${CLOSE_SUMMARY_WAIT_MS} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
+      const summaryWait = left();
+      if (!(await waitForSummaryIdle(summary, summaryWait))) {
+        console.warn(`[summary] 要約の終了を ${summaryWait} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
       }
       db.close();
     },

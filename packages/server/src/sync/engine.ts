@@ -191,6 +191,18 @@ export class SyncEngine {
   }
 
   /**
+   * 止めた後は走らない仕事を鎖の末尾につなぐ。
+   *
+   * タイマーが並べた時点では、その仕事はまだ走っていない。
+   * クラウドが応答しないあいだは鎖が減るより速く伸びるので、
+   * 印を見ずに並べると `stop()` の後も要求が出続ける（実測で pull が 24 回、7.3 秒）。
+   * 鎖の先頭で `started` を見て、止まっていたら何もせずに譲る。
+   */
+  private enqueueWhileStarted(work: () => Promise<unknown>): void {
+    void this.enqueue(async () => { if (!this.started) return; await work(); }).catch(() => {});
+  }
+
+  /**
    * タイマーから始めた仕事と、走っている push と pull が終わるまで待つ。
    * 待っている間に新しく並んだぶんも待つので、戻ったときは何も走っていない。
    */
@@ -210,11 +222,16 @@ export class SyncEngine {
     this.started = true;
     this.offWrite = onSharedWrite((_t, _id, db) => { if (db === this.deps.db) this.noteLocalChange(); });
     if (!this.deps.client) { this.emitStatus(); return; }
-    this.pullTimer = this.timers.setInterval(() => { void this.enqueue(() => this.tick()).catch(() => {}); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
+    this.pullTimer = this.timers.setInterval(() => { this.enqueueWhileStarted(() => this.tick()); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
     unref(this.pullTimer);
     await this.syncNow();
   }
 
+  /**
+   * 止める。
+   * `started` を降ろすと、鎖に並んでいる仕事は先頭の検査で譲るので、以後は 1 件も要求を出さない。
+   * 既に走り出している push と pull は最後まで走る。呼び手は `idle()` で待ち合わせてから止める。
+   */
   stop(): void {
     this.started = false;
     this.offWrite?.(); this.offWrite = null;
@@ -246,7 +263,7 @@ export class SyncEngine {
       this.pushTimer = null;
       const wait = this.pushGapRemaining();
       if (wait > 0) { this.schedulePush(wait); return; }
-      void this.enqueue(() => this.pushNow()).catch(() => {});
+      this.enqueueWhileStarted(() => this.pushNow());
     }, delayMs);
     unref(this.pushTimer);
   }
@@ -349,7 +366,7 @@ export class SyncEngine {
 
   setPaused(paused: boolean): void {
     this.state.set('paused', paused);
-    if (!paused && this.started && this.deps.client) { this.noteLocalChange(); void this.enqueue(() => this.pullNow()).catch(() => {}); }
+    if (!paused && this.started && this.deps.client) { this.noteLocalChange(); this.enqueueWhileStarted(() => this.pullNow()); }
     this.emitStatus();
   }
 

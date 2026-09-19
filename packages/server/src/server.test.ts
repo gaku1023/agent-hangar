@@ -20,7 +20,7 @@ import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
-import { checkRoots, CLOSE_SUMMARY_WAIT_MS, CLOSE_UPLOAD_WAIT_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, RUN_ENDED_SUMMARY_OPTS, startServer, stopUploader, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -454,9 +454,9 @@ describe('close の要約待ち', () => {
   });
   it('待ち行列が空ならすぐ返る', async () => {
     const t = Date.now();
-    expect(await waitForSummaryIdle({ idle: () => Promise.resolve() }, CLOSE_SUMMARY_WAIT_MS)).toBe(true);
+    expect(await waitForSummaryIdle({ idle: () => Promise.resolve() }, CLOSE_DEADLINE_MS)).toBe(true);
     expect(Date.now() - t).toBeLessThan(1000);
-    expect(CLOSE_SUMMARY_WAIT_MS).toBeGreaterThanOrEqual(1000);
+    expect(CLOSE_DEADLINE_MS).toBeGreaterThanOrEqual(1000);
   });
 });
 
@@ -501,8 +501,153 @@ describe('close の本文の上げ待ち', () => {
   it('上げ手が無ければ何もしない', async () => {
     expect(await stopUploader(null)).toBe(true);
     // 上限は数秒に収める。終了が転送に引きずられない長さである。
-    expect(CLOSE_UPLOAD_WAIT_MS).toBeGreaterThanOrEqual(1000);
-    expect(CLOSE_UPLOAD_WAIT_MS).toBeLessThanOrEqual(5000);
+    expect(CLOSE_DEADLINE_MS).toBeGreaterThanOrEqual(1000);
+    expect(CLOSE_DEADLINE_MS).toBeLessThanOrEqual(5000);
+  });
+});
+
+describe('close の同期の押し出し待ち', () => {
+  /** SyncEngine と ClaudeConfigSync と同じ形の立て替え。idle が返るまで stop を呼んではいけない。 */
+  const fakeJob = () => {
+    const calls: string[] = [];
+    let finish = () => {};
+    return {
+      calls,
+      finish: () => finish(),
+      idle: () => new Promise<void>((r) => { finish = () => { calls.push('idle'); r(); }; }),
+      stop: () => { calls.push('stop'); },
+    };
+  };
+
+  it('走っている押し出しが終わってから止める', async () => {
+    const job = fakeJob();
+    let settled: boolean | null = null;
+    const waiting = stopAfterIdle(job, 'sync', 2000).then((v) => { settled = v; return v; });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(settled).toBeNull();
+    expect(job.calls).toEqual([]);
+    job.finish();
+    expect(await waiting).toBe(true);
+    expect(job.calls).toEqual(['idle', 'stop']);
+  });
+
+  it('上限を超えたら警告して止める', async () => {
+    // クラウドへ届かないときは毎回この道を通る。滅多に起きない保険ではない。
+    const job = { ...fakeJob(), idle: () => new Promise<void>(() => {}) };
+    const warned: string[] = [];
+    const real = console.warn;
+    console.warn = (...a: unknown[]) => { warned.push(a.map(String).join(' ')); };
+    try {
+      const t = Date.now();
+      expect(await stopAfterIdle(job, 'sync', 50)).toBe(false);
+      expect(Date.now() - t).toBeLessThan(2000);
+    } finally {
+      console.warn = real;
+    }
+    // 諦めたときも必ず止める。止めないと、止めたはずの同期が要求を出し続ける。
+    expect(job.calls).toEqual(['stop']);
+    // 黙って諦めない。どの仕事を待ち切れなかったかがログに残る。
+    expect(warned.length).toBe(1);
+    expect(warned[0]).toContain('[sync]');
+    expect(warned[0]).toContain('50');
+  });
+
+  it('相手が無ければ何もしない', async () => {
+    expect(await stopAfterIdle(null, 'config')).toBe(true);
+  });
+});
+
+describe('終了の時間の予算', () => {
+  /** .app の猶予は Rust の現物から読む。写しを持つと、片方だけ直されて必ず食い違う。 */
+  const rust = fs.readFileSync(new URL('../../../apps/desktop/src-tauri/src/server.rs', import.meta.url), 'utf8');
+  const secs = (re: RegExp): number => {
+    const m = re.exec(rust);
+    expect(m).not.toBeNull();
+    return Number(m![1]);
+  };
+
+  it('close の締め切り < サーバの番犬 < .app の猶予、の順になっている', () => {
+    const graceMs = secs(/pub const STOP_GRACE: Duration = Duration::from_secs\((\d+)\)/) * 1000;
+    const rustWatchdogMs = secs(/pub const SERVER_WATCHDOG_SECS: u64 = (\d+);/) * 1000;
+    // 番犬が close() を切ると、db.close() まで届かない（WAL が残る）。
+    expect(CLOSE_DEADLINE_MS).toBeLessThan(STOP_WATCHDOG_MS);
+    // .app が番犬より先に殺すと、サーバは自分で降りられない。
+    expect(STOP_WATCHDOG_MS).toBeLessThan(graceMs);
+    // Rust が持つ写しは、正本と同じ値でなければならない。
+    expect(rustWatchdogMs).toBe(STOP_WATCHDOG_MS);
+    // ⌘Q から消えるまでが長くならない値に収める。普段はそもそも待ちが出ない。
+    expect(CLOSE_DEADLINE_MS).toBeLessThanOrEqual(5_000);
+  });
+});
+
+describe('終了の受け口', () => {
+  const host = () => {
+    const handlers = new Map<string, () => void>();
+    const exits: number[] = [];
+    return {
+      handlers, exits,
+      opts: {
+        on: (sig: 'SIGINT' | 'SIGTERM', h: () => void) => { handlers.set(sig, h); },
+        exit: (c: number) => { exits.push(c); },
+        // 番犬は測らない回では張らない。実時間に寄りかからないようにする。
+        setTimeout: ((): NodeJS.Timeout => ({ unref: () => undefined }) as unknown as NodeJS.Timeout) as unknown as typeof setTimeout,
+      },
+    };
+  };
+
+  it('起動が終わる前に SIGTERM が来ても close() が走る', async () => {
+    // /health は startServer の解決より早く 200 を返し、.app はそれを準備完了の合図にしている。
+    // 解決を待ってから受け口を立てると、その窓で届いた信号が close() を 1 行も走らせずにプロセスを殺す。
+    const h = host();
+    let closed = 0;
+    let ready: (s: { close(): Promise<void> }) => void = () => {};
+    const startup = new Promise<{ close(): Promise<void> }>((r) => { ready = r; });
+    installShutdown(startup, h.opts);
+    // 受け口は startServer を待たずに立っている。
+    expect([...h.handlers.keys()].sort()).toEqual(['SIGINT', 'SIGTERM']);
+
+    h.handlers.get('SIGTERM')!();
+    expect(closed).toBe(0);
+    expect(h.exits).toEqual([]);
+
+    // 起動が終わったところで初めて閉じられる。
+    ready({ close: async () => { closed++; } });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(closed).toBe(1);
+    expect(h.exits).toEqual([0]);
+  });
+
+  it('信号が重なっても close() は 1 度だけ走る', async () => {
+    const h = host();
+    let closed = 0;
+    installShutdown(Promise.resolve({ close: async () => { closed++; } }), h.opts);
+    h.handlers.get('SIGTERM')!();
+    h.handlers.get('SIGINT')!();
+    h.handlers.get('SIGTERM')!();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(closed).toBe(1);
+    expect(h.exits).toEqual([0]);
+  });
+
+  it('起動そのものが転んでも降りる', async () => {
+    const h = host();
+    installShutdown(Promise.reject(new Error('listen EADDRINUSE')), h.opts);
+    h.handlers.get('SIGTERM')!();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(h.exits).toEqual([0]);
+  });
+
+  it('後始末が終わらなくても番犬が降ろす', async () => {
+    const handlers = new Map<string, () => void>();
+    const exits: number[] = [];
+    installShutdown(Promise.resolve({ close: () => new Promise<void>(() => {}) }), {
+      on: (sig, hh) => { handlers.set(sig, hh); },
+      exit: (c) => { exits.push(c); },
+      watchdogMs: 20,
+    });
+    handlers.get('SIGTERM')!();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(exits).toEqual([0]);
   });
 });
 
@@ -537,6 +682,9 @@ describe('一時停止は外と話さない', () => {
     saveCloudConfig(home, { url: rec.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
     try {
+      // 最初の同期は起動を待たせない（信号の受け口を /health より前に立てるためである）。
+      // だから往復は startServer が返った少し後に出る。出るまで待つ。
+      for (let i = 0; i < 300 && rec.seen.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
       expect(rec.seen.length).toBeGreaterThan(0);
     } finally {
       await s.close();

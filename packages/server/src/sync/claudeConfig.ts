@@ -452,6 +452,13 @@ export class ClaudeConfigSync {
    * uploader と同じ作法で 1 本に並べ、putFile が重ならないようにする。
    */
   private chain: Promise<unknown> = Promise.resolve();
+  /**
+   * `stop()` を通ったか。
+   * 鎖に並んだ押し出しは、並んだ時点ではまだ走っていない。
+   * 止めた後に走り出すと、閉じたデータベースと畳んだ通信に触れる（SyncEngine と同じ穴である）。
+   * 起こしていない相手にも `pushChanged()` を呼べる作りなので、`started` ではなくこの向きで持つ。
+   */
+  private stopped = false;
 
   constructor(private readonly deps: ClaudeConfigDeps) {}
 
@@ -530,6 +537,7 @@ export class ClaudeConfigSync {
   }
 
   start(): void {
+    this.stopped = false;
     if (this.watcher) return;
     try {
       this.watcher = fs.watch(this.deps.claudeDir, { recursive: true }, (_e, name) => {
@@ -548,7 +556,13 @@ export class ClaudeConfigSync {
     this.noteChanged();
   }
 
+  /**
+   * 止める。
+   * 印を立てると、鎖に並んでいる押し出しは先頭の検査で譲るので、以後は 1 件も上げない。
+   * 既に走り出している押し出しは最後まで走る。呼び手は `idle()` で待ち合わせてから止める。
+   */
   stop(): void {
+    this.stopped = true;
     this.watcher?.close();
     this.watcher = null;
     if (this.timer) this.timers.clearTimeout(this.timer);
@@ -584,7 +598,7 @@ export class ClaudeConfigSync {
    * 呼び手が誰であっても鎖に並ぶので、デバウンスと定期の呼び出しが重なっても二重に上げない。
    */
   async pushChanged(): Promise<number> {
-    return this.enqueue(() => this.pushChangedNow());
+    return this.enqueue(() => (this.stopped ? Promise.resolve(0) : this.pushChangedNow()));
   }
 
   private async pushChangedNow(): Promise<number> {

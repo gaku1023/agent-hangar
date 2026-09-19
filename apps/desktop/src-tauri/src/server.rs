@@ -27,6 +27,15 @@ pub struct ServerProcess {
     child: Child,
 }
 
+/// サーバの番犬が `process.exit(0)` を呼ぶまでの秒数。
+/// 正本は `packages/server/src/server.ts` の `STOP_WATCHDOG_MS` で、ここはその写しである。
+/// 片方だけ変えると `packages/server/src/server.test.ts` の「終了の時間の予算」が落ちる。
+pub const SERVER_WATCHDOG_SECS: u64 = 8;
+
+/// 猶予は番犬より後でなければならない。
+/// 逆にすると、サーバが自分で降りて `db.close()` を呼ぶ前に SIGKILL が届く。
+const _: () = assert!(ServerProcess::STOP_GRACE.as_secs() > SERVER_WATCHDOG_SECS);
+
 /// `node server.mjs` を起動する。標準出力と標準エラーはログファイルに追記する。
 /// UI と Worker のソースは同梱の場所を環境変数で教える。
 /// 単一ファイルにまとめた server.mjs と cli.mjs からは、相対では届かないためである。
@@ -63,12 +72,17 @@ impl ServerProcess {
     }
 
     /// SIGTERM を送ってから SIGKILL に移るまでの猶予。
-    /// サーバの `close` は、走っている押し出しと要約が終わるのを最悪で
-    /// config 3 秒、uploader 3 秒、sync 3 秒、summary 5 秒まで待つ（`packages/server/src/server.ts`）。
-    /// 猶予が短いと、その待ちの最中に切られて書きかけの押し出しが落ちる。
-    /// 普段は待ちが起きないので SIGTERM の直後に終わり、この猶予は使い切らない。
-    /// 8 秒は最悪の場合の保険である。
-    pub const STOP_GRACE: Duration = Duration::from_secs(8);
+    ///
+    /// 終了の時間は 3 つの数が噛み合っていなければならない。
+    /// 決め方の正本は `packages/server/src/server.ts` の `CLOSE_DEADLINE_MS` の説明である。
+    ///
+    /// 1. `close()` 全体の締め切り（5 秒）。
+    /// 2. サーバの番犬（`SERVER_WATCHDOG_SECS`、8 秒）。締め切りより後でなければ `db.close()` に届かない。
+    /// 3. この猶予。番犬より後でなければ、サーバが自分で降りる前に殺される。
+    ///
+    /// 普段は待つものが無いので SIGTERM の直後に終わり、この猶予は使い切らない。
+    /// 10 秒は最悪の場合の保険である。
+    pub const STOP_GRACE: Duration = Duration::from_secs(10);
 
     /// SIGTERM を送って猶予まで待ち、まだ生きていれば SIGKILL。サーバは SIGTERM で DB を閉じてから終わる。
     pub fn stop(&mut self) {

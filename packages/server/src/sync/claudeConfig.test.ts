@@ -230,6 +230,37 @@ describe('push', () => {
     c.stop();
   });
 
+  it('stop の後は鎖に並んだ押し出しを走らせない', async () => {
+    write('CLAUDE.md', 'a\n');
+    const c = make();
+    // クラウドが応答しない状況を作る。手を離すまで putFile は返らない。
+    const waiting: (() => void)[] = [];
+    let answering = false;
+    const realPut = cloud.putFile.bind(cloud);
+    cloud.putFile = ((meta: Parameters<typeof realPut>[0], body: Parameters<typeof realPut>[1]) => {
+      if (answering) return realPut(meta, body);
+      return new Promise((resolve, reject) => { waiting.push(() => { realPut(meta, body).then(resolve, reject); }); });
+    }) as typeof cloud.putFile;
+
+    const first = c.pushChanged();
+    // 1 件目が putFile の中で止まるまで進める。
+    for (let i = 0; i < 100 && waiting.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(waiting.length).toBe(1);
+
+    // 1 件目が返らないあいだに、2 件目が鎖の後ろへ並ぶ。
+    write('memory/x.md', 'b\n');
+    const second = c.pushChanged();
+    c.stop();
+
+    // 止めた後で応答を返す。
+    answering = true;
+    for (const w of waiting.splice(0)) w();
+    expect(await first).toBe(1);
+    // 止めたら止まる。鎖に並んだ押し出しは 1 件も上げない。
+    expect(await second).toBe(0);
+    expect([...cloud.files.keys()]).toEqual(['config/dev-a/CLAUDE.md']);
+  });
+
   it('変化の 5 秒後にまとめて 1 回だけ上げる', async () => {
     const c = make({ debounceMs: 5000 });
     write('CLAUDE.md', 'a\n');
