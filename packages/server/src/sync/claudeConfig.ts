@@ -443,8 +443,39 @@ export class ClaudeConfigSync {
    * 起こし直すと忘れるので、そのときだけもう一度鳴る（Task 14 と同じ割り切りである）。
    */
   private readonly reportedErrors = new Map<string, string>();
+  /**
+   * 上げる仕事を並べる 1 本の鎖。
+   *
+   * 押し出しは 2 か所から始まる。
+   * 1 つは監視のデバウンス（noteChanged のタイマー）で、もう 1 つは server.ts の定期の呼び出しである。
+   * 並べずに走らせると、両方が同じ file_sync を読んでから書くので、同じファイルを二重に上げる。
+   * uploader と同じ作法で 1 本に並べ、putFile が重ならないようにする。
+   */
+  private chain: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly deps: ClaudeConfigDeps) {}
+
+  /** 仕事を鎖の末尾につなぐ。前の仕事が転んでも次は走る。 */
+  private enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.chain.then(work, work);
+    this.chain = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  /**
+   * いま鎖に並んでいる仕事が終わるまで待つ。
+   *
+   * タイマー越しに始まった押し出しは誰も約束を持たないので、テストと終了処理はここで待ち合わせる。
+   * マイクロタスクを何回流したかに頼って待つと、zlib のように別の糸で進む処理の終わる回が
+   * 端末によって変わり、macOS では通って Linux では落ちる試験になる。
+   */
+  async idle(): Promise<void> {
+    for (;;) {
+      const c = this.chain;
+      await c.then(() => undefined, () => undefined);
+      if (this.chain === c) return; // 待っている間に新しい仕事が並んだら、それも待つ。
+    }
+  }
 
   /** 印が前と同じなら黙る。違えば鳴らして覚え直す。 */
   private reportOnce(id: string, stamp: string, message: string): void {
@@ -530,7 +561,7 @@ export class ClaudeConfigSync {
    */
   noteChanged(): void {
     if (this.timer) return;
-    this.timer = this.timers.setTimeout(() => { this.timer = null; void this.pushChanged(); }, this.deps.debounceMs ?? 5000);
+    this.timer = this.timers.setTimeout(() => { this.timer = null; void this.pushChanged().catch(() => {}); }, this.deps.debounceMs ?? 5000);
     (this.timer as { unref?: () => void }).unref?.();
   }
 
@@ -548,7 +579,15 @@ export class ClaudeConfigSync {
       .run(e.key, 'config', e.path, e.deviceId, sha, e.size, e.mtime, e.seq, this.now());
   }
 
+  /**
+   * 変わった設定ファイルを上げる。
+   * 呼び手が誰であっても鎖に並ぶので、デバウンスと定期の呼び出しが重なっても二重に上げない。
+   */
   async pushChanged(): Promise<number> {
+    return this.enqueue(() => this.pushChangedNow());
+  }
+
+  private async pushChangedNow(): Promise<number> {
     if (!this.deps.enabled()) return 0;
     let n = 0;
     for (const f of listConfigFiles(this.deps.claudeDir, this.homeDir())) {

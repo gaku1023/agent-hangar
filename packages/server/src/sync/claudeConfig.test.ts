@@ -223,6 +223,9 @@ describe('push', () => {
     c.start();
     expect(cloud.files.size).toBe(0);
     await timers.advance(5000);
+    // タイマー越しに始まった押し出しは誰も約束を持たないので、鎖が空になるまで待つ。
+    // マイクロタスクの回数で待つと、zlib の終わる回が端末ごとに違うぶん Linux で落ちる。
+    await c.idle();
     expect([...cloud.files.keys()].sort()).toEqual(['config/dev-a/CLAUDE.md', 'config/dev-a/memory/x.md']);
     c.stop();
   });
@@ -235,6 +238,7 @@ describe('push', () => {
     c.noteChanged();
     expect(cloud.files.size).toBe(0);
     await timers.advance(5000);
+    await c.idle();
     expect([...cloud.files.keys()].sort()).toEqual(['config/dev-a/CLAUDE.md', 'config/dev-a/memory/x.md']);
     c.stop();
     expect(timers.pendingCount()).toBe(0);
