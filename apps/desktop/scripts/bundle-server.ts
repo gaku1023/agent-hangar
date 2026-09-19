@@ -32,6 +32,16 @@ const SKIP_IN_NATIVE = /^(deps|src|test|third_party|scripts|node_modules|binding
 /** packages/cloud のうち、Worker のデプロイに要らない中身。 */
 const SKIP_IN_CLOUD = /^(test|node_modules|\.wrangler)(\/|$)/;
 
+/** UI の写しのうち、配布物に要らない中身。 */
+const SKIP_IN_UI = /\.map$/;
+
+/**
+ * 同梱した cloud/ に置く目印の名前。
+ * packages/cli/src/cloud.ts の requireCloudDir() がこの名前を見て、配布版からのデプロイを断る。
+ * 片方だけ変えると断れなくなるので、名前は両方で揃える（試験が両側を押さえている）。
+ */
+export const BUNDLED_CLOUD_MARKER = '.bundled';
+
 const BANNER = "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);";
 
 /** prebuilds の下で、同梱するアーキ以外を落とす。ファイル（better-sqlite3）でもディレクトリ（node-pty）でも効くようにする。 */
@@ -66,6 +76,10 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
     throw new Error(`UI のビルドがありません: ${opts.uiDist}（先に npm run build を実行してください）`);
   }
   emptyDir(opts.outDir);
+  // .gitkeep は消した直後に置き直す。
+  // git が追跡しているファイルなので、この先の失敗で消えたまま残すと、
+  // 作業ツリーに deleted が出て、tauri-build の resources の検査も通らなくなる。
+  fs.writeFileSync(path.join(opts.outDir, '.gitkeep'), '');
 
   const entries = [
     ['packages/server/src/main.ts', 'server.mjs'],
@@ -85,7 +99,10 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
     });
   }
 
-  fs.cpSync(opts.uiDist, path.join(opts.outDir, 'ui'), { recursive: true });
+  // sourcemap は配布物に入れない。
+  // UI の写しの 68 パーセント（実測 2.19 MB）が index-*.js.map で、利用者の役には立たない。
+  // 開発では packages/ui/dist をそのまま使うので、こちらの写しから落としても調査の手は減らない。
+  copyTree(opts.uiDist, path.join(opts.outDir, 'ui'), SKIP_IN_UI);
 
   for (const m of NATIVE_MODULES) {
     const src = path.join(opts.repoRoot, 'node_modules', m);
@@ -97,6 +114,12 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
   // 単一ファイルにまとめると CLI から packages/cloud への相対が届かなくなるので、bin/hangar が
   // HANGAR_CLOUD_DIR でここを指す。
   copyTree(path.join(opts.repoRoot, 'packages/cloud'), path.join(opts.outDir, 'cloud'), SKIP_IN_CLOUD);
+  // 同梱した写しである目印を置く。
+  // ここには wrangler も hono も入っていないのでデプロイはできないが、
+  // .app をリポジトリの中や node_modules を持つディレクトリの下に置くと、親をたどって拾った
+  // wrangler のせいで検査が素通りし、実物のアカウントに資源を作ってしまう。
+  // 名前は packages/cli/src/cloud.ts の BUNDLED_CLOUD_MARKER と合わせる。
+  fs.writeFileSync(path.join(opts.outDir, 'cloud', BUNDLED_CLOUD_MARKER), 'agent-hangar: 配布版に同梱した packages/cloud の写しです。ここからはデプロイできません。\n');
 
   fs.mkdirSync(path.join(opts.outDir, 'bin'));
   fs.copyFileSync(fileURLToPath(new URL('./hangar.sh', import.meta.url)), path.join(opts.outDir, 'bin', 'hangar'));

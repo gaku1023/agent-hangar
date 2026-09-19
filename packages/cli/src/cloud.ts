@@ -61,20 +61,58 @@ export function defaultCloudDir(): string {
 }
 
 /**
+ * 配布版の .app に同梱した cloud/ の目印。
+ * 同梱の写しには wrangler も hono も入っていないので、そこからはデプロイできない。
+ * apps/desktop/scripts/bundle-server.ts がこの名前のファイルを置く。
+ */
+export const BUNDLED_CLOUD_MARKER = '.bundled';
+
+/**
+ * wrangler deploy が読むもの。
+ * wrangler だけを見ていると、hono や共有パッケージが無い環境でデプロイの途中で分かりにくく落ちる。
+ */
+const CLOUD_DEPS: [specifier: string, name: string][] = [
+  ['wrangler/package.json', 'wrangler'],
+  ['hono', 'hono'],
+  ['@agent-hangar/shared', '@agent-hangar/shared'],
+];
+
+/**
  * Worker のデプロイに要るものが揃っているかを確かめてから場所を返す。
  * 揃っていなければ、何がどこに無いのかを述べて止める。
  * 黙って wrangler を呼ぶと、意味の分からない終了コードだけが残る。
+ *
+ * 依存の解決だけでは足りない。
+ * createRequire の解決は親をたどるので、.app をリポジトリの中や node_modules を持つディレクトリの下に
+ * 置くと、無関係な wrangler を拾って検査が素通りし、実物のアカウントに資源を作ってしまう。
+ * そのため、同梱の写しであること自体を目印で先に見る。
  */
 export function requireCloudDir(): string {
   const dir = defaultCloudDir();
   const where = process.env.HANGAR_CLOUD_DIR ? 'HANGAR_CLOUD_DIR' : 'この CLI の置き場からの相対';
-  if (!fs.existsSync(path.join(dir, 'src', 'index.ts'))) {
-    throw new Error(`Worker のソース（src/index.ts）が ${dir} にありません（${where}で決めました）。HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
+  for (const rel of [['src', 'index.ts'], ['wrangler.jsonc'], ['package.json']]) {
+    if (!fs.existsSync(path.join(dir, ...rel))) {
+      throw new Error(`Worker のソース（${rel.join('/')}）が ${dir} にありません（${where}で決めました）。HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
+    }
   }
+  let name: string | undefined;
   try {
-    createRequire(path.join(dir, 'package.json')).resolve('wrangler/package.json');
+    name = (JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')) as { name?: string }).name;
   } catch {
-    throw new Error(`wrangler が ${dir} から見つかりません。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行してください`);
+    name = undefined;
+  }
+  if (name !== '@agent-hangar/cloud') {
+    throw new Error(`${dir} は packages/cloud ではありません（${where}で決めました。package.json の name は ${name ?? '読めません'}）。HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
+  }
+  if (fs.existsSync(path.join(dir, BUNDLED_CLOUD_MARKER))) {
+    throw new Error(`${dir} は配布版に同梱した写しなので、ここからはデプロイできません。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行してください`);
+  }
+  for (const [specifier, dep] of CLOUD_DEPS) {
+    try {
+      createRequire(path.join(dir, 'package.json')).resolve(specifier);
+    } catch {
+      throw new Error(`${dep} が ${dir} から見つかりません。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行してください`);
+    }
   }
   return dir;
 }

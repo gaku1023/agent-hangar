@@ -994,4 +994,58 @@ describe('Worker のソースの置き場', () => {
     expect(() => requireCloudDir()).toThrow(/HANGAR_CLOUD_DIR/);
     expect(() => requireCloudDir()).toThrow(/src\/index\.ts/);
   });
+
+  /**
+   * packages/cloud の見た目をした一式を作る。
+   * 依存は親の node_modules に置くので、createRequire の解決が親をたどる様子をそのまま再現できる。
+   */
+  function fakeCloudTree(o: { deps: string[]; bundled?: boolean; name?: string }): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cloudtree-'));
+    temps.push(root);
+    for (const d of o.deps) {
+      const dir = path.join(root, 'node_modules', d);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: d, version: '0.0.0', main: 'index.js' }));
+      fs.writeFileSync(path.join(dir, 'index.js'), 'module.exports = {};\n');
+    }
+    // .app の置き場に相当する一段下に、同梱された cloud/ の写しを作る。
+    const dir = path.join(root, 'app', 'cloud');
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src', 'index.ts'), 'export default {};\n');
+    fs.writeFileSync(path.join(dir, 'wrangler.jsonc'), '{}\n');
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: o.name ?? '@agent-hangar/cloud', version: '0.0.0' }));
+    if (o.bundled) fs.writeFileSync(path.join(dir, '.bundled'), 'bundled\n');
+    return dir;
+  }
+
+  const ALL_DEPS = ['wrangler', 'hono', '@agent-hangar/shared'];
+
+  it('wrangler が無ければ、どこから実行すればよいかを述べて止まる', () => {
+    process.env.HANGAR_CLOUD_DIR = fakeCloudTree({ deps: ['hono', '@agent-hangar/shared'] });
+    expect(() => requireCloudDir()).toThrow(/wrangler が/);
+    expect(() => requireCloudDir()).toThrow(/clone して npm install/);
+  });
+
+  it('wrangler があっても hono が無ければ止まる。deploy の途中で分かりにくく落ちるより先に断る', () => {
+    process.env.HANGAR_CLOUD_DIR = fakeCloudTree({ deps: ['wrangler', '@agent-hangar/shared'] });
+    expect(() => requireCloudDir()).toThrow(/hono が/);
+  });
+
+  it('同梱の写しなら、親から wrangler を拾える置き場でも止まる', () => {
+    // レビューでの事故の再現。
+    // .app を node_modules のあるディレクトリの下に置くと、親をたどった wrangler で検査が素通りし、
+    // 実物のアカウントに資源を作ってしまった。
+    const bundled = fakeCloudTree({ deps: ALL_DEPS, bundled: true });
+    process.env.HANGAR_CLOUD_DIR = bundled;
+    expect(() => requireCloudDir()).toThrow(/配布版に同梱した写し/);
+
+    // 目印を外すと同じ置き場が通る。止めているのは目印であって、依存の有無ではない。
+    fs.rmSync(path.join(bundled, '.bundled'));
+    expect(requireCloudDir()).toBe(bundled);
+  });
+
+  it('packages/cloud でないディレクトリなら、name を挙げて止まる', () => {
+    process.env.HANGAR_CLOUD_DIR = fakeCloudTree({ deps: ALL_DEPS, name: '@agent-hangar/server' });
+    expect(() => requireCloudDir()).toThrow(/packages\/cloud ではありません/);
+  });
 });
