@@ -48,8 +48,10 @@ describe('TranscriptUploader', () => {
     const up = make();
     up.noteChanged({ path: mainFile(), sessionId: UUID, agentId: null });
     await timers.advance(29_000);
+    await up.idle();
     expect(cloud.files.size).toBe(0);
     await timers.advance(1_000);
+    await up.idle();
     expect([...cloud.files.keys()]).toEqual([MAIN_KEY]);
     expect(await plain(MAIN_KEY)).toBe('{"a":1}\n');
     expect(cloud.files.get(MAIN_KEY)!.entry).toMatchObject({
@@ -94,6 +96,7 @@ describe('TranscriptUploader', () => {
     await up.flushSession(UUID);
     expect(puts()).toBe(1);
     await timers.advance(60_000);
+    await up.idle();
     expect(puts()).toBe(1);
     fs.appendFileSync(mainFile(), '{"a":2}\n');
     await up.flushSession(UUID);
@@ -115,6 +118,7 @@ describe('TranscriptUploader', () => {
     const up = make();
     up.noteChanged({ path: mainFile(), sessionId: UUID, agentId: null });
     await timers.advance(30_000);
+    await up.idle();
     expect(errors.map((e) => e.message)).toEqual(['offline']);
     expect((db.prepare('select count(*) c from file_sync').get() as { c: number }).c).toBe(0);
     cloud.offline = false;
@@ -128,6 +132,7 @@ describe('TranscriptUploader', () => {
     up.stop();
     up.noteChanged({ path: mainFile(), sessionId: UUID, agentId: null });
     await timers.advance(60_000);
+    await up.idle();
     expect(puts()).toBe(0);
     expect(timers.pendingCount()).toBe(0);
   });
@@ -137,6 +142,7 @@ describe('TranscriptUploader', () => {
     const up = make();
     up.noteChanged({ path: mainFile(), sessionId: bad, agentId: null });
     await timers.advance(30_000);
+    await up.idle();
     expect(errors).toHaveLength(1);
     expect(errors[0]!.message).not.toContain(bad);
     expect(puts()).toBe(0);

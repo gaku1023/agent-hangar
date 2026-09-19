@@ -73,6 +73,19 @@ export class TranscriptUploader {
     return next;
   }
 
+  /**
+   * いま鎖に並んでいる仕事が終わるまで待つ。
+   * タイマー越しに始まった上げ（`noteChanged` の窓）は誰も約束を持たないので、
+   * テストと終了処理はここで待ち合わせる。マイクロタスクの回数に頼らない。
+   */
+  async idle(): Promise<void> {
+    for (;;) {
+      const c = this.chain;
+      await c.then(() => undefined, () => undefined);
+      if (this.chain === c) return; // 待っている間に新しい仕事が並んだら、それも待つ。
+    }
+  }
+
   flushAll(): Promise<void> {
     return this.enqueue(async () => { for (const f of [...this.pending.values()]) await this.attempt(f); });
   }
