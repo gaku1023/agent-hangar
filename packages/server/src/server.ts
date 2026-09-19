@@ -31,7 +31,7 @@ import { ClaudeHeadlessSummarizer } from './summary/claude.ts';
 import { SummaryJob } from './summary/job.ts';
 import { LmStudioSummarizer } from './summary/lmstudio.ts';
 import type { Summarizer } from './summary/types.ts';
-import { writeMemoConflictCopy } from './sync/apply.ts';
+import { writeMemoConflictCopy, type SessionMemoBackup } from './sync/apply.ts';
 import { ClaudeConfigSync } from './sync/claudeConfig.ts';
 import { HttpCloudClient, type CloudClient } from './sync/client.ts';
 import { copyTranscriptForResume } from './sync/copy.ts';
@@ -62,23 +62,58 @@ const FLUSH_AGAIN_MS = 5_000;
 const CONFIG_PUSH_MS = 60_000;
 
 /**
- * R2 への出し入れを無料枠の勘定に入れるための包み。
- * SyncEngine は自分の要求を自分で数えるが、本文と設定の上げ下ろしは engine を通らないので、
- * ここで数えないと「課金されない」という約束が勘定の抜けで崩れる。
- * 止めるのは engine の guardQuota に任せる（止めた日を覚えていて、再開の直後に押し返さない）。
+ * `PUT /files/<鍵>` が D1 に書く行数。
+ * Worker は R2 に置いた後、`files` の delete と insert、`devices` の last_seen_at を 1 つの batch で書く
+ * （`packages/cloud/src/files.ts` の 239 行から 246 行）。
+ * R2 に置くことだけを数えると、D1 の 80% の見張りが実際の 3 分の 1 の速さでしか動かない。
  */
-function countingClient(inner: CloudClient, quota: QuotaCounter): CloudClient {
-  const note = <T>(p: Promise<T>): Promise<T> => { quota.note({ requests: 1 }); return p; };
+export const D1_WRITES_PER_FILE_PUT = 3;
+/**
+ * `DELETE /files/<鍵>` が D1 に書く行数。
+ * `files` から 1 行消すだけである（同 269 行）。R2 の削除は D1 に書かない。
+ */
+export const D1_WRITES_PER_FILE_DELETE = 1;
+
+/**
+ * R2 への出し入れを無料枠の勘定に入れるための包み。
+ *
+ * 数えるのは **SyncEngine が自分で数えない経路だけ**である。
+ * `pushChanges`、`pullChanges`、`snapshot` は engine が `request()` と `doPush` の中で数えるので、
+ * ここで掛けると同じ要求を 2 回数えて、枠の見張りが実際の半分の位置で止める。
+ * 止めるのは engine の `guardQuota` に任せる（止めた日を覚えていて、再開の直後に押し返さない）。
+ */
+export function countingClient(inner: CloudClient, quota: QuotaCounter): CloudClient {
+  const note = <T>(rows: number, p: Promise<T>): Promise<T> => { quota.note({ requests: 1, rows }); return p; };
   return {
-    health: () => note(inner.health()),
-    pushChanges: (c) => note(inner.pushChanges(c)),
-    pullChanges: (s, l) => note(inner.pullChanges(s, l)),
-    snapshot: (a, l) => note(inner.snapshot(a, l)),
-    putFile: (m: FileMetaIn, b) => note(inner.putFile(m, b)),
-    getFile: (k) => note(inner.getFile(k)),
-    listFiles: (s, l) => note(inner.listFiles(s, l)),
-    deleteFile: (k) => note(inner.deleteFile(k)),
+    health: () => note(0, inner.health()),
+    // engine が数える 3 つは素通しにする。
+    pushChanges: (c) => inner.pushChanges(c),
+    pullChanges: (s, l) => inner.pullChanges(s, l),
+    snapshot: (a, l) => inner.snapshot(a, l),
+    putFile: (m: FileMetaIn, b) => note(D1_WRITES_PER_FILE_PUT, inner.putFile(m, b)),
+    // 降ろすのと一覧は読むだけで、D1 には 1 行も書かない。
+    getFile: (k) => note(0, inner.getFile(k)),
+    listFiles: (s, l) => note(0, inner.listFiles(s, l)),
+    deleteFile: (k) => note(D1_WRITES_PER_FILE_DELETE, inner.deleteFile(k)),
   };
+}
+
+/**
+ * セッションのメモを他端末の新しい版で置き換えたときの知らせ。
+ * 控えはもうファイルになっているので、利用者に伝えるのは「どこに残したか」である。
+ */
+export function sessionMemoBackupMessage(o: SessionMemoBackup): string {
+  return `セッションのメモを ${o.deviceName} の新しい内容で置き換えました。手元の内容は ${o.backupFile} に残してあります`;
+}
+
+/**
+ * Claude Code 設定の同期が外と話してよいか。
+ * 切っているときはもちろん、一時停止のあいだも押し出さない。
+ * 「一時停止」は外と話すのをやめることで、無料枠の 80% で自分から止まったときも同じである（決定 4）。
+ * `ClaudeConfigSync` は `enabled()` しか見ないので、判定はこちらで組み立てて渡す。
+ */
+export function configSyncActive(o: { syncClaudeConfig: boolean; paused: boolean }): boolean {
+  return o.syncClaudeConfig && !o.paused;
 }
 
 /**
@@ -221,6 +256,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   }
   const toast = (level: 'info' | 'error', message: string) => hub.broadcast({ type: 'toast', level, message });
   const syncState = new SyncStateStore(db);
+  /** 同期が止まっているか。利用者が押した一時停止も、枠の 80% で自分から止まった分もここに出る。 */
+  const isPaused = (): boolean => engine.status().state === 'paused';
   const rawClient = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
   const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
   const engine = new SyncEngine({
@@ -231,20 +268,23 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const file = writeMemoConflictCopy(memos.memoPath(o.projectId), o);
       toast('info', `メモが競合しました。手元の内容を ${path.basename(file)} に残しました`);
     },
+    // 控えはもうファイルになっている。ここでやるのは置き場を知らせることだけである。
+    onSessionMemoBackup: (o) => toast('info', sessionMemoBackupMessage(o)),
   });
   // 本文と設定の出し入れは engine を通らないので、無料枠の勘定に入るように包んでから渡す。
   const client = rawClient ? countingClient(rawClient, engine.quota) : null;
   const uploader = client
     ? new TranscriptUploader({
         db, deviceId: device.id, claudeDir, client, key: fileKey, state: syncState,
-        isPaused: () => engine.status().state === 'paused',
+        isPaused,
         onError: (p, m) => console.error('[upload]', p, m),
       })
     : null;
   const configSync = client
     ? new ClaudeConfigSync({
         db, deviceId: device.id, deviceName: device.name, claudeDir, home, client, key: fileKey, state: syncState,
-        enabled: () => settings.syncClaudeConfig, onToast: toast,
+        // 切っているときと一時停止のあいだは押し出さない。fs.watch からの push もここを通る。
+        enabled: () => configSyncActive({ syncClaudeConfig: settings.syncClaudeConfig, paused: isPaused() }), onToast: toast,
       })
     : null;
   const puller = client
@@ -384,6 +424,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
    */
   let filePull: Promise<unknown> = Promise.resolve();
   const pullFiles = (): Promise<unknown> => {
+    // 一時停止のあいだは降ろしにも行かない。止めた意味が無くなる。
+    if (isPaused()) return filePull;
     filePull = filePull
       .catch(() => undefined)
       .then(() => puller?.pullNow())
@@ -538,8 +580,12 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   if (puller) await pullFiles();
   configSync?.start();
   // fs.watch の recursive は Linux では効かない。定期の push を足しておけば、監視が無くても揃う。
+  // 一時停止のあいだは押し出さない（pushChanged 自身も enabled() で同じ判定を通る）。
   const configTimer = configSync
-    ? setInterval(() => { void configSync.pushChanged().catch((e: unknown) => console.error('[config]', e instanceof Error ? e.message : e)); }, CONFIG_PUSH_MS)
+    ? setInterval(() => {
+        if (isPaused()) return;
+        void configSync.pushChanged().catch((e: unknown) => console.error('[config]', e instanceof Error ? e.message : e));
+      }, CONFIG_PUSH_MS)
     : null;
   configTimer?.unref();
 

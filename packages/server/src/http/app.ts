@@ -416,7 +416,9 @@ export function createApp(deps: AppDeps): Hono {
       const live = deps.live();
       for (const p of listProjects(db, deviceId, live)) deps.hub.broadcast({ type: 'project.upsert', project: p });
       for (const id of unassigned) {
-        const sess = getSession(db, live, id);
+        // 配信にも自端末の ID を渡す。ここだけ抜けると、サーバはロックを持っているのに
+        // ロック無しの SessionDto が配られ、UI の store がそれで置き換えて画面から消える。
+        const sess = getSession(db, live, id, { deviceId });
         if (sess?.projectId) deps.hub.broadcast({ type: 'session.upsert', session: sess });
       }
     }

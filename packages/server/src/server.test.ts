@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,7 +7,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { ServerEvent, SessionDto } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
+import { Readable } from 'node:stream';
 import { saveCloudConfig } from './config/cloud.ts';
+import { dbPath } from './config/paths.ts';
+import { QuotaCounter } from './sync/quota.ts';
+import { SyncStateStore } from './sync/state.ts';
 import { openDb } from './db/open.ts';
 import { upsertShared } from './db/shared.ts';
 import { IndexerService } from './indexer/service.ts';
@@ -15,7 +20,7 @@ import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../test/fixtures.ts';
-import { checkRoots, CLOSE_SUMMARY_WAIT_MS, CLOSE_UPLOAD_WAIT_MS, RUN_ENDED_SUMMARY_OPTS, startServer, stopUploader, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_SUMMARY_WAIT_MS, CLOSE_UPLOAD_WAIT_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, RUN_ENDED_SUMMARY_OPTS, startServer, stopUploader, waitForSummaryIdle, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -498,6 +503,144 @@ describe('close の本文の上げ待ち', () => {
     // 上限は数秒に収める。終了が転送に引きずられない長さである。
     expect(CLOSE_UPLOAD_WAIT_MS).toBeGreaterThanOrEqual(1000);
     expect(CLOSE_UPLOAD_WAIT_MS).toBeLessThanOrEqual(5000);
+  });
+});
+
+describe('一時停止は外と話さない', () => {
+  /** 受けた要求を記録するだけの立て替えの Worker。実物のクラウドには触らない。 */
+  async function recorder(): Promise<{ url: string; seen: string[]; close: () => Promise<void> }> {
+    const seen: string[] = [];
+    const srv = http.createServer((req, res) => {
+      seen.push(`${req.method} ${(req.url ?? '').split('?')[0]}`);
+      req.resume();
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.end('{"error":"no"}');
+    });
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const port = (srv.address() as net.AddressInfo).port;
+    return {
+      url: `http://127.0.0.1:${port}`,
+      seen,
+      close: async () => { srv.closeAllConnections?.(); await new Promise<void>((r) => srv.close(() => r())); },
+    };
+  }
+
+  /** startServer より先に DB を作って、同期を止めた状態にしておく。 */
+  function presetPaused(): void {
+    const db = openDb(dbPath(home));
+    try { db.prepare("insert into sync_state (key, value) values ('paused', '1') on conflict(key) do update set value = '1'").run(); } finally { db.close(); }
+  }
+
+  it('止めていなければ起動でクラウドを叩く', async () => {
+    // この確かめ方でクラウドとの往復が見えることを、先に固定しておく。
+    const rec = await recorder();
+    saveCloudConfig(home, { url: rec.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      expect(rec.seen.length).toBeGreaterThan(0);
+    } finally {
+      await s.close();
+      await rec.close();
+    }
+  });
+
+  it('一時停止のあいだは、起動のファイルの取り込みも含めて 1 度も叩かない', async () => {
+    // 「一時停止」は外と話すのをやめることである。無料枠 80% で自分から止まったときも同じである。
+    // 止まっているあいだに R2 へ出入りする経路が残っていると、課金されない約束が崩れる。
+    const rec = await recorder();
+    saveCloudConfig(home, { url: rec.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    presetPaused();
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const status = await (await fetch(`http://127.0.0.1:${s.port}/api/sync/status`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json() as { state: string };
+      expect(status.state).toBe('paused');
+      expect(rec.seen).toEqual([]);
+    } finally {
+      await s.close();
+      await rec.close();
+    }
+  });
+
+  it('設定の同期は、切っているときと一時停止のあいだは押し出さない', () => {
+    // fs.watch からの push も 60 秒ごとの push も、この判定を通ってから出る。
+    expect(configSyncActive({ syncClaudeConfig: true, paused: false })).toBe(true);
+    expect(configSyncActive({ syncClaudeConfig: true, paused: true })).toBe(false);
+    expect(configSyncActive({ syncClaudeConfig: false, paused: false })).toBe(false);
+    expect(configSyncActive({ syncClaudeConfig: false, paused: true })).toBe(false);
+  });
+});
+
+describe('セッションのメモの控えの知らせ', () => {
+  it('どの端末に負けて、どこに残したかを言う', () => {
+    // 控えはもうファイルになっている。知らせが無いと、利用者は消えたようにしか見えない。
+    const m = sessionMemoBackupMessage({ sessionId: 's1', markdown: '手元のメモ', deviceName: 'mini', backupFile: '/tmp/backups/memos/session-s1-20260919-101112.md' });
+    expect(m).toContain('mini');
+    expect(m).toContain('/tmp/backups/memos/session-s1-20260919-101112.md');
+    // 本文そのものはトーストに出さない（メモは長い文章になりうる）。
+    expect(m).not.toContain('手元のメモ');
+  });
+});
+
+describe('無料枠の勘定', () => {
+  /** 呼ばれた名前を記録するだけの立て替え。中身は使わない。 */
+  const stubClient = (calls: string[]) => ({
+    health: async () => { calls.push('health'); return { ok: true, version: 'v' }; },
+    pushChanges: async () => { calls.push('pushChanges'); return { seq: 1, accepted: 1, skipped: 0 }; },
+    pullChanges: async () => { calls.push('pullChanges'); return { changes: [], nextSeq: 0, more: false }; },
+    snapshot: async () => { calls.push('snapshot'); return { changes: [], nextAfter: null, seq: 0 }; },
+    putFile: async () => { calls.push('putFile'); return { seq: 1 }; },
+    getFile: async () => { calls.push('getFile'); return Readable.from([]); },
+    listFiles: async () => { calls.push('listFiles'); return { files: [], nextSeq: 0, more: false }; },
+    deleteFile: async () => { calls.push('deleteFile'); },
+  });
+
+  const counter = () => {
+    const db = openDb(':memory:');
+    return { db, quota: new QuotaCounter({ state: new SyncStateStore(db) }) };
+  };
+
+  it('エンジンが自分で数える経路には二重に掛けない', async () => {
+    // push と pull と写しは SyncEngine が自分で数える。包みでも数えると 2 倍になる。
+    const { db, quota } = counter();
+    try {
+      const calls: string[] = [];
+      const c = countingClient(stubClient(calls), quota);
+      await c.pushChanges([]);
+      await c.pullChanges(0, 1);
+      await c.snapshot(null, 1);
+      expect(calls).toEqual(['pushChanges', 'pullChanges', 'snapshot']);
+      expect(quota.today()).toEqual({ rows: 0, requests: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('ファイルの出し入れは要求と D1 の書き込みの両方を数える', async () => {
+    // PUT /files/<鍵> は R2 に置くだけでなく D1 の files にも書く。
+    // 要求の側しか数えないと、D1 の 80% の見張りが実際より遅れて効く。
+    const { db, quota } = counter();
+    try {
+      const calls: string[] = [];
+      const c = countingClient(stubClient(calls), quota);
+      await c.putFile({ key: 'transcripts/d/u.jsonl.gz', path: 'projects/p/u.jsonl', kind: 'transcript', sha256: 'x', size: 1, mtime: 1, encrypted: true }, Readable.from([]));
+      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT, requests: 1 });
+      await c.getFile('transcripts/d/u.jsonl.gz');
+      await c.listFiles(0, 1);
+      await c.health();
+      // 読むだけの経路は D1 に 1 行も書かない。
+      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT, requests: 4 });
+      await c.deleteFile('transcripts/d/u.jsonl.gz');
+      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT + D1_WRITES_PER_FILE_DELETE, requests: 5 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('Worker が 1 回の出し入れで D1 に書く行数と合っている', () => {
+    // packages/cloud/src/files.ts の PUT は files の delete と insert と devices の更新で 3 文、
+    // DELETE は files の delete だけで 1 文である（R2 の削除は D1 に書かない）。
+    expect(D1_WRITES_PER_FILE_PUT).toBe(3);
+    expect(D1_WRITES_PER_FILE_DELETE).toBe(1);
   });
 });
 

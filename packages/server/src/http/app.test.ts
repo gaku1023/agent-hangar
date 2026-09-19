@@ -774,3 +774,34 @@ describe('同期の経路', () => {
     expect(byProject.find((s) => s.id === id)?.lock).toMatchObject(lock);
   });
 });
+
+describe('設定の変更でロックを消さない', () => {
+  it('ワークスペースを変えたときの配り直しにもロックが乗る', async () => {
+    // 配り直しの 1 か所だけ deviceId が抜けていると、サーバはロックを持っているのに
+    // 配信はロック無しの SessionDto を送り、UI の store がそれで置き換えて画面から消える。
+    const all = (await json(await get('/api/sessions'))).body as { id: string; projectId: string | null }[];
+    const orphan = all.find((s) => s.projectId === null)!;
+    // このセッションが新しいワークスペースの下に入るようにして、紐づけ直しの配信に載せる。
+    const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws2-'));
+    try {
+      fs.mkdirSync(path.join(ws2, 'beta'));
+      db.prepare('update sessions set cwd = ? where id = ?').run(path.join(ws2, 'beta'), orphan.id);
+      upsertShared(db, 'devices', { id: 'mini', name: 'mini', platform: 'darwin', last_seen_at: Date.now(), deleted_at: null }, 'mini');
+      upsertShared(db, 'runs', {
+        id: 'remote-run', session_id: orphan.id, device_id: 'mini', kind: 'start', tmux_name: 'hangar-remote',
+        pid: null, launch_params: '{}', started_at: Date.now(), ended_at: null, end_reason: null, heartbeat_at: Date.now(), deleted_at: null,
+      }, 'mini');
+      sent.length = 0;
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: ws2 }) });
+      expect(r.status).toBe(200);
+      const upserts = sent.filter((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert');
+      const mine = upserts.find((e) => e.session.id === orphan.id);
+      expect(mine).toBeDefined();
+      expect(mine!.session.lock).toMatchObject({ deviceId: 'mini', deviceName: 'mini', runId: 'remote-run' });
+      // 配った後に引き直しても同じ姿である（配信だけが違う、という形を作らない）。
+      expect((await json(await get(`/api/sessions/${orphan.id}`))).body.lock).toMatchObject({ deviceId: 'mini' });
+    } finally {
+      fs.rmSync(ws2, { recursive: true, force: true });
+    }
+  });
+});
