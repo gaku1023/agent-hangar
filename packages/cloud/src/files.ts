@@ -37,14 +37,17 @@ export { MAX_KEY_BYTES };
 
 /**
  * 鍵の形と権限である。
- * `transcripts/<端末 ID>/...` は自端末の分だけ書けて消せる。
- * `config/...` はどの端末でも書ける（`~/.claude` は 1 つの持ち物なので端末で分けない）。
- * `GET` は形さえ合っていれば誰でもよい。他端末の本文を降ろすのが同期の目的だからである。
+ * `transcripts/<端末 ID>/...` も `config/<端末 ID>/...` も、自端末の分だけ書けて消せる。
+ * `GET` は形さえ合っていれば誰でもよい。他端末の本文と設定を降ろすのが同期の目的だからである。
+ *
+ * 設定を端末で分けないと、2 台が同じ相対パスを上げたときに同じオブジェクトを奪い合い、
+ * 負けた端末の取り込みが「SHA-256 が一致しません」で永久に止まる。
+ * 守りの形は `transcripts/` と揃える。他人の設定を上書きできる穴を残さない。
  */
 export function validKey(key: string, deviceId: string, method: 'PUT' | 'GET' | 'DELETE'): boolean {
   const s = splitFileKey(key);
   if (!s) return false;
-  if (method === 'GET' || s.prefix === 'config') return true;
+  if (method === 'GET') return true;
   // 端末 ID にスラッシュが混ざっていると、他端末の接頭辞の下に潜り込める。
   // 参加のときの検査に頼らず、ここでも形を見る。
   if (!isSafeKeyId(deviceId)) return false;

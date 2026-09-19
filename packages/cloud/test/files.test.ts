@@ -142,7 +142,7 @@ describe('validKey', () => {
   // 「.」「..」は URL の側で畳まれるので HTTP 越しには届かない。判定そのものはここで見る。
   it('接頭辞と相対パスの形を見る', () => {
     expect(validKey('transcripts/dev-a/u1.gz', 'dev-a', 'PUT')).toBe(true);
-    expect(validKey('config/skills/日本語 メモ/SKILL.md', 'dev-a', 'PUT')).toBe(true);
+    expect(validKey('config/dev-a/skills/日本語 メモ/SKILL.md', 'dev-a', 'PUT')).toBe(true);
     for (const k of [
       '',
       'u1.gz',
@@ -168,7 +168,11 @@ describe('validKey', () => {
       expect(validKey('transcripts/dev-a/u1.gz', 'dev-a', m)).toBe(true);
       expect(validKey('transcripts/dev-b/u1.gz', 'dev-a', m)).toBe(false);
       expect(validKey('transcripts/dev-ax/u1.gz', 'dev-a', m)).toBe(false); // 接頭辞の一致だけでは通さない
-      expect(validKey('config/a.md', 'dev-a', m)).toBe(true);
+      // config も transcripts と同じ守りにする。分けないと 2 台目が 1 台目の設定を潰す。
+      expect(validKey('config/dev-a/a.md', 'dev-a', m)).toBe(true);
+      expect(validKey('config/dev-b/a.md', 'dev-a', m)).toBe(false);
+      expect(validKey('config/a.md', 'dev-a', m)).toBe(false);
+      expect(validKey('config/dev-b/a.md', 'dev-a', 'GET')).toBe(true);
       // 端末 ID の形も見る。スラッシュが混ざると他端末の接頭辞の下に潜り込める。
       expect(validKey('transcripts/dev-a/evil/u1.gz', 'dev-a/evil', m)).toBe(false);
       expect(validKey('transcripts/../dev-a/u1.gz', '..', m)).toBe(false);
@@ -242,26 +246,26 @@ describe('鍵の検査', () => {
     // 利用者の `~/.claude` の中身は名前を選べない。ASCII に限った鍵の検査だと、ここが黙って 400 になる。
     // なお `x-hangar-path` は見出しなので非 ASCII を運べない（報告の「気になった点」を見ること）。
     const rel = 'skills/日本語 メモ/SKILL.md';
-    const r = await put(tokB, `config/${rel}`, 'x', configMeta('skills/a/SKILL.md'));
+    const r = await put(tokB, `config/dev-b/${rel}`, 'x', configMeta('skills/a/SKILL.md'));
     expect(r.status).toBe(201);
-    expect(await keysInR2()).toEqual([`config/${rel}`]);
-    expect((await list(tokA)).files.map((f) => f.key)).toEqual([`config/${rel}`]);
-    expect(await (await get(tokA, `config/${rel}`)).text()).toBe('x');
-    expect((await del(tokB, `config/${rel}`)).status).toBe(204);
+    expect(await keysInR2()).toEqual([`config/dev-b/${rel}`]);
+    expect((await list(tokA)).files.map((f) => f.key)).toEqual([`config/dev-b/${rel}`]);
+    expect(await (await get(tokA, `config/dev-b/${rel}`)).text()).toBe('x');
+    expect((await del(tokB, `config/dev-b/${rel}`)).status).toBe(204);
     expect(await keysInR2()).toEqual([]);
   });
 
   it('見出しは非 ASCII を運べない。端末側が符号化してから送る必要がある', async () => {
     // undici（Node の fetch）が送る前に投げる。Worker の検査より手前なので、Worker では直せない。
     // 実物の `HttpCloudClient.putFile` も同じ経路である。
-    await expect(put(tokB, 'config/a.md', 'x', configMeta('skills/日本語/SKILL.md'))).rejects.toThrow();
+    await expect(put(tokB, 'config/dev-b/a.md', 'x', configMeta('skills/日本語/SKILL.md'))).rejects.toThrow();
   });
 
   it('符号化した見出しを復号して索引に載せ、端から端まで通す', async () => {
     // 非 ASCII は見出しに直接載せられないので、端末が `encodeHeaderText` で符号化して送る。
     // Worker は同じ共有の関数で復号する。片方だけ変えると、索引に百分率のままの文字列が残る。
     const path = 'skills/日本語 メモ/SKILL.md';
-    const key = `config/${path}`;
+    const key = `config/dev-b/${path}`;
     const wire = encodeHeaderText(path)!;
     expect(isHeaderSafe(wire)).toBe(true);
     const r = await put(tokB, key, 'x', configMeta(wire));
@@ -281,7 +285,7 @@ describe('鍵の検査', () => {
     const path = `skills/${'あ'.repeat(300)}/SKILL.md`;
     const wire = encodeHeaderText(path)!;
     expect(wire.length).toBeGreaterThan(MAX_R2_META_BYTES);
-    const key = `config/${path}`;
+    const key = `config/dev-b/${path}`;
     expect((await put(tokB, key, 'x', configMeta(wire))).status).toBe(201);
     // D1 の索引には元のパスがそのまま入る。
     const e = (await list(tokA)).files[0]!;
@@ -295,7 +299,7 @@ describe('鍵の検査', () => {
 
   it('百分率の形が壊れた path の見出しは 400', async () => {
     for (const wire of ['%', '%zz', '%E3%81', 'a/%2E%2E/b', '%2Fabs']) {
-      expect([wire, (await put(tokB, 'config/a.md', 'x', configMeta(wire))).status]).toEqual([wire, 400]);
+      expect([wire, (await put(tokB, 'config/dev-b/a.md', 'x', configMeta(wire))).status]).toEqual([wire, 400]);
     }
     expect(await keysInR2()).toEqual([]);
   });
@@ -303,7 +307,7 @@ describe('鍵の検査', () => {
   it('鍵の形の物差しは端末と 1 つを共有する', () => {
     // `isValidFileKey` は端末側（`packages/server/src/sync/client.ts`）も通る共有の判定である。
     // ここがずれると、端末で作れる鍵が Worker で 400 になる（またはその逆になる）。
-    for (const key of ['transcripts/dev-a/u1.jsonl.gz', 'config/skills/日本語 メモ/SKILL.md', 'config/memory/🐕.md', 'config/a%b.md']) {
+    for (const key of ['transcripts/dev-a/u1.jsonl.gz', 'config/dev-a/skills/日本語 メモ/SKILL.md', 'config/dev-a/memory/🐕.md', 'config/dev-a/a%b.md']) {
       expect([key, isValidFileKey(key), validKey(key, 'dev-a', 'GET')]).toEqual([key, true, true]);
     }
     for (const key of ['other/u1', 'transcripts', 'transcripts/', 'transcripts/../x', 'transcripts/./x', 'transcripts//x', '/transcripts/x', `config/${'あ'.repeat(400)}`]) {
@@ -313,8 +317,8 @@ describe('鍵の検査', () => {
 
   it('長すぎる鍵は 400（R2 の鍵の上限に当てて 500 にしない）', async () => {
     const rel = 'あ'.repeat(400); // 400 文字だが UTF-8 では 1200 バイトで、R2 の 1024 バイトを超える
-    expect((await put(tokB, `config/${rel}`, 'x', configMeta('a.md'))).status).toBe(400);
-    expect((await put(tokB, `config/${'a'.repeat(513)}`, 'x', configMeta('a.md'))).status).toBe(400);
+    expect((await put(tokB, `config/dev-b/${rel}`, 'x', configMeta('a.md'))).status).toBe(400);
+    expect((await put(tokB, `config/dev-b/${'a'.repeat(513)}`, 'x', configMeta('a.md'))).status).toBe(400);
     expect(await keysInR2()).toEqual([]);
   });
 });
@@ -342,13 +346,19 @@ describe('端末の境目', () => {
     expect((await list(tokA)).files).toEqual([]);
   });
 
-  it('config はどの端末からでも置き直せる', async () => {
+  it('config も自端末の場所にだけ書ける。2 台が同じ相対パスを上げても潰し合わない', async () => {
     const rel = 'skills/a/SKILL.md';
-    expect((await put(tokB, `config/${rel}`, 'x', configMeta(rel))).status).toBe(201);
-    expect((await put(tokA, `config/${rel}`, 'y', configMeta(rel))).status).toBe(201);
-    expect(await (await cloud.env.BUCKET.get(`config/${rel}`))!.text()).toBe('y');
-    expect((await list(tokB)).files.map((f) => [f.seq, f.deviceId])).toEqual([[2, 'dev-a']]);
-    expect((await del(tokB, `config/${rel}`)).status).toBe(204);
+    expect((await put(tokB, `config/dev-b/${rel}`, 'x', configMeta(rel))).status).toBe(201);
+    expect((await put(tokA, `config/dev-a/${rel}`, 'y', configMeta(rel))).status).toBe(201);
+    // 同じ相対パスでも別の鍵なので、どちらも残る。
+    expect(await keysInR2()).toEqual([`config/dev-a/${rel}`, `config/dev-b/${rel}`]);
+    expect(await (await cloud.env.BUCKET.get(`config/dev-b/${rel}`))!.text()).toBe('x');
+    expect((await list(tokB)).files.map((f) => [f.seq, f.deviceId])).toEqual([[1, 'dev-b'], [2, 'dev-a']]);
+    // 他端末の場所には書けないし消せない。読むのは誰でもよい。
+    expect((await put(tokA, `config/dev-b/${rel}`, 'evil', configMeta(rel))).status).toBe(403);
+    expect((await del(tokA, `config/dev-b/${rel}`)).status).toBe(403);
+    expect(await (await get(tokA, `config/dev-b/${rel}`)).text()).toBe('x');
+    expect((await del(tokB, `config/dev-b/${rel}`)).status).toBe(204);
   });
 
   it('端末 ID にスラッシュを混ぜた形は、参加の入口でも鍵の検査でも通らない', async () => {
@@ -362,8 +372,9 @@ describe('端末の境目', () => {
     // 入口を抜けたとしても、鍵の検査でも断る。層は 2 つある。
     expect(validKey('transcripts/dev-a/evil/u1.gz', 'dev-a/evil', 'PUT')).toBe(false);
     expect(validKey('transcripts/dev-a/u1.gz', 'dev-a/evil', 'PUT')).toBe(false);
-    // config は端末 ID を見ないので、今までどおり書ける。
-    expect(validKey('config/a.md', 'dev-a/evil', 'PUT')).toBe(true);
+    // config も端末 ID を見るので、同じく通らない。
+    expect(validKey('config/dev-a/evil/a.md', 'dev-a/evil', 'PUT')).toBe(false);
+    expect(validKey('config/dev-a/a.md', 'dev-a/evil', 'PUT')).toBe(false);
     expect(await keysInR2()).toEqual([]);
   });
 

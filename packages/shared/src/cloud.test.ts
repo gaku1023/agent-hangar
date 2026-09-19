@@ -19,7 +19,13 @@ describe('鍵と表', () => {
   it('本文の鍵は端末 ID とセッション UUID を含み、サブエージェントは下に置く', () => {
     expect(transcriptKey('dev1', 'u1', null)).toBe('transcripts/dev1/u1.jsonl.gz');
     expect(transcriptKey('dev1', 'u1', 'abc')).toBe('transcripts/dev1/u1/subagents/agent-abc.jsonl.gz');
-    expect(configKey('skills/x/SKILL.md')).toBe('config/skills/x/SKILL.md');
+    expect(configKey('dev1', 'skills/x/SKILL.md')).toBe('config/dev1/skills/x/SKILL.md');
+  });
+  it('設定の鍵も端末ごとに分ける。分けないと 2 台目が 1 台目の設定を潰す', () => {
+    expect(configKey('dev1', 'CLAUDE.md')).toBe('config/dev1/CLAUDE.md');
+    expect(configKey('dev2', 'CLAUDE.md')).toBe('config/dev2/CLAUDE.md');
+    expect(configKey('dev1', 'CLAUDE.md')).not.toBe(configKey('dev2', 'CLAUDE.md'));
+    expect(splitFileKey(configKey('dev1', 'skills/x/SKILL.md'))).toEqual({ prefix: 'config', rel: 'dev1/skills/x/SKILL.md' });
   });
   it('共有テーブルの主キーは session_summaries と project_memos だけが違う', () => {
     expect(SHARED_TABLES).toHaveLength(12);
@@ -80,9 +86,12 @@ describe('参加トークンの宛先の検査', () => {
 describe('鍵の組み立ての検査', () => {
   it('config の相対パスは .. と先頭のスラッシュと空の断片と制御文字を断る', () => {
     for (const p of ['', '.', '..', '../../etc/passwd', '/etc/passwd', 'a//b', 'a/./b', 'a/../../b', 'skills/x/', 'a\u0000b', 'a\nb', 'a'.repeat(MAX_REL_PATH_CHARS + 1)]) {
-      expect(() => configKey(p)).toThrow('パス');
+      expect(() => configKey('dev1', p)).toThrow('パス');
     }
-    expect(configKey('skills/x/SKILL.md')).toBe('config/skills/x/SKILL.md');
+    for (const bad of ['', '.', '..', 'a/b', '/a', 'a b', 'a\u0000', '-a', 'a'.repeat(MAX_ID_CHARS + 1)]) {
+      expect(() => configKey(bad, 'CLAUDE.md')).toThrow('ID');
+    }
+    expect(configKey('dev1', 'skills/x/SKILL.md')).toBe('config/dev1/skills/x/SKILL.md');
     expect(isSafeRelPath('skills/x/SKILL.md')).toBe(true);
     expect(isSafeRelPath('../x')).toBe(false);
   });

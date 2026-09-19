@@ -44,16 +44,16 @@ const make = (over: Partial<ClaudeConfigDeps> = {}): ClaudeConfigSync =>
     ...over,
   });
 const remotePut = async (rel: string, text: string, o: { device?: string; mtime?: number } = {}): Promise<FileEntry> => {
-  const meta: FileMetaIn = { key: `config/${rel}`, path: rel, kind: 'config', sha256: sha256Hex(text), size: Buffer.byteLength(text), mtime: o.mtime ?? NOW, encrypted: true };
-  const enc = await encryptBuffer(key, gzipSync(Buffer.from(text)));
   const dev = o.device ?? 'dev-b';
+  const meta: FileMetaIn = { key: `config/${dev}/${rel}`, path: rel, kind: 'config', sha256: sha256Hex(text), size: Buffer.byteLength(text), mtime: o.mtime ?? NOW, encrypted: true };
+  const enc = await encryptBuffer(key, gzipSync(Buffer.from(text)));
   await cloud.asDevice(dev).putFile(meta, Readable.from([enc]));
   return { ...meta, seq: cloud.files.get(meta.key)!.entry.seq, deviceId: dev, uploadedAt: NOW, storedSize: enc.length };
 };
 const plainUploaded = async (k: string): Promise<string> => gunzipSync(await decryptBuffer(key, cloud.files.get(k)!.body)).toString();
-const seedSynced = (rel: string, text: string, mtime = NOW): void => {
+const seedSynced = (rel: string, text: string, mtime = NOW, dev = 'dev-b'): void => {
   db.prepare('insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
-    .run(`config/${rel}`, 'config', rel, 'dev-b', sha256Hex(text), Buffer.byteLength(text), mtime, 1, NOW);
+    .run(`config/${dev}/${rel}`, 'config', rel, dev, sha256Hex(text), Buffer.byteLength(text), mtime, 1, NOW);
 };
 const backupDir = (): string => path.join(home, 'backups', 'claude-config');
 
@@ -151,8 +151,8 @@ describe('push', () => {
     write('CLAUDE.md', 'see /Users/me/workspace\n');
     const c = make();
     expect(await c.pushChanged()).toBe(1);
-    expect(await plainUploaded('config/CLAUDE.md')).toBe(`see ${HOME_MARKER}/workspace\n`);
-    expect(cloud.files.get('config/CLAUDE.md')!.entry).toMatchObject({ kind: 'config', path: 'CLAUDE.md', sha256: sha256Hex(`see ${HOME_MARKER}/workspace\n`) });
+    expect(await plainUploaded('config/dev-a/CLAUDE.md')).toBe(`see ${HOME_MARKER}/workspace\n`);
+    expect(cloud.files.get('config/dev-a/CLAUDE.md')!.entry).toMatchObject({ kind: 'config', path: 'CLAUDE.md', sha256: sha256Hex(`see ${HOME_MARKER}/workspace\n`) });
     expect(await c.pushChanged()).toBe(0);
     write('CLAUDE.md', 'see /Users/me/workspace/alpha\n');
     expect(await c.pushChanged()).toBe(1);
@@ -178,6 +178,17 @@ describe('push', () => {
     c.stop();
   });
 
+  it('start は最初に 1 度まるごと走査する', async () => {
+    write('CLAUDE.md', 'a\n');
+    write('memory/x.md', 'b\n');
+    const c = make({ debounceMs: 5000 });
+    c.start();
+    expect(cloud.files.size).toBe(0);
+    await timers.advance(5000);
+    expect([...cloud.files.keys()].sort()).toEqual(['config/dev-a/CLAUDE.md', 'config/dev-a/memory/x.md']);
+    c.stop();
+  });
+
   it('変化の 5 秒後にまとめて 1 回だけ上げる', async () => {
     const c = make({ debounceMs: 5000 });
     write('CLAUDE.md', 'a\n');
@@ -186,9 +197,73 @@ describe('push', () => {
     c.noteChanged();
     expect(cloud.files.size).toBe(0);
     await timers.advance(5000);
-    expect([...cloud.files.keys()].sort()).toEqual(['config/CLAUDE.md', 'config/memory/x.md']);
+    expect([...cloud.files.keys()].sort()).toEqual(['config/dev-a/CLAUDE.md', 'config/dev-a/memory/x.md']);
     c.stop();
     expect(timers.pendingCount()).toBe(0);
+  });
+});
+
+describe('端末ごとの写し', () => {
+  it('2 台が同じ相対パスを上げても潰し合わず、相手の新しい方を取り込める', async () => {
+    write('CLAUDE.md', '# A の内容\n', NOW - 60_000);
+    const a = make();
+    expect(await a.pushChanged()).toBe(1);
+    const eB = await remotePut('CLAUDE.md', '# B の内容\n', { device: 'dev-b', mtime: NOW });
+    // 同じ相対パスでも鍵が違うので、両方が残る。
+    expect([...cloud.files.keys()].sort()).toEqual(['config/dev-a/CLAUDE.md', 'config/dev-b/CLAUDE.md']);
+    expect(await plainUploaded('config/dev-a/CLAUDE.md')).toBe('# A の内容\n');
+    expect(await plainUploaded('config/dev-b/CLAUDE.md')).toBe('# B の内容\n');
+    // A は B の新しい方を取り込み、負けた自分の内容は隣に残る。
+    a.confirm();
+    expect(await a.applyPull([eB])).toEqual({ applied: 1, conflicts: 1, backedUp: 1 });
+    expect(fs.readFileSync(path.join(claudeDir, 'CLAUDE.md'), 'utf8')).toBe('# B の内容\n');
+    expect(fs.readFileSync(path.join(claudeDir, `CLAUDE.md.conflict-mac-${STAMP}`), 'utf8')).toBe('# A の内容\n');
+    // 取り込んだ後は、相手の更新時刻をそのまま引き継ぐ。次に新旧を比べられるようにするためである。
+    expect(Math.floor(fs.statSync(path.join(claudeDir, 'CLAUDE.md')).mtimeMs)).toBe(NOW);
+    // A の押し戻しは A の場所にだけ書く。
+    expect(await a.pushChanged()).toBe(1);
+    expect(await plainUploaded('config/dev-a/CLAUDE.md')).toBe('# B の内容\n');
+    expect(await plainUploaded('config/dev-b/CLAUDE.md')).toBe('# B の内容\n');
+    a.stop();
+  });
+
+  it('同じ相対パスに複数の端末の写しがあれば、新しい方を採る', async () => {
+    upsertShared(db, 'devices', { id: 'dev-c', name: 'air', platform: 'darwin', last_seen_at: NOW }, 'dev-c');
+    const older = await remotePut('memory/x.md', '古い\n', { device: 'dev-b', mtime: NOW - 60_000 });
+    const newer = await remotePut('memory/x.md', '新しい\n', { device: 'dev-c', mtime: NOW });
+    const c = make();
+    c.confirm();
+    expect(c.preview([older, newer]).entries.map((x) => [x.path, x.remoteDevice])).toEqual([['memory/x.md', 'air']]);
+    expect(await c.applyPull([older, newer])).toEqual({ applied: 1, conflicts: 0, backedUp: 0 });
+    expect(fs.readFileSync(path.join(claudeDir, 'memory/x.md'), 'utf8')).toBe('新しい\n');
+    // 負けた写しも用済みなので、一覧に残さない。
+    expect(c.pendingRemote()).toEqual([]);
+    c.stop();
+  });
+
+  it('相手の写しが手元より古ければ上書きせず、隣に置く', async () => {
+    write('memory/x.md', '手元の新しい内容\n', NOW);
+    seedSynced('memory/x.md', '手元の新しい内容\n', NOW);
+    const e = await remotePut('memory/x.md', '相手の古い内容\n', { mtime: NOW - 60_000 });
+    const c = make();
+    c.confirm();
+    expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 1, backedUp: 0 });
+    expect(fs.readFileSync(path.join(claudeDir, 'memory/x.md'), 'utf8')).toBe('手元の新しい内容\n');
+    expect(fs.readFileSync(path.join(claudeDir, 'memory', `x.md.conflict-mini-${STAMP}`), 'utf8')).toBe('相手の古い内容\n');
+    c.stop();
+  });
+
+  it('鍵と相対パスと端末が食い違う項目は受け取らない', async () => {
+    const e = await remotePut('CLAUDE.md', '# remote\n');
+    const c = make();
+    c.confirm();
+    // 鍵は dev-b の場所なのに、別の相対パスを名乗る。
+    expect(await c.applyPull([{ ...e, path: 'memory/other.md' }])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    // 鍵は dev-b の場所なのに、dev-c が上げたと名乗る。
+    expect(await c.applyPull([{ ...e, deviceId: 'dev-c' }])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(fs.readdirSync(claudeDir)).toEqual([]);
+    expect(c.pendingRemote()).toEqual([]);
+    c.stop();
   });
 });
 
@@ -219,7 +294,7 @@ describe('preview と applyPull', () => {
     const c = make();
     expect(await c.applyPull([e])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
     expect(fs.readFileSync(path.join(claudeDir, 'CLAUDE.md'), 'utf8')).toBe('# local\n');
-    expect(c.pendingRemote().map((x) => x.key)).toEqual(['config/CLAUDE.md']);
+    expect(c.pendingRemote().map((x) => x.key)).toEqual(['config/dev-b/CLAUDE.md']);
     c.confirm();
     expect(c.preview().confirmed).toBe(true);
     expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 0, backedUp: 1 });
@@ -243,7 +318,7 @@ describe('preview と applyPull', () => {
     // ここで hangar stop / start に当たる。新しい ClaudeConfigSync はメモリを引き継がない。
     const second = make();
     expect(second.preview().entries.map((x) => x.path)).toEqual(['CLAUDE.md', 'settings.json']);
-    expect(second.pendingRemote().map((x) => x.key)).toEqual(['config/CLAUDE.md', 'config/settings.json']);
+    expect(second.pendingRemote().map((x) => x.key)).toEqual(['config/dev-b/CLAUDE.md', 'config/dev-b/settings.json']);
     second.confirm();
     // puller からは何も届かなくても、残っている一覧から取り込める。
     expect(await second.applyPull([])).toEqual({ applied: 2, conflicts: 0, backedUp: 0 });
@@ -265,7 +340,7 @@ describe('preview と applyPull', () => {
     expect(await first.applyPull([{ ...e, sha256: sha256Hex('すりかえ\n') }])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
     first.stop();
     const second = make();
-    expect(second.pendingRemote().map((x) => x.key)).toEqual(['config/memory/x.md']);
+    expect(second.pendingRemote().map((x) => x.key)).toEqual(['config/dev-b/memory/x.md']);
     second.stop();
   });
 
@@ -294,8 +369,10 @@ describe('preview と applyPull', () => {
     expect(fs.readFileSync(path.join(claudeDir, 'memory/x.md'), 'utf8')).toBe('local\n');
     expect(fs.readFileSync(path.join(claudeDir, 'memory', `x.md.conflict-mini-${STAMP}`), 'utf8')).toBe('remote\n');
     // 手元が勝った分は相手に追いつかせる。競合の控え自体は上げない。
-    expect([...cloud.files.keys()].filter((k) => k.startsWith('config/'))).toEqual(['config/memory/x.md']);
-    expect(await plainUploaded('config/memory/x.md')).toBe('local\n');
+    expect([...cloud.files.keys()].sort()).toEqual(['config/dev-a/memory/x.md', 'config/dev-b/memory/x.md']);
+    expect(await plainUploaded('config/dev-a/memory/x.md')).toBe('local\n');
+    // 相手の場所は触らない。上げ合いで潰さない。
+    expect(await plainUploaded('config/dev-b/memory/x.md')).toBe('remote\n');
     c.stop();
   });
 
@@ -340,7 +417,7 @@ describe('preview と applyPull', () => {
     expect(fs.readFileSync(taken, 'utf8')).toBe('先にあった写し\n');
     expect(fs.readFileSync(path.join(claudeDir, 'memory', `x.md.conflict-mini-${STAMP}-2`), 'utf8')).toBe('remote\n');
     // 競合の写しは、連番の付いた形でも相手に上げ直さない。
-    expect([...cloud.files.keys()].filter((k) => k.startsWith('config/'))).toEqual(['config/memory/x.md']);
+    expect([...cloud.files.keys()].sort()).toEqual(['config/dev-a/memory/x.md', 'config/dev-b/memory/x.md']);
     c.stop();
   });
 

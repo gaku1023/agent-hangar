@@ -295,6 +295,15 @@ function writeConflictCopy(baseAbs: string, label: string, stamp: string, conten
 }
 
 /**
+ * 書いた後、相手の更新時刻に揃える。
+ * 揃えないと手元の時刻が必ず「今」になり、次から新旧の比較ができなくなる。
+ * Task 14 の puller が降ろした本文に対してしているのと同じことである。
+ */
+function applyMtime(abs: string, mtime: number): void {
+  try { fs.utimesSync(abs, new Date(mtime), new Date(mtime)); } catch { /* 揃えられなくても中身は正しい */ }
+}
+
+/**
  * 既存の権限を引き継ぐ。
  * 無ければ 0600 で置く。相手から届いただけのファイルに実行の許しは付けない（レビューの中 3）。
  * 実行できる形にするのは、`settings.json` の statusLine がそれを指したときだけで、取り込みの最後に行う。
@@ -426,7 +435,7 @@ export class ClaudeConfigSync {
     try { v = JSON.parse(row.value); } catch { return []; }
     if (!Array.isArray(v)) return [];
     // 残した後に対象の決まりが変わっていることもあるので、読むたびに今の物差しで絞る。
-    return v.filter(isConfigEntry).filter((e) => e.deviceId !== this.deps.deviceId && this.pullable(e.path));
+    return v.filter(isConfigEntry).filter((e) => this.accepts(e));
   }
 
   private writePending(list: FileEntry[]): void {
@@ -443,7 +452,7 @@ export class ClaudeConfigSync {
     const byKey = new Map<string, FileEntry>();
     for (const e of this.readPending()) byKey.set(e.key, e);
     for (const e of incoming) {
-      if (!isConfigEntry(e) || e.deviceId === this.deps.deviceId || !this.pullable(e.path)) continue;
+      if (!isConfigEntry(e) || !this.accepts(e)) continue;
       const cur = byKey.get(e.key);
       if (!cur || e.seq >= cur.seq) byKey.set(e.key, e);
     }
@@ -463,6 +472,10 @@ export class ClaudeConfigSync {
     } catch (e) {
       this.deps.onToast('error', `設定の監視を始められません: ${errorMessage(e)}`);
     }
+    // 監視は「これから起きる変化」しか拾わない。
+    // これだけだと、同期を入れて起こし直しても ~/.claude に触るまで 1 件も上がらない。
+    // 起動のたびに 1 度だけ、まるごと走査してから上げる（file_sync と指紋が同じ分は上がらない）。
+    this.noteChanged();
   }
 
   stop(): void {
@@ -506,7 +519,7 @@ export class ClaudeConfigSync {
         // 上げてしまうと、相手の端末では毎回断られて直らない（レビューの軽微 2）。
         if (content.length > CONFIG_MAX_BYTES) throw new Error('目印に置き換えると上限を超えます');
         const sha = sha256Hex(content);
-        const key = configKey(f.rel);
+        const key = configKey(this.deps.deviceId, f.rel);
         if (this.syncedSha(key) === sha) { this.clearReported(`push:${f.rel}`); continue; }
         const meta: FileMetaIn = { key, path: f.rel, kind: 'config', sha256: sha, size: content.length, mtime: f.mtime, encrypted: true };
         const body = new PassThrough();
@@ -546,6 +559,30 @@ export class ClaudeConfigSync {
     return SCRIPT_RE.test(rel);
   }
 
+  /**
+   * 受け取ってよい項目か。
+   * 相対パスの物差しに加えて、鍵と相対パスと端末が同じものを指していることも見る。
+   * 鍵は `config/<端末 ID>/<相対パス>` なので、ここが揃っていなければ枠の付け替えである。
+   */
+  private accepts(e: FileEntry): boolean {
+    if (e.deviceId === this.deps.deviceId || !this.pullable(e.path)) return false;
+    try { return e.key === configKey(e.deviceId, e.path); } catch { return false; }
+  }
+
+  /**
+   * 相対パスごとに、いちばん新しい端末の写しを 1 つ選ぶ。
+   * 鍵が端末ごとに分かれたので、同じ `CLAUDE.md` が 2 台ぶん届く。
+   * 更新時刻で新しい方を採り、同じなら後から上がった方（seq の大きい方）を採る。
+   */
+  private newestPerPath(list: FileEntry[]): FileEntry[] {
+    const best = new Map<string, FileEntry>();
+    for (const e of list) {
+      const cur = best.get(e.path);
+      if (!cur || e.mtime > cur.mtime || (e.mtime === cur.mtime && e.seq > cur.seq)) best.set(e.path, e);
+    }
+    return [...best.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  }
+
   /** 相手の 1 件を、手元の状態と前回の同期と突き合わせて分類する。 */
   private decide(e: FileEntry): Decision {
     let abs: string;
@@ -568,13 +605,16 @@ export class ClaudeConfigSync {
     const synced = this.syncedSha(e.key);
     if (localSha === e.sha256) return { action: 'skip', localMtime, remoteNewer, blocked: null };
     if (localSha === null) return { action: 'create', localMtime, remoteNewer, blocked: null };
-    if (synced !== null && localSha === synced) return { action: 'overwrite', localMtime, remoteNewer, blocked: null };
+    // 手元の中身が「前回この端末から取ったまま」でも、相手の写しの方が古ければ上書きしない。
+    // 取り込んだファイルの更新時刻は相手のものに揃えてあるので、この比較には意味がある。
+    // 古い写しは競合として扱い、手元を残して相手の分を隣に置く。
+    if (synced !== null && localSha === synced) return { action: remoteNewer ? 'overwrite' : 'conflict', localMtime, remoteNewer, blocked: null };
     return { action: 'conflict', localMtime, remoteNewer, blocked: null };
   }
 
   preview(entries?: FileEntry[]): ConfigPreviewDto {
-    const list = (entries ?? this.readPending()).filter((e) => e.deviceId !== this.deps.deviceId && this.pullable(e.path));
-    const sorted = [...list].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const list = this.newestPerPath((entries ?? this.readPending()).filter((e) => this.accepts(e)));
+    const sorted = [...list];
     return {
       confirmed: this.confirmed(),
       entries: sorted.map((e) => {
@@ -607,9 +647,10 @@ export class ClaudeConfigSync {
   }
 
   /** 控えを取ってから書く。控えが取れなければ throw して、呼び手にそのファイルの書き戻しをやめさせる。 */
-  private backupAndWrite(rel: string, abs: string, content: Buffer, stamp: string): boolean {
+  private backupAndWrite(rel: string, abs: string, content: Buffer, stamp: string, mtime: number): boolean {
     const kept = backupBeforeWrite({ home: this.deps.home, claudeDir: this.deps.claudeDir, rel, stamp });
     writeAtomically(abs, content, modeFor(abs, content));
+    applyMtime(abs, mtime);
     return kept !== null;
   }
 
@@ -643,7 +684,10 @@ export class ClaudeConfigSync {
     const done = new Set<string>();
     // この回の控えの置き場。1 回の取り込みを 1 つのディレクトリにまとめ、何を書き換えたかがひとまとまりで残るようにする。
     const runStamp = timestampLabel(this.now());
-    for (const e of pending) {
+    // 同じ相対パスに複数の端末の写しがあれば、新しい方だけを取り込む。
+    const chosen = this.newestPerPath(pending);
+    const winnerOf = new Map(chosen.map((e) => [e.path, e.key] as const));
+    for (const e of chosen) {
       try {
         if (e.size > CONFIG_MAX_BYTES) throw new Error('設定ファイルが上限を超えています');
         const d = this.decide(e);
@@ -663,11 +707,11 @@ export class ClaudeConfigSync {
           this.deps.onToast('info', `${e.path} が競合しました。相手の内容を ${path.basename(other)} に置きました`);
         } else if (d.action === 'conflict') {
           // 相手の方が新しい。控えを先に取り、取れたときだけ手元の写しを隣に残して書き換える。
-          const r = this.backupAndWriteConflict(e.path, abs, content, runStamp);
+          const r = this.backupAndWriteConflict(e.path, abs, content, runStamp, e.mtime);
           if (r.kept) backedUp++;
           conflicts++;
           this.deps.onToast('info', `${e.path} が競合しました。手元の内容を ${path.basename(r.keep)} に残しました`);
-        } else if (this.backupAndWrite(e.path, abs, content, runStamp)) backedUp++;
+        } else if (this.backupAndWrite(e.path, abs, content, runStamp, e.mtime)) backedUp++;
         written.add(e.path);
         this.remember(e, e.sha256);
         done.add(e.key);
@@ -684,6 +728,11 @@ export class ClaudeConfigSync {
       this.pruneBackups();
     }
     this.markStatusLineExecutable(written);
+    // 勝った写しが片付いたなら、同じ相対パスで負けた写しも用済みである。
+    for (const e of pending) {
+      const w = winnerOf.get(e.path);
+      if (w !== undefined && w !== e.key && done.has(w)) done.add(e.key);
+    }
     // 片付いた分だけ一覧から落とす。残りは次の取り込みと次の起動でもう一度出る。
     this.writePending(pending.filter((e) => !done.has(e.key)));
     // 手元が勝った競合は、相手に追いつかせるためにすぐ push する。
@@ -712,11 +761,12 @@ export class ClaudeConfigSync {
    * 競合で相手が勝つ側の書き込み。
    * 控え、手元の写し、上書きの順に行う。控えが取れなければ写しも作らず、~/.claude は 1 バイトも変わらない。
    */
-  private backupAndWriteConflict(rel: string, abs: string, content: Buffer, stamp: string): { kept: string | null; keep: string } {
+  private backupAndWriteConflict(rel: string, abs: string, content: Buffer, stamp: string, mtime: number): { kept: string | null; keep: string } {
     const kept = backupBeforeWrite({ home: this.deps.home, claudeDir: this.deps.claudeDir, rel, stamp });
     const local = fs.readFileSync(abs);
     const keep = writeConflictCopy(abs, safeDeviceLabel(this.deps.deviceName), stamp, local, modeFor(abs, local));
     writeAtomically(abs, content, modeFor(abs, content));
+    applyMtime(abs, mtime);
     return { kept, keep };
   }
 }

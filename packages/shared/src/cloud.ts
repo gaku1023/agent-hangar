@@ -191,7 +191,16 @@ export function transcriptKey(deviceId: string, sessionUuid: string, agentId: st
   return agentId === null ? `transcripts/${deviceId}/${sessionUuid}.jsonl.gz` : `transcripts/${deviceId}/${sessionUuid}/subagents/agent-${agentId}.jsonl.gz`;
 }
 
-export function configKey(rel: string): string {
+/**
+ * 設定の R2 の鍵。本文と同じく端末ごとに分ける。
+ *
+ * 分けないと、2 台が同じ相対パスを上げたときに同じオブジェクトを奪い合う。
+ * 負けた側の索引（`file_sync`）には自分が上げた指紋が残るのに中身は相手のものなので、
+ * 取り込みは「SHA-256 が一致しません」で永久に止まる。
+ * 端末ごとに分ければ、受け取る側が相対パスごとに新しい方を選べる。
+ */
+export function configKey(deviceId: string, rel: string): string {
+  if (!isSafeKeyId(deviceId)) throw new Error('端末 ID の形が不正です');
   if (!isSafeRelPath(rel)) throw new Error('設定ファイルのパスが不正です');
-  return `config/${rel}`;
+  return `config/${deviceId}/${rel}`;
 }
