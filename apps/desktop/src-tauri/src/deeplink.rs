@@ -4,28 +4,56 @@
 
 use url::Url;
 
+/// 受け付けるディープリンクの長さの上限（バイト）。
+/// OS から渡る一件の URL の長さであり、実際に使う形はどれも 100 バイトに満たない
+/// （`hangar://session/<ULID>` で 43 バイト、日本語 20 文字の検索語でも 200 バイト前後）。
+/// 一方で上限が無いと、生成する JavaScript が入力のおよそ 9 倍まで膨らむ
+/// （レビューの実測で 100 万字の検索語から 9MB の JavaScript ができた）。
+/// 2048 は、古くからブラウザが URL の実用上の上限として扱ってきた 2KB に合わせた値で、
+/// 正しい使い方には 20 倍以上の余裕があり、最悪でも JavaScript は 20KB 程度に収まる。
+const MAX_DEEP_LINK_BYTES: usize = 2048;
+
 /// `hangar://` の URL を UI のハッシュ経路に変換する。
 /// 受けるのは `hangar://session/<id>`、`hangar://project/<id>`、`hangar://search?q=<text>` の三形だけ。
 pub fn deep_link_to_hash(raw: &str) -> Option<String> {
+    if raw.len() > MAX_DEEP_LINK_BYTES {
+        return None;
+    }
     let url = Url::parse(raw).ok()?;
     if url.scheme() != "hangar" {
         return None;
     }
-    let kind = url.host_str()?;
+    // 三形に無い部分が付いた URL は、黙って捨てて別の場所へ飛ばすより `None` にして呼び出し側の記録に残す。
+    // 利用者情報とポートと断片がこれに当たる。
+    if !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
+        return None;
+    }
+    if url.fragment().is_some() {
+        return None;
+    }
+    // スキームは `url` crate が小文字化するが、非特殊スキームのホストは小文字化されないので自分で揃える。
+    let kind = url.host_str()?.to_ascii_lowercase();
     let id = url.path().trim_matches('/');
-    match kind {
+    match kind.as_str() {
         "session" | "project" => {
-            if id.is_empty() || id.contains('/') {
+            // この二形に問い合わせは無い。
+            if id.is_empty() || id.contains('/') || url.query().is_some() {
                 return None;
             }
             Some(format!("#/{kind}/{id}"))
         }
         "search" => {
-            let q = url
-                .query_pairs()
-                .find(|(k, _)| k == "q")
-                .map(|(_, v)| v.into_owned())
-                .unwrap_or_default();
+            // この形に経路は無い。
+            if !id.is_empty() {
+                return None;
+            }
+            // 受けるのは `q` 一つだけで、他の名前や二つ目が付いた形は受けない。
+            let mut pairs = url.query_pairs();
+            let q = match (pairs.next(), pairs.next()) {
+                (None, _) => String::new(),
+                (Some((k, v)), None) if k == "q" => v.into_owned(),
+                _ => return None,
+            };
             // 空の検索語は `parseRoute` が落とすので、こちらでも落として `#/sessions` に寄せる。
             if q.trim().is_empty() {
                 return Some("#/sessions".to_string());
@@ -117,6 +145,70 @@ mod tests {
         );
     }
 
+    // ホスト名の綴りは大文字小文字を問わない。
+    // スキームは `url` crate が小文字化するが、非特殊スキームのホストは小文字化されないので自分で揃える。
+    #[test]
+    fn the_kind_is_matched_case_insensitively() {
+        assert_eq!(
+            deep_link_to_hash("hangar://SESSION/abc"),
+            Some("#/session/abc".into())
+        );
+        assert_eq!(
+            deep_link_to_hash("HANGAR://Project/p1"),
+            Some("#/project/p1".into())
+        );
+        assert_eq!(
+            deep_link_to_hash("hangar://SeArCh?q=a"),
+            Some("#/sessions?q=a".into())
+        );
+    }
+
+    // 三形に無い部分が付いた URL は、黙って捨てずに `None` にする。
+    #[test]
+    fn extra_url_parts_are_rejected() {
+        // 利用者情報。
+        assert_eq!(deep_link_to_hash("hangar://user:pw@session/abc"), None);
+        assert_eq!(deep_link_to_hash("hangar://user@session/abc"), None);
+        assert_eq!(deep_link_to_hash("hangar://:pw@search?q=a"), None);
+        // ポート。
+        assert_eq!(deep_link_to_hash("hangar://session:8080/abc"), None);
+        assert_eq!(deep_link_to_hash("hangar://search:8080?q=a"), None);
+        // 余分な経路。
+        assert_eq!(deep_link_to_hash("hangar://search/x?q=a"), None);
+        assert_eq!(deep_link_to_hash("hangar://search/x"), None);
+        // 余分な問い合わせ。
+        assert_eq!(deep_link_to_hash("hangar://session/abc?x=1"), None);
+        assert_eq!(deep_link_to_hash("hangar://project/p1?q=a"), None);
+        assert_eq!(deep_link_to_hash("hangar://search?q=a&x=1"), None);
+        assert_eq!(deep_link_to_hash("hangar://search?x=1"), None);
+        assert_eq!(deep_link_to_hash("hangar://search?q=a&q=b"), None);
+        // 断片。
+        assert_eq!(deep_link_to_hash("hangar://session/abc#frag"), None);
+        assert_eq!(deep_link_to_hash("hangar://search?q=a#frag"), None);
+        // 経路の区切りだけが付いた形は、三形そのものなので受ける。
+        assert_eq!(
+            deep_link_to_hash("hangar://search/?q=a"),
+            Some("#/sessions?q=a".into())
+        );
+    }
+
+    // 長すぎるリンクは受けない。
+    // 上限はバイト数で見るので、多バイトの文字でも同じところで切れる。
+    #[test]
+    fn over_long_links_are_rejected() {
+        let head = "hangar://search?q=";
+        let longest = format!("{head}{}", "a".repeat(MAX_DEEP_LINK_BYTES - head.len()));
+        assert_eq!(longest.len(), MAX_DEEP_LINK_BYTES);
+        assert!(deep_link_to_hash(&longest).is_some());
+        assert_eq!(deep_link_to_hash(&format!("{longest}a")), None);
+
+        // 文字数は上限より少ないが、バイト数では超える形。
+        let multibyte = format!("{head}{}", "あ".repeat(MAX_DEEP_LINK_BYTES / 2));
+        assert!(multibyte.chars().count() < MAX_DEEP_LINK_BYTES);
+        assert!(multibyte.len() > MAX_DEEP_LINK_BYTES);
+        assert_eq!(deep_link_to_hash(&multibyte), None);
+    }
+
     #[test]
     fn unknown_shapes_are_rejected() {
         assert_eq!(deep_link_to_hash("hangar://session"), None);
@@ -130,11 +222,15 @@ mod tests {
     }
 
     // 生成した JS から文字列リテラルだけを取り出す。
-    // `var h=` と、その行を閉じる `;` の間がリテラルになる。
+    // `var h=` と、その代入を閉じる `;` の間がリテラルになる。
+    // 区切りはハッシュ自身にも現れうる（`hangar://session/a;if(b` で実際に起きる）ので、
+    // 目印は代入より後ろに必ず一度だけ現れる全体で取り、後ろから探す。
+    const TERMINATOR: &str = ";if(location.hash===h)";
+
     fn literal_of(js: &str) -> &str {
         let start = js.find("var h=").expect("no assignment") + "var h=".len();
         let rest = &js[start..];
-        let end = rest.find(";if(").expect("no terminator");
+        let end = rest.rfind(TERMINATOR).expect("no terminator");
         &rest[..end]
     }
 
@@ -158,6 +254,9 @@ mod tests {
             "#/sessions?q=a\u{2028}b\u{2029}c",
             "#/sessions?q=\u{0000}",
             "#/sessions?q=動画",
+            // 取り出しの目印がハッシュの中に現れる形。
+            "#/session/a;if(b",
+            "#/session/a;if(location.hash===h){}",
         ] {
             let js = hash_to_js(hash);
             let lit = literal_of(&js);
@@ -175,13 +274,22 @@ mod tests {
 
     // 同じハッシュを二度開いたときに UI が反応しなくなるのを防ぐ。
     // ブラウザは `location.hash` に今と同じ値を代入しても `hashchange` を発火しないので、
-    // 同じときは自分で `hashchange` を投げる形にしてある。
+    // 同じときは自分で `hashchange` を投げ、違うときだけ代入する形にしてある。
+    // 生成物は固定の一文なので、部分文字列ではなく出力の全体を照合する。
+    // 部分文字列だけを見る形では、二つの枝を入れ替えた完全な裏返しでも通ってしまう。
     #[test]
-    fn hash_to_js_dispatches_hashchange_when_the_hash_is_unchanged() {
-        let js = hash_to_js("#/session/abc");
-        assert!(js.contains("location.hash==="), "{js}");
-        assert!(js.contains("new HashChangeEvent(\"hashchange\""), "{js}");
-        assert!(js.contains("location.hash=h"), "{js}");
+    fn hash_to_js_is_exactly_the_expected_program() {
+        let expected = concat!(
+            "(function(){",
+            "var h=\"#/session/abc\";",
+            "if(location.hash===h){",
+            "window.dispatchEvent(new HashChangeEvent(\"hashchange\",",
+            "{oldURL:location.href,newURL:location.href}));",
+            "}else{",
+            "location.hash=h;",
+            "}})();",
+        );
+        assert_eq!(hash_to_js("#/session/abc"), expected);
     }
 
     // 生成した JS は一行で、末尾に余計なものが残らない。
