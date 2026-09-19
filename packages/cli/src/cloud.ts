@@ -37,6 +37,13 @@ export type SetupCloudOptions = {
 const HEALTH_TIMEOUT_MS = 120_000;
 const HEALTH_INTERVAL_MS = 5000;
 const JOIN_RETRIES = 6;
+/**
+ * 1 回の要求の締め切り。
+ * 宛先は参加トークンの中の URL なので、打ち間違いや応答を返さないアドレスを貼られることがある。
+ * 待ち続けて黙るより、断って何を見ればよいかを伝える。
+ * 反映待ちの試し直し（5 秒おきに 6 回）とは別で、これは 1 回ごとに掛かる。
+ */
+const JOIN_TIMEOUT_MS = 30_000;
 
 /** --rotate-secret の確認で打ってもらう合言葉。y の押し間違いでは通らないようにする。 */
 export const ROTATE_WORD = 'rotate';
@@ -112,10 +119,11 @@ export async function waitForHealth(url: string, o: { fetch: typeof fetch; sleep
   const interval = o.intervalMs ?? HEALTH_INTERVAL_MS;
   for (let waited = 0; ; waited += interval) {
     try {
-      const r = await o.fetch(`${url}/health`);
+      // 1 回の探りが間隔より長引いたら諦める。応答を返さない宛先で待ちが終わらなくなるのを防ぐ。
+      const r = await o.fetch(`${url}/health`, { signal: AbortSignal.timeout(interval) });
       if (r.ok && ((await r.json()) as { ok?: boolean }).ok === true) return true;
     } catch {
-      // 接続できないうちは待つ。
+      // 接続できないうちも、探りが長引いたときも待つ。
     }
     if (waited + interval > timeout) return false;
     await o.sleep(interval);
@@ -132,8 +140,17 @@ export type JoinOptions = {
    * hangar join のように利用者が貼ったトークンを検査する場面では false にする。打ち間違いを 30 秒待たせない。
    */
   retryForbidden?: boolean;
+  /** 1 回の要求の締め切り（ミリ秒）。既定は 30 秒。 */
+  timeoutMs?: number;
   log?: (line: string) => void;
 };
+
+/** 例外から、利用者に見せてよい短い手がかりだけを取り出す。本文も秘密も出さない。 */
+function reasonOf(e: unknown): string {
+  const cause = (e as { cause?: { code?: unknown } } | null)?.cause;
+  const code = typeof cause?.code === 'string' ? cause.code : undefined;
+  return code ?? (e instanceof Error ? e.name : 'unknown');
+}
 
 /**
  * POST /join で端末を登録する。
@@ -141,8 +158,23 @@ export type JoinOptions = {
  */
 export async function joinWorker(url: string, secret: string, device: DeviceLike, o: JoinOptions): Promise<JoinResponse> {
   const retries = o.retries ?? JOIN_RETRIES;
+  const timeout = o.timeoutMs ?? JOIN_TIMEOUT_MS;
   for (let i = 0; ; i++) {
-    const r = await o.fetch(`${url}/join`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret, device }) });
+    let r: Response;
+    // 締め切りは 1 回ごとに掛ける。反映待ちの試し直しの回数は削らない。
+    const ac = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; ac.abort(); }, timeout);
+    timer.unref?.();
+    try {
+      r = await o.fetch(`${url}/join`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret, device }), signal: ac.signal });
+    } catch (e) {
+      // 打ち切りも接続の失敗も、待たずにその場で断る。秘密は文面に載せない。
+      if (timedOut) throw new Error(`${url} が ${timeout} ミリ秒のあいだ応答しませんでした。宛先が正しいか、${url}/health が返るかを確かめてください`);
+      throw new Error(`${url} に繋がりませんでした（${reasonOf(e)}）`);
+    } finally {
+      clearTimeout(timer);
+    }
     if (r.status === 201) return (await r.json()) as JoinResponse;
     const waitable = r.status === 503 || (r.status === 403 && o.retryForbidden === true);
     if (waitable && i < retries) {

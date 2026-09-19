@@ -77,6 +77,17 @@ function fakeFetch(healthFails = 2): { fetch: typeof fetch; urls: string[] } {
   return { fetch: f, urls };
 }
 
+/** 繋がりはするが何も返さない宛先。締め切りで中断されたときだけ落ちる。 */
+function blackHole(): typeof fetch {
+  return ((_u: unknown, init?: RequestInit) => {
+    const signal = init?.signal;
+    if (!signal) throw new Error('締め切りの signal が渡っていない');
+    return new Promise<Response>((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason as Error));
+    });
+  }) as unknown as typeof fetch;
+}
+
 describe('runSetupCloud', () => {
   it('資源を作り、設定を書き、デプロイし、health を待ち、参加して cloud.json とトークンを出す', async () => {
     const { home, cloudDir } = dirs();
@@ -262,6 +273,13 @@ describe('runSetupCloud', () => {
     expect(w.calls.at(-1)!.input).toBe(createHash('sha256').update(secret).digest('hex') + '\n');
   });
 
+  it('応答を返さない宛先でも health の待ちは終わる', async () => {
+    let t = 0;
+    const okAfter = await waitForHealth('https://h', { fetch: blackHole(), sleep: async (ms) => { t += ms; }, timeoutMs: 60, intervalMs: 20 });
+    expect(okAfter).toBe(false);
+    expect(t).toBeGreaterThanOrEqual(60);
+  });
+
   it('health が 2 分通らなければ失敗する', async () => {
     let t = 0;
     const never = (async () => new Response('error code: 1042', { status: 530 })) as typeof fetch;
@@ -298,6 +316,45 @@ describe('joinWorker', () => {
     const slept: number[] = [];
     await expect(joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retries: 2 })).rejects.toThrow(/503/);
     expect(slept).toHaveLength(2);
+  });
+
+  it('応答を返さない宛先は締め切りで打ち切る', async () => {
+    const slept: number[] = [];
+    await expect(
+      joinWorker('https://black-hole.invalid', 's', device, { fetch: blackHole(), sleep: async (ms) => { slept.push(ms); }, timeoutMs: 20 }),
+    ).rejects.toThrow(/応答しませんでした/);
+    // 黙って止まらない。待ちもしない。
+    expect(slept).toHaveLength(0);
+  });
+
+  it('打ち切りの文面は宛先と次に見る先を示す', async () => {
+    const e = await joinWorker('https://black-hole.invalid', 'SECRET-abcdef', device, { fetch: blackHole(), sleep: async () => {}, timeoutMs: 20 }).catch((x: unknown) => x as Error);
+    expect(e.message).toContain('https://black-hole.invalid');
+    expect(e.message).toContain('20 ミリ秒');
+    expect(e.message).toContain('/health');
+    // 秘密は載せない。
+    expect(e.message).not.toContain('SECRET-abcdef');
+  });
+
+  it('宛先に繋がらないときも 1 行で断る', async () => {
+    const f = (async () => { throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } }); }) as typeof fetch;
+    await expect(joinWorker('https://nope.invalid', 's', device, { fetch: f, sleep: async () => {} })).rejects.toThrow(/ENOTFOUND/);
+  });
+
+  it('締め切りは 1 回ごとで、反映待ちの試し直しを削らない', async () => {
+    // 締め切りを 20 ミリ秒まで詰めても、応答が返る限り 503 と 403 の試し直しは 6 回ぶん残る。
+    const codes = [503, 503, 403, 403, 503, 403, 201];
+    let i = 0;
+    const f = (async (_u: unknown, init?: RequestInit) => {
+      expect(init!.signal).toBeInstanceOf(AbortSignal);
+      const code = codes[i++]!;
+      return code === 201 ? new Response(JSON.stringify({ deviceToken: 't', deviceId: device.id }), { status: 201 }) : new Response(JSON.stringify({ error: 'x' }), { status: code });
+    }) as unknown as typeof fetch;
+    const slept: number[] = [];
+    const r = await joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retryForbidden: true, timeoutMs: 20 });
+    expect(r.deviceToken).toBe('t');
+    // setup の反映待ちは 5 秒おきに 6 回のままである。
+    expect(slept).toEqual([5000, 5000, 5000, 5000, 5000, 5000]);
   });
 });
 
