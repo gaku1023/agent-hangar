@@ -34,7 +34,19 @@ export type FakeCloudStore = {
   now: () => number;
 };
 
+const ENC = new TextEncoder();
 const TABLES = new Set<string>(SHARED_TABLES);
+
+/**
+ * 実物の Worker が持つ大きさの上限である。
+ * 原本は `packages/cloud/src/changes.ts` と `packages/cloud/src/files.ts` にあり、
+ * `packages/server` はそのパッケージに依存しないので、ここに写しを置く。
+ * 数が実物とずれていないことは `fake-cloud.test.ts` の「上限は実物の Worker と同じ数である」が
+ * 原本を読んで縛る。偽物が実物より甘いと、本番でだけ 413 で断られる行と本文ができる。
+ */
+export const MAX_ROW_BYTES = 128 * 1024;
+export const MAX_ROW_ID_CHARS = 64;
+export const MAX_BODY_BYTES = 100 * 1024 * 1024;
 
 /** 断りの本文は Worker と同じ JSON にする。CloudError.message がそのまま実物と揃う。 */
 const errorBody = (error: string): string => JSON.stringify({ error });
@@ -132,6 +144,23 @@ export class FakeCloudClient implements CloudClient {
     this.guard('pushChanges', changes);
     // 1 行でも形が違えば塊ごと断る。ストアには何も入れない。
     if (!Array.isArray(changes) || changes.length > MAX_PUSH_BATCH || !changes.every(isChange)) throw new CloudError(400, errorBody('invalid body'));
+    // 大きすぎる行は名指しで 413 に落とす（Worker と同じく、重複を畳む前に見る）。
+    // 名指しは先頭の 1 件だけにする。全部並べると本文が 200 字を超え、CloudError が持てなくなる。
+    const oversize = changes
+      .map((row) => ({ row, bytes: ENC.encode(JSON.stringify(row.payload)).byteLength }))
+      .filter((x) => x.bytes > MAX_ROW_BYTES);
+    if (oversize.length) {
+      const first = oversize[0]!;
+      throw new CloudError(
+        413,
+        JSON.stringify({
+          error: 'payload too large',
+          limit: MAX_ROW_BYTES,
+          count: oversize.length,
+          row: { tableName: first.row.tableName, rowId: first.row.rowId.slice(0, MAX_ROW_ID_CHARS), bytes: first.bytes },
+        }),
+      );
+    }
     let accepted = 0;
     let skipped = 0;
     // 同じ鍵の重複は updatedAt の大きい方だけを見る（Worker と同じ数え方）。
@@ -220,8 +249,18 @@ export class FakeCloudClient implements CloudClient {
     // path は見出しで運ぶので、偽物も同じ符号化を通す。
     // 通らない値は実物では undici が送る前に TypeError を投げる（CloudError(0) になる）。
     const path = this.overTheWire(meta.path);
-    const chunks: Buffer[] = [];
-    for await (const c of body) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c as Uint8Array));
+    let chunks: Buffer[] = [];
+    let total = 0;
+    for await (const c of body) {
+      const b = Buffer.isBuffer(c) ? c : Buffer.from(c as Uint8Array);
+      total += b.length;
+      // 上限を超えたら、抱えていた分を放して断る。Worker も読み取りを畳んで何も残さない。
+      if (total > MAX_BODY_BYTES) {
+        chunks = [];
+        throw new CloudError(413, errorBody('too large'));
+      }
+      chunks.push(b);
+    }
     const buf = Buffer.concat(chunks);
     // 置き直すと新しい seq になる（Worker は古い索引を消して入れ直す）。
     const seq = ++this.store.fileSeq;

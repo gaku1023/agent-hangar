@@ -1,11 +1,24 @@
+import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { MAX_PUSH_BATCH } from '@agent-hangar/shared';
 import { CloudError, goneFloor } from '../src/sync/client.ts';
-import { FakeCloudClient } from './fake-cloud.ts';
+import { FakeCloudClient, MAX_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS } from './fake-cloud.ts';
 
 const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId, updated_at: updatedAt }, updatedAt });
 const meta = (key: string, over: Record<string, unknown> = {}) => ({ key, path: 'projects/-x/u.jsonl', kind: 'transcript' as const, sha256: 'a'.repeat(64), size: 3, mtime: 1, encrypted: true, ...over });
+
+/**
+ * 実物の Worker が持つ上限を、その原本から読み出す。
+ * 偽物は実物を写したものなので、実物だけが変わったら落ちて写し直しを促す。
+ * `packages/server` は `packages/cloud` に依存しないので、import ではなく原本の文字列から読む。
+ */
+function workerConstant(file: 'changes.ts' | 'files.ts', name: string): number {
+  const src = fs.readFileSync(new URL(`../../cloud/src/${file}`, import.meta.url), 'utf8');
+  const m = new RegExp(`export const ${name} = ([0-9*\\s]+);`).exec(src);
+  if (!m) throw new Error(`${name} を packages/cloud/src/${file} から読めない`);
+  return m[1]!.split('*').reduce((a, b) => a * Number(b.trim()), 1);
+}
 
 describe('FakeCloudClient', () => {
   it('Worker と同じ LWW と自端末の除外', async () => {
@@ -267,5 +280,65 @@ describe('FakeCloudClient', () => {
     expect(e).toMatchObject({ status: 0 });
     expect((e as CloudError).message).toContain('ByteString');
     expect(a.files.size).toBe(0);
+  });
+
+  it('128 KiB を超える payload の行は 413 で名指しして断る', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    // UI は 1 MiB までのメモを保存できるので、この大きさの行は実際に積まれる。
+    const huge = { tableName: 'project_memos' as const, rowId: 'p1', op: 'upsert' as const, payload: { project_id: 'p1', markdown: 'あ'.repeat(70_000) }, updatedAt: 1 };
+    expect(new TextEncoder().encode(JSON.stringify(huge.payload)).byteLength).toBeGreaterThan(MAX_ROW_BYTES);
+    const e = await a.pushChanges([ch('p0', 1), huge]).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    expect(e).toMatchObject({ status: 413 });
+    expect(JSON.parse((e as CloudError).message)).toEqual({
+      error: 'payload too large',
+      limit: MAX_ROW_BYTES,
+      count: 1,
+      row: { tableName: 'project_memos', rowId: 'p1', bytes: new TextEncoder().encode(JSON.stringify(huge.payload)).byteLength },
+    });
+    // 塊ごと断るので、同じ要求に乗っていた小さい行も入らない。
+    expect(a.changes).toHaveLength(0);
+    expect(a.rows.size).toBe(0);
+    // 本文は 200 字に収まる（CloudError が持てるのは先頭 200 字だけである）。
+    expect((e as CloudError).message.length).toBeLessThanOrEqual(200);
+    // ちょうど上限の行は通る。
+    // {"m":"..."} の囲みが 8 バイトあるので、その分を引くとちょうど上限になる。
+    const edge = { ...huge, payload: { m: 'a'.repeat(MAX_ROW_BYTES - 8) } };
+    expect(new TextEncoder().encode(JSON.stringify(edge.payload)).byteLength).toBe(MAX_ROW_BYTES);
+    expect(await a.pushChanges([edge])).toEqual({ seq: 1, accepted: 1, skipped: 0 });
+  });
+
+  it('413 の本文は rowId が長くても 200 字に収まる', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    const e = await a
+      .pushChanges([{ tableName: 'todos' as const, rowId: 'x'.repeat(500), op: 'upsert' as const, payload: { m: 'a'.repeat(MAX_ROW_BYTES) }, updatedAt: 1 }])
+      .catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    const err = e as CloudError;
+    expect(err.status).toBe(413);
+    expect(err.message.length).toBeLessThanOrEqual(200);
+    expect((JSON.parse(err.message) as { row: { rowId: string } }).row.rowId).toBe('x'.repeat(MAX_ROW_ID_CHARS));
+  });
+
+  it('100 MiB を超える本文は 413 で断り、何も残さない', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    const m = meta('transcripts/a/big.jsonl.gz');
+    const chunk = Buffer.alloc(1024 * 1024);
+    // 上限を 1 MiB だけ超える本文を流す。偽物は超えた時点で畳む。
+    const over = (async function* () { for (let i = 0; i <= MAX_BODY_BYTES / chunk.length; i++) yield chunk; })();
+    const e = await a.putFile(m, Readable.from(over)).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    expect(e).toMatchObject({ status: 413, message: JSON.stringify({ error: 'too large' }) });
+    expect(a.files.size).toBe(0);
+    expect((await a.listFiles(0, 500)).files).toEqual([]);
+    // 上限ちょうどまでは受ける（その大きさを毎回流すと重いので、境目の 1 バイト下で見る）。
+    expect(await a.putFile(meta('transcripts/a/ok.gz'), Readable.from([Buffer.alloc(3)]))).toEqual({ seq: 1 });
+  });
+
+  it('上限は実物の Worker と同じ数である', () => {
+    // 偽物は実物を写したものである。実物だけが変わったら、ここで落ちて写し直しを促す。
+    expect(MAX_ROW_BYTES).toBe(workerConstant('changes.ts', 'MAX_ROW_BYTES'));
+    expect(MAX_ROW_ID_CHARS).toBe(workerConstant('changes.ts', 'MAX_ROW_ID_CHARS'));
+    expect(MAX_BODY_BYTES).toBe(workerConstant('files.ts', 'MAX_BODY_BYTES'));
   });
 });
