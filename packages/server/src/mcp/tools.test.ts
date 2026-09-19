@@ -135,6 +135,14 @@ describe('MCP tools', () => {
     expect(sent.at(-1)).toMatchObject({ type: 'session.upsert', session: { id: alphaId, summary: { title: 'T', source: 'in_session' } } });
     expect(() => call('set_session_summary', { title: 'T', one_liner: 'O', body: 'B', state: 'weird', next_steps: [] }, { sessionId: alphaId })).toThrow(ToolError);
   });
+  it('他端末のロックは、MCP から触っても配信から消えない', () => {
+    // 他端末で生きている run を入れる。listSessions と getSession に deviceId を渡さないと lock は必ず null になる。
+    db.prepare("insert into runs (id, session_id, device_id, kind, tmux_name, launch_params, pid, started_at, ended_at, end_reason, heartbeat_at, updated_at, origin_device) values ('rX', ?, 'other', 'start', 'hangar-rX', '{}', null, 1, null, null, ?, 1, 'other')").run(alphaId, Date.now());
+    db.prepare("insert into devices (id, name, platform, last_seen_at, updated_at, origin_device) values ('other', 'mini', 'darwin', ?, 1, 'other')").run(Date.now());
+    call('set_session_memo', { session_id: alphaId, text: 'メモ' });
+    const ev = sent.find((e) => e.type === 'session.upsert');
+    expect(ev && ev.type === 'session.upsert' ? ev.session.lock?.deviceName : null).toBe('mini');
+  });
   it('set_session_memo、get_usage、open_in_hangar', () => {
     expect(call('set_session_memo', { session_id: alphaId, text: 'メモ' })).toEqual({ ok: true, session_id: alphaId });
     expect((db.prepare('select memo from sessions where id = ?').get(alphaId) as { memo: string }).memo).toBe('メモ');
