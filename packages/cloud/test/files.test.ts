@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLOUD_HEADERS, encodeHeaderText, isHeaderSafe, isValidFileKey, type FileEntry } from '@agent-hangar/shared';
-import { validKey } from '../src/files.ts';
+import { MAX_R2_META_BYTES, buildMetadata, validKey } from '../src/files.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
@@ -176,6 +176,27 @@ describe('validKey', () => {
   });
 });
 
+describe('buildMetadata', () => {
+  const bytes = (m: Record<string, string>): number => Object.entries(m).reduce((n, [k, v]) => n + new TextEncoder().encode(k).length + new TextEncoder().encode(v).length, 0);
+
+  it('入り切る間は path を載せ、境目までは落とさない', () => {
+    const sha = 'a'.repeat(64);
+    // 名前（path, sha256, device）と sha と device を引いた残りが path に使える。
+    const room = MAX_R2_META_BYTES - ('path'.length + 'sha256'.length + 'device'.length) - sha.length - 'dev-a'.length;
+    const fit = buildMetadata('x'.repeat(room), sha, 'dev-a');
+    expect(fit).toEqual({ path: 'x'.repeat(room), sha256: sha, device: 'dev-a' });
+    expect(bytes(fit!)).toBe(MAX_R2_META_BYTES);
+    expect(buildMetadata('x'.repeat(room + 1), sha, 'dev-a')).toEqual({ sha256: sha, device: 'dev-a' });
+  });
+
+  it('入り切らなければ path を落とし、それでも入らなければ null', () => {
+    const sha = 'a'.repeat(64);
+    expect(buildMetadata('%E3%81%82'.repeat(300), sha, 'dev-a')).toEqual({ sha256: sha, device: 'dev-a' });
+    // 端末 ID は参加の入口で 64 文字までに限られるので、実際には null にならない。最後の網である。
+    expect(buildMetadata('x', sha, 'd'.repeat(MAX_R2_META_BYTES))).toBeNull();
+  });
+});
+
 describe('鍵の検査', () => {
   it('接頭辞の違う鍵と危うい相対パスは 400 で、R2 にも索引にも残らない', async () => {
     for (const key of [
@@ -251,6 +272,25 @@ describe('鍵の検査', () => {
     // R2 の customMetadata は見出しのままの形で持つ（値も ByteString しか運べない）。
     expect((await cloud.env.BUCKET.head(key))?.customMetadata?.path).toBe(wire);
     expect((await del(tokB, key)).status).toBe(204);
+  });
+
+  it('符号化すると R2 の覚え書きの上限を超える path でも上げられる。500 にして永久に再送させない', async () => {
+    // 日本語は `encodeURIComponent` で 1 文字が 9 バイトに伸びるので、
+    // `isSafeRelPath` が許す 512 文字のうち 218 文字あたりから R2 の 2048 バイトを超える。
+    // 超えたら覚え書きの `path` を落とす。索引の正本は D1 なので、降ろす側は何も失わない。
+    const path = `skills/${'あ'.repeat(300)}/SKILL.md`;
+    const wire = encodeHeaderText(path)!;
+    expect(wire.length).toBeGreaterThan(MAX_R2_META_BYTES);
+    const key = `config/${path}`;
+    expect((await put(tokB, key, 'x', configMeta(wire))).status).toBe(201);
+    // D1 の索引には元のパスがそのまま入る。
+    const e = (await list(tokA)).files[0]!;
+    expect([e.key, e.path]).toEqual([key, path]);
+    expect(await (await get(tokA, key)).text()).toBe('x');
+    // R2 側の覚え書きからは path だけが落ちる。指紋と端末は残る。
+    const meta = (await cloud.env.BUCKET.head(key))?.customMetadata;
+    expect(meta?.path).toBeUndefined();
+    expect([meta?.sha256, meta?.device]).toEqual(['a'.repeat(64), 'dev-b']);
   });
 
   it('百分率の形が壊れた path の見出しは 400', async () => {

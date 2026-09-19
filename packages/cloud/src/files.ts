@@ -64,6 +64,53 @@ function toInt(s: string | undefined): number | null {
 }
 
 /**
+ * R2 の customMetadata の上限である。
+ *
+ * 実測で決めた（miniflare の R2 に対して二分した）。
+ * 鍵の名前と値を合わせた UTF-8 のバイト数が 2048 ちょうどまで通り、1 バイト超えると投げる。
+ *
+ * ```
+ * 単一キー a=      通る最大 2047 バイト / 合計 2048
+ * 鍵名 20 字       通る最大 2028 バイト / 合計 2048
+ * path と sha256 と device の 3 つ  通る最大 2036 バイト / 合計 2048
+ * 超えたとき: put: Your metadata headers exceed the maximum allowed metadata size. (10012)
+ * ```
+ *
+ * どの形でも境目は「名前と値の合計 2048 バイト」で一致した。
+ * miniflare は非 ASCII の値をバイトではなく文字の数で測るようだが、実物の R2 は見出しとして運ぶので、
+ * 厳しい側（UTF-8 のバイト数）で測る。
+ */
+export const MAX_R2_META_BYTES = 2048;
+
+const utf8Len = (s: string): number => new TextEncoder().encode(s).length;
+
+const metaBytes = (m: Record<string, string>): number => Object.entries(m).reduce((n, [k, v]) => n + utf8Len(k) + utf8Len(v), 0);
+
+/**
+ * R2 に付ける覚え書きを組み立てる。入り切らなければ null で、呼び手は R2 に触る前に断る。
+ *
+ * `path` は見出しの形（`encodeURIComponent`）で運ばれるので、非 ASCII は 1 バイトが 3 バイトに伸びる。
+ * 日本語なら 1 文字 9 バイトである。
+ * `isSafeRelPath` が許すのは 512 **文字**なので、符号化すると 4608 バイトになりうる。
+ * つまり上限を超える組み合わせが現実に作れる。
+ *
+ * 超えたときは `path` を落とし、`sha256` と `device` だけにする。
+ * **索引の正本は D1 の `files` で、R2 側の写しを読む者は本番の経路に 1 人もいない**（自分を説明する
+ * ための控えでしかない）。
+ * 落とせば済むものを理由に 400 を返すと、`~/.claude` の深い日本語の道に置かれた 1 本が
+ * 二度と上がらなくなる。控えを 1 つ諦める方が、本文を諦めるよりずっと軽い。
+ *
+ * `sha256`（64）と `device`（参加の入口で 64 文字までに限られる）だけなら高々 144 バイトなので、
+ * null は実際には返らない。それでも、R2 の上限を当てにした 500 を作らないための最後の網として置く。
+ */
+export function buildMetadata(wirePath: string, sha256: string, device: string): Record<string, string> | null {
+  const full = { path: wirePath, sha256, device };
+  if (metaBytes(full) <= MAX_R2_META_BYTES) return full;
+  const lean = { sha256, device };
+  return metaBytes(lean) <= MAX_R2_META_BYTES ? lean : null;
+}
+
+/**
  * R2 に預ける 1 つの部分の大きさである。
  * R2 は最後以外の部分に 5 MiB の下限を課すので、それより大きく取る。
  */
@@ -181,8 +228,12 @@ filesApp.put('/:key{.+}', async (c) => {
   const body = c.req.raw.body;
   if (!body) return c.json({ error: 'empty body' }, 400);
   // customMetadata の値も見出し由来なので、ここに秘密は入らない（path と sha と端末 ID だけ）。
-  // customMetadata の値も見出しとして運ばれるので、符号化したままの形で置く。
-  const storedSize = await storeBody(c.env.BUCKET, key, body, { path: wirePath!, sha256: sha, device: device.id });
+  // 値も見出しとして運ばれるので、符号化したままの形で置く。
+  // 組み立ては R2 に触る前に済ませる。上限に当ててから倒れると、半端な本体が R2 に残るうえ、
+  // 500 は「あとで直るかもしれない失敗」なので上げる側が永久に送り直す。
+  const customMetadata = buildMetadata(wirePath!, sha, device.id);
+  if (!customMetadata) return c.json({ error: 'metadata too large' }, 413);
+  const storedSize = await storeBody(c.env.BUCKET, key, body, customMetadata);
   if (storedSize === null) return c.json({ error: 'too large' }, 413);
   const now = Date.now();
   const r = await c.env.DB.batch([
