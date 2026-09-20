@@ -13,10 +13,15 @@ export type QuotaDay = { rows: number; requests: number };
  * その日の数えの中身である。
  *
  * `rows` はこの端末が自分の要求から見積もった行数、`account` は Worker が返した
- * 「その日にこの箱が D1 へ書いた行数」（アカウント全体）である。
- * `accountAt` はその報告を受け取った時点の `rows` で、報告の後に自分で書いた分を足し直すのに使う。
+ * 「その日にこの箱が D1 へ書いた行数」（アカウント全体）のうち、いちばん大きかったものである。
+ * `guard` は見張りが実際に見る数で、**自分の書き込みを積み上げながら、報告が大きければそこまで引き上げる**。
+ *
+ * 前は「報告 + 報告の後に書いた分」だけを見ていた。
+ * 報告のたびに足し込みの起点が 0 に戻るので、報告が小さいまま固まると、
+ * 積み上げてきた見積もりが丸ごと捨てられて見張りが動かなくなった（レビューの致命 1）。
+ * 積み上げる側と報告の**大きい方**を採れば、報告が壊れても自分の見積もりより悪くはならない。
  */
-type QuotaRecord = QuotaDay & { account?: number; accountAt?: number };
+type QuotaRecord = QuotaDay & { account?: number; guard?: number };
 
 /**
  * 無料枠が数えているのは「文の数」ではなく `rows_written`、つまり **索引への書き込みを含む行数**である。
@@ -152,10 +157,8 @@ export class QuotaCounter {
     try {
       const v = JSON.parse(raw) as { rows?: unknown; requests?: unknown; account?: unknown; accountAt?: unknown };
       const rec: QuotaRecord = { rows: count(v?.rows), requests: count(v?.requests) };
-      if (typeof v?.account === 'number' && Number.isFinite(v.account) && v.account >= 0) {
-        rec.account = Math.floor(v.account);
-        rec.accountAt = count(v?.accountAt);
-      }
+      if (typeof v?.account === 'number' && Number.isFinite(v.account) && v.account >= 0) rec.account = Math.floor(v.account);
+      rec.guard = Math.max(count(v?.guard), rec.rows, rec.account ?? 0);
       return rec;
     } catch {
       return { rows: 0, requests: 0 };
@@ -175,29 +178,40 @@ export class QuotaCounter {
     if (this.lastKey !== null && this.lastKey !== key) this.state.set(this.lastKey as SyncStateKey, null);
     this.lastKey = key;
     const cur = this.read(key);
-    const next: QuotaRecord = { rows: cur.rows + count(o.rows), requests: cur.requests + count(o.requests) };
-    if (cur.account !== undefined) { next.account = cur.account; next.accountAt = cur.accountAt ?? 0; }
+    const rows = count(o.rows);
+    const next: QuotaRecord = { rows: cur.rows + rows, requests: cur.requests + count(o.requests) };
+    // 自分の書き込みは必ず積む。報告が届いたことを理由に、積み上げてきた分を捨ててはいけない。
+    next.guard = (cur.guard ?? cur.rows) + rows;
+    if (cur.account !== undefined) next.account = cur.account;
     // 報告は単調にしか上がらない。後から届いた古い応答で数えを下げると、止まるべき日に止まらない。
     const reported = typeof o.account === 'number' && Number.isFinite(o.account) && o.account >= 0 ? Math.floor(o.account) : null;
-    if (reported !== null && reported >= (next.account ?? 0)) { next.account = reported; next.accountAt = next.rows; }
+    if (reported !== null && reported >= (next.account ?? 0)) next.account = reported;
+    // 報告が積み上げより大きければ、そこまで引き上げる（他の端末と、端末からは見えない経路の分である）。
+    if (next.account !== undefined && next.account > next.guard) next.guard = next.account;
+    // 積み上げが見積もりと同じ（報告を 1 度も受けていない）うちは書かない。
+    // 置く値を増やさなければ、報告の無い端末の sync_state は直す前と同じ姿のままである。
+    if (next.guard <= next.rows) delete next.guard;
     this.state.set(key as SyncStateKey, JSON.stringify(next));
   }
 
   /**
    * 見張りに使う「その日に D1 へ書かれた行数」と、その止め水準である。
    *
-   * Worker の報告があるときは、それがアカウント全体の数なので端末の数で割らない。
-   * 割らないと 2 台で 160% まで走るのは、端末が自分の書き込みしか見ていないからである。
-   * 全員ぶんが入った 1 つの数で見られるなら、割り当てを分ける理由がそもそも無い。
+   * 数える側は常に `guard`、つまり **自分の積み上げと報告の大きい方**である。
+   * 報告が壊れても（小さいまま固まっても、届かなくなっても）、自分の見積もりより悪くはならない。
    *
-   * 報告の後に自分で書いた分（ファイルの出し入れと pull）は、次の報告が来るまで見積もりで足す。
-   * 報告が無い（古い Worker の）ときだけ、今までどおり見積もりを端末の数で割った水準で見る。
+   * 止め水準は、報告が当てになるかどうかで分ける。
+   * 報告はこの端末自身の書き込みも含むので、**自分の見積もりを下回ることはない**。
+   * 下回るなら、その報告は当てにできない（台帳が消えている、日付の境目がずれている、など）。
+   *
+   * - 当てになる報告があるとき … アカウント全体の数なので、端末の数で割らずに 80% で見る。
+   * - 無いか、当てにならないとき … 直す前と同じく、端末の数で割った割り当てで見る。
    */
   d1(): { rows: number; stop: number; authoritative: boolean } {
     const t = this.read(this.key());
     const full = this.limits.d1Writes * this.ratio;
-    if (t.account === undefined) return { rows: t.rows, stop: full / this.devices(), authoritative: false };
-    return { rows: t.account + Math.max(0, t.rows - (t.accountAt ?? 0)), stop: full, authoritative: true };
+    const trusted = t.account !== undefined && t.account >= t.rows;
+    return { rows: Math.max(t.guard ?? t.rows, t.rows), stop: trusted ? full : full / this.devices(), authoritative: trusted };
   }
 
   /** 行数と要求の回数のどちらかが、この端末の割り当てに達したか。 */

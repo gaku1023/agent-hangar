@@ -97,6 +97,68 @@ describe('Worker が返した行数を正として使う', () => {
   });
 });
 
+describe('報告が壊れていても、見積もりを捨てない（レビューの致命 1）', () => {
+  it('報告が届いても、積み上げてきた見積もりを捨てない', () => {
+    const q = make({ d1Writes: 1_000, requests: 1_000_000 });
+    // 毎回同じ小さい値を報告する Worker（台帳が isolate ごとに消えていた頃の姿）。
+    for (let i = 0; i < 100; i++) q.note({ rows: 10, requests: 1, account: 201 });
+    // 手元の積み上げは 1,000 行。報告の 201 に貼り付いてはいけない。
+    expect(q.today().rows).toBe(1_000);
+    // 見張りが見るのは、最初に受けた報告（201）に自分の書き込みを積み上げた数である。
+    // 端末から見えない経路の分（スキーマの用意と参加）が報告に入っているので、見積もりより少し大きい。
+    expect(q.d1().rows).toBe(201 + 10 * 99);
+    expect(q.d1().rows).toBeGreaterThan(1_000);
+    expect(q.exceeded()).toBe(true);
+  });
+
+  it('報告が自分の見積もりより小さいときは、止め水準を端末の数で割った方に落とす', () => {
+    const q = make({ d1Writes: 1_000, requests: 1_000_000 }, () => 2);
+    // 報告はこの端末自身の書き込みも含むので、自分の見積もりを下回ることはない。
+    // 下回るなら、その報告は当てにできない。当てにできないときは、直す前と同じ割り当てで見る。
+    q.note({ rows: 500, account: 100 });
+    expect(q.d1()).toEqual({ rows: 500, stop: 400, authoritative: false });
+    expect(q.exceeded()).toBe(true);
+  });
+
+  /**
+   * 裁定 3 の実測である。
+   * レビュアと同じ条件（isolate が毎回入れ替わる、報告が小さい）で、旧方式と新方式のどちらが先に止まるかを数える。
+   *
+   * 1 回の push は 40 行を採る。
+   * Worker が実際に書くのは、採った 1 行につき 5 行（changes 3 + 鏡 2）と要求ごとの devices 1 行、
+   * それに台帳の 1 文（2 行）で、合わせて 203 行である（miniflare で実測した数である）。
+   * 端末の見積もりは 1 行につき 4 行と devices の 1 行で 161 行である。
+   * **見積もりは実際より 2 割ほど少ない。** これが旧方式の穴である。
+   */
+  it('実際に書かれた行数で見て、旧方式より早く止まる', () => {
+    const run = (devices: number, report: (actual: number) => number | undefined) => {
+      const q = new QuotaCounter({ state: new SyncStateStore(openDb(':memory:')), now: () => now, limits: { d1Writes: 100_000, requests: 10_000_000 }, deviceCount: () => devices });
+      let actual = 0;
+      let steps = 0;
+      while (!q.exceeded() && steps < 10_000) {
+        steps++;
+        actual += 40 * 5 + 1 + 2;
+        q.note({ rows: 40 * 4 + 1, requests: 1, account: report(actual) });
+      }
+      return actual;
+    };
+    const FREE = 100_000;
+    // 1 台のとき。旧方式は見積もりが 2 割少ないぶん、無料枠を越えてから止まる。
+    const oldOne = run(1, () => undefined);
+    const newOne = run(1, (a) => a);
+    expect(oldOne).toBeGreaterThan(FREE);       // 枠を越えている
+    expect(newOne).toBeLessThan(FREE);          // 越えない
+    expect(newOne).toBeLessThan(oldOne);        // 旧方式より早く止まる
+    expect(newOne).toBeGreaterThan(FREE * 0.75);
+
+    // 報告が固まったとき（レビュアの筋）。旧方式と同じところで止まり、遅くなることはない。
+    const frozenTwo = run(2, () => 201);
+    const oldTwo = run(2, () => undefined);
+    expect(frozenTwo).toBe(oldTwo);
+    expect(frozenTwo).toBeLessThan(FREE);
+  });
+});
+
 describe('無料枠で止めた日', () => {
   it('sync_state に残るので、立て直しても同じ日に止め直さない', () => {
     const q = make();
