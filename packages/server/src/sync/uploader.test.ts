@@ -313,6 +313,20 @@ describe('TranscriptUploader の取り残しの走査', () => {
     up.stop();
   });
 
+  it('消したセッションの本文は走査で拾わない', async () => {
+    // 数える側は論理削除を見ていたが、拾う側が見ていなかった。
+    // 見ないと、利用者が消したセッションの本文がそのままクラウドへ上がる。
+    addIndexed(mainFile(), UUID, null);
+    const up = make();
+    expect(up.pendingSweep()).toBe(1);
+    db.prepare('update sessions set deleted_at = ? where provider_session_id = ?').run(Date.now(), UUID);
+    expect(up.pendingSweep()).toBe(0);
+    expect(up.sweep()).toBe(0);
+    await up.idle();
+    expect([...cloud.files.keys()]).toEqual([]);
+    up.stop();
+  });
+
   it('取り残しの件数を数えて返す', async () => {
     // 画面に「未送信の本文 N」を出すための数である。走査と同じ突き合わせを数えるだけで、何も積まない。
     const up = make();

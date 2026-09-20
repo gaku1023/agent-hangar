@@ -240,7 +240,7 @@ export class TranscriptUploader {
       left join file_sync fs on fs.key = (case when t.agent_id is null
         then @head || s.provider_session_id || '.jsonl.gz'
         else @head || s.provider_session_id || '/subagents/agent-' || t.agent_id || '.jsonl.gz' end)
-      where t.device_id is null and (fs.key is null or fs.size < t.size)
+      where t.device_id is null and s.deleted_at is null and (fs.key is null or fs.size < t.size)
       order by t.mtime desc
       limit @limit`);
     return this.sweepStmt;
