@@ -335,6 +335,32 @@ describe('FakeCloudClient', () => {
     expect(await a.putFile(meta('transcripts/a/ok.gz'), Readable.from([Buffer.alloc(3)]))).toEqual({ seq: 1 });
   });
 
+  it('暗号化していない transcript は実物と同じ 400 で断る', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    const body = () => Readable.from([Buffer.from('x')]);
+    const e = await a.putFile(meta('transcripts/a/u1.gz', { encrypted: false }), body()).catch((x: unknown) => x);
+    expect(e).toMatchObject({ status: 400, message: JSON.stringify({ error: 'unencrypted transcript' }) });
+    expect(a.files.size).toBe(0);
+    // config は今までどおり通る（種別ごとの約束の違いは実物と揃える）。
+    expect(await a.putFile({ ...meta('config/a/x.md', { encrypted: false }), kind: 'config' as const }, body())).toEqual({ seq: 1 });
+  });
+
+  it('その検査は実物の Worker にもある', () => {
+    // 偽物だけが厳しいのも、実物だけが厳しいのも困る。原本にその枝があることをここで縛る。
+    const src = fs.readFileSync(new URL('../../cloud/src/files.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/kind === 'transcript' && enc !== '1'/);
+    expect(src).toContain("'unencrypted transcript'");
+  });
+
+  it('でたらめに大きい since を nextSeq にそのまま返さない', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    await a.putFile(meta('transcripts/a/u1.gz'), Readable.from([Buffer.from('x')]));
+    expect(await a.listFiles(999_999, 500)).toMatchObject({ files: [], nextSeq: 1, more: false });
+    // 索引が空なら 0 である。
+    await a.deleteFile('transcripts/a/u1.gz');
+    expect(await a.listFiles(999_999, 500)).toMatchObject({ files: [], nextSeq: 0, more: false });
+  });
+
   it('上限は実物の Worker と同じ数である', () => {
     // 偽物は実物を写したものである。実物だけが変わったら、ここで落ちて写し直しを促す。
     expect(MAX_ROW_BYTES).toBe(workerConstant('changes.ts', 'MAX_ROW_BYTES'));

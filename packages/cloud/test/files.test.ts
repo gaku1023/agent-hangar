@@ -201,6 +201,51 @@ describe('buildMetadata', () => {
   });
 });
 
+describe('本文の暗号化', () => {
+  it('暗号化していない transcript は 400 で、R2 にも索引にも残らない', async () => {
+    // 決定 5 は「本文は端末で暗号化してから預ける」である。
+    // 降ろす側（packages/server/src/sync/puller.ts）だけが守っていると、置く側の穴に誰も気付かない。
+    const key = 'transcripts/dev-a/u1.jsonl.gz';
+    const r = await put(tokA, key, 'abc', meta({ [CLOUD_HEADERS.encrypted]: '0' }));
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ error: 'unencrypted transcript' });
+    expect(await keysInR2()).toEqual([]);
+    expect((await list(tokA)).files).toEqual([]);
+  });
+
+  it('暗号化した transcript は今までどおり通る', async () => {
+    expect((await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc')).status).toBe(201);
+    expect((await list(tokA)).files.map((f) => f.encrypted)).toEqual([true]);
+  });
+
+  it('断るのは R2 に触る前である（半端な本体を残さない）', async () => {
+    const big = 'x'.repeat(64 * 1024);
+    expect((await put(tokA, 'transcripts/dev-a/big.jsonl.gz', big, meta({ [CLOUD_HEADERS.encrypted]: '0', [CLOUD_HEADERS.size]: String(big.length) }))).status).toBe(400);
+    expect(await keysInR2()).toEqual([]);
+  });
+});
+
+describe('GET /files?since=', () => {
+  it('でたらめに大きい since を nextSeq にそのまま返さない', async () => {
+    // 返すと、端末が一度でも壊れた since を控えた時点で一覧が永久に空になる。
+    // `/changes`（packages/cloud/src/changes.ts）は既にこの形で、ここだけが非対称だった。
+    await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
+    expect(await list(tokB, 999_999)).toEqual({ files: [], nextSeq: 1, more: false });
+  });
+
+  it('桁あふれした since は 0 として読む（数えられない値で読み位置を固めない）', async () => {
+    await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
+    for (const since of ['1e21', 'Infinity', '-1', 'abc', '1.5']) {
+      const r = (await (await cloud.SELF.fetch(`https://x/files?since=${since}`, { headers: { authorization: `Bearer ${tokB}` } })).json()) as Listing;
+      expect([since, r.files.map((f) => f.seq), r.nextSeq]).toEqual([since, [1], 1]);
+    }
+  });
+
+  it('索引が空なら nextSeq は 0 である', async () => {
+    expect(await list(tokB, 5)).toEqual({ files: [], nextSeq: 0, more: false });
+  });
+});
+
 describe('鍵の検査', () => {
   it('接頭辞の違う鍵と危うい相対パスは 400 で、R2 にも索引にも残らない', async () => {
     for (const key of [

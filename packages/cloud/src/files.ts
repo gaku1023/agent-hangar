@@ -193,16 +193,36 @@ async function storeBody(
 
 export const filesApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
+/**
+ * 索引の読み位置である。
+ *
+ * 数えられない値（桁あふれ、`Infinity`、負、小数、でたらめな文字列）はすべて 0 として読む。
+ * 0 は「全部やり直す」であって、取りこぼす側には倒れない。
+ * そのまま束縛に渡すと、D1 が受けない値で 500 になる筋も残る。
+ */
+function toSince(v: string | undefined): number {
+  if (v === undefined || v === '') return 0;
+  const n = Number(v);
+  return Number.isSafeInteger(n) && n > 0 ? n : 0;
+}
+
+/** 索引の末尾の連番。1 件も無ければ 0 である。 */
+const maxFileSeq = async (db: D1Database): Promise<number> =>
+  (await db.prepare('select ifnull(max(seq), 0) s from files').first<{ s: number }>())!.s;
+
 /** 索引を連番の昇順で返す。自端末の分も返す（この端末が作り直したときの取り直しに要る）。 */
 filesApp.get('/', async (c) => {
-  const since = Math.max(Number(c.req.query('since') ?? 0) || 0, 0);
+  const since = toSince(c.req.query('since'));
   const limit = Math.min(Math.max(Number(c.req.query('limit') ?? PULL_LIMIT) || PULL_LIMIT, 1), PULL_LIMIT);
   const rows = await c.env.DB.prepare('select * from files where seq > ? order by seq limit ?')
     .bind(since, limit + 1)
     .all<FileRow>();
   const more = rows.results.length > limit;
   const page = rows.results.slice(0, limit);
-  const nextSeq = page.length ? page[page.length - 1]!.seq : since;
+  // 端末が送ってきた `since` を返さない。`/changes`（changes.ts の `GET /`）と同じ形である。
+  // 返すと、一度でも壊れた `since` を控えた端末の一覧が、その値のまま固まって永久に空になる。
+  // 末尾の行が消えて最大連番が下がることはあるが、そのときは同じ索引をもう一度読むだけで、落とす側には倒れない。
+  const nextSeq = more ? page[page.length - 1]!.seq : await maxFileSeq(c.env.DB);
   const res: ListFilesResponse = { files: page.map(toEntry), nextSeq, more };
   return c.json(res);
 });
@@ -228,6 +248,10 @@ filesApp.put('/:key{.+}', async (c) => {
   // 種別と接頭辞が食い違うと、索引の kind から鍵の置き場を当てにしている側が取り違える。
   if ((kind === 'config') !== key.startsWith('config/')) return c.json({ error: 'invalid headers' }, 400);
   if (!isSha(sha) || size === null || mtime === null || (enc !== '1' && enc !== '0')) return c.json({ error: 'invalid headers' }, 400);
+  // 本文は端末で暗号化してから預ける約束である（決定 5）。
+  // 降ろす側（packages/server/src/sync/puller.ts）だけが守っていると、置く側は約束の外に出られる。
+  // R2 に触る前に断るので、平文が一瞬でも R2 に載ることはない。
+  if (kind === 'transcript' && enc !== '1') return c.json({ error: 'unencrypted transcript' }, 400);
   const body = c.req.raw.body;
   if (!body) return c.json({ error: 'empty body' }, 400);
   // customMetadata の値も見出し由来なので、ここに秘密は入らない（path と sha と端末 ID だけ）。

@@ -225,6 +225,8 @@ export class FakeCloudClient implements CloudClient {
     if (meta.kind !== 'transcript' && meta.kind !== 'config') bad();
     if (!/^[0-9a-f]{64}$/.test(meta.sha256)) bad();
     if (!isInt(meta.size) || !isInt(meta.mtime)) bad();
+    // 本文は端末で暗号化してから預ける約束である（決定 5）。実物の Worker も同じところで同じ 400 を出す。
+    if (meta.kind === 'transcript' && meta.encrypted !== true) throw new CloudError(400, errorBody('unencrypted transcript'));
   }
 
   /**
@@ -240,6 +242,20 @@ export class FakeCloudClient implements CloudClient {
     const back = decodeHeaderText(wire);
     if (back === null || back !== path) throw new CloudError(400, errorBody('invalid headers'));
     return back;
+  }
+
+  /**
+   * 検査を通さずに置く。
+   * 上げる側の検査（平文の本文を断るなど）を迂回して、受け取る側の守りだけを試すための入口である。
+   * 実物の Worker にこの口は無い。
+   */
+  seedUnchecked(meta: FileMetaIn, body: Buffer): { seq: number } {
+    const seq = ++this.store.fileSeq;
+    this.store.files.set(meta.key, {
+      entry: { ...meta, seq, deviceId: this.deviceId, uploadedAt: this.store.now(), storedSize: body.length },
+      body,
+    });
+    return { seq };
   }
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
@@ -282,9 +298,14 @@ export class FakeCloudClient implements CloudClient {
   async listFiles(since: number, limit: number): Promise<ListFilesResponse> {
     this.guard('listFiles', since, limit);
     const n = clampLimit(limit);
-    const all = [...this.store.files.values()].map((f) => f.entry).filter((e) => e.seq > since).sort((a, b) => a.seq - b.seq);
+    const entries = [...this.store.files.values()].map((f) => f.entry);
+    const all = entries.filter((e) => e.seq > since).sort((a, b) => a.seq - b.seq);
     const page = all.slice(0, n);
-    return { files: page.map((e) => ({ ...e })), nextSeq: page.length ? page[page.length - 1]!.seq : since, more: all.length > n };
+    const more = all.length > n;
+    // 端末が送ってきた since を返さない（実物の GET /files と同じ形）。
+    // 返すと、一度でも壊れた since を控えた端末の一覧が、その値のまま固まって永久に空になる。
+    const nextSeq = more ? page[page.length - 1]!.seq : entries.reduce((m, e) => Math.max(m, e.seq), 0);
+    return { files: page.map((e) => ({ ...e })), nextSeq, more };
   }
 
   async deleteFile(key: string): Promise<void> {
