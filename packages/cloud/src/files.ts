@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { CLOUD_HEADERS, MAX_KEY_BYTES, PULL_LIMIT, decodeHeaderText, isSafeKeyId, isSafeRelPath, splitFileKey, type FileEntry, type FileKind, type ListFilesResponse } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
+import { meteredBatch } from './meter.ts';
+import { sweepIfDue } from './sweep.ts';
 
 type FileRow = {
   seq: number;
@@ -212,6 +214,14 @@ const maxFileSeq = async (db: D1Database): Promise<number> =>
 
 /** 索引を連番の昇順で返す。自端末の分も返す（この端末が作り直したときの取り直しに要る）。 */
 filesApp.get('/', async (c) => {
+  // 孤児の掃除はここから始める。応答は待たせない（waitUntil に逃がす）。
+  // 端末が pull のたびに叩く経路なので、6 時間に 1 回という間隔を当てにできる相手がここしかいない。
+  // executionCtx を持たない土台（テストの一部）では黙って見送る。掃除は次の回で拾える。
+  try {
+    c.executionCtx.waitUntil(sweepIfDue(c.env, Date.now()).catch((e: unknown) => { console.error('sweep failed', e instanceof Error ? e.name : typeof e); }));
+  } catch {
+    // executionCtx が無いだけなので、一覧そのものは続ける。
+  }
   const since = toSince(c.req.query('since'));
   const limit = Math.min(Math.max(Number(c.req.query('limit') ?? PULL_LIMIT) || PULL_LIMIT, 1), PULL_LIMIT);
   const rows = await c.env.DB.prepare('select * from files where seq > ? order by seq limit ?')
@@ -263,13 +273,13 @@ filesApp.put('/:key{.+}', async (c) => {
   const storedSize = await storeBody(c.env.BUCKET, key, body, customMetadata);
   if (storedSize === null) return c.json({ error: 'too large' }, 413);
   const now = Date.now();
-  const r = await c.env.DB.batch([
+  const r = await meteredBatch(c.env.DB, [
     c.env.DB.prepare('delete from files where key = ?').bind(key),
     c.env.DB
       .prepare('insert into files (key, path, kind, device_id, sha256, size, stored_size, mtime, encrypted, uploaded_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .bind(key, path, kind, device.id, sha, size, storedSize, mtime, enc === '1' ? 1 : 0, now),
     c.env.DB.prepare('update devices set last_seen_at = ? where id = ?').bind(now, device.id),
-  ]);
+  ], now);
   const seq = Number(r[1]!.meta.last_row_id);
   return c.json({ seq }, 201);
 });
@@ -292,7 +302,11 @@ filesApp.delete('/:key{.+}', async (c) => {
   const device = c.get('device');
   if (!keyShapeOk(key)) return c.json({ error: 'invalid key' }, 400);
   if (!validKey(key, device.id, 'DELETE')) return c.json({ error: 'forbidden' }, 403);
+  // 索引を先に消す。
+  // 逆にすると、途中で倒れたときに「索引にあるのに本体が無い」が残り、降ろす側が永久に 404 を踏む。
+  // この順なら残るのは索引に無い本体だけで、それは `sweep.ts` が後から拾って消せる。
+  const now = Date.now();
+  await meteredBatch(c.env.DB, [c.env.DB.prepare('delete from files where key = ?').bind(key)], now);
   await c.env.BUCKET.delete(key);
-  await c.env.DB.prepare('delete from files where key = ?').bind(key).run();
   return c.body(null, 204);
 });
