@@ -24,6 +24,10 @@ Developer ID での署名も公証もしないので、初回だけ Gatekeeper �
 1. Releases から `Hangar-vX.Y.Z-macos-arm64.zip` を落として展開します。
    checksum を確かめるには、同じ場所の `.sha256` も落として `shasum -a 256 -c Hangar-vX.Y.Z-macos-arm64.zip.sha256` を実行します。
 
+   展開の仕方で、検疫属性が `.app` に伝わるかどうかが変わります。
+   Finder でダブルクリックして展開すると伝わり、端末から `unzip` や `tar` で展開すると伝わりません。
+   伝わらなかった場合、3 段目の `xattr` は消すものが無いまま正常に終わるので、そのまま進めてください。
+
 2. 展開した `Hangar.app` を `/Applications` へ移します。
 
    Finder でドラッグするのが確実です。
@@ -46,6 +50,7 @@ Developer ID での署名も公証もしないので、初回だけ Gatekeeper �
 
    ターミナルを使わない道もあります。
    `/Applications/Hangar.app` を一度開き、出たダイアログを閉じてから、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。
+   「このまま開く」を押すと、ログインパスワードか Touch ID を求められます。
    macOS 14 以前では、`Hangar.app` を右クリックして「開く」を選ぶ方法も使えます。
 
    アプリ自身も、同梱サーバを子プロセスとして起こす前に検疫属性を外します。
