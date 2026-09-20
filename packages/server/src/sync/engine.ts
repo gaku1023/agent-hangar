@@ -107,8 +107,6 @@ export class SyncEngine {
   private pullError: string | null = null;
   private claudeConfig = { enabled: false, confirmed: false };
   private started = false;
-  /** 無料枠で止めた日。同じ日に二度は止めない（利用者が再開を押した後に押し返さない）。 */
-  private quotaPausedDay: string | null = null;
   /** 413 で諦めた行。同じ行で何度も知らせない。 */
   private readonly oversizeTold = new Set<string>();
   /**
@@ -126,6 +124,14 @@ export class SyncEngine {
     this.timers = deps.timers ?? REAL_TIMERS;
     // 枠はアカウントごとなので、端末の数で割った割り当てで見張る（quota.ts の stopAt）。
     this.quota = deps.quota ?? new QuotaCounter({ state: this.state, now: () => this.now(), limits: deps.quotaLimits, deviceCount: () => this.deviceCount() });
+    /*
+     * 立て直しても、直前まで出ていた失敗の理由を消さない。
+     * 送れていない行は `changes` に残っているのに、起こし直した直後だけ idle に見えるのがいちばんの嘘である。
+     *
+     * push と pull のどちらの失敗だったかは残っていないので、push の側に戻す。
+     * 先に見せるのが push の理由であり、次の push が通れば消えるからである（居座らない）。
+     */
+    this.pushError = this.state.get('lastError');
   }
 
   protected now(): number { return this.deps.now ? this.deps.now() : Date.now(); }
@@ -359,9 +365,10 @@ export class SyncEngine {
    */
   protected guardQuota(): boolean {
     const day = quotaDayKey(this.now());
-    if (this.quotaPausedDay === day || this.paused) return false;
+    // 止めた日は sync_state に置く。メモリに置くと、立て直した直後にもう一度同じ日の判定を通って止め直せる。
+    if (this.quota.pausedDay() === day || this.paused) return false;
     if (!this.quota.exceeded()) return false;
-    this.quotaPausedDay = day;
+    this.quota.setPausedDay(day);
     this.setPaused(true);
     this.emit('toast', 'info', QUOTA_PAUSED_MESSAGE);
     return true;
