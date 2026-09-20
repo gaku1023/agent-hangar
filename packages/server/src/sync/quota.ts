@@ -155,7 +155,7 @@ export class QuotaCounter {
     const raw = this.state.get(key as SyncStateKey);
     if (raw === null) return { rows: 0, requests: 0 };
     try {
-      const v = JSON.parse(raw) as { rows?: unknown; requests?: unknown; account?: unknown; accountAt?: unknown };
+      const v = JSON.parse(raw) as { rows?: unknown; requests?: unknown; account?: unknown; guard?: unknown };
       const rec: QuotaRecord = { rows: count(v?.rows), requests: count(v?.requests) };
       if (typeof v?.account === 'number' && Number.isFinite(v.account) && v.account >= 0) rec.account = Math.floor(v.account);
       rec.guard = Math.max(count(v?.guard), rec.rows, rec.account ?? 0);
