@@ -274,11 +274,20 @@ export async function stopAfterIdle(job: { idle(): Promise<void>; stop(): void }
  * 入れ物の中のディレクトリは触らない。`backups/` の下には `claude-config/` のような入れ物も並ぶ。
  * 消せなかったものは数えない。掃除は次の機会に回す。
  */
-export function pruneBackupFiles(dir: string, keep: number): number {
+export function pruneBackupFiles(root: string, kind: string, keep: number): number {
   // 控えを全部消す刈り込みは作らない。
   const limit = Math.max(1, keep);
+  // 入れ物そのものがリンクだと、readdir がリンクの先を開き、rm がその先のファイルを消す。
+  // 控えを書く側（copy.ts の resolveUnder）はリンクを 1 区切りも辿らない決まりなので、消す側も揃える。
+  if (kind === '' || kind === '.' || kind === '..' || kind.includes('/')) throw new Error('控えの種類の形が不正です');
+  const dir = path.join(root, kind);
+  const st = fs.lstatSync(dir, { throwIfNoEntry: false });
+  if (!st) return 0;
+  if (st.isSymbolicLink()) throw new Error(`backups/${kind} がシンボリックリンクなので刈りません`);
+  if (!st.isDirectory()) throw new Error(`backups/${kind} がディレクトリではありません`);
   let names: string[];
   try {
+    // ここでのリンクは読み飛ばす。控えとして置いた覚えのないものを消さない。
     names = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name);
   } catch (e) {
     // 入れ物がまだ無いのはふつうのことである（その種類の控えを 1 度も取っていない端末）。
@@ -412,7 +421,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
    * いま取った控えは最も新しいので、この刈り込みで消えることはない。
    */
   const pruneBackups = (kind: 'transcripts' | 'memos'): void => {
-    try { pruneBackupFiles(path.join(backupsRoot(home), kind), BACKUP_GENERATIONS); }
+    try { pruneBackupFiles(backupsRoot(home), kind, BACKUP_GENERATIONS); }
     catch (e) { console.error('[backups]', e instanceof Error ? e.message : e); }
   };
   const rawClient = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;

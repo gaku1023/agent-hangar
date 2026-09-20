@@ -992,19 +992,19 @@ describe('控えの世代を刈る', () => {
   it('新しい方から数えて上限までを残し、古い控えを消す', () => {
     const dir = path.join(home, 'backups', 'transcripts');
     const names = seed(dir, BACKUP_GENERATIONS + 5, '.jsonl');
-    expect(pruneBackupFiles(dir, BACKUP_GENERATIONS)).toBe(5);
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'transcripts', BACKUP_GENERATIONS)).toBe(5);
     expect(fs.readdirSync(dir).sort()).toEqual(names.slice(5).sort());
     // もう一度刈っても、上限以下なら何も消さない。
-    expect(pruneBackupFiles(dir, BACKUP_GENERATIONS)).toBe(0);
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'transcripts', BACKUP_GENERATIONS)).toBe(0);
     expect(fs.readdirSync(dir).length).toBe(BACKUP_GENERATIONS);
   });
 
   it('入れ物が無くても、上限が 0 以下でも壊れない', () => {
-    expect(pruneBackupFiles(path.join(home, 'backups', 'nope'), BACKUP_GENERATIONS)).toBe(0);
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'nope', BACKUP_GENERATIONS)).toBe(0);
     const dir = path.join(home, 'backups', 'memos');
     seed(dir, 3, '.md');
     // 上限は 1 未満にしない。控えを全部消す刈り込みは作らない。
-    expect(pruneBackupFiles(dir, 0)).toBe(2);
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'memos', 0)).toBe(2);
     expect(fs.readdirSync(dir).length).toBe(1);
   });
 
@@ -1012,8 +1012,25 @@ describe('控えの世代を刈る', () => {
     const dir = path.join(home, 'backups', 'transcripts');
     seed(dir, BACKUP_GENERATIONS + 3, '.jsonl');
     fs.mkdirSync(path.join(dir, 'keep-me'), { recursive: true });
-    expect(pruneBackupFiles(dir, BACKUP_GENERATIONS)).toBe(3);
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'transcripts', BACKUP_GENERATIONS)).toBe(3);
     expect(fs.existsSync(path.join(dir, 'keep-me'))).toBe(true);
+  });
+
+  it('入れ物がシンボリックリンクなら、リンクの先を消さずに断る', () => {
+    // 書く側（copy.ts の resolveUnder）はリンクを 1 区切りも辿らない。消す側も揃える。
+    const outside = path.join(home, 'outside');
+    fs.mkdirSync(outside, { recursive: true });
+    const victims = seed(outside, 3, '.jsonl');
+    fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
+    fs.symlinkSync(outside, path.join(home, 'backups', 'transcripts'));
+    expect(() => pruneBackupFiles(path.join(home, 'backups'), 'transcripts', 1)).toThrow(/シンボリックリンク/);
+    // リンクの先は 1 件も消えていない。
+    expect(fs.readdirSync(outside).sort()).toEqual(victims.sort());
+  });
+
+  it('控えの種類に区切りや上の階層を混ぜられない', () => {
+    expect(() => pruneBackupFiles(path.join(home, 'backups'), '../..', 1)).toThrow(/形が不正/);
+    expect(() => pruneBackupFiles(path.join(home, 'backups'), 'a/b', 1)).toThrow(/形が不正/);
   });
 
   it('起動のときに、本文とメモの控えを上限まで刈る', async () => {
