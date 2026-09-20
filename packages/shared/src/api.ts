@@ -46,14 +46,19 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
 export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean } };
-/** 降ろすのも上げるのも諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。 */
+/**
+ * 降ろすのを諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。
+ * 載るのは降ろす側（RemotePuller）の諦めだけである。
+ * 上げる側の諦めは TranscriptUploader が sync_state に残していて、ここには出てこない。
+ */
 export type SyncSkippedDto = { key: string; attempts: number; message: string };
 /**
  * 同期の状態に添える付録。
  * SyncStatusDto を組み立てる SyncEngine は、どちらの値も持っていない。
  * 諦めた本文を覚えているのは RemotePuller で、取り残しを数えられるのは TranscriptUploader だけである。
  * だから websocket の sync.status には載らず、HTTP の応答（bootstrap と /sync/status と /sync/now と /sync/pause）だけが運ぶ。
- * sweepPending は、索引は知っているがまだ一度も上げていない本文の件数である。
+ * sweepPending は、これから上がる本文の件数である。
+ * 消したセッションの本文と、上げるのを諦めた本文は入らない（どちらも上がる予定に無い）。
  * 数えられないときは null になる（同期を設定していない端末と、この口を持たない古いサーバ）。
  */
 export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | null };
