@@ -389,7 +389,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // install のときにしか置かないと、置き場を消した利用者の使用量が何も言わずに止まる。
   ensureStatuslineHeaderFile(home, token);
   const device = readOrCreateDevice(home);
-  // tmux と code のパスが設定に無ければここで探して書き戻す。GUI 起動の貧弱な PATH でも見つけられる。
+  // tmux、code、claude のパスが設定に無ければここで探して書き戻す。GUI 起動の貧弱な PATH でも見つけられる。
   let settings: Settings = resolveToolPaths(loadSettings(home));
   saveSettings(home, settings);
   ensureWrapperScript(home);
@@ -559,9 +559,15 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const port = addr && typeof addr === 'object' ? addr.port : opts.port ?? 4177;
 
   const tmuxOf = (s: Settings): Tmux | null => (s.tmuxPath ? new Tmux({ tmuxPath: s.tmuxPath }) : null);
+  /**
+   * claude の場所。run を起こす tmux のペインは hangar の PATH を継ぐので、
+   * 裸の `claude` では .app から起こしたときに引けない（PATH は /usr/bin:/bin:/usr/sbin:/sbin だけになる）。
+   * 起動と要約の両方が同じ絶対パスを使う。
+   */
+  const claudeBinOf = (s: Settings): string | null => process.env.HANGAR_CLAUDE_BIN ?? s.claudePath ?? which('claude');
   const runs = new RunManager({
     db, deviceId: device.id, home, tmux: tmuxOf(settings), port, token,
-    claudeBin: process.env.HANGAR_CLAUDE_BIN ?? 'claude',
+    claudeBin: claudeBinOf(settings),
     // 起動に失敗した run の後始末で、本文の jsonl があるかを実体で確かめるために要る。
     claudeDir,
     // hangar の外で動いている Claude を再開すると二重起動になるので、レジストリを見て弾く。
@@ -569,10 +575,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   const usage = new UsageTracker(db);
   const memos = new MemoStore({ db, deviceId: device.id, home });
-  const claudeBin = process.env.HANGAR_CLAUDE_BIN ?? which('claude');
   // Claude への切り替えの件数はプロセスの寿命で数えるので、要約器はここで 1 度だけ作り、
   // 設定の変更は列の組み立てで反映する。毎回作り直すと 1 時間の窓が空になる。
-  const claudeSummarizer = () => new ClaudeHeadlessSummarizer({ claudeBin, hourlyCap: settings.summaryHourlyCap, usage: () => usage.current() });
+  const claudeSummarizer = () => new ClaudeHeadlessSummarizer({ claudeBin: claudeBinOf(settings), hourlyCap: settings.summaryHourlyCap, usage: () => usage.current() });
   let claude = claudeSummarizer();
   const summarizers = (): Summarizer[] => {
     const list: Summarizer[] = [new LmStudioSummarizer({ baseUrl: settings.lmStudioUrl, model: settings.lmStudioModel })];
@@ -689,6 +694,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const t = tmuxOf(settings);
       runs.setTmux(t);
       relay.setTmux(t);
+      // claudePath が変われば、これから起こす run と要約が新しい場所を使う。
+      if (patch.claudePath !== undefined) {
+        runs.setClaudeBin(claudeBinOf(settings));
+        claude = claudeSummarizer();
+      }
       // 上限だけは要約器が内側に持つので、変わったときに作り直す。
       if (patch.summaryHourlyCap !== undefined) claude = claudeSummarizer();
       // Claude Code 設定の同期の入り切りは、ヘッダと Settings の表示に載せる。

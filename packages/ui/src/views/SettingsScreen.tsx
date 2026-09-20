@@ -11,6 +11,7 @@ export function SettingsScreen(props: SettingsProps) {
   const [tmuxPath, setTmuxPath] = useState(props.tmuxPath ?? '');
   const [terminalApp, setTerminalApp] = useState<TerminalApp>(props.terminalApp);
   const [codePath, setCodePath] = useState(props.codePath ?? '');
+  const [claudePath, setClaudePath] = useState(props.claudePath ?? '');
   const [lmUrl, setLmUrl] = useState(props.lmStudioUrl);
   const [lmModel, setLmModel] = useState(props.lmStudioModel ?? '');
   const [fallback, setFallback] = useState(props.summaryFallback);
@@ -23,6 +24,7 @@ export function SettingsScreen(props: SettingsProps) {
   useEffect(() => { setTmuxPath(props.tmuxPath ?? ''); }, [props.tmuxPath]);
   useEffect(() => { setTerminalApp(props.terminalApp); }, [props.terminalApp]);
   useEffect(() => { setCodePath(props.codePath ?? ''); }, [props.codePath]);
+  useEffect(() => { setClaudePath(props.claudePath ?? ''); }, [props.claudePath]);
   useEffect(() => { setLmUrl(props.lmStudioUrl); }, [props.lmStudioUrl]);
   useEffect(() => { setLmModel(props.lmStudioModel ?? ''); }, [props.lmStudioModel]);
   useEffect(() => { setFallback(props.summaryFallback); }, [props.summaryFallback]);
@@ -55,9 +57,11 @@ export function SettingsScreen(props: SettingsProps) {
   const toolsPatch: Partial<SettingsDto> = {};
   const tmux = tmuxPath.trim() || null;
   const code = codePath.trim() || null;
+  const claude = claudePath.trim() || null;
   if (tmux !== props.tmuxPath) toolsPatch.tmuxPath = tmux;
   if (terminalApp !== props.terminalApp) toolsPatch.terminalApp = terminalApp;
   if (code !== props.codePath) toolsPatch.codePath = code;
+  if (claude !== props.claudePath) toolsPatch.claudePath = claude;
   // 空の patch はサーバが 400 にして、英語のエラートーストになってしまう。
   const toolsDirty = Object.keys(toolsPatch).length > 0;
   // 4 つの保存ボタンは、どれも「変えたときだけ押せる」で揃える。
@@ -97,6 +101,9 @@ export function SettingsScreen(props: SettingsProps) {
           </label>
           <label className="field">code のパス
             <input className="input mono" aria-label="code のパス" value={codePath} onChange={(e) => setCodePath(e.target.value)} placeholder="VS Code の code コマンド" />
+          </label>
+          <label className="field">claude のパス
+            <input className="input mono" aria-label="claude のパス" value={claudePath} onChange={(e) => setClaudePath(e.target.value)} placeholder="見つかりません。claude コマンドの絶対パスを入れてください" />
           </label>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>

@@ -550,7 +550,7 @@ iTerm2 のネイティブペインに変わるのを避けるためである。
 tmux new-session -d -s hangar-<runShort> -c <cwd> -- \
   env HANGAR_RUN_ID=<runId> \
   bash ~/.agent-hangar/bin/hangar-run.sh ~/.agent-hangar/logs/run-<runId>.log \
-  claude \
+  <claude の絶対パス> \
     --mcp-config ~/.agent-hangar/mcp/<sessionId>.json \
     [--add-dir <dir>]... \
     --session-id <sessionUuid> -n "<name>" \
@@ -571,6 +571,19 @@ hangar のセッションでは `tmux set-option -t <name> status off` でステ
 新しいディレクトリで Claude を起動すると最初に信頼確認ダイアログが出るので、起動直後はターミナルを前面に出し、ダイアログが出ている旨を表示する。
 node-pty の prebuild は補助バイナリ `spawn-helper` に実行権限が無い状態で展開されることがあるため、サーバの起動時に権限を確認して直し、spawn の失敗は捕まえて接続だけを閉じる。
 tmux は `which tmux` で得た絶対パスを設定に保存して spawn する。
+claude も同じく絶対パスで渡す。
+`tmux new-session` に渡したコマンドは、tmux サーバのグローバル環境ではなく **tmux を spawn した側（hangar）の環境** を継ぐ。
+`.app` を Finder から起こすと hangar の `PATH` は `/usr/bin:/bin:/usr/sbin:/sbin` だけになり、
+`~/.local/bin` に入るネイティブ版の claude は裸の名前では引けない。
+渡してしまうと応答は成功のまま、ペインの中で `command not found` の 127 で落ちるだけなので、
+利用者はターミナルを開くまで理由が分からない（実際に 5 件の run がこれで落ちた）。
+場所は `HANGAR_CLAUDE_BIN`、Settings の `claudePath`、`which('claude')` の順に決め、
+どれでも決まらないときは tmux を起こす前に 400 で断る。
+`which` は GUI 起動の貧弱な `PATH` を補うため、Homebrew に加えて `~/.local/bin` と `~/.claude/local` も見る。
+`claudePath` は後から足した項目なので、`toolsResolved` では止めず、項目が無いうち（undefined）だけ埋める。
+既に使っている `settings.json` には `toolsResolved: true` が入っており、一括で止めると永久に埋まらないからである。
+デスクトップアプリ側も、サーバを起こすときの `PATH` に手元のツールの置き場所を足す。
+これは念のための備えで、場所を決める正本はサーバ側にある。
 起動ダイアログの必須項目はプロジェクトだけで、名前と初期プロンプトは任意である。
 model、effort、permission mode、worktree、追加ディレクトリは折りたたみに置き、既定値は利用者の Claude Code 設定に従う。
 

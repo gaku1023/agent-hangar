@@ -39,6 +39,13 @@ export type Settings = {
    * null と空文字は「指定なし」で、起動側が既定の探索に戻る。
    */
   nodePath?: string | null;
+  /**
+   * run を起こすときに使う claude の場所。
+   * 項目が無いうちは `resolveToolPaths` が探して埋め、null は利用者が外したものとして尊重する。
+   * tmux のペインは hangar の PATH を継ぐので、.app から起こしたときは
+   * `claude` という名前では引けない。だから絶対パスを持っておく。
+   */
+  claudePath?: string | null;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
