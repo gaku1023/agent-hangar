@@ -13,7 +13,7 @@ describe('パッケージの入口', () => {
     }
   });
   it('これまでの名前を落としていない', () => {
-    for (const name of ['startServer', 'VERSION', 'hangarHome', 'defaultClaudeDir', 'ensureHome', 'readOrCreateToken', 'readOrCreateDevice', 'loadSettings', 'saveSettings', 'STATUSLINE_MARKER', 'appendStatuslineSnippet', 'ensureStatuslineHeaderFile', 'resolveStatuslineScript', 'statuslineHeaderPath', 'statuslineSnippet', 'statuslineSnippetUpToDate', 'statuslineStatus', 'writeStatuslineHeaderFile', 'claudeJsonPath', 'upsertUserMcpServer', 'backupsRoot', 'cloudConfigPath', 'loadCloudConfig', 'readCloudConfig', 'remoteRoot', 'saveCloudConfig', 'SyncStateStore', 'onSharedWrite'] as const) {
+    for (const name of ['startServer', 'VERSION', 'hangarHome', 'defaultClaudeDir', 'ensureHome', 'readOrCreateToken', 'readOrCreateDevice', 'loadSettings', 'saveSettings', 'STATUSLINE_MARKER', 'appendStatuslineSnippet', 'ensureStatuslineHeaderFile', 'resolveStatuslineScript', 'statuslineHeaderPath', 'statuslineSnippet', 'statuslineSnippetUpToDate', 'statuslineStatus', 'writeStatuslineHeaderFile', 'claudeJsonPath', 'upsertUserMcpServer', 'backupsRoot', 'cloudConfigPath', 'loadCloudConfig', 'readCloudConfig', 'remoteRoot', 'saveCloudConfig', 'SyncStateStore', 'backfillTranscripts', 'onSharedWrite'] as const) {
       expect(api[name], name).toBeDefined();
     }
   });

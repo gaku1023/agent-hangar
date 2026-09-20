@@ -39,6 +39,16 @@ afterEach(() => {
 
 const tokenOf = () => fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
 
+/**
+ * 本文をどこから上げるかの床（sync_state の transcriptsFrom）を先に置く。
+ * サーバは行が無いときだけ刻むので、ここで置いた値がそのまま使われる。
+ * 0 は床なしで、手元の本文を全部「まだ上がっていない」と数えさせる。
+ */
+const seedTranscriptFloor = (value: number): void => {
+  const db = openDb(dbPath(home));
+  try { new SyncStateStore(db).set('transcriptsFrom', value); } finally { db.close(); }
+};
+
 /** 実際の Claude Code と同じ配置で、発言 1 つだけの本文ファイルを置く。 */
 function writeTranscript(cwd: string, sessionId: string, text: string, uuid = 'u1'): void {
   const dir = path.join(claudeDir, 'projects', mangleCwd(cwd));
@@ -174,6 +184,8 @@ describe('startServer', () => {
     // 諦めた本文の赤い行も、回復したあと消えなくなる。
     // 宛先は誰も待ち受けていないループバックである。実物のクラウドには触らない。
     saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    // ここで見たいのは件数の届き方なので、床は落としておく（そうしないと取り残しは 0 から動かない）。
+    seedTranscriptFloor(0);
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
     const col = collector(s.port, tokenOf());
     try {
@@ -948,11 +960,14 @@ describe('要約の契機', () => {
 });
 
 /**
- * 索引は「変化したファイル」しか知らせないので、参加より前に索引が済んでいた本文は
- * 取り残しの走査が無いと誰も上げない。
- * 利用者は先に hangar を使い、後からクラウドを足すので、この入り方が普通である。
+ * 本文は「クラウドを使い始めた後に動いたもの」だけを上げる。
+ *
+ * 利用者は先に hangar を使い、後からクラウドを足すので、参加の時点で何百件もの本文が手元にある。
+ * それを全部上げても意味が薄いので、走査は使い始めた時刻で区切る。
+ * 参加より前の本文を上げたくなったら、そのセッションを再開するか hangar cloud backfill を使う。
+ * メタデータ（セッションの一覧、要約、プロジェクト、TODO、メモ）はこの区切りを見ない。
  */
-describe('参加より前に索引が済んでいた本文の追いつき', () => {
+describe('本文は使い始めた後に動いたものだけを上げる', () => {
   /** PUT された鍵を覚えるだけの立て替えの Worker。実物のクラウドには触らない。 */
   async function fileSink(): Promise<{ url: string; puts: string[]; close: () => Promise<void> }> {
     const puts: string[] = [];
@@ -981,8 +996,8 @@ describe('参加より前に索引が済んでいた本文の追いつき', () =
     };
   }
 
-  it('起動の走査が、手元にあって上がっていない本文を上げる', async () => {
-    // 1 台目。クラウドはまだ無い。ここで 3 件の本文が索引される。
+  /** 3 件の本文が索引された状態を作る。クラウドはまだ無い。 */
+  async function indexWithoutCloud(): Promise<void> {
     const first = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
     try {
       await until(async () => {
@@ -992,15 +1007,72 @@ describe('参加より前に索引が済んでいた本文の追いつき', () =
     } finally {
       await first.close();
     }
+  }
 
-    // 後からクラウドに参加する。本文のファイルには一切触らないので、索引は何も知らせない。
+  /**
+   * 本文が最後に動いた時刻を決める。索引する前に置くので、台帳にはこの値がそのまま入る。
+   * only を渡すと、パスにその文字列を含む本文だけを動かす。
+   *
+   * 索引した後で動かすと、次の起動の全走査が変化を見て索引を作り直し、
+   * その場で noteChanged が鳴って 30 秒の窓に載る。
+   * すると走査が拾ったのか窓が開いたのかを見分けられず、試験が時々転ぶ。
+   */
+  function setTranscriptMtime(mtime: number, only?: string): void {
+    const at = new Date(mtime);
+    const walk = (dir: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const f = path.join(dir, e.name);
+        if (e.isDirectory()) { walk(f); continue; }
+        if (!e.name.endsWith('.jsonl')) continue;
+        if (only !== undefined && !f.includes(only)) continue;
+        fs.utimesSync(f, at, at);
+      }
+    };
+    walk(path.join(claudeDir, 'projects'));
+  }
+
+  const suffixes = (keys: string[]): string[] => keys.map((k) => k.replace(/^transcripts\/[^/]+\//, '')).sort();
+
+  it('参加より前に止まっていた本文は上げず、その後に動いた本文だけを上げる', async () => {
+    // 参加の前後を、本文が最後に動いた時刻で作り分ける。
+    // alpha の 2 件は参加より前で止まっていて、other の 1 件は参加より後に動いている。
+    const base = Date.now();
+    setTranscriptMtime(base - 120_000);
+    setTranscriptMtime(base - 60_000, SESSION_OTHER);
+    await indexWithoutCloud();
+    // 後からクラウドに参加する。刻むのはサーバだが、時刻を決めたいのでここで置いておく。
+    seedTranscriptFloor(base - 90_000);
+
+    const sink = await fileSink();
+    saveCloudConfig(home, { url: sink.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      await until(async () => (sink.puts.length >= 1 ? sink.puts : null));
+      // 参加より前で止まっている 2 件（alpha の本文と subagent）は上がらない。
+      await new Promise((r) => setTimeout(r, 300));
+      expect(suffixes(sink.puts)).toEqual([`${SESSION_OTHER}.jsonl.gz`]);
+      // 画面に出す「未送信の本文」も、上がる予定の無い 2 件を数えない。
+      const token = tokenOf();
+      const status = await (await fetch(`http://127.0.0.1:${s.port}/api/sync/status`, { headers: { authorization: `Bearer ${token}` } })).json() as SyncStatusBody;
+      expect(status.sweepPending).toBe(0);
+    } finally {
+      await s.close();
+      await sink.close();
+    }
+  }, 20000);
+
+  it('床を落とせば、参加より前の本文も上がる', async () => {
+    // hangar cloud backfill が書くのがこの 0 である。
+    setTranscriptMtime(Date.now() - 60_000);
+    await indexWithoutCloud();
+    seedTranscriptFloor(0);
+
     const sink = await fileSink();
     saveCloudConfig(home, { url: sink.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
     try {
       const keys = await until(async () => (sink.puts.length >= 3 ? sink.puts : null));
-      const suffixes = keys.map((k) => k.replace(/^transcripts\/[^/]+\//, '')).sort();
-      expect(suffixes).toEqual([`${SESSION_ALPHA}.jsonl.gz`, `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`, `${SESSION_OTHER}.jsonl.gz`].sort());
+      expect(suffixes(keys)).toEqual([`${SESSION_ALPHA}.jsonl.gz`, `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`, `${SESSION_OTHER}.jsonl.gz`].sort());
       // 上げ終わったものを上げ直さない。
       await new Promise((r) => setTimeout(r, 300));
       expect(sink.puts.length).toBe(3);
@@ -1008,7 +1080,7 @@ describe('参加より前に索引が済んでいた本文の追いつき', () =
       await s.close();
       await sink.close();
     }
-  });
+  }, 20000);
 
   it('走査の間隔は設定の同期と揃えてある', () => {
     // 片方だけ直すと、また兄弟の経路が食い違う。

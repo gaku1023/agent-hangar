@@ -41,6 +41,7 @@ import { SyncEngine } from './sync/engine.ts';
 import { RemotePuller } from './sync/puller.ts';
 import { D1_WRITES_PER_DEVICE_TOUCH, type QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
+import { markTranscriptsFrom } from './sync/transcriptsFrom.ts';
 import { TranscriptUploader } from './sync/uploader.ts';
 import { Tmux } from './tmux/tmux.ts';
 import { UsageTracker } from './usage/statusline.ts';
@@ -408,6 +409,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   }
   const toast = (level: 'info' | 'error', message: string) => hub.broadcast({ type: 'toast', level, message });
   const syncState = new SyncStateStore(db);
+  // クラウドの設定を初めて見た時刻を刻む。
+  // 以後、本文の取り残しの走査はこの時刻より後に動いた転記だけを拾う（sync/transcriptsFrom.ts）。
+  // メタデータの同期はこの刻みを見ないので、今までどおり全部が揃う。
+  if (cloud) markTranscriptsFrom(syncState, Date.now());
   /** 同期が止まっているか。利用者が押した一時停止も、枠の 80% で自分から止まった分もここに出る。 */
   const isPaused = (): boolean => engine.status().state === 'paused';
   /**

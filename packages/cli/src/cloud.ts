@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream } from '@agent-hangar/server';
+import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream } from '@agent-hangar/server';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import { configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, PULL_LIMIT, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
@@ -601,6 +601,27 @@ export async function cloudStatus(o: CloudStatusOptions): Promise<string> {
   } catch {
     lines.push('同期: サーバは停止中（hangar start で起動すると同期が始まります）');
   }
+  return lines.join('\n');
+}
+
+/**
+ * hangar cloud backfill。
+ *
+ * 本文は既定では「クラウドを使い始めた後に動いたもの」だけを上げる。
+ * 参加より前に止まっている本文も上げたくなったときの道がこれである。
+ * 床（sync_state の transcriptsFrom）を 0 に落とすだけなので、サーバを立て直さなくても次の走査から効く。
+ *
+ * 参加していない端末では何もしない。
+ * 索引の DB をここで作ってしまうと、まだ何も持っていない home に入れ物だけが残る。
+ */
+export function cloudBackfill(o: { home: string }): string {
+  const read = readCloudConfig(o.home);
+  if (read.state === 'absent') return 'クラウド同期: 未設定（hangar setup cloud か hangar join を実行してください）';
+  if (read.state === 'broken' || !read.config) return `クラウド同期: 設定を読めません\n${brokenConfigMessage(o.home)}`;
+  const { from } = backfillTranscripts(o.home);
+  const lines = ['参加より前の本文も上げ直します。次の走査から、手元の転記を全部クラウドへ送ります。'];
+  if (from > 0) lines.push(`これまでは ${new Date(from).toISOString()} より後に動いた本文だけを上げていました。`);
+  lines.push('転送量は無料枠から引かれます。件数と大きさは hangar cloud status の「未送信」で確かめてください。');
   return lines.join('\n');
 }
 

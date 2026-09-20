@@ -5,9 +5,9 @@ import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, saveCloudConfig } from '@agent-hangar/server';
+import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, saveCloudConfig } from '@agent-hangar/server';
 import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { BUNDLED_CLOUD_MARKER, cloudStatus, defaultCloudDir, joinWorker, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
+import { BUNDLED_CLOUD_MARKER, cloudBackfill, cloudStatus, defaultCloudDir, joinWorker, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
 
@@ -1047,5 +1047,23 @@ describe('Worker のソースの置き場', () => {
   it('packages/cloud でないディレクトリなら、name を挙げて止まる', () => {
     process.env.HANGAR_CLOUD_DIR = fakeCloudTree({ deps: ALL_DEPS, name: '@agent-hangar/server' });
     expect(() => requireCloudDir()).toThrow(/packages\/cloud ではありません/);
+  });
+});
+
+describe('cloudBackfill', () => {
+  it('参加していない端末では何も書かない', () => {
+    const { home } = dirs();
+    expect(cloudBackfill({ home })).toContain('未設定');
+    // 入れ物だけ作って終わらない。参加していない端末に索引の DB は要らない。
+    expect(fs.existsSync(path.join(home, 'hangar.db'))).toBe(false);
+  });
+
+  it('床を落として、次の走査から参加より前の本文も上がると伝える', () => {
+    const { home } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't' }));
+    const out = cloudBackfill({ home });
+    expect(out).toContain('参加より前の本文');
+    // 床は 0（床なし）になっている。もう一度落としても 0 のままである。
+    expect(backfillTranscripts(home)).toEqual({ from: 0 });
   });
 });
