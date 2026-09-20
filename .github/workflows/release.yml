@@ -2,11 +2,22 @@ name: release
 on:
   push:
     tags: ['v*']
-permissions:
-  contents: write
+# 既定の権限に頼らず、何も渡さない。
+# 書き込みが要るのは Release を作る macos ジョブだけなので、権限はそのジョブに置く。
+permissions: {}
+# 同じタグを二重に走らせない。
+# 走っている途中で止めると資産が半端なまま Release に載りかねないので、先に走っているほうを優先する。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   macos:
     runs-on: macos-latest
+    permissions:
+      contents: write
+    # Rust のビルドがキャッシュ外れで長引いたときの上限。
+    # ci の desktop ジョブと違い、こちらは npm の試験と .app のビルドも含むので長めに取る。
+    timeout-minutes: 60
     strategy:
       matrix:
         include:
@@ -29,6 +40,7 @@ jobs:
           cache: npm
       # dtolnay/rust-toolchain@stable は --profile minimal で入るため rustfmt と clippy を含まない。
       # このワークフローは cargo fmt も cargo clippy も使わないので components は指定しない。
+      # どちらも ci の desktop ジョブが見ている。
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -39,8 +51,10 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # npx は入っていなければ取りに行くので、ここで動く版が package-lock.json の外から来うる。
+      # workspace の script を通せば、動くのは npm ci が入れた @tauri-apps/cli だけになる。
       - name: .app をビルドする（beforeBuildCommand が server-dist を作る）
-        run: npx tauri build --target ${{ matrix.target }}
+        run: npm run tauri -- build --target ${{ matrix.target }}
         working-directory: apps/desktop
       # 署名も公証もしない。
       # ditto で作った zip は Finder の展開でも .app の属性が保たれる。
