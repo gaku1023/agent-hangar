@@ -36,6 +36,37 @@ pub const SERVER_WATCHDOG_SECS: u64 = 8;
 /// 逆にすると、サーバが自分で降りて `db.close()` を呼ぶ前に SIGKILL が届く。
 const _: () = assert!(ServerProcess::STOP_GRACE.as_secs() > SERVER_WATCHDOG_SECS);
 
+/// サーバの子が継ぐ PATH。
+///
+/// .app を Finder から起こすと PATH は `/usr/bin:/bin:/usr/sbin:/sbin` だけになる。
+/// サーバが起こす claude は tmux のペインでこの PATH を継ぐので、
+/// `~/.local/bin` に入るネイティブ版の claude が名前では引けず、ペインの中で 127 で落ちる。
+/// 手元のツールの置き場所を後ろに足しておく。
+///
+/// 足すのは後ろで、元の並びは変えない。利用者が選んだ優先順を覆さないためである。
+/// これは念のための備えで、claude の場所を決める正本はサーバ側の `which` と Settings の `claudePath` である。
+pub fn augmented_path(current: Option<&str>, user_home: &Path) -> String {
+    let mut out: Vec<String> = current
+        .unwrap_or("")
+        .split(':')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    let extra = [
+        user_home.join(".local/bin"),
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+        user_home.join(".claude/local"),
+    ];
+    for d in extra {
+        let d = d.to_string_lossy().to_string();
+        if !out.contains(&d) {
+            out.push(d);
+        }
+    }
+    out.join(":")
+}
+
 /// `node server.mjs` を起動する。標準出力と標準エラーはログファイルに追記する。
 /// UI と Worker のソースは同梱の場所を環境変数で教える。
 /// 単一ファイルにまとめた server.mjs と cli.mjs からは、相対では届かないためである。
@@ -47,8 +78,13 @@ pub fn spawn_server(
 ) -> std::io::Result<ServerProcess> {
     let out = OpenOptions::new().create(true).append(true).open(log)?;
     let err = out.try_clone()?;
+    let path = augmented_path(
+        std::env::var("PATH").ok().as_deref(),
+        &crate::paths::user_home(),
+    );
     let child = Command::new(node)
         .arg(dir.join("server.mjs"))
+        .env("PATH", path)
         .env("HANGAR_PARENT_PID", std::process::id().to_string())
         .env("HANGAR_PORT", PORT.to_string())
         .env("HANGAR_UI_DIST", dir.join("ui"))
@@ -195,7 +231,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("server.mjs"),
-            "echo \"pid=$HANGAR_PARENT_PID ui=$HANGAR_UI_DIST cloud=$HANGAR_CLOUD_DIR port=$HANGAR_PORT home=$HANGAR_HOME\"\ntrap 'exit 0' TERM\nwhile :; do sleep 0.1; done\n",
+            "echo \"pid=$HANGAR_PARENT_PID ui=$HANGAR_UI_DIST cloud=$HANGAR_CLOUD_DIR port=$HANGAR_PORT home=$HANGAR_HOME path=$PATH\"\ntrap 'exit 0' TERM\nwhile :; do sleep 0.1; done\n",
         )
         .unwrap();
         let log = home.path().join("desktop.log");
@@ -217,6 +253,18 @@ mod tests {
         assert!(text.contains("port=4177"), "{text}");
         assert!(
             text.contains(&format!("home={}", home.path().display())),
+            "{text}"
+        );
+        // 子が継ぐ PATH には手元のツールの置き場所が入っている。
+        // Finder から起こすと PATH は /usr/bin:/bin:/usr/sbin:/sbin だけになり、
+        // これが無いとサーバは claude を名前で引けない。
+        assert!(
+            text.contains(
+                &crate::paths::user_home()
+                    .join(".local/bin")
+                    .to_string_lossy()
+                    .to_string()
+            ),
             "{text}"
         );
         assert!(p.is_running());
@@ -280,6 +328,27 @@ mod tests {
         let u = url::Url::parse(&entry_url(PORT, "abc123", "#/sessions?q=a+b")).unwrap();
         assert_eq!(u.query(), Some("t=abc123"));
         assert_eq!(u.fragment(), Some("/sessions?q=a+b"));
+    }
+
+    #[test]
+    fn augmented_path_adds_the_local_tool_dirs_without_duplicates() {
+        let home = Path::new("/Users/me");
+        // Finder から起こした .app の PATH。手元の置き場所がどれも入っていない。
+        assert_eq!(
+            augmented_path(Some("/usr/bin:/bin:/usr/sbin:/sbin"), home),
+            "/usr/bin:/bin:/usr/sbin:/sbin:/Users/me/.local/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.claude/local"
+        );
+        // 既にある項目は増やさない。並びは元のままにする。
+        assert_eq!(
+            augmented_path(Some("/opt/homebrew/bin:/usr/bin"), home),
+            "/opt/homebrew/bin:/usr/bin:/Users/me/.local/bin:/usr/local/bin:/Users/me/.claude/local"
+        );
+        // PATH が無い、または空のときも足した分だけは渡す。
+        assert_eq!(
+            augmented_path(None, home),
+            "/Users/me/.local/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.claude/local"
+        );
+        assert_eq!(augmented_path(Some(""), home), augmented_path(None, home));
     }
 
     #[test]
