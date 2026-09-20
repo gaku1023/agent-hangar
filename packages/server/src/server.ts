@@ -1,10 +1,11 @@
 import { serve } from '@hono/node-server';
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listArtifacts } from './artifacts/queries.ts';
-import { readCloudConfig, remoteRoot } from './config/cloud.ts';
+import { backupsRoot, readCloudConfig, remoteRoot } from './config/cloud.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
@@ -32,7 +33,7 @@ import { SummaryJob } from './summary/job.ts';
 import { LmStudioSummarizer } from './summary/lmstudio.ts';
 import type { Summarizer } from './summary/types.ts';
 import { writeMemoConflictCopy, type SessionMemoBackup } from './sync/apply.ts';
-import { ClaudeConfigSync } from './sync/claudeConfig.ts';
+import { BACKUP_GENERATIONS, ClaudeConfigSync } from './sync/claudeConfig.ts';
 import { HttpCloudClient, type CloudClient } from './sync/client.ts';
 import { copyTranscriptForResume } from './sync/copy.ts';
 import { deriveFileKey } from './sync/crypto.ts';
@@ -57,7 +58,9 @@ const DEVICE_TOUCH_MS = 600_000;
 const FLUSH_AGAIN_MS = 5_000;
 /**
  * Claude Code 設定の定期 push の間隔。
- * fs.watch の recursive は macOS と Windows だけなので、Linux では監視だけでは変化に気付けない。
+ * 監視が張れない置き場所や、取りこぼした編集があっても、次の周期で揃うようにする。
+ * fs.watch の recursive は Node 22 では Linux でも効く（容器で確かめた）ので、
+ * これは監視そのものが張れなかったときの備えであって、Linux のための穴埋めではない。
  */
 const CONFIG_PUSH_MS = 60_000;
 /**
@@ -260,6 +263,44 @@ export async function stopAfterIdle(job: { idle(): Promise<void>; stop(): void }
   return done;
 }
 
+/**
+ * 控えを新しい方から数えて `keep` 件だけ残し、古いものを消す。消した数を返す。
+ *
+ * 設定の控え（`claudeConfig.ts` の `pruneBackups`）は名前が `yyyyMMdd-HHmmss` のディレクトリなので
+ * 辞書順がそのまま時刻順になるが、本文の控え（`<uuid>-<時刻>.jsonl`）とメモの控え
+ * （`session-<ID>-<時刻>.md`）は名前が ID で始まるので、辞書順では時刻の順に並ばない。
+ * そこで更新時刻で並べ、同じ秒に並んだものは名前で決める（控えは作った時刻がそのまま更新時刻になる）。
+ *
+ * 入れ物の中のディレクトリは触らない。`backups/` の下には `claude-config/` のような入れ物も並ぶ。
+ * 消せなかったものは数えない。掃除は次の機会に回す。
+ */
+export function pruneBackupFiles(dir: string, keep: number): number {
+  // 控えを全部消す刈り込みは作らない。
+  const limit = Math.max(1, keep);
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name);
+  } catch (e) {
+    // 入れ物がまだ無いのはふつうのことである（その種類の控えを 1 度も取っていない端末）。
+    // それ以外は握り潰さない。握り潰すと、刈れていないことが誰にも見えないまま溜まり続ける。
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    throw e;
+  }
+  if (names.length <= limit) return 0;
+  const dated = names.map((n) => {
+    // 読めないものは最も古いものとして扱う。次の機会に消える。
+    let mtime = 0;
+    try { mtime = fs.statSync(path.join(dir, n)).mtimeMs; } catch { /* 上のとおり */ }
+    return { n, mtime };
+  });
+  dated.sort((a, b) => b.mtime - a.mtime || (a.n < b.n ? 1 : a.n > b.n ? -1 : 0));
+  let removed = 0;
+  for (const { n } of dated.slice(limit)) {
+    try { fs.rmSync(path.join(dir, n), { force: true }); removed++; } catch { /* 消せなくても控えは残る。 */ }
+  }
+  return removed;
+}
+
 /** 要約のジョブが空になるまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
 export function waitForSummaryIdle(job: { idle(): Promise<void> }, ms: number = CLOSE_DEADLINE_MS): Promise<boolean> {
   return waitForIdle(job, ms);
@@ -360,6 +401,20 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const syncState = new SyncStateStore(db);
   /** 同期が止まっているか。利用者が押した一時停止も、枠の 80% で自分から止まった分もここに出る。 */
   const isPaused = (): boolean => engine.status().state === 'paused';
+  /**
+   * 本文とメモの控えの世代を刈る。
+   *
+   * 残す数は設定の控えと同じ `BACKUP_GENERATIONS`（20）にする。
+   * 覚える数が 1 つで済み、「控えは直近 20 回ぶん」という説明が 3 種類すべてで同じになる。
+   * 本文の控えはセッション 1 本ぶんの大きさがあるので、これ以上は溜めない。
+   *
+   * 刈るのは控えを取った後だけなので、「控えを取れなかったときは書き戻さない」という決まりには触らない。
+   * いま取った控えは最も新しいので、この刈り込みで消えることはない。
+   */
+  const pruneBackups = (kind: 'transcripts' | 'memos'): void => {
+    try { pruneBackupFiles(path.join(backupsRoot(home), kind), BACKUP_GENERATIONS); }
+    catch (e) { console.error('[backups]', e instanceof Error ? e.message : e); }
+  };
   const rawClient = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
   const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
   const engine = new SyncEngine({
@@ -371,7 +426,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       toast('info', `メモが競合しました。手元の内容を ${path.basename(file)} に残しました`);
     },
     // 控えはもうファイルになっている。ここでやるのは置き場を知らせることだけである。
-    onSessionMemoBackup: (o) => toast('info', sessionMemoBackupMessage(o)),
+    onSessionMemoBackup: (o) => { toast('info', sessionMemoBackupMessage(o)); pruneBackups('memos'); },
   });
   // 本文と設定の出し入れは engine を通らないので、無料枠の勘定に入るように包んでから渡す。
   const client = rawClient ? countingClient(rawClient, engine.quota) : null;
@@ -520,19 +575,13 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
 
   /**
-   * ファイルの取り込みは 1 本の鎖に並べる。
-   * RemotePuller は自分では重なりを防がないので、起動時の 1 回と pulled の合図が重なると、
-   * 同じ鍵を 2 本の流れが同じ一時ファイルへ書き、filesSeq も互いに上書きし合う。
+   * ファイルの取り込みを頼む。
+   * 重なりは RemotePuller が自分の鎖で防ぐので、ここでは頼むだけでよい。
    */
-  let filePull: Promise<unknown> = Promise.resolve();
-  const pullFiles = (): Promise<unknown> => {
+  const pullFiles = (): void => {
     // 一時停止のあいだは降ろしにも行かない。止めた意味が無くなる。
-    if (isPaused()) return filePull;
-    filePull = filePull
-      .catch(() => undefined)
-      .then(() => puller?.pullNow())
-      .catch((e: unknown) => console.error('[files]', e instanceof Error ? e.message : e));
-    return filePull;
+    if (isPaused()) return;
+    void puller?.pullNow().catch((e: unknown) => console.error('[files]', e instanceof Error ? e.message : e));
   };
 
   // 同期のイベントを hub に流す。pull で入れ替わった行は、そのまま画面に届ける。
@@ -554,7 +603,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (c.tableName === 'devices') hub.broadcast({ type: 'devices.update', devices: listDevices(db, device.id) });
     },
     // メタデータの pull の後に、ファイルの新着を取りに行く。
-    pulled: () => { void pullFiles(); },
+    pulled: () => { pullFiles(); },
   });
 
   /** 他端末の本文を手元に写してから再開する。~/.claude への本文の書き込みはここだけを通る。 */
@@ -562,6 +611,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     const r = copyTranscriptForResume({ db, home, claudeDir, sessionId, overwrite });
     if (r.kind === 'ask') return { error: 'local_smaller', localSize: r.localSize, remoteSize: r.remoteSize };
     if (r.kind === 'none') throw new RunError(400, 'このセッションの本文がありません');
+    // 控えを取った回だけ刈る。控えはもうファイルになっているので、ここで転んでも書き戻しには響かない。
+    if (r.kind === 'copied' && r.backedUp !== null) pruneBackups('transcripts');
     return runs.resume(sessionId);
   };
 
@@ -595,8 +646,13 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     db, deviceId: device.id, deviceName: device.name, token, home, port, version: VERSION,
     settings: () => settings,
     updateSettings: (patch) => {
+      const wasSyncingConfig = settings.syncClaudeConfig;
       settings = { ...settings, ...patch };
       saveSettings(home, settings);
+      // 設定の同期を切ったら、取り込みの確認も降ろす。
+      // configPullConfirmed は sync_state に残るので、降ろさないと入れ直したときに確認が出ない。
+      // ~/.claude を書き換える同期なので、入れるたびに改めて確認を取る（決定 2）。
+      if (wasSyncingConfig && !settings.syncClaudeConfig) configSync?.unconfirm();
       // tmuxPath が変われば、これから起こす run も新しい attach も新しいパスを使う。
       const t = tmuxOf(settings);
       runs.setTmux(t);
@@ -685,7 +741,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // その間 /health は 200 を返しているので、準備完了だと見た相手からの SIGTERM が受け口の無い時刻に届く。
   // 走り出した push と pull は engine.idle() が掴んでいるので、close() は取りこぼさない。
   void engine.start().catch((e: unknown) => console.error('[sync]', e instanceof Error ? e.message : e));
-  if (puller) void pullFiles();
+  pullFiles();
   configSync?.start();
   // 監視だけに頼らず、定期の push も足しておく。
   // 監視が張れない置き場所や、取りこぼした編集があっても、次の周期で揃う。
@@ -709,6 +765,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     try { uploader.sweep(); } catch (e) { console.error('[upload]', e instanceof Error ? e.message : e); }
   };
   sweepUploads();
+  // 起動のときにも 1 度刈る。
+  // 控えを作る経路を通らないまま動かし続けた端末や、この刈り込みが入る前から溜めていた端末も、ここで揃う。
+  pruneBackups('transcripts');
+  pruneBackups('memos');
   const uploadTimer = uploader ? setInterval(sweepUploads, UPLOAD_SWEEP_MS) : null;
   uploadTimer?.unref();
 
@@ -728,10 +788,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       await stopAfterIdle(configSync, 'config', left());
       await stopUploader(uploader, left());
       await stopAfterIdle(engine, 'sync', left());
-      // 降ろしの鎖も締め切りまでは待つ。
-      // 起動の 1 回目は startServer を待たせないので、閉じる側と重なりうるようになった。
-      // 待ち切れなくても DB を閉じる。降ろしは一時ファイルに書いてから置き換えるので、切れても半端は残らない。
-      await Promise.race([filePull.then(() => undefined, () => undefined), new Promise<void>((r) => { const t = setTimeout(r, left()); t.unref?.(); })]);
+      // 降ろしも同じ作法で、走っているものを待ってから止める。
+      // engine を先に止めてあるので、pulled の合図で新しい降ろしが積まれることはもう無い。
+      // 待ち切れなくても必ず止める。降ろしは一時ファイルに書いてから置き換えるので、切れても半端は残らない。
+      await stopAfterIdle(puller, 'files', left());
       stopMemoWatch();
       runs.stop();
       indexer.stop();

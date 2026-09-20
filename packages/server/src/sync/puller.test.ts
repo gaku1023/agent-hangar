@@ -305,9 +305,11 @@ describe('RemotePuller', () => {
   it('平文と申告された本文は受け取らない', async () => {
     // 決定 5 は「本文は暗号化して R2 に置く」である。受け取る側でも申告を鵜呑みにしない。
     const body = '{"a":1}\n';
-    await cloud.asDevice('dev-b').putFile(
+    // 上げる側の検査を迂回して置く。
+    // 実物の Worker も平文の本文を断るが、この試験が見るのは受け取る側の守りである。
+    cloud.asDevice('dev-b').seedUnchecked(
       { key: `transcripts/dev-b/${UUID}.jsonl.gz`, path: `projects/-w-alpha/${UUID}.jsonl`, kind: 'transcript', sha256: sha256Hex(body), size: Buffer.byteLength(body), mtime: 1, encrypted: false },
-      Readable.from([gzipSync(Buffer.from(body))]),
+      gzipSync(Buffer.from(body)),
     );
     const p = make();
     expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 0 });
@@ -359,5 +361,70 @@ describe('RemotePuller', () => {
     // 手元に実体があって指紋も合うので降ろし直しはしないが、filesSeq は先頭まで戻る。
     expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 0 });
     expect(state.getNumber('filesSeq', -1)).toBe(2);
+  });
+});
+
+/**
+ * 止め方の作法。
+ * SyncEngine と ClaudeConfigSync と TranscriptUploader と同じく、
+ * 降ろしも 1 本の鎖に並べて `idle()` で待ち合わせ、`stop()` で以後を 1 件も出さない形にする。
+ */
+describe('RemotePuller の止め方', () => {
+  it('止めたら、鎖に並んだ降ろしは 1 件も要求を出さない', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    const realList = cloud.listFiles.bind(cloud);
+    let issued = 0;
+    let answering = false;
+    const waiting: (() => void)[] = [];
+    // 応答が返らない状況を作る。クラウドへ届かないときは 30 秒待ちなので、鎖は減るより速く伸びる。
+    cloud.listFiles = ((since: number, limit: number) => {
+      issued++;
+      if (answering) return realList(since, limit);
+      return new Promise((resolve, reject) => { waiting.push(() => { realList(since, limit).then(resolve, reject); }); });
+    }) as typeof cloud.listFiles;
+
+    const p = make();
+    const first = p.pullNow();
+    // 1 件目が listFiles の中で止まるまで進める。
+    for (let i = 0; i < 100 && waiting.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(waiting.length).toBe(1);
+
+    // 1 件目が返らないあいだに、2 件目が鎖の後ろへ並ぶ。
+    const second = p.pullNow();
+    p.stop();
+    const afterStop = issued;
+
+    // 止めた後で応答を返す。
+    answering = true;
+    for (const w of waiting.splice(0)) w();
+    // 既に走り出していた 1 件目は最後まで走る。
+    expect(await first).toEqual({ downloaded: 1, configEntries: 0 });
+    // 鎖に並んだ 2 件目は先頭の検査で譲る。
+    expect(await second).toEqual({ downloaded: 0, configEntries: 0 });
+    await p.idle();
+    expect(issued - afterStop).toBe(0);
+  });
+
+  it('止めた後に頼んでも要求を出さない', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    let issued = 0;
+    const realList = cloud.listFiles.bind(cloud);
+    cloud.listFiles = ((since: number, limit: number) => { issued++; return realList(since, limit); }) as typeof cloud.listFiles;
+    const p = make();
+    p.stop();
+    expect(await p.pullNow()).toEqual({ downloaded: 0, configEntries: 0 });
+    await p.idle();
+    expect(issued).toBe(0);
+    expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`))).toBe(false);
+  });
+
+  it('鎖に並べるので、同時に頼んでも降ろしは重ならない', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    const p = make();
+    // 重なると同じ鍵を 2 本の流れが同じ一時ファイルへ書き、filesSeq も互いに上書きし合う。
+    const [a, b] = await Promise.all([p.pullNow(), p.pullNow()]);
+    expect(a.downloaded + b.downloaded).toBe(1);
+    expect(state.getNumber('filesSeq', -1)).toBe(1);
+    p.stop();
   });
 });

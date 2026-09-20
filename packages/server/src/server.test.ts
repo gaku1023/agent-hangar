@@ -20,7 +20,8 @@ import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
-import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
+import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -162,6 +163,44 @@ describe('startServer', () => {
       const preview = await (await api('/api/sync/config/preview')).json() as { entries: unknown[]; confirmed: boolean };
       expect(preview.confirmed).toBe(false);
       expect(Array.isArray(preview.entries)).toBe(true);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('設定の同期を切って入れ直すと、取り込みの確認をもう一度求める', async () => {
+    // ~/.claude を書き換える同期なので、入れるときには必ず確認を取る（決定 2）。
+    // configPullConfirmed は sync_state に残り続けるので、切った時点で降ろさないと、
+    // 気に入らなくて切った利用者が入れ直したときに無確認で ~/.claude が書き換わる。
+    // 宛先は誰も待ち受けていないループバックである。実物のクラウドには触らない。
+    saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const token = tokenOf();
+      const auth = { authorization: `Bearer ${token}` };
+      const confirmed = async (): Promise<boolean> => {
+        const r = await fetch(`http://127.0.0.1:${s.port}/api/sync/config/preview`, { headers: auth });
+        return ((await r.json()) as { confirmed: boolean }).confirmed;
+      };
+      const setSync = async (on: boolean): Promise<void> => {
+        const r = await fetch(`http://127.0.0.1:${s.port}/api/settings`, {
+          method: 'PATCH', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ syncClaudeConfig: on }),
+        });
+        expect(r.status).toBe(200);
+        expect(((await r.json()) as { syncClaudeConfig: boolean }).syncClaudeConfig).toBe(on);
+      };
+
+      await setSync(true);
+      expect(await confirmed()).toBe(false);
+      // 一度だけ確認して取り込む。相手の設定は 1 件も無いので、ここで外へは出ない。
+      const pulled = await fetch(`http://127.0.0.1:${s.port}/api/sync/config/pull`, { method: 'POST', headers: auth });
+      expect(pulled.status).toBe(200);
+      expect(await confirmed()).toBe(true);
+
+      // 切って入れ直す。
+      await setSync(false);
+      await setSync(true);
+      expect(await confirmed()).toBe(false);
     } finally {
       await s.close();
     }
@@ -926,5 +965,68 @@ describe('参加より前に索引が済んでいた本文の追いつき', () =
   it('走査の間隔は設定の同期と揃えてある', () => {
     // 片方だけ直すと、また兄弟の経路が食い違う。
     expect(UPLOAD_SWEEP_MS).toBe(60_000);
+  });
+});
+
+/**
+ * 控えの世代。
+ * 刈っていたのは設定の取り込みの分だけで、本文（transcripts）とメモ（memos）は溜まり続けていた。
+ * 設定の控えと同じ作法で、新しい方から数えて上限までを残す。
+ */
+describe('控えの世代を刈る', () => {
+  const seed = (dir: string, n: number, ext: string): string[] => {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const names: string[] = [];
+    for (let i = 0; i < n; i++) {
+      // 名前は辞書順と時刻の順が一致しない形にする（本文の控えは <uuid>-<時刻>、メモは session-<ID>-<時刻> である）。
+      const name = `z${(n - i).toString().padStart(3, '0')}-20260101-00${i.toString().padStart(4, '0')}${ext}`;
+      const f = path.join(dir, name);
+      fs.writeFileSync(f, `${i}\n`, { mode: 0o600 });
+      const t = new Date(1_700_000_000_000 + i * 1000);
+      fs.utimesSync(f, t, t);
+      names.push(name);
+    }
+    return names;
+  };
+
+  it('新しい方から数えて上限までを残し、古い控えを消す', () => {
+    const dir = path.join(home, 'backups', 'transcripts');
+    const names = seed(dir, BACKUP_GENERATIONS + 5, '.jsonl');
+    expect(pruneBackupFiles(dir, BACKUP_GENERATIONS)).toBe(5);
+    expect(fs.readdirSync(dir).sort()).toEqual(names.slice(5).sort());
+    // もう一度刈っても、上限以下なら何も消さない。
+    expect(pruneBackupFiles(dir, BACKUP_GENERATIONS)).toBe(0);
+    expect(fs.readdirSync(dir).length).toBe(BACKUP_GENERATIONS);
+  });
+
+  it('入れ物が無くても、上限が 0 以下でも壊れない', () => {
+    expect(pruneBackupFiles(path.join(home, 'backups', 'nope'), BACKUP_GENERATIONS)).toBe(0);
+    const dir = path.join(home, 'backups', 'memos');
+    seed(dir, 3, '.md');
+    // 上限は 1 未満にしない。控えを全部消す刈り込みは作らない。
+    expect(pruneBackupFiles(dir, 0)).toBe(2);
+    expect(fs.readdirSync(dir).length).toBe(1);
+  });
+
+  it('入れ物の中のディレクトリは消さない', () => {
+    const dir = path.join(home, 'backups', 'transcripts');
+    seed(dir, BACKUP_GENERATIONS + 3, '.jsonl');
+    fs.mkdirSync(path.join(dir, 'keep-me'), { recursive: true });
+    expect(pruneBackupFiles(dir, BACKUP_GENERATIONS)).toBe(3);
+    expect(fs.existsSync(path.join(dir, 'keep-me'))).toBe(true);
+  });
+
+  it('起動のときに、本文とメモの控えを上限まで刈る', async () => {
+    const tr = path.join(home, 'backups', 'transcripts');
+    const memos = path.join(home, 'backups', 'memos');
+    const trNames = seed(tr, BACKUP_GENERATIONS + 7, '.jsonl');
+    const memoNames = seed(memos, BACKUP_GENERATIONS + 4, '.md');
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      expect(fs.readdirSync(tr).sort()).toEqual(trNames.slice(7).sort());
+      expect(fs.readdirSync(memos).sort()).toEqual(memoNames.slice(4).sort());
+    } finally {
+      await s.close();
+    }
   });
 });
