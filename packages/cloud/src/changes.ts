@@ -10,6 +10,7 @@ import {
   type SnapshotResponse,
 } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
+import { d1RowsToday, meteredBatch } from './meter.ts';
 
 /** 前回の圧縮からこれだけ連番が進んだら、次の push の後で圧縮を試す。 */
 export const COMPACT_EVERY = 200;
@@ -151,7 +152,7 @@ async function compact(db: D1Database, now: number, seq: number): Promise<void> 
       stmts.push(raiseMetaInt(db, META_CHANGES_FLOOR, floor));
     }
   }
-  await db.batch(stmts);
+  await meteredBatch(db, stmts, now);
 }
 
 /**
@@ -243,11 +244,13 @@ changesApp.post('/', async (c) => {
     stmts.push(mirrorUpsert(db, k, row, device.id, payload));
   }
   stmts.push(db.prepare('update devices set last_seen_at = ? where id = ?').bind(now, device.id));
-  await db.batch(stmts);
+  await meteredBatch(db, stmts, now);
   const seq = await maxSeq(db);
   // 連番は 1 回の push で最大 40 飛ぶ。倍数に当たるかで測ると圧縮がほとんど走らないので、前回からの差で測る。
   if (accepted > 0 && seq - (await readMetaInt(db, META_LAST_COMPACT_SEQ)) >= COMPACT_EVERY) await compact(db, now, seq);
-  const res: PushChangesResponse = { seq, accepted, skipped };
+  // その日に D1 へ書いた行数を返す。端末はこれを正として無料枠を見張る（`packages/server/src/sync/quota.ts`）。
+  // 端末からは見えない書き込み（圧縮、参加、スキーマの用意、ファイルの出し入れ）も、この 1 つの数に入っている。
+  const res: PushChangesResponse = { seq, accepted, skipped, d1RowsToday: await d1RowsToday(db, now) };
   return c.json(res);
 });
 
@@ -267,8 +270,11 @@ changesApp.get('/', async (c) => {
   // 末尾は高水位そのものにする。`since` との大きい方を採ると、端末が送ってきた値が
   // そのまま `last_pulled_seq` に入り、圧縮がまだ誰も読んでいない変更まで消しにいく。
   const nextSeq = more ? page[page.length - 1]!.seq : await maxSeq(db);
-  await db.prepare('update devices set last_seen_at = ?, last_pulled_seq = max(last_pulled_seq, ?) where id = ?').bind(Date.now(), nextSeq, device.id).run();
-  const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more };
+  const now = Date.now();
+  await meteredBatch(db, [db.prepare('update devices set last_seen_at = ?, last_pulled_seq = max(last_pulled_seq, ?) where id = ?').bind(now, nextSeq, device.id)], now);
+  // 押すものが無い日は push が起きないので、pull でも同じ数を返す。
+  // 応答も書き込みも増えない（台帳を 1 回読むだけである）。
+  const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more, d1RowsToday: await d1RowsToday(db, now) };
   return c.json(res);
 });
 

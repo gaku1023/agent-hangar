@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, ProjectDto, RunDto, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusDto, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, RunDto, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
@@ -252,7 +252,7 @@ describe('presentNewSession', () => {
 describe('presentSettings（フェーズ 2）', () => {
   it('ツールのパスと MCP のコマンド', () => {
     const store = storeWith();
-    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null };
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, mcpInstallCommand: 'npm run hangar -- mcp install' });
     store.settings = null;
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', codePath: null });
@@ -362,7 +362,7 @@ describe('presentSettings のフェーズ 3 の項目', () => {
   it('要約器と statusline と使用量の集計を渡す', () => {
     const store: Store = {
       ...initialStore(),
-      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false, syncClaudeConfig: false },
+      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null },
       statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true },
       summarizerModels: ['gemma', 'qwen'],
       usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 10, outputTokens: 2, sessions: 1 }], projects: [] },
@@ -446,14 +446,14 @@ describe('presentSettings の既定値', () => {
   });
 });
 
-const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, ...over });
-const syncStatus = (over: Partial<SyncStatusDto> = {}): SyncStatusDto => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, ...over });
+const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, ...over });
+const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 
 describe('同期の Presenter（フェーズ 4）', () => {
   it('ヘッダーの同期状態は種別ごとに文言が変わる', () => {
     const s = { ...initialState(), sync: { kind: 'idle' as const, lastAt: NOW - 60_000 }, pending: 2 };
-    expect(presentShell(s, initialStore(), NOW).sync).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: 2, paused: false });
+    expect(presentShell(s, initialStore(), NOW).sync).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false });
     expect(presentShell({ ...s, sync: { kind: 'off' } }, initialStore(), NOW).sync).toMatchObject({ visible: false, state: 'off', label: '' });
     expect(presentShell({ ...s, sync: { kind: 'pushing' } }, initialStore(), NOW).sync).toMatchObject({ visible: true, state: 'pushing', label: '送信中' });
     expect(presentShell({ ...s, sync: { kind: 'pulling' } }, initialStore(), NOW).sync).toMatchObject({ state: 'pulling', label: '受信中' });
@@ -461,6 +461,25 @@ describe('同期の Presenter（フェーズ 4）', () => {
     expect(presentShell({ ...s, sync: { kind: 'error', message: '切れました' } }, initialStore(), NOW).sync).toMatchObject({ state: 'error', label: '同期エラー: 切れました' });
     // まだ一度も往復していない間は、時刻の代わりに準備中と出す。
     expect(presentShell({ ...s, sync: { kind: 'idle', lastAt: null } }, initialStore(), NOW).sync).toMatchObject({ state: 'idle', label: '同期の準備中' });
+  });
+  it('ヘッダーに取り残しの件数と諦めた本文の件数が出る', () => {
+    // 本文は 60 秒に 20 件ずつしか流れないので、残りが見えないと進んでいるか分からない。
+    const state = { ...initialState(), sync: { kind: 'idle' as const, lastAt: NOW }, pending: 2 };
+    const store: Store = { ...initialStore(), sync: syncStatus({ sweepPending: 1500, skipped: [{ key: 'k1', attempts: 3, message: 'x' }, { key: 'k2', attempts: 1, message: 'y' }] }) };
+    expect(presentShell(state, store, NOW).sync).toMatchObject({ pending: 2, sweepPending: 1500, skipped: 2 });
+    // 数えられない端末は 0 として渡す。ヘッダーは 0 件を描かないので、「分からない」と「無い」を分けなくてよい。
+    expect(presentShell(state, { ...initialStore(), sync: syncStatus() }, NOW).sync).toMatchObject({ sweepPending: 0, skipped: 0 });
+    expect(presentShell(state, initialStore(), NOW).sync).toMatchObject({ sweepPending: 0, skipped: 0 });
+  });
+  it('Settings のクラウドの節に取り残しと諦めた本文が出る', () => {
+    // ヘッダーと違って、ここは 0 件も描く。0 と書いてあれば「追いついた」と読める。
+    const store: Store = { ...initialStore(), sync: syncStatus({ sweepPending: 0, skipped: [{ key: 'k1', attempts: 3, message: '復号できません' }] }) };
+    const p = presentSettings(initialState(), store, NOW).cloud;
+    expect(p.sweepPending).toBe(0);
+    expect(p.skipped).toEqual([{ key: 'k1', attempts: 3, message: '復号できません' }]);
+    // 数えられない端末は null のまま渡し、画面が描かない。
+    expect(presentSettings(initialState(), { ...initialStore(), sync: syncStatus() }, NOW).cloud.sweepPending).toBeNull();
+    expect(presentSettings(initialState(), initialStore(), NOW).cloud).toMatchObject({ sweepPending: null, skipped: [] });
   });
   it('同期の行を足してもフェーズ 3 の使用量ゲージは残る', () => {
     const store = storeWith();

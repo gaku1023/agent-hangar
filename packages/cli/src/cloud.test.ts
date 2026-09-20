@@ -7,7 +7,7 @@ import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, saveCloudConfig } from '@agent-hangar/server';
 import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { cloudStatus, defaultCloudDir, joinWorker, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
+import { BUNDLED_CLOUD_MARKER, cloudStatus, defaultCloudDir, joinWorker, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
 
@@ -1014,7 +1014,7 @@ describe('Worker のソースの置き場', () => {
     fs.writeFileSync(path.join(dir, 'src', 'index.ts'), 'export default {};\n');
     fs.writeFileSync(path.join(dir, 'wrangler.jsonc'), '{}\n');
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: o.name ?? '@agent-hangar/cloud', version: '0.0.0' }));
-    if (o.bundled) fs.writeFileSync(path.join(dir, '.bundled'), 'bundled\n');
+    if (o.bundled) fs.writeFileSync(path.join(dir, BUNDLED_CLOUD_MARKER), 'bundled\n');
     return dir;
   }
 
@@ -1040,7 +1040,7 @@ describe('Worker のソースの置き場', () => {
     expect(() => requireCloudDir()).toThrow(/配布版に同梱した写し/);
 
     // 目印を外すと同じ置き場が通る。止めているのは目印であって、依存の有無ではない。
-    fs.rmSync(path.join(bundled, '.bundled'));
+    fs.rmSync(path.join(bundled, BUNDLED_CLOUD_MARKER));
     expect(requireCloudDir()).toBe(bundled);
   });
 

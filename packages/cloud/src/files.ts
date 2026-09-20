@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { CLOUD_HEADERS, MAX_KEY_BYTES, PULL_LIMIT, decodeHeaderText, isSafeKeyId, isSafeRelPath, splitFileKey, type FileEntry, type FileKind, type ListFilesResponse } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
+import { meteredBatch } from './meter.ts';
+import { sweepIfDue } from './sweep.ts';
 
 type FileRow = {
   seq: number;
@@ -193,16 +195,48 @@ async function storeBody(
 
 export const filesApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
+/**
+ * 索引の読み位置である。
+ *
+ * 数えられない値（桁あふれ、`Infinity`、負、小数、でたらめな文字列）はすべて 0 として読む。
+ * 0 は「全部やり直す」であって、取りこぼす側には倒れない。
+ * そのまま束縛に渡すと、D1 が受けない値で 500 になる筋も残る。
+ */
+function toSince(v: string | undefined): number {
+  if (v === undefined || v === '') return 0;
+  const n = Number(v);
+  return Number.isSafeInteger(n) && n > 0 ? n : 0;
+}
+
+/** 索引の末尾の連番。1 件も無ければ 0 である。 */
+const maxFileSeq = async (db: D1Database): Promise<number> =>
+  (await db.prepare('select ifnull(max(seq), 0) s from files').first<{ s: number }>())!.s;
+
 /** 索引を連番の昇順で返す。自端末の分も返す（この端末が作り直したときの取り直しに要る）。 */
 filesApp.get('/', async (c) => {
-  const since = Math.max(Number(c.req.query('since') ?? 0) || 0, 0);
+  // 孤児の掃除はここから始める。応答は待たせない（waitUntil に逃がす）。
+  // 端末が pull のたびに叩く経路なので、6 時間に 1 回という間隔を当てにできる相手がここしかいない。
+  // executionCtx を持たない土台（テストの一部）では黙って見送る。掃除は次の回で拾える。
+  try {
+    c.executionCtx.waitUntil(sweepIfDue(c.env, Date.now()).catch((e: unknown) => { console.error('sweep failed', e instanceof Error ? e.name : typeof e); }));
+  } catch {
+    // executionCtx が無いだけなので、一覧そのものは続ける。
+  }
+  const since = toSince(c.req.query('since'));
   const limit = Math.min(Math.max(Number(c.req.query('limit') ?? PULL_LIMIT) || PULL_LIMIT, 1), PULL_LIMIT);
+  // 末尾の連番は一覧より **先に** 読む。
+  // 後で読むと、2 つの問い合わせの間に他端末が上げた 1 件が、返らないまま読み位置の後ろに入る。
+  // 端末は読み位置を進める側にしか動かない（puller.ts の `Math.max`）ので、その 1 件は二度と読まれない。
+  // 先に読めば、末尾は必ず実際以下になり、同じ索引をもう一度読む側にしか倒れない。
+  const end = await maxFileSeq(c.env.DB);
   const rows = await c.env.DB.prepare('select * from files where seq > ? order by seq limit ?')
     .bind(since, limit + 1)
     .all<FileRow>();
   const more = rows.results.length > limit;
   const page = rows.results.slice(0, limit);
-  const nextSeq = page.length ? page[page.length - 1]!.seq : since;
+  // 端末が送ってきた `since` を返さない。`/changes`（changes.ts の `GET /`）と同じ形である。
+  // 返すと、一度でも壊れた `since` を控えた端末の一覧が、その値のまま固まって永久に空になる。
+  const nextSeq = more ? page[page.length - 1]!.seq : Math.max(end, page.length ? page[page.length - 1]!.seq : 0);
   const res: ListFilesResponse = { files: page.map(toEntry), nextSeq, more };
   return c.json(res);
 });
@@ -228,6 +262,10 @@ filesApp.put('/:key{.+}', async (c) => {
   // 種別と接頭辞が食い違うと、索引の kind から鍵の置き場を当てにしている側が取り違える。
   if ((kind === 'config') !== key.startsWith('config/')) return c.json({ error: 'invalid headers' }, 400);
   if (!isSha(sha) || size === null || mtime === null || (enc !== '1' && enc !== '0')) return c.json({ error: 'invalid headers' }, 400);
+  // 本文は端末で暗号化してから預ける約束である（決定 5）。
+  // 降ろす側（packages/server/src/sync/puller.ts）だけが守っていると、置く側は約束の外に出られる。
+  // R2 に触る前に断るので、平文が一瞬でも R2 に載ることはない。
+  if (kind === 'transcript' && enc !== '1') return c.json({ error: 'unencrypted transcript' }, 400);
   const body = c.req.raw.body;
   if (!body) return c.json({ error: 'empty body' }, 400);
   // customMetadata の値も見出し由来なので、ここに秘密は入らない（path と sha と端末 ID だけ）。
@@ -239,13 +277,13 @@ filesApp.put('/:key{.+}', async (c) => {
   const storedSize = await storeBody(c.env.BUCKET, key, body, customMetadata);
   if (storedSize === null) return c.json({ error: 'too large' }, 413);
   const now = Date.now();
-  const r = await c.env.DB.batch([
+  const r = await meteredBatch(c.env.DB, [
     c.env.DB.prepare('delete from files where key = ?').bind(key),
     c.env.DB
       .prepare('insert into files (key, path, kind, device_id, sha256, size, stored_size, mtime, encrypted, uploaded_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .bind(key, path, kind, device.id, sha, size, storedSize, mtime, enc === '1' ? 1 : 0, now),
     c.env.DB.prepare('update devices set last_seen_at = ? where id = ?').bind(now, device.id),
-  ]);
+  ], now);
   const seq = Number(r[1]!.meta.last_row_id);
   return c.json({ seq }, 201);
 });
@@ -268,7 +306,11 @@ filesApp.delete('/:key{.+}', async (c) => {
   const device = c.get('device');
   if (!keyShapeOk(key)) return c.json({ error: 'invalid key' }, 400);
   if (!validKey(key, device.id, 'DELETE')) return c.json({ error: 'forbidden' }, 403);
+  // 索引を先に消す。
+  // 逆にすると、途中で倒れたときに「索引にあるのに本体が無い」が残り、降ろす側が永久に 404 を踏む。
+  // この順なら残るのは索引に無い本体だけで、それは `sweep.ts` が後から拾って消せる。
+  const now = Date.now();
+  await meteredBatch(c.env.DB, [c.env.DB.prepare('delete from files where key = ?').bind(key)], now);
   await c.env.BUCKET.delete(key);
-  await c.env.DB.prepare('delete from files where key = ?').bind(key).run();
   return c.body(null, 204);
 });

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import type { ServerEvent, SessionDto } from '@agent-hangar/shared';
+import type { ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { Readable } from 'node:stream';
 import { saveCloudConfig } from './config/cloud.ts';
@@ -20,7 +20,8 @@ import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
-import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
+import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 
 let home: string;
 let claudeDir: string;
@@ -162,6 +163,92 @@ describe('startServer', () => {
       const preview = await (await api('/api/sync/config/preview')).json() as { entries: unknown[]; confirmed: boolean };
       expect(preview.confirmed).toBe(false);
       expect(Array.isArray(preview.entries)).toBe(true);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('websocket の sync.status が付録を運び、件数が減れば画面にも届く', async () => {
+    // レビュアの再現筋である。
+    // 付録を運ぶのが HTTP だけだと、サーバの取り残しが 0 になっても画面は 3 のまま固まる。
+    // 諦めた本文の赤い行も、回復したあと消えなくなる。
+    // 宛先は誰も待ち受けていないループバックである。実物のクラウドには触らない。
+    saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const col = collector(s.port, tokenOf());
+    try {
+      const token = tokenOf();
+      const api = (p: string, init?: RequestInit) => fetch(`http://127.0.0.1:${s.port}${p}`, { ...init, headers: { authorization: `Bearer ${token}` } });
+      const statusNow = async () => (await (await api('/api/sync/status')).json()) as SyncStatusBody;
+      // 取り残しが減る前の通知を拾ってしまわないように、必ず印より後ろだけを見る。
+      const nextStatus = (mark: number) => until(async () => col.all().slice(mark).find((e): e is Extract<ServerEvent, { type: 'sync.status' }> => e.type === 'sync.status') ?? null);
+      await col.opened;
+      // 索引が済むと、まだ一度も上げていない本文が取り残しとして数えられる。
+      const before = await until(async () => { const n = (await statusNow()).sweepPending; return n !== null && n > 0 ? n : null; });
+      // focus は 202 を返すだけで本体を持たない。状態は websocket だけで届く。
+      const mark1 = col.all().length;
+      expect((await api('/api/sync/focus', { method: 'POST' })).status).toBe(202);
+      const first = await nextStatus(mark1);
+      expect(first.status.sweepPending).toBe(before);
+      expect(first.status.skipped).toEqual([]);
+      // 別の接続から台帳を直して、取り残しを 0 にする。
+      const db = openDb(dbPath(home));
+      try {
+        const rows = db.prepare('select t.agent_id a, t.size z, s.provider_session_id u from transcript_files t join sessions s on s.id = t.session_id where t.device_id is null').all() as { a: string | null; z: number; u: string }[];
+        expect(rows.length).toBeGreaterThan(0);
+        const deviceId = (db.prepare('select id from devices limit 1').get() as { id: string }).id;
+        const put = db.prepare('insert or replace into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)');
+        for (const r of rows) {
+          const key = r.a === null ? `transcripts/${deviceId}/${r.u}.jsonl.gz` : `transcripts/${deviceId}/${r.u}/subagents/agent-${r.a}.jsonl.gz`;
+          put.run(key, 'transcript', key, deviceId, 'x'.repeat(64), r.z, 1, 1, 1);
+        }
+      } finally { db.close(); }
+      expect((await statusNow()).sweepPending).toBe(0);
+      // ここが要である。websocket だけで届く状態が、減った件数を運ぶ。
+      const mark2 = col.all().length;
+      expect((await api('/api/sync/focus', { method: 'POST' })).status).toBe(202);
+      const after = await nextStatus(mark2);
+      expect(after.status.sweepPending).toBe(0);
+      expect(after.status.skipped).toEqual([]);
+    } finally {
+      col.close();
+      await s.close();
+    }
+  }, 20000);
+
+  it('設定の同期を切って入れ直すと、取り込みの確認をもう一度求める', async () => {
+    // ~/.claude を書き換える同期なので、入れるときには必ず確認を取る（決定 2）。
+    // configPullConfirmed は sync_state に残り続けるので、切った時点で降ろさないと、
+    // 気に入らなくて切った利用者が入れ直したときに無確認で ~/.claude が書き換わる。
+    // 宛先は誰も待ち受けていないループバックである。実物のクラウドには触らない。
+    saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const token = tokenOf();
+      const auth = { authorization: `Bearer ${token}` };
+      const confirmed = async (): Promise<boolean> => {
+        const r = await fetch(`http://127.0.0.1:${s.port}/api/sync/config/preview`, { headers: auth });
+        return ((await r.json()) as { confirmed: boolean }).confirmed;
+      };
+      const setSync = async (on: boolean): Promise<void> => {
+        const r = await fetch(`http://127.0.0.1:${s.port}/api/settings`, {
+          method: 'PATCH', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ syncClaudeConfig: on }),
+        });
+        expect(r.status).toBe(200);
+        expect(((await r.json()) as { syncClaudeConfig: boolean }).syncClaudeConfig).toBe(on);
+      };
+
+      await setSync(true);
+      expect(await confirmed()).toBe(false);
+      // 一度だけ確認して取り込む。相手の設定は 1 件も無いので、ここで外へは出ない。
+      const pulled = await fetch(`http://127.0.0.1:${s.port}/api/sync/config/pull`, { method: 'POST', headers: auth });
+      expect(pulled.status).toBe(200);
+      expect(await confirmed()).toBe(true);
+
+      // 切って入れ直す。
+      await setSync(false);
+      await setSync(true);
+      expect(await confirmed()).toBe(false);
     } finally {
       await s.close();
     }
@@ -926,5 +1013,85 @@ describe('参加より前に索引が済んでいた本文の追いつき', () =
   it('走査の間隔は設定の同期と揃えてある', () => {
     // 片方だけ直すと、また兄弟の経路が食い違う。
     expect(UPLOAD_SWEEP_MS).toBe(60_000);
+  });
+});
+
+/**
+ * 控えの世代。
+ * 刈っていたのは設定の取り込みの分だけで、本文（transcripts）とメモ（memos）は溜まり続けていた。
+ * 設定の控えと同じ作法で、新しい方から数えて上限までを残す。
+ */
+describe('控えの世代を刈る', () => {
+  const seed = (dir: string, n: number, ext: string): string[] => {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const names: string[] = [];
+    for (let i = 0; i < n; i++) {
+      // 名前は辞書順と時刻の順が一致しない形にする（本文の控えは <uuid>-<時刻>、メモは session-<ID>-<時刻> である）。
+      const name = `z${(n - i).toString().padStart(3, '0')}-20260101-00${i.toString().padStart(4, '0')}${ext}`;
+      const f = path.join(dir, name);
+      fs.writeFileSync(f, `${i}\n`, { mode: 0o600 });
+      const t = new Date(1_700_000_000_000 + i * 1000);
+      fs.utimesSync(f, t, t);
+      names.push(name);
+    }
+    return names;
+  };
+
+  it('新しい方から数えて上限までを残し、古い控えを消す', () => {
+    const dir = path.join(home, 'backups', 'transcripts');
+    const names = seed(dir, BACKUP_GENERATIONS + 5, '.jsonl');
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'transcripts', BACKUP_GENERATIONS)).toBe(5);
+    expect(fs.readdirSync(dir).sort()).toEqual(names.slice(5).sort());
+    // もう一度刈っても、上限以下なら何も消さない。
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'transcripts', BACKUP_GENERATIONS)).toBe(0);
+    expect(fs.readdirSync(dir).length).toBe(BACKUP_GENERATIONS);
+  });
+
+  it('入れ物が無くても、上限が 0 以下でも壊れない', () => {
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'nope', BACKUP_GENERATIONS)).toBe(0);
+    const dir = path.join(home, 'backups', 'memos');
+    seed(dir, 3, '.md');
+    // 上限は 1 未満にしない。控えを全部消す刈り込みは作らない。
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'memos', 0)).toBe(2);
+    expect(fs.readdirSync(dir).length).toBe(1);
+  });
+
+  it('入れ物の中のディレクトリは消さない', () => {
+    const dir = path.join(home, 'backups', 'transcripts');
+    seed(dir, BACKUP_GENERATIONS + 3, '.jsonl');
+    fs.mkdirSync(path.join(dir, 'keep-me'), { recursive: true });
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'transcripts', BACKUP_GENERATIONS)).toBe(3);
+    expect(fs.existsSync(path.join(dir, 'keep-me'))).toBe(true);
+  });
+
+  it('入れ物がシンボリックリンクなら、リンクの先を消さずに断る', () => {
+    // 書く側（copy.ts の resolveUnder）はリンクを 1 区切りも辿らない。消す側も揃える。
+    const outside = path.join(home, 'outside');
+    fs.mkdirSync(outside, { recursive: true });
+    const victims = seed(outside, 3, '.jsonl');
+    fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
+    fs.symlinkSync(outside, path.join(home, 'backups', 'transcripts'));
+    expect(() => pruneBackupFiles(path.join(home, 'backups'), 'transcripts', 1)).toThrow(/シンボリックリンク/);
+    // リンクの先は 1 件も消えていない。
+    expect(fs.readdirSync(outside).sort()).toEqual(victims.sort());
+  });
+
+  it('控えの種類に区切りや上の階層を混ぜられない', () => {
+    expect(() => pruneBackupFiles(path.join(home, 'backups'), '../..', 1)).toThrow(/形が不正/);
+    expect(() => pruneBackupFiles(path.join(home, 'backups'), 'a/b', 1)).toThrow(/形が不正/);
+  });
+
+  it('起動のときに、本文とメモの控えを上限まで刈る', async () => {
+    const tr = path.join(home, 'backups', 'transcripts');
+    const memos = path.join(home, 'backups', 'memos');
+    const trNames = seed(tr, BACKUP_GENERATIONS + 7, '.jsonl');
+    const memoNames = seed(memos, BACKUP_GENERATIONS + 4, '.md');
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      expect(fs.readdirSync(tr).sort()).toEqual(trNames.slice(7).sort());
+      expect(fs.readdirSync(memos).sort()).toEqual(memoNames.slice(4).sort());
+    } finally {
+      await s.close();
+    }
   });
 });

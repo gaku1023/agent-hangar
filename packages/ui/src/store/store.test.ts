@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, BootstrapDto, MemoDto, RunDto, SessionDto, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, pruneEvents, pruneRuns, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false });
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false } }, devices: [] };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [] };
 
 describe('store', () => {
   it('bootstrap を正規化して入れる', () => {
@@ -205,17 +205,35 @@ describe('store の同期', () => {
     let s = applyBootstrap(initialStore(), boot);
     expect(s.sync?.state).toBe('off');
     expect(s.devices).toEqual([]);
-    s = applyServerEvent(s, { type: 'sync.status', status: { state: 'pushing', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 4, error: null, deviceCount: 2, claudeConfig: { enabled: true, confirmed: true } } });
+    s = applyServerEvent(s, { type: 'sync.status', status: { state: 'pushing', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 4, error: null, deviceCount: 2, claudeConfig: { enabled: true, confirmed: true }, skipped: [], sweepPending: null } });
     expect(s.sync).toMatchObject({ state: 'pushing', pending: 4 });
     s = applyServerEvent(s, { type: 'devices.update', devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true }] });
     expect(s.devices).toHaveLength(1);
     expect(applyServerEvent(s, { type: 'sync.applied', table: 'projects', rowId: 'p1' })).toBe(s);
   });
   it('bootstrap が運ぶ sync と devices をそのまま入れる', () => {
-    const sync = { state: 'idle' as const, url: 'https://h', lastPushAt: 1000, lastPullAt: 2000, pending: 5, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false } };
+    const sync = { state: 'idle' as const, url: 'https://h', lastPushAt: 1000, lastPullAt: 2000, pending: 5, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: 7 };
     const s = applyBootstrap(initialStore(), { ...boot, sync, devices: [{ id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false }] });
     expect(s.sync).toEqual(sync);
     expect(s.devices).toHaveLength(1);
+  });
+  it('sync.status で、片付いた取り残しと回復した失敗が消える', () => {
+    // レビュアの再現筋である。サーバが 0 件になっても画面が 3 件のまま固まっていた。
+    // 片付いたことが画面に届かないと、件数を出す意味そのものが無くなる。
+    const sync: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }], sweepPending: 3 };
+    let s = applyBootstrap(initialStore(), { ...boot, sync });
+    expect(s.sync).toMatchObject({ sweepPending: 3 });
+    expect(s.sync?.skipped).toHaveLength(1);
+    s = applyServerEvent(s, { type: 'sync.status', status: { ...sync, skipped: [], sweepPending: 0 } });
+    expect(s.sync).toMatchObject({ sweepPending: 0, skipped: [] });
+  });
+  it('付録を持たない古いサーバの sync.status では、件数を引き継がずに落とす', () => {
+    // 古い数字を残すのは、何も出さないより悪い。分からないときは分からないと出す。
+    const sync: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'k1', attempts: 3, message: 'x' }], sweepPending: 1500 };
+    let s = applyBootstrap(initialStore(), { ...boot, sync });
+    const { skipped: _s, sweepPending: _p, ...older } = sync;
+    s = applyServerEvent(s, { type: 'sync.status', status: older as SyncStatusBody });
+    expect(s.sync).toMatchObject({ sweepPending: null, skipped: [] });
   });
   it('sync と devices を持たない古いサーバでも壊れない', () => {
     const { sync: _sync, devices: _devices, ...older } = boot;

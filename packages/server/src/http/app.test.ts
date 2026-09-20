@@ -85,6 +85,7 @@ function fakeSummary(): SummaryApi & { enqueued: [string, SummaryEnqueueOpts | u
 const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false } };
 const calls: string[] = [];
 let skipped: { key: string; attempts: number; message: string }[] = [];
+let sweepPending: number | null = null;
 let resumeHereResult: LaunchResultDto | ResumeHereConflictDto = launched;
 const fakeSync = (): SyncApi => ({
   status: () => syncStatus,
@@ -100,6 +101,7 @@ const fakeConfigSync = (): ConfigSyncApi => ({
 const syncDeps = () => ({
   sync: fakeSync(),
   syncSkipped: () => skipped,
+  syncSweep: () => sweepPending,
   configSync: fakeConfigSync(),
   resumeHere: (id: string, overwrite: boolean) => { calls.push(`resumeHere:${id}:${overwrite}`); return resumeHereResult; },
   joinToken: () => 'tok-abc' as string | null,
@@ -109,6 +111,7 @@ const syncDeps = () => ({
 beforeEach(async () => {
   calls.length = 0;
   skipped = [];
+  sweepPending = null;
   resumeHereResult = launched;
   dir = copyFixtureClaudeDir(); db = openDb(':memory:'); sent.length = 0;
   ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app-'));
@@ -117,7 +120,7 @@ beforeEach(async () => {
   await indexer.fullScan();
   db.prepare('update sessions set cwd = ? where provider_session_id = ?').run(`${ws}/alpha`, SESSION_ALPHA);
   syncProjectsFromWorkspace(db, 'd', ws); assignSessions(db, 'd');
-  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
+  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null };
   runs = fakeRuns();
   external = fakeExternal();
   usage = new UsageTracker(db);
@@ -445,6 +448,20 @@ describe('routes', () => {
     expect(db.prepare('select count(*) c from project_roots where deleted_at is null').get()).toEqual({ c: 2 });
     expect(db.prepare("select count(*) c from project_roots where path like '%..%'").get()).toEqual({ c: 0 });
   });
+  // 末尾の / や .. を生のまま入れると project_roots の前方一致に cwd が当たらず、
+  // 直したつもりのプロジェクトにセッションが一件も紐づかない。
+  it('repoint は正規化したパスを入れ、セッションが紐づく', async () => {
+    const id = list0ProjectId();
+    const moved = path.join(ws, 'moved');
+    fs.mkdirSync(path.join(moved, 'src'), { recursive: true });
+    // 紐づけ直しが動くのは未分類のセッションだけなので、1 件を moved の下に置く。
+    const other = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string }).id;
+    db.prepare('update sessions set cwd = ?, project_id = null where id = ?').run(path.join(moved, 'src'), other);
+    const r = await post(`/api/projects/${id}/resolve`, { kind: 'repoint', path: `${path.join(ws, 'alpha', '..', 'moved')}/` });
+    expect(r.status).toBe(200);
+    expect(db.prepare('select path from project_roots where project_id = ? and deleted_at is null').get(id)).toEqual({ path: moved });
+    expect((await json(await get(`/api/sessions/${other}`))).body.projectId).toBe(id);
+  });
   it('設定の新しい項目を検査する', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     expect(await (await patch({ terminalApp: 'iterm', tmuxPath: '/opt/homebrew/bin/tmux' })).json()).toMatchObject({ terminalApp: 'iterm', tmuxPath: '/opt/homebrew/bin/tmux' });
@@ -613,7 +630,7 @@ describe('routes', () => {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
       fs.mkdirSync(path.join(dist, 'assets'));
       fs.writeFileSync(path.join(dist, 'assets', 'a.js'), 'console.log(1)');
-      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
+      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null };
       const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), ...syncDeps(), uiDist: dist });
       // 鍵を持たない GET / にはクッキーを配らない。curl 1 本でトークンが取れてはいけない。
       const bare = await ui.request('/');
@@ -656,7 +673,7 @@ describe('routes', () => {
     const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-dist-'));
     try {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
-      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false };
+      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null };
       const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), ...syncDeps(), uiDist: dist });
       // SameSite=Strict はポートを数えない。手元の別のポートに置かれたページが、認証済みの UI を枠に入れられてしまう。
       for (const r of [await ui.request(`/?t=${TOKEN}`), await ui.request('/', { headers: { cookie: `hangar_token=${TOKEN}` } }), await ui.request('/')]) {
@@ -740,6 +757,25 @@ describe('同期の経路', () => {
     skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }];
     expect((await json(await get('/api/sync/status'))).body.skipped).toEqual(skipped);
     expect((await json(await get('/api/bootstrap'))).body.sync.skipped).toEqual(skipped);
+  });
+
+  it('取り残しの残り件数が同期の状態に乗る', async () => {
+    // 数えられないときは null で、0 件（追いついた）と区別できる。
+    expect((await json(await get('/api/sync/status'))).body.sweepPending).toBeNull();
+    sweepPending = 1500;
+    expect((await json(await get('/api/sync/status'))).body.sweepPending).toBe(1500);
+    expect((await json(await get('/api/bootstrap'))).body.sync.sweepPending).toBe(1500);
+    // 今すぐ同期と一時停止の応答も同じ形で返す。画面はこの 3 つから付録を受け取る。
+    expect((await json(await post('/api/sync/now'))).body.sweepPending).toBe(1500);
+    expect((await json(await post('/api/sync/pause', { paused: true }))).body.sweepPending).toBe(1500);
+    sweepPending = 0;
+    expect((await json(await get('/api/sync/status'))).body.sweepPending).toBe(0);
+  });
+
+  it('掃除の口を渡さない端末では取り残しは null のまま', async () => {
+    const { syncSweep: _drop, ...rest } = syncDeps();
+    app = createApp({ ...deps, ...rest });
+    expect((await json(await get('/api/sync/status'))).body.sweepPending).toBeNull();
   });
 
   it('参加トークンと端末一覧と設定の下見', async () => {
@@ -869,6 +905,16 @@ describe('設定の往復', () => {
       fs.rmSync(ws2, { recursive: true, force: true });
       fs.rmSync(dir2, { recursive: true, force: true });
     }
+  });
+
+  // 前後の空白に意味は無い。パス系の設定と同じ扱いにそろえる。
+  it('lmStudioModel は前後の空白を落として保存する', async () => {
+    const r = await patch({ lmStudioModel: '  gemma-3  ' });
+    expect(r.status).toBe(200);
+    expect((await r.json()).lmStudioModel).toBe('gemma-3');
+    expect((await json(await get('/api/settings'))).body.lmStudioModel).toBe('gemma-3');
+    // 空白だけの文字列は「未設定」と同じに扱う。
+    expect((await (await patch({ lmStudioModel: '   ' })).json()).lmStudioModel).toBeNull();
   });
 
   it('Claude Code 設定の同期は、入れて、切って、また入れられる', async () => {

@@ -15,6 +15,10 @@ export function SyncStatus(props: SyncProps) {
       <span className={props.state === 'error' ? 'mono sync-label sync-error' : 'mono sync-label faint'} title={props.label}>{props.label}</span>
       {/* 0 件のときに「未送信 0」と出すと、止まっているように見える。溜まっているときだけ出す。 */}
       {props.pending > 0 && <span className="faint">未送信 {props.pending}</span>}
+      {/* 本文は 60 秒に 20 件ずつしか流れないので、残りが見えないと止まっているのか進んでいるのか分からない。 */}
+      {props.sweepPending > 0 && <span className="faint">未送信の本文 {props.sweepPending}</span>}
+      {/* 諦めた本文は放っておけば 30 分ごとに試し直すが、そのあいだ気付く手立てがここしか無い。 */}
+      {props.skipped > 0 && <span className="sync-error">諦めた本文 {props.skipped}</span>}
       <button className="btn btn-sm" onClick={() => emit({ type: 'sync.now' })}>今すぐ同期</button>
       <button className="btn btn-sm" onClick={() => emit({ type: 'sync.pause', paused: !props.paused })}>{props.paused ? '同期を再開' : '一時停止'}</button>
     </span>

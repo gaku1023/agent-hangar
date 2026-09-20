@@ -107,8 +107,6 @@ export class SyncEngine {
   private pullError: string | null = null;
   private claudeConfig = { enabled: false, confirmed: false };
   private started = false;
-  /** 無料枠で止めた日。同じ日に二度は止めない（利用者が再開を押した後に押し返さない）。 */
-  private quotaPausedDay: string | null = null;
   /** 413 で諦めた行。同じ行で何度も知らせない。 */
   private readonly oversizeTold = new Set<string>();
   /**
@@ -126,6 +124,14 @@ export class SyncEngine {
     this.timers = deps.timers ?? REAL_TIMERS;
     // 枠はアカウントごとなので、端末の数で割った割り当てで見張る（quota.ts の stopAt）。
     this.quota = deps.quota ?? new QuotaCounter({ state: this.state, now: () => this.now(), limits: deps.quotaLimits, deviceCount: () => this.deviceCount() });
+    /*
+     * 立て直しても、直前まで出ていた失敗の理由を消さない。
+     * 送れていない行は `changes` に残っているのに、起こし直した直後だけ idle に見えるのがいちばんの嘘である。
+     *
+     * push と pull のどちらの失敗だったかは残っていないので、push の側に戻す。
+     * 先に見せるのが push の理由であり、次の push が通れば消えるからである（居座らない）。
+     */
+    this.pushError = this.state.get('lastError');
   }
 
   protected now(): number { return this.deps.now ? this.deps.now() : Date.now(); }
@@ -313,7 +319,10 @@ export class SyncEngine {
       db.prepare(`update changes set pushed_at = ? where seq in (${rows.map(() => '?').join(',')})`).run(now, ...rows.map((r) => r.seq));
       this.state.set('lastPushAt', now);
       this.clearPushError();
-      this.quota.note({ rows: pushD1Writes(res?.accepted, rows.length), requests: 1 });
+      // Worker が「その日に D1 へ書いた行数」を返したら、それを正として使う。
+      // 端末からは見えない書き込み（圧縮、参加、スキーマの用意、他端末の分）がすべて入っている。
+      // 返さない古い Worker のときは、今までどおり自分の push から見積もる。
+      this.quota.note({ rows: pushD1Writes(res?.accepted, rows.length), requests: 1, account: res?.d1RowsToday });
       pushed += rows.length;
       // 止めたら残りは送らない。送れていない行は pushed_at が null のまま残るので、再開で続きから出る。
       if (this.guardQuota()) return { pushed };
@@ -356,9 +365,10 @@ export class SyncEngine {
    */
   protected guardQuota(): boolean {
     const day = quotaDayKey(this.now());
-    if (this.quotaPausedDay === day || this.paused) return false;
+    // 止めた日は sync_state に置く。メモリに置くと、立て直した直後にもう一度同じ日の判定を通って止め直せる。
+    if (this.quota.pausedDay() === day || this.paused) return false;
     if (!this.quota.exceeded()) return false;
-    this.quotaPausedDay = day;
+    this.quota.setPausedDay(day);
     this.setPaused(true);
     this.emit('toast', 'info', QUOTA_PAUSED_MESSAGE);
     return true;
@@ -433,6 +443,9 @@ export class SyncEngine {
       const at = since;
       // GET /changes は devices の last_seen_at と last_pulled_seq を 1 行書く。
       const page = await this.request(() => client.pullChanges(at, PULL_LIMIT), D1_WRITES_PER_DEVICE_TOUCH);
+      // pull にも「その日に D1 へ書いた行数」が載る。
+      // push の応答だけに頼ると、押すものが 1 行も無い日は報告が届かない。
+      if (typeof page.d1RowsToday === 'number') this.quota.note({ account: page.d1RowsToday });
       count.applied += this.applyPage(page.changes, true);
       since = page.nextSeq;
       this.state.set('lastSeq', since);

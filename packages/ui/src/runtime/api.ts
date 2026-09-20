@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, ResumeHereConflictDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusDto, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, ResumeHereConflictDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -50,9 +50,9 @@ export type ApiClient = {
   summarizerModels(): Promise<{ models: string[] }>;
   testSummarizer(): Promise<SummarizerTestDto>;
   // ここから下はクラウド同期（フェーズ 4）である。
-  syncStatus(): Promise<SyncStatusDto>;
-  syncNow(): Promise<SyncStatusDto>;
-  syncPause(paused: boolean): Promise<SyncStatusDto>;
+  syncStatus(): Promise<SyncStatusBody>;
+  syncNow(): Promise<SyncStatusBody>;
+  syncPause(paused: boolean): Promise<SyncStatusBody>;
   /** 窓が前面に来たことをサーバに伝えて pull を促す。サーバ側で間引く。 */
   syncFocus(): Promise<void>;
   resumeHere(sessionId: string, overwrite: boolean): Promise<LaunchResultDto>;

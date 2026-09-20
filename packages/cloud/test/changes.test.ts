@@ -28,8 +28,18 @@ const push = (tok: string, changes: unknown): Promise<Response> =>
     body: JSON.stringify({ changes }),
   });
 
-const pushed = async (tok: string, changes: unknown): Promise<{ seq: number; accepted: number; skipped: number }> =>
-  (await (await push(tok, changes)).json()) as { seq: number; accepted: number; skipped: number };
+const pushed = async (tok: string, changes: unknown): Promise<{ seq: number; accepted: number; skipped: number; d1RowsToday: number }> =>
+  (await (await push(tok, changes)).json()) as { seq: number; accepted: number; skipped: number; d1RowsToday: number };
+
+/**
+ * push の応答の形。
+ * `d1RowsToday`（その日に D1 へ書いた行数）は書いた量で変わるので、ここでは数であることだけを見る。
+ * 中身は `meter.test.ts` が実際の行数と突き合わせる。
+ */
+const pushResult = (o: { seq: number; accepted: number; skipped: number }) => ({ ...o, d1RowsToday: expect.any(Number) });
+
+/** pull の応答の形。`d1RowsToday` は push と同じ理由で、数であることだけを見る。 */
+const pullResult = (o: { changes: unknown[]; nextSeq: number; more: boolean }) => ({ ...o, d1RowsToday: expect.any(Number) });
 
 const pullRaw = (tok: string, since: number, limit = 500): Promise<Response> =>
   cloud.SELF.fetch(`https://x/changes?since=${since}&limit=${limit}`, { headers: { authorization: `Bearer ${tok}` } });
@@ -90,8 +100,8 @@ afterEach(async () => {
 
 describe('POST /changes', () => {
   it('新しい行を受け取り連番を付け、古い行は skipped にする', async () => {
-    expect(await pushed(tokA, [ch('p1', 100), ch('p2', 100)])).toEqual({ seq: 2, accepted: 2, skipped: 0 });
-    expect(await pushed(tokB, [ch('p1', 50, 'old'), ch('p2', 200, 'new')])).toEqual({ seq: 3, accepted: 1, skipped: 1 });
+    expect(await pushed(tokA, [ch('p1', 100), ch('p2', 100)])).toEqual(pushResult({ seq: 2, accepted: 2, skipped: 0 }));
+    expect(await pushed(tokB, [ch('p1', 50, 'old'), ch('p2', 200, 'new')])).toEqual(pushResult({ seq: 3, accepted: 1, skipped: 1 }));
     const row = await cloud.env.DB.prepare('select payload, device_id from rows where k = ?').bind('projects:p2').first<{ payload: string; device_id: string }>();
     expect(JSON.parse(row!.payload).name).toBe('new');
     expect(row!.device_id).toBe('dev-b');
@@ -99,7 +109,7 @@ describe('POST /changes', () => {
   });
 
   it('同じ鍵の重複は updatedAt の大きい方だけを採る', async () => {
-    expect(await pushed(tokA, [ch('p1', 100, 'a'), ch('p1', 300, 'c'), ch('p1', 200, 'b')])).toEqual({ seq: 1, accepted: 1, skipped: 2 });
+    expect(await pushed(tokA, [ch('p1', 100, 'a'), ch('p1', 300, 'c'), ch('p1', 200, 'b')])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 2 }));
     expect((await payloadOf('projects:p1')).name).toBe('c');
   });
 
@@ -132,7 +142,7 @@ describe('GET /changes と GET /rows', () => {
     expect(a.more).toBe(false);
     const b = await pull(tokB, 0);
     expect(b.changes.map((c) => c.rowId)).toEqual(['p1', 'p3']);
-    expect(await pull(tokB, 3)).toEqual({ changes: [], nextSeq: 3, more: false });
+    expect(await pull(tokB, 3)).toEqual(pullResult({ changes: [], nextSeq: 3, more: false }));
     const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
     expect(dev?.last_pulled_seq).toBe(3);
   });
@@ -190,7 +200,7 @@ describe('1 行の大きさ', () => {
   });
 
   it('上限ちょうどは通る', async () => {
-    expect(await pushed(tokA, [sized('p1', MAX_ROW_BYTES)])).toEqual({ seq: 1, accepted: 1, skipped: 0 });
+    expect(await pushed(tokA, [sized('p1', MAX_ROW_BYTES)])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
   });
 
   it('大きさは文字数ではなくバイト数で見る', async () => {
@@ -212,7 +222,7 @@ describe('1 行の大きさ', () => {
     expect(r2.status).toBe(413);
     expect(await bodyOf(r2)).toMatchObject({ count: 1, row: { rowId: 'p4' } });
     // 断られた 2 件を落とせば通る。40 行なら最大 40 往復で必ず抜ける。
-    expect(await pushed(tokA, [batch[0]!, batch[2]!])).toEqual({ seq: 2, accepted: 2, skipped: 0 });
+    expect(await pushed(tokA, [batch[0]!, batch[2]!])).toEqual(pushResult({ seq: 2, accepted: 2, skipped: 0 }));
   });
 });
 
@@ -297,7 +307,7 @@ describe('圧縮', () => {
     expect(await seqs()).toEqual([]);
 
     expect((await rows(tokA)).seq).toBe(206);
-    expect(await pull(tokB, 1)).toEqual({ changes: [], nextSeq: 206, more: false });
+    expect(await pull(tokB, 1)).toEqual(pullResult({ changes: [], nextSeq: 206, more: false }));
     const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
     expect(dev?.last_pulled_seq).toBe(206);
     // 次の push も連番を振り直さない。
@@ -306,7 +316,7 @@ describe('圧縮', () => {
 
   it('でたらめに大きい since は読み位置を水増ししない', async () => {
     await push(tokA, [ch('p1', 1)]);
-    expect(await pull(tokB, 999_999)).toEqual({ changes: [], nextSeq: 1, more: false });
+    expect(await pull(tokB, 999_999)).toEqual(pullResult({ changes: [], nextSeq: 1, more: false }));
     const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
     expect(dev?.last_pulled_seq).toBe(1); // ここが水増しされると、圧縮が未読の変更まで消しにいく
   });

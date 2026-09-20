@@ -122,8 +122,15 @@ pub fn strip_quarantine(dir: &Path) {
 /// その写しでは `strip_quarantine` が書き込めず、検疫属性を外せない。
 /// つまり検疫属性が問題になる唯一の経路でだけ、外す手立てが効かない。
 /// 先に見分けて、利用者に `/Applications` へ移してもらう。
+/// 写しの置き場は `/private/var/folders/.../AppTranslocation/<番号>/d/<名前>.app` の形で、
+/// 段の名前として `AppTranslocation` が現れる。
+/// 字面の一致だけで見ると、この語を名前に含む置き場から起動した利用者が、
+/// 正しく `/Applications` へ移した `.app` でも移動を案内されて止まる。
 pub fn is_translocated(exe: &Path) -> bool {
-    exe.to_string_lossy().contains("AppTranslocation")
+    exe.starts_with("/private/var/folders")
+        && exe
+            .components()
+            .any(|c| c.as_os_str() == "AppTranslocation")
 }
 
 /// サーバが `~/.agent-hangar/token` に書いた入場の鍵を読む。
@@ -285,6 +292,14 @@ mod tests {
         )));
         assert!(!is_translocated(Path::new(
             "/Users/me/workspace/agent-hangar/apps/desktop/src-tauri/target/debug/hangar-desktop"
+        )));
+        // 字面だけを見ると、この語を名前に含む置き場から起動した利用者が、
+        // 正しく /Applications へ移した .app でも移動を案内されて止まる。
+        assert!(!is_translocated(Path::new(
+            "/Users/me/AppTranslocation/Hangar.app/Contents/MacOS/Hangar"
+        )));
+        assert!(!is_translocated(Path::new(
+            "/private/var/folders/x/AppTranslocationNotes/Hangar.app/Contents/MacOS/Hangar"
         )));
     }
 }

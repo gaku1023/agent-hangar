@@ -7,15 +7,30 @@ on:
 # public のリポジトリなので、ここを明記しないと設定次第で書き込みの持ち主が走る。
 permissions:
   contents: read
+# 同じ枝に続けて押したとき、古い実行を畳む。
+# main だけは畳まない。畳むと、その手前のコミットが緑だったかどうかが記録に残らない。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   check:
     runs-on: ubuntu-latest
+    # 試験が固まったときの上限。ふつうは数分で終わる。
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
+      # tmux を入れないと、tmux に依存する試験 33 件が describe.skipIf で黙って飛ぶ。
+      # 飛んでいたのは起動、寿命、resume と fork、トークンを argv に載せない、run ごとの秘密といった要所である。
+      # tmux -V を出すのは、入ったことを実行の記録に残して skipIf が解けたと言い切れるようにするためである。
+      - name: tmux を入れる
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          tmux -V
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -27,13 +42,24 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
       - run: cargo fmt --check
         working-directory: apps/desktop/src-tauri
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: apps/desktop/src-tauri
       - run: cargo test
         working-directory: apps/desktop/src-tauri
+      - run: npm ci
+      # 同梱サーバの作り方を確かめる試験は Apple silicon でしか走らない。
+      # ubuntu の check では飛ぶので、走る場所はこの macOS のジョブだけである。
+      - name: 同梱サーバの試験
+        run: npm test -- --project desktop

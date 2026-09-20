@@ -5,7 +5,12 @@ import { relativeTime } from './format.ts';
 
 export type NavItem = { route: Route; label: string; current: boolean };
 export type UsageProps = { fiveHour: number | null; sevenDay: number | null; updatedLabel: string | null };
-export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; paused: boolean };
+/**
+ * pending は未送信のメタデータ、sweepPending はまだ上げていない本文、skipped は諦めた本文の件数である。
+ * 後ろの 2 つは、数えられないときも 0 にする。
+ * ヘッダーは 0 件を描かない約束なので、「分からない」と「無い」をここで同じ扱いにしてよい。
+ */
+export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; sweepPending: number; skipped: number; paused: boolean };
 export type ShellProps = { nav: NavItem[]; crumbs: { label: string; route?: Route }[]; searchText: string; connection: State['connection']; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps };
 
 /**
@@ -13,7 +18,7 @@ export type ShellProps = { nav: NavItem[]; crumbs: { label: string; route?: Rout
  * 同期を設定していない端末（off）では出さないので、visible を false にする。
  * 一度も往復していない間は時刻が無いので、時刻の代わりに準備中と出す。
  */
-function syncProps(state: State, now: number): SyncProps {
+function syncProps(state: State, store: Store, now: number): SyncProps {
   const s = state.sync;
   const label =
     s.kind === 'off' ? ''
@@ -23,7 +28,7 @@ function syncProps(state: State, now: number): SyncProps {
     : s.kind === 'error' ? `同期エラー: ${s.message}`
     : s.lastAt === null ? '同期の準備中'
     : `同期 ${relativeTime(s.lastAt, now)}`;
-  return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, paused: s.kind === 'paused' };
+  return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused: s.kind === 'paused' };
 }
 
 const NAV: { route: Route; label: string; matches: string[] }[] = [
@@ -47,5 +52,5 @@ export function presentShell(state: State, store: Store, now: number): ShellProp
   const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
   const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
-  return { nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, connection: state.connection, index: idx, indexLabel, usage, sync: syncProps(state, now) };
+  return { nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, connection: state.connection, index: idx, indexLabel, usage, sync: syncProps(state, store, now) };
 }

@@ -93,11 +93,16 @@ export function resolveProject(db: Db, deviceId: string, projectId: string, acti
   const project = db.prepare('select * from projects where id = ?').get(projectId) as Record<string, unknown> | undefined;
   if (!project) return;
   switch (action.kind) {
-    case 'repoint':
-      if (root) upsertShared(db, 'project_roots', { ...root, path: action.path, resolved: 1 }, deviceId);
-      else upsertShared(db, 'project_roots', { id: newId(), project_id: projectId, device_id: deviceId, path: action.path, resolved: 1 }, deviceId);
+    case 'repoint': {
+      // `..` や末尾の `/` が残ると longestMatch の前方一致に cwd が当たらず、
+      // そのプロジェクトには永久にセッションが紐づかない。必ず正規化してから入れる。
+      // 新規登録（POST /api/projects）と同じ扱いである。
+      const dir = path.resolve(action.path);
+      if (root) upsertShared(db, 'project_roots', { ...root, path: dir, resolved: 1 }, deviceId);
+      else upsertShared(db, 'project_roots', { id: newId(), project_id: projectId, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
       assignSessions(db, deviceId);
       return;
+    }
     case 'archive':
       upsertShared(db, 'projects', { ...project, status: 'archived' }, deviceId);
       return;

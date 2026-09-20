@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusDto, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean };
 export type Store = {
@@ -15,7 +15,7 @@ export type Store = {
   usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
   // クラウド同期（フェーズ 4）。同期を設定していない間は sync が off のまま届く。
   // joinToken と configPreview は押したときだけ取りに行く値なので、未取得は null である。
-  sync: SyncStatusDto | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
+  sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
 };
 
 export const emptyUsage = (): UsageDto => ({ fiveHour: null, sevenDay: null, updatedAt: null });
@@ -34,6 +34,20 @@ export function initialStore(): Store {
 
 const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object.fromEntries(items.map((i) => [i.id, i]));
 
+/**
+ * 同期の状態を入れ替える。
+ * 付録（諦めた本文と取り残しの件数）は、HTTP の応答も websocket の通知も運ぶ。
+ * これより古いサーバの通知にだけ載っていないので、そのときは「分からない」に寄せる。
+ * 直前の値は引き継がない。
+ * 引き継ぐと、片付いた取り残しと回復した失敗が、画面に出たまま固まってしまう。
+ * 件数を出す目的は「進んでいるのか止まっているのか」を読ませることなので、
+ * 古い数字を残すのは、何も出さないより悪い。
+ */
+export function applySyncStatus(next: SyncStatusBody): SyncStatusBody {
+  const d = next as Partial<SyncDetailDto>;
+  return { ...next, skipped: d.skipped ?? [], sweepPending: d.sweepPending ?? null };
+}
+
 /** bootstrap を入れる。
  * runs と tabs だけは差し替えずに混ぜる。
  * サーバが返すのは生きた run と開いたシェルタブが残る run だけなので、
@@ -44,7 +58,7 @@ export function applyBootstrap(store: Store, b: BootstrapDto): Store {
   // 型の上では必ずあるので、欠けていたときだけ既定値で埋める。
   // 版が古いことは画面には出さない。
   const old = b as Partial<BootstrapDto>;
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: old.usage ?? emptyUsage(), todos: byId(old.todos ?? []), artifacts: byId(old.artifacts ?? []), summaryPending: Object.fromEntries((old.summaryPending ?? []).map((id) => [id, true as const])), sync: b.sync ?? null, devices: b.devices ?? [] };
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: old.usage ?? emptyUsage(), todos: byId(old.todos ?? []), artifacts: byId(old.artifacts ?? []), summaryPending: Object.fromEntries((old.summaryPending ?? []).map((id) => [id, true as const])), sync: b.sync ? applySyncStatus(b.sync) : null, devices: b.devices ?? [] };
 }
 
 function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): Record<string, SessionDto> {
@@ -86,7 +100,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     }
     case 'memo.update': return { ...store, memos: { ...store.memos, [ev.memo.projectId]: ev.memo } };
     case 'artifact.upsert': return { ...store, artifacts: { ...store.artifacts, [ev.artifact.id]: ev.artifact } };
-    case 'sync.status': return { ...store, sync: ev.status };
+    case 'sync.status': return { ...store, sync: applySyncStatus(ev.status) };
     case 'devices.update': return { ...store, devices: ev.devices };
     case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true } };
     case 'summary.updated': case 'summary.failed': {

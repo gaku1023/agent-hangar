@@ -112,9 +112,56 @@ export class RemotePuller {
   /** この RemotePuller で最後に諦めた項目を試し直した時刻。null なら起こし直した直後である。 */
   private lastRetryAt: number | null = null;
   private readonly now: () => number;
+  /**
+   * 降ろす仕事を並べる 1 本の鎖。
+   *
+   * 降ろしは 2 か所から始まる。
+   * 1 つは起動のときの 1 回で、もう 1 つはメタデータの pull が終わったときの合図である。
+   * 並べずに走らせると、同じ鍵を 2 本の流れが同じ一時ファイルへ書き、filesSeq も互いに上書きし合う。
+   * uploader と claudeConfig と同じ作法で 1 本に並べる。
+   */
+  private chain: Promise<unknown> = Promise.resolve();
+  /**
+   * `stop()` を通ったか。
+   * 鎖に並んだ降ろしは、並んだ時点ではまだ走っていない。
+   * 止めた後に走り出すと、閉じたデータベースと畳んだ通信に触れる（SyncEngine と同じ穴である）。
+   * 起こす手続きを持たない作りなので、`started` ではなくこの向きで持つ。
+   */
+  private stopped = false;
 
   constructor(private readonly deps: PullerDeps) {
     this.now = deps.now ?? (() => Date.now());
+  }
+
+  /** 仕事を鎖の末尾につなぐ。前の仕事が転んでも次は走る。 */
+  private enqueue<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.chain.then(work, work);
+    this.chain = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  /**
+   * いま鎖に並んでいる仕事が終わるまで待つ。
+   *
+   * 合図から始まった降ろしは誰も約束を持たないので、テストと終了処理はここで待ち合わせる。
+   * マイクロタスクを何回流したかに頼って待つと、zlib のように別の糸で進む処理の終わる回が
+   * 端末によって変わり、macOS では通って Linux では落ちる試験になる。
+   */
+  async idle(): Promise<void> {
+    for (;;) {
+      const c = this.chain;
+      await c.then(() => undefined, () => undefined);
+      if (this.chain === c) return; // 待っている間に新しい仕事が並んだら、それも待つ。
+    }
+  }
+
+  /**
+   * 止める。
+   * 印を立てると、鎖に並んでいる降ろしは先頭の検査で譲るので、以後は 1 件も要求を出さない。
+   * 既に走り出している降ろしは最後まで走る。呼び手は `idle()` で待ち合わせてから止める。
+   */
+  stop(): void {
+    this.stopped = true;
   }
 
   private skipKey(key: string): `skipped:${string}` { return `${SKIP_PREFIX}${key}`; }
@@ -194,7 +241,15 @@ export class RemotePuller {
     return { downloaded, configEntries };
   }
 
+  /**
+   * 新着を降ろす。
+   * 呼び手が誰であっても鎖に並ぶので、起動の 1 回と pulled の合図が重なっても重ならない。
+   */
   async pullNow(): Promise<{ downloaded: number; configEntries: number }> {
+    return this.enqueue(() => (this.stopped ? Promise.resolve({ downloaded: 0, configEntries: 0 }) : this.pullNowInner()));
+  }
+
+  private async pullNowInner(): Promise<{ downloaded: number; configEntries: number }> {
     let downloaded = 0;
     let retriedConfigs = 0;
     const startedAt = this.now();

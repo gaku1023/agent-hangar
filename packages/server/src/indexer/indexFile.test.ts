@@ -7,7 +7,7 @@ import { MIGRATIONS } from '../db/migrations.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { listTranscriptFiles } from '../provider/claude-code/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
-import { upsertShared } from '../db/shared.ts';
+import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
 import { localDay } from '../usage/aggregate.ts';
 
@@ -304,6 +304,40 @@ describe('indexFile', () => {
     const r2 = indexFile(db, alphaMain(), { deviceId: DEV });
     expect(r2.artifactIds).toHaveLength(1);
     expect(count('select count(*) c from artifact_versions')).toBe(1);
+  });
+});
+
+describe('論理削除されたセッション', () => {
+  const u = '22222222-2222-4222-8222-222222222222';
+  it('手元のファイルが伸びても、削除された行には積み直さない', () => {
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    const before = count('select count(*) c from event_index where session_id = ?', r.sessionId);
+    const usageBefore = count('select count(*) c from usage_daily where session_id = ?', r.sessionId);
+    softDeleteShared(db, 'sessions', r.sessionId, DEV);
+    appendJson(alphaMain().path, { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'あとから足した行' }] }, uuid: 'later', timestamp: '2026-09-02T00:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+    const r2 = indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(r2).toMatchObject({ sessionId: r.sessionId, changed: false, skipped: true });
+    expect(count('select count(*) c from event_index where session_id = ?', r.sessionId)).toBe(before);
+    expect(count('select count(*) c from usage_daily where session_id = ?', r.sessionId)).toBe(usageBefore);
+  });
+  it('findSession は削除された行を返さない', () => {
+    upsertShared(db, 'sessions', { id: 's-del', provider: 'claude-code', provider_session_id: u, cwd: '/w/alpha', home_device: DEV }, DEV);
+    expect(findSession(db, u)).toBe('s-del');
+    softDeleteShared(db, 'sessions', 's-del', DEV);
+    expect(findSession(db, u)).toBeNull();
+  });
+  it('削除された行の写しは索引化しない', () => {
+    upsertShared(db, 'sessions', { id: 's-del', provider: 'claude-code', provider_session_id: u, cwd: '/w/alpha', home_device: 'dev-b' }, 'dev-b');
+    softDeleteShared(db, 'sessions', 's-del', DEV);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-del-'));
+    const p = path.join(root, 'dev-b', 'projects', '-w-alpha', `${u}.jsonl`);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'hello' }] }, cwd: '/w/alpha', timestamp: '2026-09-01T00:00:00.000Z' }) + '\n');
+    const r = indexFile(db, { path: p, sessionId: u, agentId: null, deviceId: 'dev-b' }, { deviceId: DEV, remote: true });
+    expect(r).toMatchObject({ changed: false, skipped: true });
+    expect(count('select count(*) c from event_index where session_id = ?', 's-del')).toBe(0);
+    expect(count('select count(*) c from transcript_files')).toBe(0);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 });
 

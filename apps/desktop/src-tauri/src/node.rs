@@ -128,10 +128,29 @@ pub fn candidate_paths(user_home: &Path, hangar_home: &Path) -> Vec<PathBuf> {
 }
 
 /// `node -e "console.log(process.version, process.arch)"` の出力（例 `v22.14.0 arm64`）を読む。
+/// 候補は利用者が指定した任意のパスなので、期待した 1 行だけが出るとは限らない。
+/// 前置きや後書きの行が混ざっても、`v<版> <アーキ>` の形をした行を探し当てる。
+/// 後ろの行から見るのは、答えが最後に出るためである。
 pub fn parse_probe(output: &str) -> Option<NodeProbe> {
-    let mut it = output.split_whitespace();
+    output.lines().rev().find_map(parse_probe_line)
+}
+
+/// 1 行が `v<版> <アーキ>` ちょうどの形かを見る。
+/// 語が 3 つ以上並ぶ行は、Node の答えと見なさない。
+/// `process.arch` の値はどれも英小文字と数字だけなので、それ以外を含む語も退ける。
+fn parse_probe_line(line: &str) -> Option<NodeProbe> {
+    let mut it = line.split_whitespace();
     let version = it.next()?;
     let arch = it.next()?;
+    if it.next().is_some() {
+        return None;
+    }
+    if !arch
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    {
+        return None;
+    }
     let (major, _, _) = parse_version(version)?;
     Some(NodeProbe {
         major,
@@ -428,6 +447,24 @@ mod tests {
         );
         assert_eq!(parse_probe("garbage"), None);
         assert_eq!(parse_probe(""), None);
+    }
+
+    // 前置きの 1 行を出す環境（NODE_OPTIONS の警告、包みの script）でも、健全な Node を取り逃がさない。
+    // 逆に、答えの行に余計な語が続く出力は Node の答えと見なさない。
+    #[test]
+    fn parse_probe_looks_past_the_lines_around_the_answer() {
+        let v22 = Some(NodeProbe {
+            major: 22,
+            arch: "arm64".into(),
+        });
+        assert_eq!(
+            parse_probe("(node:1) ExperimentalWarning: x\nv22.14.0 arm64\n"),
+            v22
+        );
+        assert_eq!(parse_probe("v22.14.0 arm64\nbye\n"), v22);
+        assert_eq!(parse_probe("v22.14.0 arm64 extra"), None);
+        assert_eq!(parse_probe("v1.2.3 v4.5.6"), None);
+        assert_eq!(parse_probe("not a node\nnot a node either\n"), None);
     }
 
     #[test]

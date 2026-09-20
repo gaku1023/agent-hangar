@@ -78,13 +78,13 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   statuslineCommand: 'npm run hangar -- statusline install',
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
-  cloud: { configured: false, url: null, state: 'off', paused: false, lastPullAt: '不明', pending: 0, devices: [], joinToken: null, syncClaudeConfig: false, configConfirmed: false },
+  cloud: { configured: false, url: null, state: 'off', paused: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, syncClaudeConfig: false, configConfirmed: false },
   nodePath: '',
   ...over,
 });
 
 const cloudProps = (over: Partial<CloudSettingsProps> = {}): CloudSettingsProps => ({
-  configured: true, url: 'https://h.workers.dev', state: 'idle', paused: false, lastPullAt: '1 分前', pending: 2,
+  configured: true, url: 'https://h.workers.dev', state: 'idle', paused: false, lastPullAt: '1 分前', pending: 2, sweepPending: null, skipped: [],
   devices: [{ id: 'dev-a', name: 'mac', platform: 'darwin', lastSeen: '今', self: true }, { id: 'dev-b', name: 'mini', platform: 'darwin', lastSeen: '3 分前', self: false }],
   joinToken: null, syncClaudeConfig: false, configConfirmed: false,
   ...over,
@@ -104,13 +104,71 @@ describe('SettingsScreen', () => {
   });
   it('Node のパスを保存でき、空なら null を送る', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ nodePath: '/opt/homebrew/bin/node' })} /></IntentRoot>);
     fireEvent.change(screen.getByLabelText('Node のパス'), { target: { value: '/opt/node22/bin/node' } });
     fireEvent.click(screen.getByText('Node のパスを保存'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { nodePath: '/opt/node22/bin/node' } });
+    // 空白だけにするのは「指定を消す」なので、指定が入っていた端末では変更である。
     fireEvent.change(screen.getByLabelText('Node のパス'), { target: { value: '  ' } });
     fireEvent.click(screen.getByText('Node のパスを保存'));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { nodePath: null } });
+  });
+  it('4 つの保存ボタンは、どれも変えたときだけ押せる', () => {
+    // 何も変えずに押せると、patch が飛んで「設定を保存しました」のトーストが出る。
+    // workspaceRoot に至っては、同じ値でもプロジェクトの登録し直しが走る。
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ nodePath: '/opt/homebrew/bin/node' })} /></IntentRoot>);
+    const buttons = ['保存', 'ツールの設定を保存', '要約器の設定を保存', 'Node のパスを保存'].map((t) => screen.getByText(t));
+    for (const b of buttons) { expect(b).toBeDisabled(); fireEvent.click(b); }
+    expect(onIntent).not.toHaveBeenCalled();
+    const changes: [string, string][] = [['ワークスペースのルート', '/w2'], ['code のパス', '/usr/local/bin/code'], ['LM Studio の URL', 'http://127.0.0.1:2345'], ['Node のパス', '/opt/node22/bin/node']];
+    for (const [i, [label, value]] of changes.entries()) {
+      const field = screen.getByLabelText(label);
+      const before = (field as HTMLInputElement).value;
+      fireEvent.change(field, { target: { value } });
+      expect(buttons[i]).toBeEnabled();
+      // 元に戻せばまた押せなくなる。
+      fireEvent.change(field, { target: { value: before } });
+      expect(buttons[i]).toBeDisabled();
+    }
+    // パスの欄は送る前に前後の空白を落とすので、空白を足しただけでは変更にならない。
+    for (const [label, i] of [['code のパス', 1], ['Node のパス', 3]] as const) {
+      const field = screen.getByLabelText(label) as HTMLInputElement;
+      fireEvent.change(field, { target: { value: ` ${field.value} ` } });
+      expect(buttons[i]).toBeDisabled();
+    }
+  });
+  it('要約器の 2 欄も、サーバが整えた後の値で見比べる', () => {
+    // サーバは URL の前後の空白と末尾の / を落とし、モデル名も trim する。
+    // 整える前の値で見比べると、落とされた結果が元と同じでも props が動かず、
+    // 欄には整える前の文字列が残り、ボタンは押せたままになる（実測で何度でも押せた）。
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const url = screen.getByLabelText('LM Studio の URL');
+    const save = screen.getByText('要約器の設定を保存');
+    for (const same of ['http://127.0.0.1:1234/', 'http://127.0.0.1:1234///', '  http://127.0.0.1:1234  ']) {
+      fireEvent.change(url, { target: { value: same } });
+      expect(save).toBeDisabled();
+    }
+    // 本物の変更は今までどおり送れる。送る値はサーバが保存する形にそろえる。
+    fireEvent.change(url, { target: { value: '  http://127.0.0.1:2345/  ' } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false } });
+    // 欄も整えた形に直しておく。整える前の文字列が残ると、押せない理由が読めない。
+    expect(url).toHaveValue('http://127.0.0.1:2345');
+  });
+  it('チェックボックスと上限だけを変えても要約器の保存は押せる', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const save = screen.getByText('要約器の設定を保存');
+    expect(save).toBeDisabled();
+    fireEvent.click(screen.getByLabelText('Claude へ切り替える'));
+    expect(save).toBeEnabled();
+    fireEvent.click(screen.getByLabelText('Claude へ切り替える'));
+    expect(save).toBeDisabled();
+    // 読めない上限も「変えた」に入れる。押せないと案内を出す道が無くなる。
+    fireEvent.change(screen.getByLabelText('1 時間の上限'), { target: { value: '' } });
+    expect(save).toBeEnabled();
   });
   it('サーバが正規化した Node のパスを入力欄に反映する', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
@@ -278,6 +336,19 @@ describe('SettingsScreen のクラウド同期', () => {
     fireEvent.click(screen.getByRole('button', { name: '取り込み内容を確認' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'sync.config.preview' });
   });
+  it('クラウドの節に取り残しの件数と諦めた本文の一覧を出す', () => {
+    const skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }];
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ sweepPending: 1500, skipped }) })} /></IntentRoot>);
+    expect(screen.getByText('未送信の本文 1500 件')).toBeInTheDocument();
+    expect(screen.getByText('諦めた本文 1 件。30 分ごとに試し直します。')).toBeInTheDocument();
+    expect(screen.getByText('transcripts/mini/u1.jsonl.gz: 復号できません（3 回）')).toBeInTheDocument();
+    // 追いついた端末は 0 件と描く。数えられない端末は何も描かない。
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ sweepPending: 0, skipped: [] }) })} /></IntentRoot>);
+    expect(screen.getByText('未送信の本文 0 件')).toBeInTheDocument();
+    expect(screen.queryByText('諦めた本文 0 件。30 分ごとに試し直します。')).toBeNull();
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
+    expect(screen.queryByText(/未送信の本文/)).toBeNull();
+  });
   it('同期が未設定なら参加の案内を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ configured: false, url: null, state: 'off', lastPullAt: '不明', pending: 0, devices: [] }) })} /></IntentRoot>);
     expect(screen.getByText('hangar setup cloud か hangar join <token> で始められます')).toBeInTheDocument();
@@ -349,7 +420,7 @@ describe('Header', () => {
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
     // sync は Task 23 が Header に足した props である。この節が見るのは検索欄だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, paused: false }} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
     const box = screen.getByRole('searchbox');
     fireEvent.change(box, { target: { value: '動画' } });
     fireEvent.keyDown(box, { key: 'Enter', isComposing: true });

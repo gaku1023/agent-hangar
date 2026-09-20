@@ -178,6 +178,58 @@ export class TranscriptUploader {
   }
 
   /**
+   * 取り残しが何件あるかを数える。数えられないときは null を返す。
+   *
+   * 画面に出す「未送信の本文 N」は、これから上がるものの数である。
+   * 走査は 1 回 20 件ずつなので、この数は「追いつくまでに何周かかるか」の目安になる。
+   * 一度諦めた本文は数に入れない。画面には「諦めた本文 N」として別に出るので、入れると二重に数える。
+   * 走査は窓が開くたびに積み直すので、諦めた本文が上がり直すことはある。
+   * そのとき、この数より多くの件数が実際には上がる。
+   * 端末の ID が鍵に使えない形のときは、そもそも上げようがないので数えない。
+   */
+  pendingSweep(): number | null {
+    if (!isSafeKeyId(this.deps.deviceId)) return null;
+    try {
+      const row = this.countStatement().get({ head: `transcripts/${this.deps.deviceId}/`, skip: SKIP_PREFIX }) as { n: number } | undefined;
+      return row?.n ?? 0;
+    } catch {
+      // 数えられないことは、同期そのものを止める理由にはならない。
+      return null;
+    }
+  }
+
+  private countStmt: ReturnType<Db['prepare']> | null = null;
+
+  /**
+   * 取り残しを数える 1 文。
+   * 土台は sweepStatement と同じ突き合わせだが、数えないものが 2 つある。
+   *
+   * 1 つは消したセッションの本文である。
+   * 消したセッションは掘り起こさないと決めたので（論理削除）、その本文は上がる予定に入らない。
+   * 2 つめは諦めた本文である。
+   * 走査は sync_state の `skipped:` の控えに当たるものを飛ばし続けるので、
+   * 数に残しておくと「未送信の本文 N」が N のまま永久に減らない。
+   *
+   * なお sweepStatement の側はどちらの条件も持たない。
+   * 消したセッションの本文はいまも雲へ上がるので、その食い違いは別に閉じる必要がある。
+   */
+  private countStatement(): ReturnType<Db['prepare']> {
+    this.countStmt ??= this.deps.db.prepare(`
+      select count(*) as n
+      from transcript_files t
+      join sessions s on s.id = t.session_id
+      left join file_sync fs on fs.key = (case when t.agent_id is null
+        then @head || s.provider_session_id || '.jsonl.gz'
+        else @head || s.provider_session_id || '/subagents/agent-' || t.agent_id || '.jsonl.gz' end)
+      left join sync_state sk on sk.key = @skip || (case when t.agent_id is null
+        then @head || s.provider_session_id || '.jsonl.gz'
+        else @head || s.provider_session_id || '/subagents/agent-' || t.agent_id || '.jsonl.gz' end)
+      where t.device_id is null and s.deleted_at is null and sk.key is null
+        and (fs.key is null or fs.size < t.size)`);
+    return this.countStmt;
+  }
+
+  /**
    * 上がっていない本文を引く 1 文。
    * file_sync に行が無いものと、索引が見た大きさより小さいものしか上げていないものを拾う。
    * 本文は末尾に足されるだけなので、上げた大きさが索引の見た大きさ以上なら取り残しは無い。
@@ -191,7 +243,7 @@ export class TranscriptUploader {
       left join file_sync fs on fs.key = (case when t.agent_id is null
         then @head || s.provider_session_id || '.jsonl.gz'
         else @head || s.provider_session_id || '/subagents/agent-' || t.agent_id || '.jsonl.gz' end)
-      where t.device_id is null and (fs.key is null or fs.size < t.size)
+      where t.device_id is null and s.deleted_at is null and (fs.key is null or fs.size < t.size)
       order by t.mtime desc
       limit @limit`);
     return this.sweepStmt;

@@ -32,6 +32,13 @@ if [ ! -f "$dist/manifest.json" ]; then
   exit 1
 fi
 want="$(sed -n 's/.*"nodeMajor": *\([0-9]*\).*/\1/p' "$dist/manifest.json")"
+want_arch="$(sed -n 's/.*"arch": *"\([^"]*\)".*/\1/p' "$dist/manifest.json")"
+# 読めないまま先へ進むと、空の版と突き合わせて全部の候補を外し、
+# 「Node  が見つかりません」という意味を成さない案内で終わる。
+if [ -z "$want" ] || [ -z "$want_arch" ]; then
+  echo "$dist/manifest.json から Node の版とアーキテクチャを読めません。アプリの中身が壊れています。agent-hangar を入れ直してください。" >&2
+  exit 1
+fi
 home="${HANGAR_HOME:-$HOME/.agent-hangar}"
 custom=""
 [ -f "$home/settings.json" ] && custom="$(sed -n 's/.*"nodePath": *"\([^"]*\)".*/\1/p' "$home/settings.json")"
@@ -46,8 +53,14 @@ candidates="$(
 while IFS= read -r n; do
   [ -n "$n" ] || continue
   [ -x "$n" ] || continue
-  major="$("$n" -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
-  if [ "$major" = "$want" ]; then
+  # 版だけでなくアーキテクチャも見る。
+  # 同梱したネイティブモジュールは ABI に縛られるので、版が合っても別のアーキでは読めない。
+  # Rosetta の x64 Node が先に当たると、hangar コマンドだけが起動の途中で落ちる。
+  # 前置きや後置きの行を出す候補（NODE_OPTIONS の警告、包みの script）があるので、1 行ずつ見る。
+  # 求める答えがどこかの行にあれば、その候補を採る。
+  # アプリ本体（node.rs の parse_probe）も全行から v<版> <アーキ> の行を探すので、扱いを揃えてある。
+  probe="$("$n" -p 'process.versions.node.split(".")[0] + " " + process.arch' 2>/dev/null)"
+  if printf '%s\n' "$probe" | grep -qxF -- "$want $want_arch"; then
     # 同梱した UI と Worker のソースの場所を、バンドルの中から渡す。
     # 単一ファイルにまとめた時点で、コードの置き場からの相対では探せなくなる。
     export HANGAR_UI_DIST="$dist/ui"
@@ -57,5 +70,8 @@ while IFS= read -r n; do
 done <<CANDIDATES
 $candidates
 CANDIDATES
-echo "Node $want が見つかりません。nvm install $want を実行するか、$home/settings.json の nodePath で場所を指定してください。" >&2
+# 変数は波括弧で括る。
+# bash 3.2 は UTF-8 のロケールのとき、$want の直後の「（」の先頭バイトを変数名の一部として食い、
+# 版もアーキも消えた不正な UTF-8 を出す。
+echo "Node ${want}（${want_arch}）が見つかりません。nvm install ${want} を実行するか、${home}/settings.json の nodePath で場所を指定してください。" >&2
 exit 1

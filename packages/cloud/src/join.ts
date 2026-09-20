@@ -2,6 +2,7 @@ import { isSafeKeyId, type JoinRequest, type JoinResponse } from '@agent-hangar/
 import type { Context } from 'hono';
 import { timingSafeEqualHex } from './auth.ts';
 import type { Env, Vars } from './env.ts';
+import { meteredRun } from './meter.ts';
 import { randomToken, sha256Hex } from './util.ts';
 
 const MAX_NAME_CHARS = 128;
@@ -61,11 +62,12 @@ export async function joinHandler(c: Context<{ Bindings: Env; Variables: Vars }>
   if (!ok) return c.json({ error: 'forbidden' }, 403);
   const token = randomToken(32);
   const now = Date.now();
-  await c.env.DB.prepare(
+  // 端末の upsert は devices の本体と id と token_hash の索引を進める。
+  // この経路は SyncEngine を通らないので、Worker が数えないと誰も数えない。
+  const upsert = c.env.DB.prepare(
     'insert into devices (id, name, platform, token_hash, joined_at, last_seen_at, last_pulled_seq) values (?, ?, ?, ?, ?, ?, 0) on conflict(id) do update set name = excluded.name, platform = excluded.platform, token_hash = excluded.token_hash, last_seen_at = excluded.last_seen_at',
-  )
-    .bind(body.device.id, body.device.name, body.device.platform, await sha256Hex(token), now, now)
-    .run();
+  ).bind(body.device.id, body.device.name, body.device.platform, await sha256Hex(token), now, now);
+  await meteredRun(c.env.DB, upsert, now);
   const res: JoinResponse = { deviceToken: token, deviceId: body.device.id };
   return c.json(res, 201);
 }

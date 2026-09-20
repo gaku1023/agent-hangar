@@ -51,7 +51,7 @@ describe('RollingNumber', () => {
 });
 
 // 同期を設定していない端末のヘッダー。フェーズ 3 のゲージの検査はこの形のままである。
-const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, paused: false };
+const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false };
 
 describe('Header', () => {
   it('2 つのゲージと最終更新を出す', () => {

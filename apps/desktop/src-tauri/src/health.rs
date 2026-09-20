@@ -199,18 +199,6 @@ fn max_tries(deadline: Duration, interval: Duration) -> u32 {
     n.saturating_add(2)
 }
 
-/// `wait_until` を 250 ミリ秒間隔と実時計で包む。
-pub fn wait_for_health(addr: SocketAddr, deadline: Duration) -> bool {
-    let t0 = Instant::now();
-    wait_until(
-        deadline,
-        Duration::from_millis(250),
-        || probe_health(addr),
-        std::thread::sleep,
-        || t0.elapsed(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
