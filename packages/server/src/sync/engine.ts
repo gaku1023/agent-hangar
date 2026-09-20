@@ -313,7 +313,10 @@ export class SyncEngine {
       db.prepare(`update changes set pushed_at = ? where seq in (${rows.map(() => '?').join(',')})`).run(now, ...rows.map((r) => r.seq));
       this.state.set('lastPushAt', now);
       this.clearPushError();
-      this.quota.note({ rows: pushD1Writes(res?.accepted, rows.length), requests: 1 });
+      // Worker が「その日に D1 へ書いた行数」を返したら、それを正として使う。
+      // 端末からは見えない書き込み（圧縮、参加、スキーマの用意、他端末の分）がすべて入っている。
+      // 返さない古い Worker のときは、今までどおり自分の push から見積もる。
+      this.quota.note({ rows: pushD1Writes(res?.accepted, rows.length), requests: 1, account: res?.d1RowsToday });
       pushed += rows.length;
       // 止めたら残りは送らない。送れていない行は pushed_at が null のまま残るので、再開で続きから出る。
       if (this.guardQuota()) return { pushed };

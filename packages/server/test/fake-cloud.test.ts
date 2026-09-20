@@ -6,6 +6,13 @@ import { CloudError, goneFloor } from '../src/sync/client.ts';
 import { FakeCloudClient, MAX_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS } from './fake-cloud.ts';
 
 const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId, updated_at: updatedAt }, updatedAt });
+/**
+ * push の応答の形。
+ * `d1RowsToday`（その日に D1 へ書いた行数）は書いた量で変わるので、ここでは数であることだけを見る。
+ * 中身は `fake-cloud-usage.test.ts` が実物のスキーマから出した表と突き合わせる。
+ */
+const pushResult = (o: { seq: number; accepted: number; skipped: number }) => ({ ...o, d1RowsToday: expect.any(Number) });
+
 const meta = (key: string, over: Record<string, unknown> = {}) => ({ key, path: 'projects/-x/u.jsonl', kind: 'transcript' as const, sha256: 'a'.repeat(64), size: 3, mtime: 1, encrypted: true, ...over });
 
 /**
@@ -24,9 +31,9 @@ describe('FakeCloudClient', () => {
   it('Worker と同じ LWW と自端末の除外', async () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
     const b = a.asDevice('b');
-    expect(await a.pushChanges([ch('p1', 100)])).toEqual({ seq: 1, accepted: 1, skipped: 0 });
-    expect(await b.pushChanges([ch('p1', 50)])).toEqual({ seq: 1, accepted: 0, skipped: 1 });
-    expect(await b.pushChanges([ch('p1', 200)])).toEqual({ seq: 2, accepted: 1, skipped: 0 });
+    expect(await a.pushChanges([ch('p1', 100)])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
+    expect(await b.pushChanges([ch('p1', 50)])).toEqual(pushResult({ seq: 1, accepted: 0, skipped: 1 }));
+    expect(await b.pushChanges([ch('p1', 200)])).toEqual(pushResult({ seq: 2, accepted: 1, skipped: 0 }));
     const pa = await a.pullChanges(0, 500);
     expect(pa.changes.map((c) => [c.seq, c.deviceId])).toEqual([[2, 'b']]);
     expect(pa.nextSeq).toBe(2);
@@ -36,7 +43,7 @@ describe('FakeCloudClient', () => {
 
   it('同じ鍵の重複は新しい方だけを見て、残りを skipped に数える', async () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
-    expect(await a.pushChanges([ch('p1', 1), ch('p1', 5), ch('p1', 3)])).toEqual({ seq: 1, accepted: 1, skipped: 2 });
+    expect(await a.pushChanges([ch('p1', 1), ch('p1', 5), ch('p1', 3)])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 2 }));
     expect((await a.asDevice('b').pullChanges(0, 500)).changes.map((c) => c.updatedAt)).toEqual([5]);
   });
 
@@ -180,7 +187,7 @@ describe('FakeCloudClient', () => {
     await expect(a.pushChanges([ch('p1', 1), { ...ch('p2', 1), op: 'drop' } as never])).rejects.toMatchObject({ status: 400 });
     expect(a.changes).toHaveLength(0);
     expect(a.rows.size).toBe(0);
-    expect(await a.pushChanges([ch('p1', 1), { ...ch('p2', 2), op: 'delete' as const }])).toEqual({ seq: 2, accepted: 2, skipped: 0 });
+    expect(await a.pushChanges([ch('p1', 1), { ...ch('p2', 2), op: 'delete' as const }])).toEqual(pushResult({ seq: 2, accepted: 2, skipped: 0 }));
   });
 
   it('path の .. と絶対パスと制御文字を断る', async () => {
@@ -305,7 +312,7 @@ describe('FakeCloudClient', () => {
     // {"m":"..."} の囲みが 8 バイトあるので、その分を引くとちょうど上限になる。
     const edge = { ...huge, payload: { m: 'a'.repeat(MAX_ROW_BYTES - 8) } };
     expect(new TextEncoder().encode(JSON.stringify(edge.payload)).byteLength).toBe(MAX_ROW_BYTES);
-    expect(await a.pushChanges([edge])).toEqual({ seq: 1, accepted: 1, skipped: 0 });
+    expect(await a.pushChanges([edge])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
   });
 
   it('413 の本文は rowId が長くても 200 字に収まる', async () => {

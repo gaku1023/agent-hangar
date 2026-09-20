@@ -10,6 +10,15 @@ export const QUOTA_STOP_RATIO = 0.8;
 export type QuotaDay = { rows: number; requests: number };
 
 /**
+ * その日の数えの中身である。
+ *
+ * `rows` はこの端末が自分の要求から見積もった行数、`account` は Worker が返した
+ * 「その日にこの箱が D1 へ書いた行数」（アカウント全体）である。
+ * `accountAt` はその報告を受け取った時点の `rows` で、報告の後に自分で書いた分を足し直すのに使う。
+ */
+type QuotaRecord = QuotaDay & { account?: number; accountAt?: number };
+
+/**
  * 無料枠が数えているのは「文の数」ではなく `rows_written`、つまり **索引への書き込みを含む行数**である。
  * 1 文が進める行数は「本体の 1 行 + その文が触れた索引ごとに 1 行」になる。
  * 根拠は `packages/cloud/src/schema.ts` の索引の数で、`quota.test.ts` がスキーマを読んで縛っている。
@@ -62,6 +71,15 @@ export function pushD1Writes(accepted: unknown, sent: number): number {
   const a = typeof accepted === 'number' && Number.isFinite(accepted) && accepted >= 0 ? Math.floor(accepted) : sent;
   return a * D1_WRITES_PER_CHANGE + D1_WRITES_PER_DEVICE_TOUCH;
 }
+
+/**
+ * 無料枠で止めた日を覚える sync_state の鍵である。
+ *
+ * `SyncStateKey` の `quota:${string}` の枠に収まる形にしてある。
+ * 日ごとの数えの鍵は `quota:<yyyy-MM-dd>` なので、この鍵とぶつかることはない。
+ * メモリに置くと、立て直した直後に同じ日の 80% の判定をもう一度通って止め直せてしまう。
+ */
+export const QUOTA_PAUSED_DAY_KEY = 'quota:pausedDay' as const;
 
 /**
  * その日の数えを置く sync_state の鍵。
@@ -128,34 +146,72 @@ export class QuotaCounter {
   /** その日の鍵。`quota:<yyyy-MM-dd>` は SyncStateKey の一覧には無いので、包みに渡すときだけ被せる。 */
   private key(): string { return quotaDayKey(this.nowFn()); }
 
-  private read(key: string): QuotaDay {
+  private read(key: string): QuotaRecord {
     const raw = this.state.get(key as SyncStateKey);
     if (raw === null) return { rows: 0, requests: 0 };
     try {
-      const v = JSON.parse(raw) as { rows?: unknown; requests?: unknown };
-      return { rows: count(v?.rows), requests: count(v?.requests) };
+      const v = JSON.parse(raw) as { rows?: unknown; requests?: unknown; account?: unknown; accountAt?: unknown };
+      const rec: QuotaRecord = { rows: count(v?.rows), requests: count(v?.requests) };
+      if (typeof v?.account === 'number' && Number.isFinite(v.account) && v.account >= 0) {
+        rec.account = Math.floor(v.account);
+        rec.accountAt = count(v?.accountAt);
+      }
+      return rec;
     } catch {
       return { rows: 0, requests: 0 };
     }
   }
 
   /** 今日の数え。日付が変わっていれば 0 から始まる。 */
-  today(): QuotaDay { return this.read(this.key()); }
+  today(): QuotaDay { const t = this.read(this.key()); return { rows: t.rows, requests: t.requests }; }
 
-  /** push 1 回ぶんを足す。rows は送った changes の行数、requests は出した要求の回数である。 */
-  note(o: { rows?: number; requests?: number }): void {
+  /**
+   * push 1 回ぶんを足す。
+   * rows は自分の要求から見積もった行数、requests は出した要求の回数である。
+   * account は Worker が返した「その日にこの箱が D1 へ書いた行数」で、あれば正として使う。
+   */
+  note(o: { rows?: number; requests?: number; account?: number }): void {
     const key = this.key();
     if (this.lastKey !== null && this.lastKey !== key) this.state.set(this.lastKey as SyncStateKey, null);
     this.lastKey = key;
     const cur = this.read(key);
-    const next: QuotaDay = { rows: cur.rows + count(o.rows), requests: cur.requests + count(o.requests) };
+    const next: QuotaRecord = { rows: cur.rows + count(o.rows), requests: cur.requests + count(o.requests) };
+    if (cur.account !== undefined) { next.account = cur.account; next.accountAt = cur.accountAt ?? 0; }
+    // 報告は単調にしか上がらない。後から届いた古い応答で数えを下げると、止まるべき日に止まらない。
+    const reported = typeof o.account === 'number' && Number.isFinite(o.account) && o.account >= 0 ? Math.floor(o.account) : null;
+    if (reported !== null && reported >= (next.account ?? 0)) { next.account = reported; next.accountAt = next.rows; }
     this.state.set(key as SyncStateKey, JSON.stringify(next));
   }
 
-  /** 行数と要求の回数のどちらかが、この端末の割り当て（stopAt）に達したか。 */
-  exceeded(): boolean {
-    const t = this.today();
-    const stop = this.stopAt();
-    return t.rows >= stop.d1Writes || t.requests >= stop.requests;
+  /**
+   * 見張りに使う「その日に D1 へ書かれた行数」と、その止め水準である。
+   *
+   * Worker の報告があるときは、それがアカウント全体の数なので端末の数で割らない。
+   * 割らないと 2 台で 160% まで走るのは、端末が自分の書き込みしか見ていないからである。
+   * 全員ぶんが入った 1 つの数で見られるなら、割り当てを分ける理由がそもそも無い。
+   *
+   * 報告の後に自分で書いた分（ファイルの出し入れと pull）は、次の報告が来るまで見積もりで足す。
+   * 報告が無い（古い Worker の）ときだけ、今までどおり見積もりを端末の数で割った水準で見る。
+   */
+  d1(): { rows: number; stop: number; authoritative: boolean } {
+    const t = this.read(this.key());
+    const full = this.limits.d1Writes * this.ratio;
+    if (t.account === undefined) return { rows: t.rows, stop: full / this.devices(), authoritative: false };
+    return { rows: t.account + Math.max(0, t.rows - (t.accountAt ?? 0)), stop: full, authoritative: true };
   }
+
+  /** 行数と要求の回数のどちらかが、この端末の割り当てに達したか。 */
+  exceeded(): boolean {
+    if (this.today().requests >= this.stopAt().requests) return true;
+    const d = this.d1();
+    return d.rows >= d.stop;
+  }
+
+  /**
+   * 無料枠で止めた日（`quotaDayKey` の形）。止めていなければ null である。
+   * 数えと同じ sync_state に置くので、サーバを立て直してもその日はもう止め直さない。
+   */
+  pausedDay(): string | null { return this.state.get(QUOTA_PAUSED_DAY_KEY); }
+
+  setPausedDay(day: string | null): void { this.state.set(QUOTA_PAUSED_DAY_KEY, day); }
 }

@@ -31,6 +31,8 @@ export type FakeCloudStore = {
   changesFloor: number;
   offline: boolean;
   unauthorized: boolean;
+  /** その日（UTC で区切る）に D1 へ書いた行数。実物の Worker の台帳（packages/cloud/src/meter.ts）に当たる。 */
+  d1Rows: Map<string, number>;
   now: () => number;
 };
 
@@ -47,6 +49,31 @@ const TABLES = new Set<string>(SHARED_TABLES);
 export const MAX_ROW_BYTES = 128 * 1024;
 export const MAX_ROW_ID_CHARS = 64;
 export const MAX_BODY_BYTES = 100 * 1024 * 1024;
+
+/**
+ * 実物の Worker が D1 へ書く行数の写しである。
+ *
+ * 実物は見積もらない。D1 が申告する `rows_written` をそのまま積む（`packages/cloud/src/meter.ts`）。
+ * 偽物には申告してくれる D1 がいないので、Worker のスキーマから出した表を持つ。
+ * 数がスキーマとずれていないことは `fake-cloud-usage.test.ts` が原本（`packages/cloud/src/schema.ts`）を
+ * 読んで縛る。索引が 1 つ増えれば落ちるので、写し直しを促せる。
+ *
+ * 台帳そのものの書き込み（実物では 64 行ごとに高々 2 行）は写していない。
+ * 偽物の方が 3% ほど少なく数えるが、これは **本番の方が早く止まる**向きの差である。
+ * 偽物が実物より甘くなる向き（本番でだけ断られる）ではない。
+ */
+export const D1_ROWS = {
+  /** changes への insert（本体 + changes_device の索引）。 */
+  changeInsert: 2,
+  /** 鏡（rows）の upsert（本体 + k の主キーの索引）。 */
+  mirrorUpsert: 2,
+  /** devices の last_seen_at と last_pulled_seq の更新。どの索引にも載らない列なので 1 行である。 */
+  deviceTouch: 1,
+  /** files の置き直し（古い行の delete 3 行 + insert 4 行 + devices の 1 行）。 */
+  filePut: 8,
+  /** files の delete（本体 + key の unique + files_kind）。 */
+  fileDelete: 3,
+} as const;
 
 /** 断りの本文は Worker と同じ JSON にする。CloudError.message がそのまま実物と揃う。 */
 const errorBody = (error: string): string => JSON.stringify({ error });
@@ -99,6 +126,7 @@ export class FakeCloudClient implements CloudClient {
       changesFloor: 0,
       offline: false,
       unauthorized: false,
+      d1Rows: new Map(),
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -113,6 +141,17 @@ export class FakeCloudClient implements CloudClient {
   get rows(): Map<string, ChangeOut> { return this.store.rows; }
   get files(): Map<string, StoredFile> { return this.store.files; }
   get changesFloor(): number { return this.store.changesFloor; }
+
+  /** その日に D1 へ書いた行数。実物の Worker が push の応答に載せて返す数である。 */
+  d1RowsToday(): number { return this.store.d1Rows.get(this.day()) ?? 0; }
+
+  private day(): string { return new Date(this.store.now()).toISOString().slice(0, 10); }
+
+  /** 書いた行数を台帳へ積む。書き込みのある経路は必ずここを通す（通さないと見張りが甘くなる）。 */
+  private noteD1(rows: number): void {
+    const day = this.day();
+    this.store.d1Rows.set(day, (this.store.d1Rows.get(day) ?? 0) + rows);
+  }
 
   /** 同じストアを別の端末として使うクライアント。2 端末の同期のテストはこれで書く。 */
   asDevice(deviceId: string): FakeCloudClient {
@@ -179,12 +218,15 @@ export class FakeCloudClient implements CloudClient {
       this.store.rows.set(k, out);
       accepted++;
     }
-    return { seq: this.store.seq, accepted, skipped };
+    this.noteD1(accepted * (D1_ROWS.changeInsert + D1_ROWS.mirrorUpsert) + D1_ROWS.deviceTouch);
+    return { seq: this.store.seq, accepted, skipped, d1RowsToday: this.d1RowsToday() };
   }
 
   async pullChanges(since: number, limit: number): Promise<PullChangesResponse> {
     this.guard('pullChanges', since, limit);
     if (since < this.store.changesFloor) throw new CloudError(410, JSON.stringify({ error: 'gone', floor: this.store.changesFloor }));
+    // GET /changes は devices の last_seen_at と last_pulled_seq を 1 行書く。
+    this.noteD1(D1_ROWS.deviceTouch);
     const n = clampLimit(limit);
     const all = this.store.changes.filter((c) => c.seq > since && c.deviceId !== this.deviceId);
     const page = all.slice(0, n);
@@ -251,6 +293,7 @@ export class FakeCloudClient implements CloudClient {
    */
   seedUnchecked(meta: FileMetaIn, body: Buffer): { seq: number } {
     const seq = ++this.store.fileSeq;
+    this.noteD1(D1_ROWS.filePut);
     this.store.files.set(meta.key, {
       entry: { ...meta, seq, deviceId: this.deviceId, uploadedAt: this.store.now(), storedSize: body.length },
       body,
@@ -280,6 +323,7 @@ export class FakeCloudClient implements CloudClient {
     const buf = Buffer.concat(chunks);
     // 置き直すと新しい seq になる（Worker は古い索引を消して入れ直す）。
     const seq = ++this.store.fileSeq;
+    this.noteD1(D1_ROWS.filePut);
     this.store.files.set(meta.key, {
       entry: { ...meta, path, seq, deviceId: this.deviceId, uploadedAt: this.store.now(), storedSize: buf.length },
       body: buf,
@@ -311,6 +355,6 @@ export class FakeCloudClient implements CloudClient {
   async deleteFile(key: string): Promise<void> {
     this.guard('deleteFile', key);
     this.checkKey(key, true);
-    this.store.files.delete(key);
+    if (this.store.files.delete(key)) this.noteD1(D1_ROWS.fileDelete);
   }
 }
