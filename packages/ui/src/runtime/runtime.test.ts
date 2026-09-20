@@ -525,6 +525,20 @@ describe('同期とこの PC で再開', () => {
     expect(rt.getState().pending).toBe(4);
     expect(rt.getStore().devices).toEqual([device]);
   });
+  it('websocket の sync.status で、片付いた取り残しと回復した失敗が画面から消える', async () => {
+    // レビュアの再現筋である。焦点が戻ると 202 だけが返り、状態は websocket だけで届く。
+    // その通知が付録を運ばないと、画面の件数は一度受け取った値のまま固まる。
+    const stuck = { ...syncStatus, sweepPending: 3, skipped: [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }] };
+    const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sync: stuck })) });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(rt.getStore().sync).toMatchObject({ sweepPending: 3 });
+    expect(rt.getStore().sync?.skipped).toHaveLength(1);
+    wsHandlers[0]!.onEvent({ type: 'sync.status', status: { ...stuck, sweepPending: 0, skipped: [] } });
+    await flush();
+    expect(rt.getStore().sync).toMatchObject({ sweepPending: 0, skipped: [] });
+  });
   it('sync を持たない古いサーバの bootstrap では何もしない', async () => {
     const { sync: _s, devices: _d, ...older } = boot;
     const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => older as BootstrapDto) });

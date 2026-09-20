@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, Intent, LaunchResultDto, MemoDto, PromoteResultDto, RunDto, ServerEvent, SessionDto, SessionLockDto, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto, TodoDto, UsageDto } from './index.ts';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, Intent, LaunchResultDto, MemoDto, PromoteResultDto, RunDto, ServerEvent, SessionDto, SessionLockDto, SettingsDto, SummarizerTestDto, SyncStatusBody, SyncStatusDto, TabDto, TodoDto, UsageDto } from './index.ts';
 
 describe('フェーズ 2 の DTO', () => {
   it('RunDto と TabDto と LaunchResultDto が組み立てられる', () => {
@@ -57,7 +57,7 @@ describe('フェーズ 4 の DTO', () => {
     expect(preview.entries[0]!.action).toBe('create');
   });
   it('同期と端末の ServerEvent がある', () => {
-    const status: SyncStatusDto = { state: 'pushing', url: null, lastPushAt: null, lastPullAt: null, pending: 3, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false } };
+    const status: SyncStatusBody = { state: 'pushing', url: null, lastPushAt: null, lastPullAt: null, pending: 3, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }], sweepPending: 12 };
     const evs: ServerEvent[] = [{ type: 'sync.status', status }, { type: 'sync.applied', table: 'sessions', rowId: 's1' }, { type: 'devices.update', devices: [] }];
     expect(evs.map((e) => e.type)).toEqual(['sync.status', 'sync.applied', 'devices.update']);
   });

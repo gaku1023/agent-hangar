@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import type { ServerEvent, SessionDto } from '@agent-hangar/shared';
+import type { ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { Readable } from 'node:stream';
 import { saveCloudConfig } from './config/cloud.ts';
@@ -167,6 +167,54 @@ describe('startServer', () => {
       await s.close();
     }
   });
+
+  it('websocket の sync.status が付録を運び、件数が減れば画面にも届く', async () => {
+    // レビュアの再現筋である。
+    // 付録を運ぶのが HTTP だけだと、サーバの取り残しが 0 になっても画面は 3 のまま固まる。
+    // 諦めた本文の赤い行も、回復したあと消えなくなる。
+    // 宛先は誰も待ち受けていないループバックである。実物のクラウドには触らない。
+    saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const col = collector(s.port, tokenOf());
+    try {
+      const token = tokenOf();
+      const api = (p: string, init?: RequestInit) => fetch(`http://127.0.0.1:${s.port}${p}`, { ...init, headers: { authorization: `Bearer ${token}` } });
+      const statusNow = async () => (await (await api('/api/sync/status')).json()) as SyncStatusBody;
+      // 取り残しが減る前の通知を拾ってしまわないように、必ず印より後ろだけを見る。
+      const nextStatus = (mark: number) => until(async () => col.all().slice(mark).find((e): e is Extract<ServerEvent, { type: 'sync.status' }> => e.type === 'sync.status') ?? null);
+      await col.opened;
+      // 索引が済むと、まだ一度も上げていない本文が取り残しとして数えられる。
+      const before = await until(async () => { const n = (await statusNow()).sweepPending; return n !== null && n > 0 ? n : null; });
+      // focus は 202 を返すだけで本体を持たない。状態は websocket だけで届く。
+      const mark1 = col.all().length;
+      expect((await api('/api/sync/focus', { method: 'POST' })).status).toBe(202);
+      const first = await nextStatus(mark1);
+      expect(first.status.sweepPending).toBe(before);
+      expect(first.status.skipped).toEqual([]);
+      // 別の接続から台帳を直して、取り残しを 0 にする。
+      const db = openDb(dbPath(home));
+      try {
+        const rows = db.prepare('select t.agent_id a, t.size z, s.provider_session_id u from transcript_files t join sessions s on s.id = t.session_id where t.device_id is null').all() as { a: string | null; z: number; u: string }[];
+        expect(rows.length).toBeGreaterThan(0);
+        const deviceId = (db.prepare('select id from devices limit 1').get() as { id: string }).id;
+        const put = db.prepare('insert or replace into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)');
+        for (const r of rows) {
+          const key = r.a === null ? `transcripts/${deviceId}/${r.u}.jsonl.gz` : `transcripts/${deviceId}/${r.u}/subagents/agent-${r.a}.jsonl.gz`;
+          put.run(key, 'transcript', key, deviceId, 'x'.repeat(64), r.z, 1, 1, 1);
+        }
+      } finally { db.close(); }
+      expect((await statusNow()).sweepPending).toBe(0);
+      // ここが要である。websocket だけで届く状態が、減った件数を運ぶ。
+      const mark2 = col.all().length;
+      expect((await api('/api/sync/focus', { method: 'POST' })).status).toBe(202);
+      const after = await nextStatus(mark2);
+      expect(after.status.sweepPending).toBe(0);
+      expect(after.status.skipped).toEqual([]);
+    } finally {
+      col.close();
+      await s.close();
+    }
+  }, 20000);
 
   it('設定の同期を切って入れ直すと、取り込みの確認をもう一度求める', async () => {
     // ~/.claude を書き換える同期なので、入れるときには必ず確認を取る（決定 2）。

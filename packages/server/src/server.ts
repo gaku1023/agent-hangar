@@ -9,7 +9,7 @@ import { backupsRoot, readCloudConfig, remoteRoot } from './config/cloud.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { encodeJoinToken, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent } from '@agent-hangar/shared';
+import { encodeJoinToken, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type SyncSkippedDto } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
 import { getProject, getSession, listDevices, listProjects } from './db/queries.ts';
 import { upsertShared } from './db/shared.ts';
@@ -593,9 +593,19 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     void puller?.pullNow().catch((e: unknown) => console.error('[files]', e instanceof Error ? e.message : e));
   };
 
+  /**
+   * 同期の状態に添える付録。
+   * 諦めた本文を覚えているのは RemotePuller、取り残しを数えられるのは TranscriptUploader だけで、
+   * どちらも SyncEngine の外にある。だから状態を配る手前で、ここが足す。
+   * HTTP の応答（createApp の deps）と websocket の通知の、両方がこれを通る。
+   */
+  const syncSkipped = (): SyncSkippedDto[] => puller?.skippedEntries() ?? [];
+  const syncSweep = (): number | null => uploader?.pendingSweep() ?? null;
+
   // 同期のイベントを hub に流す。pull で入れ替わった行は、そのまま画面に届ける。
   engine.on({
-    status: (s) => hub.broadcast({ type: 'sync.status', status: s }),
+    // 付録を添えてから流す。添えないと、画面の件数が一度受け取った値のまま固まる。
+    status: (s) => hub.broadcast({ type: 'sync.status', status: { ...s, skipped: syncSkipped(), sweepPending: syncSweep() } }),
     toast: (level, message) => toast(level, message),
     applied: (c) => {
       hub.broadcast({ type: 'sync.applied', table: c.tableName, rowId: c.rowId });
@@ -691,8 +701,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     }, o),
     sync: engine,
     // 降ろすのを諦めた項目。onError は 1 度しか鳴らないので、状態にも載せて後から見られるようにする。
-    syncSkipped: () => puller?.skippedEntries() ?? [],
-    syncSweep: () => uploader?.pendingSweep() ?? null,
+    syncSkipped,
+    syncSweep,
     resumeHere,
     // ClaudeConfigSync に pull() は無いので、確認を立ててから applyPull(pendingRemote()) を呼ぶ形に包む。
     configSync: configSync ? { preview: () => configSync.preview(), pull: async () => { const entries = configSync.pendingRemote(); configSync.confirm(); return configSync.applyPull(entries); } } : null,

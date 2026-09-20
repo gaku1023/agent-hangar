@@ -205,7 +205,7 @@ describe('store の同期', () => {
     let s = applyBootstrap(initialStore(), boot);
     expect(s.sync?.state).toBe('off');
     expect(s.devices).toEqual([]);
-    s = applyServerEvent(s, { type: 'sync.status', status: { state: 'pushing', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 4, error: null, deviceCount: 2, claudeConfig: { enabled: true, confirmed: true } } });
+    s = applyServerEvent(s, { type: 'sync.status', status: { state: 'pushing', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 4, error: null, deviceCount: 2, claudeConfig: { enabled: true, confirmed: true }, skipped: [], sweepPending: null } });
     expect(s.sync).toMatchObject({ state: 'pushing', pending: 4 });
     s = applyServerEvent(s, { type: 'devices.update', devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true }] });
     expect(s.devices).toHaveLength(1);
@@ -217,19 +217,23 @@ describe('store の同期', () => {
     expect(s.sync).toEqual(sync);
     expect(s.devices).toHaveLength(1);
   });
-  it('付録を持たない sync.status で、諦めた本文と取り残しの件数を消さない', () => {
-    // websocket の sync.status は SyncEngine が組み立てるので付録を持たない。
-    // 上書きすると、HTTP の応答で受け取ったばかりの付録が次の通知で消えてしまう。
-    const sync = { state: 'idle' as const, url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }], sweepPending: 1500 };
+  it('sync.status で、片付いた取り残しと回復した失敗が消える', () => {
+    // レビュアの再現筋である。サーバが 0 件になっても画面が 3 件のまま固まっていた。
+    // 片付いたことが画面に届かないと、件数を出す意味そのものが無くなる。
+    const sync: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }], sweepPending: 3 };
     let s = applyBootstrap(initialStore(), { ...boot, sync });
-    s = applyServerEvent(s, { type: 'sync.status', status: { state: 'pushing', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 4, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false } } });
-    expect(s.sync).toMatchObject({ state: 'pushing', pending: 4, sweepPending: 1500 });
+    expect(s.sync).toMatchObject({ sweepPending: 3 });
     expect(s.sync?.skipped).toHaveLength(1);
-    // 付録が載っていれば入れ替える。0 件も「追いついた」という値なので素通りさせる。
-    // HTTP の応答はこの形で届く。sync.status の型は付録を知らないので、いったん値にしてから渡す。
-    const body: SyncStatusBody = { ...sync, skipped: [], sweepPending: 0 };
-    s = applyServerEvent(s, { type: 'sync.status', status: body });
+    s = applyServerEvent(s, { type: 'sync.status', status: { ...sync, skipped: [], sweepPending: 0 } });
     expect(s.sync).toMatchObject({ sweepPending: 0, skipped: [] });
+  });
+  it('付録を持たない古いサーバの sync.status では、件数を引き継がずに落とす', () => {
+    // 古い数字を残すのは、何も出さないより悪い。分からないときは分からないと出す。
+    const sync: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'k1', attempts: 3, message: 'x' }], sweepPending: 1500 };
+    let s = applyBootstrap(initialStore(), { ...boot, sync });
+    const { skipped: _s, sweepPending: _p, ...older } = sync;
+    s = applyServerEvent(s, { type: 'sync.status', status: older as SyncStatusBody });
+    expect(s.sync).toMatchObject({ sweepPending: null, skipped: [] });
   });
   it('sync と devices を持たない古いサーバでも壊れない', () => {
     const { sync: _sync, devices: _devices, ...older } = boot;
