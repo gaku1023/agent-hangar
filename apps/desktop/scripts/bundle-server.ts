@@ -36,7 +36,7 @@ const SKIP_IN_NATIVE = /^(deps|src|test|third_party|scripts|node_modules|binding
  * CI は clean な checkout から作るので公開の Release には入らないが、
  * 手元で bundle-server を回して .app を人に渡す道がある。
  */
-const SKIP_IN_CLOUD = /^(test|node_modules|\.wrangler)(\/|$)|(^|\/)\.dev\.vars(\.|$)|(^|\/)\.env(\.|$)|\.log$/;
+const SKIP_IN_CLOUD = /^(test|node_modules|\.wrangler)(\/|$)|(^|\/)\.dev\.vars(\.|$)|(^|\/)\.env(rc)?(\.|$)|\.log$/;
 
 /** UI の写しのうち、配布物に要らない中身。 */
 const SKIP_IN_UI = /\.map$/;
@@ -65,6 +65,20 @@ function emptyDir(dir: string): void {
   for (const name of fs.readdirSync(dir)) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
 }
 
+/**
+ * 写し取りの跡に残った空のディレクトリを消す。
+ * 中身だけを落として入れ物を残すと、手元に何の並びがあったかは配布物から読めてしまう。
+ * 下から順に見るので、中が空になった親も続けて消える。
+ */
+function pruneEmptyDirs(dir: string): void {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const p = path.join(dir, e.name);
+    pruneEmptyDirs(p);
+    if (fs.readdirSync(p).length === 0) fs.rmdirSync(p);
+  }
+}
+
 /** src からの相対パスで判定する写し取り。 */
 function copyTree(src: string, dest: string, skip: RegExp, extra?: (rel: string) => boolean): void {
   fs.cpSync(src, dest, {
@@ -77,6 +91,7 @@ function copyTree(src: string, dest: string, skip: RegExp, extra?: (rel: string)
       return extra ? extra(rel) : true;
     },
   });
+  pruneEmptyDirs(dest);
 }
 
 /**

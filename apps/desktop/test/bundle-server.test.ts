@@ -206,10 +206,16 @@ function fakeNode(at: string, major = UNREACHABLE_MAJOR, arch = process.arch): s
 
 type Ran = { stdout: string; stderr: string; code: number };
 
-/** 素の環境で走らせる。PATH 以外は渡さないので、手元の設定に結果が左右されない。 */
+/**
+ * 素の環境で走らせる。
+ * PATH と LANG 以外は渡さないので、手元の設定に結果が左右されない。
+ * LANG を渡すのは、利用者の環境がそうだからである。
+ * bash 3.2 は UTF-8 のロケールのときだけ、`$変数` の直後の多バイト文字を変数名の一部として食う。
+ * C ロケールで走らせると、その壊れ方を見逃す。
+ */
 async function runHangar(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<Ran> {
   try {
-    const r = await promisify(execFile)(bin, args, { env: { PATH: process.env.PATH ?? '', ...env } });
+    const r = await promisify(execFile)(bin, args, { env: { PATH: process.env.PATH ?? '', LANG: 'ja_JP.UTF-8', ...env } });
     return { stdout: r.stdout, stderr: r.stderr, code: 0 };
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; code?: number };
@@ -301,7 +307,8 @@ describe('bin/hangar の Node 探索', () => {
 
   it('アーキテクチャが合わない Node は掴まない。版だけが合う Rosetta の x64 を先に見つけても飛ばす', async () => {
     // 同梱のネイティブモジュールは ABI に縛られるので、版が合っても別のアーキでは読めない。
-    // アプリ本体（node.rs）は版とアーキの両方を見る。ここも揃える。
+    // アプリ本体（node.rs）は版とアーキの両方を見る。
+    // ここも揃える。
     const dist = fakeDist();
     const nodes = emptyDirFor('hangar nodes-');
     const wrong = fakeNode(path.join(nodes, 'x64', 'node'), UNREACHABLE_MAJOR, 'x64');
@@ -324,6 +331,19 @@ describe('bin/hangar の Node 探索', () => {
     const at = path.join(emptyDirFor('hangar nodes-'), 'noisy', 'node');
     fakeNode(at);
     const body = fs.readFileSync(at, 'utf8').replace('if [ "$1" = "-p" ]; then', 'if [ "$1" = "-p" ]; then echo "(node:1) Warning: x";');
+    fs.writeFileSync(at, body);
+    const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_NODE: at, HANGAR_HOME: emptyDirFor('hangar home-'), HOME: emptyDirFor('hangar userhome-') });
+    expect(r.code, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout).node).toBe(at);
+  });
+
+  it('候補が後置きの行を出しても、健全な Node を取り逃がさない', async () => {
+    // node.rs の parse_probe は行を後ろから探すので、後置きの行があっても拾う。
+    // bin/hangar も同じ扱いにする。
+    const dist = fakeDist();
+    const at = path.join(emptyDirFor('hangar nodes-'), 'noisy', 'node');
+    fakeNode(at);
+    const body = fs.readFileSync(at, 'utf8').replace('exit 0; fi', 'echo "trailing junk"; exit 0; fi');
     fs.writeFileSync(at, body);
     const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_NODE: at, HANGAR_HOME: emptyDirFor('hangar home-'), HOME: emptyDirFor('hangar userhome-') });
     expect(r.code, r.stderr).toBe(0);
@@ -381,15 +401,18 @@ describe('同梱する packages/cloud の写し', () => {
     for (const rel of ['src/index.ts', 'wrangler.jsonc', 'package.json']) write(rel, '{}\n');
     // 手元で一度でも wrangler を動かすと、この並びが packages/cloud に残る。
     // CI の clean な checkout では出ないので、人に渡す .app だけが秘密を運ぶ。
-    for (const rel of ['.dev.vars', '.dev.vars.local', '.env', '.env.local', 'wrangler.log', 'logs/deploy.log']) write(rel, 'SECRET=1\n');
+    for (const rel of ['.dev.vars', '.dev.vars.local', '.env', '.env.local', '.envrc', 'wrangler.log', 'logs/deploy.log', 'src/nested/.env']) write(rel, 'SECRET=1\n');
     for (const rel of ['test/index.test.ts', 'node_modules/hono/index.js', '.wrangler/state/x.sqlite']) write(rel, '{}\n');
 
     copyCloudTree(src, dest);
 
     for (const rel of ['src/index.ts', 'wrangler.jsonc', 'package.json']) expect(fs.existsSync(path.join(dest, rel)), rel).toBe(true);
-    for (const rel of ['.dev.vars', '.dev.vars.local', '.env', '.env.local', 'wrangler.log', 'logs/deploy.log', 'test', 'node_modules', '.wrangler']) {
+    for (const rel of ['.dev.vars', '.dev.vars.local', '.env', '.env.local', '.envrc', 'wrangler.log', 'logs/deploy.log', 'src/nested/.env', 'test', 'node_modules', '.wrangler']) {
       expect(fs.existsSync(path.join(dest, rel)), rel).toBe(false);
     }
+    // 中身を落とした跡のディレクトリも残さない。
+    // 空でも、手元にログや秘密の並びがあったという事実は伝わってしまう。
+    for (const rel of ['logs', 'src/nested']) expect(fs.existsSync(path.join(dest, rel)), rel).toBe(false);
   });
 
   it('同梱の目印の名前が、CLI 側の宣言と一字一句そろっている', () => {

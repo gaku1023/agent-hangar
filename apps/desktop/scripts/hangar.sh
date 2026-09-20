@@ -56,9 +56,11 @@ while IFS= read -r n; do
   # 版だけでなくアーキテクチャも見る。
   # 同梱したネイティブモジュールは ABI に縛られるので、版が合っても別のアーキでは読めない。
   # Rosetta の x64 Node が先に当たると、hangar コマンドだけが起動の途中で落ちる。
-  # 前置きの行を出す候補（NODE_OPTIONS の警告、包みの script）があるので、最後の 1 行だけを見る。
-  probe="$("$n" -p 'process.versions.node.split(".")[0] + " " + process.arch' 2>/dev/null | tail -n 1)"
-  if [ "$probe" = "$want $want_arch" ]; then
+  # 前置きや後置きの行を出す候補（NODE_OPTIONS の警告、包みの script）があるので、1 行ずつ見る。
+  # 求める答えがどこかの行にあれば、その候補を採る。
+  # アプリ本体（node.rs の parse_probe）も全行から v<版> <アーキ> の行を探すので、扱いを揃えてある。
+  probe="$("$n" -p 'process.versions.node.split(".")[0] + " " + process.arch' 2>/dev/null)"
+  if printf '%s\n' "$probe" | grep -qxF -- "$want $want_arch"; then
     # 同梱した UI と Worker のソースの場所を、バンドルの中から渡す。
     # 単一ファイルにまとめた時点で、コードの置き場からの相対では探せなくなる。
     export HANGAR_UI_DIST="$dist/ui"
@@ -68,5 +70,8 @@ while IFS= read -r n; do
 done <<CANDIDATES
 $candidates
 CANDIDATES
-echo "Node $want（$want_arch）が見つかりません。nvm install $want を実行するか、$home/settings.json の nodePath で場所を指定してください。" >&2
+# 変数は波括弧で括る。
+# bash 3.2 は UTF-8 のロケールのとき、$want の直後の「（」の先頭バイトを変数名の一部として食い、
+# 版もアーキも消えた不正な UTF-8 を出す。
+echo "Node ${want}（${want_arch}）が見つかりません。nvm install ${want} を実行するか、${home}/settings.json の nodePath で場所を指定してください。" >&2
 exit 1
