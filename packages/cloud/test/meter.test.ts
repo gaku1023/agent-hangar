@@ -228,6 +228,34 @@ describe('実物の Worker が数える行数', () => {
     expect(afterDelete - afterReplace - idle).toBe(1 + META_ROWS_PER_NOTE);
   });
 
+  /**
+   * 掃除が走る回の `GET /files` が D1 に書く行数である。
+   * 偽のクラウドはこれを 10 行として数える（`packages/server/test/fake-cloud.ts` の `D1_ROWS.sweep`）。
+   * 実物がそれを超えると偽物が甘くなるので、ここで上限を縛る。
+   */
+  it('掃除が走る回の GET /files が D1 に書く行数', async () => {
+    const tok = await join('a');
+    const now = Date.now();
+    const before = (await d1RowsToday(cloud.env.DB, now)) ?? 0;
+    const res = await cloud.SELF.fetch('https://x/files?since=0', { headers: { authorization: `Bearer ${tok}` } });
+    expect(res.status).toBe(200);
+    // 掃除は応答を待たせずに始まる。跡が付くまで待ってから台帳を読む。
+    for (let i = 0; i < 50; i++) {
+      const at = await cloud.env.DB.prepare('select value from meta where key = ?').bind('last_sweep_at').first();
+      if (at) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await new Promise((r) => setTimeout(r, 50));
+    const spent = ((await d1RowsToday(cloud.env.DB, now)) ?? 0) - before;
+    expect(spent).toBeGreaterThan(0);
+    expect(spent).toBeLessThanOrEqual(10);
+    // 掃除が走らない回は 1 行も書かない（読むだけの経路である）。
+    const mid = (await d1RowsToday(cloud.env.DB, now)) ?? 0;
+    await cloud.SELF.fetch('https://x/files?since=0', { headers: { authorization: `Bearer ${tok}` } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await d1RowsToday(cloud.env.DB, now)) ?? 0).toBe(mid);
+  });
+
   it('端末の参加とスキーマの用意も数に入る', async () => {
     const tok = await join('a');
     const before = (await push(tok, [ch('p1', 1)])).d1RowsToday!;

@@ -167,11 +167,13 @@ async function sweepEntries(env: Env, now: number): Promise<{ deleted: string[];
   // 消す文そのものに猶予を持たせる。
   // 読んでから消すまでの間に同じ鍵の `PUT` が着地しても、その行の `uploaded_at` は猶予の中なので当たらない。
   // 鍵だけで消すと、置き直したばかりの生きている行を消して、上げた端末だけが 201 を握ったまま取り残される。
-  const res = await meteredBatch(
+  await meteredBatch(
     db,
     [db.prepare(`delete from files where key in (${doomed.map(() => '?').join(',')}) and uploaded_at < ?`).bind(...doomed, cutoff)],
     now,
   );
-  // 実際に消えた数だけを返す。着地した行を残したときは、その鍵は次の回でまた見る。
-  return { deleted: Number(res[0]?.meta?.changes ?? 0) === doomed.length ? doomed : doomed.slice(0, Number(res[0]?.meta?.changes ?? 0)), seq: next };
+  // 実際に消えた鍵を引き直して返す。
+  // 消した数だけを見て先頭から切り出すと、**数は合うのに鍵が合わない**（残ったのが先頭かもしれない）。
+  // 残った鍵は次の回でまた見るので、ここで取りこぼす心配は無い。
+  return { deleted: await unreferenced(env, doomed), seq: next };
 }

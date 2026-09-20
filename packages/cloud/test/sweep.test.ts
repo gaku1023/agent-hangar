@@ -181,6 +181,19 @@ describe('消す直前に置き直しが着地しても、生きているもの�
     expect(await indexKeys()).toEqual([key]);
   });
 
+  it('返す鍵は、実際に消えた鍵である', async () => {
+    const now = Date.now();
+    const landing = 'transcripts/a/aaa.jsonl.gz';   // 着地する方（消えない）
+    const dead = 'transcripts/a/bbb.jsonl.gz';      // 本当に消える方
+    await orphanIndex(landing, now - 2 * HOUR);
+    await orphanIndex(dead, now - 2 * HOUR);
+    const env = { ...cloud.env, BUCKET: bucketWithLanding(cloud.env.BUCKET, landing, async () => { await put(landing, 'okurinaoshi'); }) };
+    const r = await sweepOnce(env, now);
+    // 数だけ合わせて先頭から切り出すと、ここが landing になってしまう。
+    expect(r.entries).toEqual([dead]);
+    expect(await indexKeys()).toEqual([landing]);
+  });
+
   it('R2 の本体（索引を引いた後に `PUT` が着地する筋）', async () => {
     const now = Date.now();
     const key = 'transcripts/a/live.jsonl.gz';

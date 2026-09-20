@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { D1_ROWS, FakeCloudClient } from './fake-cloud.ts';
+import { D1_ROWS, FakeCloudClient, SWEEP_EVERY_MS } from './fake-cloud.ts';
 
 /**
  * 偽物が数える「D1 へ書いた行数」を、実物の Worker の原本から縛る。
@@ -53,6 +53,15 @@ describe('偽物が数える行数は、実物のスキーマと実測から出�
     // delete は本体の 1 行だけである。索引も連番も動かないことを、実物の D1（miniflare）で測った
     // （`packages/cloud/test/meter.test.ts` の「ファイルの出し入れが D1 に書く行数」）。
     expect(D1_ROWS.fileDelete).toBe(1);
+  });
+
+  it('掃除の間隔は、実物の Worker の定数をそのまま読む', () => {
+    const sweep = read('sweep.ts');
+    const every = /export const SWEEP_EVERY_MS = ([0-9*\s_]+);/.exec(sweep)?.[1];
+    expect(every).toBeDefined();
+    expect(SWEEP_EVERY_MS).toBe(every!.split('*').reduce((a, b) => a * Number(b.trim().replace(/_/g, '')), 1));
+    // 掃除が走る回の実費は 10 行である（`packages/cloud/test/meter.test.ts` が実物に対して上限を縛る）。
+    expect(D1_ROWS.sweep).toBe(10);
   });
 
   it('台帳の 1 文は、実物の Worker の定数をそのまま読む', () => {

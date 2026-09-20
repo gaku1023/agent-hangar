@@ -29,6 +29,8 @@ export type FakeCloudStore = {
   fileSeq: number;
   /** 圧縮で削り終えた連番。since がこれより小さい pull には 410 を返す。 */
   changesFloor: number;
+  /** 最後に掃除が走った時刻。実物は `GET /files` から 6 時間に 1 回だけ始める。 */
+  lastSweepAt: number | null;
   offline: boolean;
   unauthorized: boolean;
   /** その日（UTC で区切る）に D1 へ書いた行数。実物の Worker の台帳（packages/cloud/src/meter.ts）に当たる。 */
@@ -75,7 +77,20 @@ export const D1_ROWS = {
   fileDelete: 1,
   /** 台帳の 1 文（`packages/cloud/src/meter.ts` の META_ROWS_PER_NOTE）。書き込みのある要求ごとに 1 回。 */
   note: 2,
+  /**
+   * 掃除が走る回の `GET /files` が書く行数。
+   * 当番を取る 1 文と、続きの控えと台帳で、実測は 10 行である
+   * （`packages/cloud/test/meter.test.ts` の「掃除が走る回の GET /files が D1 に書く行数」が上限を縛る）。
+   * 走らない回は 0 行である。
+   */
+  sweep: 10,
 } as const;
+
+/**
+ * 掃除が走る間隔（`packages/cloud/src/sweep.ts` の SWEEP_EVERY_MS の写し）。
+ * 偽物にも同じ間隔で掃除の行数を数えさせる。数えないと、偽物だけが 1 日 40 行ぶん甘くなる。
+ */
+export const SWEEP_EVERY_MS = 6 * 3_600_000;
 
 /** 断りの本文は Worker と同じ JSON にする。CloudError.message がそのまま実物と揃う。 */
 const errorBody = (error: string): string => JSON.stringify({ error });
@@ -126,6 +141,7 @@ export class FakeCloudClient implements CloudClient {
       seq: 0,
       fileSeq: 0,
       changesFloor: 0,
+      lastSweepAt: null,
       offline: false,
       unauthorized: false,
       d1Rows: new Map(),
@@ -353,6 +369,12 @@ export class FakeCloudClient implements CloudClient {
 
   async listFiles(since: number, limit: number): Promise<ListFilesResponse> {
     this.guard('listFiles', since, limit);
+    // 一覧そのものは読むだけだが、実物はここから孤児の掃除を始める（6 時間に 1 回）。
+    const at = this.store.now();
+    if (this.store.lastSweepAt === null || at - this.store.lastSweepAt >= SWEEP_EVERY_MS) {
+      this.store.lastSweepAt = at;
+      this.noteD1(D1_ROWS.sweep);
+    }
     const n = clampLimit(limit);
     const entries = [...this.store.files.values()].map((f) => f.entry);
     const all = entries.filter((e) => e.seq > since).sort((a, b) => a.seq - b.seq);
