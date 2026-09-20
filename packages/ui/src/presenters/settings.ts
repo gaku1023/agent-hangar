@@ -1,11 +1,16 @@
-import type { IndexProgressDto, StatuslineStatusDto, SummarizerTestDto, SyncStateKind, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, StatuslineStatusDto, SummarizerTestDto, SyncSkippedDto, SyncStateKind, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
 
 // id は一覧の React の key に使う。1 台の Mac で 2 端末を模すと名前も最終確認も揃うので、一意なのは id だけである。
 export type CloudDeviceProps = { id: string; name: string; platform: string; lastSeen: string; self: boolean };
-export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; paused: boolean; lastPullAt: string; pending: number; devices: CloudDeviceProps[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
+/**
+ * sweepPending はまだ上げていない本文の件数で、数えられないときは null である。
+ * ヘッダーと違ってここは 0 件も描く。0 と書いてあれば「追いついた」と読めるからである。
+ * skipped は諦めた本文で、件数だけでは直しようが無いので鍵と理由もそのまま渡す。
+ */
+export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; paused: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
 
 export type SettingsProps = {
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; sessionCount: number; projectCount: number;
@@ -30,6 +35,8 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
     paused: sync?.state === 'paused',
     lastPullAt: relativeTime(sync?.lastPullAt ?? null, now),
     pending: sync?.pending ?? 0,
+    sweepPending: sync?.sweepPending ?? null,
+    skipped: sync?.skipped ?? [],
     devices: store.devices.map((d) => ({ id: d.id, name: d.name, platform: d.platform, lastSeen: relativeTime(d.lastSeenAt, now), self: d.self })),
     joinToken: store.joinToken,
     syncClaudeConfig: s?.syncClaudeConfig ?? false,

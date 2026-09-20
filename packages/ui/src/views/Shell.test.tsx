@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { nav: [{ route: { name: 'home' as const }, label: 'Home', current: true }, { route: { name: 'projects' as const }, label: 'Projects', current: false }], crumbs: [{ label: 'Projects', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', connection: 'connected' as const, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, paused: false } };
+const props = { nav: [{ route: { name: 'home' as const }, label: 'Home', current: true }, { route: { name: 'projects' as const }, label: 'Projects', current: false }], crumbs: [{ label: 'Projects', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', connection: 'connected' as const, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false } };
 
 describe('Shell', () => {
   it('ナビと検索が Intent になる', () => {
@@ -29,7 +29,7 @@ describe('Shell', () => {
   });
   it('同期の状態と操作を出し、off では出さない', () => {
     const onIntent = vi.fn();
-    const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 2, paused: false };
+    const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false };
     const { rerender } = render(<IntentRoot onIntent={onIntent}><Shell {...props} sync={sync} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByText('同期 1 分前')).toBeInTheDocument();
     expect(screen.getByText('未送信 2')).toBeInTheDocument();
@@ -43,9 +43,18 @@ describe('Shell', () => {
     rerender(<IntentRoot onIntent={onIntent}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.queryByRole('button', { name: '今すぐ同期' })).toBeNull();
   });
+  it('取り残しと諦めた本文は、溜まっているときだけ出す', () => {
+    const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 0, sweepPending: 1500, skipped: 2, paused: false };
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={sync} overlays={null}><div /></Shell></IntentRoot>);
+    expect(screen.getByText('未送信の本文 1500')).toBeInTheDocument();
+    expect(screen.getByText('諦めた本文 2')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...sync, sweepPending: 0, skipped: 0 }} overlays={null}><div /></Shell></IntentRoot>);
+    expect(screen.queryByText('未送信の本文 0')).toBeNull();
+    expect(screen.queryByText('諦めた本文 0')).toBeNull();
+  });
   // 未送信が無いときに「未送信 0」と出すと、止まっているように見える。
   it('未送信が 0 なら件数を出さず、使用量ゲージも残る', () => {
-    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ visible: true, state: 'pushing', label: '送信中', pending: 0, paused: false }} usage={{ fiveHour: 12, sevenDay: 34, updatedLabel: '3 分前' }} overlays={null}><div /></Shell></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ visible: true, state: 'pushing', label: '送信中', pending: 0, sweepPending: 0, skipped: 0, paused: false }} usage={{ fiveHour: 12, sevenDay: 34, updatedLabel: '3 分前' }} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByText('送信中')).toBeInTheDocument();
     expect(screen.queryByText('未送信 0')).toBeNull();
     expect(screen.getByRole('meter', { name: '5 時間の使用率' })).toBeInTheDocument();

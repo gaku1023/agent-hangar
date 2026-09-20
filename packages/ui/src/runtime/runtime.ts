@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusDto } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { FocusTarget, SessionViewState } from '../mediator/types.ts';
@@ -48,7 +48,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const toast = (message: string) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
-  const syncStatus = (status: SyncStatusDto) => dispatch({ kind: 'server', event: { type: 'sync.status', status } });
+  /**
+   * HTTP の応答をそのまま sync.status の経路に載せる。
+   * sync.status の型は SyncStatusDto だが、HTTP は付録（諦めた本文と取り残しの件数）も運ぶ。
+   * 捨てずに渡すために、ここは SyncStatusBody で受ける。付録の拾い方は applySyncStatus にある。
+   */
+  const syncStatus = (status: SyncStatusBody) => dispatch({ kind: 'server', event: { type: 'sync.status', status } });
 
   /** サブエージェントの一覧を 1 回だけ取る。
    * 本文の読み込みと同じ経路で呼ぶが、ページを継ぎ足すたびに取り直す必要はない。

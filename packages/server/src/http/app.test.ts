@@ -85,6 +85,7 @@ function fakeSummary(): SummaryApi & { enqueued: [string, SummaryEnqueueOpts | u
 const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false } };
 const calls: string[] = [];
 let skipped: { key: string; attempts: number; message: string }[] = [];
+let sweepPending: number | null = null;
 let resumeHereResult: LaunchResultDto | ResumeHereConflictDto = launched;
 const fakeSync = (): SyncApi => ({
   status: () => syncStatus,
@@ -100,6 +101,7 @@ const fakeConfigSync = (): ConfigSyncApi => ({
 const syncDeps = () => ({
   sync: fakeSync(),
   syncSkipped: () => skipped,
+  syncSweep: () => sweepPending,
   configSync: fakeConfigSync(),
   resumeHere: (id: string, overwrite: boolean) => { calls.push(`resumeHere:${id}:${overwrite}`); return resumeHereResult; },
   joinToken: () => 'tok-abc' as string | null,
@@ -109,6 +111,7 @@ const syncDeps = () => ({
 beforeEach(async () => {
   calls.length = 0;
   skipped = [];
+  sweepPending = null;
   resumeHereResult = launched;
   dir = copyFixtureClaudeDir(); db = openDb(':memory:'); sent.length = 0;
   ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app-'));
@@ -754,6 +757,25 @@ describe('同期の経路', () => {
     skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }];
     expect((await json(await get('/api/sync/status'))).body.skipped).toEqual(skipped);
     expect((await json(await get('/api/bootstrap'))).body.sync.skipped).toEqual(skipped);
+  });
+
+  it('取り残しの残り件数が同期の状態に乗る', async () => {
+    // 数えられないときは null で、0 件（追いついた）と区別できる。
+    expect((await json(await get('/api/sync/status'))).body.sweepPending).toBeNull();
+    sweepPending = 1500;
+    expect((await json(await get('/api/sync/status'))).body.sweepPending).toBe(1500);
+    expect((await json(await get('/api/bootstrap'))).body.sync.sweepPending).toBe(1500);
+    // 今すぐ同期と一時停止の応答も同じ形で返す。画面はこの 3 つから付録を受け取る。
+    expect((await json(await post('/api/sync/now'))).body.sweepPending).toBe(1500);
+    expect((await json(await post('/api/sync/pause', { paused: true }))).body.sweepPending).toBe(1500);
+    sweepPending = 0;
+    expect((await json(await get('/api/sync/status'))).body.sweepPending).toBe(0);
+  });
+
+  it('掃除の口を渡さない端末では取り残しは null のまま', async () => {
+    const { syncSweep: _drop, ...rest } = syncDeps();
+    app = createApp({ ...deps, ...rest });
+    expect((await json(await get('/api/sync/status'))).body.sweepPending).toBeNull();
   });
 
   it('参加トークンと端末一覧と設定の下見', async () => {

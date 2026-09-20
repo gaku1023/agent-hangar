@@ -12,7 +12,7 @@ export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: stri
 export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean };
 export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; syncClaudeConfig: boolean; nodePath: string | null };
 export type IndexProgressDto = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: number; total: number };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusDto; devices: DeviceDto[] };
+export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[] };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; running?: boolean; file?: string; limit?: number };
 export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string }[] };
@@ -46,6 +46,19 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
 export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean } };
+/** 降ろすのも上げるのも諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。 */
+export type SyncSkippedDto = { key: string; attempts: number; message: string };
+/**
+ * 同期の状態に添える付録。
+ * SyncStatusDto を組み立てる SyncEngine は、どちらの値も持っていない。
+ * 諦めた本文を覚えているのは RemotePuller で、取り残しを数えられるのは TranscriptUploader だけである。
+ * だから websocket の sync.status には載らず、HTTP の応答（bootstrap と /sync/status と /sync/now と /sync/pause）だけが運ぶ。
+ * sweepPending は、索引は知っているがまだ一度も上げていない本文の件数である。
+ * 数えられないときは null になる（同期を設定していない端末と、この口を持たない古いサーバ）。
+ */
+export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | null };
+/** 同期の状態の応答。SyncStatusDto に付録を足したものである。 */
+export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
 export type TakeoverPhase = 'requested' | 'waiting' | 'acked' | 'copying' | 'resumed' | 'timeout' | 'failed' | 'cancelled';
 export type TakeoverUpdateDto = { sessionId: string; requestId: string | null; phase: TakeoverPhase; force: boolean; message: string | null; elapsedMs: number };
 export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean };

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { newId, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type SummarizerTestDto, type SyncStatusDto, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { newId, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
 import { statuslineStatus } from '../config/statusline.ts';
@@ -45,12 +45,11 @@ export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onF
  */
 export type ConfigSyncApi = { preview(): ConfigPreviewDto; pull(): Promise<{ applied: number; conflicts: number }> };
 /**
- * 降ろすのを諦めた本文。RemotePuller.skippedEntries() をそのまま載せる。
- * onError は 1 度しか鳴らないので、鳴った後に画面を開いた利用者はここでしか気付けない。
+ * 型は shared に移した。
+ * 画面も同じ形を読むので、正本は 1 つにしてある。
+ * ここから再輸出しておくのは、この 2 つを app.ts から引いている呼び手を切らないためである。
  */
-export type SyncSkippedDto = { key: string; attempts: number; message: string };
-/** 同期の状態の応答。SyncStatusDto に、諦めた項目の一覧を足したものである。 */
-export type SyncStatusBody = SyncStatusDto & { skipped: SyncSkippedDto[] };
+export type { SyncSkippedDto, SyncStatusBody };
 export type AppDeps = {
   db: Db; deviceId: string; deviceName: string; token: string; home: string; port: number; version: string;
   settings: () => Settings; updateSettings: (patch: Partial<SettingsDto>) => Settings;
@@ -64,8 +63,14 @@ export type AppDeps = {
   summary: SummaryApi;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null };
   sync: SyncApi;
-  /** 降ろすのを諦めた項目。渡さなければ空として扱う。 */
+  /** 降ろすのを諦めた項目。RemotePuller.skippedEntries() をそのまま載せる。渡さなければ空として扱う。 */
   syncSkipped?: () => SyncSkippedDto[];
+  /**
+   * 取り残しの掃除（sweep）が、あと何件残しているか。
+   * 数えられるのは TranscriptUploader だけなので、同期を設定していない端末では渡らない。
+   * 渡さなければ null、つまり「数えられない」として扱う。0 件（追いついた）と区別する。
+   */
+  syncSweep?: () => number | null;
   /** 他端末の本文を手元に写してから再開する。写しより手元が小さいときだけ 409 の本体を返す。 */
   resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto;
   /** 同期を設定していない端末では null。そのとき設定の経路は 404 を返す。 */
@@ -246,8 +251,8 @@ export function createApp(deps: AppDeps): Hono {
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
   const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
-  /** 同期の状態。諦めた項目を添えて返す。 */
-  const syncStatus = (): SyncStatusBody => ({ ...deps.sync.status(), skipped: deps.syncSkipped?.() ?? [] });
+  /** 同期の状態。諦めた項目と、取り残しの残り件数を添えて返す。 */
+  const syncStatus = (): SyncStatusBody => ({ ...deps.sync.status(), skipped: deps.syncSkipped?.() ?? [], sweepPending: deps.syncSweep?.() ?? null });
   /**
    * セッションを起こす前に、他端末の変更を 2 秒だけ待って取り込む。
    * 間に合わなくても起動は続ける。同期の失敗で起動を止めない。
