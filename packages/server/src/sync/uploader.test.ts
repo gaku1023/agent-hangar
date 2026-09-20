@@ -12,6 +12,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { CloudError } from './client.ts';
 import { decryptBuffer, deriveFileKey, sha256Hex } from './crypto.ts';
 import { SyncStateStore } from './state.ts';
+import { TRANSCRIPTS_FROM } from './transcriptsFrom.ts';
 import { TranscriptUploader } from './uploader.ts';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
@@ -470,5 +471,98 @@ describe('TranscriptUploader の取り残しの走査', () => {
     const up = make();
     up.stop();
     expect(up.sweep()).toBe(0);
+  });
+});
+
+/**
+ * 本文は「クラウドを使い始めた後に動きのあったもの」だけを上げる。
+ * メタデータ（セッションの一覧、要約、プロジェクト、TODO、メモ）は今までどおり全部同期する。
+ * 参加より前に止まっている本文まで上げると、手元の 1.6GB をそのまま R2 へ押し込むことになる。
+ */
+describe('TranscriptUploader の走査は使い始めた時刻で区切る', () => {
+  const JOINED = 1_700_000_000_000;
+  const setMtime = (file: string, mtime: number) => {
+    db.prepare('update transcript_files set mtime = ? where path = ?').run(mtime, file);
+  };
+
+  it('使い始めた時刻より前に止まった本文は拾わない', async () => {
+    addIndexed(mainFile(), UUID, null);
+    setMtime(mainFile(), JOINED - 1000);
+    state.set(TRANSCRIPTS_FROM, JOINED);
+    const up = make();
+    expect(up.sweep()).toBe(0);
+    await up.idle();
+    expect([...cloud.files.keys()]).toEqual([]);
+    up.stop();
+  });
+
+  it('使い始めた時刻より後に動いた本文は拾う', async () => {
+    addIndexed(mainFile(), UUID, null);
+    setMtime(mainFile(), JOINED + 1000);
+    state.set(TRANSCRIPTS_FROM, JOINED);
+    const up = make();
+    expect(up.sweep()).toBe(1);
+    await up.idle();
+    expect([...cloud.files.keys()]).toEqual([MAIN_KEY]);
+    up.stop();
+  });
+
+  it('再開して中身が増えたら拾う', async () => {
+    // 再開したセッションはファイルが伸びるので、索引が mtime を今の時刻へ書き直す。
+    addIndexed(mainFile(), UUID, null);
+    setMtime(mainFile(), JOINED - 1000);
+    state.set(TRANSCRIPTS_FROM, JOINED);
+    const up = make();
+    expect(up.sweep()).toBe(0);
+    fs.appendFileSync(mainFile(), '{"a":2}\n');
+    reindexed(mainFile());
+    expect(up.sweep()).toBe(1);
+    await up.idle();
+    expect(await plain(MAIN_KEY)).toBe('{"a":1}\n{"a":2}\n');
+    up.stop();
+  });
+
+  it('刻んでいなければ今までどおり全部拾う', async () => {
+    // 既に参加している端末の振る舞いを変えない。
+    addIndexed(mainFile(), UUID, null);
+    setMtime(mainFile(), JOINED - 1000);
+    expect(state.get(TRANSCRIPTS_FROM)).toBeNull();
+    const up = make();
+    expect(up.pendingSweep()).toBe(1);
+    expect(up.sweep()).toBe(1);
+    await up.idle();
+    expect([...cloud.files.keys()]).toEqual([MAIN_KEY]);
+    up.stop();
+  });
+
+  it('未送信の本文の数も同じ時刻で区切る', () => {
+    // 区切らないと、上げる予定の無い本文が画面に何百件も並び続ける。
+    const other = path.join(projDir(), '33333333-3333-4333-8333-333333333333.jsonl');
+    write(other, '{"b":1}\n');
+    addIndexed(mainFile(), UUID, null);
+    addIndexed(other, '33333333-3333-4333-8333-333333333333', null);
+    setMtime(mainFile(), JOINED - 1000);
+    setMtime(other, JOINED + 1000);
+    const up = make();
+    expect(up.pendingSweep()).toBe(2);
+    state.set(TRANSCRIPTS_FROM, JOINED);
+    expect(up.pendingSweep()).toBe(1);
+    up.stop();
+  });
+
+  it('床を 0 に落とすと、参加より前の本文もまた拾う', async () => {
+    // hangar cloud backfill が書くのがこの 0 である。サーバを立て直さなくても次の走査から効く。
+    addIndexed(mainFile(), UUID, null);
+    setMtime(mainFile(), JOINED - 1000);
+    state.set(TRANSCRIPTS_FROM, JOINED);
+    const up = make();
+    expect(up.sweep()).toBe(0);
+    expect(up.pendingSweep()).toBe(0);
+    state.set(TRANSCRIPTS_FROM, 0);
+    expect(up.pendingSweep()).toBe(1);
+    expect(up.sweep()).toBe(1);
+    await up.idle();
+    expect([...cloud.files.keys()]).toEqual([MAIN_KEY]);
+    up.stop();
   });
 });

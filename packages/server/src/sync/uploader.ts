@@ -10,6 +10,7 @@ import { CloudError, type CloudClient } from './client.ts';
 import { encryptStream, sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
 import type { SyncStateStore } from './state.ts';
+import { transcriptsFrom } from './transcriptsFrom.ts';
 
 export type UploadTarget = { path: string; sessionId: string; agentId: string | null };
 export type UploaderDeps = {
@@ -148,10 +149,23 @@ export class TranscriptUploader {
   private startFlush(): void { void this.flushAll().catch(() => {}); }
 
   /**
+   * 走査が拾う本文の下限（mtime）。
+   * クラウドを使い始めた時刻で、sync_state から毎回読み直す。
+   * 読み直すのは、hangar cloud backfill が床を落としたときに、立て直しを待たず次の走査から効かせるためである。
+   * 0 は床なしで、刻む前から参加していた端末はここに来る。
+   */
+  private transcriptFloor(): number { return transcriptsFrom(this.deps.state); }
+
+  /**
    * 取り残しの走査。
    * 手元の台帳（transcript_files）と上げた台帳（file_sync）を突き合わせ、まだ上がっていない本文を積む。
-   * 索引は「変化したファイル」しか知らせないので、これが無いと参加より前に索引が済んでいた本文は
-   * ファイルが動くまで永久に上がらない（設定の同期の pushChanged と同じ役目である）。
+   * 索引は「変化したファイル」しか知らせないので、これが無いと、いま動いている本文でも
+   * 索引が先に済んでいた分は取り残される（設定の同期の pushChanged と同じ役目である）。
+   *
+   * 拾うのは、クラウドを使い始めた時刻より後に動いた本文だけである（sync/transcriptsFrom.ts の床）。
+   * 参加より前に止まっている本文まで上げると、手元に溜まった何百件かをそのまま R2 へ押し込むことになる。
+   * 上げたければ、そのセッションを再開すればよい（ファイルが動くので索引が noteChanged を鳴らす）。
+   * 全部まとめて上げ直したいときは hangar cloud backfill で床を落とす。
    * 戻り値は新たに積んだ件数である。
    */
   sweep(limit: number = SWEEP_BATCH): number {
@@ -159,7 +173,7 @@ export class TranscriptUploader {
     // 止まっているあいだは外と話さない。走査で積んでも上げずに捨てるだけなので、そもそも引かない。
     if (this.deps.isPaused()) return 0;
     if (!isSafeKeyId(this.deps.deviceId)) return 0;
-    const rows = this.sweepStatement().all({ head: `transcripts/${this.deps.deviceId}/`, limit: limit * SWEEP_SCAN_MULT }) as SweepRow[];
+    const rows = this.sweepStatement().all({ head: `transcripts/${this.deps.deviceId}/`, from: this.transcriptFloor(), limit: limit * SWEEP_SCAN_MULT }) as SweepRow[];
     let queued = 0;
     for (const r of rows) {
       if (queued >= limit) break;
@@ -182,6 +196,7 @@ export class TranscriptUploader {
    *
    * 画面に出す「未送信の本文 N」は、これから上がるものの数である。
    * 走査は 1 回 20 件ずつなので、この数は「追いつくまでに何周かかるか」の目安になる。
+   * 走査と同じ床（使い始めた時刻）で区切る。区切らないと、上げる予定の無い本文が画面に並び続ける。
    * 一度諦めた本文は数に入れない。画面には「諦めた本文 N」として別に出るので、入れると二重に数える。
    * 走査は窓が開くたびに積み直すので、諦めた本文が上がり直すことはある。
    * そのとき、この数より多くの件数が実際には上がる。
@@ -190,7 +205,7 @@ export class TranscriptUploader {
   pendingSweep(): number | null {
     if (!isSafeKeyId(this.deps.deviceId)) return null;
     try {
-      const row = this.countStatement().get({ head: `transcripts/${this.deps.deviceId}/`, skip: SKIP_PREFIX }) as { n: number } | undefined;
+      const row = this.countStatement().get({ head: `transcripts/${this.deps.deviceId}/`, from: this.transcriptFloor(), skip: SKIP_PREFIX }) as { n: number } | undefined;
       return row?.n ?? 0;
     } catch {
       // 数えられないことは、同期そのものを止める理由にはならない。
@@ -202,7 +217,7 @@ export class TranscriptUploader {
 
   /**
    * 取り残しを数える 1 文。
-   * 土台は sweepStatement と同じ突き合わせだが、数えないものが 2 つある。
+   * 土台は sweepStatement と同じ突き合わせ（床も同じ）だが、数えないものが 2 つある。
    *
    * 1 つは消したセッションの本文である。
    * 消したセッションは掘り起こさないと決めたので（論理削除）、その本文は上がる予定に入らない。
@@ -224,7 +239,7 @@ export class TranscriptUploader {
       left join sync_state sk on sk.key = @skip || (case when t.agent_id is null
         then @head || s.provider_session_id || '.jsonl.gz'
         else @head || s.provider_session_id || '/subagents/agent-' || t.agent_id || '.jsonl.gz' end)
-      where t.device_id is null and s.deleted_at is null and sk.key is null
+      where t.device_id is null and s.deleted_at is null and sk.key is null and t.mtime >= @from
         and (fs.key is null or fs.size < t.size)`);
     return this.countStmt;
   }
@@ -233,6 +248,7 @@ export class TranscriptUploader {
    * 上がっていない本文を引く 1 文。
    * file_sync に行が無いものと、索引が見た大きさより小さいものしか上げていないものを拾う。
    * 本文は末尾に足されるだけなので、上げた大きさが索引の見た大きさ以上なら取り残しは無い。
+   * @from はクラウドを使い始めた時刻で、それより前に止まった本文は引かない。
    * 突き合わせを大きさで先に絞っておくと、走査のたびに全部の指紋を取り直さずに済む。
    */
   private sweepStatement(): ReturnType<Db['prepare']> {
@@ -243,7 +259,7 @@ export class TranscriptUploader {
       left join file_sync fs on fs.key = (case when t.agent_id is null
         then @head || s.provider_session_id || '.jsonl.gz'
         else @head || s.provider_session_id || '/subagents/agent-' || t.agent_id || '.jsonl.gz' end)
-      where t.device_id is null and s.deleted_at is null and (fs.key is null or fs.size < t.size)
+      where t.device_id is null and s.deleted_at is null and t.mtime >= @from and (fs.key is null or fs.size < t.size)
       order by t.mtime desc
       limit @limit`);
     return this.sweepStmt;

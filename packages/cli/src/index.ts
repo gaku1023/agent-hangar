@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { claudeJsonPath, defaultClaudeDir, hangarHome, installShutdown, loadSettings, readOrCreateDevice, readOrCreateToken, startServer } from '@agent-hangar/server';
-import { cloudStatus, promptWord, readJoinToken, runJoin, runSetupCloud, runTeardown } from './cloud.ts';
+import { cloudBackfill, cloudStatus, promptWord, readJoinToken, runJoin, runSetupCloud, runTeardown } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage, startErrorMessage } from './probe.ts';
 import { formatSetupReport, runSetup } from './setup.ts';
@@ -67,6 +67,13 @@ cloud
   .option('--port <n>', 'ポート', '4177')
   .action(async (o: { port: string }) => {
     console.log(await cloudStatus({ home: hangarHome(), port: Number(o.port) }));
+  });
+
+cloud
+  .command('backfill')
+  .description('参加より前の本文もクラウドへ上げ直す（既定では、参加より後に動いた本文だけを上げる）')
+  .action(() => {
+    console.log(cloudBackfill({ home: hangarHome() }));
   });
 
 cloud
