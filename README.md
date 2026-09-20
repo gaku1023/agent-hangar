@@ -300,6 +300,7 @@ npm run hangar -- cloud backfill       # 参加より前の本文も上げ直す
 ```
 
 サーバを立て直さなくても、次の走査から効きます。
+いまどこから上げているかは、`npm run hangar -- cloud status` の「本文:」の行に出ます。
 上げる件数は `hangar cloud status` の「未送信」で確かめられます。
 
 他の端末で実行中のセッションは「<端末名> で実行中」と出て、再開とフォークが押せなくなります。
@@ -355,8 +356,8 @@ npm run hangar -- cloud teardown       # Worker と D1 と R2 を消す（2 段�
    30 分ごとと、サーバを起こし直したときに自動で試し直すので、放っておけば回復します。
 10. **`hangar cloud teardown` に合言葉を一度に流し込むと、2 つ目が読めません。** 安全側に倒れて中止します。手で打つか、1 つずつ送ってください。
 11. **参加より前の本文はクラウドに上がりません。**
-    上げ始める時刻は `~/.agent-hangar/hangar.db` の `sync_state` に 1 度だけ刻みます。
-    既にクラウドと同期していた端末には刻まないので、振る舞いは変わりません。
+    上げ始める時刻は、`hangar setup cloud` と `hangar join` が `cloud.json` を書くのと同じ時点で `~/.agent-hangar/hangar.db` の `sync_state` に 1 度だけ刻みます。
+    いま刻まれている時刻は `hangar cloud status` の「本文:」の行で確かめられます。
     上げたければ、そのセッションを再開するか `hangar cloud backfill` を実行してください。
 12. **マイグレーションの版 8 が走ります。** `transcript_files` に `device_id` の列が増え、R2 との同期の台帳である `file_sync` が出来ます。索引の作り直しは起きません。
 

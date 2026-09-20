@@ -409,10 +409,16 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   }
   const toast = (level: 'info' | 'error', message: string) => hub.broadcast({ type: 'toast', level, message });
   const syncState = new SyncStateStore(db);
-  // クラウドの設定を初めて見た時刻を刻む。
+  // 本文をどこから上げるかの床が無ければ、ここで刻む。
+  // 本筋は CLI の側で、setup cloud と join が cloud.json を書くのと同じ時点で刻んでいる。
+  // ここに残すのは、その刻みより前に作られた cloud.json を持つ端末のための保険である。
+  // 床には cloud.json の joinedAt を使う。
+  // joinedAt は参加し直しと秘密の作り直しで今の時刻へ書き換わるが、床が無いときにしか読まないので、
+  // 書き換わった値が使われるのは「CLI が刻む前の cloud.json で参加し直した」ときだけに限られる。
+  // joinedAt を読めない古い cloud.json のときだけ、今の時刻を床にする。
   // 以後、本文の取り残しの走査はこの時刻より後に動いた転記だけを拾う（sync/transcriptsFrom.ts）。
   // メタデータの同期はこの刻みを見ないので、今までどおり全部が揃う。
-  if (cloud) markTranscriptsFrom(syncState, Date.now());
+  if (cloud) markTranscriptsFrom(syncState, cloud.joinedAt > 0 ? cloud.joinedAt : Date.now());
   /** 同期が止まっているか。利用者が押した一時停止も、枠の 80% で自分から止まった分もここに出る。 */
   const isPaused = (): boolean => engine.status().state === 'paused';
   /**

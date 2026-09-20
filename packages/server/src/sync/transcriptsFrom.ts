@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { dbPath } from '../config/paths.ts';
 import { openDb } from '../db/open.ts';
 import { SyncStateStore, type SyncStateKey } from './state.ts';
@@ -24,20 +25,56 @@ export function transcriptsFrom(state: SyncStateStore): number {
 }
 
 /**
- * クラウドを使い始めた時刻を 1 度だけ刻む。
- * cloud.json を読めた起動のたびに呼ぶが、書くのは行が無い最初の 1 回だけである。
+ * 床を 1 度だけ刻む。
+ * 行が既にあれば何もしない。床が後ろへ動くと、まだ上げ切っていない本文が取り残されるからである。
+ * 時刻として読めない値（0 以下、無限、NaN）を渡されたときは 0（床なし）を刻む。
  *
- * cloud.json の joinedAt ではなくここで刻むのは、joinedAt が参加し直しと秘密の作り直しで
- * 今の時刻へ書き換わるからである。床が後ろへ動くと、まだ上げ切っていない本文が取り残される。
- *
- * 既にクラウドと同期していた端末には床を置かず、0（床なし）を刻む。
- * その端末は「走査が全部を拾う」約束で動いているので、途中で約束を変えない。
- * 同期したことがあるかどうかは、進み具合の lastSeq と filesSeq で見る。
+ * 呼び出し元は 2 つある。
+ * 本筋は CLI で、クラウドの設定を作る（setup cloud）か参加する（join）ときに stampTranscriptsFrom が呼ぶ。
+ * もう 1 つはサーバ起動時の保険で、床の無い cloud.json を見つけたときだけ効く。
  */
-export function markTranscriptsFrom(state: SyncStateStore, now: number): void {
+export function markTranscriptsFrom(state: SyncStateStore, floor: number): void {
   if (state.get(TRANSCRIPTS_FROM) !== null) return;
-  const joinedBefore = state.get('lastSeq') !== null || state.get('filesSeq') !== null;
-  state.set(TRANSCRIPTS_FROM, joinedBefore ? 0 : now);
+  state.set(TRANSCRIPTS_FROM, Number.isFinite(floor) && floor > 0 ? Math.floor(floor) : 0);
+}
+
+/**
+ * クラウドを使い始めた時刻を home の索引に刻む。
+ * cloud.json を書くのと同じ場所（setup cloud と join）から呼ぶ。
+ *
+ * 「使い始めた時刻」の本当の出どころはここである。
+ * サーバ側の推測に任せると、床を刻まない古いサーバが先に起動した端末で床の無い隙が生まれる。
+ * 実物では、その隙に入った新しいサーバが「もう同期した端末だ」と誤って判断し、
+ * 上げないと決めた過去の本文を 105 件（148 MB）上げてしまった。
+ *
+ * 既に床があれば動かさないので、参加し直しても床は最初の参加のままである。
+ * 戻り値は刻んだ後の床である。
+ */
+export function stampTranscriptsFrom(home: string, now: number): number {
+  const db = openDb(dbPath(home));
+  try {
+    const state = new SyncStateStore(db);
+    markTranscriptsFrom(state, now);
+    return transcriptsFrom(state);
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * 床を home の索引から読む。
+ * 索引がまだ無ければ 0（床なし）を返し、入れ物だけを作って帰ることはしない。
+ * 「いまの床はどこか」を人に見せる道（hangar cloud status）のためにある。
+ */
+export function readTranscriptsFrom(home: string): number {
+  const file = dbPath(home);
+  if (!fs.existsSync(file)) return 0;
+  const db = openDb(file);
+  try {
+    return transcriptsFrom(new SyncStateStore(db));
+  } finally {
+    db.close();
+  }
 }
 
 /**

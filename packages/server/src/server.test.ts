@@ -49,6 +49,24 @@ const seedTranscriptFloor = (value: number): void => {
   try { new SyncStateStore(db).set('transcriptsFrom', value); } finally { db.close(); }
 };
 
+/** いま刻まれている床を読む。 */
+const transcriptFloor = (): string | null => {
+  const db = openDb(dbPath(home));
+  try { return new SyncStateStore(db).get('transcriptsFrom'); } finally { db.close(); }
+};
+
+/** 床を刻まない古いサーバが先に走った跡を作る。進み具合だけがあり、床は無い。 */
+const seedOldServerProgress = (): void => {
+  const db = openDb(dbPath(home));
+  try {
+    const st = new SyncStateStore(db);
+    st.set('lastSeq', 42);
+    st.set('filesSeq', 7);
+  } finally {
+    db.close();
+  }
+};
+
 /** 実際の Claude Code と同じ配置で、発言 1 つだけの本文ファイルを置く。 */
 function writeTranscript(cwd: string, sessionId: string, text: string, uuid = 'u1'): void {
   const dir = path.join(claudeDir, 'projects', mangleCwd(cwd));
@@ -173,6 +191,22 @@ describe('startServer', () => {
       const preview = await (await api('/api/sync/config/preview')).json() as { entries: unknown[]; confirmed: boolean };
       expect(preview.confirmed).toBe(false);
       expect(Array.isArray(preview.entries)).toBe(true);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('床が無ければ参加した時刻を保険で刻み、古いサーバが先に走った跡では床を消さない', async () => {
+    // 実物で起きた筋である。
+    // 床を刻まない古いサーバが先に起動して lastSeq と filesSeq を書いた端末で、
+    // 新しいサーバが「もう同期した端末だから床は要らない」と判断し、過去の本文を全部上げてしまった。
+    // 宛先は誰も待ち受けていないループバックである。実物のクラウドには触らない。
+    const joinedAt = 1_700_000_000_000;
+    saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt });
+    seedOldServerProgress();
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      expect(transcriptFloor()).toBe(String(joinedAt));
     } finally {
       await s.close();
     }
