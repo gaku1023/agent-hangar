@@ -4,8 +4,10 @@ export { STATUSLINE_MARKER, appendStatuslineSnippet, ensureStatuslineHeaderFile,
 export { claudeJsonPath, upsertUserMcpServer } from './config/claudeJson.ts';
 export { backupsRoot, cloudConfigPath, loadCloudConfig, readCloudConfig, remoteRoot, saveCloudConfig, type CloudConfig, type CloudConfigRead } from './config/cloud.ts';
 export { SyncStateStore, type SyncStateKey } from './sync/state.ts';
-// 参加より前の本文も上げ直す道。CLI の hangar cloud backfill がここを呼ぶ。
-export { backfillTranscripts } from './sync/transcriptsFrom.ts';
+// 本文をどこから上げるかの床。
+// 刻むのは CLI の hangar setup cloud と hangar join（cloud.json を書くのと同じ時点）である。
+// 読むのは hangar cloud status、0 へ落とすのは hangar cloud backfill である。
+export { backfillTranscripts, readTranscriptsFrom, stampTranscriptsFrom } from './sync/transcriptsFrom.ts';
 export { onSharedWrite } from './db/shared.ts';
 // クラウドの入口。CLI の hangar cloud teardown が、R2 にしか無い本文を先に手元へ降ろすのに使う。
 // 鍵の導出とパスの組み立てを写して持つと、片方だけ直されて食い違うので、ここから正面で配る。

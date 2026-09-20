@@ -5,7 +5,7 @@ import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
-import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, saveCloudConfig } from '@agent-hangar/server';
+import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
 import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
 import { BUNDLED_CLOUD_MARKER, cloudBackfill, cloudStatus, defaultCloudDir, joinWorker, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
@@ -209,6 +209,23 @@ describe('runSetupCloud', () => {
     // 壊れたファイルには触らない。wrangler も一度も呼ばない。
     expect(fs.readFileSync(file, 'utf8')).toBe('{ こわれている');
     expect(w.calls).toHaveLength(0);
+  });
+
+  it('cloud.json を書くのと同じ時点で、本文を上げ始める床を刻む', async () => {
+    const { home, cloudDir } = dirs();
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('Deployed hangar\n  https://hangar.gaku.workers.dev'),
+      'secret put JOIN_SECRET_HASH': () => ok('Success'),
+    });
+    await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch().fetch, sleep: async () => {}, cloudDir, log: () => {} });
+
+    // 床はサーバの起動を待たずに入る。古いサーバが先に走っても、床の無い隙が生まれない。
+    const joinedAt = loadCloudConfig(home)!.joinedAt;
+    expect(joinedAt).toBeGreaterThan(0);
+    expect(readTranscriptsFrom(home)).toBe(joinedAt);
   });
 
   it('別の名前で作り直すときは、前の資源が置き去りになることを見せて確認する', async () => {
@@ -542,6 +559,23 @@ describe('runJoin', () => {
     expect(fs.readFileSync(file, 'utf8')).toBe('{ こわれている');
   });
 
+  it('参加した時点で、本文を上げ始める床を刻む', async () => {
+    const { home } = dirs();
+    const f = (async () => new Response(JSON.stringify({ deviceToken: 'dt', deviceId: device.id }), { status: 201 })) as typeof fetch;
+    const got = await runJoin({
+      home,
+      token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'sec' }),
+      device,
+      fetch: f,
+      sleep: async () => {},
+      force: true,
+      confirm: async () => true,
+      log: () => {},
+    });
+    expect(got.joinedAt).toBeGreaterThan(0);
+    expect(readTranscriptsFrom(home)).toBe(got.joinedAt);
+  });
+
   it('--force は確認を省く', async () => {
     const { home } = dirs();
     saveCloudConfig(home, conf({ url: 'https://old.workers.dev' }));
@@ -601,6 +635,21 @@ describe('cloudStatus', () => {
       }) as typeof fetch,
     });
     expect(down).toContain('サーバは停止中');
+  });
+
+  it('本文をいつから上げるかを 1 行で見せる', async () => {
+    const { home } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't' }));
+    const dead = (async () => { throw new TypeError('ECONNREFUSED'); }) as typeof fetch;
+
+    // 床があるときは、その時刻より後に動いた本文だけを上げると伝える。
+    stampTranscriptsFrom(home, Date.parse('2026-09-19T12:00:00.000Z'));
+    const out = await cloudStatus({ home, fetch: dead });
+    expect(out).toContain('本文: 2026-09-19T12:00:00.000Z 以降に動いた分を上げます');
+
+    // backfill で床を落とした後は、全部上げると伝える。
+    backfillTranscripts(home);
+    expect(await cloudStatus({ home, fetch: dead })).toContain('本文: 手元の本文を全部上げます');
   });
 
   it('壊れている cloud.json を「未設定」と言わない', async () => {

@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream } from '@agent-hangar/server';
+import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream, stampTranscriptsFrom } from '@agent-hangar/server';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import { configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, PULL_LIMIT, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
@@ -447,6 +447,9 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
   // 8. 保存と表示
   const conf: CloudConfig = { url, joinSecret: secret, deviceToken: joined.deviceToken, workerName: name, accountId, dbName, bucketName, joinedAt: Date.now() };
   saveCloudConfig(o.home, conf);
+  // 本文をどこから上げるかの床を、設定を書くのと同じ時点で刻む。
+  // サーバの起動を待つと、床を刻まない古いサーバが先に走ったときに床の無い隙が生まれる。
+  stampTranscriptsFrom(o.home, conf.joinedAt);
   const joinToken = encodeJoinToken({ url, secret });
   printJoinToken(log, joinToken);
   return { url, joinToken };
@@ -541,6 +544,9 @@ export async function runJoin(o: JoinCliOptions): Promise<CloudConfig> {
     joinedAt: Date.now(),
   };
   saveCloudConfig(o.home, conf);
+  // 本文をどこから上げるかの床を、設定を書くのと同じ時点で刻む（setup cloud と同じ理由である）。
+  // 既に床があれば動かさないので、参加し直しても最初の参加の時刻のままである。
+  stampTranscriptsFrom(o.home, conf.joinedAt);
   log('');
   log(`参加しました: ${url}`);
   log('hangar を再起動すると同期が始まり、他の端末の本文が ~/.agent-hangar/remote に降りてきます。');
@@ -567,6 +573,16 @@ export type CloudStatusOptions = {
 };
 
 /**
+ * 本文をいつから上げるかの 1 行。
+ * 床が正しいかどうかは、刻まれた時刻を見せない限り利用者に確かめようがない。
+ * 0 は床なしなので、全部上げると素直に言う（hangar cloud backfill の後がこれである）。
+ */
+function transcriptFloorLine(from: number): string {
+  if (from <= 0) return '本文: 手元の本文を全部上げます';
+  return `本文: ${new Date(from).toISOString()} 以降に動いた分を上げます（それより前の分は hangar cloud backfill で上げ直せます）`;
+}
+
+/**
  * cloud.json、Worker の /health、手元のサーバの同期の状態を並べる。
  * 「未参加」と「壊れている」を分けて見せる。分けないと、権限の事故を参加し直しで潰しに行くことになる。
  * アカウント ID は出さない。画面共有と貼り付けで漏れる値を、見て嬉しくもないのに置かない。
@@ -588,6 +604,7 @@ export async function cloudStatus(o: CloudStatusOptions): Promise<string> {
     lines.push(`Worker: ${c.url}（接続できません: ${e instanceof Error ? e.message : String(e)}）`);
   }
   lines.push(c.workerName ? `役割: setup を実行した端末（Worker ${c.workerName}）` : '役割: 参加した端末（teardown はできません）');
+  lines.push(transcriptFloorLine(readTranscriptsFrom(o.home)));
   lines.push(`アカウント ID と参加用の秘密は ${cloudConfigPath(o.home)} にあります（画面に出すと漏れるので表示しません）。`);
   try {
     const token = fs.readFileSync(path.join(o.home, 'token'), 'utf8').trim();
