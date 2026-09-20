@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ChangeIn } from '@agent-hangar/shared';
-import { META_ROWS_PER_NOTE, d1RowsKey, d1RowsToday, meteredBatch } from '../src/meter.ts';
+import { META_ROWS_PER_NOTE, d1RowsKey, d1RowsToday, meteredBatch, resetOwed } from '../src/meter.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
@@ -51,15 +51,19 @@ const ledger = async (now: number): Promise<number | null> => {
  * D1 の代わりに、渡された文と申告する行数を覚えるだけの立て替えである。
  * 台帳へいつ書きに行くかという規則だけを見たいので、SQL は実行しない。
  */
-function stubDb(rowsPerStatement: number): { db: D1Database; batches: unknown[][]; runs: unknown[][] } {
+function stubDb(rowsPerStatement: number, ledger: { fails?: boolean; value?: number } = {}): { db: D1Database; batches: unknown[][]; runs: unknown[][]; ledger: { fails?: boolean; value?: number } } {
   const batches: unknown[][] = [];
   const runs: unknown[][] = [];
   const mk = (): D1PreparedStatement => {
     let args: unknown[] = [];
     const stmt = {
       bind: (...a: unknown[]) => { args = a; return stmt; },
-      run: async () => { runs.push(args); return { meta: { rows_written: 1 } }; },
-      first: async () => null,
+      run: async () => {
+        if (ledger.fails) throw new Error('D1_ERROR: meta');
+        runs.push(args);
+        return { meta: { rows_written: 1 } };
+      },
+      first: async () => (ledger.value === undefined ? null : { value: String(ledger.value) }),
     };
     return stmt as unknown as D1PreparedStatement;
   };
@@ -70,11 +74,14 @@ function stubDb(rowsPerStatement: number): { db: D1Database; batches: unknown[][
       return s.map(() => ({ meta: { rows_written: rowsPerStatement } })) as unknown as D1Result[];
     },
   } as unknown as D1Database;
-  return { db, batches, runs };
+  return { db, batches, runs, ledger };
 }
 
 describe('台帳の書き出し', () => {
   const now = Date.UTC(2026, 8, 20, 1, 0, 0);
+
+  beforeEach(() => { resetOwed(); });
+  afterEach(() => { resetOwed(); });
 
   it('書いた行数は、その要求の中で台帳へ書き出す', async () => {
     const { db, batches, runs } = stubDb(3);
@@ -99,6 +106,30 @@ describe('台帳の書き出し', () => {
     } as unknown as D1Database;
     // 仕事はもう書けている。500 を返すと端末が同じ書き込みを送り直す。
     await expect(meteredBatch(broken, [broken.prepare('x')], now)).resolves.toHaveLength(1);
+  });
+
+  it('台帳へ書けなかった回は、その日の数を端末へ返さない', async () => {
+    // 返してしまうと、端末は「小さいが当てになる報告」として信じる。
+    // 報告はアカウント全体の数なので、端末が n 台あれば n 倍まで小さくても見抜けない。
+    const { db, ledger } = stubDb(3, { fails: true, value: 999 });
+    await meteredBatch(db, [db.prepare('x')], now);
+    expect(await d1RowsToday(db, now)).toBeUndefined();
+    // 書けるようになっても、持ち越しを片付けるまでは返さない。
+    ledger.fails = false;
+    expect(await d1RowsToday(db, now)).toBeUndefined();
+  });
+
+  it('書けなかった分は、次の書き込みの要求でまとめて足す', async () => {
+    const { db, runs, ledger } = stubDb(3, { fails: true });
+    await meteredBatch(db, [db.prepare('x')], now);   // 3 行と台帳の 1 文ぶんを持ち越す
+    expect(runs).toEqual([]);
+    ledger.fails = false;
+    await meteredBatch(db, [db.prepare('x')], now);
+    // 2 回ぶんをまとめて 1 回で足す。台帳は遅れるだけで、行は落ちない。
+    const total = 2 * (3 + META_ROWS_PER_NOTE);
+    expect(runs).toEqual([[d1RowsKey(now), String(total), total]]);
+    ledger.value = total;
+    expect(await d1RowsToday(db, now)).toBe(total);
   });
 
   it('日ごとに別の鍵へ積む', async () => {

@@ -49,18 +49,37 @@ const addStatement = (db: D1Database, day: string, rows: number): D1PreparedStat
     .bind(day, String(rows), rows);
 
 /**
- * 書いた行数を台帳へ積む。
+ * まだ台帳へ書けていない行数である。
+ *
+ * 台帳の書き出しが落ちた回の行数をここに残し、次の書き込みの要求でまとめて足す。
+ * 残っている間は台帳が実際より少ないので、その日の数を端末へ**返さない**（`d1RowsToday` が undefined になる）。
+ * 返してしまうと、端末は「小さいが当てになる報告」として信じ、台数が多いほど枠を越えて走る。
+ * 返さなければ、端末は自分の見積もりと端末の数で割った割り当てに落ちる（安全側である）。
+ *
+ * isolate が借りを抱えたまま死ぬと、その分は台帳から落ちる。
+ * 落ちる量は 1 つの isolate が書けずにいた分までで、D1 が meta の 1 文を断り続けたときにだけ積み上がる。
+ */
+const owed = new Map<string, number>();
+
+/**
+ * 書いた行数を台帳へ積む。書けたかどうかを返す。
  *
  * ここが落ちても要求は落とさない。
  * 仕事の方はもう書けているので、500 を返すと端末が同じ書き込みを送り直して、かえって枠を使う。
- * 落ちた回の数えは端末の手元の見積もりが拾う（`quota.ts` は報告と自分の積み上げの大きい方を見る）。
  */
-async function note(db: D1Database, now: number, rows: number): Promise<void> {
-  if (rows <= 0) return;
+async function note(db: D1Database, now: number, rows: number): Promise<boolean> {
+  const day = d1RowsKey(now);
+  const total = (rows > 0 ? rows + META_ROWS_PER_NOTE : 0) + (owed.get(day) ?? 0);
+  if (total <= 0) return true;
   try {
-    await addStatement(db, d1RowsKey(now), rows + META_ROWS_PER_NOTE).run();
+    await addStatement(db, day, total).run();
+    owed.delete(day);
+    return true;
   } catch (e) {
+    // 書けなかった分は次の要求へ持ち越す。落としたままにすると、台帳が黙って実際より小さくなる。
+    owed.set(day, total);
     console.error('meter failed', e instanceof Error ? e.name : typeof e);
+    return false;
   }
 }
 
@@ -74,17 +93,28 @@ export async function meteredBatch(db: D1Database, stmts: D1PreparedStatement[],
   return res;
 }
 
+/** テスト専用。台帳へ書けずに持ち越している分を落とす（isolate が死んだのと同じ形である）。 */
+export function resetOwed(): void {
+  owed.clear();
+}
+
 /** 文が 1 つだけの経路。batch と同じ道を通して、数え落としの経路を作らない。 */
 export async function meteredRun(db: D1Database, stmt: D1PreparedStatement, now: number): Promise<D1Result> {
   return (await meteredBatch(db, [stmt], now))[0]!;
 }
 
 /**
- * その日にこの箱が D1 へ書いた行数。
- * 書き出しはその要求の中で済ませてあるので、ここで読む値に持ち越しは無い。
- * 読み損ねたときは 0 ではなく null を返す。端末には「報告が無い」と伝わり、自分の見積もりに落ちる。
+ * その日にこの箱が D1 へ書いた行数。端末へ返す数である。
+ *
+ * **台帳に書けていない分が残っているときは返さない。**
+ * 読めたとしてもその値は実際より小さく、端末はそれを「当てになる報告」として信じてしまう。
+ * 報告はアカウント全体の数なので、端末が n 台あれば自分の見積もりの n 倍まで小さくても見抜けない。
+ * 返さなければ、端末は自分の見積もりと割った割り当てに落ちる（直す前と同じ安全側である）。
+ *
+ * 読み損ねたときも同じく返さない。
  */
 export async function d1RowsToday(db: D1Database, now: number): Promise<number | undefined> {
+  if ((owed.get(d1RowsKey(now)) ?? 0) > 0) return undefined;
   try {
     const r = await db.prepare('select value from meta where key = ?').bind(d1RowsKey(now)).first<{ value: string }>();
     const n = r ? Number(r.value) : 0;

@@ -159,6 +159,89 @@ describe('報告が壊れていても、見積もりを捨てない（レビュ�
   });
 });
 
+/**
+ * 台帳が行を落としたときの実測である（レビュー 2 の申し送り a）。
+ *
+ * 報告はアカウント全体の数なので、端末が n 台あれば自分の見積もりのおよそ n 倍になる。
+ * 台帳が黙って行を落とすと、報告は小さいのに「自分の見積もりより大きい」ので当てになると見えてしまう。
+ * レビュアの実測では、台帳が半分落ちる形で 2 台が 159,580 行（枠の 1.5 倍）まで走った。
+ *
+ * 直した後は、台帳へ書けなかった回の Worker が `d1RowsToday` を返さない。
+ * 返さなければ端末は自分の見積もりと割った割り当てに落ち、書けた回の報告は（持ち越しを足すので）正確である。
+ */
+describe('台帳が行を落としても枠の中で止まる', () => {
+  /** 1 回の push で Worker が実際に書く行数。仕事が 201 行、台帳の 1 文が 1 行である（miniflare の実測）。 */
+  const WORK = 202;
+  /** 台帳が積む数。Worker は自分の 1 文を多い側の 2 行として数える。 */
+  const CHARGE = 203;
+  /** 端末の見積もり。40 行 * 4 + devices の 1 行である。 */
+  const LOCAL = 161;
+
+  /**
+   * n 台が足並みを揃えて push し、全台が止まるまでに **実際に D1 へ書かれた行数**を数える。
+   * `writes` は台帳の書き出しが通る回を決める。通らなかった回は報告を載せず、行を次の回へ持ち越す。
+   */
+  const run = (devices: number, writes: (i: number) => boolean): number => {
+    const q = new QuotaCounter({
+      state: new SyncStateStore(openDb(':memory:')),
+      now: () => now,
+      limits: { d1Writes: 100_000, requests: 100_000_000 },
+      deviceCount: () => devices,
+    });
+    let ledger = 0;
+    let owed = 0;
+    let actual = 0;
+    let i = 0;
+    while (!q.exceeded() && i < 100_000) {
+      let report: number | undefined;
+      for (let d = 0; d < devices; d++) {
+        i++;
+        actual += WORK;
+        if (writes(i)) { ledger += CHARGE + owed; owed = 0; report = ledger; } else { owed += CHARGE; report = undefined; }
+      }
+      q.note({ rows: LOCAL, requests: 1, account: report });
+    }
+    return actual;
+  };
+
+  const always = () => true;
+  const half = (i: number) => i % 2 === 0;
+  const tenth = (i: number) => i % 10 === 0;
+  const never = () => false;
+
+  it('台帳が半分落ちても、9 割落ちても、台数によらず枠を越えない', () => {
+    const FREE = 100_000;
+    for (const devices of [1, 2, 3, 5, 10]) {
+      for (const [name, writes] of [['全部通る', always], ['半分落ちる', half], ['9 割落ちる', tenth]] as const) {
+        const actual = run(devices, writes);
+        // 台数と落ち方によらず、実際に書かれた行数が無料枠を越えない。
+        expect({ devices, name, actual, over: actual >= FREE }).toEqual({ devices, name, actual, over: false });
+      }
+    }
+  });
+
+  it('台帳が 1 度も書けない日は、報告が届かないので旧方式と同じところで止まる', () => {
+    // 報告が 1 つも来なければ、端末は自分の見積もりと割った割り当てで見る（直す前と同じである）。
+    // 見積もりが実際より 2 割少ないぶん、1 台だと枠をわずかに越える。
+    // これは直す前からある見積もりの誤差で、この直しで悪くなったものではない（申し送りに残す）。
+    for (const devices of [1, 2, 5, 10]) {
+      expect(run(devices, never)).toBeLessThan(102_000);
+    }
+  });
+
+  it('台帳が届くかぎり、台数が増えても止まる位置は変わらない', () => {
+    // 報告が正確なら、見ているのはアカウント全体の 1 つの数である。
+    const at = [1, 2, 3, 5, 10].map((n) => run(n, always));
+    for (const a of at) {
+      expect(a).toBeGreaterThan(79_000);
+      expect(a).toBeLessThan(82_500);
+    }
+    // 半分落ちても、書けた回の報告に持ち越しが乗るので、止まる位置はほとんど動かない。
+    expect(run(2, half)).toBeLessThan(82_500);
+    expect(run(10, tenth)).toBeLessThan(92_000);
+  });
+});
+
 describe('無料枠で止めた日', () => {
   it('sync_state に残るので、立て直しても同じ日に止め直さない', () => {
     const q = make();
