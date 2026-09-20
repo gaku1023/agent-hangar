@@ -67,6 +67,26 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
   });
+  it('claude の場所が分からなければ、tmux を起こす前に断る', () => {
+    // .app を Finder から起こすと PATH は /usr/bin:/bin:/usr/sbin:/sbin だけになり、
+    // 裸の `claude` は引けない。それを tmux に渡すと、ペインの中で 127 で落ちるだけで
+    // 応答は成功になり、利用者はターミナルを開くまで理由が分からない。
+    const rm = make({ claudeBin: null });
+    expect(() => rm.start({ projectId: 'p1' })).toThrow(/claude/);
+    expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => rm.start({ scratch: true })).toThrow(/claude/);
+    // 断ったのだから、行も使い捨てのディレクトリも残ってはならない。
+    expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count(*) c from projects where is_scratch = 1').get()).toEqual({ c: 0 });
+    expect(fs.existsSync(path.join(home, 'scratch'))).toBe(false);
+  });
+  it('Settings で claudePath が変わったら、次の run は新しい場所を使う', () => {
+    const rm = make({ claudeBin: null });
+    expect(() => rm.start({ projectId: 'p1' })).toThrow(/claude/);
+    rm.setClaudeBin(fake.bin);
+    expect(() => rm.start({ projectId: 'p1' })).not.toThrow(/claude/);
+  });
   it('tmux が無ければ scratch は擬似プロジェクトも使い捨てディレクトリも作らない', () => {
     // 検査はすべて行を作る前に済ませる。tmux の無い端末で何度失敗しても、
     // 擬似プロジェクトの行と空のディレクトリが溜まってはならない。

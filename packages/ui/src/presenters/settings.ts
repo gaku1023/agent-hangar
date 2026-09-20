@@ -21,6 +21,8 @@ export type SettingsProps = {
   cloud: CloudSettingsProps;
   /** 同梱サーバを起こす Node の場所。未指定は空文字で表す。 */
   nodePath: string;
+  /** run を起こす claude の場所。未指定は null で表す。 */
+  claudePath: string | null;
 };
 
 // now は相対時刻のためだけに使う。フェーズ 3 までの呼び出しは 2 引数なので既定値を置く。
@@ -51,5 +53,6 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
     summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest,
     statusline: store.statusline, statuslineCommand: 'npm run hangar -- statusline install', usageAggregate: store.usageAggregate,
     nodePath: s?.nodePath ?? '',
+    claudePath: s?.claudePath ?? null,
   };
 }

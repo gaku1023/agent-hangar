@@ -80,6 +80,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
   cloud: { configured: false, url: null, state: 'off', paused: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, syncClaudeConfig: false, configConfirmed: false },
   nodePath: '',
+  claudePath: null,
   ...over,
 });
 
@@ -174,6 +175,19 @@ describe('SettingsScreen', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ nodePath: '/opt/homebrew/bin/node' })} /></IntentRoot>);
     expect(screen.getByLabelText('Node のパス')).toHaveValue('/opt/homebrew/bin/node');
+  });
+  it('claude のパスを保存する', () => {
+    // .app から起こすと PATH で claude を引けない。欄が無いと、起動が 400 で断られたまま直せない。
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    fireEvent.change(screen.getByLabelText('claude のパス'), { target: { value: ' /Users/x/.local/bin/claude ' } });
+    fireEvent.click(screen.getByText('ツールの設定を保存'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { claudePath: '/Users/x/.local/bin/claude' } });
+  });
+  it('サーバが正規化した claude のパスを入力欄に反映する', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ claudePath: '/Users/x/.local/bin/claude' })} /></IntentRoot>);
+    expect(screen.getByLabelText('claude のパス')).toHaveValue('/Users/x/.local/bin/claude');
   });
   it('ツールのパスとターミナルアプリを保存する', () => {
     const onIntent = vi.fn();

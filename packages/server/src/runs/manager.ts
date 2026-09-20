@@ -30,7 +30,7 @@ export class RunError extends Error {
 
 export type LaunchResult = LaunchResultDto;
 export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run: RunDto): void; runEnded?(run: RunDto): void; tabChanged?(tab: TabDto): void };
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string; claudeDir: string; port: number; token: string; shell?: string; isLive?: (providerSessionId: string) => boolean; now?: () => number };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; isLive?: (providerSessionId: string) => boolean; now?: () => number };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
@@ -64,6 +64,11 @@ export class RunManager {
     this.deps.tmux = tmux;
   }
 
+  /** Settings で claudePath が変わったときに差し替える。これから起こす run が新しい場所を使う。 */
+  setClaudeBin(claudeBin: string | null): void {
+    this.deps.claudeBin = claudeBin;
+  }
+
   /**
    * 外部コマンドの失敗を応答に載せる前に整える。
    * claude の起動の周りにはトークンとセッション別の秘密が居るので、混ざり込む余地を消しておく。
@@ -91,6 +96,17 @@ export class RunManager {
     return this.deps.tmux;
   }
 
+  /**
+   * claude の絶対パス。分からなければ起動そのものを断る。
+   * tmux のペインは hangar の PATH を継ぐので、.app から起こしたときは裸の `claude` を引けない。
+   * 引けない名前をそのまま渡すと、応答は成功のままペインの中で 127 で落ち、
+   * 利用者はターミナルを開くまで理由が分からない。だから渡す前にここで止める。
+   */
+  private claudeBin(): string {
+    if (!this.deps.claudeBin) throw new RunError(400, 'claude が見つかりません。Settings で claudePath を設定してください');
+    return this.deps.claudeBin;
+  }
+
   private project(projectId: string): ProjectInfo {
     const r = this.db
       .prepare('select p.id, p.name, r.path, r.resolved from projects p left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null where p.id = ? and p.deleted_at is null')
@@ -106,6 +122,7 @@ export class RunManager {
   /** 起動できるかを先に確かめる。行を作る前に呼ぶので、失敗しても孤児の行が残らない。 */
   private precheck(cwd: string): Tmux {
     if (!isDirectory(cwd)) throw new RunError(400, `ディレクトリが見つかりません: ${cwd}`);
+    this.claudeBin();
     return this.tmux();
   }
 
@@ -224,9 +241,9 @@ export class RunManager {
   start(params: LaunchParams): LaunchResult {
     this.addDirs(params);
     // スクラッチは擬似プロジェクトの行と使い捨てのディレクトリを作ってしまうので、
-    // 後の precheck を待たずに、ここで tmux の有無だけ先に確かめる。
-    // これが無いと、tmux の無い端末で起動を試すたびに空のディレクトリが溜まる。
-    if (params.scratch) this.tmux();
+    // 後の precheck を待たずに、ここで tmux と claude の有無だけ先に確かめる。
+    // これが無いと、どちらも無い端末で起動を試すたびに空のディレクトリが溜まる。
+    if (params.scratch) { this.tmux(); this.claudeBin(); }
     // スクラッチは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
     // projectId が一緒に来ていても scratch を優先する。
     const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);
@@ -240,7 +257,7 @@ export class RunManager {
     const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, name: params.name?.trim() || null, started_at: now, last_activity_at: now }, this.deps.deviceId);
     const input: LaunchInput = { ...this.baseInput(sessionId, p.id, cwd, params), mode: { kind: 'start', sessionUuid } };
-    const command = claudeCodeProvider.launchCommand(this.deps.claudeBin, input);
+    const command = claudeCodeProvider.launchCommand(this.claudeBin(), input);
     return this.launch({ sessionId, cwd, kind: 'start', command, params });
   }
 
@@ -273,7 +290,7 @@ export class RunManager {
   resume(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s);
-    const command = claudeCodeProvider.resumeCommand(this.deps.claudeBin, this.baseInput(s.id, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, false);
+    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(s.id, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, false);
     return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command, params: { projectId: s.project_id ?? undefined } });
   }
 
@@ -288,7 +305,7 @@ export class RunManager {
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(newSessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, project_id: s.project_id, name: null, started_at: now, last_activity_at: now }, this.deps.deviceId);
-    const command = claudeCodeProvider.resumeCommand(this.deps.claudeBin, this.baseInput(newSessionId, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, true, newUuid);
+    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(newSessionId, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, true, newUuid);
     return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined } });
   }
 
