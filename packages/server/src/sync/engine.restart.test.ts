@@ -107,3 +107,25 @@ describe('立て直しても、無料枠で止めた日を忘れない', () => {
     b.stop();
   });
 });
+
+describe('押すものが無い日の見張り（レビューの要修正 4）', () => {
+  it('push が 1 度も起きなくても、pull の応答で Worker の数が届く', async () => {
+    const e = make();
+    await e.start();
+    // 送る変更が 1 行も無いので push の要求は出ていない。
+    expect(cloud.calls.some((c) => c.method === 'pushChanges')).toBe(false);
+    // それでも見張りは Worker が数えた行数を受け取っている。
+    expect(e.quota.d1().authoritative).toBe(true);
+    expect(e.quota.d1().rows).toBe(cloud.d1RowsToday());
+    e.stop();
+  });
+
+  it('報告が届かない経路でも、自分の書き込みは積み上がる', () => {
+    const q = new QuotaCounter({ state: new SyncStateStore(db), now: () => timers.now, limits: { d1Writes: 1_000, requests: 1_000_000 } });
+    // server.ts の countingClient が PUT /files ごとに足す行数である。
+    // push も pull も起きない日でも、この積み上げだけで止まれる。
+    for (let i = 0; i < 125; i++) q.note({ rows: 8, requests: 1 });
+    expect(q.today().rows).toBe(1_000);
+    expect(q.exceeded()).toBe(true);
+  });
+});
