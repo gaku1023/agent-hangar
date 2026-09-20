@@ -138,6 +138,26 @@ describe('SettingsScreen', () => {
       expect(buttons[i]).toBeDisabled();
     }
   });
+  it('要約器の 2 欄も、サーバが整えた後の値で見比べる', () => {
+    // サーバは URL の前後の空白と末尾の / を落とし、モデル名も trim する。
+    // 整える前の値で見比べると、落とされた結果が元と同じでも props が動かず、
+    // 欄には整える前の文字列が残り、ボタンは押せたままになる（実測で何度でも押せた）。
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const url = screen.getByLabelText('LM Studio の URL');
+    const save = screen.getByText('要約器の設定を保存');
+    for (const same of ['http://127.0.0.1:1234/', 'http://127.0.0.1:1234///', '  http://127.0.0.1:1234  ']) {
+      fireEvent.change(url, { target: { value: same } });
+      expect(save).toBeDisabled();
+    }
+    // 本物の変更は今までどおり送れる。送る値はサーバが保存する形にそろえる。
+    fireEvent.change(url, { target: { value: '  http://127.0.0.1:2345/  ' } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false } });
+    // 欄も整えた形に直しておく。整える前の文字列が残ると、押せない理由が読めない。
+    expect(url).toHaveValue('http://127.0.0.1:2345');
+  });
   it('チェックボックスと上限だけを変えても要約器の保存は押せる', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     const save = screen.getByText('要約器の設定を保存');

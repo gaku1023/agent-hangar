@@ -35,10 +35,19 @@ export function SettingsScreen(props: SettingsProps) {
   // 数字でない文字は NaN になるので、これも送らない。
   const capNumber = cap.trim() === '' ? Number.NaN : Number(cap);
   const capValid = Number.isInteger(capNumber) && capNumber >= 1 && capNumber <= 200;
+  // サーバが保存する形にそろえてから送る。
+  // URL は前後の空白と末尾の / を落とし、モデル名は trim して空なら未設定に寄せる。
+  // 整えずに送ると、落とされた結果が元と同じときに props が動かない。
+  // すると欄には整える前の文字列が残り、保存ボタンも押せたままになる。
+  const lmUrlValue = lmUrl.trim().replace(/\/+$/, '');
+  const lmModelValue = lmModel.trim() || null;
   const saveSummarizer = () => {
     if (!capValid) { setCapError(true); return; }
     setCapError(false);
-    emit({ type: 'settings.update', patch: { lmStudioUrl: lmUrl, lmStudioModel: lmModel || null, summaryFallback: fallback, summaryHourlyCap: capNumber, allowExternalSummarizer: allowExternal } });
+    // 欄も整えた形に直す。押せない理由が欄から読めるようにする。
+    setLmUrl(lmUrlValue);
+    setLmModel(lmModelValue ?? '');
+    emit({ type: 'settings.update', patch: { lmStudioUrl: lmUrlValue, lmStudioModel: lmModelValue, summaryFallback: fallback, summaryHourlyCap: capNumber, allowExternalSummarizer: allowExternal } });
   };
 
   // 変えた項目だけを送る。
@@ -62,7 +71,7 @@ export function SettingsScreen(props: SettingsProps) {
   // 要約器は 5 項目をまとめて送るので、1 つでも変わっていれば押せる。
   // 読めない上限（空や小数）は capNumber が NaN になるため、ここでは必ず「変わっている」側に入る。
   // 押せないと、1 から 200 までの整数を入れてくださいという案内を出す道が無くなってしまう。
-  const summarizerDirty = lmUrl !== props.lmStudioUrl || (lmModel || null) !== props.lmStudioModel
+  const summarizerDirty = lmUrlValue !== props.lmStudioUrl || lmModelValue !== props.lmStudioModel
     || fallback !== props.summaryFallback || capNumber !== props.summaryHourlyCap || allowExternal !== props.allowExternalSummarizer;
   return (
     <div className="screen" style={{ maxWidth: 720 }}>
