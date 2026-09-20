@@ -683,6 +683,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     sync: engine,
     // 降ろすのを諦めた項目。onError は 1 度しか鳴らないので、状態にも載せて後から見られるようにする。
     syncSkipped: () => puller?.skippedEntries() ?? [],
+    syncSweep: () => uploader?.pendingSweep() ?? null,
     resumeHere,
     // ClaudeConfigSync に pull() は無いので、確認を立ててから applyPull(pendingRemote()) を呼ぶ形に包む。
     configSync: configSync ? { preview: () => configSync.preview(), pull: async () => { const entries = configSync.pendingRemote(); configSync.confirm(); return configSync.applyPull(entries); } } : null,

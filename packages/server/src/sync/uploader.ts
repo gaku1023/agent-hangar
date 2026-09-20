@@ -183,6 +183,38 @@ export class TranscriptUploader {
    * 本文は末尾に足されるだけなので、上げた大きさが索引の見た大きさ以上なら取り残しは無い。
    * 突き合わせを大きさで先に絞っておくと、走査のたびに全部の指紋を取り直さずに済む。
    */
+  /**
+   * 取り残しが何件あるかを数える。数えられないときは null を返す。
+   *
+   * `sweep` と同じ突き合わせを `count(*)` で引く。
+   * 走査は 1 回 20 件ずつなので、この数は「追いつくまでに何周かかるか」の目安になる。
+   * 端末の ID が鍵に使えない形のときは、そもそも上げようがないので数えない。
+   */
+  pendingSweep(): number | null {
+    if (!isSafeKeyId(this.deps.deviceId)) return null;
+    try {
+      const row = this.countStatement().get({ head: `transcripts/${this.deps.deviceId}/` }) as { n: number } | undefined;
+      return row?.n ?? 0;
+    } catch {
+      // 数えられないことは、同期そのものを止める理由にはならない。
+      return null;
+    }
+  }
+
+  private countStmt: ReturnType<Db['prepare']> | null = null;
+
+  private countStatement(): ReturnType<Db['prepare']> {
+    this.countStmt ??= this.deps.db.prepare(`
+      select count(*) as n
+      from transcript_files t
+      join sessions s on s.id = t.session_id
+      left join file_sync fs on fs.key = (case when t.agent_id is null
+        then @head || s.provider_session_id || '.jsonl.gz'
+        else @head || s.provider_session_id || '/subagents/agent-' || t.agent_id || '.jsonl.gz' end)
+      where t.device_id is null and (fs.key is null or fs.size < t.size)`);
+    return this.countStmt;
+  }
+
   private sweepStatement(): ReturnType<Db['prepare']> {
     this.sweepStmt ??= this.deps.db.prepare(`
       select t.path as path, s.provider_session_id as uuid, t.agent_id as agentId, t.size as size

@@ -313,6 +313,23 @@ describe('TranscriptUploader の取り残しの走査', () => {
     up.stop();
   });
 
+  it('取り残しの件数を数えて返す', async () => {
+    // 画面に「未送信の本文 N」を出すための数である。走査と同じ突き合わせを数えるだけで、何も積まない。
+    const up = make();
+    expect(up.pendingSweep()).toBe(0);
+    write(sub(), '{"s":1}\n');
+    addIndexed(mainFile(), UUID, null);
+    addIndexed(sub(), UUID, 'abc123');
+    expect(up.pendingSweep()).toBe(2);
+    // 数えるだけでは積まない。
+    expect(puts()).toBe(0);
+    expect(up.sweep()).toBe(2);
+    await up.idle();
+    // 上がれば 0 に戻る。
+    expect(up.pendingSweep()).toBe(0);
+    up.stop();
+  });
+
   it('手元の方が新しければ積み直す', async () => {
     addIndexed(mainFile(), UUID, null);
     const up = make();

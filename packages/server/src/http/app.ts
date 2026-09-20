@@ -380,7 +380,9 @@ export function createApp(deps: AppDeps): Hono {
       patch.terminalApp = v as TerminalApp;
     }
     if ('lmStudioUrl' in body) {
-      const v = body.lmStudioUrl;
+      // URL の解析は前後の空白を黙って落とすので、保存する値も落としておく。
+      // 落とさないと、貼り付けで空白が混ざった値がそのまま設定に残る。
+      const v = typeof body.lmStudioUrl === 'string' ? body.lmStudioUrl.trim() : body.lmStudioUrl;
       // host の無い http:// は繋ぎ先にならないので、形だけでなく URL として読めることを確かめる。
       if (typeof v !== 'string' || !parseHttpUrl(v)) return c.json({ error: 'lmStudioUrl は http か https の URL です' }, 400);
       // 末尾の / は付けない。呼び出し側が /v1/... を足すので、二重の / を作らない。
