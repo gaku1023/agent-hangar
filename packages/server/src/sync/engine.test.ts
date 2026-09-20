@@ -243,8 +243,8 @@ describe('SyncEngine の push', () => {
 
     for (let i = 0; i < 8; i++) project(`p${i}`);
     await e.pushNow();
-    // 8 行の push で 8*4+1、start() の初回 pull で 1。上限 10 の 80% は 8 なので超えている。
-    expect(quota.today().rows).toBe(8 * 4 + 1 + 1);
+    // 8 行の push で 8*5 + devices 1 + 台帳 2、start() の初回 pull で 3。上限 10 の 80% は 8 なので超えている。
+    expect(quota.today().rows).toBe(8 * 5 + 1 + 2 + 3);
     expect(e.status().state).toBe('paused');
     expect(toasts).toHaveLength(1);
     expect(toasts[0]?.level).toBe('info');
@@ -617,8 +617,9 @@ describe('SyncEngine の無料枠の見張り', () => {
     // 見張りが見る数は、Worker が実際に書いた行数そのものである（Worker の報告をそのまま採る）。
     expect(e.quota.d1().rows).toBe(d1.rows);
     expect(e.quota.d1().authoritative).toBe(true);
-    // 手元の見積もりは実際より少ない。報告が来ない Worker のときの落とし所でしかない。
-    expect(e.quota.today().rows).toBeLessThan(d1.rows);
+    // 手元の見積もりも、この端末が起こした書き込みは 1 行残らず数えている。
+    // 圧縮も参加も他端末も無いこの筋では、報告と一致する（2026-09-20 に定数を直すまでは 2 割少なかった）。
+    expect(e.quota.today().rows).toBe(d1.rows);
     e.stop();
   });
 
@@ -632,7 +633,7 @@ describe('SyncEngine の無料枠の見張り', () => {
     // 同じ行を同じ updated_at のまま送り直すと、Worker は skipped にして 1 行も書かない。
     db.prepare('update changes set pushed_at = null').run();
     await e.pushNow();
-    expect(e.quota.today().rows).toBe(after + 1);   // devices の 1 行だけ
+    expect(e.quota.today().rows).toBe(after + 3);   // devices の 1 行と台帳の 2 行だけ
     expect(e.quota.d1().rows).toBe(d1.rows);
     e.stop();
   });
@@ -655,12 +656,12 @@ describe('SyncEngine の無料枠の見張り', () => {
     e.stop();
   });
 
-  it('pull の 1 要求も devices の 1 行として数える', async () => {
+  it('pull の 1 要求も devices の 1 行と台帳の 2 行として数える', async () => {
     const e = make();
     await e.start();
     const before = e.quota.today().rows;
     await e.pullNow();
-    expect(e.quota.today().rows).toBe(before + 1);
+    expect(e.quota.today().rows).toBe(before + 3);
     e.stop();
   });
 });

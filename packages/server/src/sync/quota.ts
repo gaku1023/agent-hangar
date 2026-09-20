@@ -25,19 +25,23 @@ type QuotaRecord = QuotaDay & { account?: number; guard?: number };
 
 /**
  * 無料枠が数えているのは「文の数」ではなく `rows_written`、つまり **索引への書き込みを含む行数**である。
- * 1 文が進める行数は「本体の 1 行 + その文が触れた索引ごとに 1 行」になる。
- * 根拠は `packages/cloud/src/schema.ts` の索引の数で、`quota.test.ts` がスキーマを読んで縛っている。
+ * 1 文が進める行数は「本体の 1 行 + その文が触れた索引ごとに 1 行 + `autoincrement` なら `sqlite_sequence` の 1 行」になる。
+ * 根拠は `packages/cloud/src/schema.ts` で、`quota.test.ts` がスキーマを読んで縛っている。
  *
- * Task 25 の実測（2 台を 1 日）でも、この勘定で `rows_written_24h` の 369 がそのまま再現する。
- * 採られた行 74 と devices を触る要求 73 で、74 * 4 + 73 = 369 である。
+ * 2026-09-20 に実物の D1 で決着させた（`.superpowers/sdd/backlog/ledger-reconcile.md`）。
+ * `changes` の連番が 1 から 2,411 まで隙間なく詰まっていたので insert はちょうど 2,411 回と分かり、
+ * 1 回あたりの `rows_written` は 3 だった（手元の miniflare でも 3 である）。
  */
 
 /**
  * `changes` への insert 1 行ぶんである。
- * 本体の 1 行と、`changes_device`（`device_id, seq`）の索引で 1 行である。
- * `seq` は `integer primary key` なので rowid そのもので、索引は増えない。
+ *
+ * 本体の 1 行、`changes_device`（`device_id, seq`）の索引で 1 行、`sqlite_sequence` で 1 行の 3 行である。
+ * `seq` は `integer primary key` なので rowid そのもので索引は増えないが、
+ * **`autoincrement` が付いているので insert のたびに SQLite が内部の `sqlite_sequence` を 1 行書き換える。**
+ * ここを 2 と数えていた間、端末の見積もりは実際より 2 割少なかった（少なく数えるのは止まるのが遅れる側である）。
  */
-export const D1_WRITES_PER_CHANGE_ROW = 2;
+export const D1_WRITES_PER_CHANGE_ROW = 3;
 
 /**
  * 鏡（`rows`）の upsert 1 行ぶんである。
@@ -51,7 +55,7 @@ export const D1_WRITES_PER_MIRROR_ROW = 2;
  *
  * `packages/cloud/src/changes.ts` は、採った 1 行ごとに `changes` への insert と鏡（`rows`）の upsert を
  * 必ず 2 文積む（240 行から 243 行）。
- * その 2 文が、索引も入れて 4 行を進める。
+ * その 2 文が、索引と `sqlite_sequence` も入れて 5 行を進める。
  */
 export const D1_WRITES_PER_CHANGE = D1_WRITES_PER_CHANGE_ROW + D1_WRITES_PER_MIRROR_ROW;
 
@@ -66,15 +70,37 @@ export const D1_WRITES_PER_CHANGE = D1_WRITES_PER_CHANGE_ROW + D1_WRITES_PER_MIR
 export const D1_WRITES_PER_DEVICE_TOUCH = 1;
 
 /**
+ * 台帳（`packages/cloud/src/meter.ts`）が自分で書く 1 文ぶんである。
+ *
+ * Worker は書き込みのあった要求ごとに、その日の行数を `meta` の `d1_rows:<yyyy-MM-dd>` へ 1 文で積む。
+ * この 1 文も `rows_written` に入るのに、端末の見積もりには入っていなかった。
+ * 実費はその日の最初だけ 2 行（鍵を作る）で、あとは 1 行である。
+ * **見分けが付かないので多い方の 2 で数える。**
+ *
+ * 足すのは「D1 に 1 行でも書く要求」だけである。
+ * 読むだけの経路（`GET /rows`、`GET /files`、本文の取得）では台帳も動かないので 0 である。
+ */
+export const D1_WRITES_PER_METER_NOTE = 2;
+
+/**
+ * `GET /changes` 1 回で D1 に書かれる行数。
+ * `devices` の `last_seen_at` と `last_pulled_seq` を 1 行書き、台帳の 1 文が乗る。
+ */
+export const D1_WRITES_PER_PULL = D1_WRITES_PER_DEVICE_TOUCH + D1_WRITES_PER_METER_NOTE;
+
+/**
  * push 1 回で D1 に書かれる行数。
  *
  * 数えるのは Worker が採った行（`accepted`）だけである。
  * 同着で弾かれた行（`skipped`）は 1 行も書かれないので、送った行数で数えると多く見積もる。
  * `accepted` が読めない応答のときだけ、送った行数で代用する。
+ *
+ * 1 行も採られなくても 0 にはならない。
+ * `devices` の `last_seen_at` は必ず書くので、その 1 行と台帳の 1 文はどの push にも乗る。
  */
 export function pushD1Writes(accepted: unknown, sent: number): number {
   const a = typeof accepted === 'number' && Number.isFinite(accepted) && accepted >= 0 ? Math.floor(accepted) : sent;
-  return a * D1_WRITES_PER_CHANGE + D1_WRITES_PER_DEVICE_TOUCH;
+  return a * D1_WRITES_PER_CHANGE + D1_WRITES_PER_DEVICE_TOUCH + D1_WRITES_PER_METER_NOTE;
 }
 
 /**
