@@ -108,7 +108,7 @@ pub fn nvm_node_paths(user_home: &Path) -> Vec<PathBuf> {
         })
         .filter(|(_, p)| p.is_file())
         .collect();
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|a| std::cmp::Reverse(a.0));
     found.into_iter().map(|(_, p)| p).collect()
 }
 

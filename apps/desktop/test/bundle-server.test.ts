@@ -311,7 +311,10 @@ describe('bin/hangar の Node 探索', () => {
     // ここも揃える。
     const dist = fakeDist();
     const nodes = emptyDirFor('hangar nodes-');
-    const wrong = fakeNode(path.join(nodes, 'x64', 'node'), UNREACHABLE_MAJOR, 'x64');
+    // 「別のアーキ」は走っている機械によって変わる。arm64 の Mac では x64 が、x64 の Linux では arm64 が相手になる。
+    // ここを x64 に決め打ちすると、x64 の機械では「合っている Node」を作ってしまい、試験が主張を失う。
+    const otherArch = process.arch === 'x64' ? 'arm64' : 'x64';
+    const wrong = fakeNode(path.join(nodes, otherArch, 'node'), UNREACHABLE_MAJOR, otherArch);
     const home = emptyDirFor('hangar home-');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: wrong }));
     const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: home, HOME: emptyDirFor('hangar userhome-') });
