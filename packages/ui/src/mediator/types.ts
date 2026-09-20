@@ -1,7 +1,8 @@
 import type { IndexProgressDto, Intent, LaunchParams, ProjectStatus, ResolveAction, Route, SearchFilter, SearchParamsDto, ServerEvent, SettingsDto } from '@agent-hangar/shared';
 
 export type RuntimeEvent =
-  | { type: 'ws.open' } | { type: 'ws.close' } | { type: 'hash.changed'; route: Route }
+  // ws.close は時刻を運ぶ。Mediator は純粋な遷移なので、いつ切れたかを自分では測れない。
+  | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route }
   | { type: 'api.failed'; message: string } | { type: 'search.done'; params: SearchParamsDto }
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string }
   | { type: 'promote.done'; projectId: string; moved: boolean; reason: string | null }
@@ -73,6 +74,10 @@ export type SessionViewState = { agentId: string | null; showThinking: boolean; 
 export type Toast = { id: string; level: 'info' | 'error'; message: string };
 export type State = {
   screen: Screen; overlay: Overlay; connection: 'connecting' | 'connected' | 'disconnected'; reconnectAttempt: number;
+  /** 切れた最初の瞬間。画面がそこで止まっていることを言うために持つ。つながっている間は null。 */
+  staleSince: number | null;
+  /** 次に自動で試す時刻。待っているのか固まっているのかを見せるために持つ。 */
+  nextRetryAt: number | null;
   sessionView: Record<string, SessionViewState>; search: { text: string; filter: SearchFilter };
   /** 起動の進み。ダイアログからの起動も、再開もフォークも同じ状態を共有する。 */
   launch: LaunchState;

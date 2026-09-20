@@ -14,6 +14,7 @@ function run(inputs: Input[], start: State = initialState()) {
 const intent = (i: Extract<Input, { kind: 'intent' }>['intent']): Input => ({ kind: 'intent', intent: i });
 const server = (e: Extract<Input, { kind: 'server' }>['event']): Input => ({ kind: 'server', event: e });
 const runtime = (e: Extract<Input, { kind: 'runtime' }>['event']): Input => ({ kind: 'runtime', event: e });
+const T0 = 1_700_000_000_000;
 
 describe('起動と接続', () => {
   it('ws が開いたら bootstrap を取り、hash で画面が決まる', () => {
@@ -23,19 +24,37 @@ describe('起動と接続', () => {
     expect(effects).toEqual([{ kind: 'api.bootstrap' }]);
   });
   it('切断で指数バックオフ、再接続で bootstrap を取り直す', () => {
-    const a = run([runtime({ type: 'ws.open' }), runtime({ type: 'ws.close' })]);
+    const a = run([runtime({ type: 'ws.open' }), runtime({ type: 'ws.close', at: T0 })]);
     expect(a.state.connection).toBe('disconnected');
     expect(a.effects.at(-1)).toEqual({ kind: 'ws.reconnectAfter', ms: 2000 });
-    const b = run([runtime({ type: 'ws.close' })], a.state);
+    const b = run([runtime({ type: 'ws.close', at: T0 + 2000 })], a.state);
     expect(b.effects.at(-1)).toEqual({ kind: 'ws.reconnectAfter', ms: 4000 });
     const c = run([runtime({ type: 'ws.open' })], b.state);
     expect(c.state).toMatchObject({ connection: 'connected', reconnectAttempt: 0 });
-    expect(c.effects).toEqual([{ kind: 'api.bootstrap' }]);
+    expect(c.effects.at(0)).toEqual({ kind: 'api.bootstrap' });
   });
   it('バックオフは 15 秒で頭打ち', () => {
     let s = initialState();
-    for (let i = 0; i < 8; i++) s = transition(s, runtime({ type: 'ws.close' })).state;
-    expect(transition(s, runtime({ type: 'ws.close' })).effects).toEqual([{ kind: 'ws.reconnectAfter', ms: 15000 }]);
+    for (let i = 0; i < 8; i++) s = transition(s, runtime({ type: 'ws.close', at: T0 })).state;
+    expect(transition(s, runtime({ type: 'ws.close', at: T0 })).effects).toEqual([{ kind: 'ws.reconnectAfter', ms: 15000 }]);
+  });
+  it('切れている間は、画面が古くなった時刻と次に試す時刻を持つ', () => {
+    const a = run([runtime({ type: 'ws.open' }), runtime({ type: 'ws.close', at: T0 })]);
+    expect(a.state).toMatchObject({ staleSince: T0, nextRetryAt: T0 + 2000 });
+    // 再接続に失敗しても、画面が古くなった時刻は巻き戻さない。古さは切れた最初の瞬間から数える。
+    const b = run([runtime({ type: 'ws.close', at: T0 + 2000 })], a.state);
+    expect(b.state).toMatchObject({ staleSince: T0, nextRetryAt: T0 + 6000 });
+    const c = run([runtime({ type: 'ws.open' })], b.state);
+    expect(c.state).toMatchObject({ staleSince: null, nextRetryAt: null });
+  });
+  it('つなぎ直したときだけ、追いついたと知らせる', () => {
+    const back = run([runtime({ type: 'ws.close', at: T0 }), runtime({ type: 'ws.open' })]);
+    expect(back.effects).toEqual([{ kind: 'ws.reconnectAfter', ms: 2000 }, { kind: 'api.bootstrap' }, { kind: 'toast', level: 'info', message: '最新の状態に追いつきました' }]);
+    // 最初の接続は「追いついた」ではないので黙る。
+    expect(run([runtime({ type: 'ws.open' })]).effects).toEqual([{ kind: 'api.bootstrap' }]);
+  });
+  it('いますぐ再接続はその場で ws をつなぎ直す', () => {
+    expect(run([intent({ type: 'conn.retry' })]).effects).toEqual([{ kind: 'ws.connect' }]);
   });
 });
 
@@ -645,9 +664,9 @@ describe('この PC で再開', () => {
   });
   it('確認が出ている最中に接続が切れて戻っても、確認はそのまま残る', () => {
     const open = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 10, remoteSize: 99 })]);
-    const r = run([runtime({ type: 'ws.close' }), runtime({ type: 'ws.open' })], open.state);
+    const r = run([runtime({ type: 'ws.close', at: T0 }), runtime({ type: 'ws.open' })], open.state);
     expect(r.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's1', localSize: 10, remoteSize: 99 } });
-    expect(r.effects.at(-1)).toEqual({ kind: 'api.bootstrap' });
+    expect(r.effects).toContainEqual({ kind: 'api.bootstrap' });
   });
   it('別のセッションに移っても確認はそのまま残る', () => {
     const open = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 10, remoteSize: 99 })]);

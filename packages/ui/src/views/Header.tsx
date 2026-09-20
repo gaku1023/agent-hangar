@@ -6,7 +6,7 @@ import { Icon } from './primitives/Icon.tsx';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
 import { SyncStatus } from './SyncStatus.tsx';
 
-export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string; connection: ShellProps['connection']; indexLabel: string | null; usage: UsageProps; sync: SyncProps }) {
+export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string; indexLabel: string | null; usage: UsageProps; sync: SyncProps }) {
   const emit = useEmit();
   return (
     <header className="header">
@@ -27,7 +27,6 @@ export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string
       </span>
       <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open' })}><Icon name="add" />新規セッション</button>
       {props.indexLabel && <span className="progress">{props.indexLabel}</span>}
-      <span className="conn" data-state={props.connection}>{props.connection === 'connected' ? '接続中' : props.connection === 'connecting' ? '接続しています' : '再接続中'}</span>
     </header>
   );
 }

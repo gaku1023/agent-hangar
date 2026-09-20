@@ -47,4 +47,5 @@ export type Intent =
   | { type: 'overlay.close' }
   | { type: 'toast.dismiss'; id: string }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
+  | { type: 'conn.retry' }
   | { type: 'settings.update'; patch: Partial<Settings> };

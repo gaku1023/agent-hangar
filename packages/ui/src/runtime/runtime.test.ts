@@ -163,6 +163,15 @@ describe('createRuntime', () => {
     wsHandlers[0]!.onClose();
     expect(timers[0]?.ms).toBe(2000);
   });
+  it('切断は時刻を添えて伝える。Mediator は自分で測れないからである', () => {
+    const { rt, wsHandlers } = harness();
+    rt.start();
+    const before = Date.now();
+    wsHandlers[0]!.onClose();
+    const { staleSince, nextRetryAt } = rt.getState();
+    expect(staleSince).toBeGreaterThanOrEqual(before);
+    expect(nextRetryAt).toBe(staleSince! + 2000);
+  });
   it('セッション表示の一時状態を保存し、起動時に読み戻す', () => {
     const a = harness();
     a.rt.start();

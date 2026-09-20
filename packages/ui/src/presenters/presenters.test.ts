@@ -273,6 +273,28 @@ describe('書式', () => {
   });
 });
 
+describe('presentShell の接続', () => {
+  it('つながっている間は何も出さない', () => {
+    const s = { ...initialState(), connection: 'connected' as const };
+    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: false, staleLabel: '', retryLabel: '' });
+  });
+  it('切れている間は、止まった時刻と次に試すまでの秒を出す', () => {
+    const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW - 120_000, nextRetryAt: NOW + 7_500 };
+    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します' });
+  });
+  it('切れた直後は、時刻を言わずに止まったとだけ言う', () => {
+    const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW - 30_000, nextRetryAt: NOW + 2_000 };
+    expect(presentShell(s, initialStore(), NOW).conn.staleLabel).toBe('画面の更新が止まっています');
+  });
+  it('待ち時間が尽きたら、試している最中だと出す', () => {
+    const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW, nextRetryAt: NOW };
+    expect(presentShell(s, initialStore(), NOW).conn.retryLabel).toBe('再接続しています');
+  });
+  it('最初の接続の間はヘッダーに出さない。読み込み中の画面が担うからである', () => {
+    expect(presentShell(initialState(), initialStore(), NOW).conn.visible).toBe(false);
+  });
+});
+
 describe('presentShell の使用量', () => {
   it('値が無ければ null、あれば百分率と最終更新', () => {
     const empty = presentShell(initialState(), initialStore(), NOW);

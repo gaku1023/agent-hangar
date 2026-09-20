@@ -48,7 +48,8 @@ function useTerminalHost(host: TerminalHost): void {
 export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: TerminalHost }) {
   const rt = props.runtime;
   const { state, store } = useRuntime(rt);
-  const now = useNow();
+  // 切れているあいだは「あと何秒で再接続するか」を出すので、30 秒刻みでは数字が嘘になる。そのあいだだけ秒で刻む。
+  const now = useNow(state.connection === 'disconnected' ? 1000 : 30_000);
   useTerminalHost(props.terminals);
   const [projectFilter, setProjectFilter] = useState('');
   const [showArchived, setShowArchived] = useState(false);

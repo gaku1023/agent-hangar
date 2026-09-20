@@ -434,7 +434,7 @@ describe('Header', () => {
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
     // sync は Task 23 が Header に足した props である。この節が見るのは検索欄だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" connection="connected" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
     const box = screen.getByRole('searchbox');
     fireEvent.change(box, { target: { value: '動画' } });
     fireEvent.keyDown(box, { key: 'Enter', isComposing: true });

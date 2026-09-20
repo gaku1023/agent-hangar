@@ -11,7 +11,27 @@ export type UsageProps = { fiveHour: number | null; sevenDay: number | null; upd
  * ヘッダーは 0 件を描かない約束なので、「分からない」と「無い」をここで同じ扱いにしてよい。
  */
 export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; sweepPending: number; skipped: number; paused: boolean };
-export type ShellProps = { nav: NavItem[]; crumbs: { label: string; route?: Route }[]; searchText: string; connection: State['connection']; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps };
+/** 切れているあいだだけ出す帯。つながっている間は visible が false で、文言も空である。 */
+export type ConnProps = { visible: boolean; staleLabel: string; retryLabel: string };
+export type ShellProps = { nav: NavItem[]; crumbs: { label: string; route?: Route }[]; searchText: string; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps };
+
+/**
+ * 切れているあいだの帯。
+ * connecting では出さない。最初の接続は読み込み中の画面が担っていて、そこに帯を重ねても言うことが増えないからである。
+ * 言うのは「WebSocket の状態」ではなく、その結果である「画面がいつのまま止まっているか」と「次にいつ試すか」の 2 つにする。
+ */
+function connProps(state: State, now: number): ConnProps {
+  if (state.connection !== 'disconnected') return { visible: false, staleLabel: '', retryLabel: '' };
+  const left = state.nextRetryAt === null ? 0 : Math.ceil((state.nextRetryAt - now) / 1000);
+  // 1 分未満は「1 分未満前のまま」と読みにくいので、時刻を言わずに止まったことだけを言う。
+  const justNow = state.staleSince === null || now - state.staleSince < 60_000;
+  return {
+    visible: true,
+    staleLabel: justNow ? '画面の更新が止まっています' : `画面は ${relativeTime(state.staleSince, now)}のまま止まっています`,
+    // 待ち時間が尽きたあとは、秒を 0 と出さずに、試している最中だと言う。
+    retryLabel: left > 0 ? `${left} 秒後に再接続します` : '再接続しています',
+  };
+}
 
 /**
  * ヘッダーに出す同期の一行。
@@ -52,5 +72,5 @@ export function presentShell(state: State, store: Store, now: number): ShellProp
   const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
   const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
-  return { nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, connection: state.connection, index: idx, indexLabel, usage, sync: syncProps(state, store, now) };
+  return { nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now) };
 }

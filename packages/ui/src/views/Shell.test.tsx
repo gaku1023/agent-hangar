@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { nav: [{ route: { name: 'home' as const }, label: 'Home', current: true }, { route: { name: 'projects' as const }, label: 'Projects', current: false }], crumbs: [{ label: 'Projects', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', connection: 'connected' as const, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false } };
+const props = { nav: [{ route: { name: 'home' as const }, label: 'Home', current: true }, { route: { name: 'projects' as const }, label: 'Projects', current: false }], crumbs: [{ label: 'Projects', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false } };
 
 describe('Shell', () => {
   it('ナビと検索が Intent になる', () => {
@@ -22,10 +22,20 @@ describe('Shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
   });
-  it('切断と索引の進行を表示する', () => {
-    render(<IntentRoot onIntent={() => {}}><Shell {...props} connection="disconnected" indexLabel="索引 3 / 9 件" overlays={null}><div /></Shell></IntentRoot>);
-    expect(screen.getByText('再接続中')).toBeInTheDocument();
+  it('切断の帯と索引の進行を表示する', () => {
+    const onIntent = vi.fn();
+    const conn = { visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します' };
+    render(<IntentRoot onIntent={onIntent}><Shell {...props} conn={conn} indexLabel="索引 3 / 9 件" overlays={null}><div /></Shell></IntentRoot>);
+    const banner = within(screen.getByRole('status'));
+    expect(banner.getByText('画面は 2 分前のまま止まっています')).toBeInTheDocument();
+    expect(banner.getByText('8 秒後に再接続します')).toBeInTheDocument();
+    fireEvent.click(banner.getByRole('button', { name: 'いますぐ再接続' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'conn.retry' });
     expect(screen.getByText('索引 3 / 9 件')).toBeInTheDocument();
+  });
+  it('つながっている間は帯を出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
+    expect(screen.queryByRole('status')).toBeNull();
   });
   it('同期の状態と操作を出し、off では出さない', () => {
     const onIntent = vi.fn();

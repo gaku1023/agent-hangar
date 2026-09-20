@@ -18,8 +18,10 @@ a:hover { text-decoration: underline; }
 .app-boot { display: grid; place-items: center; height: 100%; color: var(--ink-2); }
 
 /* レイアウト */
-.shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; grid-template-rows: var(--header-h) 1fr; height: 100%; }
-.sidebar { grid-row: 1 / span 2; border-right: 1px solid var(--line); background: var(--surface); padding: calc(var(--u) * 3) 0; }
+/* 2 行目は接続が切れているあいだの帯。帯が無いときは auto が 0 に潰れるので、何も描かない。 */
+.shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; grid-template-rows: var(--header-h) auto 1fr; height: 100%; }
+/* 行が増えても全部を覆うように、端から端まで跨がせる。 */
+.sidebar { grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); padding: calc(var(--u) * 3) 0; }
 .header { grid-column: 2; display: flex; align-items: center; gap: calc(var(--u) * 3); padding: 0 calc(var(--u) * 4); border-bottom: 1px solid var(--line); background: var(--surface); }
 .main { grid-column: 2; overflow: auto; }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 4); }
@@ -97,8 +99,12 @@ a:hover { text-decoration: underline; }
 .crumbs b { color: var(--ink); font-weight: 500; }
 .search-box { flex: 1; max-width: 420px; }
 .spacer { flex: 1; }
-.conn { font-size: var(--fs-xs); color: var(--ink-3); }
-.conn[data-state='disconnected'] { color: var(--error); }
+
+/* 切断の帯。ヘッダーの下に降りてきて、押せる逃げ道をひとつ添える。 */
+.conn-banner { grid-column: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); padding: var(--u) calc(var(--u) * 4); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 8%, var(--surface)); border-bottom: 1px solid color-mix(in srgb, var(--error) 30%, var(--line)); animation: drop-in var(--dur-slow) var(--ease); }
+.conn-retry { color: color-mix(in srgb, var(--error) 70%, var(--ink-3)); }
+.conn-banner .btn { margin-left: auto; }
+@keyframes drop-in { from { transform: translateY(-4px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* オーバーレイ */
 .overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 30%, transparent); display: grid; place-items: center; z-index: 10; }

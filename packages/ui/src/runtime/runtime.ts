@@ -13,6 +13,8 @@ export type RuntimeDeps = {
   location: { getHash(): string; setHash(h: string): void; onHashChange(cb: () => void): () => void };
   storage: { get(key: string): unknown; set(key: string, value: unknown): void; keys(): string[] };
   setTimeout: (fn: () => void, ms: number) => unknown;
+  /** いま何時か。切断の時刻を Mediator へ渡すために要る。テストが差し替えられるように受け口にしてある。 */
+  now?: () => number;
   terminals: TerminalHost;
   /** terminal だけはランタイムが自分で処理するので、ここへは渡らない。 */
   focus?: (target: Exclude<FocusTarget, 'terminal'>) => void;
@@ -290,7 +292,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       state = { ...state, sessionView: sv };
       ws = deps.ws({
         onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),
-        onClose: () => dispatch({ kind: 'runtime', event: { type: 'ws.close' } }),
+        // 切れた時刻を添える。Mediator は純粋な遷移なので、画面がいつから古いかを自分では測れない。
+        onClose: () => dispatch({ kind: 'runtime', event: { type: 'ws.close', at: (deps.now ?? Date.now)() } }),
         onEvent: (ev) => dispatch({ kind: 'server', event: ev }),
       });
       unsubHash = deps.location.onHashChange(() => dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } }));

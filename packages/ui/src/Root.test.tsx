@@ -73,6 +73,18 @@ describe('Root', () => {
     expect(screen.queryByText('hello')).toBeNull();
     vi.useRealTimers();
   });
+  it('切断の帯は秒を刻む', () => {
+    vi.useFakeTimers();
+    const { rt, deps, handlers } = make();
+    rt.start();
+    render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
+    act(() => handlers[0]!.onClose());
+    expect(screen.getByRole('status')).toHaveTextContent('2 秒後に再接続します');
+    // 相対時刻の時計は既定では 30 秒ごとなので、切れているあいだだけ速く刻まないと数字が嘘になる。
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(screen.getByRole('status')).toHaveTextContent('1 秒後に再接続します');
+    vi.useRealTimers();
+  });
   it('キーボード。/ で検索欄にフォーカスし、⌘K でパレットが開き、Esc で閉じる', async () => {
     const { rt, deps, handlers } = make();
     rt.start();
