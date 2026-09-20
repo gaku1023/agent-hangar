@@ -55,6 +55,18 @@ const putMeta = (db: D1Database, key: string, value: string): D1PreparedStatemen
   db.prepare('insert into meta (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').bind(key, value);
 
 /**
+ * この isolate が最後に当番を取りにいった時刻。
+ * `GET /files` は端末が何度も叩く経路なので、毎回 D1 へ取りにいくと往復だけが増える。
+ * 覚えておけば、ふつうの要求は D1 に触らずに帰れる。isolate が死んでも困らない（次が取りにいくだけである）。
+ */
+let triedAt = 0;
+
+/** テスト専用。isolate をまたいだ覚えを落とす。 */
+export function resetSweepThrottle(): void {
+  triedAt = 0;
+}
+
+/**
  * 掃除の当番を 1 本だけ取る。
  *
  * 条件付きの 1 文で取るので、同時に来た要求どうしでも走るのは 1 本だけである
@@ -62,6 +74,8 @@ const putMeta = (db: D1Database, key: string, value: string): D1PreparedStatemen
  * 取れなければ null を返し、何もしない。
  */
 export async function sweepIfDue(env: Env, now: number): Promise<SweepResult | null> {
+  if (now - triedAt < SWEEP_EVERY_MS) return null;
+  triedAt = now;
   const db = env.DB;
   const claim = await meteredBatch(
     db,

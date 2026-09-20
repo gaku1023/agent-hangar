@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLOUD_HEADERS } from '@agent-hangar/shared';
 import { d1RowsToday } from '../src/meter.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
-import { META_SWEEP_AT, SWEEP_EVERY_MS, SWEEP_GRACE_MS, SWEEP_LIST_LIMIT, sweepIfDue, sweepOnce } from '../src/sweep.ts';
+import { META_SWEEP_AT, SWEEP_EVERY_MS, SWEEP_GRACE_MS, SWEEP_LIST_LIMIT, resetSweepThrottle, sweepIfDue, sweepOnce } from '../src/sweep.ts';
 import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
 
@@ -61,6 +61,8 @@ const orphanIndex = async (key: string, uploadedAt: number): Promise<void> => {
 
 beforeEach(async () => {
   resetSchemaCache();
+  // 当番の覚えは isolate ごとなので、テストごとに落とす（本番では isolate が入れ替わるときに落ちる）。
+  resetSweepThrottle();
   cloud = await startCloud({ JOIN_SECRET_HASH: await sha256Hex(SECRET) });
   await ensureSchema(cloud.env);
   tok = await join('a');
@@ -156,6 +158,7 @@ describe('掃除の回し方', () => {
     const before = await d1RowsToday(cloud.env.DB, now);
     await sweepIfDue(cloud.env, now + 2 * HOUR);
     const spent = (await d1RowsToday(cloud.env.DB, now)) - before;
+    expect(spent).toBeGreaterThan(0);   // 走らなかったのを「安い」と読み違えない。
     // 1 回の掃除で D1 に書く行数。走るのは 1 日に 4 回なので、1 日 10 万行の枠の 0.1% にも遠い。
     expect(spent).toBeLessThanOrEqual(16);
     expect((86_400_000 / SWEEP_EVERY_MS) * spent).toBeLessThan(100);
