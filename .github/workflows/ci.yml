@@ -8,10 +8,10 @@ on:
 permissions:
   contents: read
 # 同じ枝に続けて押したとき、古い実行を畳む。
-# 公開のリポジトリなので、無駄に走らせない。
+# main だけは畳まない。畳むと、その手前のコミットが緑だったかどうかが記録に残らない。
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   check:
     runs-on: ubuntu-latest

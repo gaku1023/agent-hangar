@@ -62,7 +62,6 @@ export function SettingsScreen(props: SettingsProps) {
   const toolsDirty = Object.keys(toolsPatch).length > 0;
   // 4 つの保存ボタンは、どれも「変えたときだけ押せる」で揃える。
   // 何も変えずに押せると patch が飛び、何もしていないのに「設定を保存しました」と出る。
-  // ワークスペースは、同じ値を送っても直下のディレクトリを登録し直すので、空押しの代償がいちばん大きい。
   // 見比べるのは、押したときに実際に送る値である。
   // パスの欄は送る前に前後の空白を落とすので、空白を足しただけでは変更にならない。
   const wsDirty = ws !== props.workspaceRoot;

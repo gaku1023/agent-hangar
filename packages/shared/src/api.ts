@@ -56,9 +56,10 @@ export type SyncSkippedDto = { key: string; attempts: number; message: string };
  * 同期の状態に添える付録。
  * SyncStatusDto を組み立てる SyncEngine は、どちらの値も持っていない。
  * 諦めた本文を覚えているのは RemotePuller で、取り残しを数えられるのは TranscriptUploader だけである。
- * だから websocket の sync.status には載らず、HTTP の応答（bootstrap と /sync/status と /sync/now と /sync/pause）だけが運ぶ。
+ * そこで、配るところで添える。HTTP の応答（bootstrap と /sync/status と /sync/now と /sync/pause）も、
+ * websocket の sync.status も、同じ付録を運ぶ。片方だけにすると、画面の件数が古いまま貼り付く。
  * sweepPending は、これから上がる本文の件数である。
- * 消したセッションの本文と、上げるのを諦めた本文は入らない（どちらも上がる予定に無い）。
+ * 消したセッションの本文と、上げるのを諦めた本文は入らない（諦めた本文は skipped として別に出るので、入れると二重に数える）。
  * 数えられないときは null になる（同期を設定していない端末と、この口を持たない古いサーバ）。
  */
 export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | null };
