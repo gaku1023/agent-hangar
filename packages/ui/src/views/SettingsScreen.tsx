@@ -35,8 +35,6 @@ export function SettingsScreen(props: SettingsProps) {
   // 数字でない文字は NaN になるので、これも送らない。
   const capNumber = cap.trim() === '' ? Number.NaN : Number(cap);
   const capValid = Number.isInteger(capNumber) && capNumber >= 1 && capNumber <= 200;
-  // 要約器は 4 項目をまとめて送る。
-  // 空の patch にならないので、ツールの保存のような無効化はいらない。
   const saveSummarizer = () => {
     if (!capValid) { setCapError(true); return; }
     setCapError(false);
@@ -53,6 +51,19 @@ export function SettingsScreen(props: SettingsProps) {
   if (code !== props.codePath) toolsPatch.codePath = code;
   // 空の patch はサーバが 400 にして、英語のエラートーストになってしまう。
   const toolsDirty = Object.keys(toolsPatch).length > 0;
+  // 4 つの保存ボタンは、どれも「変えたときだけ押せる」で揃える。
+  // 何も変えずに押せると patch が飛び、何もしていないのに「設定を保存しました」と出る。
+  // ワークスペースは、同じ値を送っても直下のディレクトリを登録し直すので、空押しの代償がいちばん大きい。
+  // 見比べるのは、押したときに実際に送る値である。
+  // パスの欄は送る前に前後の空白を落とすので、空白を足しただけでは変更にならない。
+  const wsDirty = ws !== props.workspaceRoot;
+  const nodeValue = nodePath.trim() || null;
+  const nodeDirty = nodeValue !== (props.nodePath || null);
+  // 要約器は 5 項目をまとめて送るので、1 つでも変わっていれば押せる。
+  // 読めない上限（空や小数）は capNumber が NaN になるため、ここでは必ず「変わっている」側に入る。
+  // 押せないと、1 から 200 までの整数を入れてくださいという案内を出す道が無くなってしまう。
+  const summarizerDirty = lmUrl !== props.lmStudioUrl || (lmModel || null) !== props.lmStudioModel
+    || fallback !== props.summaryFallback || capNumber !== props.summaryHourlyCap || allowExternal !== props.allowExternalSummarizer;
   return (
     <div className="screen" style={{ maxWidth: 720 }}>
       <h1 className="h1">Settings</h1>
@@ -60,7 +71,7 @@ export function SettingsScreen(props: SettingsProps) {
         <h2 className="h2">ワークスペース</h2>
         <div style={{ display: 'flex', gap: 8 }}>
           <input className="input mono" style={{ flex: 1 }} aria-label="ワークスペースのルート" value={ws} onChange={(e) => setWs(e.target.value)} />
-          <button className="btn btn-primary" onClick={() => emit({ type: 'settings.update', patch: { workspaceRoot: ws } })}>保存</button>
+          <button className="btn btn-primary" disabled={!wsDirty} onClick={() => emit({ type: 'settings.update', patch: { workspaceRoot: ws } })}>保存</button>
         </div>
         <div className="faint" style={{ marginTop: 4 }}>直下のディレクトリのうち、Claude のセッションがあるものをプロジェクトとして登録します。</div>
       </section>
@@ -132,7 +143,7 @@ export function SettingsScreen(props: SettingsProps) {
         <label className="settings-row"><span>1 時間の上限</span><input className="input mono" type="number" min={1} max={200} step={1} style={{ width: 72 }} aria-label="1 時間の上限" value={cap} onChange={(e) => { setCap(e.target.value); setCapError(false); }} /><span className="faint">件。1 から 200 まで。7 日の使用率が 80% を超えたら切り替えません。</span></label>
         {capError && <div className="error" role="alert" style={{ marginTop: 4 }}>1 から 200 までの整数を入れてください</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <button className="btn btn-primary" onClick={saveSummarizer}>要約器の設定を保存</button>
+          <button className="btn btn-primary" disabled={!summarizerDirty} onClick={saveSummarizer}>要約器の設定を保存</button>
           <button className="btn" onClick={() => emit({ type: 'summarizer.test' })}>要約器を試す</button>
         </div>
         {props.summarizerTest?.ok === true && (
@@ -242,7 +253,7 @@ export function SettingsScreen(props: SettingsProps) {
         <h2 className="h2">デスクトップアプリ</h2>
         <div style={{ display: 'flex', gap: 8 }}>
           <input className="input mono" style={{ flex: 1 }} aria-label="Node のパス" placeholder="/opt/homebrew/bin/node" value={nodePath} onChange={(e) => setNodePath(e.target.value)} />
-          <button className="btn" onClick={() => emit({ type: 'settings.update', patch: { nodePath: nodePath.trim() || null } })}>Node のパスを保存</button>
+          <button className="btn" disabled={!nodeDirty} onClick={() => emit({ type: 'settings.update', patch: { nodePath: nodeValue } })}>Node のパスを保存</button>
         </div>
         <div className="faint" style={{ marginTop: 4 }}>空なら /opt/homebrew/bin/node、/usr/local/bin/node、nvm の順に探します。同梱サーバと同じメジャー版の Node が必要です。</div>
       </section>

@@ -104,13 +104,51 @@ describe('SettingsScreen', () => {
   });
   it('Node のパスを保存でき、空なら null を送る', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ nodePath: '/opt/homebrew/bin/node' })} /></IntentRoot>);
     fireEvent.change(screen.getByLabelText('Node のパス'), { target: { value: '/opt/node22/bin/node' } });
     fireEvent.click(screen.getByText('Node のパスを保存'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { nodePath: '/opt/node22/bin/node' } });
+    // 空白だけにするのは「指定を消す」なので、指定が入っていた端末では変更である。
     fireEvent.change(screen.getByLabelText('Node のパス'), { target: { value: '  ' } });
     fireEvent.click(screen.getByText('Node のパスを保存'));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { nodePath: null } });
+  });
+  it('4 つの保存ボタンは、どれも変えたときだけ押せる', () => {
+    // 何も変えずに押せると、patch が飛んで「設定を保存しました」のトーストが出る。
+    // workspaceRoot に至っては、同じ値でもプロジェクトの登録し直しが走る。
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ nodePath: '/opt/homebrew/bin/node' })} /></IntentRoot>);
+    const buttons = ['保存', 'ツールの設定を保存', '要約器の設定を保存', 'Node のパスを保存'].map((t) => screen.getByText(t));
+    for (const b of buttons) { expect(b).toBeDisabled(); fireEvent.click(b); }
+    expect(onIntent).not.toHaveBeenCalled();
+    const changes: [string, string][] = [['ワークスペースのルート', '/w2'], ['code のパス', '/usr/local/bin/code'], ['LM Studio の URL', 'http://127.0.0.1:2345'], ['Node のパス', '/opt/node22/bin/node']];
+    for (const [i, [label, value]] of changes.entries()) {
+      const field = screen.getByLabelText(label);
+      const before = (field as HTMLInputElement).value;
+      fireEvent.change(field, { target: { value } });
+      expect(buttons[i]).toBeEnabled();
+      // 元に戻せばまた押せなくなる。
+      fireEvent.change(field, { target: { value: before } });
+      expect(buttons[i]).toBeDisabled();
+    }
+    // パスの欄は送る前に前後の空白を落とすので、空白を足しただけでは変更にならない。
+    for (const [label, i] of [['code のパス', 1], ['Node のパス', 3]] as const) {
+      const field = screen.getByLabelText(label) as HTMLInputElement;
+      fireEvent.change(field, { target: { value: ` ${field.value} ` } });
+      expect(buttons[i]).toBeDisabled();
+    }
+  });
+  it('チェックボックスと上限だけを変えても要約器の保存は押せる', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const save = screen.getByText('要約器の設定を保存');
+    expect(save).toBeDisabled();
+    fireEvent.click(screen.getByLabelText('Claude へ切り替える'));
+    expect(save).toBeEnabled();
+    fireEvent.click(screen.getByLabelText('Claude へ切り替える'));
+    expect(save).toBeDisabled();
+    // 読めない上限も「変えた」に入れる。押せないと案内を出す道が無くなる。
+    fireEvent.change(screen.getByLabelText('1 時間の上限'), { target: { value: '' } });
+    expect(save).toBeEnabled();
   });
   it('サーバが正規化した Node のパスを入力欄に反映する', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
