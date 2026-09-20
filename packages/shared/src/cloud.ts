@@ -21,7 +21,8 @@ export type ChangeOut = ChangeIn & { seq: number; deviceId: string };
  * 古い Worker は返さないので任意である。受け取れないときは端末側の見積もりに落ちる。
  */
 export type PushChangesResponse = { seq: number; accepted: number; skipped: number; d1RowsToday?: number };
-export type PullChangesResponse = { changes: ChangeOut[]; nextSeq: number; more: boolean };
+/** pull の応答。`d1RowsToday` は push の応答と同じ数である（押すものが無い日でも端末へ届くように載せる）。 */
+export type PullChangesResponse = { changes: ChangeOut[]; nextSeq: number; more: boolean; d1RowsToday?: number };
 export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null; seq: number };
 
 export type FileKind = 'transcript' | 'config';

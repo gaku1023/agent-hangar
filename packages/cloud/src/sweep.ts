@@ -15,6 +15,11 @@ import { META_D1_ROWS_PREFIX, meteredBatch } from './meter.ts';
  * - 1 回に見るのは R2 の 50 件と索引の 50 行までで、続きは `meta` に控えた続きから読む。
  * - 置いてから 1 時間たっていないものには触らない。書いている最中の 1 本を消さないためである。
  *
+ * 猶予と参照の判定は「読んだ時点の写し」なので、読んでから消すまでの間に同じ鍵の `PUT` が着地すると、
+ * 生きているものを消しうる（レビューの要修正 2 と 3）。
+ * 索引の方は `delete` に猶予の条件を持たせて、消す文そのものが新しい行を外す形にした（窓は無い）。
+ * R2 の方は条件付きの削除が無いので、消す直前に索引と `head` を取り直して窓を 1 往復ぶんまで縮めてある。
+ *
  * 1 回の掃除が D1 に書くのは、続きの控えと日ごとの台帳で 10 行ほどである。
  * 1 日 4 回でも 50 行に届かない（無料枠は 1 日 10 万行）。
  * R2 の側は 1 回につき一覧が 1 回（class A）と存在の確認が 50 回（class B）までで、
@@ -115,13 +120,31 @@ async function sweepBodies(env: Env, now: number): Promise<{ deleted: string[]; 
   const next = listed.truncated ? listed.cursor : '';
   const old = listed.objects.filter((o) => o.uploaded.getTime() < cutoff).map((o) => o.key);
   if (old.length === 0) return { deleted: [], cursor: next };
-  const known = await env.DB.prepare(`select key from files where key in (${old.map(() => '?').join(',')})`)
-    .bind(...old)
+  const doomed = await unreferenced(env, old);
+  if (doomed.length === 0) return { deleted: [], cursor: next };
+  // 消す直前にもう一度確かめる。
+  // 一覧と索引の引き当てはどちらも読んだ時点の写しなので、その間に着地した `PUT` を見ていない。
+  // R2 に条件付きの削除は無いので窓を 0 にはできないが、ここで取り直せば 1 往復ぶんまで縮む。
+  // `PUT` は R2 を先に、索引を後に書くので、索引まで終わっていれば引き当てが拾い、
+  // 索引の手前で止まっていれば `uploaded` の新しさが拾う。
+  const still = await unreferenced(env, doomed);
+  const heads = await Promise.all(still.map((k) => env.BUCKET.head(k)));
+  const safe = still.filter((_, i) => {
+    const h = heads[i];
+    return !!h && h.uploaded.getTime() < cutoff;
+  });
+  if (safe.length) await env.BUCKET.delete(safe);
+  return { deleted: safe, cursor: next };
+}
+
+/** 索引に無い鍵だけを残す。 */
+async function unreferenced(env: Env, keys: string[]): Promise<string[]> {
+  if (keys.length === 0) return [];
+  const known = await env.DB.prepare(`select key from files where key in (${keys.map(() => '?').join(',')})`)
+    .bind(...keys)
     .all<{ key: string }>();
   const indexed = new Set(known.results.map((r) => r.key));
-  const doomed = old.filter((k) => !indexed.has(k));
-  if (doomed.length) await env.BUCKET.delete(doomed);
-  return { deleted: doomed, cursor: next };
+  return keys.filter((k) => !indexed.has(k));
 }
 
 /** 索引を順に読み、本体の無い行を消す。 */
@@ -140,8 +163,15 @@ async function sweepEntries(env: Env, now: number): Promise<{ deleted: string[];
   if (old.length === 0) return { deleted: [], seq: next };
   const found = await Promise.all(old.map((r) => env.BUCKET.head(r.key)));
   const doomed = old.filter((_, i) => found[i] === null).map((r) => r.key);
-  if (doomed.length) {
-    await meteredBatch(db, [db.prepare(`delete from files where key in (${doomed.map(() => '?').join(',')})`).bind(...doomed)], now);
-  }
-  return { deleted: doomed, seq: next };
+  if (doomed.length === 0) return { deleted: [], seq: next };
+  // 消す文そのものに猶予を持たせる。
+  // 読んでから消すまでの間に同じ鍵の `PUT` が着地しても、その行の `uploaded_at` は猶予の中なので当たらない。
+  // 鍵だけで消すと、置き直したばかりの生きている行を消して、上げた端末だけが 201 を握ったまま取り残される。
+  const res = await meteredBatch(
+    db,
+    [db.prepare(`delete from files where key in (${doomed.map(() => '?').join(',')}) and uploaded_at < ?`).bind(...doomed, cutoff)],
+    now,
+  );
+  // 実際に消えた数だけを返す。着地した行を残したときは、その鍵は次の回でまた見る。
+  return { deleted: Number(res[0]?.meta?.changes ?? 0) === doomed.length ? doomed : doomed.slice(0, Number(res[0]?.meta?.changes ?? 0)), seq: next };
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ChangeIn } from '@agent-hangar/shared';
-import { FLUSH_ROWS, META_ROWS_PER_FLUSH, d1RowsKey, d1RowsToday, meteredBatch, resetMeter } from '../src/meter.ts';
+import { META_ROWS_PER_NOTE, d1RowsKey, d1RowsToday, meteredBatch } from '../src/meter.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
@@ -35,7 +35,13 @@ const push = async (tok: string, changes: ChangeIn[]): Promise<{ accepted: numbe
   return (await r.json()) as { accepted: number; d1RowsToday?: number };
 };
 
-/** 台帳の行を Node 側から直に読む。Worker が持ち越している分は入らない。 */
+const pull = async (tok: string, since = 0): Promise<{ nextSeq: number; d1RowsToday?: number }> =>
+  (await (await cloud.SELF.fetch(`https://x/changes?since=${since}`, { headers: { authorization: `Bearer ${tok}` } })).json()) as {
+    nextSeq: number;
+    d1RowsToday?: number;
+  };
+
+/** 台帳の行を Node 側から直に読む。Worker が持ち越している分は無いので、これが正本である。 */
 const ledger = async (now: number): Promise<number | null> => {
   const r = await cloud.env.DB.prepare('select value from meta where key = ?').bind(d1RowsKey(now)).first<{ value: string }>();
   return r ? Number(r.value) : null;
@@ -43,71 +49,64 @@ const ledger = async (now: number): Promise<number | null> => {
 
 /**
  * D1 の代わりに、渡された文と申告する行数を覚えるだけの立て替えである。
- * 台帳の 1 文がいつ混ざるかという規則だけを見たいので、SQL は実行しない。
+ * 台帳へいつ書きに行くかという規則だけを見たいので、SQL は実行しない。
  */
-function stubDb(rowsPerStatement: number): { db: D1Database; batches: unknown[][]; bound: unknown[][] } {
+function stubDb(rowsPerStatement: number): { db: D1Database; batches: unknown[][]; runs: unknown[][] } {
   const batches: unknown[][] = [];
-  const bound: unknown[][] = [];
-  // 台帳の行はまだ無い（書き出しの前）という顔をする。持ち越しの側だけを見たいからである。
-  const stmt = { bind: (...a: unknown[]) => { bound.push(a); return stmt; }, first: async () => null } as unknown as D1PreparedStatement;
+  const runs: unknown[][] = [];
+  const mk = (): D1PreparedStatement => {
+    let args: unknown[] = [];
+    const stmt = {
+      bind: (...a: unknown[]) => { args = a; return stmt; },
+      run: async () => { runs.push(args); return { meta: { rows_written: 1 } }; },
+      first: async () => null,
+    };
+    return stmt as unknown as D1PreparedStatement;
+  };
   const db = {
-    prepare: () => stmt,
+    prepare: () => mk(),
     batch: async (s: D1PreparedStatement[]) => {
       batches.push([...s]);
       return s.map(() => ({ meta: { rows_written: rowsPerStatement } })) as unknown as D1Result[];
     },
   } as unknown as D1Database;
-  return { db, batches, bound };
+  return { db, batches, runs };
 }
 
-describe('台帳の持ち越しと書き出し', () => {
-  beforeEach(() => { resetMeter(); });
-  afterEach(() => { resetMeter(); });
+describe('台帳の書き出し', () => {
+  const now = Date.UTC(2026, 8, 20, 1, 0, 0);
 
-  it('たまるまでは台帳へ書きに行かない（書き込みの回数を増やさない）', async () => {
-    const now = Date.UTC(2026, 8, 20, 1, 0, 0);
-    const { db, batches } = stubDb(1);
-    // 1 文 1 行の batch を、閾値に届かないだけ繰り返す。
-    for (let i = 0; i < FLUSH_ROWS - 1; i++) await meteredBatch(db, [db.prepare('x')], now);
-    expect(batches.every((b) => b.length === 1)).toBe(true);
-    // 数え自体は持ち越しに載っているので、その日の合計として読める（台帳は空でも 0 にならない）。
-    expect(await d1RowsToday(db, now)).toBe(FLUSH_ROWS - 1);
+  it('書いた行数は、その要求の中で台帳へ書き出す', async () => {
+    const { db, batches, runs } = stubDb(3);
+    await meteredBatch(db, [db.prepare('x'), db.prepare('y')], now);
+    // 仕事の batch には何も混ぜない。台帳は別の 1 文で、同じ要求の中で書き出す。
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(2);
+    expect(runs).toEqual([[d1RowsKey(now), String(6 + META_ROWS_PER_NOTE), 6 + META_ROWS_PER_NOTE]]);
   });
 
-  it('たまったら次の batch に台帳の 1 文を混ぜ、その 1 文ぶんも数える', async () => {
-    const now = Date.UTC(2026, 8, 20, 1, 0, 0);
-    const { db, batches, bound } = stubDb(FLUSH_ROWS);
-    await meteredBatch(db, [db.prepare('x')], now);          // 持ち越し 64
-    await meteredBatch(db, [db.prepare('x')], now);          // ここで書き出す
-    expect(batches[0]!.length).toBe(1);
-    expect(batches[1]!.length).toBe(2);
-    // 書き出した額は持ち越していた 64 で、その 1 文ぶん（META_ROWS_PER_FLUSH）は次へ持ち越す。
-    expect(bound.at(-1)).toEqual([d1RowsKey(now), String(FLUSH_ROWS), FLUSH_ROWS]);
-  });
-
-  it('日をまたいだ持ち越しは、たまっていなくても前の日の鍵へ書き出す', async () => {
-    const day1 = Date.UTC(2026, 8, 20, 23, 59, 0);
-    const day2 = Date.UTC(2026, 8, 21, 0, 1, 0);
-    const { db, batches, bound } = stubDb(3);
-    await meteredBatch(db, [db.prepare('x')], day1);
-    await meteredBatch(db, [db.prepare('x')], day2);
-    expect(batches[1]!.length).toBe(2);
-    expect(bound.at(-1)).toEqual([d1RowsKey(day1), '3', 3]);
-    // 新しい日の数えは、前の日の分を引きずらない。
-    expect(await d1RowsToday(db, day2)).toBe(3 + META_ROWS_PER_FLUSH);
-  });
-
-  it('batch が落ちたら、書き出そうとした分を持ち越しに戻す', async () => {
-    const now = Date.UTC(2026, 8, 20, 1, 0, 0);
-    const { db } = stubDb(FLUSH_ROWS);
+  it('書き込みの無い要求では台帳に触らない', async () => {
+    const { db, runs } = stubDb(0);
     await meteredBatch(db, [db.prepare('x')], now);
+    expect(runs).toEqual([]);
+  });
+
+  it('台帳の書き出しが落ちても、要求は落とさない', async () => {
+    const { db } = stubDb(3);
     const broken = {
-      prepare: db.prepare.bind(db),
-      batch: async () => { throw new Error('D1_ERROR'); },
+      prepare: () => ({ bind: () => ({ run: async () => { throw new Error('D1_ERROR'); } }) }),
+      batch: db.batch.bind(db),
     } as unknown as D1Database;
-    await expect(meteredBatch(broken, [broken.prepare('x')], now)).rejects.toThrow('D1_ERROR');
-    // 書けていないのだから、数えも減らない。
-    expect(await d1RowsToday(db, now)).toBe(FLUSH_ROWS);
+    // 仕事はもう書けている。500 を返すと端末が同じ書き込みを送り直す。
+    await expect(meteredBatch(broken, [broken.prepare('x')], now)).resolves.toHaveLength(1);
+  });
+
+  it('日ごとに別の鍵へ積む', async () => {
+    const { db, runs } = stubDb(1);
+    const day2 = now + 86_400_000;
+    await meteredBatch(db, [db.prepare('x')], now);
+    await meteredBatch(db, [db.prepare('x')], day2);
+    expect(runs.map((r) => r[0])).toEqual([d1RowsKey(now), d1RowsKey(day2)]);
   });
 });
 
@@ -124,39 +123,54 @@ describe('実物の Worker が数える行数', () => {
     const first = await push(tok, [ch('p1', 1), ch('p2', 1)]);
     expect(first.accepted).toBe(2);
     expect(typeof first.d1RowsToday).toBe('number');
-    // 2 度目の push の差は、その push が実際に書いた行数そのものである。
-    // 採った 1 行につき changes（本体 + changes_device + autoincrement の連番）で 3 行、
+    // 2 度目の push の差は、その push が実際に書いた行数に台帳の 1 文ぶんを足した数である。
+    // 採った 1 行につき、changes（本体 + changes_device + autoincrement の連番）で 3 行、
     // 鏡（本体 + k の主キーの索引）で 2 行、末尾の devices の更新で 1 行である。
     const second = await push(tok, [ch('p3', 1), ch('p4', 1)]);
-    expect(second.d1RowsToday! - first.d1RowsToday!).toBe(2 * (3 + 2) + 1);
-    // 同着で弾かれた行は 1 行も書かないので、devices の 1 行しか増えない。
+    expect(second.d1RowsToday! - first.d1RowsToday!).toBe(2 * (3 + 2) + 1 + META_ROWS_PER_NOTE);
+    // 同着で弾かれた行は 1 行も書かないので、devices の 1 行だけが増える。
     const third = await push(tok, [ch('p3', 1)]);
     expect(third.accepted).toBe(0);
-    expect(third.d1RowsToday! - second.d1RowsToday!).toBe(1);
+    expect(third.d1RowsToday! - second.d1RowsToday!).toBe(1 + META_ROWS_PER_NOTE);
   });
 
-  it('数えは D1 の台帳に残るので、要求をまたいで積み上がる', async () => {
+  it('pull の応答にも載せる（押すものが無い日でも端末へ届く）', async () => {
+    const tok = await join('a');
+    const tokB = await join('b');
+    await push(tok, [ch('p1', 1)]);
+    const p1 = await pull(tokB);
+    expect(typeof p1.d1RowsToday).toBe('number');
+    const p2 = await pull(tokB, p1.nextSeq);
+    // GET /changes は devices を 1 行書く。そこに台帳の 1 文ぶんが乗る。
+    expect(p2.d1RowsToday! - p1.d1RowsToday!).toBe(1 + META_ROWS_PER_NOTE);
+  });
+
+  /**
+   * isolate が要求ごとに入れ替わっても数えが消えないこと（レビューの致命 1）。
+   * 台帳は要求の中で D1 へ書き出すので、Worker の記憶に持ち越しは 1 行も残らない。
+   * Node 側から台帳を読むと、端末へ返した数とぴたり同じになる。
+   */
+  it('数えは要求ごとに D1 へ残るので、isolate が入れ替わっても消えない', async () => {
     const now = Date.now();
     const tok = await join('a');
-    expect(await ledger(now)).toBeNull();
-    // 閾値を越えるまで押し込むと、台帳の行が現れる。
     let reported = 0;
-    for (let i = 0; i < 20; i++) reported = (await push(tok, [ch(`p${i}`, 1)])).d1RowsToday!;
-    const onDisk = await ledger(now);
-    expect(onDisk).not.toBeNull();
-    // 台帳に出ているのは書き出した分までで、応答はそれに持ち越しを足した値である。
-    expect(reported).toBeGreaterThanOrEqual(onDisk!);
-    expect(reported - onDisk!).toBeLessThan(FLUSH_ROWS + META_ROWS_PER_FLUSH);
+    for (let i = 0; i < 10; i++) {
+      reported = (await push(tok, [ch(`p${i}`, 1)])).d1RowsToday!;
+      // 返した数がそのまま D1 に載っている。isolate が死んでも次の要求はここから続けられる。
+      expect(await ledger(now)).toBe(reported);
+    }
+    // 10 回ぶんが積み上がっている（1 回は 5 + 1 + 台帳の 1 文）。
+    expect(reported).toBeGreaterThanOrEqual(10 * (5 + 1 + META_ROWS_PER_NOTE));
   });
 
   it('端末の参加とスキーマの用意も数に入る', async () => {
     const tok = await join('a');
     const before = (await push(tok, [ch('p1', 1)])).d1RowsToday!;
-    // 押した行が書いた分（5 + devices の 1）を引いても、参加とスキーマの分が残る。
-    expect(before - 6).toBeGreaterThan(20);
+    // 押した行が書いた分（5 + devices の 1 + 台帳の 1 文）を引いても、参加とスキーマの分が残る。
+    expect(before - (6 + META_ROWS_PER_NOTE)).toBeGreaterThan(20);
     // 2 台目の参加は devices への insert（本体 + id の主キー + token_hash の unique）で 3 行である。
     const tokB = await join('b');
     const after = (await push(tokB, [ch('p2', 1)])).d1RowsToday!;
-    expect(after - before).toBe(3 + 6);
+    expect(after - before).toBe(3 + META_ROWS_PER_NOTE + 6 + META_ROWS_PER_NOTE);
   });
 });

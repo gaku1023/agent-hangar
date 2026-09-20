@@ -224,6 +224,11 @@ filesApp.get('/', async (c) => {
   }
   const since = toSince(c.req.query('since'));
   const limit = Math.min(Math.max(Number(c.req.query('limit') ?? PULL_LIMIT) || PULL_LIMIT, 1), PULL_LIMIT);
+  // 末尾の連番は一覧より **先に** 読む。
+  // 後で読むと、2 つの問い合わせの間に他端末が上げた 1 件が、返らないまま読み位置の後ろに入る。
+  // 端末は読み位置を進める側にしか動かない（puller.ts の `Math.max`）ので、その 1 件は二度と読まれない。
+  // 先に読めば、末尾は必ず実際以下になり、同じ索引をもう一度読む側にしか倒れない。
+  const end = await maxFileSeq(c.env.DB);
   const rows = await c.env.DB.prepare('select * from files where seq > ? order by seq limit ?')
     .bind(since, limit + 1)
     .all<FileRow>();
@@ -231,8 +236,7 @@ filesApp.get('/', async (c) => {
   const page = rows.results.slice(0, limit);
   // 端末が送ってきた `since` を返さない。`/changes`（changes.ts の `GET /`）と同じ形である。
   // 返すと、一度でも壊れた `since` を控えた端末の一覧が、その値のまま固まって永久に空になる。
-  // 末尾の行が消えて最大連番が下がることはあるが、そのときは同じ索引をもう一度読むだけで、落とす側には倒れない。
-  const nextSeq = more ? page[page.length - 1]!.seq : await maxFileSeq(c.env.DB);
+  const nextSeq = more ? page[page.length - 1]!.seq : Math.max(end, page.length ? page[page.length - 1]!.seq : 0);
   const res: ListFilesResponse = { files: page.map(toEntry), nextSeq, more };
   return c.json(res);
 });

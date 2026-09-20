@@ -38,6 +38,9 @@ const pushed = async (tok: string, changes: unknown): Promise<{ seq: number; acc
  */
 const pushResult = (o: { seq: number; accepted: number; skipped: number }) => ({ ...o, d1RowsToday: expect.any(Number) });
 
+/** pull の応答の形。`d1RowsToday` は push と同じ理由で、数であることだけを見る。 */
+const pullResult = (o: { changes: unknown[]; nextSeq: number; more: boolean }) => ({ ...o, d1RowsToday: expect.any(Number) });
+
 const pullRaw = (tok: string, since: number, limit = 500): Promise<Response> =>
   cloud.SELF.fetch(`https://x/changes?since=${since}&limit=${limit}`, { headers: { authorization: `Bearer ${tok}` } });
 
@@ -139,7 +142,7 @@ describe('GET /changes と GET /rows', () => {
     expect(a.more).toBe(false);
     const b = await pull(tokB, 0);
     expect(b.changes.map((c) => c.rowId)).toEqual(['p1', 'p3']);
-    expect(await pull(tokB, 3)).toEqual({ changes: [], nextSeq: 3, more: false });
+    expect(await pull(tokB, 3)).toEqual(pullResult({ changes: [], nextSeq: 3, more: false }));
     const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
     expect(dev?.last_pulled_seq).toBe(3);
   });
@@ -304,7 +307,7 @@ describe('圧縮', () => {
     expect(await seqs()).toEqual([]);
 
     expect((await rows(tokA)).seq).toBe(206);
-    expect(await pull(tokB, 1)).toEqual({ changes: [], nextSeq: 206, more: false });
+    expect(await pull(tokB, 1)).toEqual(pullResult({ changes: [], nextSeq: 206, more: false }));
     const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
     expect(dev?.last_pulled_seq).toBe(206);
     // 次の push も連番を振り直さない。
@@ -313,7 +316,7 @@ describe('圧縮', () => {
 
   it('でたらめに大きい since は読み位置を水増ししない', async () => {
     await push(tokA, [ch('p1', 1)]);
-    expect(await pull(tokB, 999_999)).toEqual({ changes: [], nextSeq: 1, more: false });
+    expect(await pull(tokB, 999_999)).toEqual(pullResult({ changes: [], nextSeq: 1, more: false }));
     const dev = await cloud.env.DB.prepare('select last_pulled_seq from devices where id = ?').bind('dev-b').first<{ last_pulled_seq: number }>();
     expect(dev?.last_pulled_seq).toBe(1); // ここが水増しされると、圧縮が未読の変更まで消しにいく
   });

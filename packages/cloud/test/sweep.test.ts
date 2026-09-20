@@ -123,6 +123,78 @@ describe('孤児の掃除', () => {
   });
 });
 
+/**
+ * レビュアが使った細工と同じものである。
+ * 掃除が「読んだ後、消す前」に、同じ鍵の `PUT` を着地させる。
+ * 着地させるのは本物の `PUT /files/<鍵>` なので、R2 の本体も D1 の索引も本番と同じ順で書かれる。
+ */
+const wrapStmt = (stmt: D1PreparedStatement, hook: () => Promise<void>): D1PreparedStatement =>
+  ({
+    bind: (...a: unknown[]) => wrapStmt((stmt as unknown as { bind: (...x: unknown[]) => D1PreparedStatement }).bind(...a), hook),
+    all: async () => { const r = await stmt.all(); await hook(); return r; },
+    first: (...a: unknown[]) => (stmt as unknown as { first: (...x: unknown[]) => unknown }).first(...a),
+    run: () => stmt.run(),
+    raw: () => stmt.raw(),
+  }) as unknown as D1PreparedStatement;
+
+/** `match` を含む問い合わせが終わった直後に、1 度だけ `land` を差し込む DB である。 */
+function dbWithLanding(db: D1Database, match: string, land: () => Promise<void>): D1Database {
+  let done = false;
+  const hook = async (): Promise<void> => { if (done) return; done = true; await land(); };
+  return {
+    prepare: (sql: string) => (sql.includes(match) ? wrapStmt(db.prepare(sql), hook) : db.prepare(sql)),
+    batch: (s: D1PreparedStatement[]) => db.batch(s),
+  } as unknown as D1Database;
+}
+
+/** `head` がその鍵を見た直後に、1 度だけ `land` を差し込む R2 である。 */
+function bucketWithLanding(b: R2Bucket, key: string, land: () => Promise<void>): R2Bucket {
+  let done = false;
+  return {
+    list: (o?: R2ListOptions) => b.list(o),
+    get: (k: string) => b.get(k),
+    put: (k: string, v: never, o?: never) => b.put(k, v, o),
+    delete: (k: string | string[]) => b.delete(k),
+    head: async (k: string) => {
+      const r = await b.head(k);
+      if (k === key && !done) { done = true; await land(); }
+      return r;
+    },
+  } as unknown as R2Bucket;
+}
+
+describe('消す直前に置き直しが着地しても、生きているものを消さない', () => {
+  it('索引の行（`head` の後に `PUT` が着地する筋）', async () => {
+    const now = Date.now();
+    const key = 'transcripts/a/live2.jsonl.gz';
+    // 本体の無い索引を置く。`PUT` が落ちた跡そのもので、端末が送り直す相手である。
+    await orphanIndex(key, now - 2 * HOUR);
+    const env = { ...cloud.env, BUCKET: bucketWithLanding(cloud.env.BUCKET, key, async () => { await put(key, 'okurinaoshi'); }) };
+    const r = await sweepOnce(env, now);
+    // 着地した行は猶予の中なので、消す文が当たらない。
+    expect(r.entries).toEqual([]);
+    expect(await indexKeys()).toEqual([key]);
+    expect(await bucketKeys()).toEqual([key]);
+    // 次の掃除でも、参照のある本体は消えない。
+    await sweepOnce(cloud.env, now + SWEEP_EVERY_MS);
+    expect(await bucketKeys()).toEqual([key]);
+    expect(await indexKeys()).toEqual([key]);
+  });
+
+  it('R2 の本体（索引を引いた後に `PUT` が着地する筋）', async () => {
+    const now = Date.now();
+    const key = 'transcripts/a/live.jsonl.gz';
+    await orphanBody(key);
+    const env = { ...cloud.env, DB: dbWithLanding(cloud.env.DB, 'select key from files where key in', async () => { await put(key, 'okurinaoshi'); }) };
+    // 時刻を進めて、孤児が猶予を抜けた形にする（R2 の `uploaded` は本物の時計で入る）。
+    const r = await sweepOnce(env, now + 2 * HOUR);
+    // 消す直前に索引を引き直すので、着地した本体は消さない。
+    expect(r.bodies).toEqual([]);
+    expect(await bucketKeys()).toEqual([key]);
+    expect(await indexKeys()).toEqual([key]);
+  });
+});
+
 describe('掃除の回し方', () => {
   it('間隔が空くまでは走らない', async () => {
     const now = Date.now();
@@ -155,9 +227,9 @@ describe('掃除の回し方', () => {
     const now = Date.now();
     for (let i = 0; i < 5; i++) await orphanBody(`transcripts/a/o${i}.gz`);
     await orphanIndex('transcripts/a/gone.gz', now - 2 * HOUR);
-    const before = await d1RowsToday(cloud.env.DB, now);
+    const before = (await d1RowsToday(cloud.env.DB, now)) ?? 0;
     await sweepIfDue(cloud.env, now + 2 * HOUR);
-    const spent = (await d1RowsToday(cloud.env.DB, now)) - before;
+    const spent = ((await d1RowsToday(cloud.env.DB, now)) ?? 0) - before;
     expect(spent).toBeGreaterThan(0);   // 走らなかったのを「安い」と読み違えない。
     // 1 回の掃除で D1 に書く行数。走るのは 1 日に 4 回なので、1 日 10 万行の枠の 0.1% にも遠い。
     expect(spent).toBeLessThanOrEqual(16);

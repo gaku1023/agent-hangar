@@ -272,7 +272,9 @@ changesApp.get('/', async (c) => {
   const nextSeq = more ? page[page.length - 1]!.seq : await maxSeq(db);
   const now = Date.now();
   await meteredBatch(db, [db.prepare('update devices set last_seen_at = ?, last_pulled_seq = max(last_pulled_seq, ?) where id = ?').bind(now, nextSeq, device.id)], now);
-  const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more };
+  // 押すものが無い日は push が起きないので、pull でも同じ数を返す。
+  // 応答も書き込みも増えない（台帳を 1 回読むだけである）。
+  const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more, d1RowsToday: await d1RowsToday(db, now) };
   return c.json(res);
 });
 
