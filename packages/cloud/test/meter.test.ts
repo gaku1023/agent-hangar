@@ -163,6 +163,40 @@ describe('実物の Worker が数える行数', () => {
     expect(reported).toBeGreaterThanOrEqual(10 * (5 + 1 + META_ROWS_PER_NOTE));
   });
 
+  /**
+   * ファイルの出し入れが D1 に書く行数である。
+   * 偽のクラウド（`packages/server/test/fake-cloud.ts`）の表は、ここで測った数を写している。
+   */
+  it('ファイルの出し入れが D1 に書く行数', async () => {
+    const tok = await join('a');
+    const headers = {
+      authorization: `Bearer ${tok}`,
+      'x-hangar-path': 'projects/-x/u1.jsonl',
+      'x-hangar-kind': 'transcript',
+      'x-hangar-sha256': 'a'.repeat(64),
+      'x-hangar-size': '3',
+      'x-hangar-mtime': '1700000000000',
+      'x-hangar-encrypted': '1',
+    };
+    const key = 'transcripts/a/u1.jsonl.gz';
+    const rows = async (): Promise<number> => (await push(tok, [])).d1RowsToday!;
+    // 押すものが無い push は devices の 1 行と台帳の 1 文だけを書く。その分を引けば PUT の実費が出る。
+    const idle = 1 + META_ROWS_PER_NOTE;
+    const before = await rows();
+    expect((await cloud.SELF.fetch(`https://x/files/${key}`, { method: 'PUT', headers, body: 'abc' })).status).toBe(201);
+    const afterNew = await rows();
+    // 新しい鍵。当たらない delete が 0 行、insert が本体 + key の unique + files_kind + 連番で 4 行、devices が 1 行。
+    expect(afterNew - before - idle).toBe(4 + 1 + META_ROWS_PER_NOTE);
+    expect((await cloud.SELF.fetch(`https://x/files/${key}`, { method: 'PUT', headers, body: 'abc' })).status).toBe(201);
+    const afterReplace = await rows();
+    // 置き直し。古い行の delete が 1 行増える。
+    expect(afterReplace - afterNew - idle).toBe(1 + 4 + 1 + META_ROWS_PER_NOTE);
+    expect((await cloud.SELF.fetch(`https://x/files/${key}`, { method: 'DELETE', headers: { authorization: `Bearer ${tok}` } })).status).toBe(204);
+    const afterDelete = await rows();
+    // DELETE は索引の 1 行だけである（索引への書き込みは D1 が数えない）。
+    expect(afterDelete - afterReplace - idle).toBe(1 + META_ROWS_PER_NOTE);
+  });
+
   it('端末の参加とスキーマの用意も数に入る', async () => {
     const tok = await join('a');
     const before = (await push(tok, [ch('p1', 1)])).d1RowsToday!;

@@ -32,10 +32,13 @@ const indexes = (t: string): number => {
 /** autoincrement の表は insert のたびに sqlite_sequence の 1 行も動かす（delete では動かない）。 */
 const sequenceRow = (t: string): number => (/autoincrement/.test(createTable(t)) ? 1 : 0);
 
-const insertCost = (t: string): number => 1 + indexes(t);
-const deleteCost = (t: string): number => 1 + indexes(t);
+/**
+ * insert 1 行が進める行数。本体 1 行に、触れた索引ごとに 1 行、autoincrement の連番が 1 行である。
+ * `changes` も `files` も同じ扱いにする（片方だけ連番を足すのは筋が通らない）。
+ */
+const insertCost = (t: string): number => 1 + indexes(t) + sequenceRow(t);
 
-describe('偽物が数える行数は、実物のスキーマから出す', () => {
+describe('偽物が数える行数は、実物のスキーマと実測から出す', () => {
   it('changes と鏡と devices の 1 行ぶん', () => {
     expect(D1_ROWS.changeInsert).toBe(insertCost('changes'));
     expect(D1_ROWS.mirrorUpsert).toBe(insertCost('rows'));
@@ -45,20 +48,20 @@ describe('偽物が数える行数は、実物のスキーマから出す', () =
     expect(D1_ROWS.deviceTouch).toBe(1);
   });
 
-  it('ファイルの置き直しと取り消し', () => {
-    // packages/cloud/src/files.ts の PUT は delete と insert と devices の更新の 3 文である。
-    expect(D1_ROWS.filePut).toBe(deleteCost('files') + insertCost('files') + sequenceRow('files') + D1_ROWS.deviceTouch);
-    expect(D1_ROWS.fileDelete).toBe(deleteCost('files'));
+  it('files の 1 行ぶん', () => {
+    expect(D1_ROWS.fileInsert).toBe(insertCost('files'));
+    // delete は本体の 1 行だけである。索引も連番も動かないことを、実物の D1（miniflare）で測った
+    // （`packages/cloud/test/meter.test.ts` の「ファイルの出し入れが D1 に書く行数」）。
+    expect(D1_ROWS.fileDelete).toBe(1);
   });
 
-  it('実物の台帳の作法（64 行ごとに高々 2 行）を写していないぶんだけ、偽物は少なく数える', () => {
+  it('台帳の 1 文は、実物の Worker の定数をそのまま読む', () => {
     const meter = read('meter.ts');
-    const flushRows = Number(/export const FLUSH_ROWS = (\d+);/.exec(meter)?.[1]);
-    const metaRows = Number(/export const META_ROWS_PER_FLUSH = (\d+);/.exec(meter)?.[1]);
-    expect(flushRows).toBeGreaterThan(0);
-    expect(metaRows).toBeGreaterThan(0);
-    // 差は 3% ほどで、本番の方が早く止まる向きである。偽物が甘い（本番でだけ断られる）向きではない。
-    expect(metaRows / flushRows).toBeLessThan(0.05);
+    const perNote = Number(/export const META_ROWS_PER_NOTE = (\d+);/.exec(meter)?.[1]);
+    expect(perNote).toBeGreaterThan(0);
+    expect(D1_ROWS.note).toBe(perNote);
+    // 実物は書き込みのある要求ごとに 1 回だけ台帳へ書く。持ち越しはしない（isolate が入れ替わっても消えない）。
+    expect(meter).not.toContain('FLUSH_ROWS');
   });
 });
 
@@ -68,17 +71,17 @@ describe('偽物の push の応答', () => {
     const a = new FakeCloudClient({ deviceId: 'a', now: () => now.v });
     const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId }, updatedAt });
     const r1 = await a.pushChanges([ch('p1', 1), ch('p2', 1)]);
-    expect(r1.d1RowsToday).toBe(2 * (D1_ROWS.changeInsert + D1_ROWS.mirrorUpsert) + D1_ROWS.deviceTouch);
-    // 同着で弾かれた行は 1 行も書かないので、devices の 1 行しか増えない。
+    expect(r1.d1RowsToday).toBe(2 * (D1_ROWS.changeInsert + D1_ROWS.mirrorUpsert) + D1_ROWS.deviceTouch + D1_ROWS.note);
+    // 同着で弾かれた行は 1 行も書かないので、devices の 1 行しか増えない（台帳の 1 文は付く）。
     const r2 = await a.pushChanges([ch('p1', 1)]);
-    expect(r2.d1RowsToday! - r1.d1RowsToday!).toBe(D1_ROWS.deviceTouch);
+    expect(r2.d1RowsToday! - r1.d1RowsToday!).toBe(D1_ROWS.deviceTouch + D1_ROWS.note);
     // 他端末の書き込みも同じ台帳に載る（無料枠はアカウントごとだからである）。
     const b = a.asDevice('b');
     const r3 = await b.pushChanges([ch('p3', 1)]);
-    expect(r3.d1RowsToday! - r2.d1RowsToday!).toBe(D1_ROWS.changeInsert + D1_ROWS.mirrorUpsert + D1_ROWS.deviceTouch);
+    expect(r3.d1RowsToday! - r2.d1RowsToday!).toBe(D1_ROWS.changeInsert + D1_ROWS.mirrorUpsert + D1_ROWS.deviceTouch + D1_ROWS.note);
     // pull も devices を 1 行書く。
     await b.pullChanges(0, 500);
-    expect(b.d1RowsToday() - r3.d1RowsToday!).toBe(D1_ROWS.deviceTouch);
+    expect(b.d1RowsToday() - r3.d1RowsToday!).toBe(D1_ROWS.deviceTouch + D1_ROWS.note);
     // 日付が変われば 0 から数え直す。
     now.v += 86_400_000;
     expect(a.d1RowsToday()).toBe(0);

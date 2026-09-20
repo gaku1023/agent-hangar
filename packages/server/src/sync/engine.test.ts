@@ -4,7 +4,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
+import { D1_ROWS, FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { CloudError } from './client.ts';
 import { SyncEngine } from './engine.ts';
@@ -22,25 +22,26 @@ const project = (id: string, name = id) => upsertShared(db, 'projects', { id, na
 const pushBatches = () => cloud.calls.filter((c) => c.method === 'pushChanges').map((c) => (c.args[0] as unknown[]).length);
 
 /**
- * Worker が実際に D1 へ書く行数を数える覆い。
- * packages/cloud/src/changes.ts の書き込みをそのまま写してある。
+ * Worker が実際に D1 へ書く行数を、要求の外側から数える覆い。
  *
- * 数えるのは D1 の rows_written、つまり索引への書き込みを含む行数である。
+ * 行数の表は偽のクラウドから借りる（`packages/server/test/fake-cloud.ts` の `D1_ROWS`）。
+ * ここに数を写し直すと 3 つ目の写しになり、「見積もりどうしを比べているだけ」の試験になる。
+ * 表そのものは実物のスキーマと実測に縛られている（`fake-cloud-usage.test.ts`）。
  *
- * - POST /changes … 採った 1 行につき 4 行。
- *   changes への insert が本体と changes_device の索引で 2 行、rows の鏡が本体と k の暗黙の索引で 2 行である。
- *   加えて 1 要求につき devices の last_seen_at で 1 行（どの索引にも載らない列なので 1 行のまま）。
- * - GET /changes … devices の last_seen_at と last_pulled_seq で 1 行。
+ * - POST /changes … 採った 1 行につき changes の insert と鏡の upsert、要求ごとに devices の 1 行と台帳の 1 文。
+ * - GET /changes … devices の 1 行と台帳の 1 文。
  * - GET /rows … 読むだけで 0 行。
- *
- * 枠の見張りが「実際の書き込み」に追随しているかを、偽物の側から独立に測るために使う。
  */
 function countingD1(c: FakeCloudClient): { readonly rows: number } {
   let rows = 0;
   const push = c.pushChanges.bind(c);
   const pull = c.pullChanges.bind(c);
-  c.pushChanges = async (changes) => { const r = await push(changes); rows += r.accepted * (2 + 2) + 1; return r; };
-  c.pullChanges = async (since, limit) => { const r = await pull(since, limit); rows += 1; return r; };
+  c.pushChanges = async (changes) => {
+    const r = await push(changes);
+    rows += r.accepted * (D1_ROWS.changeInsert + D1_ROWS.mirrorUpsert) + D1_ROWS.deviceTouch + D1_ROWS.note;
+    return r;
+  };
+  c.pullChanges = async (since, limit) => { const r = await pull(since, limit); rows += D1_ROWS.deviceTouch + D1_ROWS.note; return r; };
   return { get rows() { return rows; } };
 }
 
@@ -610,10 +611,14 @@ describe('SyncEngine の無料枠の見張り', () => {
     for (let i = 0; i < 50; i++) project(`p${i}`);
     await e.pushNow();
     await e.pullNow();
-    // 50 行は 40 と 10 の 2 バッチに割れる。push は (40*4+1) + (10*4+1)。
-    // pull は start() の初回と明示の pullNow で 1 行ずつ（GET /rows は 0 行）。
-    expect(d1.rows).toBe(40 * 4 + 1 + (10 * 4 + 1) + 2);
-    expect(e.quota.today().rows).toBe(d1.rows);
+    // 50 行は 40 と 10 の 2 バッチに割れる。pull は start() の初回と明示の pullNow の 2 回である。
+    const perRow = D1_ROWS.changeInsert + D1_ROWS.mirrorUpsert;
+    expect(d1.rows).toBe(40 * perRow + 1 + D1_ROWS.note + (10 * perRow + 1 + D1_ROWS.note) + 2 * (1 + D1_ROWS.note));
+    // 見張りが見る数は、Worker が実際に書いた行数そのものである（Worker の報告をそのまま採る）。
+    expect(e.quota.d1().rows).toBe(d1.rows);
+    expect(e.quota.d1().authoritative).toBe(true);
+    // 手元の見積もりは実際より少ない。報告が来ない Worker のときの落とし所でしかない。
+    expect(e.quota.today().rows).toBeLessThan(d1.rows);
     e.stop();
   });
 
@@ -628,7 +633,7 @@ describe('SyncEngine の無料枠の見張り', () => {
     db.prepare('update changes set pushed_at = null').run();
     await e.pushNow();
     expect(e.quota.today().rows).toBe(after + 1);   // devices の 1 行だけ
-    expect(e.quota.today().rows).toBe(d1.rows);
+    expect(e.quota.d1().rows).toBe(d1.rows);
     e.stop();
   });
 
@@ -646,7 +651,7 @@ describe('SyncEngine の無料枠の見張り', () => {
     // 1 バッチ（40 行 = 81 行の書き込み）の行き過ぎまでは避けられないが、枠の 1000 は超えない。
     expect(d1.rows).toBeGreaterThanOrEqual(limits.d1Writes * 0.8);
     expect(d1.rows).toBeLessThan(limits.d1Writes);
-    expect(quota.today().rows).toBe(d1.rows);
+    expect(quota.d1().rows).toBe(d1.rows);
     e.stop();
   });
 
