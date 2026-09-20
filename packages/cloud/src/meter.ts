@@ -22,6 +22,29 @@
  * 30 秒ごとに pull する端末 1 台で 1 日 2,880 要求、足す分は 2,880 行、枠（1 日 10 万行）の 2.9% である。
  * push は 1 回で 200 行ほど書くので、足す 1 行は 0.5% に満たない。
  * 書き込みの無い要求（読むだけの経路、当たらなかった delete）では 1 行も足さない。
+ *
+ * ## 台帳の答え合わせに `wrangler d1 insights` を使ってはいけない
+ *
+ * `wrangler d1 insights` が読むのは GraphQL の `d1QueriesAdaptiveGroups` である。
+ * 名前の `Adaptive` は適応標本抽出の印で、返ってくるのは標本から引き伸ばした**推定**である。
+ * Cloudflare 自身が「適応標本抽出を使うデータノードは `Adaptive` という接尾辞で見分けられる」と書いている。
+ * `wrangler d1 insights` そのものも experimental で、出力は版によって変わりうる。
+ *
+ * 2026-09-20 に実物で突き合わせたとき、この推定は 2,031 行ずれていた（台帳ではなく insights の側の誤差である）。
+ * 当てにならないことは、コードから絶対に等しいと分かる回数が食い違うことで示せた。
+ *
+ * - `changes` の連番は 1 から 2,411 まで隙間なく詰まり、`changes_floor` も無かった。
+ *   つまり `insert into changes` はちょうど 2,411 回である。
+ *   insights は 3,196 回（9,588 行）と申告した。実際は 2,411 回（7,233 行）である。
+ * - `insert into changes` と `insert into rows` は、採った 1 行ごとに必ず同じ batch へ 2 文積む
+ *   （`changes.ts` の `POST /`）。回数は必ず等しいのに、insights は 3,196 回と 2,433 回と申告した。
+ * - スキーマの 8 文は 1 つの batch で必ず同時に走る（`schema.ts`）。
+ *   insights の回数は 83、28、21、12、12、6、6、4 だった。20 倍の開きがある。
+ *
+ * **突き合わせるなら、表の行数を数えること。**
+ * `changes` と `files` は `autoincrement` なので、`max(seq)` がそのまま insert の回数になる。
+ * 手元の miniflare で同じ流れを流したときは、この台帳と模型が 1 行の狂いもなく一致した。
+ * 詳しくは `.superpowers/sdd/backlog/ledger-reconcile.md` にある。
  */
 
 /** 台帳の鍵の接頭辞。掃除（`sweep.ts`）が古い日の行を刈るときにも使う。 */

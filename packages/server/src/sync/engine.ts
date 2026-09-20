@@ -3,7 +3,7 @@ import type { Db } from '../db/open.ts';
 import { onSharedWrite } from '../db/shared.ts';
 import { applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
 import { CloudError, goneFloor, type CloudClient } from './client.ts';
-import { D1_WRITES_PER_DEVICE_TOUCH, QuotaCounter, pushD1Writes, quotaDayKey, type QuotaLimits } from './quota.ts';
+import { D1_WRITES_PER_PULL, QuotaCounter, pushD1Writes, quotaDayKey, type QuotaLimits } from './quota.ts';
 import { SyncStateStore } from './state.ts';
 
 /** 時計は必ず注入する。テストは FakeTimers（packages/server/test/fake-timers.ts）を渡す。 */
@@ -441,8 +441,8 @@ export class SyncEngine {
     let since = this.state.getNumber('lastSeq', 0);
     for (;;) {
       const at = since;
-      // GET /changes は devices の last_seen_at と last_pulled_seq を 1 行書く。
-      const page = await this.request(() => client.pullChanges(at, PULL_LIMIT), D1_WRITES_PER_DEVICE_TOUCH);
+      // GET /changes は devices の last_seen_at と last_pulled_seq を 1 行書き、Worker の台帳が 1 文を足す。
+      const page = await this.request(() => client.pullChanges(at, PULL_LIMIT), D1_WRITES_PER_PULL);
       // pull にも「その日に D1 へ書いた行数」が載る。
       // push の応答だけに頼ると、押すものが 1 行も無い日は報告が届かない。
       if (typeof page.d1RowsToday === 'number') this.quota.note({ account: page.d1RowsToday });

@@ -39,7 +39,7 @@ import { copyTranscriptForResume } from './sync/copy.ts';
 import { deriveFileKey } from './sync/crypto.ts';
 import { SyncEngine } from './sync/engine.ts';
 import { RemotePuller } from './sync/puller.ts';
-import { D1_WRITES_PER_DEVICE_TOUCH, type QuotaCounter } from './sync/quota.ts';
+import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, type QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { markTranscriptsFrom } from './sync/transcriptsFrom.ts';
 import { TranscriptUploader } from './sync/uploader.ts';
@@ -97,15 +97,17 @@ const D1_WRITES_PER_AUTOINCREMENT = 1;
  * 無料枠が見ているのは文の数ではなく `rows_written` で、索引への書き込みも 1 行ずつ数える。
  * 内訳は delete が 1 + 索引 2、insert が 1 + 索引 2 + `sqlite_sequence` 1、`devices` の更新が 1 である。
  * 同じ鍵へ上げ直すたびに delete が当たるので、当たる方（多い方）で数える。
+ * これに Worker の台帳の 1 文（`D1_WRITES_PER_METER_NOTE`）が乗る。
  */
-export const D1_WRITES_PER_FILE_PUT = (1 + FILES_INDEXES) + (1 + FILES_INDEXES + D1_WRITES_PER_AUTOINCREMENT) + D1_WRITES_PER_DEVICE_TOUCH;
+export const D1_WRITES_PER_FILE_PUT =
+  (1 + FILES_INDEXES) + (1 + FILES_INDEXES + D1_WRITES_PER_AUTOINCREMENT) + D1_WRITES_PER_DEVICE_TOUCH + D1_WRITES_PER_METER_NOTE;
 /**
  * `DELETE /files/<鍵>` が D1 に書く行数。
  * `files` から 1 行消すだけである（同 272 行）。本体 1 行と索引 2 行で 3 行になる。
  * `devices` は触らず、`sqlite_sequence` は delete では動かない。
- * R2 の削除は D1 に書かない。
+ * R2 の削除は D1 に書かないが、Worker の台帳の 1 文は乗る。
  */
-export const D1_WRITES_PER_FILE_DELETE = 1 + FILES_INDEXES;
+export const D1_WRITES_PER_FILE_DELETE = 1 + FILES_INDEXES + D1_WRITES_PER_METER_NOTE;
 
 /**
  * R2 への出し入れを無料枠の勘定に入れるための包み。

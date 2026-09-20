@@ -10,7 +10,7 @@ import type { LiveSessionDto } from '@agent-hangar/shared';
 import { Readable } from 'node:stream';
 import { saveCloudConfig } from './config/cloud.ts';
 import { dbPath } from './config/paths.ts';
-import { D1_WRITES_PER_DEVICE_TOUCH, QuotaCounter } from './sync/quota.ts';
+import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { openDb } from './db/open.ts';
 import { upsertShared } from './db/shared.ts';
@@ -879,18 +879,19 @@ describe('ファイルの出し入れの勘定は Worker のスキーマから�
     expect(sequenceRow()).toBe(1);
   });
 
-  it('PUT は delete と insert と devices の更新で 8 行である', () => {
-    // packages/cloud/src/files.ts の batch は delete と insert と devices の更新の 3 文である。
+  it('PUT は delete と insert と devices の更新と台帳で 10 行である', () => {
+    // packages/cloud/src/files.ts の batch は delete と insert と devices の更新の 3 文で、
+    // そこに Worker の台帳（meter.ts）の 1 文が乗る。
     const del = 1 + filesIndexes();
     const ins = 1 + filesIndexes() + sequenceRow();
-    expect(D1_WRITES_PER_FILE_PUT).toBe(del + ins + D1_WRITES_PER_DEVICE_TOUCH);
-    expect(D1_WRITES_PER_FILE_PUT).toBe(8);
+    expect(D1_WRITES_PER_FILE_PUT).toBe(del + ins + D1_WRITES_PER_DEVICE_TOUCH + D1_WRITES_PER_METER_NOTE);
+    expect(D1_WRITES_PER_FILE_PUT).toBe(10);
   });
 
-  it('DELETE は本体と索引だけで 3 行である', () => {
-    // devices は触らず、sqlite_sequence は delete では動かない。
-    expect(D1_WRITES_PER_FILE_DELETE).toBe(1 + filesIndexes());
-    expect(D1_WRITES_PER_FILE_DELETE).toBe(3);
+  it('DELETE は本体と索引と台帳で 5 行である', () => {
+    // devices は触らず、sqlite_sequence は delete では動かない。台帳の 1 文だけが乗る。
+    expect(D1_WRITES_PER_FILE_DELETE).toBe(1 + filesIndexes() + D1_WRITES_PER_METER_NOTE);
+    expect(D1_WRITES_PER_FILE_DELETE).toBe(5);
   });
 });
 
