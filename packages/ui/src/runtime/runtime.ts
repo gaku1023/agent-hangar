@@ -10,7 +10,7 @@ import type { WsClient } from './ws.ts';
 export type RuntimeDeps = {
   api: ApiClient;
   ws: (handlers: { onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void }) => WsClient;
-  location: { getHash(): string; setHash(h: string): void; onHashChange(cb: () => void): () => void };
+  location: { getHash(): string; setHash(h: string): void; onHashChange(cb: () => void): () => void; go(delta: number): void; depth(): number };
   storage: { get(key: string): unknown; set(key: string, value: unknown): void; keys(): string[] };
   setTimeout: (fn: () => void, ms: number) => unknown;
   /** いま何時か。切断の時刻を Mediator へ渡すために要る。テストが差し替えられるように受け口にしてある。 */
@@ -26,6 +26,8 @@ export type Runtime = {
   dispatch(input: Input): void; emit(intent: Intent): void;
   getState(): State; getStore(): Store;
   subscribe(cb: () => void): () => void;
+  /** アプリの中に戻る先があるか。画面端の矢印を出すかどうかの判断に使う。 */
+  canGoBack(): boolean;
   start(): void; stop(): void;
 };
 
@@ -83,6 +85,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
   function runEffect(e: Effect): void {
     switch (e.kind) {
+      // 履歴を動かすだけで、行き先はハッシュの変化として戻ってくる。
+      // ただしアプリの最初の頁より前へは戻らない。デスクトップではその手前がサーバの起動を待つ頁で、戻ると詰む。
+      case 'history.go':
+        if (e.delta < 0 && deps.location.depth() <= 0) return;
+        deps.location.go(e.delta);
+        return;
       case 'navigate': {
         const h = formatRoute(e.route);
         if (deps.location.getHash() === h) dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: e.route } });
@@ -279,6 +287,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     getState: () => state,
     getStore: () => store,
     subscribe: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
+    canGoBack: () => deps.location.depth() > 0,
     start() {
       const sv: Record<string, SessionViewState> = {};
       for (const k of deps.storage.keys()) {

@@ -12,6 +12,7 @@ import './styles/sync.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
+import { createHashLocation } from './runtime/hashLocation.ts';
 import { createRuntime } from './runtime/runtime.ts';
 import { createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
@@ -33,7 +34,7 @@ const terminals = createTerminalHost({ wsUrl: (tab) => `${wsProto}://${location.
 const runtime = createRuntime({
   api,
   ws: (h) => createWs({ url: `${wsProto}://${location.host}/ws`, ...h }),
-  location: { getHash: () => location.hash, setHash: (h) => { location.hash = h; }, onHashChange: (cb) => { window.addEventListener('hashchange', cb); return () => window.removeEventListener('hashchange', cb); } },
+  location: createHashLocation(history, location, (cb) => { window.addEventListener('hashchange', cb); return () => window.removeEventListener('hashchange', cb); }),
   storage: {
     get: (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : undefined; } catch { return undefined; } },
     set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 容量超過などは無視 */ } },

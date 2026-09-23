@@ -26,6 +26,7 @@ a:hover { text-decoration: underline; }
 .main { grid-column: 2; overflow: auto; }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 4); }
 .screen { animation: fade var(--dur-fast) var(--ease); }
+
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
 /* ナビ */
@@ -163,3 +164,13 @@ a:hover { text-decoration: underline; }
 .st-dot[data-status='done'] { background: var(--st-done); }
 .st-dot[data-status='archived'] { background: var(--st-archived); }
 .h2 .st-dot { margin-right: calc(var(--u) * 2); vertical-align: middle; position: relative; top: -1px; }
+
+/* スワイプの矢印。ブラウザの手勢と同じで、払うほど端から出てくる。
+   --swipe-ratio が 0 から 1 へ動き、動いた時点で data-done が付いてすっと消える。 */
+.swipe-hint { position: fixed; top: 50%; z-index: 30; display: none; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 2px 10px color-mix(in srgb, var(--ink) 16%, transparent); color: var(--ink-2); pointer-events: none; }
+.swipe-hint[data-dir] { display: grid; }
+.swipe-hint[data-dir='back'] { left: 0; transform: translate(calc(-50% + var(--swipe-ratio, 0) * 44px), -50%) }
+.swipe-hint[data-dir='back'] svg { transform: rotate(180deg); }
+.swipe-hint[data-dir='forward'] { right: 0; transform: translate(calc(50% - var(--swipe-ratio, 0) * 44px), -50%); }
+.swipe-hint[data-armed='true'] { border-color: var(--accent); color: var(--accent); }
+.swipe-hint[data-done='true'] { opacity: 0; transition: opacity var(--dur-slow) var(--ease); }

@@ -45,11 +45,13 @@ function harness(overrides: Partial<ApiClient> = {}) {
   const hashListeners = new Set<() => void>();
   const wsHandlers: { onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void }[] = [];
   const timers: { fn: () => void; ms: number }[] = [];
+  const go = vi.fn();
+  let depth = 0;
   const store = new Map<string, unknown>();
   const deps: RuntimeDeps = {
     api,
     ws: (h) => { wsHandlers.push(h); return { connect: vi.fn(), close: vi.fn() }; },
-    location: { getHash: () => hash, setHash: (h) => { hash = h; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); } },
+    location: { getHash: () => hash, setHash: (h) => { hash = h; depth += 1; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); }, go, depth: () => depth },
     storage: { get: (k) => store.get(k), set: (k, v) => store.set(k, v), keys: () => [...store.keys()] },
     setTimeout: (fn, ms) => timers.push({ fn, ms }),
     terminals: fakeTerminals(),
@@ -57,7 +59,7 @@ function harness(overrides: Partial<ApiClient> = {}) {
     onWindowFocus: (cb) => { focusListeners.add(cb); return () => focusListeners.delete(cb); },
   };
   const rt = createRuntime(deps);
-  return { rt, api, wsHandlers, timers, store, terminals: deps.terminals as ReturnType<typeof fakeTerminals>, setHash: deps.location.setHash, focus: deps.focus as ReturnType<typeof vi.fn>, fireFocus: () => { for (const l of focusListeners) l(); } };
+  return { rt, go, api, wsHandlers, timers, store, terminals: deps.terminals as ReturnType<typeof fakeTerminals>, setHash: deps.location.setHash, focus: deps.focus as ReturnType<typeof vi.fn>, fireFocus: () => { for (const l of focusListeners) l(); } };
 }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -483,6 +485,35 @@ describe('フェーズ 3 の効果', () => {
     rt.emit({ type: 'todo.add', projectId: 'p1', text: '買う' });
     await flush();
     expect(focus).toHaveBeenLastCalledWith('todoInput');
+  });
+});
+
+describe('履歴', () => {
+  it('nav.back と nav.forward はブラウザの履歴を動かす', () => {
+    const { rt, go } = harness();
+    rt.emit({ type: 'nav.go', to: { name: 'projects' } });
+    rt.emit({ type: 'nav.back' });
+    expect(go).toHaveBeenCalledWith(-1);
+    rt.emit({ type: 'nav.forward' });
+    expect(go).toHaveBeenCalledWith(1);
+  });
+
+  it('戻れるかどうかを画面に教えられる', () => {
+    // 画面端の矢印は、戻れないときには出さない。
+    const { rt } = harness();
+    expect(rt.canGoBack()).toBe(false);
+    rt.emit({ type: 'nav.go', to: { name: 'projects' } });
+    expect(rt.canGoBack()).toBe(true);
+  });
+
+  it('アプリの最初の頁からは戻らない', () => {
+    // デスクトップでは、その手前がサーバの起動を待つ頁である。そこへ戻ると二度と遷移せず詰む。
+    const { rt, go } = harness();
+    rt.emit({ type: 'nav.back' });
+    expect(go).not.toHaveBeenCalled();
+    // 進む側は、戻っていなければ行き先そのものが無いので、そのまま渡してよい。
+    rt.emit({ type: 'nav.forward' });
+    expect(go).toHaveBeenCalledWith(1);
   });
 });
 

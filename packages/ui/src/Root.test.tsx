@@ -1,11 +1,12 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, RunDto, ServerEvent, SessionDto, TabDto } from '@agent-hangar/shared';
 import { Root } from './Root.tsx';
 import type { ApiClient } from './runtime/api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
+import { SWIPE_STALE_HIDE_MS } from './swipe.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [] };
 
@@ -19,16 +20,18 @@ function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?:
   let hash = '#/';
   const hashListeners = new Set<() => void>();
   const handlers: { onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void }[] = [];
+  const go = vi.fn();
+  let depth = 0;
   const deps: RuntimeDeps = {
     api: { bootstrap: async () => b, events: async () => ({ sessionId: '', events: [], total: 0, nextSeq: null }), subagents: async () => [], search: async () => ({ hits: [], total: 0 }), setProjectStatus: async () => b.projects[0]!, resolveProject: async () => ({}), candidates: async () => ['/w/alpha2'], updateSettings: async (p) => ({ ...b.settings, ...p }), rebuildIndex: async () => {}, ...fakeApiExtras(), ...over.api },
     ws: (h) => { handlers.push(h); return { connect: () => {}, close: () => {} }; },
-    location: { getHash: () => hash, setHash: (h) => { hash = h; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); } },
+    location: { getHash: () => hash, setHash: (h) => { hash = h; depth += 1; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); }, go, depth: () => depth },
     storage: { get: () => undefined, set: () => {}, keys: () => [] },
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     terminals: over.terminals ?? terminals,
   };
   const rt = createRuntime(deps);
-  return { rt, deps, handlers, setHash: deps.location.setHash, terminals: deps.terminals };
+  return { rt, deps, handlers, go, setHash: deps.location.setHash, terminals: deps.terminals };
 }
 const flush = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
@@ -278,5 +281,276 @@ describe('フェーズ 4 のオーバーレイ', () => {
     key({ key: 'Escape' });
     await flush();
     expect(screen.queryByRole('dialog', { name: '取り込み内容の確認' })).toBeNull();
+  });
+});
+
+describe('キーの見直し', () => {
+  // 既定の動作を止めたかどうかを見たいので、イベントは自分で作って投げる。
+  const key = (init: KeyboardEventInit, target: EventTarget = window) => {
+    const ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+    act(() => { target.dispatchEvent(ev); });
+    return ev;
+  };
+  const wheel = (deltaX: number, deltaY = 0, target: EventTarget = window) =>
+    act(() => { target.dispatchEvent(new WheelEvent('wheel', { deltaX, deltaY, bubbles: true })); });
+  // スワイプはデスクトップの殻の中だけの機能で、指の位相が届くことが前提になる。
+  const shell = () => window as unknown as { __hangarPhaseAware?: boolean; __hangarSwipeBegin?: () => void; __hangarSwipeEnd?: () => void };
+  const phaseOn = () => { shell().__hangarPhaseAware = true; };
+  const beginGesture = () => act(() => { shell().__hangarSwipeBegin!(); });
+  const endGesture = () => act(() => { shell().__hangarSwipeEnd!(); });
+  afterEach(() => { delete shell().__hangarPhaseAware; });
+
+  it('受け取らない ⌘1 と ⌘W は、ブラウザと OS に渡す', async () => {
+    const { rt } = await mounted();
+    const emit = vi.spyOn(rt, 'emit');
+    // ホーム画面にはタブが無い。
+    expect(key({ key: '1', metaKey: true }).defaultPrevented).toBe(false);
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(false);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('受け取る ⌘1 と ⌘W は、ブラウザに渡さない', async () => {
+    const { wsHandlers, setHash, rt } = await mounted();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent'), rootTab('t2', 'r1', 'shell')] }));
+    await flush();
+    expect(key({ key: '2', metaKey: true }).defaultPrevented).toBe(true);
+    act(() => rt.emit({ type: 'tab.select', tabId: 't2' }));
+    await flush();
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+  });
+
+  it('Ctrl でも ⌘ と同じ操作になる', async () => {
+    const { rt, wsHandlers, setHash } = await mounted();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent'), rootTab('t2', 'r1', 'shell')] }));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ key: '\\', ctrlKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'split.toggle' });
+    key({ key: 'j', ctrlKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'transcript.toggle' });
+  });
+
+  it('ターミナルの中の Ctrl の打鍵は端末のものなので横取りしない', async () => {
+    const { rt } = await mounted();
+    const host = document.createElement('div');
+    host.className = 'term-host';
+    document.body.appendChild(host);
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'k', ctrlKey: true }, host).defaultPrevented).toBe(false);
+    expect(key({ key: 'w', ctrlKey: true }, host).defaultPrevented).toBe(false);
+    expect(emit).not.toHaveBeenCalled();
+    host.remove();
+  });
+
+  it('? でキーの一覧が開き、Esc で閉じる', async () => {
+    await mounted();
+    key({ key: '?', shiftKey: true });
+    await flush();
+    expect(screen.getByRole('dialog', { name: 'キーボード' })).toBeInTheDocument();
+    expect(screen.getByText('コマンドパレット')).toBeInTheDocument();
+    key({ key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: 'キーボード' })).toBeNull();
+  });
+
+  it('入力中の ? は文字なので、一覧を開かない', async () => {
+    await mounted();
+    fireEvent.keyDown(document.getElementById('global-search')!, { key: '?', shiftKey: true });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: 'キーボード' })).toBeNull();
+  });
+
+  it('⌘[ と ⌘] で履歴が動く', async () => {
+    const { go, setHash } = await mounted();
+    act(() => setHash('#/projects'));
+    key({ key: '[', metaKey: true });
+    expect(go).toHaveBeenCalledWith(-1);
+    key({ key: ']', metaKey: true });
+    expect(go).toHaveBeenCalledWith(1);
+  });
+
+  it('ブラウザでは自前のスワイプを使わない', async () => {
+    // ブラウザには元から手勢がある。二重に持たず、標準の戻る進むに任せる。
+    const { go, setHash } = await mounted();
+    act(() => setHash('#/projects'));
+    for (let i = 0; i < 8; i++) wheel(-30);
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    expect(go).not.toHaveBeenCalled();
+    expect(screen.getByTestId('swipe-hint').dataset.dir).toBeUndefined();
+  });
+
+  it('引いている間は矢印が出るだけで、離すまで画面は動かない', async () => {
+    const { setHash, go } = await mounted();
+    act(() => setHash('#/projects'));
+    phaseOn();
+    const hint = screen.getByTestId('swipe-hint');
+    beginGesture();
+    // しきい値の半分まで引く。
+    for (let i = 0; i < 3; i++) wheel(-20);
+    expect(hint.dataset.dir).toBe('back');
+    expect(hint.dataset.armed).toBeUndefined();
+    expect(Number(hint.style.getPropertyValue('--swipe-ratio'))).toBeCloseTo(0.5);
+    // 引き切ると身構えるが、指が付いている間はまだ動かない。
+    for (let i = 0; i < 3; i++) wheel(-20);
+    expect(hint.dataset.armed).toBe('true');
+    expect(go).not.toHaveBeenCalled();
+    endGesture();
+    expect(go).toHaveBeenCalledWith(-1);
+    expect(hint.dataset.done).toBe('true');
+  });
+
+  it('位相が届く環境でも、時間では確定しない', async () => {
+    // 時間で打ち切る経路を残すと、合図が遅れた回に、指を置いたまま画面が動く。
+    const { setHash, go } = await mounted();
+    act(() => setHash('#/projects'));
+    phaseOn();
+    beginGesture();
+    for (let i = 0; i < 6; i++) wheel(-20);
+    await act(() => new Promise((r) => setTimeout(r, 800)));
+    expect(go).not.toHaveBeenCalled();
+    endGesture();
+    expect(go).toHaveBeenCalledWith(-1);
+  });
+
+  it('引いて止めたまま持ち続けても、離すまで動かない', async () => {
+    const { setHash, go } = await mounted();
+    act(() => setHash('#/projects'));
+    phaseOn();
+    beginGesture();
+    for (let i = 0; i < 6; i++) wheel(-20);
+    await act(() => new Promise((r) => setTimeout(r, 700)));
+    expect(go).not.toHaveBeenCalled();
+    expect(screen.getByTestId('swipe-hint').dataset.armed).toBe('true');
+    endGesture();
+    expect(go).toHaveBeenCalledWith(-1);
+  });
+
+  it('離した後の惰性で矢印が戻ってこない', async () => {
+    // 指が離れた後もホイールは流れ続ける。それを拾って描き直すと、矢印が消えないまま残る。
+    const { setHash } = await mounted();
+    act(() => setHash('#/projects'));
+    phaseOn();
+    const hint = screen.getByTestId('swipe-hint');
+    beginGesture();
+    // 引き切らずに離す。画面は動かないが、矢印は片付く。
+    for (let i = 0; i < 3; i++) wheel(-20);
+    expect(hint.dataset.dir).toBe('back');
+    endGesture();
+    expect(hint.dataset.dir).toBeUndefined();
+    for (let i = 0; i < 6; i++) wheel(-14);
+    expect(hint.dataset.dir).toBeUndefined();
+  });
+
+  it('引き切ってから引き戻せば、離しても動かない', async () => {
+    const { setHash, go } = await mounted();
+    act(() => setHash('#/projects'));
+    phaseOn();
+    beginGesture();
+    for (let i = 0; i < 6; i++) wheel(-20);
+    // 揺れの 1 つでは取り消さない。引いた分の半分を戻して初めて取り消す。
+    for (let i = 0; i < 4; i++) wheel(20);
+    endGesture();
+    expect(go).not.toHaveBeenCalled();
+  });
+
+  it('戻れないときは矢印を出さない', async () => {
+    await mounted();
+    phaseOn();
+    beginGesture();
+    for (let i = 0; i < 3; i++) wheel(-20);
+    expect(screen.getByTestId('swipe-hint').dataset.dir).toBeUndefined();
+  });
+
+  it('宙に浮いた手勢の矢印は、しばらくして消える', async () => {
+    // 合図を取りこぼしても矢印が居残らないようにする。消すだけで、画面は動かさない。
+    const { setHash, go } = await mounted();
+    act(() => setHash('#/projects'));
+    phaseOn();
+    beginGesture();
+    for (let i = 0; i < 3; i++) wheel(-20);
+    expect(screen.getByTestId('swipe-hint').dataset.dir).toBe('back');
+    await act(() => new Promise((r) => setTimeout(r, SWIPE_STALE_HIDE_MS + 200)));
+    expect(screen.getByTestId('swipe-hint').dataset.dir).toBeUndefined();
+    expect(go).not.toHaveBeenCalled();
+  });
+
+  it('アプリの最初の頁からはスワイプでも戻らない', async () => {
+    // デスクトップでは、その手前がサーバの起動を待つ頁である。そこへ戻ると二度と遷移せず詰む。
+    const { go } = await mounted();
+    phaseOn();
+    beginGesture();
+    for (let i = 0; i < 6; i++) wheel(-30);
+    endGesture();
+    expect(go).not.toHaveBeenCalled();
+  });
+
+  it('縦に流しているだけでは履歴が動かない', async () => {
+    const { setHash, go } = await mounted();
+    act(() => setHash('#/projects'));
+    phaseOn();
+    beginGesture();
+    for (let i = 0; i < 20; i++) wheel(-5, -30);
+    endGesture();
+    expect(go).not.toHaveBeenCalled();
+  });
+
+  it('横に流せる箱は、端に着くまで手勢を取る', async () => {
+    const { go, setHash } = await mounted();
+    act(() => setHash('#/projects'));
+    phaseOn();
+    // 一覧のように横へはみ出した箱。左へまだ流せるので、この手勢は箱のものである。
+    const box = document.createElement('div');
+    box.style.overflowX = 'auto';
+    Object.defineProperty(box, 'scrollWidth', { value: 900, configurable: true });
+    Object.defineProperty(box, 'clientWidth', { value: 300, configurable: true });
+    Object.defineProperty(box, 'scrollLeft', { value: 150, writable: true, configurable: true });
+    document.body.appendChild(box);
+    const pull = () => { for (let i = 0; i < 6; i++) wheel(-30, 0, box); };
+    beginGesture();
+    pull();
+    // 左端に着いた。同じ手勢の続きは箱のものなので、ここで離しても画面は動かない。
+    box.scrollLeft = 0;
+    pull();
+    endGesture();
+    expect(go).not.toHaveBeenCalled();
+    // 引き直せば、左端なので箱は取らない。引き切って離せば動く。
+    beginGesture();
+    pull();
+    endGesture();
+    expect(go).toHaveBeenCalledWith(-1);
+    box.remove();
+  });
+
+  it('箱の端から始めた手勢は、途中で箱に余地ができても画面のもの', async () => {
+    // 箱は引かれている間に実際にスクロールし、持ち主の判定が打鍵ごとに裏返る。
+    // そのたびに積みを捨てていたので、箱の上では矢印が戻ったり荒ぶっていた。
+    const { setHash, go } = await mounted();
+    act(() => setHash('#/projects'));
+    phaseOn();
+    const box = document.createElement('div');
+    box.style.overflowX = 'auto';
+    Object.defineProperty(box, 'scrollWidth', { value: 900, configurable: true });
+    Object.defineProperty(box, 'clientWidth', { value: 300, configurable: true });
+    Object.defineProperty(box, 'scrollLeft', { value: 0, writable: true, configurable: true });
+    document.body.appendChild(box);
+    beginGesture();
+    for (let i = 0; i < 3; i++) wheel(-30, 0, box);
+    // 同じ手勢の途中で箱に余地ができても、持ち主は変わらない。
+    box.scrollLeft = 150;
+    for (let i = 0; i < 3; i++) wheel(-30, 0, box);
+    endGesture();
+    expect(go).toHaveBeenCalledWith(-1);
+    box.remove();
+  });
+
+  it('パレットからもキーの一覧を開ける', async () => {
+    const { rt } = await mounted();
+    act(() => rt.emit({ type: 'palette.run', command: { id: 'cmd:shortcuts', label: 'キーの一覧' } }));
+    await flush();
+    expect(screen.getByRole('dialog', { name: 'キーボード' })).toBeInTheDocument();
   });
 });

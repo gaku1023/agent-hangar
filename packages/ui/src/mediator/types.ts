@@ -21,6 +21,7 @@ export type Input =
 
 export type Effect =
   | { kind: 'navigate'; route: Route }
+  | { kind: 'history.go'; delta: number }
   | { kind: 'api.bootstrap' }
   | { kind: 'api.loadEvents'; sessionId: string; fromSeq: number }     // 0 は「開いた（最新側）」、-1 は「過去へ遡る」、-2 は「追記の取り込み」
   | { kind: 'api.search'; params: SearchParamsDto }
@@ -64,6 +65,7 @@ export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null 
 export type ConfirmRequest = { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number };
 export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' } | { kind: 'notYet'; feature: string }
+  | { kind: 'shortcuts' }
   | { kind: 'newSession'; projectId: string | null; scratch: boolean }
   | { kind: 'promote'; sessionId: string }
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }

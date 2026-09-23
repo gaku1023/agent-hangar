@@ -19,6 +19,7 @@ function paletteRun(state: State, command: PaletteCommand): Step {
       case 'new-scratch': return { state: { ...closed, overlay: { kind: 'newSession', projectId: null, scratch: true }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
       case 'settings': return { state: closed, effects: [{ kind: 'navigate', route: { name: 'settings' } }] };
       case 'rebuild-index': return { state: closed, effects: [{ kind: 'api.rebuildIndex' }] };
+      case 'shortcuts': return { state: { ...closed, overlay: { kind: 'shortcuts' } }, effects: [] };
     }
   }
   return { state: closed, effects: [] };

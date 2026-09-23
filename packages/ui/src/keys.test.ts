@@ -1,0 +1,66 @@
+import { describe, expect, it } from 'vitest';
+import { KEYMAP, matchKey } from './keys.ts';
+
+describe('キーマップ', () => {
+  it('⌘ でも Ctrl でも同じ操作に当たる', () => {
+    expect(matchKey({ key: 'k', metaKey: true })).toBe('palette.open');
+    expect(matchKey({ key: 'k', ctrlKey: true })).toBe('palette.open');
+    expect(matchKey({ key: '\\', ctrlKey: true })).toBe('split.toggle');
+    expect(matchKey({ key: 'j', ctrlKey: true })).toBe('transcript.toggle');
+  });
+
+  it('⇧ の有無で新規とスクラッチを分ける', () => {
+    expect(matchKey({ key: 'n', metaKey: true })).toBe('session.new');
+    expect(matchKey({ key: 'N', metaKey: true, shiftKey: true })).toBe('session.newScratch');
+  });
+
+  it('文字キーは大小を問わない', () => {
+    expect(matchKey({ key: 'W', metaKey: true })).toBe('tab.close');
+  });
+
+  it('タブの選択は ⌘1–9 と ⌃⌥1–9 の両方で当たる', () => {
+    expect(matchKey({ key: '3', metaKey: true })).toBe('tab.select');
+    expect(matchKey({ key: '3', ctrlKey: true, altKey: true })).toBe('tab.select');
+    expect(matchKey({ key: '0', metaKey: true })).toBeNull();
+  });
+
+  it('戻ると進むは括弧でも矢印でも当たる', () => {
+    expect(matchKey({ key: '[', metaKey: true })).toBe('nav.back');
+    expect(matchKey({ key: 'ArrowLeft', metaKey: true })).toBe('nav.back');
+    expect(matchKey({ key: ']', metaKey: true })).toBe('nav.forward');
+    expect(matchKey({ key: 'ArrowRight', metaKey: true })).toBe('nav.forward');
+  });
+
+  it('? と ⌘/ でキーの一覧、/ で検索欄', () => {
+    expect(matchKey({ key: '?', shiftKey: true })).toBe('shortcuts.open');
+    expect(matchKey({ key: '/', metaKey: true })).toBe('shortcuts.open');
+    expect(matchKey({ key: '/' })).toBe('search.focus');
+  });
+
+  it('修飾の無い文字キーは一覧の中の操作なので、ここでは当たらない', () => {
+    expect(matchKey({ key: 'j' })).toBeNull();
+    expect(matchKey({ key: 'm' })).toBeNull();
+  });
+
+  it('⌥ の付いた組み合わせは、⌃⌥ のタブ切替を除いて当たらない', () => {
+    expect(matchKey({ key: 'k', metaKey: true, altKey: true })).toBeNull();
+  });
+
+  it('同じ打鍵を 2 つの操作に割り当てていない', () => {
+    const seen = new Map<string, string>();
+    for (const b of KEYMAP) {
+      for (const c of b.chords) {
+        const sig = `${c.key.toLowerCase()}|${c.mod ? 'mod' : ''}${c.ctrlAlt ? 'ctrlAlt' : ''}|${c.shift ?? 'any'}`;
+        expect(seen.get(sig), `${sig} が ${seen.get(sig)} と ${b.id} で重なっている`).toBeUndefined();
+        seen.set(sig, b.id);
+      }
+    }
+  });
+
+  it('どの行にも表示するキーと説明がある', () => {
+    for (const b of KEYMAP) {
+      expect(b.keys, b.id).not.toBe('');
+      expect(b.label, b.id).not.toBe('');
+    }
+  });
+});
