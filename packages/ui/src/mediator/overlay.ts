@@ -40,6 +40,7 @@ export function overlayStep(state: State, input: Input): Step | null {
     case 'project.resolve': return { state: popQueue(state), effects: [{ kind: 'api.resolveProject', projectId: i.id, action: i.action }] };
     case 'overlay.close': return { state: deferResolve(state), effects: [] };
     case 'palette.open': return { state: { ...state, overlay: { kind: 'palette' } }, effects: [] };
+    case 'shortcuts.open': return { state: { ...state, overlay: { kind: 'shortcuts' } }, effects: [] };
     case 'palette.close': return { state: { ...state, overlay: { kind: 'none' } }, effects: [] };
     default: return null;
   }

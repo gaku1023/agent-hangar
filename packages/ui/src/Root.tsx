@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useState, type ReactNode } from 'react';
+import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
 import { IntentRoot } from './intent/chain.tsx';
 import { defaultSessionView } from './mediator/sessionView.ts';
@@ -15,6 +15,8 @@ import { presentShell } from './presenters/shell.ts';
 import { createApi, type ApiClient } from './runtime/api.ts';
 import type { Runtime } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
+import { matchKey } from './keys.ts';
+import { createSwipeDetector, SWIPE_IDLE_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
 import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
@@ -28,9 +30,21 @@ import { ResolveProjectDialog } from './views/ResolveProjectDialog.tsx';
 import { SessionScreen } from './views/SessionScreen.tsx';
 import { SessionsScreen } from './views/SessionsScreen.tsx';
 import { SettingsScreen } from './views/SettingsScreen.tsx';
+import { ShortcutsDialog } from './views/ShortcutsDialog.tsx';
 import { Shell } from './views/Shell.tsx';
+import { SwipeHint } from './views/SwipeHint.tsx';
+import { blocksSwipe } from './views/swipeTarget.ts';
 import { TerminalHostContext } from './views/TerminalPane.tsx';
 import { ToastStack } from './views/ToastStack.tsx';
+
+/**
+ * 指の位相の受け口。
+ * デスクトップの殻（Rust）が、NSEvent の位相から「指が離れた」を `__hangarSwipeEnd` で叩き、
+ * 位相を読める環境であることを `__hangarPhaseAware` で知らせてくる。
+ */
+type PhaseWindow = Window & { __hangarPhaseAware?: boolean; __hangarSwipeBegin?: () => void; __hangarSwipeEnd?: () => void };
+const phaseWindow = (): PhaseWindow => window as PhaseWindow;
+const phaseAware = (): boolean => phaseWindow().__hangarPhaseAware === true;
 
 /** 相対時刻のために現在時刻を一定間隔で更新する。 */
 function useNow(intervalMs = 30_000): number {
@@ -54,6 +68,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const [projectFilter, setProjectFilter] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [candidates, setCandidates] = useState<string[]>([]);
+  // スワイプの矢印。React を通さずに触るので、節点だけ持つ。
+  const swipeHintRef = useRef<HTMLDivElement>(null);
 
   // トーストは 5 秒で消す。
   useEffect(() => {
@@ -86,46 +102,145 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const canSplit = shortcutTabs.length >= 2;
 
   // キーボード。
-  // xterm の入力欄は TEXTAREA なので、ターミナルに打った / を横取りしない。
+  // 打鍵と操作の対応は keys.ts の表が持ち、ここは当たった操作を Intent に変えるだけにする。
+  // 受け取らなかった打鍵は preventDefault せずに落とすので、⌘W や ⌘1 はそのままブラウザと OS のものになる。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       // ターミナルにフォーカスがあるときは、⌘ を含む組み合わせだけを hangar が処理する。
-      // それ以外は preventDefault せずに xterm へ渡す。
+      // Ctrl の打鍵は端末のものなので、preventDefault せずに xterm へ渡す。
       const inTerminal = !!el?.closest?.('.term-host');
       if (inTerminal && !e.metaKey) return;
-      const digit = /^[1-9]$/.test(e.key) ? Number(e.key) : 0;
-      if (digit && (e.metaKey || (e.ctrlKey && e.altKey))) {
-        e.preventDefault();
-        const t = shortcutTabs[digit - 1];
-        if (t) rt.emit({ type: 'tab.select', tabId: t.id });
-        return;
+      const id = matchKey(e);
+      if (!id) return;
+      // 修飾の無い打鍵は入力欄では文字なので、横取りしない。
+      if (!e.metaKey && !e.ctrlKey && typing) return;
+      const take = () => e.preventDefault();
+      switch (id) {
+        case 'tab.select': {
+          const t = shortcutTabs[Number(e.key) - 1];
+          if (t) { take(); rt.emit({ type: 'tab.select', tabId: t.id }); }
+          return;
+        }
+        case 'tab.close': {
+          const t = shortcutTabs.find((x) => x.id === selectedTabId);
+          if (t && t.kind === 'shell') { take(); rt.emit({ type: 'tab.close', tabId: t.id }); }
+          return;
+        }
+        case 'split.toggle': if (canSplit) { take(); rt.emit({ type: 'split.toggle' }); } return;
+        case 'transcript.toggle': take(); rt.emit({ type: 'transcript.toggle' }); return;
+        case 'palette.open': take(); rt.emit({ type: 'palette.open' }); return;
+        case 'session.new': take(); rt.emit({ type: 'session.new.open', scratch: false }); return;
+        case 'session.newScratch': take(); rt.emit({ type: 'session.new.open', scratch: true }); return;
+        case 'settings.open': take(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return;
+        case 'shortcuts.open': take(); rt.emit({ type: 'shortcuts.open' }); return;
+        case 'nav.back': take(); rt.emit({ type: 'nav.back' }); return;
+        case 'nav.forward': take(); rt.emit({ type: 'nav.forward' }); return;
+        case 'search.focus': take(); document.getElementById('global-search')?.focus(); return;
+        // Esc はオーバーレイを閉じる。
+        // 未解決のプロジェクトだけは決めてもらうまで閉じない。
+        // 入力欄にフォーカスがあるときは、その入力欄を持つダイアログが自分で Esc を処理するので二重に出さない（上の typing で落ちる）。
+        case 'overlay.close':
+          if (overlayKind === 'none' || overlayKind === 'resolveProject') return;
+          rt.emit(overlayKind === 'palette' ? { type: 'palette.close' } : { type: 'overlay.close' });
+          return;
+        default: return;
       }
-      if (e.metaKey && e.key === 'w') {
-        e.preventDefault();
-        const t = shortcutTabs.find((x) => x.id === selectedTabId);
-        if (t && t.kind === 'shell') rt.emit({ type: 'tab.close', tabId: t.id });
-        return;
-      }
-      if (e.metaKey && e.key === '\\') { e.preventDefault(); if (canSplit) rt.emit({ type: 'split.toggle' }); return; }
-      if (e.metaKey && e.key === 'j') { e.preventDefault(); rt.emit({ type: 'transcript.toggle' }); return; }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); rt.emit({ type: 'palette.open' }); return; }
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); rt.emit({ type: 'session.new.open', scratch: e.shiftKey }); return; }
-      if ((e.metaKey || e.ctrlKey) && e.key === ',') { e.preventDefault(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return; }
-      // Esc はオーバーレイを閉じる。
-      // 未解決のプロジェクトだけは決めてもらうまで閉じない。
-      // 入力欄にフォーカスがあるときは、その入力欄を持つダイアログが自分で Esc を処理するので二重に出さない。
-      if (e.key === 'Escape' && !typing && overlayKind !== 'none' && overlayKind !== 'resolveProject') {
-        rt.emit(overlayKind === 'palette' ? { type: 'palette.close' } : { type: 'overlay.close' });
-        return;
-      }
-      if (e.key === '/' && !typing) { e.preventDefault(); document.getElementById('global-search')?.focus(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [rt, overlayKind, shortcutTabs, selectedTabId, canSplit]);
+
+  // トラックパッドの横スワイプ。
+  // ネイティブの手勢はスナップショットを滑らせる演出まで付いてくるので使わず、横方向のホイールを自分で積む。
+  useEffect(() => {
+    const swipe = createSwipeDetector();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // 矢印は DOM を直に触って動かす。毎打鍵で React を回すと、画面ごと 60 回／秒で描き直すことになる。
+    const hide = () => {
+      const n = swipeHintRef.current;
+      if (!n) return;
+      delete n.dataset.dir;
+      delete n.dataset.armed;
+      delete n.dataset.done;
+      n.style.setProperty('--swipe-ratio', '0');
+    };
+    const show = (dir: 'back' | 'forward', ratio: number, armed: boolean, done: boolean) => {
+      const n = swipeHintRef.current;
+      if (!n) return;
+      n.dataset.dir = dir;
+      if (armed) n.dataset.armed = 'true'; else delete n.dataset.armed;
+      if (done) n.dataset.done = 'true'; else delete n.dataset.done;
+      n.style.setProperty('--swipe-ratio', String(ratio));
+    };
+    // この手勢の持ち主。手勢ごとに一度だけ決める。
+    // 打鍵ごとに決め直すと、箱が引かれて scrollLeft が変わるたびに持ち主が裏返り、矢印が荒ぶる。
+    let owner: 'none' | 'box' | 'page' = 'none';
+    let lastAt = -Infinity;
+    // 指が離れた後も惰性の打鍵は流れ続ける。それは終わった手勢の残りなので、次の手勢が始まるまで捨てる。
+    let ended = false;
+    const onRelease = () => {
+      owner = 'none';
+      ended = true;
+      const released = swipe.release();
+      if (released) navigate(released); else hide();
+    };
+    const navigate = (r: 'back' | 'forward') => {
+      clearTimeout(timer);
+      // 戻る先が無いときは動かない。アプリの最初の頁の手前は、デスクトップではサーバの起動を待つ頁である。
+      if (r === 'back' && !rt.canGoBack()) { hide(); return; }
+      rt.emit({ type: r === 'back' ? 'nav.back' : 'nav.forward' });
+      show(r, 1, true, true);
+      timer = setTimeout(hide, 260);
+    };
+    const onWheel = (e: WheelEvent) => {
+      // ブラウザには元から手勢がある。二重に持たず、標準の戻る進むに任せる。
+      // この機能はデスクトップの殻の中だけのもので、指の位相が届くことが前提になっている。
+      if (!phaseAware()) return;
+      // 指が離れた後の惰性は、終わった手勢の残りである。次の手勢が始まるまで何もしない。
+      if (ended) return;
+      // 打鍵が久しく途切れていたら、そこからは新しい手勢である。
+      if (e.timeStamp - lastAt > SWIPE_IDLE_MS) owner = 'none';
+      lastAt = e.timeStamp;
+      // 持ち主は手勢の最初の打鍵で決める。
+      // 横へ流せる箱の中で、その向きにまだ余地があるなら、その手勢は最後まで箱のものにする。
+      // 端に着いてからは、指を離して引き直せば画面のものになる。
+      if (owner === 'none') owner = blocksSwipe(e.target, e.deltaX) ? 'box' : 'page';
+      // 箱の手勢は最後まで箱のもの。持ち主は次の手勢の始まりで決め直す。
+      if (owner === 'box') return;
+      const r = swipe.feed({ deltaX: e.deltaX, deltaY: e.deltaY, at: e.timeStamp });
+      if (r) { navigate(r); return; }
+      const p = swipe.progress();
+      clearTimeout(timer);
+      if (p.dir === 0 || (p.dir < 0 && !rt.canGoBack())) { hide(); return; }
+      show(p.dir < 0 ? 'back' : 'forward', p.ratio, p.armed, false);
+      // 指が離れたことは、デスクトップでは OS の位相が教えてくれる（__hangarSwipeEnd）。
+      // それが無いブラウザでは、打鍵が途切れたことを離した合図にする。
+      // 位相が届く環境でも、位相を持たないマウスホイールのために長めの保険を置く。
+      // 手勢の終わりは合図が決める。時間で画面を動かすことはしない。
+      // 時間で打ち切る経路を残すと、合図が遅れた回に、指を置いたまま画面が動く。
+      // ただし身構えていない手勢は、合図を取りこぼしても矢印が居残らないように、消すだけの保険を置く。
+      if (!p.armed) timer = setTimeout(hide, SWIPE_STALE_HIDE_MS);
+    };
+    window.addEventListener('wheel', onWheel, { passive: true });
+    // 新しい手勢の始まり。前の手勢の名残をすべて捨てて、矢印も 0 に戻す。
+    phaseWindow().__hangarSwipeBegin = () => {
+      ended = false;
+      owner = 'none';
+      swipe.begin();
+      clearTimeout(timer);
+      hide();
+    };
+    phaseWindow().__hangarSwipeEnd = onRelease;
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('wheel', onWheel);
+      delete phaseWindow().__hangarSwipeBegin;
+      delete phaseWindow().__hangarSwipeEnd;
+    };
+  }, [rt]);
 
   const shell = presentShell(state, store, now);
   let body: ReactNode;
@@ -157,7 +272,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {/* 取り込みの下見は押したときだけ取りに来る一時の値なので、Presenter を通さず store から直に渡す。 */}
       {/* 未解決ダイアログの候補と同じ扱いである。 */}
       {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
+      {overlay.kind === 'shortcuts' && <ShortcutsDialog />}
       <ToastStack toasts={state.toasts} />
+      <SwipeHint ref={swipeHintRef} />
     </>
   );
 

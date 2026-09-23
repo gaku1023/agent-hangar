@@ -207,6 +207,10 @@ fn page_loaded(app: &AppHandle, server_page: bool) {
     if let Some(h) = hash {
         eval_main(app, &deeplink::hash_to_js(&h));
     }
+    // 位相を読めるのはこの殻の中だけである。画面はこの印を見て、時間で当てずっぽうに決めるのをやめる。
+    if server_page && cfg!(target_os = "macos") {
+        eval_main(app, "window.__hangarPhaseAware = true");
+    }
 }
 
 /// ログに残すディープリンクの長さの上限（バイト）。
@@ -444,6 +448,47 @@ fn boot(app: AppHandle) {
     }
 }
 
+/// トラックパッドの「指が離れた」瞬間を画面へ伝える。
+///
+/// ホイールの打鍵には指の上げ下げが乗らないので、画面の側だけでは離した時点を当てられない。
+/// 速さの落ち込みで当てようとすると、引いている最中に誤って動く（実際にそうなった）。
+/// WebKit の手勢が使っているのと同じ NSEvent の位相をここで読み、合図だけを画面へ送る。
+///
+/// 打鍵そのものは飲み込まず素通しするので、頁の中の横スクロールはそのまま効く。
+/// WKWebView 自身の手勢は使わない。あれは前の画面の写しを滑らせる演出まで一式で、演出だけを切る術が無い。
+#[cfg(target_os = "macos")]
+fn watch_swipe_phase(app: &AppHandle) {
+    use block2::RcBlock;
+    use objc2_app_kit::{NSEvent, NSEventMask, NSEventPhase};
+    use std::ptr::NonNull;
+
+    let handle = app.clone();
+    let block = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+        let phase = unsafe { event.as_ref().phase() };
+        // 触れた時点も知らせる。指を置いたまま止めている間は打鍵が来ないので、
+        // これが無いと画面の側は「途切れた」と読んで、離す前に動いてしまう。
+        if phase.contains(NSEventPhase::Began) {
+            eval_main(&handle, "window.__hangarSwipeBegin && window.__hangarSwipeBegin()");
+        }
+        if phase.contains(NSEventPhase::Ended) || phase.contains(NSEventPhase::Cancelled) {
+            eval_main(&handle, "window.__hangarSwipeEnd && window.__hangarSwipeEnd()");
+        }
+        event.as_ptr()
+    });
+    // 監視はアプリが終わるまで外さないので、返ってきた印は持ったままにする。
+    let monitor =
+        unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::ScrollWheel, &block) };
+    if monitor.is_none() {
+        log("swipe phase monitor not installed");
+        return;
+    }
+    std::mem::forget(monitor);
+    log("swipe phase monitor installed");
+}
+
+#[cfg(not(target_os = "macos"))]
+fn watch_swipe_phase(_app: &AppHandle) {}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
@@ -460,6 +505,7 @@ pub fn run() {
         })
         .setup(|app| {
             log("setup");
+            watch_swipe_phase(app.handle());
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 handle_urls(&handle, &event.urls());

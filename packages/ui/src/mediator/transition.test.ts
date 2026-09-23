@@ -481,6 +481,24 @@ describe('パレット', () => {
   });
 });
 
+describe('キーの一覧と履歴', () => {
+  it('shortcuts.open でキーの一覧が開き、overlay.close で閉じる', () => {
+    const a = run([intent({ type: 'shortcuts.open' })]);
+    expect(a.state.overlay).toEqual({ kind: 'shortcuts' });
+    const b = run([intent({ type: 'overlay.close' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('パレットからもキーの一覧を開ける', () => {
+    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:shortcuts', label: 'キーの一覧' } })], run([intent({ type: 'palette.open' })]).state);
+    expect(a.state.overlay).toEqual({ kind: 'shortcuts' });
+    expect(a.effects).toEqual([]);
+  });
+  it('戻ると進むは履歴を動かす効果になる', () => {
+    expect(run([intent({ type: 'nav.back' })]).effects).toEqual([{ kind: 'history.go', delta: -1 }]);
+    expect(run([intent({ type: 'nav.forward' })]).effects).toEqual([{ kind: 'history.go', delta: 1 }]);
+  });
+});
+
 describe('分割', () => {
   // 左に left、右に right を置いた分割中のセッション画面を作る。
   const split = (left: string, right: string) => {

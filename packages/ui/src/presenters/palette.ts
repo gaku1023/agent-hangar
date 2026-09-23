@@ -1,9 +1,15 @@
+import { KEYMAP, type KeyId } from '../keys.ts';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 
 /** 最後の活動が新しい順。時刻が同じか無いものは id の順にして、並びを決定的にする。 */
 const byRecency = <T extends { id: string; lastActivityAt: number | null }>(items: T[]): T[] =>
   [...items].sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0) || a.id.localeCompare(b.id));
+
+/** ヒントに出す打鍵。キーの表を正にして、割り当てを変えたときにここがずれないようにする。 */
+function keysOf(id: KeyId): string {
+  return KEYMAP.find((b) => b.id === id)?.keys ?? '';
+}
 
 export type PaletteItem = { id: string; label: string; hint: string; kind: 'command' | 'project' | 'session' };
 export type PaletteProps = { query: string; items: PaletteItem[] };
@@ -12,9 +18,10 @@ export type PaletteProps = { query: string; items: PaletteItem[] };
  * ここに並ぶのはショートカットを覚えていなくても辿り着けるべきものだけで、画面の中にしか無い操作は載せない。
  */
 const COMMANDS: PaletteItem[] = [
-  { id: 'cmd:new-session', label: '新規セッション', hint: '⌘N', kind: 'command' },
-  { id: 'cmd:new-scratch', label: 'スクラッチで始める', hint: '⌘⇧N', kind: 'command' },
-  { id: 'cmd:settings', label: '設定', hint: '⌘,', kind: 'command' },
+  { id: 'cmd:new-session', label: '新規セッション', hint: keysOf('session.new'), kind: 'command' },
+  { id: 'cmd:new-scratch', label: 'スクラッチで始める', hint: keysOf('session.newScratch'), kind: 'command' },
+  { id: 'cmd:settings', label: '設定', hint: keysOf('settings.open'), kind: 'command' },
+  { id: 'cmd:shortcuts', label: 'キーの一覧', hint: keysOf('shortcuts.open'), kind: 'command' },
   { id: 'cmd:rebuild-index', label: '索引を作り直す', hint: '', kind: 'command' },
 ];
 

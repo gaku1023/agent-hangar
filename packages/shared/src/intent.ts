@@ -15,6 +15,9 @@ export type Settings = SettingsDto;
 
 export type Intent =
   | { type: 'nav.go'; to: Route }
+  // 履歴を 1 つ戻る / 進む。ブラウザの戻ると同じもので、2 本指のスワイプもここへ来る。
+  | { type: 'nav.back' } | { type: 'nav.forward' }
+  | { type: 'shortcuts.open' }
   | { type: 'palette.open' } | { type: 'palette.close' } | { type: 'palette.run'; command: PaletteCommand }
   | { type: 'search.query'; text: string } | { type: 'search.filter'; patch: Partial<SearchFilter> }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }

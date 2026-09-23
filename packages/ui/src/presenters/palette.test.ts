@@ -33,7 +33,10 @@ describe('presentPalette', () => {
   it('空の入力はコマンド、プロジェクト、セッションの順に並べる', () => {
     const p = presentPalette(withPalette(), store(), '')!;
     expect(p.query).toBe('');
-    expect(p.items.slice(0, 4).map((i) => i.id)).toEqual(['cmd:new-session', 'cmd:new-scratch', 'cmd:settings', 'cmd:rebuild-index']);
+    expect(p.items.slice(0, 5).map((i) => i.id)).toEqual(['cmd:new-session', 'cmd:new-scratch', 'cmd:settings', 'cmd:shortcuts', 'cmd:rebuild-index']);
+    // ヒントの打鍵は keys.ts の表から引くので、割り当てを変えてもパレットの表示がずれない。
+    expect(p.items.find((i) => i.id === 'cmd:new-scratch')!.hint).toBe('⌘⇧N');
+    expect(p.items.find((i) => i.id === 'cmd:shortcuts')!.hint).toBe('? / ⌘/');
     expect(p.items.map((i) => i.id)).toContain('project:sc');
     expect(p.items.map((i) => i.id)).toContain('session:s1');
   });

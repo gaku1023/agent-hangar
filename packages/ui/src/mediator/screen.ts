@@ -45,6 +45,9 @@ export function screenStep(state: State, input: Input): Step | null {
   const i = input.intent;
   switch (i.type) {
     case 'nav.go': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: i.to }] };
+    // 行き先はブラウザの履歴が決めるので、ここでは動かす向きだけを出す。戻った先は hash.changed で入ってくる。
+    case 'nav.back': return { state, effects: [{ kind: 'history.go', delta: -1 }] };
+    case 'nav.forward': return { state, effects: [{ kind: 'history.go', delta: 1 }] };
     case 'project.open': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'project', id: i.id } }] };
     case 'session.open': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'session', id: i.id } }] };
     case 'search.query': {
