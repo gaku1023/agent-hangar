@@ -11,12 +11,15 @@ class FakeWs {
   open() { this.readyState = 1; this.onopen?.(); }
   receive(m: unknown) { this.onmessage?.({ data: JSON.stringify(m) }); }
 }
-type FakeTerm = TerminalLike & { written: string[]; opened: HTMLElement | null; fitted: number; focused: number; disposed: boolean; type(d: string): void; resizeTo(c: number, r: number): void };
+type FakeTerm = TerminalLike & { written: string[]; opened: HTMLElement | null; fitted: number; focused: number; disposed: boolean; type(d: string): void; resizeTo(c: number, r: number): void; detachHost(): void };
 function fakeTerm(): FakeTerm {
   const data: ((d: string) => void)[] = []; const resize: ((s: { cols: number; rows: number }) => void)[] = [];
+  // 画面を離れると React が枠ごと外すので、要素の親は残ったまま文書から外れる。isConnected はそれを表す。
+  const node = { parentElement: null as HTMLElement | null, hostDetached: false, get isConnected() { return node.parentElement !== null && !node.hostDetached; }, remove() { node.parentElement = null; } };
   const t: FakeTerm = {
     cols: 80, rows: 24, element: null, written: [], opened: null, fitted: 0, focused: 0, disposed: false,
-    open(el) { t.opened = el; t.element = { parentElement: el, remove() { (t.element as unknown as { parentElement: HTMLElement | null }).parentElement = null; } } as unknown as HTMLElement; },
+    open(el) { t.opened = el; node.parentElement = el; t.element = node as unknown as HTMLElement; },
+    detachHost() { node.hostDetached = true; },
     write(d) { t.written.push(d); },
     onData(cb) { data.push(cb); return { dispose() {} }; },
     onResize(cb) { resize.push(cb); return { dispose() {} }; },
@@ -89,6 +92,18 @@ describe('createTerminalHost', () => {
     expect(terms[0]!.focused).toBe(1);
     // 当て終わった保留は消えるので、別の枠に移しただけでは当たらない。
     host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+    expect(terms[0]!.focused).toBe(1);
+  });
+  it('一度開いたあと枠ごと外れた端末への focus は、次の mount で当てる', () => {
+    // セッション画面を離れて戻ると、focus の効果は新しい枠が付く前に走る。外れた入力欄に当てても効かない。
+    const { host, terms } = make();
+    host.connect('t1');
+    host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+    terms[0]!.detachHost();
+    host.focus('t1');
+    expect(terms[0]!.focused).toBe(0);
+    const next = { appendChild: vi.fn((c: { parentElement: unknown; hostDetached: boolean }) => { c.parentElement = next; c.hostDetached = false; }) } as unknown as HTMLElement;
+    host.mount('t1', next);
     expect(terms[0]!.focused).toBe(1);
   });
   it('壊れた本文では落ちず、dispose は購読も捨てる', () => {
