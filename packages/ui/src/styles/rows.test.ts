@@ -21,4 +21,10 @@ describe('2 段の行', () => {
   it('一致した語の印は淡い地で、文字の色は変えない', () => {
     expect(read('./rows.css')).toMatch(/\.hit \{[^}]*background: var\(--hit\);[^}]*color: inherit;/);
   });
+  // .btn の高さ（28px）のままだと、2 段目（1 行分の高さ）が行の下端からはみ出す。
+  it('2 段目の鉛筆とメモ入力は、1 行分の高さに収まる', () => {
+    const css = read('./rows.css');
+    expect(css).toMatch(/\.row-sub \.memo-pencil \{[^}]*height: calc\(var\(--u\) \* 5\);/);
+    expect(css).toMatch(/\.row-sub \.memo-input \{[^}]*height: calc\(var\(--u\) \* 5\);/);
+  });
 });
