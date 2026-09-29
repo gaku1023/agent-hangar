@@ -34,6 +34,8 @@ struct Ui {
     loaded: bool,
     pending_hash: Option<String>,
     pending_status: Option<(String, bool)>,
+    /// 読み込み画面の load の合図が届いた時刻。起動画面の動きの時計も同じ合図から数える。
+    loading_since: Option<Instant>,
 }
 
 impl Ui {
@@ -85,6 +87,23 @@ impl Ui {
         } else {
             (self.pending_status.take(), None)
         }
+    }
+}
+
+/// 起動画面の 1 周期（ミリ秒）。loading/boot-frames.js の CYCLE_MS と揃える（config.test.ts が突き合わせる）。
+const BOOT_CYCLE_MS: u64 = 1600;
+
+/// 起動画面の周の境目までの長さ。
+/// 送りの途中で画面を移すと札が宙で消えるので、今の周を回し終えてから移る。
+/// 起動画面は頁の load から時計を数えるので、`since_load` もその合図からの経過にする。
+/// どこから数えても、1 周期より長くは待たない。
+fn settle_delay(since_load: Duration) -> Duration {
+    let cycle = u128::from(BOOT_CYCLE_MS);
+    let into = since_load.as_millis() % cycle;
+    if into == 0 {
+        Duration::ZERO
+    } else {
+        Duration::from_millis((cycle - into) as u64)
     }
 }
 
@@ -199,6 +218,10 @@ fn page_loaded(app: &AppHandle, server_page: bool) {
     let (status, hash) = {
         let state = app.state::<AppState>();
         let mut ui = state.ui.lock().unwrap();
+        // 読み込み画面の最初の load だけを時計の起点にする。
+        if !server_page && ui.loading_since.is_none() {
+            ui.loading_since = Some(Instant::now());
+        }
         ui.page_loaded(server_page)
     };
     if let Some((text, error)) = status {
@@ -418,6 +441,12 @@ fn boot(app: AppHandle) {
             "ウィンドウが見つからないので、サーバの画面へ移れません。",
         );
     };
+
+    // 起動画面の周の境目まで待ってから移る。load の合図がまだ来ていなければ、描いている札も無いので待たない。
+    let since = app.state::<AppState>().ui.lock().unwrap().loading_since;
+    if let Some(t) = since {
+        std::thread::sleep(settle_delay(t.elapsed()));
+    }
 
     // 段の切り替えと pending の取り出しは同じロックの下で行い、その隙に届いたリンクを落とさない。
     // ここから読み込みが終わるまでに届くリンクも貯める側へ回り、読み込みの合図で流れる。
@@ -710,5 +739,23 @@ mod tests {
         assert!(cut.contains(&long.len().to_string()), "{cut}");
         // 多バイト文字の途中では切らない。
         assert!(cut.chars().all(|c| c != '\u{fffd}'));
+    }
+
+    // 起動画面の送りの途中で画面を移さない。周の境目までだけ待ち、1 周期より長くは待たない。
+    #[test]
+    fn the_boot_screen_finishes_its_cycle_before_moving_on() {
+        assert_eq!(settle_delay(Duration::ZERO), Duration::ZERO);
+        assert_eq!(settle_delay(Duration::from_millis(400)), Duration::from_millis(1200));
+        assert_eq!(settle_delay(Duration::from_millis(1600)), Duration::ZERO);
+        assert_eq!(settle_delay(Duration::from_millis(3300)), Duration::from_millis(1500));
+        for ms in (0..5000).step_by(37) {
+            assert!(settle_delay(Duration::from_millis(ms)) < Duration::from_millis(BOOT_CYCLE_MS));
+        }
+    }
+
+    // load の合図が来る前は、時計の起点を持たない。
+    #[test]
+    fn the_boot_clock_starts_with_no_origin() {
+        assert_eq!(Ui::default().loading_since, None);
     }
 }

@@ -63,6 +63,15 @@ describe('読み込み画面', () => {
     expect(html).toContain('color-scheme" content="light"');
     expect(html).toContain('<title>Hangar</title>');
     expect(html).toContain('src="logo.svg"');
+    expect(html).toContain('<img id="logo" src="logo.svg"');
+    expect(html).toContain('<script type="module" src="boot.js"></script>');
+  });
+  // 殻は起動画面の周の境目まで待ってから画面を移す。周期が食い違うと、送りの途中で画面が替わる。
+  it('殻の周期（lib.rs の BOOT_CYCLE_MS）は、起動画面の周期（boot-frames.js の CYCLE_MS）と同じ', () => {
+    const rust = read('src-tauri/src/lib.rs').match(/const BOOT_CYCLE_MS: u64 = (\d+);/)?.[1];
+    const js = read('loading/boot-frames.js').match(/export const CYCLE_MS = (\d+);/)?.[1];
+    expect(rust).toBeDefined();
+    expect(rust).toBe(js);
   });
 });
 
