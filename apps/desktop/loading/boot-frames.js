@@ -105,6 +105,10 @@ const draw = (c) => {
 /** 時刻 T 秒の絵。viewBox 0 0 100 100 の svg の中身にする。 */
 export const frameSvg = (T) => `${DEFS}<g transform="translate(${TX} ${TY}) scale(${SC})">${RAIL}${frameOf(T).map(draw).join('')}</g>`;
 
+/** 経過 ms にいちばん近い周の境目の時刻（秒）。止めるときはこの時刻の絵で静止する。
+ * 境目の絵は送りを終えた並びで、新しい札はまだ降りてきていない。 */
+export const nearestBoundary = (ms) => (Math.round(ms / CYCLE_MS) * CYCLE_MS) / 1000;
+
 /** 起動を待ち始めてから、状態の文を替えるまでの長さ。 */
 export const SLOW_AFTER_MS = 3000;
 /** 待ちが長いときの文。SLOW_AFTER_MS より前は null で、今の文をそのまま残す。 */

@@ -93,6 +93,11 @@ impl Ui {
 /// 起動画面の 1 周期（ミリ秒）。loading/boot-frames.js の CYCLE_MS と揃える（config.test.ts が突き合わせる）。
 const BOOT_CYCLE_MS: u64 = 1600;
 
+/// 周の境目まで待った後、画面を移す前に起動画面の流れを止めさせる式（loading/boot.js の __hangarBootSettle）。
+/// 止めないと、移る直前のコマで新しい札が薄く降り始める。
+/// 決まった文字列だけを評価し、入場の鍵や行き先の URL は決して混ぜない。
+const BOOT_SETTLE_JS: &str = "window.__hangarBootSettle && window.__hangarBootSettle()";
+
 /// 起動画面の周の境目までの長さ。
 /// 送りの途中で画面を移すと札が宙で消えるので、今の周を回し終えてから移る。
 /// 起動画面は頁の load から時計を数えるので、`since_load` もその合図からの経過にする。
@@ -447,6 +452,8 @@ fn boot(app: AppHandle) {
     if let Some(t) = since {
         std::thread::sleep(settle_delay(t.elapsed()));
     }
+    // 待った境目の絵で起動画面を止める。起動画面がまだ無ければ、式は何もしない。
+    eval_main(&app, BOOT_SETTLE_JS);
 
     // 段の切り替えと pending の取り出しは同じロックの下で行い、その隙に届いたリンクを落とさない。
     // ここから読み込みが終わるまでに届くリンクも貯める側へ回り、読み込みの合図で流れる。
@@ -753,9 +760,17 @@ mod tests {
         }
     }
 
-    // load の合図が来る前は、時計の起点を持たない。
+    // 止める式は決まった文字列で、鍵も行き先も持たない。
+    // 殻は評価する式をログに残さないが、式に鍵が混じれば webview の側で漏れうる。
     #[test]
-    fn the_boot_clock_starts_with_no_origin() {
-        assert_eq!(Ui::default().loading_since, None);
+    fn the_boot_settle_script_is_fixed_and_carries_no_entry_url() {
+        assert_eq!(
+            BOOT_SETTLE_JS,
+            "window.__hangarBootSettle && window.__hangarBootSettle()"
+        );
+        let url = server::entry_url(server::PORT, "secret-token", "#/home");
+        for part in ["?t=", "secret-token", "http", "127.0.0.1", &url] {
+            assert!(!BOOT_SETTLE_JS.contains(part), "{part}");
+        }
     }
 }

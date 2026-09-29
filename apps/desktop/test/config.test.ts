@@ -73,6 +73,12 @@ describe('読み込み画面', () => {
     expect(rust).toBeDefined();
     expect(rust).toBe(js);
   });
+  // 殻は境目まで待った後、移る前に起動画面の動きを止めさせる。止める口の名前が食い違うと、最後のコマで新しい札が降り始める。
+  it('殻が呼ぶ止める口（__hangarBootSettle）を、起動画面が持つ', () => {
+    const rust = read('src-tauri/src/lib.rs').match(/const BOOT_SETTLE_JS: &str = "([^"]+)";/)?.[1];
+    expect(rust).toBe('window.__hangarBootSettle && window.__hangarBootSettle()');
+    expect(read('loading/boot.js')).toContain('window.__hangarBootSettle = ');
+  });
 });
 
 describe('capabilities', () => {

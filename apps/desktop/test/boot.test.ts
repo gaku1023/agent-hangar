@@ -3,7 +3,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 type Card = { u: number; id: number; ang: number; dy: number; op: number };
-type BootFrames = { CYCLE_MS: number; SLOW_AFTER_MS: number; frameOf(T: number): Card[]; frameSvg(T: number): string; stillBootingText(ms: number): string | null };
+type BootFrames = { CYCLE_MS: number; SLOW_AFTER_MS: number; frameOf(T: number): Card[]; frameSvg(T: number): string; nearestBoundary(ms: number): number; stillBootingText(ms: number): string | null };
 // 読み込み画面は依存を持たない素の JS なので、型は試験の側で書く。
 const file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'loading', 'boot-frames.js');
 const m = (await import(pathToFileURL(file).href)) as BootFrames;
@@ -36,6 +36,17 @@ describe('起動画面のハンガー', () => {
   it('周期の境目では、札が静止した原図と同じ 1 本ずつの位置に並ぶ', () => {
     const us = m.frameOf(3 * m.CYCLE_MS / 1000).filter((c) => c.op > 0.5).map((c) => c.u).sort();
     expect(us).toEqual([1, 2, 3]);
+  });
+  // 止めるときは、いちばん近い周の境目の絵にする。殻は境目まで待ってから止めるので、ほとんど跳ばない。
+  it('止める絵は、経過にいちばん近い周の境目の時刻にする', () => {
+    const C = m.CYCLE_MS;
+    expect(m.nearestBoundary(0)).toBe(0);
+    expect(m.nearestBoundary(C * 0.4)).toBe(0);
+    expect(m.nearestBoundary(C * 0.6)).toBe(C / 1000);
+    expect(m.nearestBoundary(3 * C - 20)).toBe(3 * C / 1000);
+    expect(m.nearestBoundary(3 * C + 20)).toBe(3 * C / 1000);
+    // 境目の絵は、送りを終えた並びである。新しい札はまだ降りてきていない。
+    expect(m.frameOf(m.nearestBoundary(3 * C + 20)).filter((c) => c.op > 0.5).map((c) => c.u).sort()).toEqual([1, 2, 3]);
   });
   it('描く SVG は竿のグラデーションと札を持つ', () => {
     const svg = m.frameSvg(1.2);
