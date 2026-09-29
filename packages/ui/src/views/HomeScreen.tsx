@@ -22,11 +22,14 @@ export function HomeScreen(props: HomeProps) {
             <div key={a.id} className="ask-card">
               <StatusDot status="waiting" />
               <div className="ask-body">
-                <div className="ask-title"><b>{a.name}</b> <span className="faint">· {a.projectName ?? '未分類'} · {a.waited}待っている</span></div>
+                <div className="ask-title"><b>{a.name}</b> <span className="faint">· {a.projectName ?? '未分類'} · {a.waited}待っている{a.canAnswer ? '' : ' · 別のターミナルで動いています'}</span></div>
                 <div className="ask-q">{a.question}</div>
               </div>
               {/* その場では答えさせない。端末の TUI を外から操ることになって壊れやすいため、端末を開いてフォーカスする。 */}
-              <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.open', id: a.id, focus: 'terminal' })}>ターミナルで答える</button>
+              {/* hangar の run が無いセッションは端末を開けないので、端末を約束せずに開くだけにする。 */}
+              {a.canAnswer
+                ? <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.open', id: a.id, focus: 'terminal' })}>ターミナルで答える</button>
+                : <button type="button" className="btn" onClick={() => emit({ type: 'session.open', id: a.id })}>開く</button>}
             </div>
           ))}
         </section>
@@ -71,7 +74,7 @@ function LiveCard(props: { card: RunningCard; onOpen: () => void }) {
     <div className="live-card" role="button" tabIndex={0} onClick={props.onOpen} onKeyDown={(e) => { if (e.key === 'Enter') props.onOpen(); }}>
       <div className="live-head"><StatusDot status={c.live} /><span className="live-name">{c.name}</span><span className="live-elapsed mono">{c.elapsed}</span></div>
       <div className="live-meta">{c.meta}</div>
-      <div className="live-act mono">{c.activity ? <><i>{c.activity.tool}</i> {c.activity.summary}</> : <span className="live-note">{c.note}</span>}</div>
+      <div className="live-act mono">{c.activity ? <><i>{c.activity.tool}</i>{c.activity.summary !== '' && <> {c.activity.summary}</>}</> : <span className="live-note">{c.note}</span>}</div>
       <div className="live-ctx">
         文脈
         <span className="gauge-bar" role="meter" aria-label="文脈の使用率" aria-valuemin={0} aria-valuemax={100} aria-valuenow={c.contextPercent ?? undefined}>

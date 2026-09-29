@@ -75,10 +75,23 @@ describe('presentHome', () => {
     return s;
   };
   it('要対応は入力待ちを長く待っている順に拾い、問いが無ければ決まりの文を出す', () => {
-    expect(presentHome(initialState(), homeStore(), NOW).attention).toEqual([
-      { id: 'w1', name: 'name-w1', projectName: 'alpha', waited: '12 分', question: 'どちらにしますか？' },
-      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力を待っています' },
+    // w1 は hangar の run で動いている。w2 は別のターミナル（iTerm など）で動いていて、hangar の run が無い。
+    const store = homeStore();
+    store.runs = { rw1: runDto('rw1', 'w1') };
+    expect(presentHome(initialState(), store, NOW).attention).toEqual([
+      { id: 'w1', name: 'name-w1', projectName: 'alpha', waited: '12 分', question: 'どちらにしますか？', canAnswer: true },
+      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力を待っています', canAnswer: false },
     ]);
+  });
+  it('終わった run しか無い入力待ちは、hangar の端末で答えられない', () => {
+    const store = homeStore();
+    store.runs = { rw1: runDto('rw1', 'w1', NOW - 1_000) };
+    expect(presentHome(initialState(), store, NOW).attention.find((a) => a.id === 'w1')!.canAnswer).toBe(false);
+  });
+  it('答えた後の AskUserQuestion のように、対象がツール名と同じなら対象を空にする', () => {
+    const store = homeStore();
+    store.sessions.s1 = { ...store.sessions.s1!, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: null } };
+    expect(presentHome(initialState(), store, NOW).running[0]!.activity).toEqual({ tool: 'AskUserQuestion', summary: '' });
   });
   it('実行中は作業中と休みを拾い、入力待ちは要対応だけに出す', () => {
     const p = presentHome(initialState(), homeStore(), NOW);
@@ -107,8 +120,11 @@ describe('presentHome', () => {
   });
   it('プロジェクトは active だけを小さな一覧にし、0 の数は出さない', () => {
     const store = homeStore();
-    store.projects.alpha = { ...store.projects.alpha!, runningCount: 2, openTodoCount: 3 };
+    // サーバの runningCount は入力待ちも含む。入力待ちは要対応に数えるので、実行中からは引く。
+    store.projects.alpha = { ...store.projects.alpha!, runningCount: 4, openTodoCount: 3 };
     expect(presentHome(initialState(), store, NOW).projects).toEqual([{ id: 'alpha', name: 'alpha', status: 'active', counts: '実行中 2 · TODO 3 · 要対応 2' }]);
+    store.projects.alpha = { ...store.projects.alpha!, runningCount: 2 };
+    expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('TODO 3 · 要対応 2');
     store.projects.alpha = { ...store.projects.alpha!, runningCount: 0, openTodoCount: 0 };
     store.sessions = { s2: store.sessions.s2! };
     expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('');

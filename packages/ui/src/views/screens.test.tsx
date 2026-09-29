@@ -17,12 +17,28 @@ describe('HomeScreen', () => {
 
   it('要対応の札は問いを出し、「ターミナルで答える」で端末にフォーカスして開く', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w1', name: '論文の図を直す', projectName: 'thesis', waited: '12 分', question: '図 3 の凡例はどこに置きますか？' }] })} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w1', name: '論文の図を直す', projectName: 'thesis', waited: '12 分', question: '図 3 の凡例はどこに置きますか？', canAnswer: true }] })} /></IntentRoot>);
     expect(screen.getByRole('heading', { name: /要対応/ })).toBeInTheDocument();
     expect(screen.getByText('図 3 の凡例はどこに置きますか？')).toBeInTheDocument();
     expect(screen.getByText(/thesis · 12 分待っている/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'ターミナルで答える' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'w1', focus: 'terminal' });
+  });
+  it('hangar の外で動いている入力待ちの札は「開く」だけを出し、別のターミナルで動いていると添える', () => {
+    // hangar の run が無いと端末は開けず、トランスクリプトしか見せられない。端末を約束するボタンは出さない。
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w2', name: '外の作業', projectName: 'thesis', waited: '3 分', question: '入力を待っています', canAnswer: false }] })} /></IntentRoot>);
+    expect(screen.queryByRole('button', { name: 'ターミナルで答える' })).toBeNull();
+    expect(screen.getByText(/別のターミナルで動いています/)).toBeInTheDocument();
+    const open = screen.getByRole('button', { name: '開く' });
+    expect(open).toHaveClass('btn');
+    expect(open).not.toHaveClass('btn-primary');
+    fireEvent.click(open);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'w2' });
+  });
+  it('実行中の札は、対象が空ならツール名だけを出す', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ running: [runningCard({ activity: { tool: 'AskUserQuestion', summary: '' } })] })} /></IntentRoot>);
+    expect(container.querySelector('.live-act')!.textContent).toBe('AskUserQuestion');
   });
   it('実行中の札は、いま何をしているかと文脈の使用率を出し、押すか Enter で開く', () => {
     const onIntent = vi.fn();
