@@ -1,0 +1,127 @@
+<h2>2-c 起動画面：波で送る ＋ 掛かり方を 4 通りに</h2>
+<p class="subtitle">前の版は、掛かった瞬間に<b>角度が 0° から 8° へ飛んでいた</b>うえに、揺れが速すぎました（1 秒に 1.4 往復）。今回はどれも角度が途切れないように作り直し、揺れを<b>振り子の速さ</b>（1 秒に 1 往復ほど）に落としました。送りは 3（波）で共通です。「スロー」で細かく見られます。</p>
+
+<style>
+  .bf { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px; }
+  .bf .option { display:block; padding:12px; margin:0; }
+  .dhead { display:flex; align-items:baseline; gap:10px; margin-bottom:8px; } .dhead h3 { margin:0; font-size:15px; }
+  .desc { font-size:12.5px; opacity:.85; margin:8px 2px 0; line-height:1.55; }
+  .boot { position:relative; height:280px; border-radius:14px; overflow:hidden; isolation:isolate; background:#eef1f7; display:grid; place-items:center; font-family:'Inter','Hiragino Sans',sans-serif; color:#1c1b2e; }
+  .boot::before { content:''; position:absolute; inset:-25%; z-index:-1; background:radial-gradient(40% 50% at 30% 20%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 70%, #e5d6ff, transparent 70%); }
+  .boot svg { width:150px; height:150px; margin-top:-40px; overflow:visible; }
+  .boot .w { position:absolute; bottom:58px; font-weight:650; font-size:17px; letter-spacing:-.01em; }
+  .boot .st { position:absolute; bottom:36px; font-size:11px; color:#8a89a0; }
+  .ctl { display:flex; align-items:center; gap:12px; margin:4px 0 14px; font-size:13px; } .ctl input[type=range] { width:200px; }
+  .ctl button { font:12.5px system-ui; padding:6px 12px; border-radius:99px; border:1px solid rgba(128,128,128,.45); background:transparent; color:inherit; cursor:pointer; } .ctl button.on { background:rgba(128,128,128,.25); }
+</style>
+
+<div class="ctl">速さ <input type="range" min="0.4" max="2" step="0.1" value="1" id="speed"><span id="sv">1.0×</span><button id="slow">スロー（0.3×）</button></div>
+<div class="options bf" id="bf"></div>
+
+<script>
+(function(){
+  const INK = '#1c1b2e', BLUE = '#4a63e8', AMB = '#ffb86b', RED = '#e5533d', GRY = '#b5b2c4', HAZE = '#e2e7ff', CHEV = '#e8e6e1';
+  const hex = h => [1,3,5].map(i => parseInt(h.slice(i, i+2), 16));
+  const mix = (a, b, t) => '#' + hex(a).map((v, i) => Math.round(v + (hex(b)[i] - v) * t).toString(16).padStart(2, '0')).join('');
+  const colors = (t, cur) => ({ ink: mix(INK, HAZE, t), blue: mix(BLUE, HAZE, t), chev: mix(CHEV, HAZE, t * .6), cur: mix(cur, HAZE, t * .45), r: mix('#ff6a55', HAZE, t), y: mix('#ffc34d', HAZE, t), g: mix('#3fb58a', HAZE, t) });
+  const item = c => `<path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="${c.ink}" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="${c.ink}"/>
+      <path d="M0 10L-31 31H31Z" fill="none" stroke="${c.blue}" stroke-width="4" stroke-linejoin="round"/>
+      <circle cx="-23" cy="37" r="2" fill="${c.r}"/><circle cx="-16.5" cy="37" r="2" fill="${c.y}"/><circle cx="-10" cy="37" r="2" fill="${c.g}"/>
+      <path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="${c.chev}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="${c.cur}"/>`;
+
+  const r = .85, K = .13 * 62, UP = .035 * 72;
+  const geo = u => { const g = (1 - Math.pow(r, u)) / (1 - r); return { x: K * g, y: -UP * g, s: Math.pow(r, u) }; };
+  const P = [0, 1, 2, 3].map(geo);
+  let a = [1e9,1e9,-1e9,-1e9]; P.forEach(p => { a = [Math.min(a[0], p.x - 31 * p.s), Math.min(a[1], p.y - 3 * p.s), Math.max(a[2], p.x + 31 * p.s), Math.max(a[3], p.y + 69 * p.s)]; });
+  const SC = Math.min(70 / (a[2] - a[0]), 66 / (a[3] - a[1])), TX = 50 - SC * (a[0] + a[2]) / 2, TY = 51 - SC * (a[1] + a[3]) / 2;
+  const CUR = [AMB, RED, GRY, AMB, AMB, GRY];
+  const R0 = geo(-1.1), R1 = geo(3.6);
+  const defs = `<defs><linearGradient id="RG" gradientUnits="userSpaceOnUse" x1="${R0.x}" y1="0" x2="${R1.x}" y2="0"><stop offset="0" stop-color="${INK}" stop-opacity="0"/><stop offset=".2" stop-color="${INK}"/><stop offset=".4" stop-color="${INK}"/><stop offset="1" stop-color="${HAZE}"/></linearGradient></defs>`;
+  const rail = `<path d="M${R0.x} ${R0.y - 1}L${R1.x} ${R1.y - 1}" stroke="url(#RG)" stroke-width="2.6" stroke-linecap="round"/>`;
+
+  const clamp = t => Math.max(0, Math.min(1, t));
+  const eOut = t => 1 - Math.pow(1 - t, 3);
+  const eInOut = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  const W = 6.3;   // 振り子の角速度（約 1 往復／秒）
+  const Z = 2.4;   // 減衰
+
+  // 周期と、波で送る部分（3 の設定）。
+  const PER = 1.6, H = .34, SL = .34, WV = .07;
+
+  // 掛かり方。d は 0→1 の進み（掛かり終わるまで）、tau は掛かり終えてからの秒数。
+  // どれも「角度」と「位置」が途切れないように、掛かる直前と直後で値が一致するように作ってある。
+  const ENTRY = {
+    // 1：振り子。降りながら少しずつ傾き、掛かった角度のまま振り子として揺れ始める。
+    pendulum: (d, tau, landed) => {
+      const A = 5;
+      if (!landed) return { dy: -34 * (1 - eOut(d)), ang: A * eOut(d), op: eOut(d) };
+      return { dy: 0, ang: A * Math.exp(-Z * tau) * Math.cos(W * tau), op: 1 };
+    },
+    // 2：揺れなし、軽く沈む。回らずに降り、竿に乗った重みでわずかに沈んで戻る。
+    settle: (d, tau, landed) => {
+      if (!landed) return { dy: -34 * (1 - eOut(d)), ang: 0, op: eOut(d) };
+      return { dy: 1.6 * Math.exp(-6 * tau) * Math.sin(11 * tau), ang: 0, op: 1 };
+    },
+    // 3：ひと揺れで収まる。傾いて降り、行き過ぎずに真っ直ぐへ戻る（臨界減衰）。
+    once: (d, tau, landed) => {
+      const A = 4, w = 5.5;
+      if (!landed) return { dy: -34 * (1 - eOut(d)), ang: A * eOut(d), op: eOut(d) };
+      return { dy: 0, ang: A * (1 + w * tau) * Math.exp(-w * tau), op: 1 };
+    },
+    // 4：引っ掛ける。斜め上から近づき、最後にフックが竿に座って数ミリ下がり、小さく揺れる。
+    hook: (d, tau, landed) => {
+      if (!landed) { const e = eInOut(d); return { du: -.55 * (1 - e), dy: -20 * (1 - e) - 3, ang: -3 * (1 - e), op: clamp(d * 1.8) }; }
+      const seat = Math.min(1, tau / .18);
+      return { du: 0, dy: -3 * (1 - eOut(seat)), ang: 2 * Math.exp(-Z * tau) * Math.sin(W * tau), op: 1 };
+    },
+  };
+  const V = [
+    { id:'pendulum', L:'1', name:'振り子', d:'降りながら少し傾き、掛かった角度のまま<b>振り子として 1 往復半ほど</b>揺れて止まる。いちばん物らしい。' },
+    { id:'settle', L:'2', name:'揺れずに沈む', d:'回らずに降りてきて、竿に乗った重みで<b>わずかに沈んで戻る</b>だけ。いちばん静かで、揺れが苦手ならこれ。' },
+    { id:'once', L:'3', name:'ひと揺れで収まる', d:'傾いて降り、<b>行き過ぎずにすっと真っ直ぐへ戻る</b>。揺れの気配だけを残す、上品な止まり方。' },
+    { id:'hook', L:'4', name:'引っ掛ける', d:'斜め上から近づき、最後に<b>フックが竿に座って少し下がる</b>。人が手でハンガーを掛ける仕草に近い。' },
+  ];
+  document.getElementById('bf').innerHTML = V.map(v => `<div class="option" data-choice="${v.id}" onclick="toggleSelect(this)"><div class="dhead"><div class="letter">${v.L}</div><h3>${v.name}</h3></div>
+    <div class="boot"><svg viewBox="0 0 100 100" data-v="${v.id}"></svg><div class="w">Hangar</div><div class="st">サーバを起こしています…</div></div><p class="desc">${v.d}</p></div>`).join('');
+
+  const frameOf = (entry, T) => {
+    const n = Math.floor(T / PER), f = (T / PER) % 1, tSec = f * PER, out = [];
+    const landT = H * .92 * PER;
+    for (let k = 0; k <= 4; k++) {
+      const id = n - k, local = clamp((f - H - k * WV) / SL);
+      let u = k + eOut(local), dy = 0, op = 1, ang = 0;
+      const damp = 1 - Math.min(u, 3) / 5, B = 3.2 * damp;
+      const endT = (H + k * WV + SL) * PER;
+      // 送り：動く間は後ろへ遅れ、止まったら振り子として前へ振れて戻る（角度と向きが途切れない）
+      if (local > 0 && local < 1) ang = -B * Math.sin(local * Math.PI);
+      else if (local >= 1) { const tau = tSec - endT; ang = B * .7 * Math.exp(-Z * tau) * Math.sin(W * tau); }
+      else if (k > 0) { const tau = tSec + PER - (endT - WV * PER); ang = B * .7 * Math.exp(-Z * tau) * Math.sin(W * tau); } // 前の周期の送りの揺れの続き
+      // 先頭の札は、周期の頭で掛かる。その揺れが送りの前まで続く。
+      if (k === 0) {
+        const landed = tSec >= landT, d = clamp(tSec / landT), tau = Math.max(0, tSec - landT);
+        const e = entry(d, tau, landed);
+        if (f < H) { dy = e.dy; op = e.op; ang = e.ang; if (e.du) u += e.du; }
+        else { ang += entry(1, tau, true).ang * (local < 1 ? 1 : Math.exp(-3 * (tSec - endT))); }
+      }
+      if (u > 3) op *= clamp(1 - (u - 3) / .8);
+      if (op <= 0) continue;
+      out.push([u, id, ang, dy, op]);
+    }
+    return out.sort((p, q) => q[0] - p[0]);
+  };
+  const draw = ([u, id, ang, dy, op]) => {
+    const p = geo(u), t = clamp(u / 3) * .86 + Math.max(0, u - 3) * .1;
+    return `<g transform="translate(${p.x.toFixed(2)} ${(p.y + dy).toFixed(2)}) scale(${p.s.toFixed(4)})" opacity="${op.toFixed(3)}"><g transform="rotate(${ang.toFixed(2)})">${item(colors(Math.min(t, .95), CUR[((id % 6) + 6) % 6]))}</g></g>`;
+  };
+
+  let speed = 1, slow = false;
+  document.getElementById('speed').addEventListener('input', e => { speed = +e.target.value; document.getElementById('sv').textContent = speed.toFixed(1) + '×'; });
+  document.getElementById('slow').addEventListener('click', e => { slow = !slow; e.target.classList.toggle('on', slow); });
+  const svgs = [...document.querySelectorAll('svg[data-v]')];
+  let T = 0, last = performance.now();
+  const frame = now => { T += (now - last) / 1000 * speed * (slow ? .3 : 1); last = now;
+    svgs.forEach(svg => { svg.innerHTML = `${defs}<g transform="translate(${TX} ${TY}) scale(${SC})">${rail}${frameOf(ENTRY[svg.dataset.v], T).map(draw).join('')}</g>`; });
+    requestAnimationFrame(frame); };
+  requestAnimationFrame(frame);
+})();
+</script>
