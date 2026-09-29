@@ -4,7 +4,7 @@
 
 **Goal:** 画面全体を Liquid Glass の見た目の言語（光の背景、浮くガラス、不透明な読む面）に着せ替え、端末を掛けたハンガーのロゴを原本からアプリアイコン、favicon、サイドバーまで行き渡らせ、`.app` のタイトルバーをガラスに溶かす。
 
-**Architecture:** 見た目は今の素の CSS の上で作り直す。値は `tokens.css` のトークンに集め、ぼかし（`backdrop-filter`）は浮く部品の規則にだけ書き、それを試験で見張る。ロゴは `packages/ui/src/brand/logo.ts` の純粋な関数が SVG の文字列を作り、スクリプトがそれをファイルに書き出す。試験はファイルと関数の出力が一致することを確かめる。タイトルバーは Tauri の `titleBarStyle: "Overlay"` にし、窓を動かす権限を UI の出どころにだけ 1 つ与え、殻は頁に `data-shell="desktop"` の印を付ける。
+**Architecture:** 見た目は今の素の CSS の上で作り直す。値は `tokens.css` のトークンに集め、ぼかし（`backdrop-filter`）は浮く部品の規則にだけ書き、それを試験で見張る。ロゴは `packages/ui/src/brand/logo.ts` の純粋な関数が SVG の文字列を作り、スクリプトがそれをファイルに書き出す。試験はファイルと関数の出力が一致することを確かめる。タイトルバーは Tauri の `titleBarStyle: "Overlay"` にし、UI の出どころに窓を動かす権限（ヘッダーのドラッグ）とダブルクリックで拡大する権限（ヘッダーのダブルクリック）の 2 つだけ与え、殻は頁に `data-shell="desktop"` の印を付ける。
 
 **Tech Stack:** React 19、Vite 8、vitest 5（`ui` の `node` と `dom` の子プロジェクト）、@testing-library/react 16、Tauri 2.11（`@tauri-apps/cli` 2.11）、tsx 4、Node 22。
 

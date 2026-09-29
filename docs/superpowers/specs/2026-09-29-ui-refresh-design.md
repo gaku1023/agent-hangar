@@ -164,7 +164,7 @@ reduced motion では往復を止め、静止した輪だけを残す。
 | 竿 | フックを貫く直線。手前は墨色で、奥へ向かって霞の色へ溶ける |
 
 群れ全体を、アイコンの枠の中央の幅 70%、高さ 66% に収める。
-原図の座標は試作の `logo-compact.html` と `2-5-assets-screens-motion-tests.html` の生成コードが正であり、実装ではそれを SVG の原本（`packages/ui/src/assets/logo.svg` と、先頭 1 本だけの `logo-front.svg`）に書き出す。
+原図の座標は試作の `logo-compact.html` と `2-5-assets-screens-motion-tests.html` の生成コードが正であり、実装ではそれを SVG の原本（`packages/ui/src/brand/logo.svg` と、先頭 1 本だけの `logo-front.svg`）に書き出す。
 
 ### 寸法ごとの形
 
