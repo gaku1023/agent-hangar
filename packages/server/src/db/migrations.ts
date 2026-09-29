@@ -238,4 +238,21 @@ create table file_sync (
 create index file_sync_path on file_sync(kind, path);
 `,
   },
+  {
+    // 実行中のセッションが最後に呼んだツールと、答えを待っている AskUserQuestion の問い。Home の札に出す。
+    // 端末ローカルの表にする（共有テーブルの列を持たないので、同期の changes にも載らない）。
+    // 主線のトランスクリプトの追記を読むたびに書き直し、索引の作り直しでは先頭から積み直す。
+    // 既存の索引は作り直さないので、上げた直後は次の追記が来るまで空である。
+    version: 9,
+    sql: `
+create table session_activity (
+  session_id text primary key,
+  tool text not null,
+  summary text not null,
+  tool_id text not null,
+  question text,
+  updated_at integer not null
+);
+`,
+  },
 ];

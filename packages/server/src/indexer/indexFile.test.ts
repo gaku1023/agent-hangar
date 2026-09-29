@@ -341,6 +341,32 @@ describe('論理削除されたセッション', () => {
   });
 });
 
+describe('最後のツール呼び出し（session_activity）', () => {
+  const askCall = (toolId: string, question: string, ts = '2026-09-01T12:10:00.000Z') =>
+    ({ type: 'assistant', message: { role: 'assistant', model: 'claude-fable-5-1', content: [{ type: 'tool_use', id: toolId, name: 'AskUserQuestion', input: { questions: [{ question, header: 'h', options: [], multiSelect: false }] } }], usage: { input_tokens: 0, output_tokens: 1 } }, uuid: `a-${toolId}`, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+  const activity = (sessionId: string) => db.prepare('select tool, summary, tool_id, question from session_activity where session_id = ?').get(sessionId);
+
+  it('主線の追記から最後の呼び出しと待っている問いを残し、答えが来たら問いを消す', () => {
+    const first = indexFile(db, alphaMain(), { deviceId: DEV });
+    appendJson(alphaMain().path, askCall('q1', 'どちらにしますか？'));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(activity(first.sessionId)).toEqual({ tool: 'AskUserQuestion', summary: 'AskUserQuestion', tool_id: 'q1', question: 'どちらにしますか？' });
+    // 答えは次の追記で届く。前の追記で残した呼び出しと突き合わせて消す。
+    appendJson(alphaMain().path, artifactResult('q1', '右上に置く'));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(activity(first.sessionId)).toEqual({ tool: 'AskUserQuestion', summary: 'AskUserQuestion', tool_id: 'q1', question: null });
+  });
+
+  it('サブエージェントの呼び出しは、主線の「いま」にしない', () => {
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    const before = activity(r.sessionId);
+    appendJson(alphaSub().path, artifactCall('sub-1', { file_path: missing() }));
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    expect(activity(r.sessionId)).toEqual(before);
+  });
+});
+
 describe('他端末の写しの索引化', () => {
   const u = '11111111-1111-4111-8111-111111111111';
   const remoteFile = (root: string, text: string): string => {

@@ -40,6 +40,9 @@ type SessionRow = {
   ls_used: number | null;
   ls_size: number | null;
   ls_cost: number | null;
+  a_tool: string | null;
+  a_summary: string | null;
+  a_question: string | null;
 };
 
 const SESSION_SELECT = `
@@ -49,12 +52,13 @@ select s.*, exists(select 1 from transcript_files t where t.session_id = s.id an
   (select r.path from project_roots r join projects sp on sp.id = r.project_id where r.device_id = s.home_device and sp.is_scratch = 1 and sp.deleted_at is null and r.deleted_at is null order by r.updated_at desc limit 1) scratch_root,
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_id sum_source_id, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
   st.turns st_turns, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
-  ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost
+  ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost, a.tool a_tool, a.summary a_summary, a.question a_question
 from sessions s
 left join projects p on p.id = s.project_id
 left join session_summaries m on m.session_id = s.id and m.deleted_at is null
 left join session_stats st on st.session_id = s.id
 left join session_live_stats ls on ls.provider_session_id = s.provider_session_id
+left join session_activity a on a.session_id = s.id
 where s.deleted_at is null`;
 
 /**
@@ -178,6 +182,8 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     lock: locks.get(r.id) ?? null,
     // 本文はあるが手元の主線が無いとき、閲覧の前に本文を降ろす必要がある。
     remoteOnly: r.has_transcript === 1 && r.has_local === 0,
+    // 最後に呼んだツールと待っている問いは、実行中のときだけ載せる。終わったセッションの古い呼び出しは出さない。
+    ...(live ? { activity: r.a_tool !== null ? { tool: r.a_tool, summary: r.a_summary ?? '', question: r.a_question } : null } : {}),
   };
 }
 

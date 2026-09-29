@@ -5,6 +5,7 @@ import { upsertShared } from '../db/shared.ts';
 import { readNewLines } from '../provider/claude-code/lines.ts';
 import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
 import { indexTexts, normalizeRecord, recordFacts } from '../provider/claude-code/normalize.ts';
+import { foldActivity, type Activity } from '../provider/claude-code/activity.ts';
 import { localDay } from '../usage/aggregate.ts';
 import type { DiscoveredFile } from '../provider/types.ts';
 
@@ -109,6 +110,8 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
   const read = readNewLines(file.path, from);
   const reset = read.reset || from === 0;
   const agentKey = file.agentId ?? '';
+  // 「いま何をしているか」は手元の主線だけから取る。サブエージェントと他端末の写しは見ない。
+  const mainLocal = file.agentId === null && !remote;
 
   const parsed: { offset: number; length: number; rec: unknown }[] = [];
   let badLines = 0;
@@ -148,8 +151,13 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     // seq は主線とサブエージェントで別々に振り、続きは既存の最大値の次から始める。
     let seq = reset ? 0 : ((db.prepare("select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ?").get(sessionId, agentKey) as { m: number | null }).m ?? -1) + 1;
     const acc: Acc = { userTurns: 0, input: 0, output: 0, daily: new Map() };
+    const loadActivity = db.prepare('select tool, summary, tool_id, question from session_activity where session_id = ?');
+    const saved = mainLocal && !reset ? (loadActivity.get(sessionId) as { tool: string; summary: string; tool_id: string; question: string | null } | undefined) : undefined;
+    const startActivity: Activity | null = saved ? { tool: saved.tool, summary: saved.summary, toolId: saved.tool_id, question: saved.question } : null;
+    let activity = startActivity;
     parsed.forEach((p, i) => {
       const events = normalizeRecord(p.rec, seq, file.agentId);
+      if (mainLocal) activity = foldActivity(activity, events);
       for (const ev of events) {
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
@@ -189,6 +197,12 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
         acc.daily.set(day, { input: cur.input + f.usage.input, output: cur.output + f.usage.output });
       }
     });
+    if (mainLocal && (reset || activity !== startActivity)) {
+      if (activity === null) db.prepare('delete from session_activity where session_id = ?').run(sessionId);
+      else db.prepare(`insert into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?,?,?,?,?,?)
+        on conflict(session_id) do update set tool = excluded.tool, summary = excluded.summary, tool_id = excluded.tool_id, question = excluded.question, updated_at = excluded.updated_at`)
+        .run(sessionId, activity.tool, activity.summary, activity.toolId, activity.question, Date.now());
+    }
     db.prepare(`insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version, last_error) values (?,?,?,?,?,?,?,?,null)
       on conflict(path) do update set session_id = excluded.session_id, agent_id = excluded.agent_id, device_id = excluded.device_id, size = excluded.size, mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes, indexer_version = excluded.indexer_version, last_error = null`)
       .run(file.path, sessionId, file.agentId, file.deviceId, stat.size, mtime, read.nextByte, version);
