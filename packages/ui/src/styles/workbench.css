@@ -52,6 +52,9 @@
 .project-head { display: flex; align-items: center; gap: calc(var(--u) * 3); margin-bottom: var(--u); }
 .project-path { margin-bottom: calc(var(--u) * 3); }
 .rail { display: flex; flex-direction: column; gap: calc(var(--u) * 4); min-width: 0; }
+/* 右レールの TODO とメモは、白い読む面に載せる。アーティファクトはカードそのものが読む面なので、面を重ねない。 */
+.rail-panel { padding: calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.rail-panel > .h2:first-child { margin-top: 0; }
 
 /* プロジェクトのカードは FLIP のために 1 枚ずつ器に入れる。器は格子の升目いっぱいに広がる。 */
 .card-slot { display: flex; min-width: 0; }

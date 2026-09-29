@@ -290,3 +290,20 @@ describe('NewSessionDialog のスクラッチ', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.submit', params: { projectId: 'p1' } });
   });
 });
+
+// 見た目の規則（base.css）が掴む印を、画面の側で固定する。印が消えると、規則は黙って効かなくなる。
+describe('SessionScreen の読む面の印', () => {
+  it('畳んだ会話の列だけが data-collapsed を持つ', () => {
+    const { container, rerender } = render(<IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" /></TerminalHostContext.Provider></IntentRoot>);
+    expect(container.querySelector('.tr-pane')).toHaveAttribute('data-collapsed', 'true');
+    rerender(<IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SessionScreen {...running} transcriptOpen terminalStatus="connected" /></TerminalHostContext.Provider></IntentRoot>);
+    expect(container.querySelector('.tr-pane')).not.toHaveAttribute('data-collapsed');
+  });
+  it('実行していないセッションでは、切替と会話を 1 枚の白い面に載せる', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
+    const sheet = container.querySelector('.tr-sheet');
+    expect(sheet).not.toBeNull();
+    expect(sheet!.querySelector('.tr')).not.toBeNull();
+    expect(sheet).toContainElement(screen.getByLabelText('思考を表示'));
+  });
+});

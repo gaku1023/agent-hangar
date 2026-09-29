@@ -77,7 +77,7 @@ export function SettingsScreen(props: SettingsProps) {
   const summarizerDirty = lmUrlValue !== props.lmStudioUrl || lmModelValue !== props.lmStudioModel
     || fallback !== props.summaryFallback || capNumber !== props.summaryHourlyCap || allowExternal !== props.allowExternalSummarizer;
   return (
-    <div className="screen" style={{ maxWidth: 720 }}>
+    <div className="screen settings-screen" style={{ maxWidth: 720 }}>
       <h1 className="h1">Settings</h1>
       <section>
         <h2 className="h2">ワークスペース</h2>

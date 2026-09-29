@@ -31,10 +31,15 @@ a:hover { text-decoration: underline; }
 /* デスクトップの殻の中では、信号の 3 点がサイドバーの左上に乗る。殻が付ける data-shell の印を見て、その分だけ上を空ける。 */
 [data-shell='desktop'] .sidebar { padding-top: calc(var(--u) * 10); }
 .header { grid-column: 2; grid-row: 1; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 3); height: var(--header-h); margin: var(--float-gap) var(--float-gap) 0 var(--float-gap); padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 4); border-radius: var(--r-pill); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); }
-/* 中身はヘッダの下をくぐって流れる。上の余白は、浮いたヘッダの高さと上下の隙間の分である。 */
-.main { grid-column: 2; grid-row: 1 / -1; overflow: auto; padding-top: calc(var(--header-h) + var(--float-gap) * 2); }
-/* 切断の帯が出ている間は、帯の分も空ける。帯は 1 行（--row-h）に上下の余白が付く。 */
-.shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 3 + var(--row-h) + var(--u) * 2); }
+/* 中身はヘッダの下をくぐって流れる。上の余白は、浮いたヘッダの高さと上下の隙間の分である。
+   scroll-padding-top を同じ値にしておくと、j と k の行送りや Shift+Tab で届いた先がヘッダの下に隠れない。 */
+.main { grid-column: 2; grid-row: 1 / -1; overflow: auto; padding-top: calc(var(--header-h) + var(--float-gap) * 2); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 2); }
+/* 切断の帯が出ている間は、帯の分も空ける。
+   帯の下端は、ヘッダの上の隙間 float-gap、ヘッダ header-h、帯の上の隙間 float-gap * 0.75、帯の高さ row-h の和である。
+   そこに float-gap を足して、ヘッダの下と同じ隙間で中身を始める。
+   今の値では 8 + 40 + 6 + 28 + 8 = 90px になる。
+   scroll-padding-top も同じ値にし、キーボードで届いた先が帯とヘッダの下に隠れないようにする。 */
+.shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 2.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 2.75 + var(--row-h)); }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4); }
 .screen { animation: fade var(--dur-fast) var(--ease); }
 
@@ -110,6 +115,9 @@ a:hover { text-decoration: underline; }
 .sub { margin-left: calc(var(--u) * 4); border-left: 1px dashed var(--line-strong); padding-left: calc(var(--u) * 3); }
 .new-banner { position: sticky; bottom: var(--u); align-self: center; }
 
+/* 実行していないセッションでは、切替と会話を 1 枚の白い読む面に載せる。 */
+.tr-sheet { padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+
 /* ヘッダーの要素 */
 .crumbs { display: flex; gap: var(--u); color: var(--ink-2); white-space: nowrap; }
 .crumbs b { color: var(--ink); font-weight: 500; }
@@ -118,10 +126,14 @@ a:hover { text-decoration: underline; }
 .search-kbd { margin-left: calc(var(--u) * -13); width: calc(var(--u) * 9); flex: none; pointer-events: none; font: var(--fs-xs)/1 var(--font-mono); color: var(--ink-3); }
 .spacer { flex: 1; }
 
-/* 切断の帯。浮いたヘッダの下に降りてきて、押せる逃げ道をひとつ添える。通知と同じガラスに、赤を少し混ぜる。 */
-.conn-banner { grid-column: 2; grid-row: 2; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); min-height: var(--row-h); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; padding: var(--u) calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur-slow) var(--ease); }
+/* 切断の帯。浮いたヘッダの下に降りてきて、押せる逃げ道をひとつ添える。通知と同じガラスに、赤を少し混ぜる。
+   高さは row-h に決め打ちし、上下の余白は持たない。中身の上の余白（.shell:has(.conn-banner) .main）はこの高さから計算している。
+   中の小さいボタン（.btn-sm）は row-h より 6px 低いので、上下に 3px ずつ残って収まる。 */
+.conn-banner { grid-column: 2; grid-row: 2; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; padding: 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur-slow) var(--ease); }
 .conn-retry { color: color-mix(in srgb, var(--error) 70%, var(--ink-3)); }
-.conn-banner .btn { margin-left: auto; }
+/* 幅が足りないときは、折り返して帯の高さを変える代わりに、文言を省略記号で縮める。 */
+.conn-banner > b, .conn-banner > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-banner .btn { margin-left: auto; flex: none; }
 @keyframes drop-in { from { transform: translateY(-4px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* オーバーレイ */
@@ -151,8 +163,10 @@ a:hover { text-decoration: underline; }
 .tab-close, .tab-add { display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; height: calc(var(--u) * 5); width: calc(var(--u) * 5); border-radius: var(--r); }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
 .split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 240px); transition: grid-template-columns var(--dur-slow) var(--ease); }
-/* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。 */
-.term-pane { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border-radius: var(--r-lg); overflow: hidden; box-shadow: 0 12px 26px -16px rgba(20, 20, 60, 0.55); }
+/* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
+   xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
+   閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */
+.term-pane { position: relative; isolation: isolate; display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border-radius: var(--r-lg); overflow: hidden; box-shadow: 0 12px 26px -16px rgba(20, 20, 60, 0.55); }
 .term-host { flex: 1; min-height: 0; padding: var(--u); }
 .term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
 .term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }
@@ -160,6 +174,8 @@ a:hover { text-decoration: underline; }
 /* 会話の列は白い読む面にする。 */
 .tr-pane { min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
 .tr-pane .tr { height: auto; flex: 1; }
+/* 畳んだ列は 28px しかなく、開くボタンも同じ幅である。左右の余白を残すと、ボタンの半分ほどが隠れて押しにくくなる。 */
+.tr-pane[data-collapsed='true'] { padding: calc(var(--u) * 2) 0; }
 .tr-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: calc(var(--u) * 7); border: 0; background: transparent; cursor: pointer; color: var(--ink-2); height: var(--row-h); align-self: flex-start; }
 
 /* アイコン。大きさと線幅は Icon.tsx が決める。色は置かれた場所の文字色に従う。 */

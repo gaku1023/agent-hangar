@@ -101,3 +101,12 @@ describe('プロジェクトのステータスの色', () => {
     expect([...container.querySelectorAll('.section-head .st-dot')].map((d) => d.getAttribute('data-status'))).toEqual(['active', 'done']);
   });
 });
+
+describe('ProjectScreen の右レールの読む面', () => {
+  // アーティファクトはカード自体が白い読む面なので、白い面を敷くのは TODO とメモだけにする。
+  it('TODO とメモの節は白い面に載る', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
+    const panels = [...container.querySelectorAll('.rail > .rail-panel')];
+    expect(panels.map((p) => p.querySelector('.h2')?.textContent)).toEqual(['TODO', 'メモ']);
+  });
+});

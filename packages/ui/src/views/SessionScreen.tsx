@@ -128,7 +128,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} />
         <div className="split" style={{ gridTemplateColumns: props.transcriptOpen ? 'minmax(0, 1fr) minmax(320px, 38%)' : 'minmax(0, 1fr) 28px' }}>
           {terminals}
-          <aside className="tr-pane">
+          <aside className="tr-pane" data-collapsed={props.transcriptOpen ? undefined : 'true'}>
             <button className="tr-toggle" aria-label={props.transcriptOpen ? 'トランスクリプトを閉じる' : 'トランスクリプトを開く'} onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>
             {props.transcriptOpen && <>{toggles}{transcript}</>}
           </aside>
@@ -136,5 +136,5 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       </div>
     );
   }
-  return <div className="screen">{header}{summary}{artifacts}{toggles}{transcript}</div>;
+  return <div className="screen">{header}{summary}{artifacts}<section className="tr-sheet">{toggles}{transcript}</section></div>;
 }
