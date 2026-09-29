@@ -496,6 +496,23 @@ describe('startServer', () => {
       await s.close();
     }
   }, 20000);
+  it('実行中の登録が消えたら、答えを待っていた問いを消す。再開した直後に前の問いが出ない', async () => {
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const db = openDb(dbPath(home));
+    try {
+      const id = (db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ?").get(SESSION_ALPHA) as { id: string }).id;
+      db.prepare('insert or replace into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?,?,?,?,?,?)').run(id, 'AskUserQuestion', 'AskUserQuestion', 'toolu_1', 'どちらにしますか？', 1);
+      const questionOf = () => (db.prepare('select question from session_activity where session_id = ?').get(id) as { question: string | null } | undefined)?.question;
+      expect(questionOf()).toBe('どちらにしますか？');
+      fs.rmSync(path.join(claudeDir, 'sessions', '12345.json'));
+      await until(async () => (questionOf() === null ? true : null));
+      // 最後の呼び出しは残す。消すのは問いだけである。
+      expect(db.prepare('select tool from session_activity where session_id = ?').get(id)).toEqual({ tool: 'AskUserQuestion' });
+    } finally {
+      db.close();
+      await s.close();
+    }
+  }, 20000);
 });
 
 describe('ルートの復帰', () => {
