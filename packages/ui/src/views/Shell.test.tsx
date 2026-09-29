@@ -80,6 +80,13 @@ describe('Shell', () => {
     expect(controls.length).toBeGreaterThan(0);
     for (const el of controls) expect(el).not.toHaveAttribute('data-tauri-drag-region');
   });
+  it('検索欄に ⌘K の印を添え、読み上げからは外す', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
+    const kbd = container.querySelector('header.header kbd.search-kbd')!;
+    expect(kbd).toHaveTextContent('⌘K');
+    expect(kbd).toHaveAttribute('aria-hidden', 'true');
+    expect(kbd.previousElementSibling).toBe(screen.getByRole('searchbox'));
+  });
 });
 
 const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('data-icon') ?? null;

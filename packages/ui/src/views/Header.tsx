@@ -17,6 +17,7 @@ export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string
       </div>
       <input id="global-search" className="input search-box" type="search" role="searchbox" placeholder="セッションを検索（/）" defaultValue={props.searchText}
         onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.query', text: (e.target as HTMLInputElement).value }); }} />
+      <kbd className="search-kbd" aria-hidden="true">⌘K</kbd>
       <span className="spacer" data-tauri-drag-region="" />
       <SyncStatus {...props.sync} />
       {/* 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。 */}

@@ -45,22 +45,22 @@ a:hover { text-decoration: underline; }
 .nav-item:hover { background: rgba(255, 255, 255, 0.5); }
 .nav-item[aria-current='page'] { color: var(--ink); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
 
-/* ボタンと入力 */
-.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); cursor: pointer; transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
-.btn:hover { background: var(--surface-2); }
+/* ボタンと入力。ボタンは錠剤の形で、主ボタンだけ上から下へ淡いグラデーションを持つ。 */
+.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.btn:hover { background: var(--surface); box-shadow: inset 0 1px 0 #ffffff, 0 3px 10px -2px rgba(30, 40, 90, 0.2); }
 .btn:active { transform: scale(0.98); }
-.btn-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.btn-primary:hover { background: var(--accent); filter: brightness(1.05); }
+.btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
+.btn-primary:hover { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); filter: brightness(1.04); }
 .btn:disabled { opacity: 0.5; cursor: default; }
-.input { height: var(--row-h); padding: 0 calc(var(--u) * 2); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); }
-.input:focus { border-color: var(--accent); outline: none; }
+.input { height: var(--row-h); padding: 0 calc(var(--u) * 2.5); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); outline: none; }
 .select { height: var(--row-h); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); padding: 0 var(--u); }
 
 /* 一覧 */
-.list { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+.list { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
 .list-scroll { overflow: auto; }
 .row { display: grid; align-items: center; height: var(--row-h); padding: 0 calc(var(--u) * 3); border-bottom: 1px solid var(--line); gap: calc(var(--u) * 3); cursor: pointer; transition: background var(--dur-fast) var(--ease); white-space: nowrap; }
-.row:hover { background: var(--surface-2); }
+.row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
 .row[aria-selected='true'] { background: var(--accent-soft); }
 .row-head { font-size: var(--fs-xs); color: var(--ink-3); cursor: default; }
 .row-head:hover { background: transparent; }
@@ -69,8 +69,8 @@ a:hover { text-decoration: underline; }
 
 /* カード */
 .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(var(--u) * 3); }
-.card { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); padding: calc(var(--u) * 3); display: flex; flex-direction: column; gap: var(--u); cursor: pointer; transition: border-color var(--dur-fast) var(--ease); min-width: 0; }
-.card:hover { border-color: var(--line-strong); }
+.card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); padding: calc(var(--u) * 3); display: flex; flex-direction: column; gap: var(--u); cursor: pointer; transition: box-shadow var(--dur) var(--ease); min-width: 0; }
+.card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
 .card-title { font-weight: 600; font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 状態点 */
@@ -80,8 +80,8 @@ a:hover { text-decoration: underline; }
 .dot[data-status='waiting'] { background: var(--waiting); }
 
 /* 見出しと区画 */
-.h1 { font-size: var(--fs-lg); font-weight: 600; margin: 0 0 calc(var(--u) * 3); }
-.h2 { font-size: var(--fs-md); font-weight: 600; margin: calc(var(--u) * 5) 0 calc(var(--u) * 2); }
+.h1 { font-size: var(--fs-lg); font-weight: 650; letter-spacing: -0.01em; margin: 0 0 calc(var(--u) * 3); }
+.h2 { font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; margin: calc(var(--u) * 5) 0 calc(var(--u) * 2); }
 .section-head { display: flex; align-items: baseline; gap: calc(var(--u) * 2); }
 .empty { padding: calc(var(--u) * 8); text-align: center; color: var(--ink-2); }
 
@@ -95,8 +95,8 @@ a:hover { text-decoration: underline; }
 /* 高さは CSS だけで決める。実行中の画面では .tr-pane の側が上書きしてペーンに追随する。 */
 .tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); height: calc(100vh - 260px); overflow: auto; padding: calc(var(--u) * 2) 0; }
 .msg { max-width: 80ch; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); white-space: pre-wrap; word-break: break-word; }
-.msg-user { background: var(--accent-soft); align-self: flex-end; }
-.msg-assistant { background: var(--surface); border: 1px solid var(--line); align-self: flex-start; }
+.msg-user { background: var(--accent); color: var(--accent-ink); align-self: flex-end; border-bottom-right-radius: 5px; }
+.msg-assistant { background: var(--surface-2); align-self: flex-start; border-bottom-left-radius: 5px; }
 .msg-thinking { color: var(--ink-3); font-style: italic; align-self: flex-start; }
 .msg-system { color: var(--ink-3); font-size: var(--fs-xs); align-self: center; }
 .tool { border-left: 2px solid var(--line-strong); padding-left: calc(var(--u) * 2); }
@@ -109,7 +109,9 @@ a:hover { text-decoration: underline; }
 /* ヘッダーの要素 */
 .crumbs { display: flex; gap: var(--u); color: var(--ink-2); white-space: nowrap; }
 .crumbs b { color: var(--ink); font-weight: 500; }
-.search-box { flex: 1; max-width: 420px; }
+/* 検索欄はヘッダの錠剤の中の、ひと回り小さな錠剤。右の余白は、内側に重ねる ⌘K の印の分。 */
+.search-box { flex: 1; max-width: 420px; height: calc(var(--row-h) - 2px); border-color: transparent; border-radius: var(--r-pill); padding: 0 calc(var(--u) * 13) 0 calc(var(--u) * 3); background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.12); }
+.search-kbd { margin-left: calc(var(--u) * -13); width: calc(var(--u) * 9); flex: none; pointer-events: none; font: var(--fs-xs)/1 var(--font-mono); color: var(--ink-3); }
 .spacer { flex: 1; }
 
 /* 切断の帯。浮いたヘッダの下に降りてきて、押せる逃げ道をひとつ添える。通知と同じガラスに、赤を少し混ぜる。 */
@@ -119,12 +121,12 @@ a:hover { text-decoration: underline; }
 @keyframes drop-in { from { transform: translateY(-4px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* オーバーレイ */
-.overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 30%, transparent); display: grid; place-items: center; z-index: 10; }
-.dialog { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: calc(var(--u) * 5); width: 480px; max-width: calc(100vw - 32px); animation: pop var(--dur-pop) var(--ease); display: flex; flex-direction: column; gap: calc(var(--u) * 3); }
+.overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 18%, transparent); display: grid; place-items: center; z-index: 10; }
+.dialog { border-radius: 18px; background: var(--glass-bg-dialog); -webkit-backdrop-filter: var(--glass-blur-dialog); backdrop-filter: var(--glass-blur-dialog); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: calc(var(--u) * 5); width: 480px; max-width: calc(100vw - 32px); animation: pop var(--dur-pop) var(--ease); display: flex; flex-direction: column; gap: calc(var(--u) * 3); }
 @keyframes pop { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
 .toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; gap: var(--u); z-index: 20; }
-.toast { background: var(--ink); color: var(--bg); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); animation: slide var(--dur-slow) var(--ease); cursor: pointer; }
-.toast[data-level='error'] { background: var(--error); color: #fff; }
+.toast { background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur-slow) var(--ease); cursor: pointer; }
+.toast[data-level='error'] { background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); color: var(--error); }
 @keyframes slide { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
 .progress { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
 
@@ -145,12 +147,14 @@ a:hover { text-decoration: underline; }
 .tab-close, .tab-add { display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; height: calc(var(--u) * 5); width: calc(var(--u) * 5); border-radius: var(--r); }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
 .split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 240px); transition: grid-template-columns var(--dur-slow) var(--ease); }
-.term-pane { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border-radius: var(--r-lg); overflow: hidden; }
+/* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。 */
+.term-pane { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border-radius: var(--r-lg); overflow: hidden; box-shadow: 0 12px 26px -16px rgba(20, 20, 60, 0.55); }
 .term-host { flex: 1; min-height: 0; padding: var(--u); }
 .term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
 .term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }
 .term-status-error { color: var(--error); opacity: 1; }
-.tr-pane { min-width: 0; border-left: 1px solid var(--line); padding-left: calc(var(--u) * 2); overflow: hidden; display: flex; flex-direction: column; }
+/* 会話の列は白い読む面にする。 */
+.tr-pane { min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
 .tr-pane .tr { height: auto; flex: 1; }
 .tr-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: calc(var(--u) * 7); border: 0; background: transparent; cursor: pointer; color: var(--ink-2); height: var(--row-h); align-self: flex-start; }
 
@@ -159,7 +163,7 @@ a:hover { text-decoration: underline; }
 
 /* プロジェクトのステータス。色は data-status からトークンを引く。文字でも状態を示しているので、色は補助である。 */
 /* 見た目は .status-face が描き、透明な本物の select をその上に重ねて操作と読み上げを任せる。 */
-.status-pill { position: relative; display: inline-flex; align-items: center; height: var(--row-h); border-radius: var(--r); font-weight: 500; color: var(--st-archived); background: var(--st-archived-soft); transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.status-pill { position: relative; display: inline-flex; align-items: center; height: var(--row-h); border-radius: var(--r-pill); font-weight: 500; color: var(--st-archived); background: var(--st-archived-soft); transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
 .status-pill[data-status='active'] { color: var(--st-active); background: var(--st-active-soft); }
 .status-pill[data-status='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .status-pill[data-status='done'] { color: var(--st-done); background: var(--st-done-soft); }
