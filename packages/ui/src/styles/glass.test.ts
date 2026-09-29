@@ -37,6 +37,11 @@ describe('骨格', () => {
     expect(base).toMatch(/\.shell::before \{[^}]*animation: aura-drift var\(--aura-period\)/);
     expect(base).toContain('@media (prefers-reduced-motion: reduce) { .shell::before { animation: none; } }');
   });
+  // 狭い窓では、何が起きたかの見出しを最後まで残し、次の再接続までの秒数から先に縮める。
+  it('切断の帯は、見出しを縮めず、再接続の秒数から先に縮める', () => {
+    expect(all.find((r) => r.selector === '.conn-banner > b')?.body).toMatch(/flex: none;/);
+    expect(all.find((r) => r.selector === '.conn-banner > .conn-retry')?.body).toMatch(/flex-shrink: 4;/);
+  });
 });
 
 // 規則を 1 つだけ取り出し、宣言を名前と値の組にする。同じ選択子が 2 度書かれていたら、それは取り違えなので落とす。
@@ -77,6 +82,11 @@ describe('読む面', () => {
     const d = rule('base.css', ".tr-pane[data-collapsed='true']");
     expect(d.padding).toMatch(new RegExp(`^(${CALC}|\\S+) 0$`));
     expect(px(rule('base.css', '.tr-toggle').width!)).toBe(28);
+  });
+  it('白い面の中のアーティファクトのカードは、淡い地に落として面を重ねない', () => {
+    const body = all.find((r) => r.selector === '.rail-panel .artifact')?.body ?? '';
+    expect(body).toMatch(/background: var\(--surface-2\);/);
+    expect(body).toMatch(/box-shadow: none;/);
   });
 });
 

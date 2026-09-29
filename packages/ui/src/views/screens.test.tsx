@@ -140,10 +140,10 @@ describe('プロジェクトのステータスの色', () => {
 });
 
 describe('ProjectScreen の右レールの読む面', () => {
-  // アーティファクトはカード自体が白い読む面なので、白い面を敷くのは TODO とメモだけにする。
-  it('TODO とメモの節は白い面に載る', () => {
+  // アーティファクトの節も白い面に載せ、面の中のカードは淡い地で重ねる（見出しと空のときの文が光の上に出ないように）。
+  it('TODO、メモ、アーティファクトの節は白い面に載る', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
     const panels = [...container.querySelectorAll('.rail > .rail-panel')];
-    expect(panels.map((p) => p.querySelector('.h2')?.textContent)).toEqual(['TODO', 'メモ']);
+    expect(panels.map((p) => p.querySelector('.h2')?.textContent)).toEqual(['TODO', 'メモ', 'アーティファクト']);
   });
 });

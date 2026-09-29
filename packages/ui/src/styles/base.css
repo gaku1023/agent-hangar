@@ -131,8 +131,12 @@ a:hover { text-decoration: underline; }
    中の小さいボタン（.btn-sm）は row-h より 6px 低いので、上下に 3px ずつ残って収まる。 */
 .conn-banner { grid-column: 2; grid-row: 2; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; padding: 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur-slow) var(--ease); }
 .conn-retry { color: color-mix(in srgb, var(--error) 70%, var(--ink-3)); }
-/* 幅が足りないときは、折り返して帯の高さを変える代わりに、文言を省略記号で縮める。 */
+/* 幅が足りないときは、折り返して帯の高さを変える代わりに、文言を省略記号で縮める。
+   「接続が切れています」の見出しは縮めず、次の再接続までの秒数から先に縮める。
+   再接続のボタン（.btn）は flex: none で、どの幅でも押せる。 */
 .conn-banner > b, .conn-banner > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-banner > b { flex: none; }
+.conn-banner > .conn-retry { flex-shrink: 4; }
 .conn-banner .btn { margin-left: auto; flex: none; }
 @keyframes drop-in { from { transform: translateY(-4px); opacity: 0; } to { transform: none; opacity: 1; } }
 
