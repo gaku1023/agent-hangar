@@ -1,4 +1,5 @@
 import type { SearchParamsDto } from '@agent-hangar/shared';
+import { agentTabStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, State, Step } from './types.ts';
 
 export function searchParams(state: State): SearchParamsDto {
@@ -53,9 +54,16 @@ export function screenStep(state: State, input: Input): Step | null {
     case 'project.open': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'project', id: i.id } }] };
     case 'session.open': {
       const overlay = closeTransient(state);
-      // もうその画面にいればハッシュは変わらないので、フォーカスだけを出す。
-      if (i.focus === 'terminal' && state.screen.name === 'session' && state.screen.id === i.id) return { state: { ...state, overlay }, effects: [{ kind: 'focus', target: 'terminal' }] };
-      return { state: { ...state, overlay, focusOnOpen: i.focus === 'terminal' ? i.id : null }, effects: [{ kind: 'navigate', route: { name: 'session', id: i.id } }] };
+      if (i.focus !== 'terminal') return { state: { ...state, overlay, focusOnOpen: null }, effects: [{ kind: 'navigate', route: { name: 'session', id: i.id } }] };
+      // 答える先は Claude のタブなので、シェルのタブを選んでいたら戻す。
+      // もうその画面にいればハッシュは変わらないので、戻した Claude のタブをつないでからフォーカスだけを出す。
+      if (state.screen.name === 'session' && state.screen.id === i.id) {
+        const back = agentTabStep(state, i.id);
+        const connect: Effect[] = back ? [...back.effects, { kind: 'terminal.connect', sessionId: i.id, tabId: null }] : [];
+        return { state: { ...(back?.state ?? state), overlay }, effects: [...connect, { kind: 'focus', target: 'terminal' }] };
+      }
+      const back = agentTabStep(state, i.id) ?? { state, effects: [] };
+      return { state: { ...back.state, overlay, focusOnOpen: i.id }, effects: [...back.effects, { kind: 'navigate', route: { name: 'session', id: i.id } }] };
     }
     case 'search.query': {
       const next = { ...state, overlay: closeTransient(state), search: { ...state.search, text: i.text } };
