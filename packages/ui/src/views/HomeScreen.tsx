@@ -3,8 +3,8 @@ import type { HomeProps, RunningCard } from '../presenters/home.ts';
 import { SESSION_ROW_H, SessionRows } from './SessionRows.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
-/** Home で一度に見せる最近の行の数。多いときは一覧の中でスクロールする。 */
-const RECENT_VISIBLE = 10;
+/** Home で一度に見せる最近とプロジェクトの行の数。多いときは一覧の中でスクロールする。 */
+export const HOME_VISIBLE_ROWS = 10;
 
 /**
  * Home（管制盤）。
@@ -45,11 +45,11 @@ export function HomeScreen(props: HomeProps) {
       <div className="home-two">
         <section>
           <h2 className="home-label">最近</h2>
-          <SessionRows rows={props.recent} height={Math.min(props.recent.length, RECENT_VISIBLE) * SESSION_ROW_H} variant="recent" />
+          <SessionRows rows={props.recent} height={Math.min(props.recent.length, HOME_VISIBLE_ROWS) * SESSION_ROW_H} variant="recent" />
         </section>
         <section>
           <h2 className="home-label">プロジェクト</h2>
-          <div className="list">
+          <div className="list pj-list" style={{ maxHeight: HOME_VISIBLE_ROWS * SESSION_ROW_H }}>
             {props.projects.length === 0
               ? <div className="empty">active なプロジェクトはありません。Settings でワークスペースを確かめてください。</div>
               : props.projects.map((p) => (

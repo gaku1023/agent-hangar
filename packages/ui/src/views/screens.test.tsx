@@ -3,9 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { HomeProps, RunningCard } from '../presenters/home.ts';
 import type { ProjectCardProps } from '../presenters/projects.ts';
-import { HomeScreen } from './HomeScreen.tsx';
+import { HOME_VISIBLE_ROWS, HomeScreen } from './HomeScreen.tsx';
 import { ProjectScreen } from './ProjectScreen.tsx';
 import { ProjectsScreen } from './ProjectsScreen.tsx';
+import { SESSION_ROW_H } from './SessionRows.tsx';
 
 // Task 22 で ProjectProps に増えた右レールの分。この節が見るのはヘッダーの操作だけなので空にする。
 const rail = { isScratch: false, todos: [], memo: null, artifacts: [] };
@@ -75,6 +76,14 @@ describe('HomeScreen', () => {
     expect(row.querySelector('.pj-dot')).toHaveAttribute('data-status', 'active');
     fireEvent.click(row);
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
+  });
+  it('プロジェクトの一覧は最近と同じ高さで頭打ちにし、中でスクロールする', () => {
+    const projects = Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, name: `project-${i}`, status: 'active' as const, counts: '' }));
+    const { container } = render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ projects })} /></IntentRoot>);
+    expect(screen.getAllByRole('button', { name: /^project-/ })).toHaveLength(12);
+    const list = container.querySelector('.pj-list') as HTMLElement;
+    expect(list).not.toBeNull();
+    expect(list.style.maxHeight).toBe(`${HOME_VISIBLE_ROWS * SESSION_ROW_H}px`);
   });
 });
 

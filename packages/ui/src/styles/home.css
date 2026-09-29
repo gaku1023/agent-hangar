@@ -29,6 +29,8 @@
 
 /* 最近とプロジェクトを 1.6 対 1 で横に並べる。 */
 .home-two { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: calc(var(--u) * 2.5); align-items: start; }
+/* 最近と同じ高さで頭打ちにし、溢れた分は一覧の中でスクロールする。 */
+.pj-list { overflow-y: auto; }
 .pj-row { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: var(--session-row-h); padding: 0 calc(var(--u) * 3); border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease); }
 .pj-row:last-child { border-bottom: 0; }
 .pj-row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
