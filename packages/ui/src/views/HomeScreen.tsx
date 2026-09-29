@@ -1,7 +1,7 @@
 import { useEmit } from '../intent/chain.tsx';
 import type { HomeProps } from '../presenters/home.ts';
 import { ProjectCard } from './ProjectCard.tsx';
-import { SessionRows } from './SessionRows.tsx';
+import { SESSION_ROW_H, SessionRows } from './SessionRows.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
 /** Home 画面。実行中の帯は実行中セッションがあるときだけ描く。 */
@@ -24,7 +24,7 @@ export function HomeScreen(props: HomeProps) {
       <h2 className="h2">プロジェクト</h2>
       {props.activeProjects.length === 0 ? <div className="empty">active なプロジェクトはありません。Settings でワークスペースを確かめてください。</div> : <div className="cards">{props.activeProjects.map((c) => <ProjectCard key={c.id} {...c} />)}</div>}
       <h2 className="h2">最近のセッション</h2>
-      <SessionRows rows={props.recent} height={Math.min(props.recent.length, 15) * 28 + 28} showProject />
+      <SessionRows rows={props.recent} height={Math.min(props.recent.length, 10) * SESSION_ROW_H} variant="recent" />
     </div>
   );
 }

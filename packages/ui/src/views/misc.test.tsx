@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
-import type { SessionRowProps } from '../presenters/row.ts';
 import type { CloudSettingsProps, SettingsProps } from '../presenters/settings.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 import { SessionRows } from './SessionRows.tsx';
@@ -471,24 +470,11 @@ describe('ToastStack', () => {
 
 describe('SessionRows（空のとき）', () => {
   it('emptyText を渡すとその文言、渡さなければ既定の文言', () => {
-    const { unmount } = render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} showProject emptyText="何もない" /></IntentRoot>);
+    const { unmount } = render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} variant="search" emptyText="何もない" /></IntentRoot>);
     expect(screen.getByText('何もない')).toBeInTheDocument();
     unmount();
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} showProject /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} variant="search" /></IntentRoot>);
     expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();
-  });
-});
-
-describe('SessionRows（抜粋つき）', () => {
-  const row = (id: string, snippets: { seq: number; text: string }[]): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '完了', model: 'fable 5.1', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, cost: '', runId: null, snippets });
-  it('抜粋の数が違う行も全部描き、高さは行ごとに決める', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[row('a', [{ seq: 1, text: 'snip a1' }]), row('b', [{ seq: 1, text: 'snip b1' }, { seq: 2, text: 'snip b2' }, { seq: 3, text: 'snip b3' }])]} height={400} showProject showSnippets /></IntentRoot>);
-    expect(screen.getByText('na')).toBeInTheDocument();
-    expect(screen.getByText('nb')).toBeInTheDocument();
-    for (const t of ['snip a1', 'snip b1', 'snip b2', 'snip b3']) expect(screen.getByText(t)).toBeInTheDocument();
-    const wrapOf = (name: string) => screen.getByText(name).closest('[role="row"]')!.parentElement as HTMLElement;
-    expect(wrapOf('na').style.height).toBe('48px');
-    expect(wrapOf('nb').style.height).toBe('88px');
   });
 });
 

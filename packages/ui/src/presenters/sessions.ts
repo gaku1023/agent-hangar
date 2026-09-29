@@ -1,6 +1,7 @@
 import type { SearchFilter } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
+import { markTerms } from './highlight.ts';
 import { presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
 
 export type SessionsProps = { text: string; filter: SearchFilter; projects: { id: string; name: string }[]; rows: SessionRowProps[]; total: number; loading: boolean; mode: 'all' | 'search' };
@@ -20,6 +21,12 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
   }
   const result = store.search.result;
   const rows: SessionRowProps[] = [];
-  for (const h of result?.hits ?? []) { const s = store.sessions[h.sessionId]; if (s) rows.push(presentSessionRow(s, store, now, h.snippets.map((x) => ({ seq: x.seq, text: x.text })))); }
+  // 行は 2 段なので、抜粋は最初の 1 つだけを 2 段目に出す。
+  for (const h of result?.hits ?? []) {
+    const s = store.sessions[h.sessionId];
+    if (!s) continue;
+    const first = h.snippets[0];
+    rows.push(presentSessionRow(s, store, now, first ? markTerms(first.text, state.search.text) : []));
+  }
   return { text: state.search.text, filter: f, projects, rows, total: result?.total ?? 0, loading: store.search.loading, mode: 'search' };
 }

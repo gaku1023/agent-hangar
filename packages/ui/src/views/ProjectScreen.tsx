@@ -32,7 +32,7 @@ export function ProjectScreen(props: ProjectProps) {
           <button className="btn" aria-label={railOpen ? '右レールを隠す' : '右レールを出す'} onClick={() => setRailOpen(!railOpen)}><Icon name={railOpen ? 'paneClose' : 'paneOpen'} /></button>
         </div>
         <div className="mono faint project-path">{props.path ?? 'この端末にパスがありません'}{!props.resolved && props.path ? '（見つかりません）' : ''}</div>
-        <SessionRows rows={props.sessions} height="calc(100vh - 200px)" showProject={false} />
+        <SessionRows rows={props.sessions} height="calc(100vh - 200px)" variant="project" />
       </div>
       {railOpen && (
         <aside className="rail">

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
@@ -14,7 +14,7 @@ const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'o
 describe('SessionRows', () => {
   it('行のクリックと Enter で session.open', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[row('a'), row('b')]} height={400} showProject /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[row('a'), row('b')]} height={400} variant="search" /></IntentRoot>);
     fireEvent.click(screen.getByText('na'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
     fireEvent.keyDown(screen.getByText('nb').closest('[role="row"]')!, { key: 'Enter' });
@@ -23,7 +23,7 @@ describe('SessionRows', () => {
     expect(screen.getAllByText('alpha')).toHaveLength(2);
   });
   it('空なら案内を出す', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} variant="project" /></IntentRoot>);
     expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();
   });
 });
@@ -35,15 +35,13 @@ const p3Row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps
 
 describe('SessionRows のフェーズ 3', () => {
   it('コストとメモの列を出す', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1', { memo: '覚書' })]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1', { memo: '覚書' })]} height={400} variant="project" /></IntentRoot>);
     expect(screen.getByText('$0.50')).toBeTruthy();
-    expect(screen.getByText('覚書')).toBeTruthy();
-    expect(screen.getByText('コスト')).toBeTruthy();
-    expect(screen.getByText('メモ')).toBeTruthy();
+    expect(screen.getByText('✎ 覚書')).toBeTruthy();
   });
   it('j と k で選び、Enter で開く', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} variant="project" /></IntentRoot>);
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     fireEvent.keyDown(list, { key: 'j' });
@@ -52,7 +50,7 @@ describe('SessionRows のフェーズ 3', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 's1' });
   });
   it('カーソルの行に印が付く', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} variant="project" /></IntentRoot>);
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     fireEvent.keyDown(list, { key: 'j' });
@@ -62,7 +60,7 @@ describe('SessionRows のフェーズ 3', () => {
   });
   it('o はターミナル、e は VS Code', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1', { runId: 'r1' }), p3Row('s2')]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1', { runId: 'r1' }), p3Row('s2')]} height={400} variant="project" /></IntentRoot>);
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     fireEvent.keyDown(list, { key: 'o' });
@@ -76,7 +74,7 @@ describe('SessionRows のフェーズ 3', () => {
   });
   it('選んでいなければキー操作は何も出さない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1', { runId: 'r1' })]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1', { runId: 'r1' })]} height={400} variant="project" /></IntentRoot>);
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'Enter' });
     fireEvent.keyDown(list, { key: 'o' });
@@ -86,7 +84,7 @@ describe('SessionRows のフェーズ 3', () => {
   });
   it('m でメモの入力欄に変わり、Enter で保存、Esc で捨てる', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1', { memo: '前' })]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1', { memo: '前' })]} height={400} variant="project" /></IntentRoot>);
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     fireEvent.keyDown(list, { key: 'm' });
@@ -106,7 +104,7 @@ describe('SessionRows のフェーズ 3', () => {
   });
   it('編集中の入力欄では j と k を横取りしない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} variant="project" /></IntentRoot>);
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     fireEvent.keyDown(list, { key: 'm' });
@@ -121,7 +119,7 @@ describe('SessionRows のフェーズ 3', () => {
   });
   it('入力欄から焦点が外れたら編集を閉じ、何も出さない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1', { memo: '前' })]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1', { memo: '前' })]} height={400} variant="project" /></IntentRoot>);
     fireEvent.click(screen.getByLabelText('名前 s1 のメモを編集'));
     const input = screen.getByLabelText('名前 s1 のメモ');
     fireEvent.change(input, { target: { value: '書きかけ' } });
@@ -131,7 +129,7 @@ describe('SessionRows のフェーズ 3', () => {
   });
   it('鉛筆ボタンでも編集に入り、行は開かない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1')]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1')]} height={400} variant="project" /></IntentRoot>);
     fireEvent.click(screen.getByLabelText('名前 s1 のメモを編集'));
     expect(onIntent).not.toHaveBeenCalled();
     expect(screen.getByLabelText('名前 s1 のメモ')).toBeTruthy();
@@ -161,7 +159,7 @@ describe('カーソルの行を見える位置へ運ぶ', () => {
   afterEach(() => { delete (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView; });
 
   it('j で選んだ行を可視範囲へ寄せる', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} variant="project" /></IntentRoot>);
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     expect(calls).toHaveLength(1);
@@ -172,7 +170,7 @@ describe('カーソルの行を見える位置へ運ぶ', () => {
     expect(calls[1]!.el.textContent).toContain('名前 s2');
   });
   it('k でも寄せ、選んでいないうちは動かさない', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} variant="project" /></IntentRoot>);
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'x' });
     expect(calls).toHaveLength(0);
@@ -182,11 +180,63 @@ describe('カーソルの行を見える位置へ運ぶ', () => {
     expect(calls[calls.length - 1]!.el.textContent).toContain('名前 s1');
   });
   it('メモの編集に入っただけでは動かさない', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} showProject={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} variant="project" /></IntentRoot>);
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     const before = calls.length;
     fireEvent.keyDown(list, { key: 'm' });
     expect(calls).toHaveLength(before);
+  });
+});
+
+describe('SessionRows（2 段の行）', () => {
+  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', memo: 'スワイプは実機で', hasTranscript: true, cost: '$1.82', runId: null, ...over });
+  const rowOf = (name: string) => screen.getByText(name).closest('[role="row"]') as HTMLElement;
+
+  it('最近は 2 段目に要約、右は時刻だけ', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[r('a')]} height={400} variant="recent" /></IntentRoot>);
+    const row = rowOf('名前 a');
+    expect(row).toHaveTextContent('要約 a');
+    expect(row).toHaveTextContent('3 分前');
+    for (const t of ['opus 4.1', '変更 6', '$1.82', 'スワイプは実機で', 'alpha']) expect(row).not.toHaveTextContent(t);
+    expect(within(row).queryByText('PR')).toBeNull();
+  });
+  it('プロジェクト詳細は右にモデル、変更、PR、コストと時刻、2 段目にメモ', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[r('a')]} height={400} variant="project" /></IntentRoot>);
+    const row = rowOf('名前 a');
+    for (const t of ['opus 4.1 · high', '変更 6', '$1.82', '3 分前', '要約 a', '✎ スワイプは実機で']) expect(row).toHaveTextContent(t);
+    expect(within(row).getByText('PR').closest('a')).toHaveAttribute('href', 'https://github.com/x/y/pull/1');
+  });
+  it('変更が 0 で PR もコストもメモも無ければ、その印を出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[r('a', { filesChanged: 0, prUrl: null, cost: '', memo: null })]} height={400} variant="project" /></IntentRoot>);
+    const row = rowOf('名前 a');
+    expect(row).not.toHaveTextContent('変更');
+    expect(row).not.toHaveTextContent('✎');
+    expect(within(row).queryByText('PR')).toBeNull();
+  });
+  it('検索は 1 段目にプロジェクト名、2 段目に一致箇所を印つきで出す', () => {
+    const excerpt = [{ text: '…床（', hit: false }, { text: 'transcriptsFrom', hit: true }, { text: '）を…', hit: false }];
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[r('a', { excerpt })]} height={400} variant="search" /></IntentRoot>);
+    const row = rowOf('名前 a');
+    expect(row).toHaveTextContent('alpha');
+    expect(row.querySelector('mark.hit')).toHaveTextContent('transcriptsFrom');
+    expect(row).not.toHaveTextContent('要約 a');
+  });
+  it('検索でも抜粋が無ければ要約を出し、プロジェクトが無ければ未分類', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[r('a', { projectName: null })]} height={400} variant="search" /></IntentRoot>);
+    const row = rowOf('名前 a');
+    expect(row).toHaveTextContent('要約 a');
+    expect(row).toHaveTextContent('未分類');
+  });
+  it('m のメモの編集は、プロジェクト詳細でなくても 2 段目で開く', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[r('a')]} height={400} variant="recent" /></IntentRoot>);
+    const host = screen.getByTestId('session-rows');
+    fireEvent.keyDown(host, { key: 'j' });
+    fireEvent.keyDown(host, { key: 'm' });
+    const input = screen.getByLabelText('名前 a のメモ');
+    fireEvent.change(input, { target: { value: '新' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.setMemo', id: 'a', text: '新' });
   });
 });

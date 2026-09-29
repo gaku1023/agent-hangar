@@ -185,7 +185,7 @@ describe('presentSessions', () => {
     const r = presentSessions(state, store, NOW);
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
-    expect(r.rows[0]!.snippets).toEqual([{ seq: 1, text: '…hi…' }]);
+    expect(r.rows[0]!.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
   });
 });
 
