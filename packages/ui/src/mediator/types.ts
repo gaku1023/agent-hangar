@@ -85,6 +85,8 @@ export type State = {
   launch: LaunchState;
   /** すでにトーストで知らせた waiting のセッション。busy に戻ったら忘れる。 */
   waitingSeen: string[];
+  /** focus: terminal で開いたセッション。その画面に着いたら端末にフォーカスし、着いたら忘れる。 */
+  focusOnOpen: string | null;
   /**
    * 昇格ダイアログの進み。
    * 起動と同じ形の状態を使う。

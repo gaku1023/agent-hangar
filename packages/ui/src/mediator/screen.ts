@@ -26,12 +26,14 @@ export function screenStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime' && input.event.type === 'hash.changed') {
     const route = input.event.route;
     const effects: Effect[] = [];
-    let next: State = { ...state, screen: route, overlay: closeTransient(state) };
+    let next: State = { ...state, screen: route, overlay: closeTransient(state), focusOnOpen: null };
     // 見ていないセッションの接続は残さない。
     // xterm とバッファは残るので、戻れば tmux attach が現在の画面を描き直す。
     const left = state.screen.name === 'session' ? state.screen.id : null;
     if (left && !(route.name === 'session' && route.id === left)) effects.push({ kind: 'terminal.disconnectSession', sessionId: left });
     if (route.name === 'session') effects.push({ kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0 }, { kind: 'terminal.connect', sessionId: route.id, tabId: null });
+    // 「ターミナルで答える」で開いた画面なら、つないだ端末にそのままフォーカスする。
+    if (route.name === 'session' && state.focusOnOpen === route.id) effects.push({ kind: 'focus', target: 'terminal' });
     if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id });
     if (route.name === 'settings') effects.push({ kind: 'api.loadSettingsExtras' });
     if (route.name === 'sessions') {
@@ -49,7 +51,12 @@ export function screenStep(state: State, input: Input): Step | null {
     case 'nav.back': return { state, effects: [{ kind: 'history.go', delta: -1 }] };
     case 'nav.forward': return { state, effects: [{ kind: 'history.go', delta: 1 }] };
     case 'project.open': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'project', id: i.id } }] };
-    case 'session.open': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'session', id: i.id } }] };
+    case 'session.open': {
+      const overlay = closeTransient(state);
+      // もうその画面にいればハッシュは変わらないので、フォーカスだけを出す。
+      if (i.focus === 'terminal' && state.screen.name === 'session' && state.screen.id === i.id) return { state: { ...state, overlay }, effects: [{ kind: 'focus', target: 'terminal' }] };
+      return { state: { ...state, overlay, focusOnOpen: i.focus === 'terminal' ? i.id : null }, effects: [{ kind: 'navigate', route: { name: 'session', id: i.id } }] };
+    }
     case 'search.query': {
       const next = { ...state, overlay: closeTransient(state), search: { ...state.search, text: i.text } };
       return { state: next, effects: [{ kind: 'navigate', route: i.text ? { name: 'sessions', q: i.text } : { name: 'sessions' } }] };

@@ -709,3 +709,24 @@ describe('この PC で再開', () => {
     expect(run([intent({ type: 'session.takeover', id: 's1', force: false })]).effects).toEqual([{ kind: 'toast', level: 'info', message: NOT_YET }]);
   });
 });
+
+describe('開いたら端末にフォーカス', () => {
+  const focus = { kind: 'focus', target: 'terminal' };
+  it('focus: terminal で開くと、その画面に着いたときに端末へフォーカスする', () => {
+    const { state, effects } = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]);
+    expect(effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    expect(effects).toContainEqual(focus);
+    expect(state.focusOnOpen).toBeNull();
+  });
+  it('ふつうに開いたときと、別の画面に着いたときはフォーカスしない', () => {
+    const a = run([intent({ type: 'session.open', id: 's1' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]);
+    expect(a.effects).not.toContainEqual(focus);
+    const b = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' }), runtime({ type: 'hash.changed', route: { name: 'home' } })]);
+    expect(b.effects).not.toContainEqual(focus);
+    expect(b.state.focusOnOpen).toBeNull();
+  });
+  it('もうその画面にいれば、移らずにフォーカスだけする', () => {
+    const at = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]).state;
+    expect(run([intent({ type: 'session.open', id: 's1', focus: 'terminal' })], at).effects).toEqual([focus]);
+  });
+});
