@@ -93,6 +93,16 @@ describe('presentHome', () => {
     store.sessions.s1 = { ...store.sessions.s1!, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: null } };
     expect(presentHome(initialState(), store, NOW).running[0]!.activity).toEqual({ tool: 'AskUserQuestion', summary: '' });
   });
+  it('対象の先頭がツール名と半角空白なら、その繰り返しを削る', () => {
+    const store = homeStore();
+    store.sessions.s1 = { ...store.sessions.s1!, activity: { tool: 'Bash', summary: 'Bash npx vitest run sync', question: null } };
+    expect(presentHome(initialState(), store, NOW).running[0]!.activity).toEqual({ tool: 'Bash', summary: 'npx vitest run sync' });
+  });
+  it('対象がツール名で始まっていても、続きが半角空白でなければそのまま出す', () => {
+    const store = homeStore();
+    store.sessions.s1 = { ...store.sessions.s1!, activity: { tool: 'Read', summary: 'Readme.md', question: null } };
+    expect(presentHome(initialState(), store, NOW).running[0]!.activity).toEqual({ tool: 'Read', summary: 'Readme.md' });
+  });
   it('実行中は作業中と休みを拾い、入力待ちは要対応だけに出す', () => {
     const p = presentHome(initialState(), homeStore(), NOW);
     expect(p.running.map((r) => r.id)).toEqual(['s1', 'i1']);

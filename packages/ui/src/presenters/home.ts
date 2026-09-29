@@ -20,6 +20,13 @@ export type HomeProps = { attention: AttentionCard[]; running: RunningCard[]; re
 const NO_QUESTION = '入力を待っています';
 const RECENT_LIMIT = 30;
 
+/** summary がツール名そのもの、または「ツール名+半角空白」で始まるなら、その分を削る。 */
+function stripLeadingTool(tool: string, summary: string): string {
+  if (summary === tool) return '';
+  const prefix = `${tool} `;
+  return summary.startsWith(prefix) ? summary.slice(prefix.length) : summary;
+}
+
 export function presentHome(_state: State, store: Store, now: number): HomeProps {
   const sessions = Object.values(store.sessions);
   const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? null : null);
@@ -34,7 +41,8 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
   const alive = runningSessionIds(store);
   const running = sortSessions(sessions.filter((s) => s.live === 'busy' || s.live === 'idle' || (s.live === null && alive.has(s.id)))).map((s): RunningCard => {
     // 対象が取れない呼び出し（答えた後の AskUserQuestion など）は summary にツール名が入る。同じ語を 2 度並べないよう空にする。
-    const activity = s.live === 'busy' && s.activity ? { tool: s.activity.tool, summary: s.activity.summary === s.activity.tool ? '' : s.activity.summary } : null;
+    // summary の先頭に「ツール名+半角空白」が付くこともある（サーバの toolSummary が付けた分）。カードはツール名を <i> で先に出すので、その重なりを削る。
+    const activity = s.live === 'busy' && s.activity ? { tool: s.activity.tool, summary: stripLeadingTool(s.activity.tool, s.activity.summary) } : null;
     const note = activity ? null : s.live === 'idle' ? `休み。最後の返答から ${durationLabel(now - (s.lastActivityAt ?? now))}` : s.live === 'busy' ? '作業中' : '起動しています';
     const meta = [projectName(s) ?? '未分類', shortModel(s.stats.model), s.stats.effort ?? ''].filter((x) => x !== '').join(' · ');
     return { id: s.id, name: name(s), live: s.live, elapsed: durationLabel(now - (s.startedAt ?? now)), meta, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(s.stats.contextPercent) };
