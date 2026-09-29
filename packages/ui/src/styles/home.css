@@ -1,0 +1,41 @@
+/* Home（管制盤）。上から要対応、実行中、最近とプロジェクト（試作の 3-b）。
+   どの札も白い不透明な読む面で、ぼかしは掛けない。 */
+.home-label { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 5) 0 calc(var(--u) * 2) var(--u); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.home > section:first-child > .home-label, .home > .home-two:first-child .home-label { margin-top: 0; }
+.home-count { font-weight: 500; color: var(--ink-3); }
+
+/* 要対応の札。入力待ちの色を縁に薄く混ぜ、横長に 1 件 1 枚で積む。問いは 1 行に収め、溢れたら省略する。 */
+.ask-card { display: flex; align-items: center; gap: calc(var(--u) * 3); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); margin-bottom: calc(var(--u) * 2); border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 0 0 1px color-mix(in srgb, var(--waiting) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--waiting) 40%, transparent); }
+.ask-body { flex: 1; min-width: 0; }
+.ask-title, .ask-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-title b { font-weight: 600; }
+.ask-q { margin-top: 2px; color: var(--ink-2); }
+.ask-card .btn { flex: none; }
+
+/* 実行中の札。3 列に並べ、いま何をしているかを墨の地の 1 行で見せる。 */
+.live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(var(--u) * 2.5); }
+.live-card { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); min-width: 0; padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); cursor: pointer; transition: box-shadow var(--dur) var(--ease); }
+.live-card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
+.live-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.live-head { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-weight: 600; }
+.live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-elapsed { flex: none; font-weight: 500; color: var(--ink-2); }
+.live-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
+.live-act { padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: var(--r); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); background: var(--term-bg); color: var(--term-fg); }
+.live-act i { font-style: normal; color: var(--term-tool); }
+.live-note { color: color-mix(in srgb, var(--term-fg) 60%, var(--term-bg)); }
+.live-ctx { display: flex; align-items: center; gap: calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-3); }
+.live-ctx .gauge-bar { flex: 1; width: auto; }
+
+/* 最近とプロジェクトを 1.6 対 1 で横に並べる。 */
+.home-two { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: calc(var(--u) * 2.5); align-items: start; }
+.pj-row { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: var(--session-row-h); padding: 0 calc(var(--u) * 3); border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease); }
+.pj-row:last-child { border-bottom: 0; }
+.pj-row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+.pj-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-counts { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+/* 点の色はプロジェクトのステータスの色（--st-*）。 */
+.pj-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--st-archived); }
+.pj-dot[data-status='active'] { background: var(--st-active); }
+.pj-dot[data-status='paused'] { background: var(--st-paused); }
+.pj-dot[data-status='done'] { background: var(--st-done); }

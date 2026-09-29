@@ -62,22 +62,56 @@ describe('presentShell', () => {
 });
 
 describe('presentHome', () => {
-  it('実行中の帯、active のカード、最近のセッション', () => {
-    const p = presentHome(initialState(), storeWith(), NOW);
-    expect(p.running.map((r) => r.id)).toEqual(['s1']);
-    expect(p.running[0]!.elapsed).toBe('2 時間');
-    expect(p.activeProjects.map((c) => c.id)).toEqual(['alpha']);
-    expect(p.activeProjects[0]!.lastOneLiner).toBe('one');
-    expect(p.recent.map((r) => r.id)).toEqual(['s1', 's3', 's2']);
-    expect(p.recent[0]).toMatchObject({ name: 'name-s1', projectName: 'alpha', live: 'busy', model: 'fable 5.1', effort: 'high', stateLabel: '完了', when: '1 分前' });
+  // 入力待ちが 2 件（w1 は 12 分、w2 は 3 分）、作業中が 1 件（s1）、休みが 1 件（i1）。
+  const homeStore = () => {
+    const s = storeWith();
+    s.sessions = {
+      ...s.sessions,
+      w1: session('w1', { live: 'waiting', lastActivityAt: NOW - 12 * 60_000, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: 'どちらにしますか？' } }),
+      w2: session('w2', { live: 'waiting', lastActivityAt: NOW - 3 * 60_000, activity: null }),
+      i1: session('i1', { live: 'idle', lastActivityAt: NOW - 8 * 60_000, stats: { ...session('i1').stats, contextPercent: 22 } }),
+    };
+    s.sessions.s1 = { ...s.sessions.s1!, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts', question: null }, stats: { ...s.sessions.s1!.stats, contextPercent: 38.4 } };
+    return s;
+  };
+  it('要対応は入力待ちを長く待っている順に拾い、問いが無ければ決まりの文を出す', () => {
+    expect(presentHome(initialState(), homeStore(), NOW).attention).toEqual([
+      { id: 'w1', name: 'name-w1', projectName: 'alpha', waited: '12 分', question: 'どちらにしますか？' },
+      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力を待っています' },
+    ]);
   });
-  it('hangar が起こした run も実行中に出す', () => {
+  it('実行中は作業中と休みを拾い、入力待ちは要対応だけに出す', () => {
+    const p = presentHome(initialState(), homeStore(), NOW);
+    expect(p.running.map((r) => r.id)).toEqual(['s1', 'i1']);
+    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%' });
+    expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: '休み。最後の返答から 8 分', contextPercent: 22, contextLabel: '22%' });
+  });
+  it('作業中でも呼び出しがまだ無ければ「作業中」、レジストリに載る前の run は「起動しています」', () => {
     // 信頼確認のダイアログ待ちの run は Claude のレジストリにまだ載らない。
     const store = storeWith();
     store.runs = { r2: runDto('r2', 's2'), r3: runDto('r3', 's3', NOW) };
     const p = presentHome(initialState(), store, NOW);
     expect(p.running.map((r) => r.id)).toEqual(['s1', 's2']);
-    expect(p.running[1]!.live).toBeNull();
+    expect(p.running[0]).toMatchObject({ activity: null, note: '作業中', contextLabel: '未取得' });
+    expect(p.running[1]).toMatchObject({ live: null, activity: null, note: '起動しています' });
+  });
+  it('最近は要対応と実行中に出したものを除き、新しい順に並べる', () => {
+    expect(presentHome(initialState(), homeStore(), NOW).recent.map((r) => r.id)).toEqual(['s3', 's2']);
+  });
+  it('終わったセッションは札から消えて、最近に入る', () => {
+    const store = homeStore();
+    store.sessions.s1 = { ...store.sessions.s1!, live: null, lastActivityAt: NOW - 30_000 };
+    const p = presentHome(initialState(), store, NOW);
+    expect(p.running.map((r) => r.id)).toEqual(['i1']);
+    expect(p.recent[0]!.id).toBe('s1');
+  });
+  it('プロジェクトは active だけを小さな一覧にし、0 の数は出さない', () => {
+    const store = homeStore();
+    store.projects.alpha = { ...store.projects.alpha!, runningCount: 2, openTodoCount: 3 };
+    expect(presentHome(initialState(), store, NOW).projects).toEqual([{ id: 'alpha', name: 'alpha', status: 'active', counts: '実行中 2 · TODO 3 · 要対応 2' }]);
+    store.projects.alpha = { ...store.projects.alpha!, runningCount: 0, openTodoCount: 0 };
+    store.sessions = { s2: store.sessions.s2! };
+    expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('');
   });
 });
 
@@ -330,7 +364,7 @@ describe('presentProjects と presentHome（スクラッチ）', () => {
   it('スクラッチのプロジェクトはカードに出さない', () => {
     const store: Store = { ...initialStore(), projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW }, sc: scratchProject() } };
     expect(presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards.map((c) => c.id)).toEqual(['p1']);
-    expect(presentHome(initialState(), store, NOW).activeProjects.map((c) => c.id)).toEqual(['p1']);
+    expect(presentHome(initialState(), store, NOW).projects.map((c) => c.id)).toEqual(['p1']);
   });
   it('起動ダイアログの選択肢からも外す。並びは名前順のまま', () => {
     const store: Store = { ...storeWith(), projects: { ...storeWith().projects, sc: scratchProject() } };
@@ -416,7 +450,7 @@ describe('presentSessionRow のコストと run', () => {
     const store = storeWith();
     store.runs = { r1: runDto('r1', 's1') };
     store.sessions.s1 = { ...store.sessions.s1!, stats: { ...store.sessions.s1!.stats, costUsd: 3 } };
-    expect(presentHome(initialState(), store, NOW).recent[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
+    expect(presentSessions(initialState(), store, NOW).rows[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
     expect(presentProject(initialState(), store, NOW, 'alpha').sessions[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
   });
 });

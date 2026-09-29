@@ -31,6 +31,7 @@
   --st-archived-soft: #edebe6;
   --term-bg: #1c1b2e;
   --term-fg: #e8e6f0;
+  --term-tool: #ffb86b;
   /* 浮くガラス。地の透け具合、ぼかし、縁、落ち影の値だけを持つ。
      backdrop-filter の指定そのものは、浮く部品の規則にだけ書く（glass.test.ts が見張る）。 */
   --glass-bg: rgba(255, 255, 255, 0.4);
