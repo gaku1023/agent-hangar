@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useRef } from 'react';
+import type { LiveStatus } from '@agent-hangar/shared';
 import type { TerminalHost, TerminalStatus } from '../runtime/terminals.ts';
 
 export const TerminalHostContext = createContext<TerminalHost | null>(null);
 
 /** xterm を直接は持たない。マウント先の要素を TerminalHost に渡すだけで、接続と描画は Host が行う。 */
-export function TerminalPane(props: { tabId: string; status: TerminalStatus | null; hint: string | null }) {
+export function TerminalPane(props: { tabId: string; status: TerminalStatus | null; hint: string | null; live: LiveStatus | null }) {
   const host = useContext(TerminalHostContext);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -15,8 +16,9 @@ export function TerminalPane(props: { tabId: string; status: TerminalStatus | nu
     ro?.observe(el);
     return () => ro?.disconnect();
   }, [host, props.tabId]);
+  // 縁はそのセッションの状態で灯る（base.css の .term-pane[data-live]）。終わったセッションは灯さない。
   return (
-    <div className="term-pane" data-testid={`term-${props.tabId}`}>
+    <div className="term-pane" data-testid={`term-${props.tabId}`} data-live={props.live ?? 'ended'}>
       {props.hint && <div className="term-hint" role="status">{props.hint}</div>}
       {/* key を付けて、タブが変わったら枠ごと作り直す。前のタブの xterm の要素を残さないためである。 */}
       <div key={props.tabId} ref={ref} className="term-host" data-tab={props.tabId} onClick={() => host?.focus(props.tabId)} />

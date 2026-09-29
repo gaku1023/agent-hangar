@@ -9,7 +9,8 @@
    実測（Chrome、幅 1000px、0.5 から 0.3 へ）では、transition があると 21ms で 418px、73ms で 317px と遅れ、
    目的の 298px に届くのは 154ms 後だった。transition なしでは 21ms の時点で 298px である。 */
 .split-h[data-dragging='true'] { transition: none; }
-.split-pane { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+/* 枠は外側の光（端末の縁の灯）を切らないように overflow を見せたままにする。はみ出す中身は、中の .term-pane が自分で切る。 */
+.split-pane { min-width: 0; min-height: 0; overflow: visible; display: flex; flex-direction: column; }
 .split-pane > .term-pane { flex: 1; min-height: 0; }
 .split-divider { cursor: col-resize; background: var(--line); transition: background var(--dur) var(--ease-out); }
 .split-divider:hover { background: var(--line-strong); }

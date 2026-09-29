@@ -46,6 +46,8 @@
   --glass-drop: 0 10px 28px -12px rgba(30, 40, 90, 0.3);
   --glass-drop-lg: 0 24px 50px -16px rgba(30, 40, 90, 0.45);
   --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+  /* 端末の板を持ち上げる影。縁の灯は、この上に輪と光を重ねる。 */
+  --term-lift: 0 12px 26px -16px rgba(20, 20, 60, 0.55);
   --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
   --fs-xs: 11px;

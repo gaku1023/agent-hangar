@@ -165,18 +165,29 @@ a:hover { text-decoration: underline; }
 .dialog-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
 .error { color: var(--error); font-size: var(--fs-sm); }
 
-/* タブの帯とターミナルの器 */
-.tabs { display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--line); height: var(--row-h); margin-bottom: calc(var(--u) * 2); }
-.tab { display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 3); height: var(--row-h); border-bottom: 2px solid transparent; cursor: pointer; color: var(--ink-2); transition: border-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out), background var(--dur-fast) var(--ease-out); }
-.tab:hover { background: var(--surface-2); }
-.tab-selected { color: var(--ink); border-bottom-color: var(--accent); }
+/* タブは端末の板から生えたフォルダの耳。選んだタブは板と同じ墨色になり、板とつながる。
+   帯と板の間には線も隙間も置かない。 */
+.tabs { display: flex; align-items: flex-end; gap: 3px; height: var(--row-h); }
+.tab { display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 3); height: var(--row-h); border-radius: var(--r) var(--r) 0 0; background: rgba(255, 255, 255, 0.55); cursor: pointer; color: var(--ink-2); transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.tab:hover { background: rgba(255, 255, 255, 0.85); }
+.tab-selected, .tab-selected:hover { color: var(--term-fg); background: var(--term-bg); }
 .tab-close, .tab-add { display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; height: calc(var(--u) * 5); width: calc(var(--u) * 5); border-radius: var(--r); }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
+.tab-selected .tab-close { color: var(--term-fg); }
+.tab-selected .tab-close:hover { color: var(--term-fg); background: rgba(255, 255, 255, 0.12); }
 .split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 240px); transition: grid-template-columns var(--dur) var(--ease-out); }
 /* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
    xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
    閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */
-.term-pane { position: relative; isolation: isolate; display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border-radius: var(--r-lg); overflow: hidden; box-shadow: 0 12px 26px -16px rgba(20, 20, 60, 0.55); }
+.term-pane { position: relative; isolation: isolate; display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--term-lift); transition: box-shadow var(--dur) var(--ease-out); }
+/* 縁の灯。そのセッションの状態で 1.5px の輪と、外側の淡い光を灯す。
+   作業中だけ --breathe-period でゆっくり明暗を往復し、入力待ちは動かさない。休みと終了は灯さず、板を持ち上げる影だけにする。 */
+.term-pane[data-live='busy'] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 90%, transparent), 0 0 22px -2px color-mix(in srgb, var(--busy) 45%, transparent), var(--term-lift); animation: rim-breathe var(--breathe-period) ease-in-out infinite; }
+.term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
+@keyframes rim-breathe { 50% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 55%, transparent), 0 0 12px -4px color-mix(in srgb, var(--busy) 25%, transparent), var(--term-lift); } }
+@media (prefers-reduced-motion: reduce) { .term-pane[data-live='busy'] { animation: none; } }
+/* 耳の下の板は、左上だけを角張らせて耳とつなぐ。分割しているときは左の板をつなぐ。 */
+.tabs + .split > .term-pane, .tabs + .split > .split-h > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
 .term-host { flex: 1; min-height: 0; padding: var(--u); }
 .term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
 .term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }

@@ -126,7 +126,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
     const pane = (tabId: string) => {
       const agentTab = tabId === run.id;
       const hint = agentTab && props.trustHint ? TRUST_HINT : agentTab && !run.alive ? ENDED_HINT : null;
-      return <TerminalPane key={tabId} tabId={tabId} status={props.terminalStatus} hint={hint} />;
+      return <TerminalPane key={tabId} tabId={tabId} status={props.terminalStatus} hint={hint} live={props.live} />;
     };
     // 分割は .split の左の列の中でさらに 2 列に割る。高さは外側の .split から 100% で伝わる。
     const terminals = props.split ? <SplitPane left={pane(props.split.left)} right={pane(props.split.right)} /> : pane(props.selectedTab);
