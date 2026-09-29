@@ -108,9 +108,32 @@ export function logoSvg(opts: LogoOptions = {}): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${defs ? `<defs>${defs}</defs>` : ''}${body}</svg>\n`;
 }
 
+/**
+ * アプリアイコン（1024 × 1024）。
+ * 白から淡い青紫へのグラデーションの角丸の地に、上から淡い光沢を重ね、原図の 4 本を載せる。
+ */
+export function appIconSvg(): string {
+  const { defs, body } = logoParts();
+  return [
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">',
+    '<defs>',
+    '<linearGradient id="tile" x1="0.37" y1="0" x2="0.63" y2="1"><stop offset="0" stop-color="#f7f9ff"/><stop offset="0.55" stop-color="#dfe6ff"/><stop offset="1" stop-color="#e9defe"/></linearGradient>',
+    '<linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity="0.45"/><stop offset="0.42" stop-color="#ffffff" stop-opacity="0"/></linearGradient>',
+    defs,
+    '</defs>',
+    '<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>',
+    '<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"/>',
+    '<rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="3"/>',
+    `<g transform="translate(100 100) scale(8.24)">${body}</g>`,
+    '</svg>',
+    '',
+  ].join('\n');
+}
+
 /** 書き出すファイル。path はリポジトリの根からの相対パス。 */
 export const BRAND_FILES: { path: string; make: () => string }[] = [
   { path: 'packages/ui/src/brand/logo.svg', make: () => logoSvg() },
   { path: 'packages/ui/src/brand/logo-front.svg', make: () => logoSvg({ front: true }) },
   { path: 'apps/desktop/loading/logo.svg', make: () => logoSvg() },
+  { path: 'apps/desktop/src-tauri/icon.svg', make: () => appIconSvg() },
 ];

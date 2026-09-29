@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BRAND_FILES, CURSORS, layout, logoSvg, mix, slots } from './logo.ts';
+import { appIconSvg, BRAND_FILES, CURSORS, layout, logoSvg, mix, slots } from './logo.ts';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const count = (s: string) => (s.match(/data-hanger="/g) ?? []).length;
@@ -41,6 +41,13 @@ describe('ロゴの原図', () => {
       expect(top).toBeGreaterThanOrEqual(17.99);
       expect(bottom).toBeLessThanOrEqual(84.01);
     }
+  });
+  // macOS のアイコンは 1024 の枠の中に、824 の角丸の地を 100px 内側に置く。地の外は透明にする。
+  it('アプリアイコンは 1024 の枠に、824 の地と原図の 4 本を置く', () => {
+    const svg = appIconSvg();
+    expect(svg).toContain('viewBox="0 0 1024 1024"');
+    expect(svg).toContain('<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>');
+    expect(count(svg)).toBe(4);
   });
 });
 
