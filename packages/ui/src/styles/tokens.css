@@ -66,13 +66,21 @@
   --sidebar-w: 180px;
   --header-h: 40px;
   --aura-period: 24s;
-  --dur-fast: 80ms;
-  --dur: 150ms;
-  --dur-slow: 250ms;
-  --dur-pop: 120ms;
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* 動きのトークン。性格は「なめらか」で、すっと出て長く静かに止まる。
+     長さは必ずこれを通して書き、CSS にも JS にも数値を直書きしない（styles/motion.test.ts が見張る）。
+     JS からは views/primitives/motion.ts で読む。 */
+  --dur-fast: 200ms;
+  --dur: 420ms;
+  --dur-exit: 250ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  /* 現れるときの縦の移動と、晴れていくぼかし。 */
+  --rise: 6px;
+  --blur-in: 6px;
+  /* 端末の縁が、作業中にゆっくり明暗を往復する周期。 */
+  --breathe-period: 3.2s;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root { --dur-fast: 0ms; --dur: 0ms; --dur-slow: 0ms; --dur-pop: 0ms; }
+  :root { --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms; --rise: 0px; --blur-in: 0px; }
 }

@@ -6,7 +6,8 @@ const base = fs.readFileSync(new URL('./base.css', import.meta.url), 'utf8');
 
 describe('tokens.css', () => {
   it('必要なトークンをライトで定義する', () => {
-    for (const t of ['--bg', '--aura-1', '--aura-2', '--surface', '--line', '--ink', '--ink-2', '--ink-3', '--accent', '--accent-hi', '--busy', '--idle', '--waiting', '--ended', '--font-sans', '--font-mono', '--row-h', '--dur', '--dur-pop', '--ease',
+    for (const t of ['--bg', '--aura-1', '--aura-2', '--surface', '--line', '--ink', '--ink-2', '--ink-3', '--accent', '--accent-hi', '--busy', '--idle', '--waiting', '--ended', '--font-sans', '--font-mono', '--row-h',
+      '--dur-fast', '--dur', '--dur-exit', '--ease-out', '--ease-in', '--rise', '--blur-in', '--breathe-period',
       '--glass-bg', '--glass-blur', '--glass-edge', '--glass-drop', '--r', '--r-lg', '--r-xl', '--r-pill', '--float-gap', '--header-h', '--aura-period']) {
       expect(css, t).toContain(`${t}:`);
     }
@@ -36,9 +37,8 @@ describe('tokens.css', () => {
 });
 
 describe('base.css', () => {
-  it('動きの長さを直書きせず、reduced motion で 0 になるトークンだけを使う', () => {
-    expect(base).not.toContain('120ms');
-    expect(base).toContain('animation: pop var(--dur-pop) var(--ease)');
+  it('ダイアログは --dur の長さと --ease-out の曲線で開く', () => {
+    expect(base).toMatch(/\.dialog \{[^}]*animation: pop var\(--dur\) var\(--ease-out\)/);
   });
 });
 

@@ -20,7 +20,7 @@ export function useFlip(keys: string[]): (key: string) => (el: HTMLElement | nul
       if (dx === 0 && dy === 0) continue;
       el.style.transition = 'none';
       el.style.transform = `translate(${dx}px, ${dy}px)`;
-      requestAnimationFrame(() => { el.style.transition = 'transform var(--dur) var(--ease)'; el.style.transform = ''; });
+      requestAnimationFrame(() => { el.style.transition = 'transform var(--dur) var(--ease-out)'; el.style.transform = ''; });
     }
     prev.current = now;
   }, [keys.join('|')]);

@@ -43,7 +43,7 @@
   visibility: hidden;
   padding: 0 4px;
   font-size: var(--fs-xs);
-  transition: opacity 180ms ease;
+  transition: opacity var(--dur-fast) var(--ease-out);
 }
 
 .row:hover .memo-pencil,

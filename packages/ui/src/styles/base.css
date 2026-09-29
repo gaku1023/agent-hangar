@@ -44,7 +44,7 @@ a:hover { text-decoration: underline; }
    scroll-padding-top も同じ値にし、キーボードで届いた先が帯とヘッダの下に隠れないようにする。 */
 .shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 2.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 2.75 + var(--row-h)); }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4); }
-.screen { animation: fade var(--dur-fast) var(--ease); }
+.screen { animation: fade var(--dur) var(--ease-out); }
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
@@ -53,25 +53,26 @@ a:hover { text-decoration: underline; }
 .brand-mark { flex: none; border-radius: 6px; background: linear-gradient(165deg, #f7f9ff, #dfe6ff); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7); }
 
 /* ナビ。選択中の項目は、ガラスの上に錠剤が浮く。 */
-.nav-item { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 2.5); margin-bottom: 1px; color: var(--ink-2); border: 0; border-radius: var(--r-pill); background: none; width: 100%; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.nav-item { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 2.5); margin-bottom: 1px; color: var(--ink-2); border: 0; border-radius: var(--r-pill); background: none; width: 100%; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .nav-item:hover { background: rgba(255, 255, 255, 0.5); }
 .nav-item[aria-current='page'] { color: var(--ink); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
 
 /* ボタンと入力。ボタンは錠剤の形で、主ボタンだけ上から下へ淡いグラデーションを持つ。 */
-.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .btn:hover { background: var(--surface); box-shadow: inset 0 1px 0 #ffffff, 0 3px 10px -2px rgba(30, 40, 90, 0.2); }
-.btn:active { transform: scale(0.98); }
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn:active:not(:disabled) { transform: scale(0.97); }
 .btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
 .btn-primary:hover { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); filter: brightness(1.04); }
 .btn:disabled { opacity: 0.5; cursor: default; }
-.input { height: var(--row-h); padding: 0 calc(var(--u) * 2.5); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.input { height: var(--row-h); padding: 0 calc(var(--u) * 2.5); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); outline: none; }
 .select { height: var(--row-h); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); padding: 0 var(--u); }
 
 /* 一覧 */
 .list { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
 .list-scroll { overflow: auto; }
-.row { display: grid; align-items: center; height: var(--row-h); padding: 0 calc(var(--u) * 3); border-bottom: 1px solid var(--line); gap: calc(var(--u) * 3); cursor: pointer; transition: background var(--dur-fast) var(--ease); white-space: nowrap; }
+.row { display: grid; align-items: center; height: var(--row-h); padding: 0 calc(var(--u) * 3); border-bottom: 1px solid var(--line); gap: calc(var(--u) * 3); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); white-space: nowrap; }
 .row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
 .row[aria-selected='true'] { background: var(--accent-soft); }
 .row-head { font-size: var(--fs-xs); color: var(--ink-3); cursor: default; }
@@ -81,12 +82,12 @@ a:hover { text-decoration: underline; }
 
 /* カード */
 .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(var(--u) * 3); }
-.card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); padding: calc(var(--u) * 3); display: flex; flex-direction: column; gap: var(--u); cursor: pointer; transition: box-shadow var(--dur) var(--ease); min-width: 0; }
+.card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); padding: calc(var(--u) * 3); display: flex; flex-direction: column; gap: var(--u); cursor: pointer; transition: box-shadow var(--dur) var(--ease-out); min-width: 0; }
 .card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
 .card-title { font-weight: 600; font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 状態点 */
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); transition: background var(--dur) var(--ease); vertical-align: middle; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); transition: background var(--dur) var(--ease-out); vertical-align: middle; }
 .dot[data-status='busy'] { background: var(--busy); }
 .dot[data-status='idle'] { background: var(--idle); }
 .dot[data-status='waiting'] { background: var(--waiting); }
@@ -100,7 +101,7 @@ a:hover { text-decoration: underline; }
 /* 折りたたみ */
 .fold { border-bottom: 1px solid var(--line); }
 .fold-head { display: flex; align-items: center; gap: var(--u); height: var(--row-h); cursor: pointer; }
-.fold-arrow { display: inline-flex; align-items: center; transition: transform var(--dur) var(--ease); }
+.fold-arrow { display: inline-flex; align-items: center; transition: transform var(--dur) var(--ease-out); }
 .fold[open] .fold-arrow { transform: rotate(90deg); }
 
 /* トランスクリプト */
@@ -132,7 +133,7 @@ a:hover { text-decoration: underline; }
 /* 切断の帯。浮いたヘッダの下に降りてきて、押せる逃げ道をひとつ添える。通知と同じガラスに、赤を少し混ぜる。
    高さは row-h に決め打ちし、上下の余白は持たない。中身の上の余白（.shell:has(.conn-banner) .main）はこの高さから計算している。
    中の小さいボタン（.btn-sm）は row-h より 6px 低いので、上下に 3px ずつ残って収まる。 */
-.conn-banner { grid-column: 2; grid-row: 2; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; padding: 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur-slow) var(--ease); }
+.conn-banner { grid-column: 2; grid-row: 2; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; padding: 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur) var(--ease-out); }
 .conn-retry { color: color-mix(in srgb, var(--error) 70%, var(--ink-3)); }
 /* 幅が足りないときは、折り返して帯の高さを変える代わりに、文言を省略記号で縮める。
    「接続が切れています」の見出しは縮めず、次の再接続までの秒数から先に縮める。
@@ -145,10 +146,10 @@ a:hover { text-decoration: underline; }
 
 /* オーバーレイ */
 .overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 18%, transparent); display: grid; place-items: center; z-index: 10; }
-.dialog { border-radius: 18px; background: var(--glass-bg-dialog); -webkit-backdrop-filter: var(--glass-blur-dialog); backdrop-filter: var(--glass-blur-dialog); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: calc(var(--u) * 5); width: 480px; max-width: calc(100vw - 32px); animation: pop var(--dur-pop) var(--ease); display: flex; flex-direction: column; gap: calc(var(--u) * 3); }
+.dialog { border-radius: 18px; background: var(--glass-bg-dialog); -webkit-backdrop-filter: var(--glass-blur-dialog); backdrop-filter: var(--glass-blur-dialog); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: calc(var(--u) * 5); width: 480px; max-width: calc(100vw - 32px); animation: pop var(--dur) var(--ease-out); display: flex; flex-direction: column; gap: calc(var(--u) * 3); }
 @keyframes pop { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
 .toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; gap: var(--u); z-index: 20; }
-.toast { background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur-slow) var(--ease); cursor: pointer; }
+.toast { background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; }
 .toast[data-level='error'] { background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); color: var(--error); }
 @keyframes slide { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
 .progress { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
@@ -164,12 +165,12 @@ a:hover { text-decoration: underline; }
 
 /* タブの帯とターミナルの器 */
 .tabs { display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--line); height: var(--row-h); margin-bottom: calc(var(--u) * 2); }
-.tab { display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 3); height: var(--row-h); border-bottom: 2px solid transparent; cursor: pointer; color: var(--ink-2); transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), background var(--dur-fast) var(--ease); }
+.tab { display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 3); height: var(--row-h); border-bottom: 2px solid transparent; cursor: pointer; color: var(--ink-2); transition: border-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out), background var(--dur-fast) var(--ease-out); }
 .tab:hover { background: var(--surface-2); }
 .tab-selected { color: var(--ink); border-bottom-color: var(--accent); }
 .tab-close, .tab-add { display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; height: calc(var(--u) * 5); width: calc(var(--u) * 5); border-radius: var(--r); }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
-.split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 240px); transition: grid-template-columns var(--dur-slow) var(--ease); }
+.split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 240px); transition: grid-template-columns var(--dur) var(--ease-out); }
 /* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
    xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
    閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */
@@ -190,7 +191,7 @@ a:hover { text-decoration: underline; }
 
 /* プロジェクトのステータス。色は data-status からトークンを引く。文字でも状態を示しているので、色は補助である。 */
 /* 見た目は .status-face が描き、透明な本物の select をその上に重ねて操作と読み上げを任せる。 */
-.status-pill { position: relative; display: inline-flex; align-items: center; height: var(--row-h); border-radius: var(--r-pill); font-weight: 500; color: var(--st-archived); background: var(--st-archived-soft); transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.status-pill { position: relative; display: inline-flex; align-items: center; height: var(--row-h); border-radius: var(--r-pill); font-weight: 500; color: var(--st-archived); background: var(--st-archived-soft); transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out); }
 .status-pill[data-status='active'] { color: var(--st-active); background: var(--st-active-soft); }
 .status-pill[data-status='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .status-pill[data-status='done'] { color: var(--st-done); background: var(--st-done-soft); }
@@ -215,4 +216,4 @@ a:hover { text-decoration: underline; }
 .swipe-hint[data-dir='back'] svg { transform: rotate(180deg); }
 .swipe-hint[data-dir='forward'] { right: 0; transform: translate(calc(50% - var(--swipe-ratio, 0) * 44px), -50%); }
 .swipe-hint[data-armed='true'] { border-color: var(--accent); color: var(--accent); }
-.swipe-hint[data-done='true'] { opacity: 0; transition: opacity var(--dur-slow) var(--ease); }
+.swipe-hint[data-done='true'] { opacity: 0; transition: opacity var(--dur-exit) var(--ease-in); }

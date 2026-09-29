@@ -14,7 +14,7 @@
 
 /* 実行中の札。3 列に並べ、いま何をしているかを墨の地の 1 行で見せる。 */
 .live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(var(--u) * 2.5); }
-.live-card { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); min-width: 0; padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); cursor: pointer; transition: box-shadow var(--dur) var(--ease); }
+.live-card { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); min-width: 0; padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); cursor: pointer; transition: box-shadow var(--dur) var(--ease-out); }
 .live-card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
 .live-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .live-head { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-weight: 600; }
@@ -31,7 +31,7 @@
 .home-two { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: calc(var(--u) * 2.5); align-items: start; }
 /* 最近と同じ高さで頭打ちにし、溢れた分は一覧の中でスクロールする。 */
 .pj-list { overflow-y: auto; }
-.pj-row { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: var(--session-row-h); padding: 0 calc(var(--u) * 3); border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease); }
+.pj-row { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: var(--session-row-h); padding: 0 calc(var(--u) * 3); border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
 .pj-row:last-child { border-bottom: 0; }
 .pj-row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
 .pj-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
