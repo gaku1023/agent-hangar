@@ -537,6 +537,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     for (const providerSessionId of moved) {
       const sessionId = sessionIdOf(providerSessionId);
       if (!sessionId) continue;
+      // 終わったセッションの問いにはもう答えられない。
+      // 行を残すと、再開した直後の要対応の札に前の run の問いが出てしまうので、問いだけを消す。
+      if (!now.has(providerSessionId)) db.prepare('update session_activity set question = null where session_id = ?').run(sessionId);
       writeBaselineIfNeeded(db, sessionId, device.id, now.has(providerSessionId));
       const s = getSession(db, live, sessionId, { deviceId: device.id });
       if (s) hub.broadcast({ type: 'session.upsert', session: s });

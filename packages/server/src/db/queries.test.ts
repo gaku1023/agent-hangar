@@ -268,3 +268,21 @@ describe('ロックと remoteOnly と端末一覧', () => {
     expect(listDevices(d2, 'dev-a').find((d) => d.id === 'dev-z')).toMatchObject({ lastSeenAt: null, self: false });
   });
 });
+
+describe('実行中のセッションの activity', () => {
+  const put = () => db.prepare('insert or replace into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?,?,?,?,?,?)');
+  it('実行中なら最後の呼び出しと問いを載せ、実行中でなければ欄ごと載せない', () => {
+    const all = listSessions(db, live);
+    const alpha = all.find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    const beta = all.find((s) => s.providerSessionId === SESSION_BETA)!;
+    put().run(alpha.id, 'AskUserQuestion', 'AskUserQuestion', 'q1', 'どちらにしますか？', 1);
+    put().run(beta.id, 'Edit', 'b.ts', 't1', null, 1);
+    const again = listSessions(db, live);
+    expect(again.find((s) => s.id === alpha.id)!.activity).toEqual({ tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: 'どちらにしますか？' });
+    expect('activity' in again.find((s) => s.id === beta.id)!).toBe(false);
+  });
+  it('実行中でも、呼び出しがまだ無ければ null', () => {
+    db.prepare('delete from session_activity').run();
+    expect(listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!.activity).toBeNull();
+  });
+});

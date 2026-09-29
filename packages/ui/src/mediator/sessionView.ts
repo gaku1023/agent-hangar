@@ -34,6 +34,18 @@ function closedTabPatch(cur: SessionViewState, tabId: string): Partial<SessionVi
   return Object.keys(p).length ? p : null;
 }
 
+/**
+ * そのセッションの左の枠を Claude のタブ（agent）に戻す。
+ * 「ターミナルで答える」の問いは Claude のタブに出ているので、シェルのタブを選んだまま離れていても答える先はそこにする。
+ * 分割中はどちらの枠に Claude のタブが居るかが run を見ないと分からず、左も Claude にすると同じ端末が左右に重なるので、分割ごと畳む。
+ * 変えるものが無ければ null を返す。
+ */
+export function agentTabStep(state: State, id: string): Step | null {
+  const cur = state.sessionView[id] ?? defaultSessionView();
+  if (cur.selectedTab === null && !cur.split) return null;
+  return patch(state, id, { selectedTab: null, split: false, splitTab: null });
+}
+
 const currentSession = (state: State): string | null => (state.screen.name === 'session' ? state.screen.id : null);
 const viewOf = (state: State, id: string) => state.sessionView[id] ?? defaultSessionView();
 

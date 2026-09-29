@@ -3,7 +3,7 @@ import type { SyncStatusBody } from '@agent-hangar/shared';
 import type { Input } from './types.ts';
 import { NOT_YET } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
-import { persistedSessionView } from './sessionView.ts';
+import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 
 function run(inputs: Input[], start: State = initialState()) {
   const effects: unknown[] = [];
@@ -707,5 +707,55 @@ describe('この PC で再開', () => {
     expect(run([intent({ type: 'sync.pause', paused: false })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
     // 引き継ぎはこのフェーズでは実装しないので、NOT_YET_INTENTS に残っている。
     expect(run([intent({ type: 'session.takeover', id: 's1', force: false })]).effects).toEqual([{ kind: 'toast', level: 'info', message: NOT_YET }]);
+  });
+});
+
+describe('開いたら端末にフォーカス', () => {
+  const focus = { kind: 'focus', target: 'terminal' };
+  it('focus: terminal で開くと、その画面に着いたときに端末へフォーカスする', () => {
+    const { state, effects } = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]);
+    expect(effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    expect(effects).toContainEqual(focus);
+    expect(state.focusOnOpen).toBeNull();
+  });
+  it('ふつうに開いたときと、別の画面に着いたときはフォーカスしない', () => {
+    const a = run([intent({ type: 'session.open', id: 's1' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]);
+    expect(a.effects).not.toContainEqual(focus);
+    const b = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' }), runtime({ type: 'hash.changed', route: { name: 'home' } })]);
+    expect(b.effects).not.toContainEqual(focus);
+    expect(b.state.focusOnOpen).toBeNull();
+  });
+  it('もうその画面にいれば、移らずにフォーカスだけする', () => {
+    const at = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]).state;
+    expect(run([intent({ type: 'session.open', id: 's1', focus: 'terminal' })], at).effects).toEqual([focus]);
+  });
+  // 問いは Claude のタブに出ている。シェルのタブを選んだまま離れていても、答える先は Claude のタブにする。
+  const onShell = (start: State = initialState()): State => ({ ...start, sessionView: { s1: { ...defaultSessionView(), selectedTab: 'sh1' } } });
+  it('focus: terminal で開くと、シェルのタブを選んでいても Claude のタブに戻す', () => {
+    const { state, effects } = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' })], onShell());
+    expect(state.sessionView.s1!.selectedTab).toBeNull();
+    expect(effects).toContainEqual({ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(state.sessionView.s1!) });
+    expect(effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    // 一度も開いていないセッションは既定の見え方（Claude のタブ）のままなので、何も書かない。
+    const fresh = run([intent({ type: 'session.open', id: 's2', focus: 'terminal' })]);
+    expect(fresh.state.sessionView.s2).toBeUndefined();
+    expect(fresh.effects).toEqual([{ kind: 'navigate', route: { name: 'session', id: 's2' } }]);
+    // ふつうに開くときは選んだタブを残す。
+    expect(run([intent({ type: 'session.open', id: 's1' })], onShell()).state.sessionView.s1!.selectedTab).toBe('sh1');
+  });
+  it('その画面でシェルのタブを見ていれば、Claude のタブをつないでからフォーカスする', () => {
+    const at = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], onShell()).state;
+    const { state, effects } = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' })], at);
+    expect(state.sessionView.s1!.selectedTab).toBeNull();
+    expect(effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(state.sessionView.s1!) }, { kind: 'terminal.connect', sessionId: 's1', tabId: null }, focus]);
+  });
+  it('分割中なら分割を畳んで、Claude のタブだけにする', () => {
+    // 右に Claude のタブが居たまま左も Claude にすると、同じ端末が左右に重なる。
+    // どちらが Claude のタブかは run を知らない mediator には分からないので、畳むのが確かである。
+    for (const [selectedTab, splitTab] of [['sh1', 'r1'], ['r1', 'sh1']] as const) {
+      const start: State = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), selectedTab, split: true, splitTab } } };
+      const v = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' })], start).state.sessionView.s1!;
+      expect(v).toMatchObject({ selectedTab: null, split: false, splitTab: null });
+    }
   });
 });

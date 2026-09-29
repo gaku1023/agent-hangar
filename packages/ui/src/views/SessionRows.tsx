@@ -6,12 +6,21 @@ import { RelativeTime } from './primitives/RelativeTime.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { VirtualList } from './primitives/VirtualList.tsx';
 
-const cols = (showProject: boolean) => `16px minmax(160px, 1.2fr) minmax(200px, 2fr) ${showProject ? '120px ' : ''}72px 110px 48px 32px 64px minmax(120px, 1fr) 80px`;
+/** 2 段の行の高さ。tokens.css の --session-row-h と同じ値にする（styles/rows.test.ts が突き合わせる）。 */
+export const SESSION_ROW_H = 44;
+
+/**
+ * 一覧の役目。右端と 2 段目に何を出すかがこれで決まる。
+ * recent は Home の最近（右は時刻だけ）。
+ * project はプロジェクト詳細（右にモデル、変更、PR、コストと時刻。2 段目にメモ）。
+ * search は Sessions（1 段目にプロジェクト名、2 段目に一致箇所の抜粋）。
+ */
+export type RowVariant = 'recent' | 'project' | 'search';
 
 /** 行が無いときに出す文言。emptyText で差し替えられる。 */
 const DEFAULT_EMPTY_TEXT = 'セッションはまだありません';
 
-export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; showProject: boolean; showSnippets?: boolean; emptyText?: string }) {
+export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string }) {
   const emit = useEmit();
   // カーソルは一覧の中だけの状態なので Mediator には置かない。
   // -1 は未選択で、このとき Enter や o や m は何も起こさない。
@@ -52,43 +61,57 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   };
 
   if (props.rows.length === 0) return <div className="list"><div className="empty">{props.emptyText ?? DEFAULT_EMPTY_TEXT}</div></div>;
-  const style = { gridTemplateColumns: cols(props.showProject) };
-  const head = (
-    <div className="row row-head" style={style} role="row">
-      <span /><span>名前</span><span>要約</span>{props.showProject && <span>プロジェクト</span>}<span>状態</span><span>モデル</span><span className="cell-right">変更</span><span>PR</span><span className="cell-right">コスト</span><span>メモ</span><span className="cell-right">最終活動</span>
-    </div>
+
+  const memoEditor = (r: SessionRowProps) => (
+    <input className="input memo-input" autoFocus aria-label={`${r.name} のメモ`} value={draft} onChange={(e) => setDraft(e.target.value)} onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        // 入力欄のキーは行にも一覧にも渡さない。
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commit(r.id); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditing(null); }
+        else e.stopPropagation();
+      }}
+      onBlur={() => setEditing(null)} />
   );
-  const rowHeight = (r: SessionRowProps) => 28 + (props.showSnippets ? (r.snippets?.length ?? 0) * 20 : 0);
+
+  // 2 段目。検索は一致箇所の抜粋を、ほかは要約の 1 文を出す。プロジェクト詳細はその後ろにメモと鉛筆を置く。
+  const sub = (r: SessionRowProps) => {
+    if (editing === r.id) return <span className="row-sub">{memoEditor(r)}</span>;
+    const excerpt = props.variant === 'search' && r.excerpt && r.excerpt.length > 0 ? r.excerpt : null;
+    return (
+      <span className="row-sub">
+        <span className={excerpt ? 'row-text mono' : 'row-text'}>{excerpt ? excerpt.map((s, i) => (s.hit ? <mark key={i} className="hit">{s.text}</mark> : <span key={i}>{s.text}</span>)) : r.oneLiner}</span>
+        {props.variant === 'project' && r.memo && <span className="row-memo">✎ {r.memo}</span>}
+        {props.variant === 'project' && <button type="button" className="btn memo-pencil" aria-label={`${r.name} のメモを編集`} onClick={(e) => { e.stopPropagation(); startEdit(r); }}><Icon name="edit" /></button>}
+      </span>
+    );
+  };
+
+  // 右端。プロジェクト詳細はモデル、変更、PR、コストの小さな 1 行を時刻の上に置く。ほかは時刻だけ。
+  const side = (r: SessionRowProps) => (
+    <span className="row-side">
+      {props.variant === 'project' && (
+        <span className="row-meta">
+          {r.model && <span className="mono">{r.model}{r.effort ? ` · ${r.effort}` : ''}</span>}
+          {r.filesChanged > 0 && <span>変更 {r.filesChanged}</span>}
+          {r.prUrl && <a href={r.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>PR</a>}
+          {r.cost && <span className="mono">{r.cost}</span>}
+        </span>
+      )}
+      <RelativeTime label={r.when} abs={r.whenAbs} />
+    </span>
+  );
+
   return (
     <div className="rows-host" data-testid="session-rows" ref={hostRef} tabIndex={0} onKeyDown={onKeyDown}>
-      <VirtualList items={props.rows} rowHeight={(r) => rowHeight(r)} height={props.height} keyOf={(r) => r.id} head={head} render={(r, i) => (
-        <div style={{ height: rowHeight(r) }}>
-          <div className="row" style={style} role="row" tabIndex={0} data-cursor={i === cursor ? 'true' : undefined}
-            onClick={() => emit({ type: 'session.open', id: r.id })} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'session.open', id: r.id }); }}>
-            <StatusDot status={r.live} />
-            <span className="cell">{r.name}</span>
-            <span className="cell muted">{r.oneLiner}</span>
-            {props.showProject && <span className="cell muted">{r.projectName ?? '未分類'}</span>}
-            <span className="cell muted">{r.stateLabel}</span>
-            <span className="cell mono">{r.model}{r.effort ? ` · ${r.effort}` : ''}</span>
-            <span className="cell mono cell-right">{r.filesChanged || ''}</span>
-            <span className="cell">{r.prUrl ? <a href={r.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>PR</a> : ''}</span>
-            <span className="cell mono cell-right">{r.cost}</span>
-            <span className="cell memo-cell" onClick={(e) => e.stopPropagation()}>
-              {editing === r.id
-                ? <input className="input memo-input" autoFocus aria-label={`${r.name} のメモ`} value={draft} onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      // 入力欄のキーは行にも一覧にも渡さない。
-                      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commit(r.id); }
-                      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditing(null); }
-                      else e.stopPropagation();
-                    }}
-                    onBlur={() => setEditing(null)} />
-                : <><span className="muted">{r.memo ?? ''}</span><button type="button" className="btn memo-pencil" aria-label={`${r.name} のメモを編集`} onClick={() => startEdit(r)}><Icon name="edit" /></button></>}
-            </span>
-            <span className="cell cell-right"><RelativeTime label={r.when} abs={r.whenAbs} /></span>
-          </div>
-          {props.showSnippets && r.snippets?.map((s) => <div key={s.seq} className="mono faint" style={{ height: 20, padding: '0 12px 0 40px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{s.text}</div>)}
+      <VirtualList items={props.rows} rowHeight={SESSION_ROW_H} height={props.height} keyOf={(r) => r.id} render={(r, i) => (
+        <div className="row row-2" role="row" tabIndex={0} data-cursor={i === cursor ? 'true' : undefined}
+          onClick={() => emit({ type: 'session.open', id: r.id })} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'session.open', id: r.id }); }}>
+          <StatusDot status={r.live} />
+          <span className="row-main">
+            <span className="row-name">{r.name}{props.variant === 'search' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>
+            {sub(r)}
+          </span>
+          {side(r)}
         </div>
       )} />
     </div>

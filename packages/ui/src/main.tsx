@@ -6,6 +6,7 @@ import './styles/base.css';
 import './styles/workbench.css';
 import './styles/split.css';
 import './styles/rows.css';
+import './styles/home.css';
 import './styles/palette.css';
 import './styles/settings.css';
 import './styles/sync.css';

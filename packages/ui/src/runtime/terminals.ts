@@ -11,7 +11,9 @@ type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus;
 export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; createTerminal: () => TerminalLike; wsFactory?: (url: string) => WebSocket }): TerminalHost {
   const entries = new Map<string, Entry>();
   const listeners = new Set<() => void>();
-  /** open の前に来た focus。open していない xterm には入力欄がないので、mount のあとに当て直す。 */
+  /**
+   * mount の前に来た focus。open していない xterm には入力欄がなく、画面を離れて枠ごと外れた xterm の入力欄に当てても効かないので、mount のあとに当て直す。
+   */
   let pendingFocus: string | null = null;
   const notify = () => { for (const l of listeners) l(); };
   const setStatus = (e: Entry, s: TerminalStatus) => { if (e.status !== s) { e.status = s; notify(); } };
@@ -65,7 +67,8 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     fit: (tabId) => entries.get(tabId)?.term.fit(),
     focus(tabId) {
       const e = entries.get(tabId);
-      if (!e?.opened) { pendingFocus = tabId; return; }
+      // 画面に戻ったときの focus は、新しい枠が付く前に走る。文書から外れた要素には当てずに mount を待つ。
+      if (!e?.opened || !e.term.element?.isConnected) { pendingFocus = tabId; return; }
       if (pendingFocus === tabId) pendingFocus = null;
       e.term.focus();
     },

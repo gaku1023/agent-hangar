@@ -1,10 +1,11 @@
 import type { LiveStatus, SessionDto } from '@agent-hangar/shared';
 import { aliveRunOf, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, STATE_LABEL } from './format.ts';
+import type { Segment } from './highlight.ts';
 
-export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; stateLabel: string; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; memo: string | null; hasTranscript: boolean; cost: string; runId: string | null; snippets?: { seq: number; text: string }[] };
+export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; stateLabel: string; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; memo: string | null; hasTranscript: boolean; cost: string; runId: string | null; excerpt?: Segment[] };
 
-export function presentSessionRow(s: SessionDto, store: Store, now: number, snippets?: { seq: number; text: string }[]): SessionRowProps {
+export function presentSessionRow(s: SessionDto, store: Store, now: number, excerpt?: Segment[]): SessionRowProps {
   const row: SessionRowProps = {
     id: s.id, name: s.name ?? '（名前なし）', oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
     projectName: s.projectId ? store.projects[s.projectId]?.name ?? null : null,
@@ -12,7 +13,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, snip
     when: relativeTime(s.lastActivityAt, now), whenAbs: absoluteTime(s.lastActivityAt), filesChanged: s.stats.filesChanged, prUrl: s.stats.prUrl, memo: s.memo, hasTranscript: s.hasTranscript,
     cost: costLabel(s.stats.costUsd), runId: aliveRunOf(store, s.id)?.id ?? null,
   };
-  if (snippets) row.snippets = snippets;
+  if (excerpt) row.excerpt = excerpt;
   return row;
 }
 

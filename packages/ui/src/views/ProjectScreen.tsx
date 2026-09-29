@@ -32,13 +32,13 @@ export function ProjectScreen(props: ProjectProps) {
           <button className="btn" aria-label={railOpen ? '右レールを隠す' : '右レールを出す'} onClick={() => setRailOpen(!railOpen)}><Icon name={railOpen ? 'paneClose' : 'paneOpen'} /></button>
         </div>
         <div className="mono faint project-path">{props.path ?? 'この端末にパスがありません'}{!props.resolved && props.path ? '（見つかりません）' : ''}</div>
-        <SessionRows rows={props.sessions} height="calc(100vh - 200px)" showProject={false} />
+        <SessionRows rows={props.sessions} height="calc(100vh - 200px)" variant="project" />
       </div>
       {railOpen && (
         <aside className="rail">
           <section className="rail-panel"><h2 className="h2" style={{ marginTop: 0 }}>TODO</h2><TodoList projectId={props.id} todos={props.todos} /></section>
           <section className="rail-panel"><h2 className="h2">メモ</h2><MemoEditor projectId={props.id} markdown={props.memo?.markdown ?? ''} updatedAt={props.memo?.updatedAt ?? 0} /></section>
-          <section><h2 className="h2">アーティファクト</h2><ArtifactCards projectId={props.id} artifacts={props.artifacts} canAdd /></section>
+          <section className="rail-panel"><h2 className="h2">アーティファクト</h2><ArtifactCards projectId={props.id} artifacts={props.artifacts} canAdd /></section>
         </aside>
       )}
     </div>
