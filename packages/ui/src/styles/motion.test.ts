@@ -57,8 +57,10 @@ describe('JS の動き', () => {
 
 describe('現れる動き', () => {
   const base = strip(read('base.css'));
-  const keyframes = (name: string) => base.match(new RegExp(`@keyframes ${name} \\{ from \\{([^}]*)\\} \\}`))?.[1] ?? '';
+  const keyframes = (name: string) => base.match(new RegExp(`@keyframes ${name} \\{ from \\{([^}]*)\\} 20% \\{([^}]*)\\} \\}`));
   // 現れるものは、ぼかしが晴れながら来る。
+  // WebKit は 0 より大きいぼかしを 0.2px でも 1px と同じに描くので、晴れきる手前のもやが動きの終わりまで残る。
+  // ぼかしは 20% の時点で none にして晴らし切り、残りは薄れと移動だけで入る。
   it.each([
     ['.screen', 'enter'],
     ['.dialog', 'pop'],
@@ -66,12 +68,14 @@ describe('現れる動き', () => {
     ['.conn-banner', 'drop-in'],
   ])('%s は %s で、--dur と --ease-out で、ぼかしが晴れながら現れる', (selector, name) => {
     expect(base).toMatch(new RegExp(`${selector.replace('.', '\\.')} \\{[^}]*animation: ${name} var\\(--dur\\) var\\(--ease-out\\);`));
-    expect(keyframes(name)).toContain('opacity: 0;');
-    expect(keyframes(name)).toContain('filter: blur(var(--blur-in));');
+    const k = keyframes(name);
+    expect(k?.[1]).toContain('opacity: 0;');
+    expect(k?.[1]).toContain('filter: blur(var(--blur-in));');
+    expect(k?.[2]?.trim()).toBe('filter: none;');
   });
   it('画面は --rise だけ上がって入り、ダイアログは 96% から開く', () => {
-    expect(keyframes('enter')).toContain('transform: translateY(var(--rise));');
-    expect(keyframes('pop')).toContain('transform: scale(0.96);');
+    expect(keyframes('enter')?.[1]).toContain('transform: translateY(var(--rise));');
+    expect(keyframes('pop')?.[1]).toContain('transform: scale(0.96);');
   });
 });
 

@@ -22,6 +22,8 @@ describe('useFlip', () => {
     expect(animate.mock.contexts[0]).toBe(container.querySelector('[data-k="c"]'));
     const [frames, opts] = animate.mock.calls[0]!;
     expect(frames[0]).toEqual({ opacity: 0, transform: 'translateY(6px)', filter: 'blur(6px)' });
+    // ぼかしは 20% で晴らし切る（WebKit が細いぼかしを 1px に丸め、もやが終わりまで残るため）。
+    expect(frames[1]).toEqual({ offset: 0.2, filter: 'none' });
     expect(opts).toEqual({ duration: 420, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
   });
 });

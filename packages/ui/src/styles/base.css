@@ -45,10 +45,13 @@ a:hover { text-decoration: underline; }
 .shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 2.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 2.75 + var(--row-h)); }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4); }
 /* 現れるものは、ぼかしが晴れながら --rise だけ上がって来る。
+   ぼかしは 20% の時点で none にして晴らし切り、残りは薄れと移動だけで入る。
+   WebKit は 0 より大きいぼかしを 0.2px でも 1px と同じに描くので、ゆっくり晴らすと、もやが動きの終わりまで残るためである。
+   ダイアログ、通知、切断の帯の keyframes も同じ形にする。
    View Transitions がある環境では、出る画面との重ね合わせは runtime/present.ts が受け持ち、入る画面の動きはここが受け持つ。 */
 .screen { animation: enter var(--dur) var(--ease-out); }
 
-@keyframes enter { from { opacity: 0; transform: translateY(var(--rise)); filter: blur(var(--blur-in)); } }
+@keyframes enter { from { opacity: 0; transform: translateY(var(--rise)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 
 /* 画面の移り変わり（View Transitions、runtime/present.ts）。
    root は出る画面と入る画面を重ねて替える。old と new の長さと曲線を揃えるのは、変わらないヘッダとサイドバーが途中で明滅しないためである。
@@ -155,16 +158,16 @@ a:hover { text-decoration: underline; }
 .conn-banner > b { flex: none; }
 .conn-banner > .conn-retry { flex-shrink: 4; }
 .conn-banner .btn { margin-left: auto; flex: none; }
-@keyframes drop-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } }
+@keyframes drop-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 
 /* オーバーレイ */
 .overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 18%, transparent); display: grid; place-items: center; z-index: 10; }
 .dialog { border-radius: 18px; background: var(--glass-bg-dialog); -webkit-backdrop-filter: var(--glass-blur-dialog); backdrop-filter: var(--glass-blur-dialog); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: calc(var(--u) * 5); width: 480px; max-width: calc(100vw - 32px); animation: pop var(--dur) var(--ease-out); display: flex; flex-direction: column; gap: calc(var(--u) * 3); }
-@keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(var(--blur-in)); } }
+@keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 .toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; gap: var(--u); z-index: 20; }
 .toast { background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; }
 .toast[data-level='error'] { background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); color: var(--error); }
-@keyframes slide { from { opacity: 0; transform: translateX(16px); filter: blur(var(--blur-in)); } }
+@keyframes slide { from { opacity: 0; transform: translateX(16px); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 .progress { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
 
 /* 起動ダイアログの入力欄 */
