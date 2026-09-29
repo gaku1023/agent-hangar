@@ -15,7 +15,7 @@ describe('tauri.conf.json', () => {
     expect(conf.identifier).toBe('dev.agent-hangar.hangar');
     expect(conf.build.frontendDist).toBe('../loading');
     expect(fs.existsSync(path.join(app, 'src-tauri', conf.build.frontendDist, 'index.html'))).toBe(true);
-    expect(conf.app.windows[0]).toMatchObject({ label: 'main', title: 'agent-hangar', width: 1400, height: 900 });
+    expect(conf.app.windows[0]).toMatchObject({ label: 'main', title: 'Hangar', width: 1400, height: 900, titleBarStyle: 'Overlay', hiddenTitle: true });
   });
   // csp を null にしてあるのは、ウィンドウが読み込み画面から離れたあとはサーバ自身の
   // Content-Security-Policy だけが効く形にするためである。
@@ -61,5 +61,33 @@ describe('読み込み画面', () => {
     expect(html).toContain('id="status"');
     expect(html).not.toContain('prefers-color-scheme');
     expect(html).toContain('color-scheme" content="light"');
+  });
+});
+
+describe('capabilities', () => {
+  const dir = path.join(app, 'src-tauri', 'capabilities');
+  const cap = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+  it('置くのは既定と、窓を動かすための 2 つだけ', () => {
+    expect(fs.readdirSync(dir).sort()).toEqual(['default.json', 'remote-drag.json']);
+  });
+  it('既定の権限は core:default のまま変えない', () => {
+    expect(cap('default.json').permissions).toEqual(['core:default']);
+    expect(cap('default.json').remote).toBeUndefined();
+  });
+  // UI はサーバ（127.0.0.1:4177）から読み込む。そこから呼べる殻の機能は、窓を動かす 1 つだけにする。
+  it('UI の出どころには、窓を動かす権限を 1 つだけ与える', () => {
+    const c = cap('remote-drag.json');
+    expect(c.windows).toEqual(['main']);
+    expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
+    expect(c.permissions).toEqual(['core:window:allow-start-dragging']);
+  });
+});
+
+describe('殻の印', () => {
+  // 殻が付ける印と、画面がそれを読む規則は別の言語に分かれている。片方だけ直すと、ブラウザか殻のどちらかで余白が崩れる。
+  it('殻は頁に data-shell="desktop" を付け、画面はそれでサイドバーの上を空ける', () => {
+    expect(read('src-tauri/src/lib.rs')).toContain("document.documentElement.dataset.shell = 'desktop'");
+    const base = fs.readFileSync(path.resolve(app, '../../packages/ui/src/styles/base.css'), 'utf8');
+    expect(base).toContain("[data-shell='desktop'] .sidebar {");
   });
 });

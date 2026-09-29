@@ -9,7 +9,7 @@ import { SyncStatus } from './SyncStatus.tsx';
 export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string; indexLabel: string | null; usage: UsageProps; sync: SyncProps }) {
   const emit = useEmit();
   return (
-    <header className="header">
+    <header className="header" data-tauri-drag-region="">
       <div className="crumbs">
         {props.crumbs.map((c, i) => (
           <span key={i}>{i > 0 && <span className="faint"> / </span>}{c.route ? <a href={formatRoute(c.route)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: c.route! }); }}>{c.label}</a> : <b>{c.label}</b>}</span>
@@ -17,7 +17,7 @@ export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string
       </div>
       <input id="global-search" className="input search-box" type="search" role="searchbox" placeholder="セッションを検索（/）" defaultValue={props.searchText}
         onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.query', text: (e.target as HTMLInputElement).value }); }} />
-      <span className="spacer" />
+      <span className="spacer" data-tauri-drag-region="" />
       <SyncStatus {...props.sync} />
       {/* 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。 */}
       <span className="gauges">

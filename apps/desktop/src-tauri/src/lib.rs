@@ -208,8 +208,10 @@ fn page_loaded(app: &AppHandle, server_page: bool) {
         eval_main(app, &deeplink::hash_to_js(&h));
     }
     // 位相を読めるのはこの殻の中だけである。画面はこの印を見て、時間で当てずっぽうに決めるのをやめる。
+    // 殻の中であることの印も同じ時に付ける。画面はこれを見て、信号の 3 点の分だけサイドバーの上を空ける。
     if server_page && cfg!(target_os = "macos") {
         eval_main(app, "window.__hangarPhaseAware = true");
+        eval_main(app, "document.documentElement.dataset.shell = 'desktop'");
     }
 }
 

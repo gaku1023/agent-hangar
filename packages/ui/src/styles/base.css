@@ -22,6 +22,8 @@ a:hover { text-decoration: underline; }
 .shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; grid-template-rows: var(--header-h) auto 1fr; height: 100%; }
 /* 行が増えても全部を覆うように、端から端まで跨がせる。 */
 .sidebar { grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); padding: calc(var(--u) * 3) 0; }
+/* デスクトップの殻の中では、信号の 3 点がサイドバーの左上に乗る。殻が付ける data-shell の印を見て、その分だけ上を空ける。 */
+[data-shell='desktop'] .sidebar { padding-top: calc(var(--u) * 10); }
 .header { grid-column: 2; display: flex; align-items: center; gap: calc(var(--u) * 3); padding: 0 calc(var(--u) * 4); border-bottom: 1px solid var(--line); background: var(--surface); }
 .main { grid-column: 2; overflow: auto; }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 4); }

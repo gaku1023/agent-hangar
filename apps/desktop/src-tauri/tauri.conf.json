@@ -11,11 +11,14 @@
     "windows": [
       {
         "label": "main",
-        "title": "agent-hangar",
+        "title": "Hangar",
         "width": 1400,
         "height": 900,
         "minWidth": 900,
-        "minHeight": 600
+        "minHeight": 600,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 22, "y": 26 }
       }
     ],
     "security": {
