@@ -61,6 +61,8 @@ describe('読み込み画面', () => {
     expect(html).toContain('id="status"');
     expect(html).not.toContain('prefers-color-scheme');
     expect(html).toContain('color-scheme" content="light"');
+    expect(html).toContain('<title>Hangar</title>');
+    expect(html).toContain('src="logo.svg"');
   });
 });
 
