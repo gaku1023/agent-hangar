@@ -6,7 +6,8 @@ const base = fs.readFileSync(new URL('./base.css', import.meta.url), 'utf8');
 
 describe('tokens.css', () => {
   it('必要なトークンをライトで定義する', () => {
-    for (const t of ['--bg', '--surface', '--line', '--ink', '--ink-2', '--accent', '--busy', '--idle', '--waiting', '--ended', '--font-sans', '--font-mono', '--row-h', '--dur', '--dur-pop', '--ease']) {
+    for (const t of ['--bg', '--aura-1', '--aura-2', '--surface', '--line', '--ink', '--ink-2', '--ink-3', '--accent', '--accent-hi', '--busy', '--idle', '--waiting', '--ended', '--font-sans', '--font-mono', '--row-h', '--dur', '--dur-pop', '--ease',
+      '--glass-bg', '--glass-blur', '--glass-edge', '--glass-drop', '--r', '--r-lg', '--r-xl', '--r-pill', '--float-gap', '--header-h', '--aura-period']) {
       expect(css, t).toContain(`${t}:`);
     }
   });
@@ -15,8 +16,22 @@ describe('tokens.css', () => {
     expect(css).not.toContain('data-theme');
     expect((css.match(/--accent:/g) ?? []).length).toBe(1);
   });
+  // ぼかしは base.css などの、浮く部品の規則にだけ書く（glass.test.ts が見張る）。トークンは値だけを持つ。
   it('禁じた効果を使わない', () => {
-    for (const bad of ['box-shadow: 0 0', 'text-shadow', '@keyframes pulse', '@keyframes shimmer', 'backdrop-filter']) expect(css).not.toContain(bad);
+    for (const bad of ['text-shadow', '@keyframes pulse', '@keyframes shimmer', '@keyframes skeleton', 'backdrop-filter:']) expect(css).not.toContain(bad);
+  });
+  // ガラスは白 40% を地（--bg）に重ねた色になる。その上に本文と補足の文が載る。
+  it('本文と補足の文は、白地とガラスの上の両方で 4.5:1 以上で読める', () => {
+    const glass = over(token('--bg'), 0.4);
+    expect(glass).toBe('#f5f7fa');
+    for (const t of ['--ink', '--ink-2']) {
+      expect(contrast(token(t), token('--surface')), `${t} / surface`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(token(t), glass), `${t} / glass`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+  it('注記の色は白地で 3:1 以上、主ボタンの白い文字は 4.5:1 以上', () => {
+    expect(contrast(token('--ink-3'), token('--surface'))).toBeGreaterThanOrEqual(3);
+    expect(contrast(token('--accent-ink'), token('--accent'))).toBeGreaterThanOrEqual(4.5);
   });
 });
 
@@ -34,6 +49,8 @@ const lum = (hex: string) => {
 };
 const contrast = (a: string, b: string) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi! + 0.05) / (lo! + 0.05); };
 const token = (name: string) => css.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6});`))?.[1] ?? '';
+/** 白を割合 a で色 hex に重ねた色。ガラスの見かけの地の色を出すのに使う。 */
+const over = (hex: string, a: number) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * (1 - a) + 255 * a).toString(16).padStart(2, '0')).join('');
 
 describe('プロジェクトのステータスの色', () => {
   const statuses = ['active', 'paused', 'done', 'archived'];

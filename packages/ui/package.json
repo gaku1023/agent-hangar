@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc -p .",
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "brand": "node --import tsx scripts/write-brand.ts"
   },
   "dependencies": {
     "@agent-hangar/shared": "*",

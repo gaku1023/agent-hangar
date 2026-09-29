@@ -70,6 +70,23 @@ describe('Shell', () => {
     expect(screen.getByRole('meter', { name: '5 時間の使用率' })).toBeInTheDocument();
     expect(screen.getByText('最終更新 3 分前')).toBeInTheDocument();
   });
+  // .app ではヘッダの空いた所を掴んで窓を動かす。操作する部品に印が付くと、押しても窓が動くだけになる。
+  it('ヘッダ本体と余白だけを、窓を掴む場所にする', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
+    const header = container.querySelector('header.header')!;
+    expect(header).toHaveAttribute('data-tauri-drag-region');
+    expect(header.querySelector('.spacer')).toHaveAttribute('data-tauri-drag-region');
+    const controls = header.querySelectorAll('button, input, a');
+    expect(controls.length).toBeGreaterThan(0);
+    for (const el of controls) expect(el).not.toHaveAttribute('data-tauri-drag-region');
+  });
+  it('検索欄に ⌘K の印を添え、読み上げからは外す', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
+    const kbd = container.querySelector('header.header kbd.search-kbd')!;
+    expect(kbd).toHaveTextContent('⌘K');
+    expect(kbd).toHaveAttribute('aria-hidden', 'true');
+    expect(kbd.previousElementSibling).toBe(screen.getByRole('searchbox'));
+  });
 });
 
 const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('data-icon') ?? null;

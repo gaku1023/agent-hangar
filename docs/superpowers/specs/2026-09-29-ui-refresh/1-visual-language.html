@@ -1,0 +1,206 @@
+<h2>設計 1／5：見た目の言語（見本帳）</h2>
+<p class="subtitle">ここに並ぶ値と部品が、そのまま <code>tokens.css</code> と <code>base.css</code> になります。コントラストの数値は、この画面の中で実際の色から計算しています。直したいところは、番号（例：「c の副ボタン」）でターミナルに書いてください。</p>
+
+<style>
+  .sb { --ink:#1c1b2e; --ink-2:#5f5e78; --ink-3:#8a89a0; --bg:#eef1f7; --surface:#fff; --surface-2:#f3f4f9; --line:#eceef5; --line-strong:#d9dbe6;
+        --accent:#4a63e8; --accent-hi:#6b8cff; --accent-soft:#eef2ff; --busy:#c77a1a; --idle:#3a8f5c; --waiting:#a2452f; --ended:#9a99ad; --error:#b3261e;
+        --term-bg:#1c1b2e; --term-fg:#e8e6f0; --E:cubic-bezier(.16,1,.3,1);
+        --glass-bg:rgba(255,255,255,.40); --glass-fx:blur(12px) saturate(1.9);
+        --glass-edge:inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5); --glass-drop:0 10px 28px -12px rgba(30,40,90,.30);
+        --r:8px; --r-lg:14px; --r-xl:16px;
+        font-family:'Inter','Hiragino Sans',sans-serif; color:var(--ink); text-align:left; }
+  .sb * { box-sizing:border-box; }
+  .sb .mono { font-family:'JetBrains Mono',SFMono-Regular,Menlo,monospace; }
+  .sec { position:relative; isolation:isolate; overflow:hidden; border-radius:16px; background:var(--bg); padding:18px 20px 20px; margin-bottom:16px; }
+  .sec::before { content:''; position:absolute; inset:-25%; z-index:-1; background:radial-gradient(40% 50% at 25% 15%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 75%, #e5d6ff, transparent 70%); animation:drift 24s ease-in-out infinite alternate; }
+  @keyframes drift { to { transform:translate(5%,-4%) rotate(8deg) scale(1.05); } }
+  .sec > h3 { margin:0 0 4px; font-size:15px; display:flex; gap:8px; align-items:baseline; } .sec > h3 .k { font:600 12px 'JetBrains Mono',monospace; color:var(--accent); }
+  .sec > p { margin:0 0 14px; font-size:12.5px; color:var(--ink-2); line-height:1.55; }
+  .glass { background:var(--glass-bg); backdrop-filter:var(--glass-fx); -webkit-backdrop-filter:var(--glass-fx); box-shadow:var(--glass-edge), var(--glass-drop); }
+  .panel { background:var(--surface); border-radius:var(--r-lg); box-shadow:0 1px 2px rgba(30,40,90,.06); }
+  .cap { font-size:11px; color:var(--ink-3); margin-top:6px; }
+  .grid { display:grid; gap:12px; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; flex:none; }
+
+  /* a 層 */
+  .layers { display:grid; grid-template-columns:1.3fr 1fr; gap:18px; align-items:center; }
+  .stack { position:relative; height:220px; perspective:900px; }
+  .stack .ly { position:absolute; left:10%; right:10%; height:120px; border-radius:16px; display:flex; align-items:flex-end; padding:10px 14px; font-size:12px; font-weight:600; transform:rotateX(52deg) rotateZ(-32deg); transform-style:preserve-3d; }
+  .stack .l1 { top:92px; background:radial-gradient(60% 80% at 30% 30%, #cfe0ff, transparent 70%), radial-gradient(60% 80% at 80% 70%, #e5d6ff, transparent 70%), #eef1f7; color:var(--ink-2); box-shadow:0 0 0 1px rgba(30,40,90,.08); }
+  .stack .l2 { top:52px; background:#fff; box-shadow:0 18px 30px -18px rgba(30,40,90,.4); }
+  .stack .l3 { top:12px; background:rgba(255,255,255,.45); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); box-shadow:var(--glass-edge), 0 18px 30px -16px rgba(30,40,90,.35); }
+  .legend div { display:flex; gap:10px; align-items:flex-start; margin-bottom:10px; font-size:12.5px; line-height:1.5; }
+  .legend b { font-weight:600; } .legend .n { flex:none; width:22px; height:22px; border-radius:7px; display:grid; place-items:center; font:600 11px 'JetBrains Mono',monospace; background:#fff; box-shadow:0 1px 3px rgba(30,40,90,.15); }
+
+  /* b 色 */
+  .sw { grid-template-columns:repeat(6, minmax(0,1fr)); }
+  .sw .c { border-radius:12px; overflow:hidden; background:#fff; box-shadow:0 1px 2px rgba(30,40,90,.08); }
+  .sw .c .chip { height:46px; }
+  .sw .c .t { padding:7px 9px; font-size:11px; line-height:1.4; } .sw .c .t b { display:block; font-weight:600; } .sw .c .t .mono { color:var(--ink-3); font-size:10px; }
+  .sw .c .t .ok { color:var(--idle); } .sw .c .t .ng { color:var(--error); }
+  .swh { font-size:11px; font-weight:600; color:var(--ink-3); margin:12px 0 6px; }
+
+  /* c ガラスの部品 */
+  .gp { grid-template-columns:1.2fr 1fr; }
+  .hdrx { height:42px; border-radius:99px; display:flex; align-items:center; gap:10px; padding:0 8px 0 16px; font-size:12px; }
+  .search { height:28px; flex:0 1 220px; border-radius:99px; padding:0 12px; display:flex; align-items:center; color:#7c7b92; font-size:11.5px; background:rgba(255,255,255,.5); box-shadow:inset 0 1px 2px rgba(30,40,90,.12); }
+  .search kbd { margin-left:auto; font:10px 'JetBrains Mono',monospace; color:var(--ink-3); }
+  .sidex { width:180px; border-radius:var(--r-xl); padding:10px 8px; font-size:12px; }
+  .navi { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:99px; color:var(--ink-2); margin-bottom:2px; transition:background .2s var(--E); }
+  .navi:hover { background:rgba(255,255,255,.5); }
+  .navi.on { color:var(--ink); font-weight:560; background:rgba(255,255,255,.78); box-shadow:inset 0 1px 0 #fff, 0 2px 6px rgba(30,40,90,.1); }
+  .navi i { width:14px; height:14px; border-radius:4px; border:1.5px solid currentColor; opacity:.7; }
+  .palx { border-radius:18px; padding:8px; font-size:12px; background:rgba(255,255,255,.62); backdrop-filter:blur(18px) saturate(1.8); -webkit-backdrop-filter:blur(18px) saturate(1.8); box-shadow:var(--glass-edge), 0 24px 50px -16px rgba(30,40,90,.45); }
+  .palx .in { height:32px; border-radius:10px; background:rgba(255,255,255,.85); display:flex; align-items:center; padding:0 12px; color:#7c7b92; margin-bottom:6px; }
+  .palx .it { display:flex; gap:8px; align-items:center; padding:7px 12px; border-radius:10px; } .palx .it.on { background:rgba(74,99,232,.12); } .palx .it kbd { margin-left:auto; font:10px 'JetBrains Mono',monospace; color:var(--ink-3); }
+  .toastx { display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:var(--r-lg); background:rgba(255,255,255,.82); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); box-shadow:var(--glass-edge), 0 14px 28px -10px rgba(30,40,90,.4); font-size:12px; }
+  .dlg { border-radius:18px; padding:16px; background:rgba(255,255,255,.72); backdrop-filter:blur(18px) saturate(1.6); -webkit-backdrop-filter:blur(18px) saturate(1.6); box-shadow:var(--glass-edge), 0 24px 50px -16px rgba(30,40,90,.45); font-size:12px; }
+  .dlg h4 { margin:0 0 10px; font-size:14px; } .dlg .f { margin-bottom:10px; } .dlg label { display:block; font-size:11px; color:var(--ink-2); margin-bottom:4px; }
+  .dlg .foot { display:flex; justify-content:flex-end; gap:8px; }
+
+  /* d 読む面 */
+  .rp { grid-template-columns:1.4fr 1fr; }
+  .row { display:grid; grid-template-columns:10px 1fr auto; gap:10px; align-items:center; padding:8px 14px; font-size:12px; transition:background .2s var(--E); }
+  .row + .row { border-top:1px solid var(--line); } .row:hover { background:#f6f8ff; }
+  .row b { font-weight:600; } .row .s { color:var(--ink-2); font-size:11px; margin-top:1px; } .row .tm { color:var(--ink-3); font-size:11px; }
+  .card { padding:12px 14px; font-size:12px; } .card .t { display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px; } .card .p { color:var(--ink-3); font-size:11px; margin-top:3px; } .card .m { display:flex; gap:10px; margin-top:8px; color:var(--ink-2); font-size:11px; }
+  .msgs { padding:12px; display:flex; flex-direction:column; gap:8px; font-size:12px; }
+  .msg { max-width:85%; padding:8px 11px; border-radius:14px; line-height:1.5; } .msg.u { margin-left:auto; background:var(--accent); color:#fff; border-bottom-right-radius:5px; } .msg.a { background:var(--surface-2); border-bottom-left-radius:5px; }
+  .tool { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--ink-2); padding:5px 10px; border-radius:8px; border:1px solid var(--line); width:max-content; }
+
+  /* e 端末の縁 */
+  .tm4 { grid-template-columns:repeat(4, minmax(0,1fr)); }
+  .tabs { display:flex; gap:3px; } .tabs span { display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 11px; border-radius:10px 10px 0 0; background:rgba(255,255,255,.55); color:var(--ink-2); font-size:11px; } .tabs span.on { background:var(--term-bg); color:var(--term-fg); }
+  .term { height:120px; border-radius:0 14px 14px 14px; background:var(--term-bg); color:var(--term-fg); font:10.5px/1.6 'JetBrains Mono',monospace; padding:10px 12px; }
+  .term .g { opacity:.55; } .term .o { color:#ffb86b; } .term .gr { color:#6fd3a5; }
+  .rim-busy { box-shadow:0 0 0 1.5px rgba(199,122,26,.9), 0 0 22px -2px rgba(199,122,26,.45); animation:breathe 3.2s ease-in-out infinite; }
+  @keyframes breathe { 50% { box-shadow:0 0 0 1.5px rgba(199,122,26,.55), 0 0 12px -4px rgba(199,122,26,.25); } }
+  .rim-wait { box-shadow:0 0 0 1.5px rgba(162,69,47,.95), 0 0 22px -2px rgba(162,69,47,.45); }
+  .rim-idle, .rim-end { box-shadow:0 12px 26px -16px rgba(20,20,60,.55); }
+
+  /* f 形と部品 */
+  .shapes { grid-template-columns:repeat(4, minmax(0,1fr)); }
+  .shape { height:70px; background:#fff; box-shadow:0 1px 3px rgba(30,40,90,.12); display:grid; place-items:center; font:600 12px 'JetBrains Mono',monospace; color:var(--ink-2); }
+  .ctrls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:14px; }
+  .btn { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 13px; border-radius:99px; font:560 12px 'Inter','Hiragino Sans',sans-serif; border:0; cursor:pointer; color:var(--ink); background:rgba(255,255,255,.78); box-shadow:inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,.14); transition:transform .12s var(--E), box-shadow .2s var(--E), background .2s var(--E); }
+  .btn:hover { background:#fff; box-shadow:inset 0 1px 0 #fff, 0 3px 10px -2px rgba(30,40,90,.2); } .btn:active { transform:scale(.97); }
+  .btn.pri { color:#fff; background:linear-gradient(180deg, var(--accent-hi), var(--accent)); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 4px 12px -4px rgba(70,90,230,.6); }
+  .btn.pri:hover { box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 6px 16px -4px rgba(70,90,230,.7); }
+  .btn.ghost { background:transparent; box-shadow:none; color:var(--ink-2); } .btn.ghost:hover { background:rgba(255,255,255,.6); }
+  .btn.danger { color:var(--error); }
+  .inp { height:30px; width:200px; border-radius:var(--r); border:0; padding:0 10px; font:12px 'Inter','Hiragino Sans',sans-serif; background:#fff; box-shadow:inset 0 0 0 1px var(--line-strong); outline:none; transition:box-shadow .2s var(--E); }
+  .inp:focus { box-shadow:inset 0 0 0 1px var(--accent), 0 0 0 3px rgba(74,99,232,.18); }
+  .chipx { display:inline-flex; align-items:center; gap:5px; height:22px; padding:0 9px; border-radius:99px; font-size:11px; background:rgba(255,255,255,.75); color:var(--ink-2); box-shadow:inset 0 0 0 1px rgba(30,40,90,.06); }
+  .pill { display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 10px; border-radius:99px; font-size:11px; font-weight:560; }
+  .gauge { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--ink-2); } .gauge .bar { width:54px; height:5px; border-radius:9px; background:rgba(30,40,90,.1); overflow:hidden; } .gauge .bar b { display:block; height:100%; border-radius:9px; background:linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+
+  /* g 文字 */
+  .type div { display:flex; align-items:baseline; gap:16px; padding:6px 0; border-top:1px solid rgba(30,40,90,.06); } .type div:first-child { border-top:0; }
+  .type .k { width:90px; flex:none; font:11px 'JetBrains Mono',monospace; color:var(--ink-3); }
+
+  /* h 決まり */
+  .rules { grid-template-columns:repeat(2, minmax(0,1fr)); }
+  .rule { border-radius:14px; padding:12px 14px; background:#fff; font-size:12px; line-height:1.55; box-shadow:0 1px 2px rgba(30,40,90,.06); }
+  .rule h4 { margin:0 0 8px; font-size:13px; } .rule li { margin-bottom:4px; } .rule ul { margin:0; padding-left:18px; }
+  .rule .tag { display:inline-block; font-size:10.5px; font-weight:600; padding:1px 8px; border-radius:99px; margin-right:6px; }
+  .yes .tag { background:#e3f1e8; color:#2b7048; } .no .tag { background:#fbe7e3; color:#a2452f; } .keep .tag { background:#eef2ff; color:#2a57b8; }
+</style>
+
+<div class="sb">
+
+<div class="sec"><h3><span class="k">a</span>層は 3 枚</h3><p>奥から「光の背景」「読む面（不透明）」「浮くガラス」。ガラスは浮く部品にだけ使い、文字をたくさん読む面には使いません。</p>
+  <div class="layers"><div class="stack"><div class="ly l1">① 光の背景</div><div class="ly l2">② 読む面（白・不透明）</div><div class="ly l3">③ 浮くガラス</div></div>
+  <div class="legend">
+    <div><span class="n">1</span><div><b>光の背景</b>　地は <span class="mono">#eef1f7</span>。青 <span class="mono">#cfe0ff</span> と紫 <span class="mono">#e5d6ff</span> の淡い光を 2 つ置き、24 秒かけて漂わせる。reduced motion では止める。</div></div>
+    <div><span class="n">2</span><div><b>読む面</b>　一覧、カード、会話、設定の中身。白で不透明、角 14px、影はごく薄く。<b>文字の読みやすさは今と同じ</b>。</div></div>
+    <div><span class="n">3</span><div><b>浮くガラス</b>　ヘッダ、サイドバー、⌘K、ダイアログ、通知だけ。白 40%、ぼかし 12px、彩度 1.9 倍、上縁の鏡面の光、白い 1px の縁、柔らかい落ち影。</div></div>
+  </div></div>
+</div>
+
+<div class="sec"><h3><span class="k">b</span>色</h3><p>文字色は、ガラスに合わせて少し青みに寄せます。状態の色は今の色相のままです。数値は白地に対するコントラスト比で、本文に使う色は 4.5 以上、状態の点のような図形は 3 以上（WCAG の図形の基準）にしています。</p>
+  <div class="swh">面と文字</div><div class="grid sw" id="sw1"></div>
+  <div class="swh">アクセントと状態</div><div class="grid sw" id="sw2"></div>
+  <div class="swh">プロジェクトのステータス（文字／淡い地。今の値のまま）</div><div class="grid sw" id="sw3"></div>
+</div>
+
+<div class="sec"><h3><span class="k">c</span>ガラスの部品</h3><p>浮く部品だけがガラスです。ホバーやフォーカスにも反応します。</p>
+  <div class="grid gp">
+    <div class="grid">
+      <div><div class="hdrx glass"><b style="font-weight:600">Home</b><span class="search">セッションを検索、コマンド<kbd>⌘K</kbd></span><span style="flex:1"></span><span class="gauge">5h<span class="bar"><b style="width:42%"></b></span>42%</span><button class="btn pri">＋ 新規セッション</button></div><div class="cap">ヘッダ：中身の上に浮く錠剤。一覧はこの下をくぐって流れる</div></div>
+      <div class="palx"><div class="in">セッション、プロジェクト、操作…</div><div class="it on"><span class="dot" style="background:var(--busy)"></span>キーボード操作の見直しを開く<kbd>↵</kbd></div><div class="it">新規セッション<kbd>⌘N</kbd></div><div class="it">設定を開く<kbd>⌘,</kbd></div></div><div class="cap" style="margin-top:-6px">⌘K パレット：ガラスを少し濃く（62%）、ぼかしを強く</div>
+      <div class="toastx"><span class="dot" style="background:var(--waiting)"></span><span><b style="font-weight:600">論文の図を直す</b> が入力を待っています</span><span style="flex:1"></span><button class="btn">開く</button></div><div class="cap" style="margin-top:-6px">通知</div>
+    </div>
+    <div class="grid">
+      <div class="sidex glass"><div style="display:flex;align-items:center;gap:8px;font-weight:650;padding:2px 8px 12px"><span style="width:20px;height:20px;border-radius:6px;background:linear-gradient(165deg,#f7f9ff,#c9d3ff);box-shadow:inset 0 0 0 1px rgba(255,255,255,.7)"></span>Hangar</div><div class="navi on"><i></i>Home</div><div class="navi"><i></i>プロジェクト</div><div class="navi"><i></i>セッション</div><div class="navi"><i></i>設定</div></div><div class="cap" style="margin-top:-6px">サイドバー：選択中は錠剤が浮く</div>
+      <div class="dlg"><h4>新規セッション</h4><div class="f"><label>プロジェクト</label><input class="inp" value="agent-hangar"></div><div class="f"><label>最初の指示</label><input class="inp" placeholder="何をしてもらう？" style="width:100%"></div><div class="foot"><button class="btn ghost">やめる</button><button class="btn pri">起動</button></div></div><div class="cap" style="margin-top:-6px">ダイアログ</div>
+    </div>
+  </div>
+</div>
+
+<div class="sec"><h3><span class="k">d</span>読む面</h3><p>白で不透明。一覧は 2 段の行、会話は吹き出し、ツール呼び出しは 1 行に畳む。</p>
+  <div class="grid rp">
+    <div><div class="panel">
+      <div class="row"><span class="dot" style="background:var(--busy)"></span><div><b>キーボード操作の見直し</b><div class="s">keys.ts を一枚の表にまとめ直す</div></div><span class="tm mono">12:04</span></div>
+      <div class="row"><span class="dot" style="background:var(--waiting)"></span><div><b>論文の図を直す</b><div class="s">図 3 の凡例をどこに置くか聞いている</div></div><span class="tm">12 分前</span></div>
+      <div class="row"><span class="dot" style="background:var(--ended)"></span><div><b>無料枠の見張り</b><div class="s">台帳の合計と端末の見積もりの大きい方を採る</div></div><span class="tm">昨日</span></div></div><div class="cap">一覧の行（Home の「最近」の形）</div>
+      <div class="panel card" style="margin-top:12px"><div class="t">agent-hangar<span class="pill" style="margin-left:auto;background:#e8eefc;color:#2a57b8">active<span class="dot" style="background:#2a57b8"></span></span></div><div class="p mono">~/workspace/agent-hangar</div><div class="m"><span>3 分前</span><span>実行中 2</span><span>TODO 3</span></div></div><div class="cap">プロジェクトのカード</div>
+    </div>
+    <div><div class="panel msgs"><div class="msg u">keys.ts の表を見直して、戻ると進むをキーとスワイプで入れて</div><div class="msg a">表を読みました。⌘[ と ⌘] はそのまま割り当てます。</div><div class="tool"><span class="dot" style="background:var(--busy)"></span><span class="mono">Edit keys.ts</span><span style="color:var(--ink-3)">+24 −9</span></div><div class="msg a">スワイプは離した時点で判定します。</div></div><div class="cap">会話</div></div>
+  </div>
+</div>
+
+<div class="sec"><h3><span class="k">e</span>端末の板と縁の灯</h3><p>端末は墨色の不透明な板。縁が<b>そのセッションの状態</b>で灯ります。脈動を許すのは「作業中」のここだけです。</p>
+  <div class="grid tm4">
+    <div><div class="tabs"><span class="on"><span class="dot" style="background:var(--busy)"></span>Claude</span><span>zsh</span></div><div class="term rim-busy"><div><span class="g">›</span> keys.ts の表を見直して</div><div><span class="o">● Edit</span> keys.ts <span class="gr">+24</span></div><div class="g">● Bash npx vitest run</div></div><div class="cap">作業中：杏がゆっくり息をする（3.2 秒）</div></div>
+    <div><div class="tabs"><span class="on"><span class="dot" style="background:var(--waiting)"></span>Claude</span><span>zsh</span></div><div class="term rim-wait"><div><span class="g">›</span> 図 3 を直して</div><div>凡例は右上と図の下、</div><div>どちらにしますか？</div></div><div class="cap">入力待ち：赤で静止</div></div>
+    <div><div class="tabs"><span class="on"><span class="dot" style="background:var(--idle)"></span>Claude</span><span>zsh</span></div><div class="term rim-idle"><div class="gr">✓ 18 passed</div><div>終わりました。</div><div><span class="g">›</span> <span style="background:#ffb86b">&nbsp;</span></div></div><div class="cap">休み：灯さない（影だけ）</div></div>
+    <div><div class="tabs"><span class="on"><span class="dot" style="background:var(--ended)"></span>Claude</span></div><div class="term rim-end" style="opacity:.85"><div class="g">[session ended]</div><div class="g">tmux: exited</div></div><div class="cap">終了：灯さない</div></div>
+  </div>
+</div>
+
+<div class="sec"><h3><span class="k">f</span>形と部品</h3><p>角は 3 段と錠剤。部品はホバーで少し浮き、押すと 97% に縮みます。</p>
+  <div class="grid shapes"><div><div class="shape" style="border-radius:8px">8px</div><div class="cap">入力欄、札、チップの中身</div></div><div><div class="shape" style="border-radius:14px">14px</div><div class="cap">読む面、カード、端末</div></div><div><div class="shape" style="border-radius:16px">16px</div><div class="cap">浮くガラス（サイドバー、ダイアログは 18px）</div></div><div><div class="shape" style="border-radius:99px">99px</div><div class="cap">ボタン、検索、ヘッダ、選択中のナビ</div></div></div>
+  <div class="ctrls"><button class="btn pri">＋ 新規セッション</button><button class="btn">VS Code で開く</button><button class="btn ghost">やめる</button><button class="btn danger">削除</button><input class="inp" placeholder="入力欄（フォーカスして）"><span class="chipx mono">opus · high</span><span class="chipx">文脈 38%</span><span class="pill" style="background:#faefd9;color:#8a5a0b">paused<span class="dot" style="background:#8a5a0b"></span></span><span class="gauge">7d<span class="bar"><b style="width:68%"></b></span>68%</span></div>
+</div>
+
+<div class="sec"><h3><span class="k">g</span>文字</h3><p>書体と大きさは今のまま。見出しだけ少し詰めます（字間 −1%）。</p>
+  <div class="panel type" style="padding:10px 16px">
+    <div><span class="k">20 · 見出し</span><span style="font-size:20px;font-weight:650;letter-spacing:-.01em">キーボード操作の見直し</span></div>
+    <div><span class="k">15 · 小見出し</span><span style="font-size:15px;font-weight:650;letter-spacing:-.01em">実行中のセッション</span></div>
+    <div><span class="k">13 · 本文</span><span style="font-size:13px">keys.ts を一枚の表にまとめ直し、戻ると進むをキーとスワイプで入れる。</span></div>
+    <div><span class="k">12 · 小さい本文</span><span style="font-size:12px;color:var(--ink-2)">最後の返答から 8 分</span></div>
+    <div><span class="k">11 · 注記</span><span style="font-size:11px;color:var(--ink-3)">最終更新 3 分前</span></div>
+    <div><span class="k">等幅</span><span class="mono" style="font-size:12px">packages/ui/src/keys.ts · 12:04 · $1.82 · opus · high</span></div>
+  </div>
+</div>
+
+<div class="sec"><h3><span class="k">h</span>design.md の決まりの書き換え</h3><p>「見た目と動き」の節を、次のように書き換えます。</p>
+  <div class="grid rules">
+    <div class="rule yes"><h4><span class="tag">許す</span>新しく許すもの</h4><ul><li>ガラス（浮く部品だけ）</li><li>グラデーション（主ボタンと背景の光だけ）</li><li>影（浮く部品と、持ち上げた板だけ）</li><li>脈動（端末の縁の「作業中」だけ）</li></ul></div>
+    <div class="rule no"><h4><span class="tag">禁じる</span>引き続き禁じるもの</h4><ul><li>読む面へのガラス</li><li>シマー、スケルトン、タイピング風の表示</li><li>文字の影、光る文字</li><li>ダークモード</li></ul></div>
+    <div class="rule keep"><h4><span class="tag">変える</span>参照先</h4><ul><li>Linear → macOS 26 の Liquid Glass</li><li>アイコンは Lucide 16px、線幅 1.5 のまま</li></ul></div>
+    <div class="rule keep"><h4><span class="tag">守る</span>試験で固定するもの</h4><ul><li>本文の色は白地で 4.5:1 以上</li><li>ステータスの文字は淡い地で 4.5:1 以上</li><li>ぼかしは決めた部品のクラスにだけ現れる</li><li>reduced motion で動きの長さが 0、光も止まる</li></ul></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+(function(){
+  const lum = h => { const [r,g,b] = [1,3,5].map(i => parseInt(h.slice(i,i+2),16)/255).map(c => c <= .03928 ? c/12.92 : ((c+.055)/1.055)**2.4); return .2126*r + .7152*g + .0722*b; };
+  const cr = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); };
+  const tile = (hex, name, role, on = '#ffffff', need = 4.5) => {
+    const r = cr(hex, on), ok = r >= need;
+    return `<div class="c"><div class="chip" style="background:${hex}"></div><div class="t"><b>${name}</b>${role}<div class="mono">${hex}</div>${need ? `<div class="${ok ? 'ok' : 'ng'}">${r.toFixed(1)} : 1 ${ok ? '✓' : '（注記用）'}</div>` : ''}</div></div>`;
+  };
+  document.getElementById('sw1').innerHTML = [
+    tile('#eef1f7', '--bg', '光の背景の地', '#fff', 0), tile('#ffffff', '--surface', '読む面', '#fff', 0), tile('#f3f4f9', '--surface-2', '吹き出し、ホバー', '#fff', 0),
+    tile('#1c1b2e', '--ink', '本文'), tile('#5f5e78', '--ink-2', '補足の文'), tile('#8a89a0', '--ink-3', '注記、時刻', '#ffffff', 3),
+  ].join('');
+  document.getElementById('sw2').innerHTML = [
+    tile('#4a63e8', '--accent', '主ボタン（白文字）'), tile('#c77a1a', '--busy', '作業中', '#ffffff', 3), tile('#3a8f5c', '--idle', '休み', '#ffffff', 3), tile('#a2452f', '--waiting', '入力待ち'), tile('#9a99ad', '--ended', '終了', '#ffffff', 0), tile('#1c1b2e', '--term-bg', '端末の板', '#e8e6f0'),
+  ].join('');
+  const st = [['active','#2a57b8','#e8eefc'],['paused','#8a5a0b','#faefd9'],['done','#2b7048','#e3f1e8'],['archived','#66625b','#edebe6']];
+  document.getElementById('sw3').innerHTML = st.map(([n, f, b]) => `<div class="c"><div class="chip" style="background:${b};display:grid;place-items:center;color:${f};font-weight:600;font-size:12px">${n}</div><div class="t"><b>--st-${n}</b><div class="mono">${f} / ${b}</div><div class="ok">${cr(f, b).toFixed(1)} : 1 ✓</div></div></div>`).join('');
+})();
+</script>

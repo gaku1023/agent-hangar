@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-drag",
+  "description": "サーバの UI（127.0.0.1:4177）から、ヘッダを掴んで窓を動かし、ダブルクリックで拡大するためだけの権限。ほかの殻の機能は与えない。",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:4177/*"] },
+  "permissions": ["core:window:allow-start-dragging", "core:window:allow-internal-toggle-maximize"]
+}

@@ -3,8 +3,8 @@
 /* 使用量ゲージ。幅 48px、高さ 6px の棒で、80% 以上は警告色にする。 */
 .gauges { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
 .gauge { display: inline-flex; align-items: center; gap: var(--u); }
-.gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
-.gauge-fill { display: block; height: 100%; background: var(--accent); transition: width var(--dur-slow) var(--ease), background var(--dur) var(--ease); }
+.gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
+.gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); transition: width var(--dur-slow) var(--ease), background var(--dur) var(--ease); }
 .gauge-fill[data-high='true'] { background: var(--waiting); }
 .gauge-num { font-size: var(--fs-xs); color: var(--ink-3); min-width: 32px; }
 .gauge-updated { font-size: var(--fs-xs); white-space: nowrap; }
@@ -52,6 +52,9 @@
 .project-head { display: flex; align-items: center; gap: calc(var(--u) * 3); margin-bottom: var(--u); }
 .project-path { margin-bottom: calc(var(--u) * 3); }
 .rail { display: flex; flex-direction: column; gap: calc(var(--u) * 4); min-width: 0; }
+/* 右レールの TODO とメモは、白い読む面に載せる。アーティファクトはカードそのものが読む面なので、面を重ねない。 */
+.rail-panel { padding: calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.rail-panel > .h2:first-child { margin-top: 0; }
 
 /* プロジェクトのカードは FLIP のために 1 枚ずつ器に入れる。器は格子の升目いっぱいに広がる。 */
 .card-slot { display: flex; min-width: 0; }

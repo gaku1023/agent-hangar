@@ -16,7 +16,7 @@
 /* base.css の :focus-visible（--accent の 2px の輪郭、offset 1px）を消さない。
    帯そのものも --accent で塗り、輪郭との間の 1px を --surface で抜く。
    こうすると、左が暗いターミナル（--term-bg）でも右が白い面でも、隣り合う色との差が 3:1 を超える。
-   --accent #2f5fd0 と --surface #ffffff の比は 5.5:1、--line #e6e4df からの変化の比は 4.5:1 である。 */
+   --accent #4a63e8 と --surface #ffffff の比は 4.95:1、--line #eceef5 からの変化の比は 4.27:1 である。 */
 .split-divider:focus-visible { background: var(--accent); box-shadow: 0 0 0 1px var(--surface); }
 
 /* セッションヘッダーのコンテキスト使用率と、アーティファクトの帯と、タブ列の分割ボタン。 */

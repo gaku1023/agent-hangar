@@ -1,0 +1,187 @@
+<h2>動き ②：このアプリならではの「決めの動き」</h2>
+<p class="subtitle">性格は B（なめらか）で統一しています。ロゴの「掛かった札」と、端末の「縁の灯」から生まれる 6 つの動きです。それぞれの「▶」で再生できます。<b>入れたいものをいくつでも</b>選んでください。多すぎると賑やかになるので、絞る目安は 3〜4 個です。</p>
+
+<style>
+  .sg { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:14px; }
+  .sg .option { display:block; padding:12px; margin:0; }
+  .dhead { display:flex; align-items:baseline; gap:10px; margin-bottom:8px; } .dhead h3 { margin:0; font-size:14.5px; }
+  .replay { margin-left:auto; font:12px/1 system-ui; padding:5px 10px; border-radius:6px; border:1px solid rgba(128,128,128,.4); background:transparent; color:inherit; cursor:pointer; }
+  .desc { font-size:12px; opacity:.85; margin:8px 2px 0; line-height:1.55; }
+  .when { font-size:11px; opacity:.65; margin:4px 2px 0; }
+
+  .stg { --ink:#1c1b2e; --mute:#6d6c85; --faint:#9a99ad; --E:cubic-bezier(.16,1,.3,1); position:relative; isolation:isolate; overflow:hidden; height:230px; border-radius:14px; font-family:'Inter','Hiragino Sans',sans-serif; font-size:11px; color:var(--ink); text-align:left; background:#eef1f7; }
+  .stg * { box-sizing:border-box; }
+  .stg::before { content:''; position:absolute; inset:-25%; z-index:-1; background:radial-gradient(40% 50% at 30% 20%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 70%, #e5d6ff, transparent 70%); }
+  .glass { background:rgba(255,255,255,.42); backdrop-filter:blur(12px) saturate(1.9); box-shadow:inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5), 0 10px 28px -12px rgba(30,40,90,.3); }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; flex:none; }
+  .busy { background:#e08a2c; } .wait { background:#c4452c; } .idle { background:#3a8f5c; } .end { background:#b5b2c4; }
+  .cur { animation:blink 1.1s steps(2) infinite; } @keyframes blink { 50% { opacity:0; } }
+
+  /* 1 起動 */
+  .boot { display:grid; place-items:center; }
+  .boot .mark { width:110px; height:110px; }
+  .boot .word { position:absolute; bottom:44px; left:0; right:0; text-align:center; font-weight:650; font-size:16px; letter-spacing:-.01em; opacity:0; }
+  .boot .st { position:absolute; bottom:24px; left:0; right:0; text-align:center; color:var(--faint); font-size:10.5px; opacity:0; }
+  .boot.play .fi { animation:fi .5s var(--E) both; } @keyframes fi { from { opacity:0; } to { opacity:1; } }
+  .boot.play .sw { animation:sw 2.2s cubic-bezier(.4,0,.2,1) both; } @keyframes sw { 0% { transform:rotate(9deg); } 25% { transform:rotate(-6deg); } 50% { transform:rotate(3deg); } 72% { transform:rotate(-1.2deg); } 100% { transform:rotate(0); } }
+  .boot.play .rail { stroke-dasharray:120; animation:rail .7s cubic-bezier(.6,0,.2,1) both; } @keyframes rail { from { stroke-dashoffset:120; } to { stroke-dashoffset:0; } }
+  .boot.play .word { animation:up .7s 1.1s var(--E) both; } .boot.play .st { animation:up .7s 1.3s var(--E) both; }
+  @keyframes up { from { opacity:0; transform:translateY(8px); filter:blur(4px); } to { opacity:1; transform:none; filter:none; } }
+
+  /* 2 新規セッションが掛かる */
+  .hang .rail2 { position:absolute; top:30px; left:16px; right:16px; height:2px; border-radius:2px; background:linear-gradient(90deg,#1c1b2e,rgba(28,27,46,.1)); }
+  .hang .tag { position:absolute; top:31px; width:108px; transform-origin:50% -10px; }
+  .hang .tag::before { content:''; position:absolute; top:-9px; left:50%; width:1.5px; height:10px; background:#1c1b2e; opacity:.6; }
+  .hang .card { border-radius:12px; background:#fff; padding:8px 10px; box-shadow:0 10px 22px -12px rgba(30,40,90,.4); }
+  .hang .card b { display:flex; align-items:center; gap:6px; font-weight:600; } .hang .card small { display:block; color:var(--mute); margin-top:3px; }
+  .hang .card.term { background:#1c1b2e; color:#e8e6e1; } .hang .card.term small { color:#9a99ad; }
+
+  /* 3 待ちが降りてくる */
+  .drop .panel { position:absolute; inset:14px; border-radius:14px; background:#fff; padding:10px 12px; box-shadow:0 1px 2px rgba(30,40,90,.06); }
+  .drop .panel .ln { height:8px; border-radius:4px; background:#eef0f6; margin:10px 0; }
+  .drop .note { position:absolute; top:0; left:50%; width:230px; margin-left:-115px; transform-origin:50% -40px; z-index:2; }
+  .drop .string { position:absolute; left:50%; top:-40px; width:1.5px; height:40px; background:#1c1b2e; opacity:.5; }
+  .drop .toast { border-radius:14px; padding:9px 12px; background:rgba(255,255,255,.85); backdrop-filter:blur(14px); box-shadow:inset 0 1px 0 #fff, 0 0 0 1px rgba(196,69,44,.2), 0 14px 28px -10px rgba(30,40,90,.4); }
+  .drop .toast b { font-weight:600; } .drop .toast div { color:var(--mute); margin-top:3px; font-size:10.5px; }
+  .drop .toast .acts { display:flex; gap:6px; margin-top:7px; } .drop .toast .acts span { font-size:10px; font-weight:560; padding:3px 9px; border-radius:99px; background:#f1f2f8; } .drop .toast .acts span.p { background:#4a63e8; color:#fff; }
+
+  /* 4 縁の灯が一周する */
+  @property --a { syntax:'<angle>'; initial-value:0deg; inherits:false; }
+  .rim { display:grid; place-items:center; }
+  .rim .tw { position:relative; width:78%; height:150px; }
+  .rim .ring { position:absolute; inset:-2px; border-radius:16px; background:conic-gradient(from var(--a), transparent 0deg, var(--c,#e08a2c) 40deg, transparent 90deg); opacity:0; }
+  .rim .term { position:absolute; inset:0; border-radius:14px; background:#1c1b2e; color:#e8e6e1; font:10px/1.6 'JetBrains Mono',monospace; padding:10px 12px; box-shadow:0 0 0 1.5px var(--rc, rgba(224,138,44,.85)), 0 0 20px -2px var(--rg, rgba(224,138,44,.4)); transition:box-shadow .6s var(--E); }
+  .rim.play .ring { animation:sweep 1.1s var(--E) both; } @keyframes sweep { 0% { --a:0deg; opacity:1; } 80% { opacity:1; } 100% { --a:360deg; opacity:0; } }
+
+  /* 5 行がセッション画面へ広がる */
+  .morph .list { position:absolute; top:14px; left:14px; right:14px; border-radius:14px; background:#fff; overflow:hidden; box-shadow:0 1px 2px rgba(30,40,90,.06); }
+  .morph .row { display:grid; grid-template-columns:10px 1fr auto; gap:8px; align-items:center; padding:7px 11px; } .morph .row + .row { border-top:1px solid #f1f2f7; }
+  .morph .row b { font-weight:600; } .morph .row small { color:var(--mute); display:block; margin-top:1px; } .morph .row .tm { color:var(--faint); }
+  .morph .sess { position:absolute; inset:14px; border-radius:14px; background:#fff; padding:10px 12px; display:none; box-shadow:0 1px 2px rgba(30,40,90,.06); }
+  .morph .sess .h { display:flex; align-items:center; gap:8px; } .morph .sess .h b { font-size:13px; font-weight:650; }
+  .morph .sess .term { margin-top:10px; height:118px; border-radius:0 12px 12px 12px; background:#1c1b2e; color:#e8e6e1; font:10px/1.6 'JetBrains Mono',monospace; padding:9px 11px; box-shadow:0 0 0 1.5px rgba(224,138,44,.85), 0 0 18px -2px rgba(224,138,44,.4); }
+
+  /* 6 終わった札が奥へ霞む */
+  .fade .rail2 { position:absolute; top:40px; left:16px; right:16px; height:2px; border-radius:2px; background:linear-gradient(90deg,#1c1b2e,rgba(28,27,46,.1)); }
+  .fade .tag { position:absolute; top:41px; width:96px; transform-origin:50% -10px; }
+  .fade .tag::before { content:''; position:absolute; top:-9px; left:50%; width:1.5px; height:10px; background:#1c1b2e; opacity:.6; }
+  .fade .card { border-radius:12px; background:#1c1b2e; color:#e8e6e1; padding:8px 10px; box-shadow:0 10px 22px -12px rgba(30,40,90,.4); }
+  .fade .card b { display:flex; align-items:center; gap:6px; font-weight:600; } .fade .card small { display:block; color:#9a99ad; margin-top:3px; }
+  .fade .log { position:absolute; bottom:14px; left:16px; right:16px; color:var(--faint); font-size:10.5px; }
+</style>
+
+<div class="options sg" data-multiselect>
+  <div class="option" data-choice="boot" onclick="toggleSelect(this)"><div class="dhead"><h3>1　起動</h3><button class="replay" onclick="event.stopPropagation(); play('boot')">▶</button></div>
+    <div class="stg boot" id="boot"><svg class="mark" viewBox="0 0 100 100" id="bootsvg"></svg><div class="word">Hangar</div><div class="st">サーバを起こしています…</div></div>
+    <p class="desc">竿が引かれ、端末の札が手前から奥へ掛かって揺れ、止まると名前が浮かぶ。<b>ロゴそのものが読み込み中の表示</b>になる。</p><p class="when">使う所：.app の起動画面、初回の索引中</p></div>
+
+  <div class="option" data-choice="hang" onclick="toggleSelect(this)"><div class="dhead"><h3>2　新しい札が掛かる</h3><button class="replay" onclick="event.stopPropagation(); play('hang')">▶</button></div>
+    <div class="stg hang" id="hang"><div class="rail2"></div></div>
+    <p class="desc">新規セッションを起こすと、新しい札が竿に<b>掛かって揺れ</b>、先に掛かっていた札は横へ詰める。ロゴと同じ仕草。</p><p class="when">使う所：Home の実行中の札、新規セッション</p></div>
+
+  <div class="option" data-choice="drop" onclick="toggleSelect(this)"><div class="dhead"><h3>3　待ちが降りてくる</h3><button class="replay" onclick="event.stopPropagation(); play('drop')">▶</button></div>
+    <div class="stg drop" id="drop"><div class="panel"><div class="ln" style="width:60%"></div><div class="ln"></div><div class="ln" style="width:80%"></div><div class="ln" style="width:45%"></div></div></div>
+    <p class="desc">エージェントが入力を待つと、通知が<b>上から糸で吊られて降りてきて</b>、軽く揺れて止まる。その場で答えられる。</p><p class="when">使う所：入力待ちの通知（いまの右下のトーストを置き換え）</p></div>
+
+  <div class="option" data-choice="rim" onclick="toggleSelect(this)"><div class="dhead"><h3>4　縁の灯が一周する</h3><button class="replay" onclick="event.stopPropagation(); play('rim')">▶</button></div>
+    <div class="stg rim" id="rim"><div class="tw"><div class="ring"></div><div class="term">› keys.ts の表を見直して<br><span style="opacity:.55">● Read packages/ui/src/keys.ts</span><br><span style="color:#ffb86b">● Edit</span> keys.ts <span style="color:#6fd3a5">+24</span><br><span style="color:#8fa6ff">● Bash</span> npx vitest run keys</div></div></div>
+    <p class="desc">状態が変わった瞬間だけ、新しい色の光が端末の縁を<b>ひと回り走って</b>から落ち着く。変わったことに気付ける。常には動かない。</p><p class="when">使う所：セッション画面の端末（作業中 ⇄ 入力待ち ⇄ 休み）</p></div>
+
+  <div class="option" data-choice="morph" onclick="toggleSelect(this)"><div class="dhead"><h3>5　行が画面へ広がる</h3><button class="replay" onclick="event.stopPropagation(); play('morph')">▶</button></div>
+    <div class="stg morph" id="morph"></div>
+    <p class="desc">一覧の行を開くと、その行が<b>そのままセッション画面へ広がる</b>（名前と状態の点が同じ場所から動く）。どこから来たかを見失わない。戻ると縮んで行へ帰る。</p><p class="when">使う所：一覧 → セッション、Home の札 → セッション</p></div>
+
+  <div class="option" data-choice="fade" onclick="toggleSelect(this)"><div class="dhead"><h3>6　終わった札が奥へ霞む</h3><button class="replay" onclick="event.stopPropagation(); play('fade')">▶</button></div>
+    <div class="stg fade" id="fade"><div class="rail2"></div><div class="log">「同期の床を刻む」が終わりました — 最近へ</div></div>
+    <p class="desc">セッションが終わると、その札が竿の<b>奥へ滑りながら霞んで</b>消え、最近の一覧へ移る。ロゴの「奥ほど霞む」と同じ意味。</p><p class="when">使う所：Home の実行中の札</p></div>
+</div>
+
+<script>
+(function(){
+  const E = 'cubic-bezier(.16,1,.3,1)';
+  const INK = '#1c1b2e', BLUE = '#4a63e8', AMB = '#ffb86b', RED = '#e5533d', GRY = '#b5b2c4', HAZE = '#e2e7ff', CHEV = '#e8e6e1';
+  const hex = h => [1,3,5].map(i => parseInt(h.slice(i, i+2), 16));
+  const mix = (a, b, t) => '#' + hex(a).map((v, i) => Math.round(v + (hex(b)[i] - v) * t).toString(16).padStart(2, '0')).join('');
+  const colors = (t, cur) => ({ ink: mix(INK, HAZE, t), blue: mix(BLUE, HAZE, t), chev: mix(CHEV, HAZE, t * .6), cur: mix(cur, HAZE, t * .45), r: mix('#ff6a55', HAZE, t), y: mix('#ffc34d', HAZE, t), g: mix('#3fb58a', HAZE, t) });
+  const item = c => `<path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="${c.ink}" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="${c.ink}"/>
+      <path d="M0 10L-31 31H31Z" fill="none" stroke="${c.blue}" stroke-width="4" stroke-linejoin="round"/>
+      <circle cx="-23" cy="37" r="2" fill="${c.r}"/><circle cx="-16.5" cy="37" r="2" fill="${c.y}"/><circle cx="-10" cy="37" r="2" fill="${c.g}"/>
+      <path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="${c.chev}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect class="cur" x="-12" y="55" width="13" height="4" rx="2" fill="${c.cur}"/>`;
+  // 決めたロゴ（奥にも状態 × 重ねる）
+  (function logo(){
+    const P = []; let x = 0, y = 0, s = 1; for (let i = 0; i < 4; i++) { P.push({ x, y, s, t: i / 3 * .86 }); x += .13 * 62 * s; y -= .035 * 72 * s; s *= .85; }
+    let a = [1e9,1e9,-1e9,-1e9]; P.forEach(p => { a = [Math.min(a[0], p.x - 31 * p.s), Math.min(a[1], p.y - 3 * p.s), Math.max(a[2], p.x + 31 * p.s), Math.max(a[3], p.y + 69 * p.s)]; });
+    const sc = Math.min(70 / (a[2] - a[0]), 66 / (a[3] - a[1])), tx = 50 - sc * (a[0] + a[2]) / 2, ty = 51 - sc * (a[1] + a[3]) / 2;
+    const A = P[0], B = P[3], dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
+    const CUR = [AMB, RED, GRY, AMB];
+    document.getElementById('bootsvg').innerHTML = `<defs><linearGradient id="bg1" gradientUnits="userSpaceOnUse" x1="${A.x - ux*14}" y1="0" x2="${B.x + ux*14}" y2="0"><stop offset="0" stop-color="${INK}"/><stop offset=".25" stop-color="${INK}"/><stop offset="1" stop-color="${HAZE}"/></linearGradient></defs>
+      <g transform="translate(${tx} ${ty}) scale(${sc})"><path class="rail" d="M${A.x - ux*14} ${A.y - uy*14 - 1}L${B.x + ux*14} ${B.y + uy*14 - 1}" stroke="url(#bg1)" stroke-width="2.6" stroke-linecap="round"/>
+      ${P.map((p, i) => ({ p, i })).reverse().map(({ p, i }) => `<g transform="translate(${p.x} ${p.y}) scale(${p.s})"><g class="fi" style="animation-delay:${.35 + (3 - i) * .12}s"><g class="sw" style="animation-delay:${.35 + (3 - i) * .12}s">${item(colors(p.t, CUR[i]))}</g></g></g>`).join('')}</g>`;
+  })();
+
+  const tagHtml = (name, sub, dot, term) => `<div class="card ${term ? 'term' : ''}"><b><span class="dot ${dot}"></span>${name}</b><small>${sub}</small></div>`;
+  const sway = [{ transform:'rotate(10deg)' }, { transform:'rotate(-6deg)', offset:.25 }, { transform:'rotate(3deg)', offset:.5 }, { transform:'rotate(-1.2deg)', offset:.72 }, { transform:'rotate(0)' }];
+
+  const P = {
+    boot() { const el = document.getElementById('boot'); el.classList.remove('play'); void el.offsetWidth; el.classList.add('play'); },
+    hang() {
+      const st = document.getElementById('hang'); st.querySelectorAll('.tag').forEach(t => t.remove());
+      const olds = [['同期の床を刻む','作業中 03:41','busy'], ['CI の tmux','休み 1:02','idle']];
+      olds.forEach((o, i) => { const t = document.createElement('div'); t.className = 'tag'; t.style.left = (20 + i * 116) + 'px'; t.innerHTML = tagHtml(o[0], o[1], o[2], true); st.appendChild(t); });
+      setTimeout(() => {
+        st.querySelectorAll('.tag').forEach((t, i) => { t.animate([{ transform:'translateX(0)' }, { transform:'translateX(116px)' }], { duration:620, easing:E, fill:'forwards' }); });
+        const n = document.createElement('div'); n.className = 'tag'; n.style.left = '20px'; n.innerHTML = tagHtml('キーボード操作の見直し', '起動 0:00', 'busy', true); st.appendChild(n);
+        n.animate([{ opacity:0, transform:'translateY(-26px)', filter:'blur(4px)' }, { opacity:1, transform:'translateY(0)', filter:'blur(0)' }], { duration:520, easing:E });
+        n.firstChild.animate(sway, { duration:2000, delay:300, easing:'cubic-bezier(.4,0,.2,1)' });
+        n.firstChild.style.transformOrigin = '50% -10px';
+      }, 450);
+    },
+    drop() {
+      const st = document.getElementById('drop'); st.querySelectorAll('.note').forEach(n => n.remove());
+      const n = document.createElement('div'); n.className = 'note';
+      n.innerHTML = `<div class="string"></div><div class="toast"><b><span class="dot wait"></span> 論文の図を直す — 入力待ち</b><div>「図 3 の凡例は右上に置きますか、図の下にまとめますか？」</div><div class="acts"><span>開く</span><span class="p">答える</span></div></div>`;
+      st.appendChild(n);
+      n.animate([{ transform:'translateY(-160px)' }, { transform:'translateY(58px)' }], { duration:700, easing:E, fill:'forwards' });
+      n.querySelector('.toast').animate(sway.map(k => ({ ...k, transform:k.transform.replace(/rotate\(([-\d.]+)deg\)/, (_, d) => `rotate(${d * .6}deg)`) })), { duration:2000, delay:450, easing:'cubic-bezier(.4,0,.2,1)' });
+      n.querySelector('.toast').style.transformOrigin = '50% -40px';
+    },
+    rim() {
+      const el = document.getElementById('rim'), term = el.querySelector('.term');
+      const toWait = !el.dataset.w; el.dataset.w = toWait ? '1' : '';
+      const c = toWait ? ['rgba(196,69,44,.9)', 'rgba(196,69,44,.45)', '#e5533d'] : ['rgba(224,138,44,.85)', 'rgba(224,138,44,.4)', '#e08a2c'];
+      el.style.setProperty('--c', c[2]); term.style.setProperty('--rc', c[0]); term.style.setProperty('--rg', c[1]);
+      el.classList.remove('play'); void el.offsetWidth; el.classList.add('play');
+    },
+    morph() {
+      const st = document.getElementById('morph');
+      st.innerHTML = `<div class="list"><div class="row"><span class="dot end"></span><div><b>無料枠の見張り</b><small>台帳の合計と見積もり</small></div><span class="tm">昨日</span></div>
+        <div class="row" id="mrow"><span class="dot busy"></span><div><b>キーボード操作の見直し</b><small>keys.ts を一枚の表に</small></div><span class="tm">12:04</span></div>
+        <div class="row"><span class="dot idle"></span><div><b>CI の tmux</b><small>ubuntu で tmux を入れる</small></div><span class="tm">1:02</span></div></div>
+        <div class="sess"><div class="h"><span class="dot busy"></span><b>キーボード操作の見直し</b></div><div style="color:var(--mute);margin-top:3px">keys.ts を一枚の表にまとめ直す</div><div class="term">› keys.ts の表を見直して<br><span style="opacity:.55">● Read packages/ui/src/keys.ts</span><br><span style="color:#ffb86b">● Edit</span> keys.ts <span style="color:#6fd3a5">+24</span></div></div>`;
+      setTimeout(() => {
+        const row = st.querySelector('#mrow'), sess = st.querySelector('.sess'), list = st.querySelector('.list');
+        const r = row.getBoundingClientRect(); row.animate([{ background:'#fff' }, { background:'#eef2ff' }], { duration:200, fill:'forwards' });
+        setTimeout(() => {
+          sess.style.display = 'block'; const s = sess.getBoundingClientRect();
+          sess.animate([{ transform:`translate(${r.left - s.left}px, ${r.top - s.top}px) scale(${r.width / s.width}, ${r.height / s.height})`, borderRadius:'0px' }, { transform:'none', borderRadius:'14px' }], { duration:560, easing:E });
+          sess.querySelectorAll('.term, .h + div').forEach(x => x.animate([{ opacity:0, transform:'translateY(8px)', filter:'blur(4px)' }, { opacity:1, transform:'none', filter:'blur(0)' }], { duration:520, delay:220, easing:E, fill:'backwards' }));
+          list.animate([{ opacity:1, filter:'blur(0)' }, { opacity:0, filter:'blur(4px)' }], { duration:300, fill:'forwards' });
+        }, 250);
+      }, 400);
+    },
+    fade() {
+      const st = document.getElementById('fade'); st.querySelectorAll('.tag').forEach(t => t.remove());
+      const tags = [['同期の床を刻む','終了','end'], ['キーボード操作の見直し','作業中 12:04','busy'], ['CI の tmux','休み 1:02','idle']];
+      const els = tags.map((o, i) => { const t = document.createElement('div'); t.className = 'tag'; t.style.left = (16 + i * 104) + 'px'; t.innerHTML = tagHtml(o[0], o[1], o[2], true); st.appendChild(t); return t; });
+      st.querySelector('.log').style.opacity = 0;
+      setTimeout(() => {
+        els[0].animate([{ transform:'none', opacity:1, filter:'blur(0)' }, { transform:'translate(250px,-10px) scale(.55)', opacity:0, filter:'blur(3px)' }], { duration:1100, easing:E, fill:'forwards' });
+        els.slice(1).forEach(t => t.animate([{ transform:'none' }, { transform:'translateX(-104px)' }], { duration:700, delay:350, easing:E, fill:'forwards' }));
+        st.querySelector('.log').animate([{ opacity:0, transform:'translateY(6px)' }, { opacity:1, transform:'none' }], { duration:500, delay:700, easing:E, fill:'forwards' });
+      }, 600);
+    },
+  };
+  window.play = k => P[k]();
+  Object.keys(P).forEach(k => P[k]());
+})();
+</script>

@@ -1,0 +1,340 @@
+<h2>設計 2〜5：ロゴと資産／画面／動き／試験と検証</h2>
+<p class="subtitle">細かい判断は推奨で決め、<span style="background:#fff3d6;padding:0 6px;border-radius:4px">推奨で決めたこと</span>の印を付けています。違っていれば、節の番号と一緒に教えてください（例：「3-b の要対応の札」）。</p>
+
+<style>
+  .sp { --ink:#1c1b2e; --ink-2:#5f5e78; --ink-3:#8a89a0; --bg:#eef1f7; --surface:#fff; --surface-2:#f3f4f9; --line:#eceef5; --accent:#4a63e8; --accent-hi:#6b8cff;
+        --busy:#c77a1a; --idle:#3a8f5c; --waiting:#a2452f; --ended:#9a99ad; --term-bg:#1c1b2e; --term-fg:#e8e6f0; --E:cubic-bezier(.16,1,.3,1); --X:cubic-bezier(.4,0,1,1);
+        --glass-edge:inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5);
+        font-family:'Inter','Hiragino Sans',sans-serif; color:var(--ink); text-align:left; }
+  .sp * { box-sizing:border-box; }
+  .sp .mono { font-family:'JetBrains Mono',SFMono-Regular,Menlo,monospace; }
+  .sp h3.big { font-size:18px; margin:26px 0 10px; padding-top:14px; border-top:2px solid rgba(128,128,128,.25); }
+  .sec { position:relative; isolation:isolate; overflow:hidden; border-radius:16px; background:var(--bg); padding:16px 18px 18px; margin-bottom:14px; }
+  .sec::before { content:''; position:absolute; inset:-25%; z-index:-1; background:radial-gradient(40% 50% at 25% 15%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 75%, #e5d6ff, transparent 70%); }
+  .sec > h4 { margin:0 0 4px; font-size:14.5px; display:flex; gap:8px; align-items:baseline; } .sec > h4 .k { font:600 12px 'JetBrains Mono',monospace; color:var(--accent); }
+  .sec > p { margin:0 0 12px; font-size:12.5px; color:var(--ink-2); line-height:1.6; }
+  .rec { display:inline; background:#fff3d6; padding:1px 6px; border-radius:4px; color:#6b4a10; font-size:11.5px; }
+  .glass { background:rgba(255,255,255,.40); backdrop-filter:blur(12px) saturate(1.9); -webkit-backdrop-filter:blur(12px) saturate(1.9); box-shadow:var(--glass-edge), 0 10px 28px -12px rgba(30,40,90,.30); }
+  .panel { background:var(--surface); border-radius:14px; box-shadow:0 1px 2px rgba(30,40,90,.06); }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; flex:none; }
+  .busy { background:var(--busy); } .wait { background:var(--waiting); } .idle { background:var(--idle); } .end { background:var(--ended); }
+  .cap { font-size:11px; color:var(--ink-3); margin-top:6px; line-height:1.5; }
+  .cur { animation:blink 1.1s steps(2) infinite; } @keyframes blink { 50% { opacity:0; } }
+  .btn { display:inline-flex; align-items:center; gap:5px; height:24px; padding:0 11px; border-radius:99px; font:560 11px 'Inter','Hiragino Sans',sans-serif; border:0; color:var(--ink); background:rgba(255,255,255,.78); box-shadow:inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,.14); white-space:nowrap; cursor:pointer; }
+  .btn.pri { color:#fff; background:linear-gradient(180deg, var(--accent-hi), var(--accent)); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 4px 12px -4px rgba(70,90,230,.6); }
+  .chip { display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 8px; border-radius:99px; font-size:10.5px; background:rgba(255,255,255,.75); color:var(--ink-2); box-shadow:inset 0 0 0 1px rgba(30,40,90,.06); white-space:nowrap; }
+  .g2 { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px; } .g3 { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:14px; } .g4 { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; }
+  .list-b { margin:0; padding-left:18px; font-size:12.5px; line-height:1.7; } .list-b li b { font-weight:600; }
+
+  /* 2 資産 */
+  .icon { width:128px; height:128px; border-radius:29px; position:relative; overflow:hidden; background:linear-gradient(165deg,#f7f9ff 0%,#dfe6ff 55%,#e9defe 100%); box-shadow:inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(255,255,255,.55), 0 14px 30px -12px rgba(40,50,120,.45); }
+  .icon::after { content:''; position:absolute; inset:0; border-radius:inherit; background:linear-gradient(180deg, rgba(255,255,255,.45), transparent 42%); pointer-events:none; }
+  .icon svg, .ic svg { position:absolute; inset:0; width:100%; height:100%; }
+  .ic { position:relative; overflow:hidden; background:linear-gradient(165deg,#f7f9ff,#dfe6ff); box-shadow:inset 0 0 0 1px rgba(255,255,255,.6), 0 2px 6px rgba(40,50,120,.18); }
+  .sizes { display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap; }
+  .sizes .s { display:flex; flex-direction:column; align-items:center; gap:6px; font:10.5px 'JetBrains Mono',monospace; color:var(--ink-3); }
+  .tabbar { display:flex; gap:4px; padding:6px 8px 0; background:#dfe1e8; border-radius:10px 10px 0 0; }
+  .btab { display:flex; align-items:center; gap:7px; height:30px; padding:0 12px; border-radius:8px 8px 0 0; background:#eceef3; font-size:12px; min-width:170px; } .btab.on { background:#fff; }
+  .btab .ic { width:16px; height:16px; border-radius:4px; }
+  .boot { height:260px; border-radius:14px; display:grid; place-items:center; position:relative; overflow:hidden; background:#eef1f7; box-shadow:0 0 0 1px rgba(30,40,90,.08); }
+  .boot svg { width:120px; height:120px; } .boot .w { position:absolute; bottom:52px; font-weight:650; font-size:18px; letter-spacing:-.01em; } .boot .st { position:absolute; bottom:30px; font-size:11px; color:var(--ink-3); }
+  .boot.play .fi { animation:fi .5s var(--E) both; } @keyframes fi { from { opacity:0; } to { opacity:1; } }
+  .boot.play .sw { animation:sw 2.2s cubic-bezier(.4,0,.2,1) both; } @keyframes sw { 0% { transform:rotate(9deg); } 25% { transform:rotate(-6deg); } 50% { transform:rotate(3deg); } 72% { transform:rotate(-1.2deg); } 100% { transform:rotate(0); } }
+  .boot.play .rail { stroke-dasharray:120; animation:rail .7s cubic-bezier(.6,0,.2,1) both; } @keyframes rail { from { stroke-dashoffset:120; } to { stroke-dashoffset:0; } }
+  .boot.play .w { animation:up .7s 1.1s var(--E) both; } .boot.play .st { animation:up .7s 1.3s var(--E) both; }
+  @keyframes up { from { opacity:0; transform:translateY(8px); filter:blur(4px); } to { opacity:1; transform:none; filter:none; } }
+
+  /* 3 画面 */
+  .app { position:relative; isolation:isolate; overflow:hidden; border-radius:14px; background:#eef1f7; font-size:11.5px; box-shadow:0 0 0 1px rgba(30,40,90,.08), 0 20px 40px -20px rgba(30,40,90,.35); }
+  .app::before { content:''; position:absolute; inset:-25%; z-index:-1; background:radial-gradient(40% 50% at 30% 20%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 70%, #e5d6ff, transparent 70%); }
+  .app .side { position:absolute; top:8px; bottom:8px; left:8px; width:170px; border-radius:16px; padding:8px; z-index:3; }
+  .app .lights { display:flex; gap:7px; padding:6px 6px 14px; } .app .lights i { width:11px; height:11px; border-radius:50%; }
+  .app .logo { display:flex; align-items:center; gap:8px; font-weight:650; font-size:13px; padding:0 6px 12px; } .app .logo .ic { width:22px; height:22px; border-radius:6px; }
+  .app .nav { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:99px; color:var(--ink-2); margin-bottom:1px; } .app .nav i { width:14px; height:14px; border-radius:4px; border:1.5px solid currentColor; opacity:.7; }
+  .app .nav.on { color:var(--ink); font-weight:560; background:rgba(255,255,255,.78); box-shadow:inset 0 1px 0 #fff, 0 2px 6px rgba(30,40,90,.1); }
+  .app .hdr { position:absolute; top:8px; left:186px; right:8px; height:40px; border-radius:99px; z-index:3; display:flex; align-items:center; gap:10px; padding:0 8px 0 16px; }
+  .app .crumb { color:var(--ink-2); white-space:nowrap; } .app .crumb b { color:var(--ink); font-weight:600; } .app .sp2 { flex:1; }
+  .app .search { width:230px; height:26px; border-radius:99px; padding:0 12px; display:flex; align-items:center; color:#7c7b92; font-size:11px; background:rgba(255,255,255,.5); box-shadow:inset 0 1px 2px rgba(30,40,90,.12); } .app .search kbd { margin-left:auto; font:10px 'JetBrains Mono',monospace; color:var(--ink-3); }
+  .app .gauge { display:flex; align-items:center; gap:5px; color:var(--ink-2); font-size:10.5px; } .app .gauge .bar { width:40px; height:5px; border-radius:9px; background:rgba(30,40,90,.1); overflow:hidden; } .app .gauge .bar b { display:block; height:100%; background:linear-gradient(90deg,var(--accent-hi),var(--accent)); }
+  .app .main { position:absolute; top:0; bottom:0; left:186px; right:8px; padding:58px 2px 10px; overflow:hidden; }
+  .app .lbl { font-size:10.5px; font-weight:600; color:var(--ink-2); margin:0 0 6px 4px; display:flex; gap:6px; } .app .lbl .n { font-weight:500; color:var(--ink-3); }
+  .ask { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:14px; background:#fff; box-shadow:0 0 0 1px rgba(162,69,47,.2), 0 6px 16px -10px rgba(162,69,47,.35); margin-bottom:12px; }
+  .ask .q { flex:1; min-width:0; } .ask .q b { font-weight:600; } .ask .q div { color:var(--ink-2); margin-top:2px; }
+  .live { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; margin-bottom:12px; }
+  .lc { background:#fff; border-radius:14px; padding:10px 12px; box-shadow:0 1px 2px rgba(30,40,90,.06); display:flex; flex-direction:column; gap:6px; }
+  .lc .t { display:flex; align-items:center; gap:7px; font-weight:600; } .lc .t .el { margin-left:auto; font-weight:500; color:var(--ink-2); }
+  .lc .p { color:var(--ink-3); font-size:10.5px; }
+  .lc .act { font-size:10.5px; padding:6px 8px; border-radius:8px; background:var(--term-bg); color:var(--term-fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .lc .act i { color:#ffb86b; font-style:normal; }
+  .lc .ctx { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--ink-3); } .lc .ctx .bar { flex:1; height:4px; border-radius:9px; background:#eef0f6; overflow:hidden; } .lc .ctx .bar b { display:block; height:100%; background:#8fa6ff; }
+  .two { display:grid; grid-template-columns:1.6fr 1fr; gap:10px; }
+  .r2 { display:grid; grid-template-columns:10px 1fr auto; gap:10px; align-items:center; padding:7px 12px; } .r2 + .r2 { border-top:1px solid var(--line); }
+  .r2 b { font-weight:600; } .r2 .s { color:var(--ink-2); font-size:10.5px; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .r2 .tm { color:var(--ink-3); font-size:10.5px; text-align:right; }
+  .r2 .meta { display:flex; gap:10px; color:var(--ink-3); font-size:10.5px; align-items:center; white-space:nowrap; } .r2 mark { background:#fff3c4; color:inherit; border-radius:3px; padding:0 2px; }
+  .pj { display:flex; align-items:center; gap:8px; padding:7px 12px; } .pj + .pj { border-top:1px solid var(--line); } .pj .m { margin-left:auto; color:var(--ink-3); font-size:10.5px; }
+  .ss .sh { display:flex; align-items:center; gap:10px; padding:2px 6px 0; } .ss .sh .nm { font-size:15px; font-weight:650; letter-spacing:-.01em; } .ss .sh .sum { color:var(--ink-2); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ss .meta { display:flex; gap:6px; padding:6px 6px 8px; }
+  .ss .body { display:grid; grid-template-columns:1.6fr 1fr; gap:10px; }
+  .ss .tabs { display:flex; gap:3px; } .ss .tabs span { display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 11px; border-radius:10px 10px 0 0; background:rgba(255,255,255,.55); color:var(--ink-2); font-size:11px; } .ss .tabs span.on { background:var(--term-bg); color:var(--term-fg); }
+  .ss .term { height:210px; border-radius:0 14px 14px 14px; background:var(--term-bg); color:var(--term-fg); font:10.5px/1.65 'JetBrains Mono',monospace; padding:10px 12px; box-shadow:0 0 0 1.5px rgba(199,122,26,.9), 0 0 22px -2px rgba(199,122,26,.45); animation:breathe 3.2s ease-in-out infinite; }
+  @keyframes breathe { 50% { box-shadow:0 0 0 1.5px rgba(199,122,26,.55), 0 0 12px -4px rgba(199,122,26,.25); } }
+  .ss .term .g { opacity:.55; } .ss .term .o { color:#ffb86b; } .ss .term .b2 { color:#8fa6ff; } .ss .term .gr { color:#6fd3a5; }
+  .ss .tr { padding:10px 12px; display:flex; flex-direction:column; gap:7px; }
+  .msg { max-width:88%; padding:7px 10px; border-radius:13px; line-height:1.5; } .msg.u { margin-left:auto; background:var(--accent); color:#fff; border-bottom-right-radius:5px; } .msg.a { background:var(--surface-2); border-bottom-left-radius:5px; }
+  .tool { display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--ink-2); padding:4px 9px; border-radius:8px; border:1px solid var(--line); width:max-content; }
+  .rail { padding:10px 12px; } .rail h5 { margin:0 0 6px; font-size:10.5px; color:var(--ink-2); } .todo { display:flex; gap:7px; align-items:center; padding:3px 0; } .todo i { width:11px; height:11px; border-radius:3px; border:1.5px solid #b5b2c4; } .todo.d { color:var(--ink-3); text-decoration:line-through; } .todo.d i { background:var(--accent); border-color:var(--accent); }
+
+  /* 4 動き */
+  .curves { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; }
+  .cv { background:#fff; border-radius:12px; padding:10px; box-shadow:0 1px 2px rgba(30,40,90,.06); font-size:11.5px; }
+  .cv b { font-weight:600; } .cv .mono { font-size:10px; color:var(--ink-3); display:block; margin-top:2px; }
+  .cv svg { width:100%; height:80px; margin-top:6px; }
+  .tbl { width:100%; border-collapse:collapse; font-size:12px; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 1px 2px rgba(30,40,90,.06); }
+  .tbl th, .tbl td { text-align:left; padding:7px 12px; border-top:1px solid var(--line); vertical-align:top; } .tbl th { background:#f7f8fb; font-weight:600; color:var(--ink-2); font-size:11px; border-top:0; } .tbl td.mono { font-size:11px; white-space:nowrap; }
+  .tbl .new { color:var(--accent); font-weight:600; font-size:10.5px; margin-left:4px; }
+  .demoArea { position:relative; height:240px; border-radius:14px; overflow:hidden; background:#eef1f7; box-shadow:0 0 0 1px rgba(30,40,90,.08); isolation:isolate; }
+  .demoArea::before { content:''; position:absolute; inset:-25%; z-index:-1; background:radial-gradient(40% 50% at 30% 20%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 70%, #e5d6ff, transparent 70%); }
+  .demoArea .hdrm { position:absolute; top:8px; left:8px; right:8px; height:34px; border-radius:99px; display:flex; align-items:center; gap:8px; padding:0 6px 0 14px; z-index:3; font-size:11px; }
+  .demoArea .srch { height:22px; width:130px; border-radius:99px; padding:0 10px; display:flex; align-items:center; color:#7c7b92; font-size:10.5px; background:rgba(255,255,255,.55); box-shadow:inset 0 1px 2px rgba(30,40,90,.12); margin-left:auto; }
+  .demoArea .body { position:absolute; top:50px; left:8px; right:8px; bottom:8px; }
+  .demoArea .pal { position:absolute; top:48px; left:12%; right:12%; border-radius:16px; padding:7px; z-index:5; display:none; font-size:11px; background:rgba(255,255,255,.62); backdrop-filter:blur(18px) saturate(1.8); -webkit-backdrop-filter:blur(18px) saturate(1.8); box-shadow:var(--glass-edge), 0 24px 50px -16px rgba(30,40,90,.45); transform-origin:0 0; }
+  .demoArea .pal .in { height:26px; border-radius:9px; background:rgba(255,255,255,.85); display:flex; align-items:center; padding:0 10px; color:#7c7b92; margin-bottom:5px; } .demoArea .pal .it { padding:5px 10px; border-radius:8px; } .demoArea .pal .it.on { background:rgba(74,99,232,.12); }
+  .demoArea .sess { position:absolute; inset:0; border-radius:14px; background:#fff; padding:10px 12px; display:none; box-shadow:0 1px 2px rgba(30,40,90,.06); font-size:11px; }
+  .demoArea .sess .term { margin-top:8px; height:120px; border-radius:0 12px 12px 12px; background:var(--term-bg); color:var(--term-fg); font:10px/1.6 'JetBrains Mono',monospace; padding:9px 11px; box-shadow:0 0 0 1.5px rgba(199,122,26,.9), 0 0 18px -2px rgba(199,122,26,.4); }
+
+  /* 5 試験 */
+  .ck { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; }
+  .ck .panel { padding:12px 14px; font-size:12px; line-height:1.6; } .ck h5 { margin:0 0 6px; font-size:13px; } .ck ul { margin:0; padding-left:18px; } .ck li { margin-bottom:3px; }
+</style>
+
+<div class="sp">
+
+<!-- ================= 2 ================= -->
+<h3 class="big">2　ロゴと資産</h3>
+
+<div class="sec"><h4><span class="k">2-a</span>原図と寸法ごとの形</h4>
+  <p>原図は決めた段 0（端末を掛けたハンガーが右奥へ 4 本、奥ほど霞み、それぞれのカーソルが状態の色）。<b>16px では先頭の 1 本だけ</b>にした別の図を使います。<span class="rec">推奨で決めたこと：ブラウザのタブ（16px）の favicon は先頭 1 本の図、32px 以上は原図</span></p>
+  <div class="sizes" id="sizes"></div>
+  <div class="cap">アプリアイコン（.icns）は 1024px の原図から 16〜1024 の全寸法を書き出す。今の <span class="mono">icon.svg</span>（アーチと扉）は置き換える。</div>
+</div>
+
+<div class="g2">
+  <div class="sec"><h4><span class="k">2-b</span>ブラウザのタブと Dock</h4><p>タブに並んだときの見え方。<span class="rec">推奨で決めたこと：表示名は「Hangar」に揃える（リポジトリ名は agent-hangar のまま）</span></p>
+    <div class="tabbar"><div class="btab on"><span class="ic" data-front="1"></span>Hangar — Home</div><div class="btab"><span style="width:16px;height:16px;border-radius:4px;background:#c8ccd6"></span>GitHub</div></div>
+    <div style="background:#fff;height:20px;border-radius:0 0 10px 10px"></div>
+    <div class="cap">サイドバーのロゴは<b>動かさない</b>（カーソルも点滅させない）。視界の端で点滅し続けると気が散るため。<span class="rec">推奨で決めたこと</span></div>
+  </div>
+  <div class="sec"><h4><span class="k">2-c</span>起動画面（.app）</h4><p>決めの動き 1。竿が引かれ、札が手前から奥へ掛かって揺れ、止まると名前が浮かぶ。サーバの起動を待つあいだ、状態の文を下に出す。</p>
+    <div class="boot play" id="boot"><svg viewBox="0 0 100 100" id="bootsvg"></svg><div class="w">Hangar</div><div class="st">サーバを起こしています…</div></div>
+    <div class="cap"><button class="btn" onclick="replayBoot()">▶ もう一度</button>　起動が 3 秒を超えたら文を「まだ起動しています（N 秒）」に変える。失敗の表示は今の文言のまま。</div>
+  </div>
+</div>
+
+<!-- ================= 3 ================= -->
+<h3 class="big">3　画面</h3>
+
+<div class="sec"><h4><span class="k">3-a</span>骨格と Home（管制盤）</h4>
+  <p>サイドバーとヘッダは中身の上に浮くガラス。.app では信号の 3 点がサイドバーの上に乗り、ヘッダの錠剤を掴んで窓を動かす（決定済み）。Home は上から<b>要対応 → 実行中 → 最近 ＋ プロジェクト</b>。</p>
+  <div class="app" style="height:470px">
+    <div class="side glass"><div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="logo"><span class="ic" data-full="1"></span>Hangar</div>
+      <div class="nav on"><i></i>Home</div><div class="nav"><i></i>プロジェクト</div><div class="nav"><i></i>セッション</div><div class="nav"><i></i>設定</div></div>
+    <div class="hdr glass"><span class="crumb"><b>Home</b></span><span class="search">セッションを検索、コマンド<kbd>⌘K</kbd></span><span class="sp2"></span>
+      <span class="chip">同期済み</span><span class="gauge">5h<span class="bar"><b style="width:42%"></b></span>42%</span><span class="gauge">7d<span class="bar"><b style="width:68%"></b></span>68%</span><span class="btn pri">＋ 新規セッション</span></div>
+    <div class="main">
+      <div class="lbl">要対応 <span class="n">1</span></div>
+      <div class="ask"><span class="dot wait"></span><div class="q"><b>論文の図を直す</b> <span style="color:var(--ink-3)">· thesis · 12 分待っている</span><div>「図 3 の凡例は右上に置きますか、それとも図の下にまとめますか？」</div></div><span class="btn pri">ターミナルで答える</span></div>
+      <div class="lbl">実行中 <span class="n">3</span></div>
+      <div class="live">
+        <div class="lc"><div class="t"><span class="dot busy"></span>キーボード操作の見直し<span class="el mono">12:04</span></div><div class="p">agent-hangar · opus · high</div><div class="act mono"><i>Edit</i> packages/ui/src/keys.ts</div><div class="ctx">文脈<span class="bar"><b style="width:38%"></b></span>38%</div></div>
+        <div class="lc"><div class="t"><span class="dot busy"></span>同期の床を刻む<span class="el mono">03:41</span></div><div class="p">agent-hangar · opus · high</div><div class="act mono"><i>Bash</i> npx vitest run sync</div><div class="ctx">文脈<span class="bar"><b style="width:61%"></b></span>61%</div></div>
+        <div class="lc"><div class="t"><span class="dot idle"></span>CI の tmux<span class="el mono">1:02:10</span></div><div class="p">agent-hangar · sonnet</div><div class="act mono" style="color:#9a99ad">休み — 最後の返答から 8 分</div><div class="ctx">文脈<span class="bar"><b style="width:22%"></b></span>22%</div></div>
+      </div>
+      <div class="two">
+        <div><div class="lbl">最近</div><div class="panel">
+          <div class="r2"><span class="dot end"></span><div><b>無料枠の見張り</b><div class="s">台帳の合計と端末の見積もりの大きい方を採る</div></div><span class="tm">昨日</span></div>
+          <div class="r2"><span class="dot end"></span><div><b>symlink の穴</b><div class="s">控えの刈り取りがリンクを辿らないようにする</div></div><span class="tm">昨日</span></div>
+          <div class="r2"><span class="dot end"></span><div><b>ディープリンク</b><div class="s">hangar:// を Launch Services に登録する</div></div><span class="tm">2 日前</span></div></div></div>
+        <div><div class="lbl">プロジェクト</div><div class="panel">
+          <div class="pj"><span class="dot" style="background:#2a57b8"></span>agent-hangar<span class="m">実行中 2 · TODO 3</span></div>
+          <div class="pj"><span class="dot" style="background:#2a57b8"></span>thesis<span class="m">要対応 1</span></div>
+          <div class="pj"><span class="dot" style="background:#8a5a0b"></span>cit-code<span class="m">TODO 1</span></div></div></div>
+      </div>
+    </div>
+  </div>
+  <ul class="list-b" style="margin-top:12px">
+    <li><b>要対応</b>：入力待ち（waiting）のセッション。問いの文は、会話の最後の AskUserQuestion から取る（取れなければ「入力を待っています」）。<span class="rec">推奨で決めたこと：その場では答えず、「ターミナルで答える」でそのセッションの端末を開いてフォーカスする。選択肢を画面から選ばせるのは、端末の TUI を外から操ることになって壊れやすいため</span></li>
+    <li><b>実行中の札</b>：名前、経過、プロジェクト・モデル・effort、<b>いま何をしているか</b>（会話の最新のツール呼び出し 1 行）、文脈の使用率。休みの札は最後の返答からの時間を出す。押すと決めの動き 5 でセッション画面へ広がる。</li>
+    <li><b>最近</b>：2 段の行、右は時刻だけ（概観なので減らす）。<b>プロジェクト</b>：Home では小さな一覧にし、カードは Projects 画面だけに置く。<span class="rec">推奨で決めたこと</span></li>
+    <li>実行中も要対応も無いときは、その区画ごと省く（今の「実行中の帯」と同じ）。</li>
+    <li><b>データの流れ（新しく足すもの）</b>：文脈の使用率（<span class="mono">stats.contextPercent</span>）は今もある。<b>最新のツール呼び出し</b>と<b>待っている問いの文</b>は Home に届いていないので、サーバが実行中のセッションごとに正規化した会話の末尾（<span class="mono">tool_call</span> の <span class="mono">name</span> と <span class="mono">summary</span>、AskUserQuestion の入力）から取り出し、セッションの <span class="mono">live</span> に 2 つの欄として載せる。取れなければ欄は空で、札は「作業中」「入力を待っています」とだけ出す。</li>
+  </ul>
+</div>
+
+<div class="sec"><h4><span class="k">3-b</span>セッション画面</h4>
+  <p>構成は今のまま（端末が主、会話が従）。端末は墨の板で、縁がそのセッションの状態で灯る。タブは板とつながるフォルダの耳。</p>
+  <div class="app ss" style="height:380px">
+    <div class="side glass"><div class="lights"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div><div class="logo"><span class="ic" data-full="1"></span>Hangar</div><div class="nav"><i></i>Home</div><div class="nav"><i></i>プロジェクト</div><div class="nav on"><i></i>セッション</div><div class="nav"><i></i>設定</div></div>
+    <div class="hdr glass"><span class="crumb">agent-hangar / <b>キーボード操作の見直し</b></span><span class="sp2"></span><span class="search">検索<kbd>⌘K</kbd></span><span class="btn pri">＋ 新規</span></div>
+    <div class="main">
+      <div class="sh"><span class="dot busy"></span><span class="nm">キーボード操作の見直し</span><span class="sum">keys.ts を一枚の表にまとめ直し、戻ると進むをキーとスワイプで入れる</span><span class="btn">VS Code</span><span class="btn">ターミナルで開く</span></div>
+      <div class="meta"><span class="chip">作業中 12:04</span><span class="chip mono">opus · high</span><span class="chip">文脈 38%</span><span class="chip mono">$1.82</span><span class="chip">変更 6</span><span class="chip">メモ：スワイプは実機で</span></div>
+      <div class="body"><div><div class="tabs"><span class="on"><span class="dot busy"></span>Claude</span><span>zsh</span><span>＋</span><span style="background:transparent">⌘\ 分割</span></div>
+        <div class="term"><div><span class="g">›</span> keys.ts の表を見直して、戻ると進むをキーとスワイプで入れて</div><div class="g">● Read packages/ui/src/keys.ts (212 lines)</div><div>表を読みました。⌘[ と ⌘] はそのまま割り当てます。</div><div><span class="o">● Edit</span> packages/ui/src/keys.ts <span class="gr">+24</span> <span class="o">−9</span></div><div><span class="b2">● Bash</span> npx vitest run keys</div><div class="gr">  ✓ 18 passed (412ms)</div><div><span class="g">›</span> <span style="background:#ffb86b;color:#1c1b2e">&nbsp;</span></div></div></div>
+        <div class="panel tr"><div style="font-size:10.5px;font-weight:600;color:var(--ink-2)">会話</div><div class="msg u">keys.ts の表を見直して</div><div class="msg a">表を読みました。⌘[ と ⌘] はそのまま割り当てます。</div><div class="tool"><span class="dot busy"></span><span class="mono">Edit keys.ts</span><span style="color:var(--ink-3)">+24 −9</span></div><div class="msg a">スワイプは離した時点で判定します。</div></div></div>
+    </div>
+  </div>
+  <div class="cap">過去のセッション（トランスクリプトだけ）は、端末の板の場所に会話を広げ、右は要約・TODO・変更にする。分割、トランスクリプトの折りたたみ（⌘J）、タブの操作は今のまま。</div>
+</div>
+
+<div class="sec"><h4><span class="k">3-c</span>一覧の行（画面ごとの使い分け）</h4>
+  <p>どれも 2 段の行。右端に何を出すかを画面の役目で変えます（任せていただいた使い分け）。</p>
+  <div class="g3">
+    <div><div class="panel"><div class="r2"><span class="dot end"></span><div><b>無料枠の見張り</b><div class="s">台帳の合計と見積もりの大きい方</div></div><span class="tm">昨日</span></div><div class="r2"><span class="dot end"></span><div><b>symlink の穴</b><div class="s">控えの刈り取り</div></div><span class="tm">昨日</span></div></div><div class="cap"><b>Home の最近</b>：右は時刻だけ</div></div>
+    <div><div class="panel"><div class="r2"><span class="dot busy"></span><div><b>キーボード操作の見直し</b><div class="s">keys.ts を一枚の表に　<span style="color:var(--ink-3)">✎ スワイプは実機で</span></div></div><div><div class="meta"><span class="mono">opus · high</span><span>変更 6</span><a style="color:var(--accent)">PR</a><span class="mono">$1.82</span></div><div class="tm">3 分前</div></div></div><div class="r2"><span class="dot end"></span><div><b>同期の床を刻む</b><div class="s">cloud.json を書くときに床を刻む</div></div><div><div class="meta"><span class="mono">opus · high</span><span>変更 3</span><span class="mono">$0.64</span></div><div class="tm">昨日</div></div></div></div><div class="cap"><b>プロジェクト詳細</b>：右端にモデル・変更・PR・コストを小さく。メモは 2 段目（✎）で、<span class="mono">m</span> で編集</div></div>
+    <div><div class="panel"><div class="r2"><span class="dot end"></span><div><b>同期の床を刻む</b> <span style="color:var(--ink-3);font-size:10.5px">agent-hangar</span><div class="s">…<mark>transcriptsFrom</mark> を CLI が書くときに刻む…</div></div><span class="tm">昨日</span></div><div class="r2"><span class="dot end"></span><div><b>本番のクラウド</b> <span style="color:var(--ink-3);font-size:10.5px">agent-hangar</span><div class="s">…床（<mark>transcriptsFrom</mark>）を外すときは backfill…</div></div><span class="tm">3 日前</span></div></div><div class="cap"><b>検索</b>：1 段目に名前とプロジェクト、2 段目に一致箇所の抜粋</div></div>
+  </div>
+  <ul class="list-b" style="margin-top:12px">
+    <li>Projects のカード、Settings、ダイアログ、⌘K は<b>構成を変えず</b>、見た目の言語（設計 1）だけを当てる。Settings の使用量の 2 つの表は表のまま。</li>
+    <li>行の高さは 2 段で 44px（今の 28px の 1 段から変わる）。仮想スクロールの見積もりの高さもこれに合わせる。キー操作（j・k・Enter・o・e・m）は今のまま。</li>
+  </ul>
+</div>
+
+<!-- ================= 4 ================= -->
+<h3 class="big">4　動き</h3>
+
+<div class="sec"><h4><span class="k">4-a</span>動きのトークン（性格 B：なめらか）</h4>
+  <p>すっと出て、長く静かに止まる。現れるときは「速く出てゆっくり止まる」曲線、消えるときは「静かに始めて速く去る」曲線を使い分けます。</p>
+  <div class="curves" id="curves"></div>
+</div>
+
+<div class="sec"><h4><span class="k">4-b</span>動きの一覧（今の 11 種をどう変えるか）</h4>
+  <table class="tbl"><thead><tr><th>動き</th><th>今</th><th>これから</th></tr></thead><tbody>
+    <tr><td>画面遷移</td><td class="mono">120ms クロスフェード</td><td>出る画面は 250ms で消え、入る画面は 420ms で、6px の移動とぼかしが晴れながら入る</td></tr>
+    <tr><td>行を開く → セッション画面 <span class="new">新</span></td><td class="mono">—</td><td>決めの動き 5：行（または札）がそのまま画面へ広がる。View Transitions が使える環境だけで、使えない環境は画面遷移に落とす</td></tr>
+    <tr><td>一覧への差し込み・削除</td><td class="mono">フェード＋わずかな縦移動</td><td>新しい行はぼかしから現れ、ほかの行は FLIP で滑って場所を空ける（420ms）</td></tr>
+    <tr><td>⌘K パレット</td><td class="mono">98%→100%、120ms</td><td>ヘッダの検索の錠剤から、ガラスが広がって開く。閉じると錠剤へ戻る</td></tr>
+    <tr><td>ダイアログ</td><td class="mono">pop 120ms</td><td>96% から、ぼかしが晴れながら 420ms で開く</td></tr>
+    <tr><td>通知</td><td class="mono">右下からスライド</td><td>右下から、ぼかしが晴れながら滑り込む（位置は今のまま）</td></tr>
+    <tr><td>状態点・ゲージ・TODO の線</td><td class="mono">色の遷移</td><td>長さだけ 420ms に。状態点は変わる瞬間に一度だけ小さく膨らむ</td></tr>
+    <tr><td>端末の縁の灯 <span class="new">新</span></td><td class="mono">—</td><td>作業中はゆっくり息をする（3.2 秒）。状態が変わると色が 420ms で移る</td></tr>
+    <tr><td>背景の光 <span class="new">新</span></td><td class="mono">—</td><td>24 秒かけて漂う</td></tr>
+    <tr><td>起動画面 <span class="new">新</span></td><td class="mono">静的な文字</td><td>決めの動き 1</td></tr>
+    <tr><td>ホバー・押下</td><td class="mono">80ms、98%</td><td>200ms で少し浮く（1px）、押すと 97%</td></tr>
+    <tr><td>折りたたみ・タブの下線・分割の幅・数字の回転・新着への追従</td><td class="mono">各種</td><td>長さと曲線だけ新しいトークンに揃える。動き方は変えない</td></tr>
+  </tbody></table>
+  <div class="cap">reduced motion のときは、長さのトークンがすべて 0 になり、背景の光と縁の息も止まる。行が広がる動きも使わない（今の決まりを引き継ぐ）。</div>
+</div>
+
+<div class="sec"><h4><span class="k">4-c</span>触って確かめる</h4>
+  <p>パレットの開閉と、行が画面へ広がる動き。</p>
+  <div class="g2">
+    <div><div class="demoArea" id="d1"><div class="hdrm glass"><b style="font-weight:600">Home</b><span class="srch">検索 ⌘K</span></div><div class="body"><div class="panel"><div class="r2"><span class="dot busy"></span><div><b>キーボード操作の見直し</b><div class="s">keys.ts を一枚の表に</div></div><span class="tm mono">12:04</span></div><div class="r2"><span class="dot end"></span><div><b>無料枠の見張り</b><div class="s">台帳の合計と見積もり</div></div><span class="tm">昨日</span></div></div></div>
+      <div class="pal"><div class="in">セッション、プロジェクト、操作…</div><div class="it on">キーボード操作の見直しを開く</div><div class="it">新規セッション</div><div class="it">設定を開く</div></div></div>
+      <div class="cap"><button class="btn" onclick="pal()">⌘K を開く／閉じる</button></div></div>
+    <div><div class="demoArea" id="d2"></div><div class="cap"><button class="btn" onclick="morph()">▶ 行を開く</button></div></div>
+  </div>
+</div>
+
+<!-- ================= 5 ================= -->
+<h3 class="big">5　試験と検証</h3>
+
+<div class="sec"><h4><span class="k">5</span>何で守り、どう確かめるか</h4>
+  <p>見た目の変更は試験で守りにくいので、<b>「決まり」を試験で固定し、見た目は実物で確かめる</b>に分けます。</p>
+  <div class="ck">
+    <div class="panel"><h5>書き換える試験</h5><ul>
+      <li><span class="mono">tokens.test.ts</span>：禁止の一覧を新しい決まりに合わせる。<span class="mono">backdrop-filter</span> は<b>ガラスの部品のクラスの中にだけ</b>現れることを確かめる（読む面に紛れ込んだら落ちる）。ダーク、シマー、スケルトン、文字の影は引き続き落とす</li>
+      <li>コントラスト：本文と補足の文字が、白地と<b>ガラスを重ねた色</b>の両方で 4.5:1 以上（ガラスの色は白 40% を地に重ねて計算する）</li>
+      <li><span class="mono">overlays.test.tsx</span> などの、CSS の文字列を直接探している試験を、新しい規則に合わせる</li>
+    </ul></div>
+    <div class="panel"><h5>足す試験</h5><ul>
+      <li>Home の Presenter：要対応・実行中の札が正しいセッションを拾う。問いの文、最新のツール呼び出し、文脈の使用率の取り出し方</li>
+      <li>端末の縁：状態（busy・waiting・idle・終了）から正しい印が付く</li>
+      <li>行を広げる動き：View Transitions が無い環境では、ふつうの画面遷移に落ちる。reduced motion では使わない</li>
+      <li>タイトルバー：窓を動かす権限が <span class="mono">127.0.0.1:4177</span> だけに、<span class="mono">start-dragging</span> の 1 つだけ与えられている（設定ファイルを読んで確かめる）</li>
+    </ul></div>
+    <div class="panel"><h5>実物で確かめること</h5><ul>
+      <li>ブラウザと .app の両方で、全画面を目で見る（画面の写しを残す）</li>
+      <li>.app：信号の 3 点の位置、ヘッダを掴んで窓が動くこと、起動画面の動き</li>
+      <li>重さ：1,000 件の一覧のスクロールと、端末の出力が流れている最中に、ぼかしで引っかからないこと</li>
+      <li>reduced motion を有効にして、動きと光が止まること</li>
+    </ul></div>
+    <div class="panel"><h5>進め方の決まり（いつもの作法）</h5><ul>
+      <li>直したら返す前に必ずビルドする（UI の vite と、デスクトップの bundle-server ＋ tauri build）。ビルドしたら、利用者の <span class="mono">npm run dev</span> のサーバ（4177）を一度落とす（自分の PID だけ）</li>
+      <li>design.md の「画面」と「見た目と動き」を、実装と同じコミットの流れで書き換える</li>
+      <li><span class="mono">.superpowers/</span> を <span class="mono">.gitignore</span> に足す</li>
+    </ul></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+(function(){
+  const E = 'cubic-bezier(.16,1,.3,1)';
+  const INK = '#1c1b2e', BLUE = '#4a63e8', AMB = '#ffb86b', RED = '#e5533d', GRY = '#b5b2c4', HAZE = '#e2e7ff', CHEV = '#e8e6e1';
+  const hex = h => [1,3,5].map(i => parseInt(h.slice(i, i+2), 16));
+  const mix = (a, b, t) => '#' + hex(a).map((v, i) => Math.round(v + (hex(b)[i] - v) * t).toString(16).padStart(2, '0')).join('');
+  const colors = (t, cur) => ({ ink: mix(INK, HAZE, t), blue: mix(BLUE, HAZE, t), chev: mix(CHEV, HAZE, t * .6), cur: mix(cur, HAZE, t * .45), r: mix('#ff6a55', HAZE, t), y: mix('#ffc34d', HAZE, t), g: mix('#3fb58a', HAZE, t) });
+  const item = (c, blink) => `<path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="${c.ink}" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="${c.ink}"/>
+      <path d="M0 10L-31 31H31Z" fill="none" stroke="${c.blue}" stroke-width="4" stroke-linejoin="round"/>
+      <circle cx="-23" cy="37" r="2" fill="${c.r}"/><circle cx="-16.5" cy="37" r="2" fill="${c.y}"/><circle cx="-10" cy="37" r="2" fill="${c.g}"/>
+      <path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="${c.chev}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect ${blink ? 'class="cur"' : ''} x="-12" y="55" width="13" height="4" rx="2" fill="${c.cur}"/>`;
+  const logo = ({ front = false, anim = false, blink = false } = {}) => {
+    const n = front ? 1 : 4, P = []; let x = 0, y = 0, s = 1;
+    for (let i = 0; i < n; i++) { P.push({ x, y, s, t: n === 1 ? 0 : i / 3 * .86 }); x += .13 * 62 * s; y -= .035 * 72 * s; s *= .85; }
+    let a = [1e9,1e9,-1e9,-1e9]; P.forEach(p => { a = [Math.min(a[0], p.x - 31 * p.s), Math.min(a[1], p.y - 3 * p.s), Math.max(a[2], p.x + 31 * p.s), Math.max(a[3], p.y + 69 * p.s)]; });
+    const W = front ? 82 : 70, H = front ? 82 : 66, sc = Math.min(W / (a[2] - a[0]), H / (a[3] - a[1])), tx = 50 - sc * (a[0] + a[2]) / 2, ty = (front ? 50 : 51) - sc * (a[1] + a[3]) / 2;
+    const CUR = [AMB, RED, GRY, AMB];
+    let rail = '';
+    if (n > 1) { const A = P[0], B = P[n - 1], dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L, id = 'r' + Math.random().toString(36).slice(2, 7);
+      rail = `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${A.x - ux*14}" y1="0" x2="${B.x + ux*14}" y2="0"><stop offset="0" stop-color="${INK}"/><stop offset=".25" stop-color="${INK}"/><stop offset="1" stop-color="${HAZE}"/></linearGradient></defs><path class="rail" d="M${A.x - ux*14} ${A.y - uy*14 - 1}L${B.x + ux*14} ${B.y + uy*14 - 1}" stroke="url(#${id})" stroke-width="2.6" stroke-linecap="round"/>`; }
+    const items = P.map((p, i) => ({ p, i })).reverse().map(({ p, i }) => { const d = (.35 + (n - 1 - i) * .12).toFixed(2);
+      return `<g transform="translate(${p.x} ${p.y}) scale(${p.s})">${anim ? `<g class="fi" style="animation-delay:${d}s"><g class="sw" style="animation-delay:${d}s">` : '<g><g>'}${item(colors(p.t, CUR[i]), blink && (i === 0 || n > 1))}</g></g></g>`; }).join('');
+    return `<svg viewBox="0 0 100 100"><g transform="translate(${tx} ${ty}) scale(${sc})">${rail}${items}</g></svg>`;
+  };
+  // 2-a 寸法
+  const sz = [[128,'1024（アプリアイコン）',false,29],[64,'64',false,14],[32,'32',false,8],[16,'16（先頭 1 本）',true,4]];
+  document.getElementById('sizes').innerHTML = sz.map(([px, label, front, r]) => `<div class="s"><span class="${px === 128 ? 'icon' : 'ic'}" style="width:${px}px;height:${px}px;border-radius:${r}px;display:block">${logo({ front })}</span>${label}</div>`).join('')
+    + `<div class="s"><span class="ic" style="width:16px;height:16px;border-radius:4px;display:block">${logo({})}</span>16（原図のまま・参考）</div>`;
+  document.querySelectorAll('[data-full]').forEach(el => el.innerHTML = logo({}));
+  document.querySelectorAll('[data-front]').forEach(el => el.innerHTML = logo({ front: true }));
+  document.getElementById('bootsvg').outerHTML = logo({ anim: true, blink: true }).replace('<svg', '<svg id="bootsvg"');
+  window.replayBoot = () => { const b = document.getElementById('boot'); b.classList.remove('play'); void b.offsetWidth; b.classList.add('play'); };
+
+  // 4-a 曲線
+  const C = [
+    ['現れる', '--ease-out', 'cubic-bezier(.16,1,.3,1)', [.16,1,.3,1], '420ms（--dur）'],
+    ['消える', '--ease-in', 'cubic-bezier(.4,0,1,1)', [.4,0,1,1], '250ms（--dur-exit）'],
+    ['ホバー・押下', '--ease-out', 'cubic-bezier(.16,1,.3,1)', [.16,1,.3,1], '200ms（--dur-fast）'],
+    ['息をする・漂う', '--ease-inout', 'ease-in-out', [.42,0,.58,1], '3.2s／24s'],
+  ];
+  const curve = ([x1, y1, x2, y2]) => { const pts = []; for (let t = 0; t <= 1.001; t += .02) { const bx = 3*(1-t)**2*t*x1 + 3*(1-t)*t*t*x2 + t**3, by = 3*(1-t)**2*t*y1 + 3*(1-t)*t*t*y2 + t**3; pts.push(`${(bx*180+10).toFixed(1)},${(70 - by*60).toFixed(1)}`); } return pts.join(' '); };
+  document.getElementById('curves').innerHTML = C.map(([n, tok, css, b, d]) => `<div class="cv"><b>${n}</b><span class="mono">${tok} · ${d}</span><span class="mono">${css}</span><svg viewBox="0 0 200 80"><path d="M10 70H190M10 70V10" stroke="#eceef5" stroke-width="1.5" fill="none"/><polyline points="${curve(b)}" fill="none" stroke="#4a63e8" stroke-width="2.5" stroke-linecap="round"/></svg></div>`).join('');
+
+  // 4-c パレット
+  window.pal = () => {
+    const d = document.getElementById('d1'), p = d.querySelector('.pal'), s = d.querySelector('.srch');
+    if (p.style.display === 'block') { const a = p.getBoundingClientRect(), b = s.getBoundingClientRect();
+      p.animate([{ transform:'none', opacity:1 }, { transform:`translate(${b.left - a.left}px, ${b.top - a.top}px) scale(${b.width / a.width}, ${b.height / a.height})`, opacity:0 }], { duration:250, easing:'cubic-bezier(.4,0,1,1)' }).onfinish = () => p.style.display = 'none'; return; }
+    p.style.display = 'block'; const a = p.getBoundingClientRect(), b = s.getBoundingClientRect();
+    p.animate([{ transform:`translate(${b.left - a.left}px, ${b.top - a.top}px) scale(${b.width / a.width}, ${b.height / a.height})`, opacity:.4 }, { transform:'none', opacity:1 }], { duration:420, easing:E });
+    [...p.children].forEach((el, i) => el.animate([{ opacity:0, transform:'translateY(5px)' }, { opacity:1, transform:'none' }], { duration:420, delay:120 + i * 30, easing:E, fill:'backwards' }));
+  };
+  // 4-c 行が広がる
+  window.morph = () => {
+    const st = document.getElementById('d2');
+    st.innerHTML = `<div class="hdrm glass"><b style="font-weight:600">Home</b><span class="srch">検索 ⌘K</span></div><div class="body"><div class="panel lst"><div class="r2"><span class="dot end"></span><div><b>無料枠の見張り</b><div class="s">台帳の合計と見積もり</div></div><span class="tm">昨日</span></div>
+      <div class="r2" id="mrow"><span class="dot busy"></span><div><b>キーボード操作の見直し</b><div class="s">keys.ts を一枚の表に</div></div><span class="tm mono">12:04</span></div>
+      <div class="r2"><span class="dot idle"></span><div><b>CI の tmux</b><div class="s">ubuntu で tmux を入れる</div></div><span class="tm mono">1:02</span></div></div>
+      <div class="sess"><div style="display:flex;align-items:center;gap:8px"><span class="dot busy"></span><b style="font-size:13px;font-weight:650">キーボード操作の見直し</b></div><div class="sub" style="color:var(--ink-2);margin-top:3px">keys.ts を一枚の表にまとめ直す</div><div class="term">› keys.ts の表を見直して<br><span style="opacity:.55">● Read packages/ui/src/keys.ts</span><br><span style="color:#ffb86b">● Edit</span> keys.ts <span style="color:#6fd3a5">+24</span></div></div></div>`;
+    setTimeout(() => {
+      const row = st.querySelector('#mrow'), sess = st.querySelector('.sess'), lst = st.querySelector('.lst');
+      row.animate([{ background:'#fff' }, { background:'#eef2ff' }], { duration:200, fill:'forwards' });
+      setTimeout(() => { const r = row.getBoundingClientRect(); sess.style.display = 'block'; const s = sess.getBoundingClientRect();
+        sess.animate([{ transform:`translate(${r.left - s.left}px, ${r.top - s.top}px) scale(${r.width / s.width}, ${r.height / s.height})`, borderRadius:'0px' }, { transform:'none', borderRadius:'14px' }], { duration:420, easing:E });
+        sess.querySelectorAll('.term, .sub').forEach(x => x.animate([{ opacity:0, transform:'translateY(6px)', filter:'blur(4px)' }, { opacity:1, transform:'none', filter:'blur(0)' }], { duration:420, delay:180, easing:E, fill:'backwards' }));
+        lst.animate([{ opacity:1 }, { opacity:0 }], { duration:250, easing:'cubic-bezier(.4,0,1,1)', fill:'forwards' }); }, 220);
+    }, 300);
+  };
+  morph();
+})();
+</script>

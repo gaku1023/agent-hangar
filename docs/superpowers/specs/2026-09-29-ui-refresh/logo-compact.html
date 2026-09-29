@@ -1,0 +1,108 @@
+<h2>ロゴ：間隔を詰めて、コンパクトにまとめる</h2>
+<p class="subtitle">行が描き方（霞む塗り／線／三角／奥にも状態）、列が詰め具合です。どれも、群れ全体がアイコンの中央の同じ大きさの枠に収まるように寄せてあります。アイコンをクリックすると動きます。<b>気に入った升を選んでください</b>（複数可）。</p>
+
+<style>
+  .mx { display:grid; grid-template-columns:110px repeat(3, minmax(0,1fr)); gap:10px; align-items:stretch; }
+  .mx .hd { font-size:12.5px; font-weight:600; opacity:.8; align-self:end; padding:0 4px 2px; }
+  .mx .rh { font-size:13px; font-weight:600; display:flex; flex-direction:column; justify-content:center; gap:2px; }
+  .mx .rh small { font-weight:400; opacity:.7; font-size:11px; }
+  .mx .option { display:block; padding:8px; margin:0; }
+  .stage { position:relative; border-radius:12px; padding:12px 10px; overflow:hidden; isolation:isolate; background:#eef1f7; display:flex; align-items:center; justify-content:center; gap:14px; }
+  .stage::before { content:''; position:absolute; inset:-30%; z-index:-1; background:radial-gradient(40% 50% at 30% 20%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 70%, #e5d6ff, transparent 70%); }
+  .icon { flex:none; width:100px; height:100px; border-radius:23px; position:relative; overflow:hidden; background:linear-gradient(165deg,#f7f9ff 0%,#dfe6ff 55%,#e9defe 100%); box-shadow:inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(255,255,255,.55), 0 12px 26px -12px rgba(40,50,120,.45); cursor:pointer; }
+  .icon::after { content:''; position:absolute; inset:0; border-radius:inherit; background:linear-gradient(180deg, rgba(255,255,255,.45), transparent 42%); pointer-events:none; }
+  .icon svg { position:absolute; inset:0; width:100px; height:100px; overflow:visible; }
+  .sm { display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .t32 { width:32px; height:32px; border-radius:8px; background:linear-gradient(165deg,#f7f9ff,#dfe6ff); box-shadow:inset 0 0 0 1px rgba(255,255,255,.6), 0 2px 6px rgba(40,50,120,.2); overflow:hidden; } .t32 svg { width:32px; height:32px; display:block; }
+  .t16 { width:16px; height:16px; border-radius:4px; background:#dfe6ff; overflow:hidden; } .t16 svg { width:16px; height:16px; display:block; }
+
+  .cur { animation:blink 1.1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  .play .fi { animation:fi .45s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes fi { from { opacity:0; } to { opacity:1; } }
+  .play .sw { animation:sw 2.2s cubic-bezier(.4,0,.2,1) both; }
+  @keyframes sw { 0% { transform:rotate(9deg); } 25% { transform:rotate(-6deg); } 50% { transform:rotate(3deg); } 72% { transform:rotate(-1.2deg); } 100% { transform:rotate(0); } }
+  .play .rail { stroke-dasharray:120; animation:rail .6s cubic-bezier(.6,0,.2,1) both; }
+  @keyframes rail { from { stroke-dashoffset:120; } to { stroke-dashoffset:0; } }
+</style>
+
+<div class="options" data-multiselect>
+  <div class="mx" id="mx"></div>
+</div>
+
+<script>
+(function(){
+  const INK = '#1c1b2e', BLUE = '#4a63e8', AMB = '#ffb86b', RED = '#e5533d', GRY = '#b5b2c4', HAZE = '#e2e7ff', CHEV = '#e8e6e1';
+  const hex = h => [1,3,5].map(i => parseInt(h.slice(i, i+2), 16));
+  const mix = (a, b, t) => '#' + hex(a).map((v, i) => Math.round(v + (hex(b)[i] - v) * t).toString(16).padStart(2, '0')).join('');
+  const BOX = { fill:[-31,-3,31,69], line:[-32,-3.5,32,70], tri:[-40,-3,40,63] };
+
+  const item = (kind, c, w, blink) => {
+    const hook = `<path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="${c.ink}" stroke-width="${2.8 * w}" stroke-linecap="round"/>`;
+    const cur = (x, y, ww, hh) => `<rect ${blink ? 'class="cur"' : ''} x="${x}" y="${y}" width="${ww}" height="${hh}" rx="${hh/2}" fill="${c.cur}"/>`;
+    if (kind === 'fill') return `${hook}<rect x="-30" y="29" width="60" height="40" rx="5" fill="${c.ink}"/>
+        <path d="M0 10L-31 31H31Z" fill="none" stroke="${c.blue}" stroke-width="4" stroke-linejoin="round"/>
+        <circle cx="-23" cy="37" r="2" fill="${c.r}"/><circle cx="-16.5" cy="37" r="2" fill="${c.y}"/><circle cx="-10" cy="37" r="2" fill="${c.g}"/>
+        <path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="${c.chev}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>${cur(-12, 55, 13, 4)}`;
+    if (kind === 'line') return `<g fill="none" stroke="${c.ink}" stroke-width="${4 * w}" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2"/><path d="M0 10L-30 30H30Z"/><path d="M-30 30V62a6 6 0 0 0 6 6H24a6 6 0 0 0 6-6V30"/>
+        <path d="M-18 42l8 6-8 6" stroke="${c.blue}"/><path ${blink ? 'class="cur"' : ''} d="M-4 57H10" stroke="${c.cur}"/></g>`;
+    return `${hook}<path d="M0 10L-38 56Q-40 60 -36 62H36Q40 60 38 56Z" fill="${c.ink}" stroke="${c.blue}" stroke-width="3.6" stroke-linejoin="round"/>
+        <path d="M-18 40l7 5.5-7 5.5" fill="none" stroke="${c.chev}" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>${cur(-6, 48.5, 14, 4)}`;
+  };
+  const colors = (t, cur) => ({ ink: mix(INK, HAZE, t), blue: mix(BLUE, HAZE, t), chev: mix(CHEV, HAZE, t * .6), cur: mix(cur, HAZE, t * .5), r: mix('#ff6a55', HAZE, t), y: mix('#ffc34d', HAZE, t), g: mix('#3fb58a', HAZE, t) });
+
+  // 並べ方：n 本、縮小率 r、横の送り k（手前の札の幅に対する割合）、縦の送り（上へ）。
+  const layout = (kind, n, r, k, up) => {
+    const [bx0, by0, bx1, by1] = BOX[kind];
+    const P = []; let x = 0, y = 0, s = 1;
+    for (let i = 0; i < n; i++) { P.push({ x, y, s, t: n === 1 ? 0 : Math.min(.86, i / (n - 1) * .86) }); x += k * (bx1 - bx0) * s; y -= up * (by1 - by0) * s; s *= r; }
+    let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    P.forEach(p => { minX = Math.min(minX, p.x + bx0 * p.s); maxX = Math.max(maxX, p.x + bx1 * p.s); minY = Math.min(minY, p.y + by0 * p.s); maxY = Math.max(maxY, p.y + by1 * p.s); });
+    return { P, bbox: [minX, minY, maxX, maxY] };
+  };
+  // 群れ全体を、アイコンの中央の枠（幅 70・高さ 66）へ収める。
+  const fit = (bbox, W = 70, H = 66, cx = 50, cy = 51) => {
+    const [x0, y0, x1, y1] = bbox, sc = Math.min(W / (x1 - x0), H / (y1 - y0));
+    return { sc, tx: cx - sc * (x0 + x1) / 2, ty: cy - sc * (y0 + y1) / 2 };
+  };
+  const render = (st, sp, frontOnly) => {
+    const n = frontOnly ? 1 : sp.n;
+    const { P, bbox } = layout(st.kind, n, sp.r, sp.k, sp.up);
+    const f = frontOnly ? fit(bbox, 82, 82, 50, 50) : fit(bbox);
+    const a = P[0], b = P[P.length - 1];
+    const rail = n > 1 ? (() => {
+      const dx = b.x - a.x, dy = b.y - a.y, ext = 14;
+      const L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
+      const gid = 'g' + Math.random().toString(36).slice(2, 8);
+      return `<defs><linearGradient id="${gid}" gradientUnits="userSpaceOnUse" x1="${a.x - ux * ext}" y1="${a.y - uy * ext}" x2="${b.x + ux * ext}" y2="${b.y + uy * ext}"><stop offset="0" stop-color="${INK}"/><stop offset=".25" stop-color="${INK}"/><stop offset="1" stop-color="${HAZE}"/></linearGradient></defs>
+        <path class="rail" d="M${a.x - ux * ext} ${a.y - uy * ext - 1}L${b.x + ux * ext} ${b.y + uy * ext - 1}" stroke="url(#${gid})" stroke-width="${2.6}" stroke-linecap="round"/>`;
+    })() : '';
+    const items = P.map((p, i) => ({ p, i })).reverse().map(({ p, i }) => {
+      const d = (i * 0.1).toFixed(2);
+      const w = st.kind === 'line' ? 1 / p.s : 1;
+      return `<g transform="translate(${p.x} ${p.y}) scale(${p.s})"><g class="fi" style="animation-delay:${d}s"><g class="sw" style="animation-delay:${d}s">${item(st.kind, colors(p.t, st.curs[i % st.curs.length]), w, i === 0 || st.blinkAll)}</g></g></g>`;
+    }).join('');
+    return `<g transform="translate(${f.tx} ${f.ty}) scale(${f.sc})">${rail}${items}</g>`;
+  };
+
+  const STYLES = [
+    { key:'haze', name:'霞む塗り', note:'前回の 2', kind:'fill', curs:[AMB] },
+    { key:'line', name:'線', note:'前回の 3', kind:'line', curs:[AMB] },
+    { key:'tri',  name:'三角', note:'前回の 4', kind:'tri',  curs:[AMB] },
+    { key:'state', name:'奥にも状態', note:'前回の 6', kind:'fill', curs:[AMB, RED, GRY, AMB], blinkAll:true },
+  ];
+  const SPACES = [
+    { key:'s1', name:'詰める',       n:4, r:.8,  k:.34, up:.07 },
+    { key:'s2', name:'もっと詰める', n:4, r:.82, k:.22, up:.05 },
+    { key:'s3', name:'重ねる',       n:4, r:.85, k:.13, up:.035 },
+  ];
+  const mx = document.getElementById('mx');
+  mx.innerHTML = `<div></div>${SPACES.map(s => `<div class="hd">${s.name}</div>`).join('')}` +
+    STYLES.map(st => `<div class="rh">${st.name}<small>${st.note}</small></div>` + SPACES.map(sp => `
+      <div class="option" data-choice="${st.key}-${sp.key}" onclick="toggleSelect(this)"><div class="stage">
+        <div class="icon play" onclick="event.stopPropagation(); this.classList.remove('play'); void this.offsetWidth; this.classList.add('play')"><svg viewBox="0 0 100 100">${render(st, sp)}</svg></div>
+        <div class="sm"><span class="t32"><svg viewBox="0 0 100 100">${render(st, sp)}</svg></span><span class="t16"><svg viewBox="0 0 100 100">${render(st, sp, true)}</svg></span></div>
+      </div></div>`).join('')).join('');
+})();
+</script>

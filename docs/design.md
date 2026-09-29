@@ -756,7 +756,11 @@ UI は `history.replaceState` で URL から `?t=` を消すので、鍵はア�
 枠を止めるために `frame-ancestors 'none'` と `X-Frame-Options` の両方を返す。
 CSP の残りは配っている `dist` の作りに合わせて絞る。
 インライン script は無いので `script-src 'self'` だけでよく、style は React の style 属性と xterm が実行時に書くので `'unsafe-inline'` が要る。
-font と img は `@fontsource` の woff と favicon の SVG のために `data:` を許す。
+font は `@fontsource` の woff のために `data:` を許す。
+img もサイドバーのロゴのために `data:` を許す。
+ロゴの原図（`packages/ui/src/brand/logo.svg`）は Vite がインライン化する上限より小さいので、ビルドで data URI として JS に埋め込まれるからである。
+favicon は `/assets/` に別のファイルとして出るので、`data:` を使わない。
+img の `data:` を外すと、サイドバーのロゴが描かれなくなる。
 `connect-src` は同じ元と、ターミナルの WebSocket のためのループバックだけにする。
 `object-src 'none'`、`base-uri 'none'`、`form-action 'self'` も付ける。
 
@@ -976,6 +980,10 @@ trigram は 3 文字未満の語に一致できないので、3 文字未満の�
 ### 骨格
 
 左にナビだけのサイドバー、上にヘッダー、残りがメインである。
+サイドバーとヘッダーは、中身の上に浮くガラスである（「見た目と動き」）。
+メインはヘッダーの下をくぐって流れ、ヘッダーの高さと隙間の分だけ上に余白を取ってから始まる。
+`.app` では標準のタイトルバーを消し、信号の 3 点をサイドバーの左上に乗せ、ヘッダーの空いた所を掴んで窓を動かし、そこをダブルクリックすると窓が拡大する。
+そのために、UI の出どころ（`http://127.0.0.1:4177`）に窓を動かす権限（`core:window:allow-start-dragging`）とダブルクリックで拡大する権限（`core:window:allow-internal-toggle-maximize`）の 2 つだけ与え（`capabilities/remote-drag.json`）、殻は頁に `data-shell="desktop"` の印を付けて、サイドバーはその印があるときだけ信号の 3 点の分の上の余白を取る。
 サイドバーの項目は Home、Projects、Sessions、Settings の 4 つで、プロジェクトの一覧は置かない。
 ヘッダーには左から、現在位置のパンくず、検索ボックス、5 時間と 7 日の小さなゲージ、同期状態、新規セッションボタンを置く。
 検索ボックスに入力すると Sessions 画面に移る。
@@ -1159,10 +1167,15 @@ WKWebView の `allowsBackForwardNavigationGestures` も、ブラウザの手勢�
 ## 見た目と動き
 
 常にライトで、ダークモードは持たない。
-例外はターミナルの面だけで、そこは端末エミュレータの慣習に合わせて暗い配色（`--term-bg`、`--term-fg`）にする。
-参照するのは Linear である。
+例外はターミナルの面だけで、そこは端末エミュレータの慣習に合わせて墨色の不透明な板（`--term-bg`、`--term-fg`）にする。
+参照するのは macOS 26 の Liquid Glass である。
+画面は奥から「光の背景」「読む面」「浮くガラス」の 3 枚で組む。
+光の背景は地の `--bg` に 2 つの淡い光（`--aura-1`、`--aura-2`）を置き、`--aura-period`（24 秒）で漂わせる。reduced motion では止める。
+読む面（一覧、カード、会話、設定の中身、プロジェクトの右レール）は白で不透明にし、ガラスを重ねない。
+ガラスはヘッダー、サイドバー、⌘K パレット、ダイアログ、通知、切断の帯にだけ使い、`backdrop-filter` は必ず `-webkit-backdrop-filter` と併記する（`styles/glass.test.ts` が置き場所を見張る）。
 色はデザイントークンとして `:root` に定義する。
-面は白と淡いグレー、アクセントは 1 色、状態色（busy、idle、終了、エラー）は控えめな彩度にする。
+面は白と淡い青灰、アクセントは 1 色（`--accent`、主ボタンだけ `--accent-hi` からの淡いグラデーション）、状態色（busy、idle、終了、エラー）は控えめな彩度にする。
+本文の色は、白地と、ガラスを重ねた色（白 40% を `--bg` に重ねた `#f5f7fa`）の両方で 4.5:1 以上を保つ。
 プロジェクトのステータス（active、paused、done、archived）は、アイコンではなく色で示す。
 ステータスごとに文字色と淡い地色のトークン（`--st-<status>`、`--st-<status>-soft`）を持ち、ステータスの部品と見出しの点が `data-status` からそれを引く。
 ステータスの部品は、文字、その右の塗りつぶしの丸、矢印の順に自前で描き、透明にした本物の `select` をその上に重ねる。
@@ -1170,7 +1183,9 @@ WKWebView の `allowsBackForwardNavigationGestures` も、ブラウザの手勢�
 この部品は `views/primitives/StatusSelect.tsx` の `StatusSelect`（選べる場所）と `ProjectStatusDot`（読むだけの場所）だけを通して使い、View が `<select>` を自分で書くことはしない。
 淡い地色の上の文字は 4.5:1 以上のコントラストを保つ。
 ステータスは常に文字でも示すので、色は補助である。
-グラデーション、グロー、ガラス、影の多用はしない。
+グラデーションは主ボタンと背景の光だけ、影は浮く部品と端末の板だけに許す。
+読む面へのガラス、シマー、スケルトン、タイピング風の表示、文字の影、光る文字は使わない。
+角は部品が 8px（`--r`）、面が 14px（`--r-lg`）、浮くガラスが 16px（`--r-xl`、ダイアログは 18px）、ボタンと検索欄とヘッダーは錠剤（`--r-pill`）にする。
 
 アイコンは Lucide（`lucide-react`）を使い、大きさ 16px、線幅 1.5 に固定する。
 16px に縮むと実際の線幅は 1px になり、13px の本文の太さと釣り合う。

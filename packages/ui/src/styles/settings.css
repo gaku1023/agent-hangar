@@ -1,5 +1,10 @@
 /* Settings の statusline、要約器、使用量（Task 26） */
 
+/* 設定の中身は読む面である。節ごとに白い不透明な面を敷き、光の背景の上に並べる。 */
+.settings-screen > section { padding: calc(var(--u) * 3) calc(var(--u) * 4) calc(var(--u) * 4); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.settings-screen > section + section { margin-top: calc(var(--u) * 3); }
+.settings-screen > section > .h2:first-child { margin-top: 0; }
+
 /* ラベルと入力を横に並べる行。チェックボックスと小さな数値の入力に使う。 */
 /* palette.css の .field-row とは別物なので、設定画面だけの名前にしている。 */
 .settings-row { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); }

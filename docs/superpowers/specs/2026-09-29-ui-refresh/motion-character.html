@@ -1,0 +1,144 @@
+<h2>動き ①：動きの性格</h2>
+<p class="subtitle">同じ 5 つの操作を、3 つの性格で動かします。<b>上のボタンを押すと 3 つが同時に動く</b>ので、並べて比べてください。行にホバーした反応も性格ごとに違います。</p>
+
+<style>
+  .ctrl { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 14px; }
+  .ctrl button { font:13px system-ui; padding:8px 14px; border-radius:99px; border:1px solid rgba(128,128,128,.45); background:transparent; color:inherit; cursor:pointer; }
+  .ctrl button:hover { background:rgba(128,128,128,.15); }
+  .mo { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:14px; }
+  .mo .option { display:block; padding:12px; margin:0; }
+  .dhead { display:flex; align-items:baseline; gap:10px; margin-bottom:8px; flex-wrap:wrap; } .dhead h3 { margin:0; font-size:15px; }
+  .spec { font:11px 'JetBrains Mono',Menlo,monospace; opacity:.7; margin:0 0 8px; }
+  .desc { font-size:12.5px; opacity:.85; margin:8px 2px 0; line-height:1.55; }
+
+  .demo { --ink:#1c1b2e; --mute:#6d6c85; --faint:#9a99ad; position:relative; isolation:isolate; overflow:hidden; height:380px; border-radius:14px; font-family:'Inter','Hiragino Sans',sans-serif; font-size:11.5px; color:var(--ink); text-align:left; background:#eef1f7; }
+  .demo * { box-sizing:border-box; }
+  .demo::before { content:''; position:absolute; inset:-25%; z-index:-1; background:radial-gradient(40% 50% at 30% 20%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 70%, #e5d6ff, transparent 70%); }
+  .glass { background:rgba(255,255,255,.42); backdrop-filter:blur(12px) saturate(1.9); box-shadow:inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5), 0 10px 28px -12px rgba(30,40,90,.3); }
+  .demo .hdr { position:absolute; top:8px; left:8px; right:8px; height:36px; border-radius:99px; display:flex; align-items:center; gap:8px; padding:0 6px 0 14px; z-index:3; }
+  .demo .hdr b { font-weight:600; } .demo .sp { flex:1; }
+  .demo .srch { height:24px; width:120px; border-radius:99px; padding:0 10px; display:flex; align-items:center; color:#7c7b92; font-size:10.5px; background:rgba(255,255,255,.55); box-shadow:inset 0 1px 2px rgba(30,40,90,.12); }
+  .demo .screen { position:absolute; top:52px; left:8px; right:8px; bottom:8px; }
+  .demo .page { position:absolute; inset:0; }
+  .demo .lbl { font-size:10.5px; font-weight:600; color:var(--mute); margin:4px 0 6px 4px; }
+  .demo .list { background:#fff; border-radius:14px; box-shadow:0 1px 2px rgba(30,40,90,.06); overflow:hidden; }
+  .demo .row { position:relative; display:grid; grid-template-columns:10px 1fr auto; gap:9px; align-items:center; padding:7px 12px; background:#fff; transition:background var(--hover-d) var(--ease), transform var(--hover-d) var(--ease), box-shadow var(--hover-d) var(--ease); }
+  .demo .row + .row { border-top:1px solid #f1f2f7; }
+  .demo .row:hover { background:#f6f8ff; transform:var(--hover-t); box-shadow:var(--hover-s); z-index:1; }
+  .demo .row b { font-weight:600; } .demo .row .s { color:var(--mute); font-size:10.5px; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .demo .row .tm { color:var(--faint); font-size:10.5px; }
+  .demo .dot { width:7px; height:7px; border-radius:50%; transition:background-color var(--d) var(--ease), box-shadow var(--d) var(--ease); }
+  .busy { background:#e08a2c; } .wait { background:#c4452c; box-shadow:0 0 0 3px rgba(196,69,44,.18); } .idle { background:#3a8f5c; } .end { background:#b5b2c4; }
+  .demo .term { height:150px; border-radius:0 14px 14px 14px; background:#1c1b2e; color:#e8e6e1; font:10px/1.6 'JetBrains Mono',monospace; padding:10px 12px; transition:box-shadow var(--d) var(--ease); }
+  .demo .term.busy-rim { box-shadow:0 0 0 1.5px rgba(224,138,44,.85), 0 0 20px -2px rgba(224,138,44,.4); }
+  .demo .term.wait-rim { box-shadow:0 0 0 1.5px rgba(196,69,44,.9), 0 0 20px -2px rgba(196,69,44,.45); }
+  .demo .tabs { display:flex; gap:3px; } .demo .tabs span { display:inline-flex; align-items:center; height:22px; padding:0 10px; border-radius:9px 9px 0 0; background:rgba(255,255,255,.55); color:var(--mute); font-size:10.5px; } .demo .tabs span.on { background:#1c1b2e; color:#e8e6e1; }
+  .demo .pal { position:absolute; top:50px; left:10%; right:10%; border-radius:18px; padding:8px; z-index:5; display:none; background:rgba(255,255,255,.62); backdrop-filter:blur(18px) saturate(1.8); box-shadow:inset 0 1px 0 #fff, inset 0 0 0 1px rgba(255,255,255,.6), 0 24px 50px -16px rgba(30,40,90,.45); transform-origin:0 0; }
+  .demo .pal .in { height:28px; border-radius:10px; background:rgba(255,255,255,.8); display:flex; align-items:center; padding:0 10px; color:#7c7b92; margin-bottom:6px; }
+  .demo .pal .it { padding:6px 10px; border-radius:9px; } .demo .pal .it.on { background:rgba(74,99,232,.12); }
+  .demo .scrim { position:absolute; inset:0; z-index:4; background:rgba(30,30,60,.08); display:none; }
+  .demo .toasts { position:absolute; right:12px; bottom:12px; z-index:6; display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+  .demo .toast { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:14px; background:rgba(255,255,255,.8); backdrop-filter:blur(14px); box-shadow:inset 0 1px 0 #fff, 0 12px 26px -10px rgba(30,40,90,.4); }
+</style>
+
+<div class="ctrl">
+  <button onclick="all('go')">① 画面を移る</button>
+  <button onclick="all('add')">② 行が届く</button>
+  <button onclick="all('state')">③ 状態が変わる</button>
+  <button onclick="all('pal')">④ ⌘K パレット</button>
+  <button onclick="all('toast')">⑤ 通知</button>
+</div>
+
+<div class="options mo" id="mo"></div>
+
+<script>
+(function(){
+  const C = [
+    { id:'spring', L:'A', name:'ばね', spec:'520ms · 行き過ぎて戻る · 距離 14px',
+      d:520, ease:'cubic-bezier(.34,1.56,.64,1)', dist:14, scale:.92, blur:0, hoverD:'260ms', hoverT:'translateY(-2px) scale(1.01)', hoverS:'0 8px 18px -8px rgba(30,40,90,.3)',
+      desc:'物に重さと弾みがある。少し行き過ぎて戻る（iPhone の動きに近い）。いちばん生き生きして見えるが、何度も見ると賑やか。' },
+    { id:'smooth', L:'B', name:'なめらか', spec:'420ms · 速く出て静かに止まる · ぼかし 6px',
+      d:420, ease:'cubic-bezier(.16,1,.3,1)', dist:10, scale:.96, blur:6, hoverD:'200ms', hoverT:'translateY(-1px)', hoverS:'0 6px 14px -8px rgba(30,40,90,.25)',
+      desc:'すっと出て、長く静かに止まる。現れるものはぼかしが晴れながら来る。Liquid Glass（macOS 26）の動きに近く、上品で落ち着く。' },
+    { id:'snappy', L:'C', name:'きびきび', spec:'180ms · いまの動き · 距離 4px',
+      d:180, ease:'cubic-bezier(.2,.7,.2,1)', dist:4, scale:.98, blur:0, hoverD:'80ms', hoverT:'none', hoverS:'none',
+      desc:'いまの design.md の動き（150〜250ms、短い距離）。道具として最速で、邪魔をしない。その代わり、新しさは出にくい。' },
+  ];
+  const rows = [
+    ['busy','キーボード操作の見直し','keys.ts を一枚の表に','12:04'],
+    ['busy','同期の床を刻む','cloud.json を書くときに','03:41'],
+    ['idle','CI の tmux','ubuntu で tmux を入れる','1:02'],
+    ['end','無料枠の見張り','台帳の合計と見積もり','昨日'],
+    ['end','symlink の穴','控えの刈り取り','昨日'],
+  ];
+  const rowHtml = r => `<div class="row"><span class="dot ${r[0]}"></span><div><b>${r[1]}</b><div class="s">${r[2]}</div></div><span class="tm">${r[3]}</span></div>`;
+  const homePage = `<div class="lbl">実行中と最近</div><div class="list">${rows.map(rowHtml).join('')}</div>`;
+  const sessPage = `<div class="lbl">キーボード操作の見直し</div><div class="tabs"><span class="on">Claude</span><span>zsh</span><span>＋</span></div><div class="term busy-rim">› keys.ts の表を見直して<br><span style="opacity:.55">● Read packages/ui/src/keys.ts</span><br><span style="color:#ffb86b">● Edit</span> keys.ts <span style="color:#6fd3a5">+24</span><br><span style="color:#8fa6ff">● Bash</span> npx vitest run keys<br><span style="color:#6fd3a5">  ✓ 18 passed</span></div>`;
+
+  document.getElementById('mo').innerHTML = C.map(c => `
+    <div class="option" data-choice="${c.id}" onclick="toggleSelect(this)"><div class="dhead"><div class="letter">${c.L}</div><h3>${c.name}</h3></div><p class="spec">${c.spec}</p>
+      <div class="demo" data-c="${c.id}" style="--d:${c.d}ms;--ease:${c.ease};--hover-d:${c.hoverD};--hover-t:${c.hoverT};--hover-s:${c.hoverS}">
+        <div class="hdr glass"><b class="crumb">Home</b><span class="sp"></span><span class="srch">検索 ⌘K</span></div>
+        <div class="screen"><div class="page" data-p="home">${homePage}</div></div>
+        <div class="scrim"></div>
+        <div class="pal"><div class="in">セッション、プロジェクト、操作…</div><div class="it on">キーボード操作の見直しを開く</div><div class="it">新規セッション</div><div class="it">同期の床を刻むを開く</div><div class="it">設定を開く</div></div>
+        <div class="toasts"></div>
+      </div>
+      <p class="desc">${c.desc}</p></div>`).join('');
+
+  const cfg = id => C.find(c => c.id === id);
+  const enter = (c) => [{ opacity:0, transform:`translateY(${c.dist}px) scale(${1 - (1 - c.scale) / 3})`, filter:`blur(${c.blur}px)` }, { opacity:1, transform:'none', filter:'blur(0)' }];
+  const exit = (c) => [{ opacity:1, transform:'none', filter:'blur(0)' }, { opacity:0, transform:`translateY(${-c.dist / 2}px)`, filter:`blur(${c.blur}px)` }];
+
+  const act = {
+    go(demo, c) {
+      const screen = demo.querySelector('.screen'), cur = screen.querySelector('.page');
+      const toSess = cur.dataset.p === 'home';
+      const next = document.createElement('div'); next.className = 'page'; next.dataset.p = toSess ? 'sess' : 'home'; next.innerHTML = toSess ? sessPage : homePage;
+      demo.querySelector('.crumb').textContent = toSess ? 'セッション' : 'Home';
+      cur.animate(exit(c), { duration:c.d * .55, easing:'cubic-bezier(.4,0,1,1)', fill:'forwards' }).onfinish = () => cur.remove();
+      screen.appendChild(next);
+      next.animate(enter(c), { duration:c.d, delay:c.d * .25, easing:c.ease, fill:'backwards' });
+    },
+    add(demo, c) {
+      const list = demo.querySelector('.list'); if (!list) return;
+      const old = [...list.children], before = old.map(el => el.getBoundingClientRect().top);
+      const tmp = document.createElement('div'); tmp.innerHTML = rowHtml(['busy', '新しいセッション ' + (Math.random() * 90 + 10 | 0), 'たったいま起動した', '0:00']);
+      const nr = tmp.firstChild; list.prepend(nr);
+      old.forEach((el, i) => { const dy = before[i] - el.getBoundingClientRect().top; el.animate([{ transform:`translateY(${dy}px)` }, { transform:'none' }], { duration:c.d, easing:c.ease }); });
+      nr.animate([{ opacity:0, transform:`translateY(${-c.dist}px) scale(${c.scale + .04})`, filter:`blur(${c.blur}px)`, background:'#eef2ff' }, { opacity:1, transform:'none', filter:'blur(0)', background:'#fff' }], { duration:c.d * 1.2, easing:c.ease });
+      if (list.children.length > 6) list.lastElementChild.remove();
+    },
+    state(demo, c) {
+      const d = demo.querySelector('.list .row .dot');
+      if (d) { const w = d.classList.contains('wait'); d.classList.toggle('wait', !w); d.classList.toggle('busy', w);
+        d.animate([{ transform:'scale(1)' }, { transform:`scale(${c.id === 'snappy' ? 1.3 : 1.8})` }, { transform:'scale(1)' }], { duration:c.d, easing:c.ease }); }
+      const t = demo.querySelector('.term');
+      if (t) { const w = t.classList.contains('wait-rim'); t.classList.toggle('wait-rim', !w); t.classList.toggle('busy-rim', w); }
+    },
+    pal(demo, c) {
+      const pal = demo.querySelector('.pal'), scrim = demo.querySelector('.scrim'), srch = demo.querySelector('.srch');
+      if (pal.style.display === 'block') {
+        const a = pal.getBoundingClientRect(), b = srch.getBoundingClientRect();
+        pal.animate([{ transform:'none', opacity:1 }, { transform:`translate(${b.left - a.left}px, ${b.top - a.top}px) scale(${b.width / a.width}, ${b.height / a.height})`, opacity:0 }], { duration:c.d * .6, easing:'cubic-bezier(.4,0,1,1)' }).onfinish = () => { pal.style.display = 'none'; };
+        scrim.animate([{ opacity:1 }, { opacity:0 }], { duration:c.d * .6 }).onfinish = () => { scrim.style.display = 'none'; };
+        return;
+      }
+      pal.style.display = 'block'; scrim.style.display = 'block';
+      const a = pal.getBoundingClientRect(), b = srch.getBoundingClientRect();
+      pal.animate([{ transform:`translate(${b.left - a.left}px, ${b.top - a.top}px) scale(${b.width / a.width}, ${b.height / a.height})`, opacity:.4 }, { transform:'none', opacity:1 }], { duration:c.d, easing:c.ease });
+      [...pal.children].forEach((el, i) => el.animate([{ opacity:0, transform:`translateY(${c.dist / 2}px)` }, { opacity:1, transform:'none' }], { duration:c.d, delay:c.d * .3 + i * (c.id === 'snappy' ? 0 : 30), easing:c.ease, fill:'backwards' }));
+      scrim.animate([{ opacity:0 }, { opacity:1 }], { duration:c.d });
+    },
+    toast(demo, c) {
+      const box = demo.querySelector('.toasts');
+      const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = `<span class="dot wait"></span><span><b style="font-weight:600">論文の図を直す</b> が入力を待っています</span>`;
+      box.appendChild(t);
+      t.animate([{ opacity:0, transform:`translateX(${c.dist * 5}px) scale(${c.scale})`, filter:`blur(${c.blur}px)` }, { opacity:1, transform:'none', filter:'blur(0)' }], { duration:c.d * 1.1, easing:c.ease });
+      setTimeout(() => t.animate([{ opacity:1, transform:'none' }, { opacity:0, transform:`translateX(${c.dist * 3}px)` }], { duration:c.d * .6, easing:'cubic-bezier(.4,0,1,1)' }).onfinish = () => t.remove(), 2400);
+    },
+  };
+  window.all = (name) => document.querySelectorAll('.demo').forEach(demo => act[name](demo, cfg(demo.dataset.c)));
+  document.querySelectorAll('.demo').forEach(demo => demo.addEventListener('click', e => e.stopPropagation(), true));
+})();
+</script>

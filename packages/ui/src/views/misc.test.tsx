@@ -501,3 +501,14 @@ describe('ResolveProjectDialog のアイコン', () => {
     expect(iconOf('紐づけを削除')).toBe('unlink');
   });
 });
+
+describe('SettingsScreen の読む面', () => {
+  // settings.css の .settings-screen > section が白い面を敷く。節が直下から外れると、面が消える。
+  it('どの節も画面の直下に並ぶ', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><SettingsScreen {...settingsProps({})} /></IntentRoot>);
+    const root = container.querySelector('.settings-screen');
+    expect(root).not.toBeNull();
+    expect(root!.querySelectorAll(':scope > section').length).toBe(root!.querySelectorAll('section').length);
+    expect(root!.querySelectorAll(':scope > section').length).toBeGreaterThan(5);
+  });
+});

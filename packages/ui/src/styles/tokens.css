@@ -1,15 +1,21 @@
 :root {
-  --bg: #fbfbfa;
+  /* 光の背景。地の色と、その上をゆっくり漂う 2 つの淡い光。 */
+  --bg: #eef1f7;
+  --aura-1: #cfe0ff;
+  --aura-2: #e5d6ff;
+  /* 読む面。一覧、カード、会話は白で不透明にする。 */
   --surface: #ffffff;
-  --surface-2: #f3f2ee;
-  --line: #e6e4df;
-  --line-strong: #cfcbc3;
-  --ink: #1c1b19;
-  --ink-2: #5f5c55;
-  --ink-3: #9a968e;
-  --accent: #2f5fd0;
+  --surface-2: #f3f4f9;
+  --line: #eceef5;
+  --line-strong: #d9dbe6;
+  /* 文字。ガラスに合わせて少し青みに寄せた。白地で 16.9、6.3、3.4 : 1。 */
+  --ink: #1c1b2e;
+  --ink-2: #5f5e78;
+  --ink-3: #8a89a0;
+  --accent: #4a63e8;
+  --accent-hi: #6b8cff;
   --accent-ink: #ffffff;
-  --accent-soft: #e8eefc;
+  --accent-soft: #eef2ff;
   --busy: #c77a1a;
   --idle: #3a8f5c;
   --waiting: #a2452f;
@@ -23,8 +29,22 @@
   --st-done-soft: #e3f1e8;
   --st-archived: #66625b;
   --st-archived-soft: #edebe6;
-  --term-bg: #1c1b19;
-  --term-fg: #e8e6e1;
+  --term-bg: #1c1b2e;
+  --term-fg: #e8e6f0;
+  /* 浮くガラス。地の透け具合、ぼかし、縁、落ち影の値だけを持つ。
+     backdrop-filter の指定そのものは、浮く部品の規則にだけ書く（glass.test.ts が見張る）。 */
+  --glass-bg: rgba(255, 255, 255, 0.4);
+  --glass-bg-palette: rgba(255, 255, 255, 0.62);
+  --glass-bg-dialog: rgba(255, 255, 255, 0.72);
+  --glass-bg-toast: rgba(255, 255, 255, 0.82);
+  --glass-blur: blur(12px) saturate(1.9);
+  --glass-blur-strong: blur(18px) saturate(1.8);
+  --glass-blur-dialog: blur(18px) saturate(1.6);
+  --glass-blur-toast: blur(14px);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --glass-drop: 0 10px 28px -12px rgba(30, 40, 90, 0.3);
+  --glass-drop-lg: 0 24px 50px -16px rgba(30, 40, 90, 0.45);
+  --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
   --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
   --fs-xs: 11px;
@@ -34,11 +54,15 @@
   --fs-lg: 20px;
   --row-h: 28px;
   --u: 4px;
-  --r: 4px;
-  --r-lg: 6px;
+  --r: 8px;
+  --r-lg: 14px;
+  --r-xl: 16px;
+  --r-pill: 99px;
+  --float-gap: 8px;
   --main-w: 1200px;
   --sidebar-w: 180px;
-  --header-h: 44px;
+  --header-h: 40px;
+  --aura-period: 24s;
   --dur-fast: 80ms;
   --dur: 150ms;
   --dur-slow: 250ms;

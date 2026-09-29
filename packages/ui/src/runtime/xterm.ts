@@ -6,7 +6,7 @@ import type { TerminalLike } from './terminals.ts';
 /** 本物の xterm.js。テストでは TerminalLike の偽物を使うので、このファイルは main.tsx だけが読む。 */
 export function createXterm(): TerminalLike {
   const css = getComputedStyle(document.documentElement);
-  const term = new Terminal({ fontFamily: "'JetBrains Mono Variable', Menlo, monospace", fontSize: 13, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, theme: { background: css.getPropertyValue('--term-bg').trim() || '#1c1b19', foreground: css.getPropertyValue('--term-fg').trim() || '#e8e6e1' } });
+  const term = new Terminal({ fontFamily: "'JetBrains Mono Variable', Menlo, monospace", fontSize: 13, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, theme: { background: css.getPropertyValue('--term-bg').trim() || '#1c1b2e', foreground: css.getPropertyValue('--term-fg').trim() || '#e8e6f0' } });
   const fit = new FitAddon();
   term.loadAddon(fit);
   return {
