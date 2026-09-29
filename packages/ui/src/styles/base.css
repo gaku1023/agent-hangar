@@ -63,6 +63,11 @@ a:hover { text-decoration: underline; }
    名前と状態の点は session-morph-name と session-morph-dot の組として、器とは別に動く。 */
 ::view-transition-group(session-morph) { overflow: clip; }
 ::view-transition-old(session-morph), ::view-transition-new(session-morph) { height: 100%; object-fit: none; object-position: left center; }
+/* 名前と状態の点の写しも引き伸ばさない。
+   名前の箱は、一覧の行では行の幅いっぱい、上段では文字の幅だけである。
+   既定のままだと、動きの初めに上段の名前の写しが行の幅まで拡大され、文字が 2 倍以上に膨らむ。 */
+::view-transition-old(session-morph-name), ::view-transition-new(session-morph-name) { height: 100%; object-fit: none; object-position: left center; }
+::view-transition-old(session-morph-dot), ::view-transition-new(session-morph-dot) { height: 100%; object-fit: none; object-position: left center; }
 
 /* サイドバーのワードマーク。ロゴは淡い角丸の地に載せ、動かさない。 */
 .brand { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 0.5) calc(var(--u) * 2) calc(var(--u) * 3); font-weight: 650; letter-spacing: -0.01em; }

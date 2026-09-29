@@ -90,4 +90,12 @@ describe('画面の移り変わり', () => {
     expect(css).toContain('::view-transition-old(session-morph), ::view-transition-new(session-morph) { height: 100%; object-fit: none; object-position: left center; }');
     expect(css).toContain('::view-transition-group(session-morph) { overflow: clip; }');
   });
+  // 名前の箱は、一覧の行では行の幅いっぱい、上段では文字の幅だけである。
+  // 写しを既定のまま器の幅に合わせると、動きの初めに上段の名前が行の幅まで拡大され、文字が 2 倍以上に膨らむ。
+  it('名前と状態の点の写しも引き伸ばさない', () => {
+    const css = strip(read('base.css'));
+    for (const name of ['session-morph-name', 'session-morph-dot']) {
+      expect(css, name).toContain(`::view-transition-old(${name}), ::view-transition-new(${name}) { height: 100%; object-fit: none; object-position: left center; }`);
+    }
+  });
 });
