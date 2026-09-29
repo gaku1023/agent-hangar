@@ -365,6 +365,41 @@ describe('最後のツール呼び出し（session_activity）', () => {
     indexFile(db, alphaSub(), { deviceId: DEV });
     expect(activity(r.sessionId)).toEqual(before);
   });
+
+  it('主線のファイルを忘れると、待っている問いごと activity の行も消える', () => {
+    const first = indexFile(db, alphaMain(), { deviceId: DEV });
+    appendJson(alphaMain().path, askCall('q1', 'どちらにしますか？'));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(activity(first.sessionId)).toBeDefined();
+    forgetTranscriptFile(db, alphaMain().path);
+    expect(activity(first.sessionId)).toBeUndefined();
+  });
+
+  it('サブエージェントのファイルを忘れても、主線の activity は残る', () => {
+    const first = indexFile(db, alphaMain(), { deviceId: DEV });
+    appendJson(alphaMain().path, askCall('q1', 'どちらにしますか？'));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    const before = activity(first.sessionId);
+    forgetTranscriptFile(db, alphaSub().path);
+    expect(activity(first.sessionId)).toEqual(before);
+  });
+
+  it('版が上がって作り直すと最後から数え直し、ツール呼び出しが無くなれば行ごと消える', () => {
+    const first = indexFile(db, alphaMain(), { deviceId: DEV });
+    appendJson(alphaMain().path, askCall('q1', 'どちらにしますか？'));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(activity(first.sessionId)).toEqual({ tool: 'AskUserQuestion', summary: 'AskUserQuestion', tool_id: 'q1', question: 'どちらにしますか？' });
+    // 版だけを上げて同じ内容を作り直しても、最後の呼び出しは書き直されて変わらない。
+    const r2 = indexFile(db, alphaMain(), { deviceId: DEV, indexerVersion: INDEXER_VERSION + 1 });
+    expect(r2.changed).toBe(true);
+    expect(activity(first.sessionId)).toEqual({ tool: 'AskUserQuestion', summary: 'AskUserQuestion', tool_id: 'q1', question: 'どちらにしますか？' });
+    // ツール呼び出しの無い内容に切り詰めてから作り直すと、積み直した先頭にはツール呼び出しが無く、行ごと消える。
+    const lines = fs.readFileSync(alphaMain().path, 'utf8').split('\n').filter(Boolean);
+    fs.writeFileSync(alphaMain().path, lines.slice(0, 3).join('\n') + '\n');
+    indexFile(db, alphaMain(), { deviceId: DEV, indexerVersion: INDEXER_VERSION + 1 });
+    expect(activity(first.sessionId)).toBeUndefined();
+  });
 });
 
 describe('他端末の写しの索引化', () => {

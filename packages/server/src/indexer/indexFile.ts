@@ -70,6 +70,10 @@ export function forgetTranscriptFile(db: Db, filePath: string): void {
     // 残すと、同じ会話を別のパス（写しから手元へ切り替わったとき）で積み直したぶんと足し合わさり、
     // event_index が正しいのに使用量のゲージだけが静かに倍になる。indexFile の reset 側と同じ 1 文である。
     db.prepare('delete from usage_daily where session_id = ? and file_path = ?').run(row.session_id, filePath);
+    // 「いま何をしているか」は主線の行だけが持つ。主線のファイルそのものを手放すときは、
+    // 残すと後で息を吹き返したセッションに、答え済みの問いなど古い「いま」を見せてしまう。
+    // サブエージェントのファイルを手放すだけなら、主線の行はそのまま正しいので触らない。
+    if (row.agent_id === null) db.prepare('delete from session_activity where session_id = ?').run(row.session_id);
     db.prepare('delete from transcript_files where path = ?').run(filePath);
   });
   run();
