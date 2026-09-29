@@ -23,7 +23,7 @@
 - `palette.css` の `.field-row {`、`.dialog-promote .btn { white-space: nowrap; }`、`.dialog-promote .dialog-foot { flex-wrap: wrap;` の 3 つの文字列は `overlays.test.tsx` が見ているので、そのまま残す。
 - `base.css` の `animation: pop var(--dur-pop) var(--ease)` の文字列は `tokens.test.ts` が見ているので、そのまま残す。
 - 表示名は「Hangar」。リポジトリとパッケージの名前は `agent-hangar` のまま。
-- UI の出どころは `http://127.0.0.1:4177`。窓を動かす権限（`core:window:allow-start-dragging`）はこの出どころにだけ、この 1 つだけ与える。既定の `capabilities/default.json` は変えない。
+- UI の出どころは `http://127.0.0.1:4177`。窓を動かす権限（`core:window:allow-start-dragging`）とダブルクリックで拡大する権限（`core:window:allow-internal-toggle-maximize`）は、この出どころにだけ、この 2 つだけ与える。既定の `capabilities/default.json` は変えない。
 - サーバの CSP（`packages/server/src/http/app.ts` の `CSP`）はこの計画では変えない。変える必要が出たら止めて利用者に諮る。
 - ポート番号でプロセスを止めない。止めてよいのは、ビルドの後に、LISTEN している利用者の dev サーバ 1 つだけ（`lsof -nP -iTCP:4177 -sTCP:LISTEN -t` で PID を採り、`ps -o command= -p <PID>` で tsx のサーバだと確かめてから）。Vite（5173）には触らない。
 - 手元での `tauri build` は時間がかかるので、この計画では 2 回まで（Task 1 と Task 8）とする。`cargo check` は回数を制限しない。
@@ -1222,8 +1222,8 @@ EOF
 左にナビだけのサイドバー、上にヘッダー、残りがメインである。
 サイドバーとヘッダーは、中身の上に浮くガラスである（「見た目と動き」）。
 メインはヘッダーの下をくぐって流れ、ヘッダーの高さと隙間の分だけ上に余白を取ってから始まる。
-`.app` では標準のタイトルバーを消し、信号の 3 点をサイドバーの左上に乗せ、ヘッダーの空いた所を掴んで窓を動かす。
-そのために、UI の出どころ（`http://127.0.0.1:4177`）に窓を動かす権限（`core:window:allow-start-dragging`）を 1 つだけ与え（`capabilities/remote-drag.json`）、殻は頁に `data-shell="desktop"` の印を付けて、サイドバーはその印があるときだけ信号の 3 点の分の上の余白を取る。
+`.app` では標準のタイトルバーを消し、信号の 3 点をサイドバーの左上に乗せ、ヘッダーの空いた所を掴んで窓を動かし、そこをダブルクリックすると窓が拡大する。
+そのために、UI の出どころ（`http://127.0.0.1:4177`）に窓を動かす権限（`core:window:allow-start-dragging`）とダブルクリックで拡大する権限（`core:window:allow-internal-toggle-maximize`）の 2 つだけ与え（`capabilities/remote-drag.json`）、殻は頁に `data-shell="desktop"` の印を付けて、サイドバーはその印があるときだけ信号の 3 点の分の上の余白を取る。
 ```
 
 - [ ] **Step 2: 「見た目と動き」の最初の段落を書き換える**

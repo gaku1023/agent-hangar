@@ -74,12 +74,12 @@ describe('capabilities', () => {
     expect(cap('default.json').permissions).toEqual(['core:default']);
     expect(cap('default.json').remote).toBeUndefined();
   });
-  // UI はサーバ（127.0.0.1:4177）から読み込む。そこから呼べる殻の機能は、窓を動かす 1 つだけにする。
-  it('UI の出どころには、窓を動かす権限を 1 つだけ与える', () => {
+  // UI はサーバ（127.0.0.1:4177）から読み込む。そこから呼べる殻の機能は、窓を動かす権限と、ダブルクリックで拡大する権限の 2 つだけにする。
+  it('UI の出どころには、窓を動かす権限と、ダブルクリックで拡大する権限の 2 つだけ与える', () => {
     const c = cap('remote-drag.json');
     expect(c.windows).toEqual(['main']);
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
-    expect(c.permissions).toEqual(['core:window:allow-start-dragging']);
+    expect(c.permissions).toEqual(['core:window:allow-start-dragging', 'core:window:allow-internal-toggle-maximize']);
   });
 });
 
