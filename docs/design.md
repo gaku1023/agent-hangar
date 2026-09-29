@@ -756,7 +756,11 @@ UI は `history.replaceState` で URL から `?t=` を消すので、鍵はア�
 枠を止めるために `frame-ancestors 'none'` と `X-Frame-Options` の両方を返す。
 CSP の残りは配っている `dist` の作りに合わせて絞る。
 インライン script は無いので `script-src 'self'` だけでよく、style は React の style 属性と xterm が実行時に書くので `'unsafe-inline'` が要る。
-font と img は `@fontsource` の woff と favicon の SVG のために `data:` を許す。
+font は `@fontsource` の woff のために `data:` を許す。
+img もサイドバーのロゴのために `data:` を許す。
+ロゴの原図（`packages/ui/src/brand/logo.svg`）は Vite がインライン化する上限より小さいので、ビルドで data URI として JS に埋め込まれるからである。
+favicon は `/assets/` に別のファイルとして出るので、`data:` を使わない。
+img の `data:` を外すと、サイドバーのロゴが描かれなくなる。
 `connect-src` は同じ元と、ターミナルの WebSocket のためのループバックだけにする。
 `object-src 'none'`、`base-uri 'none'`、`form-action 'self'` も付ける。
 
@@ -1167,7 +1171,7 @@ WKWebView の `allowsBackForwardNavigationGestures` も、ブラウザの手勢�
 参照するのは macOS 26 の Liquid Glass である。
 画面は奥から「光の背景」「読む面」「浮くガラス」の 3 枚で組む。
 光の背景は地の `--bg` に 2 つの淡い光（`--aura-1`、`--aura-2`）を置き、`--aura-period`（24 秒）で漂わせる。reduced motion では止める。
-読む面（一覧、カード、会話、設定の中身）は白で不透明にし、ガラスを重ねない。
+読む面（一覧、カード、会話、設定の中身、プロジェクトの右レール）は白で不透明にし、ガラスを重ねない。
 ガラスはヘッダー、サイドバー、⌘K パレット、ダイアログ、通知、切断の帯にだけ使い、`backdrop-filter` は必ず `-webkit-backdrop-filter` と併記する（`styles/glass.test.ts` が置き場所を見張る）。
 色はデザイントークンとして `:root` に定義する。
 面は白と淡い青灰、アクセントは 1 色（`--accent`、主ボタンだけ `--accent-hi` からの淡いグラデーション）、状態色（busy、idle、終了、エラー）は控えめな彩度にする。
