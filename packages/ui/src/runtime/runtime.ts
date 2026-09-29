@@ -20,6 +20,12 @@ export type RuntimeDeps = {
   focus?: (target: Exclude<FocusTarget, 'terminal'>) => void;
   /** 窓が前面に来たことを知らせる。返り値で購読を外す。 */
   onWindowFocus?: (cb: () => void) => () => void;
+  /**
+   * 状態の変化を画面へ出す。
+   * commit を呼ぶまで、getState は前に描いた状態を返し、React はそれを描き続ける。
+   * 画面の移り変わりを View Transitions で包むための口である（runtime/present.ts）。無ければその場で出す。
+   */
+  present?: (commit: () => void, prev: State, next: State) => void;
 };
 
 export type Runtime = {
@@ -38,9 +44,14 @@ const JOIN_TOKEN_TTL_MS = 120_000;
 /** Mediator の効果を実行し、サーバとブラウザの出来事を入力に変える。 */
 export function createRuntime(deps: RuntimeDeps): Runtime {
   let state = initialState();
+  // React が読む状態。present が commit を呼ぶまで、前に描いた state のままでいる。
+  // 遷移の計算は常に最新の state で行い、描く側だけを遅らせる。
+  let shown = state;
   let store = initialStore();
   const listeners = new Set<() => void>();
   const notify = () => { for (const l of listeners) l(); };
+  const commit = () => { if (shown !== state) { shown = state; notify(); } };
+  const present = deps.present ?? ((c: () => void) => c());
   const setStore = (next: Store) => { if (next !== store) { store = next; notify(); } };
   let ws: WsClient | null = null;
   let searchSeq = 0;
@@ -277,14 +288,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       if (input.event.type === 'transcript.appended') subagentsAsked.delete(input.event.sessionId);
     }
     const r = transition(state, input);
-    if (r.state !== state) { state = r.state; notify(); }
+    if (r.state !== state) { const prev = shown; state = r.state; present(commit, prev, state); }
     for (const eff of r.effects) runEffect(eff);
   }
 
   return {
     dispatch,
     emit: (intent) => dispatch({ kind: 'intent', intent }),
-    getState: () => state,
+    getState: () => shown,
     getStore: () => store,
     subscribe: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
     canGoBack: () => deps.location.depth() > 0,
@@ -299,6 +310,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         sv[k.slice(3)] = { ...defaultSessionView(), ...rest };
       }
       state = { ...state, sessionView: sv };
+      shown = state;
       ws = deps.ws({
         onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),
         // 切れた時刻を添える。Mediator は純粋な遷移なので、画面がいつから古いかを自分では測れない。

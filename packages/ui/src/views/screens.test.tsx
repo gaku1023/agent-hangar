@@ -37,6 +37,10 @@ describe('HomeScreen', () => {
     fireEvent.click(open);
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'w2' });
   });
+  it('実行中の札はセッションの id を、広がる元の印に持つ', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ running: [runningCard()] })} /></IntentRoot>);
+    expect(container.querySelector('.live-card')!.getAttribute('data-morph-id')).toBe('s1');
+  });
   it('実行中の札は、対象が空ならツール名だけを出す', () => {
     const { container } = render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ running: [runningCard({ activity: { tool: 'AskUserQuestion', summary: '' } })] })} /></IntentRoot>);
     expect(container.querySelector('.live-act')!.textContent).toBe('AskUserQuestion');

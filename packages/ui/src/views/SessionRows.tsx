@@ -104,7 +104,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   return (
     <div className="rows-host" data-testid="session-rows" ref={hostRef} tabIndex={0} onKeyDown={onKeyDown}>
       <VirtualList items={props.rows} rowHeight={SESSION_ROW_H} height={props.height} keyOf={(r) => r.id} render={(r, i) => (
-        <div className="row row-2" role="row" tabIndex={0} data-cursor={i === cursor ? 'true' : undefined}
+        <div className="row row-2" role="row" tabIndex={0} data-cursor={i === cursor ? 'true' : undefined} data-morph-id={r.id}
           onClick={() => emit({ type: 'session.open', id: r.id })} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'session.open', id: r.id }); }}>
           <StatusDot status={r.live} />
           <span className="row-main">

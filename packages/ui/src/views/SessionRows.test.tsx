@@ -26,6 +26,10 @@ describe('SessionRows', () => {
     render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} variant="project" /></IntentRoot>);
     expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();
   });
+  it('行はセッションの id を、広がる元の印に持つ', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SessionRows rows={[row('a'), row('b')]} height={400} variant="recent" /></IntentRoot>);
+    expect([...container.querySelectorAll('.row-2')].map((r) => r.getAttribute('data-morph-id'))).toEqual(['a', 'b']);
+  });
 });
 
 const p3Row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({

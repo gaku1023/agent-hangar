@@ -4,6 +4,7 @@ import { ApiConflictError, type ApiClient } from './api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
+import type { State } from '../mediator/types.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [] };
 const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null };
@@ -16,7 +17,7 @@ function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: st
   return h;
 }
 
-function harness(overrides: Partial<ApiClient> = {}) {
+function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps> = {}) {
   const api: ApiClient = {
     bootstrap: vi.fn(async () => boot),
     // 3 件のうち、開くと最新の 1 件、遡ると 1 つ古い 1 件、追記の取り込みでは前向きに 1 件。
@@ -57,6 +58,7 @@ function harness(overrides: Partial<ApiClient> = {}) {
     terminals: fakeTerminals(),
     focus: vi.fn(),
     onWindowFocus: (cb) => { focusListeners.add(cb); return () => focusListeners.delete(cb); },
+    ...extra,
   };
   const rt = createRuntime(deps);
   return { rt, go, api, wsHandlers, timers, store, terminals: deps.terminals as ReturnType<typeof fakeTerminals>, setHash: deps.location.setHash, focus: deps.focus as ReturnType<typeof vi.fn>, fireFocus: () => { for (const l of focusListeners) l(); } };
@@ -204,6 +206,40 @@ describe('createRuntime', () => {
     rt.subscribe(cb);
     rt.dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message: 'x' } });
     expect(cb).toHaveBeenCalled();
+  });
+  it('present があれば、commit を呼ぶまで getState は前に描いた状態を返す', async () => {
+    const calls: { commit: () => void; prev: State; next: State }[] = [];
+    const { rt, wsHandlers, setHash } = harness({}, { present: (commit, prev, next) => { calls.push({ commit, prev, next }); } });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    // 起動からここまでの変化も present を通る。先に出しておく。
+    for (const c of calls.splice(0)) c.commit();
+    expect(rt.getState().screen).toEqual({ name: 'home' });
+    setHash('#/projects');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.prev.screen).toEqual({ name: 'home' });
+    expect(calls[0]!.next.screen).toEqual({ name: 'projects' });
+    expect(rt.getState().screen).toEqual({ name: 'home' });
+    const seen = vi.fn();
+    rt.subscribe(seen);
+    calls[0]!.commit();
+    expect(rt.getState().screen).toEqual({ name: 'projects' });
+    expect(seen).toHaveBeenCalledTimes(1);
+    // 同じ変化を 2 度出しても、描き直しは増えない。
+    calls[0]!.commit();
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+  it('commit の前に次の変化が来ても、commit で最後の状態に追いつく', async () => {
+    const commits: (() => void)[] = [];
+    const { rt, wsHandlers, setHash } = harness({}, { present: (commit) => { commits.push(commit); } });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    setHash('#/projects');
+    setHash('#/settings');
+    commits[0]!();
+    expect(rt.getState().screen).toEqual({ name: 'settings' });
   });
 });
 

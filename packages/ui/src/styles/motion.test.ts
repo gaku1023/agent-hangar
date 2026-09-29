@@ -74,3 +74,10 @@ describe('現れる動き', () => {
     expect(keyframes('pop')).toContain('transform: scale(0.96);');
   });
 });
+
+describe('画面の移り変わり', () => {
+  // 出る画面と入る画面を同じ長さと曲線で重ねる。揃えないと、変わらないヘッダとサイドバーが途中で明滅する。
+  it('View Transitions の組は、どれも --dur と --ease-out で動く', () => {
+    expect(strip(read('base.css'))).toContain('::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: var(--dur); animation-timing-function: var(--ease-out); }');
+  });
+});

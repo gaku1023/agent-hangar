@@ -50,6 +50,11 @@ a:hover { text-decoration: underline; }
 
 @keyframes enter { from { opacity: 0; transform: translateY(var(--rise)); filter: blur(var(--blur-in)); } }
 
+/* 画面の移り変わり（View Transitions、runtime/present.ts）。
+   root は出る画面と入る画面を重ねて替える。old と new の長さと曲線を揃えるのは、変わらないヘッダとサイドバーが途中で明滅しないためである。
+   行が上段へ広がる組と、パレットが錠剤へ戻る組は、位置と大きさを同じ長さで移す。 */
+::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: var(--dur); animation-timing-function: var(--ease-out); }
+
 /* サイドバーのワードマーク。ロゴは淡い角丸の地に載せ、動かさない。 */
 .brand { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 0.5) calc(var(--u) * 2) calc(var(--u) * 3); font-weight: 650; letter-spacing: -0.01em; }
 .brand-mark { flex: none; border-radius: 6px; background: linear-gradient(165deg, #f7f9ff, #dfe6ff); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7); }

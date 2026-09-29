@@ -71,7 +71,7 @@ function LiveCard(props: { card: RunningCard; onOpen: () => void }) {
   const c = props.card;
   const width = Math.max(0, Math.min(100, c.contextPercent ?? 0));
   return (
-    <div className="live-card" role="button" tabIndex={0} onClick={props.onOpen} onKeyDown={(e) => { if (e.key === 'Enter') props.onOpen(); }}>
+    <div className="live-card" role="button" tabIndex={0} data-morph-id={c.id} onClick={props.onOpen} onKeyDown={(e) => { if (e.key === 'Enter') props.onOpen(); }}>
       <div className="live-head"><StatusDot status={c.live} /><span className="live-name">{c.name}</span><span className="live-elapsed mono">{c.elapsed}</span></div>
       <div className="live-meta">{c.meta}</div>
       <div className="live-act mono">{c.activity ? <><i>{c.activity.tool}</i>{c.activity.summary !== '' && <> {c.activity.summary}</>}</> : <span className="live-note">{c.note}</span>}</div>
