@@ -16,7 +16,7 @@ const base: SessionProps = { id: 's1', name: 'name', live: 'busy', cwd: '/w/alph
     { kind: 'tool', seq: 2, summary: 'Edit /a', name: 'Edit', inputJson: '{}', result: { text: 'File not found', isError: true }, when: '10:02', subagent: null },
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
-  contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false };
+  contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, liveLabel: '作業中 12 分', filesChanged: 3 };
 
 describe('SessionScreen', () => {
   it('ヘッダー、要約の開閉、切替、続きの読み込み', () => {
@@ -72,6 +72,27 @@ describe('SessionScreen', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} loadingSession /></IntentRoot>);
     expect(screen.getByText('セッションを読み込んでいます')).toBeInTheDocument();
     expect(screen.queryByText('セッションが見つかりません')).toBeNull();
+  });
+  it('上段に状態の点、名前、要約の 1 文、操作を置き、その下にチップを並べる', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} memo="スワイプは実機で" cost="$1.82" terminalStatus={null} /></IntentRoot>);
+    const hero = container.querySelector('.session-hero')!;
+    expect(hero.getAttribute('data-morph-hero')).toBe('s1');
+    expect(hero.querySelector('.dot')).not.toBeNull();
+    expect(hero.querySelector('h1.session-name')).toHaveTextContent('name');
+    expect(hero.querySelector('.session-oneliner')).toHaveTextContent('ONE');
+    expect(hero.querySelector('button')).not.toBeNull();
+    const chips = [...container.querySelectorAll('.chips > .chip')].map((c) => c.textContent);
+    expect(chips).toEqual(['作業中 12 分', 'alpha', 'fable 5.1 · high', 'コンテキスト 未取得', '$1.82', '変更 3', 'メモ：スワイプは実機で']);
+    // 要約の 1 文は上段にだけ出し、下の要約の帯には重ねない。
+    expect(screen.getAllByText('ONE')).toHaveLength(1);
+  });
+  it('細かな事実はチップの下に注記で並べる', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
+    const facts = container.querySelector('.session-facts')!;
+    expect(facts).toHaveTextContent('/w/alpha');
+    expect(facts).toHaveTextContent('2 ターン');
+    expect(facts).toHaveTextContent('1.2M tokens');
+    expect(facts).toHaveTextContent('開始 2 時間前');
   });
 });
 

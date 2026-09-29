@@ -23,11 +23,11 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
 
   const header = (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      {/* 上段。一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。 */}
+      <div className="session-hero" data-morph-hero={id}>
         <StatusDot status={props.live} />
-        <h1 className="h1" style={{ margin: 0 }}>{props.name}</h1>
-        {props.projectName && <a href="#" onClick={(e) => { e.preventDefault(); if (props.projectId) emit({ type: 'project.open', id: props.projectId }); }}>{props.projectName}</a>}
-        <span className="spacer" />
+        <h1 className="session-name">{props.name}</h1>
+        {props.summary?.oneLiner ? <span className="session-oneliner">{props.summary.oneLiner}</span> : <span className="spacer" />}
         {props.fromScratch && <span className="faint">再開すると cwd はスクラッチのままです</span>}
         {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id })}><Icon name="promote" />プロジェクトに昇格</button>}
         {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined })}><Icon name="openTerminal" />ターミナルで開く</button>}
@@ -39,30 +39,38 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {props.canResumeHere && <button className="btn" onClick={() => emit({ type: 'session.resumeHere', id })}><Icon name="resumeHere" />この PC で再開</button>}
         <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}><Icon name="openEditor" />VS Code で開く</button>
       </div>
-      <div className="mono faint" style={{ display: 'flex', gap: 16, margin: '4px 0 8px', flexWrap: 'wrap' }}>
-        <span>{props.cwd}</span><span>{props.model}{props.effort ? ` · ${props.effort}` : ''}</span>
+      {/* チップの列。状態と経過、プロジェクト、モデルと effort、コンテキスト使用率、推定コスト、変更数、1 行メモ、PR、ロック。 */}
+      <div className="chips">
+        {props.liveLabel && <span className="chip">{props.liveLabel}</span>}
+        {props.projectName && <a className="chip" href="#" onClick={(e) => { e.preventDefault(); if (props.projectId) emit({ type: 'project.open', id: props.projectId }); }}>{props.projectName}</a>}
+        {props.model && <span className="chip mono">{props.model}{props.effort ? ` · ${props.effort}` : ''}</span>}
         {/* コンテキストの使用率と推定コストは statusline の追記からしか届かない。
             追記を入れていなければずっと null なので、空の棒ではなく「未取得」と書く。
             0% と見分けが付かない見せ方にしない。ヘッダーの使用量ゲージと言い方を揃える。 */}
         {props.contextPercent === null
-          ? <span className="faint">コンテキスト 未取得</span>
+          ? <span className="chip faint">コンテキスト 未取得</span>
           : (
-            <span className="gauge-wrap" title="コンテキスト使用率">
+            <span className="chip gauge-wrap" title="コンテキスト使用率">
               <span className="faint">コンテキスト</span>
               <span className="gauge-bar" role="meter" aria-label="コンテキスト使用率" aria-valuenow={props.contextPercent} aria-valuemin={0} aria-valuemax={100}>
                 <span className="gauge-fill" data-high={props.contextPercent >= 80 ? 'true' : undefined} style={{ width: `${Math.max(0, Math.min(100, props.contextPercent))}%` }} />
               </span>
             </span>
           )}
-        {props.cost ? <span className="mono muted">{props.cost}</span> : <span className="faint">コスト 未取得</span>}
+        {props.cost ? <span className="chip mono">{props.cost}</span> : <span className="chip faint">コスト 未取得</span>}
         {props.contextPercent === null && !props.cost && <a className="hint-link" href={formatRoute({ name: 'settings' })} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: { name: 'settings' } }); }}>statusline を入れると出ます</a>}
-        <span>{props.turns} ターン</span><span>{props.tokens} tokens</span>
-        {props.prUrl && <a href={props.prUrl} target="_blank" rel="noreferrer">PR</a>}
+        {props.filesChanged > 0 && <span className="chip">変更 {props.filesChanged}</span>}
+        {props.memo && <span className="chip chip-memo">メモ：{props.memo}</span>}
+        {props.prUrl && <a className="chip" href={props.prUrl} target="_blank" rel="noreferrer">PR</a>}
+        {/* ロックの文言は presenter が lock.label に組み立てている（「<端末名> で実行中」「<端末名> が応答がありません」）。
+            View は色だけを変え、最終確認の時刻を下の注記に添えてどれだけ途絶えているかを見せる。 */}
+        {props.lock && <span className={`chip ${props.lock.stale ? 'warn' : 'lock'}`}>{props.lock.label}</span>}
+      </div>
+      {/* 細かな事実。判断の手がかりだが、チップほど目立たせない。 */}
+      <div className="session-facts mono faint">
+        <span>{props.cwd}</span><span>{props.turns} ターン</span><span>{props.tokens} tokens</span>
         <span>開始 {props.started}</span><span>最終 {props.lastActivity}</span>
         {run && <span>run {run.kind} {run.started}</span>}
-        {/* ロックの文言は presenter が lock.label に組み立てている（「<端末名> で実行中」「<端末名> が応答がありません」）。
-            View は色だけを変え、最終確認の時刻を添えてどれだけ途絶えているかを見せる。 */}
-        {props.lock && <span className={props.lock.stale ? 'warn' : 'lock'}>{props.lock.label}</span>}
         {props.lock && <span>最終確認 {props.lock.heartbeat}</span>}
         {props.remoteOnly && <span>本文は他の端末にあります</span>}
         {!props.hasTranscript && <span>本文がありません</span>}
@@ -75,7 +83,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
     <div className="list" style={{ padding: '8px 12px', marginBottom: 12 }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
         {props.summary
-          ? <><b>{props.summary.title}</b><span className="muted">{props.summary.oneLiner}</span><span className="faint">{props.summary.stateLabel}</span></>
+          ? <><b>{props.summary.title}</b><span className="faint">{props.summary.stateLabel}</span></>
           : <span className="faint">要約はまだありません</span>}
         {props.summaryPending && <span className="faint">要約を作成しています</span>}
         {props.summaryError && <span className="faint" title={props.summaryError}>要約を作成できませんでした</span>}

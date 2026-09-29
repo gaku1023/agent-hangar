@@ -184,6 +184,13 @@ describe('presentSession', () => {
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
     expect(q.summaryOpen).toBe(true);
   });
+  it('実行中なら状態と経過の札を作り、変更数を渡す', () => {
+    const store = storeWith();
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ liveLabel: '作業中 2 時間', filesChanged: 1 });
+    expect(presentSession(initialState(), store, NOW, 's2').liveLabel).toBeNull();
+    store.sessions.s1 = { ...store.sessions.s1!, live: 'waiting' };
+    expect(presentSession(initialState(), store, NOW, 's1').liveLabel).toBe('入力待ち 2 時間');
+  });
   it('遡って足したページも seq の順に並べ、残りは総数と持っている数で決める', () => {
     let store = storeWith();
     const k = eventsKey('s1', null);
