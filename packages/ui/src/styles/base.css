@@ -1,5 +1,8 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+/* 横スワイプで戻る／進むをするとき、頁ごと（サイドバーも）がゴムのように引っ張られないようにする。
+   動くのは端から出る矢印の丸だけ。中の一覧のスクロールは、それぞれの箱の中で今までどおり動く。 */
+html, body { overscroll-behavior: none; }
 body {
   background: var(--bg);
   color: var(--ink);

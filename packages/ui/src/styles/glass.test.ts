@@ -33,6 +33,10 @@ describe('骨格', () => {
     const tops = all.filter((r) => r.selector.includes('.sidebar') && r.body.includes('padding-top'));
     expect(tops.map((r) => r.selector)).toEqual(["[data-shell='desktop'] .sidebar"]);
   });
+  it('横スワイプで戻る／進むをしても、頁ごと（サイドバーも）は引っ張られない', () => {
+    const r = all.find((r) => r.selector === 'html, body');
+    expect(r?.body).toMatch(/overscroll-behavior:\s*none;/);
+  });
   it('背景の光は漂い、reduced motion では止まる', () => {
     expect(base).toMatch(/\.shell::before \{[^}]*animation: aura-drift var\(--aura-period\)/);
     expect(base).toContain('@media (prefers-reduced-motion: reduce) { .shell::before { animation: none; } }');
