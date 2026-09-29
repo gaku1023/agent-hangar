@@ -1,9 +1,10 @@
 /* コマンドパレットと昇格ダイアログ（Task 25） */
 
 /* パレットは .dialog の器をそのまま使い、ガラスだけを少し濃く、ぼかしを強くする。
-   開閉の 98% から 100% のスケールとフェード（--dur）も .dialog の pop を受け継ぐ。
+   開く動きは CommandPalette.tsx が、ヘッダの検索欄の錠剤から広げる。.dialog の pop は使わない。
+   広げる計算は左上を原点にするので、transform-origin を 0 0 にする。
    一覧を縁まで敷き詰めたいので、内側の余白と段の隙間だけを外す。 */
-.palette { width: min(640px, 90vw); padding: calc(var(--u) * 2); gap: 0; background: var(--glass-bg-palette); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); }
+.palette { width: min(640px, 90vw); padding: calc(var(--u) * 2); gap: 0; background: var(--glass-bg-palette); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); transform-origin: 0 0; animation: none; }
 .palette-input { width: 100%; height: calc(var(--u) * 10); border: none; border-radius: var(--r); background: rgba(255, 255, 255, 0.85); font-size: var(--fs-md); }
 .palette-input:focus { border-color: transparent; box-shadow: none; }
 .palette-list { list-style: none; margin: 0; padding: var(--u) 0 0; max-height: 50vh; overflow: auto; }

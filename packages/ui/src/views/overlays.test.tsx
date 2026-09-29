@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { PaletteItem } from '../presenters/palette.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { CommandPalette } from './CommandPalette.tsx';
 import { PromoteDialog, PromotedDialog } from './PromoteDialog.tsx';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
@@ -95,6 +96,39 @@ describe('CommandPalette', () => {
     expect(onIntent).not.toHaveBeenCalled();
     fireEvent.click(container.querySelector('.overlay')!);
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.close' });
+  });
+
+  describe('開く動き', () => {
+    let restore = () => {};
+    const animate = vi.fn();
+    const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+    beforeEach(() => {
+      restore = fakeMotionTokens();
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        if (this.id === 'global-search') return rect(100, 10, 200, 30);
+        if (this.classList.contains('palette')) return rect(200, 60, 400, 120);
+        return rect(0, 0, 0, 0);
+      });
+    });
+    afterEach(() => { restore(); animate.mockReset(); vi.restoreAllMocks(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; document.getElementById('global-search')?.remove(); });
+
+    it('ヘッダの検索欄の錠剤から広がって開き、入力欄はその描画でフォーカスを持つ', () => {
+      const pill = document.createElement('input');
+      pill.id = 'global-search';
+      document.body.append(pill);
+      render(<IntentRoot onIntent={() => {}}><CommandPalette query="" items={items} onQuery={() => {}} /></IntentRoot>);
+      expect(animate).toHaveBeenCalledTimes(1);
+      expect(animate.mock.contexts[0]).toBe(document.querySelector('.palette'));
+      const [frames, opts] = animate.mock.calls[0]!;
+      expect(frames).toEqual([{ transform: 'translate(-100px, -50px) scale(0.5, 0.25)', opacity: 0.4 }, { transform: 'none', opacity: 1 }]);
+      expect(opts).toEqual({ duration: 420, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+      expect(document.activeElement).toBe(screen.getByLabelText('コマンドを検索'));
+    });
+    it('検索欄が無ければ、その場でふわりと現れる', () => {
+      render(<IntentRoot onIntent={() => {}}><CommandPalette query="" items={items} onQuery={() => {}} /></IntentRoot>);
+      expect(animate.mock.calls[0]![0]).toEqual([{ transform: 'scale(0.96)', opacity: 0.4 }, { transform: 'none', opacity: 1 }]);
+    });
   });
 });
 
