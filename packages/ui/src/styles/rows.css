@@ -60,7 +60,7 @@
 .row-proj { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
 .row-sub { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-size: var(--fs-sm); color: var(--ink-2); }
 .row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.row-memo { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
+.row-memo { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
 .row-sub .memo-input { flex: 1; }
 .row-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 2px; font-size: var(--fs-xs); color: var(--ink-3); }
 .row-meta { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }

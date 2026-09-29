@@ -14,6 +14,10 @@ describe('2 段の行', () => {
   it('1 段の部品の高さ（--row-h）は 28px のまま', () => {
     expect(read('./tokens.css')).toContain('--row-h: 28px;');
   });
+  it('メモは利用者の書いた本文なので、注記の色ではなく本文の色で出す', () => {
+    // --ink-3 は注記の 3 : 1 までしか約束しない。本文には 4.5 : 1 を超える --ink-2 を使う。
+    expect(read('./rows.css')).toMatch(/\.row-memo \{[^}]*color: var\(--ink-2\);/);
+  });
   it('一致した語の印は淡い地で、文字の色は変えない', () => {
     expect(read('./rows.css')).toMatch(/\.hit \{[^}]*background: var\(--hit\);[^}]*color: inherit;/);
   });
