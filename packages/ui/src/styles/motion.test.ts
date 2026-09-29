@@ -54,3 +54,23 @@ describe('JS の動き', () => {
     expect(src('RollingNumber.tsx')).not.toMatch(/setTimeout\([^)]*,\s*\d+\)/);
   });
 });
+
+describe('現れる動き', () => {
+  const base = strip(read('base.css'));
+  const keyframes = (name: string) => base.match(new RegExp(`@keyframes ${name} \\{ from \\{([^}]*)\\} \\}`))?.[1] ?? '';
+  // 現れるものは、ぼかしが晴れながら来る。
+  it.each([
+    ['.screen', 'enter'],
+    ['.dialog', 'pop'],
+    ['.toast', 'slide'],
+    ['.conn-banner', 'drop-in'],
+  ])('%s は %s で、--dur と --ease-out で、ぼかしが晴れながら現れる', (selector, name) => {
+    expect(base).toMatch(new RegExp(`${selector.replace('.', '\\.')} \\{[^}]*animation: ${name} var\\(--dur\\) var\\(--ease-out\\);`));
+    expect(keyframes(name)).toContain('opacity: 0;');
+    expect(keyframes(name)).toContain('filter: blur(var(--blur-in));');
+  });
+  it('画面は --rise だけ上がって入り、ダイアログは 96% から開く', () => {
+    expect(keyframes('enter')).toContain('transform: translateY(var(--rise));');
+    expect(keyframes('pop')).toContain('transform: scale(0.96);');
+  });
+});
