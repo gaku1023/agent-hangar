@@ -83,6 +83,12 @@ describe('capabilities', () => {
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
     expect(c.permissions).toEqual(['core:window:allow-start-dragging', 'core:window:allow-internal-toggle-maximize']);
   });
+  // 権限の出どころのポートと、殻がサーバを立てるポートは別のファイルにある。片方だけ変えると、ヘッダを掴んでも窓が動かなくなる。
+  it('権限の出どころのポートは、殻がサーバを立てるポート（server.rs の PORT）と同じ', () => {
+    const port = read('src-tauri/src/server.rs').match(/pub const PORT: u16 = (\d+);/)?.[1];
+    expect(port).toBeDefined();
+    expect(cap('remote-drag.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
+  });
 });
 
 describe('殻の印', () => {
