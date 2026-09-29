@@ -18,23 +18,32 @@ a:hover { text-decoration: underline; }
 .app-boot { display: grid; place-items: center; height: 100%; color: var(--ink-2); }
 
 /* レイアウト */
-/* 2 行目は接続が切れているあいだの帯。帯が無いときは auto が 0 に潰れるので、何も描かない。 */
-.shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; grid-template-rows: var(--header-h) auto 1fr; height: 100%; }
+/* 奥から「光の背景」「読む面」「浮くガラス」の 3 枚で組む。
+   光の背景は .shell::before の 1 枚に描き、ゆっくり漂わせる。
+   2 行目は接続が切れているあいだの帯。帯が無いときは auto が 0 に潰れるので、何も描かない。 */
+.shell { position: relative; isolation: isolate; display: grid; grid-template-columns: calc(var(--sidebar-w) + var(--float-gap)) minmax(0, 1fr); grid-template-rows: auto auto 1fr; height: 100%; overflow: hidden; }
+.shell::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%); animation: aura-drift var(--aura-period) ease-in-out infinite alternate; }
+@keyframes aura-drift { to { transform: translate(5%, -4%) rotate(8deg) scale(1.05); } }
+@media (prefers-reduced-motion: reduce) { .shell::before { animation: none; } }
+/* 浮くガラス。ぼかしはこの節と、切断の帯、ダイアログ、パレット、通知の規則にだけ書く（glass.test.ts が見張る）。 */
 /* 行が増えても全部を覆うように、端から端まで跨がせる。 */
-.sidebar { grid-row: 1 / -1; border-right: 1px solid var(--line); background: var(--surface); padding: calc(var(--u) * 3) 0; }
+.sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; margin: var(--float-gap) 0 var(--float-gap) var(--float-gap); padding: calc(var(--u) * 2.5) calc(var(--u) * 2); border-radius: var(--r-xl); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); overflow: auto; }
 /* デスクトップの殻の中では、信号の 3 点がサイドバーの左上に乗る。殻が付ける data-shell の印を見て、その分だけ上を空ける。 */
 [data-shell='desktop'] .sidebar { padding-top: calc(var(--u) * 10); }
-.header { grid-column: 2; display: flex; align-items: center; gap: calc(var(--u) * 3); padding: 0 calc(var(--u) * 4); border-bottom: 1px solid var(--line); background: var(--surface); }
-.main { grid-column: 2; overflow: auto; }
-.main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 4); }
+.header { grid-column: 2; grid-row: 1; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 3); height: var(--header-h); margin: var(--float-gap) var(--float-gap) 0 var(--float-gap); padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 4); border-radius: var(--r-pill); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); }
+/* 中身はヘッダの下をくぐって流れる。上の余白は、浮いたヘッダの高さと上下の隙間の分である。 */
+.main { grid-column: 2; grid-row: 1 / -1; overflow: auto; padding-top: calc(var(--header-h) + var(--float-gap) * 2); }
+/* 切断の帯が出ている間は、帯の分も空ける。帯は 1 行（--row-h）に上下の余白が付く。 */
+.shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 3 + var(--row-h) + var(--u) * 2); }
+.main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4); }
 .screen { animation: fade var(--dur-fast) var(--ease); }
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
-/* ナビ */
-.nav-item { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 4); color: var(--ink-2); border: 0; background: none; width: 100%; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
-.nav-item:hover { background: var(--surface-2); }
-.nav-item[aria-current='page'] { color: var(--ink); background: var(--accent-soft); }
+/* ナビ。選択中の項目は、ガラスの上に錠剤が浮く。 */
+.nav-item { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 2.5); margin-bottom: 1px; color: var(--ink-2); border: 0; border-radius: var(--r-pill); background: none; width: 100%; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.nav-item:hover { background: rgba(255, 255, 255, 0.5); }
+.nav-item[aria-current='page'] { color: var(--ink); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
 
 /* ボタンと入力 */
 .btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); cursor: pointer; transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
@@ -103,8 +112,8 @@ a:hover { text-decoration: underline; }
 .search-box { flex: 1; max-width: 420px; }
 .spacer { flex: 1; }
 
-/* 切断の帯。ヘッダーの下に降りてきて、押せる逃げ道をひとつ添える。 */
-.conn-banner { grid-column: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); padding: var(--u) calc(var(--u) * 4); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 8%, var(--surface)); border-bottom: 1px solid color-mix(in srgb, var(--error) 30%, var(--line)); animation: drop-in var(--dur-slow) var(--ease); }
+/* 切断の帯。浮いたヘッダの下に降りてきて、押せる逃げ道をひとつ添える。通知と同じガラスに、赤を少し混ぜる。 */
+.conn-banner { grid-column: 2; grid-row: 2; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); min-height: var(--row-h); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; padding: var(--u) calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur-slow) var(--ease); }
 .conn-retry { color: color-mix(in srgb, var(--error) 70%, var(--ink-3)); }
 .conn-banner .btn { margin-left: auto; }
 @keyframes drop-in { from { transform: translateY(-4px); opacity: 0; } to { transform: none; opacity: 1; } }
