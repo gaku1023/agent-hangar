@@ -80,4 +80,10 @@ describe('画面の移り変わり', () => {
   it('View Transitions の組は、どれも --dur と --ease-out で動く', () => {
     expect(strip(read('base.css'))).toContain('::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: var(--dur); animation-timing-function: var(--ease-out); }');
   });
+  // 行の器は上段の大きさへ広がるが、写しは引き伸ばさない。札の写しが 3 倍に伸びた影になるのを防ぐ。
+  it('行の器の写しは引き伸ばさず、左の中ほどに寄せて器で切る', () => {
+    const css = strip(read('base.css'));
+    expect(css).toContain('::view-transition-old(session-morph), ::view-transition-new(session-morph) { height: 100%; object-fit: none; object-position: left center; }');
+    expect(css).toContain('::view-transition-group(session-morph) { overflow: clip; }');
+  });
 });

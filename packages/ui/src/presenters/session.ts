@@ -104,7 +104,8 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     // 相手の run は止めに行かないので、同じ run の続きである再開とフォークは閉じたままにする。
     lock: lockProps(s.lock, now), remoteOnly: s.remoteOnly, canResumeHere: s.lock === null ? s.remoteOnly : s.lock.stale,
     contextPercent: s.stats.contextPercent, cost: costLabel(s.stats.costUsd), filesChanged: s.stats.filesChanged,
-    liveLabel: s.live ? `${LIVE_WORD[s.live]} ${durationLabel(now - (s.startedAt ?? now))}` : null,
+    // 作業中は Home の実行中の札と同じく始まりから、入力待ちと休みは Home の要対応と休みの札と同じく最後の動きから数える。
+    liveLabel: s.live ? `${LIVE_WORD[s.live]} ${durationLabel(now - ((s.live === 'busy' ? s.startedAt : s.lastActivityAt) ?? now))}` : null,
     artifacts: artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(a, now)),
     summaryPending: store.summaryPending[id] === true, summaryError: state.summaryFailed[id] ?? null,
     fromScratch: s.fromScratch, canPromote: !!(s.projectId && store.projects[s.projectId]?.isScratch),

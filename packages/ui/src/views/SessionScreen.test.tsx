@@ -80,6 +80,8 @@ describe('SessionScreen', () => {
     expect(hero.querySelector('.dot')).not.toBeNull();
     expect(hero.querySelector('h1.session-name')).toHaveTextContent('name');
     expect(hero.querySelector('.session-oneliner')).toHaveTextContent('ONE');
+    // 1 文は省略記号で切れることがあるので、全文を title に持たせる。
+    expect(hero.querySelector('.session-oneliner')).toHaveAttribute('title', 'ONE');
     expect(hero.querySelector('button')).not.toBeNull();
     const chips = [...container.querySelectorAll('.chips > .chip')].map((c) => c.textContent);
     expect(chips).toEqual(['作業中 12 分', 'alpha', 'fable 5.1 · high', 'コンテキスト 未取得', '$1.82', '変更 3', 'メモ：スワイプは実機で']);

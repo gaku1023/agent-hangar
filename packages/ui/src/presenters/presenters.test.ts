@@ -188,8 +188,14 @@ describe('presentSession', () => {
     const store = storeWith();
     expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ liveLabel: '作業中 2 時間', filesChanged: 1 });
     expect(presentSession(initialState(), store, NOW, 's2').liveLabel).toBeNull();
+  });
+  // Home の要対応と休みの札は最後の動きから数える。同じセッションで待ちの長さが 2 つに割れないよう揃える。
+  it('入力待ちと休みは最後の動きから、作業中は始まりから数える', () => {
+    const store = storeWith();
     store.sessions.s1 = { ...store.sessions.s1!, live: 'waiting' };
-    expect(presentSession(initialState(), store, NOW, 's1').liveLabel).toBe('入力待ち 2 時間');
+    expect(presentSession(initialState(), store, NOW, 's1').liveLabel).toBe('入力待ち 1 分');
+    store.sessions.s1 = { ...store.sessions.s1!, live: 'idle' };
+    expect(presentSession(initialState(), store, NOW, 's1').liveLabel).toBe('休み 1 分');
   });
   it('遡って足したページも seq の順に並べ、残りは総数と持っている数で決める', () => {
     let store = storeWith();

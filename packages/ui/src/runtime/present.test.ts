@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
-import { createPresent, PALETTE_MORPH, SESSION_MORPH, type PresentEnv } from './present.ts';
+import { createPresent, PALETTE_MORPH, SESSION_MORPH, SESSION_MORPH_DOT, SESSION_MORPH_NAME, type PresentEnv } from './present.ts';
 
 const at = (screen: State['screen'], overlay: State['overlay'] = { kind: 'none' }): State => ({ ...initialState(), screen, overlay });
 const $ = (sel: string) => document.querySelector<HTMLElement>(sel)!;
@@ -10,18 +10,28 @@ const $ = (sel: string) => document.querySelector<HTMLElement>(sel)!;
 const name = (sel: string) => $(sel).style.viewTransitionName || '';
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-/** View Transitions の偽物。本物は写しを取ってから非同期に update を呼ぶので、呼ぶ時を試験が決める。 */
+/** View Transitions の偽物。本物は写しを取ってから非同期に update を呼ぶので、呼ぶ時を試験が決める。
+ * 遷移ごとに終わり方を持ち、finish と skip は既定で最後の遷移を、引数で i 番目の遷移を終わらせる。 */
 function fake(over: Partial<PresentEnv> = {}) {
   const updates: (() => void)[] = [];
-  let settle: { ok: () => void; ng: (e: unknown) => void } | null = null;
+  const settles: { ok: () => void; ng: (e: unknown) => void }[] = [];
   const start = vi.fn((update: () => void) => {
     updates.push(update);
-    const finished = new Promise<void>((ok, ng) => { settle = { ok: () => ok(), ng }; });
+    const finished = new Promise<void>((ok, ng) => { settles.push({ ok: () => ok(), ng }); });
     return { ready: finished, finished };
   });
-  const env: PresentEnv = { startViewTransition: start, reducedMotion: () => false, flushSync: (fn) => fn(), root: document, pressed: () => null, focused: () => null, ...over };
-  return { env, start, run: () => updates.shift()!(), finish: () => settle!.ok(), skip: () => settle!.ng(new DOMException('skipped', 'AbortError')) };
+  const env: PresentEnv = { startViewTransition: start, reducedMotion: () => false, flushSync: (fn) => fn(), root: document, pressed: () => null, focused: () => null, visible: () => true, ...over };
+  const pick = (i?: number) => settles[i ?? settles.length - 1]!;
+  return { env, start, run: () => updates.shift()!(), finish: (i?: number) => pick(i).ok(), skip: (i?: number) => pick(i).ng(new DOMException('skipped', 'AbortError')) };
 }
+
+// 行、Home の実行中の札、セッション画面の上段。点と名前を持つ。
+const row = (id: string, s = 's1') => `<div class="row" id="${id}" data-morph-id="${s}"><span class="dot" id="${id}-dot"></span><span class="row-main"><span class="row-name" id="${id}-name">名前</span></span></div>`;
+const card = (id: string, s = 's1') => `<div class="live-card" id="${id}" data-morph-id="${s}"><div class="live-head"><span class="dot" id="${id}-dot"></span><span class="live-name" id="${id}-name">名前</span></div></div>`;
+const hero = (s = 's1') => `<div class="session-hero" id="hero" data-morph-hero="${s}"><span class="dot" id="hero-dot"></span><h1 class="session-name" id="hero-name">名前</h1></div>`;
+const trio = (id: string) => [name(`#${id}`), name(`#${id}-dot`), name(`#${id}-name`)];
+const MORPHS = [SESSION_MORPH, SESSION_MORPH_DOT, SESSION_MORPH_NAME];
+const NONE = ['', '', ''];
 
 beforeEach(() => { document.body.innerHTML = ''; });
 
@@ -128,5 +138,123 @@ describe('createPresent', () => {
     createPresent(f.env)(() => order.push('commit'), at({ name: 'home' }), at({ name: 'projects' }));
     f.run();
     expect(order).toEqual(['flush', 'commit', 'flushed']);
+  });
+  it('行が上段へ広がるとき、器と点と名前の 3 組を付け、出る側は描き替えの前に外し、終わったら入る側も外す', async () => {
+    document.body.innerHTML = row('row');
+    const f = fake({ pressed: () => $('#row-name') });
+    // 出る側を残したまま入る側を足し、描き替えの前に出る側から外したことを確かめる。
+    createPresent(f.env)(() => { document.body.insertAdjacentHTML('beforeend', hero()); }, at({ name: 'sessions' }), at({ name: 'session', id: 's1' }));
+    expect(trio('row')).toEqual(MORPHS);
+    f.run();
+    expect(trio('row')).toEqual(NONE);
+    expect(trio('hero')).toEqual(MORPHS);
+    f.finish();
+    await flush();
+    expect(trio('hero')).toEqual(NONE);
+  });
+  it('Home の札から開くと、札の点と名前が上段の点と名前へ動く', () => {
+    document.body.innerHTML = card('card');
+    const f = fake({ pressed: () => $('#card') });
+    createPresent(f.env)(() => { document.body.innerHTML = hero(); }, at({ name: 'home' }), at({ name: 'session', id: 's1' }));
+    expect(trio('card')).toEqual(MORPHS);
+    f.run();
+    expect(trio('hero')).toEqual(MORPHS);
+  });
+  it('戻るときは上段の器と点と名前から行の 3 つへ縮み、拒否されても入る側の名前を外す', async () => {
+    document.body.innerHTML = hero();
+    const f = fake();
+    createPresent(f.env)(() => { document.body.insertAdjacentHTML('beforeend', row('row')); }, at({ name: 'session', id: 's1' }), at({ name: 'home' }));
+    expect(trio('hero')).toEqual(MORPHS);
+    f.run();
+    expect(trio('hero')).toEqual(NONE);
+    expect(trio('row')).toEqual(MORPHS);
+    f.skip();
+    await flush();
+    expect(trio('row')).toEqual(NONE);
+  });
+  it('最近の行から開いたセッションは、戻るときも実行中の札ではなく最近の行へ縮む', () => {
+    const home = card('card') + row('row');
+    document.body.innerHTML = home;
+    const f = fake({ pressed: () => $('#row') });
+    const present = createPresent(f.env);
+    present(() => { document.body.innerHTML = hero(); }, at({ name: 'home' }), at({ name: 'session', id: 's1' }));
+    f.run();
+    present(() => { document.body.innerHTML = home; }, at({ name: 'session', id: 's1' }), at({ name: 'home' }));
+    f.run();
+    expect(trio('row')).toEqual(MORPHS);
+    expect(trio('card')).toEqual(NONE);
+  });
+  it('札から開いたセッションは、戻るときも札へ縮む', () => {
+    const home = row('row') + card('card');
+    document.body.innerHTML = home;
+    const f = fake({ pressed: () => $('#card-name') });
+    const present = createPresent(f.env);
+    present(() => { document.body.innerHTML = hero(); }, at({ name: 'home' }), at({ name: 'session', id: 's1' }));
+    f.run();
+    present(() => { document.body.innerHTML = home; }, at({ name: 'session', id: 's1' }), at({ name: 'home' }));
+    f.run();
+    expect(trio('card')).toEqual(MORPHS);
+    expect(trio('row')).toEqual(NONE);
+  });
+  it('戻る先は見えている行に限る。好む種類が見えていなければ、見えている別の行へ縮む', () => {
+    document.body.innerHTML = hero();
+    const f = fake({ visible: (el) => el.id !== 'hidden' });
+    createPresent(f.env)(() => { document.body.innerHTML = row('hidden') + row('shown'); }, at({ name: 'session', id: 's1' }), at({ name: 'sessions' }));
+    f.run();
+    expect(trio('hidden')).toEqual(NONE);
+    expect(trio('shown')).toEqual(MORPHS);
+  });
+  it('見えている行が 1 つも無ければ、戻る先に名前を付けない', () => {
+    document.body.innerHTML = hero();
+    const f = fake({ visible: (el) => el.id === 'hero' });
+    createPresent(f.env)(() => { document.body.innerHTML = row('row'); }, at({ name: 'session', id: 's1' }), at({ name: 'sessions' }));
+    f.run();
+    expect(trio('row')).toEqual(NONE);
+  });
+  it('見えていない行は、押されていても広げる元にしない', () => {
+    document.body.innerHTML = row('row');
+    const f = fake({ pressed: () => $('#row'), visible: () => false });
+    createPresent(f.env)(() => { document.body.innerHTML = hero(); }, at({ name: 'sessions' }), at({ name: 'session', id: 's1' }));
+    expect(trio('row')).toEqual(NONE);
+    f.run();
+    expect(trio('hero')).toEqual(NONE);
+  });
+  it('パレットから別のダイアログへ移るときは、錠剤へ戻る組を作らず、画面が替わらなければ包まない', () => {
+    document.body.innerHTML = '<div class="dialog palette"></div><input id="global-search">';
+    const f = fake();
+    const commit = vi.fn(() => { $('.palette').remove(); });
+    createPresent(f.env)(commit, at({ name: 'home' }, { kind: 'palette' }), at({ name: 'home' }, { kind: 'newSession', projectId: null, scratch: false }));
+    expect(f.start).not.toHaveBeenCalled();
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(name('#global-search')).toBe('');
+  });
+  it('パレットから別のダイアログへ移りながら画面が替わるときは、包むが錠剤の組は作らない', () => {
+    document.body.innerHTML = '<div class="dialog palette"></div><input id="global-search">';
+    const f = fake();
+    createPresent(f.env)(() => { $('.palette').remove(); }, at({ name: 'home' }, { kind: 'palette' }), at({ name: 'projects' }, { kind: 'newSession', projectId: null, scratch: false }));
+    expect(f.start).toHaveBeenCalledTimes(1);
+    expect(name('.palette')).toBe('');
+    f.run();
+    expect(name('#global-search')).toBe('');
+  });
+  it('最初の update が走る前に 2 回続けて出しても、最後の状態に追いつき、名前は 1 つも残らない', async () => {
+    document.body.innerHTML = row('row');
+    const f = fake({ pressed: () => $('#row') });
+    const present = createPresent(f.env);
+    const shown: string[] = [];
+    // 1 回目は一覧から開き、2 回目はその update が走る前に戻る（Enter の直後の ⌘[）。
+    present(() => { shown.push('session'); document.body.innerHTML = hero(); }, at({ name: 'sessions' }), at({ name: 'session', id: 's1' }));
+    present(() => { shown.push('sessions'); document.body.innerHTML = row('row'); }, at({ name: 'session', id: 's1' }), at({ name: 'sessions' }));
+    expect(f.start).toHaveBeenCalledTimes(2);
+    f.run();
+    f.run();
+    expect(shown).toEqual(['session', 'sessions']);
+    // 本物では、2 回目が 1 回目を割り込んで捨てる。
+    f.skip(0);
+    f.finish(1);
+    await flush();
+    expect($('#row')).not.toBeNull();
+    expect(document.querySelector('#hero')).toBeNull();
+    for (const el of document.querySelectorAll<HTMLElement>('*')) expect(el.style.viewTransitionName || '').toBe('');
   });
 });

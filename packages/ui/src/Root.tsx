@@ -34,6 +34,7 @@ import { ShortcutsDialog } from './views/ShortcutsDialog.tsx';
 import { Shell } from './views/Shell.tsx';
 import { SwipeHint } from './views/SwipeHint.tsx';
 import { blocksSwipe } from './views/swipeTarget.ts';
+import { motionMs } from './views/primitives/motion.ts';
 import { TerminalHostContext } from './views/TerminalPane.tsx';
 import { ToastStack } from './views/ToastStack.tsx';
 
@@ -193,7 +194,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       if (r === 'back' && !rt.canGoBack()) { hide(); return; }
       rt.emit({ type: r === 'back' ? 'nav.back' : 'nav.forward' });
       show(r, 1, true, true);
-      timer = setTimeout(hide, 260);
+      // data-done が付くと --dur-exit で薄れて消える。片付けは display: none にするので、薄れ切ってから片付ける。
+      // 少しの余りは、タイマーが遷移の最後のコマより先に走り、消え際が一瞬で切れて見えるのを防ぐためである。
+      timer = setTimeout(hide, motionMs('--dur-exit') + 10);
     };
     const onWheel = (e: WheelEvent) => {
       // ブラウザには元から手勢がある。二重に持たず、標準の戻る進むに任せる。

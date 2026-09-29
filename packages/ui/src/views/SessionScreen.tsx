@@ -27,7 +27,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       <div className="session-hero" data-morph-hero={id}>
         <StatusDot status={props.live} />
         <h1 className="session-name">{props.name}</h1>
-        {props.summary?.oneLiner ? <span className="session-oneliner">{props.summary.oneLiner}</span> : <span className="spacer" />}
+        {props.summary?.oneLiner ? <span className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
         {props.fromScratch && <span className="faint">再開すると cwd はスクラッチのままです</span>}
         {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id })}><Icon name="promote" />プロジェクトに昇格</button>}
         {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined })}><Icon name="openTerminal" />ターミナルで開く</button>}

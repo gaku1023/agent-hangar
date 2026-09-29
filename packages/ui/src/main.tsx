@@ -41,6 +41,21 @@ const terminals = createTerminalHost({ wsUrl: (tab) => `${wsProto}://${location.
 const PRESS_FRESH_MS = 1000;
 let pressed: { el: Element; at: number } | null = null;
 window.addEventListener('pointerdown', (e) => { if (e.target instanceof Element) pressed = { el: e.target, at: performance.now() }; }, true);
+// 行が見えているか。.main の枠のうち、浮いているヘッダと切断の帯より下を見える範囲とする。
+// 仮想の一覧は先読みの行を枠の外にも描くので、一覧のスクロールの枠とも重ねて見る。
+const visibleInMain = (el: Element): boolean => {
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return false;
+  const main = document.querySelector('.main');
+  if (!main) return true;
+  const box = main.getBoundingClientRect();
+  let top = box.top;
+  for (const cover of document.querySelectorAll('.header, .conn-banner')) top = Math.max(top, cover.getBoundingClientRect().bottom);
+  let bottom = box.bottom;
+  const list = el.closest('.list-scroll');
+  if (list) { const lr = list.getBoundingClientRect(); top = Math.max(top, lr.top); bottom = Math.min(bottom, lr.bottom); }
+  return r.bottom > top && r.top < bottom && r.right > box.left && r.left < box.right;
+};
 const present = createPresent({
   startViewTransition: typeof document.startViewTransition === 'function' ? (update) => document.startViewTransition(update) : undefined,
   reducedMotion: () => matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -48,6 +63,7 @@ const present = createPresent({
   root: document,
   pressed: () => (pressed && performance.now() - pressed.at < PRESS_FRESH_MS ? pressed.el : null),
   focused: () => document.activeElement,
+  visible: visibleInMain,
 });
 const runtime = createRuntime({
   api,

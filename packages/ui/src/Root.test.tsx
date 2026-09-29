@@ -7,6 +7,7 @@ import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
 import { SWIPE_STALE_HIDE_MS } from './swipe.ts';
+import { fakeMotionTokens } from './test/motion.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [] };
 
@@ -401,6 +402,25 @@ describe('キーの見直し', () => {
     endGesture();
     expect(go).toHaveBeenCalledWith(-1);
     expect(hint.dataset.done).toBe('true');
+  });
+
+  it('動いた後の矢印は、--dur-exit の消える動きが終わってから片付ける', async () => {
+    // 片付けは display: none にするので、消える動きより先に片付けると最後の数コマが飛ぶ。
+    const restore = fakeMotionTokens({ '--dur-exit': '120ms' });
+    try {
+      const { setHash } = await mounted();
+      act(() => setHash('#/projects'));
+      phaseOn();
+      const hint = screen.getByTestId('swipe-hint');
+      beginGesture();
+      for (let i = 0; i < 6; i++) wheel(-20);
+      endGesture();
+      expect(hint.dataset.done).toBe('true');
+      await act(() => new Promise((r) => setTimeout(r, 80)));
+      expect(hint.dataset.dir).toBe('back');
+      await act(() => new Promise((r) => setTimeout(r, 80)));
+      expect(hint.dataset.dir).toBeUndefined();
+    } finally { restore(); }
   });
 
   it('位相が届く環境でも、時間では確定しない', async () => {

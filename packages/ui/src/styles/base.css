@@ -54,6 +54,12 @@ a:hover { text-decoration: underline; }
    root は出る画面と入る画面を重ねて替える。old と new の長さと曲線を揃えるのは、変わらないヘッダとサイドバーが途中で明滅しないためである。
    行が上段へ広がる組と、パレットが錠剤へ戻る組は、位置と大きさを同じ長さで移す。 */
 ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: var(--dur); animation-timing-function: var(--ease-out); }
+/* 行の器は上段の大きさへ広がるが、写しは引き伸ばさない。
+   既定のままだと写しが器の幅いっぱいに伸び、Home の札は 3 倍ほどの高さの影になる。
+   写しは元の大きさのまま左の中ほどに置き、はみ出す分は器で切る。
+   名前と状態の点は session-morph-name と session-morph-dot の組として、器とは別に動く。 */
+::view-transition-group(session-morph) { overflow: clip; }
+::view-transition-old(session-morph), ::view-transition-new(session-morph) { height: 100%; object-fit: none; object-position: left center; }
 
 /* サイドバーのワードマーク。ロゴは淡い角丸の地に載せ、動かさない。 */
 .brand { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 0.5) calc(var(--u) * 2) calc(var(--u) * 3); font-weight: 650; letter-spacing: -0.01em; }
