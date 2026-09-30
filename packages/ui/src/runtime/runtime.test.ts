@@ -344,6 +344,17 @@ describe('起動とターミナル', () => {
     await flush();
     expect(b.rt.getStore().runs.r1).toBeDefined();
   });
+  it('目次から跳ばした結果を、開いたターンの状態に戻す', async () => {
+    const jumpToPrompt = vi.fn(async () => ({ found: false as const, reason: 'notFound' as const }));
+    const { rt, setHash } = harness({ jumpToPrompt });
+    rt.start();
+    setHash('#/session/s1');
+    rt.emit({ type: 'turn.open', sessionId: 's1', seq: 4, runId: 'r1', jump: { heads: ['a'], index: 0, from: 'bottom' } });
+    expect(rt.getState().sessionView.s1?.turnJump).toEqual({ seq: 4, status: 'pending' });
+    await flush();
+    expect(jumpToPrompt).toHaveBeenCalledWith('r1', { heads: ['a'], index: 0, from: 'bottom' });
+    expect(rt.getState().sessionView.s1?.turnJump).toEqual({ seq: 4, status: 'notFound' });
+  });
   it('iTerm2 から Terminal.app に落ちたらトーストで知らせる', async () => {
     const { rt } = harness({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
     rt.start();

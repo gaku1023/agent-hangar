@@ -50,6 +50,10 @@ export type Intent =
   | { type: 'transcript.follow'; sessionId: SessionId; follow: boolean }
   | { type: 'transcript.loadMore'; sessionId: SessionId }
   | { type: 'transcript.selectAgent'; sessionId: SessionId; agentId: string | null }
+  // ターンの目次。開いたターンの中身を見せ、run が生きていれば左の Claude のタブもその指示へ跳ばす。
+  // 跳ぶ先の数え方は目次の並びで決まるので、View が書き出しの切り出しを添えて送る。
+  | { type: 'turn.open'; sessionId: SessionId; seq: number; runId: RunId | null; jump: { heads: string[]; index: number; from: 'top' | 'bottom' } | null }
+  | { type: 'turn.latest'; sessionId: SessionId; runId: RunId | null }
   | { type: 'index.rebuild' }
   | { type: 'overlay.close' }
   | { type: 'toast.dismiss'; id: string }

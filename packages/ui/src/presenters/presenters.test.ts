@@ -78,6 +78,11 @@ describe('ローカルコマンドの記録', () => {
   it('生の記録を出すときはそのまま出す', () => {
     expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] }).filter((i) => i.kind === 'system')).toHaveLength(5);
   });
+  it('読み込んだスキルの本文は、スキルの名前の 1 行にする', () => {
+    const skill = sys(9, 'Base directory for this skill: /Users/me/.claude/plugins/cache/x/superpowers/6.3.0/skills/brainstorming\n\n# Brainstorming Ideas Into Designs\n\n長い本文…');
+    expect(buildItems([skill], { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['スキル brainstorming を読み込みました']);
+    expect(buildItems([skill], { showThinking: false, showRaw: true, subagents: [] })[0]).toMatchObject({ text: skill.text });
+  });
 });
 
 describe('本文の無い system', () => {
@@ -249,6 +254,25 @@ describe('presentSession', () => {
     const q = presentSession(state, store, NOW, 's1');
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
     expect(q.summaryOpen).toBe(true);
+  });
+  it('ターンの目次を作り、開いたターンの中身だけを渡す', () => {
+    let store = storeWith();
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 10, nextSeq: null, events: [
+      { kind: 'user', seq: 5, ts: NOW, text: 'はじめの指示' },
+      { kind: 'tool_call', seq: 6, toolId: 't1', name: 'Bash', input: {}, summary: 'Bash ls' },
+      { kind: 'assistant', seq: 7, text: '見ました' },
+      { kind: 'user', seq: 8, ts: NOW, text: '次の指示' },
+      { kind: 'assistant', seq: 9, text: 'はい' },
+    ] }, false);
+    const closed = presentSession(initialState(), store, NOW, 's1');
+    expect(closed.turnRows.map((t) => [t.seq, t.head, t.tools, t.open])).toEqual([[5, 'はじめの指示', 1, false], [8, '次の指示', 0, false]]);
+    // seq 0 から 4 はまだ読み込んでいないので、目次は会話の最初から始まっていない。
+    expect(closed.turnsComplete).toBe(false);
+    expect(closed.openTurnItems).toEqual([]);
+    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), openTurn: 5 } } };
+    const open = presentSession(state, store, NOW, 's1');
+    expect(open.turnRows[0]!.open).toBe(true);
+    expect(open.openTurnItems.map((i) => i.kind)).toEqual(['user', 'tool', 'assistant']);
   });
   it('実行中なら状態と経過の札を作り、変更数を渡す', () => {
     const store = storeWith();

@@ -19,7 +19,7 @@ function ToolItem({ sessionId, item }: { sessionId: string; item: Extract<Transc
   );
 }
 
-function renderItem(sessionId: string, it: TranscriptItem): ReactNode {
+export function renderItem(sessionId: string, it: TranscriptItem): ReactNode {
   switch (it.kind) {
     case 'user': return <div className="msg msg-user" style={{ maxHeight: '60vh', overflow: 'auto' }}>{it.text}</div>;
     // 利用者の本文は打ったとおりに見せ、Claude の書いた本文だけを Markdown として読む。

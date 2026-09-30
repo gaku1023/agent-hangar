@@ -2,7 +2,7 @@ import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchRes
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { SIDEBAR_KEY } from '../mediator/sidebar.ts';
-import type { FocusTarget, SessionViewState } from '../mediator/types.ts';
+import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
 import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import { ApiConflictError, type ApiClient, type EventsQuery } from './api.ts';
 import type { TerminalHost } from './terminals.ts';
@@ -190,6 +190,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.openTerminalApp': deps.api.openTerminalApp(e.runId, e.tabId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
       case 'api.openEditor': deps.api.openEditor(e.sessionId).catch(fail); return;
+      case 'api.jumpToPrompt': {
+        const done = (status: TurnJumpStatus) => dispatch({ kind: 'runtime', event: { type: 'turnJump.done', sessionId: e.sessionId, seq: e.seq, status } });
+        deps.api.jumpToPrompt(e.runId, { heads: e.heads, index: e.index, from: e.from }).then((r) => done(r.found ? 'found' : r.reason)).catch((err) => { done('failed'); fail(err); });
+        return;
+      }
+      case 'api.leaveTranscript': deps.api.leaveTranscript(e.runId).catch(fail); return;
       case 'api.projectOpenEditor': deps.api.projectOpenEditor(e.projectId).catch(fail); return;
       case 'api.projectOpenTerminal': deps.api.projectOpenTerminal(e.projectId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
       case 'terminal.connect': { const id = resolveTab(e.sessionId, e.tabId); if (id) deps.terminals.connect(id); return; }
