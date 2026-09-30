@@ -187,9 +187,16 @@ a:hover { text-decoration: underline; }
 .msg-thinking { color: var(--ink-3); font-style: italic; align-self: flex-start; }
 .msg-system { color: var(--ink-3); font-size: var(--fs-xs); align-self: center; }
 .tool { border-left: 2px solid var(--line-strong); padding-left: calc(var(--u) * 2); }
-.tool-head { display: flex; gap: var(--u); align-items: center; height: var(--row-h); cursor: pointer; color: var(--ink-2); }
+/* 畳んだ行は高さが決まっているので、要約は 1 行で切る。矢印と時刻は縮めず、削るのは要約の側だけにする。 */
+.tool .fold-head { color: var(--ink-2); }
+.tool .fold-head > * { flex: none; }
+.tool .fold-head > .tool-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-body { white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow: auto; background: var(--surface-2); padding: calc(var(--u) * 2); border-radius: var(--r); }
 .tool-error { border-left-color: var(--error); }
+/* 本文の Markdown。.msg は pre-wrap なので、段落と箇条書きは地の文のままで読める。 */
+.msg strong, .md-heading { font-weight: 650; }
+.msg code { font-family: var(--font-mono); font-size: 0.9em; padding: 0 3px; border-radius: 4px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.md-code { margin: calc(var(--u) * 1.5) 0; padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: color-mix(in srgb, var(--ink) 6%, transparent); font: var(--fs-xs)/1.55 var(--font-mono); white-space: pre; overflow-x: auto; }
 .sub { margin-left: calc(var(--u) * 4); border-left: 1px dashed var(--line-strong); padding-left: calc(var(--u) * 3); }
 .new-banner { position: sticky; bottom: var(--u); align-self: center; }
 

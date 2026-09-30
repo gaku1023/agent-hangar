@@ -80,6 +80,20 @@ describe('ローカルコマンドの記録', () => {
   });
 });
 
+describe('本文の無い system', () => {
+  const events = [
+    { kind: 'system' as const, seq: 1, ts: 1, text: 'turn_duration', subtype: 'turn_duration' },
+    { kind: 'system' as const, seq: 2, ts: 1, text: 'stop_hook_summary', subtype: 'stop_hook_summary' },
+    { kind: 'system' as const, seq: 3, ts: 1, text: '留守の間の要約', subtype: 'away_summary' },
+  ];
+  it('種類の名前しか無い行は落とし、本文のある行は残す', () => {
+    expect(buildItems(events, { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['留守の間の要約']);
+  });
+  it('生の記録を出すときは種類の名前だけの行も出す', () => {
+    expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] })).toHaveLength(3);
+  });
+});
+
 describe('presentHome', () => {
   // 入力待ちが 2 件（w1 は 12 分、w2 は 3 分）、作業中が 1 件（s1）、休みが 1 件（i1）。
   const homeStore = () => {

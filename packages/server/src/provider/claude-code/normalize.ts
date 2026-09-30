@@ -103,7 +103,11 @@ export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string
     return out;
   }
 
-  if (type === 'system') return [{ kind: 'system', seq, ts, text: str(raw.subtype) ?? 'system' }];
+  if (type === 'system') {
+    // away_summary や compact_boundary は content に読める本文を持つ。turn_duration などは種類の名前しか無い。
+    const subtype = str(raw.subtype) ?? 'system';
+    return [{ kind: 'system', seq, ts, text: str(raw.content) || subtype, subtype }];
+  }
 
   // 知らない type は捨てずに meta として残す。
   const { type: _t, sessionId: _s, ...rest } = raw;

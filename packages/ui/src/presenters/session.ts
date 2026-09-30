@@ -79,6 +79,8 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
       case 'user': case 'assistant': items.push({ kind: e.kind, seq: e.seq, text: e.text, when: when(e.ts) }); break;
       case 'system': {
         // 生の記録を出すときは、手を加えずにそのまま見せる。
+        // 種類の名前しか持たない行（turn_duration と stop_hook_summary は毎ターン 1 つずつ出る）は、読む中身が無いので落とす。
+        if (!opts.showRaw && e.subtype !== undefined && e.text === e.subtype) break;
         const text = opts.showRaw ? e.text : localCommandText(e.text);
         if (text !== null) items.push({ kind: 'system', seq: e.seq, text, when: when(e.ts) });
         break;

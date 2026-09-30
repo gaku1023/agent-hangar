@@ -45,9 +45,13 @@ describe('normalizeRecord', () => {
     expect(ev[1]).toMatchObject({ text: '返事', model: 'claude-fable-5-1' });
     expect(ev[2]).toMatchObject({ toolId: 'toolu_1', name: 'Edit', summary: 'Edit /a/b.ts', filePath: '/a/b.ts' });
   });
-  it('system は subtype を本文にする', () => {
+  it('本文の無い system は subtype を本文にする', () => {
     const ev = normalizeRecord({ ...base, type: 'system', subtype: 'turn_duration', durationMs: 10 }, 0, null);
-    expect(ev).toEqual([{ kind: 'system', seq: 0, ts: Date.parse(base.timestamp), text: 'turn_duration' }]);
+    expect(ev).toEqual([{ kind: 'system', seq: 0, ts: Date.parse(base.timestamp), text: 'turn_duration', subtype: 'turn_duration' }]);
+  });
+  it('本文のある system は content を本文にする', () => {
+    const ev = normalizeRecord({ ...base, type: 'system', subtype: 'away_summary', content: '留守の間の要約' }, 0, null);
+    expect(ev).toEqual([{ kind: 'system', seq: 0, ts: Date.parse(base.timestamp), text: '留守の間の要約', subtype: 'away_summary' }]);
   });
   it('知らない type は meta として保持する', () => {
     const ev = normalizeRecord({ type: 'ai-title', aiTitle: '題名', sessionId: 'aaaa' }, 7, null);
