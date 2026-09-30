@@ -36,7 +36,7 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'sidebar.toggle', group: 'global', keys: '⌘B', label: 'サイドバーの開閉', chords: [{ key: 'b', mod: true, shift: false }] },
   { id: 'search.focus', group: 'global', keys: '/', label: '検索欄へ', chords: [{ key: '/', shift: false }] },
   { id: 'shortcuts.open', group: 'global', keys: '? / ⌘/', label: 'キーの一覧', chords: [{ key: '?' }, { key: '/', mod: true }] },
-  { id: 'overlay.close', group: 'global', keys: 'Esc', label: '開いているものを閉じる', chords: [{ key: 'Escape' }] },
+  { id: 'overlay.close', group: 'global', keys: 'Esc', label: '開いているものを閉じる（無ければ入力欄を離れる）', chords: [{ key: 'Escape' }] },
   { id: 'tab.select', group: 'session', keys: '⌘1–⌘9', label: 'タブを選ぶ（⌃⌥1–⌃⌥9 でも）', chords: [...digits.map((d) => ({ key: d, mod: true, shift: false })), ...digits.map((d) => ({ key: d, ctrlAlt: true }))] },
   { id: 'tab.close', group: 'session', keys: '⌘W', label: 'シェルタブを閉じる', chords: [{ key: 'w', mod: true, shift: false }] },
   { id: 'split.toggle', group: 'session', keys: '⌘\\', label: 'タブを横に並べる', chords: [{ key: '\\', mod: true, shift: false }] },

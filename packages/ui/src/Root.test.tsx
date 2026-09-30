@@ -608,6 +608,77 @@ describe('キーの見直し', () => {
   });
 });
 
+describe('入力欄の Esc（C4）', () => {
+  const key = (init: KeyboardEventInit, target: EventTarget) => {
+    const ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+    act(() => { target.dispatchEvent(ev); });
+    return ev;
+  };
+
+  it('何も開いていなければ、入力欄の Esc でフォーカスを外す', async () => {
+    await mounted();
+    const box = document.getElementById('global-search')!;
+    act(() => box.focus());
+    expect(key({ key: 'Escape' }, box).defaultPrevented).toBe(true);
+    expect(document.activeElement).not.toBe(box);
+  });
+
+  it('ダイアログの中の入力欄の Esc は、従来どおりダイアログを閉じる', async () => {
+    const { rt } = await mounted();
+    act(() => rt.emit({ type: 'session.promote.open', id: 's1' }));
+    await flush();
+    const input = screen.getByLabelText('プロジェクト名');
+    act(() => input.focus());
+    fireEvent.keyDown(input, { key: 'Escape' });
+    await flush();
+    expect(screen.queryByLabelText('プロジェクト名')).toBeNull();
+  });
+
+  it('パレットの入力欄の Esc は、パレットを閉じる', async () => {
+    const { rt } = await mounted();
+    act(() => rt.emit({ type: 'palette.open' }));
+    await flush();
+    fireEvent.keyDown(screen.getByLabelText('コマンドを検索'), { key: 'Escape' });
+    await flush();
+    expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
+  });
+
+  it('ターミナルの Esc は Claude Code のものなので横取りしない', async () => {
+    const { rt } = await mounted();
+    const host = document.createElement('div');
+    host.className = 'term-host';
+    const ta = document.createElement('textarea');
+    host.appendChild(ta);
+    document.body.appendChild(host);
+    ta.focus();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'Escape' }, ta).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(ta);
+    expect(emit).not.toHaveBeenCalled();
+    host.remove();
+  });
+
+  it('日本語の変換中の Esc は変換を取り消す打鍵なので、欄を離れない', async () => {
+    await mounted();
+    const box = document.getElementById('global-search')!;
+    act(() => box.focus());
+    expect(key({ key: 'Escape', isComposing: true }, box).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(box);
+    expect(key({ key: 'Escape', keyCode: 229 } as KeyboardEventInit, box).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(box);
+  });
+
+  it('部品が自分で Esc を処理したときは、重ねてフォーカスを外さない', async () => {
+    await mounted();
+    const box = document.getElementById('global-search')!;
+    act(() => box.focus());
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    ev.preventDefault();
+    act(() => { box.dispatchEvent(ev); });
+    expect(document.activeElement).toBe(box);
+  });
+});
+
 describe('画面に入ったときの一覧のフォーカス（C1）', () => {
   const rows = () => screen.getByTestId('session-rows');
 
