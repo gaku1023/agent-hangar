@@ -803,6 +803,15 @@ describe('保持期間（ランタイム）', () => {
     expect(rt.getState().overlay).toMatchObject({ kind: 'retention', reloaded: true, writing: false });
     expect(retentionPreview).toHaveBeenCalledTimes(2);
   });
+  it('下見に失敗したら、トーストではなくダイアログに理由を出す', async () => {
+    const retentionPreview = vi.fn(async () => { throw new Error('設定ファイルの書式を読み取れなかったので書き換えませんでした'); });
+    const { rt } = harness({ retentionPreview });
+    rt.start();
+    rt.emit({ type: 'retention.edit', days: 365, from: 'banner' });
+    await flush();
+    expect(rt.getState().overlay).toMatchObject({ kind: 'retention', previewError: '設定ファイルの書式を読み取れなかったので書き換えませんでした' });
+    expect(rt.getState().toasts).toEqual([]);
+  });
   it('設定画面に入ると保持期間を読み直す', async () => {
     const retention = vi.fn(async () => R);
     const { rt, wsHandlers, setHash } = harness({ retention });

@@ -45,6 +45,20 @@ describe('readRetention', () => {
       expect(readRetention({ claudeDir, managedDir })).toEqual({ days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null });
     }
   });
+  it('JSON として読めても、1 か所だけ安全に書き換えられない形なら、書けない', () => {
+    const cases: (string | Buffer)[] = [
+      '{ "cleanupPeriodDays": 1, "cleanupPeriodDays": 2 }',
+      '{ "cleanupPeriodDays": { "x": 1 } }',
+      Buffer.concat([Buffer.from('{ "a": "'), Buffer.from([0xff]), Buffer.from('" }')]),
+    ];
+    for (const c of cases) {
+      fs.writeFileSync(path.join(claudeDir, 'settings.json'), c);
+      expect(readRetention({ claudeDir, managedDir })).toMatchObject({ writable: false, unwritableReason: '設定ファイルを読み取れないので書き換えません' });
+    }
+  });
+  it('設定の置き場そのものが無ければ、書けない', () => {
+    expect(readRetention({ claudeDir: path.join(root, 'nowhere'), managedDir })).toMatchObject({ writable: false, unwritableReason: '設定の置き場が見つからないので書き換えません' });
+  });
   it('JSON として読めなければ、書けない', () => {
     settings('{ "a": ');
     expect(readRetention({ claudeDir, managedDir })).toEqual({ days: 30, source: 'default', userValue: null, writable: false, unwritableReason: '設定ファイルを読み取れないので書き換えません' });

@@ -286,7 +286,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.retentionPreview':
         // 前の下見を先に消し、取り直している最中に古い差分で書かないようにする。
         setStore({ ...store, retentionPreview: null });
-        deps.api.retentionPreview(e.days).then((p) => setStore({ ...store, retentionPreview: p })).catch((err) => dispatch({ kind: 'runtime', event: { type: 'retention.failed', message: errMsg(err) } }));
+        deps.api.retentionPreview(e.days).then((p) => setStore({ ...store, retentionPreview: p })).catch((err) => dispatch({ kind: 'runtime', event: { type: 'retention.previewFailed', days: e.days, message: errMsg(err) } }));
         return;
       case 'api.writeRetention': {
         const p = store.retentionPreview;

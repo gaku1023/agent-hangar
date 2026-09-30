@@ -18,6 +18,7 @@ export type RetentionState = Omit<RetentionDto, 'usage'>;
 
 const UNREADABLE = '設定ファイルを読み取れないので書き換えません';
 const MANAGED = '組織の設定で決まっています';
+const NO_DIR = '設定の置き場が見つからないので書き換えません';
 const DAY = 86_400_000;
 /** 増え方を見積もる窓。既定の保持期間と同じ長さにする。 */
 const RATE_WINDOW_DAYS = 30;
@@ -69,8 +70,25 @@ export function readRetention(o: { claudeDir: string; managedDir: string | null 
   const managed = managedDays(o.managedDir);
   if (managed !== null) return { days: managed, source: 'managed', userValue, writable: false, unwritableReason: MANAGED };
   if (user === 'broken') return { days: DEFAULT_RETENTION_DAYS, source: 'default', userValue: null, writable: false, unwritableReason: UNREADABLE };
+  // JSON として読めても、書き込みが断る形（同じキーが 2 つ、値がオブジェクト、UTF-8 でないバイト）がある。
+  // 書けるかどうかは、書き込みと同じ手順を空回しして決める。帯を出してから下見で断ると、利用者は行き止まりに着く。
+  const blocked = editBlocked(o.claudeDir);
+  if (blocked !== null) return { days: userValue ?? DEFAULT_RETENTION_DAYS, source: userValue !== null ? 'user' : 'default', userValue, writable: false, unwritableReason: blocked };
   if (userValue !== null) return { days: userValue, source: 'user', userValue, writable: true, unwritableReason: null };
   return { days: DEFAULT_RETENTION_DAYS, source: 'default', userValue: null, writable: true, unwritableReason: null };
+}
+
+/** 書き込みと同じ手順で文字列を作ってみて、断られるなら理由を返す。何も書かない。 */
+function editBlocked(claudeDir: string): string | null {
+  if (!fs.existsSync(claudeDir)) return NO_DIR;
+  try {
+    let bytes: Buffer | null;
+    try { bytes = fs.readFileSync(path.join(claudeDir, 'settings.json')); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
+    setTopLevelNumber(decodeStrict(bytes), RETENTION_KEY, 1);
+    return null;
+  } catch {
+    return UNREADABLE;
+  }
 }
 
 /**

@@ -16,7 +16,8 @@ export type RuntimeEvent =
   // サーバが 409 で断ったときに、ランタイムがこの形に直して返す。
   | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number }
   // 保持期間を書き込んだ結果。409 は下見の後にファイルが変わったことを表す。
-  | { type: 'retention.written'; days: number } | { type: 'retention.conflict'; days: number } | { type: 'retention.failed'; message: string };
+  | { type: 'retention.written'; days: number } | { type: 'retention.conflict'; days: number } | { type: 'retention.failed'; message: string }
+  | { type: 'retention.previewFailed'; days: number; message: string };
 
 export type Input =
   | { kind: 'intent'; intent: Intent }
@@ -81,7 +82,7 @@ export type Overlay =
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
   | { kind: 'confirm'; confirm: ConfirmRequest }
   | { kind: 'configPreview' }
-  | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean };
+  | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null };
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting' } | { kind: 'failed'; message: string };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */
 export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed';

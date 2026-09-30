@@ -11,14 +11,17 @@ const MARK = { ctx: ' ', add: '+', del: '-' } as const;
  */
 export function RetentionDialog(props: RetentionDialogProps) {
   const emit = useEmit();
-  const close = () => emit({ type: 'overlay.close' });
+  // 書き込んでいる間は閉じさせない。閉じても書き込みは止まらず、結果だけが見えなくなる。
+  const close = () => { if (!props.writing) emit({ type: 'overlay.close' }); };
   return (
     <div className="overlay" onClick={close}>
       <div className="dialog" role="dialog" aria-modal="true" aria-label="保持期間の確認" onClick={(e) => e.stopPropagation()}>
         <b className="dialog-title"><Icon name="retention" />{props.title}</b>
         {props.reloaded && <div className="error" role="alert">設定ファイルがほかで変わったので、読み直しました。</div>}
         <div className="muted">{props.lead}</div>
-        {props.lines === null
+        {props.previewError
+          ? <div className="error" role="alert">{props.previewError}</div>
+          : props.lines === null
           ? <div className="faint">差分を読み込んでいます</div>
           : (
             <div className="diff mono">
@@ -34,10 +37,10 @@ export function RetentionDialog(props: RetentionDialogProps) {
           <dt>もう消えた会話</dt><dd>取り戻せません。これから先の会話が残ります</dd>
         </dl>
         <div className="dialog-foot">
-          <button type="button" className="btn" onClick={close}>やめる</button>
+          <button type="button" className="btn" disabled={props.writing} onClick={close}>やめる</button>
           <span className="spacer" />
           {props.showOther && <button type="button" className="btn" onClick={() => emit({ type: 'retention.settings' })}>ほかの期間…</button>}
-          <button type="button" className="btn btn-primary" disabled={props.writing || props.lines === null} onClick={() => emit({ type: 'retention.write' })}>書き込む</button>
+          <button type="button" className="btn btn-primary" disabled={props.writing || props.lines === null || props.previewError !== null} onClick={() => emit({ type: 'retention.write' })}>書き込む</button>
         </div>
       </div>
     </div>

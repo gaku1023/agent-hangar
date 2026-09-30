@@ -4,7 +4,7 @@ import type { Store } from '../store/store.ts';
 import { bytesLabel, daysLabel, expiresBy } from './retention.ts';
 
 export type UsageBarProps = { nowLabel: string; projLabel: string | null; freeLabel: string; nowPct: number; projPct: number; warn: boolean };
-export type RetentionDialogProps = { title: string; lead: string; path: string; lines: RetentionPreviewLine[] | null; bar: UsageBarProps | null; backupDir: string; otherPcs: boolean; shrinkNote: string | null; reloaded: boolean; showOther: boolean; writing: boolean };
+export type RetentionDialogProps = { title: string; lead: string; path: string; lines: RetentionPreviewLine[] | null; bar: UsageBarProps | null; backupDir: string; otherPcs: boolean; shrinkNote: string | null; reloaded: boolean; showOther: boolean; writing: boolean; previewError: string | null };
 
 /**
  * 使用量のバー。幅はいまの使用量と空きの和を 100% にする（本文が使える限りの広さ）。
@@ -45,5 +45,6 @@ export function presentRetentionDialog(state: State, store: Store, now: number):
     reloaded: o.reloaded,
     showOther: o.from === 'banner',
     writing: o.writing,
+    previewError: o.previewError,
   };
 }

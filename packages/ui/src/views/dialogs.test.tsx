@@ -76,7 +76,7 @@ describe('RetentionDialog', () => {
     title: '会話の保持期間を 1 年にします', lead: 'Claude Code の設定ファイルに、次の 1 行を足します。', path: '/Users/me/.claude/settings.json',
     lines: [{ kind: 'ctx' as const, text: '{' }, { kind: 'del' as const, text: '  "cleanupPeriodDays": 30,' }, { kind: 'add' as const, text: '  "cleanupPeriodDays": 365,' }],
     bar: { nowLabel: 'いま 1.5 GB', projLabel: '1 年たつと約 18 GB', freeLabel: '空き 400 GB', nowPct: 0.4, projPct: 4.4, warn: false },
-    backupDir: '/Users/me/.agent-hangar/backups/claude-config/', otherPcs: true, shrinkNote: null, reloaded: false, showOther: true, writing: false,
+    backupDir: '/Users/me/.agent-hangar/backups/claude-config/', otherPcs: true, shrinkNote: null, reloaded: false, showOther: true, writing: false, previewError: null,
   };
   it('差分を印付きで描き、見込みと控えとほかの PC を並べる', () => {
     render(<IntentRoot onIntent={() => {}}><RetentionDialog {...base} /></IntentRoot>);
@@ -96,6 +96,19 @@ describe('RetentionDialog', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'retention.settings' });
     fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+  it('書き込んでいる間は、やめるも背景も閉じる Intent を出さない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><RetentionDialog {...base} writing /></IntentRoot>);
+    expect(screen.getByRole('button', { name: 'やめる' })).toBeDisabled();
+    fireEvent.click(document.querySelector('.overlay')!);
+    expect(onIntent).not.toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+  it('下見に失敗したら、読み込み中ではなく理由を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><RetentionDialog {...base} lines={null} previewError="設定ファイルの書式を読み取れなかったので書き換えませんでした" /></IntentRoot>);
+    expect(screen.getByRole('alert')).toHaveTextContent('設定ファイルの書式を読み取れなかったので書き換えませんでした');
+    expect(screen.queryByText('差分を読み込んでいます')).toBeNull();
+    expect(screen.getByRole('button', { name: '書き込む' })).toBeDisabled();
   });
   it('送信中と、差分がまだ無いときは書き込めない。読み直したことを出す', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><RetentionDialog {...base} writing /></IntentRoot>);

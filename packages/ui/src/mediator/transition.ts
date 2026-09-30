@@ -28,11 +28,11 @@ const NOT_YET_INTENTS = new Set(['session.takeover', 'project.new.open', 'projec
 
 /** 直交する領域の状態機械を順に試し、最初に応答した領域の結果を採る。残りは横断的な入力。 */
 export function transition(state: State, input: Input): Step {
-  // promoteStep は overlay.close を横取りするので overlayStep より前に置く。
+  // promoteStep と retentionStep は overlay.close を横取りするので overlayStep より前に置く。
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, overlayStep, syncStep, retentionStep, resumeHereStep, sessionViewStep, sidebarStep, liveStep, workbenchStep]) {
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, retentionStep, overlayStep, syncStep, resumeHereStep, sessionViewStep, sidebarStep, liveStep, workbenchStep]) {
     const r = step(state, input);
     if (r) return r;
   }
