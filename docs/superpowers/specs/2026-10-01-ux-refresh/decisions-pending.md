@@ -60,3 +60,17 @@ osascript -e 'tell application "Hangar" to quit'; sleep 2; rm -rf /Applications/
 ```sh
 git -C /Users/satog/workspace/agent-hangar merge --no-ff worktree-ux-fixes-1 && git -C /Users/satog/workspace/agent-hangar push origin main
 ```
+
+## ②の実装で仮に決めたもの
+
+ブランチ `ux-refresh-2`（`worktree-ux-fixes-1` の先から切った）に、終わったものから取り込んでいる。
+
+### ホームと一覧
+
+- **プロジェクトのカードの抜粋は「最初の発言から」にした（試作は「最後の発言から」）。**
+  画面に届くデータに最後の発言が無いため。
+  最後の発言にするならサーバの DTO を広げる（小さな追加）。
+- **本文の無い行の印は、保持期間の改修の印（30 日を過ぎて消えたもの）を札の形にしただけで、「本文なし」の文字は入れていない。**
+  まだ 30 日を過ぎていない本文なしの行には何も付かない。
+- **要約の見立ての札は、プロセスの生死を写しただけの土台の要約には付けない。**
+  付けると終わった行のほとんどに「済んだ」が並ぶため。
