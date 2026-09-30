@@ -4,7 +4,7 @@ import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
-import { absoluteTime, costLabel, percentLabel, relativeTime, shortModel, tokensLabel } from './format.ts';
+import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
 import { presentConfirm } from './confirm.ts';
 import { presentHome } from './home.ts';
 import { newSessionTarget, presentNewSession } from './newSession.ts';
@@ -30,6 +30,18 @@ function storeWith(): Store {
 }
 
 describe('format', () => {
+  it('使用率の枠が戻る時刻は、今日なら時刻だけ、別の日なら日付を添える', () => {
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    expect(resetsLabel(new Date(2026, 9, 1, 18, 0).getTime(), now)).toBe('18:00');
+    expect(resetsLabel(new Date(2026, 9, 4, 9, 5).getTime(), now)).toBe('10/4 09:05');
+    expect(resetsLabel(null, now)).toBeNull();
+  });
+  it('ヘッダーの使用率に、枠が戻る時刻を添える', () => {
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    const store = initialStore();
+    store.usage = { fiveHour: { usedPercent: 28, resetsAt: new Date(2026, 9, 1, 18, 0).getTime() }, sevenDay: { usedPercent: 7, resetsAt: new Date(2026, 9, 4, 9, 0).getTime() }, updatedAt: now };
+    expect(presentShell(initialState(), store, now).usage).toMatchObject({ fiveHour: 28, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00' });
+  });
   it('相対時刻', () => {
     expect(relativeTime(NOW - 30_000, NOW)).toBe('1 分未満前');
     expect(relativeTime(NOW - 3 * 60_000, NOW)).toBe('3 分前');
@@ -613,9 +625,9 @@ describe('presentShell の接続', () => {
 describe('presentShell の使用量', () => {
   it('値が無ければ null、あれば百分率と最終更新', () => {
     const empty = presentShell(initialState(), initialStore(), NOW);
-    expect(empty.usage).toEqual({ fiveHour: null, sevenDay: null, updatedLabel: null });
+    expect(empty.usage).toEqual({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
     const store = { ...initialStore(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
-    expect(presentShell(initialState(), store, NOW).usage).toEqual({ fiveHour: 47, sevenDay: 7, updatedLabel: '10 分前' });
+    expect(presentShell(initialState(), store, NOW).usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
   });
 });
 
@@ -840,7 +852,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
     const store = storeWith();
     store.usage = { fiveHour: { usedPercent: 40, resetsAt: null }, sevenDay: null, updatedAt: NOW - 60_000 };
     const p = presentShell({ ...initialState(), sync: { kind: 'idle', lastAt: NOW } }, store, NOW);
-    expect(p.usage).toEqual({ fiveHour: 40, sevenDay: null, updatedLabel: '1 分前' });
+    expect(p.usage).toEqual({ fiveHour: 40, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: '1 分前' });
     expect(p.sync.visible).toBe(true);
   });
   it('Settings のクラウドの節', () => {

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false }], crumbs: [{ label: 'プロジェクト', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, newSession: {} };
+const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false }], crumbs: [{ label: 'プロジェクト', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, newSession: {} };
 
 describe('Shell', () => {
   it('ナビと検索が Intent になる', () => {
@@ -103,10 +103,10 @@ describe('Shell', () => {
   });
   // 未送信が無いときに「未送信 0」と出すと、止まっているように見える。
   it('未送信が 0 なら件数を出さず、使用量ゲージも残る', () => {
-    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ visible: true, state: 'pushing', label: '送信中', pending: 0, sweepPending: 0, skipped: 0, paused: false }} usage={{ fiveHour: 12, sevenDay: 34, updatedLabel: '3 分前' }} overlays={null}><div /></Shell></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ visible: true, state: 'pushing', label: '送信中', pending: 0, sweepPending: 0, skipped: 0, paused: false }} usage={{ fiveHour: 12, sevenDay: 34, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByText('送信中')).toBeInTheDocument();
     expect(screen.queryByText('未送信 0')).toBeNull();
-    expect(screen.getByRole('meter', { name: '5 時間の使用率' })).toBeInTheDocument();
+    expect(screen.getByRole('meter', { name: '5 時間枠の使用率' })).toBeInTheDocument();
     expect(screen.getByText('最終更新 3 分前')).toBeInTheDocument();
   });
   // .app ではヘッダの空いた所を掴んで窓を動かす。操作する部品に印が付くと、押しても窓が動くだけになる。

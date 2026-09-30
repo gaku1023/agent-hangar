@@ -1,11 +1,12 @@
 import type { IndexProgressDto, Route, SyncStateKind } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
-import { indexProgressLabel, relativeTime, SYNC_STATE_LABEL } from './format.ts';
+import { indexProgressLabel, relativeTime, resetsLabel, SYNC_STATE_LABEL } from './format.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 
 export type NavItem = { route: Route; label: string; current: boolean };
-export type UsageProps = { fiveHour: number | null; sevenDay: number | null; updatedLabel: string | null };
+/** fiveHourResets と sevenDayResets は、Claude の利用上限の枠が戻る時刻の文で、届いていなければ null である。 */
+export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiveHourResets: string | null; sevenDayResets: string | null; updatedLabel: string | null };
 /**
  * pending は未送信のメタデータ、sweepPending はまだ上げていない本文、skipped は送れなかった本文の件数である。
  * 後ろの 2 つは、数えられないときも 0 にする。
@@ -72,6 +73,6 @@ export function presentShell(state: State, store: Store, now: number): ShellProp
   const indexLabel = indexProgressLabel(idx);
   const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
-  const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
+  const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
   return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), newSession: newSessionTarget(state, store) };
 }

@@ -378,6 +378,8 @@ describe('SettingsScreen のフェーズ 3', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     const cap = screen.getByLabelText('1 時間の上限');
+    // 上限の案内は、ヘッダーのゲージの見出しと同じ「週」で言う。
+    expect(screen.getByText('件。1 から 200 まで。週の使用率が 80% を超えたら切り替えません。')).toBeTruthy();
     // 空は 0 に、文字は NaN になってしまうので、送る前に弾く。
     for (const bad of ['', '0', '-3', '1.5', '201']) {
       fireEvent.change(cap, { target: { value: bad } });
@@ -550,7 +552,7 @@ describe('Header', () => {
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
     // sync は Task 23 が Header に足した props である。この節が見るのは検索欄だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
     const box = screen.getByRole('searchbox');
     fireEvent.change(box, { target: { value: '動画' } });
     fireEvent.keyDown(box, { key: 'Enter', isComposing: true });

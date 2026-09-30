@@ -22,6 +22,20 @@ export function relativeTime(ts: number | null, now: number): string {
   return absoluteTime(ts).slice(0, 10);
 }
 
+/**
+ * 使用率の枠が戻る時刻。
+ * 今日のうちなら時刻だけ、別の日なら月と日を添える。
+ * 届いていなければ null にする。
+ */
+export function resetsLabel(ts: number | null, now: number): string | null {
+  if (ts === null) return null;
+  const d = new Date(ts);
+  const n = new Date(now);
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const sameDay = d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+  return sameDay ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+}
+
 export function durationLabel(ms: number): string {
   const min = Math.floor(ms / 60_000);
   if (min < 1) return '1 分未満';

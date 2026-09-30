@@ -203,7 +203,7 @@ export function SettingsScreen(props: SettingsProps) {
         </div>
         <div className="settings-row"><span>1 時間の上限</span>
           <Stepper label="1 時間の上限" value={cap} min={1} max={200} onChange={(v) => { setCap(v); setCapError(false); }} />
-          <span className="faint">件。1 から 200 まで。7 日の使用率が 80% を超えたら切り替えません。</span>
+          <span className="faint">件。1 から 200 まで。週の使用率が 80% を超えたら切り替えません。</span>
         </div>
         {capError && <div className="error" role="alert" style={{ marginTop: 4 }}>1 から 200 までの整数を入れてください</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
