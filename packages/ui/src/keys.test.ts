@@ -51,10 +51,10 @@ describe('キーマップ', () => {
     expect(matchKey({ key: 'ArrowRight', metaKey: true })).toBe('nav.forward');
   });
 
-  it('? と ⌘/ でキーの一覧、/ で検索欄', () => {
+  it('? と ⌘/ でキーの一覧、/ でパレット', () => {
     expect(matchKey({ key: '?', shiftKey: true })).toBe('shortcuts.open');
     expect(matchKey({ key: '/', metaKey: true })).toBe('shortcuts.open');
-    expect(matchKey({ key: '/' })).toBe('search.focus');
+    expect(matchKey({ key: '/' })).toBe('palette.open');
   });
 
   it('修飾の無い文字キーは一覧の中の操作なので、ここでは当たらない', () => {

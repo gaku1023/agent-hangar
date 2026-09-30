@@ -52,6 +52,16 @@ async function mounted(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; te
   return { ...m, wsHandlers: m.handlers };
 }
 
+/** 入力欄の打鍵を確かめるための、画面の外に置く欄。ヘッダーには打つ欄が無い（押す錠剤である）。 */
+const fields: HTMLElement[] = [];
+afterEach(() => { for (const el of fields.splice(0)) el.remove(); });
+function textField(): HTMLInputElement {
+  const el = document.createElement('input');
+  document.body.append(el);
+  fields.push(el);
+  return el;
+}
+
 describe('Root', () => {
   it('起動からホーム、プロジェクトへ遷移、未解決ダイアログ', async () => {
     const { rt, deps, handlers, setHash } = make();
@@ -93,24 +103,29 @@ describe('Root', () => {
     expect(screen.getByRole('status')).toHaveTextContent('1 秒後に再接続します');
     vi.useRealTimers();
   });
-  it('キーボード。/ で検索欄にフォーカスし、⌘K でパレットが開き、Esc で閉じる', async () => {
+  it('キーボード。/ と ⌘K でパレットが開き、Esc で閉じる', async () => {
     const { rt, deps, handlers } = make();
     rt.start();
     render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
     act(() => handlers[0]!.onOpen());
     await flush();
     fireEvent.keyDown(window, { key: '/' });
-    expect(document.activeElement?.id).toBe('global-search');
-    // 入力中の / は横取りしない。
-    fireEvent.keyDown(document.getElementById('global-search')!, { key: '/' });
-    // 幅が狭くて検索欄を畳んでいるときは、/ でパレットを開く。隠れた欄にフォーカスしても何も起きないからである。
-    const box = document.getElementById('global-search')!;
-    box.blur();
-    box.style.display = 'none';
-    fireEvent.keyDown(window, { key: '/' });
+    expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
+    // パレットの入力欄での / は文字なので、横取りしない。
+    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: '/' });
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
-    box.style.display = '';
+    expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
+    // ほかの入力欄で打つ / も文字である。
+    const field = textField();
+    field.focus();
+    fireEvent.keyDown(field, { key: '/' });
+    expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
+    field.blur();
+    // ヘッダーの錠剤を押しても開く。
+    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
+    expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     // 仮の板を本物のパレットに差し替えたので、見出しの文字ではなく入力欄のラベルで探す。
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
@@ -298,14 +313,14 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    const input = screen.getByLabelText('コマンドを検索') as HTMLInputElement;
+    const input = screen.getByLabelText('探す・移動') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'alp' } });
-    expect((screen.getByLabelText('コマンドを検索') as HTMLInputElement).value).toBe('alp');
+    expect((screen.getByLabelText('探す・移動') as HTMLInputElement).value).toBe('alp');
     act(() => rt.emit({ type: 'palette.close' }));
     await flush();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    expect((screen.getByLabelText('コマンドを検索') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('探す・移動') as HTMLInputElement).value).toBe('');
   });
 
   it('昇格のダイアログと完了のダイアログが出る', async () => {
@@ -523,7 +538,8 @@ describe('キーの見直し', () => {
     key({ key: '?', shiftKey: true });
     await flush();
     expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toBeInTheDocument();
-    expect(screen.getByText('コマンドパレット')).toBeInTheDocument();
+    expect(screen.getByText('パレット（探す・移動）')).toBeInTheDocument();
+    expect(screen.getByText('⌘K / /')).toBeInTheDocument();
     key({ key: 'Escape' });
     await flush();
     expect(screen.queryByRole('dialog', { name: 'キーの一覧' })).toBeNull();
@@ -531,7 +547,7 @@ describe('キーの見直し', () => {
 
   it('入力中の ? は文字なので、一覧を開かない', async () => {
     await mounted();
-    fireEvent.keyDown(document.getElementById('global-search')!, { key: '?', shiftKey: true });
+    fireEvent.keyDown(textField(), { key: '?', shiftKey: true });
     await flush();
     expect(screen.queryByRole('dialog', { name: 'キーの一覧' })).toBeNull();
   });
@@ -558,7 +574,7 @@ describe('キーの見直し', () => {
 
   it('入力欄とターミナルの Backspace は文字を消すので止めない', async () => {
     await mounted();
-    expect(key({ key: 'Backspace' }, document.getElementById('global-search')!).defaultPrevented).toBe(false);
+    expect(key({ key: 'Backspace' }, textField()).defaultPrevented).toBe(false);
     const host = document.createElement('div');
     host.className = 'term-host';
     const ta = document.createElement('textarea');
@@ -871,7 +887,7 @@ describe('入力欄の Esc（C4）', () => {
 
   it('何も開いていなければ、入力欄の Esc でフォーカスを外す', async () => {
     await mounted();
-    const box = document.getElementById('global-search')!;
+    const box = textField();
     act(() => box.focus());
     expect(key({ key: 'Escape' }, box).defaultPrevented).toBe(true);
     expect(document.activeElement).not.toBe(box);
@@ -892,7 +908,7 @@ describe('入力欄の Esc（C4）', () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    fireEvent.keyDown(screen.getByLabelText('コマンドを検索'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: 'Escape' });
     await flush();
     expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
   });
@@ -914,7 +930,7 @@ describe('入力欄の Esc（C4）', () => {
 
   it('日本語の変換中の Esc は変換を取り消す打鍵なので、欄を離れない', async () => {
     await mounted();
-    const box = document.getElementById('global-search')!;
+    const box = textField();
     act(() => box.focus());
     expect(key({ key: 'Escape', isComposing: true }, box).defaultPrevented).toBe(false);
     expect(document.activeElement).toBe(box);
@@ -924,7 +940,7 @@ describe('入力欄の Esc（C4）', () => {
 
   it('部品が自分で Esc を処理したときは、重ねてフォーカスを外さない', async () => {
     await mounted();
-    const box = document.getElementById('global-search')!;
+    const box = textField();
     act(() => box.focus());
     const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
     ev.preventDefault();
@@ -949,36 +965,38 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     expect(document.activeElement).toBe(rows());
   });
 
-  it('ヘッダーの検索欄で打っている最中は、画面が変わってもフォーカスを奪わない', async () => {
+  it('入力欄で打っている最中は、画面が変わってもフォーカスを奪わない', async () => {
     const { setHash } = await mounted();
-    const box = document.getElementById('global-search')!;
+    const box = textField();
     act(() => box.focus());
     act(() => setHash('#/sessions'));
     await flush();
     expect(document.activeElement).toBe(box);
   });
 
-  it('ヘッダーの検索で Enter すると、結果の一覧へ移る', async () => {
+  it('パレットの全文検索の行を選ぶと、セッション一覧へ移って結果の一覧へフォーカスする', async () => {
     const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん' }] };
-    await mounted({ api: { search: async () => ({ hits: [hit], total: 1 }) } });
-    const box = document.getElementById('global-search') as HTMLInputElement;
-    act(() => box.focus());
-    box.value = 'せっ';
-    fireEvent.keyDown(box, { key: 'Enter' });
+    const search = vi.fn(async () => ({ hits: [hit], total: 1 }));
+    const { deps } = await mounted({ api: { search } });
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    fireEvent.change(screen.getByLabelText('探す・移動'), { target: { value: 'せっ' } });
+    fireEvent.click(screen.getByRole('option', { name: /『せっ』を全文検索/ }));
     await flush();
     await flush();
+    expect(deps.location.getHash()).toBe(`#/sessions?q=${encodeURIComponent('せっ')}`);
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ q: 'せっ' }));
     expect(document.activeElement).toBe(rows());
   });
 
-  it('ヘッダーから同じ語で検索し直しても、結果の一覧へ移る', async () => {
+  it('パレットから同じ語で検索し直しても、結果の一覧へ移る（⌘↵）', async () => {
     const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん' }] };
     await mounted({ api: { search: async () => ({ hits: [hit], total: 1 }) } });
-    const box = document.getElementById('global-search') as HTMLInputElement;
     const settle = () => act(() => new Promise((r) => setTimeout(r, 100)));
     for (let n = 0; n < 2; n++) {
-      act(() => box.focus());
-      box.value = 'せっ';
-      fireEvent.keyDown(box, { key: 'Enter' });
+      fireEvent.keyDown(window, { key: 'k', metaKey: true });
+      const input = screen.getByLabelText('探す・移動');
+      fireEvent.change(input, { target: { value: 'せっ' } });
+      fireEvent.keyDown(input, { key: 'Enter', metaKey: true });
       await settle();
       expect(document.activeElement).toBe(rows());
     }

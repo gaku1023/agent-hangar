@@ -196,13 +196,6 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'shortcuts.open': take(); rt.emit({ type: 'shortcuts.open' }); return;
         case 'nav.back': take(); rt.emit({ type: 'nav.back' }); return;
         case 'nav.forward': take(); rt.emit({ type: 'nav.forward' }); return;
-        case 'search.focus': {
-          take();
-          // 狭いヘッダでは検索欄を畳んでいる。隠れた欄にはフォーカスできないので、代わりにパレットを開く。
-          const box = document.getElementById('global-search');
-          if (box && getComputedStyle(box).display !== 'none') box.focus(); else rt.emit({ type: 'palette.open' });
-          return;
-        }
         // Esc はオーバーレイを閉じる。
         // 未解決のプロジェクトだけは決めてもらうまで閉じない。
         // 入力欄にフォーカスがあるときは、その入力欄を持つダイアログが自分で Esc を処理するので二重に出さない（上の typing で落ちる）。
@@ -331,7 +324,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     <>
       {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}
       {newSession && <NewSessionDialog key={newSession.projectId ?? ''} {...newSession} />}
-      {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery)!} onQuery={setPaletteQuery} />}
+      {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now)!} onQuery={setPaletteQuery} />}
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
       {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store)!} />}

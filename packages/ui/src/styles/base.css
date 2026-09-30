@@ -73,9 +73,9 @@ a:hover { text-decoration: underline; }
 /* 右の列は、検索欄と右の塊の 1 行。狭いときに部品を畳む大きさの入れ物（container）は、ヘッダではなくこの行に付ける。
    container はレイアウトの封じ込めを伴い、封じ込めのある要素では subgrid が効かなくなるからである。 */
 .header-row { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: calc(var(--u) * 4.5); min-width: 0; height: 100%; container: header / inline-size; }
-/* 検索欄の左端は、本文の左端と同じ式で決める。本文は --main-w を上限に本文の列の中央へ寄り、そこから --gutter-l 空けて始まる。
+/* 「探す・移動」の錠剤の左端は、本文の左端と同じ式で決める。本文は --main-w を上限に本文の列の中央へ寄り、そこから --gutter-l 空けて始まる。
    本文の列の幅は、この行の幅（100cqw）である。 */
-.header-row > .search-box, .header-row > .btn.search-icon { margin-left: max(var(--gutter-l), calc((100cqw - var(--main-w)) / 2 + var(--gutter-l))); }
+.header-row > .search-pill { margin-left: max(var(--gutter-l), calc((100cqw - var(--main-w)) / 2 + var(--gutter-l))); }
 .header-row > .header-end { margin-right: calc(var(--u) * 3); }
 .header-end { display: flex; align-items: center; gap: calc(var(--u) * 4.5); flex: 0 1 auto; min-width: 0; }
 /* 中身はヘッダの下をくぐって流れる。上の余白は、ヘッダの高さと、その下の隙間の分である。
@@ -240,9 +240,12 @@ a:hover { text-decoration: underline; }
 .tr-sheet { padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
 
 /* ヘッダーの要素 */
-/* 検索欄はヘッダの錠剤の中の、ひと回り小さな錠剤。右の余白は、内側に重ねる ⌘K の印の分。 */
-.search-box { flex: 1; max-width: 420px; height: calc(var(--row-h) - 2px); border-color: transparent; border-radius: var(--r-pill); padding: 0 calc(var(--u) * 13) 0 calc(var(--u) * 3); background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.12); }
-.search-kbd { margin-left: calc(var(--u) * -13); width: calc(var(--u) * 9); flex: none; pointer-events: none; font: var(--fs-xs)/1 var(--font-mono); color: var(--ink-3); }
+/* 「探す・移動」の錠剤（A1）。打つ欄ではなく押すボタンなので、ボタンと同じ浮いた錠剤にし、幅は中身の分だけにする。
+   虫眼鏡、文字、⌘K のキー帽の順に並べる。押すとパレットが開く。 */
+.search-pill { display: inline-flex; flex: none; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 5px 0 11px; border: 0; border-radius: var(--r-pill); color: var(--ink-2); font-weight: 520; white-space: nowrap; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.search-pill:hover { background: #fff; color: var(--ink); box-shadow: inset 0 1px 0 #fff, 0 3px 10px -2px rgba(30, 40, 90, 0.2); transform: translateY(-1px); }
+.search-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.search-kbd { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border-radius: 5px; font: 600 10.5px/18px var(--font-mono); color: var(--ink-2); background: rgba(30, 40, 90, 0.07); box-shadow: inset 0 -1px 0 rgba(30, 40, 90, 0.08); }
 .spacer { flex: 1; }
 
 /* 切断の帯。浮いたヘッダの下に降りてきて、押せる逃げ道をひとつ添える。通知と同じガラスに、赤を少し混ぜる。
@@ -300,15 +303,12 @@ a:hover { text-decoration: underline; }
 .usage-warn { color: var(--st-paused); font-weight: 600; }
 
 /* ヘッダの畳み方（窓が狭いとき）。窓ではなく、検索欄と右の塊が並ぶ行（本文の列）の幅で決める。サイドバーの開閉でもこの幅は変わるからである。
-   狭くなるほど、①最終更新 → ②同期の操作 → ③ゲージの棒（短い名前と数字だけに） → ④検索欄（虫眼鏡に）、同期の文、索引の進み
+   狭くなるほど、①最終更新 → ②同期の操作 → ③ゲージの棒（短い名前と数字だけに） → ④錠剤の文字とキー帽（虫眼鏡だけに）、同期の文、索引の進み
    → ⑤新しいセッションの文字（「＋」だけに）と同期の件数 → ⑥ゲージ、の順に畳む。
-   畳んだ操作は、同期の文なら設定、検索欄ならパレットから届く。新しいセッションは最後まで縮めない。
+   畳んだ操作は、同期の文なら設定から届く。錠剤は虫眼鏡になっても押せばパレットが開く。新しいセッションは最後まで縮めない。
    行を大きさの入れ物にする指定（container）は、.header-row の規則の中に書いている。 */
-.header .search-box { flex: 1 1 280px; min-width: 140px; }
 .header-end > .gauges, .header-end > .new-session { flex: none; }
 .header .btn.new-session { flex: none; }
-.header .btn.search-icon { display: none; flex: none; justify-content: center; width: var(--row-h); padding: 0; color: var(--ink-2); background: none; box-shadow: none; }
-.header .btn.search-icon:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
 /* 同期の操作は地を持たない文字のボタンにし、主ボタン（新しいセッション）だけが面を持つ。
    同期と使用率の前には細い仕切りを置き、横にも塊ごとの間を見せる。 */
 .header .sync-action { color: var(--ink-2); background: none; box-shadow: none; }
@@ -324,7 +324,7 @@ a:hover { text-decoration: underline; }
 @container header (max-width: 900px) { .header .gauge-updated { display: none; } }
 @container header (max-width: 800px) { .header .sync-action { display: none; } }
 @container header (max-width: 700px) { .header .gauge-bar { display: none; } .header .gauge-num { min-width: 0; } }
-@container header (max-width: 600px) { .header .search-box, .header .search-kbd, .header .progress, .header .sync-label { display: none; } .header .btn.search-icon { display: inline-flex; } }
+@container header (max-width: 600px) { .header .search-pill-label, .header .search-kbd, .header .progress, .header .sync-label { display: none; } .header .search-pill { justify-content: center; width: var(--row-h); padding: 0; } }
 @container header (max-width: 420px) { .header .new-session .btn-label, .header .sync-count { display: none; } .header .btn.new-session { justify-content: center; width: var(--row-h); padding: 0; } }
 @container header (max-width: 340px) { .header .gauges { display: none; } }
 

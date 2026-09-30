@@ -42,9 +42,21 @@ describe('ヘッダの列と検索欄の位置', () => {
     expect(base).toContain('--gutter-l: max(calc(var(--u) * 4), calc(var(--head-end) - var(--col1) - var(--box-l)));');
     expect(base).toContain('--box-l: max(0px, calc((100vw - var(--col1) - var(--main-w)) / 2));');
   });
-  it('検索欄の左端は、本文の左端と同じ式で決まる', () => {
+  it('探す・移動の錠剤の左端は、本文の左端と同じ式で決まる', () => {
     expect(rule('.main-inner')).toMatch(/max-width: var\(--main-w\);[^}]*margin: 0 auto;[^}]*var\(--gutter-l\);/);
-    expect(base).toContain('margin-left: max(var(--gutter-l), calc((100cqw - var(--main-w)) / 2 + var(--gutter-l)));');
+    expect(rule('.header-row > .search-pill')).toContain('margin-left: max(var(--gutter-l), calc((100cqw - var(--main-w)) / 2 + var(--gutter-l)));');
+  });
+  // 錠剤は押すボタンで、幅は中身の分だけにする（A1）。欄のように伸ばすと、打てる欄に見える。
+  it('探す・移動の錠剤は浮いた錠剤で、幅は中身の分だけ', () => {
+    expect(rule('.search-pill')).toContain('border-radius: var(--r-pill);');
+    expect(rule('.search-pill')).toContain('flex: none;');
+    expect(rule('.search-pill')).not.toMatch(/flex: 1/);
+  });
+  it('狭いときは錠剤の文字とキー帽を畳み、虫眼鏡だけを残す', () => {
+    const narrow = rules.filter((r) => r.selector.split(',').some((x) => x.trim() === '.header .search-pill-label'));
+    expect(narrow.some((r) => /display:\s*none/.test(r.body))).toBe(true);
+    expect(base).not.toContain('search-icon');
+    expect(base).not.toContain('.search-box');
   });
   // 開閉の動きは --col1 も動かす。登録していないと途中の値が補間されず、本文と検索欄の余白だけが跳ぶ。
   it('左の列の幅は、登録したカスタムプロパティ --col1 に持つ', () => {

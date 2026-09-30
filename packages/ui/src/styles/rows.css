@@ -93,8 +93,22 @@
    画面の縁は他の画面と同じく .main-inner の余白だけにし、見出しの位置を揃える。
    一覧の高さ（SessionsScreen の LIST_H）は、見出しの高さとこの段の余白から出している。 */
 .sessions-count { font-weight: 400; }
-.sessions-keyword { display: flex; margin-bottom: calc(var(--u) * 3.5); }
-.sessions-keyword .input { flex: 1; }
+/* 上の欄は全文検索の本体（D1）。本文を探す絵と「本文」の札を添え、打った語は × で消せる。
+   欄の枠は箱の側に持たせ、中の入力欄は素の文字にする。 */
+.sessions-keyword { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); margin-bottom: calc(var(--u) * 3.5); border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
+.sessions-keyword:focus-within { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.sessions-keyword input { flex: 1; min-width: 60px; height: 100%; padding: 0; border: 0; outline: 0; background: none; color: var(--ink); }
+.sessions-keyword-tag { flex: none; height: 18px; padding: 0 calc(var(--u) * 1.5); border-radius: 5px; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; color: var(--ink-3); background: var(--surface-2); }
+.sessions-keyword-clear, .sessions-cond-clear { background: none; box-shadow: none; }
+.sessions-keyword-clear { color: var(--ink-3); }
 .sessions-filters { display: flex; align-items: center; gap: calc(var(--u) * 3); margin-bottom: calc(var(--u) * 5); }
-/* 検索の続きを読むボタン。最後の行の下に、行と一緒にスクロールして現れる。 */
-.sessions-more { display: flex; justify-content: center; padding: calc(var(--u) * 3) 0; }
+/* 条件の行。条件が 1 つでも効いているときだけ、絞り込みの段の下に出す。
+   高さと余白の和は 28px で、一覧の高さ（SessionsScreen の LIST_H_COND）はこの分を引いている。 */
+.sessions-cond { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 20px; margin: calc(var(--u) * -2) var(--u) calc(var(--u) * 4); font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.sessions-cond > .icon { flex: none; color: var(--accent); }
+.sessions-cond-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sessions-cond b { color: var(--ink); font-weight: 600; }
+.sessions-cond-clear { flex: none; gap: 3px; padding: 0 var(--u); color: var(--accent); font-weight: 560; }
+.sessions-cond-count { margin-left: auto; flex: none; font-size: var(--fs-xs); }
+/* 検索の続きを読むボタン。最後の行の下に、行と一緒にスクロールして現れる。残りの件数を淡く添える。 */
+.sessions-more { display: flex; align-items: center; justify-content: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 3) 0; font-size: var(--fs-sm); }

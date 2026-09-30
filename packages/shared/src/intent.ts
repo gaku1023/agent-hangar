@@ -28,6 +28,8 @@ export type Intent =
   | { type: 'search.query'; text: string } | { type: 'search.filter'; patch: Partial<SearchFilter> }
   // サーバは上位の結果だけを返すので、続きは今の条件のまま offset から読み足す。
   | { type: 'search.more'; offset: number }
+  // 「条件をクリア」。語と絞り込みをまとめて外す。
+  | { type: 'search.clear' }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; name: string; gitInit: boolean; startSession: boolean }
   | { type: 'project.resolve.open'; id: ProjectId }

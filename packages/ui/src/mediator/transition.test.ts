@@ -104,6 +104,15 @@ describe('ナビゲーション', () => {
     const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
     expect(run([intent({ type: 'search.more', offset: 50 })], b.state).effects).toEqual([]);
   });
+  // 「条件をクリア」は語と絞り込みをまとめて外し、手元の全件の一覧へ戻す。語は URL にも乗っているので、URL からも外す。
+  it('search.clear は語と絞り込みを外し、語の無い一覧の URL へ移る', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1', days: 7, file: 'a.md' } })]);
+    const b = run([intent({ type: 'search.clear' })], a.state);
+    expect(b.state.search).toEqual({ text: '', filter: {} });
+    expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+    // 着いた先では手元の一覧を組むので、問い合わせない。
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state).effects).toEqual([]);
+  });
   it('状態の絞り込みは live としてサーバへ渡す', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { live: 'waiting' } })]);
     expect(a.effects).toContainEqual({ kind: 'api.search', params: { q: '動画', live: 'waiting' } });
@@ -557,6 +566,32 @@ describe('パレット', () => {
     const f = run([intent({ type: 'palette.run', command: { id: 'nope', label: '' } })], opened());
     expect(f.state.overlay).toEqual({ kind: 'none' });
     expect(f.effects).toEqual([]);
+  });
+  // 新しいセッションは、パレットを開いた画面のプロジェクトを最初から選ぶ。どれを選ぶかは presenter が項目の ID に載せる。
+  it('新しいセッションは、ID に載せたプロジェクトかスクラッチを選んで開く', () => {
+    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:new-session:project:p1', label: '新しいセッション' } })], opened());
+    expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
+    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
+    const b = run([intent({ type: 'palette.run', command: { id: 'cmd:new-session:scratch', label: '新しいセッション' } })], opened());
+    expect(b.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
+  });
+  it('移動の行は、画面を移るかサイドバーを開閉する', () => {
+    expect(run([intent({ type: 'palette.run', command: { id: 'go:home', label: 'ホームへ' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'home' } }]);
+    expect(run([intent({ type: 'palette.run', command: { id: 'go:projects', label: 'プロジェクトへ' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'projects' } }]);
+    const s = run([intent({ type: 'palette.run', command: { id: 'go:sessions', label: 'セッション一覧へ' } })], opened());
+    expect(s.state.overlay).toEqual({ kind: 'none' });
+    expect(s.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+    const bar = run([intent({ type: 'palette.run', command: { id: 'cmd:sidebar', label: 'サイドバーの開閉' } })], opened());
+    expect(bar.state.overlay).toEqual({ kind: 'none' });
+    expect(bar.state.sidebarCollapsed).toBe(true);
+    expect(bar.effects).toEqual([{ kind: 'storage.save', key: 'sidebar.collapsed', value: true }]);
+  });
+  // 全文検索の行は、ヘッダーの検索欄が担っていた search.query と同じ経路でセッション一覧へ移る。
+  it('全文検索の行は、語を持ってセッション一覧へ移り、結果の一覧へフォーカスする', () => {
+    const a = run([intent({ type: 'palette.run', command: { id: 'search:索引 再構築', label: '『索引 再構築』を全文検索' } })], opened());
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.state.search.text).toBe('索引 再構築');
+    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '索引 再構築' } }, { kind: 'focus', target: 'results' }]);
   });
   // パレットが開いていないのにコマンドが届いても、開いている別のダイアログを消さない。
   it('パレットが開いていなければオーバーレイを閉じない', () => {
