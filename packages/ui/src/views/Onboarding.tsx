@@ -36,12 +36,12 @@ export function Onboarding(props: OnboardingProps) {
     <div className="screen onboarding">
       <PageHeading title="ホーム" />
       <div className="ob-body">
-        <h1 className="ob-title">ようこそ</h1>
+        <h2 className="ob-title">ようこそ</h2>
         <p className="ob-lead">Claude Code のセッションを、ここから始めて見渡せます。</p>
         <section className="ck-card" aria-labelledby="ck-title">
           <div className="ck-head">
             <Icon name="checks" />
-            <h2 id="ck-title">始める前の確認</h2>
+            <h3 id="ck-title">始める前の確認</h3>
             {props.checks && <span className="ck-prog">{props.checks.progress}</span>}
           </div>
           {props.checks

@@ -1,9 +1,49 @@
 /* Settings の statusline、要約器、使用量（Task 26） */
 
+/* 1 枚の長い頁のまま、左に固定の目次を置く（設定の A1）。値の正本は試作 settings-layout.html。 */
+.settings-layout { display: grid; grid-template-columns: 176px minmax(0, 720px); gap: calc(var(--u) * 5); align-items: start; }
+.settings-toc { position: sticky; top: calc(var(--header-h) + var(--float-gap) + var(--u) * 2); display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+.settings-toc-group { display: flex; flex-direction: column; }
+.settings-toc-item { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 30px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font: 520 var(--fs-sm) var(--font-sans); text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.settings-toc-item:hover { background: rgba(255, 255, 255, 0.55); }
+.settings-toc-item[aria-current='true'] { color: var(--ink); font-weight: 600; background: rgba(255, 255, 255, 0.8); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.settings-toc-item .icon { width: 15px; height: 15px; }
+.settings-toc-dot { width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: var(--st-paused); }
+.settings-toc-sub { display: flex; align-items: center; height: 22px; padding-left: 28px; font-size: var(--fs-xs); color: var(--ink-3); }
+/* 目次を置く幅が無い窓では、目次を外して 1 列にする。 */
+@media (max-width: 1000px) { .settings-layout { grid-template-columns: minmax(0, 1fr); } .settings-toc { display: none; } }
+
+/* 群。見出しの右に中の節の名前を淡く並べる。スクロールで跳んだとき、浮いているヘッダの下に見出しが来るようにする。 */
+.settings-group { scroll-margin-top: calc(var(--u) * 2); }
+.settings-group + .settings-group { margin-top: calc(var(--u) * 7); }
+.settings-group-h { display: flex; align-items: baseline; gap: calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2.5) var(--u); font-size: var(--fs-md); font-weight: 680; letter-spacing: -0.01em; }
+.settings-group-h > span:not(.badge) { font-size: var(--fs-sm); font-weight: 500; color: var(--ink-3); }
+.settings-group-h > .badge { margin-left: auto; align-self: center; }
+
 /* 設定の中身は読む面である。節ごとに白い不透明な面を敷き、光の背景の上に並べる。 */
-.settings-screen > section { padding: calc(var(--u) * 3) calc(var(--u) * 4) calc(var(--u) * 4); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
-.settings-screen > section + section { margin-top: calc(var(--u) * 3); }
-.settings-screen > section > .h2:first-child { margin-top: 0; }
+.settings-group > section { padding: calc(var(--u) * 3) calc(var(--u) * 4) calc(var(--u) * 4); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.settings-group > section + section { margin-top: calc(var(--u) * 3); }
+.settings-group > section > .h2:first-child { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: 0; }
+.settings-group > section > .h2:first-child > .badge { margin-left: auto; }
+
+/* 札（✓ 登録済み、まだです）。 */
+.badge { display: inline-flex; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 560; white-space: nowrap; }
+.badge[data-tone='ok'] { color: var(--st-done); background: var(--st-done-soft); }
+.badge[data-tone='warn'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.badge .icon { width: 12px; height: 12px; stroke-width: 2; }
+
+/* パスの欄。欄の横に保存の知らせ、欄の下に検証の 1 行を置く。 */
+.path-field { min-width: 0; }
+
+/* 参加トークン（設定の E2）。トークンとコピー、減る棒と残りの秒数。 */
+.tok { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }
+.tok-line { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
+.tok-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink); -webkit-user-select: all; user-select: all; }
+.tbar { height: 3px; border-radius: 2px; background: var(--line-strong); overflow: hidden; }
+.tbar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); transition: width var(--dur) linear; }
+.tbar[data-low] > i { background: var(--waiting); }
+.tok small { font-size: var(--fs-xs); color: var(--ink-3); }
+@media (prefers-reduced-motion: reduce) { .tbar > i { transition: none; } }
 
 /* ラベルと入力を横に並べる行。チェックボックスと小さな数値の入力に使う。 */
 /* palette.css の .field-row とは別物なので、設定画面だけの名前にしている。 */
@@ -17,8 +57,6 @@
 .mini td, .mini th { height: 22px; padding: 0 4px; }
 .mini td.cell-right, .mini th.cell-right { text-align: right; }
 
-/* 端末で実行するコマンドの囲み。 */
-.snippet { margin: calc(var(--u) * 2) 0 0; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 8px; overflow-x: auto; font-size: var(--fs-sm); }
 
 /* スイッチの行は、文を左に、スイッチを右端に置く。 */
 .settings-switch-row { justify-content: space-between; }

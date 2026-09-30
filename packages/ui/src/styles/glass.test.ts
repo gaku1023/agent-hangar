@@ -85,7 +85,7 @@ const px = (v: string) => {
 describe('読む面', () => {
   // 仕様の 3 枚の層の 2 枚目。設定の中身、プロジェクトの右レール、会話は、光の背景の上に白い不透明な面を敷いて読む。
   it.each([
-    ['settings.css', '.settings-screen > section'],
+    ['settings.css', '.settings-group > section'],
     ['workbench.css', '.rail-panel'],
     ['base.css', '.tr-sheet'],
   ])('%s の %s は白い読む面で、ぼかしを持たない', (file, selector) => {

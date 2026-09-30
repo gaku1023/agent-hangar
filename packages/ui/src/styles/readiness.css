@@ -36,7 +36,7 @@
 .ck-card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
 .ck-head { display: flex; align-items: center; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 3.5) calc(var(--u) * 4) calc(var(--u) * 2.5); }
 .ck-head > .icon { color: var(--accent); }
-.ck-head h2 { margin: 0; font-size: var(--fs-md); font-weight: 650; }
+.ck-head h3 { margin: 0; font-size: var(--fs-md); font-weight: 650; }
 .ck-prog { margin-left: auto; font: 500 var(--fs-xs) var(--font-mono); color: var(--ink-3); }
 .ck-list { margin: 0; padding: 0; list-style: none; }
 .ck { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 2px calc(var(--u) * 2.5); align-items: start; padding: calc(var(--u) * 2.5) calc(var(--u) * 4); border-top: 1px solid var(--line); }
