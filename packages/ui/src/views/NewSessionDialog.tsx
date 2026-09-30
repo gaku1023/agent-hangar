@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { LaunchParams } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
@@ -6,6 +6,7 @@ import { isComposing } from './ime.ts';
 import { ChoiceChips } from './primitives/Chip.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Fold } from './primitives/Fold.tsx';
+import { Icon } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import type { ListboxOption } from './primitives/listboxModel.ts';
 import { OptionCards, type OptionCardItem } from './primitives/OptionCard.tsx';
@@ -37,38 +38,61 @@ const SCRATCH_OPTION: ListboxOption = { value: SCRATCH, label: 'スクラッチ'
 
 /**
  * 起動ダイアログ。必須はプロジェクトだけで、空欄と既定は params に含めない（利用者の Claude Code の設定に従わせるため）。
- * プロジェクト、model、effort、permission mode はここの状態で持つ。詳細の見出しに、選んだ値を送信の前から出すため。
+ * 欄はすべてここの状態で持つ。詳細の見出しに選んだ値を送信の前から出し、下書きを戻して消せるようにするためである。
  * スクラッチはプロジェクトの一覧の先頭の 1 行として選ぶ。props.scratch は開いたときにその行を選んでおくかどうかである。
- * 名前、初期プロンプト、worktree、追加ディレクトリは非制御のまま、送信のときにフォームから読む。
+ * 名前と初期プロンプトの書きかけは、閉じるときに下書きとして送り、次に開いたときに props.draft から戻す（C1）。
+ * 打鍵のたびには送らない。送るたびに画面全体を描き直すことになるからである。
  * プロジェクトが未選択のまま送っても止めない。未選択の判定は Mediator が持ち、失敗のメッセージが error として戻ってくる。
  */
 export function NewSessionDialog(props: NewSessionProps) {
   const emit = useEmit();
-  const form = useRef<HTMLFormElement>(null);
   const [choice, setChoice] = useState(() => {
     // サーバも scratch を projectId より優先する。
     if (props.scratch) return SCRATCH;
     return props.projectId && props.projects.some((p) => p.id === props.projectId) ? props.projectId : '';
   });
   const scratch = choice === SCRATCH;
+  const [name, setName] = useState(props.draft?.name ?? '');
+  const [prompt, setPrompt] = useState(props.draft?.prompt ?? '');
+  // 開いたときに下書きを戻したか。「消す」を押すまで見出しに札を出す。
+  const [restored, setRestored] = useState(props.draft !== null);
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
   const [permissionMode, setPermissionMode] = useState('');
+  const [worktree, setWorktree] = useState('');
+  const [addDirs, setAddDirs] = useState('');
+  const nameInput = useRef<HTMLInputElement>(null);
+
+  // 閉じるとき（どの経路で閉じても、ダイアログは外される）に、書きかけを下書きとして送る。
+  // 起動を送った後に外されたときは、起動し終えたので送らない（Mediator が下書きを消す）。
+  const latest = useRef({ name, prompt, submitting: props.submitting, emit });
+  latest.current = { name, prompt, submitting: props.submitting, emit };
+  useEffect(() => () => {
+    const l = latest.current;
+    if (!l.submitting) l.emit({ type: 'session.new.draft', name: l.name, prompt: l.prompt });
+  }, []);
+
+  const discardDraft = () => {
+    setName('');
+    setPrompt('');
+    setRestored(false);
+    emit({ type: 'session.new.draft', name: '', prompt: '' });
+    nameInput.current?.focus();
+  };
 
   const submit = () => {
-    if (props.submitting || !form.current) return;
-    const data = new FormData(form.current);
-    const text = (key: string): string => { const v = data.get(key); return typeof v === 'string' ? v.trim() : ''; };
+    if (props.submitting) return;
     const params: LaunchParams = {};
     // スクラッチはプロジェクトを持たず、サーバが使い捨てのディレクトリを作る。
     if (scratch) params.scratch = true;
     else if (choice) params.projectId = choice;
-    for (const key of ['name', 'prompt'] as const) { const v = text(key); if (v) params[key] = v; }
+    if (name.trim()) params.name = name.trim();
+    if (prompt.trim()) params.prompt = prompt.trim();
     if (model.trim()) params.model = model.trim();
     if (effort) params.effort = effort;
     if (permissionMode) params.permissionMode = permissionMode;
-    const worktree = text('worktree'); if (worktree) params.worktree = worktree;
-    const dirs = text('addDirs').split('\n').map((d) => d.trim()).filter(Boolean);
+    if (worktree.trim()) params.worktree = worktree.trim();
+    const dirs = addDirs.split('\n').map((d) => d.trim()).filter(Boolean);
     if (dirs.length) params.addDirs = dirs;
     emit({ type: 'session.new.submit', params });
   };
@@ -99,6 +123,12 @@ export function NewSessionDialog(props: NewSessionProps) {
   return (
     <Dialog
       title={scratch ? 'スクラッチで始める' : '新しいセッション'}
+      titleAside={restored && (
+        <>
+          <span className="draft-tag"><Icon name="edit" />下書き</span>
+          <button type="button" className="linkish" aria-label="下書きを消す" onClick={discardDraft}><Icon name="discard" />消す</button>
+        </>
+      )}
       className="dialog-wide"
       onClose={close}
       closeOnBackdrop={false}
@@ -111,40 +141,38 @@ export function NewSessionDialog(props: NewSessionProps) {
         </button>
       </>}
     >
-      <form ref={form} className="dialog-form" onSubmit={(e) => e.preventDefault()}>
-        <div className="field">
-          <span aria-hidden="true">プロジェクト</span>
-          <Listbox id="new-session-project" label="プロジェクト" value={choice || null} options={options} groups={groups} onChange={setChoice} showSubInFace searchPlaceholder="名前かパスで探す" minWidth={360} />
-        </div>
-        {scratch && <div className="faint">~/.agent-hangar/scratch/ の下に日時のディレクトリを作って起動します。後からプロジェクトに昇格できます。</div>}
-        <label className="field" htmlFor="new-session-name">名前（任意）
-          <input id="new-session-name" className="input" name="name" data-autofocus defaultValue="" placeholder="一覧での表示名" />
-        </label>
-        <label className="field" htmlFor="new-session-prompt">初期プロンプト（任意）
-          <textarea id="new-session-prompt" className="input" name="prompt" rows={4} defaultValue="" />
-        </label>
-        <Fold summary={foldSummary}>
-          <div className="launch-options">
-            <span className="launch-option-label" aria-hidden="true">model</span>
-            <ChoiceChips label="model" value={model} options={MODELS} onChange={setModel} other={{ label: 'ほか', placeholder: 'model の名前' }} />
-            <span className="launch-option-label" aria-hidden="true">effort</span>
-            <div><Segmented label="effort" value={effort} options={EFFORT_OPTIONS} onChange={setEffort} size="xs" /></div>
-            <span className="launch-option-label launch-option-label-top" aria-hidden="true">permission mode</span>
-            <div>
-              <OptionCards label="permission mode" value={permissionMode} options={PERMISSIONS} onChange={setPermissionMode} />
-              {permissionMode === 'bypassPermissions' && <div className="error launch-danger">ファイルの削除やコマンドも、確認せずに実行します</div>}
-            </div>
+      <div className="field">
+        <span aria-hidden="true">プロジェクト</span>
+        <Listbox id="new-session-project" label="プロジェクト" value={choice || null} options={options} groups={groups} onChange={setChoice} showSubInFace searchPlaceholder="名前かパスで探す" minWidth={360} />
+      </div>
+      {scratch && <div className="faint">~/.agent-hangar/scratch/ の下に日時のディレクトリを作って起動します。後からプロジェクトに昇格できます。</div>}
+      <label className="field" htmlFor="new-session-name">名前（任意）
+        <input ref={nameInput} id="new-session-name" className="input" data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder="一覧での表示名" />
+      </label>
+      <label className="field" htmlFor="new-session-prompt">初期プロンプト（任意）
+        <textarea id="new-session-prompt" className="input" rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+      </label>
+      <Fold summary={foldSummary}>
+        <div className="launch-options">
+          <span className="launch-option-label" aria-hidden="true">model</span>
+          <ChoiceChips label="model" value={model} options={MODELS} onChange={setModel} other={{ label: 'ほか', placeholder: 'model の名前' }} />
+          <span className="launch-option-label" aria-hidden="true">effort</span>
+          <div><Segmented label="effort" value={effort} options={EFFORT_OPTIONS} onChange={setEffort} size="xs" /></div>
+          <span className="launch-option-label launch-option-label-top" aria-hidden="true">permission mode</span>
+          <div>
+            <OptionCards label="permission mode" value={permissionMode} options={PERMISSIONS} onChange={setPermissionMode} />
+            {permissionMode === 'bypassPermissions' && <div className="error launch-danger">ファイルの削除やコマンドも、確認せずに実行します</div>}
           </div>
-          <label className="field" htmlFor="new-session-worktree">worktree
-            <input id="new-session-worktree" className="input mono" name="worktree" defaultValue="" placeholder="空なら通常の作業ディレクトリ" />
-          </label>
-          <label className="field" htmlFor="new-session-add-dirs">追加ディレクトリ（1 行 1 つ）
-            <textarea id="new-session-add-dirs" className="input mono" name="addDirs" rows={2} defaultValue="" />
-          </label>
-        </Fold>
-        <div className="faint">新しいディレクトリでは Claude が信頼確認のダイアログを出します。起動したあとにターミナルで答えてください。</div>
-        {props.error && <div className="error" role="alert">{props.error}</div>}
-      </form>
+        </div>
+        <label className="field" htmlFor="new-session-worktree">worktree
+          <input id="new-session-worktree" className="input mono" value={worktree} onChange={(e) => setWorktree(e.target.value)} placeholder="空なら通常の作業ディレクトリ" />
+        </label>
+        <label className="field" htmlFor="new-session-add-dirs">追加ディレクトリ（1 行 1 つ）
+          <textarea id="new-session-add-dirs" className="input mono" rows={2} value={addDirs} onChange={(e) => setAddDirs(e.target.value)} />
+        </label>
+      </Fold>
+      <div className="faint">新しいディレクトリでは Claude が信頼確認のダイアログを出します。起動したあとにターミナルで答えてください。</div>
+      {props.error && <div className="error" role="alert">{props.error}</div>}
     </Dialog>
   );
 }

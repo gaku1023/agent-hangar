@@ -10,7 +10,7 @@ const projects: NewSessionProps['projects'] = [
   { id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' },
   { id: 'p2', name: 'beta', path: '/w/beta', status: 'paused', lastActivity: '昨日' },
 ];
-const base: NewSessionProps = { projects, recentIds: ['p1'], projectId: null, submitting: false, error: null, scratch: false };
+const base: NewSessionProps = { projects, recentIds: ['p1'], projectId: null, submitting: false, error: null, scratch: false, draft: null, prefs: {} };
 
 /** 送られた params だけを集める。キーの有無を見たいので、呼び出しの照合ではなく値そのものを取る。 */
 function collectParams(over: Partial<NewSessionProps> = {}): LaunchParams[] {
@@ -246,3 +246,49 @@ describe('NewSessionDialog のスクラッチ', () => {
     expect(screen.getAllByRole('option').map((o) => o.getAttribute('aria-label'))).toEqual(['スクラッチ']);
   });
 });
+
+describe('NewSessionDialog の下書き（C1）', () => {
+  it('前に閉じたときの書きかけを戻し、見出しの右に「下書き」の札と「消す」を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} draft={{ name: 'API の節', prompt: '関数ごとに表を' }} /></IntentRoot>);
+    expect(screen.getByLabelText('名前（任意）')).toHaveValue('API の節');
+    expect(screen.getByLabelText('初期プロンプト（任意）')).toHaveValue('関数ごとに表を');
+    const head = screen.getByRole('dialog').querySelector('.dialog-head')!;
+    expect(within(head as HTMLElement).getByText('下書き')).toBeInTheDocument();
+    expect(within(head as HTMLElement).getByRole('button', { name: '下書きを消す' })).toBeInTheDocument();
+  });
+  it('下書きが無ければ札を出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} /></IntentRoot>);
+    expect(screen.queryByText('下書き')).toBeNull();
+    expect(screen.queryByRole('button', { name: '下書きを消す' })).toBeNull();
+  });
+  it('「消す」で名前と初期プロンプトを空にし、札を外し、下書きも消す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} draft={{ name: 'n', prompt: 'p' }} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '下書きを消す' }));
+    expect(screen.getByLabelText('名前（任意）')).toHaveValue('');
+    expect(screen.getByLabelText('初期プロンプト（任意）')).toHaveValue('');
+    expect(screen.queryByText('下書き')).toBeNull();
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.draft', name: '', prompt: '' });
+    // 消した後は名前の欄から打ち直せる。
+    expect(screen.getByLabelText('名前（任意）')).toHaveFocus();
+  });
+  it('閉じるときに、名前と初期プロンプトの書きかけを下書きとして送る', () => {
+    const onIntent = vi.fn();
+    const { unmount } = render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} /></IntentRoot>);
+    fireEvent.change(screen.getByLabelText('名前（任意）'), { target: { value: 'なまえ' } });
+    fireEvent.change(screen.getByLabelText('初期プロンプト（任意）'), { target: { value: 'やって' } });
+    // 打っている間は送らない。打鍵のたびに画面全体を描き直さないためである。
+    expect(onIntent).not.toHaveBeenCalled();
+    unmount();
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.draft', name: 'なまえ', prompt: 'やって' });
+  });
+  it('起動を送った後に閉じたとき（起動し終えたとき）は、下書きを送らない', () => {
+    const onIntent = vi.fn();
+    const { rerender, unmount } = render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} projectId="p1" /></IntentRoot>);
+    fireEvent.change(screen.getByLabelText('名前（任意）'), { target: { value: 'なまえ' } });
+    rerender(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} projectId="p1" submitting /></IntentRoot>);
+    unmount();
+    expect(onIntent.mock.calls.filter(([i]) => i.type === 'session.new.draft')).toEqual([]);
+  });
+});
+

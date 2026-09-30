@@ -135,6 +135,23 @@ describe('Root', () => {
     fireEvent.click(screen.getByText('やめる'));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+  it('書きかけのまま閉じた新しいセッションは、次に開くと下書きとして戻る', async () => {
+    const { rt, deps, handlers } = make();
+    rt.start();
+    render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
+    act(() => handlers[0]!.onOpen());
+    await flush();
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
+    fireEvent.change(screen.getByLabelText('名前（任意）'), { target: { value: 'API の節' } });
+    fireEvent.keyDown(screen.getByLabelText('名前（任意）'), { key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(rt.getState().newSessionDraft).toEqual({ name: 'API の節', prompt: '' });
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
+    await flush();
+    expect(screen.getByLabelText('名前（任意）')).toHaveValue('API の節');
+    expect(within(screen.getByRole('dialog')).getByText('下書き')).toBeInTheDocument();
+  });
   it('セッションを開くとサブエージェントの一覧が届き、選択欄が出る', async () => {
     const { rt, deps, handlers, setHash } = make({ boot: { ...boot, sessions: [session] }, api: { subagents: async () => ['agent-1'] } });
     rt.start();

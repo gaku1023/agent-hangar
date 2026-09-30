@@ -61,4 +61,8 @@ describe('新しいセッションのダイアログ', () => {
   it('起動ボタンの中のキー帽は、主ボタンの地の上で読める淡い白にする（B1）', () => {
     expect(body('.btn .kc')).toContain('background: rgba(255, 255, 255, 0.22);');
   });
+  it('下書きの札は Paused の色を借りる（C1）', () => {
+    expect(body('.draft-tag')).toContain('color: var(--st-paused);');
+    expect(body('.draft-tag')).toContain('background: var(--st-paused-soft);');
+  });
 });
