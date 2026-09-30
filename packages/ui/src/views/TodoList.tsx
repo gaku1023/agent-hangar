@@ -24,9 +24,12 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[] }) {
           return (
             <li key={t.id} className="todo-item" data-candidate={c ? 'true' : undefined}>
               <div className="todo" data-done={t.done ? 'true' : undefined}>
-                <input type="checkbox" className="todo-check" data-candidate={c ? 'true' : undefined} checked={t.done}
+                {/* 押すと緑に満ち、チェックの線が描かれる。線の描画は CSS の stroke-dashoffset で動かす。候補の間は半分だけ満ちた印にする。 */}
+                <button type="button" role="checkbox" className="todo-check" data-candidate={c ? 'true' : undefined} aria-checked={t.done}
                   aria-label={c ? `${t.text}（${i + 1} 件目、完了の候補）` : nth} aria-describedby={c ? `todo-why-${t.id}` : undefined}
-                  onChange={() => emit({ type: 'todo.toggle', id: t.id })} />
+                  onClick={() => emit({ type: 'todo.toggle', id: t.id })}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+                </button>
                 <span className="todo-text">{t.text}</span>
                 <button className="btn todo-del" aria-label={`${nth}を削除`} onClick={() => emit({ type: 'todo.remove', id: t.id })}><Icon name="close" /></button>
               </div>

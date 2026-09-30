@@ -271,7 +271,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   }
 
   // 起動ダイアログはプロジェクトが変わったら作り直す。入力欄が非制御で、defaultValue を作り直しでしか変えられないからである。
-  const newSession = presentNewSession(state, store);
+  const newSession = presentNewSession(state, store, now);
   const overlays = (
     <>
       {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}

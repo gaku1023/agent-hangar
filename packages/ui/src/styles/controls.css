@@ -1,0 +1,122 @@
+/* 選ぶ部品（一覧、切り替えの帯、スイッチ、チップ、カード、増減）。
+   形と値は docs/superpowers/specs/2026-09-29-ui-refresh/choice-controls.html の試作に合わせる。 */
+
+/* スイッチ。押している間は玉が少し横に伸びる。 */
+.switch { position: relative; flex: none; width: 36px; height: 22px; padding: 0; border: 0; border-radius: var(--r-pill); background: #d5d7e3; box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.12); cursor: pointer; transition: background var(--dur) var(--ease-out); }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px rgba(30, 40, 90, 0.3); transition: transform var(--dur) var(--ease-out), width var(--dur-fast) var(--ease-out); }
+.switch:active:not(:disabled)::after { width: 22px; }
+.switch[aria-checked='true'] { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); }
+.switch[aria-checked='true']::after { transform: translateX(14px); }
+.switch[aria-checked='true']:active:not(:disabled)::after { transform: translateX(10px); }
+.switch:disabled { opacity: 0.5; cursor: default; }
+
+/* 一覧の顔。選んだ項目の点、名前、補足、下向きの矢印を描く。 */
+.listbox-face { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; min-width: 0; height: 34px; padding: 0 calc(var(--u) * 2.5) 0 calc(var(--u) * 3); border: 0; border-radius: 10px; text-align: left; cursor: pointer; color: var(--ink); background: rgba(255, 255, 255, 0.85); box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 2px rgba(30, 40, 90, 0.05); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.listbox-face:hover { background: var(--surface); box-shadow: inset 0 0 0 1px #c9cbe0, 0 3px 10px -4px rgba(30, 40, 90, 0.18); }
+.listbox-face[aria-expanded='true'] { background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.listbox-face-value { display: flex; align-items: center; gap: calc(var(--u) * 2); flex: 1; min-width: 0; }
+.listbox-face-label { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.listbox-face-sub { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.listbox-face-placeholder { flex: 1; color: var(--ink-3); }
+.listbox-face > .icon:last-child { flex: none; color: var(--ink-3); transition: transform var(--dur-fast) var(--ease-out); }
+.listbox-face[aria-expanded='true'] > .icon:last-child { transform: rotate(180deg); }
+/* 丸い札の形。一覧の上の絞り込みとサブエージェントで使う。 */
+.listbox-face.listbox-pill { width: auto; height: var(--row-h); border-radius: var(--r-pill); }
+.listbox-face.listbox-pill .listbox-face-value { flex: none; }
+
+/* 開いたときのガラスの面。上から検索欄、行、キーの案内。検索欄と案内は固定し、行だけがスクロールする。 */
+.listbox-pop { position: fixed; z-index: 30; display: flex; flex-direction: column; max-height: 320px; padding: calc(var(--u) * 1.5); border-radius: var(--r-lg); background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); transform-origin: top left; animation: listbox-in var(--dur-fast) var(--ease-out); }
+.listbox-pop[data-up='true'] { transform-origin: bottom left; animation-name: listbox-in-up; }
+@keyframes listbox-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)) scale(0.98); filter: blur(var(--blur-in)); } }
+@keyframes listbox-in-up { from { opacity: 0; transform: translateY(var(--rise)) scale(0.98); filter: blur(var(--blur-in)); } }
+.listbox-search { flex: none; position: relative; z-index: 1; display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 2.5); margin-bottom: var(--u); border-radius: 10px; color: var(--ink-3); background: rgba(255, 255, 255, 0.85); box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow var(--dur-fast) var(--ease-out); }
+/* 行が下をくぐり始めたら、検索欄の下に薄い影を落とす。 */
+.listbox-pop[data-scrolled='true'] .listbox-search { box-shadow: inset 0 0 0 1px var(--line), 0 6px 12px -8px rgba(30, 40, 90, 0.35); }
+.listbox-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ink); }
+.listbox-rows { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; outline: none; }
+.listbox-group-title { padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; font-size: var(--fs-xs); font-weight: 560; color: var(--ink-3); }
+.listbox-opt { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-height: 32px; padding: var(--u) calc(var(--u) * 2.5); border-radius: 10px; cursor: pointer; white-space: nowrap; }
+.listbox-opt[data-active='true'] { background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0 #ffffff, 0 2px 8px -2px rgba(30, 40, 90, 0.16); }
+.listbox-opt-main { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
+.listbox-opt-main b { font-weight: 560; }
+.listbox-opt-main small { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+.listbox-opt-main small[data-kind='prose'] { font-family: var(--font-sans); white-space: normal; }
+.listbox-opt mark { padding: 0 1px; border-radius: 3px; color: inherit; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.listbox-meta { font-size: var(--fs-xs); color: var(--ink-3); }
+.listbox-check { display: inline-flex; color: var(--accent); visibility: hidden; }
+.listbox-opt[aria-selected='true'] .listbox-check { visibility: visible; }
+.listbox-opt[aria-selected='true'] .listbox-opt-main b { color: var(--accent); }
+.listbox-opt[data-danger='true'] .listbox-opt-main b { color: var(--error); }
+.listbox-empty { padding: calc(var(--u) * 2.5); color: var(--ink-3); }
+.listbox-keys { flex: none; display: flex; gap: calc(var(--u) * 3); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; margin-top: var(--u); border-top: 1px solid rgba(30, 40, 90, 0.06); font-size: var(--fs-xs); color: var(--ink-3); }
+.listbox-keys kbd { padding: 0 4px; border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--ink-2); background: rgba(30, 40, 90, 0.06); }
+
+/* 切り替えの帯。白い玉は選んだ項目の下を滑る。 */
+.seg { position: relative; display: inline-flex; flex: none; padding: 3px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.06); }
+.seg > button { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: 22px; max-width: 160px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font-size: var(--fs-sm); font-weight: 520; white-space: nowrap; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
+.seg > button[aria-checked='true'] { color: var(--ink); font-weight: 600; }
+.seg-label { overflow: hidden; text-overflow: ellipsis; }
+.seg-lead { display: inline-flex; align-items: center; }
+.seg-thumb { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 0; width: 0; border-radius: var(--r-pill); background: var(--surface); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.14); }
+.seg[data-ready='true'] .seg-thumb { transition: left var(--dur) var(--ease-out), width var(--dur) var(--ease-out); }
+/* 詰めた形。項目が 6 個ある effort に使う。 */
+.seg-xs > button { padding: 0 calc(var(--u) * 1.75); font-size: 11.5px; gap: var(--u); }
+
+/* チップ。押すと灯るもの（aria-pressed）と、択一のもの（aria-checked）がある。 */
+.chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
+.chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 2.75); border: 0; border-radius: var(--r-pill); font-weight: 520; white-space: nowrap; cursor: pointer; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.chip:hover { color: var(--ink); background: var(--surface); }
+.chip[aria-pressed='true'], .chip[aria-checked='true'], .chip[data-on='true'] { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
+.chip-input input { width: 140px; border: 0; outline: 0; background: none; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink); }
+
+/* 意味を添えたカード。択一は 2 列に並べ、複数選択は右端に四角い印を置く。 */
+.option-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(var(--u) * 1.5); }
+.option-card { display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); width: 100%; padding: calc(var(--u) * 2.25) calc(var(--u) * 2.75); border: 0; border-radius: 12px; text-align: left; cursor: pointer; color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.option-card:hover:not(:disabled) { background: var(--surface); }
+.option-card > .icon { margin-top: 2px; color: var(--ink-3); }
+.option-card-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.4; }
+.option-card-text b { font-size: 12.5px; font-weight: 600; }
+.option-card-text small { font-size: 11.5px; color: var(--ink-3); }
+.option-card-text code { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
+.option-card[aria-checked='true'] { background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--accent), 0 4px 12px -6px rgba(74, 99, 232, 0.4); }
+.option-card[aria-checked='true'] > .icon { color: var(--accent); }
+.option-card[data-danger='true'] b { color: var(--error); }
+.option-card[data-danger='true'][aria-checked='true'] { box-shadow: inset 0 0 0 1.5px var(--error), 0 4px 12px -6px rgba(179, 38, 30, 0.35); }
+.option-card[data-danger='true'][aria-checked='true'] > .icon { color: var(--error); }
+.option-card:disabled { opacity: 0.5; cursor: default; }
+.check-card { align-items: center; }
+.check-box { display: grid; flex: none; place-items: center; width: 20px; height: 20px; border-radius: 6px; color: #ffffff; box-shadow: inset 0 0 0 1.5px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.check-box .icon { width: 14px; height: 14px; stroke-width: 3; opacity: 0; transform: scale(0.5); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
+.check-card[aria-checked='true'] .check-box { background: var(--accent); box-shadow: none; }
+.check-card[aria-checked='true'] .check-box .icon { opacity: 1; transform: none; }
+
+/* 増減のボタン。素の number の小さな矢印は隠す。 */
+.stepper { display: inline-flex; flex: none; align-items: center; height: 30px; border-radius: var(--r-pill); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+/* 入力欄の枠は消しているので、フォーカスは外側の輪で示す。 */
+.stepper:focus-within { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.stepper > button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink-2); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.stepper > button:hover:not(:disabled) { color: var(--ink); background: var(--surface-2); }
+.stepper > button:disabled { opacity: 0.4; cursor: default; }
+.stepper-input { width: 44px; border: 0; outline: 0; background: none; text-align: center; font-family: var(--font-mono); font-size: var(--fs); font-weight: 600; color: var(--ink); -moz-appearance: textfield; }
+.stepper-input::-webkit-inner-spin-button, .stepper-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* 起動ダイアログの詳細。左に値の名前、右に選ぶ部品を並べる。 */
+.launch-options { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: calc(var(--u) * 2.5); margin: calc(var(--u) * 2) 0; }
+.launch-option-label { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-2); }
+.launch-option-label-top { align-self: start; padding-top: calc(var(--u) * 2); }
+.launch-danger { margin-top: calc(var(--u) * 1.5); }
+.effort-bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 10px; }
+.effort-bars i { width: 2.5px; border-radius: 1px; background: currentColor; opacity: 0.25; }
+.effort-bars i[data-on='true'] { opacity: 1; }
+.effort-bars i:nth-child(1) { height: 3.6px; }
+.effort-bars i:nth-child(2) { height: 5.2px; }
+.effort-bars i:nth-child(3) { height: 6.8px; }
+.effort-bars i:nth-child(4) { height: 8.4px; }
+.effort-bars i:nth-child(5) { height: 10px; }
+
+/* 状態の帯の「実行中」に添える、動いていることを示す緑の点。 */
+.seg-live { background: var(--idle); }
+
+/* セッション画面の、本文の上の表示切り替え。 */
+.transcript-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); margin-bottom: var(--u); }
+.transcript-toggles-sep { width: 1px; height: 18px; background: var(--line-strong); }

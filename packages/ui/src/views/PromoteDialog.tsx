@@ -3,6 +3,7 @@ import { useEmit } from '../intent/chain.tsx';
 import type { PromoteProps, PromotedProps } from '../presenters/promote.ts';
 import { isComposing } from './ime.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { CheckCard } from './primitives/OptionCard.tsx';
 
 /**
  * スクラッチのセッションをワークスペースのプロジェクトへ昇格するダイアログ。
@@ -39,14 +40,8 @@ export function PromoteDialog(props: PromoteProps) {
         <label className="field" htmlFor="promote-name">プロジェクト名
           <input id="promote-name" className="input mono" aria-label="プロジェクト名" value={name} placeholder="ワークスペースに作るディレクトリの名前" onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} />
         </label>
-        <label className="field-row">
-          <input type="checkbox" aria-label="git init する" checked={gitInit} onChange={(e) => setGitInit(e.target.checked)} />
-          <span>git init する</span>
-        </label>
-        <label className="field-row">
-          <input type="checkbox" aria-label="ファイルを移動する" disabled={props.runAlive} checked={willMove} onChange={(e) => setMoveFiles(e.target.checked)} />
-          <span>ファイルを移動する</span>
-        </label>
+        <CheckCard label="git init する" description="空のリポジトリを作ってから移します" icon="gitInit" checked={gitInit} onChange={setGitInit} />
+        <CheckCard label="ファイルを移動する" description="スクラッチのファイルをワークスペースへ移します" icon="moveFiles" checked={willMove} disabled={props.runAlive} onChange={setMoveFiles} />
         {props.runAlive && <div className="faint">実行中のセッションがあるので、ファイルは移動しません</div>}
         {props.error && <div className="error" role="alert">{props.error}</div>}
         <div className="dialog-foot">

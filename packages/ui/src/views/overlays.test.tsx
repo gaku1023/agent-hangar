@@ -146,7 +146,7 @@ describe('PromoteDialog', () => {
 
   it('run が生きているとファイルを移動できない', () => {
     render(<IntentRoot onIntent={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive submitting={false} error={null} /></IntentRoot>);
-    expect((screen.getByLabelText('ファイルを移動する') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByLabelText('ファイルを移動する')).toBeDisabled();
     expect(screen.getByText('実行中のセッションがあるので、ファイルは移動しません')).toBeTruthy();
   });
 
@@ -173,14 +173,15 @@ describe('PromoteDialog', () => {
     expect(screen.getByText('同じ名前があります')).toBeTruthy();
   });
 
-  // 2 つの選択は palette.css の .field-row で並べる。
-  // 同じ名前の指定が settings.css にもあったので、こちら側の指定が残っていることを見張る。
-  it('選択の行は palette.css の .field-row で並ぶ', () => {
+  it('2 つの選択は、何が起きるかを添えたカードで並ぶ', () => {
     render(<IntentRoot onIntent={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting={false} error={null} /></IntentRoot>);
-    for (const label of ['git init する', 'ファイルを移動する']) {
-      expect(screen.getByLabelText(label).closest('label')?.className, label).toBe('field-row');
-    }
-    expect(paletteCss).toContain('.field-row {');
+    expect(screen.getByRole('checkbox', { name: 'git init する' })).toHaveAccessibleDescription('空のリポジトリを作ってから移します');
+    expect(screen.getByRole('checkbox', { name: 'ファイルを移動する' })).toHaveAccessibleDescription('スクラッチのファイルをワークスペースへ移します');
+    expect(screen.getAllByRole('checkbox').map((c) => c.getAttribute('aria-checked'))).toEqual(['true', 'true']);
+  });
+  it('run が生きているとき、ファイルを移動するのカードは印を外して押せない', () => {
+    render(<IntentRoot onIntent={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive submitting={false} error={null} /></IntentRoot>);
+    expect(screen.getByRole('checkbox', { name: 'ファイルを移動する' })).toHaveAttribute('aria-checked', 'false');
   });
 
   it('やめると Esc で閉じる', () => {

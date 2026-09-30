@@ -1,4 +1,4 @@
-import { Archive, Bot, ChevronDown, ChevronRight, Code, Columns2, Download, FolderSearch, FolderUp, Folder, GitFork, House, MessagesSquare, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plus, RotateCcw, Search, Settings, Square, SquareTerminal, Terminal, TriangleAlert, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
+import { AppWindow, Archive, Ban, Bot, Brain, Check, ChevronDown, ChevronRight, Code, Columns2, Download, FileJson2, FilePenLine, FolderInput, FolderSearch, FolderUp, Folder, GitBranch, GitFork, House, Map as MapIcon, MessagesSquare, MessageCircleQuestion, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plus, RotateCcw, Search, Settings, Settings2, ShieldAlert, Sparkles, Square, SquareTerminal, Terminal, TriangleAlert, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
 
 /** hangar の言葉からアイコンへの対応。View は lucide-react を直接 import せず、ここだけを通す。 */
 const ICONS = {
@@ -31,6 +31,20 @@ const ICONS = {
   edit: Pencil,
   promote: FolderUp,
   resumeHere: Download,
+  check: Check,
+  minus: Minus,
+  thinking: Brain,
+  rawLog: FileJson2,
+  permissionDefault: Settings2,
+  permissionManual: MessageCircleQuestion,
+  permissionAcceptEdits: FilePenLine,
+  permissionPlan: MapIcon,
+  permissionAuto: Sparkles,
+  permissionDontAsk: Ban,
+  permissionBypass: ShieldAlert,
+  gitInit: GitBranch,
+  moveFiles: FolderInput,
+  appWindow: AppWindow,
 } as const satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

@@ -23,15 +23,23 @@
 .todos { display: flex; flex-direction: column; gap: var(--u); }
 .todo-list { list-style: none; margin: 0; padding: 0; }
 .todo { display: flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); }
-.todo-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--dur) var(--ease-out); }
-.todo[data-done='true'] .todo-text { text-decoration: line-through; color: var(--ink-3); }
-.todo-del { visibility: hidden; padding: 0 calc(var(--u) * 1.5); }
+.todo-text { position: relative; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--dur) var(--ease-out); }
+/* 済んだ項目は、文字に線が左から引かれて薄くなる。 */
+.todo-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1px; background: var(--ink-3); transition: width var(--dur) var(--ease-out); }
+.todo[data-done='true'] .todo-text { color: var(--ink-3); }
+.todo[data-done='true'] .todo-text::after { width: 100%; }
+.todo-check { display: grid; flex: none; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; color: #ffffff; background: none; box-shadow: inset 0 0 0 1.5px #c3c5d6; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.todo-check svg { width: 12px; height: 12px; stroke-width: 3; stroke-dasharray: 24; stroke-dashoffset: 24; transition: stroke-dashoffset var(--dur) var(--ease-out); }
+.todo-check:active { transform: scale(0.88); }
+.todo-check[aria-checked='true'] { background: var(--st-done); box-shadow: none; }
+.todo-check[aria-checked='true'] svg { stroke-dashoffset: 0; }
+.todo-del { margin-left: auto; visibility: hidden; padding: 0 calc(var(--u) * 1.5); }
 .todo:hover .todo-del, .todo:focus-within .todo-del { visibility: visible; }
 /* 完了の候補。行の地を淡い紫にし、欄は半分塗り。根拠と出したセッションと 2 つのボタンを行の下に置く。 */
 .todo-item[data-candidate='true'] { margin: 2px calc(var(--u) * -1); padding: var(--u) var(--u) calc(var(--u) * 2); border-radius: var(--r); background: var(--cand-soft); }
-.todo-check[data-candidate='true'] { appearance: none; flex: none; width: 13px; height: 13px; margin: 0; border-radius: 3px; border: 1.5px solid var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); cursor: pointer; }
+.todo-check[data-candidate='true'] { box-shadow: inset 0 0 0 1.5px var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); }
 .todo-check[data-candidate='true']:focus-visible { outline: 2px solid var(--cand); outline-offset: 2px; }
-.todo-cand { margin-left: calc(13px + var(--u) * 1.5); display: flex; flex-direction: column; gap: var(--u); }
+.todo-cand { margin-left: calc(18px + var(--u) * 1.5); display: flex; flex-direction: column; gap: var(--u); }
 /* 淡い紫の地では --ink-3 が 3:1 を割る（2.97:1）ので、「· 12 分前」の薄字は --ink-2 に上げる。 */
 .todo-cand .faint { color: var(--ink-2); }
 .todo-why { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; }

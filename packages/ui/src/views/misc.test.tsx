@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
+import { pick } from '../test/pick.ts';
 import type { CloudSettingsProps, SettingsProps } from '../presenters/settings.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 import { SessionRows } from './SessionRows.tsx';
@@ -13,14 +14,26 @@ describe('SessionsScreen', () => {
   it('絞り込みは search.filter、キーワードは search.query', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
-    fireEvent.change(screen.getByLabelText('プロジェクト'), { target: { value: 'p1' } });
+    pick('プロジェクト', 'alpha');
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: 'p1' } });
-    fireEvent.change(screen.getByLabelText('実行中'), { target: { value: 'running' } });
+    fireEvent.click(screen.getByRole('radio', { name: '実行中' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { running: true } });
     const kw = screen.getByLabelText('キーワード');
     fireEvent.change(kw, { target: { value: 'x y' } });
     fireEvent.keyDown(kw, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: 'x y' });
+  });
+  it('絞り込みは、何で絞っているかを帯と札で見せる', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ projectId: 'p1', running: false }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('alpha');
+    expect(within(screen.getByRole('radiogroup', { name: '状態' })).getByRole('radio', { name: '終了' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(screen.getByRole('radiogroup', { name: '期間' })).getByRole('radio', { name: '全期間' })).toHaveAttribute('aria-checked', 'true');
+  });
+  it('すべてのプロジェクトに戻すと projectId を外す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{ projectId: 'p1' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    pick('プロジェクト', 'すべてのプロジェクト');
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: undefined } });
   });
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
@@ -42,7 +55,7 @@ describe('SessionsScreen', () => {
     const onIntent = vi.fn();
     const before = Date.now();
     render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
-    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('radio', { name: '7 日' }));
     const call = onIntent.mock.calls.find((c) => c[0].type === 'search.filter')?.[0];
     expect(call).toBeDefined();
     const since = call.patch.since as number;
@@ -155,21 +168,30 @@ describe('SettingsScreen', () => {
     fireEvent.change(url, { target: { value: '  http://127.0.0.1:2345/  ' } });
     expect(save).toBeEnabled();
     fireEvent.click(save);
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false } });
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 } });
     // 欄も整えた形に直しておく。整える前の文字列が残ると、押せない理由が読めない。
     expect(url).toHaveValue('http://127.0.0.1:2345');
   });
-  it('チェックボックスと上限だけを変えても要約器の保存は押せる', () => {
+  it('上限だけを変えても要約器の保存は押せる。スイッチは保存の対象に入らない', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     const save = screen.getByText('要約器の設定を保存');
     expect(save).toBeDisabled();
-    fireEvent.click(screen.getByLabelText('Claude へ切り替える'));
-    expect(save).toBeEnabled();
-    fireEvent.click(screen.getByLabelText('Claude へ切り替える'));
+    fireEvent.click(screen.getByRole('switch', { name: 'Claude へ切り替える' }));
     expect(save).toBeDisabled();
     // 読めない上限も「変えた」に入れる。押せないと案内を出す道が無くなる。
     fireEvent.change(screen.getByLabelText('1 時間の上限'), { target: { value: '' } });
     expect(save).toBeEnabled();
+  });
+  it('スイッチは切り替えた時点で、その 1 項目だけを保存する', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('switch', { name: 'Claude へ切り替える' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryFallback: false } });
+  });
+  it('1 時間の上限は − と ＋ でも変えられる', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '1 時間の上限を増やす' }));
+    expect(screen.getByLabelText('1 時間の上限')).toHaveValue(21);
   });
   it('サーバが正規化した Node のパスを入力欄に反映する', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
@@ -189,14 +211,15 @@ describe('SettingsScreen', () => {
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ claudePath: '/Users/x/.local/bin/claude' })} /></IntentRoot>);
     expect(screen.getByLabelText('claude のパス')).toHaveValue('/Users/x/.local/bin/claude');
   });
-  it('ツールのパスとターミナルアプリを保存する', () => {
+  it('ターミナルアプリは切り替えた時点で保存し、ツールの保存はパスだけを送る', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ version: '0.2.0', index: { phase: 'idle', done: 3, total: 3 }, projectCount: 1 })} /></IntentRoot>);
-    fireEvent.change(screen.getByLabelText('ターミナルアプリ'), { target: { value: 'iterm' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'iTerm2' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { terminalApp: 'iterm' } });
+    expect(screen.getByText('ツールの設定を保存')).toBeDisabled();
     fireEvent.change(screen.getByLabelText('code のパス'), { target: { value: '/usr/local/bin/code' } });
     fireEvent.click(screen.getByText('ツールの設定を保存'));
-    // 変えた項目だけを送る。terminalApp を毎回入れると iTerm2 の案内が保存のたびに出る。
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { terminalApp: 'iterm', codePath: '/usr/local/bin/code' } });
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { codePath: '/usr/local/bin/code' } });
     expect(screen.getByText('npm run hangar -- mcp install')).toBeInTheDocument();
   });
   it('サーバが正規化した値に入力欄が追従する', () => {
@@ -205,7 +228,7 @@ describe('SettingsScreen', () => {
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ workspaceRoot: '/w2', terminalApp: 'iterm', codePath: '/usr/local/bin/code', device: null, version: '0.2.0', sessionCount: 0, projectCount: 0 })} /></IntentRoot>);
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('/opt/homebrew/bin/tmux');
     expect(screen.getByLabelText('ワークスペースのルート')).toHaveValue('/w2');
-    expect(screen.getByLabelText('ターミナルアプリ')).toHaveValue('iterm');
+    expect(screen.getByRole('radio', { name: 'iTerm2' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByLabelText('code のパス')).toHaveValue('/usr/local/bin/code');
   });
   it('何も変えていなければツールの保存は押せない', () => {
@@ -247,32 +270,64 @@ describe('SettingsScreen のフェーズ 3', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ statusline: null, summarizerModels: [] })} /></IntentRoot>);
     expect(screen.getByText('読み込んでいます')).toBeTruthy();
   });
-  it('要約器の URL とモデルとフォールバックを保存する', () => {
+  it('要約器の URL とモデルと上限を保存する', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ summarizerModels: ['qwen', 'gemma'] })} /></IntentRoot>);
     fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'http://127.0.0.1:2345' } });
     fireEvent.click(screen.getByText('要約器の設定を保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false } });
-    fireEvent.change(screen.getByLabelText('モデル'), { target: { value: 'qwen' } });
-    fireEvent.click(screen.getByLabelText('Claude へ切り替える'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 } });
+    pick('モデル', 'qwen');
     fireEvent.change(screen.getByLabelText('1 時間の上限'), { target: { value: '5' } });
     fireEvent.click(screen.getByText('要約器の設定を保存'));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false } });
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryHourlyCap: 5 } });
   });
-  it('外部の要約器を許すときは、本文が送られることを書く', () => {
+  it('外部の要約器をオンにするときは、保存済みの宛先を示して確かめる', () => {
     const onIntent = vi.fn();
-    const { rerender } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
-    // 既定では許していないので、警告は出さない。
-    expect(screen.queryByText(/会話の本文/)).toBeNull();
-    fireEvent.click(screen.getByLabelText('外部の要約器を許す'));
-    expect(screen.getByText(/会話の本文/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'https://summarizer.example.com' } });
-    fireEvent.click(screen.getByText('要約器の設定を保存'));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'https://summarizer.example.com', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: true } });
-    // サーバから届いた値が入りのときは、最初から警告を出す。
-    rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ allowExternalSummarizer: true, lmStudioUrl: 'https://summarizer.example.com' })} /></IntentRoot>);
-    expect((screen.getByLabelText('外部の要約器を許す') as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByText(/会話の本文/)).toBeTruthy();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ lmStudioUrl: 'https://summarizer.example.com' })} /></IntentRoot>);
+    const sw = screen.getByRole('switch', { name: '外部の要約器を許す' });
+    fireEvent.click(sw);
+    // まだ保存しない。スイッチもオフのまま。
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText(/https:\/\/summarizer\.example\.com へ送られます/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
+    expect(screen.queryByText(/へ送られます/)).toBeNull();
+    expect(onIntent).not.toHaveBeenCalled();
+    fireEvent.click(sw);
+    fireEvent.click(screen.getByRole('button', { name: '許す' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { allowExternalSummarizer: true } });
+  });
+  it('確かめの帯が開くと、やめるへフォーカスが移り、閉じるとスイッチへ戻る', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const sw = screen.getByRole('switch', { name: '外部の要約器を許す' });
+    fireEvent.click(sw);
+    expect(screen.getByRole('button', { name: 'やめる' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
+    expect(sw).toHaveFocus();
+  });
+  it('許すで閉じたときも、フォーカスはスイッチへ戻る', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('switch', { name: '外部の要約器を許す' }));
+    fireEvent.click(screen.getByRole('button', { name: '許す' }));
+    expect(screen.getByRole('switch', { name: '外部の要約器を許す' })).toHaveFocus();
+  });
+  it('保存済みのモデルが一覧に無くても、顔にその名前を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ lmStudioModel: 'qwen', summarizerModels: [] })} /></IntentRoot>);
+    expect(screen.getByRole('button', { name: 'モデル' })).toHaveTextContent('qwen');
+  });
+  it('確かめの宛先は、書きかけの URL ではなく保存済みの URL', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ lmStudioUrl: 'http://127.0.0.1:1234' })} /></IntentRoot>);
+    fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'https://other.example.com' } });
+    fireEvent.click(screen.getByRole('switch', { name: '外部の要約器を許す' }));
+    expect(screen.getByText(/http:\/\/127\.0\.0\.1:1234 へ送られます/)).toBeInTheDocument();
+  });
+  it('外部の要約器をオフにするときは確かめずに保存し、オンの間は警告を出す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ allowExternalSummarizer: true, lmStudioUrl: 'https://summarizer.example.com' })} /></IntentRoot>);
+    expect(screen.getByRole('switch', { name: '外部の要約器を許す' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent('会話の本文');
+    fireEvent.click(screen.getByRole('switch', { name: '外部の要約器を許す' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { allowExternalSummarizer: false } });
   });
   it('1 時間の上限は 1 以上 200 以下の整数の入力欄である', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
@@ -296,7 +351,7 @@ describe('SettingsScreen のフェーズ 3', () => {
     fireEvent.change(cap, { target: { value: '12' } });
     expect(screen.queryByText('1 から 200 までの整数を入れてください')).toBeNull();
     fireEvent.click(screen.getByText('要約器の設定を保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 12, allowExternalSummarizer: false } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryHourlyCap: 12 } });
   });
   it('モデルの一覧の状態を出し分ける', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ summarizerModels: null })} /></IntentRoot>);

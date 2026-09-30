@@ -75,9 +75,12 @@ describe('プロジェクトのステータスの色', () => {
   it('色だけで 4 つを見分けられる（互いに違う色である）', () => {
     expect(new Set(statuses.map((s) => token(`--st-${s}`))).size).toBe(4);
   });
-  it('フォーカスの輪は外側の 1 本だけにし、透明な select 自身の輪は消して二重にしない', () => {
-    expect(base).toContain('.status-pill:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }');
-    expect(base).toContain('.status-select:focus-visible { outline: none; }');
+  it('札は本物のボタンなので、フォーカスの輪は base.css の :focus-visible に任せ、札の側で消さない', () => {
+    expect(base).toContain(':focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }');
+    const block = base.slice(base.indexOf('/* ステータスの札'), base.indexOf('.st-dot {'));
+    expect(block).not.toMatch(/outline/);
+    expect(base).not.toContain('.status-face');
+    expect(base).not.toContain('.status-select');
   });
   it('base.css は data-status でトークンを引き、色を直書きしない', () => {
     for (const s of statuses) expect(base, s).toContain(`[data-status='${s}']`);

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
+import { pick } from '../test/pick.ts';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
 import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
@@ -31,8 +32,21 @@ describe('SessionScreen', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.showThinking', sessionId: 's1', show: true });
     fireEvent.click(screen.getByText('古い行を読み込む（残り 6 件）'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.loadMore', sessionId: 's1' });
-    fireEvent.change(screen.getByLabelText('サブエージェント'), { target: { value: 'abc' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'abc' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
+    fireEvent.click(screen.getByRole('radio', { name: '主線' }));
+  });
+  it('思考と生の記録は、押した状態を aria-pressed で見せる', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} showThinking showRaw={false} /></IntentRoot>);
+    expect(screen.getByRole('button', { name: '思考を表示' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '生の記録を表示' })).toHaveAttribute('aria-pressed', 'false');
+  });
+  it('サブエージェントが 4 つ以上なら一覧にする', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} subagents={['a1', 'a2', 'a3', 'a4']} /></IntentRoot>);
+    expect(screen.queryByRole('radiogroup', { name: 'サブエージェント' })).toBeNull();
+    pick('サブエージェント', 'サブエージェント a3');
+    expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'a3' });
   });
   it('開いた要約は本文と次の一手を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} summaryOpen /></IntentRoot>);
@@ -311,7 +325,7 @@ describe('TabStrip の分割ボタン', () => {
 describe('NewSessionDialog のスクラッチ', () => {
   it('スクラッチではプロジェクトを選ばせず、scratch を付けて送る', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha' }]} projectId={null} submitting={false} error={null} scratch /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' }]} recentIds={[]} projectId={null} submitting={false} error={null} scratch /></IntentRoot>);
     expect(screen.queryByLabelText('プロジェクト')).toBeNull();
     expect(screen.getByText('スクラッチで始める')).toBeInTheDocument();
     fireEvent.click(screen.getByText('起動'));
@@ -319,7 +333,7 @@ describe('NewSessionDialog のスクラッチ', () => {
   });
   it('スクラッチでないときはプロジェクトを選ばせ、scratch を付けない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha' }]} projectId="p1" submitting={false} error={null} scratch={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' }]} recentIds={[]} projectId="p1" submitting={false} error={null} scratch={false} /></IntentRoot>);
     expect(screen.getByLabelText('プロジェクト')).toBeInTheDocument();
     fireEvent.click(screen.getByText('起動'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.submit', params: { projectId: 'p1' } });

@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>選ぶ部品の案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+  :root {
+    --bg: #eef1f7; --aura-1: #cfe0ff; --aura-2: #e5d6ff;
+    --surface: #fff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+    --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #8a89a0;
+    --accent: #4a63e8; --accent-hi: #6b8cff; --accent-soft: #eef2ff; --error: #b3261e;
+    --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+    --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+    --glass-edge: inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5);
+    --glass-drop: 0 10px 28px -12px rgba(30,40,90,.3);
+    --glass-drop-lg: 0 24px 50px -16px rgba(30,40,90,.45);
+    --sans: 'Inter', 'Hiragino Sans', sans-serif; --mono: 'JetBrains Mono', Menlo, monospace;
+    --dur-fast: 200ms; --dur: 420ms; --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --r: 8px; --r-lg: 14px; --row-h: 28px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 var(--sans); color: var(--ink); background: #f6f7fb; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; }
+  svg.lucide { width: 16px; height: 16px; stroke-width: 1.6; flex: none; }
+
+  /* ---- ページの枠 ---- */
+  .top { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 16px; padding: 12px 32px; background: rgba(246,247,251,.82); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  .top h1 { font-size: 16px; font-weight: 680; margin: 0; letter-spacing: -0.01em; }
+  .top .chosen { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; align-items: center; color: var(--ink-3); font-size: 12px; }
+  .top .chosen b { font: 600 11.5px var(--mono); color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 99px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 24px 32px 80px; }
+  .lead { color: var(--ink-2); max-width: 880px; margin: 0 0 28px; }
+  section.sec { margin-bottom: 56px; }
+  section.sec > h2 { display: flex; align-items: baseline; gap: 10px; font-size: 17px; font-weight: 680; margin: 0 0 4px; letter-spacing: -0.01em; }
+  section.sec > h2 em { font: 600 12px var(--mono); color: var(--accent); font-style: normal; }
+  section.sec > p { margin: 0 0 14px; color: var(--ink-2); max-width: 900px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 20px; }
+  .grid.wide { grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); }
+  .pick { background: #fff; border-radius: 16px; box-shadow: 0 1px 2px rgba(30,40,90,.06), 0 0 0 1px var(--line); transition: box-shadow .2s; display: flex; flex-direction: column; }
+  .pick.selected { box-shadow: 0 0 0 2px var(--accent), 0 6px 18px -8px rgba(74,99,232,.4); }
+  .pick .stage { position: relative; min-height: 300px; border-radius: 16px 16px 0 0; padding: 24px; display: flex; align-items: flex-start; justify-content: center;
+    background: radial-gradient(55% 50% at 18% 15%, var(--aura-1), transparent 70%), radial-gradient(50% 45% at 88% 80%, var(--aura-2), transparent 70%), var(--bg); }
+  .pick .body { padding: 14px 16px 16px; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
+  .pick .body .txt { flex: 1; }
+  .pick .body h3 { margin: 0 0 4px; font-size: 13.5px; font-weight: 650; display: flex; gap: 8px; align-items: baseline; }
+  .pick .body h3 em { font-style: normal; font: 600 11px var(--mono); color: var(--accent); }
+  .pick .body h3 .tag { font: 500 11px var(--sans); color: var(--ink-3); }
+  .pick .body p { margin: 0; color: var(--ink-2); font-size: 12px; }
+  .pick .body .choose { flex: none; border: 0; border-radius: 99px; padding: 5px 12px; font-size: 12px; font-weight: 560; cursor: pointer; background: var(--surface-2); color: var(--ink-2); }
+  .pick.selected .body .choose { background: var(--accent); color: #fff; }
+  .pick.now .stage { background: #e9ebf1; }
+  .pick.now .body h3 em { color: var(--ink-3); }
+
+  /* ---- 棚卸し ---- */
+  table.inv { width: 100%; border-collapse: collapse; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); font-size: 12.5px; }
+  table.inv th, table.inv td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.inv th { font-weight: 560; color: var(--ink-3); font-size: 11.5px; background: #fbfbfd; }
+  table.inv td code { font: 500 11.5px var(--mono); color: var(--ink-2); }
+  table.inv td a { color: var(--accent); text-decoration: none; font-weight: 560; }
+  .pill-now { font: 500 11px var(--mono); padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
+
+  /* ---- アプリの部品（tokens.css に合わせた写し） ---- */
+  .dialog { width: 100%; max-width: 440px; border-radius: 18px; background: rgba(255,255,255,.72); backdrop-filter: blur(18px) saturate(1.6); -webkit-backdrop-filter: blur(18px) saturate(1.6); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .dialog > b { font-size: 14px; }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); }
+  .ghost { height: 28px; border-radius: var(--r); background: rgba(255,255,255,.55); box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .ghost.tall { height: 64px; }
+  .faint { color: var(--ink-3); } .mono { font-family: var(--mono); font-size: 12px; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 0; border-radius: 99px; font-weight: 560; background: rgba(255,255,255,.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,.14); cursor: pointer; }
+  .btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 4px 12px -4px rgba(70,90,230,.6); }
+  .foot { display: flex; justify-content: space-between; }
+  .native { height: 28px; border: 1px solid var(--line-strong); border-radius: var(--r); background: #fff; padding: 0 4px; font: inherit; color: var(--ink); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--c, var(--ink-3)); }
+  .dot[data-st=active] { --c: var(--st-active); } .dot[data-st=paused] { --c: var(--st-paused); } .dot[data-st=done] { --c: var(--st-done); } .dot[data-st=archived] { --c: var(--st-archived); }
+
+  /* ---- 引き金（閉じているときの顔） ---- */
+  .host { position: relative; }
+  .trig { width: 100%; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border: 0; border-radius: 10px; cursor: pointer; text-align: left;
+    background: rgba(255,255,255,.85); box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 2px rgba(30,40,90,.05); transition: box-shadow var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease); }
+  .trig:hover { background: #fff; box-shadow: inset 0 0 0 1px #c9cbe0, 0 3px 10px -4px rgba(30,40,90,.18); }
+  .trig[aria-expanded=true] { background: #fff; box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  .trig .name { font-weight: 560; white-space: nowrap; }
+  .trig .sub { font: 400 11.5px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .trig .ph { color: var(--ink-3); flex: 1; }
+  .trig .chev { color: var(--ink-3); transition: transform var(--dur-fast) var(--ease); }
+  .trig[aria-expanded=true] .chev { transform: rotate(180deg); }
+
+  /* ---- ガラスの一覧（開いたときの面） ---- */
+  .menu { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; min-width: 100%; max-height: 300px; overflow: hidden; display: flex; flex-direction: column; padding: 6px; border-radius: 14px;
+    background: rgba(255,255,255,.82); backdrop-filter: blur(18px) saturate(1.8); -webkit-backdrop-filter: blur(18px) saturate(1.8); box-shadow: var(--glass-edge), var(--glass-drop-lg);
+    animation: menu-in var(--dur-fast) var(--ease); transform-origin: top left; }
+  .menu.up { top: auto; bottom: calc(100% + 6px); transform-origin: bottom left; animation-name: menu-in-up; }
+  @keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(.98); filter: blur(4px); } }
+  @keyframes menu-in-up { from { opacity: 0; transform: translateY(4px) scale(.98); filter: blur(4px); } }
+  .menu .rows { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding: 4px; }
+  .menu .grp { font-size: 11px; font-weight: 560; color: var(--ink-3); padding: 6px 10px 2px; }
+  .opt { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 10px; border-radius: 10px; cursor: pointer; white-space: nowrap; }
+  .opt .main { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.3; }
+  .opt .main b { font-weight: 560; }
+  .opt .main small { font: 400 11px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+  .opt .main small.prose { font-family: var(--sans); white-space: normal; }
+  .opt .meta { font-size: 11px; color: var(--ink-3); }
+  .opt .ck { color: var(--accent); visibility: hidden; }
+  .opt[aria-selected=true] .ck { visibility: visible; }
+  .opt[aria-selected=true] .main b { color: var(--accent); }
+  .opt.active { background: rgba(255,255,255,.92); box-shadow: inset 0 1px 0 #fff, 0 2px 8px -2px rgba(30,40,90,.16); }
+  .opt mark { background: color-mix(in srgb, var(--accent) 16%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+  .opt.danger .main b { color: var(--error); }
+  .menu .search { flex: none; position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; margin: 0 0 4px; transition: box-shadow var(--dur-fast) var(--ease); border-radius: 10px; background: rgba(255,255,255,.85); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); }
+  .menu .search input { border: 0; outline: 0; background: none; font: inherit; color: var(--ink); flex: 1; min-width: 0; }
+  .menu.scrolled .search { box-shadow: inset 0 0 0 1px var(--line), 0 6px 12px -8px rgba(30,40,90,.35); }
+  .menu .keys { flex: none; display: flex; gap: 12px; padding: 6px 10px 2px; margin-top: 4px; border-top: 1px solid rgba(30,40,90,.06); font-size: 11px; color: var(--ink-3); }
+  .menu .keys kbd { font: 600 10.5px var(--mono); padding: 0 4px; border-radius: 4px; background: rgba(30,40,90,.06); color: var(--ink-2); }
+  .menu .empty { padding: 10px; color: var(--ink-3); }
+
+  /* ---- タイル ---- */
+  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .tile { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 0; border-radius: 12px; cursor: pointer; text-align: left; background: rgba(255,255,255,.7); box-shadow: inset 0 0 0 1px var(--line-strong); transition: box-shadow var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+  .tile:hover { background: #fff; transform: translateY(-1px); box-shadow: inset 0 0 0 1px #c9cbe0, 0 6px 14px -8px rgba(30,40,90,.25); }
+  .tile[aria-checked=true] { background: #fff; box-shadow: inset 0 0 0 1.5px var(--accent), 0 6px 16px -8px rgba(74,99,232,.45); }
+  .tile .row1 { display: flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; overflow: hidden; }
+  .tile .row1 .ck { margin-left: auto; color: var(--accent); opacity: 0; transform: scale(.6); transition: opacity var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+  .tile[aria-checked=true] .row1 .ck { opacity: 1; transform: none; }
+  .tile small { font: 400 11px var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .when { font-size: 11px; color: var(--ink-3); }
+  .tile.more { align-items: center; justify-content: center; flex-direction: row; gap: 6px; color: var(--ink-2); font-weight: 560; background: rgba(255,255,255,.4); box-shadow: inset 0 0 0 1px var(--line-strong); border: 1px dashed transparent; }
+
+  /* ---- チップ ---- */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border: 0; border-radius: 99px; cursor: pointer; font-weight: 520; white-space: nowrap;
+    background: rgba(255,255,255,.75); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-2); transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+  .chip:hover { background: #fff; color: var(--ink); }
+  .chip[aria-checked=true], .chip[aria-pressed=true], .chip.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
+  .chip .k { color: var(--ink-3); font-weight: 500; }
+  .chip.on .k { color: color-mix(in srgb, var(--accent) 70%, var(--ink-3)); }
+  .chip .x { display: inline-flex; margin-right: -5px; padding: 2px; border-radius: 50%; }
+  .chip .x:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .chip input { border: 0; outline: 0; background: none; font: 500 12px var(--mono); width: 110px; color: var(--ink); }
+
+  /* ---- セグメント ---- */
+  .seg { position: relative; display: inline-flex; padding: 3px; border-radius: 99px; background: rgba(30,40,90,.06); box-shadow: inset 0 1px 2px rgba(30,40,90,.06); }
+  .seg button { position: relative; z-index: 1; height: 26px; padding: 0 12px; border: 0; background: none; border-radius: 99px; cursor: pointer; color: var(--ink-2); font-weight: 520; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; transition: color var(--dur-fast) var(--ease); }
+  .seg button[aria-checked=true] { color: var(--ink); font-weight: 600; }
+  .seg .thumb { position: absolute; z-index: 0; top: 3px; bottom: 3px; border-radius: 99px; background: #fff; box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(30,40,90,.14); transition: left var(--dur) var(--ease), width var(--dur) var(--ease); }
+  .seg.sm button { height: 22px; padding: 0 10px; font-size: 12px; }
+  .seg.xs button { height: 22px; padding: 0 7px; font-size: 11.5px; gap: 4px; }
+  .bars { display: inline-flex; gap: 1.5px; align-items: flex-end; height: 10px; }
+  .bars i { width: 2.5px; border-radius: 1px; background: currentColor; opacity: .25; }
+  .bars i.f { opacity: 1; }
+
+  /* ---- ステータス ---- */
+  .pcard { width: 300px; background: #fff; border-radius: 14px; box-shadow: 0 1px 2px rgba(30,40,90,.06), 0 8px 20px -12px rgba(30,40,90,.25); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .pcard .t { font-weight: 600; font-size: 15px; }
+  .pcard .line { height: 8px; border-radius: 4px; background: var(--surface-2); width: 80%; }
+  .pcard .row { display: flex; align-items: center; justify-content: space-between; }
+  .spill { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 12px; border: 0; border-radius: 99px; cursor: pointer; font-weight: 500; color: var(--sc); background: var(--sb); transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+  [data-st=active] { --sc: var(--st-active); --sb: var(--st-active-soft); } [data-st=paused] { --sc: var(--st-paused); --sb: var(--st-paused-soft); }
+  [data-st=done] { --sc: var(--st-done); --sb: var(--st-done-soft); } [data-st=archived] { --sc: var(--st-archived); --sb: var(--st-archived-soft); }
+  .spill .dot { background: var(--sc); }
+  .spill select { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .strip { display: inline-flex; gap: 2px; padding: 2px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+  .strip button { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border: 0; border-radius: 99px; cursor: pointer; background: none; color: var(--ink-3); font-size: 12px; font-weight: 500; max-width: 24px; overflow: hidden; white-space: nowrap; transition: max-width var(--dur) var(--ease), background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+  .strip button .dot { background: var(--sc); }
+  .strip button[aria-checked=true] { max-width: 120px; background: var(--sb); color: var(--sc); }
+  .strip button > span:last-child { opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+  .strip button[aria-checked=true] > span:last-child, .strip button:hover > span:last-child, .strip button:focus-visible > span:last-child { opacity: 1; }
+  .strip button:hover, .strip button:focus-visible { max-width: 120px; color: var(--sc); }
+  .palette { position: absolute; z-index: 20; bottom: calc(100% + 8px); right: 0; display: flex; gap: 6px; padding: 6px; border-radius: 99px; background: rgba(255,255,255,.72); backdrop-filter: blur(18px) saturate(1.8); -webkit-backdrop-filter: blur(18px) saturate(1.8); box-shadow: var(--glass-edge), var(--glass-drop-lg); animation: menu-in-up var(--dur-fast) var(--ease); }
+  .palette .spill { outline: 0; }
+  .palette .spill[aria-checked=true] { box-shadow: inset 0 0 0 1.5px var(--sc); }
+
+  /* ---- 一覧の絞り込み ---- */
+  .screen { width: 100%; max-width: 620px; display: flex; flex-direction: column; gap: 10px; }
+  .search-in { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 3px 4px 3px 10px; border-radius: 10px; background: #fff; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); flex-wrap: wrap; }
+  .search-in input { border: 0; outline: 0; font: inherit; flex: 1; min-width: 120px; color: var(--ink); background: none; }
+  .fbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .fbar .count { margin-left: auto; font: 500 12px var(--mono); color: var(--ink-3); }
+  .fake-list { background: #fff; border-radius: 14px; box-shadow: 0 1px 2px rgba(30,40,90,.06); }
+  .fake-list div { height: 36px; border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 12px; gap: 10px; }
+  .fake-list div:last-child { border: 0; }
+  .fake-list span { height: 8px; border-radius: 4px; background: var(--surface-2); }
+  .lbl { font-size: 11.5px; color: var(--ink-3); font-weight: 560; }
+
+  /* ---- 選択肢のカード ---- */
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .ocard { display: flex; gap: 10px; align-items: flex-start; padding: 9px 11px; border: 0; border-radius: 12px; text-align: left; cursor: pointer; background: rgba(255,255,255,.7); box-shadow: inset 0 0 0 1px var(--line-strong); transition: box-shadow var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease); }
+  .ocard:hover { background: #fff; }
+  .ocard > svg { margin-top: 2px; color: var(--ink-3); }
+  .ocard b { display: block; font-weight: 600; font-size: 12.5px; }
+  .ocard small { display: block; color: var(--ink-3); font-size: 11.5px; line-height: 1.4; }
+  .ocard code { font: 500 10.5px var(--mono); color: var(--ink-3); }
+  .ocard[aria-checked=true] { background: #fff; box-shadow: inset 0 0 0 1.5px var(--accent), 0 4px 12px -6px rgba(74,99,232,.4); }
+  .ocard[aria-checked=true] > svg { color: var(--accent); }
+  .ocard.danger[aria-checked=true] { box-shadow: inset 0 0 0 1.5px var(--error), 0 4px 12px -6px rgba(179,38,30,.35); }
+  .ocard.danger[aria-checked=true] > svg, .ocard.danger b { color: var(--error); }
+  .drow { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 10px; }
+  .drow > span { font: 500 12px var(--mono); color: var(--ink-2); }
+
+  /* ---- オン・オフ ---- */
+  .sw { position: relative; width: 36px; height: 22px; border: 0; border-radius: 99px; background: #d5d7e3; cursor: pointer; flex: none; transition: background var(--dur) var(--ease); box-shadow: inset 0 1px 2px rgba(30,40,90,.12); }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(30,40,90,.3); transition: transform var(--dur) var(--ease), width var(--dur-fast) var(--ease); }
+  .sw:active::after { width: 22px; }
+  .sw[aria-checked=true] { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); }
+  .sw[aria-checked=true]::after { transform: translateX(14px); }
+  .sw[aria-checked=true]:active::after { transform: translateX(10px); }
+  .setrows { width: 100%; max-width: 460px; background: #fff; border-radius: 14px; box-shadow: 0 1px 2px rgba(30,40,90,.06); }
+  .setrow { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .setrow:last-child { border: 0; }
+  .setrow .tx { flex: 1; } .setrow .tx b { display: block; font-weight: 560; } .setrow .tx small { color: var(--ink-3); font-size: 11.5px; }
+  .ccard { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; border-radius: 12px; text-align: left; cursor: pointer; background: rgba(255,255,255,.7); box-shadow: inset 0 0 0 1px var(--line-strong); width: 100%; }
+  .ccard > svg:first-child { color: var(--ink-3); }
+  .ccard .tx { flex: 1; } .ccard .tx b { display: block; font-weight: 600; } .ccard .tx small { color: var(--ink-3); font-size: 11.5px; }
+  .ccard .box { width: 20px; height: 20px; border-radius: 6px; box-shadow: inset 0 0 0 1.5px var(--line-strong); display: grid; place-items: center; color: #fff; transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+  .ccard .box svg { width: 14px; height: 14px; stroke-width: 3; opacity: 0; transform: scale(.5); transition: opacity var(--dur-fast) var(--ease), transform var(--dur) var(--ease); }
+  .ccard[aria-checked=true] { background: #fff; box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .ccard[aria-checked=true] > svg:first-child { color: var(--accent); }
+  .ccard[aria-checked=true] .box { background: var(--accent); box-shadow: none; }
+  .ccard[aria-checked=true] .box svg { opacity: 1; transform: none; }
+  .ccard:disabled { opacity: .5; cursor: default; }
+  .todos { width: 100%; max-width: 360px; background: #fff; border-radius: 14px; padding: 6px; box-shadow: 0 1px 2px rgba(30,40,90,.06); }
+  .todo { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; }
+  .todo:hover { background: var(--surface-2); }
+  .rc { width: 18px; height: 18px; border: 0; border-radius: 50%; cursor: pointer; flex: none; display: grid; place-items: center; background: none; box-shadow: inset 0 0 0 1.5px #c3c5d6; color: #fff; transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); padding: 0; }
+  .rc svg { width: 12px; height: 12px; stroke-width: 3; stroke-dasharray: 24; stroke-dashoffset: 24; transition: stroke-dashoffset var(--dur) var(--ease); }
+  .rc:active { transform: scale(.88); }
+  .rc[aria-checked=true] { background: var(--st-done); box-shadow: none; }
+  .rc[aria-checked=true] svg { stroke-dashoffset: 0; }
+  .todo .tt { position: relative; transition: color var(--dur) var(--ease); }
+  .todo .tt::after { content: ''; position: absolute; left: 0; top: 50%; height: 1px; width: 0; background: var(--ink-3); transition: width var(--dur) var(--ease); }
+  .todo[data-done] .tt { color: var(--ink-3); }
+  .todo[data-done] .tt::after { width: 100%; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; width: 100%; max-width: 560px; padding: 8px; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(30,40,90,.06); }
+  .toolbar .sep { width: 1px; height: 18px; background: var(--line-strong); }
+
+  /* ---- 数 ---- */
+  .stepper { display: inline-flex; align-items: center; height: 30px; border-radius: 99px; background: #fff; box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .stepper button { width: 30px; height: 30px; border: 0; background: none; border-radius: 50%; cursor: pointer; color: var(--ink-2); display: grid; place-items: center; }
+  .stepper button:hover { background: var(--surface-2); color: var(--ink); }
+  .stepper output { min-width: 44px; text-align: center; font: 600 13px var(--mono); }
+  .presets { display: flex; gap: 4px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>選ぶ部品の案</h1>
+  <span class="faint">各節から 1 つずつ「これにする」を押すと、右上に並びます</span>
+  <div class="chosen" id="chosen">まだ選んでいません</div>
+</div>
+<main>
+<p class="lead">いま hangar で選択肢を出している部品の多くは、ブラウザ標準の <code>&lt;select&gt;</code> と <code>&lt;input type=checkbox&gt;</code> のままです。開いた一覧は macOS の素のメニューになり、ガラスと光の見た目から浮いています。節ごとに、比べられるよう現状（灰色の地）と案を並べました。どれも実際に触れます。キーボード（↑ ↓ Enter Esc）も効きます。</p>
+
+<section class="sec">
+  <h2><em>0</em>棚卸し <small class="faint" style="font-size:12px;font-weight:500">ブラウザ標準のままの箇所</small></h2>
+  <table class="inv">
+    <tr><th>画面</th><th>箇所</th><th>いま</th><th>案</th></tr>
+    <tr><td>新しいセッション</td><td>プロジェクト</td><td><span class="pill-now">select</span> 名前と全角空白とパスを 1 行に詰めている</td><td><a href="#sec-p">1 節</a></td></tr>
+    <tr><td>新しいセッション</td><td>model、effort、permission mode</td><td><span class="pill-now">input</span> 自由入力。値を覚えていないと打てない</td><td><a href="#sec-d">4 節</a></td></tr>
+    <tr><td>プロジェクトのカード</td><td>ステータス</td><td>顔は自前、開く一覧は <span class="pill-now">select</span></td><td><a href="#sec-s">2 節</a></td></tr>
+    <tr><td>セッション一覧</td><td>プロジェクト、期間、実行中</td><td><span class="pill-now">select</span> × 3</td><td><a href="#sec-f">3 節</a></td></tr>
+    <tr><td>セッション画面</td><td>思考を表示、生の記録、サブエージェント</td><td><span class="pill-now">checkbox</span> × 2、<span class="pill-now">select</span></td><td><a href="#sec-t">5 節</a></td></tr>
+    <tr><td>設定</td><td>ターミナルアプリ、要約器のモデル</td><td><span class="pill-now">select</span> × 2</td><td><a href="#sec-t">5 節</a> と 1 節の部品</td></tr>
+    <tr><td>設定</td><td>外部の要約器、Claude へ切り替え、設定の同期</td><td><span class="pill-now">checkbox</span> × 3</td><td><a href="#sec-t">5 節</a></td></tr>
+    <tr><td>設定</td><td>1 時間の上限</td><td><span class="pill-now">number</span> 素の増減の矢印</td><td><a href="#sec-n">6 節</a></td></tr>
+    <tr><td>プロジェクトに昇格</td><td>git init、ファイルを移動</td><td><span class="pill-now">checkbox</span> × 2</td><td><a href="#sec-t">5 節</a></td></tr>
+    <tr><td>プロジェクトの TODO</td><td>済みの印</td><td><span class="pill-now">checkbox</span></td><td><a href="#sec-t">5 節</a></td></tr>
+  </table>
+</section>
+
+<section class="sec" id="sec-p">
+  <h2><em>1</em>プロジェクトを選ぶ <small class="faint" style="font-size:12px;font-weight:500">新しいセッションのダイアログ。いちばん目に入る箇所</small></h2>
+  <p>選ぶものが多く（数十件）、名前だけでは見分けにくいので、パスと最後に使った時期を添えます。A は置き換えるだけの素直な案、B は件数が増えても困らない案、C と D は「たいてい最近のどれか」を一手で選べる案です。</p>
+  <div class="grid">
+    <div class="pick now" data-group="P" data-id="P0">
+      <div class="stage"><div class="dialog"><b>新しいセッション</b>
+        <label class="field">プロジェクト
+          <select class="native" id="native-p"></select></label>
+        <div class="field">名前（任意）<div class="ghost"></div></div>
+        <div class="field">初期プロンプト（任意）<div class="ghost tall"></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>P0</em>いま</h3><p>macOS の素のメニューが出る。パスは全角空白でつないでいるので揃わない。</p></div></div>
+    </div>
+    <div class="pick" data-group="P" data-id="PA">
+      <div class="stage"><div class="dialog"><b>新しいセッション</b>
+        <div class="field">プロジェクト<div class="host" id="pa"></div></div>
+        <div class="field">名前（任意）<div class="ghost"></div></div>
+        <div class="field">初期プロンプト（任意）<div class="ghost tall"></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>PA</em>ガラスの一覧<span class="tag">置き換えるだけ</span></h3><p>顔と一覧を自前にし、ステータスの点、名前、パス、最後に使った時期を 2 段で揃える。選んだ行に印。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="P" data-id="PB">
+      <div class="stage"><div class="dialog"><b>新しいセッション</b>
+        <div class="field">プロジェクト<div class="host" id="pb"></div></div>
+        <div class="field">名前（任意）<div class="ghost"></div></div>
+        <div class="field">初期プロンプト（任意）<div class="ghost tall"></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>PB</em>探せる一覧<span class="tag">おすすめ</span></h3><p>開くと検索欄に入力が向き、打てば名前とパスで絞れる。上に「最近」、下に「すべて」。一致した字を塗る。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="P" data-id="PC">
+      <div class="stage"><div class="dialog"><b>新しいセッション</b>
+        <div class="field">プロジェクト<div id="pc"></div></div>
+        <div class="field">名前（任意）<div class="ghost"></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>PC</em>最近のタイル</h3><p>最近の 5 件をタイルで並べ、一手で選ぶ。それ以外は「ほかを探す」から PB の一覧を出す。ダイアログは縦に伸びる。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="P" data-id="PD">
+      <div class="stage"><div class="dialog"><b>新しいセッション</b>
+        <div class="field">プロジェクト<div id="pd"></div></div>
+        <div class="field">名前（任意）<div class="ghost"></div></div>
+        <div class="field">初期プロンプト（任意）<div class="ghost tall"></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>PD</em>最近のチップ</h3><p>最近の 4 件をチップで 1 行に。選んだもののパスを下に出す。PC より場所を取らない。</p></div><button class="choose">これにする</button></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="sec-s">
+  <h2><em>2</em>ステータスを変える <small class="faint" style="font-size:12px;font-weight:500">プロジェクトのカード右下の札</small></h2>
+  <p>選択肢は 4 つで固定です。色の意味を一覧でも見せ、札から離れずに選べるようにします。</p>
+  <div class="grid">
+    <div class="pick now" data-group="S" data-id="S0">
+      <div class="stage" style="align-items:flex-end;min-height:260px"><div class="pcard"><div class="t">agent-hangar</div><div class="line"></div><div class="line" style="width:55%"></div>
+        <div class="row"><span class="faint" style="font-size:12px">12 セッション</span><span class="spill" data-st="active" id="s0"><span id="s0-t">active</span><span class="dot"></span><i data-lucide="chevron-down"></i><select id="s0-sel"><option>active</option><option>paused</option><option>done</option><option>archived</option></select></span></div></div></div>
+      <div class="body"><div class="txt"><h3><em>S0</em>いま</h3><p>札は自前だが、押すと素のメニューが出て色が消える。</p></div></div>
+    </div>
+    <div class="pick" data-group="S" data-id="S1">
+      <div class="stage" style="align-items:flex-end;min-height:260px"><div class="pcard"><div class="t">agent-hangar</div><div class="line"></div><div class="line" style="width:55%"></div>
+        <div class="row"><span class="faint" style="font-size:12px">12 セッション</span><span class="host" id="s1"></span></div></div></div>
+      <div class="body"><div class="txt"><h3><em>S1</em>説明つきの一覧</h3><p>札の上にガラスの一覧を開く。色の点、名前、ひとことの意味。1 節の部品をそのまま使える。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="S" data-id="S2">
+      <div class="stage" style="align-items:flex-end;min-height:260px"><div class="pcard"><div class="t">agent-hangar</div><div class="line"></div><div class="line" style="width:55%"></div>
+        <div class="row"><span class="faint" style="font-size:12px">12 セッション</span><span class="strip" id="s2" role="radiogroup" aria-label="ステータス"></span></div></div></div>
+      <div class="body"><div class="txt"><h3><em>S2</em>その場で広がる</h3><p>ふだんは今の札と 3 つの点。触れると点が名前つきの札に伸び、そのまま押せる。開く操作がいらない。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="S" data-id="S3">
+      <div class="stage" style="align-items:flex-end;min-height:260px"><div class="pcard"><div class="t">agent-hangar</div><div class="line"></div><div class="line" style="width:55%"></div>
+        <div class="row"><span class="faint" style="font-size:12px">12 セッション</span><span class="host" id="s3"></span></div></div></div>
+      <div class="body"><div class="txt"><h3><em>S3</em>札を並べる</h3><p>押すと 4 枚の札が横に並んだ小さな板が浮く。色で選ぶ人向け。</p></div><button class="choose">これにする</button></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="sec-f">
+  <h2><em>3</em>一覧を絞る <small class="faint" style="font-size:12px;font-weight:500">セッション一覧の上の 3 つの select と「触ったファイル」</small></h2>
+  <p>期間と実行中は選択肢が 3〜4 個しかないので、開かずに見えている方が速いです。プロジェクトだけは件数が多いので 1 節の一覧を使います。</p>
+  <div class="grid wide">
+    <div class="pick now" data-group="F" data-id="F0">
+      <div class="stage" style="min-height:240px"><div class="screen">
+        <div class="search-in"><i data-lucide="search"></i><input placeholder="キーワード（空なら全件）"></div>
+        <div class="fbar"><select class="native"><option>すべてのプロジェクト</option><option>agent-hangar</option></select><select class="native"><option>すべて</option><option>今日</option><option>7 日</option><option>30 日</option></select><select class="native"><option>実行中と終了</option><option>実行中</option><option>終了</option></select><span class="count">214 件</span></div>
+        <div class="fake-list"><div><span style="width:40%"></span></div><div><span style="width:62%"></span></div><div><span style="width:48%"></span></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>F0</em>いま</h3><p>何で絞っているかが一目で分からない。「すべて」だけでは何のすべてかも読めない。</p></div></div>
+    </div>
+    <div class="pick" data-group="F" data-id="F1">
+      <div class="stage" style="min-height:240px"><div class="screen">
+        <div class="search-in"><i data-lucide="search"></i><input placeholder="キーワード（空なら全件）"></div>
+        <div class="fbar"><span class="host" id="f1-proj"></span><span class="seg sm" id="f1-period"></span><span class="seg sm" id="f1-run"></span><span class="count">214 件</span></div>
+        <div class="fake-list"><div><span style="width:40%"></span></div><div><span style="width:62%"></span></div><div><span style="width:48%"></span></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>F1</em>セグメント<span class="tag">おすすめ</span></h3><p>期間と実行中を切り替えの帯にし、白い玉がすっと滑る。今の絞り込みが常に見える。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="F" data-id="F2">
+      <div class="stage" style="min-height:240px"><div class="screen">
+        <div class="search-in"><i data-lucide="search"></i><input placeholder="キーワード（空なら全件）"></div>
+        <div class="fbar" id="f2"></div>
+        <div class="fake-list"><div><span style="width:40%"></span></div><div><span style="width:62%"></span></div><div><span style="width:48%"></span></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>F2</em>名札つきのチップ</h3><p>「期間 すべて ▾」のように名札と値を 1 枚に。絞ると青く灯り、× で戻せる。狭い幅でも崩れにくい。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="F" data-id="F3">
+      <div class="stage" style="min-height:240px"><div class="screen">
+        <div class="search-in" id="f3"></div>
+        <div class="fake-list"><div><span style="width:40%"></span></div><div><span style="width:62%"></span></div><div><span style="width:48%"></span></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>F3</em>検索欄に札を積む</h3><p>ふだんは検索欄だけ。「絞る」から条件を足すと欄の中に札が積まれる。画面がいちばん静か。</p></div><button class="choose">これにする</button></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="sec-d">
+  <h2><em>4</em>打つ欄を選ぶ欄にする <small class="faint" style="font-size:12px;font-weight:500">新しいセッションの「詳細」</small></h2>
+  <p>model、effort、permission mode は取りうる値が決まっているのに、いまは自由入力です。「既定」（空、つまり Claude Code の設定に従う）を最初に置き、値を覚えていなくても選べるようにします。model には自由入力の逃げ道を残します。値の一覧は実装のときに Claude Code の CLI と突き合わせます。</p>
+  <div class="grid wide">
+    <div class="pick" data-group="D" data-id="D1">
+      <div class="stage"><div class="dialog" style="max-width:520px"><b>詳細</b>
+        <div class="drow"><span>model</span><div class="chips" id="d1-model" role="radiogroup"></div></div>
+        <div class="drow"><span>effort</span><div><span class="seg xs" id="d1-effort"></span></div></div>
+        <div class="drow" style="align-items:start"><span style="padding-top:8px">permission</span><div class="cards" id="d1-perm" role="radiogroup"></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>D1</em>見えている選択肢<span class="tag">おすすめ</span></h3><p>model はチップ、effort は強さの棒つきの帯、permission mode は意味を添えたカード。確認なしは赤で縁取る。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="D" data-id="D2">
+      <div class="stage"><div class="dialog" style="max-width:520px"><b>詳細</b>
+        <div class="drow"><span>model</span><div class="host" id="d2-model"></div></div>
+        <div class="drow"><span>effort</span><div class="host" id="d2-effort"></div></div>
+        <div class="drow"><span>permission</span><div class="host" id="d2-perm"></div></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>D2</em>畳んだ一覧</h3><p>3 つとも 1 節のガラスの一覧にし、意味は開いたときだけ出す。ダイアログの高さはいまと変わらない。</p></div><button class="choose">これにする</button></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="sec-t">
+  <h2><em>5</em>オン・オフと少ない選択肢 <small class="faint" style="font-size:12px;font-weight:500">設定、セッション画面、昇格、TODO</small></h2>
+  <p>置く場所ごとに向き不向きがあるので、場所ごとに 1 つずつ案を出します。ここは組み合わせで使う想定です（全部入れるか、一部だけにするか）。</p>
+  <div class="grid wide">
+    <div class="pick" data-group="T" data-id="T1">
+      <div class="stage" style="min-height:250px"><div class="setrows">
+        <div class="setrow"><div class="tx"><b>手元の外にある要約器を許す</b><small>会話の本文が LM Studio の URL へ送られます</small></div><button class="sw" role="switch" aria-checked="false"></button></div>
+        <div class="setrow"><div class="tx"><b>LM Studio が使えないとき Claude へ切り替える</b></div><button class="sw" role="switch" aria-checked="true"></button></div>
+        <div class="setrow"><div class="tx"><b>ターミナルアプリ</b></div><span class="seg sm" id="t1-term"></span></div>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>T1</em>設定：スイッチ</h3><p>チェックの箱を右端のスイッチに。すぐ効く設定に向く。2 択の select は帯にする。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="T2" data-id="T2">
+      <div class="stage" style="min-height:250px;align-items:center"><div class="toolbar" id="t2"></div></div>
+      <div class="body"><div class="txt"><h3><em>T2</em>セッション画面：押し込むチップ</h3><p>「思考」「生の記録」は表示の切り替えなので、押すと灯るチップに。サブエージェントは帯で主線と並べる。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="T3" data-id="T3">
+      <div class="stage" style="min-height:250px"><div class="dialog" style="gap:8px"><b>プロジェクトに昇格</b>
+        <button class="ccard" role="checkbox" aria-checked="true"><i data-lucide="git-branch"></i><span class="tx"><b>git init する</b><small>空のリポジトリを作ってから移します</small></span><span class="box"><i data-lucide="check"></i></span></button>
+        <button class="ccard" role="checkbox" aria-checked="false"><i data-lucide="folder-input"></i><span class="tx"><b>ファイルを移動する</b><small>スクラッチのファイルをワークスペースへ移します</small></span><span class="box"><i data-lucide="check"></i></span></button>
+      </div></div>
+      <div class="body"><div class="txt"><h3><em>T3</em>昇格：説明つきのカード</h3><p>取り返しにくい操作なので、何が起きるかを 1 行添えたカードで選ぶ。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="T4" data-id="T4">
+      <div class="stage" style="min-height:250px"><div class="todos" id="t4"></div></div>
+      <div class="body"><div class="txt"><h3><em>T4</em>TODO：丸い印</h3><p>押すと緑に満ち、印が描かれ、文字に線が引かれる。済んだ手応えを出す。</p></div><button class="choose">これにする</button></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="sec-n">
+  <h2><em>6</em>数を決める <small class="faint" style="font-size:12px;font-weight:500">設定の「1 時間の上限」</small></h2>
+  <div class="grid">
+    <div class="pick" data-group="N" data-id="N1">
+      <div class="stage" style="min-height:160px;align-items:center"><div class="setrows"><div class="setrow"><div class="tx"><b>1 時間の上限</b><small>1 から 200 まで</small></div><span class="stepper" id="n1"></span></div></div></div>
+      <div class="body"><div class="txt"><h3><em>N1</em>増減のボタン</h3><p>素の小さな矢印を、押しやすい − と ＋ に。数字を押せば直接打てる。</p></div><button class="choose">これにする</button></div>
+    </div>
+    <div class="pick" data-group="N" data-id="N2">
+      <div class="stage" style="min-height:160px;align-items:center"><div class="setrows"><div class="setrow"><div class="tx"><b>1 時間の上限</b><small>1 から 200 まで</small></div><span class="seg sm" id="n2"></span></div></div></div>
+      <div class="body"><div class="txt"><h3><em>N2</em>よく使う値の帯</h3><p>10、30、60、100 から選び、「ほか」で打つ。値の相場が分かる。</p></div><button class="choose">これにする</button></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<script>
+const PROJECTS = [
+  { v: 'hangar', label: 'agent-hangar', sub: '~/workspace/agent-hangar', st: 'active', meta: '2 分前', recent: true },
+  { v: 'config', label: 'claude-config', sub: '~/.claude', st: 'active', meta: '1 時間前', recent: true },
+  { v: 'thesis', label: 'thesis-draft', sub: '~/workspace/thesis-draft', st: 'active', meta: '昨日', recent: true },
+  { v: 'cit', label: 'cit-code', sub: '~/workspace/cit-code', st: 'paused', meta: '3 日前', recent: true },
+  { v: 'kite', label: 'kitesurf-lab', sub: '~/workspace/kitesurf-lab', st: 'done', meta: '9 日前', recent: true },
+  { v: 'perf', label: 'web-perf-notes', sub: '~/workspace/web-perf-notes', st: 'paused', meta: '2 週間前' },
+  { v: 'gloss', label: 'extract-glossary', sub: '~/workspace/extract-glossary', st: 'done', meta: '先月' },
+  { v: 'slurm', label: 'slurm-runner', sub: '~/workspace/slurm-runner', st: 'paused', meta: '先月' },
+  { v: 'dot', label: 'dotfiles', sub: '~/dotfiles', st: 'archived', meta: '3 か月前' },
+];
+const STATUSES = [
+  { v: 'active', label: 'active', sub: 'いま進めている', st: 'active' },
+  { v: 'paused', label: 'paused', sub: 'いったん止めている', st: 'paused' },
+  { v: 'done', label: 'done', sub: 'やり終えた', st: 'done' },
+  { v: 'archived', label: 'archived', sub: '一覧の奥へしまう', st: 'archived' },
+];
+const icons = () => lucide.createIcons();
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const hl = (s, q) => { if (!q) return esc(s); const i = s.toLowerCase().indexOf(q.toLowerCase()); return i < 0 ? esc(s) : esc(s.slice(0, i)) + '<mark>' + esc(s.slice(i, i + q.length)) + '</mark>' + esc(s.slice(i + q.length)); };
+
+/* ---- ガラスの一覧。host の中に開き、↑ ↓ Enter Esc と外側のクリックで操作する ---- */
+let openMenu = null;
+function closeMenu() { if (!openMenu) return; openMenu.el.remove(); openMenu.trigger?.setAttribute('aria-expanded', 'false'); openMenu = null; }
+document.addEventListener('mousedown', (e) => { if (openMenu && !openMenu.host.contains(e.target)) closeMenu(); });
+function menu(host, trigger, o) {
+  if (openMenu && openMenu.host === host) { closeMenu(); return; }
+  closeMenu();
+  const el = document.createElement('div');
+  el.className = 'menu' + (o.up ? ' up' : ''); el.setAttribute('role', 'listbox');
+  if (o.width) el.style.minWidth = o.width + 'px';
+  if (o.right) { el.style.left = 'auto'; el.style.right = '0'; }
+  host.appendChild(el);
+  trigger?.setAttribute('aria-expanded', 'true');
+  let q = '', active = 0, shown = [];
+  const render = () => {
+    const f = o.items.filter((it) => !q || it.label.toLowerCase().includes(q.toLowerCase()) || (it.sub || '').toLowerCase().includes(q.toLowerCase()));
+    const groups = o.groups && !q ? o.groups.map((g) => [g.title, f.filter(g.test)]) : [[null, f]];
+    shown = groups.flatMap((g) => g[1]);
+    active = Math.min(active, Math.max(shown.length - 1, 0));
+    let i = 0;
+    const rows = groups.map(([title, list]) => (title && list.length ? `<div class="grp">${title}</div>` : '') + list.map((it) => {
+      const idx = i++;
+      return `<div class="opt${idx === active ? ' active' : ''}${it.danger ? ' danger' : ''}" role="option" data-i="${idx}" aria-selected="${it.v === o.value}">
+        ${it.st ? `<span class="dot" data-st="${it.st}"></span>` : it.icon ? `<i data-lucide="${it.icon}"></i>` : ''}
+        <span class="main"><b>${hl(it.label, q)}</b>${it.sub ? `<small class="${it.prose ? 'prose' : ''}">${it.prose ? esc(it.sub) : hl(it.sub, q)}</small>` : ''}</span>
+        ${it.meta ? `<span class="meta">${esc(it.meta)}</span>` : ''}<i class="ck" data-lucide="check"></i></div>`;
+    }).join('')).join('');
+    el.querySelector('.rows').innerHTML = rows || '<div class="empty">一致するものはありません</div>';
+    icons();
+  };
+  el.innerHTML = (o.search ? `<div class="search"><i data-lucide="search"></i><input placeholder="${o.search}" aria-label="${o.search}"></div>` : '') + '<div class="rows"></div>' +
+    (o.search ? '<div class="keys"><span><kbd>↑</kbd><kbd>↓</kbd> 移動</span><span><kbd>Enter</kbd> 決める</span><span><kbd>Esc</kbd> 閉じる</span></div>' : '');
+  const pick = (it) => { closeMenu(); o.onPick(it); (trigger || host).focus?.(); };
+  el.addEventListener('mousemove', (e) => { const r = e.target.closest('.opt'); if (r && +r.dataset.i !== active) { active = +r.dataset.i; el.querySelectorAll('.opt').forEach((x) => x.classList.toggle('active', +x.dataset.i === active)); } });
+  el.addEventListener('click', (e) => { const r = e.target.closest('.opt'); if (r) pick(shown[+r.dataset.i]); });
+  const onKey = (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); active = (active + (e.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length; render(); el.querySelector('.opt.active')?.scrollIntoView({ block: 'nearest' }); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (shown[active]) pick(shown[active]); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeMenu(); trigger?.focus(); }
+  };
+  const rowsEl = el.querySelector('.rows');
+  rowsEl.addEventListener('scroll', () => el.classList.toggle('scrolled', rowsEl.scrollTop > 0));
+  const input = el.querySelector('.search input');
+  if (input) { input.addEventListener('input', () => { q = input.value; active = 0; render(); }); input.addEventListener('keydown', onKey); }
+  else (trigger || host).addEventListener('keydown', onKey);
+  const sel = o.items.findIndex((it) => it.v === o.value); if (sel >= 0 && !o.groups) active = sel;
+  openMenu = { host, el, trigger };
+  render();
+  input?.focus();
+  const clean = () => { if (!input) (trigger || host).removeEventListener('keydown', onKey); };
+  const obs = new MutationObserver(() => { if (!el.isConnected) { clean(); obs.disconnect(); } }); obs.observe(host, { childList: true });
+}
+
+/* ---- 顔。点、名前、パス、矢印 ---- */
+function selectField(host, o) {
+  let value = o.value;
+  const draw = () => {
+    const it = o.items.find((x) => x.v === value);
+    host.innerHTML = `<button type="button" class="trig" aria-haspopup="listbox" aria-expanded="false">${it ? `${it.st ? `<span class="dot" data-st="${it.st}"></span>` : ''}<span class="name">${esc(it.label)}</span><span class="sub">${o.face === 'label' ? '' : esc(it.sub || '')}</span>` : `<span class="ph">${o.placeholder || '選んでください'}</span>`}<i class="chev" data-lucide="chevron-down"></i></button>`;
+    icons();
+    const t = host.querySelector('.trig');
+    t.addEventListener('click', () => menu(host, t, { ...o, value, onPick: (x) => { value = x.v; draw(); host.querySelector('.trig').focus(); } }));
+    t.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' && !openMenu) { e.preventDefault(); t.click(); } });
+  };
+  draw();
+}
+
+/* ---- セグメント。白い玉が選んだ位置へ滑る ---- */
+function seg(host, items, value, onPick) {
+  host.setAttribute('role', 'radiogroup');
+  host.innerHTML = '<span class="thumb"></span>' + items.map((it) => `<button type="button" role="radio" data-v="${it.v}" aria-checked="${it.v === value}">${it.html || esc(it.label)}</button>`).join('');
+  const thumb = host.querySelector('.thumb');
+  const place = () => { const b = host.querySelector('[aria-checked=true]'); if (!b) return; thumb.style.left = b.offsetLeft + 'px'; thumb.style.width = b.offsetWidth + 'px'; };
+  host.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; host.querySelectorAll('button').forEach((x) => x.setAttribute('aria-checked', x === b)); place(); onPick?.(b.dataset.v); });
+  host.addEventListener('keydown', (e) => { if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return; const bs = [...host.querySelectorAll('button')]; const i = bs.findIndex((b) => b.getAttribute('aria-checked') === 'true'); const n = bs[(i + (e.key === 'ArrowRight' ? 1 : -1) + bs.length) % bs.length]; n.click(); n.focus(); });
+  thumb.style.transition = 'none'; requestAnimationFrame(() => { place(); requestAnimationFrame(() => { thumb.style.transition = ''; }); });
+  document.fonts?.ready.then(place);
+}
+
+/* 1 節 */
+document.getElementById('native-p').innerHTML = '<option>選んでください</option>' + PROJECTS.map((p) => `<option>${p.label}　${p.sub}</option>`).join('');
+selectField(document.getElementById('pa'), { items: PROJECTS, value: 'hangar' });
+selectField(document.getElementById('pb'), { items: PROJECTS, value: null, search: '名前かパスで探す', groups: [{ title: '最近', test: (p) => p.recent && ['hangar', 'config', 'thesis'].includes(p.v) }, { title: 'すべて', test: (p) => !['hangar', 'config', 'thesis'].includes(p.v) }] });
+
+(function tiles() {
+  const host = document.getElementById('pc'); let value = 'hangar';
+  const draw = () => {
+    let list = PROJECTS.filter((p) => p.recent).slice(0, 5);
+    if (!list.some((p) => p.v === value)) list = [PROJECTS.find((p) => p.v === value), ...list.slice(0, 4)];
+    host.innerHTML = '<div class="tiles" role="radiogroup">' + list.map((p) => `<button type="button" class="tile" role="radio" data-v="${p.v}" aria-checked="${p.v === value}"><span class="row1"><span class="dot" data-st="${p.st}"></span>${esc(p.label)}<i class="ck" data-lucide="circle-check"></i></span><small>${esc(p.sub)}</small><span class="when">${esc(p.meta)}</span></button>`).join('') +
+      '<span class="host"><button type="button" class="tile more" style="width:100%;height:100%"><i data-lucide="search"></i>ほかを探す</button></span></div>';
+    icons();
+    host.querySelectorAll('.tile[data-v]').forEach((b) => b.addEventListener('click', () => { value = b.dataset.v; draw(); }));
+    const more = host.querySelector('.tile.more');
+    more.addEventListener('click', () => menu(more.parentElement, more, { items: PROJECTS, value, search: '名前かパスで探す', width: 320, right: true, onPick: (x) => { value = x.v; draw(); } }));
+  };
+  draw();
+})();
+
+(function chipsP() {
+  const host = document.getElementById('pd'); let value = 'hangar';
+  const draw = () => {
+    const recent = PROJECTS.filter((p) => p.recent).slice(0, 4);
+    const other = recent.some((p) => p.v === value) ? null : PROJECTS.find((p) => p.v === value);
+    const cur = PROJECTS.find((p) => p.v === value);
+    host.innerHTML = '<div class="chips" role="radiogroup">' + recent.map((p) => `<button type="button" class="chip" role="radio" data-v="${p.v}" aria-checked="${p.v === value}"><span class="dot" data-st="${p.st}"></span>${esc(p.label)}</button>`).join('') +
+      `<span class="host"><button type="button" class="chip${other ? ' on' : ''}">${other ? `<span class="dot" data-st="${other.st}"></span>${esc(other.label)}` : 'ほか'}<i data-lucide="chevron-down"></i></button></span></div>` +
+      `<div class="mono faint" style="margin-top:6px">${esc(cur.sub)}</div>`;
+    icons();
+    host.querySelectorAll('.chip[data-v]').forEach((b) => b.addEventListener('click', () => { value = b.dataset.v; draw(); }));
+    const more = host.querySelector('.host .chip');
+    more.addEventListener('click', () => menu(more.parentElement, more, { items: PROJECTS, value, search: '名前かパスで探す', width: 320, right: true, onPick: (x) => { value = x.v; draw(); } }));
+  };
+  draw();
+})();
+
+/* 2 節 */
+(function s0() { const sel = document.getElementById('s0-sel'); sel.addEventListener('change', () => { document.getElementById('s0').dataset.st = sel.value; document.getElementById('s0-t').textContent = sel.value; }); })();
+(function s1() {
+  const host = document.getElementById('s1'); let value = 'active';
+  const draw = () => {
+    host.innerHTML = `<button type="button" class="spill" data-st="${value}" aria-haspopup="listbox" aria-expanded="false">${value}<span class="dot"></span><i data-lucide="chevron-down"></i></button>`;
+    icons();
+    const t = host.querySelector('.spill');
+    t.addEventListener('click', () => menu(host, t, { items: STATUSES.map((s) => ({ ...s, prose: true })), value, up: true, right: true, width: 220, onPick: (x) => { value = x.v; draw(); host.querySelector('.spill').focus(); } }));
+  };
+  draw();
+})();
+(function s2() {
+  const host = document.getElementById('s2'); let value = 'active';
+  const draw = () => {
+    host.innerHTML = STATUSES.map((s) => `<button type="button" role="radio" data-st="${s.v}" aria-checked="${s.v === value}" title="${s.sub}"><span class="dot"></span><span>${s.label}</span></button>`).join('');
+    host.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { value = b.dataset.st; host.querySelectorAll('button').forEach((x) => x.setAttribute('aria-checked', x === b)); }));
+  };
+  draw();
+})();
+(function s3() {
+  const host = document.getElementById('s3'); let value = 'active';
+  const draw = (open) => {
+    host.innerHTML = `<button type="button" class="spill" data-st="${value}">${value}<span class="dot"></span><i data-lucide="chevron-down"></i></button>` +
+      (open ? '<div class="palette" role="radiogroup">' + STATUSES.map((s) => `<button type="button" class="spill" role="radio" data-st="${s.v}" aria-checked="${s.v === value}" title="${s.sub}"><span class="dot"></span>${s.label}</button>`).join('') + '</div>' : '');
+    icons();
+    host.querySelector('.spill').addEventListener('click', () => draw(!open));
+    host.querySelectorAll('.palette .spill').forEach((b) => b.addEventListener('click', () => { value = b.dataset.st; draw(false); }));
+  };
+  document.addEventListener('mousedown', (e) => { if (!host.contains(e.target) && host.querySelector('.palette')) draw(false); });
+  draw(false);
+})();
+
+/* 3 節 */
+const PROJ_ALL = [{ v: '', label: 'すべてのプロジェクト' }, ...PROJECTS];
+selectField(document.getElementById('f1-proj'), { items: PROJ_ALL, value: '', search: 'プロジェクトを探す', face: 'label', width: 300 });
+document.getElementById('f1-proj').querySelector('.trig').style.cssText = 'height:28px;border-radius:99px;width:auto';
+new MutationObserver(() => { const t = document.getElementById('f1-proj').querySelector('.trig'); if (t) t.style.cssText = 'height:28px;border-radius:99px;width:auto'; }).observe(document.getElementById('f1-proj'), { childList: true });
+seg(document.getElementById('f1-period'), [{ v: '', label: '全期間' }, { v: '1', label: '今日' }, { v: '7', label: '7 日' }, { v: '30', label: '30 日' }], '');
+seg(document.getElementById('f1-run'), [{ v: '', label: 'すべて' }, { v: 'r', html: '<span class="dot" style="--c:var(--st-done)"></span>実行中' }, { v: 'e', label: '終了' }], '');
+
+(function f2() {
+  const host = document.getElementById('f2');
+  const defs = [
+    { k: 'proj', name: 'プロジェクト', items: PROJ_ALL, search: 'プロジェクトを探す', width: 300 },
+    { k: 'period', name: '期間', items: [{ v: '', label: 'すべて' }, { v: '1', label: '今日' }, { v: '7', label: '7 日' }, { v: '30', label: '30 日' }] },
+    { k: 'run', name: '状態', items: [{ v: '', label: 'すべて' }, { v: 'r', label: '実行中', st: 'done' }, { v: 'e', label: '終了', st: 'archived' }] },
+  ];
+  const val = { proj: '', period: '7', run: '' };
+  const draw = () => {
+    host.innerHTML = defs.map((d) => { const it = d.items.find((x) => x.v === val[d.k]); const on = val[d.k] !== ''; return `<span class="host" data-k="${d.k}"><button type="button" class="chip${on ? ' on' : ''}"><span class="k">${d.name}</span>${esc(on ? it.label : 'すべて')}${on ? '<span class="x" data-x="1"><i data-lucide="x"></i></span>' : '<i data-lucide="chevron-down"></i>'}</button></span>`; }).join('') +
+      '<span class="chip"><i data-lucide="file-code-2"></i><input placeholder="触ったファイル"></span><span class="count">38 件</span>';
+    icons();
+    host.querySelectorAll('.host').forEach((h) => { const d = defs.find((x) => x.k === h.dataset.k); const b = h.querySelector('.chip');
+      b.addEventListener('click', (e) => { if (e.target.closest('[data-x]')) { val[d.k] = ''; draw(); return; } menu(h, b, { items: d.items, value: val[d.k], search: d.search, width: d.width || 160, onPick: (x) => { val[d.k] = x.v; draw(); } }); }); });
+  };
+  draw();
+})();
+
+(function f3() {
+  const host = document.getElementById('f3');
+  const kinds = [
+    { v: 'proj', label: 'プロジェクト', icon: 'folder', items: PROJECTS, search: 'プロジェクトを探す' },
+    { v: 'period', label: '期間', icon: 'clock', items: [{ v: '1', label: '今日' }, { v: '7', label: '7 日' }, { v: '30', label: '30 日' }] },
+    { v: 'run', label: '状態', icon: 'activity', items: [{ v: 'r', label: '実行中', st: 'done' }, { v: 'e', label: '終了', st: 'archived' }] },
+    { v: 'file', label: '触ったファイル', icon: 'file-code-2', items: [{ v: 'Root.tsx', label: 'packages/ui/src/Root.tsx' }, { v: 'tokens.css', label: 'packages/ui/src/styles/tokens.css' }], search: 'パスを探す' },
+  ];
+  const tokens = [{ k: 'run', v: 'r', label: '実行中' }];
+  const draw = () => {
+    host.innerHTML = '<i data-lucide="search"></i>' + tokens.map((t, i) => `<span class="chip on" style="height:24px;padding:0 9px"><span class="k">${kinds.find((k) => k.v === t.k).label}</span>${esc(t.label)}<span class="x" data-i="${i}"><i data-lucide="x"></i></span></span>`).join('') +
+      '<input placeholder="キーワード（空なら全件）"><span class="host"><button type="button" class="chip" style="height:26px"><i data-lucide="list-filter"></i>絞る</button></span>';
+    icons();
+    host.querySelectorAll('.x').forEach((x) => x.addEventListener('click', () => { tokens.splice(+x.dataset.i, 1); draw(); }));
+    const h = host.querySelector('.host'), b = h.querySelector('.chip');
+    b.addEventListener('click', () => menu(h, b, { items: kinds.filter((k) => !tokens.some((t) => t.k === k.v)), right: true, width: 200, onPick: (k) => {
+      setTimeout(() => menu(h, b, { items: k.items, search: k.search, right: true, width: 280, onPick: (x) => { tokens.push({ k: k.v, v: x.v, label: x.label }); draw(); } }), 0);
+    } }));
+  };
+  draw();
+})();
+
+/* 4 節 */
+const MODELS = [{ v: '', label: '既定', sub: 'Claude Code の設定に従う', prose: true }, { v: 'fable', label: 'fable', sub: 'いちばん賢い', prose: true }, { v: 'opus', label: 'opus', sub: '賢くて速い', prose: true }, { v: 'sonnet', label: 'sonnet', sub: '速さと賢さの釣り合い', prose: true }, { v: 'haiku', label: 'haiku', sub: '速くて安い', prose: true }];
+const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
+const bars = (n) => n ? `<span class="bars">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= n ? 'f' : ''}" style="height:${2 + i * 1.6}px"></i>`).join('')}</span>` : '';
+const PERMS = [
+  { v: '', label: '既定', sub: 'Claude Code の設定に従う', icon: 'settings-2', code: '' },
+  { v: 'manual', label: '都度たずねる', sub: '編集もコマンドも確認する', icon: 'message-circle-question', code: 'manual' },
+  { v: 'acceptEdits', label: '編集は任せる', sub: 'ファイルの編集は確認しない', icon: 'file-pen-line', code: 'acceptEdits' },
+  { v: 'plan', label: '計画だけ', sub: '読むだけで何も変えない', icon: 'map', code: 'plan' },
+  { v: 'auto', label: '自動', sub: '安全なものは自動で許す', icon: 'sparkles', code: 'auto' },
+  { v: 'dontAsk', label: 'たずねずに断る', sub: '許可済みのもの以外は断る', icon: 'ban', code: 'dontAsk' },
+  { v: 'bypassPermissions', label: '確認なし', sub: 'すべて確認せずに実行する', icon: 'shield-alert', code: 'bypassPermissions', danger: true },
+];
+(function d1() {
+  const m = document.getElementById('d1-model'); let mv = '', custom = false;
+  const drawM = () => {
+    m.innerHTML = MODELS.map((x) => `<button type="button" class="chip" role="radio" data-v="${x.v}" aria-checked="${!custom && x.v === mv}" title="${x.sub}">${x.label}</button>`).join('') +
+      (custom ? '<span class="chip on"><input placeholder="model の名前" aria-label="model の名前"></span>' : '<button type="button" class="chip" data-custom="1"><i data-lucide="pencil"></i>ほか</button>');
+    icons();
+    m.querySelectorAll('[data-v]').forEach((b) => b.addEventListener('click', () => { mv = b.dataset.v; custom = false; drawM(); }));
+    m.querySelector('[data-custom]')?.addEventListener('click', () => { custom = true; drawM(); m.querySelector('input').focus(); });
+  };
+  drawM();
+  seg(document.getElementById('d1-effort'), EFFORTS.map((e, i) => ({ v: e, html: e ? `${bars(i)}${e}` : '既定' })), '');
+  const p = document.getElementById('d1-perm'); let pv = '';
+  const drawP = () => {
+    p.innerHTML = PERMS.map((x) => `<button type="button" class="ocard${x.danger ? ' danger' : ''}" role="radio" data-v="${x.v}" aria-checked="${x.v === pv}"><i data-lucide="${x.icon}"></i><span><b>${x.label}</b><small>${x.sub}</small>${x.code ? `<code>${x.code}</code>` : ''}</span></button>`).join('');
+    icons();
+    p.querySelectorAll('.ocard').forEach((b) => b.addEventListener('click', () => { pv = b.dataset.v; drawP(); }));
+  };
+  drawP();
+})();
+selectField(document.getElementById('d2-model'), { items: MODELS, value: '', face: 'label' });
+selectField(document.getElementById('d2-effort'), { items: EFFORTS.map((e) => ({ v: e, label: e || '既定', sub: { '': 'Claude Code の設定に従う', low: '速く浅く', medium: 'ふつう', high: 'じっくり', xhigh: 'かなりじっくり', max: '上限まで考える' }[e], prose: true })), value: '', face: 'label' });
+selectField(document.getElementById('d2-perm'), { items: PERMS.map((x) => ({ v: x.v, label: x.label, sub: x.sub + (x.code ? `（${x.code}）` : ''), prose: true, icon: x.icon, danger: x.danger })), value: '', face: 'label', up: true });
+
+/* 5 節 */
+document.querySelectorAll('.sw').forEach((s) => s.addEventListener('click', () => s.setAttribute('aria-checked', s.getAttribute('aria-checked') !== 'true')));
+seg(document.getElementById('t1-term'), [{ v: 't', html: '<i data-lucide="square-terminal"></i>Terminal' }, { v: 'i', html: '<i data-lucide="app-window"></i>iTerm2' }], 't');
+(function t2() {
+  const host = document.getElementById('t2');
+  host.innerHTML = '<button type="button" class="chip" aria-pressed="true"><i data-lucide="brain"></i>思考</button><button type="button" class="chip" aria-pressed="false"><i data-lucide="file-json-2"></i>生の記録</button><span class="sep"></span><span class="seg sm" id="t2-agent"></span><span style="margin-left:auto" class="mono faint">120 / 342</span>';
+  host.querySelectorAll('[aria-pressed]').forEach((b) => b.addEventListener('click', () => b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true')));
+  seg(document.getElementById('t2-agent'), [{ v: '', label: '主線' }, { v: 'a1', html: '<i data-lucide="bot"></i>a3f2' }, { v: 'a2', html: '<i data-lucide="bot"></i>9c01' }], '');
+})();
+document.querySelectorAll('.ccard').forEach((c) => c.addEventListener('click', () => c.setAttribute('aria-checked', c.getAttribute('aria-checked') !== 'true')));
+(function t4() {
+  const host = document.getElementById('t4');
+  const items = [['sidebar の縮みを直す', true], ['選ぶ部品を作り直す', false], ['TODO の完了候補を入れる', false]];
+  host.innerHTML = items.map(([t, d]) => `<div class="todo"${d ? ' data-done' : ''}><button type="button" class="rc" role="checkbox" aria-checked="${d}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button><span class="tt">${t}</span></div>`).join('');
+  host.querySelectorAll('.rc').forEach((b) => b.addEventListener('click', () => { const on = b.getAttribute('aria-checked') !== 'true'; b.setAttribute('aria-checked', on); b.parentElement.toggleAttribute('data-done', on); }));
+})();
+
+/* 6 節 */
+(function n1() {
+  const host = document.getElementById('n1'); let v = 30;
+  host.innerHTML = '<button type="button" aria-label="減らす"><i data-lucide="minus"></i></button><output>30</output><button type="button" aria-label="増やす"><i data-lucide="plus"></i></button>';
+  const [dec, inc] = host.querySelectorAll('button'); const out = host.querySelector('output');
+  const set = (n) => { v = Math.max(1, Math.min(200, n)); out.textContent = v; };
+  dec.addEventListener('click', () => set(v - 1)); inc.addEventListener('click', () => set(v + 1));
+})();
+seg(document.getElementById('n2'), [{ v: '10', label: '10' }, { v: '30', label: '30' }, { v: '60', label: '60' }, { v: '100', label: '100' }, { v: 'x', html: '<i data-lucide="pencil"></i>ほか' }], '30');
+
+/* 選んだ案 */
+const chosen = {};
+document.querySelectorAll('.pick .choose').forEach((b) => b.addEventListener('click', () => {
+  const card = b.closest('.pick'), g = card.dataset.group;
+  if (chosen[g] === card.dataset.id) delete chosen[g]; else chosen[g] = card.dataset.id;
+  document.querySelectorAll(`.pick[data-group="${g}"]`).forEach((c) => c.classList.toggle('selected', chosen[g] === c.dataset.id));
+  document.querySelectorAll(`.pick[data-group="${g}"] .choose`).forEach((x) => { x.textContent = x.closest('.pick').classList.contains('selected') ? '選んだ' : 'これにする'; });
+  const ids = Object.values(chosen).sort();
+  document.getElementById('chosen').innerHTML = ids.length ? '選んだ案 ' + ids.map((i) => `<b>${i}</b>`).join('') : 'まだ選んでいません';
+}));
+icons();
+</script>
+</body>
+</html>

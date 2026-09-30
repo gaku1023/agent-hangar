@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
+import { pick } from '../test/pick.ts';
 import type { HomeProps, RunningCard } from '../presenters/home.ts';
 import type { ProjectCardProps } from '../presenters/projects.ts';
 import { HOME_VISIBLE_ROWS, HomeScreen } from './HomeScreen.tsx';
@@ -149,14 +150,16 @@ describe('ProjectsScreen', () => {
     render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [card('alpha')] }, { status: 'paused', label: 'Paused', cards: [] }]} archivedCount={2} filter="" showArchived={false} onFilter={() => {}} onShowArchived={onShow} /></IntentRoot>);
     fireEvent.click(screen.getByText('アーカイブを表示（2）'));
     expect(onShow).toHaveBeenCalledWith(true);
-    fireEvent.change(screen.getByLabelText('alpha のステータス'), { target: { value: 'paused' } });
+    pick('alpha のステータス', 'paused');
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'paused' });
   });
-  it('ステータスの select で Enter を押してもカードは開かない', () => {
+  it('ステータスの札で Enter を押しても、一覧で行を押しても、カードは開かない', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [card('alpha')] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByLabelText('alpha のステータス'), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'alpha のステータス' }), { key: 'Enter' });
+    fireEvent.click(screen.getByRole('option', { name: 'done' }));
     expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'done' });
   });
 });
 
