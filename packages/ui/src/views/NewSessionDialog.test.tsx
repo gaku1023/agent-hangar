@@ -159,6 +159,42 @@ describe('NewSessionDialog', () => {
     }
     expect(onIntent).not.toHaveBeenCalled();
   });
+  describe('⌘Enter で起動', () => {
+    it('初期プロンプトの欄の中からでも ⌘Enter と Ctrl+Enter で起動し、素の Enter は改行に残す', () => {
+      const onIntent = vi.fn();
+      render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} projectId="p1" /></IntentRoot>);
+      const prompt = screen.getByLabelText('初期プロンプト（任意）');
+      fireEvent.change(prompt, { target: { value: 'やって' } });
+      expect(fireEvent.keyDown(prompt, { key: 'Enter' })).toBe(true);
+      expect(onIntent).not.toHaveBeenCalled();
+      expect(fireEvent.keyDown(prompt, { key: 'Enter', metaKey: true })).toBe(false);
+      fireEvent.keyDown(prompt, { key: 'Enter', ctrlKey: true });
+      expect(onIntent.mock.calls).toEqual([[{ type: 'session.new.submit', params: { projectId: 'p1', prompt: 'やって' } }], [{ type: 'session.new.submit', params: { projectId: 'p1', prompt: 'やって' } }]]);
+    });
+    it('選択の部品や詳細の見出しの上でも ⌘Enter なら起動する', () => {
+      const onIntent = vi.fn();
+      render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} projectId="p1" /></IntentRoot>);
+      fireEvent.keyDown(screen.getByRole('radio', { name: '計画だけ' }), { key: 'Enter', metaKey: true });
+      fireEvent.keyDown(screen.getByText(/^詳細/), { key: 'Enter', metaKey: true });
+      expect(onIntent).toHaveBeenCalledTimes(2);
+    });
+    it('変換中の ⌘Enter と、送信中の ⌘Enter では起動しない', () => {
+      const onIntent = vi.fn();
+      const { rerender } = render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} projectId="p1" /></IntentRoot>);
+      fireEvent.keyDown(screen.getByLabelText('初期プロンプト（任意）'), { key: 'Enter', metaKey: true, keyCode: 229 });
+      rerender(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} projectId="p1" submitting /></IntentRoot>);
+      fireEvent.keyDown(screen.getByLabelText('初期プロンプト（任意）'), { key: 'Enter', metaKey: true });
+      expect(onIntent).not.toHaveBeenCalled();
+    });
+    it('起動ボタンの中にキー帽を置き、読み上げの名前は「起動」のまま打鍵を添える（B1）', () => {
+      render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} /></IntentRoot>);
+      const button = screen.getByRole('button', { name: '起動' });
+      expect(button).toHaveAttribute('aria-keyshortcuts', 'Meta+Enter');
+      const cap = button.querySelector('.kc')!;
+      expect(cap).toHaveTextContent('⌘↵');
+      expect(cap).toHaveAttribute('aria-hidden', 'true');
+    });
+  });
   it('一覧に出ないプロジェクトの id は、選んでいない扱いで送らない', () => {
     const params = collectParams({ projectId: 'archived1' });
     expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('選んでください');

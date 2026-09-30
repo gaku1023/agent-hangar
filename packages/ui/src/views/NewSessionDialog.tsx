@@ -73,11 +73,13 @@ export function NewSessionDialog(props: NewSessionProps) {
     emit({ type: 'session.new.submit', params });
   };
 
-  // Enter で起動する。Esc は殻が受けて閉じる。
+  // ⌘Enter（Ctrl+Enter でも）はどこからでも起動する。初期プロンプトの欄の中でも起動できるようにするためである。
+  // 素の Enter は、テキストエリアでは改行、ほかの欄では起動にする。Esc は殻が受けて閉じる。
   // 変換中の Enter は確定のための打鍵なので、起動に使わない。
   // 一覧を開いている間の Esc と Enter は、Listbox が止めるのでここまで来ない。
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Enter' || isComposing(e)) return;
+    if (e.metaKey || e.ctrlKey) { e.preventDefault(); submit(); return; }
     if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
     // 選択の部品、ボタン、詳細の見出しの Enter は、その部品の操作である。起動には使わない。
     if ((e.target as HTMLElement).closest('button, summary, [role="radio"]')) return;
@@ -104,7 +106,9 @@ export function NewSessionDialog(props: NewSessionProps) {
       footer={<>
         <button type="button" className="btn" onClick={close}>やめる</button>
         <span className="spacer" />
-        <button type="button" className="btn btn-primary" disabled={props.submitting} onClick={submit}>{props.submitting ? '起動しています' : '起動'}</button>
+        <button type="button" className="btn btn-primary" disabled={props.submitting} aria-keyshortcuts="Meta+Enter" onClick={submit}>
+          {props.submitting ? '起動しています' : <>起動<span className="kc" aria-hidden="true">⌘↵</span></>}
+        </button>
       </>}
     >
       <form ref={form} className="dialog-form" onSubmit={(e) => e.preventDefault()}>

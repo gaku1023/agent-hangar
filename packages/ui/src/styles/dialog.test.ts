@@ -56,3 +56,9 @@ describe('危険な操作の確認（E1）', () => {
     expect(body('.dialog-danger .dialog-body')).toMatch(/padding-left:/);
   });
 });
+
+describe('新しいセッションのダイアログ', () => {
+  it('起動ボタンの中のキー帽は、主ボタンの地の上で読める淡い白にする（B1）', () => {
+    expect(body('.btn .kc')).toContain('background: rgba(255, 255, 255, 0.22);');
+  });
+});
