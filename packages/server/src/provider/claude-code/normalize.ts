@@ -70,6 +70,14 @@ function queuedPrompt(raw: Record<string, unknown>): string | null {
   return text || null;
 }
 
+/** Agent の結果の記録が持つ、起こしたサブエージェントの id。記録の最上位の toolUseResult にある。 */
+function agentLaunchOf(raw: Rec): { agentId: string; async: boolean } | undefined {
+  const r = raw.toolUseResult;
+  if (!isRec(r)) return undefined;
+  const agentId = str(r.agentId);
+  return agentId ? { agentId, async: r.status === 'async_launched' } : undefined;
+}
+
 export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string | null): TranscriptEvent[] {
   if (!isRec(raw)) return [];
   const type = str(raw.type) ?? 'unknown';
@@ -89,7 +97,12 @@ export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string
       if (b.type === 'text' && typeof b.text === 'string') texts.push(b.text);
       else if (b.type === 'image') attachments.push({ kind: 'image' });
       else if (b.type === 'document') attachments.push({ kind: 'file', name: str(b.title) ?? str(b.name) });
-      else if (b.type === 'tool_result') results.push({ kind: 'tool_result', ts, toolId: str(b.tool_use_id) ?? '', text: contentText(b.content), isError: b.is_error === true });
+      else if (b.type === 'tool_result') {
+        const r: Omit<Extract<TranscriptEvent, { kind: 'tool_result' }>, 'seq'> = { kind: 'tool_result', ts, toolId: str(b.tool_use_id) ?? '', text: contentText(b.content), isError: b.is_error === true };
+        const launch = agentLaunchOf(raw);
+        if (launch) r.agentLaunch = launch;
+        results.push(r);
+      }
     }
     // user を先に置き、tool_result はその後ろに並べて seq を振る。
     const out: TranscriptEvent[] = [];

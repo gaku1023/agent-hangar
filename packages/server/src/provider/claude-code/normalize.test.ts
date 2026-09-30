@@ -153,3 +153,24 @@ describe('indexTexts', () => {
     ]);
   });
 });
+
+describe('Agent の結果', () => {
+  const rec = (toolUseResult?: unknown) => ({
+    type: 'user', timestamp: '2026-10-01T01:00:03.000Z',
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'Async agent launched successfully.' }] },
+    ...(toolUseResult === undefined ? {} : { toolUseResult }),
+  });
+  it('バックグラウンドで起こした Agent の結果に agentId を残す', () => {
+    const [ev] = normalizeRecord(rec({ agentId: 'a020716d1a6ca2caa', status: 'async_launched', isAsync: true }), 0, null);
+    expect(ev).toMatchObject({ kind: 'tool_result', toolId: 'toolu_1', agentLaunch: { agentId: 'a020716d1a6ca2caa', async: true } });
+  });
+  it('前面で終わった結果は async を偽にする', () => {
+    const [ev] = normalizeRecord(rec({ agentId: 'b1', status: 'completed' }), 0, null);
+    expect(ev).toMatchObject({ agentLaunch: { agentId: 'b1', async: false } });
+  });
+  it('toolUseResult が無い、または agentId を持たない結果には付けない', () => {
+    expect(normalizeRecord(rec(), 0, null)[0]).not.toHaveProperty('agentLaunch');
+    expect(normalizeRecord(rec({ stdout: 'x' }), 0, null)[0]).not.toHaveProperty('agentLaunch');
+    expect(normalizeRecord(rec('text'), 0, null)[0]).not.toHaveProperty('agentLaunch');
+  });
+});
