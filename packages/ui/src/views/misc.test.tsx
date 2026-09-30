@@ -11,7 +11,7 @@ import { SessionsScreen } from './SessionsScreen.tsx';
 import { SettingsScreen } from './SettingsScreen.tsx';
 import { ToastStack } from './ToastStack.tsx';
 
-const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, cost: '', runId: null });
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null });
 
 describe('SessionsScreen', () => {
   it('絞り込みは search.filter、キーワードは search.query', () => {
@@ -76,18 +76,18 @@ describe('SessionsScreen', () => {
     rerender(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ days: 30 }} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     expect(period().getByRole('radio', { name: '30 日' })).toHaveAttribute('aria-checked', 'true');
   });
+  // 件数は見出しの行に並べるが、見出しの名前には含めない。読み上げでは「セッション」の見出しとして見つかる。
   it('画面の頭に見出しを置き、件数を添える', () => {
     render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={1196} total={1196} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
-    const h = screen.getByRole('heading', { level: 1 });
-    expect(h).toHaveTextContent('セッション');
-    expect(within(h).getByText('1196 件')).toBeInTheDocument();
+    const h = screen.getByRole('heading', { level: 1, name: 'セッション' });
+    expect(within(h.closest('.page-title-row') as HTMLElement).getByText('1196 件')).toBeInTheDocument();
   });
   // サーバは上位の 50 件だけを返す。全件の数だけを出すと、並ぶ行の数と合わない。
   it('切れているときは「上位 N / 全件」と出し、一覧の末尾から続きを読める', () => {
     const onIntent = vi.fn();
     const rows = [row('s1'), row('s2')];
     const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={rows} shown={50} total={132} loading={false} loadingMore={false} mode="search" /></IntentRoot>);
-    expect(within(screen.getByRole('heading', { level: 1 })).getByText('上位 50 / 132 件')).toBeInTheDocument();
+    expect(within(screen.getByRole('heading', { level: 1, name: 'セッション' }).closest('.page-title-row') as HTMLElement).getByText('上位 50 / 132 件')).toBeInTheDocument();
     const more = within(screen.getByTestId('session-rows')).getByRole('button', { name: 'さらに読み込む' });
     fireEvent.click(more);
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.more', offset: 50 });
@@ -161,6 +161,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', devices: [] },
   nodePath: '',
   claudePath: null,
+  retention: null,
   ...over,
 });
 
@@ -593,7 +594,7 @@ describe('Header', () => {
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
     // sync は Task 23 が Header に足した props である。この節が見るのは検索欄だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
     const box = screen.getByRole('searchbox');
     fireEvent.change(box, { target: { value: '動画' } });
     fireEvent.keyDown(box, { key: 'Enter', isComposing: true });
@@ -668,5 +669,27 @@ describe('SettingsScreen の読む面', () => {
     expect(root).not.toBeNull();
     expect(root!.querySelectorAll(':scope > section').length).toBe(root!.querySelectorAll('section').length);
     expect(root!.querySelectorAll(':scope > section').length).toBeGreaterThan(5);
+  });
+});
+
+describe('SettingsScreen の会話の保持', () => {
+  const bar = { nowLabel: 'いま 1.5 GB', projLabel: '10 年たつと約 178 GB', freeLabel: '空き 400 GB', nowPct: 0.4, projPct: 44, warn: false };
+  const retention = { days: 3650, options: [{ value: '30', label: '30 日' }, { value: '90', label: '90 日' }, { value: '365', label: '1 年' }, { value: '3650', label: '10 年' }], writable: true, reason: null, valueLabel: '10 年', bar, syncNote: true };
+  it('切り替えの帯で選ぶと確認を開き、今の値を押しても何も出さない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ retention })} /></IntentRoot>);
+    expect(screen.getByRole('heading', { name: '会話の保持' })).toBeInTheDocument();
+    expect(screen.getByText('10 年たつと約 178 GB')).toBeInTheDocument();
+    expect(screen.getByText(/値は設定の同期で他の PC にも届きます/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: '1 年' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'settings' });
+    onIntent.mockClear();
+    fireEvent.click(screen.getByRole('radio', { name: '10 年' }));
+    expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'retention.edit' }));
+  });
+  it('書けないときは帯を出さず、値と理由を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ retention: { ...retention, days: 14, writable: false, reason: '組織の設定で決まっています', valueLabel: '14 日' } })} /></IntentRoot>);
+    expect(screen.queryByRole('radio', { name: '1 年' })).toBeNull();
+    expect(screen.getByText(/組織の設定で決まっています/)).toBeInTheDocument();
   });
 });

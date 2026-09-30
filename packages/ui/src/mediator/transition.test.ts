@@ -971,3 +971,50 @@ describe('次の入力待ちへ（C5）', () => {
     expect(b.state.overlay).toEqual({ kind: 'none' });
   });
 });
+
+describe('保持期間', () => {
+  it('閉じると覚え、保存する', () => {
+    const r = run([intent({ type: 'retention.dismiss' })]);
+    expect(r.state.retentionBannerDismissed).toBe(true);
+    expect(r.effects).toEqual([{ kind: 'storage.save', key: 'retention.bannerDismissed', value: true }]);
+  });
+  it('開くと下見を取り、書くと送信中になり、書けたら閉じる', () => {
+    let r = run([intent({ type: 'retention.edit', days: 365, from: 'banner' })]);
+    expect(r.state.overlay).toEqual({ kind: 'retention', days: 365, from: 'banner', reloaded: false, writing: false, previewError: null });
+    expect(r.effects).toEqual([{ kind: 'api.retentionPreview', days: 365 }]);
+    r = run([intent({ type: 'retention.write' })], r.state);
+    expect(r.state.overlay).toMatchObject({ kind: 'retention', writing: true });
+    expect(r.effects).toEqual([{ kind: 'api.writeRetention', days: 365 }]);
+    // 送信中にもう一度押しても二重に書かない。
+    expect(run([intent({ type: 'retention.write' })], r.state).effects).toEqual([]);
+    r = run([runtime({ type: 'retention.written', days: 365 })], r.state);
+    expect(r.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('409 なら下見を取り直し、読み直したことを出す', () => {
+    const r = run([intent({ type: 'retention.edit', days: 365, from: 'settings' }), intent({ type: 'retention.write' }), runtime({ type: 'retention.conflict', days: 365 })]);
+    expect(r.state.overlay).toEqual({ kind: 'retention', days: 365, from: 'settings', reloaded: true, writing: false, previewError: null });
+    expect(r.effects.at(-1)).toEqual({ kind: 'api.retentionPreview', days: 365 });
+  });
+  it('下見に失敗したら、ダイアログの中に理由を残す。開き直すと消える', () => {
+    const r = run([intent({ type: 'retention.edit', days: 365, from: 'banner' }), runtime({ type: 'retention.previewFailed', days: 365, message: '設定ファイルの書式を読み取れなかったので書き換えませんでした' })]);
+    expect(r.state.overlay).toMatchObject({ kind: 'retention', previewError: '設定ファイルの書式を読み取れなかったので書き換えませんでした' });
+    expect(run([intent({ type: 'retention.edit', days: 90, from: 'settings' })], r.state).state.overlay).toMatchObject({ days: 90, previewError: null });
+    // 別の日数の下見の失敗は、いま開いている確認には書かない。
+    expect(run([runtime({ type: 'retention.previewFailed', days: 90, message: 'x' })], r.state).state.overlay).toMatchObject({ previewError: '設定ファイルの書式を読み取れなかったので書き換えませんでした' });
+  });
+  it('書き込んでいる間は閉じられない。書き終われば閉じられる', () => {
+    const writing = run([intent({ type: 'retention.edit', days: 365, from: 'banner' }), intent({ type: 'retention.write' })]).state;
+    expect(run([intent({ type: 'overlay.close' })], writing).state.overlay).toMatchObject({ kind: 'retention', writing: true });
+    const failed = run([runtime({ type: 'retention.failed', message: 'x' })], writing).state;
+    expect(run([intent({ type: 'overlay.close' })], failed).state.overlay).toEqual({ kind: 'none' });
+  });
+  it('失敗したら送信中を解いてトーストを出す。「ほかの期間…」は設定画面へ移る', () => {
+    const open = run([intent({ type: 'retention.edit', days: 365, from: 'banner' })]).state;
+    const f = run([intent({ type: 'retention.write' }), runtime({ type: 'retention.failed', message: 'x' })], open);
+    expect(f.state.overlay).toMatchObject({ writing: false });
+    expect(f.effects.at(-1)).toEqual({ kind: 'toast', level: 'error', message: 'x' });
+    const s = run([intent({ type: 'retention.settings' })], open);
+    expect(s.state.overlay).toEqual({ kind: 'none' });
+    expect(s.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+  });
+});

@@ -1,4 +1,4 @@
-import type { ProjectStatus, ResolveAction, SettingsDto } from './api.ts';
+import type { ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 
@@ -73,4 +73,8 @@ export type Intent =
   | { type: 'toast.dismiss'; id: string }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'conn.retry' }
+  | { type: 'retention.dismiss' }
+  | { type: 'retention.edit'; days: number; from: RetentionFrom }
+  | { type: 'retention.write' }
+  | { type: 'retention.settings' }
   | { type: 'settings.update'; patch: Partial<Settings> };

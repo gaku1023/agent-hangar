@@ -1,4 +1,5 @@
 import type { ProjectsProps } from '../presenters/projects.ts';
+import { PageHeading } from './PageHeading.tsx';
 import { ProjectCard } from './ProjectCard.tsx';
 import { useFlip } from './primitives/flip.ts';
 import { ProjectStatusDot } from './primitives/StatusSelect.tsx';
@@ -9,12 +10,11 @@ export function ProjectsScreen(props: ProjectsProps & { filter: string; showArch
   const flipRef = useFlip(props.sections.flatMap((s) => s.cards.map((c) => `${s.status}:${c.id}`)));
   return (
     <div className="screen">
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
-        <h1 className="h1" style={{ margin: 0 }}>プロジェクト</h1>
+      <PageHeading title="プロジェクト">
         <input className="input" placeholder="名前で絞る" value={props.filter} onChange={(e) => props.onFilter(e.target.value)} aria-label="名前で絞る" />
         <span className="spacer" />
         <button className="btn" onClick={() => props.onShowArchived(!props.showArchived)}>{props.showArchived ? 'アーカイブを隠す' : `アーカイブを表示（${props.archivedCount}）`}</button>
-      </div>
+      </PageHeading>
       {props.sections.map((s) => (
         <section key={s.status}>
           <div className="section-head"><h2 className="h2"><ProjectStatusDot status={s.status} />{s.label}</h2><span className="faint">{s.cards.length}</span></div>

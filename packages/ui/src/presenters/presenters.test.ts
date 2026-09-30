@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, ProjectDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
@@ -14,11 +14,13 @@ import { presentSessionRow } from './row.ts';
 import { buildItems, presentSession } from './session.ts';
 import { presentSessions } from './sessions.ts';
 import { presentSettings } from './settings.ts';
+import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
+import { presentRetentionDialog } from './retentionDialog.ts';
 import { presentShell } from './shell.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -82,13 +84,14 @@ describe('presentConfirm', () => {
 });
 
 describe('presentShell', () => {
-  it('現在のナビ項目とパンくずと索引の進行', () => {
+  // 今いる場所はヘッダのパンくずではなく、各頁の見出しで示す。ヘッダには頁ごとに変わる文字を渡さない。
+  it('現在のナビ項目と索引の進行を返し、パンくずは返さない', () => {
     const state = { ...initialState(), screen: { name: 'project' as const, id: 'alpha' } };
     const store = storeWith();
     store.index = { phase: 'indexing', done: 10, total: 40 };
     const p = presentShell(state, store, NOW);
     expect(p.nav.find((n) => n.current)?.label).toBe('プロジェクト');
-    expect(p.crumbs.map((c) => c.label)).toEqual(['プロジェクト', 'alpha']);
+    expect(p).not.toHaveProperty('crumbs');
     expect(p.indexLabel).toBe('索引 10 / 40 件');
     expect(presentShell(state, { ...store, index: { phase: 'rebuilding', done: 10, total: 200 } }, NOW).indexLabel).toBe('索引の作り直し 10 / 200 件');
     expect(presentShell(state, { ...store, index: { phase: 'scanning', done: 0, total: 0 } }, NOW).indexLabel).toBe('索引を準備中');
@@ -293,9 +296,20 @@ describe('presentProject', () => {
     expect(p.sessions.map((s) => s.id)).toEqual(['s1', 's4', 's2']);
     expect(presentProject(initialState(), store, NOW, 'nope').notFound).toBe(true);
   });
+  it('見出しの上には、一覧へ戻るリンクを出す', () => {
+    const parent = { label: 'プロジェクト', route: { name: 'projects' } };
+    expect(presentProject(initialState(), storeWith(), NOW, 'alpha').parent).toEqual(parent);
+    expect(presentProject(initialState(), storeWith(), NOW, 'nope').parent).toEqual(parent);
+  });
 });
 
 describe('presentSession', () => {
+  it('見出しの上には、属するプロジェクトへ戻るリンクを出し、属さなければ出さない', () => {
+    const store = storeWith();
+    expect(presentSession(initialState(), store, NOW, 's1').parent).toEqual({ label: 'alpha', route: { name: 'project', id: 'alpha' } });
+    expect(presentSession(initialState(), store, NOW, 's3').parent).toBeNull();
+    expect(presentSession(initialState(), store, NOW, 'nope').parent).toBeNull();
+  });
   it('ツール結果を呼び出しに畳み込み、思考は既定で隠し、サブエージェントを対応づける', () => {
     let store = storeWith();
     store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 6, nextSeq: null, events: [
@@ -899,7 +913,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
 
 describe('セッションのロック（フェーズ 4）', () => {
   it('他端末で実行中なら再開もフォークもこの PC で再開も止める', () => {
-    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto(), remoteOnly: true }) } };
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto(), remoteOnly: true, transcriptMtime: null }) } };
     const p = presentSession(initialState(), store, NOW, 's1');
     expect(p.lock).toEqual({ deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' });
     expect(p.remoteOnly).toBe(true);
@@ -917,17 +931,17 @@ describe('セッションのロック（フェーズ 4）', () => {
     expect(p.canResumeHere).toBe(true);
   });
   it('stale のロックは、写しだけのセッションでもこの PC で再開ができる', () => {
-    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: true }), remoteOnly: true }) } };
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: true }), remoteOnly: true, transcriptMtime: null }) } };
     expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ remoteOnly: true, canResume: false, canFork: false, canResumeHere: true });
   });
   it('生きているロックでは、写しの有無にかかわらずこの PC で再開を閉じる', () => {
     const local: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }) }) } };
     expect(presentSession(initialState(), local, NOW, 's1').canResumeHere).toBe(false);
-    const remote: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }), remoteOnly: true }) } };
+    const remote: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }), remoteOnly: true, transcriptMtime: null }) } };
     expect(presentSession(initialState(), remote, NOW, 's1').canResumeHere).toBe(false);
   });
   it('写しだけで誰も動かしていなければ、この PC で再開ができる', () => {
-    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: null, remoteOnly: true }) } };
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: null, remoteOnly: true, transcriptMtime: null }) } };
     const p = presentSession(initialState(), store, NOW, 's1');
     expect(p.lock).toBeNull();
     expect(p.canResumeHere).toBe(true);
@@ -956,5 +970,129 @@ describe('セッションのロック（フェーズ 4）', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { hasTranscript: false }) } };
     expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ lock: null, remoteOnly: false, canResume: false, canResumeHere: false });
     expect(presentSession(initialState(), store, NOW, 'zz')).toMatchObject({ notFound: true, lock: null, remoteOnly: false, canResumeHere: false });
+  });
+});
+
+describe('保持期間の言い方と期限', () => {
+  const DAY = 86_400_000;
+  it('日数と大きさの言い方', () => {
+    expect([30, 90, 365, 3650, 45, 730].map(daysLabel)).toEqual(['30 日', '90 日', '1 年', '10 年', '45 日', '2 年']);
+    expect([1_610_612_736, 18 * 1024 ** 3, 52_428_800, 2048, 0].map(bytesLabel)).toEqual(['1.5 GB', '18 GB', '50 MB', '2 KB', '0 KB']);
+  });
+  it('本文の印は 4 通り', () => {
+    expect(transcriptMark(session('a', { transcriptMtime: NOW - 10 * DAY }), 30, NOW)).toBe('present');
+    expect(transcriptMark(session('a', { transcriptMtime: NOW - 24 * DAY }), 30, NOW)).toBe('expiring');
+    // 期限を過ぎてもまだ消えていなければ、次の起動で消えるので「まもなく」に入れる。
+    expect(transcriptMark(session('a', { transcriptMtime: NOW - 31 * DAY }), 30, NOW)).toBe('expiring');
+    expect(transcriptMark(session('a', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 31 * DAY }), 365, NOW)).toBe('gone');
+    expect(transcriptMark(session('a', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 3 * DAY }), 30, NOW)).toBe('none');
+    // 他の PC にしか本文が無い会話は、この PC の期限を持たない。
+    expect(transcriptMark(session('a', { remoteOnly: true, transcriptMtime: null }), 30, NOW)).toBe('present');
+  });
+});
+
+describe('presentShell の保持期間の帯', () => {
+  const DAY = 86_400_000;
+  const R: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
+  const withSessions = (list: SessionDto[], retention: RetentionDto | null = R): Store => ({ ...initialStore(), bootstrapped: true, retention, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
+  it('消えかけが無ければ、30 日で消えることと使用量を言う', () => {
+    expect(presentShell(initialState(), withSessions([]), NOW).retention).toEqual({ visible: true, title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも消えます ・ いま 1.5 GB', extendTo: 365 });
+  });
+  it('消えかけがあれば件数を言う', () => {
+    const s = [session('a', { transcriptMtime: NOW - 25 * DAY }), session('b', { transcriptMtime: NOW - 26 * DAY }), session('c', { transcriptMtime: NOW - 2 * DAY })];
+    expect(presentShell(initialState(), withSessions(s), NOW).retention).toMatchObject({ title: '2 件の会話が、まもなく削除されます', detail: 'Claude Code は 30 日で本文を消します ・ いま 1.5 GB' });
+  });
+  it('使用量をまだ測っていなければ、その部分を出さない', () => {
+    expect(presentShell(initialState(), withSessions([], { ...R, usage: null }), NOW).retention.detail).toBe('hangar の履歴からも消えます');
+  });
+  it('自分で値を入れた人、組織の設定、書けないとき、閉じた後には出さない', () => {
+    for (const r of [{ ...R, source: 'user' as const, userValue: 30 }, { ...R, source: 'managed' as const, writable: false }, { ...R, writable: false }]) {
+      expect(presentShell(initialState(), withSessions([], r), NOW).retention.visible).toBe(false);
+    }
+    expect(presentShell({ ...initialState(), retentionBannerDismissed: true }, withSessions([]), NOW).retention.visible).toBe(false);
+    expect(presentShell(initialState(), withSessions([], null), NOW).retention.visible).toBe(false);
+  });
+});
+
+describe('presentRetentionDialog', () => {
+  const DAY = 86_400_000;
+  const R: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
+  const P: RetentionPreviewDto = { days: 365, path: '/Users/me/.claude/settings.json', lines: [{ kind: 'ctx', text: '{' }, { kind: 'add', text: '  "cleanupPeriodDays" : 365,' }], baseSha256: 'abc', backupDir: '/Users/me/.agent-hangar/backups/claude-config', projectedBytes: 365 * 52_428_800 };
+  const open = (days = 365, from: 'banner' | 'settings' = 'banner') => ({ ...initialState(), overlay: { kind: 'retention' as const, days, from, reloaded: false, writing: false, previewError: null } });
+  const st = (over: Partial<Store> = {}): Store => ({ ...initialStore(), retention: R, retentionPreview: P, ...over });
+  it('延ばすときの題、説明、見込み、控えを出す', () => {
+    const p = presentRetentionDialog(open(), st(), NOW)!;
+    expect(p).toMatchObject({ title: '会話の保持期間を 1 年にします', lead: 'Claude Code の設定ファイルに、次の 1 行を足します。', path: P.path, backupDir: P.backupDir + '/', otherPcs: false, shrinkNote: null, showOther: true });
+    expect(p.bar).toMatchObject({ nowLabel: 'いま 1.5 GB', projLabel: '1 年たつと約 18 GB', freeLabel: '空き 400 GB', warn: false });
+  });
+  it('値を替えるときは「書き換えます」、同期が有効なら他の PC の行を出す', () => {
+    const lines = [{ kind: 'del' as const, text: '  "cleanupPeriodDays" : 3650' }, { kind: 'add' as const, text: '  "cleanupPeriodDays" : 365' }];
+    const p = presentRetentionDialog(open(365, 'settings'), st({ retention: { ...R, days: 3650, source: 'user', userValue: 3650 }, retentionPreview: { ...P, lines }, settings: { ...fullSettings(), syncClaudeConfig: true } }), NOW)!;
+    expect(p.lead).toBe('Claude Code の設定ファイルの、次の 1 行を書き換えます。');
+    expect(p.otherPcs).toBe(true);
+    expect(p.showOther).toBe(false);
+  });
+  it('縮めるときは題を変え、消える件数を言う', () => {
+    const s = { a: session('a', { transcriptMtime: NOW - 40 * DAY }), b: session('b', { transcriptMtime: NOW - 5 * DAY }) };
+    const p = presentRetentionDialog(open(30, 'settings'), st({ retention: { ...R, days: 365, source: 'user', userValue: 365 }, retentionPreview: { ...P, days: 30 }, sessions: s }), NOW)!;
+    expect(p.title).toBe('会話の保持期間を 30 日に縮めます');
+    expect(p.shrinkNote).toBe('次に Claude Code を使い始めたとき、1 件の会話の本文が削除されます。');
+  });
+  it('下見の失敗をそのまま渡す', () => {
+    const s = { ...initialState(), overlay: { kind: 'retention' as const, days: 365, from: 'banner' as const, reloaded: false, writing: false, previewError: 'x' } };
+    expect(presentRetentionDialog(s, st({ retentionPreview: null }), NOW)!.previewError).toBe('x');
+  });
+  it('見込みが空きの半分を超えたら警告にし、下見が届く前は差分を null にする', () => {
+    const big = presentRetentionDialog(open(3650), st({ retentionPreview: { ...P, days: 3650, projectedBytes: 300 * 1024 ** 3 } }), NOW)!;
+    expect(big.bar!.warn).toBe(true);
+    expect(presentRetentionDialog(open(), st({ retentionPreview: null }), NOW)!.lines).toBeNull();
+    expect(presentRetentionDialog(initialState(), st(), NOW)).toBeNull();
+  });
+});
+
+describe('presentSessionRow の本文の印', () => {
+  it('行の本文の印は、保持期間（無ければ 30 日）で決める', () => {
+    const DAY = 86_400_000;
+    const s = session('a', { transcriptMtime: NOW - 25 * DAY });
+    expect(presentSessionRow(s, initialStore(), NOW).transcript).toBe('expiring');
+    const kept = { ...initialStore(), retention: { days: 365, source: 'user' as const, userValue: 365, writable: true, unwritableReason: null, usage: null } };
+    expect(presentSessionRow(s, kept, NOW).transcript).toBe('present');
+  });
+});
+
+describe('presentSession の本文が消えた会話', () => {
+  const DAY = 86_400_000;
+  const gone = session('g', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 40 * DAY });
+  const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
+  it('注記を出し、要約を開き、既定のままなら延ばす手を添える', () => {
+    const p = presentSession(initialState(), { ...initialStore(), retention: R, sessions: { g: gone } }, NOW, 'g');
+    expect(p.gone).toEqual({ note: '本文は、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 });
+    expect(p.summaryOpen).toBe(true);
+  });
+  it('自分で値を入れた後は、延ばす手を出さない。まだ 30 日を過ぎていなければ gone は null', () => {
+    expect(presentSession(initialState(), { ...initialStore(), retention: { ...R, source: 'user', userValue: 365 }, sessions: { g: gone } }, NOW, 'g').gone!.canExtend).toBe(false);
+    const recent = session('r', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 2 * DAY });
+    expect(presentSession(initialState(), { ...initialStore(), sessions: { r: recent } }, NOW, 'r').gone).toBeNull();
+  });
+});
+
+describe('presentSettings の会話の保持', () => {
+  const R: RetentionDto = { days: 3650, source: 'user', userValue: 3650, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
+  it('4 つの選択肢と、今の日数での見込みを出す', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), retention: R }, NOW).retention!;
+    expect(p.options.map((o) => o.label)).toEqual(['30 日', '90 日', '1 年', '10 年']);
+    expect(p.days).toBe(3650);
+    expect(p.bar!.projLabel).toBe('10 年たつと約 178 GB');
+  });
+  it('選択肢に無い値は 5 つめとして順に並べる', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), retention: { ...R, days: 45, userValue: 45 } }, NOW).retention!;
+    expect(p.options.map((o) => o.value)).toEqual(['30', '45', '90', '365', '3650']);
+  });
+  it('書けないときは理由と値だけを出す', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), retention: { ...R, days: 14, source: 'managed', writable: false, unwritableReason: '組織の設定で決まっています' } }, NOW).retention!;
+    expect(p).toMatchObject({ writable: false, reason: '組織の設定で決まっています', valueLabel: '14 日' });
+  });
+  it('まだ届いていなければ null', () => {
+    expect(presentSettings(initialState(), initialStore(), NOW).retention).toBeNull();
   });
 });

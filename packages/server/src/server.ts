@@ -8,6 +8,7 @@ import { listArtifacts } from './artifacts/queries.ts';
 import { backupsRoot, readCloudConfig, remoteRoot } from './config/cloud.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
 import { claudeSupportsBackground, ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, zshrcPath } from './config/shellHook.ts';
+import { defaultManagedDir, RetentionService } from './config/retention.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
 import { encodeJoinToken, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto } from '@agent-hangar/shared';
@@ -384,7 +385,7 @@ export type StartOptions = {
 
 /**
  * DB、索引、実行中セッションの監視、run の管理、HTTP と WebSocket をまとめて起動する。
- * ~/.claude は読むだけで、書き込みは home 配下に限る。
+ * ~/.claude は原則として読むだけで、書き込みは home 配下に限る（例外は docs/design.md の「読み取り専用」にある 4 つ）。
  */
 export async function startServer(opts: StartOptions = {}): Promise<{ close(): Promise<void>; port: number }> {
   const bootAt = performance.now();
@@ -474,6 +475,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
         enabled: () => configSyncActive({ syncClaudeConfig: settings.syncClaudeConfig, paused: isPaused() }), onToast: toast,
       })
     : null;
+  // Claude Code の保持期間。値と使用量を持ち、変わったときだけ配る。書き込みは確認を経た PUT /api/retention からだけ来る。
+  const retention = new RetentionService({ claudeDir, home, managedDir: defaultManagedDir(), broadcast: (r) => hub.broadcast({ type: 'retention.changed', retention: r }) });
   const puller = client
     ? new RemotePuller({
         db, deviceId: device.id, home, client, key: fileKey, state: syncState,
@@ -509,6 +512,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
 
   indexer.on({
     progress: (p) => hub.broadcast({ type: 'index.progress', progress: p }),
+    // Claude Code が本文を消して索引を片付けた。hasTranscript が偽に変わったことを配る。
+    transcriptGone: (e) => {
+      const s = getSession(db, registry.current(), e.sessionId, { deviceId: device.id });
+      if (s) hub.broadcast({ type: 'session.upsert', session: s });
+    },
     sessionChanged: (e) => {
       // 手元のファイルだけを上げる。他端末の写し（deviceId が入っているもの）は持ち主が上げる。
       if (e.deviceId === null) uploader?.noteChanged({ path: e.path, sessionId: e.providerSessionId, agentId: e.agentId });
@@ -768,6 +776,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (cur && cur.shell_hook !== h.state) touchDevice();
       return h;
     },
+    retention,
     uiDist,
   });
   handler = app.fetch;
@@ -822,6 +831,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   void engine.start().catch((e: unknown) => console.error('[sync]', e instanceof Error ? e.message : e));
   pullFiles();
   configSync?.start();
+  retention.start();
   // 監視だけに頼らず、定期の push も足しておく。
   // 監視が張れない置き場所や、取りこぼした編集があっても、次の周期で揃う。
   // ここには以前「fs.watch の recursive は Linux では効かない」と書いてあったが、
@@ -863,6 +873,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       clearInterval(rootTimer);
       clearInterval(deviceTimer);
       if (configTimer) clearInterval(configTimer);
+      retention.stop();
       if (uploadTimer) clearInterval(uploadTimer);
       // 走っている押し出しを待ってから止める。待たずに止めると putFile と pushChanges が途中で切れる。
       await stopAfterIdle(configSync, 'config', left());

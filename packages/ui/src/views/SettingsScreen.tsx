@@ -3,9 +3,11 @@ import type { SettingsDto, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
 import type { SettingsProps } from '../presenters/settings.ts';
+import { PageHeading } from './PageHeading.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
+import { UsageBar } from './UsageBar.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
 
@@ -90,7 +92,7 @@ export function SettingsScreen(props: SettingsProps) {
   const modelOptions = [{ value: '', label: '自動（最初のモデル）' }, ...modelNames.map((m) => ({ value: m, label: m }))];
   return (
     <div className="screen settings-screen" style={{ maxWidth: 720 }}>
-      <h1 className="h1">設定</h1>
+      <PageHeading title="設定" />
       <section>
         <h2 className="h2">ワークスペース</h2>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -299,6 +301,20 @@ export function SettingsScreen(props: SettingsProps) {
         {/* 日ごとの内訳が無いので、期間で切り分けられない。 */}
         <div className="faint">トークン数は期間のとおりですが、推定コストはそのセッションの走り全体の累計です。</div>
       </section>
+      {/* Claude Code の保持期間。押しても保存せず、差分を見せる確認を開く。hangar が Claude Code の設定を書くのはここだけである。 */}
+      {props.retention && (
+        <section>
+          <h2 className="h2">会話の保持</h2>
+          <div className="settings-row">
+            <span>保持期間<span className="faint">（Claude Code の cleanupPeriodDays）</span></span>
+            {props.retention.writable
+              ? <Segmented label="保持期間" value={String(props.retention.days)} options={props.retention.options} onChange={(v) => { if (Number(v) !== props.retention!.days) emit({ type: 'retention.edit', days: Number(v), from: 'settings' }); }} />
+              : <span className="muted">{props.retention.valueLabel}<span className="faint">（{props.retention.reason}）</span></span>}
+          </div>
+          {props.retention.bar && <UsageBar {...props.retention.bar} />}
+          <div className="faint" style={{ marginTop: 4 }}>変えるときは、差分を確かめてから書き込みます。{props.retention.syncNote && '値は設定の同期で他の PC にも届きます。'}</div>
+        </section>
+      )}
       <section>
         <h2 className="h2">索引</h2>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>

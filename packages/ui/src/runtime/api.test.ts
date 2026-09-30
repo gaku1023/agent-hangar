@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiConflictError, createApi } from './api.ts';
+import { ApiConflictError, createApi, RetentionConflictApiError } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -118,5 +118,19 @@ describe('フェーズ 4 の同期の経路', () => {
     expect(e2).toBeInstanceOf(Error);
     expect(e2).not.toBeInstanceOf(ApiConflictError);
     expect((e2 as Error).message).toBe('他の端末が実行中です');
+  });
+});
+
+describe('保持期間の API', () => {
+  it('経路と本文', async () => {
+    const { api, calls } = harness();
+    await api.retention(); await api.retentionPreview(365); await api.writeRetention(365, 'abc');
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET /api/retention', 'POST /api/retention/preview', 'PUT /api/retention']);
+    expect(calls[1]!.body).toBe('{"days":365}');
+    expect(calls[2]!.body).toBe('{"days":365,"baseSha256":"abc"}');
+  });
+  it('409 の retention_conflict は RetentionConflictApiError にする', async () => {
+    const { api } = harness(409, { error: 'retention_conflict' });
+    await expect(api.writeRetention(365, 'abc')).rejects.toBeInstanceOf(RetentionConflictApiError);
   });
 });

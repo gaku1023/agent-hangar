@@ -9,6 +9,7 @@ import { presentPalette } from './presenters/palette.ts';
 import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
 import { presentPromote, presentPromoted } from './presenters/promote.ts';
+import { presentRetentionDialog } from './presenters/retentionDialog.ts';
 import { presentSession } from './presenters/session.ts';
 import { presentSessions } from './presenters/sessions.ts';
 import { presentSettings } from './presenters/settings.ts';
@@ -21,6 +22,7 @@ import { createSwipeDetector, SWIPE_IDLE_MS, SWIPE_STALE_HIDE_MS } from './swipe
 import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
 import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
+import { RetentionDialog } from './views/RetentionDialog.tsx';
 import { ConfirmDialog } from './views/ConfirmDialog.tsx';
 import { HomeScreen } from './views/HomeScreen.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
@@ -336,6 +338,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {/* 取り込みの下見は押したときだけ取りに来る一時の値なので、Presenter を通さず store から直に渡す。 */}
       {/* 未解決ダイアログの候補と同じ扱いである。 */}
       {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
+      {overlay.kind === 'retention' && <RetentionDialog {...presentRetentionDialog(state, store, now)!} />}
       {overlay.kind === 'shortcuts' && <ShortcutsDialog />}
       <ToastStack toasts={state.toasts} />
       <SwipeHint ref={swipeHintRef} />

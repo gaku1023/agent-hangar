@@ -7,6 +7,7 @@ type Extras = Pick<
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncStatus' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
+  | 'retention' | 'retentionPreview' | 'writeRetention'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -60,5 +61,8 @@ export function fakeApiExtras(): Extras {
     configPreview: vi.fn(async () => ({ entries: [], confirmed: false })),
     configPull: vi.fn(async () => ({ applied: 0, conflicts: 0 })),
     devices: vi.fn(async () => []),
+    retention: vi.fn(async () => ({ days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null })),
+    retentionPreview: vi.fn(async () => unused()),
+    writeRetention: vi.fn(async () => unused()),
   };
 }

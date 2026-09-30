@@ -4,6 +4,7 @@ import { RUN_KIND_LABEL } from '../presenters/format.ts';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalStatus } from '../runtime/terminals.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
+import { PageHeading } from './PageHeading.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { ToggleChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -28,10 +29,8 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
 
   const header = (
     <>
-      {/* 上段。一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。 */}
-      <div className="session-hero" data-morph-hero={id}>
-        <StatusDot status={props.live} />
-        <h1 className="session-name">{props.name}</h1>
+      {/* 上段は頁の見出しの行を兼ねる。一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。 */}
+      <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
         {props.summary?.oneLiner ? <span className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
         {props.fromScratch && <span className="faint">再開しても作業ディレクトリはスクラッチのままです</span>}
         {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id })}><Icon name="promote" />プロジェクトに昇格</button>}
@@ -47,7 +46,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {props.outsideOpen === 'adopt' && <button className="btn" onClick={() => emit({ type: 'session.adopt', id })}><Icon name="resumeHere" />hangar で引き取る</button>}
         {props.outsideOpen === 'attach' && <button className="btn" onClick={() => emit({ type: 'session.attach', id })}><Icon name="shell" />hangar でつなぐ</button>}
         <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}><Icon name="openEditor" />VS Code で開く</button>
-      </div>
+      </PageHeading>
       {/* チップの列。状態と経過、プロジェクト、モデルと effort、コンテキスト使用率、推定コスト、変更数、1 行メモ、PR、ロック。 */}
       <div className="chips">
         {props.liveLabel && <span className="chip">{props.liveLabel}</span>}
@@ -74,6 +73,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {/* ロックの文言は presenter が lock.label に組み立てている（「<端末名> で実行中」「<端末名> が応答がありません」）。
             View は色だけを変え、最終確認の時刻を下の注記に添えてどれだけ途絶えているかを見せる。 */}
         {props.lock && <span className={`chip ${props.lock.stale ? 'warn' : 'lock'}`}>{props.lock.label}</span>}
+        {props.gone && <span className="chip">要約のみ</span>}
       </div>
       {/* 細かな事実。判断の手がかりだが、チップほど目立たせない。 */}
       <div className="session-facts mono faint">
@@ -82,9 +82,17 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {run && <span>{RUN_KIND_LABEL[run.kind]} {run.started}</span>}
         {props.lock && <span>最終確認 {props.lock.heartbeat}</span>}
         {props.remoteOnly && <span>本文は他の PC にあります</span>}
-        {!props.hasTranscript && <span>本文がありません</span>}
+        {!props.hasTranscript && !props.gone && <span>本文がありません</span>}
       </div>
     </>
+  );
+
+  // 本文が消えた会話では、要約の上に一行で理由を言う。既定の保持期間のままなら、その場で延ばす手を添える。
+  const goneNote = props.gone && (
+    <div className="gone-note" role="note">
+      {props.gone.note}
+      {props.gone.canExtend && <> <button type="button" className="btn-link" onClick={() => emit({ type: 'retention.edit', days: props.gone!.extendTo, from: 'session' })}>保持期間を延ばす…</button></>}
+    </div>
   );
 
   // 要約がまだ無いときも帯は出す。作り直しはそのときこそ押したいからである。
@@ -93,11 +101,12 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       <div style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
         {props.summary
           ? <><b>{props.summary.title}</b><span className="faint">{props.summary.stateLabel}</span></>
-          : <span className="faint">要約はまだありません</span>}
+          : <span className="faint">{props.gone ? '要約もありません' : '要約はまだありません'}</span>}
         {props.summaryPending && <span className="faint">要約を作成しています</span>}
         {props.summaryError && <span className="faint" title={props.summaryError}>要約を作成できませんでした</span>}
         <span className="spacer" />
-        <button className="btn" onClick={() => emit({ type: 'summary.regenerate', sessionId: id })}>要約を作り直す</button>
+        {/* 本文が無いと作り直しは必ず失敗するので、消えた会話では出さない。 */}
+        {!props.gone && <button className="btn" onClick={() => emit({ type: 'summary.regenerate', sessionId: id })}>要約を作り直す</button>}
         {props.summary && <button className="btn" onClick={() => emit({ type: 'summary.toggle', sessionId: id })}>{props.summaryOpen ? '閉じる' : '詳細'}</button>}
       </div>
       {props.summary && props.summaryOpen && (
@@ -133,6 +142,9 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
   const artifacts = props.artifacts.length > 0 && <section className="session-artifacts"><ArtifactCards projectId={null} artifacts={props.artifacts} canAdd={false} /></section>;
 
   const paneToggle = <button className="tr-toggle" aria-label={props.transcriptOpen ? '目次を閉じる' : '目次を開く'} onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>;
+
+  // 本文が消えた会話は、会話の欄もターンの目次も持たない。残っている要約と成果物だけを見せる。
+  if (props.gone) return <div className="screen">{header}{goneNote}{summary}{artifacts}</div>;
 
   if (run && props.selectedTab) {
     // 案内は Claude のタブにだけ出す。分割で 2 つ並ぶときも、シェルの側には出さない。

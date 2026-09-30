@@ -11,7 +11,7 @@ export function ConnectionBanner(props: ConnProps) {
   const emit = useEmit();
   if (!props.visible) return null;
   return (
-    <div className="conn-banner" role="status">
+    <div className="conn-banner" role="status" aria-label="接続の状態">
       <Icon name="unlink" />
       <b>接続が切れています</b>
       {/* 伝えたいのは WebSocket の状態ではなく、その結果として画面が止まっていることである。 */}

@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 const rowsCssPath = ['packages/ui/src/styles/rows.css', 'src/styles/rows.css'].map((r) => `${process.cwd()}/${r}`).find(existsSync);
 const rowsCss = readFileSync(rowsCssPath!, 'utf8');
 
-const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, stateLabel: '完了', model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', memo: null, hasTranscript: true, cost: '', runId: null });
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, stateLabel: '完了', model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', memo: null, hasTranscript: true, cost: '', runId: null, transcript: 'present' });
 
 describe('SessionRows', () => {
   it('行のクリックと Enter で session.open', () => {
@@ -37,7 +37,7 @@ describe('SessionRows', () => {
 
 const p3Row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({
   id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', model: 'opus 4.1', effort: 'high',
-  when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, memo: null, hasTranscript: true, cost: '$0.50', runId: null, ...over,
+  when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, ...over,
 });
 
 describe('SessionRows のフェーズ 3', () => {
@@ -202,7 +202,7 @@ describe('カーソルの行を見える位置へ運ぶ', () => {
 });
 
 describe('SessionRows（2 段の行）', () => {
-  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', memo: 'スワイプは実機で', hasTranscript: true, cost: '$1.82', runId: null, ...over });
+  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', memo: 'スワイプは実機で', hasTranscript: true, transcript: 'present', cost: '$1.82', runId: null, ...over });
   const rowOf = (name: string) => screen.getByText(name).closest('[role="row"]') as HTMLElement;
 
   it('最近は 2 段目に要約、右は時刻だけ', () => {
@@ -389,5 +389,19 @@ describe('一覧のキー操作（C1）', () => {
     act(() => (document.activeElement as HTMLElement).blur());
     rerender(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} variant="search" autoFocus /></IntentRoot>);
     expect(document.activeElement).toBe(document.body);
+  });
+});
+
+describe('SessionRows の本文の期限', () => {
+  it('消えかけにはチップ、消えた会話には文字の無い印を出す', () => {
+    render(<IntentRoot onIntent={vi.fn()}><SessionRows rows={[{ ...row('a'), transcript: 'expiring' }, { ...row('b'), transcript: 'gone' }, { ...row('c'), transcript: 'none' }]} height={400} variant="recent" /></IntentRoot>);
+    expect(screen.getByText('まもなく削除')).toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: '要約のみ。本文は Claude Code の保持期間で削除されたとみられます' })).toHaveLength(1);
+  });
+  it('印は行の高さを持たない', () => {
+    for (const sel of ['.row-soon', '.row-gone']) {
+      const body = rowsCss.match(new RegExp(`\\${sel} \\{([^}]*)\\}`))?.[1] ?? '';
+      expect(body, sel).not.toMatch(/(^|;)\s*height:/);
+    }
   });
 });

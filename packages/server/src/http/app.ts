@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
+import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
+import { JsonTextEditError } from '../config/jsonTextEdit.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
+import { RetentionConflictError, RetentionUnwritableError } from '../config/retention.ts';
 import { statuslineStatus } from '../config/statusline.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
@@ -90,6 +93,8 @@ export type AppDeps = {
    * 読むだけで、~/.zshrc を書き換える経路は持たない。書き換えるのは hangar shell install（CLI）だけである。
    */
   shellHook: () => ShellHookDto;
+  /** Claude Code の保持期間。書き込みは cleanupPeriodDays の 1 か所だけで、原則「読み取り専用」の 4 つめの例外である。 */
+  retention: { current(): RetentionDto; preview(days: number): RetentionPreviewDto; write(days: number, baseSha256: string): RetentionDto };
   uiDist?: string;
 };
 
@@ -313,6 +318,7 @@ export function createApp(deps: AppDeps): Hono {
       summaryPending: deps.summary.pending(),
       index: deps.indexer.progress(),
       version: deps.version,
+      retention: deps.retention.current(),
     };
     return c.json(body);
   });
@@ -375,7 +381,7 @@ export function createApp(deps: AppDeps): Hono {
       return c.json(readEvents(db, id, { fromSeq: numberOr(q.fromSeq), limit: numberOr(q.limit), agentId: q.agentId || null, latest: q.latest === '1', beforeSeq: before }));
     } catch (e) {
       // 索引はあるのに本文ファイルが消えている場合だけ 404 にし、他は 500 に任せる。
-      if (isEnoent(e)) return c.json({ error: 'このセッションの本文ファイルが見つかりません。設定の「索引を作り直す」を試してください' }, 404);
+      if (isEnoent(e)) return c.json({ error: 'このセッションの本文はこの PC にありません' }, 404);
       throw e;
     }
   });
@@ -393,6 +399,39 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   api.get('/settings', (c) => c.json(toSettingsDto(deps.settings())));
+  /** 保持期間として受け付ける値。Claude Code は 1 未満を弾く。上は 100 年で切り、打ち間違いの桁あふれを通さない。 */
+  const retentionDays = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 36500 ? v : null);
+  const BAD_DAYS = '保持期間は 1 以上 36500 以下の整数で指定してください';
+
+  api.get('/retention', (c) => c.json(deps.retention.current()));
+  api.post('/retention/preview', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const days = retentionDays((b.value as { days?: unknown } | null)?.days);
+    if (days === null) return c.json({ error: BAD_DAYS }, 400);
+    try {
+      return c.json(deps.retention.preview(days));
+    } catch (e) {
+      if (e instanceof JsonTextEditError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+  });
+  api.put('/retention', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { days?: unknown; baseSha256?: unknown };
+    const days = retentionDays(body.days);
+    if (days === null) return c.json({ error: BAD_DAYS }, 400);
+    if (typeof body.baseSha256 !== 'string') return c.json({ error: '下見の指紋がありません' }, 400);
+    try {
+      return c.json(deps.retention.write(days, body.baseSha256));
+    } catch (e) {
+      if (e instanceof RetentionConflictError) return c.json({ error: 'retention_conflict' }, 409);
+      if (e instanceof JsonTextEditError || e instanceof RetentionUnwritableError || (e instanceof Error && e.message === LOCK_BUSY_MESSAGE)) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+  });
+
   api.patch('/settings', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);

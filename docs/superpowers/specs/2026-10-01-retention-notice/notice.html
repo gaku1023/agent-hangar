@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>保持期間の周知</title>
+<style>
+  :root { --ink:#1c1b2e; --ink-2:#5f5e78; --ink-3:#8a89a0; --bg:#eef1f7; --surface:#fff; --surface-2:#f3f4f9; --line:#eceef5; --line-strong:#d9dbe6;
+          --accent:#4a63e8; --accent-hi:#6b8cff; --accent-soft:#eef2ff; --error:#b3261e; --busy:#c77a1a; --warn:#8a5a0b; --warn-soft:#faefd9;
+          --done:#2b7048; --done-soft:#e3f1e8; --ended:#9a968e;
+          --glass-edge:inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5);
+          --glass-drop:0 10px 28px -12px rgba(30,40,90,.3); --glass-drop-lg:0 24px 50px -16px rgba(30,40,90,.45); }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:28px 32px 60px; background:#f7f7fa; color:var(--ink); font:13px/1.55 'Inter','Hiragino Sans','Hiragino Kaku Gothic ProN',sans-serif; }
+  h1 { font-size:20px; margin:0 0 6px; }
+  .subtitle { color:var(--ink-2); margin:0 0 10px; max-width:940px; }
+  .facts { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 22px; }
+  .facts span { background:#fff; border-radius:10px; padding:6px 10px; font-size:12px; box-shadow:0 1px 2px rgba(30,40,90,.06); }
+  .facts b { font-family:'JetBrains Mono',monospace; }
+  .rec { background:#fff3d6; color:#6b4a10; padding:1px 6px; border-radius:4px; font-size:11.5px; font-weight:600; }
+  h2.axis { font-size:16px; margin:34px 0 4px; padding-top:14px; border-top:2px solid rgba(128,128,128,.22); }
+  h2.axis .k { font:600 12px 'JetBrains Mono',monospace; color:var(--accent); margin-right:8px; }
+  .axis-note { color:var(--ink-2); margin:0 0 14px; max-width:940px; }
+  .grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:16px; }
+  .opt { position:relative; isolation:isolate; overflow:hidden; border-radius:16px; background:var(--bg); padding:14px 16px 16px; }
+  .opt::before { content:''; position:absolute; inset:-25%; z-index:-1; background:radial-gradient(40% 50% at 25% 15%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 75%, #e5d6ff, transparent 70%); }
+  .opt > h3 { margin:0 0 3px; font-size:14px; display:flex; gap:8px; align-items:baseline; }
+  .opt > h3 .k { font:600 12px 'JetBrains Mono',monospace; color:var(--accent); }
+  .opt > p { margin:0 0 12px; color:var(--ink-2); font-size:12px; }
+  .opt .pros { margin:12px 0 0; padding-left:16px; font-size:11.5px; color:var(--ink-2); }
+  .opt .pros li.minus { color:#8a4a3a; }
+  .mono { font-family:'JetBrains Mono',SFMono-Regular,Menlo,monospace; }
+  .faint { color:var(--ink-3); }
+  .btn { display:inline-flex; align-items:center; gap:4px; height:22px; padding:0 10px; border-radius:99px; font:560 11px 'Inter','Hiragino Sans',sans-serif; border:0; color:var(--ink); background:rgba(255,255,255,.85); box-shadow:inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,.16); white-space:nowrap; cursor:pointer; flex:none; }
+  .btn.pri { color:#fff; background:linear-gradient(180deg, var(--accent-hi), var(--accent)); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 4px 12px -4px rgba(70,90,230,.6); }
+  .btn.ghost { background:transparent; box-shadow:none; color:var(--ink-2); }
+  .btn.md { height:28px; padding:0 14px; font-size:12px; }
+
+  /* 小さな窓 */
+  .win { background:rgba(255,255,255,.35); border-radius:14px; box-shadow:var(--glass-edge), var(--glass-drop); overflow:hidden; }
+  .win-h { height:32px; display:flex; align-items:center; gap:6px; padding:0 10px; font-size:11.5px; color:var(--ink-2); }
+  .win-h i { width:8px; height:8px; border-radius:50%; background:#d9dbe6; display:inline-block; }
+  .win-h .ttl { margin-left:10px; font-weight:600; color:var(--ink); }
+  .win-b { display:grid; grid-template-columns:96px 1fr; gap:8px; padding:0 8px 8px; min-height:170px; }
+  .side { font-size:11px; color:var(--ink-2); padding:4px; }
+  .side div { padding:4px 6px; border-radius:6px; } .side .on { background:rgba(255,255,255,.7); color:var(--ink); }
+  .side .foot { margin-top:40px; font-size:10.5px; color:var(--ink-3); display:flex; align-items:center; gap:5px; }
+  .main { display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .srow { display:flex; align-items:center; gap:8px; height:30px; padding:0 8px; background:var(--surface); border-radius:8px; font-size:11.5px; }
+  .srow .n { flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .srow.gone .n { color:var(--ink-3); }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; flex:none; }
+
+  /* 帯（conn-banner と同じ形。色は警告の琥珀） */
+  .band { display:flex; align-items:center; gap:8px; min-height:28px; padding:0 6px 0 12px; border-radius:14px; font-size:12px; color:var(--warn);
+          background:color-mix(in srgb, var(--busy) 12%, rgba(255,255,255,.82)); box-shadow:var(--glass-edge), var(--glass-drop); }
+  .band > b { flex:none; }
+  .band > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .band .sp { flex:1; }
+  .band .sub { color:color-mix(in srgb, var(--warn) 65%, var(--ink-3)); }
+  .band.tall { flex-direction:column; align-items:stretch; padding:10px 12px; gap:8px; }
+  .band.tall .top { display:flex; align-items:center; gap:8px; }
+  .band.tall .line { font-size:11.5px; color:var(--ink-2); }
+  .ic { width:14px; height:14px; flex:none; }
+
+  /* 使用量のバー */
+  .meter { position:relative; height:8px; border-radius:99px; background:rgba(30,40,90,.08); overflow:hidden; }
+  .meter > i { position:absolute; top:0; bottom:0; left:0; border-radius:99px; }
+  .meter .now { background:var(--accent); }
+  .meter .proj { background:repeating-linear-gradient(135deg, color-mix(in srgb, var(--busy) 55%, transparent) 0 4px, color-mix(in srgb, var(--busy) 25%, transparent) 4px 8px); }
+  .legend { display:flex; gap:12px; font-size:11px; color:var(--ink-2); margin-top:4px; flex-wrap:wrap; }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:4px; vertical-align:-1px; }
+
+  /* セグメント */
+  .seg { display:inline-flex; background:rgba(30,40,90,.07); border-radius:99px; padding:2px; gap:2px; }
+  .seg button { border:0; background:transparent; font:560 11px 'Inter','Hiragino Sans',sans-serif; color:var(--ink-2); height:22px; padding:0 10px; border-radius:99px; cursor:pointer; white-space:nowrap; }
+  .seg button.on { background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(30,40,90,.18); }
+  .choices { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .choice { background:#fff; border-radius:10px; padding:8px 10px; box-shadow:0 1px 2px rgba(30,40,90,.06); font-size:11.5px; cursor:pointer; outline:1.5px solid transparent; }
+  .choice.on { outline-color:var(--accent); }
+  .choice b { display:block; font-size:12.5px; }
+  .choice .gb { font-family:'JetBrains Mono',monospace; color:var(--ink-2); }
+  .choice .warn { color:var(--warn); }
+
+  /* ダイアログ */
+  .dialog { border-radius:18px; background:rgba(255,255,255,.82); box-shadow:var(--glass-edge), var(--glass-drop-lg); padding:18px 20px; display:flex; flex-direction:column; gap:12px; }
+  .dialog h4 { margin:0; font-size:15px; }
+  .dialog p { margin:0; font-size:12px; color:var(--ink-2); }
+  .diff { font:11px/1.65 'JetBrains Mono',monospace; background:var(--surface-2); border-radius:10px; padding:8px 10px; white-space:pre; overflow:auto; }
+  .diff .add { color:var(--done); background:var(--done-soft); display:block; margin:0 -10px; padding:0 10px; }
+  .diff .ctx { color:var(--ink-3); }
+  .kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 14px; font-size:12px; }
+  .kv dt { color:var(--ink-2); } .kv dd { margin:0; }
+  .acts { display:flex; gap:8px; justify-content:flex-end; }
+
+  /* 会話画面 */
+  .sess { background:var(--surface); border-radius:12px; padding:10px 12px; min-height:150px; display:flex; flex-direction:column; gap:8px; }
+  .sess-top { display:flex; align-items:center; gap:8px; font-size:12px; }
+  .sess-top .name { font-weight:650; }
+  .chip { display:inline-flex; align-items:center; gap:4px; height:18px; padding:0 7px; border-radius:99px; font-size:10.5px; white-space:nowrap; }
+  .chip.gone { background:#edebe6; color:#66625b; }
+  .chip.warn { background:var(--warn-soft); color:var(--warn); }
+  .empty { flex:1; display:grid; place-items:center; text-align:center; color:var(--ink-3); font-size:12px; }
+  .empty .big { color:var(--ink); font-size:13px; font-weight:600; margin-bottom:4px; }
+  .note { font-size:11.5px; color:var(--ink-2); background:var(--surface-2); border-radius:10px; padding:8px 10px; }
+  .note a, .link { color:var(--accent); text-decoration:none; cursor:pointer; }
+  .summary { font-size:12px; line-height:1.6; }
+  .summary h5 { margin:0 0 3px; font-size:11px; color:var(--ink-3); font-weight:600; }
+
+  /* 設定画面 */
+  .set { background:var(--surface); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
+  .set .row { display:flex; align-items:center; gap:10px; font-size:12px; }
+  .set .row .l { flex:1; }
+  .set .row .l small { display:block; color:var(--ink-3); font-size:11px; }
+  .set h4 { margin:0; font-size:13px; }
+  .stack { display:flex; flex-direction:column; gap:10px; }
+</style>
+</head>
+<body>
+<h1>Claude Code の保持期間を、アプリの中でどう知らせるか</h1>
+<p class="subtitle">
+  帯は、保持期間が短いときにだけ出します。直すときは確認を挟んで <span class="mono">~/.claude/settings.json</span> に書き込みます。本文が消えた会話を開いたときは、消えた理由を出します。
+  数字はこの PC で 2026-10-01 に測った実測値です。見込みの容量は、直近 30 日の増え方をそのまま延ばした概算です。
+</p>
+<div class="facts">
+  <span>直近 30 日の本文 <b>1.5 GB</b></span>
+  <span>1 日あたり <b>約 50 MB</b>（直近 7 日は約 60 MB）</span>
+  <span>ディスクの空き <b>379 GB</b></span>
+  <span>hangar に残る記録 <b>1,177 件</b> ／ 本文あり <b>214 件</b>（9/30）</span>
+</div>
+
+<!-- ============ A 帯 ============ -->
+<h2 class="axis"><span class="k">A</span>帯の出し方</h2>
+<p class="axis-note">接続切れの帯と同じ位置、同じ形です。色だけ警告の琥珀にしています。保持期間が 30 日のまま、または短いときにだけ出ます。「このままでよい」を押すと、二度と出しません。</p>
+<div class="grid">
+  <div class="opt">
+    <h3><span class="k">A1</span>一行、使用量はひとこと</h3>
+    <p>いまの帯と同じ 28px の高さです。使用量は「30 日分で 1.5 GB」とだけ書きます。見込みは押した先のダイアログで見せます。</p>
+    <div class="win">
+      <div class="win-h"><i></i><i></i><i></i><span class="ttl">ホーム</span></div>
+      <div class="win-b">
+        <div class="side"><div class="on">ホーム</div><div>セッション</div><div>プロジェクト</div><div>設定</div></div>
+        <div class="main">
+          <div class="band">
+            <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.6V8l2.2 1.4"/></svg>
+            <b>会話は 30 日で削除されます</b>
+            <span class="sub">いまは 30 日分で 1.5 GB</span>
+            <span class="sp"></span>
+            <button class="btn ghost">このままでよい</button>
+            <button class="btn pri">保持期間を延ばす…</button>
+          </div>
+          <div class="srow"><span class="dot" style="background:var(--busy)"></span><span class="n">保持期間の周知を試作する</span><span class="faint">今</span></div>
+          <div class="srow"><span class="dot" style="background:var(--ended)"></span><span class="n">右欄をターンの目次にする</span><span class="faint">昨日</span></div>
+          <div class="srow"><span class="dot" style="background:var(--ended)"></span><span class="n">WebGL 描画とスクショのドロップ</span><span class="faint">9/30</span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="pros"><li>いまの帯と同じ高さで、同じ場所に出ます。</li><li class="minus">帯を見ただけでは、延ばしたらどれだけ増えるかが分かりません。</li></ul>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">A2</span>一行、次に消える会話を書く</h3>
+    <p>容量の代わりに「次の起動で消える」会話の件数を書いて、急ぐ理由を見せます。使用量は小さく添えます。</p>
+    <div class="win">
+      <div class="win-h"><i></i><i></i><i></i><span class="ttl">ホーム</span></div>
+      <div class="win-b">
+        <div class="side"><div class="on">ホーム</div><div>セッション</div><div>プロジェクト</div><div>設定</div></div>
+        <div class="main">
+          <div class="band">
+            <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2.5 14 13H2z"/><path d="M8 6.5v3M8 11.2v.1"/></svg>
+            <b>3 件の会話が、次の起動で削除されます</b>
+            <span class="sub">30 日を過ぎたため ・ 本文 1.5 GB</span>
+            <span class="sp"></span>
+            <button class="btn ghost">このままでよい</button>
+            <button class="btn pri">保持期間を延ばす…</button>
+          </div>
+          <div class="srow"><span class="dot" style="background:var(--busy)"></span><span class="n">保持期間の周知を試作する</span><span class="faint">今</span></div>
+          <div class="srow"><span class="dot" style="background:var(--ended)"></span><span class="n">seller-data-hub の CSV 取り込み</span><span class="chip warn">あす削除</span></div>
+          <div class="srow"><span class="dot" style="background:var(--ended)"></span><span class="n">kanrikun v3 の認可まわり</span><span class="chip warn">あす削除</span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="pros"><li>「いま何を失うか」が具体的なので、押す理由になります。一覧の行にも印が付きます。</li><li class="minus">Claude Code は起動のたびに消すので、「次の起動」が正確にいつかは言い切れません。</li></ul>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">A3</span>二段、帯の中で期間を選ぶ</h3>
+    <p>帯を 2 段にして、期間ごとの見込み容量を並べます。選んで押すと確認ダイアログに進みます。</p>
+    <div class="win">
+      <div class="win-h"><i></i><i></i><i></i><span class="ttl">ホーム</span></div>
+      <div class="win-b">
+        <div class="side"><div class="on">ホーム</div><div>セッション</div><div>プロジェクト</div><div>設定</div></div>
+        <div class="main">
+          <div class="band tall">
+            <div class="top">
+              <svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.6V8l2.2 1.4"/></svg>
+              <b>会話は 30 日で削除され、hangar の履歴からも消えます</b>
+              <span class="sp"></span>
+              <button class="btn ghost">このままでよい</button>
+            </div>
+            <div class="choices">
+              <div class="choice"><b>90 日</b><span class="gb">約 4.5 GB</span></div>
+              <div class="choice on"><b>1 年</b><span class="gb">約 18 GB</span></div>
+              <div class="choice"><b>10 年</b><span class="gb warn">約 180 GB</span></div>
+            </div>
+            <div class="top"><span class="line">いまの使い方で延ばした場合の見込みです。空きは 379 GB。</span><span class="sp"></span><button class="btn pri">1 年にする…</button></div>
+          </div>
+          <div class="srow"><span class="dot" style="background:var(--busy)"></span><span class="n">保持期間の周知を試作する</span><span class="faint">今</span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="pros"><li>帯を見たその場で、期間と容量を比べて選べます。</li><li class="minus">接続切れの帯より背が高く、一覧を大きく押し下げます。</li></ul>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">A4</span>サイドバーの足元に小さく出す</h3>
+    <p>帯は使わず、同期の状態を出している足元に印を出します。押すと A3 と同じ中身の小さな窓が開きます。</p>
+    <div class="win">
+      <div class="win-h"><i></i><i></i><i></i><span class="ttl">ホーム</span></div>
+      <div class="win-b">
+        <div class="side"><div class="on">ホーム</div><div>セッション</div><div>プロジェクト</div><div>設定</div>
+          <div class="foot"><span class="dot" style="background:var(--done)"></span>同期済み</div>
+          <div class="foot" style="margin-top:4px;color:var(--warn)"><span class="dot" style="background:var(--busy)"></span>30 日で削除</div>
+        </div>
+        <div class="main">
+          <div class="srow"><span class="dot" style="background:var(--busy)"></span><span class="n">保持期間の周知を試作する</span><span class="faint">今</span></div>
+          <div class="srow"><span class="dot" style="background:var(--ended)"></span><span class="n">右欄をターンの目次にする</span><span class="faint">昨日</span></div>
+          <div class="srow"><span class="dot" style="background:var(--ended)"></span><span class="n">WebGL 描画とスクショのドロップ</span><span class="faint">9/30</span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="pros"><li>画面をまったく押し下げません。</li><li class="minus">見落とされやすい場所です。まだ知らない人に知らせるという目的には弱いです。</li></ul>
+  </div>
+</div>
+
+<!-- ============ B 確認 ============ -->
+<h2 class="axis"><span class="k">B</span>書き込む前の確認</h2>
+<p class="axis-note">hangar の設定ではなく Claude Code の設定に書き込むので、何をどこに書くかをそのまま見せます。書く前に控えを取り、同期でほかの PC にも届くことも書いておきます。</p>
+<div class="grid">
+  <div class="opt">
+    <h3><span class="k">B1</span>差分を見せる <span class="rec">推奨</span></h3>
+    <p>書き込む 1 行を差分で見せ、使用量の見込みはバーで見せます。</p>
+    <div class="dialog">
+      <h4>会話の保持期間を 1 年にします</h4>
+      <p>Claude Code の設定ファイルに、次の 1 行を足します。</p>
+      <div class="diff"><span class="ctx">~/.claude/settings.json</span>
+<span class="ctx">  "model": "opus",</span>
+<span class="add">+ "cleanupPeriodDays": 365,</span><span class="ctx">  "statusLine": { … }</span></div>
+      <div>
+        <div class="meter"><i class="proj" style="width:4.75%"></i><i class="now" style="width:.4%"></i></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>いま 1.5 GB</span><span><i style="background:color-mix(in srgb, var(--busy) 50%, transparent)"></i>1 年たつと約 18 GB</span><span>空き 379 GB</span></div>
+      </div>
+      <dl class="kv"><dt>控え</dt><dd class="mono">settings.json.bak-20261001…</dd><dt>ほかの PC</dt><dd>設定の同期で、次の取り込み時に届きます</dd></dl>
+      <div class="acts"><button class="btn md">やめる</button><button class="btn pri md">書き込む</button></div>
+    </div>
+    <ul class="pros"><li>何が変わるかを 1 行で確かめられます。</li></ul>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">B2</span>ダイアログの中で期間を選ぶ</h3>
+    <p>A1 の帯から来たときに使う形です。ダイアログの中で期間を選ぶと、見込み容量と差分が変わります。</p>
+    <div class="dialog">
+      <h4>会話の保持期間</h4>
+      <div class="seg"><button>90 日</button><button class="on">1 年</button><button>10 年</button></div>
+      <div>
+        <div class="meter"><i class="proj" style="width:4.75%"></i><i class="now" style="width:.4%"></i></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>いま 1.5 GB</span><span><i style="background:color-mix(in srgb, var(--busy) 50%, transparent)"></i>1 年で約 18 GB</span><span>空き 379 GB</span></div>
+      </div>
+      <p>見込みは直近 30 日の増え方（1 日あたり約 50 MB）から計算しています。</p>
+      <div class="diff"><span class="add">+ "cleanupPeriodDays": 365,</span></div>
+      <div class="acts"><button class="btn md">やめる</button><button class="btn pri md">書き込む</button></div>
+    </div>
+    <ul class="pros"><li>帯は A1 のまま一行にでき、比べる作業はダイアログに任せられます。</li><li class="minus">操作が 1 段増えます。</li></ul>
+  </div>
+</div>
+
+<!-- ============ C 消えた時点 ============ -->
+<h2 class="axis"><span class="k">C</span>本文が消えた会話を開いたとき</h2>
+<p class="axis-note">今日「過去の会話が無いのはなぜ？」と思ったのが、この場面です。記録は残っているのに本文ファイルが無く、最後に動いたのが保持期間より前なら、保持期間で消えたと判断します。</p>
+<div class="grid">
+  <div class="opt">
+    <h3><span class="k">C1</span>空欄に理由を書く</h3>
+    <p>今の「本文がありません」の位置に、理由と、これから消さないための手を書きます。</p>
+    <div class="sess">
+      <div class="sess-top"><span class="name">seller-data-hub の CSV 取り込み</span><span class="chip gone">本文なし</span><span class="faint" style="margin-left:auto">8/12</span></div>
+      <div class="empty"><div><div class="big">本文は Claude Code に削除されました</div>30 日を過ぎた会話は、Claude Code が起動時に削除します。<br>取り戻すことはできません。<br><span class="link">これから先の会話を残す…</span></div></div>
+    </div>
+    <ul class="pros"><li>困ったその場で答えが見えます。</li><li class="minus">残っている要約があっても、見せていません。</li></ul>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">C2</span>要約を見せ、上に注記を置く <span class="rec">推奨</span></h3>
+    <p>hangar に残っている要約とターンの見出しを見せ、消えたことは上の注記一行で伝えます。</p>
+    <div class="sess">
+      <div class="sess-top"><span class="name">seller-data-hub の CSV 取り込み</span><span class="chip gone">要約のみ</span><span class="faint" style="margin-left:auto">8/12</span></div>
+      <div class="note">本文は、Claude Code の保持期間（30 日）を過ぎたため削除されました。残っているのは要約だけです。 <a>保持期間を延ばす…</a></div>
+      <div class="summary"><h5>要約</h5>楽天の注文 CSV を取り込む処理を作り、文字コードの判定を Shift_JIS と UTF-8 の両方に対応させた。重複行は注文番号で弾く。</div>
+    </div>
+    <ul class="pros"><li>残っているものは全部見せ、欠けているところだけ説明します。</li><li>保持期間を延ばした後は、注記の最後のリンクが消えます。</li></ul>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">C3</span>一覧の行で先に知らせる</h3>
+    <p>開く前に、一覧の行で本文が無いことを分かるようにします。C1 か C2 と組み合わせて使う形です。</p>
+    <div class="win">
+      <div class="win-h"><i></i><i></i><i></i><span class="ttl">セッション</span></div>
+      <div class="win-b" style="grid-template-columns:1fr;min-height:0">
+        <div class="main">
+          <div class="srow"><span class="dot" style="background:var(--ended)"></span><span class="n">右欄をターンの目次にする</span><span class="faint">昨日</span></div>
+          <div class="srow"><span class="dot" style="background:var(--ended)"></span><span class="n">WebGL 描画とスクショのドロップ</span><span class="faint">9/30</span></div>
+          <div class="srow gone"><span class="dot" style="background:#d9dbe6"></span><span class="n">seller-data-hub の CSV 取り込み</span><span class="chip gone">要約のみ</span><span class="faint">8/12</span></div>
+          <div class="srow gone"><span class="dot" style="background:#d9dbe6"></span><span class="n">kanrikun v3 の認可まわり</span><span class="chip gone">要約のみ</span><span class="faint">8/03</span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="pros"><li>開いてから驚くことがありません。</li><li class="minus">いまは 1,177 件中 963 件にこの印が付き、一覧がほぼ灰色になります。</li></ul>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">C4</span>一覧で消えた会話をまとめる</h3>
+    <p>行ごとに印を付ける代わりに、保持期間を境にした区切りを一本入れます。</p>
+    <div class="win">
+      <div class="win-h"><i></i><i></i><i></i><span class="ttl">セッション</span></div>
+      <div class="win-b" style="grid-template-columns:1fr;min-height:0">
+        <div class="main">
+          <div class="srow"><span class="dot" style="background:var(--ended)"></span><span class="n">WebGL 描画とスクショのドロップ</span><span class="faint">9/30</span></div>
+          <div class="srow"><span class="dot" style="background:var(--ended)"></span><span class="n">ターン目次の下書き</span><span class="faint">9/02</span></div>
+          <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--ink-3);margin:4px 2px"><span style="flex:1;height:1px;background:var(--line-strong)"></span>8/31 より前は要約のみ（Claude Code の保持期間で削除）<span style="flex:1;height:1px;background:var(--line-strong)"></span></div>
+          <div class="srow gone"><span class="dot" style="background:#d9dbe6"></span><span class="n">seller-data-hub の CSV 取り込み</span><span class="faint">8/12</span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="pros"><li>大量に消えていても一覧が灰色で埋まらず、境目が一目で分かります。</li><li class="minus">並べ替えや絞り込みで日付順が崩れると、区切りを入れられません。</li></ul>
+  </div>
+</div>
+
+<!-- ============ D 設定画面 ============ -->
+<h2 class="axis"><span class="k">D</span>設定画面の常設の項目</h2>
+<p class="axis-note">帯を閉じた後に戻ってくる場所です。保持期間が十分なときも、ここではいつでも値と使用量を見られます。</p>
+<div class="grid">
+  <div class="opt">
+    <h3><span class="k">D1</span>値と使用量を一行ずつ</h3>
+    <p>いまの設定画面の並びに合わせた形です。</p>
+    <div class="set">
+      <h4>会話の保持</h4>
+      <div class="row"><div class="l">保持期間<small>Claude Code の cleanupPeriodDays。これを過ぎた本文は削除されます</small></div><div class="seg"><button>30 日</button><button>90 日</button><button class="on">1 年</button><button>10 年</button></div></div>
+      <div class="row"><div class="l">本文の使用量<small>~/.claude/projects ・ 1 日あたり約 50 MB</small></div><span class="mono">1.5 GB</span></div>
+    </div>
+    <ul class="pros"><li>ほかの設定の行と同じ見た目で並びます。</li></ul>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">D2</span>見込みのバーつき <span class="rec">推奨</span></h3>
+    <p>B と同じバーを使い、選んだ期間の終わりにどれくらいになるかを見せます。</p>
+    <div class="set">
+      <h4>会話の保持</h4>
+      <div class="row"><div class="l">保持期間</div><div class="seg"><button>30 日</button><button>90 日</button><button class="on">1 年</button><button>10 年</button></div></div>
+      <div>
+        <div class="meter"><i class="proj" style="width:4.75%"></i><i class="now" style="width:.4%"></i></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>いま 1.5 GB</span><span><i style="background:color-mix(in srgb, var(--busy) 50%, transparent)"></i>1 年で約 18 GB</span><span>空き 379 GB</span></div>
+      </div>
+      <div class="row"><div class="l"><small>変えるときは、差分を確かめてから書き込みます。値は設定の同期でほかの PC にも届きます。</small></div></div>
+    </div>
+    <ul class="pros"><li>帯の確認ダイアログと同じ見方なので、覚えることが増えません。</li></ul>
+  </div>
+</div>
+
+<h2 class="axis"><span class="k">!</span>先に決めておきたい点</h2>
+<p class="axis-note">
+  いま入れてある 3650 日（10 年）を今の増え方で延ばすと、<b>約 180 GB</b> になり、空き 379 GB のほぼ半分を使います。
+  選択肢の既定を 1 年にするか、10 年のままにするかで、B と D の初期値が変わります。
+</p>
+</body>
+</html>

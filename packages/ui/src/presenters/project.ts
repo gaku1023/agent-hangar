@@ -2,13 +2,14 @@ import type { ArtifactDto, ProjectStatus, TodoDto } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { artifactsOf, todosOf, type Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
+import type { ParentLink } from './heading.ts';
 import { presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
 
 /** 候補の TODO の表示。sessionId は、そのセッションが手元にあって開けるときだけ入る。 */
 export type TodoCandidateProps = { note: string; sessionId: string | null; sessionName: string; ago: string };
 export type TodoItemProps = { id: string; text: string; done: boolean; candidate: TodoCandidateProps | null };
 export type ArtifactCardProps = { id: string; title: string; description: string | null; favicon: string; url: string; lastPublished: string; versionCount: number; canOpenEditor: boolean };
-export type ProjectProps = { id: string; name: string; path: string | null; resolved: boolean; status: ProjectStatus; sessions: SessionRowProps[]; notFound: boolean; isScratch: boolean; todos: TodoItemProps[]; memo: { markdown: string; updatedAt: number } | null; artifacts: ArtifactCardProps[] };
+export type ProjectProps = { id: string; name: string; parent: ParentLink; path: string | null; resolved: boolean; status: ProjectStatus; sessions: SessionRowProps[]; notFound: boolean; isScratch: boolean; todos: TodoItemProps[]; memo: { markdown: string; updatedAt: number } | null; artifacts: ArtifactCardProps[] };
 
 const NO_NOTE = '根拠は書かれていません';
 const UNKNOWN_SESSION = '不明なセッション';
@@ -33,13 +34,16 @@ export function presentArtifactCard(a: ArtifactDto, now: number): ArtifactCardPr
   };
 }
 
+/** プロジェクト詳細の見出しの上には、一覧へ戻るリンクを出す。 */
+const PARENT: ParentLink = { label: 'プロジェクト', route: { name: 'projects' } };
+
 export function presentProject(_state: State, store: Store, now: number, id: string): ProjectProps {
   const p = store.projects[id];
-  if (!p) return { id, name: id, path: null, resolved: false, status: 'active', sessions: [], notFound: true, isScratch: false, todos: [], memo: null, artifacts: [] };
+  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', sessions: [], notFound: true, isScratch: false, todos: [], memo: null, artifacts: [] };
   const sessions = sortSessions(Object.values(store.sessions).filter((s) => s.projectId === id)).map((s) => presentSessionRow(s, store, now));
   const memo = store.memos[id];
   return {
-    id, name: p.name, path: p.path, resolved: p.resolved, status: p.status, sessions, notFound: false, isScratch: p.isScratch,
+    id, name: p.name, parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, sessions, notFound: false, isScratch: p.isScratch,
     todos: todosOf(store, id).map((t) => ({ id: t.id, text: t.text, done: t.done, candidate: presentTodoCandidate(t, store, now) })),
     memo: memo ? { markdown: memo.markdown, updatedAt: memo.updatedAt } : null,
     artifacts: artifactsOf(store, { projectId: id }).map((a) => presentArtifactCard(a, now)),

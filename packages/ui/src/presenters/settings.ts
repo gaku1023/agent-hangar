@@ -2,6 +2,8 @@ import type { IndexProgressDto, ShellHookStateDto, StatuslineStatusDto, Summariz
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime, SYNC_STATE_LABEL } from './format.ts';
+import { daysLabel, RETENTION_CHOICES } from './retention.ts';
+import { usageBar, type UsageBarProps } from './retentionDialog.ts';
 
 // id は一覧の React の key に使う。1 台の Mac で 2 端末を模すと名前も最終確認も揃うので、一意なのは id だけである。
 export type CloudDeviceProps = { id: string; name: string; platform: string; lastSeen: string; self: boolean };
@@ -24,6 +26,9 @@ export type ShellSettingsProps = { state: ShellHookStateDto | null; zshrc: strin
 const SHELL_LABEL: Record<ShellHookStateDto, string> = { on: '入っています', off: 'まだです', unsupported: 'この Claude Code では使えません' };
 const shellLabel = (s: ShellHookStateDto | null): string => (s ? SHELL_LABEL[s] : '分かりません（hangar が古い版です）');
 
+/** 会話の保持の節。押しても保存せず、確認（retention.edit）を開く。 */
+export type RetentionSettingsProps = { days: number; options: { value: string; label: string }[]; writable: boolean; reason: string | null; valueLabel: string; bar: UsageBarProps | null; syncNote: boolean };
+
 export type SettingsProps = {
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; indexLabel: string; sessionCount: number; projectCount: number;
   tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; mcpInstallCommand: string;
@@ -36,7 +41,26 @@ export type SettingsProps = {
   nodePath: string;
   /** run を起こす claude の場所。未指定は null で表す。 */
   claudePath: string | null;
+  /** Claude Code の会話の保持期間。まだ届いていなければ null。 */
+  retention: RetentionSettingsProps | null;
 };
+
+/** 選択肢は決まった 4 つに、今の値がそこに無ければそれを足して、短い順に並べる。 */
+function retentionSettings(store: Store): RetentionSettingsProps | null {
+  const r = store.retention;
+  if (!r) return null;
+  const values = [...new Set<number>([...RETENTION_CHOICES, r.days])].sort((a, b) => a - b);
+  const projected = r.usage ? r.usage.dailyBytes * r.days : null;
+  return {
+    days: r.days,
+    options: values.map((d) => ({ value: String(d), label: daysLabel(d) })),
+    writable: r.writable,
+    reason: r.unwritableReason,
+    valueLabel: daysLabel(r.days),
+    bar: usageBar(r.usage, projected, r.days),
+    syncNote: store.settings?.syncClaudeConfig ?? false,
+  };
+}
 
 // now は相対時刻のためだけに使う。フェーズ 3 までの呼び出しは 2 引数なので既定値を置く。
 export function presentSettings(_state: State, store: Store, now: number = Date.now()): SettingsProps {
@@ -78,5 +102,6 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
     statusline: store.statusline, statuslineCommand: 'npm run hangar -- statusline install', usageAggregate: store.usageAggregate,
     nodePath: s?.nodePath ?? '',
     claudePath: s?.claudePath ?? null,
+    retention: retentionSettings(store),
   };
 }
