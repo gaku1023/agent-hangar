@@ -131,7 +131,7 @@ mod tests {
         // 写し先がファイルなので、その下には作れない。
         let blocked = src.join("blocked");
         std::fs::write(&blocked, b"").unwrap();
-        assert_eq!(stash(&[f.clone()], &blocked, 1), vec![f]);
+        assert_eq!(stash(std::slice::from_ref(&f), &blocked, 1), vec![f]);
     }
 
     #[test]
