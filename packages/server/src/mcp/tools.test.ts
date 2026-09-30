@@ -7,6 +7,7 @@ import { recordArtifactPublish } from '../artifacts/extract.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { latestIntent } from '../live/intents.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
@@ -42,6 +43,7 @@ const SESSION_TOOL_CALLS: [string, Record<string, unknown>][] = [
   ['get_transcript', {}],
   ['set_session_summary', { title: 'T', one_liner: 'O', body: 'B', state: 'done', next_steps: [] }],
   ['set_session_memo', { text: 'メモ' }],
+  ['set_turn_intent', { text: '意図' }],
   ['open_in_hangar', {}],
 ];
 
@@ -219,7 +221,28 @@ describe('MCP tools', () => {
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
-    expect(TOOL_NAMES).toHaveLength(11);
+    expect(TOOL_NAMES).toHaveLength(12);
+  });
+  it('set_turn_intent は意図を積み、最新を返せるようにする', () => {
+    const r = call('set_turn_intent', { text: '  抜けたあと、答え終えた会話だけ止める  ' }, { sessionId: alphaId });
+    expect(r).toMatchObject({ ok: true, session_id: alphaId });
+    expect(latestIntent(db, alphaId)).toEqual({ at: r.at, text: '抜けたあと、答え終えた会話だけ止める' });
+  });
+  it('set_turn_intent は空と 201 字以上を断る', () => {
+    expect(() => call('set_turn_intent', { text: '   ' }, { sessionId: alphaId })).toThrow(ToolError);
+    expect(() => call('set_turn_intent', { text: 'あ'.repeat(201) }, { sessionId: alphaId })).toThrow(ToolError);
+    expect(call('set_turn_intent', { text: 'あ'.repeat(200) }, { sessionId: alphaId })).toMatchObject({ ok: true });
+  });
+  it('set_turn_intent はセッション別 URL のほかのセッションを指せない', () => {
+    expect(() => call('set_turn_intent', { session_id: 'other', text: 'x' }, { sessionId: alphaId })).toThrow(ToolError);
+  });
+  it('同じミリ秒に 2 回書いても両方残り、後の方が最新になる', async () => {
+    const { addIntent } = await import('../live/intents.ts');
+    const a = addIntent(db, alphaId, '一つ目', 5000);
+    const b = addIntent(db, alphaId, '二つ目', 5000);
+    expect(b.at).toBe(a.at + 1);
+    expect(latestIntent(db, alphaId)?.text).toBe('二つ目');
+    expect((db.prepare('select count(*) c from turn_intents where session_id = ?').get(alphaId) as { c: number }).c).toBe(2);
   });
   it('open_in_hangar は実在しない ID を死んだリンクにしない', () => {
     expect(() => call('open_in_hangar', { session_id: 'ghost-session' })).toThrow(ToolError);

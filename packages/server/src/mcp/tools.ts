@@ -3,6 +3,7 @@ import { listArtifacts } from '../artifacts/queries.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
+import { addIntent, INTENT_MAX } from '../live/intents.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import type { LaunchResult } from '../runs/manager.ts';
@@ -32,7 +33,7 @@ export class ToolError extends Error {
 
 export const TOOL_NAMES = [
   'list_projects', 'get_project', 'update_project', 'list_sessions', 'search_sessions', 'get_transcript',
-  'create_session', 'set_session_summary', 'set_session_memo', 'get_usage', 'open_in_hangar',
+  'create_session', 'set_session_summary', 'set_turn_intent', 'set_session_memo', 'get_usage', 'open_in_hangar',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -303,6 +304,19 @@ export function setSessionSummaryTool(deps: ToolDeps, ctx: ToolContext, args: Re
   return { ok: true, session_id: id };
 }
 
+/**
+ * このターンの意図を書く。要約（set_session_summary）とは粒度が違うので、別のツールにしてある。
+ * 数え方は Array.from で文字単位にする（サロゲートの字を 2 字と数えない）。
+ */
+export function setTurnIntentTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
+  const id = sessionIdOf(ctx, args);
+  requireSession(deps, id);
+  const text = typeof args.text === 'string' ? args.text.trim() : '';
+  if (text.length === 0 || [...text].length > INTENT_MAX) throw new ToolError(`text は空白を除いて 1 字以上 ${INTENT_MAX} 字以下です`);
+  const it = addIntent(deps.db, id, text, now);
+  return { ok: true, session_id: id, at: it.at };
+}
+
 export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const id = sessionIdOf(ctx, args);
   requireSession(deps, id);
@@ -342,6 +356,7 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'get_transcript': return getTranscriptTool(deps, ctx, args);
     case 'create_session': return createSessionTool(deps, ctx, args);
     case 'set_session_summary': return setSessionSummaryTool(deps, ctx, args);
+    case 'set_turn_intent': return setTurnIntentTool(deps, ctx, args);
     case 'set_session_memo': return setSessionMemoTool(deps, ctx, args);
     case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
