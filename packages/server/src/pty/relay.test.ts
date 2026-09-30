@@ -113,6 +113,20 @@ describe('PtyRelay（偽の spawn）', () => {
     await waitFor(() => f.procs[0]!.killed, 3000);
     stalled.destroy();
   });
+  it('attach の前に、tmux に OSC 52 を外へ通させる', async () => {
+    const f = fakeSpawn();
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    const clip = vi.spyOn(tmux, 'enableClipboard').mockImplementation(() => {});
+    const spawn = vi.fn(f.spawn);
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-a', spawn });
+    await listen(relay);
+    const { ws } = await connect(`tab=t1`);
+    await waitFor(() => f.procs.length === 1);
+    expect(clip).toHaveBeenCalledTimes(1);
+    expect(clip.mock.invocationCallOrder[0]!).toBeLessThan(spawn.mock.invocationCallOrder[0]!);
+    clip.mockRestore();
+    ws.close();
+  });
   it('プロセスの終了で接続を閉じる', async () => {
     const f = fakeSpawn();
     relay.close(); await new Promise<void>((r) => server.close(() => r()));
@@ -147,4 +161,22 @@ describe.skipIf(!TMUX)('PtyRelay（実物の tmux と node-pty）', () => {
     await waitFor(() => tmux.hasSession('hangar-pty-real'));
     fs.rmSync(cwd, { recursive: true, force: true });
   });
+  it('中のアプリが OSC 52 で写したものが UI まで届く', async () => {
+    const { nodePtySpawn } = await import('./nodePty.ts');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-pty-real-'));
+    // 利用者の ~/.tmux.conf に左右されないよう、tmux の既定の external に揃える。external のままでは届かない。
+    tmux.newSession({ name: 'hangar-pty-osc52', cwd, command: ['sh', '-c', "read x; printf '\\033]52;c;aGVsbG8=\\007'; sleep 30"] });
+    tmux.run('set-option', '-s', 'set-clipboard', 'external');
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-pty-osc52', spawn: nodePtySpawn });
+    await listen(relay);
+    const { ws, msgs } = await connect(`tab=x`);
+    ws.send(JSON.stringify({ t: 'resize', cols: 80, rows: 24 }));
+    // attach が済んでから書かせる。誰も attach していない間の OSC 52 は外へ出ない。
+    await waitFor(() => msgs.some((m) => m.t === 'data'), 8000);
+    ws.send(JSON.stringify({ t: 'data', d: 'go\r' }));
+    await waitFor(() => msgs.some((m) => m.t === 'data' && (m.d ?? '').includes('\x1b]52;c;aGVsbG8=')), 8000);
+    ws.close();
+    tmux.killSession('hangar-pty-osc52');
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }, 20000);
 });
