@@ -635,6 +635,8 @@ hangar が起動するセッションには、`--append-system-prompt` で短い
 set_session_summary で題名、2〜3 文の要約、状態、次の一手を更新してください。
 TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。
 完了にするのは利用者です。確かめられていないものは出さないでください。
+ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。
+Bash と Agent の description は日本語で 20 字以内にしてください。
 ```
 
 MCP の URL はセッション別（`/mcp/s/<sessionId>`）なので、ツールは呼び出し元のセッションをサーバ側で確定できる。
@@ -849,6 +851,7 @@ MCP は Streamable HTTP で提供する。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
 - `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch? })`：tmux で起動して run を返す。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。
+- `set_turn_intent({ session_id?, text })`：このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。端末ローカルの `turn_intents` に積み、同期しない。右ペインの意図の段に出す。
 - `set_session_memo({ session_id?, text })`：人間向けの 1 行メモ。モデルには指示しない。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
@@ -1072,6 +1075,11 @@ xterm のインスタンスとスクロールバッファは残すので、戻�
 接続を持ち続けると、渡り歩いたセッションの数だけ `tmux attach` のプロセスが残るためである。
 2 つのタブを横に並べる分割表示ができる。
 トランスクリプトペーンは横に折りたためる。
+実行中の右欄は、上から状態の灯、意図、指揮役の手、サブエージェント、目次を並べる。
+目次だけがスクロールする。
+目次の行の下には手の種類の色帯を出す。
+灯とレーンとは、サーバの `GET /api/sessions/:id/live`（今のターンの頭から読んだライブの要約）で作る。
+詳細は `docs/superpowers/specs/2026-10-01-live-explainer-design.md`。
 
 過去のセッションはトランスクリプトだけを出し、「再開」「フォーク」「VS Code で開く」を操作に持つ。
 上段に状態の点、名前、要約の 1 文、操作を置く。
