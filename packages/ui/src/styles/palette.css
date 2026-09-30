@@ -5,7 +5,7 @@
    広げる計算は左上を原点にするので、transform-origin を 0 0 にする。
    一覧を縁まで敷き詰めたいので、内側の余白と段の隙間だけを外す。 */
 .palette { width: min(640px, 90vw); padding: calc(var(--u) * 2); gap: 0; background: var(--glass-bg-palette); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); transform-origin: 0 0; animation: none; }
-.palette-input { width: 100%; height: calc(var(--u) * 10); border: none; border-radius: var(--r); background: rgba(255, 255, 255, 0.85); font-size: var(--fs-md); }
+.palette-input { flex: none; width: 100%; height: calc(var(--u) * 10); border: none; border-radius: var(--r); background: rgba(255, 255, 255, 0.85); font-size: var(--fs-md); }
 .palette-input:focus { border-color: transparent; box-shadow: none; }
 /* 一覧は群の見出しを付けた 1 列（B1）。見出しは小さく淡く、件数と「上位 N」を添える。 */
 .palette-list { margin: 0; padding: var(--u) 0 0; max-height: min(440px, 56vh); overflow: auto; overscroll-behavior: contain; }
@@ -40,7 +40,6 @@
 /* 昇格ダイアログ。見出しのアイコンと、チェックボックスの 1 行。
    完了のダイアログはボタンが 3 つ並ぶので、480px の器では入り切らず語の途中で折り返していた。
    器を dialog-wide に広げたうえで、ボタンの中では折り返さず、それでも入らないときはボタンごと次の行へ落とす。 */
-.dialog-title { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
 .field-row { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
 .dialog-promote .dialog-foot { flex-wrap: wrap; row-gap: calc(var(--u) * 2); }
 .dialog-promote .btn { white-space: nowrap; }

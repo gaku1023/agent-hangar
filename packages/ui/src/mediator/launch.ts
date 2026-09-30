@@ -1,12 +1,75 @@
-import type { Input, State, Step } from './types.ts';
+import type { LaunchParams } from '@agent-hangar/shared';
+import type { Effect, Input, LaunchPrefs, NewSessionDraft, State, Step } from './types.ts';
+
+/** 新しいセッションのダイアログの書きかけを残す localStorage の鍵。値は NewSessionDraft か null。 */
+export const NEW_SESSION_DRAFT_KEY = 'newSession.draft';
+/** 詳細のプロジェクトごとの前回値を残す localStorage の鍵。値は launchPrefs そのもの。 */
+export const LAUNCH_PREFS_KEY = 'newSession.prefs';
+/** スクラッチの前回値の鍵。プロジェクトの id と重ならない綴りにする。 */
+export const SCRATCH_PREFS = ':scratch';
+
+const PREF_TEXT = ['model', 'effort', 'permissionMode', 'worktree'] as const;
+
+/** 起動の params から、前回値として残す詳細だけを取り出す。空欄と既定は params に入らないので、入っているものだけが残る。 */
+export function launchPrefsOf(params: LaunchParams): LaunchPrefs {
+  const out: LaunchPrefs = {};
+  for (const k of PREF_TEXT) if (params[k]) out[k] = params[k];
+  if (params.addDirs?.length) out.addDirs = [...params.addDirs];
+  return out;
+}
+
+/** localStorage から読んだ下書き。形が違えば（手で書き換えられたなど）捨てる。 */
+export function readDraft(v: unknown): NewSessionDraft | null {
+  if (!v || typeof v !== 'object') return null;
+  const { name, prompt } = v as Record<string, unknown>;
+  return typeof name === 'string' && typeof prompt === 'string' ? { name, prompt } : null;
+}
+
+/** localStorage から読んだ前回値。形の違う項目は捨て、残りが空になったプロジェクトは外す。 */
+export function readLaunchPrefs(v: unknown): Record<string, LaunchPrefs> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const out: Record<string, LaunchPrefs> = {};
+  for (const [key, raw] of Object.entries(v as Record<string, unknown>)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const r = raw as Record<string, unknown>;
+    const p: LaunchPrefs = {};
+    for (const k of PREF_TEXT) { const x = r[k]; if (typeof x === 'string' && x) p[k] = x; }
+    if (Array.isArray(r.addDirs) && r.addDirs.length && r.addDirs.every((d) => typeof d === 'string')) p.addDirs = r.addDirs as string[];
+    if (Object.keys(p).length) out[key] = p;
+  }
+  return out;
+}
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** 起動を送ったときに、そのプロジェクトの前回値を書き換える。変わらなければ何もしない。 */
+function rememberPrefs(state: State, params: LaunchParams): Step {
+  const key = params.scratch ? SCRATCH_PREFS : params.projectId;
+  if (!key) return { state, effects: [] };
+  const prefs = launchPrefsOf(params);
+  const { [key]: before, ...rest } = state.launchPrefs;
+  const next = Object.keys(prefs).length ? { ...rest, [key]: prefs } : rest;
+  if (sameJson(before ?? null, Object.keys(prefs).length ? prefs : null)) return { state, effects: [] };
+  return { state: { ...state, launchPrefs: next }, effects: [{ kind: 'storage.save', key: LAUNCH_PREFS_KEY, value: next }] };
+}
+
+/** 下書きを書き換える。名前も初期プロンプトも空白だけなら消す。変わらなければ何もしない。 */
+function setDraft(state: State, draft: NewSessionDraft | null): Step {
+  const next = draft && (draft.name.trim() || draft.prompt.trim()) ? draft : null;
+  if (sameJson(next, state.newSessionDraft)) return { state, effects: [] };
+  return { state: { ...state, newSessionDraft: next }, effects: [{ kind: 'storage.save', key: NEW_SESSION_DRAFT_KEY, value: next }] };
+}
 
 /** launch 領域：起動ダイアログ、送信中、失敗。再開とフォークも同じ送信中の状態を使う。 */
 export function launchStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime') {
     const ev = input.event;
     if (ev.type === 'launch.done') {
-      const overlay = state.overlay.kind === 'newSession' ? { kind: 'none' as const } : state.overlay;
-      return { state: { ...state, launch: { kind: 'idle' }, overlay }, effects: [{ kind: 'navigate', route: { name: 'session', id: ev.sessionId } }] };
+      // ダイアログから起動し終えたら、書きかけの下書きは役目を終えたので消す。再開やフォークの完了では触れない。
+      const fromDialog = state.overlay.kind === 'newSession';
+      const overlay = fromDialog ? { kind: 'none' as const } : state.overlay;
+      const cleared = fromDialog ? setDraft(state, null) : { state, effects: [] as Effect[] };
+      return { state: { ...cleared.state, launch: { kind: 'idle' }, overlay }, effects: [{ kind: 'navigate', route: { name: 'session', id: ev.sessionId } }, ...cleared.effects] };
     }
     if (ev.type === 'launch.failed') {
       // 起動ダイアログが開いていれば、その中に同じ文言が出るのでトーストは重ねない。
@@ -26,7 +89,12 @@ export function launchStep(state: State, input: Input): Step | null {
     case 'session.new.submit':
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       if (!i.params.projectId && !i.params.scratch) return { state: { ...state, launch: { kind: 'failed', message: 'プロジェクトを選んでください' } }, effects: [] };
-      return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.launch', params: i.params }] };
+      {
+        // 詳細は、送った時点でそのプロジェクトの前回値にする。起動に失敗しても、選んだ詳細は利用者の意図なので残す。
+        const r = rememberPrefs(state, i.params);
+        return { state: { ...r.state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
+      }
+    case 'session.new.draft': return setDraft(state, { name: i.name, prompt: i.prompt });
     case 'overlay.close':
       // newSession のときだけ横取りする。
       // overlayStep の overlay.close はキューを進めるだけで、launch を idle に戻せない。

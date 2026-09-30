@@ -198,9 +198,11 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'nav.forward': take(); rt.emit({ type: 'nav.forward' }); return;
         // Esc はオーバーレイを閉じる。
         // 未解決のプロジェクトだけは決めてもらうまで閉じない。
-        // 入力欄にフォーカスがあるときは、その入力欄を持つダイアログが自分で Esc を処理するので二重に出さない（上の typing で落ちる）。
+        // ダイアログの中にフォーカスがあるときは、ダイアログの殻（views/primitives/Dialog.tsx）が Esc を受けて既定を止めるので、二重に出さない。
+        // 二重に閉じると、確認の後ろに控えた未解決のダイアログまで「あとで」で閉じてしまう。
+        // ここが受けるのは、フォーカスが器の外（body など）にあるときの Esc だけである。
         case 'overlay.close':
-          if (overlayKind === 'none' || overlayKind === 'resolveProject') return;
+          if (e.defaultPrevented || overlayKind === 'none' || overlayKind === 'resolveProject') return;
           rt.emit(overlayKind === 'palette' ? { type: 'palette.close' } : { type: 'overlay.close' });
           return;
         default: return;

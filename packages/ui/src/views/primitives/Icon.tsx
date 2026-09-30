@@ -1,4 +1,4 @@
-import { AppWindow, Archive, ArrowDownToLine, ArrowRight, Ban, Bot, Brain, Check, ChevronDown, ChevronRight, CirclePause, Clock, Code, Columns2, Command, Download, FileJson2, FilePenLine, FileX2, Folder, FolderInput, FolderSearch, FolderUp, GitBranch, GitFork, House, ListFilter, Map as MapIcon, MessageCircleQuestion, MessagesSquare, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plus, RefreshCw, RotateCcw, Search, Settings, Settings2, ShieldAlert, SkipForward, Sparkles, Sprout, Square, SquareTerminal, Terminal, TextSearch, TriangleAlert, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
+import { AppWindow, Archive, ArrowDownToLine, ArrowRight, Ban, Bot, Brain, Check, ChevronDown, ChevronRight, CirclePause, Clock, Code, Columns2, Command, Download, FileJson2, FilePenLine, FileX2, Folder, FolderInput, FolderSearch, FolderUp, GitBranch, GitFork, House, ListFilter, Map as MapIcon, MessageCircleQuestion, MessagesSquare, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plus, RefreshCw, RotateCcw, Search, Settings, Settings2, ShieldAlert, SkipForward, Sparkles, Sprout, Square, SquareTerminal, Terminal, TextSearch, Trash2, TriangleAlert, Undo2, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
 
 /** hangar の言葉からアイコンへの対応。View は lucide-react を直接 import せず、ここだけを通す。 */
 const ICONS = {
@@ -56,6 +56,8 @@ const ICONS = {
   command: Command,
   rebuild: RefreshCw,
   filter: ListFilter,
+  discard: Trash2,
+  reset: Undo2,
 } as const satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

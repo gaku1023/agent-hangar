@@ -625,6 +625,10 @@ describe('presentNewSession', () => {
     expect(p1).toMatchObject({ status: store.projects.p1!.status, lastActivity: '1 分前' });
     expect(p.projects.find((x) => x.id === 'p7')!.lastActivity).toBe('');
   });
+  it('書きかけの下書きと、プロジェクトごとの前回値を渡す', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, newSessionDraft: { name: 'n', prompt: '' }, launchPrefs: { alpha: { model: 'opus' } } };
+    expect(presentNewSession(state, storeWith(), NOW)).toMatchObject({ draft: { name: 'n', prompt: '' }, prefs: { alpha: { model: 'opus' } } });
+  });
 });
 
 describe('presentSettings（フェーズ 2）', () => {

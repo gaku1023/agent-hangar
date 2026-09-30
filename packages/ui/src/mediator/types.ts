@@ -101,6 +101,10 @@ export type Overlay =
   | { kind: 'confirm'; confirm: ConfirmRequest }
   | { kind: 'configPreview' }
   | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null };
+/** 新しいセッションのダイアログの書きかけ。プロジェクトごとではなく 1 つだけ持つ。 */
+export type NewSessionDraft = { name: string; prompt: string };
+/** 新しいセッションの詳細の前回値。起動したときの値のうち、既定でないものだけを持つ。 */
+export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMode' | 'worktree' | 'addDirs'>;
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting' } | { kind: 'failed'; message: string };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */
 export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed';
@@ -146,6 +150,13 @@ export type State = {
   sidebarCollapsed: boolean;
   /** 保持期間の帯を「このままでよい」で閉じたか。端末ごとに localStorage に残し、起動時に読み戻す。 */
   retentionBannerDismissed: boolean;
+  /** 新しいセッションのダイアログの書きかけ。閉じても残し、次に開いたときに戻す。端末ごとに localStorage に残す。 */
+  newSessionDraft: NewSessionDraft | null;
+  /**
+   * 新しいセッションの詳細の、プロジェクトごとの前回値。鍵はプロジェクトの id で、スクラッチは ':scratch' である。
+   * 次にそのプロジェクトでダイアログを開いたときの初期値にする。端末ごとに localStorage に残す。
+   */
+  launchPrefs: Record<string, LaunchPrefs>;
   /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
   indexPhase: IndexProgressDto['phase'];
   /** クラウド同期の見え方。同期を設定していなければ off のままである。 */

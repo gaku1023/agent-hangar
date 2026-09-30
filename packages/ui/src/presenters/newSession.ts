@@ -1,10 +1,23 @@
 import type { ProjectStatus } from '@agent-hangar/shared';
-import type { State } from '../mediator/types.ts';
+import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
+import { SCRATCH_PREFS } from '../mediator/launch.ts';
 import { relativeTime } from './format.ts';
 
 export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
-export type NewSessionProps = { projects: NewSessionProject[]; recentIds: string[]; projectId: string | null; submitting: boolean; error: string | null; scratch: boolean };
+export type NewSessionProps = {
+  projects: NewSessionProject[]; recentIds: string[]; projectId: string | null; submitting: boolean; error: string | null; scratch: boolean;
+  /** 前に閉じたときの書きかけ。開いたときの名前と初期プロンプトにする。 */
+  draft: NewSessionDraft | null;
+  /** 詳細のプロジェクトごとの前回値。鍵はプロジェクトの id で、スクラッチは ':scratch' である。 */
+  prefs: Record<string, LaunchPrefs>;
+};
+
+/**
+ * ダイアログのプロジェクトの一覧で、スクラッチの行に当てる値。
+ * 前回値（prefs）の鍵と同じ綴りなので、選んだ値でそのまま前回値を引ける。プロジェクトの id とは重ならない。
+ */
+export const SCRATCH_CHOICE = SCRATCH_PREFS;
 
 /** 一覧の「最近」に置く件数。 */
 export const RECENT_COUNT = 5;
@@ -33,5 +46,5 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
   const projects = [...live].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, path: p.path, status: p.status, lastActivity: p.lastActivityAt === null ? '' : relativeTime(p.lastActivityAt, now) }));
   // 最近は最後に使った時刻の新しい順。使ったことのないプロジェクトは入れない。
   const recentIds = live.filter((p) => p.lastActivityAt !== null).sort((a, b) => b.lastActivityAt! - a.lastActivityAt!).slice(0, RECENT_COUNT).map((p) => p.id);
-  return { projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch };
+  return { projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs };
 }

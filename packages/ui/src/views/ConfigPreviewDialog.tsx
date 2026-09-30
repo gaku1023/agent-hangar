@@ -1,5 +1,6 @@
 import type { ConfigPreviewAction, ConfigPreviewDto } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
+import { Dialog } from './primitives/Dialog.tsx';
 
 const ACTION_LABEL: Record<ConfigPreviewAction, string> = { create: '新しく作る', overwrite: '上書きする', conflict: '競合（控えを残します）', skip: '変更なし' };
 const ACTION_ORDER: ConfigPreviewAction[] = ['create', 'overwrite', 'conflict', 'skip'];
@@ -19,33 +20,31 @@ export function ConfigPreviewDialog(props: { preview: ConfigPreviewDto | null })
   const emit = useEmit();
   const p = props.preview;
   const hasEntries = !!p && p.entries.length > 0;
+  const close = () => emit({ type: 'overlay.close' });
   return (
-    <div className="overlay" onClick={() => emit({ type: 'overlay.close' })}>
-      <div className="dialog dialog-wide" role="dialog" aria-modal="true" aria-label="取り込み内容の確認" onClick={(e) => e.stopPropagation()}>
-        <b className="dialog-title">~/.claude に取り込む内容</b>
-        {!p && <div className="muted">取り込む内容を調べています</div>}
-        {p && !hasEntries && <div className="muted">取り込むものはありません</div>}
-        {hasEntries && (
-          <>
-            <div className="faint">{summaryLine(p.entries)}</div>
-            <div className="list list-scroll" style={{ maxHeight: 320 }}>
-              {p.entries.map((e) => (
-                <div key={e.path} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
-                  <span className="mono">{e.path}</span>
-                  <span className="faint">{ACTION_LABEL[e.action]}</span>
-                  <span className="faint">{e.remoteDevice}</span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-        <div className="faint">上書きする前に ~/.agent-hangar/backups/claude-config/&lt;日時&gt;/ に控えを取ります。控えが取れなかったファイルは書き換えません。</div>
-        <div className="dialog-foot">
-          <button type="button" className="btn" onClick={() => emit({ type: 'overlay.close' })}>やめる</button>
-          <span className="spacer" />
-          <button type="button" className="btn btn-primary" disabled={!hasEntries} onClick={() => emit({ type: 'sync.config.apply' })}>取り込む</button>
-        </div>
-      </div>
-    </div>
+    <Dialog
+      title="~/.claude に取り込む内容"
+      className="dialog-wide"
+      onClose={close}
+      footer={<><button type="button" className="btn" onClick={close}>やめる</button><span className="spacer" /><button type="button" className="btn btn-primary" disabled={!hasEntries} onClick={() => emit({ type: 'sync.config.apply' })}>取り込む</button></>}
+    >
+      {!p && <div className="muted">取り込む内容を調べています</div>}
+      {p && !hasEntries && <div className="muted">取り込むものはありません</div>}
+      {hasEntries && (
+        <>
+          <div className="faint">{summaryLine(p.entries)}</div>
+          <div className="list list-scroll" style={{ maxHeight: 320 }}>
+            {p.entries.map((e) => (
+              <div key={e.path} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
+                <span className="mono">{e.path}</span>
+                <span className="faint">{ACTION_LABEL[e.action]}</span>
+                <span className="faint">{e.remoteDevice}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      <div className="faint">上書きする前に ~/.agent-hangar/backups/claude-config/&lt;日時&gt;/ に控えを取ります。控えが取れなかったファイルは書き換えません。</div>
+    </Dialog>
   );
 }
