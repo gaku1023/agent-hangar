@@ -42,6 +42,8 @@ export type Intent =
   // 入力待ちのセッションを順に開き、端末にフォーカスする。どれへ移るかはストアを見たランタイムが決める。
   | { type: 'session.nextWaiting' }
   | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams }
+  // 新しいセッションのダイアログの書きかけ（名前と初期プロンプト）。ダイアログを閉じるときと「消す」で送る。両方空なら下書きを消す。
+  | { type: 'session.new.draft'; name: string; prompt: string }
   | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId }
   // 停止は作業中か、そのランにシェルタブがあるときだけ先に確認を出す。どちらなのかは View が添え、確認を出すかは Mediator が決める。
   | { type: 'session.kill'; runId: RunId; working: boolean; shellTabs: number; confirmed?: boolean }

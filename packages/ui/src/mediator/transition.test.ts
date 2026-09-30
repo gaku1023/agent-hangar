@@ -289,6 +289,51 @@ describe('起動', () => {
   });
 });
 
+describe('新しいセッションの下書きと前回値', () => {
+  it('名前か初期プロンプトの書きかけを下書きとして持ち、端末に残す。両方空なら消す', () => {
+    const a = run([intent({ type: 'session.new.draft', name: 'API の節', prompt: '' })]);
+    expect(a.state.newSessionDraft).toEqual({ name: 'API の節', prompt: '' });
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: { name: 'API の節', prompt: '' } }]);
+    // 同じ中身なら書き直さない。
+    expect(run([intent({ type: 'session.new.draft', name: 'API の節', prompt: '' })], a.state).effects).toEqual([]);
+    const b = run([intent({ type: 'session.new.draft', name: ' ', prompt: '\n' })], a.state);
+    expect(b.state.newSessionDraft).toBeNull();
+    expect(b.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: null }]);
+  });
+  it('ダイアログから起動し終えたら下書きを消す', () => {
+    const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: 'やって' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', prompt: 'やって' } })]);
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
+    expect(b.state.newSessionDraft).toBeNull();
+    expect(b.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: null });
+    // 再開やフォークの完了では、書きかけの下書きに触れない。
+    const c = run([intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })]);
+    expect(c.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+  });
+  it('起動した詳細をプロジェクトごとの前回値として持ち、端末に残す', () => {
+    const a = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: 'wt', addDirs: ['/a'] } })]);
+    const prefs = { p1: { model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: 'wt', addDirs: ['/a'] } };
+    expect(a.state.launchPrefs).toEqual(prefs);
+    expect(a.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.prefs', value: prefs });
+    // スクラッチはプロジェクトを持たないので、スクラッチの 1 枠に持つ。
+    const b = run([runtime({ type: 'launch.failed', message: 'x' }), intent({ type: 'session.new.submit', params: { scratch: true, effort: 'low' } })], a.state);
+    expect(b.state.launchPrefs).toEqual({ ...prefs, ':scratch': { effort: 'low' } });
+  });
+  it('既定のまま起動したら、そのプロジェクトの前回値を消す。変わらなければ書き直さない', () => {
+    const start = { ...initialState(), launchPrefs: { p1: { model: 'opus' } } };
+    const a = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n' } })], start);
+    expect(a.state.launchPrefs).toEqual({});
+    expect(a.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.prefs', value: {} });
+    const b = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', model: 'opus' } })], start);
+    expect(b.effects).toEqual([{ kind: 'api.launch', params: { projectId: 'p1', model: 'opus' } }]);
+  });
+  it('プロジェクトを選ばずに送った失敗では前回値を残さない', () => {
+    const a = run([intent({ type: 'session.new.submit', params: { model: 'opus' } })]);
+    expect(a.state.launchPrefs).toEqual({});
+    expect(a.effects).toEqual([]);
+  });
+});
+
 describe('タブと接続', () => {
   it('タブの選択と追加と閉じる', () => {
     const s = onSession();

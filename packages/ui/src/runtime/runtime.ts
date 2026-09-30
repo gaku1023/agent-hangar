@@ -1,6 +1,7 @@
 import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
+import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
 import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
 import { SIDEBAR_KEY } from '../mediator/sidebar.ts';
@@ -355,7 +356,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         sv[k.slice(3)] = { ...defaultSessionView(), ...rest };
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
-      state = { ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true };
+      state = {
+        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
+        // 新しいセッションの書きかけと前回値。形の違う値（手で書き換えられたなど）は捨てる。
+        newSessionDraft: readDraft(deps.storage.get(NEW_SESSION_DRAFT_KEY)), launchPrefs: readLaunchPrefs(deps.storage.get(LAUNCH_PREFS_KEY)),
+      };
       shown = state;
       ws = deps.ws({
         onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),

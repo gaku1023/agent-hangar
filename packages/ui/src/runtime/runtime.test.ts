@@ -240,6 +240,20 @@ describe('createRuntime', () => {
     c.rt.start();
     expect(c.rt.getState().sidebarCollapsed).toBe(false);
   });
+  it('新しいセッションの下書きと前回値を起動時に読み戻す。形の違う値は捨てる', () => {
+    const a = harness();
+    a.store.set('newSession.draft', { name: 'n', prompt: 'やって' });
+    a.store.set('newSession.prefs', { p1: { model: 'opus', addDirs: ['/a'] }, p2: { model: 3 }, p3: 'x', p4: { addDirs: [1] } });
+    a.rt.start();
+    expect(a.rt.getState().newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    expect(a.rt.getState().launchPrefs).toEqual({ p1: { model: 'opus', addDirs: ['/a'] } });
+    const b = harness();
+    b.store.set('newSession.draft', { name: 1 });
+    b.store.set('newSession.prefs', []);
+    b.rt.start();
+    expect(b.rt.getState().newSessionDraft).toBeNull();
+    expect(b.rt.getState().launchPrefs).toEqual({});
+  });
   it('保存済みの follow: false を無視し、開いた直後は必ず追う', () => {
     // 遡るために一度上へスクロールしただけで follow: false が焼き付くと、次から最古の側で開いてしまう。
     const b = harness();
