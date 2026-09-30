@@ -19,15 +19,20 @@ describe('SessionsScreen', () => {
     render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     pick('プロジェクト', 'alpha');
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: 'p1' } });
+    expect(within(screen.getByRole('radiogroup', { name: '状態' })).getAllByRole('radio').map((r) => r.textContent)).toEqual(['すべて', '入力待ち', '実行中', '終了']);
     fireEvent.click(screen.getByRole('radio', { name: '実行中' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { running: true } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { live: 'running' } });
+    fireEvent.click(screen.getByRole('radio', { name: '入力待ち' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { live: 'waiting' } });
+    fireEvent.click(screen.getByRole('radio', { name: '終了' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { live: 'ended' } });
     const kw = screen.getByLabelText('キーワード');
     fireEvent.change(kw, { target: { value: 'x y' } });
     fireEvent.keyDown(kw, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: 'x y' });
   });
   it('絞り込みは、何で絞っているかを帯と札で見せる', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ projectId: 'p1', running: false }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ projectId: 'p1', live: 'ended' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('alpha');
     expect(within(screen.getByRole('radiogroup', { name: '状態' })).getByRole('radio', { name: '終了' })).toHaveAttribute('aria-checked', 'true');
     expect(within(screen.getByRole('radiogroup', { name: '期間' })).getByRole('radio', { name: '全期間' })).toHaveAttribute('aria-checked', 'true');

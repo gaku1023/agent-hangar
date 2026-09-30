@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
 import { statuslineStatus } from '../config/statusline.ts';
@@ -371,9 +371,12 @@ export function createApp(deps: AppDeps): Hono {
 
   api.get('/search', (c) => {
     const q = c.req.query();
-    const running = q.running === undefined ? undefined : q.running === 'true';
-    const runningIds = new Set(deps.live().map((l) => l.sessionId));
-    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), running, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset) }, runningIds));
+    const live = q.live === 'running' || q.live === 'waiting' || q.live === 'ended' ? q.live : undefined;
+    // 数え方は UI と同じ liveFilterOf に任せる。Claude の一覧に載る前の run も実行中に入れる。
+    const status = new Map(deps.live().map((l) => [l.sessionId, l.status]));
+    const alive = new Set(deps.runs.listAlive().runs.filter((r) => r.endedAt === null).map((r) => r.sessionId));
+    const liveOf = (sid: string, psid: string) => liveFilterOf(status.get(psid) ?? null, alive.has(sid));
+    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset) }, liveOf));
   });
 
   api.get('/settings', (c) => c.json(toSettingsDto(deps.settings())));

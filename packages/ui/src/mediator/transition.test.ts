@@ -103,6 +103,10 @@ describe('ナビゲーション', () => {
     const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
     expect(run([intent({ type: 'search.more', offset: 50 })], b.state).effects).toEqual([]);
   });
+  it('状態の絞り込みは live としてサーバへ渡す', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { live: 'waiting' } })]);
+    expect(a.effects).toContainEqual({ kind: 'api.search', params: { q: '動画', live: 'waiting' } });
+  });
   // 触ったファイルは手元のセッションに無い情報なので、キーワードが無くてもサーバに問い合わせる。
   it('キーワードが無くても、触ったファイルがあれば検索効果になる', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);

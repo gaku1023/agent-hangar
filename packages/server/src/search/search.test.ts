@@ -56,7 +56,7 @@ describe('searchSessions', () => {
     expect(searchSessions(db, { q: 'channels zz' })).toEqual({ hits: [], total: 0 });
   });
   it('短い語だけの経路でも絞り込みは効く', () => {
-    expect(searchSessions(db, { q: 'ls', running: true }, new Set()).total).toBe(0);
+    expect(searchSessions(db, { q: 'ls', live: 'running' }).total).toBe(0);
     expect(searchSessions(db, { q: 'ls', file: 'zzz' }).total).toBe(0);
     expect(searchSessions(db, { q: 'ls', until: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(1);
     expect(searchSessions(db, { q: '%' }).total).toBe(0);
@@ -69,9 +69,14 @@ describe('searchSessions', () => {
     expect(searchSessions(db, { q: 'channels', projectId: 'p2' }).total).toBe(0);
     expect(searchSessions(db, { q: 'channels', since: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(0);
     expect(searchSessions(db, { q: 'channels', until: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(1);
-    expect(searchSessions(db, { q: 'channels', running: true }, new Set()).total).toBe(0);
-    expect(searchSessions(db, { q: 'channels', running: true }, new Set([SESSION_ALPHA])).total).toBe(1);
-    expect(searchSessions(db, { q: 'channels', running: false }, new Set([SESSION_ALPHA])).total).toBe(0);
+    // 状態の判定は DB に無いので、呼ぶ側が provider_session_id と hangar の id から決める。既定は終了。
+    expect(searchSessions(db, { q: 'channels', live: 'running' }).total).toBe(0);
+    expect(searchSessions(db, { q: 'channels', live: 'ended' }).total).toBe(1);
+    const liveOf = (_sid: string, psid: string) => (psid === SESSION_ALPHA ? 'waiting' as const : 'ended' as const);
+    expect(searchSessions(db, { q: 'channels', live: 'waiting' }, liveOf).total).toBe(1);
+    expect(searchSessions(db, { q: 'channels', live: 'running' }, liveOf).total).toBe(0);
+    expect(searchSessions(db, { q: 'channels', live: 'ended' }, liveOf).total).toBe(0);
+    expect(searchSessions(db, { q: 'channels', live: 'running' }, (sid) => (sid === idOf(SESSION_ALPHA) ? 'running' : 'ended')).total).toBe(1);
     expect(searchSessions(db, { q: 'channels', file: 'a.md' }).total).toBe(1);
     expect(searchSessions(db, { q: 'channels', file: 'zzz' }).total).toBe(0);
     expect(searchSessions(db, { q: 'hello' }).hits[0]!.sessionId).toBe(idOf(SESSION_OTHER));
@@ -85,7 +90,8 @@ describe('searchSessions', () => {
     expect(searchSessions(db, { q: '  ', file: 'a.md' }).total).toBe(1);
     expect(searchSessions(db, { q: '', file: 'zzz' })).toEqual({ hits: [], total: 0 });
     expect(searchSessions(db, { q: '', file: '%' })).toEqual({ hits: [], total: 0 });
-    expect(searchSessions(db, { q: '', file: 'a.md', running: true }, new Set()).total).toBe(0);
+    expect(searchSessions(db, { q: '', file: 'a.md', live: 'running' }).total).toBe(0);
+    expect(searchSessions(db, { q: '', file: 'a.md', live: 'waiting' }, () => 'waiting').total).toBe(1);
     expect(searchSessions(db, { q: '', file: 'a.md', since: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(0);
     // ファイルも無ければ、これまでどおり空の結果である。一覧は手元で組む。
     expect(searchSessions(db, { q: '', projectId: 'p1' })).toEqual({ hits: [], total: 0 });

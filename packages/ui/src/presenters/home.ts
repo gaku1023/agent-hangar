@@ -1,8 +1,9 @@
 import type { LiveStatus, ProjectStatus, SessionDto } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { aliveRunOf, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
+import { liveCountsOf } from './projects.ts';
 import { presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
 
 /**
@@ -53,7 +54,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
   // Claude のレジストリに載る前の run も実行中に数える。
   // 信頼確認のダイアログ待ちの run が Home のどこにも出ないと、セッション画面への戻り道がなくなる。
   const alive = runningSessionIds(store);
-  const running = sortSessions(sessions.filter((s) => s.live === 'busy' || s.live === 'idle' || (s.live === null && alive.has(s.id)))).map((s): RunningCard => {
+  const running = sortSessions(sessions.filter((s) => liveFilterOfSession(store, s, alive) === 'running')).map((s): RunningCard => {
     // 対象が取れない呼び出し（答えた後の AskUserQuestion など）は summary にツール名が入る。同じ語を 2 度並べないよう空にする。
     // summary の先頭に「ツール名+半角空白」が付くこともある（サーバの toolSummary が付けた分）。カードはツール名を <i> で先に出すので、その重なりを削る。
     const activity = s.live === 'busy' && s.activity ? { tool: s.activity.tool, summary: stripLeadingTool(s.activity.tool, s.activity.summary) } : null;
@@ -67,10 +68,10 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
   const recent = sessions.filter((s) => !shown.has(s.id)).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).slice(0, RECENT_LIMIT).map((s) => presentSessionRow(s, store, now));
 
   const projects = Object.values(store.projects).filter((p) => p.status === 'active' && !p.isScratch).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).map((p): ProjectMini => {
-    // サーバの runningCount は入力待ちも数える。入力待ちは要対応に出すので、Home の実行中の区画と同じく実行中からは引く。
-    const waitingHere = waiting.filter((s) => s.projectId === p.id).length;
+    // 実行中と入力待ちは、プロジェクトのカードと同じく手元のセッションから数える。入力待ちは要対応として別に数える。
+    const live = liveCountsOf(store, p.id, alive);
     const confirmHere = candidates.filter(({ t }) => t.projectId === p.id).length;
-    const counts: [string, number][] = [['実行中', Math.max(0, p.runningCount - waitingHere)], ['TODO', p.openTodoCount], ['要対応', waitingHere], ['確かめる', confirmHere]];
+    const counts: [string, number][] = [['実行中', live.running], ['TODO', p.openTodoCount], ['要対応', live.waiting], ['確かめる', confirmHere]];
     return { id: p.id, name: p.name, status: p.status, counts: counts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join(' · ') };
   });
 

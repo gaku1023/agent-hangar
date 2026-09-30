@@ -22,6 +22,7 @@ export function ProjectCard(props: ProjectCardProps) {
       <div className="faint" style={{ display: 'flex', gap: 12 }}>
         <span>{props.lastActivity}</span>
         {props.runningCount > 0 && <span>実行中 {props.runningCount}</span>}
+        {props.waitingCount > 0 && <span>要対応 {props.waitingCount}</span>}
         {props.openTodoCount > 0 && <span>TODO {props.openTodoCount}</span>}
       </div>
       {props.memoHead && <div className="faint card-memo">{props.memoHead}</div>}

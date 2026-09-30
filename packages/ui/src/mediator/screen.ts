@@ -35,7 +35,7 @@ export function searchParams(state: State): SearchQuery {
   if (f.projectId) p.projectId = f.projectId;
   if (f.days) p.days = f.days;
   if (f.until !== undefined) p.until = f.until;
-  if (f.running !== undefined) p.running = f.running;
+  if (f.live !== undefined) p.live = f.live;
   if (f.file) p.file = f.file;
   return p;
 }

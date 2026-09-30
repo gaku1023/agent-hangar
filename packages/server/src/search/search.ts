@@ -1,4 +1,4 @@
-import { splitFtsTokens, toFtsQuery, type SearchHitDto, type SearchParamsDto, type SearchResultDto } from '@agent-hangar/shared';
+import { splitFtsTokens, toFtsQuery, type LiveFilter, type SearchHitDto, type SearchParamsDto, type SearchResultDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 
 const DEFAULT_LIMIT = 50;
@@ -40,9 +40,10 @@ export function likeSnippet(text: string, token: string): string {
  * 検索語が無くても触ったファイルがあれば、そのファイルを触ったセッションを新しい順に返す。
  * このときの件数はそのファイルに触れたイベントの数で、抜粋は持たない。
  * total は条件に合う全件の数で、hits は offset から limit 件だけを持つ。
- * running の判定は DB に無いので、実行中の provider_session_id の集合を第三引数で受ける。
+ * 状態（実行中、入力待ち、終了）の判定は DB に無いので、hangar の id と provider_session_id から状態を返す関数を第三引数で受ける。
+ * 渡されなければ、どのセッションも終了とみなす。
  */
-export function searchSessions(db: Db, params: SearchParamsDto, runningIds: Set<string> = new Set()): SearchResultDto {
+export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (sessionId: string, providerSessionId: string) => LiveFilter = () => 'ended'): SearchResultDto {
   const { long, short } = splitFtsTokens(params.q);
   const match = long.length > 0 ? toFtsQuery(params.q) : null;
   const hasText = match !== null || short.length > 0;
@@ -69,7 +70,7 @@ export function searchSessions(db: Db, params: SearchParamsDto, runningIds: Set<
     // 本文の条件が無いので、セッションを直接並べる。件数はそのファイルに触れたイベントの数にする。
     const sql = `select s.id sid, s.provider_session_id psid, (select count(*) from event_index e where e.session_id = s.id and e.file_path like ? escape '\\') n from sessions s where ${where.join(' and ')} order by s.last_activity_at desc`;
     let rows = db.prepare(sql).all(likePattern(params.file!), ...args) as { sid: string; psid: string; n: number }[];
-    if (params.running !== undefined) rows = rows.filter((r) => runningIds.has(r.psid) === params.running);
+    if (params.live !== undefined) rows = rows.filter((r) => liveOf(r.sid, r.psid) === params.live);
     return { hits: rows.slice(offset, offset + limit).map((r) => ({ sessionId: r.sid, matchCount: r.n, snippets: [] })), total: rows.length };
   }
   // MATCH があれば索引で候補が絞れるので event_fts を直接結合する。
@@ -79,7 +80,7 @@ export function searchSessions(db: Db, params: SearchParamsDto, runningIds: Set<
     : `(select session_id from event_fts f where ${textWhere.join(' and ')} limit ${LIKE_ONLY_SCAN_CAP}) f join sessions s on s.id = f.session_id where ${where.join(' and ')}`;
   const sql = `select s.id sid, s.provider_session_id psid, count(*) n from ${source} group by s.id order by n desc, s.last_activity_at desc`;
   let rows = db.prepare(sql).all(...textArgs, ...args) as { sid: string; psid: string; n: number }[];
-  if (params.running !== undefined) rows = rows.filter((r) => runningIds.has(r.psid) === params.running);
+  if (params.live !== undefined) rows = rows.filter((r) => liveOf(r.sid, r.psid) === params.live);
   const total = rows.length;
 
   // snippet() は MATCH した問い合わせでしか使えないので、like だけの経路は本文を取って切り出す。

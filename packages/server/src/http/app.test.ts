@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LaunchParams, LaunchResultDto, ResumeHereConflictDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
+import type { LaunchParams, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
@@ -314,6 +314,23 @@ describe('routes', () => {
     expect((await json(await get('/api/search?q=&file=a.md'))).body.total).toBe(1);
     // 続きは offset で読む。件数は全件のまま。
     expect((await json(await get('/api/search?q=channels&offset=1'))).body).toEqual({ hits: [], total: 1 });
+  });
+  it('検索の状態の絞り込みは、実行中（作業中、休み、起動中）、入力待ち、終了に分ける', async () => {
+    const { body: sessions } = await json(await get('/api/sessions'));
+    const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
+    const total = async (live: string) => (await json(await get(`/api/search?q=channels&live=${live}`))).body.total;
+    // run も Claude の一覧も無ければ終了。
+    expect(await total('ended')).toBe(1);
+    expect(await total('running')).toBe(0);
+    // hangar の run が生きていれば、Claude の一覧に載る前でも起動中として実行中に数える。
+    vi.mocked(runs.listAlive).mockReturnValue({ runs: [{ ...run, sessionId: alpha.id }], tabs: [] });
+    expect(await total('running')).toBe(1);
+    expect(await total('ended')).toBe(0);
+    // 入力待ちは run があっても実行中に入れず、別に数える。
+    const waiting: LiveSessionDto = { sessionId: SESSION_ALPHA, status: 'waiting', name: null, nameSource: null, cwd: ws, pid: 1 };
+    app = createApp({ ...deps, live: () => [waiting] });
+    expect(await total('waiting')).toBe(1);
+    expect(await total('running')).toBe(0);
   });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);

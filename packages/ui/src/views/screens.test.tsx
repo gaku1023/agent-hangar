@@ -11,7 +11,7 @@ import { SESSION_ROW_H } from './SessionRows.tsx';
 
 // Task 22 で ProjectProps に増えた右レールの分。この節が見るのはヘッダーの操作だけなので空にする。
 const rail = { isScratch: false, todos: [], memo: null, artifacts: [] };
-const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, openTodoCount: 0, memoHead: null, lastOneLiner: 'last one' });
+const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, waitingCount: 0, openTodoCount: 0, memoHead: null, lastOneLiner: 'last one' });
 
 describe('HomeScreen', () => {
   const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], confirm: [], running: [], recent: [], projects: [], ...over });
@@ -160,6 +160,17 @@ describe('ProjectsScreen', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Done' }));
     expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'done' });
+  });
+});
+
+describe('ProjectCard の数', () => {
+  it('実行中と要対応を別に出し、0 のものは出さない', () => {
+    const { rerender } = render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), runningCount: 1, waitingCount: 2 }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    expect(screen.getByText('実行中 1')).toBeInTheDocument();
+    expect(screen.getByText('要対応 2')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), runningCount: 0, waitingCount: 1 }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    expect(screen.queryByText(/^実行中/)).toBeNull();
+    expect(screen.getByText('要対応 1')).toBeInTheDocument();
   });
 });
 

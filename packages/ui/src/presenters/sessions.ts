@@ -1,7 +1,7 @@
 import type { SearchFilter } from '@agent-hangar/shared';
 import { periodStart, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
-import type { Store } from '../store/store.ts';
+import { liveFilterOfSession, runningSessionIds, type Store } from '../store/store.ts';
 import { markTerms } from './highlight.ts';
 import { presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
 
@@ -18,7 +18,7 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
   if (!usesServerSearch(state.search)) {
     let list = Object.values(store.sessions);
     if (f.projectId) list = list.filter((s) => s.projectId === f.projectId);
-    if (f.running !== undefined) list = list.filter((s) => (s.live !== null) === f.running);
+    if (f.live !== undefined) { const alive = runningSessionIds(store); list = list.filter((s) => liveFilterOfSession(store, s, alive) === f.live); }
     const { days, until } = f;
     if (days) { const since = periodStart(days, now); list = list.filter((s) => (s.lastActivityAt ?? 0) >= since); }
     if (until !== undefined) list = list.filter((s) => (s.lastActivityAt ?? 0) < until);

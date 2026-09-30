@@ -1,3 +1,4 @@
+import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
 import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean };
@@ -162,6 +163,15 @@ export function hasRunOf(store: Store, sessionId: string): boolean {
 /** 終わっていない run があるセッションの id。 */
 export function runningSessionIds(store: Store): Set<string> {
   return new Set(Object.values(store.runs).filter((r) => r.endedAt === null).map((r) => r.sessionId));
+}
+
+/**
+ * 画面で数えるときのセッションの状態（実行中、入力待ち、終了）。
+ * Claude の一覧に載る前の run も実行中に数える。
+ * alive を渡せば、何件も数えるときに run の集合を作り直さずに済む。
+ */
+export function liveFilterOfSession(store: Store, session: SessionDto, alive: Set<string> = runningSessionIds(store)): LiveFilter {
+  return liveFilterOf(session.live, alive.has(session.id));
 }
 
 /** 終わっていない最新の run。 */

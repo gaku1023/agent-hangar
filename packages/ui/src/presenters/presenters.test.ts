@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, ProjectDto, RunDto, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
@@ -229,12 +229,15 @@ describe('presentHome', () => {
   });
   it('プロジェクトは active だけを小さな一覧にし、0 の数は出さない', () => {
     const store = homeStore();
-    // サーバの runningCount は入力待ちも含む。入力待ちは要対応に数えるので、実行中からは引く。
-    store.projects.alpha = { ...store.projects.alpha!, runningCount: 4, openTodoCount: 3 };
-    expect(presentHome(initialState(), store, NOW).projects).toEqual([{ id: 'alpha', name: 'alpha', status: 'active', counts: '実行中 2 · TODO 3 · 要対応 2' }]);
-    store.projects.alpha = { ...store.projects.alpha!, runningCount: 2 };
-    expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('TODO 3 · 要対応 2');
-    store.projects.alpha = { ...store.projects.alpha!, runningCount: 0, openTodoCount: 0 };
+    // 数は手元のセッションから数え、サーバの runningCount は見ない。
+    // 実行中は作業中、休み、起動中（hangar の run はあるが Claude の一覧にまだ無い）で、入力待ちは要対応に別に数える。
+    store.projects.alpha = { ...store.projects.alpha!, runningCount: 99, openTodoCount: 3 };
+    store.runs = { r2: runDto('r2', 's2') };
+    expect(presentHome(initialState(), store, NOW).projects).toEqual([{ id: 'alpha', name: 'alpha', status: 'active', counts: '実行中 3 · TODO 3 · 要対応 2' }]);
+    store.runs = {};
+    store.sessions = { w1: store.sessions.w1!, s2: store.sessions.s2! };
+    expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('TODO 3 · 要対応 1');
+    store.projects.alpha = { ...store.projects.alpha!, openTodoCount: 0 };
     store.sessions = { s2: store.sessions.s2! };
     expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('');
   });
@@ -248,6 +251,15 @@ describe('presentProjects', () => {
     expect(presentProjects(initialState(), storeWith(), NOW, 'bet', false).sections[1]!.cards).toHaveLength(1);
     expect(presentProjects(initialState(), storeWith(), NOW, 'bet', false).sections[0]!.cards).toHaveLength(0);
     expect(presentProjects(initialState(), storeWith(), NOW, '', true).sections.map((s) => s.status)).toEqual(['active', 'paused', 'done', 'archived']);
+  });
+  it('カードの実行中と要対応は手元のセッションから数え、ホームと同じ数え方にする', () => {
+    const store = storeWith();
+    // サーバの runningCount は入力待ちを含み、起動中を含まないので使わない。
+    store.projects.alpha = { ...store.projects.alpha!, runningCount: 99 };
+    store.sessions.w1 = session('w1', { live: 'waiting' });
+    store.runs = { r2: runDto('r2', 's2') };
+    const alpha = presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards[0]!;
+    expect(alpha).toMatchObject({ runningCount: 2, waitingCount: 1 });
   });
 });
 
@@ -404,6 +416,16 @@ describe('presentSessions', () => {
     expect(ids(1)).toEqual(['today']);
     expect(ids(7)).toEqual(['today', 'yesterday', 'week']);
     expect(ids(undefined)).toHaveLength(3);
+  });
+  it('状態の絞り込みは、実行中（作業中、休み、起動中）、入力待ち、終了に分ける', () => {
+    const store = storeWith();
+    store.sessions.w1 = session('w1', { live: 'waiting' });
+    store.runs = { r2: runDto('r2', 's2') };
+    const ids = (live: SearchFilter['live']) => presentSessions({ ...initialState(), search: { text: '', filter: { live } } }, store, NOW).rows.map((r) => r.id).sort();
+    expect(ids('running')).toEqual(['s1', 's2']);
+    expect(ids('waiting')).toEqual(['w1']);
+    expect(ids('ended')).toEqual(['s3']);
+    expect(ids(undefined)).toEqual(['s1', 's2', 's3', 'w1']);
   });
   it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
     let store = storeWith();
