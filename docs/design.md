@@ -1202,9 +1202,9 @@ WKWebView の `allowsBackForwardNavigationGestures` も、ブラウザの手勢�
 本文の色は、白地と、ガラスを重ねた色（白 40% を `--bg` に重ねた `#f5f7fa`）の両方で 4.5:1 以上を保つ。
 プロジェクトのステータス（active、paused、done、archived）は、アイコンではなく色で示す。
 ステータスごとに文字色と淡い地色のトークン（`--st-<status>`、`--st-<status>-soft`）を持ち、ステータスの部品と見出しの点が `data-status` からそれを引く。
-ステータスの部品は、文字、その右の塗りつぶしの丸、矢印の順に自前で描き、透明にした本物の `select` をその上に重ねる。
-素の `select` の中には要素を置けないためで、選択肢の一覧、キーボード操作、読み上げは `select` がそのまま受け持つ。
-この部品は `views/primitives/StatusSelect.tsx` の `StatusSelect`（選べる場所）と `ProjectStatusDot`（読むだけの場所）だけを通して使い、View が `<select>` を自分で書くことはしない。
+ステータスの部品は、文字、その右の塗りつぶしの丸、矢印の順に描いた札を、ガラスの一覧（`views/primitives/Listbox.tsx`）の顔にする。
+開くと 4 つのステータスを、色の点とひとことの意味（いま進めている、いったん止めている、やり終えた、一覧の奥へしまう）つきで並べる。
+この部品は `views/primitives/StatusSelect.tsx` の `StatusSelect`（選べる場所）と `ProjectStatusDot`（読むだけの場所）だけを通して使い、View が一覧を自分で組むことはしない。
 淡い地色の上の文字は 4.5:1 以上のコントラストを保つ。
 ステータスは常に文字でも示すので、色は補助である。
 グラデーションは主ボタンと背景の光だけ、影は浮く部品と端末の板だけに許す。
