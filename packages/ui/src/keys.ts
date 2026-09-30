@@ -7,7 +7,7 @@
 export type KeyId =
   | 'palette.open' | 'session.new' | 'session.newScratch' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
   | 'nav.back' | 'nav.forward' | 'search.focus' | 'overlay.close'
-  | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle'
+  | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'tab.move' | 'turn.move'
   | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.memo';
 
 export type KeyGroup = 'global' | 'session' | 'list';
@@ -41,6 +41,8 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'tab.close', group: 'session', keys: '⌘W', label: 'シェルタブを閉じる', chords: [{ key: 'w', mod: true, shift: false }] },
   { id: 'split.toggle', group: 'session', keys: '⌘\\', label: 'タブを横に並べる', chords: [{ key: '\\', mod: true, shift: false }] },
   { id: 'transcript.toggle', group: 'session', keys: '⌘J', label: 'トランスクリプトの開閉', chords: [{ key: 'j', mod: true, shift: false }] },
+  { id: 'tab.move', group: 'session', keys: '← / →', label: 'タブの列で隣のタブへ（Enter で選ぶ）', chords: [] },
+  { id: 'turn.move', group: 'session', keys: 'j / k / ↑ / ↓', label: 'ターンの目次で下へ / 上へ（Enter で開く）', chords: [] },
   { id: 'list.move', group: 'list', keys: 'j / k / ↑ / ↓', label: '下へ / 上へ', chords: [] },
   { id: 'list.open', group: 'list', keys: 'Enter', label: '開く', chords: [] },
   { id: 'list.terminal', group: 'list', keys: 'o', label: 'ターミナルで開く', chords: [] },

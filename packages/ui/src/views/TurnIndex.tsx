@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { TurnJumpStatus } from '../mediator/types.ts';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
@@ -34,6 +34,8 @@ const firstLine = (s: string) => s.split('\n').find((l) => l.trim() !== '') ?? '
 /**
  * 実行中のセッションの右欄。利用者の指示を 1 行ずつ並べた目次で、押したターンだけ中身を開く。
  * 会話の全文は左のターミナルと重なるので流さない。開いたターンへは左のターミナルも跳ぶ。
+ * キーでは ↑ ↓ と k j で行を移り、Enter で開く。
+ * Tab で止まる行は 1 つだけにする（roving tabindex）。既定は開いている行、無ければいちばん新しい指示である。
  */
 export function TurnIndex(props: TurnIndexProps) {
   const emit = useEmit();
@@ -57,6 +59,23 @@ export function TurnIndex(props: TurnIndexProps) {
   };
   const note = props.turnJump && props.turnJump.seq === openSeq ? JUMP_NOTE[props.turnJump.status] : undefined;
 
+  // 最後にフォーカスした行。キーで移った先を、次に Tab で戻ってきたときの止まり先にする。
+  const [focusSeq, setFocusSeq] = useState<number | null>(null);
+  const stopSeq = props.rows.some((r) => r.seq === focusSeq) ? focusSeq : openSeq ?? lastSeq;
+  const onRowKey = (e: ReactKeyboardEvent, i: number) => {
+    // ⌘ の付いた打鍵はアプリ全体のもの（⌘← で戻るなど）なので、目次では使わない。
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const to = e.key === 'ArrowDown' || e.key === 'j' ? i + 1 : e.key === 'ArrowUp' || e.key === 'k' ? i - 1 : null;
+    if (to !== null) {
+      // 端で止まっても、矢印で一覧がスクロールしないように既定の動きは止める。
+      e.preventDefault();
+      listRef.current?.querySelectorAll<HTMLElement>('.turn-row')[to]?.focus();
+      return;
+    }
+    // ボタンの既定の Enter はクリックを起こす。ここで開いて既定を止め、二重に出さない。
+    if (e.key === 'Enter') { e.preventDefault(); open(i); }
+  };
+
   return (
     <div className="turns">
       <div className="turns-head">
@@ -69,7 +88,8 @@ export function TurnIndex(props: TurnIndexProps) {
         {props.rows.length === 0 && !props.loading && <div className="empty">まだ指示がありません</div>}
         {props.rows.map((r, i) => (
           <div key={r.seq} ref={r.open ? openRef : undefined} className="turn" data-open={r.open ? 'true' : undefined}>
-            <button className="turn-row" aria-expanded={r.open} title={r.text} onClick={() => open(i)}>
+            <button className="turn-row" aria-expanded={r.open} title={r.text} tabIndex={r.seq === stopSeq ? 0 : -1}
+              onClick={() => open(i)} onFocus={() => setFocusSeq(r.seq)} onKeyDown={(e) => onRowKey(e, i)}>
               <span className="turn-when mono">{r.when}</span>
               <span className="turn-text">{firstLine(r.text)}</span>
               {r.tools > 0 && <span className="turn-tools mono">{r.tools}</span>}

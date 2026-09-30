@@ -63,6 +63,12 @@ describe('キーマップ', () => {
     expect(KEYMAP.find((b) => b.id === 'list.move')?.keys).toBe('j / k / ↑ / ↓');
   });
 
+  it('タブの列とターンの目次の矢印も、セッションの節に載せる', () => {
+    const session = KEYMAP.filter((b) => b.group === 'session').map((b) => b.keys);
+    expect(session).toContain('← / →');
+    expect(session).toContain('j / k / ↑ / ↓');
+  });
+
   it('どの行にも表示するキーと説明がある', () => {
     for (const b of KEYMAP) {
       expect(b.keys, b.id).not.toBe('');
