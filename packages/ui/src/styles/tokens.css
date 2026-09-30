@@ -38,6 +38,7 @@
   --glass-bg-palette: rgba(255, 255, 255, 0.62);
   --glass-bg-dialog: rgba(255, 255, 255, 0.72);
   --glass-bg-toast: rgba(255, 255, 255, 0.82);
+  --glass-bg-menu: rgba(255, 255, 255, 0.82);
   --glass-blur: blur(12px) saturate(1.9);
   --glass-blur-strong: blur(18px) saturate(1.8);
   --glass-blur-dialog: blur(18px) saturate(1.6);

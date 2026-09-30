@@ -12,6 +12,7 @@ import './styles/session.css';
 import './styles/palette.css';
 import './styles/settings.css';
 import './styles/sync.css';
+import './styles/controls.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
