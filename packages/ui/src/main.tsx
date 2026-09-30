@@ -21,6 +21,7 @@ import { createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
 import { createXterm } from './runtime/xterm.ts';
 import { focusSoon } from './runtime/focusSoon.ts';
+import { clickThrough } from './runtime/clickThrough.ts';
 import { createPresent } from './runtime/present.ts';
 
 // フォーカスの対象と、それを持つ要素の id の対応。
@@ -65,6 +66,8 @@ const present = createPresent({
   focused: () => document.activeElement,
   visible: visibleInMain,
 });
+// 遷移の写しに当たったクリックは、遷移を終わらせて下の部品へ通す。
+document.addEventListener('click', (e) => clickThrough(e, { root: document.documentElement, skip: present.skip, hit: (x, y) => document.elementFromPoint(x, y) }), true);
 const runtime = createRuntime({
   api,
   ws: (h) => createWs({ url: `${wsProto}://${location.host}/ws`, ...h }),

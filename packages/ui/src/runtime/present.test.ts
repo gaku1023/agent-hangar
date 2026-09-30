@@ -15,14 +15,17 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 function fake(over: Partial<PresentEnv> = {}) {
   const updates: (() => void)[] = [];
   const settles: { ok: () => void; ng: (e: unknown) => void }[] = [];
+  const skips: ReturnType<typeof vi.fn>[] = [];
   const start = vi.fn((update: () => void) => {
     updates.push(update);
     const finished = new Promise<void>((ok, ng) => { settles.push({ ok: () => ok(), ng }); });
-    return { ready: finished, finished };
+    const skipTransition = vi.fn();
+    skips.push(skipTransition);
+    return { ready: finished, finished, skipTransition };
   });
   const env: PresentEnv = { startViewTransition: start, reducedMotion: () => false, flushSync: (fn) => fn(), root: document, pressed: () => null, focused: () => null, visible: () => true, ...over };
   const pick = (i?: number) => settles[i ?? settles.length - 1]!;
-  return { env, start, run: () => updates.shift()!(), finish: (i?: number) => pick(i).ok(), skip: (i?: number) => pick(i).ng(new DOMException('skipped', 'AbortError')) };
+  return { env, start, skips, run: () => updates.shift()!(), finish: (i?: number) => pick(i).ok(), skip: (i?: number) => pick(i).ng(new DOMException('skipped', 'AbortError')) };
 }
 
 // 行、Home の実行中の札、セッション画面の上段。点と名前を持つ。
@@ -114,6 +117,23 @@ describe('createPresent', () => {
     f.run();
     expect(name('#hero')).toBe('');
   });
+  // 狭いヘッダでは検索欄を畳み、虫眼鏡のボタンを出す。隠れた検索欄に名前を付けても行き先にならず、
+  // パレットの写しがその場に残って薄れていく。
+  it('検索欄が畳まれていれば、パレットは虫眼鏡のボタンへ戻る', () => {
+    document.body.innerHTML = '<div class="dialog palette"></div><input id="global-search" style="display: none"><button class="search-icon"></button>';
+    const f = fake();
+    createPresent(f.env)(() => { $('.palette').remove(); }, at({ name: 'home' }, { kind: 'palette' }), at({ name: 'home' }));
+    expect(name('.palette')).toBe(PALETTE_MORPH);
+    f.run();
+    expect(name('.search-icon')).toBe(PALETTE_MORPH);
+    expect(name('#global-search')).toBe('');
+  });
+  it('戻る先がどれも見えていなければ、パレットに名前を付けない。写しが残らない', () => {
+    document.body.innerHTML = '<div class="dialog palette"></div><input id="global-search" style="display: none"><button class="search-icon" style="display: none"></button>';
+    const f = fake();
+    createPresent(f.env)(() => { $('.palette').remove(); }, at({ name: 'home' }, { kind: 'palette' }), at({ name: 'home' }));
+    expect(name('.palette')).toBe('');
+  });
   it('パレットが閉じると、パレットから検索欄の錠剤へ戻る', () => {
     document.body.innerHTML = '<div class="dialog palette"></div><input id="global-search">';
     const f = fake();
@@ -131,6 +151,33 @@ describe('createPresent', () => {
     f.skip();
     await flush();
     expect(name('#global-search')).toBe('');
+  });
+  // 遷移の間は写しが画面を覆い、クリックが下の部品に届かない。押されたら遷移を終わらせて、クリックを通す（clickThrough.ts）。
+  it('skip は動いている遷移を終わらせて true を返し、遷移が無ければ何もせず false を返す', async () => {
+    const f = fake();
+    const present = createPresent(f.env);
+    expect(present.skip()).toBe(false);
+    present(() => {}, at({ name: 'home' }), at({ name: 'projects' }));
+    expect(present.skip()).toBe(true);
+    expect(f.skips[0]).toHaveBeenCalledTimes(1);
+    // 一度終わらせた遷移は、もう終わらせない。
+    expect(present.skip()).toBe(false);
+    present(() => {}, at({ name: 'projects' }), at({ name: 'sessions' }));
+    f.run();
+    f.finish();
+    await flush();
+    expect(present.skip()).toBe(false);
+    expect(f.skips[1]).not.toHaveBeenCalled();
+  });
+  it('割り込まれた前の遷移が終わっても、後の遷移は終わらせられるままである', async () => {
+    const f = fake();
+    const present = createPresent(f.env);
+    present(() => {}, at({ name: 'home' }), at({ name: 'projects' }));
+    present(() => {}, at({ name: 'projects' }), at({ name: 'sessions' }));
+    f.skip(0);
+    await flush();
+    expect(present.skip()).toBe(true);
+    expect(f.skips[1]).toHaveBeenCalledTimes(1);
   });
   it('包んだ中で、描画を flushSync で同期させる', () => {
     const order: string[] = [];

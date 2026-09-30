@@ -8,12 +8,13 @@ import type { Screen, State } from '../mediator/types.ts';
  * 戻ると、上段が元の行へ縮んで帰る。
  * 出る画面と入る画面の重ね合わせは base.css の ::view-transition の規則が、入る画面の動きは .screen の enter が受け持つ。
  * View Transitions が無い環境（macOS 13 と 14 の WKWebView）と reduced motion では、包まずにその場で描く。
+ * 遷移の間は写しが画面を覆い、クリックが下の部品に届かない。skip で遷移を終わらせ、clickThrough.ts がクリックを通す。
  */
 
 /** 見た目の移り変わりに要る、ブラウザの受け口。試験が差し替える。 */
 export type PresentEnv = {
   /** document.startViewTransition。無い環境では undefined。 */
-  startViewTransition?: (update: () => void) => { ready: Promise<unknown>; finished: Promise<unknown> };
+  startViewTransition?: (update: () => void) => { ready: Promise<unknown>; finished: Promise<unknown>; skipTransition(): void };
   reducedMotion(): boolean;
   /** react-dom の flushSync。包んだ中で React の描画を同期させ、入る画面の写しに間に合わせる。 */
   flushSync(fn: () => void): void;
@@ -30,7 +31,7 @@ export type PresentEnv = {
 export const SESSION_MORPH = 'session-morph';
 export const SESSION_MORPH_DOT = 'session-morph-dot';
 export const SESSION_MORPH_NAME = 'session-morph-name';
-/** パレットと検索欄の錠剤に、閉じる遷移の間だけ付ける名前。 */
+/** パレットと検索欄の錠剤（狭いヘッダでは虫眼鏡のボタン）に、閉じる遷移の間だけ付ける名前。 */
 export const PALETTE_MORPH = 'palette-morph';
 
 type Pair = { name: string; from: HTMLElement | null; to: () => HTMLElement | null };
@@ -41,6 +42,8 @@ type Kind = 'row' | 'card';
 
 // 画面の同一性は名前と id で見る。Sessions の検索語（q）はハッシュに載るが、画面は替わっていない。
 const screenKey = (s: Screen) => ('id' in s ? `${s.name}:${s.id}` : s.name);
+/** 描かれている要素だけを返す。 */
+const drawn = (el: HTMLElement | null): HTMLElement | null => (el && getComputedStyle(el).display !== 'none' ? el : null);
 const rowOf = (id: string) => `[data-morph-id="${id.replace(/["\\]/g, '\\$&')}"]`;
 const kindOf = (el: Element): Kind => (el.classList.contains('live-card') ? 'card' : 'row');
 const rowParts = (el: HTMLElement): Parts => ({ box: el, dot: el.querySelector<HTMLElement>('.dot'), name: el.querySelector<HTMLElement>('.row-name, .live-name') });
@@ -52,7 +55,10 @@ const morph = (src: Parts, dst: () => Parts | null): Pair[] => [
   { name: SESSION_MORPH_NAME, from: src.name, to: () => dst()?.name ?? null },
 ];
 
-export function createPresent(env: PresentEnv): (commit: () => void, prev: State, next: State) => void {
+/** 状態の変化を画面へ出す関数と、動いている遷移を終わらせる skip。skip は遷移があれば true を返す。 */
+export type Present = ((commit: () => void, prev: State, next: State) => void) & { skip(): boolean };
+
+export function createPresent(env: PresentEnv): Present {
   const q = (sel: string) => env.root.querySelector<HTMLElement>(sel);
   const shown = (el: HTMLElement | null | undefined) => (el && env.visible(el) ? el : null);
   // どの種類の行から開いたか。戻るときは同じ種類の行を好んで縮む。
@@ -73,7 +79,9 @@ export function createPresent(env: PresentEnv): (commit: () => void, prev: State
     const kind = origin?.id === id ? origin.kind : null;
     return all.find((el) => kindOf(el) === kind) ?? all[0] ?? null;
   };
-  return (commit, prev, next) => {
+  // いま動いている遷移。終わるか、終わらせるか、次の遷移に替わると外す。
+  let active: { skipTransition(): void } | null = null;
+  const present = (commit: () => void, prev: State, next: State): void => {
     const screenChanged = prev.screen.name !== 'booting' && screenKey(prev.screen) !== screenKey(next.screen);
     // 錠剤へ戻るのは、パレットが閉じて何も上に残らないときだけにする。
     // 別のダイアログへ移るとき（パレットから新規セッションを開くときなど）は、そのダイアログが自分で現れる。
@@ -92,7 +100,13 @@ export function createPresent(env: PresentEnv): (commit: () => void, prev: State
       const src = q('[data-morph-hero]');
       if (src) pairs.push(...morph(heroParts(src), () => { const el = returnTo(from.id); return el ? rowParts(el) : null; }));
     }
-    if (paletteClosed) pairs.push({ name: PALETTE_MORPH, from: q('.palette'), to: () => q('#global-search') });
+    if (paletteClosed) {
+      // 狭いヘッダでは検索欄を畳み、代わりに虫眼鏡のボタンを出している。畳んだ（display: none の）要素は写しの行き先にならず、
+      // 名前だけ付けるとパレットの写しがその場に残って薄れていく。見えている方へ戻し、どちらも無ければ組を作らない。
+      // どちらへ戻すかは今の見え方で決め、要素は描き替えの後に探す（描き替えで作り直されることがある）。
+      const sel = ['#global-search', '.search-icon'].find((s) => drawn(q(s)));
+      if (sel) pairs.push({ name: PALETTE_MORPH, from: q('.palette'), to: () => q(sel) });
+    }
     // 出る側に名前を付けてから写しを取らせる。
     const froms = pairs.map((p) => p.from);
     froms.forEach((el, i) => { if (el) el.style.viewTransitionName = pairs[i]!.name; });
@@ -108,8 +122,19 @@ export function createPresent(env: PresentEnv): (commit: () => void, prev: State
         if (el) { el.style.viewTransitionName = p.name; named.push(el); }
       });
     });
+    active = t;
     // 次の遷移に割り込まれると ready と finished は拒否される。描き替えは済んでいるので、拒否は捨てて名前だけ外す。
     t.ready.catch(() => {});
-    t.finished.catch(() => {}).then(() => { for (const el of named) el.style.viewTransitionName = ''; });
+    t.finished.catch(() => {}).then(() => {
+      for (const el of named) el.style.viewTransitionName = '';
+      if (active === t) active = null;
+    });
   };
+  const skip = (): boolean => {
+    if (!active) return false;
+    active.skipTransition();
+    active = null;
+    return true;
+  };
+  return Object.assign(present, { skip });
 }
