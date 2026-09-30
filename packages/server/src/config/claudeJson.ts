@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { acquireFileLock, resolveRealFile, writeFileAtomically } from './claudeFileWrite.ts';
+
+export { resolveRealFile } from './claudeFileWrite.ts';
 
 /**
  * Claude Code の user スコープの設定（~/.claude.json）に、MCP サーバの登録だけを書く。
@@ -48,12 +51,6 @@ export type UpsertResult = {
   tightened: boolean;
 };
 
-/** ロックが取れないときの文言。相手はたいてい Claude Code なので、次の一手を書く。 */
-const BUSY = 'Claude Code が設定を書いている最中のようです。閉じてからもう一度試してください。';
-
-const LOCK_SUFFIX = '.hangar-lock';
-const TMP_SUFFIX = '.hangar-tmp';
-
 /** 読めたオブジェクトを返す。ファイルが無ければ空。壊れていれば投げる（上書きしない）。 */
 function readJsonObject(file: string): JsonObject {
   if (!fs.existsSync(file)) return {};
@@ -66,77 +63,6 @@ function readJsonObject(file: string): JsonObject {
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${file} の中身がオブジェクトではありません。`);
   return parsed as JsonObject;
-}
-
-/**
- * リンクを解いて、実体のパスを返す。
- * 途中のディレクトリも解く。リンク先がまだ無いときも、リンクではなく実体の側を指す。
- * dotfiles のリポジトリへ ~/.claude.json をリンクしている人の設定を、実ファイルで置き換えないためである。
- */
-export function resolveRealFile(file: string): string {
-  const parent = fs.realpathSync(path.dirname(file));
-  let p = path.join(parent, path.basename(file));
-  for (let i = 0; i < 16; i++) {
-    let st: fs.Stats;
-    try {
-      st = fs.lstatSync(p);
-    } catch {
-      return p; // まだ無い。その場所に作る。
-    }
-    if (!st.isSymbolicLink()) return p;
-    p = path.resolve(path.dirname(p), fs.readlinkSync(p));
-    try {
-      p = path.join(fs.realpathSync(path.dirname(p)), path.basename(p));
-    } catch {
-      return p;
-    }
-  }
-  throw new Error(`${file} のシンボリックリンクが深すぎます。`);
-}
-
-/** 同期で少し待つ。ロックが空くのを待つだけなので、数十ミリ秒で足りる。 */
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-/**
- * O_EXCL でロックファイルを作る。取れなければ待ち直し、上限を超えたら書かずに投げる。
- * 落ちたプロセスが残したロックで永久に失敗しないよう、古いものだけは消して取り直す。
- */
-function acquireLock(realFile: string, waitMs: number, staleMs: number): () => void {
-  const lock = `${realFile}${LOCK_SUFFIX}`;
-  const deadline = Date.now() + waitMs;
-  for (;;) {
-    try {
-      const fd = fs.openSync(lock, 'wx', 0o600);
-      try {
-        fs.writeSync(fd, `${process.pid} ${new Date().toISOString()}\n`);
-      } finally {
-        fs.closeSync(fd);
-      }
-      return () => {
-        try {
-          fs.unlinkSync(lock);
-        } catch {
-          // 既に消えていてもよい。
-        }
-      };
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-    }
-    let removedStale = false;
-    try {
-      if (Date.now() - fs.statSync(lock).mtimeMs > staleMs) {
-        fs.unlinkSync(lock);
-        removedStale = true;
-      }
-    } catch {
-      // 見に行った時点で消えていた、または消せなかった。どちらも取り直しで扱う。
-    }
-    if (removedStale) continue;
-    if (Date.now() >= deadline) throw new Error(BUSY);
-    sleepSync(20);
-  }
 }
 
 const stamp = (d: Date) =>
@@ -157,33 +83,21 @@ function takeBackup(realFile: string, backupDir: string, now: Date): string | nu
   return dest;
 }
 
-/** 実体と同じディレクトリに書いてから rename する。途中で落ちても元のファイルが壊れない。 */
+/** 権限を決めて、実体の隣の一時ファイルから rename する。 */
 function writeJsonObject(realFile: string, value: JsonObject): { tightened: boolean } {
   const cur = fs.existsSync(realFile) ? fs.statSync(realFile).mode & 0o777 : null;
   // 新しく作るときは 0600。既にあるときは利用者が決めた権限をそのまま使う。
   // ただしここにはトークンを書くので、他人にも読める権限のままでは書かない。
   const tightened = cur !== null && (cur & 0o077) !== 0;
   const mode = cur === null || tightened ? 0o600 : cur;
-  const tmp = `${realFile}${TMP_SUFFIX}`;
-  try {
-    fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode });
-    fs.chmodSync(tmp, mode);
-    fs.renameSync(tmp, realFile);
-  } catch (e) {
-    try {
-      fs.unlinkSync(tmp);
-    } catch {
-      // 一時ファイルが作られる前に落ちた。
-    }
-    throw e;
-  }
+  writeFileAtomically(realFile, `${JSON.stringify(value, null, 2)}\n`, mode);
   return { tightened };
 }
 
 /** mcpServers.<name> だけを差し替える。他の項目には触らない。 */
 export function upsertUserMcpServer(file: string, name: string, server: unknown, o: UpsertOptions): UpsertResult {
   const realFile = resolveRealFile(file);
-  const release = acquireLock(realFile, o.lockWaitMs ?? 2000, o.staleLockMs ?? 10_000);
+  const release = acquireFileLock(realFile, o.lockWaitMs ?? 2000, o.staleLockMs ?? 10_000);
   try {
     // 壊れた JSON は、控えを取る前に弾く。
     readJsonObject(realFile);
