@@ -151,6 +151,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'palette.open': take(); rt.emit({ type: 'palette.open' }); return;
         case 'session.new': take(); rt.emit({ type: 'session.new.open', scratch: false }); return;
         case 'session.newScratch': take(); rt.emit({ type: 'session.new.open', scratch: true }); return;
+        // 次の入力待ちへ。ダイアログを開いている間は、その裏で画面を移さない。
+        case 'session.nextWaiting': if (overlayKind === 'none' || overlayKind === 'palette') { take(); rt.emit({ type: 'session.nextWaiting' }); } return;
         case 'settings.open': take(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return;
         // 入力欄の Ctrl+B はカーソルを 1 字戻す macOS の打鍵なので、⌘B だけを受け取る。
         case 'sidebar.toggle': if (typing && !e.metaKey) return; take(); rt.emit({ type: 'sidebar.toggle' }); return;

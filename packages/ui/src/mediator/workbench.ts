@@ -1,4 +1,5 @@
 import type { PaletteCommand } from '@agent-hangar/shared';
+import { nextWaitingStep } from './screen.ts';
 import type { Input, State, Step } from './types.ts';
 
 /** `cmd:new-session` のような項目 ID を種類と残りに割る。 */
@@ -20,6 +21,7 @@ function paletteRun(state: State, command: PaletteCommand): Step {
       case 'settings': return { state: closed, effects: [{ kind: 'navigate', route: { name: 'settings' } }] };
       case 'rebuild-index': return { state: closed, effects: [{ kind: 'api.rebuildIndex' }] };
       case 'shortcuts': return { state: { ...closed, overlay: { kind: 'shortcuts' } }, effects: [] };
+      case 'next-waiting': return nextWaitingStep(state);
     }
   }
   return { state: closed, effects: [] };

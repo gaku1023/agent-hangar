@@ -162,6 +162,7 @@ type Intent =
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.openEditor'; id: ArtifactId }
   | { type: 'artifact.add'; projectId: ProjectId; url: string }
   | { type: 'session.open'; id: SessionId } | { type: 'session.setMemo'; id: SessionId; text: string }
+  | { type: 'session.nextWaiting' }
   | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams }
   | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId } | { type: 'session.kill'; runId: RunId }
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
@@ -1136,7 +1137,7 @@ attach の run の停止は、tmux を落とすのに加えて `claude stop <id>
 
 ### ショートカット
 
-- グローバル：⌘K パレット、⌘N 新規セッション、⌘⇧N スクラッチ、⌘, 設定、⌘[ と ⌘←（⌘] と ⌘→）で戻ると進む、/ で検索欄にフォーカス、? と ⌘/ でキーの一覧、Esc で開いているものを閉じる（何も開いていなければ入力欄を離れる）。
+- グローバル：⌘K パレット、⌘N 新規セッション、⌘⇧N スクラッチ、⌘I 次の入力待ちへ、⌘, 設定、⌘[ と ⌘←（⌘] と ⌘→）で戻ると進む、/ で検索欄にフォーカス、? と ⌘/ でキーの一覧、Esc で開いているものを閉じる（何も開いていなければ入力欄を離れる）。
 - タブとペーン：⌘1 から ⌘9 でタブ切替（素のブラウザでは ⌃⌥1 から ⌃⌥9）、⌘W でタブを閉じる、⌘\ で分割、⌘J でトランスクリプトペーンの開閉。
   タブの列にフォーカスがあるときは ← と →（Home と End）でタブの間を移り、Enter か Space で選ぶ。
   選ぶとフォーカスはターミナルへ移るので、矢印で移るだけでは選ばない（tablist の手動の選択）。
@@ -1154,6 +1155,14 @@ Home とセッションの一覧の画面に入ったら、行が初めて並ん
 打鍵と操作の対応は `packages/ui/src/keys.ts` の 1 つの表が持ち、照合も ? の一覧もそこから引く。
 一覧の中の j や k のように画面の部品が自分で処理するものは、打鍵を持たない行として同じ表に並べる。
 ⌘ の付いた割り当ては Ctrl でも受ける。
+
+⌘I（次の入力待ちへ）は、入力待ち（live が waiting）のセッションを Home の要対応の札と同じ順（長く待っている順）に 1 つずつ開き、端末にフォーカスする。
+いまいるセッションが入力待ちなら、その次へ移り、末尾の次は先頭へ戻る。
+開く経路は「ターミナルで答える」と同じ `session.open` の `focus: 'terminal'` である。
+どのセッションへ移るかはストアを見ないと決まらないので、Mediator は `waiting.next` の効果を出し、ランタイムが決めて `waiting.resolved` で返す（分割の右のタブと同じ形）。
+入力待ちが無ければ、短いトーストで知らせる。
+パレットにも同じコマンドを置く。
+⌘I を選んだのは、macOS の既定、Chrome、Tauri の既定のメニュー、xterm、Claude Code のどれとも重ならず、⌘ 付きなのでターミナルにフォーカスがあっても hangar に届くからである。
 
 入力欄の Esc は、何も開いていなければその欄を離れる（blur）。
 ダイアログやパレットの入力欄では、そのダイアログが自分で Esc を受けて閉じる。

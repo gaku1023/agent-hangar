@@ -5,7 +5,7 @@
  */
 
 export type KeyId =
-  | 'palette.open' | 'session.new' | 'session.newScratch' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
+  | 'palette.open' | 'session.new' | 'session.newScratch' | 'session.nextWaiting' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
   | 'nav.back' | 'nav.forward' | 'search.focus' | 'overlay.close'
   | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'tab.move' | 'turn.move'
   | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.memo';
@@ -30,6 +30,9 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'palette.open', group: 'global', keys: '⌘K', label: 'コマンドパレット', chords: [{ key: 'k', mod: true, shift: false }] },
   { id: 'session.new', group: 'global', keys: '⌘N', label: '新規セッション', chords: [{ key: 'n', mod: true, shift: false }] },
   { id: 'session.newScratch', group: 'global', keys: '⌘⇧N', label: 'スクラッチで始める', chords: [{ key: 'n', mod: true, shift: true }] },
+  // ⌘I は、macOS の既定、Chrome（⌥⌘I や ⇧⌘I とは別）、Tauri の既定のメニュー、xterm、Claude Code のどれも使っていない。
+  // ⌘ 付きなので、ターミナルにフォーカスがあっても Root に届く。I は「入力（input）待ち」の頭文字である。
+  { id: 'session.nextWaiting', group: 'global', keys: '⌘I', label: '次の入力待ちへ', chords: [{ key: 'i', mod: true, shift: false }] },
   { id: 'settings.open', group: 'global', keys: '⌘,', label: '設定', chords: [{ key: ',', mod: true, shift: false }] },
   { id: 'nav.back', group: 'global', keys: '⌘[ / ⌘←', label: '戻る', chords: [{ key: '[', mod: true, shift: false }, { key: 'ArrowLeft', mod: true, shift: false }] },
   { id: 'nav.forward', group: 'global', keys: '⌘] / ⌘→', label: '進む', chords: [{ key: ']', mod: true, shift: false }, { key: 'ArrowRight', mod: true, shift: false }] },

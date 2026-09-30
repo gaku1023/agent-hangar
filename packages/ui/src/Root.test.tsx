@@ -608,6 +608,70 @@ describe('キーの見直し', () => {
   });
 });
 
+describe('次の入力待ちへ（C5）', () => {
+  const key = (init: KeyboardEventInit, target: EventTarget = window) => {
+    const ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+    act(() => { target.dispatchEvent(ev); });
+    return ev;
+  };
+  const waiting = (id: string, at: number): SessionDto => ({ ...session, id, providerSessionId: 'u' + id, name: '待ち ' + id, live: 'waiting', lastActivityAt: at });
+  // s3 は Claude のタブが生きていて、着いたらその端末にフォーカスできる。
+  const agentTab: TabDto = { id: 't3', runId: 'r3', sessionId: 's3', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r3', createdAt: 1, closedAt: null };
+  const withWaiting = () => ({ ...boot, sessions: [session, waiting('s2', 300), waiting('s3', 100)], runs: [rootRun('r3', 's3')], tabs: [agentTab] });
+
+  it('⌘I で、待っている時間の長いものから順に開き、端末にフォーカスする', async () => {
+    const host: TerminalHost = { ...terminals, focus: vi.fn() };
+    const m = make({ boot: withWaiting(), terminals: host });
+    m.rt.start();
+    render(<Root runtime={m.rt} api={m.deps.api} terminals={host} />);
+    act(() => m.handlers[0]!.onOpen());
+    await flush();
+    expect(key({ key: 'i', metaKey: true }).defaultPrevented).toBe(true);
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s3');
+    expect(host.focus).toHaveBeenCalledWith('t3');
+    key({ key: 'i', metaKey: true });
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s2');
+    key({ key: 'i', metaKey: true });
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s3');
+  });
+
+  it('ターミナルにフォーカスがあっても効く', async () => {
+    const m = make({ boot: withWaiting() });
+    m.rt.start();
+    render(<Root runtime={m.rt} api={m.deps.api} terminals={terminals} />);
+    act(() => m.handlers[0]!.onOpen());
+    await flush();
+    const termHost = document.createElement('div');
+    termHost.className = 'term-host';
+    const ta = document.createElement('textarea');
+    termHost.appendChild(ta);
+    document.body.appendChild(termHost);
+    expect(key({ key: 'i', metaKey: true }, ta).defaultPrevented).toBe(true);
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s3');
+    termHost.remove();
+  });
+
+  it('入力待ちが無ければ、短いトーストで知らせる', async () => {
+    await mounted();
+    key({ key: 'i', metaKey: true });
+    await flush();
+    expect(screen.getByText('入力を待っているセッションはありません')).toBeInTheDocument();
+  });
+
+  it('キーの一覧に載る', async () => {
+    await mounted();
+    key({ key: '?', shiftKey: true });
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: 'キーボード' });
+    expect(within(dialog).getByText('次の入力待ちへ')).toBeInTheDocument();
+    expect(within(dialog).getByText('⌘I')).toBeInTheDocument();
+  });
+});
+
 describe('入力欄の Esc（C4）', () => {
   const key = (init: KeyboardEventInit, target: EventTarget) => {
     const ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });

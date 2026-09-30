@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, pruneEvents, pruneRuns, tabsOf, todosOf } from './store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [] };
@@ -253,5 +253,33 @@ describe('store の同期', () => {
     expect(s.configPreview).toEqual({ entries: [], confirmed: true });
     expect(applyJoinToken(s, null).joinToken).toBeNull();
     expect(applyConfigPreview(s, null).configPreview).toBeNull();
+  });
+});
+
+describe('次の入力待ち（C5）', () => {
+  const waiting = (id: string, at: number | null): SessionDto => ({ ...session(id, 'u' + id), live: 'waiting', lastActivityAt: at });
+  const withSessions = (...list: SessionDto[]) => ({ ...initialStore(), sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
+
+  it('入力待ちが無ければ null', () => {
+    expect(nextWaitingSession(withSessions({ ...session('a', 'ua'), live: 'busy' }), null)).toBeNull();
+  });
+  it('待っている時間が長い順に回り、末尾の次は先頭へ戻る', () => {
+    // Home の要対応の札と同じ並び（最後の活動が古い順）にする。
+    const s = withSessions(waiting('a', 300), waiting('b', 100), { ...session('c', 'uc'), live: 'idle' }, waiting('d', 200));
+    expect(nextWaitingSession(s, null)).toBe('b');
+    expect(nextWaitingSession(s, 'b')).toBe('d');
+    expect(nextWaitingSession(s, 'd')).toBe('a');
+    expect(nextWaitingSession(s, 'a')).toBe('b');
+    // 入力待ちでないセッションにいるときは先頭から。
+    expect(nextWaitingSession(s, 'c')).toBe('b');
+  });
+  it('1 つだけなら、いまいるそのセッションをもう一度選ぶ', () => {
+    expect(nextWaitingSession(withSessions(waiting('a', 1)), 'a')).toBe('a');
+  });
+  it('時刻が同じか無いものは id の順にし、時刻の無いものは後ろに置く', () => {
+    const s = withSessions(waiting('y', null), waiting('x', null), waiting('z', 5));
+    expect(nextWaitingSession(s, null)).toBe('z');
+    expect(nextWaitingSession(s, 'z')).toBe('x');
+    expect(nextWaitingSession(s, 'x')).toBe('y');
   });
 });
