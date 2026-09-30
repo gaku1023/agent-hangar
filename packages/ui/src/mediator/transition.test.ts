@@ -302,6 +302,39 @@ describe('タブと接続', () => {
     expect(b.state.sidebarCollapsed).toBe(false);
     expect(b.effects).toEqual([{ kind: 'storage.save', key: 'sidebar.collapsed', value: false }]);
   });
+  it('目次でターンを開くと、左の Claude のタブへ戻してからその指示へ跳ばす', () => {
+    // シェルのタブを出していた。跳ぶ先は Claude のタブなので、そちらへ戻す。
+    const start = run([intent({ type: 'tab.select', tabId: 't1' })], onSession()).state;
+    const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], start);
+    expect(a.state.sessionView.s1).toMatchObject({ openTurn: 7, turnJump: { seq: 7, status: 'pending' }, selectedTab: null });
+    expect(a.effects).toContainEqual({ kind: 'terminal.connect', sessionId: 's1', tabId: null });
+    expect(a.effects).toContainEqual({ kind: 'api.jumpToPrompt', sessionId: 's1', runId: 'r1', seq: 7, ...jump });
+    // 結果が届いたら、そのターンの注記に使う。
+    const b = run([runtime({ type: 'turnJump.done', sessionId: 's1', seq: 7, status: 'notFound' })], a.state);
+    expect(b.state.sessionView.s1?.turnJump).toEqual({ seq: 7, status: 'notFound' });
+    // 別のターンを開いた後に届いた古い結果は捨てる。
+    const c = run([intent({ type: 'turn.open', sessionId: 's1', seq: 9, runId: 'r1', jump }), runtime({ type: 'turnJump.done', sessionId: 's1', seq: 7, status: 'found' })], b.state);
+    expect(c.state.sessionView.s1?.turnJump).toEqual({ seq: 9, status: 'pending' });
+  });
+  it('開いているターンをもう一度押すと閉じ、run が無ければ跳ばない', () => {
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: null, jump: null })], onSession());
+    expect(a.state.sessionView.s1).toMatchObject({ openTurn: 7, turnJump: null });
+    expect(a.effects.some((e) => (e as { kind: string }).kind === 'api.jumpToPrompt')).toBe(false);
+    const b = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: null, jump: null })], a.state);
+    expect(b.state.sessionView.s1?.openTurn).toBeNull();
+  });
+  it('最新へ戻ると、ターンを閉じて transcript を抜け、末尾を追う', () => {
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: null, jump: null }), intent({ type: 'transcript.follow', sessionId: 's1', follow: false })], onSession());
+    const b = run([intent({ type: 'turn.latest', sessionId: 's1', runId: 'r1' })], a.state);
+    expect(b.state.sessionView.s1).toMatchObject({ openTurn: null, turnJump: null, follow: true });
+    expect(b.effects).toContainEqual({ kind: 'api.leaveTranscript', runId: 'r1' });
+  });
+  it('開いたターンと跳んだ結果は保存しない', () => {
+    const v = { ...defaultSessionView(), openTurn: 3, turnJump: { seq: 3, status: 'found' as const } };
+    expect(persistedSessionView(v)).not.toHaveProperty('openTurn');
+    expect(persistedSessionView(v)).not.toHaveProperty('turnJump');
+  });
   it('トランスクリプトの折りたたみ', () => {
     const a = run([intent({ type: 'transcript.toggle' })], onSession());
     expect(a.state.sessionView.s1?.transcriptOpen).toBe(false);

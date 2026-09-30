@@ -14,6 +14,7 @@ import type { LaunchInput, LiveSession } from '../provider/types.ts';
 import type { Tmux } from '../tmux/tmux.ts';
 import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
 import { parseBackgroundedId, realProcOps, sameStartTime, type ProcOps } from './procs.ts';
+import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type PaneIo } from './promptJump.ts';
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
@@ -632,5 +633,40 @@ export class RunManager {
     if (!t) return null;
     if (t.kind === 'agent' && this.getRun(t.runId)?.endedAt != null) return null;
     return t;
+  }
+
+  /** run ごとの跳ぶ操作の列。続けて押されても、前の操作のキーと混ざらないように 1 つずつ流す。 */
+  private paneOps = new Map<string, Promise<unknown>>();
+
+  private agentPane(runId: string): PaneIo {
+    const run = this.getRun(runId);
+    if (!run) throw new RunError(404, 'run が見つかりません');
+    if (run.endedAt !== null) throw new RunError(409, 'この run は終了しています');
+    const tmux = this.tmux();
+    return {
+      capture: () => tmux.capturePane(run.tmuxName),
+      // ctrl+o だけはキーの名前で送り、ほかは -l で 1 文字として送る。{ や q を tmux のキー名として読ませない。
+      send: (key) => (key === 'C-o' ? tmux.sendKeys(run.tmuxName, 'C-o') : tmux.sendKeys(run.tmuxName, '-l', key)),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    };
+  }
+
+  private queuePane<T>(runId: string, op: () => Promise<T>): Promise<T> {
+    const next = (this.paneOps.get(runId) ?? Promise.resolve()).catch(() => {}).then(op);
+    this.paneOps.set(runId, next);
+    void next.finally(() => { if (this.paneOps.get(runId) === next) this.paneOps.delete(runId); }).catch(() => {});
+    return next;
+  }
+
+  /** Claude のタブを transcript の中の指示へ跳ばす。手順と送るキーの制限は promptJump.ts にある。 */
+  jumpToPrompt(runId: string, heads: string[], index: number, from: JumpFrom): Promise<JumpResult> {
+    const io = this.agentPane(runId);
+    return this.queuePane(runId, () => jumpToPrompt(io, heads, index, from));
+  }
+
+  /** Claude のタブが transcript を開いていれば閉じて、入力欄のある画面へ戻す。 */
+  leaveTranscript(runId: string): Promise<{ left: boolean }> {
+    const io = this.agentPane(runId);
+    return this.queuePane(runId, async () => ({ left: await leaveTranscript(io) }));
   }
 }

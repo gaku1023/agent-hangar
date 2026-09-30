@@ -78,6 +78,35 @@ describe('ローカルコマンドの記録', () => {
   it('生の記録を出すときはそのまま出す', () => {
     expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] }).filter((i) => i.kind === 'system')).toHaveLength(5);
   });
+  it('! で打ったシェルは「! コマンド」に、出力は中身だけに、タスクの知らせは要旨だけにする', () => {
+    const ev = [
+      sys(20, '<bash-input> git status</bash-input>'),
+      sys(21, '<bash-stdout>clean</bash-stdout><bash-stderr></bash-stderr>'),
+      sys(22, '<bash-stdout></bash-stdout><bash-stderr></bash-stderr>'),
+      sys(23, '<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent "調べもの" finished</summary>\n</task-notification>'),
+      sys(24, '<system-reminder>内部の注意書き</system-reminder>'),
+    ];
+    expect(buildItems(ev, { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['! git status', 'clean', 'Agent "調べもの" finished']);
+  });
+  it('読み込んだスキルの本文は、スキルの名前の 1 行にする', () => {
+    const skill = sys(9, 'Base directory for this skill: /Users/me/.claude/plugins/cache/x/superpowers/6.3.0/skills/brainstorming\n\n# Brainstorming Ideas Into Designs\n\n長い本文…');
+    expect(buildItems([skill], { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['スキル brainstorming を読み込みました']);
+    expect(buildItems([skill], { showThinking: false, showRaw: true, subagents: [] })[0]).toMatchObject({ text: skill.text });
+  });
+});
+
+describe('本文の無い system', () => {
+  const events = [
+    { kind: 'system' as const, seq: 1, ts: 1, text: 'turn_duration', subtype: 'turn_duration' },
+    { kind: 'system' as const, seq: 2, ts: 1, text: 'stop_hook_summary', subtype: 'stop_hook_summary' },
+    { kind: 'system' as const, seq: 3, ts: 1, text: '留守の間の要約', subtype: 'away_summary' },
+  ];
+  it('種類の名前しか無い行は落とし、本文のある行は残す', () => {
+    expect(buildItems(events, { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['留守の間の要約']);
+  });
+  it('生の記録を出すときは種類の名前だけの行も出す', () => {
+    expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] })).toHaveLength(3);
+  });
 });
 
 describe('presentHome', () => {
@@ -235,6 +264,25 @@ describe('presentSession', () => {
     const q = presentSession(state, store, NOW, 's1');
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
     expect(q.summaryOpen).toBe(true);
+  });
+  it('ターンの目次を作り、開いたターンの中身だけを渡す', () => {
+    let store = storeWith();
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 10, nextSeq: null, events: [
+      { kind: 'user', seq: 5, ts: NOW, text: 'はじめの指示' },
+      { kind: 'tool_call', seq: 6, toolId: 't1', name: 'Bash', input: {}, summary: 'Bash ls' },
+      { kind: 'assistant', seq: 7, text: '見ました' },
+      { kind: 'user', seq: 8, ts: NOW, text: '次の指示' },
+      { kind: 'assistant', seq: 9, text: 'はい' },
+    ] }, false);
+    const closed = presentSession(initialState(), store, NOW, 's1');
+    expect(closed.turnRows.map((t) => [t.seq, t.head, t.tools, t.open])).toEqual([[5, 'はじめの指示', 1, false], [8, '次の指示', 0, false]]);
+    // seq 0 から 4 はまだ読み込んでいないので、目次は会話の最初から始まっていない。
+    expect(closed.turnsComplete).toBe(false);
+    expect(closed.openTurnItems).toEqual([]);
+    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), openTurn: 5 } } };
+    const open = presentSession(state, store, NOW, 's1');
+    expect(open.turnRows[0]!.open).toBe(true);
+    expect(open.openTurnItems.map((i) => i.kind)).toEqual(['user', 'tool', 'assistant']);
   });
   it('実行中なら状態と経過の札を作り、変更数を渡す', () => {
     const store = storeWith();

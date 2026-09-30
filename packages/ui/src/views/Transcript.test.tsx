@@ -255,3 +255,31 @@ describe('rowWindow', () => {
     expect(rowWindow([0], 0, 100)).toEqual({ first: 0, last: -1 });
   });
 });
+
+describe('Transcript のツールの行', () => {
+  const long = 'Bash cd /Users/satog/.claude/projects/-Users-satog-workspace-agent-hangar/memory && grep -n "Dock" feedback-always-build-before-returning.md';
+  const tool: TranscriptItem = { kind: 'tool', seq: 0, summary: long, name: 'Bash', inputJson: '{}', result: null, when: '22:54', subagent: null };
+  it('要約は 1 行に収める器に入れ、全文は title で読めるようにする', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={[tool]} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
+    const summary = container.querySelector('.tool-summary');
+    expect(summary?.textContent).toBe(long);
+    expect(summary?.getAttribute('title')).toBe(long);
+    cleanup();
+  });
+});
+
+describe('Transcript の本文', () => {
+  it('アシスタントの本文は Markdown として描く', () => {
+    const md: TranscriptItem[] = [{ kind: 'assistant', seq: 0, text: '**太字** と `code`', when: '10:00' }];
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
+    expect(container.querySelector('.msg-assistant strong')?.textContent).toBe('太字');
+    expect(container.querySelector('.msg-assistant code')?.textContent).toBe('code');
+    cleanup();
+  });
+  it('利用者の本文は打ったとおりに出す', () => {
+    const md: TranscriptItem[] = [{ kind: 'user', seq: 0, text: '**そのまま**', when: '10:00' }];
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
+    expect(container.querySelector('.msg-user')?.textContent).toBe('**そのまま**');
+    cleanup();
+  });
+});

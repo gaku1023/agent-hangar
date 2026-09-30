@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { newId, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
 import { statuslineStatus } from '../config/statusline.ts';
@@ -14,6 +14,7 @@ import { PromoteError } from '../projects/promote.ts';
 import { assignSessions, candidateDirs, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } from '../projects/todos.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
+import type { JumpFrom } from '../runs/promptJump.ts';
 import { searchSessions } from '../search/search.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
@@ -21,7 +22,7 @@ import { aggregateUsage } from '../usage/aggregate.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
-export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget'>;
+export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */
 export type ExternalApi = {
   openTerminal(o: { tmuxName: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
@@ -544,6 +545,20 @@ export function createApp(deps: AppDeps): Hono {
     if (!deps.runs.attachTarget(tabId)) return c.json({ error: 'この run は終了しています' }, 409);
     return external(c, () => deps.external.openTerminal({ tmuxName: t.tmuxName }));
   });
+  // 目次で押した指示へ、Claude のタブを transcript の中で跳ばす。本文には書き出し（HEAD_LEN 字）だけを並べて受ける。
+  api.post('/runs/:id/jump', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { heads?: unknown; index?: unknown; from?: unknown };
+    const heads = body.heads;
+    const okHeads = Array.isArray(heads) && heads.length > 0 && heads.length <= MAX_JUMP_HEADS && heads.every((h) => typeof h === 'string' && h.length <= HEAD_LEN);
+    const index = body.index;
+    if (!okHeads || typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= heads.length || (body.from !== 'top' && body.from !== 'bottom')) {
+      return c.json({ error: `heads（${HEAD_LEN} 字までの文字列を ${MAX_JUMP_HEADS} 個まで）、その中の index、from（top か bottom）を送ってください` }, 400);
+    }
+    return runResultAsync(c, () => deps.runs.jumpToPrompt(c.req.param('id'), heads as string[], index, body.from as JumpFrom));
+  });
+  api.post('/runs/:id/leave-transcript', (c) => runResultAsync(c, () => deps.runs.leaveTranscript(c.req.param('id'))));
   api.post('/sessions/:id/resume', async (c) => { await beforeLaunch(); return runResult(c, () => deps.runs.resume(c.req.param('id')), 201); });
   api.post('/sessions/:id/fork', async (c) => { await beforeLaunch(); return runResult(c, () => deps.runs.fork(c.req.param('id')), 201); });
   // バックグラウンドのサービスが持つセッションに、hangar の tmux からつなぐ。本文はその claude が書くので、他端末の取り込みは待たない。

@@ -11,6 +11,8 @@ export type RuntimeEvent =
   | { type: 'split.resolved'; sessionId: string; tabId: string | null }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
   | { type: 'window.focus' }
+  // 目次から左のターミナルを跳ばした結果。
+  | { type: 'turnJump.done'; sessionId: string; seq: number; status: TurnJumpStatus }
   // サーバが 409 で断ったときに、ランタイムがこの形に直して返す。
   | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number };
 
@@ -33,6 +35,8 @@ export type Effect =
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
   | { kind: 'api.killRun'; runId: string } | { kind: 'api.openTab'; sessionId: string } | { kind: 'api.closeTab'; tabId: string }
   | { kind: 'api.openTerminalApp'; runId: string; tabId: string | null } | { kind: 'api.openEditor'; sessionId: string }
+  | { kind: 'api.jumpToPrompt'; sessionId: string; runId: string; seq: number; heads: string[]; index: number; from: 'top' | 'bottom' }
+  | { kind: 'api.leaveTranscript'; runId: string }
   | { kind: 'api.projectOpenEditor'; projectId: string } | { kind: 'api.projectOpenTerminal'; projectId: string }
   | { kind: 'terminal.connect'; sessionId: string; tabId: string | null } | { kind: 'terminal.disconnect'; tabId: string }
   | { kind: 'terminal.disconnectSession'; sessionId: string }
@@ -75,7 +79,15 @@ export type Overlay =
   | { kind: 'confirm'; confirm: ConfirmRequest }
   | { kind: 'configPreview' };
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting' } | { kind: 'failed'; message: string };
-export type SessionViewState = { agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null };
+/** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */
+export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed';
+export type SessionViewState = {
+  agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null;
+  /** 目次で開いているターン（区切りの行の seq）。その場の操作なので保存しない。 */
+  openTurn: number | null;
+  /** 開いたターンへ左のターミナルを跳ばした結果。これも保存しない。 */
+  turnJump: { seq: number; status: TurnJumpStatus } | null;
+};
 export type Toast = { id: string; level: 'info' | 'error'; message: string };
 export type State = {
   screen: Screen; overlay: Overlay; connection: 'connecting' | 'connected' | 'disconnected'; reconnectAttempt: number;

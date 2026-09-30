@@ -1,16 +1,17 @@
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
 
 export function defaultSessionView(): SessionViewState {
-  return { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: null, transcriptOpen: true, split: false, splitTab: null };
+  return { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, openTurn: null, turnJump: null };
 }
 
 /**
  * localStorage に残す形。follow だけは残さない。
  * 遡るために一度上へスクロールすると follow: false が焼き付き、次からそのセッションは最古の側で開いてしまう。
  * 追うかどうかはその場の操作で決まるものなので、開くたびに既定（真）から始める。
+ * 目次で開いたターンと、そこへ跳ばした結果も同じくその場のものなので残さない。
  */
-export function persistedSessionView(v: SessionViewState): Omit<SessionViewState, 'follow'> {
-  const { follow: _drop, ...rest } = v;
+export function persistedSessionView(v: SessionViewState): Omit<SessionViewState, 'follow' | 'openTurn' | 'turnJump'> {
+  const { follow: _drop, openTurn: _turn, turnJump: _jump, ...rest } = v;
   return rest;
 }
 
@@ -84,6 +85,12 @@ export function sessionViewStep(state: State, input: Input): Step | null {
       default: return null;
     }
   }
+  if (input.kind === 'runtime' && input.event.type === 'turnJump.done') {
+    const e = input.event;
+    // 別のターンを開いた後に届いた古い結果は捨てる。
+    if (viewOf(state, e.sessionId).turnJump?.seq !== e.seq) return { state, effects: [] };
+    return patch(state, e.sessionId, { turnJump: { seq: e.seq, status: e.status } });
+  }
   if (input.kind === 'runtime' && input.event.type === 'split.resolved') {
     const e = input.event;
     // ランタイムが右に置けるタブを見つけられなかったときだけトーストにする。
@@ -101,6 +108,19 @@ export function sessionViewStep(state: State, input: Input): Step | null {
     case 'transcript.selectAgent': {
       const r = patch(state, i.sessionId, { agentId: i.agentId });
       return { state: r.state, effects: [...r.effects, { kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: 0 }] };
+    }
+    case 'turn.open': {
+      if (viewOf(state, i.sessionId).openTurn === i.seq) return patch(state, i.sessionId, { openTurn: null, turnJump: null });
+      if (!i.runId || !i.jump) return patch(state, i.sessionId, { openTurn: i.seq, turnJump: null });
+      // 跳ぶ先は Claude のタブなので、シェルのタブを出していたら戻して繋ぎ直す。
+      const back = agentTabStep(state, i.sessionId);
+      const connect: Effect[] = back ? [...back.effects, { kind: 'terminal.connect', sessionId: i.sessionId, tabId: null }] : [];
+      const r = patch(back?.state ?? state, i.sessionId, { openTurn: i.seq, turnJump: { seq: i.seq, status: 'pending' } });
+      return { state: r.state, effects: [...connect, ...r.effects, { kind: 'api.jumpToPrompt', sessionId: i.sessionId, runId: i.runId, seq: i.seq, ...i.jump }] };
+    }
+    case 'turn.latest': {
+      const r = patch(state, i.sessionId, { openTurn: null, turnJump: null, follow: true });
+      return { state: r.state, effects: [...r.effects, ...(i.runId ? [{ kind: 'api.leaveTranscript', runId: i.runId } as Effect] : [])] };
     }
     case 'transcript.toggle': {
       const sid = currentSession(state);

@@ -16,7 +16,8 @@ const base: SessionProps = { id: 's1', name: 'name', live: 'busy', cwd: '/w/alph
     { kind: 'tool', seq: 2, summary: 'Edit /a', name: 'Edit', inputJson: '{}', result: { text: 'File not found', isError: true }, when: '10:02', subagent: null },
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
-  contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: '作業中 12 分', filesChanged: 3 };
+  contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: '作業中 12 分', filesChanged: 3,
+  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false }], turnsComplete: false, openTurnItems: [], turnJump: null };
 
 describe('SessionScreen', () => {
   it('ヘッダー、要約の開閉、切替、続きの読み込み', () => {
@@ -131,15 +132,20 @@ describe('SessionScreen（実行中）', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1' });
     fireEvent.click(screen.getByText('ターミナルで開く'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.openTerminalApp', runId: 'r1', tabId: 'r1' });
-    fireEvent.click(screen.getByLabelText('トランスクリプトを閉じる'));
+    fireEvent.click(screen.getByLabelText('目次を閉じる'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.toggle' });
     expect(screen.getByText('hi')).toBeInTheDocument();
     expect(screen.getByText('再開')).toBeDisabled();
   });
+  it('実行中の右欄は会話の全文ではなくターンの目次にする', () => {
+    withHost(<SessionScreen {...running} terminalStatus="connected" />);
+    expect(document.querySelector('.tr-pane .turn-row')?.textContent).toContain('hi');
+    expect(document.querySelector('.tr-pane .tr')).toBeNull();
+  });
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" />);
     expect(screen.queryByText('hi')).toBeNull();
-    expect(screen.getByLabelText('トランスクリプトを開く')).toBeInTheDocument();
+    expect(screen.getByLabelText('目次を開く')).toBeInTheDocument();
   });
   it('信頼ダイアログの案内と終了の表示', () => {
     withHost(<SessionScreen {...running} live={null} trustHint terminalStatus="connected" />);
@@ -174,10 +180,10 @@ describe('SessionScreen のアイコン', () => {
   });
   it('トランスクリプトの開閉は向きの違うアイコンになる', () => {
     withHost(<SessionScreen {...running} terminalStatus="connected" />);
-    expect(iconOf(screen.getByRole('button', { name: 'トランスクリプトを閉じる' }))).toBe('paneClose');
+    expect(iconOf(screen.getByRole('button', { name: '目次を閉じる' }))).toBe('paneClose');
     cleanup();
     withHost(<SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" />);
-    expect(iconOf(screen.getByRole('button', { name: 'トランスクリプトを開く' }))).toBe('paneOpen');
+    expect(iconOf(screen.getByRole('button', { name: '目次を開く' }))).toBe('paneOpen');
   });
   it('ツール呼び出しとサブエージェントと折りたたみの矢印', () => {
     render(<IntentRoot onIntent={vi.fn()}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);

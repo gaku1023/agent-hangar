@@ -3,12 +3,14 @@ import { useEmit } from '../intent/chain.tsx';
 import type { TranscriptItem } from '../presenters/session.ts';
 import { Fold } from './primitives/Fold.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { Markdown } from './primitives/Markdown.tsx';
 
 function ToolItem({ sessionId, item }: { sessionId: string; item: Extract<TranscriptItem, { kind: 'tool' }> }) {
   const emit = useEmit();
   return (
     <div className={`tool ${item.result?.isError ? 'tool-error' : ''}`}>
-      <Fold summary={<><Icon name="tool" /><span className="mono">{item.summary}</span><span className="faint mono" style={{ marginLeft: 'auto' }}>{item.when}</span></>}>
+      {/* 要約はコマンドの全文なので長い。折り返すと畳んだ行の高さを越えて次の行に重なるので、1 行で切って全文は title に持たせる。 */}
+      <Fold summary={<><Icon name="tool" /><span className="tool-summary mono" title={item.summary}>{item.summary}</span><span className="faint mono">{item.when}</span></>}>
         <div className="tool-body mono">{item.inputJson}</div>
         {item.result && <div className="tool-body mono" style={{ marginTop: 4 }}>{item.result.text || '（出力なし）'}</div>}
       </Fold>
@@ -17,11 +19,12 @@ function ToolItem({ sessionId, item }: { sessionId: string; item: Extract<Transc
   );
 }
 
-function renderItem(sessionId: string, it: TranscriptItem): ReactNode {
+export function renderItem(sessionId: string, it: TranscriptItem): ReactNode {
   switch (it.kind) {
     case 'user': return <div className="msg msg-user" style={{ maxHeight: '60vh', overflow: 'auto' }}>{it.text}</div>;
-    case 'assistant': return <div className="msg msg-assistant" style={{ maxHeight: '60vh', overflow: 'auto' }}>{it.text}</div>;
-    case 'thinking': return <div className="msg msg-thinking">{it.text}</div>;
+    // 利用者の本文は打ったとおりに見せ、Claude の書いた本文だけを Markdown として読む。
+    case 'assistant': return <div className="msg msg-assistant" style={{ maxHeight: '60vh', overflow: 'auto' }}><Markdown text={it.text} /></div>;
+    case 'thinking': return <div className="msg msg-thinking"><Markdown text={it.text} /></div>;
     case 'system': return <div className="msg msg-system">{it.text}</div>;
     case 'tool': return <ToolItem sessionId={sessionId} item={it} />;
     case 'meta': return <div className="msg msg-system mono">{it.name} {it.json}</div>;

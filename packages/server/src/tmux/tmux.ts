@@ -89,6 +89,11 @@ export class Tmux {
     this.run('send-keys', '-t', `=${name}:`, ...keys);
   }
 
+  /** ペインにいま見えている文字だけを返す。色や属性は落とす。 */
+  capturePane(name: string): string {
+    return this.run('capture-pane', '-p', '-t', `=${name}:`).stdout;
+  }
+
   /**
    * node-pty に渡す引数。target は他のメソッドと同じく完全一致にする。
    * 素の名前だと tmux が前方一致に落ちるので、終了した run の `hangar-abc12` が

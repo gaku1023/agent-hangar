@@ -31,6 +31,9 @@ export type ApiClient = {
   openTab(runId: string): Promise<TabDto>;
   closeTab(runId: string, tabId: string): Promise<TabDto>;
   openTerminalApp(runId: string, tabId: string | null): Promise<{ app: TerminalApp; fellBack: boolean }>;
+  /** Claude のタブを transcript の中の指示へ跳ばす。 */
+  jumpToPrompt(runId: string, body: { heads: string[]; index: number; from: 'top' | 'bottom' }): Promise<{ found: true } | { found: false; reason: 'mode' | 'notFound' }>;
+  leaveTranscript(runId: string): Promise<{ left: boolean }>;
   openEditor(sessionId: string): Promise<void>;
   projectOpenEditor(projectId: string): Promise<void>;
   projectOpenTerminal(projectId: string): Promise<{ app: TerminalApp; fellBack: boolean }>;
@@ -106,6 +109,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     openTab: (runId) => post(`/api/runs/${runId}/tabs`),
     closeTab: (runId, tabId) => call(`/api/runs/${runId}/tabs/${tabId}`, { method: 'DELETE' }),
     openTerminalApp: (runId, tabId) => post(`/api/runs/${runId}/open-terminal`, tabId ? { tabId } : {}),
+    jumpToPrompt: (runId, body) => post(`/api/runs/${runId}/jump`, body),
+    leaveTranscript: (runId) => post(`/api/runs/${runId}/leave-transcript`),
     openEditor: (sessionId) => post(`/api/sessions/${sessionId}/open-editor`),
     projectOpenEditor: (projectId) => post(`/api/projects/${projectId}/open-editor`),
     projectOpenTerminal: (projectId) => post(`/api/projects/${projectId}/open-terminal`),

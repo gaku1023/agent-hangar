@@ -12,6 +12,7 @@ import { SplitPane } from './SplitPane.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
 import { Transcript } from './Transcript.tsx';
+import { TurnIndex } from './TurnIndex.tsx';
 
 const TRUST_HINT = 'Claude の起動を待っています。信頼確認のダイアログが出ていればターミナルで答えてください。';
 const ENDED_HINT = 'Claude は終了しました。シェルタブは残っています。';
@@ -129,6 +130,8 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
 
   const artifacts = props.artifacts.length > 0 && <section className="session-artifacts"><ArtifactCards projectId={null} artifacts={props.artifacts} canAdd={false} /></section>;
 
+  const paneToggle = <button className="tr-toggle" aria-label={props.transcriptOpen ? '目次を閉じる' : '目次を開く'} onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>;
+
   if (run && props.selectedTab) {
     // 案内は Claude のタブにだけ出す。分割で 2 つ並ぶときも、シェルの側には出さない。
     const pane = (tabId: string) => {
@@ -142,11 +145,13 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       <div className="screen">
         {header}{summary}{artifacts}
         <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} />
-        <div className="split" style={{ gridTemplateColumns: props.transcriptOpen ? 'minmax(0, 1fr) minmax(320px, 38%)' : 'minmax(0, 1fr) 28px' }}>
+        {/* 右欄は会話の全文ではなくターンの目次にする。全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。 */}
+        <div className="split" style={{ gridTemplateColumns: props.transcriptOpen ? 'minmax(0, 1fr) minmax(240px, 26%)' : 'minmax(0, 1fr) 28px' }}>
           {terminals}
           <aside className="tr-pane" data-collapsed={props.transcriptOpen ? undefined : 'true'}>
-            <button className="tr-toggle" aria-label={props.transcriptOpen ? 'トランスクリプトを閉じる' : 'トランスクリプトを開く'} onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>
-            {props.transcriptOpen && <>{toggles}{transcript}</>}
+            {props.transcriptOpen
+              ? <TurnIndex sessionId={id} runId={run.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={paneToggle} />
+              : paneToggle}
           </aside>
         </div>
       </div>

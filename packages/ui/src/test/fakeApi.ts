@@ -3,7 +3,7 @@ import type { ApiClient } from '../runtime/api.ts';
 
 type Extras = Pick<
   ApiClient,
-  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
+  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncStatus' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
@@ -25,6 +25,8 @@ export function fakeApiExtras(): Extras {
     openTab: vi.fn(async () => unused()),
     closeTab: vi.fn(async () => unused()),
     openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
+    jumpToPrompt: vi.fn(async () => ({ found: true as const })),
+    leaveTranscript: vi.fn(async () => ({ left: true })),
     openEditor: vi.fn(async () => {}),
     projectOpenEditor: vi.fn(async () => {}),
     projectOpenTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),

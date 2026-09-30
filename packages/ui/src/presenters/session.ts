@@ -4,12 +4,16 @@ import type { State } from '../mediator/types.ts';
 import { aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
+import { buildTurns } from './turns.ts';
+import type { TurnJumpStatus } from '../mediator/types.ts';
 
 export type TranscriptItem =
   | { kind: 'user' | 'assistant' | 'thinking' | 'system'; seq: number; text: string; when: string }
   | { kind: 'tool'; seq: number; summary: string; name: string; inputJson: string; result: { text: string; isError: boolean } | null; when: string; subagent: { agentId: string; label: string } | null }
   | { kind: 'meta'; seq: number; name: string; json: string };
 export type TabItemProps = { id: string; title: string; kind: 'agent' | 'shell'; selected: boolean; closable: boolean };
+/** 目次の 1 行。head は左のターミナルの指示の行と突き合わせる書き出しで、跳ぶ要求にそのまま載る。 */
+export type TurnRowProps = { seq: number; when: string; text: string; head: string; tools: number; open: boolean };
 
 /**
  * 要約に使った要約器とモデルの表示。
@@ -23,7 +27,9 @@ export function summarizerLabel(sourceId: string | null, sourceModel: string | n
   return sourceModel && sourceModel !== kind ? `${kind} / ${sourceModel}` : kind;
 }
 
-export type SessionProps = { id: string; name: string; live: LiveStatus | null; cwd: string; projectName: string | null; projectId: string | null; summary: (SessionSummaryDto & { sourceLabel: string; stateLabel: string; summarizerLabel: string | null; generatedAt: string }) | null; summaryOpen: boolean; model: string; effort: string; turns: number; tokens: string; prUrl: string | null; memo: string | null; started: string; lastActivity: string; hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; contextPercent: number | null; cost: string; artifacts: ArtifactCardProps[]; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null; liveLabel: string | null; filesChanged: number };
+export type SessionProps = { id: string; name: string; live: LiveStatus | null; cwd: string; projectName: string | null; projectId: string | null; summary: (SessionSummaryDto & { sourceLabel: string; stateLabel: string; summarizerLabel: string | null; generatedAt: string }) | null; summaryOpen: boolean; model: string; effort: string; turns: number; tokens: string; prUrl: string | null; memo: string | null; started: string; lastActivity: string; hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; contextPercent: number | null; cost: string; artifacts: ArtifactCardProps[]; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null; liveLabel: string | null; filesChanged: number;
+  /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
+  turnRows: TurnRowProps[]; turnsComplete: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null };
 
 /**
  * 他端末がそのセッションを握っている間の表示。
@@ -59,6 +65,9 @@ const tagText = (text: string, tag: string): string | null => {
 export function localCommandText(text: string): string | null {
   const head = text.trimStart();
   if (head.startsWith('<local-command-caveat>')) return null;
+  // スキルを読み込むと、その本文がまるごと記録に入る。ターミナルは 1 行しか出さないので、ここも名前だけにする。
+  const skill = /^Base directory for this skill: (\S+)/.exec(head);
+  if (skill) return `スキル ${skill[1]!.split('/').filter(Boolean).pop()} を読み込みました`;
   const name = tagText(head, 'command-name');
   if (name !== null) {
     const args = tagText(head, 'command-args') ?? '';
@@ -66,6 +75,16 @@ export function localCommandText(text: string): string | null {
   }
   const out = tagText(head, 'local-command-stdout');
   if (out !== null) return out === '' || out === '(no content)' ? null : out;
+  // ! で打ったシェルは、ターミナルと同じく「! コマンド」の 1 行に、出力は中身だけにする。どちらも空なら出さない。
+  const bash = tagText(head, 'bash-input');
+  if (bash !== null) return `! ${bash}`;
+  if (head.startsWith('<bash-stdout>') || head.startsWith('<bash-stderr>')) {
+    const shown = [tagText(head, 'bash-stdout'), tagText(head, 'bash-stderr')].filter((s) => s).join('\n');
+    return shown || null;
+  }
+  // バックグラウンドのタスクの知らせは、要旨の 1 行だけにする。内部の注意書きは出さない。
+  if (head.startsWith('<task-notification>')) return tagText(head, 'summary') ?? null;
+  if (head.startsWith('<system-reminder>')) return null;
   return text;
 }
 
@@ -79,6 +98,8 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
       case 'user': case 'assistant': items.push({ kind: e.kind, seq: e.seq, text: e.text, when: when(e.ts) }); break;
       case 'system': {
         // 生の記録を出すときは、手を加えずにそのまま見せる。
+        // 種類の名前しか持たない行（turn_duration と stop_hook_summary は毎ターン 1 つずつ出る）は、読む中身が無いので落とす。
+        if (!opts.showRaw && e.subtype !== undefined && e.text === e.subtype) break;
         const text = opts.showRaw ? e.text : localCommandText(e.text);
         if (text !== null) items.push({ kind: 'system', seq: e.seq, text, when: when(e.ts) });
         break;
@@ -100,7 +121,7 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0 };
+  const base = { id, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, openTurnItems: [], turnJump: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -110,7 +131,13 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const raw = slice?.items ?? [];
   let sorted = true;
   for (let i = 1; i < raw.length; i++) if (raw[i]!.seq < raw[i - 1]!.seq) { sorted = false; break; }
-  const items = buildItems(sorted ? raw : [...raw].sort((a, b) => a.seq - b.seq), { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [] });
+  const events = sorted ? raw : [...raw].sort((a, b) => a.seq - b.seq);
+  const itemOpts = { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [] };
+  const items = buildItems(events, itemOpts);
+  const turnList = buildTurns(events);
+  const openTurn = turnList.find((t) => t.seq === view.openTurn) ?? null;
+  const turnRows: TurnRowProps[] = turnList.map((t) => ({ seq: t.seq, when: when(t.ts), text: t.text, head: t.head, tools: t.tools, open: t === openTurn }));
+  const openTurnItems = openTurn ? buildItems(events.filter((e) => e.seq >= openTurn.from && e.seq < openTurn.to), itemOpts) : [];
   const run = currentRunOf(store, id);
   const alive = aliveRunOf(store, id) !== null;
   const open = run ? tabsOf(store, run.id) : [];
@@ -126,6 +153,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     model: shortModel(s.stats.model), effort: s.stats.effort ?? '', turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), prUrl: s.stats.prUrl, memo: s.memo,
     started: relativeTime(s.startedAt, now), lastActivity: relativeTime(s.lastActivityAt, now), hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length : false, notFound: false,
+    turnRows, turnsComplete: slice ? slice.total <= slice.items.length : true, openTurnItems, turnJump: view.turnJump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(run.startedAt, now) } : null,
     tabs, selectedTab, trustHint: alive && s.live === null,
     // 他端末が動かしている間は再開もフォークもさせない。手元に写ししか無いセッションも同じである。

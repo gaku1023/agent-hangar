@@ -31,9 +31,10 @@ function contentText(content: unknown): string {
 
 /**
  * スラッシュコマンドやローカルコマンドの記録は、Claude Code が user として書くが利用者の発言ではない。
+ * ! で打ったシェルの入出力と、バックグラウンドのタスクの知らせも同じである。
  * 本文がこれらのタグで始まるものを見分け、system として扱う。
  */
-const LOCAL_COMMAND_TAGS = ['<command-name>', '<command-message>', '<command-args>', '<local-command-caveat>', '<local-command-stdout>', '<system-reminder>'];
+const LOCAL_COMMAND_TAGS = ['<command-name>', '<command-message>', '<command-args>', '<local-command-caveat>', '<local-command-stdout>', '<system-reminder>', '<bash-input>', '<bash-stdout>', '<bash-stderr>', '<task-notification>'];
 
 export function isLocalCommandText(text: string): boolean {
   const head = text.trimStart();
@@ -53,6 +54,20 @@ export function toolSummary(name: string, input: unknown): string {
   if (command) return `${name} ${(command.split('\n')[0] ?? '').slice(0, 120)}`;
   const tail = str(input.pattern) ?? str(input.query) ?? str(input.skill) ?? str(input.url) ?? str(input.description);
   return tail ? `${name} ${tail.slice(0, 120)}` : name;
+}
+
+/**
+ * Claude が作業している間に打った指示の本文。それ以外は null。
+ * この指示は user の行ではなく queued_command の添付として残るので、読まないと会話から抜け落ちる。
+ * タスクの知らせとサブエージェントの報告も同じ形で来るので、人の指示だけを拾う。
+ */
+function queuedPrompt(raw: Record<string, unknown>): string | null {
+  if (raw.type !== 'attachment' || !isRec(raw.attachment)) return null;
+  const a = raw.attachment;
+  const human = isRec(a.origin) ? a.origin.kind === 'human' : a.humanTurn === true;
+  if (a.type !== 'queued_command' || a.commandMode !== 'prompt' || !human) return null;
+  const text = contentText(a.prompt);
+  return text || null;
 }
 
 export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string | null): TranscriptEvent[] {
@@ -103,7 +118,14 @@ export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string
     return out;
   }
 
-  if (type === 'system') return [{ kind: 'system', seq, ts, text: str(raw.subtype) ?? 'system' }];
+  const queued = queuedPrompt(raw);
+  if (queued !== null) return [{ kind: 'user', seq, ts, text: queued }];
+
+  if (type === 'system') {
+    // away_summary や compact_boundary は content に読める本文を持つ。turn_duration などは種類の名前しか無い。
+    const subtype = str(raw.subtype) ?? 'system';
+    return [{ kind: 'system', seq, ts, text: str(raw.content) || subtype, subtype }];
+  }
 
   // 知らない type は捨てずに meta として残す。
   const { type: _t, sessionId: _s, ...rest } = raw;
@@ -132,6 +154,7 @@ export function recordFacts(raw: unknown): RecordFacts {
       facts.isUserTurn = hasText && !isLocalCommandText(contentText(c));
       break;
     }
+    case 'attachment': facts.isUserTurn = queuedPrompt(raw) !== null; break;
     case 'ai-title': { const v = str(raw.aiTitle); if (v) facts.aiTitle = v; break; }
     case 'custom-title': { const v = str(raw.customTitle); if (v) facts.customTitle = v; break; }
     case 'agent-name': { const v = str(raw.agentName); if (v) facts.agentName = v; break; }
