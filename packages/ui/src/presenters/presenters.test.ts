@@ -362,6 +362,24 @@ describe('presentSessions', () => {
   });
 });
 
+describe('セッションの並び順', () => {
+  it('生きているものを先に、waiting、busy、idle の順に並べ、同じ状態の中は新しい順', () => {
+    const store = initialStore();
+    store.bootstrapped = true;
+    store.projects = { alpha: project('alpha') };
+    store.sessions = {
+      idleNew: session('idleNew', { live: 'idle', lastActivityAt: NOW - 1_000 }),
+      busyOld: session('busyOld', { live: 'busy', lastActivityAt: NOW - 90_000 }),
+      waitOld: session('waitOld', { live: 'waiting', lastActivityAt: NOW - 80_000 }),
+      busyNew: session('busyNew', { live: 'busy', lastActivityAt: NOW - 5_000 }),
+      waitNew: session('waitNew', { live: 'waiting', lastActivityAt: NOW - 70_000 }),
+      endedNew: session('endedNew', { lastActivityAt: NOW }),
+      endedOld: session('endedOld', { lastActivityAt: NOW - 100_000 }),
+    };
+    expect(presentSessions(initialState(), store, NOW).rows.map((r) => r.id)).toEqual(['waitNew', 'waitOld', 'busyNew', 'busyOld', 'idleNew', 'endedNew', 'endedOld']);
+  });
+});
+
 describe('presentSession（実行中）', () => {
   it('run とタブと選択、信頼ダイアログの案内、再開の可否', () => {
     const store = storeWith();
