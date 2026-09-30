@@ -181,3 +181,63 @@ export function writeRetention(o: WriteRetentionOptions): { file: string; backup
     release();
   }
 }
+
+export type RetentionServiceOptions = { claudeDir: string; home: string; managedDir: string | null; broadcast: (r: RetentionDto) => void; now?: () => number };
+
+/** 起動の後に 1 度だけ測るまでの待ち。起動の索引づけと重ねない。 */
+const FIRST_MEASURE_MS = 30_000;
+const MEASURE_EVERY_MS = 3_600_000;
+/** 読み直す周期。設定の送信（CONFIG_PUSH_MS）と同じにする。 */
+const REFRESH_EVERY_MS = 60_000;
+
+/**
+ * 保持期間の今の値と使用量を持ち、変わったときだけ retention.changed を配る。
+ * 使用量は重いので周期で測り、要求のたびには測らない。
+ */
+export class RetentionService {
+  private state: RetentionState;
+  private usage: RetentionUsageDto | null = null;
+  private timers: NodeJS.Timeout[] = [];
+  private readonly now: () => number;
+
+  constructor(private readonly o: RetentionServiceOptions) {
+    this.now = o.now ?? Date.now;
+    this.state = readRetention(o);
+  }
+
+  current(): RetentionDto { return { ...this.state, usage: this.usage }; }
+
+  /** 読み直し、変わっていれば配る。 */
+  refresh(): void {
+    const next = readRetention(this.o);
+    if (JSON.stringify(next) === JSON.stringify(this.state)) return;
+    this.state = next;
+    this.o.broadcast(this.current());
+  }
+
+  async measure(): Promise<void> {
+    this.usage = await measureUsage({ claudeDir: this.o.claudeDir, now: this.now() });
+    this.o.broadcast(this.current());
+  }
+
+  preview(days: number): RetentionPreviewDto {
+    return previewRetention({ claudeDir: this.o.claudeDir, home: this.o.home, days, dailyBytes: this.usage?.dailyBytes ?? null });
+  }
+
+  write(days: number, baseSha256: string): RetentionDto {
+    writeRetention({ claudeDir: this.o.claudeDir, home: this.o.home, days, baseSha256 });
+    this.refresh();
+    return this.current();
+  }
+
+  start(): void {
+    const measure = () => void this.measure().catch((e: unknown) => console.error('[retention]', e instanceof Error ? e.message : e));
+    this.timers.push(setTimeout(measure, FIRST_MEASURE_MS), setInterval(measure, MEASURE_EVERY_MS), setInterval(() => this.refresh(), REFRESH_EVERY_MS));
+    for (const t of this.timers) t.unref();
+  }
+
+  stop(): void {
+    for (const t of this.timers) clearTimeout(t);
+    this.timers = [];
+  }
+}

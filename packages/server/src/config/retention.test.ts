@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { measureUsage, previewRetention, readRetention, RetentionConflictError, writeRetention } from './retention.ts';
+import type { RetentionDto } from '@agent-hangar/shared';
+import { measureUsage, previewRetention, readRetention, RetentionConflictError, RetentionService, writeRetention } from './retention.ts';
 
+const NOW = Date.parse('2026-10-01T00:00:00Z');
 let root: string;
 let claudeDir: string;
 let managedDir: string;
@@ -53,7 +55,6 @@ describe('readRetention', () => {
 
 describe('measureUsage', () => {
   const DAY = 86_400_000;
-  const NOW = Date.parse('2026-10-01T00:00:00Z');
   const put = (rel: string, bytes: number, ageDays: number) => {
     const p = path.join(claudeDir, 'projects', rel);
     fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -158,5 +159,22 @@ describe('previewRetention と writeRetention', () => {
     writeRetention({ claudeDir, home: home(), days: 365, baseSha256: sha(SRC) });
     expect(fs.lstatSync(file()).isSymbolicLink()).toBe(true);
     expect(fs.readFileSync(real, 'utf8')).toBe(SRC.replace('3650', '365'));
+  });
+});
+
+describe('RetentionService', () => {
+  it('変わったときだけ配り、書いた後は新しい値を返す', async () => {
+    const sent: RetentionDto[] = [];
+    const svc = new RetentionService({ claudeDir, home: path.join(root, 'hangar'), managedDir, broadcast: (r) => sent.push(r), now: () => NOW });
+    svc.refresh();
+    expect(sent).toHaveLength(0);
+    expect(svc.current()).toMatchObject({ days: 30, source: 'default', usage: null });
+    const p = svc.preview(365);
+    expect(svc.write(365, p.baseSha256)).toMatchObject({ days: 365, source: 'user' });
+    expect(sent.at(-1)).toMatchObject({ days: 365 });
+    svc.refresh();
+    expect(sent).toHaveLength(1);
+    await svc.measure();
+    expect(sent.at(-1)!.usage).not.toBeNull();
   });
 });
