@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>サイドバーの文字の大きさ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..900&family=JetBrains+Mono:wght@400..800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+  :root {
+    --bg: #eef1f7; --aura-1: #cfe0ff; --aura-2: #e5d6ff;
+    --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #8a89a0; --accent: #4a63e8; --cursor: #ffb86b;
+    --line: #eceef5;
+    --glass-bg: rgba(255,255,255,.4);
+    --glass-edge: inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5);
+    --glass-drop: 0 10px 28px -12px rgba(30,40,90,.3);
+    --sans: 'Inter', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif; --mono: 'JetBrains Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 var(--sans); color: var(--ink); background: #f6f7fb; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 28px 24px 60px; }
+  h1 { font-size: 20px; font-weight: 650; margin: 0 0 6px; }
+  .lead { margin: 0 0 20px; color: var(--ink-2); max-width: 920px; }
+  .lead code { font: 12px var(--mono); background: #fff; padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--line); }
+  h2 { font-size: 15px; font-weight: 650; margin: 28px 0 4px; }
+  h2 + p { margin: 0 0 12px; color: var(--ink-2); font-size: 12.5px; max-width: 920px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 22px; }
+  .card { cursor: pointer; }
+  .card .cap { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; }
+  .card .cap b { font: 650 13px var(--mono); color: var(--accent); }
+  .card .cap span { font-weight: 600; }
+  .card .cap small { color: var(--ink-3); font: 11.5px var(--mono); margin-left: auto; }
+  .card .note { margin: 8px 0 0; font-size: 12px; color: var(--ink-2); }
+  .card.selected .win { box-shadow: 0 0 0 3px var(--accent), 0 20px 40px -24px rgba(20,20,60,.45); }
+
+  /* ---- 窓の切り抜き（実物の寸法） ---- */
+  .win { position: relative; height: 330px; border-radius: 12px; overflow: hidden; isolation: isolate; box-shadow: 0 20px 40px -24px rgba(20,20,60,.45), 0 0 0 1px rgba(20,20,60,.08);
+    background: radial-gradient(45% 55% at 20% 10%, var(--aura-1), transparent 70%), radial-gradient(45% 55% at 90% 80%, var(--aura-2), transparent 70%), var(--bg);
+    --fs: 15px; --w: 560; --ico: 20px; --row: 38px; --ls: 0em; --gap: 11px; --wd: 20px; --mark: 44px; }
+  .glass { background: var(--glass-bg); backdrop-filter: blur(12px) saturate(1.9); -webkit-backdrop-filter: blur(12px) saturate(1.9); box-shadow: var(--glass-edge), var(--glass-drop); }
+  .hdr { position: absolute; left: 0; right: 0; top: 0; height: 34px; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 81px; box-shadow: inset 0 -1px 0 rgba(255,255,255,.6), 0 6px 18px -12px rgba(30,40,90,.3); z-index: 3; white-space: nowrap; }
+  .lights { position: absolute; left: 11px; top: 11px; display: flex; gap: 8px; z-index: 4; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.12); }
+  .lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+  .crumbs { color: var(--ink-2); } .crumbs b { color: var(--ink); font-weight: 500; }
+  .srch { flex: 1; max-width: 200px; height: 26px; border-radius: 99px; background: rgba(255,255,255,.5); box-shadow: inset 0 1px 2px rgba(30,40,90,.12); color: var(--ink-3); font-size: 12px; display: flex; align-items: center; padding: 0 12px; }
+  .sb { position: absolute; left: 8px; top: 42px; bottom: 8px; width: 208px; padding: 10px 8px; border-radius: 16px; z-index: 2; }
+  .top { display: flex; align-items: center; margin-bottom: 14px; }
+  .brand { display: flex; align-items: center; gap: 7px; padding: 0 6px; min-width: 0; }
+  .brand img { width: var(--mark); height: var(--mark); flex: none; }
+  .brand b { font-size: var(--wd); font-weight: 720; line-height: 1; letter-spacing: -0.03em; }
+  .brand b::after { content: ''; display: inline-block; width: 10px; height: 3px; margin-left: 2px; border-radius: 1.5px; background: var(--cursor); }
+  .tog { margin-left: auto; width: 32px; height: 32px; display: grid; place-items: center; color: var(--ink-2); }
+  .tog svg { width: 20px; height: 20px; stroke-width: 1.5; }
+  .nav { display: flex; align-items: center; gap: var(--gap); height: var(--row); padding: 0 12px; margin-bottom: 2px; font-size: var(--fs); letter-spacing: var(--ls); color: var(--ink-2); border-radius: 99px; white-space: nowrap; }
+  .nav svg { width: var(--ico); height: var(--ico); flex: none; stroke-width: 1.75; }
+  .nav.on { color: var(--ink); font-weight: var(--w); background: rgba(255,255,255,.78); box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(30,40,90,.1); }
+  .main { position: absolute; left: 224px; right: 8px; top: 42px; bottom: 8px; padding: 8px 16px; }
+  .main h3 { margin: 0 0 10px; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+  .main .sec { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+  .main .row { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; margin-bottom: 4px; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(30,40,90,.06); white-space: nowrap; overflow: hidden; }
+  .main .row i { width: 7px; height: 7px; border-radius: 50%; background: #3bb273; flex: none; }
+  .main .row em { font-style: normal; margin-left: auto; color: var(--ink-3); font-size: 12px; }
+
+  /* ---- 自分で調整 ---- */
+  .play { display: grid; grid-template-columns: 1fr 300px; gap: 24px; align-items: start; }
+  .knobs { padding: 16px; border-radius: 14px; background: #fff; box-shadow: 0 0 0 1px var(--line); display: grid; gap: 12px; }
+  .knobs label { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 12px; color: var(--ink-2); }
+  .knobs label output { font: 600 12px var(--mono); color: var(--ink); }
+  .knobs input { grid-column: 1 / -1; width: 100%; }
+  .knobs pre { margin: 4px 0 0; padding: 10px; border-radius: 8px; background: #f6f7fb; font: 11.5px/1.6 var(--mono); white-space: pre-wrap; }
+  @media (max-width: 760px) { .play { grid-template-columns: 1fr; } .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>サイドバーの文字の大きさ</h1>
+  <p class="lead">ナビの文字は今 <code>--fs-md</code>（15px）で、中身の本文（13px）やパンくず（13px）より 2px 大きい。英語の Home / Projects のときは Inter の小文字が低いので釣り合っていたが、日本語にすると字面が四角く詰まって、同じ 15px でもひと回り大きく見える。文字の大きさ、太さ、アイコンと行の高さ、字間の 4 つの軸で案を並べた。どれも実物の寸法で描いている。押すと枠が付く。</p>
+
+  <h2>1. 文字の大きさだけを変える</h2>
+  <p>アイコン 20px、行 38px、太さ 560 はそのままにして、文字だけを下げる。</p>
+  <div class="grid" id="g1"></div>
+
+  <h2>2. 文字と一緒に、アイコンと行も詰める</h2>
+  <p>文字だけ小さくすると、20px のアイコンと 38px の行が勝って見えることがある。閉じた帯のアイコンも同じ大きさに揃える前提。</p>
+  <div class="grid" id="g2"></div>
+
+  <h2>3. 太さと字間で整える</h2>
+  <p>日本語は太さ 560 だと黒く固まりやすい。選択中の太さを落とすか、字間を少し空けて軽くする。</p>
+  <div class="grid" id="g3"></div>
+
+  <h2>4. 自分で調整</h2>
+  <p>つまみを動かすと右の値が変わる。気に入った値をそのまま伝えてもらえれば入れる。</p>
+  <div class="play">
+    <div id="pv"></div>
+    <div class="knobs" id="knobs"></div>
+  </div>
+</div>
+
+<script>
+const MARK = '../../../../packages/ui/src/brand/logo-mark.svg';
+const NAV = [['house', 'ホーム'], ['folder', 'プロジェクト'], ['messages-square', 'セッション', true], ['settings', '設定']];
+
+function win(v) {
+  const style = Object.entries(v).map(([k, val]) => `--${k}:${val}`).join(';');
+  return `<div class="win" style="${style}">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="hdr glass"><span class="crumbs">agent-hangar › <b>セッション</b></span><span class="srch">検索…　⌘K</span></div>
+    <div class="sb glass">
+      <div class="top"><div class="brand"><img src="${MARK}" alt=""><b>Hangar</b></div><span class="tog"><i data-lucide="panel-left"></i></span></div>
+      ${NAV.map(([ic, l, on]) => `<div class="nav${on ? ' on' : ''}"><i data-lucide="${ic}"></i><span>${l}</span></div>`).join('')}
+    </div>
+    <div class="main">
+      <h3>セッション</h3>
+      <p class="sec">いま動いている</p>
+      <div class="row"><i></i>サイドバーの文字を整える<em>2 分前</em></div>
+      <div class="row"><i></i>TODO の完了候補<em>1 時間前</em></div>
+      <div class="row"><i style="background:#c9c9d6"></i>外のターミナルを引き取る<em>昨日</em></div>
+    </div>
+  </div>`;
+}
+
+const base = { fs: '15px', w: 560, ico: '20px', row: '38px', ls: '0em', gap: '11px' };
+const G = {
+  g1: [
+    ['A', '今のまま', { ...base }, '15px / 560 / アイコン 20 / 行 38', '比べる基準。'],
+    ['B', '14px', { ...base, fs: '14px' }, '14px / 560 / 20 / 38', '1px だけ下げる。いちばん控えめな直し。'],
+    ['C', '13.5px', { ...base, fs: '13.5px' }, '13.5px / 560 / 20 / 38', '本文とワードマークの間に収まる。'],
+    ['D', '13px（本文と同じ）', { ...base, fs: '13px' }, '13px / 560 / 20 / 38', 'パンくずや本文と揃う。アイコンが少し勝つ。'],
+  ],
+  g2: [
+    ['E', '14px + アイコン 18', { ...base, fs: '14px', ico: '18px', row: '36px', gap: '10px' }, '14px / 560 / 18 / 36', '全体をひと回り締める。'],
+    ['F', '13.5px + アイコン 18', { ...base, fs: '13.5px', ico: '18px', row: '36px', gap: '10px' }, '13.5px / 560 / 18 / 36', '文字とアイコンの比が今と同じくらいになる。'],
+    ['G', '13px + アイコン 18 + 行 34', { ...base, fs: '13px', ico: '18px', row: '34px', gap: '10px' }, '13px / 560 / 18 / 34', 'VS Code や Linear に近い密度。'],
+  ],
+  g3: [
+    ['H', '14px / 選択 500', { ...base, fs: '14px', w: 500 }, '14px / 500 / 20 / 38', '選択中を背景の錠剤だけで示し、字は重くしない。'],
+    ['I', '14px / 字間 0.02em', { ...base, fs: '14px', ls: '0.02em' }, '14px / 560 / 20 / 38 / +0.02em', '日本語の詰まりを少しほどく。'],
+    ['J', '13.5px / 500 / 0.02em', { ...base, fs: '13.5px', w: 500, ls: '0.02em' }, '13.5px / 500 / 20 / 38 / +0.02em', 'C を軽くしたもの。'],
+  ],
+};
+for (const [id, list] of Object.entries(G)) {
+  document.getElementById(id).innerHTML = list.map(([k, name, v, spec, note]) =>
+    `<div class="card" data-k="${k}"><p class="cap"><b>${k}</b><span>${name}</span><small>${spec}</small></p>${win(v)}<p class="note">${note}</p></div>`).join('');
+}
+document.addEventListener('click', (e) => {
+  const c = e.target.closest('.card'); if (!c) return;
+  document.querySelectorAll('.card.selected').forEach((x) => x !== c && x.classList.remove('selected'));
+  c.classList.toggle('selected');
+});
+
+const K = [
+  ['fs', '文字の大きさ', 12, 16, 0.5, 15, 'px'],
+  ['w', '選択中の太さ', 400, 700, 20, 560, ''],
+  ['ico', 'アイコン', 16, 22, 1, 20, 'px'],
+  ['row', '行の高さ', 30, 42, 1, 38, 'px'],
+  ['gap', 'アイコンと文字の間', 6, 14, 1, 11, 'px'],
+  ['ls', '字間', 0, 0.08, 0.01, 0, 'em'],
+  ['wd', 'ワードマーク', 16, 22, 1, 20, 'px'],
+];
+const state = Object.fromEntries(K.map(([k, , , , , d]) => [k, d]));
+document.getElementById('knobs').innerHTML = K.map(([k, l, mi, ma, st, d, u]) =>
+  `<label>${l}<output id="o-${k}">${d}${u}</output><input type="range" min="${mi}" max="${ma}" step="${st}" value="${d}" data-k="${k}" data-u="${u}"></label>`).join('') + '<pre id="out"></pre>';
+function render() {
+  const v = Object.fromEntries(K.map(([k, , , , , , u]) => [k, state[k] + u]));
+  document.getElementById('pv').innerHTML = win(v);
+  document.getElementById('out').textContent = K.map(([k, l, , , , , u]) => `${l}: ${state[k]}${u}`).join('\n');
+  lucide.createIcons();
+}
+document.getElementById('knobs').addEventListener('input', (e) => {
+  const i = e.target; if (!i.dataset.k) return;
+  state[i.dataset.k] = +i.value; document.getElementById('o-' + i.dataset.k).textContent = i.value + i.dataset.u; render();
+});
+render();
+</script>
+</body>
+</html>
