@@ -408,6 +408,8 @@ describe('作業台の操作', () => {
       intent({ type: 'todo.add', projectId: 'p1', text: '買う' }),
       intent({ type: 'todo.toggle', id: 't1' }),
       intent({ type: 'todo.remove', id: 't1' }),
+      intent({ type: 'todo.confirm', id: 't1' }),
+      intent({ type: 'todo.reject', id: 't1' }),
       intent({ type: 'memo.save', projectId: 'p1', markdown: '# m' }),
       intent({ type: 'session.setMemo', id: 's1', text: '一行' }),
       intent({ type: 'artifact.open', id: 'a1' }),
@@ -419,6 +421,7 @@ describe('作業台の操作', () => {
     expect(r.effects).toEqual([
       { kind: 'api.addTodo', projectId: 'p1', text: '買う' }, { kind: 'focus', target: 'todoInput' },
       { kind: 'api.toggleTodo', id: 't1' }, { kind: 'api.removeTodo', id: 't1' },
+      { kind: 'api.confirmTodo', id: 't1' }, { kind: 'api.rejectTodo', id: 't1' },
       { kind: 'api.saveMemo', projectId: 'p1', markdown: '# m' },
       { kind: 'api.setSessionMemo', sessionId: 's1', text: '一行' },
       { kind: 'api.openArtifact', id: 'a1' },

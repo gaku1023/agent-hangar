@@ -38,6 +38,8 @@ export type ApiClient = {
   addTodo(projectId: string, text: string): Promise<TodoDto>;
   setTodoDone(id: string, done: boolean): Promise<TodoDto>;
   removeTodo(id: string): Promise<TodoDto>;
+  confirmTodo(id: string): Promise<TodoDto>;
+  rejectTodo(id: string): Promise<TodoDto>;
   memo(projectId: string): Promise<MemoDto>;
   saveMemo(projectId: string, markdown: string): Promise<MemoDto>;
   setSessionMemo(sessionId: string, memo: string): Promise<SessionDto>;
@@ -108,6 +110,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     addTodo: (projectId, text) => post(`/api/projects/${projectId}/todos`, { text }),
     setTodoDone: (id, done) => call(`/api/todos/${id}`, { method: 'PATCH', body: JSON.stringify({ done }) }),
     removeTodo: (id) => call(`/api/todos/${id}`, { method: 'DELETE' }),
+    confirmTodo: (id) => post(`/api/todos/${id}/confirm`),
+    rejectTodo: (id) => post(`/api/todos/${id}/reject`),
     memo: (projectId) => call(`/api/projects/${projectId}/memo`),
     saveMemo: (projectId, markdown) => call(`/api/projects/${projectId}/memo`, { method: 'PUT', body: JSON.stringify({ markdown }) }),
     setSessionMemo: (sessionId, memo) => call(`/api/sessions/${sessionId}`, { method: 'PATCH', body: JSON.stringify({ memo }) }),

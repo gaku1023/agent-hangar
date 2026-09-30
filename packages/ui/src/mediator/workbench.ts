@@ -44,6 +44,8 @@ export function workbenchStep(state: State, input: Input): Step | null {
     case 'todo.add': return i.text.trim() ? { state, effects: [{ kind: 'api.addTodo', projectId: i.projectId, text: i.text.trim() }, { kind: 'focus', target: 'todoInput' }] } : { state, effects: [] };
     case 'todo.toggle': return { state, effects: [{ kind: 'api.toggleTodo', id: i.id }] };
     case 'todo.remove': return { state, effects: [{ kind: 'api.removeTodo', id: i.id }] };
+    case 'todo.confirm': return { state, effects: [{ kind: 'api.confirmTodo', id: i.id }] };
+    case 'todo.reject': return { state, effects: [{ kind: 'api.rejectTodo', id: i.id }] };
     case 'memo.save': return { state, effects: [{ kind: 'api.saveMemo', projectId: i.projectId, markdown: i.markdown }] };
     case 'session.setMemo': return { state, effects: [{ kind: 'api.setSessionMemo', sessionId: i.id, text: i.text }] };
     case 'artifact.open': return { state, effects: [{ kind: 'api.openArtifact', id: i.id }] };

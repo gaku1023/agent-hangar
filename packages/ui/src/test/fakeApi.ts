@@ -4,7 +4,7 @@ import type { ApiClient } from '../runtime/api.ts';
 type Extras = Pick<
   ApiClient,
   | 'launch' | 'resume' | 'fork' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
-  | 'usageAggregate' | 'statusline' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
+  | 'usageAggregate' | 'statusline' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncStatus' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
 >;
@@ -32,6 +32,8 @@ export function fakeApiExtras(): Extras {
     addTodo: vi.fn(async (projectId: string, text: string) => ({ id: 't1', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1 })),
     setTodoDone: vi.fn(async (id: string, done: boolean) => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1 })),
     removeTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1 })),
+    confirmTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: true, position: 1, sessionId: null, updatedAt: 1, candidate: null })),
+    rejectTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null })),
     memo: vi.fn(async (projectId: string) => ({ projectId, markdown: '', updatedAt: 0 })),
     saveMemo: vi.fn(async (projectId: string, markdown: string) => ({ projectId, markdown, updatedAt: 2 })),
     setSessionMemo: vi.fn(async () => unused()),

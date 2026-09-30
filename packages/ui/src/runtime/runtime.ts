@@ -206,9 +206,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // 反転の基準はストアの現在値にする。View は done の値を持たない。
         const t = store.todos[e.id];
         if (!t) return;
-        deps.api.setTodoDone(e.id, !t.done).catch(fail);
+        // 候補の欄を押したときは確定と同じに扱う。候補は未完なので、素直に反転すると done: false を送って何も起きない。
+        if (t.candidate) deps.api.confirmTodo(e.id).catch(fail);
+        else deps.api.setTodoDone(e.id, !t.done).catch(fail);
         return;
       }
+      case 'api.confirmTodo': deps.api.confirmTodo(e.id).catch(fail); return;
+      case 'api.rejectTodo': deps.api.rejectTodo(e.id).catch(fail); return;
       case 'api.removeTodo': deps.api.removeTodo(e.id).catch(fail); return;
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
       // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。

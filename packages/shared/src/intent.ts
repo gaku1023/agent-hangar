@@ -25,6 +25,7 @@ export type Intent =
   | { type: 'project.resolve.open'; id: ProjectId } | { type: 'project.resolve'; id: ProjectId; action: ResolveAction }
   | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
   | { type: 'todo.add'; projectId: ProjectId; text: string } | { type: 'todo.toggle'; id: TodoId } | { type: 'todo.remove'; id: TodoId }
+  | { type: 'todo.confirm'; id: TodoId } | { type: 'todo.reject'; id: TodoId }
   | { type: 'memo.save'; projectId: ProjectId; markdown: string }
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId }
   | { type: 'session.open'; id: SessionId; focus?: 'terminal' } | { type: 'session.setMemo'; id: SessionId; text: string }
