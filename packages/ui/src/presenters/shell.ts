@@ -2,6 +2,7 @@ import type { IndexProgressDto, Route, SyncStateKind } from '@agent-hangar/share
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
+import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts';
 
 export type NavItem = { route: Route; label: string; current: boolean };
 export type UsageProps = { fiveHour: number | null; sevenDay: number | null; updatedLabel: string | null };
@@ -13,7 +14,9 @@ export type UsageProps = { fiveHour: number | null; sevenDay: number | null; upd
 export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; sweepPending: number; skipped: number; paused: boolean };
 /** 切れているあいだだけ出す帯。つながっている間は visible が false で、文言も空である。 */
 export type ConnProps = { visible: boolean; staleLabel: string; retryLabel: string };
-export type ShellProps = { sidebarCollapsed: boolean; nav: NavItem[]; crumbs: { label: string; route?: Route }[]; searchText: string; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps };
+/** 保持期間の帯。既定の 30 日のままで、書けて、まだ閉じていないときだけ出す。 */
+export type RetentionBannerProps = { visible: boolean; title: string; detail: string; extendTo: number };
+export type ShellProps = { sidebarCollapsed: boolean; nav: NavItem[]; crumbs: { label: string; route?: Route }[]; searchText: string; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps };
 
 /**
  * 切れているあいだの帯。
@@ -51,6 +54,21 @@ function syncProps(state: State, store: Store, now: number): SyncProps {
   return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused: s.kind === 'paused' };
 }
 
+/**
+ * 保持期間の帯。値を自分で入れた人（30 日を含む）と、組織の設定で決まっている人には出さない。
+ * 消えかけの会話があればその件数を、無ければ「消える」という決まりそのものを言う。
+ */
+function retentionBanner(state: State, store: Store, now: number): RetentionBannerProps {
+  const r = store.retention;
+  const hidden: RetentionBannerProps = { visible: false, title: '', detail: '', extendTo: EXTEND_TO };
+  if (!store.bootstrapped || !r || r.source !== 'default' || !r.writable || state.retentionBannerDismissed) return hidden;
+  const soon = countExpiring(Object.values(store.sessions), r.days, now);
+  const usage = r.usage ? ` ・ いま ${bytesLabel(r.usage.bytes)}` : '';
+  return soon > 0
+    ? { visible: true, title: `${soon} 件の会話が、まもなく削除されます`, detail: `Claude Code は ${daysLabel(r.days)}で本文を消します${usage}`, extendTo: EXTEND_TO }
+    : { visible: true, title: `会話は ${daysLabel(r.days)}で削除されます`, detail: `hangar の履歴からも消えます${usage}`, extendTo: EXTEND_TO };
+}
+
 const NAV: { route: Route; label: string; matches: string[] }[] = [
   { route: { name: 'home' }, label: 'ホーム', matches: ['home', 'booting'] },
   { route: { name: 'projects' }, label: 'プロジェクト', matches: ['projects', 'project'] },
@@ -72,5 +90,5 @@ export function presentShell(state: State, store: Store, now: number): ShellProp
   const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
   const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
-  return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now) };
+  return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), retention: retentionBanner(state, store, now) };
 }

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false }], crumbs: [{ label: 'プロジェクト', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false } };
+const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false }], crumbs: [{ label: 'プロジェクト', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, retention: { visible: false, title: '', detail: '', extendTo: 365 } };
 
 describe('Shell', () => {
   it('ナビと検索が Intent になる', () => {
@@ -59,12 +59,25 @@ describe('Shell', () => {
     const onIntent = vi.fn();
     const conn = { visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します' };
     render(<IntentRoot onIntent={onIntent}><Shell {...props} conn={conn} indexLabel="索引 3 / 9 件" overlays={null}><div /></Shell></IntentRoot>);
-    const banner = within(screen.getByRole('status'));
+    const banner = within(screen.getByRole('status', { name: '接続の状態' }));
     expect(banner.getByText('画面は 2 分前のまま止まっています')).toBeInTheDocument();
     expect(banner.getByText('8 秒後に再接続します')).toBeInTheDocument();
     fireEvent.click(banner.getByRole('button', { name: 'いますぐ再接続' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'conn.retry' });
     expect(screen.getByText('索引 3 / 9 件')).toBeInTheDocument();
+  });
+  it('保持期間の帯を出し、閉じると延ばすの Intent を出す。切断の帯と積める', () => {
+    const onIntent = vi.fn();
+    const retention = { visible: true, title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも消えます ・ いま 1.5 GB', extendTo: 365 };
+    const conn = { visible: true, staleLabel: '画面の更新が止まっています', retryLabel: '再接続しています' };
+    render(<IntentRoot onIntent={onIntent}><Shell {...props} conn={conn} retention={retention} overlays={null}><div /></Shell></IntentRoot>);
+    expect(screen.getAllByRole('status')).toHaveLength(2);
+    const banner = within(screen.getByRole('status', { name: '会話の保持期間' }));
+    expect(banner.getByText('会話は 30 日で削除されます')).toBeInTheDocument();
+    fireEvent.click(banner.getByRole('button', { name: 'このままでよい' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'retention.dismiss' });
+    fireEvent.click(banner.getByRole('button', { name: '保持期間を延ばす…' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'banner' });
   });
   it('つながっている間は帯を出さない', () => {
     render(<IntentRoot onIntent={() => {}}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);

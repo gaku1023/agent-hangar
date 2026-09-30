@@ -61,12 +61,14 @@ a:hover { text-decoration: underline; }
 /* 中身はヘッダの下をくぐって流れる。上の余白は、ヘッダの高さと、その下の隙間の分である。
    scroll-padding-top を同じ値にしておくと、j と k の行送りや Shift+Tab で届いた先がヘッダの下に隠れない。 */
 .main { grid-column: 2; grid-row: 1 / -1; overflow: auto; padding-top: calc(var(--header-h) + var(--float-gap)); scroll-padding-top: calc(var(--header-h) + var(--float-gap)); }
-/* 切断の帯が出ている間は、帯の分も空ける。
+/* 帯（切断、保持期間）が出ている間は、帯の分も空ける。
    帯の下端は、ヘッダ header-h、帯の上の隙間 float-gap * 0.75、帯の高さ row-h の和である（ヘッダは窓の上辺に付いているので、上の隙間は無い）。
    そこに float-gap を足して、ヘッダの下と同じ隙間で中身を始める。
    今の値では 44 + 6 + 28 + 8 = 86px になる。
    scroll-padding-top も同じ値にし、キーボードで届いた先が帯とヘッダの下に隠れないようにする。 */
-.shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); }
+.shell:has(.banners > :nth-child(1)) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); }
+/* 帯が 2 つのときは、帯の間の隙間 float-gap * 0.75 と 2 つめの帯の高さを足す。44 + 6 + 28 + 6 + 28 + 8 = 120px。 */
+.shell:has(.banners > :nth-child(2)) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 2.5 + var(--row-h) * 2); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 2.5 + var(--row-h) * 2); }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4); }
 /* 現れるものは、ぼかしが晴れながら --rise だけ上がって来る。
    ぼかしは 20% の時点で none にして晴らし切り、残りは薄れと移動だけで入る。
@@ -212,9 +214,12 @@ a:hover { text-decoration: underline; }
 .spacer { flex: 1; }
 
 /* 切断の帯。浮いたヘッダの下に降りてきて、押せる逃げ道をひとつ添える。通知と同じガラスに、赤を少し混ぜる。
-   高さは row-h に決め打ちし、上下の余白は持たない。中身の上の余白（.shell:has(.conn-banner) .main）はこの高さから計算している。
+   高さは row-h に決め打ちし、上下の余白は持たない。中身の上の余白（.shell:has(.banners > ...) .main）はこの高さから計算している。
+   置き場所と外側の余白は、保持期間の帯と縦に積む箱（.banners）が持つ。
    中の小さいボタン（.btn-sm）は row-h より 6px 低いので、上下に 3px ずつ残って収まる。 */
-.conn-banner { grid-column: 2; grid-row: 2; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; padding: 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur) var(--ease-out); }
+.banners { grid-column: 2; grid-row: 2; z-index: 2; display: flex; flex-direction: column; gap: calc(var(--float-gap) * 0.75); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; }
+.banners:empty { display: none; }
+.conn-banner { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur) var(--ease-out); }
 .conn-retry { color: color-mix(in srgb, var(--error) 70%, var(--ink-3)); }
 /* 幅が足りないときは、折り返して帯の高さを変える代わりに、文言を省略記号で縮める。
    「接続が切れています」の見出しは縮めず、次の再接続までの秒数から先に縮める。
@@ -223,6 +228,13 @@ a:hover { text-decoration: underline; }
 .conn-banner > b { flex: none; }
 .conn-banner > .conn-retry { flex-shrink: 4; }
 .conn-banner .btn { margin-left: auto; flex: none; }
+/* 保持期間の帯。形は切断の帯と同じで、色だけを警告の琥珀にする。 */
+.retention-banner { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--st-paused); background: color-mix(in srgb, var(--busy) 12%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur) var(--ease-out); }
+.retention-banner > b, .retention-banner > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.retention-banner > b { flex: none; }
+.retention-banner > .retention-detail { flex-shrink: 4; color: color-mix(in srgb, var(--st-paused) 65%, var(--ink-3)); }
+.retention-banner .btn { flex: none; }
+.retention-banner .btn:first-of-type { margin-left: auto; }
 @keyframes drop-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 
 /* オーバーレイ */
