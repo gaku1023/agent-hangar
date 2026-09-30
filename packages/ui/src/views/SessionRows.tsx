@@ -23,8 +23,13 @@ const DEFAULT_EMPTY_TEXT = 'セッションはまだありません';
 /**
  * いまのフォーカスを一覧が奪ってはいけないか。
  * 入力欄で打っている最中、ターミナルの中、ダイアログの中にあるフォーカスは、その持ち主のものである。
+ * モーダルのダイアログが開いているあいだも奪わない。
+ * 起動時の未解決ダイアログのようにフォーカスがまだ body にあっても、裏の一覧が取ると j や Enter で裏の画面が動くからである。
+ * ただし一覧そのものがそのダイアログの中にあるなら、それは奪うことにならない。
  */
-function holdsFocus(el: Element | null): boolean {
+function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
+  const modal = document.querySelector('[aria-modal="true"]');
+  if (modal && !(host && modal.contains(host))) return true;
   if (!(el instanceof HTMLElement)) return false;
   const tag = el.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable) return true;
@@ -37,12 +42,19 @@ function holdsFocus(el: Element | null): boolean {
  * Tab で止まる行はカーソルの行 1 つだけで、打鍵でカーソルを動かすとフォーカスもその行へ移り、行にフォーカスが来るとカーソルもそこへ来る。
  * foot は一覧の末尾（最後の行の下）に置くもの。検索の「さらに読み込む」に使う。
  * autoFocus を渡すと、行が初めて並んだときに一度だけ一覧そのものにフォーカスする（画面に入ってすぐ j や ↓ が効くように）。
+ * loadingMore は末尾の続きを読み足している最中であることを表す（検索の「さらに読み込む」）。
+ * 読み終えたら、読み足した最初の行へフォーカスを返す。押したボタンが読み込みの間 disabled になり、フォーカスが body へ落ちるからである。
+ * id は一覧の器に付ける。Mediator の focus の効果が、この id で一覧を探す（runtime/focusSoon.ts の FOCUS_IDS）。
  */
-export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode }) {
+export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode; id?: string; loadingMore?: boolean }) {
   const emit = useEmit();
   // カーソルは一覧の中だけの状態なので Mediator には置かない。
-  // -1 は未選択で、このとき Enter や o や m は何も起こさない。
-  const [cursor, setCursor] = useState(-1);
+  // 行の番号ではなくセッションの id で持つ。
+  // 行の DOM は id で付いて動くので、番号で持つと並びが変わったときにフォーカスの行とカーソルの行が食い違い、Enter で別の行が開く。
+  // null は未選択で、このとき Enter や o や m は何も起こさない。
+  // 選んでいた行が一覧から消えたときも未選択に戻る。
+  const [cursorId, setCursorId] = useState<string | null>(null);
+  const cursor = cursorId === null ? -1 : props.rows.findIndex((r) => r.id === cursorId);
   // 編集中のセッションの id。null なら編集していない。
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -56,13 +68,13 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   // 仮想リストは画面の外の行を描かないので、カーソルが可視範囲を出たら見える位置まで運ぶ。
   // これをしないと、見えていない行が選ばれたまま Enter で開けてしまう。
   useEffect(() => {
-    if (cursor < 0) return;
+    if (cursorId === null) return;
     const el = cursorRow();
     // jsdom のように scrollIntoView を持たない環境では何もしない。
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
     if (el && byKey.current) el.focus({ preventScroll: true });
     byKey.current = false;
-  }, [cursor]);
+  }, [cursorId]);
 
   // 画面に入ったら一覧にフォーカスする。行が後から届く画面もあるので、初めて並んだときに一度だけ当てる。
   // 行はまだ選ばない。最初の j や ↓ で先頭の行に入る。
@@ -71,8 +83,29 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   useEffect(() => {
     if (!autoPending.current || !hasRows) return;
     autoPending.current = false;
-    if (!holdsFocus(document.activeElement)) hostRef.current?.focus({ preventScroll: true });
+    if (!holdsFocus(document.activeElement, hostRef.current)) hostRef.current?.focus({ preventScroll: true });
   }, [hasRows]);
+
+  // 読み足しを始めたときの行の数。続きはその後ろに足されるので、読み終えたらこの位置の行が読み足した最初の行になる。
+  // 読み足しの間も持っている行は消えない（runtime の search.more）。
+  const moreFrom = useRef<number | null>(null);
+  const rowsLen = props.rows.length;
+  useEffect(() => {
+    if (props.loadingMore) { moreFrom.current = rowsLen; return; }
+    const from = moreFrom.current;
+    moreFrom.current = null;
+    if (from === null) return;
+    // フォーカスが落ちた（body にある）か、末尾のボタンに残っているときだけ返す。ほかへ移したフォーカスは奪わない。
+    const host = hostRef.current;
+    const a = document.activeElement;
+    const lost = !a || a === document.body || (!!host && host.contains(a) && a !== host && !a.closest('[role="row"]'));
+    if (!lost || !host) return;
+    const next = props.rows[from];
+    if (!next) { host.focus({ preventScroll: true }); return; }
+    if (next.id === cursorId) { cursorRow()?.focus({ preventScroll: true }); return; }
+    byKey.current = true;
+    setCursorId(next.id);
+  }, [props.loadingMore]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const startEdit = (r: SessionRowProps) => { setEditing(r.id); setDraft(r.memo ?? ''); };
   // Enter と Esc で編集を終えたら、フォーカスを行へ戻す。入力欄が消えると、フォーカスの行き場が無くなるからである。
@@ -93,10 +126,11 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
     // ⌘ や Ctrl の付いた打鍵はアプリ全体のもの（⌘K や ⌘J）なので、一覧では使わない。
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const max = props.rows.length - 1;
-    const cur = props.rows[cursor];
+    const cur = cursor >= 0 ? props.rows[cursor] : undefined;
+    const moveTo = (i: number) => { byKey.current = true; setCursorId(props.rows[i]?.id ?? null); };
     switch (e.key) {
-      case 'j': case 'ArrowDown': byKey.current = true; setCursor((c) => Math.min(max, c + 1)); break;
-      case 'k': case 'ArrowUp': byKey.current = true; setCursor((c) => Math.max(0, c - 1)); break;
+      case 'j': case 'ArrowDown': moveTo(Math.min(max, cursor + 1)); break;
+      case 'k': case 'ArrowUp': moveTo(Math.max(0, cursor - 1)); break;
       case 'Enter': if (cur) emit({ type: 'session.open', id: cur.id }); break;
       case 'o': if (cur?.runId) emit({ type: 'session.openTerminalApp', runId: cur.runId }); break;
       case 'e': if (cur) emit({ type: 'session.openEditor', sessionId: cur.id }); break;
@@ -152,10 +186,10 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   // 器は Tab の順には入れず（tabIndex=-1）、画面に入ったときのフォーカスの受け皿にだけ使う。
   // 行の打鍵はここへ上がってきて、カーソルの行について 1 度だけ処理する。
   return (
-    <div className="rows-host" data-testid="session-rows" ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown}>
+    <div className="rows-host" id={props.id} data-testid="session-rows" ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown}>
       <VirtualList items={props.rows} rowHeight={SESSION_ROW_H} height={props.height} keyOf={(r) => r.id} foot={props.foot} render={(r, i) => (
         <div className="row row-2" role="row" tabIndex={i === tabStop ? 0 : -1} data-cursor={i === cursor ? 'true' : undefined} data-morph-id={r.id}
-          onClick={() => emit({ type: 'session.open', id: r.id })} onFocus={() => setCursor(i)}>
+          onClick={() => emit({ type: 'session.open', id: r.id })} onFocus={() => setCursorId(r.id)}>
           <StatusDot status={r.live} />
           <span className="row-main">
             <span className="row-name">{r.name}{props.variant === 'search' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>

@@ -1,6 +1,6 @@
 import type { Input, State, Step } from './types.ts';
 
-function popQueue(state: State): State {
+export function popQueue(state: State): State {
   const [next, ...rest] = state.unresolvedQueue;
   return next ? { ...state, overlay: { kind: 'resolveProject', projectId: next }, unresolvedQueue: rest } : { ...state, overlay: { kind: 'none' }, unresolvedQueue: [] };
 }
@@ -28,6 +28,16 @@ function deferResolve(state: State): State {
   if (state.overlay.kind !== 'resolveProject') return next;
   const id = state.overlay.projectId;
   return next.resolveDeferred.includes(id) ? next : { ...next, resolveDeferred: [...next.resolveDeferred, id] };
+}
+
+/**
+ * 何も出ていないのに未解決のキューが残っていたら、先頭を出す。
+ * 一覧から削除の確認は、やめたときの戻り先としてプロジェクトをキューに積む。
+ * その確認をパレットや新規セッションのダイアログで覆うと、覆ったものを閉じる経路（palette.close、新規の overlay.close、起動の完了など）はキューを見ない。
+ * 閉じる経路ごとに popQueue を足すと漏れるので、どの領域が応答した後でもここで拾う。
+ */
+export function settleQueue(state: State): State {
+  return state.overlay.kind === 'none' && state.unresolvedQueue.length > 0 ? popQueue(state) : state;
 }
 
 /** overlay 領域：ダイアログとパレット。未解決プロジェクトは一つずつ出す。 */

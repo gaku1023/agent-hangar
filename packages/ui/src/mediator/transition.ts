@@ -1,7 +1,7 @@
 import { connectionStep } from './connection.ts';
 import { launchStep } from './launch.ts';
 import { liveStep } from './live.ts';
-import { overlayStep } from './overlay.ts';
+import { overlayStep, settleQueue } from './overlay.ts';
 import { promoteStep } from './promote.ts';
 import { resumeHereStep } from './resumeHere.ts';
 import { screenStep } from './screen.ts';
@@ -33,7 +33,8 @@ export function transition(state: State, input: Input): Step {
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
   for (const step of [connectionStep, screenStep, launchStep, promoteStep, overlayStep, syncStep, resumeHereStep, sessionViewStep, sidebarStep, liveStep, workbenchStep]) {
     const r = step(state, input);
-    if (r) return r;
+    // 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
+    if (r) { const settled = settleQueue(r.state); return settled === r.state ? r : { ...r, state: settled }; }
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message), effects: [] };

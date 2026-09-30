@@ -347,6 +347,39 @@ describe('一覧のキー操作（C1）', () => {
     box.remove();
   });
 
+  it('並びが変わっても、フォーカスした行とカーソルと Enter で開く行は同じ', () => {
+    const onIntent = vi.fn();
+    const rows = [p3Row('a'), p3Row('b'), p3Row('c')];
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionRows rows={rows} height={400} variant="project" /></IntentRoot>);
+    const rowB = screen.getByText('名前 b').closest('[role="row"]') as HTMLElement;
+    act(() => rowB.focus());
+    rerender(<IntentRoot onIntent={onIntent}><SessionRows rows={[rows[1]!, rows[0]!, rows[2]!]} height={400} variant="project" /></IntentRoot>);
+    const focused = document.activeElement as HTMLElement;
+    expect(focused.textContent).toContain('名前 b');
+    const marked = screen.getByTestId('session-rows').querySelectorAll('[data-cursor="true"]');
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toBe(focused);
+    fireEvent.keyDown(focused, { key: 'Enter' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'b' });
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    // 並び替えの後の j は、いまの並びで次の行へ進む。
+    fireEvent.keyDown(focused, { key: 'j' });
+    expect((document.activeElement as HTMLElement).textContent).toContain('名前 a');
+  });
+
+  it('autoFocus でも、モーダルのダイアログが開いていればフォーカスを奪わない', () => {
+    // 起動時の未解決ダイアログのように、フォーカスがまだダイアログの外（body）にあっても奪わない。
+    const modal = document.createElement('div');
+    modal.setAttribute('aria-modal', 'true');
+    document.body.appendChild(modal);
+    try {
+      mount(vi.fn(), { autoFocus: true });
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      modal.remove();
+    }
+  });
+
   it('autoFocus は、行が後から届いたときに 1 度だけ当てる', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionRows rows={[]} height={400} variant="search" autoFocus /></IntentRoot>);

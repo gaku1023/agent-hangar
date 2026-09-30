@@ -74,7 +74,8 @@ export type Effect =
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' };
 
 export type Screen = { name: 'booting' } | Route;
-export type FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput';
+/** results はセッションの一覧の画面の結果の一覧である。 */
+export type FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput' | 'results';
 /** 同期の見え方。サーバの SyncStatusDto を UI が描く形に写したもの。 */
 export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
 /**

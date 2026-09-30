@@ -6,6 +6,7 @@ import type { ApiClient } from './runtime/api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
+import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { fakeMotionTokens } from './test/motion.ts';
 
@@ -30,6 +31,8 @@ function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?:
     storage: { get: () => undefined, set: () => {}, keys: () => [] },
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     terminals: over.terminals ?? terminals,
+    // main.tsx と同じく、フォーカスの対象を id で探して当てる。
+    focus: (t) => focusSoon(() => document.getElementById(FOCUS_IDS[t]), (cb) => { requestAnimationFrame(cb); }),
   };
   const rt = createRuntime(deps);
   return { rt, deps, handlers, go, setHash: deps.location.setHash, terminals: deps.terminals };
@@ -276,6 +279,21 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     expect(zoom).not.toHaveBeenCalled();
   });
 
+  it('端末の無いセッション画面（終わったセッションの本文だけ）の ⌘+ ⌘− ⌘0 はブラウザに渡す', async () => {
+    const zoom = vi.fn();
+    const { wsHandlers, setHash } = await mounted({ terminals: { ...terminals, zoom } });
+    act(() => setHash('#/session/s1'));
+    await flush();
+    expect(key({ key: '=', metaKey: true })).toBe(true);
+    expect(key({ key: '-', metaKey: true })).toBe(true);
+    expect(key({ key: '0', metaKey: true })).toBe(true);
+    // run が終わってシェルタブも残っていなければ、端末は画面に無い。
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: { ...rootRun('r1', 's1'), endedAt: 2 }, tabs: [rootTab('t1', 'r1', 'agent')] }));
+    await flush();
+    expect(key({ key: '=', metaKey: true })).toBe(true);
+    expect(zoom).not.toHaveBeenCalled();
+  });
+
   it('パレットの入力は Root が持ち、閉じると空に戻る', async () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));
@@ -461,6 +479,18 @@ describe('キーの見直し', () => {
     const emit = vi.spyOn(rt, 'emit');
     key({ key: 'w', metaKey: true }, paneHost('t2'));
     expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
+  });
+
+  it('確認ダイアログを開いている間の ⌘W は、裏のシェルタブを閉じず、窓にも渡さない', async () => {
+    const { rt } = await sessionWithShell();
+    act(() => rt.emit({ type: 'tab.select', tabId: 't2' }));
+    act(() => rt.emit({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 1 }));
+    await flush();
+    expect(screen.getByRole('dialog', { name: '停止の確認' })).toBeInTheDocument();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'w', metaKey: true }, paneHost('t2')).defaultPrevented).toBe(true);
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it('Ctrl でも ⌘ と同じ操作になる', async () => {
@@ -786,6 +816,35 @@ describe('次の入力待ちへ（C5）', () => {
     termHost.remove();
   });
 
+  it('ダイアログを開いている間の ⌘I は、裏で画面を移さない', async () => {
+    const m = make({ boot: withWaiting() });
+    m.rt.start();
+    render(<Root runtime={m.rt} api={m.deps.api} terminals={terminals} />);
+    act(() => m.handlers[0]!.onOpen());
+    await flush();
+    act(() => m.rt.emit({ type: 'shortcuts.open' }));
+    await flush();
+    const before = m.deps.location.getHash();
+    expect(key({ key: 'i', metaKey: true }).defaultPrevented).toBe(false);
+    await flush();
+    expect(m.deps.location.getHash()).toBe(before);
+    expect(screen.getByRole('dialog', { name: 'キーボード' })).toBeInTheDocument();
+  });
+
+  it('パレットを開いているときの ⌘I は、パレットを閉じて移る', async () => {
+    const m = make({ boot: withWaiting() });
+    m.rt.start();
+    render(<Root runtime={m.rt} api={m.deps.api} terminals={terminals} />);
+    act(() => m.handlers[0]!.onOpen());
+    await flush();
+    act(() => m.rt.emit({ type: 'palette.open' }));
+    await flush();
+    expect(key({ key: 'i', metaKey: true }).defaultPrevented).toBe(true);
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s3');
+    expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
+  });
+
   it('入力待ちが無ければ、短いトーストで知らせる', async () => {
     await mounted();
     key({ key: 'i', metaKey: true });
@@ -909,5 +968,19 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     await flush();
     await flush();
     expect(document.activeElement).toBe(rows());
+  });
+
+  it('ヘッダーから同じ語で検索し直しても、結果の一覧へ移る', async () => {
+    const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん' }] };
+    await mounted({ api: { search: async () => ({ hits: [hit], total: 1 }) } });
+    const box = document.getElementById('global-search') as HTMLInputElement;
+    const settle = () => act(() => new Promise((r) => setTimeout(r, 100)));
+    for (let n = 0; n < 2; n++) {
+      act(() => box.focus());
+      box.value = 'せっ';
+      fireEvent.keyDown(box, { key: 'Enter' });
+      await settle();
+      expect(document.activeElement).toBe(rows());
+    }
   });
 });

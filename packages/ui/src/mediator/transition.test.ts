@@ -72,13 +72,14 @@ describe('ナビゲーション', () => {
   it('検索語は URL に乗り、sessions 画面で検索効果になる', () => {
     const a = run([intent({ type: 'search.query', text: '動画' })]);
     expect(a.state.search.text).toBe('動画');
-    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }]);
+    // 検索したらフォーカスを結果の一覧へ移す。同じ語で検索し直して画面が作り直されないときも移るように、毎回出す。
+    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }, { kind: 'focus', target: 'results' }]);
     const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })], a.state);
     expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画' } }]);
     const c = run([intent({ type: 'search.filter', patch: { projectId: 'p1' } })], b.state);
     expect(c.state.search.filter).toEqual({ projectId: 'p1' });
     expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1' } }]);
-    expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+    expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }, { kind: 'focus', target: 'results' }]);
   });
   // 期間は日数のまま効果に載せ、時刻に直すのは問い合わせる瞬間（Runtime）に任せる。
   it('期間は日数のまま検索効果に載る', () => {
@@ -739,6 +740,27 @@ describe('プロジェクトを一覧から削除する確認', () => {
     expect(b.state.unresolvedQueue).toEqual([]);
     const c = run([intent({ type: 'project.resolve', id: 'p2', action: { kind: 'unlink' }, confirmed: true })], b.state);
     expect(c.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('確認をパレットで覆って閉じても、未解決のダイアログへ戻る', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } }), intent({ type: 'palette.open' })]);
+    expect(a.state.overlay).toEqual({ kind: 'palette' });
+    const b = run([intent({ type: 'palette.close' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.unresolvedQueue).toEqual([]);
+  });
+  it('確認を新規セッションのダイアログで覆って閉じても、未解決のダイアログへ戻る', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } }), intent({ type: 'session.new.open', scratch: false })]);
+    expect(a.state.overlay.kind).toBe('newSession');
+    const b = run([intent({ type: 'overlay.close' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.unresolvedQueue).toEqual([]);
+    expect(b.state.launch).toEqual({ kind: 'idle' });
+  });
+  it('覆ったダイアログから起動し終えても、未解決のダイアログへ戻る', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } }), intent({ type: 'session.new.open', scratch: true })]);
+    const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.unresolvedQueue).toEqual([]);
   });
   it('アーカイブと再指定は確認を挟まない', () => {
     const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })]);

@@ -70,11 +70,14 @@ export function clipboardProvider(write: (text: string) => Promise<void>): IClip
   return {
     // 読み出しには応じない。応じると、端末の中で動くどのプログラムでも利用者のクリップボードを読めてしまう。
     readText: () => '',
-    async writeText(_selection: string, text: string) {
+    writeText(_selection: string, text: string) {
       // 空の中身は消去の要求か、壊れた base64 を addon が空にしたものである。利用者が写したものを消さない。
       if (!text) return;
+      // 書き込みは待たずに投げる。
+      // xterm は OSC の処理が Promise を返すと、それが片付くまで後ろの出力の解析を止めるので、書き込みが保留になると端末の出力まで止まる。
       // WebKit は、直前 5 秒の間に頁の中で打鍵かクリックが無いと書き込みを断る（transient activation）。断られても端末の処理は止めない。
-      try { await write(text); } catch { /* 書けなかった写しは捨てる */ }
+      // 書く口が同期で投げる（navigator.clipboard が無いなど）ときも同じく捨てる。
+      try { void write(text).catch(() => { /* 書けなかった写しは捨てる */ }); } catch { /* 同上 */ }
     },
   };
 }

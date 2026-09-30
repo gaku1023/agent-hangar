@@ -21,7 +21,7 @@ export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string
           if (e.key !== 'Enter' || isComposing(e)) return;
           const box = e.target as HTMLInputElement;
           emit({ type: 'search.query', text: box.value });
-          // 検索し終えたら欄を離れる。結果の一覧は、フォーカスの空いたところへ自分でフォーカスを取りにくる（SessionRows の autoFocus）。
+          // 検索し終えたら欄を離れる。フォーカスは結果の一覧へ移る（search.query の focus の効果と、SessionRows の autoFocus）。
           box.blur();
         }} />
       <kbd className="search-kbd" aria-hidden="true">⌘K</kbd>

@@ -4,7 +4,11 @@ import { Icon } from './primitives/Icon.tsx';
 
 type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 
-/** 見つからないプロジェクトの扱いを決めるダイアログ。保持する状態は新しいパスの入力だけ。 */
+/**
+ * 見つからないプロジェクトの扱いを決めるダイアログ。保持する状態は新しいパスの入力だけ。
+ * 開いたら中の最初の操作（新しいパスの欄）にフォーカスを入れる。
+ * 起動時に出たとき、背景の打鍵がダイアログの裏の一覧へ流れないようにするためである。
+ */
 export function ResolveProjectDialog(props: { projectId: string; name: string; path: string | null; candidates: string[]; onQueryCandidates: (name: string) => void }) {
   const emit = useEmit();
   const [path, setPath] = useState('');
@@ -18,7 +22,7 @@ export function ResolveProjectDialog(props: { projectId: string; name: string; p
           <div className="muted" style={{ marginBottom: 4 }}>ディレクトリを再指定</div>
           {props.candidates.length > 0 && <div className="list" style={{ marginBottom: 8 }}>{props.candidates.map((c) => <div key={c} className="row mono" style={{ gridTemplateColumns: '1fr' }} role="option" aria-selected={c === path} onClick={() => setPath(c)}>{c}</div>)}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
-            <input className="input mono" style={{ flex: 1 }} aria-label="新しいパス" value={path} onChange={(e) => { setPath(e.target.value); props.onQueryCandidates(e.target.value.split('/').pop() ?? ''); }} placeholder="/Users/you/workspace/..." />
+            <input className="input mono" style={{ flex: 1 }} autoFocus aria-label="新しいパス" value={path} onChange={(e) => { setPath(e.target.value); props.onQueryCandidates(e.target.value.split('/').pop() ?? ''); }} placeholder="/Users/you/workspace/..." />
             <button className="btn btn-primary" disabled={!path} onClick={() => resolve({ kind: 'repoint', path })}><Icon name="repoint" />この場所にする</button>
           </div>
         </div>

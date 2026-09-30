@@ -194,9 +194,6 @@ export function outsideOpenOf(store: Store, session: SessionDto): 'attach' | 'ad
   return l.status !== 'busy' && l.entrypoint === 'cli' ? 'adopt' : null;
 }
 
-/** 生きた run があればそれ。
- * 無ければ、開いたシェルタブが残っている最新の run。
- */
 /**
  * 「次の入力待ちへ」で移る先。
  * 入力待ちのセッションを Home の要対応の札と同じ順（最後の活動が古い、つまり長く待っている順）に並べ、from の次を返す。
@@ -213,6 +210,9 @@ export function nextWaitingSession(store: Store, from: string | null): string | 
   return list[(i + 1) % list.length]!;
 }
 
+/** 生きた run があればそれ。
+ * 無ければ、開いたシェルタブが残っている最新の run。
+ */
 export function currentRunOf(store: Store, sessionId: string): RunDto | null {
   const alive = aliveRunOf(store, sessionId);
   if (alive) return alive;
