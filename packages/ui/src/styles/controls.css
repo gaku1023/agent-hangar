@@ -68,3 +68,24 @@
 .chip:hover { color: var(--ink); background: var(--surface); }
 .chip[aria-pressed='true'], .chip[aria-checked='true'], .chip[data-on='true'] { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
 .chip-input input { width: 140px; border: 0; outline: 0; background: none; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink); }
+
+/* 意味を添えたカード。択一は 2 列に並べ、複数選択は右端に四角い印を置く。 */
+.option-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(var(--u) * 1.5); }
+.option-card { display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); width: 100%; padding: calc(var(--u) * 2.25) calc(var(--u) * 2.75); border: 0; border-radius: 12px; text-align: left; cursor: pointer; color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.option-card:hover:not(:disabled) { background: var(--surface); }
+.option-card > .icon { margin-top: 2px; color: var(--ink-3); }
+.option-card-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.4; }
+.option-card-text b { font-size: 12.5px; font-weight: 600; }
+.option-card-text small { font-size: 11.5px; color: var(--ink-3); }
+.option-card-text code { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
+.option-card[aria-checked='true'] { background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--accent), 0 4px 12px -6px rgba(74, 99, 232, 0.4); }
+.option-card[aria-checked='true'] > .icon { color: var(--accent); }
+.option-card[data-danger='true'] b { color: var(--error); }
+.option-card[data-danger='true'][aria-checked='true'] { box-shadow: inset 0 0 0 1.5px var(--error), 0 4px 12px -6px rgba(179, 38, 30, 0.35); }
+.option-card[data-danger='true'][aria-checked='true'] > .icon { color: var(--error); }
+.option-card:disabled { opacity: 0.5; cursor: default; }
+.check-card { align-items: center; }
+.check-box { display: grid; flex: none; place-items: center; width: 20px; height: 20px; border-radius: 6px; color: #ffffff; box-shadow: inset 0 0 0 1.5px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.check-box .icon { width: 14px; height: 14px; stroke-width: 3; opacity: 0; transform: scale(0.5); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
+.check-card[aria-checked='true'] .check-box { background: var(--accent); box-shadow: none; }
+.check-card[aria-checked='true'] .check-box .icon { opacity: 1; transform: none; }
