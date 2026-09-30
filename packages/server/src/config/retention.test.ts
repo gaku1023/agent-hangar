@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RetentionDto } from '@agent-hangar/shared';
-import { measureUsage, previewRetention, readRetention, RetentionConflictError, RetentionService, writeRetention } from './retention.ts';
+import { JsonTextEditError } from './jsonTextEdit.ts';
+import { measureUsage, previewRetention, readRetention, RetentionConflictError, RetentionService, RetentionUnwritableError, writeRetention } from './retention.ts';
 
 const NOW = Date.parse('2026-10-01T00:00:00Z');
 let root: string;
@@ -36,6 +37,12 @@ describe('readRetention', () => {
     for (const v of ['0', '-1', '7.5', '"30"', 'null']) {
       settings(`{ "cleanupPeriodDays": ${v} }`);
       expect(readRetention({ claudeDir, managedDir })).toMatchObject({ days: 30, source: 'default', userValue: null, writable: true });
+    }
+  });
+  it('空のファイルは、キーが無いのと同じに扱う', () => {
+    for (const t of ['', '  \n']) {
+      settings(t);
+      expect(readRetention({ claudeDir, managedDir })).toEqual({ days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null });
     }
   });
   it('JSON として読めなければ、書けない', () => {
@@ -151,6 +158,13 @@ describe('previewRetention と writeRetention', () => {
     expect(() => writeRetention({ claudeDir, home: home(), days: 365, baseSha256: sha(SRC) })).toThrow();
     expect(fs.readFileSync(file(), 'utf8')).toBe(SRC);
   });
+  it('UTF-8 として読めないバイトがあれば、下見も書き込みもしない', () => {
+    const bad = Buffer.concat([Buffer.from('{\n  "a": "'), Buffer.from([0xff]), Buffer.from('"\n}\n')]);
+    fs.writeFileSync(file(), bad);
+    expect(() => previewRetention({ claudeDir, home: home(), days: 365, dailyBytes: null })).toThrow(JsonTextEditError);
+    expect(() => writeRetention({ claudeDir, home: home(), days: 365, baseSha256: crypto.createHash('sha256').update(bad).digest('hex') })).toThrow(JsonTextEditError);
+    expect(fs.readFileSync(file()).equals(bad)).toBe(true);
+  });
   it('リンクなら実体に書き、リンクを保つ', () => {
     const real = path.join(root, 'dotfiles', 'settings.json');
     fs.mkdirSync(path.dirname(real));
@@ -176,5 +190,12 @@ describe('RetentionService', () => {
     expect(sent).toHaveLength(1);
     await svc.measure();
     expect(sent.at(-1)!.usage).not.toBeNull();
+  });
+  it('書けない状態（組織の設定）なら、書き込みを断る', () => {
+    fs.mkdirSync(managedDir, { recursive: true });
+    fs.writeFileSync(path.join(managedDir, 'managed-settings.json'), '{ "cleanupPeriodDays": 14 }');
+    const svc = new RetentionService({ claudeDir, home: path.join(root, 'hangar'), managedDir, broadcast: () => {}, now: () => NOW });
+    expect(() => svc.write(365, '')).toThrow(RetentionUnwritableError);
+    expect(fs.existsSync(path.join(claudeDir, 'settings.json'))).toBe(false);
   });
 });

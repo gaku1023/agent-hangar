@@ -78,7 +78,7 @@ function scanTopLevel(text: string, from: number): { open: number; close: number
 }
 
 export function setTopLevelNumber(text: string, key: string, value: number): string {
-  const bom = text.startsWith('﻿') ? '﻿' : '';
+  const bom = text.startsWith('\uFEFF') ? '\uFEFF' : '';
   const body = bom ? text.slice(1) : text;
   const eol = body.includes('\r\n') ? '\r\n' : '\n';
   const fresh = `${bom}{${eol}  ${JSON.stringify(key)}: ${value}${eol}}${eol}`;
@@ -109,7 +109,7 @@ export function setTopLevelNumber(text: string, key: string, value: number): str
 
 /** 変わった行と、その前後 1 行ずつ。設定ファイルは小さいので、頭と尻から一致を削るだけで足りる。 */
 export function diffLines(before: string, after: string): RetentionPreviewLine[] {
-  const split = (s: string) => (s === '' ? [] : s.replace(/^﻿/, '').replace(/\r?\n$/, '').split(/\r?\n/));
+  const split = (s: string) => (s === '' ? [] : s.replace(/^\uFEFF/, '').replace(/\r?\n$/, '').split(/\r?\n/));
   const a = split(before);
   const b = split(after);
   let head = 0;

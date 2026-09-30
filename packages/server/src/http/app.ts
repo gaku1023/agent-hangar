@@ -6,7 +6,7 @@ import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } fro
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
-import { RetentionConflictError } from '../config/retention.ts';
+import { RetentionConflictError, RetentionUnwritableError } from '../config/retention.ts';
 import { statuslineStatus } from '../config/statusline.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
@@ -411,7 +411,7 @@ export function createApp(deps: AppDeps): Hono {
       return c.json(deps.retention.write(days, body.baseSha256));
     } catch (e) {
       if (e instanceof RetentionConflictError) return c.json({ error: 'retention_conflict' }, 409);
-      if (e instanceof JsonTextEditError || (e instanceof Error && e.message === LOCK_BUSY_MESSAGE)) return c.json({ error: e.message }, 400);
+      if (e instanceof JsonTextEditError || e instanceof RetentionUnwritableError || (e instanceof Error && e.message === LOCK_BUSY_MESSAGE)) return c.json({ error: e.message }, 400);
       throw e;
     }
   });

@@ -526,6 +526,28 @@ describe('preview と applyPull', () => {
     c.stop();
   });
 
+  it('降ろしている間に手元が書き換わったら、上書きせずに競合として扱う', async () => {
+    // 保持期間の書き込み（retention.ts）は hangar 自身が settings.json を書く。取り込みの通信の最中に書かれても、黙って巻き戻さない。
+    const e = await remotePut('settings.json', '{ "a": 2 }\n', { mtime: NOW });
+    write('settings.json', '{ "a": 1 }\n', NOW - 10_000);
+    seedSynced('settings.json', '{ "a": 1 }\n', NOW - 10_000);
+    const racing: CloudClient = {
+      health: () => cloud.health(),
+      pushChanges: (c) => cloud.pushChanges(c),
+      pullChanges: (s, l) => cloud.pullChanges(s, l),
+      snapshot: (a, l) => cloud.snapshot(a, l),
+      putFile: (m, b) => cloud.putFile(m, b),
+      getFile: async (k) => { write('settings.json', '{ "a": 1, "cleanupPeriodDays": 365 }\n', NOW + 1_000); return cloud.getFile(k); },
+      listFiles: (s, l) => cloud.listFiles(s, l),
+      deleteFile: (k) => cloud.deleteFile(k),
+    };
+    const c = make({ client: racing });
+    c.confirm();
+    expect(await c.applyPull([e])).toMatchObject({ conflicts: 1 });
+    expect(fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8')).toBe('{ "a": 1, "cleanupPeriodDays": 365 }\n');
+    c.stop();
+  });
+
   it('push が通らない間も同じ写しを積み上げない', async () => {
     const offline: CloudClient = {
       health: () => cloud.health(),

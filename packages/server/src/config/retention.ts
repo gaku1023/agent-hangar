@@ -5,7 +5,7 @@ import type { RetentionDto, RetentionPreviewDto, RetentionUsageDto } from '@agen
 import { timestampLabel } from '../sync/copy.ts';
 import { acquireFileLock, resolveRealFile, writeFileAtomically } from './claudeFileWrite.ts';
 import { backupsRoot } from './cloud.ts';
-import { diffLines, setTopLevelNumber } from './jsonTextEdit.ts';
+import { diffLines, JsonTextEditError, setTopLevelNumber } from './jsonTextEdit.ts';
 
 /**
  * Claude Code の会話の保持期間（cleanupPeriodDays）。
@@ -36,8 +36,10 @@ export function defaultManagedDir(): string | null {
 function readObject(file: string): Record<string, unknown> | null | 'broken' {
   let text: string;
   try { text = fs.readFileSync(file, 'utf8'); } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' ? null : 'broken'; }
+  // 空のファイルは、中身の無い設定として扱う（書き込みも空から 1 行のオブジェクトを作る）。
+  if (text.replace(/^\uFEFF/, '').trim() === '') return {};
   try {
-    const v = JSON.parse(text.replace(/^﻿/, '')) as unknown;
+    const v = JSON.parse(text.replace(/^\uFEFF/, '')) as unknown;
     return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : 'broken';
   } catch {
     return 'broken';
@@ -123,10 +125,26 @@ function readBytes(file: string): Buffer | null {
   try { return fs.readFileSync(file); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
 }
 
+/**
+ * 文字列として読む。UTF-8 として読めないバイトがあれば書き換えない。
+ * 置き換え文字に化けたまま書き戻すと、書き換えた 1 行の外のバイトまで変わってしまう。
+ */
+function decodeStrict(bytes: Buffer | null): string {
+  if (!bytes) return '';
+  const text = bytes.toString('utf8');
+  if (!Buffer.from(text, 'utf8').equals(bytes)) throw new JsonTextEditError();
+  return text;
+}
+
+/** 組織の設定で決まっているなど、書けない状態で書こうとした。 */
+export class RetentionUnwritableError extends Error {
+  constructor(reason: string) { super(reason); this.name = 'RetentionUnwritableError'; }
+}
+
 export function previewRetention(o: { claudeDir: string; home: string; days: number; dailyBytes: number | null }): RetentionPreviewDto {
   const file = settingsFile(o.claudeDir);
   const bytes = readBytes(file);
-  const before = bytes?.toString('utf8') ?? '';
+  const before = decodeStrict(bytes);
   const after = setTopLevelNumber(before, RETENTION_KEY, o.days);
   return {
     days: o.days, path: file, lines: diffLines(before, after), baseSha256: bytes ? sha256(bytes) : '',
@@ -168,7 +186,7 @@ export function writeRetention(o: WriteRetentionOptions): { file: string; backup
     const bytes = readBytes(file);
     const cur = bytes ? sha256(bytes) : '';
     if (cur !== o.baseSha256) throw new RetentionConflictError();
-    const after = setTopLevelNumber(bytes?.toString('utf8') ?? '', RETENTION_KEY, o.days);
+    const after = setTopLevelNumber(decodeStrict(bytes), RETENTION_KEY, o.days);
     const backup = bytes ? backupSettings(file, o.home, o.now ?? new Date()) : null;
     o.onBeforeWrite?.();
     // Claude Code は hangar のロックを知らないので、書く直前にもう一度読んで割り込みを見つける。
@@ -225,6 +243,9 @@ export class RetentionService {
   }
 
   write(days: number, baseSha256: string): RetentionDto {
+    // 画面が書き込みの手を出さない状態でも、API を直に叩けば届く。サーバの側でも断る。
+    const now = readRetention(this.o);
+    if (!now.writable) throw new RetentionUnwritableError(now.unwritableReason ?? '保持期間を書き換えられません');
     writeRetention({ claudeDir: this.o.claudeDir, home: this.o.home, days, baseSha256 });
     this.refresh();
     return this.current();

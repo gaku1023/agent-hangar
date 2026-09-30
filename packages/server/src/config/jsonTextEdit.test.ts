@@ -27,8 +27,8 @@ describe('setTopLevelNumber', () => {
     expect(setTopLevelNumber(src, K, 365)).toBe('{\n  "note": "a { \\"cleanupPeriodDays\\": 1 }",\n  "cleanupPeriodDays": 365\n}\n');
   });
   it('CRLF の改行と BOM を保つ', () => {
-    const src = '﻿{\r\n  "a": 1\r\n}\r\n';
-    expect(setTopLevelNumber(src, K, 365)).toBe('﻿{\r\n  "cleanupPeriodDays": 365,\r\n  "a": 1\r\n}\r\n');
+    const src = '\uFEFF{\r\n  "a": 1\r\n}\r\n';
+    expect(setTopLevelNumber(src, K, 365)).toBe('\uFEFF{\r\n  "cleanupPeriodDays": 365,\r\n  "a": 1\r\n}\r\n');
   });
   it('Claude Code が受け付けない値（文字列、小数）も、数字で置き換える', () => {
     expect(setTopLevelNumber('{ "cleanupPeriodDays": "30" }', K, 365)).toBe('{ "cleanupPeriodDays": 365 }');
