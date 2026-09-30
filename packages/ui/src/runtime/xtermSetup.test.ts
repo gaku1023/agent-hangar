@@ -88,7 +88,7 @@ describe('clipboardProvider', () => {
       input: (d: string) => { replies.push(d); },
     };
     new ClipboardAddon(undefined, clipboardProvider(write)).activate(term as unknown as Terminal);
-    return { send: async (data: string) => { await osc52!(data); }, replies };
+    return { send: async (data: string) => { await osc52!(data); }, raw: (data: string) => osc52!(data), replies };
   }
 
   it('アプリが写したものをクリップボードに書く', async () => {
@@ -128,6 +128,16 @@ describe('clipboardProvider', () => {
     await send('c;');
     await send('c;%%%not-base64');
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it('書き込みを待たずに返し、端末の出力を止めない', () => {
+    // xterm は OSC の処理が Promise を返すと、それが片付くまで後ろの出力の解析を止める。
+    // WKWebView の書き込みは利用者の操作を待って保留になりうるので、保留の Promise を返してはいけない。
+    const write = vi.fn(() => new Promise<void>(() => {}));
+    const { raw } = withAddon(write);
+    expect(raw('c;aGVsbG8=')).toBe(true);
+    expect(write).toHaveBeenCalledWith('hello');
+    expect(clipboardProvider(write).writeText('c', 'hello')).toBeUndefined();
   });
 
   it('書けなくても端末の処理は止めない', async () => {
