@@ -8,7 +8,8 @@ export const LAUNCH_PREFS_KEY = 'newSession.prefs';
 /** スクラッチの前回値の鍵。プロジェクトの id と重ならない綴りにする。 */
 export const SCRATCH_PREFS = ':scratch';
 
-const PREF_TEXT = ['model', 'effort', 'permissionMode', 'worktree'] as const;
+// worktree は残さない。同じ名前が毎回初期値に入ると、前の worktree の中で起動してしまうからである。
+const PREF_TEXT = ['model', 'effort', 'permissionMode'] as const;
 
 /** 起動の params から、前回値として残す詳細だけを取り出す。空欄と既定は params に入らないので、入っているものだけが残る。 */
 export function launchPrefsOf(params: LaunchParams): LaunchPrefs {

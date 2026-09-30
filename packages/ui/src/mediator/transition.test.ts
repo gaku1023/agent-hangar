@@ -321,7 +321,8 @@ describe('新しいセッションの下書きと前回値', () => {
   });
   it('起動した詳細をプロジェクトごとの前回値として持ち、端末に残す', () => {
     const a = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: 'wt', addDirs: ['/a'] } })]);
-    const prefs = { p1: { model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: 'wt', addDirs: ['/a'] } };
+    // worktree は前回値に残さない。同じ名前が毎回入ると、前の worktree の中で起動してしまうからである。
+    const prefs = { p1: { model: 'opus', effort: 'high', permissionMode: 'acceptEdits', addDirs: ['/a'] } };
     expect(a.state.launchPrefs).toEqual(prefs);
     expect(a.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.prefs', value: prefs });
     // スクラッチはプロジェクトを持たないので、スクラッチの 1 枠に持つ。
