@@ -1,6 +1,11 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { RetentionDto, RetentionUsageDto } from '@agent-hangar/shared';
+import type { RetentionDto, RetentionPreviewDto, RetentionUsageDto } from '@agent-hangar/shared';
+import { timestampLabel } from '../sync/copy.ts';
+import { acquireFileLock, resolveRealFile, writeFileAtomically } from './claudeFileWrite.ts';
+import { backupsRoot } from './cloud.ts';
+import { diffLines, setTopLevelNumber } from './jsonTextEdit.ts';
 
 /**
  * Claude Code の会話の保持期間（cleanupPeriodDays）。
@@ -101,4 +106,78 @@ export async function measureUsage(o: { claudeDir: string; now: number }): Promi
     // 空きを測れない置き場。0 として出し、画面は空きの欄を「分かりません」にする。
   }
   return { bytes, dailyBytes: Math.round(recent / RATE_WINDOW_DAYS), freeBytes, measuredAt: o.now };
+}
+
+/** 下見の後に、ほかの PC からの同期や手の編集でファイルが変わった。UI は下見を取り直す。 */
+export class RetentionConflictError extends Error {
+  constructor() { super('設定ファイルがほかで変わったので、読み直しました'); this.name = 'RetentionConflictError'; }
+}
+
+export type WriteRetentionOptions = { claudeDir: string; home: string; days: number; baseSha256: string; now?: Date; lockWaitMs?: number; staleLockMs?: number; onBeforeWrite?: () => void };
+
+const BACKUP_SUBDIR = 'claude-config';
+const sha256 = (b: Buffer | string): string => crypto.createHash('sha256').update(b).digest('hex');
+const settingsFile = (claudeDir: string): string => resolveRealFile(path.join(claudeDir, 'settings.json'));
+/** 今の中身。無ければ null。 */
+function readBytes(file: string): Buffer | null {
+  try { return fs.readFileSync(file); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
+}
+
+export function previewRetention(o: { claudeDir: string; home: string; days: number; dailyBytes: number | null }): RetentionPreviewDto {
+  const file = settingsFile(o.claudeDir);
+  const bytes = readBytes(file);
+  const before = bytes?.toString('utf8') ?? '';
+  const after = setTopLevelNumber(before, RETENTION_KEY, o.days);
+  return {
+    days: o.days, path: file, lines: diffLines(before, after), baseSha256: bytes ? sha256(bytes) : '',
+    backupDir: path.join(backupsRoot(o.home), BACKUP_SUBDIR),
+    projectedBytes: o.dailyBytes === null ? null : Math.round(o.dailyBytes * o.days),
+  };
+}
+
+/**
+ * 控えを取る。同じ秒の控えがあれば -2、-3 と連番を足し、先の控えを潰さない。
+ * 取れなければ投げる。呼び手はそのまま書くのをやめる。
+ */
+function backupSettings(file: string, home: string, now: Date): string {
+  const dir = path.join(backupsRoot(home), BACKUP_SUBDIR, timestampLabel(now.getTime()));
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const base = path.join(dir, 'settings.json');
+  for (let i = 1; i <= 50; i++) {
+    const dest = i === 1 ? base : `${base}-${i}`;
+    try {
+      fs.copyFileSync(file, dest, fs.constants.COPYFILE_EXCL);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') continue;
+      throw e;
+    }
+    fs.chmodSync(dest, 0o600);
+    return dest;
+  }
+  throw new Error('控えを置く名前が空いていません');
+}
+
+/**
+ * cleanupPeriodDays の 1 か所だけを書き換える。claudeJson.ts と同じ作法に従う。
+ * ロックを取ってから読み、下見の指紋と比べ、控えを取り、書く直前にもう一度読んで比べてから rename する。
+ */
+export function writeRetention(o: WriteRetentionOptions): { file: string; backup: string | null } {
+  const file = settingsFile(o.claudeDir);
+  const release = acquireFileLock(file, o.lockWaitMs ?? 2000, o.staleLockMs ?? 10_000);
+  try {
+    const bytes = readBytes(file);
+    const cur = bytes ? sha256(bytes) : '';
+    if (cur !== o.baseSha256) throw new RetentionConflictError();
+    const after = setTopLevelNumber(bytes?.toString('utf8') ?? '', RETENTION_KEY, o.days);
+    const backup = bytes ? backupSettings(file, o.home, o.now ?? new Date()) : null;
+    o.onBeforeWrite?.();
+    // Claude Code は hangar のロックを知らないので、書く直前にもう一度読んで割り込みを見つける。
+    const again = readBytes(file);
+    if ((again ? sha256(again) : '') !== cur) throw new RetentionConflictError();
+    const mode = bytes ? fs.statSync(file).mode & 0o777 : 0o600;
+    writeFileAtomically(file, after, mode);
+    return { file, backup };
+  } finally {
+    release();
+  }
 }

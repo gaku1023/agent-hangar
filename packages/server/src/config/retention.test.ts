@@ -1,8 +1,9 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { measureUsage, readRetention } from './retention.ts';
+import { measureUsage, previewRetention, readRetention, RetentionConflictError, writeRetention } from './retention.ts';
 
 let root: string;
 let claudeDir: string;
@@ -83,5 +84,79 @@ describe('measureUsage', () => {
   });
   it('projects が無ければ 0', async () => {
     expect((await measureUsage({ claudeDir, now: NOW })).bytes).toBe(0);
+  });
+});
+
+describe('previewRetention と writeRetention', () => {
+  const home = () => path.join(root, 'hangar');
+  const file = () => path.join(claudeDir, 'settings.json');
+  const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
+  const SRC = '{\n  "a" : 1,\n  "cleanupPeriodDays" : 3650\n}\n';
+
+  it('下見は何も書かず、変わる行と指紋と見込みを返す', () => {
+    settings(SRC);
+    const p = previewRetention({ claudeDir, home: home(), days: 365, dailyBytes: 1000 });
+    expect(p.lines).toEqual([{ kind: 'ctx', text: '  "a" : 1,' }, { kind: 'del', text: '  "cleanupPeriodDays" : 3650' }, { kind: 'add', text: '  "cleanupPeriodDays" : 365' }, { kind: 'ctx', text: '}' }]);
+    expect(p.baseSha256).toBe(sha(SRC));
+    expect(p.projectedBytes).toBe(365_000);
+    expect(p.path).toBe(fs.realpathSync(file()));
+    expect(p.backupDir).toBe(path.join(home(), 'backups', 'claude-config'));
+    expect(fs.readFileSync(file(), 'utf8')).toBe(SRC);
+  });
+  it('ファイルが無ければ、指紋は空で、全行が add になる', () => {
+    const p = previewRetention({ claudeDir, home: home(), days: 365, dailyBytes: null });
+    expect(p.baseSha256).toBe('');
+    expect(p.lines.every((l) => l.kind === 'add')).toBe(true);
+    expect(p.projectedBytes).toBeNull();
+  });
+  it('書くと 1 行だけ変わり、控えを取り、権限を保つ', () => {
+    settings(SRC);
+    fs.chmodSync(file(), 0o644);
+    const r = writeRetention({ claudeDir, home: home(), days: 365, baseSha256: sha(SRC), now: new Date(2026, 9, 1, 12, 0, 0) });
+    expect(fs.readFileSync(file(), 'utf8')).toBe(SRC.replace('3650', '365'));
+    expect(fs.statSync(file()).mode & 0o777).toBe(0o644);
+    expect(r.backup).toBe(path.join(home(), 'backups', 'claude-config', '20261001-120000', 'settings.json'));
+    expect(fs.readFileSync(r.backup!, 'utf8')).toBe(SRC);
+    expect(fs.statSync(r.backup!).mode & 0o777).toBe(0o600);
+  });
+  it('同じ秒に 2 度書いても、先の控えを潰さない', () => {
+    settings(SRC);
+    const now = new Date(2026, 9, 1, 12, 0, 0);
+    writeRetention({ claudeDir, home: home(), days: 365, baseSha256: sha(SRC), now });
+    const next = fs.readFileSync(file(), 'utf8');
+    const r = writeRetention({ claudeDir, home: home(), days: 90, baseSha256: sha(next), now });
+    expect(r.backup!.endsWith('settings.json-2')).toBe(true);
+  });
+  it('ファイルが無ければ 0600 で作り、控えは取らない', () => {
+    const r = writeRetention({ claudeDir, home: home(), days: 365, baseSha256: '' });
+    expect(JSON.parse(fs.readFileSync(file(), 'utf8'))).toEqual({ cleanupPeriodDays: 365 });
+    expect(fs.statSync(file()).mode & 0o777).toBe(0o600);
+    expect(r.backup).toBeNull();
+  });
+  it('下見の後に変わっていたら、書かずに RetentionConflictError', () => {
+    settings(SRC);
+    expect(() => writeRetention({ claudeDir, home: home(), days: 365, baseSha256: sha('{}') })).toThrow(RetentionConflictError);
+    expect(fs.readFileSync(file(), 'utf8')).toBe(SRC);
+  });
+  it('控えを取った後、書く直前に割り込まれても書かない', () => {
+    settings(SRC);
+    expect(() => writeRetention({ claudeDir, home: home(), days: 365, baseSha256: sha(SRC), onBeforeWrite: () => settings('{ "b": 2 }') })).toThrow(RetentionConflictError);
+    expect(fs.readFileSync(file(), 'utf8')).toBe('{ "b": 2 }');
+  });
+  it('控えが取れなければ書かない', () => {
+    settings(SRC);
+    fs.mkdirSync(home(), { recursive: true });
+    fs.writeFileSync(path.join(home(), 'backups'), 'ディレクトリの代わりのファイル');
+    expect(() => writeRetention({ claudeDir, home: home(), days: 365, baseSha256: sha(SRC) })).toThrow();
+    expect(fs.readFileSync(file(), 'utf8')).toBe(SRC);
+  });
+  it('リンクなら実体に書き、リンクを保つ', () => {
+    const real = path.join(root, 'dotfiles', 'settings.json');
+    fs.mkdirSync(path.dirname(real));
+    fs.writeFileSync(real, SRC);
+    fs.symlinkSync(real, file());
+    writeRetention({ claudeDir, home: home(), days: 365, baseSha256: sha(SRC) });
+    expect(fs.lstatSync(file()).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(real, 'utf8')).toBe(SRC.replace('3650', '365'));
   });
 });
