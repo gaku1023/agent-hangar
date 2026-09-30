@@ -24,6 +24,7 @@ import { createXterm } from './runtime/xterm.ts';
 import { focusSoon } from './runtime/focusSoon.ts';
 import { clickThrough } from './runtime/clickThrough.ts';
 import { createPresent } from './runtime/present.ts';
+import { FILE_DROP_EVENT, handleFileDrop } from './runtime/fileDrop.ts';
 
 // フォーカスの対象と、それを持つ要素の id の対応。
 // ターミナルは DOM の id では掴めないので、TerminalHost が別に受け持つ。
@@ -38,6 +39,8 @@ const api = createApi();
 // ターミナルの接続は React の外で持つ。
 // 画面を行き来してもバッファとスクロール位置が残る。
 const terminals = createTerminalHost({ wsUrl: (tab) => `${wsProto}://${location.host}/ws/pty?tab=${encodeURIComponent(tab)}`, createTerminal: createXterm });
+// Hangar.app に落としたファイルは、落とした位置の端末にパスとして渡す。
+window.addEventListener(FILE_DROP_EVENT, (e) => { handleFileDrop((e as CustomEvent).detail, { hit: (x, y) => document.elementFromPoint(x, y), paste: terminals.paste, focus: terminals.focus }); });
 // 直前に押した要素。行を開いたときに、どの行から広げるかを決めるのに使う。
 // 前の押下で広げないように、押してから短い間だけ有効にする。
 const PRESS_FRESH_MS = 1000;

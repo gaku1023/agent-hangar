@@ -1,8 +1,10 @@
 export type TerminalStatus = 'connecting' | 'connected' | 'closed' | 'error';
 export type TerminalLike = { cols: number; rows: number; element: HTMLElement | null; open(el: HTMLElement): void; write(d: string): void; onData(cb: (d: string) => void): { dispose(): void }; onResize(cb: (s: { cols: number; rows: number }) => void): { dispose(): void }; fit(): void; focus(): void; dispose(): void;
   /** WebGL の描画を付け外しする。外すと DOM の描画に戻る。open のあとにだけ呼ぶ。 */
-  setGpu(on: boolean): void };
-export type TerminalHost = { connect(tabId: string): void; disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void; subscribe(cb: () => void): () => void; dispose(): void };
+  setGpu(on: boolean): void;
+  /** 貼り付けとして送る。xterm は括弧付き貼り付けが有効なら括弧で包む。 */
+  paste(text: string): void };
+export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, text: string): void; disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void; subscribe(cb: () => void): () => void; dispose(): void };
 
 type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[] };
 
@@ -67,6 +69,10 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       e.term.setGpu(true);
       e.term.fit();
       if (pendingFocus === tabId) { pendingFocus = null; e.term.focus(); }
+    },
+    paste(tabId, text) {
+      const e = entries.get(tabId);
+      if (e?.opened) e.term.paste(text);
     },
     status: (tabId) => entries.get(tabId)?.status ?? null,
     fit: (tabId) => entries.get(tabId)?.term.fit(),

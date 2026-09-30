@@ -11,19 +11,20 @@ class FakeWs {
   open() { this.readyState = 1; this.onopen?.(); }
   receive(m: unknown) { this.onmessage?.({ data: JSON.stringify(m) }); }
 }
-type FakeTerm = TerminalLike & { written: string[]; opened: HTMLElement | null; fitted: number; focused: number; disposed: boolean; gpu: boolean; gpuBeforeOpen: boolean; type(d: string): void; resizeTo(c: number, r: number): void; detachHost(): void };
+type FakeTerm = TerminalLike & { written: string[]; opened: HTMLElement | null; fitted: number; focused: number; disposed: boolean; gpu: boolean; gpuBeforeOpen: boolean; pasted: string[]; type(d: string): void; resizeTo(c: number, r: number): void; detachHost(): void };
 function fakeTerm(): FakeTerm {
   const data: ((d: string) => void)[] = []; const resize: ((s: { cols: number; rows: number }) => void)[] = [];
   // 画面を離れると React が枠ごと外すので、要素の親は残ったまま文書から外れる。isConnected はそれを表す。
   const node = { parentElement: null as HTMLElement | null, hostDetached: false, get isConnected() { return node.parentElement !== null && !node.hostDetached; }, remove() { node.parentElement = null; } };
   const t: FakeTerm = {
-    cols: 80, rows: 24, element: null, written: [], opened: null, fitted: 0, focused: 0, disposed: false, gpu: false, gpuBeforeOpen: false,
+    cols: 80, rows: 24, element: null, written: [], opened: null, fitted: 0, focused: 0, disposed: false, gpu: false, gpuBeforeOpen: false, pasted: [],
     open(el) { t.opened = el; node.parentElement = el; t.element = node as unknown as HTMLElement; },
     detachHost() { node.hostDetached = true; },
     write(d) { t.written.push(d); },
     onData(cb) { data.push(cb); return { dispose() {} }; },
     onResize(cb) { resize.push(cb); return { dispose() {} }; },
     fit() { t.fitted++; }, focus() { t.focused++; }, dispose() { t.disposed = true; },
+    paste(d) { t.pasted.push(d); },
     setGpu(on) { if (on && !t.opened) t.gpuBeforeOpen = true; t.gpu = on; },
     type(d) { for (const cb of data) cb(d); }, resizeTo(c, r) { for (const cb of resize) cb({ cols: c, rows: r }); },
   };
@@ -98,6 +99,15 @@ describe('createTerminalHost', () => {
     expect(terms[1]!.gpu).toBe(false);
     // WebGL は open で描画先の要素ができてからでないと付けられない。
     expect(terms.some((t) => t.gpuBeforeOpen)).toBe(false);
+  });
+  it('paste は開いた端末にだけ貼り付けとして渡す', () => {
+    // xterm の paste は括弧付き貼り付けで送るので、Claude Code は落とされたパスを画像として受け取れる。
+    const { host, terms } = make();
+    host.paste('t1', '/a.png ');
+    host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+    host.paste('t1', '/a.png ');
+    host.paste('nope', '/b.png ');
+    expect(terms[0]!.pasted).toEqual(['/a.png ']);
   });
   it('open の前に来た focus は mount のあとに当てる', () => {
     const { host, terms } = make();

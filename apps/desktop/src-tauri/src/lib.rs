@@ -3,6 +3,7 @@
 //! `hangar://` のディープリンクは UI のハッシュ経路に変換して webview に流す。
 
 pub mod deeplink;
+pub mod filedrop;
 pub mod health;
 pub mod node;
 pub mod paths;
@@ -708,6 +709,47 @@ fn watch_swipe_phase(app: &AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn watch_swipe_phase(_app: &AppHandle) {}
 
+/// 窓に落とされたファイルを drops/ に写し、写した先を落とした位置と一緒に UI へ渡す。
+/// 写すのは別のスレッドで行い、窓の描画を止めない。
+fn file_dropped(
+    app: &AppHandle,
+    paths: Vec<std::path::PathBuf>,
+    position: tauri::PhysicalPosition<f64>,
+) {
+    let Some(w) = app.get_webview_window("main") else {
+        return;
+    };
+    // wry は macOS で落とした位置を窓のポイント（CSS の px と同じ）で返し、Tauri はそれを物理の型に包むだけで換算しない。
+    // 倍率で割ると半分の位置を指してしまうので、値をそのまま CSS の px として使う。
+    let at = if cfg!(target_os = "macos") {
+        tauri::LogicalPosition::new(position.x, position.y)
+    } else {
+        position.to_logical::<f64>(w.scale_factor().unwrap_or(1.0))
+    };
+    let size = w
+        .inner_size()
+        .ok()
+        .map(|s| s.to_logical::<f64>(w.scale_factor().unwrap_or(1.0)));
+    std::thread::spawn(move || {
+        let dir = paths::hangar_home().join("drops");
+        filedrop::prune(&dir, std::time::SystemTime::now(), filedrop::KEEP_FOR);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let out = filedrop::stash(&paths, &dir, stamp);
+        let copied = out.iter().filter(|p| p.starts_with(&dir)).count();
+        log(&format!(
+            "file drop: {} item(s), {copied} copied, at ({:.0}, {:.0}) in {:?}",
+            out.len(),
+            at.x,
+            at.y,
+            size.map(|s| (s.width.round(), s.height.round()))
+        ));
+        let _ = w.eval(filedrop::drop_js(&out, at.x, at.y));
+    });
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
@@ -748,6 +790,10 @@ pub fn run() {
                 event: tauri::WindowEvent::CloseRequested { .. },
                 ..
             } => log(&format!("window {label} close requested")),
+            RunEvent::WindowEvent {
+                event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }),
+                ..
+            } => file_dropped(app, paths, position),
             RunEvent::ExitRequested { code, .. } => log(&match code {
                 None => "exit requested by the user".to_string(),
                 Some(c) => format!("exit requested with code {c}"),

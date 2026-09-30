@@ -28,6 +28,7 @@ export function createXterm(): TerminalLike {
     onResize: (cb) => term.onResize(cb),
     fit: () => { try { fit.fit(); } catch { /* 非表示のときは寸法が取れない */ } },
     focus: () => term.focus(),
+    paste: (d) => term.paste(d),
     setGpu(on) {
       if (!on) { dropGpu(); return; }
       if (gl || !term.element) return;
