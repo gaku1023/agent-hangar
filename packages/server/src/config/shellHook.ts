@@ -32,12 +32,15 @@ export function shellHookLine(home: string, homedir: string = os.homedir()): str
  * 包み方の本体。
  * ターミナルで対話として起動した claude を、Claude のバックグラウンドのサービスで起こし、すぐこのターミナルにつなぐ。
  * そうしておくと、hangar からも同じセッションを開ける。
+ * 抜けたときは、hangar が同じセッションを開いていなければ止める。作業中と、許可や質問への答えを待っているときは尋ねる。
+ * 何もしないと、抜けても claude はバックグラウンドで動き続け、終えたつもりのセッションが残る。
  * 包めないとき（古い Claude Code、管理設定で切られている、信頼していないフォルダ）は、素の claude を起動する。
  */
 export function shellScript(): string {
   return `# agent-hangar が置くファイルです。hangar が起動のたびに書き直すので、手で直しても戻ります。
 # ターミナルで起動した claude を Claude のバックグラウンドのサービスで起こし、すぐこのターミナルにつなぎます。
 # そうしておくと、hangar からも同じセッションを開けます。
+# 抜けたとき、hangar で開いていないセッションは止めます。作業中か答えを待っているときは、止めるかを尋ねます。
 # 1 回だけ包まずに起動するときは \`command claude\`、ずっとやめるときは \`hangar shell uninstall\` です。
 
 # 動いているセッションの一覧から、その会話の kind と短い id を拾う。見つからなければ何も出さない。
@@ -47,6 +50,48 @@ __agent_hangar_job() {
     /"kind":/ { k = $2; gsub(/[",]/, "", k) }
     /"sessionId":/ { s = $2; gsub(/[",]/, "", s) }
     /^  }/ { if (s == want) { print k " " j; exit } j = ""; k = ""; s = "" }'
+}
+
+# 動いているセッションの一覧から、その短い id の state、status、会話の id を拾う。止まっている（pid が無い）ものは何も出さない。
+__agent_hangar_state() {
+  command claude agents --json 2>/dev/null | awk -v want="$1" '
+    /^    "pid":/ { p = 1 }
+    /^    "id":/ { j = $2; gsub(/[",]/, "", j) }
+    /^    "sessionId":/ { s = $2; gsub(/[",]/, "", s) }
+    /^    "status":/ { u = $2; gsub(/[",]/, "", u) }
+    /^    "state":/ { t = $2; gsub(/[",]/, "", t) }
+    /^  }/ { if (j == want && p) { print t " " (u == "" ? "-" : u) " " s; exit } p = 0; j = ""; s = ""; u = ""; t = "" }'
+}
+
+# attach から抜けたときの後始末。hangar が同じセッションを開いていれば残す。ほかのターミナルでつないでいるかは見ない。
+# 答え終えて次の指示を待っていれば止め、作業中と、許可や質問への答えを待っているときは尋ねる。
+# 止めても会話は残り、claude attach <id> か hangar から続きを開ける。
+__agent_hangar_leave() {
+  local id="$1" st
+  if pgrep -f "hangar-run\\.sh .* attach $id$" >/dev/null 2>&1; then return; fi
+  st=$(__agent_hangar_state "$id")
+  [[ -z "$st" ]] && return
+  local -a f t
+  f=(\${=st})
+  if [[ "$f[1]" == done && "$f[2]" != busy ]]; then
+    command claude stop "$id" >/dev/null 2>&1 && print -r -- "hangar で開いていないので、このセッションを止めました。続きは claude attach $id か hangar から開けます。"
+    return
+  fi
+  # 何も打たずに抜けたセッションも入力待ちに見える。本文がまだ無ければ、黙って止める。
+  t=("\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$f[3]".jsonl(N))
+  if [[ "$f[1]" == blocked && "$f[2]" != busy && \${#t} -eq 0 ]]; then
+    command claude stop "$id" >/dev/null 2>&1
+    return
+  fi
+  local what="まだ作業中です"
+  [[ "$f[1]" == blocked ]] && what="許可か答えを待っています"
+  if read -q "?このセッションは\${what}。止めますか？ [y/N] "; then
+    print
+    command claude stop "$id" >/dev/null 2>&1 && print -r -- "止めました。続きは claude attach $id か hangar から開けます。"
+  else
+    print
+    print -r -- "残しました。claude attach $id か hangar から開けます。止めるときは claude stop $id です。"
+  fi
 }
 
 claude() {
@@ -73,7 +118,12 @@ claude() {
     local job
     job=$(__agent_hangar_job "$resume")
     # もうバックグラウンドで動いているなら、つなぐだけにする。--bg --resume は写しを作ってしまう。
-    if [[ "\${job%% *}" == background ]]; then command claude attach "\${job#* }"; return; fi
+    if [[ "\${job%% *}" == background ]]; then
+      local rc
+      command claude attach "\${job#* }"; rc=$?
+      __agent_hangar_leave "\${job#* }"
+      return $rc
+    fi
     # 別のターミナルで動いている対話の claude は、素の claude に任せる（二重に開かないよう Claude が断る）。
     if [[ "\${job%% *}" == interactive ]]; then command claude "$@"; return; fi
   fi
@@ -87,7 +137,10 @@ claude() {
   if [[ -z "$id" ]]; then print -r -- "$out" >&2; return 1; fi
   # 写しを作ったときなどの知らせは見せる。
   print -r -- "$out" | grep '^note:' >&2
-  command claude attach "$id"
+  local rc
+  command claude attach "$id"; rc=$?
+  __agent_hangar_leave "$id"
+  return $rc
 }
 `;
 }
