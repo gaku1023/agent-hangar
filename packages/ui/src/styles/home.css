@@ -1,7 +1,8 @@
 /* Home（管制盤）。上から要対応、実行中、最近とプロジェクト（試作の 3-b）。
    どの札も白い不透明な読む面で、ぼかしは掛けない。 */
 .home-label { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 5) 0 calc(var(--u) * 2) var(--u); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
-.home > section:first-child > .home-label, .home > .home-two:first-child .home-label { margin-top: 0; }
+/* 見出しの線のすぐ下の区画は、線の下の余白（.page-head）だけで間を取る。 */
+.home > .page-head + section > .home-label, .home > .page-head + .home-two .home-label { margin-top: 0; }
 .home-count { font-weight: 500; color: var(--ink-3); }
 
 /* 要対応の札。入力待ちの色を縁に薄く混ぜ、横長に 1 件 1 枚で積む。問いは 1 行に収め、溢れたら省略する。 */

@@ -4,8 +4,8 @@ import { motionEase, motionMs } from './motion.ts';
  * サイドバーの開閉の動き（M4「なめらかな受け渡し」と「ハンガーの揺れ」）。
  * 開閉で .shell の data-sidebar が替わった直後に呼ぶ。
  * 前の形と今の形の配置を同じ描画の中で測り（前の形は印を一瞬戻して測る）、差を Web Animations で埋める。
- * 幅、項目の箱、アイコン、項目名、図、名前（Hangar_）を同じ長さと曲線で動かすので、文字やアイコンが飛ばない。
- * 図のハンガーは、動きに引かれて起動画面と同じ振り子で揺れて止まる。
+ * 幅、項目の箱、アイコン、項目名、開閉のボタンを同じ長さと曲線で動かすので、文字やアイコンが飛ばない。
+ * ロゴはヘッダにあって開閉では動かないが、図のハンガーは帯の動きに引かれて、起動画面と同じ振り子で揺れて止まる。
  * reduced motion では --dur が 0 になり、動かさない。
  */
 
@@ -51,16 +51,15 @@ const boxIn = (el: Element, side: DOMRect | undefined): Box => {
 const shift = (a: Box, ab: Box, b: Box, bb: Box) => `translate(${(a.x - ab.x) - (b.x - bb.x)}px, ${(a.y - ab.y) - (b.y - bb.y)}px)`;
 
 /** 測る要素。項目ごとに箱とアイコンと項目名を持つ。 */
-type Parts = { side: HTMLElement | null; brand: HTMLElement | null; mark: HTMLElement | null; items: { box: HTMLElement; icon: Element | null; label: HTMLElement | null; edge: boolean }[] };
-type Snap = { cols: string; sideW: number; brand: Box | null; items: { box: Box; radius: string; icon: Box | null; label: Box | null }[] };
+type Parts = { side: HTMLElement | null; mark: HTMLElement | null; items: { box: HTMLElement; icon: Element | null; label: HTMLElement | null; edge: boolean }[] };
+type Snap = { cols: string; col1: string; sideW: number; items: { box: Box; radius: string; icon: Box | null; label: Box | null }[] };
 
 function parts(shell: HTMLElement): Parts {
   return {
     side: shell.querySelector<HTMLElement>('.sidebar'),
-    brand: shell.querySelector<HTMLElement>('.brand'),
-    mark: shell.querySelector<HTMLElement>('.brand-mark'),
-    // 開閉のボタンも、項目と同じく箱とアイコンを移す（ワードマークの右から帯の一番上へ）。項目の後ろに並べる。
-    // ボタンは帯の右端に寄せて置く（edge）。横は帯の右端に付いて動かし、ワードマークの文字の上を横切らないようにする。
+    mark: shell.querySelector<HTMLElement>('.header .brand-mark'),
+    // 開閉のボタンも、項目と同じく箱とアイコンを移す（ホームの行の右端から帯の一番上へ）。項目の後ろに並べる。
+    // ボタンは帯の右端に寄せて置く（edge）。横は帯の右端に付いて動かし、ホームの項目名の上を横切らないようにする。
     items: [
       ...[...shell.querySelectorAll<HTMLElement>('.sidebar .nav-item')].map((el) => ({ box: el, icon: el.querySelector('svg'), label: el.querySelector<HTMLElement>('.nav-label'), edge: false })),
       ...[...shell.querySelectorAll<HTMLElement>('.sidebar .sidebar-toggle')].map((el) => ({ box: el, icon: el.querySelector('svg'), label: null, edge: true })),
@@ -72,8 +71,8 @@ function snap(shell: HTMLElement, p: Parts): Snap {
   const side = p.side?.getBoundingClientRect();
   return {
     cols: getComputedStyle(shell).gridTemplateColumns,
+    col1: getComputedStyle(shell).getPropertyValue('--col1').trim(),
     sideW: side?.width ?? 0,
-    brand: p.brand && boxIn(p.brand, side),
     items: p.items.map((it) => ({ box: boxIn(it.box, side), radius: getComputedStyle(it.box).borderRadius, icon: it.icon && boxIn(it.icon, side), label: it.label && boxIn(it.label, side) })),
   };
 }
@@ -99,8 +98,10 @@ export function playSidebarMotion(shell: HTMLElement): void {
 
   const opts: KeyframeAnimationOptions = { duration: dur, easing, id: ID };
   shell.setAttribute(MOVING_ATTR, '');
-  // 幅。本文は格子の 2 列目なので、列の幅を動かせば付いてくる。ヘッダは窓の横いっぱいに渡り、動かない。
-  const cols = shell.animate([{ gridTemplateColumns: F.cols }, { gridTemplateColumns: L.cols }], opts);
+  // 幅。本文は格子の 2 列目、ヘッダは subgrid で同じ列を使うので、列の幅を動かせばどちらも付いてくる。
+  // 本文と検索欄の左の余白（--gutter-l）は左の列の幅（--col1、base.css で登録してある）から決まるので、--col1 も同じ長さで動かす。
+  // 列の幅そのものも並べて動かすのは、登録したカスタムプロパティの補間が効かない環境でも、開閉の動きだけは残すためである。
+  const cols = shell.animate([{ gridTemplateColumns: F.cols, '--col1': F.col1 }, { gridTemplateColumns: L.cols, '--col1': L.col1 }], opts);
   cols.finished.then(() => settle(shell), () => {});
 
   // 項目の箱は位置と大きさと角の丸みを移し、中のアイコンは、箱の動きを打ち消したうえで自分の場所の差を移す。
@@ -125,17 +126,6 @@ export function playSidebarMotion(shell: HTMLElement): void {
     }
   });
 
-  // 図と名前（Hangar_）。閉じるときは、帯に乗ったまま薄れながら、細くなる帯に切られて消える。
-  // 開くときは、項目と一緒に帯の上から下りてきて現れ（項目と同じだけずらすので重ならない）、図のハンガーが引かれて振り子で揺れて止まる（composite: add、回転の中心はフックの辺り）。
-  if (p.brand && F.brand && L.brand) {
-    if (collapsed) {
-      const t = `translate(${F.brand.x - L.brand.x}px, ${F.brand.y - L.brand.y}px)`;
-      p.brand.animate([{ transform: t, opacity: 1, ...shown }, { transform: t, opacity: 0, offset: 0.5, ...shown }, { transform: t, opacity: 0, ...shown }], opts);
-    } else {
-      const a = F.items[0], b = L.items[0]; // 最初のナビの項目
-      const dy = a && b ? a.box.y - b.box.y : 0;
-      p.brand.animate([{ transform: `translateY(${dy}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], opts);
-      p.mark?.animate(swingKeyframes(-1), { duration: swingMs(), composite: 'add', id: ID });
-    }
-  }
+  // 図のハンガーは、帯の動きに引かれて振り子で揺れて止まる。閉じると右へ、開くと左へ引かれる（composite: add、回転の中心はフックの辺り）。
+  p.mark?.animate(swingKeyframes(collapsed ? 1 : -1), { duration: swingMs(), composite: 'add', id: ID });
 }

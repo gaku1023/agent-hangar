@@ -55,7 +55,7 @@ const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, s
 
 describe('Header', () => {
   it('2 つのゲージと最終更新を出す', () => {
-    render(<IntentRoot onIntent={() => {}}><Header crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header searchText="" indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
     expect(screen.getByLabelText('5 時間の使用率')).toBeTruthy();
     expect(screen.getByLabelText('7 日の使用率')).toBeTruthy();
     expect(screen.getByText('最終更新 10 分前')).toBeTruthy();
@@ -64,18 +64,16 @@ describe('Header', () => {
   it('畳んだときの逃げ道。同期の文は設定へ、虫眼鏡はパレットへ、新規セッションは名前を残す', () => {
     const onIntent = vi.fn();
     const sync = { visible: true, state: 'idle' as const, label: '同期済み · 3 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false };
-    const long = 'Claude Projects活用検討と社内ナレッジの整理';
-    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'agent-hangar', route: { name: 'projects' } }, { label: long }]} searchText="" indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header searchText="" indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
     fireEvent.click(screen.getByRole('link', { name: '同期済み · 3 分前' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
     fireEvent.click(screen.getByRole('button', { name: 'セッションを検索' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
     fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
-    expect(screen.getByText(long)).toHaveAttribute('title', long);
   });
   it('最終更新が無ければ添えない', () => {
-    render(<IntentRoot onIntent={() => {}}><Header crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
     expect(screen.queryByText(/最終更新/)).toBeNull();
     expect(screen.getAllByText('未取得')).toHaveLength(2);
   });
@@ -204,7 +202,7 @@ describe('ArtifactCards', () => {
 });
 
 describe('ProjectScreen の右レール', () => {
-  const props = { id: 'p1', name: 'alpha', path: '/w/alpha', resolved: true, status: 'active' as const, sessions: [], notFound: false, isScratch: false, todos: [{ id: 't1', text: '買う', done: false, candidate: null }], memo: { markdown: '# a', updatedAt: 1 }, artifacts: [art('a1')] };
+  const props = { id: 'p1', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' as const } }, path: '/w/alpha', resolved: true, status: 'active' as const, sessions: [], notFound: false, isScratch: false, todos: [{ id: 't1', text: '買う', done: false, candidate: null }], memo: { markdown: '# a', updatedAt: 1 }, artifacts: [art('a1')] };
   it('TODO とメモとアーティファクトを並べ、折りたためる', () => {
     wrap(<ProjectScreen {...props} />);
     expect(screen.getByLabelText('TODO を追加')).toBeTruthy();

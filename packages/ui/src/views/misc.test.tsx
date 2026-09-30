@@ -63,11 +63,11 @@ describe('SessionsScreen', () => {
     expect(since).toBeLessThanOrEqual(Date.now() - 7 * 86_400_000);
     expect(call.patch.until).toBeUndefined();
   });
+  // 件数は見出しの行に並べるが、見出しの名前には含めない。読み上げでは「セッション」の見出しとして見つかる。
   it('画面の頭に見出しを置き、件数を添える', () => {
     render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={1196} loading={false} mode="all" /></IntentRoot>);
-    const h = screen.getByRole('heading', { level: 1 });
-    expect(h).toHaveTextContent('セッション');
-    expect(within(h).getByText('1196 件')).toBeInTheDocument();
+    const h = screen.getByRole('heading', { level: 1, name: 'セッション' });
+    expect(within(h.closest('.page-title-row') as HTMLElement).getByText('1196 件')).toBeInTheDocument();
   });
   it('検索中と件数の表示', () => {
     render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" /></IntentRoot>);
@@ -516,7 +516,7 @@ describe('Header', () => {
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
     // sync は Task 23 が Header に足した props である。この節が見るのは検索欄だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
     const box = screen.getByRole('searchbox');
     fireEvent.change(box, { target: { value: '動画' } });
     fireEvent.keyDown(box, { key: 'Enter', isComposing: true });
