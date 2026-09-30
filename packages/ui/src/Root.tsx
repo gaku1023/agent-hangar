@@ -140,6 +140,16 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       if (inTerminal && !e.metaKey) return;
       const id = matchKey(e);
       if (!id) return;
+      // 何も開いていないときの入力欄の Esc は、その欄を離れる打鍵にする。ヘッダーの検索欄から抜ける手がほかに無いからである。
+      // ダイアログやパレットの入力欄では、そのダイアログが自分で Esc を処理して閉じるので、ここでは触らない。
+      // 部品が先に Esc を処理した（既定を止めた）ときも重ねない。ターミナルの Esc は上で xterm へ渡している。
+      // 日本語の変換中の Esc は変換を取り消す打鍵なので、欄に残す。
+      const composing = e.isComposing || e.keyCode === 229;
+      if (id === 'overlay.close' && overlayKind === 'none' && (typing || el?.isContentEditable) && !e.defaultPrevented && !composing) {
+        e.preventDefault();
+        el?.blur();
+        return;
+      }
       // 修飾の無い打鍵は入力欄では文字なので、横取りしない。
       if (!e.metaKey && !e.ctrlKey && typing) return;
       const take = () => e.preventDefault();
@@ -168,6 +178,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'palette.open': take(); rt.emit({ type: 'palette.open' }); return;
         case 'session.new': take(); rt.emit({ type: 'session.new.open', scratch: newScratch === true, ...(newProjectId ? { projectId: newProjectId } : {}) }); return;
         case 'session.newScratch': take(); rt.emit({ type: 'session.new.open', scratch: true }); return;
+        // 次の入力待ちへ。ダイアログを開いている間は、その裏で画面を移さない。
+        case 'session.nextWaiting': if (overlayKind === 'none' || overlayKind === 'palette') { take(); rt.emit({ type: 'session.nextWaiting' }); } return;
         case 'settings.open': take(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return;
         // 入力欄の Ctrl+B はカーソルを 1 字戻す macOS の打鍵なので、⌘B だけを受け取る。
         case 'sidebar.toggle': if (typing && !e.metaKey) return; take(); rt.emit({ type: 'sidebar.toggle' }); return;

@@ -63,6 +63,24 @@ describe('キーマップ', () => {
     }
   });
 
+  it('一覧の上下は矢印でも動くことを一覧に書く', () => {
+    expect(KEYMAP.find((b) => b.id === 'list.move')?.keys).toBe('j / k / ↑ / ↓');
+  });
+
+  it('タブの列とターンの目次の矢印も、セッションの節に載せる', () => {
+    const session = KEYMAP.filter((b) => b.group === 'session').map((b) => b.keys);
+    expect(session).toContain('← / →');
+    expect(session).toContain('j / k / ↑ / ↓');
+  });
+
+  it('⌘I で次の入力待ちへ。Ctrl+I でも当たる', () => {
+    expect(matchKey({ key: 'i', metaKey: true })).toBe('session.nextWaiting');
+    expect(matchKey({ key: 'i', ctrlKey: true })).toBe('session.nextWaiting');
+    expect(matchKey({ key: 'I', metaKey: true, shiftKey: true })).toBeNull();
+    expect(matchKey({ key: 'i' })).toBeNull();
+    expect(KEYMAP.find((b) => b.id === 'session.nextWaiting')).toMatchObject({ group: 'global', keys: '⌘I', label: '次の入力待ちへ' });
+  });
+
   it('どの行にも表示するキーと説明がある', () => {
     for (const b of KEYMAP) {
       expect(b.keys, b.id).not.toBe('');

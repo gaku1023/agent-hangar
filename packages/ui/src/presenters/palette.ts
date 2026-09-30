@@ -23,6 +23,7 @@ const COMMANDS: PaletteItem[] = [
   { id: 'cmd:settings', label: '設定', hint: keysOf('settings.open'), kind: 'command' },
   { id: 'cmd:shortcuts', label: 'キーの一覧', hint: keysOf('shortcuts.open'), kind: 'command' },
   { id: 'cmd:rebuild-index', label: '索引を作り直す', hint: '', kind: 'command' },
+  { id: 'cmd:next-waiting', label: '次の入力待ちへ', hint: keysOf('session.nextWaiting'), kind: 'command' },
 ];
 
 const KIND_ORDER: Record<PaletteItem['kind'], number> = { command: 0, project: 1, session: 2 };

@@ -71,6 +71,10 @@ describe('presentPalette', () => {
     const p = presentPalette(withPalette(), { ...store(), sessions: many }, '')!;
     expect(p.items).toHaveLength(30);
   });
+  it('次の入力待ちへのコマンドがあり、ヒントはキーの表から引く（C5）', () => {
+    const p = presentPalette(withPalette(), store(), '入力待ち')!;
+    expect(p.items.find((i) => i.id === 'cmd:next-waiting')).toMatchObject({ label: '次の入力待ちへ', hint: '⌘I', kind: 'command' });
+  });
 });
 
 describe('presentPromote と presentPromoted', () => {

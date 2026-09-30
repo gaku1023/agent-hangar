@@ -14,6 +14,13 @@
   outline: none;
 }
 
+/* 行そのものにもフォーカスが当たる（roving tabindex）。
+   一覧の枠は中身を切り取るので、輪郭は内側に描く。 */
+.row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* カーソルの行。フォーカスの枠とは別の表し方にして、両方が同時に出ても読めるようにする。 */
 .row[data-cursor='true'] {
   background: var(--accent-soft);

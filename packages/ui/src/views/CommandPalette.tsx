@@ -34,6 +34,15 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
   }, []);
   // 入力が変わると並びが変わるので、選択を先頭に戻す。
   useEffect(() => { setIndex(0); }, [props.query]);
+  // 矢印で動かした選択は、一覧の見える位置へ寄せる。
+  // マウスで乗せたときは寄せない。端の行に乗せただけで一覧が動き、指の下の行が入れ替わってしまうからである。
+  const byKey = useRef(false);
+  useEffect(() => {
+    if (!byKey.current) return;
+    byKey.current = false;
+    // jsdom のように scrollIntoView を持たない環境では何もしない。
+    document.getElementById(`palette-opt-${index}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [index]);
 
   const run = (i: number) => {
     const item = props.items[i];
@@ -41,8 +50,8 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setIndex((i) => Math.min(props.items.length - 1, i + 1)); return; }
-    if (e.key === 'ArrowUp') { e.preventDefault(); setIndex((i) => Math.max(0, i - 1)); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); byKey.current = true; setIndex((i) => Math.min(props.items.length - 1, i + 1)); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); byKey.current = true; setIndex((i) => Math.max(0, i - 1)); return; }
     if (e.key === 'Escape') { e.preventDefault(); emit({ type: 'palette.close' }); return; }
     // 変換中の Enter は確定のための打鍵なので、実行に使わない。
     if (e.key !== 'Enter' || isComposing(e)) return;
@@ -81,7 +90,7 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
               role="option"
               aria-selected={i === index}
               data-active={i === index ? 'true' : undefined}
-              onMouseEnter={() => setIndex(i)}
+              onMouseEnter={() => { byKey.current = false; setIndex(i); }}
               onClick={() => run(i)}
             >
               <span className="palette-kind faint">{KIND_LABEL[item.kind]}</span>

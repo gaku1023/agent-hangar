@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
@@ -336,6 +336,68 @@ describe('TabStrip の分割ボタン', () => {
   it('分割中は押された状態にする', () => {
     render(<IntentRoot onIntent={() => {}}><TabStrip sessionId="s1" tabs={two} canAdd canSplit split /></IntentRoot>);
     expect(screen.getByLabelText('分割')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('TabStrip のキー操作（C3）', () => {
+  const three = [
+    { id: 't1', title: 'Claude', kind: 'agent' as const, selected: false, closable: false },
+    { id: 't2', title: 'シェル 1', kind: 'shell' as const, selected: true, closable: true },
+    { id: 't3', title: 'シェル 2', kind: 'shell' as const, selected: false, closable: true },
+  ];
+  const mount = () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={three} canAdd canSplit split={false} /></IntentRoot>);
+    return { onIntent, tabs: () => screen.getAllByRole('tab') };
+  };
+
+  it('Tab で止まるのは選ばれたタブだけで、選ばれたことを aria-selected で伝える', () => {
+    const { tabs } = mount();
+    expect(tabs().map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
+    expect(tabs().map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false']);
+  });
+
+  it('← と → でフォーカスを隣のタブへ動かし、端では反対の端へ回る。選ぶのは Enter まで待つ', () => {
+    const { tabs, onIntent } = mount();
+    act(() => tabs()[1]!.focus());
+    fireEvent.keyDown(tabs()[1]!, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(tabs()[2]);
+    fireEvent.keyDown(tabs()[2]!, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(tabs()[0]);
+    fireEvent.keyDown(tabs()[0]!, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(tabs()[2]);
+    fireEvent.keyDown(tabs()[2]!, { key: 'Home' });
+    expect(document.activeElement).toBe(tabs()[0]);
+    fireEvent.keyDown(tabs()[0]!, { key: 'End' });
+    expect(document.activeElement).toBe(tabs()[2]);
+    // 選ぶとフォーカスはターミナルへ移るので、矢印で動くたびに選ぶと続けて動けない。
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(tabs().map((t) => t.tabIndex)).toEqual([-1, -1, 0]);
+    fireEvent.keyDown(tabs()[2]!, { key: 'Enter' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'tab.select', tabId: 't3' });
+    fireEvent.keyDown(tabs()[2]!, { key: ' ' });
+    expect(onIntent).toHaveBeenCalledTimes(2);
+  });
+
+  it('⌘← や ⌘→ は戻る進むの打鍵なので、タブでは使わない', () => {
+    const { tabs } = mount();
+    act(() => tabs()[1]!.focus());
+    fireEvent.keyDown(tabs()[1]!, { key: 'ArrowRight', metaKey: true });
+    expect(document.activeElement).toBe(tabs()[1]);
+  });
+
+  it('閉じるボタンの Enter ではタブを選ばない', () => {
+    const { onIntent } = mount();
+    fireEvent.keyDown(screen.getByLabelText('シェル 2 を閉じる'), { key: 'Enter' });
+    expect(onIntent).not.toHaveBeenCalledWith({ type: 'tab.select', tabId: 't3' });
+  });
+
+  it('タブの列を離れたら、止まり先は選ばれたタブに戻る', () => {
+    const { tabs } = mount();
+    act(() => tabs()[1]!.focus());
+    fireEvent.keyDown(tabs()[1]!, { key: 'ArrowRight' });
+    act(() => screen.getByLabelText('分割').focus());
+    expect(tabs().map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
   });
 });
 

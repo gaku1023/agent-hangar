@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
@@ -70,5 +70,78 @@ describe('TurnIndex', () => {
     const { getByRole, onIntent } = setup({ agentId: 'abc' });
     fireEvent.click(getByRole('button', { name: '主線に戻る' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: null });
+  });
+});
+
+describe('TurnIndex のキー操作（C3）', () => {
+  const rowsOf = (c: HTMLElement) => [...c.querySelectorAll<HTMLButtonElement>('.turn-row')];
+
+  it('Tab で止まる行は 1 つだけで、既定はいちばん新しい指示、開いていればその行', () => {
+    const { container, unmount } = setup();
+    expect(rowsOf(container).map((b) => b.tabIndex)).toEqual([-1, -1, 0]);
+    unmount();
+    const opened = setup({ rows: rows.map((r) => ({ ...r, open: r.seq === 10 })) });
+    expect(rowsOf(opened.container).map((b) => b.tabIndex)).toEqual([-1, 0, -1]);
+  });
+
+  it('↑ と ↓、k と j でフォーカスを隣の行へ動かし、端で止まる', () => {
+    const { container, onIntent } = setup();
+    const b = rowsOf(container);
+    act(() => b[2]!.focus());
+    fireEvent.keyDown(b[2]!, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(b[1]);
+    fireEvent.keyDown(b[1]!, { key: 'k' });
+    expect(document.activeElement).toBe(b[0]);
+    fireEvent.keyDown(b[0]!, { key: 'k' });
+    expect(document.activeElement).toBe(b[0]);
+    fireEvent.keyDown(b[0]!, { key: 'j' });
+    expect(document.activeElement).toBe(b[1]);
+    fireEvent.keyDown(b[1]!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(b[2]);
+    fireEvent.keyDown(b[2]!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(b[2]);
+    // 動かすだけでは開かない。
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(rowsOf(container).map((x) => x.tabIndex)).toEqual([-1, -1, 0]);
+  });
+
+  it('動かした先が次の Tab の止まり先になる', () => {
+    const { container } = setup();
+    const b = rowsOf(container);
+    act(() => b[2]!.focus());
+    fireEvent.keyDown(b[2]!, { key: 'k' });
+    expect(rowsOf(container).map((x) => x.tabIndex)).toEqual([-1, 0, -1]);
+  });
+
+  it('矢印は一覧のスクロールに使わせない', () => {
+    const { container } = setup();
+    const b = rowsOf(container);
+    act(() => b[2]!.focus());
+    const ev = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+    act(() => { b[2]!.dispatchEvent(ev); });
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('Enter でフォーカスの行を 1 度だけ開く', () => {
+    const { container, onIntent } = setup();
+    const b = rowsOf(container);
+    act(() => b[2]!.focus());
+    fireEvent.keyDown(b[2]!, { key: 'k' });
+    fireEvent.keyDown(b[1]!, { key: 'Enter' });
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    // 押したときと同じ Intent を出す。
+    const viaKey = onIntent.mock.calls[0]![0];
+    onIntent.mockClear();
+    fireEvent.click(b[1]!);
+    expect(viaKey).toEqual(onIntent.mock.calls[0]![0]);
+    expect(viaKey).toMatchObject({ type: 'turn.open', sessionId: 's1', seq: 10, runId: 'r1' });
+  });
+
+  it('⌘ の付いた打鍵は動かさない', () => {
+    const { container } = setup();
+    const b = rowsOf(container);
+    act(() => b[2]!.focus());
+    fireEvent.keyDown(b[2]!, { key: 'ArrowUp', metaKey: true });
+    expect(document.activeElement).toBe(b[2]);
   });
 });

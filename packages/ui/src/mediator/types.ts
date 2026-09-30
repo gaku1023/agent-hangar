@@ -15,6 +15,8 @@ export type RuntimeEvent =
   | { type: 'promote.failed'; message: string }
   // 分割の右に置くタブはストアを見ないと決まらないので、ランタイムが決めて返す。
   | { type: 'split.resolved'; sessionId: string; tabId: string | null }
+  // 「次の入力待ちへ」の行き先。入力待ちが無ければ null。これもストアを見ないと決まらないので、ランタイムが決めて返す。
+  | { type: 'waiting.resolved'; sessionId: string | null }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
   | { type: 'window.focus' }
   // 目次から左のターミナルを跳ばした結果。
@@ -66,6 +68,7 @@ export type Effect =
   | { kind: 'api.loadSettingsExtras' }
   | { kind: 'api.testSummarizer' }
   | { kind: 'split.resolve'; sessionId: string }
+  | { kind: 'waiting.next'; from: string | null }
   | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' };

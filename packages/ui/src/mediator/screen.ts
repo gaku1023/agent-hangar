@@ -49,8 +49,28 @@ function closeTransient(state: State): Overlay {
   return state.overlay.kind === 'promoted' ? { kind: 'none' } : state.overlay;
 }
 
+/** 入力待ちが無いときの知らせ。 */
+export const NO_WAITING = '入力を待っているセッションはありません';
+
+/**
+ * 「次の入力待ちへ」。
+ * どのセッションが入力待ちかはストアにあるので、いまいるセッションを添えてランタイムに決めさせる（waiting.resolved で返る）。
+ * パレットから出したときも、パレットの上でキーを打ったときも、パレットは閉じる。
+ */
+export function nextWaitingStep(state: State): Step {
+  const closed: State = state.overlay.kind === 'palette' ? { ...state, overlay: { kind: 'none' } } : state;
+  const from = state.screen.name === 'session' ? state.screen.id : null;
+  return { state: closed, effects: [{ kind: 'waiting.next', from }] };
+}
+
 /** screen 領域：どの画面にいるか。URL のハッシュが正で、Intent は navigate 効果を出すだけ。 */
 export function screenStep(state: State, input: Input): Step | null {
+  // 行き先が決まったら、ターミナルで答える経路（session.open の focus: terminal）で開く。
+  if (input.kind === 'runtime' && input.event.type === 'waiting.resolved') {
+    const id = input.event.sessionId;
+    if (!id) return { state, effects: [{ kind: 'toast', level: 'info', message: NO_WAITING }] };
+    return screenStep(state, { kind: 'intent', intent: { type: 'session.open', id, focus: 'terminal' } });
+  }
   if (input.kind === 'runtime' && input.event.type === 'hash.changed') {
     const route = input.event.route;
     const effects: Effect[] = [];
@@ -92,6 +112,7 @@ export function screenStep(state: State, input: Input): Step | null {
       const back = agentTabStep(state, i.id) ?? { state, effects: [] };
       return { state: { ...back.state, overlay, focusOnOpen: i.id }, effects: [...back.effects, { kind: 'navigate', route: { name: 'session', id: i.id } }] };
     }
+    case 'session.nextWaiting': return nextWaitingStep(state);
     case 'search.query': {
       const next = { ...state, overlay: closeTransient(state), search: { ...state.search, text: i.text } };
       return { state: next, effects: [{ kind: 'navigate', route: i.text ? { name: 'sessions', q: i.text } : { name: 'sessions' } }] };

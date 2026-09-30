@@ -4,7 +4,7 @@ import { defaultSessionView } from '../mediator/sessionView.ts';
 import { toSearchParams } from '../mediator/screen.ts';
 import { SIDEBAR_KEY } from '../mediator/sidebar.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import { ApiConflictError, type ApiClient, type EventsQuery } from './api.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -270,6 +270,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         dispatch({ kind: 'runtime', event: { type: 'split.resolved', sessionId: e.sessionId, tabId: right ? right.id : null } });
         return;
       }
+      case 'waiting.next': dispatch({ kind: 'runtime', event: { type: 'waiting.resolved', sessionId: nextWaitingSession(store, e.from) } }); return;
       case 'storage.save': deps.storage.set(e.key, e.value); return;
       // 返ってきた状態は sync.status と同じ経路に載せる。ストアと Mediator の両方が一度に揃う。
       case 'api.syncNow': deps.api.syncNow().then(syncStatus).catch(fail); return;

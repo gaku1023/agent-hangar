@@ -920,3 +920,28 @@ describe('開いたら端末にフォーカス', () => {
     }
   });
 });
+
+describe('次の入力待ちへ（C5）', () => {
+  it('どの入力待ちへ移るかはストアを見て決めるので、ランタイムに問う', () => {
+    expect(run([intent({ type: 'session.nextWaiting' })]).effects).toEqual([{ kind: 'waiting.next', from: null }]);
+    const onS1 = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]).state;
+    expect(run([intent({ type: 'session.nextWaiting' })], onS1).effects).toEqual([{ kind: 'waiting.next', from: 's1' }]);
+  });
+  it('決まったセッションは、ターミナルで答える経路（session.open の focus: terminal）で開く', () => {
+    const via = run([runtime({ type: 'waiting.resolved', sessionId: 's2' })]);
+    const direct = run([intent({ type: 'session.open', id: 's2', focus: 'terminal' })]);
+    expect(via).toEqual(direct);
+  });
+  it('入力待ちが無ければ短く知らせる', () => {
+    expect(run([runtime({ type: 'waiting.resolved', sessionId: null })]).effects).toEqual([{ kind: 'toast', level: 'info', message: '入力を待っているセッションはありません' }]);
+  });
+  it('パレットからも出せて、パレットは閉じる', () => {
+    const opened = run([intent({ type: 'palette.open' })]).state;
+    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:next-waiting', label: '次の入力待ちへ' } })], opened);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.effects).toEqual([{ kind: 'waiting.next', from: null }]);
+    // パレットの上でキーを打ったときも、パレットは閉じる。
+    const b = run([intent({ type: 'session.nextWaiting' })], opened);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+  });
+});
