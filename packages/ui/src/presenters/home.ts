@@ -68,7 +68,8 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
   const recent = sessions.filter((s) => !shown.has(s.id)).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).slice(0, RECENT_LIMIT).map((s) => presentSessionRow(s, store, now));
 
   const projects = Object.values(store.projects).filter((p) => p.status === 'active' && !p.isScratch).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).map((p): ProjectMini => {
-    // 実行中と入力待ちは、プロジェクトのカードと同じく手元のセッションから数える。入力待ちは要対応として別に数える。
+    // 実行中と入力待ちは、プロジェクトのカードと同じく手元のセッションから数える。
+    // 入力待ちは要対応として別に数える。
     const live = liveCountsOf(store, p.id, alive);
     const confirmHere = candidates.filter(({ t }) => t.projectId === p.id).length;
     const counts: [string, number][] = [['実行中', live.running], ['TODO', p.openTodoCount], ['要対応', live.waiting], ['確かめる', confirmHere]];

@@ -14,7 +14,8 @@ const PERIODS = [{ value: '', label: '全期間' }, { value: '1', label: '今日
 /** 一覧の高さ。窓から、ヘッダとその下の隙間、画面の上下の余白、見出し、検索欄、絞り込みの段の分を引く（rows.css の .sessions-*）。 */
 const LIST_H = 'calc(100vh - 243px)';
 // 帯の名前を「状態」にする。「実行中」という名前の帯の中に「実行中」の項目があると、読み上げで区別しにくいため。
-// 入力待ちは実行中に含めない（shared の liveFilterOf）。答えが要るものを先に選べるよう、すべての次に置く。
+// 入力待ちは実行中に含めない（shared の liveFilterOf）。
+// 答えが要るものを先に選べるよう、すべての次に置く。
 const LIVE = [{ value: '', label: 'すべて' }, { value: 'waiting', label: '入力待ち', lead: <span className="st-dot seg-waiting" /> }, { value: 'running', label: '実行中', lead: <span className="st-dot seg-live" /> }, { value: 'ended', label: '終了' }];
 
 /** セッション横断の一覧と検索。キーワードは Enter で search.query、絞り込みは変えるたびに search.filter を出す。 */

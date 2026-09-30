@@ -69,7 +69,8 @@ describe('searchSessions', () => {
     expect(searchSessions(db, { q: 'channels', projectId: 'p2' }).total).toBe(0);
     expect(searchSessions(db, { q: 'channels', since: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(0);
     expect(searchSessions(db, { q: 'channels', until: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(1);
-    // 状態の判定は DB に無いので、呼ぶ側が provider_session_id と hangar の id から決める。既定は終了。
+    // 状態の判定は DB に無いので、呼ぶ側が provider_session_id と hangar の id から決める。
+    // 既定は終了。
     expect(searchSessions(db, { q: 'channels', live: 'running' }).total).toBe(0);
     expect(searchSessions(db, { q: 'channels', live: 'ended' }).total).toBe(1);
     const liveOf = (_sid: string, psid: string) => (psid === SESSION_ALPHA ? 'waiting' as const : 'ended' as const);

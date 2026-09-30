@@ -100,7 +100,10 @@ const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
 const PATH_SETTING_KEYS = ['tmuxPath', 'codePath', 'nodePath', 'claudePath'] as const;
 const TERMINAL_APPS = new Set<string>(['terminal', 'iterm']);
-/** 「1 時間の上限」の上限。画面の入力（SettingsScreen の Stepper）と同じにする。 */
+/**
+ * 「1 時間の上限」の上限。
+ * 画面の入力（SettingsScreen の Stepper）と同じにする。
+ */
 const SUMMARY_HOURLY_CAP_MAX = 200;
 /**
  * 設定の項目の、画面の欄の見出し。
@@ -381,7 +384,8 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/search', (c) => {
     const q = c.req.query();
     const live = q.live === 'running' || q.live === 'waiting' || q.live === 'ended' ? q.live : undefined;
-    // 数え方は UI と同じ liveFilterOf に任せる。Claude の一覧に載る前の run も実行中に入れる。
+    // 数え方は UI と同じ liveFilterOf に任せる。
+    // Claude の一覧に載る前の run も実行中に入れる。
     const status = new Map(deps.live().map((l) => [l.sessionId, l.status]));
     const alive = new Set(deps.runs.listAlive().runs.filter((r) => r.endedAt === null).map((r) => r.sessionId));
     const liveOf = (sid: string, psid: string) => liveFilterOf(status.get(psid) ?? null, alive.has(sid));

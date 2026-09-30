@@ -65,7 +65,10 @@ export function tokensLabel(n: number): string {
  * セッションのプロセスが生きているかどうかとは別物なので、実行中や終了とは重ならない語にする。
  */
 export const STATE_LABEL = { in_progress: 'やりかけ', done: '済んだ', blocked: '詰まっている', abandoned: 'やめた' } as const;
-/** Claude の起こし方。内部の語（run、start）を画面に出さない。 */
+/**
+ * Claude の起こし方。
+ * 内部の語（run、start）を画面に出さない。
+ */
 export const RUN_KIND_LABEL = { start: '起動', resume: '再開', fork: 'フォーク' } as const;
 export const SOURCE_LABEL = { baseline: '自動', in_session: 'セッション', post_hoc: '事後' } as const;
 /** 要約器の id を短い名前にする。表に無い id はそのまま出す。 */

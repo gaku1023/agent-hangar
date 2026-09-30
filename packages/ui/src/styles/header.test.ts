@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const base = fs.readFileSync(new URL('./base.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-/** 入れ子の無い規則を、選択子と中身の組で取り出す。コンテナクエリの中の規則も、内側の規則として拾える。 */
+/**
+ * 入れ子の無い規則を、選択子と中身の組で取り出す。
+ * コンテナクエリの中の規則も、内側の規則として拾える。
+ */
 const rules = [...base.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ selector: m[1]!.trim(), body: m[2]! }));
 
 describe('ヘッダーの使用率のゲージ', () => {
