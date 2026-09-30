@@ -12,6 +12,8 @@ export type IndexerListener = {
   progress?: (p: IndexProgressDto) => void;
   sessionChanged?: (e: { sessionId: string; providerSessionId: string; agentId: string | null; appended: number; artifactIds: string[]; deviceId: string | null; path: string }) => void;
   error?: (e: { path: string; message: string }) => void;
+  /** 手元の本文ファイルが消え、そのセッションの索引を片付けた。hasTranscript が変わるので配り直す。 */
+  transcriptGone?: (e: { sessionId: string }) => void;
 };
 
 export type IndexerServiceOptions = {
@@ -86,7 +88,37 @@ export class IndexerService {
     for (const d of drop) {
       try { forgetTranscriptFile(this.opts.db, d.path); } catch (e) { this.emitError(d.path, errorMessage(e)); }
     }
+    this.forgetVanished(new Set([...local, ...remote].map((f) => f.path)));
     return index;
+  }
+
+  /**
+   * 索引にはあるのに、手元のファイルがもう無い行を片付ける。
+   * Claude Code は保持期間を過ぎた本文を黙って消すので、放っておくと「本文あり」のまま開けない会話が残る。
+   * 消すのは DB の行だけで、利用者のファイルには触れない。
+   * projects そのものが見えないとき（置き場が外れたなど）は、全部を消してしまわないよう何もしない。
+   * 他の PC の写し（device_id あり）は持ち主の同期が扱うので、ここでは見ない。
+   */
+  private forgetVanished(seen: Set<string>): void {
+    if (!fs.existsSync(path.join(this.opts.claudeDir, 'projects'))) return;
+    const rows = this.opts.db.prepare('select path, session_id from transcript_files where device_id is null').all() as { path: string; session_id: string }[];
+    const gone = new Set<string>();
+    for (const r of rows) {
+      if (seen.has(r.path)) continue;
+      try {
+        fs.lstatSync(r.path);
+        continue;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') continue;
+      }
+      try {
+        forgetTranscriptFile(this.opts.db, r.path);
+        gone.add(r.session_id);
+      } catch (e) {
+        this.emitError(r.path, errorMessage(e));
+      }
+    }
+    for (const sessionId of gone) for (const l of this.listeners) l.transcriptGone?.({ sessionId });
   }
 
   /** 1 ファイルを索引化し、変わっていたら土台の要約を書いて sessionChanged を出す。 */

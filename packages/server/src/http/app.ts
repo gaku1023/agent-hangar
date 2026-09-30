@@ -364,7 +364,7 @@ export function createApp(deps: AppDeps): Hono {
       return c.json(readEvents(db, id, { fromSeq: numberOr(q.fromSeq), limit: numberOr(q.limit), agentId: q.agentId || null, latest: q.latest === '1', beforeSeq: before }));
     } catch (e) {
       // 索引はあるのに本文ファイルが消えている場合だけ 404 にし、他は 500 に任せる。
-      if (isEnoent(e)) return c.json({ error: 'このセッションの本文ファイルが見つかりません。Settings の「索引を作り直す」を試してください' }, 404);
+      if (isEnoent(e)) return c.json({ error: 'このセッションの本文はこの PC にありません' }, 404);
       throw e;
     }
   });

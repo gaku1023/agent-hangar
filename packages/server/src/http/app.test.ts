@@ -303,7 +303,7 @@ describe('routes', () => {
     }
     const r = await get(`/api/sessions/${alpha.id}/events`);
     expect(r.status).toBe(404);
-    expect(await r.json()).toEqual({ error: 'このセッションの本文ファイルが見つかりません。Settings の「索引を作り直す」を試してください' });
+    expect(await r.json()).toEqual({ error: 'このセッションの本文はこの PC にありません' });
   });
   it('検索', async () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));

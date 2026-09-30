@@ -43,11 +43,13 @@ type SessionRow = {
   a_tool: string | null;
   a_summary: string | null;
   a_question: string | null;
+  local_mtime: number | null;
 };
 
 const SESSION_SELECT = `
 select s.*, exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null) has_transcript,
   exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null and t.device_id is null) has_local,
+  (select max(t.mtime) from transcript_files t where t.session_id = s.id and t.agent_id is null and t.device_id is null) local_mtime,
   p.is_scratch project_is_scratch,
   (select r.path from project_roots r join projects sp on sp.id = r.project_id where r.device_id = s.home_device and sp.is_scratch = 1 and sp.deleted_at is null and r.deleted_at is null order by r.updated_at desc limit 1) scratch_root,
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_id sum_source_id, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
@@ -182,7 +184,8 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     lock: locks.get(r.id) ?? null,
     // 本文はあるが手元の主線が無いとき、閲覧の前に本文を降ろす必要がある。
     remoteOnly: r.has_transcript === 1 && r.has_local === 0,
-    transcriptMtime: null,
+    // 保持期間の期限を UI が数えるための、この PC の本文の更新時刻。Claude Code もこれで古さを測るとみなす。
+    transcriptMtime: r.local_mtime,
     // 最後に呼んだツールと待っている問いは、実行中のときだけ載せる。終わったセッションの古い呼び出しは出さない。
     ...(live ? { activity: r.a_tool !== null ? { tool: r.a_tool, summary: r.a_summary ?? '', question: r.a_question } : null } : {}),
   };

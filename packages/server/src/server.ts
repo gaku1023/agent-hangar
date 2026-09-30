@@ -509,6 +509,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
 
   indexer.on({
     progress: (p) => hub.broadcast({ type: 'index.progress', progress: p }),
+    // Claude Code が本文を消して索引を片付けた。hasTranscript が偽に変わったことを配る。
+    transcriptGone: (e) => {
+      const s = getSession(db, registry.current(), e.sessionId, { deviceId: device.id });
+      if (s) hub.broadcast({ type: 'session.upsert', session: s });
+    },
     sessionChanged: (e) => {
       // 手元のファイルだけを上げる。他端末の写し（deviceId が入っているもの）は持ち主が上げる。
       if (e.deviceId === null) uploader?.noteChanged({ path: e.path, sessionId: e.providerSessionId, agentId: e.agentId });

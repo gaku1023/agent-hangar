@@ -63,6 +63,16 @@ describe('getSession', () => {
     const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
     expect(getSession(db, live, alpha.id)).toEqual(alpha);
   });
+
+  it('transcriptMtime は、この PC の主線の本文の更新時刻だけを見る', () => {
+    const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    db.prepare('update transcript_files set mtime = 1234 where session_id = ? and agent_id is null').run(alpha.id);
+    db.prepare('update transcript_files set mtime = 9999 where session_id = ? and agent_id is not null').run(alpha.id);
+    db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version, device_id) values (?, ?, null, 1, 5555, 1, 1, ?)').run('/remote/x.jsonl', alpha.id, 'x');
+    expect(getSession(db, live, alpha.id)!.transcriptMtime).toBe(1234);
+    db.prepare('delete from transcript_files where session_id = ?').run(alpha.id);
+    expect(getSession(db, live, alpha.id)!.transcriptMtime).toBeNull();
+  });
 });
 
 describe('displayName', () => {
@@ -236,18 +246,18 @@ describe('ロックと remoteOnly と端末一覧', () => {
   it('写しだけのセッションは hasTranscript が true で remoteOnly も true', () => {
     const d2 = setup();
     const ins = d2.prepare('insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?,?)');
-    expect(one(d2)).toMatchObject({ hasTranscript: false, remoteOnly: false, transcriptMtime: null });
+    expect(one(d2)).toMatchObject({ hasTranscript: false, remoteOnly: false });
     ins.run('/h/remote/dev-b/projects/-w-a/u1.jsonl', 's1', null, 'dev-b', 10, 1, 10, 1);
-    expect(one(d2)).toMatchObject({ hasTranscript: true, remoteOnly: true, transcriptMtime: null });
+    expect(one(d2)).toMatchObject({ hasTranscript: true, remoteOnly: true });
     ins.run('/h/.claude/projects/-w-a/u1.jsonl', 's1', null, null, 10, 1, 10, 1);
-    expect(one(d2)).toMatchObject({ hasTranscript: true, remoteOnly: false, transcriptMtime: null });
+    expect(one(d2)).toMatchObject({ hasTranscript: true, remoteOnly: false });
   });
 
   it('副エージェントの写しだけでは hasTranscript を立てない', () => {
     const d2 = setup();
     d2.prepare('insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?,?)')
       .run('/h/remote/dev-b/projects/-w-a/sub.jsonl', 's1', 'agent-1', 'dev-b', 10, 1, 10, 1);
-    expect(one(d2)).toMatchObject({ hasTranscript: false, remoteOnly: false, transcriptMtime: null });
+    expect(one(d2)).toMatchObject({ hasTranscript: false, remoteOnly: false });
   });
 
   it('端末一覧は最終確認の新しい順で、自端末に印を付ける', () => {
