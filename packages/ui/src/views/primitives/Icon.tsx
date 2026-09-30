@@ -1,4 +1,4 @@
-import { AppWindow, Archive, ArrowDownToLine, Ban, Bot, Brain, Check, ChevronDown, ChevronRight, Clock, Code, Columns2, Download, FileJson2, FilePenLine, FileX2, FolderInput, FolderSearch, FolderUp, Folder, GitBranch, GitFork, House, Map as MapIcon, MessagesSquare, MessageCircleQuestion, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plus, RotateCcw, Search, Settings, Settings2, ShieldAlert, Sparkles, Sprout, Square, SquareTerminal, Terminal, TriangleAlert, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
+import { AppWindow, Archive, ArrowDownToLine, Ban, Bot, Brain, Check, ChevronDown, ChevronRight, Clock, Code, Columns2, Command, Download, FileJson2, FilePenLine, FileX2, FolderInput, FolderSearch, FolderUp, Folder, GitBranch, GitFork, House, ListFilter, Map as MapIcon, MessagesSquare, MessageCircleQuestion, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plus, RefreshCw, RotateCcw, Search, Settings, Settings2, ShieldAlert, SkipForward, Sparkles, Sprout, Square, SquareTerminal, Terminal, TextSearch, TriangleAlert, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
 
 /** hangar の言葉からアイコンへの対応。View は lucide-react を直接 import せず、ここだけを通す。 */
 const ICONS = {
@@ -49,6 +49,11 @@ const ICONS = {
   latest: ArrowDownToLine,
   retention: Clock,
   transcriptGone: FileX2,
+  fullText: TextSearch,
+  nextWaiting: SkipForward,
+  command: Command,
+  rebuild: RefreshCw,
+  filter: ListFilter,
 } as const satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

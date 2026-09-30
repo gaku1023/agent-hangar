@@ -63,6 +63,18 @@ export function nextWaitingStep(state: State): Step {
   return { state: closed, effects: [{ kind: 'waiting.next', from }] };
 }
 
+/**
+ * 全文検索を出す。
+ * セッション一覧の画面の欄の Enter と、パレットの「全文検索」の行が同じこの経路を通る。
+ * 検索したらフォーカスを結果の一覧へ移す。
+ * 新しい語なら一覧の画面が作り直され、一覧が自分でフォーカスを取りにくる（SessionRows の autoFocus）。
+ * 同じ語で検索し直したときは作り直されず、autoFocus は 1 度きりなので、ここで毎回頼む。
+ */
+export function searchQueryStep(state: State, text: string): Step {
+  const next = { ...state, overlay: closeTransient(state), search: { ...state.search, text } };
+  return { state: next, effects: [{ kind: 'navigate', route: text ? { name: 'sessions', q: text } : { name: 'sessions' } }, { kind: 'focus', target: 'results' }] };
+}
+
 /** screen 領域：どの画面にいるか。URL のハッシュが正で、Intent は navigate 効果を出すだけ。 */
 export function screenStep(state: State, input: Input): Step | null {
   // 行き先が決まったら、ターミナルで答える経路（session.open の focus: terminal）で開く。
@@ -113,13 +125,7 @@ export function screenStep(state: State, input: Input): Step | null {
       return { state: { ...back.state, overlay, focusOnOpen: i.id }, effects: [...back.effects, { kind: 'navigate', route: { name: 'session', id: i.id } }] };
     }
     case 'session.nextWaiting': return nextWaitingStep(state);
-    case 'search.query': {
-      const next = { ...state, overlay: closeTransient(state), search: { ...state.search, text: i.text } };
-      // 検索したらフォーカスを結果の一覧へ移す。
-      // 新しい語なら一覧の画面が作り直され、一覧が自分でフォーカスを取りにくる（SessionRows の autoFocus）。
-      // 同じ語で検索し直したときは作り直されず、autoFocus は 1 度きりなので、ここで毎回頼む。
-      return { state: next, effects: [{ kind: 'navigate', route: i.text ? { name: 'sessions', q: i.text } : { name: 'sessions' } }, { kind: 'focus', target: 'results' }] };
-    }
+    case 'search.query': return searchQueryStep(state, i.text);
     case 'search.filter': {
       const next = { ...state, search: { ...state.search, filter: { ...state.search.filter, ...i.patch } } };
       const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [];

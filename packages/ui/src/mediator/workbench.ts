@@ -1,5 +1,6 @@
 import type { PaletteCommand } from '@agent-hangar/shared';
-import { nextWaitingStep } from './screen.ts';
+import { nextWaitingStep, searchQueryStep } from './screen.ts';
+import { sidebarStep } from './sidebar.ts';
 import type { Input, State, Step } from './types.ts';
 
 /** `cmd:new-session` のような項目 ID を種類と残りに割る。 */
@@ -14,9 +15,19 @@ function paletteRun(state: State, command: PaletteCommand): Step {
   const [kind, rest] = splitId(command.id);
   if (kind === 'project') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'project', id: rest } }] };
   if (kind === 'session') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'session', id: rest } }] };
+  // 全文検索の行。残りが検索語そのもので、語の中のコロンもそのまま残る。
+  if (kind === 'search') return searchQueryStep(closed, rest);
+  if (kind === 'go' && (rest === 'home' || rest === 'projects' || rest === 'sessions')) return { state: closed, effects: [{ kind: 'navigate', route: { name: rest } }] };
   if (kind === 'cmd') {
+    // 新しいセッションは、パレットを開いた画面のプロジェクトを最初から選ぶ。
+    // Mediator はストアを見ないので、どれを選ぶかは presenter が ID の後ろに載せてくる（new-session:project:<id> か new-session:scratch）。
+    if (rest.startsWith('new-session')) {
+      const target = rest.slice('new-session'.length);
+      const projectId = target.startsWith(':project:') ? target.slice(':project:'.length) : null;
+      return { state: { ...closed, overlay: { kind: 'newSession', projectId, scratch: target === ':scratch' }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
+    }
     switch (rest) {
-      case 'new-session': return { state: { ...closed, overlay: { kind: 'newSession', projectId: null, scratch: false }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
+      case 'sidebar': return sidebarStep(closed, { kind: 'intent', intent: { type: 'sidebar.toggle' } })!;
       case 'new-scratch': return { state: { ...closed, overlay: { kind: 'newSession', projectId: null, scratch: true }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
       case 'settings': return { state: closed, effects: [{ kind: 'navigate', route: { name: 'settings' } }] };
       case 'rebuild-index': return { state: closed, effects: [{ kind: 'api.rebuildIndex' }] };
