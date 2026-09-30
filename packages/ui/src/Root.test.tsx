@@ -384,6 +384,29 @@ describe('キーの見直し', () => {
     expect(go).toHaveBeenCalledWith(1);
   });
 
+  it('入力欄の外の Backspace では戻らない', async () => {
+    // WKWebView は、入力欄の外の Backspace で履歴を 1 つ戻す。いまの Chrome と Safari には無い動きなので止める。
+    const { go, setHash, rt } = await mounted();
+    act(() => setHash('#/projects'));
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'Backspace' }).defaultPrevented).toBe(true);
+    expect(key({ key: 'Backspace' }, document.body).defaultPrevented).toBe(true);
+    expect(go).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('入力欄とターミナルの Backspace は文字を消すので止めない', async () => {
+    await mounted();
+    expect(key({ key: 'Backspace' }, document.getElementById('global-search')!).defaultPrevented).toBe(false);
+    const host = document.createElement('div');
+    host.className = 'term-host';
+    const ta = document.createElement('textarea');
+    host.appendChild(ta);
+    document.body.appendChild(host);
+    expect(key({ key: 'Backspace' }, ta).defaultPrevented).toBe(false);
+    host.remove();
+  });
+
   it('ブラウザでは自前のスワイプを使わない', async () => {
     // ブラウザには元から手勢がある。二重に持たず、標準の戻る進むに任せる。
     const { go, setHash } = await mounted();
