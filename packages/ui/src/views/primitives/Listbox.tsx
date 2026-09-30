@@ -161,7 +161,7 @@ export function Listbox(props: ListboxProps) {
         <span id={faceValueId} className="listbox-face-value">
           {selected.status ? <span className="st-dot" data-status={selected.status} aria-hidden="true" /> : selected.icon ? <Icon name={selected.icon} /> : null}
           <span className="listbox-face-label">{selected.label}</span>
-          {props.showSubInFace && selected.sub && <span className="listbox-face-sub">{selected.sub}</span>}
+          {props.showSubInFace && (selected.faceSub ?? selected.sub) && <span className="listbox-face-sub">{selected.faceSub ?? selected.sub}</span>}
         </span>
       ) : <span id={faceValueId} className="listbox-face-placeholder">{props.placeholder ?? '選んでください'}</span>}
       <Icon name="chevronDown" />

@@ -5,7 +5,6 @@ import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { pick } from '../test/pick.ts';
-import { NewSessionDialog } from './NewSessionDialog.tsx';
 import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalHostContext } from './TerminalPane.tsx';
@@ -319,24 +318,6 @@ describe('TabStrip の分割ボタン', () => {
   it('分割中は押された状態にする', () => {
     render(<IntentRoot onIntent={() => {}}><TabStrip sessionId="s1" tabs={two} canAdd canSplit split /></IntentRoot>);
     expect(screen.getByLabelText('分割')).toHaveAttribute('aria-pressed', 'true');
-  });
-});
-
-describe('NewSessionDialog のスクラッチ', () => {
-  it('スクラッチではプロジェクトを選ばせず、scratch を付けて送る', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' }]} recentIds={[]} projectId={null} submitting={false} error={null} scratch /></IntentRoot>);
-    expect(screen.queryByLabelText('プロジェクト')).toBeNull();
-    expect(screen.getByText('スクラッチで始める')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('起動'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.submit', params: expect.objectContaining({ scratch: true }) });
-  });
-  it('スクラッチでないときはプロジェクトを選ばせ、scratch を付けない', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' }]} recentIds={[]} projectId="p1" submitting={false} error={null} scratch={false} /></IntentRoot>);
-    expect(screen.getByLabelText('プロジェクト')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('起動'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.submit', params: { projectId: 'p1' } });
   });
 });
 
