@@ -39,9 +39,10 @@ export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; tota
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。
  * 指揮役の手と目次の色帯は UI が主線のイベントから作るので、ここには載せない。
+ * endNote は終わりの知らせの status が completed でなかったときのその値（failed、killed など）で、ほかは null。赤にはせず、状態は done のままである。
  * linked はサブエージェントの transcript と結べたか。結べないレーンの agentId は `tool:<toolId>` である。
  */
-export type LiveAgentDto = { agentId: string; title: string; state: 'running' | 'done' | 'error'; startedAt: number | null; lastAt: number | null; last: { text: string; mono: boolean; kind: StepKind; isError: boolean } | null; report: string | null; linked: boolean };
+export type LiveAgentDto = { agentId: string; title: string; state: 'running' | 'done' | 'error'; startedAt: number | null; lastAt: number | null; last: { text: string; mono: boolean; kind: StepKind; isError: boolean } | null; report: string | null; endNote: string | null; linked: boolean };
 export type LiveIntentDto = { text: string; at: number; stepsSince: number; inThisTurn: boolean };
 export type LiveDigestDto = { sessionId: string; turnStartSeq: number | null; intent: LiveIntentDto | null; agents: LiveAgentDto[] };
 export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; running?: boolean; file?: string; limit?: number };

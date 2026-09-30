@@ -16,6 +16,8 @@ const AGENT_TAIL = 60;
 const isCall = (e: TranscriptEvent): e is Call => e.kind === 'tool_call';
 const isResult = (e: TranscriptEvent): e is Result => e.kind === 'tool_result';
 const tag = (text: string, name: string): string | null => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim() ?? null;
+const isEnoent = (e: unknown): boolean => (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
+const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v : undefined);
 
 /** 本文の最初の空でない行。見出しや強調の記号は落とす。 */
@@ -34,10 +36,19 @@ export function turnStart(db: Db, sessionId: string): { seq: number; ts: number 
   return null;
 }
 
-function mainSince(db: Db, sessionId: string, fromSeq: number): TranscriptEvent[] {
+/**
+ * 今のターンの頭から主線を読む。cap を超える長いターンは、新しい側の cap 件だけを読む。
+ * 起こした本と終わりの知らせは新しい側にあるので、古い側を捨てる。
+ */
+function mainSince(db: Db, sessionId: string, fromSeq: number, cap: number): TranscriptEvent[] {
+  const count = (db.prepare('select count(*) c from event_index where session_id = ? and parent_agent is null and seq >= ?').get(sessionId, fromSeq) as { c: number }).c;
+  if (count > cap) {
+    const r = db.prepare('select seq from event_index where session_id = ? and parent_agent is null and seq >= ? order by seq limit 1 offset ?').get(sessionId, fromSeq, count - cap) as { seq: number } | undefined;
+    if (r) fromSeq = r.seq;
+  }
   const out: TranscriptEvent[] = [];
   let seq: number | null = fromSeq;
-  while (seq !== null && out.length < MAIN_CAP) {
+  while (seq !== null) {
     const p = readEvents(db, sessionId, { fromSeq: seq, limit: 2000 });
     out.push(...p.events);
     seq = p.nextSeq;
@@ -45,13 +56,29 @@ function mainSince(db: Db, sessionId: string, fromSeq: number): TranscriptEvent[
   return out;
 }
 
+/** 知らせの本文。文字列のほか、text ブロックの配列でも来る。 */
+function promptText(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (!Array.isArray(v)) return '';
+  return v.filter(isRec).map((b) => (b.type === 'text' && typeof b.text === 'string' ? b.text : '')).filter(Boolean).join('\n');
+}
+
+/** <task-notification> の本文。user の文字列として来れば system に、作業中の queued_command の添付として来れば meta になる。 */
+function notificationText(e: TranscriptEvent): string | null {
+  let text: string | null = null;
+  if (e.kind === 'system') text = e.text;
+  else if (e.kind === 'meta' && isRec(e.value) && isRec(e.value.attachment) && e.value.attachment.commandMode === 'task-notification') text = promptText(e.value.attachment.prompt);
+  return text !== null && text.trimStart().startsWith('<task-notification>') ? text : null;
+}
+
 /** バックグラウンドの本が終わったことを知らせる <task-notification> の、本ごとの最後の status。 */
 function notifications(main: TranscriptEvent[]): Map<string, string> {
   const m = new Map<string, string>();
   for (const e of main) {
-    if (e.kind !== 'system' || !e.text.trimStart().startsWith('<task-notification>')) continue;
-    const id = tag(e.text, 'task-id');
-    const st = tag(e.text, 'status');
+    const text = notificationText(e);
+    if (text === null) continue;
+    const id = tag(text, 'task-id');
+    const st = tag(text, 'status');
     if (id && st) m.set(id, st);
   }
   return m;
@@ -63,7 +90,14 @@ function stats(db: Db, sessionId: string): Stat[] {
 
 /** サブエージェントの末尾から、最後の手と最後の報告を取る。 */
 function tail(db: Db, sessionId: string, agentId: string): Pick<LiveAgentDto, 'last'> & { said: string | null } {
-  const events = readEvents(db, sessionId, { agentId, latest: true, limit: AGENT_TAIL }).events;
+  let events: TranscriptEvent[];
+  try {
+    events = readEvents(db, sessionId, { agentId, latest: true, limit: AGENT_TAIL }).events;
+  } catch (e) {
+    // この本の transcript だけが無い（消えた、移した）。ほかのレーンは出す。
+    if (isEnoent(e)) return { last: null, said: null };
+    throw e;
+  }
   const results = new Map(events.filter(isResult).map((r) => [r.toolId, r]));
   const call = [...events].reverse().find(isCall) ?? null;
   const last = call ? { ...stepLine(call), kind: stepKind(call), isError: results.get(call.toolId)?.isError === true } : null;
@@ -73,7 +107,12 @@ function tail(db: Db, sessionId: string, agentId: string): Pick<LiveAgentDto, 'l
 
 /** 前のターンから動き続けている本の題名。起こした呼び出しが今のターンに無いので、その本が受け取った指示の書き出しにする。 */
 function promptTitle(db: Db, sessionId: string, agentId: string): string {
-  const first = readEvents(db, sessionId, { agentId, fromSeq: 0, limit: 5 }).events.find((e) => e.kind === 'user');
+  let first: TranscriptEvent | undefined;
+  try {
+    first = readEvents(db, sessionId, { agentId, fromSeq: 0, limit: 5 }).events.find((e) => e.kind === 'user');
+  } catch (e) {
+    if (!isEnoent(e)) throw e;
+  }
   return (first && first.kind === 'user' ? firstLine(first.text, 40) : null) ?? agentId;
 }
 
@@ -109,8 +148,9 @@ function agentsOf(db: Db, sessionId: string, main: TranscriptEvent[], since: num
     const stat = s.linked ? statOf.get(s.agentId) : undefined;
     const t = stat ? tail(db, sessionId, s.agentId) : { last: null, said: null };
     const note = done.get(s.agentId);
+    // 赤は Agent の結果が isError のときだけ。知らせの status は終わったことを示すだけで、completed 以外は endNote に残す。
     const state: LiveAgentDto['state'] = s.result?.isError ? 'error'
-      : note !== undefined ? (note === 'completed' ? 'done' : 'error')
+      : note !== undefined ? 'done'
       : s.result && !s.result.agentLaunch?.async && s.call ? 'done'
       : 'running';
     const born = s.call?.ts ?? null;
@@ -119,15 +159,16 @@ function agentsOf(db: Db, sessionId: string, main: TranscriptEvent[], since: num
       startedAt: stat?.first ?? born, lastAt: stat?.last ?? born,
       // linked は agentLaunch か順番の突き合わせか前のターンからの本のときだけ真である。
       // 起こした直後でまだ transcript の無い本も、押せば空の transcript が開くだけなので真のままにする。
+      endNote: state === 'done' && note !== undefined && note !== 'completed' ? note : null,
       last: t.last, report: state === 'running' || t.said === null ? null : firstLine(t.said), linked: s.linked,
     };
   });
 }
 
 /** 右ペインのライブの要約。今のターンの頭から読む。 */
-export function buildLiveDigest(db: Db, sessionId: string): LiveDigestDto {
+export function buildLiveDigest(db: Db, sessionId: string, opts: { mainCap?: number } = {}): LiveDigestDto {
   const start = turnStart(db, sessionId);
-  const main = start ? mainSince(db, sessionId, start.seq) : [];
+  const main = start ? mainSince(db, sessionId, start.seq, opts.mainCap ?? MAIN_CAP) : [];
   const since = start?.ts ?? 0;
   const agents = start ? agentsOf(db, sessionId, main, since) : [];
   const it = latestIntent(db, sessionId);

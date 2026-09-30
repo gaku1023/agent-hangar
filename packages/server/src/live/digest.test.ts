@@ -144,3 +144,92 @@ describe('LiveDigester', () => {
     expect(g.digest(sid)).not.toBe(a);
   });
 });
+
+const attach = (s: number, agentId: string, status: string, prompt?: unknown) => ({
+  type: 'attachment',
+  attachment: { type: 'queued_command', commandMode: 'task-notification', prompt: prompt ?? `<task-notification>\n<task-id>${agentId}</task-id>\n<status>${status}</status>\n<summary>Agent finished</summary>\n</task-notification>` },
+  ...base(s),
+});
+
+describe('終わりの知らせ', () => {
+  beforeEach(async () => {
+    write(path.join(proj(), `${SID}.jsonl`), [
+      user(1, '並べて'),
+      toolUse(2, 'toolu_a1', 'Agent', { description: '添付で終わる担当', prompt: 'p', run_in_background: true }),
+      result(3, 'toolu_a1', 'Async agent launched', launched('nnn1')),
+      toolUse(4, 'toolu_a2', 'Agent', { description: '失敗で終わる担当', prompt: 'p', run_in_background: true }),
+      result(5, 'toolu_a2', 'Async agent launched', launched('nnn2')),
+      toolUse(6, 'toolu_a3', 'Agent', { description: '配列の知らせで終わる担当', prompt: 'p', run_in_background: true }),
+      result(7, 'toolu_a3', 'Async agent launched', launched('nnn3')),
+      toolUse(8, 'toolu_a4', 'Agent', { description: 'まだ動く担当', prompt: 'p', run_in_background: true }),
+      result(9, 'toolu_a4', 'Async agent launched', launched('nnn4')),
+      attach(20, 'nnn1', 'completed'),
+      attach(21, 'nnn2', 'failed'),
+      attach(22, 'nnn3', 'killed', [{ type: 'text', text: '<task-notification>\n<task-id>nnn3</task-id>\n<status>killed</status>\n</task-notification>' }]),
+    ]);
+    for (const [i, a] of ['nnn1', 'nnn2', 'nnn3', 'nnn4'].entries()) write(sub(a), [user(2 + i * 2 + 0.5, '指示'), say(10 + i, `報告 ${a}`)]);
+    await index();
+  });
+
+  it('添付（queued_command）で来た知らせでも、本は done になる', () => {
+    const by = (id: string) => buildLiveDigest(db, sid).agents.find((a) => a.agentId === id)!;
+    expect(by('nnn1')).toMatchObject({ state: 'done', endNote: null, report: '報告 nnn1' });
+    expect(by('nnn4')).toMatchObject({ state: 'running', endNote: null, report: null });
+  });
+  it('completed でない status は赤にせず、done のまま endNote に残す', () => {
+    const by = (id: string) => buildLiveDigest(db, sid).agents.find((a) => a.agentId === id)!;
+    expect(by('nnn2')).toMatchObject({ state: 'done', endNote: 'failed' });
+    expect(by('nnn3')).toMatchObject({ state: 'done', endNote: 'killed' });
+  });
+});
+
+describe('長いターン', () => {
+  beforeEach(async () => {
+    write(path.join(proj(), `${SID}.jsonl`), [
+      user(1, '並べて'),
+      toolUse(2, 'toolu_c1', 'Agent', { description: '古い担当', prompt: 'p', run_in_background: true }),
+      result(3, 'toolu_c1', 'Async agent launched', launched('ccc1')),
+      toolUse(4, 'toolu_c2', 'Agent', { description: '中くらいの担当', prompt: 'p', run_in_background: true }),
+      result(5, 'toolu_c2', 'Async agent launched', launched('ccc2')),
+      toolUse(6, 'toolu_c3', 'Agent', { description: '新しい担当', prompt: 'p', run_in_background: true }),
+      result(7, 'toolu_c3', 'Async agent launched', launched('ccc3')),
+    ]);
+    await index();
+  });
+
+  it('上限を超えたら、古い側を捨てて新しい側を残す', () => {
+    expect(buildLiveDigest(db, sid).agents.map((a) => a.agentId)).toEqual(['ccc1', 'ccc2', 'ccc3']);
+    // 主線は 7 行。上限 4 なら、最後の 2 本の呼び出しと結果だけが残る。
+    const d = buildLiveDigest(db, sid, { mainCap: 4 });
+    expect(d.agents.map((a) => a.agentId)).toEqual(['ccc2', 'ccc3']);
+    expect(d.turnStartSeq).toBe(0);
+    expect(buildLiveDigest(db, sid, { mainCap: 2 }).agents.map((a) => a.title)).toEqual(['新しい担当']);
+  });
+});
+
+describe('transcript が消えた本', () => {
+  it('その本のレーンだけ last が null になり、ほかは出る', async () => {
+    write(path.join(proj(), `${SID}.jsonl`), [
+      user(0, '前の指示'),
+      toolUse(0.2, 'toolu_p', 'Agent', { description: '前の担当', prompt: 'p', run_in_background: true }),
+      result(0.3, 'toolu_p', 'Async agent launched', launched('ggg0')),
+      user(1, '並べて'),
+      toolUse(2, 'toolu_g1', 'Agent', { description: '消える担当', prompt: 'p', run_in_background: true }),
+      result(3, 'toolu_g1', 'Async agent launched', launched('ggg1')),
+      toolUse(4, 'toolu_g2', 'Agent', { description: '残る担当', prompt: 'p', run_in_background: true }),
+      result(5, 'toolu_g2', 'Async agent launched', launched('ggg2')),
+    ]);
+    write(sub('ggg0'), [user(0.5, '前の担当です'), toolUse(10, 'toolu_z0', 'Read', { file_path: '/w/live/a' })]);
+    write(sub('ggg1'), [user(2.5, '消える担当です'), toolUse(10, 'toolu_z1', 'Read', { file_path: '/w/live/a' })]);
+    write(sub('ggg2'), [user(4.5, '残る担当です'), toolUse(11, 'toolu_z2', 'Read', { file_path: '/w/live/b' })]);
+    await index();
+    fs.rmSync(sub('ggg0'));
+    fs.rmSync(sub('ggg1'));
+    const d = buildLiveDigest(db, sid);
+    expect(d.agents.map((a) => [a.agentId, a.title, a.last === null])).toEqual([
+      ['ggg1', '消える担当', true],
+      ['ggg2', '残る担当', false],
+      ['ggg0', 'ggg0', true],
+    ]);
+  });
+});
