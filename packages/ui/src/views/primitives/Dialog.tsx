@@ -103,16 +103,17 @@ export function Dialog(props: DialogProps) {
     if (top) el.dataset.top = 'true'; else delete el.dataset.top;
     if (bottom) el.dataset.bottom = 'true'; else delete el.dataset.bottom;
   }, []);
+  // 描き直すたびに付け直す。中身の段が増えたり減ったりするのは、描き直しのときだからである。
+  useLayoutEffect(shade);
+  // 描き直しを伴わない高さの変化（詳細の開閉、窓の大きさ）でも付け直す。
   useLayoutEffect(() => {
-    shade();
     const b = body.current;
     if (!b || typeof ResizeObserver === 'undefined') return;
-    // 詳細を開いたり中身が増えたりして高さが変わったときも、影を付け直す。
     const ro = new ResizeObserver(shade);
     ro.observe(b);
     for (const child of b.children) ro.observe(child);
     return () => ro.disconnect();
-  });
+  }, [shade]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     props.onKeyDown?.(e);
