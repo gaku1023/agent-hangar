@@ -36,7 +36,7 @@ export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string
         {props.usage.updatedLabel && <span className="faint gauge-updated">最終更新 {props.usage.updatedLabel}</span>}
       </span>
       {/* 狭いときは「＋」だけになる。名前は aria-label に残す。 */}
-      <button className="btn btn-primary new-session" aria-label="新規セッション" onClick={() => emit({ type: 'session.new.open', ...props.newSession })}><Icon name="add" /><span className="btn-label">新規セッション</span></button>
+      <button className="btn btn-primary new-session" aria-label="新しいセッション" onClick={() => emit({ type: 'session.new.open', ...props.newSession })}><Icon name="add" /><span className="btn-label">新しいセッション</span></button>
       {props.indexLabel && <span className="progress">{props.indexLabel}</span>}
     </header>
   );

@@ -17,7 +17,7 @@ export function ConnectionBanner(props: ConnProps) {
       {/* 伝えたいのは WebSocket の状態ではなく、その結果として画面が止まっていることである。 */}
       <span>{props.staleLabel}</span>
       <span className="conn-retry">{props.retryLabel}</span>
-      <button className="btn btn-sm" onClick={() => emit({ type: 'conn.retry' })}>いますぐ再接続</button>
+      <button className="btn btn-sm" onClick={() => emit({ type: 'conn.retry' })}>今すぐ再接続</button>
     </div>
   );
 }

@@ -9,7 +9,7 @@ describe('ConfirmDialog', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'overwriteTranscript', sessionId: 's1', localSize: 1024, remoteSize: 4096 }} /></IntentRoot>);
     expect(screen.getByText('この PC の本文 1.0 KB')).toBeInTheDocument();
-    expect(screen.getByText('他の端末の本文 4.0 KB')).toBeInTheDocument();
+    expect(screen.getByText('他の PC の本文 4.0 KB')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '上書きして再開' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1', overwrite: true });
     fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
@@ -64,12 +64,12 @@ describe('ConfirmDialog（停止）', () => {
 });
 
 describe('ConfirmDialog（一覧から削除）', () => {
-  it('名前と未分類に戻る件数と、他の端末からも消えることを書き、承諾で送る', () => {
+  it('名前と未分類に戻る件数と、他の PC からも消えることを書き、承諾で送る', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'unlinkProject', projectId: 'p1' }} project={{ name: 'alpha', sessions: 3 }} /></IntentRoot>);
     const dialog = screen.getByRole('dialog', { name: '一覧から削除の確認' });
     expect(dialog).toHaveTextContent('プロジェクト alpha を一覧から削除し、3 件のセッションを未分類に戻します。');
-    expect(dialog).toHaveTextContent('同期している他の端末からも消えます。');
+    expect(dialog).toHaveTextContent('同期している他の PC からも消えます。');
     const remove = screen.getByRole('button', { name: '一覧から削除' });
     expect(remove).toHaveClass('btn-danger');
     fireEvent.click(remove);

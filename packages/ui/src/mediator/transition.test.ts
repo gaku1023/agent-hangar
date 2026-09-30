@@ -54,7 +54,7 @@ describe('起動と接続', () => {
     // 最初の接続は「追いついた」ではないので黙る。
     expect(run([runtime({ type: 'ws.open' })]).effects).toEqual([{ kind: 'api.bootstrap' }]);
   });
-  it('いますぐ再接続はその場で ws をつなぎ直す', () => {
+  it('今すぐ再接続はその場で ws をつなぎ直す', () => {
     expect(run([intent({ type: 'conn.retry' })]).effects).toEqual([{ kind: 'ws.connect' }]);
   });
 });
@@ -609,7 +609,7 @@ describe('分割', () => {
     const a = run([intent({ type: 'split.toggle' })], onSession('s1'));
     const b = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: null })], a.state);
     expect(b.state.sessionView.s1?.split).toBeFalsy();
-    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '分割にはタブが 2 つ必要です' }]);
+    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }]);
   });
   it('分割中に右のタブを選ぶと左右が入れ替わる', () => {
     const r = run([intent({ type: 'tab.select', tabId: 't2' })], split('t1', 't2'));
@@ -937,7 +937,7 @@ describe('次の入力待ちへ（C5）', () => {
     expect(via).toEqual(direct);
   });
   it('入力待ちが無ければ短く知らせる', () => {
-    expect(run([runtime({ type: 'waiting.resolved', sessionId: null })]).effects).toEqual([{ kind: 'toast', level: 'info', message: '入力を待っているセッションはありません' }]);
+    expect(run([runtime({ type: 'waiting.resolved', sessionId: null })]).effects).toEqual([{ kind: 'toast', level: 'info', message: '入力待ちのセッションはありません' }]);
   });
   it('パレットからも出せて、パレットは閉じる', () => {
     const opened = run([intent({ type: 'palette.open' })]).state;

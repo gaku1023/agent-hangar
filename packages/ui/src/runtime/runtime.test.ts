@@ -348,6 +348,16 @@ describe('起動とターミナル', () => {
     await flush();
     expect(api.closeTab).toHaveBeenCalledWith('r1', 't1');
   });
+  it('生きた run が無ければ API を呼ばず、Claude が動いていないと知らせる', async () => {
+    const { rt, api, setHash } = harness();
+    rt.start();
+    await flush();
+    setHash('#/session/s1');
+    rt.emit({ type: 'tab.open', sessionId: 's1', kind: 'shell' });
+    await flush();
+    expect(api.openTab).not.toHaveBeenCalled();
+    expect(rt.getState().toasts.at(-1)?.message).toBe('Claude が動いていないので、シェルタブを開けません');
+  });
   it('セッションを渡り歩いても、離れたセッションの接続は残らない', () => {
     const forSession = (sid: string) => ({ run: { ...launched.run, id: `r-${sid}`, sessionId: sid }, tabs: [{ ...launched.tabs[0]!, id: `r-${sid}`, runId: `r-${sid}`, sessionId: sid }] });
     const { rt, terminals, setHash } = harness();
@@ -602,7 +612,7 @@ describe('フェーズ 3 の効果', () => {
     rt.emit({ type: 'split.toggle' });
     await flush();
     expect(rt.getState().sessionView.s1?.split).toBeFalsy();
-    expect(rt.getState().toasts.at(-1)?.message).toBe('分割にはタブが 2 つ必要です');
+    expect(rt.getState().toasts.at(-1)?.message).toBe('横に並べるにはタブが 2 つ必要です');
     wsHandlers[0]!.onEvent({ type: 'tab.upsert', tab: p3Tab('t2', 'r1', 'shell') });
     rt.emit({ type: 'tab.select', tabId: 't1' });
     rt.emit({ type: 'split.toggle' });

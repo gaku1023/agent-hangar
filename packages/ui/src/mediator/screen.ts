@@ -50,7 +50,7 @@ function closeTransient(state: State): Overlay {
 }
 
 /** 入力待ちが無いときの知らせ。 */
-export const NO_WAITING = '入力を待っているセッションはありません';
+export const NO_WAITING = '入力待ちのセッションはありません';
 
 /**
  * 「次の入力待ちへ」。

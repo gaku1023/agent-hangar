@@ -53,6 +53,10 @@ describe('TurnIndex', () => {
     const { container } = setup({ rows: rows.map((r) => ({ ...r, open: r.seq === 10 })), turnJump: { seq: 10, status: 'notFound' } });
     expect(container.querySelector('.turn-note')?.textContent).toBe('ターミナルでは見つかりませんでした');
   });
+  it('表示を切り替えられなかったときは、英語の内部の語を出さずに言う', () => {
+    const { container } = setup({ rows: rows.map((r) => ({ ...r, open: r.seq === 10 })), turnJump: { seq: 10, status: 'mode' } });
+    expect(container.querySelector('.turn-note')?.textContent).toBe('ターミナルの表示を切り替えられませんでした');
+  });
 
   it('最新へで transcript を抜けて末尾に戻る', () => {
     const { getByRole, onIntent } = setup();

@@ -19,13 +19,13 @@ describe('Shell', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '動画' });
     expect(screen.getByText('body')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'ホーム' })).toHaveAttribute('aria-current', 'page');
-    fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
+    fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
   });
   it('ヘッダーの新規ボタンは、今の画面のプロジェクトを選んだ状態で開く', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><Shell {...props} newSession={{ projectId: 'p1' }} overlays={null}><div /></Shell></IntentRoot>);
-    fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
+    fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'p1' });
   });
   // 開閉のボタンはサイドバーが自分で持つ。開いた帯ではワードマークの右、畳んだ帯ではワードマークがあった一番上に置く。ヘッダには置かない。
@@ -68,7 +68,7 @@ describe('Shell', () => {
     const banner = within(screen.getByRole('status'));
     expect(banner.getByText('画面は 2 分前のまま止まっています')).toBeInTheDocument();
     expect(banner.getByText('8 秒後に再接続します')).toBeInTheDocument();
-    fireEvent.click(banner.getByRole('button', { name: 'いますぐ再接続' }));
+    fireEvent.click(banner.getByRole('button', { name: '今すぐ再接続' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'conn.retry' });
     expect(screen.getByText('索引 3 / 9 件')).toBeInTheDocument();
   });
@@ -136,6 +136,6 @@ describe('Shell のアイコン', () => {
     const nav = screen.getByRole('navigation');
     expect(iconOf(within(nav).getByRole('link', { name: 'ホーム' }))).toBe('home');
     expect(iconOf(within(nav).getByRole('link', { name: 'プロジェクト' }))).toBe('projects');
-    expect(iconOf(screen.getByRole('button', { name: '新規セッション' }))).toBe('add');
+    expect(iconOf(screen.getByRole('button', { name: '新しいセッション' }))).toBe('add');
   });
 });

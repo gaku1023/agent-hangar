@@ -186,7 +186,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.killRun': deps.api.killRun(e.runId).then((run) => setStore(applyServerEvent(store, { type: 'run.ended', run }))).catch(fail); return;
       case 'api.openTab': {
         const run = aliveRunOf(store, e.sessionId);
-        if (!run) { fail(new Error('実行中の run がありません')); return; }
+        if (!run) { fail(new Error('Claude が動いていないので、シェルタブを開けません')); return; }
         deps.api.openTab(run.id).then((tab) => setStore(applyServerEvent(store, { type: 'tab.upsert', tab }))).catch(fail);
         return;
       }

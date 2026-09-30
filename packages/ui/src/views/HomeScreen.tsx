@@ -39,7 +39,7 @@ export function HomeScreen(props: HomeProps) {
             <div key={a.id} className="ask-card">
               <StatusDot status="waiting" />
               <div className="ask-body">
-                <div className="ask-title"><b>{a.name}</b> <span className="faint">· {a.projectName ?? '未分類'} · {a.waited}待っている{a.answer === 'terminal' || a.answer === 'attach' ? '' : ' · 別のターミナルで動いています'}</span></div>
+                <div className="ask-title"><b>{a.name}</b> <span className="faint">· {a.projectName ?? '未分類'} · {a.waited}待っている{a.answer === 'terminal' || a.answer === 'attach' ? '' : ' · 外のターミナルで動いています'}</span></div>
                 <div className="ask-q">{a.question}</div>
               </div>
               <AnswerButton card={a} />
@@ -98,7 +98,7 @@ export function HomeScreen(props: HomeProps) {
   );
 }
 
-/** 実行中の札。いま何をしているかを墨の地の 1 行で見せ、文脈の使用率をゲージで出す。 */
+/** 実行中の札。いま何をしているかを墨の地の 1 行で見せ、コンテキストの使用率をゲージで出す。 */
 function LiveCard(props: { card: RunningCard; onOpen: () => void }) {
   const c = props.card;
   const width = Math.max(0, Math.min(100, c.contextPercent ?? 0));
@@ -108,8 +108,8 @@ function LiveCard(props: { card: RunningCard; onOpen: () => void }) {
       <div className="live-meta">{c.meta}</div>
       <div className="live-act mono">{c.activity ? <><i>{c.activity.tool}</i>{c.activity.summary !== '' && <> {c.activity.summary}</>}</> : <span className="live-note">{c.note}</span>}</div>
       <div className="live-ctx">
-        文脈
-        <span className="gauge-bar" role="meter" aria-label="文脈の使用率" aria-valuemin={0} aria-valuemax={100} aria-valuenow={c.contextPercent ?? undefined}>
+        コンテキスト
+        <span className="gauge-bar" role="meter" aria-label="コンテキストの使用率" aria-valuemin={0} aria-valuemax={100} aria-valuenow={c.contextPercent ?? undefined}>
           <span className="gauge-fill" data-high={c.contextPercent !== null && c.contextPercent >= 80 ? 'true' : undefined} style={{ width: `${width}%` }} />
         </span>
         {c.contextLabel}

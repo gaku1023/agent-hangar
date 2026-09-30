@@ -75,6 +75,8 @@ describe('NewSessionDialog', () => {
     expect(screen.getByRole('radiogroup', { name: 'model' })).toBeInTheDocument();
     expect(screen.getByRole('radiogroup', { name: 'effort' })).toBeInTheDocument();
     expect(screen.getByRole('radiogroup', { name: 'permission mode' })).toBeInTheDocument();
+    // 見える見出しも読み上げの名前と同じにする。
+    expect([...document.querySelectorAll('.launch-option-label')].map((e) => e.textContent)).toEqual(['model', 'effort', 'permission mode']);
   });
   it('既定のままなら model、effort、permission mode はキーごと入れない', () => {
     // undefined を入れると、利用者の Claude Code の設定を上書きしかねない。

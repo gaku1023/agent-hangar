@@ -13,7 +13,7 @@ export function ProjectCard(props: ProjectCardProps) {
         <StatusSelect label={`${props.name} の状態`} value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />
       </div>
       <div className="mono faint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {props.path ?? 'この端末にパスがありません'}
+        {props.path ?? 'この PC にパスがありません'}
         {!props.resolved && props.path && (
           <button className="btn" style={{ marginLeft: 8 }} onClick={(e) => { e.stopPropagation(); emit({ type: 'project.resolve.open', id: props.id }); }} onKeyDown={(e) => e.stopPropagation()}><Icon name="warning" />（見つかりません）</button>
         )}
@@ -28,7 +28,7 @@ export function ProjectCard(props: ProjectCardProps) {
       {props.memoHead && <div className="faint card-memo">{props.memoHead}</div>}
       <div className="card-foot">
         <span className="spacer" />
-        <button className="btn" onClick={(e) => { e.stopPropagation(); emit({ type: 'session.new.open', projectId: props.id }); }} onKeyDown={(e) => e.stopPropagation()}><Icon name="add" />ここで新規</button>
+        <button className="btn" onClick={(e) => { e.stopPropagation(); emit({ type: 'session.new.open', projectId: props.id }); }} onKeyDown={(e) => e.stopPropagation()}><Icon name="add" />ここで始める</button>
       </div>
     </div>
   );

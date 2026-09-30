@@ -24,7 +24,7 @@ export type TurnIndexProps = {
 /** 跳ばした結果の言い方。着いたときと待っている間は何も言わない。 */
 const JUMP_NOTE: Partial<Record<TurnJumpStatus, string>> = {
   notFound: 'ターミナルでは見つかりませんでした',
-  mode: 'ターミナルを transcript に切り替えられませんでした',
+  mode: 'ターミナルの表示を切り替えられませんでした',
   failed: 'ターミナルを動かせませんでした',
 };
 

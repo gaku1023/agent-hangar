@@ -76,7 +76,7 @@ describe('Header', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
     fireEvent.click(screen.getByRole('button', { name: 'セッションを検索' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
-    fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
+    fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
     expect(screen.getByText(long)).toHaveAttribute('title', long);
   });
@@ -218,27 +218,27 @@ describe('ProjectScreen の右レール', () => {
     expect(screen.getByLabelText('TODO を追加')).toBeTruthy();
     expect(screen.getByLabelText('メモ')).toBeTruthy();
     expect(screen.getByText('題名 a1')).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('右レールを隠す'));
+    fireEvent.click(screen.getByLabelText('右の欄を閉じる'));
     expect(screen.queryByLabelText('TODO を追加')).toBeNull();
   });
   it('スクラッチのプロジェクトは操作を絞る', () => {
     wrap(<ProjectScreen {...props} isScratch />);
     expect(screen.getByText('スクラッチで始める')).toBeTruthy();
-    expect(screen.queryByText('新規セッション')).toBeNull();
+    expect(screen.queryByText('新しいセッション')).toBeNull();
   });
 });
 
 describe('ProjectCard の追加分', () => {
-  it('メモの 1 行目を出し、ここで新規は親のクリックを巻き込まない', () => {
+  it('メモの 1 行目を出し、ここで始めるは親のクリックを巻き込まない', () => {
     const onIntent = wrap(<ProjectCard {...card({ memoHead: '買い物の段取り' })} />);
     expect(screen.getByText('買い物の段取り')).toBeTruthy();
-    fireEvent.click(screen.getByText('ここで新規'));
+    fireEvent.click(screen.getByText('ここで始める'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'p1' });
     expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'p1' });
   });
   it('メモが無ければその行を出さない', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectCard {...card()} /></IntentRoot>);
     expect(container.querySelector('.card-memo')).toBeNull();
-    expect(screen.getByText('ここで新規')).toBeTruthy();
+    expect(screen.getByText('ここで始める')).toBeTruthy();
   });
 });

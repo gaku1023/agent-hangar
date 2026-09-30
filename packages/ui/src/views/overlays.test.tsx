@@ -14,7 +14,7 @@ import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 const paletteCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'styles', 'palette.css'), 'utf8');
 
 const items: PaletteItem[] = [
-  { id: 'cmd:new-session', label: '新規セッション', hint: '⌘N', kind: 'command' },
+  { id: 'cmd:new-session', label: '新しいセッション', hint: '⌘N', kind: 'command' },
   { id: 'project:p1', label: 'alpha', hint: '/w/alpha', kind: 'project' },
   { id: 'session:s1', label: '動画の変換', hint: '動画を mp4 に変換した', kind: 'session' },
 ];
@@ -48,7 +48,7 @@ describe('CommandPalette', () => {
     const input = screen.getByLabelText('コマンドを検索');
     fireEvent.keyDown(input, { key: 'ArrowUp' });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新規セッション' } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新しいセッション' } });
     onIntent.mockClear();
     rerender(<IntentRoot onIntent={onIntent}><CommandPalette query="zzz" items={[]} onQuery={() => {}} /></IntentRoot>);
     fireEvent.keyDown(screen.getByLabelText('コマンドを検索'), { key: 'Enter' });
@@ -68,7 +68,7 @@ describe('CommandPalette', () => {
     fireEvent.keyDown(screen.getByLabelText('コマンドを検索'), { key: 'ArrowDown' });
     rerender(<IntentRoot onIntent={onIntent}><CommandPalette query="a" items={items} onQuery={() => {}} /></IntentRoot>);
     fireEvent.keyDown(screen.getByLabelText('コマンドを検索'), { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新規セッション' } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新しいセッション' } });
   });
 
   // 変換中の Enter は確定のための打鍵なので、実行に使わない。
@@ -237,7 +237,7 @@ describe('PromotedDialog', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><PromotedDialog projectId="p9" projectName="newp" moved reason={null} /></IntentRoot>);
     expect(screen.getByText('ファイルを移しました')).toBeTruthy();
-    fireEvent.click(screen.getByText('この場所で新しいセッションを開始'));
+    fireEvent.click(screen.getByText('ここで新しいセッションを始める'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'p9' });
     fireEvent.click(screen.getByText('プロジェクトを開く'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.open', id: 'p9' });

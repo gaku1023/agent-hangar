@@ -113,7 +113,7 @@ export function NewSessionDialog(props: NewSessionProps) {
             <ChoiceChips label="model" value={model} options={MODELS} onChange={setModel} other={{ label: 'ほか', placeholder: 'model の名前' }} />
             <span className="launch-option-label" aria-hidden="true">effort</span>
             <div><Segmented label="effort" value={effort} options={EFFORT_OPTIONS} onChange={setEffort} size="xs" /></div>
-            <span className="launch-option-label launch-option-label-top" aria-hidden="true">permission</span>
+            <span className="launch-option-label launch-option-label-top" aria-hidden="true">permission mode</span>
             <div>
               <OptionCards label="permission mode" value={permissionMode} options={PERMISSIONS} onChange={setPermissionMode} />
               {permissionMode === 'bypassPermissions' && <div className="error launch-danger">ファイルの削除やコマンドも、確認せずに実行します</div>}

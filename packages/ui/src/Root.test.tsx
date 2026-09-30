@@ -299,7 +299,7 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     act(() => rt.emit({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: false }));
     act(() => rt.dispatch({ kind: 'runtime', event: { type: 'promote.done', projectId: 'p1', moved: true, reason: null } }));
     await flush();
-    expect(screen.getByText('この場所で新しいセッションを開始')).toBeTruthy();
+    expect(screen.getByText('ここで新しいセッションを始める')).toBeTruthy();
   });
 
   it('Esc は未解決のダイアログだけは閉じず、ほかのオーバーレイは閉じる', async () => {
@@ -320,7 +320,7 @@ describe('フェーズ 4 のオーバーレイ', () => {
     act(() => rt.dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1024, remoteSize: 4096 } }));
     await flush();
     expect(screen.getByRole('dialog', { name: '上書きの確認' })).toBeInTheDocument();
-    expect(screen.getByText('他の端末の本文 4.0 KB')).toBeInTheDocument();
+    expect(screen.getByText('他の PC の本文 4.0 KB')).toBeInTheDocument();
     // Esc の扱いはフェーズ 3 のままで、新しいオーバーレイも overlayKind !== 'none' の枝で閉じる。
     key({ key: 'Escape' });
     await flush();
@@ -492,18 +492,18 @@ describe('キーの見直し', () => {
     await mounted();
     key({ key: '?', shiftKey: true });
     await flush();
-    expect(screen.getByRole('dialog', { name: 'キーボード' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toBeInTheDocument();
     expect(screen.getByText('コマンドパレット')).toBeInTheDocument();
     key({ key: 'Escape' });
     await flush();
-    expect(screen.queryByRole('dialog', { name: 'キーボード' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'キーの一覧' })).toBeNull();
   });
 
   it('入力中の ? は文字なので、一覧を開かない', async () => {
     await mounted();
     fireEvent.keyDown(document.getElementById('global-search')!, { key: '?', shiftKey: true });
     await flush();
-    expect(screen.queryByRole('dialog', { name: 'キーボード' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'キーの一覧' })).toBeNull();
   });
 
   it('⌘[ と ⌘] で履歴が動く', async () => {
@@ -735,7 +735,7 @@ describe('キーの見直し', () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.run', command: { id: 'cmd:shortcuts', label: 'キーの一覧' } }));
     await flush();
-    expect(screen.getByRole('dialog', { name: 'キーボード' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toBeInTheDocument();
   });
 });
 
@@ -790,14 +790,14 @@ describe('次の入力待ちへ（C5）', () => {
     await mounted();
     key({ key: 'i', metaKey: true });
     await flush();
-    expect(screen.getByText('入力を待っているセッションはありません')).toBeInTheDocument();
+    expect(screen.getByText('入力待ちのセッションはありません')).toBeInTheDocument();
   });
 
   it('キーの一覧に載る', async () => {
     await mounted();
     key({ key: '?', shiftKey: true });
     await flush();
-    const dialog = screen.getByRole('dialog', { name: 'キーボード' });
+    const dialog = screen.getByRole('dialog', { name: 'キーの一覧' });
     expect(within(dialog).getByText('次の入力待ちへ')).toBeInTheDocument();
     expect(within(dialog).getByText('⌘I')).toBeInTheDocument();
   });

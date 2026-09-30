@@ -132,7 +132,7 @@ export function SettingsScreen(props: SettingsProps) {
         {props.statusline === null && <div className="faint">読み込んでいます</div>}
         {props.statusline && props.statusline.scriptPath === null && (
           <>
-            <div className="muted">statusLine の設定が見つかりません</div>
+            <div className="muted">statusline の設定が見つかりません</div>
             <div className="faint" style={{ marginTop: 4 }}>Claude Code の /statusline でスクリプトを作ってから、下のコマンドを実行してください。</div>
           </>
         )}
@@ -142,7 +142,7 @@ export function SettingsScreen(props: SettingsProps) {
             <div className="faint mono">{props.statusline.scriptPath}</div>
           </>
         )}
-        <div className="faint" style={{ marginTop: 4 }}>使用量ゲージはこの追記だけが供給源です。追記は端末から行い、UI からは書き換えません。</div>
+        <div className="faint" style={{ marginTop: 4 }}>ヘッダーの使用率のゲージは、この追記からだけ届きます。追記はターミナルで行い、この画面からは書き換えません。</div>
         <pre className="mono snippet">{props.statuslineCommand}</pre>
         {/* 追記されるスニペットの宛先はこのコマンドの --port で決まる。 */}
         {/* 既定の 4177 のまま追記すると、別のポートで動かしているサーバには届かない。 */}
@@ -155,7 +155,7 @@ export function SettingsScreen(props: SettingsProps) {
           <div className="list" style={{ marginTop: 8 }}>
             {props.shell.devices.map((d) => (
               <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto', cursor: 'default' }}>
-                <span>{d.name}{d.self && <span className="faint"> この端末</span>}</span>
+                <span>{d.name}{d.self && <span className="faint"> この PC</span>}</span>
                 <span className={d.label === '入っています' ? undefined : 'faint'}>{d.label}</span>
               </div>
             ))}
@@ -185,9 +185,10 @@ export function SettingsScreen(props: SettingsProps) {
         </div>
         {props.summarizerModels === null && <div className="faint" style={{ marginTop: 4 }}>読み込んでいます</div>}
         {props.summarizerModels?.length === 0 && <div className="faint" style={{ marginTop: 4 }}>LM Studio に繋がりません</div>}
-        <div ref={externalRow} className="settings-row settings-switch-row"><span>手元の外にある要約器を許す</span>
+        <div ref={externalRow} className="settings-row settings-switch-row"><span>外部の要約器を許す</span>
           <Switch label="外部の要約器を許す" checked={props.allowExternalSummarizer} onChange={(next) => { if (next) setConfirmExternal(true); else setNow({ allowExternalSummarizer: false }); }} />
         </div>
+        <div className="faint">127.0.0.1 と localhost 以外の宛先へ本文を送れるようにします。</div>
         {confirmExternal && !props.allowExternalSummarizer && (
           <div className="confirm-strip" role="group" aria-label="外部の要約器を許すかの確かめ">
             {/* 送られる先は保存済みの URL。欄を書き換えただけでは宛先は変わらない。 */}
@@ -199,7 +200,7 @@ export function SettingsScreen(props: SettingsProps) {
         )}
         {props.allowExternalSummarizer && <div className="error" role="alert" style={{ marginTop: 4 }}>会話の本文（利用者の発言とアシスタントの応答）が {props.lmStudioUrl || 'この宛先'} へ送られます。宛先を確かめてください。</div>}
         <div className="settings-row settings-switch-row"><span>LM Studio が使えないとき Claude へ切り替える</span>
-          <Switch label="Claude へ切り替える" checked={props.summaryFallback} onChange={(next) => setNow({ summaryFallback: next })} />
+          <Switch label="LM Studio が使えないとき Claude へ切り替える" checked={props.summaryFallback} onChange={(next) => setNow({ summaryFallback: next })} />
         </div>
         <div className="settings-row"><span>1 時間の上限</span>
           <Stepper label="1 時間の上限" value={cap} min={1} max={200} onChange={(v) => { setCap(v); setCapError(false); }} />
@@ -261,7 +262,7 @@ export function SettingsScreen(props: SettingsProps) {
             <div className="list" style={{ marginTop: 8 }}>
               {props.cloud.devices.map((d) => (
                 <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
-                  <span>{d.name}{d.self && <span className="faint"> この端末</span>}</span>
+                  <span>{d.name}{d.self && <span className="faint"> この PC</span>}</span>
                   <span className="faint">{d.platform}</span>
                   <span className="faint">{d.lastSeen}</span>
                 </div>
@@ -270,7 +271,7 @@ export function SettingsScreen(props: SettingsProps) {
             <div className="settings-row settings-switch-row"><span>Claude Code の設定を同期する</span>
               <Switch label="Claude Code の設定を同期する" checked={props.cloud.syncClaudeConfig} onChange={(next) => emit({ type: 'settings.update', patch: { syncClaudeConfig: next } })} />
             </div>
-            <div className="faint" style={{ marginTop: 4 }}>CLAUDE.md、settings.json、statusline のスクリプト、skills、memory、projects の memory を端末間で合わせます。</div>
+            <div className="faint" style={{ marginTop: 4 }}>CLAUDE.md、settings.json、statusline のスクリプト、skills、memory、projects の memory を PC の間で合わせます。</div>
             {/* 利用者の決定 2。~/.claude を書き換える前に必ず控えを取り、何を書き換えたかを後から読めるようにする。 */}
             <div className="faint">~/.claude に書き込むので、取り込む前に内容を確認します。上書きの前の控えは ~/.agent-hangar/backups/claude-config/&lt;日時&gt;/ に残ります。</div>
             {props.cloud.syncClaudeConfig && <div className="faint">{props.cloud.configConfirmed ? '取り込みを確認済みです。' : 'まだ取り込みを確認していません。確認するまで ~/.claude には書き込みません。'}</div>}
@@ -308,7 +309,7 @@ export function SettingsScreen(props: SettingsProps) {
         <div className="faint" style={{ marginTop: 4 }}>読み取り元を変えたときは、再起動後に反映されます。</div>
       </section>
       <section>
-        <h2 className="h2">この端末</h2>
+        <h2 className="h2">この PC</h2>
         <div className="mono muted">{props.device?.name}<span className="faint"> {props.device?.id}</span></div>
         <div className="faint mono">agent-hangar {props.version}</div>
       </section>

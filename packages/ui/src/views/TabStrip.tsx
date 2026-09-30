@@ -45,8 +45,8 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
         </div>
       ))}
       {props.canAdd && <button className="tab-add" aria-label="シェルタブを追加" onClick={() => emit({ type: 'tab.open', sessionId: props.sessionId, kind: 'shell' })}><Icon name="add" /></button>}
-      {/* 分割はタブが 2 つ以上あるときだけ押せる。左は選択中のタブ、右は Mediator が選ぶ。 */}
-      <button className="btn tab-action" aria-label="分割" aria-pressed={props.split} disabled={!props.canSplit} title={props.canSplit ? '分割（⌘\\）' : 'タブが 2 つ必要です'} onClick={() => emit({ type: 'split.toggle' })}><Icon name="split" /></button>
+      {/* 横に並べるのはタブが 2 つ以上あるときだけ押せる。左は選択中のタブ、右は Mediator が選ぶ。 */}
+      <button className="btn tab-action" aria-label="横に並べる" aria-pressed={props.split} disabled={!props.canSplit} title={props.canSplit ? '横に並べる（⌘\\）' : 'タブが 2 つ必要です'} onClick={() => emit({ type: 'split.toggle' })}><Icon name="split" /></button>
     </div>
   );
 }

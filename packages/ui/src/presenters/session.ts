@@ -41,7 +41,7 @@ export type SessionLockProps = { deviceName: string; stale: boolean; heartbeat: 
 
 function lockProps(lock: SessionDto['lock'], now: number): SessionLockProps | null {
   if (!lock) return null;
-  return { deviceName: lock.deviceName, stale: lock.stale, heartbeat: relativeTime(lock.heartbeatAt, now), label: `${lock.deviceName} ${lock.stale ? 'が応答がありません' : 'で実行中'}` };
+  return { deviceName: lock.deviceName, stale: lock.stale, heartbeat: relativeTime(lock.heartbeatAt, now), label: `${lock.deviceName} ${lock.stale ? 'から応答がありません' : 'で実行中'}` };
 }
 
 /** チップの状態の言い方。Home の札（休み、入力待ち）と揃える。 */

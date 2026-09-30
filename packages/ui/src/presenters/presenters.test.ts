@@ -909,7 +909,7 @@ describe('セッションのロック（フェーズ 4）', () => {
   it('heartbeat が途絶えたロックは応答がありませんと見せ、この PC で再開だけを開ける（Ruling 14）', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ heartbeatAt: NOW - 600_000, stale: true }) }) } };
     const p = presentSession(initialState(), store, NOW, 's1');
-    expect(p.lock).toEqual({ deviceName: 'mini', stale: true, heartbeat: '10 分前', label: 'mini が応答がありません' });
+    expect(p.lock).toEqual({ deviceName: 'mini', stale: true, heartbeat: '10 分前', label: 'mini から応答がありません' });
     // 相手の run を止めには行かないので、同じ run の続きである再開とフォークは閉じたままにする。
     expect(p.canResume).toBe(false);
     expect(p.canFork).toBe(false);

@@ -149,6 +149,7 @@ describe('SettingsScreen', () => {
     fireEvent.click(screen.getByText('索引を作り直す'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'index.rebuild' });
     expect(screen.getByText('mac')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'この PC' })).toBeInTheDocument();
     expect(screen.getByText(/再起動後に反映されます/)).toBeInTheDocument();
     // 索引の文は presenter がヘッダーと同じ関数で作ったものをそのまま出す。
     expect(screen.getByText('3 セッション、2 プロジェクト')).toBeInTheDocument();
@@ -213,7 +214,7 @@ describe('SettingsScreen', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     const save = screen.getByText('要約器の設定を保存');
     expect(save).toBeDisabled();
-    fireEvent.click(screen.getByRole('switch', { name: 'Claude へ切り替える' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'LM Studio が使えないとき Claude へ切り替える' }));
     expect(save).toBeDisabled();
     // 読めない上限も「変えた」に入れる。押せないと案内を出す道が無くなる。
     fireEvent.change(screen.getByLabelText('1 時間の上限'), { target: { value: '' } });
@@ -222,7 +223,7 @@ describe('SettingsScreen', () => {
   it('スイッチは切り替えた時点で、その 1 項目だけを保存する', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
-    fireEvent.click(screen.getByRole('switch', { name: 'Claude へ切り替える' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'LM Studio が使えないとき Claude へ切り替える' }));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryFallback: false } });
   });
   it('1 時間の上限は − と ＋ でも変えられる', () => {
@@ -289,6 +290,8 @@ describe('SettingsScreen のフェーズ 3', () => {
     expect(screen.getByText('まだ追記されていません')).toBeTruthy();
     expect(screen.getByText('npm run hangar -- statusline install')).toBeTruthy();
     expect(screen.getByText('/h/.claude/statusline.sh')).toBeTruthy();
+    // ヘッダーのゲージは使用率で、追記はターミナルで行う。
+    expect(screen.getByText('ヘッダーの使用率のゲージは、この追記からだけ届きます。追記はターミナルで行い、この画面からは書き換えません。')).toBeTruthy();
   });
   it('statusline の案内にポートの指定を添える', () => {
     // 4177 以外で動いているサーバに、4177 宛てのスニペットを追記させない。
@@ -301,7 +304,7 @@ describe('SettingsScreen のフェーズ 3', () => {
   });
   it('statusline の設定が無いときは案内を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ statusline: { command: null, scriptPath: null, installed: false } })} /></IntentRoot>);
-    expect(screen.getByText('statusLine の設定が見つかりません')).toBeTruthy();
+    expect(screen.getByText('statusline の設定が見つかりません')).toBeTruthy();
   });
   it('statusline がまだ届いていなければ読み込み中を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ statusline: null, summarizerModels: [] })} /></IntentRoot>);
@@ -322,6 +325,9 @@ describe('SettingsScreen のフェーズ 3', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ lmStudioUrl: 'https://summarizer.example.com' })} /></IntentRoot>);
     const sw = screen.getByRole('switch', { name: '外部の要約器を許す' });
+    // 見える文も読み上げと同じにし、何が起きるかを淡い 1 行で添える。
+    expect(sw.closest('.settings-row')).toHaveTextContent(/^外部の要約器を許す/);
+    expect(screen.getByText('127.0.0.1 と localhost 以外の宛先へ本文を送れるようにします。')).toBeInTheDocument();
     fireEvent.click(sw);
     // まだ保存しない。スイッチもオフのまま。
     expect(onIntent).not.toHaveBeenCalled();
@@ -434,6 +440,7 @@ describe('SettingsScreen の外のターミナル', () => {
     expect(within(section).getByText('mini')).toBeInTheDocument();
     expect(within(section).getByText('入っています')).toBeInTheDocument();
     expect(within(section).getByText('まだです')).toBeInTheDocument();
+    expect(within(section).getByText('この PC')).toBeInTheDocument();
     expect(within(section).getByText('/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install')).toBeInTheDocument();
     expect(within(section).queryByRole('button')).toBeNull();
     expect(within(section).queryByRole('checkbox')).toBeNull();
@@ -520,7 +527,9 @@ describe('SettingsScreen のクラウド同期', () => {
   it('取り込みの対象と控えの置き場と、確認がまだであることを書く', () => {
     // 利用者の決定 2 と 12。何を書き換えるかと、控えがどこに残るかを押す前に見せる。
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ syncClaudeConfig: true }) })} /></IntentRoot>);
-    expect(screen.getByText(/CLAUDE\.md、settings\.json、statusline のスクリプト、skills、memory、projects の memory/)).toBeInTheDocument();
+    expect(screen.getByText('CLAUDE.md、settings.json、statusline のスクリプト、skills、memory、projects の memory を PC の間で合わせます。')).toBeInTheDocument();
+    // 同期している PC の一覧で、自分の PC に印を付ける。
+    expect(screen.getByText('この PC', { selector: '.list .faint' })).toBeInTheDocument();
     expect(screen.getByText(/~\/\.agent-hangar\/backups\/claude-config\//)).toBeInTheDocument();
     expect(screen.getByText('まだ取り込みを確認していません。確認するまで ~/.claude には書き込みません。')).toBeInTheDocument();
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ syncClaudeConfig: true, configConfirmed: true }) })} /></IntentRoot>);
