@@ -912,3 +912,24 @@ describe('presentSession の本文が消えた会話', () => {
     expect(presentSession(initialState(), { ...initialStore(), sessions: { r: recent } }, NOW, 'r').gone).toBeNull();
   });
 });
+
+describe('presentSettings の会話の保持', () => {
+  const R: RetentionDto = { days: 3650, source: 'user', userValue: 3650, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
+  it('4 つの選択肢と、今の日数での見込みを出す', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), retention: R }, NOW).retention!;
+    expect(p.options.map((o) => o.label)).toEqual(['30 日', '90 日', '1 年', '10 年']);
+    expect(p.days).toBe(3650);
+    expect(p.bar!.projLabel).toBe('10 年たつと約 178 GB');
+  });
+  it('選択肢に無い値は 5 つめとして順に並べる', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), retention: { ...R, days: 45, userValue: 45 } }, NOW).retention!;
+    expect(p.options.map((o) => o.value)).toEqual(['30', '45', '90', '365', '3650']);
+  });
+  it('書けないときは理由と値だけを出す', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), retention: { ...R, days: 14, source: 'managed', writable: false, unwritableReason: '組織の設定で決まっています' } }, NOW).retention!;
+    expect(p).toMatchObject({ writable: false, reason: '組織の設定で決まっています', valueLabel: '14 日' });
+  });
+  it('まだ届いていなければ null', () => {
+    expect(presentSettings(initialState(), initialStore(), NOW).retention).toBeNull();
+  });
+});

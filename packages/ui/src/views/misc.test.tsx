@@ -100,6 +100,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', devices: [] },
   nodePath: '',
   claudePath: null,
+  retention: null,
   ...over,
 });
 
@@ -579,5 +580,27 @@ describe('SettingsScreen の読む面', () => {
     expect(root).not.toBeNull();
     expect(root!.querySelectorAll(':scope > section').length).toBe(root!.querySelectorAll('section').length);
     expect(root!.querySelectorAll(':scope > section').length).toBeGreaterThan(5);
+  });
+});
+
+describe('SettingsScreen の会話の保持', () => {
+  const bar = { nowLabel: 'いま 1.5 GB', projLabel: '10 年たつと約 178 GB', freeLabel: '空き 400 GB', nowPct: 0.4, projPct: 44, warn: false };
+  const retention = { days: 3650, options: [{ value: '30', label: '30 日' }, { value: '90', label: '90 日' }, { value: '365', label: '1 年' }, { value: '3650', label: '10 年' }], writable: true, reason: null, valueLabel: '10 年', bar, syncNote: true };
+  it('切り替えの帯で選ぶと確認を開き、今の値を押しても何も出さない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ retention })} /></IntentRoot>);
+    expect(screen.getByRole('heading', { name: '会話の保持' })).toBeInTheDocument();
+    expect(screen.getByText('10 年たつと約 178 GB')).toBeInTheDocument();
+    expect(screen.getByText(/値は設定の同期でほかの PC にも届きます/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: '1 年' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'settings' });
+    onIntent.mockClear();
+    fireEvent.click(screen.getByRole('radio', { name: '10 年' }));
+    expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'retention.edit' }));
+  });
+  it('書けないときは帯を出さず、値と理由を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ retention: { ...retention, days: 14, writable: false, reason: '組織の設定で決まっています', valueLabel: '14 日' } })} /></IntentRoot>);
+    expect(screen.queryByRole('radio', { name: '1 年' })).toBeNull();
+    expect(screen.getByText(/組織の設定で決まっています/)).toBeInTheDocument();
   });
 });
