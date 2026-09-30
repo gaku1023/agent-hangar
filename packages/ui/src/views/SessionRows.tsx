@@ -7,7 +7,7 @@ import { StatusDot } from './primitives/StatusDot.tsx';
 import { VirtualList } from './primitives/VirtualList.tsx';
 
 /** 2 段の行の高さ。tokens.css の --session-row-h と同じ値にする（styles/rows.test.ts が突き合わせる）。 */
-export const SESSION_ROW_H = 44;
+export const SESSION_ROW_H = 56;
 
 /**
  * 一覧の役目。右端と 2 段目に何を出すかがこれで決まる。
