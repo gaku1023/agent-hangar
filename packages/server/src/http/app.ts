@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
@@ -95,6 +95,11 @@ export type AppDeps = {
   shellHook: () => ShellHookDto;
   /** Claude Code の保持期間。書き込みは cleanupPeriodDays の 1 か所だけで、原則「読み取り専用」の 4 つめの例外である。 */
   retention: { current(): RetentionDto; preview(days: number): RetentionPreviewDto; write(days: number, baseSha256: string): RetentionDto };
+  /**
+   * 準備の確かめ（ツールのパスと版、ワークスペース、MCP の登録、statusline の追記）。
+   * 設定画面の検証と、空のホームの確認リストが同じものを読む。読むだけで、何も書き換えない。
+   */
+  readiness: () => Promise<ReadinessDto>;
   uiDist?: string;
 };
 
@@ -684,6 +689,7 @@ export function createApp(deps: AppDeps): Hono {
   });
   api.get('/statusline', (c) => c.json(statuslineStatus(deps.settings().claudeDir)));
   api.get('/shell-hook', (c) => c.json(deps.shellHook()));
+  api.get('/readiness', async (c) => c.json(await deps.readiness()));
 
   // TODO。変更のたびに一覧とプロジェクト（未完の数）を配る。
   const todosChanged = (projectId: string) => {

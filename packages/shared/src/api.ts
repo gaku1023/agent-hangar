@@ -56,6 +56,29 @@ export type UsageDayDto = { day: string; inputTokens: number; outputTokens: numb
 export type UsageProjectDto = { projectId: string | null; name: string; inputTokens: number; outputTokens: number; costUsd: number | null; sessions: number };
 export type UsageAggregateDto = { days: UsageDayDto[]; projects: UsageProjectDto[] };
 export type StatuslineStatusDto = { command: string | null; scriptPath: string | null; installed: boolean };
+/**
+ * ツールのパスを確かめた結果。
+ * problem は動かせない理由で、動かせるときは null。
+ * unset は設定が空、missing は無い、notFile はディレクトリなどファイルでない、notExecutable は実行権が無い。
+ * version は `--version` などで読んだ版で、読めなかったときは null。
+ */
+export type ToolProblem = 'unset' | 'missing' | 'notFile' | 'notExecutable';
+export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProblem | null; version: string | null };
+/**
+ * 準備の確かめ（GET /api/readiness）。
+ * 設定画面の欄の下の検証と、空のホームの確認リストが、同じこの 1 つを読む。
+ * node の auto は、設定が空で、サーバを動かしている Node をそのまま見せていることを表す。
+ * workspace の projectCount は、ワークスペースの直下から登録したプロジェクトの数である。
+ * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
+ * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。
+ */
+export type ReadinessDto = {
+  tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: ToolCheckDto & { auto: boolean } };
+  workspace: { path: string; exists: boolean; projectCount: number };
+  mcp: { registered: boolean; file: string };
+  statusline: StatuslineStatusDto;
+  commands: { mcp: string; statusline: string; shell: string };
+};
 /** 完了の候補。sessionId はセッション別でない MCP の URL から出たとき null、note は根拠が無いとき null。 */
 export type TodoCandidateDto = { sessionId: string | null; note: string | null; at: number };
 /** candidate は古いサーバからは欠ける。欠けたものは null として扱う。 */

@@ -8,6 +8,8 @@ import { listArtifacts } from './artifacts/queries.ts';
 import { backupsRoot, readCloudConfig, remoteRoot } from './config/cloud.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
 import { claudeSupportsBackground, ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, zshrcPath } from './config/shellHook.ts';
+import { claudeJsonPath } from './config/claudeJson.ts';
+import { createReadiness } from './config/readiness.ts';
 import { defaultManagedDir, RetentionService } from './config/retention.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
@@ -777,6 +779,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       return h;
     },
     retention,
+    // 準備の確かめ。設定画面と空のホームが読む。版を読む子プロセスは 3 秒で切る。
+    readiness: createReadiness({
+      settings: () => settings, claudeDir, claudeJson: claudeJsonPath(), db, deviceId: device.id,
+      shellCommand: () => shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar }),
+    }),
     uiDist,
   });
   handler = app.fetch;
