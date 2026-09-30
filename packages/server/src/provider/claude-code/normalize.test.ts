@@ -16,6 +16,12 @@ describe('normalizeRecord', () => {
     const ev = normalizeRecord({ ...base, type: 'user', message: { role: 'user', content: '<command-name>/clear</command-name><command-message>clear</command-message>' } }, 0, null);
     expect(ev).toEqual([{ kind: 'system', seq: 0, ts: Date.parse(base.timestamp), text: '<command-name>/clear</command-name><command-message>clear</command-message>' }]);
   });
+  it('! で打ったシェルの記録とタスクの知らせは、利用者の発言ではないので system', () => {
+    for (const text of ['<bash-input> git status</bash-input>', '<bash-stdout>ok</bash-stdout><bash-stderr></bash-stderr>', '<task-notification>\n<summary>Agent "x" finished</summary>\n</task-notification>']) {
+      expect(normalizeRecord({ ...base, type: 'user', message: { role: 'user', content: text } }, 0, null)[0]!.kind).toBe('system');
+      expect(recordFacts({ ...base, type: 'user', message: { role: 'user', content: text } }).isUserTurn).toBe(false);
+    }
+  });
   it('ローカルコマンドの出力も system', () => {
     const ev = normalizeRecord({ ...base, type: 'user', message: { role: 'user', content: [{ type: 'text', text: '  <local-command-stdout>ok</local-command-stdout>' }] } }, 0, null);
     expect(ev[0]!.kind).toBe('system');

@@ -18,15 +18,15 @@ describe('buildTurns', () => {
     u(9, '[Request interrupted by user]'),
     u(10, '次の指示'), a(11, 'どうぞ'),
   ];
-  it('利用者の指示とスラッシュコマンドで区切り、ツールの数を数える', () => {
+  it('利用者の発言だけで区切り、ツールの数を数える。スラッシュコマンドは区切りにしない', () => {
     const t = buildTurns(events);
-    expect(t.map((x) => x.text)).toEqual(['最初の指示です\n2 行目', '/model opus', '次の指示']);
-    expect(t.map((x) => x.tools)).toEqual([2, 0, 0]);
-    expect(t.map((x) => x.head)).toEqual(['最初の指示です', '/model opus', '次の指示']);
+    expect(t.map((x) => x.text)).toEqual(['最初の指示です\n2 行目', '次の指示']);
+    expect(t.map((x) => x.tools)).toEqual([2, 0]);
+    expect(t.map((x) => x.head)).toEqual(['最初の指示です', '次の指示']);
   });
   it('各ターンは次のターンの手前までの行を持つ。中断の知らせは区切りにしない', () => {
     const t = buildTurns(events);
-    expect(t.map((x) => [x.from, x.to])).toEqual([[1, 7], [7, 10], [10, Infinity]]);
+    expect(t.map((x) => [x.from, x.to])).toEqual([[1, 10], [10, Infinity]]);
   });
   it('最初の指示より前の行はターンにしない', () => {
     expect(buildTurns([a(0, '前置き'), u(1, 'はじめ')]).map((x) => x.seq)).toEqual([1]);

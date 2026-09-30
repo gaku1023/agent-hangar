@@ -31,9 +31,10 @@ function contentText(content: unknown): string {
 
 /**
  * スラッシュコマンドやローカルコマンドの記録は、Claude Code が user として書くが利用者の発言ではない。
+ * ! で打ったシェルの入出力と、バックグラウンドのタスクの知らせも同じである。
  * 本文がこれらのタグで始まるものを見分け、system として扱う。
  */
-const LOCAL_COMMAND_TAGS = ['<command-name>', '<command-message>', '<command-args>', '<local-command-caveat>', '<local-command-stdout>', '<system-reminder>'];
+const LOCAL_COMMAND_TAGS = ['<command-name>', '<command-message>', '<command-args>', '<local-command-caveat>', '<local-command-stdout>', '<system-reminder>', '<bash-input>', '<bash-stdout>', '<bash-stderr>', '<task-notification>'];
 
 export function isLocalCommandText(text: string): boolean {
   const head = text.trimStart();

@@ -75,6 +75,16 @@ export function localCommandText(text: string): string | null {
   }
   const out = tagText(head, 'local-command-stdout');
   if (out !== null) return out === '' || out === '(no content)' ? null : out;
+  // ! で打ったシェルは、ターミナルと同じく「! コマンド」の 1 行に、出力は中身だけにする。どちらも空なら出さない。
+  const bash = tagText(head, 'bash-input');
+  if (bash !== null) return `! ${bash}`;
+  if (head.startsWith('<bash-stdout>') || head.startsWith('<bash-stderr>')) {
+    const shown = [tagText(head, 'bash-stdout'), tagText(head, 'bash-stderr')].filter((s) => s).join('\n');
+    return shown || null;
+  }
+  // バックグラウンドのタスクの知らせは、要旨の 1 行だけにする。内部の注意書きは出さない。
+  if (head.startsWith('<task-notification>')) return tagText(head, 'summary') ?? null;
+  if (head.startsWith('<system-reminder>')) return null;
   return text;
 }
 

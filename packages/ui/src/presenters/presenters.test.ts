@@ -78,6 +78,16 @@ describe('ローカルコマンドの記録', () => {
   it('生の記録を出すときはそのまま出す', () => {
     expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] }).filter((i) => i.kind === 'system')).toHaveLength(5);
   });
+  it('! で打ったシェルは「! コマンド」に、出力は中身だけに、タスクの知らせは要旨だけにする', () => {
+    const ev = [
+      sys(20, '<bash-input> git status</bash-input>'),
+      sys(21, '<bash-stdout>clean</bash-stdout><bash-stderr></bash-stderr>'),
+      sys(22, '<bash-stdout></bash-stdout><bash-stderr></bash-stderr>'),
+      sys(23, '<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent "調べもの" finished</summary>\n</task-notification>'),
+      sys(24, '<system-reminder>内部の注意書き</system-reminder>'),
+    ];
+    expect(buildItems(ev, { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['! git status', 'clean', 'Agent "調べもの" finished']);
+  });
   it('読み込んだスキルの本文は、スキルの名前の 1 行にする', () => {
     const skill = sys(9, 'Base directory for this skill: /Users/me/.claude/plugins/cache/x/superpowers/6.3.0/skills/brainstorming\n\n# Brainstorming Ideas Into Designs\n\n長い本文…');
     expect(buildItems([skill], { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['スキル brainstorming を読み込みました']);

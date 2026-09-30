@@ -1,8 +1,9 @@
 import { MAX_JUMP_HEADS, promptHead, type TranscriptEvent } from '@agent-hangar/shared';
 
 /**
- * ターンの目次。利用者が打った指示（とスラッシュコマンド）ごとに会話を区切る。
- * Claude Code の transcript の `{` `}` が止まる単位と揃えるので、左のターミナルをその指示へ跳ばすときの数え方にもなる。
+ * ターンの目次。利用者が打った指示ごとに会話を区切る。
+ * スラッシュコマンド、! で打ったシェル、タスクの知らせは利用者の発言ではないので区切りにしない（サーバが system にしている）。
+ * Claude Code の transcript の `{` `}` はそれらでも止まることがあるが、跳ぶ側が見えている指示から位置を割り出して吸収する。
  */
 export type Turn = {
   /** 区切りになった行の seq。ターンの識別子にも使う。 */
@@ -16,20 +17,11 @@ export type Turn = {
   tools: number;
 };
 
-const COMMAND = /<command-name>([^<]*)<\/command-name>/;
-const ARGS = /<command-args>([^<]*)<\/command-args>/;
-
 /** 区切りになる行なら、その指示の本文を返す。 */
 function promptOf(e: TranscriptEvent): string | null {
-  // 中断の知らせは user の行として残るが、Claude Code は指示として描かない。
-  if (e.kind === 'user') return e.text.startsWith('[Request interrupted') ? null : e.text;
-  if (e.kind === 'system') {
-    const m = COMMAND.exec(e.text);
-    if (!m) return null;
-    const args = ARGS.exec(e.text)?.[1]?.trim();
-    return args ? `${m[1]!.trim()} ${args}` : m[1]!.trim();
-  }
-  return null;
+  if (e.kind !== 'user') return null;
+  // 中断の知らせは user の行として残るが、利用者の発言ではない。
+  return e.text.startsWith('[Request interrupted') ? null : e.text;
 }
 
 /** seq の昇順に並んだ行からターンを組む。最初の指示より前の行はどのターンにも入れない。 */
