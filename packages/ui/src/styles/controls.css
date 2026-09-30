@@ -89,3 +89,11 @@
 .check-box .icon { width: 14px; height: 14px; stroke-width: 3; opacity: 0; transform: scale(0.5); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
 .check-card[aria-checked='true'] .check-box { background: var(--accent); box-shadow: none; }
 .check-card[aria-checked='true'] .check-box .icon { opacity: 1; transform: none; }
+
+/* 増減のボタン。素の number の小さな矢印は隠す。 */
+.stepper { display: inline-flex; flex: none; align-items: center; height: 30px; border-radius: var(--r-pill); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.stepper > button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink-2); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.stepper > button:hover:not(:disabled) { color: var(--ink); background: var(--surface-2); }
+.stepper > button:disabled { opacity: 0.4; cursor: default; }
+.stepper-input { width: 44px; border: 0; outline: 0; background: none; text-align: center; font-family: var(--font-mono); font-size: var(--fs); font-weight: 600; color: var(--ink); -moz-appearance: textfield; }
+.stepper-input::-webkit-inner-spin-button, .stepper-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
