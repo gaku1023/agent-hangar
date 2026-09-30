@@ -592,7 +592,7 @@ describe('同期とこの PC で再開', () => {
   });
   it('bootstrap の sync と devices は Mediator にも入る', async () => {
     // 読み込み直した直後にヘッダの同期表示が空にならないことを固定する。
-    const device = { id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false };
+    const device = { id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false, shell: null };
     const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sync: { ...syncStatus, pending: 4 }, devices: [device] })) });
     rt.start();
     wsHandlers[0]!.onOpen();

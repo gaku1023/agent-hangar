@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean };
 export type Store = {
@@ -12,7 +12,7 @@ export type Store = {
   summaryPending: Record<string, true>;
   // 設定画面に入ったときだけ読む値。
   // 未取得は null で、View は「読み込んでいます」を出す。
-  usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
+  usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; shellHook: ShellHookDto | null; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
   // クラウド同期（フェーズ 4）。同期を設定していない間は sync が off のまま届く。
   // joinToken と configPreview は押したときだけ取りに行く値なので、未取得は null である。
   sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
@@ -27,7 +27,7 @@ export function initialStore(): Store {
     bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {},
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     usage: emptyUsage(), todos: {}, memos: {}, artifacts: {}, summaryPending: {},
-    usageAggregate: null, statusline: null, summarizerModels: null, summarizerTest: null,
+    usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     sync: null, devices: [], joinToken: null, configPreview: null,
   };
 }

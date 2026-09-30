@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { newId, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { newId, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
 import { statuslineStatus } from '../config/statusline.ts';
@@ -84,6 +84,11 @@ export type AppDeps = {
   /** 参加トークン。setup を走らせていない端末では null。全セッションの読み書き権を持つので、ログには出さない。 */
   joinToken: () => string | null;
   devices: () => DeviceDto[];
+  /**
+   * 外のターミナルで起動した claude を hangar で開けるようにする包み方の、この PC の状態。
+   * 読むだけで、~/.zshrc を書き換える経路は持たない。書き換えるのは hangar shell install（CLI）だけである。
+   */
+  shellHook: () => ShellHookDto;
   uiDist?: string;
 };
 
@@ -608,6 +613,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(aggregateUsage(db, { days }));
   });
   api.get('/statusline', (c) => c.json(statuslineStatus(deps.settings().claudeDir)));
+  api.get('/shell-hook', (c) => c.json(deps.shellHook()));
 
   // TODO。変更のたびに一覧とプロジェクト（未完の数）を配る。
   const todosChanged = (projectId: string) => {

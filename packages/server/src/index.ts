@@ -2,6 +2,7 @@ export { installShutdown, startServer, STOP_WATCHDOG_MS, VERSION } from './serve
 export { hangarHome, defaultClaudeDir, ensureHome, readOrCreateToken, readOrCreateDevice, loadSettings, saveSettings } from './config/paths.ts';
 export { STATUSLINE_MARKER, appendStatuslineSnippet, ensureStatuslineHeaderFile, resolveStatuslineScript, statuslineHeaderPath, statuslineSnippet, statuslineSnippetUpToDate, statuslineStatus, writeStatuslineHeaderFile } from './config/statusline.ts';
 export { claudeJsonPath, upsertUserMcpServer } from './config/claudeJson.ts';
+export { SHELL_MARKER, claudeSupportsBackground, ensureShellScript, installShellHook, shellHookInstalled, shellHookLine, shellHookState, shellHookUpToDate, shellScriptPath, uninstallShellHook, zshrcPath, type ShellHookState } from './config/shellHook.ts';
 export { backupsRoot, cloudConfigPath, loadCloudConfig, readCloudConfig, remoteRoot, saveCloudConfig, type CloudConfig, type CloudConfigRead } from './config/cloud.ts';
 export { SyncStateStore, type SyncStateKey } from './sync/state.ts';
 // 本文をどこから上げるかの床。

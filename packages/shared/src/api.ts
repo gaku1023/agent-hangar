@@ -75,7 +75,11 @@ export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | 
 export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
 export type TakeoverPhase = 'requested' | 'waiting' | 'acked' | 'copying' | 'resumed' | 'timeout' | 'failed' | 'cancelled';
 export type TakeoverUpdateDto = { sessionId: string; requestId: string | null; phase: TakeoverPhase; force: boolean; message: string | null; elapsedMs: number };
-export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean };
+/** shell はその端末の包み方（hangar shell install）の状態。まだ知らせてこない古い版の端末は null になる。 */
+export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean; shell: ShellHookStateDto | null };
+export type ShellHookStateDto = 'on' | 'off' | 'unsupported';
+/** Settings の「外のターミナル」。state はこの PC の状態、command は入れるために貼るコマンド。 */
+export type ShellHookDto = { state: ShellHookStateDto; zshrc: string; line: string; command: string };
 export type ConfigPreviewAction = 'create' | 'overwrite' | 'conflict' | 'skip';
 export type ConfigPreviewEntryDto = { path: string; action: ConfigPreviewAction; localMtime: number | null; remoteMtime: number; remoteDevice: string; size: number };
 export type ConfigPreviewDto = { entries: ConfigPreviewEntryDto[]; confirmed: boolean };

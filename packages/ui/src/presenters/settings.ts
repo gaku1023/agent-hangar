@@ -1,4 +1,4 @@
-import type { IndexProgressDto, StatuslineStatusDto, SummarizerTestDto, SyncSkippedDto, SyncStateKind, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, ShellHookStateDto, StatuslineStatusDto, SummarizerTestDto, SyncSkippedDto, SyncStateKind, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
@@ -12,6 +12,17 @@ export type CloudDeviceProps = { id: string; name: string; platform: string; las
  */
 export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; paused: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
 
+/**
+ * 外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする包み方。
+ * state はこの PC の状態で、読み込む前は null。devices は同期している PC ごとの状態で、自端末は測り直した値を使う。
+ * command は入れるために貼るコマンドで、uninstallCommand は外すためのコマンド。
+ */
+export type ShellSettingsProps = { state: ShellHookStateDto | null; zshrc: string; line: string; command: string; uninstallCommand: string; devices: { id: string; name: string; self: boolean; label: string }[] };
+
+/** PC ごとの状態の言い方。null は状態を知らせてこない古い版の hangar である。 */
+const SHELL_LABEL: Record<ShellHookStateDto, string> = { on: '入っています', off: 'まだです', unsupported: 'この Claude Code では使えません' };
+const shellLabel = (s: ShellHookStateDto | null): string => (s ? SHELL_LABEL[s] : '分かりません（hangar が古い版です）');
+
 export type SettingsProps = {
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; sessionCount: number; projectCount: number;
   tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; mcpInstallCommand: string;
@@ -19,6 +30,7 @@ export type SettingsProps = {
   summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
   statusline: StatuslineStatusDto | null; statuslineCommand: string; usageAggregate: UsageAggregateDto | null;
   cloud: CloudSettingsProps;
+  shell: ShellSettingsProps;
   /** 同梱サーバを起こす Node の場所。未指定は空文字で表す。 */
   nodePath: string;
   /** run を起こす claude の場所。未指定は null で表す。 */
@@ -44,8 +56,16 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
     syncClaudeConfig: s?.syncClaudeConfig ?? false,
     configConfirmed: sync?.claudeConfig.confirmed ?? false,
   };
+  const h = store.shellHook;
+  const command = h?.command ?? 'hangar shell install';
+  const shell: ShellSettingsProps = {
+    state: h?.state ?? null, zshrc: h?.zshrc ?? '', line: h?.line ?? '', command, uninstallCommand: command.replace(/ install$/, ' uninstall'),
+    // 自端末の行は 10 分おきにしか書き直されないので、Settings を開いたときに測った値で上書きする。
+    devices: store.devices.map((d) => ({ id: d.id, name: d.name, self: d.self, label: shellLabel(d.self && h ? h.state : d.shell) })),
+  };
   return {
     cloud,
+    shell,
     workspaceRoot: s?.workspaceRoot ?? '', claudeDir: s?.claudeDir ?? '', device: store.device, version: store.version, index: store.index,
     sessionCount: Object.keys(store.sessions).length, projectCount: Object.keys(store.projects).length,
     tmuxPath: s?.tmuxPath ?? null, terminalApp: s?.terminalApp ?? 'terminal', codePath: s?.codePath ?? null, mcpInstallCommand: 'npm run hangar -- mcp install',

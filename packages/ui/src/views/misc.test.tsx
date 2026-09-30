@@ -78,6 +78,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   statuslineCommand: 'npm run hangar -- statusline install',
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
   cloud: { configured: false, url: null, state: 'off', paused: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, syncClaudeConfig: false, configConfirmed: false },
+  shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', devices: [] },
   nodePath: '',
   claudePath: null,
   ...over,
@@ -328,6 +329,27 @@ describe('SettingsScreen のフェーズ 3', () => {
   it('集計がまだ無ければ読み込み中を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ usageAggregate: null })} /></IntentRoot>);
     expect(screen.getByText('使用量を読み込んでいます')).toBeTruthy();
+  });
+});
+
+describe('SettingsScreen の外のターミナル', () => {
+  const shell = (over: Partial<SettingsProps['shell']>) => ({ ...settingsProps().shell, ...over });
+  it('PC ごとの状態を並べ、入っていない PC には貼るコマンドを出す。書き換えるボタンは持たない', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ shell: shell({ devices: [{ id: 'd', name: 'mac', self: true, label: 'まだです' }, { id: 'd2', name: 'mini', self: false, label: '入っています' }] }) })} /></IntentRoot>);
+    const section = screen.getByRole('heading', { name: '外のターミナル' }).closest('section')!;
+    expect(within(section).getByText('mini')).toBeInTheDocument();
+    expect(within(section).getByText('入っています')).toBeInTheDocument();
+    expect(within(section).getByText('まだです')).toBeInTheDocument();
+    expect(within(section).getByText('/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install')).toBeInTheDocument();
+    expect(within(section).queryByRole('button')).toBeNull();
+    expect(within(section).queryByRole('checkbox')).toBeNull();
+  });
+  it('入っている PC では外し方を、使えない PC では直し方を出す', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ shell: shell({ state: 'on' }) })} /></IntentRoot>);
+    expect(screen.getByText(/shell uninstall/)).toBeInTheDocument();
+    expect(screen.queryByText(/shell install$/)).toBeNull();
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ shell: shell({ state: 'unsupported' }) })} /></IntentRoot>);
+    expect(screen.getByText(/claude update/)).toBeInTheDocument();
   });
 });
 

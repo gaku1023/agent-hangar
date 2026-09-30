@@ -107,7 +107,8 @@ const syncDeps = () => ({
   configSync: fakeConfigSync(),
   resumeHere: (id: string, overwrite: boolean) => { calls.push(`resumeHere:${id}:${overwrite}`); return resumeHereResult; },
   joinToken: () => 'tok-abc' as string | null,
-  devices: () => [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true }],
+  devices: () => [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true, shell: null }],
+  shellHook: () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' }),
 });
 
 beforeEach(async () => {
@@ -518,6 +519,7 @@ describe('routes', () => {
     expect(agg.body.projects.length).toBeGreaterThan(0);
     expect((await get('/api/usage/aggregate?days=0')).status).toBe(400);
     expect((await json(await get('/api/statusline'))).body).toEqual({ command: null, scriptPath: null, installed: false });
+    expect((await json(await get('/api/shell-hook'))).body).toEqual({ state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' });
     expect((await json(await get('/api/bootstrap'))).body).toMatchObject({ usage: { fiveHour: { usedPercent: 47 } }, todos: [], artifacts: [], summaryPending: ['pending-1'] });
   });
   it('TODO とメモ', async () => {
@@ -765,7 +767,7 @@ describe('同期の経路', () => {
   it('bootstrap に sync と devices が乗り、設定に syncClaudeConfig が出る', async () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.sync).toMatchObject({ state: 'idle', pending: 0, deviceCount: 2 });
-    expect(body.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true }]);
+    expect(body.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true, shell: null }]);
     expect(body.settings.syncClaudeConfig).toBe(false);
     expect(body.sessions[0].lock).toBeNull();
     expect(body.sessions[0].remoteOnly).toBe(false);

@@ -7,9 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { listArtifacts } from './artifacts/queries.ts';
 import { backupsRoot, readCloudConfig, remoteRoot } from './config/cloud.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
+import { claudeSupportsBackground, ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, zshrcPath } from './config/shellHook.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { encodeJoinToken, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type SyncSkippedDto } from '@agent-hangar/shared';
+import { encodeJoinToken, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
 import { getProject, getSession, listDevices, listProjects } from './db/queries.ts';
 import { upsertShared } from './db/shared.ts';
@@ -398,6 +399,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   let settings: Settings = resolveToolPaths(loadSettings(home));
   saveSettings(home, settings);
   ensureWrapperScript(home);
+  // 包み方の本体は hangar の版と揃える。~/.zshrc の 1 行はこのファイルを読むだけなので、更新はここで行き渡る。
+  ensureShellScript(home);
   const fixed = ensureSpawnHelper();
   if (fixed.length) console.log('[pty] spawn-helper に実行権限を付けました:', fixed.join(', '));
 
@@ -575,6 +578,18 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
    * 起動と要約の両方が同じ絶対パスを使う。
    */
   const claudeBinOf = (s: Settings): string | null => process.env.HANGAR_CLAUDE_BIN ?? s.claudePath ?? which('claude');
+  // 同梱の hangar。アプリの中では server.mjs の隣の bin/hangar にある。リポジトリから動かすときは無い。
+  const bundledHangar = ((): string | null => {
+    const p = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'hangar');
+    return fs.existsSync(p) ? p : null;
+  })();
+  // バックグラウンドを使えるかは claude を 1 度起こして確かめるので、測り直すまで覚えておく。
+  let shellSupported: boolean | null = null;
+  const shellHook = (recheck = false): ShellHookDto => {
+    if (shellSupported === null || recheck) shellSupported = claudeSupportsBackground(claudeBinOf(settings));
+    const zshrc = zshrcPath();
+    return { state: shellHookState(zshrc, shellSupported), zshrc, line: shellHookLine(home), command: shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar }) };
+  };
   const runs = new RunManager({
     db, deviceId: device.id, home, tmux: tmuxOf(settings), port, token,
     claudeBin: claudeBinOf(settings),
@@ -746,6 +761,13 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // 参加トークンは全セッションの読み書き権を持つ。作るのはここだけで、ログにも例外にも出さない。
     joinToken: () => (cloud ? encodeJoinToken({ url: cloud.url, secret: cloud.joinSecret }) : null),
     devices: () => listDevices(db, device.id),
+    shellHook: () => {
+      // Settings を開いたときに測り直す。CLI で入れた直後に開けば、ここで他の PC にも知らせる。
+      const h = shellHook(true);
+      const cur = db.prepare('select shell_hook from devices where id = ?').get(device.id) as { shell_hook: string | null } | undefined;
+      if (cur && cur.shell_hook !== h.state) touchDevice();
+      return h;
+    },
     uiDist,
   });
   handler = app.fetch;
@@ -782,12 +804,12 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // ここまでで既存のセッションの紐づけは済んでいる。以後に現れた未分類だけを知らせる。
   started = true;
 
-  /** 自端末の生存を devices に刻む。他端末の Settings の一覧と、ロックの端末名がここから出る。 */
-  const touchDevice = (): void => {
+  /** 自端末の生存を devices に刻む。他端末の Settings の一覧と、ロックの端末名と、包み方の状態がここから出る。 */
+  function touchDevice(): void {
     const row = db.prepare('select * from devices where id = ?').get(device.id) as Record<string, unknown> | undefined;
-    upsertShared(db, 'devices', { ...(row ?? {}), id: device.id, name: device.name, platform: device.platform, last_seen_at: Date.now(), deleted_at: null }, device.id);
+    upsertShared(db, 'devices', { ...(row ?? {}), id: device.id, name: device.name, platform: device.platform, last_seen_at: Date.now(), shell_hook: shellHook(true).state, deleted_at: null }, device.id);
     hub.broadcast({ type: 'devices.update', devices: listDevices(db, device.id) });
-  };
+  }
   touchDevice();
   const deviceTimer = setInterval(touchDevice, DEVICE_TOUCH_MS);
   deviceTimer.unref();
