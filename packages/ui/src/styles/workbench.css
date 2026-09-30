@@ -6,7 +6,8 @@
 .gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
 .gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); transition: width var(--dur) var(--ease-out), background var(--dur) var(--ease-out); }
 .gauge-fill[data-high='true'] { background: var(--waiting); }
-.gauge-num { font-size: var(--fs-xs); color: var(--ink-3); min-width: 32px; }
+/* 行の高さを数字の枠（.roll の 1.2em）に揃える。本文の 1.5 のままだと、枠が行の下端に寄って数字が 3px ほど下がり、下端も欠ける。 */
+.gauge-num { font-size: var(--fs-xs); line-height: 1.2em; color: var(--ink-3); min-width: 32px; }
 .gauge-updated { font-size: var(--fs-xs); white-space: nowrap; }
 
 /* 数字の縦回転。古い値を上へ、新しい値を下から上へ動かす。 */
