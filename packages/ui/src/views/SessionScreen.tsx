@@ -3,6 +3,7 @@ import { useEmit } from '../intent/chain.tsx';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalStatus } from '../runtime/terminals.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
+import { PageHeading } from './PageHeading.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { ToggleChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -27,10 +28,8 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
 
   const header = (
     <>
-      {/* 上段。一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。 */}
-      <div className="session-hero" data-morph-hero={id}>
-        <StatusDot status={props.live} />
-        <h1 className="session-name">{props.name}</h1>
+      {/* 上段は頁の見出しの行を兼ねる。一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。 */}
+      <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
         {props.summary?.oneLiner ? <span className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
         {props.fromScratch && <span className="faint">再開すると cwd はスクラッチのままです</span>}
         {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id })}><Icon name="promote" />プロジェクトに昇格</button>}
@@ -45,7 +44,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {props.outsideOpen === 'adopt' && <button className="btn" onClick={() => emit({ type: 'session.adopt', id })}><Icon name="resumeHere" />hangar で引き取る</button>}
         {props.outsideOpen === 'attach' && <button className="btn" onClick={() => emit({ type: 'session.attach', id })}><Icon name="shell" />hangar でつなぐ</button>}
         <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}><Icon name="openEditor" />VS Code で開く</button>
-      </div>
+      </PageHeading>
       {/* チップの列。状態と経過、プロジェクト、モデルと effort、コンテキスト使用率、推定コスト、変更数、1 行メモ、PR、ロック。 */}
       <div className="chips">
         {props.liveLabel && <span className="chip">{props.liveLabel}</span>}

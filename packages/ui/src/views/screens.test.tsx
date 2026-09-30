@@ -10,7 +10,7 @@ import { ProjectsScreen } from './ProjectsScreen.tsx';
 import { SESSION_ROW_H } from './SessionRows.tsx';
 
 // Task 22 で ProjectProps に増えた右レールの分。この節が見るのはヘッダーの操作だけなので空にする。
-const rail = { isScratch: false, todos: [], memo: null, artifacts: [] };
+const rail = { isScratch: false, todos: [], memo: null, artifacts: [], parent: { label: 'プロジェクト', route: { name: 'projects' as const } } };
 const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, openTodoCount: 0, memoHead: null, lastOneLiner: 'last one' });
 
 describe('HomeScreen', () => {

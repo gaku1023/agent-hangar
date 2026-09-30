@@ -1,5 +1,6 @@
 import { useEmit } from '../intent/chain.tsx';
 import type { AttentionCard, HomeProps, RunningCard } from '../presenters/home.ts';
+import { PageHeading } from './PageHeading.tsx';
 import { SESSION_ROW_H, SessionRows } from './SessionRows.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
@@ -32,6 +33,7 @@ export function HomeScreen(props: HomeProps) {
   const emit = useEmit();
   return (
     <div className="screen home">
+      <PageHeading title="ホーム" />
       {props.attention.length > 0 && (
         <section>
           <h2 className="home-label">要対応<span className="home-count">{props.attention.length}</span></h2>

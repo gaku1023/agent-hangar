@@ -17,7 +17,7 @@ export function Shell(props: ShellProps & { children: ReactNode; overlays: React
   return (
     <div ref={ref} className="shell" data-sidebar={props.sidebarCollapsed ? 'collapsed' : undefined}>
       <Sidebar nav={props.nav} collapsed={props.sidebarCollapsed} />
-      <Header crumbs={props.crumbs} searchText={props.searchText} indexLabel={props.indexLabel} usage={props.usage} sync={props.sync} />
+      <Header searchText={props.searchText} indexLabel={props.indexLabel} usage={props.usage} sync={props.sync} />
       <ConnectionBanner {...props.conn} />
       <main className="main"><div className="main-inner">{props.children}</div></main>
       {props.overlays}

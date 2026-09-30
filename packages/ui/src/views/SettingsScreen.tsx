@@ -3,6 +3,7 @@ import type { SettingsDto, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import { costLabel, tokensLabel } from '../presenters/format.ts';
 import type { SettingsProps } from '../presenters/settings.ts';
+import { PageHeading } from './PageHeading.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
@@ -90,7 +91,7 @@ export function SettingsScreen(props: SettingsProps) {
   const modelOptions = [{ value: '', label: '自動（最初のモデル）' }, ...modelNames.map((m) => ({ value: m, label: m }))];
   return (
     <div className="screen settings-screen" style={{ maxWidth: 720 }}>
-      <h1 className="h1">設定</h1>
+      <PageHeading title="設定" />
       <section>
         <h2 className="h2">ワークスペース</h2>
         <div style={{ display: 'flex', gap: 8 }}>

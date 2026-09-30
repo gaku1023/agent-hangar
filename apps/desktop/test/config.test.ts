@@ -132,9 +132,10 @@ describe('capabilities', () => {
 
 describe('殻の印', () => {
   // 殻が付ける印と、画面がそれを読む規則は別の言語に分かれている。片方だけ直すと、ブラウザか殻のどちらかで余白が崩れる。
+  // ヘッダの左の列はロゴから始まる。ロゴの始まり（--head-lead）を、殻の中でだけ信号の 3 点の右にする。
   it('殻は頁に data-shell="desktop" を付け、画面はそれでヘッダの左を信号の 3 点の分だけ空ける', () => {
     expect(read('src-tauri/src/lib.rs')).toContain("document.documentElement.dataset.shell = 'desktop'");
     const base = fs.readFileSync(path.resolve(app, '../../packages/ui/src/styles/base.css'), 'utf8');
-    expect(base).toContain("[data-shell='desktop'] .header {");
+    expect(base).toContain("[data-shell='desktop'] .shell { --head-lead: var(--lights-end); }");
   });
 });
