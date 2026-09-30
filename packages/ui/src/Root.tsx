@@ -164,6 +164,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
           // 押し違いでアプリごと落ちると、同梱サーバまで止まるからである。
           if (!sessionId) return;
           take();
+          // ダイアログやパレットを開いている間は、裏のタブを閉じない（⌘I と同じ扱い）。
+          if (overlayKind !== 'none') return;
           // 対象は、打鍵を受けた枠か、最後にフォーカスのあった枠のタブにする。
           // 覚えた枠がもう出ていなければ（別のタブや別のセッションに移った後）、選択中のタブに戻す。
           const remembered = focusedPane.current && document.querySelector(`.term-host[data-tab="${CSS.escape(focusedPane.current)}"]`) ? focusedPane.current : null;
@@ -175,10 +177,12 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         }
         case 'split.toggle': if (canSplit) { take(); rt.emit({ type: 'split.toggle' }); } return;
         case 'transcript.toggle': take(); rt.emit({ type: 'transcript.toggle' }); return;
-        // 端末のある画面でだけ受ける。ほかの画面ではブラウザの拡大に渡す。
-        case 'terminal.fontBigger': if (sessionId) { take(); props.terminals.zoom('in'); } return;
-        case 'terminal.fontSmaller': if (sessionId) { take(); props.terminals.zoom('out'); } return;
-        case 'terminal.fontReset': if (sessionId) { take(); props.terminals.zoom('reset'); } return;
+        // 端末が画面にあるときだけ受ける。セッション画面でも、終わったセッションの本文だけなら端末は無い。
+        // 端末の無いときはブラウザの拡大に渡す。
+        // 端末が出るかどうかは presentSession と同じく currentRunOf で決まる。
+        case 'terminal.fontBigger': if (shortcutRun) { take(); props.terminals.zoom('in'); } return;
+        case 'terminal.fontSmaller': if (shortcutRun) { take(); props.terminals.zoom('out'); } return;
+        case 'terminal.fontReset': if (shortcutRun) { take(); props.terminals.zoom('reset'); } return;
         case 'palette.open': take(); rt.emit({ type: 'palette.open' }); return;
         case 'session.new': take(); rt.emit({ type: 'session.new.open', scratch: newScratch === true, ...(newProjectId ? { projectId: newProjectId } : {}) }); return;
         case 'session.newScratch': take(); rt.emit({ type: 'session.new.open', scratch: true }); return;
@@ -209,7 +213,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, sessionId, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals]);
+  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals]);
 
   // トラックパッドの横スワイプ。
   // ネイティブの手勢はスナップショットを滑らせる演出まで付いてくるので使わず、横方向のホイールを自分で積む。
