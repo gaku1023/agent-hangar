@@ -79,6 +79,20 @@ describe('ナビゲーション', () => {
     expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1' } }]);
     expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
   });
+  // 触ったファイルは手元のセッションに無い情報なので、キーワードが無くてもサーバに問い合わせる。
+  it('キーワードが無くても、触ったファイルがあれば検索効果になる', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
+    expect(a.effects).toEqual([]);
+    const b = run([intent({ type: 'search.filter', patch: { file: 'a.md' } })], a.state);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md' } }]);
+    // ほかの画面から戻ってきたときも、同じ絞り込みで問い合わせ直す。
+    const c = run([runtime({ type: 'hash.changed', route: { name: 'home' } }), runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state);
+    expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md' } }]);
+    // ファイルを外せば手元の一覧に戻るので、問い合わせない。
+    expect(run([intent({ type: 'search.filter', patch: { file: undefined } })], b.state).effects).toEqual([]);
+    // ほかの絞り込みだけなら、これまでどおり手元で絞る。
+    expect(run([intent({ type: 'search.filter', patch: { projectId: 'p1' } })], a.state).effects).toEqual([]);
+  });
 });
 
 describe('オーバーレイ', () => {

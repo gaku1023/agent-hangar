@@ -2,6 +2,15 @@ import type { SearchParamsDto } from '@agent-hangar/shared';
 import { agentTabStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, State, Step } from './types.ts';
 
+/**
+ * サーバに問い合わせるか。
+ * キーワードがあるときと、触ったファイルで絞るときである。触ったファイルは手元のセッションに無い情報だからである。
+ * それ以外の絞り込みは、手元のセッションで絞る。
+ */
+export function usesServerSearch(search: State['search']): boolean {
+  return search.text !== '' || !!search.filter.file;
+}
+
 export function searchParams(state: State): SearchParamsDto {
   const f = state.search.filter;
   const p: SearchParamsDto = { q: state.search.text };
@@ -40,7 +49,7 @@ export function screenStep(state: State, input: Input): Step | null {
     if (route.name === 'sessions') {
       const text = route.q ?? '';
       next = { ...next, search: { ...state.search, text } };
-      if (text) effects.push({ kind: 'api.search', params: searchParams(next) });
+      if (usesServerSearch(next.search)) effects.push({ kind: 'api.search', params: searchParams(next) });
     }
     return { state: next, effects };
   }
@@ -71,7 +80,7 @@ export function screenStep(state: State, input: Input): Step | null {
     }
     case 'search.filter': {
       const next = { ...state, search: { ...state.search, filter: { ...state.search.filter, ...i.patch } } };
-      const effects: Effect[] = state.screen.name === 'sessions' && next.search.text ? [{ kind: 'api.search', params: searchParams(next) }] : [];
+      const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [];
       return { state: next, effects };
     }
     default: return null;

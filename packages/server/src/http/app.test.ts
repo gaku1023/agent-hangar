@@ -310,6 +310,8 @@ describe('routes', () => {
     expect(body.total).toBe(1);
     expect((await json(await get('/api/search?q=channels'))).body.hits).toHaveLength(1);
     expect((await json(await get('/api/search?q='))).body).toEqual({ hits: [], total: 0 });
+    // キーワードが無くても、触ったファイルで絞れる。
+    expect((await json(await get('/api/search?q=&file=a.md'))).body.total).toBe(1);
   });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);

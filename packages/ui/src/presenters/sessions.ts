@@ -1,4 +1,5 @@
 import type { SearchFilter } from '@agent-hangar/shared';
+import { usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { markTerms } from './highlight.ts';
@@ -9,7 +10,7 @@ export type SessionsProps = { text: string; filter: SearchFilter; projects: { id
 export function presentSessions(state: State, store: Store, now: number): SessionsProps {
   const projects = Object.values(store.projects).map((p) => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name));
   const f = state.search.filter;
-  if (!state.search.text) {
+  if (!usesServerSearch(state.search)) {
     let list = Object.values(store.sessions);
     if (f.projectId) list = list.filter((s) => s.projectId === f.projectId);
     if (f.running !== undefined) list = list.filter((s) => (s.live !== null) === f.running);
@@ -22,11 +23,12 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
   const result = store.search.result;
   const rows: SessionRowProps[] = [];
   // 行は 2 段なので、抜粋は最初の 1 つだけを 2 段目に出す。
+  // キーワードが無い（触ったファイルだけで絞った）ときは抜粋が無いので、2 段目は要約の 1 文になる。
   for (const h of result?.hits ?? []) {
     const s = store.sessions[h.sessionId];
     if (!s) continue;
     const first = h.snippets[0];
-    rows.push(presentSessionRow(s, store, now, first ? markTerms(first.text, state.search.text) : []));
+    rows.push(presentSessionRow(s, store, now, state.search.text ? (first ? markTerms(first.text, state.search.text) : []) : undefined));
   }
   return { text: state.search.text, filter: f, projects, rows, total: result?.total ?? 0, loading: store.search.loading, mode: 'search' };
 }

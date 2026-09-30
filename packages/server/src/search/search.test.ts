@@ -9,6 +9,8 @@ import { likeSnippet, searchSessions } from './search.ts';
 let dir: string;
 let db: Db;
 const idOf = (p: string) => (db.prepare('select id from sessions where provider_session_id = ?').get(p) as { id: string }).id;
+/** そのセッションがファイルを触ったことにする。索引の行を 1 つ足すだけで、本文は要らない。 */
+const touchFile = (sessionId: string, file: string) => db.prepare("insert into event_index (session_id, seq, kind, file_path_ref, byte_offset, byte_length, file_path) values (?, 9999, 'tool', 'x', 0, 0, ?)").run(sessionId, file);
 beforeEach(async () => {
   dir = copyFixtureClaudeDir(); db = openDb(':memory:');
   await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
@@ -73,6 +75,29 @@ describe('searchSessions', () => {
     expect(searchSessions(db, { q: 'channels', file: 'a.md' }).total).toBe(1);
     expect(searchSessions(db, { q: 'channels', file: 'zzz' }).total).toBe(0);
     expect(searchSessions(db, { q: 'hello' }).hits[0]!.sessionId).toBe(idOf(SESSION_OTHER));
+  });
+  // 一覧で「触ったファイル」だけを入れたとき、キーワードが無くても絞れるようにする。
+  it('キーワードが空でも、ファイルがあればそのファイルを触ったセッションを新しい順に返す', () => {
+    const r = searchSessions(db, { q: '', file: 'a.md' });
+    expect(r.total).toBe(1);
+    expect(r.hits).toEqual([{ sessionId: idOf(SESSION_ALPHA), matchCount: expect.any(Number), snippets: [] }]);
+    expect(r.hits[0]!.matchCount).toBeGreaterThan(0);
+    expect(searchSessions(db, { q: '  ', file: 'a.md' }).total).toBe(1);
+    expect(searchSessions(db, { q: '', file: 'zzz' })).toEqual({ hits: [], total: 0 });
+    expect(searchSessions(db, { q: '', file: '%' })).toEqual({ hits: [], total: 0 });
+    expect(searchSessions(db, { q: '', file: 'a.md', running: true }, new Set()).total).toBe(0);
+    expect(searchSessions(db, { q: '', file: 'a.md', since: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(0);
+    // ファイルも無ければ、これまでどおり空の結果である。一覧は手元で組む。
+    expect(searchSessions(db, { q: '', projectId: 'p1' })).toEqual({ hits: [], total: 0 });
+  });
+  it('キーワードが空の経路も新しい順に並べる', () => {
+    const alpha = db.prepare('select * from sessions where id = ?').get(idOf(SESSION_ALPHA)) as Record<string, unknown>;
+    const other = db.prepare('select * from sessions where id = ?').get(idOf(SESSION_OTHER)) as Record<string, unknown>;
+    // 同じファイルを触ったことにして、2 件を並べる。
+    touchFile(idOf(SESSION_OTHER), '/w/shared/a.md');
+    upsertShared(db, 'sessions', { ...alpha, last_activity_at: 1000 }, 'd');
+    upsertShared(db, 'sessions', { ...other, last_activity_at: 2000 }, 'd');
+    expect(searchSessions(db, { q: '', file: 'a.md' }).hits.map((h) => h.sessionId)).toEqual([idOf(SESSION_OTHER), idOf(SESSION_ALPHA)]);
   });
 });
 

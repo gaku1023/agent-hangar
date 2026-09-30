@@ -360,6 +360,16 @@ describe('presentSessions', () => {
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
     expect(r.rows[0]!.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
   });
+  it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
+    let store = storeWith();
+    store = { ...store, search: { params: { q: '', file: 'a.md' }, result: { hits: [{ sessionId: 's2', matchCount: 3, snippets: [] }], total: 1 }, loading: false } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const }, search: { text: '', filter: { file: 'a.md' } } };
+    const r = presentSessions(state, store, NOW);
+    expect(r.mode).toBe('search');
+    expect(r.rows.map((x) => x.id)).toEqual(['s2']);
+    expect(r.rows[0]!.excerpt).toBeUndefined();
+    expect(r.total).toBe(1);
+  });
 });
 
 describe('セッションの並び順', () => {

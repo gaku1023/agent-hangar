@@ -37,12 +37,15 @@ export function likeSnippet(text: string, token: string): string {
  * event_fts を全文検索し、session_id ごとに件数と抜粋をまとめて返す。
  * 3 文字以上の語は toFtsQuery で MATCH に載せ、複数語は AND になる。
  * 3 文字未満の語は trigram に当たらないので、行の text への like で補う。
+ * 検索語が無くても触ったファイルがあれば、そのファイルを触ったセッションを新しい順に返す。
+ * このときの件数はそのファイルに触れたイベントの数で、抜粋は持たない。
  * running の判定は DB に無いので、実行中の provider_session_id の集合を第三引数で受ける。
  */
 export function searchSessions(db: Db, params: SearchParamsDto, runningIds: Set<string> = new Set()): SearchResultDto {
   const { long, short } = splitFtsTokens(params.q);
   const match = long.length > 0 ? toFtsQuery(params.q) : null;
-  if (!match && short.length === 0) return { hits: [], total: 0 };
+  const hasText = match !== null || short.length > 0;
+  if (!hasText && !params.file) return { hits: [], total: 0 };
   const limit = Math.min(Math.max(params.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
 
   // 行の本文に対する条件。MATCH と like を組み合わせ、抜粋の取得でも同じものを使う。
@@ -59,6 +62,13 @@ export function searchSessions(db: Db, params: SearchParamsDto, runningIds: Set<
   if (params.file) {
     where.push("exists (select 1 from event_index e where e.session_id = s.id and e.file_path like ? escape '\\')");
     args.push(likePattern(params.file));
+  }
+  if (!hasText) {
+    // 本文の条件が無いので、セッションを直接並べる。件数はそのファイルに触れたイベントの数にする。
+    const sql = `select s.id sid, s.provider_session_id psid, (select count(*) from event_index e where e.session_id = s.id and e.file_path like ? escape '\\') n from sessions s where ${where.join(' and ')} order by s.last_activity_at desc`;
+    let rows = db.prepare(sql).all(likePattern(params.file!), ...args) as { sid: string; psid: string; n: number }[];
+    if (params.running !== undefined) rows = rows.filter((r) => runningIds.has(r.psid) === params.running);
+    return { hits: rows.slice(0, limit).map((r) => ({ sessionId: r.sid, matchCount: r.n, snippets: [] })), total: rows.length };
   }
   // MATCH があれば索引で候補が絞れるので event_fts を直接結合する。
   // like だけのときは全走査になるので、集計に回す行数を LIKE_ONLY_SCAN_CAP で打ち切ってから結合する。
