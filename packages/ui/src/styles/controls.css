@@ -61,3 +61,10 @@
 .seg[data-ready='true'] .seg-thumb { transition: left var(--dur) var(--ease-out), width var(--dur) var(--ease-out); }
 /* 詰めた形。項目が 6 個ある effort に使う。 */
 .seg-xs > button { padding: 0 calc(var(--u) * 1.75); font-size: 11.5px; gap: var(--u); }
+
+/* チップ。押すと灯るもの（aria-pressed）と、択一のもの（aria-checked）がある。 */
+.chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
+.chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 2.75); border: 0; border-radius: var(--r-pill); font-weight: 520; white-space: nowrap; cursor: pointer; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.chip:hover { color: var(--ink); background: var(--surface); }
+.chip[aria-pressed='true'], .chip[aria-checked='true'], .chip[data-on='true'] { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
+.chip-input input { width: 140px; border: 0; outline: 0; background: none; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink); }
