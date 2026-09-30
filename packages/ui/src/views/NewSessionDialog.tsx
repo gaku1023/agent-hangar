@@ -38,7 +38,7 @@ const EFFORT_OPTIONS = EFFORTS.map((e, i) => ({ value: e, label: e || '既定', 
 export function NewSessionDialog(props: NewSessionProps) {
   const emit = useEmit();
   const form = useRef<HTMLFormElement>(null);
-  const [projectId, setProjectId] = useState(props.projectId ?? '');
+  const [projectId, setProjectId] = useState(() => (props.projectId && props.projects.some((p) => p.id === props.projectId) ? props.projectId : ''));
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
   const [permissionMode, setPermissionMode] = useState('');
@@ -68,6 +68,8 @@ export function NewSessionDialog(props: NewSessionProps) {
     if (e.key === 'Escape') { emit({ type: 'overlay.close' }); return; }
     if (e.key !== 'Enter' || isComposing(e)) return;
     if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+    // 選択の部品、ボタン、詳細の見出しの Enter は、その部品の操作である。起動には使わない。
+    if ((e.target as HTMLElement).closest('button, summary, [role="radio"]')) return;
     e.preventDefault();
     submit();
   };

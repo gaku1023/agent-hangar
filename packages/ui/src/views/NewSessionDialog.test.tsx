@@ -135,4 +135,18 @@ describe('NewSessionDialog', () => {
     fireEvent.keyDown(name, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.submit', params: { projectId: 'p1', name: 'なまえ' } });
   });
+  it('選択の部品の上の Enter は、その部品の操作であって起動ではない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} projectId="p1" /></IntentRoot>);
+    for (const target of [screen.getByRole('radio', { name: '計画だけ' }), screen.getByRole('radio', { name: 'opus' }), screen.getByRole('button', { name: 'ほか' }), screen.getByText('やめる'), screen.getByText(/^詳細/)]) {
+      fireEvent.keyDown(target, { key: 'Enter' });
+    }
+    expect(onIntent).not.toHaveBeenCalled();
+  });
+  it('一覧に出ないプロジェクトの id は、選んでいない扱いで送らない', () => {
+    const params = collectParams({ projectId: 'archived1' });
+    expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('選んでください');
+    start();
+    expect(Object.keys(params[0]!)).toEqual([]);
+  });
 });
