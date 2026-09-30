@@ -253,11 +253,17 @@ describe('ロックと remoteOnly と端末一覧', () => {
   it('端末一覧は最終確認の新しい順で、自端末に印を付ける', () => {
     const d2 = setup();
     expect(listDevices(d2, 'dev-a')).toEqual([
-      { id: 'dev-a', name: 'mac', platform: 'darwin', lastSeenAt: NOW, self: true },
-      { id: 'dev-b', name: 'mini', platform: 'darwin', lastSeenAt: NOW - 1000, self: false },
+      { id: 'dev-a', name: 'mac', platform: 'darwin', lastSeenAt: NOW, self: true, shell: null },
+      { id: 'dev-b', name: 'mini', platform: 'darwin', lastSeenAt: NOW - 1000, self: false, shell: null },
     ]);
     softDeleteShared(d2, 'devices', 'dev-b', 'dev-a');
     expect(listDevices(d2, 'dev-a').map((d) => d.id)).toEqual(['dev-a']);
+  });
+  it('端末ごとの包み方の状態を読み、知らない値と古い端末は null にする', () => {
+    const d2 = setup();
+    d2.prepare("update devices set shell_hook = 'on' where id = 'dev-a'").run();
+    d2.prepare("update devices set shell_hook = 'garbage' where id = 'dev-b'").run();
+    expect(listDevices(d2, 'dev-a').map((d) => d.shell)).toEqual(['on', null]);
   });
 
   it('last_seen_at が null の端末は末尾で、同順位は名前順', () => {
@@ -265,7 +271,7 @@ describe('ロックと remoteOnly と端末一覧', () => {
     upsertShared(d2, 'devices', { id: 'dev-z', name: 'zulu', platform: 'linux', last_seen_at: null }, 'dev-z');
     upsertShared(d2, 'devices', { id: 'dev-c', name: 'charlie', platform: 'linux', last_seen_at: null }, 'dev-c');
     expect(listDevices(d2, 'dev-a').map((d) => d.id)).toEqual(['dev-a', 'dev-b', 'dev-c', 'dev-z']);
-    expect(listDevices(d2, 'dev-a').find((d) => d.id === 'dev-z')).toMatchObject({ lastSeenAt: null, self: false });
+    expect(listDevices(d2, 'dev-a').find((d) => d.id === 'dev-z')).toMatchObject({ lastSeenAt: null, self: false, shell: null });
   });
 });
 

@@ -30,6 +30,7 @@ export type Effect =
   | { kind: 'api.updateSettings'; patch: Partial<SettingsDto> }
   | { kind: 'api.rebuildIndex' }
   | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string } | { kind: 'api.fork'; sessionId: string }
+  | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
   | { kind: 'api.killRun'; runId: string } | { kind: 'api.openTab'; sessionId: string } | { kind: 'api.closeTab'; tabId: string }
   | { kind: 'api.openTerminalApp'; runId: string; tabId: string | null } | { kind: 'api.openEditor'; sessionId: string }
   | { kind: 'api.projectOpenEditor'; projectId: string } | { kind: 'api.projectOpenTerminal'; projectId: string }
@@ -64,7 +65,7 @@ export type FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' |
 /** 同期の見え方。サーバの SyncStatusDto を UI が描く形に写したもの。 */
 export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
 /** 押し切る前に一言聞く必要があるもの。いまは他端末の本文を手元の本文で上書きする場面だけである。 */
-export type ConfirmRequest = { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number };
+export type ConfirmRequest = { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number } | { kind: 'adoptSession'; sessionId: string };
 export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' } | { kind: 'notYet'; feature: string }
   | { kind: 'shortcuts' }

@@ -22,6 +22,19 @@ describe('ConfirmDialog', () => {
   });
 });
 
+describe('ConfirmDialog（引き取り）', () => {
+  it('外のターミナルの claude が終わることと、問いが閉じることを書き、承諾で引き取る', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'adoptSession', sessionId: 's1' }} /></IntentRoot>);
+    expect(screen.getByRole('dialog', { name: '引き取りの確認' })).toBeInTheDocument();
+    expect(screen.getByText(/claude attach/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '引き取る' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.adopt', id: 's1', confirmed: true });
+    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+});
+
 describe('ConfigPreviewDialog', () => {
   it('一覧を出し、取り込むが Intent になる', () => {
     const onIntent = vi.fn();

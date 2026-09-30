@@ -49,23 +49,37 @@ describe('HomeScreen', () => {
   });
   it('確かめるは要対応の後、実行中の前に置く', () => {
     const c = { id: 't1', text: '窓', projectId: 'p1', projectName: 'a', sessionName: 's', ago: '1 分前', note: 'n' };
-    render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ attention: [{ id: 'w1', name: 'w', projectName: 'a', waited: '1 分', question: 'q', canAnswer: true }], confirm: [c], running: [runningCard()] })} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ attention: [{ id: 'w1', name: 'w', projectName: 'a', waited: '1 分', question: 'q', answer: 'terminal' }], confirm: [c], running: [runningCard()] })} /></IntentRoot>);
     const labels = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
     expect(labels.slice(0, 3)).toEqual(['要対応1', '確かめる1', '実行中1']);
   });
   it('要対応の札は問いを出し、「ターミナルで答える」で端末にフォーカスして開く', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w1', name: '論文の図を直す', projectName: 'thesis', waited: '12 分', question: '図 3 の凡例はどこに置きますか？', canAnswer: true }] })} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w1', name: '論文の図を直す', projectName: 'thesis', waited: '12 分', question: '図 3 の凡例はどこに置きますか？', answer: 'terminal' }] })} /></IntentRoot>);
     expect(screen.getByRole('heading', { name: /要対応/ })).toBeInTheDocument();
     expect(screen.getByText('図 3 の凡例はどこに置きますか？')).toBeInTheDocument();
     expect(screen.getByText(/thesis · 12 分待っている/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'ターミナルで答える' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'w1', focus: 'terminal' });
   });
-  it('hangar の外で動いている入力待ちの札は「開く」だけを出し、別のターミナルで動いていると添える', () => {
+  it('外のターミナルで動く入力待ちの札は「hangar で引き取る」を出し、押すと確認に回す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w2', name: '外の作業', projectName: 'thesis', waited: '3 分', question: '入力を待っています', answer: 'adopt' }] })} /></IntentRoot>);
+    expect(screen.getByText(/別のターミナルで動いています/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'hangar で引き取る' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.adopt', id: 'w2' });
+  });
+  it('バックグラウンドの入力待ちの札は「ターミナルで答える」で hangar からつなぐ', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w3', name: '裏の作業', projectName: 'thesis', waited: '3 分', question: '入力を待っています', answer: 'attach' }] })} /></IntentRoot>);
+    expect(screen.queryByText(/別のターミナルで動いています/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'ターミナルで答える' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.attach', id: 'w3' });
+  });
+  it('hangar から開く手が無い入力待ちの札は「開く」だけを出し、別のターミナルで動いていると添える', () => {
     // hangar の run が無いと端末は開けず、トランスクリプトしか見せられない。端末を約束するボタンは出さない。
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w2', name: '外の作業', projectName: 'thesis', waited: '3 分', question: '入力を待っています', canAnswer: false }] })} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w2', name: '外の作業', projectName: 'thesis', waited: '3 分', question: '入力を待っています', answer: null }] })} /></IntentRoot>);
     expect(screen.queryByRole('button', { name: 'ターミナルで答える' })).toBeNull();
     expect(screen.getByText(/別のターミナルで動いています/)).toBeInTheDocument();
     const open = screen.getByRole('button', { name: '開く' });

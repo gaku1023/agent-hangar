@@ -16,7 +16,9 @@ import { Tmux } from '../tmux/tmux.ts';
 import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
 import { createMcpApp } from '../mcp/app.ts';
 import { MemoStore } from '../projects/memo.ts';
+import type { LiveSession } from '../provider/types.ts';
 import { RunManager } from './manager.ts';
+import { realProcOps, type ProcOps } from './procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
 
 let db: Db;
@@ -48,8 +50,10 @@ afterEach(() => {
   fs.rmSync(claudeDir, { recursive: true, force: true });
 });
 
+/** バックグラウンドのサービスの一覧は既定で空にする。実物の口のままだと、偽の claude を一覧のために起こしてしまう。 */
+const noJobs: ProcOps = { ...realProcOps, listJobs: () => [] };
 const make = (over: Partial<ConstructorParameters<typeof RunManager>[0]> = {}) =>
-  new RunManager({ db, deviceId: 'd', home, tmux, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', ...over });
+  new RunManager({ db, deviceId: 'd', home, tmux, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', procs: noJobs, ...over });
 
 /** 偽の claude が記録した引数を待って読む。最後の要素は HANGAR_RUN_ID の値である。 */
 const launchedArgs = async (runId: string) => {
@@ -451,6 +455,157 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     const before = db.prepare('select count(*) c from sessions').get() as { c: number };
     expect(() => make().fork(id)).toThrow(expect.objectContaining({ status: 400 }));
     expect(db.prepare('select count(*) c from sessions').get()).toEqual(before);
+  });
+});
+
+/** レジストリの 1 件。既定は VS Code などで動く対話の claude で、入力待ちである。 */
+const liveEntry = (over: Partial<LiveSession> = {}): LiveSession => ({ sessionId: 'u-old', status: 'waiting', name: null, nameSource: null, cwd, pid: 4242, procStart: 'Wed Sep 30 03:01:55 2026', entrypoint: 'cli', ...over });
+
+/** 外のプロセスに触る口の偽物。runClaude の --bg でレジストリにバックグラウンドの項目を足す。 */
+function fakeProcs(live: LiveSession[], o: { startTime?: string | null; terminated?: boolean; bgOut?: string; bgSessionId?: string; bgFails?: boolean; agentsFails?: boolean; jobs?: { id: string; sessionId: string }[] } = {}) {
+  const calls: { terminate: number[]; claude: { args: string[]; cwd: string }[] } = { terminate: [], claude: [] };
+  const procs: ProcOps = {
+    listJobs: () => o.jobs ?? [],
+    startTimeOf: () => (o.startTime === undefined ? 'Wed Sep 30 03:01:55 2026' : o.startTime),
+    terminate: async (pid) => { calls.terminate.push(pid); return o.terminated ?? true; },
+    runClaude: async (_bin, args, cwd) => {
+      calls.claude.push({ args, cwd });
+      if (args[0] === 'agents') { if (o.agentsFails) throw new Error("'claude agents --json' is disabled by CLAUDE_CODE_DISABLE_AGENT_VIEW."); return '[]'; }
+      if (args[0] !== '--bg') return '';
+      if (o.bgFails) throw new Error('boom');
+      const i = live.findIndex((l) => l.sessionId === 'u-old');
+      if (i >= 0) live.splice(i, 1);
+      live.push(liveEntry({ sessionId: o.bgSessionId ?? 'u-old', status: 'idle', pid: 5151, background: { jobId: 'abcd1234' } }));
+      return o.bgOut ?? 'backgrounded · abcd1234 (idle — send a prompt to start)\n';
+    },
+  };
+  return { procs, calls };
+}
+
+describe('attach と引き取りの入力検査（tmux 不要）', () => {
+  it('attach は無いセッションに 404、バックグラウンドでないものと実行中に 409', () => {
+    const live: LiveSession[] = [];
+    const rm = make({ tmux: null, live: () => live });
+    expect(() => rm.attach('nope')).toThrow(expect.objectContaining({ status: 404 }));
+    const id = seedOldSession();
+    expect(() => rm.attach(id)).toThrow(expect.objectContaining({ status: 409 }));
+    live.push(liveEntry());
+    expect(() => rm.attach(id)).toThrow(expect.objectContaining({ status: 409 }));
+    live[0] = liveEntry({ background: { jobId: 'abcd1234' } });
+    seedRun({ sessionId: id });
+    expect(() => rm.attach(id)).toThrow(/実行中/);
+  });
+
+  it('動いていないもの、作業中のもの、起動時刻が合わないものは止めずに断る', async () => {
+    const id = seedOldSession();
+    const live: LiveSession[] = [];
+    const f = fakeProcs(live, { startTime: 'Thu Oct  1 00:00:00 2026' });
+    const rm = make({ tmux: null, live: () => live, procs: f.procs });
+    await expect(rm.adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/動いていません/) });
+    live.push(liveEntry({ status: 'busy' }));
+    await expect(rm.adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/作業中/) });
+    // VS Code の拡張やアプリの中の claude は、止めるとその画面の側が壊れる。
+    live[0] = liveEntry({ entrypoint: 'claude-vscode' });
+    await expect(rm.adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/拡張/) });
+    live[0] = liveEntry({ entrypoint: undefined });
+    await expect(rm.adopt(id)).rejects.toMatchObject({ status: 409 });
+    live[0] = liveEntry();
+    // tmux が無ければ移した後につなげないので、止める前に断る。
+    await expect(rm.adopt(id)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/tmux/) });
+    expect(f.calls.terminate).toEqual([]);
+  });
+
+  it('pid の起動時刻がレジストリの記録と違えば止めない。古い Claude で記録が無いときも同じ', async () => {
+    if (!TMUX) return;
+    const id = seedOldSession();
+    const live = [liveEntry()];
+    const other = fakeProcs(live, { startTime: 'Thu Oct  1 00:00:00 2026' });
+    await expect(make({ live: () => live, procs: other.procs }).adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/確かめられません/) });
+    const gone = fakeProcs(live, { startTime: null });
+    await expect(make({ live: () => live, procs: gone.procs }).adopt(id)).rejects.toMatchObject({ status: 409 });
+    live[0] = liveEntry({ procStart: undefined });
+    const old = fakeProcs(live);
+    await expect(make({ live: () => live, procs: old.procs }).adopt(id)).rejects.toMatchObject({ status: 409 });
+    expect([...other.calls.terminate, ...gone.calls.terminate, ...old.calls.terminate]).toEqual([]);
+  });
+});
+
+describe.skipIf(!TMUX)('attach と引き取り（tmux 上）', () => {
+  it('attach は tmux の中で claude attach <jobId> を起こし、指示も MCP も付けない', async () => {
+    const id = seedOldSession();
+    const live = [liveEntry({ status: 'idle', background: { jobId: 'abcd1234' } })];
+    const r = make({ live: () => live }).attach(id);
+    expect(r.sessionId).toBe(id);
+    expect(r.run.kind).toBe('resume');
+    expect((await launchedArgs(r.run.id)).slice(0, -1)).toEqual(['attach', 'abcd1234']);
+    expect(fs.existsSync(path.join(home, 'mcp', `${id}.json`))).toBe(false);
+  });
+
+  it('引き取りは元の claude を止め、同じ id でバックグラウンドに移してつなぐ', async () => {
+    const id = seedOldSession();
+    const live = [liveEntry()];
+    const f = fakeProcs(live);
+    const r = await make({ live: () => live, procs: f.procs }).adopt(id);
+    expect(f.calls.terminate).toEqual([4242]);
+    // 止める前に、この PC の Claude Code がバックグラウンドを使えるかを確かめる。
+    expect(f.calls.claude).toEqual([{ args: ['agents', '--json'], cwd }, { args: ['--bg', '--resume', 'u-old'], cwd }]);
+    expect(r.sessionId).toBe(id);
+    expect((await launchedArgs(r.run.id)).slice(0, -1)).toEqual(['attach', 'abcd1234']);
+  });
+
+  it('すでにバックグラウンドのセッションは止めずにつなぐだけにする', async () => {
+    const id = seedOldSession();
+    const live = [liveEntry({ status: 'busy', background: { jobId: 'abcd1234' } })];
+    const f = fakeProcs(live);
+    const r = await make({ live: () => live, procs: f.procs }).adopt(id);
+    expect(f.calls.terminate).toEqual([]);
+    expect((await launchedArgs(r.run.id)).slice(0, -1)).toEqual(['attach', 'abcd1234']);
+  });
+
+  it('Claude が写しを作ったら、写しを同じプロジェクトの新しいセッションとして開く', async () => {
+    const id = seedOldSession();
+    const live = [liveEntry()];
+    const f = fakeProcs(live, { bgSessionId: 'u-copy' });
+    const r = await make({ live: () => live, procs: f.procs }).adopt(id);
+    expect(r.sessionId).not.toBe(id);
+    expect(db.prepare('select provider_session_id, project_id from sessions where id = ?').get(r.sessionId)).toEqual({ provider_session_id: 'u-copy', project_id: 'p1' });
+  });
+
+  it('移せなかったら、開き直す手を添えて 400 にする', async () => {
+    const id = seedOldSession();
+    const live = [liveEntry()];
+    const f = fakeProcs(live, { bgFails: true });
+    await expect(make({ live: () => live, procs: f.procs }).adopt(id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('claude --resume u-old') });
+    const g = fakeProcs([liveEntry()], { terminated: false });
+    await expect(make({ live: () => [liveEntry()], procs: g.procs }).adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/終わりませんでした/) });
+    expect(g.calls.claude.map((c) => c.args[0])).toEqual(['agents']);
+  });
+
+  it('バックグラウンドを使えない Claude Code では、止めずに断る', async () => {
+    const id = seedOldSession();
+    const live = [liveEntry()];
+    const f = fakeProcs(live, { agentsFails: true });
+    await expect(make({ live: () => live, procs: f.procs }).adopt(id)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/バックグラウンドを使えません/) });
+    expect(f.calls.terminate).toEqual([]);
+  });
+
+  it('バックグラウンドのサービスが持っていたセッションの再開は、claude attach で起こす', async () => {
+    const id = seedOldSession();
+    const f = fakeProcs([], { jobs: [{ id: 'abcd1234', sessionId: 'u-old' }, { id: 'ffff0000', sessionId: 'u-other' }] });
+    const r = make({ live: () => [], procs: f.procs }).resume(id);
+    expect(r.run.kind).toBe('resume');
+    expect((await launchedArgs(r.run.id)).slice(0, -1)).toEqual(['attach', 'abcd1234']);
+  });
+
+  it('停止はバックグラウンドの本体も claude stop で止める', async () => {
+    const id = seedOldSession();
+    const live = [liveEntry({ status: 'idle', background: { jobId: 'abcd1234' } })];
+    const f = fakeProcs(live);
+    const rm = make({ live: () => live, procs: f.procs });
+    const r = rm.attach(id);
+    await launchedArgs(r.run.id);
+    rm.kill(r.run.id);
+    expect(f.calls.claude).toEqual([{ args: ['stop', 'abcd1234'], cwd }]);
   });
 });
 

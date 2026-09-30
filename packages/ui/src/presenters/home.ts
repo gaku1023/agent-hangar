@@ -1,16 +1,20 @@
 import type { LiveStatus, ProjectStatus, SessionDto } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { aliveRunOf, runningSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
 
 /**
  * 要対応の札。入力待ちのセッション 1 件につき 1 枚。
- * canAnswer は hangar の生きた run があり、端末を開いて答えられること。
- * 入力待ちはマシン全体の Claude のレジストリから来るので、別のターミナル（iTerm など）で動くセッションは canAnswer が false になる。
+ * answer は札から答える手である。
+ * terminal は hangar の生きた run があり、その端末を開いて答えられること。
+ * 入力待ちはマシン全体の Claude のレジストリから来るので、hangar の run が無いものも載る。
+ * attach は Claude のバックグラウンドのサービスが持つもので、hangar からつないで答えられる。
+ * adopt は別のターミナル（VS Code など）で動くもので、引き取れば hangar の端末で答えられる。
+ * どれでもなければ null で、端末は開けない。
  */
-export type AttentionCard = { id: string; name: string; projectName: string | null; waited: string; question: string; canAnswer: boolean };
+export type AttentionCard = { id: string; name: string; projectName: string | null; waited: string; question: string; answer: 'terminal' | 'attach' | 'adopt' | null };
 /** 実行中の札。activity があれば墨の地にツールと対象を、無ければ note の一言を出す。 */
 export type RunningCard = { id: string; name: string; live: LiveStatus | null; elapsed: string; meta: string; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string };
 /** Home のプロジェクトの小さな一覧の 1 行。counts は 0 でない数だけを並べた文。 */
@@ -37,7 +41,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
 
   // 長く待っているものほど先に答えたいので、最後に動いた時刻の古い順に並べる。
   const waiting = sessions.filter((s) => s.live === 'waiting').sort((a, b) => (a.lastActivityAt ?? now) - (b.lastActivityAt ?? now));
-  const attention = waiting.map((s) => ({ id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? NO_QUESTION, canAnswer: aliveRunOf(store, s.id) !== null }));
+  const attention = waiting.map((s) => ({ id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? NO_QUESTION, answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s) }));
 
   // 完了の候補。放っておくと溜まるので、長く待っているものほど先に出す。
   const candidates = Object.values(store.todos)

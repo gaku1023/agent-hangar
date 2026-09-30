@@ -118,7 +118,8 @@ export function recordFacts(raw: unknown): RecordFacts {
   const msg = isRec(raw.message) ? raw.message : null;
   switch (raw.type) {
     case 'assistant': {
-      const model = str(msg?.model); if (model) facts.model = model;
+      // <synthetic> は Claude が形だけの返事に付ける印で、モデルではない。拾うと、問いを閉じた後のモデル名が <synthetic> になる。
+      const model = str(msg?.model); if (model && model !== '<synthetic>') facts.model = model;
       const effort = str(raw.effort); if (effort) facts.effort = effort;
       const u = isRec(msg?.usage) ? msg.usage : null;
       if (u) facts.usage = { input: num(u.input_tokens) + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens), output: num(u.output_tokens) };

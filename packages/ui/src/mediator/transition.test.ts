@@ -618,6 +618,30 @@ describe('同期', () => {
   });
 });
 
+describe('外で動くセッションを hangar で開く', () => {
+  it('attach はそのまま送り、送信中の二度押しは捨てる', () => {
+    const r = run([intent({ type: 'session.attach', id: 's1' }), intent({ type: 'session.attach', id: 's1' })]);
+    expect(r.effects).toEqual([{ kind: 'api.attach', sessionId: 's1' }]);
+    expect(r.state.launch).toEqual({ kind: 'submitting' });
+  });
+  it('引き取りは先に確認を出し、承諾で送る。やめれば何も送らない', () => {
+    const a = run([intent({ type: 'session.adopt', id: 's1' })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } });
+    const closed = run([intent({ type: 'overlay.close' })], a.state);
+    expect(closed.effects).toEqual([]);
+    expect(closed.state).toEqual(initialState());
+    const b = run([intent({ type: 'session.adopt', id: 's1', confirmed: true }), intent({ type: 'session.adopt', id: 's1', confirmed: true })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    expect(b.state.launch).toEqual({ kind: 'submitting' });
+    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '引き取っています' }, { kind: 'api.adopt', sessionId: 's1' }]);
+    // 失敗はトーストで知らせ、送信中を解く。
+    const c = run([runtime({ type: 'launch.failed', message: '作業中のセッションは引き取れません' })], b.state);
+    expect(c.state.launch).toEqual({ kind: 'failed', message: '作業中のセッションは引き取れません' });
+    expect(c.effects).toEqual([{ kind: 'toast', level: 'error', message: '作業中のセッションは引き取れません' }]);
+  });
+});
+
 describe('この PC で再開', () => {
   it('この PC で再開の 409 は確認ダイアログになり、承諾で上書きを送る', () => {
     const a = run([intent({ type: 'session.resumeHere', id: 's1' })]);

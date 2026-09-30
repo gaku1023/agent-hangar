@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, ResumeHereConflictDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, ResumeHereConflictDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -25,6 +25,8 @@ export type ApiClient = {
   launch(params: LaunchParams): Promise<LaunchResultDto>;
   resume(sessionId: string): Promise<LaunchResultDto>;
   fork(sessionId: string): Promise<LaunchResultDto>;
+  attach(sessionId: string): Promise<LaunchResultDto>;
+  adopt(sessionId: string): Promise<LaunchResultDto>;
   killRun(runId: string): Promise<RunDto>;
   openTab(runId: string): Promise<TabDto>;
   closeTab(runId: string, tabId: string): Promise<TabDto>;
@@ -35,6 +37,7 @@ export type ApiClient = {
   createProject(name: string, path: string): Promise<ProjectDto>;
   usageAggregate(days: number): Promise<UsageAggregateDto>;
   statusline(): Promise<StatuslineStatusDto>;
+  shellHook(): Promise<ShellHookDto>;
   addTodo(projectId: string, text: string): Promise<TodoDto>;
   setTodoDone(id: string, done: boolean): Promise<TodoDto>;
   removeTodo(id: string): Promise<TodoDto>;
@@ -97,6 +100,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     launch: (params) => post('/api/runs', params),
     resume: (sessionId) => post(`/api/sessions/${sessionId}/resume`),
     fork: (sessionId) => post(`/api/sessions/${sessionId}/fork`),
+    attach: (sessionId) => post(`/api/sessions/${sessionId}/attach`),
+    adopt: (sessionId) => post(`/api/sessions/${sessionId}/adopt`),
     killRun: (runId) => call(`/api/runs/${runId}`, { method: 'DELETE' }),
     openTab: (runId) => post(`/api/runs/${runId}/tabs`),
     closeTab: (runId, tabId) => call(`/api/runs/${runId}/tabs/${tabId}`, { method: 'DELETE' }),
@@ -107,6 +112,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     createProject: (name, path) => post('/api/projects', { name, path }),
     usageAggregate: (days) => call(`/api/usage/aggregate${qs({ days })}`),
     statusline: () => call('/api/statusline'),
+    shellHook: () => call('/api/shell-hook'),
     addTodo: (projectId, text) => post(`/api/projects/${projectId}/todos`, { text }),
     setTodoDone: (id, done) => call(`/api/todos/${id}`, { method: 'PATCH', body: JSON.stringify({ done }) }),
     removeTodo: (id) => call(`/api/todos/${id}`, { method: 'DELETE' }),

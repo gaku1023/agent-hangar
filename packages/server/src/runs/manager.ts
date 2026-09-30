@@ -10,15 +10,20 @@ import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper
 import { ensureScratchProject, newScratchDir } from '../projects/scratch.ts';
 import { hasTranscriptFile } from '../provider/claude-code/discover.ts';
 import { claudeCodeProvider } from '../provider/claude-code/index.ts';
-import type { LaunchInput } from '../provider/types.ts';
+import type { LaunchInput, LiveSession } from '../provider/types.ts';
 import type { Tmux } from '../tmux/tmux.ts';
 import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
+import { parseBackgroundedId, realProcOps, sameStartTime, type ProcOps } from './procs.ts';
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
 const HEARTBEAT_MS = 30_000;
 /** 応答に載せる外部コマンドの失敗の長さの上限。 */
 const MAX_ERROR_LEN = 200;
+/** 引き取るときに、元の claude が SIGTERM で終わるのを待つ長さ。 */
+const TERMINATE_MS = 10_000;
+/** 引き取るときに、バックグラウンドに移したセッションがレジストリに載るのを待つ長さ。 */
+const BACKGROUND_WAIT_MS = 10_000;
 
 /** HTTP の状態コードを持つ失敗。呼び手はそのまま応答に使える。 */
 export class RunError extends Error {
@@ -30,7 +35,11 @@ export class RunError extends Error {
 
 export type LaunchResult = LaunchResultDto;
 export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run: RunDto): void; runEnded?(run: RunDto): void; tabChanged?(tab: TabDto): void };
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; isLive?: (providerSessionId: string) => boolean; now?: () => number };
+/**
+ * live は Claude のレジストリの今の中身である。引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引くのに使う。
+ * procs は外のプロセスに触る口で、テストでは差し替える。
+ */
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void> };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
@@ -47,6 +56,8 @@ function isDirectory(p: string): boolean {
 export class RunManager {
   private listeners = new Set<RunListener>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** 引き取りの途中のセッション。二度押しで元のプロセスを止めて移す手順が 2 本走らないようにする。 */
+  private adopting = new Set<string>();
 
   constructor(private readonly deps: RunManagerDeps) {}
 
@@ -286,10 +297,17 @@ export class RunManager {
     if (this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, 'このセッションは hangar の外で実行中です');
   }
 
-  /** 同じ cwd で claude -r <uuid> を実行し、同じセッションに kind = 'resume' の run を付ける。 */
+  /**
+   * 同じ cwd で claude -r <uuid> を実行し、同じセッションに kind = 'resume' の run を付ける。
+   * Claude のバックグラウンドのサービスが持っていたセッション（止まったもの、1 時間つながれずに止まったもの）は、
+   * claude -r ではなく `claude attach` で起こす。-r で hangar の tmux に開くと、元のターミナルから attach で戻れなくなる。
+   */
   resume(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s);
+    const bin = this.claudeBin();
+    const job = this.procs().listJobs(bin)?.find((j) => j.sessionId === s.provider_session_id) ?? null;
+    if (job) return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command: [bin, 'attach', job.id], params: { projectId: s.project_id ?? undefined } });
     const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(s.id, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, false);
     return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command, params: { projectId: s.project_id ?? undefined } });
   }
@@ -307,6 +325,103 @@ export class RunManager {
     upsertShared(this.db, 'sessions', { ...cur, project_id: s.project_id, name: null, started_at: now, last_activity_at: now }, this.deps.deviceId);
     const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(newSessionId, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, true, newUuid);
     return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined } });
+  }
+
+  /** レジストリのうち、Claude の UUID が一致する項目。 */
+  private liveOf(providerSessionId: string): LiveSession | null {
+    return this.deps.live?.().find((l) => l.sessionId === providerSessionId) ?? null;
+  }
+
+  private procs(): ProcOps {
+    return this.deps.procs ?? realProcOps;
+  }
+
+  /**
+   * Claude のバックグラウンドのサービスが持つセッションを、hangar の tmux の中の `claude attach` で開く。
+   * claude の本体はバックグラウンドのサービスの側で動き続け、この run が持つのは画面をつなぐ口だけである。
+   * 同じセッションに他のターミナルが同時につないでいてもよい。
+   * run の種類は resume にする。種類を増やすと、同期で行を受け取る古い版の端末が DB の制約で取り込めなくなる。
+   * 注入する指示と MCP の設定は付けない。`claude attach` はそれを受け取らないからである。
+   */
+  attach(sessionId: string): LaunchResult {
+    const s = this.session(sessionId);
+    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, 'このセッションは実行中です');
+    const l = this.liveOf(s.provider_session_id);
+    if (!l?.background) throw new RunError(409, 'このセッションはバックグラウンドで動いていません');
+    const command = [this.claudeBin(), 'attach', l.background.jobId];
+    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command, params: { projectId: s.project_id ?? undefined } });
+  }
+
+  /**
+   * hangar の外のターミナル（VS Code など）で動く claude を引き取り、hangar で開く。
+   * 外のターミナルの画面は、そのターミナルのアプリしか持っていないので、横からはつなげない。
+   * そこで元の claude を SIGTERM で終わらせ、同じ id のまま `claude --bg --resume` でバックグラウンドのサービスに移し、attach でつなぐ。
+   * 元のターミナルからも `claude attach <id>` で同じ画面に戻れる。
+   *
+   * 作業中は引き取らない。止めた時点の作業が途中で切れるからである。
+   * ターミナルの CLI（entrypoint が cli）の claude だけを引き取る。VS Code の拡張やアプリの中の claude を止めると、その画面の側が壊れる。
+   * 止める前に、この PC の Claude Code がバックグラウンドを使えるかを確かめる。古い版と、管理設定で切られた PC では、止めた後で移せずに終わる。
+   * 入力待ちで止めると、答えを待っていた問いは「答えなかった」として閉じる。会話は続けられ、文で答え直せばよい。
+   * 止める前に、pid の起動時刻がレジストリの記録と合うかを確かめる。pid が使い回されていたら別のプロセスを止めてしまう。
+   */
+  async adopt(sessionId: string): Promise<LaunchResult> {
+    const s = this.session(sessionId);
+    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, 'このセッションは実行中です');
+    const l = this.liveOf(s.provider_session_id);
+    if (!l) throw new RunError(409, 'このセッションは動いていません');
+    if (l.background) return this.attach(s.id);
+    if (l.status === 'busy') throw new RunError(409, '作業中のセッションは引き取れません。入力待ちか休みになってから引き取ってください');
+    if (l.entrypoint !== 'cli') throw new RunError(409, 'このセッションはターミナルではなく、VS Code の拡張やアプリの中で動いているので引き取れません');
+    if (this.adopting.has(s.id)) throw new RunError(409, 'このセッションは引き取りの途中です');
+    const bin = this.claudeBin();
+    this.precheck(s.cwd);
+    const started = this.procs().startTimeOf(l.pid);
+    if (!l.procStart || !started || !sameStartTime(started, l.procStart)) throw new RunError(409, 'このセッションのプロセスを確かめられませんでした');
+    this.adopting.add(s.id);
+    try {
+      try {
+        await this.procs().runClaude(bin, ['agents', '--json'], s.cwd);
+      } catch (e) {
+        throw new RunError(400, `この PC の Claude Code ではバックグラウンドを使えません（${this.safeError(e)}）。claude update で新しくするか、管理設定を確かめてください`);
+      }
+      if (!(await this.procs().terminate(l.pid, TERMINATE_MS))) throw new RunError(409, '元の claude が終わりませんでした。元のターミナルで終わらせてから、もう一度引き取ってください');
+      // ここから先で失敗しても、元の claude はもう居ない。会話は残っているので、開き直す手を添える。
+      const reopen = `claude --resume ${s.provider_session_id} で開き直せます`;
+      let out: string;
+      try {
+        out = await this.procs().runClaude(bin, ['--bg', '--resume', s.provider_session_id], s.cwd);
+      } catch (e) {
+        throw new RunError(400, `バックグラウンドに移せませんでした（${this.safeError(e)}）。${reopen}`);
+      }
+      const jobId = parseBackgroundedId(out);
+      if (!jobId) throw new RunError(400, `バックグラウンドに移した先が分かりませんでした。${reopen}`);
+      const bg = await this.waitForBackground(jobId);
+      if (!bg) throw new RunError(400, `バックグラウンドに移したセッションが見つかりませんでした。claude attach ${jobId} で開けます`);
+      // 元の claude がまだ終わりきっていないと、Claude は同じ id ではなく写しを作る。その写しを新しいセッションとして受ける。
+      return this.attach(bg.sessionId === s.provider_session_id ? s.id : this.copySession(s, bg.sessionId));
+    } finally {
+      this.adopting.delete(s.id);
+    }
+  }
+
+  /** バックグラウンドの id がレジストリに載るのを待つ。載ったらその項目を返す。 */
+  private async waitForBackground(jobId: string): Promise<LiveSession | null> {
+    const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    const until = this.now() + BACKGROUND_WAIT_MS;
+    for (;;) {
+      const hit = this.deps.live?.().find((l) => l.background?.jobId === jobId) ?? null;
+      if (hit || this.now() >= until) return hit;
+      await sleep(200);
+    }
+  }
+
+  /** Claude が作った写しのセッションの行。元と同じプロジェクトに入れる。 */
+  private copySession(s: SessionRow, providerSessionId: string): string {
+    const id = ensureSession(this.db, providerSessionId, s.cwd, this.deps.deviceId);
+    const cur = this.db.prepare('select * from sessions where id = ?').get(id) as Record<string, unknown>;
+    const now = this.now();
+    upsertShared(this.db, 'sessions', { ...cur, project_id: s.project_id, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    return id;
   }
 
   /** tmux の一覧を 1 回読み、消えた run とタブを閉じ、古い heartbeat を更新する。 */
@@ -404,8 +519,22 @@ export class RunManager {
     if (!run) throw new RunError(404, 'run が見つかりません');
     if (run.endedAt !== null) throw new RunError(409, 'この run は終了しています');
     for (const t of listTabs(this.db, runId)) if (t.kind === 'shell') this.closeTab(t.id);
+    this.stopBackground(run.sessionId);
     this.deps.tmux?.killSession(run.tmuxName);
     return this.end(runId, 'killed') ?? run;
+  }
+
+  /**
+   * バックグラウンドのサービスが持つセッションなら、その本体も止める。
+   * attach の run の tmux を落としても画面の口が閉じるだけで、claude は動き続けるからである。
+   * 止め終わるのは待たない。失敗しても run は閉じ、ログにだけ残す。
+   */
+  private stopBackground(sessionId: string): void {
+    const s = this.db.prepare('select provider_session_id, cwd from sessions where id = ?').get(sessionId) as { provider_session_id: string; cwd: string } | undefined;
+    const jobId = s ? this.liveOf(s.provider_session_id)?.background?.jobId : undefined;
+    if (!s || !jobId || !this.deps.claudeBin) return;
+    const cwd = isDirectory(s.cwd) ? s.cwd : this.deps.home;
+    this.procs().runClaude(this.deps.claudeBin, ['stop', jobId], cwd).catch((e) => console.error('[runs] バックグラウンドのセッションを止められませんでした', this.safeError(e)));
   }
 
   /** 終了検知の周期起動。tick の失敗でサーバが落ちないよう、必ず捕まえる。 */

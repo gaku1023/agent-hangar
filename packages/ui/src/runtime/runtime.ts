@@ -173,6 +173,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.launch': deps.api.launch(e.params).then(launched).catch(launchFailed); return;
       case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
+      case 'api.attach': deps.api.attach(e.sessionId).then(launched).catch(launchFailed); return;
+      case 'api.adopt': deps.api.adopt(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.killRun': deps.api.killRun(e.runId).then((run) => setStore(applyServerEvent(store, { type: 'run.ended', run }))).catch(fail); return;
       case 'api.openTab': {
         const run = aliveRunOf(store, e.sessionId);
@@ -234,6 +236,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.regenerateSummary': deps.api.regenerateSummary(e.sessionId).catch(fail); return;
       case 'api.loadSettingsExtras':
         deps.api.statusline().then((s) => setStore({ ...store, statusline: s })).catch(fail);
+        deps.api.shellHook().then((h) => setStore({ ...store, shellHook: h })).catch(fail);
         deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
         // LM Studio が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
         deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));

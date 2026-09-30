@@ -220,9 +220,10 @@ export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { d
 
 /** Settings の端末一覧。最終確認の新しい順で、自端末に印を付ける。 */
 export function listDevices(db: Db, selfId: string): DeviceDto[] {
-  const rows = db.prepare('select id, name, platform, last_seen_at from devices where deleted_at is null order by last_seen_at desc nulls last, name')
-    .all() as { id: string; name: string; platform: string; last_seen_at: number | null }[];
-  return rows.map((r) => ({ id: r.id, name: r.name, platform: r.platform, lastSeenAt: r.last_seen_at, self: r.id === selfId }));
+  const rows = db.prepare('select id, name, platform, last_seen_at, shell_hook from devices where deleted_at is null order by last_seen_at desc nulls last, name')
+    .all() as { id: string; name: string; platform: string; last_seen_at: number | null; shell_hook: string | null }[];
+  const shell = (v: string | null): DeviceDto['shell'] => (v === 'on' || v === 'off' || v === 'unsupported' ? v : null);
+  return rows.map((r) => ({ id: r.id, name: r.name, platform: r.platform, lastSeenAt: r.last_seen_at, self: r.id === selfId, shell: shell(r.shell_hook) }));
 }
 
 /** projects にこの端末の project_roots と最終活動を左結合した 1 行。 */

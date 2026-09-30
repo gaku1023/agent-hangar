@@ -8,7 +8,13 @@ export type ProjectDto = { id: string; name: string; status: ProjectStatus; isSc
 export type SessionStatsDto = { turns: number; model: string | null; effort: string | null; filesChanged: number; prUrl: string | null; inputTokens: number; outputTokens: number; contextPercent: number | null; costUsd: number | null };
 /** sourceId は書いた要約器の id。source_id を持たない古い行と、要約器を通さない要約では null になる。 */
 export type SessionSummaryDto = { title: string; oneLiner: string; body: string; state: SummaryState; nextSteps: string[]; source: SummarySource; sourceId: string | null; sourceModel: string | null; basedOnTurns: number; updatedAt: number };
-export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number };
+/**
+ * Claude のレジストリ（~/.claude/sessions/<pid>.json）の 1 件。
+ * background は Claude のバックグラウンドのサービスが持つセッションにだけ付く。jobId は `claude attach` に渡す短い id である。
+ * procStart はそのプロセスの起動時刻（UTC の ps の lstart の書式）。pid の使い回しを見分けるのに使う。古い Claude は書かない。
+ * entrypoint は claude を起こしたもの。ターミナルの CLI は cli、VS Code の拡張は claude-vscode になる。
+ */
+export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string };
 /** 実行中のセッションが最後に呼んだツールと、答えを待っている AskUserQuestion の問い。端末ローカルで、同期しない。 */
 export type SessionActivityDto = { tool: string; summary: string; question: string | null };
 export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; activity?: SessionActivityDto | null };
@@ -72,7 +78,11 @@ export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | 
 export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
 export type TakeoverPhase = 'requested' | 'waiting' | 'acked' | 'copying' | 'resumed' | 'timeout' | 'failed' | 'cancelled';
 export type TakeoverUpdateDto = { sessionId: string; requestId: string | null; phase: TakeoverPhase; force: boolean; message: string | null; elapsedMs: number };
-export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean };
+/** shell はその端末の包み方（hangar shell install）の状態。まだ知らせてこない古い版の端末は null になる。 */
+export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean; shell: ShellHookStateDto | null };
+export type ShellHookStateDto = 'on' | 'off' | 'unsupported';
+/** Settings の「外のターミナル」。state はこの PC の状態、command は入れるために貼るコマンド。 */
+export type ShellHookDto = { state: ShellHookStateDto; zshrc: string; line: string; command: string };
 export type ConfigPreviewAction = 'create' | 'overwrite' | 'conflict' | 'skip';
 export type ConfigPreviewEntryDto = { path: string; action: ConfigPreviewAction; localMtime: number | null; remoteMtime: number; remoteDevice: string; size: number };
 export type ConfigPreviewDto = { entries: ConfigPreviewEntryDto[]; confirmed: boolean };

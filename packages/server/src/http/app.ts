@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { newId, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { newId, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
 import { statuslineStatus } from '../config/statusline.ts';
@@ -21,7 +21,7 @@ import { aggregateUsage } from '../usage/aggregate.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
-export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget'>;
+export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */
 export type ExternalApi = {
   openTerminal(o: { tmuxName: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
@@ -84,6 +84,11 @@ export type AppDeps = {
   /** 参加トークン。setup を走らせていない端末では null。全セッションの読み書き権を持つので、ログには出さない。 */
   joinToken: () => string | null;
   devices: () => DeviceDto[];
+  /**
+   * 外のターミナルで起動した claude を hangar で開けるようにする包み方の、この PC の状態。
+   * 読むだけで、~/.zshrc を書き換える経路は持たない。書き換えるのは hangar shell install（CLI）だけである。
+   */
+  shellHook: () => ShellHookDto;
   uiDist?: string;
 };
 
@@ -206,6 +211,16 @@ const tooLargeResult = (c: Context, limit: number) => c.json({ error: `本文が
 function runResult<T>(c: Context, fn: () => T, status: 200 | 201 = 200) {
   try {
     return c.json(fn() as object, status);
+  } catch (e) {
+    if (e instanceof RunError) return c.json({ error: e.message }, e.status);
+    throw e;
+  }
+}
+
+/** runResult の非同期版。引き取りは元の claude が終わるのを待つので、応答まで数秒かかる。 */
+async function runResultAsync<T>(c: Context, fn: () => Promise<T>, status: 200 | 201 = 200) {
+  try {
+    return c.json((await fn()) as object, status);
   } catch (e) {
     if (e instanceof RunError) return c.json({ error: e.message }, e.status);
     throw e;
@@ -531,6 +546,10 @@ export function createApp(deps: AppDeps): Hono {
   });
   api.post('/sessions/:id/resume', async (c) => { await beforeLaunch(); return runResult(c, () => deps.runs.resume(c.req.param('id')), 201); });
   api.post('/sessions/:id/fork', async (c) => { await beforeLaunch(); return runResult(c, () => deps.runs.fork(c.req.param('id')), 201); });
+  // バックグラウンドのサービスが持つセッションに、hangar の tmux からつなぐ。本文はその claude が書くので、他端末の取り込みは待たない。
+  api.post('/sessions/:id/attach', (c) => runResult(c, () => deps.runs.attach(c.req.param('id')), 201));
+  // hangar の外のターミナルで動く claude を止め、バックグラウンドに移してからつなぐ。
+  api.post('/sessions/:id/adopt', (c) => runResultAsync(c, () => deps.runs.adopt(c.req.param('id')), 201));
   api.post('/sessions/:id/open-editor', (c) => {
     const s = session(c.req.param('id'));
     if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
@@ -594,6 +613,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(aggregateUsage(db, { days }));
   });
   api.get('/statusline', (c) => c.json(statuslineStatus(deps.settings().claudeDir)));
+  api.get('/shell-hook', (c) => c.json(deps.shellHook()));
 
   // TODO。変更のたびに一覧とプロジェクト（未完の数）を配る。
   const todosChanged = (projectId: string) => {

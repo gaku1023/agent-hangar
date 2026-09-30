@@ -138,6 +138,31 @@ export function SettingsScreen(props: SettingsProps) {
         <div className="faint" style={{ marginTop: 4 }}>{'サーバが 4177 以外で動いているときは --port <番号> を付けてください。'}</div>
       </section>
       <section>
+        <h2 className="h2">外のターミナル</h2>
+        <div className="muted">VS Code などのターミナルで起動した claude も、hangar のターミナルで開けるようにします。~/.zshrc に 1 行を足し、claude を Claude のバックグラウンドで起こしてすぐつなぐ形に包みます。</div>
+        {props.shell.devices.length > 0 && (
+          <div className="list" style={{ marginTop: 8 }}>
+            {props.shell.devices.map((d) => (
+              <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto', cursor: 'default' }}>
+                <span>{d.name}{d.self && <span className="faint"> この端末</span>}</span>
+                <span className={d.label === '入っています' ? undefined : 'faint'}>{d.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {props.shell.state === null && <div className="faint" style={{ marginTop: 4 }}>読み込んでいます</div>}
+        {/* 利用者のファイルは UI から書き換えない（statusline と同じ）。入れるのは CLI で、承諾を求めて控えを取る。 */}
+        {props.shell.state === 'off' && (
+          <>
+            <div className="faint" style={{ marginTop: 8 }}>この PC に入れるには、ターミナルで次を実行してください。足す行を見せて承諾を求め、足す前に {props.shell.zshrc} の控えを取ります。</div>
+            <pre className="mono snippet">{props.shell.command}</pre>
+          </>
+        )}
+        {props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>新しく開いたターミナルから効きます。1 回だけ包まずに起動するときは command claude、外すときは {props.shell.uninstallCommand} です。</div>}
+        {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>この PC の Claude Code ではバックグラウンドを使えません。claude update で新しくするか、管理設定でバックグラウンドが切られていないかを確かめてください。</div>}
+        <div className="faint" style={{ marginTop: 4 }}>入れていないときも、外のターミナルで入力待ちか休みの claude は「hangar で引き取る」で開けます。</div>
+      </section>
+      <section>
         <h2 className="h2">要約器</h2>
         <div className="grid2">
           <label className="field"><span>LM Studio の URL</span>

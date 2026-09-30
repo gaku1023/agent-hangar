@@ -268,4 +268,13 @@ alter table todos add column candidate_note text;
 alter table todos add column rejected_sessions text not null default '[]';
 `,
   },
+  {
+    // 外のターミナルで起動した claude を hangar で開けるようにする包み方（hangar shell install）を、この端末に入れたか。
+    // on / off / unsupported。端末の行に載せて同期し、Settings でどの PC に入っているかを並べる。
+    // 列を持たない古い端末は、適用のときに自分の表に無い列を捨てる（sync/apply.ts の tableColumns）。
+    version: 11,
+    sql: `
+alter table devices add column shell_hook text;
+`,
+  },
 ];

@@ -54,7 +54,7 @@ describe('フェーズ 4 の DTO', () => {
   it('ロック、同期の状態、端末、設定の下見が組み立てられる', () => {
     const lock: SessionLockDto = { deviceId: 'd2', deviceName: 'mini', runId: 'r1', heartbeatAt: 1, stale: false };
     const status: SyncStatusDto = { state: 'idle', url: 'https://x.workers.dev', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: true, confirmed: false } };
-    const device: DeviceDto = { id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false };
+    const device: DeviceDto = { id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false, shell: null };
     const preview: ConfigPreviewDto = { entries: [{ path: 'skills/x/SKILL.md', action: 'create', localMtime: null, remoteMtime: 4, remoteDevice: 'mini', size: 10 }], confirmed: false };
     expect(lock.stale).toBe(false);
     expect(status.claudeConfig.enabled).toBe(true);

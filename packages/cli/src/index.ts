@@ -3,7 +3,8 @@ import { claudeJsonPath, defaultClaudeDir, hangarHome, installShutdown, loadSett
 import { cloudBackfill, cloudStatus, promptWord, readJoinToken, runJoin, runSetupCloud, runTeardown } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage, startErrorMessage } from './probe.ts';
-import { formatSetupReport, runSetup } from './setup.ts';
+import { formatSetupReport, runSetup, whichCmd } from './setup.ts';
+import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
 import { runStatuslineInstall } from './statusline.ts';
 import { entryUrl, openInBrowser } from './url.ts';
 
@@ -17,7 +18,8 @@ const setup = program
   .option('--workspace <dir>', 'ワークスペースのルート')
   .option('--yes', '問いかけをすべて承諾する')
   .option('--skip-statusline', 'statusline への追記を提案しない')
-  .action(async (o: { workspace?: string; yes?: boolean; skipStatusline?: boolean }) => {
+  .option('--skip-shell', '外のターミナルの claude を hangar で開けるようにする 1 行を提案しない')
+  .action(async (o: { workspace?: string; yes?: boolean; skipStatusline?: boolean; skipShell?: boolean }) => {
     const home = hangarHome();
     const r = runSetup({ home, workspaceRoot: o.workspace });
     console.log(formatSetupReport(r));
@@ -25,6 +27,11 @@ const setup = program
       console.log('');
       const claudeDir = loadSettings(home).claudeDir || defaultClaudeDir();
       await runStatuslineInstall({ claudeDir, port: 4177, yes: o.yes ?? false });
+    }
+    if (!o.skipShell) {
+      // 新しい PC は setup の流れで聞かれるようにする。同期している他の PC は Settings で入っているかが分かる。
+      console.log('');
+      await runShellInstall({ claudeBin: claudeBinFor(home), yes: o.yes ?? false });
     }
     console.log('');
     console.log('MCP の登録は hangar mcp install で行えます。');
@@ -181,6 +188,32 @@ mcp
     console.log(r.message);
     if (!r.ok) process.exitCode = 1;
   });
+
+/** サーバと同じ順で claude を探す。Settings の claudePath、無ければ PATH。 */
+function claudeBinFor(home: string): string | null {
+  return process.env.HANGAR_CLAUDE_BIN ?? loadSettings(home).claudePath ?? whichCmd('claude');
+}
+
+const shell = program.command('shell').description('外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする');
+
+shell
+  .command('install')
+  .description('~/.zshrc に 1 行を足し、claude を Claude のバックグラウンドで起こしてつなぐ形に包む（承諾を求め、控えを取る）')
+  .option('--yes', '問わずに足す')
+  .action(async (o: { yes?: boolean }) => {
+    const r = await runShellInstall({ claudeBin: claudeBinFor(hangarHome()), yes: o.yes ?? false });
+    if (!r.installed) process.exitCode = 1;
+  });
+
+shell
+  .command('uninstall')
+  .description('~/.zshrc から hangar の足した行を外す（控えを取る）')
+  .action(() => { runShellUninstall(); });
+
+shell
+  .command('status')
+  .description('この PC に入っているかを表示する')
+  .action(() => { console.log(shellStatusLine({ claudeBin: claudeBinFor(hangarHome()) })); });
 
 const statusline = program.command('statusline').description('statusline スクリプトへの追記');
 

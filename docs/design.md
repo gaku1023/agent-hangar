@@ -34,6 +34,7 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
   - statusline スクリプトへの追記。承諾を求め、追記の前に同じディレクトリへバックアップを取る。
   - 利用者が明示的に押した「この PC で再開」で、他端末のセッション本文を `~/.claude/projects/` に写すこと。手元の本文を上書きするときは `~/.agent-hangar/backups/transcripts/` へ控えを取り、控えが取れなければ写さない。
   - クラウド同期で、他端末から引いた Claude Code のユーザー設定を書き戻すこと。Settings で明示的に有効にし、取り込む内容を確認したときだけ書く。上書きの前に `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。
+- `~/.claude` の外では、`hangar shell install` が `~/.zshrc` の末尾に 1 行を足す。statusline と同じく CLI だけが承諾を求めて行い、足す前に同じディレクトリへ控えを取る。UI とサーバは `GET /api/shell-hook` で有無を読むだけである（「外のターミナルのセッション」の節）。
   - 加えて、`~/.claude/` の外にある `~/.claude.json` の `mcpServers.hangar` を `hangar mcp install` が書き換える。Claude Code の設定である点は同じなので例外に数える。`claude mcp add` に任せないのは、`--header` の値が argv に載り、64 桁のトークンが同じ機械の誰からでも `ps` で読めるためである。削除は今までどおり `claude mcp remove` に任せる（こちらはトークンを渡さない）。
 - **ファイルを消さない**：hangar は利用者のファイルを削除しない。プロジェクトの削除は紐づけの解除であり、ディレクトリには触れない。例外はスクラッチを昇格するときの移動だけである。
 - **サーバが正**：状態はローカルサーバが持ち、UI は描画に必要な値だけを受け取る。ブラウザでも Tauri でも同じ UI が動く。
@@ -53,7 +54,7 @@ pnpm は手元で壊れているため使わない。
 - `packages/ui`：React と Vite による UI。Root から始まる階層、Passive View、Intent チェーン、Mediator。
 - `packages/cloud`：Cloudflare Worker。Hono でサーバとコードを共有し、D1 と R2 を扱う。フェーズ 4 で実装した。
 - `apps/desktop`：Tauri v2 のシェル。サーバを子プロセスとして起動し、ウィンドウに UI を表示する。フェーズ 5 で実装した。
-- `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`url`、`mcp install`、`statusline install`、`cloud status`、`cloud teardown` を提供する。
+- `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`url`、`mcp install`、`statusline install`、`shell install`、`shell uninstall`、`shell status`、`cloud status`、`cloud teardown` を提供する。
 
 ### プロセスと通信
 
@@ -1096,6 +1097,26 @@ DOM に載る行の数は件数によらず一定で、「追う」と「もっ�
 クラウド同期の節には、同期の状態と今すぐ同期と一時停止、参加している端末の一覧、参加トークンの再表示、Claude Code の設定を同期する印と取り込む内容の下見を置く。
 参加トークンは押したときだけ出し、120 秒で自動的に消して表示のボタンに戻る。
 statusline の節は追記の有無と追記先のパスを出すだけで、書き込むボタンは持たない（追記は CLI から行う）。
+外のターミナルの節は、同期している PC ごとの包み方の状態（入っている、まだ、この Claude Code では使えない）と、入れるために貼るコマンドを出す。書き込むボタンは持たない（`hangar shell install` から行う）。
+
+### 外のターミナルのセッション
+
+VS Code や iTerm のターミナルで起動した claude は、画面（PTY の親側）をそのアプリが持つので、hangar は横からつなげない。
+hangar が読めるのはレジストリ（`~/.claude/sessions/<pid>.json`）と本文だけである。
+そこで Claude Code のバックグラウンドのサービス（`claude --bg`、`claude attach`）を使い、2 つの道で hangar の端末に開けるようにする。
+
+- **引き取り（`POST /api/sessions/:id/adopt`）**：外のターミナルで動く、入力待ちか休みの CLI の claude を止め、同じ id のまま `claude --bg --resume` でバックグラウンドに移し、hangar の tmux の中の `claude attach` でつなぐ。
+  止める前に、レジストリの `entrypoint` が `cli` であること（VS Code の拡張の中の claude は止めない）、`claude agents --json` が通ること（バックグラウンドを使えない版と管理設定では止めない）、pid の起動時刻がレジストリの `procStart` と合うこと（pid の使い回しで別のプロセスを止めない）を確かめる。
+  入力待ちで止めると、待っていた問いは「答えなかった」として閉じる。元のターミナルからは `claude attach <id>` で同じ画面に戻れる。
+- **包み方（`hangar shell install`）**：`~/.zshrc` から `~/.agent-hangar/shell/claude.zsh` を読み、対話で起動した `claude` を `claude --bg` で起こしてすぐ `attach` する。はじめからバックグラウンドのセッションなので、hangar は止めずにつなげる（`POST /api/sessions/:id/attach`）。
+  サブコマンド、`-p`、`-c`（`--bg` と組むと写しを作る）、id の無い `-r` は包まない。`-r <id>` は、そのセッションがもうバックグラウンドで動いていれば attach だけにする（`--bg --resume` は写しを作る）。`--bg` が通らなければ素の claude を起こす（信頼していないフォルダ、古い版、管理設定）。
+  本体は hangar が起動のたびに書き直すので、包み方を直しても各 PC で入れ直す必要はない。
+
+attach の run の種類は resume のままにする。種類を増やすと、同期で行を受け取る古い版の端末が DB の制約で取り込めなくなる。
+attach の run の停止は、tmux を落とすのに加えて `claude stop <id>` でバックグラウンドの本体も止める。
+止まったバックグラウンドのセッション（1 時間つながれずに止まったものを含む）の再開は、`claude -r` ではなく `claude attach` で起こす。`claude agents --json --all` に載っていれば、そちらを使う。
+各 PC の包み方の状態は `devices.shell_hook` に書いて同期する。
+同じセッションに 2 つのターミナルがつないでいるとき、画面の大きさは最後につないだか大きさを変えた側に合う（Claude のバックグラウンドのサービスの決まりで、hangar からは選べない）。hangar でつなぐと元のターミナルも hangar の大きさで描かれ、元のターミナルの窓の大きさを変えれば戻る。
 使用量の節には、直近 30 日の日別（日、入力トークン、出力トークン、セッション数）と、プロジェクト別（名前、トークン、推定コスト、セッション数）の 2 つの小さな表を置く。
 推定コストの列には、そのセッションの走り全体の累計であることを添える。
 診断として、サーバのログの末尾と索引の進行を出す。

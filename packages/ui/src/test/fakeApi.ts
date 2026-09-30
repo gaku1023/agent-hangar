@@ -3,8 +3,8 @@ import type { ApiClient } from '../runtime/api.ts';
 
 type Extras = Pick<
   ApiClient,
-  | 'launch' | 'resume' | 'fork' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
-  | 'usageAggregate' | 'statusline' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
+  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncStatus' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
 >;
@@ -19,6 +19,8 @@ export function fakeApiExtras(): Extras {
     launch: vi.fn(async () => unused()),
     resume: vi.fn(async () => unused()),
     fork: vi.fn(async () => unused()),
+    attach: vi.fn(async () => unused()),
+    adopt: vi.fn(async () => unused()),
     killRun: vi.fn(async () => unused()),
     openTab: vi.fn(async () => unused()),
     closeTab: vi.fn(async () => unused()),
@@ -29,6 +31,7 @@ export function fakeApiExtras(): Extras {
     createProject: vi.fn(async () => unused()),
     usageAggregate: vi.fn(async () => ({ days: [], projects: [] })),
     statusline: vi.fn(async () => ({ command: null, scriptPath: null, installed: false })),
+    shellHook: vi.fn(async () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' })),
     addTodo: vi.fn(async (projectId: string, text: string) => ({ id: 't1', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1 })),
     setTodoDone: vi.fn(async (id: string, done: boolean) => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1 })),
     removeTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1 })),
