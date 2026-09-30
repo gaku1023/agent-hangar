@@ -828,7 +828,7 @@ describe('次の入力待ちへ（C5）', () => {
     expect(key({ key: 'i', metaKey: true }).defaultPrevented).toBe(false);
     await flush();
     expect(m.deps.location.getHash()).toBe(before);
-    expect(screen.getByRole('dialog', { name: 'キーボード' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toBeInTheDocument();
   });
 
   it('パレットを開いているときの ⌘I は、パレットを閉じて移る', async () => {

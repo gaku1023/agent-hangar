@@ -394,7 +394,7 @@ describe('TabStrip のキー操作（C3）', () => {
     expect(screen.getByLabelText('シェル 1 を閉じる').tabIndex).toBe(-1);
     expect(screen.getByLabelText('シェル 2 を閉じる').tabIndex).toBe(-1);
     expect(screen.getByLabelText('シェルタブを追加').tabIndex).toBe(0);
-    expect(screen.getByLabelText('分割').tabIndex).toBe(0);
+    expect(screen.getByLabelText('横に並べる').tabIndex).toBe(0);
   });
 
   it('閉じるボタンの Enter ではタブを選ばない', () => {
