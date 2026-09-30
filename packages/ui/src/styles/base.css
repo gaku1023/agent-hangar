@@ -247,6 +247,22 @@ a:hover { text-decoration: underline; }
 @keyframes slide { from { opacity: 0; transform: translateX(16px); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 .progress { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
 
+/* 保持期間の確認の差分。足す行は緑、消す行は赤の淡い地にする。 */
+.diff { background: var(--surface-2); border-radius: var(--r); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); font-size: var(--fs-xs); line-height: 1.65; white-space: pre; overflow: auto; }
+.diff-path, .diff-ctx { color: var(--ink-3); }
+.diff-add { color: var(--st-done); background: var(--st-done-soft); margin: 0 calc(var(--u) * -2.5); padding: 0 calc(var(--u) * 2.5); }
+.diff-del { color: var(--error); background: color-mix(in srgb, var(--error) 8%, transparent); margin: 0 calc(var(--u) * -2.5); padding: 0 calc(var(--u) * 2.5); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: var(--u) calc(var(--u) * 3.5); margin: 0; font-size: var(--fs-sm); }
+.kv dt { color: var(--ink-2); }
+.kv dd { margin: 0; }
+/* 使用量のバー。いまの量は藍、見込みは琥珀の斜線で、いまの量の後ろに重ねる。 */
+.usage-meter { position: relative; height: 8px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--ink) 8%, transparent); overflow: hidden; }
+.usage-meter > i { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-pill); }
+.usage-now { background: var(--accent); }
+.usage-proj { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--busy) 55%, transparent) 0 4px, color-mix(in srgb, var(--busy) 25%, transparent) 4px 8px); }
+.usage-legend { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 3); margin-top: var(--u); font-size: var(--fs-xs); color: var(--ink-2); }
+.usage-warn { color: var(--st-paused); font-weight: 600; }
+
 /* ヘッダの畳み方（窓が狭いとき）。窓ではなくヘッダ自身の幅で決める。サイドバーの開閉でもヘッダの幅は変わるからである。
    狭くなるほど、①最終更新 → ②同期の操作 → ③ゲージの棒（短い名前と数字だけに） → ④検索欄（虫眼鏡に）、同期の文、索引の進み
    → ⑤パンくずの前の段 → ⑥新規セッションの文字（「＋」だけに）と同期の件数 → ⑦ゲージ、の順に畳む。

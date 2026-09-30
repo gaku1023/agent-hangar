@@ -13,6 +13,7 @@ import { buildItems, presentSession } from './session.ts';
 import { presentSessions } from './sessions.ts';
 import { presentSettings } from './settings.ts';
 import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
+import { presentRetentionDialog } from './retentionDialog.ts';
 import { presentShell } from './shell.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
@@ -851,5 +852,37 @@ describe('presentShell の保持期間の帯', () => {
     }
     expect(presentShell({ ...initialState(), retentionBannerDismissed: true }, withSessions([]), NOW).retention.visible).toBe(false);
     expect(presentShell(initialState(), withSessions([], null), NOW).retention.visible).toBe(false);
+  });
+});
+
+describe('presentRetentionDialog', () => {
+  const DAY = 86_400_000;
+  const R: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
+  const P: RetentionPreviewDto = { days: 365, path: '/Users/me/.claude/settings.json', lines: [{ kind: 'ctx', text: '{' }, { kind: 'add', text: '  "cleanupPeriodDays" : 365,' }], baseSha256: 'abc', backupDir: '/Users/me/.agent-hangar/backups/claude-config', projectedBytes: 365 * 52_428_800 };
+  const open = (days = 365, from: 'banner' | 'settings' = 'banner') => ({ ...initialState(), overlay: { kind: 'retention' as const, days, from, reloaded: false, writing: false } });
+  const st = (over: Partial<Store> = {}): Store => ({ ...initialStore(), retention: R, retentionPreview: P, ...over });
+  it('延ばすときの題、説明、見込み、控えを出す', () => {
+    const p = presentRetentionDialog(open(), st(), NOW)!;
+    expect(p).toMatchObject({ title: '会話の保持期間を 1 年にします', lead: 'Claude Code の設定ファイルに、次の 1 行を足します。', path: P.path, backupDir: P.backupDir + '/', otherPcs: false, shrinkNote: null, showOther: true });
+    expect(p.bar).toMatchObject({ nowLabel: 'いま 1.5 GB', projLabel: '1 年たつと約 18 GB', freeLabel: '空き 400 GB', warn: false });
+  });
+  it('値を替えるときは「書き換えます」、同期が有効ならほかの PC の行を出す', () => {
+    const lines = [{ kind: 'del' as const, text: '  "cleanupPeriodDays" : 3650' }, { kind: 'add' as const, text: '  "cleanupPeriodDays" : 365' }];
+    const p = presentRetentionDialog(open(365, 'settings'), st({ retention: { ...R, days: 3650, source: 'user', userValue: 3650 }, retentionPreview: { ...P, lines }, settings: { ...fullSettings(), syncClaudeConfig: true } }), NOW)!;
+    expect(p.lead).toBe('Claude Code の設定ファイルの、次の 1 行を書き換えます。');
+    expect(p.otherPcs).toBe(true);
+    expect(p.showOther).toBe(false);
+  });
+  it('縮めるときは題を変え、消える件数を言う', () => {
+    const s = { a: session('a', { transcriptMtime: NOW - 40 * DAY }), b: session('b', { transcriptMtime: NOW - 5 * DAY }) };
+    const p = presentRetentionDialog(open(30, 'settings'), st({ retention: { ...R, days: 365, source: 'user', userValue: 365 }, retentionPreview: { ...P, days: 30 }, sessions: s }), NOW)!;
+    expect(p.title).toBe('会話の保持期間を 30 日に縮めます');
+    expect(p.shrinkNote).toBe('次に Claude Code を使い始めたとき、1 件の会話の本文が削除されます。');
+  });
+  it('見込みが空きの半分を超えたら警告にし、下見が届く前は差分を null にする', () => {
+    const big = presentRetentionDialog(open(3650), st({ retentionPreview: { ...P, days: 3650, projectedBytes: 300 * 1024 ** 3 } }), NOW)!;
+    expect(big.bar!.warn).toBe(true);
+    expect(presentRetentionDialog(open(), st({ retentionPreview: null }), NOW)!.lines).toBeNull();
+    expect(presentRetentionDialog(initialState(), st(), NOW)).toBeNull();
   });
 });
