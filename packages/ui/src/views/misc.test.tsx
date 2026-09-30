@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { pick } from '../test/pick.ts';
+import type { SessionRowProps } from '../presenters/row.ts';
 import type { CloudSettingsProps, SettingsProps } from '../presenters/settings.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 import { SessionRows } from './SessionRows.tsx';
@@ -10,10 +11,12 @@ import { SessionsScreen } from './SessionsScreen.tsx';
 import { SettingsScreen } from './SettingsScreen.tsx';
 import { ToastStack } from './ToastStack.tsx';
 
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, cost: '', runId: null });
+
 describe('SessionsScreen', () => {
   it('絞り込みは search.filter、キーワードは search.query', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     pick('プロジェクト', 'alpha');
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: 'p1' } });
     fireEvent.click(screen.getByRole('radio', { name: '実行中' }));
@@ -24,20 +27,20 @@ describe('SessionsScreen', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: 'x y' });
   });
   it('絞り込みは、何で絞っているかを帯と札で見せる', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ projectId: 'p1', running: false }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ projectId: 'p1', running: false }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('alpha');
     expect(within(screen.getByRole('radiogroup', { name: '状態' })).getByRole('radio', { name: '終了' })).toHaveAttribute('aria-checked', 'true');
     expect(within(screen.getByRole('radiogroup', { name: '期間' })).getByRole('radio', { name: '全期間' })).toHaveAttribute('aria-checked', 'true');
   });
   it('すべてのプロジェクトに戻すと projectId を外す', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{ projectId: 'p1' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{ projectId: 'p1' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     pick('プロジェクト', 'すべてのプロジェクト');
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: undefined } });
   });
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     const kw = screen.getByLabelText('キーワード');
     fireEvent.change(kw, { target: { value: '動画' } });
     fireEvent.keyDown(kw, { key: 'Enter', isComposing: true });
@@ -51,39 +54,60 @@ describe('SessionsScreen', () => {
     fireEvent.keyDown(file, { key: 'Enter', isComposing: true });
     expect(onIntent).not.toHaveBeenCalled();
   });
-  it('期間は since を now から N 日前にする', () => {
+  // 期間は相対の日数で持つ。絶対の時刻で持つと、時間が経つにつれて表示の日数がずれ、半日ほどで「全期間」に見えていた。
+  it('期間は日数で持ち、時間が経っても選んだ帯のまま見える', () => {
     const onIntent = vi.fn();
-    const before = Date.now();
-    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     fireEvent.click(screen.getByRole('radio', { name: '7 日' }));
-    const call = onIntent.mock.calls.find((c) => c[0].type === 'search.filter')?.[0];
-    expect(call).toBeDefined();
-    const since = call.patch.since as number;
-    expect(since).toBeGreaterThanOrEqual(before - 7 * 86_400_000);
-    expect(since).toBeLessThanOrEqual(Date.now() - 7 * 86_400_000);
-    expect(call.patch.until).toBeUndefined();
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { days: 7 } });
+    rerender(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{ days: 7 }} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
+    fireEvent.click(screen.getByRole('radio', { name: '全期間' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { days: undefined } });
+  });
+  it('選んだ期間の帯に印が付く', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ days: 1 }} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
+    const period = () => within(screen.getByRole('radiogroup', { name: '期間' }));
+    expect(period().getByRole('radio', { name: '今日' })).toHaveAttribute('aria-checked', 'true');
+    rerender(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ days: 30 }} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
+    expect(period().getByRole('radio', { name: '30 日' })).toHaveAttribute('aria-checked', 'true');
   });
   it('画面の頭に見出しを置き、件数を添える', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={1196} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={1196} total={1196} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     const h = screen.getByRole('heading', { level: 1 });
     expect(h).toHaveTextContent('セッション');
     expect(within(h).getByText('1196 件')).toBeInTheDocument();
   });
+  // サーバは上位の 50 件だけを返す。全件の数だけを出すと、並ぶ行の数と合わない。
+  it('切れているときは「上位 N / 全件」と出し、一覧の末尾から続きを読める', () => {
+    const onIntent = vi.fn();
+    const rows = [row('s1'), row('s2')];
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={rows} shown={50} total={132} loading={false} loadingMore={false} mode="search" /></IntentRoot>);
+    expect(within(screen.getByRole('heading', { level: 1 })).getByText('上位 50 / 132 件')).toBeInTheDocument();
+    const more = within(screen.getByTestId('session-rows')).getByRole('button', { name: 'さらに読み込む' });
+    fireEvent.click(more);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.more', offset: 50 });
+    rerender(<IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={rows} shown={50} total={132} loading={false} loadingMore mode="search" /></IntentRoot>);
+    expect(screen.getByRole('button', { name: '読み込んでいます' })).toBeDisabled();
+    expect(screen.getByText('上位 50 / 132 件')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={rows} shown={132} total={132} loading={false} loadingMore={false} mode="search" /></IntentRoot>);
+    expect(screen.getByText('132 件')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'さらに読み込む' })).toBeNull();
+  });
   it('検索中と件数の表示', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading loadingMore={false} mode="search" /></IntentRoot>);
     expect(screen.getByText('検索しています')).toBeInTheDocument();
   });
   it('検索で何も当たらなければ「一致するセッションはありません」', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="search" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="search" /></IntentRoot>);
     expect(screen.getByText('一致するセッションはありません')).toBeInTheDocument();
     expect(screen.queryByText('セッションはまだありません')).toBeNull();
   });
   it('全件表示で空なら「セッションはまだありません」のまま', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();
   });
   it('検索中は空の文言を出さない', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading loadingMore={false} mode="search" /></IntentRoot>);
     expect(screen.queryByText('一致するセッションはありません')).toBeNull();
   });
 });
@@ -516,7 +540,7 @@ describe('Header', () => {
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
     // sync は Task 23 が Header に足した props である。この節が見るのは検索欄だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
     const box = screen.getByRole('searchbox');
     fireEvent.change(box, { target: { value: '動画' } });
     fireEvent.keyDown(box, { key: 'Enter', isComposing: true });

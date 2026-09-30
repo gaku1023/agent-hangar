@@ -17,13 +17,16 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   return row;
 }
 
+/** 生きているセッションの並び。答えを待っているものほど上に置く。 */
 const LIVE_ORDER: Record<string, number> = { waiting: 0, busy: 1, idle: 2 };
-/** 実行中を先頭に、その後を新しい順に。 */
+/** 終わったセッションの順位。どの生きている状態よりも後ろに来る。 */
+const ENDED_ORDER = 9;
+/** 生きているものを先頭に waiting、busy、idle の順で並べ、同じ順位の中は新しい順にする。 */
 export function sortSessions(list: SessionDto[]): SessionDto[] {
   return [...list].sort((a, b) => {
-    const la = a.live ? LIVE_ORDER[a.live] ?? 3 : 9;
-    const lb = b.live ? LIVE_ORDER[b.live] ?? 3 : 9;
-    if ((la < 9) !== (lb < 9)) return la < 9 ? -1 : 1;
+    const la = a.live ? LIVE_ORDER[a.live] ?? 3 : ENDED_ORDER;
+    const lb = b.live ? LIVE_ORDER[b.live] ?? 3 : ENDED_ORDER;
+    if (la !== lb) return la - lb;
     return (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0);
   });
 }

@@ -231,7 +231,11 @@ a:hover { text-decoration: underline; }
 
 /* オーバーレイ */
 .overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 18%, transparent); display: grid; place-items: center; z-index: 10; }
-.dialog { border-radius: 18px; background: var(--glass-bg-dialog); -webkit-backdrop-filter: var(--glass-blur-dialog); backdrop-filter: var(--glass-blur-dialog); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: calc(var(--u) * 5); width: 480px; max-width: calc(100vw - 32px); animation: pop var(--dur) var(--ease-out); display: flex; flex-direction: column; gap: calc(var(--u) * 3); }
+/* ダイアログは窓より高くしない。上下に 24px ずつ残し、溢れた中身は器の中でスクロールする。
+   下端のボタンの段（.dialog-foot）は、スクロールしても見えるまま残す。 */
+.dialog { --dialog-pad: calc(var(--u) * 5); --dialog-gap: calc(var(--u) * 3); border-radius: 18px; background: var(--glass-bg-dialog); -webkit-backdrop-filter: var(--glass-blur-dialog); backdrop-filter: var(--glass-blur-dialog); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: var(--dialog-pad); width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px); overflow-y: auto; overscroll-behavior: contain; scroll-timeline: --dialog-scroll block; animation: pop var(--dur) var(--ease-out); display: flex; flex-direction: column; gap: var(--dialog-gap); }
+/* 器の中の段は縮めない。縮めると入力欄やテキストエリアが潰れ、器ではなく段の中でスクロールしてしまう。 */
+.dialog > * { flex-shrink: 0; }
 @keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 .toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; gap: var(--u); z-index: 20; }
 .toast { background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; }
@@ -277,7 +281,15 @@ a:hover { text-decoration: underline; }
 .field textarea.input { height: auto; padding: var(--u) calc(var(--u) * 2); resize: vertical; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--u) * 2); }
 .dialog-wide { width: 560px; }
-.dialog-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+/* ボタンの段は器の下端に貼り付く。
+   器の下の余白は段が持ち、上の隙間と左右の余白まで段を広げて、その下をくぐる中身を隠す。
+   広げた分は余白で戻すので、スクロールしないときの見た目は変わらない。
+   地は中身が下をくぐるとき、つまり器がスクロールできるときだけ塗る。器のスクロールの進みで塗る動きを付け、スクロールしない器では進みが無いので塗られない。
+   塗ったままにすると、ガラスの上に白い帯が浮く。スクロールの進みを使えない環境では、常に塗る。 */
+.dialog:has(> .dialog-foot) { padding-bottom: 0; }
+.dialog-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); position: sticky; bottom: 0; z-index: 1; margin: calc(var(--dialog-gap) * -1) calc(var(--dialog-pad) * -1) 0; padding: var(--dialog-gap) var(--dialog-pad) var(--dialog-pad); animation-name: dialog-foot-cover; animation-duration: auto; animation-timing-function: linear; animation-fill-mode: both; animation-timeline: --dialog-scroll; }
+@keyframes dialog-foot-cover { from, to { background: var(--surface); box-shadow: 0 -1px 0 var(--line); } }
+@supports not (animation-timeline: scroll()) { .dialog-foot { background: var(--surface); box-shadow: 0 -1px 0 var(--line); } }
 .error { color: var(--error); font-size: var(--fs-sm); }
 
 /* タブは端末の板から生えたフォルダの耳。選んだタブは板と同じ墨色になり、板とつながる。

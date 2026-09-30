@@ -8,7 +8,12 @@ export type TabId = string;
 export type TodoId = string;
 export type ArtifactId = string;
 
-export type SearchFilter = { projectId?: string; since?: number; until?: number; running?: boolean; file?: string };
+/**
+ * 一覧と検索の絞り込み。
+ * 期間は相対の日数（今日を含めて何日分か）で持ち、時刻には問い合わせる瞬間に直す。
+ * 絶対の時刻で持つと、時間が経つにつれて選んだ帯と中身が食い違う。
+ */
+export type SearchFilter = { projectId?: string; days?: number; until?: number; running?: boolean; file?: string };
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[] };
 export type PaletteCommand = { id: string; label: string };
 export type Settings = SettingsDto;
@@ -20,6 +25,8 @@ export type Intent =
   | { type: 'shortcuts.open' }
   | { type: 'palette.open' } | { type: 'palette.close' } | { type: 'palette.run'; command: PaletteCommand }
   | { type: 'search.query'; text: string } | { type: 'search.filter'; patch: Partial<SearchFilter> }
+  // サーバは上位の結果だけを返すので、続きは今の条件のまま offset から読み足す。
+  | { type: 'search.more'; offset: number }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; name: string; gitInit: boolean; startSession: boolean }
   | { type: 'project.resolve.open'; id: ProjectId }

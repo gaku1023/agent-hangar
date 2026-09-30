@@ -9,6 +9,22 @@ export type NewSessionProps = { projects: NewSessionProject[]; recentIds: string
 /** 一覧の「最近」に置く件数。 */
 export const RECENT_COUNT = 5;
 
+/** 新規セッションのダイアログを開くときに、最初から選んでおくもの。session.new.open にそのまま載せる。 */
+export type NewSessionTarget = { projectId?: string; scratch?: boolean };
+
+/**
+ * ⌘N とヘッダーの新規ボタンで開くダイアログの、最初の選択。
+ * プロジェクトの画面ならそのプロジェクト、セッションの画面ならそのセッションのプロジェクトを選ぶ。
+ * スクラッチの擬似プロジェクトは選べないので、その画面の「新規」と同じくスクラッチで開く。
+ * ほかの画面とプロジェクトの無いセッションでは何も選ばない。
+ */
+export function newSessionTarget(state: State, store: Store): NewSessionTarget {
+  const s = state.screen;
+  const projectId = s.name === 'project' ? s.id : s.name === 'session' ? store.sessions[s.id]?.projectId ?? null : null;
+  if (!projectId) return {};
+  return store.projects[projectId]?.isScratch ? { scratch: true } : { projectId };
+}
+
 /** 起動ダイアログ。overlay が newSession のときだけ props を作る。 */
 export function presentNewSession(state: State, store: Store, now: number): NewSessionProps | null {
   if (state.overlay.kind !== 'newSession') return null;

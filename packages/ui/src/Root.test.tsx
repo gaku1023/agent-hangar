@@ -174,6 +174,21 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     expect(emit).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
   });
 
+  // 今いるプロジェクト、今見ているセッションのプロジェクトを、ダイアログで最初から選んでおく。
+  it('⌘N は今の画面のプロジェクトを選んだ状態で開く', async () => {
+    const { rt, setHash } = await mounted();
+    const emit = vi.spyOn(rt, 'emit');
+    act(() => setHash('#/project/p1'));
+    await flush();
+    key({ key: 'n', metaKey: true });
+    expect(emit).toHaveBeenLastCalledWith({ type: 'session.new.open', scratch: false, projectId: 'p1' });
+    act(() => rt.emit({ type: 'overlay.close' }));
+    act(() => setHash('#/session/s1'));
+    await flush();
+    key({ key: 'n', metaKey: true });
+    expect(emit).toHaveBeenLastCalledWith({ type: 'session.new.open', scratch: false, projectId: 'p1' });
+  });
+
   it('セッション画面でタブと分割とトランスクリプトのキーが効く', async () => {
     const { rt, wsHandlers, setHash } = await mounted();
     act(() => setHash('#/session/s1'));

@@ -373,7 +373,7 @@ export function createApp(deps: AppDeps): Hono {
     const q = c.req.query();
     const running = q.running === undefined ? undefined : q.running === 'true';
     const runningIds = new Set(deps.live().map((l) => l.sessionId));
-    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), running, file: q.file || undefined, limit: numberOr(q.limit) }, runningIds));
+    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), running, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset) }, runningIds));
   });
 
   api.get('/settings', (c) => c.json(toSettingsDto(deps.settings())));

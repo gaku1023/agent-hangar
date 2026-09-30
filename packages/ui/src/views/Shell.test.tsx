@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false }], crumbs: [{ label: 'プロジェクト', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false } };
+const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false }], crumbs: [{ label: 'プロジェクト', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, newSession: {} };
 
 describe('Shell', () => {
   it('ナビと検索が Intent になる', () => {
@@ -21,6 +21,12 @@ describe('Shell', () => {
     expect(screen.getByRole('link', { name: 'ホーム' })).toHaveAttribute('aria-current', 'page');
     fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
+  });
+  it('ヘッダーの新規ボタンは、今の画面のプロジェクトを選んだ状態で開く', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><Shell {...props} newSession={{ projectId: 'p1' }} overlays={null}><div /></Shell></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'p1' });
   });
   // 開閉のボタンはサイドバーが自分で持つ。開いた帯ではワードマークの右、畳んだ帯ではワードマークがあった一番上に置く。ヘッダには置かない。
   it('サイドバーの中のボタンで開閉し、閉じてもナビの名前は残る', () => {

@@ -1,5 +1,11 @@
 import type { IndexProgressDto, Intent, LaunchParams, ProjectStatus, ResolveAction, Route, SearchFilter, SearchParamsDto, ServerEvent, SettingsDto } from '@agent-hangar/shared';
 
+/**
+ * 検索の問い合わせ。期間を日数のまま持つ。
+ * Mediator は時刻を知らないので、since に直すのは送る瞬間の Runtime である（toSearchParams）。
+ */
+export type SearchQuery = Omit<SearchParamsDto, 'since'> & { days?: number };
+
 export type RuntimeEvent =
   // ws.close は時刻を運ぶ。Mediator は純粋な遷移なので、いつ切れたかを自分では測れない。
   | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route }
@@ -26,7 +32,7 @@ export type Effect =
   | { kind: 'history.go'; delta: number }
   | { kind: 'api.bootstrap' }
   | { kind: 'api.loadEvents'; sessionId: string; fromSeq: number }     // 0 は「開いた（最新側）」、-1 は「過去へ遡る」、-2 は「追記の取り込み」
-  | { kind: 'api.search'; params: SearchParamsDto }
+  | { kind: 'api.search'; params: SearchQuery }
   | { kind: 'api.setProjectStatus'; projectId: string; status: ProjectStatus }
   | { kind: 'api.resolveProject'; projectId: string; action: ResolveAction }
   | { kind: 'api.updateSettings'; patch: Partial<SettingsDto> }

@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, ProjectDto, RunDto, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
+import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, shortModel, tokensLabel } from './format.ts';
 import { presentConfirm } from './confirm.ts';
 import { presentHome } from './home.ts';
-import { presentNewSession } from './newSession.ts';
+import { newSessionTarget, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
 import { presentSessionRow } from './row.ts';
@@ -377,6 +378,61 @@ describe('presentSessions', () => {
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
     expect(r.rows[0]!.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
   });
+  it('切れた結果は、見せている件数と全件の数を分けて持ち、読み足しの最中を区別する', () => {
+    const base = storeWith();
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const hits = [{ sessionId: 's1', matchCount: 1, snippets: [] }, { sessionId: 's2', matchCount: 1, snippets: [] }];
+    const done = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: false } }, NOW);
+    expect(done).toMatchObject({ shown: 2, total: 132, loading: false, loadingMore: false });
+    const more = presentSessions(state, { ...base, search: { params: { q: 'hi', offset: 2 }, result: { hits, total: 132 }, loading: true } }, NOW);
+    expect(more).toMatchObject({ shown: 2, total: 132, loading: false, loadingMore: true });
+    const fresh = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: true } }, NOW);
+    expect(fresh).toMatchObject({ loading: true, loadingMore: false });
+    expect(presentSessions(initialState(), base, NOW)).toMatchObject({ shown: 3, total: 3, loadingMore: false });
+  });
+  it('期間は日数で持ち、手元の一覧は今日の 0 時から数えて絞る', () => {
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    const store = initialStore();
+    store.bootstrapped = true;
+    store.projects = { alpha: project('alpha') };
+    store.sessions = {
+      today: session('today', { lastActivityAt: new Date(2026, 9, 1, 0, 5).getTime() }),
+      yesterday: session('yesterday', { lastActivityAt: new Date(2026, 8, 30, 23, 55).getTime() }),
+      week: session('week', { lastActivityAt: new Date(2026, 8, 25, 1).getTime() }),
+    };
+    const ids = (days: number | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { days } } }, store, now).rows.map((r) => r.id);
+    expect(ids(1)).toEqual(['today']);
+    expect(ids(7)).toEqual(['today', 'yesterday', 'week']);
+    expect(ids(undefined)).toHaveLength(3);
+  });
+  it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
+    let store = storeWith();
+    store = { ...store, search: { params: { q: '', file: 'a.md' }, result: { hits: [{ sessionId: 's2', matchCount: 3, snippets: [] }], total: 1 }, loading: false } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const }, search: { text: '', filter: { file: 'a.md' } } };
+    const r = presentSessions(state, store, NOW);
+    expect(r.mode).toBe('search');
+    expect(r.rows.map((x) => x.id)).toEqual(['s2']);
+    expect(r.rows[0]!.excerpt).toBeUndefined();
+    expect(r.total).toBe(1);
+  });
+});
+
+describe('セッションの並び順', () => {
+  it('生きているものを先に、waiting、busy、idle の順に並べ、同じ状態の中は新しい順', () => {
+    const store = initialStore();
+    store.bootstrapped = true;
+    store.projects = { alpha: project('alpha') };
+    store.sessions = {
+      idleNew: session('idleNew', { live: 'idle', lastActivityAt: NOW - 1_000 }),
+      busyOld: session('busyOld', { live: 'busy', lastActivityAt: NOW - 90_000 }),
+      waitOld: session('waitOld', { live: 'waiting', lastActivityAt: NOW - 80_000 }),
+      busyNew: session('busyNew', { live: 'busy', lastActivityAt: NOW - 5_000 }),
+      waitNew: session('waitNew', { live: 'waiting', lastActivityAt: NOW - 70_000 }),
+      endedNew: session('endedNew', { lastActivityAt: NOW }),
+      endedOld: session('endedOld', { lastActivityAt: NOW - 100_000 }),
+    };
+    expect(presentSessions(initialState(), store, NOW).rows.map((r) => r.id)).toEqual(['waitNew', 'waitOld', 'busyNew', 'busyOld', 'idleNew', 'endedNew', 'endedOld']);
+  });
 });
 
 describe('presentSession（実行中）', () => {
@@ -423,6 +479,31 @@ describe('presentSession（実行中）', () => {
     expect(p.run).toMatchObject({ id: 'r1', alive: false });
     expect(p.canResume).toBe(true);
     expect(p.tabs.map((t) => t.id)).toEqual(['r1', 't1']);
+  });
+});
+
+describe('newSessionTarget', () => {
+  const at = (screen: State['screen']) => ({ ...initialState(), screen });
+  it('プロジェクトの画面ならそのプロジェクト、セッションの画面ならそのセッションのプロジェクト', () => {
+    const store = storeWith();
+    expect(newSessionTarget(at({ name: 'project', id: 'alpha' }), store)).toEqual({ projectId: 'alpha' });
+    expect(newSessionTarget(at({ name: 'session', id: 's1' }), store)).toEqual({ projectId: 'alpha' });
+    expect(presentShell(at({ name: 'session', id: 's1' }), store, NOW).newSession).toEqual({ projectId: 'alpha' });
+  });
+  it('ほかの画面と、プロジェクトの無いセッションでは何も選ばない', () => {
+    const store = storeWith();
+    expect(newSessionTarget(at({ name: 'home' }), store)).toEqual({});
+    expect(newSessionTarget(at({ name: 'sessions' }), store)).toEqual({});
+    expect(newSessionTarget(at({ name: 'session', id: 's3' }), store)).toEqual({});
+    expect(newSessionTarget(at({ name: 'session', id: 'zz' }), store)).toEqual({});
+  });
+  // スクラッチの擬似プロジェクトは選べないので、その画面の「新規」と同じくスクラッチで始める。
+  it('スクラッチのプロジェクトとそのセッションではスクラッチで開く', () => {
+    const store = storeWith();
+    store.projects = { ...store.projects, scratch: { ...project('scratch'), isScratch: true } };
+    store.sessions = { ...store.sessions, sc: session('sc', { projectId: 'scratch' }) };
+    expect(newSessionTarget(at({ name: 'project', id: 'scratch' }), store)).toEqual({ scratch: true });
+    expect(newSessionTarget(at({ name: 'session', id: 'sc' }), store)).toEqual({ scratch: true });
   });
 });
 

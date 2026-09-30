@@ -1,9 +1,10 @@
 import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
+import { toSearchParams } from '../mediator/screen.ts';
 import { SIDEBAR_KEY } from '../mediator/sidebar.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import { ApiConflictError, type ApiClient, type EventsQuery } from './api.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -162,8 +163,15 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.search': {
         const seq = ++searchSeq;
-        setStore(applySearch(store, e.params, store.search.result, true));
-        deps.api.search(e.params).then((r) => { if (seq === searchSeq) setStore(applySearch(store, e.params, r, false)); }).catch(fail);
+        // 期間の日数は、送るこの瞬間の時刻で since に直す。
+        const params = toSearchParams(e.params, (deps.now ?? Date.now)());
+        setStore(applySearch(store, params, store.search.result, true));
+        // offset の付いた問い合わせは続きなので、持っている結果の後ろに足す。
+        const more = (params.offset ?? 0) > 0;
+        // 失敗したら読み込み中を解く。解かないと「さらに読み込む」が押せないまま残る。
+        deps.api.search(params)
+          .then((r) => { if (seq === searchSeq) setStore(more ? appendSearch(store, params, r) : applySearch(store, params, r, false)); })
+          .catch((err) => { if (seq === searchSeq) setStore(applySearch(store, store.search.params ?? params, store.search.result, false)); fail(err); });
         return;
       }
       case 'api.setProjectStatus': deps.api.setProjectStatus(e.projectId, e.status).catch(fail); return;

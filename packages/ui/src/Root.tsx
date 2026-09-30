@@ -4,7 +4,7 @@ import { IntentRoot } from './intent/chain.tsx';
 import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentConfirm } from './presenters/confirm.ts';
 import { presentHome } from './presenters/home.ts';
-import { presentNewSession } from './presenters/newSession.ts';
+import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
 import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
@@ -117,6 +117,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     document.addEventListener('pointerdown', remember);
     return () => { document.removeEventListener('focusin', remember); document.removeEventListener('pointerdown', remember); };
   }, []);
+  // ⌘N で開くダイアログの最初の選択。ヘッダーの新規ボタンと同じものを選ぶ。
+  const { projectId: newProjectId, scratch: newScratch } = newSessionTarget(state, store);
 
   // キーボード。
   // 打鍵と操作の対応は keys.ts の表が持ち、ここは当たった操作を Intent に変えるだけにする。
@@ -164,7 +166,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'split.toggle': if (canSplit) { take(); rt.emit({ type: 'split.toggle' }); } return;
         case 'transcript.toggle': take(); rt.emit({ type: 'transcript.toggle' }); return;
         case 'palette.open': take(); rt.emit({ type: 'palette.open' }); return;
-        case 'session.new': take(); rt.emit({ type: 'session.new.open', scratch: false }); return;
+        case 'session.new': take(); rt.emit({ type: 'session.new.open', scratch: newScratch === true, ...(newProjectId ? { projectId: newProjectId } : {}) }); return;
         case 'session.newScratch': take(); rt.emit({ type: 'session.new.open', scratch: true }); return;
         case 'settings.open': take(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return;
         // 入力欄の Ctrl+B はカーソルを 1 字戻す macOS の打鍵なので、⌘B だけを受け取る。
@@ -191,7 +193,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, sessionId, shortcutTabs, selectedTabId, canSplit]);
+  }, [rt, overlayKind, sessionId, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch]);
 
   // トラックパッドの横スワイプ。
   // ネイティブの手勢はスナップショットを滑らせる演出まで付いてくるので使わず、横方向のホイールを自分で積む。
