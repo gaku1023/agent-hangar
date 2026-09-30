@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>入力待ちの知らせ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet">
+<style>
+  /* ---- トークン（packages/ui/src/styles/tokens.css の写し。--ink-3 は変更予定の #6e6d88） ---- */
+  :root {
+    --bg: #eef1f7; --aura-1: #cfe0ff; --aura-2: #e5d6ff;
+    --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+    --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88;
+    --accent: #4a63e8; --accent-hi: #6b8cff; --accent-ink: #ffffff; --accent-soft: #eef2ff;
+    --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e; --error: #b3261e;
+    --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-done: #2b7048; --st-done-soft: #e3f1e8;
+    --cand: #6a4fd0; --cand-soft: #f1edff;
+    --term-bg: #1c1b2e; --term-fg: #e8e6f0; --term-tool: #ffb86b;
+    --glass-bg: rgba(255, 255, 255, 0.4);
+    --glass-bg-dialog: rgba(255, 255, 255, 0.72);
+    --glass-bg-toast: rgba(255, 255, 255, 0.82);
+    --glass-bg-menu: rgba(255, 255, 255, 0.82);
+    --glass-blur: blur(12px) saturate(1.9);
+    --glass-blur-strong: blur(18px) saturate(1.8);
+    --glass-blur-toast: blur(14px);
+    --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+    --glass-drop: 0 10px 28px -12px rgba(30, 40, 90, 0.3);
+    --glass-drop-lg: 0 24px 50px -16px rgba(30, 40, 90, 0.45);
+    --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+    --term-lift: 0 12px 26px -16px rgba(20, 20, 60, 0.55);
+    --font-sans: 'Inter', 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+    --font-mono: 'JetBrains Mono', 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+    --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --fs-lg: 20px;
+    --row-h: 28px; --session-row-h: 56px; --hit: #fff3c4;
+    --u: 4px; --r: 8px; --r-lg: 14px; --r-xl: 16px; --r-pill: 99px;
+    --float-gap: 8px; --sidebar-w: 208px; --sidebar-rail-w: 52px; --header-h: 44px; --lights-end: 81px;
+    --dur-fast: 200ms; --dur: 420ms; --dur-exit: 250ms;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --rise: 6px; --blur-in: 6px; --breathe-period: 3.2s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :root { --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms; --rise: 0px; --blur-in: 0px; }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-padding-top: 64px; }
+  body { margin: 0; font: var(--fs)/1.45 var(--font-sans); color: var(--ink); background: #f6f7fb; -webkit-font-smoothing: antialiased; }
+  button, input { font: inherit; color: inherit; }
+  a { color: var(--accent); text-decoration: none; }
+  svg.i { width: 16px; height: 16px; stroke-width: 1.5; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .mono { font-family: var(--font-mono); }
+  .faint { color: var(--ink-3); } .muted { color: var(--ink-2); }
+
+  /* ---- 試作の頁の枠 ---- */
+  .top { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; gap: 16px; padding: 10px 32px; background: rgba(246, 247, 251, 0.86); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  .top h1 { font-size: 16px; font-weight: 680; margin: 0; letter-spacing: -0.01em; white-space: nowrap; }
+  .top .toc { display: flex; gap: 4px; flex-wrap: wrap; }
+  .top .toc a { font-size: 12px; color: var(--ink-2); padding: 3px 9px; border-radius: 99px; }
+  .top .toc a:hover { background: #fff; text-decoration: none; }
+  .top .chosen { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; align-items: center; color: var(--ink-3); font-size: 12px; }
+  .top .chosen b { font: 600 11.5px var(--font-mono); color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 99px; }
+  .top .zoom { flex: none; font: 500 12px var(--font-sans); border: 0; padding: 5px 12px; border-radius: 99px; background: #fff; box-shadow: 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; }
+  .top .zoom[aria-pressed='true'] { background: var(--ink); color: #fff; }
+  .doc { max-width: 1520px; margin: 0 auto; padding: 24px 32px 120px; }
+  .purpose { margin: 0 0 28px; padding: 16px 20px; border-radius: 14px; background: #fff; box-shadow: 0 0 0 1px var(--line); max-width: 1040px; }
+  .purpose h2 { margin: 0 0 6px; font-size: 14px; font-weight: 650; }
+  .purpose p { margin: 0 0 8px; color: var(--ink-2); }
+  .purpose ul { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); }
+  .purpose li { margin-bottom: 3px; }
+  .purpose code, .note code { font: 500 11.5px var(--font-mono); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+  .legend { display: grid; grid-template-columns: 56px 1fr; gap: 3px 10px; margin: 8px 0 0; font-size: 12.5px; }
+  .legend dt { font: 600 12px var(--font-mono); color: var(--accent); }
+  .legend dd { margin: 0; color: var(--ink-2); }
+  .rec { display: inline-block; background: #fff3d6; padding: 1px 7px; border-radius: 4px; color: #6b4a10; font-size: 11.5px; }
+  section.sec { margin: 0 0 64px; }
+  section.sec > h2 { display: flex; align-items: baseline; gap: 10px; font-size: 17px; font-weight: 680; margin: 0 0 4px; letter-spacing: -0.01em; }
+  section.sec > h2 em { font: 600 12px var(--font-mono); color: var(--accent); font-style: normal; }
+  section.sec > p { margin: 0 0 14px; color: var(--ink-2); max-width: 1000px; }
+  .picks { display: grid; gap: 20px; }
+  .picks.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 1100px) { .picks.two { grid-template-columns: minmax(0, 1fr); } }
+  .pick { background: #fff; border-radius: 16px; box-shadow: 0 1px 2px rgba(30, 40, 90, 0.06), 0 0 0 1px var(--line); display: flex; flex-direction: column; min-width: 0; transition: box-shadow var(--dur-fast) var(--ease-out); }
+  .pick.selected { box-shadow: 0 0 0 2px var(--accent), 0 6px 18px -8px rgba(74, 99, 232, 0.4); }
+  .pick .stage { position: relative; border-radius: 16px 16px 0 0; padding: 18px; overflow: hidden; background: radial-gradient(55% 50% at 18% 15%, var(--aura-1), transparent 70%), radial-gradient(50% 45% at 88% 80%, var(--aura-2), transparent 70%), var(--bg); }
+  .pick .stage.plain { background: #e9ebf1; }
+  .pick .body { padding: 12px 16px 14px; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
+  .pick .body .txt { flex: 1; min-width: 0; }
+  .pick .body h3 { margin: 0 0 3px; font-size: 13.5px; font-weight: 650; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .pick .body h3 em { font-style: normal; font: 600 11.5px var(--font-mono); color: var(--accent); }
+  .pick .body h3 .tag { font: 500 11px var(--font-sans); color: var(--ink-3); }
+  .pick .body p { margin: 0; color: var(--ink-2); font-size: 12.5px; }
+  .pick .body .choose { flex: none; border: 0; border-radius: 99px; padding: 5px 12px; font-size: 12px; font-weight: 560; cursor: pointer; background: var(--surface-2); color: var(--ink-2); }
+  .pick.selected .body .choose { background: var(--accent); color: #fff; }
+  .note { margin: 10px 0 0; font-size: 12px; color: var(--ink-3); max-width: 1000px; }
+  table.tbl { border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); font-size: 12.5px; margin: 8px 0 0; }
+  table.tbl th, table.tbl td { text-align: left; padding: 7px 12px; border-top: 1px solid var(--line); vertical-align: top; }
+  table.tbl th { background: #fbfbfd; font-weight: 560; color: var(--ink-3); font-size: 11.5px; border-top: 0; }
+  /* 窓の写しを入れる器。JS が器の幅に合わせて zoom を決める（「実寸」を押すと 1 に固定し、横にスクロールする）。 */
+  .fit { position: relative; overflow: hidden; border-radius: 12px; }
+  .fit.real { overflow-x: auto; }
+  .fit > .scaler { transform-origin: 0 0; }
+
+  /* ---- アプリの写し（base.css、workbench.css、session.css に合わせた値） ---- */
+  .win { position: relative; isolation: isolate; overflow: hidden; width: var(--win-w, 1440px); height: var(--win-h, 900px); border-radius: 12px; background: var(--bg); box-shadow: 0 30px 60px -30px rgba(20, 20, 60, 0.45), 0 0 0 1px rgba(20, 20, 60, 0.1); font-size: var(--fs); line-height: 1.45; text-align: left; }
+  .win::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%); }
+  .win .lights { position: absolute; left: 11px; top: 16px; z-index: 12; display: flex; gap: 8px; }
+  .win .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12); }
+  .win .lights i:nth-child(2) { background: #febc2e; } .win .lights i:nth-child(3) { background: #28c840; }
+  .glass { background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); }
+  .w-header { position: absolute; left: 0; right: 0; top: 0; z-index: 10; display: flex; align-items: center; gap: 18px; height: var(--header-h); padding: 0 12px 0 var(--lights-end); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); white-space: nowrap; }
+  .crumbs { display: flex; gap: 4px; color: var(--ink-2); white-space: nowrap; min-width: 0; }
+  .crumbs b { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+  .crumbs a { color: var(--accent); }
+  .w-search { flex: 1; max-width: 420px; min-width: 140px; height: 26px; display: flex; align-items: center; border-radius: var(--r-pill); padding: 0 12px; background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.12); color: var(--ink-3); font-size: var(--fs); }
+  .w-search kbd { margin-left: auto; font: var(--fs-xs)/1 var(--font-mono); color: var(--ink-3); }
+  .w-spacer { flex: 1; }
+  .w-sync { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: var(--fs-sm); position: relative; padding-left: 18px; }
+  .w-sync::before, .w-gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: 16px; translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+  .w-gauges { display: flex; align-items: center; gap: 10px; position: relative; padding-left: 18px; }
+  .gauge { display: inline-flex; align-items: center; gap: 4px; }
+  .gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
+  .gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+  .gauge-fill[data-high='true'] { background: var(--waiting); }
+  .gauge-num { font-size: var(--fs-xs); color: var(--ink-3); min-width: 28px; }
+  .w-sidebar { position: absolute; z-index: 9; top: calc(var(--header-h) + var(--float-gap)); bottom: var(--float-gap); left: var(--float-gap); width: var(--sidebar-w); padding: 10px 8px; border-radius: var(--r-xl); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); }
+  .w-sidebar .sidebar-top { display: flex; align-items: center; margin-bottom: 14px; }
+  .w-sidebar .brand { display: flex; align-items: center; gap: 7px; padding: 0 6px; color: var(--ink); }
+  .w-sidebar .brand svg { width: 44px; height: 44px; flex: none; }
+  .w-sidebar .brand-word { font-size: var(--fs-lg); font-weight: 720; line-height: 1; letter-spacing: -0.03em; }
+  .w-sidebar .brand-word::after { content: ''; display: inline-block; width: 10px; height: 3px; margin-left: 2px; border-radius: 1.5px; background: #ffb86b; }
+  .w-sidebar .toggle { margin-left: auto; width: 32px; height: 32px; display: grid; place-items: center; color: var(--ink-2); }
+  .w-sidebar .toggle svg { width: 18px; height: 18px; }
+  .nav-item { position: relative; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border-radius: var(--r-pill); white-space: nowrap; cursor: default; }
+  .nav-item svg { width: 18px; height: 18px; }
+  .nav-item.on { color: var(--ink); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+  .w-sidebar.rail { width: var(--sidebar-rail-w); padding: 6px; }
+  .w-sidebar.rail .brand { display: none; }
+  .w-sidebar.rail .sidebar-top { margin-bottom: 4px; }
+  .w-sidebar.rail .toggle { margin: 0; width: 40px; height: 40px; }
+  .w-sidebar.rail .nav-item { width: 40px; height: 40px; padding: 0 11px; margin-bottom: 4px; border-radius: var(--r-lg); }
+  .w-sidebar.rail .nav-label { display: none; }
+  .w-main { position: absolute; z-index: 1; top: 0; bottom: 0; right: 0; left: calc(var(--sidebar-w) + var(--float-gap)); padding: calc(var(--header-h) + var(--float-gap) + 8px) 16px 16px; display: flex; flex-direction: column; min-height: 0; }
+  .w-main.rail { left: calc(var(--sidebar-rail-w) + var(--float-gap)); }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 12px; border: 0; border-radius: var(--r-pill); font-weight: 560; font-size: var(--fs); color: var(--ink); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; white-space: nowrap; flex: none; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+  .btn:hover { background: var(--surface); }
+  .btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
+  .btn-primary:hover { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); filter: brightness(1.04); }
+  .btn-icon { width: var(--row-h); padding: 0; justify-content: center; }
+  .btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+  .btn-ghost:hover { background: rgba(255, 255, 255, 0.7); color: var(--ink); }
+  .btn-sm { height: 22px; padding: 0 9px; font-size: var(--fs-sm); }
+  .btn[disabled], .btn.is-disabled { opacity: 0.5; cursor: default; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); flex: none; }
+  .dot[data-s='busy'] { background: var(--busy); } .dot[data-s='idle'] { background: var(--idle); } .dot[data-s='waiting'] { background: var(--waiting); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.06); white-space: nowrap; }
+  kbd.k { font: 600 10.5px var(--font-mono); color: var(--ink-2); padding: 0 4px; border-radius: 4px; background: rgba(30, 40, 90, 0.06); }
+
+  /* 浮くガラスのメニュー（listbox-pop と同じ地と縁） */
+  .menu { position: absolute; z-index: 30; min-width: 248px; padding: 6px; border-radius: var(--r-lg); background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); font-size: var(--fs); }
+  .menu .mi { display: flex; align-items: flex-start; gap: 10px; padding: 6px 10px; border-radius: 10px; color: var(--ink); white-space: nowrap; }
+  .menu .mi > svg { margin-top: 1px; color: var(--ink-2); }
+  .menu .mi .t { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .menu .mi small { font-size: var(--fs-xs); color: var(--ink-2); white-space: normal; line-height: 1.4; }
+  .menu .mi kbd { margin-left: auto; font: 500 11px var(--font-mono); color: var(--ink-3); }
+  .menu .mi.on { background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0 #fff, 0 2px 8px -2px rgba(30, 40, 90, 0.16); }
+  .menu .mi.off { color: var(--ink-3); }
+  .menu .mi.off > svg { color: var(--ink-3); }
+  .menu .mi.danger, .menu .mi.danger > svg { color: var(--error); }
+  .menu hr { border: 0; border-top: 1px solid rgba(30, 40, 90, 0.08); margin: 4px 6px; }
+  .tip { position: absolute; z-index: 31; padding: 5px 9px; border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; white-space: nowrap; }
+  .tip small { display: block; opacity: 0.72; font-weight: 400; }
+
+  /* ---- Home の写し（home.css） ---- */
+  .home-label { display: flex; align-items: baseline; gap: 6px; margin: 20px 0 8px 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+  .home-label:first-child { margin-top: 0; }
+  .home-count { font-weight: 500; color: var(--ink-3); }
+  .home-inner { max-width: 1200px; width: 100%; margin: 0 auto; }
+  .ask-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 8px; border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 0 0 1px color-mix(in srgb, var(--waiting) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--waiting) 40%, transparent); }
+  .ask-body { flex: 1; min-width: 0; }
+  .ask-title, .ask-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ask-title b { font-weight: 600; }
+  .ask-q { margin-top: 2px; color: var(--ink-2); }
+  .live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .live-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+  .live-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .live-elapsed { font: 500 var(--fs-sm) var(--font-mono); color: var(--ink-2); }
+  .live-meta { font-size: var(--fs-xs); color: var(--ink-3); }
+  .live-act { padding: 6px 8px; border-radius: var(--r); font: var(--fs-xs) var(--font-mono); background: var(--term-bg); color: var(--term-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .live-act i { font-style: normal; color: var(--term-tool); }
+  .live-ctx { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--ink-3); }
+  .live-ctx .gauge-bar { flex: 1; width: auto; }
+  .list { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+  .row2 { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 16px; align-items: center; height: var(--session-row-h); padding: 0 20px; border-bottom: 1px solid var(--line); }
+  .row2:last-child { border-bottom: 0; }
+  .row2 .nm { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row2 .nm small { margin-left: 6px; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
+  .row2 .sb { font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; }
+  .row2 .tm { font-size: var(--fs-xs); color: var(--ink-3); }
+  .home-two { margin-top: 20px; display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 10px; }
+  .pj { display: flex; align-items: center; gap: 8px; height: var(--session-row-h); padding: 0 20px; border-bottom: 1px solid var(--line); }
+  .pj:last-child { border-bottom: 0; }
+  .pj .d { width: 8px; height: 8px; border-radius: 50%; background: var(--st-active); }
+  .pj .c { margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+
+  /* ---- 入力待ちのトースト ---- */
+  .toasts { position: absolute; z-index: 20; display: flex; flex-direction: column; gap: 8px; width: 360px; }
+  .toasts.pos-br { right: 16px; bottom: 16px; }
+  .toasts.pos-tr { right: 16px; top: calc(var(--header-h) + var(--float-gap) + 4px); }
+  .toasts.pos-bl { left: calc(var(--float-gap) + 8px); bottom: calc(var(--float-gap) + 8px); width: calc(var(--sidebar-w) - 16px); }
+  .toasts.pos-bl.rail { left: calc(var(--sidebar-rail-w) + var(--float-gap) * 2); width: 320px; }
+  .wt { position: relative; display: flex; gap: 10px; padding: 10px 12px 10px 14px; border-radius: var(--r-lg); background: var(--glass-bg-toast); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--waiting) 26%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); cursor: pointer; animation: slide var(--dur) var(--ease-out); text-align: left; }
+  .wt::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--waiting); }
+  .wt:hover { background: rgba(255, 255, 255, 0.92); }
+  .wt .dot { margin-top: 6px; }
+  .wt .b { flex: 1; min-width: 0; }
+  .wt .h { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .wt .h b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wt .h small { flex: none; margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+  .wt .p { font-size: var(--fs-xs); color: var(--ink-3); }
+  .wt .q { margin-top: 3px; color: var(--ink-2); font-size: var(--fs-sm); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .wt .a { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .wt .a .btn { height: 24px; font-size: var(--fs-sm); }
+  .wt .a .hint { font-size: var(--fs-xs); color: var(--ink-3); }
+  .wt.compact { padding: 8px 10px 8px 12px; }
+  .wt.compact .q { -webkit-line-clamp: 1; }
+  .wt.compact .a { display: none; }
+  @keyframes slide { from { opacity: 0; transform: translateX(16px); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+  .pos-tr .wt, .pos-bl .wt { animation-name: drop; }
+  @keyframes drop { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+  .more-row { align-self: flex-end; font-size: var(--fs-xs); color: var(--ink-2); padding: 3px 10px; border-radius: 99px; background: var(--glass-bg-toast); box-shadow: var(--glass-edge), var(--glass-drop); }
+  /* 重ねて束ねる */
+  .deck { position: relative; isolation: isolate; }
+  .deck .wt.back { position: absolute; top: 0; left: 0; right: 0; height: 100%; pointer-events: none; animation: none; }
+  .deck .wt.back > * { visibility: hidden; }
+  .deck .wt.back.b1 { transform: translateY(8px) scale(0.96); opacity: 0.8; z-index: -1; }
+  .deck .wt.back.b2 { transform: translateY(16px) scale(0.92); opacity: 0.6; z-index: -2; }
+  .pos-tr .deck .wt.back.b1, .pos-bl .deck .wt.back.b1 { transform: translateY(8px) scale(0.96); }
+  .deck .cnt { position: absolute; top: -8px; right: -8px; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--waiting); color: #fff; font: 600 11px/20px var(--font-sans); text-align: center; box-shadow: 0 0 0 2px #fff; z-index: 2; }
+  /* 1 枚にまとめる */
+  .group { border-radius: var(--r-lg); background: var(--glass-bg-toast); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--waiting) 26%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); overflow: hidden; animation: slide var(--dur) var(--ease-out); }
+  .group .gh { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: var(--fs-sm); font-weight: 600; color: var(--waiting); border-bottom: 1px solid rgba(30, 40, 90, 0.07); }
+  .group .gh small { margin-left: auto; font-weight: 500; color: var(--ink-3); }
+  .group .gr { display: flex; gap: 10px; align-items: center; padding: 8px 12px; cursor: pointer; }
+  .group .gr + .gr { border-top: 1px solid rgba(30, 40, 90, 0.05); }
+  .group .gr:hover { background: rgba(255, 255, 255, 0.7); }
+  .group .gr .b { flex: 1; min-width: 0; }
+  .group .gr b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group .gr span.q { display: block; font-size: var(--fs-xs); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group .gr small { font-size: var(--fs-xs); color: var(--ink-3); flex: none; }
+  /* 上中央の島 */
+  .island { position: absolute; z-index: 20; top: 6px; left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 4px 0 12px; border-radius: 99px; background: var(--ink); color: #fff; font-size: var(--fs-sm); box-shadow: 0 10px 24px -10px rgba(20, 20, 60, 0.6); white-space: nowrap; cursor: pointer; animation: drop var(--dur) var(--ease-out); }
+  .island .n { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: #e5533d; font-weight: 700; font-size: 11px; }
+  .island .q { max-width: 320px; overflow: hidden; text-overflow: ellipsis; color: rgba(255, 255, 255, 0.75); }
+  .island .btn { height: 24px; font-size: var(--fs-sm); }
+  .island-list { position: absolute; z-index: 21; top: 44px; left: 50%; translate: -50% 0; width: 460px; }
+  .island-list .group { box-shadow: var(--glass-edge), 0 24px 50px -16px rgba(30, 40, 90, 0.45); }
+
+  /* ---- 件数の印 ---- */
+  .bdg { margin-left: auto; }
+  .c1-pill { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--waiting); color: #fff; font: 700 11px var(--font-sans); }
+  .rail-c1 { position: absolute; top: 3px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px; background: var(--waiting); color: #fff; font: 700 10px/16px var(--font-sans); text-align: center; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
+  .c2-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--waiting); box-shadow: 0 0 0 3px color-mix(in srgb, var(--waiting) 18%, transparent); }
+  .rail-c2 { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--waiting); box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
+  .c3-text { font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); }
+  .rail-c3 { position: absolute; right: 3px; bottom: 2px; font: 700 10px var(--font-sans); color: var(--waiting); }
+  .nav-item.c4 { background: color-mix(in srgb, var(--waiting) 11%, rgba(255, 255, 255, 0.5)); color: var(--waiting); }
+  .nav-item.c4 .c4-n { margin-left: auto; font: 700 12px var(--font-sans); }
+  .rail .nav-item.c4 { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--waiting) 45%, transparent); }
+  .rail .nav-item.c4 .c4-n { position: absolute; right: 4px; bottom: 1px; font-size: 10px; }
+  .navtip { position: absolute; left: 52px; top: 50%; translate: 0 -50%; padding: 3px 8px; border-radius: var(--r); background: var(--ink); color: #fff; font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; z-index: 5; }
+
+  /* ---- エラーのトースト ---- */
+  .et { position: relative; display: flex; gap: 10px; align-items: flex-start; max-width: 420px; padding: 10px 8px 10px 12px; border-radius: var(--r-lg); text-align: left; }
+  .et.d1 { background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); color: var(--error); }
+  .et.d2 { background: var(--glass-bg-toast); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--error) 24%, transparent), var(--glass-drop); color: var(--ink); padding-left: 14px; }
+  .et.d2::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--error); }
+  .et .b { flex: 1; min-width: 0; }
+  .et b { font-weight: 600; display: block; }
+  .et .m { font-size: var(--fs-sm); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .et.d1 .m { color: color-mix(in srgb, var(--error) 80%, var(--ink)); }
+  .et.d2 .m { color: var(--ink-2); }
+  .et .acts { display: flex; gap: 10px; margin-top: 6px; font-size: var(--fs-sm); font-weight: 560; }
+  .et .acts a { cursor: pointer; }
+  .et.d1 .acts a { color: var(--error); }
+  .et .x { flex: none; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 8px; color: inherit; opacity: 0.7; cursor: pointer; }
+  .et .x:hover { background: rgba(255, 255, 255, 0.7); opacity: 1; }
+  .et.open .m { -webkit-line-clamp: unset; }
+  .et pre { margin: 6px 0 0; padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.6); font: 11px/1.5 var(--font-mono); color: var(--ink-2); white-space: pre-wrap; }
+  .eband { position: absolute; z-index: 11; left: calc(var(--sidebar-w) + var(--float-gap)); right: var(--float-gap); top: calc(var(--header-h) + var(--float-gap) * 0.75); display: flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 4px 0 12px; border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); white-space: nowrap; }
+  .eband span { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--error) 75%, var(--ink)); }
+  .eband .acts { margin-left: auto; display: flex; gap: 4px; flex: none; }
+  .eband .btn { height: 22px; font-size: var(--fs-sm); }
+
+  /* ---- セッション画面（トーストから移った先） ---- */
+  .sbar { display: flex; align-items: center; gap: 10px; height: 40px; flex: none; }
+  .sbar h1 { margin: 0; font-size: var(--fs-md); font-weight: 650; }
+  .sbar .one { flex: 1; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tabs { display: flex; align-items: flex-end; gap: 3px; height: var(--row-h); flex: none; margin-top: 6px; }
+  .tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; height: var(--row-h); border-radius: var(--r) var(--r) 0 0; background: rgba(255, 255, 255, 0.55); color: var(--ink-2); }
+  .tab.on { color: var(--term-fg); background: var(--term-bg); }
+  .term { flex: 1; min-height: 0; position: relative; background: var(--term-bg); border-radius: var(--r-lg); border-top-left-radius: 0; box-shadow: var(--term-lift); padding: 12px 16px; font: 12.5px/1.6 var(--font-mono); color: var(--term-fg); white-space: pre; overflow: hidden; }
+  .term[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
+  .term[data-live='busy'] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 90%, transparent), 0 0 22px -2px color-mix(in srgb, var(--busy) 45%, transparent), var(--term-lift); }
+  .term .t-dim { opacity: 0.55; } .term .t-tool { color: var(--term-tool); } .term .t-sel { color: var(--term-tool); font-weight: 600; }
+  .term .opt { cursor: pointer; border-radius: 4px; padding: 0 4px; }
+  .term .opt:hover { background: rgba(255, 255, 255, 0.1); }
+  .term .ask { display: block; margin-top: 6px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--term-tool) 55%, transparent); border-radius: 6px; }
+  .term .focus-note { position: absolute; right: 12px; top: 10px; font: 500 11px var(--font-sans); color: color-mix(in srgb, var(--term-fg) 60%, transparent); display: flex; gap: 6px; align-items: center; }
+  .caret { display: inline-block; width: 8px; height: 15px; vertical-align: -3px; background: var(--term-fg); animation: blink 1.1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .caret { animation: none; } }
+
+  /* ---- macOS の通知と Dock（モックの絵） ---- */
+  .desk { position: relative; height: 380px; border-radius: 14px; overflow: hidden; background: linear-gradient(160deg, #9fb3e8 0%, #c9b6ef 55%, #f0c7d6 100%); }
+  .menubar { position: absolute; top: 0; left: 0; right: 0; height: 24px; display: flex; align-items: center; gap: 16px; padding: 0 14px; background: rgba(255, 255, 255, 0.35); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 12px; font-weight: 500; color: #1c1b2e; }
+  .menubar .r { margin-left: auto; }
+  .nc { position: absolute; top: 34px; right: 12px; width: 344px; display: flex; flex-direction: column; gap: 8px; }
+  .banner { display: flex; gap: 10px; padding: 11px 12px; border-radius: 18px; background: rgba(246, 246, 250, 0.78); -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 10px 30px -10px rgba(0, 0, 0, 0.35); font: 13px/1.35 -apple-system, 'Hiragino Sans', sans-serif; color: #1d1d1f; }
+  .banner .ai { width: 36px; height: 36px; border-radius: 9px; flex: none; background: linear-gradient(165deg, #f7f9ff, #dfe6ff 55%, #e9defe); box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.1); display: grid; place-items: center; }
+  .banner .ai svg { width: 30px; height: 30px; }
+  .banner .b { flex: 1; min-width: 0; }
+  .banner .t { display: flex; gap: 6px; font-weight: 650; }
+  .banner .t small { margin-left: auto; font-weight: 400; color: #6e6e73; font-size: 12px; }
+  .banner .s { font-weight: 600; font-size: 12.5px; }
+  .banner .m { color: #3a3a3c; font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .banner.stack { position: relative; }
+  .banner.stack::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -6px; height: 12px; border-radius: 0 0 16px 16px; background: rgba(246, 246, 250, 0.6); z-index: -1; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.08); }
+  .dock { position: absolute; bottom: 10px; left: 50%; translate: -50% 0; display: flex; gap: 10px; padding: 8px 10px; border-radius: 22px; background: rgba(255, 255, 255, 0.32); -webkit-backdrop-filter: blur(24px) saturate(1.8); backdrop-filter: blur(24px) saturate(1.8); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.6), 0 10px 30px -12px rgba(0, 0, 0, 0.35); }
+  .dock .app { position: relative; width: 52px; height: 52px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18); }
+  .dock .app.hangar { background: linear-gradient(165deg, #f7f9ff, #dfe6ff 55%, #e9defe); display: grid; place-items: center; }
+  .dock .app.hangar svg { width: 44px; height: 44px; }
+  .dock .app .badge { position: absolute; top: -5px; right: -5px; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: #ff3b30; color: #fff; font: 600 12px/20px -apple-system, sans-serif; text-align: center; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
+  .dock .app .run { position: absolute; bottom: -6px; left: 50%; translate: -50% 0; width: 4px; height: 4px; border-radius: 50%; background: rgba(0, 0, 0, 0.55); }
+
+  /* ---- 見本の操作 ---- */
+  .ctl { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 0 0 12px; padding: 12px 14px; border-radius: 14px; background: #fff; box-shadow: 0 0 0 1px var(--line); }
+  .ctl .grp { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+  .ctl .opts { display: inline-flex; padding: 3px; border-radius: 99px; background: rgba(30, 40, 90, 0.06); }
+  .ctl .opts button { border: 0; background: none; height: 24px; padding: 0 10px; border-radius: 99px; font-size: 12px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+  .ctl .opts button[aria-pressed='true'] { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 4px rgba(30, 40, 90, 0.16); }
+  .ctl .act { border: 0; height: 28px; padding: 0 12px; border-radius: 99px; background: var(--ink); color: #fff; font-size: 12px; font-weight: 560; cursor: pointer; }
+  .ctl .act.lite { background: var(--surface-2); color: var(--ink); }
+  .crop-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .crop-row .lbl { font: 600 11px var(--font-mono); color: var(--ink-3); margin: 0 0 6px 2px; }
+  .sb-crop { position: relative; width: 240px; height: 250px; }
+  .sb-crop.rail { width: 120px; }
+  .sb-crop .w-sidebar { top: 8px; bottom: auto; height: 234px; }
+  .toast-stage { position: relative; min-height: 300px; }
+  .toast-stage .toasts { position: relative; right: auto; bottom: auto; top: auto; left: auto; width: 360px; margin: 18px auto 0; }
+</style>
+</head>
+<body>
+<div class="top"><h1>入力待ちの知らせ</h1>
+  <nav class="toc"><a href="#demo">動く見本</a><a href="#axA">A 位置と形</a><a href="#axB">B 積み方</a><a href="#axC">C 件数の印</a><a href="#axD">D エラー</a><a href="#axN">N macOS 通知</a></nav>
+  <div class="chosen" id="chosen"></div><button class="zoom" id="zoom" aria-pressed="false">実寸で見る</button></div>
+<div class="doc">
+
+<div class="purpose">
+  <h2>何を決めるための試作か</h2>
+  <p>セッションが入力を待ち始めたことを、ほかの画面にいても気づけて、押せばすぐ答えられるようにする知らせの形を決めます。QA で決めた方向（下の箇条）は前提です。</p>
+  <ul>
+    <li>入力待ちのトーストは、押すとそのセッションの画面へ移って端末にフォーカスする。答えるまで（入力待ちが解けるまで）消えない。</li>
+    <li>サイドバーの「ホーム」に要対応の件数を出す。開いた形と、畳んだ 52px のアイコンの帯の両方。</li>
+    <li>エラーのトーストは時間で消さず、閉じるボタンを持ち、幅に上限を持つ（今は時間で消え、幅の上限が無い）。</li>
+    <li>窓の外では macOS の通知と Dock のバッジで知らせる（ここではモックの絵）。</li>
+  </ul>
+  <dl class="legend">
+    <dt>A1〜A4</dt><dd>入力待ちのトーストの位置と形（右下、右上、上中央の島、サイドバーの下端）</dd>
+    <dt>B1〜B3</dt><dd>何件も積まれたときの並べ方（全部並べる、重ねて束ねる、1 枚にまとめる）</dd>
+    <dt>C1〜C4</dt><dd>「ホーム」の件数の印（数字の錠剤、点、文字、項目を灯す）</dd>
+    <dt>D1〜D3</dt><dd>エラーのトーストの形（赤みのガラス、白地に赤の帯、ヘッダの下の帯）</dd>
+    <dt>N1〜N3</dt><dd>macOS の通知の文の組み方（名前が題、状態が題、まとめる）</dd>
+  </dl>
+  <p class="note" style="margin-top:10px">中身はすべて架空です。窓は 1440 × 900 の実寸で描き、器の幅に合わせて縮めています。動く見本では、トーストを押すとセッション画面へ移り、端末の選択肢を押すと入力待ちが解けてトーストと件数が消えます。</p>
+</div>
+
+<section class="sec" id="demo">
+  <h2><em>見本</em>動かして確かめる</h2>
+  <p>「入力待ちを起こす」で 1 件ずつ増えます。軸の既定は選んだ案（無ければおすすめ）です。</p>
+  <div class="ctl" id="ctl"></div>
+  <div id="demoStage"></div>
+</section>
+
+<section class="sec" id="axA"><h2><em>A</em>入力待ちのトーストの位置と形</h2><p>2 件が入力を待っている Home です（積み方は B1）。どの案もトースト全体が押せ、押すとそのセッションの端末へ移ります。</p><div class="picks two" id="picksA"></div></section>
+<section class="sec" id="axB"><h2><em>B</em>何件も積まれたときの並べ方</h2><p>4 件が入力を待っているときです（位置は右下の場合）。</p><div class="picks" style="grid-template-columns:repeat(3,minmax(0,1fr))" id="picksB"></div></section>
+<section class="sec" id="axC"><h2><em>C</em>「ホーム」の要対応の件数の印</h2><p>左は開いたサイドバー、右は畳んだ 52px の帯（下は乗せたときの吹き出し）です。実寸です。</p><div class="picks two" id="picksC"></div></section>
+<section class="sec" id="axD"><h2><em>D</em>エラーのトースト</h2><p>時間で消さず、閉じるまで残ります。幅は 420px まで、本文は 2 行まで見せ、長いものは「詳しく」で開きます。</p><div class="picks" style="grid-template-columns:repeat(3,minmax(0,1fr))" id="picksD"></div></section>
+<section class="sec" id="axN"><h2><em>N</em>macOS の通知と Dock のバッジ（モック）</h2><p>hangar の窓が前に無いときだけ出す想定です。通知を押すと hangar が前に出て、そのセッションの端末へ移ります。Dock のバッジは入力待ちの件数です。</p><div class="picks" style="grid-template-columns:repeat(3,minmax(0,1fr))" id="picksN"></div></section>
+</div>
+
+<script>
+const ICON_SVG = {"house":"<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/>","folder":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>","messages-square":"<path d=\"M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z\"/><path d=\"M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1\"/>","settings":"<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","plus":"<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>","x":"<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>","chevron-right":"<path d=\"m9 18 6-6-6-6\"/>","chevron-down":"<path d=\"m6 9 6 6 6-6\"/>","chevron-up":"<path d=\"m18 15-6-6-6 6\"/>","panel-left":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/>","search":"<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>","panel-right-close":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/><path d=\"m8 9 3 3-3 3\"/>","panel-right-open":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/><path d=\"m10 15-3-3 3-3\"/>","bot":"<path d=\"M12 8V4H8\"/><rect width=\"16\" height=\"12\" x=\"4\" y=\"8\" rx=\"2\"/><path d=\"M2 14h2\"/><path d=\"M20 14h2\"/><path d=\"M15 13v2\"/><path d=\"M9 13v2\"/>","terminal":"<path d=\"M12 19h8\"/><path d=\"m4 17 6-6-6-6\"/>","workflow":"<rect width=\"8\" height=\"8\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M7 11v4a2 2 0 0 0 2 2h4\"/><rect width=\"8\" height=\"8\" x=\"13\" y=\"13\" rx=\"2\"/>","wrench":"<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z\"/>","square-terminal":"<path d=\"m7 11 2-2-2-2\"/><path d=\"M11 13h4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/>","code":"<path d=\"m16 18 6-6-6-6\"/><path d=\"m8 6-6 6 6 6\"/>","square":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/>","rotate-ccw":"<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/>","git-fork":"<circle cx=\"12\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\"/><path d=\"M12 12v3\"/>","download":"<path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/>","arrow-down-to-line":"<path d=\"M12 17V3\"/><path d=\"m6 11 6 6 6-6\"/><path d=\"M19 21H5\"/>","columns-2":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>","ellipsis":"<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>","copy":"<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>","check":"<path d=\"M20 6 9 17l-5-5\"/>","file-pen-line":"<path d=\"M14.364 13.634a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506l4.013-4.009a1 1 0 0 0-3.004-3.004z\"/><path d=\"M14.487 7.858A1 1 0 0 1 14 7V2\"/><path d=\"M20 19.645V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l2.516 2.516\"/><path d=\"M8 18h1\"/>","file-plus":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M9 15h6\"/><path d=\"M12 18v-6\"/>","file-text":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/>","globe":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>","list-todo":"<path d=\"M13 5h8\"/><path d=\"M13 12h8\"/><path d=\"M13 19h8\"/><path d=\"m3 17 2 2 4-4\"/><rect x=\"3\" y=\"4\" width=\"6\" height=\"6\" rx=\"1\"/>","circle-alert":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\"/><line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\"/>","bell":"<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/>","refresh-cw":"<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>","unplug":"<path d=\"m19 5 3-3\"/><path d=\"m2 22 3-3\"/><path d=\"M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z\"/><path d=\"M7.5 13.5 10 11\"/><path d=\"M10.5 16.5 13 14\"/><path d=\"m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z\"/>","scroll-text":"<path d=\"M15 12h-5\"/><path d=\"M15 8h-5\"/><path d=\"M19 17V5a2 2 0 0 0-2-2H4\"/><path d=\"M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3\"/>","info":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 16v-4\"/><path d=\"M12 8h.01\"/>","arrow-up":"<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>","arrow-down":"<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>","external-link":"<path d=\"M15 3h6v6\"/><path d=\"M10 14 21 3\"/><path d=\"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"/>","panel-right":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/>","files":"<path d=\"M15 2h-4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8\"/><path d=\"M16.706 2.706A2.4 2.4 0 0 0 15 2v5a1 1 0 0 0 1 1h5a2.4 2.4 0 0 0-.706-1.706z\"/><path d=\"M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1\"/>","pin":"<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>","eye":"<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","clock":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 6v6l4 2\"/>","brain":"<path d=\"M12 18V5\"/><path d=\"M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4\"/><path d=\"M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5\"/><path d=\"M17.997 5.125a4 4 0 0 1 2.526 5.77\"/><path d=\"M18 18a4 4 0 0 0 2-7.464\"/><path d=\"M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517\"/><path d=\"M6 18a4 4 0 0 1-2-7.464\"/><path d=\"M6.003 5.125a4 4 0 0 0-2.526 5.77\"/>","sparkles":"<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/><path d=\"M20 2v4\"/><path d=\"M22 4h-4\"/><circle cx=\"4\" cy=\"20\" r=\"2\"/>","pencil":"<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>","folder-up":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/><path d=\"M12 10v6\"/><path d=\"m9 13 3-3 3 3\"/>","git-branch":"<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>","list-checks":"<path d=\"M13 5h8\"/><path d=\"M13 12h8\"/><path d=\"M13 19h8\"/><path d=\"m3 17 2 2 4-4\"/><path d=\"m3 7 2 2 4-4\"/>","keyboard":"<path d=\"M10 8h.01\"/><path d=\"M12 12h.01\"/><path d=\"M14 8h.01\"/><path d=\"M16 12h.01\"/><path d=\"M18 8h.01\"/><path d=\"M6 8h.01\"/><path d=\"M7 16h10\"/><path d=\"M8 12h.01\"/><rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\"/>","triangle-alert":"<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>","corner-down-left":"<path d=\"M20 4v7a4 4 0 0 1-4 4H4\"/><path d=\"m9 10-5 5 5 5\"/>","search-code":"<path d=\"m13 13.5 2-2.5-2-2.5\"/><path d=\"m21 21-4.3-4.3\"/><path d=\"M9 8.5 7 11l2 2.5\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>","file-code":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 12.5 8 15l2 2.5\"/><path d=\"m14 12.5 2 2.5-2 2.5\"/>","layers":"<path d=\"M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z\"/><path d=\"M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12\"/><path d=\"M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17\"/>","octagon-x":"<path d=\"m15 9-6 6\"/><path d=\"M2.586 16.726A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2h6.624a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586z\"/><path d=\"m9 9 6 6\"/>","bell-ring":"<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M22 8c0-2.3-.8-4.3-2-6\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/><path d=\"M4 2C2.8 3.7 2 5.7 2 8\"/>","text-search":"<path d=\"M21 5H3\"/><path d=\"M10 12H3\"/><path d=\"M10 19H3\"/><circle cx=\"17\" cy=\"15\" r=\"3\"/><path d=\"m21 19-1.9-1.9\"/>","sprout":"<path d=\"M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3\"/><path d=\"M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4\"/><path d=\"M5 21h14\"/>","arrow-right":"<path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/>","maximize-2":"<path d=\"M15 3h6v6\"/><path d=\"m21 3-7 7\"/><path d=\"m3 21 7-7\"/><path d=\"M9 21H3v-6\"/>","minimize-2":"<path d=\"m14 10 7-7\"/><path d=\"M20 10h-6V4\"/><path d=\"m3 21 7-7\"/><path d=\"M4 14h6v6\"/>"};
+/* ---- 共通の部品 ---- */
+const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON_SVG[name] || ''}</svg>`;
+const LOGO = `<svg viewBox="14 13 72 72" aria-hidden="true"><defs><linearGradient id="hangar-rail" gradientUnits="userSpaceOnUse" x1="-13.362" y1="0" x2="34.096" y2="0"><stop offset="0" stop-color="#1c1b2e"/><stop offset="0.25" stop-color="#1c1b2e"/><stop offset="1" stop-color="#e2e7ff"/></linearGradient></defs><g transform="translate(46.256 25.106) scale(0.854)"><path d="M-13.362 3.178L34.096 -11.66" stroke="url(#hangar-rail)" stroke-width="2.6" stroke-linecap="round"/><g transform="translate(20.734 -6.483) scale(0.614)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#c6cae2" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#c6cae2"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#cdd5fc" stroke-width="4" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#f4caa4"/></g><g transform="translate(14.911 -4.662) scale(0.722)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#8e90a6" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#8e90a6"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#a1aff5" stroke-width="4" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#c1c0d3"/></g><g transform="translate(8.06 -2.52) scale(0.85)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#55556a" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#55556a"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#7689ef" stroke-width="4" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#e56656"/></g><g><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#1c1b2e" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#1c1b2e"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#4a63e8" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#ff6a55"/><circle cx="-16.5" cy="37" r="2" fill="#ffc34d"/><circle cx="-10" cy="37" r="2" fill="#3fb58a"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e8e6e1" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#ffb86b"/></g></g></svg>`;
+
+/** ヘッダ（窓の上辺に付いたガラスの帯）。crumbs は [{label, link}] */
+function headerHTML(crumbs) {
+  const c = crumbs.map((x, i) => `${i ? '<span class="faint"> / </span>' : ''}${x.link ? `<a>${x.label}</a>` : `<b>${x.label}</b>`}`).join('');
+  return `<div class="w-header"><div class="crumbs">${c}</div><div class="w-search">セッションを検索（/）<kbd>⌘K</kbd></div><span class="w-spacer"></span>
+    <span class="w-sync"><span class="dot" data-s="idle"></span>同期 1 分未満前</span>
+    <span class="w-gauges"><span class="gauge"><span class="gauge-bar"><span class="gauge-fill" style="width:29%"></span></span><span class="gauge-num">29%</span></span><span class="gauge"><span class="gauge-bar"><span class="gauge-fill" style="width:55%"></span></span><span class="gauge-num">55%</span></span></span>
+    <button class="btn btn-primary">${ic('plus')}新規セッション</button></div>`;
+}
+
+/** サイドバー。current は現在の項目、badge(item, rail) は項目に添える印の HTML を返す関数。 */
+function sidebarHTML({ rail = false, current = 'sessions', badge = null } = {}) {
+  const items = [['home', 'house', 'ホーム'], ['projects', 'folder', 'プロジェクト'], ['sessions', 'messages-square', 'セッション'], ['settings', 'settings', '設定']];
+  const nav = items.map(([k, icon, label]) => `<div class="nav-item${k === current ? ' on' : ''}" data-nav="${k}">${ic(icon)}<span class="nav-label">${label}</span>${badge ? badge(k, rail) : ''}</div>`).join('');
+  return `<nav class="w-sidebar${rail ? ' rail' : ''}"><div class="sidebar-top"><span class="brand">${LOGO}<span class="brand-word">Hangar</span></span><span class="toggle">${ic('panel-left')}</span></div>${nav}</nav>`;
+}
+
+function winHTML({ w = 1440, h = 900, rail = false, current = 'sessions', badge = null, crumbs = [], main = '', extra = '', mainCls = '' } = {}) {
+  return `<div class="win" style="--win-w:${w}px;--win-h:${h}px"><div class="lights"><i></i><i></i><i></i></div>${headerHTML(crumbs)}${sidebarHTML({ rail, current, badge })}<main class="w-main${rail ? ' rail' : ''} ${mainCls}">${main}</main>${extra}</div>`;
+}
+
+/* ---- 器の縮尺。器の幅に合わせて縮め、「実寸」のときは 1 のまま横にスクロールさせる ---- */
+let REAL = false;
+function fitAll() {
+  document.querySelectorAll('.fit').forEach((f) => {
+    const s = f.querySelector('.scaler');
+    if (!s) return;
+    const w = Number(f.dataset.w || 1440), h = Number(f.dataset.h || 900);
+    const z = REAL ? 1 : Math.min(1, f.clientWidth / w);
+    s.style.transform = `scale(${z})`;
+    s.style.width = w + 'px';
+    f.style.height = Math.ceil(h * z) + 'px';
+    f.classList.toggle('real', REAL);
+  });
+}
+function fitHTML(inner, w = 1440, h = 900) { return `<div class="fit" data-w="${w}" data-h="${h}"><div class="scaler">${inner}</div></div>`; }
+window.addEventListener('resize', fitAll);
+
+/* ---- 案の選択。頁ごとに localStorage へ覚える（使えないときは覚えないだけ） ---- */
+function setupPicks(storeKey) {
+  let chosen = {};
+  try { chosen = JSON.parse(localStorage.getItem(storeKey) || '{}') || {}; } catch (e) { chosen = {}; }
+  const paint = () => {
+    document.querySelectorAll('.pick[data-group]').forEach((c) => {
+      const on = chosen[c.dataset.group] === c.dataset.id;
+      c.classList.toggle('selected', on);
+      const b = c.querySelector('.choose'); if (b) b.textContent = on ? '選んだ' : 'これにする';
+    });
+    const ids = Object.values(chosen).sort();
+    const el = document.getElementById('chosen');
+    if (el) el.innerHTML = ids.length ? '選んだ案 ' + ids.map((i) => `<b>${i}</b>`).join('') : 'まだ選んでいません';
+    document.dispatchEvent(new CustomEvent('picks', { detail: { ...chosen } }));
+  };
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('.pick .choose');
+    if (!b) return;
+    const card = b.closest('.pick');
+    const g = card.dataset.group;
+    if (chosen[g] === card.dataset.id) delete chosen[g]; else chosen[g] = card.dataset.id;
+    try { localStorage.setItem(storeKey, JSON.stringify(chosen)); } catch (e2) { /* 覚えられなくても動く */ }
+    paint();
+  });
+  const zoom = document.getElementById('zoom');
+  if (zoom) zoom.addEventListener('click', () => { REAL = !REAL; zoom.setAttribute('aria-pressed', String(REAL)); zoom.textContent = REAL ? '実寸で表示中' : '実寸で見る'; fitAll(); });
+  paint();
+  return chosen;
+}
+
+function pickHTML({ group, id, title, tag = '', desc = '', stage = '', stageCls = '' }) {
+  return `<div class="pick" data-group="${group}" data-id="${id}"><div class="stage ${stageCls}">${stage}</div><div class="body"><div class="txt"><h3><em>${id}</em>${title}${tag ? `<span class="tag">${tag}</span>` : ''}</h3><p>${desc}</p></div><button class="choose">これにする</button></div></div>`;
+}
+
+
+/* ---- 架空のセッション ---- */
+const WAIT = [
+  { id: 'w1', name: 'ログイン画面のバリデーション', proj: 'shop-web', ago: '2 分', q: 'Bash：npm test -- LoginForm を実行してよいですか', tool: 'Bash', cmd: 'npm test -- LoginForm' },
+  { id: 'w2', name: '請求書 PDF の書き出し', proj: 'billing', ago: '40 秒', q: '用紙の向きをどちらにしますか（A4 縦 / A4 横）', tool: 'AskUserQuestion' },
+  { id: 'w3', name: '画像の遅延読み込み', proj: 'shop-web', ago: '15 秒', q: 'Edit：src/components/Gallery.tsx を書き換えてよいですか', tool: 'Edit', cmd: 'src/components/Gallery.tsx' },
+  { id: 'w4', name: '依存の更新', proj: 'infra', ago: '5 秒', q: 'メジャー更新（3 件）も含めますか', tool: 'AskUserQuestion' },
+];
+const RUN = [
+  { name: '検索の索引の作り直し', proj: 'shop-web', el: '12:04', act: '<i>Bash</i> npm run build:index', ctx: 38 },
+  { name: 'README の英訳', proj: 'docs', el: '3:41', act: '<i>Write</i> docs/en/README.md', ctx: 21 },
+  { name: 'CI の待ち時間を減らす', proj: 'infra', el: '8:15', act: '<i>Read</i> .github/workflows/test.yml', ctx: 57 },
+];
+
+function waitToast(w, { compact = false } = {}) {
+  return `<div class="wt${compact ? ' compact' : ''}" data-open="${w.id}" role="button" tabindex="0"><span class="dot" data-s="waiting"></span><div class="b"><div class="h"><b>${w.name}</b><small>${w.ago}待っている</small></div><div class="p">${w.proj}</div><div class="q">${w.q}</div><div class="a"><button class="btn btn-primary">${ic('terminal')}端末で答える</button><span class="hint">答えるまで残ります</span></div></div></div>`;
+}
+function stackHTML(list, B, { compact = false } = {}) {
+  if (!list.length) return '';
+  if (B === 'B2') {
+    const front = list[list.length - 1];
+    const backs = list.slice(0, -1).slice(-2).map((w, i) => `<div class="wt back b${i + 1}"><span></span></div>`).join('');
+    return `<div class="deck">${list.length > 1 ? `<span class="cnt">${list.length}</span>` : ''}${waitToast(front, { compact })}${backs}</div>`;
+  }
+  if (B === 'B3') {
+    return `<div class="group"><div class="gh"><span class="dot" data-s="waiting"></span>入力待ち ${list.length}<small>押すと端末へ</small></div>${list.map((w) => `<div class="gr" data-open="${w.id}"><div class="b"><b>${w.name}</b><span class="q">${w.q}</span></div><small>${w.ago}</small></div>`).join('')}</div>`;
+  }
+  const shown = list.slice(-3);
+  const rest = list.length - shown.length;
+  return `${rest > 0 ? `<span class="more-row">ほか ${rest} 件を Home で見る</span>` : ''}${shown.map((w) => waitToast(w, { compact })).join('')}`;
+}
+function toastLayer(list, A, B, { rail = false, err = '', islandOpen = false } = {}) {
+  if (A === 'A3') {
+    if (!list.length && !err) return '';
+    const island = list.length ? `<div class="island" data-island><span class="n">${list.length}</span><span>入力待ち</span><span class="q">${list[list.length - 1].name} · ${list[list.length - 1].q}</span><button class="btn btn-primary" data-open="${list[list.length - 1].id}">答える</button></div>` : '';
+    const lst = islandOpen && list.length ? `<div class="island-list">${stackHTML(list, 'B3')}</div>` : '';
+    return `${island}${lst}${err ? `<div class="toasts pos-br">${err}</div>` : ''}`;
+  }
+  const pos = A === 'A2' ? 'pos-tr' : A === 'A4' ? 'pos-bl' : 'pos-br';
+  const compact = A === 'A4' && !rail;
+  const errPart = err ? (A === 'A2' ? `<div class="toasts pos-br">${err}</div>` : '') : '';
+  const inline = err && A !== 'A2' ? err : '';
+  return `<div class="toasts ${pos}${rail ? ' rail' : ''}">${pos === 'pos-br' ? inline + stackHTML(list, B, { compact }) : stackHTML(list, B, { compact }) + inline}</div>${errPart}`;
+}
+
+/* ---- 件数の印 ---- */
+function badgeFn(C, n, { tip = false } = {}) {
+  return (k, rail) => {
+    if (k !== 'home' || !n) return '';
+    if (C === 'C1') return rail ? `<span class="rail-c1">${n}</span>` : `<span class="bdg c1-pill">${n}</span>`;
+    if (C === 'C2') return rail ? `<span class="rail-c2"></span>${tip ? `<span class="navtip">ホーム · 入力待ち ${n}</span>` : ''}` : `<span class="bdg c2-dot" title="入力待ち ${n}"></span>`;
+    if (C === 'C3') return rail ? `<span class="rail-c3">${n}</span>` : `<span class="bdg c3-text">${n} 件待ち</span>`;
+    return `<span class="c4-n">${n}</span>`;
+  };
+}
+function sidebarWithBadge(C, n, rail, opts = {}) {
+  let html = sidebarHTML({ rail, current: opts.current || 'sessions', badge: badgeFn(C, n, opts) });
+  if (C === 'C4' && n) html = html.replace(/class="nav-item( on)?" data-nav="home"/, 'class="nav-item$1 c4" data-nav="home"');
+  if (rail && opts.tip && C !== 'C2') html = html.replace(/(data-nav="home">[\s\S]*?)(<\/div>)/, `$1<span class="navtip">ホーム · 入力待ち ${n}</span>$2`);
+  return html;
+}
+
+/* ---- 画面の中身 ---- */
+function homeMain(list) {
+  const asks = list.map((w) => `<div class="ask-card"><span class="dot" data-s="waiting"></span><div class="ask-body"><div class="ask-title"><b>${w.name}</b> <span class="faint">· ${w.proj} · ${w.ago}待っている</span></div><div class="ask-q">${w.q}</div></div><button class="btn btn-primary" data-open="${w.id}">ターミナルで答える</button></div>`).join('');
+  const live = RUN.map((r) => `<div class="live-card"><div class="live-head"><span class="dot" data-s="busy"></span><span class="live-name">${r.name}</span><span class="live-elapsed">${r.el}</span></div><div class="live-meta">${r.proj} · opus 5.5 · high</div><div class="live-act">${r.act}</div><div class="live-ctx">文脈<span class="gauge-bar"><span class="gauge-fill" style="width:${r.ctx}%"></span></span>${r.ctx}%</div></div>`).join('');
+  const recent = [['パスワード再設定のメール', 'shop-web', '送信の文面を日本語にし、期限を 30 分にした', '1 時間前'], ['商品一覧の並び替え', 'shop-web', '価格と新着の並び替えを足した', '3 時間前'], ['請求の締め日の計算', 'billing', '月末が休日のときの扱いを直した', '昨日'], ['ログの保存期間', 'infra', '30 日から 90 日に延ばした', '昨日']].map((r) => `<div class="row2"><span class="dot"></span><div style="min-width:0"><div class="nm">${r[0]}<small>${r[1]}</small></div><div class="sb">${r[2]}</div></div><span class="tm">${r[3]}</span></div>`).join('');
+  const pj = [['shop-web', '実行中 1 · TODO 4'], ['billing', 'TODO 2'], ['infra', '実行中 1'], ['docs', '実行中 1']].map((p) => `<div class="pj"><span class="d"></span>${p[0]}<span class="c">${p[1]}</span></div>`).join('');
+  return `<div class="home-inner">${list.length ? `<h2 class="home-label">要対応<span class="home-count">${list.length}</span></h2>${asks}` : ''}<h2 class="home-label">実行中<span class="home-count">3</span></h2><div class="live-grid">${live}</div><div class="home-two"><section><h2 class="home-label">最近</h2><div class="list">${recent}</div></section><section><h2 class="home-label">プロジェクト</h2><div class="list">${pj}</div></section></div></div>`;
+}
+function sessionMain(w, answered) {
+  const ask = w.tool === 'AskUserQuestion'
+    ? `<span class="ask"> <b>${w.q}</b>\n\n <span class="opt t-sel" data-answer="${w.id}">❯ 1. A4 縦</span>\n   <span class="opt" data-answer="${w.id}">2. A4 横</span>\n   <span class="opt" data-answer="${w.id}">3. 自分で書く</span></span>`
+    : `<span class="ask"> <b>${w.tool} ${w.tool === 'Bash' ? 'command' : 'file'}</b>\n\n   ${w.cmd}\n\n Do you want to proceed?\n <span class="opt t-sel" data-answer="${w.id}">❯ 1. Yes</span>\n   <span class="opt" data-answer="${w.id}">2. Yes, and don't ask again this session</span>\n   <span class="opt" data-answer="${w.id}">3. No, and tell Claude what to do differently <span class="t-dim">(esc)</span></span></span>`;
+  const body = answered
+    ? `<span class="t-dim">⏺</span> <span class="t-tool">${w.tool === 'AskUserQuestion' ? 'AskUserQuestion' : w.tool}</span>(${w.cmd || '用紙の向き'})\n  <span class="t-dim">⎿  答えを受け取りました</span>\n\n<span class="t-tool">✶ Working…</span> <span class="t-dim">(2s · esc to interrupt)</span>`
+    : `<span class="t-dim">⏺</span> 確かめてから進めます。\n\n${ask}`;
+  return `<div class="sbar"><span class="dot" data-s="${answered ? 'busy' : 'waiting'}"></span><h1>${w.name}</h1><span class="one">${w.proj}</span><button class="btn btn-primary">${ic('code')}VS Code で開く</button><button class="btn btn-icon">${ic('ellipsis')}</button></div><div class="tabs"><div class="tab on">${ic('bot')}Claude</div><div class="tab">${ic('terminal')}zsh</div></div><div class="term" data-live="${answered ? 'busy' : 'waiting'}">${answered ? '' : `<span class="focus-note">${ic('keyboard')}端末にフォーカスしています · 選択肢を押すと答えます</span>`}<span class="t-dim">&gt; 続けて</span>\n\n${body}\n\n<span class="t-dim">&gt;</span> <span class="caret"></span></div>`;
+}
+
+/* ---- 動く見本 ---- */
+const REC = { A: 'A1', B: 'B1', C: 'C1', D: 'D1', N: 'N1' };
+const demo = { A: 'A1', B: 'B1', C: 'C1', D: 'D1', rail: false, waiting: [WAIT[0], WAIT[1]], screen: 'home', current: null, answered: false, err: false, islandOpen: false };
+function errToast(D) {
+  const msg = 'ターミナルに接続できませんでした。tmux のセッション hangar-shop-web-a1b2 が見つかりません。サーバを再起動したか、tmux が終了した可能性があります。';
+  if (D === 'D3') return '';
+  const cls = D === 'D2' ? 'd2' : 'd1';
+  return `<div class="et ${cls}">${D === 'D1' ? ic('circle-alert') : ''}<div class="b"><b>接続できませんでした</b><div class="m">${msg}</div><div class="acts"><a data-more>詳しく</a><a>コピー</a></div></div><span class="x" data-close aria-label="閉じる">${ic('x')}</span></div>`;
+}
+function errBand() { return `<div class="eband">${ic('circle-alert')}<b>接続できませんでした</b><span>tmux のセッション hangar-shop-web-a1b2 が見つかりません。サーバを再起動したか…</span><span class="acts"><button class="btn btn-ghost">詳しく</button><button class="btn btn-icon btn-ghost" style="height:22px;width:22px">${ic('x')}</button></span></div>`; }
+function demoHTML() {
+  const list = demo.waiting;
+  const main = demo.screen === 'home' ? homeMain(list) : sessionMain(demo.current, demo.answered);
+  const err = demo.err ? errToast(demo.D) : '';
+  let html = winHTML({ rail: demo.rail, current: demo.screen === 'home' ? 'home' : 'sessions', crumbs: demo.screen === 'home' ? [{ label: 'ホーム' }] : [{ label: demo.current.proj, link: true }, { label: demo.current.name }], main, extra: toastLayer(list, demo.A, demo.B, { rail: demo.rail, err, islandOpen: demo.islandOpen }) + (demo.err && demo.D === 'D3' ? errBand() : '') });
+  html = html.replace(/<nav class="w-sidebar[\s\S]*?<\/nav>/, sidebarWithBadge(demo.C, list.length, demo.rail, { current: demo.screen === 'home' ? 'home' : 'sessions' }));
+  if (demo.rail) html = html.replace('class="eband"', 'class="eband" style="left:calc(var(--sidebar-rail-w) + var(--float-gap))"');
+  return html;
+}
+function drawDemo() {
+  const g = (k, vs) => `<span class="grp">${k}<span class="opts">${vs.map((v) => `<button data-k="${k}" data-v="${v}" aria-pressed="${demo[k] === v}">${v}</button>`).join('')}</span></span>`;
+  document.getElementById('ctl').innerHTML = `${g('A', ['A1', 'A2', 'A3', 'A4'])}${g('B', ['B1', 'B2', 'B3'])}${g('C', ['C1', 'C2', 'C3', 'C4'])}${g('D', ['D1', 'D2', 'D3'])}<label class="grp"><input type="checkbox" id="optRail" ${demo.rail ? 'checked' : ''}>サイドバーを畳む</label><button class="act" data-do="add">入力待ちを起こす</button><button class="act lite" data-do="err">エラーを出す</button><button class="act lite" data-do="reset">はじめに戻す</button>`;
+  document.getElementById('demoStage').innerHTML = fitHTML(demoHTML());
+  fitAll();
+}
+document.getElementById('ctl').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.k) { demo[b.dataset.k] = b.dataset.v; }
+  if (b.dataset.do === 'add') { const next = WAIT.find((w) => !demo.waiting.includes(w)); if (next) demo.waiting = [...demo.waiting, next]; }
+  if (b.dataset.do === 'err') demo.err = true;
+  if (b.dataset.do === 'reset') Object.assign(demo, { waiting: [WAIT[0], WAIT[1]], screen: 'home', current: null, answered: false, err: false, islandOpen: false });
+  drawDemo();
+});
+document.getElementById('ctl').addEventListener('change', (e) => { if (e.target.id === 'optRail') { demo.rail = e.target.checked; drawDemo(); } });
+document.getElementById('demoStage').addEventListener('click', (e) => {
+  const open = e.target.closest('[data-open]');
+  if (open) { const w = WAIT.find((x) => x.id === open.dataset.open); demo.screen = 'session'; demo.current = w; demo.answered = false; demo.islandOpen = false; drawDemo(); return; }
+  if (e.target.closest('[data-island]')) { demo.islandOpen = !demo.islandOpen; drawDemo(); return; }
+  const ans = e.target.closest('[data-answer]');
+  if (ans) { demo.waiting = demo.waiting.filter((w) => w.id !== ans.dataset.answer); demo.answered = true; drawDemo(); return; }
+  if (e.target.closest('[data-close]')) { demo.err = false; drawDemo(); return; }
+  if (e.target.closest('[data-more]')) { const et = e.target.closest('.et'); et.classList.toggle('open'); return; }
+  if (e.target.closest('.nav-item[data-nav="home"]')) { demo.screen = 'home'; drawDemo(); }
+});
+
+/* ---- 軸ごとの案 ---- */
+const DESC = {
+  A1: ['右下に積むカード', 'おすすめ', '今のトーストと同じ右下に、入力待ちのカードを積む。左に赤い縦の帯、名前、プロジェクト、待っている時間、問い（2 行まで）、「端末で答える」。端末の下端（入力欄）に近く、押した先と手の動きが揃う。'],
+  A2: ['右上、ヘッダの下', '', 'macOS の通知と同じ右上に積む。目に入りやすいが、セッション画面では目次の上に重なる。エラーは右下に分ける。'],
+  A3: ['上中央の島', '', 'ヘッダの中央に墨の錠剤を 1 つだけ出し、件数と最新の問いを 1 行で見せる。押すと一覧が下に開く。何件あっても場所を取らない。'],
+  A4: ['サイドバーの下端', '', '開いたサイドバーの中の下端に、詰めた形（問い 1 行）で積む。件数の印の「ホーム」と同じ柱に並ぶ。畳んだ帯のときは帯の右に出す。本文を隠さない。'],
+  B1: ['全部並べる', 'おすすめ', '3 件までは縦に並べ、4 件目からは「ほか 1 件を Home で見る」にまとめる。どれにも一手で届く。'],
+  B2: ['重ねて束ねる', '', '最新の 1 枚だけを見せ、後ろに 2 枚の縁を覗かせて件数の丸を付ける。乗せると広がって全部並ぶ。場所を取らない。'],
+  B3: ['1 枚にまとめる', '', '「入力待ち 4」の見出しの 1 枚にし、名前と問いを 1 行ずつ並べる。行を押すとその端末へ。件数が増えても形が変わらない。'],
+  C1: ['数字の錠剤', 'おすすめ', '開いた形は項目の右端に赤い数字の錠剤。畳んだ帯ではアイコンの右上に小さな数字の丸。'],
+  C2: ['点だけ', '', '数は出さず、赤い点だけで「何かある」を知らせる。数は乗せたときの吹き出しで見る。いちばん静か。'],
+  C3: ['文字で言う', '', '開いた形は「2 件待ち」と入力待ちの色の文字で。畳んだ帯ではアイコンの右下に数字だけ。'],
+  C4: ['項目を灯す', '', '「ホーム」の項目そのものを入力待ちの淡い赤で灯し、右端に数字。畳んだ帯では項目の縁を赤くする。いちばん目立つ。'],
+  D1: ['赤みのガラス', 'おすすめ', '今のエラーのトーストの色（赤を 10% 混ぜたガラス）に、警告のアイコン、題、本文 2 行、「詳しく」「コピー」、閉じる × を足す。'],
+  D2: ['白地に赤の帯', '', '入力待ちのトーストと同じ白いガラスに、左の赤い帯で区別する。本文は墨の色で読みやすい。'],
+  D3: ['ヘッダの下の帯', '', '切断の帯と同じ形で、ヘッダの下に 1 行の帯として出す。トーストと場所が分かれ、入力待ちと混ざらない。× で閉じる。'],
+  N1: ['名前が題', 'おすすめ', '題にセッションの名前、本文に問い。同じアプリの通知は macOS がまとめて重ねる。'],
+  N2: ['状態が題', '', '題は「入力を待っています」、副題に名前とプロジェクト、本文に問い。何の知らせかが先に分かる。'],
+  N3: ['まとめる', '', '続けて来たときは 1 つにまとめ、「2 件が入力を待っています」と名前を並べる。通知が積み上がらない。'],
+};
+const P = (g, id, stage, stageCls = '') => { const d = DESC[id]; return pickHTML({ group: g, id, title: d[0], tag: d[1], desc: d[2], stage, stageCls }); };
+function homeWithToasts(A, B, list, { rail = false, C = 'C1', islandOpen = false } = {}) {
+  let html = winHTML({ rail, current: 'sessions', crumbs: [{ label: 'セッション' }], main: `<div class="home-inner"><h2 class="home-label">セッション<span class="home-count">128</span></h2><div class="list">${Array.from({ length: 12 }, (_, i) => `<div class="row2"><span class="dot"${i === 0 ? ' data-s="busy"' : ''}></span><div style="min-width:0"><div class="nm">${['検索の索引の作り直し', 'パスワード再設定のメール', '商品一覧の並び替え', '請求の締め日の計算', 'ログの保存期間', 'README の英訳', 'CI の待ち時間を減らす', 'カートの数量の上限', '在庫の同期', '配送料の計算', 'お知らせの既読', '管理画面の CSV 出力'][i]}<small>${['shop-web', 'shop-web', 'shop-web', 'billing', 'infra', 'docs', 'infra', 'shop-web', 'shop-web', 'billing', 'shop-web', 'admin'][i]}</small></div><div class="sb">要約の 1 文がここに入ります</div></div><span class="tm">${i + 1} 時間前</span></div>`).join('')}</div></div>`, extra: toastLayer(list, A, B, { rail, islandOpen }) });
+  return html.replace(/<nav class="w-sidebar[\s\S]*?<\/nav>/, sidebarWithBadge(C, list.length, rail));
+}
+function build() {
+  document.getElementById('picksA').innerHTML = ['A1', 'A2', 'A3', 'A4'].map((id) => P('A', id, fitHTML(homeWithToasts(id, 'B1', [WAIT[0], WAIT[1]], { islandOpen: id === 'A3' })))).join('');
+  const four = WAIT.slice(0, 4);
+  document.getElementById('picksB').innerHTML = ['B1', 'B2', 'B3'].map((id) => P('B', id, `<div class="toast-stage"><div class="toasts" style="flex-direction:column">${stackHTML(four, id)}</div></div>`)).join('');
+  document.getElementById('picksC').innerHTML = ['C1', 'C2', 'C3', 'C4'].map((id) => P('C', id, `<div class="crop-row"><div><div class="lbl">開いた形</div><div class="sb-crop">${sidebarWithBadge(id, 2, false).replace('w-sidebar', 'w-sidebar glass-free')}</div></div><div><div class="lbl">畳んだ帯</div><div class="sb-crop rail">${sidebarWithBadge(id, 2, true)}</div></div><div><div class="lbl">畳んだ帯・乗せたとき</div><div class="sb-crop rail" style="width:200px">${sidebarWithBadge(id, 2, true, { tip: true })}</div></div></div>`)).join('');
+  document.getElementById('picksD').innerHTML = ['D1', 'D2', 'D3'].map((id) => P('D', id, id === 'D3' ? `<div style="position:relative;height:120px">${errBand().replace('class="eband"', 'class="eband" style="left:0;right:0;top:10px"')}</div><p class="note" style="margin:0">入力待ちのトーストとは場所を分ける。帯が出ている間は、本文の上の余白を帯の分だけ空ける（切断の帯と同じ）。</p>` : `<div style="padding:12px 0">${errToast(id)}</div>`)).join('');
+  const bannerN = (id) => {
+    const ai = `<span class="ai">${LOGO}</span>`;
+    if (id === 'N1') return `<div class="banner stack">${ai}<div class="b"><div class="t">ログイン画面のバリデーション<small>今</small></div><div class="m">Bash：npm test -- LoginForm を実行してよいですか</div></div></div>`;
+    if (id === 'N2') return `<div class="banner">${ai}<div class="b"><div class="t">入力を待っています<small>今</small></div><div class="s">ログイン画面のバリデーション · shop-web</div><div class="m">Bash：npm test -- LoginForm を実行してよいですか</div></div></div>`;
+    return `<div class="banner">${ai}<div class="b"><div class="t">2 件が入力を待っています<small>今</small></div><div class="m">ログイン画面のバリデーション、請求書 PDF の書き出し</div></div></div>`;
+  };
+  const dock = `<div class="dock"><span class="app" style="background:linear-gradient(160deg,#5ac8fa,#007aff)"></span><span class="app" style="background:linear-gradient(160deg,#fff,#e5e5ea)"></span><span class="app" style="background:linear-gradient(160deg,#2c2c2e,#000)"></span><span class="app" style="background:linear-gradient(160deg,#34c759,#248a3d)"></span><span class="app hangar">${LOGO}<span class="badge">2</span><span class="run"></span></span><span class="app" style="background:linear-gradient(160deg,#0a84ff,#1b3a8a)"></span></div>`;
+  document.getElementById('picksN').innerHTML = ['N1', 'N2', 'N3'].map((id) => P('N', id, `<div class="desk"><div class="menubar"><b></b><span>ファイル</span><span>編集</span><span>表示</span><span class="r">10月1日(水) 12:24</span></div><div class="nc">${bannerN(id)}</div>${dock}</div>`, 'plain')).join('');
+}
+document.addEventListener('picks', (e) => { const c = e.detail; for (const k of ['A', 'B', 'C', 'D']) demo[k] = c[k] || REC[k]; drawDemo(); });
+document.addEventListener('click', (e) => { const m = e.target.closest('#picksD [data-more]'); if (m) m.closest('.et').classList.toggle('open'); });
+build();
+setupPicks('hangar-proto-waiting-notify');
+</script>
+</body>
+</html>

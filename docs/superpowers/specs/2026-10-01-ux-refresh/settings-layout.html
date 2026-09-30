@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>設定の組み直し</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet">
+<style>
+/* ==== tokens.css の写し（--ink-3 は変更予定の #6e6d88） ==== */
+:root {
+  --bg: #eef1f7; --aura-1: #cfe0ff; --aura-2: #e5d6ff;
+  --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88;
+  --accent: #4a63e8; --accent-hi: #6b8cff; --accent-ink: #ffffff; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e; --error: #b3261e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --term-bg: #1c1b2e; --term-fg: #e8e6f0; --term-tool: #ffb86b;
+  --glass-bg: rgba(255,255,255,.4); --glass-bg-palette: rgba(255,255,255,.62); --glass-bg-dialog: rgba(255,255,255,.72);
+  --glass-bg-toast: rgba(255,255,255,.82); --glass-bg-menu: rgba(255,255,255,.82);
+  --glass-blur: blur(12px) saturate(1.9); --glass-blur-strong: blur(18px) saturate(1.8); --glass-blur-dialog: blur(18px) saturate(1.6); --glass-blur-toast: blur(14px);
+  --glass-edge: inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5);
+  --glass-drop: 0 10px 28px -12px rgba(30,40,90,.3); --glass-drop-lg: 0 24px 50px -16px rgba(30,40,90,.45);
+  --surface-shadow: 0 1px 2px rgba(30,40,90,.06); --term-lift: 0 12px 26px -16px rgba(20,20,60,.55);
+  --font-sans: 'Inter', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --fs-lg: 20px;
+  --row-h: 28px; --session-row-h: 56px; --hit: #fff3c4;
+  --u: 4px; --r: 8px; --r-lg: 14px; --r-xl: 16px; --r-pill: 99px; --float-gap: 8px;
+  --sidebar-w: 208px; --sidebar-rail-w: 52px; --lights-end: 81px; --header-h: 44px;
+  --dur-fast: 200ms; --dur: 420ms; --dur-exit: 250ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --rise: 6px; --blur-in: 6px;
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms; --rise: 0px; --blur-in: 0px; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font: var(--fs)/1.45 var(--font-sans); color: var(--ink); background: #f6f7fb; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; display: inline-block; vertical-align: middle; }
+.mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+.muted { color: var(--ink-2); } .faint { color: var(--ink-3); }
+.spacer { flex: 1; }
+kbd, .kbd { display: inline-flex; align-items: center; gap: 1px; padding: 0 5px; height: 18px; border-radius: 5px; font: 600 10.5px/18px var(--font-mono); color: var(--ink-2); background: rgba(30,40,90,.06); box-shadow: inset 0 -1px 0 rgba(30,40,90,.08); }
+
+/* ==== 試作のページの枠 ==== */
+.ptop { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; gap: 16px; padding: 12px 32px; background: rgba(246,247,251,.86); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+.ptop h1 { font-size: 16px; font-weight: 680; margin: 0; letter-spacing: -0.01em; white-space: nowrap; }
+.ptop .back { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+.ptop .chosen { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; align-items: center; color: var(--ink-3); font-size: 12px; justify-content: flex-end; }
+.ptop .chosen b { font: 600 11.5px var(--font-mono); color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 99px; }
+main.doc { max-width: 1320px; margin: 0 auto; padding: 24px 32px 120px; }
+.purpose { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; padding: 20px 24px; margin-bottom: 40px; border-radius: 16px; background: #fff; box-shadow: 0 1px 2px rgba(30,40,90,.06), 0 0 0 1px var(--line); }
+.purpose h2 { margin: 0 0 6px; font-size: 13px; font-weight: 650; color: var(--ink-3); letter-spacing: .02em; }
+.purpose p { margin: 0 0 8px; color: var(--ink-2); max-width: 70ch; }
+.purpose p b { color: var(--ink); font-weight: 600; }
+.legend { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.legend li { display: grid; grid-template-columns: 34px 1fr; gap: 8px; align-items: baseline; }
+.legend li.ax { grid-template-columns: 1fr; margin-top: 8px; font-weight: 650; color: var(--ink); }
+.legend li.ax:first-child { margin-top: 0; }
+.legend code { font: 600 11.5px var(--font-mono); color: var(--accent); }
+.legend span { color: var(--ink-2); }
+section.sec { margin-bottom: 64px; scroll-margin-top: 64px; }
+section.sec > h2 { display: flex; align-items: baseline; gap: 10px; font-size: 17px; font-weight: 680; margin: 0 0 4px; letter-spacing: -0.01em; }
+section.sec > h2 em { font: 600 12px var(--font-mono); color: var(--accent); font-style: normal; }
+section.sec > p { margin: 0 0 16px; color: var(--ink-2); max-width: 920px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 20px; }
+.grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid.one { grid-template-columns: minmax(0, 1fr); }
+.pick { position: relative; background: #fff; border-radius: 16px; box-shadow: 0 1px 2px rgba(30,40,90,.06), 0 0 0 1px var(--line); transition: box-shadow var(--dur-fast) var(--ease-out); display: flex; flex-direction: column; min-width: 0; }
+.pick.selected { box-shadow: 0 0 0 2px var(--accent), 0 6px 18px -8px rgba(74,99,232,.4); }
+.pick .stage { position: relative; isolation: isolate; overflow: hidden; min-height: 220px; border-radius: 16px 16px 0 0; padding: 24px; display: flex; align-items: flex-start; justify-content: center; background: radial-gradient(55% 60% at 18% 12%, var(--aura-1), transparent 70%), radial-gradient(50% 55% at 88% 85%, var(--aura-2), transparent 70%), var(--bg); }
+.pick .stage.flush { padding: 0; display: block; }
+.pick .stage.left { justify-content: flex-start; }
+.pick .body { padding: 14px 16px 16px; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
+.pick .body .txt { flex: 1; min-width: 0; }
+.pick .body h3 { margin: 0 0 4px; font-size: 13.5px; font-weight: 650; display: flex; gap: 8px; align-items: baseline; }
+.pick .body h3 em { font-style: normal; font: 600 11.5px var(--font-mono); color: var(--accent); }
+.pick .body p { margin: 0; color: var(--ink-2); font-size: 12px; }
+.pick .body p + p { margin-top: 4px; }
+.pick .body .pro { color: var(--st-done); } .pick .body .con { color: var(--waiting); }
+.pick .body .choose { flex: none; border: 0; border-radius: 99px; padding: 5px 12px; font-size: 12px; font-weight: 560; cursor: pointer; background: var(--surface-2); color: var(--ink-2); }
+.pick.selected .body .choose { background: var(--accent); color: #fff; }
+.pick.now .stage { background: #e9ebf1; }
+.pick.now .body h3 em { color: var(--ink-3); }
+.note { font-size: 12px; color: var(--ink-3); margin: 8px 0 0; }
+.demo-ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; font-size: 12px; color: var(--ink-3); }
+.demo-ctl button { border: 0; border-radius: 99px; padding: 4px 11px; font-size: 12px; font-weight: 560; cursor: pointer; background: #fff; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.demo-ctl button:hover { color: var(--ink); }
+table.inv { width: 100%; border-collapse: collapse; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); font-size: 12.5px; }
+table.inv th, table.inv td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.inv th { font-weight: 560; color: var(--ink-3); font-size: 11.5px; background: #fbfbfd; }
+table.inv code { font: 500 11.5px var(--font-mono); color: var(--ink-2); }
+table.inv s { color: var(--ink-3); }
+
+/* ==== アプリの窓（1:1 の写し） ==== */
+.win { position: relative; isolation: isolate; overflow: hidden; border-radius: 12px; background: var(--bg); box-shadow: 0 0 0 1px rgba(30,40,90,.12), 0 20px 50px -24px rgba(30,40,90,.45); width: 100%; }
+.win::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%); }
+.lights { position: absolute; left: 13px; top: 16px; z-index: 5; display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.12); }
+.lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+.hdr { position: relative; z-index: 3; display: flex; align-items: center; gap: 18px; height: var(--header-h); padding: 0 12px 0 var(--lights-end); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 -1px 0 rgba(255,255,255,.6), 0 6px 18px -12px rgba(30,40,90,.3); white-space: nowrap; }
+.hdr.solo { border-radius: 12px; }
+.crumbs { display: flex; gap: 4px; color: var(--ink-2); white-space: nowrap; }
+.crumbs b { color: var(--ink); font-weight: 500; }
+.search-box { flex: 1; max-width: 420px; min-width: 140px; height: 26px; display: flex; align-items: center; border-radius: 99px; padding: 0 12px; background: rgba(255,255,255,.5); box-shadow: inset 0 1px 2px rgba(30,40,90,.12); color: var(--ink-3); }
+.search-box .kbd-in { margin-left: auto; font: var(--fs-xs)/1 var(--font-mono); color: var(--ink-3); }
+.sync { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--ink-2); position: relative; padding-left: 18px; }
+.sync::before, .gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: 16px; translate: 0 -50%; border-left: 1px solid rgba(30,40,90,.14); }
+.sync .st-dot { background: var(--idle); }
+.sync .act { color: var(--ink-2); font-weight: 560; padding: 0 6px; }
+.gauges { position: relative; display: flex; align-items: center; gap: 10px; padding-left: 18px; }
+.gauge { display: inline-flex; align-items: center; gap: 4px; }
+.gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30,40,90,.1); overflow: hidden; }
+.gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+.gauge-fill.high { background: var(--waiting); }
+.gauge-num { font-size: var(--fs-xs); line-height: 1.2; color: var(--ink-3); min-width: 30px; }
+.gauge-updated { font-size: var(--fs-xs); color: var(--ink-3); }
+
+.side { position: absolute; z-index: 2; left: 8px; top: calc(var(--header-h) + 8px); bottom: 8px; width: var(--sidebar-w); padding: 10px 8px; border-radius: var(--r-xl); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); }
+.side.rail { width: var(--sidebar-rail-w); padding: 6px; }
+.brand { display: flex; align-items: center; gap: 7px; padding: 0 6px; margin-bottom: 14px; height: 44px; }
+.brand-mark { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(145deg, #2f3563, #1c1b2e); position: relative; flex: none; }
+.brand-mark::after { content: '>_'; position: absolute; left: 7px; bottom: 5px; font: 700 12px var(--font-mono); color: #9fb4ff; }
+.brand-word { font-size: var(--fs-lg); font-weight: 720; letter-spacing: -0.03em; line-height: 1; }
+.brand-word::after { content: ''; display: inline-block; width: 10px; height: 3px; margin-left: 2px; border-radius: 1.5px; background: #ffb86b; }
+.brand .tog { margin-left: auto; color: var(--ink-2); display: grid; place-items: center; width: 32px; height: 32px; }
+.nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border-radius: 99px; white-space: nowrap; }
+.nav-item .ic { width: 18px; height: 18px; }
+.nav-item.cur { color: var(--ink); font-weight: 560; background: rgba(255,255,255,.78); box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(30,40,90,.1); }
+.side.rail .nav-item { width: 40px; height: 40px; padding: 0 11px; border-radius: var(--r-lg); margin-bottom: 4px; }
+.side.rail .nav-item span { display: none; }
+.app-main { position: absolute; left: calc(var(--sidebar-w) + 16px); right: 0; top: var(--header-h); bottom: 0; overflow: auto; padding: 16px 16px 16px 8px; }
+.app-main.rail { left: calc(var(--sidebar-rail-w) + 16px); }
+.app-main.full { left: 0; padding: 16px 20px; }
+
+/* ==== 部品 ==== */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 12px; border: 0; border-radius: 99px; font-weight: 560; background: rgba(255,255,255,.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,.14); cursor: pointer; white-space: nowrap; color: var(--ink); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.btn:hover { background: #fff; box-shadow: inset 0 1px 0 #fff, 0 3px 10px -2px rgba(30,40,90,.2); transform: translateY(-1px); }
+.btn:active { transform: scale(.97); }
+.btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 4px 12px -4px rgba(70,90,230,.6); }
+.btn-primary:hover { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); filter: brightness(1.04); box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 4px 12px -4px rgba(70,90,230,.6); }
+.btn-danger { background: linear-gradient(180deg, #d0463d, var(--error)); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 4px 12px -4px rgba(179,38,30,.55); }
+.btn-danger:hover { background: linear-gradient(180deg, #d0463d, var(--error)); filter: brightness(1.05); box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 4px 12px -4px rgba(179,38,30,.55); }
+.btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+.btn-ghost:hover { background: rgba(255,255,255,.7); box-shadow: none; color: var(--ink); }
+.btn-sm { height: 22px; padding: 0 9px; font-size: var(--fs-sm); }
+.btn-icon { width: var(--row-h); padding: 0; justify-content: center; }
+.btn .kbd-in { font: 600 10.5px var(--font-mono); opacity: .72; margin-left: 2px; }
+.input { height: var(--row-h); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); color: var(--ink); outline: none; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); min-width: 0; }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+textarea.input { height: auto; padding: 6px 8px; resize: vertical; line-height: 1.5; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); color: var(--ink-2); }
+.dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); }
+.dot.busy { background: var(--busy); } .dot.idle { background: var(--idle); } .dot.waiting { background: var(--waiting); }
+.st-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--st-archived); }
+.st-dot.active { background: var(--st-active); } .st-dot.paused { background: var(--st-paused); } .st-dot.done { background: var(--st-done); }
+.list { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.h1 { font-size: var(--fs-lg); font-weight: 650; letter-spacing: -0.01em; margin: 0 0 12px; }
+.h2 { font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; margin: 0 0 8px; }
+.home-label { display: flex; align-items: baseline; gap: 6px; margin: 20px 0 8px 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.home-label:first-child { margin-top: 0; }
+.home-count { font-weight: 500; color: var(--ink-3); }
+.home-label .more { margin-left: auto; font-weight: 500; color: var(--ink-3); font-size: var(--fs-xs); display: inline-flex; align-items: center; gap: 3px; }
+.home-label .more:hover { color: var(--accent); }
+/* 2 段の行 */
+.row2 { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 16px; height: var(--session-row-h); padding: 0 20px; border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; transition: background var(--dur-fast) var(--ease-out); }
+.row2:last-child { border-bottom: 0; }
+.row2:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+.row-main { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
+.row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 560; }
+.row-proj { margin-left: 6px; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
+.row-sub { display: flex; align-items: center; gap: 8px; min-width: 0; height: 20px; font-size: var(--fs-sm); color: var(--ink-2); }
+.row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 4px; font-size: var(--fs-xs); color: var(--ink-3); }
+.hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }
+/* 切り替えの帯 */
+.seg { position: relative; display: inline-flex; flex: none; padding: 3px; border-radius: 99px; background: rgba(30,40,90,.06); box-shadow: inset 0 1px 2px rgba(30,40,90,.06); }
+.seg > button { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border: 0; border-radius: 99px; background: none; color: var(--ink-2); font-size: var(--fs-sm); font-weight: 520; white-space: nowrap; cursor: pointer; }
+.seg > button[aria-checked='true'] { color: var(--ink); font-weight: 600; background: #fff; box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(30,40,90,.14); }
+/* チップ */
+.chip { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 11px; border: 0; border-radius: 99px; font-weight: 520; white-space: nowrap; cursor: pointer; color: var(--ink-2); background: rgba(255,255,255,.75); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.chip.on { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
+.chip .x { display: inline-flex; margin-right: -4px; padding: 1px; border-radius: 50%; }
+/* 一覧の顔 */
+.lb-face { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 34px; padding: 0 10px 0 12px; border: 0; border-radius: 10px; text-align: left; color: var(--ink); background: rgba(255,255,255,.85); box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 2px rgba(30,40,90,.05); cursor: pointer; }
+.lb-face .lbl { font-weight: 560; white-space: nowrap; }
+.lb-face .sub { flex: 1; min-width: 0; font: 400 var(--fs-xs) var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-face > .ic:last-child { color: var(--ink-3); }
+.lb-face.pill { width: auto; height: var(--row-h); border-radius: 99px; }
+/* スイッチ */
+.switch { position: relative; flex: none; width: 36px; height: 22px; padding: 0; border: 0; border-radius: 99px; background: #d5d7e3; box-shadow: inset 0 1px 2px rgba(30,40,90,.12); cursor: pointer; transition: background var(--dur) var(--ease-out); }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(30,40,90,.3); transition: transform var(--dur) var(--ease-out); }
+.switch[aria-checked='true'] { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); }
+.switch[aria-checked='true']::after { transform: translateX(14px); }
+/* ガラスの器 */
+.overlay { position: absolute; inset: 0; z-index: 10; display: grid; place-items: start center; padding-top: 80px; background: color-mix(in srgb, var(--ink) 18%, transparent); }
+.overlay.center { place-items: center; padding-top: 0; }
+.dialog { border-radius: 18px; background: var(--glass-bg-dialog); -webkit-backdrop-filter: var(--glass-blur-dialog); backdrop-filter: var(--glass-blur-dialog); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: 20px; width: 480px; max-width: calc(100% - 32px); display: flex; flex-direction: column; gap: 12px; }
+.dialog-wide { width: 560px; }
+.dialog-title { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; }
+.dialog-foot { display: flex; align-items: center; gap: 8px; }
+.palette { width: min(640px, 92%); padding: 8px; gap: 0; background: var(--glass-bg-palette); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); }
+.palette-input { width: 100%; height: 40px; border: none; border-radius: var(--r); background: rgba(255,255,255,.85); font-size: var(--fs-md); padding: 0 12px; outline: none; }
+.toast { background: var(--glass-bg-toast); color: var(--ink); padding: 10px 14px; border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); display: flex; align-items: center; gap: 10px; }
+.conn-banner { display: flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 12px; border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); white-space: nowrap; }
+.conn-banner > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.conn-retry { color: color-mix(in srgb, var(--error) 70%, var(--ink-3)); }
+.snippet { margin: 0; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 8px; font: var(--fs-sm)/1.5 var(--font-mono); overflow-x: auto; }
+/* 状態の札 */
+.status-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px 0 10px; border: 0; border-radius: 99px; font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; color: var(--st-archived); background: var(--st-archived-soft); }
+.status-pill.active { color: var(--st-active); background: var(--st-active-soft); }
+.status-pill.paused { color: var(--st-paused); background: var(--st-paused-soft); }
+.status-pill.done { color: var(--st-done); background: var(--st-done-soft); }
+.status-pill .st-dot { background: currentColor; }
+/* 動き */
+@keyframes enter { from { opacity: 0; transform: translateY(var(--rise)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+@keyframes pop { from { opacity: 0; transform: scale(.96); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.enter { animation: enter var(--dur) var(--ease-out); }
+
+
+/* ==== 設定の中身 ==== */
+.win.set { height: 680px; }
+.set-scroll { position: absolute; inset: var(--header-h) 0 0 calc(var(--sidebar-w) + 16px); overflow: auto; padding: 16px 24px 40px 8px; scroll-behavior: smooth; }
+.set-page { max-width: 720px; }
+.card { padding: 12px 16px 16px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.card + .card { margin-top: 12px; }
+.card > .h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+.card > .h2 .badge { margin-left: auto; }
+.card p { margin: 4px 0 0; font-size: var(--fs-sm); color: var(--ink-3); }
+.card .desc { margin: 0 0 8px; color: var(--ink-2); font-size: var(--fs); }
+.grp { margin-bottom: 28px; scroll-margin-top: 8px; }
+.grp-h { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px 4px; font-size: var(--fs-md); font-weight: 680; letter-spacing: -0.01em; }
+.grp-h span { font-size: var(--fs-sm); font-weight: 500; color: var(--ink-3); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.sfield { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); color: var(--ink-2); min-width: 0; }
+.sfield .input { width: 100%; }
+.badge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 99px; font-size: var(--fs-xs); font-weight: 560; white-space: nowrap; }
+.badge.ok { color: var(--st-done); background: var(--st-done-soft); }
+.badge.ng { color: var(--error); background: color-mix(in srgb, var(--error) 9%, #fff); }
+.badge.warn { color: var(--st-paused); background: var(--st-paused-soft); }
+.badge .ic { width: 12px; height: 12px; stroke-width: 2; }
+.srow { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: var(--fs-sm); color: var(--ink-2); }
+.srow .switch { margin-left: auto; }
+.mini { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.mini th { text-align: left; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.mini td, .mini th { height: 22px; padding: 0 4px; }
+.mini td.r, .mini th.r { text-align: right; font-family: var(--font-mono); }
+.stepper { display: inline-flex; align-items: center; height: 30px; border-radius: 99px; background: #fff; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.stepper b { width: 30px; height: 30px; display: grid; place-items: center; color: var(--ink-2); font-weight: 400; }
+.stepper output { min-width: 40px; text-align: center; font: 600 13px var(--font-mono); }
+.devlist { margin-top: 8px; border-radius: var(--r); box-shadow: inset 0 0 0 1px var(--line); }
+.devlist div { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.devlist div:last-child { border: 0; }
+.devlist .r { margin-left: auto; color: var(--ink-3); }
+
+/* ==== 検証（B） ==== */
+.v1 { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 5px; min-height: 18px; font-size: var(--fs-xs); white-space: nowrap; }
+.v1 .ic { width: 13px; height: 13px; stroke-width: 2; }
+.v1.ok { color: var(--st-done); }
+.v1.ok .path { font-family: var(--font-mono); color: var(--ink-2); }
+.v1.ng { color: var(--error); }
+.v1 .fix { color: var(--ink-2); display: inline-flex; align-items: center; gap: 4px; }
+.v1 code { font: 500 11px var(--font-mono); background: var(--surface-2); padding: 1px 6px; border-radius: 5px; color: var(--ink); }
+.v1 .cp { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.v1 .cp:hover { background: var(--surface-2); color: var(--ink); }
+.v1 .cp .ic { width: 12px; height: 12px; }
+.inwrap { position: relative; }
+.inwrap .input { width: 100%; padding-right: 96px; }
+.inwrap .badge { position: absolute; right: 4px; top: 4px; }
+.inwrap.ng .input { border-color: color-mix(in srgb, var(--error) 55%, var(--line-strong)); }
+.lab3 { display: flex; align-items: center; gap: 6px; }
+.lab3 .st { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xs); }
+.lab3 .st .dot { width: 7px; height: 7px; }
+.lab3 .st.ok { color: var(--st-done); } .lab3 .st.ok .dot { background: var(--idle); }
+.lab3 .st.ng { color: var(--error); } .lab3 .st.ng .dot { background: var(--error); }
+.vt { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.vt th { text-align: left; font-weight: 500; color: var(--ink-3); font-size: var(--fs-xs); padding: 0 6px 4px; border-bottom: 1px solid var(--line); }
+.vt td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.vt tr:last-child td { border: 0; }
+.vt td:first-child { font-weight: 560; width: 70px; }
+.vt td .input { width: 100%; height: 26px; }
+.vt td.s { width: 170px; font-size: var(--fs-xs); }
+
+/* ==== 保存（C） ==== */
+.save-demo { width: 100%; max-width: 560px; }
+.save-demo .card { position: relative; }
+.saved-tick { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); font-weight: 560; color: var(--st-done); opacity: 0; transition: opacity var(--dur) var(--ease-out); white-space: nowrap; }
+.saved-tick.show { opacity: 1; }
+.saved-tick .ic { width: 13px; height: 13px; stroke-width: 2.2; }
+.inrow { display: flex; align-items: center; gap: 8px; }
+.inrow .input { flex: 1; }
+.flash .input { animation: save-glow 1.4s var(--ease-out); }
+@keyframes save-glow { 0% { border-color: var(--st-done); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-done) 22%, transparent); } 100% { border-color: var(--line-strong); box-shadow: none; } }
+.lab-saved { font-size: var(--fs-xs); color: var(--st-done); margin-left: 6px; opacity: 0; transition: opacity var(--dur) var(--ease-out); }
+.lab-saved.show { opacity: 1; }
+.autosave { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
+.autosave .ic { width: 13px; height: 13px; }
+.autosave.busy .ic { animation: spin 1s linear infinite; }
+.toast-slot { position: absolute; right: 16px; bottom: 16px; }
+.toast-slot .toast { animation: enter var(--dur) var(--ease-out); font-size: var(--fs-sm); }
+.toast .undo { color: var(--accent); font-weight: 560; cursor: pointer; }
+
+/* ==== コマンド（D） ==== */
+.cmd1 { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 0 4px 0 10px; height: 32px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line); font: var(--fs-sm) var(--font-mono); }
+.cmd1 span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cpbtn { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font: 560 var(--fs-xs) var(--font-sans); cursor: pointer; }
+.cpbtn:hover { background: #fff; color: var(--ink); }
+.cpbtn.copied { color: var(--st-done); }
+.cmd2 { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 0 6px 0 12px; height: 38px; border-radius: 10px; background: var(--term-bg); color: var(--term-fg); font: var(--fs-sm) var(--font-mono); box-shadow: var(--term-lift); }
+.cmd2 .ps { color: var(--term-tool); }
+.cmd2 span.c { flex: 1; }
+.cmd2 .cpbtn { color: color-mix(in srgb, var(--term-fg) 70%, var(--term-bg)); }
+.cmd2 .cpbtn:hover { background: rgba(255,255,255,.1); color: var(--term-fg); }
+.cmd2 .cpbtn.copied { color: #7fd6a0; }
+.cmd3 { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px 8px 8px 12px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.cmd3.done { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); background: color-mix(in srgb, var(--st-done-soft) 50%, #fff); }
+.cmd3 .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+.cmd3 .tx b { font-weight: 600; display: flex; align-items: center; gap: 5px; }
+.cmd3 .tx code { font: var(--fs-xs) var(--font-mono); color: var(--ink-2); }
+.cmd3 .ic.okc { color: var(--st-done); } .cmd3 .ic.ngc { color: var(--ink-3); }
+
+/* ==== トークン（E） ==== */
+.tok { margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 6px; }
+.tok-line { display: flex; align-items: center; gap: 10px; }
+.tok-val { flex: 1; min-width: 0; font: 500 var(--fs-sm) var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.tok-val.masked { letter-spacing: .12em; color: var(--ink-2); }
+.ring { position: relative; width: 30px; height: 30px; flex: none; }
+.ring svg { width: 30px; height: 30px; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 3; }
+.ring .bg { stroke: var(--line-strong); }
+.ring .fg { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+.ring.low .fg { stroke: var(--waiting); }
+.ring b { position: absolute; inset: 0; display: grid; place-items: center; font: 600 10px var(--font-mono); color: var(--ink-2); }
+.tbar { height: 3px; border-radius: 2px; background: var(--line-strong); overflow: hidden; }
+.tbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); transition: width 1s linear; }
+.tbar.low i { background: var(--waiting); }
+.tok small { font-size: var(--fs-xs); color: var(--ink-3); }
+.tok .warnline { color: var(--ink-2); font-size: var(--fs-xs); display: flex; align-items: center; gap: 5px; }
+.tok .warnline .ic { width: 13px; height: 13px; color: var(--st-paused); }
+
+/* ==== 目次（A） ==== */
+.toc1 { position: sticky; top: 0; float: left; width: 176px; margin-right: 20px; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+.toc1 a { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: 99px; color: var(--ink-2); font-weight: 520; }
+.toc1 a:hover { background: rgba(255,255,255,.55); text-decoration: none; }
+.toc1 a.cur { color: var(--ink); font-weight: 600; background: rgba(255,255,255,.8); box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(30,40,90,.1); }
+.toc1 a .n { margin-left: auto; }
+.toc1 .sub { padding-left: 28px; height: 22px; font-size: var(--fs-xs); color: var(--ink-3); display: flex; align-items: center; }
+.toc1 .ic { width: 15px; height: 15px; }
+.with-toc { overflow: hidden; }
+.with-toc .set-page { margin-left: 196px; }
+.dotn { width: 7px; height: 7px; border-radius: 50%; background: var(--st-paused); }
+.tabs2 { position: sticky; top: -16px; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 8px 0 12px; margin-top: -8px; }
+.tabs2 .seg > button { height: 26px; padding: 0 14px; font-size: var(--fs); gap: 6px; }
+.jump { display: flex; gap: 6px; margin: 0 0 18px; flex-wrap: wrap; }
+.jump .chip { height: 26px; font-size: var(--fs-sm); }
+.grp-h.big { font-size: var(--fs-lg); padding-bottom: 6px; border-bottom: 1px solid rgba(30,40,90,.1); margin-bottom: 12px; }
+.sys { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; }
+.sys-list { position: sticky; top: 0; align-self: start; padding: 6px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.sys-list a { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 10px; color: var(--ink); cursor: pointer; }
+.sys-list a:hover { background: var(--surface-2); text-decoration: none; }
+.sys-list a.cur { background: var(--accent-soft); }
+.sys-list .ico { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: #fff; flex: none; }
+.sys-list .t { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+.sys-list .t b { font-weight: 600; }
+.sys-list .t small { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sys-list .badge { margin-left: auto; }
+</style>
+</head>
+<body>
+<div class="ptop"><a class="back" href="index.html">← 目次</a><h1>設定の組み直し</h1><div class="chosen" id="chosen"></div></div>
+<main class="doc">
+
+<div class="purpose">
+  <div>
+    <h2>何を決めるための試作か</h2>
+    <p>いまの設定は 11 の節が縦に長く並ぶ 1 枚です。これを<b>「必須」「連携」「要約器」「同期」「情報」の 5 群</b>にまとめ、目次を付けます。パスの欄は<b>欄を出たら保存</b>し（保存ボタンをなくす）、欄の下で<b>見つかったか</b>を言います。端末で打つコマンドは <code class="mono">hangar …</code> にそろえてコピーボタンを付け、参加トークンには残り秒数とコピーを付けます。</p>
+    <p>この頁で決めるのは見せ方で、軸は 5 つです。A 目次の形、B 検証の出し方、C 保存の知らせ方、D コマンドの見せ方、E 参加トークン。A の窓は中をスクロールでき、目次も押せます。C は欄を書き換えて外へ出ると動きます。E の秒数は実際に減ります。中身はすべて架空です。</p>
+    <table class="inv" style="margin-top:12px">
+      <tr><th>群</th><th>中の節（今の名前）</th></tr>
+      <tr><td>必須</td><td>ワークスペース、ツール（tmux・claude・code・ターミナルアプリ）、Node（今の「デスクトップアプリ」）</td></tr>
+      <tr><td>連携</td><td>MCP、statusline、外のターミナル</td></tr>
+      <tr><td>要約器</td><td>要約器</td></tr>
+      <tr><td>同期</td><td>クラウド同期</td></tr>
+      <tr><td>情報</td><td>使用量、索引、この端末</td></tr>
+    </table>
+  </div>
+  <ul class="legend">
+    <li class="ax">A 目次の形</li>
+    <li><code>A1</code><span>左に固定の目次の列。1 枚のまま、今いる群が灯る</span></li>
+    <li><code>A2</code><span>上のタブ。1 群ずつ出す</span></li>
+    <li><code>A3</code><span>目次は置かず、群の大きな見出しと、先頭の飛び先のチップ</span></li>
+    <li><code>A4</code><span>左の一覧で群を選び、右にその群だけ（システム設定の形）</span></li>
+    <li class="ax">B 検証の出し方</li>
+    <li><code>B1</code><span>欄の下に 1 行。✓ 見つかったパスと版 / ✗ 直し方</span></li>
+    <li><code>B2</code><span>欄の中の右端に札。直し方は欄の下</span></li>
+    <li><code>B3</code><span>ラベルの右端に点と一言</span></li>
+    <li><code>B4</code><span>ツールを表にして、状態の列を持つ</span></li>
+    <li class="ax">C 保存の知らせ方</li>
+    <li><code>C1</code><span>欄の横に小さな ✓ 保存しました（消える）</span></li>
+    <li><code>C2</code><span>右下の通知。「取り消す」付き</span></li>
+    <li><code>C3</code><span>欄の縁が一度だけ緑に灯り、ラベルの横に「保存済み」</span></li>
+    <li><code>C4</code><span>見出しの右に「保存しています… → すべて保存済み」</span></li>
+    <li class="ax">D コマンド</li>
+    <li><code>D1</code><span>薄い地のコードの行と、右端のコピー</span></li>
+    <li><code>D2</code><span>墨の板（ターミナルの見た目）と、右端のコピー</span></li>
+    <li><code>D3</code><span>状態とコマンドを 1 枚に。済んだら緑に替わる</span></li>
+    <li class="ax">E 参加トークン</li>
+    <li><code>E1</code><span>残り秒数の輪とコピー</span></li>
+    <li><code>E2</code><span>減っていく細い棒と「あと 87 秒」</span></li>
+    <li><code>E3</code><span>伏字で出し、コピーはすぐ押せる。「見る」で表示</span></li>
+  </ul>
+</div>
+
+<section class="sec" id="sec-a">
+  <h2><em>A</em>目次の形</h2>
+  <p>中身はどの案も同じ（検証は B1、コマンドは D1 で描いた）。群の見出しの右の札は、その群に直すものがあるかを言う（連携に「1 件」＝外のターミナルが未導入）。窓の中はスクロールできます。</p>
+  <div class="grid one">
+    <div class="pick" data-code="A1"><div class="stage flush" data-set="A1"></div><div class="body"><div class="txt"><h3><em>A1</em>左に固定の目次</h3><p>1 枚の長い頁のまま、左に目次を固定する。スクロールすると今の群が灯り、押すとそこへ滑る。群の下に節の名前も小さく並べる。</p><p class="con">アプリのサイドバーと合わせて左に列が 2 本並ぶ。</p></div></div></div>
+    <div class="pick" data-code="A2"><div class="stage flush" data-set="A2"></div><div class="body"><div class="txt"><h3><em>A2</em>上のタブ</h3><p>切り替えの帯で 1 群ずつ出す。1 群は長くても 2 画面ほどで、目的の欄がすぐ見える。</p><p class="con">全体を一度に見渡せない。探す欄がどの群にあるか知っている必要がある。</p></div></div></div>
+    <div class="pick" data-code="A3"><div class="stage flush" data-set="A3"></div><div class="body"><div class="txt"><h3><em>A3</em>大きな見出しだけ</h3><p>部品を増やさず、群の見出しを大きくして区切る。先頭のチップで飛ぶ。今の形からの変化が最も小さい。</p><p class="con">スクロールすると飛び先が見えなくなる。</p></div></div></div>
+    <div class="pick" data-code="A4"><div class="stage flush" data-set="A4"></div><div class="body"><div class="txt"><h3><em>A4</em>左の一覧と群の頁</h3><p>macOS のシステム設定の形。各群の一行目に要点（「tmux・claude・Node」）と、直すものの数を出す。</p><p class="con">群の頁が短いと右の余白が目立つ。一覧の側が目次と頁の 2 役を持つので、戻る先が分かりにくい。</p></div></div></div>
+  </div>
+</section>
+
+<section class="sec" id="sec-b">
+  <h2><em>B</em>検証の出し方</h2>
+  <p>パスの欄は、外へ出た時点でそのパスを実行して確かめます。見つかったら「✓ パス（版）」、見つからなければ「✗ 見つかりません」と直し方（コピーできるコマンド）。code は無くても動くので、赤でなく注意の色にします。</p>
+  <div class="grid two">
+    <div class="pick" data-code="B1"><div class="stage" data-ver="B1"></div><div class="body"><div class="txt"><h3><em>B1</em>欄の下に 1 行</h3><p>欄と結果が縦に並び、長いパスもそのまま読める。直し方も同じ行に置ける。</p><p class="con">欄ごとに 1 行ずつ背が伸びる。</p></div></div></div>
+    <div class="pick" data-code="B2"><div class="stage" data-ver="B2"></div><div class="body"><div class="txt"><h3><em>B2</em>欄の中に札</h3><p>欄の中の右端に「✓ 3.4」。見つからないときだけ下に直し方の行が出る。正常なときは背が伸びない。</p><p class="con">札の分だけ欄の文字が切れやすい。</p></div></div></div>
+    <div class="pick" data-code="B3"><div class="stage" data-ver="B3"></div><div class="body"><div class="txt"><h3><em>B3</em>ラベルの右端</h3><p>ラベルの行の右端に点と「3.4 で動きます」。欄の形は今のまま。</p><p class="con">欄から目が離れた位置にあり、見落としやすい。</p></div></div></div>
+    <div class="pick" data-code="B4"><div class="stage" data-ver="B4"></div><div class="body"><div class="txt"><h3><em>B4</em>表にする</h3><p>道具・パス・状態の 3 列。準備が揃っているかを縦に一目で確かめられる（初回の確認リストとも形がそろう）。</p><p class="con">ターミナルアプリの切り替えは表から外に出る。</p></div></div></div>
+  </div>
+</section>
+
+<section class="sec" id="sec-c">
+  <h2><em>C</em>保存の知らせ方</h2>
+  <p>保存ボタンはなくし、欄を出た時点（Tab、ほかを押す、Enter）で保存します。<b>欄を書き換えて外を押してください。</b> tmux を含まないパスにすると、保存はされたうえで検証が ✗ になります。</p>
+  <div class="grid two">
+    <div class="pick" data-code="C1"><div class="stage" data-save="C1"></div><div class="body"><div class="txt"><h3><em>C1</em>欄の横の ✓</h3><p>保存した欄の右に「✓ 保存しました」が 2 秒出て消える。どの欄が保存されたかが確か。</p><p class="con">欄の右に場所を空けておく必要がある。</p></div></div></div>
+    <div class="pick" data-code="C2"><div class="stage" data-save="C2"></div><div class="body"><div class="txt"><h3><em>C2</em>右下の通知</h3><p>アプリの通知の形で「tmux のパスを保存しました　取り消す」。書き間違いを戻せる。</p><p class="con">欄から目が離れる。続けて何欄も書くと通知が積もる。</p></div></div></div>
+    <div class="pick" data-code="C3"><div class="stage" data-save="C3"></div><div class="body"><div class="txt"><h3><em>C3</em>欄の縁が灯る</h3><p>縁が一度だけ緑に光って戻り、ラベルの横に「保存済み」が残る。動きで知らせるので文字が少ない。</p><p class="con">動きを減らす設定では光らず、「保存済み」の文字だけになる。</p></div></div></div>
+    <div class="pick" data-code="C4"><div class="stage" data-save="C4"></div><div class="body"><div class="txt"><h3><em>C4</em>見出しの右に状態</h3><p>文書の自動保存と同じく、節の見出しの右に「保存しています…」→「すべて保存済み · 14:03」。1 か所だけ見ればよい。</p><p class="con">どの欄が保存されたかは言わない。</p></div></div></div>
+  </div>
+</section>
+
+<section class="sec" id="sec-d">
+  <h2><em>D</em>コマンドの見せ方</h2>
+  <p>いまは <code class="mono">npm run hangar -- mcp install</code> のように開発用の書き方が出ています。すべて <code class="mono">hangar …</code> にそろえ、コピーを付けます。例は連携の群の 3 つ。</p>
+  <div class="grid">
+    <div class="pick" data-code="D1"><div class="stage" data-cmd="D1"></div><div class="body"><div class="txt"><h3><em>D1</em>薄い地のコード</h3><p>今の snippet の形に、右端のコピーを足しただけ。</p></div></div></div>
+    <div class="pick" data-code="D2"><div class="stage" data-cmd="D2"></div><div class="body"><div class="txt"><h3><em>D2</em>墨の板</h3><p>アプリの端末と同じ墨色。「ターミナルで打つもの」と一目で分かる。</p><p class="con">白い面の上で目立ちすぎる。</p></div></div></div>
+    <div class="pick" data-code="D3"><div class="stage" data-cmd="D3"></div><div class="body"><div class="txt"><h3><em>D3</em>状態と一体</h3><p>「まだ登録されていません」とコマンドを 1 枚に。済んだ節は緑の 1 行に縮み、外し方だけ残す。</p><p class="con">節ごとに状態を読み取れる必要がある（MCP の登録は今は読んでいない）。</p></div></div></div>
+  </div>
+</section>
+
+<section class="sec" id="sec-e">
+  <h2><em>E</em>参加トークン</h2>
+  <p>押すと出て、120 秒で消えます。いまは「120 秒で自動的に消えます」と書くだけで、あと何秒かもコピーもありません。この試作では 30 秒から数えます。</p>
+  <div class="demo-ctl"><button id="tok-restart">もう一度表示する</button><span>（全案の秒数を戻す）</span></div>
+  <div class="grid">
+    <div class="pick" data-code="E1"><div class="stage" data-tok="E1"></div><div class="body"><div class="txt"><h3><em>E1</em>秒数の輪</h3><p>輪が減り、残り 10 秒で色が替わる。コピーはすぐ横。</p></div></div></div>
+    <div class="pick" data-code="E2"><div class="stage" data-tok="E2"></div><div class="body"><div class="txt"><h3><em>E2</em>減る棒と文</h3><p>トークンの下に細い棒と「あと 27 秒で消えます」。言葉で読める。</p></div></div></div>
+    <div class="pick" data-code="E3"><div class="stage" data-tok="E3"></div><div class="body"><div class="txt"><h3><em>E3</em>伏字でコピー</h3><p>画面には伏字で出し、コピーだけで渡せる。画面共有や肩越しに見られても漏れない。「見る」で表示。</p><p class="con">写し間違いを目で確かめにくい。</p></div></div></div>
+  </div>
+</section>
+
+</main>
+<script>
+/* ==== アイコン（lucide の線画を写した。16px、線 1.5） ==== */
+const ICONS = {
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  house: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  messages: '<path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>',
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  right: '<path d="m9 18 6-6-6-6"/>',
+  arrow: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  terminal: '<path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>',
+  prompt: '<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
+  warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  retry: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  unlink: '<path d="m18.84 12.25 1.72-1.71h-.02a5.004 5.004 0 0 0-.12-7.07 5.006 5.006 0 0 0-6.95 0l-1.72 1.71"/><path d="m5.17 11.75-1.71 1.71a5.004 5.004 0 0 0 .12 7.07 5.006 5.006 0 0 0 6.95 0l1.71-1.71"/><line x1="8" x2="8" y1="2" y2="5"/><line x1="2" x2="5" y1="8" y2="8"/><line x1="16" x2="16" y1="19" y2="22"/><line x1="19" x2="22" y1="16" y2="16"/>',
+  file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  fileX: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m14.5 12.5-5 5"/><path d="m9.5 12.5 5 5"/>',
+  panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  sprout: '<path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/>',
+  stop: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  enter: '<polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  log: '<path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/>',
+  plug: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+  sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  ok: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  ng: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
+  loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+  command: '<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/>',
+  pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  window: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/>',
+  monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+  database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>',
+  chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  pause: '<circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/>',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  checks: '<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>',
+  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  next: '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/>',
+  textSearch: '<path d="M21 6H3"/><path d="M10 12H3"/><path d="M10 18H3"/><circle cx="17" cy="15" r="3"/><path d="m21 19-1.9-1.9"/>',
+  history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+  filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
+  dots: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  key: '<path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/>',
+  hand: '<path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
+};
+function paintIcons(root = document) {
+  root.querySelectorAll('i[data-i]').forEach((el) => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', ('ic ' + el.className).trim());
+    if (el.getAttribute('style')) svg.setAttribute('style', el.getAttribute('style'));
+    svg.innerHTML = ICONS[el.dataset.i] || '';
+    el.replaceWith(svg);
+  });
+}
+const ic = (n, cls = '', style = '') => `<i data-i="${n}" class="${cls}"${style ? ` style="${style}"` : ''}></i>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* ==== 案を選ぶ。軸ごとに 1 つ。選んだものは右上に並び、この端末のこの頁にだけ覚える ==== */
+const PICK_KEY = 'ux-refresh:' + location.pathname.split('/').pop();
+function loadPicks() { try { return JSON.parse(localStorage.getItem(PICK_KEY) || '{}'); } catch { return {}; } }
+function savePicks(p) { try { localStorage.setItem(PICK_KEY, JSON.stringify(p)); } catch { /* 保存できなくても表示は動く */ } }
+function renderPicks() {
+  const p = loadPicks();
+  document.querySelectorAll('.pick[data-code]').forEach((el) => el.classList.toggle('selected', p[el.dataset.axis] === el.dataset.code));
+  document.querySelectorAll('.pick[data-code] .choose').forEach((b) => { b.textContent = b.closest('.pick').classList.contains('selected') ? '選んだ' : 'これにする'; });
+  const chosen = document.getElementById('chosen');
+  if (!chosen) return;
+  const codes = Object.keys(p).sort().map((k) => p[k]).filter(Boolean);
+  chosen.innerHTML = codes.length ? '選んだ案 ' + codes.map((c) => `<b>${esc(c)}</b>`).join('') : '軸ごとに「これにする」を押すと、ここに並びます';
+}
+function setupPicks() {
+  document.querySelectorAll('.pick[data-code]').forEach((el) => {
+    const code = el.dataset.code;
+    if (!el.dataset.axis) el.dataset.axis = code.replace(/\d+$/, '');
+    const body = el.querySelector('.body');
+    if (body && !body.querySelector('.choose')) {
+      const b = document.createElement('button'); b.className = 'choose'; b.type = 'button';
+      b.addEventListener('click', () => { const p = loadPicks(); p[el.dataset.axis] = p[el.dataset.axis] === code ? undefined : code; savePicks(p); renderPicks(); });
+      body.appendChild(b);
+    }
+  });
+  renderPicks();
+}
+
+/* ==== 切り替えの帯とチップの択一（見た目だけ） ==== */
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.seg > button');
+  if (b && !b.closest('[data-own]')) { b.parentElement.querySelectorAll('button').forEach((x) => x.setAttribute('aria-checked', String(x === b))); }
+});
+
+/* ==== コピー（実際のクリップボードには写さない。押したことだけを見せる） ==== */
+function flashCopied(btn, text = 'コピーしました') {
+  const old = btn.innerHTML;
+  btn.innerHTML = ic('check') + (btn.dataset.label === 'icon' ? '' : `<span>${text}</span>`);
+  btn.classList.add('copied'); paintIcons(btn);
+  clearTimeout(btn._t); btn._t = setTimeout(() => { btn.innerHTML = old; btn.classList.remove('copied'); }, 1600);
+}
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-copy]'); if (b) flashCopied(b, b.dataset.copyText || 'コピーしました'); });
+
+/* ?only=sec-b で 1 節だけを出す（撮るときと、節だけを見せたいとき用） */
+function applyOnly() { const only = new URLSearchParams(location.search).get('only'); if (!only) return; document.querySelectorAll('main.doc > *').forEach((el) => { if (el.id !== only) el.style.display = 'none'; }); }
+window.addEventListener('DOMContentLoaded', () => { applyOnly(); if (typeof beforePaint === 'function') beforePaint(); paintIcons(); setupPicks(); if (typeof afterPaint === 'function') afterPaint(); });
+
+
+const cp = (label = 'コピー') => `<button class="cpbtn" data-copy>${ic('copy')}<span>${label}</span></button>`;
+function cmd(code, text, state) {
+  if (code === 'D2') return `<div class="cmd2"><span class="ps">$</span><span class="c">${text}</span>${cp()}</div>`;
+  if (code === 'D3') {
+    if (state && state.done) return `<div class="cmd3 done">${ic('ok', 'okc')}<div class="tx"><b>${state.done}</b><code>外すとき ${state.undo}</code></div>${cp('外し方をコピー')}</div>`;
+    return `<div class="cmd3">${ic('alert', 'ngc')}<div class="tx"><b>${state ? state.todo : 'ターミナルで次を実行してください'}</b><code>${text}</code></div>${cp()}</div>`;
+  }
+  return `<div class="cmd1"><span>${text}</span>${cp()}</div>`;
+}
+
+/* ==== 検証の欄 ==== */
+const TOOLS = [
+  { k: 'tmux', label: 'tmux のパス', v: '/opt/homebrew/bin/tmux', ok: true, ver: '3.4' },
+  { k: 'claude', label: 'claude のパス', v: '~/.local/bin/claude', ok: true, ver: '2.3.1' },
+  { k: 'code', label: 'code のパス', v: '', ok: false, soft: true, fix: 'VS Code から code コマンドを入れる', ph: 'VS Code の code コマンド' },
+  { k: 'node', label: 'Node のパス', v: '/opt/homebrew/bin/node', ok: true, ver: 'v22.9.0' },
+];
+function ver1(t) {
+  if (t.ok) return `<span class="v1 ok">${ic('check')}<span class="path">${t.v}</span>（${t.ver}）</span>`;
+  const cls = t.soft ? ' style="color:var(--st-paused)"' : '';
+  return `<span class="v1 ng"${cls}>${ic('x')}見つかりません<span class="fix">· ${t.fix.startsWith('brew') ? `<code>${t.fix}</code><button class="cp" data-copy data-label="icon">${ic('copy')}</button>` : t.fix}</span>${t.soft ? '<span class="faint">（無くても動きます）</span>' : ''}</span>`;
+}
+function vfield(code, t) {
+  const input = `<input class="input mono" value="${t.v}" placeholder="${t.ph || ''}">`;
+  if (code === 'B1') return `<label class="sfield">${t.label}${input}${ver1(t)}</label>`;
+  if (code === 'B2') {
+    const badge = t.ok ? `<span class="badge ok">${ic('check')}${t.ver}</span>` : `<span class="badge ${t.soft ? 'warn' : 'ng'}">${ic('x')}なし</span>`;
+    return `<label class="sfield">${t.label}<span class="inwrap${t.ok ? '' : ' ng'}">${input}${badge}</span>${t.ok ? '' : `<span class="v1 ng" style="color:var(--ink-2)">${t.fix}</span>`}</label>`;
+  }
+  if (code === 'B3') {
+    const st = t.ok ? `<span class="st ok"><span class="dot"></span>${t.ver} で動きます</span>` : `<span class="st ng"${t.soft ? ' style="color:var(--st-paused)"' : ''}><span class="dot"${t.soft ? ' style="background:var(--st-paused)"' : ''}></span>見つかりません</span>`;
+    return `<label class="sfield"><span class="lab3">${t.label}${st}</span>${input}</label>`;
+  }
+}
+function toolsCard(code = 'B1') {
+  if (code === 'B4') {
+    return `<div class="card"><h2 class="h2">ツール</h2><table class="vt"><tr><th>道具</th><th>パス</th><th>状態</th></tr>${TOOLS.map((t) => `<tr><td>${t.k}</td><td><input class="input mono" value="${t.v}" placeholder="${t.ph || ''}"></td><td class="s">${t.ok ? `<span class="badge ok">${ic('check')}${t.ver}</span>` : `<span class="badge warn">${ic('x')}見つかりません</span>`}</td></tr>`).join('')}</table>
+      <div class="srow" style="margin-top:12px">ターミナルアプリ<div class="seg" style="margin-left:auto"><button aria-checked="false">${ic('terminal')}Terminal.app</button><button aria-checked="true">${ic('window')}iTerm2</button></div></div></div>`;
+  }
+  const f = (k) => vfield(code, TOOLS.find((t) => t.k === k));
+  return `<div class="card"><h2 class="h2">ツール</h2><div class="grid2">${f('tmux')}<div class="sfield">ターミナルアプリ<div class="seg"><button aria-checked="false">${ic('terminal')}Terminal.app</button><button aria-checked="true">${ic('window')}iTerm2</button></div></div>${f('claude')}${f('code')}</div><p>iTerm2 は初回に macOS の自動化の許可を求めます。失敗したときは Terminal.app で開きます。</p></div>`;
+}
+
+/* ==== 群ごとの中身 ==== */
+const GROUPS = [
+  { id: 'must', t: '必須', sub: 'ワークスペース・ツール・Node', icon: 'wrench', color: '#4a63e8', subs: ['ワークスペース', 'ツール', 'Node'],
+    html: () => `<div class="card"><h2 class="h2">ワークスペース</h2><label class="sfield"><input class="input mono" value="~/workspace">${ver1({ ok: true, v: '~/workspace', ver: 'プロジェクト 12 件' })}</label><p>直下のディレクトリのうち、Claude のセッションがあるものをプロジェクトとして登録します。</p></div>
+      ${toolsCard()}
+      <div class="card"><h2 class="h2">Node</h2><label class="sfield">デスクトップアプリが同梱のサーバを動かす Node<input class="input mono" value="/opt/homebrew/bin/node">${ver1(TOOLS[3])}</label><p>空なら /opt/homebrew/bin/node、/usr/local/bin/node、nvm の順に探します。</p></div>` },
+  { id: 'link', t: '連携', sub: 'MCP・statusline・外のターミナル', icon: 'plug', color: '#6a4fd0', subs: ['MCP', 'statusline', '外のターミナル'], todo: 1,
+    html: () => `<div class="card"><h2 class="h2">MCP<span class="badge ok">${ic('check')}登録済み</span></h2><div class="desc">Claude Code の user スコープに hangar の MCP サーバを登録すると、どのセッションからも検索と要約が使えます。</div>${cmd('D1', 'hangar mcp install')}</div>
+      <div class="card"><h2 class="h2">statusline<span class="badge ok">${ic('check')}追記済み</span></h2><div class="desc">使用量のゲージは、この追記だけが供給源です。サーバが 4177 以外で動いているときは --port を付けます。</div>${cmd('D1', 'hangar statusline install')}</div>
+      <div class="card"><h2 class="h2">外のターミナル<span class="badge warn">${ic('alert')}この PC は未導入</span></h2><div class="desc">VS Code などで起動した claude も、hangar のターミナルで開けるようにします。~/.zshrc に 1 行を足します。</div>${cmd('D1', 'hangar shell install')}<div class="devlist"><div>${ic('monitor')}work-laptop<span class="faint">この端末</span><span class="r">入っていません</span></div><div>${ic('monitor')}studio-mini<span class="r">入っています</span></div></div></div>` },
+  { id: 'sum', t: '要約器', sub: 'LM Studio・切り替え・上限', icon: 'sparkles', color: '#c77a1a', subs: ['LM Studio', '切り替え'],
+    html: () => `<div class="card"><h2 class="h2">要約器</h2><div class="grid2"><label class="sfield">LM Studio の URL<input class="input mono" value="http://localhost:1234">${ver1({ ok: true, v: 'つながりました', ver: 'モデル 3 個' })}</label><div class="sfield">モデル<button class="lb-face"><span class="lbl">qwen-small-instruct</span><span class="sub"></span>${ic('down')}</button></div></div>
+      <div class="srow">手元の外にある要約器を許す<button class="switch" aria-checked="false"></button></div>
+      <div class="srow">LM Studio が使えないとき Claude へ切り替える<button class="switch" aria-checked="true"></button></div>
+      <div class="srow">1 時間の上限<span class="stepper"><b>−</b><output>20</output><b>＋</b></span><span class="faint">件。7 日の使用率が 80% を超えたら切り替えません。</span></div>
+      <div class="srow"><button class="btn">要約器を試す</button></div></div>` },
+  { id: 'sync', t: '同期', sub: 'クラウド・端末・参加トークン', icon: 'cloud', color: '#2b7048', subs: ['状態', '端末', '参加トークン', 'Claude Code の設定'],
+    html: () => `<div class="card"><h2 class="h2">クラウド同期<span class="badge ok">${ic('check')}同期中</span></h2><div class="mono muted">https://hangar-sync.example.workers.dev</div><p>最終 pull 1 分未満前 · 未送信 0 件 · 未送信の本文 3 件</p>
+      <div class="srow"><button class="btn">今すぐ同期</button><button class="btn">一時停止</button><button class="btn">参加トークンを表示</button></div>
+      <div class="devlist"><div>${ic('monitor')}work-laptop<span class="faint">この端末</span><span class="r">macOS · いま</span></div><div>${ic('monitor')}studio-mini<span class="r">macOS · 3 時間前</span></div></div>
+      <div class="srow">Claude Code の設定を同期する<button class="switch" aria-checked="false"></button></div><p>CLAUDE.md、settings.json、skills、memory を端末間で合わせます。取り込む前に内容を確認します。</p></div>` },
+  { id: 'info', t: '情報', sub: '使用量・索引・この端末', icon: 'info', color: '#66625b', subs: ['使用量', '索引', 'この端末'],
+    html: () => `<div class="card"><h2 class="h2">使用量</h2><div class="grid2"><table class="mini"><tr><th>日</th><th class="r">入力</th><th class="r">出力</th><th class="r">件</th></tr><tr><td class="mono">10-01</td><td class="r">1.2M</td><td class="r">84k</td><td class="r">9</td></tr><tr><td class="mono">09-30</td><td class="r">2.8M</td><td class="r">190k</td><td class="r">17</td></tr><tr><td class="mono">09-29</td><td class="r">0.9M</td><td class="r">61k</td><td class="r">6</td></tr></table><table class="mini"><tr><th>名前</th><th class="r">トークン</th><th class="r">件</th></tr><tr><td>orbit-notes</td><td class="r">3.1M</td><td class="r">14</td></tr><tr><td>tide-api</td><td class="r">1.4M</td><td class="r">9</td></tr><tr><td>kiln-ui</td><td class="r">0.6M</td><td class="r">5</td></tr></table></div></div>
+      <div class="card"><h2 class="h2">索引</h2><div class="srow" style="margin-top:0"><span class="mono muted">412 セッション、12 プロジェクト</span><button class="btn" style="margin-left:auto">索引を作り直す</button></div><p class="mono">読み取り元 ~/.claude</p></div>
+      <div class="card"><h2 class="h2">この端末</h2><div class="mono muted">work-laptop <span class="faint">d7c2…91</span></div><p class="mono">agent-hangar 0.9.0</p></div>` },
+];
+const badgeFor = (g) => (g.todo ? `<span class="badge warn">${g.todo} 件</span>` : '');
+const sideHTML = `<div class="side"><div class="brand"><span class="brand-mark"></span><span class="brand-word">Hangar</span><span class="tog">${ic('panel')}</span></div><div class="nav-item">${ic('house')}<span>ホーム</span></div><div class="nav-item">${ic('folder')}<span>プロジェクト</span></div><div class="nav-item">${ic('messages')}<span>セッション</span></div><div class="nav-item cur">${ic('settings')}<span>設定</span></div></div>`;
+const hdrHTML = `<div class="hdr"><div class="lights"><i></i><i></i><i></i></div><span class="crumbs"><b>設定</b></span><span class="spacer"></span><button class="btn btn-primary">${ic('plus')}新規セッション</button></div>`;
+const grpBlock = (g, big) => `<div class="grp" id="${g.id}"><h2 class="grp-h${big ? ' big' : ''}">${g.t}<span>${g.sub}</span>${g.todo ? `<span class="badge warn" style="margin-left:auto">${ic('alert')}直すもの ${g.todo} 件</span>` : ''}</h2>${g.html()}</div>`;
+function setWin(code) {
+  let body = '';
+  if (code === 'A1') {
+    body = `<div class="set-scroll with-toc" data-spy><nav class="toc1">${GROUPS.map((g, i) => `<a href="#${g.id}" class="${i === 0 ? 'cur' : ''}" data-to="${g.id}">${ic(g.icon)}${g.t}<span class="n">${g.todo ? '<span class="dotn"></span>' : ''}</span></a>${g.subs.map((s) => `<span class="sub">${s}</span>`).join('')}`).join('')}</nav><div class="set-page"><h1 class="h1">設定</h1>${GROUPS.map((g) => grpBlock(g)).join('')}</div></div>`;
+  }
+  if (code === 'A2') {
+    body = `<div class="set-scroll"><div class="set-page"><h1 class="h1">設定</h1><div class="tabs2"><div class="seg" data-own>${GROUPS.map((g, i) => `<button aria-checked="${i === 0}" data-tab="${g.id}">${g.t}${g.todo ? '<span class="dotn"></span>' : ''}</button>`).join('')}</div></div><div class="tabbody">${grpBlock(GROUPS[0])}</div></div></div>`;
+  }
+  if (code === 'A3') {
+    body = `<div class="set-scroll"><div class="set-page"><h1 class="h1">設定</h1><div class="jump">${GROUPS.map((g) => `<a class="chip" href="#${g.id}" data-to="${g.id}">${ic(g.icon)}${g.t}${g.todo ? '<span class="dotn"></span>' : ''}</a>`).join('')}</div>${GROUPS.map((g) => grpBlock(g, true)).join('')}</div></div>`;
+  }
+  if (code === 'A4') {
+    body = `<div class="set-scroll"><h1 class="h1">設定</h1><div class="sys"><nav class="sys-list">${GROUPS.map((g, i) => `<a class="${i === 0 ? 'cur' : ''}" data-sys="${g.id}"><span class="ico" style="background:${g.color}">${ic(g.icon)}</span><span class="t"><b>${g.t}</b><small>${g.sub}</small></span>${badgeFor(g)}</a>`).join('')}</nav><div class="sysbody">${GROUPS[0].html()}</div></div></div>`;
+  }
+  return `<div class="win set">${hdrHTML}${sideHTML}${body}</div>`;
+}
+function wireSet(host) {
+  const scroller = host.querySelector('.set-scroll');
+  host.querySelectorAll('[data-to]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); const t = host.querySelector('#' + a.dataset.to); scroller.scrollTo({ top: t.offsetTop - 8 }); }));
+  if (scroller.hasAttribute('data-spy')) scroller.addEventListener('scroll', () => {
+    let cur = GROUPS[0].id; for (const g of GROUPS) { const el = host.querySelector('#' + g.id); if (el.offsetTop - 40 <= scroller.scrollTop) cur = g.id; }
+    host.querySelectorAll('.toc1 a').forEach((a) => a.classList.toggle('cur', a.dataset.to === cur));
+  });
+  host.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => { host.querySelectorAll('[data-tab]').forEach((x) => x.setAttribute('aria-checked', String(x === b))); host.querySelector('.tabbody').innerHTML = grpBlock(GROUPS.find((g) => g.id === b.dataset.tab)); paintIcons(host); }));
+  host.querySelectorAll('[data-sys]').forEach((a) => a.addEventListener('click', () => { host.querySelectorAll('[data-sys]').forEach((x) => x.classList.toggle('cur', x === a)); host.querySelector('.sysbody').innerHTML = GROUPS.find((g) => g.id === a.dataset.sys).html(); paintIcons(host); }));
+}
+
+/* ==== 保存（C） ==== */
+function saveCard(code) {
+  const head = `<h2 class="h2">ツール${code === 'C4' ? `<span class="autosave">${ic('check')}すべて保存済み · 14:01</span>` : ''}</h2>`;
+  const label = `tmux のパス${code === 'C3' ? '<span class="lab-saved">保存済み</span>' : ''}`;
+  const row = code === 'C1' ? `<span class="inrow"><input class="input mono" value="/opt/homebrew/bin/tmux"><span class="saved-tick">${ic('check')}保存しました</span></span>` : `<input class="input mono" value="/opt/homebrew/bin/tmux">`;
+  return `<div class="save-demo"><div class="card">${head}<label class="sfield">${label}${row}<span class="vslot">${ver1(TOOLS[0])}</span></label>
+    <label class="sfield" style="margin-top:10px">claude のパス<input class="input mono" value="~/.local/bin/claude">${ver1(TOOLS[1])}</label></div></div><div class="toast-slot"></div>`;
+}
+function wireSave(host) {
+  const code = host.dataset.save; const input = host.querySelector('input'); const orig = input.value; let last = orig;
+  input.addEventListener('change', () => {
+    const v = input.value.trim(); const ok = /tmux$/.test(v);
+    host.querySelector('.vslot').innerHTML = ok ? ver1({ ok: true, v, ver: '3.4' }) : ver1({ ok: false, fix: 'brew install tmux' });
+    const prev = last; last = v;
+    if (code === 'C1') { const t = host.querySelector('.saved-tick'); t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 2000); }
+    if (code === 'C2') { const slot = host.querySelector('.toast-slot'); slot.innerHTML = `<div class="toast">${ic('check', '', 'color:var(--st-done)')}tmux のパスを保存しました<span class="undo">取り消す</span></div>`; slot.querySelector('.undo').onclick = () => { input.value = prev; last = prev; input.dispatchEvent(new Event('change')); slot.innerHTML = ''; }; clearTimeout(slot._t); slot._t = setTimeout(() => (slot.innerHTML = ''), 4000); }
+    if (code === 'C3') { const f = input.closest('.sfield'); f.classList.remove('flash'); void f.offsetWidth; f.classList.add('flash'); host.querySelector('.lab-saved').classList.add('show'); }
+    if (code === 'C4') { const a = host.querySelector('.autosave'); a.classList.add('busy'); a.innerHTML = ic('loader') + '保存しています…'; paintIcons(a); setTimeout(() => { a.classList.remove('busy'); a.innerHTML = ic('check') + 'すべて保存済み · 14:03'; paintIcons(a); }, 700); }
+    paintIcons(host);
+  });
+}
+
+/* ==== コマンド（D） ==== */
+function cmdStage(code) {
+  return `<div style="width:100%;max-width:380px"><div class="card"><h2 class="h2">MCP</h2><div class="desc">どのセッションからも hangar の検索と要約が使えます。</div>${cmd(code, 'hangar mcp install', { done: '登録済みです', undo: 'hangar mcp uninstall' })}</div>
+    <div class="card"><h2 class="h2">外のターミナル</h2><div class="desc">~/.zshrc に 1 行を足します。</div>${cmd(code, 'hangar shell install', { todo: 'この PC にはまだ入っていません' })}</div></div>`;
+}
+
+/* ==== トークン（E） ==== */
+const TOKEN = 'hgj_example_7Qm2vX9pL4rT8kW1nB6cY3d';
+let tokLeft = 30; let tokTimer = null;
+function tokHTML(code) {
+  if (tokLeft <= 0) return `<div class="tok"><small>参加トークンは消えました。</small><div><button class="btn btn-sm tok-again">もう一度表示</button></div></div>`;
+  const low = tokLeft <= 10;
+  if (code === 'E1') { const C = 2 * Math.PI * 12; return `<div class="tok"><div class="tok-line"><span class="tok-val">${TOKEN}</span><span class="ring${low ? ' low' : ''}"><svg viewBox="0 0 30 30"><circle class="bg" cx="15" cy="15" r="12"/><circle class="fg" cx="15" cy="15" r="12" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - tokLeft / 30)}"/></svg><b>${tokLeft}</b></span>${cp()}</div><span class="warnline">${ic('warn')}持つ人は全セッションを読み書きできます。1Password などへ。</span></div>`; }
+  if (code === 'E2') return `<div class="tok"><div class="tok-line"><span class="tok-val">${TOKEN}</span>${cp()}</div><div class="tbar${low ? ' low' : ''}"><i style="width:${(tokLeft / 30) * 100}%"></i></div><small>あと ${tokLeft} 秒で消えます · 持つ人は全セッションを読み書きできます</small></div>`;
+  if (code === 'E3') return `<div class="tok"><div class="tok-line"><span class="tok-val masked">hgj_••••••••••••••••••••</span><button class="cpbtn">${ic('eye')}<span>見る</span></button>${cp()}</div><small>あと ${tokLeft} 秒で消えます · 画面には出していません</small></div>`;
+}
+function renderTok() { document.querySelectorAll('[data-tok]').forEach((el) => { el.innerHTML = `<div style="width:100%;max-width:400px"><div class="card"><h2 class="h2">参加トークン</h2>${tokHTML(el.dataset.tok)}</div></div>`; el.querySelector('.tok-again')?.addEventListener('click', restartTok); const eye = el.querySelector('.tok-val.masked + .cpbtn'); if (eye) eye.onclick = () => { el.querySelector('.tok-val').textContent = TOKEN; el.querySelector('.tok-val').classList.remove('masked'); }; }); paintIcons(); }
+function restartTok() { tokLeft = 30; clearInterval(tokTimer); renderTok(); tokTimer = setInterval(() => { tokLeft -= 1; if (tokLeft <= 0) clearInterval(tokTimer); renderTok(); }, 1000); }
+document.getElementById('tok-restart').addEventListener('click', restartTok);
+
+function beforePaint() {
+  document.querySelectorAll('[data-set]').forEach((el) => { el.innerHTML = setWin(el.dataset.set); });
+  document.querySelectorAll('[data-ver]').forEach((el) => { el.innerHTML = `<div style="width:100%;max-width:560px">${toolsCard(el.dataset.ver)}</div>`; });
+  document.querySelectorAll('[data-save]').forEach((el) => { el.innerHTML = saveCard(el.dataset.save); });
+  document.querySelectorAll('[data-cmd]').forEach((el) => { el.innerHTML = cmdStage(el.dataset.cmd); });
+}
+function afterPaint() {
+  document.querySelectorAll('[data-set]').forEach(wireSet);
+  document.querySelectorAll('[data-save]').forEach(wireSave);
+  restartTok();
+}
+</script>
+</body>
+</html>
