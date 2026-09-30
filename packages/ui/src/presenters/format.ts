@@ -30,7 +30,8 @@ export function durationLabel(ms: number): string {
 }
 
 export function shortModel(model: string | null): string {
-  if (!model) return '';
+  // <synthetic> は Claude が形だけの返事（問いを閉じたときの「No response requested.」など）に付ける印で、モデルではない。
+  if (!model || model === '<synthetic>') return '';
   const m = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(model);
   if (!m) return model;
   return `${m[1]} ${m[2]}${m[3] ? '.' + m[3] : ''}`;

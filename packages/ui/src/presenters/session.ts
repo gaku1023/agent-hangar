@@ -44,6 +44,31 @@ const LIVE_WORD: Record<LiveStatus, string> = { busy: '作業中', idle: '休み
 const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
 const when = (ts: number | undefined) => (ts === undefined ? '' : absoluteTime(ts).slice(11));
 
+/** タグの中身。無ければ null。 */
+const tagText = (text: string, tag: string): string | null => {
+  const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+  return m ? m[1]!.trim() : null;
+};
+
+/**
+ * ローカルコマンド（/exit、/model など）の記録を読める形にする。null なら出さない。
+ * Claude Code はこれを user の発言として、タグで包んで書く。そのまま出すとタグと決まり文句が本文に並ぶ。
+ * 決まり文句（local-command-caveat）と空の出力は落とし、コマンドは「/model opus」の 1 行に、出力は中身だけにする。
+ * どのタグでもない system の記録はそのまま返す。
+ */
+export function localCommandText(text: string): string | null {
+  const head = text.trimStart();
+  if (head.startsWith('<local-command-caveat>')) return null;
+  const name = tagText(head, 'command-name');
+  if (name !== null) {
+    const args = tagText(head, 'command-args') ?? '';
+    return args ? `${name} ${args}` : name;
+  }
+  const out = tagText(head, 'local-command-stdout');
+  if (out !== null) return out === '' || out === '(no content)' ? null : out;
+  return text;
+}
+
 export function buildItems(events: TranscriptEvent[], opts: { showThinking: boolean; showRaw: boolean; subagents: string[] }): TranscriptItem[] {
   const results = new Map<string, { text: string; isError: boolean }>();
   for (const e of events) if (e.kind === 'tool_result') results.set(e.toolId, { text: e.text, isError: e.isError });
@@ -51,7 +76,13 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
   let nextSub = 0;
   for (const e of events) {
     switch (e.kind) {
-      case 'user': case 'assistant': case 'system': items.push({ kind: e.kind, seq: e.seq, text: e.text, when: when(e.ts) }); break;
+      case 'user': case 'assistant': items.push({ kind: e.kind, seq: e.seq, text: e.text, when: when(e.ts) }); break;
+      case 'system': {
+        // 生の記録を出すときは、手を加えずにそのまま見せる。
+        const text = opts.showRaw ? e.text : localCommandText(e.text);
+        if (text !== null) items.push({ kind: 'system', seq: e.seq, text, when: when(e.ts) });
+        break;
+      }
       case 'thinking': if (opts.showThinking) items.push({ kind: 'thinking', seq: e.seq, text: e.text, when: when(e.ts) }); break;
       case 'tool_call': {
         const sub = SUBAGENT_TOOLS.has(e.name) && opts.subagents[nextSub] ? { agentId: opts.subagents[nextSub++]!, label: e.summary } : null;
