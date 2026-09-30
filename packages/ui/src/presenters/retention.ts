@@ -9,6 +9,8 @@ export const SOON_DAYS = 7;
  * 今の保持期間ではなく 30 日にするのは、今日延ばしても、過去の本文は既定の 30 日で消えているからである。
  */
 export const GONE_AFTER_DAYS = 30;
+/** 保持期間がまだ届いていないときに使う、Claude Code の既定の日数。 */
+export const DEFAULT_DAYS = 30;
 export const RETENTION_CHOICES = [30, 90, 365, 3650] as const;
 /** 帯と詳細から延ばすときの行き先。 */
 export const EXTEND_TO = 365;
@@ -34,3 +36,5 @@ export function transcriptMark(s: SessionDto, days: number, now: number): 'prese
   if (s.lastActivityAt !== null && now - s.lastActivityAt > GONE_AFTER_DAYS * DAY_MS) return 'gone';
   return 'none';
 }
+
+export type TranscriptMark = ReturnType<typeof transcriptMark>;

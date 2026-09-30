@@ -6,6 +6,9 @@ import { RelativeTime } from './primitives/RelativeTime.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { VirtualList } from './primitives/VirtualList.tsx';
 
+/** 本文が消えた会話の印の説明。行ごとに変わらない決まり文句なので、空の一覧の文言と同じく View に置く。 */
+const GONE_LABEL = '要約のみ。本文は Claude Code の保持期間で削除されたとみられます';
+
 /** 2 段の行の高さ。tokens.css の --session-row-h と同じ値にする（styles/rows.test.ts が突き合わせる）。 */
 export const SESSION_ROW_H = 56;
 
@@ -97,7 +100,13 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
           {r.cost && <span className="mono">{r.cost}</span>}
         </span>
       )}
-      <RelativeTime label={r.when} abs={r.whenAbs} />
+      {/* 本文の期限。消えかけは琥珀のチップで先に知らせ、消えた会話は文字の無い印だけにする。
+          消えた会話は数百件に上るので、文字を並べると一覧が騒がしくなる。 */}
+      <span className="row-when">
+        {r.transcript === 'expiring' && <span className="row-soon">まもなく削除</span>}
+        {r.transcript === 'gone' && <span className="row-gone" title={GONE_LABEL}><Icon name="transcriptGone" label={GONE_LABEL} /></span>}
+        <RelativeTime label={r.when} abs={r.whenAbs} />
+      </span>
     </span>
   );
 

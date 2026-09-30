@@ -886,3 +886,13 @@ describe('presentRetentionDialog', () => {
     expect(presentRetentionDialog(initialState(), st(), NOW)).toBeNull();
   });
 });
+
+describe('presentSessionRow の本文の印', () => {
+  it('行の本文の印は、保持期間（無ければ 30 日）で決める', () => {
+    const DAY = 86_400_000;
+    const s = session('a', { transcriptMtime: NOW - 25 * DAY });
+    expect(presentSessionRow(s, initialStore(), NOW).transcript).toBe('expiring');
+    const kept = { ...initialStore(), retention: { days: 365, source: 'user' as const, userValue: 365, writable: true, unwritableReason: null, usage: null } };
+    expect(presentSessionRow(s, kept, NOW).transcript).toBe('present');
+  });
+});

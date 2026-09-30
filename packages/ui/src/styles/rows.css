@@ -65,6 +65,11 @@
 .row-sub .memo-pencil { height: calc(var(--u) * 5); padding: 0 var(--u); flex: none; }
 .row-sub .memo-input { height: calc(var(--u) * 5); flex: 1; }
 .row-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--u); font-size: var(--fs-xs); color: var(--ink-3); }
+/* 時刻と本文の期限の印を横に並べる。印は行の高さを変えないよう、時刻と同じ行に小さく置く。 */
+.row-when { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.row-soon { flex: none; display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-size: var(--fs-xs); line-height: 1.4; color: var(--st-paused); background: var(--st-paused-soft); white-space: nowrap; }
+.row-gone { flex: none; display: inline-flex; color: var(--ink-3); }
+.row-gone .icon { width: 13px; height: 13px; }
 .row-meta { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
 /* 一致した語の印。淡い黄の地だけを敷き、文字の色は周りのまま（読みやすさを落とさない）。 */
 .hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }
