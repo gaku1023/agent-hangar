@@ -17,7 +17,13 @@ export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string
         ))}
       </div>
       <input id="global-search" className="input search-box" type="search" role="searchbox" placeholder="セッションを検索（/）" defaultValue={props.searchText}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.query', text: (e.target as HTMLInputElement).value }); }} />
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || isComposing(e)) return;
+          const box = e.target as HTMLInputElement;
+          emit({ type: 'search.query', text: box.value });
+          // 検索し終えたら欄を離れる。結果の一覧は、フォーカスの空いたところへ自分でフォーカスを取りにくる（SessionRows の autoFocus）。
+          box.blur();
+        }} />
       <kbd className="search-kbd" aria-hidden="true">⌘K</kbd>
       {/* 狭いときは検索欄の代わりに出る。押すとパレットを開く。 */}
       <button className="btn search-icon" aria-label="セッションを検索" title="セッションを検索（⌘K）" onClick={() => emit({ type: 'palette.open' })}><Icon name="search" /></button>

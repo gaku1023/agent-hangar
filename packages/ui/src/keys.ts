@@ -41,7 +41,7 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'tab.close', group: 'session', keys: '⌘W', label: 'シェルタブを閉じる', chords: [{ key: 'w', mod: true, shift: false }] },
   { id: 'split.toggle', group: 'session', keys: '⌘\\', label: 'タブを横に並べる', chords: [{ key: '\\', mod: true, shift: false }] },
   { id: 'transcript.toggle', group: 'session', keys: '⌘J', label: 'トランスクリプトの開閉', chords: [{ key: 'j', mod: true, shift: false }] },
-  { id: 'list.move', group: 'list', keys: 'j / k', label: '下へ / 上へ', chords: [] },
+  { id: 'list.move', group: 'list', keys: 'j / k / ↑ / ↓', label: '下へ / 上へ', chords: [] },
   { id: 'list.open', group: 'list', keys: 'Enter', label: '開く', chords: [] },
   { id: 'list.terminal', group: 'list', keys: 'o', label: 'ターミナルで開く', chords: [] },
   { id: 'list.editor', group: 'list', keys: 'e', label: 'エディタで開く', chords: [] },

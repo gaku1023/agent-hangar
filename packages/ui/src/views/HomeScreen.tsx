@@ -77,7 +77,7 @@ export function HomeScreen(props: HomeProps) {
       <div className="home-two">
         <section>
           <h2 className="home-label">最近</h2>
-          <SessionRows rows={props.recent} height={Math.min(props.recent.length, HOME_VISIBLE_ROWS) * SESSION_ROW_H} variant="recent" />
+          <SessionRows rows={props.recent} height={Math.min(props.recent.length, HOME_VISIBLE_ROWS) * SESSION_ROW_H} variant="recent" autoFocus />
         </section>
         <section>
           <h2 className="home-label">プロジェクト</h2>

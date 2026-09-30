@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
@@ -17,7 +17,10 @@ describe('SessionRows', () => {
     render(<IntentRoot onIntent={onIntent}><SessionRows rows={[row('a'), row('b')]} height={400} variant="search" /></IntentRoot>);
     fireEvent.click(screen.getByText('na'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
-    fireEvent.keyDown(screen.getByText('nb').closest('[role="row"]')!, { key: 'Enter' });
+    // 行の Enter は、その行にフォーカスがあるときにだけ届く。フォーカスした行がカーソルになる。
+    const rb = screen.getByText('nb').closest('[role="row"]') as HTMLElement;
+    act(() => rb.focus());
+    fireEvent.keyDown(rb, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'b' });
     expect(screen.getAllByTitle('2026-09-01 10:00')).toHaveLength(2);
     expect(screen.getAllByText('alpha')).toHaveLength(2);
@@ -151,6 +154,11 @@ describe('一覧のフォーカスの見え方', () => {
   it('マウスで押しただけのときは輪郭を出さない', () => {
     expect(rowsCss).toMatch(/\.rows-host:focus:not\(:focus-visible\)\s*\{[^}]*outline:\s*none/);
   });
+  it('行のフォーカスの輪郭は内側に描き、一覧の枠で切れないようにする', () => {
+    const rule = rowsCss.match(/\.row:focus-visible\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toContain('var(--accent)');
+    expect(rule).toMatch(/outline-offset:\s*-2px/);
+  });
 });
 
 describe('カーソルの行を見える位置へ運ぶ', () => {
@@ -242,5 +250,111 @@ describe('SessionRows（2 段の行）', () => {
     fireEvent.change(input, { target: { value: '新' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.setMemo', id: 'a', text: '新' });
+  });
+});
+
+describe('一覧のキー操作（C1）', () => {
+  const rowsOf = () => [...screen.getByTestId('session-rows').querySelectorAll<HTMLElement>('[role="row"]')];
+  const mount = (onIntent = vi.fn(), over: { autoFocus?: boolean; rows?: SessionRowProps[] } = {}) => {
+    const r = render(<IntentRoot onIntent={onIntent}><SessionRows rows={over.rows ?? [p3Row('s1'), p3Row('s2'), p3Row('s3')]} height={400} variant="project" autoFocus={over.autoFocus} /></IntentRoot>);
+    return { ...r, onIntent };
+  };
+
+  it('↑ と ↓ も j と k と同じに動く', () => {
+    const { onIntent } = mount();
+    const list = screen.getByTestId('session-rows');
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    fireEvent.keyDown(list, { key: 'ArrowUp' });
+    fireEvent.keyDown(list, { key: 'Enter' });
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 's2' });
+  });
+
+  it('矢印は既定の動き（一覧のスクロール）を止める', () => {
+    mount();
+    const ev = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+    act(() => { screen.getByTestId('session-rows').dispatchEvent(ev); });
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('Tab で止まる行は 1 つだけで、カーソルの行へフォーカスが移る', () => {
+    mount();
+    expect(rowsOf().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
+    const list = screen.getByTestId('session-rows');
+    fireEvent.keyDown(list, { key: 'j' });
+    fireEvent.keyDown(list, { key: 'j' });
+    expect(rowsOf().map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
+    expect(document.activeElement).toBe(rowsOf()[1]);
+  });
+
+  it('フォーカスした行がカーソルになり、Enter はその行を 1 度だけ開く', () => {
+    const { onIntent } = mount();
+    const list = screen.getByTestId('session-rows');
+    // カーソルを 1 行目に置いてから、Tab やクリックで 3 行目にフォーカスを移す。
+    fireEvent.keyDown(list, { key: 'j' });
+    act(() => rowsOf()[2]!.focus());
+    expect(rowsOf()[2]).toHaveAttribute('data-cursor', 'true');
+    expect(list.querySelectorAll('[data-cursor="true"]')).toHaveLength(1);
+    fireEvent.keyDown(rowsOf()[2]!, { key: 'Enter' });
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 's3' });
+  });
+
+  it('行の中のボタンで押した Enter は行を開かない', () => {
+    const { onIntent } = mount();
+    const pencil = screen.getByLabelText('名前 s1 のメモを編集');
+    act(() => pencil.focus());
+    fireEvent.keyDown(pencil, { key: 'Enter' });
+    expect(onIntent).not.toHaveBeenCalled();
+    // 中のボタンへ Tab で入っても、フォーカスは行へ引き戻さない。
+    expect(document.activeElement).toBe(pencil);
+  });
+
+  it('⌘ や Ctrl の付いた打鍵は一覧で使わない', () => {
+    mount();
+    const list = screen.getByTestId('session-rows');
+    fireEvent.keyDown(list, { key: 'j', metaKey: true });
+    fireEvent.keyDown(list, { key: 'k', ctrlKey: true });
+    expect(list.querySelectorAll('[data-cursor="true"]')).toHaveLength(0);
+  });
+
+  it('メモを Enter で保存したら、フォーカスは行に戻る', () => {
+    mount();
+    const list = screen.getByTestId('session-rows');
+    fireEvent.keyDown(list, { key: 'j' });
+    fireEvent.keyDown(list, { key: 'm' });
+    fireEvent.keyDown(screen.getByLabelText('名前 s1 のメモ'), { key: 'Enter' });
+    expect(document.activeElement).toBe(rowsOf()[0]);
+  });
+
+  it('autoFocus なら、描いた時点で一覧にフォーカスする。行はまだ選ばない', () => {
+    mount(vi.fn(), { autoFocus: true });
+    const list = screen.getByTestId('session-rows');
+    expect(document.activeElement).toBe(list);
+    expect(list.querySelectorAll('[data-cursor="true"]')).toHaveLength(0);
+    fireEvent.keyDown(list, { key: 'j' });
+    expect(document.activeElement).toBe(rowsOf()[0]);
+  });
+
+  it('autoFocus でも、入力欄で打っている最中ならフォーカスを奪わない', () => {
+    const box = document.createElement('input');
+    document.body.appendChild(box);
+    box.focus();
+    mount(vi.fn(), { autoFocus: true });
+    expect(document.activeElement).toBe(box);
+    box.remove();
+  });
+
+  it('autoFocus は、行が後から届いたときに 1 度だけ当てる', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionRows rows={[]} height={400} variant="search" autoFocus /></IntentRoot>);
+    expect(document.activeElement).toBe(document.body);
+    rerender(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1')]} height={400} variant="search" autoFocus /></IntentRoot>);
+    expect(document.activeElement).toBe(screen.getByTestId('session-rows'));
+    act(() => (document.activeElement as HTMLElement).blur());
+    rerender(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} variant="search" autoFocus /></IntentRoot>);
+    expect(document.activeElement).toBe(document.body);
   });
 });

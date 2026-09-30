@@ -607,3 +607,41 @@ describe('キーの見直し', () => {
     expect(screen.getByRole('dialog', { name: 'キーボード' })).toBeInTheDocument();
   });
 });
+
+describe('画面に入ったときの一覧のフォーカス（C1）', () => {
+  const rows = () => screen.getByTestId('session-rows');
+
+  it('Home に入ると、最近の一覧にフォーカスする', async () => {
+    await mounted();
+    expect(document.activeElement).toBe(rows());
+  });
+
+  it('セッションの一覧の画面に入っても一覧にフォーカスする', async () => {
+    const { setHash } = await mounted();
+    act(() => (document.activeElement as HTMLElement).blur());
+    act(() => setHash('#/sessions'));
+    await flush();
+    expect(document.activeElement).toBe(rows());
+  });
+
+  it('ヘッダーの検索欄で打っている最中は、画面が変わってもフォーカスを奪わない', async () => {
+    const { setHash } = await mounted();
+    const box = document.getElementById('global-search')!;
+    act(() => box.focus());
+    act(() => setHash('#/sessions'));
+    await flush();
+    expect(document.activeElement).toBe(box);
+  });
+
+  it('ヘッダーの検索で Enter すると、結果の一覧へ移る', async () => {
+    const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん' }] };
+    await mounted({ api: { search: async () => ({ hits: [hit], total: 1 }) } });
+    const box = document.getElementById('global-search') as HTMLInputElement;
+    act(() => box.focus());
+    box.value = 'せっ';
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await flush();
+    await flush();
+    expect(document.activeElement).toBe(rows());
+  });
+});

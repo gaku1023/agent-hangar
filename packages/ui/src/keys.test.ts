@@ -59,6 +59,10 @@ describe('キーマップ', () => {
     }
   });
 
+  it('一覧の上下は矢印でも動くことを一覧に書く', () => {
+    expect(KEYMAP.find((b) => b.id === 'list.move')?.keys).toBe('j / k / ↑ / ↓');
+  });
+
   it('どの行にも表示するキーと説明がある', () => {
     for (const b of KEYMAP) {
       expect(b.keys, b.id).not.toBe('');
