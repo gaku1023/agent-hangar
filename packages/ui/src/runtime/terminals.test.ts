@@ -11,13 +11,13 @@ class FakeWs {
   open() { this.readyState = 1; this.onopen?.(); }
   receive(m: unknown) { this.onmessage?.({ data: JSON.stringify(m) }); }
 }
-type FakeTerm = TerminalLike & { written: string[]; opened: HTMLElement | null; fitted: number; focused: number; disposed: boolean; gpu: boolean; gpuBeforeOpen: boolean; pasted: string[]; type(d: string): void; resizeTo(c: number, r: number): void; detachHost(): void };
+type FakeTerm = TerminalLike & { fontSize: number | null; written: string[]; opened: HTMLElement | null; fitted: number; focused: number; disposed: boolean; gpu: boolean; gpuBeforeOpen: boolean; pasted: string[]; type(d: string): void; resizeTo(c: number, r: number): void; detachHost(): void };
 function fakeTerm(): FakeTerm {
   const data: ((d: string) => void)[] = []; const resize: ((s: { cols: number; rows: number }) => void)[] = [];
   // 画面を離れると React が枠ごと外すので、要素の親は残ったまま文書から外れる。isConnected はそれを表す。
   const node = { parentElement: null as HTMLElement | null, hostDetached: false, get isConnected() { return node.parentElement !== null && !node.hostDetached; }, remove() { node.parentElement = null; } };
   const t: FakeTerm = {
-    cols: 80, rows: 24, element: null, written: [], opened: null, fitted: 0, focused: 0, disposed: false, gpu: false, gpuBeforeOpen: false, pasted: [],
+    cols: 80, rows: 24, element: null, fontSize: null, written: [], opened: null, fitted: 0, focused: 0, disposed: false, gpu: false, gpuBeforeOpen: false, pasted: [],
     open(el) { t.opened = el; node.parentElement = el; t.element = node as unknown as HTMLElement; },
     detachHost() { node.hostDetached = true; },
     write(d) { t.written.push(d); },
@@ -25,15 +25,16 @@ function fakeTerm(): FakeTerm {
     onResize(cb) { resize.push(cb); return { dispose() {} }; },
     fit() { t.fitted++; }, focus() { t.focused++; }, dispose() { t.disposed = true; },
     paste(d) { t.pasted.push(d); },
+    setFontSize(px) { t.fontSize = px; },
     setGpu(on) { if (on && !t.opened) t.gpuBeforeOpen = true; t.gpu = on; },
     type(d) { for (const cb of data) cb(d); }, resizeTo(c, r) { for (const cb of resize) cb({ cols: c, rows: r }); },
   };
   return t;
 }
-function make() {
+function make(fontSize?: { load(): unknown; save(px: number): void }) {
   FakeWs.all = [];
   const terms: FakeTerm[] = [];
-  const host = createTerminalHost({ wsUrl: (id) => `ws://x/ws/pty?tab=${id}`, createTerminal: () => { const t = fakeTerm(); terms.push(t); return t; }, wsFactory: (u) => new FakeWs(u) as unknown as WebSocket });
+  const host = createTerminalHost({ wsUrl: (id) => `ws://x/ws/pty?tab=${id}`, createTerminal: () => { const t = fakeTerm(); terms.push(t); return t; }, wsFactory: (u) => new FakeWs(u) as unknown as WebSocket, fontSize });
   return { host, terms };
 }
 
@@ -158,5 +159,68 @@ describe('createTerminalHost', () => {
     expect(terms[0]!.focused).toBe(1);
     host.dispose();
     expect(terms[0]!.disposed).toBe(true);
+  });
+});
+
+describe('文字の大きさ', () => {
+  const mem = (initial?: unknown) => { const m = { value: initial, saved: [] as number[], load: () => m.value, save: (px: number) => { m.saved.push(px); m.value = px; } }; return m; };
+  const el = () => ({}) as HTMLElement;
+
+  it('既定は 13 で、作る端末にはいまの大きさを渡す', () => {
+    const { host, terms } = make(mem());
+    host.connect('t1');
+    expect(terms[0]!.fontSize).toBe(13);
+    expect(host.fontSize()).toBe(13);
+  });
+
+  it('覚えておいた大きさで始める', () => {
+    const { host, terms } = make(mem(16));
+    host.connect('t1');
+    expect(host.fontSize()).toBe(16);
+    expect(terms[0]!.fontSize).toBe(16);
+  });
+
+  it('覚えていた値が壊れていたら既定に戻し、範囲の外なら端に寄せる', () => {
+    expect(make(mem('big')).host.fontSize()).toBe(13);
+    expect(make(mem(Number.NaN)).host.fontSize()).toBe(13);
+    expect(make(mem(3)).host.fontSize()).toBe(8);
+    expect(make(mem(99)).host.fontSize()).toBe(32);
+    expect(make({ load: () => { throw new Error('storage blocked'); }, save: () => {} }).host.fontSize()).toBe(13);
+  });
+
+  it('大きさを変えると全部の端末に効かせ、開いている端末は合わせ直し、覚えておく', () => {
+    const store = mem();
+    const { host, terms } = make(store);
+    host.connect('t1'); host.mount('t1', el());
+    host.connect('t2');
+    const fitted = terms[0]!.fitted;
+    host.zoom('in');
+    expect(terms.map((t) => t.fontSize)).toEqual([14, 14]);
+    // 開いていない端末は寸法が取れないので、合わせ直すのは mount のときに任せる。
+    expect(terms[0]!.fitted).toBe(fitted + 1);
+    expect(terms[1]!.fitted).toBe(0);
+    expect(store.saved).toEqual([14]);
+    host.zoom('out'); host.zoom('out');
+    expect(host.fontSize()).toBe(12);
+    host.zoom('reset');
+    expect(terms.map((t) => t.fontSize)).toEqual([13, 13]);
+    expect(store.saved).toEqual([14, 13, 12, 13]);
+  });
+
+  it('端では止まり、変わらなければ書き込まない', () => {
+    const store = mem(32);
+    const { host } = make(store);
+    host.zoom('in');
+    expect(host.fontSize()).toBe(32);
+    expect(store.saved).toEqual([]);
+  });
+
+  it('覚える先が無くても、書き込みに失敗しても大きさは変わる', () => {
+    const { host } = make();
+    host.zoom('in');
+    expect(host.fontSize()).toBe(14);
+    const failing = make({ load: () => undefined, save: () => { throw new Error('quota'); } }).host;
+    failing.zoom('in');
+    expect(failing.fontSize()).toBe(14);
   });
 });

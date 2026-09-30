@@ -12,7 +12,7 @@ import { fakeMotionTokens } from './test/motion.ts';
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [] };
 
 // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
-const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), subscribe: () => () => {}, dispose: vi.fn() };
+const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn() };
 
 const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false };
 
@@ -245,6 +245,35 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     fireEvent.keyDown(inner, { key: 'k', metaKey: true, bubbles: true });
     expect(emit).toHaveBeenCalledWith({ type: 'palette.open' });
     host.remove();
+  });
+
+  it('セッション画面の ⌘+ ⌘− ⌘0 は全部の端末の文字の大きさを変え、ブラウザの拡大には渡さない', async () => {
+    // fireEvent は既定の動きを止めたときに false を返す。
+    const zoom = vi.fn();
+    const { wsHandlers, setHash } = await mounted({ terminals: { ...terminals, zoom } });
+    act(() => setHash('#/session/s1'));
+    await flush();
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent')] }));
+    await flush();
+    expect(key({ key: '=', metaKey: true })).toBe(false);
+    expect(key({ key: '-', metaKey: true })).toBe(false);
+    expect(key({ key: '0', metaKey: true })).toBe(false);
+    expect(zoom.mock.calls).toEqual([['in'], ['out'], ['reset']]);
+    // ターミナルにフォーカスがあっても ⌘ の組み合わせなので受ける。
+    const host = document.createElement('div');
+    host.className = 'term-host';
+    document.body.appendChild(host);
+    expect(fireEvent.keyDown(host, { key: '+', metaKey: true, shiftKey: true, bubbles: true })).toBe(false);
+    expect(zoom).toHaveBeenLastCalledWith('in');
+    host.remove();
+  });
+
+  it('端末の無い画面の ⌘+ ⌘− ⌘0 はブラウザに渡す', async () => {
+    const zoom = vi.fn();
+    await mounted({ terminals: { ...terminals, zoom } });
+    expect(key({ key: '=', metaKey: true })).toBe(true);
+    expect(key({ key: '0', metaKey: true })).toBe(true);
+    expect(zoom).not.toHaveBeenCalled();
   });
 
   it('パレットの入力は Root が持ち、閉じると空に戻る', async () => {

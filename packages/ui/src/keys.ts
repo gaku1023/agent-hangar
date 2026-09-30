@@ -8,6 +8,7 @@ export type KeyId =
   | 'palette.open' | 'session.new' | 'session.newScratch' | 'session.nextWaiting' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
   | 'nav.back' | 'nav.forward' | 'search.focus' | 'overlay.close'
   | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'tab.move' | 'turn.move'
+  | 'terminal.fontBigger' | 'terminal.fontSmaller' | 'terminal.fontReset'
   | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.memo';
 
 export type KeyGroup = 'global' | 'session' | 'list';
@@ -46,6 +47,10 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'transcript.toggle', group: 'session', keys: '⌘J', label: 'トランスクリプトの開閉', chords: [{ key: 'j', mod: true, shift: false }] },
   { id: 'tab.move', group: 'session', keys: '← / →', label: 'タブの列で隣のタブへ（Enter で選ぶ）', chords: [] },
   { id: 'turn.move', group: 'session', keys: 'j / k / ↑ / ↓', label: 'ターンの目次で下へ / 上へ（Enter で開く）', chords: [] },
+  // US 配列の ⌘+ は ⌘⇧= なので = と + の両方で受ける。JIS 配列の + は ; のキーにあり、ブラウザと同じく ⌘; でも受ける。
+  { id: 'terminal.fontBigger', group: 'session', keys: '⌘+', label: 'ターミナルの文字を大きく', chords: [{ key: '+', mod: true }, { key: '=', mod: true }, { key: ';', mod: true }] },
+  { id: 'terminal.fontSmaller', group: 'session', keys: '⌘−', label: 'ターミナルの文字を小さく', chords: [{ key: '-', mod: true }] },
+  { id: 'terminal.fontReset', group: 'session', keys: '⌘0', label: 'ターミナルの文字を元の大きさに', chords: [{ key: '0', mod: true, shift: false }] },
   { id: 'list.move', group: 'list', keys: 'j / k / ↑ / ↓', label: '下へ / 上へ', chords: [] },
   { id: 'list.open', group: 'list', keys: 'Enter', label: '開く', chords: [] },
   { id: 'list.terminal', group: 'list', keys: 'o', label: 'ターミナルで開く', chords: [] },
