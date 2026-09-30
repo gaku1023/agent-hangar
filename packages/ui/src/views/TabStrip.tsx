@@ -6,7 +6,9 @@ import { Icon } from './primitives/Icon.tsx';
 /**
  * タブ 0 が Claude、以降がシェル。並び替えは持たない。
  * キーは tablist の作法に合わせる。
- * Tab で止まるのは 1 つのタブだけ（roving tabindex）で、← → と Home End でタブの間を移り、Enter か Space で選ぶ。
+ * タブそのものは Tab で 1 つだけ止まり（roving tabindex）、← → と Home End でタブの間を移り、Enter か Space で選ぶ。
+ * 各タブの閉じるボタンは Tab で止めない（tabIndex=-1）。キーボードでは ⌘W で閉じられるからである。
+ * 追加と分割のボタンは別の操作なので、Tab の止まり先に残す。
  * 選ぶとフォーカスはターミナルへ移るので、矢印で移るだけでは選ばない（手動の選択）。
  */
 export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAdd: boolean; canSplit: boolean; split: boolean }) {
@@ -41,7 +43,7 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
         <div key={t.id} className={`tab${t.selected ? ' tab-selected' : ''}`} role="tab" aria-selected={t.selected} tabIndex={t.id === stopId ? 0 : -1}
           onClick={() => emit({ type: 'tab.select', tabId: t.id })} onFocus={() => setFocusId(t.id)} onKeyDown={(e) => onTabKey(e, i)}>
           <Icon name={t.kind === 'agent' ? 'agent' : 'shell'} /><span>{t.title}</span>
-          {t.closable && <button className="tab-close" aria-label={`${t.title} を閉じる`} onClick={(e) => { e.stopPropagation(); emit({ type: 'tab.close', tabId: t.id }); }}><Icon name="close" /></button>}
+          {t.closable && <button className="tab-close" tabIndex={-1} aria-label={`${t.title} を閉じる`} onClick={(e) => { e.stopPropagation(); emit({ type: 'tab.close', tabId: t.id }); }}><Icon name="close" /></button>}
         </div>
       ))}
       {props.canAdd && <button className="tab-add" aria-label="シェルタブを追加" onClick={() => emit({ type: 'tab.open', sessionId: props.sessionId, kind: 'shell' })}><Icon name="add" /></button>}

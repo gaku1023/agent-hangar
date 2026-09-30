@@ -386,6 +386,14 @@ describe('TabStrip のキー操作（C3）', () => {
     expect(document.activeElement).toBe(tabs()[1]);
   });
 
+  it('各タブの閉じるボタンは Tab で止まらない（⌘W で閉じられる）。追加と分割は止まる', () => {
+    mount();
+    expect(screen.getByLabelText('シェル 1 を閉じる').tabIndex).toBe(-1);
+    expect(screen.getByLabelText('シェル 2 を閉じる').tabIndex).toBe(-1);
+    expect(screen.getByLabelText('シェルタブを追加').tabIndex).toBe(0);
+    expect(screen.getByLabelText('分割').tabIndex).toBe(0);
+  });
+
   it('閉じるボタンの Enter ではタブを選ばない', () => {
     const { onIntent } = mount();
     fireEvent.keyDown(screen.getByLabelText('シェル 2 を閉じる'), { key: 'Enter' });
