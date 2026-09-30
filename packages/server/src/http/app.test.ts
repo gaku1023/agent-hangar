@@ -61,6 +61,8 @@ function fakeRuns(): RunsApi {
       const t = id === 't1' ? shellTab : id === 'r1' ? agentTab : id === 'dead' ? deadAgentTab : id === 'dead-t1' ? deadShellTab : null;
       return t && t.kind === 'agent' && t.runId === 'dead' ? null : t;
     }),
+    jumpToPrompt: vi.fn(async (id: string) => { if (id === 'dead') throw new RunError(409, 'この run は終了しています'); return { found: true as const }; }),
+    leaveTranscript: vi.fn(async () => ({ left: true })),
   };
 }
 
@@ -419,6 +421,20 @@ describe('routes', () => {
     expect((await app.request('/api/runs/r2/tabs/t1', { method: 'DELETE', headers: H })).status).toBe(404);
     expect((await app.request('/api/runs/r1/tabs/nope', { method: 'DELETE', headers: H })).status).toBe(404);
     expect(runs.closeTab).toHaveBeenCalledTimes(1);
+  });
+  it('指示へ跳ぶ、transcript を閉じる', async () => {
+    const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const r = await post('/api/runs/r1/jump', { heads: ['一つめ', '二つめ'], index: 0, from: 'bottom' });
+    expect(await r.json()).toEqual({ found: true });
+    expect(runs.jumpToPrompt).toHaveBeenCalledWith('r1', ['一つめ', '二つめ'], 0, 'bottom');
+    // 形の崩れた本文は RunManager に渡さない。長すぎる書き出し、範囲外の index、知らない向き。
+    expect((await post('/api/runs/r1/jump', { heads: ['x'.repeat(17)], index: 0, from: 'top' })).status).toBe(400);
+    expect((await post('/api/runs/r1/jump', { heads: ['a'], index: 1, from: 'top' })).status).toBe(400);
+    expect((await post('/api/runs/r1/jump', { heads: ['a'], index: 0, from: 'side' })).status).toBe(400);
+    expect((await post('/api/runs/r1/jump', { heads: Array(1001).fill('a'), index: 0, from: 'top' })).status).toBe(400);
+    expect(runs.jumpToPrompt).toHaveBeenCalledTimes(1);
+    expect((await post('/api/runs/dead/jump', { heads: ['a'], index: 0, from: 'top' })).status).toBe(409);
+    expect(await (await post('/api/runs/r1/leave-transcript')).json()).toEqual({ left: true });
   });
   it('ターミナルで開く、VS Code で開く', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });

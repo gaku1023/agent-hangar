@@ -55,6 +55,20 @@ export function toolSummary(name: string, input: unknown): string {
   return tail ? `${name} ${tail.slice(0, 120)}` : name;
 }
 
+/**
+ * Claude が作業している間に打った指示の本文。それ以外は null。
+ * この指示は user の行ではなく queued_command の添付として残るので、読まないと会話から抜け落ちる。
+ * タスクの知らせとサブエージェントの報告も同じ形で来るので、人の指示だけを拾う。
+ */
+function queuedPrompt(raw: Record<string, unknown>): string | null {
+  if (raw.type !== 'attachment' || !isRec(raw.attachment)) return null;
+  const a = raw.attachment;
+  const human = isRec(a.origin) ? a.origin.kind === 'human' : a.humanTurn === true;
+  if (a.type !== 'queued_command' || a.commandMode !== 'prompt' || !human) return null;
+  const text = contentText(a.prompt);
+  return text || null;
+}
+
 export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string | null): TranscriptEvent[] {
   if (!isRec(raw)) return [];
   const type = str(raw.type) ?? 'unknown';
@@ -103,6 +117,9 @@ export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string
     return out;
   }
 
+  const queued = queuedPrompt(raw);
+  if (queued !== null) return [{ kind: 'user', seq, ts, text: queued }];
+
   if (type === 'system') {
     // away_summary や compact_boundary は content に読める本文を持つ。turn_duration などは種類の名前しか無い。
     const subtype = str(raw.subtype) ?? 'system';
@@ -136,6 +153,7 @@ export function recordFacts(raw: unknown): RecordFacts {
       facts.isUserTurn = hasText && !isLocalCommandText(contentText(c));
       break;
     }
+    case 'attachment': facts.isUserTurn = queuedPrompt(raw) !== null; break;
     case 'ai-title': { const v = str(raw.aiTitle); if (v) facts.aiTitle = v; break; }
     case 'custom-title': { const v = str(raw.customTitle); if (v) facts.customTitle = v; break; }
     case 'agent-name': { const v = str(raw.agentName); if (v) facts.agentName = v; break; }

@@ -45,6 +45,20 @@ describe('normalizeRecord', () => {
     expect(ev[1]).toMatchObject({ text: '返事', model: 'claude-fable-5-1' });
     expect(ev[2]).toMatchObject({ toolId: 'toolu_1', name: 'Edit', summary: 'Edit /a/b.ts', filePath: '/a/b.ts' });
   });
+  it('作業中に打った指示（queued_command）は user にする', () => {
+    const rec = { ...base, type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', origin: { kind: 'human' }, prompt: '作業中に打った指示' } };
+    expect(normalizeRecord(rec, 3, null)).toEqual([{ kind: 'user', seq: 3, ts: Date.parse(base.timestamp), text: '作業中に打った指示' }]);
+  });
+  it('作業中に打った指示が配列でも本文を拾う', () => {
+    const rec = { ...base, type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', humanTurn: true, origin: { kind: 'human' }, prompt: [{ type: 'text', text: '画像つき' }, { type: 'image', source: {} }] } };
+    expect(normalizeRecord(rec, 3, null)).toMatchObject([{ kind: 'user', text: '画像つき' }]);
+  });
+  it('人でない queued_command（タスクの知らせ、サブエージェントの報告）は user にしない', () => {
+    const task = { ...base, type: 'attachment', attachment: { type: 'queued_command', commandMode: 'task-notification', prompt: '<task-notification>…' } };
+    const peer = { ...base, type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', origin: { kind: 'peer', from: 'a1' }, prompt: '報告' } };
+    expect(normalizeRecord(task, 0, null)[0]!.kind).toBe('meta');
+    expect(normalizeRecord(peer, 0, null)[0]!.kind).toBe('meta');
+  });
   it('本文の無い system は subtype を本文にする', () => {
     const ev = normalizeRecord({ ...base, type: 'system', subtype: 'turn_duration', durationMs: 10 }, 0, null);
     expect(ev).toEqual([{ kind: 'system', seq: 0, ts: Date.parse(base.timestamp), text: 'turn_duration', subtype: 'turn_duration' }]);
@@ -76,6 +90,10 @@ describe('toolSummary', () => {
 });
 
 describe('recordFacts', () => {
+  it('作業中に打った指示もターンに数え、タスクの知らせは数えない', () => {
+    expect(recordFacts({ ...base, type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', origin: { kind: 'human' }, prompt: '続けて' } }).isUserTurn).toBe(true);
+    expect(recordFacts({ ...base, type: 'attachment', attachment: { type: 'queued_command', commandMode: 'task-notification', prompt: 'x' } }).isUserTurn).toBe(false);
+  });
   it('形だけの返事の <synthetic> はモデルとして拾わない', () => {
     expect(recordFacts({ ...base, type: 'assistant', message: { role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: 'No response requested.' }] } }).model).toBeUndefined();
   });

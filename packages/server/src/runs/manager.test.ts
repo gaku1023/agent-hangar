@@ -790,6 +790,36 @@ describe('端末に繋いでよいタブ（tmux 不要）', () => {
   });
 });
 
+describe('transcript の中の指示へ跳ぶ（tmux 不要）', () => {
+  /** 画面はいつも transcript で、指示 a が見えている。送ったキーを記録する。 */
+  function paneTmux() {
+    const sent: string[][] = [];
+    const tmux = {
+      capturePane: (name: string) => { sent.push(['capture', name]); return '❯ a\n\n  Showing detailed transcript · ctrl+o to toggle'; },
+      sendKeys: (name: string, ...keys: string[]) => { sent.push([name, ...keys]); },
+    } as unknown as Tmux;
+    return { tmux, sent };
+  }
+
+  it('run の Claude のタブへ、1 文字ずつ -l で送る', async () => {
+    const { runId } = seedRun();
+    const { tmux, sent } = paneTmux();
+    const rm = make({ tmux });
+    expect(await rm.jumpToPrompt(runId, ['a', 'b'], 0, 'bottom')).toEqual({ found: true });
+    const keys = sent.filter((s) => s[0] !== 'capture');
+    expect(keys).toEqual([[`hangar-${runId}`, '-l', 'G'], [`hangar-${runId}`, '-l', '{'], [`hangar-${runId}`, '-l', '{']]);
+  });
+
+  it('終わった run と知らない run には送らない', async () => {
+    const { runId } = seedRun({ endedAt: 2 });
+    const { tmux, sent } = paneTmux();
+    const rm = make({ tmux });
+    expect(() => rm.jumpToPrompt(runId, ['a'], 0, 'bottom')).toThrow(expect.objectContaining({ status: 409 }));
+    expect(() => rm.leaveTranscript('nope')).toThrow(expect.objectContaining({ status: 404 }));
+    expect(sent).toEqual([]);
+  });
+});
+
 describe('addDirs の検査（tmux 不要）', () => {
   it('- で始まる値は 400 で弾き、行を作らない', () => {
     // --add-dir は可変長オプションなので、値がそのまま claude のフラグとして食われる。
