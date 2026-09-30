@@ -41,6 +41,11 @@ describe('tokens.css (候補)', () => {
     expect(contrast(token('--cand'), token('--cand-soft'))).toBeGreaterThanOrEqual(4.5);
     expect(contrast(token('--cand'), token('--surface'))).toBeGreaterThanOrEqual(4.5);
   });
+  it('候補の行の「· 12 分前」は --ink-2 で、淡い紫の地でも 4.5:1 以上で読める', () => {
+    expect(contrast(token('--ink-2'), token('--cand-soft'))).toBeGreaterThanOrEqual(4.5);
+    const workbench = fs.readFileSync(new URL('./workbench.css', import.meta.url), 'utf8');
+    expect(workbench).toMatch(/\.todo-cand \.faint\s*\{[^}]*color:\s*var\(--ink-2\)/);
+  });
 });
 
 describe('base.css', () => {

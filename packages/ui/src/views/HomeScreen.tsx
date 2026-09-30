@@ -47,8 +47,8 @@ export function HomeScreen(props: HomeProps) {
                 </div>
                 <div className="ask-q">{c.note}</div>
               </div>
-              <button type="button" className="btn btn-primary" aria-label={`${c.text}を確定`} onClick={() => emit({ type: 'todo.confirm', id: c.id })}>確定</button>
-              <button type="button" className="btn" aria-label={`${c.text}を却下`} onClick={() => emit({ type: 'todo.reject', id: c.id })}>却下</button>
+              <button type="button" className="btn btn-primary" aria-label={`${c.text}（${c.projectName}）を確定`} onClick={() => emit({ type: 'todo.confirm', id: c.id })}>確定</button>
+              <button type="button" className="btn" aria-label={`${c.text}（${c.projectName}）を却下`} onClick={() => emit({ type: 'todo.reject', id: c.id })}>却下</button>
             </div>
           ))}
         </section>

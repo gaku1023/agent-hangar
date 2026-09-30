@@ -207,7 +207,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const t = store.todos[e.id];
         if (!t) return;
         // 候補の欄を押したときは確定と同じに扱う。候補は未完なので、素直に反転すると done: false を送って何も起きない。
-        if (t.candidate) deps.api.confirmTodo(e.id).catch(fail);
+        if (t.candidate && !t.done) deps.api.confirmTodo(e.id).catch(fail);
         else deps.api.setTodoDone(e.id, !t.done).catch(fail);
         return;
       }

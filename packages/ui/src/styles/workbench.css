@@ -31,6 +31,8 @@
 .todo-check[data-candidate='true'] { appearance: none; flex: none; width: 13px; height: 13px; margin: 0; border-radius: 3px; border: 1.5px solid var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); cursor: pointer; }
 .todo-check[data-candidate='true']:focus-visible { outline: 2px solid var(--cand); outline-offset: 2px; }
 .todo-cand { margin-left: calc(13px + var(--u) * 1.5); display: flex; flex-direction: column; gap: var(--u); }
+/* 淡い紫の地では --ink-3 が 3:1 を割る（2.97:1）ので、「· 12 分前」の薄字は --ink-2 に上げる。 */
+.todo-cand .faint { color: var(--ink-2); }
 .todo-why { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; }
 .todo-src { font-size: var(--fs-xs); color: var(--ink-2); }
 .todo-src-link { padding: 0; border: 0; background: none; font: inherit; color: var(--cand); cursor: pointer; }
