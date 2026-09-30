@@ -14,6 +14,11 @@
 /* 文言だけが縮む。溢れたら省略記号にし、全文は title で読めるようにする。 */
 .sync > .sync-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sync-error { color: var(--error); }
+/* 状態の点。狭いヘッダで文と操作を畳んでも、同期の具合はこれで分かる。 */
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.sync[data-state='pushing'] .sync-dot, .sync[data-state='pulling'] .sync-dot { background: var(--busy); }
+.sync[data-state='paused'] .sync-dot { background: var(--ended); }
+.sync[data-state='error'] .sync-dot { background: var(--error); }
 
 /* ヘッダーの高さに収める小さいボタン。.btn を上書きするので .btn と一緒に付ける。 */
 .btn-sm { height: calc(var(--row-h) - 6px); padding: 0 calc(var(--u) * 2); font-size: var(--fs-sm); }

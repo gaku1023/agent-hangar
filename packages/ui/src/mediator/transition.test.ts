@@ -293,6 +293,15 @@ describe('タブと接続', () => {
     expect(r.state.sessionView.s2?.selectedTab).toBeNull();
     expect(r.effects.filter((e) => String((e as { kind: string }).kind).startsWith('terminal.'))).toEqual([{ kind: 'terminal.disconnect', tabId: 't9' }]);
   });
+  it('サイドバーの折りたたみは開閉のたびに保存する', () => {
+    expect(initialState().sidebarCollapsed).toBe(false);
+    const a = run([intent({ type: 'sidebar.toggle' })]);
+    expect(a.state.sidebarCollapsed).toBe(true);
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'sidebar.collapsed', value: true }]);
+    const b = run([intent({ type: 'sidebar.toggle' })], a.state);
+    expect(b.state.sidebarCollapsed).toBe(false);
+    expect(b.effects).toEqual([{ kind: 'storage.save', key: 'sidebar.collapsed', value: false }]);
+  });
   it('トランスクリプトの折りたたみ', () => {
     const a = run([intent({ type: 'transcript.toggle' })], onSession());
     expect(a.state.sessionView.s1?.transcriptOpen).toBe(false);

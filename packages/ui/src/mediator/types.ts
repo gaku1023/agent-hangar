@@ -104,6 +104,8 @@ export type State = {
    * 永続させないので、サーバを立て直せばまた聞く。
    */
   resolveDeferred: string[];
+  /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
+  sidebarCollapsed: boolean;
   /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
   indexPhase: IndexProgressDto['phase'];
   /** クラウド同期の見え方。同期を設定していなければ off のままである。 */

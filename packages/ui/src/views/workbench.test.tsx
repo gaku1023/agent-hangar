@@ -60,6 +60,20 @@ describe('Header', () => {
     expect(screen.getByLabelText('7 日の使用率')).toBeTruthy();
     expect(screen.getByText('最終更新 10 分前')).toBeTruthy();
   });
+  // 幅が狭いと、同期のボタンと検索欄と新規セッションの文字を畳む（base.css のコンテナクエリ）。畳んでも同じ操作ができる。
+  it('畳んだときの逃げ道。同期の文は設定へ、虫眼鏡はパレットへ、新規セッションは名前を残す', () => {
+    const onIntent = vi.fn();
+    const sync = { visible: true, state: 'idle' as const, label: '同期済み · 3 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false };
+    const long = 'Claude Projects活用検討と社内ナレッジの整理';
+    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'agent-hangar', route: { name: 'projects' } }, { label: long }]} searchText="" indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('link', { name: '同期済み · 3 分前' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+    fireEvent.click(screen.getByRole('button', { name: 'セッションを検索' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
+    fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
+    expect(screen.getByText(long)).toHaveAttribute('title', long);
+  });
   it('最終更新が無ければ添えない', () => {
     render(<IntentRoot onIntent={() => {}}><Header crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
     expect(screen.queryByText(/最終更新/)).toBeNull();

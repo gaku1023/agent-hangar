@@ -1,6 +1,7 @@
 import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
+import { SIDEBAR_KEY } from '../mediator/sidebar.ts';
 import type { FocusTarget, SessionViewState } from '../mediator/types.ts';
 import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import { ApiConflictError, type ApiClient, type EventsQuery } from './api.ts';
@@ -309,7 +310,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const { follow: _ignore, ...rest } = v as Partial<SessionViewState>;
         sv[k.slice(3)] = { ...defaultSessionView(), ...rest };
       }
-      state = { ...state, sessionView: sv };
+      // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
+      state = { ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true };
       shown = state;
       ws = deps.ws({
         onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),

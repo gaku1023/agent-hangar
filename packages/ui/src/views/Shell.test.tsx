@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { nav: [{ route: { name: 'home' as const }, label: 'Home', current: true }, { route: { name: 'projects' as const }, label: 'Projects', current: false }], crumbs: [{ label: 'Projects', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false } };
+const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false }], crumbs: [{ label: 'プロジェクト', route: { name: 'projects' as const } }, { label: 'alpha' }], searchText: '', conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false } };
 
 describe('Shell', () => {
   it('ナビと検索が Intent になる', () => {
@@ -11,16 +11,49 @@ describe('Shell', () => {
     render(<IntentRoot onIntent={onIntent}><Shell {...props} overlays={null}><div>body</div></Shell></IntentRoot>);
     // パンくずにも Projects へのリンクがあるので、サイドバーの中だけを探す。
     const nav = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
-    fireEvent.click(nav.getByRole('link', { name: 'Projects', current: false }));
+    fireEvent.click(nav.getByRole('link', { name: 'プロジェクト', current: false }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'projects' } });
     const box = screen.getByRole('searchbox');
     fireEvent.change(box, { target: { value: '動画' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '動画' });
     expect(screen.getByText('body')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'ホーム' })).toHaveAttribute('aria-current', 'page');
     fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
+  });
+  // 開閉のボタンはサイドバーが自分で持つ。開いた帯ではワードマークの右、畳んだ帯ではワードマークがあった一番上に置く。ヘッダには置かない。
+  it('サイドバーの中のボタンで開閉し、閉じてもナビの名前は残る', () => {
+    const onIntent = vi.fn();
+    const { container, rerender } = render(<IntentRoot onIntent={onIntent}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
+    const side = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    expect(within(screen.getByRole('banner')).queryByRole('button', { name: /サイドバー/ })).toBeNull();
+    const toggle = side.getByRole('button', { name: 'サイドバーを閉じる' });
+    expect(toggle.previousElementSibling).toHaveClass('brand');
+    // 乗せたときの吹き出しは、今押すと何が起きるかを短く言う。読み上げは aria-label に任せる。
+    expect(toggle.querySelector('.toggle-tip')).toHaveTextContent('閉じる⌘B');
+    expect(toggle.querySelector('.toggle-tip')).toHaveAttribute('aria-hidden', 'true');
+    expect(toggle).not.toHaveAttribute('title');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(container.querySelector('.shell')).not.toHaveAttribute('data-sidebar', 'collapsed');
+    fireEvent.click(toggle);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    rerender(<IntentRoot onIntent={onIntent}><Shell {...props} sidebarCollapsed overlays={null}><div /></Shell></IntentRoot>);
+    expect(side.getByRole('button', { name: 'サイドバーを開く' })).toHaveAttribute('aria-expanded', 'false');
+    expect(side.getByRole('button', { name: 'サイドバーを開く' }).querySelector('.toggle-tip')).toHaveTextContent('開く⌘B');
+    expect(container.querySelector('.shell')).toHaveAttribute('data-sidebar', 'collapsed');
+    const nav = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    expect(nav.getByRole('link', { name: 'プロジェクト' })).toBeInTheDocument();
+    expect(nav.getByRole('link', { name: 'Hangar' })).toBeInTheDocument();
+  });
+  it('ワードマークを押すと Home へ行く', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
+    const nav = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    const brand = nav.getByRole('link', { name: 'Hangar' });
+    expect(brand).toHaveAttribute('href', nav.getByRole('link', { name: 'ホーム' }).getAttribute('href'));
+    fireEvent.click(brand);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'home' } });
   });
   it('切断の帯と索引の進行を表示する', () => {
     const onIntent = vi.fn();
@@ -95,8 +128,8 @@ describe('Shell のアイコン', () => {
   it('ナビの各項目と新規セッションのボタンにアイコンが付く', () => {
     render(<IntentRoot onIntent={vi.fn()}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
     const nav = screen.getByRole('navigation');
-    expect(iconOf(within(nav).getByRole('link', { name: 'Home' }))).toBe('home');
-    expect(iconOf(within(nav).getByRole('link', { name: 'Projects' }))).toBe('projects');
+    expect(iconOf(within(nav).getByRole('link', { name: 'ホーム' }))).toBe('home');
+    expect(iconOf(within(nav).getByRole('link', { name: 'プロジェクト' }))).toBe('projects');
     expect(iconOf(screen.getByRole('button', { name: '新規セッション' }))).toBe('add');
   });
 });

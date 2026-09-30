@@ -29,29 +29,44 @@ a:hover { text-decoration: underline; }
 @keyframes aura-drift { to { transform: translate(5%, -4%) rotate(8deg) scale(1.05); } }
 @media (prefers-reduced-motion: reduce) { .shell::before { animation: none; } }
 /* 浮くガラス。ぼかしはこの節と、切断の帯、ダイアログ、パレット、通知の規則にだけ書く（glass.test.ts が見張る）。 */
-/* 行が増えても全部を覆うように、端から端まで跨がせる。 */
-.sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; margin: var(--float-gap) 0 var(--float-gap) var(--float-gap); padding: calc(var(--u) * 2.5) calc(var(--u) * 2); border-radius: var(--r-xl); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); overflow: auto; }
-/* デスクトップの殻の中では、信号の 3 点がサイドバーの左上に乗る。殻が付ける data-shell の印を見て、その分だけ上を空ける。 */
-[data-shell='desktop'] .sidebar { padding-top: calc(var(--u) * 10); }
+/* 行が増えても全部を覆うように、端から端まで跨がせる。上はヘッダ（窓の上辺に付いた帯）の下に隙間を 1 つ空けて始める。 */
+.sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; margin: calc(var(--header-h) + var(--float-gap)) 0 var(--float-gap) var(--float-gap); padding: calc(var(--u) * 2.5) calc(var(--u) * 2); border-radius: var(--r-xl); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); overflow: hidden auto; }
 /* 頁を開いたときの入場。デスクトップの起動画面は、読み込みが終わった合図の後、この光の背景だけを描いて終わる。
    頁が替わった後は、その光の上にサイドバーが左から、ヘッダが上から浮かんで来る。殻は作り直されないので、動くのは最初の 1 回だけである。
    reduced motion では --dur が 0 になり、動かない。 */
 .shell > .sidebar { animation: glass-arrive-side var(--dur) var(--ease-out) backwards; }
 .shell > .header { animation: glass-arrive-head var(--dur) var(--ease-out) backwards; }
+/* サイドバーの開閉のボタン。開いた帯ではワードマークの右端に置き、ガラスの上では地を持たない。持ち上がらない（ナビの項目と同じ）。
+   アイコンは左の余白で置き、中央寄せにしない。開閉の途中は箱の幅が変わるので、中央寄せだとアイコンが幅に引きずられる。 */
+.sidebar-top { display: flex; align-items: center; margin-bottom: calc(var(--u) * 3.5); }
+.btn.sidebar-toggle { position: relative; flex: none; width: 32px; height: 32px; padding: 0 6px; margin-left: auto; color: var(--ink-2); background: none; box-shadow: none; }
+.btn.sidebar-toggle svg { width: 20px; height: 20px; }
+.sidebar .btn.sidebar-toggle:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; transform: none; }
+/* 乗せたとき（キーボードで届いたとき）に出る吹き出し。押すと何が起きるかと近道を添える。
+   開いた帯ではボタンの下に右端を揃えて出し（帯は中身を切るので、帯の中に収める）、畳んだ帯ではナビの項目名と同じく右に出す。
+   動いている間は出さない。 */
+.toggle-tip { position: absolute; top: calc(100% + var(--u) * 1.5); right: 0; z-index: 3; display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; white-space: nowrap; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
+.toggle-tip kbd { font-family: var(--font-mono); opacity: 0.65; }
+.btn.sidebar-toggle:hover .toggle-tip, .btn.sidebar-toggle:focus-visible .toggle-tip { opacity: 1; visibility: visible; }
+.shell[data-sidebar-moving] .toggle-tip { display: none; }
 @keyframes glass-arrive-side { from { opacity: 0; transform: translateX(-28px); } }
 @keyframes glass-arrive-head { from { opacity: 0; transform: translateY(-14px); } }
 /* 読み込み中の文は、ガラスが浮かび終わってから出す。それまでに読み込めれば一度も出ず、光とガラスの間に継ぎ目が見えない。 */
 .boot-wait { animation: enter var(--dur) var(--ease-out) var(--dur) backwards; }
-.header { grid-column: 2; grid-row: 1; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 3); height: var(--header-h); margin: var(--float-gap) var(--float-gap) 0 var(--float-gap); padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 4); border-radius: var(--r-pill); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); }
-/* 中身はヘッダの下をくぐって流れる。上の余白は、浮いたヘッダの高さと上下の隙間の分である。
+/* ヘッダは VS Code のタイトルバーと同じく、窓の上辺と左右の端に付いた帯である。浮かせず、角も丸めない。
+   縁は下にだけ置く（白の 1px の線と、下へ落ちる薄い影）。 */
+.header { grid-column: 1 / -1; grid-row: 1; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 3); height: var(--header-h); margin: 0; padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 4); border-radius: 0; background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); container: header / inline-size; }
+/* デスクトップの殻の中では、信号の 3 点がヘッダの左端に載る。サイドバーを開いても閉じても同じ場所である。殻が付ける data-shell の印を見て、その分だけ左を空ける。 */
+[data-shell='desktop'] .header { padding-left: var(--lights-end); }
+/* 中身はヘッダの下をくぐって流れる。上の余白は、ヘッダの高さと、その下の隙間の分である。
    scroll-padding-top を同じ値にしておくと、j と k の行送りや Shift+Tab で届いた先がヘッダの下に隠れない。 */
-.main { grid-column: 2; grid-row: 1 / -1; overflow: auto; padding-top: calc(var(--header-h) + var(--float-gap) * 2); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 2); }
+.main { grid-column: 2; grid-row: 1 / -1; overflow: auto; padding-top: calc(var(--header-h) + var(--float-gap)); scroll-padding-top: calc(var(--header-h) + var(--float-gap)); }
 /* 切断の帯が出ている間は、帯の分も空ける。
-   帯の下端は、ヘッダの上の隙間 float-gap、ヘッダ header-h、帯の上の隙間 float-gap * 0.75、帯の高さ row-h の和である。
+   帯の下端は、ヘッダ header-h、帯の上の隙間 float-gap * 0.75、帯の高さ row-h の和である（ヘッダは窓の上辺に付いているので、上の隙間は無い）。
    そこに float-gap を足して、ヘッダの下と同じ隙間で中身を始める。
-   今の値では 8 + 40 + 6 + 28 + 8 = 90px になる。
+   今の値では 34 + 6 + 28 + 8 = 76px になる。
    scroll-padding-top も同じ値にし、キーボードで届いた先が帯とヘッダの下に隠れないようにする。 */
-.shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 2.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 2.75 + var(--row-h)); }
+.shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4); }
 /* 現れるものは、ぼかしが晴れながら --rise だけ上がって来る。
    ぼかしは 20% の時点で none にして晴らし切り、残りは薄れと移動だけで入る。
@@ -78,14 +93,42 @@ a:hover { text-decoration: underline; }
 ::view-transition-old(session-morph-name), ::view-transition-new(session-morph-name) { height: 100%; object-fit: none; object-position: left center; }
 ::view-transition-old(session-morph-dot), ::view-transition-new(session-morph-dot) { height: 100%; object-fit: none; object-position: left center; }
 
-/* サイドバーのワードマーク。ロゴは淡い角丸の地に載せ、動かさない。 */
-.brand { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 0.5) calc(var(--u) * 2) calc(var(--u) * 3); font-weight: 650; letter-spacing: -0.01em; }
-.brand-mark { flex: none; border-radius: 6px; background: linear-gradient(165deg, #f7f9ff, #dfe6ff); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7); }
+/* サイドバーのワードマーク。原図の余白を切り落とした群れを地に載せずに置き、名前の語尾に原図の手前の札と同じ杏のカーソルを添える。どちらも動かさない。 */
+/* 押すと Home へ行くリンクだが、リンクの青と下線は付けない。
+   開く途中で帯がまだ狭い間は、右の開閉のボタンの手前で切れる。帯が広がるにつれて、名前がボタンの陰から現れる。 */
+.brand { display: flex; align-items: center; gap: calc(var(--u) * 1.75); min-width: 0; overflow: hidden; padding: 0 calc(var(--u) * 1.5); border-radius: var(--r); color: var(--ink); text-decoration: none; }
+.brand:hover { text-decoration: none; }
+/* 開閉のときの揺れは、フックの辺りを中心に回す（views/primitives/sidebarMotion.ts）。 */
+.brand-mark { flex: none; width: 44px; height: 44px; transform-origin: 50% 10%; }
+.brand-word { font-size: var(--fs-lg); font-weight: 720; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
+.brand-word::after { content: ''; display: inline-block; width: calc(var(--u) * 2.5); height: 3px; margin-left: 2px; border-radius: 1.5px; background: #ffb86b; }
 
 /* ナビ。選択中の項目は、ガラスの上に錠剤が浮く。 */
-.nav-item { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 2.5); margin-bottom: 1px; color: var(--ink-2); border: 0; border-radius: var(--r-pill); background: none; width: 100%; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+/* ナビの項目。閉じた帯と同じ 20px のアイコンにして、開閉しても大きさの調子が変わらないようにする。 */
+.nav-item { display: flex; align-items: center; gap: 11px; height: 38px; padding: 0 calc(var(--u) * 3); margin-bottom: 2px; font-size: var(--fs-md); color: var(--ink-2); border: 0; border-radius: var(--r-pill); background: none; width: 100%; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .nav-item:hover { background: rgba(255, 255, 255, 0.5); }
 .nav-item[aria-current='page'] { color: var(--ink); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.nav-item svg { width: 20px; height: 20px; }
+.nav-label { white-space: nowrap; transform-origin: 0 0; }
+
+/* 折りたたんだサイドバー（⌘B、サイドバーの開閉のボタン）。アイコンだけの細い帯に縮む。
+   開閉の動きは views/primitives/sidebarMotion.ts が、ここにある 2 つの形の差を埋めて作る。
+   図と名前（Hangar_）は流れから外して隠し、開閉のボタンがその場所（帯の一番上）に来る。項目名は、乗せたときとキーボードで届いたときに出る吹き出しになる。リンクの名前は項目名のまま残る。
+   吹き出しは帯の外へ出るので、帯は中身を切らない。動いている間だけ切り、薄れていく図と項目名が本文の上にはみ出さないようにする。 */
+.shell[data-sidebar='collapsed'] { grid-template-columns: calc(var(--sidebar-rail-w) + var(--float-gap)) minmax(0, 1fr); }
+.shell[data-sidebar='collapsed'] .sidebar { --item: 40px; padding: calc(var(--u) * 1.5); overflow: visible; }
+.shell[data-sidebar='collapsed'] .sidebar-top { margin-bottom: calc(var(--u) * 1); }
+.shell[data-sidebar='collapsed'] .btn.sidebar-toggle { width: var(--item); height: var(--item); padding: 0 calc(var(--u) * 2.5); border-radius: var(--r-lg); }
+.shell[data-sidebar='collapsed'] .sidebar .btn.sidebar-toggle:hover { background: rgba(255, 255, 255, 0.5); }
+.shell[data-sidebar='collapsed'] .toggle-tip { top: 50%; right: auto; left: calc(var(--item) + var(--u) * 3); translate: 0 -50%; }
+.shell[data-sidebar-moving] .sidebar { overflow: hidden; }
+.shell[data-sidebar='collapsed'] .brand { position: absolute; visibility: hidden; pointer-events: none; }
+/* 項目の中の位置は、箱の幅に左右されない値で置く。動きの途中は箱の幅が変わるので、中央寄せや 100% で置くと、アイコンと吹き出しが幅に引きずられる。 */
+.shell[data-sidebar='collapsed'] .nav-item { position: relative; width: var(--item); height: var(--item); padding: 0 calc(var(--u) * 2.5); margin: 0 0 calc(var(--u) * 1); border-radius: var(--r-lg); }
+.shell[data-sidebar='collapsed'] .nav-label { position: absolute; left: calc(var(--item) + var(--u) * 3); top: 50%; translate: 0 -50%; padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
+.shell[data-sidebar='collapsed'] .nav-item:hover .nav-label, .shell[data-sidebar='collapsed'] .nav-item:focus-visible .nav-label { opacity: 1; visibility: visible; }
+/* 閉じる動きの間、項目名は吹き出しの地を持たず、開いた帯のときの文字のまま薄れる。 */
+.shell[data-sidebar-moving] .nav-label { padding: 0; background: none; color: inherit; font-size: inherit; font-weight: inherit; }
 
 /* ボタンと入力。ボタンは錠剤の形で、主ボタンだけ上から下へ淡いグラデーションを持つ。 */
 .btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
@@ -183,6 +226,32 @@ a:hover { text-decoration: underline; }
 .toast[data-level='error'] { background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); color: var(--error); }
 @keyframes slide { from { opacity: 0; transform: translateX(16px); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 .progress { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* ヘッダの畳み方（窓が狭いとき）。窓ではなくヘッダ自身の幅で決める。サイドバーの開閉でもヘッダの幅は変わるからである。
+   狭くなるほど、①最終更新 → ②同期の操作 → ③ゲージの棒（短い名前と数字だけに） → ④検索欄（虫眼鏡に）、同期の文、索引の進み
+   → ⑤パンくずの前の段 → ⑥新規セッションの文字（「＋」だけに）と同期の件数 → ⑦ゲージ、の順に畳む。
+   畳んだ操作は、同期の文なら設定、検索欄ならパレットから届く。新規セッションは最後まで縮めない。
+   ヘッダを大きさの入れ物にする指定（container）は、.header の規則の中に書いている。 */
+.header .crumbs { flex: 0 1 auto; min-width: 0; }
+.header .crumb { display: flex; min-width: 0; }
+.header .crumb-prev { flex: none; }
+/* 今いる名前は、どれだけ狭くても頭の 3 文字ほどは見せる。 */
+.header .crumb-last b, .header .crumb-last a { min-width: 3em; overflow: hidden; text-overflow: ellipsis; }
+.header .crumb-sep { flex: none; white-space: pre; }
+.header .search-box { min-width: 140px; }
+.header .btn.new-session { flex: none; }
+.header .btn.search-icon { display: none; flex: none; justify-content: center; width: var(--row-h); padding: 0; color: var(--ink-2); background: none; box-shadow: none; }
+.header .btn.search-icon:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
+.header .gauge-key { display: none; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
+/* ゲージと同期の見た目は workbench.css と sync.css が後から読み込まれて決める。
+   コンテナクエリの中の規則は詳細度が上がらないので、どれも .header から書いて、後に読まれる規則に負けないようにする。 */
+@container header (max-width: 1080px) { .header .gauge-updated { display: none; } }
+@container header (max-width: 980px) { .header .sync-action { display: none; } }
+@container header (max-width: 880px) { .header .gauge-bar { display: none; } .header .gauge-key { display: inline; } .header .gauge-num { min-width: 0; } }
+@container header (max-width: 780px) { .header .search-box, .header .search-kbd, .header .progress, .header .sync-label { display: none; } .header .btn.search-icon { display: inline-flex; } }
+@container header (max-width: 680px) { .header .crumb-prev { display: none; } .header .crumbs::before { content: '…'; flex: none; color: var(--ink-3); } }
+@container header (max-width: 580px) { .header .new-session .btn-label, .header .sync-count { display: none; } .header .btn.new-session { justify-content: center; width: var(--row-h); padding: 0; } }
+@container header (max-width: 500px) { .header .gauges { display: none; } }
 
 /* 起動ダイアログの入力欄 */
 .field { display: flex; flex-direction: column; gap: var(--u); font-size: var(--fs-sm); color: var(--ink-2); }

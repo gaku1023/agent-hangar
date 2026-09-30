@@ -11,9 +11,12 @@ export function motionValue(token: MotionToken, el: Element = document.documentE
   return getComputedStyle(el).getPropertyValue(token).trim();
 }
 
-/** 「420ms」「0.25s」をミリ秒の数にする。読めない値は 0 にし、動かさない側へ倒す。 */
+/**
+ * 「420ms」「0.25s」「.42s」をミリ秒の数にする。読めない値は 0 にし、動かさない側へ倒す。
+ * build の CSS の圧縮は 420ms を .42s に書き換えるので、先頭の 0 を省いた書き方も読む。
+ */
 export function parseDuration(v: string): number {
-  const m = /^(\d+(?:\.\d+)?)(ms|s)$/.exec(v.trim());
+  const m = /^(\d+(?:\.\d+)?|\.\d+)(ms|s)$/.exec(v.trim());
   if (!m) return 0;
   return m[2] === 's' ? Number(m[1]) * 1000 : Number(m[1]);
 }

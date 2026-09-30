@@ -10,23 +10,27 @@ export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string
   const emit = useEmit();
   return (
     <header className="header" data-tauri-drag-region="">
+      {/* 狭いときは前の段を畳み、今いる名前だけを残す（base.css のコンテナクエリ）。長い名前は省略するので、全文は title で読む。 */}
       <div className="crumbs">
         {props.crumbs.map((c, i) => (
-          <span key={i}>{i > 0 && <span className="faint"> / </span>}{c.route ? <a href={formatRoute(c.route)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: c.route! }); }}>{c.label}</a> : <b>{c.label}</b>}</span>
+          <span key={i} className={i === props.crumbs.length - 1 ? 'crumb crumb-last' : 'crumb crumb-prev'}>{i > 0 && <span className="faint crumb-sep"> / </span>}{c.route ? <a href={formatRoute(c.route)} title={c.label} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: c.route! }); }}>{c.label}</a> : <b title={c.label}>{c.label}</b>}</span>
         ))}
       </div>
       <input id="global-search" className="input search-box" type="search" role="searchbox" placeholder="セッションを検索（/）" defaultValue={props.searchText}
         onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.query', text: (e.target as HTMLInputElement).value }); }} />
       <kbd className="search-kbd" aria-hidden="true">⌘K</kbd>
+      {/* 狭いときは検索欄の代わりに出る。押すとパレットを開く。 */}
+      <button className="btn search-icon" aria-label="セッションを検索" title="セッションを検索（⌘K）" onClick={() => emit({ type: 'palette.open' })}><Icon name="search" /></button>
       <span className="spacer" data-tauri-drag-region="" />
       <SyncStatus {...props.sync} />
       {/* 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。 */}
       <span className="gauges">
-        <UsageGauge label="5 時間の使用率" percent={props.usage.fiveHour} />
-        <UsageGauge label="7 日の使用率" percent={props.usage.sevenDay} />
+        <UsageGauge label="5 時間の使用率" short="5h" percent={props.usage.fiveHour} />
+        <UsageGauge label="7 日の使用率" short="7d" percent={props.usage.sevenDay} />
         {props.usage.updatedLabel && <span className="faint gauge-updated">最終更新 {props.usage.updatedLabel}</span>}
       </span>
-      <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open' })}><Icon name="add" />新規セッション</button>
+      {/* 狭いときは「＋」だけになる。名前は aria-label に残す。 */}
+      <button className="btn btn-primary new-session" aria-label="新規セッション" onClick={() => emit({ type: 'session.new.open' })}><Icon name="add" /><span className="btn-label">新規セッション</span></button>
       {props.indexLabel && <span className="progress">{props.indexLabel}</span>}
     </header>
   );

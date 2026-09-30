@@ -3,6 +3,8 @@ import { KEYMAP, matchKey } from './keys.ts';
 
 describe('キーマップ', () => {
   it('⌘ でも Ctrl でも同じ操作に当たる', () => {
+    expect(matchKey({ key: 'b', metaKey: true })).toBe('sidebar.toggle');
+    expect(matchKey({ key: 'B', metaKey: true, shiftKey: true })).toBeNull();
     expect(matchKey({ key: 'k', metaKey: true })).toBe('palette.open');
     expect(matchKey({ key: 'k', ctrlKey: true })).toBe('palette.open');
     expect(matchKey({ key: '\\', ctrlKey: true })).toBe('split.toggle');

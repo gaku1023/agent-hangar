@@ -29,9 +29,20 @@ describe('骨格', () => {
     expect(base).toMatch(/\.main \{[^}]*grid-row: 1 \/ -1;/);
     expect(base).toContain('.shell:has(.conn-banner) .main {');
   });
-  it('信号の 3 点のための上の余白は、殻の中でだけ取る', () => {
-    const tops = all.filter((r) => r.selector.includes('.sidebar') && r.body.includes('padding-top'));
-    expect(tops.map((r) => r.selector)).toEqual(["[data-shell='desktop'] .sidebar"]);
+  // 信号の 3 点は、開閉に関わらずヘッダの左端に載る。ヘッダは VS Code のタイトルバーと同じく、窓の上辺と左右の端に付いた帯で、動かない。
+  it('ヘッダは窓の上辺に付いた帯で、サイドバーは開閉に関わらずその下から始まる', () => {
+    const header = all.find((r) => r.selector === '.header')?.body;
+    expect(header).toContain('grid-column: 1 / -1;');
+    expect(header).toMatch(/margin: 0;/);
+    expect(header).toMatch(/border-radius: 0;/);
+    expect(all.find((r) => r.selector === '.sidebar')?.body).toContain('margin: calc(var(--header-h) + var(--float-gap)) 0 var(--float-gap) var(--float-gap);');
+    expect(all.filter((r) => r.selector.includes("[data-sidebar='collapsed']") && r.selector.includes('.header'))).toEqual([]);
+  });
+  it('信号の 3 点の分の余白は、殻の中でだけ、ヘッダの左に取る', () => {
+    expect(all.filter((r) => r.selector.includes('.sidebar') && r.body.includes('padding-top'))).toEqual([]);
+    const lefts = all.filter((r) => r.body.includes('var(--lights-end)'));
+    expect(lefts.map((r) => r.selector)).toEqual(["[data-shell='desktop'] .header"]);
+    expect(lefts[0]?.body).toContain('padding-left: var(--lights-end);');
   });
   it('横スワイプで戻る／進むをしても、頁ごと（サイドバーも）は引っ張られない', () => {
     const r = all.find((r) => r.selector === 'html, body');
@@ -94,7 +105,7 @@ describe('読む面', () => {
   });
 });
 
-describe('浮いたヘッダの下の中身', () => {
+describe('ヘッダの下の中身', () => {
   // j と k の行送りや Shift+Tab で届いた先が、浮いたヘッダの下に隠れないようにする（WCAG 2.4.11）。
   it.each(['.main', '.shell:has(.conn-banner) .main'])('%s は上の余白と同じだけ scroll-padding-top を取る', (selector) => {
     const d = rule('base.css', selector);

@@ -99,6 +99,14 @@ describe('Root', () => {
     expect(document.activeElement?.id).toBe('global-search');
     // 入力中の / は横取りしない。
     fireEvent.keyDown(document.getElementById('global-search')!, { key: '/' });
+    // 幅が狭くて検索欄を畳んでいるときは、/ でパレットを開く。隠れた欄にフォーカスしても何も起きないからである。
+    const box = document.getElementById('global-search')!;
+    box.blur();
+    box.style.display = 'none';
+    fireEvent.keyDown(window, { key: '/' });
+    expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    box.style.display = '';
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     // 仮の板を本物のパレットに差し替えたので、見出しの文字ではなく入力欄のラベルで探す。
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();

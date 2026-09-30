@@ -9,6 +9,12 @@ describe('parseDuration', () => {
     expect(parseDuration('3.2s')).toBe(3200);
     expect(parseDuration('0ms')).toBe(0);
   });
+  // build の CSS の圧縮は 420ms を .42s に書き換える。読めないと、build した実物でだけ JS の動きが全部止まる。
+  it('先頭の 0 を省いた書き方も読む', () => {
+    expect(parseDuration('.42s')).toBe(420);
+    expect(parseDuration('.2s')).toBe(200);
+    expect(parseDuration('.25s')).toBe(250);
+  });
   it('読めない値は 0 にして、動かさない側へ倒す', () => {
     for (const bad of ['', 'var(--dur)', '420', 'fast', '-1ms']) expect(parseDuration(bad), bad).toBe(0);
   });

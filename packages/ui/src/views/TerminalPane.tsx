@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef } from 'react';
 import type { LiveStatus } from '@agent-hangar/shared';
 import type { TerminalHost, TerminalStatus } from '../runtime/terminals.ts';
+import { LAYOUT_SETTLED, MOVING_ATTR } from './primitives/sidebarMotion.ts';
 
 export const TerminalHostContext = createContext<TerminalHost | null>(null);
 
@@ -12,9 +13,12 @@ export function TerminalPane(props: { tabId: string; status: TerminalStatus | nu
     const el = ref.current;
     if (!host || !el) return;
     host.mount(props.tabId, el);
-    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => host.fit(props.tabId));
+    // サイドバーの開閉の間は本文の幅が毎コマ変わる。合わせ直すたびに寸法をサーバへ送るので、止まってから一度だけ合わせる。
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (!el.closest(`[${MOVING_ATTR}]`)) host.fit(props.tabId); });
     ro?.observe(el);
-    return () => ro?.disconnect();
+    const settled = () => host.fit(props.tabId);
+    window.addEventListener(LAYOUT_SETTLED, settled);
+    return () => { ro?.disconnect(); window.removeEventListener(LAYOUT_SETTLED, settled); };
   }, [host, props.tabId]);
   // 縁はそのセッションの状態で灯る（base.css の .term-pane[data-live]）。終わったセッションは灯さない。
   return (

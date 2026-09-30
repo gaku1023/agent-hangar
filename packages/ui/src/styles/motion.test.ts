@@ -49,6 +49,11 @@ describe('JS の動き', () => {
     expect(src('flip.ts')).toContain("'transform var(--dur) var(--ease-out)'");
     expect(src('flip.ts')).not.toMatch(/\d+ms/);
   });
+  it('サイドバーの開閉は、長さと曲線をトークンで書く', () => {
+    expect(src('sidebarMotion.ts')).toContain("motionMs('--dur', shell)");
+    expect(src('sidebarMotion.ts')).toContain("motionEase('--ease-out', shell)");
+    expect(src('sidebarMotion.ts')).not.toMatch(/\d+ms/);
+  });
   it('数字の回転は、長さを --dur から読む', () => {
     expect(src('RollingNumber.tsx')).toContain("motionMs('--dur')");
     expect(src('RollingNumber.tsx')).not.toMatch(/setTimeout\([^)]*,\s*\d+\)/);

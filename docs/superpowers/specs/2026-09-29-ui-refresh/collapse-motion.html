@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>開閉の動き</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..900&family=JetBrains+Mono:wght@400..800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+  :root { --bg: #eef1f7; --aura-1: #cfe0ff; --aura-2: #e5d6ff; --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #8a89a0; --accent: #4a63e8; --cursor: #ffb86b;
+    --glass-edge: inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5); --glass-drop: 0 10px 28px -12px rgba(30,40,90,.3);
+    --sans: 'Inter', 'Hiragino Sans', sans-serif; --mono: 'JetBrains Mono', Menlo, monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 var(--sans); color: var(--ink); background: #f6f7fb; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 28px 24px 60px; }
+  h1 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .lead { margin: 0 0 14px; color: var(--ink-2); }
+  .bar { position: sticky; top: 0; z-index: 50; display: flex; gap: 8px; align-items: center; padding: 10px 0; background: #f6f7fbee; backdrop-filter: blur(6px); }
+  .bar button { font: 500 12px var(--sans); border: 0; padding: 6px 14px; border-radius: 99px; background: #fff; box-shadow: 0 1px 3px rgba(30,40,90,.14); cursor: pointer; }
+  .bar button.primary { background: var(--ink); color: #fff; }
+  .bar label { font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; margin-left: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .card { background: #fff; border-radius: 16px; box-shadow: 0 1px 2px rgba(30,40,90,.06), 0 0 0 1px #eceef5; overflow: hidden; cursor: pointer; }
+  .card.selected { box-shadow: 0 0 0 2px var(--accent); }
+  .body { padding: 12px 14px 14px; border-top: 1px solid #eceef5; display: flex; gap: 12px; align-items: flex-start; }
+  .body > div { flex: 1; }
+  .body h3 { margin: 0 0 4px; font-size: 13px; font-weight: 650; display: flex; gap: 8px; align-items: baseline; }
+  .body h3 em { font-style: normal; font: 600 11px var(--mono); color: var(--accent); }
+  .body p { margin: 0; color: var(--ink-2); font-size: 12px; }
+  .body button { flex: none; font: 500 12px var(--sans); border: 0; padding: 6px 12px; border-radius: 99px; background: #f3f4f9; cursor: pointer; }
+
+  /* ---- 窓（実寸） ---- */
+  .win { position: relative; height: 340px; overflow: hidden; isolation: isolate; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%), var(--bg); }
+  .lights { position: absolute; left: 22px; top: 19px; display: flex; gap: 9px; z-index: 5; }
+  .lights i { width: 14px; height: 14px; border-radius: 50%; background: #ff5f57; }
+  .lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+  .side { position: absolute; left: 8px; top: 8px; bottom: 8px; width: 208px; padding: 40px 8px 10px; border-radius: 16px; overflow: hidden; background: rgba(255,255,255,.4); backdrop-filter: blur(12px) saturate(1.9); -webkit-backdrop-filter: blur(12px) saturate(1.9); box-shadow: var(--glass-edge), var(--glass-drop); transform-origin: left center; }
+  .brand { position: relative; display: flex; align-items: center; gap: 7px; height: 44px; padding: 0 6px; margin-bottom: 14px; white-space: nowrap; }
+  .mark { width: 44px; height: 44px; flex: none; transform-origin: 50% 12%; }
+  .word { font-size: 20px; font-weight: 720; letter-spacing: -0.03em; line-height: 1; }
+  .word::after { content: ''; display: inline-block; width: 10px; height: 3px; margin-left: 2px; border-radius: 1.5px; background: var(--cursor); }
+  .item { position: relative; display: flex; align-items: center; gap: 11px; height: 38px; padding: 0 12px; margin-bottom: 2px; color: var(--ink-2); border-radius: 99px; white-space: nowrap; font-size: 15px; }
+  .item svg { width: 20px; height: 20px; stroke-width: 1.5; flex: none; }
+  .item.on { color: var(--ink); font-weight: 560; background: rgba(255,255,255,.78); box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(30,40,90,.1); }
+  .label { display: inline-block; transform-origin: left top; }
+  .head { position: absolute; left: 232px; right: 8px; top: 8px; height: 40px; border-radius: 99px; background: rgba(255,255,255,.4); box-shadow: var(--glass-edge), var(--glass-drop); display: flex; align-items: center; gap: 12px; padding: 0 12px; }
+  .head svg { width: 16px; height: 16px; stroke-width: 1.5; color: var(--ink-2); }
+  .head b { font-weight: 600; }
+  .main { position: absolute; left: 232px; right: 8px; top: 62px; bottom: 8px; }
+  .main .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+  .main .cards i { height: 76px; border-radius: 14px; background: #fff; box-shadow: 0 1px 2px rgba(30,40,90,.06); display: block; }
+  .main .rows { background: #fff; border-radius: 14px; height: 200px; box-shadow: 0 1px 2px rgba(30,40,90,.06); }
+  /* 閉じた帯（R4） */
+  .win.c .side { width: 88px; }
+  .win.c .head, .win.c .main { left: 112px; }
+  .win.c .brand { justify-content: center; padding: 0; }
+  .win.c .mark { width: 46px; height: 46px; }
+  .win.c .word { position: absolute; opacity: 0; }
+  .win.c .item { flex-direction: column; justify-content: center; gap: 3px; width: 64px; height: 52px; padding: 0; margin: 0 auto 4px; border-radius: 14px; font-size: 11px; font-weight: 500; line-height: 1; }
+  .win.c .item.on { font-weight: 560; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>開閉の動き — 6 案</h1>
+  <p class="lead">どれも実寸で、実際の帯の形（R4）へ開閉します。各カードの「開閉」か、上の「全部を開閉」で同時に比べられます。「ゆっくり」で 3 倍遅くして中身を追えます。気に入った案をクリックで選択。</p>
+  <div class="bar"><button class="primary" id="all">全部を開閉</button><label><input type="checkbox" id="slow"> ゆっくり（3 倍）</label></div>
+  <div class="grid" id="grid"></div>
+</div>
+<script>
+  // 動きの型。dur はミリ秒、ease は曲線。
+  const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';           // --ease-out（今の動きの性格）
+  const SPRING = 'linear(0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.077, 1.121 24.2%, 1.149 27.3%, 1.159 30.6%, 1.145 34.8%, 1.06 45.8%, 1.02 52.1%, 0.998 60.1%, 0.991 68.8%, 1.001 90.8%, 1)';
+  const V = [
+    { k: 'M0', t: '今', d: '幅だけが縮み、文字とアイコンは切り替えた瞬間に飛ぶ（比較用）。', mode: 'now', dur: 420 },
+    { k: 'M1', t: 'なめらかな受け渡し', d: 'アイコンは今の場所から帯の中央へ滑り、項目名は横から下へ縮みながら移る。Hangar_ は図の後ろへ畳まれて消える。全部が同じ曲線で動く。', mode: 'flip', dur: 460 },
+    { k: 'M2', t: '波で送る', d: 'M1 を、上の項目から順に 30ms ずつ遅らせて送る。起動画面の「波で送る」と同じ話になる。', mode: 'flip', dur: 460, stagger: 30 },
+    { k: 'M3', t: 'ばねのガラス', d: '幅と中身をばねで動かし、行き過ぎて少し戻る。Liquid Glass らしい弾み。', mode: 'flip', dur: 620, ease: SPRING },
+    { k: 'M4', t: 'ハンガーが揺れる', d: 'M1 に加えて、図のハンガーが動きに引っ張られて振り子のように揺れて止まる。起動画面の振り子と同じ揺れ方。', mode: 'flip', dur: 460, swing: true },
+    { k: 'M5', t: '文字は消えてから現れる', d: '閉じるときは文字をまず素早く消してから幅を縮め、開くときは幅が広がってから文字が浮かぶ。動くものが一度に少なく、落ち着いて見える。', mode: 'seq', dur: 420 },
+  ];
+  const NAV = [['house', 'Home', 1], ['folder', 'Projects'], ['messages-square', 'Sessions'], ['settings', 'Settings']];
+  document.getElementById('grid').innerHTML = V.map((v) => `
+    <div class="card" data-choice="${v.k}" onclick="toggleSelect(this)">
+      <div class="win" id="w-${v.k}">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <nav class="side"><div class="brand"><img class="mark" src="../../../../packages/ui/src/brand/logo-mark.svg" alt=""><span class="word">Hangar</span></div>
+          ${NAV.map(([i, n, on]) => `<div class="item ${on ? 'on' : ''}"><i data-lucide="${i}"></i><span class="label">${n}</span></div>`).join('')}</nav>
+        <div class="head"><i data-lucide="panel-left"></i><b>Home</b></div>
+        <div class="main"><div class="cards"><i></i><i></i><i></i></div><div class="rows"></div></div>
+      </div>
+      <div class="body"><div><h3><em>${v.k}</em>${v.t}</h3><p>${v.d}</p></div><button data-k="${v.k}">開閉</button></div>
+    </div>`).join('');
+  if (window.lucide) lucide.createIcons();
+
+  const slow = () => (document.getElementById('slow').checked ? 3 : 1);
+  const rect = (el, base) => { const r = el.getBoundingClientRect(); return { x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height }; };
+
+  function toggle(v) {
+    const win = document.getElementById('w-' + v.k);
+    win.getAnimations({ subtree: true }).forEach((a) => a.finish());
+    const closing = !win.classList.contains('c');
+    const f = slow();
+    const dur = v.dur * f, ease = v.ease ?? EASE;
+    const side = win.querySelector('.side'), head = win.querySelector('.head'), main = win.querySelector('.main');
+    const mark = win.querySelector('.mark'), word = win.querySelector('.word');
+    const items = [...win.querySelectorAll('.item')];
+    const icons = items.map((it) => it.querySelector('svg')), labels = items.map((it) => it.querySelector('.label'));
+    const base = win.getBoundingClientRect();
+    // First
+    const F = { side: rect(side, base), head: rect(head, base), mark: rect(mark, base), word: rect(word, base), items: items.map((e) => rect(e, base)), icons: icons.map((e) => rect(e, base)), labels: labels.map((e) => rect(e, base)) };
+    // Last
+    win.classList.toggle('c');
+    const L = { side: rect(side, base), head: rect(head, base), mark: rect(mark, base), items: items.map((e) => rect(e, base)), icons: icons.map((e) => rect(e, base)), labels: labels.map((e) => rect(e, base)) };
+    const opt = (delay = 0, d = dur, e = ease) => ({ duration: d, easing: e, delay, fill: 'backwards' });
+    const widths = () => {
+      side.animate([{ width: F.side.w + 'px' }, { width: L.side.w + 'px' }], opt());
+      for (const el of [head, main]) el.animate([{ left: F.head.x + 'px' }, { left: L.head.x + 'px' }], opt());
+    };
+    if (v.mode === 'now') { widths(); return; }
+    if (v.mode === 'seq') {
+      // 閉じる：文字を消す → 幅。開く：幅 → 文字。
+      const fadeD = 140 * f;
+      if (closing) {
+        labels.forEach((l) => l.animate([{ opacity: 1 }, { opacity: 0 }], { duration: fadeD, easing: 'ease-in', fill: 'backwards' }));
+        side.animate([{ width: F.side.w + 'px' }, { width: F.side.w + 'px' }], { duration: fadeD });
+        side.animate([{ width: F.side.w + 'px' }, { width: L.side.w + 'px' }], opt(fadeD));
+        for (const el of [head, main]) el.animate([{ left: F.head.x + 'px' }, { left: L.head.x + 'px' }], opt(fadeD));
+        word.animate([{ opacity: 1 }, { opacity: 0 }], { duration: fadeD, fill: 'backwards' });
+        items.forEach((it, i) => it.animate([{ transform: `translate(${F.items[i].x - L.items[i].x}px, ${F.items[i].y - L.items[i].y}px)`, width: F.items[i].w + 'px', height: F.items[i].h + 'px', borderRadius: '99px' }, { transform: 'none', width: L.items[i].w + 'px', height: L.items[i].h + 'px', borderRadius: '14px' }], opt(fadeD)));
+        labels.forEach((l) => l.animate([{ opacity: 0 }, { opacity: 0 }, { opacity: 1 }], { duration: fadeD + dur, fill: 'backwards' }));
+      } else {
+        widths();
+        items.forEach((it, i) => it.animate([{ transform: `translate(${F.items[i].x - L.items[i].x}px, ${F.items[i].y - L.items[i].y}px)`, width: F.items[i].w + 'px', height: F.items[i].h + 'px', borderRadius: '14px' }, { transform: 'none', width: L.items[i].w + 'px', height: L.items[i].h + 'px', borderRadius: '99px' }], opt()));
+        labels.forEach((l) => l.animate([{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }], { duration: 260 * f, delay: dur * 0.7, easing: EASE, fill: 'backwards' }));
+        word.animate([{ opacity: 0, transform: 'translateX(-6px)' }, { opacity: 1, transform: 'none' }], { duration: 260 * f, delay: dur * 0.6, easing: EASE, fill: 'backwards' });
+      }
+      return;
+    }
+    // FLIP：幅、項目の箱、アイコン、項目名、図、名前を同じ曲線で。
+    widths();
+    const st = (i) => (v.stagger ? (closing ? i : i) * v.stagger * f : 0);
+    items.forEach((it, i) => {
+      const a = F.items[i], b = L.items[i];
+      it.animate([{ transform: `translate(${a.x - b.x}px, ${a.y - b.y}px)`, width: a.w + 'px', height: a.h + 'px', borderRadius: closing ? '99px' : '14px' }, { transform: 'none', width: b.w + 'px', height: b.h + 'px', borderRadius: closing ? '14px' : '99px' }], opt(st(i)));
+      // アイコンと項目名は、箱の動きを打ち消したうえで、自分の場所の差を移す。
+      const ia = F.icons[i], ib = L.icons[i];
+      icons[i].animate([{ transform: `translate(${(ia.x - a.x) - (ib.x - b.x)}px, ${(ia.y - a.y) - (ib.y - b.y)}px)` }, { transform: 'none' }], opt(st(i)));
+      const la = F.labels[i], lb = L.labels[i];
+      // 文字の大きさの比。行の高さは開閉で倍率が違うので、字面の横幅で取る。
+      const s = la.w / lb.w;
+      labels[i].animate([{ transform: `translate(${(la.x - a.x) - (lb.x - b.x)}px, ${(la.y - a.y) - (lb.y - b.y)}px) scale(${s})`, opacity: 1 }, { opacity: closing ? 0.2 : 0.6, offset: 0.45 }, { transform: 'none', opacity: 1 }], opt(st(i)));
+    });
+    // 名前：閉じるときは図の後ろへ畳まれて消え、開くときは図の後ろから出てくる。
+    if (closing) {
+      win.classList.add('keepword');
+      word.style.position = 'absolute';
+      word.animate([{ opacity: 1, transform: `translateX(${F.word.x - L.mark.x - 6}px)` }, { opacity: 0, transform: 'translateX(0)' }], { duration: dur * 0.6, easing: ease, fill: 'backwards' });
+      word.style.position = '';
+    } else {
+      const W = rect(word, base);
+      word.animate([{ opacity: 0, transform: `translateX(${F.mark.x - W.x + 6}px)` }, { opacity: 1, transform: 'none' }], { duration: dur, easing: ease, fill: 'backwards' });
+    }
+    mark.animate([{ transform: `translate(${F.mark.x - L.mark.x}px, ${F.mark.y - L.mark.y}px) scale(${F.mark.w / L.mark.w})` }, { transform: 'none' }], opt());
+    if (v.swing) {
+      // 振り子：角速度 6.3 rad/s、減衰 2.4 /s（起動画面と同じ）。閉じると右へ、開くと左へ引かれる。
+      const A = closing ? 7 : -7, T = 1600 * f, n = 40, kf = [];
+      for (let j = 0; j <= n; j++) { const t = (j / n) * T / 1000 / f; kf.push({ transform: `rotate(${(A * Math.exp(-2.4 * t) * Math.sin(6.3 * t)).toFixed(2)}deg)`, offset: j / n }); }
+      mark.animate(kf, { duration: T, composite: 'add' });
+    }
+  }
+  document.querySelectorAll('.body button').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); toggle(V.find((v) => v.k === b.dataset.k)); }));
+  document.getElementById('all').addEventListener('click', () => V.forEach(toggle));
+  if (typeof window.toggleSelect !== 'function') window.toggleSelect = (el) => el.classList.toggle('selected');
+</script>
+</body>
+</html>

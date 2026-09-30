@@ -5,7 +5,7 @@
  */
 
 export type KeyId =
-  | 'palette.open' | 'session.new' | 'session.newScratch' | 'settings.open' | 'shortcuts.open'
+  | 'palette.open' | 'session.new' | 'session.newScratch' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
   | 'nav.back' | 'nav.forward' | 'search.focus' | 'overlay.close'
   | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle'
   | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.memo';
@@ -33,6 +33,7 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'settings.open', group: 'global', keys: '⌘,', label: '設定', chords: [{ key: ',', mod: true, shift: false }] },
   { id: 'nav.back', group: 'global', keys: '⌘[ / ⌘←', label: '戻る', chords: [{ key: '[', mod: true, shift: false }, { key: 'ArrowLeft', mod: true, shift: false }] },
   { id: 'nav.forward', group: 'global', keys: '⌘] / ⌘→', label: '進む', chords: [{ key: ']', mod: true, shift: false }, { key: 'ArrowRight', mod: true, shift: false }] },
+  { id: 'sidebar.toggle', group: 'global', keys: '⌘B', label: 'サイドバーの開閉', chords: [{ key: 'b', mod: true, shift: false }] },
   { id: 'search.focus', group: 'global', keys: '/', label: '検索欄へ', chords: [{ key: '/', shift: false }] },
   { id: 'shortcuts.open', group: 'global', keys: '? / ⌘/', label: 'キーの一覧', chords: [{ key: '?' }, { key: '/', mod: true }] },
   { id: 'overlay.close', group: 'global', keys: 'Esc', label: '開いているものを閉じる', chords: [{ key: 'Escape' }] },

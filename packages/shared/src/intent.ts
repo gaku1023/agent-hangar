@@ -40,6 +40,7 @@ export type Intent =
   | { type: 'summary.toggle'; sessionId: SessionId } | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
+  | { type: 'sidebar.toggle' }
   | { type: 'summarizer.test' }
   | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
   | { type: 'transcript.showRaw'; sessionId: SessionId; show: boolean }

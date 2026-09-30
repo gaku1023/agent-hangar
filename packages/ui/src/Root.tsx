@@ -136,10 +136,18 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'session.new': take(); rt.emit({ type: 'session.new.open', scratch: false }); return;
         case 'session.newScratch': take(); rt.emit({ type: 'session.new.open', scratch: true }); return;
         case 'settings.open': take(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return;
+        // 入力欄の Ctrl+B はカーソルを 1 字戻す macOS の打鍵なので、⌘B だけを受け取る。
+        case 'sidebar.toggle': if (typing && !e.metaKey) return; take(); rt.emit({ type: 'sidebar.toggle' }); return;
         case 'shortcuts.open': take(); rt.emit({ type: 'shortcuts.open' }); return;
         case 'nav.back': take(); rt.emit({ type: 'nav.back' }); return;
         case 'nav.forward': take(); rt.emit({ type: 'nav.forward' }); return;
-        case 'search.focus': take(); document.getElementById('global-search')?.focus(); return;
+        case 'search.focus': {
+          take();
+          // 狭いヘッダでは検索欄を畳んでいる。隠れた欄にはフォーカスできないので、代わりにパレットを開く。
+          const box = document.getElementById('global-search');
+          if (box && getComputedStyle(box).display !== 'none') box.focus(); else rt.emit({ type: 'palette.open' });
+          return;
+        }
         // Esc はオーバーレイを閉じる。
         // 未解決のプロジェクトだけは決めてもらうまで閉じない。
         // 入力欄にフォーカスがあるときは、その入力欄を持つダイアログが自分で Esc を処理するので二重に出さない（上の typing で落ちる）。

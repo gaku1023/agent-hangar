@@ -186,6 +186,20 @@ describe('createRuntime', () => {
     b.rt.start();
     expect(b.rt.getState().sessionView.s1).toMatchObject({ showThinking: true, showRaw: true, follow: true });
   });
+  it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
+    const a = harness();
+    a.rt.start();
+    a.rt.emit({ type: 'sidebar.toggle' });
+    expect(a.store.get('sidebar.collapsed')).toBe(true);
+    const b = harness();
+    b.store.set('sidebar.collapsed', true);
+    b.rt.start();
+    expect(b.rt.getState().sidebarCollapsed).toBe(true);
+    const c = harness();
+    c.store.set('sidebar.collapsed', 'yes');
+    c.rt.start();
+    expect(c.rt.getState().sidebarCollapsed).toBe(false);
+  });
   it('保存済みの follow: false を無視し、開いた直後は必ず追う', () => {
     // 遡るために一度上へスクロールしただけで follow: false が焼き付くと、次から最古の側で開いてしまう。
     const b = harness();
