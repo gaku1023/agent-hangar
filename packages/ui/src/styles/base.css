@@ -55,7 +55,7 @@ a:hover { text-decoration: underline; }
 .boot-wait { animation: enter var(--dur) var(--ease-out) var(--dur) backwards; }
 /* ヘッダは VS Code のタイトルバーと同じく、窓の上辺と左右の端に付いた帯である。浮かせず、角も丸めない。
    縁は下にだけ置く（白の 1px の線と、下へ落ちる薄い影）。 */
-.header { grid-column: 1 / -1; grid-row: 1; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 3); height: var(--header-h); margin: 0; padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 4); border-radius: 0; background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); container: header / inline-size; }
+.header { grid-column: 1 / -1; grid-row: 1; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 4.5); height: var(--header-h); margin: 0; padding: 0 calc(var(--u) * 3) 0 calc(var(--u) * 4); border-radius: 0; background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); container: header / inline-size; }
 /* デスクトップの殻の中では、信号の 3 点がヘッダの左端に載る。サイドバーを開いても閉じても同じ場所である。殻が付ける data-shell の印を見て、その分だけ左を空ける。 */
 [data-shell='desktop'] .header { padding-left: var(--lights-end); }
 /* 中身はヘッダの下をくぐって流れる。上の余白は、ヘッダの高さと、その下の隙間の分である。
@@ -64,7 +64,7 @@ a:hover { text-decoration: underline; }
 /* 切断の帯が出ている間は、帯の分も空ける。
    帯の下端は、ヘッダ header-h、帯の上の隙間 float-gap * 0.75、帯の高さ row-h の和である（ヘッダは窓の上辺に付いているので、上の隙間は無い）。
    そこに float-gap を足して、ヘッダの下と同じ隙間で中身を始める。
-   今の値では 34 + 6 + 28 + 8 = 76px になる。
+   今の値では 44 + 6 + 28 + 8 = 86px になる。
    scroll-padding-top も同じ値にし、キーボードで届いた先が帯とヘッダの下に隠れないようにする。 */
 .shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4); }
@@ -180,7 +180,7 @@ a:hover { text-decoration: underline; }
 
 /* トランスクリプト */
 /* 高さは CSS だけで決める。実行中の画面では .tr-pane の側が上書きしてペーンに追随する。 */
-.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); height: calc(100vh - 260px); overflow: auto; padding: calc(var(--u) * 2) 0; }
+.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); height: calc(100vh - 270px); overflow: auto; padding: calc(var(--u) * 2) 0; }
 .msg { max-width: 80ch; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); white-space: pre-wrap; word-break: break-word; }
 .msg-user { background: var(--accent); color: var(--accent-ink); align-self: flex-end; border-bottom-right-radius: 5px; }
 .msg-assistant { background: var(--surface-2); align-self: flex-start; border-bottom-left-radius: 5px; }
@@ -243,6 +243,12 @@ a:hover { text-decoration: underline; }
 .header .btn.new-session { flex: none; }
 .header .btn.search-icon { display: none; flex: none; justify-content: center; width: var(--row-h); padding: 0; color: var(--ink-2); background: none; box-shadow: none; }
 .header .btn.search-icon:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
+/* 同期の操作は地を持たない文字のボタンにし、主ボタン（新規セッション）だけが面を持つ。
+   同期と使用率の前には細い仕切りを置き、横にも塊ごとの間を見せる。 */
+.header .sync-action { color: var(--ink-2); background: none; box-shadow: none; }
+.header .sync-action:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
+.header .sync, .header .gauges { position: relative; padding-left: calc(var(--u) * 4.5); }
+.header .sync::before, .header .gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: calc(var(--u) * 4); translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
 .header .gauge-key { display: none; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
 /* ゲージと同期の見た目は workbench.css と sync.css が後から読み込まれて決める。
    コンテナクエリの中の規則は詳細度が上がらないので、どれも .header から書いて、後に読まれる規則に負けないようにする。 */
@@ -273,7 +279,7 @@ a:hover { text-decoration: underline; }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
 .tab-selected .tab-close { color: var(--term-fg); }
 .tab-selected .tab-close:hover { color: var(--term-fg); background: rgba(255, 255, 255, 0.12); }
-.split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 240px); transition: grid-template-columns var(--dur) var(--ease-out); }
+.split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 250px); transition: grid-template-columns var(--dur) var(--ease-out); }
 /* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
    xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
    閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */

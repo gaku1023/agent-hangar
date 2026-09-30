@@ -54,8 +54,8 @@
 /* 2 段の行（UI 刷新 2 回目）。1 段目に名前、2 段目に要約か抜粋。右端は画面の役目で変える（SessionRows の variant）。
    高さは --session-row-h で持ち、SessionRows の SESSION_ROW_H と揃える（rows.test.ts）。
    1 段の部品の --row-h（28px）とは別の値である。 */
-.row-2 { grid-template-columns: 16px minmax(0, 1fr) auto; height: var(--session-row-h); }
-.row-main { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
+.row-2 { grid-template-columns: 16px minmax(0, 1fr) auto; gap: calc(var(--u) * 4); height: var(--session-row-h); padding: 0 calc(var(--u) * 5); }
+.row-main { display: flex; flex-direction: column; justify-content: center; gap: var(--u); min-width: 0; }
 .row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 560; }
 .row-proj { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
 .row-sub { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; height: calc(var(--u) * 5); font-size: var(--fs-sm); color: var(--ink-2); }
@@ -64,7 +64,16 @@
 /* project 変種の 2 段目は鉛筆（.btn、既定で --row-h = 28px）を持つ。1 行分の高さ（20px）に縮め、行の外にはみ出さないようにする。 */
 .row-sub .memo-pencil { height: calc(var(--u) * 5); padding: 0 var(--u); flex: none; }
 .row-sub .memo-input { height: calc(var(--u) * 5); flex: 1; }
-.row-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 2px; font-size: var(--fs-xs); color: var(--ink-3); }
+.row-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--u); font-size: var(--fs-xs); color: var(--ink-3); }
 .row-meta { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
 /* 一致した語の印。淡い黄の地だけを敷き、文字の色は周りのまま（読みやすさを落とさない）。 */
 .hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }
+
+/* セッション一覧の画面。画面の縁は .main-inner の余白に足して 28px にし、見出し・検索欄・絞り込み・一覧の間を段ごとに広げる。
+   一覧の高さ（SessionsScreen の LIST_H）は、この余白と見出しの高さから出している。 */
+.sessions-screen { padding: calc(var(--u) * 5) calc(var(--u) * 3) calc(var(--u) * 3); }
+.sessions-head { display: flex; align-items: baseline; gap: calc(var(--u) * 2.5); margin: 0 0 calc(var(--u) * 4); }
+.sessions-count { font-weight: 400; }
+.sessions-keyword { display: flex; margin-bottom: calc(var(--u) * 3.5); }
+.sessions-keyword .input { flex: 1; }
+.sessions-filters { display: flex; align-items: center; gap: calc(var(--u) * 3); margin-bottom: calc(var(--u) * 5); }

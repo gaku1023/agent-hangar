@@ -6,8 +6,8 @@ const read = (f: string) => fs.readFileSync(new URL(f, import.meta.url), 'utf8')
 
 describe('2 段の行', () => {
   // 仮想スクロールの見積もり（SESSION_ROW_H）と、CSS の高さがずれると、スクロールの位置が行の途中で止まる。
-  it('行の高さは 44px で、tokens.css と SessionRows の見積もりが揃う', () => {
-    expect(SESSION_ROW_H).toBe(44);
+  it('行の高さは 56px で、tokens.css と SessionRows の見積もりが揃う', () => {
+    expect(SESSION_ROW_H).toBe(56);
     expect(read('./tokens.css')).toContain(`--session-row-h: ${SESSION_ROW_H}px;`);
     expect(read('./rows.css')).toMatch(/\.row-2 \{[^}]*height: var\(--session-row-h\);/);
   });

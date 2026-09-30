@@ -36,6 +36,16 @@ describe('tokens.css', () => {
   });
 });
 
+describe('ヘッダーの高さ', () => {
+  const desktop = JSON.parse(fs.readFileSync(new URL('../../../../apps/desktop/src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+  // 信号の 3 点はヘッダの縦の中心に載せる。3 点の中心は trafficLightPosition.y より 2px 上に来る（y が 19 のとき中心は 17px だった）。
+  it('ヘッダーは 44px で、信号の 3 点の中心がその縦の中心と揃う', () => {
+    const h = Number(/--header-h: (\d+)px;/.exec(css)?.[1]);
+    expect(h).toBe(44);
+    expect(desktop.app.windows[0].trafficLightPosition.y - 2).toBe(h / 2);
+  });
+});
+
 describe('tokens.css (候補)', () => {
   it('候補の色の文字は、淡い紫の地と白地の両方で 4.5:1 以上で読める', () => {
     expect(contrast(token('--cand'), token('--cand-soft'))).toBeGreaterThanOrEqual(4.5);

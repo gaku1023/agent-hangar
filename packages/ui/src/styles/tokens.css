@@ -61,7 +61,7 @@
   --fs-md: 15px;
   --fs-lg: 20px;
   --row-h: 28px;
-  --session-row-h: 44px;
+  --session-row-h: 56px;
   --hit: #fff3c4;
   --u: 4px;
   --r: 8px;
@@ -73,11 +73,12 @@
   --sidebar-w: 208px;
   /* 折りたたんだサイドバー（アイコンだけの帯）の幅。40px の項目の左右に 6px ずつ空ける。 */
   --sidebar-rail-w: 52px;
-  /* デスクトップの信号の 3 点の右端に、隙間を足した位置。3 点は VS Code と同じく窓の左から 11〜71px、縦の中心は上から 17px にある（tauri.conf.json の trafficLightPosition）。
+  /* デスクトップの信号の 3 点の右端に、隙間を足した位置。3 点は VS Code と同じく窓の左から 11〜71px、縦の中心は上から 22px にある（tauri.conf.json の trafficLightPosition）。
      3 点はヘッダの左端に載るので、ヘッダの中身はここから始める。 */
   --lights-end: 81px;
-  /* ヘッダ（窓の上辺に付いた帯）の高さ。縦の中心 17px が信号の 3 点の中心と揃う。 */
-  --header-h: 34px;
+  /* ヘッダ（窓の上辺に付いた帯）の高さ。縦の中心 22px が信号の 3 点の中心と揃う（tokens.test.ts）。
+     28px のボタンの上下に 8px ずつ空く。34px では 3px ずつしか空かず、帯が詰まって見えた。 */
+  --header-h: 44px;
   --aura-period: 24s;
   /* 動きのトークン。性格は「なめらか」で、すっと出て長く静かに止まる。
      長さは必ずこれを通して書き、CSS にも JS にも数値を直書きしない（styles/motion.test.ts が見張る）。
