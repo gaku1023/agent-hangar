@@ -12,7 +12,7 @@ import { createMcpApp } from '../mcp/app.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import { PromoteError } from '../projects/promote.ts';
 import { assignSessions, candidateDirs, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
-import { addTodo, listTodos, removeTodo, setTodoDone } from '../projects/todos.ts';
+import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } from '../projects/todos.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import type { SyncEngine } from '../sync/engine.ts';
@@ -624,6 +624,22 @@ export function createApp(deps: AppDeps): Hono {
     if (!t) return c.json({ error: 'TODO が見つかりません' }, 404);
     todosChanged(t.projectId);
     return c.json(t);
+  });
+  // 完了の候補の確定と却下。どちらも利用者の操作で、MCP からは呼べない。
+  const NOT_CANDIDATE = 'この TODO は完了の候補ではありません';
+  api.post('/todos/:id/confirm', (c) => {
+    const r = confirmTodo(db, deviceId, c.req.param('id'));
+    if (!r) return c.json({ error: 'TODO が見つかりません' }, 404);
+    if (r.result === 'not_candidate') return c.json({ error: NOT_CANDIDATE }, 409);
+    if (r.result === 'confirmed') todosChanged(r.todo.projectId);
+    return c.json(r.todo);
+  });
+  api.post('/todos/:id/reject', (c) => {
+    const r = rejectTodo(db, deviceId, c.req.param('id'));
+    if (!r) return c.json({ error: 'TODO が見つかりません' }, 404);
+    if (r.result === 'not_candidate') return c.json({ error: NOT_CANDIDATE }, 409);
+    todosChanged(r.todo.projectId);
+    return c.json(r.todo);
   });
   api.delete('/todos/:id', (c) => {
     const t = removeTodo(db, deviceId, c.req.param('id'));
