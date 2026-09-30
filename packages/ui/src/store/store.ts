@@ -199,16 +199,25 @@ export function outsideOpenOf(store: Store, session: SessionDto): 'attach' | 'ad
 }
 
 /**
- * 「次の入力待ちへ」で移る先。
- * 入力待ちのセッションを Home の要対応の札と同じ順（最後の活動が古い、つまり長く待っている順）に並べ、from の次を返す。
- * from が並びに無ければ先頭を、末尾の次は先頭を返す。入力待ちが無ければ null。
- * 時刻の無いものは後ろに置き、時刻が同じものは id の順にして、押すたびに並びが揺れないようにする。
+ * 入力待ちのセッションの id。
+ * 数え方は liveFilterOf に従い、Home の要対応の札と同じ順（最後の活動が古い、つまり長く待っている順）に並べる。
+ * 時刻の無いものは後ろに置き、時刻が同じものは id の順にして、並びが揺れないようにする。
  */
-export function nextWaitingSession(store: Store, from: string | null): string | null {
+export function waitingSessionIds(store: Store): string[] {
   const at = (s: SessionDto) => s.lastActivityAt ?? Number.POSITIVE_INFINITY;
-  const list = Object.values(store.sessions).filter((s) => s.live === 'waiting')
+  return Object.values(store.sessions).filter((s) => liveFilterOf(s.live, false) === 'waiting')
     .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
     .map((s) => s.id);
+}
+
+/**
+ * 「次の入力待ちへ」で移る先。
+ * 入力待ちのセッションを waitingSessionIds の順に並べ、from の次を返す。
+ * from が並びに無ければ先頭を、末尾の次は先頭を返す。
+ * 入力待ちが無ければ null。
+ */
+export function nextWaitingSession(store: Store, from: string | null): string | null {
+  const list = waitingSessionIds(store);
   if (list.length === 0) return null;
   const i = from === null ? -1 : list.indexOf(from);
   return list[(i + 1) % list.length]!;

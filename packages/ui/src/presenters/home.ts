@@ -29,7 +29,7 @@ export type ConfirmCard = { id: string; text: string; projectId: string; project
 export type HomeProps = { attention: AttentionCard[]; confirm: ConfirmCard[]; running: RunningCard[]; recent: SessionRowProps[]; projects: ProjectMini[]; idle: boolean };
 
 /** 問いの文が取れなかった入力待ち（権限の確認など）に出す文。 */
-const NO_QUESTION = '入力を待っています';
+export const NO_QUESTION = '入力を待っています';
 const RECENT_LIMIT = 30;
 
 /** summary がツール名そのもの、または「ツール名+半角空白」で始まるなら、その分を削る。 */

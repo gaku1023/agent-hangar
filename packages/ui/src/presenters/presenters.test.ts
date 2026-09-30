@@ -17,6 +17,7 @@ import { presentSettings } from './settings.ts';
 import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
 import { presentRetentionDialog } from './retentionDialog.ts';
 import { presentShell } from './shell.ts';
+import { presentToasts } from './toasts.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
@@ -1151,5 +1152,62 @@ describe('presentSettings の会話の保持', () => {
   });
   it('まだ届いていなければ null', () => {
     expect(presentSettings(initialState(), initialStore(), NOW).retention).toBeNull();
+  });
+});
+
+describe('presentToasts（入力待ちのカード）', () => {
+  const waitingStore = (ids: string[]) => {
+    const s = storeWith();
+    for (const id of ids) s.sessions[id] = session(id, { live: 'waiting', lastActivityAt: NOW - 120_000 });
+    return s;
+  };
+  it('名前、プロジェクト、待っている時間、問いを出す。問いが取れなければ「入力を待っています」', () => {
+    const store = waitingStore(['w1']);
+    store.sessions.w1 = { ...store.sessions.w1!, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '向きはどちらにしますか' } };
+    const state = { ...initialState(), waitingToasts: ['w1'] };
+    expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', projectName: 'alpha', waited: '2 分', question: '向きはどちらにしますか' }]);
+    store.sessions.w1 = { ...store.sessions.w1!, activity: null };
+    expect(presentToasts(state, store, NOW).waiting[0]?.question).toBe('入力を待っています');
+  });
+  it('3 件までを新しいものが下に来る順で並べ、残りは数だけ返す', () => {
+    const ids = ['w1', 'w2', 'w3', 'w4', 'w5'];
+    const p = presentToasts({ ...initialState(), waitingToasts: ids }, waitingStore(ids), NOW);
+    expect(p.waiting.map((c) => c.sessionId)).toEqual(['w3', 'w4', 'w5']);
+    expect(p.more).toBe(2);
+  });
+  it('ストアに無いセッションのカードは出さない', () => {
+    const p = presentToasts({ ...initialState(), waitingToasts: ['gone'] }, storeWith(), NOW);
+    expect(p.waiting).toEqual([]);
+    expect(p.more).toBe(0);
+  });
+  it('通知を出せるのに受け取っていないときだけ、「通知を受け取る」を添える', () => {
+    const base = { ...initialState(), waitingToasts: ['w1'] };
+    const store = waitingStore(['w1']);
+    expect(presentToasts({ ...base, notify: { available: true, on: false } }, store, NOW).offerNotify).toBe(true);
+    expect(presentToasts({ ...base, notify: { available: true, on: true } }, store, NOW).offerNotify).toBe(false);
+    expect(presentToasts({ ...base, notify: { available: false, on: false } }, store, NOW).offerNotify).toBe(false);
+  });
+  it('info と error のトーストはそのまま渡す', () => {
+    const toasts = [{ id: '1', level: 'error' as const, message: 'oops' }];
+    expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);
+  });
+});
+
+describe('presentShell の入力待ちの数', () => {
+  it('ホームの項目に入力待ちの数を添え、ほかの項目には添えない', () => {
+    const store = storeWith();
+    store.sessions.w1 = session('w1', { live: 'waiting' });
+    store.sessions.w2 = session('w2', { live: 'waiting' });
+    const nav = presentShell(initialState(), store, NOW).nav;
+    expect(nav.find((n) => n.route.name === 'home')?.count).toBe(2);
+    expect(nav.filter((n) => n.route.name !== 'home').every((n) => n.count === 0)).toBe(true);
+    expect(presentShell(initialState(), storeWith(), NOW).nav.find((n) => n.route.name === 'home')?.count).toBe(0);
+  });
+});
+
+describe('presentSettings の通知', () => {
+  it('通知を出せるかと、受け取るかをそのまま渡す', () => {
+    const state = { ...initialState(), notify: { available: true, on: true } };
+    expect(presentSettings(state, initialStore(), NOW).notify).toEqual({ available: true, on: true });
   });
 });

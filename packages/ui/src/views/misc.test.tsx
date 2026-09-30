@@ -9,7 +9,6 @@ import { SessionRows } from './SessionRows.tsx';
 import { Header } from './Header.tsx';
 import { SessionsScreen } from './SessionsScreen.tsx';
 import { SettingsScreen } from './SettingsScreen.tsx';
-import { ToastStack } from './ToastStack.tsx';
 
 const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null });
 
@@ -192,6 +191,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   nodePath: '',
   claudePath: null,
   retention: null,
+  notify: { available: true, on: false },
   ...over,
 });
 
@@ -200,6 +200,24 @@ const cloudProps = (over: Partial<CloudSettingsProps> = {}): CloudSettingsProps 
   devices: [{ id: 'dev-a', name: 'mac', platform: 'darwin', lastSeen: '今', self: true }, { id: 'dev-b', name: 'mini', platform: 'darwin', lastSeen: '3 分前', self: false }],
   joinToken: null, syncClaudeConfig: false, configConfirmed: false,
   ...over,
+});
+
+describe('SettingsScreen の通知', () => {
+  it('「通知を受け取る」のスイッチで切り替える', () => {
+    const onIntent = vi.fn();
+    const { unmount } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('switch', { name: '通知を受け取る' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'notify.set', on: true });
+    unmount();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ notify: { available: true, on: true } })} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('switch', { name: '通知を受け取る' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'notify.set', on: false });
+  });
+  it('通知を出せない環境では、スイッチを押せなくして理由を添える', () => {
+    render(<IntentRoot onIntent={vi.fn()}><SettingsScreen {...settingsProps({ notify: { available: false, on: false } })} /></IntentRoot>);
+    expect(screen.getByRole('switch', { name: '通知を受け取る' })).toBeDisabled();
+    expect(screen.getByText(/通知を出せません/)).toBeInTheDocument();
+  });
 });
 
 describe('SettingsScreen', () => {
@@ -658,14 +676,6 @@ describe('ResolveProjectDialog のフォーカス', () => {
   });
 });
 
-describe('ToastStack', () => {
-  it('クリックで消す', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ToastStack toasts={[{ id: '1', level: 'error', message: 'oops' }]} /></IntentRoot>);
-    fireEvent.click(screen.getByText('oops'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
-  });
-});
 
 describe('SessionRows（空のとき）', () => {
   it('emptyText を渡すとその文言、渡さなければ既定の文言', () => {

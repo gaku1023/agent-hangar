@@ -14,6 +14,7 @@ import { presentSession } from './presenters/session.ts';
 import { presentSessions } from './presenters/sessions.ts';
 import { presentSettings } from './presenters/settings.ts';
 import { presentShell } from './presenters/shell.ts';
+import { presentToasts } from './presenters/toasts.ts';
 import { createApi, type ApiClient } from './runtime/api.ts';
 import type { Runtime } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
@@ -75,12 +76,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   // スワイプの矢印。React を通さずに触るので、節点だけ持つ。
   const swipeHintRef = useRef<HTMLDivElement>(null);
 
-  // トーストは 5 秒で消す。
-  useEffect(() => {
-    if (state.toasts.length === 0) return;
-    const t = setTimeout(() => rt.emit({ type: 'toast.dismiss', id: state.toasts[0]!.id }), 5000);
-    return () => clearTimeout(t);
-  }, [state.toasts, rt]);
+  // トーストの時間切れは、トーストごとに ToastStack が持つ（info だけが時間で消える）。
 
   // 未解決ダイアログの候補は Root が API を直接引く。
   // Presenter に通す値ではなく、ダイアログの中だけで使う一時データだからである。
@@ -335,7 +331,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
       {overlay.kind === 'retention' && <RetentionDialog {...presentRetentionDialog(state, store, now)!} />}
       {overlay.kind === 'shortcuts' && <ShortcutsDialog />}
-      <ToastStack toasts={state.toasts} />
+      <ToastStack {...presentToasts(state, store, now)} />
       <SwipeHint ref={swipeHintRef} />
     </>
   );

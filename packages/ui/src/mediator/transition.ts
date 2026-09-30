@@ -1,6 +1,7 @@
 import { connectionStep } from './connection.ts';
 import { launchStep } from './launch.ts';
-import { liveStep } from './live.ts';
+import { liveStep, settleWaiting } from './live.ts';
+import { notifyStep } from './notify.ts';
 import { overlayStep, settleQueue } from './overlay.ts';
 import { promoteStep } from './promote.ts';
 import { resumeHereStep } from './resumeHere.ts';
@@ -16,7 +17,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, retentionBannerDismissed: false, newSessionDraft: null, launchPrefs: {}, nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0 };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, retentionBannerDismissed: false, newSessionDraft: null, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false }, nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0 };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -32,10 +33,11 @@ export function transition(state: State, input: Input): Step {
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, retentionStep, overlayStep, syncStep, resumeHereStep, sessionViewStep, sidebarStep, liveStep, workbenchStep]) {
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, retentionStep, overlayStep, syncStep, resumeHereStep, sessionViewStep, sidebarStep, liveStep, notifyStep, workbenchStep]) {
     const r = step(state, input);
     // 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
-    if (r) { const settled = settleQueue(r.state); return settled === r.state ? r : { ...r, state: settled }; }
+    // 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。
+    if (r) { const settled = settleWaiting(settleQueue(r.state)); return settled === r.state ? r : { ...r, state: settled }; }
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message), effects: [] };

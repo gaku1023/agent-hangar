@@ -3,7 +3,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false }], conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, newSession: {} };
+const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, newSession: {} };
+
+describe('Shell のホームの入力待ちの数', () => {
+  const withCount = (n: number) => ({ ...props, nav: [{ ...props.nav[0]!, count: n }, props.nav[1]!] });
+  it('入力待ちがあれば、ホームの項目に数を添え、読み上げでは何の数かを言う', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><Shell {...withCount(2)} overlays={null}><div>body</div></Shell></IntentRoot>);
+    const nav = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    const home = nav.getByRole('link', { name: 'ホーム、入力待ち 2' });
+    expect(home.querySelector('.nav-count')).toHaveTextContent('2');
+    expect(container.querySelectorAll('.nav-count')).toHaveLength(1);
+  });
+  it('0 のときは添えない', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><Shell {...withCount(0)} overlays={null}><div>body</div></Shell></IntentRoot>);
+    expect(container.querySelector('.nav-count')).toBeNull();
+  });
+  it('畳んだ帯でも同じ印を出す', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><Shell {...withCount(3)} sidebarCollapsed overlays={null}><div>body</div></Shell></IntentRoot>);
+    expect(container.querySelector('.shell[data-sidebar="collapsed"] .nav-count')).toHaveTextContent('3');
+  });
+});
 
 describe('Shell', () => {
   it('ナビと検索が Intent になる', () => {

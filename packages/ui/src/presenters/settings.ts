@@ -43,6 +43,11 @@ export type SettingsProps = {
   claudePath: string | null;
   /** Claude Code の会話の保持期間。まだ届いていなければ null。 */
   retention: RetentionSettingsProps | null;
+  /**
+   * 入力待ちの通知。
+   * 出せる環境か（available）と、受け取るか（on）。
+   */
+  notify: { available: boolean; on: boolean };
 };
 
 /** 選択肢は決まった 4 つに、今の値がそこに無ければそれを足して、短い順に並べる。 */
@@ -63,7 +68,7 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
 }
 
 // now は相対時刻のためだけに使う。フェーズ 3 までの呼び出しは 2 引数なので既定値を置く。
-export function presentSettings(_state: State, store: Store, now: number = Date.now()): SettingsProps {
+export function presentSettings(state: State, store: Store, now: number = Date.now()): SettingsProps {
   const s = store.settings;
   const sync = store.sync;
   // 同期の状態が届いていない端末と、off が届いている端末は同じ「設定していない」扱いにする。
@@ -103,5 +108,6 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
     nodePath: s?.nodePath ?? '',
     claudePath: s?.claudePath ?? null,
     retention: retentionSettings(store),
+    notify: { available: state.notify.available, on: state.notify.on },
   };
 }

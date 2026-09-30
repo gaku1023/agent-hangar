@@ -5,10 +5,13 @@ import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } f
 import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
 import { SIDEBAR_KEY } from '../mediator/sidebar.ts';
+import { NOTIFY_KEY } from '../mediator/notify.ts';
+import { NO_QUESTION } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
+import type { Notifier } from './notifier.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 
@@ -31,6 +34,11 @@ export type RuntimeDeps = {
    * 画面の移り変わりを View Transitions で包むための口である（runtime/present.ts）。無ければその場で出す。
    */
   present?: (commit: () => void, prev: State, next: State) => void;
+  /**
+   * 窓の外へ入力待ちを知らせる口（runtime/notifier.ts）。
+   * 無ければ通知もバッジも出さない。
+   */
+  notifier?: Notifier;
 };
 
 export type Runtime = {
@@ -57,7 +65,22 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const notify = () => { for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
   const present = deps.present ?? ((c: () => void) => c());
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); } };
+  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); syncWaiting(); } };
+  /**
+   * 入力待ちのセッションが変わったら Mediator へ届ける。
+   * live.update はプロバイダの id で届くので、hangar のセッションへの引き当てはストアを持つここで行う。
+   * 起動時の bootstrap も、あとから届く session.upsert も、同じ口を通る。
+   */
+  let waitingKey = '';
+  function syncWaiting(): void {
+    const ids = waitingSessionIds(store);
+    const key = [...ids].sort().join('\n');
+    if (key === waitingKey) return;
+    waitingKey = key;
+    dispatch({ kind: 'runtime', event: { type: 'waiting.changed', ids } });
+  }
+  const notifier = deps.notifier;
+  let unsubNotify: (() => void) | null = null;
   let ws: WsClient | null = null;
   let searchSeq = 0;
   let unsubHash: (() => void) | null = null;
@@ -223,6 +246,23 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         else deps.focus?.(e.target);
         return;
       case 'toast': dispatch({ kind: 'server', event: { type: 'toast', level: e.level, message: e.message } }); return;
+      case 'notify.waiting': {
+        // 窓が前にあるときは右下のカードで足りる。
+        if (!notifier || !state.notify.on || !notifier.background()) return;
+        const s = store.sessions[e.sessionId];
+        if (!s) return;
+        notifier.show({ sessionId: s.id, title: s.name ?? '（名前なし）', body: s.activity?.question ?? NO_QUESTION });
+        return;
+      }
+      case 'notify.request':
+        if (!notifier) return;
+        notifier.request().then((granted) => {
+          if (granted) deps.storage.set(NOTIFY_KEY, true);
+          dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on: granted } });
+          if (!granted) toast('通知が許可されませんでした');
+        }).catch(fail);
+        return;
+      case 'badge': notifier?.badge(e.count); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
       case 'api.toggleTodo': {
         // 反転の基準はストアの現在値にする。View は done の値を持たない。
@@ -362,6 +402,17 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         newSessionDraft: readDraft(deps.storage.get(NEW_SESSION_DRAFT_KEY)), launchPrefs: readLaunchPrefs(deps.storage.get(LAUNCH_PREFS_KEY)),
       };
       shown = state;
+      // 通知の受け取り。
+      // 選んでいなければ環境の既定に従い、ブラウザでは許可が外れていれば受け取らない。
+      if (notifier) {
+        const pref = deps.storage.get(NOTIFY_KEY);
+        const on = (typeof pref === 'boolean' ? pref : notifier.defaultOn) && notifier.available() && notifier.granted();
+        dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on } });
+        if (on) notifier.prepare();
+        // 通知を押したら、そのセッションを開いてターミナルにフォーカスする。
+        // 窓を前に出すのは notifier の役目である。
+        unsubNotify = notifier.onOpen((id) => dispatch({ kind: 'intent', intent: { type: 'session.open', id, focus: 'terminal' } }));
+      }
       ws = deps.ws({
         onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),
         // 切れた時刻を添える。Mediator は純粋な遷移なので、画面がいつから古いかを自分では測れない。
@@ -372,6 +423,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       unsubFocus = deps.onWindowFocus?.(() => dispatch({ kind: 'runtime', event: { type: 'window.focus' } })) ?? null;
       ws.connect();
     },
-    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; deps.terminals.dispose(); },
+    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubNotify?.(); unsubNotify = null; deps.terminals.dispose(); },
   };
 }

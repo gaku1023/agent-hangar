@@ -25,6 +25,7 @@ import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { clickThrough } from './runtime/clickThrough.ts';
 import { createPresent } from './runtime/present.ts';
 import { FILE_DROP_EVENT, handleFileDrop } from './runtime/fileDrop.ts';
+import { pickNotifier, type BrowserEnv, type DesktopEnv } from './runtime/notifier.ts';
 
 // 鍵付きの URL で開かれたときは、サーバがもうクッキーを配り終えている。
 // 履歴に鍵を残さないよう、ここで URL から消す。ハッシュの経路は残す。
@@ -89,6 +90,9 @@ const runtime = createRuntime({
   // 窓に戻ってきたら他端末の変更を引く。間引きはサーバ側で行う。
   onWindowFocus: (cb) => { window.addEventListener('focus', cb); return () => window.removeEventListener('focus', cb); },
   present,
+  // 入力待ちを窓の外へ知らせる。
+  // デスクトップの殻では macOS の通知と Dock のバッジ、ブラウザでは Web Notification を使う。
+  notifier: pickNotifier(window as unknown as Partial<DesktopEnv> & BrowserEnv),
 });
 runtime.start();
 createRoot(document.getElementById('root')!).render(<Root runtime={runtime} api={api} terminals={terminals} />);
