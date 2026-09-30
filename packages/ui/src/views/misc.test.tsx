@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { pick } from '../test/pick.ts';
@@ -92,6 +92,38 @@ describe('SessionsScreen', () => {
     rerender(<IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={rows} shown={132} total={132} loading={false} loadingMore={false} mode="search" /></IntentRoot>);
     expect(screen.getByText('132 件')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'さらに読み込む' })).toBeNull();
+  });
+  it('さらに読み込むを押したら、読み終えたところで読み足した最初の行へフォーカスを返す', () => {
+    const onIntent = vi.fn();
+    const at = (rows: SessionRowProps[], loadingMore: boolean, shown: number) => <IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={rows} shown={shown} total={4} loading={false} loadingMore={loadingMore} mode="search" /></IntentRoot>;
+    const two = [row('s1'), row('s2')];
+    const { rerender } = render(at(two, false, 2));
+    const more = screen.getByRole('button', { name: 'さらに読み込む' });
+    act(() => more.focus());
+    fireEvent.click(more);
+    rerender(at(two, true, 2));
+    // 押したボタンは読み込みの間 disabled になり、ブラウザはフォーカスを body へ落とす。jsdom は落とさないので、ここで落とす。
+    act(() => (document.activeElement as HTMLElement).blur());
+    rerender(at([...two, row('s3'), row('s4')], false, 4));
+    expect(document.activeElement).toBe(screen.getByText('ns3').closest('[role="row"]'));
+    expect(screen.getByText('ns3').closest('[role="row"]')).toHaveAttribute('data-cursor', 'true');
+  });
+  it('読み足せなかったときは一覧へフォーカスを返し、ほかへ移したフォーカスは奪わない', () => {
+    const onIntent = vi.fn();
+    const at = (loadingMore: boolean) => <IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={[row('s1'), row('s2')]} shown={2} total={4} loading={false} loadingMore={loadingMore} mode="search" /></IntentRoot>;
+    const { rerender } = render(at(false));
+    fireEvent.click(screen.getByRole('button', { name: 'さらに読み込む' }));
+    rerender(at(true));
+    act(() => (document.activeElement as HTMLElement).blur());
+    rerender(at(false));
+    expect(document.activeElement).toBe(screen.getByTestId('session-rows'));
+    // 読み込みの間に利用者がキーワードの欄へ移ったら、そのままにする。
+    fireEvent.click(screen.getByRole('button', { name: 'さらに読み込む' }));
+    rerender(at(true));
+    const keyword = screen.getByLabelText('キーワード');
+    act(() => keyword.focus());
+    rerender(at(false));
+    expect(document.activeElement).toBe(keyword);
   });
   it('検索中と件数の表示', () => {
     render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading loadingMore={false} mode="search" /></IntentRoot>);

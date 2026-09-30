@@ -42,9 +42,11 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * Tab で止まる行はカーソルの行 1 つだけで、打鍵でカーソルを動かすとフォーカスもその行へ移り、行にフォーカスが来るとカーソルもそこへ来る。
  * foot は一覧の末尾（最後の行の下）に置くもの。検索の「さらに読み込む」に使う。
  * autoFocus を渡すと、行が初めて並んだときに一度だけ一覧そのものにフォーカスする（画面に入ってすぐ j や ↓ が効くように）。
+ * loadingMore は末尾の続きを読み足している最中であることを表す（検索の「さらに読み込む」）。
+ * 読み終えたら、読み足した最初の行へフォーカスを返す。押したボタンが読み込みの間 disabled になり、フォーカスが body へ落ちるからである。
  * id は一覧の器に付ける。Mediator の focus の効果が、この id で一覧を探す（runtime/focusSoon.ts の FOCUS_IDS）。
  */
-export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode; id?: string }) {
+export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode; id?: string; loadingMore?: boolean }) {
   const emit = useEmit();
   // カーソルは一覧の中だけの状態なので Mediator には置かない。
   // 行の番号ではなくセッションの id で持つ。
@@ -83,6 +85,27 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
     autoPending.current = false;
     if (!holdsFocus(document.activeElement, hostRef.current)) hostRef.current?.focus({ preventScroll: true });
   }, [hasRows]);
+
+  // 読み足しを始めたときの行の数。続きはその後ろに足されるので、読み終えたらこの位置の行が読み足した最初の行になる。
+  // 読み足しの間も持っている行は消えない（runtime の search.more）。
+  const moreFrom = useRef<number | null>(null);
+  const rowsLen = props.rows.length;
+  useEffect(() => {
+    if (props.loadingMore) { moreFrom.current = rowsLen; return; }
+    const from = moreFrom.current;
+    moreFrom.current = null;
+    if (from === null) return;
+    // フォーカスが落ちた（body にある）か、末尾のボタンに残っているときだけ返す。ほかへ移したフォーカスは奪わない。
+    const host = hostRef.current;
+    const a = document.activeElement;
+    const lost = !a || a === document.body || (!!host && host.contains(a) && a !== host && !a.closest('[role="row"]'));
+    if (!lost || !host) return;
+    const next = props.rows[from];
+    if (!next) { host.focus({ preventScroll: true }); return; }
+    if (next.id === cursorId) { cursorRow()?.focus({ preventScroll: true }); return; }
+    byKey.current = true;
+    setCursorId(next.id);
+  }, [props.loadingMore]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const startEdit = (r: SessionRowProps) => { setEditing(r.id); setDraft(r.memo ?? ''); };
   // Enter と Esc で編集を終えたら、フォーカスを行へ戻す。入力欄が消えると、フォーカスの行き場が無くなるからである。
