@@ -113,3 +113,6 @@
 .effort-bars i:nth-child(3) { height: 6.8px; }
 .effort-bars i:nth-child(4) { height: 8.4px; }
 .effort-bars i:nth-child(5) { height: 10px; }
+
+/* 状態の帯の「実行中」に添える、動いていることを示す緑の点。 */
+.seg-live { background: var(--idle); }

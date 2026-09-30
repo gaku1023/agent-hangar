@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
+import { pick } from '../test/pick.ts';
 import type { CloudSettingsProps, SettingsProps } from '../presenters/settings.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 import { SessionRows } from './SessionRows.tsx';
@@ -13,14 +14,26 @@ describe('SessionsScreen', () => {
   it('絞り込みは search.filter、キーワードは search.query', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
-    fireEvent.change(screen.getByLabelText('プロジェクト'), { target: { value: 'p1' } });
+    pick('プロジェクト', 'alpha');
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: 'p1' } });
-    fireEvent.change(screen.getByLabelText('実行中'), { target: { value: 'running' } });
+    fireEvent.click(screen.getByRole('radio', { name: '実行中' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { running: true } });
     const kw = screen.getByLabelText('キーワード');
     fireEvent.change(kw, { target: { value: 'x y' } });
     fireEvent.keyDown(kw, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: 'x y' });
+  });
+  it('絞り込みは、何で絞っているかを帯と札で見せる', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ projectId: 'p1', running: false }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('alpha');
+    expect(within(screen.getByRole('radiogroup', { name: '状態' })).getByRole('radio', { name: '終了' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(screen.getByRole('radiogroup', { name: '期間' })).getByRole('radio', { name: '全期間' })).toHaveAttribute('aria-checked', 'true');
+  });
+  it('すべてのプロジェクトに戻すと projectId を外す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{ projectId: 'p1' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    pick('プロジェクト', 'すべてのプロジェクト');
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: undefined } });
   });
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
@@ -42,7 +55,7 @@ describe('SessionsScreen', () => {
     const onIntent = vi.fn();
     const before = Date.now();
     render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
-    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('radio', { name: '7 日' }));
     const call = onIntent.mock.calls.find((c) => c[0].type === 'search.filter')?.[0];
     expect(call).toBeDefined();
     const since = call.patch.since as number;
