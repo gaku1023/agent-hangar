@@ -19,7 +19,7 @@ export type ConnProps = { visible: boolean; staleLabel: string; retryLabel: stri
 /** 保持期間の帯。既定の 30 日のままで、書けて、まだ閉じていないときだけ出す。 */
 export type RetentionBannerProps = { visible: boolean; title: string; detail: string; extendTo: number };
 /** newSession はヘッダーの新規ボタンで開くダイアログの、最初の選択である。 */
-export type ShellProps = { sidebarCollapsed: boolean; nav: NavItem[]; searchText: string; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
+export type ShellProps = { sidebarCollapsed: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -85,5 +85,5 @@ export function presentShell(state: State, store: Store, now: number): ShellProp
   const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
   const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
-  return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store) };
+  return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store) };
 }

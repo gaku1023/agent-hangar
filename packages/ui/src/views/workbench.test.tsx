@@ -55,7 +55,7 @@ const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, s
 
 describe('Header', () => {
   it('2 つのゲージと最終更新を出す', () => {
-    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} searchText="" indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00', updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00', updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
     expect(screen.getByRole('meter', { name: '5 時間枠の使用率' })).toBeTruthy();
     expect(screen.getByRole('meter', { name: '週の枠の使用率' })).toBeTruthy();
     // 何の割合かが画面から読めるよう、見出しを常に出す。
@@ -66,20 +66,20 @@ describe('Header', () => {
     expect(screen.getByText('週').closest('.gauge')).toHaveAttribute('title', '週の枠の使用率 7%、10/4 09:00 に戻ります');
     expect(screen.getByText('最終更新 10 分前')).toBeTruthy();
   });
-  // 幅が狭いと、同期のボタンと検索欄と新規セッションの文字を畳む（base.css のコンテナクエリ）。畳んでも同じ操作ができる。
+  // 幅が狭いと、同期のボタンと錠剤の文字と新規セッションの文字を畳む（base.css のコンテナクエリ）。畳んでも同じ操作ができる。
   it('畳んだときの逃げ道。同期の文は設定へ、虫眼鏡はパレットへ、新規セッションは名前を残す', () => {
     const onIntent = vi.fn();
     const sync = { visible: true, state: 'idle' as const, label: '同期済み · 3 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false };
-    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} searchText="" indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
     fireEvent.click(screen.getByRole('link', { name: '同期済み · 3 分前' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
-    fireEvent.click(screen.getByRole('button', { name: 'セッションを検索' }));
+    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
     fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
   });
   it('最終更新が無ければ添えない', () => {
-    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
     expect(screen.queryByText(/最終更新/)).toBeNull();
     expect(screen.getAllByText('未取得')).toHaveLength(2);
     // 戻る時刻が届いていなければ、title に時刻を添えない。

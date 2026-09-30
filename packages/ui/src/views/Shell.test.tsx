@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false }], searchText: '', conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, newSession: {} };
+const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false }], conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, newSession: {} };
 
 describe('Shell', () => {
   it('ナビと検索が Intent になる', () => {
@@ -12,10 +12,8 @@ describe('Shell', () => {
     const nav = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
     fireEvent.click(nav.getByRole('link', { name: 'プロジェクト', current: false }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'projects' } });
-    const box = screen.getByRole('searchbox');
-    fireEvent.change(box, { target: { value: '動画' } });
-    fireEvent.keyDown(box, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '動画' });
+    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
     expect(screen.getByText('body')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'ホーム' })).toHaveAttribute('aria-current', 'page');
     fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
@@ -145,12 +143,18 @@ describe('Shell', () => {
     expect(controls.length).toBeGreaterThan(0);
     for (const el of controls) expect(el).not.toHaveAttribute('data-tauri-drag-region');
   });
-  it('検索欄に ⌘K の印を添え、読み上げからは外す', () => {
+  // ヘッダーの入口は打つ欄ではなく、押す錠剤である（A1）。押すとパレットが開き、全文検索はパレットの最後の行から行く。
+  it('入口は虫眼鏡と「探す・移動」と ⌘K のキー帽の錠剤で、キー帽は読み上げから外す', () => {
     const { container } = render(<IntentRoot onIntent={() => {}}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
-    const kbd = container.querySelector('header.header kbd.search-kbd')!;
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    const pill = screen.getByRole('button', { name: '探す・移動' });
+    expect(pill).toHaveAttribute('id', 'global-search');
+    expect(pill.classList.contains('search-pill')).toBe(true);
+    expect(pill.querySelector('svg')).toHaveAttribute('data-icon', 'search');
+    const kbd = pill.querySelector('kbd')!;
     expect(kbd).toHaveTextContent('⌘K');
     expect(kbd).toHaveAttribute('aria-hidden', 'true');
-    expect(kbd.previousElementSibling).toBe(screen.getByRole('searchbox'));
+    expect(container.querySelector('header.header .search-icon')).toBeNull();
   });
 });
 

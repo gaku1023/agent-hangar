@@ -6,7 +6,7 @@
 
 export type KeyId =
   | 'palette.open' | 'session.new' | 'session.newScratch' | 'session.nextWaiting' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
-  | 'nav.back' | 'nav.forward' | 'search.focus' | 'overlay.close'
+  | 'nav.back' | 'nav.forward' | 'overlay.close'
   | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'tab.move' | 'turn.move'
   | 'terminal.fontBigger' | 'terminal.fontSmaller' | 'terminal.fontReset'
   | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.memo';
@@ -28,7 +28,8 @@ export type KeyEventLike = { key: string; metaKey?: boolean; ctrlKey?: boolean; 
 const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 export const KEYMAP: KeyBinding[] = [
-  { id: 'palette.open', group: 'global', keys: '⌘K', label: 'コマンドパレット', chords: [{ key: 'k', mod: true, shift: false }] },
+  // / も同じパレットを開く。ヘッダーの入口が打つ欄ではなく押す錠剤になったので、欄へ移る打鍵は無い。
+  { id: 'palette.open', group: 'global', keys: '⌘K / /', label: 'パレット（探す・移動）', chords: [{ key: 'k', mod: true, shift: false }, { key: '/', shift: false }] },
   { id: 'session.new', group: 'global', keys: '⌘N', label: '新しいセッション', chords: [{ key: 'n', mod: true, shift: false }] },
   { id: 'session.newScratch', group: 'global', keys: '⌘⇧N', label: 'スクラッチで始める', chords: [{ key: 'n', mod: true, shift: true }] },
   // ⌘I は、macOS の既定、Chrome（⌥⌘I や ⇧⌘I とは別）、Tauri の既定のメニュー、xterm、Claude Code のどれも使っていない。
@@ -38,7 +39,6 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'nav.back', group: 'global', keys: '⌘[ / ⌘←', label: '戻る', chords: [{ key: '[', mod: true, shift: false }, { key: 'ArrowLeft', mod: true, shift: false }] },
   { id: 'nav.forward', group: 'global', keys: '⌘] / ⌘→', label: '進む', chords: [{ key: ']', mod: true, shift: false }, { key: 'ArrowRight', mod: true, shift: false }] },
   { id: 'sidebar.toggle', group: 'global', keys: '⌘B', label: 'サイドバーの開閉', chords: [{ key: 'b', mod: true, shift: false }] },
-  { id: 'search.focus', group: 'global', keys: '/', label: '検索欄へ', chords: [{ key: '/', shift: false }] },
   { id: 'shortcuts.open', group: 'global', keys: '? / ⌘/', label: 'キーの一覧', chords: [{ key: '?' }, { key: '/', mod: true }] },
   { id: 'overlay.close', group: 'global', keys: 'Esc', label: '開いているものを閉じる（無ければ入力欄を離れる）', chords: [{ key: 'Escape' }] },
   { id: 'tab.select', group: 'session', keys: '⌘1–⌘9', label: 'タブを選ぶ（⌃⌥1–⌃⌥9 でも）', chords: [...digits.map((d) => ({ key: d, mod: true, shift: false })), ...digits.map((d) => ({ key: d, ctrlAlt: true }))] },

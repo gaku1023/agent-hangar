@@ -591,16 +591,12 @@ describe('SettingsScreen のクラウド同期', () => {
 });
 
 describe('Header', () => {
-  it('日本語入力の確定の Enter では検索しない', () => {
+  it('探す・移動の錠剤を押すとパレットを開く', () => {
     const onIntent = vi.fn();
-    // sync は Task 23 が Header に足した props である。この節が見るのは検索欄だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
-    const box = screen.getByRole('searchbox');
-    fireEvent.change(box, { target: { value: '動画' } });
-    fireEvent.keyDown(box, { key: 'Enter', isComposing: true });
-    expect(onIntent).not.toHaveBeenCalled();
-    fireEvent.keyDown(box, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '動画' });
+    // sync は Task 23 が Header に足した props である。この節が見るのは錠剤だけなので、出さない形で渡す。
+    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
   });
 });
 
