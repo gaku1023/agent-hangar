@@ -5,7 +5,7 @@ import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { SIDEBAR_KEY } from '../mediator/sidebar.ts';
 import { daysLabel } from '../presenters/retention.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -83,6 +83,27 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     deps.api.subagents(sessionId).then((ids) => setStore(applySubagents(store, sessionId, ids))).catch(fail);
   }
 
+  /**
+   * 右ペインのライブの要約を取る。追記のたびに呼ばれるので、1 秒に 1 回までにまとめる。
+   * 間に来た呼び出しは捨てず、1 秒後に 1 回だけ取り直す予約にまとめる（最後の追記を取りこぼさない）。
+   * 右ペインは補助の表示なので、失敗はトーストにしない。
+   */
+  const LIVE_GAP_MS = 1000;
+  const liveNext = new Map<string, number>();
+  const liveWaiting = new Set<string>();
+  const clock = () => (deps.now ?? Date.now)();
+  function loadLive(sessionId: string): void {
+    if (aliveRunOf(store, sessionId) === null || liveWaiting.has(sessionId)) return;
+    const go = () => {
+      liveWaiting.delete(sessionId);
+      liveNext.set(sessionId, clock() + LIVE_GAP_MS);
+      deps.api.live(sessionId).then((d) => setStore(applyLiveDigest(store, d))).catch(() => {});
+    };
+    const wait = (liveNext.get(sessionId) ?? 0) - clock();
+    if (wait <= 0) go();
+    else { liveWaiting.add(sessionId); deps.setTimeout(go, wait); }
+  }
+
   /** 繋ぐタブを決める。
    * 指定が無ければ選択中のタブ、無ければ現在の run の Claude タブ。
    * 終了した run の Claude タブには繋がない。
@@ -133,6 +154,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // 本文が無いと分かっている会話は読みに行かない。行っても 404 のトーストが出るだけである。
         if (store.sessions[e.sessionId]?.hasTranscript === false) return;
         loadSubagents(e.sessionId);
+        loadLive(e.sessionId);
         const view = state.sessionView[e.sessionId] ?? defaultSessionView();
         const key = eventsKey(e.sessionId, view.agentId);
         const cur = store.events[key];
