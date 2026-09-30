@@ -131,6 +131,9 @@ export function screenStep(state: State, input: Input): Step | null {
       const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [];
       return { state: next, effects };
     }
+    // 語と絞り込みをまとめて外す。語は URL にも乗っているので、語の無い一覧の URL へ移る。
+    // 着いた先（hash.changed）では語も触ったファイルも無いので、問い合わせずに手元の全件を組む。
+    case 'search.clear': return { state: { ...state, search: { text: '', filter: {} } }, effects: [{ kind: 'navigate', route: { name: 'sessions' } }] };
     case 'search.more': {
       const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(state.search) ? [{ kind: 'api.search', params: { ...searchParams(state), offset: i.offset } }] : [];
       return { state, effects };

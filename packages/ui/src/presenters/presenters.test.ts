@@ -463,6 +463,18 @@ describe('presentSessions', () => {
     expect(ids('ended')).toEqual(['s3']);
     expect(ids(undefined)).toEqual(['s1', 's2', 's3', 'w1']);
   });
+  // 見出しの件数は条件に関わらずセッションの全件で、条件の行が絞った結果の件数を言う（D1）。
+  it('見出しには全件の数、条件の行にはいま効いている条件を並べる', () => {
+    const store = storeWith();
+    const none = presentSessions(initialState(), store, NOW);
+    expect(none).toMatchObject({ allCount: 3, conditions: [] });
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: '索引' }, search: { text: '索引', filter: { projectId: 'alpha', days: 7, live: 'waiting' as const, file: 'src/a.ts' } } };
+    const r = presentSessions(state, { ...store, search: { params: { q: '索引' }, result: { hits: [], total: 0 }, loading: false } }, NOW);
+    expect(r.allCount).toBe(3);
+    expect(r.conditions).toEqual(['『索引』', 'alpha', '7 日', '入力待ち', 'src/a.ts']);
+    const today = presentSessions({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } } }, store, NOW);
+    expect(today.conditions).toEqual(['今日', '実行中']);
+  });
   it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
     let store = storeWith();
     store = { ...store, search: { params: { q: '', file: 'a.md' }, result: { hits: [{ sessionId: 's2', matchCount: 3, snippets: [] }], total: 1 }, loading: false } };

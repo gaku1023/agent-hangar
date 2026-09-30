@@ -104,6 +104,15 @@ describe('ナビゲーション', () => {
     const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
     expect(run([intent({ type: 'search.more', offset: 50 })], b.state).effects).toEqual([]);
   });
+  // 「条件をクリア」は語と絞り込みをまとめて外し、手元の全件の一覧へ戻す。語は URL にも乗っているので、URL からも外す。
+  it('search.clear は語と絞り込みを外し、語の無い一覧の URL へ移る', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1', days: 7, file: 'a.md' } })]);
+    const b = run([intent({ type: 'search.clear' })], a.state);
+    expect(b.state.search).toEqual({ text: '', filter: {} });
+    expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+    // 着いた先では手元の一覧を組むので、問い合わせない。
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state).effects).toEqual([]);
+  });
   it('状態の絞り込みは live としてサーバへ渡す', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { live: 'waiting' } })]);
     expect(a.effects).toContainEqual({ kind: 'api.search', params: { q: '動画', live: 'waiting' } });

@@ -1,7 +1,8 @@
-import type { SearchFilter } from '@agent-hangar/shared';
+import type { LiveFilter, SearchFilter } from '@agent-hangar/shared';
 import { periodStart, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import { liveFilterOfSession, runningSessionIds, type Store } from '../store/store.ts';
+import { absoluteTime } from './format.ts';
 import { markTerms } from './highlight.ts';
 import { presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
 
@@ -10,11 +11,34 @@ import { presentSessionRow, sortSessions, type SessionRowProps } from './row.ts'
  * サーバは上位の結果だけを返すので、検索では shown が total より小さいことがある。
  * loading は新しい問い合わせの最中、loadingMore は続きを読み足している最中を表す。
  */
-export type SessionsProps = { text: string; filter: SearchFilter; projects: { id: string; name: string }[]; rows: SessionRowProps[]; shown: number; total: number; loading: boolean; loadingMore: boolean; mode: 'all' | 'search' };
+export type SessionsProps = { text: string; filter: SearchFilter; projects: { id: string; name: string }[]; rows: SessionRowProps[]; shown: number; total: number; loading: boolean; loadingMore: boolean; mode: 'all' | 'search'; allCount: number; conditions: string[] };
+
+/** 期間の語。絞り込みの帯と同じ語を使う。 */
+const PERIOD_LABEL: Record<number, string> = { 1: '今日', 7: '7 日', 30: '30 日' };
+/** 状態の語。絞り込みの帯と同じ語を使う。 */
+const LIVE_LABEL: Record<LiveFilter, string> = { waiting: '入力待ち', running: '実行中', ended: '終了' };
+
+/**
+ * いま効いている条件を、条件の行に並べる語にする（D1）。
+ * 語、プロジェクト、期間、状態、触ったファイルの順で、絞り込みの段の並びと同じにする。
+ */
+function conditionsOf(text: string, f: SearchFilter, store: Store): string[] {
+  const out: string[] = [];
+  if (text) out.push(`『${text}』`);
+  if (f.projectId) out.push(store.projects[f.projectId]?.name ?? '見つからないプロジェクト');
+  if (f.days) out.push(PERIOD_LABEL[f.days] ?? `${f.days} 日`);
+  if (f.until !== undefined) out.push(`${absoluteTime(f.until).slice(0, 10)} より前`);
+  if (f.live) out.push(LIVE_LABEL[f.live]);
+  if (f.file) out.push(f.file);
+  return out;
+}
 
 export function presentSessions(state: State, store: Store, now: number): SessionsProps {
   const projects = Object.values(store.projects).map((p) => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name));
   const f = state.search.filter;
+  // 見出しの件数は条件に関わらず全件で、絞った結果の件数は条件の行が言う。
+  const allCount = Object.keys(store.sessions).length;
+  const conditions = conditionsOf(state.search.text, f, store);
   if (!usesServerSearch(state.search)) {
     let list = Object.values(store.sessions);
     if (f.projectId) list = list.filter((s) => s.projectId === f.projectId);
@@ -23,7 +47,7 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
     if (days) { const since = periodStart(days, now); list = list.filter((s) => (s.lastActivityAt ?? 0) >= since); }
     if (until !== undefined) list = list.filter((s) => (s.lastActivityAt ?? 0) < until);
     const rows = sortSessions(list).map((s) => presentSessionRow(s, store, now));
-    return { text: '', filter: f, projects, rows, shown: rows.length, total: rows.length, loading: false, loadingMore: false, mode: 'all' };
+    return { text: '', filter: f, projects, rows, shown: rows.length, total: rows.length, loading: false, loadingMore: false, mode: 'all', allCount, conditions };
   }
   const result = store.search.result;
   const rows: SessionRowProps[] = [];
@@ -37,5 +61,5 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
   }
   // 件数は手元に無い行も含めて数える。続きの offset はサーバの並びでの位置だからである。
   const more = (store.search.params?.offset ?? 0) > 0;
-  return { text: state.search.text, filter: f, projects, rows, shown: result?.hits.length ?? 0, total: result?.total ?? 0, loading: store.search.loading && !more, loadingMore: store.search.loading && more, mode: 'search' };
+  return { text: state.search.text, filter: f, projects, rows, shown: result?.hits.length ?? 0, total: result?.total ?? 0, loading: store.search.loading && !more, loadingMore: store.search.loading && more, mode: 'search', allCount, conditions };
 }
