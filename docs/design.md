@@ -623,10 +623,12 @@ hangar が起動するセッションには、`--append-system-prompt` で短い
 あなたは agent-hangar から起動されたセッションです。
 プロジェクト：<name>（<path>）
 プロジェクトのメモの要約：<memo の先頭 500 字>
-未完の TODO：<最大 10 件>
+未完の TODO：<最大 10 件、各行 - [<id>] <本文>>
 過去のセッションは MCP ツール search_sessions と get_transcript で参照できます。
 依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、
 set_session_summary で題名、2〜3 文の要約、状態、次の一手を更新してください。
+TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。
+完了にするのは利用者です。確かめられていないものは出さないでください。
 ```
 
 MCP の URL はセッション別（`/mcp/s/<sessionId>`）なので、ツールは呼び出し元のセッションをサーバ側で確定できる。
@@ -833,7 +835,7 @@ MCP は Streamable HTTP で提供する。
 
 - `list_projects()`：プロジェクトの一覧。ステータス、パス、未完 TODO 数、最終活動。
 - `get_project(project_id)`：詳細。TODO、メモ、直近のセッション、アーティファクト。
-- `update_project(project_id, { status?, add_todos?, toggle_todos?, append_memo? })`。
+- `update_project(project_id, { status?, add_todos?, toggle_todos?, propose_done?, append_memo? })`。
 - `list_sessions({ project_id?, running?, limit? })`。
 - `search_sessions({ query, project_id?, since?, until?, provider?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
@@ -843,7 +845,15 @@ MCP は Streamable HTTP で提供する。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
 
-`update_project` は TODO の追加と完了の切り替え、メモの追記を行い、TODO の書き込みは全部成功か全部失敗のどちらかにする（途中で失敗したものが残らない）。
+`update_project` は TODO の追加と完了の候補の提出、メモの追記を行い、TODO の書き込みは全部成功か全部失敗のどちらかにする（途中で失敗したものが残らない）。
+MCP からは TODO を完了にできない。`propose_done` と未完への `toggle_todos` は完了の候補を出し、結果を `todo_results`（`[{ todo_id, outcome }]`）で返す。
+`propose_done` は `[{ todo_id, note }]` で、`note` は根拠の一文（空白を除いて 1 字以上 200 字以下）である。
+`toggle_todos` は、未完で候補でない TODO を根拠なしの候補にし、完了の TODO は未完に開き直し、候補の TODO には何もしない。
+`outcome` は次の 5 つである。
+`proposed` は候補にしたこと、`already_candidate` はすでに候補なので何もせず根拠も上書きしなかったこと、`already_done` はすでに完了なので何もしなかったこと（`propose_done` のみ）を指す。
+`rejected_before` はこのセッションの候補は却下済みなので受け付けなかったこと、`reopened` は完了を未完に開き直したこと（`toggle_todos` のみ）を指す。
+`note` が空か 201 字以上、または見つからない ID が 1 つでも混ざれば、呼び出し全体を断り、どの TODO も書かない。
+`get_project` の TODO には `candidate: { session_id, note } | null` が付き、セッションは自分の候補が残っているかを確かめられる。
 `get_usage` は 5 時間と 7 日の使用率と最終更新時刻を返し、statusline が一度も届いていなければ値は null になる。
 
 `hangar mcp install` は、Claude Code の user スコープに `hangar` サーバを登録する。
@@ -991,17 +1001,19 @@ trigram は 3 文字未満の語に一致できないので、3 文字未満の�
 
 ### Home
 
-上から順に、要対応、実行中の札、最近とプロジェクトを置く（管制盤）。
+上から順に、要対応、確かめる、実行中の札、最近とプロジェクトを置く（管制盤）。
 要対応は入力待ち（`waiting`）のセッションを、長く待っている順に 1 件 1 枚の横長の札で出す。
 札には名前、プロジェクト、待っている時間、待っている問いの文（取れなければ「入力を待っています」）、「ターミナルで答える」を置く。
 「ターミナルで答える」はそのセッションの画面を開いて端末にフォーカスするだけで、その場では答えさせない（端末の TUI を外から操ることになって壊れやすいため）。
 実行中は、作業中と休みのセッションと、Claude のレジストリに載る前の run を 3 列の札で出す。
 札には名前、経過時間、プロジェクトとモデルと effort、いま何をしているか（最後のツール呼び出しの 1 行を墨の地に）、文脈の使用率のゲージを置き、押すとセッション画面へ移る。
 呼び出しがまだ無いときは「作業中」、休みは「休み。最後の返答から N 分」、レジストリに載る前は「起動しています」と出す。
-要対応と実行中は、該当が無ければ区画ごと省く。
+確かめるは、セッションが出した TODO の完了の候補を、全プロジェクトぶん、候補になった時刻の古い順に 1 件 1 行で出す。
+行には半分塗りの印、TODO の本文、プロジェクト名、出したセッションの名前（見つからなければ「不明なセッション」）、経過時間、根拠の一文（無ければ「根拠は書かれていません」）、「確定」「却下」を置き、本文を押すとそのプロジェクトの画面へ移る。
+要対応、確かめる、実行中は、該当が無ければ区画ごと省く。
 その下に、最近（幅 1.6）とプロジェクト（幅 1）を横に並べる。
 最近は札に出したものを除いた 2 段の行で、右端は時刻だけにする。
-プロジェクトは active なプロジェクトの小さな一覧（ステータスの色の点、名前、実行中と TODO と要対応の数のうち 0 でないもの）で、プロジェクトのカードは Projects 画面だけに置く。
+プロジェクトは active なプロジェクトの小さな一覧（ステータスの色の点、名前、実行中と TODO と要対応と確かめるの数のうち 0 でないもの）で、プロジェクトのカードは Projects 画面だけに置く。
 
 札の「いま何をしているか」と「待っている問い」は、サーバが索引の追記を読む経路（`indexFile`）で主線の出来事を畳んで取り出す。
 最後の `tool_call` の名前と要約を残し、それが AskUserQuestion なら入力の最初の問いの文も残す。
@@ -1026,6 +1038,9 @@ active、paused、done のセクションに分けてカードを並べ、archiv
 右端にはモデルと effort、変更ファイル数、PR リンク、推定コストを小さな 1 行にまとめ、その下に日時を置く。
 1 行メモは `m` か鉛筆のボタンで、その場で編集できる。
 右レールには TODO のチェックリスト、Markdown のメモ、アーティファクトのカードを置く。
+TODO の完了の候補の行は、背景を淡い紫（`--cand-soft`）にしてチェック欄を半分塗りにし、行の下に根拠の一文、出したセッションの名前（押すとそのセッションを開く。見つからなければ「不明なセッション」でリンクにしない）、候補になってからの時間、「確定」「却下」を常に見せる。
+候補の行のチェック欄を押したときは、反転ではなく「確定」と同じに扱う。
+読み上げの名前は「<本文>（<n> 件目、完了の候補）」である。
 右レールは折りたためる。
 
 ### セッション詳細
@@ -1543,6 +1558,7 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 - アーティファクトの版：`artifact_versions` は（`artifact_id`、`session_id`、`published_at`）が同じ行が既にあれば追加しない。索引の作り直しでは版を消さず、同じ行を書き直すだけにする。消すとサブエージェント由来の版が巻き添えになり、`changes` にも削除が残らないためである。版はアーティファクト単位で引くので、`artifact_versions(artifact_id)` に索引を置く。
 - アーティファクトの題名：表示のたびに計算せず、公開を記録するときに決めて `artifacts.title` に書く。元ファイルがあれば先頭 64KB の `<title>`、無ければ説明文の先頭 60 字を使う。手で足した URL は題名 null で、UI は URL の末尾を出す。
 - TODO の並び：`position` は追加のたびにそのプロジェクトの最大値に 1 を足す。並び替えの操作は持たず、完了した項目も同じ並びに打消し線を引いて残す。削除は論理削除。`todos.session_id` はセッション別 MCP URL の `update_project` から足したときだけ入る。
+- TODO の完了の候補：`todos` に `candidate_at`、`candidate_session_id`、`candidate_note`、`rejected_sessions`（却下したセッション ID の JSON 配列、既定は `'[]'`）の 4 列を足した（マイグレーション version 10）。`candidate_at` が null でなければ候補で、候補は必ず未完である。MCP からは完了にできず、完了にするのは `POST /api/todos/:id/confirm` と、利用者のチェック操作である `PATCH /api/todos/:id` の `done` だけである。却下したセッションの ID は `rejected_sessions` に積み、そのセッションからは同じ TODO の候補を出し直せない（別のセッションなら出せる）。セッション別でない URL から出した候補は、却下してもセッション ID が無いので積まれず、出し直せる。`setTodoDone` は完了にも未完にも戻すときにも候補の列を消し、`rejected_sessions` は完了を開き直しても消さない。同期は行を JSON の payload のまま運ぶので D1 にマイグレーションは要らず、列を持たない古い端末は適用のときに自分の表に無い列を捨てる。`done = 1` かつ `candidate_at` 非 null の行が届いたときは、読むときに完了として扱い、候補は無いものとする。
 - メモの正：`project_memos.markdown` とファイル `~/.agent-hangar/projects/<projectId>/memo.md` の両方に書く。読むときはファイルの mtime が DB の `updated_at` より新しく中身が違えばファイルを正として DB を直す。`~/.agent-hangar/projects/` を `fs.watch`（再帰）で見て、300 ミリ秒のデバウンスで取り込んで `memo.update` を配る。`memoHead` は空行でない最初の行の先頭 80 字で、全文は `GET /api/projects/:id/memo` で読む。DB を正として書き戻すときは、ファイルの中身が DB と違うときだけ、消える本文を `memo.md.bak-<yyyymmddHHMMSS>` として同じディレクトリに残してから書き戻す。同じ秒に 2 度来たら連番を足し、既にある控えは上書きしない。控えは古くなっても消さない。控えを残せなかったときは書き戻さず、ファイルの方を残す。
 - スクラッチの擬似プロジェクト：端末ごとに 1 つで、名前は「スクラッチ」、この端末の `project_roots.path` は `~/.agent-hangar/scratch`。ディレクトリ名は `<yyyymmdd-HHmmss>`（ローカル時刻、同じ秒に 2 つ作るときは `-2`、`-3`）。Projects 画面と Home のカードにはこの行を出さず、Sessions 画面の絞り込みには出す。
 - スクラッチかどうかの判定は、スクラッチのルートの下にあるかで行い、ルート自身は含めない。`scratch_root` は `project_roots` を端末で絞って引く。

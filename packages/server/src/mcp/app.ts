@@ -35,7 +35,7 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   };
   reg('list_projects', D('プロジェクトの一覧。ステータス、パス、未完 TODO 数、最終活動を返す。'), {});
   reg('get_project', D('プロジェクトの詳細。TODO、メモ、直近のセッション、アーティファクト。'), { project_id: z.string() });
-  reg('update_project', D('プロジェクトのステータスを変え、TODO を足すか反転し、メモに追記する。'), { project_id: z.string(), status: STATUS.optional(), add_todos: z.array(z.string()).optional(), toggle_todos: z.array(z.string()).optional(), append_memo: z.string().optional() });
+  reg('update_project', D('プロジェクトのステータスを変え、TODO を足し、片付いた TODO を完了の候補として出し、メモに追記する。完了にするのは利用者である。propose_done には TODO の ID と根拠の一文（200 字まで）を渡す。toggle_todos は完了を開き直すか、未完を根拠なしの候補にする。'), { project_id: z.string(), status: STATUS.optional(), add_todos: z.array(z.string()).optional(), toggle_todos: z.array(z.string()).optional(), propose_done: z.array(z.object({ todo_id: z.string(), note: z.string() })).optional(), append_memo: z.string().optional() });
   reg('list_sessions', D('セッションの一覧。project_id、running、limit で絞る。'), { project_id: z.string().optional(), running: z.boolean().optional(), limit: z.number().int().positive().optional() });
   reg('search_sessions', D('過去のセッションを全文検索する。題名、要約の 1 文、一致箇所の抜粋、再開コマンドを返す。'), { query: z.string(), project_id: z.string().optional(), since: z.number().optional(), until: z.number().optional(), provider: z.string().optional(), file: z.string().optional(), limit: z.number().int().positive().optional() });
   reg('get_transcript', D('セッションの本文を正規化イベントで返す。セッション別 URL では session_id を省ける。'), { session_id: z.string().optional(), from_seq: z.number().int().optional(), limit: z.number().int().positive().optional(), include_tools: z.boolean().optional() });

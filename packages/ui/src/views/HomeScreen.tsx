@@ -8,8 +8,8 @@ export const HOME_VISIBLE_ROWS = 10;
 
 /**
  * Home（管制盤）。
- * 上から要対応、実行中、最近とプロジェクトの順に置く。
- * 要対応と実行中は、該当が無ければ区画ごと省く。
+ * 上から要対応、確かめる、実行中、最近とプロジェクトの順に置く。
+ * 要対応と確かめると実行中は、該当が無ければ区画ごと省く。
  */
 export function HomeScreen(props: HomeProps) {
   const emit = useEmit();
@@ -30,6 +30,25 @@ export function HomeScreen(props: HomeProps) {
               {a.canAnswer
                 ? <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.open', id: a.id, focus: 'terminal' })}>ターミナルで答える</button>
                 : <button type="button" className="btn" onClick={() => emit({ type: 'session.open', id: a.id })}>開く</button>}
+            </div>
+          ))}
+        </section>
+      )}
+      {props.confirm.length > 0 && (
+        <section>
+          <h2 className="home-label">確かめる<span className="home-count">{props.confirm.length}</span></h2>
+          {props.confirm.map((c) => (
+            <div key={c.id} className="ask-card confirm-card">
+              <span className="cand-mark" aria-hidden="true" />
+              <div className="ask-body">
+                <div className="ask-title">
+                  <button type="button" className="confirm-open" onClick={() => emit({ type: 'project.open', id: c.projectId })}><b>{c.text}</b></button>
+                  {' '}<span className="faint">· {c.projectName} · {c.sessionName} · {c.ago}</span>
+                </div>
+                <div className="ask-q">{c.note}</div>
+              </div>
+              <button type="button" className="btn btn-primary" aria-label={`${c.text}（${c.projectName}）を確定`} onClick={() => emit({ type: 'todo.confirm', id: c.id })}>確定</button>
+              <button type="button" className="btn" aria-label={`${c.text}（${c.projectName}）を却下`} onClick={() => emit({ type: 'todo.reject', id: c.id })}>却下</button>
             </div>
           ))}
         </section>

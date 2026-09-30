@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TODO 完了候補の置き場所</title>
+<style>
+  :root { --ink:#1c1b2e; --ink-2:#5f5e78; --ink-3:#8a89a0; --bg:#eef1f7; --surface:#fff; --surface-2:#f3f4f9; --line:#eceef5; --line-strong:#d9dbe6;
+          --accent:#4a63e8; --accent-hi:#6b8cff; --accent-soft:#eef2ff; --waiting:#a2452f; --idle:#3a8f5c; --busy:#c77a1a; --done:#2b7048; --done-soft:#e3f1e8;
+          --cand:#6a4fd0; --cand-soft:#f1edff;
+          --glass-edge:inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5); }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:28px 32px 60px; background:#f7f7fa; color:var(--ink); font:13px/1.55 'Inter','Hiragino Sans','Hiragino Kaku Gothic ProN',sans-serif; }
+  h1 { font-size:20px; margin:0 0 6px; }
+  .subtitle { color:var(--ink-2); margin:0 0 22px; max-width:900px; }
+  .rec { background:#fff3d6; color:#6b4a10; padding:1px 6px; border-radius:4px; font-size:11.5px; }
+  h2.axis { font-size:16px; margin:34px 0 4px; padding-top:14px; border-top:2px solid rgba(128,128,128,.22); }
+  h2.axis .k { font:600 12px 'JetBrains Mono',monospace; color:var(--accent); margin-right:8px; }
+  .axis-note { color:var(--ink-2); margin:0 0 14px; max-width:900px; }
+  .grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:16px; }
+  .grid.g3 { grid-template-columns:repeat(3, minmax(0,1fr)); }
+  .opt { position:relative; isolation:isolate; overflow:hidden; border-radius:16px; background:var(--bg); padding:14px 16px 16px; }
+  .opt::before { content:''; position:absolute; inset:-25%; z-index:-1; background:radial-gradient(40% 50% at 25% 15%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 75%, #e5d6ff, transparent 70%); }
+  .opt > h3 { margin:0 0 3px; font-size:14px; display:flex; gap:8px; align-items:baseline; }
+  .opt > h3 .k { font:600 12px 'JetBrains Mono',monospace; color:var(--accent); }
+  .opt > p { margin:0 0 12px; color:var(--ink-2); font-size:12px; }
+  .opt .pros { margin:10px 0 0; padding-left:16px; font-size:11.5px; color:var(--ink-2); }
+  .panel { background:var(--surface); border-radius:14px; box-shadow:0 1px 2px rgba(30,40,90,.06); padding:12px; }
+  .glass { background:rgba(255,255,255,.4); backdrop-filter:blur(12px) saturate(1.9); -webkit-backdrop-filter:blur(12px) saturate(1.9); box-shadow:var(--glass-edge), 0 10px 28px -12px rgba(30,40,90,.3); border-radius:14px; }
+  .h2 { font-size:13px; font-weight:650; margin:0 0 8px; display:flex; align-items:center; gap:6px; }
+  .count { font:600 10.5px 'JetBrains Mono',monospace; color:var(--ink-3); }
+  .faint { color:var(--ink-3); }
+  .mono { font-family:'JetBrains Mono',SFMono-Regular,Menlo,monospace; }
+  .btn { display:inline-flex; align-items:center; gap:4px; height:22px; padding:0 10px; border-radius:99px; font:560 11px 'Inter','Hiragino Sans',sans-serif; border:0; color:var(--ink); background:rgba(255,255,255,.85); box-shadow:inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,.16); white-space:nowrap; cursor:pointer; }
+  .btn.pri { color:#fff; background:linear-gradient(180deg, var(--accent-hi), var(--accent)); box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 4px 12px -4px rgba(70,90,230,.6); }
+  .btn.ok { color:#fff; background:linear-gradient(180deg,#48a06c,var(--done)); box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 3px 10px -4px rgba(43,112,72,.6); }
+  .btn.ghost { background:transparent; box-shadow:none; color:var(--ink-2); }
+  .chip { display:inline-flex; align-items:center; gap:4px; height:18px; padding:0 7px; border-radius:99px; font-size:10.5px; background:var(--cand-soft); color:var(--cand); white-space:nowrap; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; flex:none; }
+  /* TODO 行 */
+  .todo { display:flex; align-items:center; gap:6px; min-height:28px; }
+  .todo input { margin:0; }
+  .todo .t { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .todo.done .t { text-decoration:line-through; color:var(--ink-3); }
+  .box { width:13px; height:13px; border-radius:3px; border:1.5px solid var(--line-strong); flex:none; display:inline-grid; place-items:center; background:#fff; }
+  .box.done { background:var(--done); border-color:var(--done); }
+  .box.done::after { content:''; width:6px; height:3px; border:2px solid #fff; border-top:0; border-right:0; transform:translateY(-1px) rotate(-45deg); }
+  .box.half { border-color:var(--cand); background:linear-gradient(135deg, var(--cand) 50%, #fff 50%); }
+  .box.q { border-color:var(--cand); color:var(--cand); font:700 9px 'Inter',sans-serif; }
+  .cand-row { border-radius:10px; background:var(--cand-soft); padding:6px 8px 8px; margin:3px -4px; }
+  .cand-row.dash { background:#fff; outline:1.5px dashed color-mix(in srgb, var(--cand) 45%, transparent); outline-offset:-1.5px; }
+  .why { font-size:11.5px; color:var(--ink-2); margin:2px 0 6px 19px; line-height:1.5; }
+  .why a { color:var(--accent); text-decoration:none; }
+  .acts { display:flex; gap:6px; margin-left:19px; }
+  .band { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:10px; background:var(--cand-soft); color:var(--cand); font-size:12px; margin-bottom:8px; }
+  .band b { font-weight:650; }
+  .band .sp { flex:1; }
+  .pop { position:relative; margin:6px 0 4px 18px; padding:10px 12px; border-radius:12px; background:rgba(255,255,255,.92); box-shadow:var(--glass-edge), 0 14px 30px -12px rgba(30,40,90,.4); font-size:12px; }
+  .pop::before { content:''; position:absolute; top:-6px; left:10px; width:12px; height:12px; background:inherit; transform:rotate(45deg); border-radius:2px; }
+  /* Home */
+  .home-label { font-size:12px; font-weight:650; color:var(--ink-2); margin:0 0 6px; display:flex; gap:6px; align-items:baseline; }
+  .ask { display:flex; align-items:center; gap:10px; padding:9px 12px; background:var(--surface); border-radius:12px; box-shadow:0 1px 2px rgba(30,40,90,.06); margin-bottom:6px; }
+  .ask .body { flex:1; min-width:0; }
+  .ask .ttl { font-size:12.5px; }
+  .ask .q { font-size:12px; color:var(--ink-2); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mini { display:flex; gap:10px; }
+  .mini > div { flex:1; }
+  .row { display:flex; align-items:center; gap:8px; height:34px; padding:0 10px; background:var(--surface); border-radius:9px; margin-bottom:4px; font-size:12px; }
+  .row .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* セッション画面 */
+  .sess-top { display:flex; align-items:center; gap:8px; padding:8px 12px; }
+  .sess-top .name { font-weight:650; }
+  .term { background:#1c1b2e; color:#e8e6f0; border-radius:12px; padding:10px 12px; font:11px/1.6 'JetBrains Mono',monospace; height:92px; overflow:hidden; }
+  .term .tool { color:#ffb86b; }
+  .toast { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border-radius:14px; background:rgba(255,255,255,.86); box-shadow:var(--glass-edge), 0 16px 34px -14px rgba(30,40,90,.45); font-size:12px; max-width:330px; }
+  .toast .ic { width:22px; height:22px; border-radius:7px; background:var(--cand-soft); color:var(--cand); display:grid; place-items:center; font-weight:700; flex:none; }
+  .shell-sm { display:grid; grid-template-columns:120px 1fr 178px; gap:8px; }
+  .shell-sm .side { padding:10px; font-size:11px; color:var(--ink-2); }
+  .shell-sm .side div { padding:4px 6px; border-radius:6px; } .shell-sm .side .on { background:rgba(255,255,255,.7); color:var(--ink); }
+  .srow { display:flex; align-items:center; gap:8px; height:30px; padding:0 8px; background:var(--surface); border-radius:8px; margin-bottom:4px; font-size:11.5px; }
+  .srow .n { flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .note { margin-top:10px; font-size:11.5px; color:var(--ink-2); background:rgba(255,255,255,.6); border-radius:10px; padding:8px 10px; }
+</style>
+</head>
+<body>
+<h1>TODO の完了候補：どこで、どう見せるか</h1>
+<p class="subtitle">決まっていること：Claude が「片付いた」と判断した TODO は完了にせず<b>候補</b>として出し、あなたが<b>確定</b>か<b>却下</b>する。却下したセッションからは同じ TODO を出し直せない。候補には、出したセッションと根拠の一文が付く。<br>
+ここでは 3 つの軸を分けて案を並べます。<span class="rec">推奨</span>の印が私の推しです。組み合わせで答えてください（例：「A1 と A2、行は B1」）。</p>
+
+<!-- ================= 軸 A ================= -->
+<h2 class="axis"><span class="k">A</span>どこに出すか（複数選べます）</h2>
+<p class="axis-note">候補は放っておくと溜まるので、「目に入る場所」と「確かめやすい場所」は別かもしれません。TODO の元の置き場所はプロジェクト画面の右レールだけです。</p>
+<div class="grid">
+
+  <div class="opt">
+    <h3><span class="k">A1</span>プロジェクトの右レール、TODO の中 <span class="rec">推奨（必須）</span></h3>
+    <p>TODO が住んでいる場所に、その行のまま候補の印を出す。他の場所に出すとしても、ここは外せない。</p>
+    <div class="shell-sm">
+      <div class="side glass"><div>Home</div><div class="on">Projects</div><div>Sessions</div><div>Settings</div></div>
+      <div>
+        <div class="h2" style="font-size:15px">agent-hangar</div>
+        <div class="srow"><span class="dot" style="background:var(--idle)"></span><span class="n">起動画面の作り直し</span><span class="faint">12 分前</span></div>
+        <div class="srow"><span class="dot" style="background:#9a99ad"></span><span class="n">ワードマークの案出し</span><span class="faint">2 時間前</span></div>
+        <div class="srow"><span class="dot" style="background:#9a99ad"></span><span class="n">サイドバーの開閉</span><span class="faint">昨日</span></div>
+      </div>
+      <div class="panel">
+        <div class="h2">TODO</div>
+        <div class="todo"><span class="box"></span><span class="t">通知の影の値を決める</span></div>
+        <div class="cand-row">
+          <div class="todo"><span class="box half"></span><span class="t">読み込み画面で窓を掴める</span></div>
+          <div class="acts"><button class="btn ok">確定</button><button class="btn">却下</button></div>
+        </div>
+        <div class="todo"><span class="box"></span><span class="t">狭い窓で切断の帯を省く</span></div>
+        <div class="todo done"><span class="box done"></span><span class="t">起動直後の跳ねを消す</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">A2</span>Home の管制盤に「確かめる」区画 <span class="rec">推奨</span></h3>
+    <p>要対応の下に、全プロジェクトの候補を 1 件 1 行で並べる。Home を開くたびに目に入るので溜まりにくい。0 件なら区画ごと省く（要対応と同じ規則）。</p>
+    <div class="glass" style="padding:12px">
+      <div class="home-label">要対応<span class="count">1</span></div>
+      <div class="ask"><span class="dot" style="background:var(--waiting)"></span><div class="body"><div class="ttl"><b>クラウド同期の点検</b> <span class="faint">· agent-hangar · 4 分待っている</span></div><div class="q">本番の D1 に列を足してよいですか？</div></div><button class="btn pri">ターミナルで答える</button></div>
+      <div class="home-label" style="margin-top:12px">確かめる<span class="count">2</span></div>
+      <div class="ask"><span class="box half"></span><div class="body"><div class="ttl"><b>読み込み画面で窓を掴める</b> <span class="faint">· agent-hangar · 起動画面の作り直し · 12 分前</span></div><div class="q">default.json に allow-start-dragging を足し、実物の .app で窓を掴めることを確かめた</div></div><button class="btn ok">確定</button><button class="btn">却下</button></div>
+      <div class="ask"><span class="box half"></span><div class="body"><div class="ttl"><b>英語の README を足す</b> <span class="faint">· jev-notes · 翻訳の下書き · 1 時間前</span></div><div class="q">README.en.md を作り、見出しと手順を日本語版に揃えた</div></div><button class="btn ok">確定</button><button class="btn">却下</button></div>
+    </div>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">A3</span>出したセッションの画面</h3>
+    <p>セッション画面の上段に「完了の候補 1 件」のチップを出し、押すと確かめる小窓が開く。そのセッションを見ている最中に確かめられるが、終わったセッションはあまり開き直さない。</p>
+    <div class="glass" style="padding:0 0 10px">
+      <div class="sess-top"><span class="dot" style="background:var(--idle)"></span><span class="name">起動画面の作り直し</span><span class="faint">· opus · 休み。最後の返答から 12 分</span><span style="flex:1"></span><span class="chip">◐ 完了の候補 1</span></div>
+      <div style="padding:0 12px">
+        <div class="term"><span class="tool">● update_project</span> todo の完了を提案しました<br>読み込み画面で窓を掴める → 候補<br><br>&gt; <span style="opacity:.6">_</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">A4</span>候補が出た瞬間のトースト</h3>
+    <p>要対応と同じく、候補が出たときに 1 度だけ知らせる。その場で確定・却下もできる。気付きは一番早いが、作業中に割り込む。</p>
+    <div style="display:flex; justify-content:flex-end; padding:22px 0">
+      <div class="toast"><div class="ic">◐</div><div><b>完了の候補</b><div style="margin:2px 0 6px">「読み込み画面で窓を掴める」<br><span class="faint">起動画面の作り直し · agent-hangar</span></div><div style="display:flex; gap:6px"><button class="btn ok">確定</button><button class="btn">却下</button><button class="btn ghost">あとで</button></div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 軸 B ================= -->
+<h2 class="axis"><span class="k">B</span>右レールでの候補の行の見せ方</h2>
+<p class="axis-note">右レールは幅が 280px ほどしかなく、根拠の一文をどこまで常に見せるかが分かれ目です。</p>
+<div class="grid g3">
+
+  <div class="opt">
+    <h3><span class="k">B1</span>行の下に根拠と 2 つのボタン <span class="rec">推奨</span></h3>
+    <p>候補の行だけ背景を淡い紫にし、根拠の一文と出したセッションへのリンクを常に出す。開かずに判断できる。</p>
+    <div class="panel">
+      <div class="h2">TODO</div>
+      <div class="todo"><span class="box"></span><span class="t">通知の影の値を決める</span></div>
+      <div class="cand-row">
+        <div class="todo"><span class="box half"></span><span class="t">読み込み画面で窓を掴める</span></div>
+        <div class="why">default.json に allow-start-dragging を足し、実物の .app で窓を掴めることを確かめた<br><a href="#">起動画面の作り直し</a> <span class="faint">· 12 分前</span></div>
+        <div class="acts"><button class="btn ok">確定</button><button class="btn">却下</button></div>
+      </div>
+      <div class="todo"><span class="box"></span><span class="t">狭い窓で切断の帯を省く</span></div>
+    </div>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">B2</span>一覧の上に帯、行には印だけ</h3>
+    <p>「確かめてください 1 件」の帯を先頭に出し、帯を押すと候補の行だけが根拠つきで開く。普段の一覧は静かなまま。</p>
+    <div class="panel">
+      <div class="h2">TODO</div>
+      <div class="band"><span class="box half"></span><span><b>確かめてください</b> 1 件</span><span class="sp"></span><span>▾</span></div>
+      <div class="todo"><span class="box"></span><span class="t">通知の影の値を決める</span></div>
+      <div class="todo"><span class="box half"></span><span class="t">読み込み画面で窓を掴める</span><span class="chip">候補</span></div>
+      <div class="todo"><span class="box"></span><span class="t">狭い窓で切断の帯を省く</span></div>
+      <div class="todo done"><span class="box done"></span><span class="t">起動直後の跳ねを消す</span></div>
+    </div>
+  </div>
+
+  <div class="opt">
+    <h3><span class="k">B3</span>チェック欄が「?」、押すと吹き出し</h3>
+    <p>行の見た目は変えず、チェック欄だけ紫の「?」にする。押すと吹き出しに根拠と 2 つのボタン。一番省スペースだが、気付きにくい。</p>
+    <div class="panel">
+      <div class="h2">TODO</div>
+      <div class="todo"><span class="box"></span><span class="t">通知の影の値を決める</span></div>
+      <div class="todo"><span class="box q">?</span><span class="t">読み込み画面で窓を掴める</span></div>
+      <div class="pop">default.json に allow-start-dragging を足し、実物の .app で窓を掴めることを確かめた<div class="faint" style="margin:3px 0 7px">起動画面の作り直し · 12 分前</div><div style="display:flex; gap:6px"><button class="btn ok">確定</button><button class="btn">却下</button></div></div>
+      <div class="todo"><span class="box"></span><span class="t">狭い窓で切断の帯を省く</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 軸 C ================= -->
+<h2 class="axis"><span class="k">C</span>候補の印（チェック欄の形）</h2>
+<p class="axis-note">未完・候補・完了の 3 状態が一目で分かれる必要があります。完了は緑のチェック（今のまま）。</p>
+<div class="grid g3">
+  <div class="opt">
+    <h3><span class="k">C1</span>半分塗り ◐ <span class="rec">推奨</span></h3>
+    <p>「半分済んだ」を形で言う。色だけに頼らない。</p>
+    <div class="panel">
+      <div class="todo"><span class="box"></span><span class="t">未完</span></div>
+      <div class="todo"><span class="box half"></span><span class="t">候補</span></div>
+      <div class="todo done"><span class="box done"></span><span class="t">完了</span></div>
+    </div>
+  </div>
+  <div class="opt">
+    <h3><span class="k">C2</span>「?」の印</h3>
+    <p>「確かめてほしい」を記号で言う。問いの意味は強いが、要対応の問いと紛れる。</p>
+    <div class="panel">
+      <div class="todo"><span class="box"></span><span class="t">未完</span></div>
+      <div class="todo"><span class="box q">?</span><span class="t">候補</span></div>
+      <div class="todo done"><span class="box done"></span><span class="t">完了</span></div>
+    </div>
+  </div>
+  <div class="opt">
+    <h3><span class="k">C3</span>点線の枠</h3>
+    <p>チェック欄はそのままで、行全体を点線で囲む。「仮」の感じが出るが、欄は未完と同じに見える。</p>
+    <div class="panel">
+      <div class="todo"><span class="box"></span><span class="t">未完</span></div>
+      <div class="cand-row dash" style="padding:2px 8px; margin:2px -4px"><div class="todo"><span class="box"></span><span class="t">候補</span></div></div>
+      <div class="todo done"><span class="box done"></span><span class="t">完了</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="note">補足：どの案でも、候補の行のチェック欄を直接押したときは「確定」と同じに扱います（今の使い方を壊さないため）。Home の「プロジェクト」の小さな一覧に出している件数には「確かめる N」を足します。</div>
+</body>
+</html>

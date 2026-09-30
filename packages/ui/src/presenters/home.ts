@@ -2,6 +2,7 @@ import type { LiveStatus, ProjectStatus, SessionDto } from '@agent-hangar/shared
 import type { State } from '../mediator/types.ts';
 import { aliveRunOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, shortModel } from './format.ts';
+import { presentTodoCandidate } from './project.ts';
 import { presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
 
 /**
@@ -14,7 +15,9 @@ export type AttentionCard = { id: string; name: string; projectName: string | nu
 export type RunningCard = { id: string; name: string; live: LiveStatus | null; elapsed: string; meta: string; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string };
 /** Home のプロジェクトの小さな一覧の 1 行。counts は 0 でない数だけを並べた文。 */
 export type ProjectMini = { id: string; name: string; status: ProjectStatus; counts: string };
-export type HomeProps = { attention: AttentionCard[]; running: RunningCard[]; recent: SessionRowProps[]; projects: ProjectMini[] };
+/** 確かめるの行。完了の候補 1 件につき 1 行で、押すとそのプロジェクトへ移る。 */
+export type ConfirmCard = { id: string; text: string; projectId: string; projectName: string; sessionName: string; ago: string; note: string };
+export type HomeProps = { attention: AttentionCard[]; confirm: ConfirmCard[]; running: RunningCard[]; recent: SessionRowProps[]; projects: ProjectMini[] };
 
 /** 問いの文が取れなかった入力待ち（権限の確認など）に出す文。 */
 const NO_QUESTION = '入力を待っています';
@@ -36,6 +39,13 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
   const waiting = sessions.filter((s) => s.live === 'waiting').sort((a, b) => (a.lastActivityAt ?? now) - (b.lastActivityAt ?? now));
   const attention = waiting.map((s) => ({ id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? NO_QUESTION, canAnswer: aliveRunOf(store, s.id) !== null }));
 
+  // 完了の候補。放っておくと溜まるので、長く待っているものほど先に出す。
+  const candidates = Object.values(store.todos)
+    .map((t) => ({ t, c: presentTodoCandidate(t, store, now) }))
+    .filter((x): x is { t: typeof x.t; c: NonNullable<typeof x.c> } => x.c !== null)
+    .sort((a, b) => (a.t.candidate!.at - b.t.candidate!.at) || a.t.id.localeCompare(b.t.id));
+  const confirm = candidates.map(({ t, c }): ConfirmCard => ({ id: t.id, text: t.text, projectId: t.projectId, projectName: store.projects[t.projectId]?.name ?? '未分類', sessionName: c.sessionName, ago: c.ago, note: c.note }));
+
   // Claude のレジストリに載る前の run も実行中に数える。
   // 信頼確認のダイアログ待ちの run が Home のどこにも出ないと、セッション画面への戻り道がなくなる。
   const alive = runningSessionIds(store);
@@ -55,9 +65,10 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
   const projects = Object.values(store.projects).filter((p) => p.status === 'active' && !p.isScratch).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).map((p): ProjectMini => {
     // サーバの runningCount は入力待ちも数える。入力待ちは要対応に出すので、Home の実行中の区画と同じく実行中からは引く。
     const waitingHere = waiting.filter((s) => s.projectId === p.id).length;
-    const counts: [string, number][] = [['実行中', Math.max(0, p.runningCount - waitingHere)], ['TODO', p.openTodoCount], ['要対応', waitingHere]];
+    const confirmHere = candidates.filter(({ t }) => t.projectId === p.id).length;
+    const counts: [string, number][] = [['実行中', Math.max(0, p.runningCount - waitingHere)], ['TODO', p.openTodoCount], ['要対応', waitingHere], ['確かめる', confirmHere]];
     return { id: p.id, name: p.name, status: p.status, counts: counts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join(' · ') };
   });
 
-  return { attention, running, recent, projects };
+  return { attention, confirm, running, recent, projects };
 }

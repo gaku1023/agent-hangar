@@ -13,9 +13,46 @@ const rail = { isScratch: false, todos: [], memo: null, artifacts: [] };
 const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, openTodoCount: 0, memoHead: null, lastOneLiner: 'last one' });
 
 describe('HomeScreen', () => {
-  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], running: [], recent: [], projects: [], ...over });
+  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], confirm: [], running: [], recent: [], projects: [], ...over });
   const runningCard = (over: Partial<RunningCard> = {}): RunningCard => ({ id: 's1', name: 'キーボード操作の見直し', live: 'busy', elapsed: '12 分', meta: 'agent-hangar · opus 4.1 · high', activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38, contextLabel: '38%', ...over });
 
+  it('確かめるの区画は候補を出し、確定と却下と本文の押下で Intent を出し、0 件なら省く', () => {
+    const onIntent = vi.fn();
+    const c = { id: 't1', text: '窓を掴める', projectId: 'p1', projectName: 'agent-hangar', sessionName: '起動画面の作り直し', ago: '12 分前', note: '直して確かめた' };
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ confirm: [c] })} /></IntentRoot>);
+    const section = screen.getByRole('heading', { name: /確かめる/ }).closest('section')!;
+    expect(within(section).getByText('直して確かめた')).toBeTruthy();
+    expect(within(section).getByText(/agent-hangar · 起動画面の作り直し · 12 分前/)).toBeTruthy();
+    fireEvent.click(within(section).getByLabelText('窓を掴める（agent-hangar）を確定'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'todo.confirm', id: 't1' });
+    fireEvent.click(within(section).getByLabelText('窓を掴める（agent-hangar）を却下'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'todo.reject', id: 't1' });
+    fireEvent.click(within(section).getByRole('button', { name: '窓を掴める' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.open', id: 'p1' });
+    cleanup();
+    render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home()} /></IntentRoot>);
+    expect(screen.queryByRole('heading', { name: /確かめる/ })).toBeNull();
+  });
+
+  it('別のプロジェクトに同じ本文の候補があっても、確定と却下の名前は 1 つに決まる', () => {
+    const onIntent = vi.fn();
+    const mk = (id: string, projectId: string, projectName: string) => ({ id, text: '窓を掴める', projectId, projectName, sessionName: 's', ago: '1 分前', note: 'n' });
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ confirm: [mk('t1', 'p1', 'alpha'), mk('t2', 'p2', 'beta')] })} /></IntentRoot>);
+    fireEvent.click(screen.getByLabelText('窓を掴める（alpha）を確定'));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'todo.confirm', id: 't1' });
+    fireEvent.click(screen.getByLabelText('窓を掴める（beta）を確定'));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'todo.confirm', id: 't2' });
+    fireEvent.click(screen.getByLabelText('窓を掴める（alpha）を却下'));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'todo.reject', id: 't1' });
+    fireEvent.click(screen.getByLabelText('窓を掴める（beta）を却下'));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'todo.reject', id: 't2' });
+  });
+  it('確かめるは要対応の後、実行中の前に置く', () => {
+    const c = { id: 't1', text: '窓', projectId: 'p1', projectName: 'a', sessionName: 's', ago: '1 分前', note: 'n' };
+    render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ attention: [{ id: 'w1', name: 'w', projectName: 'a', waited: '1 分', question: 'q', canAnswer: true }], confirm: [c], running: [runningCard()] })} /></IntentRoot>);
+    const labels = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+    expect(labels.slice(0, 3)).toEqual(['要対応1', '確かめる1', '実行中1']);
+  });
   it('要対応の札は問いを出し、「ターミナルで答える」で端末にフォーカスして開く', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w1', name: '論文の図を直す', projectName: 'thesis', waited: '12 分', question: '図 3 の凡例はどこに置きますか？', canAnswer: true }] })} /></IntentRoot>);

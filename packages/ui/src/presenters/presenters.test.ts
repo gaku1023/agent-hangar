@@ -74,6 +74,28 @@ describe('presentHome', () => {
     s.sessions.s1 = { ...s.sessions.s1!, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts', question: null }, stats: { ...s.sessions.s1!.stats, contextPercent: 38.4 } };
     return s;
   };
+  it('確かめるは全プロジェクトの候補を古い順に並べ、完了と矛盾した行は数えない', () => {
+    const store = homeStore();
+    store.projects = { ...store.projects, beta: { ...project('beta'), name: 'beta' } };
+    store.todos = {
+      a: todoDto('a', 1, false, { sessionId: 's1', note: '新しい', at: NOW - 60_000 }, 'alpha'),
+      b: todoDto('b', 1, false, { sessionId: null, note: null, at: NOW - 30 * 60_000 }, 'beta'),
+      // done かつ candidate は DTO では起きない（サーバが null にする）が、古いサーバや手で作った値でも数えない。
+      c: todoDto('c', 2, true, { sessionId: 's1', note: 'x', at: NOW - 90 * 60_000 }, 'alpha'),
+      d: todoDto('d', 3, false, null, 'alpha'),
+    };
+    const h = presentHome(initialState(), store, NOW);
+    expect(h.confirm).toEqual([
+      { id: 'b', text: 'やる b', projectId: 'beta', projectName: 'beta', sessionName: '不明なセッション', ago: '30 分前', note: '根拠は書かれていません' },
+      { id: 'a', text: 'やる a', projectId: 'alpha', projectName: 'alpha', sessionName: 'name-s1', ago: '1 分前', note: '新しい' },
+    ]);
+    expect(h.projects.find((p) => p.id === 'alpha')!.counts).toContain('確かめる 1');
+  });
+  it('候補が無ければ確かめるは空で、件数にも出さない', () => {
+    const h = presentHome(initialState(), homeStore(), NOW);
+    expect(h.confirm).toEqual([]);
+    expect(h.projects.every((p) => !p.counts.includes('確かめる'))).toBe(true);
+  });
   it('要対応は入力待ちを長く待っている順に拾い、問いが無ければ決まりの文を出す', () => {
     // w1 は hangar の run で動いている。w2 は別のターミナル（iTerm など）で動いていて、hangar の run が無い。
     const store = homeStore();
@@ -332,7 +354,7 @@ describe('presentSettings（フェーズ 2）', () => {
   });
 });
 
-const todoDto = (id: string, position: number, done = false): TodoDto => ({ id, projectId: 'p1', text: `やる ${id}`, done, position, sessionId: null, updatedAt: 1 });
+const todoDto = (id: string, position: number, done = false, candidate: TodoDto['candidate'] = null, projectId = 'p1'): TodoDto => ({ id, projectId, text: `やる ${id}`, done, position, sessionId: null, updatedAt: 1, candidate });
 const artDto = (id: string, over: Partial<ArtifactDto> = {}): ArtifactDto => ({ id, projectId: 'p1', url: `https://claude.ai/code/artifact/${id}`, title: `題名 ${id}`, description: '説明', favicon: '📊', filePath: null, fileExists: false, firstPublishedAt: NOW - 100_000, lastPublishedAt: NOW - 60_000, versionCount: 2, sessionIds: ['s1'], ...over });
 const scratchProject = (): ProjectDto => ({ ...project('sc'), name: 'スクラッチ', isScratch: true, path: '/h/.agent-hangar/scratch', lastActivityAt: NOW });
 
@@ -387,10 +409,28 @@ describe('presentProject の右レール', () => {
       artifacts: { a1: artDto('a1'), a2: artDto('a2', { projectId: 'p2' }) },
     };
     const p = presentProject(initialState(), store, NOW, 'p1');
-    expect(p.todos).toEqual([{ id: 't1', text: 'やる t1', done: false }, { id: 't2', text: 'やる t2', done: true }]);
+    expect(p.todos).toEqual([{ id: 't1', text: 'やる t1', done: false, candidate: null }, { id: 't2', text: 'やる t2', done: true, candidate: null }]);
     expect(p.memo).toEqual({ markdown: '# alpha\n本文', updatedAt: 5 });
     expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
     expect(p.isScratch).toBe(false);
+  });
+  it('候補の TODO は根拠とセッションと経過を出し、分からないものは決まりの文にする', () => {
+    const store = storeWith();
+    store.projects = { p1: { ...project('p1'), name: 'alpha' } };
+    store.sessions = { s1: session('s1', { name: '起動画面の作り直し', projectId: 'p1' }) };
+    store.todos = {
+      t1: todoDto('t1', 1, false, { sessionId: 's1', note: '直して確かめた', at: NOW - 12 * 60_000 }),
+      t2: todoDto('t2', 2, false, { sessionId: 'gone', note: null, at: NOW - 60 * 60_000 }),
+      t3: todoDto('t3', 3, false, { sessionId: null, note: 'n', at: NOW - 5 * 60_000 }),
+      t4: todoDto('t4', 4),
+    };
+    const p = presentProject(initialState(), store, NOW, 'p1');
+    expect(p.todos.map((t) => t.candidate)).toEqual([
+      { note: '直して確かめた', sessionId: 's1', sessionName: '起動画面の作り直し', ago: '12 分前' },
+      { note: '根拠は書かれていません', sessionId: null, sessionName: '不明なセッション', ago: '1 時間前' },
+      { note: 'n', sessionId: null, sessionName: '不明なセッション', ago: '5 分前' },
+      null,
+    ]);
   });
   it('アーティファクトのカードは題名と最終公開と編集の可否を持つ', () => {
     expect(presentArtifactCard(artDto('a1'), NOW)).toEqual({ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false });

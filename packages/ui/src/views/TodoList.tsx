@@ -4,7 +4,11 @@ import type { TodoItemProps } from '../presenters/project.ts';
 import { isComposing } from './ime.ts';
 import { Icon } from './primitives/Icon.tsx';
 
-/** プロジェクトの TODO。並び替えは持たず、完了した項目も同じ並びに打消し線で残す。 */
+/**
+ * プロジェクトの TODO。並び替えは持たず、完了した項目も同じ並びに打消し線で残す。
+ * 完了の候補は、欄を半分塗りにし、根拠と出したセッションと確定と却下を行の下に常に出す（開かずに判断できるように）。
+ * 候補の欄を押したときの扱い（確定にする）は Runtime が決める。View は反転の Intent を出すだけにする。
+ */
 export function TodoList(props: { projectId: string; todos: TodoItemProps[] }) {
   const emit = useEmit();
   const [text, setText] = useState('');
@@ -14,13 +18,36 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[] }) {
       {props.todos.length === 0 && <div className="faint">TODO はまだありません</div>}
       <ul className="todo-list">
         {/* 同じ文言の項目が並ぶことがあるので、読み上げの名前に何件目かを混ぜて一意にする。 */}
-        {props.todos.map((t, i) => (
-          <li key={t.id} className="todo" data-done={t.done ? 'true' : undefined}>
-            <input type="checkbox" checked={t.done} aria-label={`${t.text}（${i + 1} 件目）`} onChange={() => emit({ type: 'todo.toggle', id: t.id })} />
-            <span className="todo-text">{t.text}</span>
-            <button className="btn todo-del" aria-label={`${t.text}（${i + 1} 件目）を削除`} onClick={() => emit({ type: 'todo.remove', id: t.id })}><Icon name="close" /></button>
-          </li>
-        ))}
+        {props.todos.map((t, i) => {
+          const nth = `${t.text}（${i + 1} 件目）`;
+          const c = t.candidate;
+          return (
+            <li key={t.id} className="todo-item" data-candidate={c ? 'true' : undefined}>
+              <div className="todo" data-done={t.done ? 'true' : undefined}>
+                <input type="checkbox" className="todo-check" data-candidate={c ? 'true' : undefined} checked={t.done}
+                  aria-label={c ? `${t.text}（${i + 1} 件目、完了の候補）` : nth} aria-describedby={c ? `todo-why-${t.id}` : undefined}
+                  onChange={() => emit({ type: 'todo.toggle', id: t.id })} />
+                <span className="todo-text">{t.text}</span>
+                <button className="btn todo-del" aria-label={`${nth}を削除`} onClick={() => emit({ type: 'todo.remove', id: t.id })}><Icon name="close" /></button>
+              </div>
+              {c && (
+                <div className="todo-cand">
+                  <div className="todo-why" id={`todo-why-${t.id}`}>{c.note}</div>
+                  <div className="todo-src">
+                    {c.sessionId
+                      ? <button type="button" className="todo-src-link" onClick={() => emit({ type: 'session.open', id: c.sessionId! })}>{c.sessionName}</button>
+                      : <span>{c.sessionName}</span>}
+                    <span className="faint"> · {c.ago}</span>
+                  </div>
+                  <div className="todo-acts">
+                    <button type="button" className="btn btn-primary" aria-label={`${nth}を確定`} onClick={() => emit({ type: 'todo.confirm', id: t.id })}>確定</button>
+                    <button type="button" className="btn" aria-label={`${nth}を却下`} onClick={() => emit({ type: 'todo.reject', id: t.id })}>却下</button>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
       <div className="rail-add">
         {/* 変換中の Enter で足すと、確定と同時に書きかけが消える。 */}

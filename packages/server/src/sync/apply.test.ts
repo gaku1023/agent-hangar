@@ -11,6 +11,13 @@ const ch = (over: Partial<ChangeOut> & { rowId: string; updatedAt: number }): Ch
 const o = { ownDeviceId: 'a', skipOwn: true };
 
 describe('applyRemoteChange', () => {
+  it('TODO の候補の列は同期で往復する', () => {
+    const db = openDb(':memory:');
+    upsertShared(db, 'projects', { id: 'p1', name: 'a', status: 'active', is_scratch: 0 }, 'a');
+    const payload = { id: 't1', project_id: 'p1', text: 'x', done: 0, position: 1, session_id: null, candidate_at: 7, candidate_session_id: 's9', candidate_note: '根拠', rejected_sessions: '["s1"]', updated_at: 100, deleted_at: null, origin_device: 'b' };
+    expect(applyRemoteChange(db, { seq: 1, tableName: 'todos', rowId: 't1', op: 'upsert', deviceId: 'b', updatedAt: 100, payload }, o)).toBe('applied');
+    expect(db.prepare('select candidate_at, candidate_session_id, candidate_note, rejected_sessions from todos where id = ?').get('t1')).toEqual({ candidate_at: 7, candidate_session_id: 's9', candidate_note: '根拠', rejected_sessions: '["s1"]' });
+  });
   it('新しい行を書き、changes には追記しない', () => {
     const db = openDb(':memory:');
     expect(applyRemoteChange(db, ch({ rowId: 'p1', updatedAt: 100 }), o)).toBe('applied');

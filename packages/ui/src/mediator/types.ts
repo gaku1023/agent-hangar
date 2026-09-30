@@ -42,6 +42,8 @@ export type Effect =
   | { kind: 'api.addTodo'; projectId: string; text: string }
   | { kind: 'api.toggleTodo'; id: string }
   | { kind: 'api.removeTodo'; id: string }
+  | { kind: 'api.confirmTodo'; id: string }
+  | { kind: 'api.rejectTodo'; id: string }
   | { kind: 'api.loadMemo'; projectId: string }
   | { kind: 'api.saveMemo'; projectId: string; markdown: string }
   | { kind: 'api.setSessionMemo'; sessionId: string; text: string }

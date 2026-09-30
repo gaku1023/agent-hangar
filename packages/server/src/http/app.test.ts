@@ -8,6 +8,7 @@ import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { PromoteError } from '../projects/promote.ts';
+import { proposeTodoDone } from '../projects/todos.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { RunError } from '../runs/manager.ts';
 import { UsageTracker } from '../usage/statusline.ts';
@@ -534,6 +535,41 @@ describe('routes', () => {
     expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { memoHead: '# alpha' } });
     expect(fs.readFileSync(memos.memoPath(pid), 'utf8')).toBe('# alpha\n本文');
     expect((await post(`/api/projects/${pid}/memo`, { markdown: 3 }, 'PUT')).status).toBe(400);
+  });
+  it('TODO の候補の確定と却下', async () => {
+    const pid = list0ProjectId();
+    const a = await (await post(`/api/projects/${pid}/todos`, { text: 'a' })).json();
+    const b = await (await post(`/api/projects/${pid}/todos`, { text: 'b' })).json();
+    // 候補でない未完は、確定も却下も 409 で断る。本文はトーストに出せる一文にする。
+    const c409 = await post(`/api/todos/${a.id}/confirm`);
+    expect(c409.status).toBe(409);
+    expect((await c409.json()).error).toBe('この TODO は完了の候補ではありません');
+    expect((await post(`/api/todos/${a.id}/reject`)).status).toBe(409);
+    expect((await post('/api/todos/nope/confirm')).status).toBe(404);
+    expect((await post('/api/todos/nope/reject')).status).toBe(404);
+
+    proposeTodoDone(db, 'd', a.id, { sessionId: null, note: '直した' });
+    proposeTodoDone(db, 'd', b.id, { sessionId: null, note: '直した' });
+    sent.length = 0;
+    const ok = await post(`/api/todos/${a.id}/confirm`);
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ id: a.id, done: true, candidate: null });
+    expect(sent.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
+    // すでに完了なら何もせず 200。何も配らない。
+    sent.length = 0;
+    expect((await post(`/api/todos/${a.id}/confirm`)).status).toBe(200);
+    expect(sent).toEqual([]);
+
+    sent.length = 0;
+    const rj = await post(`/api/todos/${b.id}/reject`);
+    expect(rj.status).toBe(200);
+    expect(sent.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
+    expect(await rj.json()).toMatchObject({ id: b.id, done: false, candidate: null });
+    expect((await post(`/api/todos/${b.id}/reject`)).status).toBe(409);
+
+    // 利用者のチェックの付け外しは候補を消す。
+    proposeTodoDone(db, 'd', b.id, { sessionId: null, note: 'もう一度' });
+    expect(await (await post(`/api/todos/${b.id}`, { done: false }, 'PATCH')).json()).toMatchObject({ done: false, candidate: null });
   });
   it('アーティファクト', async () => {
     const pid = list0ProjectId();

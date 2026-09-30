@@ -6,7 +6,7 @@ const base = fs.readFileSync(new URL('./base.css', import.meta.url), 'utf8');
 
 describe('tokens.css', () => {
   it('必要なトークンをライトで定義する', () => {
-    for (const t of ['--bg', '--aura-1', '--aura-2', '--surface', '--line', '--ink', '--ink-2', '--ink-3', '--accent', '--accent-hi', '--busy', '--idle', '--waiting', '--ended', '--font-sans', '--font-mono', '--row-h',
+    for (const t of ['--bg', '--aura-1', '--aura-2', '--surface', '--line', '--ink', '--ink-2', '--ink-3', '--accent', '--accent-hi', '--busy', '--idle', '--waiting', '--ended', '--cand', '--cand-soft', '--font-sans', '--font-mono', '--row-h',
       '--dur-fast', '--dur', '--dur-exit', '--ease-out', '--ease-in', '--rise', '--blur-in', '--breathe-period',
       '--glass-bg', '--glass-blur', '--glass-edge', '--glass-drop', '--r', '--r-lg', '--r-xl', '--r-pill', '--float-gap', '--header-h', '--aura-period']) {
       expect(css, t).toContain(`${t}:`);
@@ -33,6 +33,18 @@ describe('tokens.css', () => {
   it('注記の色は白地で 3:1 以上、主ボタンの白い文字は 4.5:1 以上', () => {
     expect(contrast(token('--ink-3'), token('--surface'))).toBeGreaterThanOrEqual(3);
     expect(contrast(token('--accent-ink'), token('--accent'))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('tokens.css (候補)', () => {
+  it('候補の色の文字は、淡い紫の地と白地の両方で 4.5:1 以上で読める', () => {
+    expect(contrast(token('--cand'), token('--cand-soft'))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(token('--cand'), token('--surface'))).toBeGreaterThanOrEqual(4.5);
+  });
+  it('候補の行の「· 12 分前」は --ink-2 で、淡い紫の地でも 4.5:1 以上で読める', () => {
+    expect(contrast(token('--ink-2'), token('--cand-soft'))).toBeGreaterThanOrEqual(4.5);
+    const workbench = fs.readFileSync(new URL('./workbench.css', import.meta.url), 'utf8');
+    expect(workbench).toMatch(/\.todo-cand \.faint\s*\{[^}]*color:\s*var\(--ink-2\)/);
   });
 });
 

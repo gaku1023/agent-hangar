@@ -397,6 +397,40 @@ describe('フェーズ 3 の効果', () => {
     await flush();
     expect(setTodoDone).not.toHaveBeenCalled();
   });
+
+  it('候補の TODO の反転は確定になり、確定と却下はそのまま API へ渡す', async () => {
+    const setTodoDone = vi.fn(async (id: string, done: boolean) => p3Todo(id, done));
+    const confirmTodo = vi.fn(async (id: string) => p3Todo(id, true));
+    const rejectTodo = vi.fn(async (id: string) => p3Todo(id, false));
+    const { rt, wsHandlers } = harness({ setTodoDone, confirmTodo, rejectTodo });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    wsHandlers[0]!.onEvent({ type: 'todos.update', projectId: 'p1', todos: [{ ...p3Todo('t1', false), candidate: { sessionId: 's1', note: 'n', at: 1 } }] });
+    rt.emit({ type: 'todo.toggle', id: 't1' });
+    await flush();
+    // 候補の欄を押したのに done: false を送ると、何も起きずに候補だけが消える。確定と同じに扱う。
+    expect(confirmTodo).toHaveBeenCalledWith('t1');
+    expect(setTodoDone).not.toHaveBeenCalled();
+    rt.emit({ type: 'todo.reject', id: 't1' });
+    rt.emit({ type: 'todo.confirm', id: 't1' });
+    await flush();
+    expect(rejectTodo).toHaveBeenCalledWith('t1');
+    expect(confirmTodo).toHaveBeenCalledTimes(2);
+  });
+  it('完了かつ候補という古い値の反転は、確定ではなく完了の取り消しになる', async () => {
+    const setTodoDone = vi.fn(async (id: string, done: boolean) => p3Todo(id, done));
+    const confirmTodo = vi.fn(async (id: string) => p3Todo(id, true));
+    const { rt, wsHandlers } = harness({ setTodoDone, confirmTodo });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    wsHandlers[0]!.onEvent({ type: 'todos.update', projectId: 'p1', todos: [{ ...p3Todo('t1', true), candidate: { sessionId: 's1', note: 'n', at: 1 } }] });
+    rt.emit({ type: 'todo.toggle', id: 't1' });
+    await flush();
+    expect(setTodoDone).toHaveBeenCalledWith('t1', false);
+    expect(confirmTodo).not.toHaveBeenCalled();
+  });
   it('メモは読み込みと保存の両方でストアに入る', async () => {
     const memo = vi.fn(async (projectId: string): Promise<MemoDto> => ({ projectId, markdown: '# 読んだ', updatedAt: 5 }));
     const saveMemo = vi.fn(async (projectId: string, markdown: string): Promise<MemoDto> => ({ projectId, markdown, updatedAt: 6 }));
