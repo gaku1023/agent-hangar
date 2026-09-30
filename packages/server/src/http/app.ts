@@ -11,6 +11,7 @@ import { statuslineStatus } from '../config/statusline.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
+import { LiveDigester } from '../live/digest.ts';
 import { createMcpApp } from '../mcp/app.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import { PromoteError } from '../projects/promote.ts';
@@ -276,6 +277,7 @@ export function createApp(deps: AppDeps): Hono {
   const session = (id: string) => getSession(db, deps.live(), id, { deviceId });
   const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
   const broadcastSession = (id: string) => { const s = session(id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };
+  const digester = new LiveDigester(db);
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
   const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
@@ -374,6 +376,17 @@ export function createApp(deps: AppDeps): Hono {
     }
   });
   api.get('/sessions/:id/subagents', (c) => c.json(subagentIds(db, c.req.param('id'))));
+  // 実行中のセッションの右ペイン。UI は追記のたびに取り直すが、索引が変わっていなければ覚えた要約を返す。
+  api.get('/sessions/:id/live', (c) => {
+    const id = c.req.param('id');
+    if (!session(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    try {
+      return c.json(digester.digest(id));
+    } catch (e) {
+      if (isEnoent(e)) return c.json({ error: 'このセッションの本文はこの PC にありません' }, 404);
+      throw e;
+    }
+  });
 
   api.get('/search', (c) => {
     const q = c.req.query();

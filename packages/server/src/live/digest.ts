@@ -1,0 +1,158 @@
+import { isTurnPrompt, stepKind, stepLine, type LiveAgentDto, type LiveDigestDto, type TranscriptEvent } from '@agent-hangar/shared';
+import type { Db } from '../db/open.ts';
+import { readEvents } from '../transcript/read.ts';
+import { latestIntent } from './intents.ts';
+
+type Call = Extract<TranscriptEvent, { kind: 'tool_call' }>;
+type Result = Extract<TranscriptEvent, { kind: 'tool_result' }>;
+type Stat = { agent: string; first: number | null; last: number | null };
+
+const AGENT_TOOLS = new Set(['Agent', 'Task']);
+/** 1 ターンで読む主線のイベントの上限。何千手も続く指揮役のターンでも、ここで打ち切る。 */
+const MAIN_CAP = 10_000;
+/** サブエージェントの末尾から読む数。最後の手と最後の報告が入れば足りる。 */
+const AGENT_TAIL = 60;
+
+const isCall = (e: TranscriptEvent): e is Call => e.kind === 'tool_call';
+const isResult = (e: TranscriptEvent): e is Result => e.kind === 'tool_result';
+const tag = (text: string, name: string): string | null => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim() ?? null;
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v : undefined);
+
+/** 本文の最初の空でない行。見出しや強調の記号は落とす。 */
+function firstLine(text: string, max = 120): string | null {
+  const line = text.split('\n').map((l) => l.replace(/^[#>*\s-]+/, '').replace(/\*\*/g, '').trim()).find((l) => l !== '');
+  return line ? [...line].slice(0, max).join('') : null;
+}
+
+/** 今のターンの頭。中断の知らせを除いた、主線の最後の利用者の指示。 */
+export function turnStart(db: Db, sessionId: string): { seq: number; ts: number | null } | null {
+  const rows = db.prepare("select seq, ts from event_index where session_id = ? and parent_agent is null and kind = 'user' order by seq desc limit 20").all(sessionId) as { seq: number; ts: number | null }[];
+  for (const r of rows) {
+    const ev = readEvents(db, sessionId, { fromSeq: r.seq, limit: 1 }).events.find((e) => e.seq === r.seq);
+    if (ev && ev.kind === 'user' && isTurnPrompt(ev.text)) return r;
+  }
+  return null;
+}
+
+function mainSince(db: Db, sessionId: string, fromSeq: number): TranscriptEvent[] {
+  const out: TranscriptEvent[] = [];
+  let seq: number | null = fromSeq;
+  while (seq !== null && out.length < MAIN_CAP) {
+    const p = readEvents(db, sessionId, { fromSeq: seq, limit: 2000 });
+    out.push(...p.events);
+    seq = p.nextSeq;
+  }
+  return out;
+}
+
+/** バックグラウンドの本が終わったことを知らせる <task-notification> の、本ごとの最後の status。 */
+function notifications(main: TranscriptEvent[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const e of main) {
+    if (e.kind !== 'system' || !e.text.trimStart().startsWith('<task-notification>')) continue;
+    const id = tag(e.text, 'task-id');
+    const st = tag(e.text, 'status');
+    if (id && st) m.set(id, st);
+  }
+  return m;
+}
+
+function stats(db: Db, sessionId: string): Stat[] {
+  return db.prepare('select parent_agent agent, min(ts) first, max(ts) last from event_index where session_id = ? and parent_agent is not null group by parent_agent order by min(ts), min(seq)').all(sessionId) as Stat[];
+}
+
+/** サブエージェントの末尾から、最後の手と最後の報告を取る。 */
+function tail(db: Db, sessionId: string, agentId: string): Pick<LiveAgentDto, 'last'> & { said: string | null } {
+  const events = readEvents(db, sessionId, { agentId, latest: true, limit: AGENT_TAIL }).events;
+  const results = new Map(events.filter(isResult).map((r) => [r.toolId, r]));
+  const call = [...events].reverse().find(isCall) ?? null;
+  const last = call ? { ...stepLine(call), kind: stepKind(call), isError: results.get(call.toolId)?.isError === true } : null;
+  const said = [...events].reverse().find((e) => e.kind === 'assistant' && e.text.trim() !== '');
+  return { last, said: said && said.kind === 'assistant' ? said.text : null };
+}
+
+/** 前のターンから動き続けている本の題名。起こした呼び出しが今のターンに無いので、その本が受け取った指示の書き出しにする。 */
+function promptTitle(db: Db, sessionId: string, agentId: string): string {
+  const first = readEvents(db, sessionId, { agentId, fromSeq: 0, limit: 5 }).events.find((e) => e.kind === 'user');
+  return (first && first.kind === 'user' ? firstLine(first.text, 40) : null) ?? agentId;
+}
+
+type Seed = { agentId: string; title: string; call: Call | null; result: Result | null; linked: boolean };
+
+function agentsOf(db: Db, sessionId: string, main: TranscriptEvent[], since: number): LiveAgentDto[] {
+  const results = new Map(main.filter(isResult).map((r) => [r.toolId, r]));
+  const done = notifications(main);
+  const st = stats(db, sessionId);
+  const statOf = new Map(st.map((s) => [s.agent, s]));
+  const seeds: Seed[] = [];
+  const unlinked: Seed[] = [];
+  for (const c of main.filter(isCall)) {
+    if (!AGENT_TOOLS.has(c.name)) continue;
+    const r = results.get(c.toolId) ?? null;
+    const title = (c.input && typeof c.input === 'object' ? str((c.input as Record<string, unknown>).description) : undefined) ?? c.summary;
+    const id = r?.agentLaunch?.agentId;
+    if (id) seeds.push({ agentId: id, title, call: c, result: r, linked: true });
+    else if (r?.isError) seeds.push({ agentId: `tool:${c.toolId}`, title, call: c, result: r, linked: false });
+    else { const s: Seed = { agentId: `tool:${c.toolId}`, title, call: c, result: r, linked: false }; seeds.push(s); unlinked.push(s); }
+  }
+  // agentId を持たない古い記録は、今のターンに始まったまだ結んでいない本と順番で突き合わせる。
+  const taken = new Set(seeds.filter((s) => s.linked).map((s) => s.agentId));
+  const fresh = st.filter((s) => !taken.has(s.agent) && (s.first ?? 0) >= since);
+  unlinked.forEach((s, i) => { const f = fresh[i]; if (f) { s.agentId = f.agent; s.linked = true; taken.add(f.agent); } });
+  // 前のターンに起こし、今のターンにも手を動かしている本。
+  for (const s of st) {
+    if (taken.has(s.agent) || (s.last ?? 0) < since) continue;
+    seeds.push({ agentId: s.agent, title: promptTitle(db, sessionId, s.agent), call: null, result: null, linked: true });
+    taken.add(s.agent);
+  }
+  return seeds.map((s): LiveAgentDto => {
+    const stat = s.linked ? statOf.get(s.agentId) : undefined;
+    const t = stat ? tail(db, sessionId, s.agentId) : { last: null, said: null };
+    const note = done.get(s.agentId);
+    const state: LiveAgentDto['state'] = s.result?.isError ? 'error'
+      : note !== undefined ? (note === 'completed' ? 'done' : 'error')
+      : s.result && !s.result.agentLaunch?.async && s.call ? 'done'
+      : 'running';
+    const born = s.call?.ts ?? null;
+    return {
+      agentId: s.agentId, title: s.title, state,
+      startedAt: stat?.first ?? born, lastAt: stat?.last ?? born,
+      // linked は agentLaunch か順番の突き合わせか前のターンからの本のときだけ真である。
+      // 起こした直後でまだ transcript の無い本も、押せば空の transcript が開くだけなので真のままにする。
+      last: t.last, report: state === 'running' || t.said === null ? null : firstLine(t.said), linked: s.linked,
+    };
+  });
+}
+
+/** 右ペインのライブの要約。今のターンの頭から読む。 */
+export function buildLiveDigest(db: Db, sessionId: string): LiveDigestDto {
+  const start = turnStart(db, sessionId);
+  const main = start ? mainSince(db, sessionId, start.seq) : [];
+  const since = start?.ts ?? 0;
+  const agents = start ? agentsOf(db, sessionId, main, since) : [];
+  const it = latestIntent(db, sessionId);
+  const stepsSince = (at: number) => (db.prepare("select count(*) c from event_index where session_id = ? and kind = 'tool_call' and ts > ?").get(sessionId, at) as { c: number }).c;
+  const intent = it ? { text: it.text, at: it.at, stepsSince: stepsSince(it.at), inThisTurn: start?.ts == null || it.at >= start.ts } : null;
+  return { sessionId, turnStartSeq: start?.seq ?? null, intent, agents };
+}
+
+/**
+ * 要約を覚えておく。UI は追記のたびに取り直すので、索引と意図が変わっていなければ読み直さない。
+ * 経過時間は UI が今の時刻で数えるので、覚えた要約が古くなることは無い。
+ */
+export class LiveDigester {
+  private readonly cache = new Map<string, { key: string; digest: LiveDigestDto }>();
+  constructor(private readonly db: Db) {}
+  digest(sessionId: string): LiveDigestDto {
+    const key = this.keyOf(sessionId);
+    const hit = this.cache.get(sessionId);
+    if (hit && hit.key === key) return hit.digest;
+    const digest = buildLiveDigest(this.db, sessionId);
+    this.cache.set(sessionId, { key, digest });
+    return digest;
+  }
+  private keyOf(sessionId: string): string {
+    const r = this.db.prepare('select max(seq) m, count(*) c, max(ts) t from event_index where session_id = ?').get(sessionId) as { m: number | null; c: number; t: number | null };
+    return `${r.m}:${r.c}:${r.t}:${latestIntent(this.db, sessionId)?.at ?? ''}`;
+  }
+}
