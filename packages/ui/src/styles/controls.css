@@ -92,6 +92,8 @@
 
 /* 増減のボタン。素の number の小さな矢印は隠す。 */
 .stepper { display: inline-flex; flex: none; align-items: center; height: 30px; border-radius: var(--r-pill); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+/* 入力欄の枠は消しているので、フォーカスは外側の輪で示す。 */
+.stepper:focus-within { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .stepper > button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink-2); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
 .stepper > button:hover:not(:disabled) { color: var(--ink); background: var(--surface-2); }
 .stepper > button:disabled { opacity: 0.4; cursor: default; }
