@@ -45,12 +45,12 @@ const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary
 /** 経路の検査だけをしたいので、RunManager は呼び出しを記録する偽物に差し替える。 */
 function fakeRuns(): RunsApi {
   return {
-    start: vi.fn((p: LaunchParams): LaunchResultDto => { if (!p.projectId) throw new RunError(400, 'projectId は必須です'); return launched; }),
+    start: vi.fn((p: LaunchParams): LaunchResultDto => { if (!p.projectId) throw new RunError(400, 'プロジェクトを選んでください'); return launched; }),
     resume: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
     fork: vi.fn((): LaunchResultDto => ({ ...launched, sessionId: 's2', run: { ...run, kind: 'fork', sessionId: 's2' } })),
     attach: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
     adopt: vi.fn(async (id: string): Promise<LaunchResultDto> => { if (id === 'busy') throw new RunError(409, '作業中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
-    kill: vi.fn((id: string): RunDto => { if (id !== 'r1') throw new RunError(404, 'run が見つかりません'); return { ...run, endedAt: 2, endReason: 'killed' }; }),
+    kill: vi.fn((id: string): RunDto => { if (id !== 'r1') throw new RunError(404, '起動した Claude が見つかりません'); return { ...run, endedAt: 2, endReason: 'killed' }; }),
     openTab: vi.fn((): TabDto => shellTab),
     closeTab: vi.fn((): TabDto => ({ ...shellTab, closedAt: 3 })),
     listAlive: vi.fn((): { runs: RunDto[]; tabs: TabDto[] } => ({ runs: [run], tabs: [agentTab, shellTab] })),
@@ -61,7 +61,7 @@ function fakeRuns(): RunsApi {
       const t = id === 't1' ? shellTab : id === 'r1' ? agentTab : id === 'dead' ? deadAgentTab : id === 'dead-t1' ? deadShellTab : null;
       return t && t.kind === 'agent' && t.runId === 'dead' ? null : t;
     }),
-    jumpToPrompt: vi.fn(async (id: string) => { if (id === 'dead') throw new RunError(409, 'この run は終了しています'); return { found: true as const }; }),
+    jumpToPrompt: vi.fn(async (id: string) => { if (id === 'dead') throw new RunError(409, 'この Claude はもう終了しています'); return { found: true as const }; }),
     leaveTranscript: vi.fn(async () => ({ left: true })),
   };
 }
@@ -303,7 +303,7 @@ describe('routes', () => {
     }
     const r = await get(`/api/sessions/${alpha.id}/events`);
     expect(r.status).toBe(404);
-    expect(await r.json()).toEqual({ error: 'このセッションの本文ファイルが見つかりません。Settings の「索引を作り直す」を試してください' });
+    expect(await r.json()).toEqual({ error: 'このセッションの本文ファイルが見つかりません。設定の「索引を作り直す」を試してください' });
   });
   it('検索', async () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
@@ -345,6 +345,29 @@ describe('routes', () => {
     const r2 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: asFile }) });
     expect(r2.status).toBe(200);
     expect((await r2.json()).workspaceRoot).toBe(asFile);
+  });
+  it('設定の誤りは、内部のキー名ではなく画面の欄の見出しと画面名「設定」で言う', async () => {
+    const error = async (body: unknown) => {
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(r.status).toBe(400);
+      return ((await r.json()) as { error: string }).error;
+    };
+    expect(await error({ workspaceRoot: '' })).toBe('「ワークスペースのルート」は空にできません');
+    expect(await error({ claudeDir: ' ' })).toBe('「読み取り元」は空にできません');
+    expect(await error({ tmuxPath: 3 })).toBe('「tmux のパス」の値の形が違います');
+    expect(await error({ codePath: 3 })).toBe('「code のパス」の値の形が違います');
+    expect(await error({ nodePath: 3 })).toBe('「Node のパス」の値の形が違います');
+    expect(await error({ claudePath: 3 })).toBe('「claude のパス」の値の形が違います');
+    expect(await error({ terminalApp: 'kitty' })).toBe('「ターミナルアプリ」は Terminal.app か iTerm2 から選んでください');
+    expect(await error({ lmStudioUrl: 'ftp://x' })).toBe('「LM Studio の URL」は http か https で始まる URL にしてください');
+    expect(await error({ lmStudioModel: 3 })).toBe('「モデル」の値の形が違います');
+    expect(await error({ summaryFallback: 'yes' })).toBe('「LM Studio が使えないとき Claude へ切り替える」の値の形が違います');
+    expect(await error({ summaryHourlyCap: 0 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
+    // 画面の入力と同じく 200 までにする。
+    expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
+    expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約器を許す」の値の形が違います');
+    expect(await error({ syncClaudeConfig: 'yes' })).toBe('「Claude Code の設定を同期する」の値の形が違います');
+    expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約器の宛先は 127.0.0.1 か localhost だけです。会話の本文が送られるため、ほかの宛先は、設定の「外部の要約器を許す」を入れてから指定してください');
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -752,6 +775,7 @@ describe('routes', () => {
       expect(notice).toContain('hangar start');
       // 起動した後に URL を見直す道も案内する。案内にトークンそのものは出さない。
       expect(notice).toContain('hangar url');
+      expect(notice).toContain('ターミナルで <code>hangar url</code> を実行すれば');
       // 鍵が違うときも同じ扱いにする。
       const wrong = await ui.request('/?t=nope');
       expect(wrong.status).toBe(401);
@@ -1042,6 +1066,6 @@ describe('設定の往復', () => {
   it('真偽値でない syncClaudeConfig は 400 で断る', async () => {
     const r = await patch({ syncClaudeConfig: 'yes' });
     expect(r.status).toBe(400);
-    expect((await r.json()).error).toBe('syncClaudeConfig は true か false です');
+    expect((await r.json()).error).toBe('「Claude Code の設定を同期する」の値の形が違います');
   });
 });

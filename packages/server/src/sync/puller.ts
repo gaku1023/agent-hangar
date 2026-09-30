@@ -85,7 +85,7 @@ function parseSkip(raw: string): SkipRecord | null {
  * ここを通さずに R2 の申告した文字列で組み立てると、~/.claude のような外の場所へ書けてしまう。
  */
 export function remoteTranscriptPath(home: string, deviceId: string, rel: string): string {
-  if (!/^[A-Za-z0-9._-]+$/.test(deviceId) || deviceId === '.' || deviceId === '..') throw new Error(`端末 ID が不正です: ${deviceId}`);
+  if (!/^[A-Za-z0-9._-]+$/.test(deviceId) || deviceId === '.' || deviceId === '..') throw new Error(`PC の ID が不正です: ${deviceId}`);
   const norm = path.posix.normalize(rel);
   if (!norm.startsWith('projects/') || norm.split('/').includes('..') || norm.startsWith('/')) throw new Error(`本文の相対パスが不正です: ${rel}`);
   return path.join(remoteRoot(home), deviceId, ...norm.split('/'));

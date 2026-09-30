@@ -108,7 +108,7 @@ export function openDirInTerminalApp(o: { home: string; dir: string; app: Termin
 }
 
 export async function openInEditor(o: { codePath: string | null; target: string; exec?: Exec }): Promise<void> {
-  if (!o.codePath) throw new Error('VS Code の code コマンドが見つかりません。Settings の codePath を設定してください');
+  if (!o.codePath) throw new Error('VS Code の code コマンドが見つかりません。設定の「code のパス」を入れてください');
   const r = await (o.exec ?? execFile)(o.codePath, [o.target]);
   if (r.code !== 0) throw new Error(`VS Code を起動できませんでした: ${r.stderr.trim() || `exit ${r.code}`}`);
 }

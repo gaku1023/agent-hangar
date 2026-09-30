@@ -695,7 +695,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 設定は書き替わるので、外部連携は呼ばれた時点の settings を読む。
   const external: ExternalApi = {
     openTerminal: ({ tmuxName }) => {
-      if (!settings.tmuxPath) throw new Error('tmux が見つかりません。Settings で tmuxPath を設定してください');
+      if (!settings.tmuxPath) throw new Error('tmux が見つかりません。設定の「tmux のパス」を入れてください');
       return openInTerminalApp({ home, tmuxPath: settings.tmuxPath, tmuxName, app: settings.terminalApp });
     },
     openDirTerminal: ({ dir }) => openDirInTerminalApp({ home, dir, app: settings.terminalApp }),
