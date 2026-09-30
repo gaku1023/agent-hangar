@@ -141,6 +141,18 @@ describe('NewSessionDialog', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('tmux が見つかりません');
     expect(screen.getByText(/信頼確認/)).toBeInTheDocument();
   });
+  // 未選択で送った後にプロジェクトを選んでも、「プロジェクトを選んでください」が残っていた。
+  it('失敗の文言は、プロジェクトを選び直したら消え、送り直して同じ失敗ならまた出す', () => {
+    const onIntent = vi.fn();
+    const ui = (error: string | null) => <IntentRoot onIntent={onIntent}><NewSessionDialog {...base} error={error} /></IntentRoot>;
+    const { rerender } = render(ui('プロジェクトを選んでください'));
+    expect(screen.getByRole('alert')).toHaveTextContent('プロジェクトを選んでください');
+    pick('プロジェクト', 'alpha');
+    expect(screen.queryByRole('alert')).toBeNull();
+    start();
+    rerender(ui('プロジェクトを選んでください'));
+    expect(screen.getByRole('alert')).toHaveTextContent('プロジェクトを選んでください');
+  });
   it('変換中の Enter では起動しない', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} projectId="p1" /></IntentRoot>);

@@ -78,8 +78,12 @@ export function NewSessionDialog(props: NewSessionProps) {
   // 値を外から入れ替えた回数。model の択一は「ほか」の欄を開いたかを自分で覚えるので、入れ替えたら作り直す。
   const [replaced, setReplaced] = useState(0);
   const setOption = <K extends keyof Options>(key: K) => (value: Options[K]) => { setTouched(true); setDetail((o) => ({ ...o, [key]: value })); };
+  // 失敗の文言は、その送信の結果である。プロジェクトを選び直したら古い文言は出さず、送り直したらまた出す。
+  // 同じ文言が続けて返ることがあるので、文言ではなく「選び直した時点の文言」を覚えて比べる。
+  const [staleError, setStaleError] = useState<string | null>(null);
   const choose = (value: string) => {
     setChoice(value);
+    setStaleError(props.error);
     if (touched) return;
     setDetail(optionsOf(props.prefs[value]));
     setReplaced((n) => n + 1);
@@ -107,6 +111,7 @@ export function NewSessionDialog(props: NewSessionProps) {
 
   const submit = () => {
     if (props.submitting) return;
+    setStaleError(null);
     const params: LaunchParams = {};
     // スクラッチはプロジェクトを持たず、サーバが使い捨てのディレクトリを作る。
     if (scratch) params.scratch = true;
@@ -209,7 +214,7 @@ export function NewSessionDialog(props: NewSessionProps) {
         </label>
       </Fold>
       <div className="faint">新しいディレクトリでは Claude が信頼確認のダイアログを出します。起動したあとにターミナルで答えてください。</div>
-      {props.error && <div className="error" role="alert">{props.error}</div>}
+      {props.error && props.error !== staleError && <div className="error" role="alert">{props.error}</div>}
     </Dialog>
   );
 }
