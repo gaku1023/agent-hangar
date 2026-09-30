@@ -80,6 +80,11 @@ describe('TodoList', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'todo.remove', id: 't2' });
     expect(input.getAttribute('id')).toBe('todo-input');
   });
+  it('済みの印は checkbox の役割で、状態を aria-checked に出す', () => {
+    wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '買う', done: false }, { id: 't2', text: '済んだ', done: true }]} />);
+    expect(screen.getByRole('checkbox', { name: '買う（1 件目）' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('checkbox', { name: '済んだ（2 件目）' })).toHaveAttribute('aria-checked', 'true');
+  });
   it('空の入力では何も出さない', () => {
     const onIntent = wrap(<TodoList projectId="p1" todos={[]} />);
     fireEvent.keyDown(screen.getByLabelText('TODO を追加'), { key: 'Enter' });

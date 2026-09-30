@@ -16,7 +16,10 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[] }) {
         {/* 同じ文言の項目が並ぶことがあるので、読み上げの名前に何件目かを混ぜて一意にする。 */}
         {props.todos.map((t, i) => (
           <li key={t.id} className="todo" data-done={t.done ? 'true' : undefined}>
-            <input type="checkbox" checked={t.done} aria-label={`${t.text}（${i + 1} 件目）`} onChange={() => emit({ type: 'todo.toggle', id: t.id })} />
+            {/* 押すと緑に満ち、チェックの線が描かれる。線の描画は CSS の stroke-dashoffset で動かす。 */}
+            <button type="button" role="checkbox" className="todo-check" aria-checked={t.done} aria-label={`${t.text}（${i + 1} 件目）`} onClick={() => emit({ type: 'todo.toggle', id: t.id })}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+            </button>
             <span className="todo-text">{t.text}</span>
             <button className="btn todo-del" aria-label={`${t.text}（${i + 1} 件目）を削除`} onClick={() => emit({ type: 'todo.remove', id: t.id })}><Icon name="close" /></button>
           </li>
