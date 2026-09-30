@@ -183,7 +183,7 @@ TODO の一覧の中だけで使うので、共通の部品にはせず `TodoLis
 
 effort と permission mode の値は、`claude --help` の `--effort` と `--permission-mode` の選択肢に合わせた。
 model の別名のうち、`--help` の説明に挙がるのは fable、opus、sonnet の 3 つで、haiku は挙がっていない。
-haiku は Claude Code のモデル設定の別名として使える想定で入れるが、実装のときに起動して確かめ、通らなければ外す。
+haiku は Claude Code のモデル設定の別名の表（code.claude.com の model-config）に挙がっていることを確かめたので、入れる。
 「確認なし」を選ぶと、カードを赤で縁取り、カードの下に「ファイルの削除やコマンドも、確認せずに実行します」を `--error` の色で出す。
 
 「既定」はどれも空の値であり、いまと同じく params に含めない。

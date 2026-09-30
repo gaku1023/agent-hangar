@@ -118,6 +118,7 @@ describe('Root', () => {
     await flush();
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
     expect(screen.getByRole('dialog', { name: '新しいセッション' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'プロジェクト' }));
     expect(screen.getByRole('option', { name: /alpha/ })).toBeInTheDocument();
     fireEvent.click(screen.getByText('やめる'));
     expect(screen.queryByRole('dialog')).toBeNull();

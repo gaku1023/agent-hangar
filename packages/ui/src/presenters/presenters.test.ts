@@ -310,15 +310,27 @@ describe('presentSession（実行中）', () => {
 });
 
 describe('presentNewSession', () => {
-  it('オーバーレイが newSession のときだけ、解決済みでアーカイブでないプロジェクトを出す', () => {
+  it('オーバーレイが newSession のときだけ、解決済みでアーカイブでないプロジェクトを名前順に出す', () => {
     const store = storeWith();
     store.projects.gone = { ...project('gone'), resolved: false };
-    expect(presentNewSession(initialState(), store)).toBeNull();
+    expect(presentNewSession(initialState(), store, NOW)).toBeNull();
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: 'beta', scratch: false }, launch: { kind: 'failed' as const, message: 'x' } };
-    const p = presentNewSession(state, store)!;
+    const p = presentNewSession(state, store, NOW)!;
     expect(p.projects.map((x) => x.id)).toEqual(['alpha', 'beta']);
     expect(p).toMatchObject({ projectId: 'beta', submitting: false, error: 'x' });
-    expect(presentNewSession({ ...state, launch: { kind: 'submitting' } }, store)!.submitting).toBe(true);
+    expect(presentNewSession({ ...state, launch: { kind: 'submitting' } }, store, NOW)!.submitting).toBe(true);
+  });
+  it('ステータスと最後に使った時期を添え、最近は最後に使った順の上位 5 件', () => {
+    const store = storeWith();
+    for (const [id, ago] of [['p1', 1], ['p2', 5], ['p3', 3], ['p4', 9], ['p5', 2], ['p6', 7], ['p7', null]] as const) {
+      store.projects[id] = { ...project(id), lastActivityAt: ago === null ? null : NOW - ago * 60_000 };
+    }
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    const p = presentNewSession(state, store, NOW)!;
+    expect(p.recentIds).toEqual(['p1', 'p5', 'p3', 'p2', 'p6']);
+    const p1 = p.projects.find((x) => x.id === 'p1')!;
+    expect(p1).toMatchObject({ status: store.projects.p1!.status, lastActivity: '1 分前' });
+    expect(p.projects.find((x) => x.id === 'p7')!.lastActivity).toBe('');
   });
 });
 
@@ -408,10 +420,10 @@ describe('presentProjects と presentHome（スクラッチ）', () => {
   it('起動ダイアログの選択肢からも外す。並びは名前順のまま', () => {
     const store: Store = { ...storeWith(), projects: { ...storeWith().projects, sc: scratchProject() } };
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
-    const p = presentNewSession(state, store)!;
+    const p = presentNewSession(state, store, NOW)!;
     expect(p.projects.map((x) => x.id)).toEqual(['alpha', 'beta']);
     expect(p.scratch).toBe(false);
-    expect(presentNewSession({ ...state, overlay: { kind: 'newSession', projectId: null, scratch: true } }, store)!.scratch).toBe(true);
+    expect(presentNewSession({ ...state, overlay: { kind: 'newSession', projectId: null, scratch: true } }, store, NOW)!.scratch).toBe(true);
   });
 });
 

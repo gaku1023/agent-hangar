@@ -1,12 +1,21 @@
+import type { ProjectStatus } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
+import { relativeTime } from './format.ts';
 
-export type NewSessionProps = { projects: { id: string; name: string; path: string | null }[]; projectId: string | null; submitting: boolean; error: string | null; scratch: boolean };
+export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
+export type NewSessionProps = { projects: NewSessionProject[]; recentIds: string[]; projectId: string | null; submitting: boolean; error: string | null; scratch: boolean };
+
+/** 一覧の「最近」に置く件数。 */
+export const RECENT_COUNT = 5;
 
 /** 起動ダイアログ。overlay が newSession のときだけ props を作る。 */
-export function presentNewSession(state: State, store: Store): NewSessionProps | null {
+export function presentNewSession(state: State, store: Store, now: number): NewSessionProps | null {
   if (state.overlay.kind !== 'newSession') return null;
-  // スクラッチの擬似プロジェクトは選ばせない。絞り込みと並びはフェーズ 2 のまま。
-  const projects = Object.values(store.projects).filter((p) => !p.isScratch && p.resolved && p.status !== 'archived').sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, path: p.path }));
-  return { projects, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch };
+  // スクラッチの擬似プロジェクトは選ばせない。
+  const live = Object.values(store.projects).filter((p) => !p.isScratch && p.resolved && p.status !== 'archived');
+  const projects = [...live].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, path: p.path, status: p.status, lastActivity: p.lastActivityAt === null ? '' : relativeTime(p.lastActivityAt, now) }));
+  // 最近は最後に使った時刻の新しい順。使ったことのないプロジェクトは入れない。
+  const recentIds = live.filter((p) => p.lastActivityAt !== null).sort((a, b) => b.lastActivityAt! - a.lastActivityAt!).slice(0, RECENT_COUNT).map((p) => p.id);
+  return { projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch };
 }

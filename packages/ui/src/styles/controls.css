@@ -99,3 +99,17 @@
 .stepper > button:disabled { opacity: 0.4; cursor: default; }
 .stepper-input { width: 44px; border: 0; outline: 0; background: none; text-align: center; font-family: var(--font-mono); font-size: var(--fs); font-weight: 600; color: var(--ink); -moz-appearance: textfield; }
 .stepper-input::-webkit-inner-spin-button, .stepper-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* 起動ダイアログの詳細。左に値の名前、右に選ぶ部品を並べる。 */
+.launch-options { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: calc(var(--u) * 2.5); margin: calc(var(--u) * 2) 0; }
+.launch-option-label { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-2); }
+.launch-option-label-top { align-self: start; padding-top: calc(var(--u) * 2); }
+.launch-danger { margin-top: calc(var(--u) * 1.5); }
+.effort-bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 10px; }
+.effort-bars i { width: 2.5px; border-radius: 1px; background: currentColor; opacity: 0.25; }
+.effort-bars i[data-on='true'] { opacity: 1; }
+.effort-bars i:nth-child(1) { height: 3.6px; }
+.effort-bars i:nth-child(2) { height: 5.2px; }
+.effort-bars i:nth-child(3) { height: 6.8px; }
+.effort-bars i:nth-child(4) { height: 8.4px; }
+.effort-bars i:nth-child(5) { height: 10px; }

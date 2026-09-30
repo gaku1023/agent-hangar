@@ -299,7 +299,7 @@ describe('TabStrip の分割ボタン', () => {
 describe('NewSessionDialog のスクラッチ', () => {
   it('スクラッチではプロジェクトを選ばせず、scratch を付けて送る', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha' }]} projectId={null} submitting={false} error={null} scratch /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' }]} recentIds={[]} projectId={null} submitting={false} error={null} scratch /></IntentRoot>);
     expect(screen.queryByLabelText('プロジェクト')).toBeNull();
     expect(screen.getByText('スクラッチで始める')).toBeInTheDocument();
     fireEvent.click(screen.getByText('起動'));
@@ -307,7 +307,7 @@ describe('NewSessionDialog のスクラッチ', () => {
   });
   it('スクラッチでないときはプロジェクトを選ばせ、scratch を付けない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha' }]} projectId="p1" submitting={false} error={null} scratch={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog projects={[{ id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' }]} recentIds={[]} projectId="p1" submitting={false} error={null} scratch={false} /></IntentRoot>);
     expect(screen.getByLabelText('プロジェクト')).toBeInTheDocument();
     fireEvent.click(screen.getByText('起動'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.submit', params: { projectId: 'p1' } });
