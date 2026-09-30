@@ -74,6 +74,7 @@ export function TurnIndex(props: TurnIndexProps) {
               <span className="turn-text">{firstLine(r.text)}</span>
               {r.tools > 0 && <span className="turn-tools mono">{r.tools}</span>}
             </button>
+            {r.band.length > 0 && <div className="turn-band" aria-hidden="true">{r.band.map((k, i) => <i key={i} data-k={k} />)}</div>}
             {r.open && (
               <div className="turn-body">
                 {note && <div className="turn-note">{note}</div>}

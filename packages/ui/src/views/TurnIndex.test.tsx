@@ -49,6 +49,12 @@ describe('TurnIndex', () => {
     expect(body.querySelector('.msg-assistant')?.textContent).toBe('まず確かめます');
   });
 
+  it('行の下に手の種類の色帯を出し、手の無いターンには出さない', () => {
+    const { container } = setup({ rows: [{ ...rows[0]!, band: ['read', 'fail', 'git'] }, rows[1]!] });
+    const bands = [...container.querySelectorAll('.turn')].map((t) => [...t.querySelectorAll('.turn-band i')].map((i) => i.getAttribute('data-k')));
+    expect(bands).toEqual([['read', 'fail', 'git'], []]);
+  });
+
   it('ターミナルで見つからなかったときは、開いたターンに一言添える', () => {
     const { container } = setup({ rows: rows.map((r) => ({ ...r, open: r.seq === 10 })), turnJump: { seq: 10, status: 'notFound' } });
     expect(container.querySelector('.turn-note')?.textContent).toBe('ターミナルでは見つかりませんでした');
