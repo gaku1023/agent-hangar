@@ -136,7 +136,8 @@ describe('capabilities', () => {
     expect(cap('remote-drag.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
     expect(cap('remote-notify.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
   });
-  // 殻のコマンドの名前は、殻（build.rs と lib.rs）と画面（notifier.ts）に分かれている。片方だけ変えると、通知が黙って出なくなる。
+  // 殻のコマンドの名前は、殻（build.rs と lib.rs）と画面（notifier.ts）に分かれている。
+  // 片方だけ変えると、通知が黙って出なくなる。
   it('画面が呼ぶ殻のコマンドは、殻が並べて登録したものと同じ', () => {
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/notifier.ts'), 'utf8');
     const build = read('src-tauri/build.rs');

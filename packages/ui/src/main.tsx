@@ -90,7 +90,8 @@ const runtime = createRuntime({
   // 窓に戻ってきたら他端末の変更を引く。間引きはサーバ側で行う。
   onWindowFocus: (cb) => { window.addEventListener('focus', cb); return () => window.removeEventListener('focus', cb); },
   present,
-  // 入力待ちを窓の外へ知らせる。デスクトップの殻では macOS の通知と Dock のバッジ、ブラウザでは Web Notification を使う。
+  // 入力待ちを窓の外へ知らせる。
+  // デスクトップの殻では macOS の通知と Dock のバッジ、ブラウザでは Web Notification を使う。
   notifier: pickNotifier(window as unknown as Partial<DesktopEnv> & BrowserEnv),
 });
 runtime.start();

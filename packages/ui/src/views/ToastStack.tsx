@@ -74,7 +74,10 @@ function useAutoDismiss(ms: number, onDone: () => void) {
   return { onMouseEnter: hold, onMouseLeave: release, onFocus: hold, onBlur: release };
 }
 
-/** info のトースト。時間で消え、押しても消せる。 */
+/**
+ * info のトースト。
+ * 時間で消え、押しても消せる。
+ */
 function InfoToast(props: { toast: Toast }) {
   const emit = useEmit();
   const dismiss = () => emit({ type: 'toast.dismiss', id: props.toast.id });

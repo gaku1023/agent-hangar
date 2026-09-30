@@ -71,7 +71,8 @@ export type Intent =
   | { type: 'index.rebuild' }
   | { type: 'overlay.close' }
   | { type: 'toast.dismiss'; id: string }
-  // 窓が背面にあるとき、入力待ちを OS やブラウザの通知で知らせるか。受け取るにするときは許可を求める。
+  // 窓が背面にあるとき、入力待ちを OS やブラウザの通知で知らせるか。
+  // 受け取るにするときは許可を求める。
   | { type: 'notify.set'; on: boolean }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'conn.retry' }

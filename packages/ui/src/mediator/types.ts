@@ -17,10 +17,12 @@ export type RuntimeEvent =
   | { type: 'split.resolved'; sessionId: string; tabId: string | null }
   // 「次の入力待ちへ」の行き先。入力待ちが無ければ null。これもストアを見ないと決まらないので、ランタイムが決めて返す。
   | { type: 'waiting.resolved'; sessionId: string | null }
-  // 入力待ちのセッションの一覧（hangar のセッションの id）。変わったときだけランタイムが届ける。
+  // 入力待ちのセッションの一覧（hangar のセッションの id）。
+  // 変わったときだけランタイムが届ける。
   // live.update はプロバイダの id で届き、hangar のセッションに引き当てるにはストアが要るからである。
   | { type: 'waiting.changed'; ids: string[] }
-  // 通知を出せるか、受け取るか。起動時と、許可を求めた結果が出たときにランタイムが届ける。
+  // 通知を出せるか、受け取るか。
+  // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
   | { type: 'notify.changed'; available: boolean; on: boolean }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
   | { type: 'window.focus' }
@@ -59,11 +61,14 @@ export type Effect =
   | { kind: 'ws.connect' } | { kind: 'ws.reconnectAfter'; ms: number }
   | { kind: 'focus'; target: FocusTarget }
   | { kind: 'toast'; level: 'info' | 'error'; message: string }
-  // 入力待ちになったセッションを通知で知らせる。受け取る設定か、窓が背面かはランタイムが見る。
+  // 入力待ちになったセッションを通知で知らせる。
+  // 受け取る設定か、窓が背面かはランタイムが見る。
   | { kind: 'notify.waiting'; sessionId: string }
-  // 通知の許可を求める。利用者の操作の中で出すので、ブラウザの許可ダイアログも出せる。
+  // 通知の許可を求める。
+  // 利用者の操作の中で出すので、ブラウザの許可ダイアログも出せる。
   | { kind: 'notify.request' }
-  // Dock（ブラウザならアプリ）のバッジに入力待ちの数を出す。0 で消す。
+  // Dock（ブラウザならアプリ）のバッジに入力待ちの数を出す。
+  // 0 で消す。
   | { kind: 'badge'; count: number }
   | { kind: 'storage.save'; key: string; value: unknown }
   | { kind: 'api.addTodo'; projectId: string; text: string }
@@ -134,10 +139,14 @@ export type State = {
   sessionView: Record<string, SessionViewState>; search: { text: string; filter: SearchFilter };
   /** 起動の進み。ダイアログからの起動も、再開もフォークも同じ状態を共有する。 */
   launch: LaunchState;
-  /** すでに知らせた入力待ちのセッション（hangar の id）。入力待ちが解けたら忘れる。 */
+  /**
+   * すでに知らせた入力待ちのセッション（hangar の id）。
+   * 入力待ちが解けたら忘れる。
+   */
   waitingSeen: string[];
   /**
-   * 右下に積む入力待ちのカードのセッション。古いものが先。
+   * 右下に積む入力待ちのカードのセッション。
+   * 古いものが先。
    * 入力待ちが解けるか、そのセッションを開くまで残す。
    */
   waitingToasts: string[];

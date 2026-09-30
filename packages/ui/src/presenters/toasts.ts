@@ -3,7 +3,10 @@ import type { Store } from '../store/store.ts';
 import { durationLabel } from './format.ts';
 import { NO_QUESTION } from './home.ts';
 
-/** 入力待ちのカード 1 枚。押すとそのセッションを開いてターミナルにフォーカスする。 */
+/**
+ * 入力待ちのカード 1 枚。
+ * 押すとそのセッションを開いてターミナルにフォーカスする。
+ */
 export type WaitingCardProps = { sessionId: string; name: string; projectName: string | null; waited: string; question: string };
 /**
  * 右下に積む知らせ。
@@ -13,7 +16,10 @@ export type WaitingCardProps = { sessionId: string; name: string; projectName: s
  */
 export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; offerNotify: boolean };
 
-/** 並べるカードの上限。4 件目からは数だけにして、ホームの要対応へ案内する。 */
+/**
+ * 並べるカードの上限。
+ * 4 件目からは数だけにして、ホームの要対応へ案内する。
+ */
 const SHOWN = 3;
 
 export function presentToasts(state: State, store: Store, now: number): ToastsProps {

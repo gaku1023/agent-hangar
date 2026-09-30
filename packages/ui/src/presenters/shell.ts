@@ -5,7 +5,10 @@ import { indexProgressLabel, relativeTime, resetsLabel, SYNC_STATE_LABEL } from 
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts';
 
-/** count は項目に添える数で、今はホームの入力待ちの数だけに使う。0 なら添えない。 */
+/**
+ * count は項目に添える数で、今はホームの入力待ちの数だけに使う。
+ * 0 なら添えない。
+ */
 export type NavItem = { route: Route; label: string; current: boolean; count: number };
 /** fiveHourResets と sevenDayResets は、Claude の利用上限の枠が戻る時刻の文で、届いていなければ null である。 */
 export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiveHourResets: string | null; sevenDayResets: string | null; updatedLabel: string | null };
@@ -86,7 +89,8 @@ export function presentShell(state: State, store: Store, now: number): ShellProp
   const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
   const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
-  // ホームに入力待ちの数を添える。数え方は shared の liveFilterOf に従う（waitingSessionIds）。
+  // ホームに入力待ちの数を添える。
+  // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
   return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store) };
 }

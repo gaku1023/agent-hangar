@@ -1,14 +1,18 @@
 //! 入力待ちの macOS の通知。
 //! UI（サーバの頁）が窓の背面で入力待ちを見つけたら `notify_waiting` を呼び、殻が通知を出す。
 //! 通知を押されたら、窓を前に出し、頁の `__hangarOpenWaiting` でそのセッションを開く。
-//! 頁の値はここで確かめてから OS に渡す。頁は remote の頁なので、中身をそのまま信じない。
+//! 頁の値はここで確かめてから OS に渡す。
+//! 頁は remote の頁なので、中身をそのまま信じない。
 
-/// 通知の識別子の頭。押されたときに、どのセッションの通知かをここから読み戻す。
+/// 通知の識別子の頭。
+/// 押されたときに、どのセッションの通知かをここから読み戻す。
 const ID_PREFIX: &str = "hangar-waiting:";
-/// 題と本文の長さの上限（文字数）。通知は 2 行ほどしか見せないので、長い問いは切る。
+/// 題と本文の長さの上限（文字数）。
+/// 通知は 2 行ほどしか見せないので、長い問いは切る。
 const TITLE_MAX: usize = 120;
 const BODY_MAX: usize = 240;
-/// セッションの id の長さの上限。hangar の id は UUID（36 文字）である。
+/// セッションの id の長さの上限。
+/// hangar の id は UUID（36 文字）である。
 const ID_MAX: usize = 64;
 
 /// 確かめ終えた通知の中身。
@@ -20,7 +24,8 @@ pub struct Waiting {
 }
 
 /// セッションの id として受け取れるか。
-/// 英数字とハイフンと下線だけにする。識別子にも JavaScript にも、そのまま載せられる形である。
+/// 英数字とハイフンと下線だけにする。
+/// 識別子にも JavaScript にも、そのまま載せられる形である。
 fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= ID_MAX
@@ -29,7 +34,8 @@ fn valid_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-/// 前後の空白を落とし、長ければ切って末尾に省略記号を付ける。空になったら fallback を使う。
+/// 前後の空白を落とし、長ければ切って末尾に省略記号を付ける。
+/// 空になったら fallback を使う。
 fn tidy(text: &str, max: usize, fallback: &str) -> String {
     let t = text.trim();
     if t.is_empty() {
@@ -57,12 +63,14 @@ pub fn waiting(session_id: &str, title: &str, body: &str) -> Result<Waiting, Str
     })
 }
 
-/// 通知の識別子。同じセッションの通知は同じ識別子になり、新しい方が古い方と置き換わる。
+/// 通知の識別子。
+/// 同じセッションの通知は同じ識別子になり、新しい方が古い方と置き換わる。
 pub fn identifier(session_id: &str) -> String {
     format!("{ID_PREFIX}{session_id}")
 }
 
-/// 押された通知の識別子から、セッションの id を読み戻す。hangar の通知でなければ `None`。
+/// 押された通知の識別子から、セッションの id を読み戻す。
+/// hangar の通知でなければ `None`。
 pub fn session_of(identifier: &str) -> Option<&str> {
     identifier.strip_prefix(ID_PREFIX).filter(|id| valid_id(id))
 }
@@ -82,7 +90,8 @@ pub fn open_js(session_id: &str) -> String {
 #[cfg(target_os = "macos")]
 pub use mac::{install, request, show};
 
-/// macOS の外では通知を出さない。殻は macOS 向けにしか作らないが、型を揃えておく。
+/// macOS の外では通知を出さない。
+/// 殻は macOS 向けにしか作らないが、型を揃えておく。
 #[cfg(not(target_os = "macos"))]
 pub fn install(_on_open: impl Fn(String) + Send + Sync + 'static) {}
 #[cfg(not(target_os = "macos"))]
@@ -110,7 +119,8 @@ mod mac {
     use std::sync::{Mutex, OnceLock};
 
     type OnOpen = Box<dyn Fn(String) + Send + Sync>;
-    /// 押された通知のセッションを渡す先。install で一度だけ決まる。
+    /// 押された通知のセッションを渡す先。
+    /// install で一度だけ決まる。
     static ON_OPEN: OnceLock<OnOpen> = OnceLock::new();
 
     define_class!(
@@ -152,7 +162,8 @@ mod mac {
         bundle.bundleIdentifier().is_some() && bundle.bundlePath().to_string().ends_with(".app")
     }
 
-    /// 押された通知を受け取る口を付ける。起動の途中で一度だけ呼ぶ。
+    /// 押された通知を受け取る口を付ける。
+    /// 起動の途中で一度だけ呼ぶ。
     /// 押された通知でアプリが起きたときも受け取れるよう、窓より先に付ける。
     pub fn install(on_open: impl Fn(String) + Send + Sync + 'static) {
         if !bundled() || ON_OPEN.set(Box::new(on_open)).is_err() {
@@ -165,7 +176,8 @@ mod mac {
         std::mem::forget(delegate);
     }
 
-    /// 通知の許可を求める。まだ決まっていなければ OS が尋ね、決まっていれば黙ってその答えを返す。
+    /// 通知の許可を求める。
+    /// まだ決まっていなければ OS が尋ね、決まっていれば黙ってその答えを返す。
     pub fn request(done: impl FnOnce(bool) + Send + 'static) {
         if !bundled() {
             done(false);

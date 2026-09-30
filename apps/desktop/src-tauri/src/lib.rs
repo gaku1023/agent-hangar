@@ -710,7 +710,8 @@ fn watch_swipe_phase(app: &AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn watch_swipe_phase(_app: &AppHandle) {}
 
-/// 入力待ちの通知を出す。頁（UI）が、窓が背面にあるときに呼ぶ。
+/// 入力待ちの通知を出す。
+/// 頁（UI）が、窓が背面にあるときに呼ぶ。
 /// 値は頁から来るので、notify::waiting で確かめてから OS に渡す。
 #[tauri::command]
 fn notify_waiting(session_id: String, title: String, body: String) -> Result<(), String> {

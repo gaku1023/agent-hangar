@@ -1,6 +1,10 @@
 import type { Input, State, Step } from './types.ts';
 
-/** 通知を受け取るかを残す localStorage の鍵。値は真偽値そのもの。無ければ環境ごとの既定に従う。 */
+/**
+ * 通知を受け取るかを残す localStorage の鍵。
+ * 値は真偽値そのもの。
+ * 無ければ環境ごとの既定に従う。
+ */
 export const NOTIFY_KEY = 'notify.waiting';
 
 /**

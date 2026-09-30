@@ -33,7 +33,10 @@ export type RuntimeDeps = {
    * 画面の移り変わりを View Transitions で包むための口である（runtime/present.ts）。無ければその場で出す。
    */
   present?: (commit: () => void, prev: State, next: State) => void;
-  /** 窓の外へ入力待ちを知らせる口（runtime/notifier.ts）。無ければ通知もバッジも出さない。 */
+  /**
+   * 窓の外へ入力待ちを知らせる口（runtime/notifier.ts）。
+   * 無ければ通知もバッジも出さない。
+   */
   notifier?: Notifier;
 };
 
@@ -394,13 +397,15 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = { ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true };
       shown = state;
-      // 通知の受け取り。選んでいなければ環境の既定に従い、ブラウザでは許可が外れていれば受け取らない。
+      // 通知の受け取り。
+      // 選んでいなければ環境の既定に従い、ブラウザでは許可が外れていれば受け取らない。
       if (notifier) {
         const pref = deps.storage.get(NOTIFY_KEY);
         const on = (typeof pref === 'boolean' ? pref : notifier.defaultOn) && notifier.available() && notifier.granted();
         dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on } });
         if (on) notifier.prepare();
-        // 通知を押したら、そのセッションを開いてターミナルにフォーカスする。窓を前に出すのは notifier の役目である。
+        // 通知を押したら、そのセッションを開いてターミナルにフォーカスする。
+        // 窓を前に出すのは notifier の役目である。
         unsubNotify = notifier.onOpen((id) => dispatch({ kind: 'intent', intent: { type: 'session.open', id, focus: 'terminal' } }));
       }
       ws = deps.ws({

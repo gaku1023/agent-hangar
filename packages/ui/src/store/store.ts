@@ -213,7 +213,8 @@ export function waitingSessionIds(store: Store): string[] {
 /**
  * 「次の入力待ちへ」で移る先。
  * 入力待ちのセッションを waitingSessionIds の順に並べ、from の次を返す。
- * from が並びに無ければ先頭を、末尾の次は先頭を返す。入力待ちが無ければ null。
+ * from が並びに無ければ先頭を、末尾の次は先頭を返す。
+ * 入力待ちが無ければ null。
  */
 export function nextWaitingSession(store: Store, from: string | null): string | null {
   const list = waitingSessionIds(store);

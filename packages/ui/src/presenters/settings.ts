@@ -43,7 +43,10 @@ export type SettingsProps = {
   claudePath: string | null;
   /** Claude Code の会話の保持期間。まだ届いていなければ null。 */
   retention: RetentionSettingsProps | null;
-  /** 入力待ちの通知。出せる環境か（available）と、受け取るか（on）。 */
+  /**
+   * 入力待ちの通知。
+   * 出せる環境か（available）と、受け取るか（on）。
+   */
   notify: { available: boolean; on: boolean };
 };
 
