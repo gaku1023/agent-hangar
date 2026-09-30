@@ -181,7 +181,9 @@ TODO の一覧の中だけで使うので、共通の部品にはせず `TodoLis
 | `dontAsk` | たずねずに断る | 許可済みのもの以外は断る |
 | `bypassPermissions` | 確認なし | すべて確認せずに実行する |
 
-値の一覧は、`claude --help` の `--effort` と `--permission-mode` の選択肢と、`--model` の説明に挙がる別名に合わせた。
+effort と permission mode の値は、`claude --help` の `--effort` と `--permission-mode` の選択肢に合わせた。
+model の別名のうち、`--help` の説明に挙がるのは fable、opus、sonnet の 3 つで、haiku は挙がっていない。
+haiku は Claude Code のモデル設定の別名として使える想定で入れるが、実装のときに起動して確かめ、通らなければ外す。
 「確認なし」を選ぶと、カードを赤で縁取り、カードの下に「ファイルの削除やコマンドも、確認せずに実行します」を `--error` の色で出す。
 
 「既定」はどれも空の値であり、いまと同じく params に含めない。
