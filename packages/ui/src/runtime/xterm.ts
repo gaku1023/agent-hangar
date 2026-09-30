@@ -4,6 +4,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalLike } from './terminals.ts';
+import { createKeyHandler } from './xtermSetup.ts';
 
 /** 本物の xterm.js。テストでは TerminalLike の偽物を使うので、このファイルは main.tsx だけが読む。 */
 export function createXterm(): TerminalLike {
@@ -15,6 +16,8 @@ export function createXterm(): TerminalLike {
   // 既定の Unicode 6 では絵文字を 1 桁に数え、Claude Code の数え方とずれて後ろの文字が重なる。
   term.loadAddon(new Unicode11Addon());
   term.unicode.activeVersion = '11';
+  // Shift+Enter を送信ではなく改行にする。列は xtermSetup.ts の NEWLINE_SEQ を見よ。
+  term.attachCustomKeyEventHandler(createKeyHandler((d) => term.input(d)));
   // DOM の描画はブロック文字と罫線もフォントで描くので、行間に隙間が出て Claude のロゴが崩れる。WebGL はセルいっぱいに自前で描く。
   let gl: WebglAddon | null = null;
   const dropGpu = () => { const a = gl; gl = null; a?.dispose(); };
