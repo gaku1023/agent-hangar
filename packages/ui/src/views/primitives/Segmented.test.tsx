@@ -29,6 +29,13 @@ describe('Segmented', () => {
     fireEvent.click(screen.getByRole('radio', { name: '7 日' }));
     expect(onChange).toHaveBeenCalledWith('7');
   });
+  it('⌘ や Ctrl や Alt を押した矢印は、選び直しに使わない', () => {
+    const onChange = vi.fn();
+    render(<Segmented label="期間" value="" options={periods} onChange={onChange} />);
+    const group = screen.getByRole('radiogroup');
+    for (const mod of ['metaKey', 'ctrlKey', 'altKey']) fireEvent.keyDown(group, { key: 'ArrowRight', [mod]: true });
+    expect(onChange).not.toHaveBeenCalled();
+  });
   it('← → で隣へ選び直し、端では反対の端へ回る', () => {
     const onChange = vi.fn();
     render(<Segmented label="期間" value="" options={periods} onChange={onChange} />);

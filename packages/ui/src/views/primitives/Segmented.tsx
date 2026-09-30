@@ -35,6 +35,8 @@ export function Segmented(props: { label: string; value: string; options: Segmen
   const pick = (value: string) => { if (value !== props.value) props.onChange(value); };
 
   const onKey = (e: KeyboardEvent<HTMLSpanElement>) => {
+    // ⌘← は戻る、などの大域のキー。選び直しに奪わない。
+    if (e.altKey || e.metaKey || e.ctrlKey) return;
     const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
     if (!step) return;
     e.preventDefault();
