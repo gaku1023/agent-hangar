@@ -1,0 +1,53 @@
+/* 準備の確かめの見た目。設定画面の欄の下の検証と、空のホームの確認リストが使う。 */
+/* 値の正本は試作 docs/superpowers/specs/2026-10-01-ux-refresh/settings-layout.html と onboarding.html。 */
+
+/* ターミナルで打つコマンドの行（設定の D1）。薄い地のコードと、右端のコピー。 */
+.cmd-line { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); padding: 0 var(--u) 0 calc(var(--u) * 2.5); height: 32px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line); font: var(--fs-sm) var(--font-mono); }
+.cmd-line > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; color: var(--ink); -webkit-user-select: all; user-select: all; }
+.copy-btn { display: inline-flex; align-items: center; gap: var(--u); flex: none; height: 24px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: 6px; background: none; color: var(--ink-2); font: 560 var(--fs-xs) var(--font-sans); cursor: pointer; }
+.copy-btn:hover { background: var(--surface); color: var(--ink); }
+.copy-btn[data-copied] { color: var(--st-done); }
+.copy-btn .icon { width: 13px; height: 13px; }
+
+/* 欄の下の 1 行の検証（設定の B1）。✓ 見つかったパスと版、✗ 直し方。 */
+.verify { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 5px; min-height: 18px; font-size: var(--fs-xs); }
+.verify .icon { width: 13px; height: 13px; stroke-width: 2; }
+.verify[data-tone='ok'] { color: var(--st-done); }
+.verify[data-tone='ok'] .verify-path { font-family: var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.verify[data-tone='ng'] { color: var(--error); }
+.verify[data-tone='soft'] { color: var(--st-paused); }
+.verify[data-tone='wait'] { color: var(--ink-3); }
+.verify .verify-fix { display: inline-flex; align-items: center; gap: var(--u); color: var(--ink-2); }
+.verify .verify-fix code { font: 500 11px var(--font-mono); background: var(--surface-2); padding: 1px 6px; border-radius: 5px; color: var(--ink); }
+.verify .copy-btn { height: 20px; padding: 0 4px; }
+
+/* 欄の横の「✓ 保存しました」（設定の C1）。2 秒出て消える。 */
+.saved-tick { display: inline-flex; align-items: center; gap: var(--u); flex: none; font-size: var(--fs-xs); font-weight: 560; color: var(--st-done); white-space: nowrap; opacity: 0; transition: opacity var(--dur) var(--ease-out); }
+.saved-tick[data-show] { opacity: 1; }
+.saved-tick .icon { width: 13px; height: 13px; stroke-width: 2.2; }
+.inrow { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+.inrow > .input { flex: 1; min-width: 0; }
+
+/* 空のホームの真ん中の札（初回の A1）。 */
+.ob-body { max-width: 620px; margin: calc(var(--u) * 5) auto 0; }
+.ob-title { margin: 0 0 var(--u); text-align: center; font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.015em; }
+.ob-lead { margin: 0 0 calc(var(--u) * 4); text-align: center; color: var(--ink-2); }
+.ob-acts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); justify-content: center; margin-top: calc(var(--u) * 4); }
+.ck-card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.ck-head { display: flex; align-items: center; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 3.5) calc(var(--u) * 4) calc(var(--u) * 2.5); }
+.ck-head > .icon { color: var(--accent); }
+.ck-head h2 { margin: 0; font-size: var(--fs-md); font-weight: 650; }
+.ck-prog { margin-left: auto; font: 500 var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+.ck-list { margin: 0; padding: 0; list-style: none; }
+.ck { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 2px calc(var(--u) * 2.5); align-items: start; padding: calc(var(--u) * 2.5) calc(var(--u) * 4); border-top: 1px solid var(--line); }
+.ck > .icon { margin-top: 1px; width: 18px; height: 18px; stroke-width: 1.8; }
+.ck[data-tone='ok'] > .icon { color: var(--st-done); }
+.ck[data-tone='ng'] > .icon { color: var(--error); }
+.ck[data-tone='soft'] > .icon { color: var(--st-paused); }
+.ck-t b { font-weight: 600; }
+.ck-p { font: var(--fs-xs) var(--font-mono); color: var(--ink-3); overflow-wrap: anywhere; }
+.ck-d { font-size: var(--fs-sm); color: var(--ink-2); }
+.ck-t .cmd-line { display: inline-flex; height: 26px; margin-top: 5px; font-size: var(--fs-xs); }
+.ck-act { align-self: center; display: flex; gap: calc(var(--u) * 1.5); }
+.ck-wait { padding: calc(var(--u) * 3) calc(var(--u) * 4); border-top: 1px solid var(--line); }
+.ck-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 3) calc(var(--u) * 4); border-top: 1px solid var(--line); background: #fbfbfd; font-size: var(--fs-xs); }

@@ -4,6 +4,7 @@ import { IntentRoot } from './intent/chain.tsx';
 import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentConfirm } from './presenters/confirm.ts';
 import { presentHome } from './presenters/home.ts';
+import { presentOnboarding } from './presenters/onboarding.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
 import { presentProject } from './presenters/project.ts';
@@ -312,7 +313,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   let body: ReactNode;
   if (!store.bootstrapped || state.screen.name === 'booting') body = <div className="empty boot-wait">読み込んでいます</div>;
   else switch (state.screen.name) {
-    case 'home': body = <HomeScreen {...presentHome(state, store, now)} />; break;
+    case 'home': body = <HomeScreen {...presentHome(state, store, now)} onboarding={presentOnboarding(store)} />; break;
     case 'projects': body = <ProjectsScreen {...presentProjects(state, store, now, projectFilter, showArchived)} filter={projectFilter} showArchived={showArchived} onFilter={setProjectFilter} onShowArchived={setShowArchived} />; break;
     case 'project': body = <ProjectScreen {...presentProject(state, store, now, state.screen.id)} />; break;
     case 'session': {

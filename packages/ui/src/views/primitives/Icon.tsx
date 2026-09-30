@@ -1,4 +1,4 @@
-import { AppWindow, Archive, ArrowDownToLine, Ban, Bot, Brain, Check, ChevronDown, ChevronRight, Clock, Code, Columns2, Download, FileJson2, FilePenLine, FileX2, FolderInput, FolderSearch, FolderUp, Folder, GitBranch, GitFork, House, Map as MapIcon, MessagesSquare, MessageCircleQuestion, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plus, RotateCcw, Search, Settings, Settings2, ShieldAlert, Sparkles, Sprout, Square, SquareTerminal, Terminal, TriangleAlert, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
+import { AppWindow, Archive, ArrowDownToLine, Ban, Bot, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Clock, Cloud, Code, Columns2, Copy, Download, FileText, FileJson2, FilePenLine, FileX2, FolderInput, FolderSearch, FolderUp, Folder, GitBranch, GitFork, House, Info, ListChecks, Map as MapIcon, MessagesSquare, MessageCircleQuestion, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plug, Plus, RefreshCw, RotateCcw, RotateCw, Search, Settings, Settings2, ShieldAlert, Sparkles, Sprout, Square, SquareTerminal, Terminal, TriangleAlert, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
 
 /** hangar の言葉からアイコンへの対応。View は lucide-react を直接 import せず、ここだけを通す。 */
 const ICONS = {
@@ -49,6 +49,18 @@ const ICONS = {
   latest: ArrowDownToLine,
   retention: Clock,
   transcriptGone: FileX2,
+  // 設定と初回の確認リスト。
+  copy: Copy,
+  ok: CircleCheck,
+  ng: CircleX,
+  alert: CircleAlert,
+  checks: ListChecks,
+  recheck: RefreshCw,
+  log: FileText,
+  restart: RotateCw,
+  info: Info,
+  link: Plug,
+  cloud: Cloud,
 } as const satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

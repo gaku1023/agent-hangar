@@ -1,5 +1,7 @@
 import { useEmit } from '../intent/chain.tsx';
 import type { AttentionCard, HomeProps, RunningCard } from '../presenters/home.ts';
+import type { OnboardingProps } from '../presenters/onboarding.ts';
+import { Onboarding } from './Onboarding.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { SESSION_ROW_H, SessionRows } from './SessionRows.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
@@ -29,8 +31,10 @@ export const HOME_VISIBLE_ROWS = 10;
  * 上から要対応、確かめる、実行中、最近とプロジェクトの順に置く。
  * 要対応と確かめると実行中は、該当が無ければ区画ごと省く。
  */
-export function HomeScreen(props: HomeProps) {
+export function HomeScreen(props: HomeProps & { onboarding?: OnboardingProps | null }) {
   const emit = useEmit();
+  // セッションが 1 つも無いときは、準備の確認リストだけを出す（初回の A1）。ふだんの区画は出さない。
+  if (props.onboarding) return <Onboarding {...props.onboarding} />;
   return (
     <div className="screen home">
       <PageHeading title="ホーム" />
