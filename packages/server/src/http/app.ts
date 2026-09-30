@@ -6,6 +6,7 @@ import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } fro
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
+import { checkToolPath, expandHome } from '../config/readiness.ts';
 import { RetentionConflictError, RetentionUnwritableError } from '../config/retention.ts';
 import { statuslineStatus } from '../config/statusline.ts';
 import type { Db } from '../db/open.ts';
@@ -449,13 +450,29 @@ export function createApp(deps: AppDeps): Hono {
       if (typeof v !== 'string' || v.trim() === '') return c.json({ error: `「${SETTING_LABEL[key]}」は空にできません` }, 400);
       patch[key] = v;
     }
+    // ワークスペースは、保存する前にディレクトリがあることを確かめる。
+    // 無いところを保存すると、プロジェクトが 1 つも登録されないまま、何が悪いのかが画面から読めない。
+    if (patch.workspaceRoot !== undefined) {
+      const root = expandHome(patch.workspaceRoot.trim());
+      const st = fs.statSync(root, { throwIfNoEntry: false });
+      if (!st) return c.json({ error: `「${SETTING_LABEL.workspaceRoot}」に ${root} が見つかりません` }, 400);
+      if (!st.isDirectory()) return c.json({ error: `「${SETTING_LABEL.workspaceRoot}」の ${root} はディレクトリではありません` }, 400);
+      patch.workspaceRoot = root;
+    }
     for (const key of PATH_SETTING_KEYS) {
       if (!(key in body)) continue;
       const v = body[key];
       if (v !== null && typeof v !== 'string') return c.json({ error: `「${SETTING_LABEL[key]}」の値の形が違います` }, 400);
       // 空文字は「未設定」と同じ意味なので null に寄せる。
       // 前後の空白は落とす。空白付きのままでは、そのパスで起動できない。
-      patch[key] = typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
+      if (typeof v !== 'string' || v.trim() === '') { patch[key] = null; continue; }
+      // 保存する前に、あることと実行できることを確かめる。
+      // 動かないパスを保存すると、起動や要約が後になって、別の場所で失敗する。
+      const t = checkToolPath(v);
+      if (t.problem === 'missing') return c.json({ error: `「${SETTING_LABEL[key]}」に ${t.path} が見つかりません` }, 400);
+      if (t.problem === 'notFile') return c.json({ error: `「${SETTING_LABEL[key]}」の ${t.path} はファイルではありません` }, 400);
+      if (t.problem === 'notExecutable') return c.json({ error: `「${SETTING_LABEL[key]}」の ${t.path} には実行権がありません` }, 400);
+      patch[key] = t.path;
     }
     if ('terminalApp' in body) {
       const v = body.terminalApp;
@@ -526,7 +543,7 @@ export function createApp(deps: AppDeps): Hono {
         if (sess?.projectId) deps.hub.broadcast({ type: 'session.upsert', session: sess });
       }
     }
-    deps.hub.broadcast({ type: 'toast', level: 'info', message: '設定を保存しました' });
+    // 保存の知らせは画面が欄の横に出す（設定の C1）。サーバからはトーストを配らない。
     return c.json(toSettingsDto(s));
   });
   api.post('/index/rebuild', (c) => {

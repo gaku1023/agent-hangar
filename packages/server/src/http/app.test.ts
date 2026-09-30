@@ -117,6 +117,13 @@ function fakeRetention() {
     write: vi.fn((days: number, sha: string): RetentionDto => { if (sha === 'stale') throw new RetentionConflictError(); return { ...RET, days, source: 'user', userValue: days }; }),
   };
 }
+/** 実行できる空のファイルを ws/bin に置く。パスの欄は保存の前に存在と実行権を確かめるので、実物が要る。 */
+const exe = (name: string): string => {
+  const p = path.join(ws, 'bin', name);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, '#!/bin/sh\n', { mode: 0o755 });
+  return p;
+};
 const syncDeps = () => ({
   sync: fakeSync(),
   syncSkipped: () => skipped,
@@ -350,17 +357,31 @@ describe('routes', () => {
   });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
-    // 実在しないルートと、ファイルを指したルートの両方で 500 にしないことを見る。
-    // 以前は固定の /tmp/x を使っていたので、そこにファイルがあると落ちた。
+    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: path.join(ws, 'alpha') }) });
+    expect(r.status).toBe(200);
+    expect((await r.json()).workspaceRoot).toBe(path.join(ws, 'alpha'));
+    // 保存の知らせは画面が欄の横に出すので、サーバからトーストは配らない。
+    expect(sent.some((e) => e.type === 'toast')).toBe(false);
+  });
+  it('パスの欄は、保存する前に存在と実行権を確かめ、理由を欄の見出しで言う', async () => {
+    const error = async (body: unknown) => {
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(r.status).toBe(400);
+      return ((await r.json()) as { error: string }).error;
+    };
+    // 実在しないルートと、ファイルを指したルートは弾く。どちらも 500 にはしない。
     const missing = path.join(ws, 'no-such-root');
-    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: missing }) });
-    expect((await r.json()).workspaceRoot).toBe(missing);
-    expect(sent.some((e) => e.type === 'toast' && e.level === 'info')).toBe(true);
+    expect(await error({ workspaceRoot: missing })).toBe(`「ワークスペースのルート」に ${missing} が見つかりません`);
     const asFile = path.join(ws, 'root-is-a-file');
     fs.writeFileSync(asFile, 'x');
-    const r2 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: asFile }) });
-    expect(r2.status).toBe(200);
-    expect((await r2.json()).workspaceRoot).toBe(asFile);
+    expect(await error({ workspaceRoot: asFile })).toBe(`「ワークスペースのルート」の ${asFile} はディレクトリではありません`);
+    // ツールは、無い、ファイルでない、実行できないを分けて言う。
+    expect(await error({ tmuxPath: path.join(ws, 'no-tmux') })).toBe(`「tmux のパス」に ${path.join(ws, 'no-tmux')} が見つかりません`);
+    expect(await error({ claudePath: ws })).toBe(`「claude のパス」の ${ws} はファイルではありません`);
+    expect(await error({ codePath: asFile })).toBe(`「code のパス」の ${asFile} には実行権がありません`);
+    expect(await error({ nodePath: path.join(ws, 'no-node') })).toBe(`「Node のパス」に ${path.join(ws, 'no-node')} が見つかりません`);
+    // 弾いた値は保存していない。
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ workspaceRoot: ws, tmuxPath: null, claudePath: null, codePath: null, nodePath: null });
   });
   it('設定の誤りは、内部のキー名ではなく画面の欄の見出しと画面名「設定」で言う', async () => {
     const error = async (body: unknown) => {
@@ -396,21 +417,23 @@ describe('routes', () => {
   });
   it('claudePath は保存でき、空なら null に戻る', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    const r = await patch({ claudePath: ' /Users/x/.local/bin/claude ' });
+    const claude = exe('claude');
+    const r = await patch({ claudePath: ` ${claude} ` });
     expect(r.status).toBe(200);
-    expect((await r.json()).claudePath).toBe('/Users/x/.local/bin/claude');
-    expect((await json(await get('/api/settings'))).body.claudePath).toBe('/Users/x/.local/bin/claude');
+    expect((await r.json()).claudePath).toBe(claude);
+    expect((await json(await get('/api/settings'))).body.claudePath).toBe(claude);
     const r2 = await patch({ claudePath: '' });
     expect(r2.status).toBe(200);
     expect((await r2.json()).claudePath).toBeNull();
     expect((await patch({ claudePath: 7 })).status).toBe(400);
   });
   it('nodePath は保存でき、空なら null に戻る', async () => {
-    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: ' /opt/node22/bin/node ' }) });
+    const node = exe('node');
+    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: ` ${node} ` }) });
     expect(r.status).toBe(200);
-    expect((await r.json()).nodePath).toBe('/opt/node22/bin/node');
-    expect((await json(await get('/api/settings'))).body.nodePath).toBe('/opt/node22/bin/node');
-    expect((await json(await get('/api/bootstrap'))).body.settings.nodePath).toBe('/opt/node22/bin/node');
+    expect((await r.json()).nodePath).toBe(node);
+    expect((await json(await get('/api/settings'))).body.nodePath).toBe(node);
+    expect((await json(await get('/api/bootstrap'))).body.settings.nodePath).toBe(node);
     const r2 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: '' }) });
     expect(r2.status).toBe(200);
     expect((await r2.json()).nodePath).toBeNull();
@@ -1034,17 +1057,17 @@ describe('設定の往復', () => {
       const cases: [keyof SettingsDto, unknown][] = [
         ['workspaceRoot', ws2],
         ['claudeDir', dir2],
-        ['tmuxPath', '/opt/homebrew/bin/tmux'],
+        ['tmuxPath', exe('tmux')],
         ['terminalApp', 'iterm'],
-        ['codePath', '/usr/local/bin/code'],
+        ['codePath', exe('code')],
         ['lmStudioUrl', 'http://127.0.0.1:9999'],
         ['lmStudioModel', 'gemma-3'],
         ['summaryFallback', false],
         ['summaryHourlyCap', 7],
         ['allowExternalSummarizer', true],
         ['syncClaudeConfig', true],
-        ['nodePath', '/opt/node22/bin/node'],
-        ['claudePath', '/Users/x/.local/bin/claude'],
+        ['nodePath', exe('node')],
+        ['claudePath', exe('claude')],
       ];
       for (const [key, value] of cases) {
         const r = await patch({ [key]: value });
