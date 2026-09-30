@@ -6,6 +6,7 @@ import { isComposing } from './ime.ts';
 import { ChoiceChips } from './primitives/Chip.tsx';
 import { Fold } from './primitives/Fold.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
+import type { ListboxOption } from './primitives/listboxModel.ts';
 import { OptionCards, type OptionCardItem } from './primitives/OptionCard.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 
@@ -29,16 +30,26 @@ function EffortBars(props: { level: number }) {
 }
 const EFFORT_OPTIONS = EFFORTS.map((e, i) => ({ value: e, label: e || '既定', lead: e ? <EffortBars level={i} /> : undefined }));
 
+/** プロジェクトの一覧の先頭に置くスクラッチの行。値はプロジェクトの id と重ならない綴りにする。 */
+const SCRATCH = ':scratch';
+const SCRATCH_OPTION: ListboxOption = { value: SCRATCH, label: 'スクラッチ', sub: '名前は決めずに始めて、あとでプロジェクトに昇格できる', subKind: 'prose', faceSub: '~/.agent-hangar/scratch/<日時>/', icon: 'scratch' };
+
 /**
  * 起動ダイアログ。必須はプロジェクトだけで、空欄と既定は params に含めない（利用者の Claude Code の設定に従わせるため）。
  * プロジェクト、model、effort、permission mode はここの状態で持つ。詳細の見出しに、選んだ値を送信の前から出すため。
+ * スクラッチはプロジェクトの一覧の先頭の 1 行として選ぶ。props.scratch は開いたときにその行を選んでおくかどうかである。
  * 名前、初期プロンプト、worktree、追加ディレクトリは非制御のまま、送信のときにフォームから読む。
  * プロジェクトが未選択のまま送っても止めない。未選択の判定は Mediator が持ち、失敗のメッセージが error として戻ってくる。
  */
 export function NewSessionDialog(props: NewSessionProps) {
   const emit = useEmit();
   const form = useRef<HTMLFormElement>(null);
-  const [projectId, setProjectId] = useState(() => (props.projectId && props.projects.some((p) => p.id === props.projectId) ? props.projectId : ''));
+  const [choice, setChoice] = useState(() => {
+    // サーバも scratch を projectId より優先する。
+    if (props.scratch) return SCRATCH;
+    return props.projectId && props.projects.some((p) => p.id === props.projectId) ? props.projectId : '';
+  });
+  const scratch = choice === SCRATCH;
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
   const [permissionMode, setPermissionMode] = useState('');
@@ -49,8 +60,8 @@ export function NewSessionDialog(props: NewSessionProps) {
     const text = (key: string): string => { const v = data.get(key); return typeof v === 'string' ? v.trim() : ''; };
     const params: LaunchParams = {};
     // スクラッチはプロジェクトを持たず、サーバが使い捨てのディレクトリを作る。
-    if (props.scratch) params.scratch = true;
-    else if (projectId) params.projectId = projectId;
+    if (scratch) params.scratch = true;
+    else if (choice) params.projectId = choice;
     for (const key of ['name', 'prompt'] as const) { const v = text(key); if (v) params[key] = v; }
     if (model.trim()) params.model = model.trim();
     if (effort) params.effort = effort;
@@ -75,8 +86,8 @@ export function NewSessionDialog(props: NewSessionProps) {
   };
 
   const recent = new Set(props.recentIds);
-  const options = props.projects.map((p) => ({ value: p.id, label: p.name, sub: p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status }));
-  const groups = [{ title: '最近', values: props.recentIds }, { title: 'すべて', values: props.projects.filter((p) => !recent.has(p.id)).map((p) => p.id) }];
+  const options = [SCRATCH_OPTION, ...props.projects.map((p) => ({ value: p.id, label: p.name, sub: p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status }))];
+  const groups = [{ title: 'すぐ始める', values: [SCRATCH] }, { title: '最近', values: props.recentIds }, { title: 'すべて', values: props.projects.filter((p) => !recent.has(p.id)).map((p) => p.id) }];
   const chosen = [model.trim(), effort, PERMISSIONS.find((p) => p.value && p.value === permissionMode)?.label].filter(Boolean);
   // 区切りに全角空白を使わない。読み上げと試験の正規化で空白が詰められ、見た目と一致しなくなるため。
   const foldSummary = chosen.length ? `詳細（${chosen.join('、')}）` : '詳細（model、effort、permission mode、worktree、追加ディレクトリ）';
@@ -84,15 +95,12 @@ export function NewSessionDialog(props: NewSessionProps) {
   return (
     <div className="overlay" role="dialog" aria-modal="true" aria-label="新しいセッション" onKeyDown={onKeyDown}>
       <form ref={form} className="dialog dialog-wide" onSubmit={(e) => e.preventDefault()}>
-        <b>{props.scratch ? 'スクラッチで始める' : '新しいセッション'}</b>
-        {props.scratch
-          ? <div className="faint">~/.agent-hangar/scratch/ の下に日時のディレクトリを作って起動します。後からプロジェクトに昇格できます。</div>
-          : (
-            <div className="field">
-              <span aria-hidden="true">プロジェクト</span>
-              <Listbox id="new-session-project" label="プロジェクト" value={projectId || null} options={options} groups={groups} onChange={setProjectId} showSubInFace searchPlaceholder="名前かパスで探す" minWidth={360} />
-            </div>
-          )}
+        <b>{scratch ? 'スクラッチで始める' : '新しいセッション'}</b>
+        <div className="field">
+          <span aria-hidden="true">プロジェクト</span>
+          <Listbox id="new-session-project" label="プロジェクト" value={choice || null} options={options} groups={groups} onChange={setChoice} showSubInFace searchPlaceholder="名前かパスで探す" minWidth={360} />
+        </div>
+        {scratch && <div className="faint">~/.agent-hangar/scratch/ の下に日時のディレクトリを作って起動します。後からプロジェクトに昇格できます。</div>}
         <label className="field" htmlFor="new-session-name">名前（任意）
           <input id="new-session-name" className="input" name="name" defaultValue="" placeholder="一覧での表示名" />
         </label>

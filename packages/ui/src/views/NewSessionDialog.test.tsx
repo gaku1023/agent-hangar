@@ -150,3 +150,47 @@ describe('NewSessionDialog', () => {
     expect(Object.keys(params[0]!)).toEqual([]);
   });
 });
+
+describe('NewSessionDialog のスクラッチ', () => {
+  it('一覧の先頭の「すぐ始める」にスクラッチの行があり、昇格できることを添える', () => {
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: 'プロジェクト' }));
+    const groups = within(screen.getByRole('listbox')).getAllByRole('group');
+    expect(groups[0]).toHaveAccessibleName('すぐ始める');
+    expect(within(groups[0]!).getByRole('option', { name: 'スクラッチ' })).toHaveAccessibleDescription('名前は決めずに始めて、あとでプロジェクトに昇格できる');
+  });
+  it('スクラッチを選ぶと見出しと説明が変わり、scratch を付けて送る', () => {
+    const params = collectParams();
+    expect(screen.getByText('新しいセッション')).toBeInTheDocument();
+    pick('プロジェクト', 'スクラッチ');
+    expect(screen.getByText('スクラッチで始める')).toBeInTheDocument();
+    expect(screen.getByText(/の下に日時のディレクトリを作って起動します/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('~/.agent-hangar/scratch/<日時>/');
+    start();
+    expect(params).toEqual([{ scratch: true }]);
+  });
+  it('scratch で開くとスクラッチが選ばれ、プロジェクトに選び直せば projectId で送る', () => {
+    // ⌘⇧N、パレット、スクラッチのプロジェクト画面は、この状態でダイアログを開く。
+    const params = collectParams({ scratch: true });
+    expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('スクラッチ');
+    expect(screen.getByText('スクラッチで始める')).toBeInTheDocument();
+    pick('プロジェクト', 'alpha');
+    expect(screen.getByText('新しいセッション')).toBeInTheDocument();
+    expect(screen.queryByText(/の下に日時のディレクトリを作って起動します/)).toBeNull();
+    start();
+    expect(params).toEqual([{ projectId: 'p1' }]);
+  });
+  it('scratch と projectId が両方来たらスクラッチを選ぶ', () => {
+    // サーバも scratch を優先する（runs/manager.ts）。見た目と送る内容をそろえる。
+    const params = collectParams({ scratch: true, projectId: 'p1' });
+    start();
+    expect(params).toEqual([{ scratch: true }]);
+  });
+  it('検索欄に「スクラッチ」と打つと当たる', () => {
+    const many = Array.from({ length: 8 }, (_, i) => ({ id: `q${i}`, name: `proj-${i}`, path: `/w/proj-${i}`, status: 'active' as const, lastActivity: '' }));
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} projects={many} recentIds={[]} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: 'プロジェクト' }));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'スクラッチ' } });
+    expect(screen.getAllByRole('option').map((o) => o.getAttribute('aria-label'))).toEqual(['スクラッチ']);
+  });
+});
