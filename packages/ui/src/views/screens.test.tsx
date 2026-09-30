@@ -11,7 +11,7 @@ import { SESSION_ROW_H } from './SessionRows.tsx';
 
 // Task 22 で ProjectProps に増えた右レールの分。この節が見るのはヘッダーの操作だけなので空にする。
 const rail = { isScratch: false, todos: [], memo: null, artifacts: [], parent: { label: 'プロジェクト', route: { name: 'projects' as const } } };
-const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, waitingCount: 0, openTodoCount: 0, memoHead: null, lastOneLiner: 'last one' });
+const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'last one', excerptFromPrompt: false });
 
 describe('HomeScreen', () => {
   const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], confirm: [], running: [], recent: [], projects: [], ...over });
@@ -180,6 +180,26 @@ describe('ProjectCard の数', () => {
     expect(screen.getByText('この PC にパスがありません')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'ここで始める' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
+  });
+});
+
+describe('ProjectCard の中身（C1）', () => {
+  const one = (over: Partial<ProjectCardProps> = {}) => <IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), ...over }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>;
+  it('抜粋は 2 行の欄に出し、要約から取ったときは出所を添えない', () => {
+    const { container } = render(one({ excerpt: '索引をセッションごとに分けた' }));
+    expect(container.querySelector('.card-excerpt')).toHaveTextContent('索引をセッションごとに分けた');
+    expect(screen.queryByText('最初の発言から')).toBeNull();
+  });
+  it('発言から取った抜粋には「最初の発言から」を添える', () => {
+    render(one({ excerpt: '画像の圧縮率を比べたい', excerptFromPrompt: true }));
+    expect(screen.getByText('最初の発言から')).toBeInTheDocument();
+  });
+  it('「ここで始める」は最終活動と数の行の右端に置く', () => {
+    const { container } = render(one());
+    const here = screen.getByRole('button', { name: 'ここで始める' });
+    expect(here).toHaveClass('card-here');
+    expect(here.closest('.card-meta')).toBe(container.querySelector('.card-meta'));
+    expect(container.querySelector('.card-meta')).toHaveTextContent('1 時間前');
   });
 });
 

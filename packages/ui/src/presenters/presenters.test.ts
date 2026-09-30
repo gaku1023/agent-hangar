@@ -286,6 +286,19 @@ describe('presentProjects', () => {
     const alpha = presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards[0]!;
     expect(alpha).toMatchObject({ runningCount: 2, waitingCount: 1 });
   });
+  it('カードの抜粋は要約を優先し、雑音を除いた発言を次に使い、どちらも無ければそう書く', () => {
+    const store = storeWith();
+    const real = { ...session('x').summary!, oneLiner: '索引をセッションごとに分けた', source: 'in_session' as const };
+    const card = () => presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards[0]!;
+    store.sessions = { s1: session('s1', { firstPrompt: '<input class="a">', summary: real }) };
+    expect(card()).toMatchObject({ excerpt: '索引をセッションごとに分けた', excerptFromPrompt: false });
+    store.sessions = { s1: session('s1', { firstPrompt: '/init', summary: { ...real, oneLiner: '/init', source: 'baseline' } }), s2: session('s2', { firstPrompt: '画像の圧縮率を比べたい', lastActivityAt: NOW - 86_400_000 }) };
+    expect(card()).toMatchObject({ excerpt: '画像の圧縮率を比べたい', excerptFromPrompt: true });
+    store.sessions = { s1: session('s1', { firstPrompt: 'exit', summary: null }) };
+    expect(card()).toMatchObject({ excerpt: 'まだ要約がありません', excerptFromPrompt: false });
+    store.sessions = {};
+    expect(card()).toMatchObject({ excerpt: 'セッションはまだありません', excerptFromPrompt: false });
+  });
 });
 
 describe('presentProject', () => {

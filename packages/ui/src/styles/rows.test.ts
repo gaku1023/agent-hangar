@@ -28,3 +28,15 @@ describe('2 段の行', () => {
     expect(css).toMatch(/\.row-sub \.memo-input \{[^}]*height: calc\(var\(--u\) \* 5\);/);
   });
 });
+
+describe('プロジェクトのカード（C1）', () => {
+  const css = read('./workbench.css');
+  it('抜粋は 2 行で切り、2 行分の高さを取る', () => {
+    expect(css).toMatch(/\.card-excerpt \{[^}]*-webkit-line-clamp: 2;[^}]*min-height: 2\.9em;/);
+  });
+  // 12 枚すべてに同じボタンが並ぶとうるさいので、乗せたときとキーボードで届いたときだけ見せる。
+  it('「ここで始める」は乗せたときと、カードの中にフォーカスがあるときだけ見せる', () => {
+    expect(css).toMatch(/\.card-here \{[^}]*opacity: 0;/);
+    expect(css).toMatch(/\.card:hover \.card-here,\s*\.card:focus-within \.card-here \{[^}]*opacity: 1;/);
+  });
+});
