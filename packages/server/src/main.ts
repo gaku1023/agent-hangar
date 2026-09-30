@@ -11,7 +11,7 @@ startup
     // Tauri などの親が消えたら自分も終わる。
     if (process.env.HANGAR_PARENT_PID) {
       const ppid = Number(process.env.HANGAR_PARENT_PID);
-      setInterval(() => { try { process.kill(ppid, 0); } catch { stop(); } }, 5000).unref();
+      setInterval(() => { try { process.kill(ppid, 0); } catch { stop('parent gone'); } }, 5000).unref();
     }
   })
   .catch((e: unknown) => { console.error(e); process.exit(1); });

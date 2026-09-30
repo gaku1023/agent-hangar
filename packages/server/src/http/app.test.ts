@@ -150,12 +150,21 @@ describe('auth', () => {
   // 「hangar がいる」と見なす（apps/desktop/src-tauri/src/health.rs の is_healthy がこれに依存している）。
   // version を外すと .app は既存のサーバを見つけられず、同梱サーバの起動も諦める。
   // 片側だけ変えられないよう、応答の形をここで固定する。
-  it('/health は ok と文字列の version を返す', async () => {
+  // .app は /health が返った後も ready が真になるまで起動画面に残り、index の件数を起動画面に出す（lib.rs の wait_for_ready）。
+  // 鍵の要らない経路なので、載せるのは段階と件数だけにする。
+  it('/health は ok と文字列の version に、起動が済んだかと索引の進み具合を添えて返す', async () => {
     const res = await get('/health', {});
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok: boolean; version: unknown };
-    expect(body).toEqual({ ok: true, version: '0.0.0-test' });
+    const total = deps.indexer.progress().total;
+    expect(total).toBeGreaterThan(0);
+    expect(body).toEqual({ ok: true, version: '0.0.0-test', ready: true, index: { phase: 'idle', done: total, total } });
     expect(typeof body.version).toBe('string');
+  });
+  it('起動の途中の /health は ready を偽にし、索引の今の件数を返す', async () => {
+    const booting = createApp({ ...deps, ready: () => false, indexer: { progress: () => ({ phase: 'indexing', done: 412, total: 987 }), rebuild: async () => {} } });
+    const body = await (await booting.request('/health')).json();
+    expect(body).toEqual({ ok: true, version: '0.0.0-test', ready: false, index: { phase: 'indexing', done: 412, total: 987 } });
   });
 
   it('許可する Origin は実際に待ち受けているポートに追随する', async () => {

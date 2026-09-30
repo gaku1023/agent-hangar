@@ -55,6 +55,12 @@ export type AppDeps = {
   settings: () => Settings; updateSettings: (patch: Partial<SettingsDto>) => Settings;
   live: () => LiveSessionDto[];
   indexer: { progress(): IndexProgressDto; rebuild(): Promise<void> };
+  /**
+   * 起動の手続き（最初の索引づけと、セッションの紐づけ）が済んだか。
+   * 待ち受けは先に始まるので、/health が返っても済んでいるとは限らない。
+   * .app はこれが真になるまで起動画面に残る。渡さなければ済んだものとして扱う。
+   */
+  ready?: () => boolean;
   hub: { broadcast(ev: ServerEvent): void };
   runs: RunsApi;
   external: ExternalApi;
@@ -235,7 +241,8 @@ export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
   const { db, deviceId } = deps;
 
-  app.get('/health', (c) => c.json({ ok: true, version: deps.version }));
+  // 鍵の要らない経路なので、起動の進み具合は段階と件数だけを載せる。
+  app.get('/health', (c) => c.json({ ok: true, version: deps.version, ready: deps.ready?.() ?? true, index: deps.indexer.progress() }));
 
   const api = new Hono();
   api.use('*', authMiddleware(deps.token, deps.port));

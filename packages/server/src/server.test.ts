@@ -767,6 +767,17 @@ describe('終了の受け口', () => {
     expect(h.exits).toEqual([0]);
   });
 
+  // .app が起動から数秒で終わる件を切り分けるため、何で止まったかを desktop.log に残す。
+  it('止まった理由を 1 行残す', async () => {
+    const lines: string[] = [];
+    const h = host();
+    const stop = installShutdown(Promise.resolve({ close: async () => {} }), { ...h.opts, log: (l) => lines.push(l) });
+    h.handlers.get('SIGTERM')!();
+    stop('parent gone');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(lines).toEqual(['[shutdown] SIGTERM']);
+  });
+
   it('信号が重なっても close() は 1 度だけ走る', async () => {
     const h = host();
     let closed = 0;

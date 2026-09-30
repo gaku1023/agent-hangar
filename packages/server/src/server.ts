@@ -340,16 +340,20 @@ export function installShutdown(
     exit?: (code: number) => void;
     setTimeout?: typeof setTimeout;
     watchdogMs?: number;
+    log?: (line: string) => void;
   } = {},
-): () => void {
+): (reason?: string) => void {
   const on = o.on ?? ((signal, handler) => { process.on(signal, handler); });
   const exit = o.exit ?? ((code: number) => process.exit(code));
   const setTimer = o.setTimeout ?? setTimeout;
   const watchdogMs = o.watchdogMs ?? STOP_WATCHDOG_MS;
+  const log = o.log ?? ((line: string) => console.log(line));
   let stopping = false;
-  const stop = (): void => {
+  // 何で止まったかを 1 行残す。.app が起動から数秒で終わる件を、ログだけで切り分けられるようにする。
+  const stop = (reason = 'stop'): void => {
     if (stopping) return;
     stopping = true;
+    log(`[shutdown] ${reason}`);
     // 後始末が終わらなくても必ず降りる。
     // unref してあるので、これ 1 本だけのためにイベントループは生き延びない。
     const timer = setTimer(() => exit(0), watchdogMs);
@@ -357,8 +361,8 @@ export function installShutdown(
     // 起動の途中なら、起動が終わってから閉じる。起動そのものが転んだ回は閉じるものが無い。
     void startup.then((s) => s.close(), () => undefined).catch(() => undefined).finally(() => exit(0));
   };
-  on('SIGINT', stop);
-  on('SIGTERM', stop);
+  on('SIGINT', () => stop('SIGINT'));
+  on('SIGTERM', () => stop('SIGTERM'));
   // 起動が転んだときに、誰も受け取らない拒否を残さない。呼び手は自分の分を別に受け取る。
   void startup.catch(() => undefined);
   return stop;
@@ -382,6 +386,7 @@ export type StartOptions = {
  * ~/.claude は読むだけで、書き込みは home 配下に限る。
  */
 export async function startServer(opts: StartOptions = {}): Promise<{ close(): Promise<void>; port: number }> {
+  const bootAt = performance.now();
   const home = opts.home ?? hangarHome();
   ensureHome(home);
   const token = readOrCreateToken(home);
@@ -560,6 +565,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   const addr = server.address();
   const port = addr && typeof addr === 'object' ? addr.port : opts.port ?? 4177;
+  // 待ち受けは起動の手続きより先に始まる。/health はこの時点から返るので、ここで一度知らせる。
+  console.log(`agent-hangar listening on http://${host}:${port}${settings.tmuxPath ? '' : '（tmux が見つからないため起動は使えません）'}`);
 
   const tmuxOf = (s: Settings): Tmux | null => (s.tmuxPath ? new Tmux({ tmuxPath: s.tmuxPath }) : null);
   /**
@@ -684,6 +691,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const uiDist = opts.uiDist ?? process.env.HANGAR_UI_DIST ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
   const app = createApp({
     db, deviceId: device.id, deviceName: device.name, token, home, port, version: VERSION,
+    // 最初の索引づけと紐づけが済むまで偽。.app はこれを見て起動画面に残る。
+    ready: () => started,
     settings: () => settings,
     updateSettings: (patch) => {
       const wasSyncingConfig = settings.syncClaudeConfig;
@@ -818,7 +827,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const uploadTimer = uploader ? setInterval(sweepUploads, UPLOAD_SWEEP_MS) : null;
   uploadTimer?.unref();
 
-  console.log(`agent-hangar listening on http://${host}:${port}${settings.tmuxPath ? '' : '（tmux が見つからないため起動は使えません）'}`);
+  // 起動の手続き（最初の索引づけと紐づけ）が済んだ。.app はここまで起動画面に残る。
+  console.log(`agent-hangar ready in ${((performance.now() - bootAt) / 1000).toFixed(1)}s (index ${indexer.progress().total} files)`);
   return {
     port,
     close: async () => {
