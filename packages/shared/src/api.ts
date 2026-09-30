@@ -36,7 +36,10 @@ export type UsageDayDto = { day: string; inputTokens: number; outputTokens: numb
 export type UsageProjectDto = { projectId: string | null; name: string; inputTokens: number; outputTokens: number; costUsd: number | null; sessions: number };
 export type UsageAggregateDto = { days: UsageDayDto[]; projects: UsageProjectDto[] };
 export type StatuslineStatusDto = { command: string | null; scriptPath: string | null; installed: boolean };
-export type TodoDto = { id: string; projectId: string; text: string; done: boolean; position: number; sessionId: string | null; updatedAt: number };
+/** 完了の候補。sessionId はセッション別でない MCP の URL から出たとき null、note は根拠が無いとき null。 */
+export type TodoCandidateDto = { sessionId: string | null; note: string | null; at: number };
+/** candidate は古いサーバからは欠ける。欠けたものは null として扱う。 */
+export type TodoDto = { id: string; projectId: string; text: string; done: boolean; position: number; sessionId: string | null; updatedAt: number; candidate?: TodoCandidateDto | null };
 export type MemoDto = { projectId: string; markdown: string; updatedAt: number };
 export type ArtifactDto = { id: string; projectId: string | null; url: string; title: string | null; description: string | null; favicon: string | null; filePath: string | null; fileExists: boolean; firstPublishedAt: number; lastPublishedAt: number; versionCount: number; sessionIds: string[] };
 export type PromoteResultDto = { project: ProjectDto; session: SessionDto; moved: boolean; reason: string | null };

@@ -21,6 +21,21 @@ function openDbAt(file: string, version: number): void {
 const LATEST = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 
 describe('openDb', () => {
+  it('version 10 で todos に候補の列が足され、既存の行の rejected_sessions は [] になる', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
+    const file = path.join(tmp, 'hangar.db');
+    openDbAt(file, 9);
+    const old = new Database(file);
+    old.prepare("insert into projects (id, name, status, is_scratch, updated_at, origin_device) values ('p1', 'a', 'active', 0, 1, 'd')").run();
+    old.prepare("insert into todos (id, project_id, text, done, position, updated_at, origin_device) values ('t1', 'p1', 'x', 0, 1, 1, 'd')").run();
+    old.close();
+    const db = openDb(file);
+    const cols = (db.prepare('pragma table_info(todos)').all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(expect.arrayContaining(['candidate_at', 'candidate_session_id', 'candidate_note', 'rejected_sessions']));
+    expect(db.prepare("select candidate_at, candidate_session_id, candidate_note, rejected_sessions from todos where id = 't1'").get()).toEqual({ candidate_at: null, candidate_session_id: null, candidate_note: null, rejected_sessions: '[]' });
+    db.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
   it('共有テーブル、ローカルテーブル、FTS を作る', () => {
     const db = openDb(':memory:');
     const names = db.prepare("select name from sqlite_master where type in ('table') order by name").all().map((r) => (r as { name: string }).name);

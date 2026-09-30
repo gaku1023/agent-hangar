@@ -255,4 +255,17 @@ create table session_activity (
 );
 `,
   },
+  {
+    // TODO の完了の候補。セッションが「片付いた」と判断しても完了にはせず、利用者が確かめるまで候補として持つ。
+    // 共有テーブルの列なので同期の payload に載る。D1 は行を JSON のまま持つので、クラウド側のマイグレーションは要らない。
+    // 列を持たない古い端末は、適用のときに自分の表に無い列を捨てる（sync/apply.ts の tableColumns）。
+    // rejected_sessions は、この TODO の候補を却下されたセッション ID の JSON 配列である。
+    version: 10,
+    sql: `
+alter table todos add column candidate_at integer;
+alter table todos add column candidate_session_id text;
+alter table todos add column candidate_note text;
+alter table todos add column rejected_sessions text not null default '[]';
+`,
+  },
 ];
