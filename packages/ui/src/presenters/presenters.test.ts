@@ -54,13 +54,14 @@ describe('format', () => {
 });
 
 describe('presentShell', () => {
-  it('現在のナビ項目とパンくずと索引の進行', () => {
+  // 今いる場所はヘッダのパンくずではなく、各頁の見出しで示す。ヘッダには頁ごとに変わる文字を渡さない。
+  it('現在のナビ項目と索引の進行を返し、パンくずは返さない', () => {
     const state = { ...initialState(), screen: { name: 'project' as const, id: 'alpha' } };
     const store = storeWith();
     store.index = { phase: 'indexing', done: 10, total: 40 };
     const p = presentShell(state, store, NOW);
     expect(p.nav.find((n) => n.current)?.label).toBe('プロジェクト');
-    expect(p.crumbs.map((c) => c.label)).toEqual(['プロジェクト', 'alpha']);
+    expect(p).not.toHaveProperty('crumbs');
     expect(p.indexLabel).toBe('索引 10 / 40 件');
   });
 });
@@ -243,9 +244,20 @@ describe('presentProject', () => {
     expect(p.sessions.map((s) => s.id)).toEqual(['s1', 's4', 's2']);
     expect(presentProject(initialState(), store, NOW, 'nope').notFound).toBe(true);
   });
+  it('見出しの上には、一覧へ戻るリンクを出す', () => {
+    const parent = { label: 'プロジェクト', route: { name: 'projects' } };
+    expect(presentProject(initialState(), storeWith(), NOW, 'alpha').parent).toEqual(parent);
+    expect(presentProject(initialState(), storeWith(), NOW, 'nope').parent).toEqual(parent);
+  });
 });
 
 describe('presentSession', () => {
+  it('見出しの上には、属するプロジェクトへ戻るリンクを出し、属さなければ出さない', () => {
+    const store = storeWith();
+    expect(presentSession(initialState(), store, NOW, 's1').parent).toEqual({ label: 'alpha', route: { name: 'project', id: 'alpha' } });
+    expect(presentSession(initialState(), store, NOW, 's3').parent).toBeNull();
+    expect(presentSession(initialState(), store, NOW, 'nope').parent).toBeNull();
+  });
   it('ツール結果を呼び出しに畳み込み、思考は既定で隠し、サブエージェントを対応づける', () => {
     let store = storeWith();
     store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 6, nextSeq: null, events: [

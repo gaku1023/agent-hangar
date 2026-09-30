@@ -70,7 +70,6 @@
 .project-screen { display: grid; grid-template-columns: 1fr 280px; gap: calc(var(--u) * 4); }
 .project-screen[data-rail='closed'] { grid-template-columns: 1fr; }
 .project-main { min-width: 0; }
-.project-head { display: flex; align-items: center; gap: calc(var(--u) * 3); margin-bottom: var(--u); }
 .project-path { margin-bottom: calc(var(--u) * 3); }
 .rail { display: flex; flex-direction: column; gap: calc(var(--u) * 4); min-width: 0; }
 /* 右レールの TODO、メモ、アーティファクトは、白い読む面に載せる。 */

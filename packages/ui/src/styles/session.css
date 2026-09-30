@@ -1,10 +1,10 @@
 /* セッション画面の上段とチップの列（UI 刷新 3 回目）。 */
 
-/* 上段。状態の点、名前、要約の 1 文、操作を 1 行に置く。
+/* 上段（頁の見出しの行、views/PageHeading.tsx）。状態の点、名前、要約の 1 文、操作を 1 行に置く。名前の大きさは .page-title が決める。
    窓が狭いときは要約の 1 文から縮め、名前と操作のボタンは縮めない。 */
 .session-hero { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; }
 .session-hero .btn { flex: none; }
-.session-name { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; }
+
 .session-oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
 
 /* チップの列。小さな錠剤で並べ、入り切らなければ次の行へ送る。 */
@@ -20,3 +20,5 @@ a.chip { color: var(--accent); text-decoration: none; }
 .gone-note { margin-bottom: calc(var(--u) * 3); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-sm); }
 .btn-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
 .btn-link:hover { text-decoration: underline; }
+/* 見出しの線の下に続くときは、線の下の余白（.page-head）だけで間を取る。 */
+.page-head + .chips { margin-top: 0; }

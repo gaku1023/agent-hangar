@@ -16,7 +16,7 @@ export type SyncProps = { visible: boolean; state: SyncStateKind; label: string;
 export type ConnProps = { visible: boolean; staleLabel: string; retryLabel: string };
 /** 保持期間の帯。既定の 30 日のままで、書けて、まだ閉じていないときだけ出す。 */
 export type RetentionBannerProps = { visible: boolean; title: string; detail: string; extendTo: number };
-export type ShellProps = { sidebarCollapsed: boolean; nav: NavItem[]; crumbs: { label: string; route?: Route }[]; searchText: string; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps };
+export type ShellProps = { sidebarCollapsed: boolean; nav: NavItem[]; searchText: string; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps };
 
 /**
  * 切れているあいだの帯。
@@ -78,17 +78,10 @@ const NAV: { route: Route; label: string; matches: string[] }[] = [
 
 export function presentShell(state: State, store: Store, now: number): ShellProps {
   const s = state.screen;
-  const crumbs: ShellProps['crumbs'] = [];
-  if (s.name === 'projects') crumbs.push({ label: 'プロジェクト' });
-  if (s.name === 'project') crumbs.push({ label: 'プロジェクト', route: { name: 'projects' } }, { label: store.projects[s.id]?.name ?? s.id });
-  if (s.name === 'sessions') crumbs.push({ label: 'セッション' });
-  if (s.name === 'session') { const ses = store.sessions[s.id]; const proj = ses?.projectId ? store.projects[ses.projectId] : null; if (proj) crumbs.push({ label: proj.name, route: { name: 'project', id: proj.id } }); crumbs.push({ label: ses?.name ?? s.id }); }
-  if (s.name === 'settings') crumbs.push({ label: '設定' });
-  if (s.name === 'home') crumbs.push({ label: 'ホーム' });
   const idx = store.index;
   const indexLabel = idx.phase === 'idle' ? null : idx.phase === 'scanning' ? '索引を準備中' : `${idx.phase === 'rebuilding' ? '再構築' : '索引'} ${idx.done} / ${idx.total} 件`;
   const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
   const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
-  return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), retention: retentionBanner(state, store, now) };
+  return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), retention: retentionBanner(state, store, now) };
 }

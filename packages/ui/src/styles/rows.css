@@ -74,10 +74,9 @@
 /* 一致した語の印。淡い黄の地だけを敷き、文字の色は周りのまま（読みやすさを落とさない）。 */
 .hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }
 
-/* セッション一覧の画面。画面の縁は .main-inner の余白に足して 28px にし、見出し・検索欄・絞り込み・一覧の間を段ごとに広げる。
-   一覧の高さ（SessionsScreen の LIST_H）は、この余白と見出しの高さから出している。 */
-.sessions-screen { padding: calc(var(--u) * 5) calc(var(--u) * 3) calc(var(--u) * 3); }
-.sessions-head { display: flex; align-items: baseline; gap: calc(var(--u) * 2.5); margin: 0 0 calc(var(--u) * 4); }
+/* セッション一覧の画面。見出し（.page-head）・検索欄・絞り込み・一覧の間を段ごとに広げる。
+   画面の縁は他の画面と同じく .main-inner の余白だけにし、見出しの位置を揃える。
+   一覧の高さ（SessionsScreen の LIST_H）は、見出しの高さとこの段の余白から出している。 */
 .sessions-count { font-weight: 400; }
 .sessions-keyword { display: flex; margin-bottom: calc(var(--u) * 3.5); }
 .sessions-keyword .input { flex: 1; }

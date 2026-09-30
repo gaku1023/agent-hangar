@@ -112,6 +112,12 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      // WKWebView は、入力欄の外の Backspace で履歴を 1 つ戻す。いまの Chrome と Safari には無い動きなので止める。
+      // 入力欄とターミナル（xterm の textarea）では文字を消す打鍵なので、そのまま通す。
+      if (e.key === 'Backspace') {
+        if (!typing && !el?.isContentEditable) e.preventDefault();
+        return;
+      }
       // ターミナルにフォーカスがあるときは、⌘ を含む組み合わせだけを hangar が処理する。
       // Ctrl の打鍵は端末のものなので、preventDefault せずに xterm へ渡す。
       const inTerminal = !!el?.closest?.('.term-host');

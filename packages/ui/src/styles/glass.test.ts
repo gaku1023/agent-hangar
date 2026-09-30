@@ -39,11 +39,13 @@ describe('骨格', () => {
     expect(all.find((r) => r.selector === '.sidebar')?.body).toContain('margin: calc(var(--header-h) + var(--float-gap)) 0 var(--float-gap) var(--float-gap);');
     expect(all.filter((r) => r.selector.includes("[data-sidebar='collapsed']") && r.selector.includes('.header'))).toEqual([]);
   });
+  // ヘッダの左の列はロゴから始まる。殻の中では信号の 3 点がヘッダの左端に載るので、ロゴはその右（--head-lead）から始める。
   it('信号の 3 点の分の余白は、殻の中でだけ、ヘッダの左に取る', () => {
     expect(all.filter((r) => r.selector.includes('.sidebar') && r.body.includes('padding-top'))).toEqual([]);
     const lefts = all.filter((r) => r.body.includes('var(--lights-end)'));
-    expect(lefts.map((r) => r.selector)).toEqual(["[data-shell='desktop'] .header"]);
-    expect(lefts[0]?.body).toContain('padding-left: var(--lights-end);');
+    expect(lefts.map((r) => r.selector)).toEqual(["[data-shell='desktop'] .shell"]);
+    expect(lefts[0]?.body).toContain('--head-lead: var(--lights-end);');
+    expect(all.find((r) => r.selector === '.header-brand')?.body).toContain('padding-left: var(--head-lead);');
   });
   it('横スワイプで戻る／進むをしても、頁ごと（サイドバーも）は引っ張られない', () => {
     const r = all.find((r) => r.selector === 'html, body');
