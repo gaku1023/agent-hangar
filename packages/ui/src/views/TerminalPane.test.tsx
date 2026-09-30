@@ -83,7 +83,7 @@ function domHost(): TerminalHost {
         cols: 80, rows: 24, element: null,
         open(el) { el.appendChild(node); t.element = node; },
         write() {}, onData: () => ({ dispose() {} }), onResize: () => ({ dispose() {} }),
-        fit() {}, focus() {}, dispose() {},
+        fit() {}, focus() {}, dispose() {}, setGpu() {},
       };
       return t;
     },

@@ -11,19 +11,20 @@ class FakeWs {
   open() { this.readyState = 1; this.onopen?.(); }
   receive(m: unknown) { this.onmessage?.({ data: JSON.stringify(m) }); }
 }
-type FakeTerm = TerminalLike & { written: string[]; opened: HTMLElement | null; fitted: number; focused: number; disposed: boolean; type(d: string): void; resizeTo(c: number, r: number): void; detachHost(): void };
+type FakeTerm = TerminalLike & { written: string[]; opened: HTMLElement | null; fitted: number; focused: number; disposed: boolean; gpu: boolean; gpuBeforeOpen: boolean; type(d: string): void; resizeTo(c: number, r: number): void; detachHost(): void };
 function fakeTerm(): FakeTerm {
   const data: ((d: string) => void)[] = []; const resize: ((s: { cols: number; rows: number }) => void)[] = [];
   // 画面を離れると React が枠ごと外すので、要素の親は残ったまま文書から外れる。isConnected はそれを表す。
   const node = { parentElement: null as HTMLElement | null, hostDetached: false, get isConnected() { return node.parentElement !== null && !node.hostDetached; }, remove() { node.parentElement = null; } };
   const t: FakeTerm = {
-    cols: 80, rows: 24, element: null, written: [], opened: null, fitted: 0, focused: 0, disposed: false,
+    cols: 80, rows: 24, element: null, written: [], opened: null, fitted: 0, focused: 0, disposed: false, gpu: false, gpuBeforeOpen: false,
     open(el) { t.opened = el; node.parentElement = el; t.element = node as unknown as HTMLElement; },
     detachHost() { node.hostDetached = true; },
     write(d) { t.written.push(d); },
     onData(cb) { data.push(cb); return { dispose() {} }; },
     onResize(cb) { resize.push(cb); return { dispose() {} }; },
     fit() { t.fitted++; }, focus() { t.focused++; }, dispose() { t.disposed = true; },
+    setGpu(on) { if (on && !t.opened) t.gpuBeforeOpen = true; t.gpu = on; },
     type(d) { for (const cb of data) cb(d); }, resizeTo(c, r) { for (const cb of resize) cb({ cols: c, rows: r }); },
   };
   return t;
@@ -82,6 +83,21 @@ describe('createTerminalHost', () => {
     host.mount('t1', el);
     expect(terms[1]!.element?.parentElement).toBeNull();
     expect((el as unknown as { appendChild: ReturnType<typeof vi.fn> }).appendChild).toHaveBeenCalledWith(terms[0]!.element);
+  });
+  it('WebGL の描画は最後に mount したタブだけが持つ', () => {
+    // WebGL の描画文脈はブラウザ全体で 16 個まで。隠れたタブが持ち続けると、古い順に失われる。
+    const { host, terms } = make();
+    const el = { appendChild: vi.fn() } as unknown as HTMLElement;
+    host.mount('t1', el);
+    expect(terms[0]!.gpu).toBe(true);
+    host.mount('t2', el);
+    expect(terms[0]!.gpu).toBe(false);
+    expect(terms[1]!.gpu).toBe(true);
+    host.mount('t1', el);
+    expect(terms[0]!.gpu).toBe(true);
+    expect(terms[1]!.gpu).toBe(false);
+    // WebGL は open で描画先の要素ができてからでないと付けられない。
+    expect(terms.some((t) => t.gpuBeforeOpen)).toBe(false);
   });
   it('open の前に来た focus は mount のあとに当てる', () => {
     const { host, terms } = make();
