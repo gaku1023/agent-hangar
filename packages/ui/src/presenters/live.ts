@@ -22,6 +22,8 @@ export type LiveInput = {
   clock: (ts: number) => string;
   /** 休みのときに出す、最後の手からの経過。 */
   idleFor: string;
+  /** 結果の表。呼び出し側が持っていれば渡し、無ければ presentLivePane が 1 回だけ作る。 */
+  results?: ResultMap;
 };
 
 /** 意図の帯を薄くする手数。仕様書の試作の値で、使ってみて見直す。 */
@@ -36,18 +38,36 @@ const OWN_MCP = /^mcp__hangar__/;
 type Call = Extract<TranscriptEvent, { kind: 'tool_call' }>;
 type Result = Extract<TranscriptEvent, { kind: 'tool_result' }>;
 const isCall = (e: TranscriptEvent): e is Call => e.kind === 'tool_call';
-const resultsOf = (events: TranscriptEvent[]) => new Map(events.filter((e): e is Result => e.kind === 'tool_result').map((r) => [r.toolId, r]));
+export type ResultMap = Map<string, Result>;
+export const resultsOf = (events: TranscriptEvent[]): ResultMap => new Map(events.filter((e): e is Result => e.kind === 'tool_result').map((r) => [r.toolId, r]));
 
-/** ターンの手の種類の並び。失敗は種類より優先し、最新の 40 手に切る。 */
-export function bandOf(events: TranscriptEvent[], from: number, to: number): StepCell[] {
-  const results = resultsOf(events);
-  const cells = events.filter((e): e is Call => isCall(e) && e.seq >= from && e.seq < to).map((c): StepCell => (results.get(c.toolId)?.isError ? 'fail' : stepKind(c)));
-  return cells.slice(-BAND_CELLS);
+/**
+ * 複数のターンの手の種類の並びを、イベントを 1 度だけ走査して作る。失敗は種類より優先し、ターンごとに最新の 40 手に切る。
+ * turns は from の昇順でなくてもよい（呼び出しごとに二分探索する）。
+ */
+export function bandsOf(events: TranscriptEvent[], turns: { from: number; to: number }[], results: ResultMap = resultsOf(events)): StepCell[][] {
+  const cells = events.filter(isCall).map((c) => ({ seq: c.seq, cell: (results.get(c.toolId)?.isError ? 'fail' : stepKind(c)) as StepCell }));
+  const sorted = cells.every((c, n) => n === 0 || cells[n - 1]!.seq <= c.seq) ? cells : [...cells].sort((x, y) => x.seq - y.seq);
+  return turns.map(({ from, to }) => {
+    let lo = 0;
+    let hi = sorted.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sorted[mid]!.seq < from) lo = mid + 1; else hi = mid;
+    }
+    let end = lo;
+    while (end < sorted.length && sorted[end]!.seq < to) end++;
+    return sorted.slice(Math.max(lo, end - BAND_CELLS), end).map((c) => c.cell);
+  });
 }
 
-function mainSteps(i: LiveInput): StepRowProps[] {
+/** ターンの手の種類の並び。単発用で、数ターンを続けて求めるときは bandsOf を使う。 */
+export function bandOf(events: TranscriptEvent[], from: number, to: number): StepCell[] {
+  return bandsOf(events, [{ from, to }])[0]!;
+}
+
+function mainSteps(i: LiveInput, results: ResultMap): StepRowProps[] {
   if (i.viewingAgent) return [];
-  const results = resultsOf(i.events);
   const calls = i.events.filter((e): e is Call => isCall(e) && e.seq >= i.turnFrom && !AGENT_TOOLS.has(e.name) && !OWN_MCP.test(e.name));
   const rows: (StepRowProps & { reads: number })[] = [];
   calls.forEach((c, n) => {
@@ -65,7 +85,7 @@ function mainSteps(i: LiveInput): StepRowProps[] {
   return rows.slice(-MAX_STEPS).map(({ reads, ...row }) => (reads > 1 ? { ...row, text: `${row.text} ほか ${reads - 1} 件` } : row));
 }
 
-function lampOf(i: LiveInput, steps: number): LampProps {
+function lampOf(i: LiveInput, steps: number, results: ResultMap): LampProps {
   const agents = i.digest?.agents ?? [];
   const running = agents.filter((a) => a.state === 'running').length;
   const failed = agents.filter((a) => a.state === 'error').length;
@@ -73,10 +93,11 @@ function lampOf(i: LiveInput, steps: number): LampProps {
   if (i.live === 'waiting' && i.activity?.question) return { tone: 'wait', head: 'あなたの答え待ち', sub: [...i.activity.question].slice(0, 40).join('') };
   if (i.live === 'waiting') return { tone: 'wait', head: '入力待ち', sub: i.activity?.summary ?? '' };
   if (running > 0) {
-    const mainBusy = !i.viewingAgent && i.events.some((e) => isCall(e) && e.seq >= i.turnFrom && !AGENT_TOOLS.has(e.name) && !resultsOf(i.events).has(e.toolId));
+    const mainBusy = !i.viewingAgent && i.events.some((e) => isCall(e) && e.seq >= i.turnFrom && !AGENT_TOOLS.has(e.name) && !OWN_MCP.test(e.name) && !results.has(e.toolId));
     return { tone: 'busy', head: `${running} 本動いている`, sub: [mainBusy ? '指揮役も手を動かしている' : '', failed ? `失敗 ${failed}` : '', done ? `済 ${done}` : ''].filter(Boolean).join('、') };
   }
-  if (i.live === 'busy') return { tone: 'busy', head: '作業中', sub: `ターン ${i.turnNo}・${steps} 手目` };
+  // サブエージェントの transcript を開いている間は、ターンも手の数も指揮役のものではないので出さない。
+  if (i.live === 'busy') return { tone: 'busy', head: '作業中', sub: i.viewingAgent ? '' : `ターン ${i.turnNo}・${steps} 手目` };
   return { tone: 'idle', head: '休み', sub: i.idleFor };
 }
 
@@ -95,9 +116,12 @@ function lanesOf(i: LiveInput): { lanes: LaneProps[]; doneFolded: number } {
     const end = a.state === 'running' ? i.now : a.lastAt ?? i.now;
     const elapsed = a.startedAt === null ? '' : durationLabel(Math.max(0, end - a.startedAt));
     const quoted = a.state !== 'running' && a.report !== null;
-    // 済みで報告が無いときは、終わりの知らせの status（failed、killed など）があれば添える。赤にはしない。
-    const doneLine = a.endNote !== null ? `終わった（${a.endNote}）` : '終わった';
-    const line = quoted ? a.report! : a.last?.text ?? (a.state === 'error' ? '失敗した' : a.state === 'done' ? doneLine : '始めたところ');
+    // 済みは報告（引用）、無ければ終わりの知らせの status（failed、killed など）を添えた「終わった」で、最後の手は使わない。赤にはしない。
+    // 失敗は報告、最後の手、「失敗した」の順。動いている本は最後の手か「始めたところ」。
+    const line = a.state === 'done'
+      ? a.report ?? (a.endNote !== null ? `終わった（${a.endNote}）` : '終わった')
+      : a.state === 'error' ? a.report ?? a.last?.text ?? '失敗した'
+      : a.last?.text ?? '始めたところ';
     return { agentId: a.agentId, title: a.title, tone: a.state, elapsed, line, quoted, selectable: a.linked };
   });
   const lanes = all.slice(0, MAX_LANES);
@@ -105,6 +129,8 @@ function lanesOf(i: LiveInput): { lanes: LaneProps[]; doneFolded: number } {
 }
 
 export function presentLivePane(i: LiveInput): LivePaneProps {
-  const steps = i.viewingAgent ? 0 : i.events.filter((e) => isCall(e) && e.seq >= i.turnFrom).length;
-  return { lamp: lampOf(i, steps), intent: intentOf(i), steps: mainSteps(i), ...lanesOf(i) };
+  const results = i.results ?? resultsOf(i.events);
+  // 「m 手目」は指揮役の手の数。Agent の起こしは数え、hangar 自身の MCP は数えない。
+  const steps = i.viewingAgent ? 0 : i.events.filter((e) => isCall(e) && e.seq >= i.turnFrom && !OWN_MCP.test(e.name)).length;
+  return { lamp: lampOf(i, steps, results), intent: intentOf(i), steps: mainSteps(i, results), ...lanesOf(i) };
 }

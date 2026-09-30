@@ -6,7 +6,7 @@ import { DEFAULT_DAYS, daysLabel, EXTEND_TO, transcriptMark } from './retention.
 import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
-import { bandOf, presentLivePane, type LivePaneProps } from './live.ts';
+import { bandsOf, presentLivePane, resultsOf, type LivePaneProps } from './live.ts';
 import { buildTurns } from './turns.ts';
 import type { TurnJumpStatus } from '../mediator/types.ts';
 
@@ -141,7 +141,10 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const items = buildItems(events, itemOpts);
   const turnList = buildTurns(events);
   const openTurn = turnList.find((t) => t.seq === view.openTurn) ?? null;
-  const turnRows: TurnRowProps[] = turnList.map((t) => ({ seq: t.seq, when: when(t.ts), text: t.text, head: t.head, tools: t.tools, open: t === openTurn, band: bandOf(events, t.from, t.to) }));
+  // 結果の表は 1 回だけ作り、色帯と右ペインで使い回す。
+  const results = resultsOf(events);
+  const bands = bandsOf(events, turnList, results);
+  const turnRows: TurnRowProps[] = turnList.map((t, n) => ({ seq: t.seq, when: when(t.ts), text: t.text, head: t.head, tools: t.tools, open: t === openTurn, band: bands[n]! }));
   const openTurnItems = openTurn ? buildItems(events.filter((e) => e.seq >= openTurn.from && e.seq < openTurn.to), itemOpts) : [];
   const project = s.projectId ? store.projects[s.projectId] ?? null : null;
   const run = currentRunOf(store, id);
@@ -151,7 +154,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const livePane = alive ? presentLivePane({
     digest: store.liveDigests[id] ?? null, events, turnFrom: lastTurn?.from ?? 0, turnNo: turnList.length,
     live: s.live, activity: s.activity ?? null, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
-    idleFor: durationLabel(now - (s.lastActivityAt ?? now)),
+    idleFor: durationLabel(now - (s.lastActivityAt ?? now)), results,
   }) : null;
   const open = run ? tabsOf(store, run.id) : [];
   const selectedTab = run ? (view.selectedTab && open.some((t) => t.id === view.selectedTab) ? view.selectedTab : run.id) : null;

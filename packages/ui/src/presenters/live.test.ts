@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveAgentDto, LiveDigestDto, TranscriptEvent } from '@agent-hangar/shared';
-import { bandOf, presentLivePane, type LiveInput } from './live.ts';
+import { bandOf, bandsOf, presentLivePane, type LiveInput } from './live.ts';
 
 let seq = 0;
 const call = (name: string, input: unknown, ts = 0): TranscriptEvent => ({ kind: 'tool_call', seq: seq++, ts, toolId: `t${seq}`, name, input, summary: name });
@@ -23,8 +23,20 @@ describe('状態の灯', () => {
   it('主線だけが作業中ならターンと手の数', () => {
     seq = 0;
     const c1 = call('Read', { file_path: '/w/a.ts' });
-    const p = presentLivePane(input({ events: [prompt('x'), c1, res(c1), call('Bash', { command: 'npm test', description: 'テスト' })], turnNo: 3 }));
-    expect(p.lamp).toEqual({ tone: 'busy', head: '作業中', sub: 'ターン 3・2 手目' });
+    const m1 = call('mcp__hangar__set_turn_intent', { text: 'x' });
+    const a1 = call('Agent', { description: '担当' });
+    const p = presentLivePane(input({ events: [prompt('x'), c1, res(c1), m1, res(m1), a1, res(a1), call('Bash', { command: 'npm test', description: 'テスト' })], turnNo: 3 }));
+    // hangar の MCP は数えず、Agent の起こしは数える。
+    expect(p.lamp).toEqual({ tone: 'busy', head: '作業中', sub: 'ターン 3・3 手目' });
+  });
+  it('サブエージェントの transcript を開いている間は、ターンも手の数も出さない', () => {
+    seq = 0;
+    const c = call('Read', { file_path: '/w/a.ts' });
+    expect(presentLivePane(input({ events: [prompt('x'), c], viewingAgent: true })).lamp).toEqual({ tone: 'busy', head: '作業中', sub: '' });
+  });
+  it('質問の文が無い入力待ちは、活動の要約を出す', () => {
+    const p = presentLivePane(input({ live: 'waiting', activity: { tool: 'ExitPlanMode', summary: '計画の承認', question: null } }));
+    expect(p.lamp).toEqual({ tone: 'wait', head: '入力待ち', sub: '計画の承認' });
   });
   it('休みは最後の手からの経過', () => {
     expect(presentLivePane(input({ live: 'idle' })).lamp).toEqual({ tone: 'idle', head: '休み', sub: '3 分' });
@@ -91,6 +103,20 @@ describe('サブエージェントのレーン', () => {
     const p = presentLivePane(input({ digest: digest({ agents: [agent({ state: 'done', endNote: 'failed' })] }) }));
     expect(p.lanes[0]).toMatchObject({ line: '終わった（failed）', quoted: false, tone: 'done' });
   });
+  it('済みの本は最後の手を使わず、報告、終わりの知らせ、「終わった」の順', () => {
+    const last = { text: '最後の手', mono: false, kind: 'run' as const, isError: false };
+    const lines = (p: Partial<LiveAgentDto>) => presentLivePane(input({ digest: digest({ agents: [agent({ state: 'done', last, ...p })] }) })).lanes[0]!.line;
+    expect(lines({ endNote: 'failed' })).toBe('終わった（failed）');
+    expect(lines({ endNote: null })).toBe('終わった');
+    expect(lines({ report: '済：直した', endNote: 'failed' })).toBe('済：直した');
+  });
+  it('失敗の本は報告、最後の手、「失敗した」の順', () => {
+    const last = { text: '最後の手', mono: false, kind: 'run' as const, isError: true };
+    const lines = (p: Partial<LiveAgentDto>) => presentLivePane(input({ digest: digest({ agents: [agent({ state: 'error', ...p })] }) })).lanes[0]!;
+    expect(lines({ last, report: '落ちた' })).toMatchObject({ line: '落ちた', quoted: true });
+    expect(lines({ last })).toMatchObject({ line: '最後の手', quoted: false });
+    expect(lines({})).toMatchObject({ line: '失敗した', quoted: false });
+  });
   it('起こしたばかりで手の無い本は「始めたところ」', () => {
     expect(presentLivePane(input({ digest: digest({ agents: [agent({})] }) })).lanes[0]!.line).toBe('始めたところ');
   });
@@ -104,5 +130,17 @@ describe('bandOf', () => {
     expect(bandOf(events, 0, Infinity)).toEqual(['read', 'fail', 'git']);
     const many = Array.from({ length: 45 }, () => call('Read', { file_path: '/w/x' }));
     expect(bandOf(many, 0, Infinity)).toHaveLength(40);
+  });
+  it('bandsOf は、数ターンを 1 度の走査で求めても、ターンごとの bandOf と同じ', () => {
+    seq = 0;
+    const p1 = prompt('1'); const a = call('Read', { file_path: '/w/a' }); const ra = res(a);
+    const p2 = prompt('2'); const b = call('Bash', { command: 'npx vitest' }); const rb = res(b, true);
+    const p3 = prompt('3'); const g = call('Bash', { command: 'git commit -m x' }); const rg = res(g);
+    const events = [p1, a, ra, p2, b, rb, p3, g, rg, ...Array.from({ length: 45 }, () => call('Read', { file_path: '/w/x' }))];
+    const turns = [{ from: p1.seq, to: p2.seq }, { from: p2.seq, to: p3.seq }, { from: p3.seq, to: Infinity }];
+    const batch = bandsOf(events, turns);
+    expect(batch).toEqual(turns.map((t) => bandOf(events, t.from, t.to)));
+    expect(batch.slice(0, 2)).toEqual([['read'], ['fail']]);
+    expect(batch[2]).toHaveLength(40);
   });
 });
