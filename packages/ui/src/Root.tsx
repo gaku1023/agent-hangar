@@ -247,7 +247,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
 
   const shell = presentShell(state, store, now);
   let body: ReactNode;
-  if (!store.bootstrapped || state.screen.name === 'booting') body = <div className="empty">読み込んでいます</div>;
+  if (!store.bootstrapped || state.screen.name === 'booting') body = <div className="empty boot-wait">読み込んでいます</div>;
   else switch (state.screen.name) {
     case 'home': body = <HomeScreen {...presentHome(state, store, now)} />; break;
     case 'projects': body = <ProjectsScreen {...presentProjects(state, store, now, projectFilter, showArchived)} filter={projectFilter} showArchived={showArchived} onFilter={setProjectFilter} onShowArchived={setShowArchived} />; break;

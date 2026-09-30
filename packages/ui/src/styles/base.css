@@ -33,6 +33,15 @@ a:hover { text-decoration: underline; }
 .sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; margin: var(--float-gap) 0 var(--float-gap) var(--float-gap); padding: calc(var(--u) * 2.5) calc(var(--u) * 2); border-radius: var(--r-xl); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); overflow: auto; }
 /* デスクトップの殻の中では、信号の 3 点がサイドバーの左上に乗る。殻が付ける data-shell の印を見て、その分だけ上を空ける。 */
 [data-shell='desktop'] .sidebar { padding-top: calc(var(--u) * 10); }
+/* 頁を開いたときの入場。デスクトップの起動画面は、読み込みが終わった合図の後、この光の背景だけを描いて終わる。
+   頁が替わった後は、その光の上にサイドバーが左から、ヘッダが上から浮かんで来る。殻は作り直されないので、動くのは最初の 1 回だけである。
+   reduced motion では --dur が 0 になり、動かない。 */
+.shell > .sidebar { animation: glass-arrive-side var(--dur) var(--ease-out) backwards; }
+.shell > .header { animation: glass-arrive-head var(--dur) var(--ease-out) backwards; }
+@keyframes glass-arrive-side { from { opacity: 0; transform: translateX(-28px); } }
+@keyframes glass-arrive-head { from { opacity: 0; transform: translateY(-14px); } }
+/* 読み込み中の文は、ガラスが浮かび終わってから出す。それまでに読み込めれば一度も出ず、光とガラスの間に継ぎ目が見えない。 */
+.boot-wait { animation: enter var(--dur) var(--ease-out) var(--dur) backwards; }
 .header { grid-column: 2; grid-row: 1; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 3); height: var(--header-h); margin: var(--float-gap) var(--float-gap) 0 var(--float-gap); padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 4); border-radius: var(--r-pill); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); }
 /* 中身はヘッダの下をくぐって流れる。上の余白は、浮いたヘッダの高さと上下の隙間の分である。
    scroll-padding-top を同じ値にしておくと、j と k の行送りや Shift+Tab で届いた先がヘッダの下に隠れない。 */

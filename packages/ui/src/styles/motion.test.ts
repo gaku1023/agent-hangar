@@ -99,3 +99,20 @@ describe('画面の移り変わり', () => {
     }
   });
 });
+
+// 仕様：デスクトップの起動画面は、読み込みが終わった合図の後、UI の背景の光だけを描いて終わる（起動画面の F4）。
+// 頁が替わった後は、その光の上にガラスが浮かんで来る。殻は作り直されないので、動くのは頁を開いた最初の 1 回だけである。
+describe('頁を開いたときの入場', () => {
+  const css = strip(read('base.css'));
+  it('サイドバーは左から、ヘッダは上から、光の上に浮かんで来る', () => {
+    expect(css).toContain('.shell > .sidebar { animation: glass-arrive-side var(--dur) var(--ease-out) backwards; }');
+    expect(css).toContain('.shell > .header { animation: glass-arrive-head var(--dur) var(--ease-out) backwards; }');
+    expect(css).toContain('@keyframes glass-arrive-side { from { opacity: 0; transform: translateX(-28px); } }');
+    expect(css).toContain('@keyframes glass-arrive-head { from { opacity: 0; transform: translateY(-14px); } }');
+  });
+  // 起動画面から移った直後に「読み込んでいます」が一瞬だけ光の上に出ると、継ぎ目に見える。
+  // ガラスが浮かび終わるまでに読み込めれば、文は一度も出ない。
+  it('読み込み中の文は、ガラスが浮かび終わってから出る', () => {
+    expect(css).toContain('.boot-wait { animation: enter var(--dur) var(--ease-out) var(--dur) backwards; }');
+  });
+});
