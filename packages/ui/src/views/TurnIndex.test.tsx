@@ -7,9 +7,9 @@ import { TurnIndex, type TurnIndexProps } from './TurnIndex.tsx';
 afterEach(cleanup);
 
 const rows: TurnRowProps[] = [
-  { seq: 1, when: '20:31', text: '最初の指示です\n2 行目', head: '最初の指示です', tools: 3, open: false },
-  { seq: 10, when: '21:02', text: '次の指示', head: '次の指示', tools: 0, open: false },
-  { seq: 20, when: '22:46', text: '今起動してみたけど、反映されてないように見えます。', head: '今起動してみたけど、反映されてない', tools: 12, open: false },
+  { seq: 1, when: '20:31', text: '最初の指示です\n2 行目', head: '最初の指示です', tools: 3, open: false, band: [] },
+  { seq: 10, when: '21:02', text: '次の指示', head: '次の指示', tools: 0, open: false, band: [] },
+  { seq: 20, when: '22:46', text: '今起動してみたけど、反映されてないように見えます。', head: '今起動してみたけど、反映されてない', tools: 12, open: false, band: [] },
 ];
 
 function setup(over: Partial<TurnIndexProps> = {}) {
