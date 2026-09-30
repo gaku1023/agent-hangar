@@ -242,6 +242,18 @@ describe('presentHome', () => {
     expect(p.running[0]).toMatchObject({ activity: null, note: '作業中', contextLabel: '未取得' });
     expect(p.running[1]).toMatchObject({ live: null, activity: null, note: '起動しています' });
   });
+  it('何も動いていないこと（idle）は、実行中も入力待ちも無いときだけ真にする', () => {
+    expect(presentHome(initialState(), homeStore(), NOW).idle).toBe(false);
+    const store = homeStore();
+    store.sessions = { s2: store.sessions.s2!, w1: store.sessions.w1! };
+    // 入力待ちも生きているので、「動いているセッションはありません」とは言わない。
+    expect(presentHome(initialState(), store, NOW).idle).toBe(false);
+    store.sessions = { s2: store.sessions.s2! };
+    expect(presentHome(initialState(), store, NOW).idle).toBe(true);
+    // Claude の一覧に載る前の run も動いているものに数える。
+    store.runs = { r2: runDto('r2', 's2') };
+    expect(presentHome(initialState(), store, NOW).idle).toBe(false);
+  });
   it('最近は要対応と実行中に出したものを除き、新しい順に並べる', () => {
     expect(presentHome(initialState(), homeStore(), NOW).recent.map((r) => r.id)).toEqual(['s3', 's2']);
   });
