@@ -97,4 +97,4 @@ git -C /Users/satog/workspace/agent-hangar merge --no-ff worktree-ux-fixes-1 && 
 - **デスクトップは起動時に一度だけ OS の通知の許可を尋ねる。** ブラウザは既定で受け取らず、設定かカードの「通知を受け取る」から許可を求める。選んだ値は PC ごと。
 - **Dock のバッジは、通知を受け取らない設定でも出す。**
 - **署名していない `.app` で OS の通知の許可が通るかは、まだ誰も確かめていない。** 出ないときは、システム設定の「通知」に Hangar が載っているかを見てほしい。
-- 既存の clippy の警告 1 件（`src/filedrop.rs:134`、新しい Rust の lint）で CI の `-D warnings` が落ちる。範囲外なので直していない（直すのは 1 行）。
+- 既存の clippy の警告 1 件（`src/filedrop.rs:134`、新しい Rust の lint）で CI の `-D warnings` が落ちていたので、1 行で直した。
