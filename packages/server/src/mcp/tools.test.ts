@@ -69,11 +69,64 @@ describe('MCP tools', () => {
     expect(sent.map((e) => e.type)).toEqual(['project.upsert', 'todos.update', 'memo.update', 'project.upsert']);
     const ids = (r.todos as { id: string }[]).map((t) => t.id);
     const r2 = call('update_project', { project_id: 'p1', toggle_todos: [ids[0]!], append_memo: '続き' });
-    expect((r2.todos as { done: boolean }[]).map((t) => t.done)).toEqual([true, false]);
+    // toggle_todos は未完を完了にしない。候補にするだけで、未完の数も変わらない。
+    expect((r2.todos as { done: boolean; candidate: unknown }[]).map((t) => [t.done, t.candidate])).toEqual([[false, { session_id: null, note: null }], [false, null]]);
+    expect(r2.todo_results).toEqual([{ todo_id: ids[0], outcome: 'proposed' }]);
     expect(r2.memo).toBe('## 追記\n\n続き');
-    expect((r2.project as { open_todo_count: number }).open_todo_count).toBe(1);
+    expect((r2.project as { open_todo_count: number }).open_todo_count).toBe(2);
     expect(() => call('update_project', { project_id: 'p1', status: 'bogus' })).toThrow(ToolError);
     expect(() => call('update_project', { project_id: 'p1', toggle_todos: ['nope'] })).toThrow(/nope/);
+  });
+  it('propose_done は根拠つきの候補を出し、TODO ごとの結果を返す', () => {
+    const r = call('update_project', { project_id: 'p1', add_todos: ['a', 'b', 'c'] });
+    const [a, b, c] = (r.todos as { id: string }[]).map((t) => t.id);
+    call('update_project', { project_id: 'p1', toggle_todos: [c!] });
+    // c は候補になった。完了にするには利用者の操作が要るので、ここでは DB を直接完了にして already_done を作る。
+    db.prepare('update todos set done = 1, candidate_at = null where id = ?').run(c);
+    sent.length = 0;
+    const r2 = call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: ' 直して試験で確かめた ' }, { todo_id: c, note: '済み' }] }, { sessionId: alphaId });
+    expect(r2.todo_results).toEqual([{ todo_id: a, outcome: 'proposed' }, { todo_id: c, outcome: 'already_done' }]);
+    const briefs = r2.todos as { id: string; done: boolean; candidate: unknown }[];
+    expect(briefs.find((t) => t.id === a)).toMatchObject({ done: false, candidate: { session_id: alphaId, note: '直して試験で確かめた' } });
+    expect(briefs.find((t) => t.id === b)).toMatchObject({ done: false, candidate: null });
+    expect(sent.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
+    // 2 回目は根拠を書き換えない。
+    const r3 = call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: '書き換え' }] }, { sessionId: alphaId });
+    expect(r3.todo_results).toEqual([{ todo_id: a, outcome: 'already_candidate' }]);
+    expect((r3.todos as { id: string; candidate: { note: string } | null }[]).find((t) => t.id === a)!.candidate!.note).toBe('直して試験で確かめた');
+  });
+  it('却下されたセッションは同じ TODO の候補を出し直せない（propose_done でも toggle_todos でも）', async () => {
+    const { rejectTodo } = await import('../projects/todos.ts');
+    const r = call('update_project', { project_id: 'p1', add_todos: ['a'] });
+    const a = (r.todos as { id: string }[])[0]!.id;
+    call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: 'n' }] }, { sessionId: alphaId });
+    rejectTodo(db, 'd', a);
+    expect(call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: 'もう一度' }] }, { sessionId: alphaId }).todo_results).toEqual([{ todo_id: a, outcome: 'rejected_before' }]);
+    expect(call('update_project', { project_id: 'p1', toggle_todos: [a] }, { sessionId: alphaId }).todo_results).toEqual([{ todo_id: a, outcome: 'rejected_before' }]);
+  });
+  it('toggle_todos は完了を開き直し、候補には何もしない', async () => {
+    const { setTodoDone } = await import('../projects/todos.ts');
+    const r = call('update_project', { project_id: 'p1', add_todos: ['a', 'b'] });
+    const [a, b] = (r.todos as { id: string }[]).map((t) => t.id);
+    setTodoDone(db, 'd', a!, true);
+    call('update_project', { project_id: 'p1', toggle_todos: [b!] });
+    const r2 = call('update_project', { project_id: 'p1', toggle_todos: [a!, b!] });
+    expect(r2.todo_results).toEqual([{ todo_id: a, outcome: 'reopened' }, { todo_id: b, outcome: 'already_candidate' }]);
+    expect((r2.todos as { done: boolean }[]).map((t) => t.done)).toEqual([false, false]);
+  });
+  it('propose_done の根拠が空白だけか 200 字を超えるか、見つからない ID があれば、どの TODO も書かない', () => {
+    const r = call('update_project', { project_id: 'p1', add_todos: ['a'] });
+    const a = (r.todos as { id: string }[])[0]!.id;
+    sent.length = 0;
+    expect(() => call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: '   ' }] })).toThrow(ToolError);
+    expect(() => call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: 'あ'.repeat(201) }] })).toThrow(/200/);
+    expect(() => call('update_project', { project_id: 'p1', add_todos: ['b'], propose_done: [{ todo_id: a, note: 'n' }, { todo_id: 'nope', note: 'n' }] })).toThrow(/nope/);
+    expect(() => call('update_project', { project_id: 'p1', propose_done: [{ note: 'n' }] })).toThrow(ToolError);
+    expect(sent).toEqual([]);
+    const p = call('get_project', { project_id: 'p1' });
+    expect((p.todos as { text: string; candidate: unknown }[]).map((t) => [t.text, t.candidate])).toEqual([['a', null]]);
+    // ちょうど 200 字は通る。
+    expect(call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: 'あ'.repeat(200) }] }).todo_results).toEqual([{ todo_id: a, outcome: 'proposed' }]);
   });
   it('update_project の TODO の書き込みは全部成功か全部失敗', () => {
     const r = call('update_project', { project_id: 'p1', add_todos: ['x'] });

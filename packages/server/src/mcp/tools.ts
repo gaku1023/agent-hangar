@@ -4,7 +4,7 @@ import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { MemoStore } from '../projects/memo.ts';
-import { addTodo, listTodos, setTodoDone } from '../projects/todos.ts';
+import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { readEvents } from '../transcript/read.ts';
@@ -111,9 +111,25 @@ function sessionBrief(s: SessionDto) {
   };
 }
 
-/** プロジェクトの TODO を MCP の綴りで返す。 */
+/** プロジェクトの TODO を MCP の綴りで返す。セッションは、自分が出した候補が残っているかをここで確かめる。 */
 function todoBriefs(deps: ToolDeps, projectId: string) {
-  return listTodos(deps.db, projectId).map((t) => ({ id: t.id, text: t.text, done: t.done, session_id: t.sessionId }));
+  return listTodos(deps.db, projectId).map((t) => ({ id: t.id, text: t.text, done: t.done, session_id: t.sessionId, candidate: t.candidate ? { session_id: t.candidate.sessionId, note: t.candidate.note } : null }));
+}
+
+type TodoOutcome = ProposeOutcome | 'reopened';
+
+/** propose_done の引数を検査して取り出す。1 件でも崩れていれば全体を断る（どの TODO も書かない）。 */
+function proposalsOf(v: unknown): { todoId: string; note: string }[] {
+  if (v === undefined) return [];
+  if (!Array.isArray(v)) throw new ToolError('propose_done は { todo_id, note } の配列です');
+  return v.map((x) => {
+    const o = (typeof x === 'object' && x !== null ? x : {}) as { todo_id?: unknown; note?: unknown };
+    if (typeof o.todo_id !== 'string' || typeof o.note !== 'string') throw new ToolError('propose_done の各項目には todo_id と note の文字列が要ります');
+    const note = o.note.trim();
+    if (!note) throw new ToolError('propose_done の note（根拠の一文）が空です');
+    if ([...note].length > CANDIDATE_NOTE_MAX) throw new ToolError(`propose_done の note は ${CANDIDATE_NOTE_MAX} 字までです`);
+    return { todoId: o.todo_id, note };
+  });
 }
 
 function requireSession(deps: ToolDeps, id: string): SessionDto {
@@ -149,7 +165,7 @@ export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   return { id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved, last_activity_at: p.lastActivityAt, open_todo_count: p.openTodoCount, memo, todos, recent_sessions: recent, artifacts };
 }
 
-/** status、add_todos、toggle_todos、append_memo を受け、変えた表ごとにイベントを配る。 */
+/** status、add_todos、toggle_todos、propose_done、append_memo を受け、変えた表ごとにイベントを配る。 */
 export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const id = projectIdOf(deps, ctx, args);
   const row = deps.db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
@@ -163,15 +179,31 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
   }
   const adds = strs(args.add_todos) ?? [];
   const toggles = strs(args.toggle_todos) ?? [];
-  if (adds.length || toggles.length) {
+  const proposals = proposalsOf(args.propose_done);
+  const results: { todo_id: string; outcome: TodoOutcome }[] = [];
+  const todosTouched = adds.length > 0 || toggles.length > 0 || proposals.length > 0;
+  if (todosTouched) {
     // 全部成功か全部失敗にする。
     // 途中で失敗して書き込みだけが残ると、todos.update を配らないまま DB が進み、UI と食い違ったまま気付けない。
+    // MCP からは完了にしない。完了にするのは利用者だけなので、未完の反転は根拠なしの候補にする。
     deps.db.transaction(() => {
       for (const t of adds) addTodo(deps.db, deps.deviceId, { projectId: id, text: t, sessionId: ctx.sessionId });
-      for (const tid of toggles) {
+      const ofProject = (tid: string) => {
         const cur = deps.db.prepare('select done from todos where id = ? and project_id = ? and deleted_at is null').get(tid, id) as { done: number } | undefined;
         if (!cur) throw new ToolError(`TODO が見つかりません: ${tid}`);
-        setTodoDone(deps.db, deps.deviceId, tid, cur.done !== 1);
+        return cur;
+      };
+      for (const tid of toggles) {
+        if (ofProject(tid).done === 1) {
+          setTodoDone(deps.db, deps.deviceId, tid, false);
+          results.push({ todo_id: tid, outcome: 'reopened' });
+        } else {
+          results.push({ todo_id: tid, outcome: proposeTodoDone(deps.db, deps.deviceId, tid, { sessionId: ctx.sessionId, note: null })!.outcome });
+        }
+      }
+      for (const p of proposals) {
+        ofProject(p.todoId);
+        results.push({ todo_id: p.todoId, outcome: proposeTodoDone(deps.db, deps.deviceId, p.todoId, { sessionId: ctx.sessionId, note: p.note })!.outcome });
       }
     })();
     deps.hub.broadcast({ type: 'todos.update', projectId: id, todos: listTodos(deps.db, id) });
@@ -185,10 +217,11 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
   }
   // TODO とメモの変更で ProjectDto の openTodoCount と memoHead が変わるので、最後にもう一度配る。
   const p = getProject(deps.db, deps.deviceId, deps.live(), id)!;
-  if (adds.length || toggles.length || appended) deps.hub.broadcast({ type: 'project.upsert', project: p });
+  if (todosTouched || appended) deps.hub.broadcast({ type: 'project.upsert', project: p });
   return {
     project: { id: p.id, name: p.name, status: p.status, open_todo_count: p.openTodoCount },
     todos: todoBriefs(deps, id),
+    todo_results: results,
     memo: deps.memos.read(id)?.markdown ?? null,
   };
 }
