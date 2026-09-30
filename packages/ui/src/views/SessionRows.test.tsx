@@ -367,6 +367,19 @@ describe('一覧のキー操作（C1）', () => {
     expect((document.activeElement as HTMLElement).textContent).toContain('名前 a');
   });
 
+  it('autoFocus でも、モーダルのダイアログが開いていればフォーカスを奪わない', () => {
+    // 起動時の未解決ダイアログのように、フォーカスがまだダイアログの外（body）にあっても奪わない。
+    const modal = document.createElement('div');
+    modal.setAttribute('aria-modal', 'true');
+    document.body.appendChild(modal);
+    try {
+      mount(vi.fn(), { autoFocus: true });
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      modal.remove();
+    }
+  });
+
   it('autoFocus は、行が後から届いたときに 1 度だけ当てる', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionRows rows={[]} height={400} variant="search" autoFocus /></IntentRoot>);

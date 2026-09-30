@@ -23,8 +23,13 @@ const DEFAULT_EMPTY_TEXT = 'セッションはまだありません';
 /**
  * いまのフォーカスを一覧が奪ってはいけないか。
  * 入力欄で打っている最中、ターミナルの中、ダイアログの中にあるフォーカスは、その持ち主のものである。
+ * モーダルのダイアログが開いているあいだも奪わない。
+ * 起動時の未解決ダイアログのようにフォーカスがまだ body にあっても、裏の一覧が取ると j や Enter で裏の画面が動くからである。
+ * ただし一覧そのものがそのダイアログの中にあるなら、それは奪うことにならない。
  */
-function holdsFocus(el: Element | null): boolean {
+function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
+  const modal = document.querySelector('[aria-modal="true"]');
+  if (modal && !(host && modal.contains(host))) return true;
   if (!(el instanceof HTMLElement)) return false;
   const tag = el.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable) return true;
@@ -75,7 +80,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   useEffect(() => {
     if (!autoPending.current || !hasRows) return;
     autoPending.current = false;
-    if (!holdsFocus(document.activeElement)) hostRef.current?.focus({ preventScroll: true });
+    if (!holdsFocus(document.activeElement, hostRef.current)) hostRef.current?.focus({ preventScroll: true });
   }, [hasRows]);
 
   const startEdit = (r: SessionRowProps) => { setEditing(r.id); setDraft(r.memo ?? ''); };
