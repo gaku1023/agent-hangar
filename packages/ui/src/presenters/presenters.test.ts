@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, ProjectDto, RunDto, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
+import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, shortModel, tokensLabel } from './format.ts';
 import { presentHome } from './home.ts';
-import { presentNewSession } from './newSession.ts';
+import { newSessionTarget, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
 import { presentSessionRow } from './row.ts';
@@ -461,6 +462,31 @@ describe('presentSession（実行中）', () => {
     expect(p.run).toMatchObject({ id: 'r1', alive: false });
     expect(p.canResume).toBe(true);
     expect(p.tabs.map((t) => t.id)).toEqual(['r1', 't1']);
+  });
+});
+
+describe('newSessionTarget', () => {
+  const at = (screen: State['screen']) => ({ ...initialState(), screen });
+  it('プロジェクトの画面ならそのプロジェクト、セッションの画面ならそのセッションのプロジェクト', () => {
+    const store = storeWith();
+    expect(newSessionTarget(at({ name: 'project', id: 'alpha' }), store)).toEqual({ projectId: 'alpha' });
+    expect(newSessionTarget(at({ name: 'session', id: 's1' }), store)).toEqual({ projectId: 'alpha' });
+    expect(presentShell(at({ name: 'session', id: 's1' }), store, NOW).newSession).toEqual({ projectId: 'alpha' });
+  });
+  it('ほかの画面と、プロジェクトの無いセッションでは何も選ばない', () => {
+    const store = storeWith();
+    expect(newSessionTarget(at({ name: 'home' }), store)).toEqual({});
+    expect(newSessionTarget(at({ name: 'sessions' }), store)).toEqual({});
+    expect(newSessionTarget(at({ name: 'session', id: 's3' }), store)).toEqual({});
+    expect(newSessionTarget(at({ name: 'session', id: 'zz' }), store)).toEqual({});
+  });
+  // スクラッチの擬似プロジェクトは選べないので、その画面の「新規」と同じくスクラッチで始める。
+  it('スクラッチのプロジェクトとそのセッションではスクラッチで開く', () => {
+    const store = storeWith();
+    store.projects = { ...store.projects, scratch: { ...project('scratch'), isScratch: true } };
+    store.sessions = { ...store.sessions, sc: session('sc', { projectId: 'scratch' }) };
+    expect(newSessionTarget(at({ name: 'project', id: 'scratch' }), store)).toEqual({ scratch: true });
+    expect(newSessionTarget(at({ name: 'session', id: 'sc' }), store)).toEqual({ scratch: true });
   });
 });
 

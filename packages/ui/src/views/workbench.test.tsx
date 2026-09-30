@@ -55,7 +55,7 @@ const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, s
 
 describe('Header', () => {
   it('2 つのゲージと最終更新を出す', () => {
-    render(<IntentRoot onIntent={() => {}}><Header crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
     expect(screen.getByLabelText('5 時間の使用率')).toBeTruthy();
     expect(screen.getByLabelText('7 日の使用率')).toBeTruthy();
     expect(screen.getByText('最終更新 10 分前')).toBeTruthy();
@@ -65,7 +65,7 @@ describe('Header', () => {
     const onIntent = vi.fn();
     const sync = { visible: true, state: 'idle' as const, label: '同期済み · 3 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false };
     const long = 'Claude Projects活用検討と社内ナレッジの整理';
-    render(<IntentRoot onIntent={onIntent}><Header crumbs={[{ label: 'agent-hangar', route: { name: 'projects' } }, { label: long }]} searchText="" indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} crumbs={[{ label: 'agent-hangar', route: { name: 'projects' } }, { label: long }]} searchText="" indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
     fireEvent.click(screen.getByRole('link', { name: '同期済み · 3 分前' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
     fireEvent.click(screen.getByRole('button', { name: 'セッションを検索' }));
@@ -75,7 +75,7 @@ describe('Header', () => {
     expect(screen.getByText(long)).toHaveAttribute('title', long);
   });
   it('最終更新が無ければ添えない', () => {
-    render(<IntentRoot onIntent={() => {}}><Header crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} crumbs={[{ label: 'Home' }]} searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
     expect(screen.queryByText(/最終更新/)).toBeNull();
     expect(screen.getAllByText('未取得')).toHaveLength(2);
   });

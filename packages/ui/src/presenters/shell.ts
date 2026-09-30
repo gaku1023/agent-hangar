@@ -2,6 +2,7 @@ import type { IndexProgressDto, Route, SyncStateKind } from '@agent-hangar/share
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
+import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 
 export type NavItem = { route: Route; label: string; current: boolean };
 export type UsageProps = { fiveHour: number | null; sevenDay: number | null; updatedLabel: string | null };
@@ -13,7 +14,8 @@ export type UsageProps = { fiveHour: number | null; sevenDay: number | null; upd
 export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; sweepPending: number; skipped: number; paused: boolean };
 /** 切れているあいだだけ出す帯。つながっている間は visible が false で、文言も空である。 */
 export type ConnProps = { visible: boolean; staleLabel: string; retryLabel: string };
-export type ShellProps = { sidebarCollapsed: boolean; nav: NavItem[]; crumbs: { label: string; route?: Route }[]; searchText: string; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps };
+/** newSession はヘッダーの新規ボタンで開くダイアログの、最初の選択である。 */
+export type ShellProps = { sidebarCollapsed: boolean; nav: NavItem[]; crumbs: { label: string; route?: Route }[]; searchText: string; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -72,5 +74,5 @@ export function presentShell(state: State, store: Store, now: number): ShellProp
   const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
   const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
-  return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now) };
+  return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), newSession: newSessionTarget(state, store) };
 }
