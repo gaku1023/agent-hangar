@@ -65,4 +65,8 @@ describe('新しいセッションのダイアログ', () => {
     expect(body('.draft-tag')).toContain('color: var(--st-paused);');
     expect(body('.draft-tag')).toContain('background: var(--st-paused-soft);');
   });
+  it('前回と同じの札は候補の色を借りる（D1）', () => {
+    expect(body('.prev-tag')).toContain('color: var(--cand);');
+    expect(body('.prev-tag')).toContain('background: var(--cand-soft);');
+  });
 });

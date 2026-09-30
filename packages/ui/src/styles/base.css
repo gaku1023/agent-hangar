@@ -366,6 +366,10 @@ a:hover { text-decoration: underline; }
 /* 文字だけの小さな操作（下書きを消す、既定に戻す）。 */
 .linkish { display: inline-flex; flex: none; align-items: center; gap: 3px; padding: 0; border: 0; background: none; font-size: var(--fs-xs); font-weight: 560; color: var(--accent); cursor: pointer; }
 .linkish:hover { text-decoration: underline; }
+/* 詳細の見出しの前回値（D1）。畳んだままでも「前回と同じ」と中身が読め、右端の「既定に戻す」で空にできる。札は候補の色を借りる。 */
+.prev-tag { flex: none; padding: 1px calc(var(--u) * 1.75); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--cand); background: var(--cand-soft); }
+.prev-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 560; }
+.linkish.prev-reset { margin-left: auto; }
 /* 下端のボタンの段。器の中身がスクロールしても動かない。 */
 .dialog-foot { flex: none; position: relative; z-index: 1; display: flex; align-items: center; gap: calc(var(--u) * 2); padding: var(--dialog-gap) var(--dialog-pad) calc(var(--u) * 4); transition: box-shadow var(--dur-fast) var(--ease-out); }
 .error { color: var(--error); font-size: var(--fs-sm); }

@@ -292,3 +292,70 @@ describe('NewSessionDialog の下書き（C1）', () => {
   });
 });
 
+describe('NewSessionDialog の前回値（D1）', () => {
+  const prefs = { p1: { model: 'opus', effort: 'high', permissionMode: 'acceptEdits' }, p2: { model: 'claude-x', worktree: 'wt', addDirs: ['/a', '/b'] } };
+  const fold = () => screen.getByRole('dialog').querySelector('summary')!;
+  it('選んだプロジェクトの前回値を初期値にし、詳細の見出しに「前回と同じ」と中身を出す', () => {
+    const params = collectParams({ projectId: 'p1', prefs });
+    expect(screen.getByRole('radio', { name: 'opus' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'high' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: '編集は任せる' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(fold()).getByText('前回と同じ')).toBeInTheDocument();
+    expect(fold()).toHaveTextContent('opus、high、編集は任せる');
+    start();
+    expect(params).toEqual([{ projectId: 'p1', model: 'opus', effort: 'high', permissionMode: 'acceptEdits' }]);
+  });
+  it('worktree と追加ディレクトリ、選択肢に無い model も戻す', () => {
+    const params = collectParams({ projectId: 'p2', prefs });
+    expect(screen.getByRole('textbox', { name: 'model の名前' })).toHaveValue('claude-x');
+    expect(screen.getByLabelText('worktree')).toHaveValue('wt');
+    expect(screen.getByLabelText('追加ディレクトリ（1 行 1 つ）')).toHaveValue('/a\n/b');
+    expect(fold()).toHaveTextContent('claude-x、worktree wt、追加ディレクトリ 2 件');
+    start();
+    expect(params).toEqual([{ projectId: 'p2', model: 'claude-x', worktree: 'wt', addDirs: ['/a', '/b'] }]);
+  });
+  it('「既定に戻す」で詳細を全部空にし、見出しを元に戻す。詳細は開閉しない', () => {
+    const params = collectParams({ projectId: 'p1', prefs });
+    const details = screen.getByRole('dialog').querySelector('details')!;
+    fireEvent.click(within(fold()).getByRole('button', { name: '既定に戻す' }));
+    expect(details.open).toBe(false);
+    for (const g of ['model', 'effort', 'permission mode']) {
+      expect(within(screen.getByRole('radiogroup', { name: g })).getByRole('radio', { checked: true })).toHaveAccessibleName('既定');
+    }
+    expect(screen.queryByText('前回と同じ')).toBeNull();
+    expect(screen.getByText('詳細（model、effort、permission mode、worktree、追加ディレクトリ）')).toBeInTheDocument();
+    start();
+    expect(params).toEqual([{ projectId: 'p1' }]);
+  });
+  it('値を変えると「前回と同じ」を外し、選んだ値を並べる', () => {
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} projectId="p1" prefs={prefs} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('radio', { name: 'sonnet' }));
+    expect(screen.queryByText('前回と同じ')).toBeNull();
+    expect(screen.getByText('詳細（sonnet、high、編集は任せる）')).toBeInTheDocument();
+  });
+  it('詳細に触れる前にプロジェクトを選び直すと、そのプロジェクトの前回値に入れ替える', () => {
+    const params = collectParams({ projectId: 'p1', prefs });
+    pick('プロジェクト', 'beta');
+    expect(screen.getByLabelText('worktree')).toHaveValue('wt');
+    pick('プロジェクト', 'スクラッチ');
+    // 前回値の無いプロジェクトは既定に戻す。
+    expect(screen.getByLabelText('worktree')).toHaveValue('');
+    expect(screen.queryByText('前回と同じ')).toBeNull();
+    start();
+    expect(params).toEqual([{ scratch: true }]);
+  });
+  it('詳細に触れた後は、プロジェクトを選び直しても自分で選んだ値を残す', () => {
+    const params = collectParams({ projectId: 'p1', prefs });
+    fireEvent.click(screen.getByRole('radio', { name: 'low' }));
+    pick('プロジェクト', 'beta');
+    start();
+    expect(params).toEqual([{ projectId: 'p2', model: 'opus', effort: 'low', permissionMode: 'acceptEdits' }]);
+  });
+  it('スクラッチで開くとスクラッチの前回値を使う', () => {
+    const params = collectParams({ scratch: true, prefs: { ':scratch': { effort: 'max' } } });
+    expect(screen.getByRole('radio', { name: 'max' })).toHaveAttribute('aria-checked', 'true');
+    start();
+    expect(params).toEqual([{ scratch: true, effort: 'max' }]);
+  });
+});
+

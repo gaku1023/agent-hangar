@@ -1,6 +1,7 @@
 import type { ProjectStatus } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
+import { SCRATCH_PREFS } from '../mediator/launch.ts';
 import { relativeTime } from './format.ts';
 
 export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
@@ -11,6 +12,12 @@ export type NewSessionProps = {
   /** 詳細のプロジェクトごとの前回値。鍵はプロジェクトの id で、スクラッチは ':scratch' である。 */
   prefs: Record<string, LaunchPrefs>;
 };
+
+/**
+ * ダイアログのプロジェクトの一覧で、スクラッチの行に当てる値。
+ * 前回値（prefs）の鍵と同じ綴りなので、選んだ値でそのまま前回値を引ける。プロジェクトの id とは重ならない。
+ */
+export const SCRATCH_CHOICE = SCRATCH_PREFS;
 
 /** 一覧の「最近」に置く件数。 */
 export const RECENT_COUNT = 5;

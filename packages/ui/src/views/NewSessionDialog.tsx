@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { LaunchParams } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
-import type { NewSessionProps } from '../presenters/newSession.ts';
+import type { LaunchPrefs } from '../mediator/types.ts';
+import { SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
 import { isComposing } from './ime.ts';
 import { ChoiceChips } from './primitives/Chip.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
@@ -32,14 +33,28 @@ function EffortBars(props: { level: number }) {
 }
 const EFFORT_OPTIONS = EFFORTS.map((e, i) => ({ value: e, label: e || '既定', lead: e ? <EffortBars level={i} /> : undefined }));
 
-/** プロジェクトの一覧の先頭に置くスクラッチの行。値はプロジェクトの id と重ならない綴りにする。 */
-const SCRATCH = ':scratch';
+/** プロジェクトの一覧の先頭に置くスクラッチの行。値はプロジェクトの id と重ならず、スクラッチの前回値の鍵と同じ綴りである。 */
+const SCRATCH = SCRATCH_CHOICE;
 const SCRATCH_OPTION: ListboxOption = { value: SCRATCH, label: 'スクラッチ', sub: '名前は決めずに始めて、あとでプロジェクトに昇格できる', subKind: 'prose', faceSub: '~/.agent-hangar/scratch/<日時>/', icon: 'scratch' };
+
+/** 詳細の欄の値。追加ディレクトリは欄のまま 1 行 1 つの文字で持つ。 */
+type Options = { model: string; effort: string; permissionMode: string; worktree: string; addDirs: string };
+const DEFAULT_OPTIONS: Options = { model: '', effort: '', permissionMode: '', worktree: '', addDirs: '' };
+const optionsOf = (p: LaunchPrefs | undefined): Options => ({ model: p?.model ?? '', effort: p?.effort ?? '', permissionMode: p?.permissionMode ?? '', worktree: p?.worktree ?? '', addDirs: p?.addDirs?.join('\n') ?? '' });
+const dirsOf = (text: string): string[] => text.split('\n').map((d) => d.trim()).filter(Boolean);
+const sameOptions = (a: Options, b: Options): boolean => a.model.trim() === b.model.trim() && a.effort === b.effort && a.permissionMode === b.permissionMode && a.worktree.trim() === b.worktree.trim() && dirsOf(a.addDirs).join('\n') === dirsOf(b.addDirs).join('\n');
+
+/** 詳細の見出しに並べる、既定でない値。区切りは読点にする。 */
+function optionParts(o: Options): string[] {
+  const dirs = dirsOf(o.addDirs).length;
+  return [o.model.trim(), o.effort, PERMISSIONS.find((p) => p.value && p.value === o.permissionMode)?.label ?? '', o.worktree.trim() && `worktree ${o.worktree.trim()}`, dirs ? `追加ディレクトリ ${dirs} 件` : ''].filter(Boolean);
+}
 
 /**
  * 起動ダイアログ。必須はプロジェクトだけで、空欄と既定は params に含めない（利用者の Claude Code の設定に従わせるため）。
  * 欄はすべてここの状態で持つ。詳細の見出しに選んだ値を送信の前から出し、下書きを戻して消せるようにするためである。
  * スクラッチはプロジェクトの一覧の先頭の 1 行として選ぶ。props.scratch は開いたときにその行を選んでおくかどうかである。
+ * 詳細の初期値は、選んだプロジェクトの前回値（props.prefs）にする（D1）。
  * 名前と初期プロンプトの書きかけは、閉じるときに下書きとして送り、次に開いたときに props.draft から戻す（C1）。
  * 打鍵のたびには送らない。送るたびに画面全体を描き直すことになるからである。
  * プロジェクトが未選択のまま送っても止めない。未選択の判定は Mediator が持ち、失敗のメッセージが error として戻ってくる。
@@ -56,11 +71,21 @@ export function NewSessionDialog(props: NewSessionProps) {
   const [prompt, setPrompt] = useState(props.draft?.prompt ?? '');
   // 開いたときに下書きを戻したか。「消す」を押すまで見出しに札を出す。
   const [restored, setRestored] = useState(props.draft !== null);
-  const [model, setModel] = useState('');
-  const [effort, setEffort] = useState('');
-  const [permissionMode, setPermissionMode] = useState('');
-  const [worktree, setWorktree] = useState('');
-  const [addDirs, setAddDirs] = useState('');
+  // 詳細の初期値は、選んだプロジェクトの前回値にする（D1）。
+  // 利用者が詳細に触れる前にプロジェクトを選び直したら、そのプロジェクトの前回値に入れ替える。触れた後は、自分で選んだ値を残す。
+  const [detail, setDetail] = useState(() => optionsOf(props.prefs[choice]));
+  const [touched, setTouched] = useState(false);
+  // 値を外から入れ替えた回数。model の択一は「ほか」の欄を開いたかを自分で覚えるので、入れ替えたら作り直す。
+  const [replaced, setReplaced] = useState(0);
+  const setOption = <K extends keyof Options>(key: K) => (value: Options[K]) => { setTouched(true); setDetail((o) => ({ ...o, [key]: value })); };
+  const choose = (value: string) => {
+    setChoice(value);
+    if (touched) return;
+    setDetail(optionsOf(props.prefs[value]));
+    setReplaced((n) => n + 1);
+  };
+  const resetDetail = () => { setTouched(true); setDetail(DEFAULT_OPTIONS); setReplaced((n) => n + 1); };
+  const { model, effort, permissionMode, worktree, addDirs } = detail;
   const nameInput = useRef<HTMLInputElement>(null);
 
   // 閉じるとき（どの経路で閉じても、ダイアログは外される）に、書きかけを下書きとして送る。
@@ -92,7 +117,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     if (effort) params.effort = effort;
     if (permissionMode) params.permissionMode = permissionMode;
     if (worktree.trim()) params.worktree = worktree.trim();
-    const dirs = addDirs.split('\n').map((d) => d.trim()).filter(Boolean);
+    const dirs = dirsOf(addDirs);
     if (dirs.length) params.addDirs = dirs;
     emit({ type: 'session.new.submit', params });
   };
@@ -114,9 +139,21 @@ export function NewSessionDialog(props: NewSessionProps) {
   const recent = new Set(props.recentIds);
   const options = [SCRATCH_OPTION, ...props.projects.map((p) => ({ value: p.id, label: p.name, sub: p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status }))];
   const groups = [{ title: 'すぐ始める', values: [SCRATCH] }, { title: '最近', values: props.recentIds }, { title: 'すべて', values: props.projects.filter((p) => !recent.has(p.id)).map((p) => p.id) }];
-  const chosen = [model.trim(), effort, PERMISSIONS.find((p) => p.value && p.value === permissionMode)?.label].filter(Boolean);
+  const parts = optionParts(detail);
+  // 前回値のままなら、畳んだままでも「前回と同じ」と中身が読めるようにし、「既定に戻す」を添える（D1）。
+  // 既定に戻すは詳細の見出しの中にあるので、押しても詳細を開閉しない。
+  const prev = props.prefs[choice];
+  const sameAsPrev = !!prev && parts.length > 0 && sameOptions(detail, optionsOf(prev));
   // 区切りに全角空白を使わない。読み上げと試験の正規化で空白が詰められ、見た目と一致しなくなるため。
-  const foldSummary = chosen.length ? `詳細（${chosen.join('、')}）` : '詳細（model、effort、permission mode、worktree、追加ディレクトリ）';
+  const foldSummary = sameAsPrev
+    ? (
+      <>
+        <span className="prev-tag">前回と同じ</span>
+        <span className="prev-sum">{parts.join('、')}</span>
+        <button type="button" className="linkish prev-reset" onClick={(e) => { e.preventDefault(); e.stopPropagation(); resetDetail(); }}><Icon name="reset" />既定に戻す</button>
+      </>
+    )
+    : parts.length ? `詳細（${parts.join('、')}）` : '詳細（model、effort、permission mode、worktree、追加ディレクトリ）';
 
   const close = () => emit({ type: 'overlay.close' });
   // 書きかけを背景の押し違いで失わないよう、背景では閉じない。
@@ -143,7 +180,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     >
       <div className="field">
         <span aria-hidden="true">プロジェクト</span>
-        <Listbox id="new-session-project" label="プロジェクト" value={choice || null} options={options} groups={groups} onChange={setChoice} showSubInFace searchPlaceholder="名前かパスで探す" minWidth={360} />
+        <Listbox id="new-session-project" label="プロジェクト" value={choice || null} options={options} groups={groups} onChange={choose} showSubInFace searchPlaceholder="名前かパスで探す" minWidth={360} />
       </div>
       {scratch && <div className="faint">~/.agent-hangar/scratch/ の下に日時のディレクトリを作って起動します。後からプロジェクトに昇格できます。</div>}
       <label className="field" htmlFor="new-session-name">名前（任意）
@@ -155,20 +192,20 @@ export function NewSessionDialog(props: NewSessionProps) {
       <Fold summary={foldSummary}>
         <div className="launch-options">
           <span className="launch-option-label" aria-hidden="true">model</span>
-          <ChoiceChips label="model" value={model} options={MODELS} onChange={setModel} other={{ label: 'ほか', placeholder: 'model の名前' }} />
+          <ChoiceChips key={replaced} label="model" value={model} options={MODELS} onChange={setOption('model')} other={{ label: 'ほか', placeholder: 'model の名前' }} />
           <span className="launch-option-label" aria-hidden="true">effort</span>
-          <div><Segmented label="effort" value={effort} options={EFFORT_OPTIONS} onChange={setEffort} size="xs" /></div>
+          <div><Segmented label="effort" value={effort} options={EFFORT_OPTIONS} onChange={setOption('effort')} size="xs" /></div>
           <span className="launch-option-label launch-option-label-top" aria-hidden="true">permission mode</span>
           <div>
-            <OptionCards label="permission mode" value={permissionMode} options={PERMISSIONS} onChange={setPermissionMode} />
+            <OptionCards label="permission mode" value={permissionMode} options={PERMISSIONS} onChange={setOption('permissionMode')} />
             {permissionMode === 'bypassPermissions' && <div className="error launch-danger">ファイルの削除やコマンドも、確認せずに実行します</div>}
           </div>
         </div>
         <label className="field" htmlFor="new-session-worktree">worktree
-          <input id="new-session-worktree" className="input mono" value={worktree} onChange={(e) => setWorktree(e.target.value)} placeholder="空なら通常の作業ディレクトリ" />
+          <input id="new-session-worktree" className="input mono" value={worktree} onChange={(e) => setOption('worktree')(e.target.value)} placeholder="空なら通常の作業ディレクトリ" />
         </label>
         <label className="field" htmlFor="new-session-add-dirs">追加ディレクトリ（1 行 1 つ）
-          <textarea id="new-session-add-dirs" className="input mono" rows={2} value={addDirs} onChange={(e) => setAddDirs(e.target.value)} />
+          <textarea id="new-session-add-dirs" className="input mono" rows={2} value={addDirs} onChange={(e) => setOption('addDirs')(e.target.value)} />
         </label>
       </Fold>
       <div className="faint">新しいディレクトリでは Claude が信頼確認のダイアログを出します。起動したあとにターミナルで答えてください。</div>
