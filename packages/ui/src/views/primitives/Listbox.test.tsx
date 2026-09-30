@@ -29,6 +29,15 @@ describe('Listbox の顔', () => {
   });
 });
 
+describe('Listbox の読み上げ', () => {
+  it('renderFace の顔でも、選んだ値を説明として読み上げ、隠し要素は顔の外に置く', () => {
+    render(<Listbox label="s" value="b" options={few} onChange={() => {}} renderFace={() => <span>custom</span>} />);
+    const b = screen.getByRole('button', { name: 's' });
+    expect(b).toHaveAccessibleDescription('beta');
+    expect([...b.children].map((c) => c.textContent)).toEqual(['custom']);
+  });
+});
+
 describe('Listbox を開く', () => {
   it('押すと一覧が開き、行は名前で引け、選んだ行に aria-selected が付く', () => {
     render(<Harness options={few} initial="b" />);
@@ -75,6 +84,21 @@ describe('Listbox を開く', () => {
     fireEvent.click(face());
     unmount();
     expect(document.querySelector('.listbox-pop')).toBeNull();
+  });
+});
+
+describe('Listbox のフォーカス', () => {
+  // ブラウザは visibility: hidden の要素にフォーカスを当てない。jsdom は見ないので、当てる瞬間の見え方を直接押さえる。
+  it.each([['検索欄', many], ['一覧', few]] as const)('%s へのフォーカスは、面が見えてから一度だけ当てる', (_, options) => {
+    const seen: string[] = [];
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement) {
+      if (this.closest('.listbox-pop')) seen.push((document.querySelector('.listbox-pop') as HTMLElement).style.visibility);
+    });
+    try {
+      render(<Harness options={options} />);
+      fireEvent.click(face());
+      expect(seen).toEqual(['']);
+    } finally { spy.mockRestore(); }
   });
 });
 

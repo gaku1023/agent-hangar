@@ -75,9 +75,17 @@ export function Listbox(props: ListboxProps) {
   // 描いた直後、塗る前に位置を決める。検索で行の数が変わると高さも変わるので、そのたびに計り直す。
   useLayoutEffect(() => { if (open) reposition(); }, [open, reposition, items.length]);
 
+  // 位置が決まって面が見えてから、開くたびに一度だけフォーカスを送る。
+  // visibility: hidden の要素にはブラウザがフォーカスを当てないため、位置を決める前に送ると空振りする。
+  const ready = open && pos !== null;
+  useLayoutEffect(() => {
+    if (ready) (searchable ? input.current : list.current)?.focus();
+    // 置き直しで pos が変わってもフォーカスは奪い返さない。ready が立った時点だけで送る。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
   useEffect(() => {
     if (!open) return;
-    (searchable ? input.current : list.current)?.focus();
     // 面の外を押したら閉じる。フォーカスは押した先に任せ、顔へは戻さない。
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
@@ -92,7 +100,7 @@ export function Listbox(props: ListboxProps) {
       window.removeEventListener('resize', reposition);
       window.removeEventListener('scroll', reposition, true);
     };
-    // searchable は開いている間は変わらない。開いた時点の値で監視を張る。
+    // hide は毎回作り直されるが、state の setter と ref しか使わないため依存に入れない。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, reposition]);
 
@@ -161,10 +169,12 @@ export function Listbox(props: ListboxProps) {
   return (
     <>
       <button ref={face} type="button" id={props.id} className={props.faceClassName ?? 'listbox-face'} {...props.faceProps}
-        aria-label={props.label} aria-describedby={props.renderFace ? undefined : faceValueId} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
+        aria-label={props.label} aria-describedby={faceValueId} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
         onClick={() => (open ? hide(false) : show())} onKeyDown={onFaceKey}>
         {props.renderFace ? props.renderFace(selected) : defaultFace}
       </button>
+      {/* aria-label が顔の中身を上書きするため、renderFace の顔では選んだ値を顔の外の隠し要素で読み上げさせる。 */}
+      {props.renderFace && <span id={faceValueId} hidden>{selected?.label ?? props.placeholder ?? '選んでください'}</span>}
       {props.name && <input type="hidden" name={props.name} value={props.value ?? ''} />}
       {open && createPortal(
         <div ref={pop} className="listbox-pop" style={style} data-up={pos?.up ? 'true' : undefined} data-scrolled={scrolled ? 'true' : undefined} onKeyDown={onPopKey}>
