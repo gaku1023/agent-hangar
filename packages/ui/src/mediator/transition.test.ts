@@ -79,6 +79,14 @@ describe('ナビゲーション', () => {
     expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1' } }]);
     expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
   });
+  // サーバは既定で 50 件までしか返さないので、続きは offset を付けて読み足す。
+  it('search.more は今の条件のまま offset を付けて問い合わせる', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1' } })]);
+    expect(run([intent({ type: 'search.more', offset: 50 })], a.state).effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1', offset: 50 } }]);
+    // 手元で組む一覧には続きが無い。
+    const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
+    expect(run([intent({ type: 'search.more', offset: 50 })], b.state).effects).toEqual([]);
+  });
   // 触ったファイルは手元のセッションに無い情報なので、キーワードが無くてもサーバに問い合わせる。
   it('キーワードが無くても、触ったファイルがあれば検索効果になる', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);

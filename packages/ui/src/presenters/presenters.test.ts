@@ -360,6 +360,18 @@ describe('presentSessions', () => {
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
     expect(r.rows[0]!.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
   });
+  it('切れた結果は、見せている件数と全件の数を分けて持ち、読み足しの最中を区別する', () => {
+    const base = storeWith();
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const hits = [{ sessionId: 's1', matchCount: 1, snippets: [] }, { sessionId: 's2', matchCount: 1, snippets: [] }];
+    const done = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: false } }, NOW);
+    expect(done).toMatchObject({ shown: 2, total: 132, loading: false, loadingMore: false });
+    const more = presentSessions(state, { ...base, search: { params: { q: 'hi', offset: 2 }, result: { hits, total: 132 }, loading: true } }, NOW);
+    expect(more).toMatchObject({ shown: 2, total: 132, loading: false, loadingMore: true });
+    const fresh = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: true } }, NOW);
+    expect(fresh).toMatchObject({ loading: true, loadingMore: false });
+    expect(presentSessions(initialState(), base, NOW)).toMatchObject({ shown: 3, total: 3, loadingMore: false });
+  });
   it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
     let store = storeWith();
     store = { ...store, search: { params: { q: '', file: 'a.md' }, result: { hits: [{ sessionId: 's2', matchCount: 3, snippets: [] }], total: 1 }, loading: false } };

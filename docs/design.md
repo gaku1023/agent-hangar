@@ -152,6 +152,7 @@ type Intent =
   | { type: 'nav.go'; to: Route }
   | { type: 'palette.open' } | { type: 'palette.close' } | { type: 'palette.run'; command: PaletteCommand }
   | { type: 'search.query'; text: string } | { type: 'search.filter'; patch: Partial<SearchFilter> }
+  | { type: 'search.more'; offset: number }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; name: string; gitInit: boolean; startSession: boolean }
   | { type: 'project.resolve.open'; id: ProjectId }
@@ -1098,6 +1099,8 @@ DOM に載る行の数は件数によらず一定で、「追う」と「もっ�
 上にキーワード欄、その下に絞り込み（プロジェクト、期間、Provider、実行中か終了か、触ったファイル）、残りが結果一覧である。
 結果の行は 2 段で、1 段目に名前とプロジェクト名、2 段目に一致箇所の抜粋（最初の 1 つ。一致した語に淡い印）、右端に日時を出す。
 検索語が無いときの全件の一覧も同じ形で、2 段目は要約の 1 文になる。
+検索の結果はサーバが上位 50 件ずつ返す。
+切れているときは見出しの件数を「上位 50 / 132 件」の形にし、一覧の末尾に「さらに読み込む」を置いて続きを offset で読み足す。
 
 ### Settings
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
 import { Icon } from './primitives/Icon.tsx';
@@ -20,7 +20,8 @@ export type RowVariant = 'recent' | 'project' | 'search';
 /** 行が無いときに出す文言。emptyText で差し替えられる。 */
 const DEFAULT_EMPTY_TEXT = 'セッションはまだありません';
 
-export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string }) {
+/** foot は一覧の末尾（最後の行の下）に置くもの。検索の「さらに読み込む」に使う。 */
+export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string; foot?: ReactNode }) {
   const emit = useEmit();
   // カーソルは一覧の中だけの状態なので Mediator には置かない。
   // -1 は未選択で、このとき Enter や o や m は何も起こさない。
@@ -103,7 +104,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
 
   return (
     <div className="rows-host" data-testid="session-rows" ref={hostRef} tabIndex={0} onKeyDown={onKeyDown}>
-      <VirtualList items={props.rows} rowHeight={SESSION_ROW_H} height={props.height} keyOf={(r) => r.id} render={(r, i) => (
+      <VirtualList items={props.rows} rowHeight={SESSION_ROW_H} height={props.height} keyOf={(r) => r.id} foot={props.foot} render={(r, i) => (
         <div className="row row-2" role="row" tabIndex={0} data-cursor={i === cursor ? 'true' : undefined} data-morph-id={r.id}
           onClick={() => emit({ type: 'session.open', id: r.id })} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'session.open', id: r.id }); }}>
           <StatusDot status={r.live} />

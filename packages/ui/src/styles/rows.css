@@ -77,3 +77,5 @@
 .sessions-keyword { display: flex; margin-bottom: calc(var(--u) * 3.5); }
 .sessions-keyword .input { flex: 1; }
 .sessions-filters { display: flex; align-items: center; gap: calc(var(--u) * 3); margin-bottom: calc(var(--u) * 5); }
+/* 検索の続きを読むボタン。最後の行の下に、行と一緒にスクロールして現れる。 */
+.sessions-more { display: flex; justify-content: center; padding: calc(var(--u) * 3) 0; }

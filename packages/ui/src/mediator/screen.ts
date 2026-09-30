@@ -83,6 +83,10 @@ export function screenStep(state: State, input: Input): Step | null {
       const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [];
       return { state: next, effects };
     }
+    case 'search.more': {
+      const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(state.search) ? [{ kind: 'api.search', params: { ...searchParams(state), offset: i.offset } }] : [];
+      return { state, effects };
+    }
     default: return null;
   }
 }

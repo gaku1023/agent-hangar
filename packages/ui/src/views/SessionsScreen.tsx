@@ -17,9 +17,17 @@ const RUNNING = [{ value: '', label: 'すべて' }, { value: 'running', label: '
 export function SessionsScreen(props: SessionsProps) {
   const emit = useEmit();
   const period = props.filter.since ? String(Math.round((Date.now() - props.filter.since) / DAY)) : '';
+  // サーバが返したのが上位の一部なら、全件の数と並べて、並ぶ行の数と食い違わないようにする。
+  const count = props.loading ? '検索しています' : props.shown < props.total ? `上位 ${props.shown} / ${props.total} 件` : `${props.total} 件`;
+  const more = props.mode === 'search' && !props.loading && props.shown < props.total;
+  const foot = more ? (
+    <div className="sessions-more">
+      <button type="button" className="btn" disabled={props.loadingMore} onClick={() => emit({ type: 'search.more', offset: props.shown })}>{props.loadingMore ? '読み込んでいます' : 'さらに読み込む'}</button>
+    </div>
+  ) : undefined;
   return (
     <div className="screen sessions-screen">
-      <h1 className="h1 sessions-head">セッション<span className="faint mono sessions-count">{props.loading ? '検索しています' : `${props.total} 件`}</span></h1>
+      <h1 className="h1 sessions-head">セッション<span className="faint mono sessions-count">{count}</span></h1>
       <div className="sessions-keyword">
         <input className="input" aria-label="キーワード" placeholder="キーワード（空なら全件）" defaultValue={props.text} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.query', text: (e.target as HTMLInputElement).value }); }} />
       </div>
@@ -32,7 +40,7 @@ export function SessionsScreen(props: SessionsProps) {
           onChange={(v) => emit({ type: 'search.filter', patch: { running: v === '' ? undefined : v === 'running' } })} />
         <input className="input" aria-label="ファイル" placeholder="触ったファイル" defaultValue={props.filter.file ?? ''} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.filter', patch: { file: (e.target as HTMLInputElement).value || undefined } }); }} />
       </div>
-      <SessionRows rows={props.rows} height={LIST_H} variant="search" emptyText={props.mode === 'search' && !props.loading ? '一致するセッションはありません' : undefined} />
+      <SessionRows rows={props.rows} height={LIST_H} variant="search" emptyText={props.mode === 'search' && !props.loading ? '一致するセッションはありません' : undefined} foot={foot} />
     </div>
   );
 }

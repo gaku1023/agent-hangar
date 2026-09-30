@@ -312,6 +312,8 @@ describe('routes', () => {
     expect((await json(await get('/api/search?q='))).body).toEqual({ hits: [], total: 0 });
     // キーワードが無くても、触ったファイルで絞れる。
     expect((await json(await get('/api/search?q=&file=a.md'))).body.total).toBe(1);
+    // 続きは offset で読む。件数は全件のまま。
+    expect((await json(await get('/api/search?q=channels&offset=1'))).body).toEqual({ hits: [], total: 1 });
   });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);

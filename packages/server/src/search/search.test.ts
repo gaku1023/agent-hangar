@@ -99,6 +99,18 @@ describe('searchSessions', () => {
     upsertShared(db, 'sessions', { ...other, last_activity_at: 2000 }, 'd');
     expect(searchSessions(db, { q: '', file: 'a.md' }).hits.map((h) => h.sessionId)).toEqual([idOf(SESSION_OTHER), idOf(SESSION_ALPHA)]);
   });
+  // 件数は全部を数え、行は limit で切る。続きは offset で読む。
+  it('offset から limit 件だけを返し、total は全件の数', () => {
+    touchFile(idOf(SESSION_OTHER), '/w/shared/a.md');
+    const both = searchSessions(db, { q: '', file: 'a.md' });
+    expect(both.total).toBe(2);
+    const first = searchSessions(db, { q: '', file: 'a.md', limit: 1 });
+    expect(first).toMatchObject({ total: 2, hits: [{ sessionId: both.hits[0]!.sessionId }] });
+    const rest = searchSessions(db, { q: '', file: 'a.md', limit: 1, offset: 1 });
+    expect(rest).toMatchObject({ total: 2, hits: [{ sessionId: both.hits[1]!.sessionId }] });
+    expect(searchSessions(db, { q: 'channels', offset: 5 })).toEqual({ hits: [], total: 1 });
+    expect(searchSessions(db, { q: 'channels', offset: -3 }).hits).toHaveLength(1);
+  });
 });
 
 describe('likeSnippet', () => {
