@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { NEWLINE_SEQ, createKeyHandler } from './xtermSetup.ts';
+import { NEWLINE_SEQ, createKeyHandler, terminalOptions } from './xtermSetup.ts';
 
 type KeyInit = { type?: string; key: string; shiftKey?: boolean; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; isComposing?: boolean; keyCode?: number };
 function key(init: KeyInit) {
@@ -47,5 +47,29 @@ describe('createKeyHandler', () => {
     expect(handle(key({ key: 'Process', shiftKey: true, keyCode: 229 }))).toBe(true);
     expect(handle(key({ key: 'Enter', shiftKey: true, keyCode: 229 }))).toBe(true);
     expect(input).not.toHaveBeenCalled();
+  });
+});
+
+describe('terminalOptions', () => {
+  const theme = { background: '#111111', foreground: '#eeeeee' };
+
+  it('Option を押したドラッグは、tmux や Claude Code がマウスを取っていても xterm の選択にする', () => {
+    expect(terminalOptions(theme).macOptionClickForcesSelection).toBe(true);
+  });
+
+  it('Option のクリックで矢印キーを送らない', () => {
+    // 送ると Claude Code の入力欄では ↑ ↓ が履歴の呼び出しになり、書きかけの指示が入れ替わる。
+    expect(terminalOptions(theme).altClickMovesCursor).toBe(false);
+  });
+
+  it('Option は Meta にしない', () => {
+    // Meta にすると JIS 配列の Option+¥ で打つバックスラッシュや、Option で打つ記号が入らなくなる。
+    expect(terminalOptions(theme).macOptionIsMeta).toBe(false);
+  });
+
+  it('今までの見た目の設定を保つ', () => {
+    const o = terminalOptions(theme);
+    expect(o).toMatchObject({ fontSize: 13, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, allowProposedApi: true, theme });
+    expect(o.fontFamily).toContain('JetBrains Mono');
   });
 });

@@ -2,6 +2,7 @@
  * xterm の設定と打鍵の扱いのうち、本物の xterm が無くても確かめられる部分。
  * xterm.ts はここから引いて組み立てる。
  */
+import type { ITerminalOptions } from '@xterm/xterm';
 
 /**
  * Shift+Enter で送る列。
@@ -32,5 +33,28 @@ export function createKeyHandler(input: (data: string) => void): (e: KeyEventLik
     }
     // keypress も止める。通すと xterm が keypress の側で CR を送る。
     return false;
+  };
+}
+
+/** xterm に渡す設定。色はテーマの CSS 変数から読んだものを受け取る。 */
+export function terminalOptions(theme: { background: string; foreground: string }): ITerminalOptions {
+  return {
+    fontFamily: "'JetBrains Mono Variable', Menlo, monospace",
+    fontSize: 13,
+    lineHeight: 1.2,
+    cursorBlink: true,
+    scrollback: 5000,
+    // unicode の切り替えは proposed API の扱いなので allowProposedApi が要る。
+    allowProposedApi: true,
+    theme,
+    // tmux の mouse on や Claude Code がマウスを取っていると、ドラッグは中の側へ渡り、xterm の選択にならない。
+    // Option を押している間だけ xterm の選択にする。選んだものは ⌘C で写せる。
+    macOptionClickForcesSelection: true,
+    // Option のクリックでカーソルを動かす機能は矢印キーを送る。
+    // Claude Code の入力欄では ↑ ↓ が履歴の呼び出しになり、選ぶつもりの短いクリックで書きかけの指示が入れ替わるので切る。
+    altClickMovesCursor: false,
+    // Option は Meta にしない。JIS 配列のバックスラッシュ（Option+¥）や Option で打つ記号が入らなくなる。
+    // Option+Enter はこの設定によらず ESC CR を送るので、改行はそのまま効く。
+    macOptionIsMeta: false,
   };
 }

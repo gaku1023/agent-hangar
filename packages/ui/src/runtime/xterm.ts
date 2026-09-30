@@ -4,13 +4,12 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalLike } from './terminals.ts';
-import { createKeyHandler } from './xtermSetup.ts';
+import { createKeyHandler, terminalOptions } from './xtermSetup.ts';
 
 /** 本物の xterm.js。テストでは TerminalLike の偽物を使うので、このファイルは main.tsx だけが読む。 */
 export function createXterm(): TerminalLike {
   const css = getComputedStyle(document.documentElement);
-  // unicode の切り替えは proposed API の扱いなので allowProposedApi が要る。
-  const term = new Terminal({ fontFamily: "'JetBrains Mono Variable', Menlo, monospace", fontSize: 13, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, allowProposedApi: true, theme: { background: css.getPropertyValue('--term-bg').trim() || '#1c1b2e', foreground: css.getPropertyValue('--term-fg').trim() || '#e8e6f0' } });
+  const term = new Terminal(terminalOptions({ background: css.getPropertyValue('--term-bg').trim() || '#1c1b2e', foreground: css.getPropertyValue('--term-fg').trim() || '#e8e6f0' }));
   const fit = new FitAddon();
   term.loadAddon(fit);
   // 既定の Unicode 6 では絵文字を 1 桁に数え、Claude Code の数え方とずれて後ろの文字が重なる。
