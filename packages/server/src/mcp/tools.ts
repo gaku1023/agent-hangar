@@ -170,6 +170,8 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const id = projectIdOf(deps, ctx, args);
   const row = deps.db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
   if (!row) throw new ToolError(`プロジェクトが見つかりません: ${id}`);
+  // 検証は書き込みの前に全部済ませる。status だけ書いてから propose_done で断ると、呼び出し側は「何も起きなかった」と読む。
+  const proposals = proposalsOf(args.propose_done);
   // status を「省略」と「型違いの値」で区別する。str() だけでは数値や null が黙って無視される。
   if (args.status !== undefined) {
     const status = args.status;
@@ -179,7 +181,6 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
   }
   const adds = strs(args.add_todos) ?? [];
   const toggles = strs(args.toggle_todos) ?? [];
-  const proposals = proposalsOf(args.propose_done);
   const results: { todo_id: string; outcome: TodoOutcome }[] = [];
   const todosTouched = adds.length > 0 || toggles.length > 0 || proposals.length > 0;
   if (todosTouched) {
@@ -193,6 +194,11 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
         if (!cur) throw new ToolError(`TODO が見つかりません: ${tid}`);
         return cur;
       };
+      // 同じ ID が両方にあるときは根拠つきの提案を先に通す。toggle が先だと根拠なしの候補になり、根拠が捨てられる。
+      for (const p of proposals) {
+        ofProject(p.todoId);
+        results.push({ todo_id: p.todoId, outcome: proposeTodoDone(deps.db, deps.deviceId, p.todoId, { sessionId: ctx.sessionId, note: p.note })!.outcome });
+      }
       for (const tid of toggles) {
         if (ofProject(tid).done === 1) {
           setTodoDone(deps.db, deps.deviceId, tid, false);
@@ -200,10 +206,6 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
         } else {
           results.push({ todo_id: tid, outcome: proposeTodoDone(deps.db, deps.deviceId, tid, { sessionId: ctx.sessionId, note: null })!.outcome });
         }
-      }
-      for (const p of proposals) {
-        ofProject(p.todoId);
-        results.push({ todo_id: p.todoId, outcome: proposeTodoDone(deps.db, deps.deviceId, p.todoId, { sessionId: ctx.sessionId, note: p.note })!.outcome });
       }
     })();
     deps.hub.broadcast({ type: 'todos.update', projectId: id, todos: listTodos(deps.db, id) });

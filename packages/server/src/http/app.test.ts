@@ -555,11 +555,15 @@ describe('routes', () => {
     expect(ok.status).toBe(200);
     expect(await ok.json()).toMatchObject({ id: a.id, done: true, candidate: null });
     expect(sent.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
-    // すでに完了なら何もせず 200。
+    // すでに完了なら何もせず 200。何も配らない。
+    sent.length = 0;
     expect((await post(`/api/todos/${a.id}/confirm`)).status).toBe(200);
+    expect(sent).toEqual([]);
 
+    sent.length = 0;
     const rj = await post(`/api/todos/${b.id}/reject`);
     expect(rj.status).toBe(200);
+    expect(sent.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
     expect(await rj.json()).toMatchObject({ id: b.id, done: false, candidate: null });
     expect((await post(`/api/todos/${b.id}/reject`)).status).toBe(409);
 

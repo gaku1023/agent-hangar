@@ -114,6 +114,21 @@ describe('MCP tools', () => {
     expect(r2.todo_results).toEqual([{ todo_id: a, outcome: 'reopened' }, { todo_id: b, outcome: 'already_candidate' }]);
     expect((r2.todos as { done: boolean }[]).map((t) => t.done)).toEqual([false, false]);
   });
+  it('propose_done の検証に落ちる呼び出しは、status も書かず何も配らない', () => {
+    const r = call('update_project', { project_id: 'p1', add_todos: ['a'] });
+    const a = (r.todos as { id: string }[])[0]!.id;
+    sent.length = 0;
+    expect(() => call('update_project', { project_id: 'p1', status: 'paused', propose_done: [{ todo_id: a, note: '' }] })).toThrow(ToolError);
+    expect((db.prepare('select status from projects where id = ?').get('p1') as { status: string }).status).toBe('active');
+    expect(sent).toEqual([]);
+  });
+  it('同じ TODO が propose_done と toggle_todos の両方にあれば、根拠つきの提案が勝つ', () => {
+    const r = call('update_project', { project_id: 'p1', add_todos: ['a'] });
+    const a = (r.todos as { id: string }[])[0]!.id;
+    const r2 = call('update_project', { project_id: 'p1', toggle_todos: [a], propose_done: [{ todo_id: a, note: '試験で確かめた' }] }, { sessionId: alphaId });
+    expect(r2.todo_results).toEqual([{ todo_id: a, outcome: 'proposed' }, { todo_id: a, outcome: 'already_candidate' }]);
+    expect((r2.todos as { id: string; candidate: { note: string } | null }[]).find((t) => t.id === a)!.candidate!.note).toBe('試験で確かめた');
+  });
   it('propose_done の根拠が空白だけか 200 字を超えるか、見つからない ID があれば、どの TODO も書かない', () => {
     const r = call('update_project', { project_id: 'p1', add_todos: ['a'] });
     const a = (r.todos as { id: string }[])[0]!.id;
