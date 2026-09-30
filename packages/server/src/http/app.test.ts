@@ -535,9 +535,17 @@ describe('routes', () => {
     expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: 'not json' })).status).toBe(400);
     // 認証は他の /api と同じ。トークンが無ければ受け付けない。
     expect((await app.request('/api/ingest/statusline', { method: 'POST', body: '{}' })).status).toBe(401);
-    const agg = await json(await get('/api/usage/aggregate?days=30'));
-    expect(agg.status).toBe(200);
-    expect(agg.body.projects.length).toBeGreaterThan(0);
+    // 集計は今日から遡る窓で数えるので、時計を fixture の日付（2026-09-01）の近くに止めて測る。
+    // 止めないと、fixture から 30 日を過ぎた日にこの試験だけが落ちる。
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-10T12:00:00'));
+    try {
+      const agg = await json(await get('/api/usage/aggregate?days=30'));
+      expect(agg.status).toBe(200);
+      expect(agg.body.projects.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
     expect((await get('/api/usage/aggregate?days=0')).status).toBe(400);
     expect((await json(await get('/api/statusline'))).body).toEqual({ command: null, scriptPath: null, installed: false });
     expect((await json(await get('/api/shell-hook'))).body).toEqual({ state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' });
