@@ -132,6 +132,33 @@ describe('CommandPalette', () => {
   });
 });
 
+describe('CommandPalette の選択を見える位置に保つ（C2）', () => {
+  let calls: { el: Element; arg: unknown }[] = [];
+  beforeEach(() => {
+    calls = [];
+    // jsdom は scrollIntoView を実装していないので、呼ばれたことだけを見る。
+    (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView = function (this: Element, arg: unknown) { calls.push({ el: this, arg }); };
+  });
+  afterEach(() => { delete (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView; });
+
+  it('矢印で動かした選択の行を、一覧の見える位置へ寄せる', () => {
+    render(<IntentRoot onIntent={() => {}}><CommandPalette query="" items={items} onQuery={() => {}} /></IntentRoot>);
+    const input = screen.getByLabelText('コマンドを検索');
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(calls.at(-1)?.el.textContent).toContain('動画の変換');
+    expect(calls.at(-1)?.arg).toEqual({ block: 'nearest' });
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(calls.at(-1)?.el.textContent).toContain('alpha');
+  });
+
+  it('マウスで乗せただけでは一覧を動かさない', () => {
+    render(<IntentRoot onIntent={() => {}}><CommandPalette query="" items={items} onQuery={() => {}} /></IntentRoot>);
+    fireEvent.mouseEnter(screen.getByText('動画の変換').closest('li')!);
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe('PromoteDialog', () => {
   it('名前と 2 つの選択を送る', () => {
     const onIntent = vi.fn();
