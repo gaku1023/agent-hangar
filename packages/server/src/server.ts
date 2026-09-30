@@ -385,7 +385,7 @@ export type StartOptions = {
 
 /**
  * DB、索引、実行中セッションの監視、run の管理、HTTP と WebSocket をまとめて起動する。
- * ~/.claude は読むだけで、書き込みは home 配下に限る。
+ * ~/.claude は原則として読むだけで、書き込みは home 配下に限る（例外は docs/design.md の「読み取り専用」にある 4 つ）。
  */
 export async function startServer(opts: StartOptions = {}): Promise<{ close(): Promise<void>; port: number }> {
   const bootAt = performance.now();
