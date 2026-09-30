@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SettingsDto, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import { costLabel, tokensLabel } from '../presenters/format.ts';
@@ -34,6 +34,14 @@ export function SettingsScreen(props: SettingsProps) {
   // 外部の要約器をオンにする前の確かめの帯。オンにするまでは、スイッチもオフのままにする。
   const [confirmExternal, setConfirmExternal] = useState(false);
   useEffect(() => { if (props.allowExternalSummarizer) setConfirmExternal(false); }, [props.allowExternalSummarizer]);
+  // 帯が開いたら、やめるへフォーカスを送る。閉じるときは、開いたスイッチへ戻す。
+  const externalRow = useRef<HTMLDivElement>(null);
+  const cancelExternal = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (confirmExternal) cancelExternal.current?.focus(); }, [confirmExternal]);
+  const closeConfirm = () => {
+    setConfirmExternal(false);
+    externalRow.current?.querySelector<HTMLElement>('[role="switch"]')?.focus();
+  };
   const setNow = (patch: Partial<SettingsDto>) => emit({ type: 'settings.update', patch });
   // 1 時間の上限は 1 以上 200 以下の整数だけを受け付ける。
   // 空のまま送ると 0 になって、Claude への切り替えが黙って止まってしまう。
@@ -76,6 +84,10 @@ export function SettingsScreen(props: SettingsProps) {
   // 読めない上限（空や小数）は capNumber が NaN になるため、ここでは必ず「変わっている」側に入る。
   // 押せないと、1 から 200 までの整数を入れてくださいという案内を出す道が無くなってしまう。
   const summarizerDirty = lmUrlValue !== props.lmStudioUrl || lmModelValue !== props.lmStudioModel || capNumber !== props.summaryHourlyCap;
+  // 保存済みのモデルが一覧に無くても（LM Studio が落ちているときなど）、顔から名前を消さない。
+  const models = props.summarizerModels ?? [];
+  const modelNames = lmModel && !models.includes(lmModel) ? [lmModel, ...models] : models;
+  const modelOptions = [{ value: '', label: '自動（最初のモデル）' }, ...modelNames.map((m) => ({ value: m, label: m }))];
   return (
     <div className="screen settings-screen" style={{ maxWidth: 720 }}>
       <h1 className="h1">Settings</h1>
@@ -143,12 +155,12 @@ export function SettingsScreen(props: SettingsProps) {
             <input className="input mono" aria-label="LM Studio の URL" value={lmUrl} onChange={(e) => setLmUrl(e.target.value)} />
           </label>
           <div className="field"><span aria-hidden="true">モデル</span>
-            <Listbox label="モデル" value={lmModel} options={[{ value: '', label: '自動（最初のモデル）' }, ...(props.summarizerModels ?? []).map((m) => ({ value: m, label: m }))]} onChange={setLmModel} searchPlaceholder="モデルを探す" />
+            <Listbox label="モデル" value={lmModel} options={modelOptions} onChange={setLmModel} searchPlaceholder="モデルを探す" />
           </div>
         </div>
         {props.summarizerModels === null && <div className="faint" style={{ marginTop: 4 }}>読み込んでいます</div>}
         {props.summarizerModels?.length === 0 && <div className="faint" style={{ marginTop: 4 }}>LM Studio に繋がりません</div>}
-        <div className="settings-row settings-switch-row"><span>手元の外にある要約器を許す</span>
+        <div ref={externalRow} className="settings-row settings-switch-row"><span>手元の外にある要約器を許す</span>
           <Switch label="外部の要約器を許す" checked={props.allowExternalSummarizer} onChange={(next) => { if (next) setConfirmExternal(true); else setNow({ allowExternalSummarizer: false }); }} />
         </div>
         {confirmExternal && !props.allowExternalSummarizer && (
@@ -156,8 +168,8 @@ export function SettingsScreen(props: SettingsProps) {
             {/* 送られる先は保存済みの URL。欄を書き換えただけでは宛先は変わらない。 */}
             <span>会話の本文（利用者の発言とアシスタントの応答）が {props.lmStudioUrl} へ送られます。</span>
             <span className="spacer" />
-            <button className="btn" onClick={() => setConfirmExternal(false)}>やめる</button>
-            <button className="btn btn-primary" onClick={() => { setConfirmExternal(false); setNow({ allowExternalSummarizer: true }); }}>許す</button>
+            <button ref={cancelExternal} className="btn" onClick={closeConfirm}>やめる</button>
+            <button className="btn btn-primary" onClick={() => { closeConfirm(); setNow({ allowExternalSummarizer: true }); }}>許す</button>
           </div>
         )}
         {props.allowExternalSummarizer && <div className="error" role="alert" style={{ marginTop: 4 }}>会話の本文（利用者の発言とアシスタントの応答）が {props.lmStudioUrl || 'この宛先'} へ送られます。宛先を確かめてください。</div>}

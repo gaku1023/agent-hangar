@@ -296,6 +296,24 @@ describe('SettingsScreen のフェーズ 3', () => {
     fireEvent.click(screen.getByRole('button', { name: '許す' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { allowExternalSummarizer: true } });
   });
+  it('確かめの帯が開くと、やめるへフォーカスが移り、閉じるとスイッチへ戻る', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const sw = screen.getByRole('switch', { name: '外部の要約器を許す' });
+    fireEvent.click(sw);
+    expect(screen.getByRole('button', { name: 'やめる' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
+    expect(sw).toHaveFocus();
+  });
+  it('許すで閉じたときも、フォーカスはスイッチへ戻る', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('switch', { name: '外部の要約器を許す' }));
+    fireEvent.click(screen.getByRole('button', { name: '許す' }));
+    expect(screen.getByRole('switch', { name: '外部の要約器を許す' })).toHaveFocus();
+  });
+  it('保存済みのモデルが一覧に無くても、顔にその名前を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ lmStudioModel: 'qwen', summarizerModels: [] })} /></IntentRoot>);
+    expect(screen.getByRole('button', { name: 'モデル' })).toHaveTextContent('qwen');
+  });
   it('確かめの宛先は、書きかけの URL ではなく保存済みの URL', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ lmStudioUrl: 'http://127.0.0.1:1234' })} /></IntentRoot>);
     fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'https://other.example.com' } });
