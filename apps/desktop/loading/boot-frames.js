@@ -1,5 +1,6 @@
 // 起動画面のハンガーの動き。
 // 値と式は docs/superpowers/specs/2026-09-29-ui-refresh/boot-animation.html の ENTRY.pendulum と frameOf が正本で、それをそのまま移した。
+// 読み込みが終わった合図（finishOf）は docs/superpowers/specs/2026-09-29-ui-refresh/boot-finish.html の K3 と F4 が正本である。
 // 画面に依らない計算だけを置き、描くのは boot.js が受け持つ（試験は apps/desktop/test/boot.test.ts）。
 
 const INK = '#1c1b2e';
@@ -13,6 +14,8 @@ const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 const mix = (a, b, t) => '#' + hex(a).map((v, i) => Math.round(v + (hex(b)[i] - v) * t).toString(16).padStart(2, '0')).join('');
 const clamp = (t) => Math.max(0, Math.min(1, t));
 const eOut = (t) => 1 - Math.pow(1 - t, 3);
+/** 0→1 の間で 0 から膨らんで 0 に戻る山。t が a〜b の外では 0。 */
+const bump = (t, a, b) => Math.sin(Math.PI * clamp((t - a) / (b - a)));
 
 // 並べ方。1 本奥へ行くごとに 0.85 倍、横へ札の幅 62 の 13%、上へ札の高さ 72 の 3.5%（静止した原図と同じ）。
 const R = 0.85;
@@ -24,7 +27,7 @@ export const geo = (u) => { const g = (1 - Math.pow(R, u)) / (1 - R); return { x
 // 振り子の角速度（約 1 往復／秒）と減衰。
 const W = 6.3;
 const Z = 2.4;
-/** 1 周期の長さ。lib.rs の BOOT_CYCLE_MS と揃える（config.test.ts が突き合わせる）。 */
+/** 1 周期の長さ。待っている間の文の点も同じ周期で増やす。 */
 export const CYCLE_MS = 1600;
 const PER = CYCLE_MS / 1000;
 // 周期のうち、新しい札が掛かる部分（H）、全体が奥へ送られる部分（SL）、札ごとの送りの遅れ（WV）の割合。
@@ -102,14 +105,100 @@ const draw = (c) => {
   return `<g transform="translate(${p.x.toFixed(2)} ${(p.y + c.dy).toFixed(2)}) scale(${p.s.toFixed(4)})" opacity="${c.op.toFixed(3)}"><g transform="rotate(${c.ang.toFixed(2)})">${item(colors(Math.min(t, 0.95), CURSORS[((c.id % 6) + 6) % 6]))}</g></g>`;
 };
 
-/** 時刻 T 秒の絵。viewBox 0 0 100 100 の svg の中身にする。 */
-export const frameSvg = (T) => `${DEFS}<g transform="translate(${TX} ${TY}) scale(${SC})">${RAIL}${frameOf(T).map(draw).join('')}</g>`;
+const scene = (cards) => `${DEFS}<g transform="translate(${TX} ${TY}) scale(${SC})">${RAIL}${cards.map(draw).join('')}</g>`;
 
-/** 経過 ms にいちばん近い周の境目の時刻（秒）。止めるときはこの時刻の絵で静止する。
+/** 時刻 T 秒の絵。viewBox 0 0 100 100 の svg の中身にする。 */
+export const frameSvg = (T) => scene(frameOf(T));
+
+/** 読み込みが終わった合図の長さ（秒）。周の境目から打つ。 */
+export const BEAT_S = 0.5;
+/** 合図の後、UI の背景の光が画面いっぱいに満ちる長さ（秒）。 */
+export const BLOOM_S = 0.4;
+/** 合図を打ち始めてから光が満ち切るまで。lib.rs の BOOT_FINISH_MS と揃える（config.test.ts が突き合わせる）。
+ * 殻はこの長さだけ待ってから画面を移す。 */
+export const FINISH_MS = 900;
+// 最後の一枚が掛かるまで。待っている間の札（掛かるまで周期の 31%）より速く降ろし、「終わった」を詰めて見せる。
+const DROP = BEAT_S * 0.35;
+// 送りの途中で合図に入ったとき、奥の札を行き先まで運び切る長さ。
+const SLIDE = BEAT_S * 0.6;
+// 掛かった札が振れ始める角度。待っている間の札（pendulum の A）と同じにする。
+const SWING = 5;
+const eOutSine = (t) => Math.sin((t * Math.PI) / 2);
+
+/**
+ * ループの時刻 T 秒で合図を打ち始めてから tb 秒の様子。周の境目でなくてよい。
+ * 送りの途中の札は行き先の位置まで運び切り、揺れは今の角度から収める。
+ * 手前の位置（u=0）へ降りてきている札があればそれを掛け、無ければ新しい札を上から素早く降ろす。
+ * どちらでも最後は 4 枚の原図になり（cards）、ロゴが小さく一度弾む（scale）。
+ * そこから光の輪が二重に画面の端まで広がり（rings、各 0→1）、輪を追って UI の背景の光が満ちる（bloom）。
+ * 待っている間のループが一度もしない動き（弾む、輪が広がる）を使い、終わったことをはっきり分からせる。
+ */
+export function finishOf(T, tb) {
+  const settle = Math.exp(-4 * tb);
+  const slide = eOutSine(clamp(tb / SLIDE));
+  const n = Math.floor(T / PER);
+  // この周の送りが始まっていれば、どの札も 1 本奥が行き先になる。送りは手前から波で始まるので、動き出す前の札も含める。
+  const sliding = (T / PER) % 1 >= H;
+  const cards = [];
+  let front = null;
+  for (const c of frameOf(T)) {
+    // 札の並び順（手前から 0, 1, 2 …）から行き先を決める。
+    const to = n - c.id + (sliding ? 1 : 0);
+    if (to === 0) { front = c; continue; }
+    const u = c.u + (to - c.u) * slide;
+    // 奥へ抜ける札は、ループと同じく霞に溶けてから消える。
+    const op = u > 3 ? clamp(1 - (u - 3) / 0.8) : 1;
+    if (op <= 0) continue;
+    cards.push({ u, id: c.id, ang: c.ang * settle, dy: 0, op });
+  }
+  const id = front ? front.id : n + 1;
+  let last;
+  if (front && front.dy === 0 && front.op >= 1) {
+    // もう掛かっている札は、揺れを収めるだけにする。
+    last = { ang: front.ang * settle, dy: 0, op: 1 };
+  } else if (tb < DROP) {
+    const from = front ?? { dy: -34, op: 0, ang: 0 };
+    const q = eOut(tb / DROP);
+    last = { dy: from.dy * (1 - q), op: from.op + (1 - from.op) * q, ang: from.ang + (SWING - from.ang) * q };
+  } else {
+    // 掛かった角度のまま、振り子として揺れ始める。
+    const tau = ((tb - DROP) * 0.5) / DROP;
+    last = { dy: 0, op: 1, ang: SWING * Math.exp(-Z * tau) * Math.cos(W * tau) };
+  }
+  cards.push({ u: 0, id, ...last });
+  return {
+    cards: cards.sort((p, q) => q.u - p.u),
+    scale: 1 + 0.07 * bump(tb, BEAT_S * 0.3, BEAT_S * 0.7),
+    rings: [0, 0.18].map((d) => clamp((tb - BEAT_S * (0.32 + d)) / (BEAT_S * 0.9))),
+    bloom: clamp((tb - BEAT_S) / BLOOM_S),
+  };
+}
+
+/** 合図を打ち始めてから tb 秒の絵。frameSvg と同じく svg の中身にする。 */
+export const finishSvg = (T, tb) => scene(finishOf(T, tb).cards);
+
+/** 経過 ms にいちばん近い周の境目の時刻（秒）。失敗の文が出て止めるときは、この時刻の絵で静止する。
  * 境目の絵は送りを終えた並びで、新しい札はまだ降りてきていない。 */
 export const nearestBoundary = (ms) => (Math.round(ms / CYCLE_MS) * CYCLE_MS) / 1000;
 
-/** 起動を待ち始めてから、状態の文を替えるまでの長さ。 */
+/** 待っている間の文の後ろの点。ハンガーの 1 周期で 1 つ、2 つ、3 つと増えて戻る。 */
+export const dots = (ms) => '.'.repeat(1 + (Math.floor(ms / (CYCLE_MS / 3)) % 3));
+
+/** 起動を待ち始めてから、秒数を添えるまでの長さ。 */
 export const SLOW_AFTER_MS = 3000;
-/** 待ちが長いときの文。SLOW_AFTER_MS より前は null で、今の文をそのまま残す。 */
-export const stillBootingText = (ms) => (ms < SLOW_AFTER_MS ? null : `まだ起動しています（${Math.floor(ms / 1000)} 秒）`);
+/** 待ちが長いときに添える秒数。SLOW_AFTER_MS より前は空。 */
+export const slowSuffix = (ms) => (ms < SLOW_AFTER_MS ? '' : `（${Math.floor(ms / 1000)} 秒）`);
+
+const count = (n) => n.toLocaleString('en-US');
+/**
+ * 何をしているかの文。殻が渡す索引の進み具合（lib.rs の progress_js）から作る。
+ * ふだんは 0.2 秒で済むので、最初の周の境目（CYCLE_MS）までは出さない。一瞬だけ出て消える文は読めない。
+ * 進み具合がまだ届いていなければ、サーバの起動を待っているところである。
+ */
+export function detailText(p, ms) {
+  if (ms < CYCLE_MS) return '';
+  if (!p) return 'サーバを起動中';
+  if (p.phase === 'indexing') return `セッションを索引中 ${count(p.done)} / ${count(p.total)} 件`;
+  if (p.phase === 'rebuilding') return `索引を作り直し中 ${count(p.done)} / ${count(p.total)} 件`;
+  return 'セッションを確認中';
+}

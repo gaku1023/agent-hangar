@@ -66,18 +66,42 @@ describe('読み込み画面', () => {
     expect(html).toContain('<img id="logo" src="logo.svg"');
     expect(html).toContain('<script type="module" src="boot.js"></script>');
   });
-  // 殻は起動画面の周の境目まで待ってから画面を移す。周期が食い違うと、送りの途中で画面が替わる。
-  it('殻の周期（lib.rs の BOOT_CYCLE_MS）は、起動画面の周期（boot-frames.js の CYCLE_MS）と同じ', () => {
-    const rust = read('src-tauri/src/lib.rs').match(/const BOOT_CYCLE_MS: u64 = (\d+);/)?.[1];
-    const js = read('loading/boot-frames.js').match(/export const CYCLE_MS = (\d+);/)?.[1];
+  // ロゴは 128px（2026-09-30 に 96 / 128 / 160 / 200px を試作で比べて決めた）。
+  // 読み込みが済むまでの静止画と、動き始めてからの絵を同じ大きさにし、差し替わるときに跳ねないようにする。
+  it('起動画面のロゴは、静止画も動く絵も 128px にする', () => {
+    expect(read('loading/index.html')).toContain('<img id="logo" src="logo.svg" width="128" height="128" alt="" />');
+    const js = read('loading/boot.js');
+    expect(js).toContain("svg.setAttribute('width', String(LOGO));");
+    expect(js).toContain("svg.setAttribute('height', String(LOGO));");
+    expect(js).toContain('const LOGO = 128;');
+  });
+  // ロゴの中心を窓の中心に置く。名前と文は流れから外してロゴの下に下げる。
+  // 失敗の文言は何行にもなるので、そのときだけ流れに戻し、改行はそのまま描く。
+  it('起動画面は、ロゴだけで真ん中を決め、名前と文をその下に下げる', () => {
+    const html = read('loading/index.html');
+    expect(html).toMatch(/<main>\s*<img id="logo"[^>]*>\s*<div class="caption">\s*<h1>Hangar<\/h1>\s*<p id="status">/);
+    expect(html).toContain('.caption { position: absolute; top: 100%;');
+    expect(html).toContain("main:has(#status[data-level='error']) .caption { position: static;");
+    expect(html).toMatch(/#status \{[^}]*white-space: pre-wrap;/);
+    expect(html).not.toMatch(/main \{[^}]*white-space/);
+  });
+  // 殻は準備ができたら合図の口を呼び、光が満ち切るまで待ってから画面を移す。
+  // 口の名前が食い違うと合図が打たれず、長さが食い違うと光が満ちる途中で画面が替わる。
+  it('殻が呼ぶ合図の口（__hangarBootFinish）を、起動画面が持つ', () => {
+    const rust = read('src-tauri/src/lib.rs').match(/const BOOT_FINISH_JS: &str = "([^"]+)";/)?.[1];
+    expect(rust).toBe('window.__hangarBootFinish && window.__hangarBootFinish()');
+    expect(read('loading/boot.js')).toContain('window.__hangarBootFinish = ');
+  });
+  // 殻は索引づけが済むまで起動画面に残り、その進み具合を渡す。口の名前が食い違うと、件数が出ないまま待たされる。
+  it('殻が進み具合を渡す口（__hangarBootProgress）を、起動画面が持つ', () => {
+    expect(read('src-tauri/src/lib.rs')).toContain('"window.__hangarBootProgress && window.__hangarBootProgress({{');
+    expect(read('loading/boot.js')).toContain('window.__hangarBootProgress = ');
+  });
+  it('殻が待つ長さ（lib.rs の BOOT_FINISH_MS）は、合図と光が満ちる長さ（boot-frames.js の FINISH_MS）と同じ', () => {
+    const rust = read('src-tauri/src/lib.rs').match(/const BOOT_FINISH_MS: u64 = (\d+);/)?.[1];
+    const js = read('loading/boot-frames.js').match(/export const FINISH_MS = (\d+);/)?.[1];
     expect(rust).toBeDefined();
     expect(rust).toBe(js);
-  });
-  // 殻は境目まで待った後、移る前に起動画面の動きを止めさせる。止める口の名前が食い違うと、最後のコマで新しい札が降り始める。
-  it('殻が呼ぶ止める口（__hangarBootSettle）を、起動画面が持つ', () => {
-    const rust = read('src-tauri/src/lib.rs').match(/const BOOT_SETTLE_JS: &str = "([^"]+)";/)?.[1];
-    expect(rust).toBe('window.__hangarBootSettle && window.__hangarBootSettle()');
-    expect(read('loading/boot.js')).toContain('window.__hangarBootSettle = ');
   });
 });
 

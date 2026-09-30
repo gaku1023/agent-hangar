@@ -36,6 +36,9 @@ struct Ui {
     pending_status: Option<(String, bool)>,
     /// 読み込み画面の load の合図が届いた時刻。起動画面の動きの時計も同じ合図から数える。
     loading_since: Option<Instant>,
+    /// 最後に起動画面へ渡した進み具合の式。
+    /// 殻は変わったときだけ渡すので、読み込みの前に渡して捨てられた分を、読み込みの合図で渡し直す。
+    last_progress: Option<String>,
 }
 
 impl Ui {
@@ -77,6 +80,14 @@ impl Ui {
     /// 文言は読み込み画面のものだけ、ハッシュはサーバの頁のものだけを流す。
     /// 段に合わない合図（navigate の後に届く読み込み画面の側の合図など）は何もしない。
     /// 消えていく頁へ流すと、そのハッシュはそのまま失われるからである。
+    /// 読み込み画面の読み込みが終わったときに渡し直す進み具合。サーバの頁へ移った後は渡さない。
+    fn progress_to_replay(&self, server_page: bool) -> Option<String> {
+        if server_page || self.ready {
+            return None;
+        }
+        self.last_progress.clone()
+    }
+
     fn page_loaded(&mut self, server_page: bool) -> (Option<(String, bool)>, Option<String>) {
         if self.ready != server_page {
             return (None, None);
@@ -90,26 +101,173 @@ impl Ui {
     }
 }
 
-/// 起動画面の 1 周期（ミリ秒）。loading/boot-frames.js の CYCLE_MS と揃える（config.test.ts が突き合わせる）。
-const BOOT_CYCLE_MS: u64 = 1600;
-
-/// 周の境目まで待った後、画面を移す前に起動画面の流れを止めさせる式（loading/boot.js の __hangarBootSettle）。
-/// 止めないと、移る直前のコマで新しい札が薄く降り始める。
+/// 準備ができたら、起動画面に読み込みが終わった合図を打たせる式（loading/boot.js の __hangarBootFinish）。
+/// 起動画面は周のどこからでも合図に入れるので、周の境目は待たない。
+/// 合図の後、起動画面は UI の背景の光を画面いっぱいに満たし、UI はその光の上から始まる。
 /// 決まった文字列だけを評価し、入場の鍵や行き先の URL は決して混ぜない。
-const BOOT_SETTLE_JS: &str = "window.__hangarBootSettle && window.__hangarBootSettle()";
+const BOOT_FINISH_JS: &str = "window.__hangarBootFinish && window.__hangarBootFinish()";
 
-/// 起動画面の周の境目までの長さ。
-/// 送りの途中で画面を移すと札が宙で消えるので、今の周を回し終えてから移る。
-/// 起動画面は頁の load から時計を数えるので、`since_load` もその合図からの経過にする。
-/// どこから数えても、1 周期より長くは待たない。
-fn settle_delay(since_load: Duration) -> Duration {
-    let cycle = u128::from(BOOT_CYCLE_MS);
-    let into = since_load.as_millis() % cycle;
-    if into == 0 {
-        Duration::ZERO
+/// 合図を打ち始めてから光が満ち切るまで（ミリ秒）。loading/boot-frames.js の FINISH_MS と揃える（config.test.ts が突き合わせる）。
+/// これより早く移ると、光が満ちる途中の絵のまま画面が替わる。
+const BOOT_FINISH_MS: u64 = 900;
+// 合図と光を待つ分、起動は遅くなる。待ちは 1 秒に収める。
+const _: () = assert!(BOOT_FINISH_MS <= 1000);
+
+/// 最初の索引づけが済むのを待つ間の問い合わせの間隔。
+const READY_POLL: Duration = Duration::from_millis(100);
+/// 最初の索引づけを待つ上限。過ぎても失敗にはせず、済んでいないまま画面を移す（UI のヘッダが続きを出す）。
+/// 空の DB から 987 件を索引づけると 17.7 秒かかった（2026-09-30 の実測）。履歴がその数倍あっても収まる長さにする。
+const READY_DEADLINE: Duration = Duration::from_secs(120);
+
+/// 起動画面に索引の進み具合を渡す式（loading/boot.js の __hangarBootProgress）。
+/// 段階は決まった名前、数は整数だけを埋める。サーバが返した文字列は混ぜない。
+fn progress_js(b: &health::Boot) -> String {
+    format!(
+        "window.__hangarBootProgress && window.__hangarBootProgress({{\"phase\":\"{}\",\"done\":{},\"total\":{}}})",
+        b.phase.as_str(),
+        b.done,
+        b.total
+    )
+}
+
+/// 応答が途切れたまま、これだけ経ったら諦める。
+const UNRESPONSIVE_AFTER: Duration = Duration::from_secs(10);
+
+/// 最初の索引づけを待った結果。
+#[derive(Debug, PartialEq, Eq)]
+enum ReadyWait {
+    Ready,
+    /// 上限まで待っても済まなかった。済まないまま移ってよい。
+    TimedOut,
+    /// 待っている間に子が終わった。
+    Died,
+    /// 子は生きているが、応答が途切れたまま戻らない。
+    Unresponsive,
+}
+
+/// 最初の索引づけを待つ長さ。
+#[derive(Debug, Clone, Copy)]
+struct ReadyLimits {
+    /// 待つ上限。
+    deadline: Duration,
+    /// 応答が途切れたまま、これだけ経ったら諦める。
+    unresponsive: Duration,
+    /// 問い合わせの間隔。
+    interval: Duration,
+}
+
+/// `wait_for_ready` の本体。問い合わせ、子の生死、進み具合の渡し先、待ち、時計を差し替えられる。
+/// 進み具合は変わったときだけ `report` に渡す。
+fn wait_ready_with(
+    limits: ReadyLimits,
+    mut probe: impl FnMut() -> Option<health::Boot>,
+    mut dead: impl FnMut() -> bool,
+    mut report: impl FnMut(&health::Boot),
+    mut sleep: impl FnMut(Duration),
+    mut elapsed: impl FnMut() -> Duration,
+) -> ReadyWait {
+    // 進まない時計を渡されても必ず終わるための歯止め。
+    let ReadyLimits {
+        deadline,
+        unresponsive,
+        interval,
+    } = limits;
+    let cap = if interval.is_zero() {
+        1
     } else {
-        Duration::from_millis((cycle - into) as u64)
+        (deadline.as_nanos() / interval.as_nanos()).min(1_000_000) as u32 + 2
+    };
+    let mut last: Option<health::Boot> = None;
+    let mut lost_since: Option<Duration> = None;
+    for _ in 0..cap {
+        let now = elapsed();
+        match probe() {
+            Some(b) => {
+                lost_since = None;
+                if last != Some(b) {
+                    report(&b);
+                    last = Some(b);
+                }
+                if b.ready {
+                    return ReadyWait::Ready;
+                }
+            }
+            None => {
+                if dead() {
+                    return ReadyWait::Died;
+                }
+                let since = *lost_since.get_or_insert(now);
+                if now.saturating_sub(since) >= unresponsive {
+                    return ReadyWait::Unresponsive;
+                }
+            }
+        }
+        if elapsed() >= deadline {
+            return ReadyWait::TimedOut;
+        }
+        sleep(interval);
     }
+    ReadyWait::TimedOut
+}
+
+/// 最初の索引づけと紐づけが済むまで待ち、その間の進み具合を起動画面へ渡す。
+/// サーバは索引づけより先に待ち受けを始めるので、`/health` が返った時点ではまだ済んでいないことがある。
+/// 済む前に移ると、UI は索引づけの間 API の応答を待たされる（100 件溜まっていたとき最大 1.4 秒、2026-09-30 の実測）。
+/// ふだんは 0.2 秒で済むので、起動はほとんど長くならない。
+/// 進み具合を載せない古いサーバは、済んだものとして扱う（`health::boot_state`）。
+/// 待つ間に子が終わったか、応答が途切れたまま戻らなければ、落ちたサーバへ移らず失敗の文を出す。
+fn wait_for_ready(app: &AppHandle, addr: SocketAddr, deadline: Duration) -> Result<(), String> {
+    let t0 = Instant::now();
+    let outcome = wait_ready_with(
+        ReadyLimits {
+            deadline,
+            unresponsive: UNRESPONSIVE_AFTER,
+            interval: READY_POLL,
+        },
+        || health::probe_boot(addr),
+        || take_dead_server(app),
+        |b| {
+            let js = progress_js(b);
+            app.state::<AppState>().ui.lock().unwrap().last_progress = Some(js.clone());
+            eval_main(app, &js);
+        },
+        std::thread::sleep,
+        || t0.elapsed(),
+    );
+    match outcome {
+        ReadyWait::Ready => Ok(()),
+        ReadyWait::TimedOut => {
+            log("moving on before the first index finished");
+            Ok(())
+        }
+        ReadyWait::Died => Err(
+            "サーバが起動の途中で終了しました。~/.agent-hangar/desktop.log を確認してください。"
+                .to_string(),
+        ),
+        ReadyWait::Unresponsive => Err(format!(
+            "サーバが {} 秒応答しません。~/.agent-hangar/desktop.log を確認してください。",
+            UNRESPONSIVE_AFTER.as_secs()
+        )),
+    }
+}
+
+/// 画面を移した後も子の生死を見て、勝手に終わったらその終わり方をログに残す。
+/// アプリが起動から数秒で終わる件を、アプリが閉じたのかサーバが落ちたのかで切り分けるためである。
+/// 終了の手続きで止めた子は、先に状態から外されるので、ここでは拾わない。
+fn watch_server(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(2));
+        let state = app.state::<AppState>();
+        let mut slot = state.server.lock().unwrap();
+        let Some(p) = slot.as_mut() else {
+            return;
+        };
+        if let Some(status) = p.exit_status() {
+            log(&format!("server exited on its own ({status})"));
+            *slot = None;
+            return;
+        }
+    });
 }
 
 /// 文言に入場の鍵が混じっていたら伏せる。
@@ -220,15 +378,20 @@ fn is_server_page(u: &url::Url) -> bool {
 /// 頁の読み込みが終わった合図。
 /// 読み込みの前に出しそこねた文言と、navigate の最中に届いたハッシュをここで流す。
 fn page_loaded(app: &AppHandle, server_page: bool) {
-    let (status, hash) = {
+    let (status, hash, replay) = {
         let state = app.state::<AppState>();
         let mut ui = state.ui.lock().unwrap();
         // 読み込み画面の最初の load だけを時計の起点にする。
         if !server_page && ui.loading_since.is_none() {
             ui.loading_since = Some(Instant::now());
         }
-        ui.page_loaded(server_page)
+        let replay = ui.progress_to_replay(server_page);
+        let (status, hash) = ui.page_loaded(server_page);
+        (status, hash, replay)
     };
+    if let Some(js) = replay {
+        eval_main(app, &js);
+    }
     if let Some((text, error)) = status {
         eval_main(app, &status_js(&text, error));
     }
@@ -426,6 +589,9 @@ fn boot(app: AppHandle) {
     if let Err(msg) = start_server(&app, &hangar_home, addr) {
         return fail(&app, &msg);
     }
+    if let Err(msg) = wait_for_ready(&app, addr, READY_DEADLINE) {
+        return fail(&app, &msg);
+    }
 
     // サーバの `GET /` は鍵かクッキーが無ければ 401 の案内を返す。
     // 新しい webview はクッキーを持たないので、鍵付きの URL で開く。
@@ -447,13 +613,19 @@ fn boot(app: AppHandle) {
         );
     };
 
-    // 起動画面の周の境目まで待ってから移る。load の合図がまだ来ていなければ、描いている札も無いので待たない。
-    let since = app.state::<AppState>().ui.lock().unwrap().loading_since;
-    if let Some(t) = since {
-        std::thread::sleep(settle_delay(t.elapsed()));
+    // 読み込みが終わった合図を打たせ、光が満ち切るまで待ってから移る。起動画面は周のどこからでも合図に入れる。
+    // load の合図がまだ来ていなければ、描いている札も無いので、合図も待ちもしない。
+    let drawing = app
+        .state::<AppState>()
+        .ui
+        .lock()
+        .unwrap()
+        .loading_since
+        .is_some();
+    if drawing {
+        eval_main(&app, BOOT_FINISH_JS);
+        std::thread::sleep(Duration::from_millis(BOOT_FINISH_MS));
     }
-    // 待った境目の絵で起動画面を止める。起動画面がまだ無ければ、式は何もしない。
-    eval_main(&app, BOOT_SETTLE_JS);
 
     // 段の切り替えと pending の取り出しは同じロックの下で行い、その隙に届いたリンクを落とさない。
     // ここから読み込みが終わるまでに届くリンクも貯める側へ回り、読み込みの合図で流れる。
@@ -483,7 +655,9 @@ fn boot(app: AppHandle) {
                 redact(&e, &token)
             ),
         );
+        return;
     }
+    watch_server(app);
 }
 
 /// トラックパッドの「指が離れた」瞬間を画面へ伝える。
@@ -506,16 +680,23 @@ fn watch_swipe_phase(app: &AppHandle) {
         // 触れた時点も知らせる。指を置いたまま止めている間は打鍵が来ないので、
         // これが無いと画面の側は「途切れた」と読んで、離す前に動いてしまう。
         if phase.contains(NSEventPhase::Began) {
-            eval_main(&handle, "window.__hangarSwipeBegin && window.__hangarSwipeBegin()");
+            eval_main(
+                &handle,
+                "window.__hangarSwipeBegin && window.__hangarSwipeBegin()",
+            );
         }
         if phase.contains(NSEventPhase::Ended) || phase.contains(NSEventPhase::Cancelled) {
-            eval_main(&handle, "window.__hangarSwipeEnd && window.__hangarSwipeEnd()");
+            eval_main(
+                &handle,
+                "window.__hangarSwipeEnd && window.__hangarSwipeEnd()",
+            );
         }
         event.as_ptr()
     });
     // 監視はアプリが終わるまで外さないので、返ってきた印は持ったままにする。
-    let monitor =
-        unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::ScrollWheel, &block) };
+    let monitor = unsafe {
+        NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::ScrollWheel, &block)
+    };
     if monitor.is_none() {
         log("swipe phase monitor not installed");
         return;
@@ -559,13 +740,25 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let RunEvent::Exit = event {
+        // 終わったきっかけを 1 行ずつ残す。起動から数秒で終わる件を、ログだけで切り分けられるようにする。
+        // 窓を閉じたときは close requested の後に exit requested が続き、⌘Q では exit requested だけが出る。
+        .run(|app, event| match event {
+            RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { .. },
+                ..
+            } => log(&format!("window {label} close requested")),
+            RunEvent::ExitRequested { code, .. } => log(&match code {
+                None => "exit requested by the user".to_string(),
+                Some(c) => format!("exit requested with code {c}"),
+            }),
+            RunEvent::Exit => {
                 if let Some(mut p) = app.state::<AppState>().server.lock().unwrap().take() {
                     p.stop();
                     log("server stopped");
                 }
             }
+            _ => {}
         });
 }
 
@@ -748,29 +941,136 @@ mod tests {
         assert!(cut.chars().all(|c| c != '\u{fffd}'));
     }
 
-    // 起動画面の送りの途中で画面を移さない。周の境目までだけ待ち、1 周期より長くは待たない。
-    #[test]
-    fn the_boot_screen_finishes_its_cycle_before_moving_on() {
-        assert_eq!(settle_delay(Duration::ZERO), Duration::ZERO);
-        assert_eq!(settle_delay(Duration::from_millis(400)), Duration::from_millis(1200));
-        assert_eq!(settle_delay(Duration::from_millis(1600)), Duration::ZERO);
-        assert_eq!(settle_delay(Duration::from_millis(3300)), Duration::from_millis(1500));
-        for ms in (0..5000).step_by(37) {
-            assert!(settle_delay(Duration::from_millis(ms)) < Duration::from_millis(BOOT_CYCLE_MS));
+    fn boot(ready: bool, done: u64) -> health::Boot {
+        health::Boot {
+            ready,
+            phase: health::Phase::Indexing,
+            done,
+            total: 9,
         }
     }
 
-    // 止める式は決まった文字列で、鍵も行き先も持たない。
-    // 殻は評価する式をログに残さないが、式に鍵が混じれば webview の側で漏れうる。
+    /// 偽の時計で wait_ready_with を回す。probe は呼ばれた順に答えを返し、尽きたら最後の答えを繰り返す。
+    fn run_wait(
+        answers: Vec<Option<health::Boot>>,
+        dead_after: Option<usize>,
+    ) -> (ReadyWait, Vec<health::Boot>, Duration) {
+        let clock = std::cell::Cell::new(Duration::ZERO);
+        let calls = std::cell::Cell::new(0usize);
+        let mut reported = Vec::new();
+        let outcome = wait_ready_with(
+            ReadyLimits {
+                deadline: Duration::from_secs(120),
+                unresponsive: Duration::from_secs(10),
+                interval: Duration::from_millis(100),
+            },
+            || {
+                let i = calls.get();
+                calls.set(i + 1);
+                answers[i.min(answers.len() - 1)]
+            },
+            || dead_after.is_some_and(|n| calls.get() > n),
+            |b| reported.push(*b),
+            |d| clock.set(clock.get() + d),
+            || clock.get(),
+        );
+        (outcome, reported, clock.get())
+    }
+
+    // 索引づけが済むまで待ち、進み具合は変わったときだけ渡す。
     #[test]
-    fn the_boot_settle_script_is_fixed_and_carries_no_entry_url() {
+    fn waiting_for_ready_reports_each_change_once_and_stops_when_ready() {
+        let (outcome, reported, _) = run_wait(
+            vec![
+                Some(boot(false, 1)),
+                Some(boot(false, 1)),
+                Some(boot(false, 5)),
+                Some(boot(true, 9)),
+            ],
+            None,
+        );
+        assert_eq!(outcome, ReadyWait::Ready);
         assert_eq!(
-            BOOT_SETTLE_JS,
-            "window.__hangarBootSettle && window.__hangarBootSettle()"
+            reported,
+            vec![boot(false, 1), boot(false, 5), boot(true, 9)]
+        );
+    }
+
+    // 待つ間に子が終わったら、落ちたサーバへ移らず、失敗として返す。
+    #[test]
+    fn waiting_for_ready_gives_up_when_the_server_dies() {
+        let (outcome, _, waited) = run_wait(vec![Some(boot(false, 1)), None], Some(1));
+        assert_eq!(outcome, ReadyWait::Died);
+        assert!(waited < Duration::from_secs(1), "{waited:?}");
+    }
+
+    // 子は生きていても、応答が途切れたまま戻らなければ諦める。一度だけの途切れでは諦めない。
+    #[test]
+    fn waiting_for_ready_gives_up_when_the_server_stops_answering() {
+        let (outcome, _, waited) = run_wait(vec![Some(boot(false, 1)), None], None);
+        assert_eq!(outcome, ReadyWait::Unresponsive);
+        assert!(
+            waited >= Duration::from_secs(10) && waited < Duration::from_secs(11),
+            "{waited:?}"
+        );
+        let (outcome, _, _) = run_wait(vec![Some(boot(false, 1)), None, Some(boot(true, 9))], None);
+        assert_eq!(outcome, ReadyWait::Ready);
+    }
+
+    // 上限まで済まなければ、済まないまま移ってよいと返す。
+    #[test]
+    fn waiting_for_ready_moves_on_at_the_deadline() {
+        let (outcome, _, waited) = run_wait(vec![Some(boot(false, 1))], None);
+        assert_eq!(outcome, ReadyWait::TimedOut);
+        assert!(
+            waited >= Duration::from_secs(120) && waited < Duration::from_secs(121),
+            "{waited:?}"
+        );
+    }
+
+    // 読み込みの前に渡した進み具合は捨てられることがある。読み込み画面の読み込みの合図で渡し直す。
+    #[test]
+    fn the_last_progress_is_replayed_when_the_loading_page_loads() {
+        let mut ui = Ui::default();
+        assert_eq!(ui.progress_to_replay(false), None);
+        ui.last_progress = Some("p".to_string());
+        assert_eq!(ui.progress_to_replay(false), Some("p".to_string()));
+        // サーバの頁には渡さない。
+        assert_eq!(ui.progress_to_replay(true), None);
+        ui.navigating();
+        assert_eq!(ui.progress_to_replay(false), None);
+    }
+
+    // 進み具合の式は、決まった段階の名前と整数だけでできている。
+    #[test]
+    fn the_boot_progress_script_carries_only_the_phase_name_and_counts() {
+        let b = health::Boot {
+            ready: false,
+            phase: health::Phase::Indexing,
+            done: 412,
+            total: 987,
+        };
+        assert_eq!(
+            progress_js(&b),
+            r#"window.__hangarBootProgress && window.__hangarBootProgress({"phase":"indexing","done":412,"total":987})"#
         );
         let url = server::entry_url(server::PORT, "secret-token", "#/home");
         for part in ["?t=", "secret-token", "http", "127.0.0.1", &url] {
-            assert!(!BOOT_SETTLE_JS.contains(part), "{part}");
+            assert!(!progress_js(&b).contains(part), "{part}");
+        }
+    }
+
+    // 合図の式は決まった文字列で、鍵も行き先も持たない。
+    // 殻は評価する式をログに残さないが、式に鍵が混じれば webview の側で漏れうる。
+    #[test]
+    fn the_boot_finish_script_is_fixed_and_carries_no_entry_url() {
+        assert_eq!(
+            BOOT_FINISH_JS,
+            "window.__hangarBootFinish && window.__hangarBootFinish()"
+        );
+        let url = server::entry_url(server::PORT, "secret-token", "#/home");
+        for part in ["?t=", "secret-token", "http", "127.0.0.1", &url] {
+            assert!(!BOOT_FINISH_JS.contains(part), "{part}");
         }
     }
 }

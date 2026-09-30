@@ -107,6 +107,11 @@ impl ServerProcess {
         matches!(self.child.try_wait(), Ok(None))
     }
 
+    /// 終了していれば、その終わり方（終了コードか信号）。生きていれば None。
+    pub fn exit_status(&mut self) -> Option<std::process::ExitStatus> {
+        self.child.try_wait().ok().flatten()
+    }
+
     /// SIGTERM を送ってから SIGKILL に移るまでの猶予。
     ///
     /// 終了の時間は 3 つの数が噛み合っていなければならない。

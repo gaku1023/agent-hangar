@@ -164,6 +164,73 @@ pub fn probe_health(addr: SocketAddr) -> bool {
     probe_health_with_timeout(addr, PROBE_TIMEOUT)
 }
 
+/// 索引づけの段階。サーバの `index.phase` を写す。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Idle,
+    Scanning,
+    Indexing,
+    Rebuilding,
+}
+
+impl Phase {
+    /// 起動画面へ渡す名前。サーバが返した文字列そのものは使わず、決まった名前だけを返す。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Phase::Idle => "idle",
+            Phase::Scanning => "scanning",
+            Phase::Indexing => "indexing",
+            Phase::Rebuilding => "rebuilding",
+        }
+    }
+}
+
+/// `/health` に載る起動の進み具合。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Boot {
+    /// 最初の索引づけと紐づけが済んだか。
+    pub ready: bool,
+    pub phase: Phase,
+    pub done: u64,
+    pub total: u64,
+}
+
+/// `/health` の応答から起動の進み具合を読む。hangar の応答でなければ None。
+/// `ready` を持たない（進み具合を載せる前の）サーバは、済んだものとして扱う。
+/// 数は信用せず、整数でなければ 0、済んだ数が全体を超えれば全体に丸める。知らない段階は Idle にする。
+pub fn boot_state(status: u16, body: &str) -> Option<Boot> {
+    if !is_healthy(status, body) {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let ready = v.get("ready").and_then(|x| x.as_bool()).unwrap_or(true);
+    let index = v.get("index");
+    let num = |k: &str| {
+        index
+            .and_then(|i| i.get(k))
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0)
+    };
+    let phase = match index.and_then(|i| i.get("phase")).and_then(|x| x.as_str()) {
+        Some("scanning") => Phase::Scanning,
+        Some("indexing") => Phase::Indexing,
+        Some("rebuilding") => Phase::Rebuilding,
+        _ => Phase::Idle,
+    };
+    let total = num("total");
+    Some(Boot {
+        ready,
+        phase,
+        done: num("done").min(total),
+        total,
+    })
+}
+
+/// 宛先を 1 回だけ叩いて起動の進み具合を返す。
+pub fn probe_boot(addr: SocketAddr) -> Option<Boot> {
+    http_get(addr, "/health", PROBE_TIMEOUT).and_then(|(s, b)| boot_state(s, &b))
+}
+
 /// `probe` が真を返すまで `interval` ごとに試す。
 /// `deadline` を過ぎたら偽。
 /// 時計と待ちは差し替えられるので、試験は実時間を使わずに済む。
@@ -311,6 +378,70 @@ mod tests {
         assert!(!is_healthy(200, "{\"ok\":true,\"version\":1}"));
         assert!(!is_healthy(200, "{\"ok\":true,\"version\":null}"));
         assert!(is_healthy(200, "{\"ok\":true,\"version\":\"0.3.0\"}"));
+    }
+
+    #[test]
+    fn boot_state_reads_ready_and_the_index_progress() {
+        let body = r#"{"ok":true,"version":"0.3.0","ready":false,"index":{"phase":"indexing","done":412,"total":987}}"#;
+        assert_eq!(
+            boot_state(200, body),
+            Some(Boot {
+                ready: false,
+                phase: Phase::Indexing,
+                done: 412,
+                total: 987
+            })
+        );
+        let done = r#"{"ok":true,"version":"0.3.0","ready":true,"index":{"phase":"idle","done":987,"total":987}}"#;
+        assert_eq!(boot_state(200, done).map(|b| b.ready), Some(true));
+        for (name, phase) in [
+            ("scanning", Phase::Scanning),
+            ("rebuilding", Phase::Rebuilding),
+        ] {
+            let b = format!(
+                r#"{{"ok":true,"version":"v","ready":false,"index":{{"phase":"{name}","done":0,"total":0}}}}"#
+            );
+            assert_eq!(boot_state(200, &b).map(|b| b.phase), Some(phase));
+        }
+    }
+
+    /// 進み具合を載せる前のサーバ（hangar start で動いている古い版など）では待たない。
+    #[test]
+    fn boot_state_treats_an_older_server_as_ready() {
+        assert_eq!(
+            boot_state(200, r#"{"ok":true,"version":"0.2.0"}"#),
+            Some(Boot {
+                ready: true,
+                phase: Phase::Idle,
+                done: 0,
+                total: 0
+            })
+        );
+    }
+
+    /// 宛先は信用できない。hangar でなければ読まず、変な数や段階は丸める。
+    #[test]
+    fn boot_state_does_not_trust_the_numbers_or_the_phase() {
+        assert_eq!(boot_state(200, r#"{"status":"ok"}"#), None);
+        assert_eq!(
+            boot_state(500, r#"{"ok":true,"version":"v","ready":false}"#),
+            None
+        );
+        let odd = r#"{"ok":true,"version":"v","ready":"no","index":{"phase":"<script>","done":-3,"total":2.5}}"#;
+        assert_eq!(
+            boot_state(200, odd),
+            Some(Boot {
+                ready: true,
+                phase: Phase::Idle,
+                done: 0,
+                total: 0
+            })
+        );
+        let over = r#"{"ok":true,"version":"v","ready":false,"index":{"phase":"indexing","done":50,"total":10}}"#;
+        assert_eq!(
+            boot_state(200, over).map(|b| (b.done, b.total)),
+            Some((10, 10))
+        );
     }
 
     /// `{"ok":true}` だけを返す別のプログラムを、ソケット越しにも弾く。
