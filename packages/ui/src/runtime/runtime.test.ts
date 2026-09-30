@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { ApiConflictError, type ApiClient } from './api.ts';
+import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
@@ -752,5 +752,66 @@ describe('同期とこの PC で再開', () => {
     expect(timer).toBeDefined();
     timer!.fn();
     expect(rt.getStore().joinToken).toBeNull();
+  });
+});
+
+describe('保持期間（ランタイム）', () => {
+  const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
+  const preview = { days: 365, path: '/c/settings.json', lines: [], baseSha256: 'abc', backupDir: '/h/backups/claude-config', projectedBytes: null };
+  it('本文の無い会話を開いても、本文を読みに行かない', async () => {
+    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, memo: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null };
+    const { rt, api, wsHandlers, setHash } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [s1] })) });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    setHash('#/session/s1');
+    await flush();
+    expect(api.events).not.toHaveBeenCalled();
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('帯を閉じた覚えを起動時に読み戻す', () => {
+    const { rt, store } = harness();
+    store.set('retention.bannerDismissed', true);
+    rt.start();
+    expect(rt.getState().retentionBannerDismissed).toBe(true);
+  });
+  it('書き込みは下見の指紋を送り、成功なら store.retention を入れ替えてトーストを出す', async () => {
+    const written = { ...R, days: 365, source: 'user' as const, userValue: 365 };
+    const retentionPreview = vi.fn(async () => preview);
+    const writeRetention = vi.fn(async () => written);
+    const { rt } = harness({ retentionPreview, writeRetention });
+    rt.start();
+    rt.emit({ type: 'retention.edit', days: 365, from: 'banner' });
+    await flush();
+    expect(rt.getStore().retentionPreview?.baseSha256).toBe('abc');
+    rt.emit({ type: 'retention.write' });
+    await flush();
+    expect(writeRetention).toHaveBeenCalledWith(365, 'abc');
+    expect(rt.getStore().retention).toEqual(written);
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['保持期間を 1 年にしました']);
+  });
+  it('409 なら読み直したことを出し、下見を取り直す', async () => {
+    const retentionPreview = vi.fn(async () => preview);
+    const writeRetention = vi.fn(async () => { throw new RetentionConflictApiError(); });
+    const { rt } = harness({ retentionPreview, writeRetention });
+    rt.start();
+    rt.emit({ type: 'retention.edit', days: 365, from: 'banner' });
+    await flush();
+    rt.emit({ type: 'retention.write' });
+    await flush();
+    expect(rt.getState().overlay).toMatchObject({ kind: 'retention', reloaded: true, writing: false });
+    expect(retentionPreview).toHaveBeenCalledTimes(2);
+  });
+  it('設定画面に入ると保持期間を読み直す', async () => {
+    const retention = vi.fn(async () => R);
+    const { rt, wsHandlers, setHash } = harness({ retention });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    setHash('#/settings');
+    await flush();
+    expect(retention).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().retention).toEqual(R);
   });
 });

@@ -12,6 +12,7 @@ import { presentSessionRow } from './row.ts';
 import { buildItems, presentSession } from './session.ts';
 import { presentSessions } from './sessions.ts';
 import { presentSettings } from './settings.ts';
+import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
 import { presentShell } from './shell.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
@@ -809,5 +810,23 @@ describe('セッションのロック（フェーズ 4）', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { hasTranscript: false }) } };
     expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ lock: null, remoteOnly: false, canResume: false, canResumeHere: false });
     expect(presentSession(initialState(), store, NOW, 'zz')).toMatchObject({ notFound: true, lock: null, remoteOnly: false, canResumeHere: false });
+  });
+});
+
+describe('保持期間の言い方と期限', () => {
+  const DAY = 86_400_000;
+  it('日数と大きさの言い方', () => {
+    expect([30, 90, 365, 3650, 45, 730].map(daysLabel)).toEqual(['30 日', '90 日', '1 年', '10 年', '45 日', '2 年']);
+    expect([1_610_612_736, 18 * 1024 ** 3, 52_428_800, 2048, 0].map(bytesLabel)).toEqual(['1.5 GB', '18 GB', '50 MB', '2 KB', '0 KB']);
+  });
+  it('本文の印は 4 通り', () => {
+    expect(transcriptMark(session('a', { transcriptMtime: NOW - 10 * DAY }), 30, NOW)).toBe('present');
+    expect(transcriptMark(session('a', { transcriptMtime: NOW - 24 * DAY }), 30, NOW)).toBe('expiring');
+    // 期限を過ぎてもまだ消えていなければ、次の起動で消えるので「まもなく」に入れる。
+    expect(transcriptMark(session('a', { transcriptMtime: NOW - 31 * DAY }), 30, NOW)).toBe('expiring');
+    expect(transcriptMark(session('a', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 31 * DAY }), 365, NOW)).toBe('gone');
+    expect(transcriptMark(session('a', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 3 * DAY }), 30, NOW)).toBe('none');
+    // 他の PC にしか本文が無い会話は、この PC の期限を持たない。
+    expect(transcriptMark(session('a', { remoteOnly: true, transcriptMtime: null }), 30, NOW)).toBe('present');
   });
 });

@@ -828,3 +828,37 @@ describe('開いたら端末にフォーカス', () => {
     }
   });
 });
+
+describe('保持期間', () => {
+  it('閉じると覚え、保存する', () => {
+    const r = run([intent({ type: 'retention.dismiss' })]);
+    expect(r.state.retentionBannerDismissed).toBe(true);
+    expect(r.effects).toEqual([{ kind: 'storage.save', key: 'retention.bannerDismissed', value: true }]);
+  });
+  it('開くと下見を取り、書くと送信中になり、書けたら閉じる', () => {
+    let r = run([intent({ type: 'retention.edit', days: 365, from: 'banner' })]);
+    expect(r.state.overlay).toEqual({ kind: 'retention', days: 365, from: 'banner', reloaded: false, writing: false });
+    expect(r.effects).toEqual([{ kind: 'api.retentionPreview', days: 365 }]);
+    r = run([intent({ type: 'retention.write' })], r.state);
+    expect(r.state.overlay).toMatchObject({ kind: 'retention', writing: true });
+    expect(r.effects).toEqual([{ kind: 'api.writeRetention', days: 365 }]);
+    // 送信中にもう一度押しても二重に書かない。
+    expect(run([intent({ type: 'retention.write' })], r.state).effects).toEqual([]);
+    r = run([runtime({ type: 'retention.written', days: 365 })], r.state);
+    expect(r.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('409 なら下見を取り直し、読み直したことを出す', () => {
+    const r = run([intent({ type: 'retention.edit', days: 365, from: 'settings' }), intent({ type: 'retention.write' }), runtime({ type: 'retention.conflict', days: 365 })]);
+    expect(r.state.overlay).toEqual({ kind: 'retention', days: 365, from: 'settings', reloaded: true, writing: false });
+    expect(r.effects.at(-1)).toEqual({ kind: 'api.retentionPreview', days: 365 });
+  });
+  it('失敗したら送信中を解いてトーストを出す。「ほかの期間…」は設定画面へ移る', () => {
+    const open = run([intent({ type: 'retention.edit', days: 365, from: 'banner' })]).state;
+    const f = run([intent({ type: 'retention.write' }), runtime({ type: 'retention.failed', message: 'x' })], open);
+    expect(f.state.overlay).toMatchObject({ writing: false });
+    expect(f.effects.at(-1)).toEqual({ kind: 'toast', level: 'error', message: 'x' });
+    const s = run([intent({ type: 'retention.settings' })], open);
+    expect(s.state.overlay).toEqual({ kind: 'none' });
+    expect(s.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+  });
+});

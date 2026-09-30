@@ -255,3 +255,16 @@ describe('store の同期', () => {
     expect(applyConfigPreview(s, null).configPreview).toBeNull();
   });
 });
+
+describe('保持期間の store', () => {
+  const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
+  it('bootstrap の retention を入れ、欠けていれば null', () => {
+    expect(applyBootstrap(initialStore(), { ...boot, retention: R }).retention).toEqual(R);
+    const { retention: _drop, ...old } = boot;
+    expect(applyBootstrap(initialStore(), old as BootstrapDto).retention).toBeNull();
+  });
+  it('retention.changed で差し替わる', () => {
+    const next = { ...R, days: 365, source: 'user' as const, userValue: 365 };
+    expect(applyServerEvent(initialStore(), { type: 'retention.changed', retention: next }).retention).toEqual(next);
+  });
+});

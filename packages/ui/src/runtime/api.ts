@@ -1,8 +1,13 @@
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, ResumeHereConflictDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
   constructor(public readonly body: ResumeHereConflictDto) { super('local_smaller'); this.name = 'ApiConflictError'; }
+}
+
+/** 保持期間の下見の後に、設定ファイルがほかで変わった。UI は下見を取り直す。 */
+export class RetentionConflictApiError extends Error {
+  constructor() { super('retention_conflict'); this.name = 'RetentionConflictApiError'; }
 }
 
 /**
@@ -69,6 +74,10 @@ export type ApiClient = {
   configPreview(): Promise<ConfigPreviewDto>;
   configPull(): Promise<{ applied: number; conflicts: number }>;
   devices(): Promise<DeviceDto[]>;
+  // 会話の保持期間。書き込みは下見の指紋を添え、ほかで変わっていたら 409 で断られる。
+  retention(): Promise<RetentionDto>;
+  retentionPreview(days: number): Promise<RetentionPreviewDto>;
+  writeRetention(days: number, baseSha256: string): Promise<RetentionDto>;
 };
 
 /** 相対 URL の `/api/...` を叩く薄いクライアント。
@@ -83,6 +92,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
       const body = (await r.json().catch(() => null)) as { error?: string; localSize?: number; remoteSize?: number } | null;
       // 「この PC で再開」の 409 だけは、確認ダイアログを出すために型の付いた失敗にする。
       if (r.status === 409 && body?.error === 'local_smaller') throw new ApiConflictError(body as ResumeHereConflictDto);
+      if (r.status === 409 && body?.error === 'retention_conflict') throw new RetentionConflictApiError();
       throw new Error(body?.error ?? `${r.status} ${path}`);
     }
     if (r.status === 202 || r.status === 204) return undefined as T;
@@ -142,5 +152,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     configPreview: () => call('/api/sync/config/preview'),
     configPull: () => post('/api/sync/config/pull'),
     devices: () => call('/api/devices'),
+    retention: () => call('/api/retention'),
+    retentionPreview: (days) => post('/api/retention/preview', { days }),
+    writeRetention: (days, baseSha256) => call('/api/retention', { method: 'PUT', body: JSON.stringify({ days, baseSha256 }) }),
   };
 }

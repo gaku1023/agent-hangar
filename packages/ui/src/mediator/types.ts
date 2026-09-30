@@ -1,4 +1,4 @@
-import type { IndexProgressDto, Intent, LaunchParams, ProjectStatus, ResolveAction, Route, SearchFilter, SearchParamsDto, ServerEvent, SettingsDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, Intent, LaunchParams, ProjectStatus, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SettingsDto } from '@agent-hangar/shared';
 
 export type RuntimeEvent =
   // ws.close は時刻を運ぶ。Mediator は純粋な遷移なので、いつ切れたかを自分では測れない。
@@ -14,7 +14,9 @@ export type RuntimeEvent =
   // 目次から左のターミナルを跳ばした結果。
   | { type: 'turnJump.done'; sessionId: string; seq: number; status: TurnJumpStatus }
   // サーバが 409 で断ったときに、ランタイムがこの形に直して返す。
-  | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number };
+  | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number }
+  // 保持期間を書き込んだ結果。409 は下見の後にファイルが変わったことを表す。
+  | { type: 'retention.written'; days: number } | { type: 'retention.conflict'; days: number } | { type: 'retention.failed'; message: string };
 
 export type Input =
   | { kind: 'intent'; intent: Intent }
@@ -62,7 +64,8 @@ export type Effect =
   | { kind: 'split.resolve'; sessionId: string }
   | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
-  | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' };
+  | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }
+  | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number };
 
 export type Screen = { name: 'booting' } | Route;
 export type FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput';
@@ -77,7 +80,8 @@ export type Overlay =
   | { kind: 'promote'; sessionId: string }
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
   | { kind: 'confirm'; confirm: ConfirmRequest }
-  | { kind: 'configPreview' };
+  | { kind: 'configPreview' }
+  | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean };
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting' } | { kind: 'failed'; message: string };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */
 export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed';
@@ -121,6 +125,8 @@ export type State = {
   resolveDeferred: string[];
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
+  /** 保持期間の帯を「このままでよい」で閉じたか。端末ごとに localStorage に残し、起動時に読み戻す。 */
+  retentionBannerDismissed: boolean;
   /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
   indexPhase: IndexProgressDto['phase'];
   /** クラウド同期の見え方。同期を設定していなければ off のままである。 */

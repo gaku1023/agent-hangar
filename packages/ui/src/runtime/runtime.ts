@@ -1,10 +1,12 @@
 import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
+import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { SIDEBAR_KEY } from '../mediator/sidebar.ts';
+import { daysLabel } from '../presenters/retention.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
 import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
-import { ApiConflictError, type ApiClient, type EventsQuery } from './api.ts';
+import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 
@@ -128,6 +130,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         }).catch(fail);
         return;
       case 'api.loadEvents': {
+        // 本文が無いと分かっている会話は読みに行かない。行っても 404 のトーストが出るだけである。
+        if (store.sessions[e.sessionId]?.hasTranscript === false) return;
         loadSubagents(e.sessionId);
         const view = state.sessionView[e.sessionId] ?? defaultSessionView();
         const key = eventsKey(e.sessionId, view.agentId);
@@ -244,6 +248,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.statusline().then((s) => setStore({ ...store, statusline: s })).catch(fail);
         deps.api.shellHook().then((h) => setStore({ ...store, shellHook: h })).catch(fail);
         deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
+        deps.api.retention().then((r) => setStore({ ...store, retention: r })).catch(fail);
         // LM Studio が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
         deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));
         return;
@@ -278,6 +283,23 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'api.configPreview': deps.api.configPreview().then((p) => setStore(applyConfigPreview(store, p))).catch(fail); return;
       case 'api.configPull': deps.api.configPull().then((r) => toast(`${r.applied} 件を取り込みました（競合 ${r.conflicts} 件）`)).catch(fail); return;
+      case 'api.retentionPreview':
+        // 前の下見を先に消し、取り直している最中に古い差分で書かないようにする。
+        setStore({ ...store, retentionPreview: null });
+        deps.api.retentionPreview(e.days).then((p) => setStore({ ...store, retentionPreview: p })).catch((err) => dispatch({ kind: 'runtime', event: { type: 'retention.failed', message: errMsg(err) } }));
+        return;
+      case 'api.writeRetention': {
+        const p = store.retentionPreview;
+        if (!p || p.days !== e.days) { dispatch({ kind: 'runtime', event: { type: 'retention.failed', message: '差分を読み込んでいます。少し待ってから押してください' } }); return; }
+        deps.api.writeRetention(e.days, p.baseSha256)
+          .then((r) => {
+            setStore({ ...store, retention: r, retentionPreview: null });
+            dispatch({ kind: 'runtime', event: { type: 'retention.written', days: e.days } });
+            toast(`保持期間を ${daysLabel(e.days)}にしました`);
+          })
+          .catch((err: unknown) => dispatch({ kind: 'runtime', event: err instanceof RetentionConflictApiError ? { type: 'retention.conflict', days: e.days } : { type: 'retention.failed', message: errMsg(err) } }));
+        return;
+      }
       case 'api.joinToken':
         deps.api.joinToken().then((r) => {
           setStore(applyJoinToken(store, r.token));
@@ -324,7 +346,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         sv[k.slice(3)] = { ...defaultSessionView(), ...rest };
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
-      state = { ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true };
+      state = { ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true };
       shown = state;
       ws = deps.ws({
         onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),

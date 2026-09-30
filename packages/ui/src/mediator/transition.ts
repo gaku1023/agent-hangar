@@ -4,6 +4,7 @@ import { liveStep } from './live.ts';
 import { overlayStep } from './overlay.ts';
 import { promoteStep } from './promote.ts';
 import { resumeHereStep } from './resumeHere.ts';
+import { retentionStep } from './retention.ts';
 import { screenStep } from './screen.ts';
 import { sessionViewStep } from './sessionView.ts';
 import { sidebarStep } from './sidebar.ts';
@@ -15,7 +16,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0 };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, retentionBannerDismissed: false, nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0 };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -31,7 +32,7 @@ export function transition(state: State, input: Input): Step {
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, overlayStep, syncStep, resumeHereStep, sessionViewStep, sidebarStep, liveStep, workbenchStep]) {
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, overlayStep, syncStep, retentionStep, resumeHereStep, sessionViewStep, sidebarStep, liveStep, workbenchStep]) {
     const r = step(state, input);
     if (r) return r;
   }
