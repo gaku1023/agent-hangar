@@ -136,3 +136,31 @@
 .tool-links { list-style: none; margin: 0; padding: var(--u) 0; }
 .tool-links li { display: flex; gap: 10px; align-items: baseline; padding: 5px 12px; font-size: var(--fs-sm); }
 .tool-links .dom { margin-left: auto; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); white-space: nowrap; }
+
+/* 本文の中の検索（S1）。本文の面の右上に浮くガラスの欄と、スクロールバーの脇の一致の印。 */
+.tr-wrap { position: relative; }
+.tr-find { position: absolute; top: 6px; right: 14px; z-index: 5; display: flex; align-items: center; gap: var(--u); width: min(380px, calc(100% - 28px)); height: 34px; padding: 0 var(--u) 0 calc(var(--u) * 2.5); border-radius: 12px; font-size: var(--fs-sm); background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); }
+.tr-find-in { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 2px 0 8px; border-radius: var(--r); background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); color: var(--ink-3); }
+.tr-find-in input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; }
+.tr-find-in input::-webkit-search-cancel-button { display: none; }
+.tr-find-opt { flex: none; display: grid; place-items: center; width: 24px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.tr-find-opt[aria-pressed='true'] { color: var(--accent); background: var(--accent-soft); }
+.tr-find-count { flex: none; min-width: 5ch; padding: 0 6px; font-size: var(--fs-xs); color: var(--ink-2); text-align: center; white-space: nowrap; }
+.tr-find-btn { flex: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--r); background: none; color: var(--ink-2); cursor: pointer; }
+.tr-find-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.8); color: var(--ink); }
+.tr-find-btn:disabled { opacity: 0.4; cursor: default; }
+.tr-ticks { position: absolute; right: 1px; top: calc(var(--u) * 2); bottom: calc(var(--u) * 2); width: 6px; z-index: 4; pointer-events: none; }
+.tr-ticks i { position: absolute; left: 0; width: 6px; height: 3px; border-radius: 2px; background: #e8b400; }
+.tr-ticks i[data-cur='true'] { height: 4px; background: var(--busy); }
+
+/* 一致の印。淡い黄（--hit）が一致、濃い黄と杏の縁が今の一致。青い吹き出しの上では地を透かす。 */
+.tr mark.hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 1px; }
+.tr mark.hit.cur { background: #ffd35c; box-shadow: 0 0 0 1.5px var(--busy); }
+.tr .msg-user mark.hit { background: rgba(255, 243, 196, 0.35); color: var(--accent-ink); }
+.tr .msg-user mark.hit.cur { background: rgba(255, 211, 92, 0.75); color: var(--ink); }
+.hitcount { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: var(--r-pill); background: var(--hit); color: #6b4a10; font: 600 10.5px var(--font-mono); }
+
+/* 検索の結果から開いたとき（J1）。跳んだ行の地を淡い黄から薄れさせる。reduced motion では動かさず、縁の印だけを残す。 */
+.tr-flash > * { border-radius: var(--r-lg); animation: tr-flash var(--dur-flash) var(--ease-out) var(--dur-exit) both; }
+@keyframes tr-flash { 0% { box-shadow: 0 0 0 3px #ffd35c; background-color: #fff3c4; } 100% { box-shadow: 0 0 0 3px transparent; } }
+@media (prefers-reduced-motion: reduce) { .tr-flash > * { animation: none; box-shadow: 0 0 0 2px #ffd35c; } }

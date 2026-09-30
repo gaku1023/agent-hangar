@@ -294,6 +294,26 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     expect(zoom).not.toHaveBeenCalled();
   });
 
+  it('⌘F は本文が出ているセッション画面でだけ受け、欄を開いてフォーカスする。ターミナルが出ていれば奪わない', async () => {
+    const { wsHandlers, setHash } = await mounted();
+    // セッション画面の外ではブラウザに渡す。
+    expect(key({ key: 'f', metaKey: true })).toBe(true);
+    act(() => setHash('#/session/s1'));
+    await flush();
+    expect(key({ key: 'f', metaKey: true })).toBe(false);
+    await flush();
+    const box = screen.getByRole('searchbox', { name: '本文の中を探す' });
+    expect(box).toHaveFocus();
+    // Esc で閉じる。
+    fireEvent.keyDown(box, { key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('searchbox', { name: '本文の中を探す' })).toBeNull();
+    // ターミナルが出ていれば、⌘F はターミナルとブラウザのものである。
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent')] }));
+    await flush();
+    expect(key({ key: 'f', metaKey: true })).toBe(true);
+  });
+
   it('パレットの入力は Root が持ち、閉じると空に戻る', async () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));

@@ -10,8 +10,8 @@ const rules = (css: string) => [...strip(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)]
 const all = files.flatMap((f) => rules(read(f)).map((r) => ({ ...r, file: f })));
 const blurs = all.filter((r) => /(^|[^-])backdrop-filter\s*:/.test(r.body));
 
-// 仕様：ガラスは浮く部品（ヘッダ、サイドバー、⌘K、ダイアログ、通知と切断の帯と保持期間の帯、選ぶ部品の一覧）にだけ使う。
-const GLASS = ['.sidebar', '.header', '.conn-banner', '.retention-banner', '.dialog', '.palette', '.toast', '.listbox-pop'];
+// 仕様：ガラスは浮く部品（ヘッダ、サイドバー、⌘K、ダイアログ、通知と切断の帯と保持期間の帯、選ぶ部品の一覧、本文の中の検索の欄）にだけ使う。
+const GLASS = ['.sidebar', '.header', '.conn-banner', '.retention-banner', '.dialog', '.palette', '.toast', '.listbox-pop', '.tr-find'];
 
 describe('浮くガラス', () => {
   it('backdrop-filter は浮く部品の規則にだけ現れる', () => {

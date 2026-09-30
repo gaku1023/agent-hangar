@@ -104,6 +104,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const selectedTabId = shortcutView?.selectedTab ?? shortcutTabs[0]?.id ?? null;
   // TabStrip の分割ボタンと同じ条件で、タブが 2 つ無いときは ⌘\ を出さない。
   const canSplit = shortcutTabs.length >= 2;
+  // 終わったセッションの本文が画面に出ているか。ターミナルが出ていれば本文は無い（SessionScreen と同じく currentRunOf で決まる）。
+  const transcriptShown = !!sessionId && !shortcutRun && store.sessions[sessionId]?.hasTranscript === true;
   // 最後にフォーカスのあったターミナルの枠のタブ。⌘W はこの枠のタブを閉じる。
   // 分割中は左右のどちらにもフォーカスが来るので、選択中のタブ（左）では足りない。
   // フォーカスは DOM の事実で、描き方も変えないので、Mediator へは入れずに Root が覚える。
@@ -179,6 +181,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         }
         case 'split.toggle': if (canSplit) { take(); rt.emit({ type: 'split.toggle' }); } return;
         case 'transcript.toggle': take(); rt.emit({ type: 'transcript.toggle' }); return;
+        // 本文の中の検索。本文が出ているときだけ受け、ターミナルが出ているときはターミナルとブラウザに渡す。
+        case 'transcript.find': if (transcriptShown && sessionId && overlayKind === 'none') { take(); rt.emit({ type: 'transcript.find', sessionId, open: true }); } return;
         // 端末が画面にあるときだけ受ける。セッション画面でも、終わったセッションの本文だけなら端末は無い。
         // 端末の無いときはブラウザの拡大に渡す。
         // 端末が出るかどうかは presentSession と同じく currentRunOf で決まる。
@@ -215,7 +219,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals]);
+  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals, transcriptShown]);
 
   // トラックパッドの横スワイプ。
   // ネイティブの手勢はスナップショットを滑らせる演出まで付いてくるので使わず、横方向のホイールを自分で積む。

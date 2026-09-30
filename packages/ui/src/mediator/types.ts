@@ -104,12 +104,24 @@ export type Overlay =
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting' } | { kind: 'failed'; message: string };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */
 export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed';
+/**
+ * 本文の中の検索（⌘F）の状態。その場の操作なので保存しない。
+ * from は語を打ったときに見ていた行の seq で、そこから後ろの最初の一致から数える。step はそこから進めた数。
+ * n は ⌘F を押した回数で、押すたびに欄へフォーカスを戻す合図にする。
+ */
+export type FindState = { query: string; caseSensitive: boolean; from: number | null; step: number; n: number };
+/** 検索の結果から開いたときの跳び先（J1）。n は開いた回数で、同じ所をもう一度開いても跳び直す合図にする。 */
+export type JumpState = { seq: number; query: string; n: number };
 export type SessionViewState = {
   agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null;
   /** 目次で開いているターン（区切りの行の seq）。その場の操作なので保存しない。 */
   openTurn: number | null;
   /** 開いたターンへ左のターミナルを跳ばした結果。これも保存しない。 */
   turnJump: { seq: number; status: TurnJumpStatus } | null;
+  /** 本文の中の検索。閉じていれば null。 */
+  find: FindState | null;
+  /** 検索の結果から開いたときの跳び先。無ければ null。 */
+  jump: JumpState | null;
 };
 export type Toast = { id: string; level: 'info' | 'error'; message: string };
 export type State = {
