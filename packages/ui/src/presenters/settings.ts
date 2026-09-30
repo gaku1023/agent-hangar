@@ -1,16 +1,17 @@
 import type { IndexProgressDto, ShellHookStateDto, StatuslineStatusDto, SummarizerTestDto, SyncSkippedDto, SyncStateKind, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
-import { relativeTime } from './format.ts';
+import { indexProgressLabel, relativeTime, SYNC_STATE_LABEL } from './format.ts';
 
 // id は一覧の React の key に使う。1 台の Mac で 2 端末を模すと名前も最終確認も揃うので、一意なのは id だけである。
 export type CloudDeviceProps = { id: string; name: string; platform: string; lastSeen: string; self: boolean };
 /**
  * sweepPending はまだ上げていない本文の件数で、数えられないときは null である。
  * ヘッダーと違ってここは 0 件も描く。0 と書いてあれば「追いついた」と読めるからである。
- * skipped は諦めた本文で、件数だけでは直しようが無いので鍵と理由もそのまま渡す。
+ * skipped は送れなかった本文で、件数だけでは直しようが無いので鍵と理由もそのまま渡す。
+ * stateLabel はヘッダーと同じ表から引いた状態の語である。
  */
-export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; paused: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
+export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; stateLabel: string; paused: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; syncClaudeConfig: boolean; configConfirmed: boolean };
 
 /**
  * 外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする包み方。
@@ -24,7 +25,7 @@ const SHELL_LABEL: Record<ShellHookStateDto, string> = { on: '入っています
 const shellLabel = (s: ShellHookStateDto | null): string => (s ? SHELL_LABEL[s] : '分かりません（hangar が古い版です）');
 
 export type SettingsProps = {
-  workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; sessionCount: number; projectCount: number;
+  workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; indexLabel: string; sessionCount: number; projectCount: number;
   tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; mcpInstallCommand: string;
   lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean;
   summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
@@ -46,6 +47,7 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
     configured: sync !== null && sync.state !== 'off',
     url: sync?.url ?? null,
     state: sync?.state ?? 'off',
+    stateLabel: SYNC_STATE_LABEL[sync?.state ?? 'off'],
     paused: sync?.state === 'paused',
     lastPullAt: relativeTime(sync?.lastPullAt ?? null, now),
     pending: sync?.pending ?? 0,
@@ -67,6 +69,8 @@ export function presentSettings(_state: State, store: Store, now: number = Date.
     cloud,
     shell,
     workspaceRoot: s?.workspaceRoot ?? '', claudeDir: s?.claudeDir ?? '', device: store.device, version: store.version, index: store.index,
+    // 進んでいる間はヘッダーと同じ文にし、終わっていれば数を出す。
+    indexLabel: indexProgressLabel(store.index) ?? `${Object.keys(store.sessions).length} セッション、${Object.keys(store.projects).length} プロジェクト`,
     sessionCount: Object.keys(store.sessions).length, projectCount: Object.keys(store.projects).length,
     tmuxPath: s?.tmuxPath ?? null, terminalApp: s?.terminalApp ?? 'terminal', codePath: s?.codePath ?? null, mcpInstallCommand: 'npm run hangar -- mcp install',
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? true, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,

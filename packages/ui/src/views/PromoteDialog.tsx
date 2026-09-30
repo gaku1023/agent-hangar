@@ -66,7 +66,7 @@ export function PromotedDialog(props: PromotedProps) {
           <button type="button" className="btn" onClick={() => emit({ type: 'overlay.close' })}>閉じる</button>
           <span className="spacer" />
           <button type="button" className="btn" onClick={() => emit({ type: 'project.open', id: props.projectId })}>プロジェクトを開く</button>
-          <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.projectId })}>この場所で新しいセッションを開始</button>
+          <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.projectId })}>ここで新しいセッションを始める</button>
         </div>
       </div>
     </div>

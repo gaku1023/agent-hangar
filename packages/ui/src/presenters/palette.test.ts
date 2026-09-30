@@ -27,6 +27,11 @@ describe('fuzzyScore', () => {
 });
 
 describe('presentPalette', () => {
+  it('この PC にパスの無いプロジェクトは、そう添える', () => {
+    const s = store();
+    s.projects.p1 = { ...s.projects.p1!, path: null };
+    expect(presentPalette(withPalette(), s, '')!.items.find((i) => i.id === 'project:p1')!.hint).toBe('この PC にパスがありません');
+  });
   it('パレットが開いていなければ null', () => {
     expect(presentPalette(initialState(), store(), '')).toBeNull();
   });
@@ -36,6 +41,7 @@ describe('presentPalette', () => {
     expect(p.items.slice(0, 5).map((i) => i.id)).toEqual(['cmd:new-session', 'cmd:new-scratch', 'cmd:settings', 'cmd:shortcuts', 'cmd:rebuild-index']);
     // ヒントの打鍵は keys.ts の表から引くので、割り当てを変えてもパレットの表示がずれない。
     expect(p.items.find((i) => i.id === 'cmd:new-scratch')!.hint).toBe('⌘⇧N');
+    expect(p.items.find((i) => i.id === 'cmd:new-session')!.label).toBe('新しいセッション');
     expect(p.items.find((i) => i.id === 'cmd:shortcuts')!.hint).toBe('? / ⌘/');
     expect(p.items.map((i) => i.id)).toContain('project:sc');
     expect(p.items.map((i) => i.id)).toContain('session:s1');

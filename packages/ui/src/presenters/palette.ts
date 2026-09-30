@@ -18,7 +18,7 @@ export type PaletteProps = { query: string; items: PaletteItem[] };
  * ここに並ぶのはショートカットを覚えていなくても辿り着けるべきものだけで、画面の中にしか無い操作は載せない。
  */
 const COMMANDS: PaletteItem[] = [
-  { id: 'cmd:new-session', label: '新規セッション', hint: keysOf('session.new'), kind: 'command' },
+  { id: 'cmd:new-session', label: '新しいセッション', hint: keysOf('session.new'), kind: 'command' },
   { id: 'cmd:new-scratch', label: 'スクラッチで始める', hint: keysOf('session.newScratch'), kind: 'command' },
   { id: 'cmd:settings', label: '設定', hint: keysOf('settings.open'), kind: 'command' },
   { id: 'cmd:shortcuts', label: 'キーの一覧', hint: keysOf('shortcuts.open'), kind: 'command' },
@@ -64,7 +64,7 @@ export function presentPalette(state: State, store: Store, query: string): Palet
   };
   for (const c of COMMANDS) push(c, c.label);
   // スクラッチの擬似プロジェクトはカードに出さないので、ここがその画面への唯一の入口になる。
-  for (const p of byRecency(Object.values(store.projects))) push({ id: `project:${p.id}`, label: p.name, hint: p.path ?? 'この端末にパスがありません', kind: 'project' }, p.name);
+  for (const p of byRecency(Object.values(store.projects))) push({ id: `project:${p.id}`, label: p.name, hint: p.path ?? 'この PC にパスがありません', kind: 'project' }, p.name);
   for (const s of byRecency(Object.values(store.sessions))) {
     const label = s.name ?? '（名前なし）';
     const hint = s.summary?.oneLiner ?? s.firstPrompt ?? '';

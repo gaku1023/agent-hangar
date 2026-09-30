@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SettingsDto, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
-import { costLabel, tokensLabel } from '../presenters/format.ts';
+import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
 import type { SettingsProps } from '../presenters/settings.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
@@ -132,7 +132,7 @@ export function SettingsScreen(props: SettingsProps) {
         {props.statusline === null && <div className="faint">読み込んでいます</div>}
         {props.statusline && props.statusline.scriptPath === null && (
           <>
-            <div className="muted">statusLine の設定が見つかりません</div>
+            <div className="muted">statusline の設定が見つかりません</div>
             <div className="faint" style={{ marginTop: 4 }}>Claude Code の /statusline でスクリプトを作ってから、下のコマンドを実行してください。</div>
           </>
         )}
@@ -142,7 +142,7 @@ export function SettingsScreen(props: SettingsProps) {
             <div className="faint mono">{props.statusline.scriptPath}</div>
           </>
         )}
-        <div className="faint" style={{ marginTop: 4 }}>使用量ゲージはこの追記だけが供給源です。追記は端末から行い、UI からは書き換えません。</div>
+        <div className="faint" style={{ marginTop: 4 }}>ヘッダーの使用率のゲージは、この追記からだけ届きます。追記はターミナルで行い、この画面からは書き換えません。</div>
         <pre className="mono snippet">{props.statuslineCommand}</pre>
         {/* 追記されるスニペットの宛先はこのコマンドの --port で決まる。 */}
         {/* 既定の 4177 のまま追記すると、別のポートで動かしているサーバには届かない。 */}
@@ -155,7 +155,7 @@ export function SettingsScreen(props: SettingsProps) {
           <div className="list" style={{ marginTop: 8 }}>
             {props.shell.devices.map((d) => (
               <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto', cursor: 'default' }}>
-                <span>{d.name}{d.self && <span className="faint"> この端末</span>}</span>
+                <span>{d.name}{d.self && <span className="faint"> この PC</span>}</span>
                 <span className={d.label === '入っています' ? undefined : 'faint'}>{d.label}</span>
               </div>
             ))}
@@ -185,9 +185,10 @@ export function SettingsScreen(props: SettingsProps) {
         </div>
         {props.summarizerModels === null && <div className="faint" style={{ marginTop: 4 }}>読み込んでいます</div>}
         {props.summarizerModels?.length === 0 && <div className="faint" style={{ marginTop: 4 }}>LM Studio に繋がりません</div>}
-        <div ref={externalRow} className="settings-row settings-switch-row"><span>手元の外にある要約器を許す</span>
+        <div ref={externalRow} className="settings-row settings-switch-row"><span>外部の要約器を許す</span>
           <Switch label="外部の要約器を許す" checked={props.allowExternalSummarizer} onChange={(next) => { if (next) setConfirmExternal(true); else setNow({ allowExternalSummarizer: false }); }} />
         </div>
+        <div className="faint">127.0.0.1 と localhost 以外の宛先へ本文を送れるようにします。</div>
         {confirmExternal && !props.allowExternalSummarizer && (
           <div className="confirm-strip" role="group" aria-label="外部の要約器を許すかの確かめ">
             {/* 送られる先は保存済みの URL。欄を書き換えただけでは宛先は変わらない。 */}
@@ -199,11 +200,11 @@ export function SettingsScreen(props: SettingsProps) {
         )}
         {props.allowExternalSummarizer && <div className="error" role="alert" style={{ marginTop: 4 }}>会話の本文（利用者の発言とアシスタントの応答）が {props.lmStudioUrl || 'この宛先'} へ送られます。宛先を確かめてください。</div>}
         <div className="settings-row settings-switch-row"><span>LM Studio が使えないとき Claude へ切り替える</span>
-          <Switch label="Claude へ切り替える" checked={props.summaryFallback} onChange={(next) => setNow({ summaryFallback: next })} />
+          <Switch label="LM Studio が使えないとき Claude へ切り替える" checked={props.summaryFallback} onChange={(next) => setNow({ summaryFallback: next })} />
         </div>
         <div className="settings-row"><span>1 時間の上限</span>
           <Stepper label="1 時間の上限" value={cap} min={1} max={200} onChange={(v) => { setCap(v); setCapError(false); }} />
-          <span className="faint">件。1 から 200 まで。7 日の使用率が 80% を超えたら切り替えません。</span>
+          <span className="faint">件。1 から 200 まで。週の使用率が 80% を超えたら切り替えません。</span>
         </div>
         {capError && <div className="error" role="alert" style={{ marginTop: 4 }}>1 から 200 までの整数を入れてください</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -212,13 +213,13 @@ export function SettingsScreen(props: SettingsProps) {
         </div>
         {props.summarizerTest?.ok === true && (
           <div style={{ marginTop: 4 }}>
-            <div className="muted">{props.summarizerTest.id} で成功しました（{props.summarizerTest.ms} ミリ秒）</div>
+            <div className="muted">{SUMMARIZER_LABEL[props.summarizerTest.id] ?? props.summarizerTest.id} で成功しました（{props.summarizerTest.ms} ミリ秒）</div>
             <div className="faint">{props.summarizerTest.summary.oneLiner}</div>
           </div>
         )}
         {props.summarizerTest?.ok === false && (
           <ul className="faint" style={{ margin: '4px 0 0', paddingLeft: 16 }}>
-            {props.summarizerTest.tried.map((t) => <li key={t.id}>{t.id}: {t.message}</li>)}
+            {props.summarizerTest.tried.map((t) => <li key={t.id}>{SUMMARIZER_LABEL[t.id] ?? t.id}: {t.message}</li>)}
           </ul>
         )}
       </section>
@@ -229,16 +230,16 @@ export function SettingsScreen(props: SettingsProps) {
           <>
             <div className="mono muted">{props.cloud.url}</div>
             <div className="faint" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
-              <span>状態 {props.cloud.state}</span>
-              <span>最終 pull {props.cloud.lastPullAt}</span>
+              <span>状態 {props.cloud.stateLabel}</span>
+              <span>最後の受信 {props.cloud.lastPullAt}</span>
               <span>未送信 {props.cloud.pending} 件</span>
               {/* 本文は 60 秒に 20 件ずつしか流れない。件数が出ていないと、進んでいるのか止まっているのか読めない。 */}
               {props.cloud.sweepPending !== null && <span>未送信の本文 {props.cloud.sweepPending} 件</span>}
             </div>
-            {/* 諦めた本文は 30 分ごとに試し直すので放っておけば回復する。回復するまでのあいだ、ここでだけ確かめられる。 */}
+            {/* 送れなかった本文は 30 分ごとに送り直すので放っておけば回復する。回復するまでのあいだ、ここでだけ確かめられる。 */}
             {props.cloud.skipped.length > 0 && (
               <div style={{ marginTop: 8 }}>
-                <div className="error" role="alert">諦めた本文 {props.cloud.skipped.length} 件。30 分ごとに試し直します。</div>
+                <div className="error" role="alert">送れなかった本文 {props.cloud.skipped.length} 件。30 分ごとに送り直します。</div>
                 <ul className="faint mono" style={{ margin: '4px 0 0', paddingLeft: 16, wordBreak: 'break-all' }}>
                   {props.cloud.skipped.map((k) => <li key={k.key}>{k.key}: {k.message}（{k.attempts} 回）</li>)}
                 </ul>
@@ -246,7 +247,7 @@ export function SettingsScreen(props: SettingsProps) {
             )}
             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
               <button className="btn" onClick={() => emit({ type: 'sync.now' })}>今すぐ同期</button>
-              <button className="btn" onClick={() => emit({ type: 'sync.pause', paused: !props.cloud.paused })}>{props.cloud.paused ? '同期を再開' : '一時停止'}</button>
+              <button className="btn" onClick={() => emit({ type: 'sync.pause', paused: !props.cloud.paused })}>{props.cloud.paused ? '同期を再開' : '同期を一時停止'}</button>
               {/* 参加トークンは全セッションの読み書き権を持つ秘密なので、押すまで取りに行かない。 */}
               {/* 出したあとはランタイムが 120 秒で store から消すので、props が null に戻ればこのボタンの姿に戻る。 */}
               {props.cloud.joinToken === null && <button className="btn" onClick={() => emit({ type: 'sync.joinToken.show' })}>参加トークンを表示</button>}
@@ -261,7 +262,7 @@ export function SettingsScreen(props: SettingsProps) {
             <div className="list" style={{ marginTop: 8 }}>
               {props.cloud.devices.map((d) => (
                 <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
-                  <span>{d.name}{d.self && <span className="faint"> この端末</span>}</span>
+                  <span>{d.name}{d.self && <span className="faint"> この PC</span>}</span>
                   <span className="faint">{d.platform}</span>
                   <span className="faint">{d.lastSeen}</span>
                 </div>
@@ -270,7 +271,7 @@ export function SettingsScreen(props: SettingsProps) {
             <div className="settings-row settings-switch-row"><span>Claude Code の設定を同期する</span>
               <Switch label="Claude Code の設定を同期する" checked={props.cloud.syncClaudeConfig} onChange={(next) => emit({ type: 'settings.update', patch: { syncClaudeConfig: next } })} />
             </div>
-            <div className="faint" style={{ marginTop: 4 }}>CLAUDE.md、settings.json、statusline のスクリプト、skills、memory、projects の memory を端末間で合わせます。</div>
+            <div className="faint" style={{ marginTop: 4 }}>CLAUDE.md、settings.json、statusline のスクリプト、skills、memory、projects の memory を PC の間で合わせます。</div>
             {/* 利用者の決定 2。~/.claude を書き換える前に必ず控えを取り、何を書き換えたかを後から読めるようにする。 */}
             <div className="faint">~/.claude に書き込むので、取り込む前に内容を確認します。上書きの前の控えは ~/.agent-hangar/backups/claude-config/&lt;日時&gt;/ に残ります。</div>
             {props.cloud.syncClaudeConfig && <div className="faint">{props.cloud.configConfirmed ? '取り込みを確認済みです。' : 'まだ取り込みを確認していません。確認するまで ~/.claude には書き込みません。'}</div>}
@@ -301,14 +302,14 @@ export function SettingsScreen(props: SettingsProps) {
       <section>
         <h2 className="h2">索引</h2>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span className="mono muted">{props.index.phase === 'idle' ? `${props.sessionCount} セッション、${props.projectCount} プロジェクト` : `${props.index.phase} ${props.index.done} / ${props.index.total}`}</span>
+          <span className="mono muted">{props.indexLabel}</span>
           <button className="btn" onClick={() => emit({ type: 'index.rebuild' })}>索引を作り直す</button>
         </div>
         <div className="faint mono" style={{ marginTop: 4 }}>読み取り元 {props.claudeDir}</div>
         <div className="faint" style={{ marginTop: 4 }}>読み取り元を変えたときは、再起動後に反映されます。</div>
       </section>
       <section>
-        <h2 className="h2">この端末</h2>
+        <h2 className="h2">この PC</h2>
         <div className="mono muted">{props.device?.name}<span className="faint"> {props.device?.id}</span></div>
         <div className="faint mono">agent-hangar {props.version}</div>
       </section>

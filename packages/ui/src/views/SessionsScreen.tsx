@@ -1,3 +1,4 @@
+import type { LiveFilter } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { SessionsProps } from '../presenters/sessions.ts';
 import { isComposing } from './ime.ts';
@@ -13,7 +14,9 @@ const PERIODS = [{ value: '', label: '全期間' }, { value: '1', label: '今日
 /** 一覧の高さ。窓から、ヘッダとその下の隙間、画面の上下の余白、見出し、検索欄、絞り込みの段の分を引く（rows.css の .sessions-*）。 */
 const LIST_H = 'calc(100vh - 243px)';
 // 帯の名前を「状態」にする。「実行中」という名前の帯の中に「実行中」の項目があると、読み上げで区別しにくいため。
-const RUNNING = [{ value: '', label: 'すべて' }, { value: 'running', label: '実行中', lead: <span className="st-dot seg-live" /> }, { value: 'ended', label: '終了' }];
+// 入力待ちは実行中に含めない（shared の liveFilterOf）。
+// 答えが要るものを先に選べるよう、すべての次に置く。
+const LIVE = [{ value: '', label: 'すべて' }, { value: 'waiting', label: '入力待ち', lead: <span className="st-dot seg-waiting" /> }, { value: 'running', label: '実行中', lead: <span className="st-dot seg-live" /> }, { value: 'ended', label: '終了' }];
 
 /** セッション横断の一覧と検索。キーワードは Enter で search.query、絞り込みは変えるたびに search.filter を出す。 */
 export function SessionsScreen(props: SessionsProps) {
@@ -38,8 +41,8 @@ export function SessionsScreen(props: SessionsProps) {
           onChange={(v) => emit({ type: 'search.filter', patch: { projectId: v || undefined } })} faceClassName="listbox-face listbox-pill" minWidth={280} searchPlaceholder="プロジェクトを探す" />
         <Segmented label="期間" value={PERIODS.some((p) => p.value === period) ? period : ''} options={PERIODS}
           onChange={(v) => emit({ type: 'search.filter', patch: { days: v ? Number(v) : undefined } })} />
-        <Segmented label="状態" value={props.filter.running === undefined ? '' : props.filter.running ? 'running' : 'ended'} options={RUNNING}
-          onChange={(v) => emit({ type: 'search.filter', patch: { running: v === '' ? undefined : v === 'running' } })} />
+        <Segmented label="状態" value={props.filter.live ?? ''} options={LIVE}
+          onChange={(v) => emit({ type: 'search.filter', patch: { live: v === '' ? undefined : v as LiveFilter } })} />
         <input className="input" aria-label="ファイル" placeholder="触ったファイル" defaultValue={props.filter.file ?? ''} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.filter', patch: { file: (e.target as HTMLInputElement).value || undefined } }); }} />
       </div>
       <SessionRows rows={props.rows} height={LIST_H} variant="search" autoFocus emptyText={props.mode === 'search' && !props.loading ? '一致するセッションはありません' : undefined} foot={foot} />

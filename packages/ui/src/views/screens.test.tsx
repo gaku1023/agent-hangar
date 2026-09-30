@@ -11,7 +11,7 @@ import { SESSION_ROW_H } from './SessionRows.tsx';
 
 // Task 22 で ProjectProps に増えた右レールの分。この節が見るのはヘッダーの操作だけなので空にする。
 const rail = { isScratch: false, todos: [], memo: null, artifacts: [] };
-const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, openTodoCount: 0, memoHead: null, lastOneLiner: 'last one' });
+const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, waitingCount: 0, openTodoCount: 0, memoHead: null, lastOneLiner: 'last one' });
 
 describe('HomeScreen', () => {
   const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], confirm: [], running: [], recent: [], projects: [], ...over });
@@ -66,23 +66,23 @@ describe('HomeScreen', () => {
   it('外のターミナルで動く入力待ちの札は「hangar で引き取る」を出し、押すと確認に回す', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w2', name: '外の作業', projectName: 'thesis', waited: '3 分', question: '入力を待っています', answer: 'adopt' }] })} /></IntentRoot>);
-    expect(screen.getByText(/別のターミナルで動いています/)).toBeInTheDocument();
+    expect(screen.getByText(/外のターミナルで動いています/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'hangar で引き取る' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.adopt', id: 'w2' });
   });
   it('バックグラウンドの入力待ちの札は「ターミナルで答える」で hangar からつなぐ', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w3', name: '裏の作業', projectName: 'thesis', waited: '3 分', question: '入力を待っています', answer: 'attach' }] })} /></IntentRoot>);
-    expect(screen.queryByText(/別のターミナルで動いています/)).toBeNull();
+    expect(screen.queryByText(/外のターミナルで動いています/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'ターミナルで答える' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.attach', id: 'w3' });
   });
-  it('hangar から開く手が無い入力待ちの札は「開く」だけを出し、別のターミナルで動いていると添える', () => {
+  it('hangar から開く手が無い入力待ちの札は「開く」だけを出し、外のターミナルで動いていると添える', () => {
     // hangar の run が無いと端末は開けず、トランスクリプトしか見せられない。端末を約束するボタンは出さない。
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ attention: [{ id: 'w2', name: '外の作業', projectName: 'thesis', waited: '3 分', question: '入力を待っています', answer: null }] })} /></IntentRoot>);
     expect(screen.queryByRole('button', { name: 'ターミナルで答える' })).toBeNull();
-    expect(screen.getByText(/別のターミナルで動いています/)).toBeInTheDocument();
+    expect(screen.getByText(/外のターミナルで動いています/)).toBeInTheDocument();
     const open = screen.getByRole('button', { name: '開く' });
     expect(open).toHaveClass('btn');
     expect(open).not.toHaveClass('btn-primary');
@@ -97,13 +97,15 @@ describe('HomeScreen', () => {
     const { container } = render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ running: [runningCard({ activity: { tool: 'AskUserQuestion', summary: '' } })] })} /></IntentRoot>);
     expect(container.querySelector('.live-act')!.textContent).toBe('AskUserQuestion');
   });
-  it('実行中の札は、いま何をしているかと文脈の使用率を出し、押すか Enter で開く', () => {
+  it('実行中の札は、いま何をしているかとコンテキストの使用率を出し、押すか Enter で開く', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ running: [runningCard()] })} /></IntentRoot>);
     const card = screen.getByRole('button', { name: /キーボード操作の見直し/ });
     expect(card).toHaveTextContent('Edit packages/ui/src/keys.ts');
     expect(card).toHaveTextContent('agent-hangar · opus 4.1 · high');
-    expect(within(card).getByRole('meter', { name: '文脈の使用率' })).toHaveAttribute('aria-valuenow', '38');
+    expect(within(card).getByRole('meter', { name: 'コンテキストの使用率' })).toHaveAttribute('aria-valuenow', '38');
+    expect(card).toHaveTextContent('コンテキスト');
+    expect(card).not.toHaveTextContent('文脈');
     fireEvent.click(card);
     fireEvent.keyDown(card, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledTimes(2);
@@ -122,7 +124,7 @@ describe('HomeScreen', () => {
     expect(screen.queryByRole('heading', { name: /実行中/ })).toBeNull();
     expect(screen.getByRole('heading', { name: '最近' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'プロジェクト' })).toBeInTheDocument();
-    expect(screen.getByText('active なプロジェクトはありません。設定でワークスペースを確かめてください。')).toBeInTheDocument();
+    expect(screen.getByText('Active なプロジェクトはありません。設定でワークスペースを確かめてください。')).toBeInTheDocument();
   });
   it('プロジェクトの小さな一覧は数を並べ、押すとプロジェクトを開く', () => {
     const onIntent = vi.fn();
@@ -150,16 +152,34 @@ describe('ProjectsScreen', () => {
     render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [card('alpha')] }, { status: 'paused', label: 'Paused', cards: [] }]} archivedCount={2} filter="" showArchived={false} onFilter={() => {}} onShowArchived={onShow} /></IntentRoot>);
     fireEvent.click(screen.getByText('アーカイブを表示（2）'));
     expect(onShow).toHaveBeenCalledWith(true);
-    pick('alpha のステータス', 'paused');
+    pick('alpha の状態', 'Paused');
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'paused' });
   });
   it('ステータスの札で Enter を押しても、一覧で行を押しても、カードは開かない', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [card('alpha')] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByRole('button', { name: 'alpha のステータス' }), { key: 'Enter' });
-    fireEvent.click(screen.getByRole('option', { name: 'done' }));
+    fireEvent.keyDown(screen.getByRole('button', { name: 'alpha の状態' }), { key: 'Enter' });
+    fireEvent.click(screen.getByRole('option', { name: 'Done' }));
     expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'done' });
+  });
+});
+
+describe('ProjectCard の数', () => {
+  it('実行中と要対応を別に出し、0 のものは出さない', () => {
+    const { rerender } = render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), runningCount: 1, waitingCount: 2 }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    expect(screen.getByText('実行中 1')).toBeInTheDocument();
+    expect(screen.getByText('要対応 2')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), runningCount: 0, waitingCount: 1 }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    expect(screen.queryByText(/^実行中/)).toBeNull();
+    expect(screen.getByText('要対応 1')).toBeInTheDocument();
+  });
+  it('この PC にパスが無ければそう書き、ここで始めるで新しいセッションを開く', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), path: null }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    expect(screen.getByText('この PC にパスがありません')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'ここで始める' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
   });
 });
 
@@ -178,8 +198,10 @@ describe('ProjectScreen', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><ProjectScreen id="x" name="x" path={null} resolved={false} status="active" sessions={[]} notFound {...rail} /></IntentRoot>);
     expect(screen.getByText('プロジェクトが見つかりません')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path={null} resolved={false} status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
+    expect(screen.getByText('この PC にパスがありません')).toBeInTheDocument();
     rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
-    fireEvent.click(screen.getByText('新規セッション'));
+    fireEvent.click(screen.getByText('新しいセッション'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
     expect(screen.getByText('/w/alpha')).toBeInTheDocument();
   });
@@ -198,7 +220,7 @@ const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('d
 describe('プロジェクトまわりのアイコン', () => {
   it('ProjectScreen の操作ボタン', () => {
     render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
-    expect(iconOf(screen.getByRole('button', { name: '新規セッション' }))).toBe('add');
+    expect(iconOf(screen.getByRole('button', { name: '新しいセッション' }))).toBe('add');
     expect(iconOf(screen.getByRole('button', { name: 'VS Code で開く' }))).toBe('openEditor');
     expect(iconOf(screen.getByRole('button', { name: 'ターミナルで開く' }))).toBe('openTerminal');
   });
@@ -211,10 +233,10 @@ describe('プロジェクトまわりのアイコン', () => {
 describe('プロジェクトのステータスの色', () => {
   it('カードの select と詳細画面の select が data-status を持つ', () => {
     render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'paused', label: 'Paused', cards: [{ ...card('alpha'), status: 'paused' }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    expect(screen.getByLabelText('alpha のステータス').getAttribute('data-status')).toBe('paused');
+    expect(screen.getByLabelText('alpha の状態').getAttribute('data-status')).toBe('paused');
     cleanup();
     render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="done" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
-    expect(screen.getByLabelText('ステータス').getAttribute('data-status')).toBe('done');
+    expect(screen.getByLabelText('状態').getAttribute('data-status')).toBe('done');
   });
   it('セクションの見出しにステータスの色の点が付く', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [] }, { status: 'done', label: 'Done', cards: [] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);

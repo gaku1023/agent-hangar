@@ -31,12 +31,12 @@ export function Header(props: { crumbs: ShellProps['crumbs']; searchText: string
       <SyncStatus {...props.sync} />
       {/* 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。 */}
       <span className="gauges">
-        <UsageGauge label="5 時間の使用率" short="5h" percent={props.usage.fiveHour} />
-        <UsageGauge label="7 日の使用率" short="7d" percent={props.usage.sevenDay} />
+        <UsageGauge label="5 時間枠の使用率" short="5 時間" percent={props.usage.fiveHour} resets={props.usage.fiveHourResets} />
+        <UsageGauge label="週の枠の使用率" short="週" percent={props.usage.sevenDay} resets={props.usage.sevenDayResets} />
         {props.usage.updatedLabel && <span className="faint gauge-updated">最終更新 {props.usage.updatedLabel}</span>}
       </span>
       {/* 狭いときは「＋」だけになる。名前は aria-label に残す。 */}
-      <button className="btn btn-primary new-session" aria-label="新規セッション" onClick={() => emit({ type: 'session.new.open', ...props.newSession })}><Icon name="add" /><span className="btn-label">新規セッション</span></button>
+      <button className="btn btn-primary new-session" aria-label="新しいセッション" onClick={() => emit({ type: 'session.new.open', ...props.newSession })}><Icon name="add" /><span className="btn-label">新しいセッション</span></button>
       {props.indexLabel && <span className="progress">{props.indexLabel}</span>}
     </header>
   );

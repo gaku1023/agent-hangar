@@ -107,7 +107,8 @@ describe('SessionScreen', () => {
     const facts = container.querySelector('.session-facts')!;
     expect(facts).toHaveTextContent('/w/alpha');
     expect(facts).toHaveTextContent('2 ターン');
-    expect(facts).toHaveTextContent('1.2M tokens');
+    expect(facts).toHaveTextContent('1.2M トークン');
+    expect(facts).not.toHaveTextContent('tokens');
     expect(facts).toHaveTextContent('開始 2 時間前');
   });
 });
@@ -120,6 +121,8 @@ const withHost = (ui: ReactElement, onIntent = vi.fn()) => { render(<IntentRoot 
 describe('SessionScreen（実行中）', () => {
   it('タブ列、ターミナル、トランスクリプトの折りたたみ、停止とターミナルで開く', () => {
     const onIntent = withHost(<SessionScreen {...running} terminalStatus="connected" />);
+    // 起こし方は内部の語（run start）でなく「起動」「再開」「フォーク」で書く。
+    expect(screen.getByText('起動 1 分前')).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(2);
     expect(host.mount).toHaveBeenCalledWith('r1', expect.anything());
     fireEvent.click(screen.getByRole('tab', { name: /シェル 1/ }));
@@ -211,14 +214,14 @@ const p3: SessionProps = { ...base, contextPercent: 62, cost: '$1.20', artifacts
 describe('フェーズ 3 のセッション画面', () => {
   it('コンテキストとコストとアーティファクトを出す', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...p3} terminalStatus={null} /></IntentRoot>);
-    expect(screen.getByLabelText('コンテキスト使用率').getAttribute('aria-valuenow')).toBe('62');
+    expect(screen.getByLabelText('コンテキストの使用率').getAttribute('aria-valuenow')).toBe('62');
     expect(screen.getByText('$1.20')).toBeInTheDocument();
     expect(screen.getByText('題名')).toBeInTheDocument();
   });
   it('コンテキストとコストが未取得ならバーを描かず、設定へ導く', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
-    expect(screen.queryByLabelText('コンテキスト使用率')).toBeNull();
+    expect(screen.queryByLabelText('コンテキストの使用率')).toBeNull();
     expect(screen.getByText('コンテキスト 未取得')).toBeInTheDocument();
     expect(screen.getByText('コスト 未取得')).toBeInTheDocument();
     fireEvent.click(screen.getByText('statusline を入れると出ます'));
@@ -238,7 +241,7 @@ describe('フェーズ 3 のセッション画面', () => {
   it('スクラッチの注意書きと昇格ボタン', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionScreen {...p3} fromScratch terminalStatus={null} /></IntentRoot>);
-    expect(screen.getByText('再開すると cwd はスクラッチのままです')).toBeInTheDocument();
+    expect(screen.getByText('再開しても作業ディレクトリはスクラッチのままです')).toBeInTheDocument();
     expect(screen.queryByText('プロジェクトに昇格')).toBeNull();
     rerender(<IntentRoot onIntent={onIntent}><SessionScreen {...p3} canPromote terminalStatus={null} /></IntentRoot>);
     fireEvent.click(screen.getByText('プロジェクトに昇格'));
@@ -265,7 +268,7 @@ describe('フェーズ 3 のセッション画面', () => {
 
 describe('フェーズ 4 のセッション画面', () => {
   const lock = { deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' };
-  const staleLock = { deviceName: 'mini', stale: true, heartbeat: '5 分前', label: 'mini が応答がありません' };
+  const staleLock = { deviceName: 'mini', stale: true, heartbeat: '5 分前', label: 'mini から応答がありません' };
   it('他端末で実行中なら再開とフォークを止める', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} lock={lock} /></IntentRoot>);
     expect(screen.getByText('mini で実行中')).toBeInTheDocument();
@@ -277,10 +280,10 @@ describe('フェーズ 4 のセッション画面', () => {
   // 文言は presenter の lock.label をそのまま出す。View は色だけを変える。
   it('応答が無いロックは警告の色で出す', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} lock={staleLock} /></IntentRoot>);
-    expect(screen.getByText('mini が応答がありません')).toHaveClass('warn');
+    expect(screen.getByText('mini から応答がありません')).toHaveClass('warn');
     expect(screen.getByText('最終確認 5 分前')).toBeInTheDocument();
     expect(screen.queryByText('mini で実行中')).toBeNull();
-    expect(screen.getByText('mini が応答がありません')).not.toHaveClass('lock');
+    expect(screen.getByText('mini から応答がありません')).not.toHaveClass('lock');
   });
   it('外で動くセッションには、引き取りと attach のボタンを出す', () => {
     const onIntent = vi.fn();
@@ -299,7 +302,7 @@ describe('フェーズ 4 のセッション画面', () => {
     render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} remoteOnly canResumeHere /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
-    expect(screen.getByText('本文は他の端末にあります')).toBeInTheDocument();
+    expect(screen.getByText('本文は他の PC にあります')).toBeInTheDocument();
   });
   // Ruling 14。相手が落ちて heartbeat だけ残った状態を行き止まりにしない。
   it('応答の無いロックからもこの PC で再開に逃げられる', () => {
@@ -312,7 +315,7 @@ describe('フェーズ 4 のセッション画面', () => {
   it('ロックが無ければこの PC で再開は出ない', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
     expect(screen.queryByRole('button', { name: 'この PC で再開' })).toBeNull();
-    expect(screen.queryByText('本文は他の端末にあります')).toBeNull();
+    expect(screen.queryByText('本文は他の PC にあります')).toBeNull();
     expect(screen.getByRole('button', { name: '再開' })).not.toBeDisabled();
   });
   // 引き継ぎはこのフェーズでは作らない（利用者の決定 1）。
@@ -322,20 +325,20 @@ describe('フェーズ 4 のセッション画面', () => {
   });
 });
 
-describe('TabStrip の分割ボタン', () => {
+describe('TabStrip の横に並べるボタン', () => {
   const one = [{ id: 't1', title: 'Claude', kind: 'agent' as const, selected: true, closable: false }];
   const two = [...one, { id: 't2', title: 'シェル 1', kind: 'shell' as const, selected: false, closable: true }];
   it('タブが 1 つなら押せない', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={one} canAdd canSplit={false} split={false} /></IntentRoot>);
-    expect(screen.getByLabelText('分割')).toBeDisabled();
+    expect(screen.getByLabelText('横に並べる')).toBeDisabled();
     rerender(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={two} canAdd canSplit split={false} /></IntentRoot>);
-    fireEvent.click(screen.getByLabelText('分割'));
+    fireEvent.click(screen.getByLabelText('横に並べる'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'split.toggle' });
   });
   it('分割中は押された状態にする', () => {
     render(<IntentRoot onIntent={() => {}}><TabStrip sessionId="s1" tabs={two} canAdd canSplit split /></IntentRoot>);
-    expect(screen.getByLabelText('分割')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('横に並べる')).toHaveAttribute('aria-pressed', 'true');
   });
 });
 
@@ -396,7 +399,7 @@ describe('TabStrip のキー操作（C3）', () => {
     const { tabs } = mount();
     act(() => tabs()[1]!.focus());
     fireEvent.keyDown(tabs()[1]!, { key: 'ArrowRight' });
-    act(() => screen.getByLabelText('分割').focus());
+    act(() => screen.getByLabelText('横に並べる').focus());
     expect(tabs().map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
   });
 });

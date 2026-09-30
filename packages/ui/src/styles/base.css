@@ -264,12 +264,14 @@ a:hover { text-decoration: underline; }
 .header .sync-action:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
 .header .sync, .header .gauges { position: relative; padding-left: calc(var(--u) * 4.5); }
 .header .sync::before, .header .gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: calc(var(--u) * 4); translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
-.header .gauge-key { display: none; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
+/* ゲージの見出し（5 時間、週）。
+   何の割合かが読めるよう、どの幅でも出す。 */
+.header .gauge-key { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 /* ゲージと同期の見た目は workbench.css と sync.css が後から読み込まれて決める。
    コンテナクエリの中の規則は詳細度が上がらないので、どれも .header から書いて、後に読まれる規則に負けないようにする。 */
 @container header (max-width: 1080px) { .header .gauge-updated { display: none; } }
 @container header (max-width: 980px) { .header .sync-action { display: none; } }
-@container header (max-width: 880px) { .header .gauge-bar { display: none; } .header .gauge-key { display: inline; } .header .gauge-num { min-width: 0; } }
+@container header (max-width: 880px) { .header .gauge-bar { display: none; } .header .gauge-num { min-width: 0; } }
 @container header (max-width: 780px) { .header .search-box, .header .search-kbd, .header .progress, .header .sync-label { display: none; } .header .btn.search-icon { display: inline-flex; } }
 @container header (max-width: 680px) { .header .crumb-prev { display: none; } .header .crumbs::before { content: '…'; flex: none; color: var(--ink-3); } }
 @container header (max-width: 580px) { .header .new-session .btn-label, .header .sync-count { display: none; } .header .btn.new-session { justify-content: center; width: var(--row-h); padding: 0; } }

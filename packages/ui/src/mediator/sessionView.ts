@@ -94,7 +94,7 @@ export function sessionViewStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime' && input.event.type === 'split.resolved') {
     const e = input.event;
     // ランタイムが右に置けるタブを見つけられなかったときだけトーストにする。
-    if (!e.tabId) return { state, effects: [{ kind: 'toast', level: 'info', message: '分割にはタブが 2 つ必要です' }] };
+    if (!e.tabId) return { state, effects: [{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }] };
     return patch(state, e.sessionId, { split: true, splitTab: e.tabId });
   }
   if (input.kind !== 'intent') return null;

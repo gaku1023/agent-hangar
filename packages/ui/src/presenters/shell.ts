@@ -1,13 +1,14 @@
 import type { IndexProgressDto, Route, SyncStateKind } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
-import { relativeTime } from './format.ts';
+import { indexProgressLabel, relativeTime, resetsLabel, SYNC_STATE_LABEL } from './format.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 
 export type NavItem = { route: Route; label: string; current: boolean };
-export type UsageProps = { fiveHour: number | null; sevenDay: number | null; updatedLabel: string | null };
+/** fiveHourResets と sevenDayResets は、Claude の利用上限の枠が戻る時刻の文で、届いていなければ null である。 */
+export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiveHourResets: string | null; sevenDayResets: string | null; updatedLabel: string | null };
 /**
- * pending は未送信のメタデータ、sweepPending はまだ上げていない本文、skipped は諦めた本文の件数である。
+ * pending は未送信のメタデータ、sweepPending はまだ上げていない本文、skipped は送れなかった本文の件数である。
  * 後ろの 2 つは、数えられないときも 0 にする。
  * ヘッダーは 0 件を描かない約束なので、「分からない」と「無い」をここで同じ扱いにしてよい。
  */
@@ -42,12 +43,11 @@ function connProps(state: State, now: number): ConnProps {
  */
 function syncProps(state: State, store: Store, now: number): SyncProps {
   const s = state.sync;
+  // 語は設定の「状態」と同じ表から引く。
   const label =
     s.kind === 'off' ? ''
-    : s.kind === 'pushing' ? '送信中'
-    : s.kind === 'pulling' ? '受信中'
-    : s.kind === 'paused' ? '一時停止中'
-    : s.kind === 'error' ? `同期エラー: ${s.message}`
+    : s.kind === 'error' ? `${SYNC_STATE_LABEL.error}: ${s.message}`
+    : s.kind !== 'idle' ? SYNC_STATE_LABEL[s.kind]
     : s.lastAt === null ? '同期の準備中'
     : `同期 ${relativeTime(s.lastAt, now)}`;
   return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused: s.kind === 'paused' };
@@ -70,9 +70,9 @@ export function presentShell(state: State, store: Store, now: number): ShellProp
   if (s.name === 'settings') crumbs.push({ label: '設定' });
   if (s.name === 'home') crumbs.push({ label: 'ホーム' });
   const idx = store.index;
-  const indexLabel = idx.phase === 'idle' ? null : idx.phase === 'scanning' ? '索引を準備中' : `${idx.phase === 'rebuilding' ? '再構築' : '索引'} ${idx.done} / ${idx.total} 件`;
+  const indexLabel = indexProgressLabel(idx);
   const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
-  const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
+  const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
   return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name) })), crumbs, searchText: state.search.text, conn: connProps(state, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), newSession: newSessionTarget(state, store) };
 }

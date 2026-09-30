@@ -29,7 +29,7 @@ const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 export const KEYMAP: KeyBinding[] = [
   { id: 'palette.open', group: 'global', keys: '⌘K', label: 'コマンドパレット', chords: [{ key: 'k', mod: true, shift: false }] },
-  { id: 'session.new', group: 'global', keys: '⌘N', label: '新規セッション', chords: [{ key: 'n', mod: true, shift: false }] },
+  { id: 'session.new', group: 'global', keys: '⌘N', label: '新しいセッション', chords: [{ key: 'n', mod: true, shift: false }] },
   { id: 'session.newScratch', group: 'global', keys: '⌘⇧N', label: 'スクラッチで始める', chords: [{ key: 'n', mod: true, shift: true }] },
   // ⌘I は、macOS の既定、Chrome（⌥⌘I や ⇧⌘I とは別）、Tauri の既定のメニュー、xterm、Claude Code のどれも使っていない。
   // ⌘ 付きなので、ターミナルにフォーカスがあっても Root に届く。I は「入力（input）待ち」の頭文字である。
@@ -44,7 +44,7 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'tab.select', group: 'session', keys: '⌘1–⌘9', label: 'タブを選ぶ（⌃⌥1–⌃⌥9 でも）', chords: [...digits.map((d) => ({ key: d, mod: true, shift: false })), ...digits.map((d) => ({ key: d, ctrlAlt: true }))] },
   { id: 'tab.close', group: 'session', keys: '⌘W', label: 'フォーカスのある枠のシェルタブを閉じる', chords: [{ key: 'w', mod: true, shift: false }] },
   { id: 'split.toggle', group: 'session', keys: '⌘\\', label: 'タブを横に並べる', chords: [{ key: '\\', mod: true, shift: false }] },
-  { id: 'transcript.toggle', group: 'session', keys: '⌘J', label: 'トランスクリプトの開閉', chords: [{ key: 'j', mod: true, shift: false }] },
+  { id: 'transcript.toggle', group: 'session', keys: '⌘J', label: '目次の開閉', chords: [{ key: 'j', mod: true, shift: false }] },
   { id: 'tab.move', group: 'session', keys: '← / →', label: 'タブの列で隣のタブへ（Enter で選ぶ）', chords: [] },
   { id: 'turn.move', group: 'session', keys: 'j / k / ↑ / ↓', label: 'ターンの目次で下へ / 上へ（Enter で開く）', chords: [] },
   // US 配列の ⌘+ は ⌘⇧= なので = と + の両方で受ける。JIS 配列の + は ; のキーにあり、ブラウザと同じく ⌘; でも受ける。

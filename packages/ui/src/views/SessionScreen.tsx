@@ -1,5 +1,6 @@
 import { formatRoute } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
+import { RUN_KIND_LABEL } from '../presenters/format.ts';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalStatus } from '../runtime/terminals.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
@@ -32,7 +33,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         <StatusDot status={props.live} />
         <h1 className="session-name">{props.name}</h1>
         {props.summary?.oneLiner ? <span className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
-        {props.fromScratch && <span className="faint">再開すると cwd はスクラッチのままです</span>}
+        {props.fromScratch && <span className="faint">再開しても作業ディレクトリはスクラッチのままです</span>}
         {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id })}><Icon name="promote" />プロジェクトに昇格</button>}
         {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined })}><Icon name="openTerminal" />ターミナルで開く</button>}
         {/* 停止は取り消せないので危険色にする。作業中か、シェルタブを巻き込むときは Mediator が先に確認を出す。 */}
@@ -58,9 +59,9 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {props.contextPercent === null
           ? <span className="chip faint">コンテキスト 未取得</span>
           : (
-            <span className="chip gauge-wrap" title="コンテキスト使用率">
+            <span className="chip gauge-wrap" title="コンテキストの使用率">
               <span className="faint">コンテキスト</span>
-              <span className="gauge-bar" role="meter" aria-label="コンテキスト使用率" aria-valuenow={props.contextPercent} aria-valuemin={0} aria-valuemax={100}>
+              <span className="gauge-bar" role="meter" aria-label="コンテキストの使用率" aria-valuenow={props.contextPercent} aria-valuemin={0} aria-valuemax={100}>
                 <span className="gauge-fill" data-high={props.contextPercent >= 80 ? 'true' : undefined} style={{ width: `${Math.max(0, Math.min(100, props.contextPercent))}%` }} />
               </span>
             </span>
@@ -76,11 +77,11 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       </div>
       {/* 細かな事実。判断の手がかりだが、チップほど目立たせない。 */}
       <div className="session-facts mono faint">
-        <span>{props.cwd}</span><span>{props.turns} ターン</span><span>{props.tokens} tokens</span>
+        <span>{props.cwd}</span><span>{props.turns} ターン</span><span>{props.tokens} トークン</span>
         <span>開始 {props.started}</span><span>最終 {props.lastActivity}</span>
-        {run && <span>run {run.kind} {run.started}</span>}
+        {run && <span>{RUN_KIND_LABEL[run.kind]} {run.started}</span>}
         {props.lock && <span>最終確認 {props.lock.heartbeat}</span>}
-        {props.remoteOnly && <span>本文は他の端末にあります</span>}
+        {props.remoteOnly && <span>本文は他の PC にあります</span>}
         {!props.hasTranscript && <span>本文がありません</span>}
       </div>
     </>

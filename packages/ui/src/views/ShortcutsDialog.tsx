@@ -11,8 +11,8 @@ export function ShortcutsDialog() {
   const emit = useEmit();
   return (
     <div className="overlay" onClick={() => emit({ type: 'overlay.close' })}>
-      <div className="dialog dialog-wide" role="dialog" aria-modal="true" aria-label="キーボード" onClick={(e) => e.stopPropagation()}>
-        <b className="dialog-title">キーボード</b>
+      <div className="dialog dialog-wide" role="dialog" aria-modal="true" aria-label="キーの一覧" onClick={(e) => e.stopPropagation()}>
+        <b className="dialog-title">キーの一覧</b>
         {GROUPS.map((g) => (
           <div key={g} className="keys-group">
             <div className="faint">{GROUP_LABEL[g]}</div>

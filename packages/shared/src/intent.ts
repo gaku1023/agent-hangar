@@ -1,4 +1,5 @@
 import type { ProjectStatus, ResolveAction, SettingsDto } from './api.ts';
+import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 
 export type ProjectId = string;
@@ -13,7 +14,7 @@ export type ArtifactId = string;
  * 期間は相対の日数（今日を含めて何日分か）で持ち、時刻には問い合わせる瞬間に直す。
  * 絶対の時刻で持つと、時間が経つにつれて選んだ帯と中身が食い違う。
  */
-export type SearchFilter = { projectId?: string; days?: number; until?: number; running?: boolean; file?: string };
+export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; file?: string };
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[] };
 export type PaletteCommand = { id: string; label: string };
 export type Settings = SettingsDto;

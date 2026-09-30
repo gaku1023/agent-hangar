@@ -223,7 +223,7 @@ export function promoteSession(
 
   // 4. run がすべて終わっていればファイルを移す。生きていれば移さず、その旨を返す。
   if (!o.moveFiles) return { projectId, moved: false, reason: null };
-  if (deps.runAlive(s.id)) return { projectId, moved: false, reason: 'run が実行中のためファイルは移動しませんでした。終了後に手で移してください' };
+  if (deps.runAlive(s.id)) return { projectId, moved: false, reason: 'Claude が動いているのでファイルは移しませんでした。終了してから手で移してください' };
   const src = resolveScratchDir(deps.home, s.cwd);
   if ('reason' in src) return { projectId, moved: false, reason: src.reason };
   return { projectId, ...moveContents(src.real, dir) };
