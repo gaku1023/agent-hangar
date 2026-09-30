@@ -161,6 +161,25 @@ describe.skipIf(!TMUX)('PtyRelay（実物の tmux と node-pty）', () => {
     await waitFor(() => tmux.hasSession('hangar-pty-real'));
     fs.rmSync(cwd, { recursive: true, force: true });
   });
+  it('UI の Shift+Enter が送る ESC CR は、tmux を越えてそのまま中のアプリに届く', async () => {
+    // Claude Code はこの列を改行として読む。tmux が素の CR に変えると送信になってしまう。
+    const { nodePtySpawn } = await import('./nodePty.ts');
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-pty-real-'));
+    const out = path.join(cwd, 'keys.txt');
+    // 生の入力で 5 バイトを受け取り、16 進でファイルに書く。
+    tmux.newSession({ name: 'hangar-pty-keys', cwd, command: ['sh', '-c', `stty raw -echo; dd bs=1 count=5 2>/dev/null | od -An -tx1 > ${out}; sleep 30`] });
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-pty-keys', spawn: nodePtySpawn });
+    await listen(relay);
+    const { ws, msgs } = await connect(`tab=x`);
+    ws.send(JSON.stringify({ t: 'resize', cols: 80, rows: 24 }));
+    await waitFor(() => msgs.some((m) => m.t === 'data'), 8000);
+    ws.send(JSON.stringify({ t: 'data', d: 'a\x1b\rb\r' }));
+    await waitFor(() => fs.existsSync(out) && fs.readFileSync(out, 'utf8').trim() !== '', 8000);
+    expect(fs.readFileSync(out, 'utf8').trim().split(/\s+/)).toEqual(['61', '1b', '0d', '62', '0d']);
+    ws.close();
+    tmux.killSession('hangar-pty-keys');
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }, 20000);
   it('中のアプリが OSC 52 で写したものが UI まで届く', async () => {
     const { nodePtySpawn } = await import('./nodePty.ts');
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-pty-real-'));
