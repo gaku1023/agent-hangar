@@ -101,10 +101,25 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const selectedTabId = shortcutView?.selectedTab ?? shortcutTabs[0]?.id ?? null;
   // TabStrip の分割ボタンと同じ条件で、タブが 2 つ無いときは ⌘\ を出さない。
   const canSplit = shortcutTabs.length >= 2;
+  // 最後にフォーカスのあったターミナルの枠のタブ。⌘W はこの枠のタブを閉じる。
+  // 分割中は左右のどちらにもフォーカスが来るので、選択中のタブ（左）では足りない。
+  // フォーカスは DOM の事実で、描き方も変えないので、Mediator へは入れずに Root が覚える。
+  const focusedPane = useRef<string | null>(null);
+  useEffect(() => {
+    const remember = (e: Event) => {
+      const tab = paneTabOf(e.target);
+      if (tab) focusedPane.current = tab;
+    };
+    // 枠の中の xterm にフォーカスが入ったときと、枠を押したときの両方で覚える。
+    // 案内の帯のように、押してもフォーカスの入らない所があるからである。
+    document.addEventListener('focusin', remember);
+    document.addEventListener('pointerdown', remember);
+    return () => { document.removeEventListener('focusin', remember); document.removeEventListener('pointerdown', remember); };
+  }, []);
 
   // キーボード。
   // 打鍵と操作の対応は keys.ts の表が持ち、ここは当たった操作を Intent に変えるだけにする。
-  // 受け取らなかった打鍵は preventDefault せずに落とすので、⌘W や ⌘1 はそのままブラウザと OS のものになる。
+  // 受け取らなかった打鍵は preventDefault せずに落とすので、⌘1 やセッション画面の外の ⌘W はそのままブラウザと OS のものになる。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
@@ -132,8 +147,17 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
           return;
         }
         case 'tab.close': {
-          const t = shortcutTabs.find((x) => x.id === selectedTabId);
-          if (t && t.kind === 'shell') { take(); rt.emit({ type: 'tab.close', tabId: t.id }); }
+          // セッション画面では、閉じるものが無くても窓（アプリ）を閉じさせない。
+          // 押し違いでアプリごと落ちると、同梱サーバまで止まるからである。
+          if (!sessionId) return;
+          take();
+          // 対象は、打鍵を受けた枠か、最後にフォーカスのあった枠のタブにする。
+          // 覚えた枠がもう出ていなければ（別のタブや別のセッションに移った後）、選択中のタブに戻す。
+          const remembered = focusedPane.current && document.querySelector(`.term-host[data-tab="${CSS.escape(focusedPane.current)}"]`) ? focusedPane.current : null;
+          const target = paneTabOf(el) ?? remembered ?? selectedTabId;
+          const t = shortcutTabs.find((x) => x.id === target);
+          // Claude のタブは閉じない。止めるのは「停止」の役目である。
+          if (t && t.kind === 'shell') rt.emit({ type: 'tab.close', tabId: t.id });
           return;
         }
         case 'split.toggle': if (canSplit) { take(); rt.emit({ type: 'split.toggle' }); } return;
@@ -166,7 +190,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, shortcutTabs, selectedTabId, canSplit]);
+  }, [rt, overlayKind, sessionId, shortcutTabs, selectedTabId, canSplit]);
 
   // トラックパッドの横スワイプ。
   // ネイティブの手勢はスナップショットを滑らせる演出まで付いてくるので使わず、横方向のホイールを自分で積む。
@@ -302,6 +326,13 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       </TerminalHostContext.Provider>
     </IntentRoot>
   );
+}
+
+/** 要素が居るターミナルの枠のタブ。枠の外なら null。 */
+function paneTabOf(target: EventTarget | null): string | null {
+  const el = target as HTMLElement | null;
+  const pane = el?.closest?.('.term-pane');
+  return pane?.querySelector<HTMLElement>('.term-host[data-tab]')?.dataset.tab ?? null;
 }
 
 const apiCache = new WeakMap<Runtime, ApiClient>();
