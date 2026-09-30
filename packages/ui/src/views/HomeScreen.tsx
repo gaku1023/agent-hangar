@@ -1,7 +1,10 @@
+import { formatRoute, type Route } from '@agent-hangar/shared';
+import { useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
-import type { AttentionCard, HomeProps, RunningCard } from '../presenters/home.ts';
+import type { AttentionCard, ConfirmCard, HomeProps, RunningCard } from '../presenters/home.ts';
 import { PageHeading } from './PageHeading.tsx';
 import { SESSION_ROW_H, SessionRows } from './SessionRows.tsx';
+import { Icon } from './primitives/Icon.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
 /**
@@ -24,10 +27,14 @@ function AnswerButton(props: { card: AttentionCard }) {
 /** Home で一度に見せる最近とプロジェクトの行の数。多いときは一覧の中でスクロールする。 */
 export const HOME_VISIBLE_ROWS = 10;
 
+/** 確かめるで最初に見せる件数。残りは「ほか N 件を表示」の 1 行にまとめる（試作 home-lists の E1）。 */
+export const CONFIRM_VISIBLE = 3;
+
 /**
  * Home（管制盤）。
- * 上から要対応、確かめる、実行中、最近とプロジェクトの順に置く。
+ * 上から要対応、実行中、確かめる、最近とプロジェクトの順に置く。
  * 要対応と確かめると実行中は、該当が無ければ区画ごと省く。
+ * 何も動いていないとき（idle）は、実行中の札の場所に 1 行の文と新しいセッションのボタンを置く（F1）。
  */
 export function HomeScreen(props: HomeProps) {
   const emit = useEmit();
@@ -49,25 +56,6 @@ export function HomeScreen(props: HomeProps) {
           ))}
         </section>
       )}
-      {props.confirm.length > 0 && (
-        <section>
-          <h2 className="home-label">確かめる<span className="home-count">{props.confirm.length}</span></h2>
-          {props.confirm.map((c) => (
-            <div key={c.id} className="ask-card confirm-card">
-              <span className="cand-mark" aria-hidden="true" />
-              <div className="ask-body">
-                <div className="ask-title">
-                  <button type="button" className="confirm-open" onClick={() => emit({ type: 'project.open', id: c.projectId })}><b>{c.text}</b></button>
-                  {' '}<span className="faint">· {c.projectName} · {c.sessionName} · {c.ago}</span>
-                </div>
-                <div className="ask-q">{c.note}</div>
-              </div>
-              <button type="button" className="btn btn-primary" aria-label={`${c.text}（${c.projectName}）を確定`} onClick={() => emit({ type: 'todo.confirm', id: c.id })}>確定</button>
-              <button type="button" className="btn" aria-label={`${c.text}（${c.projectName}）を却下`} onClick={() => emit({ type: 'todo.reject', id: c.id })}>却下</button>
-            </div>
-          ))}
-        </section>
-      )}
       {props.running.length > 0 && (
         <section>
           <h2 className="home-label">実行中<span className="home-count">{props.running.length}</span></h2>
@@ -76,13 +64,24 @@ export function HomeScreen(props: HomeProps) {
           </div>
         </section>
       )}
+      {props.idle && (
+        <section>
+          <div className="idle-line">
+            <Icon name="nothingRunning" />
+            <span className="idle-text">いま動いているセッションはありません</span>
+            <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.new.open' })}><Icon name="add" />新しいセッション</button>
+            <button type="button" className="btn" onClick={() => emit({ type: 'session.new.open', scratch: true })}><Icon name="scratch" />スクラッチで始める</button>
+          </div>
+        </section>
+      )}
+      {props.confirm.length > 0 && <ConfirmSection cards={props.confirm} />}
       <div className="home-two">
         <section>
-          <h2 className="home-label">最近</h2>
+          <SectionHead title="最近" all={{ route: { name: 'sessions' }, label: 'すべてのセッションを見る' }} />
           <SessionRows rows={props.recent} height={Math.min(props.recent.length, HOME_VISIBLE_ROWS) * SESSION_ROW_H} variant="recent" autoFocus />
         </section>
         <section>
-          <h2 className="home-label">プロジェクト</h2>
+          <SectionHead title="プロジェクト" all={{ route: { name: 'projects' }, label: 'すべてのプロジェクトを見る' }} />
           <div className="list pj-list" style={{ maxHeight: HOME_VISIBLE_ROWS * SESSION_ROW_H }}>
             {props.projects.length === 0
               ? <div className="empty">Active なプロジェクトはありません。設定でワークスペースを確かめてください。</div>
@@ -97,6 +96,59 @@ export function HomeScreen(props: HomeProps) {
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * 区画の見出しと、右端の「すべて見る →」（試作 home-lists の H1）。
+ * リンクは見出しの外に置く。見出しの名前にリンクの語が混ざると、読み上げで区画の名前が崩れるためである。
+ * 見える語は短く「すべて見る」にし、読み上げの名前で行き先を言う。
+ */
+function SectionHead(props: { title: string; all: { route: Route; label: string } }) {
+  const emit = useEmit();
+  const { route, label } = props.all;
+  return (
+    <div className="home-head">
+      <h2 className="home-label">{props.title}</h2>
+      <a className="home-more" href={formatRoute(route)} aria-label={label} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: route }); }}>すべて見る<Icon name="seeAll" /></a>
+    </div>
+  );
+}
+
+/**
+ * 確かめるの区画（試作 home-lists の E1）。
+ * 最初の CONFIRM_VISIBLE 件だけを出し、残りは「ほか N 件を表示」の 1 行にまとめ、押すとその場で開く。
+ * 開いているかどうかは画面の中だけの見え方なので、Mediator には置かない。
+ */
+function ConfirmSection(props: { cards: ConfirmCard[] }) {
+  const emit = useEmit();
+  const [open, setOpen] = useState(false);
+  const rest = Math.max(0, props.cards.length - CONFIRM_VISIBLE);
+  const shown = open ? props.cards : props.cards.slice(0, CONFIRM_VISIBLE);
+  return (
+    <section>
+      <h2 className="home-label">確かめる<span className="home-count">{props.cards.length}</span></h2>
+      {shown.map((c) => (
+        <div key={c.id} className="ask-card confirm-card">
+          <span className="cand-mark" aria-hidden="true" />
+          <div className="ask-body">
+            <div className="ask-title">
+              <button type="button" className="confirm-open" onClick={() => emit({ type: 'project.open', id: c.projectId })}><b>{c.text}</b></button>
+              {' '}<span className="faint">· {c.projectName} · {c.sessionName} · {c.ago}</span>
+            </div>
+            <div className="ask-q">{c.note}</div>
+          </div>
+          <button type="button" className="btn btn-primary" aria-label={`${c.text}（${c.projectName}）を確定`} onClick={() => emit({ type: 'todo.confirm', id: c.id })}>確定</button>
+          <button type="button" className="btn" aria-label={`${c.text}（${c.projectName}）を却下`} onClick={() => emit({ type: 'todo.reject', id: c.id })}>却下</button>
+        </div>
+      ))}
+      {rest > 0 && (
+        <button type="button" className="more-line" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <span className="more-chevron" data-open={open ? 'true' : undefined}><Icon name="chevronDown" /></span>
+          ほか {rest} 件を{open ? '隠す' : '表示'}
+        </button>
+      )}
+    </section>
   );
 }
 

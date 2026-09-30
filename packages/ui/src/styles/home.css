@@ -2,8 +2,20 @@
    どの札も白い不透明な読む面で、ぼかしは掛けない。 */
 .home-label { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 5) 0 calc(var(--u) * 2) var(--u); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
 /* 見出しの線のすぐ下の区画は、線の下の余白（.page-head）だけで間を取る。 */
-.home > .page-head + section > .home-label, .home > .page-head + .home-two .home-label { margin-top: 0; }
+.home > .page-head + section > .home-label, .home > .page-head + .home-two .home-head { margin-top: 0; }
 .home-count { font-weight: 500; color: var(--ink-3); }
+/* 見出しと右端の「すべて見る →」の行（試作 home-lists の H1）。余白は .home-label と同じ値を行のほうに持たせる。 */
+.home-head { display: flex; align-items: baseline; margin: calc(var(--u) * 5) 0 calc(var(--u) * 2) var(--u); }
+.home-head .home-label { margin: 0; }
+.home-more { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); text-decoration: none; transition: color var(--dur-fast) var(--ease-out); }
+.home-more:hover { color: var(--accent); }
+.home-more .icon { width: 12px; height: 12px; }
+
+/* 何も動いていないときの 1 行（F1）。実行中の札の場所に、場所をほとんど取らずに置く。 */
+.idle-line { display: flex; align-items: center; gap: calc(var(--u) * 2.5); height: 44px; padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 3.5); border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); box-shadow: var(--glass-edge); color: var(--ink-2); }
+.idle-line > .icon { flex: none; color: var(--ink-3); }
+.idle-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.idle-line .btn { flex: none; }
 
 /* 要対応の札。入力待ちの色を縁に薄く混ぜ、横長に 1 件 1 枚で積む。問いは 1 行に収め、溢れたら省略する。 */
 .ask-card { display: flex; align-items: center; gap: calc(var(--u) * 3); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); margin-bottom: calc(var(--u) * 2); border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 0 0 1px color-mix(in srgb, var(--waiting) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--waiting) 40%, transparent); }
@@ -17,6 +29,11 @@
 .cand-mark { flex: none; width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); }
 .confirm-open { padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-align: left; }
 .confirm-open:hover b { text-decoration: underline; }
+/* 4 件目からをまとめる 1 行（E1）。札の並びの続きとして候補の色の文字で出し、押すとその場で開く。 */
+.more-line { display: flex; align-items: center; gap: calc(var(--u) * 1.5); width: 100%; height: 32px; padding: 0 calc(var(--u) * 3); margin-top: -2px; border: 0; border-radius: 10px; background: none; font: inherit; font-size: var(--fs-sm); font-weight: 560; color: var(--cand); text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.more-line:hover { background: color-mix(in srgb, var(--cand-soft) 70%, transparent); }
+.more-chevron { display: inline-flex; transition: transform var(--dur-fast) var(--ease-out); }
+.more-chevron[data-open='true'] { transform: rotate(180deg); }
 
 /* 実行中の札。3 列に並べ、いま何をしているかを墨の地の 1 行で見せる。 */
 .live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(var(--u) * 2.5); }

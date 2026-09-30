@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 const rowsCssPath = ['packages/ui/src/styles/rows.css', 'src/styles/rows.css'].map((r) => `${process.cwd()}/${r}`).find(existsSync);
 const rowsCss = readFileSync(rowsCssPath!, 'utf8');
 
-const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, stateLabel: '完了', model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', memo: null, hasTranscript: true, cost: '', runId: null, transcript: 'present' });
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, stateLabel: '完了', summaryState: null, model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', memo: null, hasTranscript: true, cost: '', runId: null, transcript: 'present' });
 
 describe('SessionRows', () => {
   it('行のクリックと Enter で session.open', () => {
@@ -36,7 +36,7 @@ describe('SessionRows', () => {
 });
 
 const p3Row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({
-  id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', model: 'opus 4.1', effort: 'high',
+  id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high',
   when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, ...over,
 });
 
@@ -202,16 +202,31 @@ describe('カーソルの行を見える位置へ運ぶ', () => {
 });
 
 describe('SessionRows（2 段の行）', () => {
-  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', memo: 'スワイプは実機で', hasTranscript: true, transcript: 'present', cost: '$1.82', runId: null, ...over });
+  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', memo: 'スワイプは実機で', hasTranscript: true, transcript: 'present', cost: '$1.82', runId: null, ...over });
   const rowOf = (name: string) => screen.getByText(name).closest('[role="row"]') as HTMLElement;
 
-  it('最近は 2 段目に要約、右は時刻だけ', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[r('a')]} height={400} variant="recent" /></IntentRoot>);
+  it('最近は 1 段目の名前の右にプロジェクト名、2 段目に要約、右は時刻だけ', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[r('a'), r('b', { projectName: null })]} height={400} variant="recent" /></IntentRoot>);
     const row = rowOf('名前 a');
     expect(row).toHaveTextContent('要約 a');
     expect(row).toHaveTextContent('3 分前');
-    for (const t of ['opus 4.1', '変更 6', '$1.82', 'スワイプは実機で', 'alpha']) expect(row).not.toHaveTextContent(t);
+    expect(row.querySelector('.row-name .row-proj')).toHaveTextContent('alpha');
+    expect(rowOf('名前 b').querySelector('.row-proj')).toHaveTextContent('未分類');
+    for (const t of ['opus 4.1', '変更 6', '$1.82', 'スワイプは実機で']) expect(row).not.toHaveTextContent(t);
     expect(within(row).queryByText('PR')).toBeNull();
+  });
+  it('2 段目の頭に要約の見立ての札を置き、詰まっているとやめただけに調子を付ける', () => {
+    const rows = [r('a', { summaryState: { label: '詰まっている', tone: 'blocked' } }), r('b', { summaryState: { label: '済んだ', tone: null } }), r('c')];
+    for (const variant of ['recent', 'project', 'search'] as const) {
+      const { unmount } = render(<IntentRoot onIntent={() => {}}><SessionRows rows={rows} height={400} variant={variant} /></IntentRoot>);
+      const tag = rowOf('名前 a').querySelector('.row-sub > .row-state');
+      expect(tag, variant).toHaveTextContent('詰まっている');
+      expect(tag, variant).toHaveAttribute('data-tone', 'blocked');
+      expect(rowOf('名前 a').querySelector('.row-sub')!.firstElementChild, variant).toBe(tag);
+      expect(rowOf('名前 b').querySelector('.row-state'), variant).not.toHaveAttribute('data-tone');
+      expect(rowOf('名前 c').querySelector('.row-state'), variant).toBeNull();
+      unmount();
+    }
   });
   it('プロジェクト詳細は右にモデル、変更、PR、コストと時刻、2 段目にメモ', () => {
     render(<IntentRoot onIntent={() => {}}><SessionRows rows={[r('a')]} height={400} variant="project" /></IntentRoot>);

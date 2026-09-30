@@ -22,7 +22,11 @@ export type RunningCard = { id: string; name: string; live: LiveStatus | null; e
 export type ProjectMini = { id: string; name: string; status: ProjectStatus; counts: string };
 /** 確かめるの行。完了の候補 1 件につき 1 行で、押すとそのプロジェクトへ移る。 */
 export type ConfirmCard = { id: string; text: string; projectId: string; projectName: string; sessionName: string; ago: string; note: string };
-export type HomeProps = { attention: AttentionCard[]; confirm: ConfirmCard[]; running: RunningCard[]; recent: SessionRowProps[]; projects: ProjectMini[] };
+/**
+ * idle は何も動いていないこと（実行中の札も要対応の札も無い）で、真なら実行中の札の場所に 1 行の文を出す（試作 home-lists の F1）。
+ * 入力待ちも生きたセッションなので、入力待ちがあるときは偽にする。
+ */
+export type HomeProps = { attention: AttentionCard[]; confirm: ConfirmCard[]; running: RunningCard[]; recent: SessionRowProps[]; projects: ProjectMini[]; idle: boolean };
 
 /** 問いの文が取れなかった入力待ち（権限の確認など）に出す文。 */
 const NO_QUESTION = '入力を待っています';
@@ -76,5 +80,5 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
     return { id: p.id, name: p.name, status: p.status, counts: counts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join(' · ') };
   });
 
-  return { attention, confirm, running, recent, projects };
+  return { attention, confirm, running, recent, projects, idle: attention.length === 0 && running.length === 0 };
 }

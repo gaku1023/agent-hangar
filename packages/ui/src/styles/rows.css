@@ -67,6 +67,12 @@
 .row-proj { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
 .row-sub { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; height: calc(var(--u) * 5); font-size: var(--fs-sm); color: var(--ink-2); }
 .row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 2 段目の頭の要約の見立て（試作 home-lists の B1）。ふだんは注記の色の語だけにし、
+   詰まっている（入力待ちの色）とやめた（Paused の色）だけを淡い地の札にする。色の札が 2 種しかないので、流し見で色の行だけが目に止まる。 */
+.row-state { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.row-state[data-tone] { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-weight: 560; line-height: 1.4; }
+.row-state[data-tone='blocked'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); }
+.row-state[data-tone='abandoned'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .row-memo { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
 /* project 変種の 2 段目は鉛筆（.btn、既定で --row-h = 28px）を持つ。1 行分の高さ（20px）に縮め、行の外にはみ出さないようにする。 */
 .row-sub .memo-pencil { height: calc(var(--u) * 5); padding: 0 var(--u); flex: none; }
@@ -75,8 +81,10 @@
 /* 時刻と本文の期限の印を横に並べる。印は行の高さを変えないよう、時刻と同じ行に小さく置く。 */
 .row-when { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
 .row-soon { flex: none; display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-size: var(--fs-xs); line-height: 1.4; color: var(--st-paused); background: var(--st-paused-soft); white-space: nowrap; }
-.row-gone { flex: none; display: inline-flex; color: var(--ink-3); }
-.row-gone .icon { width: 13px; height: 13px; }
+/* 本文の無い行の印。B1 の「枠だけの札」の形にするが、保持期間の周知（③a）の決めどおり文字は入れない。
+   消えた会話は数百件に上り、文字を並べると一覧が騒がしくなるためである。 */
+.row-gone { flex: none; display: inline-flex; align-items: center; padding: 1px 4px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); }
+.row-gone .icon { width: 12px; height: 12px; }
 .row-meta { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
 /* 一致した語の印。淡い黄の地だけを敷き、文字の色は周りのまま（読みやすさを落とさない）。 */
 .hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }

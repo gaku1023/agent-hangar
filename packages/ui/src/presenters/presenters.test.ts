@@ -242,6 +242,18 @@ describe('presentHome', () => {
     expect(p.running[0]).toMatchObject({ activity: null, note: '作業中', contextLabel: '未取得' });
     expect(p.running[1]).toMatchObject({ live: null, activity: null, note: '起動しています' });
   });
+  it('何も動いていないこと（idle）は、実行中も入力待ちも無いときだけ真にする', () => {
+    expect(presentHome(initialState(), homeStore(), NOW).idle).toBe(false);
+    const store = homeStore();
+    store.sessions = { s2: store.sessions.s2!, w1: store.sessions.w1! };
+    // 入力待ちも生きているので、「動いているセッションはありません」とは言わない。
+    expect(presentHome(initialState(), store, NOW).idle).toBe(false);
+    store.sessions = { s2: store.sessions.s2! };
+    expect(presentHome(initialState(), store, NOW).idle).toBe(true);
+    // Claude の一覧に載る前の run も動いているものに数える。
+    store.runs = { r2: runDto('r2', 's2') };
+    expect(presentHome(initialState(), store, NOW).idle).toBe(false);
+  });
   it('最近は要対応と実行中に出したものを除き、新しい順に並べる', () => {
     expect(presentHome(initialState(), homeStore(), NOW).recent.map((r) => r.id)).toEqual(['s3', 's2']);
   });
@@ -285,6 +297,19 @@ describe('presentProjects', () => {
     store.runs = { r2: runDto('r2', 's2') };
     const alpha = presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards[0]!;
     expect(alpha).toMatchObject({ runningCount: 2, waitingCount: 1 });
+  });
+  it('カードの抜粋は要約を優先し、雑音を除いた発言を次に使い、どちらも無ければそう書く', () => {
+    const store = storeWith();
+    const real = { ...session('x').summary!, oneLiner: '索引をセッションごとに分けた', source: 'in_session' as const };
+    const card = () => presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards[0]!;
+    store.sessions = { s1: session('s1', { firstPrompt: '<input class="a">', summary: real }) };
+    expect(card()).toMatchObject({ excerpt: '索引をセッションごとに分けた', excerptFromPrompt: false });
+    store.sessions = { s1: session('s1', { firstPrompt: '/init', summary: { ...real, oneLiner: '/init', source: 'baseline' } }), s2: session('s2', { firstPrompt: '画像の圧縮率を比べたい', lastActivityAt: NOW - 86_400_000 }) };
+    expect(card()).toMatchObject({ excerpt: '画像の圧縮率を比べたい', excerptFromPrompt: true });
+    store.sessions = { s1: session('s1', { firstPrompt: 'exit', summary: null }) };
+    expect(card()).toMatchObject({ excerpt: 'まだ要約がありません', excerptFromPrompt: false });
+    store.sessions = {};
+    expect(card()).toMatchObject({ excerpt: 'セッションはまだありません', excerptFromPrompt: false });
   });
 });
 
@@ -1057,6 +1082,22 @@ describe('presentSessionRow の本文の印', () => {
     expect(presentSessionRow(s, initialStore(), NOW).transcript).toBe('expiring');
     const kept = { ...initialStore(), retention: { days: 365, source: 'user' as const, userValue: 365, writable: true, unwritableReason: null, usage: null } };
     expect(presentSessionRow(s, kept, NOW).transcript).toBe('present');
+  });
+});
+
+describe('presentSessionRow の要約の見立て（B1）', () => {
+  const judged = (state: SessionSummaryDto['state'], source: SessionSummaryDto['source'] = 'in_session') => session('a', { summary: { ...session('a').summary!, state, source } });
+  it('詰まっているとやめただけに色の調子を付け、ほかは調子なしで語だけを出す', () => {
+    const store = initialStore();
+    expect(presentSessionRow(judged('blocked'), store, NOW).summaryState).toEqual({ label: '詰まっている', tone: 'blocked' });
+    expect(presentSessionRow(judged('abandoned', 'post_hoc'), store, NOW).summaryState).toEqual({ label: 'やめた', tone: 'abandoned' });
+    expect(presentSessionRow(judged('in_progress'), store, NOW).summaryState).toEqual({ label: 'やりかけ', tone: null });
+    expect(presentSessionRow(judged('done'), store, NOW).summaryState).toEqual({ label: '済んだ', tone: null });
+  });
+  it('土台の要約の状態は生きているかどうかの写しで見立てではないので出さず、要約が無ければ出さない', () => {
+    const store = initialStore();
+    expect(presentSessionRow(judged('done', 'baseline'), store, NOW).summaryState).toBeNull();
+    expect(presentSessionRow(session('a', { summary: null }), store, NOW).summaryState).toBeNull();
   });
 });
 
