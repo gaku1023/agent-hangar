@@ -37,7 +37,17 @@ export function overlayStep(state: State, input: Input): Step | null {
   const i = input.intent;
   switch (i.type) {
     case 'project.resolve.open': return openResolve(state, i.id, true);
-    case 'project.resolve': return { state: popQueue(state), effects: [{ kind: 'api.resolveProject', projectId: i.id, action: i.action }] };
+    case 'project.resolve': {
+      if (i.action.kind === 'unlink' && !i.confirmed) {
+        // 一覧から削除は、セッションを未分類に戻してプロジェクトを消し、同期で他の端末にも広がる。先に確認を出す。
+        // やめたら未解決のダイアログに戻れるよう、そのプロジェクトをキューの先頭に置いておく（overlay.close が popQueue で拾う）。
+        const unresolvedQueue = [i.id, ...state.unresolvedQueue.filter((x) => x !== i.id)];
+        return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'unlinkProject', projectId: i.id } }, unresolvedQueue }, effects: [] };
+      }
+      // 確認から承諾したときは、戻り先として積んだ分を外してから次へ進む。外さないと同じプロジェクトをまた聞く。
+      const next = { ...state, unresolvedQueue: state.unresolvedQueue.filter((x) => x !== i.id) };
+      return { state: popQueue(next), effects: [{ kind: 'api.resolveProject', projectId: i.id, action: i.action }] };
+    }
     case 'overlay.close': return { state: deferResolve(state), effects: [] };
     case 'palette.open': return { state: { ...state, overlay: { kind: 'palette' } }, effects: [] };
     case 'shortcuts.open': return { state: { ...state, overlay: { kind: 'shortcuts' } }, effects: [] };

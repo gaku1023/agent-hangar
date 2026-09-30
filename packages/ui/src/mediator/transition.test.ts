@@ -675,6 +675,36 @@ describe('外で動くセッションを hangar で開く', () => {
   });
 });
 
+describe('プロジェクトを一覧から削除する確認', () => {
+  it('未解決のダイアログで一覧から削除を選ぶと、送らずに確認を出す', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'unlinkProject', projectId: 'p1' } });
+  });
+  it('やめると未解決のダイアログに戻り、あとでの扱いにはしない', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    const b = run([intent({ type: 'overlay.close' })], a.state);
+    expect(b.effects).toEqual([]);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.unresolvedQueue).toEqual(['p2']);
+    expect(b.state.resolveDeferred).toEqual([]);
+  });
+  it('承諾で送り、同じプロジェクトを聞き直さずに次の未解決へ進む', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    const b = run([intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' }, confirmed: true })], a.state);
+    expect(b.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'unlink' } }]);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p2' });
+    expect(b.state.unresolvedQueue).toEqual([]);
+    const c = run([intent({ type: 'project.resolve', id: 'p2', action: { kind: 'unlink' }, confirmed: true })], b.state);
+    expect(c.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('アーカイブと再指定は確認を挟まない', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })]);
+    expect(a.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'archive' } }]);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+  });
+});
+
 describe('停止の確認', () => {
   it('休みでシェルタブが無ければ、確認せずにすぐ止める', () => {
     const r = run([intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);

@@ -24,7 +24,8 @@ export function ResolveProjectDialog(props: { projectId: string; name: string; p
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn" onClick={() => resolve({ kind: 'archive' })}><Icon name="archive" />アーカイブにする</button>
-          <button className="btn" onClick={() => resolve({ kind: 'unlink' })}><Icon name="unlink" />紐づけを削除</button>
+          {/* 一覧から削除は取り消せず、同期で他の端末にも広がるので危険色にする。押すと Mediator が先に確認を出す。 */}
+          <button className="btn btn-danger" onClick={() => resolve({ kind: 'unlink' })}><Icon name="unlink" />一覧から削除</button>
           <span className="spacer" />
           <button className="btn" onClick={() => emit({ type: 'overlay.close' })}>あとで</button>
         </div>

@@ -4,6 +4,7 @@ import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, shortModel, tokensLabel } from './format.ts';
+import { presentConfirm } from './confirm.ts';
 import { presentHome } from './home.ts';
 import { presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
@@ -48,6 +49,22 @@ describe('format', () => {
     expect(tokensLabel(1234567)).toBe('1.2M');
     expect(tokensLabel(12345)).toBe('12k');
     expect(tokensLabel(999)).toBe('999');
+  });
+});
+
+describe('presentConfirm', () => {
+  it('一覧から削除する確認には、プロジェクトの名前と未分類に戻るセッションの数を添える', () => {
+    const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'alpha' } } };
+    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'unlinkProject', projectId: 'alpha' }, project: { name: 'alpha', sessions: 2 } });
+  });
+  it('プロジェクトが store から消えていれば id を名前にし、数は 0 にする', () => {
+    const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'gone' } } };
+    expect(presentConfirm(state, storeWith())?.project).toEqual({ name: 'gone', sessions: 0 });
+  });
+  it('ほかの確認には何も添えず、確認が出ていなければ null', () => {
+    const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'adoptSession' as const, sessionId: 's1' } } };
+    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null });
+    expect(presentConfirm(initialState(), storeWith())).toBeNull();
   });
 });
 

@@ -63,6 +63,28 @@ describe('ConfirmDialog（停止）', () => {
   });
 });
 
+describe('ConfirmDialog（一覧から削除）', () => {
+  it('名前と未分類に戻る件数と、他の端末からも消えることを書き、承諾で送る', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'unlinkProject', projectId: 'p1' }} project={{ name: 'alpha', sessions: 3 }} /></IntentRoot>);
+    const dialog = screen.getByRole('dialog', { name: '一覧から削除の確認' });
+    expect(dialog).toHaveTextContent('プロジェクト alpha を一覧から削除し、3 件のセッションを未分類に戻します。');
+    expect(dialog).toHaveTextContent('同期している他の端末からも消えます。');
+    const remove = screen.getByRole('button', { name: '一覧から削除' });
+    expect(remove).toHaveClass('btn-danger');
+    fireEvent.click(remove);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' }, confirmed: true });
+  });
+  it('既定のフォーカスはやめる側に置き、やめると閉じる', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'unlinkProject', projectId: 'p1' }} project={{ name: 'alpha', sessions: 0 }} /></IntentRoot>);
+    const cancel = screen.getByRole('button', { name: 'やめる' });
+    expect(cancel).toHaveFocus();
+    fireEvent.click(cancel);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+});
+
 describe('ConfigPreviewDialog', () => {
   it('一覧を出し、取り込むが Intent になる', () => {
     const onIntent = vi.fn();

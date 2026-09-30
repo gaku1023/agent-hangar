@@ -283,6 +283,28 @@ describe('フェーズ 4 のオーバーレイ', () => {
     expect(screen.queryByRole('dialog', { name: '上書きの確認' })).toBeNull();
   });
 
+  it('一覧から削除は確認を挟み、件数を出し、Esc で未解決のダイアログへ戻る', async () => {
+    const resolveProject = vi.fn(async () => ({}));
+    const { rt } = await mounted({ api: { resolveProject } });
+    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: '一覧から削除の確認' });
+    expect(dialog).toHaveTextContent('プロジェクト alpha を一覧から削除し、1 件のセッションを未分類に戻します。');
+    expect(resolveProject).not.toHaveBeenCalled();
+    key({ key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: '一覧から削除の確認' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'プロジェクトの場所を確認' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    fireEvent.click(within(screen.getByRole('dialog', { name: '一覧から削除の確認' })).getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    expect(resolveProject).toHaveBeenCalledWith('p1', { kind: 'unlink' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('取り込みの下見は store の一覧をそのまま出す', async () => {
     const { rt } = await mounted({ api: { configPreview: async () => ({ confirmed: false, entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 2, remoteDevice: 'mini', size: 10 }] }) } });
     act(() => rt.emit({ type: 'sync.config.preview' }));

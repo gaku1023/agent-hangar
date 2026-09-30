@@ -2,6 +2,7 @@ import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
 import { IntentRoot } from './intent/chain.tsx';
 import { defaultSessionView } from './mediator/sessionView.ts';
+import { presentConfirm } from './presenters/confirm.ts';
 import { presentHome } from './presenters/home.ts';
 import { presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
@@ -309,7 +310,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery)!} onQuery={setPaletteQuery} />}
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
-      {overlay.kind === 'confirm' && <ConfirmDialog confirm={overlay.confirm} />}
+      {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store)!} />}
       {/* 取り込みの下見は押したときだけ取りに来る一時の値なので、Presenter を通さず store から直に渡す。 */}
       {/* 未解決ダイアログの候補と同じ扱いである。 */}
       {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}

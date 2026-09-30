@@ -155,7 +155,7 @@ type Intent =
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; name: string; gitInit: boolean; startSession: boolean }
   | { type: 'project.resolve.open'; id: ProjectId }
-  | { type: 'project.resolve'; id: ProjectId; action: { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' } }
+  | { type: 'project.resolve'; id: ProjectId; action: { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' }; confirmed?: boolean }
   | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
   | { type: 'todo.add'; projectId: ProjectId; text: string } | { type: 'todo.toggle'; id: TodoId } | { type: 'todo.remove'; id: TodoId }
   | { type: 'memo.save'; projectId: ProjectId; markdown: string }
@@ -214,7 +214,7 @@ type Intent =
 
 - `screen`：`booting | home | projects | project(id) | session(id) | sessions(query) | settings`。
 - `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。引き継ぎのダイアログは作らなかったので `takeover(sessionId)` は無い。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
-外のターミナルの claude を引き取る確認は `confirm('adoptSession')`、ランを止める確認は `confirm('killRun')` である。
+外のターミナルの claude を引き取る確認は `confirm('adoptSession')`、ランを止める確認は `confirm('killRun')`、見つからないプロジェクトを一覧から削除する確認は `confirm('unlinkProject')` である。
 - `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉、要約パネルの開閉。
 - `launch`：`idle | submitting | failed(message)`。
 - `connection`：`connecting | connected | disconnected`。
@@ -985,7 +985,13 @@ trigram は 3 文字未満の語に一致できないので、3 文字未満の�
 
 プロジェクトは安定した ID と、端末ごとのパスを持つ。
 パスが見つからないとき（ディレクトリの改名、移動、削除、別 PC での不在）は、`project_roots.resolved = 0` にして警告ダイアログを出す。
-ダイアログは「ディレクトリを再指定」「アーカイブにする」「紐づけを削除」を選ばせる。
+ダイアログは「ディレクトリを再指定」「アーカイブにする」「一覧から削除」を選ばせる。
+「一覧から削除」（`unlink`）は、そのプロジェクトのセッションをすべて未分類に戻し、プロジェクトを論理削除する。
+同期で他の端末からも消えるので、ボタンを危険色にし、押したら確認を挟む。
+確認には「プロジェクト <名前> を一覧から削除し、N 件のセッションを未分類に戻します。同期している他の端末からも消えます。」と書く。
+N は UI の store に届いているセッションで数える。
+確認の側の押し切るボタンも危険色にし、既定のフォーカスは「やめる」に置く。
+やめたら未解決のダイアログへ戻る。
 自動推定やマーカーファイルは持たない。
 再指定のダイアログには、ワークスペースルート直下で名前が近いディレクトリを候補として並べる。
 

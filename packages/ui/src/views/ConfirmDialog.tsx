@@ -1,5 +1,6 @@
 import { useEmit } from '../intent/chain.tsx';
 import type { ConfirmRequest } from '../mediator/types.ts';
+import type { ConfirmProjectProps } from '../presenters/confirm.ts';
 import { Icon } from './primitives/Icon.tsx';
 
 /** 本文の大きさ。KB で足りなくなる長さの本文があるので MB まで見る。 */
@@ -7,12 +8,33 @@ const sizeLabel = (n: number): string => (n >= 1024 * 1024 ? `${(n / 1024 / 1024
 
 /**
  * 取り消せない操作の確認。
- * 「この PC で再開」で手元の本文を他端末の本文に置き換える場面、外のターミナルの claude を引き取る場面、ランを止める場面を扱う。
+ * 「この PC で再開」で手元の本文を他端末の本文に置き換える場面、外のターミナルの claude を引き取る場面、ランを止める場面、
+ * 見つからないプロジェクトを一覧から削除する場面を扱う。
  * どうするかを決めるのは利用者なので、View は起きることを並べるだけで判断をしない。
  */
-export function ConfirmDialog(props: { confirm: ConfirmRequest }) {
+export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: ConfirmProjectProps | null }) {
   const emit = useEmit();
   const c = props.confirm;
+  if (c.kind === 'unlinkProject') {
+    const name = props.project?.name ?? c.projectId;
+    const sessions = props.project?.sessions ?? 0;
+    // 取り消せない側は危険色にし、既定のフォーカスはやめる側に置く。
+    return (
+      <div className="overlay" onClick={() => emit({ type: 'overlay.close' })}>
+        <div className="dialog" role="dialog" aria-modal="true" aria-label="一覧から削除の確認" onClick={(e) => e.stopPropagation()}>
+          <b className="dialog-title"><Icon name="warning" />一覧から削除しますか</b>
+          <div className="muted">プロジェクト <b>{name}</b> を一覧から削除し、{sessions} 件のセッションを未分類に戻します。</div>
+          <div className="muted">同期している他の端末からも消えます。</div>
+          <div className="faint">ディレクトリと会話の記録は消しません。</div>
+          <div className="dialog-foot">
+            <button type="button" className="btn" autoFocus onClick={() => emit({ type: 'overlay.close' })}>やめる</button>
+            <span className="spacer" />
+            <button type="button" className="btn btn-danger btn-danger-fill" onClick={() => emit({ type: 'project.resolve', id: c.projectId, action: { kind: 'unlink' }, confirmed: true })}><Icon name="unlink" />一覧から削除</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (c.kind === 'killRun') {
     // 取り消せない側は危険色にし、既定のフォーカスはやめる側に置く。Enter の押し違いで止めないためである。
     return (
