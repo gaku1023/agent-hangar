@@ -25,7 +25,9 @@ export type RuntimeEvent =
   | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number }
   // 保持期間を書き込んだ結果。409 は下見の後にファイルが変わったことを表す。
   | { type: 'retention.written'; days: number } | { type: 'retention.conflict'; days: number } | { type: 'retention.failed'; message: string }
-  | { type: 'retention.previewFailed'; days: number; message: string };
+  | { type: 'retention.previewFailed'; days: number; message: string }
+  // 欄ごとの保存の結果。失敗はトーストにせず、その欄の下に理由を出す。
+  | { type: 'settings.saved'; field: string } | { type: 'settings.failed'; field: string; message: string };
 
 export type Input =
   | { kind: 'intent'; intent: Intent }
@@ -40,7 +42,9 @@ export type Effect =
   | { kind: 'api.search'; params: SearchQuery }
   | { kind: 'api.setProjectStatus'; projectId: string; status: ProjectStatus }
   | { kind: 'api.resolveProject'; projectId: string; action: ResolveAction }
-  | { kind: 'api.updateSettings'; patch: Partial<SettingsDto> }
+  | { kind: 'api.updateSettings'; patch: Partial<SettingsDto>; field?: string }
+  | { kind: 'api.readiness' }
+  | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string }
   | { kind: 'api.rebuildIndex' }
   | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string } | { kind: 'api.fork'; sessionId: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
@@ -112,6 +116,12 @@ export type SessionViewState = {
   turnJump: { seq: number; status: TurnJumpStatus } | null;
 };
 export type Toast = { id: string; level: 'info' | 'error'; message: string };
+/**
+ * 欄ごとの保存の知らせ。
+ * saved の n は同じ欄を保存するたびに進み、画面は変わるたびに「✓ 保存しました」を出し直す。
+ * error は欄の下に出す理由で、同じ欄をもう一度保存し始めたら消える。
+ */
+export type SaveMark = { kind: 'saved'; n: number } | { kind: 'error'; message: string };
 export type State = {
   screen: Screen; overlay: Overlay; connection: 'connecting' | 'connected' | 'disconnected'; reconnectAttempt: number;
   /** 切れた最初の瞬間。画面がそこで止まっていることを言うために持つ。つながっている間は null。 */
@@ -152,6 +162,8 @@ export type State = {
   sync: SyncState;
   /** まだ送れていない変更の件数。ヘッダーの同期表示に出す。 */
   pending: number;
+  /** 欄ごとの保存の知らせ。欄の名前（設定の項目名）で引く。 */
+  settingsSave: Record<string, SaveMark>;
 };
 export type Step = { state: State; effects: Effect[] };
 export const NOT_YET = 'この操作は次のフェーズで実装します';

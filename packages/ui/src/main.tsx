@@ -18,6 +18,7 @@ import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
 import { createHashLocation } from './runtime/hashLocation.ts';
 import { createRuntime } from './runtime/runtime.ts';
+import { createDesktopBridge } from './runtime/desktop.ts';
 import { FONT_SIZE_KEY, createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
 import { createXterm } from './runtime/xterm.ts';
@@ -89,6 +90,8 @@ const runtime = createRuntime({
   // 窓に戻ってきたら他端末の変更を引く。間引きはサーバ側で行う。
   onWindowFocus: (cb) => { window.addEventListener('focus', cb); return () => window.removeEventListener('focus', cb); },
   present,
+  // デスクトップの殻の中なら、ログを開くと再起動を殻に頼める。ブラウザでは null になる。
+  desktop: createDesktopBridge(window),
 });
 runtime.start();
 createRoot(document.getElementById('root')!).render(<Root runtime={runtime} api={api} terminals={terminals} />);

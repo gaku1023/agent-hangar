@@ -77,4 +77,10 @@ export type Intent =
   | { type: 'retention.edit'; days: number; from: RetentionFrom }
   | { type: 'retention.write' }
   | { type: 'retention.settings' }
-  | { type: 'settings.update'; patch: Partial<Settings> };
+  // field は欄ごとの保存で、結果（✓ 保存しました、または欄の下の理由）をその欄に返すための名前である。
+  | { type: 'settings.update'; patch: Partial<Settings>; field?: string }
+  // 準備の確かめ（設定画面の検証と、空のホームの確認リスト）を取り直す。
+  | { type: 'readiness.check' }
+  // デスクトップの殻に頼む操作。殻の無いブラウザでは、画面が場所のコピーと文の案内に落とす。
+  | { type: 'shell.openLog' } | { type: 'shell.restart' }
+  | { type: 'clipboard.copy'; text: string };
