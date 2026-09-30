@@ -8,10 +8,10 @@
   --surface-2: #f3f4f9;
   --line: #eceef5;
   --line-strong: #d9dbe6;
-  /* 文字。ガラスに合わせて少し青みに寄せた。白地で 16.9、6.3、3.4 : 1。 */
+  /* 文字。ガラスに合わせて少し青みに寄せた。白地で 16.9、6.3、5.0 : 1。 */
   --ink: #1c1b2e;
   --ink-2: #5f5e78;
-  --ink-3: #8a89a0;
+  --ink-3: #6e6d88;
   --accent: #4a63e8;
   --accent-hi: #6b8cff;
   --accent-ink: #ffffff;
