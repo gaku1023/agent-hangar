@@ -736,6 +736,27 @@ describe('プロジェクトを一覧から削除する確認', () => {
     const c = run([intent({ type: 'project.resolve', id: 'p2', action: { kind: 'unlink' }, confirmed: true })], b.state);
     expect(c.state.overlay).toEqual({ kind: 'none' });
   });
+  it('確認をパレットで覆って閉じても、未解決のダイアログへ戻る', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } }), intent({ type: 'palette.open' })]);
+    expect(a.state.overlay).toEqual({ kind: 'palette' });
+    const b = run([intent({ type: 'palette.close' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.unresolvedQueue).toEqual([]);
+  });
+  it('確認を新規セッションのダイアログで覆って閉じても、未解決のダイアログへ戻る', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } }), intent({ type: 'session.new.open', scratch: false })]);
+    expect(a.state.overlay.kind).toBe('newSession');
+    const b = run([intent({ type: 'overlay.close' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.unresolvedQueue).toEqual([]);
+    expect(b.state.launch).toEqual({ kind: 'idle' });
+  });
+  it('覆ったダイアログから起動し終えても、未解決のダイアログへ戻る', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } }), intent({ type: 'session.new.open', scratch: true })]);
+    const b = run([runtime({ type: 'launch.done', sessionId: 's9' })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.unresolvedQueue).toEqual([]);
+  });
   it('アーカイブと再指定は確認を挟まない', () => {
     const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })]);
     expect(a.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'archive' } }]);
