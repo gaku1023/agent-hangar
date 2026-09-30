@@ -1,12 +1,15 @@
-export type InjectionInput = { projectName: string; projectPath: string; memo: string | null; todos: string[] };
+export type InjectionInput = { projectName: string; projectPath: string; memo: string | null; todos: { id: string; text: string }[] };
 
 const NONE = '（なし）';
 
-/** --append-system-prompt で渡す短い指示。ファイルや設定は書かず、要約の更新だけを求める。 */
+/**
+ * --append-system-prompt で渡す短い指示。ファイルや設定は書かず、要約の更新と、片付いた TODO の候補を求める。
+ * TODO は ID を添えて渡す。ID が無いと、候補を出す前に get_project を呼んで引く一手が要るためである。
+ */
 export function renderInjection(i: InjectionInput): string {
   const memo = i.memo?.trim() ? [...i.memo.trim()].slice(0, 500).join('') : NONE;
   const todos = i.todos.slice(0, 10);
-  const todoText = todos.length ? '\n' + todos.map((t) => `- ${t}`).join('\n') : NONE;
+  const todoText = todos.length ? '\n' + todos.map((t) => `- [${t.id}] ${t.text}`).join('\n') : NONE;
   return [
     'あなたは agent-hangar から起動されたセッションです。',
     `プロジェクト：${i.projectName}（${i.projectPath}）`,
@@ -15,6 +18,8 @@ export function renderInjection(i: InjectionInput): string {
     '過去のセッションは MCP ツール search_sessions と get_transcript で参照できます。',
     '依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、',
     'set_session_summary で題名、2〜3 文の要約、状態、次の一手を更新してください。',
+    'TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。',
+    '完了にするのは利用者です。確かめられていないものは出さないでください。',
     '',
   ].join('\n');
 }

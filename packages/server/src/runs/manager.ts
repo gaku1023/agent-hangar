@@ -130,7 +130,7 @@ export class RunManager {
   private injectionFor(projectId: string | null, cwd: string): string {
     const p = projectId ? this.project(projectId) : null;
     const memo = projectId ? (this.db.prepare('select markdown from project_memos where project_id = ? and deleted_at is null').get(projectId) as { markdown: string } | undefined)?.markdown ?? null : null;
-    const todos = projectId ? (this.db.prepare('select text from todos where project_id = ? and done = 0 and deleted_at is null order by position limit 10').all(projectId) as { text: string }[]).map((t) => t.text) : [];
+    const todos = projectId ? (this.db.prepare('select id, text from todos where project_id = ? and done = 0 and deleted_at is null order by position limit 10').all(projectId) as { id: string; text: string }[]) : [];
     return renderInjection({ projectName: p?.name ?? '未分類', projectPath: cwd, memo, todos });
   }
 
