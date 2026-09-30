@@ -60,7 +60,13 @@ function fit(sl: Slot[], w: number, h: number, cx: number, cy: number) {
   return { sc, tx: cx - (sc * (x0 + x1)) / 2, ty: cy - (sc * (y0 + y1)) / 2 };
 }
 
-export type LogoOptions = { front?: boolean };
+export type LogoOptions = { front?: boolean; crop?: boolean };
+
+/**
+ * 余白を切り落とした図の枠（サイドバーのワードマーク用）。
+ * 群れは幅 70、高さ 66 の枠（x 15〜85、y 18〜84）に収まるが、竿の右端は y 15 あたりまで上へ伸びるので、上を広めに取った正方形にする。
+ */
+const CROP = '14 13 72 72';
 
 /** 原図は幅 70、高さ 66 の枠に、先頭 1 本の図（16px 用）は幅と高さ 80 の枠に収める。 */
 export function layout(opts: LogoOptions = {}) {
@@ -102,10 +108,10 @@ export function logoParts(opts: LogoOptions = {}): { defs: string; body: string 
   return { defs, body: `<g transform="translate(${num(L.tx)} ${num(L.ty)}) scale(${num(L.sc)})">${rail}${hangers}</g>` };
 }
 
-/** 100 × 100 の SVG の文字列。 */
+/** 100 × 100 の SVG の文字列。crop のときは、同じ図を余白を切り落とした枠で見せる。 */
 export function logoSvg(opts: LogoOptions = {}): string {
   const { defs, body } = logoParts(opts);
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${defs ? `<defs>${defs}</defs>` : ''}${body}</svg>\n`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${opts.crop ? CROP : '0 0 100 100'}">${defs ? `<defs>${defs}</defs>` : ''}${body}</svg>\n`;
 }
 
 /**
@@ -134,6 +140,7 @@ export function appIconSvg(): string {
 export const BRAND_FILES: { path: string; make: () => string }[] = [
   { path: 'packages/ui/src/brand/logo.svg', make: () => logoSvg() },
   { path: 'packages/ui/src/brand/logo-front.svg', make: () => logoSvg({ front: true }) },
+  { path: 'packages/ui/src/brand/logo-mark.svg', make: () => logoSvg({ crop: true }) },
   { path: 'apps/desktop/loading/logo.svg', make: () => logoSvg() },
   { path: 'apps/desktop/src-tauri/icon.svg', make: () => appIconSvg() },
 ];

@@ -42,6 +42,31 @@ describe('ロゴの原図', () => {
       expect(bottom).toBeLessThanOrEqual(84.01);
     }
   });
+  // サイドバーのワードマークは、原図の余白を切り落とした図を使う。竿の右端は群れより上へ伸びるので、それも含めて収める。
+  it('余白を切り落とした図は 4 本のままで、竿と札が切り抜いた枠に収まる', () => {
+    const svg = logoSvg({ crop: true });
+    expect(count(svg)).toBe(4);
+    const [x0, y0, w, h] = svg.match(/viewBox="([^"]+)"/)![1]!.split(' ').map(Number) as [number, number, number, number];
+    expect(w).toBe(h);
+    expect(w).toBeLessThanOrEqual(75);
+    const L = layout();
+    const inside = (x: number, y: number) => {
+      expect(x).toBeGreaterThanOrEqual(x0);
+      expect(x).toBeLessThanOrEqual(x0 + w);
+      expect(y).toBeGreaterThanOrEqual(y0);
+      expect(y).toBeLessThanOrEqual(y0 + h);
+    };
+    for (const p of L.slots) {
+      inside(L.tx + L.sc * (p.x - 31 * p.s), L.ty + L.sc * (p.y - 3 * p.s));
+      inside(L.tx + L.sc * (p.x + 31 * p.s), L.ty + L.sc * (p.y + 69 * p.s));
+    }
+    const rail = svg.match(/<path d="M(\S+) (\S+)L(\S+) (\S+)" stroke="url\(#hangar-rail\)" stroke-width="([\d.]+)"/)!.slice(1).map(Number);
+    const pad = (rail[4]! / 2) * L.sc;
+    for (const [x, y] of [[rail[0]!, rail[1]!], [rail[2]!, rail[3]!]] as const) {
+      inside(L.tx + L.sc * x - pad, L.ty + L.sc * y - pad);
+      inside(L.tx + L.sc * x + pad, L.ty + L.sc * y + pad);
+    }
+  });
   // macOS のアイコンは 1024 の枠の中に、824 の角丸の地を 100px 内側に置く。地の外は透明にする。
   it('アプリアイコンは 1024 の枠に、824 の地と原図の 4 本を置く', () => {
     const svg = appIconSvg();

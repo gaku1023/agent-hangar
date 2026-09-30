@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>ワードマークの案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..800&family=Sora:wght@400..800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+  :root {
+    --bg: #eef1f7; --aura-1: #cfe0ff; --aura-2: #e5d6ff;
+    --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #8a89a0; --accent: #4a63e8; --cursor: #ffb86b;
+    --glass-bg: rgba(255,255,255,.4);
+    --glass-edge: inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5);
+    --glass-drop: 0 10px 28px -12px rgba(30,40,90,.3);
+    --sans: 'Inter', 'Hiragino Sans', sans-serif;
+    --mono: 'JetBrains Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 var(--sans); color: var(--ink); background: #f6f7fb; -webkit-font-smoothing: antialiased; }
+  header.top, section.cmp { padding: 28px 32px 8px; max-width: 1240px; margin: 0 auto; }
+  h1, h2 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 6px; }
+  h2 { font-size: 15px; }
+  header.top p, section.cmp > p { margin: 0; color: var(--ink-2); }
+  .zoom { margin-top: 12px; display: flex; gap: 8px; align-items: center; color: var(--ink-2); font-size: 12px; }
+  .zoom button { font: inherit; border: 0; padding: 4px 12px; border-radius: 99px; background: #fff; box-shadow: 0 1px 3px rgba(30,40,90,.14); cursor: pointer; }
+  .zoom button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 20px; padding: 16px 32px 24px; max-width: 1240px; margin: 0 auto; }
+  .card { background: #fff; border-radius: 16px; box-shadow: 0 1px 2px rgba(30,40,90,.06), 0 0 0 1px #eceef5; overflow: hidden; cursor: pointer; transition: box-shadow .2s; }
+  .card:hover { box-shadow: 0 6px 18px -8px rgba(30,40,90,.25), 0 0 0 1px #d9dbe6; }
+  .card.selected { box-shadow: 0 0 0 2px var(--accent), 0 6px 18px -8px rgba(74,99,232,.4); }
+  .stage { position: relative; height: 250px; overflow: hidden; background:
+      radial-gradient(60% 50% at 20% 20%, var(--aura-1), transparent 70%),
+      radial-gradient(55% 45% at 85% 70%, var(--aura-2), transparent 70%), var(--bg); }
+  .scaler { transform-origin: 0 0; }
+  body.z2 .scaler { transform: scale(1.6); }
+  .sidebar { position: absolute; left: 8px; top: 8px; width: 180px; height: 420px; padding: 40px 8px 10px; border-radius: 16px;
+    background: var(--glass-bg); backdrop-filter: blur(12px) saturate(1.9); -webkit-backdrop-filter: blur(12px) saturate(1.9); box-shadow: var(--glass-edge), var(--glass-drop); }
+  .lights { position: absolute; left: 16px; top: 16px; display: flex; gap: 8px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.12); }
+  .lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+  .nav-item { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; margin-bottom: 1px; color: var(--ink-2); border-radius: 99px; }
+  .nav-item svg { width: 16px; height: 16px; stroke-width: 1.5; }
+  .nav-item.cur { color: var(--ink); font-weight: 560; background: rgba(255,255,255,.78); box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(30,40,90,.1); }
+  .main-hint { position: absolute; left: 204px; top: 8px; right: -40px; height: 420px; border-radius: 16px; background: rgba(255,255,255,.9); box-shadow: 0 1px 2px rgba(30,40,90,.06); padding: 48px 20px; }
+  .main-hint b { display: block; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+  .main-hint span { display: block; height: 10px; border-radius: 5px; background: #f3f4f9; margin-top: 12px; width: 70%; }
+  .body { padding: 14px 16px 16px; border-top: 1px solid #eceef5; }
+  .body h3 { margin: 0 0 4px; font-size: 13px; font-weight: 650; display: flex; gap: 8px; align-items: baseline; }
+  .body h3 em { font-style: normal; font: 600 11px var(--mono); color: var(--accent); }
+  .body p { margin: 0; color: var(--ink-2); font-size: 12px; }
+  .body code { font: 500 11px var(--mono); color: var(--ink-3); display: block; margin-top: 6px; }
+
+  /* ---- ワードマーク（各案はここだけが違う） ---- */
+  .brand { display: flex; align-items: center; gap: 7px; padding: 0 6px 14px; }
+  .mark { flex: none; display: block; }
+  .word { display: inline-flex; align-items: baseline; font-family: var(--sans); font-weight: 720; letter-spacing: -0.03em; line-height: 1; white-space: nowrap; }
+  .word::after { content: ''; flex: none; background: var(--cursor); }
+
+  /* K1 基準（K を整えたもの） */
+  .K1 .mark { width: 38px; height: 36px; }
+  .K1 .word { font-size: 20px; }
+  .K1 .word::after { width: 10px; height: 3px; margin-left: 2px; border-radius: 1.5px; }
+
+  /* K2 控えめ */
+  .K2 .brand { gap: 6px; }
+  .K2 .mark { width: 34px; height: 32px; }
+  .K2 .word { font-size: 18px; font-weight: 700; letter-spacing: -0.025em; }
+  .K2 .word::after { width: 8px; height: 2.5px; margin-left: 2px; border-radius: 1.25px; }
+
+  /* K3 大きめ */
+  .K3 .brand { gap: 7px; padding: 0 4px 14px; }
+  .K3 .mark { width: 44px; height: 42px; }
+  .K3 .word { font-size: 22px; font-weight: 740; letter-spacing: -0.035em; }
+  .K3 .word::after { width: 11px; height: 3.5px; margin-left: 2px; border-radius: 1.75px; }
+
+  /* K4 Sora */
+  .K4 .mark { width: 38px; height: 36px; }
+  .K4 .word { font-family: 'Sora', var(--sans); font-size: 20px; font-weight: 640; letter-spacing: -0.04em; }
+  .K4 .word::after { width: 10px; height: 3px; margin-left: 3px; border-radius: 1.5px; }
+
+  /* K5 ブロックカーソル */
+  .K5 .mark { width: 38px; height: 36px; }
+  .K5 .word { font-size: 20px; align-items: center; }
+  .K5 .word::after { width: 7px; height: 16px; margin-left: 3px; border-radius: 1.5px; transform: translateY(1px); }
+
+  /* K6 図の窓と文字の下端を揃える（カーソルが図のカーソルと同じ高さに並ぶ） */
+  .K6 .brand { align-items: flex-end; gap: 6px; }
+  .K6 .mark { width: 38px; height: 36px; }
+  .K6 .word { font-size: 20px; margin-bottom: 3px; }
+  .K6 .word::after { width: 10px; height: 3px; margin-left: 2px; border-radius: 1.5px; }
+
+  /* K7 細め・字間ゆるめ */
+  .K7 .brand { gap: 8px; }
+  .K7 .mark { width: 38px; height: 36px; }
+  .K7 .word { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
+  .K7 .word::after { width: 10px; height: 2.5px; margin-left: 2px; border-radius: 1.25px; }
+
+  /* K8 小文字 */
+  .K8 .mark { width: 38px; height: 36px; }
+  .K8 .word { font-size: 21px; font-weight: 720; letter-spacing: -0.035em; }
+  .K8 .word::after { width: 10px; height: 3px; margin-left: 2px; border-radius: 1.5px; }
+
+  /* 並べて比較 */
+  .strip { margin-top: 12px; border-radius: 16px; padding: 20px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px 12px; background:
+      radial-gradient(40% 80% at 15% 30%, var(--aura-1), transparent 70%),
+      radial-gradient(40% 80% at 80% 60%, var(--aura-2), transparent 70%), var(--bg); }
+  .strip .cell { border-radius: 14px; padding: 14px 8px 0; background: var(--glass-bg); backdrop-filter: blur(12px) saturate(1.9); -webkit-backdrop-filter: blur(12px) saturate(1.9); box-shadow: var(--glass-edge), var(--glass-drop); }
+  .strip .cell small { display: block; padding: 0 6px 8px; font: 600 10px var(--mono); color: var(--accent); }
+  .strip.x2 .cell > .brand { zoom: 2; }
+  .strip.x2 { grid-template-columns: repeat(2, 1fr); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>サイドバーのワードマーク — K の派生 8 案（採ったのは K1）</h1>
+  <p>大きさ（K1〜K3）、書体と字形（K4・K7・K8）、カーソルの形（K5）、図との揃え方（K6）で振りました。すべて実寸。クリックで選択（複数可）。</p>
+  <div class="zoom">表示：<button id="z1" aria-pressed="true">実寸</button><button id="z2" aria-pressed="false">1.6 倍で細部を見る</button></div>
+</header>
+
+<div class="grid" data-multiselect id="grid"></div>
+
+<section class="cmp">
+  <h2>並べて比較（実寸）</h2>
+  <p>同じガラスと光の上に 8 案を並べたもの。</p>
+  <div class="strip" id="strip1"></div>
+  <h2 style="margin-top:28px">並べて比較（2 倍）</h2>
+  <p>字形、カーソルの太さ、図との間合いを見る用。</p>
+  <div class="strip x2" id="strip2"></div>
+</section>
+<div style="height:48px"></div>
+
+<script>
+  const V = [
+    ['K1', '基準', 'K を整えたもの。図 38px、文字 20px・720、カーソルは原図と同じ横長の下線。', 'mark 38 / Inter 20 · 720 / _ 10×3', 'Hangar'],
+    ['K2', '控えめ', '図 34px、文字 18px・700。今より確実に大きいが、ナビとの差は穏やか。', 'mark 34 / Inter 18 · 700 / _ 8×2.5', 'Hangar'],
+    ['K3', '大きめ', '図 44px、文字 22px・740。サイドバーの幅をほぼ使い切る。', 'mark 44 / Inter 22 · 740 / _ 11×3.5', 'Hangar'],
+    ['K4', 'Sora', 'ワードマークだけ幾何学的な書体。a と g の丸さで柔らかく、名前らしさが出る。', 'mark 38 / Sora 20 · 640 / _ 10×3', 'Hangar'],
+    ['K5', 'ブロックカーソル', 'カーソルを縦長の塊にする。端末らしさは強いが、原図の下線とは形が違う。', 'mark 38 / Inter 20 · 720 / █ 7×16', 'Hangar'],
+    ['K6', '下端を揃える', '図の窓の下端と文字の下端を揃える。図のカーソルと文字のカーソルがほぼ同じ高さに並ぶ。', 'mark 38 / Inter 20 · 720 / 下揃え', 'Hangar'],
+    ['K7', '細め', '太さ 600、字間ゆるめ。軽く上品になり、見出しの 650 と近い調子になる。', 'mark 38 / Inter 20 · 600 / _ 10×2.5', 'Hangar'],
+    ['K8', '小文字', '「hangar_」。コマンド名のように見え、カーソルとの相性が一番良い。', 'mark 38 / Inter 21 · 720 / _ 10×3', 'hangar'],
+  ];
+  const NAV = `<div class="nav-item cur"><i data-lucide="house"></i>Home</div><div class="nav-item"><i data-lucide="folder"></i>Projects</div><div class="nav-item"><i data-lucide="messages-square"></i>Sessions</div><div class="nav-item"><i data-lucide="settings"></i>Settings</div>`;
+  const brand = (w) => `<div class="brand"><img class="mark" src="../../../../packages/ui/src/brand/logo-mark.svg" alt=""><span class="word">${w}</span></div>`;
+  const grid = document.getElementById('grid');
+  grid.innerHTML = V.map(([k, t, d, c, w]) => `
+    <div class="card ${k}" data-choice="${k}" onclick="toggleSelect(this)">
+      <div class="stage"><div class="scaler"><div class="sidebar"><div class="lights"><i></i><i></i><i></i></div>${brand(w)}${NAV}</div>
+        <div class="main-hint"><b>Home</b><span></span><span style="width:50%"></span></div></div></div>
+      <div class="body"><h3><em>${k}</em>${t}</h3><p>${d}</p><code>${c}</code></div>
+    </div>`).join('');
+  const cells = V.map(([k, , , , w]) => `<div class="cell ${k}"><small>${k}</small>${brand(w)}</div>`).join('');
+  document.getElementById('strip1').innerHTML = cells;
+  document.getElementById('strip2').innerHTML = cells;
+  if (window.lucide) lucide.createIcons();
+  const z1 = document.getElementById('z1'), z2 = document.getElementById('z2');
+  z1.onclick = () => { document.body.classList.remove('z2'); z1.setAttribute('aria-pressed', 'true'); z2.setAttribute('aria-pressed', 'false'); };
+  z2.onclick = () => { document.body.classList.add('z2'); z2.setAttribute('aria-pressed', 'true'); z1.setAttribute('aria-pressed', 'false'); };
+  if (typeof window.toggleSelect !== 'function') window.toggleSelect = (el) => el.classList.toggle('selected');
+</script>
+</body>
+</html>
