@@ -117,7 +117,11 @@ export function Listbox(props: ListboxProps) {
   };
 
   const onPopKey = (e: KeyboardEvent<HTMLElement>) => {
-    if (isComposing(e)) return;
+    if (isComposing(e)) {
+      // 変換の確定と取り消しの打鍵は IME に任せるが、外側（起動ダイアログの Esc で閉じる）へは漏らさない。
+      if (e.key === 'Enter' || e.key === 'Escape') e.stopPropagation();
+      return;
+    }
     const n = items.length;
     const inInput = e.target === input.current;
     switch (e.key) {

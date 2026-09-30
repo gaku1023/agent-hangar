@@ -189,6 +189,16 @@ describe('Listbox の検索', () => {
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(onChange).toHaveBeenCalledWith('p0');
   });
+  it('変換中の Esc は、一覧も外側も閉じない', () => {
+    const onParent = vi.fn();
+    render(<div onKeyDown={onParent}><Harness options={many} /></div>);
+    fireEvent.click(face());
+    const box = screen.getByRole('combobox');
+    fireEvent.keyDown(box, { key: 'Escape', isComposing: true });
+    fireEvent.keyDown(box, { key: 'Enter', isComposing: true });
+    expect(onParent).not.toHaveBeenCalled();
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+  });
   it('検索欄の aria-activedescendant は選ばれかけの行を指す', () => {
     render(<Harness options={many} />);
     fireEvent.click(face());
