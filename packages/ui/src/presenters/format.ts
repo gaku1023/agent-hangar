@@ -1,3 +1,5 @@
+import type { IndexProgressDto, SyncStateKind } from '@agent-hangar/shared';
+
 const pad = (n: number) => String(n).padStart(2, '0');
 
 export function absoluteTime(ts: number | null): string {
@@ -53,6 +55,24 @@ export const SOURCE_LABEL = { baseline: '自動', in_session: 'セッション',
 /** 要約器の id を短い名前にする。表に無い id はそのまま出す。 */
 export const SUMMARIZER_LABEL: Record<string, string> = { lmstudio: 'LM Studio', 'claude-headless': 'claude' };
 export const STATUS_LABEL = { active: 'Active', paused: 'Paused', done: 'Done', archived: 'Archived' } as const;
+
+/**
+ * 同期の状態の語。
+ * ヘッダーの一行と設定の「状態」の両方がここから引く。
+ * ヘッダーは idle のときに語の代わりに最後の同期の時刻を出し、error のときは理由を後ろに添える。
+ */
+export const SYNC_STATE_LABEL: Record<SyncStateKind, string> = { off: '同期していません', idle: '同期済み', pushing: '送信中', pulling: '受信中', paused: '一時停止中', error: '同期エラー' };
+
+/**
+ * 索引の進みの文。
+ * ヘッダーと設定の索引の節の両方がこれを使う。
+ * 終わっている（idle）ときは言うことが無いので null を返す。
+ */
+export function indexProgressLabel(idx: IndexProgressDto): string | null {
+  if (idx.phase === 'idle') return null;
+  if (idx.phase === 'scanning') return '索引を準備中';
+  return `${idx.phase === 'rebuilding' ? '索引の作り直し' : '索引'} ${idx.done} / ${idx.total} 件`;
+}
 
 /** 使用率の表示。値が無いときは「未取得」にする。 */
 export function percentLabel(n: number | null): string {

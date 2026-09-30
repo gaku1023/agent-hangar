@@ -229,16 +229,16 @@ export function SettingsScreen(props: SettingsProps) {
           <>
             <div className="mono muted">{props.cloud.url}</div>
             <div className="faint" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
-              <span>状態 {props.cloud.state}</span>
-              <span>最終 pull {props.cloud.lastPullAt}</span>
+              <span>状態 {props.cloud.stateLabel}</span>
+              <span>最後の受信 {props.cloud.lastPullAt}</span>
               <span>未送信 {props.cloud.pending} 件</span>
               {/* 本文は 60 秒に 20 件ずつしか流れない。件数が出ていないと、進んでいるのか止まっているのか読めない。 */}
               {props.cloud.sweepPending !== null && <span>未送信の本文 {props.cloud.sweepPending} 件</span>}
             </div>
-            {/* 諦めた本文は 30 分ごとに試し直すので放っておけば回復する。回復するまでのあいだ、ここでだけ確かめられる。 */}
+            {/* 送れなかった本文は 30 分ごとに送り直すので放っておけば回復する。回復するまでのあいだ、ここでだけ確かめられる。 */}
             {props.cloud.skipped.length > 0 && (
               <div style={{ marginTop: 8 }}>
-                <div className="error" role="alert">諦めた本文 {props.cloud.skipped.length} 件。30 分ごとに試し直します。</div>
+                <div className="error" role="alert">送れなかった本文 {props.cloud.skipped.length} 件。30 分ごとに送り直します。</div>
                 <ul className="faint mono" style={{ margin: '4px 0 0', paddingLeft: 16, wordBreak: 'break-all' }}>
                   {props.cloud.skipped.map((k) => <li key={k.key}>{k.key}: {k.message}（{k.attempts} 回）</li>)}
                 </ul>
@@ -246,7 +246,7 @@ export function SettingsScreen(props: SettingsProps) {
             )}
             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
               <button className="btn" onClick={() => emit({ type: 'sync.now' })}>今すぐ同期</button>
-              <button className="btn" onClick={() => emit({ type: 'sync.pause', paused: !props.cloud.paused })}>{props.cloud.paused ? '同期を再開' : '一時停止'}</button>
+              <button className="btn" onClick={() => emit({ type: 'sync.pause', paused: !props.cloud.paused })}>{props.cloud.paused ? '同期を再開' : '同期を一時停止'}</button>
               {/* 参加トークンは全セッションの読み書き権を持つ秘密なので、押すまで取りに行かない。 */}
               {/* 出したあとはランタイムが 120 秒で store から消すので、props が null に戻ればこのボタンの姿に戻る。 */}
               {props.cloud.joinToken === null && <button className="btn" onClick={() => emit({ type: 'sync.joinToken.show' })}>参加トークンを表示</button>}
@@ -301,7 +301,7 @@ export function SettingsScreen(props: SettingsProps) {
       <section>
         <h2 className="h2">索引</h2>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span className="mono muted">{props.index.phase === 'idle' ? `${props.sessionCount} セッション、${props.projectCount} プロジェクト` : `${props.index.phase} ${props.index.done} / ${props.index.total}`}</span>
+          <span className="mono muted">{props.indexLabel}</span>
           <button className="btn" onClick={() => emit({ type: 'index.rebuild' })}>索引を作り直す</button>
         </div>
         <div className="faint mono" style={{ marginTop: 4 }}>読み取り元 {props.claudeDir}</div>

@@ -118,7 +118,7 @@ describe('SessionsScreen', () => {
 });
 
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
-  workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, sessionCount: 3, projectCount: 2,
+  workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
   tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, mcpInstallCommand: 'npm run hangar -- mcp install',
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
@@ -133,7 +133,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
 });
 
 const cloudProps = (over: Partial<CloudSettingsProps> = {}): CloudSettingsProps => ({
-  configured: true, url: 'https://h.workers.dev', state: 'idle', paused: false, lastPullAt: '1 分前', pending: 2, sweepPending: null, skipped: [],
+  configured: true, url: 'https://h.workers.dev', state: 'idle', stateLabel: '同期済み', paused: false, lastPullAt: '1 分前', pending: 2, sweepPending: null, skipped: [],
   devices: [{ id: 'dev-a', name: 'mac', platform: 'darwin', lastSeen: '今', self: true }, { id: 'dev-b', name: 'mini', platform: 'darwin', lastSeen: '3 分前', self: false }],
   joinToken: null, syncClaudeConfig: false, configConfirmed: false,
   ...over,
@@ -150,6 +150,8 @@ describe('SettingsScreen', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'index.rebuild' });
     expect(screen.getByText('mac')).toBeInTheDocument();
     expect(screen.getByText(/再起動後に反映されます/)).toBeInTheDocument();
+    // 索引の文は presenter がヘッダーと同じ関数で作ったものをそのまま出す。
+    expect(screen.getByText('3 セッション、2 プロジェクト')).toBeInTheDocument();
   });
   it('Node のパスを保存でき、空なら null を送る', () => {
     const onIntent = vi.fn();
@@ -461,16 +463,16 @@ describe('SettingsScreen のクラウド同期', () => {
     fireEvent.click(screen.getByRole('button', { name: '取り込み内容を確認' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'sync.config.preview' });
   });
-  it('クラウドの節に取り残しの件数と諦めた本文の一覧を出す', () => {
+  it('クラウドの節に取り残しの件数と送れなかった本文の一覧を出す', () => {
     const skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }];
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ sweepPending: 1500, skipped }) })} /></IntentRoot>);
     expect(screen.getByText('未送信の本文 1500 件')).toBeInTheDocument();
-    expect(screen.getByText('諦めた本文 1 件。30 分ごとに試し直します。')).toBeInTheDocument();
+    expect(screen.getByText('送れなかった本文 1 件。30 分ごとに送り直します。')).toBeInTheDocument();
     expect(screen.getByText('transcripts/mini/u1.jsonl.gz: 復号できません（3 回）')).toBeInTheDocument();
     // 追いついた端末は 0 件と描く。数えられない端末は何も描かない。
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ sweepPending: 0, skipped: [] }) })} /></IntentRoot>);
     expect(screen.getByText('未送信の本文 0 件')).toBeInTheDocument();
-    expect(screen.queryByText('諦めた本文 0 件。30 分ごとに試し直します。')).toBeNull();
+    expect(screen.queryByText('送れなかった本文 0 件。30 分ごとに送り直します。')).toBeNull();
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
     expect(screen.queryByText(/未送信の本文/)).toBeNull();
   });
@@ -482,9 +484,12 @@ describe('SettingsScreen のクラウド同期', () => {
   it('今すぐ同期と一時停止の Intent', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
+    // 状態はヘッダーと同じ語で、受信の時刻は「最後の受信」と書く。
+    expect(screen.getByText('状態 同期済み')).toBeInTheDocument();
+    expect(screen.getByText('最後の受信 1 分前')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
-    fireEvent.click(screen.getByRole('button', { name: '一時停止' }));
+    fireEvent.click(screen.getByRole('button', { name: '同期を一時停止' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'sync.pause', paused: true });
     // 一時停止中は、同じボタンが再開になる。
     rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ state: 'paused', paused: true }) })} /></IntentRoot>);

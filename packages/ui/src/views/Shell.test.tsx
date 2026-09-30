@@ -84,7 +84,7 @@ describe('Shell', () => {
     expect(screen.getByText('未送信 2')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
-    fireEvent.click(screen.getByRole('button', { name: '一時停止' }));
+    fireEvent.click(screen.getByRole('button', { name: '同期を一時停止' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'sync.pause', paused: true });
     rerender(<IntentRoot onIntent={onIntent}><Shell {...props} sync={{ ...sync, state: 'paused', label: '一時停止中', paused: true }} overlays={null}><div /></Shell></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: '同期を再開' }));
@@ -92,14 +92,14 @@ describe('Shell', () => {
     rerender(<IntentRoot onIntent={onIntent}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.queryByRole('button', { name: '今すぐ同期' })).toBeNull();
   });
-  it('取り残しと諦めた本文は、溜まっているときだけ出す', () => {
+  it('取り残しと送れなかった本文は、溜まっているときだけ出す', () => {
     const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 0, sweepPending: 1500, skipped: 2, paused: false };
     const { rerender } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={sync} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByText('未送信の本文 1500')).toBeInTheDocument();
-    expect(screen.getByText('諦めた本文 2')).toBeInTheDocument();
+    expect(screen.getByText('送れなかった本文 2')).toBeInTheDocument();
     rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...sync, sweepPending: 0, skipped: 0 }} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.queryByText('未送信の本文 0')).toBeNull();
-    expect(screen.queryByText('諦めた本文 0')).toBeNull();
+    expect(screen.queryByText('送れなかった本文 0')).toBeNull();
   });
   // 未送信が無いときに「未送信 0」と出すと、止まっているように見える。
   it('未送信が 0 なら件数を出さず、使用量ゲージも残る', () => {

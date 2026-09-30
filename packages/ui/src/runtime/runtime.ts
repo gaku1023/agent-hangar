@@ -67,7 +67,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
   /**
    * HTTP の応答をそのまま sync.status の経路に載せる。
-   * 付録（諦めた本文と取り残しの件数）は HTTP も websocket も運ぶので、型は両方とも SyncStatusBody である。
+   * 付録（送れなかった本文と取り残しの件数）は HTTP も websocket も運ぶので、型は両方とも SyncStatusBody である。
    */
   const syncStatus = (status: SyncStatusBody) => dispatch({ kind: 'server', event: { type: 'sync.status', status } });
 
