@@ -13,7 +13,7 @@ const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1
 
 /** ターミナルの偽物。React の外で持つ接続の代わりに、呼ばれた tabId を並べる。 */
 function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: string[] } {
-  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, subscribe: () => () => {}, dispose: () => {} };
+  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, zoom: () => {}, fontSize: () => 13, subscribe: () => () => {}, dispose: () => {} };
   return h;
 }
 

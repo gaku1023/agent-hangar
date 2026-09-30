@@ -23,7 +23,21 @@ describe('キーマップ', () => {
   it('タブの選択は ⌘1–9 と ⌃⌥1–9 の両方で当たる', () => {
     expect(matchKey({ key: '3', metaKey: true })).toBe('tab.select');
     expect(matchKey({ key: '3', ctrlKey: true, altKey: true })).toBe('tab.select');
-    expect(matchKey({ key: '0', metaKey: true })).toBeNull();
+    expect(matchKey({ key: '0', metaKey: true })).not.toBe('tab.select');
+  });
+
+  it('⌘+ ⌘− ⌘0 で端末の文字の大きさを変える', () => {
+    // US 配列の ⌘+ は ⌘⇧= なので、⇧ の有無を問わず = と + の両方で当たる。
+    expect(matchKey({ key: '=', metaKey: true })).toBe('terminal.fontBigger');
+    expect(matchKey({ key: '+', metaKey: true, shiftKey: true })).toBe('terminal.fontBigger');
+    // JIS 配列の + は ; のキーの ⇧ にある。ブラウザと同じく ⇧ 無しの ⌘; でも大きくする。
+    expect(matchKey({ key: ';', metaKey: true })).toBe('terminal.fontBigger');
+    expect(matchKey({ key: '-', metaKey: true })).toBe('terminal.fontSmaller');
+    expect(matchKey({ key: '0', metaKey: true })).toBe('terminal.fontReset');
+    expect(matchKey({ key: '0', ctrlKey: true })).toBe('terminal.fontReset');
+    // 修飾の無い - や 0 は文字である。
+    expect(matchKey({ key: '-' })).toBeNull();
+    expect(matchKey({ key: '0' })).toBeNull();
   });
 
   it('戻ると進むは括弧でも矢印でも当たる', () => {

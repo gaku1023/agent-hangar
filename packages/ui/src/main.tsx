@@ -18,7 +18,7 @@ import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
 import { createHashLocation } from './runtime/hashLocation.ts';
 import { createRuntime } from './runtime/runtime.ts';
-import { createTerminalHost } from './runtime/terminals.ts';
+import { FONT_SIZE_KEY, createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
 import { createXterm } from './runtime/xterm.ts';
 import { focusSoon } from './runtime/focusSoon.ts';
@@ -38,7 +38,12 @@ const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const api = createApi();
 // ターミナルの接続は React の外で持つ。
 // 画面を行き来してもバッファとスクロール位置が残る。
-const terminals = createTerminalHost({ wsUrl: (tab) => `${wsProto}://${location.host}/ws/pty?tab=${encodeURIComponent(tab)}`, createTerminal: createXterm });
+// 文字の大きさは端末ごとの一時の好みなので、この端末の localStorage に置き、同期しない。読み書きの失敗は TerminalHost が吸う。
+const terminals = createTerminalHost({
+  wsUrl: (tab) => `${wsProto}://${location.host}/ws/pty?tab=${encodeURIComponent(tab)}`,
+  createTerminal: createXterm,
+  fontSize: { load: () => JSON.parse(localStorage.getItem(FONT_SIZE_KEY) ?? 'null'), save: (px) => localStorage.setItem(FONT_SIZE_KEY, JSON.stringify(px)) },
+});
 // Hangar.app に落としたファイルは、落とした位置の端末にパスとして渡す。
 window.addEventListener(FILE_DROP_EVENT, (e) => { handleFileDrop((e as CustomEvent).detail, { hit: (x, y) => document.elementFromPoint(x, y), paste: terminals.paste, focus: terminals.focus }); });
 // 直前に押した要素。行を開いたときに、どの行から広げるかを決めるのに使う。

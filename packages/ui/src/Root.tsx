@@ -138,6 +138,10 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         }
         case 'split.toggle': if (canSplit) { take(); rt.emit({ type: 'split.toggle' }); } return;
         case 'transcript.toggle': take(); rt.emit({ type: 'transcript.toggle' }); return;
+        // 端末のある画面でだけ受ける。ほかの画面ではブラウザの拡大に渡す。
+        case 'terminal.fontBigger': if (sessionId) { take(); props.terminals.zoom('in'); } return;
+        case 'terminal.fontSmaller': if (sessionId) { take(); props.terminals.zoom('out'); } return;
+        case 'terminal.fontReset': if (sessionId) { take(); props.terminals.zoom('reset'); } return;
         case 'palette.open': take(); rt.emit({ type: 'palette.open' }); return;
         case 'session.new': take(); rt.emit({ type: 'session.new.open', scratch: false }); return;
         case 'session.newScratch': take(); rt.emit({ type: 'session.new.open', scratch: true }); return;
@@ -166,7 +170,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, shortcutTabs, selectedTabId, canSplit]);
+  }, [rt, overlayKind, shortcutTabs, selectedTabId, canSplit, sessionId, props.terminals]);
 
   // トラックパッドの横スワイプ。
   // ネイティブの手勢はスナップショットを滑らせる演出まで付いてくるので使わず、横方向のホイールを自分で積む。

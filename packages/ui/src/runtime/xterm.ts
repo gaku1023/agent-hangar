@@ -35,6 +35,8 @@ export function createXterm(): TerminalLike {
     fit: () => { try { fit.fit(); } catch { /* 非表示のときは寸法が取れない */ } },
     focus: () => term.focus(),
     paste: (d) => term.paste(d),
+    // WebGL の描画は設定の変更を受けて文字の寸法を測り直す。
+    setFontSize(px) { if (term.options.fontSize !== px) term.options.fontSize = px; },
     setGpu(on) {
       if (!on) { dropGpu(); return; }
       if (gl || !term.element) return;

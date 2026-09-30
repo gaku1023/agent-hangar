@@ -4,6 +4,7 @@
  */
 import type { IClipboardProvider } from '@xterm/addon-clipboard';
 import type { ITerminalOptions } from '@xterm/xterm';
+import { FONT_SIZE } from './terminals.ts';
 
 /**
  * Shift+Enter で送る列。
@@ -41,7 +42,7 @@ export function createKeyHandler(input: (data: string) => void): (e: KeyEventLik
 export function terminalOptions(theme: { background: string; foreground: string }): ITerminalOptions {
   return {
     fontFamily: "'JetBrains Mono Variable', Menlo, monospace",
-    fontSize: 13,
+    fontSize: FONT_SIZE.default,
     lineHeight: 1.2,
     cursorBlink: true,
     scrollback: 5000,
