@@ -754,7 +754,7 @@ describe('プロジェクトを一覧から削除する確認', () => {
   });
   it('覆ったダイアログから起動し終えても、未解決のダイアログへ戻る', () => {
     const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } }), intent({ type: 'session.new.open', scratch: true })]);
-    const b = run([runtime({ type: 'launch.done', sessionId: 's9' })], a.state);
+    const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
     expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
     expect(b.state.unresolvedQueue).toEqual([]);
   });

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // addon-clipboard の束は読み込みのときに self を参照するので、DOM のある環境で読む。
-import { ClipboardAddon } from '@xterm/addon-clipboard';
+import { ClipboardAddon, type IClipboardProvider } from '@xterm/addon-clipboard';
 import type { Terminal } from '@xterm/xterm';
 import { describe, expect, it, vi } from 'vitest';
 import { NEWLINE_SEQ, clipboardProvider, createKeyHandler, terminalOptions } from './xtermSetup.ts';
@@ -137,7 +137,7 @@ describe('clipboardProvider', () => {
     const { raw } = withAddon(write);
     expect(raw('c;aGVsbG8=')).toBe(true);
     expect(write).toHaveBeenCalledWith('hello');
-    expect(clipboardProvider(write).writeText('c', 'hello')).toBeUndefined();
+    expect(clipboardProvider(write).writeText('c' as Parameters<IClipboardProvider['writeText']>[0], 'hello')).toBeUndefined();
   });
 
   it('書けなくても端末の処理は止めない', async () => {
