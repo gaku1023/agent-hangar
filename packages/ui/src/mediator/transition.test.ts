@@ -4,6 +4,7 @@ import type { Input } from './types.ts';
 import { NOT_YET } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
+import { periodStart, toSearchParams } from './screen.ts';
 
 function run(inputs: Input[], start: State = initialState()) {
   const effects: unknown[] = [];
@@ -78,6 +79,21 @@ describe('ナビゲーション', () => {
     expect(c.state.search.filter).toEqual({ projectId: 'p1' });
     expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1' } }]);
     expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+  });
+  // 期間は日数のまま効果に載せ、時刻に直すのは問い合わせる瞬間（Runtime）に任せる。
+  it('期間は日数のまま検索効果に載る', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })]);
+    const b = run([intent({ type: 'search.filter', patch: { days: 7 } })], a.state);
+    expect(b.state.search.filter).toEqual({ days: 7 });
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', days: 7 } }]);
+  });
+  it('期間の始まりは、今日の 0 時から数えて日数分さかのぼった 0 時', () => {
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    expect(periodStart(1, now)).toBe(new Date(2026, 9, 1).getTime());
+    expect(periodStart(7, now)).toBe(new Date(2026, 8, 25).getTime());
+    expect(periodStart(30, now)).toBe(new Date(2026, 8, 2).getTime());
+    expect(toSearchParams({ q: 'x', days: 1, projectId: 'p1' }, now)).toEqual({ q: 'x', projectId: 'p1', since: new Date(2026, 9, 1).getTime() });
+    expect(toSearchParams({ q: 'x' }, now)).toEqual({ q: 'x' });
   });
   // サーバは既定で 50 件までしか返さないので、続きは offset を付けて読み足す。
   it('search.more は今の条件のまま offset を付けて問い合わせる', () => {

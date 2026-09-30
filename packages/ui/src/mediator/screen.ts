@@ -1,6 +1,6 @@
 import type { SearchParamsDto } from '@agent-hangar/shared';
 import { agentTabStep } from './sessionView.ts';
-import type { Effect, Input, Overlay, State, Step } from './types.ts';
+import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
 
 /**
  * サーバに問い合わせるか。
@@ -11,11 +11,29 @@ export function usesServerSearch(search: State['search']): boolean {
   return search.text !== '' || !!search.filter.file;
 }
 
-export function searchParams(state: State): SearchParamsDto {
+/**
+ * 期間の始まりの時刻。
+ * days 日分は、今日の 0 時から数えて days - 1 日さかのぼった日の 0 時からである。
+ * 1 なら今日の 0 時からで、「今日」の帯が暦の今日と一致する。
+ */
+export function periodStart(days: number, now: number): number {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - (days - 1));
+  return d.getTime();
+}
+
+/** 日数で持った問い合わせを、送る時刻の since に直す。 */
+export function toSearchParams(query: SearchQuery, now: number): SearchParamsDto {
+  const { days, ...rest } = query;
+  return days ? { ...rest, since: periodStart(days, now) } : rest;
+}
+
+export function searchParams(state: State): SearchQuery {
   const f = state.search.filter;
-  const p: SearchParamsDto = { q: state.search.text };
+  const p: SearchQuery = { q: state.search.text };
   if (f.projectId) p.projectId = f.projectId;
-  if (f.since !== undefined) p.since = f.since;
+  if (f.days) p.days = f.days;
   if (f.until !== undefined) p.until = f.until;
   if (f.running !== undefined) p.running = f.running;
   if (f.file) p.file = f.file;

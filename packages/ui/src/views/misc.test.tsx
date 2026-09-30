@@ -54,17 +54,22 @@ describe('SessionsScreen', () => {
     fireEvent.keyDown(file, { key: 'Enter', isComposing: true });
     expect(onIntent).not.toHaveBeenCalled();
   });
-  it('期間は since を now から N 日前にする', () => {
+  // 期間は相対の日数で持つ。絶対の時刻で持つと、時間が経つにつれて表示の日数がずれ、半日ほどで「全期間」に見えていた。
+  it('期間は日数で持ち、時間が経っても選んだ帯のまま見える', () => {
     const onIntent = vi.fn();
-    const before = Date.now();
-    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
     fireEvent.click(screen.getByRole('radio', { name: '7 日' }));
-    const call = onIntent.mock.calls.find((c) => c[0].type === 'search.filter')?.[0];
-    expect(call).toBeDefined();
-    const since = call.patch.since as number;
-    expect(since).toBeGreaterThanOrEqual(before - 7 * 86_400_000);
-    expect(since).toBeLessThanOrEqual(Date.now() - 7 * 86_400_000);
-    expect(call.patch.until).toBeUndefined();
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { days: 7 } });
+    rerender(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{ days: 7 }} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
+    fireEvent.click(screen.getByRole('radio', { name: '全期間' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { days: undefined } });
+  });
+  it('選んだ期間の帯に印が付く', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ days: 1 }} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
+    const period = () => within(screen.getByRole('radiogroup', { name: '期間' }));
+    expect(period().getByRole('radio', { name: '今日' })).toHaveAttribute('aria-checked', 'true');
+    rerender(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ days: 30 }} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" /></IntentRoot>);
+    expect(period().getByRole('radio', { name: '30 日' })).toHaveAttribute('aria-checked', 'true');
   });
   it('画面の頭に見出しを置き、件数を添える', () => {
     render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={1196} total={1196} loading={false} loadingMore={false} mode="all" /></IntentRoot>);

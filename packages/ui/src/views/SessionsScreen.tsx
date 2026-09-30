@@ -5,8 +5,10 @@ import { SessionRows } from './SessionRows.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 
-const DAY = 86_400_000;
-/** 期間の選択肢。値は「今から何日前まで」を表し、空は絞り込みなし。 */
+/**
+ * 期間の選択肢。値は今日を含めた日数で、空は絞り込みなし。
+ * 「今日」は暦の今日（0 時から）、「7 日」は今日とその前の 6 日である（mediator/screen.ts の periodStart）。
+ */
 const PERIODS = [{ value: '', label: '全期間' }, { value: '1', label: '今日' }, { value: '7', label: '7 日' }, { value: '30', label: '30 日' }];
 /** 一覧の高さ。窓から、ヘッダとその下の隙間、画面の上下の余白、見出し、検索欄、絞り込みの段の分を引く（rows.css の .sessions-*）。 */
 const LIST_H = 'calc(100vh - 243px)';
@@ -16,7 +18,7 @@ const RUNNING = [{ value: '', label: 'すべて' }, { value: 'running', label: '
 /** セッション横断の一覧と検索。キーワードは Enter で search.query、絞り込みは変えるたびに search.filter を出す。 */
 export function SessionsScreen(props: SessionsProps) {
   const emit = useEmit();
-  const period = props.filter.since ? String(Math.round((Date.now() - props.filter.since) / DAY)) : '';
+  const period = props.filter.days ? String(props.filter.days) : '';
   // サーバが返したのが上位の一部なら、全件の数と並べて、並ぶ行の数と食い違わないようにする。
   const count = props.loading ? '検索しています' : props.shown < props.total ? `上位 ${props.shown} / ${props.total} 件` : `${props.total} 件`;
   const more = props.mode === 'search' && !props.loading && props.shown < props.total;
@@ -35,7 +37,7 @@ export function SessionsScreen(props: SessionsProps) {
         <Listbox label="プロジェクト" value={props.filter.projectId ?? ''} options={[{ value: '', label: 'すべてのプロジェクト' }, ...props.projects.map((p) => ({ value: p.id, label: p.name }))]}
           onChange={(v) => emit({ type: 'search.filter', patch: { projectId: v || undefined } })} faceClassName="listbox-face listbox-pill" minWidth={280} searchPlaceholder="プロジェクトを探す" />
         <Segmented label="期間" value={PERIODS.some((p) => p.value === period) ? period : ''} options={PERIODS}
-          onChange={(v) => emit({ type: 'search.filter', patch: { since: v ? Date.now() - Number(v) * DAY : undefined } })} />
+          onChange={(v) => emit({ type: 'search.filter', patch: { days: v ? Number(v) : undefined } })} />
         <Segmented label="状態" value={props.filter.running === undefined ? '' : props.filter.running ? 'running' : 'ended'} options={RUNNING}
           onChange={(v) => emit({ type: 'search.filter', patch: { running: v === '' ? undefined : v === 'running' } })} />
         <input className="input" aria-label="ファイル" placeholder="触ったファイル" defaultValue={props.filter.file ?? ''} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.filter', patch: { file: (e.target as HTMLInputElement).value || undefined } }); }} />

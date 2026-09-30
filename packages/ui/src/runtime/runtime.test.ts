@@ -116,6 +116,17 @@ describe('createRuntime', () => {
     expect(rt.getStore().search).toMatchObject({ loading: false, result: { total: 3 } });
     expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2', 's3']);
   });
+  it('期間の日数は、問い合わせる時刻で since に直してから送る', async () => {
+    const search = vi.fn(async () => ({ hits: [], total: 0 }));
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    const { rt, setHash } = harness({ search }, { now: () => now });
+    rt.start();
+    setHash('#/sessions?q=x');
+    await flush();
+    rt.emit({ type: 'search.filter', patch: { days: 1 } });
+    await flush();
+    expect(search).toHaveBeenLastCalledWith({ q: 'x', since: new Date(2026, 9, 1).getTime() });
+  });
   it('検索の続きに失敗しても、読み込み中のまま残さず、持っている結果も消さない', async () => {
     const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
     const search = vi.fn(async (p: { offset?: number }) => { if (p.offset) throw new Error('500 /api/search'); return { hits: [hit('s1')], total: 3 }; });

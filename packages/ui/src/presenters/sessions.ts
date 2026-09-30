@@ -1,5 +1,5 @@
 import type { SearchFilter } from '@agent-hangar/shared';
-import { usesServerSearch } from '../mediator/screen.ts';
+import { periodStart, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { markTerms } from './highlight.ts';
@@ -19,8 +19,8 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
     let list = Object.values(store.sessions);
     if (f.projectId) list = list.filter((s) => s.projectId === f.projectId);
     if (f.running !== undefined) list = list.filter((s) => (s.live !== null) === f.running);
-    const { since, until } = f;
-    if (since !== undefined) list = list.filter((s) => (s.lastActivityAt ?? 0) >= since);
+    const { days, until } = f;
+    if (days) { const since = periodStart(days, now); list = list.filter((s) => (s.lastActivityAt ?? 0) >= since); }
     if (until !== undefined) list = list.filter((s) => (s.lastActivityAt ?? 0) < until);
     const rows = sortSessions(list).map((s) => presentSessionRow(s, store, now));
     return { text: '', filter: f, projects, rows, shown: rows.length, total: rows.length, loading: false, loadingMore: false, mode: 'all' };

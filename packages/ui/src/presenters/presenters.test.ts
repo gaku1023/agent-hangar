@@ -372,6 +372,21 @@ describe('presentSessions', () => {
     expect(fresh).toMatchObject({ loading: true, loadingMore: false });
     expect(presentSessions(initialState(), base, NOW)).toMatchObject({ shown: 3, total: 3, loadingMore: false });
   });
+  it('期間は日数で持ち、手元の一覧は今日の 0 時から数えて絞る', () => {
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    const store = initialStore();
+    store.bootstrapped = true;
+    store.projects = { alpha: project('alpha') };
+    store.sessions = {
+      today: session('today', { lastActivityAt: new Date(2026, 9, 1, 0, 5).getTime() }),
+      yesterday: session('yesterday', { lastActivityAt: new Date(2026, 8, 30, 23, 55).getTime() }),
+      week: session('week', { lastActivityAt: new Date(2026, 8, 25, 1).getTime() }),
+    };
+    const ids = (days: number | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { days } } }, store, now).rows.map((r) => r.id);
+    expect(ids(1)).toEqual(['today']);
+    expect(ids(7)).toEqual(['today', 'yesterday', 'week']);
+    expect(ids(undefined)).toHaveLength(3);
+  });
   it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
     let store = storeWith();
     store = { ...store, search: { params: { q: '', file: 'a.md' }, result: { hits: [{ sessionId: 's2', matchCount: 3, snippets: [] }], total: 1 }, loading: false } };
