@@ -138,6 +138,28 @@ describe('ローカルコマンドの記録', () => {
   });
 });
 
+describe('本文のツール', () => {
+  const ev = [
+    { kind: 'tool_call' as const, seq: 0, toolId: 't', name: 'Bash', input: { command: 'npm test' }, summary: 'Bash npm test' },
+    { kind: 'tool_result' as const, seq: 1, toolId: 't', text: 'ok', isError: false },
+    { kind: 'tool_call' as const, seq: 2, toolId: 'u', name: 'Read', input: { file_path: '/w/app/a.ts' }, summary: 'Read /w/app/a.ts' },
+  ];
+  it('種類ごとの見せ方を持ち、パスは作業ディレクトリからの相対にする', () => {
+    const items = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    expect(items[0]).toMatchObject({ kind: 'tool', view: { step: 'run', head: { main: 'npm test', meta: [{ text: '0', tone: 'ok' }] } }, raw: null });
+    expect(items[1]).toMatchObject({ kind: 'tool', view: { step: 'read', head: { main: 'a.ts' } } });
+  });
+  it('生の入力の JSON は、生の記録を出すときだけ持つ', () => {
+    const [item] = buildItems(ev, { showThinking: false, showRaw: true, subagents: [], cwd: '/w/app' });
+    expect(item).toMatchObject({ raw: { input: '{\n  "command": "npm test"\n}', result: 'ok' } });
+  });
+  it('同じ呼び出しと結果の見せ方は、描き直すたびには作らない', () => {
+    const a = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    const b = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    expect(a[0]!.kind === 'tool' && b[0]!.kind === 'tool' && a[0]!.view === b[0]!.view).toBe(true);
+  });
+});
+
 describe('本文の無い system', () => {
   const events = [
     { kind: 'system' as const, seq: 1, ts: 1, text: 'turn_duration', subtype: 'turn_duration' },

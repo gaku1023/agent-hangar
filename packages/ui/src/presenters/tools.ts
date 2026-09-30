@@ -160,7 +160,9 @@ export function presentTool(call: ToolCallEvent, result: { text: string; isError
     case 'WebSearch': {
       const query = str(input.query) ?? '';
       const links = result && !result.isError ? searchLinks(result.text) : [];
-      return view(query, null, links.length > 0 ? [{ text: `${links.length} 件`, tone: 'plain' }] : [], { kind: 'search', query, links });
+      // 結果の形が読めなかったときは、結果の文をそのまま下に出す。
+      const res = links.length === 0 && result ? result.text : failText;
+      return view(query, null, links.length > 0 ? [{ text: `${links.length} 件`, tone: 'plain' }] : [], { kind: 'search', query, links }, res);
     }
     case 'Grep': case 'Glob': {
       const where = [str(input.path) ? relPath(str(input.path)!, cwd) : undefined, str(input.glob)].filter((x): x is string => !!x);

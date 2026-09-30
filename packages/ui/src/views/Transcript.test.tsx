@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { TranscriptItem } from '../presenters/session.ts';
+import { toolItem } from '../test/items.ts';
 import { Transcript, rowWindow } from './Transcript.tsx';
 
 const items: TranscriptItem[] = [
@@ -133,7 +134,7 @@ describe('Transcript の仮想スクロール', () => {
     expect(t.container.querySelectorAll('.msg').length).toBe(t.seqs().length);
   });
   it('窓に入っているサブエージェントのボタンは今までどおり効く', () => {
-    const tail: TranscriptItem[] = [...many(4999), { kind: 'tool', seq: 4999, summary: 'Agent x', name: 'Agent', inputJson: '{}', result: null, when: '10:00', subagent: { agentId: 'abc', label: 'Agent x' } }];
+    const tail: TranscriptItem[] = [...many(4999), toolItem(4999, 'Agent', { description: 'x' }, null, { subagent: { agentId: 'abc', label: 'Agent x' } })];
     const t = draw({ items: tail, follow: true });
     t.scrollTo(999_000);
     fireEvent.click(t.getByText('サブエージェント abc を見る'));
@@ -257,14 +258,24 @@ describe('rowWindow', () => {
 });
 
 describe('Transcript のツールの行', () => {
-  const long = 'Bash cd /Users/satog/.claude/projects/-Users-satog-workspace-agent-hangar/memory && grep -n "Dock" feedback-always-build-before-returning.md';
-  const tool: TranscriptItem = { kind: 'tool', seq: 0, summary: long, name: 'Bash', inputJson: '{}', result: null, when: '22:54', subagent: null };
+  const long = 'cd /Users/satog/.claude/projects/-Users-satog-workspace-agent-hangar/memory && grep -n "Dock" feedback-always-build-before-returning.md';
+  const tool = toolItem(0, 'Bash', { command: long }, null);
   it('要約は 1 行に収める器に入れ、全文は title で読めるようにする', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={[tool]} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
-    const summary = container.querySelector('.tool-summary');
+    const summary = container.querySelector('.tool-sum');
     expect(summary?.textContent).toBe(long);
-    expect(summary?.getAttribute('title')).toBe(long);
+    expect(container.querySelector('.trow')?.getAttribute('title')).toBe(long);
     cleanup();
+  });
+  it('開いたツールは、窓の外へ出て戻っても開いたまま', () => {
+    const t = draw({ items: [toolItem(0, 'Bash', { command: 'npm test' }, { text: 'PASS', isError: false }), ...many(3000, 1)], follow: false });
+    t.scrollTo(0);
+    fireEvent.click(t.container.querySelector('.tr-row[data-seq="0"] .trow')!);
+    expect(t.container.querySelector('.tr-row[data-seq="0"] .bash')).not.toBeNull();
+    t.scrollTo(100_000);
+    expect(t.container.querySelector('.tr-row[data-seq="0"]')).toBeNull();
+    t.scrollTo(0);
+    expect(t.container.querySelector('.tr-row[data-seq="0"] .bash')).not.toBeNull();
   });
 });
 
@@ -274,6 +285,25 @@ describe('Transcript の本文', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
     expect(container.querySelector('.msg-assistant strong')?.textContent).toBe('太字');
     expect(container.querySelector('.msg-assistant code')?.textContent).toBe('code');
+    cleanup();
+  });
+  it('Claude の返答は吹き出しにも入れ子のスクロールにもしない', () => {
+    const md: TranscriptItem[] = [{ kind: 'assistant', seq: 0, text: '返答', when: '10:00' }];
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
+    const el = container.querySelector('.msg-assistant') as HTMLElement;
+    expect(el.style.maxHeight).toBe('');
+    expect(el.style.overflow).toBe('');
+    expect(el.querySelector('.md')).not.toBeNull();
+    cleanup();
+  });
+  it('長い返答は高さで切り、「全文を表示（残り N 行）」で開く', () => {
+    const text = Array.from({ length: 64 }, (_, i) => `段落 ${i + 1}`).join('\n');
+    const md: TranscriptItem[] = [{ kind: 'assistant', seq: 0, text, when: '10:00' }];
+    const { container, getByRole } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
+    expect(container.querySelector('.msg-assistant .clamp[data-clamped="true"]')).not.toBeNull();
+    fireEvent.click(getByRole('button', { name: '全文を表示（残り 49 行）' }));
+    expect(container.querySelector('.msg-assistant .clamp[data-clamped="true"]')).toBeNull();
+    expect(getByRole('button', { name: '畳む' })).toBeInTheDocument();
     cleanup();
   });
   it('利用者の本文は打ったとおりに出す', () => {

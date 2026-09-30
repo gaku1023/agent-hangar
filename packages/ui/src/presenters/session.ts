@@ -6,12 +6,14 @@ import { DEFAULT_DAYS, daysLabel, EXTEND_TO, transcriptMark } from './retention.
 import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
+import { presentTool, type ToolView } from './tools.ts';
 import { buildTurns } from './turns.ts';
 import type { TurnJumpStatus } from '../mediator/types.ts';
 
 export type TranscriptItem =
   | { kind: 'user' | 'assistant' | 'thinking' | 'system'; seq: number; text: string; when: string }
-  | { kind: 'tool'; seq: number; summary: string; name: string; inputJson: string; result: { text: string; isError: boolean } | null; when: string; subagent: { agentId: string; label: string } | null }
+  // view は種類ごとの見せ方。raw は生の記録を出すときだけ持つ、生の入力の JSON と結果の文である。
+  | { kind: 'tool'; seq: number; summary: string; name: string; view: ToolView; raw: { input: string; result: string | null } | null; result: { text: string; isError: boolean } | null; when: string; subagent: { agentId: string; label: string } | null }
   | { kind: 'meta'; seq: number; name: string; json: string };
 export type TabItemProps = { id: string; title: string; kind: 'agent' | 'shell'; selected: boolean; closable: boolean };
 /** 目次の 1 行。head は左のターミナルの指示の行と突き合わせる書き出しで、跳ぶ要求にそのまま載る。 */
@@ -92,7 +94,22 @@ export function localCommandText(text: string): string | null {
   return text;
 }
 
-export function buildItems(events: TranscriptEvent[], opts: { showThinking: boolean; showRaw: boolean; subagents: string[] }): TranscriptItem[] {
+type ToolCall = Extract<TranscriptEvent, { kind: 'tool_call' }>;
+type ToolResult = { text: string; isError: boolean };
+/**
+ * ツールの見せ方の控え。差分を取るので安くはなく、描くたびに作り直すと重い。
+ * ストアの本文は同じ呼び出しを同じ物のまま持つので、呼び出しの物を鍵にし、結果か作業ディレクトリが変わったときだけ作り直す。
+ */
+const toolViews = new WeakMap<ToolCall, { result: ToolResult | null; cwd: string; view: ToolView }>();
+function toolView(call: ToolCall, result: ToolResult | null, cwd: string): ToolView {
+  const hit = toolViews.get(call);
+  if (hit && hit.cwd === cwd && (hit.result === result || (hit.result?.text === result?.text && hit.result?.isError === result?.isError))) return hit.view;
+  const view = presentTool(call, result, cwd);
+  toolViews.set(call, { result, cwd, view });
+  return view;
+}
+
+export function buildItems(events: TranscriptEvent[], opts: { showThinking: boolean; showRaw: boolean; subagents: string[]; cwd?: string }): TranscriptItem[] {
   const results = new Map<string, { text: string; isError: boolean }>();
   for (const e of events) if (e.kind === 'tool_result') results.set(e.toolId, { text: e.text, isError: e.isError });
   const items: TranscriptItem[] = [];
@@ -111,7 +128,9 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
       case 'thinking': if (opts.showThinking) items.push({ kind: 'thinking', seq: e.seq, text: e.text, when: when(e.ts) }); break;
       case 'tool_call': {
         const sub = SUBAGENT_TOOLS.has(e.name) && opts.subagents[nextSub] ? { agentId: opts.subagents[nextSub++]!, label: e.summary } : null;
-        items.push({ kind: 'tool', seq: e.seq, summary: e.summary, name: e.name, inputJson: JSON.stringify(e.input, null, 2), result: results.get(e.toolId) ?? null, when: when(e.ts), subagent: sub });
+        const result = results.get(e.toolId) ?? null;
+        const raw = opts.showRaw ? { input: JSON.stringify(e.input, null, 2) ?? '', result: result?.text ?? null } : null;
+        items.push({ kind: 'tool', seq: e.seq, summary: e.summary, name: e.name, view: toolView(e, result, opts.cwd ?? ''), raw, result, when: when(e.ts), subagent: sub });
         break;
       }
       case 'tool_result': break;
@@ -136,7 +155,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   let sorted = true;
   for (let i = 1; i < raw.length; i++) if (raw[i]!.seq < raw[i - 1]!.seq) { sorted = false; break; }
   const events = sorted ? raw : [...raw].sort((a, b) => a.seq - b.seq);
-  const itemOpts = { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [] };
+  const itemOpts = { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [], cwd: s.cwd };
   const items = buildItems(events, itemOpts);
   const turnList = buildTurns(events);
   const openTurn = turnList.find((t) => t.seq === view.openTurn) ?? null;

@@ -26,8 +26,8 @@ function inline(nodes: Inline[]): ReactNode[] {
 /** 囲みのコード。上の帯に言語名とコピーのボタンを置く。中身を差し替えるときは children に渡す。 */
 export function CodeBlock(props: { lang: string; text: string; note?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="code">
-      <div className="code-h">
+    <div className="codeblock">
+      <div className="codeblock-h">
         {props.lang && <span className="code-lang">{props.lang}</span>}
         {props.note}
         <CopyButton text={props.text} />

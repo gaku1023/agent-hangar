@@ -1,33 +1,25 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { TranscriptItem } from '../presenters/session.ts';
-import { Fold } from './primitives/Fold.tsx';
-import { Icon } from './primitives/Icon.tsx';
+import { Clamp, estimateLines, MSG_LINES } from './primitives/Clamp.tsx';
+import { Hl } from './primitives/Hl.tsx';
 import { Markdown } from './primitives/Markdown.tsx';
+import { ToolItem } from './ToolItem.tsx';
+import { OpenContext, type OpenStore } from './transcriptOpen.tsx';
 
-function ToolItem({ sessionId, item }: { sessionId: string; item: Extract<TranscriptItem, { kind: 'tool' }> }) {
-  const emit = useEmit();
-  return (
-    <div className={`tool ${item.result?.isError ? 'tool-error' : ''}`}>
-      {/* 要約はコマンドの全文なので長い。折り返すと畳んだ行の高さを越えて次の行に重なるので、1 行で切って全文は title に持たせる。 */}
-      <Fold summary={<><Icon name="tool" /><span className="tool-summary mono" title={item.summary}>{item.summary}</span><span className="faint mono">{item.when}</span></>}>
-        <div className="tool-body mono">{item.inputJson}</div>
-        {item.result && <div className="tool-body mono" style={{ marginTop: 4 }}>{item.result.text || '（出力なし）'}</div>}
-      </Fold>
-      {item.subagent && <div className="sub"><button className="btn" onClick={() => emit({ type: 'transcript.selectAgent', sessionId, agentId: item.subagent!.agentId })}><Icon name="subagent" />サブエージェント {item.subagent.agentId} を見る</button></div>}
-    </div>
-  );
-}
-
+/**
+ * 本文の 1 行。
+ * 利用者の指示は打ったとおりに右寄せの吹き出しで見せ、Claude の返答は吹き出しをやめて地の文の Markdown にする（M2）。
+ * 長いものは入れ子のスクロールにせず、高さで切って下端をぼかす（F1）。
+ */
 export function renderItem(sessionId: string, it: TranscriptItem): ReactNode {
   switch (it.kind) {
-    case 'user': return <div className="msg msg-user" style={{ maxHeight: '60vh', overflow: 'auto' }}>{it.text}</div>;
-    // 利用者の本文は打ったとおりに見せ、Claude の書いた本文だけを Markdown として読む。
-    case 'assistant': return <div className="msg msg-assistant" style={{ maxHeight: '60vh', overflow: 'auto' }}><Markdown text={it.text} /></div>;
-    case 'thinking': return <div className="msg msg-thinking"><Markdown text={it.text} /></div>;
-    case 'system': return <div className="msg msg-system">{it.text}</div>;
+    case 'user': return <div className="msg msg-user"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text, 60)} shown={MSG_LINES} tone="accent" height>{() => <Hl text={it.text} />}</Clamp></div>;
+    case 'assistant': return <div className="msg msg-assistant"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text)} shown={MSG_LINES} height>{() => <Markdown text={it.text} />}</Clamp></div>;
+    case 'thinking': return <div className="msg msg-thinking"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text)} shown={MSG_LINES} height>{() => <Markdown text={it.text} />}</Clamp></div>;
+    case 'system': return <div className="msg msg-system"><Hl text={it.text} /></div>;
     case 'tool': return <ToolItem sessionId={sessionId} item={it} />;
-    case 'meta': return <div className="msg msg-system mono">{it.name} {it.json}</div>;
+    case 'meta': return <div className="msg msg-system mono"><Hl text={`${it.name} ${it.json}`} /></div>;
   }
 }
 
@@ -78,6 +70,15 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   const [, remeasured] = useReducer((n: number) => n + 1, 0);
   // 器のスクロール位置と高さ。これが変わったときだけ窓を引き直す。
   const [box, setBox] = useState({ top: 0, height: 0, rowsTop: 0 });
+  // 行の中で開いたもの（ツールの中身、畳んだ長い本文）。行は窓の外へ出ると DOM から外れるので、ここで覚える。
+  const opened = useRef(new Map<string, boolean>());
+  const revealed = useRef(new Set<number>());
+  const [, reopened] = useReducer((n: number) => n + 1, 0);
+  const openStore = useMemo<OpenStore>(() => ({
+    get: (seq, part) => opened.current.get(`${seq}:${part}`),
+    set: (seq, part, open) => { opened.current.set(`${seq}:${part}`, open); reopened(); },
+    revealed: (seq) => revealed.current.has(seq),
+  }), []);
   // 追従を切っている間に届いた新着の件数だけを、この View の局所状態として持つ。
   const [unseen, setUnseen] = useState(0);
   // 行は seq の順に並んでいるので、いちばん新しい seq は末尾から取れる。
@@ -225,6 +226,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   };
 
   return (
+    <OpenContext.Provider value={openStore}>
     <div ref={boxRef} className="tr" onScroll={onScroll}>
       {n === 0 && !props.loading && <div className="empty">本文がありません</div>}
       {/* 押すと過去が前に入るので、ボタンは一覧の上に置く。窓の外にあるので仮想化の対象にしない。 */}
@@ -237,5 +239,6 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
       {props.live && !props.follow && unseen > 0 && <button className="btn btn-primary new-banner" onClick={() => emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true })}>新着 {unseen} 件</button>}
       <div ref={endRef} />
     </div>
+    </OpenContext.Provider>
   );
 }
