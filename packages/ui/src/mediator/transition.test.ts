@@ -385,18 +385,71 @@ describe('タブと接続', () => {
   });
 });
 
-describe('waiting のトースト', () => {
-  const live = (id: string, status: 'busy' | 'waiting', name: string | null = null) => ({ sessionId: id, status, name, nameSource: null, cwd: '/x', pid: 1 });
-  it('新たに waiting になったものだけ知らせ、戻れば忘れる', () => {
-    const a = run([server({ type: 'live.update', live: [live('u1', 'waiting', 'alpha'), live('u2', 'busy')] })]);
-    expect(a.effects).toEqual([{ kind: 'toast', level: 'info', message: '「alpha」があなたの入力を待っています' }]);
-    expect(a.state.waitingSeen).toEqual(['u1']);
-    const b = run([server({ type: 'live.update', live: [live('u1', 'waiting', 'alpha'), live('u2', 'waiting')] })], a.state);
-    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '「u2」があなたの入力を待っています' }]);
-    const c = run([server({ type: 'live.update', live: [live('u1', 'busy')] })], b.state);
-    expect(c.effects).toEqual([]);
+describe('入力待ちの知らせ', () => {
+  const waiting = (...ids: string[]) => runtime({ type: 'waiting.changed', ids });
+  it('新たに入力待ちになったセッションをカードに積み、通知とバッジの効果を出す', () => {
+    const a = run([waiting('s1')]);
+    expect(a.state.waitingToasts).toEqual(['s1']);
+    expect(a.state.waitingSeen).toEqual(['s1']);
+    expect(a.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }, { kind: 'badge', count: 1 }]);
+    const b = run([waiting('s1', 's2')], a.state);
+    expect(b.state.waitingToasts).toEqual(['s1', 's2']);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's2' }, { kind: 'badge', count: 2 }]);
+  });
+  it('入力待ちが解けたらカードを消し、同じ数なら数え直さない', () => {
+    const a = run([waiting('s1', 's2')]);
+    const b = run([waiting('s2', 's3')], a.state);
+    expect(b.state.waitingToasts).toEqual(['s2', 's3']);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's3' }]);
+    const c = run([waiting()], b.state);
+    expect(c.state.waitingToasts).toEqual([]);
     expect(c.state.waitingSeen).toEqual([]);
-    expect(run([server({ type: 'live.update', live: [live('u1', 'waiting', 'alpha')] })], c.state).effects).toHaveLength(1);
+    expect(c.effects).toEqual([{ kind: 'badge', count: 0 }]);
+  });
+  it('解けてからまた入力待ちになれば、もう一度知らせる', () => {
+    const a = run([waiting('s1'), waiting(), waiting('s1')]);
+    expect(a.state.waitingToasts).toEqual(['s1']);
+    expect(a.effects.filter((e) => (e as { kind: string }).kind === 'notify.waiting')).toHaveLength(2);
+  });
+  it('いま開いているセッションの入力待ちはカードにしない。通知の効果は出す（窓が背面なら見えていないため）', () => {
+    const a = run([waiting('s1', 's2')], onSession('s1'));
+    expect(a.state.waitingToasts).toEqual(['s2']);
+    expect(a.effects).toContainEqual({ kind: 'notify.waiting', sessionId: 's1' });
+  });
+  it('カードのセッションを開いたら、そのカードを消す', () => {
+    const a = run([waiting('s1', 's2')]);
+    const b = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], a.state);
+    expect(b.state.waitingToasts).toEqual(['s2']);
+    // 開いて見たので、離れても同じ入力待ちをまた積まない。
+    const c = run([runtime({ type: 'hash.changed', route: { name: 'home' } }), waiting('s1', 's2')], b.state);
+    expect(c.state.waitingToasts).toEqual(['s2']);
+  });
+  it('入力待ちのカードは info や error のトーストとは別に持つ', () => {
+    const a = run([waiting('s1'), server({ type: 'toast', level: 'info', message: 'x' })]);
+    expect(a.state.toasts.map((t) => t.message)).toEqual(['x']);
+    expect(a.state.waitingToasts).toEqual(['s1']);
+  });
+  it('live.update そのものではカードを積まない（どのセッションかはランタイムが決めて返す）', () => {
+    const live = { sessionId: 'u1', status: 'waiting' as const, name: 'alpha', nameSource: null, cwd: '/x', pid: 1 };
+    const a = run([server({ type: 'live.update', live: [live] })]);
+    expect(a.state.waitingToasts).toEqual([]);
+    expect(a.effects).toEqual([]);
+  });
+});
+
+describe('通知を受け取るか', () => {
+  it('受け取るにすると、許可を求める効果だけを出す。結果が届いてから切り替える', () => {
+    const a = run([intent({ type: 'notify.set', on: true })]);
+    expect(a.effects).toEqual([{ kind: 'notify.request' }]);
+    expect(a.state.notify.on).toBe(false);
+    const b = run([runtime({ type: 'notify.changed', available: true, on: true })], a.state);
+    expect(b.state.notify).toEqual({ available: true, on: true });
+  });
+  it('受け取らないにすると、その場で切り替えて覚える', () => {
+    const on = run([runtime({ type: 'notify.changed', available: true, on: true })]).state;
+    const a = run([intent({ type: 'notify.set', on: false })], on);
+    expect(a.state.notify).toEqual({ available: true, on: false });
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'notify.waiting', value: false }]);
   });
 });
 

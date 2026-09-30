@@ -874,3 +874,110 @@ describe('保持期間（ランタイム）', () => {
     expect(rt.getStore().retention).toEqual(R);
   });
 });
+
+describe('入力待ちの知らせ', () => {
+  const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
+  const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '請求書の書き出し', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, ...over });
+  const live = (sessionId: string, status: 'busy' | 'waiting') => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
+  function fakeNotifier(o: { available?: boolean; defaultOn?: boolean; granted?: boolean; background?: boolean; grant?: boolean } = {}) {
+    let open: ((id: string) => void) | null = null;
+    return {
+      defaultOn: o.defaultOn ?? true,
+      available: () => o.available ?? true,
+      granted: () => o.granted ?? true,
+      request: vi.fn(async () => o.grant ?? true),
+      prepare: vi.fn(),
+      background: () => o.background ?? true,
+      show: vi.fn(),
+      badge: vi.fn(),
+      onOpen: (cb: (id: string) => void) => { open = cb; return () => { open = null; }; },
+      fireOpen: (id: string) => open?.(id),
+    };
+  }
+  async function started(notifier: ReturnType<typeof fakeNotifier> | undefined, sessions: SessionDto[] = [waitingSession()], stored?: boolean) {
+    const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions })) }, notifier ? { notifier } : {});
+    if (stored !== undefined) h.store.set('notify.waiting', stored);
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    return h;
+  }
+
+  it('live.update をセッションに引き当てて、入力待ちのカードとバッジにする', async () => {
+    const n = fakeNotifier();
+    const { rt, wsHandlers } = await started(n);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(rt.getState().waitingToasts).toEqual(['s1']);
+    expect(n.badge).toHaveBeenLastCalledWith(1);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'busy')] });
+    expect(rt.getState().waitingToasts).toEqual([]);
+    expect(n.badge).toHaveBeenLastCalledWith(0);
+  });
+  it('起動したときにもう入力待ちのセッションも、カードにする', async () => {
+    const n = fakeNotifier();
+    const { rt } = await started(n, [waitingSession({ live: 'waiting' })]);
+    expect(rt.getState().waitingToasts).toEqual(['s1']);
+    expect(n.badge).toHaveBeenLastCalledWith(1);
+  });
+  it('窓が背面にあり、受け取る設定なら、名前を題に問いを本文にして通知する', async () => {
+    const n = fakeNotifier();
+    const { wsHandlers } = await started(n, [waitingSession({ activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '用紙の向きをどちらにしますか' } })]);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '用紙の向きをどちらにしますか' });
+  });
+  it('問いが取れないときは「入力を待っています」、名前が無ければ「（名前なし）」', async () => {
+    const n = fakeNotifier();
+    const { wsHandlers } = await started(n, [waitingSession({ name: null })]);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '（名前なし）', body: '入力を待っています' });
+  });
+  it('窓が前にあるときと、受け取らない設定のときは通知しない', async () => {
+    const front = fakeNotifier({ background: false });
+    (await started(front)).wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(front.show).not.toHaveBeenCalled();
+    const off = fakeNotifier();
+    (await started(off, undefined, false)).wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(off.show).not.toHaveBeenCalled();
+  });
+  it('通知を押したら、そのセッションを開いてターミナルにフォーカスする', async () => {
+    const n = fakeNotifier();
+    const { rt } = await started(n);
+    n.fireOpen('s1');
+    expect(rt.getState().screen).toEqual({ name: 'session', id: 's1' });
+  });
+  it('選んでいなければ環境の既定に従い、既定で受け取る環境ではあらかじめ許可を尋ねておく', async () => {
+    const desk = fakeNotifier({ defaultOn: true });
+    expect((await started(desk)).rt.getState().notify).toEqual({ available: true, on: true });
+    expect(desk.prepare).toHaveBeenCalledTimes(1);
+    const web = fakeNotifier({ defaultOn: false, granted: false });
+    expect((await started(web)).rt.getState().notify).toEqual({ available: true, on: false });
+    expect(web.prepare).not.toHaveBeenCalled();
+    // 受け取ると選んでいても、ブラウザの許可が外れていれば受け取らない。
+    const revoked = fakeNotifier({ defaultOn: false, granted: false });
+    expect((await started(revoked, undefined, true)).rt.getState().notify.on).toBe(false);
+  });
+  it('受け取るにすると許可を求め、許されたら切り替えて覚える', async () => {
+    const n = fakeNotifier({ defaultOn: false, granted: false });
+    const { rt, store } = await started(n);
+    rt.emit({ type: 'notify.set', on: true });
+    expect(n.request).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(rt.getState().notify.on).toBe(true);
+    expect(store.get('notify.waiting')).toBe(true);
+  });
+  it('許されなかったら受け取らないままにして、そう知らせる', async () => {
+    const n = fakeNotifier({ defaultOn: false, granted: false, grant: false });
+    const { rt, store } = await started(n);
+    rt.emit({ type: 'notify.set', on: true });
+    await flush();
+    expect(rt.getState().notify.on).toBe(false);
+    expect(store.get('notify.waiting')).toBeUndefined();
+    expect(rt.getState().toasts.at(-1)?.message).toBe('通知が許可されませんでした');
+  });
+  it('通知の仕組みが無い環境でも、カードは積む', async () => {
+    const { rt, wsHandlers } = await started(undefined);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(rt.getState().waitingToasts).toEqual(['s1']);
+    expect(rt.getState().notify).toEqual({ available: false, on: false });
+  });
+});
