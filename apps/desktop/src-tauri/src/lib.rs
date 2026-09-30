@@ -6,6 +6,7 @@ pub mod deeplink;
 pub mod filedrop;
 pub mod health;
 pub mod node;
+pub mod notify;
 pub mod paths;
 pub mod server;
 
@@ -709,6 +710,53 @@ fn watch_swipe_phase(app: &AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn watch_swipe_phase(_app: &AppHandle) {}
 
+/// 入力待ちの通知を出す。頁（UI）が、窓が背面にあるときに呼ぶ。
+/// 値は頁から来るので、notify::waiting で確かめてから OS に渡す。
+#[tauri::command]
+fn notify_waiting(session_id: String, title: String, body: String) -> Result<(), String> {
+    let w = notify::waiting(&session_id, &title, &body)?;
+    notify::show(&w);
+    Ok(())
+}
+
+/// 通知の許可を求め、許されたかを返す。
+/// 決まっていなければ OS が尋ねる。
+/// 利用者が答えるまで待つので、窓の描画を止めないよう別のスレッドで待つ。
+#[tauri::command]
+async fn notify_request() -> bool {
+    tauri::async_runtime::spawn_blocking(|| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        notify::request(move |granted| {
+            let _ = tx.send(granted);
+        });
+        rx.recv_timeout(Duration::from_secs(600)).unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
+}
+
+/// 押された通知のセッションを開く。
+/// 窓を前に出し、頁が出来上がっていれば頁の受け口でターミナルにフォーカスして開く。
+/// 出来上がる前（押された通知でアプリが起きたときなど）は、ディープリンクと同じくハッシュとして貯める。
+fn open_waiting(app: &AppHandle, session_id: &str) {
+    log("waiting notification opened");
+    let loaded = {
+        let state = app.state::<AppState>();
+        let ui = state.ui.lock().unwrap();
+        ui.ready && ui.loaded
+    };
+    if !loaded {
+        apply_hash(app, format!("#/session/{session_id}"));
+        return;
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        let _ = w.eval(notify::open_js(session_id));
+    }
+}
+
 /// 窓に落とされたファイルを drops/ に写し、写した先を落とした位置と一緒に UI へ渡す。
 /// 写すのは別のスレッドで行い、窓の描画を止めない。
 fn file_dropped(
@@ -764,9 +812,14 @@ pub fn run() {
                 page_loaded(webview.app_handle(), is_server_page(payload.url()));
             }
         })
+        // 頁から呼べるのはこの 2 つだけで、remote の頁に許すのは capabilities/remote-notify.json である。
+        .invoke_handler(tauri::generate_handler![notify_waiting, notify_request])
         .setup(|app| {
             log("setup");
             watch_swipe_phase(app.handle());
+            // 押された通知でアプリが起きたときも受け取れるよう、窓を動かす前に付ける。
+            let handle = app.handle().clone();
+            notify::install(move |id| open_waiting(&handle, &id));
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 handle_urls(&handle, &event.urls());

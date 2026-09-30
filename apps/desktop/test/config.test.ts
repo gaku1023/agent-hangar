@@ -108,8 +108,8 @@ describe('読み込み画面', () => {
 describe('capabilities', () => {
   const dir = path.join(app, 'src-tauri', 'capabilities');
   const cap = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-  it('置くのは既定と、窓を動かすための 2 つだけ', () => {
-    expect(fs.readdirSync(dir).sort()).toEqual(['default.json', 'remote-drag.json']);
+  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるための 3 つだけ', () => {
+    expect(fs.readdirSync(dir).sort()).toEqual(['default.json', 'remote-drag.json', 'remote-notify.json']);
   });
   it('既定の権限は core:default のまま変えない', () => {
     expect(cap('default.json').permissions).toEqual(['core:default']);
@@ -122,11 +122,31 @@ describe('capabilities', () => {
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
     expect(c.permissions).toEqual(['core:window:allow-start-dragging', 'core:window:allow-internal-toggle-maximize']);
   });
+  // 入力待ちの知らせのために、通知を出す、通知の許可を求める、Dock のバッジに数を出すの 3 つだけを足す。
+  it('UI の出どころには、入力待ちの通知と Dock のバッジの 3 つだけ与える', () => {
+    const c = cap('remote-notify.json');
+    expect(c.windows).toEqual(['main']);
+    expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
+    expect(c.permissions).toEqual(['allow-notify-waiting', 'allow-notify-request', 'core:window:allow-set-badge-count']);
+  });
   // 権限の出どころのポートと、殻がサーバを立てるポートは別のファイルにある。片方だけ変えると、ヘッダを掴んでも窓が動かなくなる。
   it('権限の出どころのポートは、殻がサーバを立てるポート（server.rs の PORT）と同じ', () => {
     const port = read('src-tauri/src/server.rs').match(/pub const PORT: u16 = (\d+);/)?.[1];
     expect(port).toBeDefined();
     expect(cap('remote-drag.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
+    expect(cap('remote-notify.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
+  });
+  // 殻のコマンドの名前は、殻（build.rs と lib.rs）と画面（notifier.ts）に分かれている。片方だけ変えると、通知が黙って出なくなる。
+  it('画面が呼ぶ殻のコマンドは、殻が並べて登録したものと同じ', () => {
+    const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/notifier.ts'), 'utf8');
+    const build = read('src-tauri/build.rs');
+    const lib = read('src-tauri/src/lib.rs');
+    for (const cmd of ['notify_waiting', 'notify_request']) {
+      expect(ui).toContain(`'${cmd}'`);
+      expect(build).toContain(`"${cmd}"`);
+      expect(lib).toMatch(new RegExp(`generate_handler!\\[[^\\]]*\\b${cmd}\\b`));
+    }
+    expect(ui).toContain("'plugin:window|set_badge_count'");
   });
 });
 
