@@ -617,15 +617,23 @@ describe('書式', () => {
 describe('presentShell の接続', () => {
   it('つながっている間は何も出さない', () => {
     const s = { ...initialState(), connection: 'connected' as const };
-    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: false, staleLabel: '', retryLabel: '' });
+    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false });
   });
   it('切れている間は、止まった時刻と次に試すまでの秒を出す', () => {
     const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW - 120_000, nextRetryAt: NOW + 7_500 };
-    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します' });
+    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します', hard: false, desktop: false });
   });
   it('切れた直後は、時刻を言わずに止まったとだけ言う', () => {
     const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW - 30_000, nextRetryAt: NOW + 2_000 };
     expect(presentShell(s, initialStore(), NOW).conn.staleLabel).toBe('画面の更新が止まっています');
+  });
+  it('再接続が 3 回続けて失敗したら、同じ帯を強い形に切り替える（初回と障害の B1）', () => {
+    // 最初の切断で 1、再接続の失敗ごとに 1 ずつ増える。3 回の失敗は 4 である。
+    const at = (reconnectAttempt: number) => ({ ...initialState(), connection: 'disconnected' as const, staleSince: NOW, nextRetryAt: NOW + 1000, reconnectAttempt });
+    expect(presentShell(at(3), initialStore(), NOW).conn.hard).toBe(false);
+    expect(presentShell(at(4), initialStore(), NOW).conn.hard).toBe(true);
+    // 殻の中なら、ログを開くと再起動を殻に頼める。
+    expect(presentShell(at(4), { ...initialStore(), desktop: true }, NOW).conn.desktop).toBe(true);
   });
   it('待ち時間が尽きたら、試している最中だと出す', () => {
     const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW, nextRetryAt: NOW };
