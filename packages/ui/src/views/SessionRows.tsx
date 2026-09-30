@@ -41,8 +41,12 @@ function holdsFocus(el: Element | null): boolean {
 export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode }) {
   const emit = useEmit();
   // カーソルは一覧の中だけの状態なので Mediator には置かない。
-  // -1 は未選択で、このとき Enter や o や m は何も起こさない。
-  const [cursor, setCursor] = useState(-1);
+  // 行の番号ではなくセッションの id で持つ。
+  // 行の DOM は id で付いて動くので、番号で持つと並びが変わったときにフォーカスの行とカーソルの行が食い違い、Enter で別の行が開く。
+  // null は未選択で、このとき Enter や o や m は何も起こさない。
+  // 選んでいた行が一覧から消えたときも未選択に戻る。
+  const [cursorId, setCursorId] = useState<string | null>(null);
+  const cursor = cursorId === null ? -1 : props.rows.findIndex((r) => r.id === cursorId);
   // 編集中のセッションの id。null なら編集していない。
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -56,13 +60,13 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   // 仮想リストは画面の外の行を描かないので、カーソルが可視範囲を出たら見える位置まで運ぶ。
   // これをしないと、見えていない行が選ばれたまま Enter で開けてしまう。
   useEffect(() => {
-    if (cursor < 0) return;
+    if (cursorId === null) return;
     const el = cursorRow();
     // jsdom のように scrollIntoView を持たない環境では何もしない。
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
     if (el && byKey.current) el.focus({ preventScroll: true });
     byKey.current = false;
-  }, [cursor]);
+  }, [cursorId]);
 
   // 画面に入ったら一覧にフォーカスする。行が後から届く画面もあるので、初めて並んだときに一度だけ当てる。
   // 行はまだ選ばない。最初の j や ↓ で先頭の行に入る。
@@ -93,10 +97,11 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
     // ⌘ や Ctrl の付いた打鍵はアプリ全体のもの（⌘K や ⌘J）なので、一覧では使わない。
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const max = props.rows.length - 1;
-    const cur = props.rows[cursor];
+    const cur = cursor >= 0 ? props.rows[cursor] : undefined;
+    const moveTo = (i: number) => { byKey.current = true; setCursorId(props.rows[i]?.id ?? null); };
     switch (e.key) {
-      case 'j': case 'ArrowDown': byKey.current = true; setCursor((c) => Math.min(max, c + 1)); break;
-      case 'k': case 'ArrowUp': byKey.current = true; setCursor((c) => Math.max(0, c - 1)); break;
+      case 'j': case 'ArrowDown': moveTo(Math.min(max, cursor + 1)); break;
+      case 'k': case 'ArrowUp': moveTo(Math.max(0, cursor - 1)); break;
       case 'Enter': if (cur) emit({ type: 'session.open', id: cur.id }); break;
       case 'o': if (cur?.runId) emit({ type: 'session.openTerminalApp', runId: cur.runId }); break;
       case 'e': if (cur) emit({ type: 'session.openEditor', sessionId: cur.id }); break;
@@ -155,7 +160,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
     <div className="rows-host" data-testid="session-rows" ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown}>
       <VirtualList items={props.rows} rowHeight={SESSION_ROW_H} height={props.height} keyOf={(r) => r.id} foot={props.foot} render={(r, i) => (
         <div className="row row-2" role="row" tabIndex={i === tabStop ? 0 : -1} data-cursor={i === cursor ? 'true' : undefined} data-morph-id={r.id}
-          onClick={() => emit({ type: 'session.open', id: r.id })} onFocus={() => setCursor(i)}>
+          onClick={() => emit({ type: 'session.open', id: r.id })} onFocus={() => setCursorId(r.id)}>
           <StatusDot status={r.live} />
           <span className="row-main">
             <span className="row-name">{r.name}{props.variant === 'search' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>
