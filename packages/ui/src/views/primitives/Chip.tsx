@@ -35,7 +35,7 @@ export function ChoiceChips(props: { label: string; value: string; options: Choi
           onClick={() => { setOtherOpen(false); if (inOther || o.value !== props.value) props.onChange(o.value); }}>{o.label}</button>
       ))}
       {props.other && (inOther
-        ? <span className="chip chip-input" data-on="true"><input ref={input} aria-label={props.other.placeholder} placeholder={props.other.placeholder} value={known ? '' : props.value} onChange={(e) => props.onChange(e.target.value)} /></span>
+        ? <span className="chip chip-input" data-on="true"><input ref={input} aria-label={props.other.placeholder} placeholder={props.other.placeholder} value={props.value} onChange={(e) => props.onChange(e.target.value)} /></span>
         : <button type="button" className="chip" onClick={() => { focusNext.current = true; setOtherOpen(true); props.onChange(''); }}><Icon name="edit" />{props.other.label}</button>)}
     </div>
   );

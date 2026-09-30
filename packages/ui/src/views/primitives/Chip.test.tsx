@@ -64,4 +64,14 @@ describe('ChoiceChips', () => {
     expect(box).toHaveValue('claude-haiku-4-5');
     expect(box).not.toHaveFocus();
   });
+  it('「ほか」から打った名前が選択肢に有る値に達しても、入力欄は消えず、テキストも消えない', () => {
+    const onChange = vi.fn();
+    render(<Models onChange={onChange} />);
+    fireEvent.click(screen.getByRole('button', { name: 'ほか' }));
+    const box = screen.getByRole('textbox', { name: 'model の名前' });
+    fireEvent.change(box, { target: { value: 'opus' } });
+    expect(box).toHaveValue('opus');
+    expect(onChange).toHaveBeenLastCalledWith('opus');
+    expect(screen.getAllByRole('radio').every((r) => r.getAttribute('aria-checked') === 'false')).toBe(true);
+  });
 });
