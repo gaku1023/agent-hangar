@@ -83,7 +83,7 @@ export function HomeScreen(props: HomeProps) {
           <h2 className="home-label">プロジェクト</h2>
           <div className="list pj-list" style={{ maxHeight: HOME_VISIBLE_ROWS * SESSION_ROW_H }}>
             {props.projects.length === 0
-              ? <div className="empty">active なプロジェクトはありません。設定でワークスペースを確かめてください。</div>
+              ? <div className="empty">Active なプロジェクトはありません。設定でワークスペースを確かめてください。</div>
               : props.projects.map((p) => (
                 <button key={p.id} type="button" className="pj-row" onClick={() => emit({ type: 'project.open', id: p.id })}>
                   <span className="pj-dot" data-status={p.status} />

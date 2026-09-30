@@ -11,7 +11,7 @@ import { StatusSelect } from './primitives/StatusSelect.tsx';
 /**
  * プロジェクト詳細画面。
  * 右レールは TODO とメモとアーティファクトで、折りたためる。
- * スクラッチの擬似プロジェクトは実体のパスを持たないので、ステータスと外部で開く操作を出さない。
+ * スクラッチの擬似プロジェクトは実体のパスを持たないので、状態と外部で開く操作を出さない。
  */
 export function ProjectScreen(props: ProjectProps) {
   const emit = useEmit();
@@ -22,7 +22,7 @@ export function ProjectScreen(props: ProjectProps) {
       <div className="project-main">
         <div className="project-head">
           <h1 className="h1" style={{ margin: 0 }}>{props.name}</h1>
-          {!props.isScratch && <StatusSelect label="ステータス" value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />}
+          {!props.isScratch && <StatusSelect label="状態" value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />}
           <span className="spacer" />
           {props.isScratch
             ? <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', scratch: true })}><Icon name="add" />スクラッチで始める</button>

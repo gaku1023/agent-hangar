@@ -3,14 +3,14 @@ import type { ProjectCardProps } from '../presenters/projects.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { StatusSelect } from './primitives/StatusSelect.tsx';
 
-/** プロジェクト一枚分のカード。クリックで project.open、ステータスの select で project.setStatus を出す。 */
+/** プロジェクト一枚分のカード。クリックで project.open、状態の select で project.setStatus を出す。 */
 export function ProjectCard(props: ProjectCardProps) {
   const emit = useEmit();
   return (
     <div className="card" role="link" tabIndex={0} onClick={() => emit({ type: 'project.open', id: props.id })} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'project.open', id: props.id }); }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span className="card-title" style={{ flex: 1 }}>{props.name}</span>
-        <StatusSelect label={`${props.name} のステータス`} value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />
+        <StatusSelect label={`${props.name} の状態`} value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />
       </div>
       <div className="mono faint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {props.path ?? 'この端末にパスがありません'}

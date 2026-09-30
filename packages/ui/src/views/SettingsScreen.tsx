@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SettingsDto, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
-import { costLabel, tokensLabel } from '../presenters/format.ts';
+import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
 import type { SettingsProps } from '../presenters/settings.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
@@ -212,13 +212,13 @@ export function SettingsScreen(props: SettingsProps) {
         </div>
         {props.summarizerTest?.ok === true && (
           <div style={{ marginTop: 4 }}>
-            <div className="muted">{props.summarizerTest.id} で成功しました（{props.summarizerTest.ms} ミリ秒）</div>
+            <div className="muted">{SUMMARIZER_LABEL[props.summarizerTest.id] ?? props.summarizerTest.id} で成功しました（{props.summarizerTest.ms} ミリ秒）</div>
             <div className="faint">{props.summarizerTest.summary.oneLiner}</div>
           </div>
         )}
         {props.summarizerTest?.ok === false && (
           <ul className="faint" style={{ margin: '4px 0 0', paddingLeft: 16 }}>
-            {props.summarizerTest.tried.map((t) => <li key={t.id}>{t.id}: {t.message}</li>)}
+            {props.summarizerTest.tried.map((t) => <li key={t.id}>{SUMMARIZER_LABEL[t.id] ?? t.id}: {t.message}</li>)}
           </ul>
         )}
       </section>

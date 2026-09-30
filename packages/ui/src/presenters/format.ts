@@ -43,10 +43,15 @@ export function tokensLabel(n: number): string {
   return String(n);
 }
 
-export const STATE_LABEL = { in_progress: '進行中', done: '完了', blocked: '詰まっている', abandoned: '中断' } as const;
+/**
+ * 要約の見立て。
+ * Claude が要約を書いた時点で、その仕事がどこまで進んだかを表す。
+ * セッションのプロセスが生きているかどうかとは別物なので、実行中や終了とは重ならない語にする。
+ */
+export const STATE_LABEL = { in_progress: 'やりかけ', done: '済んだ', blocked: '詰まっている', abandoned: 'やめた' } as const;
 export const SOURCE_LABEL = { baseline: '自動', in_session: 'セッション', post_hoc: '事後' } as const;
 /** 要約器の id を短い名前にする。表に無い id はそのまま出す。 */
-export const SUMMARIZER_LABEL: Record<string, string> = { lmstudio: 'lmstudio', 'claude-headless': 'claude' };
+export const SUMMARIZER_LABEL: Record<string, string> = { lmstudio: 'LM Studio', 'claude-headless': 'claude' };
 export const STATUS_LABEL = { active: 'Active', paused: 'Paused', done: 'Done', archived: 'Archived' } as const;
 
 /** 使用率の表示。値が無いときは「未取得」にする。 */

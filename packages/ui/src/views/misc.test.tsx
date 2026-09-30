@@ -395,11 +395,11 @@ describe('SettingsScreen のフェーズ 3', () => {
     fireEvent.click(screen.getByText('要約器を試す'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'summarizer.test' });
     rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ summarizerTest: { ok: true, id: 'lmstudio', ms: 820, summary: { title: '題', oneLiner: '1 文', body: '本文', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } } })} /></IntentRoot>);
-    expect(screen.getByText('lmstudio で成功しました（820 ミリ秒）')).toBeTruthy();
+    expect(screen.getByText('LM Studio で成功しました（820 ミリ秒）')).toBeTruthy();
     expect(screen.getByText('1 文')).toBeTruthy();
     rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ summarizerTest: { ok: false, tried: [{ id: 'lmstudio', message: 'ECONNREFUSED' }, { id: 'claude-headless', message: '上限に達しています' }] } })} /></IntentRoot>);
-    expect(screen.getByText('lmstudio: ECONNREFUSED')).toBeTruthy();
-    expect(screen.getByText('claude-headless: 上限に達しています')).toBeTruthy();
+    expect(screen.getByText('LM Studio: ECONNREFUSED')).toBeTruthy();
+    expect(screen.getByText('claude: 上限に達しています')).toBeTruthy();
   });
   it('使用量の 2 つの表を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
