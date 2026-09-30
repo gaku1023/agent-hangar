@@ -72,13 +72,14 @@ describe('ナビゲーション', () => {
   it('検索語は URL に乗り、sessions 画面で検索効果になる', () => {
     const a = run([intent({ type: 'search.query', text: '動画' })]);
     expect(a.state.search.text).toBe('動画');
-    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }]);
+    // 検索したらフォーカスを結果の一覧へ移す。同じ語で検索し直して画面が作り直されないときも移るように、毎回出す。
+    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }, { kind: 'focus', target: 'results' }]);
     const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })], a.state);
     expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画' } }]);
     const c = run([intent({ type: 'search.filter', patch: { projectId: 'p1' } })], b.state);
     expect(c.state.search.filter).toEqual({ projectId: 'p1' });
     expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1' } }]);
-    expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+    expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }, { kind: 'focus', target: 'results' }]);
   });
   // 期間は日数のまま効果に載せ、時刻に直すのは問い合わせる瞬間（Runtime）に任せる。
   it('期間は日数のまま検索効果に載る', () => {

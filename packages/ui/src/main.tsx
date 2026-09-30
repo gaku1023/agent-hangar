@@ -21,14 +21,10 @@ import { createRuntime } from './runtime/runtime.ts';
 import { FONT_SIZE_KEY, createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
 import { createXterm } from './runtime/xterm.ts';
-import { focusSoon } from './runtime/focusSoon.ts';
+import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { clickThrough } from './runtime/clickThrough.ts';
 import { createPresent } from './runtime/present.ts';
 import { FILE_DROP_EVENT, handleFileDrop } from './runtime/fileDrop.ts';
-
-// フォーカスの対象と、それを持つ要素の id の対応。
-// ターミナルは DOM の id では掴めないので、TerminalHost が別に受け持つ。
-const FOCUS_IDS = { search: 'global-search', newSessionName: 'new-session-name', palette: 'palette-input', promoteName: 'promote-name', todoInput: 'todo-input' } as const;
 
 // 鍵付きの URL で開かれたときは、サーバがもうクッキーを配り終えている。
 // 履歴に鍵を残さないよう、ここで URL から消す。ハッシュの経路は残す。

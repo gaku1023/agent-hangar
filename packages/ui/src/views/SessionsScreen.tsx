@@ -42,7 +42,7 @@ export function SessionsScreen(props: SessionsProps) {
           onChange={(v) => emit({ type: 'search.filter', patch: { running: v === '' ? undefined : v === 'running' } })} />
         <input className="input" aria-label="ファイル" placeholder="触ったファイル" defaultValue={props.filter.file ?? ''} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.filter', patch: { file: (e.target as HTMLInputElement).value || undefined } }); }} />
       </div>
-      <SessionRows rows={props.rows} height={LIST_H} variant="search" autoFocus emptyText={props.mode === 'search' && !props.loading ? '一致するセッションはありません' : undefined} foot={foot} />
+      <SessionRows id="session-results" rows={props.rows} height={LIST_H} variant="search" autoFocus emptyText={props.mode === 'search' && !props.loading ? '一致するセッションはありません' : undefined} foot={foot} />
     </div>
   );
 }

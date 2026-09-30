@@ -115,7 +115,10 @@ export function screenStep(state: State, input: Input): Step | null {
     case 'session.nextWaiting': return nextWaitingStep(state);
     case 'search.query': {
       const next = { ...state, overlay: closeTransient(state), search: { ...state.search, text: i.text } };
-      return { state: next, effects: [{ kind: 'navigate', route: i.text ? { name: 'sessions', q: i.text } : { name: 'sessions' } }] };
+      // 検索したらフォーカスを結果の一覧へ移す。
+      // 新しい語なら一覧の画面が作り直され、一覧が自分でフォーカスを取りにくる（SessionRows の autoFocus）。
+      // 同じ語で検索し直したときは作り直されず、autoFocus は 1 度きりなので、ここで毎回頼む。
+      return { state: next, effects: [{ kind: 'navigate', route: i.text ? { name: 'sessions', q: i.text } : { name: 'sessions' } }, { kind: 'focus', target: 'results' }] };
     }
     case 'search.filter': {
       const next = { ...state, search: { ...state.search, filter: { ...state.search.filter, ...i.patch } } };

@@ -6,6 +6,7 @@ import type { ApiClient } from './runtime/api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
+import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { fakeMotionTokens } from './test/motion.ts';
 
@@ -30,6 +31,8 @@ function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?:
     storage: { get: () => undefined, set: () => {}, keys: () => [] },
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     terminals: over.terminals ?? terminals,
+    // main.tsx と同じく、フォーカスの対象を id で探して当てる。
+    focus: (t) => focusSoon(() => document.getElementById(FOCUS_IDS[t]), (cb) => { requestAnimationFrame(cb); }),
   };
   const rt = createRuntime(deps);
   return { rt, deps, handlers, go, setHash: deps.location.setHash, terminals: deps.terminals };
@@ -965,5 +968,19 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     await flush();
     await flush();
     expect(document.activeElement).toBe(rows());
+  });
+
+  it('ヘッダーから同じ語で検索し直しても、結果の一覧へ移る', async () => {
+    const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん' }] };
+    await mounted({ api: { search: async () => ({ hits: [hit], total: 1 }) } });
+    const box = document.getElementById('global-search') as HTMLInputElement;
+    const settle = () => act(() => new Promise((r) => setTimeout(r, 100)));
+    for (let n = 0; n < 2; n++) {
+      act(() => box.focus());
+      box.value = 'せっ';
+      fireEvent.keyDown(box, { key: 'Enter' });
+      await settle();
+      expect(document.activeElement).toBe(rows());
+    }
   });
 });

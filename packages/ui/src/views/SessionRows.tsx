@@ -42,8 +42,9 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * Tab で止まる行はカーソルの行 1 つだけで、打鍵でカーソルを動かすとフォーカスもその行へ移り、行にフォーカスが来るとカーソルもそこへ来る。
  * foot は一覧の末尾（最後の行の下）に置くもの。検索の「さらに読み込む」に使う。
  * autoFocus を渡すと、行が初めて並んだときに一度だけ一覧そのものにフォーカスする（画面に入ってすぐ j や ↓ が効くように）。
+ * id は一覧の器に付ける。Mediator の focus の効果が、この id で一覧を探す（runtime/focusSoon.ts の FOCUS_IDS）。
  */
-export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode }) {
+export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode; id?: string }) {
   const emit = useEmit();
   // カーソルは一覧の中だけの状態なので Mediator には置かない。
   // 行の番号ではなくセッションの id で持つ。
@@ -162,7 +163,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
   // 器は Tab の順には入れず（tabIndex=-1）、画面に入ったときのフォーカスの受け皿にだけ使う。
   // 行の打鍵はここへ上がってきて、カーソルの行について 1 度だけ処理する。
   return (
-    <div className="rows-host" data-testid="session-rows" ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown}>
+    <div className="rows-host" id={props.id} data-testid="session-rows" ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown}>
       <VirtualList items={props.rows} rowHeight={SESSION_ROW_H} height={props.height} keyOf={(r) => r.id} foot={props.foot} render={(r, i) => (
         <div className="row row-2" role="row" tabIndex={i === tabStop ? 0 : -1} data-cursor={i === cursor ? 'true' : undefined} data-morph-id={r.id}
           onClick={() => emit({ type: 'session.open', id: r.id })} onFocus={() => setCursorId(r.id)}>
