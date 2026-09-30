@@ -15,3 +15,8 @@ a.chip { color: var(--accent); text-decoration: none; }
 
 /* 細かな事実（cwd、ターン、トークン、時刻、run）は、チップの下に注記の文字で並べる。 */
 .session-facts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 4); margin-bottom: calc(var(--u) * 2); font-size: var(--fs-xs); }
+
+/* 本文が消えた会話の注記。要約の上に淡い地で一行置き、延ばす手は文中のリンクの形にする。 */
+.gone-note { margin-bottom: calc(var(--u) * 3); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-sm); }
+.btn-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+.btn-link:hover { text-decoration: underline; }

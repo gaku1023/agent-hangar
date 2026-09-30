@@ -17,7 +17,7 @@ const base: SessionProps = { id: 's1', name: 'name', live: 'busy', cwd: '/w/alph
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: '作業中 12 分', filesChanged: 3,
-  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false }], turnsComplete: false, openTurnItems: [], turnJump: null };
+  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false }], turnsComplete: false, openTurnItems: [], turnJump: null, gone: null };
 
 describe('SessionScreen', () => {
   it('ヘッダー、要約の開閉、切替、続きの読み込み', () => {
@@ -341,5 +341,27 @@ describe('SessionScreen の読む面の印', () => {
     expect(sheet).not.toBeNull();
     expect(sheet!.querySelector('.tr')).not.toBeNull();
     expect(sheet).toContainElement(screen.getByLabelText('思考を表示'));
+  });
+});
+
+describe('SessionScreen（本文が消えた会話）', () => {
+  const gone = { note: '本文は、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 };
+  const props = { ...base, live: null, hasTranscript: false, items: [], total: 0, loaded: 0, hasMore: false, summaryOpen: true, gone };
+  it('注記と要約のチップを出し、延ばす手を添え、作り直しと本文の欄は出さない', () => {
+    const onIntent = vi.fn();
+    const { container } = render(<IntentRoot onIntent={onIntent}><SessionScreen {...props} terminalStatus={null} /></IntentRoot>);
+    expect(screen.getByText('要約のみ')).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent(gone.note);
+    expect(screen.getByText('BODY')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '保持期間を延ばす…' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'session' });
+    expect(screen.queryByRole('button', { name: '要約を作り直す' })).toBeNull();
+    expect(container.querySelector('.tr-sheet')).toBeNull();
+    expect(screen.queryByText('本文がありません')).toBeNull();
+  });
+  it('延ばせないときは手を出さず、要約も無ければそう言う', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...props} summary={null} gone={{ ...gone, canExtend: false }} terminalStatus={null} /></IntentRoot>);
+    expect(screen.queryByRole('button', { name: '保持期間を延ばす…' })).toBeNull();
+    expect(screen.getByText('要約もありません')).toBeInTheDocument();
   });
 });

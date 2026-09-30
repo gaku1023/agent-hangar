@@ -2,6 +2,7 @@ import type { LiveStatus, RunKind, SessionDto, SessionSummaryDto, TranscriptEven
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
+import { DEFAULT_DAYS, daysLabel, EXTEND_TO, transcriptMark } from './retention.ts';
 import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
 import { buildTurns } from './turns.ts';
@@ -28,6 +29,8 @@ export function summarizerLabel(sourceId: string | null, sourceModel: string | n
 }
 
 export type SessionProps = { id: string; name: string; live: LiveStatus | null; cwd: string; projectName: string | null; projectId: string | null; summary: (SessionSummaryDto & { sourceLabel: string; stateLabel: string; summarizerLabel: string | null; generatedAt: string }) | null; summaryOpen: boolean; model: string; effort: string; turns: number; tokens: string; prUrl: string | null; memo: string | null; started: string; lastActivity: string; hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; contextPercent: number | null; cost: string; artifacts: ArtifactCardProps[]; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null; liveLabel: string | null; filesChanged: number;
+  /** 保持期間で本文が消えたとみられる会話の注記。そうでなければ null。 */
+  gone: { note: string; canExtend: boolean; extendTo: number } | null;
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
   turnRows: TurnRowProps[]; turnsComplete: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null };
 
@@ -121,7 +124,7 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, openTurnItems: [], turnJump: null };
+  const base = { id, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, openTurnItems: [], turnJump: null, gone: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -145,6 +148,11 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const tabs: TabItemProps[] = open.map((t) => ({ id: t.id, title: t.title, kind: t.kind, selected: t.id === selectedTab, closable: t.kind === 'shell' }));
   const idle = !alive && s.live === null && state.launch.kind !== 'submitting';
   const canSplit = open.length >= 2;
+  // 保持期間で本文が消えたとみられる会話。要約しか残っていないことを、要約の上の一行で伝える。
+  const r = store.retention;
+  const gone = transcriptMark(s, r?.days ?? DEFAULT_DAYS, now) === 'gone'
+    ? { note: `本文は、Claude Code の保持期間（${daysLabel(DEFAULT_DAYS)}）を過ぎたため削除されたとみられます。残っているのは要約だけです。`, canExtend: !!r && r.source === 'default' && r.writable, extendTo: EXTEND_TO }
+    : null;
   // splitTab が閉じたタブを指していることがあるので、左と違う最初のタブに落とす。
   const right = view.split && canSplit && selectedTab ? open.find((t) => t.id === view.splitTab && t.id !== selectedTab) ?? open.find((t) => t.id !== selectedTab) ?? null : null;
   return {
@@ -171,5 +179,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     summaryPending: store.summaryPending[id] === true, summaryError: state.summaryFailed[id] ?? null,
     fromScratch: s.fromScratch, canPromote: !!(s.projectId && store.projects[s.projectId]?.isScratch),
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
+    // 本文が消えた会話では、残っている要約を最初から開いて見せる。
+    gone, summaryOpen: gone ? true : view.summaryOpen,
   };
 }
