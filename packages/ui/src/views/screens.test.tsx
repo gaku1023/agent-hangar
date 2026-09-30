@@ -13,7 +13,7 @@ const rail = { isScratch: false, todos: [], memo: null, artifacts: [] };
 const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, openTodoCount: 0, memoHead: null, lastOneLiner: 'last one' });
 
 describe('HomeScreen', () => {
-  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], running: [], recent: [], projects: [], ...over });
+  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], confirm: [], running: [], recent: [], projects: [], ...over });
   const runningCard = (over: Partial<RunningCard> = {}): RunningCard => ({ id: 's1', name: 'キーボード操作の見直し', live: 'busy', elapsed: '12 分', meta: 'agent-hangar · opus 4.1 · high', activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38, contextLabel: '38%', ...over });
 
   it('要対応の札は問いを出し、「ターミナルで答える」で端末にフォーカスして開く', () => {

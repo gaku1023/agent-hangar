@@ -69,7 +69,7 @@ describe('Header', () => {
 
 describe('TodoList', () => {
   it('追加、反転、削除の Intent を出す', () => {
-    const onIntent = wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '買う', done: false }, { id: 't2', text: '済んだ', done: true }]} />);
+    const onIntent = wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '買う', done: false, candidate: null }, { id: 't2', text: '済んだ', done: true, candidate: null }]} />);
     const input = screen.getByLabelText('TODO を追加');
     fireEvent.change(input, { target: { value: '書く' } });
     fireEvent.keyDown(input, { key: 'Enter' });
@@ -87,7 +87,7 @@ describe('TodoList', () => {
     expect(screen.getByText('TODO はまだありません')).toBeTruthy();
   });
   it('同じ文言の TODO が並んでもラベルが重ならない', () => {
-    const onIntent = wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '買う', done: false }, { id: 't2', text: '買う', done: true }]} />);
+    const onIntent = wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '買う', done: false, candidate: null }, { id: 't2', text: '買う', done: true, candidate: null }]} />);
     fireEvent.click(screen.getByLabelText('買う（2 件目）'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'todo.toggle', id: 't2' });
     fireEvent.click(screen.getByLabelText('買う（1 件目）を削除'));
@@ -165,7 +165,7 @@ describe('ArtifactCards', () => {
 });
 
 describe('ProjectScreen の右レール', () => {
-  const props = { id: 'p1', name: 'alpha', path: '/w/alpha', resolved: true, status: 'active' as const, sessions: [], notFound: false, isScratch: false, todos: [{ id: 't1', text: '買う', done: false }], memo: { markdown: '# a', updatedAt: 1 }, artifacts: [art('a1')] };
+  const props = { id: 'p1', name: 'alpha', path: '/w/alpha', resolved: true, status: 'active' as const, sessions: [], notFound: false, isScratch: false, todos: [{ id: 't1', text: '買う', done: false, candidate: null }], memo: { markdown: '# a', updatedAt: 1 }, artifacts: [art('a1')] };
   it('TODO とメモとアーティファクトを並べ、折りたためる', () => {
     wrap(<ProjectScreen {...props} />);
     expect(screen.getByLabelText('TODO を追加')).toBeTruthy();
