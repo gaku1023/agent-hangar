@@ -211,6 +211,15 @@ describe('PromoteDialog', () => {
     expect(screen.getByRole('checkbox', { name: 'ファイルを移動する' })).toHaveAttribute('aria-checked', 'false');
   });
 
+  // 名前を打ちかけたまま背景を押し違えても、書きかけを失わない。
+  it('入力のあるダイアログなので、背景を押しても閉じない', () => {
+    const onIntent = vi.fn();
+    const { container } = render(<IntentRoot onIntent={onIntent}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting={false} error={null} /></IntentRoot>);
+    expect(screen.getByLabelText('プロジェクト名')).toHaveFocus();
+    fireEvent.click(container.querySelector('.overlay')!);
+    expect(onIntent).not.toHaveBeenCalled();
+  });
+
   it('やめると Esc で閉じる', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting={false} error={null} /></IntentRoot>);
@@ -224,11 +233,19 @@ describe('PromoteDialog', () => {
 
 // 未解決プロジェクトのダイアログだけは、決めるまで閉じない性質を保つ。
 describe('ResolveProjectDialog', () => {
-  it('覆いの外側を押しても閉じない', () => {
+  it('覆いの外側を押しても、Esc でも閉じない', () => {
     const onIntent = vi.fn();
     const { container } = render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
     fireEvent.click(container.querySelector('.overlay')!);
+    fireEvent.keyDown(screen.getByLabelText('新しいパス'), { key: 'Escape' });
     expect(onIntent).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '閉じる' })).toBeNull();
+  });
+  it('あとでを押すと閉じる', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: 'あとで' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
   });
 });
 
@@ -247,7 +264,7 @@ describe('PromotedDialog', () => {
   // 器を広げ、ボタンの中では折り返さず、入り切らないときはボタンごと次の行へ落とす。
   it('ボタンが語の途中で折り返さない', () => {
     render(<IntentRoot onIntent={() => {}}><PromotedDialog projectId="p9" projectName="newp" moved reason={null} /></IntentRoot>);
-    const dialog = screen.getByRole('dialog', { name: '昇格しました' });
+    const dialog = screen.getByRole('dialog', { name: 'newp に昇格しました' });
     expect(dialog.classList.contains('dialog-wide')).toBe(true);
     expect(dialog.classList.contains('dialog-promote')).toBe(true);
     expect(paletteCss).toContain('.dialog-promote .btn { white-space: nowrap; }');

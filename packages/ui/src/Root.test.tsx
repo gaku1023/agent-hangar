@@ -337,12 +337,12 @@ describe('フェーズ 4 のオーバーレイ', () => {
     const { rt } = await mounted();
     act(() => rt.dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1024, remoteSize: 4096 } }));
     await flush();
-    expect(screen.getByRole('dialog', { name: '上書きの確認' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '本文を置き換えますか' })).toBeInTheDocument();
     expect(screen.getByText('他の PC の本文 4.0 KB')).toBeInTheDocument();
     // Esc の扱いはフェーズ 3 のままで、新しいオーバーレイも overlayKind !== 'none' の枝で閉じる。
     key({ key: 'Escape' });
     await flush();
-    expect(screen.queryByRole('dialog', { name: '上書きの確認' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '本文を置き換えますか' })).toBeNull();
   });
 
   it('一覧から削除は確認を挟み、件数を出し、Esc で未解決のダイアログへ戻る', async () => {
@@ -352,30 +352,47 @@ describe('フェーズ 4 のオーバーレイ', () => {
     await flush();
     fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
     await flush();
-    const dialog = screen.getByRole('dialog', { name: '一覧から削除の確認' });
+    const dialog = screen.getByRole('dialog', { name: '一覧から削除しますか' });
     expect(dialog).toHaveTextContent('プロジェクト alpha を一覧から削除し、1 件のセッションを未分類に戻します。');
     expect(resolveProject).not.toHaveBeenCalled();
     key({ key: 'Escape' });
     await flush();
-    expect(screen.queryByRole('dialog', { name: '一覧から削除の確認' })).toBeNull();
-    expect(screen.getByRole('dialog', { name: 'プロジェクトの場所を確認' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '一覧から削除しますか' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'alpha のディレクトリが見つかりません' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
     await flush();
-    fireEvent.click(within(screen.getByRole('dialog', { name: '一覧から削除の確認' })).getByRole('button', { name: '一覧から削除' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '一覧から削除しますか' })).getByRole('button', { name: '一覧から削除' }));
     await flush();
     expect(resolveProject).toHaveBeenCalledWith('p1', { kind: 'unlink' });
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // 確認の中のボタンにフォーカスがあるときの Esc は、確認の殻が受けて既定を止める。
+  // Root の Esc も重ねて閉じると、戻ったはずの未解決のダイアログまで「あとで」で閉じてしまう。
+  it('一覧から削除の確認の中の Esc は 1 度だけ閉じ、未解決のダイアログへ戻る', async () => {
+    const { rt } = await mounted();
+    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    const cancel = within(screen.getByRole('dialog', { name: '一覧から削除しますか' })).getByRole('button', { name: 'やめる' });
+    expect(cancel).toHaveFocus();
+    fireEvent.keyDown(cancel, { key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: '一覧から削除しますか' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'alpha のディレクトリが見つかりません' })).toBeInTheDocument();
+    expect(screen.getByLabelText('新しいパス')).toHaveFocus();
   });
 
   it('取り込みの下見は store の一覧をそのまま出す', async () => {
     const { rt } = await mounted({ api: { configPreview: async () => ({ confirmed: false, entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 2, remoteDevice: 'mini', size: 10 }] }) } });
     act(() => rt.emit({ type: 'sync.config.preview' }));
     await flush();
-    expect(screen.getByRole('dialog', { name: '取り込み内容の確認' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '~/.claude に取り込む内容' })).toBeInTheDocument();
     expect(screen.getByText('CLAUDE.md')).toBeInTheDocument();
     key({ key: 'Escape' });
     await flush();
-    expect(screen.queryByRole('dialog', { name: '取り込み内容の確認' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '~/.claude に取り込む内容' })).toBeNull();
   });
 });
 
@@ -486,7 +503,7 @@ describe('キーの見直し', () => {
     act(() => rt.emit({ type: 'tab.select', tabId: 't2' }));
     act(() => rt.emit({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 1 }));
     await flush();
-    expect(screen.getByRole('dialog', { name: '停止の確認' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '停止しますか' })).toBeInTheDocument();
     const emit = vi.spyOn(rt, 'emit');
     expect(key({ key: 'w', metaKey: true }, paneHost('t2')).defaultPrevented).toBe(true);
     expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);

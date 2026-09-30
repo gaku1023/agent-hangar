@@ -626,7 +626,7 @@ describe('ResolveProjectDialog', () => {
 describe('ResolveProjectDialog のフォーカス', () => {
   it('開いたら中の最初の操作にフォーカスを入れる', () => {
     render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
-    const dialog = screen.getByRole('dialog', { name: 'プロジェクトの場所を確認' });
+    const dialog = screen.getByRole('dialog', { name: 'alpha のディレクトリが見つかりません' });
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).toBe(screen.getByLabelText('新しいパス'));
   });

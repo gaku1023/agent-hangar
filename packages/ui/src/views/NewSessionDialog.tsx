@@ -4,6 +4,7 @@ import { useEmit } from '../intent/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
 import { isComposing } from './ime.ts';
 import { ChoiceChips } from './primitives/Chip.tsx';
+import { Dialog } from './primitives/Dialog.tsx';
 import { Fold } from './primitives/Fold.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import type { ListboxOption } from './primitives/listboxModel.ts';
@@ -72,11 +73,10 @@ export function NewSessionDialog(props: NewSessionProps) {
     emit({ type: 'session.new.submit', params });
   };
 
-  // Esc で閉じ、Enter で起動する。
+  // Enter で起動する。Esc は殻が受けて閉じる。
   // 変換中の Enter は確定のための打鍵なので、起動に使わない。
   // 一覧を開いている間の Esc と Enter は、Listbox が止めるのでここまで来ない。
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') { emit({ type: 'overlay.close' }); return; }
     if (e.key !== 'Enter' || isComposing(e)) return;
     if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
     // 選択の部品、ボタン、詳細の見出しの Enter は、その部品の操作である。起動には使わない。
@@ -92,17 +92,29 @@ export function NewSessionDialog(props: NewSessionProps) {
   // 区切りに全角空白を使わない。読み上げと試験の正規化で空白が詰められ、見た目と一致しなくなるため。
   const foldSummary = chosen.length ? `詳細（${chosen.join('、')}）` : '詳細（model、effort、permission mode、worktree、追加ディレクトリ）';
 
+  const close = () => emit({ type: 'overlay.close' });
+  // 書きかけを背景の押し違いで失わないよう、背景では閉じない。
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-label="新しいセッション" onKeyDown={onKeyDown}>
-      <form ref={form} className="dialog dialog-wide" onSubmit={(e) => e.preventDefault()}>
-        <b>{scratch ? 'スクラッチで始める' : '新しいセッション'}</b>
+    <Dialog
+      title={scratch ? 'スクラッチで始める' : '新しいセッション'}
+      className="dialog-wide"
+      onClose={close}
+      closeOnBackdrop={false}
+      onKeyDown={onKeyDown}
+      footer={<>
+        <button type="button" className="btn" onClick={close}>やめる</button>
+        <span className="spacer" />
+        <button type="button" className="btn btn-primary" disabled={props.submitting} onClick={submit}>{props.submitting ? '起動しています' : '起動'}</button>
+      </>}
+    >
+      <form ref={form} className="dialog-form" onSubmit={(e) => e.preventDefault()}>
         <div className="field">
           <span aria-hidden="true">プロジェクト</span>
           <Listbox id="new-session-project" label="プロジェクト" value={choice || null} options={options} groups={groups} onChange={setChoice} showSubInFace searchPlaceholder="名前かパスで探す" minWidth={360} />
         </div>
         {scratch && <div className="faint">~/.agent-hangar/scratch/ の下に日時のディレクトリを作って起動します。後からプロジェクトに昇格できます。</div>}
         <label className="field" htmlFor="new-session-name">名前（任意）
-          <input id="new-session-name" className="input" name="name" defaultValue="" placeholder="一覧での表示名" />
+          <input id="new-session-name" className="input" name="name" data-autofocus defaultValue="" placeholder="一覧での表示名" />
         </label>
         <label className="field" htmlFor="new-session-prompt">初期プロンプト（任意）
           <textarea id="new-session-prompt" className="input" name="prompt" rows={4} defaultValue="" />
@@ -128,12 +140,7 @@ export function NewSessionDialog(props: NewSessionProps) {
         </Fold>
         <div className="faint">新しいディレクトリでは Claude が信頼確認のダイアログを出します。起動したあとにターミナルで答えてください。</div>
         {props.error && <div className="error" role="alert">{props.error}</div>}
-        <div className="dialog-foot">
-          <button type="button" className="btn" onClick={() => emit({ type: 'overlay.close' })}>やめる</button>
-          <span className="spacer" />
-          <button type="button" className="btn btn-primary" disabled={props.submitting} onClick={submit}>{props.submitting ? '起動しています' : '起動'}</button>
-        </div>
       </form>
-    </div>
+    </Dialog>
   );
 }

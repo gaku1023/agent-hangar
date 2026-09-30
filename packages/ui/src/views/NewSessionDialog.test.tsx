@@ -48,6 +48,20 @@ describe('NewSessionDialog', () => {
     expect(onIntent).toHaveBeenCalledTimes(2);
     expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
   });
+  // 書きかけを背景の押し違いで失わないよう、背景では閉じない。
+  it('背景を押しても閉じず、見出しの × で閉じる', () => {
+    const onIntent = vi.fn();
+    const { container } = render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} /></IntentRoot>);
+    fireEvent.click(container.querySelector('.overlay')!);
+    expect(onIntent).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+  it('見出しが器の名前になり、開いたら名前の欄にフォーカスがある', () => {
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} /></IntentRoot>);
+    expect(screen.getByRole('dialog', { name: '新しいセッション' })).toBeInTheDocument();
+    expect(screen.getByLabelText('名前（任意）')).toHaveFocus();
+  });
   it('一覧を開いている間の Esc は一覧だけを閉じ、Enter は起動しない', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} /></IntentRoot>);

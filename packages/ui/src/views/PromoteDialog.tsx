@@ -2,7 +2,7 @@ import { useState, type KeyboardEvent } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { PromoteProps, PromotedProps } from '../presenters/promote.ts';
 import { isComposing } from './ime.ts';
-import { Icon } from './primitives/Icon.tsx';
+import { Dialog } from './primitives/Dialog.tsx';
 import { CheckCard } from './primitives/OptionCard.tsx';
 
 /**
@@ -23,52 +23,57 @@ export function PromoteDialog(props: PromoteProps) {
     emit({ type: 'session.promote.submit', id: props.sessionId, name, gitInit, moveFiles: willMove });
   };
 
-  // Esc で閉じ、Enter で送る。
+  // Enter で送る。Esc は殻が受けて閉じる。
   // 変換中の Enter は確定のための打鍵なので、送信に使わない。
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Escape') { emit({ type: 'overlay.close' }); return; }
     if (e.key !== 'Enter' || isComposing(e)) return;
     e.preventDefault();
     submit();
   };
 
+  const close = () => emit({ type: 'overlay.close' });
+  // 名前を打ちかけたまま背景を押し違えても失わないよう、背景では閉じない。
   return (
-    <div className="overlay" onClick={() => emit({ type: 'overlay.close' })}>
-      <div className="dialog dialog-promote" role="dialog" aria-modal="true" aria-label="プロジェクトに昇格" onClick={(e) => e.stopPropagation()}>
-        <b className="dialog-title"><Icon name="promote" />プロジェクトに昇格</b>
-        <div className="faint">{props.sessionName} の作業をワークスペースの下に移します。</div>
-        <label className="field" htmlFor="promote-name">プロジェクト名
-          <input id="promote-name" className="input mono" aria-label="プロジェクト名" value={name} placeholder="ワークスペースに作るディレクトリの名前" onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} />
-        </label>
-        <CheckCard label="git init する" description="空のリポジトリを作ってから移します" icon="gitInit" checked={gitInit} onChange={setGitInit} />
-        <CheckCard label="ファイルを移動する" description="スクラッチのファイルをワークスペースへ移します" icon="moveFiles" checked={willMove} disabled={props.runAlive} onChange={setMoveFiles} />
-        {props.runAlive && <div className="faint">実行中のセッションがあるので、ファイルは移動しません</div>}
-        {props.error && <div className="error" role="alert">{props.error}</div>}
-        <div className="dialog-foot">
-          <button type="button" className="btn" onClick={() => emit({ type: 'overlay.close' })}>やめる</button>
-          <span className="spacer" />
-          <button type="button" className="btn btn-primary" disabled={props.submitting} onClick={submit}>昇格</button>
-        </div>
-      </div>
-    </div>
+    <Dialog
+      title="プロジェクトに昇格"
+      icon="promote"
+      className="dialog-promote"
+      onClose={close}
+      closeOnBackdrop={false}
+      footer={<><button type="button" className="btn" onClick={close}>やめる</button><span className="spacer" /><button type="button" className="btn btn-primary" disabled={props.submitting} onClick={submit}>昇格</button></>}
+    >
+      <div className="faint">{props.sessionName} の作業をワークスペースの下に移します。</div>
+      <label className="field" htmlFor="promote-name">プロジェクト名
+        <input id="promote-name" className="input mono" aria-label="プロジェクト名" value={name} placeholder="ワークスペースに作るディレクトリの名前" onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} />
+      </label>
+      <CheckCard label="git init する" description="空のリポジトリを作ってから移します" icon="gitInit" checked={gitInit} onChange={setGitInit} />
+      <CheckCard label="ファイルを移動する" description="スクラッチのファイルをワークスペースへ移します" icon="moveFiles" checked={willMove} disabled={props.runAlive} onChange={setMoveFiles} />
+      {props.runAlive && <div className="faint">実行中のセッションがあるので、ファイルは移動しません</div>}
+      {props.error && <div className="error" role="alert">{props.error}</div>}
+    </Dialog>
   );
 }
 
 /** 昇格の完了。次の一手として、その場所での新規セッションを勧める。 */
 export function PromotedDialog(props: PromotedProps) {
   const emit = useEmit();
+  const close = () => emit({ type: 'overlay.close' });
+  // 読んで終わりのダイアログなので、背景を押しても閉じる。下端に「閉じる」があるので × は置かない。
   return (
-    <div className="overlay" onClick={() => emit({ type: 'overlay.close' })}>
-      <div className="dialog dialog-wide dialog-promote" role="dialog" aria-modal="true" aria-label="昇格しました" onClick={(e) => e.stopPropagation()}>
-        <b className="dialog-title"><Icon name="promote" />{props.projectName} に昇格しました</b>
-        <div className="faint">{props.moved ? 'ファイルを移しました' : (props.reason ?? 'ファイルは移していません')}</div>
-        <div className="dialog-foot">
-          <button type="button" className="btn" onClick={() => emit({ type: 'overlay.close' })}>閉じる</button>
-          <span className="spacer" />
-          <button type="button" className="btn" onClick={() => emit({ type: 'project.open', id: props.projectId })}>プロジェクトを開く</button>
-          <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.projectId })}>ここで新しいセッションを始める</button>
-        </div>
-      </div>
-    </div>
+    <Dialog
+      title={`${props.projectName} に昇格しました`}
+      icon="promote"
+      className="dialog-wide dialog-promote"
+      onClose={close}
+      closeButton={false}
+      footer={<>
+        <button type="button" className="btn" onClick={close}>閉じる</button>
+        <span className="spacer" />
+        <button type="button" className="btn" onClick={() => emit({ type: 'project.open', id: props.projectId })}>プロジェクトを開く</button>
+        <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.projectId })}>ここで新しいセッションを始める</button>
+      </>}
+    >
+      <div className="faint">{props.moved ? 'ファイルを移しました' : (props.reason ?? 'ファイルは移していません')}</div>
+    </Dialog>
   );
 }
