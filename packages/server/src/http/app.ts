@@ -301,6 +301,7 @@ export function createApp(deps: AppDeps): Hono {
       summaryPending: deps.summary.pending(),
       index: deps.indexer.progress(),
       version: deps.version,
+      retention: null,
     };
     return c.json(body);
   });

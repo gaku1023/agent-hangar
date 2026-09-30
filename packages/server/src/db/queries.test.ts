@@ -236,18 +236,18 @@ describe('ロックと remoteOnly と端末一覧', () => {
   it('写しだけのセッションは hasTranscript が true で remoteOnly も true', () => {
     const d2 = setup();
     const ins = d2.prepare('insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?,?)');
-    expect(one(d2)).toMatchObject({ hasTranscript: false, remoteOnly: false });
+    expect(one(d2)).toMatchObject({ hasTranscript: false, remoteOnly: false, transcriptMtime: null });
     ins.run('/h/remote/dev-b/projects/-w-a/u1.jsonl', 's1', null, 'dev-b', 10, 1, 10, 1);
-    expect(one(d2)).toMatchObject({ hasTranscript: true, remoteOnly: true });
+    expect(one(d2)).toMatchObject({ hasTranscript: true, remoteOnly: true, transcriptMtime: null });
     ins.run('/h/.claude/projects/-w-a/u1.jsonl', 's1', null, null, 10, 1, 10, 1);
-    expect(one(d2)).toMatchObject({ hasTranscript: true, remoteOnly: false });
+    expect(one(d2)).toMatchObject({ hasTranscript: true, remoteOnly: false, transcriptMtime: null });
   });
 
   it('副エージェントの写しだけでは hasTranscript を立てない', () => {
     const d2 = setup();
     d2.prepare('insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?,?)')
       .run('/h/remote/dev-b/projects/-w-a/sub.jsonl', 's1', 'agent-1', 'dev-b', 10, 1, 10, 1);
-    expect(one(d2)).toMatchObject({ hasTranscript: false, remoteOnly: false });
+    expect(one(d2)).toMatchObject({ hasTranscript: false, remoteOnly: false, transcriptMtime: null });
   });
 
   it('端末一覧は最終確認の新しい順で、自端末に印を付ける', () => {

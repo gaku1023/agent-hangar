@@ -1,4 +1,4 @@
-import type { ArtifactDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SessionDto, SyncStatusBody, TabDto, TakeoverUpdateDto, TodoDto, UsageDto } from './api.ts';
+import type { ArtifactDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TakeoverUpdateDto, TodoDto, UsageDto } from './api.ts';
 import type { SharedTable } from './cloud.ts';
 
 export type ServerEvent =
@@ -29,4 +29,5 @@ export type ServerEvent =
   | { type: 'sync.applied'; table: SharedTable; rowId: string }
   | { type: 'takeover.update'; update: TakeoverUpdateDto }
   | { type: 'devices.update'; devices: DeviceDto[] }
+  | { type: 'retention.changed'; retention: RetentionDto }
   | { type: 'toast'; level: 'info' | 'error'; message: string };

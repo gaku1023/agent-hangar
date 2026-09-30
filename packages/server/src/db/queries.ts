@@ -182,6 +182,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     lock: locks.get(r.id) ?? null,
     // 本文はあるが手元の主線が無いとき、閲覧の前に本文を降ろす必要がある。
     remoteOnly: r.has_transcript === 1 && r.has_local === 0,
+    transcriptMtime: null,
     // 最後に呼んだツールと待っている問いは、実行中のときだけ載せる。終わったセッションの古い呼び出しは出さない。
     ...(live ? { activity: r.a_tool !== null ? { tool: r.a_tool, summary: r.a_summary ?? '', question: r.a_question } : null } : {}),
   };
