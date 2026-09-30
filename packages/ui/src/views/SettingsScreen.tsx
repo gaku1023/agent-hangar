@@ -325,6 +325,14 @@ export function SettingsScreen(props: SettingsProps) {
         <div className="faint" style={{ marginTop: 4 }}>読み取り元を変えたときは、再起動後に反映されます。</div>
       </section>
       <section>
+        <h2 className="h2">通知</h2>
+        <div className="settings-row settings-switch-row"><span>通知を受け取る</span>
+          <Switch label="通知を受け取る" checked={props.notify.on} disabled={!props.notify.available} onChange={(next) => emit({ type: 'notify.set', on: next })} />
+        </div>
+        <div className="faint">hangar が背面にあるとき、入力待ちになったセッションを通知で知らせます。押すとそのセッションのターミナルへ移ります。</div>
+        {!props.notify.available && <div className="faint" style={{ marginTop: 4 }}>この環境では通知を出せません。ブラウザで拒んだときは、ブラウザの設定でこのページの通知を許可してください。</div>}
+      </section>
+      <section>
         <h2 className="h2">この PC</h2>
         <div className="mono muted">{props.device?.name}<span className="faint"> {props.device?.id}</span></div>
         <div className="faint mono">agent-hangar {props.version}</div>
