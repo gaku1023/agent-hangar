@@ -9,7 +9,7 @@ import { presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
 import { presentSessionRow } from './row.ts';
-import { presentSession } from './session.ts';
+import { buildItems, presentSession } from './session.ts';
 import { presentSessions } from './sessions.ts';
 import { presentSettings } from './settings.ts';
 import { presentShell } from './shell.ts';
@@ -79,14 +79,25 @@ describe('presentHome', () => {
     const store = homeStore();
     store.runs = { rw1: runDto('rw1', 'w1') };
     expect(presentHome(initialState(), store, NOW).attention).toEqual([
-      { id: 'w1', name: 'name-w1', projectName: 'alpha', waited: '12 分', question: 'どちらにしますか？', canAnswer: true },
-      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力を待っています', canAnswer: false },
+      { id: 'w1', name: 'name-w1', projectName: 'alpha', waited: '12 分', question: 'どちらにしますか？', answer: 'terminal' },
+      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力を待っています', answer: null },
     ]);
+  });
+  it('外のターミナルで動く入力待ちは引き取りを、バックグラウンドのものは attach を出す', () => {
+    const store = homeStore();
+    const live = (sessionId: string, over = {}) => ({ sessionId, status: 'waiting' as const, name: null, nameSource: null, cwd: '/w/alpha', pid: 1, entrypoint: 'cli', ...over });
+    store.live = [live('uw1'), live('uw2', { background: { jobId: 'abcd1234' } })];
+    const a = presentHome(initialState(), store, NOW).attention;
+    expect(a.find((c) => c.id === 'w1')!.answer).toBe('adopt');
+    expect(a.find((c) => c.id === 'w2')!.answer).toBe('attach');
+    // hangar の run があれば、その端末で答える。
+    store.runs = { rw1: runDto('rw1', 'w1') };
+    expect(presentHome(initialState(), store, NOW).attention.find((c) => c.id === 'w1')!.answer).toBe('terminal');
   });
   it('終わった run しか無い入力待ちは、hangar の端末で答えられない', () => {
     const store = homeStore();
     store.runs = { rw1: runDto('rw1', 'w1', NOW - 1_000) };
-    expect(presentHome(initialState(), store, NOW).attention.find((a) => a.id === 'w1')!.canAnswer).toBe(false);
+    expect(presentHome(initialState(), store, NOW).attention.find((a) => a.id === 'w1')!.answer).toBeNull();
   });
   it('答えた後の AskUserQuestion のように、対象がツール名と同じなら対象を空にする', () => {
     const store = homeStore();
@@ -647,6 +658,20 @@ describe('セッションのロック（フェーズ 4）', () => {
   it('手元に本文があってロックが無ければ普通に再開できる', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1') } };
     expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ lock: null, remoteOnly: false, canResume: true, canFork: true, canResumeHere: false });
+  });
+  it('hangar の run が無く外で動くセッションは、引き取りか attach の手を出す。作業中は出さない', () => {
+    const live = (over = {}) => ({ sessionId: 'us1', status: 'idle' as const, name: null, nameSource: null, cwd: '/w/alpha', pid: 1, entrypoint: 'cli', ...over });
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { live: 'idle' }) }, live: [live()] };
+    expect(presentSession(initialState(), store, NOW, 's1').outsideOpen).toBe('adopt');
+    store.live = [live({ status: 'busy' })];
+    expect(presentSession(initialState(), store, NOW, 's1').outsideOpen).toBeNull();
+    // VS Code の拡張の中の claude は引き取らない。
+    store.live = [live({ entrypoint: 'claude-vscode' })];
+    expect(presentSession(initialState(), store, NOW, 's1').outsideOpen).toBeNull();
+    store.live = [live({ status: 'busy', background: { jobId: 'abcd1234' } })];
+    expect(presentSession(initialState(), store, NOW, 's1').outsideOpen).toBe('attach');
+    store.runs = { r1: runDto('r1', 's1') };
+    expect(presentSession(initialState(), store, NOW, 's1').outsideOpen).toBeNull();
   });
   it('本文が無いセッションと、そもそも無いセッションはロックの欄を空にする', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { hasTranscript: false }) } };

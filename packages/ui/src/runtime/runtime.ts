@@ -172,6 +172,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.launch': deps.api.launch(e.params).then(launched).catch(launchFailed); return;
       case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
+      case 'api.attach': deps.api.attach(e.sessionId).then(launched).catch(launchFailed); return;
+      case 'api.adopt': deps.api.adopt(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.killRun': deps.api.killRun(e.runId).then((run) => setStore(applyServerEvent(store, { type: 'run.ended', run }))).catch(fail); return;
       case 'api.openTab': {
         const run = aliveRunOf(store, e.sessionId);

@@ -1,7 +1,24 @@
 import { useEmit } from '../intent/chain.tsx';
-import type { HomeProps, RunningCard } from '../presenters/home.ts';
+import type { AttentionCard, HomeProps, RunningCard } from '../presenters/home.ts';
 import { SESSION_ROW_H, SessionRows } from './SessionRows.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
+
+/**
+ * 要対応の札のボタン。
+ * その場では答えさせない。端末の TUI を外から操ることになって壊れやすいため、端末を開いてフォーカスする。
+ * 引き取りは外のターミナルの claude を終わらせるので、押すと確認に回る（mediator の session.adopt）。
+ * 端末を開く手が無いセッションは、端末を約束せずに開くだけにする。
+ */
+function AnswerButton(props: { card: AttentionCard }) {
+  const emit = useEmit();
+  const a = props.card;
+  switch (a.answer) {
+    case 'terminal': return <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.open', id: a.id, focus: 'terminal' })}>ターミナルで答える</button>;
+    case 'attach': return <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.attach', id: a.id })}>ターミナルで答える</button>;
+    case 'adopt': return <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.adopt', id: a.id })}>hangar で引き取る</button>;
+    default: return <button type="button" className="btn" onClick={() => emit({ type: 'session.open', id: a.id })}>開く</button>;
+  }
+}
 
 /** Home で一度に見せる最近とプロジェクトの行の数。多いときは一覧の中でスクロールする。 */
 export const HOME_VISIBLE_ROWS = 10;
@@ -22,14 +39,10 @@ export function HomeScreen(props: HomeProps) {
             <div key={a.id} className="ask-card">
               <StatusDot status="waiting" />
               <div className="ask-body">
-                <div className="ask-title"><b>{a.name}</b> <span className="faint">· {a.projectName ?? '未分類'} · {a.waited}待っている{a.canAnswer ? '' : ' · 別のターミナルで動いています'}</span></div>
+                <div className="ask-title"><b>{a.name}</b> <span className="faint">· {a.projectName ?? '未分類'} · {a.waited}待っている{a.answer === 'terminal' || a.answer === 'attach' ? '' : ' · 別のターミナルで動いています'}</span></div>
                 <div className="ask-q">{a.question}</div>
               </div>
-              {/* その場では答えさせない。端末の TUI を外から操ることになって壊れやすいため、端末を開いてフォーカスする。 */}
-              {/* hangar の run が無いセッションは端末を開けないので、端末を約束せずに開くだけにする。 */}
-              {a.canAnswer
-                ? <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.open', id: a.id, focus: 'terminal' })}>ターミナルで答える</button>
-                : <button type="button" className="btn" onClick={() => emit({ type: 'session.open', id: a.id })}>開く</button>}
+              <AnswerButton card={a} />
             </div>
           ))}
         </section>

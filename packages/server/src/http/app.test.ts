@@ -47,6 +47,8 @@ function fakeRuns(): RunsApi {
     start: vi.fn((p: LaunchParams): LaunchResultDto => { if (!p.projectId) throw new RunError(400, 'projectId は必須です'); return launched; }),
     resume: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
     fork: vi.fn((): LaunchResultDto => ({ ...launched, sessionId: 's2', run: { ...run, kind: 'fork', sessionId: 's2' } })),
+    attach: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
+    adopt: vi.fn(async (id: string): Promise<LaunchResultDto> => { if (id === 'busy') throw new RunError(409, '作業中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
     kill: vi.fn((id: string): RunDto => { if (id !== 'r1') throw new RunError(404, 'run が見つかりません'); return { ...run, endedAt: 2, endReason: 'killed' }; }),
     openTab: vi.fn((): TabDto => shellTab),
     closeTab: vi.fn((): TabDto => ({ ...shellTab, closedAt: 3 })),
@@ -391,6 +393,12 @@ describe('routes', () => {
     expect((await post('/api/runs')).status).toBe(400);
     expect((await post('/api/sessions/s1/resume')).status).toBe(201);
     expect((await post('/api/sessions/busy/resume')).status).toBe(409);
+    expect((await post('/api/sessions/s1/attach')).status).toBe(201);
+    expect((await post('/api/sessions/busy/attach')).status).toBe(409);
+    expect((await post('/api/sessions/s1/adopt')).status).toBe(201);
+    const a = await post('/api/sessions/busy/adopt');
+    expect(a.status).toBe(409);
+    expect((await a.json()).error).toBe('作業中です');
     const f = await post('/api/sessions/s1/fork');
     expect((await f.json()).sessionId).toBe('s2');
     const k = await app.request('/api/runs/r1', { method: 'DELETE', headers: H });

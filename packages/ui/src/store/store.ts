@@ -161,6 +161,21 @@ export function aliveRunOf(store: Store, sessionId: string): RunDto | null {
   return newest(Object.values(store.runs).filter((r) => r.sessionId === sessionId && r.endedAt === null));
 }
 
+/**
+ * hangar の run が無いまま動いているセッションを、hangar の端末で開く手。
+ * attach は Claude のバックグラウンドのサービスが持つセッションで、つなぐだけで済む。
+ * adopt は外のターミナル（VS Code など）で動く claude で、止めてバックグラウンドに移してからつなぐ。作業中は止めると途中で切れるので出さない。
+ * ターミナルの CLI でない claude（VS Code の拡張など）も出さない。止めるとその画面の側が壊れる。
+ * hangar の run があるなら、その端末を開けばよいので null にする。
+ */
+export function outsideOpenOf(store: Store, session: SessionDto): 'attach' | 'adopt' | null {
+  if (aliveRunOf(store, session.id)) return null;
+  const l = store.live.find((x) => x.sessionId === session.providerSessionId);
+  if (!l) return null;
+  if (l.background) return 'attach';
+  return l.status !== 'busy' && l.entrypoint === 'cli' ? 'adopt' : null;
+}
+
 /** 生きた run があればそれ。
  * 無ければ、開いたシェルタブが残っている最新の run。
  */

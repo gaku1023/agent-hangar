@@ -25,6 +25,8 @@ export type ApiClient = {
   launch(params: LaunchParams): Promise<LaunchResultDto>;
   resume(sessionId: string): Promise<LaunchResultDto>;
   fork(sessionId: string): Promise<LaunchResultDto>;
+  attach(sessionId: string): Promise<LaunchResultDto>;
+  adopt(sessionId: string): Promise<LaunchResultDto>;
   killRun(runId: string): Promise<RunDto>;
   openTab(runId: string): Promise<TabDto>;
   closeTab(runId: string, tabId: string): Promise<TabDto>;
@@ -95,6 +97,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     launch: (params) => post('/api/runs', params),
     resume: (sessionId) => post(`/api/sessions/${sessionId}/resume`),
     fork: (sessionId) => post(`/api/sessions/${sessionId}/fork`),
+    attach: (sessionId) => post(`/api/sessions/${sessionId}/attach`),
+    adopt: (sessionId) => post(`/api/sessions/${sessionId}/adopt`),
     killRun: (runId) => call(`/api/runs/${runId}`, { method: 'DELETE' }),
     openTab: (runId) => post(`/api/runs/${runId}/tabs`),
     closeTab: (runId, tabId) => call(`/api/runs/${runId}/tabs/${tabId}`, { method: 'DELETE' }),

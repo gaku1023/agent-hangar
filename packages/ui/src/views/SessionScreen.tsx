@@ -37,6 +37,9 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {/* 本文が他端末にあるときと、相手の heartbeat が途絶えたとき（Ruling 14）の逃げ道。
             出す条件は canResumeHere 単独にする。lock の有無で枝分かれさせると、途絶えた側が行き止まりになる。 */}
         {props.canResumeHere && <button className="btn" onClick={() => emit({ type: 'session.resumeHere', id })}><Icon name="resumeHere" />この PC で再開</button>}
+        {/* hangar の外で動いているあいだは本文しか見せられない。引き取りは外のターミナルの claude を終わらせるので、押すと確認に回る。 */}
+        {props.outsideOpen === 'adopt' && <button className="btn" onClick={() => emit({ type: 'session.adopt', id })}><Icon name="resumeHere" />hangar で引き取る</button>}
+        {props.outsideOpen === 'attach' && <button className="btn" onClick={() => emit({ type: 'session.attach', id })}><Icon name="shell" />hangar でつなぐ</button>}
         <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}><Icon name="openEditor" />VS Code で開く</button>
       </div>
       {/* チップの列。状態と経過、プロジェクト、モデルと effort、コンテキスト使用率、推定コスト、変更数、1 行メモ、PR、ロック。 */}

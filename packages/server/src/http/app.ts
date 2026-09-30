@@ -21,7 +21,7 @@ import { aggregateUsage } from '../usage/aggregate.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
-export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget'>;
+export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */
 export type ExternalApi = {
   openTerminal(o: { tmuxName: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
@@ -206,6 +206,16 @@ const tooLargeResult = (c: Context, limit: number) => c.json({ error: `本文が
 function runResult<T>(c: Context, fn: () => T, status: 200 | 201 = 200) {
   try {
     return c.json(fn() as object, status);
+  } catch (e) {
+    if (e instanceof RunError) return c.json({ error: e.message }, e.status);
+    throw e;
+  }
+}
+
+/** runResult の非同期版。引き取りは元の claude が終わるのを待つので、応答まで数秒かかる。 */
+async function runResultAsync<T>(c: Context, fn: () => Promise<T>, status: 200 | 201 = 200) {
+  try {
+    return c.json((await fn()) as object, status);
   } catch (e) {
     if (e instanceof RunError) return c.json({ error: e.message }, e.status);
     throw e;
@@ -531,6 +541,10 @@ export function createApp(deps: AppDeps): Hono {
   });
   api.post('/sessions/:id/resume', async (c) => { await beforeLaunch(); return runResult(c, () => deps.runs.resume(c.req.param('id')), 201); });
   api.post('/sessions/:id/fork', async (c) => { await beforeLaunch(); return runResult(c, () => deps.runs.fork(c.req.param('id')), 201); });
+  // バックグラウンドのサービスが持つセッションに、hangar の tmux からつなぐ。本文はその claude が書くので、他端末の取り込みは待たない。
+  api.post('/sessions/:id/attach', (c) => runResult(c, () => deps.runs.attach(c.req.param('id')), 201));
+  // hangar の外のターミナルで動く claude を止め、バックグラウンドに移してからつなぐ。
+  api.post('/sessions/:id/adopt', (c) => runResultAsync(c, () => deps.runs.adopt(c.req.param('id')), 201));
   api.post('/sessions/:id/open-editor', (c) => {
     const s = session(c.req.param('id'));
     if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);

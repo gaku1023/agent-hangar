@@ -16,7 +16,7 @@ const base: SessionProps = { id: 's1', name: 'name', live: 'busy', cwd: '/w/alph
     { kind: 'tool', seq: 2, summary: 'Edit /a', name: 'Edit', inputJson: '{}', result: { text: 'File not found', isError: true }, when: '10:02', subagent: null },
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
-  contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, liveLabel: '作業中 12 分', filesChanged: 3 };
+  contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: '作業中 12 分', filesChanged: 3 };
 
 describe('SessionScreen', () => {
   it('ヘッダー、要約の開閉、切替、続きの読み込み', () => {
@@ -250,6 +250,18 @@ describe('フェーズ 4 のセッション画面', () => {
     expect(screen.getByText('最終確認 5 分前')).toBeInTheDocument();
     expect(screen.queryByText('mini で実行中')).toBeNull();
     expect(screen.getByText('mini が応答がありません')).not.toHaveClass('lock');
+  });
+  it('外で動くセッションには、引き取りと attach のボタンを出す', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} live="waiting" canResume={false} canFork={false} outsideOpen="adopt" /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: 'hangar で引き取る' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.adopt', id: 's1' });
+    rerender(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} live="waiting" canResume={false} canFork={false} outsideOpen="attach" /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: 'hangar でつなぐ' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.attach', id: 's1' });
+    rerender(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} /></IntentRoot>);
+    expect(screen.queryByRole('button', { name: 'hangar で引き取る' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'hangar でつなぐ' })).toBeNull();
   });
   it('写しだけのセッションはこの PC で再開を出す', () => {
     const onIntent = vi.fn();

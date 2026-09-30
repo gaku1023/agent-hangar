@@ -582,6 +582,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     claudeDir,
     // hangar の外で動いている Claude を再開すると二重起動になるので、レジストリを見て弾く。
     isLive: (providerSessionId) => registry.current().some((l) => l.sessionId === providerSessionId),
+    // 引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引く。
+    live: () => registry.current(),
   });
   const usage = new UsageTracker(db);
   const memos = new MemoStore({ db, deviceId: device.id, home });

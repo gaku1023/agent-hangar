@@ -34,6 +34,17 @@ export function launchStep(state: State, input: Input): Step | null {
       return { state: { ...state, overlay: { kind: 'none' }, launch: { kind: 'idle' } }, effects: [] };
     case 'session.resume': return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.resume', sessionId: i.id }] };
     case 'session.fork': return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.fork', sessionId: i.id }] };
+    case 'session.attach':
+      if (state.launch.kind === 'submitting') return { state, effects: [] };
+      return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.attach', sessionId: i.id }] };
+    case 'session.adopt': {
+      // 外のターミナルの claude を終わらせるので、押しただけでは動かさず、先に確認を出す。
+      if (!i.confirmed) return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: i.id } } }, effects: [] };
+      if (state.launch.kind === 'submitting') return { state, effects: [] };
+      const overlay = state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
+      // 元の claude が終わるのを待つので、開くまで数秒かかる。押したことが伝わるよう先に一言出す。
+      return { state: { ...state, overlay, launch: { kind: 'submitting' } }, effects: [{ kind: 'toast', level: 'info', message: '引き取っています' }, { kind: 'api.adopt', sessionId: i.id }] };
+    }
     case 'session.kill': return { state, effects: [{ kind: 'api.killRun', runId: i.runId }] };
     case 'session.openTerminalApp': return { state, effects: [{ kind: 'api.openTerminalApp', runId: i.runId, tabId: i.tabId ?? null }] };
     case 'session.openEditor': return { state, effects: [{ kind: 'api.openEditor', sessionId: i.sessionId }] };

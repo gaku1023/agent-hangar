@@ -3,7 +3,7 @@ import type { ApiClient } from '../runtime/api.ts';
 
 type Extras = Pick<
   ApiClient,
-  | 'launch' | 'resume' | 'fork' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
+  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
   | 'usageAggregate' | 'statusline' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncStatus' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
@@ -19,6 +19,8 @@ export function fakeApiExtras(): Extras {
     launch: vi.fn(async () => unused()),
     resume: vi.fn(async () => unused()),
     fork: vi.fn(async () => unused()),
+    attach: vi.fn(async () => unused()),
+    adopt: vi.fn(async () => unused()),
     killRun: vi.fn(async () => unused()),
     openTab: vi.fn(async () => unused()),
     closeTab: vi.fn(async () => unused()),
