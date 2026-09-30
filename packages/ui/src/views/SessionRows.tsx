@@ -14,8 +14,8 @@ export const SESSION_ROW_H = 56;
 
 /**
  * 一覧の役目。右端と 2 段目に何を出すかがこれで決まる。
- * recent は Home の最近（右は時刻だけ）。
- * project はプロジェクト詳細（右にモデル、変更、PR、コストと時刻。2 段目にメモ）。
+ * recent は Home の最近（1 段目の名前の右にプロジェクト名。右は時刻だけ）。
+ * project はプロジェクト詳細（右にモデル、変更、PR、コストと時刻。2 段目にメモ。プロジェクト名は見出しにあるので出さない）。
  * search は Sessions（1 段目にプロジェクト名、2 段目に一致箇所の抜粋）。
  */
 export type RowVariant = 'recent' | 'project' | 'search';
@@ -156,12 +156,13 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
       onBlur={() => setEditing(null)} />
   );
 
-  // 2 段目。検索は一致箇所の抜粋を、ほかは要約の 1 文を出す。プロジェクト詳細はその後ろにメモと鉛筆を置く。
+  // 2 段目。頭に要約の見立ての札を置き（B1）、検索は一致箇所の抜粋を、ほかは要約の 1 文を出す。プロジェクト詳細はその後ろにメモと鉛筆を置く。
   const sub = (r: SessionRowProps) => {
     if (editing === r.id) return <span className="row-sub">{memoEditor(r)}</span>;
     const excerpt = props.variant === 'search' && r.excerpt && r.excerpt.length > 0 ? r.excerpt : null;
     return (
       <span className="row-sub">
+        {r.summaryState && <span className="row-state" data-tone={r.summaryState.tone ?? undefined}>{r.summaryState.label}</span>}
         <span className={excerpt ? 'row-text mono' : 'row-text'}>{excerpt ? excerpt.map((s, i) => (s.hit ? <mark key={i} className="hit">{s.text}</mark> : <span key={i}>{s.text}</span>)) : r.oneLiner}</span>
         {props.variant === 'project' && r.memo && <span className="row-memo">✎ {r.memo}</span>}
         {props.variant === 'project' && <button type="button" className="btn memo-pencil" aria-label={`${r.name} のメモを編集`} onClick={(e) => { e.stopPropagation(); startEdit(r); }}><Icon name="edit" /></button>}
@@ -201,7 +202,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
           onClick={() => emit({ type: 'session.open', id: r.id })} onFocus={() => setCursorId(r.id)}>
           <StatusDot status={r.live} />
           <span className="row-main">
-            <span className="row-name">{r.name}{props.variant === 'search' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>
+            <span className="row-name">{r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>
             {sub(r)}
           </span>
           {side(r)}

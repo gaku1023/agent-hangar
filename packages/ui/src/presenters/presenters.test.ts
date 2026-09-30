@@ -1073,6 +1073,22 @@ describe('presentSessionRow の本文の印', () => {
   });
 });
 
+describe('presentSessionRow の要約の見立て（B1）', () => {
+  const judged = (state: SessionSummaryDto['state'], source: SessionSummaryDto['source'] = 'in_session') => session('a', { summary: { ...session('a').summary!, state, source } });
+  it('詰まっているとやめただけに色の調子を付け、ほかは調子なしで語だけを出す', () => {
+    const store = initialStore();
+    expect(presentSessionRow(judged('blocked'), store, NOW).summaryState).toEqual({ label: '詰まっている', tone: 'blocked' });
+    expect(presentSessionRow(judged('abandoned', 'post_hoc'), store, NOW).summaryState).toEqual({ label: 'やめた', tone: 'abandoned' });
+    expect(presentSessionRow(judged('in_progress'), store, NOW).summaryState).toEqual({ label: 'やりかけ', tone: null });
+    expect(presentSessionRow(judged('done'), store, NOW).summaryState).toEqual({ label: '済んだ', tone: null });
+  });
+  it('土台の要約の状態は生きているかどうかの写しで見立てではないので出さず、要約が無ければ出さない', () => {
+    const store = initialStore();
+    expect(presentSessionRow(judged('done', 'baseline'), store, NOW).summaryState).toBeNull();
+    expect(presentSessionRow(session('a', { summary: null }), store, NOW).summaryState).toBeNull();
+  });
+});
+
 describe('presentSession の本文が消えた会話', () => {
   const DAY = 86_400_000;
   const gone = session('g', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 40 * DAY });

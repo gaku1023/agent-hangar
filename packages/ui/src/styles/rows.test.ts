@@ -29,6 +29,21 @@ describe('2 段の行', () => {
   });
 });
 
+describe('要約の見立ての札と本文の無い行の印（B1）', () => {
+  const css = read('./rows.css');
+  // 色の札が 2 種しかないので、一覧を流し見ると色の行だけが目に止まる。
+  it('詰まっているは入力待ちの色、やめたは Paused の色、ほかは注記の色の語だけ', () => {
+    expect(css).toMatch(/\.row-state \{[^}]*color: var\(--ink-3\);/);
+    expect(css).toMatch(/\.row-state\[data-tone='blocked'\] \{[^}]*color: var\(--waiting\);/);
+    expect(css).toMatch(/\.row-state\[data-tone='abandoned'\] \{[^}]*color: var\(--st-paused\);[^}]*background: var\(--st-paused-soft\);/);
+  });
+  it('本文の無い行の印は枠だけの札にし、行の高さを持たない', () => {
+    const body = css.match(/\.row-gone \{([^}]*)\}/)?.[1] ?? '';
+    expect(body).toMatch(/box-shadow: inset 0 0 0 1px var\(--line-strong\);/);
+    expect(body).not.toMatch(/(^|;)\s*height:/);
+  });
+});
+
 describe('プロジェクトのカード（C1）', () => {
   const css = read('./workbench.css');
   it('抜粋は 2 行で切り、2 行分の高さを取る', () => {
