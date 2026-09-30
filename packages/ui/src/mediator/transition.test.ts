@@ -236,7 +236,7 @@ describe('起動', () => {
     expect(run([intent({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
   it('再開、フォーク、停止、外部で開くは API 効果', () => {
-    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1' }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' }), intent({ type: 'project.openEditor', id: 'p1' }), intent({ type: 'project.openTerminalApp', id: 'p1' })]);
+    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' }), intent({ type: 'project.openEditor', id: 'p1' }), intent({ type: 'project.openTerminalApp', id: 'p1' })]);
     expect(effects).toEqual([
       { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.fork', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
       { kind: 'api.openTerminalApp', runId: 'r1', tabId: 't1' }, { kind: 'api.openTerminalApp', runId: 'r1', tabId: null },
@@ -672,6 +672,30 @@ describe('外で動くセッションを hangar で開く', () => {
     const c = run([runtime({ type: 'launch.failed', message: '作業中のセッションは引き取れません' })], b.state);
     expect(c.state.launch).toEqual({ kind: 'failed', message: '作業中のセッションは引き取れません' });
     expect(c.effects).toEqual([{ kind: 'toast', level: 'error', message: '作業中のセッションは引き取れません' }]);
+  });
+});
+
+describe('停止の確認', () => {
+  it('休みでシェルタブが無ければ、確認せずにすぐ止める', () => {
+    const r = run([intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
+    expect(r.state.overlay).toEqual({ kind: 'none' });
+    expect(r.effects).toEqual([{ kind: 'api.killRun', runId: 'r1' }]);
+  });
+  it('作業中なら先に確認を出し、やめれば何も送らない', () => {
+    const a = run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'killRun', runId: 'r1', working: true, shellTabs: 0 } });
+    const closed = run([intent({ type: 'overlay.close' })], a.state);
+    expect(closed.effects).toEqual([]);
+    expect(closed.state).toEqual(initialState());
+  });
+  it('シェルタブがあれば休みでも確認を出し、承諾で止めて確認を閉じる', () => {
+    const a = run([intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 2 })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'killRun', runId: 'r1', working: false, shellTabs: 2 } });
+    const b = run([intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 2, confirmed: true })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    expect(b.effects).toEqual([{ kind: 'api.killRun', runId: 'r1' }]);
   });
 });
 

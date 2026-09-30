@@ -163,7 +163,8 @@ type Intent =
   | { type: 'artifact.add'; projectId: ProjectId; url: string }
   | { type: 'session.open'; id: SessionId } | { type: 'session.setMemo'; id: SessionId; text: string }
   | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams }
-  | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId } | { type: 'session.kill'; runId: RunId }
+  | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId }
+  | { type: 'session.kill'; runId: RunId; working: boolean; shellTabs: number; confirmed?: boolean }
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
   | { type: 'session.promote.open'; id: SessionId }
   | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
@@ -213,6 +214,7 @@ type Intent =
 
 - `screen`：`booting | home | projects | project(id) | session(id) | sessions(query) | settings`。
 - `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。引き継ぎのダイアログは作らなかったので `takeover(sessionId)` は無い。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
+外のターミナルの claude を引き取る確認は `confirm('adoptSession')`、ランを止める確認は `confirm('killRun')` である。
 - `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉、要約パネルの開閉。
 - `launch`：`idle | submitting | failed(message)`。
 - `connection`：`connecting | connected | disconnected`。
@@ -1075,6 +1077,13 @@ cwd、ターン、トークン、開始と最終の時刻、run は、チップ�
 他端末で実行中なら「MacBook で実行中」（heartbeat が 2 分より古ければ「MacBook が応答がありません」）の表示を出し、再開とフォークは無効にする。
 手元に本文が無いセッションと、ロックが `stale` になったセッションには「この PC で再開」を出す。
 「引き継ぐ」は作らなかった。
+
+実行中のセッションの「停止」は、取り消せない操作なので危険色（`--error`）のボタンにする。
+サーバの停止は、そのランのシェルタブを全部閉じてから tmux を落とす。
+そこで、作業中（`busy` か `waiting`）のときと、シェルタブが 1 枚でもあるときだけ、先に確認を出す。
+確認には「作業中です」とシェルタブの枚数を書き、既定のフォーカスは「やめる」に置く。
+休みでシェルタブが無ければ、押したらすぐ止める。
+作業中かとシェルタブの数は View が `session.kill` に添え、確認を出すかは Mediator が決める。
 
 トランスクリプトはチャット形式で描く。
 利用者の発言とアシスタントの本文を吹き出しにし、ツール呼び出しは 1 行に折りたたんでクリックで展開する。

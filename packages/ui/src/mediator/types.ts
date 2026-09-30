@@ -68,8 +68,14 @@ export type Screen = { name: 'booting' } | Route;
 export type FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput';
 /** 同期の見え方。サーバの SyncStatusDto を UI が描く形に写したもの。 */
 export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
-/** 押し切る前に一言聞く必要があるもの。いまは他端末の本文を手元の本文で上書きする場面だけである。 */
-export type ConfirmRequest = { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number } | { kind: 'adoptSession'; sessionId: string };
+/**
+ * 押し切る前に一言聞く必要があるもの。
+ * 他端末の本文で手元を上書きする場面、外のターミナルの claude を引き取る場面、作業中かシェルタブのあるランを止める場面である。
+ */
+export type ConfirmRequest =
+  | { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number }
+  | { kind: 'adoptSession'; sessionId: string }
+  | { kind: 'killRun'; runId: string; working: boolean; shellTabs: number };
 export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' } | { kind: 'notYet'; feature: string }
   | { kind: 'shortcuts' }

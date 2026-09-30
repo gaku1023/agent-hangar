@@ -35,6 +35,34 @@ describe('ConfirmDialog（引き取り）', () => {
   });
 });
 
+describe('ConfirmDialog（停止）', () => {
+  it('作業中であることとシェルタブの数を書き、承諾で止める', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'killRun', runId: 'r1', working: true, shellTabs: 2 }} /></IntentRoot>);
+    expect(screen.getByRole('dialog', { name: '停止の確認' })).toBeInTheDocument();
+    expect(screen.getByText(/作業中です/)).toBeInTheDocument();
+    expect(screen.getByText(/シェルタブ 2 枚も閉じます/)).toBeInTheDocument();
+    const stop = screen.getByRole('button', { name: '停止する' });
+    expect(stop).toHaveClass('btn-danger');
+    fireEvent.click(stop);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 2, confirmed: true });
+  });
+  it('休みなら作業中とは書かず、既定のフォーカスはやめる側に置く', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'killRun', runId: 'r1', working: false, shellTabs: 1 }} /></IntentRoot>);
+    expect(screen.queryByText(/作業中です/)).toBeNull();
+    expect(screen.getByText(/シェルタブ 1 枚も閉じます/)).toBeInTheDocument();
+    const cancel = screen.getByRole('button', { name: 'やめる' });
+    expect(cancel).toHaveFocus();
+    fireEvent.click(cancel);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+  it('シェルタブが無ければその一文を出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><ConfirmDialog confirm={{ kind: 'killRun', runId: 'r1', working: true, shellTabs: 0 }} /></IntentRoot>);
+    expect(screen.queryByText(/シェルタブ/)).toBeNull();
+  });
+});
+
 describe('ConfigPreviewDialog', () => {
   it('一覧を出し、取り込むが Intent になる', () => {
     const onIntent = vi.fn();

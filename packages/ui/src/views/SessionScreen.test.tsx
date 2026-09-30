@@ -129,13 +129,25 @@ describe('SessionScreen（実行中）', () => {
     fireEvent.click(screen.getByLabelText('シェルタブを追加'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'tab.open', sessionId: 's1', kind: 'shell' });
     fireEvent.click(screen.getByText('停止'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1' });
+    // 止めるかどうかを決める事実（作業中か、シェルタブの数）を添えて送る。確認を出すかは Mediator が決める。
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 1 });
     fireEvent.click(screen.getByText('ターミナルで開く'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.openTerminalApp', runId: 'r1', tabId: 'r1' });
     fireEvent.click(screen.getByLabelText('目次を閉じる'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.toggle' });
     expect(screen.getByText('hi')).toBeInTheDocument();
     expect(screen.getByText('再開')).toBeDisabled();
+  });
+  it('停止は危険色で、入力待ちも作業中として数え、休みでシェルタブが無ければそう送る', () => {
+    const onIntent = withHost(<SessionScreen {...running} live="waiting" terminalStatus="connected" />);
+    const stop = screen.getByRole('button', { name: '停止' });
+    expect(stop).toHaveClass('btn-danger');
+    fireEvent.click(stop);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 1 });
+    cleanup();
+    const idle = withHost(<SessionScreen {...running} live="idle" tabs={[running.tabs[0]!]} terminalStatus="connected" />);
+    fireEvent.click(screen.getByRole('button', { name: '停止' }));
+    expect(idle).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 });
   });
   it('実行中の右欄は会話の全文ではなくターンの目次にする', () => {
     withHost(<SessionScreen {...running} terminalStatus="connected" />);

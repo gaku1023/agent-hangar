@@ -7,12 +7,30 @@ const sizeLabel = (n: number): string => (n >= 1024 * 1024 ? `${(n / 1024 / 1024
 
 /**
  * 取り消せない操作の確認。
- * 「この PC で再開」で手元の本文を他端末の本文に置き換える場面と、外のターミナルの claude を引き取る場面を扱う。
+ * 「この PC で再開」で手元の本文を他端末の本文に置き換える場面、外のターミナルの claude を引き取る場面、ランを止める場面を扱う。
  * どうするかを決めるのは利用者なので、View は起きることを並べるだけで判断をしない。
  */
 export function ConfirmDialog(props: { confirm: ConfirmRequest }) {
   const emit = useEmit();
   const c = props.confirm;
+  if (c.kind === 'killRun') {
+    // 取り消せない側は危険色にし、既定のフォーカスはやめる側に置く。Enter の押し違いで止めないためである。
+    return (
+      <div className="overlay" onClick={() => emit({ type: 'overlay.close' })}>
+        <div className="dialog" role="dialog" aria-modal="true" aria-label="停止の確認" onClick={(e) => e.stopPropagation()}>
+          <b className="dialog-title"><Icon name="warning" />停止しますか</b>
+          {c.working && <div className="muted">作業中です。止めると Claude の作業は途中で終わります。</div>}
+          {c.shellTabs > 0 && <div className="muted">シェルタブ {c.shellTabs} 枚も閉じます。</div>}
+          <div className="faint">会話の記録は残るので、あとで再開できます。</div>
+          <div className="dialog-foot">
+            <button type="button" className="btn" autoFocus onClick={() => emit({ type: 'overlay.close' })}>やめる</button>
+            <span className="spacer" />
+            <button type="button" className="btn btn-danger btn-danger-fill" onClick={() => emit({ type: 'session.kill', runId: c.runId, working: c.working, shellTabs: c.shellTabs, confirmed: true })}>停止する</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (c.kind === 'adoptSession') {
     return (
       <div className="overlay" onClick={() => emit({ type: 'overlay.close' })}>

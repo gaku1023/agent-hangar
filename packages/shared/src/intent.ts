@@ -30,7 +30,9 @@ export type Intent =
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId }
   | { type: 'session.open'; id: SessionId; focus?: 'terminal' } | { type: 'session.setMemo'; id: SessionId; text: string }
   | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams }
-  | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId } | { type: 'session.kill'; runId: RunId }
+  | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId }
+  // 停止は作業中か、そのランにシェルタブがあるときだけ先に確認を出す。どちらなのかは View が添え、確認を出すかは Mediator が決める。
+  | { type: 'session.kill'; runId: RunId; working: boolean; shellTabs: number; confirmed?: boolean }
   // attach はバックグラウンドのサービスが持つセッションに hangar からつなぐ。adopt は外のターミナルの claude を引き取る。confirmed が無ければ先に確認を出す。
   | { type: 'session.attach'; id: SessionId } | { type: 'session.adopt'; id: SessionId; confirmed?: boolean }
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
