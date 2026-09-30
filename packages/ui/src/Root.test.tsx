@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, RunDto, ServerEvent, SessionDto, TabDto } from '@agent-hangar/shared';
 import { Root } from './Root.tsx';
@@ -131,8 +131,8 @@ describe('Root', () => {
     await flush();
     act(() => setHash('#/session/s1'));
     await flush();
-    const select = screen.getByLabelText('サブエージェント') as HTMLSelectElement;
-    expect([...select.options].map((o) => o.value)).toEqual(['', 'agent-1']);
+    const group = screen.getByRole('radiogroup', { name: 'サブエージェント' });
+    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['主線', 'agent-1']);
   });
   it('ターミナルの状態は SessionScreen まで届く', async () => {
     const run: RunDto = { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: Date.now(), endedAt: null, endReason: null, heartbeatAt: 1 };

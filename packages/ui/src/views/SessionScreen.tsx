@@ -4,7 +4,10 @@ import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalStatus } from '../runtime/terminals.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
+import { ToggleChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { Listbox } from './primitives/Listbox.tsx';
+import { Segmented } from './primitives/Segmented.tsx';
 import { SplitPane } from './SplitPane.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
@@ -104,15 +107,17 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
     </div>
   );
 
+  // サブエージェントは、主線と 3 つまでなら帯に並べ、それより多ければ一覧にする。帯が横にあふれないようにするため。
+  const agentOptions = [{ value: '', label: '主線' }, ...props.subagents.map((a) => ({ value: a, label: a }))];
+  const selectAgent = (v: string) => emit({ type: 'transcript.selectAgent', sessionId: id, agentId: v || null });
   const toggles = (
-    <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 4 }}>
-      <label style={{ display: 'flex', gap: 4, alignItems: 'center' }}><input type="checkbox" aria-label="思考を表示" checked={props.showThinking} onChange={(e) => emit({ type: 'transcript.showThinking', sessionId: id, show: e.target.checked })} />思考を表示</label>
-      <label style={{ display: 'flex', gap: 4, alignItems: 'center' }}><input type="checkbox" aria-label="生の記録を表示" checked={props.showRaw} onChange={(e) => emit({ type: 'transcript.showRaw', sessionId: id, show: e.target.checked })} />生の記録</label>
-      {props.subagents.length > 0 && (
-        <select className="select" aria-label="サブエージェント" value={props.agentId ?? ''} onChange={(e) => emit({ type: 'transcript.selectAgent', sessionId: id, agentId: e.target.value || null })}>
-          <option value="">主線</option>{props.subagents.map((a) => <option key={a} value={a}>サブエージェント {a}</option>)}
-        </select>
-      )}
+    <div className="transcript-toggles">
+      <ToggleChip label="思考を表示" text="思考" icon="thinking" pressed={props.showThinking} onChange={(show) => emit({ type: 'transcript.showThinking', sessionId: id, show })} />
+      <ToggleChip label="生の記録を表示" text="生の記録" icon="rawLog" pressed={props.showRaw} onChange={(show) => emit({ type: 'transcript.showRaw', sessionId: id, show })} />
+      {props.subagents.length > 0 && <span className="transcript-toggles-sep" aria-hidden="true" />}
+      {props.subagents.length > 0 && (props.subagents.length <= 3
+        ? <Segmented label="サブエージェント" value={props.agentId ?? ''} options={agentOptions.map((o) => (o.value ? { ...o, lead: <Icon name="agent" /> } : o))} onChange={selectAgent} />
+        : <Listbox label="サブエージェント" value={props.agentId ?? ''} options={agentOptions.map((o) => (o.value ? { ...o, label: `サブエージェント ${o.value}`, icon: 'agent' as const } : o))} onChange={selectAgent} faceClassName="listbox-face listbox-pill" minWidth={260} />)}
       <span className="spacer" /><span className="faint mono">{props.loaded} / {props.total}</span>
     </div>
   );

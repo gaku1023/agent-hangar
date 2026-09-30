@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
+import { pick } from '../test/pick.ts';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
 import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
@@ -31,8 +32,21 @@ describe('SessionScreen', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.showThinking', sessionId: 's1', show: true });
     fireEvent.click(screen.getByText('古い行を読み込む（残り 6 件）'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.loadMore', sessionId: 's1' });
-    fireEvent.change(screen.getByLabelText('サブエージェント'), { target: { value: 'abc' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'abc' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
+    fireEvent.click(screen.getByRole('radio', { name: '主線' }));
+  });
+  it('思考と生の記録は、押した状態を aria-pressed で見せる', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} showThinking showRaw={false} /></IntentRoot>);
+    expect(screen.getByRole('button', { name: '思考を表示' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '生の記録を表示' })).toHaveAttribute('aria-pressed', 'false');
+  });
+  it('サブエージェントが 4 つ以上なら一覧にする', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} subagents={['a1', 'a2', 'a3', 'a4']} /></IntentRoot>);
+    expect(screen.queryByRole('radiogroup', { name: 'サブエージェント' })).toBeNull();
+    pick('サブエージェント', 'サブエージェント a3');
+    expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'a3' });
   });
   it('開いた要約は本文と次の一手を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} summaryOpen /></IntentRoot>);

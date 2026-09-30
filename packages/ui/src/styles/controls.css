@@ -116,3 +116,7 @@
 
 /* 状態の帯の「実行中」に添える、動いていることを示す緑の点。 */
 .seg-live { background: var(--idle); }
+
+/* セッション画面の、本文の上の表示切り替え。 */
+.transcript-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); margin-bottom: var(--u); }
+.transcript-toggles-sep { width: 1px; height: 18px; background: var(--line-strong); }
