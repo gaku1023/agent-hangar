@@ -25,7 +25,7 @@ describe('用語表', () => {
   it('キーの一覧の語は、ボタンや画面の語と同じにする', () => {
     const label = (id: string) => KEYMAP.find((k) => k.id === id)?.label;
     expect(label('session.new')).toBe('新しいセッション');
-    expect(label('transcript.toggle')).toBe('目次の開閉');
+    expect(label('transcript.toggle')).toBe('右の欄の開閉');
     expect(label('split.toggle')).toBe('タブを横に並べる');
   });
   it('横に並べた 2 つの間の仕切りは「左右の幅」と読み上げる', () => {

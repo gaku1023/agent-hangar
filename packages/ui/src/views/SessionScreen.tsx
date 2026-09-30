@@ -141,7 +141,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
 
   const artifacts = props.artifacts.length > 0 && <section className="session-artifacts"><ArtifactCards projectId={null} artifacts={props.artifacts} canAdd={false} /></section>;
 
-  const paneToggle = <button className="tr-toggle" aria-label={props.transcriptOpen ? '目次を閉じる' : '目次を開く'} onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>;
+  const paneToggle = <button className="tr-toggle" aria-label={props.transcriptOpen ? '右の欄を閉じる' : '右の欄を開く'} onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>;
 
   // 本文が消えた会話は、会話の欄もターンの目次も持たない。残っている要約と成果物だけを見せる。
   if (props.gone) return <div className="screen">{header}{goneNote}{summary}{artifacts}</div>;

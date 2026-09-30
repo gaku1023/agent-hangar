@@ -136,7 +136,7 @@ describe('SessionScreen（実行中）', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 1 });
     fireEvent.click(screen.getByText('ターミナルで開く'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.openTerminalApp', runId: 'r1', tabId: 'r1' });
-    fireEvent.click(screen.getByLabelText('目次を閉じる'));
+    fireEvent.click(screen.getByLabelText('右の欄を閉じる'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.toggle' });
     expect(screen.getByText('hi')).toBeInTheDocument();
     expect(screen.getByText('再開')).toBeDisabled();
@@ -160,7 +160,7 @@ describe('SessionScreen（実行中）', () => {
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" />);
     expect(screen.queryByText('hi')).toBeNull();
-    expect(screen.getByLabelText('目次を開く')).toBeInTheDocument();
+    expect(screen.getByLabelText('右の欄を開く')).toBeInTheDocument();
   });
   it('信頼ダイアログの案内と終了の表示', () => {
     withHost(<SessionScreen {...running} live={null} trustHint terminalStatus="connected" />);
@@ -195,10 +195,10 @@ describe('SessionScreen のアイコン', () => {
   });
   it('トランスクリプトの開閉は向きの違うアイコンになる', () => {
     withHost(<SessionScreen {...running} terminalStatus="connected" />);
-    expect(iconOf(screen.getByRole('button', { name: '目次を閉じる' }))).toBe('paneClose');
+    expect(iconOf(screen.getByRole('button', { name: '右の欄を閉じる' }))).toBe('paneClose');
     cleanup();
     withHost(<SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" />);
-    expect(iconOf(screen.getByRole('button', { name: '目次を開く' }))).toBe('paneOpen');
+    expect(iconOf(screen.getByRole('button', { name: '右の欄を開く' }))).toBe('paneOpen');
   });
   it('ツール呼び出しとサブエージェントと折りたたみの矢印', () => {
     render(<IntentRoot onIntent={vi.fn()}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
