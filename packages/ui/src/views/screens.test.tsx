@@ -70,7 +70,7 @@ describe('HomeScreen', () => {
     expect(screen.queryByRole('heading', { name: /実行中/ })).toBeNull();
     expect(screen.getByRole('heading', { name: '最近' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'プロジェクト' })).toBeInTheDocument();
-    expect(screen.getByText('active なプロジェクトはありません。Settings でワークスペースを確かめてください。')).toBeInTheDocument();
+    expect(screen.getByText('active なプロジェクトはありません。設定でワークスペースを確かめてください。')).toBeInTheDocument();
   });
   it('プロジェクトの小さな一覧は数を並べ、押すとプロジェクトを開く', () => {
     const onIntent = vi.fn();

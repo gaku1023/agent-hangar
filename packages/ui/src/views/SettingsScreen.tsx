@@ -78,7 +78,7 @@ export function SettingsScreen(props: SettingsProps) {
     || fallback !== props.summaryFallback || capNumber !== props.summaryHourlyCap || allowExternal !== props.allowExternalSummarizer;
   return (
     <div className="screen settings-screen" style={{ maxWidth: 720 }}>
-      <h1 className="h1">Settings</h1>
+      <h1 className="h1">設定</h1>
       <section>
         <h2 className="h2">ワークスペース</h2>
         <div style={{ display: 'flex', gap: 8 }}>

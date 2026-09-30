@@ -50,16 +50,17 @@ async function mounted(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; te
 }
 
 describe('Root', () => {
-  it('起動から Home、Projects へ遷移、未解決ダイアログ', async () => {
+  it('起動からホーム、プロジェクトへ遷移、未解決ダイアログ', async () => {
     const { rt, deps, handlers, setHash } = make();
     rt.start();
     render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
     expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
     act(() => handlers[0]!.onOpen());
     await flush();
-    expect(screen.getByText('プロジェクト')).toBeInTheDocument();
+    // Home の区画の見出し。ナビの項目も同じ名前なので、見出しとして探す。
+    expect(screen.getByRole('heading', { level: 2, name: 'プロジェクト' })).toBeInTheDocument();
     act(() => setHash('#/projects'));
-    expect(screen.getByRole('heading', { name: 'Projects' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'プロジェクト' })).toBeInTheDocument();
     expect(screen.getByText('alpha')).toBeInTheDocument();
     act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
     await flush();

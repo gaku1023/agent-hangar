@@ -55,8 +55,8 @@ describe('presentShell', () => {
     const store = storeWith();
     store.index = { phase: 'indexing', done: 10, total: 40 };
     const p = presentShell(state, store, NOW);
-    expect(p.nav.find((n) => n.current)?.label).toBe('Projects');
-    expect(p.crumbs.map((c) => c.label)).toEqual(['Projects', 'alpha']);
+    expect(p.nav.find((n) => n.current)?.label).toBe('プロジェクト');
+    expect(p.crumbs.map((c) => c.label)).toEqual(['プロジェクト', 'alpha']);
     expect(p.indexLabel).toBe('索引 10 / 40 件');
   });
 });

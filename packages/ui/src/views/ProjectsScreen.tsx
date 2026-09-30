@@ -10,7 +10,7 @@ export function ProjectsScreen(props: ProjectsProps & { filter: string; showArch
   return (
     <div className="screen">
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
-        <h1 className="h1" style={{ margin: 0 }}>Projects</h1>
+        <h1 className="h1" style={{ margin: 0 }}>プロジェクト</h1>
         <input className="input" placeholder="名前で絞る" value={props.filter} onChange={(e) => props.onFilter(e.target.value)} aria-label="名前で絞る" />
         <span className="spacer" />
         <button className="btn" onClick={() => props.onShowArchived(!props.showArchived)}>{props.showArchived ? 'アーカイブを隠す' : `アーカイブを表示（${props.archivedCount}）`}</button>
