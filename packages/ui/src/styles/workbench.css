@@ -26,6 +26,16 @@
 .todo[data-done='true'] .todo-text { text-decoration: line-through; color: var(--ink-3); }
 .todo-del { visibility: hidden; padding: 0 calc(var(--u) * 1.5); }
 .todo:hover .todo-del, .todo:focus-within .todo-del { visibility: visible; }
+/* 完了の候補。行の地を淡い紫にし、欄は半分塗り。根拠と出したセッションと 2 つのボタンを行の下に置く。 */
+.todo-item[data-candidate='true'] { margin: 2px calc(var(--u) * -1); padding: var(--u) var(--u) calc(var(--u) * 2); border-radius: var(--r); background: var(--cand-soft); }
+.todo-check[data-candidate='true'] { appearance: none; flex: none; width: 13px; height: 13px; margin: 0; border-radius: 3px; border: 1.5px solid var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); cursor: pointer; }
+.todo-check[data-candidate='true']:focus-visible { outline: 2px solid var(--cand); outline-offset: 2px; }
+.todo-cand { margin-left: calc(13px + var(--u) * 1.5); display: flex; flex-direction: column; gap: var(--u); }
+.todo-why { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; }
+.todo-src { font-size: var(--fs-xs); color: var(--ink-2); }
+.todo-src-link { padding: 0; border: 0; background: none; font: inherit; color: var(--cand); cursor: pointer; }
+.todo-src-link:hover { text-decoration: underline; }
+.todo-acts { display: flex; gap: var(--u); }
 
 /* 右レールの一行の追加欄。入力が伸び、ボタンは縮まない。 */
 .rail-add { display: flex; gap: var(--u); }

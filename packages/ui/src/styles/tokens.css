@@ -29,6 +29,10 @@
   --st-done-soft: #e3f1e8;
   --st-archived: #66625b;
   --st-archived-soft: #edebe6;
+  /* 完了の候補。セッションが「片付いた」と言ったが、まだ利用者が確かめていない TODO。
+     淡い地の上の文字は --cand で、地と白地の両方で 4.5 : 1 を超える（tokens.test.ts が見張る）。 */
+  --cand: #6a4fd0;
+  --cand-soft: #f1edff;
   --term-bg: #1c1b2e;
   --term-fg: #e8e6f0;
   --term-tool: #ffb86b;

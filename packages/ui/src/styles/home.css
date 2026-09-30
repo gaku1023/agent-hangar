@@ -11,6 +11,11 @@
 .ask-title b { font-weight: 600; }
 .ask-q { margin-top: 2px; color: var(--ink-2); }
 .ask-card .btn { flex: none; }
+/* 確かめるの行。要対応の札と同じ形で、縁の色だけを候補の色にする。 */
+.confirm-card { box-shadow: 0 0 0 1px color-mix(in srgb, var(--cand) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--cand) 40%, transparent); }
+.cand-mark { flex: none; width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); }
+.confirm-open { padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.confirm-open:hover b { text-decoration: underline; }
 
 /* 実行中の札。3 列に並べ、いま何をしているかを墨の地の 1 行で見せる。 */
 .live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(var(--u) * 2.5); }

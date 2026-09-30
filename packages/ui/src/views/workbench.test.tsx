@@ -80,6 +80,26 @@ describe('TodoList', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'todo.remove', id: 't2' });
     expect(input.getAttribute('id')).toBe('todo-input');
   });
+  it('候補の行は根拠とセッションと確定と却下を出し、欄を押すと反転の Intent を出す', () => {
+    const cand = { note: '直して確かめた', sessionId: 's1', sessionName: '起動画面の作り直し', ago: '12 分前' };
+    const onIntent = wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '窓を掴める', done: false, candidate: cand }, { id: 't2', text: '影の値', done: false, candidate: { ...cand, sessionId: null, sessionName: '不明なセッション' } }]} />);
+    expect(screen.getByText('直して確かめた', { selector: '#todo-why-t1' })).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('窓を掴める（1 件目、完了の候補）'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'todo.toggle', id: 't1' });
+    fireEvent.click(screen.getByRole('button', { name: '起動画面の作り直し' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 's1' });
+    fireEvent.click(screen.getByLabelText('窓を掴める（1 件目）を確定'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'todo.confirm', id: 't1' });
+    fireEvent.click(screen.getByLabelText('窓を掴める（1 件目）を却下'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'todo.reject', id: 't1' });
+    // 開けないセッションは押せる形にしない。
+    expect(screen.queryByRole('button', { name: '不明なセッション' })).toBeNull();
+    expect(screen.getByText('不明なセッション')).toBeTruthy();
+    // 候補でない行には確定も根拠も出さない。
+    const plain = wrap(<TodoList projectId="p1" todos={[{ id: 't3', text: '普通', done: false, candidate: null }]} />);
+    expect(plain).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('普通（1 件目）を確定')).toBeNull();
+  });
   it('空の入力では何も出さない', () => {
     const onIntent = wrap(<TodoList projectId="p1" todos={[]} />);
     fireEvent.keyDown(screen.getByLabelText('TODO を追加'), { key: 'Enter' });
