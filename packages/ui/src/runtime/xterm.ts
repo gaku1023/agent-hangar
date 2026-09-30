@@ -1,10 +1,11 @@
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalLike } from './terminals.ts';
-import { createKeyHandler, terminalOptions } from './xtermSetup.ts';
+import { clipboardProvider, createKeyHandler, terminalOptions } from './xtermSetup.ts';
 
 /** 本物の xterm.js。テストでは TerminalLike の偽物を使うので、このファイルは main.tsx だけが読む。 */
 export function createXterm(): TerminalLike {
@@ -15,6 +16,9 @@ export function createXterm(): TerminalLike {
   // 既定の Unicode 6 では絵文字を 1 桁に数え、Claude Code の数え方とずれて後ろの文字が重なる。
   term.loadAddon(new Unicode11Addon());
   term.unicode.activeVersion = '11';
+  // 中のアプリや tmux のコピーモードが OSC 52 で写したものを、手元のクリップボードに書く。
+  // navigator.clipboard は安全な文脈（127.0.0.1 は含まれる）にしか無いので、無ければ書かずに捨てる。
+  term.loadAddon(new ClipboardAddon(undefined, clipboardProvider((text) => navigator.clipboard.writeText(text))));
   // Shift+Enter を送信ではなく改行にする。列は xtermSetup.ts の NEWLINE_SEQ を見よ。
   term.attachCustomKeyEventHandler(createKeyHandler((d) => term.input(d)));
   // DOM の描画はブロック文字と罫線もフォントで描くので、行間に隙間が出て Claude のロゴが崩れる。WebGL はセルいっぱいに自前で描く。

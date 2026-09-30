@@ -2,6 +2,7 @@
  * xterm の設定と打鍵の扱いのうち、本物の xterm が無くても確かめられる部分。
  * xterm.ts はここから引いて組み立てる。
  */
+import type { IClipboardProvider } from '@xterm/addon-clipboard';
 import type { ITerminalOptions } from '@xterm/xterm';
 
 /**
@@ -56,5 +57,23 @@ export function terminalOptions(theme: { background: string; foreground: string 
     // Option は Meta にしない。JIS 配列のバックスラッシュ（Option+¥）や Option で打つ記号が入らなくなる。
     // Option+Enter はこの設定によらず ESC CR を送るので、改行はそのまま効く。
     macOptionIsMeta: false,
+  };
+}
+
+/**
+ * OSC 52 を受けてクリップボードに書く提供者。@xterm/addon-clipboard に渡す。
+ * addon の既定の提供者は選択先が c のものしか書かないが、tmux のコピーモードは選択先を空にして送る（`ESC ] 52 ; ; <base64>`）。
+ * macOS のクリップボードは 1 つなので、選択先は問わずに書く。
+ */
+export function clipboardProvider(write: (text: string) => Promise<void>): IClipboardProvider {
+  return {
+    // 読み出しには応じない。応じると、端末の中で動くどのプログラムでも利用者のクリップボードを読めてしまう。
+    readText: () => '',
+    async writeText(_selection: string, text: string) {
+      // 空の中身は消去の要求か、壊れた base64 を addon が空にしたものである。利用者が写したものを消さない。
+      if (!text) return;
+      // WebKit は、直前 5 秒の間に頁の中で打鍵かクリックが無いと書き込みを断る（transient activation）。断られても端末の処理は止めない。
+      try { await write(text); } catch { /* 書けなかった写しは捨てる */ }
+    },
   };
 }

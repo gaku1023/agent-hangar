@@ -1,5 +1,9 @@
+// @vitest-environment jsdom
+// addon-clipboard の束は読み込みのときに self を参照するので、DOM のある環境で読む。
+import { ClipboardAddon } from '@xterm/addon-clipboard';
+import type { Terminal } from '@xterm/xterm';
 import { describe, expect, it, vi } from 'vitest';
-import { NEWLINE_SEQ, createKeyHandler, terminalOptions } from './xtermSetup.ts';
+import { NEWLINE_SEQ, clipboardProvider, createKeyHandler, terminalOptions } from './xtermSetup.ts';
 
 type KeyInit = { type?: string; key: string; shiftKey?: boolean; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; isComposing?: boolean; keyCode?: number };
 function key(init: KeyInit) {
@@ -71,5 +75,66 @@ describe('terminalOptions', () => {
     const o = terminalOptions(theme);
     expect(o).toMatchObject({ fontSize: 13, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, allowProposedApi: true, theme });
     expect(o.fontFamily).toContain('JetBrains Mono');
+  });
+});
+
+describe('clipboardProvider', () => {
+  /** addon を偽の端末に付け、OSC 52 の本体を流し込む口と、端末へ返した入力を返す。 */
+  function withAddon(write: (text: string) => Promise<void>) {
+    let osc52: ((data: string) => boolean | Promise<boolean>) | null = null;
+    const replies: string[] = [];
+    const term = {
+      parser: { registerOscHandler: (id: number, cb: (data: string) => boolean | Promise<boolean>) => { if (id === 52) osc52 = cb; return { dispose() {} }; } },
+      input: (d: string) => { replies.push(d); },
+    };
+    new ClipboardAddon(undefined, clipboardProvider(write)).activate(term as unknown as Terminal);
+    return { send: async (data: string) => { await osc52!(data); }, replies };
+  }
+
+  it('アプリが写したものをクリップボードに書く', async () => {
+    const write = vi.fn(async () => {});
+    const { send } = withAddon(write);
+    await send('c;aGVsbG8=');
+    expect(write).toHaveBeenCalledWith('hello');
+  });
+
+  it('tmux のコピーモードが送る、選択先の空いた OSC 52 も書く', async () => {
+    // tmux は `ESC ] 52 ; ; <base64>` の形で送る。addon の既定の提供者は c 以外を捨てるので、これが届かない。
+    const write = vi.fn(async () => {});
+    const { send } = withAddon(write);
+    await send(';aGVsbG8td29ybGQ=');
+    expect(write).toHaveBeenCalledWith('hello-world');
+  });
+
+  it('日本語もそのまま書く', async () => {
+    const write = vi.fn(async () => {});
+    const { send } = withAddon(write);
+    await send(`c;${Buffer.from('こんにちは', 'utf8').toString('base64')}`);
+    expect(write).toHaveBeenCalledWith('こんにちは');
+  });
+
+  it('クリップボードの中身はアプリに渡さない', async () => {
+    // 読み出しを許すと、端末の中で動くどのプログラムでも利用者のクリップボードを盗み見られる。
+    const write = vi.fn(async () => {});
+    const { send, replies } = withAddon(write);
+    await send('c;?');
+    expect(write).not.toHaveBeenCalled();
+    expect(replies).toEqual(['\x1b]52;c;\x07']);
+  });
+
+  it('空の中身や壊れた base64 では、利用者のクリップボードを消さない', async () => {
+    const write = vi.fn(async () => {});
+    const { send } = withAddon(write);
+    await send('c;');
+    await send('c;%%%not-base64');
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('書けなくても端末の処理は止めない', async () => {
+    // WKWebView は利用者の操作の外での書き込みを断る。断られても投げずに済ませる。
+    const { send } = withAddon(() => Promise.reject(new DOMException('denied', 'NotAllowedError')));
+    await expect(send('c;aGVsbG8=')).resolves.toBeUndefined();
+    const sync = withAddon(() => { throw new TypeError('navigator.clipboard is undefined'); });
+    await expect(sync.send('c;aGVsbG8=')).resolves.toBeUndefined();
   });
 });
