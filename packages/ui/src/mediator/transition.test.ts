@@ -236,7 +236,7 @@ describe('起動', () => {
     expect(run([intent({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
   it('再開、フォーク、停止、外部で開くは API 効果', () => {
-    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1' }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' }), intent({ type: 'project.openEditor', id: 'p1' }), intent({ type: 'project.openTerminalApp', id: 'p1' })]);
+    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' }), intent({ type: 'project.openEditor', id: 'p1' }), intent({ type: 'project.openTerminalApp', id: 'p1' })]);
     expect(effects).toEqual([
       { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.fork', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
       { kind: 'api.openTerminalApp', runId: 'r1', tabId: 't1' }, { kind: 'api.openTerminalApp', runId: 'r1', tabId: null },
@@ -672,6 +672,60 @@ describe('外で動くセッションを hangar で開く', () => {
     const c = run([runtime({ type: 'launch.failed', message: '作業中のセッションは引き取れません' })], b.state);
     expect(c.state.launch).toEqual({ kind: 'failed', message: '作業中のセッションは引き取れません' });
     expect(c.effects).toEqual([{ kind: 'toast', level: 'error', message: '作業中のセッションは引き取れません' }]);
+  });
+});
+
+describe('プロジェクトを一覧から削除する確認', () => {
+  it('未解決のダイアログで一覧から削除を選ぶと、送らずに確認を出す', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'unlinkProject', projectId: 'p1' } });
+  });
+  it('やめると未解決のダイアログに戻り、あとでの扱いにはしない', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    const b = run([intent({ type: 'overlay.close' })], a.state);
+    expect(b.effects).toEqual([]);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.unresolvedQueue).toEqual(['p2']);
+    expect(b.state.resolveDeferred).toEqual([]);
+  });
+  it('承諾で送り、同じプロジェクトを聞き直さずに次の未解決へ進む', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    const b = run([intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' }, confirmed: true })], a.state);
+    expect(b.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'unlink' } }]);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p2' });
+    expect(b.state.unresolvedQueue).toEqual([]);
+    const c = run([intent({ type: 'project.resolve', id: 'p2', action: { kind: 'unlink' }, confirmed: true })], b.state);
+    expect(c.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('アーカイブと再指定は確認を挟まない', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })]);
+    expect(a.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'archive' } }]);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+  });
+});
+
+describe('停止の確認', () => {
+  it('休みでシェルタブが無ければ、確認せずにすぐ止める', () => {
+    const r = run([intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
+    expect(r.state.overlay).toEqual({ kind: 'none' });
+    expect(r.effects).toEqual([{ kind: 'api.killRun', runId: 'r1' }]);
+  });
+  it('作業中なら先に確認を出し、やめれば何も送らない', () => {
+    const a = run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'killRun', runId: 'r1', working: true, shellTabs: 0 } });
+    const closed = run([intent({ type: 'overlay.close' })], a.state);
+    expect(closed.effects).toEqual([]);
+    expect(closed.state).toEqual(initialState());
+  });
+  it('シェルタブがあれば休みでも確認を出し、承諾で止めて確認を閉じる', () => {
+    const a = run([intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 2 })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'killRun', runId: 'r1', working: false, shellTabs: 2 } });
+    const b = run([intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 2, confirmed: true })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    expect(b.effects).toEqual([{ kind: 'api.killRun', runId: 'r1' }]);
   });
 });
 

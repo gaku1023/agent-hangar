@@ -283,6 +283,28 @@ describe('フェーズ 4 のオーバーレイ', () => {
     expect(screen.queryByRole('dialog', { name: '上書きの確認' })).toBeNull();
   });
 
+  it('一覧から削除は確認を挟み、件数を出し、Esc で未解決のダイアログへ戻る', async () => {
+    const resolveProject = vi.fn(async () => ({}));
+    const { rt } = await mounted({ api: { resolveProject } });
+    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: '一覧から削除の確認' });
+    expect(dialog).toHaveTextContent('プロジェクト alpha を一覧から削除し、1 件のセッションを未分類に戻します。');
+    expect(resolveProject).not.toHaveBeenCalled();
+    key({ key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: '一覧から削除の確認' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'プロジェクトの場所を確認' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    fireEvent.click(within(screen.getByRole('dialog', { name: '一覧から削除の確認' })).getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    expect(resolveProject).toHaveBeenCalledWith('p1', { kind: 'unlink' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('取り込みの下見は store の一覧をそのまま出す', async () => {
     const { rt } = await mounted({ api: { configPreview: async () => ({ confirmed: false, entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 2, remoteDevice: 'mini', size: 10 }] }) } });
     act(() => rt.emit({ type: 'sync.config.preview' }));
@@ -330,6 +352,71 @@ describe('キーの見直し', () => {
     act(() => rt.emit({ type: 'tab.select', tabId: 't2' }));
     await flush();
     expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+  });
+
+  // セッション画面の ⌘W は窓（アプリ）を閉じない。閉じてよいのはフォーカスのある枠のシェルタブだけである。
+  const sessionWithShell = async () => {
+    const m = await mounted();
+    act(() => m.setHash('#/session/s1'));
+    await flush();
+    act(() => m.wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('r1', 'r1', 'agent'), rootTab('t2', 'r1', 'shell')] }));
+    await flush();
+    return m;
+  };
+  const paneHost = (tabId: string) => document.querySelector<HTMLElement>(`.term-host[data-tab="${tabId}"]`)!;
+
+  it('セッション画面の ⌘W は、Claude のタブでも窓に渡さず、何も閉じない', async () => {
+    const { rt } = await sessionWithShell();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('run の無いセッション画面でも ⌘W は窓に渡さない', async () => {
+    const { rt, setHash } = await mounted();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('分割中の ⌘W は、フォーカスのある枠のタブがシェルのときだけそれを閉じる', async () => {
+    const { rt } = await sessionWithShell();
+    act(() => rt.emit({ type: 'split.toggle' }));
+    await flush();
+    expect(paneHost('r1')).not.toBeNull();
+    expect(paneHost('t2')).not.toBeNull();
+    const emit = vi.spyOn(rt, 'emit');
+    // 左の Claude の枠にフォーカスがあれば、何も閉じない。
+    fireEvent.focusIn(paneHost('r1'));
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalled();
+    // 右のシェルの枠を押すと、そこが ⌘W の対象になる。
+    fireEvent.pointerDown(paneHost('t2'));
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+    expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
+  });
+
+  it('枠の外へフォーカスが移っても、最後にフォーカスのあった枠を覚えている', async () => {
+    const { rt } = await sessionWithShell();
+    act(() => rt.emit({ type: 'split.toggle' }));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    fireEvent.focusIn(paneHost('t2'));
+    const outside = screen.getByRole('button', { name: '停止' });
+    fireEvent.focusIn(outside);
+    key({ key: 'w', metaKey: true }, outside);
+    expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
+  });
+
+  it('枠の中で打った ⌘W は、その枠のタブを閉じる', async () => {
+    const { rt } = await sessionWithShell();
+    act(() => rt.emit({ type: 'split.toggle' }));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ key: 'w', metaKey: true }, paneHost('t2'));
+    expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
   });
 
   it('Ctrl でも ⌘ と同じ操作になる', async () => {

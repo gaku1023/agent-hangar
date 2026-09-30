@@ -45,7 +45,15 @@ export function launchStep(state: State, input: Input): Step | null {
       // 元の claude が終わるのを待つので、開くまで数秒かかる。押したことが伝わるよう先に一言出す。
       return { state: { ...state, overlay, launch: { kind: 'submitting' } }, effects: [{ kind: 'toast', level: 'info', message: '引き取っています' }, { kind: 'api.adopt', sessionId: i.id }] };
     }
-    case 'session.kill': return { state, effects: [{ kind: 'api.killRun', runId: i.runId }] };
+    case 'session.kill': {
+      // サーバの停止はシェルタブを全部閉じてから tmux を落とす。
+      // 作業中の Claude かシェルタブを巻き込むときだけ先に確認を出し、休みで巻き込むものが無ければすぐ止める。
+      if (!i.confirmed && (i.working || i.shellTabs > 0)) {
+        return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'killRun', runId: i.runId, working: i.working, shellTabs: i.shellTabs } } }, effects: [] };
+      }
+      const overlay = i.confirmed && state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
+      return { state: { ...state, overlay }, effects: [{ kind: 'api.killRun', runId: i.runId }] };
+    }
     case 'session.openTerminalApp': return { state, effects: [{ kind: 'api.openTerminalApp', runId: i.runId, tabId: i.tabId ?? null }] };
     case 'session.openEditor': return { state, effects: [{ kind: 'api.openEditor', sessionId: i.sessionId }] };
     case 'project.openEditor': return { state, effects: [{ kind: 'api.projectOpenEditor', projectId: i.id }] };

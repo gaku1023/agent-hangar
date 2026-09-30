@@ -22,7 +22,9 @@ export type Intent =
   | { type: 'search.query'; text: string } | { type: 'search.filter'; patch: Partial<SearchFilter> }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; name: string; gitInit: boolean; startSession: boolean }
-  | { type: 'project.resolve.open'; id: ProjectId } | { type: 'project.resolve'; id: ProjectId; action: ResolveAction }
+  | { type: 'project.resolve.open'; id: ProjectId }
+  // 一覧から削除（unlink）は同期で他の端末へも広がるので、confirmed が無ければ先に確認を出す。
+  | { type: 'project.resolve'; id: ProjectId; action: ResolveAction; confirmed?: boolean }
   | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
   | { type: 'todo.add'; projectId: ProjectId; text: string } | { type: 'todo.toggle'; id: TodoId } | { type: 'todo.remove'; id: TodoId }
   | { type: 'todo.confirm'; id: TodoId } | { type: 'todo.reject'; id: TodoId }
@@ -30,7 +32,9 @@ export type Intent =
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId }
   | { type: 'session.open'; id: SessionId; focus?: 'terminal' } | { type: 'session.setMemo'; id: SessionId; text: string }
   | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams }
-  | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId } | { type: 'session.kill'; runId: RunId }
+  | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId }
+  // 停止は作業中か、そのランにシェルタブがあるときだけ先に確認を出す。どちらなのかは View が添え、確認を出すかは Mediator が決める。
+  | { type: 'session.kill'; runId: RunId; working: boolean; shellTabs: number; confirmed?: boolean }
   // attach はバックグラウンドのサービスが持つセッションに hangar からつなぐ。adopt は外のターミナルの claude を引き取る。confirmed が無ければ先に確認を出す。
   | { type: 'session.attach'; id: SessionId } | { type: 'session.adopt'; id: SessionId; confirmed?: boolean }
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }

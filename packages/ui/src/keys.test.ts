@@ -16,6 +16,10 @@ describe('キーマップ', () => {
     expect(matchKey({ key: 'N', metaKey: true, shiftKey: true })).toBe('session.newScratch');
   });
 
+  it('⌘W の説明は、閉じるのがフォーカスのある枠のシェルタブだけだと書く', () => {
+    expect(KEYMAP.find((b) => b.id === 'tab.close')?.label).toBe('フォーカスのある枠のシェルタブを閉じる');
+  });
+
   it('文字キーは大小を問わない', () => {
     expect(matchKey({ key: 'W', metaKey: true })).toBe('tab.close');
   });

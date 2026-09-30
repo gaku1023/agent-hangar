@@ -535,7 +535,10 @@ describe('ResolveProjectDialog', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'repoint', path: '/w/alpha-moved' } });
     fireEvent.click(screen.getByText('アーカイブにする'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } });
-    fireEvent.click(screen.getByText('紐づけを削除'));
+    // 一覧から削除は取り消せないので危険色にし、押しても Mediator が先に確認を出す。
+    const remove = screen.getByRole('button', { name: '一覧から削除' });
+    expect(remove).toHaveClass('btn-danger');
+    fireEvent.click(remove);
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } });
     fireEvent.click(screen.getByText('あとで'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
@@ -567,7 +570,7 @@ describe('ResolveProjectDialog のアイコン', () => {
     const iconOf = (name: string) => screen.getByRole('button', { name }).querySelector('svg')?.getAttribute('data-icon') ?? null;
     expect(iconOf('この場所にする')).toBe('repoint');
     expect(iconOf('アーカイブにする')).toBe('archive');
-    expect(iconOf('紐づけを削除')).toBe('unlink');
+    expect(iconOf('一覧から削除')).toBe('unlink');
   });
 });
 

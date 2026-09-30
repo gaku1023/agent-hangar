@@ -35,7 +35,8 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {props.fromScratch && <span className="faint">再開すると cwd はスクラッチのままです</span>}
         {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id })}><Icon name="promote" />プロジェクトに昇格</button>}
         {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined })}><Icon name="openTerminal" />ターミナルで開く</button>}
-        {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.kill', runId: run.id })}><Icon name="stop" />停止</button>}
+        {/* 停止は取り消せないので危険色にする。作業中か、シェルタブを巻き込むときは Mediator が先に確認を出す。 */}
+        {run?.alive && <button className="btn btn-danger" onClick={() => emit({ type: 'session.kill', runId: run.id, working: props.live === 'busy' || props.live === 'waiting', shellTabs: props.tabs.filter((t) => t.kind === 'shell').length })}><Icon name="stop" />停止</button>}
         <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.resume', id })}><Icon name="resume" />再開</button>
         <button className="btn" disabled={!props.canFork} onClick={() => emit({ type: 'session.fork', id })}><Icon name="fork" />フォーク</button>
         {/* 本文が他端末にあるときと、相手の heartbeat が途絶えたとき（Ruling 14）の逃げ道。
