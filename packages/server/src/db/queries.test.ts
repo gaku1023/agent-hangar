@@ -8,6 +8,7 @@ import { softDeleteShared, upsertShared } from './shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from '../../test/fixtures.ts';
+import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 import { LOCK_STALE_MS, displayName, getProject, getSession, listDevices, listProjects, listSessions } from './queries.ts';
 
 let dir: string;
@@ -300,5 +301,25 @@ describe('実行中のセッションの activity', () => {
   it('実行中でも、呼び出しがまだ無ければ null', () => {
     db.prepare('delete from session_activity').run();
     expect(listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!.activity).toBeNull();
+  });
+});
+
+describe('セッションの状態', () => {
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+  it('行が無ければ null、あれば状態と提案を載せ、rejected_at は載せない', () => {
+    expect(getSession(db, [], alphaId())!.state).toBeNull();
+    proposeSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日 CPU を見る', returnOn: '2026-10-02', source: 'exit', now: 500 });
+    expect(getSession(db, [], alphaId())!.state).toEqual({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: { status: 'paused', note: '明日 CPU を見る', returnOn: '2026-10-02', source: 'exit', at: 500 } });
+    rejectSessionState(db, 'd', alphaId(), 600);
+    const rejected = getSession(db, [], alphaId())!.state!;
+    expect(rejected.candidate).toBeNull();
+    expect(Object.keys(rejected)).not.toContain('rejectedAt');
+    setSessionState(db, 'd', alphaId(), { status: 'done', note: '直した', setBy: 'conversation', now: 700 });
+    expect(listSessions(db, []).find((s) => s.id === alphaId())!.state).toEqual({ status: 'done', note: '直した', returnOn: null, setBy: 'conversation', setAt: 700, candidate: null });
+  });
+  it('状態を付けても一覧の件数と並びは変わらない', () => {
+    const before = listSessions(db, []).map((s) => s.id);
+    setSessionState(db, 'd', alphaId(), { status: 'archived', setBy: 'user' });
+    expect(listSessions(db, []).map((s) => s.id)).toEqual(before);
   });
 });

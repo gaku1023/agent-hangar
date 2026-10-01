@@ -1,4 +1,5 @@
-import type { DeviceDto, LiveSessionDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionSummaryDto } from '@agent-hangar/shared';
+import type { CandidateSource, DeviceDto, LiveSessionDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
+import { toStateDto } from '../sessions/states.ts';
 import type { Db } from './open.ts';
 
 /** sessions に要約と統計と本文の有無を左結合した 1 行。 */
@@ -44,6 +45,18 @@ type SessionRow = {
   a_summary: string | null;
   a_question: string | null;
   local_mtime: number | null;
+  // session_states の左結合。ss_id が null なら行が無い（印なし）。
+  ss_id: string | null;
+  ss_status: SessionStatus | null;
+  ss_note: string | null;
+  ss_return_on: string | null;
+  ss_set_by: StateSetBy | null;
+  ss_set_at: number | null;
+  ss_c_status: 'paused' | 'done' | null;
+  ss_c_note: string | null;
+  ss_c_return_on: string | null;
+  ss_c_source: CandidateSource | null;
+  ss_c_at: number | null;
 };
 
 const SESSION_SELECT = `
@@ -54,13 +67,16 @@ select s.*, exists(select 1 from transcript_files t where t.session_id = s.id an
   (select r.path from project_roots r join projects sp on sp.id = r.project_id where r.device_id = s.home_device and sp.is_scratch = 1 and sp.deleted_at is null and r.deleted_at is null order by r.updated_at desc limit 1) scratch_root,
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_id sum_source_id, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
   st.turns st_turns, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
-  ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost, a.tool a_tool, a.summary a_summary, a.question a_question
+  ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost, a.tool a_tool, a.summary a_summary, a.question a_question,
+  ss.session_id ss_id, ss.status ss_status, ss.note ss_note, ss.return_on ss_return_on, ss.set_by ss_set_by, ss.set_at ss_set_at,
+  ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at
 from sessions s
 left join projects p on p.id = s.project_id
 left join session_summaries m on m.session_id = s.id and m.deleted_at is null
 left join session_stats st on st.session_id = s.id
 left join session_live_stats ls on ls.provider_session_id = s.provider_session_id
 left join session_activity a on a.session_id = s.id
+left join session_states ss on ss.session_id = s.id and ss.deleted_at is null
 where s.deleted_at is null`;
 
 /**
@@ -186,6 +202,11 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     remoteOnly: r.has_transcript === 1 && r.has_local === 0,
     // 保持期間の期限を UI が数えるための、この PC の本文の更新時刻。Claude Code もこれで古さを測るとみなす。
     transcriptMtime: r.local_mtime,
+    // セッションの状態と提案。行が無ければ印なしの null。rejected_at は載せない（toStateDto）。
+    state: r.ss_id === null ? null : toStateDto({
+      status: r.ss_status, note: r.ss_note, return_on: r.ss_return_on, set_by: r.ss_set_by, set_at: r.ss_set_at,
+      candidate_status: r.ss_c_status, candidate_note: r.ss_c_note, candidate_return_on: r.ss_c_return_on, candidate_source: r.ss_c_source, candidate_at: r.ss_c_at,
+    }),
     // 最後に呼んだツールと待っている問いは、実行中のときだけ載せる。終わったセッションの古い呼び出しは出さない。
     ...(live ? { activity: r.a_tool !== null ? { tool: r.a_tool, summary: r.a_summary ?? '', question: r.a_question } : null } : {}),
   };
