@@ -8,9 +8,12 @@ import { SIDEBAR_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
 import { NO_QUESTION } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
+// 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
+import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
 import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
+import type { DesktopBridge } from './desktop.ts';
 import type { Notifier } from './notifier.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -39,6 +42,13 @@ export type RuntimeDeps = {
    * 無ければ通知もバッジも出さない。
    */
   notifier?: Notifier;
+  /**
+   * デスクトップの殻に頼む口。殻の中でだけ渡り、ブラウザでは無い。
+   * 画面はこの有無で、「ログを開く」「再起動」を出すか、ログの場所のコピーと文の案内に落とすかを決める。
+   */
+  desktop?: DesktopBridge | null;
+  /** クリップボードに書く。無ければ navigator.clipboard を使う。テストが差し替える口である。 */
+  clipboard?: (text: string) => Promise<void>;
 };
 
 export type Runtime = {
@@ -51,8 +61,6 @@ export type Runtime = {
 };
 
 const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
-/** 参加トークンをストアに置いておく上限。全セッションの読み書き権を持つ秘密なので、写し終わる頃に自分で消す。 */
-const JOIN_TOKEN_TTL_MS = 120_000;
 
 /** Mediator の効果を実行し、サーバとブラウザの出来事を入力に変える。 */
 export function createRuntime(deps: RuntimeDeps): Runtime {
@@ -60,7 +68,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   // React が読む状態。present が commit を呼ぶまで、前に描いた state のままでいる。
   // 遷移の計算は常に最新の state で行い、描く側だけを遅らせる。
   let shown = state;
-  let store = initialStore();
+  // 殻の有無は起動の時に決まり、あとで変わらない。
+  let store: Store = { ...initialStore(), desktop: deps.desktop != null };
   const listeners = new Set<() => void>();
   const notify = () => { for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
@@ -88,6 +97,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
   const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
   const fail = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } });
+  const failWith = (what: string, e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: `${what}: ${errMsg(e)}` } });
+  /** 準備の確かめを取りに行く。設定画面の検証と、空のホームの確認リストが同じ値を読む。 */
+  const loadReadiness = () => { deps.api.readiness().then((r) => setStore({ ...store, readiness: r })).catch(fail); };
   const toast = (message: string) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
@@ -152,6 +164,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
           for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
+          // セッションが 1 つも無ければ、ホームは準備の確認リストを出す。その中身をここで取りに行く。
+          if (b.sessions.length === 0) loadReadiness();
         }).catch(fail);
         return;
       case 'api.loadEvents': {
@@ -204,7 +218,35 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.setProjectStatus': deps.api.setProjectStatus(e.projectId, e.status).catch(fail); return;
       case 'api.resolveProject': deps.api.resolveProject(e.projectId, e.action).catch(fail); return;
-      case 'api.updateSettings': deps.api.updateSettings(e.patch).then((s) => setStore({ ...store, settings: s })).catch(fail); return;
+      case 'api.updateSettings': {
+        const field = e.field;
+        deps.api.updateSettings(e.patch).then((s) => {
+          setStore({ ...store, settings: s });
+          if (field) dispatch({ kind: 'runtime', event: { type: 'settings.saved', field } });
+          // パスが変わると欄の下の検証も変わるので、準備の確かめを取り直す。
+          loadReadiness();
+        }).catch((err: unknown) => {
+          // 欄ごとの保存の失敗は、その欄の下に理由を出す。トーストにはしない。
+          if (field) dispatch({ kind: 'runtime', event: { type: 'settings.failed', field, message: errMsg(err) } });
+          else fail(err);
+        });
+        return;
+      }
+      case 'api.readiness': loadReadiness(); return;
+      case 'shell.openLog':
+        if (!deps.desktop) return;
+        deps.desktop.openLog().catch((err: unknown) => failWith('ログを開けませんでした', err));
+        return;
+      case 'shell.restart':
+        if (!deps.desktop) return;
+        deps.desktop.restart().catch((err: unknown) => failWith('再起動できませんでした', err));
+        return;
+      case 'clipboard.copy': {
+        const write = deps.clipboard ?? ((text: string) => navigator.clipboard.writeText(text));
+        // 書けない（クリップボードの権限が無いなど）ときは、手で写せるよう文をトーストで出す。
+        Promise.resolve().then(() => write(e.text)).catch(() => toast(`コピーできませんでした。手で写してください: ${e.text}`));
+        return;
+      }
       case 'api.rebuildIndex': deps.api.rebuildIndex().catch(fail); return;
       case 'api.launch': deps.api.launch(e.params).then(launched).catch(launchFailed); return;
       case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;
@@ -298,6 +340,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.shellHook().then((h) => setStore({ ...store, shellHook: h })).catch(fail);
         deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
         deps.api.retention().then((r) => setStore({ ...store, retention: r })).catch(fail);
+        loadReadiness();
         // LM Studio が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
         deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));
         return;
@@ -352,7 +395,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.joinToken':
         deps.api.joinToken().then((r) => {
-          setStore(applyJoinToken(store, r.token));
+          setStore(applyJoinToken(store, r.token, r.token === null ? null : (deps.now ?? Date.now)() + JOIN_TOKEN_TTL_MS));
           // 秘密をストアに残し続けない。同じトークンがまだ出ているときだけ消す。
           if (r.token !== null) deps.setTimeout(() => { if (store.joinToken === r.token) setStore(applyJoinToken(store, null)); }, JOIN_TOKEN_TTL_MS);
         }).catch(fail);

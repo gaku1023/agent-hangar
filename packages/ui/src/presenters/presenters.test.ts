@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, ProjectDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
@@ -636,9 +636,42 @@ describe('presentSettings（フェーズ 2）', () => {
   it('ツールのパスと MCP のコマンド', () => {
     const store = storeWith();
     store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
-    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, mcpInstallCommand: 'npm run hangar -- mcp install' });
+    // コマンドは hangar の呼び方にそろえる。準備の確かめが届く前は hangar と書く。
+    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' } });
     store.settings = null;
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', codePath: null });
+  });
+});
+
+describe('presentSettings の検証と保存の知らせ（設定の B1 と C1）', () => {
+  const READY: ReadinessDto = {
+    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: true, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
+    commands: { mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install', shell: '/A/hangar shell install' },
+  };
+  it('準備の確かめが届く前は、欄の下を空にしておく', () => {
+    const p = presentSettings(initialState(), initialStore());
+    expect(p.verify).toEqual({ workspace: null, tmux: null, claude: null, code: null, node: null });
+    expect(p.mcpRegistered).toBeNull();
+    expect(p.todo).toEqual({ must: 0, link: 0 });
+  });
+  it('届いたら、欄ごとの検証と、MCP の登録と、コマンドの呼び方を渡す', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), readiness: READY });
+    expect(p.verify.tmux).toMatchObject({ ok: true, text: '/opt/homebrew/bin/tmux', note: '3.4' });
+    expect(p.verify.workspace).toMatchObject({ ok: true, note: 'プロジェクト 12 件' });
+    expect(p.verify.claude).toMatchObject({ ok: false });
+    expect(p.mcpRegistered).toBe(true);
+    expect(p.commands).toEqual({ mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install' });
+    // 直すものの数は、無くても動くもの（code）を数えない。連携は MCP と statusline を数える。
+    expect(p.todo).toEqual({ must: 1, link: 1 });
+  });
+  it('欄ごとの保存の知らせをそのまま渡す', () => {
+    const p = presentSettings({ ...initialState(), settingsSave: { tmuxPath: { kind: 'saved', n: 2 } } }, initialStore());
+    expect(p.save).toEqual({ tmuxPath: { kind: 'saved', n: 2 } });
+  });
+  it('参加トークンが消える時刻を渡す', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 }, NOW);
+    expect(p.cloud).toMatchObject({ joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 });
   });
 });
 
@@ -659,15 +692,23 @@ describe('書式', () => {
 describe('presentShell の接続', () => {
   it('つながっている間は何も出さない', () => {
     const s = { ...initialState(), connection: 'connected' as const };
-    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: false, staleLabel: '', retryLabel: '' });
+    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false });
   });
   it('切れている間は、止まった時刻と次に試すまでの秒を出す', () => {
     const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW - 120_000, nextRetryAt: NOW + 7_500 };
-    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します' });
+    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します', hard: false, desktop: false });
   });
   it('切れた直後は、時刻を言わずに止まったとだけ言う', () => {
     const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW - 30_000, nextRetryAt: NOW + 2_000 };
     expect(presentShell(s, initialStore(), NOW).conn.staleLabel).toBe('画面の更新が止まっています');
+  });
+  it('再接続が 3 回続けて失敗したら、同じ帯を強い形に切り替える（初回と障害の B1）', () => {
+    // 最初の切断で 1、再接続の失敗ごとに 1 ずつ増える。3 回の失敗は 4 である。
+    const at = (reconnectAttempt: number) => ({ ...initialState(), connection: 'disconnected' as const, staleSince: NOW, nextRetryAt: NOW + 1000, reconnectAttempt });
+    expect(presentShell(at(3), initialStore(), NOW).conn.hard).toBe(false);
+    expect(presentShell(at(4), initialStore(), NOW).conn.hard).toBe(true);
+    // 殻の中なら、ログを開くと再起動を殻に頼める。
+    expect(presentShell(at(4), { ...initialStore(), desktop: true }, NOW).conn.desktop).toBe(true);
   });
   it('待ち時間が尽きたら、試している最中だと出す', () => {
     const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW, nextRetryAt: NOW };
@@ -791,7 +832,8 @@ describe('presentSettings のフェーズ 3 の項目', () => {
       usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 10, outputTokens: 2, sessions: 1 }], projects: [] },
     };
     const p = presentSettings(initialState(), store);
-    expect(p).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, summarizerModels: ['gemma', 'qwen'], statuslineCommand: 'npm run hangar -- statusline install' });
+    expect(p).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, summarizerModels: ['gemma', 'qwen'] });
+    expect(p.commands.statusline).toBe('hangar statusline install');
     expect(p.statusline?.installed).toBe(true);
     expect(p.usageAggregate?.days).toHaveLength(1);
     expect(p.summarizerTest).toBeNull();
@@ -946,7 +988,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
   });
   it('フェーズ 3 までの Settings の項目は消えていない', () => {
     const p = presentSettings(initialState(), { ...initialStore(), settings: fullSettings({ tmuxPath: '/t' }) }, NOW);
-    expect(p).toMatchObject({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/t', terminalApp: 'terminal', mcpInstallCommand: 'npm run hangar -- mcp install', statuslineCommand: 'npm run hangar -- statusline install', summaryHourlyCap: 20 });
+    expect(p).toMatchObject({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/t', terminalApp: 'terminal', summaryHourlyCap: 20 });
   });
   it('now を渡さない既存の呼び出しも通る', () => {
     expect(presentSettings(initialState(), initialStore()).cloud.state).toBe('off');

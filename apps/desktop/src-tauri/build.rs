@@ -1,9 +1,19 @@
+// 頁から呼べる殻の命令の一覧。ここに載せた命令にだけ allow-<名前> の権限が作られ、
+// capabilities/ で与えた頁からしか呼べなくなる。
+// UI の出どころは remote-shell.json と remote-notify.json、起動画面は boot-screen.json である。
+// 名前は lib.rs の #[tauri::command] とそろえる（apps/desktop/test/config.test.ts が突き合わせる）。
+const COMMANDS: &[&str] = &[
+    "notify_request",
+    "notify_waiting",
+    "open_log",
+    "restart_app",
+    "retry_boot",
+];
+
 fn main() {
-    // 頁から呼ぶ殻のコマンド。
-    // ここに並べると、コマンドごとの権限（allow-notify-waiting など）が作られる。
-    // 並べたコマンドは、capabilities で許したものしか頁から呼べない。
-    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
-        tauri_build::AppManifest::new().commands(&["notify_waiting", "notify_request"]),
-    ))
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)),
+    )
     .expect("failed to run tauri-build");
 }

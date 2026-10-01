@@ -108,8 +108,8 @@ describe('読み込み画面', () => {
 describe('capabilities', () => {
   const dir = path.join(app, 'src-tauri', 'capabilities');
   const cap = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるための 3 つだけ', () => {
-    expect(fs.readdirSync(dir).sort()).toEqual(['default.json', 'remote-drag.json', 'remote-notify.json']);
+  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作の 5 つだけ', () => {
+    expect(fs.readdirSync(dir).sort()).toEqual(['boot-screen.json', 'default.json', 'remote-drag.json', 'remote-notify.json', 'remote-shell.json']);
   });
   it('既定の権限は core:default のまま変えない', () => {
     expect(cap('default.json').permissions).toEqual(['core:default']);
@@ -135,6 +135,7 @@ describe('capabilities', () => {
     expect(port).toBeDefined();
     expect(cap('remote-drag.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
     expect(cap('remote-notify.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
+    expect(cap('remote-shell.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
   });
   // 殻のコマンドの名前は、殻（build.rs と lib.rs）と画面（notifier.ts）に分かれている。
   // 片方だけ変えると、通知が黙って出なくなる。
@@ -148,6 +149,37 @@ describe('capabilities', () => {
       expect(lib).toMatch(new RegExp(`generate_handler!\\[[^\\]]*\\b${cmd}\\b`));
     }
     expect(ui).toContain("'plugin:window|set_badge_count'");
+  });
+  // 起動画面は殻の中の頁（tauri://localhost）なので、remote を持たない。もう一度試すは起動画面からだけ呼べる。
+  it('起動画面には、もう一度試すとログを開くだけを与える', () => {
+    const c = cap('boot-screen.json');
+    expect(c.windows).toEqual(['main']);
+    expect(c.remote).toBeUndefined();
+    expect(c.permissions).toEqual(['allow-retry-boot', 'allow-open-log']);
+  });
+  // サーバの頁から頼めるのは、ログを開くことと、アプリの再起動だけにする。起動のやり直しは与えない。
+  it('UI の出どころには、ログを開くと再起動だけを与える', () => {
+    const c = cap('remote-shell.json');
+    expect(c.windows).toEqual(['main']);
+    expect(c.permissions).toEqual(['allow-open-log', 'allow-restart-app']);
+  });
+  // 命令の名前は、build.rs の一覧、lib.rs の #[tauri::command]、UI と起動画面の呼び出しの 4 か所にある。
+  // 入力待ちの知らせの 2 つは、上の notifier.ts との突き合わせでも確かめる。
+  it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
+    const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
+    expect(listed).toEqual(['notify_request', 'notify_waiting', 'open_log', 'restart_app', 'retry_boot']);
+    const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
+    expect(defined).toEqual(listed);
+    const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');
+    expect(ui).toContain("openLog: 'open_log'");
+    expect(ui).toContain("restart: 'restart_app'");
+    const boot = read('loading/boot.js');
+    expect(boot).toContain("'retry_boot'");
+    expect(boot).toContain("'open_log'");
+  });
+  // invoke_handler を 2 度呼ぶと、後のものだけが残り、先に並べた命令が黙って呼べなくなる。
+  it('殻の命令は invoke_handler の 1 か所でまとめて登録する', () => {
+    expect(read('src-tauri/src/lib.rs').match(/\.invoke_handler\(/g)).toHaveLength(1);
   });
 });
 

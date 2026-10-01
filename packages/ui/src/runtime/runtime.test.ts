@@ -995,3 +995,91 @@ describe('入力待ちの知らせ', () => {
     expect(rt.getState().notify).toEqual({ available: false, on: false });
   });
 });
+
+describe('設定の欄ごとの保存と準備の確かめ（ランタイム）', () => {
+  const READY = {
+    tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset' as const, version: null }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: false, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
+    commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+  };
+  it('保存できたら欄に印を付け、準備の確かめを取り直す', async () => {
+    const readiness = vi.fn(async () => READY);
+    const { rt, api } = harness({ readiness });
+    rt.start();
+    rt.emit({ type: 'settings.update', patch: { tmuxPath: '/bin/tmux' }, field: 'tmuxPath' });
+    await flush();
+    expect(api.updateSettings).toHaveBeenCalledWith({ tmuxPath: '/bin/tmux' });
+    expect(rt.getStore().settings?.tmuxPath).toBe('/bin/tmux');
+    expect(rt.getState().settingsSave.tmuxPath).toEqual({ kind: 'saved', n: 1 });
+    await flush();
+    expect(readiness).toHaveBeenCalled();
+    expect(rt.getStore().readiness).toEqual(READY);
+  });
+  it('保存を断られたら、理由を欄に返し、トーストにしない', async () => {
+    const { rt } = harness({ updateSettings: vi.fn(async () => { throw new Error('「tmux のパス」に /x が見つかりません'); }) });
+    rt.start();
+    rt.emit({ type: 'settings.update', patch: { tmuxPath: '/x' }, field: 'tmuxPath' });
+    await flush();
+    expect(rt.getState().settingsSave.tmuxPath).toEqual({ kind: 'error', message: '「tmux のパス」に /x が見つかりません' });
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('設定の画面に入ると準備の確かめも取る。もう一度確かめるでも取る', async () => {
+    const readiness = vi.fn(async () => READY);
+    const { rt, setHash } = harness({ readiness });
+    rt.start();
+    setHash('#/settings');
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(1);
+    rt.emit({ type: 'readiness.check' });
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(2);
+  });
+  it('セッションが 1 つも無い起動では、ホームの確認リストのために準備の確かめを取る', async () => {
+    const readiness = vi.fn(async () => READY);
+    const { rt, wsHandlers } = harness({ readiness });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().readiness).toEqual(READY);
+  });
+  it('参加トークンは消える時刻と一緒に置く', async () => {
+    const { rt } = harness({}, { now: () => 1_000 });
+    rt.start();
+    rt.emit({ type: 'sync.joinToken.show' });
+    await flush();
+    expect(rt.getStore().joinTokenExpiresAt).toBe(121_000);
+  });
+});
+
+describe('殻の操作（ランタイム）', () => {
+  it('殻があれば、ログを開くと再起動を殻に頼む', async () => {
+    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}) };
+    const { rt } = harness({}, { desktop });
+    rt.start();
+    expect(rt.getStore().desktop).toBe(true);
+    rt.emit({ type: 'shell.openLog' });
+    rt.emit({ type: 'shell.restart' });
+    await flush();
+    expect(desktop.openLog).toHaveBeenCalled();
+    expect(desktop.restart).toHaveBeenCalled();
+  });
+  it('殻が断ったらトーストで知らせる', async () => {
+    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => {}) };
+    const { rt } = harness({}, { desktop });
+    rt.start();
+    rt.emit({ type: 'shell.openLog' });
+    await flush();
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['ログを開けませんでした: denied']);
+  });
+  it('殻の無いブラウザでは desktop が偽で、コピーはクリップボードに書く', async () => {
+    const clipboard = vi.fn(async () => {});
+    const { rt } = harness({}, { clipboard });
+    rt.start();
+    expect(rt.getStore().desktop).toBe(false);
+    rt.emit({ type: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' });
+    await flush();
+    expect(clipboard).toHaveBeenCalledWith('~/.agent-hangar/desktop.log');
+  });
+});

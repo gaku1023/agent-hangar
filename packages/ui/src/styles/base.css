@@ -268,6 +268,12 @@ a:hover { text-decoration: underline; }
 .conn-banner > b { flex: none; }
 .conn-banner > .conn-retry { flex-shrink: 4; }
 .conn-banner .btn { margin-left: auto; flex: none; }
+.conn-banner .btn + .btn, .conn-banner .btn + .copy-btn { margin-left: 0; }
+/* 再接続が続けて失敗したら、同じ帯のまま濃い赤にする（初回と障害の B1）。高さと置き場所は変えない。 */
+.conn-banner[data-hard] { color: #ffffff; background: color-mix(in srgb, var(--error) 88%, #000000); box-shadow: 0 8px 20px -10px rgba(179, 38, 30, 0.6); }
+.conn-banner[data-hard] .btn { color: var(--error); }
+.conn-banner[data-hard] .copy-btn { margin-left: auto; color: #ffffff; }
+.conn-banner[data-hard] .copy-btn:hover { background: rgba(255, 255, 255, 0.16); color: #ffffff; }
 /* 保持期間の帯。形は切断の帯と同じで、色だけを警告の琥珀にする。 */
 .retention-banner { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--st-paused); background: color-mix(in srgb, var(--busy) 12%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur) var(--ease-out); }
 .retention-banner > b, .retention-banner > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

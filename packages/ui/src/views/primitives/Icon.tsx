@@ -1,4 +1,4 @@
-import { AppWindow, Archive, ArrowDownToLine, ArrowRight, Ban, Bot, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, Clock, Code, Columns2, Command, Download, FileJson2, FilePenLine, FileX2, Folder, FolderInput, FolderSearch, FolderUp, GitBranch, GitFork, House, ListFilter, Map as MapIcon, MessageCircleQuestion, MessagesSquare, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plus, RefreshCw, RotateCcw, Search, Settings, Settings2, ShieldAlert, SkipForward, Sparkles, Sprout, Square, SquareTerminal, Terminal, TextSearch, Trash2, TriangleAlert, Undo2, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
+import { AppWindow, Archive, ArrowDownToLine, ArrowRight, Ban, Bot, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CirclePause, CircleX, Clock, Cloud, Code, Columns2, Command, Copy, Download, FileJson2, FilePenLine, FileText, FileX2, Folder, FolderInput, FolderSearch, FolderUp, GitBranch, GitFork, House, Info, ListChecks, ListFilter, Map as MapIcon, MessageCircleQuestion, MessagesSquare, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plug, Plus, RefreshCw, RotateCcw, RotateCw, Search, Settings, Settings2, ShieldAlert, SkipForward, Sparkles, Sprout, Square, SquareTerminal, Terminal, TextSearch, Trash2, TriangleAlert, Undo2, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
 
 /** hangar の言葉からアイコンへの対応。View は lucide-react を直接 import せず、ここだけを通す。 */
 const ICONS = {
@@ -59,6 +59,18 @@ const ICONS = {
   filter: ListFilter,
   discard: Trash2,
   reset: Undo2,
+  // 設定と初回の確認リスト。
+  // alert（CircleAlert）は上の共通の並びにあるものを使う。
+  copy: Copy,
+  ok: CircleCheck,
+  ng: CircleX,
+  checks: ListChecks,
+  recheck: RefreshCw,
+  log: FileText,
+  restart: RotateCw,
+  info: Info,
+  link: Plug,
+  cloud: Cloud,
 } as const satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

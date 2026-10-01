@@ -2,6 +2,8 @@ import { formatRoute, type Route } from '@agent-hangar/shared';
 import { useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { AttentionCard, ConfirmCard, HomeProps, RunningCard } from '../presenters/home.ts';
+import type { OnboardingProps } from '../presenters/onboarding.ts';
+import { Onboarding } from './Onboarding.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { SESSION_ROW_H, SessionRows } from './SessionRows.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -36,8 +38,10 @@ export const CONFIRM_VISIBLE = 3;
  * 要対応と確かめると実行中は、該当が無ければ区画ごと省く。
  * 何も動いていないとき（idle）は、実行中の札の場所に 1 行の文と新しいセッションのボタンを置く（F1）。
  */
-export function HomeScreen(props: HomeProps) {
+export function HomeScreen(props: HomeProps & { onboarding?: OnboardingProps | null }) {
   const emit = useEmit();
+  // セッションが 1 つも無いときは、準備の確認リストだけを出す（初回の A1）。ふだんの区画は出さない。
+  if (props.onboarding) return <Onboarding {...props.onboarding} />;
   return (
     <div className="screen home">
       <PageHeading title="ホーム" />

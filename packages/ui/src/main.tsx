@@ -11,6 +11,7 @@ import './styles/home.css';
 import './styles/session.css';
 import './styles/palette.css';
 import './styles/settings.css';
+import './styles/readiness.css';
 import './styles/sync.css';
 import './styles/controls.css';
 import { Root } from './Root.tsx';
@@ -18,6 +19,7 @@ import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
 import { createHashLocation } from './runtime/hashLocation.ts';
 import { createRuntime } from './runtime/runtime.ts';
+import { createDesktopBridge } from './runtime/desktop.ts';
 import { FONT_SIZE_KEY, createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
 import { createXterm } from './runtime/xterm.ts';
@@ -93,6 +95,8 @@ const runtime = createRuntime({
   // 入力待ちを窓の外へ知らせる。
   // デスクトップの殻では macOS の通知と Dock のバッジ、ブラウザでは Web Notification を使う。
   notifier: pickNotifier(window as unknown as Partial<DesktopEnv> & BrowserEnv),
+  // デスクトップの殻の中なら、ログを開くと再起動を殻に頼める。ブラウザでは null になる。
+  desktop: createDesktopBridge(window),
 });
 runtime.start();
 createRoot(document.getElementById('root')!).render(<Root runtime={runtime} api={api} terminals={terminals} />);

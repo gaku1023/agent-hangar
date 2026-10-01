@@ -1,5 +1,5 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean };
 export type Store = {
@@ -19,6 +19,12 @@ export type Store = {
   sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
   // Claude Code の会話の保持期間。下見は確認を開いたときだけ取りに行く値なので、未取得は null である。
   retention: RetentionDto | null; retentionPreview: RetentionPreviewDto | null;
+  // 準備の確かめ。設定画面と空のホームで取りに行く値なので、未取得は null である。
+  readiness: ReadinessDto | null;
+  // 参加トークンが消える時刻。画面が残りの秒数を数える。
+  joinTokenExpiresAt: number | null;
+  // デスクトップの殻の中で動いているか。殻があれば、ログを開くと再起動を殻に頼める。
+  desktop: boolean;
 };
 
 export const emptyUsage = (): UsageDto => ({ fiveHour: null, sevenDay: null, updatedAt: null });
@@ -33,6 +39,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     sync: null, devices: [], joinToken: null, configPreview: null,
     retention: null, retentionPreview: null,
+    readiness: null, joinTokenExpiresAt: null, desktop: false,
   };
 }
 
@@ -296,7 +303,7 @@ export function artifactsOf(store: Store, opts: { projectId?: string; sessionId?
 }
 
 /** 参加トークンを入れる。押して見せたあとに null で伏せ直せる。 */
-export function applyJoinToken(store: Store, token: string | null): Store { return { ...store, joinToken: token }; }
+export function applyJoinToken(store: Store, token: string | null, expiresAt: number | null = null): Store { return { ...store, joinToken: token, joinTokenExpiresAt: token === null ? null : expiresAt }; }
 
 /** Claude Code の設定の下見を入れる。閉じるときに null で捨てる。 */
 export function applyConfigPreview(store: Store, preview: ConfigPreviewDto | null): Store { return { ...store, configPreview: preview }; }

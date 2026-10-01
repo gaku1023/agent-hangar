@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "boot-screen",
+  "description": "殻の中の起動画面（loading/）から、失敗したときの「もう一度試す」と「ログを開く」を殻に頼むためだけの権限。",
+  "windows": ["main"],
+  "permissions": ["allow-retry-boot", "allow-open-log"]
+}

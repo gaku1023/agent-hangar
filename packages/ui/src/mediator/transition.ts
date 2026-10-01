@@ -8,16 +8,17 @@ import { resumeHereStep } from './resumeHere.ts';
 import { retentionStep } from './retention.ts';
 import { screenStep } from './screen.ts';
 import { sessionViewStep } from './sessionView.ts';
+import { settingsStep } from './settings.ts';
 import { sidebarStep } from './sidebar.ts';
 import { syncStep } from './sync.ts';
 import { workbenchStep } from './workbench.ts';
-import { ITERM_HINT, NOT_YET, type Effect, type Input, type State, type Step } from './types.ts';
+import { NOT_YET, type Input, type State, type Step } from './types.ts';
 
 export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, retentionBannerDismissed: false, newSessionDraft: null, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false }, nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0 };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, retentionBannerDismissed: false, newSessionDraft: null, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false }, nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0, settingsSave: {} };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -33,7 +34,7 @@ export function transition(state: State, input: Input): Step {
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, retentionStep, overlayStep, syncStep, resumeHereStep, sessionViewStep, sidebarStep, liveStep, notifyStep, workbenchStep]) {
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, retentionStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionViewStep, sidebarStep, liveStep, notifyStep, workbenchStep]) {
     const r = step(state, input);
     // 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
     // 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。
@@ -57,11 +58,6 @@ export function transition(state: State, input: Input): Step {
   const i = input.intent;
   switch (i.type) {
     case 'project.setStatus': return { state, effects: [{ kind: 'api.setProjectStatus', projectId: i.id, status: i.status }] };
-    case 'settings.update': {
-      const effects: Effect[] = [{ kind: 'api.updateSettings', patch: i.patch }];
-      if (i.patch.terminalApp === 'iterm') effects.push({ kind: 'toast', level: 'info', message: ITERM_HINT });
-      return { state, effects };
-    }
     case 'index.rebuild': return { state, effects: [{ kind: 'api.rebuildIndex' }] };
     case 'toast.dismiss': return { state: { ...state, toasts: state.toasts.filter((t) => t.id !== i.id) }, effects: [] };
     default:

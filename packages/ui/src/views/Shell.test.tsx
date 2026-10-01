@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '' }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, newSession: {} };
+const props = { sidebarCollapsed: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, newSession: {} };
 
 describe('Shell のホームの入力待ちの数', () => {
   const withCount = (n: number) => ({ ...props, nav: [{ ...props.nav[0]!, count: n }, props.nav[1]!] });
@@ -92,7 +92,7 @@ describe('Shell', () => {
   });
   it('切断の帯と索引の進行を表示する', () => {
     const onIntent = vi.fn();
-    const conn = { visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します' };
+    const conn = { visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します', hard: false, desktop: false };
     render(<IntentRoot onIntent={onIntent}><Shell {...props} conn={conn} indexLabel="索引 3 / 9 件" overlays={null}><div /></Shell></IntentRoot>);
     const banner = within(screen.getByRole('status', { name: '接続の状態' }));
     expect(banner.getByText('画面は 2 分前のまま止まっています')).toBeInTheDocument();
@@ -101,10 +101,35 @@ describe('Shell', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'conn.retry' });
     expect(screen.getByText('索引 3 / 9 件')).toBeInTheDocument();
   });
+  it('3 回失敗した帯は、同じ帯のまま濃い赤にし、殻の中ではログを開くと再起動を出す', () => {
+    const onIntent = vi.fn();
+    const conn = { visible: true, staleLabel: '画面の更新が止まっています', retryLabel: '再接続しています', hard: true, desktop: true };
+    render(<IntentRoot onIntent={onIntent}><Shell {...props} conn={conn} overlays={null}><div /></Shell></IntentRoot>);
+    const el = screen.getByRole('status', { name: '接続の状態' });
+    expect(el).toHaveAttribute('data-hard', 'true');
+    const banner = within(el);
+    expect(banner.getByText('サーバに戻れません')).toBeInTheDocument();
+    expect(banner.getByText('アプリを再起動してください')).toBeInTheDocument();
+    expect(banner.queryByRole('button', { name: '今すぐ再接続' })).toBeNull();
+    fireEvent.click(banner.getByRole('button', { name: 'ログを開く' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'shell.openLog' });
+    fireEvent.click(banner.getByRole('button', { name: '再起動' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'shell.restart' });
+  });
+  it('殻の無いブラウザでは、ログの場所のコピーと、再起動の文に落とす', () => {
+    const onIntent = vi.fn();
+    const conn = { visible: true, staleLabel: '画面の更新が止まっています', retryLabel: '再接続しています', hard: true, desktop: false };
+    render(<IntentRoot onIntent={onIntent}><Shell {...props} conn={conn} overlays={null}><div /></Shell></IntentRoot>);
+    const banner = within(screen.getByRole('status', { name: '接続の状態' }));
+    expect(banner.getByText('アプリを再起動してください。ログ: ~/.agent-hangar/desktop.log')).toBeInTheDocument();
+    expect(banner.queryByRole('button', { name: '再起動' })).toBeNull();
+    fireEvent.click(banner.getByRole('button', { name: 'ログの場所 をコピー' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' });
+  });
   it('保持期間の帯を出し、閉じると延ばすの Intent を出す。切断の帯と積める', () => {
     const onIntent = vi.fn();
     const retention = { visible: true, title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも消えます ・ いま 1.5 GB', extendTo: 365 };
-    const conn = { visible: true, staleLabel: '画面の更新が止まっています', retryLabel: '再接続しています' };
+    const conn = { visible: true, staleLabel: '画面の更新が止まっています', retryLabel: '再接続しています', hard: false, desktop: false };
     render(<IntentRoot onIntent={onIntent}><Shell {...props} conn={conn} retention={retention} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getAllByRole('status')).toHaveLength(2);
     const banner = within(screen.getByRole('status', { name: '会話の保持期間' }));
