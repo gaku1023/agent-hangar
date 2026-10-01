@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { TranscriptItem } from '../presenters/session.ts';
@@ -83,6 +83,21 @@ describe('Transcript の仮想スクロール', () => {
     expect(small).toBe(big);
     expect(big).toBeGreaterThan(0);
     expect(big).toBeLessThan(80);
+  });
+  // 箱の高さは窓の残りで決まる。帯が出入りしたり右欄を開け閉めしたりすると、窓の大きさが変わらなくても箱が変わる。
+  it('箱の大きさが変わったら測り直して、見える分の行を描く', () => {
+    const observers: { cb: () => void; el: Element | null }[] = [];
+    vi.stubGlobal('ResizeObserver', class { o: { cb: () => void; el: Element | null }; constructor(cb: () => void) { this.o = { cb, el: null }; observers.push(this.o); } observe(el: Element) { this.o.el = el; } disconnect() {} });
+    try {
+      const t = draw({ items: many(5000), follow: false });
+      t.scrollTo(0);
+      const before = t.seqs().length;
+      const box = observers.find((o) => o.el === t.el);
+      expect(box).toBeDefined();
+      Object.defineProperty(t.el, 'clientHeight', { value: 3000, configurable: true });
+      act(() => box!.cb());
+      expect(t.seqs().length).toBeGreaterThan(before);
+    } finally { vi.unstubAllGlobals(); }
   });
   it('追っている間は末尾の行だけを描く', () => {
     const t = draw({ items: many(5000), follow: true });
