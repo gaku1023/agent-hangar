@@ -182,6 +182,98 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
     removeTestSocket(p);
   });
 
+  it('newSession の env は、もう動いているサーバでも新しいセッションに届く', async () => {
+    // tmux の新しいセッションは、起こしたシェルではなくサーバの環境を継ぐ。-e で渡したものだけが届く。
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-tmux-'));
+    const out = path.join(cwd, 'env.txt');
+    tmux!.newSession({ name: 'hangar-test-env-first', cwd, command: ['sh', '-c', 'sleep 30'] });
+    tmux!.newSession({ name: 'hangar-test-env', cwd, command: ['sh', '-c', `printf '%s|%s' "$HANGAR_TEST_A" "$HANGAR_TEST_B" > ${out}`], env: { HANGAR_TEST_A: 'a b', HANGAR_TEST_B: "c'd=e" } });
+    await waitFor(() => fs.existsSync(out) && fs.readFileSync(out, 'utf8') !== '');
+    expect(fs.readFileSync(out, 'utf8')).toBe("a b|c'd=e");
+    tmux!.killSession('hangar-test-env-first');
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  describe('ensureTerminalOptions', () => {
+    /** 既定の値に揃えた専用のサーバを起こす。利用者の ~/.tmux.conf に左右されないようにする。 */
+    function fresh(): { t: Tmux; cwd: string; done: () => void } {
+      const p = testSocketPath();
+      const t = new Tmux({ tmuxPath: TMUX!, socketPath: p });
+      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-tmux-'));
+      t.newSession({ name: 'hangar-test-opt-keep', cwd, command: ['sh', '-c', 'sleep 30'] });
+      t.run('set-option', '-s', 'copy-command', '');
+      t.run('set-option', '-s', 'extended-keys', 'off');
+      t.run('set-option', '-s', 'extended-keys-format', 'xterm');
+      t.run('set-option', '-su', 'terminal-features');
+      t.run('unbind-key', '-n', 'S-Enter');
+      return { t, cwd, done: () => { t.killServer(); removeTestSocket(p); fs.rmSync(cwd, { recursive: true, force: true }); } };
+    }
+    const show = (t: Tmux, key: string) => t.run('show-options', '-s', '-v', key).stdout.trim();
+
+    it('copy-command、extended-keys、extended-keys-format、terminal-features、S-Enter を入れる', () => {
+      const { t, done } = fresh();
+      t.ensureTerminalOptions();
+      expect(show(t, 'copy-command')).toBe('pbcopy');
+      expect(show(t, 'extended-keys')).toBe('on');
+      expect(show(t, 'extended-keys-format')).toBe('csi-u');
+      expect(show(t, 'terminal-features')).toContain('xterm*:extkeys');
+      expect(t.run('list-keys', '-T', 'root', 'S-Enter').stdout).toContain('hangar-');
+      done();
+    });
+
+    it('何度呼んでも terminal-features を重ねない', () => {
+      const { t, done } = fresh();
+      t.ensureTerminalOptions();
+      t.ensureTerminalOptions();
+      expect(show(t, 'terminal-features').split('\n').filter((l) => l.includes('xterm*:extkeys'))).toHaveLength(1);
+      done();
+    });
+
+    it('利用者が決めた値は覆さない', () => {
+      const { t, done } = fresh();
+      t.run('set-option', '-s', 'copy-command', 'my-copy');
+      t.run('set-option', '-s', 'extended-keys', 'always');
+      t.run('set-option', '-s', 'extended-keys-format', 'xterm');
+      t.run('bind-key', '-n', 'S-Enter', 'send-keys', 'X');
+      t.ensureTerminalOptions();
+      expect(show(t, 'copy-command')).toBe('my-copy');
+      expect(show(t, 'extended-keys')).toBe('always');
+      // extended-keys を利用者が既に入れているなら、その書式も利用者のものである。
+      expect(show(t, 'extended-keys-format')).toBe('xterm');
+      expect(t.run('list-keys', '-T', 'root', 'S-Enter').stdout).not.toContain('hangar-');
+      done();
+    });
+
+    it('tmux サーバが動いていなければ何もせず、起こしもしない', () => {
+      const p = testSocketPath();
+      const t = new Tmux({ tmuxPath: TMUX!, socketPath: p });
+      expect(() => t.ensureTerminalOptions()).not.toThrow();
+      expect(fs.existsSync(p)).toBe(false);
+      removeTestSocket(p);
+    });
+
+    it('外の端末の Shift+Enter は、run では ESC CR、シェルタブでは CR として中に届く', async () => {
+      const { nodePtySpawn } = await import('../pty/nodePty.ts');
+      const { t, cwd, done } = fresh();
+      t.ensureTerminalOptions();
+      // 中のプログラムは端末を生のまま読み、届いたバイトを 16 進で書き出す。
+      const dump = (out: string) => ['sh', '-c', `stty raw -echo; dd bs=1 count=2 2>/dev/null | od -An -tx1 | tr -d ' \\n' > ${out}; sleep 5`];
+      for (const [name, want] of [['hangar-abc12345', '1b0d'], ['hangar-abc12345-t1', '0d']] as const) {
+        const out = path.join(cwd, `${name}.hex`);
+        t.newSession({ name, cwd, command: dump(out) });
+        const client = nodePtySpawn(TMUX!, t.attachArgs(name), { name: 'xterm-256color', cols: 80, rows: 24, cwd, env: { ...process.env, TERM: 'xterm-256color', TMUX: '' } });
+        await new Promise((r) => setTimeout(r, 800));
+        // iTerm2 などが送る CSI u の Shift+Enter。シェルタブでは 2 バイト目を待つので、続けて a を送る。
+        client.write('\x1b[13;2u');
+        if (want === '0d') client.write('a');
+        await waitFor(() => fs.existsSync(out) && fs.readFileSync(out, 'utf8') !== '');
+        expect(fs.readFileSync(out, 'utf8')).toBe(want === '0d' ? '0d61' : want);
+        client.kill();
+      }
+      done();
+    });
+  });
+
   it('存在しない cwd では tmux を呼ばずに投げる', () => {
     expect(() => tmux!.newSession({ name: 'hangar-test-e', cwd: '/nonexistent/dir', command: ['sh'] })).toThrow(/cwd not found/);
     expect(tmux!.hasSession('hangar-test-e')).toBe(false);

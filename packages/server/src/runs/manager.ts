@@ -179,7 +179,7 @@ export class RunManager {
    * run の行を作り、tmux セッションで claude を起こす。失敗したら run を閉じて 400 を投げる。
    * claude の argv は provider が組み立てたものをそのまま受け取る。
    */
-  private launch(o: { sessionId: string; cwd: string; kind: RunKind; command: string[]; params: LaunchParams }): LaunchResult {
+  private launch(o: { sessionId: string; cwd: string; kind: RunKind; command: string[]; params: LaunchParams; env?: Record<string, string> }): LaunchResult {
     const tmux = this.precheck(o.cwd);
     const runId = newId();
     const tmuxName = `hangar-${shortId(runId)}`;
@@ -190,8 +190,10 @@ export class RunManager {
     const now = this.now();
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(o.params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
-      tmux.newSession({ name: tmuxName, cwd: o.cwd, command });
+      tmux.newSession({ name: tmuxName, cwd: o.cwd, command, env: o.env });
       tmux.setOption(tmuxName, 'status', 'off');
+      // ターミナルからこの run につなぐ人のための設定。サーバ全体の設定なので、サーバが起き直した後にも効くよう起動のたびに確かめる。
+      tmux.ensureTerminalOptions();
     } catch (e) {
       this.end(runId, 'exited');
       throw new RunError(400, `tmux の起動に失敗しました: ${this.safeError(e)}`);

@@ -173,6 +173,13 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(rm.getTab(r.run.id)?.kind).toBe('agent');
   });
 
+  it('run を起こすと、外の端末からつなぐための設定を tmux サーバに入れる', () => {
+    const r = make().start({ projectId: 'p1' });
+    expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
+    expect(tmux!.run('show-options', '-s', '-v', 'extended-keys').stdout.trim()).not.toBe('off');
+    expect(tmux!.run('list-keys', '-T', 'root', 'S-Enter').stdout).toContain('hangar-');
+  });
+
   it('scratch は新しいディレクトリを作り、スクラッチのプロジェクトに属するセッションを起動する', async () => {
     const rm = make();
     // projectId が一緒に来ても scratch を優先する。

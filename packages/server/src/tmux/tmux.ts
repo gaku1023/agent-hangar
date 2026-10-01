@@ -3,6 +3,12 @@ import fs from 'node:fs';
 
 export type TmuxResult = { code: number; stdout: string; stderr: string; failed: boolean };
 
+/** 外の端末が拡張キーを送れることを tmux に知らせる terminal-features の項目。 */
+const EXTKEYS_FEATURE = 'xterm*:extkeys';
+
+/** hangar の run のセッション名（hangar-<id>）に当たる書式。シェルタブ（hangar-<id>-t<n>）は外れる。 */
+const RUN_SESSION_FORMAT = '#{m/r:^hangar-[0-9a-f]+$,#{session_name}}';
+
 /** tmux サーバがまだ起きていないときの list-sessions の言い分。これは「動いていない」であって失敗ではない。 */
 const NO_SERVER = /no server running/i;
 
@@ -41,7 +47,11 @@ export class Tmux {
    * 切り離した状態でセッションを作る。command は `--` の後ろにそのまま並べる。
    * tmux は `-c` のディレクトリが無くても黙ってホームに落ちて成功するため、先に自分で確かめて投げる。
    */
-  newSession(opts: { name: string; cwd: string; command: string[]; width?: number; height?: number }): void {
+  /**
+   * env は新しいセッションの環境に足す変数である。
+   * tmux の新しいセッションは、起こしたプロセスではなくサーバの環境を継ぐので、シェルの変数を渡すにはここで -e を付ける。
+   */
+  newSession(opts: { name: string; cwd: string; command: string[]; width?: number; height?: number; env?: Record<string, string> }): void {
     if (!isDirectory(opts.cwd)) throw new Error(`tmux new-session failed: cwd not found: ${opts.cwd}`);
     const r = this.run(
       'new-session',
@@ -54,6 +64,7 @@ export class Tmux {
       String(opts.width ?? 120),
       '-y',
       String(opts.height ?? 40),
+      ...Object.entries(opts.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
       '--',
       ...opts.command,
     );
@@ -98,6 +109,29 @@ export class Tmux {
     const v = cur.stdout.trim();
     if (v === 'on' || v === 'off') return;
     this.run('set-option', '-s', 'set-clipboard', 'on');
+  }
+
+  /**
+   * 外の端末（iTerm2 など）からつなぐための設定を入れる。どれもサーバ全体の設定なので、利用者の値は覆さない。
+   * copy-command：iTerm2 は既定で OSC 52 の書き込みを許さないので、マウスで選んだ範囲を pbcopy で直接クリップボードへ渡す。
+   * extended-keys と terminal-features：外の端末から Shift+Enter を区別して受ける。
+   * S-Enter：tmux は CSI u の Shift+Enter を素の CR に潰すので、hangar の run でだけ、Claude Code が改行と読む ESC CR に変える。
+   * シェルタブ（hangar-<id>-t<n>）と利用者自身のセッションには Shift+Enter のまま送る。
+   * サーバが動いていなければ何もしない。set-option だけではサーバを起こさない。
+   */
+  ensureTerminalOptions(): void {
+    const show = (key: string) => this.run('show-options', '-s', '-v', key);
+    const copy = show('copy-command');
+    if (copy.code !== 0) return;
+    if (copy.stdout.trim() === '' && process.platform === 'darwin') this.run('set-option', '-s', 'copy-command', 'pbcopy');
+    if (show('extended-keys').stdout.trim() === 'off') {
+      this.run('set-option', '-s', 'extended-keys', 'on');
+      this.run('set-option', '-s', 'extended-keys-format', 'csi-u');
+    }
+    if (!show('terminal-features').stdout.includes(EXTKEYS_FEATURE)) this.run('set-option', '-as', 'terminal-features', EXTKEYS_FEATURE);
+    const bound = this.run('list-keys', '-T', 'root', 'S-Enter');
+    if (bound.code === 0 && bound.stdout.trim() !== '' && !bound.stdout.includes(RUN_SESSION_FORMAT)) return;
+    this.run('bind-key', '-n', 'S-Enter', 'if-shell', '-F', RUN_SESSION_FORMAT, 'send-keys Escape Enter', 'send-keys S-Enter');
   }
 
   sendKeys(name: string, ...keys: string[]): void {
