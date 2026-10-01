@@ -369,6 +369,8 @@ describe('propose_session_status', () => {
       { status: 'done', note: '' }, { status: 'done', note: '   ' }, { status: 'done', note: 'あ'.repeat(201) }, { status: 'done' },
       { status: 'paused', note: 'n' }, { status: 'paused', note: 'n', return_on: '2026/10/02' }, { status: 'paused', note: 'n', return_on: '2026-02-30' },
       { status: 'paused', note: 'n', return_on: 20261002 }, { status: 'paused', note: 'n', return_on: '2026/10/02', confirmed: true },
+      { status: 'done', note: '', confirmed: true }, { status: 'done', note: '   ', confirmed: true }, { status: 'done', confirmed: true },
+      { status: 'done', note: 'あ'.repeat(201), confirmed: true }, { status: 'done', note: 'n', return_on: 'garbage' }, { status: 'done', note: 'n', return_on: 'garbage', confirmed: true },
       { status: 'archived', note: 'n' }, { note: 'n' }, { status: 'done', note: 'n', confirmed: 'yes' },
     ];
     for (const args of bad) expect(() => call('propose_session_status', args, scoped()), JSON.stringify(args)).toThrow(ToolError);
@@ -376,6 +378,16 @@ describe('propose_session_status', () => {
     expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
     // ちょうど 200 字は通る。
     expect(call('propose_session_status', { status: 'done', note: 'あ'.repeat(200) }, scoped()).outcome).toBe('proposed');
+  });
+  it('すでに同じ状態があっても、検査は already_set の比べより先に行う', () => {
+    call('propose_session_status', { status: 'done', note: 'n', confirmed: true }, scoped());
+    sent.length = 0;
+    for (const args of [{ status: 'done', note: 'あ'.repeat(201), confirmed: true }, { status: 'done', note: '', confirmed: true }, { status: 'done', note: 'n', return_on: 'garbage', confirmed: true }]) {
+      expect(() => call('propose_session_status', args, scoped()), JSON.stringify(args)).toThrow(ToolError);
+    }
+    expect(sent).toEqual([]);
+    // 形の正しい戻る日は、Done では捨てられて同じ状態と見なされる。
+    expect(call('propose_session_status', { status: 'done', note: 'n', return_on: '2026-10-02', confirmed: true }, scoped()).outcome).toBe('already_set');
   });
   it('共通の URL では session_id が要り、セッション別 URL では別のセッションを指せない', () => {
     expect(() => call('propose_session_status', { status: 'done', note: 'n' })).toThrow(/session_id/);

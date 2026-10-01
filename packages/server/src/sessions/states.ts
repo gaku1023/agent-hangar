@@ -70,12 +70,22 @@ function noteOf(v: string | null | undefined, required: boolean): string | null 
   return s;
 }
 
-/** 戻る日。Paused だけが持ち、ほかの状態では渡されても捨てる。 */
+/** 戻る日。Paused だけが持ち、ほかの状態では渡されても捨てる（捨てる前に形は検査する）。 */
 function returnOnOf(status: SessionStatus, v: string | null | undefined): string | null {
+  const given = v !== null && v !== undefined && v !== '';
+  if (given && !isReturnOn(v)) throw new StateInputError('戻る日は YYYY-MM-DD の形の、暦にある日付です');
   if (status !== 'paused') return null;
-  if (v === null || v === undefined || v === '') throw new StateInputError('Paused には戻る日が要ります');
-  if (!isReturnOn(v)) throw new StateInputError('戻る日は YYYY-MM-DD の形の、暦にある日付です');
+  if (!given) throw new StateInputError('Paused には戻る日が要ります');
   return v;
+}
+
+/**
+ * 状態の入力の検査と整形を、書く前に 1 か所で済ませる。誤りは StateInputError にする。
+ * 提案と MCP の確定は根拠を必須にする（requireNote）。画面と claude.zsh の手動の確定は根拠なしでよい。
+ */
+export function validateStateInput(status: SessionStatus, o: { note?: string | null; returnOn?: string | null; requireNote: boolean }): { note: string | null; returnOn: string | null } {
+  const note = noteOf(o.note, o.requireNote);
+  return { note, returnOn: returnOnOf(status, o.returnOn) };
 }
 
 /** 今の状態。行が無いか論理削除されていれば null（印なし）。 */
@@ -89,11 +99,10 @@ export function getSessionState(db: Db, sessionId: string): SessionStateDto | nu
  * 印なしに戻しても rejected_at は残す。却下は、そのセッションに新しい発言があるまで効く。
  * 検査はすべて書く前に済ませ、誤りは StateInputError にして何も書かない。
  */
-export function setSessionState(db: Db, deviceId: string, sessionId: string, o: { status: SessionStatus | null; note?: string | null; returnOn?: string | null; setBy: 'user' | 'conversation'; now?: number }): SessionStateDto {
+export function setSessionState(db: Db, deviceId: string, sessionId: string, o: { status: SessionStatus | null; note?: string | null; returnOn?: string | null; setBy: 'user' | 'conversation'; requireNote?: boolean; now?: number }): SessionStateDto {
   const now = o.now ?? Date.now();
   if (o.status === null) return write(db, deviceId, sessionId, { status: null, note: null, return_on: null, set_by: o.setBy, set_at: now, ...NO_CANDIDATE });
-  const note = noteOf(o.note, false);
-  const returnOn = returnOnOf(o.status, o.returnOn);
+  const { note, returnOn } = validateStateInput(o.status, { note: o.note, returnOn: o.returnOn, requireNote: o.requireNote ?? false });
   return write(db, deviceId, sessionId, { status: o.status, note, return_on: returnOn, set_by: o.setBy, set_at: now, ...NO_CANDIDATE });
 }
 
@@ -105,8 +114,7 @@ export type ProposeStateOutcome = 'proposed' | 'set' | 'rejected_before' | 'alre
  * 却下されていれば rejected_before を返す。提案があるところへの提案は上書きする（新しい発言の時点で前の提案は消えているので、残るのは同じターンの出し直しだけである）。
  */
 export function proposeSessionState(db: Db, deviceId: string, sessionId: string, o: { status: 'paused' | 'done'; note: string; returnOn: string | null; source: CandidateSource; now?: number }): { state: SessionStateDto; outcome: Exclude<ProposeStateOutcome, 'set'> } {
-  const note = noteOf(o.note, true);
-  const returnOn = returnOnOf(o.status, o.returnOn);
+  const { note, returnOn } = validateStateInput(o.status, { note: o.note, returnOn: o.returnOn, requireNote: true });
   const cur = liveRow(db, sessionId);
   if (cur && cur.status !== null) return { state: toStateDto(cur), outcome: 'already_set' };
   if (cur && cur.rejected_at !== null) return { state: toStateDto(cur), outcome: 'rejected_before' };

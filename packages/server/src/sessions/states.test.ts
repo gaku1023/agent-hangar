@@ -160,6 +160,22 @@ describe('検査と読み方', () => {
     expect(setSessionState(db, 'd', 's1', { status: 'done', note: '😀'.repeat(200), setBy: 'user' }).note).toBe('😀'.repeat(200));
     expect(() => setSessionState(db, 'd', 's1', { status: 'done', note: '😀'.repeat(201), setBy: 'user' })).toThrow(new StateInputError('理由は 200 字までです'));
   });
+  it('requireNote を立てた確定は、根拠が空なら何も書かずに誤りにする。省けば今までどおり', () => {
+    const db = seed();
+    for (const note of [undefined, null, '', '   ']) {
+      expect(() => setSessionState(db, 'd', 's1', { status: 'done', note, setBy: 'conversation', requireNote: true }), String(note)).toThrow(new StateInputError('根拠の一文が空です'));
+    }
+    expect(lastSeq(db)).toBeNull();
+    expect(setSessionState(db, 'd', 's1', { status: 'done', note: '済', setBy: 'conversation', requireNote: true }).note).toBe('済');
+    expect(setSessionState(db, 'd', 's1', { status: 'done', setBy: 'user', requireNote: false }).note).toBeNull();
+  });
+  it('Done の戻る日は捨てるが、形は先に検査する', () => {
+    const db = seed();
+    expect(() => setSessionState(db, 'd', 's1', { status: 'done', note: 'n', returnOn: 'garbage', setBy: 'user' })).toThrow(new StateInputError('戻る日は YYYY-MM-DD の形の、暦にある日付です'));
+    expect(() => proposeSessionState(db, 'd', 's1', { status: 'done', note: 'n', returnOn: '2026-02-30', source: 'in_session' })).toThrow(StateInputError);
+    expect(lastSeq(db)).toBeNull();
+    expect(setSessionState(db, 'd', 's1', { status: 'done', note: 'n', returnOn: '2026-10-02', setBy: 'user' }).returnOn).toBeNull();
+  });
   it('提案の根拠は 1 字以上が要る。戻る日は暦にある日だけ。どれも何も書かない', () => {
     const db = seed();
     expect(() => proposeSessionState(db, 'd', 's1', { ...paused, note: '   ' })).toThrow(new StateInputError('根拠の一文が空です'));

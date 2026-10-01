@@ -8,7 +8,7 @@ import type { MemoStore } from '../projects/memo.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
-import { getSessionState, proposeSessionState, setSessionState, StateInputError, type ProposeStateOutcome } from '../sessions/states.ts';
+import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
 
 export type ToolDeps = {
@@ -324,8 +324,8 @@ export function setTurnIntentTool(deps: ToolDeps, ctx: ToolContext, args: Record
  * confirmed が true のときだけ状態にする。利用者が会話の中で選んだという申告で、hangar はそれを確かめられない。
  * その余地は利用者の決定（2026-10-01）として受け入れ、代わりに set_by を conversation にして後から分かるようにする。
  * 却下された提案は、そのセッションに新しい発言があるまで受け付けない（rejected_before）。
- * note と return_on の中身の検査は states.ts に任せる。ここでは型と status だけを見て、StateInputError を ToolError に変える。
- * 検査は書く前に済む。どれかに落ちたら何も書かず、何も配らない。
+ * note と return_on の中身の検査は states.ts の validateStateInput に任せる。ここでは型と status だけを見て、StateInputError を ToolError に変える。
+ * 検査は confirmed の有無によらず、already_set を比べる前に済ませる。どれかに落ちたら何も書かず、何も配らない。
  */
 export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
   const id = sessionIdOf(ctx, args);
@@ -335,18 +335,17 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
   if (args.note !== undefined && typeof args.note !== 'string') throw new ToolError('note は文字列です');
   if (args.return_on !== undefined && typeof args.return_on !== 'string') throw new ToolError('return_on は YYYY-MM-DD の形の文字列です');
   if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') throw new ToolError('confirmed は true か false です');
-  const note = args.note ?? '';
-  // Done は戻る日を持たないので、渡されても捨てる（すでに付いた状態との比べにも、この値を使う）。
-  const returnOn = status === 'paused' ? args.return_on ?? null : null;
   try {
+    const given = args.note ?? '';
+    const { returnOn } = validateStateInput(status, { note: given, returnOn: args.return_on, requireNote: true });
     let r: { outcome: ProposeStateOutcome; state: SessionStateDto };
     if (args.confirmed === true) {
       const cur = getSessionState(deps.db, id);
       r = cur && cur.status === status && cur.returnOn === returnOn
         ? { outcome: 'already_set', state: cur }
-        : { outcome: 'set', state: setSessionState(deps.db, deps.deviceId, id, { status, note, returnOn, setBy: 'conversation', now }) };
+        : { outcome: 'set', state: setSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, setBy: 'conversation', requireNote: true, now }) };
     } else {
-      r = proposeSessionState(deps.db, deps.deviceId, id, { status, note, returnOn, source: 'in_session', now });
+      r = proposeSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, source: 'in_session', now });
     }
     if (r.outcome === 'set' || r.outcome === 'proposed') deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId })! });
     return { outcome: r.outcome, state: r.state };
