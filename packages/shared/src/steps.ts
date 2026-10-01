@@ -15,7 +15,7 @@ const WRITE_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 const READ_CMDS = new Set(['cat', 'head', 'tail', 'ls', 'grep', 'rg', 'find', 'jq', 'wc', 'less', 'tree', 'stat', 'file', 'pwd', 'which', 'du', 'diff']);
 const WRITE_CMDS = new Set(['tee', 'mkdir', 'cp', 'mv', 'touch', 'ln']);
 const RUN_CMDS = new Set(['npm', 'npx', 'pnpm', 'yarn', 'vitest', 'tsc', 'node', 'tsx', 'cargo', 'pytest', 'python', 'python3', 'make', 'go', 'bun', 'deno']);
-const GIT_READ = new Set(['status', 'log', 'diff', 'show', 'branch', 'rev-parse', 'blame', 'ls-files', 'worktree']);
+const GIT_READ = new Set(['status', 'log', 'diff', 'show', 'rev-parse', 'blame', 'ls-files']);
 const GIT_WRITE = new Set(['commit', 'merge', 'push', 'rebase', 'cherry-pick']);
 
 /** コマンドの頭の語の並び。`cd <dir> &&` と、先頭の環境変数の代入を読み飛ばす。 */
@@ -81,6 +81,7 @@ export function stepLine(call: ToolCallEvent): { text: string; mono: boolean } {
     case 'Write': return { text: fp ? `${baseName(fp)} を書いた` : call.name, mono: false };
     case 'Grep': case 'Glob': { const p = str(i.pattern); return { text: p ? `探した：${p}` : '探した', mono: false }; }
     case 'Agent': case 'Task': return { text: str(i.description) ?? call.summary, mono: false };
+    case 'SubagentHandback': return { text: '報告を返した', mono: false };
     default: return { text: call.summary, mono: false };
   }
 }
