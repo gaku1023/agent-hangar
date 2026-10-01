@@ -41,7 +41,8 @@ export type ApiClient = {
   /** Claude のタブを transcript の中の指示へ跳ばす。 */
   jumpToPrompt(runId: string, body: { heads: string[]; index: number; from: 'top' | 'bottom' }): Promise<{ found: true } | { found: false; reason: 'mode' | 'notFound' }>;
   leaveTranscript(runId: string): Promise<{ left: boolean }>;
-  openEditor(sessionId: string): Promise<void>;
+  /** file を渡すと、作業ディレクトリではなくそのファイルを開く。サーバはそのセッションが変えたファイルかを確かめる。 */
+  openEditor(sessionId: string, file?: string): Promise<void>;
   projectOpenEditor(projectId: string): Promise<void>;
   projectOpenTerminal(projectId: string): Promise<{ app: TerminalApp; fellBack: boolean }>;
   createProject(name: string, path: string): Promise<ProjectDto>;
@@ -126,7 +127,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     openTerminalApp: (runId, tabId) => post(`/api/runs/${runId}/open-terminal`, tabId ? { tabId } : {}),
     jumpToPrompt: (runId, body) => post(`/api/runs/${runId}/jump`, body),
     leaveTranscript: (runId) => post(`/api/runs/${runId}/leave-transcript`),
-    openEditor: (sessionId) => post(`/api/sessions/${sessionId}/open-editor`),
+    openEditor: (sessionId, file) => post(`/api/sessions/${sessionId}/open-editor`, file === undefined ? undefined : { file }),
     projectOpenEditor: (projectId) => post(`/api/projects/${projectId}/open-editor`),
     projectOpenTerminal: (projectId) => post(`/api/projects/${projectId}/open-terminal`),
     createProject: (name, path) => post('/api/projects', { name, path }),

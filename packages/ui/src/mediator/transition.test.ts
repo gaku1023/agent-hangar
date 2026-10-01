@@ -332,6 +332,9 @@ describe('起動', () => {
     ]);
     expect(state.launch).toEqual({ kind: 'submitting' });
   });
+  it('変更したファイルを押すと、そのファイルを VS Code で開く', () => {
+    expect(run([intent({ type: 'session.openFile', sessionId: 's1', path: '/w/a.ts' })]).effects).toEqual([{ kind: 'api.openEditor', sessionId: 's1', file: '/w/a.ts' }]);
+  });
 });
 
 describe('新しいセッションの下書きと前回値', () => {
