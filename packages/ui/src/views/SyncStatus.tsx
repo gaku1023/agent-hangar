@@ -1,32 +1,41 @@
 import { formatRoute } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { SyncProps } from '../presenters/shell.ts';
+import { foldAt } from './headerFold.ts';
 
 /**
  * ヘッダーの同期の一行。
- * props だけで描き、状態を持たない。文言はすべて presenter が組み立てている。
+ * props だけで描き、状態を持たない。状態の文は presenter が組み立てている。
  * 同期を設定していない端末では presenter が visible を false にするので、丸ごと描かない。
+ * 狭いヘッダでは、操作、件数、文の順に畳む（headerFold.ts）。
  */
 const SETTINGS = { name: 'settings' } as const;
 
 export function SyncStatus(props: SyncProps) {
   const emit = useEmit();
   if (!props.visible) return null;
+  const pendingText = `未送信 ${props.pending}`;
+  const sweepText = `未送信の本文 ${props.sweepPending}`;
+  const skippedText = `送れなかった本文 ${props.skipped}`;
+  const counts = [props.pending > 0 ? pendingText : null, props.sweepPending > 0 ? sweepText : null, props.skipped > 0 ? skippedText : null].filter((t) => t !== null);
   return (
     <span className="sync" data-state={props.state}>
-      {/* 状態の点は、狭いヘッダで文と操作を畳んでも残る。 */}
-      <span className="sync-dot" aria-hidden="true" />
-      {/* 幅が足りないと省略記号に切り詰まるので、全文は title から読めるようにする。
-          押すと設定を開く。狭いヘッダでは「今すぐ同期」と「同期を一時停止」を畳むので、そこへの道になる。 */}
-      <a className={props.state === 'error' ? 'mono sync-label sync-error' : 'mono sync-label faint'} href={formatRoute(SETTINGS)} title={`${props.label}（押すと同期の設定を開く）`} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: SETTINGS }); }}>{props.label}</a>
+      {/* 状態の点はリンクの中に置く。狭いヘッダで文を畳んでも点は残り、押せば設定を開く。
+          設定には「今すぐ同期」と「同期を一時停止」もあるので、畳んだ操作への道にもなる。
+          文は幅が足りないと省略記号に切り詰まり、件数は畳むので、全文と件数は title から読めるようにする。 */}
+      <a className={props.state === 'error' ? 'mono sync-label sync-error' : 'mono sync-label faint'} href={formatRoute(SETTINGS)} title={`${[props.label, ...counts].join('、')}（押すと同期の設定を開く）`} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: SETTINGS }); }}>
+        <span className="sync-dot" aria-hidden="true" />
+        <span className="sync-label-text" data-fold-at={foldAt('sync-label')}>{props.label}</span>
+      </a>
       {/* 0 件のときに「未送信 0」と出すと、止まっているように見える。溜まっているときだけ出す。 */}
-      {props.pending > 0 && <span className="faint sync-count">未送信 {props.pending}</span>}
+      {props.pending > 0 && <span className="faint sync-count" data-fold-at={foldAt('sync-counts')}>{pendingText}</span>}
       {/* 本文は 60 秒に 20 件ずつしか流れないので、残りが見えないと止まっているのか進んでいるのか分からない。 */}
-      {props.sweepPending > 0 && <span className="faint sync-count">未送信の本文 {props.sweepPending}</span>}
-      {/* 送れなかった本文は放っておけば 30 分ごとに送り直すが、そのあいだ気付く手立てがここしか無い。 */}
-      {props.skipped > 0 && <span className="sync-error">送れなかった本文 {props.skipped}</span>}
-      <button className="btn btn-sm sync-action" onClick={() => emit({ type: 'sync.now' })}>今すぐ同期</button>
-      <button className="btn btn-sm sync-action" onClick={() => emit({ type: 'sync.pause', paused: !props.paused })}>{props.paused ? '同期を再開' : '同期を一時停止'}</button>
+      {props.sweepPending > 0 && <span className="faint sync-count" data-fold-at={foldAt('sync-counts')}>{sweepText}</span>}
+      {/* 送れなかった本文は放っておけば 30 分ごとに送り直すが、そのあいだ気付く手立てがここしか無い。
+          誤りなので、狭いヘッダでも畳まない。 */}
+      {props.skipped > 0 && <span className="sync-error sync-skipped">{skippedText}</span>}
+      <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} onClick={() => emit({ type: 'sync.now' })}>今すぐ同期</button>
+      <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} onClick={() => emit({ type: 'sync.pause', paused: !props.paused })}>{props.paused ? '同期を再開' : '同期を一時停止'}</button>
     </span>
   );
 }
