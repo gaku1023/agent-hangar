@@ -163,7 +163,7 @@ export function ToolItem({ sessionId, item }: { sessionId: string; item: ToolIte
           )}
         </div>
       )}
-      {item.subagent && <div className="sub"><button className="btn btn-sm" onClick={() => emit({ type: 'transcript.selectAgent', sessionId, agentId: item.subagent!.agentId })}><Icon name="subagent" />サブエージェント {item.subagent.agentId} を見る</button></div>}
+      {item.subagent && <div className="sub"><button className="btn btn-sm" onClick={() => emit({ type: 'transcript.selectAgent', sessionId, agentId: item.subagent!.agentId })}><Icon name="subagent" /><span className="btn-label">サブエージェント {item.subagent.agentId} を見る</span></button></div>}
     </div>
   );
 }

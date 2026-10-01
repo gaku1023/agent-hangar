@@ -52,7 +52,7 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * 読み終えたら、読み足した最初の行へフォーカスを返す。押したボタンが読み込みの間 disabled になり、フォーカスが body へ落ちるからである。
  * id は一覧の器に付ける。Mediator の focus の効果が、この id で一覧を探す（runtime/focusSoon.ts の FOCUS_IDS）。
  */
-export function SessionRows(props: { rows: SessionRowProps[]; height: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode; id?: string; loadingMore?: boolean }) {
+export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode; id?: string; loadingMore?: boolean }) {
   const emit = useEmit();
   // カーソルは一覧の中だけの状態なので Mediator には置かない。
   // 行の番号ではなくセッションの id で持つ。

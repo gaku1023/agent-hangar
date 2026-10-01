@@ -99,6 +99,15 @@ a:hover { text-decoration: underline; }
    ダイアログ、通知、切断の帯の keyframes も同じ形にする。
    View Transitions がある環境では、出る画面との重ね合わせは runtime/present.ts が受け持ち、入る画面の動きはここが受け持つ。 */
 .screen { animation: enter var(--dur) var(--ease-out); }
+/* 一覧の画面（セッション一覧、プロジェクトの頁）は窓の下端まで伸ばし、一覧が残りの高さを受け取る（.screen-fill）。
+   上の帯（見出し、検索欄、絞り込み）の高さは折り返しで変わるので、100vh から決め打ちで引くと、帯が高いぶん一覧の下端が窓の外へ出る。
+   一覧には下限を持たせ、窓がそれより低いときだけ .main がスクロールする。
+   セッション画面は .screen-fill を使わず、.shell[data-wide] と .session-screen の縦の flex で同じことをする（session.css）。 */
+.main:has(> .main-inner > .screen-fill) > .main-inner { display: flex; flex-direction: column; min-height: 100%; }
+.screen-fill { display: flex; flex-direction: column; flex: 1 0 auto; }
+/* プロジェクトの頁は左の一覧と右の欄の 2 列なので、grid のまま行を伸ばし、左の列の中で一覧が残りを受け取る。 */
+.project-screen.screen-fill { display: grid; }
+.project-screen.screen-fill > .project-main { display: flex; flex-direction: column; }
 
 @keyframes enter { from { opacity: 0; transform: translateY(var(--rise)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 
@@ -161,7 +170,10 @@ a:hover { text-decoration: underline; }
 .shell[data-sidebar-moving] .nav-label { padding: 0; background: none; color: inherit; font-size: inherit; font-weight: inherit; }
 
 /* ボタンと入力。ボタンは錠剤の形で、主ボタンだけ上から下へ淡いグラデーションを持つ。 */
-.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+/* 高さの決まった錠剤なので、文字は折り返さない。折り返すと 2 行目が箱の外へ出る。長い名前は .btn-label に入れて省略する。 */
+.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); max-width: 100%; height: var(--row-h); padding: 0 calc(var(--u) * 3); white-space: nowrap; border: 0; border-radius: var(--r-pill); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.btn > .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.btn > svg { flex: none; }
 .btn:hover { background: var(--surface); box-shadow: inset 0 1px 0 #ffffff, 0 3px 10px -2px rgba(30, 40, 90, 0.2); }
 .btn:hover:not(:disabled) { transform: translateY(-1px); }
 .btn:active:not(:disabled) { transform: scale(0.97); }
@@ -183,6 +195,10 @@ a:hover { text-decoration: underline; }
 /* 一覧 */
 .list { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
 .list-scroll { overflow: auto; }
+/* 一覧の画面では、一覧が窓の下端までの残りを受け取る（.screen-fill、プロジェクトの頁は .project-main）。下限より低い窓では .main がスクロールする。 */
+.screen-fill > .rows-host, .project-main > .rows-host { display: flex; flex-direction: column; flex: 1 1 0; min-height: 200px; }
+.rows-host > .list { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.rows-host > .list > .list-scroll { flex: 1; min-height: 0; }
 .row { display: grid; align-items: center; height: var(--row-h); padding: 0 calc(var(--u) * 3); border-bottom: 1px solid var(--line); gap: calc(var(--u) * 3); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); white-space: nowrap; }
 .row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
 .row[aria-selected='true'] { background: var(--accent-soft); }
@@ -192,7 +208,8 @@ a:hover { text-decoration: underline; }
 .cell-right { text-align: right; }
 
 /* カード */
-.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(var(--u) * 3); }
+/* 列の数は幅で決める。狭い窓で 4 列のまま細くすると、日時や件数が 1 文字ずつ縦に折れる。 */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: calc(var(--u) * 3); }
 .card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); padding: calc(var(--u) * 3); display: flex; flex-direction: column; gap: var(--u); cursor: pointer; transition: box-shadow var(--dur) var(--ease-out); min-width: 0; }
 .card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
 .card-title { font-weight: 600; font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -213,6 +230,12 @@ a:hover { text-decoration: underline; }
 .page-parent a:hover { color: var(--accent); text-decoration: none; }
 .page-title-row { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; min-height: var(--row-h); }
 .page-title-row > .btn { flex: none; }
+/* 入り切らないときは、ボタンの名前を隠して印だけの丸いボタンにする（views/PageHeading.tsx の fitRow が data-compact を付ける）。
+   名前は読み上げのために DOM に残し、見た目だけ隠す。それでも入り切らない狭さでは、行を折り返す。 */
+.page-title-row[data-compact] { flex-wrap: wrap; gap: var(--u) calc(var(--u) * 1.5); }
+.page-title-row[data-compact] > .page-title { flex: 0 1 auto; min-width: 6em; }
+.page-title-row[data-compact] .btn:has(> .btn-label) { position: relative; justify-content: center; width: var(--row-h); padding: 0; }
+.page-title-row[data-compact] .btn-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .page-title { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
 .h2 { font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; margin: calc(var(--u) * 5) 0 calc(var(--u) * 2); }
 .section-head { display: flex; align-items: baseline; gap: calc(var(--u) * 2); }
@@ -456,9 +479,10 @@ a:hover { text-decoration: underline; }
 
 /* 実行中の右ペイン。上の段は動かさず、下の目次だけがスクロールする。色は端末の縁の灯と同じ語彙（作業中は杏、入力待ちは赤、休みは灰）。 */
 .live { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: calc(var(--u) * 2); }
-.live-top { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: none; }
-/* 窓が低くても、目次は 3 行ぶんより縮めない（上のライブの帯が目次を 0 に潰さない）。 */
-.live-toc { display: flex; flex-direction: column; flex: 1; min-height: calc(var(--row-h) * 3); border-top: 1px solid var(--line); padding-top: var(--u); }
+/* 窓が低いときは上の段が縮んでスクロールし、目次（.live-toc の下限）を押し出さない。 */
+.live-top { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* 窓が低くても、目次は見出しと「最新へ」と 2 行ぶんより縮めない（上のライブの帯が目次を 0 に潰さない）。 */
+.live-toc { display: flex; flex-direction: column; flex: 1; min-height: calc(var(--row-h) * 5); border-top: 1px solid var(--line); padding-top: var(--u); }
 .live-pane-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); font-size: var(--fs-sm); }
 .live-lamp { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); font-weight: 600; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); }
 .live-lamp[data-tone='wait'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 12%, var(--surface)); }

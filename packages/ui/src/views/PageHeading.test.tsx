@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { PageHeading } from './PageHeading.tsx';
 
@@ -32,5 +32,28 @@ describe('PageHeading', () => {
     expect(row).toHaveClass('session-hero');
     expect(row).toHaveAttribute('data-morph-hero', 's1');
     expect([...row.children].map((c) => c.tagName)).toEqual(['I', 'H1', 'BUTTON']);
+  });
+
+  describe('入り切らないときは、ボタンを印だけに縮める', () => {
+    // jsdom は配置を計算しないので、行の幅と中身の幅をここで決める。中身の幅は縮めた印の有無で変える。
+    const widths = (row: number, full: number, compact: number) => {
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('page-title-row') ? row : 0; });
+      vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('page-title-row') ? (this.hasAttribute('data-compact') ? compact : full) : 0; });
+    };
+    afterEach(() => vi.restoreAllMocks());
+    const heading = () => render(<IntentRoot onIntent={() => {}}><PageHeading title="名前"><button type="button" className="btn"><i /><span className="btn-label">再開</span></button></PageHeading></IntentRoot>);
+    it('収まるときは縮めず、ボタンの名前を出したままにする', () => {
+      widths(800, 600, 300);
+      const { container } = heading();
+      expect(container.querySelector('.page-title-row')).not.toHaveAttribute('data-compact');
+      expect(screen.getByRole('button', { name: '再開' })).not.toHaveAttribute('title');
+    });
+    it('はみ出すときは縮め、名前は読み上げと title に残す', () => {
+      widths(400, 600, 300);
+      const { container } = heading();
+      expect(container.querySelector('.page-title-row')).toHaveAttribute('data-compact', 'true');
+      const btn = screen.getByRole('button', { name: '再開' });
+      expect(btn).toHaveAttribute('title', '再開');
+    });
   });
 });

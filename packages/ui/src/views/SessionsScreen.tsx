@@ -13,10 +13,6 @@ import { Segmented } from './primitives/Segmented.tsx';
  * 「今日」は暦の今日（0 時から）、「7 日」は今日とその前の 6 日である（mediator/screen.ts の periodStart）。
  */
 const PERIODS = [{ value: '', label: '全期間' }, { value: '1', label: '今日' }, { value: '7', label: '7 日' }, { value: '30', label: '30 日' }];
-/** 一覧の高さ。窓から、ヘッダとその下の隙間、画面の上下の余白、見出し（.page-head の 77px）、検索欄（34px）、絞り込みの段の分を引く（rows.css の .sessions-*）。
- * 条件の行が出ている間は、その分（28px）も引く。 */
-const LIST_H = 'calc(100vh - 249px)';
-const LIST_H_COND = 'calc(100vh - 277px)';
 /** サーバが 1 度に返す件数（server/src/search/search.ts の既定）。続きもこの件数ずつ読む。 */
 const PAGE = 50;
 // 帯の名前を「状態」にする。「実行中」という名前の帯の中に「実行中」の項目があると、読み上げで区別しにくいため。
@@ -45,7 +41,7 @@ export function SessionsScreen(props: SessionsProps) {
     </div>
   ) : undefined;
   return (
-    <div className="screen sessions-screen">
+    <div className="screen sessions-screen screen-fill">
       <PageHeading title="セッション"><span className="faint mono sessions-count">{props.allCount} 件</span></PageHeading>
       <div className="sessions-keyword">
         <Icon name="fullText" />
@@ -72,7 +68,7 @@ export function SessionsScreen(props: SessionsProps) {
           <span className="faint mono sessions-cond-count">{count}</span>
         </div>
       )}
-      <SessionRows id="session-results" rows={props.rows} height={filtered ? LIST_H_COND : LIST_H} variant="search" autoFocus loadingMore={props.loadingMore} emptyText={props.mode === 'search' && !props.loading ? '一致するセッションはありません' : undefined} foot={foot} />
+      <SessionRows id="session-results" rows={props.rows} variant="search" autoFocus loadingMore={props.loadingMore} emptyText={props.mode === 'search' && !props.loading ? '一致するセッションはありません' : undefined} foot={foot} />
     </div>
   );
 }

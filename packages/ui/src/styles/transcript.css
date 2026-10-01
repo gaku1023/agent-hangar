@@ -61,7 +61,9 @@
 .tool[data-open='true'] > .trow > .chev { transform: rotate(90deg); }
 .tool-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-sm); color: var(--ink); }
 .tool-sum .d { color: var(--ink-3); }
-.trow .meta { flex: none; display: inline-flex; gap: calc(var(--u) * 2); align-items: center; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+/* 補足（サブエージェントの種類、行数など）は狭い欄では縮めて省略する。flex: none のままだと、右ペインの目次で行の幅を超える。 */
+.trow .meta { flex: 0 1 auto; min-width: 0; overflow: hidden; display: inline-flex; gap: calc(var(--u) * 2); align-items: center; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+.trow .meta > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .trow .when { flex: none; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
 .tool [data-tone='add'], .tool [data-tone='ok'] { color: var(--st-done); }
 .tool [data-tone='del'] { color: var(--error); }
@@ -71,7 +73,8 @@
 .sub { margin: 2px 0 4px 28px; }
 
 /* 札（K1）。色は手の種類で、live-explainer の色帯と同じ種類を同じ色にする（読む＝灰、書く＝藍、走らせる＝杏、コミット＝緑、失敗＝赤、その他＝薄い灰）。 */
-.trow .badge { flex: none; display: inline-flex; align-items: center; max-width: 22ch; height: 20px; padding: 0 7px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; font: 600 var(--fs-xs) var(--font-mono); letter-spacing: 0.01em; }
+/* 札も狭い欄では縮めて省略する（mcp__hangar__set_turn_intent のような長い名前がある）。省略記号を効かせるため inline-block にする。 */
+.trow .badge { flex: 0 1 auto; display: inline-block; min-width: 4ch; max-width: 22ch; height: 20px; white-space: nowrap; padding: 0 7px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; font: 600 var(--fs-xs)/20px var(--font-mono); letter-spacing: 0.01em; }
 .trow .badge[data-k='read'] { color: var(--ink-2); background: #e6e8f0; }
 .trow .badge[data-k='write'] { color: var(--accent); background: var(--accent-soft); }
 .trow .badge[data-k='run'] { color: var(--st-paused); background: var(--st-paused-soft); }
