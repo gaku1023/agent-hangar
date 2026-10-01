@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { ProjectPlace } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { NewProjectProps } from '../presenters/newProject.ts';
@@ -24,6 +24,9 @@ export function NewProjectDialog(props: NewProjectProps) {
   const [gitInit, setGitInit] = useState(true);
   const [path, setPath] = useState('');
   const [query, setQuery] = useState('');
+  // 一覧の中でキーが指している行。Listbox と同じく、フォーカスは検索欄に置いたまま aria-activedescendant で示す。
+  const [active, setActive] = useState(0);
+  const uid = useId();
   // 利用者が名前を自分で直したか。直す前は、選んだフォルダの basename を名前に入れる。
   const [nameTouched, setNameTouched] = useState(false);
   // 開いた時点の Finder の回数。これより新しい結果だけを使う（別のダイアログで選んだ結果を当てない）。
@@ -55,6 +58,16 @@ export function NewProjectDialog(props: NewProjectProps) {
 
   const needle = query.trim().toLowerCase();
   const shown = props.dirs.filter((d) => !needle || d.name.toLowerCase().includes(needle));
+  const current = shown.length ? Math.min(active, shown.length - 1) : -1;
+  const rowId = (i: number) => `${uid}-dir-${i}`;
+  const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (isComposing(e)) return;
+    const n = shown.length;
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (n) setActive((current + 1) % n); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (n) setActive((current - 1 + n) % n); }
+    // Enter は行を選ぶだけで、送信はしない。
+    else if (e.key === 'Enter') { e.preventDefault(); if (current >= 0) choosePath(shown[current]!.path); }
+  };
   const root = props.workspaceRoot ?? '~/workspace';
   const close = () => emit({ type: 'overlay.close' });
   // 名前を打ちかけたまま背景を押し違えても失わないよう、背景では閉じない。
@@ -85,10 +98,10 @@ export function NewProjectDialog(props: NewProjectProps) {
         <>
           <div className="field">フォルダ
             <div className="new-project-dirs">
-              <div className="listbox-search"><Icon name="search" /><input aria-label="未登録のフォルダを探す" placeholder="ワークスペースの未登録のフォルダを探す" value={query} onChange={(e) => setQuery(e.target.value)} /></div>
-              <div role="listbox" aria-label="ワークスペースの未登録のフォルダ" className="listbox-rows">
-                {shown.map((d) => (
-                  <div key={d.path} role="option" aria-selected={d.path === path} aria-label={d.name} className="listbox-opt" onClick={() => choosePath(d.path)}>
+              <div className="listbox-search"><Icon name="search" /><input role="combobox" aria-label="未登録のフォルダを探す" placeholder="ワークスペースの未登録のフォルダを探す" aria-expanded="true" aria-controls={`${uid}-dirs`} aria-autocomplete="list" aria-activedescendant={current >= 0 ? rowId(current) : undefined} value={query} onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onSearchKey} /></div>
+              <div id={`${uid}-dirs`} role="listbox" aria-label="ワークスペースの未登録のフォルダ" className="listbox-rows">
+                {shown.map((d, i) => (
+                  <div key={d.path} id={rowId(i)} role="option" aria-selected={d.path === path} aria-label={d.name} className="listbox-opt" data-active={i === current ? 'true' : undefined} onMouseMove={() => { if (i !== current) setActive(i); }} onClick={() => choosePath(d.path)}>
                     <Icon name="folder" />
                     <span className="listbox-opt-main"><b>{d.name}</b><small>{d.path}</small></span>
                     <span className="listbox-check" aria-hidden="true"><Icon name="check" /></span>

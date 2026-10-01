@@ -252,6 +252,28 @@ describe('NewProjectDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '作成して始める' }));
     expect(out.find((i) => i.type === 'project.new.submit')).toEqual({ type: 'project.new.submit', place: { kind: 'dir', path: '/Users/me/thesis', name: 'thesis' }, startSession: true });
   });
+  it('既存のフォルダを登録：検索欄から ↓ と Enter で一覧の行を選べ、Enter では送信しない', () => {
+    const { out } = collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    const search = screen.getByRole('combobox', { name: '未登録のフォルダを探す' });
+    search.focus();
+    expect(search).toHaveAttribute('aria-activedescendant', screen.getByRole('option', { name: 'hangar-explainers' }).id);
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    const second = screen.getByRole('option', { name: 'RPG2' });
+    expect(search).toHaveAttribute('aria-activedescendant', second.id);
+    expect(second).toHaveAttribute('data-active', 'true');
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(screen.getByLabelText('プロジェクト名')).toHaveValue('RPG2');
+    expect(screen.getByLabelText('フォルダのパス')).toHaveValue('/w/RPG2');
+    expect(out.filter((i) => i.type === 'project.new.submit')).toEqual([]);
+  });
+  it('新しいフォルダを作る：名前の欄の Enter は「作成して始める」として送る', () => {
+    const { out } = collect();
+    const field = screen.getByLabelText('プロジェクト名');
+    fireEvent.change(field, { target: { value: 'price-watcher' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(out.find((i) => i.type === 'project.new.submit')).toEqual({ type: 'project.new.submit', place: { kind: 'newDir', name: 'price-watcher', gitInit: true }, startSession: true });
+  });
   it('「ほかの場所を選ぶ…」は殻の中だけ。選ばれたパスをパスの欄に入れる。開いた時点の結果は使わない', () => {
     const { out, view } = collect({ picked: { path: '/old', n: 2 } });
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
