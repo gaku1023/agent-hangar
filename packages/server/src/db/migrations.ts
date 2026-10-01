@@ -290,4 +290,37 @@ create table turn_intents (
 );
 `,
   },
+  {
+    // セッションの状態（Paused・Done・Archived）と Claude の提案。設計は docs/superpowers/specs/2026-10-01-session-status-design.md。
+    // sessions に列を足さないのは、sessions の行が索引のたびに全列で書き直され（indexFile の applySessionFacts）、
+    // 同期が行ごとの後勝ちなので、別の PC で付けた状態が、本文を持つ PC の索引で上書きされるからである。
+    // 共有テーブルなので同期に載る。D1 は行を JSON のまま持つので、クラウド側のマイグレーションは要らない。
+    //
+    // 導入のときに、生きているセッションをまとめて Done にする（利用者の決定）。
+    // この行は changes に積まない。各 PC が自分のマイグレーションで同じ行を作るので、送る必要が無い。
+    // 1,221 行を D1 へ送ると、無料枠の書き込みを無駄に使う。
+    // updated_at は 0 にする。先に上げた PC で利用者が付けた状態が、後から上げた PC の一括 Done に後勝ちで負けないようにするためである。
+    // origin_device は、端末の id を DB から読めないので（version 8 の注記と同じ）'import' と書く。
+    // set_at は秒の精度の今で、これより前の発言では状態を外さない（sessions/states.ts の clearOnNewPrompt）。
+    version: 13,
+    sql: `
+create table session_states (
+  session_id text primary key references sessions(id),
+  status text check (status in ('paused','done','archived')),
+  note text,
+  return_on text,
+  set_by text check (set_by in ('user','conversation','import')),
+  set_at integer,
+  candidate_status text check (candidate_status in ('paused','done')),
+  candidate_note text,
+  candidate_return_on text,
+  candidate_source text check (candidate_source in ('in_session','exit','post_hoc')),
+  candidate_at integer,
+  rejected_at integer,
+  updated_at integer not null, deleted_at integer, origin_device text not null
+);
+insert into session_states (session_id, status, set_by, set_at, updated_at, origin_device)
+  select id, 'done', 'import', cast(strftime('%s', 'now') as integer) * 1000, 0, 'import' from sessions where deleted_at is null;
+`,
+  },
 ];

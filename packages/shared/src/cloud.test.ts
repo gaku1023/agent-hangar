@@ -27,11 +27,16 @@ describe('鍵と表', () => {
     expect(configKey('dev1', 'CLAUDE.md')).not.toBe(configKey('dev2', 'CLAUDE.md'));
     expect(splitFileKey(configKey('dev1', 'skills/x/SKILL.md'))).toEqual({ prefix: 'config', rel: 'dev1/skills/x/SKILL.md' });
   });
-  it('共有テーブルの主キーは session_summaries と project_memos だけが違う', () => {
-    expect(SHARED_TABLES).toHaveLength(12);
+  it('共有テーブルの主キーは session_summaries と session_states と project_memos だけが違う', () => {
+    expect(SHARED_TABLES).toHaveLength(13);
     expect(TABLE_PK.session_summaries).toBe('session_id');
+    expect(TABLE_PK.session_states).toBe('session_id');
     expect(TABLE_PK.project_memos).toBe('project_id');
     expect(TABLE_PK.runs).toBe('id');
+  });
+  it('session_states は session_summaries の直後に適用する（親の sessions より後）', () => {
+    expect(SHARED_TABLES.indexOf('session_states')).toBe(SHARED_TABLES.indexOf('session_summaries') + 1);
+    expect(SHARED_TABLES.indexOf('session_states')).toBeGreaterThan(SHARED_TABLES.indexOf('sessions'));
   });
 });
 
