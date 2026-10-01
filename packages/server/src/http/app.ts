@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
@@ -22,6 +22,7 @@ import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } 
 import { RunError, type RunManager } from '../runs/manager.ts';
 import type { JumpFrom } from '../runs/promptJump.ts';
 import { searchSessions } from '../search/search.ts';
+import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../sessions/states.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
@@ -108,6 +109,8 @@ export type AppDeps = {
 
 const STATUSES = new Set(['active', 'paused', 'done', 'archived']);
 const RESOLVE_KINDS = new Set(['repoint', 'archive', 'unlink']);
+/** セッションの状態として受け付ける値。印なしは null で表す。 */
+const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
 /** 空にできない文字列の設定。 */
 const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
@@ -860,6 +863,48 @@ export function createApp(deps: AppDeps): Hono {
     const s = session(id)!;
     deps.hub.broadcast({ type: 'session.upsert', session: s });
     return c.json(s);
+  });
+  // セッションの状態（Paused・Done・Archived）と Claude の提案の確定・却下。どれも利用者の操作で、MCP からは呼べない。
+  // run に配る MCP の秘密は /api を開けない（authMiddleware は本体のトークンしか見ない）。
+  // 成功したら session.upsert を配る。画面の正はその配信である。
+  const NO_STATE_CANDIDATE = 'このセッションには確かめる提案がありません';
+  const liveSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id) !== undefined;
+  const stateResult = (c: Context, id: string, fn: () => { state: SessionStateDto; result?: string }) => {
+    try {
+      const r = fn();
+      if (r.result === 'not_candidate') return c.json({ error: NO_STATE_CANDIDATE }, 409);
+      broadcastSession(id);
+      return c.json({ state: r.state });
+    } catch (e) {
+      if (e instanceof StateInputError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+  };
+  const putSessionState = async (c: Context, id: string) => {
+    if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    const b = await readJson(c, BODY_LIMITS.todo);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
+    const body = (b.value ?? {}) as { status?: unknown; note?: unknown; returnOn?: unknown };
+    if (body.status !== null && !(typeof body.status === 'string' && SESSION_STATUSES.has(body.status))) return c.json({ error: '状態は paused、done、archived か、印なしに戻す null です' }, 400);
+    if (body.note !== undefined && typeof body.note !== 'string') return c.json({ error: '理由は文字列です' }, 400);
+    if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
+    const status = body.status as SessionStatus | null;
+    return stateResult(c, id, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, setBy: 'user' }) }));
+  };
+  api.put('/sessions/:id/state', (c) => putSessionState(c, c.req.param('id')));
+  api.post('/sessions/:id/state/confirm', async (c) => {
+    const id = c.req.param('id');
+    if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { returnOn?: unknown };
+    if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
+    return stateResult(c, id, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string }));
+  });
+  api.post('/sessions/:id/state/reject', (c) => {
+    const id = c.req.param('id');
+    if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    return stateResult(c, id, () => rejectSessionState(db, deviceId, id));
   });
   api.post('/sessions/:id/promote', async (c) => {
     const id = c.req.param('id');

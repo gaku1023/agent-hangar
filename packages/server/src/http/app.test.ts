@@ -5,13 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
 import { RetentionConflictError } from '../config/retention.ts';
 import { openDb, type Db } from '../db/open.ts';
-import { upsertShared } from '../db/shared.ts';
+import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { PromoteError } from '../projects/promote.ts';
 import { proposeTodoDone } from '../projects/todos.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
+import { TOOL_NAMES } from '../mcp/tools.ts';
 import { RunError } from '../runs/manager.ts';
+import { issueMcpSecret } from '../runs/secrets.ts';
+import { proposeSessionState } from '../sessions/states.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { createApp, type AppDeps, type ConfigSyncApi, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts, type SyncApi } from './app.ts';
@@ -1207,5 +1210,77 @@ describe('保持期間', () => {
   it('書けたら新しい値を返す。GET でも今の値を返す', async () => {
     expect(await (await send('/api/retention', 'PUT', { days: 365, baseSha256: 'abc' })).json()).toMatchObject({ days: 365, source: 'user' });
     expect(await (await app.request('/api/retention', { headers: H })).json()).toEqual(RET);
+  });
+});
+
+describe('セッションの状態', () => {
+  const send = (p: string, body?: unknown, method = 'POST', headers: Record<string, string> = H) =>
+    app.request(p, { method, headers: { ...headers, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+  const err = async (r: Response) => ((await r.json()) as { error: string }).error;
+
+  it('PUT は手で状態を変え、session.upsert を配る', async () => {
+    const id = alphaId();
+    const r = await send(`/api/sessions/${id}/state`, { status: 'paused', note: '明日の朝見る', returnOn: '2026-10-02' }, 'PUT');
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ state: { status: 'paused', note: '明日の朝見る', returnOn: '2026-10-02', setBy: 'user', setAt: expect.any(Number), candidate: null } });
+    expect(sent.at(-1)).toMatchObject({ type: 'session.upsert', session: { id, state: { status: 'paused' } } });
+    // Done は戻る日を持たない。
+    expect((await (await send(`/api/sessions/${id}/state`, { status: 'done', returnOn: '2026-10-02' }, 'PUT')).json()).state).toMatchObject({ status: 'done', returnOn: null });
+    // null は印なしに戻す。
+    expect((await (await send(`/api/sessions/${id}/state`, { status: null }, 'PUT')).json()).state).toMatchObject({ status: null, note: null, returnOn: null, candidate: null });
+  });
+  it('PUT の誤りは 400 と 404。本文はトーストに出せる日本語の一文', async () => {
+    const id = alphaId();
+    const paused = await send(`/api/sessions/${id}/state`, { status: 'paused' }, 'PUT');
+    expect(paused.status).toBe(400);
+    expect(await err(paused)).toBe('Paused には戻る日が要ります');
+    for (const body of [{}, { status: 'active' }, { status: 'done', note: 5 }, { status: 'paused', returnOn: 20261002 }, { status: 'paused', returnOn: '2026-02-30' }, { status: 'done', note: 'あ'.repeat(201) }]) {
+      const r = await send(`/api/sessions/${id}/state`, body, 'PUT');
+      expect([JSON.stringify(body), r.status]).toEqual([JSON.stringify(body), 400]);
+      expect(await err(r)).toMatch(/[ぁ-んァ-ン一-龥]/);
+    }
+    expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
+    const missing = await send('/api/sessions/nope/state', { status: 'done' }, 'PUT');
+    expect(missing.status).toBe(404);
+    expect(await err(missing)).toBe('セッションが見つかりません');
+    // 論理削除したセッションも見つからない扱いにする。
+    softDeleteShared(db, 'sessions', id, 'd');
+    expect((await send(`/api/sessions/${id}/state`, { status: 'done' }, 'PUT')).status).toBe(404);
+  });
+  it('confirm は提案を状態にし、日を変えればその日にする。提案が無ければ 409', async () => {
+    const id = alphaId();
+    const none = await send(`/api/sessions/${id}/state/confirm`);
+    expect(none.status).toBe(409);
+    expect(await err(none)).toBe('このセッションには確かめる提案がありません');
+    proposeSessionState(db, 'd', id, { status: 'paused', note: '明日見る', returnOn: '2026-10-02', source: 'in_session' });
+    expect((await send(`/api/sessions/${id}/state/confirm`, { returnOn: '2026-02-30' })).status).toBe(400);
+    sent.length = 0;
+    const ok = await send(`/api/sessions/${id}/state/confirm`, { returnOn: '2026-10-05' });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).state).toEqual({ status: 'paused', note: '明日見る', returnOn: '2026-10-05', setBy: 'user', setAt: expect.any(Number), candidate: null });
+    expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
+    expect((await send(`/api/sessions/${id}/state/confirm`)).status).toBe(409);
+    expect((await send('/api/sessions/nope/state/confirm')).status).toBe(404);
+  });
+  it('reject は提案を消し、同じセッションから出し直させない。提案が無ければ 409', async () => {
+    const id = alphaId();
+    expect((await send(`/api/sessions/${id}/state/reject`)).status).toBe(409);
+    proposeSessionState(db, 'd', id, { status: 'done', note: '直した', returnOn: null, source: 'post_hoc' });
+    sent.length = 0;
+    const ok = await send(`/api/sessions/${id}/state/reject`);
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).state).toMatchObject({ status: null, candidate: null });
+    expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
+    expect(proposeSessionState(db, 'd', id, { status: 'done', note: 'もう一度', returnOn: null, source: 'post_hoc' }).outcome).toBe('rejected_before');
+    expect((await send('/api/sessions/nope/state/reject')).status).toBe(404);
+  });
+  it('MCP からは呼べない。run に配る秘密は /api を開けず、MCP のツールにも確定と却下は無い', async () => {
+    const id = alphaId();
+    const auth = { authorization: `Bearer ${issueMcpSecret(db, id, 1)}` };
+    for (const [p, m] of [[`/api/sessions/${id}/state`, 'PUT'], [`/api/sessions/${id}/state/confirm`, 'POST'], [`/api/sessions/${id}/state/reject`, 'POST']] as const) {
+      expect([p, (await send(p, { status: 'done' }, m, auth)).status]).toEqual([p, 401]);
+    }
+    expect(TOOL_NAMES.filter((n) => /state|status/.test(n))).toEqual(['propose_session_status']);
   });
 });
