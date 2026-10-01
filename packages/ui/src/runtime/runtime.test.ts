@@ -678,6 +678,16 @@ describe('フェーズ 3 の効果', () => {
     expect(openArtifactEditor).toHaveBeenCalledWith('a1');
     expect(rt.getStore().artifacts.a1).toEqual(artifact);
   });
+  it('変更したファイルを開くときはそのファイルを送り、VS Code で開くときは作業ディレクトリ（file なし）を頼む', async () => {
+    const openEditor = vi.fn(async (_sessionId: string, _file?: string) => {});
+    const { rt } = harness({ openEditor });
+    rt.start();
+    rt.emit({ type: 'session.openFile', sessionId: 's1', path: '/w/alpha/src/a.ts' });
+    rt.emit({ type: 'session.openEditor', sessionId: 's1' });
+    await flush();
+    // file を落とすと、ファイルではなく作業ディレクトリが開く。
+    expect(openEditor.mock.calls).toEqual([['s1', '/w/alpha/src/a.ts'], ['s1']]);
+  });
   it('設定画面に入ると statusline と集計とモデル一覧を読む', async () => {
     const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
     const usageAggregate = vi.fn(async () => ({ days: [{ day: '2026-09-18', inputTokens: 1, outputTokens: 2, sessions: 1 }], projects: [] }));
