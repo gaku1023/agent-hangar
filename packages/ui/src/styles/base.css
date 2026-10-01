@@ -72,8 +72,9 @@ a:hover { text-decoration: underline; }
    ロゴはサイドバーを開いても畳んでも同じ形、同じ場所に置く。畳んだ帯の列は細く、ロゴはその外まではみ出すので、列の幅に縛らない。 */
 .header-brand { grid-column: 1 / -1; grid-row: 1; z-index: 1; display: flex; align-items: center; justify-self: start; height: 100%; padding-left: var(--head-lead); pointer-events: none; }
 .header-brand > .brand { pointer-events: auto; }
-/* 右の列は、検索欄と右の塊の 1 行。狭いときに部品を畳む大きさの入れ物（container）は、ヘッダではなくこの行に付ける。
-   container はレイアウトの封じ込めを伴い、封じ込めのある要素では subgrid が効かなくなるからである。 */
+/* 右の列は、検索欄と右の塊の 1 行。錠剤の左端の式が使う大きさの入れ物（container、100cqw）は、ヘッダではなくこの行に付ける。
+   container はレイアウトの封じ込めを伴い、封じ込めのある要素では subgrid が効かなくなるからである。
+   狭いときに部品を畳むのは、この行の幅と中身の幅を測る useHeaderFold.ts である（下の「ヘッダの右の塊の畳み方」）。 */
 .header-row { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: calc(var(--u) * 4.5); min-width: 0; height: 100%; container: header / inline-size; }
 /* 「探す・移動」の錠剤の左端は、本文の左端と同じ式で決める。本文は --main-w を上限に本文の列の中央へ寄り、そこから --gutter-l 空けて始まる。
    本文の列の幅は、この行の幅（100cqw）である。 */
@@ -351,13 +352,16 @@ a:hover { text-decoration: underline; }
 .usage-legend { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 3); margin-top: var(--u); font-size: var(--fs-xs); color: var(--ink-2); }
 .usage-warn { color: var(--st-paused); font-weight: 600; }
 
-/* ヘッダの畳み方（窓が狭いとき）。窓ではなく、検索欄と右の塊が並ぶ行（本文の列）の幅で決める。サイドバーの開閉でもこの幅は変わるからである。
-   狭くなるほど、①最終更新 → ②同期の操作 → ③ゲージの棒（短い名前と数字だけに） → ④錠剤の文字とキー帽（虫眼鏡だけに）、同期の文、索引の進み
-   → ⑤新しいセッションの文字（「＋」だけに）と同期の件数 → ⑥ゲージ、の順に畳む。
-   畳んだ操作は、同期の文なら設定から届く。錠剤は虫眼鏡になっても押せばパレットが開く。新しいセッションは最後まで縮めない。
-   行を大きさの入れ物にする指定（container）は、.header-row の規則の中に書いている。 */
-.header-end > .gauges, .header-end > .new-session { flex: none; }
-.header .btn.new-session { flex: none; }
+/* ヘッダの右の塊の畳み方（窓が狭いとき）。
+   決め打ちの幅では畳まない。同期の文や件数のように長さの変わる中身に追いつかず、隣の部品に重なって描かれたからである。
+   代わりに、段ごとに要る幅を測り、収まるまで優先度の低い部品から畳む。
+   順は headerFold.ts の FOLD_STEPS が決め、useHeaderFold.ts が測って、畳む部品に data-folded の印を付ける。
+   測る仕組みが追いつかない一瞬や、測れない環境でも重ならないよう、どの部品も 0 まで縮み、はみ出しは切り詰める。
+   縮む重み（flex-shrink）は、同期の一行と索引の進みを重く、ゲージを中ほど、新しいセッションを軽くする。 */
+.header .gauges { flex: 0 100 auto; min-width: 0; overflow: hidden; }
+.header .btn.new-session { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.header .new-session .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header .progress { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 同期の操作は地を持たない文字のボタンにし、主ボタン（新しいセッション）だけが面を持つ。
    同期と使用率の前には細い仕切りを置き、横にも塊ごとの間を見せる。 */
 .header .sync-action { color: var(--ink-2); background: none; box-shadow: none; }
@@ -365,17 +369,25 @@ a:hover { text-decoration: underline; }
 .header .sync, .header .gauges { position: relative; padding-left: calc(var(--u) * 4.5); }
 .header .sync::before, .header .gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: calc(var(--u) * 4); translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
 /* ゲージの見出し（5 時間、週）。
-   何の割合かが読めるよう、どの幅でも出す。 */
+   何の割合かが読めるよう、ゲージを出している間は隠さない。見出しの無い数字は読めないので、畳むときはゲージの組ごと畳む。 */
 .header .gauge-key { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 /* ゲージと同期の見た目は workbench.css と sync.css が後から読み込まれて決める。
-   コンテナクエリの中の規則は詳細度が上がらないので、どれも .header から書いて、後に読まれる規則に負けないようにする。 */
-/* 境目の幅は、ヘッダ全体で測っていた前の値から、左の列（開いた帯で 216px）と、要らなくなったパンくずの分を引いて決めた。 */
-@container header (max-width: 900px) { .header .gauge-updated { display: none; } }
-@container header (max-width: 800px) { .header .sync-action { display: none; } }
-@container header (max-width: 700px) { .header .gauge-bar { display: none; } .header .gauge-num { min-width: 0; } }
-@container header (max-width: 600px) { .header .search-pill-label, .header .search-kbd, .header .progress, .header .sync-label { display: none; } .header .search-pill { justify-content: center; width: var(--row-h); padding: 0; } }
-@container header (max-width: 420px) { .header .new-session .btn-label, .header .sync-count { display: none; } .header .btn.new-session { justify-content: center; width: var(--row-h); padding: 0; } }
-@container header (max-width: 340px) { .header .gauges { display: none; } }
+   畳む規則は、どれも .header か .header-row から書いて詳細度を上げ、後に読まれる規則に負けないようにする。 */
+/* 畳んだ部品。見えなくするが、読み上げには残す（.sr-only と同じ形）。
+   行の流れからも外れるので、幅も間も取らない。 */
+.header-row [data-folded] { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* 同期の操作は、見えないボタンにフォーカスが止まらないよう、まるごと外す。
+   同期の文のリンクから設定へ行けば押せる。 */
+.header-row .sync-action[data-folded] { display: none; }
+/* 錠剤と新しいセッションは、文字を畳むと図だけの丸いボタンになる。 */
+.header .search-pill:has(> [data-folded]), .header .btn.new-session:has(> [data-folded]) { justify-content: center; width: var(--row-h); padding: 0; }
+/* 数字の幅の下限は、棒と並べたときに桁の増減で棒が揺れないためのもので、棒を畳んだら要らない。 */
+.header .gauge:has(> .gauge-bar[data-folded]) > .gauge-num { min-width: 0; }
+/* 測るあいだ（useHeaderFold.ts）は、右の塊とその中身を縮ませず、間の伸びる余白も伸ばさない。
+   すると、行の左端から右の塊の右の外側の端までが、その段で要る幅になる。
+   この形は描画の直後の測る間だけで、塗る前に外す。 */
+.header-row[data-fold-measuring] .header-end, .header-row[data-fold-measuring] .header-end * { flex-shrink: 0; }
+.header-row[data-fold-measuring] > .spacer { flex-grow: 0; }
 
 /* 起動ダイアログの入力欄 */
 .field { display: flex; flex-direction: column; gap: var(--u); font-size: var(--fs-sm); color: var(--ink-2); }
