@@ -1,4 +1,4 @@
-import { stepKind, type StepCell, type ToolCallEvent } from '@agent-hangar/shared';
+import { stepKind, stepLine, type StepCell, type ToolCallEvent } from '@agent-hangar/shared';
 import { diffHunk, snippetStart, type DiffHunk } from './diff.ts';
 import { safeHref } from './markdown.ts';
 
@@ -173,6 +173,11 @@ export function presentTool(call: ToolCallEvent, result: { text: string; isError
       const rows = ['description', 'subagent_type', 'prompt'].filter((k) => input[k] !== undefined).map((key) => ({ key, value: argValue(input[key]) }));
       const kind = str(input.subagent_type);
       return view(str(input.description) ?? call.summary, null, kind ? [{ text: kind, tone: 'plain' }] : [], { kind: 'args', rows }, result?.text ?? null);
+    }
+    case 'SubagentHandback': {
+      // 書き出しは右の欄の手の行（steps.ts の stepLine）と同じ文にする。報告の本文は中身に出し、受け取りの返事は失敗のときだけ出す。
+      const rows = 'message' in input ? [{ key: 'message', value: argValue(input.message) }] : [];
+      return view(stepLine(call).text, null, [], { kind: 'args', rows }, failText);
     }
     case 'TodoWrite': {
       const todos = Array.isArray(input.todos) ? input.todos.filter(isRec) : [];

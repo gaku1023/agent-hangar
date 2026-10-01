@@ -17,6 +17,11 @@ describe('presentTool の札の色', () => {
     expect(presentTool(call('TodoWrite', { todos: [] }), ok(''), CWD).step).toBe('other');
     expect(presentTool(call('Bash', { command: 'npm test' }), ng('Exit code 1'), CWD).step).toBe('fail');
   });
+  it('git の読むだけのサブコマンドは読む札、作り替えもある branch と worktree はその他の札', () => {
+    expect(presentTool(call('Bash', { command: 'git status --short' }), ok(''), CWD).step).toBe('read');
+    expect(presentTool(call('Bash', { command: 'git branch -D old' }), ok(''), CWD).step).toBe('other');
+    expect(presentTool(call('Bash', { command: 'git worktree add ../w b' }), ok(''), CWD).step).toBe('other');
+  });
 });
 
 describe('presentTool の中身', () => {
@@ -89,6 +94,14 @@ describe('presentTool の中身', () => {
     expect(v.head).toEqual({ main: 'SignupForm を調べる', dim: null, meta: [{ text: 'Explore', tone: 'plain' }] });
     expect(v.body).toEqual({ kind: 'args', rows: [{ key: 'description', value: 'SignupForm を調べる' }, { key: 'subagent_type', value: 'Explore' }, { key: 'prompt', value: '読んで挙げて' }] });
     expect(v.result).toBe('報告');
+  });
+  it('SubagentHandback は右の欄と同じく「報告を返した」と書き、報告の本文は中身に出す', () => {
+    const v = presentTool({ ...call('SubagentHandback', { message: '0 件（空ディレクトリ）' }), summary: 'SubagentHandback' }, ok('delivered'), CWD);
+    expect(v.step).toBe('other');
+    expect(v.head).toEqual({ main: '報告を返した', dim: null, meta: [] });
+    expect(v.body).toEqual({ kind: 'args', rows: [{ key: 'message', value: '0 件（空ディレクトリ）' }] });
+    expect(v.result).toBeNull();
+    expect(presentTool(call('SubagentHandback', { message: 'x' }), ng('failed'), CWD).result).toBe('failed');
   });
   it('TodoWrite は項目ごとの状態と中身', () => {
     const v = presentTool(call('TodoWrite', { todos: [{ content: '読む', status: 'completed' }, { content: '直す', status: 'in_progress' }, { content: '流す', status: 'pending' }] }), ok('ok'), CWD);
