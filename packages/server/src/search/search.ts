@@ -85,7 +85,9 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
 
   // snippet() は MATCH した問い合わせでしか使えないので、like だけの経路は本文を取って切り出す。
   const column = match ? "snippet(event_fts, 4, '', '', '…', 12) text" : 'text';
-  const snip = db.prepare(`select seq, role, ${column} from event_fts f where f.session_id = ? and ${textWhere.join(' and ')} limit ${SNIPPETS_PER_HIT}`);
+  // seq は主線とサブエージェントで別々に振るので、どの線の行かを agentId で添える（主線は null）。
+  // 並びは主線を先に、seq の順にする。決めないと、跳び先（J1）に使う最初の抜粋が挿入の順で揺れる。
+  const snip = db.prepare(`select seq, role, agent_id agentId, ${column} from event_fts f where f.session_id = ? and ${textWhere.join(' and ')} order by (agent_id is not null), cast(seq as integer) limit ${SNIPPETS_PER_HIT}`);
   const hits: SearchHitDto[] = rows.slice(offset, offset + limit).map((r) => {
     const snippets = snip.all(r.sid, ...textArgs) as SearchHitDto['snippets'];
     return {

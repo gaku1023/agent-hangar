@@ -313,6 +313,10 @@ a:hover { text-decoration: underline; }
 .toast.toast-waiting { position: relative; display: flex; gap: calc(var(--u) * 2.5); width: 360px; max-width: 100%; padding: calc(var(--u) * 2.5) calc(var(--u) * 3) calc(var(--u) * 2.5) calc(var(--u) * 3.5); box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--waiting) 26%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); }
 .toast-waiting::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--waiting); }
 .toast.toast-waiting:hover { background: rgba(255, 255, 255, 0.92); }
+/* 確認や入力のあるダイアログが開いている間は押せない。押してもダイアログの裏で画面は移らないので、押せるように見せない。 */
+.toast.toast-waiting[data-blocked='true'] { cursor: default; }
+.toast.toast-waiting[data-blocked='true']:hover { background: var(--glass-bg-toast); }
+.toast.toast-more:disabled { cursor: default; opacity: 0.6; }
 .toast-waiting > .dot { flex: none; margin-top: 6px; }
 .toast-body { flex: 1; min-width: 0; }
 .toast-head { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); min-width: 0; }

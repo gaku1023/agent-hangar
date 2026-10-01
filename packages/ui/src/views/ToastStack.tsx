@@ -20,8 +20,8 @@ export function ToastStack(props: ToastsProps) {
       {props.toasts.map((t) => (t.level === 'error' ? <ErrorToast key={t.id} toast={t} /> : <InfoToast key={t.id} toast={t} />))}
       {/* 新しく積まれたカードを読み上げに届ける。カードの中の操作は、それぞれのボタンで選ぶ。 */}
       <div className="toast-waiting-list" aria-live="polite">
-        {props.more > 0 && <button type="button" className="toast toast-more" onClick={() => emit({ type: 'nav.go', to: { name: 'home' } })}>ほか {props.more} 件をホームで見る</button>}
-        {props.waiting.map((c) => <WaitingCard key={c.sessionId} card={c} offerNotify={props.offerNotify} />)}
+        {props.more > 0 && <button type="button" className="toast toast-more" disabled={props.blocked} onClick={() => emit({ type: 'nav.go', to: { name: 'home' } })}>ほか {props.more} 件をホームで見る</button>}
+        {props.waiting.map((c) => <WaitingCard key={c.sessionId} card={c} offerNotify={props.offerNotify} blocked={props.blocked} />)}
       </div>
     </div>
   );
@@ -32,21 +32,23 @@ export function ToastStack(props: ToastsProps) {
  * 答えるまで（入力待ちが解けるまで）残るので、閉じるボタンは持たない。
  * どこを押してもそのセッションを開いてターミナルにフォーカスする。
  * キーボードと読み上げのためには「ターミナルで答える」のボタンを置く。
+ * 確認や入力のあるダイアログが開いている間（blocked）は押せない。
+ * 押してもダイアログの裏で画面は移らないので、押せるように見せない。
  */
-function WaitingCard(props: { card: WaitingCardProps; offerNotify: boolean }) {
+function WaitingCard(props: { card: WaitingCardProps; offerNotify: boolean; blocked: boolean }) {
   const emit = useEmit();
   const c = props.card;
-  const open = () => emit({ type: 'session.open', id: c.sessionId, focus: 'terminal' });
+  const open = () => { if (!props.blocked) emit({ type: 'session.open', id: c.sessionId, focus: 'terminal' }); };
   return (
-    <div className="toast toast-waiting" role="group" aria-label={`${c.name} が入力を待っています`} onClick={open}>
+    <div className="toast toast-waiting" role="group" aria-label={`${c.name} が入力を待っています`} data-blocked={props.blocked ? 'true' : undefined} onClick={open}>
       <span className="dot" data-status="waiting" aria-hidden="true" />
       <div className="toast-body">
         <div className="toast-head"><b className="toast-name">{c.name}</b><small className="toast-waited">{c.waited}待っている</small></div>
         {c.projectName && <div className="toast-project">{c.projectName}</div>}
         <div className="toast-question">{c.question}</div>
         <div className="toast-actions">
-          <button type="button" className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); open(); }}><Icon name="shell" />ターミナルで答える</button>
-          <span className="toast-hint">答えるまで残ります</span>
+          <button type="button" className="btn btn-primary btn-sm" disabled={props.blocked} onClick={(e) => { e.stopPropagation(); open(); }}><Icon name="shell" />ターミナルで答える</button>
+          <span className="toast-hint">{props.blocked ? 'ダイアログを閉じると開けます' : '答えるまで残ります'}</span>
           {props.offerNotify && <button type="button" className="btn-link toast-notify" onClick={(e) => { e.stopPropagation(); emit({ type: 'notify.set', on: true }); }}>通知を受け取る</button>}
         </div>
       </div>

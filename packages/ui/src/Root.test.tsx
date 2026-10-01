@@ -327,7 +327,7 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
   });
 
   it('⌘F は本文が出ているセッション画面でだけ受け、欄を開いてフォーカスする。ターミナルが出ていれば奪わない', async () => {
-    const { wsHandlers, setHash } = await mounted();
+    const { rt, wsHandlers, setHash } = await mounted();
     // セッション画面の外ではブラウザに渡す。
     expect(key({ key: 'f', metaKey: true })).toBe(true);
     act(() => setHash('#/session/s1'));
@@ -340,6 +340,16 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     fireEvent.keyDown(box, { key: 'Escape' });
     await flush();
     expect(screen.queryByRole('searchbox', { name: '本文の中を探す' })).toBeNull();
+    // ダイアログやパレットを開いている間は、裏の本文の欄を開かない。
+    for (const open of [{ type: 'palette.open' as const }, { type: 'shortcuts.open' as const }]) {
+      act(() => rt.emit(open));
+      await flush();
+      expect(key({ key: 'f', metaKey: true })).toBe(true);
+      await flush();
+      expect(screen.queryByRole('searchbox', { name: '本文の中を探す' })).toBeNull();
+      act(() => rt.emit(open.type === 'palette.open' ? { type: 'palette.close' } : { type: 'overlay.close' }));
+      await flush();
+    }
     // ターミナルが出ていれば、⌘F はターミナルとブラウザのものである。
     act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent')] }));
     await flush();
@@ -1029,7 +1039,7 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
   });
 
   it('パレットの全文検索の行を選ぶと、セッション一覧へ移って結果の一覧へフォーカスする', async () => {
-    const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん' }] };
+    const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん', agentId: null }] };
     const search = vi.fn(async () => ({ hits: [hit], total: 1 }));
     const { deps } = await mounted({ api: { search } });
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
@@ -1043,7 +1053,7 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
   });
 
   it('パレットから同じ語で検索し直しても、結果の一覧へ移る（⌘↵）', async () => {
-    const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん' }] };
+    const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん', agentId: null }] };
     await mounted({ api: { search: async () => ({ hits: [hit], total: 1 }) } });
     const settle = () => act(() => new Promise((r) => setTimeout(r, 100)));
     for (let n = 0; n < 2; n++) {

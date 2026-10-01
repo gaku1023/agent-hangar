@@ -383,6 +383,44 @@ describe('routes', () => {
     // 弾いた値は保存していない。
     expect((await json(await get('/api/settings'))).body).toMatchObject({ workspaceRoot: ws, tmuxPath: null, claudePath: null, codePath: null, nodePath: null });
   });
+  // 名前だけ（tmux など）は PATH から探して確かめ、打たれたまま保存する。起動のときも PATH から探すからである。
+  it('パスの欄は名前だけでも受け、PATH から探して確かめ、打たれたまま保存する', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const bin = path.dirname(exe('mytmux'));
+    vi.stubEnv('PATH', `/no/such/dir:${bin}`);
+    try {
+      const r = await patch({ tmuxPath: ' mytmux ' });
+      expect(r.status).toBe(200);
+      expect((await r.json()).tmuxPath).toBe('mytmux');
+      expect((await json(await get('/api/settings'))).body.tmuxPath).toBe('mytmux');
+      const missing = await patch({ tmuxPath: 'no-such-tool' });
+      expect(missing.status).toBe(400);
+      expect(((await missing.json()) as { error: string }).error).toBe('「tmux のパス」の no-such-tool が PATH に見つかりません');
+      // 相対パスは、サーバの作業ディレクトリで読むとどこを指すかが分からないので弾く。
+      for (const rel of ['./mytmux', 'bin/mytmux']) {
+        const bad = await patch({ claudePath: rel });
+        expect(bad.status).toBe(400);
+        expect(((await bad.json()) as { error: string }).error).toBe('「claude のパス」は / か ~ で始まるパスか、tmux のようなコマンドの名前にしてください');
+      }
+      expect((await json(await get('/api/settings'))).body).toMatchObject({ tmuxPath: 'mytmux', claudePath: null });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  // 起動するときに ~ は直されないので、パスは ~ をホームに直した値で保存する。
+  it('パスの欄の ~ はホームに直して保存する', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const tool = exe('hometool');
+    vi.stubEnv('HOME', ws);
+    try {
+      const r = await patch({ codePath: '~/bin/hometool' });
+      expect(r.status).toBe(200);
+      expect((await r.json()).codePath).toBe(tool);
+      expect((await json(await get('/api/settings'))).body.codePath).toBe(tool);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('設定の誤りは、内部のキー名ではなく画面の欄の見出しと画面名「設定」で言う', async () => {
     const error = async (body: unknown) => {
       const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });

@@ -5,6 +5,7 @@ import { NOT_YET } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
+import { liveStep } from './live.ts';
 
 function run(inputs: Input[], start: State = initialState()) {
   const effects: unknown[] = [];
@@ -192,6 +193,41 @@ describe('オーバーレイ', () => {
   });
 });
 
+describe('ダイアログを開いている間の開く操作', () => {
+  const opens = [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' }), intent({ type: 'session.new.open', scratch: true })];
+  const holding: [string, State][] = [
+    ['未解決のプロジェクト', run([server({ type: 'project.unresolved', projectId: 'p1' })]).state],
+    ['停止の確認', run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })]).state],
+    ['書き込み中の保持期間', run([intent({ type: 'retention.edit', days: 365, from: 'banner' }), intent({ type: 'retention.write' })]).state],
+    ['送信中の新しいセッション', run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.submit', params: { projectId: 'p1' } })]).state],
+    ['昇格', run([intent({ type: 'session.promote.open', id: 's1' })]).state],
+  ];
+  // どの経路から来ても（キーでもボタンでも）、決めるまで閉じないダイアログや入力のあるダイアログを黙って差し替えない。
+  it.each(holding)('%s の上では、パレットもキーの一覧も新しいセッションも開かない', (_name, before) => {
+    expect(before.overlay.kind).not.toBe('none');
+    for (const i of opens) {
+      const r = run([i], before);
+      expect(r.state).toEqual(before);
+      expect(r.effects).toEqual([]);
+    }
+  });
+  it('何も開いていなければ開き、パレットからは切り替えられる', () => {
+    expect(run([opens[0]!]).state.overlay).toEqual({ kind: 'palette' });
+    const palette = run([intent({ type: 'palette.open' })]).state;
+    expect(run([intent({ type: 'shortcuts.open' })], palette).state.overlay).toEqual({ kind: 'shortcuts' });
+    expect(run([intent({ type: 'session.new.open', scratch: true })], palette).state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
+    expect(run([intent({ type: 'palette.open' })], palette).state.overlay).toEqual({ kind: 'palette' });
+  });
+  // 読むだけのダイアログ（キーの一覧、昇格の完了）は、差し替えても失うものが無い。
+  // 昇格の完了には「ここで新しいセッションを始める」のボタンもある。
+  it('読むだけのダイアログからは切り替えられる', () => {
+    const keys = run([intent({ type: 'shortcuts.open' })]).state;
+    expect(run([intent({ type: 'palette.open' })], keys).state.overlay).toEqual({ kind: 'palette' });
+    const promoted = { ...initialState(), overlay: { kind: 'promoted' as const, projectId: 'p1', moved: true, reason: null } };
+    expect(run([intent({ type: 'session.new.open', projectId: 'p1' })], promoted).state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
+  });
+});
+
 describe('索引の進み', () => {
   it('走査が終わった瞬間に bootstrap を取り直す', () => {
     const a = run([server({ type: 'index.progress', progress: { phase: 'scanning', done: 0, total: 0 } })]);
@@ -318,6 +354,25 @@ describe('新しいセッションの下書きと前回値', () => {
     // 再開やフォークの完了では、書きかけの下書きに触れない。
     const c = run([intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })]);
     expect(c.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+  });
+  // 送った後に Esc で閉じても起動は止まらない。起動し終えたら、送った下書きは役目を終えている。
+  it('送信中に閉じても、ダイアログから送った起動が終われば下書きを消す', () => {
+    const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: 'やって' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', prompt: 'やって' } }), intent({ type: 'overlay.close' })]);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
+    expect(b.state.newSessionDraft).toBeNull();
+    expect(b.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: null });
+    expect(b.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's9' } });
+    // 一度消したら印も外す。次の再開の完了では、新しく書いた下書きに触れない。
+    const c = run([intent({ type: 'session.new.draft', name: '次', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], b.state);
+    expect(c.state.newSessionDraft).toEqual({ name: '次', prompt: '' });
+  });
+  it('ダイアログから送った起動に失敗したら、閉じていても下書きを残し、印を外す', () => {
+    const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n' } }), intent({ type: 'overlay.close' }), runtime({ type: 'launch.failed', message: 'x' })]);
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+    const b = run([intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], a.state);
+    expect(b.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
   });
   it('起動した詳細をプロジェクトごとの前回値として持ち、端末に残す', () => {
     const a = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: 'wt', addDirs: ['/a'] } })]);
@@ -482,6 +537,13 @@ describe('タブと接続', () => {
 
 describe('入力待ちの知らせ', () => {
   const waiting = (...ids: string[]) => runtime({ type: 'waiting.changed', ids });
+  // transition はどの領域の後にも settleWaiting で開いているセッションのカードを下げるので、領域そのものも見る。
+  it('live 領域は、開いているセッションをカードにしない。通知の効果は出す', () => {
+    const at = { ...initialState(), screen: { name: 'session' as const, id: 's1' } };
+    const r = liveStep(at, waiting('s1', 's2'))!;
+    expect(r.state.waitingToasts).toEqual(['s2']);
+    expect(r.effects).toContainEqual({ kind: 'notify.waiting', sessionId: 's1' });
+  });
   it('新たに入力待ちになったセッションをカードに積み、通知とバッジの効果を出す', () => {
     const a = run([waiting('s1')]);
     expect(a.state.waitingToasts).toEqual(['s1']);
@@ -538,12 +600,15 @@ describe('通知を受け取るか', () => {
     expect(a.effects).toEqual([{ kind: 'notify.request' }]);
     expect(a.state.notify.on).toBe(false);
     const b = run([runtime({ type: 'notify.changed', available: true, on: true })], a.state);
-    expect(b.state.notify).toEqual({ available: true, on: true });
+    expect(b.state.notify).toEqual({ available: true, on: true, blocked: false });
+    // OS で切られていれば、その印を持つ。
+    const c = run([runtime({ type: 'notify.changed', available: true, on: false, blocked: true })], b.state);
+    expect(c.state.notify).toEqual({ available: true, on: false, blocked: true });
   });
   it('受け取らないにすると、その場で切り替えて覚える', () => {
     const on = run([runtime({ type: 'notify.changed', available: true, on: true })]).state;
     const a = run([intent({ type: 'notify.set', on: false })], on);
-    expect(a.state.notify).toEqual({ available: true, on: false });
+    expect(a.state.notify).toEqual({ available: true, on: false, blocked: false });
     expect(a.effects).toEqual([{ kind: 'storage.save', key: 'notify.waiting', value: false }]);
   });
 });
@@ -740,6 +805,8 @@ describe('パレット', () => {
     expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
     const b = run([intent({ type: 'palette.run', command: { id: 'nope', label: '' } })], un);
     expect(b.state).toEqual(un);
+    // ダイアログを開く行も、決めるまで閉じないダイアログを差し替えない。
+    for (const id of ['cmd:new-session', 'cmd:new-scratch', 'cmd:shortcuts']) expect(run([intent({ type: 'palette.run', command: { id, label: '' } })], un).state).toEqual(un);
   });
 });
 
@@ -915,26 +982,17 @@ describe('プロジェクトを一覧から削除する確認', () => {
     const c = run([intent({ type: 'project.resolve', id: 'p2', action: { kind: 'unlink' }, confirmed: true })], b.state);
     expect(c.state.overlay).toEqual({ kind: 'none' });
   });
-  it('確認をパレットで覆って閉じても、未解決のダイアログへ戻る', () => {
-    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } }), intent({ type: 'palette.open' })]);
-    expect(a.state.overlay).toEqual({ kind: 'palette' });
-    const b = run([intent({ type: 'palette.close' })], a.state);
-    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(b.state.unresolvedQueue).toEqual([]);
-  });
-  it('確認を新規セッションのダイアログで覆って閉じても、未解決のダイアログへ戻る', () => {
-    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } }), intent({ type: 'session.new.open', scratch: false })]);
-    expect(a.state.overlay.kind).toBe('newSession');
-    const b = run([intent({ type: 'overlay.close' })], a.state);
-    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(b.state.unresolvedQueue).toEqual([]);
-    expect(b.state.launch).toEqual({ kind: 'idle' });
-  });
-  it('覆ったダイアログから起動し終えても、未解決のダイアログへ戻る', () => {
-    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } }), intent({ type: 'session.new.open', scratch: true })]);
-    const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
-    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(b.state.unresolvedQueue).toEqual([]);
+  // 確認の最初のフォーカスは「やめる」なので、修飾の無い / や ? も Root に届く。
+  // パレットやキーの一覧、新しいセッションで確認を差し替えると、未解決のダイアログもキューに戻らず消える。
+  it('確認の上でパレットや新規セッションを開こうとしても、確認を差し替えない', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    for (const i of [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' }), intent({ type: 'session.new.open', scratch: false })]) {
+      const b = run([i], a.state);
+      expect(b.state).toEqual(a.state);
+      expect(b.effects).toEqual([]);
+    }
+    const c = run([intent({ type: 'overlay.close' })], a.state);
+    expect(c.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
   });
   it('アーカイブと再指定は確認を挟まない', () => {
     const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })]);
@@ -1068,6 +1126,30 @@ describe('この PC で再開', () => {
     expect(run([intent({ type: 'sync.pause', paused: false })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
     // 引き継ぎはこのフェーズでは実装しないので、NOT_YET_INTENTS に残っている。
     expect(run([intent({ type: 'session.takeover', id: 's1', force: false })]).effects).toEqual([{ kind: 'toast', level: 'info', message: NOT_YET }]);
+  });
+});
+
+describe('ダイアログを開いている間の入力待ちのカードと通知', () => {
+  // カードと通知は、ダイアログの上（右下の知らせ）や窓の外から来る。
+  // 確認や入力のあるダイアログを開いたまま裏の画面だけを移すと、何に答えているのかが分からなくなる（⌘I と同じ考え方）。
+  it('確認や入力のあるダイアログが開いていれば、画面を移さない', () => {
+    const at = run([runtime({ type: 'hash.changed', route: { name: 'home' } })]).state;
+    for (const before of [
+      run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })], at).state,
+      run([server({ type: 'project.unresolved', projectId: 'p1' })], at).state,
+      run([intent({ type: 'session.new.open', scratch: true })], at).state,
+    ]) {
+      const r = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' })], before);
+      expect(r.state).toEqual(before);
+      expect(r.effects).toEqual([]);
+    }
+  });
+  it('パレットや読むだけのダイアログなら、閉じてから移る', () => {
+    for (const open of [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' })]) {
+      const r = run([open, intent({ type: 'session.open', id: 's1', focus: 'terminal' })]);
+      expect(r.state.overlay).toEqual({ kind: 'none' });
+      expect(r.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    }
   });
 });
 

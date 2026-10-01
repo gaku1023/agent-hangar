@@ -29,11 +29,27 @@ export function safeHref(href: string): string | null {
 }
 
 const FENCE = /^( {0,3})(`{3,}|~{3,})\s*([^\s`]*)/;
-const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+/** 見出しの開き。# の後には空白が要る。閉じの # と前後の空白は heading が文字列の操作で落とす。 */
+const HEADING_OPEN = /^ {0,3}(#{1,6})\s/;
 const HR = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const QUOTE = /^ {0,3}> ?/;
 const ITEM = /^( *)([-*+]|\d{1,9}[.)])( +|$)(.*)$/;
 const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/**
+ * 見出しの段と中身。見出しでなければ null。
+ * 閉じの # と前後の空白を正規表現（`\s*#*\s*$` のような並び）で落とすと、長い空白で時間が入力の長さの 3 乗に膨らむ。
+ * 頁を固まらせないよう、開きだけを正規表現で読み、残りは端から削って入力の長さに比例する時間で済ませる。
+ */
+function heading(line: string): { level: number; text: string } | null {
+  const m = HEADING_OPEN.exec(line);
+  if (!m) return null;
+  let text = line.slice(m[0].length).trim();
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '#') end--;
+  text = text.slice(0, end).trimEnd();
+  return { level: m[1]!.length, text };
+}
 
 const indentOf = (line: string) => line.length - line.trimStart().length;
 const blank = (line: string) => line.trim() === '';
@@ -51,7 +67,7 @@ const isTableStart = (lines: string[], i: number) => lines[i]!.includes('|') && 
 /** 段落を切る行か。段落の途中にこれが来たら、そこで段落を閉じる。 */
 function startsBlock(lines: string[], i: number): boolean {
   const line = lines[i]!;
-  return FENCE.test(line) || HEADING.test(line) || HR.test(line) || QUOTE.test(line) || ITEM.test(line) || isTableStart(lines, i);
+  return FENCE.test(line) || heading(line) !== null || HR.test(line) || QUOTE.test(line) || ITEM.test(line) || isTableStart(lines, i);
 }
 
 function parseList(lines: string[], start: number): { block: Block; next: number } {
@@ -113,8 +129,8 @@ function parseLines(lines: string[]): Block[] {
       out.push({ t: 'code', lang: fence[3]!, text: code.join('\n') });
       continue;
     }
-    const h = HEADING.exec(line);
-    if (h) { out.push({ t: 'h', level: h[1]!.length, inl: parseInline(h[2]!) }); i++; continue; }
+    const h = heading(line);
+    if (h) { out.push({ t: 'h', level: h.level, inl: parseInline(h.text) }); i++; continue; }
     if (HR.test(line)) { out.push({ t: 'hr' }); i++; continue; }
     if (QUOTE.test(line)) {
       const inner: string[] = [];

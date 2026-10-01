@@ -122,12 +122,12 @@ describe('capabilities', () => {
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
     expect(c.permissions).toEqual(['core:window:allow-start-dragging', 'core:window:allow-internal-toggle-maximize']);
   });
-  // 入力待ちの知らせのために、通知を出す、通知の許可を求める、Dock のバッジに数を出すの 3 つだけを足す。
-  it('UI の出どころには、入力待ちの通知と Dock のバッジの 3 つだけ与える', () => {
+  // 入力待ちの知らせのために、通知を出す、通知の許可を求める、通知の許可の状態を読む、Dock のバッジに数を出すの 4 つだけを足す。
+  it('UI の出どころには、入力待ちの通知と Dock のバッジの 4 つだけ与える', () => {
     const c = cap('remote-notify.json');
     expect(c.windows).toEqual(['main']);
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
-    expect(c.permissions).toEqual(['allow-notify-waiting', 'allow-notify-request', 'core:window:allow-set-badge-count']);
+    expect(c.permissions).toEqual(['allow-notify-waiting', 'allow-notify-request', 'allow-notify-status', 'core:window:allow-set-badge-count']);
   });
   // 権限の出どころのポートと、殻がサーバを立てるポートは別のファイルにある。片方だけ変えると、ヘッダを掴んでも窓が動かなくなる。
   it('権限の出どころのポートは、殻がサーバを立てるポート（server.rs の PORT）と同じ', () => {
@@ -143,7 +143,7 @@ describe('capabilities', () => {
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/notifier.ts'), 'utf8');
     const build = read('src-tauri/build.rs');
     const lib = read('src-tauri/src/lib.rs');
-    for (const cmd of ['notify_waiting', 'notify_request']) {
+    for (const cmd of ['notify_waiting', 'notify_request', 'notify_status']) {
       expect(ui).toContain(`'${cmd}'`);
       expect(build).toContain(`"${cmd}"`);
       expect(lib).toMatch(new RegExp(`generate_handler!\\[[^\\]]*\\b${cmd}\\b`));
@@ -164,10 +164,10 @@ describe('capabilities', () => {
     expect(c.permissions).toEqual(['allow-open-log', 'allow-restart-app']);
   });
   // 命令の名前は、build.rs の一覧、lib.rs の #[tauri::command]、UI と起動画面の呼び出しの 4 か所にある。
-  // 入力待ちの知らせの 2 つは、上の notifier.ts との突き合わせでも確かめる。
+  // 入力待ちの知らせの 3 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['notify_request', 'notify_waiting', 'open_log', 'restart_app', 'retry_boot']);
+    expect(listed).toEqual(['notify_request', 'notify_status', 'notify_waiting', 'open_log', 'restart_app', 'retry_boot']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');

@@ -53,6 +53,23 @@ describe('checkToolPath', () => {
     const ok = fakeTool('tmux', 'tmux 3.4');
     expect(checkToolPath(ok, tmp)).toEqual({ path: ok, ok: true, problem: null });
   });
+  // 名前だけ（tmux など）は、起動のときと同じく PATH から探す。サーバの作業ディレクトリでは読まない。
+  it('/ を含まない名前は PATH から探す', () => {
+    const ok = fakeTool('tmux', 'tmux 3.4');
+    const bin = path.dirname(ok);
+    expect(checkToolPath('tmux', tmp, `/no/such/dir:${bin}`)).toEqual({ path: ok, ok: true, problem: null });
+    expect(checkToolPath(' tmux ', tmp, bin)).toEqual({ path: ok, ok: true, problem: null });
+    expect(checkToolPath('no-such-tool', tmp, bin)).toEqual({ path: 'no-such-tool', ok: false, problem: 'missing' });
+    // 実行権の無いものは PATH の先を探し続ける（シェルと同じ）。
+    fakeTool('plain', 'x', 0o644);
+    expect(checkToolPath('plain', tmp, bin)).toEqual({ path: 'plain', ok: false, problem: 'missing' });
+    expect(checkToolPath('tmux', tmp, '')).toMatchObject({ ok: false, problem: 'missing' });
+  });
+  // ./x や bin/x のような相対パスは、サーバの作業ディレクトリで解釈すると、どこを指すかが分からない。
+  it('相対パスは作業ディレクトリで解釈せず、見つからないとする', () => {
+    expect(fs.existsSync('package.json')).toBe(true);
+    expect(checkToolPath('./package.json', tmp, '')).toEqual({ path: './package.json', ok: false, problem: 'missing' });
+  });
   it('~ で始まるパスはホームから読む', () => {
     const ok = fakeTool('claude', '2.3.1 (Claude Code)');
     expect(checkToolPath('~/bin/claude', tmp)).toEqual({ path: ok, ok: true, problem: null });
@@ -82,6 +99,36 @@ describe('ToolVersions', () => {
     expect(await v.get(p, ['--version'])).toBe('1.0');
     expect(await v.get(p, ['--version'])).toBe('1.0');
     expect(fs.readFileSync(log, 'utf8').trim().split('\n')).toHaveLength(1);
+  });
+  // 版の覚えの鍵は、パスと更新時刻と大きさである。入れ替えたツールは、どちらかが変われば読み直す。
+  it('大きさが変われば、更新時刻が同じでも読み直す', async () => {
+    const p = fakeTool('grow', '1.0');
+    const when = new Date('2026-01-01T00:00:00Z');
+    fs.utimesSync(p, when, when);
+    const v = new ToolVersions(3000);
+    expect(await v.get(p, ['--version'])).toBe('1.0');
+    fs.writeFileSync(p, "#!/bin/sh\necho '1.10'\n", { mode: 0o755 });
+    fs.utimesSync(p, when, when);
+    expect(await v.get(p, ['--version'])).toBe('1.10');
+  });
+  it('更新時刻が変われば、大きさが同じでも読み直す', async () => {
+    const p = fakeTool('touch', '1.1');
+    fs.utimesSync(p, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'));
+    const v = new ToolVersions(3000);
+    expect(await v.get(p, ['--version'])).toBe('1.1');
+    fs.writeFileSync(p, "#!/bin/sh\necho '1.2'\n", { mode: 0o755 });
+    fs.utimesSync(p, new Date('2026-02-01T00:00:00Z'), new Date('2026-02-01T00:00:00Z'));
+    expect(await v.get(p, ['--version'])).toBe('1.2');
+  });
+  // 読めなかった版を覚えると、一度の時間切れや起動の失敗で、そのファイルの版がずっと出なくなる。
+  it('読めなかった版は覚えず、次に読み直す', async () => {
+    const flag = path.join(tmp, 'ready');
+    const p = path.join(tmp, 'late');
+    fs.writeFileSync(p, `#!/bin/sh\nif [ -f '${flag}' ]; then echo 2.0; fi\n`, { mode: 0o755 });
+    const v = new ToolVersions(3000);
+    expect(await v.get(p, ['--version'])).toBeNull();
+    fs.writeFileSync(flag, '');
+    expect(await v.get(p, ['--version'])).toBe('2.0');
   });
 });
 

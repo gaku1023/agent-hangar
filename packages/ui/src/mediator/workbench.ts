@@ -1,4 +1,5 @@
 import type { PaletteCommand } from '@agent-hangar/shared';
+import { overlayReplaceable } from './overlay.ts';
 import { nextWaitingStep, searchQueryStep } from './screen.ts';
 import { sidebarStep } from './sidebar.ts';
 import type { Input, State, Step } from './types.ts';
@@ -19,6 +20,9 @@ function paletteRun(state: State, command: PaletteCommand): Step {
   if (kind === 'search') return searchQueryStep(closed, rest);
   if (kind === 'go' && (rest === 'home' || rest === 'projects' || rest === 'sessions')) return { state: closed, effects: [{ kind: 'navigate', route: { name: rest } }] };
   if (kind === 'cmd') {
+    // ダイアログを開く行は、確認や入力のあるダイアログを差し替えない（overlay.ts の overlayReplaceable）。
+    const opens = rest.startsWith('new-session') || rest === 'new-scratch' || rest === 'shortcuts';
+    if (opens && !overlayReplaceable(closed.overlay)) return { state: closed, effects: [] };
     // 新しいセッションは、パレットを開いた画面のプロジェクトを最初から選ぶ。
     // Mediator はストアを見ないので、どれを選ぶかは presenter が ID の後ろに載せてくる（new-session:project:<id> か new-session:scratch）。
     if (rest.startsWith('new-session')) {

@@ -7,6 +7,7 @@ import type { Db } from '../db/open.ts';
 import { workspaceProjectCount } from '../projects/registry.ts';
 import type { Settings } from './paths.ts';
 import { statuslineStatus } from './statusline.ts';
+import { findOnPath } from './tools.ts';
 
 // 準備の確かめ。
 // 設定画面の欄の下の検証と、空のホームの確認リストが、同じこの読み取りを使う。
@@ -18,10 +19,28 @@ export function expandHome(p: string, homeDir: string = os.homedir()): string {
   return p.startsWith('~/') ? path.join(homeDir, p.slice(2)) : p;
 }
 
-/** パスがツールとして動かせるか。子プロセスは起こさず、ファイルの有無と実行権だけを見る。 */
-export function checkToolPath(p: string | null, homeDir: string = os.homedir()): Omit<ToolCheckDto, 'version'> {
+/**
+ * 設定の値がコマンドの名前（tmux など）か。
+ * / を含まず ~ で始まらないものは、起動のときに子プロセスが PATH から探す。
+ */
+export function isCommandName(p: string): boolean {
+  return !p.includes('/') && !p.startsWith('~');
+}
+
+/**
+ * パスがツールとして動かせるか。子プロセスは起こさず、ファイルの有無と実行権だけを見る。
+ * 名前だけ（tmux など）は、起動のときと同じく PATH から探す。
+ * ./x や bin/x のような相対パスは、サーバの作業ディレクトリで解釈するとどこを指すかが分からないので、見つからないとする。
+ */
+export function checkToolPath(p: string | null, homeDir: string = os.homedir(), pathEnv: string | undefined = process.env.PATH): Omit<ToolCheckDto, 'version'> {
   if (p === null || p.trim() === '') return { path: null, ok: false, problem: 'unset' };
-  const full = expandHome(p.trim(), homeDir);
+  const raw = p.trim();
+  if (isCommandName(raw)) {
+    const found = findOnPath(raw, pathEnv);
+    return found ? { path: found, ok: true, problem: null } : { path: raw, ok: false, problem: 'missing' };
+  }
+  const full = expandHome(raw, homeDir);
+  if (!path.isAbsolute(full)) return { path: raw, ok: false, problem: 'missing' };
   const st = fs.statSync(full, { throwIfNoEntry: false });
   if (!st) return { path: full, ok: false, problem: 'missing' };
   if (!st.isFile()) return { path: full, ok: false, problem: 'notFile' };

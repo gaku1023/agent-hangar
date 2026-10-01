@@ -1,4 +1,5 @@
 import type { LaunchParams } from '@agent-hangar/shared';
+import { overlayReplaceable } from './overlay.ts';
 import type { Effect, Input, LaunchPrefs, NewSessionDraft, State, Step } from './types.ts';
 
 /** 新しいセッションのダイアログの書きかけを残す localStorage の鍵。値は NewSessionDraft か null。 */
@@ -67,16 +68,18 @@ export function launchStep(state: State, input: Input): Step | null {
     const ev = input.event;
     if (ev.type === 'launch.done') {
       // ダイアログから起動し終えたら、書きかけの下書きは役目を終えたので消す。再開やフォークの完了では触れない。
-      const fromDialog = state.overlay.kind === 'newSession';
-      const overlay = fromDialog ? { kind: 'none' as const } : state.overlay;
+      // 送った後に Esc でダイアログを閉じても起動は止まらないので、送った印（newSessionSent）でも消す。
+      const fromDialog = state.overlay.kind === 'newSession' || state.newSessionSent;
+      const overlay = state.overlay.kind === 'newSession' ? { kind: 'none' as const } : state.overlay;
       const cleared = fromDialog ? setDraft(state, null) : { state, effects: [] as Effect[] };
-      return { state: { ...cleared.state, launch: { kind: 'idle' }, overlay }, effects: [{ kind: 'navigate', route: { name: 'session', id: ev.sessionId } }, ...cleared.effects] };
+      return { state: { ...cleared.state, launch: { kind: 'idle' }, overlay, newSessionSent: false }, effects: [{ kind: 'navigate', route: { name: 'session', id: ev.sessionId } }, ...cleared.effects] };
     }
     if (ev.type === 'launch.failed') {
       // 起動ダイアログが開いていれば、その中に同じ文言が出るのでトーストは重ねない。
       // 再開とフォークはダイアログを持たないので、そのときだけトーストで知らせる。
       const shown = state.overlay.kind === 'newSession';
-      const next = { ...state, launch: { kind: 'failed' as const, message: ev.message } };
+      // 失敗した起動の下書きは、やり直せるよう残す。送った印だけ外す。
+      const next = { ...state, launch: { kind: 'failed' as const, message: ev.message }, newSessionSent: false };
       return { state: next, effects: shown ? [] : [{ kind: 'toast', level: 'error', message: ev.message }] };
     }
     return null;
@@ -85,6 +88,8 @@ export function launchStep(state: State, input: Input): Step | null {
   const i = input.intent;
   switch (i.type) {
     case 'session.new.open':
+      // 確認や入力のあるダイアログが出ていれば、差し替えない（overlay.ts の overlayReplaceable）。
+      if (!overlayReplaceable(state.overlay)) return { state, effects: [] };
       // スクラッチはプロジェクトを選ばずに開く。ダイアログ側でプロジェクトの選択欄を隠す。
       return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
     case 'session.new.submit':
@@ -93,7 +98,7 @@ export function launchStep(state: State, input: Input): Step | null {
       {
         // 詳細は、送った時点でそのプロジェクトの前回値にする。起動に失敗しても、選んだ詳細は利用者の意図なので残す。
         const r = rememberPrefs(state, i.params);
-        return { state: { ...r.state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
+        return { state: { ...r.state, launch: { kind: 'submitting' }, newSessionSent: true }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
       }
     case 'session.new.draft': return setDraft(state, { name: i.name, prompt: i.prompt });
     case 'overlay.close':

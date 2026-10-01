@@ -87,8 +87,20 @@ pub fn open_js(session_id: &str) -> String {
     )
 }
 
+/// 通知の許可の状態（UNAuthorizationStatus の値）を、頁に返す名前にする。
+/// `None` は OS に尋ねられないこと（.app の外で動いているとき）を表す。
+/// 仮の許可（Provisional）と一時の許可（Ephemeral）は、通知を出せるので許可とみなす。
+pub fn status_name(raw: Option<isize>) -> &'static str {
+    match raw {
+        None => "unsupported",
+        Some(1) => "denied",
+        Some(2..=4) => "granted",
+        Some(_) => "undetermined",
+    }
+}
+
 #[cfg(target_os = "macos")]
-pub use mac::{install, request, show};
+pub use mac::{install, request, show, status};
 
 /// macOS の外では通知を出さない。
 /// 殻は macOS 向けにしか作らないが、型を揃えておく。
@@ -97,6 +109,10 @@ pub fn install(_on_open: impl Fn(String) + Send + Sync + 'static) {}
 #[cfg(not(target_os = "macos"))]
 pub fn request(done: impl FnOnce(bool) + Send + 'static) {
     done(false);
+}
+#[cfg(not(target_os = "macos"))]
+pub fn status(done: impl FnOnce(Option<isize>) + Send + 'static) {
+    done(None);
 }
 #[cfg(not(target_os = "macos"))]
 pub fn show(_w: &Waiting) {}
@@ -113,9 +129,10 @@ mod mac {
     use objc2_foundation::{NSBundle, NSError, NSString};
     use objc2_user_notifications::{
         UNAuthorizationOptions, UNMutableNotificationContent, UNNotificationRequest,
-        UNNotificationResponse, UNNotificationSound, UNUserNotificationCenter,
-        UNUserNotificationCenterDelegate,
+        UNNotificationResponse, UNNotificationSettings, UNNotificationSound,
+        UNUserNotificationCenter, UNUserNotificationCenterDelegate,
     };
+    use std::ptr::NonNull;
     use std::sync::{Mutex, OnceLock};
 
     type OnOpen = Box<dyn Fn(String) + Send + Sync>;
@@ -194,6 +211,27 @@ mod mac {
                 UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound,
                 &block,
             );
+    }
+
+    /// 通知の許可の状態を読む。
+    /// 尋ねはしないので、OS のダイアログは出ない。
+    /// システム設定で切られていれば Denied が返る。
+    /// .app の外では OS に尋ねられないので `None` を返す。
+    pub fn status(done: impl FnOnce(Option<isize>) + Send + 'static) {
+        if !bundled() {
+            done(None);
+            return;
+        }
+        let done = Mutex::new(Some(done));
+        let block = RcBlock::new(move |settings: NonNull<UNNotificationSettings>| {
+            // SAFETY: OS が渡す設定は、この呼び出しの間は生きている。
+            let raw = unsafe { settings.as_ref() }.authorizationStatus().0;
+            if let Some(f) = done.lock().unwrap().take() {
+                f(Some(raw));
+            }
+        });
+        UNUserNotificationCenter::currentNotificationCenter()
+            .getNotificationSettingsWithCompletionHandler(&block);
     }
 
     /// 通知を出す。
@@ -277,6 +315,20 @@ mod tests {
         assert_eq!(session_of(&identifier("s1")), Some("s1"));
         assert_eq!(session_of("other:s1"), None);
         assert_eq!(session_of("hangar-waiting:x\"y"), None);
+    }
+
+    #[test]
+    fn the_authorization_status_is_named_for_the_page() {
+        // 殻が .app の外で動いているときは、OS に尋ねられない。
+        assert_eq!(status_name(None), "unsupported");
+        assert_eq!(status_name(Some(0)), "undetermined");
+        assert_eq!(status_name(Some(1)), "denied");
+        // 許可、仮の許可、一時の許可は、どれも出せる。
+        assert_eq!(status_name(Some(2)), "granted");
+        assert_eq!(status_name(Some(3)), "granted");
+        assert_eq!(status_name(Some(4)), "granted");
+        // 知らない値は、まだ決まっていないとみなす（起動時に尋ね直せば OS が答える）。
+        assert_eq!(status_name(Some(99)), "undetermined");
     }
 
     #[test]

@@ -15,8 +15,8 @@ export const NOTIFY_KEY = 'notify.waiting';
  */
 export function notifyStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime' && input.event.type === 'notify.changed') {
-    const { available, on } = input.event;
-    return { state: { ...state, notify: { available, on } }, effects: [] };
+    const { available, on, blocked } = input.event;
+    return { state: { ...state, notify: { available, on, blocked: blocked ?? false } }, effects: [] };
   }
   if (input.kind !== 'intent' || input.intent.type !== 'notify.set') return null;
   if (input.intent.on) return { state, effects: [{ kind: 'notify.request' }] };

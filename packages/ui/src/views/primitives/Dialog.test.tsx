@@ -97,6 +97,19 @@ describe('Dialog の殻', () => {
       const first = screen.getByLabelText('一');
       expect(fireEvent.keyDown(first, { key: 'Tab' })).toBe(true);
     });
+    // 畳んだ詳細が器の末尾にあると、中の欄を数えたら最後の止まり先を見誤り、Tab が器の外へ出ていく。
+    it('末尾の畳んだ詳細の中は数えず、見出しから先頭へ回る。開けば中を数える', () => {
+      render(<Dialog title="t"><input aria-label="一" /><details><summary>詳細</summary><input aria-label="畳んだ中" /></details></Dialog>);
+      const summary = screen.getByText('詳細');
+      summary.focus();
+      fireEvent.keyDown(summary, { key: 'Tab' });
+      expect(screen.getByLabelText('一')).toHaveFocus();
+      fireEvent.keyDown(screen.getByLabelText('一'), { key: 'Tab', shiftKey: true });
+      expect(summary).toHaveFocus();
+      (summary.parentElement as HTMLDetailsElement).open = true;
+      summary.focus();
+      expect(fireEvent.keyDown(summary, { key: 'Tab' })).toBe(true);
+    });
     it('畳んだ詳細の中と tabindex=-1 は数えない', () => {
       render(<Dialog title="t" footer={<button type="button" className="btn">最後</button>}>{body}<button type="button" tabIndex={-1}>後ろ</button></Dialog>);
       const last = screen.getByRole('button', { name: '最後' });

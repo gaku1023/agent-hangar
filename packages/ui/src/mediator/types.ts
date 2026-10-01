@@ -23,7 +23,8 @@ export type RuntimeEvent =
   | { type: 'waiting.changed'; ids: string[] }
   // 通知を出せるか、受け取るか。
   // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
-  | { type: 'notify.changed'; available: boolean; on: boolean }
+  // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
+  | { type: 'notify.changed'; available: boolean; on: boolean; blocked?: boolean }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
   | { type: 'window.focus' }
   // 目次から左のターミナルを跳ばした結果。
@@ -34,7 +35,9 @@ export type RuntimeEvent =
   | { type: 'retention.written'; days: number } | { type: 'retention.conflict'; days: number } | { type: 'retention.failed'; message: string }
   | { type: 'retention.previewFailed'; days: number; message: string }
   // 欄ごとの保存の結果。失敗はトーストにせず、その欄の下に理由を出す。
-  | { type: 'settings.saved'; field: string } | { type: 'settings.failed'; field: string; message: string };
+  | { type: 'settings.saved'; field: string } | { type: 'settings.failed'; field: string; message: string }
+  // クリップボードに写せた。写せなかったときはランタイムがトーストで知らせ、これは届かない。
+  | { type: 'clipboard.copied'; text: string };
 
 export type Input =
   | { kind: 'intent'; intent: Intent }
@@ -150,8 +153,12 @@ export type SessionViewState = {
   jump: JumpState | null;
 };
 export type Toast = { id: string; level: 'info' | 'error'; message: string };
-/** available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。 */
-export type NotifyState = { available: boolean; on: boolean };
+/**
+ * available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。
+ * blocked はデスクトップのシステム設定で切られていること。
+ * 受け取るにしても OS が捨てるので on にせず、設定に許可の仕方を出す。
+ */
+export type NotifyState = { available: boolean; on: boolean; blocked: boolean };
 /**
  * 欄ごとの保存の知らせ。
  * saved の n は同じ欄を保存するたびに進み、画面は変わるたびに「✓ 保存しました」を出し直す。
@@ -206,6 +213,11 @@ export type State = {
   /** 新しいセッションのダイアログの書きかけ。閉じても残し、次に開いたときに戻す。端末ごとに localStorage に残す。 */
   newSessionDraft: NewSessionDraft | null;
   /**
+   * 新しいセッションのダイアログから起動を送り、まだ終わっていないか。
+   * 送った後にダイアログを閉じても起動は続くので、終わったときに下書きを消す手がかりにする。
+   */
+  newSessionSent: boolean;
+  /**
    * 新しいセッションの詳細の、プロジェクトごとの前回値。鍵はプロジェクトの id で、スクラッチは ':scratch' である。
    * 次にそのプロジェクトでダイアログを開いたときの初期値にする。端末ごとに localStorage に残す。
    */
@@ -218,6 +230,12 @@ export type State = {
   pending: number;
   /** 欄ごとの保存の知らせ。欄の名前（設定の項目名）で引く。 */
   settingsSave: Record<string, SaveMark>;
+  /**
+   * 最後にクリップボードへ写せた文。
+   * n は写せるたびに進み、コピーのボタンは押した後に進んだのを見てから「コピーしました」を出す。
+   * 写せなかったときは進まない。
+   */
+  copied: { text: string; n: number } | null;
 };
 export type Step = { state: State; effects: Effect[] };
 export const NOT_YET = 'この操作は次のフェーズで実装します';

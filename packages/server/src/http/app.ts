@@ -6,7 +6,7 @@ import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } fro
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
-import { checkToolPath, expandHome } from '../config/readiness.ts';
+import { checkToolPath, expandHome, isCommandName } from '../config/readiness.ts';
 import { RetentionConflictError, RetentionUnwritableError } from '../config/retention.ts';
 import { statuslineStatus } from '../config/statusline.ts';
 import type { Db } from '../db/open.ts';
@@ -468,11 +468,17 @@ export function createApp(deps: AppDeps): Hono {
       if (typeof v !== 'string' || v.trim() === '') { patch[key] = null; continue; }
       // 保存する前に、あることと実行できることを確かめる。
       // 動かないパスを保存すると、起動や要約が後になって、別の場所で失敗する。
-      const t = checkToolPath(v);
-      if (t.problem === 'missing') return c.json({ error: `「${SETTING_LABEL[key]}」に ${t.path} が見つかりません` }, 400);
+      // 名前だけ（tmux など）は PATH から探して確かめ、打たれたまま保存する。起動のときも子プロセスが PATH から探すからである。
+      // ./x や bin/x のような相対パスは、サーバの作業ディレクトリで読むとどこを指すかが分からないので弾く。
+      const raw = v.trim();
+      const name = isCommandName(raw);
+      if (!name && !path.isAbsolute(expandHome(raw))) return c.json({ error: `「${SETTING_LABEL[key]}」は / か ~ で始まるパスか、tmux のようなコマンドの名前にしてください` }, 400);
+      const t = checkToolPath(raw);
+      if (t.problem === 'missing') return c.json({ error: name ? `「${SETTING_LABEL[key]}」の ${raw} が PATH に見つかりません` : `「${SETTING_LABEL[key]}」に ${t.path} が見つかりません` }, 400);
       if (t.problem === 'notFile') return c.json({ error: `「${SETTING_LABEL[key]}」の ${t.path} はファイルではありません` }, 400);
       if (t.problem === 'notExecutable') return c.json({ error: `「${SETTING_LABEL[key]}」の ${t.path} には実行権がありません` }, 400);
-      patch[key] = t.path;
+      // パスは ~ を直した値で保存する（起動するときに ~ は直されない）。名前は打たれたまま残す。
+      patch[key] = name ? raw : t.path;
     }
     if ('terminalApp' in body) {
       const v = body.terminalApp;

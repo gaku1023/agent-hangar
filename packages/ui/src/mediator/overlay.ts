@@ -1,4 +1,16 @@
-import type { Input, State, Step } from './types.ts';
+import type { Input, Overlay, State, Step } from './types.ts';
+
+/**
+ * 黙って別のものに差し替えてよいオーバーレイか。
+ * 何も出ていないとき、パレット、読むだけのダイアログ（キーの一覧、昇格の完了、未実装の知らせ）である。
+ * 確認、未解決のプロジェクト、入力のあるダイアログ（新しいセッション、昇格、保持期間、設定の取り込み）は、決めるか閉じるまで差し替えない。
+ * 確認の最初のフォーカスは「やめる」なので、修飾の無い / や ? も Root に届く。
+ * 差し替えると、確認の後ろに控えた未解決のダイアログもキューに戻らず消えるからである。
+ * Root のキーだけでなく、どの経路から来た開く操作もここで止める。
+ */
+export function overlayReplaceable(o: Overlay): boolean {
+  return o.kind === 'none' || o.kind === 'palette' || o.kind === 'shortcuts' || o.kind === 'promoted' || o.kind === 'notYet';
+}
 
 export function popQueue(state: State): State {
   const [next, ...rest] = state.unresolvedQueue;
@@ -59,8 +71,8 @@ export function overlayStep(state: State, input: Input): Step | null {
       return { state: popQueue(next), effects: [{ kind: 'api.resolveProject', projectId: i.id, action: i.action }] };
     }
     case 'overlay.close': return { state: deferResolve(state), effects: [] };
-    case 'palette.open': return { state: { ...state, overlay: { kind: 'palette' } }, effects: [] };
-    case 'shortcuts.open': return { state: { ...state, overlay: { kind: 'shortcuts' } }, effects: [] };
+    case 'palette.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'palette' } }, effects: [] } : { state, effects: [] };
+    case 'shortcuts.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'shortcuts' } }, effects: [] } : { state, effects: [] };
     case 'palette.close': return { state: { ...state, overlay: { kind: 'none' } }, effects: [] };
     default: return null;
   }

@@ -1,4 +1,5 @@
 import type { SearchParamsDto } from '@agent-hangar/shared';
+import { overlayReplaceable } from './overlay.ts';
 import { agentTabStep, jumpStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
 
@@ -42,11 +43,11 @@ export function searchParams(state: State): SearchQuery {
 
 /**
  * 画面を移るときに消えてよいオーバーレイを閉じる。
- * 昇格の完了ダイアログは読んで終わりなので、画面から離れたら残さない。
- * 未解決プロジェクトのダイアログはキューを持ち、決めるまで閉じない種類なのでここでは触らない。
+ * パレットと、読むだけのダイアログ（キーの一覧、昇格の完了）は、画面から離れたら残さない。
+ * 確認、未解決のプロジェクト、入力のあるダイアログは、決めるまで閉じない種類なのでここでは触らない。
  */
 function closeTransient(state: State): Overlay {
-  return state.overlay.kind === 'promoted' ? { kind: 'none' } : state.overlay;
+  return overlayReplaceable(state.overlay) ? { kind: 'none' } : state.overlay;
 }
 
 /** 入力待ちが無いときの知らせ。 */
@@ -104,6 +105,13 @@ export function screenStep(state: State, input: Input): Step | null {
     if (route.name === 'session' && state.focusOnOpen === route.id) effects.push({ kind: 'focus', target: 'terminal' });
     if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id });
     if (route.name === 'settings') effects.push({ kind: 'api.loadSettingsExtras' });
+    // 設定の画面を離れたら、欄の下の理由（保存の失敗）を消す。
+    // 欄の値は戻ってくると保存済みの値に戻るので、理由だけが残ると、いまの値が断られたように読める。
+    // 保存済みの印は番号を続けたいので残す。
+    if (state.screen.name === 'settings' && route.name !== 'settings') {
+      const kept = Object.fromEntries(Object.entries(next.settingsSave).filter(([, m]) => m.kind !== 'error'));
+      if (Object.keys(kept).length !== Object.keys(next.settingsSave).length) next = { ...next, settingsSave: kept };
+    }
     if (route.name === 'sessions') {
       const text = route.q ?? '';
       next = { ...next, search: { ...state.search, text } };
@@ -120,6 +128,10 @@ export function screenStep(state: State, input: Input): Step | null {
     case 'nav.forward': return { state, effects: [{ kind: 'history.go', delta: 1 }] };
     case 'project.open': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'project', id: i.id } }] };
     case 'session.open': {
+      // 入力待ちのカードと通知は、ダイアログの上や窓の外から届く。
+      // 確認や入力のあるダイアログを開いたまま裏の画面だけを移さない（⌘I と同じ考え方）。
+      // 通知のときは、殻が窓を前に出すので、ダイアログが前に出るだけになる。
+      if (!overlayReplaceable(state.overlay)) return { state, effects: [] };
       // 検索の結果から開いたときだけ跳び先を持つ。ほかの開き方では、前の跳び先を忘れる。
       state = jumpStep(state, i.id, i.seq !== undefined ? { seq: i.seq, query: i.q ?? '' } : null);
       const overlay = closeTransient(state);

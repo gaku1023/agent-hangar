@@ -190,7 +190,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   nodePath: '',
   claudePath: null,
   retention: null,
-  notify: { available: true, on: false },
+  notify: { available: true, on: false, blocked: false },
   verify: { workspace: null, tmux: null, claude: null, code: null, node: null },
   mcpRegistered: null,
   save: {},
@@ -212,12 +212,17 @@ describe('SettingsScreen の通知', () => {
     fireEvent.click(screen.getByRole('switch', { name: '通知を受け取る' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'notify.set', on: true });
     unmount();
-    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ notify: { available: true, on: true } })} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ notify: { available: true, on: true, blocked: false } })} /></IntentRoot>);
     fireEvent.click(screen.getByRole('switch', { name: '通知を受け取る' }));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'notify.set', on: false });
   });
+  it('OS で通知が切られていれば、システム設定で許可するよう添える。スイッチは入れ直せる', () => {
+    render(<IntentRoot onIntent={vi.fn()}><SettingsScreen {...settingsProps({ notify: { available: true, on: false, blocked: true } })} /></IntentRoot>);
+    expect(screen.getByRole('switch', { name: '通知を受け取る' })).not.toBeDisabled();
+    expect(screen.getByText(/システム設定の「通知」で Hangar を許可してください/)).toBeInTheDocument();
+  });
   it('通知を出せない環境では、スイッチを押せなくして理由を添える', () => {
-    render(<IntentRoot onIntent={vi.fn()}><SettingsScreen {...settingsProps({ notify: { available: false, on: false } })} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><SettingsScreen {...settingsProps({ notify: { available: false, on: false, blocked: false } })} /></IntentRoot>);
     expect(screen.getByRole('switch', { name: '通知を受け取る' })).toBeDisabled();
     expect(screen.getByText(/通知を出せません/)).toBeInTheDocument();
   });
