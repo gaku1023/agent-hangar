@@ -250,7 +250,7 @@ describe('終わった画面の右欄（E1）', () => {
   });
 });
 
-const host: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => 'connected', fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false }), reconnect: vi.fn() };
+const host: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => 'connected', fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false }), reconnect: vi.fn() };
 const running: SessionProps = { ...base, live: 'busy', liveLabel: '作業中 12 分', run: { id: 'r1', kind: 'start', alive: true, started: '1 分前' }, selectedTab: 'r1', canResume: false, canFork: false,
   tabs: [{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'シェル 1', kind: 'shell', selected: false, closable: true }] };
 const withHost = (ui: ReactElement, onIntent = vi.fn(), h: TerminalHost = host) => { render(<IntentRoot onIntent={onIntent}><TerminalHostContext.Provider value={h}>{ui}</TerminalHostContext.Provider></IntentRoot>); return onIntent; };
@@ -306,7 +306,7 @@ describe('SessionScreen（実行中）', () => {
 
 describe('ターミナルの知らせ（F1）', () => {
   it('分割中は枠ごとの接続の様子を出す。切れた枠だけに再接続のカードを出す', () => {
-    const h: TerminalHost = { ...host, reconnect: vi.fn(), status: (id) => (id === 't1' ? 'closed' : 'connected'), link: (id) => (id === 't1' ? { retryAt: Date.now() + 5000, dropped: true } : { retryAt: null, dropped: false }) };
+    const h: TerminalHost = { ...host, reconnect: vi.fn(), status: (id) => (id === 't1' ? 'closed' : 'connected'), link: (id) => (id === 't1' ? { retryAt: Date.now() + 5000, dropped: true, gaveUp: false } : { retryAt: null, dropped: false, gaveUp: false }) };
     withHost(<SS {...running} canSplit split={{ left: 'r1', right: 't1' }} />, vi.fn(), h);
     expect(within(screen.getByTestId('term-r1')).queryByText('ターミナルとの接続が切れました')).toBeNull();
     const right = within(screen.getByTestId('term-t1'));

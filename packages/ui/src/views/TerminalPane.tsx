@@ -45,11 +45,12 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   }, [host, props.tabId]);
 
   const status = host?.status(props.tabId) ?? null;
-  const link = host?.link(props.tabId) ?? { retryAt: null, dropped: false };
+  const link = host?.link(props.tabId) ?? { retryAt: null, dropped: false, gaveUp: false };
   const secs = useSecondsUntil(link.retryAt);
   // 切断（F1）。
   // 思いがけず切れたときと、サーバが断ったときだけカードを出す。
   // 最初のつなぎ中と、自分で切った後は隅の小さな文で足りる。
+  // 何度試してもつながらなかった（gaveUp）ときは、run が終わっているかもしれないので、動き続けているとは言わない。
   const failed = status === 'error';
   const dropped = !failed && link.dropped && status !== 'connected';
   const off = failed || dropped;
@@ -80,7 +81,7 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
           <div className="term-off-card">
             <span className="term-off-ic"><Icon name="disconnected" /></span>
             <b role="alert">{failed ? 'ターミナルに接続できませんでした' : 'ターミナルとの接続が切れました'}</b>
-            <p>{failed ? 'もう一度つなぐか、セッションを開き直してください。' : `${who}動き続けています。${secs !== null ? `${secs} 秒後にもう一度つなぎます。` : 'つなぎ直しています。'}`}</p>
+            <p>{failed ? 'もう一度つなぐか、セッションを開き直してください。' : link.gaveUp ? 'つなげませんでした。' : `${who}動き続けています。${secs !== null ? `${secs} 秒後にもう一度つなぎます。` : 'つなぎ直しています。'}`}</p>
             <button type="button" className="btn btn-primary" onClick={() => host?.reconnect(props.tabId)}><Icon name="reconnect" />再接続</button>
           </div>
         </div>

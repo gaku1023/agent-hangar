@@ -14,7 +14,7 @@ const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1
 
 /** ターミナルの偽物。React の外で持つ接続の代わりに、呼ばれた tabId を並べる。 */
 function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: string[] } {
-  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, zoom: () => {}, fontSize: () => 13, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false }), reconnect: () => {} };
+  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, zoom: () => {}, fontSize: () => 13, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false }), reconnect: () => {} };
   return h;
 }
 
@@ -449,6 +449,24 @@ describe('起動とターミナル', () => {
     setHash('#/');
     expect(terminals.connected).toEqual(['r-s1', 'r-s2', 'r-s3']);
     expect(terminals.disconnected).toEqual(['r-s1', 'r-s2', 'r-s3']);
+  });
+  it('取り直した bootstrap から消えた run は終わったものとし、そのタブの接続を切る', async () => {
+    // サーバの再起動中に Claude が終わると、run.ended は届かない。
+    const shell = { ...launched.tabs[0]!, id: 't1', kind: 'shell' as const, title: 'zsh', tmuxName: 'hangar-r1-t1', createdAt: 2 };
+    const other = { ...launched.run, id: 'r2', sessionId: 's2', tmuxName: 'hangar-r2' };
+    const { rt, terminals, wsHandlers, setHash } = harness({ bootstrap: vi.fn(async () => ({ ...boot, runs: [other], tabs: [{ ...launched.tabs[0]!, id: 'r2', runId: 'r2', sessionId: 's2' }] })) });
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: launched.run, tabs: [...launched.tabs, shell] } });
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: other, tabs: [] } });
+    setHash('#/session/s1');
+    terminals.disconnected.length = 0;
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(terminals.disconnected).toEqual(expect.arrayContaining(['r1', 't1']));
+    expect(terminals.disconnected).not.toContain('r2');
+    expect(rt.getStore().runs.r1?.endedAt).not.toBeNull();
+    expect(rt.getStore().tabs.t1?.closedAt).not.toBeNull();
+    expect(rt.getStore().runs.r2?.endedAt).toBeNull();
   });
   it('bootstrap を取り直すたびに、参照されなくなった run を落とす', async () => {
     const ended = { ...launched.run, endedAt: 2, endReason: 'exited' as const };

@@ -10,8 +10,9 @@ export type TerminalLike = { cols: number; rows: number; element: HTMLElement | 
  * タブの接続の様子。
  * dropped は、つながっていた（またはつなごうとしていた）接続が思いがけず切れ、まだつなぎ直せていないこと。
  * retryAt は次に自動でつなぎ直す時刻で、待っていないときは null。
+ * gaveUp は、続けて RETRY.attempts 回つながらず、自動のつなぎ直しをやめたこと。
  */
-export type TerminalLink = { retryAt: number | null; dropped: boolean };
+export type TerminalLink = { retryAt: number | null; dropped: boolean; gaveUp: boolean };
 export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, text: string): void; disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void;
   /**
    * 切れたタブのつなぎ直しの様子。
@@ -42,10 +43,12 @@ function clampFontSize(v: unknown): number {
 }
 
 /**
- * つなぎ直しの間隔。
+ * つなぎ直しの間隔と回数。
  * 1 秒から倍ずつ延ばし、30 秒で頭打ちにする。
+ * 続けて attempts 回つながらなければ、自動ではやめる。
+ * upgrade を HTTP で断られた（404 や 401）タブは、ブラウザでは 1006 で閉じるだけで、待ってもつながらないからである。
  */
-export const RETRY = { first: 1000, max: 30_000 } as const;
+export const RETRY = { first: 1000, max: 30_000, attempts: 5 } as const;
 
 /**
  * want は利用者の側がつないでおきたいタブか（connect の後、disconnect の前）。
@@ -53,7 +56,7 @@ export const RETRY = { first: 1000, max: 30_000 } as const;
  * fails は続けて失敗した回数で、次の間隔を決める。
  * timer と retryAt は待っている自動の試し。
  */
-type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null };
+type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null };
 
 /**
  * タブごとの xterm と WebSocket を React の外で持つ。
@@ -61,7 +64,13 @@ type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus;
  */
 export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; createTerminal: () => TerminalLike; wsFactory?: (url: string) => WebSocket;
   /** 文字の大きさを覚えておく先。読めなくても書けなくても、大きさはその場では変わる。 */
-  fontSize?: { load(): unknown; save(px: number): void } }): TerminalHost {
+  fontSize?: { load(): unknown; save(px: number): void };
+  /**
+   * そのタブの run とタブが、ストアの上でまだ生きているか。
+   * 自動でつなぎ直す前に確かめ、生きていなければつなぎ直さない。
+   * 渡さなければ生きているとみなす。
+   */
+  alive?: (tabId: string) => boolean }): TerminalHost {
   const entries = new Map<string, Entry>();
   let fontSize: number = FONT_SIZE.default;
   try { fontSize = clampFontSize(deps.fontSize?.load() ?? FONT_SIZE.default); } catch { /* 読めなければ既定のまま */ }
@@ -77,7 +86,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     if (!e) {
       const term = deps.createTerminal();
       term.setFontSize(fontSize);
-      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, timer: null, retryAt: null };
+      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, timer: null, retryAt: null };
       entries.set(tabId, e);
     }
     return e;
@@ -93,7 +102,14 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     const wait = Math.min(RETRY.first * 2 ** e.fails, RETRY.max);
     e.fails++;
     e.retryAt = Date.now() + wait;
-    e.timer = setTimeout(() => { e.timer = null; e.retryAt = null; if (e.want) open(tabId, e); }, wait);
+    e.timer = setTimeout(() => {
+      e.timer = null; e.retryAt = null;
+      if (!e.want) return;
+      // 待つ間に run が終わったりタブが閉じたりしていたら、つなぎ直さない。
+      // サーバの再起動中に終わった run には run.ended が届かないので、bootstrap の後のストアで確かめる。
+      if (deps.alive && !deps.alive(tabId)) { e.want = false; e.fails = 0; e.dropped = false; notify(); return; }
+      open(tabId, e);
+    }, wait);
   };
   const open = (tabId: string, e: Entry) => {
     stopRetry(e);
@@ -102,7 +118,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     e.ws = ws;
     setStatus(e, 'connecting');
     notify();
-    ws.onopen = () => { e.fails = 0; e.dropped = false; setStatus(e, 'connected'); send(e, { t: 'resize', cols: e.term.cols, rows: e.term.rows }); };
+    ws.onopen = () => { e.fails = 0; e.dropped = false; e.gaveUp = false; setStatus(e, 'connected'); send(e, { t: 'resize', cols: e.term.cols, rows: e.term.rows }); };
     ws.onmessage = (m) => {
       let parsed: unknown;
       try { parsed = JSON.parse(String(m.data)); } catch { return; }
@@ -121,7 +137,12 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       if (e.status === 'error') { notify(); return; }
       setStatus(e, 'closed');
       const exited = ev?.code === 1000 && ev.reason === 'exited';
-      if (e.want && !exited) { e.dropped = true; scheduleRetry(tabId, e); }
+      if (e.want && !exited) {
+        e.dropped = true;
+        // 続けて何度もつながらなければ、自動ではやめて「再接続」に任せる。
+        if (e.fails >= RETRY.attempts) e.gaveUp = true;
+        else scheduleRetry(tabId, e);
+      }
       notify();
     };
     ws.onerror = () => { /* onclose が続く */ };
@@ -135,23 +156,25 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     connect(tabId) {
       const e = ensure(tabId);
       e.want = true;
+      e.gaveUp = false;
       open(tabId, e);
     },
     reconnect(tabId) {
       const e = ensure(tabId);
       e.want = true;
       e.fails = 0;
+      e.gaveUp = false;
       if (e.status === 'error') e.status = 'closed';
       open(tabId, e);
     },
     link(tabId) {
       const e = entries.get(tabId);
-      return e ? { retryAt: e.retryAt, dropped: e.dropped } : { retryAt: null, dropped: false };
+      return e ? { retryAt: e.retryAt, dropped: e.dropped, gaveUp: e.gaveUp } : { retryAt: null, dropped: false, gaveUp: false };
     },
     disconnect(tabId) {
       const e = entries.get(tabId);
       if (!e) return;
-      e.want = false; e.fails = 0; e.dropped = false;
+      e.want = false; e.fails = 0; e.dropped = false; e.gaveUp = false;
       stopRetry(e);
       const ws = e.ws; e.ws = null;
       ws?.close();

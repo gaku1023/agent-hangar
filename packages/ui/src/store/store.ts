@@ -261,6 +261,47 @@ export function currentRunOf(store: Store, sessionId: string): RunDto | null {
 /** 閉じていないタブ。
  * agent を先頭に、あとは createdAt の順。
  */
+/**
+ * タブがストアの上でまだ生きているか。
+ * Claude のタブは run が終わるまで、シェルのタブは閉じるまで生きている（シェルのタブは Claude が終わっても残る）。
+ * 知らないタブは生きていない。
+ * 端末の自動のつなぎ直しが、終わったタブを叩き続けないために使う。
+ */
+export function tabAlive(store: Store, tabId: string): boolean {
+  const tab = store.tabs[tabId];
+  const run = tab ? store.runs[tab.runId] : undefined;
+  if (!tab || !run || tab.closedAt !== null) return false;
+  return tab.kind === 'shell' || run.endedAt === null;
+}
+
+/**
+ * 取り直した bootstrap を混ぜる前に、前は生きていたのに今は生きていない run とシェルのタブを拾う。
+ * サーバの再起動中に Claude が終わると、run.ended も tab.upsert も届かないまま、bootstrap の一覧から消える。
+ * applyBootstrap は前の値に混ぜるので、拾わないと生きたままの写しが残る。
+ * 消えた run は at の時刻に lost で終わったものとし、bootstrap に終わった姿があればそれを使う。
+ * 消えたシェルのタブは at の時刻に閉じたものとする。
+ */
+export function vanishedOnBootstrap(store: Store, b: BootstrapDto, at: number): { runs: RunDto[]; tabs: TabDto[] } {
+  const runs = new Map(b.runs.map((r) => [r.id, r]));
+  const tabs = new Map(b.tabs.map((t) => [t.id, t]));
+  const mine = (runId: string) => store.runs[runId]?.deviceId === b.device.id;
+  const goneRuns: RunDto[] = [];
+  for (const r of Object.values(store.runs)) {
+    if (r.endedAt !== null || r.deviceId !== b.device.id) continue;
+    const now = runs.get(r.id);
+    if (!now) goneRuns.push({ ...r, endedAt: at, endReason: 'lost' });
+    else if (now.endedAt !== null) goneRuns.push(now);
+  }
+  const goneTabs: TabDto[] = [];
+  for (const t of Object.values(store.tabs)) {
+    if (t.kind !== 'shell' || t.closedAt !== null || !mine(t.runId)) continue;
+    const now = tabs.get(t.id);
+    if (!now) goneTabs.push({ ...t, closedAt: at });
+    else if (now.closedAt !== null) goneTabs.push(now);
+  }
+  return { runs: goneRuns, tabs: goneTabs };
+}
+
 export function tabsOf(store: Store, runId: string): TabDto[] {
   return Object.values(store.tabs).filter((t) => t.runId === runId && t.closedAt === null).sort((a, b) => (a.kind === b.kind ? a.createdAt - b.createdAt : a.kind === 'agent' ? -1 : 1));
 }
