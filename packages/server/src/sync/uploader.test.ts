@@ -13,7 +13,7 @@ import { CloudError } from './client.ts';
 import { decryptBuffer, deriveFileKey, sha256Hex } from './crypto.ts';
 import { SyncStateStore } from './state.ts';
 import { TRANSCRIPTS_FROM } from './transcriptsFrom.ts';
-import { TranscriptUploader } from './uploader.ts';
+import { REUPLOAD_GAP_MS, TranscriptUploader } from './uploader.ts';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
 const key = deriveFileKey('join-secret');
@@ -131,6 +131,60 @@ describe('TranscriptUploader', () => {
     fs.appendFileSync(mainFile(), '{"a":2}\n');
     await up.flushSession(UUID);
     expect(await plain(MAIN_KEY)).toBe('{"a":1}\n{"a":2}\n');
+    up.stop();
+  });
+
+  it('一度上げた本文は、伸び続けても上げてから 10 分たつまで上げ直さない', async () => {
+    expect(REUPLOAD_GAP_MS).toBe(10 * 60_000);
+    const up = make();
+    const f = { path: mainFile(), sessionId: UUID, agentId: null };
+    expect(await up.uploadFile(f)).toBe('uploaded');
+    const syncedAt = timers.now;
+    // 書き込みの続くセッションは 30 秒の窓のたびに知らせてくる。
+    for (let i = 2; i <= 19; i++) {
+      fs.appendFileSync(mainFile(), `{"a":${i}}\n`);
+      up.noteChanged(f);
+      await timers.advance(30_000);
+      await up.idle();
+    }
+    expect(timers.now - syncedAt).toBe(9 * 60_000);
+    expect(puts()).toBe(1);
+    // 知らせが止んでも、間隔が明けたら自分で上げる。最後の中身まで載る。
+    await timers.advance(REUPLOAD_GAP_MS - (timers.now - syncedAt));
+    await up.idle();
+    expect(puts()).toBe(2);
+    expect((await plain(MAIN_KEY)).trim().split('\n')).toHaveLength(19);
+    up.stop();
+  });
+
+  it('まだ上げていない本文は、間隔を待たずに 30 秒の窓で上げる', async () => {
+    const other = path.join(projDir(), '22222222-2222-4222-8222-222222222222.jsonl');
+    write(other, '{"b":1}\n');
+    const up = make();
+    expect(await up.uploadFile({ path: mainFile(), sessionId: UUID, agentId: null })).toBe('uploaded');
+    up.noteChanged({ path: other, sessionId: '22222222-2222-4222-8222-222222222222', agentId: null });
+    await timers.advance(30_000);
+    await up.idle();
+    expect(puts()).toBe(2);
+    up.stop();
+  });
+
+  it('flushSession（run の終わり）は間隔を待たずに上げる', async () => {
+    const up = make();
+    const f = { path: mainFile(), sessionId: UUID, agentId: null };
+    expect(await up.uploadFile(f)).toBe('uploaded');
+    fs.appendFileSync(mainFile(), '{"a":2}\n');
+    up.noteChanged(f);
+    await timers.advance(30_000);
+    await up.idle();
+    expect(puts()).toBe(1);
+    await up.flushSession(UUID);
+    expect(puts()).toBe(2);
+    expect(await plain(MAIN_KEY)).toBe('{"a":1}\n{"a":2}\n');
+    // 待ち行列からも下りているので、間隔が明けても同じ中身を送り直さない。
+    await timers.advance(REUPLOAD_GAP_MS);
+    await up.idle();
+    expect(puts()).toBe(2);
     up.stop();
   });
 
@@ -381,6 +435,10 @@ describe('TranscriptUploader の取り残しの走査', () => {
     fs.appendFileSync(mainFile(), '{"a":2}\n');
     reindexed(mainFile());
     expect(up.sweep()).toBe(1);
+    await up.idle();
+    // 積みはするが、上げ直しの間隔が明けるまでは送らない。
+    expect(await plain(MAIN_KEY)).toBe('{"a":1}\n');
+    await timers.advance(REUPLOAD_GAP_MS);
     await up.idle();
     expect(await plain(MAIN_KEY)).toBe('{"a":1}\n{"a":2}\n');
     up.stop();
