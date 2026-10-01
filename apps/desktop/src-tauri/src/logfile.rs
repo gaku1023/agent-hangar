@@ -61,7 +61,10 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "");
         std::fs::write(&file, "1 [desktop] setup\n").unwrap();
         ensure_log(&file).unwrap();
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "1 [desktop] setup\n");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "1 [desktop] setup\n"
+        );
     }
 
     #[test]

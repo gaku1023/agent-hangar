@@ -687,7 +687,9 @@ fn spawn_boot(app: AppHandle) -> bool {
     }
     std::thread::spawn(move || {
         boot(app.clone());
-        app.state::<AppState>().booting.store(false, Ordering::SeqCst);
+        app.state::<AppState>()
+            .booting
+            .store(false, Ordering::SeqCst);
     });
     true
 }
