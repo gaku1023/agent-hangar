@@ -5,6 +5,7 @@ import { NOT_YET } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
+import { liveStep } from './live.ts';
 
 function run(inputs: Input[], start: State = initialState()) {
   const effects: unknown[] = [];
@@ -536,6 +537,13 @@ describe('タブと接続', () => {
 
 describe('入力待ちの知らせ', () => {
   const waiting = (...ids: string[]) => runtime({ type: 'waiting.changed', ids });
+  // transition はどの領域の後にも settleWaiting で開いているセッションのカードを下げるので、領域そのものも見る。
+  it('live 領域は、開いているセッションをカードにしない。通知の効果は出す', () => {
+    const at = { ...initialState(), screen: { name: 'session' as const, id: 's1' } };
+    const r = liveStep(at, waiting('s1', 's2'))!;
+    expect(r.state.waitingToasts).toEqual(['s2']);
+    expect(r.effects).toContainEqual({ kind: 'notify.waiting', sessionId: 's1' });
+  });
   it('新たに入力待ちになったセッションをカードに積み、通知とバッジの効果を出す', () => {
     const a = run([waiting('s1')]);
     expect(a.state.waitingToasts).toEqual(['s1']);

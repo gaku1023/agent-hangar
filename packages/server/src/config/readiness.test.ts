@@ -100,6 +100,36 @@ describe('ToolVersions', () => {
     expect(await v.get(p, ['--version'])).toBe('1.0');
     expect(fs.readFileSync(log, 'utf8').trim().split('\n')).toHaveLength(1);
   });
+  // 版の覚えの鍵は、パスと更新時刻と大きさである。入れ替えたツールは、どちらかが変われば読み直す。
+  it('大きさが変われば、更新時刻が同じでも読み直す', async () => {
+    const p = fakeTool('grow', '1.0');
+    const when = new Date('2026-01-01T00:00:00Z');
+    fs.utimesSync(p, when, when);
+    const v = new ToolVersions(3000);
+    expect(await v.get(p, ['--version'])).toBe('1.0');
+    fs.writeFileSync(p, "#!/bin/sh\necho '1.10'\n", { mode: 0o755 });
+    fs.utimesSync(p, when, when);
+    expect(await v.get(p, ['--version'])).toBe('1.10');
+  });
+  it('更新時刻が変われば、大きさが同じでも読み直す', async () => {
+    const p = fakeTool('touch', '1.1');
+    fs.utimesSync(p, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'));
+    const v = new ToolVersions(3000);
+    expect(await v.get(p, ['--version'])).toBe('1.1');
+    fs.writeFileSync(p, "#!/bin/sh\necho '1.2'\n", { mode: 0o755 });
+    fs.utimesSync(p, new Date('2026-02-01T00:00:00Z'), new Date('2026-02-01T00:00:00Z'));
+    expect(await v.get(p, ['--version'])).toBe('1.2');
+  });
+  // 読めなかった版を覚えると、一度の時間切れや起動の失敗で、そのファイルの版がずっと出なくなる。
+  it('読めなかった版は覚えず、次に読み直す', async () => {
+    const flag = path.join(tmp, 'ready');
+    const p = path.join(tmp, 'late');
+    fs.writeFileSync(p, `#!/bin/sh\nif [ -f '${flag}' ]; then echo 2.0; fi\n`, { mode: 0o755 });
+    const v = new ToolVersions(3000);
+    expect(await v.get(p, ['--version'])).toBeNull();
+    fs.writeFileSync(flag, '');
+    expect(await v.get(p, ['--version'])).toBe('2.0');
+  });
 });
 
 describe('readMcpRegistration', () => {

@@ -151,6 +151,16 @@ describe('safeHref', () => {
     expect(safeHref('//evil.example')).toBeNull();
     expect(safeHref('file:///etc/passwd')).toBeNull();
   });
+  // 先頭から末尾までが http(s) の URL であることを見る。途中に http:// を含むだけのものや、空白を挟んだものは通さない。
+  it('先頭と末尾を固定して見る', () => {
+    expect(safeHref('javascript:x//http://a')).toBeNull();
+    expect(safeHref('javascript:alert(1)//https://a.example')).toBeNull();
+    expect(safeHref(' https://a.example')).toBeNull();
+    expect(safeHref('https://a.example x')).toBeNull();
+    expect(safeHref('https://a.example\njavascript:x')).toBeNull();
+    expect(safeHref('HTTPS://A.EXAMPLE/X')).toBe('HTTPS://A.EXAMPLE/X');
+    expect(safeHref('Https://a.example')).toBe('Https://a.example');
+  });
 });
 
 describe('mdLeaves', () => {

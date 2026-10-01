@@ -407,6 +407,20 @@ describe('routes', () => {
       vi.unstubAllEnvs();
     }
   });
+  // 起動するときに ~ は直されないので、パスは ~ をホームに直した値で保存する。
+  it('パスの欄の ~ はホームに直して保存する', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const tool = exe('hometool');
+    vi.stubEnv('HOME', ws);
+    try {
+      const r = await patch({ codePath: '~/bin/hometool' });
+      expect(r.status).toBe(200);
+      expect((await r.json()).codePath).toBe(tool);
+      expect((await json(await get('/api/settings'))).body.codePath).toBe(tool);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('設定の誤りは、内部のキー名ではなく画面の欄の見出しと画面名「設定」で言う', async () => {
     const error = async (body: unknown) => {
       const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
