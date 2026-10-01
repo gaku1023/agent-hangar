@@ -120,6 +120,9 @@ export class TranscriptUploader {
   private readonly retriedSinceBoot = new Set<string>();
   private sweepStmt: ReturnType<Db['prepare']> | null = null;
   private timer: NodeJS.Timeout | null = null;
+  /** 張ってあるタイマーの期限。 */
+  private timerAt = 0;
+  private syncedAtStmt: ReturnType<Db['prepare']> | null = null;
   private chain: Promise<unknown> = Promise.resolve();
   private stopped = false;
 
@@ -136,9 +139,19 @@ export class TranscriptUploader {
     this.arm(this.deps.debounceMs ?? DEBOUNCE_MS);
   }
 
-  /** 待ち行列を流すタイマーを張る。張ってあれば何もしない（窓をずらさない）。 */
+  /**
+   * 待ち行列を流すタイマーを張る。タイマーは 1 つで、いちばん早い期限に合わせる。
+   * 張ってある期限より遅ければ何もしない（窓をずらさない）。早ければ張り直す。
+   * 張り直さないと、上げ直しの待ち（最大 10 分）が張ったタイマーの下で、新しい本文の 30 秒の窓が埋もれる。
+   */
   private arm(ms: number): void {
-    if (this.timer || this.stopped) return;
+    if (this.stopped) return;
+    const at = this.now() + ms;
+    if (this.timer) {
+      if (this.timerAt <= at) return;
+      this.timers.clearTimeout(this.timer);
+    }
+    this.timerAt = at;
     this.timer = this.timers.setTimeout(() => { this.timer = null; this.startFlush(); }, ms);
     (this.timer as { unref?: () => void }).unref?.();
   }
@@ -150,8 +163,14 @@ export class TranscriptUploader {
   private reuploadWait(f: UploadTarget): number {
     const key = this.safeKey(f.sessionId, f.agentId);
     if (key === null) return 0;
-    const row = this.deps.db.prepare('select synced_at from file_sync where key = ?').get(key) as { synced_at: number } | undefined;
-    return row ? Math.max(0, row.synced_at + REUPLOAD_GAP_MS - this.now()) : 0;
+    this.syncedAtStmt ??= this.deps.db.prepare('select synced_at from file_sync where key = ?');
+    const row = this.syncedAtStmt.get(key) as { synced_at: number } | undefined;
+    if (!row) return 0;
+    // 上げた時刻が今より先なのは時計が戻ったときで、その時刻はもう当てにならない。
+    // 待たせると、見るたびに「まだ先」になって永久に上げ直せない。待たずに上げ、時刻を今で刻み直す。
+    const now = this.now();
+    if (row.synced_at > now) return 0;
+    return Math.max(0, row.synced_at + REUPLOAD_GAP_MS - now);
   }
 
   /** 上げる仕事は 1 本の鎖に並べ、同じファイルに対する putFile が重ならないようにする。 */

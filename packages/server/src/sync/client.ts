@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Readable, Writable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import {
@@ -72,19 +72,17 @@ export const MAX_PUT_BODY_BYTES = 100 * 1024 * 1024;
  */
 async function spool(body: Readable, file: string, max: number): Promise<number> {
   let total = 0;
-  const out = fs.createWriteStream(file, { mode: 0o600 });
+  // 書き込み先も pipeline に入れる。外に置くと、書けなかったときの error を誰も拾わず、プロセスごと落ちる。
   await pipeline(
     body,
-    new Writable({
-      write(chunk: Buffer, _enc, cb) {
+    new Transform({
+      transform(chunk: Buffer, _enc, cb) {
         total += chunk.length;
-        if (total > max) { cb(new CloudError(413, JSON.stringify({ error: 'too large' }))); return; }
-        if (out.write(chunk)) cb();
-        else out.once('drain', () => cb());
+        if (total > max) cb(new CloudError(413, JSON.stringify({ error: 'too large' })));
+        else cb(null, chunk);
       },
-      final(cb) { out.end(cb); },
-      destroy(e, cb) { out.destroy(); cb(e); },
     }),
+    fs.createWriteStream(file, { mode: 0o600 }),
   );
   return total;
 }
@@ -240,14 +238,26 @@ export class HttpCloudClient implements CloudClient {
       'content-type': 'application/octet-stream',
     };
     // 中身は暗号化済みなので、一時ファイルに置いても平文は残らない。通っても倒れても消す。
-    const dir = await fs.promises.mkdtemp(path.join(this.spoolDir, 'hangar-put-'));
+    let dir: string;
+    try {
+      dir = await fs.promises.mkdtemp(path.join(this.spoolDir, 'hangar-put-'));
+    } catch (e) {
+      body.destroy();
+      throw toCloudError(e);
+    }
     try {
       const file = path.join(dir, 'body');
+      // 書き出しにも転送と同じ締め切りを掛ける。
+      // 流れが止まったまま決着しないと、上げる仕事の鎖ごと後ろが永久に詰まる。
+      const d = new Deadline(this.transferTimeoutMs);
       let length: number;
       try {
-        length = await spool(body, file, this.maxBodyBytes);
+        length = await d.race(spool(body, file, this.maxBodyBytes));
       } catch (e) {
+        body.destroy();
         throw toCloudError(e);
+      } finally {
+        d.clear();
       }
       headers['content-length'] = String(length);
       // undici は content-length があればストリームの本文でもその長さで送る（chunked にしない）。

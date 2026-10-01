@@ -375,6 +375,29 @@ describe('HttpCloudClient', () => {
       expect(calls).toHaveLength(1);
     });
 
+    it('一時ファイルを置けなければ CloudError(0) にし、送らない', async () => {
+      const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
+      const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, spoolDir: path.join(spoolDir, 'missing') });
+      const e = await c.putFile(fileMeta, Readable.from([Buffer.from('abc')])).catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(CloudError);
+      expect(e).toMatchObject({ status: 0 });
+      expect(calls).toHaveLength(0);
+    });
+
+    it('本文の流れが止まったら、書き出しの途中でも転送の時間切れで切り、一時ファイルを残さない', async () => {
+      const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
+      const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, spoolDir, transferTimeoutMs: 30 });
+      const stalled = new Readable({ read() { /* 何も流さず、終わりもしない */ } });
+      stalled.push(Buffer.from('ab'));
+      const e = await c.putFile(fileMeta, stalled).catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(CloudError);
+      expect(e).toMatchObject({ status: 0 });
+      expect((e as CloudError).message).toContain('timeout');
+      expect(stalled.destroyed).toBe(true);
+      expect(calls).toHaveLength(0);
+      expect(fs.readdirSync(spoolDir)).toEqual([]);
+    });
+
     it('上限は Worker と同じ値である', () => {
       const src = fs.readFileSync(new URL('../../../cloud/src/files.ts', import.meta.url), 'utf8');
       const m = /export const MAX_BODY_BYTES = ([0-9*\s]+);/.exec(src);

@@ -169,6 +169,38 @@ describe('TranscriptUploader', () => {
     up.stop();
   });
 
+  it('上げ直しを待っている本文があっても、新しい本文は 30 秒の窓で上げる', async () => {
+    const otherUuid = '22222222-2222-4222-8222-222222222222';
+    const other = path.join(projDir(), `${otherUuid}.jsonl`);
+    const up = make();
+    const f = { path: mainFile(), sessionId: UUID, agentId: null };
+    expect(await up.uploadFile(f)).toBe('uploaded');
+    fs.appendFileSync(mainFile(), '{"a":2}\n');
+    up.noteChanged(f);
+    await timers.advance(30_000);
+    await up.idle(); // ここで上げ直しの待ち（残り 9 分半）のタイマーが張られる。
+    write(other, '{"b":1}\n');
+    up.noteChanged({ path: other, sessionId: otherUuid, agentId: null });
+    await timers.advance(30_000);
+    await up.idle();
+    expect([...cloud.files.keys()].sort()).toEqual([MAIN_KEY, `transcripts/dev-a/${otherUuid}.jsonl.gz`].sort());
+    expect(await plain(MAIN_KEY)).toBe('{"a":1}\n'); // 待っている方はまだ上げない。
+    up.stop();
+  });
+
+  it('上げた時刻が先の日付なら（時計が戻った）、待たずに上げ直す', async () => {
+    const up = make();
+    const f = { path: mainFile(), sessionId: UUID, agentId: null };
+    expect(await up.uploadFile(f)).toBe('uploaded');
+    db.prepare('update file_sync set synced_at = ? where key = ?').run(timers.now + 86_400_000, MAIN_KEY);
+    fs.appendFileSync(mainFile(), '{"a":2}\n');
+    up.noteChanged(f);
+    await timers.advance(30_000);
+    await up.idle();
+    expect(await plain(MAIN_KEY)).toBe('{"a":1}\n{"a":2}\n');
+    up.stop();
+  });
+
   it('flushSession（run の終わり）は間隔を待たずに上げる', async () => {
     const up = make();
     const f = { path: mainFile(), sessionId: UUID, agentId: null };
