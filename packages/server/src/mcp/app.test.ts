@@ -78,4 +78,9 @@ describe('createMcpApp', () => {
     expect((db.prepare('select memo from sessions where id = ?').get(alphaId) as { memo: string }).memo).toBe('from mcp');
     expect((await app.request('/s/nope', { method: 'POST', headers: H, body: '{}' })).status).toBe(404);
   });
+  it('propose_session_status の説明文は、聞かずに confirmed を立てないよう求める', async () => {
+    const list = await rpc('/', 'tools/list', {}, 6);
+    const tools = list.body.result!.tools as { name: string; description: string }[];
+    expect(tools.find((t) => t.name === 'propose_session_status')!.description).toBe('agent-hangar: このセッションの状態（Done か Paused）を提案する。利用者が会話の中で選んだときだけ confirmed を true にする。利用者に聞かずに true にしてはいけない。');
+  });
 });

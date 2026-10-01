@@ -10,6 +10,7 @@ import { IndexerService } from '../indexer/service.ts';
 import { latestIntent } from '../live/intents.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { assignSessions } from '../projects/registry.ts';
+import { rejectSessionState } from '../sessions/states.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { callTool, ToolError, TOOL_NAMES, type ToolDeps } from './tools.ts';
 
@@ -45,6 +46,7 @@ const SESSION_TOOL_CALLS: [string, Record<string, unknown>][] = [
   ['set_session_memo', { text: 'メモ' }],
   ['set_turn_intent', { text: '意図' }],
   ['open_in_hangar', {}],
+  ['propose_session_status', { status: 'done', note: '済んだ' }],
 ];
 
 describe('MCP tools', () => {
@@ -221,7 +223,7 @@ describe('MCP tools', () => {
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
-    expect(TOOL_NAMES).toHaveLength(12);
+    expect(TOOL_NAMES).toHaveLength(13);
   });
   it('set_turn_intent は意図を積み、最新を返せるようにする', () => {
     const r = call('set_turn_intent', { text: '  抜けたあと、答え終えた会話だけ止める  ' }, { sessionId: alphaId });
@@ -324,5 +326,60 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
   it('open_in_hangar は別のプロジェクトのリンクを返さない', () => {
     expect(() => call('open_in_hangar', { project_id: 'p2' }, scoped())).toThrow(ToolError);
     expect(call('open_in_hangar', { project_id: 'p1' }, scoped()).url).toContain('p1');
+  });
+});
+
+describe('propose_session_status', () => {
+  const scoped = () => ({ sessionId: alphaId });
+  const NONE = { status: null, note: null, returnOn: null, setBy: null, setAt: null };
+  it('confirmed なしは提案にし、session.upsert を配る', () => {
+    const r = call('propose_session_status', { status: 'paused', note: ' 明日の朝 CPU の数字を確かめる ', return_on: '2026-10-02' }, scoped());
+    expect(r).toEqual({ outcome: 'proposed', state: { ...NONE, candidate: { status: 'paused', note: '明日の朝 CPU の数字を確かめる', returnOn: '2026-10-02', source: 'in_session', at: expect.any(Number) } } });
+    expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
+    expect((sent[0] as Extract<ServerEvent, { type: 'session.upsert' }>).session.state).toEqual(r.state);
+  });
+  it('confirmed: true は状態にし、会話で承認した印を残す。Done は戻る日を持たない', () => {
+    const r = call('propose_session_status', { status: 'done', note: '直して main に入れた', return_on: '2026-10-02', confirmed: true }, scoped());
+    expect(r).toEqual({ outcome: 'set', state: { status: 'done', note: '直して main に入れた', returnOn: null, setBy: 'conversation', setAt: expect.any(Number), candidate: null } });
+    expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
+  });
+  it('同じ状態がすでにあれば already_set で何も書かず、何も配らない', () => {
+    call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', confirmed: true }, scoped());
+    sent.length = 0;
+    // 書いたかどうかは連番で見る。未送信の差分は同じ行ごとに 1 つへまとまるので、件数では見えない。
+    const lastSeq = () => (db.prepare("select max(seq) s from changes where table_name = 'session_states'").get() as { s: number | null }).s;
+    const before = lastSeq();
+    expect(call('propose_session_status', { status: 'paused', note: '別の根拠', return_on: '2026-10-02', confirmed: true }, scoped()).outcome).toBe('already_set');
+    expect(call('propose_session_status', { status: 'done', note: 'n' }, scoped()).outcome).toBe('already_set');
+    expect(sent).toEqual([]);
+    expect(lastSeq()).toBe(before);
+    // 戻る日が違えば会話で選び直したことになる。
+    expect(call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-05', confirmed: true }, scoped()).outcome).toBe('set');
+  });
+  it('却下された後の提案は rejected_before。会話で選んだものは通る', () => {
+    call('propose_session_status', { status: 'done', note: 'n' }, scoped());
+    rejectSessionState(db, 'd', alphaId);
+    sent.length = 0;
+    expect(call('propose_session_status', { status: 'done', note: 'もう一度' }, scoped()).outcome).toBe('rejected_before');
+    expect(sent).toEqual([]);
+    expect(call('propose_session_status', { status: 'done', note: '選んだ', confirmed: true }, scoped()).outcome).toBe('set');
+  });
+  it('誤りの入力は ToolError で、何も書かず、何も配らない（note と return_on の検査は states.ts に任せる）', () => {
+    const bad: Record<string, unknown>[] = [
+      { status: 'done', note: '' }, { status: 'done', note: '   ' }, { status: 'done', note: 'あ'.repeat(201) }, { status: 'done' },
+      { status: 'paused', note: 'n' }, { status: 'paused', note: 'n', return_on: '2026/10/02' }, { status: 'paused', note: 'n', return_on: '2026-02-30' },
+      { status: 'paused', note: 'n', return_on: 20261002 }, { status: 'paused', note: 'n', return_on: '2026/10/02', confirmed: true },
+      { status: 'archived', note: 'n' }, { note: 'n' }, { status: 'done', note: 'n', confirmed: 'yes' },
+    ];
+    for (const args of bad) expect(() => call('propose_session_status', args, scoped()), JSON.stringify(args)).toThrow(ToolError);
+    expect(sent).toEqual([]);
+    expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
+    // ちょうど 200 字は通る。
+    expect(call('propose_session_status', { status: 'done', note: 'あ'.repeat(200) }, scoped()).outcome).toBe('proposed');
+  });
+  it('共通の URL では session_id が要り、セッション別 URL では別のセッションを指せない', () => {
+    expect(() => call('propose_session_status', { status: 'done', note: 'n' })).toThrow(/session_id/);
+    expect(call('propose_session_status', { session_id: alphaId, status: 'done', note: 'n' }).outcome).toBe('proposed');
+    expect(() => call('propose_session_status', { session_id: 'other', status: 'done', note: 'n' }, scoped())).toThrow(ToolError);
   });
 });

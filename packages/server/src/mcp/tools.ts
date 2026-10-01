@@ -1,4 +1,4 @@
-import type { LaunchParams, LiveSessionDto, ProjectDto, ProjectStatus, ServerEvent, SessionDto, SummaryState, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
+import type { LaunchParams, LiveSessionDto, ProjectDto, ProjectStatus, ServerEvent, SessionDto, SessionStateDto, SummaryState, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
@@ -8,6 +8,7 @@ import type { MemoStore } from '../projects/memo.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
+import { getSessionState, proposeSessionState, setSessionState, StateInputError, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
 
 export type ToolDeps = {
@@ -34,6 +35,7 @@ export class ToolError extends Error {
 export const TOOL_NAMES = [
   'list_projects', 'get_project', 'update_project', 'list_sessions', 'search_sessions', 'get_transcript',
   'create_session', 'set_session_summary', 'set_turn_intent', 'set_session_memo', 'get_usage', 'open_in_hangar',
+  'propose_session_status',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -317,6 +319,43 @@ export function setTurnIntentTool(deps: ToolDeps, ctx: ToolContext, args: Record
   return { ok: true, session_id: id, at: it.at };
 }
 
+/**
+ * このセッションの状態（Done か Paused）を提案する。
+ * confirmed が true のときだけ状態にする。利用者が会話の中で選んだという申告で、hangar はそれを確かめられない。
+ * その余地は利用者の決定（2026-10-01）として受け入れ、代わりに set_by を conversation にして後から分かるようにする。
+ * 却下された提案は、そのセッションに新しい発言があるまで受け付けない（rejected_before）。
+ * note と return_on の中身の検査は states.ts に任せる。ここでは型と status だけを見て、StateInputError を ToolError に変える。
+ * 検査は書く前に済む。どれかに落ちたら何も書かず、何も配らない。
+ */
+export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
+  const id = sessionIdOf(ctx, args);
+  requireSession(deps, id);
+  const status = args.status;
+  if (status !== 'done' && status !== 'paused') throw new ToolError('status は done か paused です');
+  if (args.note !== undefined && typeof args.note !== 'string') throw new ToolError('note は文字列です');
+  if (args.return_on !== undefined && typeof args.return_on !== 'string') throw new ToolError('return_on は YYYY-MM-DD の形の文字列です');
+  if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') throw new ToolError('confirmed は true か false です');
+  const note = args.note ?? '';
+  // Done は戻る日を持たないので、渡されても捨てる（すでに付いた状態との比べにも、この値を使う）。
+  const returnOn = status === 'paused' ? args.return_on ?? null : null;
+  try {
+    let r: { outcome: ProposeStateOutcome; state: SessionStateDto };
+    if (args.confirmed === true) {
+      const cur = getSessionState(deps.db, id);
+      r = cur && cur.status === status && cur.returnOn === returnOn
+        ? { outcome: 'already_set', state: cur }
+        : { outcome: 'set', state: setSessionState(deps.db, deps.deviceId, id, { status, note, returnOn, setBy: 'conversation', now }) };
+    } else {
+      r = proposeSessionState(deps.db, deps.deviceId, id, { status, note, returnOn, source: 'in_session', now });
+    }
+    if (r.outcome === 'set' || r.outcome === 'proposed') deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId })! });
+    return { outcome: r.outcome, state: r.state };
+  } catch (e) {
+    if (e instanceof StateInputError) throw new ToolError(e.message);
+    throw e;
+  }
+}
+
 export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const id = sessionIdOf(ctx, args);
   requireSession(deps, id);
@@ -360,6 +399,7 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'set_session_memo': return setSessionMemoTool(deps, ctx, args);
     case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
+    case 'propose_session_status': return proposeSessionStatusTool(deps, ctx, args);
     default: throw new ToolError(`知らないツールです: ${name}`);
   }
 }
