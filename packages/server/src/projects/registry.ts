@@ -4,6 +4,16 @@ import { newId, type ResolveAction } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 
+/**
+ * パスを比べられる形にそろえる。`..` や末尾の `/` を除き、Unicode を NFC にする。
+ * macOS は Finder などで作った名前を NFD（デ＝テ＋濁点）で持つことがあり、readdir もその形で返す。
+ * transcript の cwd は NFC で来るので、そろえないと同じフォルダでも文字列が一致しない。
+ * APFS は正規化の違いを区別しないので、NFC にしたパスでもそのまま開ける。
+ */
+export function normalizeDir(p: string): string {
+  return path.resolve(p).normalize('NFC');
+}
+
 type RootRow = { id: string; project_id: string; device_id: string; path: string; resolved: number; deleted_at: number | null };
 
 /** ルート直下の、隠しでないディレクトリを名前順に返す。 */
@@ -13,23 +23,24 @@ function childDirs(root: string): string[] {
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
   return fs.readdirSync(root, { withFileTypes: true })
     .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
-    .map((d) => path.join(root, d.name))
+    .map((d) => normalizeDir(path.join(root, d.name)))
     .sort();
 }
 
-/** cwd がそのディレクトリ以下にあるセッションが 1 つ以上あるかを返す。 */
-function hasSessionUnder(db: Db, dir: string): boolean {
-  return db.prepare("select 1 from sessions where deleted_at is null and (cwd = ? or cwd like ? escape '\\') limit 1")
-    .get(dir, dir.replace(/[%_\\]/g, (c) => '\\' + c) + '/%') !== undefined;
+/** パスがそのディレクトリ自身か、その下にあるか。どちらも normalizeDir を通した値で比べる。 */
+function isUnder(p: string, dir: string): boolean {
+  return p === dir || p.startsWith(dir + '/');
 }
 
 /** ワークスペース直下のディレクトリのうち、セッションを持つものをプロジェクトとして登録する。 */
 export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoot: string): { created: string[] } {
   const created: string[] = [];
+  // SQL の文字列比較では NFC と NFD が一致しないので、正規化してから JS で比べる。
+  const cwds = (db.prepare('select distinct cwd from sessions where deleted_at is null').all() as { cwd: string }[]).map((r) => r.cwd.normalize('NFC'));
+  const known = new Set((db.prepare('select path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { path: string }[]).map((r) => r.path.normalize('NFC')));
   for (const dir of childDirs(workspaceRoot)) {
-    if (!hasSessionUnder(db, dir)) continue;
-    const exists = db.prepare('select 1 from project_roots where device_id = ? and path = ? and deleted_at is null').get(deviceId, dir);
-    if (exists) continue;
+    if (!cwds.some((c) => isUnder(c, dir))) continue;
+    if (known.has(dir)) continue;
     const id = newId();
     upsertShared(db, 'projects', { id, name: path.basename(dir), status: 'active', is_scratch: 0 }, deviceId);
     upsertShared(db, 'project_roots', { id: newId(), project_id: id, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
@@ -54,9 +65,10 @@ function resolvedRoots(db: Db, deviceId: string): RootRow[] {
   return db.prepare('select * from project_roots where device_id = ? and resolved = 1 and deleted_at is null').all(deviceId) as RootRow[];
 }
 
-/** cwd を含むルートのうち、最も深いものを返す。 */
+/** cwd を含むルートのうち、最も深いものを返す。NFC と NFD の違いは無視する。 */
 function longestMatch(roots: RootRow[], cwd: string): RootRow | undefined {
-  return roots.filter((r) => cwd === r.path || cwd.startsWith(r.path + '/')).sort((a, b) => b.path.length - a.path.length)[0];
+  const c = cwd.normalize('NFC');
+  return roots.filter((r) => isUnder(c, r.path.normalize('NFC'))).sort((a, b) => b.path.length - a.path.length)[0];
 }
 
 /** 未分類のセッションを、この端末の解決済みルートの最長一致で紐づける。 */
@@ -108,7 +120,7 @@ export function resolveProject(db: Db, deviceId: string, projectId: string, acti
       // `..` や末尾の `/` が残ると longestMatch の前方一致に cwd が当たらず、
       // そのプロジェクトには永久にセッションが紐づかない。必ず正規化してから入れる。
       // 新規登録（POST /api/projects）と同じ扱いである。
-      const dir = path.resolve(action.path);
+      const dir = normalizeDir(action.path);
       if (root) upsertShared(db, 'project_roots', { ...root, path: dir, resolved: 1 }, deviceId);
       else upsertShared(db, 'project_roots', { id: newId(), project_id: projectId, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
       assignSessions(db, deviceId);

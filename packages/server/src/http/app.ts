@@ -16,7 +16,7 @@ import { LiveDigester } from '../live/digest.ts';
 import { createMcpApp } from '../mcp/app.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import { PromoteError } from '../projects/promote.ts';
-import { assignSessions, candidateDirs, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
+import { assignSessions, candidateDirs, normalizeDir, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { EDIT_TOOLS } from '../indexer/indexFile.ts';
 import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } from '../projects/todos.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
@@ -360,7 +360,7 @@ export function createApp(deps: AppDeps): Hono {
     // repoint のパスは、存在を確かめる前に正規化する。検査する値と保存する値を 1 つにしておく。
     // `..` や末尾の `/` が残ると project_roots の前方一致に cwd が当たらず、
     // そのプロジェクトには永久にセッションが紐づかない（POST /api/projects と同じ理由である）。
-    const target: ResolveAction = action.kind === 'repoint' && typeof action.path === 'string' ? { kind: 'repoint', path: path.resolve(action.path) } : action;
+    const target: ResolveAction = action.kind === 'repoint' && typeof action.path === 'string' ? { kind: 'repoint', path: normalizeDir(action.path) } : action;
     if (target.kind === 'repoint' && (typeof target.path !== 'string' || !fs.existsSync(target.path))) return c.json({ error: '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください' }, 400);
     if (!getProject(db, deviceId, deps.live(), id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
     resolveProject(db, deviceId, id, target);
@@ -690,7 +690,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!name) return c.json({ error: 'name は必須です' }, 400);
     // `..` や末尾の `/` が残ると project_roots の前方一致に cwd が当たらず、
     // そのプロジェクトには永久にセッションが紐づかない。必ず正規化してから入れる。
-    const dir = raw ? path.resolve(raw) : '';
+    const dir = raw ? normalizeDir(raw) : '';
     if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return c.json({ error: 'path が存在するディレクトリではありません' }, 400);
     // 同じディレクトリを二重に登録しない。syncProjectsFromWorkspace と同じ判定にそろえる。
     const known = db.prepare('select project_id from project_roots where device_id = ? and path = ? and deleted_at is null').get(deviceId, dir) as { project_id: string } | undefined;

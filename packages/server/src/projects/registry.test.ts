@@ -41,6 +41,20 @@ describe('syncProjectsFromWorkspace', () => {
   it('ルートが無ければ何もしない', () => {
     expect(syncProjectsFromWorkspace(db, DEV, path.join(ws, 'nope')).created).toEqual([]);
   });
+  // macOS は Finder などで作った名前を NFD（デ＝テ＋濁点）で持つことがあり、readdir もその形で返す。
+  // 一方 transcript の cwd は NFC で来るので、文字列のまま比べると一致せず、プロジェクトにならない。
+  it('ディスク上の名前が NFD でも、NFC の cwd のセッションがあれば NFC のパスで登録する', () => {
+    const name = '無検閲モデル';
+    fs.mkdirSync(path.join(ws, name.normalize('NFD')));
+    addSession('s-nfc', path.join(ws, name.normalize('NFC'), 'runs'));
+    const r = syncProjectsFromWorkspace(db, DEV, ws);
+    const pid = r.created.find((id) => project(id).name === name);
+    expect(pid).toBeDefined();
+    expect(root(pid!).path).toBe(path.join(ws, name));
+    assignSessions(db, DEV);
+    expect(sessionProject('s-nfc')).toBe(pid);
+    expect(syncProjectsFromWorkspace(db, DEV, ws).created).toEqual([]);
+  });
 });
 
 describe('assignSessions', () => {
@@ -58,6 +72,16 @@ describe('assignSessions', () => {
     assignSessions(db, DEV);
     expect(sessionProject('s-alpha')).toBe(pid);
     expect(sessionProject('s-alpha-sub')).toBe('p-src');
+  });
+});
+
+describe('assignSessions の正規化', () => {
+  it('ルートが NFD で、cwd が NFC でも紐づける', () => {
+    upsertShared(db, 'projects', { id: 'p-nfd', name: 'モデル', status: 'active', is_scratch: 0 }, DEV);
+    upsertShared(db, 'project_roots', { id: 'r-nfd', project_id: 'p-nfd', device_id: DEV, path: path.join(ws, 'モデル'.normalize('NFD')), resolved: 1 }, DEV);
+    addSession('s-nfc', path.join(ws, 'モデル'.normalize('NFC'), 'src'));
+    assignSessions(db, DEV);
+    expect(sessionProject('s-nfc')).toBe('p-nfd');
   });
 });
 
