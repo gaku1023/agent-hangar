@@ -155,7 +155,8 @@ type Intent =
   | { type: 'search.query'; text: string } | { type: 'search.filter'; patch: Partial<SearchFilter> }
   | { type: 'search.more'; offset: number } | { type: 'search.clear' }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
-  | { type: 'project.new.open' } | { type: 'project.new.submit'; name: string; gitInit: boolean; startSession: boolean }
+  | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
+  | { type: 'folder.pick' }
   | { type: 'project.resolve.open'; id: ProjectId }
   | { type: 'project.resolve'; id: ProjectId; action: { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' }; confirmed?: boolean }
   | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
@@ -165,7 +166,7 @@ type Intent =
   | { type: 'artifact.add'; projectId: ProjectId; url: string }
   | { type: 'session.open'; id: SessionId } | { type: 'session.setMemo'; id: SessionId; text: string }
   | { type: 'session.nextWaiting' }
-  | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams }
+  | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams; place?: ProjectPlace }
   | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId }
   | { type: 'session.kill'; runId: RunId; working: boolean; shellTabs: number; confirmed?: boolean }
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
@@ -219,7 +220,10 @@ type Intent =
 - `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。引き継ぎのダイアログは作らなかったので `takeover(sessionId)` は無い。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
 外のターミナルの claude を引き取る確認は `confirm('adoptSession')`、ランを止める確認は `confirm('killRun')`、見つからないプロジェクトを一覧から削除する確認は `confirm('unlinkProject')` である。
 - `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉、要約パネルの開閉。
-- `launch`：`idle | submitting | failed(message)`。
+- `launch`：`idle | submitting | failed(message)`。場所の指定つきで起動するときは、送信中と失敗の状態が、途中で作れたプロジェクトの id を `createdProjectId` に持つ。
+- `projectCreate`：`idle | submitting | failed(message)`。作成のダイアログの送信の状態である。
+- `workspaceDirs`：ワークスペース直下の未登録のフォルダ（`{ name, path }[]`）。2 つのダイアログを開いたときに読み、まだ読んでいなければ null である。
+- `pickedFolder`：Finder で選んだパス `{ path, n }`。`n` は同じパスをもう一度選んでも気付くための回数で、開いているダイアログが「マウントしたときより新しい選択か」を調べるのに使う。
 - `newSessionDraft`：新しいセッションのダイアログの書きかけ（名前と初期プロンプト）。1 つだけ持ち、ダイアログから起動し終えたら消す。
 - `launchPrefs`：新しいセッションの詳細の、プロジェクトごとの前回値。鍵はプロジェクトの id で、スクラッチは `:scratch` の 1 枠である。
   どちらも端末ごとに localStorage（`newSession.draft`、`newSession.prefs`）に残し、起動時に読み戻す。形の違う値は捨てる。
@@ -603,6 +607,58 @@ model、effort、permission mode、worktree、追加ディレクトリは折り�
 model は択一のチップで「ほか」を選ぶと入力欄に変わり、effort は切り替えの帯で、permission mode は意味を添えたカードで選ぶ。
 折りたたみの見出しには、既定以外を選んだ値を並べる。
 「確認なし」を選ぶと、カードを赤で縁取り、確認せずに実行する旨の警告を出す。
+
+#### 始める場所：新しいフォルダと未登録のフォルダ
+
+始める場所は、登録済みのプロジェクトとスクラッチのほかに、新しく作るフォルダと、まだプロジェクトでないフォルダも選べる。
+選んだ場所は、起動と同時にプロジェクトになる。
+作成と起動を 1 つのボタン（起動）にまとめるのは、このダイアログに来た利用者の目的がセッションを始めることで、プロジェクトを作るのは手段だからである。
+
+未登録のフォルダ（`GET /api/workspace/dirs`）は、検索欄に語があるときだけ一覧に混ぜる。
+何も打っていない一覧には出さない。
+行はフォルダのアイコン、名前、パス、「未登録」の札である。
+一覧の下端には、スクロールしても動かない操作の段を置く。
+1 行目は、語が無ければ「新しいフォルダを作る…」である。
+語があり、それと同じ名前のプロジェクトも未登録のフォルダも無ければ「『<語>』を新しいフォルダとして作る」にし、右に `~/workspace/<語>` を添える。
+同じ名前があるときは「新しいフォルダを作る…」のままにする。
+2 行目は「ほかの場所を選ぶ…（Finder）」で、殻の中だけに出す。
+下端の操作は `role="listbox"` の要素の中の選択肢で、矢印キーで一覧の行の続きとして辿れ、Enter で選べる。
+語が一致する行が無いときは、最初の操作に印を置き、そのまま Enter で選べるようにする。
+下端の操作を持つ一覧は、プロジェクトが 8 件に満たなくても検索欄を常に出す。
+語を打って新しいフォルダの名前にできるようにするためである。
+
+選んだ場所によって、見出しと、一覧の直下の 1 行が変わる。
+ボタンはどれも「起動」のままで、見出しで何が起きるかを言う。
+
+| 選んだもの | 見出し | 一覧の直下 |
+|---|---|---|
+| プロジェクト | 新しいセッション | なし |
+| スクラッチ | スクラッチで始める | スクラッチの説明 |
+| 新しいフォルダ | 新しいフォルダで始める | 「フォルダの名前」の欄（打った語を入れる）、「~/workspace/<名前> を作り、プロジェクトに登録して起動します」、git init のチェック（既定はオン） |
+| 未登録のフォルダ | フォルダを登録して始める | 「~/workspace/<名前> はまだプロジェクトではありません。起動すると登録します」 |
+| Finder で選んだフォルダ（ワークスペースの直下） | フォルダを登録して始める | 未登録のフォルダと同じ |
+| Finder で選んだフォルダ（ワークスペースの外か深い階層） | フォルダを登録して始める | 「ワークスペースの外のフォルダです。この PC でのパスだけを覚えます。ほかの PC では、開いたときに場所を聞きます」 |
+
+Finder で選んだパスが登録済みのプロジェクトのルートなら、そのプロジェクトを選んだ状態にする（見出しも「新しいセッション」）。
+Finder を取り消したら、選択を変えない。
+新しいフォルダと未登録のフォルダでは、詳細（model など）の初期値は前回値が無いので既定である。
+
+Finder のパスは、Mediator に入る所（`folder.picked`）で NFC にそろえ、末尾の `/` を除く。
+結果は `pickedFolder { path, n }` に入れ、各ダイアログはマウントしたときより `n` が新しい選択だけを受け取る。
+ダイアログを開く前の選択を拾い直さないためである。
+2 つのダイアログのどちらを開いても、Mediator は未登録のフォルダの一覧を読む（`api.workspaceDirs`、`transition.ts` の 1 か所）。
+
+場所を指定した送信（`session.new.submit` の `place`）は、runtime が次の順に行う（`api.createProjectThenLaunch`）。
+
+1. `POST /api/projects` で作るか登録する。失敗したら `launch.failed` を返して終える。プロジェクトはできていない。
+2. できたプロジェクトを store に入れ、`project.created { projectId }` を Mediator へ送る。Mediator は送信中の状態に `createdProjectId` を持たせ、送った詳細をそのプロジェクトの前回値にする。
+3. `projectId` を入れた params で、通常の起動と同じ起動をする。
+
+2 の後に起動が失敗したら、プロジェクトは残し、失敗の状態も `createdProjectId` を持つ。
+ダイアログはそれが変わったら選択をそのプロジェクトに合わせ、失敗の文言を出す。
+押し直したときは、`place` を付けずに `projectId` で送るので、もう一度作ることはない。
+`overlay.projectId` は書き換えない。
+Root はダイアログを `overlay.projectId` を key にして描くので、書き換えるとダイアログが作り直され、名前と初期プロンプトの書きかけが消えるためである。
 
 ⌘Enter（Ctrl+Enter でも）は、ダイアログのどこからでも起動する。
 初期プロンプトの欄では素の Enter が改行なので、欄の中から起動する手がこれになる。
@@ -1080,9 +1136,10 @@ N は UI の store に届いているセッションで数える。
 再指定のダイアログには、ワークスペースルート直下で名前が近いディレクトリを候補として並べる。
 
 初回起動時は、ワークスペースルート（既定は `~/workspace`）直下で、cwd がそのディレクトリ以下の Claude セッションが 1 つ以上あるものを自動でプロジェクトにする。
-セッションのない直下ディレクトリは「新規プロジェクト」で既存ディレクトリを選ぶときの候補にだけ出す。
+セッションのない直下ディレクトリは、新しいセッションのダイアログの検索と、作成のダイアログの未登録の一覧にだけ出す。
+起動した後に、直下の新しいディレクトリでセッションが現れたら、起動時と同じ規則でその場でプロジェクトにする。
 ルート外の cwd のセッションは「未分類」に入れ、後から手で紐づけられる。
-起動した後に未分類のセッションが現れたときは、黙って置かずに 1 度だけトーストで知らせる。
+起動した後にワークスペースの外の cwd で未分類のセッションが現れたときは、黙って置かずに 1 度だけトーストで知らせる。
 起動時の初回の全走査では知らせない。
 ディレクトリが戻ってルートが解決に戻ったら、その間に溜まった未分類のセッションを紐づけ直し、変わったセッションとプロジェクトを配る。
 
@@ -1114,11 +1171,11 @@ aria-label は見えている文字をそのまま含め、見える文と読み
 そのために、UI の出どころ（`http://127.0.0.1:4177`）に窓を動かす権限（`core:window:allow-start-dragging`）とダブルクリックで拡大する権限（`core:window:allow-internal-toggle-maximize`）の 2 つだけ与え（`capabilities/remote-drag.json`）、殻は頁に `data-shell="desktop"` の印を付けて、ヘッダーのロゴはその印があるときだけ信号の 3 点の右から始まる。
 入力待ちを窓の外へ知らせるために、同じ出どころには通知を出す権限（`allow-notify-waiting`）、通知の許可を求める権限（`allow-notify-request`）、通知の許可の状態を読む権限（`allow-notify-status`）、Dock のバッジに数を出す権限（`core:window:allow-set-badge-count`）の 4 つだけを別に与える（`capabilities/remote-notify.json`）。
 前の 3 つは殻が自分で持つコマンドで、`build.rs` の AppManifest に並べたものだけが権限になる。
-殻の命令は 6 つだけ持つ（`src-tauri/build.rs` の一覧と `lib.rs` の `#[tauri::command]`）。
-入力待ちの知らせの 3 つ（`notify_waiting`、`notify_request`、`notify_status`）は上に書いたとおりで、残りの 3 つは障害のときの操作である。
+殻の命令は 7 つだけ持つ（`src-tauri/build.rs` の一覧と `lib.rs` の `#[tauri::command]`）。
+入力待ちの知らせの 3 つ（`notify_waiting`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
-UI の出どころには、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動をやり直す `retry_boot` と `open_log` だけを与える（`capabilities/boot-screen.json`）。
+UI の出どころには、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動をやり直す `retry_boot` と `open_log` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open` に渡すだけで、呼び手からパスは受け取らない。
 UI は殻が差し込む `__TAURI_INTERNALS__` の有無で殻の中かを決め（`runtime/desktop.ts`）、殻の外（ブラウザ）ではこれらのボタンを出さない。
 接続が切れると、ヘッダーの下に切断の帯を出し、止まった時刻と次に再接続する秒数を言う。
@@ -1177,7 +1234,7 @@ Home の項目には、入力待ちがあるあいだその数を添える（開
 セッションの行は状態の点、名前、プロジェクト名を並べ、右端に待った長さ（「4 分待っている」）、動き始めてからの長さ（「作業中 7 分」）、休んでからの長さ（「休み 12 分」）、終わったものは最後の活動の時期を添える。
 プロジェクトの行は状態の色の点とパスを添える。
 移動はホームへ、プロジェクトへ、セッション一覧へ、設定、次の入力待ちへ（移る先の名前を添える）、サイドバーの開閉、キーの一覧で、打鍵のあるものはキー帽を添える。
-コマンドは新しいセッション、スクラッチで始める、索引を作り直すで、新しいセッションは ⌘N と同じく、いまの画面のプロジェクトを最初から選ぶ。
+コマンドは新しいセッション、新しいプロジェクト、スクラッチで始める、索引を作り直すで、新しいセッションは ⌘N と同じく、いまの画面のプロジェクトを最初から選ぶ。
 打ち始めたら名前（セッションは名前と要約の 1 文）で絞り、群は分けたまま、群ごとに 8 件で切る（案 C1）。
 群の並びは、いちばんよく当たった行の点の高い順にし、同点なら何も打っていないときの順にする。
 決まった順のままだと、要約の中で散らばって当たったセッションが、名前の頭から当たったコマンドより上に来るからである。
@@ -1240,6 +1297,26 @@ Tab で届くよう、隠すときも透明にするだけにする。
 パスがこの PC に無ければ「この PC にパスがありません」と書き、カードから始めるボタンは「ここで始める」とする。
 並びは最終活動順で、名前の部分一致で絞れる。
 カードは 1 行 4 列の高密度で置く。
+
+見出しの行の右端（アーカイブを表示の右）に、主のボタン「＋ 新しいプロジェクト」を置く。
+押すと `project.new.open` を送って作成のダイアログを開く。
+パレットのコマンドにも「新しいプロジェクト」を置く（`cmd:new-project`）。
+
+作成のダイアログは、本文の頭の切り替えで 2 つのモードを持つ。
+昇格のダイアログの見た目にそろえた、器と欄を使う。
+
+- **新しいフォルダを作る**：「プロジェクト名」の欄（等幅、「ワークスペースに作るディレクトリの名前」）、「~/workspace/<名前> を作ります」、git init のチェック（既定はオン）。
+- **既存のフォルダを登録**：未登録のフォルダの検索付きの一覧（`GET /api/workspace/dirs`）、「ほかの場所を選ぶ…（Finder、殻の中だけ）」のボタン、パスの入力の欄。どれかで選んだフォルダの basename を「プロジェクト名」の欄に入れる（直せる）。
+
+下端は「やめる」「作成」「作成して始める」（主）である。
+「作成」は、作ったらダイアログを閉じ、そのプロジェクトの画面へ移る。
+「作成して始める」は、作ったら、新しいセッションのダイアログを、そのプロジェクトを選んだ状態で開く。
+送信中は 2 つのボタンを押せなくし、失敗の文言はダイアログの中に出して入力を残す。
+背景を押しても閉じない（書きかけを失わないため）。
+未登録のフォルダの一覧は、キーボードで操作できる。
+検索欄は combobox で、↑ と ↓ で行を辿り、Enter はその行を選ぶだけで送信しない。
+名前とパスの欄の Enter は送信（「作成して始める」）である。
+名前の検証（空、`.`、`..`、`/` や `\` を含む）はサーバの 1 か所に置き、UI は送る前に止めない。
 
 ### プロジェクト詳細
 
@@ -2127,10 +2204,14 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - スクラッチの擬似プロジェクト：端末ごとに 1 つで、名前は「スクラッチ」、この端末の `project_roots.path` は `~/.agent-hangar/scratch`。ディレクトリ名は `<yyyymmdd-HHmmss>`（ローカル時刻、同じ秒に 2 つ作るときは `-2`、`-3`）。Projects 画面と Home のカードにはこの行を出さず、Sessions 画面の絞り込みには出す。
 - スクラッチかどうかの判定は、スクラッチのルートの下にあるかで行い、ルート自身は含めない。`scratch_root` は `project_roots` を端末で絞って引く。
 - 昇格：`POST /api/sessions/:id/promote { name, gitInit, moveFiles }`。`name` は `/` を含まない 1 字以上で、`<workspaceRoot>/<name>` が既にあれば 409。移動は先に全件の衝突を調べてから `fs.renameSync` で行い、途中で失敗したら逆順に戻す。`moveFiles` が真でも run が生きていれば移動せず、`moved: false` と理由を返す。
+- プロジェクトの作成：`POST /api/projects` は本文を 2 つの形で受ける。`{ kind: 'newDir', name, gitInit }` は `<workspaceRoot>/<name>` を作り（`git init` は選ばれたときだけ）、プロジェクト行とこの端末の `project_roots` を作って 201 を返す。名前の検証、既にあれば 409、`git init` に失敗したら作ったものを片付けることは、昇格と同じ `createProjectDir` を通る。`{ kind: 'dir', path, name? }` は既存のディレクトリを登録し（`registerProjectDir`）、新しければ 201、登録済みなら 200 で既存を返す。名前を省くと basename になり、アーカイブされたプロジェクトなら Active に戻す。`kind` の無い `{ name, path }` も `dir` として受ける。
+- 未登録のフォルダの一覧：`GET /api/workspace/dirs` は、ワークスペース直下の隠しでなく、この端末で登録済みのルートに当たらないディレクトリを、名前順に `{ name, path }[]` で返す。比較は `normalizeDir`（NFC）でそろえる。一覧から削除したプロジェクトのフォルダは、ルートが論理削除されているので未登録に数える。
+- その場の登録：サーバの `sessionChanged` で、未分類のセッションを紐づけられなかったとき、cwd がワークスペース直下のディレクトリ（またはその下）で、実在し、隠しでなく、まだ登録されていなければ、起動時の `syncProjectsFromWorkspace` と同じ規則でプロジェクトにし（`registry.ts` の `registerWorkspaceChildOf`）、紐づけ直して `project.upsert` と `session.upsert` を配る。同じセッションで何度も試さない。起動の途中は行わない（起動時の全走査は `syncProjectsFromWorkspace` が受け持つ）。当たらなかった cwd だけが、これまでどおりトーストで知らされる。
+- フォルダ選択の殻の命令：`pick_folder(default_path)` は `blocking_pick_folder` で macOS のフォルダ選択を開き、選んだパスか、取り消しなら null を返す。頁に与える権限は `allow-pick-folder` の 1 つだけで（`capabilities/remote-pick-folder.json`）、プラグインの JS の権限は与えない。UI の `DesktopBridge.pickFolder` は殻の外では口が無く、Finder の操作を出さない。
 - `SessionDto.fromScratch`：cwd がスクラッチのルートの下で、属するプロジェクトがスクラッチでないときに真にする。セッション画面は真のとき「再開すると cwd はスクラッチのままです」を添える。
 - 分割の持ち方：`SessionViewState` に `split: boolean` と `splitTab: string | null` を持つ。左は選択中のタブ、右は `splitTab` で、幅は `SplitPane` の中の状態にして保存しない（0.5 に戻る）。分割の右に置いたタブが閉じたら `splitTab` を null にし、`split` も偽に戻す。
 - 分割にタブが 2 つ要ることの判定は、Mediator がストアを見ないので、`split.resolve` の効果を受けたランタイムが決めて `split.resolved` で返す。Mediator は返ってきた結果で状態を変えるか、トースト「分割にはタブが 2 つ必要です」を出すかを選ぶ。
-- パレットの項目の ID：セッション（`session:<id>`）、プロジェクト（`project:<id>`）、移動（`go:home`、`go:projects`、`go:sessions`）、コマンド（`cmd:settings`、`cmd:next-waiting`、`cmd:sidebar`、`cmd:shortcuts`、`cmd:new-session`、`cmd:new-scratch`、`cmd:rebuild-index`）、全文検索（`search:<語>`）。新しいセッションは、Mediator がストアを見ないので、presenter が最初に選ぶものを ID の後ろに載せる（`cmd:new-session:project:<id>` か `cmd:new-session:scratch`）。照合は部分列一致で、一致位置が前で連続しているほど高い点を付け、群の中は点の高い順（同点は最後の活動の新しい順）に並べる。群の分け方と上限は「骨格」の節に書いた。入力欄の文字は Root の `useState` が持ち、Mediator には入れない。
+- パレットの項目の ID：セッション（`session:<id>`）、プロジェクト（`project:<id>`）、移動（`go:home`、`go:projects`、`go:sessions`）、コマンド（`cmd:settings`、`cmd:next-waiting`、`cmd:sidebar`、`cmd:shortcuts`、`cmd:new-session`、`cmd:new-project`、`cmd:new-scratch`、`cmd:rebuild-index`）、全文検索（`search:<語>`）。新しいセッションは、Mediator がストアを見ないので、presenter が最初に選ぶものを ID の後ろに載せる（`cmd:new-session:project:<id>` か `cmd:new-session:scratch`）。照合は部分列一致で、一致位置が前で連続しているほど高い点を付け、群の中は点の高い順（同点は最後の活動の新しい順）に並べる。群の分け方と上限は「骨格」の節に書いた。入力欄の文字は Root の `useState` が持ち、Mediator には入れない。
 - 要約器の設定：`SettingsDto` に `lmStudioUrl`（既定 `http://127.0.0.1:1234`）、`lmStudioModel`（既定 null で、null なら `/v1/models` の最初のモデル）、`summaryFallback`（既定 true）、`summaryHourlyCap`（既定 20）、`allowExternalSummarizer`（既定 false）を持つ。
 - 要約の入力：主線の全イベントを読み（サブエージェントは含めない）、`user` は 2,000 字、`assistant` は 600 字、`tool_call` は 1 行に切り、`thinking`、`tool_result`、`system`、`meta` は捨てる。全体が 12,000 字を超えたら先頭 30% と末尾 30% を残し、中盤を「[... N 件を省略 ...]」に置き換える。
 - 要約ジョブの契機：run の終了と、セッション画面を開いたときの先頭ページの読み込みの 2 つで `enqueue` する。受け付けるのは要約が土台のままか最後の更新から 5 ターン以上進んだときだけで、実行中のセッションは受け付けない（セッション自身の `set_session_summary` に任せる）。run の終了からの `enqueue` は `ignoreLive` で生存判定だけを飛ばし、残る 2 つの判定は通す。「要約を作り直す」は条件を無視する。ジョブは 1 セッション 1 件で、直列に走る。
@@ -2141,7 +2222,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - UI の CSS は `base.css` に足さず、View ごとのファイル（`workbench.css`、`split.css`、`rows.css`、`palette.css`、`settings.css`）に分けて `main.tsx` から `base.css` の後に読み込む。
 - 要約の出所：`session_summaries.source_id` に書いた要約器の id（`lmstudio` か `claude-headless`）、`source_model` にモデルの名前だけを置く。土台の要約とセッション自身の要約はどちらも null にする。`source_id` が無かった頃の行は null のままにして、UI は要約器を「不明」と出す。モデル名から種類を推し量って焼き付けることはしない。
 - サーバの終了：`close()` は HTTP と WebSocket を畳んだ後、走っている要約のジョブが終わるまで最大 5 秒待ってから DB を閉じる。要約は DB に書き込むので、待たずに閉じると閉じた DB に触れることになる。5 秒で終わらなければ 1 行記録して待たずに閉じる。
-- 未分類のセッション：起動した後に、どのルートの配下にもない cwd のセッションが現れたら、そのセッションにつき 1 度だけトーストで知らせる。本文が伸びるたびに同じ知らせは出さない。起動時の初回の全走査では知らせない（既存の紐づけがまだ済んでおらず、数も多いため）。ここで勝手にプロジェクトを作ることはしない。
+- 未分類のセッション：起動した後に、どのルートの配下にもない cwd のセッションが現れたら、そのセッションにつき 1 度だけトーストで知らせる。本文が伸びるたびに同じ知らせは出さない。起動時の初回の全走査では知らせない（既存の紐づけがまだ済んでおらず、数も多いため）。ワークスペース直下のディレクトリはその場でプロジェクトにし（2026-10-01 に改めた）、ワークスペースの外では勝手にプロジェクトを作らない。
 - ルートの復帰：消えていたディレクトリが戻ってルートが解決に戻ったら、その時点で未分類だったセッションを紐づけ直し、紐づいたセッションの `session.upsert` と、戻ったぶんおよび中身が変わったぶんの `project.upsert` を配る。戻ったルートが 1 つも無いときは何もしない（起動時の 1 回目はたいていこちらを通る）。
 - 外部のターミナルで開くときの shell：`.command` の経路と iTerm2 の経路で同じ 1 行（`cd <dir> && exec "${SHELL:-/bin/zsh}" -l`）を使う。別々に書くと、同じ操作なのに経路で違う shell が立つ。`$SHELL` が無い環境では `/bin/zsh` に落とす。
 - トランスクリプトの仮想スクロール：一覧の `VirtualList` は広げず、`Transcript.tsx` に専用の窓を持つ。行の高さは描いた後の `offsetHeight` を `seq` ごとに覚え、まだ描いていない行は文字数からの見積もりで置く。窓の上下には 600px を余分に描く。「追う」の間は、窓をスクロール位置ではなく末尾に留める。DOM に載る行の数は件数によらない（jsdom で高さ 600px の器に入れると、500 行でも 5,000 行でも末尾で 22 行、途中で 33 行）。
