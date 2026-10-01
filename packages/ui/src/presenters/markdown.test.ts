@@ -21,6 +21,27 @@ describe('parseMarkdown の塊', () => {
       { t: 'p', inl: [{ t: 'text', text: '本文' }] },
     ]);
   });
+  it('見出しの閉じの # と前後の空白は落とす。# の後に空白が無ければ見出しにしない', () => {
+    const h = (src: string) => parseMarkdown(src)[0];
+    expect(h('## 結果 ##')).toEqual({ t: 'h', level: 2, inl: [{ t: 'text', text: '結果' }] });
+    expect(h('#   題  #  ')).toEqual({ t: 'h', level: 1, inl: [{ t: 'text', text: '題' }] });
+    expect(h('# 題#')).toEqual({ t: 'h', level: 1, inl: [{ t: 'text', text: '題' }] });
+    expect(h('#  #')).toEqual({ t: 'h', level: 1, inl: [] });
+    expect(h('   ### 三')).toEqual({ t: 'h', level: 3, inl: [{ t: 'text', text: '三' }] });
+    expect(h('#題')).toEqual({ t: 'p', inl: [{ t: 'text', text: '#題' }] });
+    expect(h('####### 七')).toEqual({ t: 'p', inl: [{ t: 'text', text: '####### 七' }] });
+    expect(h('    # 字下げ')?.t).not.toBe('h');
+  });
+  // 見出しの読み取りは、長い空白を挟んでも入力の長さに比例する時間で終わる。
+  // 正規表現で閉じの # と空白を落とすと、空白 4000 個で 10 秒近くかかっていた。
+  it('長い空白の見出しも時間がかからない', () => {
+    for (const src of ['# a' + ' '.repeat(10000) + 'x', '# ' + ' '.repeat(10000) + '#'.repeat(10000) + 'x', '#' + ' \t'.repeat(10000)]) {
+      const t0 = performance.now();
+      parseMarkdown(src);
+      expect(performance.now() - t0).toBeLessThan(50);
+    }
+    expect(parseMarkdown('# a' + ' '.repeat(10000) + 'x')).toEqual([{ t: 'h', level: 1, inl: [{ t: 'text', text: 'a' + ' '.repeat(10000) + 'x' }] }]);
+  });
   it('空行で段落を分け、段落の中の改行は残す', () => {
     expect(parseMarkdown('一行目\n二行目\n\n次の段落')).toEqual([
       { t: 'p', inl: [{ t: 'text', text: '一行目\n二行目' }] },
