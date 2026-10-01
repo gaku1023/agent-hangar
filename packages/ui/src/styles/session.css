@@ -11,14 +11,85 @@
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 2) 0 var(--u); }
 .chip { display: inline-flex; align-items: center; gap: var(--u); height: calc(var(--u) * 5); padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.06); white-space: nowrap; }
 a.chip { color: var(--accent); text-decoration: none; }
-.chip-memo { max-width: 40ch; overflow: hidden; text-overflow: ellipsis; }
 
-/* 細かな事実（cwd、ターン、トークン、時刻、run）は、チップの下に注記の文字で並べる。 */
-.session-facts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 4); margin-bottom: calc(var(--u) * 2); font-size: var(--fs-xs); }
 
 /* 本文が消えた会話の注記。要約の上に淡い地で一行置き、延ばす手は文中のリンクの形にする。 */
 .gone-note { margin-bottom: calc(var(--u) * 3); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-sm); }
 .btn-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
 .btn-link:hover { text-decoration: underline; }
-/* 見出しの線の下に続くときは、線の下の余白（.page-head）だけで間を取る。 */
-.page-head + .chips { margin-top: 0; }
+
+/* セッション画面の組み直し（UX 刷新 2 の 1、試作は specs/2026-10-01-ux-refresh/session-layout-v2.html）。 */
+
+/* 幅（案 b）。セッション画面だけ本文の幅の上限を外す。--box-l と検索の錠剤の式は base.css のままで、上限が無いので本文も錠剤も左へ寄る。 */
+.shell[data-wide] { --main-w: 100vw; }
+/* 高さ。本文の列を縦の flex にし、ヘッダと帯（切断、保持期間）の分を引いた残りを画面に渡す。
+   帯が出ると .main の上の余白が増えるので、ターミナルの下端は窓の中に残る（入力の行が窓の外へ落ちない）。 */
+.shell[data-wide] .main { display: flex; flex-direction: column; }
+.shell[data-wide] .main-inner { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
+.session-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.session-screen > * { flex: none; }
+/* ターミナルの段（タブの下）と本文の段が残りを全部受け取る。窓がとても低いときだけ、この高さを下限に .main ごとスクロールさせる。 */
+.session-screen > .split, .session-screen > .session-body { flex: 1; min-height: 160px; }
+
+/* 見出しの行の主の操作。押せないときは aria-disabled にして、乗せると理由の吹き出しが出るようにする。 */
+.session-hero .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
+.session-hero .btn[aria-disabled='true']:hover { transform: none; filter: none; }
+
+/* 線の下の 1 行（B1）。24px の 1 行に区切りで並べ、折り返さない。狭いときは最後の作業ディレクトリから縮める。 */
+.session-info { display: flex; align-items: center; height: 24px; margin: calc(var(--u) * -1.5) 0 calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; overflow: hidden; }
+.session-info > * { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 3); border-left: 1px solid rgba(30, 40, 90, 0.12); }
+.session-info > :first-child { padding-left: 0; border-left: 0; }
+.session-info > .session-info-cwd { flex: 0 1 auto; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
+.session-info .gauge-bar { width: 40px; }
+.session-info-state { font-weight: 560; }
+.session-info-state[data-s='busy'] { color: #8a520c; }
+.session-info-state[data-s='waiting'] { color: var(--waiting); }
+.session-info-state[data-s='remote'] { color: var(--st-active); }
+.session-info-state .warn { color: var(--st-paused); }
+.session-info-state .faint { font-weight: 400; }
+.session-info-memo { max-width: 40ch; overflow: hidden; text-overflow: ellipsis; }
+/* アーティファクトの数は押すと一覧が開く。文字のリンクの形にする。 */
+.session-info-link { display: inline-flex; align-items: center; gap: var(--u); height: 22px; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+.session-info-link .icon { width: 14px; height: 14px; }
+
+/* 終わった画面の本体（E1）。本文の面と、右に 340px の右欄を置く。右欄の開閉（⌘J）で本文が全幅になる。 */
+.session-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: calc(var(--u) * 3); }
+.session-body[data-rail='closed'] { grid-template-columns: minmax(0, 1fr); }
+.tr-sheet .tr-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tr-sheet .transcript-toggles .tr-toggle { margin-right: calc(var(--u) * -2); }
+/* 本文が消えた会話は、注記と要約と TODO を 1 列に積む。 */
+.session-body[data-gone] { display: flex; flex-direction: column; gap: calc(var(--u) * 3); max-width: 760px; overflow: auto; }
+.session-body[data-gone] > .gone-note { margin-bottom: 0; }
+.session-rail { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 3); overflow: auto; }
+.session-rail > .rail-panel, .session-body[data-gone] > .rail-panel { flex: none; padding: calc(var(--u) * 3) calc(var(--u) * 3.5); }
+.rail-h { display: flex; align-items: center; gap: calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.rail-n { font-weight: 500; color: var(--ink-3); }
+.rail-act { margin-left: auto; }
+.rail-note { margin-bottom: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-3); }
+.rail-sub { margin-bottom: var(--u); font-size: var(--fs-sm); color: var(--ink-3); }
+.sum-body { margin: 0 0 calc(var(--u) * 2); line-height: 1.6; white-space: pre-wrap; }
+.sum-next { margin: 0 0 calc(var(--u) * 2); padding-left: 18px; font-size: var(--fs-sm); }
+.sum-src { font-size: var(--fs-xs); color: var(--ink-3); }
+.changed-files { list-style: none; margin: 0 calc(var(--u) * -1.5); padding: 0; }
+.changed-file { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: 30px; padding: 0 calc(var(--u) * 1.5); border: 0; border-radius: var(--r); background: none; color: var(--ink); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.changed-file:hover { background: var(--surface-2); }
+.changed-file > .icon { color: var(--ink-3); }
+.changed-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.changed-new { flex: none; padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); font-size: 10.5px; color: var(--st-done); background: var(--st-done-soft); }
+.changed-add { flex: none; font-size: var(--fs-xs); color: var(--st-done); }
+.changed-del { flex: none; font-size: var(--fs-xs); color: var(--error); }
+
+/* ターミナルの知らせ（F1）。切れている間は板を暗く沈め、縁の灯を消し、中央に白いカードを置く。 */
+.term-pane[data-off] { animation: none; box-shadow: var(--term-lift); }
+.term-pane[data-off] .term-host { opacity: 0.28; filter: saturate(0.4); }
+.term-veil { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; padding: calc(var(--u) * 4); }
+.term-off-card { display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * 2); width: min(340px, 100%); padding: calc(var(--u) * 5) calc(var(--u) * 5.5) calc(var(--u) * 4.5); border-radius: 16px; background: var(--surface); box-shadow: 0 20px 40px -18px rgba(0, 0, 0, 0.6); text-align: center; color: var(--ink); }
+.term-off-ic { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: color-mix(in srgb, var(--error) 9%, var(--surface)); color: var(--error); }
+.term-off-card b { font-size: var(--fs-md); font-weight: 650; }
+.term-off-card p { margin: 0 0 var(--u); font-size: var(--fs-sm); color: var(--ink-2); }
+/* transcript を表示している間は、ターミナルの上端に杏の地の全幅の帯を差し込み、右端に「最新へ戻る」を置く。 */
+.term-band { flex: none; display: flex; align-items: center; gap: calc(var(--u) * 2.5); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3.5); background: color-mix(in srgb, var(--term-tool) 20%, var(--term-bg)); color: var(--term-fg); font-size: var(--fs-sm); border-bottom: 1px solid color-mix(in srgb, var(--term-tool) 40%, transparent); white-space: nowrap; overflow: hidden; }
+.term-band > .icon { color: var(--term-tool); }
+.term-band-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--term-fg) 65%, transparent); }
+.term-band .btn { margin-left: auto; flex: none; height: 24px; font-size: var(--fs-sm); color: var(--ink); }
+.term-band .btn .kc { color: var(--ink-2); background: rgba(30, 40, 90, 0.06); }

@@ -545,7 +545,7 @@ describe('キーの見直し', () => {
     await flush();
     const emit = vi.spyOn(rt, 'emit');
     fireEvent.focusIn(paneHost('t2'));
-    const outside = screen.getByRole('button', { name: '停止' });
+    const outside = screen.getByRole('button', { name: 'VS Code で開く' });
     fireEvent.focusIn(outside);
     key({ key: 'w', metaKey: true }, outside);
     expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
