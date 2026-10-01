@@ -449,7 +449,6 @@ a:hover { text-decoration: underline; }
 .term-status-error { color: var(--error); opacity: 1; }
 /* 会話の列は白い読む面にする。 */
 .tr-pane { min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
-.tr-pane .tr { height: auto; flex: 1; }
 /* 畳んだ列は 28px しかなく、開くボタンも同じ幅である。左右の余白を残すと、ボタンの半分ほどが隠れて押しにくくなる。 */
 .tr-pane[data-collapsed='true'] { padding: calc(var(--u) * 2) 0; }
 .tr-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: calc(var(--u) * 7); border: 0; background: transparent; cursor: pointer; color: var(--ink-2); height: var(--row-h); align-self: flex-start; }

@@ -14,3 +14,13 @@ describe('アプリ全体の箱', () => {
     expect(b).not.toMatch(/overflow: hidden;/);
   });
 });
+
+describe('セッション画面の高さ', () => {
+  // 上の帯（見出し、札、要約、タブ）の高さは要約の開閉や折り返しで変わる。
+  // 100vh から決め打ちで引くと、帯が想定より高いぶん板の下端が窓の外へ出る（WebKit で実測 26px）。
+  const css = read('base.css');
+  it('.split と .tr は 100vh からの引き算で高さを決めない', () => {
+    expect(body(css, '.split')).not.toMatch(/100vh/);
+    expect(body(css, '.tr')).not.toMatch(/100vh/);
+  });
+});

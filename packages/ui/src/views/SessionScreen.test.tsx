@@ -275,6 +275,13 @@ describe('SessionScreen（実行中）', () => {
     expect(document.querySelector('.tr-pane .turn-row')?.textContent).toContain('hi');
     expect(document.querySelector('.tr-pane .tr')).toBeNull();
   });
+  it('実行中も終わった後も、画面は窓の残りの高さを受け取る縦の器（session-screen）になる', () => {
+    withHost(<SessionScreen {...running} />);
+    expect(document.querySelector('.screen')).toHaveClass('session-screen');
+    cleanup();
+    withHost(<SessionScreen {...base} />);
+    expect(document.querySelector('.screen')).toHaveClass('session-screen');
+  });
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SS {...running} transcriptOpen={false} />);
     expect(screen.queryByText('hi')).toBeNull();
