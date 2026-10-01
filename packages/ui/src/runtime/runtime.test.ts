@@ -480,10 +480,10 @@ describe('起動とターミナル', () => {
     rt.start();
     setHash('#/session/s1');
     rt.emit({ type: 'turn.open', sessionId: 's1', seq: 4, runId: 'r1', jump: { heads: ['a'], index: 0, from: 'bottom' } });
-    expect(rt.getState().sessionView.s1?.turnJump).toEqual({ seq: 4, status: 'pending' });
+    expect(rt.getState().sessionView.s1?.turnJump).toEqual({ seq: 4, status: 'pending', runId: 'r1' });
     await flush();
     expect(jumpToPrompt).toHaveBeenCalledWith('r1', { heads: ['a'], index: 0, from: 'bottom' });
-    expect(rt.getState().sessionView.s1?.turnJump).toEqual({ seq: 4, status: 'notFound' });
+    expect(rt.getState().sessionView.s1?.turnJump).toEqual({ seq: 4, status: 'notFound', runId: 'r1' });
   });
   it('iTerm2 から Terminal.app に落ちたらトーストで知らせる', async () => {
     const { rt } = harness({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
