@@ -9,6 +9,7 @@ import './styles/split.css';
 import './styles/rows.css';
 import './styles/home.css';
 import './styles/session.css';
+import './styles/transcript.css';
 import './styles/palette.css';
 import './styles/settings.css';
 import './styles/readiness.css';

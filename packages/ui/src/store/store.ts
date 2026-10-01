@@ -1,7 +1,13 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
 import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
-export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean };
+/**
+ * 本文の読み込んだ分。
+ * nextSeq は、持っている分より新しい行がまだあるときの、次に前向きに読む seq（最新の側まで持っていれば null）。
+ * 検索の結果から真ん中の頁だけを読んで開いたときに、後ろを読み足すのに使う。
+ * olderDone は、過去へ遡って空の頁が返った（もう古い行が無い）ことを表す。
+ */
+export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean; olderDone?: boolean };
 export type Store = {
   bootstrapped: boolean; version: string; device: { id: string; name: string } | null; settings: SettingsDto | null;
   projects: Record<string, ProjectDto>; sessions: Record<string, SessionDto>; live: LiveSessionDto[];
@@ -131,12 +137,18 @@ export function setEventsLoading(store: Store, key: string, loading: boolean): S
   return { ...store, events: { ...store.events, [key]: { ...cur, loading } } };
 }
 
-export function applyEventsPage(store: Store, key: string, page: EventsPageDto, append: boolean): Store {
+/**
+ * 読んだ頁を入れる。append が偽なら置き換える。older は過去へ遡った頁であることを表す。
+ * 遡った頁は後ろ向きに読むので続きの印（nextSeq）を持たない。持っている分の後ろの続きの印は残す。
+ */
+export function applyEventsPage(store: Store, key: string, page: EventsPageDto, append: boolean, older = false): Store {
   const cur = store.events[key];
   const base = append && cur ? cur.items : [];
   const seen = new Set(base.map((e) => e.seq));
   const items = [...base, ...page.events.filter((e) => !seen.has(e.seq))];
-  return { ...store, events: { ...store.events, [key]: { items, total: page.total, nextSeq: page.nextSeq, loading: false } } };
+  const nextSeq = older && cur ? cur.nextSeq : page.nextSeq;
+  const olderDone = older ? page.events.length === 0 || cur?.olderDone === true : append ? cur?.olderDone === true : false;
+  return { ...store, events: { ...store.events, [key]: { items, total: page.total, nextSeq, loading: false, olderDone } } };
 }
 
 export function applySearch(store: Store, params: SearchParamsDto, result: SearchResultDto | null, loading: boolean): Store {

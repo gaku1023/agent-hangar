@@ -57,7 +57,10 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
     const s = store.sessions[h.sessionId];
     if (!s) continue;
     const first = h.snippets[0];
-    rows.push(presentSessionRow(s, store, now, state.search.text ? (first ? markTerms(first.text, state.search.text) : []) : undefined));
+    const row = presentSessionRow(s, store, now, state.search.text ? (first ? markTerms(first.text, state.search.text) : []) : undefined);
+    // 開いたら、抜粋の一致へ跳ぶ（J1）。
+    if (state.search.text && first) row.jump = { seq: first.seq, q: state.search.text };
+    rows.push(row);
   }
   // 件数は手元に無い行も含めて数える。続きの offset はサーバの並びでの位置だからである。
   const more = (store.search.params?.offset ?? 0) > 0;

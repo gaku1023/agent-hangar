@@ -11,6 +11,13 @@ describe('キーマップ', () => {
     expect(matchKey({ key: 'j', ctrlKey: true })).toBe('transcript.toggle');
   });
 
+  it('⌘F は本文の中を探す。一覧に「本文の中を探す」として出る', () => {
+    expect(matchKey({ key: 'f', metaKey: true })).toBe('transcript.find');
+    expect(matchKey({ key: 'f', ctrlKey: true })).toBe('transcript.find');
+    expect(matchKey({ key: 'f' })).toBeNull();
+    expect(KEYMAP.find((b) => b.id === 'transcript.find')).toMatchObject({ group: 'session', keys: '⌘F', label: '本文の中を探す' });
+  });
+
   it('⇧ の有無で新規とスクラッチを分ける', () => {
     expect(matchKey({ key: 'n', metaKey: true })).toBe('session.new');
     expect(matchKey({ key: 'N', metaKey: true, shiftKey: true })).toBe('session.newScratch');

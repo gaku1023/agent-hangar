@@ -89,6 +89,41 @@ describe('createRuntime', () => {
     expect(api.events).toHaveBeenLastCalledWith('s1', { beforeSeq: 2, agentId: null });
     expect([...rt.getStore().events['s1:']!.items.map((e) => e.seq)].sort()).toEqual([1, 2]);
   });
+  it('検索の結果から開いたら、跳び先の少し前から前向きに読む。ターミナルが出るセッションでは最新の側から読む', async () => {
+    const { rt, api, wsHandlers } = harness();
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'session.open', id: 's1', seq: 900, q: 'パスワード' });
+    await flush();
+    expect(api.events).toHaveBeenLastCalledWith('s1', { fromSeq: 800, agentId: null });
+    expect(rt.getState().sessionView.s1).toMatchObject({ jump: { seq: 900, query: 'パスワード', n: 1 }, follow: false });
+    // 跳び先が頭に近ければ 0 から読む。
+    rt.emit({ type: 'nav.go', to: { name: 'home' } });
+    await flush();
+    rt.emit({ type: 'session.open', id: 's1', seq: 30, q: 'x' });
+    await flush();
+    expect(api.events).toHaveBeenLastCalledWith('s1', { fromSeq: 0, agentId: null });
+    // run のあるセッションは右の欄が最新の側を使うので、真ん中は読まない。
+    wsHandlers[0]!.onEvent({ type: 'run.started', run: { id: 'r2', sessionId: 's2', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r2', pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, tabs: [] });
+    await flush();
+    rt.emit({ type: 'session.open', id: 's2', seq: 900, q: 'x' });
+    await flush();
+    expect(api.events).toHaveBeenLastCalledWith('s2', { latest: true, agentId: null });
+  });
+  it('真ん中の頁から開いた本文は、新しい行を読み足せる', async () => {
+    const events = vi.fn(async (_s: string, q: { fromSeq?: number; latest?: boolean; beforeSeq?: number }) => (q.fromSeq === 800 ? { ...page([800, 801], 2000), nextSeq: 802 } : page([q.fromSeq ?? 0], 2000)));
+    const { rt, wsHandlers } = harness({ events });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'session.open', id: 's1', seq: 900, q: 'x' });
+    await flush();
+    expect(rt.getStore().events['s1:']?.nextSeq).toBe(802);
+    rt.emit({ type: 'transcript.loadNewer', sessionId: 's1' });
+    await flush();
+    expect(events).toHaveBeenLastCalledWith('s1', { fromSeq: 802, agentId: null });
+  });
   it('追記が届いたら、持っている中でいちばん新しい seq の次から前向きに読む', async () => {
     const { rt, api, setHash } = harness();
     rt.start();

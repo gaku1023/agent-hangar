@@ -11,7 +11,9 @@ import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.t
 export type SummaryStateTag = { label: string; tone: 'blocked' | 'abandoned' | null };
 
 /** summaryState は 2 段目の頭に置く見立ての札。要約が無いときと、土台の要約のときは null。 */
-export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; stateLabel: string; summaryState: SummaryStateTag | null; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; memo: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[] };
+export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; stateLabel: string; summaryState: SummaryStateTag | null; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; memo: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[];
+  /** 検索の結果の行を開いたときの跳び先（抜粋の seq と検索語）。 */
+  jump?: { seq: number; q: string } };
 
 /**
  * 見立ての札を作る。

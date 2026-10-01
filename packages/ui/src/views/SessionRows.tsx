@@ -23,6 +23,9 @@ export type RowVariant = 'recent' | 'project' | 'search';
 /** 行が無いときに出す文言。emptyText で差し替えられる。 */
 const DEFAULT_EMPTY_TEXT = 'セッションはまだありません';
 
+/** 行を開く Intent。検索の結果の行は、抜粋の一致へ跳ぶ先を添える。 */
+const openIntent = (r: SessionRowProps) => (r.jump ? { type: 'session.open' as const, id: r.id, seq: r.jump.seq, q: r.jump.q } : { type: 'session.open' as const, id: r.id });
+
 /**
  * いまのフォーカスを一覧が奪ってはいけないか。
  * 入力欄で打っている最中、ターミナルの中、ダイアログの中にあるフォーカスは、その持ち主のものである。
@@ -134,7 +137,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
     switch (e.key) {
       case 'j': case 'ArrowDown': moveTo(Math.min(max, cursor + 1)); break;
       case 'k': case 'ArrowUp': moveTo(Math.max(0, cursor - 1)); break;
-      case 'Enter': if (cur) emit({ type: 'session.open', id: cur.id }); break;
+      case 'Enter': if (cur) emit(openIntent(cur)); break;
       case 'o': if (cur?.runId) emit({ type: 'session.openTerminalApp', runId: cur.runId }); break;
       case 'e': if (cur) emit({ type: 'session.openEditor', sessionId: cur.id }); break;
       case 'm': if (cur) startEdit(cur); break;
@@ -199,7 +202,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; height: number | s
     <div className="rows-host" id={props.id} data-testid="session-rows" ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown}>
       <VirtualList items={props.rows} rowHeight={SESSION_ROW_H} height={props.height} keyOf={(r) => r.id} foot={props.foot} render={(r, i) => (
         <div className="row row-2" role="row" tabIndex={i === tabStop ? 0 : -1} data-cursor={i === cursor ? 'true' : undefined} data-morph-id={r.id}
-          onClick={() => emit({ type: 'session.open', id: r.id })} onFocus={() => setCursorId(r.id)}>
+          onClick={() => emit(openIntent(r))} onFocus={() => setCursorId(r.id)}>
           <StatusDot status={r.live} />
           <span className="row-main">
             <span className="row-name">{r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>

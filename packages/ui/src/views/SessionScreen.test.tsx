@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
+import { toolItem } from '../test/items.ts';
 import { pick } from '../test/pick.ts';
 import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
@@ -12,12 +13,12 @@ import { TerminalHostContext } from './TerminalPane.tsx';
 const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', route: { name: 'project', id: 'p1' } }, live: 'busy', cwd: '/w/alpha', projectName: 'alpha', projectId: 'p1', summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1, sourceLabel: '自動', stateLabel: '進行中', summarizerLabel: null, generatedAt: '1970-01-01 09:00' }, summaryOpen: false, model: 'fable 5.1', effort: 'high', turns: 2, tokens: '1.2M', prUrl: null, memo: null, started: '2 時間前', lastActivity: '1 分前', hasTranscript: true,
   items: [
     { kind: 'user', seq: 0, text: 'hi', when: '10:00' },
-    { kind: 'tool', seq: 1, summary: 'Agent x', name: 'Agent', inputJson: '{}', result: { text: 'done', isError: false }, when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } },
-    { kind: 'tool', seq: 2, summary: 'Edit /a', name: 'Edit', inputJson: '{}', result: { text: 'File not found', isError: true }, when: '10:02', subagent: null },
+    toolItem(1, 'Agent', { description: 'x' }, { text: 'done', isError: false }, { when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } }),
+    toolItem(2, 'Edit', { file_path: '/a', old_string: 'a', new_string: 'b' }, { text: 'File not found', isError: true }, { when: '10:02' }),
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: '作業中 12 分', filesChanged: 3,
-  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false }], turnsComplete: false, openTurnItems: [], turnJump: null, gone: null };
+  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false }], turnsComplete: false, openTurnItems: [], turnJump: null, gone: null, find: null, jump: null, hasNewer: false };
 
 describe('SessionScreen', () => {
   it('ヘッダー、要約の開閉、切替、続きの読み込み', () => {
@@ -68,7 +69,9 @@ describe('SessionScreen', () => {
   it('ツール呼び出しは畳まれ、エラーは印が付き、サブエージェントへ飛べる', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
-    expect(screen.getByText('Edit /a').closest('.tool')).toHaveClass('tool-error');
+    const edit = screen.getByTitle('/a').closest('.tool')!;
+    expect(edit).toHaveAttribute('data-failed', 'true');
+    expect(edit.querySelector('.badge')).toHaveAttribute('data-k', 'fail');
     fireEvent.click(screen.getByText('サブエージェント abc を見る'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
   });
@@ -202,9 +205,9 @@ describe('SessionScreen のアイコン', () => {
   });
   it('ツール呼び出しとサブエージェントと折りたたみの矢印', () => {
     render(<IntentRoot onIntent={vi.fn()}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
-    const tool = screen.getByText('Edit /a').closest('.tool')!;
-    expect(tool.querySelector('.fold-arrow svg')?.getAttribute('data-icon')).toBe('chevron');
-    expect(tool.querySelector('.fold-head svg[data-icon="tool"]')).not.toBeNull();
+    const tool = screen.getByTitle('/a').closest('.tool')!;
+    expect(tool.querySelector('.chev svg')?.getAttribute('data-icon')).toBe('chevron');
+    expect(tool.querySelector('.badge')?.textContent).toBe('Edit');
     expect(iconOf(screen.getByRole('button', { name: 'サブエージェント abc を見る' }))).toBe('subagent');
   });
 });

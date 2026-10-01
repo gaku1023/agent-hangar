@@ -139,6 +139,28 @@ describe('ローカルコマンドの記録', () => {
   });
 });
 
+describe('本文のツール', () => {
+  const ev = [
+    { kind: 'tool_call' as const, seq: 0, toolId: 't', name: 'Bash', input: { command: 'npm test' }, summary: 'Bash npm test' },
+    { kind: 'tool_result' as const, seq: 1, toolId: 't', text: 'ok', isError: false },
+    { kind: 'tool_call' as const, seq: 2, toolId: 'u', name: 'Read', input: { file_path: '/w/app/a.ts' }, summary: 'Read /w/app/a.ts' },
+  ];
+  it('種類ごとの見せ方を持ち、パスは作業ディレクトリからの相対にする', () => {
+    const items = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    expect(items[0]).toMatchObject({ kind: 'tool', view: { step: 'run', head: { main: 'npm test', meta: [{ text: '0', tone: 'ok' }] } }, raw: null });
+    expect(items[1]).toMatchObject({ kind: 'tool', view: { step: 'read', head: { main: 'a.ts' } } });
+  });
+  it('生の入力の JSON は、生の記録を出すときだけ持つ', () => {
+    const [item] = buildItems(ev, { showThinking: false, showRaw: true, subagents: [], cwd: '/w/app' });
+    expect(item).toMatchObject({ raw: { input: '{\n  "command": "npm test"\n}', result: 'ok' } });
+  });
+  it('同じ呼び出しと結果の見せ方は、描き直すたびには作らない', () => {
+    const a = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    const b = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    expect(a[0]!.kind === 'tool' && b[0]!.kind === 'tool' && a[0]!.view === b[0]!.view).toBe(true);
+  });
+});
+
 describe('本文の無い system', () => {
   const events = [
     { kind: 'system' as const, seq: 1, ts: 1, text: 'turn_duration', subtype: 'turn_duration' },
@@ -430,6 +452,14 @@ describe('presentSession', () => {
     store.sessions.s1 = session('s1');
     expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: null, generatedAt: absoluteTime(1) });
   });
+  it('真ん中の頁から開いた本文は、新しい行がまだあることと跳び先を持ち、遡り終えたら古い行のボタンを出さない', () => {
+    let store = storeWith();
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 900, nextSeq: 101, events: [{ kind: 'user', seq: 100, text: 'a' }] }, false);
+    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), jump: { seq: 100, query: 'a', n: 1 } } } };
+    expect(presentSession(state, store, NOW, 's1')).toMatchObject({ hasNewer: true, hasMore: true, jump: { seq: 100, query: 'a', n: 1 } });
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 900, nextSeq: null, events: [] }, true, true);
+    expect(presentSession(state, store, NOW, 's1')).toMatchObject({ hasNewer: true, hasMore: false });
+  });
   it('無いセッションは notFound。run だけ先に届いていれば読み込み中', () => {
     expect(presentSession(initialState(), storeWith(), NOW, 'zz')).toMatchObject({ notFound: true, loadingSession: false });
     const store = storeWith();
@@ -451,6 +481,9 @@ describe('presentSessions', () => {
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
     expect(r.rows[0]!.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
+    // 行を開くと、抜粋の seq と検索語を持って一致へ跳ぶ。
+    expect(r.rows[0]!.jump).toEqual({ seq: 1, q: 'hi' });
+    expect(all.rows[0]!.jump).toBeUndefined();
   });
   it('切れた結果は、見せている件数と全件の数を分けて持ち、読み足しの最中を区別する', () => {
     const base = storeWith();

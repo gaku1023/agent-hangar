@@ -36,6 +36,19 @@ describe('store', () => {
     s = applyEventsPage(s, k, { sessionId: 's1', events: [{ kind: 'assistant', seq: 1, text: 'b' }], total: 2, nextSeq: null }, true);
     expect(s.events[k]?.items).toHaveLength(2);
   });
+  it('過去へ遡ったページは、後ろ（新しい側）の続きの印を消さない。空なら遡り終えた印を付ける', () => {
+    const k = eventsKey('s1', null);
+    // 検索の結果から真ん中の頁を前向きに読んだ。後ろにまだ行がある。
+    let s = applyEventsPage(initialStore(), k, { sessionId: 's1', events: [{ kind: 'user', seq: 100, text: 'a' }], total: 900, nextSeq: 101 }, false);
+    expect(s.events[k]).toMatchObject({ nextSeq: 101, olderDone: false });
+    s = applyEventsPage(s, k, { sessionId: 's1', events: [{ kind: 'user', seq: 50, text: 'b' }], total: 900, nextSeq: null }, true, true);
+    expect(s.events[k]).toMatchObject({ nextSeq: 101, olderDone: false });
+    s = applyEventsPage(s, k, { sessionId: 's1', events: [], total: 900, nextSeq: null }, true, true);
+    expect(s.events[k]).toMatchObject({ nextSeq: 101, olderDone: true });
+    // 後ろを読み足したら、その頁の続きの印に替える。
+    s = applyEventsPage(s, k, { sessionId: 's1', events: [{ kind: 'user', seq: 101, text: 'c' }], total: 900, nextSeq: null }, true);
+    expect(s.events[k]).toMatchObject({ nextSeq: null, olderDone: true });
+  });
   it('transcript.appended は該当セッションの events を再読込対象にする', () => {
     let s = applyEventsPage(initialStore(), eventsKey('s1', null), { sessionId: 's1', events: [], total: 0, nextSeq: null }, false);
     s = applyServerEvent(s, { type: 'transcript.appended', sessionId: 's1', count: 1 });

@@ -25,6 +25,16 @@ describe('SessionRows', () => {
     expect(screen.getAllByTitle('2026-09-01 10:00')).toHaveLength(2);
     expect(screen.getAllByText('alpha')).toHaveLength(2);
   });
+  it('検索の結果の行は、抜粋の seq と検索語を持って開く', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[{ ...row('a'), jump: { seq: 42, q: 'パスワード' } }]} height={400} variant="search" /></IntentRoot>);
+    fireEvent.click(screen.getByText('na'));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'a', seq: 42, q: 'パスワード' });
+    const ra = screen.getByText('na').closest('[role="row"]') as HTMLElement;
+    act(() => ra.focus());
+    fireEvent.keyDown(ra, { key: 'Enter' });
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.open', id: 'a', seq: 42, q: 'パスワード' });
+  });
   it('空なら案内を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} variant="project" /></IntentRoot>);
     expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();

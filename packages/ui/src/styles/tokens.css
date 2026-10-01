@@ -97,6 +97,8 @@
   --blur-in: 6px;
   /* 端末の縁が、作業中にゆっくり明暗を往復する周期。 */
   --breathe-period: 3.2s;
+  /* 検索の結果から開いたとき、跳んだ行の地を淡い黄から薄れさせる長さ。 */
+  --dur-flash: 1800ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
