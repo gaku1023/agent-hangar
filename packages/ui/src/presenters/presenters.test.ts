@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { addDays, localDate } from '@agent-hangar/shared';
 import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
@@ -10,7 +11,7 @@ import { presentHome } from './home.ts';
 import { newSessionTarget, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
-import { presentSessionRow } from './row.ts';
+import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
 import { buildItems, presentSession, sessionActions } from './session.ts';
 import { presentSessions } from './sessions.ts';
 import { presentSettings } from './settings.ts';
@@ -1486,5 +1487,40 @@ describe('presentSettings の通知', () => {
     const state = { ...initialState(), notify: { available: true, on: true, blocked: false } };
     expect(presentSettings(state, initialStore(), NOW).notify).toEqual({ available: true, on: true, blocked: false });
     expect(presentSettings({ ...state, notify: { available: true, on: false, blocked: true } }, initialStore(), NOW).notify).toEqual({ available: true, on: false, blocked: true });
+  });
+});
+
+describe('presentSessionRow のセッションの状態', () => {
+  const store = initialStore();
+  const today = localDate(NOW);
+  const withState = (state: SessionDto['state']) => session('s1', { state });
+  const pick = (s: SessionDto) => { const r = presentSessionRow(s, store, NOW); return { state: r.state, returnOn: r.returnOn, overdueDays: r.overdueDays, candidate: r.candidate, setBy: r.setBy }; };
+  it('state が欠けた古いサーバの行と null は、印なしとして読む', () => {
+    const none = { state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null };
+    expect(pick(session('s1'))).toEqual(none);
+    expect(pick(withState(null))).toEqual(none);
+  });
+  it('Paused は戻る日と過ぎた日数を持ち、Done と Archived は戻る日を持たない', () => {
+    expect(pick(withState({ status: 'paused', note: '見る', returnOn: addDays(today, -2), setBy: 'user', setAt: 1, candidate: null }))).toEqual({ state: 'paused', returnOn: addDays(today, -2), overdueDays: 2, candidate: null, setBy: 'user' });
+    expect(pick(withState({ status: 'paused', note: null, returnOn: addDays(today, 3), setBy: 'user', setAt: 1, candidate: null })).overdueDays).toBeNull();
+    expect(pick(withState({ status: 'done', note: null, returnOn: '2026-10-02', setBy: 'conversation', setAt: 1, candidate: null }))).toEqual({ state: 'done', returnOn: null, overdueDays: null, candidate: null, setBy: 'conversation' });
+    expect(pick(withState({ status: 'archived', note: null, returnOn: null, setBy: 'import', setAt: 1, candidate: null })).state).toBe('archived');
+  });
+  it('提案は経過時間を添える', () => {
+    const r = pick(withState({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: { status: 'done', note: '直した', returnOn: null, source: 'post_hoc', at: NOW - 12 * 60_000 } }));
+    expect(r).toEqual({ state: null, returnOn: null, overdueDays: null, setBy: null, candidate: { status: 'done', note: '直した', returnOn: null, source: 'post_hoc', ago: '12 分前' } });
+  });
+});
+
+describe('戻る日と提案の札の文言', () => {
+  it('今日は「今日」、過ぎたものは「N 日過ぎ」、先のものは月日と曜日', () => {
+    expect(returnOnLabel('2026-10-01', 0)).toBe('今日');
+    expect(returnOnLabel('2026-09-28', 3)).toBe('3 日過ぎ');
+    expect(returnOnLabel('2026-10-02', null)).toBe('10/2（金）');
+    expect(returnOnLabel('2026-12-31', null)).toBe('12/31（木）');
+  });
+  it('提案の札は「Done にする？」か「Paused · 日？」', () => {
+    expect(candidateLabel({ status: 'done', returnOn: null })).toBe('Done にする？');
+    expect(candidateLabel({ status: 'paused', returnOn: '2026-10-05' })).toBe('Paused · 10/5（月）？');
   });
 });

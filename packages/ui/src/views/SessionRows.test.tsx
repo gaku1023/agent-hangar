@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 const rowsCssPath = ['packages/ui/src/styles/rows.css', 'src/styles/rows.css'].map((r) => `${process.cwd()}/${r}`).find(existsSync);
 const rowsCss = readFileSync(rowsCssPath!, 'utf8');
 
-const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, stateLabel: '完了', summaryState: null, model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', memo: null, hasTranscript: true, cost: '', runId: null, transcript: 'present' });
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, stateLabel: '完了', summaryState: null, model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', memo: null, hasTranscript: true, cost: '', runId: null, transcript: 'present', state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null });
 
 describe('SessionRows', () => {
   it('行のクリックと Enter で session.open', () => {
@@ -47,7 +47,7 @@ describe('SessionRows', () => {
 
 const p3Row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({
   id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high',
-  when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, ...over,
+  when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over,
 });
 
 describe('SessionRows のフェーズ 3', () => {
@@ -212,7 +212,7 @@ describe('カーソルの行を見える位置へ運ぶ', () => {
 });
 
 describe('SessionRows（2 段の行）', () => {
-  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', memo: 'スワイプは実機で', hasTranscript: true, transcript: 'present', cost: '$1.82', runId: null, ...over });
+  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', memo: 'スワイプは実機で', hasTranscript: true, transcript: 'present', cost: '$1.82', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over });
   const rowOf = (name: string) => screen.getByText(name).closest('[role="row"]') as HTMLElement;
 
   it('最近は 1 段目の名前の右にプロジェクト名、2 段目に要約、右は時刻だけ', () => {

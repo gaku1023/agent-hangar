@@ -1,4 +1,4 @@
-import type { LiveStatus, SessionDto, SessionSummaryDto } from '@agent-hangar/shared';
+import { overdueDays, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy } from '@agent-hangar/shared';
 import { aliveRunOf, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, STATE_LABEL } from './format.ts';
 import type { Segment } from './highlight.ts';
@@ -13,7 +13,17 @@ export type SummaryStateTag = { label: string; tone: 'blocked' | 'abandoned' | n
 /** summaryState は 2 段目の頭に置く見立ての札。要約が無いときと、土台の要約のときは null。 */
 export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; stateLabel: string; summaryState: SummaryStateTag | null; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; memo: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[];
   /** 検索の結果の行を開いたときの跳び先（抜粋の seq と検索語）。 */
-  jump?: { seq: number; q: string } };
+  jump?: { seq: number; q: string };
+  /** セッションの状態。印なしは null。 */
+  state: SessionStatus | null;
+  /** Paused の戻る日（YYYY-MM-DD）。Paused 以外は null。 */
+  returnOn: string | null;
+  /** 戻る日が今日か過ぎていれば過ぎた日数（今日は 0）、先なら null。 */
+  overdueDays: number | null;
+  /** Claude の提案。状態が付いていれば null（サーバの toStateDto が状態を正にしている）。 */
+  candidate: { status: 'paused' | 'done'; note: string | null; returnOn: string | null; source: CandidateSource; ago: string } | null;
+  /** 状態を誰が付けたか。conversation は会話で利用者が選んだもので、札に「会話で承認」と添える。印なしは null。 */
+  setBy: StateSetBy | null };
 
 /**
  * 見立ての札を作る。
@@ -27,6 +37,10 @@ function summaryStateTag(summary: SessionSummaryDto | null): SummaryStateTag | n
 }
 
 export function presentSessionRow(s: SessionDto, store: Store, now: number, excerpt?: Segment[]): SessionRowProps {
+  // 古いサーバは state を送らない。欠けたものは印なしとして読む。
+  const st = s.state ?? null;
+  const status = st?.status ?? null;
+  const returnOn = status === 'paused' ? st!.returnOn : null;
   const row: SessionRowProps = {
     id: s.id, name: s.name ?? '（名前なし）', oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
     projectName: s.projectId ? store.projects[s.projectId]?.name ?? null : null,
@@ -34,6 +48,9 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
     when: relativeTime(s.lastActivityAt, now), whenAbs: absoluteTime(s.lastActivityAt), filesChanged: s.stats.filesChanged, prUrl: s.stats.prUrl, memo: s.memo, hasTranscript: s.hasTranscript,
     transcript: transcriptMark(s, store.retention?.days ?? DEFAULT_DAYS, now),
     cost: costLabel(s.stats.costUsd), runId: aliveRunOf(store, s.id)?.id ?? null,
+    state: status, returnOn, overdueDays: returnOn ? overdueDays(returnOn, now) : null,
+    candidate: st?.candidate ? { status: st.candidate.status, note: st.candidate.note, returnOn: st.candidate.returnOn, source: st.candidate.source, ago: relativeTime(st.candidate.at, now) } : null,
+    setBy: status ? st!.setBy : null,
   };
   if (excerpt) row.excerpt = excerpt;
   return row;
@@ -51,4 +68,27 @@ export function sortSessions(list: SessionDto[]): SessionDto[] {
     if (la !== lb) return la - lb;
     return (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0);
   });
+}
+
+/** 状態の札の語。プロジェクトの状態と同じ英語にする。 */
+export const STATUS_LABEL: Record<SessionStatus, string> = { paused: 'Paused', done: 'Done', archived: 'Archived' };
+/** 提案の出どころの語。ポップに「出どころ：会話 · 12 分前」と出す。 */
+export const CANDIDATE_SOURCE_LABEL: Record<CandidateSource, string> = { in_session: '会話', exit: '抜けるとき', post_hoc: '要約' };
+
+const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土'];
+
+/**
+ * 戻る日の札の文言。今日は「今日」、過ぎたものは「N 日過ぎ」、先のものは「10/2（金）」。
+ * 曜日は日付だけから決まるので、今の時刻は要らない（過ぎたかどうかは overdue で受け取る）。
+ */
+export function returnOnLabel(returnOn: string, overdue: number | null): string {
+  if (overdue === 0) return '今日';
+  if (overdue !== null) return `${overdue} 日過ぎ`;
+  const [y, m, d] = returnOn.split('-').map(Number);
+  return `${m}/${d}（${WEEKDAY[new Date(Date.UTC(y!, m! - 1, d!)).getUTCDay()]}）`;
+}
+
+/** 提案の札の文言（Q3 の枠だけの札）。 */
+export function candidateLabel(c: { status: 'paused' | 'done'; returnOn: string | null }): string {
+  return c.status === 'done' ? 'Done にする？' : `Paused · ${c.returnOn ? returnOnLabel(c.returnOn, null) : '日付なし'}？`;
 }
