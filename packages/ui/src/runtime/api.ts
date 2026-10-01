@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -48,7 +48,8 @@ export type ApiClient = {
   openEditor(sessionId: string, file?: string): Promise<void>;
   projectOpenEditor(projectId: string): Promise<void>;
   projectOpenTerminal(projectId: string): Promise<{ app: TerminalApp; fellBack: boolean }>;
-  createProject(name: string, path: string): Promise<ProjectDto>;
+  createProject(place: ProjectPlace): Promise<ProjectDto>;
+  workspaceDirs(): Promise<WorkspaceDirDto[]>;
   usageAggregate(days: number): Promise<UsageAggregateDto>;
   statusline(): Promise<StatuslineStatusDto>;
   shellHook(): Promise<ShellHookDto>;
@@ -133,7 +134,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     openEditor: (sessionId, file) => post(`/api/sessions/${sessionId}/open-editor`, file === undefined ? undefined : { file }),
     projectOpenEditor: (projectId) => post(`/api/projects/${projectId}/open-editor`),
     projectOpenTerminal: (projectId) => post(`/api/projects/${projectId}/open-terminal`),
-    createProject: (name, path) => post('/api/projects', { name, path }),
+    createProject: (place) => post('/api/projects', place),
+    workspaceDirs: () => call('/api/workspace/dirs'),
     usageAggregate: (days) => call(`/api/usage/aggregate${qs({ days })}`),
     statusline: () => call('/api/statusline'),
     shellHook: () => call('/api/shell-hook'),

@@ -66,6 +66,13 @@ function setDraft(state: State, draft: NewSessionDraft | null): Step {
 export function launchStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime') {
     const ev = input.event;
+    if (ev.type === 'project.created') {
+      // 作ってから起動する送信の途中で、プロジェクトができた。起動だけが失敗しても押し直しで二重に作らないよう印を持ち、
+      // 送った詳細をそのプロジェクトの前回値にする（送った時点ではプロジェクトの id が無かったため）。
+      if (state.launch.kind !== 'submitting') return { state, effects: [] };
+      const r = rememberPrefs(state, ev.params);
+      return { state: { ...r.state, launch: { kind: 'submitting', createdProjectId: ev.projectId } }, effects: r.effects };
+    }
     if (ev.type === 'launch.done') {
       // ダイアログから起動し終えたら、書きかけの下書きは役目を終えたので消す。再開やフォークの完了では触れない。
       // 送った後に Esc でダイアログを閉じても起動は止まらないので、送った印（newSessionSent）でも消す。
@@ -79,7 +86,8 @@ export function launchStep(state: State, input: Input): Step | null {
       // 再開とフォークはダイアログを持たないので、そのときだけトーストで知らせる。
       const shown = state.overlay.kind === 'newSession';
       // 失敗した起動の下書きは、やり直せるよう残す。送った印だけ外す。
-      const next = { ...state, launch: { kind: 'failed' as const, message: ev.message }, newSessionSent: false };
+      const created = state.launch.kind === 'submitting' ? state.launch.createdProjectId : undefined;
+      const next = { ...state, launch: { kind: 'failed' as const, message: ev.message, ...(created ? { createdProjectId: created } : {}) }, newSessionSent: false };
       return { state: next, effects: shown ? [] : [{ kind: 'toast', level: 'error', message: ev.message }] };
     }
     return null;
@@ -94,6 +102,8 @@ export function launchStep(state: State, input: Input): Step | null {
       return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
     case 'session.new.submit':
       if (state.launch.kind === 'submitting') return { state, effects: [] };
+      // 新しいフォルダと未登録のフォルダは、プロジェクトを作ってから起動する（runtime が 2 つを順に行う）。
+      if (i.place) return { state: { ...state, launch: { kind: 'submitting' }, newSessionSent: true }, effects: [{ kind: 'api.createProjectThenLaunch', place: i.place, params: i.params }] };
       if (!i.params.projectId && !i.params.scratch) return { state: { ...state, launch: { kind: 'failed', message: 'プロジェクトを選んでください' } }, effects: [] };
       {
         // 詳細は、送った時点でそのプロジェクトの前回値にする。起動に失敗しても、選んだ詳細は利用者の意図なので残す。

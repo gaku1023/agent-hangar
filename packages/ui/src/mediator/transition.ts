@@ -3,6 +3,7 @@ import { launchStep } from './launch.ts';
 import { liveStep, settleWaiting } from './live.ts';
 import { notifyStep } from './notify.ts';
 import { overlayStep, settleQueue } from './overlay.ts';
+import { projectCreateStep } from './projectCreate.ts';
 import { promoteStep } from './promote.ts';
 import { resumeHereStep } from './resumeHere.ts';
 import { retentionStep } from './retention.ts';
@@ -18,7 +19,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, livePaneSplit: LIVE_PANE_SPLIT_DEFAULT, retentionBannerDismissed: false, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false, blocked: false }, nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0, settingsSave: {}, copied: null };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {} }, launch: { kind: 'idle' }, waitingSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, workspaceDirs: null, pickedFolder: null, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, livePaneSplit: LIVE_PANE_SPLIT_DEFAULT, retentionBannerDismissed: false, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false, blocked: false }, nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0, settingsSave: {}, copied: null };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -26,19 +27,23 @@ function pushToast(state: State, level: 'info' | 'error', message: string): Stat
 }
 
 /** フェーズ 4 以降に残る操作だけ。フェーズ 3 で実装した Intent はここから外した。 */
-const NOT_YET_INTENTS = new Set(['session.takeover', 'project.new.open', 'project.new.submit']);
+const NOT_YET_INTENTS = new Set(['session.takeover']);
 
 /** 直交する領域の状態機械を順に試し、最初に応答した領域の結果を採る。残りは横断的な入力。 */
 export function transition(state: State, input: Input): Step {
-  // promoteStep と retentionStep は overlay.close を横取りするので overlayStep より前に置く。
+  // promoteStep、projectCreateStep、retentionStep は overlay.close を横取りするので overlayStep より前に置く。
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, retentionStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionViewStep, sidebarStep, livePaneSplitStep, liveStep, notifyStep, workbenchStep]) {
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, projectCreateStep, retentionStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionViewStep, sidebarStep, livePaneSplitStep, liveStep, notifyStep, workbenchStep]) {
     const r = step(state, input);
     // 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
     // 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。
-    if (r) { const settled = settleWaiting(settleQueue(r.state)); return settled === r.state ? r : { ...r, state: settled }; }
+    if (r) {
+      const settled = settleWaiting(settleQueue(r.state));
+      const next = settled === r.state ? r : { ...r, state: settled };
+      return fetchDirsOnOpen(state, next);
+    }
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message), effects: [] };
@@ -64,4 +69,14 @@ export function transition(state: State, input: Input): Step {
       if (NOT_YET_INTENTS.has(i.type)) return { state, effects: [{ kind: 'toast', level: 'info', message: NOT_YET }] };
       return { state, effects: [] };
   }
+}
+
+/**
+ * 新しいセッションのダイアログか作成のダイアログが開いたら、未登録のフォルダの一覧を取りに行く。
+ * 開く経路（⌘N、ヘッダー、カード、パレット、作成して始める）が多いので、開いた瞬間をここで 1 か所で見る。
+ */
+function fetchDirsOnOpen(prev: State, r: Step): Step {
+  const k = r.state.overlay.kind;
+  const opened = (k === 'newSession' || k === 'newProject') && prev.overlay.kind !== k;
+  return opened ? { ...r, effects: [...r.effects, { kind: 'api.workspaceDirs' }] } : r;
 }

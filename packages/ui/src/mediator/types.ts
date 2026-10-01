@@ -1,4 +1,4 @@
-import type { IndexProgressDto, Intent, LaunchParams, ProjectStatus, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SettingsDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, Intent, LaunchParams, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SettingsDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 検索の問い合わせ。期間を日数のまま持つ。
@@ -13,6 +13,14 @@ export type RuntimeEvent =
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string }
   | { type: 'promote.done'; projectId: string; moved: boolean; reason: string | null }
   | { type: 'promote.failed'; message: string }
+  // 作ってから起動する送信の途中で、プロジェクトができた。params は作ったプロジェクトの id を入れた起動の詳細である。
+  | { type: 'project.created'; projectId: string; params: LaunchParams }
+  // プロジェクト画面の作成のダイアログの結果。
+  | { type: 'project.create.done'; projectId: string; startSession: boolean } | { type: 'project.create.failed'; message: string }
+  // ワークスペース直下の未登録のフォルダ。取れなければ空で届く。
+  | { type: 'workspaceDirs.loaded'; dirs: WorkspaceDirDto[] }
+  // Finder で選ばれたフォルダ。取り消したときは届かない。
+  | { type: 'folder.picked'; path: string }
   // 分割の右に置くタブはストアを見ないと決まらないので、ランタイムが決めて返す。
   | { type: 'split.resolved'; sessionId: string; tabId: string | null }
   // 「次の入力待ちへ」の行き先。入力待ちが無ければ null。これもストアを見ないと決まらないので、ランタイムが決めて返す。
@@ -92,6 +100,10 @@ export type Effect =
   | { kind: 'api.openArtifactEditor'; id: string }
   | { kind: 'api.addArtifact'; projectId: string; url: string }
   | { kind: 'api.promote'; sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }
+  | { kind: 'api.createProject'; place: ProjectPlace; startSession: boolean }
+  | { kind: 'api.createProjectThenLaunch'; place: ProjectPlace; params: LaunchParams }
+  | { kind: 'api.workspaceDirs' }
+  | { kind: 'desktop.pickFolder' }
   | { kind: 'api.regenerateSummary'; sessionId: string }
   | { kind: 'api.loadSettingsExtras' }
   | { kind: 'api.testSummarizer' }
@@ -122,6 +134,7 @@ export type Overlay =
   | { kind: 'shortcuts' }
   | { kind: 'newSession'; projectId: string | null; scratch: boolean }
   | { kind: 'promote'; sessionId: string }
+  | { kind: 'newProject' }
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
   | { kind: 'confirm'; confirm: ConfirmRequest }
   | { kind: 'configPreview' }
@@ -130,7 +143,8 @@ export type Overlay =
 export type NewSessionDraft = { name: string; prompt: string };
 /** 新しいセッションの詳細の前回値。起動したときの値のうち、既定でないものだけを持つ。 */
 export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMode' | 'worktree' | 'addDirs'>;
-export type LaunchState = { kind: 'idle' } | { kind: 'submitting' } | { kind: 'failed'; message: string };
+/** createdProjectId は、作ってから起動する送信でプロジェクトができた後の印である。起動だけが失敗しても、押し直しで二重に作らない。 */
+export type LaunchState = { kind: 'idle' } | { kind: 'submitting'; createdProjectId?: string } | { kind: 'failed'; message: string; createdProjectId?: string };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */
 export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed';
 /**
@@ -198,6 +212,12 @@ export type State = {
    * 起動と同じ形の状態を使う。
    */
   promote: LaunchState;
+  /** プロジェクト画面の作成のダイアログの送信。 */
+  projectCreate: LaunchState;
+  /** ワークスペース直下の未登録のフォルダ。ダイアログを開くたびに取り直す。未取得は null。 */
+  workspaceDirs: WorkspaceDirDto[] | null;
+  /** Finder で選んだフォルダ。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
+  pickedFolder: { path: string; n: number } | null;
   /**
    * 事後要約に失敗したセッション。
    * ヘッダーの要約の横に出す。

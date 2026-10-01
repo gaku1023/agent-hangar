@@ -15,7 +15,7 @@ describe('createDesktopBridge', () => {
     expect(invoke.mock.calls).toEqual([['open_log'], ['restart_app']]);
   });
   it('フォルダの選択は既定の場所を渡し、選んだパスか、取り消しなら null を返す', async () => {
-    const invoke = vi.fn(async () => '/Users/me/thesis');
+    const invoke = vi.fn(async (): Promise<string | null> => '/Users/me/thesis');
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
     expect(await b.pickFolder('/Users/me/workspace')).toBe('/Users/me/thesis');
     expect(invoke).toHaveBeenCalledWith('pick_folder', { defaultPath: '/Users/me/workspace' });

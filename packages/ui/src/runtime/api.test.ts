@@ -16,7 +16,7 @@ describe('createApi（フェーズ 2）', () => {
     await api.launch({ projectId: 'p1', name: 'n' });
     await api.resume('s1'); await api.fork('s1'); await api.killRun('r1'); await api.openTab('r1'); await api.closeTab('r1', 't1');
     await api.openTerminalApp('r1', 't1'); await api.openTerminalApp('r1', null);
-    await api.projectOpenTerminal('p1'); await api.createProject('beta', '/w/beta');
+    await api.projectOpenTerminal('p1'); await api.createProject({ kind: 'dir', path: '/w/beta', name: 'beta' });
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       'POST /api/runs', 'POST /api/sessions/s1/resume', 'POST /api/sessions/s1/fork', 'DELETE /api/runs/r1', 'POST /api/runs/r1/tabs', 'DELETE /api/runs/r1/tabs/t1',
       'POST /api/runs/r1/open-terminal', 'POST /api/runs/r1/open-terminal', 'POST /api/projects/p1/open-terminal', 'POST /api/projects',
@@ -24,7 +24,15 @@ describe('createApi（フェーズ 2）', () => {
     expect(calls[0]!.body).toBe('{"projectId":"p1","name":"n"}');
     expect(calls[6]!.body).toBe('{"tabId":"t1"}');
     expect(calls[7]!.body).toBe('{}');
-    expect(calls[9]!.body).toBe('{"name":"beta","path":"/w/beta"}');
+    expect(calls[9]!.body).toBe('{"kind":"dir","path":"/w/beta","name":"beta"}');
+  });
+  it('プロジェクトの作成は place をそのまま送り、未登録の一覧は GET で取る', async () => {
+    const { api, calls } = harness();
+    const lastCall = () => { const c = calls.at(-1)!; return { ...c, body: c.body === undefined ? undefined : JSON.parse(c.body) as unknown }; };
+    await api.createProject({ kind: 'newDir', name: 'fresh', gitInit: true });
+    expect(lastCall()).toMatchObject({ url: '/api/projects', method: 'POST', body: { kind: 'newDir', name: 'fresh', gitInit: true } });
+    await api.workspaceDirs();
+    expect(lastCall()).toMatchObject({ url: '/api/workspace/dirs', method: 'GET' });
   });
   it('204 は undefined、失敗は status と経路のエラー', async () => {
     const ok = harness(204);

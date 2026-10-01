@@ -24,7 +24,7 @@ function paletteRun(state: State, command: PaletteCommand): Step {
   if (kind === 'go' && (rest === 'home' || rest === 'projects' || rest === 'sessions')) return { state: closed, effects: [{ kind: 'navigate', route: { name: rest } }] };
   if (kind === 'cmd') {
     // ダイアログを開く行は、確認や入力のあるダイアログを差し替えない（overlay.ts の overlayReplaceable）。
-    const opens = rest.startsWith('new-session') || rest === 'new-scratch' || rest === 'shortcuts';
+    const opens = rest.startsWith('new-session') || rest === 'new-scratch' || rest === 'shortcuts' || rest === 'new-project';
     if (opens && !overlayReplaceable(closed.overlay)) return { state: closed, effects: [] };
     // 新しいセッションは、パレットを開いた画面のプロジェクトを最初から選ぶ。
     // Mediator はストアを見ないので、どれを選ぶかは presenter が ID の後ろに載せてくる（new-session:project:<id> か new-session:scratch）。
@@ -36,6 +36,7 @@ function paletteRun(state: State, command: PaletteCommand): Step {
     switch (rest) {
       case 'sidebar': return sidebarStep(closed, { kind: 'intent', intent: { type: 'sidebar.toggle' } })!;
       case 'new-scratch': return { state: { ...closed, overlay: { kind: 'newSession', projectId: null, scratch: true }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
+      case 'new-project': return { state: { ...closed, overlay: { kind: 'newProject' }, projectCreate: { kind: 'idle' } }, effects: [] };
       case 'settings': return { state: closed, effects: [{ kind: 'navigate', route: { name: 'settings' } }] };
       case 'rebuild-index': return { state: closed, effects: [{ kind: 'api.rebuildIndex' }] };
       case 'shortcuts': return { state: { ...closed, overlay: { kind: 'shortcuts' } }, effects: [] };
