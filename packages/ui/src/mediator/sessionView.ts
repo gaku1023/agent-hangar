@@ -79,6 +79,16 @@ export function leaveTranscriptStep(state: State, id: string): Step | null {
   return { state: r.state, effects: [{ kind: 'api.leaveTranscript', runId: run }] };
 }
 
+/**
+ * 跳ばした run が当てはまれば、跳び先（turnJump）だけを忘れる。
+ * 開いたターンは読めるので残す。
+ * 保存しない状態なので書き込みは出さない。
+ */
+function forgetJump(state: State, id: string, match: (runId: string) => boolean): State {
+  const tj = state.sessionView[id]?.turnJump;
+  return tj && match(tj.runId) ? local(state, id, { turnJump: null }).state : state;
+}
+
 const currentSession = (state: State): string | null => (state.screen.name === 'session' ? state.screen.id : null);
 const viewOf = (state: State, id: string) => state.sessionView[id] ?? defaultSessionView();
 
@@ -93,11 +103,17 @@ export function sessionViewStep(state: State, input: Input): Step | null {
         return { state, effects: open ? [{ kind: 'api.loadEvents', sessionId: ev.sessionId, fromSeq: -2 }] : [] };
       }
       case 'run.started': {
-        if (currentSession(state) !== ev.run.sessionId) return { state, effects: [] };
-        const r = patch(state, ev.run.sessionId, { selectedTab: null });
+        // 再開などで run が替わったら、前の run の跳び先は忘れる。
+        const fresh = forgetJump(state, ev.run.sessionId, (runId) => runId !== ev.run.id);
+        if (currentSession(fresh) !== ev.run.sessionId) return { state: fresh, effects: [] };
+        const r = patch(fresh, ev.run.sessionId, { selectedTab: null });
         return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId: ev.run.sessionId, tabId: ev.run.id }] };
       }
-      case 'run.ended': return { state, effects: [{ kind: 'terminal.disconnect', tabId: ev.run.id }] };
+      case 'run.ended': {
+        // 終わった run は transcript から抜けさせられない（サーバは 409 で断る）ので、跳び先ごと忘れる。
+        const fresh = forgetJump(state, ev.run.sessionId, (runId) => runId === ev.run.id);
+        return { state: fresh, effects: [{ kind: 'terminal.disconnect', tabId: ev.run.id }] };
+      }
       case 'tab.upsert': {
         const t = ev.tab;
         if (t.closedAt !== null) {

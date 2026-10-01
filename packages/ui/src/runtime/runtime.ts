@@ -320,7 +320,16 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.jumpToPrompt(e.runId, { heads: e.heads, index: e.index, from: e.from }).then((r) => done(r.found ? 'found' : r.reason)).catch((err) => { done('failed'); fail(err); });
         return;
       }
-      case 'api.leaveTranscript': deps.api.leaveTranscript(e.runId).catch(fail); return;
+      case 'api.leaveTranscript': {
+        // 抜けさせるのは今も生きている run だけにする。
+        // 終わった run はサーバが 409 で断り、利用者には意味の無いトーストになる。
+        // 送った後に終わって断られることもあるので、失敗は静かに捨てる。
+        // 抜けられたかどうかは左の端末に出ている。
+        const run = store.runs[e.runId];
+        if (!run || run.endedAt !== null) return;
+        deps.api.leaveTranscript(e.runId).catch(() => {});
+        return;
+      }
       case 'api.projectOpenEditor': deps.api.projectOpenEditor(e.projectId).catch(fail); return;
       case 'api.projectOpenTerminal': deps.api.projectOpenTerminal(e.projectId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
       case 'terminal.connect': { const id = resolveTab(e.sessionId, e.tabId); if (id) deps.terminals.connect(id); return; }

@@ -485,6 +485,30 @@ describe('起動とターミナル', () => {
     expect(jumpToPrompt).toHaveBeenCalledWith('r1', { heads: ['a'], index: 0, from: 'bottom' });
     expect(rt.getState().sessionView.s1?.turnJump).toEqual({ seq: 4, status: 'notFound', runId: 'r1' });
   });
+  it('transcript から抜けさせるのは、今も生きている run にだけで、断られても知らせない', async () => {
+    const aliveRun = p3Run('r1', 's1');
+    const leaveTranscript = vi.fn(async () => { throw new Error('run is not alive'); });
+    const { rt, setHash } = harness({ leaveTranscript });
+    rt.start();
+    await flush();
+    setHash('#/session/s1');
+    // 知らない run（終わって消えた run）には送らない。
+    rt.emit({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
+    await flush();
+    expect(leaveTranscript).not.toHaveBeenCalled();
+    // 終わった run にも送らない。
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: aliveRun, tabs: [] } });
+    rt.dispatch({ kind: 'server', event: { type: 'run.ended', run: { ...aliveRun, endedAt: 2 } } });
+    rt.emit({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
+    await flush();
+    expect(leaveTranscript).not.toHaveBeenCalled();
+    // 生きている run には送る。その間に終わって 409 で断られても、トーストは出さない。
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: { ...aliveRun, id: 'r2' }, tabs: [] } });
+    rt.emit({ type: 'turn.latest', sessionId: 's1', runId: 'r2' });
+    await flush();
+    expect(leaveTranscript).toHaveBeenCalledWith('r2');
+    expect(rt.getState().toasts).toEqual([]);
+  });
   it('iTerm2 から Terminal.app に落ちたらトーストで知らせる', async () => {
     const { rt } = harness({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
     rt.start();
