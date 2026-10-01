@@ -138,3 +138,25 @@ describe('保持期間の API', () => {
     await expect(api.writeRetention(365, 'abc')).rejects.toBeInstanceOf(RetentionConflictApiError);
   });
 });
+
+describe('createApi（セッションの状態）', () => {
+  it('経路とメソッドと本文', async () => {
+    const { api, calls } = harness(200, { state: { status: 'done', note: null, returnOn: null, setBy: 'user', setAt: 1, candidate: null } });
+    expect(await api.setSessionState('s1', { status: 'done' })).toMatchObject({ state: { status: 'done' } });
+    await api.setSessionState('s1', { status: null });
+    await api.confirmSessionState('s1', { returnOn: '2026-10-05' });
+    await api.confirmSessionState('s1', {});
+    await api.rejectSessionState('s1');
+    expect(calls.map((c) => `${c.method} ${c.url} ${c.body ?? ''}`)).toEqual([
+      'PUT /api/sessions/s1/state {"status":"done"}',
+      'PUT /api/sessions/s1/state {"status":null}',
+      'POST /api/sessions/s1/state/confirm {"returnOn":"2026-10-05"}',
+      'POST /api/sessions/s1/state/confirm {}',
+      'POST /api/sessions/s1/state/reject ',
+    ]);
+  });
+  it('409 の本文の一文をそのまま投げる', async () => {
+    const ng = harness(409, { error: 'このセッションには確かめる提案がありません' });
+    await expect(ng.api.confirmSessionState('s1', {})).rejects.toThrow('このセッションには確かめる提案がありません');
+  });
+});

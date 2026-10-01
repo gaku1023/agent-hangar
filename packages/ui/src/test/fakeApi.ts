@@ -4,7 +4,7 @@ import type { ApiClient } from '../runtime/api.ts';
 type Extras = Pick<
   ApiClient,
   | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
-  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncStatus' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
   | 'retention' | 'retentionPreview' | 'writeRetention'
@@ -47,6 +47,9 @@ export function fakeApiExtras(): Extras {
     removeTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1 })),
     confirmTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: true, position: 1, sessionId: null, updatedAt: 1, candidate: null })),
     rejectTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null })),
+    setSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null } })),
+    confirmSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null } })),
+    rejectSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null } })),
     memo: vi.fn(async (projectId: string) => ({ projectId, markdown: '', updatedAt: 0 })),
     saveMemo: vi.fn(async (projectId: string, markdown: string) => ({ projectId, markdown, updatedAt: 2 })),
     setSessionMemo: vi.fn(async () => unused()),

@@ -74,6 +74,9 @@ export function overlayStep(state: State, input: Input): Step | null {
     case 'palette.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'palette' } }, effects: [] } : { state, effects: [] };
     case 'shortcuts.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'shortcuts' } }, effects: [] } : { state, effects: [] };
     case 'palette.close': return { state: { ...state, overlay: { kind: 'none' } }, effects: [] };
+    // Paused の入力（B1）。確認や入力のあるダイアログの上には重ねない。閉じるのは overlay.close（Esc）でもよい。
+    case 'session.pause.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'pause', sessionId: i.id, from: i.from } }, effects: [] } : { state, effects: [] };
+    case 'session.pause.close': return { state: state.overlay.kind === 'pause' ? { ...state, overlay: { kind: 'none' } } : state, effects: [] };
     default: return null;
   }
 }

@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -59,6 +59,11 @@ export type ApiClient = {
   removeTodo(id: string): Promise<TodoDto>;
   confirmTodo(id: string): Promise<TodoDto>;
   rejectTodo(id: string): Promise<TodoDto>;
+  /** セッションの状態を手で変える。status の null は印なしに戻す。返り値は使わない（画面の正は session.upsert）。 */
+  setSessionState(id: string, body: { status: SessionStatus | null; note?: string; returnOn?: string }): Promise<{ state: SessionStateDto }>;
+  /** 提案を確定する。日を変えたときだけ returnOn を渡す。提案が無ければ 409 の一文で投げる。 */
+  confirmSessionState(id: string, body: { returnOn?: string }): Promise<{ state: SessionStateDto }>;
+  rejectSessionState(id: string): Promise<{ state: SessionStateDto }>;
   memo(projectId: string): Promise<MemoDto>;
   saveMemo(projectId: string, markdown: string): Promise<MemoDto>;
   setSessionMemo(sessionId: string, memo: string): Promise<SessionDto>;
@@ -143,6 +148,9 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     removeTodo: (id) => call(`/api/todos/${id}`, { method: 'DELETE' }),
     confirmTodo: (id) => post(`/api/todos/${id}/confirm`),
     rejectTodo: (id) => post(`/api/todos/${id}/reject`),
+    setSessionState: (id, body) => call(`/api/sessions/${id}/state`, { method: 'PUT', body: JSON.stringify(body) }),
+    confirmSessionState: (id, body) => post(`/api/sessions/${id}/state/confirm`, body),
+    rejectSessionState: (id) => post(`/api/sessions/${id}/state/reject`),
     memo: (projectId) => call(`/api/projects/${projectId}/memo`),
     saveMemo: (projectId, markdown) => call(`/api/projects/${projectId}/memo`, { method: 'PUT', body: JSON.stringify({ markdown }) }),
     setSessionMemo: (sessionId, memo) => call(`/api/sessions/${sessionId}`, { method: 'PATCH', body: JSON.stringify({ memo }) }),

@@ -1426,3 +1426,24 @@ describe('殻の操作（ランタイム）', () => {
     expect(rt.getState().copied).toBeNull();
   });
 });
+
+describe('セッションの状態', () => {
+  const NONE = { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null };
+  it('状態の操作をそのまま API へ渡し、失敗はトーストにする', async () => {
+    const setSessionState = vi.fn(async () => { throw new Error('Paused には戻る日が要ります'); });
+    const confirmSessionState = vi.fn(async () => ({ state: NONE }));
+    const rejectSessionState = vi.fn(async () => ({ state: NONE }));
+    const { rt, wsHandlers } = harness({ setSessionState, confirmSessionState, rejectSessionState });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'session.state.set', id: 's1', status: 'paused' });
+    rt.emit({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05' });
+    rt.emit({ type: 'session.state.reject', id: 's1' });
+    await flush();
+    expect(setSessionState).toHaveBeenCalledWith('s1', { status: 'paused' });
+    expect(confirmSessionState).toHaveBeenCalledWith('s1', { returnOn: '2026-10-05' });
+    expect(rejectSessionState).toHaveBeenCalledWith('s1');
+    expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: 'Paused には戻る日が要ります' });
+  });
+});

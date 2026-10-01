@@ -1,4 +1,4 @@
-import type { IndexProgressDto, Intent, LaunchParams, ProjectStatus, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SettingsDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, Intent, LaunchParams, ProjectStatus, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
 
 /**
  * 検索の問い合わせ。期間を日数のまま持つ。
@@ -85,6 +85,10 @@ export type Effect =
   | { kind: 'api.removeTodo'; id: string }
   | { kind: 'api.confirmTodo'; id: string }
   | { kind: 'api.rejectTodo'; id: string }
+  // セッションの状態。本文には渡されたものだけを載せる。
+  | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string } }
+  | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string } }
+  | { kind: 'api.rejectSessionState'; id: string }
   | { kind: 'api.loadMemo'; projectId: string }
   | { kind: 'api.saveMemo'; projectId: string; markdown: string }
   | { kind: 'api.setSessionMemo'; sessionId: string; text: string }
@@ -125,7 +129,9 @@ export type Overlay =
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
   | { kind: 'confirm'; confirm: ConfirmRequest }
   | { kind: 'configPreview' }
-  | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null };
+  | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null }
+  // Paused の入力（B1）。from は開いた入口（「⋯」か提案の「日を変える」）。
+  | { kind: 'pause'; sessionId: string; from: 'menu' | 'candidate' };
 /** 新しいセッションのダイアログの書きかけ。プロジェクトごとではなく 1 つだけ持つ。 */
 export type NewSessionDraft = { name: string; prompt: string };
 /** 新しいセッションの詳細の前回値。起動したときの値のうち、既定でないものだけを持つ。 */

@@ -389,6 +389,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.confirmTodo': deps.api.confirmTodo(e.id).catch(fail); return;
       case 'api.rejectTodo': deps.api.rejectTodo(e.id).catch(fail); return;
+      // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
+      case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
+      case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
+      case 'api.rejectSessionState': deps.api.rejectSessionState(e.id).catch(fail); return;
       case 'api.removeTodo': deps.api.removeTodo(e.id).catch(fail); return;
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
       // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。

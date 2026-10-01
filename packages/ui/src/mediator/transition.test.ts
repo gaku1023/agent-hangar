@@ -1413,3 +1413,39 @@ describe('保持期間', () => {
     expect(s.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
   });
 });
+
+describe('セッションの状態', () => {
+  it('状態の操作は api 効果になる。本文には渡されたものだけを載せる', () => {
+    const r = run([
+      intent({ type: 'session.state.set', id: 's1', status: 'done' }),
+      intent({ type: 'session.state.set', id: 's1', status: 'paused', note: '明日見る', returnOn: '2026-10-02' }),
+      intent({ type: 'session.state.set', id: 's1', status: null }),
+      intent({ type: 'session.state.confirm', id: 's1' }),
+      intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05' }),
+      intent({ type: 'session.state.reject', id: 's1' }),
+    ]);
+    expect(r.effects).toEqual([
+      { kind: 'api.setSessionState', id: 's1', body: { status: 'done' } },
+      { kind: 'api.setSessionState', id: 's1', body: { status: 'paused', note: '明日見る', returnOn: '2026-10-02' } },
+      { kind: 'api.setSessionState', id: 's1', body: { status: null } },
+      { kind: 'api.confirmSessionState', id: 's1', body: {} },
+      { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05' } },
+      { kind: 'api.rejectSessionState', id: 's1' },
+    ]);
+    expect(r.state).toEqual(initialState());
+  });
+  it('Paused の入力を開いて閉じる。そのセッションへ送ったら閉じる', () => {
+    const opened = run([intent({ type: 'session.pause.open', id: 's1', from: 'candidate' })]);
+    expect(opened.state.overlay).toEqual({ kind: 'pause', sessionId: 's1', from: 'candidate' });
+    expect(run([intent({ type: 'session.pause.close' })], opened.state).state.overlay).toEqual({ kind: 'none' });
+    expect(run([intent({ type: 'overlay.close' })], opened.state).state.overlay).toEqual({ kind: 'none' });
+    expect(run([intent({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02' })], opened.state).state.overlay).toEqual({ kind: 'none' });
+    expect(run([intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-02' })], opened.state).state.overlay).toEqual({ kind: 'none' });
+    // 別のセッションへの操作では閉じない。
+    expect(run([intent({ type: 'session.state.set', id: 's2', status: 'done' })], opened.state).state.overlay).toEqual({ kind: 'pause', sessionId: 's1', from: 'candidate' });
+  });
+  it('入力のあるダイアログの上には開かない', () => {
+    const busy: State = { ...initialState(), overlay: { kind: 'promote', sessionId: 's9' } };
+    expect(run([intent({ type: 'session.pause.open', id: 's1', from: 'menu' })], busy).state.overlay).toEqual({ kind: 'promote', sessionId: 's9' });
+  });
+});
