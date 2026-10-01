@@ -101,6 +101,10 @@ export type TodoDto = { id: string; projectId: string; text: string; done: boole
 export type MemoDto = { projectId: string; markdown: string; updatedAt: number };
 export type ArtifactDto = { id: string; projectId: string | null; url: string; title: string | null; description: string | null; favicon: string | null; filePath: string | null; fileExists: boolean; firstPublishedAt: number; lastPublishedAt: number; versionCount: number; sessionIds: string[] };
 export type PromoteResultDto = { project: ProjectDto; session: SessionDto; moved: boolean; reason: string | null };
+/** プロジェクトを作る場所。newDir はワークスペースの下に新しく作り、dir は既存のディレクトリを登録する。 */
+export type ProjectPlace = { kind: 'newDir'; name: string; gitInit: boolean } | { kind: 'dir'; path: string; name?: string };
+/** ワークスペース直下の、まだプロジェクトになっていないディレクトリ。 */
+export type WorkspaceDirDto = { name: string; path: string };
 export type SummarizerId = 'lmstudio' | 'claude-headless';
 export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summary: Omit<SessionSummaryDto, 'updatedAt'> } | { ok: false; tried: { id: SummarizerId; message: string }[] };
 

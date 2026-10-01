@@ -651,6 +651,40 @@ describe('routes', () => {
     expect(db.prepare('select count(*) c from project_roots where deleted_at is null').get()).toEqual({ c: 2 });
     expect(db.prepare("select count(*) c from project_roots where path like '%..%'").get()).toEqual({ c: 0 });
   });
+  const postProject = (body: unknown) => app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  it('新しいフォルダを作ってプロジェクトにする', async () => {
+    const gitInit = vi.fn();
+    app = createApp({ ...deps, gitInit });
+    const r = await postProject({ kind: 'newDir', name: 'fresh', gitInit: true });
+    expect(r.status).toBe(201);
+    const p = await r.json();
+    expect(p).toMatchObject({ name: 'fresh', path: `${ws}/fresh`, resolved: true, status: 'active' });
+    expect(gitInit).toHaveBeenCalledWith(`${ws}/fresh`);
+    expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id: p.id } });
+    expect((await postProject({ kind: 'newDir', name: 'fresh', gitInit: false })).status).toBe(409);
+    const bad = await postProject({ kind: 'newDir', name: 'a/b', gitInit: false });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toBe('名前はディレクトリ名として使える 1 字以上で、/ を含められません');
+    expect((await postProject({ kind: 'newDir', gitInit: false })).status).toBe(400);
+  });
+  it('kind が dir なら既存のフォルダを登録し、名前を省けば basename にする', async () => {
+    fs.mkdirSync(`${ws}/gamma`);
+    const r = await postProject({ kind: 'dir', path: `${ws}/gamma` });
+    expect(r.status).toBe(201);
+    expect(await r.json()).toMatchObject({ name: 'gamma', path: `${ws}/gamma` });
+    expect((await postProject({ kind: 'other', path: ws })).status).toBe(400);
+  });
+  it('未登録のフォルダの一覧を返す', async () => {
+    fs.mkdirSync(`${ws}/delta`);
+    fs.mkdirSync(`${ws}/.secret`);
+    const r = await get('/api/workspace/dirs');
+    expect(r.status).toBe(200);
+    const names = ((await r.json()) as { name: string }[]).map((d) => d.name);
+    // alpha は beforeEach で登録済み。bin は exe() で作られることがある。
+    expect(names).toContain('delta');
+    expect(names).not.toContain('alpha');
+    expect(names).not.toContain('.secret');
+  });
   // 末尾の / や .. を生のまま入れると project_roots の前方一致に cwd が当たらず、
   // 直したつもりのプロジェクトにセッションが一件も紐づかない。
   it('repoint は正規化したパスを入れ、セッションが紐づく', async () => {
