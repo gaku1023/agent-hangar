@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,75 +27,64 @@ export function shellHookLine(home: string, homedir: string = os.homedir()): str
   return `[ -f ${p} ] && source ${p}  ${SHELL_MARKER}`;
 }
 
+/** 包み方の本体に埋め込む値。hangar が起動のたびと、tmux のパスが変わったときに書き直す。 */
+export type ShellScriptOptions = {
+  /** hangar の API の根。例：http://127.0.0.1:4177 */
+  url: string;
+  /** API のトークンを置いたファイル。トークンそのものは本体に書かず、呼ぶたびに読む。 */
+  tokenFile: string;
+  /** hangar が使う tmux。無ければ包まない。 */
+  tmuxPath: string | null;
+};
+
+/** zsh の単一引用符で囲む。中の ' は閉じて \' を挟んで開き直す。 */
+const zshQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
 /**
  * 包み方の本体。
- * ターミナルで対話として起動した claude を、Claude のバックグラウンドのサービスで起こし、すぐこのターミナルにつなぐ。
- * そうしておくと、hangar からも同じセッションを開ける。
- * 抜けたときは、hangar が同じセッションを開いていなければ止める。作業中と、許可や質問への答えを待っているときは尋ねる。
- * 何もしないと、抜けても claude はバックグラウンドで動き続け、終えたつもりのセッションが残る。
- * 包めないとき（古い Claude Code、管理設定で切られている、信頼していないフォルダ）は、素の claude を起動する。
+ * ターミナルで対話として起動した claude を、hangar に頼んで hangar の tmux の中で起こし、すぐこのターミナルからつなぐ。
+ * hangar の画面から起こした run と同じものになるので、hangar からも同じ tmux を開ける。
+ * Claude のバックグラウンドのサービスには移さない。バックグラウンドのセッションは、利用上限の後に自動で続かないからである。
+ * hangar がつながらないか断ったとき、tmux が無いとき、包むと意味が変わる起動は、素の claude を起動する。
  */
-export function shellScript(): string {
+export function shellScript(o: ShellScriptOptions): string {
   return `# agent-hangar が置くファイルです。hangar が起動のたびに書き直すので、手で直しても戻ります。
-# ターミナルで起動した claude を Claude のバックグラウンドのサービスで起こし、すぐこのターミナルにつなぎます。
-# そうしておくと、hangar からも同じセッションを開けます。
-# 抜けたとき、hangar で開いていないセッションは止めます。作業中か答えを待っているときは、止めるかを尋ねます。
+# ターミナルで起動した claude を、hangar の tmux の中で起こし、すぐこのターミナルからつなぎます。
+# そうしておくと、hangar からも同じセッションを開けます。利用上限に当たっても、上限が戻れば Claude Code が自分で続けます。
+# 抜けるときは claude を終えるか、Ctrl+B の後に D で tmux から切り離します。切り離したものは hangar から開けます。
 # 1 回だけ包まずに起動するときは \`command claude\`、ずっとやめるときは \`hangar shell uninstall\` です。
 
-# 動いているセッションの一覧から、その会話の kind と短い id を拾う。見つからなければ何も出さない。
-__agent_hangar_job() {
-  command claude agents --json 2>/dev/null | awk -v want="$1" '
-    /"id":/ { j = $2; gsub(/[",]/, "", j) }
-    /"kind":/ { k = $2; gsub(/[",]/, "", k) }
-    /"sessionId":/ { s = $2; gsub(/[",]/, "", s) }
-    /^  }/ { if (s == want) { print k " " j; exit } j = ""; k = ""; s = "" }'
-}
+__agent_hangar_url=${zshQuote(o.url)}
+__agent_hangar_token_file=${zshQuote(o.tokenFile)}
+__agent_hangar_tmux=${zshQuote(o.tmuxPath ?? '')}
 
-# 動いているセッションの一覧から、その短い id の state、status、会話の id を拾う。止まっている（pid が無い）ものは何も出さない。
-__agent_hangar_state() {
-  command claude agents --json 2>/dev/null | awk -v want="$1" '
-    /^    "pid":/ { p = 1 }
-    /^    "id":/ { j = $2; gsub(/[",]/, "", j) }
-    /^    "sessionId":/ { s = $2; gsub(/[",]/, "", s) }
-    /^    "status":/ { u = $2; gsub(/[",]/, "", u) }
-    /^    "state":/ { t = $2; gsub(/[",]/, "", t) }
-    /^  }/ { if (j == want && p) { print t " " (u == "" ? "-" : u) " " s; exit } p = 0; j = ""; s = ""; u = ""; t = "" }'
-}
+# 標準入力を、改行の無い base64 にする。
+__agent_hangar_b64() { command base64 | command tr -d '\\n'; }
 
-# attach から抜けたときの後始末。hangar が同じセッションを開いていれば残す。ほかのターミナルでつないでいるかは見ない。
-# 答え終えて次の指示を待っていれば止め、作業中と、許可や質問への答えを待っているときは尋ねる。
-# 止めても会話は残り、claude attach <id> か hangar から続きを開ける。
-__agent_hangar_leave() {
-  local id="$1" st
-  if pgrep -f "hangar-run\\.sh .* attach $id$" >/dev/null 2>&1; then return; fi
-  st=$(__agent_hangar_state "$id")
-  [[ -z "$st" ]] && return
-  local -a f t
-  f=(\${=st})
-  if [[ "$f[1]" == done && "$f[2]" != busy ]]; then
-    command claude stop "$id" >/dev/null 2>&1 && print -r -- "hangar で開いていないので、このセッションを止めました。続きは claude attach $id か hangar から開けます。"
-    return
+# hangar に起動を頼み、つなぐ tmux のセッション名を出す。頼めなければ 1 で終わる。
+# 作業ディレクトリ（シンボリックリンクを解いたもの。claude が記録するのと同じ）、引数、環境変数は base64 にして送る。引数と環境変数は NUL で区切る（環境変数は env -0 の出力のまま）。
+# 断られたときは理由を 1 行見せる。つながらないときは黙る。
+__agent_hangar_launch() {
+  local tok out cwd args env why name
+  [[ -r $__agent_hangar_token_file ]] || return 1
+  tok=$(<$__agent_hangar_token_file)
+  cwd=$(print -rn -- "\${PWD:A}" | __agent_hangar_b64)
+  args=$( (( $# )) && print -rn -- "\${(pj:\\0:)@}" | __agent_hangar_b64)
+  env=$(command env -0 | __agent_hangar_b64)
+  out=$(print -rn -- "{\\"cwd\\":\\"$cwd\\",\\"args\\":\\"$args\\",\\"env\\":\\"$env\\"}" | command curl -sS --fail-with-body --max-time 10 -H "Authorization: Bearer $tok" -H 'content-type: application/json' --data-binary @- "$__agent_hangar_url/api/runs/terminal" 2>/dev/null)
+  if (( $? )); then
+    why=\${\${out#*\\"error\\":\\"}%%\\"*}
+    [[ -n $out && $why != $out ]] && print -r -- "hangar では開けないので、素の claude で起動します（$why）" >&2
+    return 1
   fi
-  # 何も打たずに抜けたセッションも入力待ちに見える。本文がまだ無ければ、黙って止める。
-  t=("\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$f[3]".jsonl(N))
-  if [[ "$f[1]" == blocked && "$f[2]" != busy && \${#t} -eq 0 ]]; then
-    command claude stop "$id" >/dev/null 2>&1
-    return
-  fi
-  local what="まだ作業中です"
-  [[ "$f[1]" == blocked ]] && what="許可か答えを待っています"
-  if read -q "?このセッションは\${what}。止めますか？ [y/N] "; then
-    print
-    command claude stop "$id" >/dev/null 2>&1 && print -r -- "止めました。続きは claude attach $id か hangar から開けます。"
-  else
-    print
-    print -r -- "残しました。claude attach $id か hangar から開けます。止めるときは claude stop $id です。"
-  fi
+  name=\${\${out#*\\"tmuxName\\":\\"}%%\\"*}
+  [[ $name =~ '^hangar-[0-9a-f]+$' ]] || return 1
+  print -r -- $name
 }
 
 claude() {
-  # 端末でないとき（パイプやスクリプトの中）と、HANGAR_NO_WRAP を立てたときは包まない。
-  if [[ ! -t 0 || ! -t 1 || -n "$HANGAR_NO_WRAP" ]]; then command claude "$@"; return; fi
+  # 端末でないとき（パイプやスクリプトの中）、HANGAR_NO_WRAP を立てたとき、tmux が無いときは包まない。
+  if [[ ! -t 0 || ! -t 1 || -n "$HANGAR_NO_WRAP" || ! -x "$__agent_hangar_tmux" ]]; then command claude "$@"; return; fi
   # サブコマンドはそのまま渡す。
   case "$1" in
     agents|attach|auth|auto-mode|daemon|doctor|gateway|import|install|kill|logs|mcp|plugin|plugins|project|respawn|rm|setup-token|stop|ultrareview|update|upgrade) command claude "$@"; return ;;
@@ -105,50 +93,34 @@ claude() {
   for a in "$@"; do
     if (( want )); then resume="$a"; want=0; continue; fi
     case "$a" in
-      # 対話でない起動、自分でバックグラウンドを選んだ起動、包むと意味が変わる起動はそのまま渡す。
-      # -c は --bg と組むと写しを作り、同じ会話を続けない。
-      -p|--print|-h|--help|-v|--version|--bg|--background|-c|--continue|--cloud|--cloud=*|--fork-session|--teleport|--teleport=*|--from-pr|--from-pr=*|--remote-control|--rc) command claude "$@"; return ;;
+      # ここから後ろは本文なので見ない。
+      --) break ;;
+      # 対話でない起動、自分でバックグラウンドを選んだ起動、包むと意味が変わる起動、hangar が組み立てる引数と重なる起動はそのまま渡す。
+      -p|--print|-h|--help|-v|--version|--bg|--background|-c|--continue|--cloud|--cloud=*|--fork-session|--teleport|--teleport=*|--from-pr|--from-pr=*|--remote-control|--rc|--session-id|--session-id=*|--append-system-prompt|--append-system-prompt=*|--append-system-prompt-file|--append-system-prompt-file=*) command claude "$@"; return ;;
       -r|--resume) want=1; resume="-" ;;
       --resume=*) resume="\${a#--resume=}" ;;
     esac
   done
-  if [[ -n "$resume" ]]; then
-    # id を付けない -r と、検索の語を付けた -r は選ぶ画面を出すので、そのまま渡す。
-    if [[ ! "$resume" =~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' ]]; then command claude "$@"; return; fi
-    local job
-    job=$(__agent_hangar_job "$resume")
-    # もうバックグラウンドで動いているなら、つなぐだけにする。--bg --resume は写しを作ってしまう。
-    if [[ "\${job%% *}" == background ]]; then
-      local rc
-      command claude attach "\${job#* }"; rc=$?
-      __agent_hangar_leave "\${job#* }"
-      return $rc
-    fi
-    # 別のターミナルで動いている対話の claude は、素の claude に任せる（二重に開かないよう Claude が断る）。
-    if [[ "\${job%% *}" == interactive ]]; then command claude "$@"; return; fi
+  # id を付けない -r と、検索の語を付けた -r は選ぶ画面を出すので、そのまま渡す。
+  if [[ -n "$resume" && ! "$resume" =~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' ]]; then command claude "$@"; return; fi
+  # すでに tmux の中なら入れ子にしない。hangar の tmux サーバ（既定のソケット）の中なら switch-client で移り、ほかの tmux の中なら素の claude にする。
+  local inside=0
+  if [[ -n "$TMUX" ]]; then
+    local mine="\${TMUX_TMPDIR:-/tmp}/tmux-$UID/default"
+    if [[ "\${\${TMUX%%,*}:A}" == "\${mine:A}" ]]; then inside=1; else command claude "$@"; return; fi
   fi
-  local out id
-  if ! out=$(command claude --bg "$@" 2>&1); then
-    # 信頼していないフォルダ、古い Claude Code、管理設定で切られているとき。素の claude なら信頼の確認も出る。
-    command claude "$@"
-    return
-  fi
-  id=$(print -r -- "$out" | sed -n 's/^backgrounded · \\([0-9a-f][0-9a-f]*\\).*/\\1/p' | head -n 1)
-  if [[ -z "$id" ]]; then print -r -- "$out" >&2; return 1; fi
-  # 写しを作ったときなどの知らせは見せる。
-  print -r -- "$out" | grep '^note:' >&2
-  local rc
-  command claude attach "$id"; rc=$?
-  __agent_hangar_leave "$id"
-  return $rc
+  local name
+  if ! name=$(__agent_hangar_launch "$@"); then command claude "$@"; return; fi
+  if (( inside )); then command "$__agent_hangar_tmux" switch-client -t "=$name"; return; fi
+  command "$__agent_hangar_tmux" attach -t "=$name"
 }
 `;
 }
 
 /** <home>/shell/claude.zsh を置く。中身が同じなら書かない。 */
-export function ensureShellScript(home: string): string {
+export function ensureShellScript(home: string, o: ShellScriptOptions): string {
   const file = shellScriptPath(home);
-  const body = shellScript();
+  const body = shellScript(o);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== body) fs.writeFileSync(file, body, { mode: 0o644 });
   return file;
@@ -164,19 +136,23 @@ function readText(file: string): string | null {
 
 /**
  * この PC の包み方の状態。同期で他の PC にも見せる。
- * on は ~/.zshrc に行があり、Claude Code がバックグラウンドを使えること。
- * unsupported は Claude Code がバックグラウンドを使えないこと（古い版、管理設定で切られている、claude が見つからない）。
+ * on は ~/.zshrc に行があり、包めること。
+ * unsupported は包めないこと（tmux が見つからない）。
  */
 export type ShellHookState = 'on' | 'off' | 'unsupported';
 
 /**
- * Claude Code がバックグラウンドを使えるか。`claude agents --json` が通るかで見る。
- * 管理設定で切られていると、この呼び出しは「disabled」と言って 1 で終わる。
+ * この PC で包めるか。包み方は hangar の tmux の中で claude を起こすので、tmux を実行できることが要る。
+ * Claude のバックグラウンドのサービスは使わない。
  */
-export function claudeSupportsBackground(claudeBin: string | null): boolean {
-  if (!claudeBin) return false;
-  const r = spawnSync(claudeBin, ['agents', '--json'], { stdio: 'ignore', timeout: 5000 });
-  return r.status === 0;
+export function shellWrapSupported(tmuxPath: string | null): boolean {
+  if (!tmuxPath) return false;
+  try {
+    fs.accessSync(tmuxPath, fs.constants.X_OK);
+    return fs.statSync(tmuxPath).isFile();
+  } catch {
+    return false;
+  }
 }
 
 export function shellHookState(zshrc: string, supported: boolean): ShellHookState {

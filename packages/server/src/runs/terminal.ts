@@ -18,17 +18,15 @@ export function decodeTerminalRequest(body: unknown): TerminalRequest | null {
   const text = (s: string) => Buffer.from(s, 'base64').toString('utf8');
   const cwd = text(b.cwd);
   if (!cwd || !path.isAbsolute(cwd)) return null;
-  const list = (s: string) => {
-    const t = text(s);
-    if (t === '') return [];
-    return (t.endsWith('\0') ? t.slice(0, -1) : t).split('\0');
-  };
+  const args = text(b.args);
+  const envText = text(b.env);
   const env: Record<string, string> = {};
-  for (const kv of list(b.env)) {
+  // env -0 は各項目の後ろに NUL を置くので、末尾の空の項目は捨てる。
+  for (const kv of envText === '' ? [] : envText.replace(/\0$/, '').split('\0')) {
     const i = kv.indexOf('=');
     if (i > 0) env[kv.slice(0, i)] = kv.slice(i + 1);
   }
-  return { cwd, args: list(b.args), env };
+  return { cwd, args: args === '' ? [] : args.split('\0'), env };
 }
 
 /**

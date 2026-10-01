@@ -10,6 +10,9 @@ describe('decodeTerminalRequest', () => {
     const r = decodeTerminalRequest({ cwd: b64('/w/日本語 dir'), args: b64(['--model', 'opus', '直して\nください'].join('\0')), env: b64('A=1\0B=x=y\0C=複数\n行\0') });
     expect(r).toEqual({ cwd: '/w/日本語 dir', args: ['--model', 'opus', '直して\nください'], env: { A: '1', B: 'x=y', C: '複数\n行' } });
   });
+  it('最後の引数が空でも落とさない。末尾の NUL を捨てるのは env -0 の出力だけである', () => {
+    expect(decodeTerminalRequest({ cwd: b64('/w'), args: b64('-n\0'), env: '' })?.args).toEqual(['-n', '']);
+  });
   it('引数が無ければ空の配列にする', () => {
     expect(decodeTerminalRequest({ cwd: b64('/w'), args: '', env: '' })).toEqual({ cwd: '/w', args: [], env: {} });
   });
