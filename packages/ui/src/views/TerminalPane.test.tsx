@@ -68,6 +68,13 @@ describe('TerminalPane', () => {
     rerender(<TerminalHostContext.Provider value={trying}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
     expect(screen.getByText('Claude は動き続けています。つなぎ直しています。')).toBeInTheDocument();
   });
+  it('切れた印が残っていても、つながっている間はカードを出さない', () => {
+    // つながった瞬間に Host が知らせる前の 1 コマでも、つながっている端末を覆わない。
+    const host = { ...fakeHost(), status: () => 'connected' as const, link: () => ({ retryAt: null, dropped: true, gaveUp: false, detached: true }) };
+    const { container } = render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
+    expect(screen.queryByRole('button', { name: /再接続|つなぎ直す/ })).toBeNull();
+    expect(container.querySelector('.term-pane')).not.toHaveAttribute('data-off');
+  });
   it('何度試してもつながらなかったら、動き続けているとは言わず、手動の再接続に任せる', () => {
     const reconnect = vi.fn();
     const host = { ...fakeHost(), reconnect, status: () => 'closed' as const, link: () => ({ retryAt: null, dropped: true, gaveUp: true, detached: false }) };
