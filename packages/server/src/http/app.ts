@@ -22,8 +22,7 @@ import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } 
 import { RunError, type RunManager } from '../runs/manager.ts';
 import type { JumpFrom } from '../runs/promptJump.ts';
 import { searchSessions } from '../search/search.ts';
-import { exitPromptText } from '../sessions/exitPrompt.ts';
-import { confirmSessionState, getSessionState, rejectSessionState, setSessionState, StateInputError } from '../sessions/states.ts';
+import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../sessions/states.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
@@ -300,12 +299,6 @@ export function createApp(deps: AppDeps): Hono {
   const session = (id: string) => getSession(db, deps.live(), id, { deviceId });
   const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
   const broadcastSession = (id: string) => { const s = session(id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };
-  /**
-   * Claude 側のセッション ID から hangar 側の id を引く。論理削除された行と、まだ索引に無いものは null。
-   * statusline の取り込みと claude.zsh の入口が使う。
-   */
-  const sessionIdByProvider = (providerSessionId: string): string | null =>
-    (db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(providerSessionId) as { id: string } | undefined)?.id ?? null;
   const digester = new LiveDigester(db);
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
@@ -740,8 +733,8 @@ export function createApp(deps: AppDeps): Hono {
     if (!r) return c.json({ error: 'statusline の payload の形が違います' }, 400);
     if (r.usageChanged) deps.hub.broadcast({ type: 'usage.update', usage: r.usage });
     if (r.providerSessionId) {
-      const id = sessionIdByProvider(r.providerSessionId);
-      if (id) broadcastSession(id);
+      const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(r.providerSessionId) as { id: string } | undefined;
+      if (s) broadcastSession(s.id);
     }
     return c.body(null, 204);
   });
@@ -903,18 +896,6 @@ export function createApp(deps: AppDeps): Hono {
     return stateResult(c, id, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, setBy: 'user' }) }));
   };
   api.put('/sessions/:id/state', (c) => putSessionState(c, c.req.param('id')));
-  // claude.zsh が抜けるときに使う 2 つ。Claude 側のセッション ID で引く。どちらも MCP からは呼べない。
-  // 問いの text は行で区切って返す。zsh で JSON を読む道具（jq など）は macOS に最初から無いためである。
-  api.get('/sessions/by-provider/:providerSessionId/exit-prompt', (c) => {
-    const id = sessionIdByProvider(c.req.param('providerSessionId'));
-    if (!id) return c.json({ error: 'セッションが見つかりません' }, 404);
-    return c.text(exitPromptText(getSessionState(db, id)));
-  });
-  api.post('/sessions/by-provider/:providerSessionId/state', (c) => {
-    const id = sessionIdByProvider(c.req.param('providerSessionId'));
-    if (!id) return c.json({ error: 'セッションが見つかりません' }, 404);
-    return putSessionState(c, id);
-  });
   api.post('/sessions/:id/state/confirm', async (c) => {
     const id = c.req.param('id');
     if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
