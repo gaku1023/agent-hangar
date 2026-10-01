@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
+import type { LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SessionStateDto, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
 import { RetentionConflictError } from '../config/retention.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -14,7 +14,7 @@ import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.
 import { TOOL_NAMES } from '../mcp/tools.ts';
 import { RunError } from '../runs/manager.ts';
 import { issueMcpSecret } from '../runs/secrets.ts';
-import { proposeSessionState, setSessionState } from '../sessions/states.ts';
+import { getSessionState, proposeSessionState, setSessionState } from '../sessions/states.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { createApp, type AppDeps, type ConfigSyncApi, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts, type SyncApi } from './app.ts';
@@ -1293,5 +1293,54 @@ describe('セッションの状態', () => {
       expect([p, (await send(p, { status: 'done' }, m, auth)).status]).toEqual([p, 401]);
     }
     expect(TOOL_NAMES.filter((n) => /state|status/.test(n))).toEqual(['propose_session_status']);
+  });
+});
+
+describe('claude.zsh の入口（by-provider）', () => {
+  const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+  const base = `/api/sessions/by-provider/${SESSION_ALPHA}`;
+  const MISSING = '/api/sessions/by-provider/ffffffff-0000-4000-8000-000000000000';
+
+  it('Claude 側の id で引いて状態を書き、setBy は user で、そのセッションの session.upsert を配る', async () => {
+    sent.length = 0;
+    const r = await post(`${base}/state`, { status: 'done' });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { state: SessionStateDto }).state).toMatchObject({ status: 'done', setBy: 'user', candidate: null });
+    expect(getSessionState(db, alphaId())).toMatchObject({ status: 'done', setBy: 'user' });
+    expect(sent.some((e) => e.type === 'session.upsert' && e.session.id === alphaId())).toBe(true);
+  });
+  it('paused は戻る日が要り、無ければ 400 で理由を返す。日本語の理由に引用符と \\ が入ってもそのまま残す', async () => {
+    const bad = await post(`${base}/state`, { status: 'paused' });
+    expect(bad.status).toBe(400);
+    expect(typeof ((await bad.json()) as { error: unknown }).error).toBe('string');
+    expect((await post(`${base}/state`, { status: 'weird' })).status).toBe(400);
+    const note = '「"本番"で確かめる」\\ C:\\tmp';
+    const ok = await post(`${base}/state`, { status: 'paused', returnOn: '2026-10-02', note });
+    expect(ok.status).toBe(200);
+    expect(getSessionState(db, alphaId())).toMatchObject({ status: 'paused', returnOn: '2026-10-02', note });
+  });
+  it('索引にまだ無い id は、書き込みも問いの text も 404 にする', async () => {
+    const w = await post(`${MISSING}/state`, { status: 'done' });
+    expect(w.status).toBe(404);
+    expect(((await w.json()) as { error: string }).error).toBe('セッションが見つかりません');
+    expect((await get(`${MISSING}/exit-prompt`)).status).toBe(404);
+  });
+  it('鍵が無ければ、どちらも 401。MCP の秘密でも呼べない', async () => {
+    expect((await app.request(`${base}/state`, { method: 'POST', body: '{"status":"done"}' })).status).toBe(401);
+    expect((await get(`${base}/exit-prompt`, {})).status).toBe(401);
+    const mcp = { authorization: `Bearer ${issueMcpSecret(db, alphaId(), 1)}` };
+    expect((await app.request(`${base}/state`, { method: 'POST', headers: mcp, body: '{"status":"done"}' })).status).toBe(401);
+    expect((await get(`${base}/exit-prompt`, mcp)).status).toBe(401);
+  });
+  it('exit-prompt は 3 行の text を返し、提案を頭に出し、状態が付けば skip にする', async () => {
+    const empty = await get(`${base}/exit-prompt`);
+    expect(empty.status).toBe(200);
+    expect(empty.headers.get('content-type')).toMatch(/^text\/plain/);
+    expect(await empty.text()).toBe('ask\n\n\n');
+    proposeSessionState(db, 'd', alphaId(), { status: 'done', note: '直して main に入れた', returnOn: null, source: 'in_session' });
+    expect(await (await get(`${base}/exit-prompt`)).text()).toBe('ask\nClaude の提案：Done（直して main に入れた）\n直して main に入れた\n');
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'user' });
+    expect(await (await get(`${base}/exit-prompt`)).text()).toBe('skip\n');
   });
 });
