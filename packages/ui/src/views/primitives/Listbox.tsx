@@ -203,31 +203,34 @@ export function Listbox(props: ListboxProps) {
                 value={query} onChange={(e) => { setQuery(e.target.value); setActive(0); }} />
             </div>
           )}
-          <div ref={list} id={listId} role="listbox" aria-label={props.label} className="listbox-rows" tabIndex={searchable ? undefined : -1}
-            aria-activedescendant={searchable ? undefined : activeId} onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>
-            {sections.map((s, si) => s.title === null
-              ? <Fragment key={`s${si}`}>{s.items.map(option)}</Fragment>
-              : (
-                <div key={`s${si}`} role="group" aria-labelledby={`${uid}-g${si}`}>
-                  <div id={`${uid}-g${si}`} className="listbox-group-title">{s.title}</div>
-                  {s.items.map(option)}
-                </div>
-              ))}
-            {!items.length && <div className="listbox-empty">一致するものはありません</div>}
-          </div>
-          {acts.length > 0 && (
-            <div className="listbox-acts" role="group" aria-label="作る">
-              {acts.map((a, j) => {
-                const index = items.length + j;
-                return (
-                  <div key={a.value} id={optId(index)} role="option" aria-selected="false" aria-label={a.label} className="listbox-act" data-active={index === current ? 'true' : undefined}
-                    onMouseMove={() => { if (index !== current) setActive(index); }} onClick={() => { hide(true); props.onAction?.(a.value, query); }}>
-                    <Icon name={a.icon} /><span className="listbox-act-label">{a.label}</span>{a.sub && <small>{a.sub}</small>}
+          {/* listbox は、スクロールする行と、動かない操作の両方を包む。操作も option なので、listbox の中に置かないと ARIA の所有関係が切れる。 */}
+          <div ref={list} id={listId} role="listbox" aria-label={props.label} className="listbox-body" tabIndex={searchable ? undefined : -1}
+            aria-activedescendant={searchable ? undefined : activeId}>
+            <div className="listbox-rows" onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>
+              {sections.map((s, si) => s.title === null
+                ? <Fragment key={`s${si}`}>{s.items.map(option)}</Fragment>
+                : (
+                  <div key={`s${si}`} role="group" aria-labelledby={`${uid}-g${si}`}>
+                    <div id={`${uid}-g${si}`} className="listbox-group-title">{s.title}</div>
+                    {s.items.map(option)}
                   </div>
-                );
-              })}
+                ))}
+              {!items.length && <div className="listbox-empty">一致するものはありません</div>}
             </div>
-          )}
+            {acts.length > 0 && (
+              <div className="listbox-acts" role="group">
+                {acts.map((a, j) => {
+                  const index = items.length + j;
+                  return (
+                    <div key={a.value} id={optId(index)} role="option" aria-selected="false" aria-label={a.label} className="listbox-act" data-active={index === current ? 'true' : undefined}
+                      onMouseMove={() => { if (index !== current) setActive(index); }} onClick={() => { hide(true); props.onAction?.(a.value, query); }}>
+                      <Icon name={a.icon} /><span className="listbox-act-label">{a.label}</span>{a.sub && <small>{a.sub}</small>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           {searchable && (
             <div className="listbox-keys" aria-hidden="true">
               <span><kbd>↑</kbd><kbd>↓</kbd> 移動</span><span><kbd>Enter</kbd> 決める</span><span><kbd>Esc</kbd> 閉じる</span>

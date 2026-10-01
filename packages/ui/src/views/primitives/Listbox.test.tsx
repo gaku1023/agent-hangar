@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { Listbox } from './Listbox.tsx';
@@ -287,6 +287,15 @@ describe('Listbox の操作', () => {
   it('searchOnly の行は語が無いと出ない', () => {
     setup();
     expect(screen.queryByRole('option', { name: 'url-short' })).toBeNull();
+  });
+  it('操作は listbox の中にあり、操作に印があるときは combobox の aria-activedescendant が指す', () => {
+    setup();
+    expect(within(screen.getByRole('listbox')).getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
+    const active = within(screen.getByRole('listbox')).getByRole('option', { name: '「zzz」を新しいフォルダとして作る' });
+    expect(active).toHaveAttribute('data-active', 'true');
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', active.id);
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-controls', screen.getByRole('listbox').id);
   });
   it('操作をクリックすると onAction を呼んで閉じる', () => {
     const { onChange, onAction } = setup();
