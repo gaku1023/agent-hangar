@@ -145,8 +145,11 @@ export type SessionViewState = {
   agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null;
   /** 目次で開いているターン（区切りの行の seq）。その場の操作なので保存しない。 */
   openTurn: number | null;
-  /** 開いたターンへ左のターミナルを跳ばした結果。これも保存しない。 */
-  turnJump: { seq: number; status: TurnJumpStatus } | null;
+  /**
+   * 開いたターンへ左のターミナルを跳ばした結果。これも保存しない。
+   * runId は跳ばした Claude の run で、ターンを閉じたときと画面を離れたときに transcript から抜けさせる先である。
+   */
+  turnJump: { seq: number; status: TurnJumpStatus; runId: string } | null;
   /** 本文の中の検索。閉じていれば null。 */
   find: FindState | null;
   /** 検索の結果から開いたときの跳び先。無ければ null。 */

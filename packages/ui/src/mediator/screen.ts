@@ -1,6 +1,6 @@
 import type { SearchParamsDto } from '@agent-hangar/shared';
 import { overlayReplaceable } from './overlay.ts';
-import { agentTabStep, jumpStep } from './sessionView.ts';
+import { agentTabStep, jumpStep, leaveTranscriptStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
 
 /**
@@ -95,6 +95,9 @@ export function screenStep(state: State, input: Input): Step | null {
       effects.push({ kind: 'terminal.disconnectSession', sessionId: left });
       // 検索の結果からの跳び先は、その画面にいる間だけのものである。戻ってきたときに跳び直さない。
       next = jumpStep(next, left, null);
+      // 目次から跳ばした Claude は、離れる前に transcript から抜けさせる。戻ったときに古いターンのまま止まって見えないように。
+      const leave = leaveTranscriptStep(next, left);
+      if (leave) { next = leave.state; effects.push(...leave.effects); }
     }
     if (route.name === 'session') {
       // 検索の結果から開いたときは、最新の側ではなく跳び先の周りを読む。
