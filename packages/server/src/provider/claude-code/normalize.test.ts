@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { indexTexts, normalizeRecord, recordFacts, toolSummary } from './normalize.ts';
+import { indexTexts, isTypedPrompt, normalizeRecord, recordFacts, toolSummary } from './normalize.ts';
 
 const base = { uuid: 'u', parentUuid: null, isSidechain: false, timestamp: '2026-09-01T10:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: 'aaaa' };
 
@@ -172,5 +172,30 @@ describe('Agent の結果', () => {
     expect(normalizeRecord(rec(), 0, null)[0]).not.toHaveProperty('agentLaunch');
     expect(normalizeRecord(rec({ stdout: 'x' }), 0, null)[0]).not.toHaveProperty('agentLaunch');
     expect(normalizeRecord(rec('text'), 0, null)[0]).not.toHaveProperty('agentLaunch');
+  });
+});
+
+describe('isTypedPrompt', () => {
+  const user = (content: unknown, over: Record<string, unknown> = {}) => ({ ...base, type: 'user', message: { role: 'user', content }, ...over });
+  it('打った発言と、作業中に打って積まれた指示は true', () => {
+    expect(isTypedPrompt(user('直して'))).toBe(true);
+    expect(isTypedPrompt(user([{ type: 'text', text: 'これも' }, { type: 'image', source: {} }]))).toBe(true);
+    expect(isTypedPrompt({ ...base, type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', origin: { kind: 'human' }, prompt: '続けて' } })).toBe(true);
+  });
+  it('AskUserQuestion の答え（ツールの結果）は false', () => {
+    expect(isTypedPrompt(user([{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'User has answered your questions: "このセッションをどうしますか"="Done にする".' }]))).toBe(false);
+  });
+  it('要約で続けた会話の頭、中断の印、meta、コマンドの記録、assistant は false', () => {
+    expect(isTypedPrompt(user('This session is being continued from a previous conversation that ran out of context.', { isCompactSummary: true, isVisibleInTranscriptOnly: true }))).toBe(false);
+    expect(isTypedPrompt(user([{ type: 'text', text: '[Request interrupted by user]' }]))).toBe(false);
+    expect(isTypedPrompt(user([{ type: 'text', text: '[Request interrupted by user for tool use]' }]))).toBe(false);
+    expect(isTypedPrompt(user('<caveat/>', { isMeta: true }))).toBe(false);
+    expect(isTypedPrompt(user('<command-name>/clear</command-name>'))).toBe(false);
+    expect(isTypedPrompt({ ...base, type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'はい' }] } })).toBe(false);
+  });
+  it('すでに読んだ facts を渡せる。渡した facts を信じる', () => {
+    const raw = user('直して');
+    expect(isTypedPrompt(raw, recordFacts(raw))).toBe(true);
+    expect(isTypedPrompt(raw, { isUserTurn: false })).toBe(false);
   });
 });
