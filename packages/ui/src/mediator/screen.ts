@@ -1,5 +1,5 @@
 import type { SearchParamsDto } from '@agent-hangar/shared';
-import { agentTabStep } from './sessionView.ts';
+import { agentTabStep, jumpStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
 
 /**
@@ -78,8 +78,16 @@ export function screenStep(state: State, input: Input): Step | null {
     // 見ていないセッションの接続は残さない。
     // xterm とバッファは残るので、戻れば tmux attach が現在の画面を描き直す。
     const left = state.screen.name === 'session' ? state.screen.id : null;
-    if (left && !(route.name === 'session' && route.id === left)) effects.push({ kind: 'terminal.disconnectSession', sessionId: left });
-    if (route.name === 'session') effects.push({ kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0 }, { kind: 'terminal.connect', sessionId: route.id, tabId: null });
+    if (left && !(route.name === 'session' && route.id === left)) {
+      effects.push({ kind: 'terminal.disconnectSession', sessionId: left });
+      // 検索の結果からの跳び先は、その画面にいる間だけのものである。戻ってきたときに跳び直さない。
+      next = jumpStep(next, left, null);
+    }
+    if (route.name === 'session') {
+      // 検索の結果から開いたときは、最新の側ではなく跳び先の周りを読む。
+      const jump = next.sessionView[route.id]?.jump;
+      effects.push(jump ? { kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0, aroundSeq: jump.seq } : { kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0 }, { kind: 'terminal.connect', sessionId: route.id, tabId: null });
+    }
     // 「ターミナルで答える」で開いた画面なら、つないだ端末にそのままフォーカスする。
     if (route.name === 'session' && state.focusOnOpen === route.id) effects.push({ kind: 'focus', target: 'terminal' });
     if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id });
@@ -100,6 +108,8 @@ export function screenStep(state: State, input: Input): Step | null {
     case 'nav.forward': return { state, effects: [{ kind: 'history.go', delta: 1 }] };
     case 'project.open': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'project', id: i.id } }] };
     case 'session.open': {
+      // 検索の結果から開いたときだけ跳び先を持つ。ほかの開き方では、前の跳び先を忘れる。
+      state = jumpStep(state, i.id, i.seq !== undefined ? { seq: i.seq, query: i.q ?? '' } : null);
       const overlay = closeTransient(state);
       if (i.focus !== 'terminal') return { state: { ...state, overlay, focusOnOpen: null }, effects: [{ kind: 'navigate', route: { name: 'session', id: i.id } }] };
       // 答える先は Claude のタブなので、シェルのタブを選んでいたら戻す。

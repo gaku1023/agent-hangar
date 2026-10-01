@@ -390,6 +390,24 @@ describe('タブと接続', () => {
     // 閉じているときの前へ次へは何もしない。
     expect(run([intent({ type: 'transcript.findStep', sessionId: 's1', delta: 1 })], e.state).state.sessionView.s1?.find).toBeNull();
   });
+  it('検索の結果から開くと、跳び先を覚えて追うのをやめ、画面に着いたら跳び先の周りを読む', () => {
+    const a = run([intent({ type: 'session.open', id: 's1', seq: 42, q: 'パスワード' })]);
+    expect(a.state.sessionView.s1).toMatchObject({ jump: { seq: 42, query: 'パスワード', n: 1 }, follow: false });
+    expect(a.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    const b = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], a.state);
+    expect(b.effects).toContainEqual({ kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0, aroundSeq: 42 });
+    // 同じ所をもう一度開いたら、跳び直す合図を進める。
+    expect(run([intent({ type: 'session.open', id: 's1', seq: 42, q: 'パスワード' })], b.state).state.sessionView.s1?.jump?.n).toBe(2);
+    // 画面を離れたら跳び先は忘れる。検索を通さずに開いたときも跳ばない。
+    const c = run([runtime({ type: 'hash.changed', route: { name: 'home' } })], b.state);
+    expect(c.state.sessionView.s1?.jump).toBeNull();
+    const d = run([intent({ type: 'session.open', id: 's1' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], b.state);
+    expect(d.state.sessionView.s1?.jump).toBeNull();
+    expect(d.effects).toContainEqual({ kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0 });
+  });
+  it('新しい行を読み足すのは、持っている中でいちばん新しい行の後ろから', () => {
+    expect(run([intent({ type: 'transcript.loadNewer', sessionId: 's1' })]).effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: -2 }]);
+  });
   it('検索と検索の結果からの跳び先は保存しない', () => {
     const v = { ...defaultSessionView(), find: { query: 'x', caseSensitive: false, from: null, step: 0, n: 1 }, jump: { seq: 3, query: 'x', n: 1 } };
     expect(persistedSessionView(v)).not.toHaveProperty('find');

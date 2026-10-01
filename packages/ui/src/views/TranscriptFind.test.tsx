@@ -17,7 +17,7 @@ function findOf(items: TranscriptItem[], query: string, step = 0, n = 1): Transc
 
 function draw(items: TranscriptItem[], find: TranscriptFind | null, follow = false) {
   const onIntent = vi.fn();
-  const props = { sessionId: 's1', items, hasMore: false, loading: false, follow, live: false, remaining: 0, find };
+  const props: Parameters<typeof Transcript>[0] = { sessionId: 's1', items, hasMore: false, loading: false, follow, live: false, remaining: 0, find };
   const r = render(<IntentRoot onIntent={onIntent}><Transcript {...props} /></IntentRoot>);
   const el = r.container.querySelector('.tr') as HTMLDivElement;
   Object.defineProperty(el, 'clientHeight', { value: 600, configurable: true });
@@ -121,5 +121,33 @@ describe('一致へ跳ぶ', () => {
     act(() => t.redraw({ find: findOf(list, '目印'), follow: false }));
     expect(t.seqs()).toContain(0);
     expect(t.container.querySelector('.tr-row[data-seq="0"] mark.cur')).not.toBeNull();
+  });
+});
+
+describe('検索の結果から開いたとき（J1）', () => {
+  it('跳び先の行へ送り、その行だけに語の印を付け、地を一度だけ光らせる', () => {
+    const list: TranscriptItem[] = [...many(3000), { kind: 'assistant', seq: 3000, text: 'パスワードの条件は 8 文字以上', when: '' }, { kind: 'user', seq: 3001, text: 'パスワードの条件を変える', when: '' }];
+    const t = draw(list, null);
+    act(() => t.redraw({ jump: { seq: 3000, query: 'パスワードの条件', n: 1 } }));
+    const row = t.container.querySelector('.tr-row[data-seq="3000"]')!;
+    expect(row).not.toBeNull();
+    expect(row.classList.contains('tr-flash')).toBe(true);
+    expect(row.querySelector('mark.hit')?.textContent).toBe('パスワードの条件');
+    expect(t.container.querySelector('.tr-row[data-seq="3001"] mark')).toBeNull();
+    // 消し終えたら外す。外さないと、窓の外から戻るたびに光り直す。
+    fireEvent.animationEnd(row);
+    expect(row.classList.contains('tr-flash')).toBe(false);
+  });
+  it('抜粋の seq が描く行に無ければ、その後ろの最初の行へ跳ぶ', () => {
+    const list: TranscriptItem[] = [{ kind: 'user', seq: 0, text: 'a', when: '' }, { kind: 'assistant', seq: 5, text: 'b', when: '' }];
+    const t = draw(list, null);
+    act(() => t.redraw({ jump: { seq: 3, query: 'b', n: 1 } }));
+    expect(t.container.querySelector('.tr-row[data-seq="5"]')?.classList.contains('tr-flash')).toBe(true);
+  });
+  it('真ん中の頁から開いたときは、下に「新しい行を読み込む」を置く', () => {
+    const t = draw(many(3), null);
+    act(() => t.redraw({ hasNewer: true }));
+    fireEvent.click(screen.getByRole('button', { name: '新しい行を読み込む' }));
+    expect(t.onIntent).toHaveBeenCalledWith({ type: 'transcript.loadNewer', sessionId: 's1' });
   });
 });

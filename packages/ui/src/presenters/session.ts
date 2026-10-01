@@ -190,7 +190,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     summary: s.summary ? { ...s.summary, sourceLabel: SOURCE_LABEL[s.summary.source], stateLabel: STATE_LABEL[s.summary.state], summarizerLabel: summarizerLabel(s.summary.sourceId, s.summary.sourceModel), generatedAt: absoluteTime(s.summary.updatedAt) } : null,
     model: shortModel(s.stats.model), effort: s.stats.effort ?? '', turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), prUrl: s.stats.prUrl, memo: s.memo,
     started: relativeTime(s.startedAt, now), lastActivity: relativeTime(s.lastActivityAt, now), hasTranscript: s.hasTranscript,
-    items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length : false, notFound: false,
+    items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length && !slice.olderDone : false, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
     turnRows, turnsComplete: slice ? slice.total <= slice.items.length : true, openTurnItems, turnJump: view.turnJump,
     // 検索は描く行（思考と生の記録の切り替えを通した後）の中で数える。
     find: view.find ? { ...view.find, ...findIn(items, view.find) } : null, jump: view.jump,

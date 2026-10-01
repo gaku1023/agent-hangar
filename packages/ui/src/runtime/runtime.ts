@@ -44,6 +44,8 @@ export type Runtime = {
 const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
 /** 参加トークンをストアに置いておく上限。全セッションの読み書き権を持つ秘密なので、写し終わる頃に自分で消す。 */
 const JOIN_TOKEN_TTL_MS = 120_000;
+/** 検索の結果から開くとき、跳び先より前にどれだけ（seq の幅）読むか。跳び先の前の文脈が見える程度にする。 */
+const AROUND_BEFORE = 100;
 
 /** Mediator の効果を実行し、サーバとブラウザの出来事を入力に変える。 */
 export function createRuntime(deps: RuntimeDeps): Runtime {
@@ -146,23 +148,27 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const have = cur !== undefined && cur.items.length > 0;
         let q: EventsQuery;
         let append = true;
+        let older = false;
         if (e.fromSeq === 0) {
           // 画面を開いた。最新の側から読み、持っていたものは置き換える。
           append = false;
           q = { latest: true, agentId: view.agentId };
+          // 検索の結果から開いたときは、跳び先の少し前から前向きに読む。後ろは「新しい行を読み込む」で足す。
+          // ターミナルが出るセッションは本文を出さず、右の欄が最新の側を使うので、いつもどおり最新の側から読む。
+          if (e.aroundSeq !== undefined && !currentRunOf(store, e.sessionId)) q = { fromSeq: Math.max(e.aroundSeq - AROUND_BEFORE, 0), agentId: view.agentId };
           // 画面に入るたび読み直すので、この時点で開いていないセッションの本文を落とす。
           setStore(pruneEvents(store, [e.sessionId]));
         } else if (e.fromSeq === -1) {
           // 過去へ遡る。読み終えていれば何も求めない。
           if (!have) q = { latest: true, agentId: view.agentId };
-          else if (cur!.total > cur!.items.length) q = { beforeSeq: lo, agentId: view.agentId };
+          else if (cur!.total > cur!.items.length && !cur!.olderDone) { q = { beforeSeq: lo, agentId: view.agentId }; older = true; }
           else return;
         } else {
-          // 追記が届いた。持っている中でいちばん新しい seq の次から前向きに読み、末尾に足す。
+          // 追記が届いた（か、真ん中の頁から開いた本文の後ろを読み足す）。持っている中でいちばん新しい seq の次から前向きに読み、末尾に足す。
           q = { fromSeq: have ? hi + 1 : 0, agentId: view.agentId };
         }
         setStore(setEventsLoading(store, key, true));
-        deps.api.events(e.sessionId, q).then((p) => setStore(applyEventsPage(store, key, p, append))).catch((err) => { setStore(setEventsLoading(store, key, false)); fail(err); });
+        deps.api.events(e.sessionId, q).then((p) => setStore(applyEventsPage(store, key, p, append, older))).catch((err) => { setStore(setEventsLoading(store, key, false)); fail(err); });
         return;
       }
       case 'api.search': {

@@ -4,7 +4,9 @@ import { absoluteTime, costLabel, relativeTime, shortModel, STATE_LABEL } from '
 import type { Segment } from './highlight.ts';
 import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.ts';
 
-export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; stateLabel: string; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; memo: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[] };
+export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; stateLabel: string; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; memo: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[];
+  /** 検索の結果の行を開いたときの跳び先（抜粋の seq と検索語）。 */
+  jump?: { seq: number; q: string } };
 
 export function presentSessionRow(s: SessionDto, store: Store, now: number, excerpt?: Segment[]): SessionRowProps {
   const row: SessionRowProps = {

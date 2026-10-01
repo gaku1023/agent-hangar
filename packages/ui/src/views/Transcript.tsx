@@ -357,6 +357,15 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     scrollToSeq(jumpTarget);
     setFlashSeq(jumpTarget);
   });
+  // 光らせるのは 1 度だけ。消し終えたら外す。外さないと、窓の外へ出て戻るたびに光り直す。
+  // 光る行は窓の出入りで作り直されるので、行ではなく器で animationend を受ける。
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const done = (e: Event) => { if ((e.target as Element | null)?.closest?.('.tr-flash')) setFlashSeq(null); };
+    el.addEventListener('animationend', done);
+    return () => el.removeEventListener('animationend', done);
+  }, []);
   const jumpMark: Marking | null = props.jump && props.jump.query ? { query: props.jump.query } : null;
   const marking: Marking | null = find ? { query: find.query, literal: true, caseSensitive: find.caseSensitive } : null;
 
@@ -378,8 +387,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
         {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : `古い行を読み込む（残り ${props.remaining} 件）`}</button>}
         <div ref={rowsRef} className="tr-rows" style={{ paddingTop: padTop, paddingBottom: padBottom }}>
           {drawn.map((it) => (
-            // 光らせるのは 1 度だけ。消し終えたら外す。外さないと、窓の外へ出て戻るたびに光り直す。
-            <div key={it.seq} className={it.seq === flashSeq ? 'tr-row tr-flash' : 'tr-row'} data-seq={it.seq} ref={setRowEl(it.seq)} onAnimationEnd={it.seq === flashSeq ? () => setFlashSeq(null) : undefined}>
+            <div key={it.seq} className={it.seq === flashSeq ? 'tr-row tr-flash' : 'tr-row'} data-seq={it.seq} ref={setRowEl(it.seq)}>
               {!marking && it.seq === jumpTarget && jumpMark ? <MarkProvider value={jumpMark}>{renderItem(props.sessionId, it)}</MarkProvider> : renderItem(props.sessionId, it)}
             </div>
           ))}

@@ -30,6 +30,17 @@ function patch(state: State, id: string, p: Partial<SessionViewState>): Step {
 }
 
 /**
+ * 検索の結果から開くときの跳び先を覚える（jump が null なら忘れる）。
+ * 跳ぶ間は末尾を追わない。追っていると窓が末尾に張り付き、跳び先が描かれない。
+ * 同じ所をもう一度開いたときも跳び直すよう、開いた回数を進める。
+ */
+export function jumpStep(state: State, id: string, jump: { seq: number; query: string } | null): State {
+  const cur = state.sessionView[id] ?? defaultSessionView();
+  if (!jump) return cur.jump === null ? state : local(state, id, { jump: null }).state;
+  return local(state, id, { jump: { ...jump, n: (cur.jump?.n ?? 0) + 1 }, follow: false }).state;
+}
+
+/**
  * 閉じたタブが左右どちらかの枠に居たら、その枠を空ける差分を返す。
  * 左右のどちらが閉じても相手だけでは分割が成立しないので、そのときは分割ごと畳む。
  * 片側だけ空けて split を真のまま残すと、次にタブが増えた瞬間に押していない分割が復活してしまう。

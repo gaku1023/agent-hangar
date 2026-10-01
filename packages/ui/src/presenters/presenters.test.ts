@@ -426,6 +426,14 @@ describe('presentSession', () => {
     store.sessions.s1 = session('s1');
     expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: null, generatedAt: absoluteTime(1) });
   });
+  it('真ん中の頁から開いた本文は、新しい行がまだあることと跳び先を持ち、遡り終えたら古い行のボタンを出さない', () => {
+    let store = storeWith();
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 900, nextSeq: 101, events: [{ kind: 'user', seq: 100, text: 'a' }] }, false);
+    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), jump: { seq: 100, query: 'a', n: 1 } } } };
+    expect(presentSession(state, store, NOW, 's1')).toMatchObject({ hasNewer: true, hasMore: true, jump: { seq: 100, query: 'a', n: 1 } });
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 900, nextSeq: null, events: [] }, true, true);
+    expect(presentSession(state, store, NOW, 's1')).toMatchObject({ hasNewer: true, hasMore: false });
+  });
   it('無いセッションは notFound。run だけ先に届いていれば読み込み中', () => {
     expect(presentSession(initialState(), storeWith(), NOW, 'zz')).toMatchObject({ notFound: true, loadingSession: false });
     const store = storeWith();
@@ -447,6 +455,9 @@ describe('presentSessions', () => {
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
     expect(r.rows[0]!.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
+    // 行を開くと、抜粋の seq と検索語を持って一致へ跳ぶ。
+    expect(r.rows[0]!.jump).toEqual({ seq: 1, q: 'hi' });
+    expect(all.rows[0]!.jump).toBeUndefined();
   });
   it('切れた結果は、見せている件数と全件の数を分けて持ち、読み足しの最中を区別する', () => {
     const base = storeWith();

@@ -36,7 +36,9 @@ export type Effect =
   | { kind: 'navigate'; route: Route }
   | { kind: 'history.go'; delta: number }
   | { kind: 'api.bootstrap' }
-  | { kind: 'api.loadEvents'; sessionId: string; fromSeq: number }     // 0 は「開いた（最新側）」、-1 は「過去へ遡る」、-2 は「追記の取り込み」
+  // fromSeq の 0 は「開いた（最新側）」、-1 は「過去へ遡る」、-2 は「追記の取り込み（後ろを読み足す）」。
+  // aroundSeq は検索の結果から開いたときの跳び先で、開いたときに最新の側ではなくその周りを読む。
+  | { kind: 'api.loadEvents'; sessionId: string; fromSeq: number; aroundSeq?: number }
   | { kind: 'api.search'; params: SearchQuery }
   | { kind: 'api.setProjectStatus'; projectId: string; status: ProjectStatus }
   | { kind: 'api.resolveProject'; projectId: string; action: ResolveAction }
