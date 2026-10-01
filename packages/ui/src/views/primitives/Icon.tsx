@@ -1,4 +1,4 @@
-import { AppWindow, Archive, ArrowDownToLine, Ban, Bot, Brain, Check, ChevronDown, ChevronRight, Clock, Code, Columns2, Download, FileJson2, FilePenLine, FileX2, FolderInput, FolderSearch, FolderUp, Folder, GitBranch, GitFork, House, Map as MapIcon, MessagesSquare, MessageCircleQuestion, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plus, RotateCcw, Search, Settings, Settings2, ShieldAlert, Sparkles, Sprout, Square, SquareTerminal, Terminal, TriangleAlert, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
+import { AppWindow, Archive, ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, Ban, Bot, Brain, CaseSensitive, Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, CircleCheck, CirclePause, CircleX, Clock, Cloud, Code, Columns2, Command, Copy, Download, ExternalLink, FileJson2, FilePenLine, FileText, FileX2, Folder, FolderInput, FolderSearch, FolderUp, GitBranch, GitFork, House, Info, ListChecks, ListFilter, Map as MapIcon, MessageCircleQuestion, MessagesSquare, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Pencil, Plug, Plus, RefreshCw, RotateCcw, RotateCw, Search, Settings, Settings2, ShieldAlert, SkipForward, Sparkles, Sprout, Square, SquareTerminal, Terminal, TextSearch, Trash2, TriangleAlert, Undo2, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
 
 /** hangar の言葉からアイコンへの対応。View は lucide-react を直接 import せず、ここだけを通す。 */
 const ICONS = {
@@ -10,6 +10,7 @@ const ICONS = {
   close: X,
   chevron: ChevronRight,
   chevronDown: ChevronDown,
+  chevronUp: ChevronUp,
   sidebar: PanelLeft,
   search: Search,
   paneClose: PanelRightClose,
@@ -27,6 +28,7 @@ const ICONS = {
   archive: Archive,
   unlink: Unlink,
   warning: TriangleAlert,
+  alert: CircleAlert,
   split: Columns2,
   edit: Pencil,
   promote: FolderUp,
@@ -49,6 +51,31 @@ const ICONS = {
   latest: ArrowDownToLine,
   retention: Clock,
   transcriptGone: FileX2,
+  seeAll: ArrowRight,
+  nothingRunning: CirclePause,
+  fullText: TextSearch,
+  nextWaiting: SkipForward,
+  command: Command,
+  rebuild: RefreshCw,
+  filter: ListFilter,
+  discard: Trash2,
+  reset: Undo2,
+  // 設定と初回の確認リスト。
+  // alert（CircleAlert）は上の共通の並びにあるものを使う。
+  copy: Copy,
+  ok: CircleCheck,
+  ng: CircleX,
+  checks: ListChecks,
+  recheck: RefreshCw,
+  log: FileText,
+  restart: RotateCw,
+  info: Info,
+  link: Plug,
+  cloud: Cloud,
+  externalLink: ExternalLink,
+  prev: ArrowUp,
+  next: ArrowDown,
+  matchCase: CaseSensitive,
 } as const satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

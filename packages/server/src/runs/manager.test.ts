@@ -64,10 +64,11 @@ const launchedArgs = async (runId: string) => {
 describe('RunManager.start の入力検査（tmux 不要）', () => {
   it('projectId 無し、無いプロジェクト、未解決のプロジェクトを拒む', () => {
     const rm = make({ tmux: null });
-    expect(() => rm.start({})).toThrow(/projectId/);
+    // 文は画面のトーストに出るので、内部のキー名ではなく画面の語で書く。
+    expect(() => rm.start({})).toThrow('プロジェクトを選んでください');
     expect(() => rm.start({ projectId: 'nope' })).toThrow(expect.objectContaining({ status: 404 }));
-    expect(() => rm.start({ projectId: 'p2' })).toThrow(expect.objectContaining({ status: 400 }));
-    expect(() => rm.start({ projectId: 'p1' })).toThrow(/tmux/);
+    expect(() => rm.start({ projectId: 'p2' })).toThrow(expect.objectContaining({ status: 400, message: 'プロジェクトのディレクトリがこの PC で見つかりません' }));
+    expect(() => rm.start({ projectId: 'p1' })).toThrow('tmux が見つかりません。設定の「tmux のパス」を入れてください');
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
   });
@@ -76,7 +77,7 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     // 裸の `claude` は引けない。それを tmux に渡すと、ペインの中で 127 で落ちるだけで
     // 応答は成功になり、利用者はターミナルを開くまで理由が分からない。
     const rm = make({ claudeBin: null });
-    expect(() => rm.start({ projectId: 'p1' })).toThrow(/claude/);
+    expect(() => rm.start({ projectId: 'p1' })).toThrow('claude が見つかりません。設定の「claude のパス」を入れてください');
     expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400 }));
     expect(() => rm.start({ scratch: true })).toThrow(/claude/);
     // 断ったのだから、行も使い捨てのディレクトリも残ってはならない。
@@ -244,8 +245,8 @@ describe('RunManager の回復と結びつけ（tmux 不要）', () => {
     upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
     upsertShared(db, 'runs', { id: 'r0', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-x', pid: null, launch_params: '{}', started_at: 1, ended_at: 2, end_reason: 'exited', heartbeat_at: 1 }, 'd');
     const rm = make({ tmux: null });
-    expect(() => rm.kill('nope')).toThrow(expect.objectContaining({ status: 404 }));
-    expect(() => rm.kill('r0')).toThrow(expect.objectContaining({ status: 409 }));
+    expect(() => rm.kill('nope')).toThrow(expect.objectContaining({ status: 404, message: '起動した Claude が見つかりません' }));
+    expect(() => rm.kill('r0')).toThrow(expect.objectContaining({ status: 409, message: 'この Claude はもう終了しています' }));
   });
 
   it('startPolling は tick が投げてもサーバを落とさず、stop で止まる', async () => {
@@ -379,7 +380,7 @@ describe.skipIf(!TMUX)('シェルタブ（tmux 上）', () => {
 
   it('無い run には 404、Claude のタブは閉じられない', () => {
     const rm = make();
-    expect(() => rm.openTab('nope')).toThrow(expect.objectContaining({ status: 404 }));
+    expect(() => rm.openTab('nope')).toThrow(expect.objectContaining({ status: 404, message: '起動した Claude が見つかりません' }));
     const r = rm.start({ projectId: 'p1' });
     expect(() => rm.closeTab(r.run.id)).toThrow(expect.objectContaining({ status: 400 }));
   });
@@ -824,8 +825,8 @@ describe('addDirs の検査（tmux 不要）', () => {
   it('- で始まる値は 400 で弾き、行を作らない', () => {
     // --add-dir は可変長オプションなので、値がそのまま claude のフラグとして食われる。
     const rm = make({ tmux: null });
-    expect(() => rm.start({ projectId: 'p1', addDirs: ['--dangerously-skip-permissions'] })).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('addDirs') }));
-    expect(() => rm.start({ projectId: 'p1', addDirs: ['-p'] })).toThrow(/addDirs/);
+    expect(() => rm.start({ projectId: 'p1', addDirs: ['--dangerously-skip-permissions'] })).toThrow(expect.objectContaining({ status: 400, message: '追加ディレクトリに - で始まる値は使えません: --dangerously-skip-permissions' }));
+    expect(() => rm.start({ projectId: 'p1', addDirs: ['-p'] })).toThrow(/追加ディレクトリ/);
     // 普通のディレクトリはここでは弾かない。先の検査に進んで tmux で止まる。
     expect(() => rm.start({ projectId: 'p1', addDirs: [cwd] })).toThrow(/tmux/);
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });

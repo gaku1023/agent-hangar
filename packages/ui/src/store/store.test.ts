@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, pruneEvents, pruneRuns, tabsOf, todosOf } from './store.ts';
+import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
@@ -35,6 +35,19 @@ describe('store', () => {
     // 同じ seq が重なって届いても増えない
     s = applyEventsPage(s, k, { sessionId: 's1', events: [{ kind: 'assistant', seq: 1, text: 'b' }], total: 2, nextSeq: null }, true);
     expect(s.events[k]?.items).toHaveLength(2);
+  });
+  it('過去へ遡ったページは、後ろ（新しい側）の続きの印を消さない。空なら遡り終えた印を付ける', () => {
+    const k = eventsKey('s1', null);
+    // 検索の結果から真ん中の頁を前向きに読んだ。後ろにまだ行がある。
+    let s = applyEventsPage(initialStore(), k, { sessionId: 's1', events: [{ kind: 'user', seq: 100, text: 'a' }], total: 900, nextSeq: 101 }, false);
+    expect(s.events[k]).toMatchObject({ nextSeq: 101, olderDone: false });
+    s = applyEventsPage(s, k, { sessionId: 's1', events: [{ kind: 'user', seq: 50, text: 'b' }], total: 900, nextSeq: null }, true, true);
+    expect(s.events[k]).toMatchObject({ nextSeq: 101, olderDone: false });
+    s = applyEventsPage(s, k, { sessionId: 's1', events: [], total: 900, nextSeq: null }, true, true);
+    expect(s.events[k]).toMatchObject({ nextSeq: 101, olderDone: true });
+    // 後ろを読み足したら、その頁の続きの印に替える。
+    s = applyEventsPage(s, k, { sessionId: 's1', events: [{ kind: 'user', seq: 101, text: 'c' }], total: 900, nextSeq: null }, true);
+    expect(s.events[k]).toMatchObject({ nextSeq: null, olderDone: true });
   });
   it('transcript.appended は該当セッションの events を再読込対象にする', () => {
     let s = applyEventsPage(initialStore(), eventsKey('s1', null), { sessionId: 's1', events: [], total: 0, nextSeq: null }, false);
@@ -253,6 +266,45 @@ describe('store の同期', () => {
     expect(s.configPreview).toEqual({ entries: [], confirmed: true });
     expect(applyJoinToken(s, null).joinToken).toBeNull();
     expect(applyConfigPreview(s, null).configPreview).toBeNull();
+  });
+});
+
+describe('次の入力待ち（C5）', () => {
+  const waiting = (id: string, at: number | null): SessionDto => ({ ...session(id, 'u' + id), live: 'waiting', lastActivityAt: at });
+  const withSessions = (...list: SessionDto[]) => ({ ...initialStore(), sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
+
+  it('入力待ちが無ければ null', () => {
+    expect(nextWaitingSession(withSessions({ ...session('a', 'ua'), live: 'busy' }), null)).toBeNull();
+  });
+  it('待っている時間が長い順に回り、末尾の次は先頭へ戻る', () => {
+    // Home の要対応の札と同じ並び（最後の活動が古い順）にする。
+    const s = withSessions(waiting('a', 300), waiting('b', 100), { ...session('c', 'uc'), live: 'idle' }, waiting('d', 200));
+    expect(nextWaitingSession(s, null)).toBe('b');
+    expect(nextWaitingSession(s, 'b')).toBe('d');
+    expect(nextWaitingSession(s, 'd')).toBe('a');
+    expect(nextWaitingSession(s, 'a')).toBe('b');
+    // 入力待ちでないセッションにいるときは先頭から。
+    expect(nextWaitingSession(s, 'c')).toBe('b');
+  });
+  it('1 つだけなら、いまいるそのセッションをもう一度選ぶ', () => {
+    expect(nextWaitingSession(withSessions(waiting('a', 1)), 'a')).toBe('a');
+  });
+  it('時刻が同じか無いものは id の順にし、時刻の無いものは後ろに置く', () => {
+    const s = withSessions(waiting('y', null), waiting('x', null), waiting('z', 5));
+    expect(nextWaitingSession(s, null)).toBe('z');
+    expect(nextWaitingSession(s, 'z')).toBe('x');
+    expect(nextWaitingSession(s, 'x')).toBe('y');
+  });
+});
+
+describe('検索の続き', () => {
+  const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
+  it('続きを後ろに足し、持っている行と重なった行は足さない', () => {
+    // 読み足す間に並びがずれると、前のページの末尾が続きの先頭にもう一度来る。
+    const first = applySearch(initialStore(), { q: 'x' }, { hits: [hit('s1'), hit('s2')], total: 3 }, false);
+    const next = appendSearch(first, { q: 'x', offset: 2 }, { hits: [hit('s2'), hit('s3')], total: 3 });
+    expect(next.search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2', 's3']);
+    expect(next.search).toMatchObject({ loading: false, result: { total: 3 } });
   });
 });
 

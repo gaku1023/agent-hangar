@@ -41,6 +41,7 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('get_transcript', D('セッションの本文を正規化イベントで返す。セッション別 URL では session_id を省ける。'), { session_id: z.string().optional(), from_seq: z.number().int().optional(), limit: z.number().int().positive().optional(), include_tools: z.boolean().optional() });
   reg('create_session', D('プロジェクトで新しい Claude Code セッションを tmux 上に起動する。'), { project_id: z.string(), name: z.string().optional(), prompt: z.string().optional(), model: z.string().optional(), effort: z.string().optional(), permission_mode: z.string().optional(), scratch: z.boolean().optional() });
   reg('set_session_summary', D('このセッションの要約を更新する。依頼の完了、方針の変更、中断のときに呼ぶ。'), { session_id: z.string().optional(), title: z.string(), one_liner: z.string(), body: z.string(), state: STATE, next_steps: z.array(z.string()) });
+  reg('set_turn_intent', D('このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。ターンを始めたときと方針を変えたときに呼ぶ。hangar の右ペインに出る。'), { session_id: z.string().optional(), text: z.string() });
   reg('set_session_memo', D('セッションの人間向け 1 行メモを書く。'), { session_id: z.string().optional(), text: z.string() });
   reg('get_usage', D('Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。statusline から届いた最新の値。'), {});
   reg('open_in_hangar', D('セッションかプロジェクトを hangar の UI で開く URL とディープリンクを返す。'), { session_id: z.string().optional(), project_id: z.string().optional() });

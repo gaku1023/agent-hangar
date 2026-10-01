@@ -14,7 +14,7 @@ import { RollingNumber } from './primitives/RollingNumber.tsx';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
 
 const art = (id: string, over: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: '題名 ' + id, description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/' + id, lastPublished: '1 分前', versionCount: 2, canOpenEditor: false, ...over });
-const card = (over: Partial<ProjectCardProps> = {}): ProjectCardProps => ({ id: 'p1', name: 'alpha', path: '/w/alpha', resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 0, openTodoCount: 0, memoHead: null, lastOneLiner: null, ...over });
+const card = (over: Partial<ProjectCardProps> = {}): ProjectCardProps => ({ id: 'p1', name: 'alpha', path: '/w/alpha', resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 0, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'セッションはまだありません', excerptFromPrompt: false, ...over });
 const wrap = (node: ReactNode, onIntent = vi.fn()) => { render(<IntentRoot onIntent={onIntent}>{node}</IntentRoot>); return onIntent; };
 
 describe('UsageGauge', () => {
@@ -55,27 +55,35 @@ const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, s
 
 describe('Header', () => {
   it('2 つのゲージと最終更新を出す', () => {
-    render(<IntentRoot onIntent={() => {}}><Header searchText="" indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
-    expect(screen.getByLabelText('5 時間の使用率')).toBeTruthy();
-    expect(screen.getByLabelText('7 日の使用率')).toBeTruthy();
+    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00', updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
+    expect(screen.getByRole('meter', { name: '5 時間枠の使用率' })).toBeTruthy();
+    expect(screen.getByRole('meter', { name: '週の枠の使用率' })).toBeTruthy();
+    // 何の割合かが画面から読めるよう、見出しを常に出す。
+    expect(screen.getByText('5 時間')).toBeTruthy();
+    expect(screen.getByText('週')).toBeTruthy();
+    // ホバーで、枠が戻る時刻を読める。
+    expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間枠の使用率 47%、18:00 に戻ります');
+    expect(screen.getByText('週').closest('.gauge')).toHaveAttribute('title', '週の枠の使用率 7%、10/4 09:00 に戻ります');
     expect(screen.getByText('最終更新 10 分前')).toBeTruthy();
   });
-  // 幅が狭いと、同期のボタンと検索欄と新規セッションの文字を畳む（base.css のコンテナクエリ）。畳んでも同じ操作ができる。
+  // 幅が狭いと、同期のボタンと錠剤の文字と新規セッションの文字を畳む（base.css のコンテナクエリ）。畳んでも同じ操作ができる。
   it('畳んだときの逃げ道。同期の文は設定へ、虫眼鏡はパレットへ、新規セッションは名前を残す', () => {
     const onIntent = vi.fn();
     const sync = { visible: true, state: 'idle' as const, label: '同期済み · 3 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false };
-    render(<IntentRoot onIntent={onIntent}><Header searchText="" indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
     fireEvent.click(screen.getByRole('link', { name: '同期済み · 3 分前' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
-    fireEvent.click(screen.getByRole('button', { name: 'セッションを検索' }));
+    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
-    fireEvent.click(screen.getByRole('button', { name: '新規セッション' }));
+    fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
   });
   it('最終更新が無ければ添えない', () => {
-    render(<IntentRoot onIntent={() => {}}><Header searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
     expect(screen.queryByText(/最終更新/)).toBeNull();
     expect(screen.getAllByText('未取得')).toHaveLength(2);
+    // 戻る時刻が届いていなければ、title に時刻を添えない。
+    expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間枠の使用率 未取得');
   });
 });
 
@@ -208,27 +216,27 @@ describe('ProjectScreen の右レール', () => {
     expect(screen.getByLabelText('TODO を追加')).toBeTruthy();
     expect(screen.getByLabelText('メモ')).toBeTruthy();
     expect(screen.getByText('題名 a1')).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('右レールを隠す'));
+    fireEvent.click(screen.getByLabelText('右の欄を閉じる'));
     expect(screen.queryByLabelText('TODO を追加')).toBeNull();
   });
   it('スクラッチのプロジェクトは操作を絞る', () => {
     wrap(<ProjectScreen {...props} isScratch />);
     expect(screen.getByText('スクラッチで始める')).toBeTruthy();
-    expect(screen.queryByText('新規セッション')).toBeNull();
+    expect(screen.queryByText('新しいセッション')).toBeNull();
   });
 });
 
 describe('ProjectCard の追加分', () => {
-  it('メモの 1 行目を出し、ここで新規は親のクリックを巻き込まない', () => {
+  it('メモの 1 行目を出し、ここで始めるは親のクリックを巻き込まない', () => {
     const onIntent = wrap(<ProjectCard {...card({ memoHead: '買い物の段取り' })} />);
     expect(screen.getByText('買い物の段取り')).toBeTruthy();
-    fireEvent.click(screen.getByText('ここで新規'));
+    fireEvent.click(screen.getByText('ここで始める'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'p1' });
     expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'p1' });
   });
   it('メモが無ければその行を出さない', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectCard {...card()} /></IntentRoot>);
     expect(container.querySelector('.card-memo')).toBeNull();
-    expect(screen.getByText('ここで新規')).toBeTruthy();
+    expect(screen.getByText('ここで始める')).toBeTruthy();
   });
 });

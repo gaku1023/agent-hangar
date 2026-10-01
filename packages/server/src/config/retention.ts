@@ -128,7 +128,7 @@ export async function measureUsage(o: { claudeDir: string; now: number }): Promi
   return { bytes, dailyBytes: Math.round(recent / RATE_WINDOW_DAYS), freeBytes, measuredAt: o.now };
 }
 
-/** 下見の後に、ほかの PC からの同期や手の編集でファイルが変わった。UI は下見を取り直す。 */
+/** 下見の後に、他の PC からの同期や手の編集でファイルが変わった。UI は下見を取り直す。 */
 export class RetentionConflictError extends Error {
   constructor() { super('設定ファイルがほかで変わったので、読み直しました'); this.name = 'RetentionConflictError'; }
 }

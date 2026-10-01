@@ -53,7 +53,7 @@ const PUSH_DEBOUNCE_MS = 1_000;
  */
 const PUSH_MIN_GAP_MS = 10_000;
 const PULL_INTERVAL_MS = 30_000;
-const QUOTA_PAUSED_MESSAGE = '無料枠の 80% に達したので同期を止めました。Settings で再開できます';
+const QUOTA_PAUSED_MESSAGE = '無料枠の 80% に達したので同期を止めました。設定の「同期を再開」で再開できます';
 const RESYNC_MESSAGE = 'クラウドの変更ログが古くなっていたので、同期を作り直しました';
 
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
@@ -354,7 +354,7 @@ export class SyncEngine {
     if (this.oversizeTold.has(key)) return true;
     this.oversizeTold.add(key);
     const kib = (n: number) => Math.round(n / 1024);
-    this.emit('toast', 'error', `${named.tableName} の 1 行（${named.rowId}）が大きすぎるので同期できません（${kib(named.bytes)} KiB、上限 ${kib(named.limit)} KiB）。手元には残りますが、他の端末には届きません`);
+    this.emit('toast', 'error', `${named.tableName} の 1 行（${named.rowId}）が大きすぎるので同期できません（${kib(named.bytes)} KiB、上限 ${kib(named.limit)} KiB）。手元には残りますが、他の PC には届きません`);
     return true;
   }
 

@@ -1,4 +1,4 @@
-import { MAX_JUMP_HEADS, promptHead, type TranscriptEvent } from '@agent-hangar/shared';
+import { isTurnPrompt, MAX_JUMP_HEADS, promptHead, type TranscriptEvent } from '@agent-hangar/shared';
 
 /**
  * ターンの目次。利用者が打った指示ごとに会話を区切る。
@@ -20,8 +20,7 @@ export type Turn = {
 /** 区切りになる行なら、その指示の本文を返す。 */
 function promptOf(e: TranscriptEvent): string | null {
   if (e.kind !== 'user') return null;
-  // 中断の知らせは user の行として残るが、利用者の発言ではない。
-  return e.text.startsWith('[Request interrupted') ? null : e.text;
+  return isTurnPrompt(e.text) ? e.text : null;
 }
 
 /** seq の昇順に並んだ行からターンを組む。最初の指示より前の行はどのターンにも入れない。 */

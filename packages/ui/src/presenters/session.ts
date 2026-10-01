@@ -1,4 +1,4 @@
-import type { LiveStatus, RunKind, SessionDto, SessionSummaryDto, TranscriptEvent } from '@agent-hangar/shared';
+import type { LiveStatus, RunKind, SessionDto, SessionSummaryDto, StepCell, TranscriptEvent } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
@@ -6,16 +6,20 @@ import { DEFAULT_DAYS, daysLabel, EXTEND_TO, transcriptMark } from './retention.
 import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
+import { presentTool, type ToolView } from './tools.ts';
+import { bandsOf, presentLivePane, resultsOf, type LivePaneProps } from './live.ts';
 import { buildTurns } from './turns.ts';
-import type { TurnJumpStatus } from '../mediator/types.ts';
+import type { JumpState, TurnJumpStatus } from '../mediator/types.ts';
+import { findIn, type TranscriptFind } from './find.ts';
 
 export type TranscriptItem =
   | { kind: 'user' | 'assistant' | 'thinking' | 'system'; seq: number; text: string; when: string }
-  | { kind: 'tool'; seq: number; summary: string; name: string; inputJson: string; result: { text: string; isError: boolean } | null; when: string; subagent: { agentId: string; label: string } | null }
+  // view は種類ごとの見せ方。raw は生の記録を出すときだけ持つ、生の入力の JSON と結果の文である。
+  | { kind: 'tool'; seq: number; summary: string; name: string; view: ToolView; raw: { input: string; result: string | null } | null; result: { text: string; isError: boolean } | null; when: string; subagent: { agentId: string; label: string } | null }
   | { kind: 'meta'; seq: number; name: string; json: string };
 export type TabItemProps = { id: string; title: string; kind: 'agent' | 'shell'; selected: boolean; closable: boolean };
 /** 目次の 1 行。head は左のターミナルの指示の行と突き合わせる書き出しで、跳ぶ要求にそのまま載る。 */
-export type TurnRowProps = { seq: number; when: string; text: string; head: string; tools: number; open: boolean };
+export type TurnRowProps = { seq: number; when: string; text: string; head: string; tools: number; open: boolean; band: StepCell[] };
 
 /**
  * 要約に使った要約器とモデルの表示。
@@ -33,7 +37,15 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   /** 保持期間で本文が消えたとみられる会話の注記。そうでなければ null。 */
   gone: { note: string; canExtend: boolean; extendTo: number } | null;
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
-  turnRows: TurnRowProps[]; turnsComplete: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null };
+  turnRows: TurnRowProps[]; turnsComplete: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null;
+  /** 本文の中の検索（⌘F）。閉じていれば null。 */
+  find: TranscriptFind | null;
+  /** 検索の結果から開いたときの跳び先。 */
+  jump: JumpState | null;
+  /** 読んだ頁より新しい行がまだあるか（検索の結果から真ん中の頁だけを読んで開いたとき）。 */
+  hasNewer: boolean;
+  /** 実行中の右ペイン。終わった run では null。 */
+  livePane: LivePaneProps | null };
 
 /**
  * 他端末がそのセッションを握っている間の表示。
@@ -45,7 +57,7 @@ export type SessionLockProps = { deviceName: string; stale: boolean; heartbeat: 
 
 function lockProps(lock: SessionDto['lock'], now: number): SessionLockProps | null {
   if (!lock) return null;
-  return { deviceName: lock.deviceName, stale: lock.stale, heartbeat: relativeTime(lock.heartbeatAt, now), label: `${lock.deviceName} ${lock.stale ? 'が応答がありません' : 'で実行中'}` };
+  return { deviceName: lock.deviceName, stale: lock.stale, heartbeat: relativeTime(lock.heartbeatAt, now), label: `${lock.deviceName} ${lock.stale ? 'から応答がありません' : 'で実行中'}` };
 }
 
 /** チップの状態の言い方。Home の札（休み、入力待ち）と揃える。 */
@@ -92,7 +104,22 @@ export function localCommandText(text: string): string | null {
   return text;
 }
 
-export function buildItems(events: TranscriptEvent[], opts: { showThinking: boolean; showRaw: boolean; subagents: string[] }): TranscriptItem[] {
+type ToolCall = Extract<TranscriptEvent, { kind: 'tool_call' }>;
+type ToolResult = { text: string; isError: boolean };
+/**
+ * ツールの見せ方の控え。差分を取るので安くはなく、描くたびに作り直すと重い。
+ * ストアの本文は同じ呼び出しを同じ物のまま持つので、呼び出しの物を鍵にし、結果か作業ディレクトリが変わったときだけ作り直す。
+ */
+const toolViews = new WeakMap<ToolCall, { result: ToolResult | null; cwd: string; view: ToolView }>();
+function toolView(call: ToolCall, result: ToolResult | null, cwd: string): ToolView {
+  const hit = toolViews.get(call);
+  if (hit && hit.cwd === cwd && (hit.result === result || (hit.result?.text === result?.text && hit.result?.isError === result?.isError))) return hit.view;
+  const view = presentTool(call, result, cwd);
+  toolViews.set(call, { result, cwd, view });
+  return view;
+}
+
+export function buildItems(events: TranscriptEvent[], opts: { showThinking: boolean; showRaw: boolean; subagents: string[]; cwd?: string }): TranscriptItem[] {
   const results = new Map<string, { text: string; isError: boolean }>();
   for (const e of events) if (e.kind === 'tool_result') results.set(e.toolId, { text: e.text, isError: e.isError });
   const items: TranscriptItem[] = [];
@@ -111,7 +138,9 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
       case 'thinking': if (opts.showThinking) items.push({ kind: 'thinking', seq: e.seq, text: e.text, when: when(e.ts) }); break;
       case 'tool_call': {
         const sub = SUBAGENT_TOOLS.has(e.name) && opts.subagents[nextSub] ? { agentId: opts.subagents[nextSub++]!, label: e.summary } : null;
-        items.push({ kind: 'tool', seq: e.seq, summary: e.summary, name: e.name, inputJson: JSON.stringify(e.input, null, 2), result: results.get(e.toolId) ?? null, when: when(e.ts), subagent: sub });
+        const result = results.get(e.toolId) ?? null;
+        const raw = opts.showRaw ? { input: JSON.stringify(e.input, null, 2) ?? '', result: result?.text ?? null } : null;
+        items.push({ kind: 'tool', seq: e.seq, summary: e.summary, name: e.name, view: toolView(e, result, opts.cwd ?? ''), raw, result, when: when(e.ts), subagent: sub });
         break;
       }
       case 'tool_result': break;
@@ -125,7 +154,7 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, openTurnItems: [], turnJump: null, gone: null };
+  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, openTurnItems: [], turnJump: null, livePane: null, gone: null, find: null, jump: null, hasNewer: false };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -136,15 +165,29 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   let sorted = true;
   for (let i = 1; i < raw.length; i++) if (raw[i]!.seq < raw[i - 1]!.seq) { sorted = false; break; }
   const events = sorted ? raw : [...raw].sort((a, b) => a.seq - b.seq);
-  const itemOpts = { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [] };
+  const itemOpts = { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [], cwd: s.cwd };
   const items = buildItems(events, itemOpts);
   const turnList = buildTurns(events);
   const openTurn = turnList.find((t) => t.seq === view.openTurn) ?? null;
-  const turnRows: TurnRowProps[] = turnList.map((t) => ({ seq: t.seq, when: when(t.ts), text: t.text, head: t.head, tools: t.tools, open: t === openTurn }));
+  // 結果の表は 1 回だけ作り、色帯と右ペインで使い回す。
+  const results = resultsOf(events);
+  const bands = bandsOf(events, turnList, results);
+  const turnRows: TurnRowProps[] = turnList.map((t, n) => ({ seq: t.seq, when: when(t.ts), text: t.text, head: t.head, tools: t.tools, open: t === openTurn, band: bands[n]! }));
   const openTurnItems = openTurn ? buildItems(events.filter((e) => e.seq >= openTurn.from && e.seq < openTurn.to), itemOpts) : [];
   const project = s.projectId ? store.projects[s.projectId] ?? null : null;
   const run = currentRunOf(store, id);
   const alive = aliveRunOf(store, id) !== null;
+  // 右ペインは実行中だけ。サブエージェントの transcript を開いている間は、events が主線ではない。
+  // events は最新の 500 件の窓かもしれないので、ターンの頭は digest（サーバが全体から決めた seq）を先に使う。
+  // ターンの番号も、全部を読み込んでいるときだけ目次の数にし、そうでなければ統計の数にする。どちらも当てにならなければ出さない。
+  const lastTurn = turnList[turnList.length - 1] ?? null;
+  const complete = slice ? slice.total <= slice.items.length : true;
+  const turnNo = complete && turnList.length > 0 ? turnList.length : s.stats.turns > 0 ? s.stats.turns : null;
+  const livePane = alive ? presentLivePane({
+    digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0, turnNo,
+    live: s.live, activity: s.activity ?? null, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
+    idleFor: durationLabel(now - (s.lastActivityAt ?? now)), results,
+  }) : null;
   const open = run ? tabsOf(store, run.id) : [];
   const selectedTab = run ? (view.selectedTab && open.some((t) => t.id === view.selectedTab) ? view.selectedTab : run.id) : null;
   const tabs: TabItemProps[] = open.map((t) => ({ id: t.id, title: t.title, kind: t.kind, selected: t.id === selectedTab, closable: t.kind === 'shell' }));
@@ -164,8 +207,10 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     summary: s.summary ? { ...s.summary, sourceLabel: SOURCE_LABEL[s.summary.source], stateLabel: STATE_LABEL[s.summary.state], summarizerLabel: summarizerLabel(s.summary.sourceId, s.summary.sourceModel), generatedAt: absoluteTime(s.summary.updatedAt) } : null,
     model: shortModel(s.stats.model), effort: s.stats.effort ?? '', turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), prUrl: s.stats.prUrl, memo: s.memo,
     started: relativeTime(s.startedAt, now), lastActivity: relativeTime(s.lastActivityAt, now), hasTranscript: s.hasTranscript,
-    items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length : false, notFound: false,
-    turnRows, turnsComplete: slice ? slice.total <= slice.items.length : true, openTurnItems, turnJump: view.turnJump,
+    items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length && !slice.olderDone : false, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
+    turnRows, turnsComplete: complete, openTurnItems, turnJump: view.turnJump, livePane,
+    // 検索は描く行（思考と生の記録の切り替えを通した後）の中で数える。
+    find: view.find ? { ...view.find, ...findIn(items, view.find) } : null, jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(run.startedAt, now) } : null,
     tabs, selectedTab, trustHint: alive && s.live === null,
     // 他端末が動かしている間は再開もフォークもさせない。手元に写ししか無いセッションも同じである。

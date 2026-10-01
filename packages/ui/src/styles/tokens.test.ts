@@ -30,8 +30,9 @@ describe('tokens.css', () => {
       expect(contrast(token(t), glass), `${t} / glass`).toBeGreaterThanOrEqual(4.5);
     }
   });
-  it('注記の色は白地で 3:1 以上、主ボタンの白い文字は 4.5:1 以上', () => {
-    expect(contrast(token('--ink-3'), token('--surface'))).toBeGreaterThanOrEqual(3);
+  // 注記と時刻も、白地では本文と同じ 4.5:1 を満たす。3.4:1 では小さな時刻が読みにくかった。
+  it('注記の色は白地で 4.5:1 以上、主ボタンの白い文字は 4.5:1 以上', () => {
+    expect(contrast(token('--ink-3'), token('--surface'))).toBeGreaterThanOrEqual(4.5);
     expect(contrast(token('--accent-ink'), token('--accent'))).toBeGreaterThanOrEqual(4.5);
   });
 });
@@ -73,6 +74,15 @@ const contrast = (a: string, b: string) => { const [hi, lo] = [lum(a), lum(b)].s
 const token = (name: string) => css.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6});`))?.[1] ?? '';
 /** 白を割合 a で色 hex に重ねた色。ガラスの見かけの地の色を出すのに使う。 */
 const over = (hex: string, a: number) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * (1 - a) + 255 * a).toString(16).padStart(2, '0')).join('');
+
+describe('危険のボタン', () => {
+  it('赤い文字は白地で、赤で塗ったボタンの白い文字も 4.5:1 以上で読める', () => {
+    expect(base).toMatch(/\.btn-danger \{[^}]*color: var\(--error\)/);
+    expect(base).toMatch(/\.btn-danger-fill \{[^}]*background: var\(--error\); color: #ffffff/);
+    expect(contrast(token('--error'), token('--surface'))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast('#ffffff', token('--error'))).toBeGreaterThanOrEqual(4.5);
+  });
+});
 
 describe('プロジェクトのステータスの色', () => {
   const statuses = ['active', 'paused', 'done', 'archived'];

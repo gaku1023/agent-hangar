@@ -1,8 +1,7 @@
 import { formatRoute } from '@agent-hangar/shared';
 import markUrl from '../brand/logo-mark.svg';
 import { useEmit } from '../intent/chain.tsx';
-import { isComposing } from './ime.ts';
-import type { SyncProps, UsageProps } from '../presenters/shell.ts';
+import type { ShellProps, SyncProps, UsageProps } from '../presenters/shell.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
 import { SyncStatus } from './SyncStatus.tsx';
@@ -11,10 +10,10 @@ import { SyncStatus } from './SyncStatus.tsx';
 const HOME = { name: 'home' } as const;
 
 /**
- * ヘッダ。左の列（サイドバーの列）にロゴ、右の列（本文の列）に検索欄と右の塊を置く（base.css の .header）。
- * 今いる場所はヘッダではなく、各頁の見出し（PageHeading）で示す。頁ごとに幅の変わる文字をここに置くと、検索欄が頁ごとに横へずれるからである。
+ * ヘッダ。左の列（サイドバーの列）にロゴ、右の列（本文の列）に「探す・移動」の錠剤と右の塊を置く（base.css の .header）。
+ * 今いる場所はヘッダではなく、各頁の見出し（PageHeading）で示す。頁ごとに幅の変わる文字をここに置くと、錠剤が頁ごとに横へずれるからである。
  */
-export function Header(props: { searchText: string; indexLabel: string | null; usage: UsageProps; sync: SyncProps }) {
+export function Header(props: { indexLabel: string | null; usage: UsageProps; sync: SyncProps; newSession: ShellProps['newSession'] }) {
   const emit = useEmit();
   return (
     <header className="header" data-tauri-drag-region="">
@@ -23,22 +22,23 @@ export function Header(props: { searchText: string; indexLabel: string | null; u
         <a className="brand" href={formatRoute(HOME)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: HOME }); }}><img className="brand-mark" src={markUrl} width={26} height={26} alt="" /><span className="brand-word">Hangar</span></a>
       </div>
       <div className="header-row" data-tauri-drag-region="">
-        <input id="global-search" className="input search-box" type="search" role="searchbox" placeholder="セッションを検索（/）" defaultValue={props.searchText}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) emit({ type: 'search.query', text: (e.target as HTMLInputElement).value }); }} />
-        <kbd className="search-kbd" aria-hidden="true">⌘K</kbd>
-        {/* 狭いときは検索欄の代わりに出る。押すとパレットを開く。 */}
-        <button className="btn search-icon" aria-label="セッションを検索" title="セッションを検索（⌘K）" onClick={() => emit({ type: 'palette.open' })}><Icon name="search" /></button>
+        {/* 探す入口は打つ欄ではなく、押す錠剤である（A1）。押すか / か ⌘K でパレットを開き、全文検索はパレットの最後の行から行く。
+            パレットはこの錠剤から広がって開き、閉じると錠剤へ戻る（CommandPalette.tsx と runtime/present.ts が id で探す）。
+            狭いときは文字とキー帽を畳み、虫眼鏡だけを残す。 */}
+        <button id="global-search" type="button" className="search-pill" title="探す・移動（⌘K または /）" onClick={() => emit({ type: 'palette.open' })}>
+          <Icon name="search" /><span className="search-pill-label">探す・移動</span><kbd className="search-kbd" aria-hidden="true">⌘K</kbd>
+        </button>
         <span className="spacer" data-tauri-drag-region="" />
         <div className="header-end" data-tauri-drag-region="">
           <SyncStatus {...props.sync} />
           {/* 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。 */}
           <span className="gauges">
-            <UsageGauge label="5 時間の使用率" short="5h" percent={props.usage.fiveHour} />
-            <UsageGauge label="7 日の使用率" short="7d" percent={props.usage.sevenDay} />
+            <UsageGauge label="5 時間枠の使用率" short="5 時間" percent={props.usage.fiveHour} resets={props.usage.fiveHourResets} />
+            <UsageGauge label="週の枠の使用率" short="週" percent={props.usage.sevenDay} resets={props.usage.sevenDayResets} />
             {props.usage.updatedLabel && <span className="faint gauge-updated">最終更新 {props.usage.updatedLabel}</span>}
           </span>
           {/* 狭いときは「＋」だけになる。名前は aria-label に残す。 */}
-          <button className="btn btn-primary new-session" aria-label="新規セッション" onClick={() => emit({ type: 'session.new.open' })}><Icon name="add" /><span className="btn-label">新規セッション</span></button>
+          <button className="btn btn-primary new-session" aria-label="新しいセッション" onClick={() => emit({ type: 'session.new.open', ...props.newSession })}><Icon name="add" /><span className="btn-label">新しいセッション</span></button>
           {props.indexLabel && <span className="progress">{props.indexLabel}</span>}
         </div>
       </div>

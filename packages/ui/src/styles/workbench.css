@@ -83,4 +83,14 @@
 .card-slot { display: flex; min-width: 0; }
 .card-slot > .card { flex: 1; min-width: 0; }
 .card-memo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-foot { display: flex; }
+/* カードの中身（試作 home-lists の C1）。抜粋は 2 行で切り、短くても 2 行分の高さを取ってカードの背を揃える。 */
+.card-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.45; min-height: 2.9em; color: var(--ink-2); }
+.card-from { display: flex; align-items: center; gap: var(--u); font-size: var(--fs-xs); color: var(--ink-3); }
+.card-from .icon { width: 12px; height: 12px; }
+/* 最終活動と数の行。カードの下端に寄せ、右端に「ここで始める」を置く。 */
+.card-meta { display: flex; align-items: center; gap: calc(var(--u) * 2.5); margin-top: auto; min-height: var(--row-h); font-size: var(--fs-sm); color: var(--ink-3); }
+.card-meta .btn { flex: none; }
+/* 12 枚すべてに同じボタンが並ぶとうるさいので、乗せたときとキーボードで届いたときだけ見せる。
+   visibility で隠すと Tab で届かなくなるので、透明にするだけにする。 */
+.card-here { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.card:hover .card-here, .card:focus-within .card-here { opacity: 1; }

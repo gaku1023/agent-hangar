@@ -1,11 +1,20 @@
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
-export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean };
+/**
+ * 本文の読み込んだ分。
+ * nextSeq は、持っている分より新しい行がまだあるときの、次に前向きに読む seq（最新の側まで持っていれば null）。
+ * 検索の結果から真ん中の頁だけを読んで開いたときに、後ろを読み足すのに使う。
+ * olderDone は、過去へ遡って空の頁が返った（もう古い行が無い）ことを表す。
+ */
+export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean; olderDone?: boolean };
 export type Store = {
   bootstrapped: boolean; version: string; device: { id: string; name: string } | null; settings: SettingsDto | null;
   projects: Record<string, ProjectDto>; sessions: Record<string, SessionDto>; live: LiveSessionDto[];
   runs: Record<string, RunDto>; tabs: Record<string, TabDto>;
   events: Record<string, EventsSlice>; subagents: Record<string, string[]>;
+  /** 実行中のセッションの右ペインに出すライブの要約。実行中に開いたセッションの分が溜まる（今開いているものだけではない）。 */
+  liveDigests: Record<string, LiveDigestDto>;
   search: { params: SearchParamsDto | null; result: SearchResultDto | null; loading: boolean };
   index: IndexProgressDto;
   usage: UsageDto; todos: Record<string, TodoDto>; memos: Record<string, MemoDto>; artifacts: Record<string, ArtifactDto>;
@@ -18,6 +27,12 @@ export type Store = {
   sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
   // Claude Code の会話の保持期間。下見は確認を開いたときだけ取りに行く値なので、未取得は null である。
   retention: RetentionDto | null; retentionPreview: RetentionPreviewDto | null;
+  // 準備の確かめ。設定画面と空のホームで取りに行く値なので、未取得は null である。
+  readiness: ReadinessDto | null;
+  // 参加トークンが消える時刻。画面が残りの秒数を数える。
+  joinTokenExpiresAt: number | null;
+  // デスクトップの殻の中で動いているか。殻があれば、ログを開くと再起動を殻に頼める。
+  desktop: boolean;
 };
 
 export const emptyUsage = (): UsageDto => ({ fiveHour: null, sevenDay: null, updatedAt: null });
@@ -26,12 +41,13 @@ export const eventsKey = (sessionId: string, agentId: string | null): string => 
 
 export function initialStore(): Store {
   return {
-    bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {},
+    bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {},
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     usage: emptyUsage(), todos: {}, memos: {}, artifacts: {}, summaryPending: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     sync: null, devices: [], joinToken: null, configPreview: null,
     retention: null, retentionPreview: null,
+    readiness: null, joinTokenExpiresAt: null, desktop: false,
   };
 }
 
@@ -39,7 +55,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
 
 /**
  * 同期の状態を入れ替える。
- * 付録（諦めた本文と取り残しの件数）は、HTTP の応答も websocket の通知も運ぶ。
+ * 付録（送れなかった本文と取り残しの件数）は、HTTP の応答も websocket の通知も運ぶ。
  * これより古いサーバの通知にだけ載っていないので、そのときは「分からない」に寄せる。
  * 直前の値は引き継がない。
  * 引き継ぐと、片付いた取り残しと回復した失敗が、画面に出たまま固まってしまう。
@@ -123,20 +139,38 @@ export function setEventsLoading(store: Store, key: string, loading: boolean): S
   return { ...store, events: { ...store.events, [key]: { ...cur, loading } } };
 }
 
-export function applyEventsPage(store: Store, key: string, page: EventsPageDto, append: boolean): Store {
+/**
+ * 読んだ頁を入れる。append が偽なら置き換える。older は過去へ遡った頁であることを表す。
+ * 遡った頁は後ろ向きに読むので続きの印（nextSeq）を持たない。持っている分の後ろの続きの印は残す。
+ */
+export function applyEventsPage(store: Store, key: string, page: EventsPageDto, append: boolean, older = false): Store {
   const cur = store.events[key];
   const base = append && cur ? cur.items : [];
   const seen = new Set(base.map((e) => e.seq));
   const items = [...base, ...page.events.filter((e) => !seen.has(e.seq))];
-  return { ...store, events: { ...store.events, [key]: { items, total: page.total, nextSeq: page.nextSeq, loading: false } } };
+  const nextSeq = older && cur ? cur.nextSeq : page.nextSeq;
+  const olderDone = older ? page.events.length === 0 || cur?.olderDone === true : append ? cur?.olderDone === true : false;
+  return { ...store, events: { ...store.events, [key]: { items, total: page.total, nextSeq, loading: false, olderDone } } };
 }
 
 export function applySearch(store: Store, params: SearchParamsDto, result: SearchResultDto | null, loading: boolean): Store {
   return { ...store, search: { params, result, loading } };
 }
 
+/** 検索の続き（offset を付けて読んだ分）を、持っている結果の後ろに足す。重なった行は足さない。 */
+export function appendSearch(store: Store, params: SearchParamsDto, page: SearchResultDto): Store {
+  const cur = store.search.result?.hits ?? [];
+  const seen = new Set(cur.map((h) => h.sessionId));
+  const hits = [...cur, ...page.hits.filter((h) => !seen.has(h.sessionId))];
+  return { ...store, search: { params, result: { hits, total: page.total }, loading: false } };
+}
+
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {
   return { ...store, subagents: { ...store.subagents, [sessionId]: ids } };
+}
+
+export function applyLiveDigest(store: Store, d: LiveDigestDto): Store {
+  return { ...store, liveDigests: { ...store.liveDigests, [d.sessionId]: d } };
 }
 
 /** 起動の結果を入れる。
@@ -160,6 +194,15 @@ export function runningSessionIds(store: Store): Set<string> {
   return new Set(Object.values(store.runs).filter((r) => r.endedAt === null).map((r) => r.sessionId));
 }
 
+/**
+ * 画面で数えるときのセッションの状態（実行中、入力待ち、終了）。
+ * Claude の一覧に載る前の run も実行中に数える。
+ * alive を渡せば、何件も数えるときに run の集合を作り直さずに済む。
+ */
+export function liveFilterOfSession(store: Store, session: SessionDto, alive: Set<string> = runningSessionIds(store)): LiveFilter {
+  return liveFilterOf(session.live, alive.has(session.id));
+}
+
 /** 終わっていない最新の run。 */
 export function aliveRunOf(store: Store, sessionId: string): RunDto | null {
   return newest(Object.values(store.runs).filter((r) => r.sessionId === sessionId && r.endedAt === null));
@@ -178,6 +221,31 @@ export function outsideOpenOf(store: Store, session: SessionDto): 'attach' | 'ad
   if (!l) return null;
   if (l.background) return 'attach';
   return l.status !== 'busy' && l.entrypoint === 'cli' ? 'adopt' : null;
+}
+
+/**
+ * 入力待ちのセッションの id。
+ * 数え方は liveFilterOf に従い、Home の要対応の札と同じ順（最後の活動が古い、つまり長く待っている順）に並べる。
+ * 時刻の無いものは後ろに置き、時刻が同じものは id の順にして、並びが揺れないようにする。
+ */
+export function waitingSessionIds(store: Store): string[] {
+  const at = (s: SessionDto) => s.lastActivityAt ?? Number.POSITIVE_INFINITY;
+  return Object.values(store.sessions).filter((s) => liveFilterOf(s.live, false) === 'waiting')
+    .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
+    .map((s) => s.id);
+}
+
+/**
+ * 「次の入力待ちへ」で移る先。
+ * 入力待ちのセッションを waitingSessionIds の順に並べ、from の次を返す。
+ * from が並びに無ければ先頭を、末尾の次は先頭を返す。
+ * 入力待ちが無ければ null。
+ */
+export function nextWaitingSession(store: Store, from: string | null): string | null {
+  const list = waitingSessionIds(store);
+  if (list.length === 0) return null;
+  const i = from === null ? -1 : list.indexOf(from);
+  return list[(i + 1) % list.length]!;
 }
 
 /** 生きた run があればそれ。
@@ -253,7 +321,7 @@ export function artifactsOf(store: Store, opts: { projectId?: string; sessionId?
 }
 
 /** 参加トークンを入れる。押して見せたあとに null で伏せ直せる。 */
-export function applyJoinToken(store: Store, token: string | null): Store { return { ...store, joinToken: token }; }
+export function applyJoinToken(store: Store, token: string | null, expiresAt: number | null = null): Store { return { ...store, joinToken: token, joinTokenExpiresAt: token === null ? null : expiresAt }; }
 
 /** Claude Code の設定の下見を入れる。閉じるときに null で捨てる。 */
 export function applyConfigPreview(store: Store, preview: ConfigPreviewDto | null): Store { return { ...store, configPreview: preview }; }

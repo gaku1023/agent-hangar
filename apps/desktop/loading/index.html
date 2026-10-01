@@ -27,6 +27,12 @@
       /* 合図の光の輪。ロゴの上に重ね、窓の端まで広げる。 */
       #fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
       /* 失敗の文言には手で打つコマンドや長いパスが混ざる。選んで写せるようにし、枠からはみ出さないようにする。 */
+      /* 失敗したときの操作。UI のボタン（packages/ui の .btn と .btn-primary）と同じ形にする。 */
+      #boot-actions { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
+      #boot-actions[hidden] { display: none; }
+      .btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 0; border-radius: 999px; font: 560 13px 'Inter Variable', 'Hiragino Sans', sans-serif; color: var(--ink); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; }
+      .btn:disabled { opacity: 0.55; cursor: default; }
+      .btn-primary { color: #ffffff; background: linear-gradient(180deg, #6b8cff, #4a63e8); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
       #status[data-level='error'] { color: var(--error); text-align: left; font-family: 'JetBrains Mono Variable', Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
     </style>
   </head>
@@ -38,6 +44,11 @@
         <h1>Hangar</h1>
         <p id="status">読み込み中</p>
         <p id="detail"></p>
+        <!-- 起動に失敗したときだけ出す（初回と障害の C1）。押すと殻が起動をやり直すか、ログを開く。 -->
+        <div id="boot-actions" hidden>
+          <button id="boot-retry" class="btn btn-primary" type="button">もう一度試す</button>
+          <button id="boot-log" class="btn" type="button">ログを開く</button>
+        </div>
       </div>
     </main>
     <svg id="fx" aria-hidden="true"></svg>

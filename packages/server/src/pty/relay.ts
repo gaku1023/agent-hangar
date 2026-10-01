@@ -49,6 +49,8 @@ export class PtyRelay {
 
   private serve(ws: WebSocket, tmuxName: string): void {
     const tmux = this.deps.tmux!;
+    // 中のアプリの OSC 52 を UI の xterm まで通させる。サーバ全体の設定なので、tmux サーバが起き直した後にも効くよう attach のたびに確かめる。
+    tmux.enableClipboard();
     let p: PtyProcess;
     try {
       p = this.deps.spawn(tmux.tmuxPath, tmux.attachArgs(tmuxName), { name: 'xterm-256color', cols: 120, rows: 40, cwd: os.homedir(), env: { ...process.env, TERM: 'xterm-256color', LANG: process.env.LANG ?? 'ja_JP.UTF-8' } });

@@ -5,13 +5,16 @@
 pub mod deeplink;
 pub mod filedrop;
 pub mod health;
+pub mod logfile;
 pub mod node;
+pub mod notify;
 pub mod paths;
 pub mod server;
 
 use std::cell::Cell;
 use std::io::Write;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::webview::PageLoadEvent;
@@ -22,6 +25,8 @@ use tauri_plugin_deep_link::DeepLinkExt;
 struct AppState {
     server: Mutex<Option<server::ServerProcess>>,
     ui: Mutex<Ui>,
+    /// 起動の本体（`boot`）が走っているか。「もう一度試す」を連打しても、二つ目の起動を重ねない。
+    booting: AtomicBool,
 }
 
 /// ウィンドウが今どの段にいるか。
@@ -87,6 +92,20 @@ impl Ui {
             return None;
         }
         self.last_progress.clone()
+    }
+
+    /// 起動に失敗した後の「もう一度試す」。
+    /// サーバの頁へ移った後はやり直さないので偽を返す。
+    /// やり直すときは、殻が読み込み画面を読み込み直すので、読み込みの合図まで文言を貯める側へ戻す。
+    /// 前の失敗の文言と進み具合は、新しい頁へ持ち込まない。
+    fn retry(&mut self) -> bool {
+        if self.ready {
+            return false;
+        }
+        self.loaded = false;
+        self.pending_status = None;
+        self.last_progress = None;
+        true
     }
 
     fn page_loaded(&mut self, server_page: bool) -> (Option<(String, bool)>, Option<String>) {
@@ -661,6 +680,63 @@ fn boot(app: AppHandle) {
     watch_server(app);
 }
 
+/// 起動の本体を別のスレッドで走らせる。走っている間は二つ目を起こさず、偽を返す。
+fn spawn_boot(app: AppHandle) -> bool {
+    if app.state::<AppState>().booting.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    std::thread::spawn(move || {
+        boot(app.clone());
+        app.state::<AppState>()
+            .booting
+            .store(false, Ordering::SeqCst);
+    });
+    true
+}
+
+// ここから下の 3 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）が、頁から呼べる殻の命令である。
+// 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
+// どれも引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
+
+/// `~/.agent-hangar/desktop.log` を開く。起動画面と、UI の切断の帯の「ログを開く」が呼ぶ。
+#[tauri::command]
+async fn open_log() -> Result<(), String> {
+    let home = paths::hangar_home();
+    ensure_hangar_home(&home);
+    logfile::open_log(&home).inspect_err(|e| log(&format!("open log failed: {e}")))
+}
+
+/// アプリを再起動する。UI の切断の帯の「再起動」が呼ぶ。
+/// 終了の手続き（`RunEvent::Exit`）を通るので、子のサーバも止めてから起き直す。
+#[tauri::command]
+fn restart_app(app: AppHandle) {
+    log("restart requested from the UI");
+    app.request_restart();
+}
+
+/// 起動をやり直す。起動画面の「もう一度試す」が呼ぶ。
+/// 残っている子のサーバを止めてから、読み込み画面を読み込み直し、起動の本体をもう一度走らせる。
+/// 応答しないまま生きている子がポートを握っていると、やり直しても同じところで止まるからである。
+#[tauri::command]
+async fn retry_boot(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if state.booting.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    if !state.ui.lock().unwrap().retry() {
+        return Err("もう起動しています".to_string());
+    }
+    let previous = state.server.lock().unwrap().take();
+    if let Some(mut p) = previous {
+        p.stop();
+        log("stopped the previous server before retrying");
+    }
+    log("retrying the boot");
+    eval_main(&app, "location.reload()");
+    spawn_boot(app.clone());
+    Ok(())
+}
+
 /// トラックパッドの「指が離れた」瞬間を画面へ伝える。
 ///
 /// ホイールの打鍵には指の上げ下げが乗らないので、画面の側だけでは離した時点を当てられない。
@@ -709,6 +785,74 @@ fn watch_swipe_phase(app: &AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn watch_swipe_phase(_app: &AppHandle) {}
 
+/// 入力待ちの通知を出す。
+/// 頁（UI）が、窓が背面にあるときに呼ぶ。
+/// 値は頁から来るので、notify::waiting で確かめてから OS に渡す。
+#[tauri::command]
+fn notify_waiting(session_id: String, title: String, body: String) -> Result<(), String> {
+    let w = notify::waiting(&session_id, &title, &body)?;
+    notify::show(&w);
+    Ok(())
+}
+
+/// 通知の許可を求め、許されたかを返す。
+/// 決まっていなければ OS が尋ねる。
+/// 利用者が答えるまで待つので、窓の描画を止めないよう別のスレッドで待つ。
+#[tauri::command]
+async fn notify_request() -> bool {
+    tauri::async_runtime::spawn_blocking(|| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        notify::request(move |granted| {
+            let _ = tx.send(granted);
+        });
+        rx.recv_timeout(Duration::from_secs(600)).unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
+}
+
+/// 通知の許可の状態を返す（granted、denied、undetermined、unsupported）。
+/// 尋ねはしないので、OS のダイアログは出ない。
+/// 頁はこれを見て、システム設定で切られていれば受け取らないにし、設定に許可の仕方を出す。
+#[tauri::command]
+async fn notify_status() -> String {
+    tauri::async_runtime::spawn_blocking(|| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        notify::status(move |raw| {
+            let _ = tx.send(raw);
+        });
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(raw) => notify::status_name(raw),
+            Err(_) => "undetermined",
+        }
+    })
+    .await
+    .unwrap_or("undetermined")
+    .to_string()
+}
+
+/// 押された通知のセッションを開く。
+/// 窓を前に出し、頁が出来上がっていれば頁の受け口でターミナルにフォーカスして開く。
+/// 出来上がる前（押された通知でアプリが起きたときなど）は、ディープリンクと同じくハッシュとして貯める。
+fn open_waiting(app: &AppHandle, session_id: &str) {
+    log("waiting notification opened");
+    let loaded = {
+        let state = app.state::<AppState>();
+        let ui = state.ui.lock().unwrap();
+        ui.ready && ui.loaded
+    };
+    if !loaded {
+        apply_hash(app, format!("#/session/{session_id}"));
+        return;
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        let _ = w.eval(notify::open_js(session_id));
+    }
+}
+
 /// 窓に落とされたファイルを drops/ に写し、写した先を落とした位置と一緒に UI へ渡す。
 /// 写すのは別のスレッドで行い、窓の描画を止めない。
 fn file_dropped(
@@ -756,7 +900,19 @@ pub fn run() {
         .manage(AppState {
             server: Mutex::new(None),
             ui: Mutex::new(Ui::default()),
+            booting: AtomicBool::new(false),
         })
+        // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
+        // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
+        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、boot-screen.json で絞る。
+        .invoke_handler(tauri::generate_handler![
+            open_log,
+            restart_app,
+            retry_boot,
+            notify_waiting,
+            notify_request,
+            notify_status
+        ])
         // 頁の読み込みが終わる前の評価は捨てられることがある。
         // 出しそこねた文言と、navigate の最中に届いたリンクをここで流す。
         .on_page_load(|webview, payload| {
@@ -767,6 +923,9 @@ pub fn run() {
         .setup(|app| {
             log("setup");
             watch_swipe_phase(app.handle());
+            // 押された通知でアプリが起きたときも受け取れるよう、窓を動かす前に付ける。
+            let handle = app.handle().clone();
+            notify::install(move |id| open_waiting(&handle, &id));
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 handle_urls(&handle, &event.urls());
@@ -776,8 +935,7 @@ pub fn run() {
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 handle_urls(app.handle(), &urls);
             }
-            let handle = app.handle().clone();
-            std::thread::spawn(move || boot(handle));
+            spawn_boot(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -880,6 +1038,32 @@ mod tests {
         ui.remember_status("サーバを起動しています", false);
         ui.navigating();
         assert_eq!(ui.page_loaded(true).0, None);
+    }
+
+    // 起動に失敗した後の「もう一度試す」。殻は読み込み画面を読み込み直してから起動をやり直す。
+    // 読み込み直しの最中に出た文言は捨てられうるので、読み込みの合図まで貯める側へ戻す。
+    // 前の失敗の文言と進み具合は、新しい頁へ持ち込まない。
+    #[test]
+    fn a_retry_reloads_the_loading_page_and_holds_new_statuses_for_it() {
+        let mut ui = Ui::default();
+        ui.page_loaded(false);
+        ui.last_progress = Some("progress".to_string());
+        assert!(ui.retry());
+        assert_eq!(ui.progress_to_replay(false), None);
+        ui.remember_status("サーバが起動直後に終了しました。", true);
+        assert_eq!(
+            ui.page_loaded(false).0,
+            Some(("サーバが起動直後に終了しました。".to_string(), true))
+        );
+    }
+
+    // サーバの頁へ移った後は、やり直さない。
+    #[test]
+    fn a_retry_after_the_server_page_is_refused() {
+        let mut ui = Ui::default();
+        ui.page_loaded(false);
+        ui.navigating();
+        assert!(!ui.retry());
     }
 
     // 段に合わない読み込みの合図は無視する。

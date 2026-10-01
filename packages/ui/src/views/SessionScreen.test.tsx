@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
+import { toolItem } from '../test/items.ts';
 import { pick } from '../test/pick.ts';
 import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
@@ -12,12 +13,12 @@ import { TerminalHostContext } from './TerminalPane.tsx';
 const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', route: { name: 'project', id: 'p1' } }, live: 'busy', cwd: '/w/alpha', projectName: 'alpha', projectId: 'p1', summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1, sourceLabel: '自動', stateLabel: '進行中', summarizerLabel: null, generatedAt: '1970-01-01 09:00' }, summaryOpen: false, model: 'fable 5.1', effort: 'high', turns: 2, tokens: '1.2M', prUrl: null, memo: null, started: '2 時間前', lastActivity: '1 分前', hasTranscript: true,
   items: [
     { kind: 'user', seq: 0, text: 'hi', when: '10:00' },
-    { kind: 'tool', seq: 1, summary: 'Agent x', name: 'Agent', inputJson: '{}', result: { text: 'done', isError: false }, when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } },
-    { kind: 'tool', seq: 2, summary: 'Edit /a', name: 'Edit', inputJson: '{}', result: { text: 'File not found', isError: true }, when: '10:02', subagent: null },
+    toolItem(1, 'Agent', { description: 'x' }, { text: 'done', isError: false }, { when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } }),
+    toolItem(2, 'Edit', { file_path: '/a', old_string: 'a', new_string: 'b' }, { text: 'File not found', isError: true }, { when: '10:02' }),
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: '作業中 12 分', filesChanged: 3,
-  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false }], turnsComplete: false, openTurnItems: [], turnJump: null, gone: null };
+  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, openTurnItems: [], turnJump: null, livePane: null, gone: null, find: null, jump: null, hasNewer: false };
 
 describe('SessionScreen', () => {
   it('ヘッダー、要約の開閉、切替、続きの読み込み', () => {
@@ -68,7 +69,9 @@ describe('SessionScreen', () => {
   it('ツール呼び出しは畳まれ、エラーは印が付き、サブエージェントへ飛べる', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
-    expect(screen.getByText('Edit /a').closest('.tool')).toHaveClass('tool-error');
+    const edit = screen.getByTitle('/a').closest('.tool')!;
+    expect(edit).toHaveAttribute('data-failed', 'true');
+    expect(edit.querySelector('.badge')).toHaveAttribute('data-k', 'fail');
     fireEvent.click(screen.getByText('サブエージェント abc を見る'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
   });
@@ -107,12 +110,13 @@ describe('SessionScreen', () => {
     const facts = container.querySelector('.session-facts')!;
     expect(facts).toHaveTextContent('/w/alpha');
     expect(facts).toHaveTextContent('2 ターン');
-    expect(facts).toHaveTextContent('1.2M tokens');
+    expect(facts).toHaveTextContent('1.2M トークン');
+    expect(facts).not.toHaveTextContent('tokens');
     expect(facts).toHaveTextContent('開始 2 時間前');
   });
 });
 
-const host: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => 'connected', fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), subscribe: () => () => {}, dispose: vi.fn() };
+const host: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => 'connected', fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn() };
 const running: SessionProps = { ...base, live: 'busy', run: { id: 'r1', kind: 'start', alive: true, started: '1 分前' }, selectedTab: 'r1', canResume: false, canFork: false,
   tabs: [{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'シェル 1', kind: 'shell', selected: false, closable: true }] };
 const withHost = (ui: ReactElement, onIntent = vi.fn()) => { render(<IntentRoot onIntent={onIntent}><TerminalHostContext.Provider value={host}>{ui}</TerminalHostContext.Provider></IntentRoot>); return onIntent; };
@@ -120,6 +124,8 @@ const withHost = (ui: ReactElement, onIntent = vi.fn()) => { render(<IntentRoot 
 describe('SessionScreen（実行中）', () => {
   it('タブ列、ターミナル、トランスクリプトの折りたたみ、停止とターミナルで開く', () => {
     const onIntent = withHost(<SessionScreen {...running} terminalStatus="connected" />);
+    // 起こし方は内部の語（run start）でなく「起動」「再開」「フォーク」で書く。
+    expect(screen.getByText('起動 1 分前')).toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(2);
     expect(host.mount).toHaveBeenCalledWith('r1', expect.anything());
     fireEvent.click(screen.getByRole('tab', { name: /シェル 1/ }));
@@ -129,13 +135,25 @@ describe('SessionScreen（実行中）', () => {
     fireEvent.click(screen.getByLabelText('シェルタブを追加'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'tab.open', sessionId: 's1', kind: 'shell' });
     fireEvent.click(screen.getByText('停止'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1' });
+    // 止めるかどうかを決める事実（作業中か、シェルタブの数）を添えて送る。確認を出すかは Mediator が決める。
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 1 });
     fireEvent.click(screen.getByText('ターミナルで開く'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.openTerminalApp', runId: 'r1', tabId: 'r1' });
-    fireEvent.click(screen.getByLabelText('目次を閉じる'));
+    fireEvent.click(screen.getByLabelText('右の欄を閉じる'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.toggle' });
     expect(screen.getByText('hi')).toBeInTheDocument();
     expect(screen.getByText('再開')).toBeDisabled();
+  });
+  it('停止は危険色で、入力待ちも作業中として数え、休みでシェルタブが無ければそう送る', () => {
+    const onIntent = withHost(<SessionScreen {...running} live="waiting" terminalStatus="connected" />);
+    const stop = screen.getByRole('button', { name: '停止' });
+    expect(stop).toHaveClass('btn-danger');
+    fireEvent.click(stop);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 1 });
+    cleanup();
+    const idle = withHost(<SessionScreen {...running} live="idle" tabs={[running.tabs[0]!]} terminalStatus="connected" />);
+    fireEvent.click(screen.getByRole('button', { name: '停止' }));
+    expect(idle).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 });
   });
   it('実行中の右欄は会話の全文ではなくターンの目次にする', () => {
     withHost(<SessionScreen {...running} terminalStatus="connected" />);
@@ -145,7 +163,7 @@ describe('SessionScreen（実行中）', () => {
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" />);
     expect(screen.queryByText('hi')).toBeNull();
-    expect(screen.getByLabelText('目次を開く')).toBeInTheDocument();
+    expect(screen.getByLabelText('右の欄を開く')).toBeInTheDocument();
   });
   it('信頼ダイアログの案内と終了の表示', () => {
     withHost(<SessionScreen {...running} live={null} trustHint terminalStatus="connected" />);
@@ -180,16 +198,16 @@ describe('SessionScreen のアイコン', () => {
   });
   it('トランスクリプトの開閉は向きの違うアイコンになる', () => {
     withHost(<SessionScreen {...running} terminalStatus="connected" />);
-    expect(iconOf(screen.getByRole('button', { name: '目次を閉じる' }))).toBe('paneClose');
+    expect(iconOf(screen.getByRole('button', { name: '右の欄を閉じる' }))).toBe('paneClose');
     cleanup();
     withHost(<SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" />);
-    expect(iconOf(screen.getByRole('button', { name: '目次を開く' }))).toBe('paneOpen');
+    expect(iconOf(screen.getByRole('button', { name: '右の欄を開く' }))).toBe('paneOpen');
   });
   it('ツール呼び出しとサブエージェントと折りたたみの矢印', () => {
     render(<IntentRoot onIntent={vi.fn()}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
-    const tool = screen.getByText('Edit /a').closest('.tool')!;
-    expect(tool.querySelector('.fold-arrow svg')?.getAttribute('data-icon')).toBe('chevron');
-    expect(tool.querySelector('.fold-head svg[data-icon="tool"]')).not.toBeNull();
+    const tool = screen.getByTitle('/a').closest('.tool')!;
+    expect(tool.querySelector('.chev svg')?.getAttribute('data-icon')).toBe('chevron');
+    expect(tool.querySelector('.badge')?.textContent).toBe('Edit');
     expect(iconOf(screen.getByRole('button', { name: 'サブエージェント abc を見る' }))).toBe('subagent');
   });
 });
@@ -199,14 +217,14 @@ const p3: SessionProps = { ...base, contextPercent: 62, cost: '$1.20', artifacts
 describe('フェーズ 3 のセッション画面', () => {
   it('コンテキストとコストとアーティファクトを出す', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...p3} terminalStatus={null} /></IntentRoot>);
-    expect(screen.getByLabelText('コンテキスト使用率').getAttribute('aria-valuenow')).toBe('62');
+    expect(screen.getByLabelText('コンテキストの使用率').getAttribute('aria-valuenow')).toBe('62');
     expect(screen.getByText('$1.20')).toBeInTheDocument();
     expect(screen.getByText('題名')).toBeInTheDocument();
   });
   it('コンテキストとコストが未取得ならバーを描かず、設定へ導く', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
-    expect(screen.queryByLabelText('コンテキスト使用率')).toBeNull();
+    expect(screen.queryByLabelText('コンテキストの使用率')).toBeNull();
     expect(screen.getByText('コンテキスト 未取得')).toBeInTheDocument();
     expect(screen.getByText('コスト 未取得')).toBeInTheDocument();
     fireEvent.click(screen.getByText('statusline を入れると出ます'));
@@ -226,7 +244,7 @@ describe('フェーズ 3 のセッション画面', () => {
   it('スクラッチの注意書きと昇格ボタン', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionScreen {...p3} fromScratch terminalStatus={null} /></IntentRoot>);
-    expect(screen.getByText('再開すると cwd はスクラッチのままです')).toBeInTheDocument();
+    expect(screen.getByText('再開しても作業ディレクトリはスクラッチのままです')).toBeInTheDocument();
     expect(screen.queryByText('プロジェクトに昇格')).toBeNull();
     rerender(<IntentRoot onIntent={onIntent}><SessionScreen {...p3} canPromote terminalStatus={null} /></IntentRoot>);
     fireEvent.click(screen.getByText('プロジェクトに昇格'));
@@ -253,7 +271,7 @@ describe('フェーズ 3 のセッション画面', () => {
 
 describe('フェーズ 4 のセッション画面', () => {
   const lock = { deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' };
-  const staleLock = { deviceName: 'mini', stale: true, heartbeat: '5 分前', label: 'mini が応答がありません' };
+  const staleLock = { deviceName: 'mini', stale: true, heartbeat: '5 分前', label: 'mini から応答がありません' };
   it('他端末で実行中なら再開とフォークを止める', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} lock={lock} /></IntentRoot>);
     expect(screen.getByText('mini で実行中')).toBeInTheDocument();
@@ -265,10 +283,10 @@ describe('フェーズ 4 のセッション画面', () => {
   // 文言は presenter の lock.label をそのまま出す。View は色だけを変える。
   it('応答が無いロックは警告の色で出す', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} lock={staleLock} /></IntentRoot>);
-    expect(screen.getByText('mini が応答がありません')).toHaveClass('warn');
+    expect(screen.getByText('mini から応答がありません')).toHaveClass('warn');
     expect(screen.getByText('最終確認 5 分前')).toBeInTheDocument();
     expect(screen.queryByText('mini で実行中')).toBeNull();
-    expect(screen.getByText('mini が応答がありません')).not.toHaveClass('lock');
+    expect(screen.getByText('mini から応答がありません')).not.toHaveClass('lock');
   });
   it('外で動くセッションには、引き取りと attach のボタンを出す', () => {
     const onIntent = vi.fn();
@@ -287,7 +305,7 @@ describe('フェーズ 4 のセッション画面', () => {
     render(<IntentRoot onIntent={onIntent}><SessionScreen {...base} terminalStatus={null} canResume={false} canFork={false} remoteOnly canResumeHere /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
-    expect(screen.getByText('本文は他の端末にあります')).toBeInTheDocument();
+    expect(screen.getByText('本文は他の PC にあります')).toBeInTheDocument();
   });
   // Ruling 14。相手が落ちて heartbeat だけ残った状態を行き止まりにしない。
   it('応答の無いロックからもこの PC で再開に逃げられる', () => {
@@ -300,7 +318,7 @@ describe('フェーズ 4 のセッション画面', () => {
   it('ロックが無ければこの PC で再開は出ない', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} /></IntentRoot>);
     expect(screen.queryByRole('button', { name: 'この PC で再開' })).toBeNull();
-    expect(screen.queryByText('本文は他の端末にあります')).toBeNull();
+    expect(screen.queryByText('本文は他の PC にあります')).toBeNull();
     expect(screen.getByRole('button', { name: '再開' })).not.toBeDisabled();
   });
   // 引き継ぎはこのフェーズでは作らない（利用者の決定 1）。
@@ -310,20 +328,90 @@ describe('フェーズ 4 のセッション画面', () => {
   });
 });
 
-describe('TabStrip の分割ボタン', () => {
+describe('TabStrip の横に並べるボタン', () => {
   const one = [{ id: 't1', title: 'Claude', kind: 'agent' as const, selected: true, closable: false }];
   const two = [...one, { id: 't2', title: 'シェル 1', kind: 'shell' as const, selected: false, closable: true }];
   it('タブが 1 つなら押せない', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={one} canAdd canSplit={false} split={false} /></IntentRoot>);
-    expect(screen.getByLabelText('分割')).toBeDisabled();
+    expect(screen.getByLabelText('横に並べる')).toBeDisabled();
     rerender(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={two} canAdd canSplit split={false} /></IntentRoot>);
-    fireEvent.click(screen.getByLabelText('分割'));
+    fireEvent.click(screen.getByLabelText('横に並べる'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'split.toggle' });
   });
   it('分割中は押された状態にする', () => {
     render(<IntentRoot onIntent={() => {}}><TabStrip sessionId="s1" tabs={two} canAdd canSplit split /></IntentRoot>);
-    expect(screen.getByLabelText('分割')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('横に並べる')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('TabStrip のキー操作（C3）', () => {
+  const three = [
+    { id: 't1', title: 'Claude', kind: 'agent' as const, selected: false, closable: false },
+    { id: 't2', title: 'シェル 1', kind: 'shell' as const, selected: true, closable: true },
+    { id: 't3', title: 'シェル 2', kind: 'shell' as const, selected: false, closable: true },
+  ];
+  const mount = () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={three} canAdd canSplit split={false} /></IntentRoot>);
+    return { onIntent, tabs: () => screen.getAllByRole('tab') };
+  };
+
+  it('Tab で止まるのは選ばれたタブだけで、選ばれたことを aria-selected で伝える', () => {
+    const { tabs } = mount();
+    expect(tabs().map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
+    expect(tabs().map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false']);
+  });
+
+  it('← と → でフォーカスを隣のタブへ動かし、端では反対の端へ回る。選ぶのは Enter まで待つ', () => {
+    const { tabs, onIntent } = mount();
+    act(() => tabs()[1]!.focus());
+    fireEvent.keyDown(tabs()[1]!, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(tabs()[2]);
+    fireEvent.keyDown(tabs()[2]!, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(tabs()[0]);
+    fireEvent.keyDown(tabs()[0]!, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(tabs()[2]);
+    fireEvent.keyDown(tabs()[2]!, { key: 'Home' });
+    expect(document.activeElement).toBe(tabs()[0]);
+    fireEvent.keyDown(tabs()[0]!, { key: 'End' });
+    expect(document.activeElement).toBe(tabs()[2]);
+    // 選ぶとフォーカスはターミナルへ移るので、矢印で動くたびに選ぶと続けて動けない。
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(tabs().map((t) => t.tabIndex)).toEqual([-1, -1, 0]);
+    fireEvent.keyDown(tabs()[2]!, { key: 'Enter' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'tab.select', tabId: 't3' });
+    fireEvent.keyDown(tabs()[2]!, { key: ' ' });
+    expect(onIntent).toHaveBeenCalledTimes(2);
+  });
+
+  it('⌘← や ⌘→ は戻る進むの打鍵なので、タブでは使わない', () => {
+    const { tabs } = mount();
+    act(() => tabs()[1]!.focus());
+    fireEvent.keyDown(tabs()[1]!, { key: 'ArrowRight', metaKey: true });
+    expect(document.activeElement).toBe(tabs()[1]);
+  });
+
+  it('各タブの閉じるボタンは Tab で止まらない（⌘W で閉じられる）。追加と分割は止まる', () => {
+    mount();
+    expect(screen.getByLabelText('シェル 1 を閉じる').tabIndex).toBe(-1);
+    expect(screen.getByLabelText('シェル 2 を閉じる').tabIndex).toBe(-1);
+    expect(screen.getByLabelText('シェルタブを追加').tabIndex).toBe(0);
+    expect(screen.getByLabelText('横に並べる').tabIndex).toBe(0);
+  });
+
+  it('閉じるボタンの Enter ではタブを選ばない', () => {
+    const { onIntent } = mount();
+    fireEvent.keyDown(screen.getByLabelText('シェル 2 を閉じる'), { key: 'Enter' });
+    expect(onIntent).not.toHaveBeenCalledWith({ type: 'tab.select', tabId: 't3' });
+  });
+
+  it('タブの列を離れたら、止まり先は選ばれたタブに戻る', () => {
+    const { tabs } = mount();
+    act(() => tabs()[1]!.focus());
+    fireEvent.keyDown(tabs()[1]!, { key: 'ArrowRight' });
+    act(() => screen.getByLabelText('横に並べる').focus());
+    expect(tabs().map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
   });
 });
 

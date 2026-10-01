@@ -1,0 +1,166 @@
+/* 本文の中身（UX 刷新 2 の「本文の表示」、試作は docs/superpowers/specs/2026-10-01-ux-refresh/transcript-render.html）。
+   入れ子のスクロールは作らない。長いものは高さで切って下端をぼかし、開くと面そのものが伸びる（F1）。 */
+
+/* 利用者の指示は右寄せの青い吹き出しのまま。Claude の返答は吹き出しをやめ、白い面に地の文として描く（M2）。 */
+.msg { max-width: 80ch; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); word-break: break-word; line-height: 1.6; }
+.msg-user { background: var(--accent); color: var(--accent-ink); align-self: flex-end; border-bottom-right-radius: 5px; white-space: pre-wrap; }
+.msg-assistant { align-self: stretch; max-width: 76ch; padding: var(--u) 2px; }
+.msg-thinking { align-self: stretch; max-width: 76ch; padding: var(--u) 2px; color: var(--ink-3); font-style: italic; }
+.msg-system { color: var(--ink-3); font-size: var(--fs-xs); align-self: center; white-space: pre-wrap; }
+.new-banner { position: sticky; bottom: var(--u); align-self: center; }
+
+/* Markdown */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 calc(var(--u) * 2); white-space: pre-wrap; }
+.md h1, .md h2 { font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; margin: calc(var(--u) * 3.5) 0 calc(var(--u) * 1.5); }
+.md h3, .md h4, .md h5, .md h6 { font-size: var(--fs); font-weight: 650; margin: calc(var(--u) * 3) 0 var(--u); }
+.md strong { font-weight: 650; }
+.md a { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); text-underline-offset: 2px; }
+.md a .icon { width: 12px; height: 12px; vertical-align: -1px; margin-left: 1px; }
+.md code, .msg-user code { font-family: var(--font-mono); font-size: 0.88em; padding: 1px 4px; border-radius: 4px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.md ul, .md ol { margin: 0 0 calc(var(--u) * 2); padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md li > p { margin: 0; }
+.md li::marker { color: var(--ink-3); }
+.md ol > li::marker { font-family: var(--font-mono); font-size: 0.9em; }
+.md-table { max-width: 100%; overflow-x: auto; margin: var(--u) 0 calc(var(--u) * 2.5); }
+.md table { border-collapse: collapse; font-size: var(--fs-sm); background: var(--surface); border-radius: var(--r); overflow: hidden; box-shadow: 0 0 0 1px var(--line-strong); }
+.md th, .md td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+.md th { background: #f7f8fb; font-weight: 600; color: var(--ink-2); border-top: 0; }
+.md blockquote { margin: 0 0 calc(var(--u) * 2); padding: 2px 12px; border-left: 3px solid var(--line-strong); color: var(--ink-2); }
+.md hr { border: 0; border-top: 1px solid var(--line-strong); margin: calc(var(--u) * 3) 0; }
+
+/* 囲みのコード。上の帯に言語名とコピー。 */
+.codeblock { margin: 6px 0 10px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line-strong); overflow: hidden; font-style: normal; }
+.codeblock-h { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 var(--u) 0 calc(var(--u) * 3); border-bottom: 1px solid var(--line); font: 500 var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+.code-note { color: var(--ink-3); }
+.codeblock pre { margin: 0; padding: 10px 12px; font: 12px/1.6 var(--font-mono); white-space: pre; overflow-x: auto; color: var(--ink); }
+.codeblock .ln { display: inline-block; min-width: 3ch; margin-right: 12px; text-align: right; color: var(--ink-3); user-select: none; }
+.copy-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font: 500 var(--fs-xs) var(--font-sans); cursor: pointer; }
+.copy-btn:hover { background: var(--surface); color: var(--ink); }
+.copy-btn .icon { width: 14px; height: 14px; }
+.copy-btn[data-done='true'] { color: var(--st-done); }
+
+/* 長いものの畳み（F1）。切った下端をぼかし、ボタンをぼかしの上に重ねる。 */
+.clamp { position: relative; --clamp-bg: var(--surface); }
+.clamp[data-tone='term'] { --clamp-bg: var(--term-bg); }
+.clamp[data-tone='accent'] { --clamp-bg: var(--accent); }
+.clamp[data-height='true'][data-clamped='true'] > .clamp-body { max-height: 320px; overflow: hidden; }
+.clamp[data-clamped='true'] > .clamp-body { position: relative; }
+.clamp[data-clamped='true'] > .clamp-body::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 90px; pointer-events: none; background: linear-gradient(transparent, var(--clamp-bg)); }
+.clamp-more { display: flex; justify-content: center; position: relative; z-index: 1; padding: 0 0 calc(var(--u) * 1.5); }
+.clamp[data-clamped='true'] > .clamp-more { margin-top: -14px; }
+.clamp-more .btn { color: var(--ink); }
+
+/* ツールの行（T1）。28px の 1 行に、札、要約、結果の印、時刻を並べる。押すと下に中身を開く。 */
+.tool { min-width: 0; }
+.trow { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: var(--row-h); padding: 0 calc(var(--u) * 2) 0 6px; border: 0; border-radius: var(--r); background: none; color: var(--ink-2); font: inherit; text-align: left; white-space: nowrap; cursor: pointer; }
+.trow:hover { background: var(--surface-2); }
+.trow > .chev { display: inline-flex; flex: none; color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
+.tool[data-open='true'] > .trow > .chev { transform: rotate(90deg); }
+.tool-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-sm); color: var(--ink); }
+.tool-sum .d { color: var(--ink-3); }
+.trow .meta { flex: none; display: inline-flex; gap: calc(var(--u) * 2); align-items: center; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+.trow .when { flex: none; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+.tool [data-tone='add'], .tool [data-tone='ok'] { color: var(--st-done); }
+.tool [data-tone='del'] { color: var(--error); }
+.tool [data-tone='ng'] { color: var(--error); font-weight: 600; }
+.tool[data-failed='true'] > .trow { color: var(--error); }
+.tbody { margin: 2px 0 6px 28px; display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); }
+.sub { margin: 2px 0 4px 28px; }
+
+/* 札（K1）。色は手の種類で、live-explainer の色帯と同じ種類を同じ色にする（読む＝灰、書く＝藍、走らせる＝杏、コミット＝緑、失敗＝赤、その他＝薄い灰）。 */
+.trow .badge { flex: none; display: inline-flex; align-items: center; max-width: 22ch; height: 20px; padding: 0 7px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; font: 600 var(--fs-xs) var(--font-mono); letter-spacing: 0.01em; }
+.trow .badge[data-k='read'] { color: var(--ink-2); background: #e6e8f0; }
+.trow .badge[data-k='write'] { color: var(--accent); background: var(--accent-soft); }
+.trow .badge[data-k='run'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.trow .badge[data-k='git'] { color: var(--st-done); background: var(--st-done-soft); }
+.trow .badge[data-k='fail'] { color: var(--error); background: #fcecea; }
+.trow .badge[data-k='other'] { color: var(--ink-3); background: var(--surface-2); }
+
+/* 差分（D1、統合表示）。前と後の行番号、記号、中身の 4 列。 */
+.tdiff { border-radius: var(--r); box-shadow: 0 0 0 1px var(--line-strong); overflow: hidden; font: 12px/1.6 var(--font-mono); background: var(--surface); }
+.dl { display: grid; grid-template-columns: 38px 38px 16px minmax(0, 1fr); white-space: pre; }
+.dl .n { color: var(--ink-3); text-align: right; padding-right: 8px; user-select: none; font-size: var(--fs-xs); }
+.dl .s { color: var(--ink-3); text-align: center; user-select: none; }
+.dl .x { overflow-x: auto; }
+.dl[data-t='add'] { background: #e9f6ee; }
+.dl[data-t='add'] .s { color: var(--st-done); }
+.dl[data-t='add'] .n { background: #d7efdf; }
+.dl[data-t='del'] { background: #fcecea; }
+.dl[data-t='del'] .s { color: var(--error); }
+.dl[data-t='del'] .n { background: #f8dcd8; }
+.hunk { padding: 2px 10px; background: var(--accent-soft); color: var(--st-active); font-size: var(--fs-xs); }
+.dgap { padding: 2px 10px; background: #f7f8fb; color: var(--ink-3); font-size: var(--fs-xs); text-align: center; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+
+/* Bash。端末と同じ墨の地に、コマンド、出力、終了コード。 */
+.bash { border-radius: var(--r); background: var(--term-bg); color: var(--term-fg); font: 12px/1.6 var(--font-mono); overflow: hidden; }
+.bash .cmd { display: flex; align-items: flex-start; gap: calc(var(--u) * 2); padding: 6px 6px 6px 12px; border-bottom: 1px solid rgba(232, 230, 240, 0.12); white-space: pre-wrap; word-break: break-all; }
+.bash .cmd .pr { color: var(--term-tool); flex: none; }
+.bash .cmd .c { flex: 1; min-width: 0; }
+.bash .copy-btn { flex: none; color: color-mix(in srgb, var(--term-fg) 60%, transparent); }
+.bash .copy-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--term-fg); }
+.bash .out { padding: 8px 12px; white-space: pre-wrap; word-break: break-word; color: color-mix(in srgb, var(--term-fg) 85%, transparent); }
+.bash .out-empty { color: color-mix(in srgb, var(--term-fg) 50%, transparent); }
+.bash .clamp-more .btn { color: var(--ink); }
+.bash .foot { display: flex; gap: calc(var(--u) * 3); padding: 4px 12px 6px; font-size: var(--fs-xs); color: color-mix(in srgb, var(--term-fg) 55%, transparent); border-top: 1px solid rgba(232, 230, 240, 0.08); }
+.bash .foot:empty { display: none; }
+.tool .bash [data-tone='ok'] { color: #6fd3a5; }
+.tool .bash [data-tone='ng'] { color: #ff8a80; }
+
+/* 引数（Grep、Task、その他）と結果の文。 */
+.tool-args { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--u) calc(var(--u) * 3); margin: 0; padding: 8px 12px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line); font-size: var(--fs-sm); }
+.tool-args dt { font: 500 var(--fs-xs)/1.9 var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+.tool-args dd { margin: 0; min-width: 0; }
+.tool-args .clamp { --clamp-bg: #f7f8fb; }
+.arg-v { font-family: var(--font-mono); white-space: pre-wrap; word-break: break-word; }
+.tool-label { margin: 0 0 2px 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.tool-result-text, .tool-raw pre { margin: 0; padding: 8px 12px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line); font: 12px/1.6 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
+.tool-result .clamp { --clamp-bg: #f7f8fb; }
+.tool-result[data-failed='true'] .tool-result-text { background: #fdf3f2; box-shadow: 0 0 0 1px #f3c9c3; color: var(--error); }
+.tool-result[data-failed='true'] .clamp { --clamp-bg: #fdf3f2; }
+.tool-raw pre + pre { margin-top: var(--u); }
+
+/* Read、WebFetch、WebSearch */
+.tool-read { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line); font-size: var(--fs-sm); }
+.tool-read .range { font: var(--fs-xs) var(--font-mono); color: var(--ink-2); background: var(--surface); padding: 1px 8px; border-radius: var(--r-pill); box-shadow: 0 0 0 1px var(--line-strong); }
+.tool-web { border-radius: var(--r); box-shadow: 0 0 0 1px var(--line); overflow: hidden; }
+.tool-web .u { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 8px 12px; background: #f7f8fb; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.tool-web .u a { font-family: var(--font-mono); font-size: var(--fs-xs); word-break: break-all; }
+.tool-web .u b { font-weight: 600; }
+.tool-web .u .faint { margin-left: auto; font-size: var(--fs-xs); }
+.tool-web .q { display: flex; gap: calc(var(--u) * 3); padding: 8px 12px; font-size: var(--fs-sm); color: var(--ink-2); border-bottom: 1px solid var(--line); }
+.tool-web .q b { flex: none; color: var(--ink); font-weight: 600; }
+.tool-web .r { padding: 8px 12px; font-size: var(--fs-sm); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.tool-links { list-style: none; margin: 0; padding: var(--u) 0; }
+.tool-links li { display: flex; gap: 10px; align-items: baseline; padding: 5px 12px; font-size: var(--fs-sm); }
+.tool-links .dom { margin-left: auto; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); white-space: nowrap; }
+
+/* 本文の中の検索（S1）。本文の面の右上に浮くガラスの欄と、スクロールバーの脇の一致の印。 */
+.tr-wrap { position: relative; }
+.tr-find { position: absolute; top: 6px; right: 14px; z-index: 5; display: flex; align-items: center; gap: var(--u); width: min(380px, calc(100% - 28px)); height: 34px; padding: 0 var(--u) 0 calc(var(--u) * 2.5); border-radius: 12px; font-size: var(--fs-sm); background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); }
+.tr-find-in { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 2px 0 8px; border-radius: var(--r); background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); color: var(--ink-3); }
+.tr-find-in input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; }
+.tr-find-in input::-webkit-search-cancel-button { display: none; }
+.tr-find-opt { flex: none; display: grid; place-items: center; width: 24px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-3); cursor: pointer; }
+.tr-find-opt[aria-pressed='true'] { color: var(--accent); background: var(--accent-soft); }
+.tr-find-count { flex: none; min-width: 5ch; padding: 0 6px; font-size: var(--fs-xs); color: var(--ink-2); text-align: center; white-space: nowrap; }
+.tr-find-btn { flex: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--r); background: none; color: var(--ink-2); cursor: pointer; }
+.tr-find-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.8); color: var(--ink); }
+.tr-find-btn:disabled { opacity: 0.4; cursor: default; }
+.tr-ticks { position: absolute; right: 1px; top: calc(var(--u) * 2); bottom: calc(var(--u) * 2); width: 6px; z-index: 4; pointer-events: none; }
+.tr-ticks i { position: absolute; left: 0; width: 6px; height: 3px; border-radius: 2px; background: #e8b400; }
+.tr-ticks i[data-cur='true'] { height: 4px; background: var(--busy); }
+
+/* 一致の印。淡い黄（--hit）が一致、濃い黄と杏の縁が今の一致。青い吹き出しの上では地を透かす。 */
+.tr mark.hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 1px; }
+.tr mark.hit.cur { background: #ffd35c; box-shadow: 0 0 0 1.5px var(--busy); }
+.tr .msg-user mark.hit { background: rgba(255, 243, 196, 0.35); color: var(--accent-ink); }
+.tr .msg-user mark.hit.cur { background: rgba(255, 211, 92, 0.75); color: var(--ink); }
+.hitcount { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: var(--r-pill); background: var(--hit); color: #6b4a10; font: 600 10.5px var(--font-mono); }
+
+/* 検索の結果から開いたとき（J1）。跳んだ行の地を淡い黄から薄れさせる。reduced motion では動かさず、縁の印だけを残す。 */
+.tr-flash > * { border-radius: var(--r-lg); animation: tr-flash var(--dur-flash) var(--ease-out) var(--dur-exit) both; }
+@keyframes tr-flash { 0% { box-shadow: 0 0 0 3px #ffd35c; background-color: #fff3c4; } 100% { box-shadow: 0 0 0 3px transparent; } }
+@media (prefers-reduced-motion: reduce) { .tr-flash > * { animation: none; box-shadow: 0 0 0 2px #ffd35c; } }
