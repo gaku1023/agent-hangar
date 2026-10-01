@@ -365,7 +365,8 @@ a:hover { text-decoration: underline; }
 /* 実行中の右ペイン。上の段は動かさず、下の目次だけがスクロールする。色は端末の縁の灯と同じ語彙（作業中は杏、入力待ちは赤、休みは灰）。 */
 .live { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: calc(var(--u) * 2); }
 .live-top { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: none; }
-.live-toc { display: flex; flex-direction: column; flex: 1; min-height: 0; border-top: 1px solid var(--line); padding-top: var(--u); }
+/* 窓が低くても、目次は 3 行ぶんより縮めない（上のライブの帯が目次を 0 に潰さない）。 */
+.live-toc { display: flex; flex-direction: column; flex: 1; min-height: calc(var(--row-h) * 3); border-top: 1px solid var(--line); padding-top: var(--u); }
 .live-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); font-size: var(--fs-sm); }
 .live-lamp { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); font-weight: 600; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); }
 .live-lamp[data-tone='wait'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 12%, var(--surface)); }

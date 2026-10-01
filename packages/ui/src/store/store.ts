@@ -6,7 +6,7 @@ export type Store = {
   projects: Record<string, ProjectDto>; sessions: Record<string, SessionDto>; live: LiveSessionDto[];
   runs: Record<string, RunDto>; tabs: Record<string, TabDto>;
   events: Record<string, EventsSlice>; subagents: Record<string, string[]>;
-  /** 実行中のセッションの右ペインに出すライブの要約。開いたセッションの分だけ持つ。 */
+  /** 実行中のセッションの右ペインに出すライブの要約。実行中に開いたセッションの分が溜まる（今開いているものだけではない）。 */
   liveDigests: Record<string, LiveDigestDto>;
   search: { params: SearchParamsDto | null; result: SearchResultDto | null; loading: boolean };
   index: IndexProgressDto;

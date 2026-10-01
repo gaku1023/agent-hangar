@@ -13,7 +13,8 @@ export type LiveInput = {
   events: TranscriptEvent[];
   /** 今のターンの頭の seq。 */
   turnFrom: number;
-  turnNo: number;
+  /** 今のターンの番号。読み込んだ窓からも統計からも決められないときは null で、灯は手の数だけを出す。 */
+  turnNo: number | null;
   live: LiveStatus | null;
   activity: SessionActivityDto | null;
   now: number;
@@ -97,7 +98,7 @@ function lampOf(i: LiveInput, steps: number, results: ResultMap): LampProps {
     return { tone: 'busy', head: `${running} 本動いている`, sub: [mainBusy ? '指揮役も手を動かしている' : '', failed ? `失敗 ${failed}` : '', done ? `済 ${done}` : ''].filter(Boolean).join('、') };
   }
   // サブエージェントの transcript を開いている間は、ターンも手の数も指揮役のものではないので出さない。
-  if (i.live === 'busy') return { tone: 'busy', head: '作業中', sub: i.viewingAgent ? '' : `ターン ${i.turnNo}・${steps} 手目` };
+  if (i.live === 'busy') return { tone: 'busy', head: '作業中', sub: i.viewingAgent ? '' : i.turnNo === null ? `${steps} 手目` : `ターン ${i.turnNo}・${steps} 手目` };
   return { tone: 'idle', head: '休み', sub: i.idleFor };
 }
 

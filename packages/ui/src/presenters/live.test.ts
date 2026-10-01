@@ -34,6 +34,12 @@ describe('状態の灯', () => {
     const c = call('Read', { file_path: '/w/a.ts' });
     expect(presentLivePane(input({ events: [prompt('x'), c], viewingAgent: true })).lamp).toEqual({ tone: 'busy', head: '作業中', sub: '' });
   });
+  it('ターンの番号が信用できなければ、手の数だけを出す', () => {
+    seq = 0;
+    const c1 = call('Read', { file_path: '/w/a.ts' });
+    const p = presentLivePane(input({ events: [prompt('x'), c1, res(c1), call('Bash', { command: 'ls' })], turnNo: null }));
+    expect(p.lamp).toEqual({ tone: 'busy', head: '作業中', sub: '2 手目' });
+  });
   it('質問の文が無い入力待ちは、活動の要約を出す', () => {
     const p = presentLivePane(input({ live: 'waiting', activity: { tool: 'ExitPlanMode', summary: '計画の承認', question: null } }));
     expect(p.lamp).toEqual({ tone: 'wait', head: '入力待ち', sub: '計画の承認' });

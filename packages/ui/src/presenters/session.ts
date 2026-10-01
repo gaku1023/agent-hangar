@@ -150,9 +150,13 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const run = currentRunOf(store, id);
   const alive = aliveRunOf(store, id) !== null;
   // 右ペインは実行中だけ。サブエージェントの transcript を開いている間は、events が主線ではない。
+  // events は最新の 500 件の窓かもしれないので、ターンの頭は digest（サーバが全体から決めた seq）を先に使う。
+  // ターンの番号も、全部を読み込んでいるときだけ目次の数にし、そうでなければ統計の数にする。どちらも当てにならなければ出さない。
   const lastTurn = turnList[turnList.length - 1] ?? null;
+  const complete = slice ? slice.total <= slice.items.length : true;
+  const turnNo = complete && turnList.length > 0 ? turnList.length : s.stats.turns > 0 ? s.stats.turns : null;
   const livePane = alive ? presentLivePane({
-    digest: store.liveDigests[id] ?? null, events, turnFrom: lastTurn?.from ?? 0, turnNo: turnList.length,
+    digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0, turnNo,
     live: s.live, activity: s.activity ?? null, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
     idleFor: durationLabel(now - (s.lastActivityAt ?? now)), results,
   }) : null;
@@ -176,7 +180,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     model: shortModel(s.stats.model), effort: s.stats.effort ?? '', turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), prUrl: s.stats.prUrl, memo: s.memo,
     started: relativeTime(s.startedAt, now), lastActivity: relativeTime(s.lastActivityAt, now), hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length : false, notFound: false,
-    turnRows, turnsComplete: slice ? slice.total <= slice.items.length : true, openTurnItems, turnJump: view.turnJump, livePane,
+    turnRows, turnsComplete: complete, openTurnItems, turnJump: view.turnJump, livePane,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(run.startedAt, now) } : null,
     tabs, selectedTab, trustHint: alive && s.live === null,
     // 他端末が動かしている間は再開もフォークもさせない。手元に写ししか無いセッションも同じである。
