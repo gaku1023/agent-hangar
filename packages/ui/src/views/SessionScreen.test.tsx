@@ -286,12 +286,17 @@ describe('SessionScreen（実行中）', () => {
     withHost(<SessionScreen {...base} />);
     expect(document.querySelector('.screen')).toHaveClass('session-screen');
   });
-  it('実行中は成果物を右の欄の「いま」にも並べ、境目の比率を渡す', () => {
+  it('実行中は成果物を右の欄の「いま」に並べ、情報の行には出さない。境目の比率も渡す', () => {
     const artifacts = [{ id: 'a1', title: '速習資料', description: '説明', favicon: '📄', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 1, canOpenEditor: false }];
     const livePane = { lamp: { tone: 'idle' as const, head: '休み', sub: '' }, intent: { kind: 'none' as const, text: '意図は書かれていない' }, steps: [], lanes: [], doneFolded: 0 };
     withHost(<SessionScreen {...running} artifacts={artifacts} livePane={livePane} livePaneSplit={0.3} />);
     expect(document.querySelector('.live-top')!.textContent).toContain('速習資料');
     expect((document.querySelector('.live') as HTMLElement).style.getPropertyValue('--live-split')).toBe('0.3');
+    // 二重に出さない。情報の行のメニューは、右の欄を畳んでいる間だけ出す。
+    expect(screen.queryByRole('button', { name: /アーティファクト 1/ })).toBeNull();
+    cleanup();
+    withHost(<SessionScreen {...running} artifacts={artifacts} livePane={livePane} transcriptOpen={false} />);
+    expect(screen.getByRole('button', { name: /アーティファクト 1/ })).toBeInTheDocument();
   });
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SS {...running} transcriptOpen={false} />);

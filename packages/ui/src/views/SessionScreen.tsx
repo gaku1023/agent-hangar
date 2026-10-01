@@ -215,7 +215,8 @@ function InfoLine(props: SessionProps) {
       {props.fromScratch && <span title="再開しても作業ディレクトリはスクラッチのままです">スクラッチ</span>}
       {props.gone && <span>要約のみ</span>}
       {!props.hasTranscript && !props.gone && <span>本文がありません</span>}
-      {props.artifacts.length > 0 && (
+      {/* 実行中で右の欄の「いま」が開いている間は、成果物はそこに並ぶので、この行には出さない。 */}
+      {props.artifacts.length > 0 && !(props.livePane && props.transcriptOpen) && (
         <span>
           <MenuButton label="アーティファクト" faceClassName="session-info-link" minWidth={260} align="start"
             face={<><Icon name="artifacts" />アーティファクト {props.artifacts.length}<Icon name="chevronDown" /></>}
