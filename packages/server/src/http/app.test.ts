@@ -14,7 +14,7 @@ import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.
 import { TOOL_NAMES } from '../mcp/tools.ts';
 import { RunError } from '../runs/manager.ts';
 import { issueMcpSecret } from '../runs/secrets.ts';
-import { proposeSessionState } from '../sessions/states.ts';
+import { proposeSessionState, setSessionState } from '../sessions/states.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { createApp, type AppDeps, type ConfigSyncApi, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts, type SyncApi } from './app.ts';
@@ -365,6 +365,17 @@ describe('routes', () => {
     app = createApp({ ...deps, live: () => [waiting] });
     expect(await total('waiting')).toBe(1);
     expect(await total('running')).toBe(0);
+  });
+  it('検索はセッションの状態（status）と、Archived を除く印（hideArchived）を受け、知らない値は無視する', async () => {
+    const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    setSessionState(db, 'd', id, { status: 'archived', setBy: 'user' });
+    const total = async (qs: string) => (await json(await get(`/api/search?q=channels${qs}`))).body.total;
+    expect(await total('')).toBe(1);
+    expect(await total('&hideArchived=true')).toBe(0);
+    expect(await total('&status=archived&hideArchived=true')).toBe(1);
+    expect(await total('&status=done')).toBe(0);
+    // 知らない値は絞り込みなしとして扱う。
+    expect(await total('&status=bogus')).toBe(1);
   });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
