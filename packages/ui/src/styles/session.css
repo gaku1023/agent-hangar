@@ -4,6 +4,7 @@
    窓が狭いときは要約の 1 文から縮め、名前と操作のボタンは縮めない。 */
 .session-hero { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; }
 .session-hero .btn { flex: none; }
+.session-hero > .faint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .session-oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
 

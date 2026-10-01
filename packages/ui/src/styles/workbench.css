@@ -67,7 +67,8 @@
 .artifact-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
 
 /* プロジェクト画面。右レールは 280px で、隠すと本体が全幅になる。 */
-.project-screen { display: grid; grid-template-columns: 1fr 280px; gap: calc(var(--u) * 4); }
+/* 右の欄は窓が狭いと細くし、左の一覧に幅を残す。 */
+.project-screen { display: grid; grid-template-columns: minmax(0, 1fr) clamp(220px, 30%, 280px); gap: calc(var(--u) * 4); }
 .project-screen[data-rail='closed'] { grid-template-columns: 1fr; }
 .project-main { min-width: 0; }
 .project-path { margin-bottom: calc(var(--u) * 3); }

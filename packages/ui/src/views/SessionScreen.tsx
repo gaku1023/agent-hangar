@@ -34,19 +34,19 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
         {props.summary?.oneLiner ? <span className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
         {props.fromScratch && <span className="faint">再開しても作業ディレクトリはスクラッチのままです</span>}
-        {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id })}><Icon name="promote" />プロジェクトに昇格</button>}
-        {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined })}><Icon name="openTerminal" />ターミナルで開く</button>}
+        {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id })}><Icon name="promote" /><span className="btn-label">プロジェクトに昇格</span></button>}
+        {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined })}><Icon name="openTerminal" /><span className="btn-label">ターミナルで開く</span></button>}
         {/* 停止は取り消せないので危険色にする。作業中か、シェルタブを巻き込むときは Mediator が先に確認を出す。 */}
-        {run?.alive && <button className="btn btn-danger" onClick={() => emit({ type: 'session.kill', runId: run.id, working: props.live === 'busy' || props.live === 'waiting', shellTabs: props.tabs.filter((t) => t.kind === 'shell').length })}><Icon name="stop" />停止</button>}
-        <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.resume', id })}><Icon name="resume" />再開</button>
-        <button className="btn" disabled={!props.canFork} onClick={() => emit({ type: 'session.fork', id })}><Icon name="fork" />フォーク</button>
+        {run?.alive && <button className="btn btn-danger" onClick={() => emit({ type: 'session.kill', runId: run.id, working: props.live === 'busy' || props.live === 'waiting', shellTabs: props.tabs.filter((t) => t.kind === 'shell').length })}><Icon name="stop" /><span className="btn-label">停止</span></button>}
+        <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.resume', id })}><Icon name="resume" /><span className="btn-label">再開</span></button>
+        <button className="btn" disabled={!props.canFork} onClick={() => emit({ type: 'session.fork', id })}><Icon name="fork" /><span className="btn-label">フォーク</span></button>
         {/* 本文が他端末にあるときと、相手の heartbeat が途絶えたとき（Ruling 14）の逃げ道。
             出す条件は canResumeHere 単独にする。lock の有無で枝分かれさせると、途絶えた側が行き止まりになる。 */}
-        {props.canResumeHere && <button className="btn" onClick={() => emit({ type: 'session.resumeHere', id })}><Icon name="resumeHere" />この PC で再開</button>}
+        {props.canResumeHere && <button className="btn" onClick={() => emit({ type: 'session.resumeHere', id })}><Icon name="resumeHere" /><span className="btn-label">この PC で再開</span></button>}
         {/* hangar の外で動いているあいだは本文しか見せられない。引き取りは外のターミナルの claude を終わらせるので、押すと確認に回る。 */}
-        {props.outsideOpen === 'adopt' && <button className="btn" onClick={() => emit({ type: 'session.adopt', id })}><Icon name="resumeHere" />hangar で引き取る</button>}
-        {props.outsideOpen === 'attach' && <button className="btn" onClick={() => emit({ type: 'session.attach', id })}><Icon name="shell" />hangar でつなぐ</button>}
-        <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}><Icon name="openEditor" />VS Code で開く</button>
+        {props.outsideOpen === 'adopt' && <button className="btn" onClick={() => emit({ type: 'session.adopt', id })}><Icon name="resumeHere" /><span className="btn-label">hangar で引き取る</span></button>}
+        {props.outsideOpen === 'attach' && <button className="btn" onClick={() => emit({ type: 'session.attach', id })}><Icon name="shell" /><span className="btn-label">hangar でつなぐ</span></button>}
+        <button className="btn" onClick={() => emit({ type: 'session.openEditor', sessionId: id })}><Icon name="openEditor" /><span className="btn-label">VS Code で開く</span></button>
       </PageHeading>
       {/* チップの列。状態と経過、プロジェクト、モデルと effort、コンテキスト使用率、推定コスト、変更数、1 行メモ、PR、ロック。 */}
       <div className="chips">
@@ -145,7 +145,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
   const paneToggle = <button className="tr-toggle" aria-label={props.transcriptOpen ? '右の欄を閉じる' : '右の欄を開く'} onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>;
 
   // 本文が消えた会話は、会話の欄もターンの目次も持たない。残っている要約と成果物だけを見せる。
-  if (props.gone) return <div className="screen">{header}{goneNote}{summary}{artifacts}</div>;
+  if (props.gone) return <div className="screen session-screen">{header}{goneNote}{summary}{artifacts}</div>;
 
   if (run && props.selectedTab) {
     // 案内は Claude のタブにだけ出す。分割で 2 つ並ぶときも、シェルの側には出さない。
@@ -157,7 +157,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
     // 分割は .split の左の列の中でさらに 2 列に割る。高さは外側の .split から 100% で伝わる。
     const terminals = props.split ? <SplitPane left={pane(props.split.left)} right={pane(props.split.right)} /> : pane(props.selectedTab);
     return (
-      <div className="screen screen-fill">
+      <div className="screen session-screen screen-fill">
         {header}{summary}{artifacts}
         <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} />
         {/* 右欄は会話の全文ではなくターンの目次にする。全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。 */}
@@ -176,5 +176,5 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       </div>
     );
   }
-  return <div className="screen screen-fill">{header}{summary}{artifacts}<section className="tr-sheet">{toggles}{transcript}</section></div>;
+  return <div className="screen session-screen screen-fill">{header}{summary}{artifacts}<section className="tr-sheet">{toggles}{transcript}</section></div>;
 }

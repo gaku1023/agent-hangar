@@ -77,7 +77,7 @@ describe('SessionScreen', () => {
   });
   it('本文が無いセッションは再開を無効にする', () => {
     render(<IntentRoot onIntent={() => {}}><SessionScreen {...base} terminalStatus={null} hasTranscript={false} canResume={false} canFork={false} items={[]} total={0} loaded={0} hasMore={false} /></IntentRoot>);
-    expect(screen.getByText('再開')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '再開' })).toBeDisabled();
     // ヘッダーの注記と、空のトランスクリプトの表示の 2 か所に出る。
     expect(screen.getAllByText('本文がありません')).toHaveLength(2);
   });
@@ -142,7 +142,7 @@ describe('SessionScreen（実行中）', () => {
     fireEvent.click(screen.getByLabelText('右の欄を閉じる'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.toggle' });
     expect(screen.getByText('hi')).toBeInTheDocument();
-    expect(screen.getByText('再開')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '再開' })).toBeDisabled();
   });
   it('停止は危険色で、入力待ちも作業中として数え、休みでシェルタブが無ければそう送る', () => {
     const onIntent = withHost(<SessionScreen {...running} live="waiting" terminalStatus="connected" />);
@@ -169,6 +169,7 @@ describe('SessionScreen（実行中）', () => {
     cleanup();
     withHost(<SessionScreen {...base} gone={{ note: 'n', canExtend: false, extendTo: 365 }} terminalStatus={null} />);
     expect(document.querySelector('.screen')).not.toHaveClass('screen-fill');
+    expect(document.querySelector('.screen')).toHaveClass('session-screen');
   });
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" />);
@@ -184,7 +185,7 @@ describe('SessionScreen（実行中）', () => {
     expect(screen.queryByText('停止')).toBeNull();
     // 終了した run では新しいシェルを開けないので、＋ を出さない。
     expect(screen.queryByLabelText('シェルタブを追加')).toBeNull();
-    expect(screen.getByText('再開')).toBeEnabled();
+    expect(screen.getByRole('button', { name: '再開' })).toBeEnabled();
   });
 });
 
