@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>残りの画面：変え方・日の選び方・Home・絞り込み</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f6f7fb; --surface: #fff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --font: 'Inter', 'Hiragino Sans', sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 28px 70px; font: 13px/1.45 var(--font); color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+h1 { font-size: 20px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 32px 0 4px; } .lead, .h2p { color: var(--ink-2); margin: 0 0 14px; max-width: 1100px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; }
+.opt { background: var(--surface); border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; cursor: pointer; display: flex; flex-direction: column; }
+.opt.selected { box-shadow: 0 0 0 2px var(--accent); }
+.opt-head { padding: 12px 16px 10px; border-bottom: 1px solid var(--line); }
+.opt-head h3 { margin: 0; font-size: 14px; } .opt-head h3 b { color: var(--accent); margin-right: 6px; }
+.opt-head p { margin: 4px 0 0; color: var(--ink-2); font-size: 12px; }
+.stage { position: relative; min-height: 250px; padding: 0 0 12px; flex: 1; }
+.pros { padding: 8px 16px 12px; font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--line); }
+.pros span { display: block; } .pros .p::before { content: '＋ '; color: var(--idle); } .pros .c::before { content: '－ '; color: var(--waiting); }
+.row { display: grid; grid-template-columns: 12px minmax(0,1fr) auto; gap: 10px; align-items: center; height: 50px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.row.cur { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.row .main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row .name { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .sub { font-size: 11.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 6px; align-items: center; }
+.row .side { font-size: 11px; color: var(--ink-3); display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ended); display: inline-block; flex: none; }
+.dot.busy { background: var(--busy); } .dot.waiting { background: var(--waiting); }
+.more { width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink-2); background: var(--surface-2); font-weight: 700; }
+.pop { position: absolute; z-index: 2; width: 250px; background: rgba(255,255,255,.97); border-radius: 12px; box-shadow: 0 18px 40px -14px rgba(30,40,90,.45), inset 0 0 0 1px var(--line); padding: 6px; font-size: 12.5px; }
+.pop .it { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; }
+.pop .it.on { background: var(--accent-soft); }
+.pop .it kbd { margin-left: auto; font: 11px 'Inter'; color: var(--ink-3); background: var(--surface-2); border-radius: 4px; padding: 0 5px; }
+.pop .sep { height: 1px; background: var(--line); margin: 4px 2px; }
+.pop .lab { padding: 4px 8px 2px; font-size: 11px; color: var(--ink-3); }
+.sd { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.sd[data-s=paused] { background: var(--st-paused); } .sd[data-s=done] { background: var(--st-done); } .sd[data-s=archived] { background: var(--st-archived); } .sd[data-s=none] { box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px 8px; }
+.chip { height: 26px; padding: 0 10px; border-radius: 99px; display: inline-flex; align-items: center; font-size: 12px; background: var(--surface-2); color: var(--ink-2); }
+.chip.on { background: var(--st-paused); color: #fff; font-weight: 600; }
+.field { margin: 0 8px 8px; height: 30px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line-strong); display: flex; align-items: center; padding: 0 10px; color: var(--ink-2); font-size: 12px; background: #fff; }
+.field.big { height: auto; min-height: 30px; padding: 6px 10px; }
+.field .ph { color: var(--ink-3); }
+.hint { margin: -4px 8px 8px; font-size: 11px; color: var(--st-paused); }
+.acts { display: flex; gap: 6px; justify-content: flex-end; padding: 0 8px 4px; }
+.btn { height: 26px; padding: 0 10px; border-radius: 7px; display: inline-flex; align-items: center; font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--ink-2); }
+.btn.pri { background: var(--accent); color: #fff; }
+.cal { margin: 0 8px 8px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; font-size: 11px; text-align: center; }
+.cal span { padding: 4px 0; border-radius: 5px; color: var(--ink-2); } .cal .h { color: var(--ink-3); font-size: 10px; } .cal .today { box-shadow: inset 0 0 0 1px var(--ink-3); } .cal .pick { background: var(--st-paused); color: #fff; font-weight: 600; } .cal .dim { color: #c6c5d3; }
+/* home */
+.home { padding: 10px 14px; }
+.hsec { font-size: 12px; font-weight: 650; color: var(--ink-2); margin: 10px 0 6px; display: flex; gap: 6px; align-items: center; }
+.hsec .n { font-weight: 400; color: var(--ink-3); }
+.cards { display: flex; gap: 8px; flex-wrap: wrap; }
+.card { width: 170px; border-radius: 10px; padding: 8px 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); font-size: 12px; }
+.card.wait { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--waiting) 35%, transparent); background: color-mix(in srgb, var(--waiting) 5%, #fff); }
+.card.ret { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-paused) 40%, transparent); background: color-mix(in srgb, var(--st-paused) 6%, #fff); }
+.card .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .card .s { color: var(--ink-3); font-size: 11px; margin-top: 2px; }
+.card .lab { font-size: 10.5px; font-weight: 700; margin-bottom: 3px; } .card.wait .lab { color: var(--waiting); } .card.ret .lab { color: var(--st-paused); }
+.hrow { display: flex; align-items: center; gap: 8px; height: 34px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.hrow .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .hrow .t small { color: var(--ink-3); margin-left: 6px; }
+.when { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 99px; font-size: 10.5px; font-weight: 600; color: #fff; background: var(--st-paused); flex: none; }
+.when.ghost { color: var(--st-paused); background: none; box-shadow: inset 0 0 0 1px var(--st-paused); }
+.cand { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 99px; font-size: 11px; font-weight: 600; color: var(--cand); box-shadow: inset 0 0 0 1px var(--cand); flex: none; }
+.half { width: 14px; height: 14px; border-radius: 4px; box-shadow: inset 0 0 0 1.5px var(--cand); background: linear-gradient(135deg, var(--cand) 50%, transparent 50%); flex: none; }
+/* filters */
+.filters { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.fl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fl .lb { font-size: 11px; color: var(--ink-3); width: 42px; }
+.seg { display: inline-flex; gap: 2px; padding: 2px; background: #e6e8f0; border-radius: 8px; }
+.seg span { padding: 3px 9px; border-radius: 6px; font-size: 12px; color: var(--ink-2); display: inline-flex; gap: 5px; align-items: center; }
+.seg span.on { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.lbx { height: 28px; padding: 0 10px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line-strong); display: inline-flex; align-items: center; gap: 6px; font-size: 12px; background: #fff; }
+.sq { display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+.sq[data-s=active] { color: var(--st-active); background: var(--st-active-soft); } .sq[data-s=paused] { color: var(--st-paused); background: var(--st-paused-soft); } .sq[data-s=done] { color: var(--st-done); background: var(--st-done-soft); } .sq[data-s=archived] { color: var(--st-archived); background: var(--st-archived-soft); }
+.note { margin-top: 20px; padding: 14px 18px; background: var(--surface); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); max-width: 1100px; color: var(--ink-2); }
+.note b { color: var(--ink); }
+</style>
+</head>
+<body>
+<h1>残りの画面：変え方・日の選び方・Home・絞り込み</h1>
+<p class="lead">一覧の形（P3）、提案の札（Q3 の見た目と Q1 のポップ）、会話での聞き方（C1）は決まりました。残りは 4 つの問いです。クリックで選ぶか、ターミナルで「A1＋A2、B1、C1、D1」のように返してください。</p>
+
+<h2>A. 自分で状態を変えるとき</h2>
+<p class="h2p">付けられるのは Paused・Done・Archived・印なしに戻す の 4 つです。Active は動いていれば自動で付くので、手では選びません。</p>
+<div class="grid" id="ga"></div>
+
+<h2>B. Paused の戻る日と理由の入れ方</h2>
+<p class="h2p">Claude の提案から来たときは、理由と日の下書きが入った状態で開きます。戻る日は日付だけで持ち、「明日の朝」は明日として扱います。</p>
+<div class="grid" id="gb"></div>
+
+<h2>C. Home での「今日戻る」と提案</h2>
+<p class="h2p">いまの Home は、要対応（入力待ちの札）・実行中・確かめる（TODO の完了候補）・最近の順に並んでいます。</p>
+<div class="grid" id="gc"></div>
+
+<h2>D. Sessions 画面の絞り込み</h2>
+<p class="h2p">いまの「状態（すべて／入力待ち／実行中／終了）」は動きの軸なので、名前を「動き」に変え、「終了」は「止まっている」にします。そこへ新しい状態の軸をどう足すか、の問いです。</p>
+<div class="grid" id="gd"></div>
+
+<div class="note"><b>このほかに決めて進めること（異論があれば言ってください）</b>：一括の操作は最初は作りません（過去分の一括 Done だけは導入のときに一度行います）。状態は他の PC にも同期します。Claude Code の <code>claude -r</code> の一覧には影響しません。</div>
+
+<script>
+const row = (n, sub, t, o = {}) => `<div class="row ${o.cur ? 'cur' : ''}"><span class="dot ${o.live || ''}"></span><div class="main"><div class="name">${n}</div><div class="sub">${sub}</div></div><div class="side">${o.side || ''}<span>${t}</span></div></div>`;
+const statePop = (top, left, kbd = true, title) => `<div class="pop" style="top:${top}px;left:${left}px">${title ? `<div class="lab">${title}</div>` : ''}<div class="it on"><span class="sd" data-s="paused"></span>Paused にする…${kbd ? '<kbd>p</kbd>' : ''}</div><div class="it"><span class="sd" data-s="done"></span>Done にする${kbd ? '<kbd>d</kbd>' : ''}</div><div class="it"><span class="sd" data-s="archived"></span>Archived にする${kbd ? '<kbd>a</kbd>' : ''}</div><div class="sep"></div><div class="it"><span class="sd" data-s="none"></span>印なしに戻す${kbd ? '<kbd>u</kbd>' : ''}</div></div>`;
+const base = (curSide) => row('新規プロジェクトの UI', 'Finder での確認を待っている', '2 分前') + row('Backspace で戻る動きを止める', '直したが手で確かめていない', '40 分前', { cur: true, side: curSide }) + row('NFD のフォルダ名', 'normalizeDir で直して push', '2 時間前') + row('レスポンシブの監査', '崩れを拾い直した', '12 時間前');
+const A = [
+  { k: 'A1', h: '打鍵 s で小さなメニュー', p: 'カーソル行で s を押すと、行のすぐ下に 4 択が開く。続けて p/d/a/u で選ぶ（s d で Done）。今の j/k/Enter/o/e/m に並ぶ。', b: base() + statePop(104, 150), pc: ['手を離さずに 2 打鍵で済む', '打鍵を覚えるまでは見つけにくい'] },
+  { k: 'A2', h: '行の右端に「⋯」', p: 'ポインタを乗せた行と、カーソル行の右端に ⋯ を出す。押すと同じ 4 択（打鍵の印つき）。', b: base('<span class="more">⋯</span>') + statePop(104, 120), pc: ['見ればわかる。マウスで完結する', '行の右端の要素がひとつ増える'] },
+  { k: 'A3', h: '右クリックのメニュー', p: '行を右クリックすると、開く・外のターミナル・エディタ・メモ・状態の 4 択をまとめたメニューが出る。', b: base() + `<div class="pop" style="top:96px;left:150px"><div class="it">開く<kbd>Enter</kbd></div><div class="it">外のターミナルで開く<kbd>o</kbd></div><div class="it">エディタで開く<kbd>e</kbd></div><div class="it">メモを書く<kbd>m</kbd></div><div class="sep"></div><div class="it on"><span class="sd" data-s="paused"></span>Paused にする…<kbd>p</kbd></div><div class="it"><span class="sd" data-s="done"></span>Done にする<kbd>d</kbd></div><div class="it"><span class="sd" data-s="archived"></span>Archived にする<kbd>a</kbd></div></div>`, pc: ['行の操作が 1 か所にまとまり、打鍵の一覧にもなる', 'macOS のアプリとしては自然だが、目に見えない'] },
+];
+const pausedHead = (draft) => `<div class="lab">Paused にする${draft ? ' · Claude の下書き' : ''}</div>`;
+const B = [
+  { k: 'B1', h: '決まった日の札＋理由の欄', p: '今日の夕方・明日・月曜・来週・日付を選ぶ… の札から 1 つ。下に理由の 1 行。', b: base() + `<div class="pop" style="top:60px;left:90px;width:290px">${pausedHead(true)}<div class="chips"><span class="chip">今日の夕方</span><span class="chip on">明日</span><span class="chip">月曜</span><span class="chip">来週</span><span class="chip">日付を選ぶ…</span></div><div class="field big">明日の朝、本番の CPU の数字が下がったか確かめる</div><div class="acts"><span class="btn">やめる</span><span class="btn pri">Paused にする</span></div></div>`, pc: ['迷わず 1 押しで選べる。打鍵（1〜5）にも割り当てられる', '札にない日は「日付を選ぶ」をもう一度押す'] },
+  { k: 'B2', h: 'ことばで 1 欄', p: '「明日の朝 CPU の数字を見る」のように 1 欄に書くと、頭の日の言葉を読み取って戻る日にする。読み取った日を下に出す。', b: base() + `<div class="pop" style="top:60px;left:90px;width:290px">${pausedHead(true)}<div class="field big">明日の朝 本番の CPU の数字が下がったか確かめる</div><div class="hint">戻る日：10 月 2 日（木）</div><div class="acts"><span class="btn">やめる</span><span class="btn pri">Paused にする</span></div></div>`, pc: ['書くだけで済み、Claude の下書きとも同じ形', '読み取れない言い方のときに日が付かない'] },
+  { k: 'B3', h: '小さな暦＋理由', p: '月の暦から日を押す。今日は枠、選んだ日は塗り。下に理由。', b: base() + `<div class="pop" style="top:40px;left:90px;width:270px">${pausedHead(true)}<div class="cal">${['月','火','水','木','金','土','日'].map((d) => `<span class="h">${d}</span>`).join('')}${['<span class="dim">29</span>', '<span class="dim">30</span>', '<span class="today">1</span>', '<span class="pick">2</span>', '<span>3</span>', '<span>4</span>', '<span>5</span>', ...[6,7,8,9,10,11,12].map((d) => `<span>${d}</span>`)].join('')}</div><div class="field">明日の朝、CPU の数字を確かめる</div><div class="acts"><span class="btn">やめる</span><span class="btn pri">Paused にする</span></div></div>`, pc: ['日付がはっきり見える', '「明日」程度のことに暦は重い'] },
+];
+const C = [
+  { k: 'C1', h: '要対応の札の隣に「今日戻る」の札', p: '入力待ちの札と同じ形で、黄土の札を並べる。どちらも「いま自分がやること」。', b: `<div class="home"><div class="hsec">要対応 <span class="n">2</span></div><div class="cards"><div class="card wait"><div class="lab">入力待ち</div><div class="t">新規プロジェクトの UI</div><div class="s">agent-hangar · 3 分前</div></div><div class="card ret"><div class="lab">今日戻る</div><div class="t">Worker の同期の再開</div><div class="s">CPU の数字を見て同期を戻す</div></div></div><div class="hsec">確かめる <span class="n">3</span></div><div class="hrow"><span class="half"></span><span class="t">E2E の待ち時間を詰める<small>TODO · seller-data-hub</small></span></div><div class="hrow"><span class="cand">Done にする？</span><span class="t">NFD のフォルダ名<small>agent-hangar</small></span></div><div class="hrow"><span class="cand">Paused · 明日？</span><span class="t">Worker の CPU 超過<small>agent-hangar</small></span></div></div>`, pc: ['朝に開いて最初に目に入る。「やること」が 1 か所', '入力待ちの札の意味（Claude が待っている）と混ざる'] },
+  { k: 'C2', h: '「今日戻る」を独立した段に', p: '要対応の下、確かめるの上に段を置く。行の形で、戻る日の札と理由を出す。', b: `<div class="home"><div class="hsec">要対応 <span class="n">1</span></div><div class="cards"><div class="card wait"><div class="lab">入力待ち</div><div class="t">新規プロジェクトの UI</div><div class="s">agent-hangar · 3 分前</div></div></div><div class="hsec">今日戻る <span class="n">2</span></div><div class="hrow"><span class="when">今日</span><span class="t">Worker の同期の再開<small>CPU の数字を見て同期を戻す · agent-hangar</small></span></div><div class="hrow"><span class="when">3 日過ぎ</span><span class="t">E2E の待ち時間<small>seller-data-hub</small></span></div><div class="hsec">確かめる <span class="n">3</span></div><div class="hrow"><span class="half"></span><span class="t">E2E の待ち時間を詰める<small>TODO</small></span></div><div class="hrow"><span class="cand">Done にする？</span><span class="t">NFD のフォルダ名</small></span></div></div>`, pc: ['入力待ちと混ざらない。プロジェクト画面の節と同じ名前', '段が 1 つ増える'] },
+  { k: 'C3', h: '「確かめる」に混ぜる', p: '確かめるの段に、TODO の候補・セッションの提案・今日戻る Paused をまとめて並べる。', b: `<div class="home"><div class="hsec">要対応 <span class="n">1</span></div><div class="cards"><div class="card wait"><div class="lab">入力待ち</div><div class="t">新規プロジェクトの UI</div><div class="s">agent-hangar · 3 分前</div></div></div><div class="hsec">確かめる <span class="n">5</span></div><div class="hrow"><span class="when">今日</span><span class="t">Worker の同期の再開<small>CPU の数字を見る</small></span></div><div class="hrow"><span class="when">3 日過ぎ</span><span class="t">E2E の待ち時間</span></div><div class="hrow"><span class="half"></span><span class="t">E2E の待ち時間を詰める<small>TODO</small></span></div><div class="hrow"><span class="cand">Done にする？</span><span class="t">NFD のフォルダ名</span></div><div class="hrow"><span class="cand">Paused · 明日？</span><span class="t">Worker の CPU 超過</span></div></div>`, pc: ['段が増えない。「自分が目を通すもの」が 1 か所', '性質の違うもの（約束と承認）が混ざる'] },
+];
+const D = [
+  { k: 'D1', h: '2 本の切替（動き・状態）', p: '動きの切替の下に状態の切替を並べる。状態の既定は「Archived 以外」。', b: `<div class="filters"><div class="fl"><span class="lbx">すべてのプロジェクト ▾</span><span class="seg"><span class="on">全期間</span><span>今日</span><span>7 日</span><span>30 日</span></span></div><div class="fl"><span class="lb">動き</span><span class="seg"><span class="on">すべて</span><span><i class="dot waiting"></i>入力待ち</span><span><i class="dot busy"></i>実行中</span><span>止まっている</span></span></div><div class="fl"><span class="lb">状態</span><span class="seg"><span class="on">Archived 以外</span><span><b class="sq" data-s="paused">Paused</b></span><span><b class="sq" data-s="done">Done</b></span><span>印なし</span><span><b class="sq" data-s="archived">Archived</b></span><span>すべて</span></span></div></div>`, pc: ['2 つの軸が見た目でもはっきり分かれる', '絞り込みの段が 1 行増える'] },
+  { k: 'D2', h: '状態は選択の箱に', p: '状態はプロジェクトの選択と同じ箱の形にして、1 段目に並べる。動きの切替は今の位置のまま。', b: `<div class="filters"><div class="fl"><span class="lbx">すべてのプロジェクト ▾</span><span class="lbx">状態：Archived 以外 ▾</span><span class="seg"><span class="on">全期間</span><span>今日</span><span>7 日</span><span>30 日</span></span></div><div class="fl"><span class="lb">動き</span><span class="seg"><span class="on">すべて</span><span><i class="dot waiting"></i>入力待ち</span><span><i class="dot busy"></i>実行中</span><span>止まっている</span></span></div></div>`, pc: ['段が増えない。「整理の軸」（プロジェクト・状態）が隣り合う', '状態の中身は開くまで見えない'] },
+];
+const draw = (id, list) => document.getElementById(id).innerHTML = list.map((o) => `<div class="opt" data-choice="${o.k}" onclick="toggleSelect(this)"><div class="opt-head"><h3><b>${o.k}</b>${o.h}</h3><p>${o.p}</p></div><div class="stage">${o.b}</div><div class="pros"><span class="p">${o.pc[0]}</span><span class="c">${o.pc[1]}</span></div></div>`).join('');
+draw('ga', A); draw('gb', B); draw('gc', C); draw('gd', D);
+</script>
+</body>
+</html>

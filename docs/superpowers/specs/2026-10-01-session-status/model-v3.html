@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>状態の見せ方（決まった分け方で）</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f6f7fb; --surface: #fff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --font: 'Inter', 'Hiragino Sans', sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 28px 70px; font: 13px/1.45 var(--font); color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+h1 { font-size: 20px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 34px 0 4px; }
+.lead { color: var(--ink-2); margin: 0 0 16px; max-width: 1100px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 18px; }
+.opt { background: var(--surface); border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; cursor: pointer; }
+.opt:hover { box-shadow: inset 0 0 0 1px var(--line-strong), 0 6px 18px -10px rgba(30,40,90,.3); }
+.opt.selected { box-shadow: 0 0 0 2px var(--accent); }
+.opt-head { padding: 12px 16px 10px; border-bottom: 1px solid var(--line); }
+.opt-head h3 { margin: 0; font-size: 14px; } .opt-head h3 b { color: var(--accent); margin-right: 6px; }
+.opt-head p { margin: 4px 0 0; color: var(--ink-2); font-size: 12px; }
+.pros { padding: 8px 16px 12px; font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--line); }
+.pros span { display: block; } .pros .p::before { content: '＋ '; color: var(--idle); } .pros .c::before { content: '－ '; color: var(--waiting); }
+.frame { height: 430px; overflow: hidden; position: relative; }
+.fade { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; background: linear-gradient(transparent, var(--surface)); }
+.ft { display: flex; align-items: center; gap: 8px; padding: 10px 14px 8px; font-size: 15px; font-weight: 650; }
+.row { display: grid; grid-template-columns: 12px minmax(0,1fr) auto; gap: 10px; align-items: center; height: 52px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.row .main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.row .name { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .sub { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 6px; align-items: center; }
+.row .side { font-size: 11px; color: var(--ink-3); display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ended); display: inline-block; flex: none; }
+.dot.busy { background: var(--busy); } .dot.waiting { background: var(--waiting); }
+.live { font-size: 11px; font-weight: 600; } .live.busy { color: var(--busy); } .live.waiting { color: var(--waiting); }
+.sq { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600; flex: none; }
+.sq[data-s=active] { color: var(--st-active); background: var(--st-active-soft); } .sq[data-s=paused] { color: var(--st-paused); background: var(--st-paused-soft); } .sq[data-s=done] { color: var(--st-done); background: var(--st-done-soft); } .sq[data-s=archived] { color: var(--st-archived); background: var(--st-archived-soft); }
+.when { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 99px; font-size: 10.5px; font-weight: 600; color: var(--st-paused); background: var(--st-paused-soft); flex: none; }
+.when.due { color: #fff; background: var(--st-paused); }
+.cand { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 99px; font-size: 11px; font-weight: 600; color: var(--cand); background: var(--cand-soft); flex: none; }
+.cand.ghost { background: none; box-shadow: inset 0 0 0 1px var(--cand); }
+.mini { display: inline-flex; align-items: center; justify-content: center; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 600; border: 0; background: var(--surface-2); color: var(--ink-2); }
+.mini.ok { background: var(--cand); color: #fff; }
+.sec { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 14px; font-size: 12px; font-weight: 650; color: var(--ink-2); border-bottom: 1px solid var(--line); }
+.sec .n { font-weight: 400; color: var(--ink-3); } .sec .chev { margin-left: auto; color: var(--accent); font-weight: 500; }
+.sd { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.sd[data-s=active] { background: var(--st-active); } .sd[data-s=paused] { background: var(--st-paused); } .sd[data-s=done] { background: var(--st-done); } .sd[data-s=archived] { background: var(--st-archived); } .sd[data-s=none] { background: none; box-shadow: inset 0 0 0 1.5px var(--ink-3); } .sd[data-s=cand] { background: var(--cand); border-radius: 50%; }
+.foot { padding: 10px 14px; font-size: 12px; color: var(--ink-3); } .foot a { color: var(--accent); }
+.tabs { display: flex; gap: 2px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.tab { padding: 8px 10px; font-size: 12px; color: var(--ink-2); border-bottom: 2px solid transparent; } .tab.on { color: var(--ink); font-weight: 600; border-color: var(--accent); } .tab .n { color: var(--ink-3); font-weight: 400; margin-left: 3px; }
+.band { margin: 0 12px 10px; padding: 8px 10px; border-radius: 10px; background: var(--cand-soft); }
+.band h4 { margin: 0 0 6px; font-size: 12px; color: var(--cand); display: flex; gap: 6px; align-items: center; }
+.band .bi { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--surface); border-radius: 8px; margin-top: 4px; font-size: 12px; }
+.band .bi .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.band .bi .t small { color: var(--ink-3); margin-left: 6px; }
+.twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.twocol > div:first-child { border-right: 1px solid var(--line); }
+.colh { padding: 8px 14px; font-size: 12px; font-weight: 650; color: var(--ink-2); border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.row.compact { height: 46px; } .row.compact .sub { font-size: 11px; }
+.note { margin-top: 18px; padding: 14px 18px; background: var(--surface); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); max-width: 1100px; color: var(--ink-2); }
+.note b { color: var(--ink); }
+.big { height: auto; }
+.popover { position: absolute; right: 18px; top: 128px; width: 260px; background: rgba(255,255,255,.96); border-radius: 12px; box-shadow: 0 18px 40px -14px rgba(30,40,90,.45), inset 0 0 0 1px var(--line); padding: 10px; font-size: 12px; z-index: 3; }
+.popover .q { font-weight: 600; margin-bottom: 4px; } .popover .why { color: var(--ink-2); margin-bottom: 8px; }
+.popover .acts { display: flex; gap: 6px; }
+.term { background: #1c1b2e; color: #e8e6f0; border-radius: 10px; margin: 12px; padding: 12px 14px; font: 12px/1.6 'JetBrains Mono', Menlo, monospace; }
+.term .q { color: #ffb86b; } .term .o { color: #9aa7ff; } .term .dim { color: #8d8ba3; }
+</style>
+</head>
+<body>
+<h1>決まった分け方で、どう見せるか</h1>
+<p class="lead">札が付くのは誰かが判断した行（動いている・Paused・Done・Archived）だけで、新しく始めたものは印なしです。過去の 1,221 件はまとめて Done にした後の見え方で描いています。問いは 3 つあります。<b>① プロジェクト画面の一覧</b>、<b>② Claude の提案の見せ方</b>、<b>③ 会話の中での聞き方</b>。それぞれクリックで選ぶか、ターミナルで「①は P2、②は Q1」のように返してください。</p>
+
+<h2>① プロジェクトを開いたときの一覧</h2>
+<div class="grid" id="g1"></div>
+
+<h2>② Claude の提案（Done にしますか／Paused にしますか）を一覧でどう見せるか</h2>
+<div class="grid" id="g2"></div>
+
+<h2>③ 依頼を終えた区切りで、会話の中でどう聞くか</h2>
+<div class="grid" id="g3"></div>
+
+<div class="note"><b>語の描き分け（全案共通）</b>：動きは日本語と丸い点で示します（入力待ち・実行中・止まっている）。状態は英語と四角の札で示します（Active / Paused / Done / Archived）。提案は紫の丸い札です。Paused の戻る日は黄土の丸い札で、当日と過ぎたものは塗りつぶします。Sessions 画面の絞り込みも「動き」と「状態」の 2 本に分けます。</div>
+
+<script>
+const S = {
+  live1: { n: 'セッションの削除と状態の協議', sub: '分け方を決めて、見せ方の試作を作っている', live: 'busy', t: 'いま' },
+  live2: { n: '新規プロジェクトの UI', sub: 'Finder での手の確認を待っている', live: 'waiting', t: '3 分前' },
+  cand1: { n: 'NFD のフォルダ名', sub: 'normalizeDir で直して main へ push した', t: '2 時間前', cand: 'done', why: '直して main に入れ、/Applications も入れ替えた' },
+  cand2: { n: 'Worker の CPU 超過', sub: '同期を枠 80% で止めて配備した', t: '5 時間前', cand: 'paused', when: '明日', why: '明日の朝、CPU の数字が下がったか確かめる' },
+  none1: { n: 'Backspace で戻る動きを止める', sub: '直したが手で確かめていない', t: '40 分前' },
+  none2: { n: 'りんごとみかんの質問', sub: '試しに聞いただけ', t: '1 時間前' },
+  p1: { n: 'Worker の同期の再開', sub: '本番の CPU の数字を見て同期を戻す', t: '1 日前', st: 'paused', when: '今日', due: true },
+  p2: { n: 'mizchi/explainer の続き', sub: 'web 横断の上位候補を 1 本ずつ試す', t: '2 日前', st: 'paused', when: '来週' },
+  p3: { n: '保持期間の周知', sub: '他の PC にも入れる', t: '3 日前', st: 'paused', when: '金曜' },
+  d1: { n: 'レスポンシブの監査', sub: '900×600〜2560×1440 で崩れを拾い直した', t: '12 時間前', st: 'done' },
+  d2: { n: 'UX 監査の残り 3 つ', sub: 'ダイアログの裏でブラウザの戻る', t: '1 日前', st: 'done' },
+};
+const live = (r) => r.live ? `<span class="live ${r.live}">${r.live === 'busy' ? '実行中' : '入力待ち'}</span>` : '';
+const SQ = (s) => `<span class="sq" data-s="${s}">${s[0].toUpperCase() + s.slice(1)}</span>`;
+const when = (r) => r.when ? `<span class="when ${r.due ? 'due' : ''}">${r.when}</span>` : '';
+function row(r, o = {}) {
+  let side = live(r);
+  if (r.st && !o.noSq) side += SQ(r.st);
+  if (r.cand && o.cand === 'pill') side += `<span class="cand">${r.cand === 'done' ? 'Done?' : 'Paused?'}</span>`;
+  if (r.cand && o.cand === 'ghost') side += `<span class="cand ghost">${r.cand === 'done' ? 'Done にする？' : 'Paused · ' + r.when + '？'}</span>`;
+  let sub = (o.whenInSub !== false ? when(r) : '') + r.sub;
+  if (r.cand && o.cand === 'sub') sub = `<span class="cand">${r.cand === 'done' ? 'Done にしますか' : 'Paused · ' + r.when + ' にしますか'}</span>${r.why}`;
+  if (r.cand && o.cand === 'sub') side = `<button class="mini ok">確定</button><button class="mini">却下</button>`;
+  return `<div class="row ${o.compact ? 'compact' : ''}"><span class="dot ${r.live || ''}"></span><div class="main"><div class="name">${r.n}</div><div class="sub">${sub}</div></div><div class="side">${side}<span>${o.noTime ? '' : r.t}</span></div></div>`;
+}
+const sec = (s, label, n, chev) => `<div class="sec"><span class="sd" data-s="${s}"></span>${label} <span class="n">${n}</span>${chev ? `<span class="chev">${chev}</span>` : ''}</div>`;
+const ft = (x = '') => `<div class="ft">agent-hangar ${x}</div>`;
+
+const L = [
+  { k: 'P1', h: '状態ごとの節（全部）', p: '動いている → 提案あり → 印なし → Paused → Done（畳む）→ Archived（一文）。',
+    b: ft() + sec('active', 'Active', 2) + row(S.live1) + row(S.live2) + sec('cand', '提案あり', 2) + row(S.cand1, { cand: 'pill' }) + row(S.cand2, { cand: 'pill' }) + sec('none', '印なし', 2) + row(S.none1) + row(S.none2) + sec('paused', 'Paused', 3) + row(S.p1, { noSq: true }) + row(S.p2, { noSq: true }) + sec('done', 'Done', 1214, '▸ 開く'),
+    pc: ['どの行がどの状態か、見出しで迷わない', '節が 5 つになり、少ない行のために見出しが並ぶ'] },
+  { k: 'P2', h: '「続き」と「済んだ」の 2 段', p: '上の段に Done・Archived 以外を全部、今の並び（動き → 新しい順）で。Paused は戻る日の札を付けて混ぜる。下は Done を畳む。',
+    b: ft() + sec('active', '続き', 8) + [S.live1, S.live2, S.p1, S.cand1, S.none1, S.none2, S.cand2, S.p2].map((r) => row(r, { cand: 'pill', noSq: !r.st || r.st === 'paused' ? false : false })).join('') + sec('done', 'Done', 1214, '▸ 開く'),
+    pc: ['節が少なく、時間の順も保たれる。Paused は札で拾える', '印なしと Paused が同じ段に混ざる'] },
+  { k: 'P3', h: '戻る日が来たものを最上段に', p: '最上段は「今日戻る」（当日と過ぎた Paused）、続いて動いているもの、その後に残りを新しい順。',
+    b: ft() + sec('paused', '今日戻る', 1) + row(S.p1, { noSq: true }) + sec('active', 'いま動いている', 2) + row(S.live1) + row(S.live2) + sec('none', 'そのほか', 5) + row(S.cand1, { cand: 'pill' }) + row(S.none1) + row(S.cand2, { cand: 'pill' }) + row(S.p2) + row(S.none2) + sec('done', 'Done', 1214, '▸ 開く'),
+    pc: ['朝に開くと、戻る約束をしたものが真っ先に目に入る', '戻る日が先のものは「そのほか」に埋もれる'] },
+  { k: 'P4', h: '左右 2 欄：しおりと最近', p: '左は Paused（戻る日の順）と提案、右は最近（印なしと動いているもの）。Done は下の一文から。',
+    b: ft() + `<div class="twocol"><div><div class="colh">しおり · 戻る日の順</div>${[S.p1, S.p3, S.p2].map((r) => row(r, { noSq: true, compact: true })).join('')}<div class="colh">提案</div>${[S.cand1, S.cand2].map((r) => row(r, { cand: 'pill', compact: true, noTime: true })).join('')}</div><div><div class="colh">最近</div>${[S.live1, S.live2, S.none1, S.none2].map((r) => row(r, { compact: true })).join('')}</div></div><div class="foot">Done 1,214 件 · <a>開く</a></div>`,
+    pc: ['「戻るもの」と「最近」を同時に見渡せる', '幅が要る。打鍵で左右をまたぐのが手間'] },
+  { k: 'P5', h: 'タブ：開いている | Paused | Done | Archived', p: '既定は「開いている」（動いているもの・提案あり・印なし）。Paused は戻る日の順で別タブ。',
+    b: ft() + `<div class="tabs"><span class="tab on">開いている<span class="n">6</span></span><span class="tab">Paused<span class="n">3</span></span><span class="tab">Done<span class="n">1214</span></span><span class="tab">Archived<span class="n">12</span></span></div>` + [S.live1, S.live2, S.cand1, S.none1, S.none2, S.cand2].map((r) => row(r, { cand: 'pill' })).join('') + '<div class="foot">Paused のうち今日戻るもの 1 件</div>',
+    pc: ['件数が一目で見え、1 つずつ片付けられる', 'Paused を見るのにタブを替える。今日戻るものを見落としうる'] },
+  { k: 'P6', h: '提案の帯＋節', p: '一覧の上に提案だけを集めた紫の帯（確定・却下をその場で押す）。下は P1 から「提案あり」を抜いた節。',
+    b: ft() + `<div class="band"><h4><span class="sd" data-s="cand"></span>確かめる 2</h4><div class="bi"><span class="cand">Done?</span><span class="t">NFD のフォルダ名<small>直して main に入れた</small></span><button class="mini ok">確定</button><button class="mini">却下</button></div><div class="bi"><span class="cand">Paused · 明日?</span><span class="t">Worker の CPU 超過<small>明日の朝、数字を確かめる</small></span><button class="mini ok">確定</button><button class="mini">却下</button></div></div>` + sec('active', 'Active', 2) + row(S.live1) + row(S.live2) + sec('paused', 'Paused', 3) + row(S.p1, { noSq: true }) + row(S.p2, { noSq: true }) + sec('none', '印なし', 2) + row(S.none1),
+    pc: ['提案を片付ける場所が 1 か所にまとまる（TODO の候補と同じ所作）', '帯の分だけ一覧が下がる'] },
+];
+const Q = [
+  { k: 'Q1', h: '行の右端に紫の札', p: '「Done?」「Paused?」の札だけ出し、押すと根拠と確定・却下のポップが開く。',
+    b: ft() + row(S.live1) + row(S.cand1, { cand: 'pill' }) + row(S.cand2, { cand: 'pill' }) + row(S.none1) + `<div class="popover"><div class="q">Paused · 明日 にしますか</div><div class="why">明日の朝、CPU の数字が下がったか確かめる — Claude</div><div class="acts"><button class="mini ok">確定</button><button class="mini">日を変える</button><button class="mini">却下</button></div></div>`,
+    pc: ['行が静か。打鍵（例: y で確定、n で却下）とも合う', '根拠を読むのにひと押し要る'] },
+  { k: 'Q2', h: '2 段目を提案に差し替え', p: '提案のある行は 2 段目が「Done にしますか · 根拠」になり、右端に確定・却下が常に出る。',
+    b: ft() + row(S.live1) + row(S.cand1, { cand: 'sub' }) + row(S.cand2, { cand: 'sub' }) + row(S.none1),
+    pc: ['根拠が見えたまま 1 回で片付く（TODO の候補の B1 と同じ）', '提案が多いと一覧がボタンだらけになる'] },
+  { k: 'Q3', h: '枠だけの札で控えめに', p: '右端に枠だけの「Done にする？」。押すと確定、長押しかメニューで却下。',
+    b: ft() + row(S.live1) + row(S.cand1, { cand: 'ghost' }) + row(S.cand2, { cand: 'ghost' }) + row(S.none1),
+    pc: ['最小の見た目で、押すだけで済む', '根拠が見えないまま確定しがち'] },
+];
+const C = [
+  { k: 'C1', h: 'Claude が選択肢で聞く', p: '依頼を終えた区切りで、AskUserQuestion の選択肢で聞く。答えればその場で決まり、答えずに次へ進めば画面に候補として残る。',
+    b: `<div class="term"><span class="dim">… main へ早送りで入れて push しました。</span><br><br><span class="q">? このセッションをどうしますか</span><br>  <span class="o">❯ Done にする</span>  <span class="dim">（直して main に入れた）</span><br>    Paused · 明日の朝  <span class="dim">（Finder での確認が残っている）</span><br>    まだ続ける<br>    Other</div>`,
+    pc: ['その場で 1 打鍵。理由の下書きと戻る日も Claude が埋める', '区切りのたびに 1 問増える'] },
+  { k: 'C2', h: '最後の一文で尋ね、返事で決める', p: '返答の末尾に「Done にしておきますか？」と書くだけ。「うん」「明日見る」と返せば Claude が状態を書く。',
+    b: `<div class="term"><span class="dim">… main へ早送りで入れて push しました。</span><br><br>このセッションは Done にしておきますか？ Finder での確認が残っているなら、明日の朝の Paused にもできます。<br><br><span class="dim">&gt; </span>明日見る</div>`,
+    pc: ['会話の流れを止めない。自由に返せる', '返事をしないと何も決まらず、取りこぼしが出やすい'] },
+  { k: 'C3', h: '（参考・決定済み）抜けるときの問い', p: 'claude.zsh で抜けるときに Done / Paused / そのまま を聞く。これは決まっているので見本として置いています。選ぶのは C1 か C2 です。',
+    b: `<div class="term"><span class="dim">$ </span>exit<br><span class="q">? 「新規プロジェクトの UI」を閉じます</span><br>  <span class="o">❯ Done</span>  <span class="dim">（Claude の提案）</span><br>    Paused · 明日<br>    そのまま<br></div>`,
+    pc: ['区切りで答えずに抜けても、ここで拾える', '抜けずに置きっぱなしの会話は聞かれない（要約の提案に頼る）'] },
+];
+const draw = (id, list, big) => document.getElementById(id).innerHTML = list.map((o) => `<div class="opt" data-choice="${o.k}" onclick="toggleSelect(this)"><div class="opt-head"><h3><b>${o.k}</b>${o.h}</h3><p>${o.p}</p></div><div class="frame ${big ? '' : ''}" style="${big ? 'height:auto;min-height:150px' : ''}">${o.b}${big ? '' : '<div class="fade"></div>'}</div><div class="pros"><span class="p">${o.pc[0]}</span><span class="c">${o.pc[1]}</span></div></div>`).join('');
+draw('g1', L); draw('g2', Q); draw('g3', C, true);
+document.querySelectorAll('#g2 .frame').forEach((f) => f.style.height = '300px');
+</script>
+</body>
+</html>
