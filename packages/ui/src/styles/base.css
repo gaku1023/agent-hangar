@@ -440,7 +440,7 @@ a:hover { text-decoration: underline; }
 .live-top { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: none; }
 /* 窓が低くても、目次は 3 行ぶんより縮めない（上のライブの帯が目次を 0 に潰さない）。 */
 .live-toc { display: flex; flex-direction: column; flex: 1; min-height: calc(var(--row-h) * 3); border-top: 1px solid var(--line); padding-top: var(--u); }
-.live-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); font-size: var(--fs-sm); }
+.live-pane-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); font-size: var(--fs-sm); }
 .live-lamp { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); font-weight: 600; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); }
 .live-lamp[data-tone='wait'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 12%, var(--surface)); }
 .live-lamp[data-tone='idle'] { color: var(--ink-2); background: var(--surface-2); }
