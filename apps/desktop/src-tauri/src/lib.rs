@@ -694,7 +694,7 @@ fn spawn_boot(app: AppHandle) -> bool {
     true
 }
 
-// ここから下の 3 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）が、頁から呼べる殻の命令である。
+// ここから下の 4 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
 // pick_folder のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
 

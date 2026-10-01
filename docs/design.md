@@ -617,10 +617,14 @@ model は択一のチップで「ほか」を選ぶと入力欄に変わり、ef
 未登録のフォルダ（`GET /api/workspace/dirs`）は、検索欄に語があるときだけ一覧に混ぜる。
 何も打っていない一覧には出さない。
 行はフォルダのアイコン、名前、パス、「未登録」の札である。
+語はフォルダの名前にだけ当て、パスには当てない。
+パスはどれもワークスペースのルートで始まるので、パスに当てると「work」のような語で全部が並ぶためである。
 一覧の下端には、スクロールしても動かない操作の段を置く。
 1 行目は、語が無ければ「新しいフォルダを作る…」である。
 語があり、それと同じ名前のプロジェクトも未登録のフォルダも無ければ「『<語>』を新しいフォルダとして作る」にし、右に `~/workspace/<語>` を添える。
 同じ名前があるときは「新しいフォルダを作る…」のままにする。
+同じ名前には、アーカイブを含むプロジェクトのフォルダ名も数え、大文字と小文字の違いは無視する。
+どちらもそのまま作ると 409 になるためである（APFS は大文字と小文字を区別しない）。
 2 行目は「ほかの場所を選ぶ…（Finder）」で、殻の中だけに出す。
 下端の操作は `role="listbox"` の要素の中の選択肢で、矢印キーで一覧の行の続きとして辿れ、Enter で選べる。
 語が一致する行が無いときは、最初の操作に印を置き、そのまま Enter で選べるようにする。
@@ -2204,7 +2208,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - スクラッチの擬似プロジェクト：端末ごとに 1 つで、名前は「スクラッチ」、この端末の `project_roots.path` は `~/.agent-hangar/scratch`。ディレクトリ名は `<yyyymmdd-HHmmss>`（ローカル時刻、同じ秒に 2 つ作るときは `-2`、`-3`）。Projects 画面と Home のカードにはこの行を出さず、Sessions 画面の絞り込みには出す。
 - スクラッチかどうかの判定は、スクラッチのルートの下にあるかで行い、ルート自身は含めない。`scratch_root` は `project_roots` を端末で絞って引く。
 - 昇格：`POST /api/sessions/:id/promote { name, gitInit, moveFiles }`。`name` は `/` を含まない 1 字以上で、`<workspaceRoot>/<name>` が既にあれば 409。移動は先に全件の衝突を調べてから `fs.renameSync` で行い、途中で失敗したら逆順に戻す。`moveFiles` が真でも run が生きていれば移動せず、`moved: false` と理由を返す。
-- プロジェクトの作成：`POST /api/projects` は本文を 2 つの形で受ける。`{ kind: 'newDir', name, gitInit }` は `<workspaceRoot>/<name>` を作り（`git init` は選ばれたときだけ）、プロジェクト行とこの端末の `project_roots` を作って 201 を返す。名前の検証、既にあれば 409、`git init` に失敗したら作ったものを片付けることは、昇格と同じ `createProjectDir` を通る。`{ kind: 'dir', path, name? }` は既存のディレクトリを登録し（`registerProjectDir`）、新しければ 201、登録済みなら 200 で既存を返す。名前を省くと basename になり、アーカイブされたプロジェクトなら Active に戻す。`kind` の無い `{ name, path }` も `dir` として受ける。
+- プロジェクトの作成：`POST /api/projects` は本文を 2 つの形で受ける。`{ kind: 'newDir', name, gitInit }` は `<workspaceRoot>/<name>` を作り（`git init` は選ばれたときだけ）、プロジェクト行とこの端末の `project_roots` を作って 201 を返す。名前の検証、既にあれば 409、`git init` に失敗したら作ったものを片付けることは、昇格と同じ `createProjectDir` を通る。`{ kind: 'dir', path, name? }` は既存のディレクトリを登録し（`registerProjectDir`）、新しければ 201、登録済みなら 200 で既存を返す。名前を省くと basename になり、アーカイブされたプロジェクトなら Active に戻す。先頭の `~/` はホームに直し、相対パスと、ワークスペースのルートやその上のフォルダ（`/` を含む）は 400 で断る。ルートを登録すると最も長い一致でワークスペースの下のセッションをすべて取り込み、直下のフォルダの自動の登録も止まるためである（Finder で何も選ばずに「開く」を押すとルートが返る）。`kind` の無い `{ name, path }` も `dir` として受ける。
 - 未登録のフォルダの一覧：`GET /api/workspace/dirs` は、ワークスペース直下の隠しでなく、この端末で登録済みのルートに当たらないディレクトリを、名前順に `{ name, path }[]` で返す。比較は `normalizeDir`（NFC）でそろえる。一覧から削除したプロジェクトのフォルダは、ルートが論理削除されているので未登録に数える。
 - その場の登録：サーバの `sessionChanged` で、未分類のセッションを紐づけられなかったとき、cwd がワークスペース直下のディレクトリ（またはその下）で、実在し、隠しでなく、まだ登録されていなければ、起動時の `syncProjectsFromWorkspace` と同じ規則でプロジェクトにし（`registry.ts` の `registerWorkspaceChildOf`）、紐づけ直して `project.upsert` と `session.upsert` を配る。同じセッションで何度も試さない。起動の途中は行わない（起動時の全走査は `syncProjectsFromWorkspace` が受け持つ）。当たらなかった cwd だけが、これまでどおりトーストで知らされる。
 - フォルダ選択の殻の命令：`pick_folder(default_path)` は `blocking_pick_folder` で macOS のフォルダ選択を開き、選んだパスか、取り消しなら null を返す。頁に与える権限は `allow-pick-folder` の 1 つだけで（`capabilities/remote-pick-folder.json`）、プラグインの JS の権限は与えない。UI の `DesktopBridge.pickFolder` は殻の外では口が無く、Finder の操作を出さない。
