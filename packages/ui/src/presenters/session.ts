@@ -314,11 +314,13 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const toolResults = new Map<string, ToolResult>();
   for (const e of mainEvents) if (e.kind === 'tool_result') toolResults.set(e.toolId, { text: e.text, isError: e.isError });
   const changedFiles = changedFilesOf(mainEvents, toolResults, s.cwd);
-  // transcript を表示中の帯は、今の生きた run を跳ばしている間だけ出す。
-  // transcript に入れなかった（mode）ときは出さない。
+  // transcript を表示中の帯は、今の生きた run を transcript に入れたと確かめられた間だけ出す。
+  // サーバは着けなかった（notFound）ときも transcript を開いたままにするので、そのときも出す。
+  // 答えを待つ間（pending）と、入れなかった（mode）ときと、API が失敗した（failed）ときは出さない。
+  // 失敗は目次の開いたターンの中で言う。
   const tj = view.turnJump;
   const aliveRun = aliveRunOf(store, id);
-  const transcriptBand = tj && aliveRun && tj.runId === aliveRun.id && tj.status !== 'mode' ? { when: (turnRows.find((r) => r.seq === tj.seq)?.when ?? '').slice(0, 5) } : null;
+  const transcriptBand = tj && aliveRun && tj.runId === aliveRun.id && (tj.status === 'found' || tj.status === 'notFound') ? { when: (turnRows.find((r) => r.seq === tj.seq)?.when ?? '').slice(0, 5) } : null;
   // splitTab が閉じたタブを指していることがあるので、左と違う最初のタブに落とす。
   const right = view.split && canSplit && selectedTab ? open.find((t) => t.id === view.splitTab && t.id !== selectedTab) ?? open.find((t) => t.id !== selectedTab) ?? null : null;
   const props: SessionProps = {

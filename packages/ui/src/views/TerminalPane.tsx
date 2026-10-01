@@ -1,7 +1,6 @@
-import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { LiveStatus } from '@agent-hangar/shared';
 import type { TerminalHost } from '../runtime/terminals.ts';
-import { isComposing } from './ime.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { LAYOUT_SETTLED, MOVING_ATTR } from './primitives/sidebarMotion.ts';
 
@@ -56,25 +55,21 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   const off = failed || dropped;
   const who = props.agent ? 'Claude は' : 'シェルは';
 
-  // transcript を表示している間の Esc は、Claude には渡さずに「最新へ戻る」と同じ道で抜ける。
-  // Claude に渡すと transcript だけが閉じ、帯が残って食い違うからである。
-  const onKeyCapture = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (!props.transcript || e.key !== 'Escape' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isComposing(e)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    props.transcript.onLatest();
-  };
+  // 帯が出ていても Esc は横取りしない。
+  // Esc は Claude の中断に要るうえ、利用者が xterm で自分で transcript を抜けたことを hangar は知らない。
+  // 横取りすると、抜けた後の中断の Esc が「最新へ」に化けて失われる。
+  // 戻る手は帯の「最新へ戻る」と目次の「最新へ」に任せる。
 
   // 縁はそのセッションの状態で灯る（base.css の .term-pane[data-live]）。
   // 終わったセッションと切れている間は灯さない。
   return (
-    <div className="term-pane" data-testid={`term-${props.tabId}`} data-live={props.live ?? 'ended'} data-off={off ? 'true' : undefined} onKeyDownCapture={onKeyCapture}>
+    <div className="term-pane" data-testid={`term-${props.tabId}`} data-live={props.live ?? 'ended'} data-off={off ? 'true' : undefined}>
       {props.transcript && (
         <div className="term-band">
           <Icon name="transcriptView" />
           <b>transcript を表示中</b>
           <span className="term-band-sub">{props.transcript.when ? `${props.transcript.when} のターン · ` : ''}Claude は裏で動き続けています</span>
-          <button type="button" className="btn" onClick={props.transcript.onLatest}><Icon name="latest" />最新へ戻る<kbd className="kc">esc</kbd></button>
+          <button type="button" className="btn" onClick={props.transcript.onLatest}><Icon name="latest" />最新へ戻る</button>
         </div>
       )}
       {props.hint && <div className="term-hint" role="status">{props.hint}</div>}

@@ -323,11 +323,24 @@ describe('ターミナルの知らせ（F1）', () => {
     expect(within(screen.getByTestId('term-t1')).queryByText('transcript を表示中')).toBeNull();
     fireEvent.click(left.getByRole('button', { name: /最新へ戻る/ }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
-    // 枠の中の Esc も同じ道で戻す（Claude には渡さない）。
-    onIntent.mockClear();
-    const ev = fireEvent.keyDown(screen.getByTestId('term-r1').querySelector('.term-host')!, { key: 'Escape' });
-    expect(ev).toBe(false);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
+  });
+  it('帯が出ていても、枠の中の Esc は横取りせずに Claude へ渡す', () => {
+    // Esc は Claude の中断に要る。
+    // 利用者が xterm で自分で transcript を抜けた後に横取りすると、中断が「最新へ」に化けて失われる。
+    const onIntent = withHost(<SS {...running} transcriptBand={{ when: '12:09' }} />);
+    const outer = vi.fn();
+    document.addEventListener('keydown', outer);
+    try {
+      const target = screen.getByTestId('term-r1').querySelector('.term-host')!;
+      for (const init of [{ key: 'Escape' }, { key: 'Escape', shiftKey: true }, { key: 'Escape', isComposing: true }]) {
+        // 既定を止めず、外へも伝わる（Root の器も xterm も受け取れる）。
+        expect(fireEvent.keyDown(target, init)).toBe(true);
+      }
+      expect(outer).toHaveBeenCalledTimes(3);
+      expect(onIntent).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', outer);
+    }
   });
 });
 

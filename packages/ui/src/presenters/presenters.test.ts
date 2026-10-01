@@ -729,7 +729,7 @@ describe('presentSession（終わった画面の右欄、E1）', () => {
 });
 
 describe('presentSession（transcript を表示中の帯、F1）', () => {
-  it('目次から生きている run の Claude を跳ばしている間だけ、そのターンの時刻を出す', () => {
+  it('目次から生きている run の Claude を transcript に入れたと確かめられた間だけ、そのターンの時刻を出す', () => {
     let store = storeWith();
     store.runs = { r1: runDto('r1', 's1') };
     store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
@@ -737,10 +737,14 @@ describe('presentSession（transcript を表示中の帯、F1）', () => {
     store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', events, total: 2, nextSeq: null }, false);
     const at = (turnJump: State['sessionView'][string]['turnJump'], openTurn: number | null = 0) => presentSession({ ...initialState(), sessionView: { s1: { ...defaultSessionView(), openTurn, turnJump } } }, store, NOW, 's1').transcriptBand;
     expect(at(null)).toBeNull();
-    expect(at({ seq: 0, status: 'pending', runId: 'r1' })).toEqual({ when: absoluteTime(Date.parse('2026-09-02T03:09:41Z')).slice(11, 16) });
+    expect(at({ seq: 0, status: 'found', runId: 'r1' })).toEqual({ when: absoluteTime(Date.parse('2026-09-02T03:09:41Z')).slice(11, 16) });
+    // 着けなかったときも、サーバは transcript を開いたままにする。
     expect(at({ seq: 0, status: 'notFound', runId: 'r1' })).not.toBeNull();
-    // transcript に入れなかったときは、帯を出さない。
+    // 答えを待つ間は、まだ transcript に入ったか分からない。
+    expect(at({ seq: 0, status: 'pending', runId: 'r1' })).toBeNull();
+    // transcript に入れなかったときと、跳ぶ API が失敗したときは、帯を出さない（目次の側で言う）。
     expect(at({ seq: 0, status: 'mode', runId: 'r1' })).toBeNull();
+    expect(at({ seq: 0, status: 'failed', runId: 'r1' })).toBeNull();
     // 前の run を跳ばしたまま、その run が終わったとき。
     expect(at({ seq: 0, status: 'found', runId: 'r0' })).toBeNull();
   });
