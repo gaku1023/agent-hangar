@@ -61,12 +61,12 @@ describe('Header', () => {
     // 何の割合かが画面から読めるよう、見出しを常に出す。
     expect(screen.getByText('5 時間')).toBeTruthy();
     expect(screen.getByText('週')).toBeTruthy();
-    // ホバーで、枠が戻る時刻を読める。
-    expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間枠の使用率 47%、18:00 に戻ります');
-    expect(screen.getByText('週').closest('.gauge')).toHaveAttribute('title', '週の枠の使用率 7%、10/4 09:00 に戻ります');
+    // ホバーで、枠が戻る時刻と最終更新を読める。最終更新は狭いヘッダで畳むので、title にも添える。
+    expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間枠の使用率 47%、18:00 に戻ります、最終更新 10 分前');
+    expect(screen.getByText('週').closest('.gauge')).toHaveAttribute('title', '週の枠の使用率 7%、10/4 09:00 に戻ります、最終更新 10 分前');
     expect(screen.getByText('最終更新 10 分前')).toBeTruthy();
   });
-  // 幅が狭いと、同期のボタンと錠剤の文字と新規セッションの文字を畳む（base.css のコンテナクエリ）。畳んでも同じ操作ができる。
+  // 幅が狭いと、同期のボタンと錠剤の文字と新規セッションの文字を畳む（headerFold.ts が測って畳む）。畳んでも同じ操作ができる。
   it('畳んだときの逃げ道。同期の文は設定へ、虫眼鏡はパレットへ、新規セッションは名前を残す', () => {
     const onIntent = vi.fn();
     const sync = { visible: true, state: 'idle' as const, label: '同期済み · 3 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false };
