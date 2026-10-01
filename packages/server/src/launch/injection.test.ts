@@ -15,6 +15,16 @@ describe('renderInjection', () => {
     expect(t).toContain('TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。\n完了にするのは利用者です。確かめられていないものは出さないでください。');
     expect(t).toContain('ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。\nBash と Agent の description は日本語で 20 字以内にしてください。\n');
   });
+  it('区切りで状態を聞く 3 行を、TODO の 2 行と意図の行の間に置く', () => {
+    const t = renderInjection({ projectName: 'p', projectPath: '/p', memo: null, todos: [] });
+    expect(t).toContain([
+      '完了にするのは利用者です。確かめられていないものは出さないでください。',
+      '頼まれたことを終えたと判断したターンの終わりに、AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <戻る日>（何を確かめに戻るか）」「まだ続ける」です。',
+      '利用者が Done か Paused を選んだら、propose_session_status に confirmed: true で渡してください。答えずに次の指示へ進んだら、confirmed なしで提案だけ出してください。',
+      '途中のターンでは聞かないでください。',
+      'ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。',
+    ].join('\n'));
+  });
   it('メモは 500 字、TODO は 10 件に切り、無ければ（なし）', () => {
     const t = renderInjection({ projectName: 'p', projectPath: '/p', memo: 'あ'.repeat(600), todos: Array.from({ length: 12 }, (_, i) => todo(i)) });
     expect(t).toContain('あ'.repeat(500) + '\n');
