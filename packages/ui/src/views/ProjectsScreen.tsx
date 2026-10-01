@@ -1,11 +1,14 @@
+import { useEmit } from '../intent/chain.tsx';
 import type { ProjectsProps } from '../presenters/projects.ts';
 import { PageHeading } from './PageHeading.tsx';
 import { ProjectCard } from './ProjectCard.tsx';
 import { useFlip } from './primitives/flip.ts';
+import { Icon } from './primitives/Icon.tsx';
 import { ProjectStatusDot } from './primitives/StatusSelect.tsx';
 
 /** Projects 画面。絞り込みとアーカイブ表示は画面内だけの一時状態なので Root が useState で持ち、props で受け取る。 */
 export function ProjectsScreen(props: ProjectsProps & { filter: string; showArchived: boolean; onFilter: (s: string) => void; onShowArchived: (b: boolean) => void }) {
+  const emit = useEmit();
   // ステータスを変えるとカードが別のセクションへ移るので、その移動だけを FLIP で見せる。
   const flipRef = useFlip(props.sections.flatMap((s) => s.cards.map((c) => `${s.status}:${c.id}`)));
   return (
@@ -14,6 +17,7 @@ export function ProjectsScreen(props: ProjectsProps & { filter: string; showArch
         <input className="input" placeholder="名前で絞る" value={props.filter} onChange={(e) => props.onFilter(e.target.value)} aria-label="名前で絞る" />
         <span className="spacer" />
         <button className="btn" onClick={() => props.onShowArchived(!props.showArchived)}>{props.showArchived ? 'アーカイブを隠す' : `アーカイブを表示（${props.archivedCount}）`}</button>
+        <button className="btn btn-primary" onClick={() => emit({ type: 'project.new.open' })}><Icon name="add" /><span className="btn-label">新しいプロジェクト</span></button>
       </PageHeading>
       {props.sections.map((s) => (
         <section key={s.status}>

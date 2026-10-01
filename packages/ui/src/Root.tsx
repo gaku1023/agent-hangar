@@ -6,6 +6,7 @@ import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentConfirm } from './presenters/confirm.ts';
 import { presentHome } from './presenters/home.ts';
 import { presentOnboarding } from './presenters/onboarding.ts';
+import { presentNewProject } from './presenters/newProject.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
 import { presentProject } from './presenters/project.ts';
@@ -28,6 +29,7 @@ import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
 import { RetentionDialog } from './views/RetentionDialog.tsx';
 import { ConfirmDialog } from './views/ConfirmDialog.tsx';
 import { HomeScreen } from './views/HomeScreen.tsx';
+import { NewProjectDialog } from './views/NewProjectDialog.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
 import { ProjectScreen } from './views/ProjectScreen.tsx';
 import { ProjectsScreen } from './views/ProjectsScreen.tsx';
@@ -338,6 +340,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}
       {newSession && <NewSessionDialog key={newSession.projectId ?? ''} {...newSession} />}
       {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now)!} onQuery={setPaletteQuery} />}
+      {overlay.kind === 'newProject' && <NewProjectDialog {...presentNewProject(state, store)!} />}
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
       {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store)!} />}

@@ -195,6 +195,12 @@ describe('HomeScreen', () => {
 });
 
 describe('ProjectsScreen', () => {
+  it('見出しの「新しいプロジェクト」で作成のダイアログを開く', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '新しいプロジェクト' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.new.open' });
+  });
   it('セクションとアーカイブ切替とステータス変更', () => {
     const onIntent = vi.fn();
     const onShow = vi.fn();

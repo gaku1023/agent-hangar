@@ -105,9 +105,10 @@ describe('presentPalette（何も打っていないとき）', () => {
   });
   it('コマンドの群に、新しいセッション、スクラッチ、索引の作り直しを残す', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
-    expect(ids(p, 'コマンド')).toEqual(['cmd:new-session', 'cmd:new-scratch', 'cmd:rebuild-index']);
+    expect(ids(p, 'コマンド')).toEqual(['cmd:new-session', 'cmd:new-scratch', 'cmd:new-project', 'cmd:rebuild-index']);
     expect(item(p, 'cmd:new-session')).toMatchObject({ label: '新しいセッション', keys: '⌘N', kind: 'command', lead: { kind: 'icon', icon: 'add' } });
     expect(item(p, 'cmd:new-scratch').keys).toBe('⌘⇧N');
+    expect(item(p, 'cmd:new-project')).toMatchObject({ label: '新しいプロジェクト', kind: 'command', lead: { kind: 'icon', icon: 'add' } });
   });
   it('新しいセッションは、いまの画面のプロジェクトを最初から選ぶ', () => {
     const onProject = { ...withPalette(), screen: { name: 'project' as const, id: 'p1' } };

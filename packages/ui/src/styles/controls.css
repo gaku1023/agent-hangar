@@ -150,3 +150,6 @@
 .menu-item[aria-disabled='true'] > .icon { color: var(--ink-3); }
 .menu-item[data-danger='true'], .menu-item[data-danger='true'] > .icon { color: var(--error); }
 .menu-sep { height: 0; margin: var(--u) calc(var(--u) * 1.5); border-top: 1px solid rgba(30, 40, 90, 0.08); }
+
+/* 作成のダイアログの、未登録のフォルダの一覧。開いたままの Listbox の面と同じ見た目にする。 */
+.new-project-dirs { display: flex; flex-direction: column; max-height: 232px; padding: calc(var(--u) * 1.5); border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.6); box-shadow: inset 0 0 0 1px var(--line); }
