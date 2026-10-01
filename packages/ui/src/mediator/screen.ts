@@ -1,4 +1,4 @@
-import { formatRoute, type SearchParamsDto } from '@agent-hangar/shared';
+import { formatRoute, type SearchFilter, type SearchParamsDto } from '@agent-hangar/shared';
 import { overlayReplaceable } from './overlay.ts';
 import { agentTabStep, jumpStep, leaveTranscriptStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
@@ -10,6 +10,14 @@ import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.t
  */
 export function usesServerSearch(search: State['search']): boolean {
   return search.text !== '' || !!search.filter.file;
+}
+
+/**
+ * 条件が 1 つでも効いているか。キーワード、状態のタブ、プロジェクト、期間、動き、触ったファイルのどれか。
+ * 無ければ Sessions は節で読み、あれば平らな結果にする（★）。
+ */
+export function hasConditions(search: State['search']): boolean {
+  return search.text !== '' || Object.values(search.filter).some((v) => v !== undefined);
 }
 
 /**
@@ -38,6 +46,10 @@ export function searchParams(state: State): SearchQuery {
   if (f.until !== undefined) p.until = f.until;
   if (f.live !== undefined) p.live = f.live;
   if (f.file) p.file = f.file;
+  // 状態のタブ。「すべて」のまま条件を入れたときは Archived を除く（presenters/sessions.ts の手元の絞り込みと同じ）。
+  // サーバに問い合わせるのはキーワードか触ったファイルがあるとき（usesServerSearch）なので、ここに来るときはいつも条件がある。
+  if (f.status) p.status = f.status;
+  else p.hideArchived = true;
   return p;
 }
 
@@ -81,11 +93,17 @@ export function nextWaitingStep(state: State): Step {
  * 検索したらフォーカスを結果の一覧へ移す。
  * 新しい語なら一覧の画面が作り直され、一覧が自分でフォーカスを取りにくる（SessionRows の autoFocus）。
  * 同じ語で検索し直したときは作り直されず、autoFocus は 1 度きりなので、ここで毎回頼む。
+ * filter があれば（Sessions の欄の Enter）、欄を読んだ条件で絞り込みをまるごと入れ替える。欄が正だからである。
+ * 語が同じでトークンだけ変えたときはハッシュが変わらず hash.changed が来ないので、問い合わせ直しはここで出す。
  */
-export function searchQueryStep(state: State, text: string): Step {
+export function searchQueryStep(state: State, text: string, filter?: SearchFilter): Step {
   if (!canMoveBehind(state)) return { state, effects: [] };
-  const next = { ...state, overlay: closeTransient(state), search: { ...state.search, text } };
-  return { state: next, effects: [{ kind: 'navigate', route: text ? { name: 'sessions', q: text } : { name: 'sessions' } }, { kind: 'focus', target: 'results' }] };
+  const next = { ...state, overlay: closeTransient(state), search: { text, filter: filter ?? state.search.filter } };
+  const effects: Effect[] = [];
+  const sameHash = state.screen.name === 'sessions' && (state.screen.q ?? '') === text;
+  if (filter && sameHash && usesServerSearch(next.search)) effects.push({ kind: 'api.search', params: searchParams(next) });
+  effects.push({ kind: 'navigate', route: text ? { name: 'sessions', q: text } : { name: 'sessions' } }, { kind: 'focus', target: 'results' });
+  return { state: next, effects };
 }
 
 /** screen 領域：どの画面にいるか。URL のハッシュが正で、Intent は navigate 効果を出すだけ。 */
@@ -174,7 +192,7 @@ export function screenStep(state: State, input: Input): Step | null {
       return { state: { ...back.state, overlay, focusOnOpen: i.id }, effects: [...back.effects, { kind: 'navigate', route: { name: 'session', id: i.id } }] };
     }
     case 'session.nextWaiting': return nextWaitingStep(state);
-    case 'search.query': return searchQueryStep(state, i.text);
+    case 'search.query': return searchQueryStep(state, i.text, i.filter);
     case 'search.filter': {
       const next = { ...state, search: { ...state.search, filter: { ...state.search.filter, ...i.patch } } };
       const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [];

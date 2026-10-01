@@ -181,7 +181,7 @@ describe('createRuntime', () => {
     expect(rt.getStore().search).toMatchObject({ loading: true, result: { total: 3 } });
     expect(rt.getStore().search.result?.hits).toHaveLength(2);
     await flush();
-    expect(search).toHaveBeenLastCalledWith({ q: 'x', offset: 2 });
+    expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, offset: 2 });
     expect(rt.getStore().search).toMatchObject({ loading: false, result: { total: 3 } });
     expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2', 's3']);
   });
@@ -194,7 +194,7 @@ describe('createRuntime', () => {
     await flush();
     rt.emit({ type: 'search.filter', patch: { days: 1 } });
     await flush();
-    expect(search).toHaveBeenLastCalledWith({ q: 'x', since: new Date(2026, 9, 1).getTime() });
+    expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, since: new Date(2026, 9, 1).getTime() });
   });
   it('検索の続きに失敗しても、読み込み中のまま残さず、持っている結果も消さない', async () => {
     const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
