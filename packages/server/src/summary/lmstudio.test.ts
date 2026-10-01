@@ -103,4 +103,16 @@ describe('LmStudioSummarizer', () => {
       await new Promise<void>((r) => b.close(() => r()));
     }
   });
+  it('状態の提案を本文から読んで要約に添え、スキーマにも項目を載せて投げる', async () => {
+    let schema: { properties: Record<string, unknown> } | null = null;
+    const withProposal = JSON.stringify({ ...JSON.parse(good), proposed_status: 'paused', proposed_note: '本番で確かめる', proposed_return_in_days: 2 });
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith('/v1/models')) return ok(models);
+      schema = JSON.parse(String(init!.body)).response_format.json_schema.schema;
+      return ok(completion(withProposal));
+    }) as unknown as typeof fetch;
+    const out = await new LmStudioSummarizer({ baseUrl: 'http://x', model: 'gemma-4-26b', fetch: fetchFn }).summarize(CANNED_INPUT);
+    expect(out.proposal).toEqual({ status: 'paused', note: '本番で確かめる', returnInDays: 2 });
+    expect(Object.keys(schema!.properties)).toEqual(expect.arrayContaining(['proposed_status', 'proposed_note', 'proposed_return_in_days']));
+  });
 });

@@ -5,7 +5,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { buildSummaryInput, CANNED_INPUT, compressEvents } from './input.ts';
-import { parseSummaryOutput, SUMMARY_SCHEMA } from './types.ts';
+import { parseSummaryOutput, SUMMARY_SCHEMA, SUMMARY_SYSTEM_PROMPT } from './types.ts';
 
 const ev = (kind: TranscriptEvent['kind'], text: string, seq: number): TranscriptEvent => {
   switch (kind) {
@@ -57,11 +57,32 @@ describe('buildSummaryInput', () => {
 
 describe('types', () => {
   it('スキーマの形と parseSummaryOutput', () => {
-    expect(SUMMARY_SCHEMA).toMatchObject({ type: 'object', additionalProperties: false, required: ['title', 'one_liner', 'body', 'state', 'next_steps'] });
+    expect(SUMMARY_SCHEMA).toMatchObject({ type: 'object', additionalProperties: false, required: ['title', 'one_liner', 'body', 'state', 'next_steps', 'proposed_status', 'proposed_note', 'proposed_return_in_days'] });
     expect(parseSummaryOutput({ title: 'T', one_liner: 'O', body: 'B', state: 'done', next_steps: ['a', 1] })).toEqual({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: ['a'] });
     expect(parseSummaryOutput({ title: '', one_liner: 'O', body: 'B', state: 'done', next_steps: [] })).toBeNull();
     expect(parseSummaryOutput({ title: 'T', one_liner: 'O', body: 'B', state: 'weird', next_steps: [] })).toBeNull();
     expect(parseSummaryOutput('x')).toBeNull();
     expect(CANNED_INPUT.text.length).toBeGreaterThan(100);
+  });
+  it('状態の提案は任意で読み、none と欠けたものは付けない', () => {
+    expect(SUMMARY_SCHEMA).toMatchObject({ properties: { proposed_status: { type: 'string', enum: ['done', 'paused', 'none'] }, proposed_note: { type: 'string', maxLength: 200 }, proposed_return_in_days: { type: 'integer' } } });
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('proposed_status の判定：頼まれたことが終わり、確かめることも残っていなければ done。終わったが確かめることが残っていれば paused。まだ途中なら none。');
+    const base = { title: 'T', one_liner: 'O', body: 'B', state: 'done', next_steps: [] };
+    expect(parseSummaryOutput({ ...base, proposed_status: 'done', proposed_note: ' 直した ', proposed_return_in_days: 0 })).toEqual({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], proposal: { status: 'done', note: '直した', returnInDays: null } });
+    expect(parseSummaryOutput({ ...base, proposed_status: 'none', proposed_note: '', proposed_return_in_days: 0 })).toEqual({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [] });
+    // 項目を返さない古いモデルは、要約だけを読む。
+    expect(parseSummaryOutput(base)).toEqual({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [] });
+    expect(parseSummaryOutput({ ...base, proposed_status: 'maybe' })?.proposal).toBeUndefined();
+  });
+  it('paused の日数は 1〜14 に収め、根拠が空なら 1 文の要約で埋め、200 字で切る', () => {
+    const p = (o: Record<string, unknown>) => parseSummaryOutput({ title: 'T', one_liner: '1 文', body: 'B', state: 'in_progress', next_steps: [], proposed_status: 'paused', ...o })?.proposal;
+    expect(p({ proposed_note: 'n', proposed_return_in_days: 3 })).toEqual({ status: 'paused', note: 'n', returnInDays: 3 });
+    expect(p({ proposed_note: 'n', proposed_return_in_days: 0 })?.returnInDays).toBe(1);
+    expect(p({ proposed_note: 'n', proposed_return_in_days: 30 })?.returnInDays).toBe(14);
+    expect(p({ proposed_note: 'n' })?.returnInDays).toBe(1);
+    expect(p({ proposed_note: 'n', proposed_return_in_days: '3' })?.returnInDays).toBe(1);
+    expect(p({ proposed_note: 'n', proposed_return_in_days: 2.6 })?.returnInDays).toBe(3);
+    expect(p({ proposed_note: '  ', proposed_return_in_days: 2 })?.note).toBe('1 文');
+    expect(p({ proposed_note: 'あ'.repeat(250), proposed_return_in_days: 2 })?.note).toBe('あ'.repeat(200));
   });
 });
