@@ -4,6 +4,7 @@ import type { TurnJumpStatus } from '../mediator/types.ts';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
 import { jumpWindow } from '../presenters/turns.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { revealWithin } from './primitives/revealWithin.ts';
 import { renderItem } from './Transcript.tsx';
 
 export type TurnIndexProps = {
@@ -49,8 +50,13 @@ export function TurnIndex(props: TurnIndexProps) {
     const el = listRef.current;
     if (el && openSeq === null) el.scrollTop = el.scrollHeight;
   }, [lastSeq, openSeq]);
-  // 開いたターンは中身ごと見える位置へ寄せる。jsdom には scrollIntoView が無いので、あるときだけ呼ぶ。
-  useEffect(() => { openRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [openSeq]);
+  // 開いたターンは中身ごと見える位置へ寄せる。動かすのは目次の一覧だけにする。
+  // scrollIntoView は WebKit で外側の箱（アプリ全体）までずらし、手で戻せなくなる。
+  useEffect(() => {
+    const list = listRef.current;
+    const item = openRef.current;
+    if (list && item) revealWithin(list, item);
+  }, [openSeq]);
 
   const open = (i: number) => {
     const row = props.rows[i]!;

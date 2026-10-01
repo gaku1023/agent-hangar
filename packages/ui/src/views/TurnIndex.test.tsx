@@ -20,6 +20,21 @@ function setup(over: Partial<TurnIndexProps> = {}) {
 }
 
 describe('TurnIndex', () => {
+  it('ターンを開いても scrollIntoView を呼ばない（WebKit ではアプリ全体を戻れない位置までずらす）', () => {
+    const spy = vi.fn();
+    const had = Object.prototype.hasOwnProperty.call(HTMLElement.prototype, 'scrollIntoView');
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: spy, configurable: true, writable: true });
+    try {
+      const { rerender, onIntent } = setup();
+      const props: TurnIndexProps = { sessionId: 's1', runId: 'r1', rows: rows.map((r) => ({ ...r, open: r.seq === 20 })), complete: true, openItems: [], turnJump: null, hasMore: false, loading: false, remaining: 0, agentId: null };
+      rerender(<IntentRoot onIntent={onIntent}><TurnIndex {...props} /></IntentRoot>);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      if (had) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: undefined, configurable: true, writable: true });
+      else delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
   it('指示を 1 行ずつ、時刻とツールの数を添えて並べる', () => {
     const { container } = setup();
     const lines = [...container.querySelectorAll('.turn-row')].map((b) => b.textContent);

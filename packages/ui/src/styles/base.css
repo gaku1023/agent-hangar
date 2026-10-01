@@ -28,7 +28,9 @@ a:hover { text-decoration: underline; }
    値を登録しておくのは、開閉の動き（views/primitives/sidebarMotion.ts）が列の幅と一緒に --col1 も動かすためである。
    登録していないと途中の値が補間されず、本文と検索欄の余白だけが動きの初めに跳ぶ。 */
 @property --col1 { syntax: '<length>'; inherits: true; initial-value: 0px; }
-.shell { --col1: calc(var(--sidebar-w) + var(--float-gap)); position: relative; isolation: isolate; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); grid-template-rows: auto auto 1fr; height: 100%; overflow: hidden; }
+/* アプリ全体の箱は clip にする。hidden はスクロールバーが無いだけで、scrollIntoView などからは動く。
+   WebKit では目次のターンを開いただけで箱ごと上へずれ、手では戻せなかった。 */
+.shell { --col1: calc(var(--sidebar-w) + var(--float-gap)); position: relative; isolation: isolate; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); grid-template-rows: auto auto 1fr; height: 100%; overflow: clip; }
 /* ヘッダの左の列に置くもの（信号の 3 点とロゴ）の右端が --head-end である。畳んだ帯は 60px しかなく、ロゴはその外まで伸びる。
    本文は --main-w を上限に本文の列の中央へ寄り（その左の余りが --box-l）、そこから --gutter-l 空けて始まる。検索欄も同じ位置から始まる。
    --gutter-l は既定の 16px だが、それではロゴの右端より左に来てしまう間だけ、ロゴの右端まで広げる。広い窓で中央へ寄った本文は、畳んでもそれ以上右へ寄らない。 */
