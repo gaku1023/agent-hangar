@@ -1,8 +1,11 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import { inspect } from 'node:util';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { decodeHeaderText, isHeaderSafe } from '@agent-hangar/shared';
-import { CloudError, goneFloor, HttpCloudClient, isValidFileKey } from './client.ts';
+import { CloudError, goneFloor, HttpCloudClient, isValidFileKey, MAX_PUT_BODY_BYTES } from './client.ts';
 
 type Call = { url: string; init: RequestInit };
 
@@ -319,5 +322,64 @@ describe('HttpCloudClient', () => {
       await expect(c.putFile(meta(path), Readable.from([Buffer.from('x')])), path).rejects.toMatchObject({ status: 400 });
     }
     expect(calls).toHaveLength(0);
+  });
+
+  describe('putFile は長さを決めてから送る', () => {
+    const fileMeta = { key: 'transcripts/d/u.jsonl.gz', path: 'projects/-x/u.jsonl', kind: 'transcript' as const, sha256: 'a'.repeat(64), size: 3, mtime: 5, encrypted: true };
+    let spoolDir = '';
+    beforeEach(() => { spoolDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-client-test-')); });
+    afterEach(() => { fs.rmSync(spoolDir, { recursive: true, force: true }); });
+
+    it('content-length を付けて送る。Worker はそれを見て本文を JS で読まずに R2 へ渡す', async () => {
+      let uploaded = Buffer.alloc(0);
+      const { fetch, calls } = fakeFetch(async (c) => {
+        uploaded = Buffer.from(await new Response(c.init.body as ReadableStream).arrayBuffer());
+        return json({ seq: 1 }, 201);
+      });
+      const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, spoolDir });
+      const pieces = [Buffer.alloc(70_000, 1), Buffer.alloc(3, 2), Buffer.alloc(200_000, 3)];
+      await c.putFile(fileMeta, Readable.from(pieces));
+      expect(headersOf(calls[0]!)['content-length']).toBe(String(270_003));
+      expect(uploaded.equals(Buffer.concat(pieces))).toBe(true);
+    });
+
+    it('書き出した一時ファイルは、通っても断られても残さない', async () => {
+      const ok = new HttpCloudClient({ url: 'https://h', token: 't', spoolDir, fetch: fakeFetch(() => json({ seq: 1 }, 201)).fetch });
+      await ok.putFile(fileMeta, Readable.from([Buffer.from('abc')]));
+      expect(fs.readdirSync(spoolDir)).toEqual([]);
+      const ng = new HttpCloudClient({ url: 'https://h', token: 't', spoolDir, fetch: fakeFetch(() => new Response('boom', { status: 500 })).fetch });
+      await expect(ng.putFile(fileMeta, Readable.from([Buffer.from('abc')]))).rejects.toMatchObject({ status: 500 });
+      expect(fs.readdirSync(spoolDir)).toEqual([]);
+    });
+
+    it('本文の流れが途中で倒れたら送らずに CloudError(0) にし、一時ファイルも残さない', async () => {
+      const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
+      const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, spoolDir });
+      const broken = Readable.from((async function* () { yield Buffer.from('ab'); throw new Error('gzip broke'); })());
+      await expect(c.putFile(fileMeta, broken)).rejects.toMatchObject({ status: 0, message: 'gzip broke' });
+      expect(calls).toHaveLength(0);
+      expect(fs.readdirSync(spoolDir)).toEqual([]);
+    });
+
+    it('上限を超える本文は送らずに 413 で断る（Worker と同じ答え）', async () => {
+      const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
+      const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, spoolDir, maxBodyBytes: 10 });
+      const e = await c.putFile(fileMeta, Readable.from([Buffer.alloc(6), Buffer.alloc(5)])).catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(CloudError);
+      expect(e).toMatchObject({ status: 413 });
+      expect(JSON.parse((e as CloudError).message)).toEqual({ error: 'too large' });
+      expect(calls).toHaveLength(0);
+      expect(fs.readdirSync(spoolDir)).toEqual([]);
+      // 上限ちょうどは通す。
+      await c.putFile(fileMeta, Readable.from([Buffer.alloc(10)]));
+      expect(calls).toHaveLength(1);
+    });
+
+    it('上限は Worker と同じ値である', () => {
+      const src = fs.readFileSync(new URL('../../../cloud/src/files.ts', import.meta.url), 'utf8');
+      const m = /export const MAX_BODY_BYTES = ([0-9*\s]+);/.exec(src);
+      expect(m).not.toBeNull();
+      expect(MAX_PUT_BODY_BYTES).toBe(m![1]!.split('*').reduce((a, b) => a * Number(b.trim()), 1));
+    });
   });
 });

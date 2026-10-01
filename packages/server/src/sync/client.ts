@@ -1,4 +1,8 @@
-import { Readable } from 'node:stream';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { Readable, Writable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import {
   CLOUD_HEADERS,
@@ -54,6 +58,36 @@ export { isValidFileKey } from '@agent-hangar/shared';
 export const DEFAULT_TIMEOUT_MS = 30_000;
 /** 本体を運ぶ経路（putFile、getFile）の締め切り。 */
 export const DEFAULT_TRANSFER_TIMEOUT_MS = 300_000;
+/** 1 本の本文の上限。Worker の `MAX_BODY_BYTES`（packages/cloud/src/files.ts）と同じ値で、超えれば Worker も 413 を返す。 */
+export const MAX_PUT_BODY_BYTES = 100 * 1024 * 1024;
+
+/**
+ * 本文を一時ファイルへ書き出し、長さを決める。上限を超えたら書くのをやめて 413 を投げる。
+ *
+ * Worker は `content-length` のある本文だけを、JS で読まずに R2 へ渡せる。
+ * 長さが無いと、Worker が本文を JS で読んで切り分けるしかなく、CPU の時間が本文の大きさに比例する。
+ * 数十 MB の本文で無料プランの 10 ms を何十倍も超え、途中で止められていた（2026-09-30 に 52 件）。
+ * 本文は gzip と暗号化を通した後のものなので、送る前に長さを知るには一度書き出すしかない。
+ * 記憶に貯めないのは、1 本が 100 MiB までありうるからである。
+ */
+async function spool(body: Readable, file: string, max: number): Promise<number> {
+  let total = 0;
+  const out = fs.createWriteStream(file, { mode: 0o600 });
+  await pipeline(
+    body,
+    new Writable({
+      write(chunk: Buffer, _enc, cb) {
+        total += chunk.length;
+        if (total > max) { cb(new CloudError(413, JSON.stringify({ error: 'too large' }))); return; }
+        if (out.write(chunk)) cb();
+        else out.once('drain', () => cb());
+      },
+      final(cb) { out.end(cb); },
+      destroy(e, cb) { out.destroy(); cb(e); },
+    }),
+  );
+  return total;
+}
 
 /**
  * 1 回の要求の締め切り。
@@ -107,6 +141,10 @@ export type HttpCloudClientOptions = {
   timeoutMs?: number;
   /** 本体を運ぶ経路の締め切り。既定は 5 分。 */
   transferTimeoutMs?: number;
+  /** putFile が本文を書き出す場所。既定は OS の一時ディレクトリ。 */
+  spoolDir?: string;
+  /** putFile の本文の上限。既定は Worker と同じ 100 MiB。 */
+  maxBodyBytes?: number;
 };
 
 /** fetch で Worker を叩く実装。token はヘッダにだけ載せ、URL にもログにも出さない。 */
@@ -115,6 +153,8 @@ export class HttpCloudClient implements CloudClient {
   private readonly fetchFn: typeof fetch;
   private readonly timeoutMs: number;
   private readonly transferTimeoutMs: number;
+  private readonly spoolDir: string;
+  private readonly maxBodyBytes: number;
   /**
    * 端末トークンは閉じ込めて持つ。
    * 文字列の項目にすると console.log(client) や JSON.stringify(client) で読めてしまう。
@@ -126,6 +166,8 @@ export class HttpCloudClient implements CloudClient {
     this.fetchFn = o.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
     this.timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.transferTimeoutMs = o.transferTimeoutMs ?? DEFAULT_TRANSFER_TIMEOUT_MS;
+    this.spoolDir = o.spoolDir ?? os.tmpdir();
+    this.maxBodyBytes = o.maxBodyBytes ?? MAX_PUT_BODY_BYTES;
     const token = o.token;
     this.authorization = () => `Bearer ${token}`;
   }
@@ -197,13 +239,28 @@ export class HttpCloudClient implements CloudClient {
       [CLOUD_HEADERS.encrypted]: meta.encrypted ? '1' : '0',
       'content-type': 'application/octet-stream',
     };
-    // 本文は貯めずに流す。duplex: 'half' はストリームを body にするときに要る。
-    const v = await this.json<{ seq: number }>(
-      `/files/${encodeFileKeyPath(meta.key)}`,
-      { method: 'PUT', headers, body: Readable.toWeb(body) as unknown as BodyInit, duplex: 'half' } as RequestInit,
-      this.transferTimeoutMs,
-    );
-    return { seq: v.seq };
+    // 中身は暗号化済みなので、一時ファイルに置いても平文は残らない。通っても倒れても消す。
+    const dir = await fs.promises.mkdtemp(path.join(this.spoolDir, 'hangar-put-'));
+    try {
+      const file = path.join(dir, 'body');
+      let length: number;
+      try {
+        length = await spool(body, file, this.maxBodyBytes);
+      } catch (e) {
+        throw toCloudError(e);
+      }
+      headers['content-length'] = String(length);
+      // undici は content-length があればストリームの本文でもその長さで送る（chunked にしない）。
+      // duplex: 'half' はストリームを body にするときに要る。
+      const v = await this.json<{ seq: number }>(
+        `/files/${encodeFileKeyPath(meta.key)}`,
+        { method: 'PUT', headers, body: Readable.toWeb(fs.createReadStream(file)) as unknown as BodyInit, duplex: 'half' } as RequestInit,
+        this.transferTimeoutMs,
+      );
+      return { seq: v.seq };
+    } finally {
+      await fs.promises.rm(dir, { recursive: true, force: true });
+    }
   }
 
   async getFile(key: string): Promise<Readable> {
