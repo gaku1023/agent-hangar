@@ -213,11 +213,20 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
     it('copy-command、extended-keys、extended-keys-format、terminal-features、S-Enter を入れる', () => {
       const { t, done } = fresh();
       t.ensureTerminalOptions();
-      expect(show(t, 'copy-command')).toBe('pbcopy');
+      // tmux サーバの環境には LANG が無いことが多い。素の pbcopy は UTF-8 を読めず、日本語を写すとクリップボードを空にする。
+      expect(show(t, 'copy-command')).toBe('LC_CTYPE=UTF-8 pbcopy');
       expect(show(t, 'extended-keys')).toBe('on');
       expect(show(t, 'extended-keys-format')).toBe('csi-u');
       expect(show(t, 'terminal-features')).toContain('xterm*:extkeys');
       expect(t.run('list-keys', '-T', 'root', 'S-Enter').stdout).toContain('hangar-');
+      done();
+    });
+
+    it('前の版が入れた素の pbcopy は、UTF-8 を読める形に置き換える', () => {
+      const { t, done } = fresh();
+      t.run('set-option', '-s', 'copy-command', 'pbcopy');
+      t.ensureTerminalOptions();
+      expect(show(t, 'copy-command')).toBe('LC_CTYPE=UTF-8 pbcopy');
       done();
     });
 

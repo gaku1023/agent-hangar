@@ -6,6 +6,9 @@ export type TmuxResult = { code: number; stdout: string; stderr: string; failed:
 /** 外の端末が拡張キーを送れることを tmux に知らせる terminal-features の項目。 */
 const EXTKEYS_FEATURE = 'xterm*:extkeys';
 
+/** マウスで選んだ範囲を渡すコマンド。tmux は copy-command をシェルで走らせるので、ロケールを前に置ける。 */
+const COPY_COMMAND = 'LC_CTYPE=UTF-8 pbcopy';
+
 /** hangar の run のセッション名（hangar-<id>）に当たる書式。シェルタブ（hangar-<id>-t<n>）は外れる。 */
 const RUN_SESSION_FORMAT = '#{m/r:^hangar-[0-9a-f]+$,#{session_name}}';
 
@@ -114,6 +117,7 @@ export class Tmux {
   /**
    * 外の端末（iTerm2 など）からつなぐための設定を入れる。どれもサーバ全体の設定なので、利用者の値は覆さない。
    * copy-command：iTerm2 は既定で OSC 52 の書き込みを許さないので、マウスで選んだ範囲を pbcopy で直接クリップボードへ渡す。
+   * pbcopy はロケールで文字コードを決める。tmux サーバの環境には LANG が無いことが多く、そのままでは日本語を写すとクリップボードが空になる。
    * extended-keys と terminal-features：外の端末から Shift+Enter を区別して受ける。
    * S-Enter：tmux は CSI u の Shift+Enter を素の CR に潰すので、hangar の run でだけ、Claude Code が改行と読む ESC CR に変える。
    * シェルタブ（hangar-<id>-t<n>）と利用者自身のセッションには Shift+Enter のまま送る。
@@ -123,7 +127,9 @@ export class Tmux {
     const show = (key: string) => this.run('show-options', '-s', '-v', key);
     const copy = show('copy-command');
     if (copy.code !== 0) return;
-    if (copy.stdout.trim() === '' && process.platform === 'darwin') this.run('set-option', '-s', 'copy-command', 'pbcopy');
+    const cur = copy.stdout.trim();
+    // 素の pbcopy は前の版が入れた値なので、hangar のものとして置き換える。
+    if ((cur === '' || cur === 'pbcopy') && process.platform === 'darwin') this.run('set-option', '-s', 'copy-command', COPY_COMMAND);
     if (show('extended-keys').stdout.trim() === 'off') {
       this.run('set-option', '-s', 'extended-keys', 'on');
       this.run('set-option', '-s', 'extended-keys-format', 'csi-u');
