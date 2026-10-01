@@ -105,6 +105,13 @@ export function screenStep(state: State, input: Input): Step | null {
     if (route.name === 'session' && state.focusOnOpen === route.id) effects.push({ kind: 'focus', target: 'terminal' });
     if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id });
     if (route.name === 'settings') effects.push({ kind: 'api.loadSettingsExtras' });
+    // 設定の画面を離れたら、欄の下の理由（保存の失敗）を消す。
+    // 欄の値は戻ってくると保存済みの値に戻るので、理由だけが残ると、いまの値が断られたように読める。
+    // 保存済みの印は番号を続けたいので残す。
+    if (state.screen.name === 'settings' && route.name !== 'settings') {
+      const kept = Object.fromEntries(Object.entries(next.settingsSave).filter(([, m]) => m.kind !== 'error'));
+      if (Object.keys(kept).length !== Object.keys(next.settingsSave).length) next = { ...next, settingsSave: kept };
+    }
     if (route.name === 'sessions') {
       const text = route.q ?? '';
       next = { ...next, search: { ...state.search, text } };

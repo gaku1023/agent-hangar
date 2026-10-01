@@ -28,6 +28,15 @@ describe('欄ごとの保存（設定の C1 と B1）', () => {
     const c = run([runtime({ type: 'settings.failed', field: 'workspaceRoot', message: 'x' })], b.state);
     expect(c.state.toasts).toEqual([]);
   });
+  // 欄の値は画面を離れると保存済みの値に戻る。戻った欄の下に前の理由だけが残ると、いまの値が断られたように読める。
+  it('設定の画面を離れたら、欄の下の理由を消す。保存済みの印は残す', () => {
+    const at = run([runtime({ type: 'hash.changed', route: { name: 'settings' } }), runtime({ type: 'settings.saved', field: 'workspaceRoot' }), runtime({ type: 'settings.failed', field: 'tmuxPath', message: '見つかりません' })]).state;
+    expect(at.settingsSave.tmuxPath).toEqual({ kind: 'error', message: '見つかりません' });
+    const left = run([runtime({ type: 'hash.changed', route: { name: 'home' } })], at).state;
+    expect(left.settingsSave).toEqual({ workspaceRoot: { kind: 'saved', n: 1 } });
+    // 設定の画面の中で描き直すだけ（同じ画面の hash.changed）なら消さない。
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'settings' } })], at).state.settingsSave.tmuxPath).toEqual({ kind: 'error', message: '見つかりません' });
+  });
 });
 
 describe('準備の確かめ', () => {
