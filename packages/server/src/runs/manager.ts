@@ -328,6 +328,9 @@ export class RunManager {
       if (!id) throw new RunError(404, 'この会話は hangar に載っていません');
       const alive = aliveRunForSession(this.db, id);
       if (alive) return { run: alive, sessionId: id, tabs: listTabs(this.db, alive.id), attached: true };
+      // 以前の包み方や `claude --bg` で起こしたものはバックグラウンドで動いている。素の claude -r は写しを作るので、attach でつなぐ。
+      const provider = (this.db.prepare('select provider_session_id from sessions where id = ?').get(id) as { provider_session_id: string }).provider_session_id;
+      if (this.liveOf(provider)?.background) return { ...this.attach(id), attached: false };
       return { ...this.resume(id, { args: rest, env }), attached: false };
     }
     this.precheck(req.cwd);

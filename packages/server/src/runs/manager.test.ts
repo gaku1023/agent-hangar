@@ -468,6 +468,15 @@ describe.skipIf(!TMUX)('RunManager.startFromTerminal（tmux 上）', () => {
     expect(rm.listAlive().runs).toHaveLength(1);
   });
 
+  it('-r <id> の会話がバックグラウンドで動いていれば、hangar の tmux の中の claude attach でつなぐ', async () => {
+    const id = ensureSession(db, TERM_UUID, cwd, 'd');
+    addTranscript(id);
+    const live = [{ sessionId: TERM_UUID, status: 'idle' as const, name: null, nameSource: null, cwd, pid: 777, background: { jobId: 'abcd1234' } }];
+    const r = make({ live: () => live, isLive: (u) => live.some((l) => l.sessionId === u) }).startFromTerminal(fromTerminal(cwd, ['-r', TERM_UUID]));
+    expect(r.attached).toBe(false);
+    expect((await launchedArgs(r.run.id)).slice(0, -1)).toEqual(['attach', 'abcd1234']);
+  });
+
   it('-r <id> の会話が止まっていれば再開し、利用者の引数を足す', async () => {
     const id = ensureSession(db, TERM_UUID, cwd, 'd');
     addTranscript(id);
