@@ -107,12 +107,18 @@ describe('サブエージェントのレーン', () => {
   });
   it('報告の無い済みの本は、終わりの知らせの status を添える', () => {
     const p = presentLivePane(input({ digest: digest({ agents: [agent({ state: 'done', endNote: 'failed' })] }) }));
-    expect(p.lanes[0]).toMatchObject({ line: '終わった（failed）', quoted: false, tone: 'done' });
+    expect(p.lanes[0]).toMatchObject({ line: '終わった（失敗）', quoted: false, tone: 'done' });
+  });
+  it('知らせの status は英語の値を出さず、知っている値は日本語にし、知らない値はそのまま添える', () => {
+    const line = (endNote: string) => presentLivePane(input({ digest: digest({ agents: [agent({ state: 'done', endNote })] }) })).lanes[0]!.line;
+    expect(line('failed')).toBe('終わった（失敗）');
+    expect(line('killed')).toBe('終わった（止められた）');
+    expect(line('weird')).toBe('終わった（weird）');
   });
   it('済みの本は最後の手を使わず、報告、終わりの知らせ、「終わった」の順', () => {
     const last = { text: '最後の手', mono: false, kind: 'run' as const, isError: false };
     const lines = (p: Partial<LiveAgentDto>) => presentLivePane(input({ digest: digest({ agents: [agent({ state: 'done', last, ...p })] }) })).lanes[0]!.line;
-    expect(lines({ endNote: 'failed' })).toBe('終わった（failed）');
+    expect(lines({ endNote: 'failed' })).toBe('終わった（失敗）');
     expect(lines({ endNote: null })).toBe('終わった');
     expect(lines({ report: '済：直した', endNote: 'failed' })).toBe('済：直した');
   });

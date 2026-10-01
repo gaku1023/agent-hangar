@@ -111,6 +111,12 @@ function intentOf(i: LiveInput): IntentProps {
 
 const TONE_ORDER = { error: 0, running: 1, done: 2 } as const;
 
+/**
+ * 終わりの知らせの status の言い方。英語の内部値は画面に出さない（用語表の決まり 2）。
+ * 知らない値は、何が起きたかを失わないようにそのまま添える。
+ */
+const END_NOTE: Record<string, string> = { failed: '失敗', killed: '止められた' };
+
 function lanesOf(i: LiveInput): { lanes: LaneProps[]; doneFolded: number } {
   const agents = [...(i.digest?.agents ?? [])].sort((a, b) => TONE_ORDER[a.state] - TONE_ORDER[b.state]);
   const all = agents.map((a): LaneProps => {
@@ -120,7 +126,7 @@ function lanesOf(i: LiveInput): { lanes: LaneProps[]; doneFolded: number } {
     // 済みは報告（引用）、無ければ終わりの知らせの status（failed、killed など）を添えた「終わった」で、最後の手は使わない。赤にはしない。
     // 失敗は報告、最後の手、「失敗した」の順。動いている本は最後の手か「始めたところ」。
     const line = a.state === 'done'
-      ? a.report ?? (a.endNote !== null ? `終わった（${a.endNote}）` : '終わった')
+      ? a.report ?? (a.endNote !== null ? `終わった（${END_NOTE[a.endNote] ?? a.endNote}）` : '終わった')
       : a.state === 'error' ? a.report ?? a.last?.text ?? '失敗した'
       : a.last?.text ?? '始めたところ';
     return { agentId: a.agentId, title: a.title, tone: a.state, elapsed, line, quoted, selectable: a.linked };
