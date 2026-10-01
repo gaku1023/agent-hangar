@@ -676,7 +676,9 @@ export function createApp(deps: AppDeps): Hono {
     const marks = EDIT_TOOLS.map(() => '?').join(',');
     const known = db.prepare(`select 1 from event_index where session_id = ? and tool_name in (${marks}) and file_path = ? limit 1`).get(s.id, ...EDIT_TOOLS, file);
     if (!known) return c.json({ error: 'このセッションが変更したファイルではありません' }, 404);
-    if (!fs.existsSync(file)) return c.json({ error: '元のファイルが見つかりません' }, 404);
+    // 変えた後に消えたり、ディレクトリに替わったりしていたら開かない。
+    // ディレクトリを渡すと、code はファイルではなくその中身を開いてしまう。
+    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) return c.json({ error: '元のファイルが見つかりません' }, 404);
     return external(c, () => deps.external.openEditor({ target: file }), true);
   });
   api.post('/projects', async (c) => {
