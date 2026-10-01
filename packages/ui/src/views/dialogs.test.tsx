@@ -44,7 +44,9 @@ describe('ConfirmDialog（引き取り）', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'adoptSession', sessionId: 's1' }} /></IntentRoot>);
     expect(screen.getByRole('dialog', { name: 'hangar で引き取りますか' })).toBeInTheDocument();
-    expect(screen.getByText(/claude attach/)).toBeInTheDocument();
+    // 引き取った会話は hangar の tmux の中で再開する。元のターミナルからは包み方を通した claude -r で戻る。
+    expect(screen.getByText(/claude -r/)).toBeInTheDocument();
+    expect(screen.queryByText(/claude attach/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '引き取る' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.adopt', id: 's1', confirmed: true });
     fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
