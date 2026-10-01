@@ -716,8 +716,24 @@ describe('presentSession（終わった画面の右欄、E1）', () => {
       { path: '/w/alpha/src/new.ts', dir: 'src/', base: 'new.ts', added: 3, removed: 0, created: true },
       { path: '/elsewhere/c.md', dir: '/elsewhere/', base: 'c.md', added: 1, removed: 1, created: false },
     ]);
-    // 読み込んだ範囲の外にもう 1 つある（サブエージェントの編集も数に入る）。
+    // 統計にはもう 1 つある（サブエージェントの編集も数に入る）。
+    // 主線は全部読み込んでいるので、残りはサブエージェントの変更である。
     expect(p.changedMore).toBe(1);
+    expect(p.changedNote).toBe('ほか 1 件はサブエージェントの変更です');
+  });
+  it('主線を読み切っていなければ、残りは古い本文を読み込むと出ると言う。サブエージェントを見ていて主線を読んでいなければ数だけ出す', () => {
+    let store = storeWith();
+    store.sessions.s2 = { ...store.sessions.s2!, live: null, stats: { ...store.sessions.s2!.stats, filesChanged: 3 } };
+    const events: TranscriptEvent[] = [{ kind: 'user', seq: 10, text: 'go' }, call(11, 'Edit', { file_path: '/w/alpha/src/a.ts', old_string: 'x', new_string: 'y' })];
+    const partial = applyEventsPage(store, eventsKey('s2', null), { sessionId: 's2', events, total: 40, nextSeq: null }, false);
+    const p = presentSession(initialState(), partial, NOW, 's2');
+    expect(p.changedMore).toBe(2);
+    expect(p.changedNote).toBe('ほか 2 件は、古い本文を読み込むと出ます');
+    const agent = { ...initialState(), sessionView: { s2: { ...defaultSessionView(), agentId: 'ag1' } } };
+    const q = presentSession(agent, store, NOW, 's2');
+    expect(q.changedFiles).toEqual([]);
+    expect(q.changedMore).toBe(3);
+    expect(q.changedNote).toBeNull();
   });
   it('TODO はそのセッションのプロジェクトのものを出す', () => {
     const store = storeWith();

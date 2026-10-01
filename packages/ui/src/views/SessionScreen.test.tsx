@@ -19,7 +19,7 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 3,
   turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, openTurnItems: [], turnJump: null, livePane: null, gone: null, find: null, jump: null, hasNewer: false,
-  actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, changedFiles: [], changedMore: 0, todos: [], transcriptBand: null };
+  actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null };
 
 /**
  * 見出しの操作は presenter が事実から決める。
@@ -228,16 +228,16 @@ describe('終わった画面の右欄（E1）', () => {
     rerender(<IntentRoot onIntent={() => {}}><SS {...p3} live={null} summaryError="LM Studio に繋がりません" /></IntentRoot>);
     expect(screen.getByText('要約を作成できませんでした')).toBeInTheDocument();
   });
-  it('変更したファイルは押すと VS Code で開き、読み込んだ範囲の外の数も言う', () => {
+  it('変更したファイルは押すと VS Code で開き、出ていない分の数と訳も言う', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} changedFiles={files} changedMore={2} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} changedFiles={files} changedMore={2} changedNote="ほか 2 件はサブエージェントの変更です" /></IntentRoot>);
     const row = screen.getByRole('button', { name: /new\.ts/ });
     expect(row).toHaveTextContent('新規');
     expect(row).toHaveTextContent('+56');
     expect(screen.getByRole('button', { name: /a\.ts/ })).toHaveTextContent('−3');
     fireEvent.click(row);
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.openFile', sessionId: 's1', path: '/w/alpha/src/new.ts' });
-    expect(screen.getByText('ほか 2 件は、古い本文を読み込むと出ます')).toBeInTheDocument();
+    expect(screen.getByText('ほか 2 件はサブエージェントの変更です')).toBeInTheDocument();
   });
   it('右の欄は本文の面の右上のボタンでも開閉でき、閉じると本文が全幅になる', () => {
     const onIntent = vi.fn();
