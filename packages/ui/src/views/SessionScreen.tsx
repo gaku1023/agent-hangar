@@ -72,7 +72,7 @@ export function SessionScreen(props: SessionProps) {
         {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
         <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? undefined}
           aria-describedby={primary.disabled ? reasonId : undefined} onClick={() => { if (!primary.disabled) act(primary.id); }}>
-          <Icon name={ACTION_ICON[primary.id]} />{primary.label}
+          <Icon name={ACTION_ICON[primary.id]} /><span className="btn-label">{primary.label}</span>
         </button>
         {primary.disabled && <span id={reasonId} className="sr-only">{primary.disabled}</span>}
         <MenuButton label="ほかの操作" items={props.actions.menu.map(item)} />

@@ -142,6 +142,10 @@ describe('見出しの段（A1、C1）', () => {
     expect(resume).toHaveAttribute('title', '本文がありません');
     expect(resume).toHaveAccessibleDescription('本文がありません');
   });
+  it('主の操作の名前は .btn-label に入れ、狭い窓では見出しの行（PageHeading の fitRow）が印だけに縮められる', () => {
+    render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} /></IntentRoot>);
+    expect(screen.getByRole('button', { name: '再開' }).querySelector(':scope > .btn-label')).toHaveTextContent('再開');
+  });
   it('スクラッチの注意書きは線の下に、昇格はメニューに置く', () => {
     const onIntent = vi.fn();
     const { container } = render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} fromScratch canPromote /></IntentRoot>);
