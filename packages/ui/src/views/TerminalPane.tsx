@@ -45,7 +45,7 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   }, [host, props.tabId]);
 
   const status = host?.status(props.tabId) ?? null;
-  const link = host?.link(props.tabId) ?? { retryAt: null, dropped: false, gaveUp: false };
+  const link = host?.link(props.tabId) ?? { retryAt: null, dropped: false, gaveUp: false, detached: false };
   const secs = useSecondsUntil(link.retryAt);
   // 切断（F1）。
   // 思いがけず切れたときと、サーバが断ったときだけカードを出す。
@@ -53,7 +53,9 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   // 何度試してもつながらなかった（gaveUp）ときは、run が終わっているかもしれないので、動き続けているとは言わない。
   const failed = status === 'error';
   const dropped = !failed && link.dropped && status !== 'connected';
-  const off = failed || dropped;
+  // tmux から抜けて閉じたが、run とタブは生きている。自動ではつながないので、つなぎ直す手を出す。
+  const detached = !failed && !dropped && link.detached && status !== 'connected';
+  const off = failed || dropped || detached;
   const who = props.agent ? 'Claude は' : 'シェルは';
 
   // 帯が出ていても Esc は横取りしない。
@@ -80,9 +82,9 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
         <div className="term-veil">
           <div className="term-off-card">
             <span className="term-off-ic"><Icon name="disconnected" /></span>
-            <b role="alert">{failed ? 'ターミナルに接続できませんでした' : 'ターミナルとの接続が切れました'}</b>
-            <p>{failed ? 'もう一度つなぐか、セッションを開き直してください。' : link.gaveUp ? 'つなげませんでした。' : `${who}動き続けています。${secs !== null ? `${secs} 秒後にもう一度つなぎます。` : 'つなぎ直しています。'}`}</p>
-            <button type="button" className="btn btn-primary" onClick={() => host?.reconnect(props.tabId)}><Icon name="reconnect" />再接続</button>
+            <b role="alert">{failed ? 'ターミナルに接続できませんでした' : detached ? 'ターミナルから切り離されました' : 'ターミナルとの接続が切れました'}</b>
+            <p>{failed ? 'もう一度つなぐか、セッションを開き直してください。' : detached ? `${who}動き続けています。` : link.gaveUp ? 'つなげませんでした。' : `${who}動き続けています。${secs !== null ? `${secs} 秒後にもう一度つなぎます。` : 'つなぎ直しています。'}`}</p>
+            <button type="button" className="btn btn-primary" onClick={() => host?.reconnect(props.tabId)}><Icon name="reconnect" />{detached ? 'つなぎ直す' : '再接続'}</button>
           </div>
         </div>
       )}

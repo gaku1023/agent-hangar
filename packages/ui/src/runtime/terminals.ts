@@ -11,8 +11,11 @@ export type TerminalLike = { cols: number; rows: number; element: HTMLElement | 
  * dropped は、つながっていた（またはつなごうとしていた）接続が思いがけず切れ、まだつなぎ直せていないこと。
  * retryAt は次に自動でつなぎ直す時刻で、待っていないときは null。
  * gaveUp は、続けて RETRY.attempts 回つながらず、自動のつなぎ直しをやめたこと。
+ * detached は、サーバが 1000 と 'exited' で閉じたのに、その run とタブがまだ生きていること。
+ * xterm の中で tmux から抜けた（C-b d）ときに起きる。
+ * 自動ではつながず、利用者のつなぎ直しを待つ。
  */
-export type TerminalLink = { retryAt: number | null; dropped: boolean; gaveUp: boolean };
+export type TerminalLink = { retryAt: number | null; dropped: boolean; gaveUp: boolean; detached: boolean };
 export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, text: string): void; disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void;
   /**
    * 切れたタブのつなぎ直しの様子。
@@ -56,7 +59,7 @@ export const RETRY = { first: 1000, max: 30_000, attempts: 5 } as const;
  * fails は続けて失敗した回数で、次の間隔を決める。
  * timer と retryAt は待っている自動の試し。
  */
-type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null };
+type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null };
 
 /**
  * タブごとの xterm と WebSocket を React の外で持つ。
@@ -86,7 +89,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     if (!e) {
       const term = deps.createTerminal();
       term.setFontSize(fontSize);
-      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, timer: null, retryAt: null };
+      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, timer: null, retryAt: null };
       entries.set(tabId, e);
     }
     return e;
@@ -118,7 +121,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     e.ws = ws;
     setStatus(e, 'connecting');
     notify();
-    ws.onopen = () => { e.fails = 0; e.dropped = false; e.gaveUp = false; setStatus(e, 'connected'); send(e, { t: 'resize', cols: e.term.cols, rows: e.term.rows }); };
+    ws.onopen = () => { e.fails = 0; e.dropped = false; e.gaveUp = false; e.detached = false; setStatus(e, 'connected'); send(e, { t: 'resize', cols: e.term.cols, rows: e.term.rows }); };
     ws.onmessage = (m) => {
       let parsed: unknown;
       try { parsed = JSON.parse(String(m.data)); } catch { return; }
@@ -131,12 +134,16 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     // サーバが断った（error）ときは、待っても同じ答えなので自動ではつながず、「再接続」のボタンに任せる。
     // 中の端末が終わったとき（Claude の終了、タブを閉じた）は、サーバが 1000 と 'exited' で閉じる（server の pty/relay.ts）。
     // 切れたのではないので、つなぎ直さない。
+    // ただし tmux から抜けた（C-b d）ときも同じ閉じ方になる。
+    // そのとき run とタブはまだ生きているので、自動ではつながずに、つなぎ直す手を出す（detached）。
+    // 本当に終わったときは、続いて届く run.ended か tab.upsert が disconnect で消す。
     ws.onclose = (ev?: { code?: number; reason?: string }) => {
       if (e.ws !== ws) return;
       e.ws = null;
       if (e.status === 'error') { notify(); return; }
       setStatus(e, 'closed');
       const exited = ev?.code === 1000 && ev.reason === 'exited';
+      if (e.want && exited && (deps.alive?.(tabId) ?? true)) e.detached = true;
       if (e.want && !exited) {
         e.dropped = true;
         // 続けて何度もつながらなければ、自動ではやめて「再接続」に任せる。
@@ -157,6 +164,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       const e = ensure(tabId);
       e.want = true;
       e.gaveUp = false;
+      e.detached = false;
       open(tabId, e);
     },
     reconnect(tabId) {
@@ -164,17 +172,18 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       e.want = true;
       e.fails = 0;
       e.gaveUp = false;
+      e.detached = false;
       if (e.status === 'error') e.status = 'closed';
       open(tabId, e);
     },
     link(tabId) {
       const e = entries.get(tabId);
-      return e ? { retryAt: e.retryAt, dropped: e.dropped, gaveUp: e.gaveUp } : { retryAt: null, dropped: false, gaveUp: false };
+      return e ? { retryAt: e.retryAt, dropped: e.dropped, gaveUp: e.gaveUp, detached: e.detached } : { retryAt: null, dropped: false, gaveUp: false, detached: false };
     },
     disconnect(tabId) {
       const e = entries.get(tabId);
       if (!e) return;
-      e.want = false; e.fails = 0; e.dropped = false; e.gaveUp = false;
+      e.want = false; e.fails = 0; e.dropped = false; e.gaveUp = false; e.detached = false;
       stopRetry(e);
       const ws = e.ws; e.ws = null;
       ws?.close();
