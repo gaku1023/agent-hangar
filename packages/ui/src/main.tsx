@@ -92,6 +92,12 @@ const runtime = createRuntime({
   focus: (t) => focusSoon(() => document.getElementById(FOCUS_IDS[t]), (cb) => { requestAnimationFrame(cb); }),
   // 窓に戻ってきたら他端末の変更を引く。間引きはサーバ側で行う。
   onWindowFocus: (cb) => { window.addEventListener('focus', cb); return () => window.removeEventListener('focus', cb); },
+  // 頁が見える状態に戻ったら、通知の許可を読み直す（focus が来ない戻り方もある）。
+  onWindowVisible: (cb) => {
+    const h = () => { if (document.visibilityState === 'visible') cb(); };
+    document.addEventListener('visibilitychange', h);
+    return () => document.removeEventListener('visibilitychange', h);
+  },
   present,
   // 入力待ちを窓の外へ知らせる。
   // デスクトップの殻では macOS の通知と Dock のバッジ、ブラウザでは Web Notification を使う。

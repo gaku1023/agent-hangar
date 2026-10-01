@@ -1089,6 +1089,103 @@ describe('入力待ちの知らせ', () => {
     await flush();
     expect(rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
   });
+  // OS やブラウザの許可は、hangar の外（システム設定、ブラウザの設定）で変わる。
+  // 窓が前面に戻ったときに読み直し、利用者が受け取ると選んでいれば、許可に合わせて受け取るを戻したり外したりする。
+  describe('窓が前面に戻ったときの許可の読み直し', () => {
+    /** 許可を外から書き換えられる偽の notifier。desktop は OS が許可を持つ殻、web はブラウザである。 */
+    function mutableNotifier(kind: 'desktop' | 'web', initial: NotifyPermission) {
+      let perm = initial;
+      const base = fakeNotifier({ defaultOn: kind === 'desktop' });
+      return {
+        ...base,
+        available: () => kind === 'desktop' || perm !== 'denied',
+        granted: () => kind === 'desktop' || perm === 'granted',
+        status: vi.fn(async (): Promise<NotifyPermission> => perm),
+        set: (p: NotifyPermission) => { perm = p; },
+      };
+    }
+    async function boot2(n: ReturnType<typeof mutableNotifier>, stored?: boolean) {
+      let clock = 100_000;
+      const visible = new Set<() => void>();
+      const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [] })) }, { notifier: n, now: () => clock, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
+      if (stored !== undefined) h.store.set('notify.waiting', stored);
+      h.rt.start();
+      h.wsHandlers[0]!.onOpen();
+      await flush();
+      return { ...h, fireVisible: () => { for (const l of visible) l(); }, advance: (ms: number) => { clock += ms; } };
+    }
+
+    it('OS で切られていたのを許可して戻ったら、受け取るに戻す', async () => {
+      const n = mutableNotifier('desktop', 'denied');
+      const h = await boot2(n, true);
+      expect(h.rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+      n.set('granted');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+      expect(h.store.get('notify.waiting')).toBe(true);
+    });
+    it('受け取っている間に OS で切られたら、受け取らないにして設定の仕方を知らせる', async () => {
+      const n = mutableNotifier('desktop', 'granted');
+      const h = await boot2(n);
+      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+      n.set('denied');
+      h.advance(5000);
+      h.fireVisible();
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+      expect(h.rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。システム設定の「通知」で Hangar を許可してください');
+      // 利用者の選んだ値は書き換えない。許可し直して戻れば、受け取るに戻る。
+      expect(h.store.has('notify.waiting')).toBe(false);
+      n.set('granted');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+    });
+    it('受け取らないと選んでいれば、許可されても受け取るにしない', async () => {
+      const n = mutableNotifier('desktop', 'denied');
+      const h = await boot2(n, false);
+      n.set('granted');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify.on).toBe(false);
+    });
+    it('ブラウザの許可も同じ契機で読み直す', async () => {
+      const n = mutableNotifier('web', 'denied');
+      const h = await boot2(n, true);
+      expect(h.rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
+      n.set('granted');
+      h.advance(5000);
+      h.fireVisible();
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+      n.set('denied');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
+    });
+    it('最後に読んでから 2 秒以内は読み直さない', async () => {
+      const n = mutableNotifier('desktop', 'granted');
+      const h = await boot2(n, false);
+      const before = n.status.mock.calls.length;
+      h.fireFocus();
+      h.fireVisible();
+      await flush();
+      expect(n.status.mock.calls.length).toBe(before + 1);
+      h.advance(1999);
+      h.fireFocus();
+      await flush();
+      expect(n.status.mock.calls.length).toBe(before + 1);
+      h.advance(1);
+      h.fireFocus();
+      await flush();
+      expect(n.status.mock.calls.length).toBe(before + 2);
+    });
+  });
   it('通知の仕組みが無い環境でも、カードは積む', async () => {
     const { rt, wsHandlers } = await started(undefined);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
