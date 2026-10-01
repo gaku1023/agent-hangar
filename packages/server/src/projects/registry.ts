@@ -32,6 +32,14 @@ function isUnder(p: string, dir: string): boolean {
   return p === dir || p.startsWith(dir + '/');
 }
 
+/** プロジェクト行と、この端末のルート（解決済み）を作る。作ったプロジェクトの id を返す。 */
+export function insertProject(db: Db, deviceId: string, name: string, dir: string): string {
+  const id = newId();
+  upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0 }, deviceId);
+  upsertShared(db, 'project_roots', { id: newId(), project_id: id, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
+  return id;
+}
+
 /** ワークスペース直下のディレクトリのうち、セッションを持つものをプロジェクトとして登録する。 */
 export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoot: string): { created: string[] } {
   const created: string[] = [];
@@ -41,10 +49,7 @@ export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoo
   for (const dir of childDirs(workspaceRoot)) {
     if (!cwds.some((c) => isUnder(c, dir))) continue;
     if (known.has(dir)) continue;
-    const id = newId();
-    upsertShared(db, 'projects', { id, name: path.basename(dir), status: 'active', is_scratch: 0 }, deviceId);
-    upsertShared(db, 'project_roots', { id: newId(), project_id: id, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
-    created.push(id);
+    created.push(insertProject(db, deviceId, path.basename(dir), dir));
   }
   return { created };
 }
