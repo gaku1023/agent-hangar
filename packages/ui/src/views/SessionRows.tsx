@@ -38,7 +38,7 @@ function stateItems(r: SessionRowProps, emit: Emit): MenuItem[] {
 /**
  * 提案の札（Q3 の枠だけの札）と、押すと開くポップ（Q1）。
  * ポップの頭に根拠の一文、出どころ、時刻を置き、項目は 確定・日を変える（Paused のみ）・却下。打鍵の印は Q1 の試作のとおり y と n。
- * onClose は「⋯」と同じ作法（打鍵で開いて閉じたら行へフォーカスを戻す）を当てるために呼び側から受ける。
+ * onClose は閉じたときにフォーカスを行へ戻すために呼び側から受ける（札は確定・却下で消えるので）。
  */
 function candidatePop(r: SessionRowProps, emit: Emit, onClose: (how: MenuCloseHow) => void) {
   const c = r.candidate!;
@@ -182,6 +182,14 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
     if (fromKey && (how === 'select' || how === 'escape')) cursorRow()?.focus({ preventScroll: true });
   };
 
+  // 提案のポップが閉じた。項目を選んだときは、開き方を問わずフォーカスを札の行へ戻す。
+  // 確定・却下で candidate が消えると札がアンマウントされ、戻さないとフォーカスが body へ落ちて j・Enter・. が効かなくなる。
+  // 閉じた直後のフォーカスは MenuButton が札へ戻してあるので、その札の行を取る（カーソルの行とは限らない）。
+  const candidateClosed = (id: string, how: MenuCloseHow) => {
+    if (how === 'select') (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[role="row"]')?.focus({ preventScroll: true });
+    else menuClosed(id, how);
+  };
+
   const onKeyDown = (e: ReactKeyboardEvent) => {
     // 編集中の入力欄から上がってきたキーは横取りしない。
     if (editing !== null) return;
@@ -253,7 +261,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
         {r.transcript === 'expiring' && <span className="row-soon">まもなく削除</span>}
         {r.transcript === 'gone' && <span className="row-gone" title={GONE_LABEL}><Icon name="transcriptGone" label={GONE_LABEL} /></span>}
         {r.live && <span className="row-live" data-live={r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{LIVE_WORD[r.live]}</span>}
-        {r.candidate && <span className="row-act" onClick={stopClick}>{candidatePop(r, emit, (how) => menuClosed(r.id, how))}</span>}
+        {r.candidate && <span className="row-act" onClick={stopClick}>{candidatePop(r, emit, (how) => candidateClosed(r.id, how))}</span>}
         {(r.state === 'done' || r.state === 'archived') && <span className="row-sq" data-s={r.state} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{STATUS_LABEL[r.state]}</span>}
         <span className="row-act row-more" onClick={stopClick}>
           <MenuButton label={`${r.name} の状態`} items={stateItems(r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={220} onClose={(how) => menuClosed(r.id, how)} />

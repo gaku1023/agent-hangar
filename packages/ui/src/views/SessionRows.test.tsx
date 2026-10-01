@@ -564,4 +564,17 @@ describe('提案の札とポップ（Q3＋Q1）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Paused · 10/2（金）？' }));
     expect(screen.getByRole('menu')).toHaveTextContent('根拠は書かれていません');
   });
+  it.each([['y', 'session.state.confirm'], ['n', 'session.state.reject']])('札から Enter で開いて %s で選び、札が消えても、フォーカスは行に残る', (key, type) => {
+    const onIntent = vi.fn();
+    const ui = (rows: SessionRowProps[]) => <IntentRoot onIntent={onIntent}><SessionRows rows={rows} height={400} variant="project" /></IntentRoot>;
+    const { rerender } = render(ui([sr('a', { candidate: cand })]));
+    const face = screen.getByRole('button', { name: 'Paused · 10/2（金）？' });
+    act(() => face.focus());
+    fireEvent.click(face);
+    fireEvent.keyDown(document.activeElement!, { key });
+    expect(onIntent).toHaveBeenCalledWith({ type, id: 'a' });
+    // session.upsert で candidate が消え、札がアンマウントされる。
+    rerender(ui([sr('a')]));
+    expect(document.activeElement).toBe(screen.getByRole('row'));
+  });
 });
