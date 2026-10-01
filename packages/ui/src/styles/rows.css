@@ -86,6 +86,22 @@
 .row-gone { flex: none; display: inline-flex; align-items: center; padding: 1px 4px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); }
 .row-gone .icon { width: 12px; height: 12px; }
 .row-meta { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
+/* セッションの状態（試作 model-v3）。動きは日本語と丸い点、状態は英語と四角の札、提案は紫の枠だけの丸い札、戻る日は黄土の丸い札で描き分ける。 */
+.row-live { flex: none; font-size: var(--fs-xs); font-weight: 600; }
+.row-live[data-live='waiting'] { color: var(--waiting); }
+.row-live[data-live='busy'] { color: var(--busy); }
+.row-sq { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; }
+.row-sq[data-s='done'] { color: var(--st-done); background: var(--st-done-soft); }
+.row-sq[data-s='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
+/* 戻る日。当日と過ぎたものは塗る（地が --st-paused、文字が白。tokens.test.ts が 4.5 : 1 を見張る）。 */
+.row-return { flex: none; display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; line-height: 1.4; color: var(--st-paused); background: var(--st-paused-soft); white-space: nowrap; }
+.row-return[data-due='true'] { color: #ffffff; background: var(--st-paused); }
+/* 行の中の操作の器（提案の札と「⋯」）。押しても行が開かないよう、SessionRows がクリックを止める。 */
+.row-act { flex: none; display: inline-flex; }
+/* 「⋯」（A2）。ポインタを乗せた行、カーソルの行、焦点のある行、開いている間だけ見せる。隠している間も場所は取り、時刻の位置を動かさない。 */
+.row-more { visibility: hidden; }
+.row:hover .row-more, .row:focus-within .row-more, .row[data-cursor='true'] .row-more, .row-more:has([aria-expanded='true']) { visibility: visible; }
+.row-more .row-more-btn { width: calc(var(--u) * 6); height: calc(var(--u) * 5); padding: 0; }
 /* 一致した語の印。淡い黄の地だけを敷き、文字の色は周りのまま（読みやすさを落とさない）。 */
 .hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }
 

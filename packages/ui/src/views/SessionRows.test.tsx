@@ -430,3 +430,101 @@ describe('SessionRows の本文の期限', () => {
     }
   });
 });
+
+/** 状態の試験の行。Task 13 の提案の試験も使う。 */
+const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over });
+const mount = (rows: SessionRowProps[], onIntent = vi.fn()) => {
+  render(<IntentRoot onIntent={onIntent}><SessionRows rows={rows} height={400} variant="project" /></IntentRoot>);
+  return onIntent;
+};
+/** 行が開いたか。押した操作の器がクリックを止め損ねると、ここに session.open が積まれる。 */
+const opened = (onIntent: ReturnType<typeof vi.fn>) => onIntent.mock.calls.filter(([i]) => (i as { type: string }).type === 'session.open');
+const labels = () => screen.getAllByRole('menuitem').map((i) => i.querySelector('.menu-item-text > span')?.textContent);
+
+describe('セッションの状態の札と「⋯」', () => {
+  it('動きの語、状態の札、戻る日の札を描き分ける', () => {
+    mount([
+      sr('a', { live: 'waiting' }),
+      sr('b', { live: 'idle' }),
+      sr('c', { state: 'done', setBy: 'conversation' }),
+      sr('d', { state: 'archived', setBy: 'user' }),
+      sr('e', { state: 'paused', returnOn: '2026-09-29', overdueDays: 2, summaryState: { label: '済んだ', tone: null } }),
+      sr('f', { state: 'paused', returnOn: '2026-10-02', overdueDays: null }),
+    ]);
+    expect(screen.getByText('入力待ち')).toHaveClass('row-live');
+    expect(screen.getByText('実行中')).toHaveAttribute('data-live', 'busy');
+    expect(screen.getByText('Done')).toHaveAttribute('title', '会話で承認');
+    expect(screen.getByText('Archived')).not.toHaveAttribute('title');
+    expect(screen.getByText('2 日過ぎ')).toHaveAttribute('data-due', 'true');
+    // Paused の行の 2 段目の頭は戻る日の札で、要約の見立ての札は出さない。Paused は四角の札を出さない。
+    expect(screen.queryByText('済んだ')).toBeNull();
+    expect(screen.queryByText('Paused')).toBeNull();
+    expect(screen.getByText('10/2（金）')).not.toHaveAttribute('data-due');
+  });
+  it('「⋯」から 4 択を選ぶ。押しても行は開かない', () => {
+    const onIntent = mount([sr('a')]);
+    fireEvent.click(screen.getByRole('button', { name: '名前 a の状態' }));
+    expect(labels()).toEqual(['Paused にする…', 'Done にする', 'Archived にする', '印なしに戻す']);
+    expect(screen.getAllByRole('menuitem').map((i) => i.querySelector('kbd')?.textContent)).toEqual(['p', 'd', 'a', 'u']);
+    expect(screen.getAllByRole('menuitem')[3]).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(screen.getAllByRole('menuitem')[1]!);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: 'done' });
+    expect(opened(onIntent)).toEqual([]);
+  });
+  it('付いている状態は選べず、印なしに戻すは選べる', () => {
+    const onIntent = mount([sr('a', { state: 'done' })]);
+    fireEvent.click(screen.getByRole('button', { name: '名前 a の状態' }));
+    const items = screen.getAllByRole('menuitem');
+    expect(items[1]).toHaveAttribute('aria-disabled', 'true');
+    expect(items[1]).toHaveTextContent('すでに Done です');
+    fireEvent.click(items[3]!);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: null });
+  });
+  it('打鍵 . でカーソルの行の「⋯」を開き、印の 1 字で選ぶ', () => {
+    const onIntent = mount([sr('a'), sr('b', { state: 'done' })]);
+    const rb = screen.getByText('名前 b').closest('[role="row"]') as HTMLElement;
+    act(() => rb.focus());
+    fireEvent.keyDown(rb, { key: '.' });
+    expect(screen.getByRole('menu', { name: '名前 b の状態' })).toBeInTheDocument();
+    fireEvent.keyDown(document.activeElement!, { key: 'p' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.pause.open', id: 'b', from: 'menu' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(opened(onIntent)).toEqual([]);
+  });
+  it('メモを書いている欄の . は文字で、メニューを開かない', () => {
+    mount([sr('a')]);
+    const ra = screen.getByText('名前 a').closest('[role="row"]') as HTMLElement;
+    act(() => ra.focus());
+    fireEvent.keyDown(ra, { key: 'm' });
+    fireEvent.keyDown(screen.getByLabelText('名前 a のメモ'), { key: '.' });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+  it('「⋯」はポインタを乗せた行、カーソルの行、焦点のある行、開いている間だけ見せる', () => {
+    expect(rowsCss).toMatch(/\.row-more \{[^}]*visibility: hidden;/);
+    expect(rowsCss).toMatch(/\.row:hover \.row-more, \.row:focus-within \.row-more, \.row\[data-cursor='true'\] \.row-more, \.row-more:has\(\[aria-expanded='true'\]\) \{[^}]*visibility: visible;/);
+  });
+  // 裁定 B：打鍵 . で開いたメニューを閉じたら、フォーカスを行へ戻す。戻さないと、一覧は行以外から来た打鍵を捨てるので j・Enter・2 回目の . が効かなくなる。
+  it('打鍵 . → d のあと、フォーカスが行へ戻り、j でカーソルが動く', () => {
+    const onIntent = mount([sr('a'), sr('b')]);
+    const ra = screen.getByText('名前 a').closest('[role="row"]') as HTMLElement;
+    act(() => ra.focus());
+    fireEvent.keyDown(ra, { key: '.' });
+    fireEvent.keyDown(document.activeElement!, { key: 'd' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: 'done' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(ra);
+    fireEvent.keyDown(document.activeElement!, { key: 'j' });
+    expect(screen.getByText('名前 b').closest('[role="row"]')).toHaveAttribute('data-cursor', 'true');
+  });
+  it('打鍵 . で開いたメニューを Esc で閉じても、フォーカスは行へ戻る', () => {
+    mount([sr('a'), sr('b')]);
+    const ra = screen.getByText('名前 a').closest('[role="row"]') as HTMLElement;
+    act(() => ra.focus());
+    fireEvent.keyDown(ra, { key: '.' });
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(ra);
+    fireEvent.keyDown(ra, { key: '.' });
+    expect(screen.getByRole('menu', { name: '名前 a の状態' })).toBeInTheDocument();
+  });
+});

@@ -9,8 +9,11 @@ import { place, type Placement } from './listboxModel.ts';
  * 押せない項目も消さずに並べ、理由を 1 行添える。
  * note は押せる項目に添える補足の 1 行。
  * danger は取り消せない操作で、区切りの後ろに危険色で置く。
+ * kbd は打鍵の印。メニューが開いている間、その 1 字で選べる（「⋯」の p・d・a・u など）。
  */
-export type MenuItem = { key: string; label: string; icon?: IconName; note?: string | null; disabled?: string | null; danger?: boolean; onSelect: () => void };
+export type MenuItem = { key: string; label: string; icon?: IconName; note?: string | null; disabled?: string | null; danger?: boolean; kbd?: string; onSelect: () => void };
+
+export type MenuCloseHow = 'select' | 'escape' | 'tab' | 'outside';
 
 /**
  * 押すと開くガラスのメニュー（WAI-ARIA の menu ボタンの作法）。
@@ -19,10 +22,12 @@ export type MenuItem = { key: string; label: string; icon?: IconName; note?: str
  * Esc は閉じてボタンへフォーカスを戻し、Tab と外を押したときは閉じるだけにする。
  * 押せない項目にもフォーカスは止まる。
  * 理由を読めるようにするためである。
+ * onClose は閉じたときに、閉じ方（項目を選んだ・Esc・Tab・外を押した）を添えて呼ぶ。
+ * 行の中の「⋯」のように、呼んだ側がフォーカスの戻し先を決めるのに使う。
  * 面は document.body への portal に描く。
  * 見出しの段やカードの overflow で切られないようにするため。
  */
-export function MenuButton(props: { label: string; items: MenuItem[]; face?: ReactNode; faceClassName?: string; title?: string; minWidth?: number; align?: 'start' | 'end' }) {
+export function MenuButton(props: { label: string; items: MenuItem[]; face?: ReactNode; faceClassName?: string; title?: string; minWidth?: number; align?: 'start' | 'end'; onClose?: (how: MenuCloseHow) => void }) {
   const [open, setOpen] = useState<null | 'first' | 'last'>(null);
   const [pos, setPos] = useState<Placement | null>(null);
   const face = useRef<HTMLButtonElement>(null);
@@ -33,10 +38,12 @@ export function MenuButton(props: { label: string; items: MenuItem[]; face?: Rea
 
   const rows = () => [...(pop.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
   const show = (from: 'first' | 'last') => { setPos(null); setOpen(from); };
-  const hide = (refocus: boolean) => {
+  const hide = (refocus: boolean, how: MenuCloseHow) => {
     setOpen(null);
     setPos(null);
     if (refocus) face.current?.focus();
+    // フォーカスをボタンへ戻したあとに呼ぶ。呼んだ側が別の場所へ戻したいときは、これで上書きできる。
+    props.onClose?.(how);
   };
 
   const reposition = useCallback(() => {
@@ -60,7 +67,7 @@ export function MenuButton(props: { label: string; items: MenuItem[]; face?: Rea
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
       if (pop.current?.contains(t) || face.current?.contains(t)) return;
-      hide(false);
+      hide(false, 'outside');
     };
     document.addEventListener('mousedown', onDown);
     window.addEventListener('resize', reposition);
@@ -75,7 +82,7 @@ export function MenuButton(props: { label: string; items: MenuItem[]; face?: Rea
 
   const choose = (item: MenuItem) => {
     if (item.disabled) return;
-    hide(true);
+    hide(true, 'select');
     item.onSelect();
   };
 
@@ -98,11 +105,17 @@ export function MenuButton(props: { label: string; items: MenuItem[]; face?: Rea
       case 'ArrowUp': go(at < 0 ? all.length - 1 : at - 1); break;
       case 'Home': go(0); break;
       case 'End': go(all.length - 1); break;
-      case 'Escape': hide(true); break;
+      case 'Escape': hide(true, 'escape'); break;
       case 'Enter': case ' ': { const item = props.items[at]; if (item) choose(item); break; }
       // Tab はボタンへ戻してから既定の動きに任せ、ボタンの次へ進ませる。
-      case 'Tab': hide(true); return;
-      default: return;
+      case 'Tab': hide(true, 'tab'); return;
+      default: {
+        // 打鍵の印のある項目は、その 1 字で選ぶ。修飾の付いた打鍵はアプリ全体のものなので使わない。
+        const hit = !e.metaKey && !e.ctrlKey && !e.altKey ? props.items.find((it) => it.kbd !== undefined && it.kbd === e.key) : undefined;
+        if (!hit) return;
+        choose(hit);
+        break;
+      }
     }
     e.preventDefault();
     e.stopPropagation();
@@ -113,7 +126,7 @@ export function MenuButton(props: { label: string; items: MenuItem[]; face?: Rea
     <>
       <button ref={face} type="button" className={props.faceClassName ?? 'btn btn-icon'} aria-label={props.face === undefined ? props.label : undefined} title={props.title ?? (props.face === undefined ? props.label : undefined)}
         aria-haspopup="menu" aria-expanded={open !== null} aria-controls={open ? menuId : undefined}
-        onClick={() => (open ? hide(false) : show('first'))} onKeyDown={onFaceKey}>
+        onClick={() => (open ? hide(false, 'outside') : show('first'))} onKeyDown={onFaceKey}>
         {props.face ?? <Icon name="more" />}
       </button>
       {open && createPortal(
@@ -129,6 +142,7 @@ export function MenuButton(props: { label: string; items: MenuItem[]; face?: Rea
                   <span>{item.label}</span>
                   {(item.disabled || item.note) && <small>{item.disabled ?? item.note}</small>}
                 </span>
+                {item.kbd && <kbd className="menu-kbd">{item.kbd}</kbd>}
               </button>
             </Fragment>
           ))}

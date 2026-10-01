@@ -86,6 +86,7 @@ describe('キーマップ', () => {
 
   it('一覧の上下は矢印でも動くことを一覧に書く', () => {
     expect(KEYMAP.find((b) => b.id === 'list.move')?.keys).toBe('j / k / ↑ / ↓');
+    expect(KEYMAP.find((b) => b.id === 'list.state')?.keys).toBe('.');
   });
 
   it('タブの列とターンの目次の矢印も、セッションの節に載せる', () => {

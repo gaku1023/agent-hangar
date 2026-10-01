@@ -1,13 +1,39 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { useEmit } from '../intent/chain.tsx';
-import type { SessionRowProps } from '../presenters/row.ts';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import type { SessionStatus } from '@agent-hangar/shared';
+import { useEmit, type Emit } from '../intent/chain.tsx';
+import { returnOnLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { MenuButton, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
 import { RelativeTime } from './primitives/RelativeTime.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { VirtualList } from './primitives/VirtualList.tsx';
 
 /** 本文が消えた会話の印の説明。行ごとに変わらない決まり文句なので、空の一覧の文言と同じく View に置く。 */
 const GONE_LABEL = '要約のみ。本文は Claude Code の保持期間で削除されたとみられます';
+/** 会話の中で利用者が選んだ状態（set_by が conversation）の札の注記。hangar は会話での承認を確かめられないので、後から分かるようにする。 */
+const CONVERSATION_NOTE = '会話で承認';
+/**
+ * 動きの語。入力待ちと実行中だけを語にし、止まっているものは点だけにする。
+ * 休みは実行中に数える（shared の liveFilterOf と同じ）。細かい区別は点が読み上げるので、語は読み上げに重ねない。
+ */
+const LIVE_WORD = { waiting: '入力待ち', busy: '実行中', idle: '実行中' } as const;
+
+/**
+ * 行の中の操作の器のクリックを止める。止めないと、押したときに行も開く。
+ * メニューは document.body への portal に描くが、React のイベントは portal の中からも React の木を伝ってここへ上がるので、項目のクリックもここで止まる。
+ */
+const stopClick = (e: ReactMouseEvent) => e.stopPropagation();
+
+/** 「⋯」の 4 択（A2）。打鍵の印は試作 rest.html の A2 のとおり。付いている状態と、外すものの無い「印なしに戻す」は理由を添えて押せなくする。 */
+function stateItems(r: SessionRowProps, emit: Emit): MenuItem[] {
+  const set = (status: SessionStatus | null) => () => emit({ type: 'session.state.set', id: r.id, status });
+  return [
+    { key: 'paused', label: 'Paused にする…', kbd: 'p', onSelect: () => emit({ type: 'session.pause.open', id: r.id, from: 'menu' }) },
+    { key: 'done', label: 'Done にする', kbd: 'd', disabled: r.state === 'done' ? 'すでに Done です' : null, onSelect: set('done') },
+    { key: 'archived', label: 'Archived にする', kbd: 'a', disabled: r.state === 'archived' ? 'すでに Archived です' : null, onSelect: set('archived') },
+    { key: 'none', label: '印なしに戻す', kbd: 'u', disabled: r.state === null && r.candidate === null ? '印は付いていません' : null, onSelect: set(null) },
+  ];
+}
 
 /** 2 段の行の高さ。tokens.css の --session-row-h と同じ値にする（styles/rows.test.ts が突き合わせる）。 */
 export const SESSION_ROW_H = 56;
@@ -69,6 +95,9 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
   // 打鍵でカーソルを動かしたときだけ、フォーカスをその行へ運ぶ。
   // 行の中のボタンへ Tab で入ったときもカーソルは動くが、そのときにフォーカスを行へ引き戻してはいけない。
   const byKey = useRef(false);
+  // 打鍵 . で開いた「⋯」の行の id。閉じたら（項目を選んでも Esc でも）フォーカスをその行へ戻す。
+  // 戻さないと、フォーカスは「⋯」のボタンに残り、一覧は行以外から来た打鍵を捨てるので j・Enter・2 回目の . が効かなくなる。
+  const menuFromKey = useRef<string | null>(null);
   const cursorRow = () => hostRef.current?.querySelector<HTMLElement>('[data-cursor="true"]') ?? null;
 
   // 仮想リストは画面の外の行を描かないので、カーソルが可視範囲を出たら見える位置まで運ぶ。
@@ -124,6 +153,13 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
   }, [editing]);
   const commit = (id: string) => { emit({ type: 'session.setMemo', id, text: draft }); endEdit(); };
 
+  // 「⋯」が閉じた。打鍵で開いたものを選んで閉じた・Esc で閉じたときは、フォーカスを行へ戻す。外を押した・Tab はそれぞれの行き先に任せる。
+  const menuClosed = (id: string, how: MenuCloseHow) => {
+    const fromKey = menuFromKey.current === id;
+    menuFromKey.current = null;
+    if (fromKey && (how === 'select' || how === 'escape')) cursorRow()?.focus({ preventScroll: true });
+  };
+
   const onKeyDown = (e: ReactKeyboardEvent) => {
     // 編集中の入力欄から上がってきたキーは横取りしない。
     if (editing !== null) return;
@@ -141,6 +177,8 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
       case 'o': if (cur?.runId) emit({ type: 'session.openTerminalApp', runId: cur.runId }); break;
       case 'e': if (cur) emit({ type: 'session.openEditor', sessionId: cur.id }); break;
       case 'm': if (cur) startEdit(cur); break;
+      // 状態の 4 択。カーソルの行の「⋯」を押したのと同じにする（見えていなくても押せる）。
+      case '.': if (cur) { cursorRow()?.querySelector<HTMLButtonElement>('.row-more button')?.click(); menuFromKey.current = cur.id; } break;
       default: return;
     }
     e.preventDefault();
@@ -165,7 +203,10 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
     const excerpt = props.variant === 'search' && r.excerpt && r.excerpt.length > 0 ? r.excerpt : null;
     return (
       <span className="row-sub">
-        {r.summaryState && <span className="row-state" data-tone={r.summaryState.tone ?? undefined}>{r.summaryState.label}</span>}
+        {/* Paused は 2 段目の頭に戻る日の札を出す（四角の札は出さない）。当日と過ぎたものは塗る。 */}
+        {r.state === 'paused' && r.returnOn
+          ? <span className="row-return" data-due={r.overdueDays !== null ? 'true' : undefined} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{returnOnLabel(r.returnOn, r.overdueDays)}</span>
+          : r.summaryState && <span className="row-state" data-tone={r.summaryState.tone ?? undefined}>{r.summaryState.label}</span>}
         <span className={excerpt ? 'row-text mono' : 'row-text'}>{excerpt ? excerpt.map((s, i) => (s.hit ? <mark key={i} className="hit">{s.text}</mark> : <span key={i}>{s.text}</span>)) : r.oneLiner}</span>
         {props.variant === 'project' && r.memo && <span className="row-memo">✎ {r.memo}</span>}
         {props.variant === 'project' && <button type="button" className="btn memo-pencil" aria-label={`${r.name} のメモを編集`} onClick={(e) => { e.stopPropagation(); startEdit(r); }}><Icon name="edit" /></button>}
@@ -184,11 +225,16 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
           {r.cost && <span className="mono">{r.cost}</span>}
         </span>
       )}
-      {/* 本文の期限。消えかけは琥珀のチップで先に知らせ、消えた会話は文字の無い印だけにする。
-          消えた会話は数百件に上るので、文字を並べると一覧が騒がしくなる。 */}
+      {/* 本文の期限の印、動きの語、提案の札、状態の札、「⋯」を時刻の左に並べる（設計の「行」の順）。
+          消えかけは琥珀のチップで先に知らせ、消えた会話は文字の無い印だけにする。消えた会話は数百件に上るので、文字を並べると一覧が騒がしくなる。 */}
       <span className="row-when">
         {r.transcript === 'expiring' && <span className="row-soon">まもなく削除</span>}
         {r.transcript === 'gone' && <span className="row-gone" title={GONE_LABEL}><Icon name="transcriptGone" label={GONE_LABEL} /></span>}
+        {r.live && <span className="row-live" data-live={r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{LIVE_WORD[r.live]}</span>}
+        {(r.state === 'done' || r.state === 'archived') && <span className="row-sq" data-s={r.state} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{STATUS_LABEL[r.state]}</span>}
+        <span className="row-act row-more" onClick={stopClick}>
+          <MenuButton label={`${r.name} の状態`} items={stateItems(r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={220} onClose={(how) => menuClosed(r.id, how)} />
+        </span>
         <RelativeTime label={r.when} abs={r.whenAbs} />
       </span>
     </span>

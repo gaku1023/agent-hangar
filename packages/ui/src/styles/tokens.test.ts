@@ -59,6 +59,19 @@ describe('tokens.css (候補)', () => {
   });
 });
 
+describe('tokens.css（セッションの状態）', () => {
+  const rows = fs.readFileSync(new URL('./rows.css', import.meta.url), 'utf8');
+  it('塗りの戻る日の札は、--st-paused の地に白い文字で 4.5:1 を超える', () => {
+    expect(rows).toMatch(/\.row-return\[data-due='true'\] \{[^}]*color: #ffffff;[^}]*background: var\(--st-paused\);/);
+    expect(contrast('#ffffff', token('--st-paused'))).toBeGreaterThan(4.5);
+  });
+  it('淡い地の札と枠だけの提案の札の文字も 4.5:1 を超える', () => {
+    for (const [fg, bg] of [['--st-paused', '--st-paused-soft'], ['--st-done', '--st-done-soft'], ['--st-archived', '--st-archived-soft'], ['--cand', '--surface'], ['--cand', '--accent-soft']] as const) {
+      expect(contrast(token(fg), token(bg)), `${fg} / ${bg}`).toBeGreaterThan(4.5);
+    }
+  });
+});
+
 describe('base.css', () => {
   it('ダイアログは --dur の長さと --ease-out の曲線で開く', () => {
     expect(base).toMatch(/\.dialog \{[^}]*animation: pop var\(--dur\) var\(--ease-out\)/);

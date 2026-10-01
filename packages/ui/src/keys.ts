@@ -9,7 +9,7 @@ export type KeyId =
   | 'nav.back' | 'nav.forward' | 'overlay.close'
   | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'transcript.find' | 'tab.move' | 'turn.move'
   | 'terminal.fontBigger' | 'terminal.fontSmaller' | 'terminal.fontReset'
-  | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.memo';
+  | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.memo' | 'list.state';
 
 export type KeyGroup = 'global' | 'session' | 'list';
 
@@ -58,6 +58,7 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'list.terminal', group: 'list', keys: 'o', label: 'ターミナルで開く', chords: [] },
   { id: 'list.editor', group: 'list', keys: 'e', label: 'エディタで開く', chords: [] },
   { id: 'list.memo', group: 'list', keys: 'm', label: 'メモを書く', chords: [] },
+  { id: 'list.state', group: 'list', keys: '.', label: '状態を変える（⋯）', chords: [] },
 ];
 
 export const GROUP_LABEL: Record<KeyGroup, string> = { global: 'どこでも', session: 'セッション', list: '一覧' };
