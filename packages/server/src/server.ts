@@ -402,6 +402,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   let settings: Settings = resolveToolPaths(loadSettings(home));
   saveSettings(home, settings);
   ensureWrapperScript(home);
+  // 包み方の本体は hangar の版と揃える。~/.zshrc の 1 行はこのファイルを読むだけなので、更新はここで行き渡る。
+  ensureShellScript(home);
   const fixed = ensureSpawnHelper();
   if (fixed.length) console.log('[pty] spawn-helper に実行権限を付けました:', fixed.join(', '));
 
@@ -576,9 +578,6 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   const addr = server.address();
   const port = addr && typeof addr === 'object' ? addr.port : opts.port ?? 4177;
-  // 包み方の本体は hangar の版と揃える。~/.zshrc の 1 行はこのファイルを読むだけなので、更新はここで行き渡る。
-  // 抜けるときの状態の問いはこのサーバへ送るので、待ち受けが決まってから実際のポートを埋め込んで書く（port: 0 と HANGAR_PORT のため）。
-  ensureShellScript(home, port);
   // 待ち受けは起動の手続きより先に始まる。/health はこの時点から返るので、ここで一度知らせる。
   console.log(`agent-hangar listening on http://${host}:${port}${settings.tmuxPath ? '' : '（tmux が見つからないため起動は使えません）'}`);
 

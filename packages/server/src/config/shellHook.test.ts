@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { claudeSupportsBackground, embeddedShellPort, ensureShellScript, installShellHook, SHELL_MARKER, shellHookInstalled, shellHookLine, shellHookState, shellInstallCommand, shellScriptPath, uninstallShellHook, zshrcPath } from './shellHook.ts';
+import { claudeSupportsBackground, ensureShellScript, installShellHook, SHELL_MARKER, shellHookInstalled, shellHookLine, shellHookState, shellInstallCommand, shellScriptPath, uninstallShellHook, zshrcPath } from './shellHook.ts';
 
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-shell-')); });
@@ -73,29 +73,18 @@ describe('この PC の状態', () => {
 
 const ZSH = fs.existsSync('/bin/zsh') ? '/bin/zsh' : null;
 
-/** 試験の zsh が送る先のポート。4177 で動く利用者の hangar に届かないよう、別の番号にする。 */
-const TEST_PORT = 4321;
-
-/** 直前の runWrapped の画面の出力と、偽の curl が受けた引数と本文。 */
-let last: { out: string; curl: string[]; bodies: string[] } = { out: '', curl: [], bodies: [] };
-
 /**
  * 包み方の本体を、本物の zsh で疑似端末の上に動かす。
  * 偽の claude は受け取った引数を 1 行ずつ記録し、--bg と agents には決まった出力を返す。
  * --bg が返す id は、tmux の上で hangar-run.sh … attach <id> を動かす manager のテストと重ならないものにする。重なると hangar が開いていると見てしまう。
- * 偽の curl は引数と本文を記録する。exitPrompt を渡したときだけ exit-prompt に答え、無ければ繋がらないとき（7）で終わる。
- * 鍵のヘッダは header を true にしたときだけ置く。置かない既定では、状態の問いは curl を呼ぶ前に飛ばされる。
  */
-function runWrapped(args: string, o: { bgFails?: boolean; agents?: string; tty?: boolean; input?: string; answer?: string; hangarOpen?: string; transcript?: string; header?: boolean; exitPrompt?: string; postFails?: boolean } = {}): string[] {
+function runWrapped(args: string, o: { bgFails?: boolean; agents?: string; tty?: boolean; input?: string; hangarOpen?: string; transcript?: string } = {}): string[] {
   const home = path.join(dir, 'home');
-  ensureShellScript(home, TEST_PORT);
-  if (o.header) fs.writeFileSync(path.join(home, 'statusline-header'), 'Authorization: Bearer secret-token\n', { mode: 0o600 });
+  ensureShellScript(home);
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin, { recursive: true });
   const log = path.join(dir, 'calls.log');
-  const curlLog = path.join(dir, 'curl.log');
-  const bodyLog = path.join(dir, 'curl-body.log');
-  for (const f of [log, curlLog, bodyLog]) fs.writeFileSync(f, '');
+  fs.writeFileSync(log, '');
   fs.writeFileSync(path.join(dir, 'agents.json'), o.agents ?? '[]\n');
   fs.writeFileSync(path.join(bin, 'claude'), [
     '#!/bin/sh',
@@ -104,19 +93,6 @@ function runWrapped(args: string, o: { bgFails?: boolean; agents?: string; tty?:
     `  --bg) ${o.bgFails ? 'echo "Workspace not trusted." >&2; exit 1' : 'echo "Starting background service…" >&2; echo "backgrounded · 5e11600c (idle — send a prompt to start)"; echo "  claude agents             list sessions"'} ;;`,
     `  agents) cat "${path.join(dir, 'agents.json')}" ;;`,
     '  stop) echo "stopped $2" ;;',
-    'esac',
-    '',
-  ].join('\n'), { mode: 0o755 });
-  const promptFile = path.join(dir, 'exit-prompt.txt');
-  fs.rmSync(promptFile, { force: true });
-  if (o.exitPrompt !== undefined) fs.writeFileSync(promptFile, o.exitPrompt);
-  fs.writeFileSync(path.join(bin, 'curl'), [
-    '#!/bin/sh',
-    `printf '%s\\n' "$*" >> "${curlLog}"`,
-    `case "$*" in *--data-binary*) cat >> "${bodyLog}" ;; esac`,
-    'case "$*" in',
-    `  *exit-prompt*) [ -f "${promptFile}" ] || exit 7; cat "${promptFile}" ;;`,
-    `  */state*) ${o.postFails ? 'exit 22' : "echo '{}'"} ;;`,
     'esac',
     '',
   ].join('\n'), { mode: 0o755 });
@@ -133,26 +109,22 @@ function runWrapped(args: string, o: { bgFails?: boolean; agents?: string; tty?:
     hangar = spawn('/bin/sh', [runner, path.join(dir, 'run.log'), '/x/claude', 'attach', o.hangarOpen], { stdio: 'ignore' });
   }
   const inner = `source ${JSON.stringify(shellScriptPath(home))}; claude ${args}`;
-  const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin`, HANGAR_NO_WRAP: '', CLAUDE_CONFIG_DIR: config, HANGAR_TEST_INNER: inner, HANGAR_TEST_INPUT: o.input ?? '', HANGAR_TEST_ANSWER: o.answer ?? '', HANGAR_TEST_LOG: log, HANGAR_TEST_CURL_LOG: curlLog, HANGAR_TEST_ZSH: ZSH! };
+  const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin`, HANGAR_NO_WRAP: '', CLAUDE_CONFIG_DIR: config, HANGAR_TEST_INNER: inner, HANGAR_TEST_INPUT: o.input ?? '', HANGAR_TEST_LOG: log, HANGAR_TEST_ZSH: ZSH! };
   // script(1) が疑似端末を用意するので、包み方は端末の上で動いていると見る。
   // 尋ねられる場面では、attach から抜けた後に状態を引くまで待ってから input を打つ。先に打つと read -q が始まるときに捨てられる。
-  // 状態の問いの answer も同じ理由で、curl が exit-prompt を引いた後に打つ。
   // script(1) は node の pipe（ソケット）を標準入力に取れないので、sh のパイプで渡す。
   const typed = [
     '(i=0; until awk \'/^\\[attach/ { a = 1 } a && /^\\[agents --json\\]/ { f = 1 } END { exit !f }\' "$HANGAR_TEST_LOG" || [ $i -ge 100 ]; do sleep 0.05; i=$((i + 1)); done',
-    '; sleep 0.3; printf %s "$HANGAR_TEST_INPUT"',
-    '; if [ -n "$HANGAR_TEST_ANSWER" ]; then i=0; until grep -q exit-prompt "$HANGAR_TEST_CURL_LOG" || [ $i -ge 100 ]; do sleep 0.05; i=$((i + 1)); done; sleep 0.3; printf %s "$HANGAR_TEST_ANSWER"; fi)',
+    '; sleep 0.3; printf %s "$HANGAR_TEST_INPUT")',
     ' | /usr/bin/script -q /dev/null "$HANGAR_TEST_ZSH" -f -c "$HANGAR_TEST_INNER"',
   ].join('');
   try {
     const r = o.tty === false
       ? spawnSync(ZSH!, ['-f', '-c', inner], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-      : o.input !== undefined || o.answer !== undefined
+      : o.input !== undefined
         ? spawnSync('/bin/sh', ['-c', typed], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
         : spawnSync('/usr/bin/script', ['-q', '/dev/null', ZSH!, '-f', '-c', inner], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     if (r.error) throw r.error;
-    const lines = (f: string) => fs.readFileSync(f, 'utf8').split('\n').filter(Boolean);
-    last = { out: r.stdout, curl: lines(curlLog), bodies: lines(bodyLog) };
   } finally {
     hangar?.kill();
   }
@@ -235,108 +207,5 @@ describe.skipIf(!ZSH)('抜けたときの後始末（zsh 上）', () => {
   it('-r で attach だけにしたときも、抜けたら同じように後始末する', () => {
     const agents = agentsOf(job({ id: '480a20da', sessionId: UUID, state: 'done', status: 'idle', pid: 7 }));
     expect(runWrapped(`-r ${UUID}`, { agents })).toEqual(['agents --json', 'attach 480a20da', 'agents --json', 'stop 480a20da']);
-  });
-});
-
-/** 手元の暦の明日。zsh の date -v+1d と同じ日になる。 */
-const tomorrow = (): string => { const d = new Date(); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-const ASK = 'このセッションをどうしますか？ [d] Done  [p] 明日の Paused  [Enter] そのまま';
-const EXIT_URL = `http://127.0.0.1:${TEST_PORT}/api/sessions/by-provider/${NEW_SID}/exit-prompt`;
-const STATE_URL = `http://127.0.0.1:${TEST_PORT}/api/sessions/by-provider/${NEW_SID}/state`;
-
-describe('書き出す本体', () => {
-  it('ポートと鍵のヘッダの置き場を埋め込み、鍵そのものは書かない', () => {
-    const home = path.join(dir, 'home');
-    const file = ensureShellScript(home, 4321);
-    const body = fs.readFileSync(file, 'utf8');
-    expect(body).toContain('__agent_hangar_port=4321\n');
-    expect(body).toContain(`__agent_hangar_header='${path.join(home, 'statusline-header')}'\n`);
-    expect(body).toContain(ASK);
-    expect(body).toContain('-m 1');
-    expect(body).not.toContain('Bearer');
-  });
-  it('ポートを渡さない書き出し（hangar shell install）は、前のポートを引き継ぎ、無ければ 4177 にする', () => {
-    const home = path.join(dir, 'home');
-    ensureShellScript(home, 4321);
-    ensureShellScript(home);
-    expect(embeddedShellPort(shellScriptPath(home))).toBe(4321);
-    const fresh = path.join(dir, 'fresh');
-    ensureShellScript(fresh);
-    expect(embeddedShellPort(shellScriptPath(fresh))).toBe(4177);
-  });
-  it.skipIf(!ZSH)('置き場に引用符や空白があっても、zsh が読める形で埋め込む', () => {
-    const home = path.join(dir, "it's my home");
-    const file = ensureShellScript(home, 4321);
-    const r = spawnSync(ZSH!, ['-f', '-c', `source ${JSON.stringify(file)}; print -r -- "$__agent_hangar_header"`], { encoding: 'utf8' });
-    expect(r.status).toBe(0);
-    expect(r.stdout).toBe(`${path.join(home, 'statusline-header')}\n`);
-  });
-});
-
-describe.skipIf(!ZSH)('抜けたときの状態の問い（zsh 上）', () => {
-  const ask = { transcript: NEW_SID, header: true, exitPrompt: 'ask\n\n\n' };
-  it('本文のある会話を止めた後に聞き、d なら Done を送る', () => {
-    expect(runWrapped('', { agents: launched('done'), ...ask, answer: 'd' })).toEqual(['--bg', 'attach 5e11600c', 'agents --json', 'stop 5e11600c']);
-    expect(last.out).toContain(ASK);
-    expect(last.out).toContain('Done にしました。');
-    expect(last.curl[0]).toBe(`-sf -m 1 -H @${path.join(dir, 'home', 'statusline-header')} ${EXIT_URL}`);
-    expect(last.curl[1]).toContain(STATE_URL);
-    // 鍵は -H @<ファイル> で読ませ、argv には載せない。
-    expect(last.curl.join('\n')).not.toContain('secret-token');
-    expect(last.bodies.map((b) => JSON.parse(b))).toEqual([{ status: 'done' }]);
-  });
-  it('p なら明日の Paused を送り、理由には提案の根拠を入れる。引用符と \\ が入っても JSON が壊れない', () => {
-    const note = '"本番"で確かめる\\ C:\\tmp';
-    runWrapped('', { agents: launched('done'), ...ask, exitPrompt: `ask\nClaude の提案：Paused · 10/3（${note}）\n${note}\n`, answer: 'p' });
-    expect(last.out).toContain(`Claude の提案：Paused · 10/3（${note}）`);
-    const day = tomorrow();
-    expect(last.bodies.map((b) => JSON.parse(b))).toEqual([{ status: 'paused', returnOn: day, note }]);
-    expect(last.out).toContain(`${day} に戻る Paused にしました。`);
-  });
-  it('Enter とほかの打鍵は何も送らない', () => {
-    runWrapped('', { agents: launched('done'), ...ask, answer: '\r' });
-    expect(last.out).toContain(ASK);
-    expect(last.bodies).toEqual([]);
-    runWrapped('', { agents: launched('done'), ...ask, answer: 'x' });
-    expect(last.bodies).toEqual([]);
-  });
-  it('作業中で止めるかを尋ねたときは、その答えの後に聞く', () => {
-    expect(runWrapped('', { agents: launched('working', 'busy'), ...ask, input: 'n', answer: 'd' })).toEqual(['--bg', 'attach 5e11600c', 'agents --json']);
-    expect(last.out.indexOf('止めますか？')).toBeLessThan(last.out.indexOf(ASK));
-    expect(last.bodies.map((b) => JSON.parse(b))).toEqual([{ status: 'done' }]);
-  });
-  it('状態がもう付いているとき（skip）は聞かない', () => {
-    runWrapped('', { agents: launched('done'), ...ask, exitPrompt: 'skip\n' });
-    expect(last.out).not.toContain(ASK);
-    expect(last.bodies).toEqual([]);
-  });
-  it('hangar に繋がらない、または 1 秒で返らないときは聞かずに後始末を終える', () => {
-    // 偽の curl は exit-prompt が無いと 7（繋がらない）で終わる。-m 1 の時間切れ（28）と 404（-f で 22）も同じく失敗として扱う。
-    expect(runWrapped('', { agents: launched('done'), transcript: NEW_SID, header: true })).toEqual(['--bg', 'attach 5e11600c', 'agents --json', 'stop 5e11600c']);
-    expect(last.curl).toHaveLength(1);
-    expect(last.out).not.toContain(ASK);
-  });
-  it('鍵のヘッダのファイルが無ければ、curl を呼ばずに飛ばす', () => {
-    runWrapped('', { agents: launched('done'), transcript: NEW_SID, exitPrompt: 'ask\n\n\n' });
-    expect(last.curl).toEqual([]);
-    expect(last.out).not.toContain(ASK);
-  });
-  it('本文が無い会話と、hangar が開いている会話には聞かない', () => {
-    runWrapped('', { agents: launched('done'), header: true, exitPrompt: 'ask\n\n\n' });
-    expect(last.curl).toEqual([]);
-    runWrapped('', { agents: launched('done'), ...ask, hangarOpen: '5e11600c' });
-    expect(last.curl).toEqual([]);
-  });
-  it('送れなかったら 1 行だけ知らせ、止める後始末はそのまま済ませる', () => {
-    expect(runWrapped('', { agents: launched('blocked'), ...ask, postFails: true, input: 'y', answer: 'd' })).toEqual(['--bg', 'attach 5e11600c', 'agents --json', 'stop 5e11600c']);
-    expect(last.out).toContain('hangar に届きませんでした。');
-  });
-  it('/exit で抜けて止まっている（pid が無い）会話でも、本文があれば聞く。止めるかは聞かない', () => {
-    const stopped = agentsOf(job({ id: '5e11600c', sessionId: NEW_SID, state: 'done' }));
-    expect(runWrapped('', { agents: stopped, ...ask, answer: 'd' })).toEqual(['--bg', 'attach 5e11600c', 'agents --json']);
-    expect(last.out).not.toContain('止めますか？');
-    expect(last.out).toContain(ASK);
-    expect(last.curl[0]).toBe(`-sf -m 1 -H @${path.join(dir, 'home', 'statusline-header')} ${EXIT_URL}`);
-    expect(last.bodies.map((b) => JSON.parse(b))).toEqual([{ status: 'done' }]);
   });
 });

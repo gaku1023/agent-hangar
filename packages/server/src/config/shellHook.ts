@@ -2,13 +2,9 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { statuslineHeaderPath } from './statusline.ts';
 
 /** ~/.zshrc に足す行の目印。外すときはこの目印の付いた行だけを消す。 */
 export const SHELL_MARKER = '# agent-hangar';
-
-/** 書き出したファイルにポートが無いときに使うポート。サーバの既定と同じ。 */
-export const DEFAULT_SHELL_PORT = 4177;
 
 /** 包み方の本体の置き場。hangar が起動のたびに書き直す。 */
 export function shellScriptPath(home: string): string {
@@ -39,20 +35,13 @@ export function shellHookLine(home: string, homedir: string = os.homedir()): str
  * 抜けたときは、hangar が同じセッションを開いていなければ止める。作業中と、許可や質問への答えを待っているときは尋ねる。
  * 何もしないと、抜けても claude はバックグラウンドで動き続け、終えたつもりのセッションが残る。
  * 包めないとき（古い Claude Code、管理設定で切られている、信頼していないフォルダ）は、素の claude を起動する。
- * 本文のある会話を抜けたときは、セッションの状態（Done か明日の Paused）を 1 打鍵で聞き、hangar へ送る。
- * 送り先のポートと鍵のヘッダのファイルは、書き出すときに埋め込む。
  */
-export function shellScript(o: { port: number; headerFile: string }): string {
+export function shellScript(): string {
   return `# agent-hangar が置くファイルです。hangar が起動のたびに書き直すので、手で直しても戻ります。
 # ターミナルで起動した claude を Claude のバックグラウンドのサービスで起こし、すぐこのターミナルにつなぎます。
 # そうしておくと、hangar からも同じセッションを開けます。
 # 抜けたとき、hangar で開いていないセッションは止めます。作業中か答えを待っているときは、止めるかを尋ねます。
 # 1 回だけ包まずに起動するときは \`command claude\`、ずっとやめるときは \`hangar shell uninstall\` です。
-# 本文のある会話を抜けたときは、そのセッションを Done にするか明日の Paused にするかを 1 打鍵で聞きます。
-
-# 状態を送る hangar のポートと、curl に読ませる鍵のヘッダのファイル。hangar が書き出すときに埋め込む。
-__agent_hangar_port=${o.port}
-__agent_hangar_header=${zshQuote(o.headerFile)}
 
 # 動いているセッションの一覧から、その会話の kind と短い id を拾う。見つからなければ何も出さない。
 __agent_hangar_job() {
@@ -63,8 +52,7 @@ __agent_hangar_job() {
     /^  }/ { if (s == want) { print k " " j; exit } j = ""; k = ""; s = "" }'
 }
 
-# 動いているセッションの一覧から、その短い id の state、status、会話の id を拾う。
-# 止まっている（pid が無い）ものは、state の代わりに stopped と出す。/exit で抜けたときはこの形になる。一覧に無ければ何も出さない。
+# 動いているセッションの一覧から、その短い id の state、status、会話の id を拾う。止まっている（pid が無い）ものは何も出さない。
 __agent_hangar_state() {
   command claude agents --json 2>/dev/null | awk -v want="$1" '
     /^    "pid":/ { p = 1 }
@@ -72,40 +60,7 @@ __agent_hangar_state() {
     /^    "sessionId":/ { s = $2; gsub(/[",]/, "", s) }
     /^    "status":/ { u = $2; gsub(/[",]/, "", u) }
     /^    "state":/ { t = $2; gsub(/[",]/, "", t) }
-    /^  }/ { if (j == want) { print (p ? t : "stopped") " " (u == "" ? "-" : u) " " s; exit } p = 0; j = ""; s = ""; u = ""; t = "" }'
-}
-
-# 抜けた会話の状態を 1 打鍵で聞き、hangar へ送る。引数は Claude 側のセッション ID。
-# 鍵のヘッダが無い、hangar が 1 秒で返らない、索引にまだ無い、状態がもう付いている、のどれかなら聞かない。
-# 送れなかったときは 1 行だけ知らせる。後始末はこの関数の外で続く。
-__agent_hangar_ask_status() {
-  local url="http://127.0.0.1:$__agent_hangar_port/api/sessions/by-provider/$1" res key body day note
-  [[ -r "$__agent_hangar_header" ]] || return 0
-  # 1 行目が ask か skip、2 行目が頭に出す提案、3 行目が Paused の理由の下書き。
-  res=$(command curl -sf -m 1 -H @"$__agent_hangar_header" "$url/exit-prompt" 2>/dev/null) || return 0
-  local -a l
-  l=("\${(@f)res}")
-  [[ "$l[1]" == ask ]] || return 0
-  [[ -n "$l[2]" ]] && print -r -- "$l[2]"
-  read -k 1 "key?このセッションをどうしますか？ [d] Done  [p] 明日の Paused  [Enter] そのまま "
-  print
-  case "$key" in
-    d|D) body='{"status":"done"}' ;;
-    p|P)
-      # 明日は手元の暦で数える。macOS の date に無ければ GNU の書き方を試す。
-      day=$(command date -v+1d +%F 2>/dev/null || command date -d tomorrow +%F 2>/dev/null)
-      [[ "$day" =~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' ]] || { print -r -- "明日の日付を作れませんでした。hangar から付けてください。"; return 0; }
-      # 理由は JSON の文字列に入れる。サーバが改行と制御文字を除いて渡すので、逃がすのは \\ と " だけでよい。
-      note=\${l[3]//\\\\/\\\\\\\\}
-      note=\${note//\\"/\\\\\\"}
-      body="{\\"status\\":\\"paused\\",\\"returnOn\\":\\"$day\\",\\"note\\":\\"$note\\"}" ;;
-    *) return 0 ;;
-  esac
-  if print -r -- "$body" | command curl -sf -m 2 -X POST -H 'Content-Type: application/json' -H @"$__agent_hangar_header" --data-binary @- "$url/state" >/dev/null 2>&1; then
-    [[ -n "$day" ]] && print -r -- "$day に戻る Paused にしました。" || print -r -- "Done にしました。"
-  else
-    print -r -- "hangar に届きませんでした。状態は hangar の画面から付けられます。"
-  fi
+    /^  }/ { if (j == want && p) { print t " " (u == "" ? "-" : u) " " s; exit } p = 0; j = ""; s = ""; u = ""; t = "" }'
 }
 
 # attach から抜けたときの後始末。hangar が同じセッションを開いていれば残す。ほかのターミナルでつないでいるかは見ない。
@@ -118,19 +73,12 @@ __agent_hangar_leave() {
   [[ -z "$st" ]] && return
   local -a f t
   f=(\${=st})
-  # 本文があるかは、状態を聞くかどうかと、入力待ちのまま黙って止めるかどうかの両方に使う。
-  t=("\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$f[3]".jsonl(N))
-  # もう止まっている（/exit で抜けた）ときは、止めるかは聞かず、本文があれば状態だけを聞く。
-  if [[ "$f[1]" == stopped ]]; then
-    (( \${#t} )) && __agent_hangar_ask_status "$f[3]"
-    return
-  fi
   if [[ "$f[1]" == done && "$f[2]" != busy ]]; then
     command claude stop "$id" >/dev/null 2>&1 && print -r -- "hangar で開いていないので、このセッションを止めました。続きは claude attach $id か hangar から開けます。"
-    (( \${#t} )) && __agent_hangar_ask_status "$f[3]"
     return
   fi
   # 何も打たずに抜けたセッションも入力待ちに見える。本文がまだ無ければ、黙って止める。
+  t=("\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$f[3]".jsonl(N))
   if [[ "$f[1]" == blocked && "$f[2]" != busy && \${#t} -eq 0 ]]; then
     command claude stop "$id" >/dev/null 2>&1
     return
@@ -144,7 +92,6 @@ __agent_hangar_leave() {
     print
     print -r -- "残しました。claude attach $id か hangar から開けます。止めるときは claude stop $id です。"
   fi
-  (( \${#t} )) && __agent_hangar_ask_status "$f[3]"
 }
 
 claude() {
@@ -198,26 +145,10 @@ claude() {
 `;
 }
 
-/** zsh の単一引用符で包む。中の ' は '\'' で閉じて開き直す。 */
-function zshQuote(s: string): string {
-  return `'${s.replaceAll("'", `'\\''`)}'`;
-}
-
-/** 書き出したファイルに埋め込んだポート。ファイルが無いか読めなければ null。 */
-export function embeddedShellPort(file: string): number | null {
-  const m = /^__agent_hangar_port=(\d+)$/m.exec(readText(file) ?? '');
-  return m ? Number(m[1]) : null;
-}
-
-/**
- * <home>/shell/claude.zsh を置く。中身が同じなら書かない。
- * ポートはサーバが待ち受けているものを渡す。
- * 渡さないとき（hangar shell install）は、前に書き出したポートを引き継ぎ、無ければ 4177 にする。
- * CLI が 4177 で上書きすると、別のポートで動くサーバへ次の起動まで届かなくなるためである。
- */
-export function ensureShellScript(home: string, port?: number): string {
+/** <home>/shell/claude.zsh を置く。中身が同じなら書かない。 */
+export function ensureShellScript(home: string): string {
   const file = shellScriptPath(home);
-  const body = shellScript({ port: port ?? embeddedShellPort(file) ?? DEFAULT_SHELL_PORT, headerFile: statuslineHeaderPath(home) });
+  const body = shellScript();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== body) fs.writeFileSync(file, body, { mode: 0o644 });
   return file;
