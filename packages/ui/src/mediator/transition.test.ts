@@ -354,6 +354,25 @@ describe('新しいセッションの下書きと前回値', () => {
     const c = run([intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })]);
     expect(c.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
   });
+  // 送った後に Esc で閉じても起動は止まらない。起動し終えたら、送った下書きは役目を終えている。
+  it('送信中に閉じても、ダイアログから送った起動が終われば下書きを消す', () => {
+    const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: 'やって' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', prompt: 'やって' } }), intent({ type: 'overlay.close' })]);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
+    expect(b.state.newSessionDraft).toBeNull();
+    expect(b.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: null });
+    expect(b.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's9' } });
+    // 一度消したら印も外す。次の再開の完了では、新しく書いた下書きに触れない。
+    const c = run([intent({ type: 'session.new.draft', name: '次', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], b.state);
+    expect(c.state.newSessionDraft).toEqual({ name: '次', prompt: '' });
+  });
+  it('ダイアログから送った起動に失敗したら、閉じていても下書きを残し、印を外す', () => {
+    const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n' } }), intent({ type: 'overlay.close' }), runtime({ type: 'launch.failed', message: 'x' })]);
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+    const b = run([intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], a.state);
+    expect(b.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+  });
   it('起動した詳細をプロジェクトごとの前回値として持ち、端末に残す', () => {
     const a = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: 'wt', addDirs: ['/a'] } })]);
     // worktree は前回値に残さない。同じ名前が毎回入ると、前の worktree の中で起動してしまうからである。
