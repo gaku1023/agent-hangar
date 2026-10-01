@@ -34,6 +34,12 @@
 .more-line:hover { background: color-mix(in srgb, var(--cand-soft) 70%, transparent); }
 .more-chevron { display: inline-flex; transition: transform var(--dur-fast) var(--ease-out); }
 .more-chevron[data-open='true'] { transform: rotate(180deg); }
+/* 今日戻るの札（C1）。要対応の札と同じ形で、縁に戻る日の黄土を薄く混ぜる。 */
+.return-card { box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-paused) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--st-paused) 40%, transparent); }
+/* 戻る日の札。当日と過ぎたものしか出ないので塗りつぶす。白い文字は --st-paused の地で 4.5 : 1 を超える（tokens.test.ts）。 */
+.return-when { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--surface); background: var(--st-paused); }
+/* セッションの提案の札（Q3）。枠だけの丸い札で、候補の色にする。 */
+.home-cand { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--cand); box-shadow: inset 0 0 0 1px var(--cand); }
 
 /* 実行中の札。3 列に並べ、いま何をしているかを墨の地の 1 行で見せる。 */
 .live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(var(--u) * 2.5); }

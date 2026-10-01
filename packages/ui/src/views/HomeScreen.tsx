@@ -1,8 +1,9 @@
 import { formatRoute, type Route } from '@agent-hangar/shared';
 import { useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
-import type { AttentionCard, ConfirmCard, HomeProps, RunningCard } from '../presenters/home.ts';
+import type { AttentionCard, ConfirmCard, HomeProps, ReturnCard, RunningCard } from '../presenters/home.ts';
 import type { OnboardingProps } from '../presenters/onboarding.ts';
+import { returnOnLabel } from '../presenters/row.ts';
 import { Onboarding } from './Onboarding.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { SESSION_ROW_H, SessionRows } from './SessionRows.tsx';
@@ -45,9 +46,9 @@ export function HomeScreen(props: HomeProps & { onboarding?: OnboardingProps | n
   return (
     <div className="screen home">
       <PageHeading title="ホーム" />
-      {props.attention.length > 0 && (
+      {(props.attention.length > 0 || props.returning.length > 0) && (
         <section>
-          <h2 className="home-label">要対応<span className="home-count">{props.attention.length}</span></h2>
+          <h2 className="home-label">要対応<span className="home-count">{props.attention.length + props.returning.length}</span></h2>
           {props.attention.map((a) => (
             <div key={a.id} className="ask-card">
               <StatusDot status="waiting" />
@@ -58,6 +59,7 @@ export function HomeScreen(props: HomeProps & { onboarding?: OnboardingProps | n
               <AnswerButton card={a} />
             </div>
           ))}
+          {props.returning.map((r) => <ReturnCardView key={r.id} card={r} />)}
         </section>
       )}
       {props.running.length > 0 && (
@@ -132,8 +134,8 @@ function ConfirmSection(props: { cards: ConfirmCard[] }) {
   return (
     <section>
       <h2 className="home-label">確かめる<span className="home-count">{props.cards.length}</span></h2>
-      {shown.map((c) => (
-        <div key={c.id} className="ask-card confirm-card">
+      {shown.map((c) => (c.kind === 'todo' ? (
+        <div key={`t:${c.id}`} className="ask-card confirm-card">
           <span className="cand-mark" aria-hidden="true" />
           <div className="ask-body">
             <div className="ask-title">
@@ -145,7 +147,21 @@ function ConfirmSection(props: { cards: ConfirmCard[] }) {
           <button type="button" className="btn btn-primary" aria-label={`${c.text}（${c.projectName}）を確定`} onClick={() => emit({ type: 'todo.confirm', id: c.id })}>確定</button>
           <button type="button" className="btn" aria-label={`${c.text}（${c.projectName}）を却下`} onClick={() => emit({ type: 'todo.reject', id: c.id })}>却下</button>
         </div>
-      ))}
+      ) : (
+        <div key={`s:${c.id}`} className="ask-card confirm-card">
+          <span className="home-cand">{c.label}</span>
+          <div className="ask-body">
+            <div className="ask-title">
+              <button type="button" className="confirm-open" onClick={() => emit({ type: 'session.open', id: c.id })}><b>{c.name}</b></button>
+              {' '}<span className="faint">· {c.projectName ?? '未分類'} · {c.ago}</span>
+            </div>
+            <div className="ask-q">{c.note}</div>
+          </div>
+          <button type="button" className="btn btn-primary" aria-label={`${c.name} の提案を確定`} onClick={() => emit({ type: 'session.state.confirm', id: c.id })}>確定</button>
+          {c.status === 'paused' && <button type="button" className="btn" aria-label={`${c.name} の戻る日を変える`} onClick={() => emit({ type: 'session.pause.open', id: c.id, from: 'candidate' })}>日を変える</button>}
+          <button type="button" className="btn" aria-label={`${c.name} の提案を却下`} onClick={() => emit({ type: 'session.state.reject', id: c.id })}>却下</button>
+        </div>
+      )))}
       {rest > 0 && (
         <button type="button" className="more-line" aria-expanded={open} onClick={() => setOpen(!open)}>
           <span className="more-chevron" data-open={open ? 'true' : undefined}><Icon name="chevronDown" /></span>
@@ -153,6 +169,33 @@ function ConfirmSection(props: { cards: ConfirmCard[] }) {
         </button>
       )}
     </section>
+  );
+}
+
+/** 戻る日の札の文言。行の戻る日の札（第 1 段の returnOnLabel）と同じ「今日」「N 日過ぎ」にし、日が読めなければ「日付なし」。 */
+function returnWhen(r: ReturnCard): string {
+  return r.returnOn === null ? '日付なし' : returnOnLabel(r.returnOn, r.overdueDays);
+}
+
+/**
+ * 今日戻るの札（C1）。入力待ちの札と同じ形で、縁を戻る日の黄土にする。
+ * 当日と過ぎたものしか出ないので、戻る日の札はいつも塗りつぶす。
+ * 開くほかに、その場で戻る日を変えるか Done にできる。決めるまで毎朝ここに残るからである。
+ */
+function ReturnCardView(props: { card: ReturnCard }) {
+  const emit = useEmit();
+  const r = props.card;
+  return (
+    <div className="ask-card return-card">
+      <span className="return-when">{returnWhen(r)}</span>
+      <div className="ask-body">
+        <div className="ask-title"><b>{r.name}</b> <span className="faint">· {r.projectName ?? '未分類'} · 今日戻る</span></div>
+        <div className="ask-q">{r.reason}</div>
+      </div>
+      <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.open', id: r.id })}>開く</button>
+      <button type="button" className="btn" aria-label={`${r.name} の戻る日を変える`} onClick={() => emit({ type: 'session.pause.open', id: r.id, from: 'menu' })}>日を変える</button>
+      <button type="button" className="btn" aria-label={`${r.name} を Done にする`} onClick={() => emit({ type: 'session.state.set', id: r.id, status: 'done' })}>Done</button>
+    </div>
   );
 }
 

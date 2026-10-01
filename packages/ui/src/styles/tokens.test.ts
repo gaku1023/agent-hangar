@@ -34,6 +34,8 @@ describe('tokens.css', () => {
   it('注記の色は白地で 4.5:1 以上、主ボタンの白い文字は 4.5:1 以上', () => {
     expect(contrast(token('--ink-3'), token('--surface'))).toBeGreaterThanOrEqual(4.5);
     expect(contrast(token('--accent-ink'), token('--accent'))).toBeGreaterThanOrEqual(4.5);
+    // 戻る日の塗りの札（Home の今日戻る）は、黄土の地に白の文字を載せる。
+    expect(contrast(token('--surface'), token('--st-paused'))).toBeGreaterThanOrEqual(4.5);
   });
 });
 

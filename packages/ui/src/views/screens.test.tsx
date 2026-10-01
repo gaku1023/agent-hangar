@@ -14,12 +14,12 @@ const rail = { isScratch: false, todos: [], memo: null, artifacts: [], parent: {
 const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'last one', excerptFromPrompt: false });
 
 describe('HomeScreen', () => {
-  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
+  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
   const runningCard = (over: Partial<RunningCard> = {}): RunningCard => ({ id: 's1', name: 'キーボード操作の見直し', live: 'busy', elapsed: '12 分', meta: 'agent-hangar · opus 4.1 · high', activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38, contextLabel: '38%', ...over });
 
   it('確かめるの区画は候補を出し、確定と却下と本文の押下で Intent を出し、0 件なら省く', () => {
     const onIntent = vi.fn();
-    const c = { id: 't1', text: '窓を掴める', projectId: 'p1', projectName: 'agent-hangar', sessionName: '起動画面の作り直し', ago: '12 分前', note: '直して確かめた' };
+    const c = { kind: 'todo' as const, id: 't1', text: '窓を掴める', projectId: 'p1', projectName: 'agent-hangar', sessionName: '起動画面の作り直し', ago: '12 分前', note: '直して確かめた' };
     render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ confirm: [c] })} /></IntentRoot>);
     const section = screen.getByRole('heading', { name: /確かめる/ }).closest('section')!;
     expect(within(section).getByText('直して確かめた')).toBeTruthy();
@@ -37,7 +37,7 @@ describe('HomeScreen', () => {
 
   it('別のプロジェクトに同じ本文の候補があっても、確定と却下の名前は 1 つに決まる', () => {
     const onIntent = vi.fn();
-    const mk = (id: string, projectId: string, projectName: string) => ({ id, text: '窓を掴める', projectId, projectName, sessionName: 's', ago: '1 分前', note: 'n' });
+    const mk = (id: string, projectId: string, projectName: string) => ({ kind: 'todo' as const, id, text: '窓を掴める', projectId, projectName, sessionName: 's', ago: '1 分前', note: 'n' });
     render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ confirm: [mk('t1', 'p1', 'alpha'), mk('t2', 'p2', 'beta')] })} /></IntentRoot>);
     fireEvent.click(screen.getByLabelText('窓を掴める（alpha）を確定'));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'todo.confirm', id: 't1' });
@@ -49,13 +49,13 @@ describe('HomeScreen', () => {
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'todo.reject', id: 't2' });
   });
   it('確かめるは実行中の札の下に置く（E1）', () => {
-    const c = { id: 't1', text: '窓', projectId: 'p1', projectName: 'a', sessionName: 's', ago: '1 分前', note: 'n' };
+    const c = { kind: 'todo' as const, id: 't1', text: '窓', projectId: 'p1', projectName: 'a', sessionName: 's', ago: '1 分前', note: 'n' };
     render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ attention: [{ id: 'w1', name: 'w', projectName: 'a', waited: '1 分', question: 'q', answer: 'terminal' }], confirm: [c], running: [runningCard()] })} /></IntentRoot>);
     const labels = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
     expect(labels.slice(0, 3)).toEqual(['要対応1', '実行中1', '確かめる1']);
   });
   it('確かめるは 3 件まで出し、残りは「ほか N 件を表示」の 1 行にまとめ、押すとその場で開く', () => {
-    const cands = Array.from({ length: 7 }, (_, i) => ({ id: `t${i}`, text: `候補 ${i}`, projectId: 'p1', projectName: 'a', sessionName: 's', ago: '1 分前', note: 'n' }));
+    const cands = Array.from({ length: 7 }, (_, i) => ({ kind: 'todo' as const, id: `t${i}`, text: `候補 ${i}`, projectId: 'p1', projectName: 'a', sessionName: 's', ago: '1 分前', note: 'n' }));
     render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ confirm: cands })} /></IntentRoot>);
     const section = screen.getByRole('heading', { name: /確かめる/ }).closest('section')!;
     expect(within(section).getByRole('heading', { name: /確かめる/ })).toHaveTextContent('確かめる7');
@@ -70,7 +70,7 @@ describe('HomeScreen', () => {
     expect(within(section).getAllByRole('button', { name: /を確定$/ })).toHaveLength(3);
   });
   it('確かめるが 3 件以下なら、まとめの行を出さない', () => {
-    const cands = Array.from({ length: 3 }, (_, i) => ({ id: `t${i}`, text: `候補 ${i}`, projectId: 'p1', projectName: 'a', sessionName: 's', ago: '1 分前', note: 'n' }));
+    const cands = Array.from({ length: 3 }, (_, i) => ({ kind: 'todo' as const, id: `t${i}`, text: `候補 ${i}`, projectId: 'p1', projectName: 'a', sessionName: 's', ago: '1 分前', note: 'n' }));
     render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ confirm: cands })} /></IntentRoot>);
     expect(screen.getAllByRole('button', { name: /を確定$/ })).toHaveLength(3);
     expect(screen.queryByRole('button', { name: /^ほか / })).toBeNull();

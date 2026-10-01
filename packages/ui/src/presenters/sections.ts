@@ -62,7 +62,7 @@ function sectionOf(r: SessionRowProps, kind: 'project' | 'sessions', today: stri
 }
 
 /** 今日戻るの並びの鍵。欠けた日と壊れた日は空にして先頭へ置く（Home も同じ並びに使い回す）。 */
-export const returnKey = (r: SessionRowProps) => (r.returnOn !== null && isReturnOn(r.returnOn) ? r.returnOn : '');
+export const returnKey = (r: { returnOn: string | null }) => (r.returnOn !== null && isReturnOn(r.returnOn) ? r.returnOn : '');
 
 /** 件数の桁を区切る（1,221）。 */
 const num = (n: number) => n.toLocaleString('en-US');
