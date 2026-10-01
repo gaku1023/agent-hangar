@@ -70,6 +70,15 @@ describe('place', () => {
   });
 });
 
+describe('matches の searchOnly', () => {
+  it('searchOnly の行は名前だけで当て、パスには当てない', () => {
+    const dir: ListboxOption = { value: 'u', label: 'url-short', sub: '/Users/me/workspace/url-short', searchOnly: true };
+    expect(matches(dir, 'work')).toBe(false);
+    expect(matches(dir, 'URL')).toBe(true);
+    expect(arrangeSections([dir], undefined, 'work')).toEqual([]);
+  });
+});
+
 describe('arrangeSections の searchOnly と hidden', () => {
   const opts = [{ value: 'a', label: 'alpha' }, { value: 'u', label: 'url-short', searchOnly: true }, { value: 'h', label: 'hidden', hidden: true }];
   it('語が無ければ searchOnly と hidden を並べない', () => {

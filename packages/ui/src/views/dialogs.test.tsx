@@ -7,6 +7,10 @@ import { NewProjectDialog } from './NewProjectDialog.tsx';
 import { RetentionDialog } from './RetentionDialog.tsx';
 import type { NewProjectProps } from '../presenters/newProject.ts';
 import type { Intent } from '@agent-hangar/shared';
+import { revealWithin } from './primitives/revealWithin.ts';
+
+// 一覧の中だけをスクロールしたかを確かめるため、寄せる関数を差し替える。
+vi.mock('./primitives/revealWithin.ts', () => ({ revealWithin: vi.fn() }));
 
 describe('ConfirmDialog', () => {
   it('大きさを並べ、上書きして再開を出す', () => {
@@ -266,6 +270,27 @@ describe('NewProjectDialog', () => {
     expect(screen.getByLabelText('プロジェクト名')).toHaveValue('RPG2');
     expect(screen.getByLabelText('フォルダのパス')).toHaveValue('/w/RPG2');
     expect(out.filter((i) => i.type === 'project.new.submit')).toEqual([]);
+  });
+  it('既存のフォルダを登録：↑↓ で動かした行を、一覧の箱の中だけで見える位置へ寄せる', () => {
+    collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    vi.mocked(revealWithin).mockClear();
+    const search = screen.getByRole('combobox', { name: '未登録のフォルダを探す' });
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    const rows = screen.getByRole('listbox', { name: 'ワークスペースの未登録のフォルダ' });
+    expect(revealWithin).toHaveBeenLastCalledWith(rows, screen.getByRole('option', { name: 'RPG2' }));
+    fireEvent.keyDown(search, { key: 'ArrowUp' });
+    expect(revealWithin).toHaveBeenLastCalledWith(rows, screen.getByRole('option', { name: 'hangar-explainers' }));
+  });
+  it('既存のフォルダを登録：名前を空にしたら名前を送らず、サーバに basename を使わせる', () => {
+    const { out } = collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    fireEvent.click(screen.getByRole('option', { name: 'hangar-explainers' }));
+    fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: '  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '作成' }));
+    const sent = out.find((i) => i.type === 'project.new.submit');
+    expect(sent).toEqual({ type: 'project.new.submit', place: { kind: 'dir', path: '/w/hangar-explainers' }, startSession: false });
+    expect(sent?.type === 'project.new.submit' && sent.place.name).toBeUndefined();
   });
   it('新しいフォルダを作る：名前の欄の Enter は「作成して始める」として送る', () => {
     const { out } = collect();

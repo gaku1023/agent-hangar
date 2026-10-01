@@ -20,10 +20,15 @@ export const SEARCH_MIN = 8;
 const GAP = 6;
 const EDGE = 8;
 
+/**
+ * 語が行に当たるか。名前と 2 段目を見る。
+ * searchOnly の行は名前だけで当てる。2 段目はワークスペースの絶対パスなので、「work」のような語で全部が並び、作る操作から Enter を奪うため。
+ */
 export function matches(option: ListboxOption, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return option.label.toLowerCase().includes(q) || (option.sub ?? '').toLowerCase().includes(q);
+  if (option.label.toLowerCase().includes(q)) return true;
+  return !option.searchOnly && (option.sub ?? '').toLowerCase().includes(q);
 }
 
 /**

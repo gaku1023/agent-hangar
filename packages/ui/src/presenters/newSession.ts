@@ -13,6 +13,12 @@ export type NewSessionProps = {
   prefs: Record<string, LaunchPrefs>;
   /** ワークスペース直下の未登録のフォルダ。store のプロジェクトのパスは除いてある（作った直後に残らないように）。 */
   dirs: { name: string; path: string }[];
+  /**
+   * store のプロジェクトのフォルダ名（小文字）。アーカイブも含む。
+   * 同じ名前のフォルダは作れない（409）ので、「『語』を新しいフォルダとして作る」をこの名前には出さない。
+   * APFS は大文字小文字を区別しないので、小文字でそろえて比べる。
+   */
+  takenNames: string[];
   /** 新しいフォルダの作り先の表示に使う。設定が読めていなければ null。 */
   workspaceRoot: string | null;
   /** 殻の中か。Finder の操作は殻の中だけで出す。 */
@@ -22,6 +28,8 @@ export type NewSessionProps = {
   /** 作ってから起動する送信で、作れた後に起動だけ失敗したときのプロジェクト。ダイアログはこれを選び直す。 */
   createdProjectId: string | null;
 };
+
+const baseName = (p: string) => p.replace(/\/+$/, '').split('/').pop() ?? '';
 
 /**
  * ダイアログのプロジェクトの一覧で、スクラッチの行に当てる値。
@@ -58,9 +66,11 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
   const recentIds = live.filter((p) => p.lastActivityAt !== null).sort((a, b) => b.lastActivityAt! - a.lastActivityAt!).slice(0, RECENT_COUNT).map((p) => p.id);
   const taken = new Set(Object.values(store.projects).map((p) => p.path).filter((p): p is string => !!p));
   const dirs = (state.workspaceDirs ?? []).filter((d) => !taken.has(d.path));
+  // スクラッチはワークスペースの外に置くので、その名前で作っても重ならない。
+  const takenNames = [...new Set(Object.values(store.projects).filter((p) => !p.isScratch && p.path).map((p) => baseName(p.path!).toLowerCase()))];
   const createdProjectId = state.launch.kind === 'failed' || state.launch.kind === 'submitting' ? state.launch.createdProjectId ?? null : null;
   return {
     projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs,
-    dirs, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: state.pickedFolder, createdProjectId,
+    dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: state.pickedFolder, createdProjectId,
   };
 }

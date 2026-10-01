@@ -184,10 +184,12 @@ export function NewSessionDialog(props: NewSessionProps) {
     ...(extraDir ? [{ value: DIR + extraDir, label: extraDir.split('/').pop() || extraDir, sub: extraDir, icon: 'folder' as const, hidden: true }] : []),
     { value: NEW_DIR, label: newName.trim() || '新しいフォルダ', faceSub: `${root}/${newName.trim()}（新しく作る）`, icon: 'folderPlus', hidden: true },
   ];
-  const names = new Set([...props.projects.map((p) => p.name), ...props.dirs.map((d) => d.name)]);
+  // 作れない名前。APFS は大文字小文字を区別しないので、小文字で比べる。
+  const names = new Set([...props.takenNames, ...props.projects.map((p) => p.name), ...props.dirs.map((d) => d.name)].map((n) => n.toLowerCase()));
+  const taken = (t: string) => names.has(t.toLowerCase());
   const actions = (q: string): ListboxAction[] => {
     const t = q.trim();
-    const first: ListboxAction = t && !names.has(t)
+    const first: ListboxAction = t && !taken(t)
       ? { value: 'new', label: `「${t}」を新しいフォルダとして作る`, sub: `${root}/${t}`, icon: 'folderPlus' }
       : { value: 'new', label: '新しいフォルダを作る…', icon: 'folderPlus' };
     return props.desktop ? [first, { value: 'finder', label: 'ほかの場所を選ぶ…', sub: 'Finder', icon: 'folderOpen' }] : [first];
@@ -195,7 +197,7 @@ export function NewSessionDialog(props: NewSessionProps) {
   const onAction = (value: string, q: string) => {
     if (value === 'finder') { emit({ type: 'folder.pick' }); return; }
     const t = q.trim();
-    if (t && !names.has(t)) setNewName(t);
+    if (t && !taken(t)) setNewName(t);
     choose(NEW_DIR);
   };
   const groups = [{ title: 'すぐ始める', values: [SCRATCH] }, { title: '最近', values: props.recentIds }, { title: 'すべて', values: props.projects.filter((p) => !recent.has(p.id)).map((p) => p.id) }];

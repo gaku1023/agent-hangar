@@ -5,6 +5,7 @@ import type { NewProjectProps } from '../presenters/newProject.ts';
 import { isComposing } from './ime.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { revealWithin } from './primitives/revealWithin.ts';
 import { CheckCard } from './primitives/OptionCard.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 
@@ -46,7 +47,7 @@ export function NewProjectDialog(props: NewProjectProps) {
 
   const submit = (startSession: boolean) => {
     if (props.submitting) return;
-    const place: ProjectPlace = mode === 'newDir' ? { kind: 'newDir', name, gitInit } : { kind: 'dir', path, name };
+    const place: ProjectPlace = mode === 'newDir' ? { kind: 'newDir', name, gitInit } : { kind: 'dir', path, name: name.trim() || undefined };
     emit({ type: 'project.new.submit', place, startSession });
   };
   // Enter は「作成して始める」。変換中の Enter は確定のための打鍵なので、送信に使わない。
@@ -60,6 +61,14 @@ export function NewProjectDialog(props: NewProjectProps) {
   const shown = props.dirs.filter((d) => !needle || d.name.toLowerCase().includes(needle));
   const current = shown.length ? Math.min(active, shown.length - 1) : -1;
   const rowId = (i: number) => `${uid}-dir-${i}`;
+  // キーで動かした行を、一覧の箱の中だけで見える位置へ寄せる。
+  // scrollIntoView は WebKit で外側の箱（アプリ全体）までずらすので使わない。
+  const rowsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const rows = rowsRef.current;
+    const item = current >= 0 ? document.getElementById(rowId(current)) : null;
+    if (rows && item) revealWithin(rows, item);
+  }, [current, mode]);   // eslint-disable-line react-hooks/exhaustive-deps
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (isComposing(e)) return;
     const n = shown.length;
@@ -99,7 +108,7 @@ export function NewProjectDialog(props: NewProjectProps) {
           <div className="field">フォルダ
             <div className="new-project-dirs">
               <div className="listbox-search"><Icon name="search" /><input role="combobox" aria-label="未登録のフォルダを探す" placeholder="ワークスペースの未登録のフォルダを探す" aria-expanded="true" aria-controls={`${uid}-dirs`} aria-autocomplete="list" aria-activedescendant={current >= 0 ? rowId(current) : undefined} value={query} onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onSearchKey} /></div>
-              <div id={`${uid}-dirs`} role="listbox" aria-label="ワークスペースの未登録のフォルダ" className="listbox-rows">
+              <div ref={rowsRef} id={`${uid}-dirs`} role="listbox" aria-label="ワークスペースの未登録のフォルダ" className="listbox-rows">
                 {shown.map((d, i) => (
                   <div key={d.path} id={rowId(i)} role="option" aria-selected={d.path === path} aria-label={d.name} className="listbox-opt" data-active={i === current ? 'true' : undefined} onMouseMove={() => { if (i !== current) setActive(i); }} onClick={() => choosePath(d.path)}>
                     <Icon name="folder" />

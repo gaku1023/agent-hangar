@@ -10,7 +10,7 @@ const projects: NewSessionProps['projects'] = [
   { id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' },
   { id: 'p2', name: 'beta', path: '/w/beta', status: 'paused', lastActivity: '昨日' },
 ];
-const base: NewSessionProps = { projects, recentIds: ['p1'], projectId: null, submitting: false, error: null, scratch: false, draft: null, prefs: {}, dirs: [{ name: 'url-short', path: '/w/url-short' }], workspaceRoot: '/w', desktop: true, picked: null, createdProjectId: null };
+const base: NewSessionProps = { projects, recentIds: ['p1'], projectId: null, submitting: false, error: null, scratch: false, draft: null, prefs: {}, dirs: [{ name: 'url-short', path: '/w/url-short' }], takenNames: ['alpha', 'beta'], workspaceRoot: '/w', desktop: true, picked: null, createdProjectId: null };
 
 /** 送られた params だけを集める。キーの有無を見たいので、呼び出しの照合ではなく値そのものを取る。 */
 function collectParams(over: Partial<NewSessionProps> = {}): LaunchParams[] {
@@ -402,6 +402,15 @@ describe('NewSessionDialog から作って始める', () => {
     expect(screen.getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
     typeQuery('url-short');
     expect(screen.queryByRole('option', { name: '「url-short」を新しいフォルダとして作る' })).toBeNull();
+  });
+  it('アーカイブのプロジェクトのフォルダ名と、大文字小文字だけ違う名前にも、作る操作をその名前にしない', () => {
+    collect({ takenNames: ['alpha', 'beta', 'old-kadai'] });
+    openList();
+    for (const q of ['old-kadai', 'Old-Kadai', 'ALPHA', 'URL-Short']) {
+      typeQuery(q);
+      expect(screen.queryByRole('option', { name: `「${q}」を新しいフォルダとして作る` })).toBeNull();
+      expect(screen.getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+    }
   });
   it('未登録のフォルダは語に一致したときだけ「未登録」の札付きで出て、選ぶと登録して始める', () => {
     const { out } = collect();
