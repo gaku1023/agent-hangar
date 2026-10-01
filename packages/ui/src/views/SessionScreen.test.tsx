@@ -142,6 +142,16 @@ describe('SessionScreen（実行中）', () => {
     expect(document.querySelector('.tr-pane .turn-row')?.textContent).toContain('hi');
     expect(document.querySelector('.tr-pane .tr')).toBeNull();
   });
+  it('実行中も終わった後も、画面は窓の残りの高さを受け取る印を持つ。消えた会話は持たない', () => {
+    withHost(<SessionScreen {...running} terminalStatus="connected" />);
+    expect(document.querySelector('.screen')).toHaveClass('screen-fill');
+    cleanup();
+    withHost(<SessionScreen {...base} terminalStatus={null} />);
+    expect(document.querySelector('.screen')).toHaveClass('screen-fill');
+    cleanup();
+    withHost(<SessionScreen {...base} gone={{ note: 'n', canExtend: false, extendTo: 365 }} terminalStatus={null} />);
+    expect(document.querySelector('.screen')).not.toHaveClass('screen-fill');
+  });
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" />);
     expect(screen.queryByText('hi')).toBeNull();

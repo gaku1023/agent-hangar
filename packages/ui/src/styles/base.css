@@ -98,6 +98,13 @@ a:hover { text-decoration: underline; }
    ダイアログ、通知、切断の帯の keyframes も同じ形にする。
    View Transitions がある環境では、出る画面との重ね合わせは runtime/present.ts が受け持ち、入る画面の動きはここが受け持つ。 */
 .screen { animation: enter var(--dur) var(--ease-out); }
+/* セッション画面（.screen-fill）は窓の下端まで伸ばし、端末と会話の板が残りの高さを受け取る。
+   上の帯（見出し、札、要約、タブ）の高さは要約の開閉や折り返しで変わるので、100vh から決め打ちで引くと、帯が高いぶん板の下端が窓の外へ出る。
+   板には下限を持たせ、窓がそれより低いときだけ .main がスクロールする。 */
+.main:has(> .main-inner > .screen-fill) > .main-inner { display: flex; flex-direction: column; min-height: 100%; }
+.screen-fill { display: flex; flex-direction: column; flex: 1 0 auto; }
+.screen-fill > .split { flex: 1 1 0; min-height: 240px; }
+.screen-fill > .tr-sheet { display: flex; flex-direction: column; flex: 1 1 0; min-height: 240px; }
 
 @keyframes enter { from { opacity: 0; transform: translateY(var(--rise)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 
@@ -213,8 +220,8 @@ a:hover { text-decoration: underline; }
 .fold[open] .fold-arrow { transform: rotate(90deg); }
 
 /* トランスクリプト */
-/* 高さは CSS だけで決める。実行中の画面では .tr-pane の側が上書きしてペーンに追随する。 */
-.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); height: calc(100vh - 270px); overflow: auto; padding: calc(var(--u) * 2) 0; }
+/* 高さは器から受け取る。終わったセッションでは .tr-sheet、実行中の画面では .tr-pane の残りいっぱいに伸びる。 */
+.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: 1; min-height: 0; overflow: auto; padding: calc(var(--u) * 2) 0; }
 .msg { max-width: 80ch; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); white-space: pre-wrap; word-break: break-word; }
 .msg-user { background: var(--accent); color: var(--accent-ink); align-self: flex-end; border-bottom-right-radius: 5px; }
 .msg-assistant { background: var(--surface-2); align-self: flex-start; border-bottom-left-radius: 5px; }
@@ -339,7 +346,7 @@ a:hover { text-decoration: underline; }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
 .tab-selected .tab-close { color: var(--term-fg); }
 .tab-selected .tab-close:hover { color: var(--term-fg); background: rgba(255, 255, 255, 0.12); }
-.split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 250px); transition: grid-template-columns var(--dur) var(--ease-out); }
+.split { display: grid; gap: calc(var(--u) * 2); transition: grid-template-columns var(--dur) var(--ease-out); }
 /* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
    xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
    閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */
@@ -358,7 +365,6 @@ a:hover { text-decoration: underline; }
 .term-status-error { color: var(--error); opacity: 1; }
 /* 会話の列は白い読む面にする。 */
 .tr-pane { min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
-.tr-pane .tr { height: auto; flex: 1; }
 /* 畳んだ列は 28px しかなく、開くボタンも同じ幅である。左右の余白を残すと、ボタンの半分ほどが隠れて押しにくくなる。 */
 .tr-pane[data-collapsed='true'] { padding: calc(var(--u) * 2) 0; }
 .tr-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: calc(var(--u) * 7); border: 0; background: transparent; cursor: pointer; color: var(--ink-2); height: var(--row-h); align-self: flex-start; }

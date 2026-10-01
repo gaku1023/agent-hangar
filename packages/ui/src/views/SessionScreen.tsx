@@ -155,7 +155,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
     // 分割は .split の左の列の中でさらに 2 列に割る。高さは外側の .split から 100% で伝わる。
     const terminals = props.split ? <SplitPane left={pane(props.split.left)} right={pane(props.split.right)} /> : pane(props.selectedTab);
     return (
-      <div className="screen">
+      <div className="screen screen-fill">
         {header}{summary}{artifacts}
         <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} />
         {/* 右欄は会話の全文ではなくターンの目次にする。全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。 */}
@@ -174,5 +174,5 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       </div>
     );
   }
-  return <div className="screen">{header}{summary}{artifacts}<section className="tr-sheet">{toggles}{transcript}</section></div>;
+  return <div className="screen screen-fill">{header}{summary}{artifacts}<section className="tr-sheet">{toggles}{transcript}</section></div>;
 }
