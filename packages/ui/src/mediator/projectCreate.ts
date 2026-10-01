@@ -9,7 +9,8 @@ export function projectCreateStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime') {
     const e = input.event;
     if (e.type === 'workspaceDirs.loaded') return { state: { ...state, workspaceDirs: e.dirs }, effects: [] };
-    if (e.type === 'folder.picked') return { state: { ...state, pickedFolder: { path: e.path, n: (state.pickedFolder?.n ?? 0) + 1 } }, effects: [] };
+    // Finder は NFD のパスを返すことがあり、サーバのパスは NFC である。比べる前にここで一度だけそろえ、末尾の / も落とす（根の / は残す）。
+    if (e.type === 'folder.picked') return { state: { ...state, pickedFolder: { path: e.path.normalize('NFC').replace(/(.)\/+$/, '$1'), n: (state.pickedFolder?.n ?? 0) + 1 } }, effects: [] };
     if (e.type !== 'project.create.done' && e.type !== 'project.create.failed') return null;
     // 送信中でなければ（送った直後に閉じた）、結果で画面を動かさない。ただし黙って捨てない。
     if (state.projectCreate.kind !== 'submitting') {

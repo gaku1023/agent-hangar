@@ -1474,6 +1474,12 @@ describe('プロジェクトを作る', () => {
     expect(effects).toEqual([{ kind: 'desktop.pickFolder' }]);
     expect(state.pickedFolder).toEqual({ path: '/x', n: 2 });
   });
+  it('Finder のパスは NFC にそろえ、末尾の / を落とす（根の / はそのまま）', () => {
+    const nfd = '/w/が'.normalize('NFD');
+    expect(nfd).not.toBe('/w/が');
+    expect(run([runtime({ type: 'folder.picked', path: `${nfd}/` })]).state.pickedFolder).toEqual({ path: '/w/が', n: 1 });
+    expect(run([runtime({ type: 'folder.picked', path: '/' })]).state.pickedFolder).toEqual({ path: '/', n: 1 });
+  });
   it('未登録の一覧が届いたら持つ', () => {
     const dirs = [{ name: 'a', path: '/w/a' }];
     expect(run([runtime({ type: 'workspaceDirs.loaded', dirs })]).state.workspaceDirs).toEqual(dirs);

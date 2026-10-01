@@ -432,6 +432,15 @@ describe('NewSessionDialog から作って始める', () => {
     start();
     expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/Users/me/thesis' } });
   });
+  it('Finder で選んだのが未登録の一覧にあるフォルダなら、未登録のフォルダと同じ 1 行で登録して始める', () => {
+    const { out, view } = collect();
+    view.rerender(<IntentRoot onIntent={(i) => out.push(i)}><NewSessionDialog {...base} picked={{ path: '/w/url-short', n: 1 }} /></IntentRoot>);
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
+    expect(screen.getByText('/w/url-short はまだプロジェクトではありません。起動すると登録します')).toBeInTheDocument();
+    expect(screen.queryByText(/ワークスペースの外のフォルダです/)).toBeNull();
+    start();
+    expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/url-short' } });
+  });
   it('Finder で選んだのが登録済みのプロジェクトなら、そのプロジェクトを選ぶ', () => {
     const { out, view } = collect();
     view.rerender(<IntentRoot onIntent={(i) => out.push(i)}><NewSessionDialog {...base} picked={{ path: '/w/beta', n: 1 }} /></IntentRoot>);
