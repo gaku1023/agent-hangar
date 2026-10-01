@@ -59,6 +59,14 @@ describe('createProjectDir', () => {
     expect(fs.existsSync(path.join(ws, 'broken'))).toBe(false);
     expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
   });
+  it('ワークスペースのルートが作れなければ 400 にする', () => {
+    fs.writeFileSync(path.join(ws, 'file'), '');
+    const root = path.join(ws, 'file');
+    expect(() => createProjectDir({ db, deviceId: 'd', workspaceRoot: root, gitInit: vi.fn() }, { name: 'p', gitInit: false })).toThrow(ProjectCreateError);
+    expect(() => createProjectDir({ db, deviceId: 'd', workspaceRoot: root, gitInit: vi.fn() }, { name: 'p', gitInit: false })).toThrow(`${path.join(root, 'p')} を作れません: `);
+    expect(() => createProjectDir({ db, deviceId: 'd', workspaceRoot: path.join(root, 'sub'), gitInit: vi.fn() }, { name: 'p', gitInit: false })).toThrow(/を作れません: /);
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
+  });
   it('ワークスペースのルートが無ければ作る', () => {
     const nested = path.join(ws, 'not-yet', 'ws');
     const r = createProjectDir({ db, deviceId: 'd', workspaceRoot: nested, gitInit: vi.fn() }, { name: 'p', gitInit: false });
@@ -69,36 +77,65 @@ describe('createProjectDir', () => {
 describe('registerProjectDir', () => {
   it('既存のディレクトリを登録する。名前を省けば basename にする', () => {
     fs.mkdirSync(path.join(ws, 'old-kadai'));
-    const r = registerProjectDir({ db, deviceId: 'd' }, { path: `${ws}/old-kadai/` });
+    const r = registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: `${ws}/old-kadai/` });
     expect(r.created).toBe(true);
     expect(projectOf(r.projectId)).toMatchObject({ name: 'old-kadai', status: 'active' });
     expect(rootOf(r.projectId)).toEqual({ path: path.join(ws, 'old-kadai'), resolved: 1 });
   });
   it('名前を渡せばその名前にする。空の名前は 400', () => {
     fs.mkdirSync(path.join(ws, 'x'));
-    expect(projectOf(registerProjectDir({ db, deviceId: 'd' }, { path: path.join(ws, 'x'), name: ' 表示名 ' }).projectId)).toMatchObject({ name: '表示名' });
+    expect(projectOf(registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: path.join(ws, 'x'), name: ' 表示名 ' }).projectId)).toMatchObject({ name: '表示名' });
     fs.mkdirSync(path.join(ws, 'y'));
-    expect(() => registerProjectDir({ db, deviceId: 'd' }, { path: path.join(ws, 'y'), name: ' ' })).toThrow(ProjectCreateError);
+    expect(() => registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: path.join(ws, 'y'), name: ' ' })).toThrow(ProjectCreateError);
   });
   it('無いパスとファイルは 400', () => {
     fs.writeFileSync(path.join(ws, 'file'), '');
     for (const p of ['/nonexistent-hangar', path.join(ws, 'file'), '']) {
-      expect(() => registerProjectDir({ db, deviceId: 'd' }, { path: p })).toThrow('path が存在するディレクトリではありません');
+      expect(() => registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: p })).toThrow('path が存在するディレクトリではありません');
     }
   });
   it('登録済みのパスなら既存を返し、.. を含んでも同じものに当てる', () => {
     fs.mkdirSync(path.join(ws, 'b'));
-    const a = registerProjectDir({ db, deviceId: 'd' }, { path: path.join(ws, 'b') });
-    const again = registerProjectDir({ db, deviceId: 'd' }, { path: `${ws}/b/../b`, name: '別名' });
+    const a = registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: path.join(ws, 'b') });
+    const again = registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: `${ws}/b/../b`, name: '別名' });
     expect(again).toEqual({ projectId: a.projectId, created: false });
     expect(projectOf(a.projectId)).toMatchObject({ name: 'b' });
     expect(db.prepare('select count(*) c from project_roots').get()).toEqual({ c: 1 });
+  });
+  it('ワークスペースのルートと、その上のフォルダは 400 で断る', () => {
+    for (const p of [ws, `${ws}/`, path.dirname(ws), '/']) {
+      try {
+        registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: p });
+        expect.unreachable();
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProjectCreateError);
+        expect((e as ProjectCreateError).status).toBe(400);
+        expect((e as Error).message).toBe('ワークスペースのルートやその上のフォルダはプロジェクトにできません');
+      }
+    }
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
+  });
+  it('相対パスは 400 で断る', () => {
+    for (const p of ['x', './x', '../x']) {
+      expect(() => registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: p })).toThrow('path は / か ~ で始まる絶対パスにしてください');
+    }
+  });
+  it('先頭の ~/ はホームに直してから登録する', () => {
+    const home = path.join(ws, 'home');
+    fs.mkdirSync(path.join(home, 'kadai'), { recursive: true });
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    try {
+      const r = registerProjectDir({ db, deviceId: 'd', workspaceRoot: path.join(ws, 'wsroot') }, { path: '~/kadai' });
+      expect(rootOf(r.projectId)).toEqual({ path: path.join(home, 'kadai'), resolved: 1 });
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
   it('登録済みのプロジェクトがアーカイブなら Active に戻す', () => {
     fs.mkdirSync(path.join(ws, 'arch'));
     upsertShared(db, 'projects', { id: 'p-arch', name: 'arch', status: 'archived', is_scratch: 0 }, 'd');
     upsertShared(db, 'project_roots', { id: 'r-arch', project_id: 'p-arch', device_id: 'd', path: path.join(ws, 'arch'), resolved: 1 }, 'd');
-    expect(registerProjectDir({ db, deviceId: 'd' }, { path: path.join(ws, 'arch') })).toEqual({ projectId: 'p-arch', created: false });
+    expect(registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: path.join(ws, 'arch') })).toEqual({ projectId: 'p-arch', created: false });
     expect(projectOf('p-arch')).toMatchObject({ status: 'active' });
   });
 });

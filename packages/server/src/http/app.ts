@@ -698,7 +698,7 @@ export function createApp(deps: AppDeps): Hono {
         // kind を省いた { name, path } は、フェーズ 2 からの既存のディレクトリの登録である。
         if (body.kind !== undefined && body.kind !== 'dir') return c.json({ error: 'kind は newDir か dir です' }, 400);
         if (typeof body.path !== 'string') return c.json({ error: 'path が存在するディレクトリではありません' }, 400);
-        ({ projectId, created } = registerProjectDir({ db, deviceId }, { path: body.path, name: typeof body.name === 'string' ? body.name : undefined }));
+        ({ projectId, created } = registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: body.path, name: typeof body.name === 'string' ? body.name : undefined }));
       }
       const p = getProject(db, deviceId, deps.live(), projectId)!;
       // 登録済みでも配る。アーカイブから戻したときに、ほかの画面の状態も変わるためである。

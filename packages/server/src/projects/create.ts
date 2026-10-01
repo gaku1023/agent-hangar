@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { expandHome } from '../config/readiness.ts';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { insertProject, normalizeDir } from './registry.ts';
@@ -66,13 +67,19 @@ function removeFreshDir(dir: string): void {
 export function makeProjectDir(workspaceRoot: string, name: string, gitInit: boolean, run: (dir: string) => void = defaultGitInit): string {
   const dir = normalizeDir(path.join(workspaceRoot, name));
   if (exists(dir)) throw new ProjectCreateError(409, `${dir} は既にあります`);
-  fs.mkdirSync(workspaceRoot, { recursive: true });
+  // ルートがファイルを指すなどで作れないのは設定の問題なので、500 にせず理由を添えて断る。
+  const cannot = (e: unknown) => new ProjectCreateError(400, `${dir} を作れません: ${e instanceof Error ? e.message : String(e)}`);
+  try {
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+  } catch (e) {
+    throw cannot(e);
+  }
   try {
     // recursive を付けないので、直前に誰かが作っていれば EEXIST で止まり、既にあるものを取り込まない。
     fs.mkdirSync(dir);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new ProjectCreateError(409, `${dir} は既にあります`);
-    throw e;
+    throw cannot(e);
   }
   try {
     if (gitInit) run(dir);
@@ -95,14 +102,21 @@ export function createProjectDir(deps: CreateDeps, o: { name: string; gitInit: b
  * 既存のディレクトリをプロジェクトにする。
  * 同じパスが登録済みなら既存を返し、アーカイブなら Active に戻す（登録し直すのは、使うという意思の表れなので）。
  */
-export function registerProjectDir(deps: { db: Db; deviceId: string }, o: { path: string; name?: string }): { projectId: string; created: boolean } {
+export function registerProjectDir(deps: { db: Db; deviceId: string; workspaceRoot: string }, o: { path: string; name?: string }): { projectId: string; created: boolean } {
   const name = o.name === undefined ? undefined : o.name.trim();
   if (name === '') throw new ProjectCreateError(400, 'name を空にはできません');
-  const raw = o.path.trim();
+  const raw = expandHome(o.path.trim());
+  if (!raw) throw new ProjectCreateError(400, 'path が存在するディレクトリではありません');
+  // 相対パスはサーバの作業ディレクトリから解決されてしまい、利用者の思う場所にならない。
+  if (!path.isAbsolute(raw)) throw new ProjectCreateError(400, 'path は / か ~ で始まる絶対パスにしてください');
   // `..` や末尾の `/` が残ると project_roots の前方一致に cwd が当たらず、
   // そのプロジェクトには永久にセッションが紐づかない。必ず正規化してから入れる。
-  const dir = raw ? normalizeDir(raw) : '';
-  if (!dir || !fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new ProjectCreateError(400, 'path が存在するディレクトリではありません');
+  const dir = normalizeDir(raw);
+  // ルートやその上を登録すると、最も長い一致でワークスペースの下のセッションをすべて取り込み、
+  // 直下のフォルダの自動の登録も止まる。Finder で何も選ばずに開くを押すとルートが返るので、ここで断る。
+  const root = normalizeDir(expandHome(deps.workspaceRoot));
+  if (dir === '/' || root === dir || root.startsWith(dir + '/')) throw new ProjectCreateError(400, 'ワークスペースのルートやその上のフォルダはプロジェクトにできません');
+  if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new ProjectCreateError(400, 'path が存在するディレクトリではありません');
   const known = deps.db.prepare(`select r.project_id id from project_roots r join projects p on p.id = r.project_id
     where r.device_id = ? and r.path = ? and r.deleted_at is null and p.deleted_at is null`).get(deps.deviceId, dir) as { id: string } | undefined;
   if (known) {
