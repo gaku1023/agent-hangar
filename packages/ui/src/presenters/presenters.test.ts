@@ -549,9 +549,9 @@ describe('presentSessions', () => {
     const state = { ...initialState(), screen: { name: 'sessions' as const, q: '索引' }, search: { text: '索引', filter: { projectId: 'alpha', days: 7, live: 'waiting' as const, file: 'src/a.ts' } } };
     const r = presentSessions(state, { ...store, search: { params: { q: '索引' }, result: { hits: [], total: 0 }, loading: false } }, NOW);
     expect(r.allCount).toBe(3);
-    expect(r.conditions).toEqual(['『索引』', 'alpha', '7 日', '入力待ち', 'src/a.ts']);
+    expect(r.conditions).toEqual(['『索引』', '入力待ち', '7 日', 'alpha', 'src/a.ts']);
     const today = presentSessions({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } } }, store, NOW);
-    expect(today.conditions).toEqual(['今日', '実行中']);
+    expect(today.conditions).toEqual(['実行中', '今日']);
   });
   it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
     let store = storeWith();

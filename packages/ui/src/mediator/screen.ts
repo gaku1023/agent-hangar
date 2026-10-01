@@ -94,16 +94,12 @@ export function nextWaitingStep(state: State): Step {
  * 新しい語なら一覧の画面が作り直され、一覧が自分でフォーカスを取りにくる（SessionRows の autoFocus）。
  * 同じ語で検索し直したときは作り直されず、autoFocus は 1 度きりなので、ここで毎回頼む。
  * filter があれば（Sessions の欄の Enter）、欄を読んだ条件で絞り込みをまるごと入れ替える。欄が正だからである。
- * 語が同じでトークンだけ変えたときはハッシュが変わらず hash.changed が来ないので、問い合わせ直しはここで出す。
+ * 語が同じでトークンだけ変えたときも、Runtime の navigate がハッシュが同じなら自分で hash.changed を出すので、問い合わせ直しはそこで成り立つ。
  */
 export function searchQueryStep(state: State, text: string, filter?: SearchFilter): Step {
   if (!canMoveBehind(state)) return { state, effects: [] };
   const next = { ...state, overlay: closeTransient(state), search: { text, filter: filter ?? state.search.filter } };
-  const effects: Effect[] = [];
-  const sameHash = state.screen.name === 'sessions' && (state.screen.q ?? '') === text;
-  if (filter && sameHash && usesServerSearch(next.search)) effects.push({ kind: 'api.search', params: searchParams(next) });
-  effects.push({ kind: 'navigate', route: text ? { name: 'sessions', q: text } : { name: 'sessions' } }, { kind: 'focus', target: 'results' });
-  return { state: next, effects };
+  return { state: next, effects: [{ kind: 'navigate', route: text ? { name: 'sessions', q: text } : { name: 'sessions' } }, { kind: 'focus', target: 'results' }] };
 }
 
 /** screen 領域：どの画面にいるか。URL のハッシュが正で、Intent は navigate 効果を出すだけ。 */

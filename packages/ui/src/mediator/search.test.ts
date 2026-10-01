@@ -38,31 +38,20 @@ describe('状態のタブと欄の条件（★）', () => {
     expect(hasConditions({ text: '', filter: { live: 'waiting' } })).toBe(true);
     expect(hasConditions({ text: 'x', filter: {} })).toBe(true);
   });
-  it('同じ語のままトークンだけ変えて Enter を押しても、問い合わせ直す（ハッシュが変わらないので自分で出す）', () => {
+  it('欄の Enter は移る効果を出し、問い合わせは移った先の hash.changed が出す（同じ語でも Runtime が hash.changed を返す）', () => {
     const at = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })]);
     const a = run([intent({ type: 'search.query', text: '動画', filter: { status: 'done' } })], at.state);
+    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }, { kind: 'focus', target: 'results' }]);
+    // その hash.changed が、入れ替えた後の絞り込みで問い合わせる。
+    const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })], a.state);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', status: 'done' } }]);
+  });
+  it('語の無いまま触ったファイルだけを変えたときも、hash.changed が入れ替え後の絞り込みで問い合わせる', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } }), intent({ type: 'search.query', text: '', filter: { file: 'a.md' } }), runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
     expect(a.effects).toEqual([
-      { kind: 'api.search', params: { q: '動画', status: 'done' } },
-      { kind: 'navigate', route: { name: 'sessions', q: '動画' } },
-      { kind: 'focus', target: 'results' },
-    ]);
-  });
-  it('語が変わるときは移った先の hash.changed が問い合わせるので、Enter では出さない', () => {
-    const at = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })]);
-    const a = run([intent({ type: 'search.query', text: '音声', filter: { status: 'done' } })], at.state);
-    expect(a.effects.map((e) => (e as { kind: string }).kind)).toEqual(['navigate', 'focus']);
-    // 語の無い一覧から語を足すときも同じ。
-    const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } }), intent({ type: 'search.query', text: '音声', filter: {} })]);
-    expect(b.effects.map((e) => (e as { kind: string }).kind)).toEqual(['navigate', 'focus']);
-  });
-  it('語の無いままトークンだけ変えたときは、触ったファイルが無ければ手元で絞るので問い合わせない', () => {
-    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } }), intent({ type: 'search.query', text: '', filter: { status: 'paused' } })]);
-    expect(a.effects.map((e) => (e as { kind: string }).kind)).toEqual(['navigate', 'focus']);
-    const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } }), intent({ type: 'search.query', text: '', filter: { file: 'a.md' } })]);
-    expect(b.effects).toEqual([
-      { kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true } },
       { kind: 'navigate', route: { name: 'sessions' } },
       { kind: 'focus', target: 'results' },
+      { kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true } },
     ]);
   });
 });

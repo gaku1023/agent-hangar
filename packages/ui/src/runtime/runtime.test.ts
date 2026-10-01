@@ -196,6 +196,30 @@ describe('createRuntime', () => {
     await flush();
     expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, since: new Date(2026, 9, 1).getTime() });
   });
+  it('同じ語でトークンだけ変えた Enter は、新しい絞り込みでちょうど 1 回だけ問い合わせる', async () => {
+    const search = vi.fn(async () => ({ hits: [], total: 0 }));
+    const { rt, setHash } = harness({ search });
+    rt.start();
+    setHash('#/sessions?q=x');
+    await flush();
+    expect(search).toHaveBeenCalledTimes(1);
+    rt.emit({ type: 'search.query', text: 'x', filter: { status: 'done' } });
+    await flush();
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(search).toHaveBeenLastCalledWith({ q: 'x', status: 'done' });
+  });
+  it('語の無い一覧で触ったファイルだけを変えた Enter も、ちょうど 1 回だけ問い合わせる', async () => {
+    const search = vi.fn(async () => ({ hits: [], total: 0 }));
+    const { rt, setHash } = harness({ search });
+    rt.start();
+    setHash('#/sessions');
+    await flush();
+    expect(search).not.toHaveBeenCalled();
+    rt.emit({ type: 'search.query', text: '', filter: { file: 'a.md' } });
+    await flush();
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(search).toHaveBeenLastCalledWith({ q: '', file: 'a.md', hideArchived: true });
+  });
   it('検索の続きに失敗しても、読み込み中のまま残さず、持っている結果も消さない', async () => {
     const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
     const search = vi.fn(async (p: { offset?: number }) => { if (p.offset) throw new Error('500 /api/search'); return { hits: [hit('s1')], total: 3 }; });

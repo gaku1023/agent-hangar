@@ -31,16 +31,16 @@ const STATUS_LABEL = Object.fromEntries(TABS) as Record<StatusTab, string>;
 
 /**
  * いま効いている条件を、条件の行に並べる語にする（D1）。
- * 語、状態、プロジェクト、期間、動き、触ったファイルの順で、欄のチップの並びに合わせる。
+ * 語、状態、動き、期間、プロジェクト、触ったファイルの順で、欄のチップの並び（queryTokens）に合わせる。
  */
 function conditionsOf(text: string, f: SearchFilter, store: Store): string[] {
   const out: string[] = [];
   if (text) out.push(`『${text}』`);
   if (f.status) out.push(STATUS_LABEL[f.status]);
-  if (f.projectId) out.push(store.projects[f.projectId]?.name ?? '見つからないプロジェクト');
+  if (f.live) out.push(LIVE_LABEL[f.live]);
   if (f.days) out.push(PERIOD_LABEL[f.days] ?? `${f.days} 日`);
   if (f.until !== undefined) out.push(`${absoluteTime(f.until).slice(0, 10)} より前`);
-  if (f.live) out.push(LIVE_LABEL[f.live]);
+  if (f.projectId) out.push(store.projects[f.projectId]?.name ?? '見つからないプロジェクト');
   if (f.file) out.push(f.file);
   return out;
 }

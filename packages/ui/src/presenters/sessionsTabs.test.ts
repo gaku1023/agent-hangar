@@ -75,6 +75,7 @@ describe('presentSessions のタブと節（★）', () => {
     const store = { ...scene(), search: { params: { q: 'is:pasued' }, result: { hits: [], total: 0 }, loading: false } };
     const p = presentSessions(withSearch({ text: 'is:pasued', filter: { status: 'done', projectId: 'alpha', days: 7 } }), store, NOW);
     expect(p.tokens).toEqual([{ key: 'status', token: 'is:done' }, { key: 'days', token: 'since:7d' }, { key: 'projectId', token: 'project:alpha' }]);
+    expect(p.conditions).toEqual(['『is:pasued』', 'Done', '7 日', 'alpha']);
     expect(p.hints).toEqual(['「is:pasued」は条件として読めないので、語として本文を探しています。is: の後は paused・done・archived・active・none・proposed・running・waiting のどれかです。']);
     expect(p.sections).toBeNull();
   });
