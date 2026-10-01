@@ -16,14 +16,26 @@ function homeDirs(env: NodeJS.ProcessEnv): string[] {
   return [path.join(home, '.local', 'bin'), path.join(home, '.claude', 'local')];
 }
 
-/** 子プロセスを起こさずにコマンドの絶対パスを探す。GUI 起動の貧弱な PATH でも Homebrew と手元の置き場所を見る。 */
-export function which(cmd: string, env: NodeJS.ProcessEnv = process.env): string | null {
-  const dirs = [...(env.PATH ?? '').split(':').filter(Boolean), ...KNOWN_DIRS, ...homeDirs(env)];
+/** 並べたディレクトリから、実行できるファイルとしてのコマンドを順に探す。 */
+function findIn(cmd: string, dirs: string[]): string | null {
   for (const d of dirs) {
     const p = path.join(d, cmd);
     try { fs.accessSync(p, fs.constants.X_OK); if (fs.statSync(p).isFile()) return p; } catch { /* 次へ */ }
   }
   return null;
+}
+
+/**
+ * PATH だけからコマンドの絶対パスを探す。
+ * 名前だけの設定（tmux など）は、起動のときに子プロセスが PATH から探すので、確かめるときも同じ所だけを見る。
+ */
+export function findOnPath(cmd: string, pathEnv: string | undefined = process.env.PATH): string | null {
+  return findIn(cmd, (pathEnv ?? '').split(':').filter(Boolean));
+}
+
+/** 子プロセスを起こさずにコマンドの絶対パスを探す。GUI 起動の貧弱な PATH でも Homebrew と手元の置き場所を見る。 */
+export function which(cmd: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  return findIn(cmd, [...(env.PATH ?? '').split(':').filter(Boolean), ...KNOWN_DIRS, ...homeDirs(env)]);
 }
 
 /**

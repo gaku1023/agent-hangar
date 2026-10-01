@@ -53,6 +53,23 @@ describe('checkToolPath', () => {
     const ok = fakeTool('tmux', 'tmux 3.4');
     expect(checkToolPath(ok, tmp)).toEqual({ path: ok, ok: true, problem: null });
   });
+  // 名前だけ（tmux など）は、起動のときと同じく PATH から探す。サーバの作業ディレクトリでは読まない。
+  it('/ を含まない名前は PATH から探す', () => {
+    const ok = fakeTool('tmux', 'tmux 3.4');
+    const bin = path.dirname(ok);
+    expect(checkToolPath('tmux', tmp, `/no/such/dir:${bin}`)).toEqual({ path: ok, ok: true, problem: null });
+    expect(checkToolPath(' tmux ', tmp, bin)).toEqual({ path: ok, ok: true, problem: null });
+    expect(checkToolPath('no-such-tool', tmp, bin)).toEqual({ path: 'no-such-tool', ok: false, problem: 'missing' });
+    // 実行権の無いものは PATH の先を探し続ける（シェルと同じ）。
+    fakeTool('plain', 'x', 0o644);
+    expect(checkToolPath('plain', tmp, bin)).toEqual({ path: 'plain', ok: false, problem: 'missing' });
+    expect(checkToolPath('tmux', tmp, '')).toMatchObject({ ok: false, problem: 'missing' });
+  });
+  // ./x や bin/x のような相対パスは、サーバの作業ディレクトリで解釈すると、どこを指すかが分からない。
+  it('相対パスは作業ディレクトリで解釈せず、見つからないとする', () => {
+    expect(fs.existsSync('package.json')).toBe(true);
+    expect(checkToolPath('./package.json', tmp, '')).toEqual({ path: './package.json', ok: false, problem: 'missing' });
+  });
   it('~ で始まるパスはホームから読む', () => {
     const ok = fakeTool('claude', '2.3.1 (Claude Code)');
     expect(checkToolPath('~/bin/claude', tmp)).toEqual({ path: ok, ok: true, problem: null });
