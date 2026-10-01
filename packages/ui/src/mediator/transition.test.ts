@@ -1245,6 +1245,24 @@ describe('ダイアログを開いている間の画面の移動', () => {
       expect(r.effects).toEqual([]);
     }
   });
+  // ブラウザの戻る・進む（マウスの戻るボタンなど）は Intent を通らず、URL の変化として届く。何段動いたか（moved）が添えてある。
+  it.each(holding)('%s の上でブラウザの戻る・進むが来たら、画面を移さず履歴を同じ段だけ戻す', (_name, before) => {
+    const back = run([runtime({ type: 'hash.changed', route: { name: 'settings' }, moved: -1 })], before);
+    expect(back.state).toEqual(before);
+    expect(back.effects).toEqual([{ kind: 'history.go', delta: 1 }]);
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'settings' }, moved: 2 })], before).effects).toEqual([{ kind: 'history.go', delta: -2 }]);
+    // 段が分からない（URL を手で書き換えた）ときは、いまの画面の URL を入れ直す。
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'settings' }, moved: 0 })], before).effects).toEqual([{ kind: 'navigate', route: { name: 'home' } }]);
+  });
+  it('履歴の移動でいまの画面と同じ URL に着いたとき（戻し終えたとき）は、何もしない', () => {
+    const before = holding[0]![1];
+    const r = run([runtime({ type: 'hash.changed', route: { name: 'home' }, moved: 1 })], before);
+    expect(r.state).toEqual(before);
+    expect(r.effects).toEqual([]);
+  });
+  it('ダイアログが無ければ、ブラウザの戻るはそのまま画面を移す', () => {
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'settings' }, moved: -1 })], at).state.screen).toEqual({ name: 'settings' });
+  });
   it('パレットや読むだけのダイアログなら、閉じてから移る', () => {
     for (const open of [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' })]) {
       const r = run([open, intent({ type: 'nav.go', to: { name: 'settings' } })], at);

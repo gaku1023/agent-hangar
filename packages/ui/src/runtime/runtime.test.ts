@@ -62,7 +62,10 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     ...extra,
   };
   const rt = createRuntime(deps);
-  return { rt, go, api, wsHandlers, timers, store, terminals: deps.terminals as ReturnType<typeof fakeTerminals>, setHash: deps.location.setHash, focus: deps.focus as ReturnType<typeof vi.fn>, fireFocus: () => { for (const l of focusListeners) l(); } };
+  return { rt, go, api, wsHandlers, timers, store, terminals: deps.terminals as ReturnType<typeof fakeTerminals>, setHash: deps.location.setHash,
+    // ブラウザの戻る・進む。ハッシュと段を入れ替えて、積まずに変化だけを知らせる。
+    browse: (h: string, d: number) => { hash = h; depth = d; for (const l of hashListeners) l(); },
+    focus: deps.focus as ReturnType<typeof vi.fn>, fireFocus: () => { for (const l of focusListeners) l(); } };
 }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -787,6 +790,23 @@ describe('履歴', () => {
     expect(go).toHaveBeenCalledWith(-1);
     rt.emit({ type: 'nav.forward' });
     expect(go).toHaveBeenCalledWith(1);
+  });
+
+  it('確認のダイアログの上でブラウザの戻るが来たら、画面を移さず履歴を戻し直す', () => {
+    const { rt, go, browse } = harness();
+    rt.start();
+    rt.emit({ type: 'nav.go', to: { name: 'projects' } });
+    expect(rt.getState().screen).toEqual({ name: 'projects' });
+    rt.emit({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 });
+    expect(rt.getState().overlay.kind).toBe('confirm');
+    browse('#/', 0);
+    expect(rt.getState().screen).toEqual({ name: 'projects' });
+    expect(rt.getState().overlay.kind).toBe('confirm');
+    expect(go).toHaveBeenCalledWith(1);
+    // 戻し直した変化が届いても、同じ画面なので何も変わらない。
+    browse('#/projects', 1);
+    expect(rt.getState().screen).toEqual({ name: 'projects' });
+    expect(rt.getState().overlay.kind).toBe('confirm');
   });
 
   it('戻れるかどうかを画面に教えられる', () => {

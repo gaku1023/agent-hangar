@@ -8,7 +8,7 @@ export type SearchQuery = Omit<SearchParamsDto, 'since'> & { days?: number };
 
 export type RuntimeEvent =
   // ws.close は時刻を運ぶ。Mediator は純粋な遷移なので、いつ切れたかを自分では測れない。
-  | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route }
+  | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number }
   | { type: 'api.failed'; message: string } | { type: 'search.done'; params: SearchParamsDto }
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string }
   | { type: 'promote.done'; projectId: string; moved: boolean; reason: string | null }
@@ -104,7 +104,7 @@ export type Effect =
 
 export type Screen = { name: 'booting' } | Route;
 /** results はセッションの一覧の画面の結果の一覧である。 */
-export type FocusTarget = 'search' | 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput' | 'results';
+export type FocusTarget = 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput' | 'results';
 /** 同期の見え方。サーバの SyncStatusDto を UI が描く形に写したもの。 */
 export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
 /**

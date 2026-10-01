@@ -2,7 +2,7 @@
  * フォーカスの対象と、それを持つ要素の id の対応。
  * ターミナルは DOM の id では掴めないので、TerminalHost が別に受け持つ。
  */
-export const FOCUS_IDS = { search: 'global-search', newSessionName: 'new-session-name', palette: 'palette-input', promoteName: 'promote-name', todoInput: 'todo-input', results: 'session-results' } as const;
+export const FOCUS_IDS = { newSessionName: 'new-session-name', palette: 'palette-input', promoteName: 'promote-name', todoInput: 'todo-input', results: 'session-results' } as const;
 
 /**
  * 何枚目の描画まで探すか。

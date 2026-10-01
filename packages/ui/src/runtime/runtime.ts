@@ -106,6 +106,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let ws: WsClient | null = null;
   let searchSeq = 0;
   let unsubHash: (() => void) | null = null;
+  // ハッシュの変化が、アプリが自分で書いたもの（navigate）か、ブラウザの戻る・進むかを見分けるための控え。
+  // 自分で書いた先は wrote に控え、届いたら消す。それ以外の変化には、履歴の段がいくつ動いたか（moved）を添える。
+  let wrote: string | null = null;
+  let lastDepth = 0;
   let unsubFocus: (() => void) | null = null;
   let unsubVisible: (() => void) | null = null;
   /** 通知の許可を最後に読み直した時刻。 */
@@ -182,7 +186,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'navigate': {
         const h = formatRoute(e.route);
         if (deps.location.getHash() === h) dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: e.route } });
-        else deps.location.setHash(h);
+        else { wrote = h; deps.location.setHash(h); }
         return;
       }
       case 'api.bootstrap':
@@ -564,7 +568,16 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         onClose: () => dispatch({ kind: 'runtime', event: { type: 'ws.close', at: (deps.now ?? Date.now)() } }),
         onEvent: (ev) => dispatch({ kind: 'server', event: ev }),
       });
-      unsubHash = deps.location.onHashChange(() => dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } }));
+      lastDepth = deps.location.depth();
+      unsubHash = deps.location.onHashChange(() => {
+        const h = deps.location.getHash();
+        const d = deps.location.depth();
+        const moved = d - lastDepth;
+        lastDepth = d;
+        if (wrote === h) { wrote = null; dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h) } }); return; }
+        wrote = null;
+        dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
+      });
       unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); }) ?? null;
       unsubVisible = deps.onWindowVisible?.(recheckNotify) ?? null;
       ws.connect();

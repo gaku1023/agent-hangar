@@ -1,4 +1,4 @@
-import type { SearchParamsDto } from '@agent-hangar/shared';
+import { formatRoute, type SearchParamsDto } from '@agent-hangar/shared';
 import { overlayReplaceable } from './overlay.ts';
 import { agentTabStep, jumpStep, leaveTranscriptStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
@@ -98,6 +98,16 @@ export function screenStep(state: State, input: Input): Step | null {
   }
   if (input.kind === 'runtime' && input.event.type === 'hash.changed') {
     const route = input.event.route;
+    // ブラウザの戻る・進む（マウスの戻るボタンなど）は Intent を通らず、ここへ直に届く。何段動いたかが moved に添えてある。
+    const moved = input.event.moved;
+    if (moved !== undefined) {
+      const here = state.screen.name === 'booting' ? null : state.screen;
+      // いまの画面と同じ URL に着いた（ダイアログの裏で戻し直した後など）。読み込み直さない。
+      if (here && formatRoute(here) === formatRoute(route)) return { state, effects: [] };
+      // 確認や入力のあるダイアログの裏では移さず、同じ段だけ履歴を戻して URL をいまの画面に合わせる（nav.back と同じ規則）。
+      // 段が分からない（URL を手で書き換えた）ときは、いまの画面の URL を入れ直す。
+      if (!canMoveBehind(state)) return { state, effects: moved !== 0 ? [{ kind: 'history.go', delta: -moved }] : here ? [{ kind: 'navigate', route: here }] : [] };
+    }
     const effects: Effect[] = [];
     let next: State = { ...state, screen: route, overlay: closeTransient(state), focusOnOpen: null };
     // 見ていないセッションの接続は残さない。
