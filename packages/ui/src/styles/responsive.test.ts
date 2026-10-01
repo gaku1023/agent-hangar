@@ -38,6 +38,8 @@ describe('一覧と絞り込み', () => {
   });
   it('セッションの絞り込みは、入り切らなければ次の行へ送る', () => {
     expect(body(read('rows.css'), '.sessions-filters')).toMatch(/flex-wrap: wrap;/);
+    // 900px の窓では 7 つのタブ（「Done 1,221」など）が 1 行に収まらない。
+    expect(body(read('rows.css'), '.sessions-tabs')).toMatch(/flex-wrap: wrap;/);
   });
   it('一覧の画面も、一覧が窓の下端までの残りを受け取る', () => {
     expect(body(base, '.screen-fill > .rows-host, .project-main > .rows-host')).toMatch(/flex: 1 1 0;/);

@@ -125,6 +125,14 @@
    画面の縁は他の画面と同じく .main-inner の余白だけにし、見出しの位置を揃える。
    一覧の高さ（SessionsScreen の LIST_H）は、見出しの高さとこの段の余白から出している。 */
 .sessions-count { font-weight: 400; }
+/* 状態のタブ（★）。件数つきで、入り切らなければ次の行へ送る（900px の窓では 7 つが 1 行に並ばない）。 */
+.sessions-tabs { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * 3); }
+.sessions-tab { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-size: var(--fs-sm); font-weight: 560; color: var(--ink-2); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.sessions-tab:hover { background: var(--surface-2); }
+.sessions-tab[aria-pressed='true'] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.sessions-tab-n { font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* 確かめるが 1 件以上なら、数字を候補の色で灯す。淡い地の上の --cand は 4.5 : 1 を超える（tokens.test.ts）。 */
+.sessions-tab-n[data-hot='true'] { padding: 0 6px; border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
 /* 上の欄は全文検索の本体（D1）。本文を探す絵と「本文」の札を添え、打った語は × で消せる。
    欄の枠は箱の側に持たせ、中の入力欄は素の文字にする。 */
 .sessions-keyword { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); margin-bottom: calc(var(--u) * 3.5); border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
@@ -133,6 +141,13 @@
 .sessions-keyword-tag { flex: none; height: 18px; padding: 0 calc(var(--u) * 1.5); border-radius: 5px; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; color: var(--ink-3); background: var(--surface-2); }
 .sessions-keyword-clear, .sessions-cond-clear { background: none; box-shadow: none; }
 .sessions-keyword-clear { color: var(--ink-3); }
+/* 欄の中のチップ。欄の高さ（34px）に収め、長い値は省略する。 */
+.sessions-token { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 2px; min-width: 0; max-width: 220px; height: 22px; padding: 0 2px 0 calc(var(--u) * 2); border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-family: var(--font-mono); font-size: var(--fs-xs); }
+.sessions-token-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sessions-token-x { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; cursor: pointer; }
+.sessions-token-x .icon { width: 12px; height: 12px; }
+/* 読めなかったトークンの知らせ。欄のすぐ下に、本文の色で出す。 */
+.sessions-hint { margin: calc(var(--u) * -2) var(--u) calc(var(--u) * 3); font-size: var(--fs-xs); color: var(--ink-2); }
 /* 入り切らなければ次の行へ送る。1 行に詰めると、狭い窓で部品どうしが重なる。 */
 .sessions-filters { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 3); margin-bottom: calc(var(--u) * 5); }
 /* 条件の行。条件が 1 つでも効いているときだけ、絞り込みの段の下に出す。
