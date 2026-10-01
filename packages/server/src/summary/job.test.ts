@@ -3,10 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { getSessionState, proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { isSummaryStale, SummaryJob } from './job.ts';
-import { SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput } from './types.ts';
+import { SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput, type SummaryProposal } from './types.ts';
 
 let dir: string; let db: Db; let alphaId: string;
 const sent: ServerEvent[] = [];
@@ -131,5 +132,66 @@ describe('SummaryJob', () => {
     expect((db.prepare('select count(*) c from changes').get() as { c: number }).c).toBe(before);
     const bad = await make([fake('lmstudio', { fail: true }), fake('claude-headless', { available: false })]).test();
     expect(bad).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: 'lmstudio failed' }, { id: 'claude-headless', message: '使えません（接続できないか、上限に達しています）' }] });
+  });
+});
+
+describe('事後の要約からの状態の提案', () => {
+  // 手元の暦で 10 月 1 日の 23 時 30 分。日をまたぐ直前でも、戻る日は書いた日から数える。
+  const NOW = new Date(2026, 9, 1, 23, 30).getTime();
+  const proposing = (proposal?: SummaryProposal): Summarizer => ({ id: 'lmstudio', available: async () => true, summarize: async () => (proposal ? { ...out, proposal } : out) });
+  const runWith = async (s: Summarizer, live: LiveSessionDto[] = []) => {
+    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [s], live: () => live, hub: { broadcast: (e) => sent.push(e) }, now: () => NOW });
+    expect(job.enqueue(alphaId, true)).toBe(true);
+    await job.idle();
+  };
+
+  it('done の提案を post_hoc の候補として書き、要約と同じ 1 回の session.upsert に載せる', async () => {
+    await runWith(proposing({ status: 'done', note: '直して main に入れた', returnInDays: null }));
+    expect(getSessionState(db, alphaId)?.candidate).toEqual({ status: 'done', note: '直して main に入れた', returnOn: null, source: 'post_hoc', at: NOW });
+    const upserts = sent.filter((e) => e.type === 'session.upsert');
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]!.type === 'session.upsert' && upserts[0]!.session.state?.candidate?.status).toBe('done');
+    expect(sent.map((e) => e.type)).toEqual(['summary.pending', 'session.upsert', 'summary.updated']);
+  });
+  it('paused の戻る日は、書いたときの手元の暦から数える', async () => {
+    await runWith(proposing({ status: 'paused', note: '本番で確かめる', returnInDays: 3 }));
+    expect(getSessionState(db, alphaId)?.candidate).toMatchObject({ status: 'paused', note: '本番で確かめる', returnOn: '2026-10-04', source: 'post_hoc' });
+  });
+  it('状態がもう付いていれば書かない', async () => {
+    setSessionState(db, 'd', alphaId, { status: 'done', setBy: 'user', now: NOW - 1000 });
+    await runWith(proposing({ status: 'paused', note: '本番で確かめる', returnInDays: 1 }));
+    expect(getSessionState(db, alphaId)).toMatchObject({ status: 'done', candidate: null });
+  });
+  it('会話の提案がもうあれば上書きしない', async () => {
+    proposeSessionState(db, 'd', alphaId, { status: 'paused', note: '会話の提案', returnOn: '2026-10-05', source: 'in_session', now: NOW - 1000 });
+    await runWith(proposing({ status: 'done', note: '直した', returnInDays: null }));
+    expect(getSessionState(db, alphaId)?.candidate).toMatchObject({ status: 'paused', note: '会話の提案', source: 'in_session' });
+  });
+  it('却下した後は書かない', async () => {
+    proposeSessionState(db, 'd', alphaId, { status: 'done', note: '直した', returnOn: null, source: 'in_session', now: NOW - 2000 });
+    rejectSessionState(db, 'd', alphaId, NOW - 1000);
+    await runWith(proposing({ status: 'done', note: '直した', returnInDays: null }));
+    expect(getSessionState(db, alphaId)?.candidate ?? null).toBeNull();
+  });
+  it('動いているセッションには書かない', async () => {
+    const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/x', pid: 1 }];
+    await runWith(proposing({ status: 'done', note: '直した', returnInDays: null }), live);
+    expect(getSessionState(db, alphaId)?.candidate ?? null).toBeNull();
+    expect((db.prepare('select source from session_summaries where session_id = ?').get(alphaId) as { source: string }).source).toBe('post_hoc');
+  });
+  it('提案を返さない古いモデルでは、要約だけを書く', async () => {
+    await runWith(proposing(undefined));
+    expect(getSessionState(db, alphaId)?.candidate ?? null).toBeNull();
+    expect((db.prepare('select title from session_summaries where session_id = ?').get(alphaId) as { title: string }).title).toBe('T');
+  });
+  it('提案が検査で落ちても、要約は失敗にしない', async () => {
+    // 読み取りを通らない偽物で、根拠が空の提案を直接渡す。proposeSessionState は StateInputError を投げる。
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await runWith(proposing({ status: 'done', note: '', returnInDays: null }));
+    expect(sent.some((e) => e.type === 'summary.failed')).toBe(false);
+    expect(sent.at(-1)).toEqual({ type: 'summary.updated', sessionId: alphaId });
+    expect(getSessionState(db, alphaId)?.candidate ?? null).toBeNull();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
