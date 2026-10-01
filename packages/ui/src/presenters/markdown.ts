@@ -34,7 +34,20 @@ const HEADING_OPEN = /^ {0,3}(#{1,6})\s/;
 const HR = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const QUOTE = /^ {0,3}> ?/;
 const ITEM = /^( *)([-*+]|\d{1,9}[.)])( +|$)(.*)$/;
-const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+/** 区切りの行の 1 欄。`---`、`:---`、`---:`、`:---:` の形。 */
+const DELIM_CELL = /^:?-+:?$/;
+/**
+ * 表の区切りの行か（`| --- | :---: |` など）。
+ * 1 つの正規表現で書くと、欄の後ろと縦線の前後で \s* が隣り合い、長い空白の後に合わない文字が来ると時間が入力の長さの 2 乗に膨らむ（空白 4 万個で 0.6 秒）。
+ * 両端の縦線を 1 つずつ外して縦線で割り、欄ごとに形を見るので、入力の長さに比例する時間で済む。
+ */
+export function isDelimRow(line: string): boolean {
+  let s = line.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|')) s = s.slice(0, -1);
+  if (s === '') return false;
+  return s.split('|').every((c) => DELIM_CELL.test(c.trim()));
+}
 
 /**
  * 見出しの段と中身。見出しでなければ null。
@@ -62,7 +75,7 @@ function cells(line: string): string[] {
   return s.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
 }
 
-const isTableStart = (lines: string[], i: number) => lines[i]!.includes('|') && i + 1 < lines.length && lines[i + 1]!.includes('-') && DELIM.test(lines[i + 1]!) && (lines[i + 1]!.includes('|') || lines[i]!.trim().startsWith('|'));
+const isTableStart = (lines: string[], i: number) => lines[i]!.includes('|') && i + 1 < lines.length && lines[i + 1]!.includes('-') && isDelimRow(lines[i + 1]!) && (lines[i + 1]!.includes('|') || lines[i]!.trim().startsWith('|'));
 
 /** 段落を切る行か。段落の途中にこれが来たら、そこで段落を閉じる。 */
 function startsBlock(lines: string[], i: number): boolean {

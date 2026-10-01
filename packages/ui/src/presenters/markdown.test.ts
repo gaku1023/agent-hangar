@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mdLeaves, parseInline, parseMarkdown, safeHref } from './markdown.ts';
+import { isDelimRow, mdLeaves, parseInline, parseMarkdown, safeHref } from './markdown.ts';
 
 describe('parseMarkdown の塊', () => {
   it('囲みのコードは言語名と中身の塊にし、前後の文は段落にする', () => {
@@ -84,6 +84,20 @@ describe('parseMarkdown の塊', () => {
         [[{ t: 'text', text: 'パスワード' }], [{ t: 'text', text: '8 文字' }]],
       ] },
     ]);
+  });
+  // 区切りの行の判定は、元の正規表現と同じ答えを、入力の長さに比例する時間で出す。
+  // 元の正規表現は \s* が隣り合うので、長い空白の後に合わない文字が来ると、空白 4 万個で 0.6 秒かかっていた。
+  it('区切りの行は、元の正規表現と同じ行を区切りとみなす', () => {
+    const OLD = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+    const samples = ['|---|---|', '| --- | :---: |', ':--|--:', '---', ' | - | ', '|', '||', '| --- || --- |', '|---|-x-|', '| :-: :-: |', '---|', '|---', '| -- |\t', ': - :', '|:|', '| ---: | --- | :--- |', '  ---  |  ---  ', '|-|-|-|-|', '-|-', '| --- |  |'];
+    for (const line of samples) expect([line, isDelimRow(line)]).toEqual([line, OLD.test(line)]);
+  });
+  it('長い空白の区切りの行も時間がかからない', () => {
+    for (const src of ['| a |\n| --- ' + ' '.repeat(40000) + 'x', '| a |\n|' + ' '.repeat(40000) + '|', '| a |\n' + '| --- '.repeat(10000) + ' x']) {
+      const t0 = performance.now();
+      parseMarkdown(src);
+      expect(performance.now() - t0).toBeLessThan(100);
+    }
   });
   it('区切りの行の無い縦線は表にしない', () => {
     expect(parseMarkdown('a | b')).toEqual([{ t: 'p', inl: [{ t: 'text', text: 'a | b' }] }]);
