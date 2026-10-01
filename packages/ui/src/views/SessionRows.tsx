@@ -212,8 +212,15 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const lastInside = useRef<HTMLElement | null>(null);
   const onHostFocus = (e: ReactFocusEvent) => { lastInside.current = e.target as HTMLElement; };
   // 利用者が何も無いところを押してフォーカスを外したとき（行き先が無く、要素は残っている）は、奪い返さないよう忘れる。
-  // ダイアログやターミナルへ移ったときは覚えておき、そこが閉じて body に落ちたら拾う。
-  const onHostBlur = (e: ReactFocusEvent) => { if (e.relatedTarget === null && (e.target as HTMLElement).isConnected) lastInside.current = null; };
+  // 一覧の外の欄（検索欄など）へ移ったときも忘れる。そこから先の blur は一覧の React の木の外で起き、ここへは届かないからである。
+  // モーダルのダイアログ（Paused の入力など）へ移ったときだけは覚えておき、閉じて body に落ちたら拾う。
+  // 「⋯」のメニューの項目は portal で器の外に描くが、そのフォーカスは React の木を通って onHostFocus へ上がり、覚え直される。
+  const onHostBlur = (e: ReactFocusEvent) => {
+    const to = e.relatedTarget as Element | null;
+    const leftQuietly = to === null && (e.target as HTMLElement).isConnected;
+    const leftOutside = to !== null && !hostRef.current?.contains(to) && !to.closest('[aria-modal="true"]');
+    if (leftQuietly || leftOutside) lastInside.current = null;
+  };
   useLayoutEffect(() => {
     const last = lastInside.current;
     const host = hostRef.current;

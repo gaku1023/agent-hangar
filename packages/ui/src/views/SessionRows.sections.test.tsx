@@ -167,4 +167,23 @@ describe('SessionRows のフォーカスの拾い直し（裁定 2B）', () => {
     rerender(ui(ITEMS.filter((it) => it.kind === 'head' || it.row.id !== 'b')));
     expect(document.activeElement).toBe(document.body);
   });
+  // 外の欄の blur は一覧の React の木の外で起きるので、一覧は 2 段目の外し方を知らない。1 段目で忘れておく。
+  it('行から一覧の外の入力欄へ移り、そこから body へ外したら、関係のない描き直しでも奪い返さない', () => {
+    const { rerender } = render(ui(ITEMS));
+    const box = document.createElement('input');
+    document.body.appendChild(box);
+    try {
+      act(() => rowOf('nb').focus());
+      act(() => box.focus());
+      // Root の Esc（欄を離れる打鍵）が el.blur() で body へ落とす。
+      act(() => box.blur());
+      expect(document.activeElement).toBe(document.body);
+      rerender(ui(ITEMS));
+      expect(document.activeElement).toBe(document.body);
+      rerender(ui(ITEMS.filter((it) => it.kind === 'head' || it.row.id !== 'b')));
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      box.remove();
+    }
+  });
 });
