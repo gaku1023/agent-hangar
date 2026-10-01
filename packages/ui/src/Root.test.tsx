@@ -648,6 +648,37 @@ describe('キーの見直し', () => {
     host.remove();
   });
 
+  // 確認や入力のあるダイアログを開いたまま、裏の画面だけを移さない（入力待ちのカードと同じ規則）。
+  it('確認や入力のあるダイアログの裏では、⌘, も ⌘[ ⌘] も画面を移さない', async () => {
+    const { rt, go, setHash, deps } = await mounted();
+    act(() => setHash('#/projects'));
+    act(() => rt.emit({ type: 'session.new.open', scratch: true }));
+    await flush();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    key({ key: ',', metaKey: true });
+    key({ key: '[', metaKey: true });
+    key({ key: ']', metaKey: true });
+    await flush();
+    expect(deps.location.getHash()).toBe('#/projects');
+    expect(go).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('確認や入力のあるダイアログの裏では、スワイプの矢印も出さず画面も移さない', async () => {
+    const { rt, go, setHash } = await mounted();
+    act(() => setHash('#/projects'));
+    act(() => rt.emit({ type: 'session.new.open', scratch: true }));
+    await flush();
+    phaseOn();
+    const hint = screen.getByTestId('swipe-hint');
+    beginGesture();
+    for (let i = 0; i < 6; i++) wheel(-20);
+    expect(hint.dataset.dir).toBeUndefined();
+    endGesture();
+    expect(go).not.toHaveBeenCalled();
+    expect(hint.dataset.dir).toBeUndefined();
+  });
+
   it('ブラウザでは自前のスワイプを使わない', async () => {
     // ブラウザには元から手勢がある。二重に持たず、標準の戻る進むに任せる。
     const { go, setHash } = await mounted();

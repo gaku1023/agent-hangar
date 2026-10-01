@@ -50,6 +50,17 @@ function closeTransient(state: State): Overlay {
   return overlayReplaceable(state.overlay) ? { kind: 'none' } : state.overlay;
 }
 
+/**
+ * 裏の画面を移してよいか。
+ * 確認や入力のあるダイアログを開いたまま裏の画面だけを移すと、何に答えているのかが分からなくなる（⌘I と同じ考え方）。
+ * ⌘, の設定、⌘[ ⌘] の戻る進む、パレットの行、入力待ちのカードと通知は、どれもここで止める。
+ * パレットと読むだけのダイアログは、閉じてから移る（closeTransient）。
+ * ダイアログの中から意図して移るもの（保持期間の「ほかの期間…」、起動や引き取りの完了など）は、別の Intent か runtime の入力なのでここを通らない。
+ */
+export function canMoveBehind(state: State): boolean {
+  return overlayReplaceable(state.overlay);
+}
+
 /** 入力待ちが無いときの知らせ。 */
 export const NO_WAITING = '入力待ちのセッションはありません';
 
@@ -72,6 +83,7 @@ export function nextWaitingStep(state: State): Step {
  * 同じ語で検索し直したときは作り直されず、autoFocus は 1 度きりなので、ここで毎回頼む。
  */
 export function searchQueryStep(state: State, text: string): Step {
+  if (!canMoveBehind(state)) return { state, effects: [] };
   const next = { ...state, overlay: closeTransient(state), search: { ...state.search, text } };
   return { state: next, effects: [{ kind: 'navigate', route: text ? { name: 'sessions', q: text } : { name: 'sessions' } }, { kind: 'focus', target: 'results' }] };
 }
@@ -122,16 +134,17 @@ export function screenStep(state: State, input: Input): Step | null {
   if (input.kind !== 'intent') return null;
   const i = input.intent;
   switch (i.type) {
-    case 'nav.go': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: i.to }] };
+    // 画面を移す Intent は、確認や入力のあるダイアログの裏では何もしない（canMoveBehind）。
+    case 'nav.go': return canMoveBehind(state) ? { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: i.to }] } : { state, effects: [] };
     // 行き先はブラウザの履歴が決めるので、ここでは動かす向きだけを出す。戻った先は hash.changed で入ってくる。
-    case 'nav.back': return { state, effects: [{ kind: 'history.go', delta: -1 }] };
-    case 'nav.forward': return { state, effects: [{ kind: 'history.go', delta: 1 }] };
-    case 'project.open': return { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'project', id: i.id } }] };
+    // 着いた先の hash.changed がパレットや読むだけのダイアログを閉じる。
+    case 'nav.back': return canMoveBehind(state) ? { state, effects: [{ kind: 'history.go', delta: -1 }] } : { state, effects: [] };
+    case 'nav.forward': return canMoveBehind(state) ? { state, effects: [{ kind: 'history.go', delta: 1 }] } : { state, effects: [] };
+    case 'project.open': return canMoveBehind(state) ? { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: { name: 'project', id: i.id } }] } : { state, effects: [] };
     case 'session.open': {
       // 入力待ちのカードと通知は、ダイアログの上や窓の外から届く。
-      // 確認や入力のあるダイアログを開いたまま裏の画面だけを移さない（⌘I と同じ考え方）。
       // 通知のときは、殻が窓を前に出すので、ダイアログが前に出るだけになる。
-      if (!overlayReplaceable(state.overlay)) return { state, effects: [] };
+      if (!canMoveBehind(state)) return { state, effects: [] };
       // 検索の結果から開いたときだけ跳び先を持つ。ほかの開き方では、前の跳び先を忘れる。
       state = jumpStep(state, i.id, i.seq !== undefined ? { seq: i.seq, query: i.q ?? '' } : null);
       const overlay = closeTransient(state);
@@ -155,7 +168,7 @@ export function screenStep(state: State, input: Input): Step | null {
     }
     // 語と絞り込みをまとめて外す。語は URL にも乗っているので、語の無い一覧の URL へ移る。
     // 着いた先（hash.changed）では語も触ったファイルも無いので、問い合わせずに手元の全件を組む。
-    case 'search.clear': return { state: { ...state, search: { text: '', filter: {} } }, effects: [{ kind: 'navigate', route: { name: 'sessions' } }] };
+    case 'search.clear': return !canMoveBehind(state) ? { state, effects: [] } : { state: { ...state, search: { text: '', filter: {} } }, effects: [{ kind: 'navigate', route: { name: 'sessions' } }] };
     case 'search.more': {
       const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(state.search) ? [{ kind: 'api.search', params: { ...searchParams(state), offset: i.offset } }] : [];
       return { state, effects };

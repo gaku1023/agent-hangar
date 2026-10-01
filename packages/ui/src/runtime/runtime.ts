@@ -32,6 +32,11 @@ export type RuntimeDeps = {
   /** 窓が前面に来たことを知らせる。返り値で購読を外す。 */
   onWindowFocus?: (cb: () => void) => () => void;
   /**
+   * 頁が見える状態に戻ったこと（document の visibilitychange で visible）を知らせる。返り値で購読を外す。
+   * 隠れていた窓を前に出しただけでは focus が来ないことがあるので、通知の許可の読み直しはこちらでも行う。
+   */
+  onWindowVisible?: (cb: () => void) => () => void;
+  /**
    * 状態の変化を画面へ出す。
    * commit を呼ぶまで、getState は前に描いた状態を返し、React はそれを描き続ける。
    * 画面の移り変わりを View Transitions で包むための口である（runtime/present.ts）。無ければその場で出す。
@@ -63,6 +68,8 @@ export type Runtime = {
 const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
 /** OS（システム設定）で通知が切られているときの知らせ。 */
 const NOTIFY_BLOCKED = '通知が切られています。システム設定の「通知」で Hangar を許可してください';
+/** 通知の許可を読み直す間隔の下限。窓に戻ると focus と visibilitychange が続けて来るので、まとめて 1 度にする。 */
+export const NOTIFY_RECHECK_MS = 2000;
 /** クリップボードに写せなかったときの知らせ。写そうとした中身は出さない。 */
 const COPY_FAILED = 'コピーできませんでした。文字を選んで ⌘C で写してください';
 /** 検索の結果から開くとき、跳び先より前にどれだけ（seq の幅）読むか。跳び先の前の文脈が見える程度にする。 */
@@ -100,6 +107,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let searchSeq = 0;
   let unsubHash: (() => void) | null = null;
   let unsubFocus: (() => void) | null = null;
+  let unsubVisible: (() => void) | null = null;
+  /** 通知の許可を最後に読み直した時刻。 */
+  let notifyCheckedAt = -Infinity;
 
   const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
   const fail = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } });
@@ -451,6 +461,33 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     }
   }
 
+  /**
+   * 窓が前面に戻ったときに、通知の許可を読み直す。
+   * 許可は hangar の外（システム設定、ブラウザの設定）で変わるので、起動とスイッチだけでは追い付かない。
+   * 利用者が受け取ると選んでいれば（NOTIFY_KEY、選んでいなければ環境の既定）、許されたら受け取るに戻し、切られたら受け取らないにする。
+   * 受け取っていたのに切られたときだけ、許可の仕方を知らせる。
+   * 利用者の選んだ値は書き換えない。
+   * 最後に読んでから NOTIFY_RECHECK_MS の間は読まない。
+   * 選んだ値と状態は答えが届いた時点のものを使う。読んでいる間にスイッチが押されても、その結果を古い値で戻さないためである。
+   */
+  function recheckNotify(): void {
+    if (!notifier) return;
+    const at = (deps.now ?? Date.now)();
+    if (at - notifyCheckedAt < NOTIFY_RECHECK_MS) return;
+    notifyCheckedAt = at;
+    notifier.status().then((s) => {
+      const pref = deps.storage.get(NOTIFY_KEY);
+      const wanted = typeof pref === 'boolean' ? pref : notifier.defaultOn;
+      const available = notifier.available();
+      const blocked = s === 'denied' && available;
+      const on = wanted && available && notifier.granted() && !blocked;
+      const was = state.notify;
+      if (was.available === available && was.on === on && was.blocked === blocked) return;
+      dispatch({ kind: 'runtime', event: { type: 'notify.changed', available, on, blocked } });
+      if (was.on && blocked) toast(NOTIFY_BLOCKED);
+    }, () => {});
+  }
+
   function dispatch(input: Input): void {
     if (input.kind === 'server') {
       setStore(applyServerEvent(store, input.event));
@@ -513,9 +550,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         onEvent: (ev) => dispatch({ kind: 'server', event: ev }),
       });
       unsubHash = deps.location.onHashChange(() => dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } }));
-      unsubFocus = deps.onWindowFocus?.(() => dispatch({ kind: 'runtime', event: { type: 'window.focus' } })) ?? null;
+      unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); }) ?? null;
+      unsubVisible = deps.onWindowVisible?.(recheckNotify) ?? null;
       ws.connect();
     },
-    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubNotify?.(); unsubNotify = null; deps.terminals.dispose(); },
+    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubNotify?.(); unsubNotify = null; deps.terminals.dispose(); },
   };
 }

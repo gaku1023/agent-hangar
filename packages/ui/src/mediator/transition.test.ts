@@ -802,7 +802,8 @@ describe('パレット', () => {
     const un = run([server({ type: 'project.unresolved', projectId: 'p1' })]).state;
     const a = run([intent({ type: 'palette.run', command: { id: 'cmd:settings', label: '設定' } })], un);
     expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+    // 裏の画面も移さない（ダイアログを開いている間の画面の移動を参照）。
+    expect(a.effects).toEqual([]);
     const b = run([intent({ type: 'palette.run', command: { id: 'nope', label: '' } })], un);
     expect(b.state).toEqual(un);
     // ダイアログを開く行も、決めるまで閉じないダイアログを差し替えない。
@@ -1150,6 +1151,67 @@ describe('ダイアログを開いている間の入力待ちのカードと通�
       expect(r.state.overlay).toEqual({ kind: 'none' });
       expect(r.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
     }
+  });
+});
+
+describe('ダイアログを開いている間の画面の移動', () => {
+  // ⌘, の設定、⌘[ ⌘] の戻る進む、パレットの行など、ダイアログの裏で画面を移す経路は、入力待ちのカードと同じ規則で止める。
+  const at = run([runtime({ type: 'hash.changed', route: { name: 'home' } })]).state;
+  const holding: [string, State][] = [
+    ['停止の確認', run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })], at).state],
+    ['未解決のプロジェクト', run([server({ type: 'project.unresolved', projectId: 'p1' })], at).state],
+    ['新しいセッション', run([intent({ type: 'session.new.open', scratch: true })], at).state],
+    ['昇格', run([intent({ type: 'session.promote.open', id: 's1' })], at).state],
+    ['保持期間', run([intent({ type: 'retention.edit', days: 365, from: 'banner' })], at).state],
+    ['設定の取り込み', run([intent({ type: 'sync.config.preview' })], at).state],
+  ];
+  const moves: Input[] = [
+    intent({ type: 'nav.go', to: { name: 'settings' } }),
+    intent({ type: 'nav.back' }),
+    intent({ type: 'nav.forward' }),
+    intent({ type: 'project.open', id: 'p1' }),
+    intent({ type: 'search.query', text: 'x' }),
+    intent({ type: 'search.clear' }),
+    intent({ type: 'palette.run', command: { id: 'cmd:settings', label: '設定' } }),
+    intent({ type: 'palette.run', command: { id: 'go:sessions', label: 'セッション' } }),
+    intent({ type: 'palette.run', command: { id: 'project:p1', label: 'p1' } }),
+    intent({ type: 'palette.run', command: { id: 'session:s1', label: 's1' } }),
+    intent({ type: 'palette.run', command: { id: 'search:x', label: 'x' } }),
+  ];
+  it.each(holding)('%s の上では、裏の画面を移さない', (_name, before) => {
+    expect(before.overlay.kind).not.toBe('none');
+    for (const m of moves) {
+      const r = run([m], before);
+      expect(r.state).toEqual(before);
+      expect(r.effects).toEqual([]);
+    }
+  });
+  it('パレットや読むだけのダイアログなら、閉じてから移る', () => {
+    for (const open of [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' })]) {
+      const r = run([open, intent({ type: 'nav.go', to: { name: 'settings' } })], at);
+      expect(r.state.overlay).toEqual({ kind: 'none' });
+      expect(r.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+      const b = run([open, intent({ type: 'nav.back' })], at);
+      expect(b.effects).toEqual([{ kind: 'history.go', delta: -1 }]);
+    }
+  });
+  // ダイアログの中の操作が意図して移すものは止めない。
+  it('ダイアログの中から意図して移る経路は動く', () => {
+    // 保持期間の「ほかの期間…」は設定へ移る。
+    const retention = run([intent({ type: 'retention.settings' })], holding[4]![1]);
+    expect(retention.state.overlay).toEqual({ kind: 'none' });
+    expect(retention.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+    // 昇格の完了の「プロジェクトを開く」。
+    const promoted = { ...at, overlay: { kind: 'promoted' as const, projectId: 'p9', moved: true, reason: null } };
+    expect(run([intent({ type: 'project.open', id: 'p9' })], promoted).effects).toEqual([{ kind: 'navigate', route: { name: 'project', id: 'p9' } }]);
+    // 新しいセッションの起動の完了は、ダイアログを閉じて開いたセッションへ移る。
+    const launched = run([intent({ type: 'session.new.submit', params: { projectId: 'p1' } }), runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], holding[2]![1]);
+    expect(launched.state.overlay).toEqual({ kind: 'none' });
+    expect(launched.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's9' } });
+    // 確認の承諾の後の移動（引き取りの完了）。
+    const adopt = run([intent({ type: 'session.adopt', id: 's1' })], at).state;
+    const adopted = run([intent({ type: 'session.adopt', id: 's1', confirmed: true }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], adopt);
+    expect(adopted.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
   });
 });
 
