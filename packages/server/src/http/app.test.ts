@@ -64,6 +64,7 @@ function fakeRuns(): RunsApi {
     }),
     jumpToPrompt: vi.fn(async (id: string) => { if (id === 'dead') throw new RunError(409, 'この Claude はもう終了しています'); return { found: true as const }; }),
     leaveTranscript: vi.fn(async () => ({ left: true })),
+    startFromTerminal: vi.fn((req: { cwd: string; args: string[] }) => { if (req.args.includes('--session-id')) throw new RunError(400, '--session-id を付けた起動は hangar では開けません'); return { ...launched, attached: false }; }),
   };
 }
 
@@ -515,6 +516,18 @@ describe('routes', () => {
     expect(body.runs).toEqual([run]);
     expect(body.tabs).toHaveLength(2);
     expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null });
+  });
+  it('ターミナルからの起動は base64 の本文を読んで渡し、断ったら理由を返す', async () => {
+    const post = (body: unknown) => app.request('/api/runs/terminal', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const b64 = (x: string) => Buffer.from(x).toString('base64');
+    const r = await post({ cwd: b64('/w/a'), args: b64(['--model', 'opus'].join('\0')), env: b64('A=1\0') });
+    expect(r.status).toBe(201);
+    expect(await r.json()).toEqual({ ...launched, attached: false });
+    expect(runs.startFromTerminal).toHaveBeenCalledWith({ cwd: '/w/a', args: ['--model', 'opus'], env: { A: '1' } });
+    expect((await post({ cwd: 'x' })).status).toBe(400);
+    const refused = await post({ cwd: b64('/w/a'), args: b64('--session-id\0x'), env: '' });
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toContain('--session-id');
   });
   it('起動、再開、フォーク、停止', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });

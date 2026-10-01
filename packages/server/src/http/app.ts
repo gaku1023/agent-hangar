@@ -20,6 +20,7 @@ import { assignSessions, candidateDirs, normalizeDir, resolveProject, syncProjec
 import { EDIT_TOOLS } from '../indexer/indexFile.ts';
 import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } from '../projects/todos.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
+import { decodeTerminalRequest } from '../runs/terminal.ts';
 import type { JumpFrom } from '../runs/promptJump.ts';
 import { searchSessions } from '../search/search.ts';
 import type { SyncEngine } from '../sync/engine.ts';
@@ -28,7 +29,7 @@ import { aggregateUsage } from '../usage/aggregate.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
-export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript'>;
+export type RunsApi = Pick<RunManager, 'start' | 'startFromTerminal' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */
 export type ExternalApi = {
   openTerminal(o: { tmuxName: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
@@ -133,6 +134,8 @@ const BODY_LIMITS = {
   /** 経路ごとの指定が無い JSON の本文。 */
   default: 64 * 1024,
   statusline: 256 * 1024,
+  /** ターミナルの包み方からの起動。シェルの環境変数をまるごと載せるので、ほかより大きく取る。 */
+  terminal: 512 * 1024,
   memo: 1024 * 1024,
   todo: 4 * 1024,
   url: 2 * 1024,
@@ -616,6 +619,15 @@ export function createApp(deps: AppDeps): Hono {
     // 他端末の最新を先に取り込む。間に合わなくても起動する（結果は見ない）。
     await beforeLaunch();
     return runResult(c, () => deps.runs.start(params), 201);
+  });
+  // ターミナルの包み方（~/.agent-hangar/shell/claude.zsh）からの起動。断ったら、包み方は素の claude を起動する。
+  api.post('/runs/terminal', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.terminal);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.terminal);
+    const req = decodeTerminalRequest(b.value);
+    if (!req) return c.json({ error: '本文の形が違います' }, 400);
+    await beforeLaunch();
+    return runResult(c, () => deps.runs.startFromTerminal(req), 201);
   });
   api.delete('/runs/:id', (c) => runResult(c, () => deps.runs.kill(c.req.param('id'))));
   // タブの追加と削除は本文を取らない。UI は content-type だけを付けた空の要求を送る。

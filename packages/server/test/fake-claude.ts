@@ -8,21 +8,23 @@ import path from 'node:path';
  */
 export function writeFakeClaude(
   dir: string,
-  opts: { exitCode?: number; sleepSec?: number } = {},
-): { bin: string; argsFile: string } {
+  opts: { exitCode?: number; sleepSec?: number; recordEnv?: string[] } = {},
+): { bin: string; argsFile: string; envFile: string } {
   const argsFile = path.join(dir, 'args.bin');
+  const envFile = path.join(dir, 'env.txt');
   const bin = path.join(dir, 'fake-claude');
   const script = [
     '#!/bin/sh',
     `: > "${argsFile}"`,
     `for a in "$@"; do printf '%s\\000' "$a" >> "${argsFile}"; done`,
+    ...(opts.recordEnv ?? []).map((k) => `printf '%s=%s\\n' ${k} "$${k}" >> "${envFile}"`),
     `printf '%s\\000' "$HANGAR_RUN_ID" >> "${argsFile}"`,
     `sleep ${opts.sleepSec ?? 30}`,
     `exit ${opts.exitCode ?? 0}`,
     '',
   ].join('\n');
   fs.writeFileSync(bin, script, { mode: 0o755 });
-  return { bin, argsFile };
+  return { bin, argsFile, envFile };
 }
 
 /**

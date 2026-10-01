@@ -24,7 +24,7 @@ import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
 let db: Db;
 let home: string;
 let cwd: string;
-let fake: { bin: string; argsFile: string };
+let fake: { bin: string; argsFile: string; envFile: string };
 let tmux: Tmux | null;
 let claudeDir: string;
 const socketPath = testSocketPath();
@@ -406,6 +406,80 @@ function seedOldSession(withTranscript = true): string {
 function addTranscript(sessionId: string): void {
   db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/x/u-old.jsonl', sessionId, null, 10, 1, 10, 1);
 }
+
+const TERM_UUID = '480a20da-0b1b-4e20-b8f5-2b5c82124ecb';
+const b64 = (x: string) => Buffer.from(x, 'utf8').toString('base64');
+/** 包み方が送るのと同じ形の頼み。 */
+const fromTerminal = (dir: string, args: string[], env: Record<string, string> = {}) => ({ cwd: dir, args, env });
+
+describe('RunManager.startFromTerminal の入力検査（tmux 不要）', () => {
+  it('hangar が組み立てる引数と重なるものは 400、hangar に無い会話の再開は 404 で断る', () => {
+    const rm = make({ tmux: null });
+    expect(() => rm.startFromTerminal(fromTerminal(cwd, ['--session-id', 'x']))).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => rm.startFromTerminal(fromTerminal(cwd, ['-r', TERM_UUID]))).toThrow(expect.objectContaining({ status: 404 }));
+  });
+  it('同じ会話が hangar の外で動いていれば 409 で断る。二重に開かない', () => {
+    const id = ensureSession(db, TERM_UUID, cwd, 'd');
+    addTranscript(id);
+    const rm = make({ tmux: null, isLive: (u) => u === TERM_UUID });
+    expect(() => rm.startFromTerminal(fromTerminal(cwd, ['-r', TERM_UUID]))).toThrow(expect.objectContaining({ status: 409 }));
+  });
+});
+
+describe.skipIf(!TMUX)('RunManager.startFromTerminal（tmux 上）', () => {
+  it('作業ディレクトリを含む最も深いプロジェクトで起動し、利用者の引数を最後に足し、環境変数を渡す', async () => {
+    fake = writeFakeClaude(home, { recordEnv: ['AGENT_TEST_FROM_SHELL', 'TERM_PROGRAM'] });
+    const sub = path.join(cwd, 'sub');
+    fs.mkdirSync(sub);
+    const rm = make();
+    const r = rm.startFromTerminal(fromTerminal(sub, ['--model', 'opus', '直して'], { AGENT_TEST_FROM_SHELL: 'a b', TERM_PROGRAM: 'iTerm.app' }));
+    expect(r.attached).toBe(false);
+    expect(r.run.kind).toBe('start');
+    const args = await launchedArgs(r.run.id);
+    expect(args[0]).toBe('--mcp-config');
+    expect(args).toContain('--session-id');
+    expect(args.slice(-4, -1)).toEqual(['--model', 'opus', '直して']);
+    const s = db.prepare('select * from sessions where id = ?').get(r.sessionId) as Record<string, unknown>;
+    expect(s).toMatchObject({ project_id: 'p1', cwd: sub, provider_session_id: args[args.indexOf('--session-id') + 1] });
+    await waitFor(() => fs.existsSync(fake.envFile) && fs.readFileSync(fake.envFile, 'utf8').includes('TERM_PROGRAM='));
+    const env = fs.readFileSync(fake.envFile, 'utf8');
+    expect(env).toContain('AGENT_TEST_FROM_SHELL=a b');
+    // 外の端末の名前は渡さない。tmux の中では tmux が自分の名前を入れる。
+    expect(env).not.toContain('TERM_PROGRAM=iTerm.app');
+  });
+
+  it('どのプロジェクトにも入らない作業ディレクトリは未分類で起動する', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-outside-'));
+    const r = make().startFromTerminal(fromTerminal(outside, []));
+    const args = await launchedArgs(r.run.id);
+    const s = db.prepare('select project_id, cwd from sessions where id = ?').get(r.sessionId) as Record<string, unknown>;
+    expect(s).toEqual({ project_id: null, cwd: outside });
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('未分類');
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  it('-r <id> の会話の run が動いていれば、新しく起こさずにその run を返す', () => {
+    const rm = make();
+    const first = rm.startFromTerminal(fromTerminal(cwd, []));
+    const uuid = (db.prepare('select provider_session_id from sessions where id = ?').get(first.sessionId) as { provider_session_id: string }).provider_session_id;
+    const again = rm.startFromTerminal(fromTerminal(cwd, ['-r', uuid, '--model', 'opus']));
+    expect(again.attached).toBe(true);
+    expect(again.run.id).toBe(first.run.id);
+    expect(rm.listAlive().runs).toHaveLength(1);
+  });
+
+  it('-r <id> の会話が止まっていれば再開し、利用者の引数を足す', async () => {
+    const id = ensureSession(db, TERM_UUID, cwd, 'd');
+    addTranscript(id);
+    const r = make().startFromTerminal(fromTerminal(cwd, ['-r', TERM_UUID, '--effort', 'high']));
+    expect(r.attached).toBe(false);
+    expect(r.sessionId).toBe(id);
+    expect(r.run.kind).toBe('resume');
+    const args = await launchedArgs(r.run.id);
+    expect(args[args.indexOf('-r') + 1]).toBe(TERM_UUID);
+    expect(args.slice(-3, -1)).toEqual(['--effort', 'high']);
+  });
+});
 
 describe('resume と fork の入力検査（tmux 不要）', () => {
   it('無いセッション、本文なし、実行中は拒む', () => {
