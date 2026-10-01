@@ -544,12 +544,18 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
 const liveEntry = (over: Partial<LiveSession> = {}): LiveSession => ({ sessionId: 'u-old', status: 'waiting', name: null, nameSource: null, cwd, pid: 4242, procStart: 'Wed Sep 30 03:01:55 2026', entrypoint: 'cli', ...over });
 
 /** 外のプロセスに触る口の偽物。runClaude の --bg でレジストリにバックグラウンドの項目を足す。 */
-function fakeProcs(live: LiveSession[], o: { startTime?: string | null; terminated?: boolean; bgOut?: string; bgSessionId?: string; bgFails?: boolean; agentsFails?: boolean; jobs?: { id: string; sessionId: string }[] } = {}) {
+function fakeProcs(live: LiveSession[], o: { startTime?: string | null; terminated?: boolean; lingers?: boolean; bgOut?: string; bgSessionId?: string; bgFails?: boolean; agentsFails?: boolean; jobs?: { id: string; sessionId: string }[] } = {}) {
   const calls: { terminate: number[]; claude: { args: string[]; cwd: string }[] } = { terminate: [], claude: [] };
   const procs: ProcOps = {
     listJobs: () => o.jobs ?? [],
     startTimeOf: () => (o.startTime === undefined ? 'Wed Sep 30 03:01:55 2026' : o.startTime),
-    terminate: async (pid) => { calls.terminate.push(pid); return o.terminated ?? true; },
+    terminate: async (pid) => {
+      calls.terminate.push(pid);
+      const ok = o.terminated ?? true;
+      // 止まった claude はレジストリから消える。lingers ならいつまでも残る。
+      if (ok && !o.lingers) { const i = live.findIndex((l) => l.pid === pid); if (i >= 0) live.splice(i, 1); }
+      return ok;
+    },
     runClaude: async (_bin, args, cwd) => {
       calls.claude.push({ args, cwd });
       if (args[0] === 'agents') { if (o.agentsFails) throw new Error("'claude agents --json' is disabled by CLAUDE_CODE_DISABLE_AGENT_VIEW."); return '[]'; }
@@ -623,16 +629,19 @@ describe.skipIf(!TMUX)('attach と引き取り（tmux 上）', () => {
     expect(fs.existsSync(path.join(home, 'mcp', `${id}.json`))).toBe(false);
   });
 
-  it('引き取りは元の claude を止め、同じ id でバックグラウンドに移してつなぐ', async () => {
+  it('引き取りは元の claude を止め、同じ id で hangar の tmux の中で再開する', async () => {
     const id = seedOldSession();
     const live = [liveEntry()];
     const f = fakeProcs(live);
-    const r = await make({ live: () => live, procs: f.procs }).adopt(id);
+    const r = await make({ live: () => live, isLive: (u) => live.some((l) => l.sessionId === u), procs: f.procs, sleep: async () => {} }).adopt(id);
     expect(f.calls.terminate).toEqual([4242]);
-    // 止める前に、この PC の Claude Code がバックグラウンドを使えるかを確かめる。
-    expect(f.calls.claude).toEqual([{ args: ['agents', '--json'], cwd }, { args: ['--bg', '--resume', 'u-old'], cwd }]);
+    // バックグラウンドには移さない。Claude Code はバックグラウンドのセッションを上限の後に自動で続けない。
+    expect(f.calls.claude).toEqual([]);
     expect(r.sessionId).toBe(id);
-    expect((await launchedArgs(r.run.id)).slice(0, -1)).toEqual(['attach', 'abcd1234']);
+    expect(r.run.kind).toBe('resume');
+    const args = await launchedArgs(r.run.id);
+    expect(args[0]).toBe('--mcp-config');
+    expect(args[args.indexOf('-r') + 1]).toBe('u-old');
   });
 
   it('すでにバックグラウンドのセッションは止めずにつなぐだけにする', async () => {
@@ -644,30 +653,30 @@ describe.skipIf(!TMUX)('attach と引き取り（tmux 上）', () => {
     expect((await launchedArgs(r.run.id)).slice(0, -1)).toEqual(['attach', 'abcd1234']);
   });
 
-  it('Claude が写しを作ったら、写しを同じプロジェクトの新しいセッションとして開く', async () => {
+  it('止めてもレジストリから消えなければ、再開せずに開き直す手を添えて断る', async () => {
     const id = seedOldSession();
     const live = [liveEntry()];
-    const f = fakeProcs(live, { bgSessionId: 'u-copy' });
-    const r = await make({ live: () => live, procs: f.procs }).adopt(id);
-    expect(r.sessionId).not.toBe(id);
-    expect(db.prepare('select provider_session_id, project_id from sessions where id = ?').get(r.sessionId)).toEqual({ provider_session_id: 'u-copy', project_id: 'p1' });
+    const f = fakeProcs(live, { lingers: true });
+    // 待つ間は時計だけを進める。実時間で待たない。
+    let t = Date.now();
+    const rm = make({ live: () => live, isLive: (u) => live.some((l) => l.sessionId === u), procs: f.procs, now: () => t, sleep: async (ms) => { t += ms; } });
+    await expect(rm.adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringContaining('claude --resume u-old') });
+    expect(rm.listAlive().runs).toEqual([]);
   });
 
-  it('移せなかったら、開き直す手を添えて 400 にする', async () => {
+  it('元の claude が終わらなければ断り、再開もしない', async () => {
     const id = seedOldSession();
-    const live = [liveEntry()];
-    const f = fakeProcs(live, { bgFails: true });
-    await expect(make({ live: () => live, procs: f.procs }).adopt(id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('claude --resume u-old') });
     const g = fakeProcs([liveEntry()], { terminated: false });
-    await expect(make({ live: () => [liveEntry()], procs: g.procs }).adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/終わりませんでした/) });
-    expect(g.calls.claude.map((c) => c.args[0])).toEqual(['agents']);
+    const rm = make({ live: () => [liveEntry()], procs: g.procs });
+    await expect(rm.adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/終わりませんでした/) });
+    expect(rm.listAlive().runs).toEqual([]);
   });
 
-  it('バックグラウンドを使えない Claude Code では、止めずに断る', async () => {
-    const id = seedOldSession();
+  it('本文の無いセッションは、止める前に断る。止めた後で再開できずに終わらないようにする', async () => {
+    const id = seedOldSession(false);
     const live = [liveEntry()];
-    const f = fakeProcs(live, { agentsFails: true });
-    await expect(make({ live: () => live, procs: f.procs }).adopt(id)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/バックグラウンドを使えません/) });
+    const f = fakeProcs(live);
+    await expect(make({ live: () => live, procs: f.procs }).adopt(id)).rejects.toMatchObject({ status: 400 });
     expect(f.calls.terminate).toEqual([]);
   });
 
