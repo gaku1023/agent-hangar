@@ -108,8 +108,8 @@ describe('読み込み画面', () => {
 describe('capabilities', () => {
   const dir = path.join(app, 'src-tauri', 'capabilities');
   const cap = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作の 5 つだけ', () => {
-    expect(fs.readdirSync(dir).sort()).toEqual(['boot-screen.json', 'default.json', 'remote-drag.json', 'remote-notify.json', 'remote-shell.json']);
+  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作と、フォルダの選択の 6 つだけ', () => {
+    expect(fs.readdirSync(dir).sort()).toEqual(['boot-screen.json', 'default.json', 'remote-drag.json', 'remote-notify.json', 'remote-pick-folder.json', 'remote-shell.json']);
   });
   it('既定の権限は core:default のまま変えない', () => {
     expect(cap('default.json').permissions).toEqual(['core:default']);
@@ -136,6 +136,7 @@ describe('capabilities', () => {
     expect(cap('remote-drag.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
     expect(cap('remote-notify.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
     expect(cap('remote-shell.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
+    expect(cap('remote-pick-folder.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
   });
   // 殻のコマンドの名前は、殻（build.rs と lib.rs）と画面（notifier.ts）に分かれている。
   // 片方だけ変えると、通知が黙って出なくなる。
@@ -163,16 +164,24 @@ describe('capabilities', () => {
     expect(c.windows).toEqual(['main']);
     expect(c.permissions).toEqual(['allow-open-log', 'allow-restart-app']);
   });
+  // フォルダの選択は、プロジェクトを作るダイアログの「ほかの場所を選ぶ…」だけが使う。プラグインの JS の権限は与えない。
+  it('UI の出どころには、フォルダの選択だけを別に与える', () => {
+    const c = cap('remote-pick-folder.json');
+    expect(c.windows).toEqual(['main']);
+    expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
+    expect(c.permissions).toEqual(['allow-pick-folder']);
+  });
   // 命令の名前は、build.rs の一覧、lib.rs の #[tauri::command]、UI と起動画面の呼び出しの 4 か所にある。
   // 入力待ちの知らせの 3 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['notify_request', 'notify_status', 'notify_waiting', 'open_log', 'restart_app', 'retry_boot']);
+    expect(listed).toEqual(['notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'retry_boot']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');
     expect(ui).toContain("openLog: 'open_log'");
     expect(ui).toContain("restart: 'restart_app'");
+    expect(ui).toContain("pickFolder: 'pick_folder'");
     const boot = read('loading/boot.js');
     expect(boot).toContain("'retry_boot'");
     expect(boot).toContain("'open_log'");

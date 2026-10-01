@@ -696,7 +696,28 @@ fn spawn_boot(app: AppHandle) -> bool {
 
 // ここから下の 3 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
-// どれも引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
+// pick_folder のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
+
+/// フォルダを 1 つ選ぶ macOS のダイアログを開き、選んだパスを返す。取り消したら None を返す。
+/// 新しいセッションのダイアログと、プロジェクトを作るダイアログの「ほかの場所を選ぶ…」が呼ぶ。
+/// 既定の場所はワークスペースのルートで、`~/` で始まればホームに展開する。ディレクトリでなければ渡さない。
+/// ダイアログは選び終えるまで戻らないので、非同期の実行の糸を塞がないよう spawn_blocking で待つ。
+#[tauri::command]
+async fn pick_folder(app: AppHandle, default_path: Option<String>) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut builder = app.dialog().file();
+    if let Some(p) = default_path {
+        let expanded = match p.strip_prefix("~/") {
+            Some(rest) => std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(rest)),
+            None => Some(std::path::PathBuf::from(p)),
+        };
+        if let Some(dir) = expanded.filter(|d| d.is_dir()) {
+            builder = builder.set_directory(dir);
+        }
+    }
+    let picked = tauri::async_runtime::spawn_blocking(move || builder.blocking_pick_folder()).await.ok().flatten()?;
+    picked.into_path().ok().map(|p| p.to_string_lossy().into_owned())
+}
 
 /// `~/.agent-hangar/desktop.log` を開く。起動画面と、UI の切断の帯の「ログを開く」が呼ぶ。
 #[tauri::command]
@@ -897,6 +918,7 @@ fn file_dropped(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             server: Mutex::new(None),
             ui: Mutex::new(Ui::default()),
@@ -904,9 +926,10 @@ pub fn run() {
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
-        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、boot-screen.json で絞る。
+        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、boot-screen.json で絞る。
         .invoke_handler(tauri::generate_handler![
             open_log,
+            pick_folder,
             restart_app,
             retry_boot,
             notify_waiting,
