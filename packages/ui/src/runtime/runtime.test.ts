@@ -67,6 +67,36 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('createRuntime', () => {
+  const aliveRun = { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start' as const, tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 };
+  it('実行中のセッションは本文を読むときに右ペインの要約も取り、1 秒に 1 回までにまとめる', async () => {
+    let clock = 10_000;
+    const { rt, api, setHash, timers } = harness({}, { now: () => clock });
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: aliveRun, tabs: [] } });
+    setHash('#/session/s1');
+    await flush();
+    expect(api.live).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().liveDigests.s1).toMatchObject({ sessionId: 's1' });
+    const before = timers.length;
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's1', count: 1 } });
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's1', count: 1 } });
+    await flush();
+    // 1 秒たつまでは取りに行かず、予約は 1 つだけにする。
+    expect(api.live).toHaveBeenCalledTimes(1);
+    const mine = timers.slice(before).filter((t) => t.ms === 1000);
+    expect(mine).toHaveLength(1);
+    clock += 1000;
+    mine[0]!.fn();
+    await flush();
+    expect(api.live).toHaveBeenCalledTimes(2);
+  });
+  it('生きた run の無いセッションでは要約を取らない', async () => {
+    const { rt, api, setHash } = harness();
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(api.live).not.toHaveBeenCalled();
+  });
   it('ws が開くと bootstrap を取り、現在のハッシュで画面を決める', async () => {
     const { rt, api, wsHandlers, setHash } = harness();
     rt.start();

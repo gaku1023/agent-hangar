@@ -30,6 +30,9 @@ describe('stepKind', () => {
     expect(stepKind(bash('cd /w && npm run typecheck'))).toBe('run');
     expect(stepKind(bash('git status --short'))).toBe('read');
     expect(stepKind(bash('git -C /w log --oneline -3'))).toBe('read');
+    // 作り替える手もあるので、branch と worktree は読み取りに数えない。
+    expect(stepKind(bash('git branch -D old'))).toBe('other');
+    expect(stepKind(bash('git worktree add ../w b'))).toBe('other');
     expect(stepKind(bash('git commit -m x'))).toBe('git');
     expect(stepKind(bash('git push origin b'))).toBe('git');
     expect(stepKind(bash('curl -s http://127.0.0.1:4177/health'))).toBe('other');
@@ -47,6 +50,9 @@ describe('stepLine', () => {
     expect(stepLine(call('Edit', { file_path: '/w/b.ts' }))).toEqual({ text: 'b.ts を書き換えた', mono: false });
     expect(stepLine(call('Write', { file_path: '/w/c.md' }))).toEqual({ text: 'c.md を書いた', mono: false });
     expect(stepLine(call('Grep', { pattern: 'renderInjection' }))).toEqual({ text: '探した：renderInjection', mono: false });
+  });
+  it('サブエージェントの報告は、本文を出さず「報告を返した」と書く', () => {
+    expect(stepLine(call('SubagentHandback', { message: '0 件（空ディレクトリ）' }))).toEqual({ text: '報告を返した', mono: false });
   });
   it('そのほかはツール名と今の summary', () => {
     expect(stepLine(call('WebFetch', { url: 'https://x' }, 'WebFetch https://x'))).toEqual({ text: 'WebFetch https://x', mono: false });

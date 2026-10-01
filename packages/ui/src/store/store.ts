@@ -1,5 +1,5 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -13,6 +13,8 @@ export type Store = {
   projects: Record<string, ProjectDto>; sessions: Record<string, SessionDto>; live: LiveSessionDto[];
   runs: Record<string, RunDto>; tabs: Record<string, TabDto>;
   events: Record<string, EventsSlice>; subagents: Record<string, string[]>;
+  /** 実行中のセッションの右ペインに出すライブの要約。実行中に開いたセッションの分が溜まる（今開いているものだけではない）。 */
+  liveDigests: Record<string, LiveDigestDto>;
   search: { params: SearchParamsDto | null; result: SearchResultDto | null; loading: boolean };
   index: IndexProgressDto;
   usage: UsageDto; todos: Record<string, TodoDto>; memos: Record<string, MemoDto>; artifacts: Record<string, ArtifactDto>;
@@ -39,7 +41,7 @@ export const eventsKey = (sessionId: string, agentId: string | null): string => 
 
 export function initialStore(): Store {
   return {
-    bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {},
+    bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {},
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     usage: emptyUsage(), todos: {}, memos: {}, artifacts: {}, summaryPending: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
@@ -165,6 +167,10 @@ export function appendSearch(store: Store, params: SearchParamsDto, page: Search
 
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {
   return { ...store, subagents: { ...store.subagents, [sessionId]: ids } };
+}
+
+export function applyLiveDigest(store: Store, d: LiveDigestDto): Store {
+  return { ...store, liveDigests: { ...store.liveDigests, [d.sessionId]: d } };
 }
 
 /** 起動の結果を入れる。

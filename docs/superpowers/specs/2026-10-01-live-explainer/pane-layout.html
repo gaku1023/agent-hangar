@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>右ペインの案</title>
+<style>
+:root {
+  --bg:#eef1f7; --surface:#fff; --surface-2:#f3f4f9; --line:#eceef5; --line-strong:#d9dbe6;
+  --ink:#1c1b2e; --ink-2:#5f5e78; --ink-3:#8a89a0; --accent:#4a63e8; --accent-soft:#eef2ff;
+  --busy:#c77a1a; --busy-soft:#fbf0e1; --idle:#3a8f5c; --idle-soft:#e3f1e8; --cand:#6a4fd0; --cand-soft:#f1edff;
+  --term-bg:#1c1b2e; --term-fg:#e8e6f0; --term-tool:#ffb86b;
+  --r:8px; --r-lg:14px;
+  --sans:'Inter','Hiragino Sans','Hiragino Kaku Gothic ProN',sans-serif; --mono:'JetBrains Mono','SFMono-Regular',Menlo,monospace;
+}
+* { box-sizing:border-box }
+body { margin:0; background:var(--bg); color:var(--ink); font:13px/1.55 var(--sans); }
+main { max-width:1180px; margin:0 auto; padding:28px 20px 80px; }
+h1 { font-size:20px; margin:0 0 6px; }
+.lead { color:var(--ink-2); margin:0 0 6px; max-width:80ch; }
+.legend { display:flex; flex-wrap:wrap; gap:14px; margin:10px 0 24px; font-size:12px; color:var(--ink-2); }
+.legend span { display:inline-flex; align-items:center; gap:6px; }
+
+.variant { display:grid; grid-template-columns:260px 360px 1fr; gap:14px; align-items:start; margin-bottom:26px; padding:14px; border-radius:16px; background:rgba(255,255,255,.45); border:2px solid transparent; cursor:pointer; }
+.variant:hover { border-color:var(--line-strong); }
+.variant.selected { border-color:var(--accent); background:rgba(238,242,255,.7); }
+.desc h3 { margin:0 0 6px; font-size:15px; }
+.desc .tag { display:inline-block; font-size:11px; font-weight:600; color:#fff; background:var(--accent); border-radius:6px; padding:1px 7px; margin-right:6px; }
+.desc p { margin:6px 0; color:var(--ink-2); }
+.desc ul { margin:6px 0; padding-left:18px; color:var(--ink-2); }
+.desc b { color:var(--ink); }
+
+/* 左の端末（切れ端） */
+.term { height:430px; background:var(--term-bg); color:var(--term-fg); border-radius:var(--r-lg); padding:10px 12px; font:11px/1.6 var(--mono); overflow:hidden; box-shadow:0 0 0 2px rgba(199,122,26,.55), 0 0 18px rgba(199,122,26,.35); }
+.term .t { color:var(--term-tool); }
+.term .d { opacity:.55; }
+
+/* 右ペイン */
+.pane { height:430px; background:var(--surface); border-radius:var(--r-lg); box-shadow:0 1px 2px rgba(30,40,90,.06); padding:8px 12px; display:flex; flex-direction:column; overflow:hidden; }
+.phead { display:flex; align-items:center; gap:8px; height:28px; flex:none; font-size:12px; color:var(--ink-3); }
+.phead .sp { flex:1 }
+.pbody { flex:1; min-height:0; overflow:hidden; display:flex; flex-direction:column; gap:4px; }
+.pfoot { flex:none; display:flex; justify-content:flex-end; border-top:1px solid var(--line); padding-top:6px; }
+.btn { font:inherit; font-size:12px; border:1px solid var(--line-strong); background:#fff; border-radius:7px; padding:2px 9px; color:var(--ink); }
+.mono { font-family:var(--mono); }
+.faint { color:var(--ink-3); }
+
+.row { display:flex; gap:8px; align-items:baseline; padding:5px 8px; border-radius:var(--r); }
+.row .when { font:11px var(--mono); color:var(--ink-3); flex:none; }
+.row .txt { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.row .n { font:11px var(--mono); color:var(--ink-3); flex:none; }
+.row.open { background:var(--accent-soft); color:var(--accent); font-weight:560; }
+.sub { font-size:12px; color:var(--ink-2); padding:0 8px 4px 52px; margin-top:-3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* 三つの層 */
+.intent { border-left:3px solid var(--cand); background:var(--cand-soft); border-radius:0 var(--r) var(--r) 0; padding:6px 9px; font-size:12.5px; }
+.intent .k { display:block; font-size:10.5px; font-weight:600; color:var(--cand); letter-spacing:.02em; margin-bottom:1px; }
+.step { display:flex; gap:8px; align-items:baseline; font-size:12.5px; padding:2px 0; }
+.step .ic { flex:none; width:16px; text-align:center; color:var(--ink-3); font-size:11px; }
+.step .ok { color:var(--idle); }
+.step.now { color:var(--busy); font-weight:560; }
+.dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--busy); animation:pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity:.3 } }
+.term-w { border-bottom:1.5px dotted var(--accent); color:inherit; cursor:help; }
+.pop { margin:4px 0 2px; padding:8px 10px; border-radius:10px; background:rgba(255,255,255,.82); backdrop-filter:blur(12px); box-shadow:0 10px 28px -12px rgba(30,40,90,.35), inset 0 0 0 1px var(--line-strong); font-size:12px; color:var(--ink-2); }
+.pop b { color:var(--ink); }
+.chips { display:flex; flex-wrap:wrap; gap:5px; }
+.chip { font-size:11.5px; border:1px solid var(--line-strong); border-radius:99px; padding:1px 8px; background:#fff; }
+.chip.on { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+.now-card { border-radius:12px; background:var(--busy-soft); padding:9px 11px; }
+.now-card .big { font-size:15px; font-weight:600; color:var(--ink); display:flex; align-items:center; gap:7px; }
+.tabs { display:flex; gap:2px; background:var(--surface-2); border-radius:8px; padding:2px; }
+.tabs span { padding:1px 10px; border-radius:6px; font-size:12px; color:var(--ink-2); }
+.tabs span.on { background:#fff; color:var(--ink); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+.feed .item { padding:6px 0; border-bottom:1px solid var(--line); font-size:12.5px; }
+.feed .item .when { font:11px var(--mono); color:var(--ink-3); margin-right:6px; }
+.tl { position:relative; padding-left:16px; }
+.tl::before { content:""; position:absolute; left:5px; top:4px; bottom:4px; width:2px; background:var(--line-strong); }
+.tl .s { position:relative; font-size:12.5px; padding:3px 0; }
+.tl .s::before { content:""; position:absolute; left:-15px; top:9px; width:8px; height:8px; border-radius:50%; background:#fff; border:2px solid var(--ink-3); }
+.tl .s.ok::before { border-color:var(--idle); background:var(--idle); }
+.tl .s.now::before { border-color:var(--busy); background:var(--busy); animation:pulse 1.6s infinite; }
+.tl .s.now { color:var(--busy); font-weight:560; }
+.tl .s .jmp { font-size:10.5px; color:var(--accent); margin-left:4px; }
+.gh { font-size:11px; font-weight:600; color:var(--ink-3); letter-spacing:.03em; margin:4px 0 2px; }
+.gl { font-size:12px; padding:5px 0; border-bottom:1px solid var(--line); }
+.gl b { color:var(--ink); }
+.gl span { color:var(--ink-2); }
+.split-line { border-top:1px solid var(--line-strong); margin:4px -12px; }
+.min { display:flex; flex-direction:column; gap:14px; padding:6px 2px; }
+.min .lab { font-size:11px; font-weight:600; color:var(--ink-3); }
+.min .val { font-size:16px; line-height:1.5; color:var(--ink); }
+.min .val.now { color:var(--busy); }
+.min ul { margin:2px 0 0; padding-left:18px; font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+<h1>右ペインを「いま何が起きているか」の説明にする：6 つの案</h1>
+<p class="lead">左は実行中の Claude。例の場面は「exit したら止まるようにして。作業中のは聞いて」と頼んだ 3 つ目のターンで、Claude はいまテストを走らせている。
+案は構造（目次を残すか、いまを主にするか）と、用語の出し方の 2 軸で振ってある。気に入った案を押してから、ターミナルで感想を。混ぜたい案があれば「A の構造に E の用語帳」のように。</p>
+<div class="legend">
+  <span><span class="intent" style="padding:0 6px">意図</span> セッションが MCP で書く「何のためか」</span>
+  <span><span class="ic">✎</span> hangar がツールの呼び出しから決まった文にする「何をしているか」（即時・費用ゼロ）</span>
+  <span><span class="term-w">点線の語</span> 押すとペルソナに合わせて説明器が解説する用語</span>
+</div>
+
+<!-- A -->
+<div class="variant" data-choice="a" onclick="toggleSelect(this)">
+  <div class="term"><div class="d">⏺ Update(packages/server/src/config/shellHook.ts)</div><div class="d">  ⎿ Updated with 57 additions and 4 removals</div><br><div>⏺ テストを足してから走らせます。</div><br><div class="t">⏺ Bash(npx vitest run shellHook)</div><div class="d">  ⎿ Running…</div></div>
+  <div class="pane">
+    <div class="phead">ターン 3 <span class="sp"></span></div>
+    <div class="pbody">
+      <div class="row"><span class="when">02:01</span><span class="txt">hangar の shell hook の仕組みを見て</span><span class="n">6</span></div>
+      <div class="sub">claude.zsh の包み方と attach の流れを読んだ。変更なし</div>
+      <div class="row"><span class="when">02:08</span><span class="txt">exit のとき何が起きてるか調べて</span><span class="n">4</span></div>
+      <div class="sub">抜けても会話は裏で動き続けると確かめた</div>
+      <div class="row open"><span class="when">02:12</span><span class="txt">exit したら止まるようにして。作業中のは聞いて</span><span class="n">9</span></div>
+      <div style="padding:4px 8px 0; display:flex; flex-direction:column; gap:5px">
+        <div class="intent"><span class="k">意図</span>抜けたあとに一覧（<span class="term-w">claude agents --json</span>）を引き、答え終えた会話だけ止める。作業中と許可待ちは尋ね、既定は残す。</div>
+        <div class="step"><span class="ic">✎</span><span><code>shellHook.ts</code> の<span class="term-w">包み方</span>に後始末を足した（+57 −4）</span></div>
+        <div class="step"><span class="ic">✎</span><span>テストを足した（<code>shellHook.test.ts</code> +99）</span></div>
+        <div class="step now"><span class="ic"><span class="dot"></span></span><span>いま：テストを走らせている</span></div>
+        <div class="pop"><b>包み方</b>：ターミナルで打つ <code>claude</code> を、hangar が zsh の関数で横取りしている部分。裏で起こして（<code>--bg</code>）、この画面につなぐ（<code>attach</code>）。</div>
+      </div>
+    </div>
+    <div class="pfoot"><span class="btn">最新へ</span></div>
+  </div>
+  <div class="desc"><h3><span class="tag">A</span>目次に説明を差し込む</h3>
+    <p>今の目次をそのまま残し、各行の下に「何が変わったか」を 1 行。いまのターンだけ開いて、意図と手順が流れる。</p>
+    <ul><li>行を押すと左も跳ぶ、は今のまま</li><li>用語は点線を押すとその場に吹き出し</li><li><b>変化が一番小さい</b>。過去のターンも 1 行で読める</li></ul></div>
+</div>
+
+<!-- B -->
+<div class="variant" data-choice="b" onclick="toggleSelect(this)">
+  <div class="term"><div class="d">⏺ Update(packages/server/src/config/shellHook.ts)</div><div class="d">  ⎿ Updated with 57 additions and 4 removals</div><br><div>⏺ テストを足してから走らせます。</div><br><div class="t">⏺ Bash(npx vitest run shellHook)</div><div class="d">  ⎿ Running…</div></div>
+  <div class="pane">
+    <div class="phead">いま <span class="sp"></span></div>
+    <div class="pbody">
+      <div class="now-card">
+        <div class="big"><span class="dot"></span>テストを走らせている</div>
+        <div style="font-size:12px;color:var(--ink-2);margin-top:3px">直前に <code>shellHook.ts</code> を書き換え（+57 −4）、テストを足した（+99）</div>
+        <div class="intent" style="margin-top:7px;background:#fff"><span class="k">何のため</span>抜けたあと、答え終えた会話だけ止める。作業中と許可待ちは尋ねる。</div>
+      </div>
+      <div class="gh">出てきた言葉</div>
+      <div class="chips"><span class="chip on">包み方</span><span class="chip">attach</span><span class="chip">claude agents --json</span><span class="chip">SIGHUP</span></div>
+      <div class="pop">
+        <b>包み方</b>：ターミナルで打つ <code>claude</code> を hangar が zsh の関数で横取りしている部分。本体は <code>~/.agent-hangar/shell/claude.zsh</code>。</div>
+      <div class="gh" style="margin-top:6px">ターン</div>
+      <div class="row"><span class="when">02:01</span><span class="txt">hangar の shell hook の仕組みを見て</span><span class="n">6</span></div>
+      <div class="row"><span class="when">02:08</span><span class="txt">exit のとき何が起きてるか調べて</span><span class="n">4</span></div>
+      <div class="row open"><span class="when">02:12</span><span class="txt">exit したら止まるようにして。作業中のは…</span><span class="n">9</span></div>
+    </div>
+    <div class="pfoot"><span class="btn">最新へ</span></div>
+  </div>
+  <div class="desc"><h3><span class="tag">B</span>「いま」を上に固定</h3>
+    <p>上に大きな「いま」のカード。横目で一番目に入る。その下に出てきた言葉のチップと、縮めた目次。</p>
+    <ul><li>横目の用途には一番まっすぐ</li><li>用語はチップを押すと下に開く。セッションの語彙がたまっていく</li><li>目次は小さくなる</li></ul></div>
+</div>
+
+<!-- C -->
+<div class="variant" data-choice="c" onclick="toggleSelect(this)">
+  <div class="term"><div class="d">⏺ Update(packages/server/src/config/shellHook.ts)</div><div class="d">  ⎿ Updated with 57 additions and 4 removals</div><br><div>⏺ テストを足してから走らせます。</div><br><div class="t">⏺ Bash(npx vitest run shellHook)</div><div class="d">  ⎿ Running…</div></div>
+  <div class="pane">
+    <div class="phead"><span class="tabs"><span class="on">説明</span><span>目次</span></span><span class="sp"></span></div>
+    <div class="pbody feed">
+      <div class="item"><span class="when">02:12</span><b>「exit したら止まるようにして」</b>を受けた</div>
+      <div class="item"><div class="intent"><span class="k">意図</span>抜けたあとに一覧を引き、答え終えた会話だけ止める。作業中と許可待ちは尋ね、既定は残す。</div></div>
+      <div class="item"><span class="when">02:14</span><code>shellHook.ts</code> を 3 か所読んだ</div>
+      <div class="item"><span class="when">02:15</span><span class="term-w">包み方</span>に後始末を足した（+57 −4）。抜けたら <span class="term-w">claude agents --json</span> を引く</div>
+      <div class="item"><span class="when">02:16</span>テストを足した（+99）</div>
+      <div class="item" style="color:var(--busy);font-weight:560"><span class="when">02:17</span><span class="dot"></span> テストを走らせている</div>
+    </div>
+    <div class="pfoot"><span class="btn">最新へ</span></div>
+  </div>
+  <div class="desc"><h3><span class="tag">C</span>説明と目次をタブで分ける</h3>
+    <p>「説明」タブは時刻つきで流れる実況。「目次」タブは今のまま（押すと左も跳ぶ）。</p>
+    <ul><li>両方を大きく使えるが、同時には見えない</li><li>用語は点線を押すと吹き出し</li><li>流れを遡って読むのに向く</li></ul></div>
+</div>
+
+<!-- D -->
+<div class="variant" data-choice="d" onclick="toggleSelect(this)">
+  <div class="term"><div class="d">⏺ Update(packages/server/src/config/shellHook.ts)</div><div class="d">  ⎿ Updated with 57 additions and 4 removals</div><br><div>⏺ テストを足してから走らせます。</div><br><div class="t">⏺ Bash(npx vitest run shellHook)</div><div class="d">  ⎿ Running…</div></div>
+  <div class="pane">
+    <div class="phead">ターン 3 <span class="sp"></span></div>
+    <div class="pbody">
+      <div class="row"><span class="when">02:01</span><span class="txt">hangar の shell hook の仕組みを見て</span><span class="n">6</span></div>
+      <div class="row"><span class="when">02:08</span><span class="txt">exit のとき何が起きてるか調べて</span><span class="n">4</span></div>
+      <div class="row open"><span class="when">02:12</span><span class="txt">exit したら止まるようにして。作業中のは聞いて</span><span class="n">9</span></div>
+      <div style="padding:2px 8px">
+        <div class="intent" style="margin-bottom:6px"><span class="k">意図</span>答え終えた会話だけ止め、作業中と許可待ちは尋ねる。</div>
+        <div class="tl">
+          <div class="s ok">仕組みを読む：<code>shellHook.ts</code> 3 か所 <span class="jmp">↗ 左で見る</span></div>
+          <div class="s ok"><span class="term-w">包み方</span>に後始末を足す（+57 −4） <span class="jmp">↗</span></div>
+          <div class="s ok">テストを足す（+99） <span class="jmp">↗</span></div>
+          <div class="s now">テストを走らせている</div>
+          <div class="s faint">（次）結果を見て、必要なら直す</div>
+        </div>
+      </div>
+    </div>
+    <div class="pfoot"><span class="btn">最新へ</span></div>
+  </div>
+  <div class="desc"><h3><span class="tag">D</span>ターンの中を時系列の段で</h3>
+    <p>開いたターンの中を「読む → 直す → 試す」の段で並べ、いまの段が灯る。<b>段ごとに左へ跳べる</b>（今はターンの頭までしか跳べない）。</p>
+    <ul><li>進み具合が形で見える</li><li>「次」はセッションの意図から出す（書かれていなければ出さない）</li><li>跳ぶ細かさが上がるぶん、作りは重い</li></ul></div>
+</div>
+
+<!-- E -->
+<div class="variant" data-choice="e" onclick="toggleSelect(this)">
+  <div class="term"><div class="d">⏺ Update(packages/server/src/config/shellHook.ts)</div><div class="d">  ⎿ Updated with 57 additions and 4 removals</div><br><div>⏺ テストを足してから走らせます。</div><br><div class="t">⏺ Bash(npx vitest run shellHook)</div><div class="d">  ⎿ Running…</div></div>
+  <div class="pane">
+    <div class="phead"><span class="btn">ターン 3 / 3 ▾</span><span class="sp"></span></div>
+    <div class="pbody">
+      <div class="intent"><span class="k">意図</span>抜けたあと、答え終えた会話だけ止める。作業中と許可待ちは尋ね、既定は残す。</div>
+      <div class="step"><span class="ic">✎</span><span><span class="term-w">包み方</span>に後始末を足した（+57 −4）</span></div>
+      <div class="step"><span class="ic">✎</span><span>テストを足した（+99）</span></div>
+      <div class="step now"><span class="ic"><span class="dot"></span></span><span>いま：テストを走らせている</span></div>
+      <div class="split-line"></div>
+      <div class="gh">このセッションの用語帳</div>
+      <div class="gl"><b>包み方</b> <span>— ターミナルの <code>claude</code> を hangar が zsh の関数で横取りする部分</span></div>
+      <div class="gl"><b>attach</b> <span>— 裏で動く会話を、この画面につなぐこと。抜けても会話は止まらない</span></div>
+      <div class="gl"><b>claude agents --json</b> <span>— 動いている会話の一覧。状態（答え終えた・作業中）が載る</span></div>
+      <div class="gl faint">SIGHUP — 押すと説明を作る</div>
+    </div>
+    <div class="pfoot"><span class="btn">最新へ</span></div>
+  </div>
+  <div class="desc"><h3><span class="tag">E</span>上がいま、下が用語帳</h3>
+    <p>上半分がいまのターンの説明、下半分がこのセッションで出てきた言葉の用語帳（出たら自動で並び、説明は押したときに作る）。目次は上の ▾ に畳む。</p>
+    <ul><li>「〜って何？」を溜めて読める</li><li>用語帳はプロジェクトをまたいで育てられる</li><li>目次の一覧性は下がる</li></ul></div>
+</div>
+
+<!-- F -->
+<div class="variant" data-choice="f" onclick="toggleSelect(this)">
+  <div class="term"><div class="d">⏺ Update(packages/server/src/config/shellHook.ts)</div><div class="d">  ⎿ Updated with 57 additions and 4 removals</div><br><div>⏺ テストを足してから走らせます。</div><br><div class="t">⏺ Bash(npx vitest run shellHook)</div><div class="d">  ⎿ Running…</div></div>
+  <div class="pane">
+    <div class="phead">ターン 3 <span class="sp"></span><span class="faint">目次 ▸</span></div>
+    <div class="pbody min">
+      <div><div class="lab">頼んだこと</div><div class="val">exit したら止まるように。作業中のは聞く</div></div>
+      <div><div class="lab">いま</div><div class="val now"><span class="dot"></span> テストを走らせている</div></div>
+      <div><div class="lab">ここまでで変わったこと</div>
+        <ul><li>抜けたら、答え終えた会話を止める（<span class="term-w">包み方</span>に追加）</li><li>作業中と許可待ちは「止めますか？」と聞く</li><li>テストが 1 本増えた</li></ul></div>
+    </div>
+    <div class="pfoot"><span class="btn">最新へ</span></div>
+  </div>
+  <div class="desc"><h3><span class="tag">F</span>3 行だけ、大きく</h3>
+    <p>頼んだこと・いま・変わったこと の 3 つだけを大きな字で。横目で 2 秒で読める。目次は右上から開く。</p>
+    <ul><li>一番静か。細部は左のターミナルに任せる</li><li>「変わったこと」は手順ではなく結果の言葉にする（意図と差分から）</li><li>過去のターンは読みにくい</li></ul></div>
+</div>
+
+</main>
+</body>
+</html>

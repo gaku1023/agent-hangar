@@ -328,6 +328,14 @@ describe('routes', () => {
     expect(r.status).toBe(404);
     expect(await r.json()).toEqual({ error: 'このセッションの本文はこの PC にありません' });
   });
+  it('GET /api/sessions/:id/live はライブの要約を返し、無いセッションは 404', async () => {
+    const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    const r = await json(await get(`/api/sessions/${id}/live`));
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ sessionId: id, intent: null });
+    expect(Array.isArray(r.body.agents)).toBe(true);
+    expect((await get('/api/sessions/ghost/live')).status).toBe(404);
+  });
   it('検索', async () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
     expect(body.total).toBe(1);

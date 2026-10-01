@@ -7,9 +7,9 @@ import { TurnIndex, type TurnIndexProps } from './TurnIndex.tsx';
 afterEach(cleanup);
 
 const rows: TurnRowProps[] = [
-  { seq: 1, when: '20:31', text: '最初の指示です\n2 行目', head: '最初の指示です', tools: 3, open: false },
-  { seq: 10, when: '21:02', text: '次の指示', head: '次の指示', tools: 0, open: false },
-  { seq: 20, when: '22:46', text: '今起動してみたけど、反映されてないように見えます。', head: '今起動してみたけど、反映されてない', tools: 12, open: false },
+  { seq: 1, when: '20:31', text: '最初の指示です\n2 行目', head: '最初の指示です', tools: 3, open: false, band: [] },
+  { seq: 10, when: '21:02', text: '次の指示', head: '次の指示', tools: 0, open: false, band: [] },
+  { seq: 20, when: '22:46', text: '今起動してみたけど、反映されてないように見えます。', head: '今起動してみたけど、反映されてない', tools: 12, open: false, band: [] },
 ];
 
 function setup(over: Partial<TurnIndexProps> = {}) {
@@ -47,6 +47,12 @@ describe('TurnIndex', () => {
     const body = container.querySelector('.turn-body')!;
     expect(body.querySelector('.msg-user')).toBeNull();
     expect(body.querySelector('.msg-assistant')?.textContent).toBe('まず確かめます');
+  });
+
+  it('行の下に手の種類の色帯を出し、手の無いターンには出さない', () => {
+    const { container } = setup({ rows: [{ ...rows[0]!, band: ['read', 'fail', 'git'] }, rows[1]!] });
+    const bands = [...container.querySelectorAll('.turn')].map((t) => [...t.querySelectorAll('.turn-band i')].map((i) => i.getAttribute('data-k')));
+    expect(bands).toEqual([['read', 'fail', 'git'], []]);
   });
 
   it('ターミナルで見つからなかったときは、開いたターンに一言添える', () => {

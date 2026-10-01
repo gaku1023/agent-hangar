@@ -435,6 +435,55 @@ a:hover { text-decoration: underline; }
 .tr-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: calc(var(--u) * 7); border: 0; background: transparent; cursor: pointer; color: var(--ink-2); height: var(--row-h); align-self: flex-start; }
 .tr-pane .turns .tr-toggle { margin-left: calc(var(--u) * -2); }
 
+/* 実行中の右ペイン。上の段は動かさず、下の目次だけがスクロールする。色は端末の縁の灯と同じ語彙（作業中は杏、入力待ちは赤、休みは灰）。 */
+.live { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: calc(var(--u) * 2); }
+.live-top { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: none; }
+/* 窓が低くても、目次は 3 行ぶんより縮めない（上のライブの帯が目次を 0 に潰さない）。 */
+.live-toc { display: flex; flex-direction: column; flex: 1; min-height: calc(var(--row-h) * 3); border-top: 1px solid var(--line); padding-top: var(--u); }
+.live-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); font-size: var(--fs-sm); }
+.live-lamp { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); font-weight: 600; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); }
+.live-lamp[data-tone='wait'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 12%, var(--surface)); }
+.live-lamp[data-tone='idle'] { color: var(--ink-2); background: var(--surface-2); }
+.live-lamp-sub { margin-left: auto; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-2); text-align: right; }
+.live-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+.live-dot[data-tone='busy'], .live-dot[data-tone='running'] { background: var(--busy); animation: live-pulse var(--breathe-period) ease-in-out infinite; }
+.live-dot[data-tone='wait'] { background: var(--waiting); }
+.live-dot[data-tone='done'] { background: var(--idle); }
+.live-dot[data-tone='error'] { background: var(--error); }
+@keyframes live-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none !important; } }
+.live-intent { padding: calc(var(--u) * 1.25) calc(var(--u) * 2.25); border-left: 3px solid var(--cand); border-radius: 0 var(--r) var(--r) 0; background: var(--cand-soft); font-size: var(--fs); transition: opacity var(--dur-fast) var(--ease-out); }
+.live-intent[data-stale='true'] { opacity: 0.55; }
+.live-intent-meta { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--cand); }
+.live-intent-none { font-size: var(--fs-sm); color: var(--ink-3); }
+.live-sec { display: flex; flex-direction: column; gap: 2px; }
+.live-label { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.live-step { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs); }
+.live-step[data-mark='now'] { color: var(--busy); font-weight: 560; }
+.live-step[data-mark='fail'] .live-step-ic { color: var(--error); }
+.live-step-ic { flex: none; width: 14px; text-align: center; font-size: var(--fs-xs); color: var(--idle); }
+.live-step-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-step-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.live-lane { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; column-gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 0.75) calc(var(--u) * 1.75); border: 0; border-radius: var(--r); background: transparent; color: var(--ink); font: inherit; font-size: var(--fs); text-align: left; cursor: pointer; }
+.live-lane:hover:not(:disabled) { background: var(--surface-2); }
+.live-lane:disabled { cursor: default; }
+.live-lane[data-tone='error'] { background: color-mix(in srgb, var(--error) 9%, var(--surface)); }
+.live-lane[data-tone='done'] { background: color-mix(in srgb, var(--idle) 9%, var(--surface)); }
+.live-lane-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-lane-time { font-size: var(--fs-xs); color: var(--ink-3); }
+.live-lane-line { grid-column: 2 / 4; font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-lane[data-tone='error'] .live-lane-line { color: var(--error); }
+.live-lane[data-tone='done'] .live-lane-line { color: var(--idle); }
+.live-chip { align-self: flex-start; font-size: var(--fs-xs); border: 1px solid var(--line-strong); border-radius: var(--r-pill); padding: 0 calc(var(--u) * 2); }
+.turn-band { display: flex; gap: 1px; height: 4px; margin: 0 calc(var(--u) * 2) calc(var(--u) * 1) 52px; overflow: hidden; border-radius: 2px; }
+.turn-band i { flex: 0 1 8px; }
+.turn-band i[data-k='read'] { background: color-mix(in srgb, var(--ink-3) 55%, var(--surface)); }
+.turn-band i[data-k='write'] { background: var(--accent); }
+.turn-band i[data-k='run'] { background: var(--busy); }
+.turn-band i[data-k='git'] { background: var(--idle); }
+.turn-band i[data-k='fail'] { background: var(--error); }
+.turn-band i[data-k='other'] { background: var(--line-strong); }
+
 /* ターンの目次。見出しと「最新へ」は動かさず、間の一覧だけがスクロールする。 */
 .turns { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .turns-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); flex: none; font-size: var(--fs-sm); }

@@ -692,6 +692,8 @@ hangar が起動するセッションには、`--append-system-prompt` で短い
 set_session_summary で題名、2〜3 文の要約、状態、次の一手を更新してください。
 TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。
 完了にするのは利用者です。確かめられていないものは出さないでください。
+ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。
+Bash と Agent の description は日本語で 20 字以内にしてください。
 ```
 
 MCP の URL はセッション別（`/mcp/s/<sessionId>`）なので、ツールは呼び出し元のセッションをサーバ側で確定できる。
@@ -910,6 +912,7 @@ MCP は Streamable HTTP で提供する。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
 - `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch? })`：tmux で起動して run を返す。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。
+- `set_turn_intent({ session_id?, text })`：このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。端末ローカルの `turn_intents` に積み、同期しない。右ペインの意図の段に出す。
 - `set_session_memo({ session_id?, text })`：人間向けの 1 行メモ。モデルには指示しない。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
@@ -1233,6 +1236,13 @@ xterm のインスタンスとスクロールバッファは残すので、戻�
 接続を持ち続けると、渡り歩いたセッションの数だけ `tmux attach` のプロセスが残るためである。
 2 つのタブを横に並べられる（「横に並べる」）。
 右の欄は横に折りたためる（「右の欄を閉じる」「右の欄を開く」、⌘J）。
+実行中の右欄は、上から状態の灯、意図、指揮役の手、サブエージェント、目次を並べる。
+目次だけがスクロールする。
+目次の行の下には手の種類の色帯を出す。
+意図とサブエージェントのレーンは、サーバの `GET /api/sessions/:id/live`（今のターンの頭から読んだライブの要約）で作る。
+灯は、UI が読み込んだ主線のイベントも使う（手の数と未返答の手）。
+窓が最新の一部だけのときは、ターンの頭を `/live` の値から、ターンの番号を統計から取る。
+詳細は `docs/superpowers/specs/2026-10-01-live-explainer-design.md`。
 
 過去のセッションはトランスクリプトだけを出し、「再開」「フォーク」「VS Code で開く」を操作に持つ。
 上段に状態の点、名前、要約の 1 文、操作を置く。
@@ -2103,6 +2113,9 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   App Translocation の案内の画面そのものは、Gatekeeper のダイアログを人が承認しないと先へ進まないので、通しでは見ていない（案内の枝は単体試験で押さえてある）。
   システム設定の外観をダークにしたときの見え方は、利用者の環境を変えるので確かめず、配信される UI に `prefers-color-scheme` の規則が 1 件も無いことの確認で代えた。
 - 覚え書き：`HANGAR_CLAUDE_DIR` は hangar が読む設定の置き場で、起こされた `claude` が見るのは `CLAUDE_CONFIG_DIR` である。普段はどちらも `~/.claude` なので食い違わないが、試しの環境を分けるときは両方を向ける。
+- 右欄のライブの第 1 回で決めた前提：意図は端末ローカルに置いて同期しない。
+  赤は結果が `isError` のものだけで、本文の中身で決まる結末は赤にしない。
+  Bash の description を日本語で書かせるのは、指示の注入で頼む。
 
 未決事項は次のとおりである。
 

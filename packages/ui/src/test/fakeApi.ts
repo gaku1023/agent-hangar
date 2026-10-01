@@ -8,6 +8,7 @@ type Extras = Pick<
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncStatus' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
   | 'retention' | 'retentionPreview' | 'writeRetention'
+  | 'live'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -70,5 +71,6 @@ export function fakeApiExtras(): Extras {
     retention: vi.fn(async () => ({ days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null })),
     retentionPreview: vi.fn(async () => unused()),
     writeRetention: vi.fn(async () => unused()),
+    live: vi.fn(async (sessionId: string) => ({ sessionId, turnStartSeq: null, intent: null, agents: [] })),
   };
 }

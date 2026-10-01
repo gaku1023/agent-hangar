@@ -4,6 +4,7 @@ import { RUN_KIND_LABEL } from '../presenters/format.ts';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalStatus } from '../runtime/terminals.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
+import { LivePane } from './LivePane.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { ToggleChip } from './primitives/Chip.tsx';
@@ -164,7 +165,11 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
           {terminals}
           <aside className="tr-pane" data-collapsed={props.transcriptOpen ? undefined : 'true'}>
             {props.transcriptOpen
-              ? <TurnIndex sessionId={id} runId={run.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={paneToggle} />
+              ? (() => {
+                const toc = <TurnIndex sessionId={id} runId={run.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={props.livePane ? undefined : paneToggle} />;
+                // 実行中は右ペインの上に「いま」を出し、目次は一番下に残す。終わった run では今までどおり目次だけ。
+                return props.livePane ? <LivePane sessionId={id} pane={props.livePane} lead={paneToggle}>{toc}</LivePane> : toc;
+              })()
               : paneToggle}
           </aside>
         </div>

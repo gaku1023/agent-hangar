@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
@@ -645,6 +645,41 @@ describe('newSessionTarget', () => {
     store.sessions = { ...store.sessions, sc: session('sc', { projectId: 'scratch' }) };
     expect(newSessionTarget(at({ name: 'project', id: 'scratch' }), store)).toEqual({ scratch: true });
     expect(newSessionTarget(at({ name: 'session', id: 'sc' }), store)).toEqual({ scratch: true });
+  });
+});
+
+describe('presentSession（右ペインの灯）', () => {
+  // 最新の側から読んだ窓（seq 700 から）。今のターンの頭は窓より新しい 705 で、会話全体は 900 件ある。
+  const user = (seq: number): TranscriptEvent => ({ kind: 'user', seq, text: `指示 ${seq}` });
+  const callAt = (seq: number): TranscriptEvent => ({ kind: 'tool_call', seq, toolId: `t${seq}`, name: 'Read', input: { file_path: '/w/a.ts' }, summary: 'Read' });
+  const window = [user(700), ...[701, 702, 703, 704, 705, 706, 707, 708, 709, 710].map(callAt)];
+  const live = (total: number, turns: number, turnStartSeq: number | null): Store => {
+    let store = storeWith();
+    store.runs = { r1: runDto('r1', 's1') };
+    store.sessions.s1 = { ...store.sessions.s1!, stats: { ...store.sessions.s1!.stats, turns } };
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', events: window, total, nextSeq: null }, false);
+    store.liveDigests = { s1: { sessionId: 's1', turnStartSeq, intent: null, agents: [] } };
+    return store;
+  };
+  it('全部を読み込んでいなければ、ターンの番号は統計から、頭は digest の turnStartSeq から取る', () => {
+    const p = presentSession(initialState(), live(900, 7, 705), NOW, 's1');
+    expect(p.turnsComplete).toBe(false);
+    // 窓の最初の指示（700）からではなく 705 から数えるので 6 手、ターンは窓の 1 ではなく統計の 7。
+    expect(p.livePane!.lamp).toEqual({ tone: 'busy', head: '作業中', sub: 'ターン 7・6 手目' });
+  });
+  it('全部を読み込んでいれば、ターンの番号は目次の数', () => {
+    const p = presentSession(initialState(), live(11, 7, 705), NOW, 's1');
+    expect(p.turnsComplete).toBe(true);
+    expect(p.livePane!.lamp.sub).toBe('ターン 1・6 手目');
+  });
+  it('統計も無く全部も読めていなければ、ターンの番号は出さず手の数だけ', () => {
+    const p = presentSession(initialState(), live(900, 0, 705), NOW, 's1');
+    expect(p.livePane!.lamp).toEqual({ tone: 'busy', head: '作業中', sub: '6 手目' });
+  });
+  it('digest がまだ無ければ、窓の最後のターンの頭から数える', () => {
+    const store = live(900, 7, 705);
+    store.liveDigests = {};
+    expect(presentSession(initialState(), store, NOW, 's1').livePane!.lamp.sub).toBe('ターン 7・10 手目');
   });
 });
 
