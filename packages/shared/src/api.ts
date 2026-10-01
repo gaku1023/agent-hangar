@@ -1,7 +1,7 @@
 import type { LiveFilter } from './liveFilter.ts';
 import type { StepKind } from './steps.ts';
 import type { TranscriptEvent } from './transcript.ts';
-import type { SessionStateDto } from './sessionState.ts';
+import type { SessionStateDto, SessionStatus } from './sessionState.ts';
 
 export type ProjectStatus = 'active' | 'paused' | 'done' | 'archived';
 export type LiveStatus = 'busy' | 'idle' | 'waiting';
@@ -48,7 +48,11 @@ export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; tota
 export type LiveAgentDto = { agentId: string; title: string; state: 'running' | 'done' | 'error'; startedAt: number | null; lastAt: number | null; last: { text: string; mono: boolean; kind: StepKind; isError: boolean } | null; report: string | null; endNote: string | null; linked: boolean };
 export type LiveIntentDto = { text: string; at: number; stepsSince: number; inThisTurn: boolean };
 export type LiveDigestDto = { sessionId: string; turnStartSeq: number | null; intent: LiveIntentDto | null; agents: LiveAgentDto[] };
-export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number };
+/**
+ * status はセッションの状態で絞る（session_states を見る）。hideArchived は「すべて」のタブで条件を入れたときに Archived を除く印である。
+ * どちらも Sessions 画面だけが送り、MCP の search_sessions は送らない。
+ */
+export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number; status?: SessionStatus | 'none' | 'active' | 'proposed'; hideArchived?: boolean };
 /**
  * 検索の 1 件。
  * 抜粋の seq は主線とサブエージェントで別々に振るので、agentId でどの線の行かを表す（主線は null）。
