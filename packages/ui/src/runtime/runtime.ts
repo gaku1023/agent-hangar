@@ -61,6 +61,8 @@ export type Runtime = {
 };
 
 const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
+/** OS（システム設定）で通知が切られているときの知らせ。 */
+const NOTIFY_BLOCKED = '通知が切られています。システム設定の「通知」で Hangar を許可してください';
 /** クリップボードに写せなかったときの知らせ。写そうとした中身は出さない。 */
 const COPY_FAILED = 'コピーできませんでした。文字を選んで ⌘C で写してください';
 /** 検索の結果から開くとき、跳び先より前にどれだけ（seq の幅）読むか。跳び先の前の文脈が見える程度にする。 */
@@ -311,10 +313,16 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'notify.request':
         if (!notifier) return;
-        notifier.request().then((granted) => {
-          if (granted) deps.storage.set(NOTIFY_KEY, true);
-          dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on: granted } });
-          if (!granted) toast('通知が許可されませんでした');
+        notifier.request().then(async (granted) => {
+          if (granted) {
+            deps.storage.set(NOTIFY_KEY, true);
+            dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on: true } });
+            return;
+          }
+          // 断られたら、OS で切られているのかを読む。切られていれば、許可の仕方を知らせる。
+          const blocked = (await notifier.status()) === 'denied' && notifier.available();
+          dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on: false, blocked } });
+          toast(blocked ? NOTIFY_BLOCKED : '通知が許可されませんでした');
         }).catch(fail);
         return;
       case 'badge': notifier?.badge(e.count); return;
@@ -464,7 +472,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const pref = deps.storage.get(NOTIFY_KEY);
         const on = (typeof pref === 'boolean' ? pref : notifier.defaultOn) && notifier.available() && notifier.granted();
         dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on } });
-        if (on) notifier.prepare();
+        // 受け取るなら、OS の許可をあらかじめ尋ねておき（決まっていれば OS が黙って答える）、尋ね終えたら許可の状態を読む。
+        // デスクトップの許可は OS が持つので、システム設定で切られていれば受け取るのままにしない。
+        // 利用者の選んだ値（NOTIFY_KEY）は書き換えない。OS で許可し直したら、スイッチを入れ直すだけで戻る。
+        if (on) {
+          notifier.prepare().then(() => notifier.status()).then((s) => {
+            if (s === 'denied' && notifier.available()) dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: true, on: false, blocked: true } });
+          }, () => {});
+        }
         // 通知を押したら、そのセッションを開いてターミナルにフォーカスする。
         // 窓を前に出すのは notifier の役目である。
         unsubNotify = notifier.onOpen((id) => dispatch({ kind: 'intent', intent: { type: 'session.open', id, focus: 'terminal' } }));

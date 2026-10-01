@@ -7,7 +7,7 @@ function doc(visible: boolean, focused: boolean) {
 
 describe('デスクトップの通知', () => {
   function env(over: Partial<DesktopEnv> = {}) {
-    const invoke = vi.fn(async (cmd: string) => (cmd === 'notify_request' ? true : null));
+    const invoke = vi.fn(async (cmd: string) => (cmd === 'notify_request' ? true : cmd === 'notify_status' ? 'denied' : null));
     const e: DesktopEnv = { __TAURI_INTERNALS__: { invoke }, document: doc(true, true), ...over };
     return { e, invoke };
   }
@@ -34,6 +34,21 @@ describe('デスクトップの通知', () => {
     n.prepare();
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(invoke).toHaveBeenLastCalledWith('notify_request', undefined);
+  });
+  // 許可は OS が持つ。システム設定で切られていれば、殻が UNUserNotificationCenter の状態を読んで返す。
+  it('許可の状態は殻が OS から読んで返す。読めなければまだ決まっていないとみなす', async () => {
+    const { e, invoke } = env();
+    await expect(createDesktopNotifier(e).status()).resolves.toBe('denied');
+    expect(invoke).toHaveBeenLastCalledWith('notify_status', undefined);
+    for (const answer of ['granted', 'undetermined', 'unsupported'] as const) {
+      const n = createDesktopNotifier({ __TAURI_INTERNALS__: { invoke: vi.fn(async () => answer) }, document: doc(true, true) });
+      await expect(n.status()).resolves.toBe(answer);
+    }
+    // 古い殻（命令が無い）や、知らない答えのときは、これまでどおり出せるとみなす。
+    const old = createDesktopNotifier({ __TAURI_INTERNALS__: { invoke: vi.fn(async () => { throw new Error('unknown command'); }) }, document: doc(true, true) });
+    await expect(old.status()).resolves.toBe('undetermined');
+    const odd = createDesktopNotifier({ __TAURI_INTERNALS__: { invoke: vi.fn(async () => 42) }, document: doc(true, true) });
+    await expect(odd.status()).resolves.toBe('undetermined');
   });
   it('殻のコマンドが失敗しても、投げ出さない', async () => {
     const invoke = vi.fn(async () => { throw new Error('not allowed'); });
@@ -78,6 +93,12 @@ describe('ブラウザの通知', () => {
     expect(n.defaultOn).toBe(false);
     expect(n.available()).toBe(true);
     expect(n.granted()).toBe(false);
+  });
+  it('許可の状態はブラウザの permission から読む', async () => {
+    await expect(createBrowserNotifier(env({ Notification: fakeNotification('granted').N })).status()).resolves.toBe('granted');
+    await expect(createBrowserNotifier(env({ Notification: fakeNotification('denied').N })).status()).resolves.toBe('denied');
+    await expect(createBrowserNotifier(env({ Notification: fakeNotification('default').N })).status()).resolves.toBe('undetermined');
+    await expect(createBrowserNotifier(env({ Notification: undefined })).status()).resolves.toBe('unsupported');
   });
   it('拒まれた後と、Notification の無いブラウザでは出せない', () => {
     expect(createBrowserNotifier(env({ Notification: fakeNotification('denied').N })).available()).toBe(false);

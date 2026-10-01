@@ -1109,10 +1109,10 @@ aria-label は見えている文字をそのまま含め、見える文と読み
 メインはヘッダーの下をくぐって流れ、ヘッダーの高さと隙間の分だけ上に余白を取ってから始まる。
 `.app` では標準のタイトルバーを消し、信号の 3 点をヘッダーの左端に乗せ、ヘッダーの空いた所を掴んで窓を動かし、そこをダブルクリックすると窓が拡大する。
 そのために、UI の出どころ（`http://127.0.0.1:4177`）に窓を動かす権限（`core:window:allow-start-dragging`）とダブルクリックで拡大する権限（`core:window:allow-internal-toggle-maximize`）の 2 つだけ与え（`capabilities/remote-drag.json`）、殻は頁に `data-shell="desktop"` の印を付けて、ヘッダーのロゴはその印があるときだけ信号の 3 点の右から始まる。
-入力待ちを窓の外へ知らせるために、同じ出どころには通知を出す権限（`allow-notify-waiting`）、通知の許可を求める権限（`allow-notify-request`）、Dock のバッジに数を出す権限（`core:window:allow-set-badge-count`）の 3 つだけを別に与える（`capabilities/remote-notify.json`）。
-前の 2 つは殻が自分で持つコマンドで、`build.rs` の AppManifest に並べたものだけが権限になる。
-殻の命令は 5 つだけ持つ（`src-tauri/build.rs` の一覧と `lib.rs` の `#[tauri::command]`）。
-入力待ちの知らせの 2 つ（`notify_waiting`、`notify_request`）は上に書いたとおりで、残りの 3 つは障害のときの操作である。
+入力待ちを窓の外へ知らせるために、同じ出どころには通知を出す権限（`allow-notify-waiting`）、通知の許可を求める権限（`allow-notify-request`）、通知の許可の状態を読む権限（`allow-notify-status`）、Dock のバッジに数を出す権限（`core:window:allow-set-badge-count`）の 4 つだけを別に与える（`capabilities/remote-notify.json`）。
+前の 3 つは殻が自分で持つコマンドで、`build.rs` の AppManifest に並べたものだけが権限になる。
+殻の命令は 6 つだけ持つ（`src-tauri/build.rs` の一覧と `lib.rs` の `#[tauri::command]`）。
+入力待ちの知らせの 3 つ（`notify_waiting`、`notify_request`、`notify_status`）は上に書いたとおりで、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
 UI の出どころには、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動をやり直す `retry_boot` と `open_log` だけを与える（`capabilities/boot-screen.json`）。
@@ -1420,6 +1420,12 @@ Dock（ブラウザならインストールしたアプリ）のバッジには�
 通知を受け取るかは PC ごとに localStorage（`notify.waiting`）に残す。
 選んでいなければ、デスクトップでは受け取り、ブラウザでは受け取らない。
 デスクトップで受け取るときは、起動したときに OS の許可を一度だけ尋ねておく（決まった後は OS が黙って答える）。
+尋ね終えたら、殻の `notify_status` で UNUserNotificationCenter の許可の状態を読む（尋ねはしないのでダイアログは出ない）。
+システム設定で切られていれば（denied）、受け取らないにし、設定の通知の節に「システム設定の「通知」で Hangar を許可してください」と出す。
+このときカードの「通知を受け取る」は添えない。
+利用者の選んだ値（`notify.waiting`）は書き換えないので、OS で許可し直したら、スイッチを入れ直すだけで戻る。
+スイッチを入れて断られたときも許可の状態を読み、切られていれば同じ直し方をトーストで知らせる。
+古い殻（`notify_status` が無い）や `.app` の外では、まだ決まっていないとみなし、これまでどおり受け取るのままにする。
 ブラウザの許可は、設定のスイッチかカードの「通知を受け取る」を押したときにだけ求める（押した操作の中でないとダイアログが出ないため）。
 許されなかったら受け取らないままにして、「通知が許可されませんでした」と知らせる。
 

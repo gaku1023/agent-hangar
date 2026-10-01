@@ -33,5 +33,5 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
     return [{ sessionId: s.id, name: s.name ?? '（名前なし）', projectName, waited: durationLabel(now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? NO_QUESTION }];
   });
   const waiting = cards.slice(-SHOWN);
-  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, offerNotify: state.notify.available && !state.notify.on, blocked: !overlayReplaceable(state.overlay) };
+  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, offerNotify: state.notify.available && !state.notify.on && !state.notify.blocked, blocked: !overlayReplaceable(state.overlay) };
 }

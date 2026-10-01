@@ -694,7 +694,7 @@ fn spawn_boot(app: AppHandle) -> bool {
     true
 }
 
-// ここから下の 3 つと、入力待ちの知らせの 2 つ（notify_waiting、notify_request）が、頁から呼べる殻の命令である。
+// ここから下の 3 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
 // どれも引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
 
@@ -811,6 +811,26 @@ async fn notify_request() -> bool {
     .unwrap_or(false)
 }
 
+/// 通知の許可の状態を返す（granted、denied、undetermined、unsupported）。
+/// 尋ねはしないので、OS のダイアログは出ない。
+/// 頁はこれを見て、システム設定で切られていれば受け取らないにし、設定に許可の仕方を出す。
+#[tauri::command]
+async fn notify_status() -> String {
+    tauri::async_runtime::spawn_blocking(|| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        notify::status(move |raw| {
+            let _ = tx.send(raw);
+        });
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(raw) => notify::status_name(raw),
+            Err(_) => "undetermined",
+        }
+    })
+    .await
+    .unwrap_or("undetermined")
+    .to_string()
+}
+
 /// 押された通知のセッションを開く。
 /// 窓を前に出し、頁が出来上がっていれば頁の受け口でターミナルにフォーカスして開く。
 /// 出来上がる前（押された通知でアプリが起きたときなど）は、ディープリンクと同じくハッシュとして貯める。
@@ -890,7 +910,8 @@ pub fn run() {
             restart_app,
             retry_boot,
             notify_waiting,
-            notify_request
+            notify_request,
+            notify_status
         ])
         // 頁の読み込みが終わる前の評価は捨てられることがある。
         // 出しそこねた文言と、navigate の最中に届いたリンクをここで流す。

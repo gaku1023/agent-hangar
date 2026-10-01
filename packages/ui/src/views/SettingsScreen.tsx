@@ -336,6 +336,7 @@ export function SettingsScreen(props: SettingsProps) {
               </div>
               <div className="faint">hangar が背面にあるとき、入力待ちになったセッションを通知で知らせます。押すとそのセッションのターミナルへ移ります。</div>
               {!props.notify.available && <div className="faint" style={{ marginTop: 4 }}>この環境では通知を出せません。ブラウザで拒んだときは、ブラウザの設定でこのページの通知を許可してください。</div>}
+              {props.notify.available && props.notify.blocked && <div className="faint" style={{ marginTop: 4 }}>通知が切られています。システム設定の「通知」で Hangar を許可してください。許可したら、このスイッチを入れ直してください。</div>}
             </section>
           </Group>
           <Group id="settings-summary">

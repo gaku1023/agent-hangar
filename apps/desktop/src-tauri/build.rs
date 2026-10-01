@@ -4,6 +4,7 @@
 // 名前は lib.rs の #[tauri::command] とそろえる（apps/desktop/test/config.test.ts が突き合わせる）。
 const COMMANDS: &[&str] = &[
     "notify_request",
+    "notify_status",
     "notify_waiting",
     "open_log",
     "restart_app",

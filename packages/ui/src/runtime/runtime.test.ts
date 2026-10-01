@@ -1,3 +1,4 @@
+import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
@@ -928,14 +929,15 @@ describe('入力待ちの知らせ', () => {
   const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
   const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '請求書の書き出し', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, ...over });
   const live = (sessionId: string, status: 'busy' | 'waiting') => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
-  function fakeNotifier(o: { available?: boolean; defaultOn?: boolean; granted?: boolean; background?: boolean; grant?: boolean } = {}) {
+  function fakeNotifier(o: { available?: boolean; defaultOn?: boolean; granted?: boolean; background?: boolean; grant?: boolean; status?: NotifyPermission } = {}) {
     let open: ((id: string) => void) | null = null;
     return {
       defaultOn: o.defaultOn ?? true,
       available: () => o.available ?? true,
       granted: () => o.granted ?? true,
       request: vi.fn(async () => o.grant ?? true),
-      prepare: vi.fn(),
+      prepare: vi.fn(async () => {}),
+      status: vi.fn(async (): Promise<NotifyPermission> => o.status ?? 'granted'),
       background: () => o.background ?? true,
       show: vi.fn(),
       badge: vi.fn(),
@@ -996,10 +998,10 @@ describe('入力待ちの知らせ', () => {
   });
   it('選んでいなければ環境の既定に従い、既定で受け取る環境ではあらかじめ許可を尋ねておく', async () => {
     const desk = fakeNotifier({ defaultOn: true });
-    expect((await started(desk)).rt.getState().notify).toEqual({ available: true, on: true });
+    expect((await started(desk)).rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
     expect(desk.prepare).toHaveBeenCalledTimes(1);
     const web = fakeNotifier({ defaultOn: false, granted: false });
-    expect((await started(web)).rt.getState().notify).toEqual({ available: true, on: false });
+    expect((await started(web)).rt.getState().notify).toEqual({ available: true, on: false, blocked: false });
     expect(web.prepare).not.toHaveBeenCalled();
     // 受け取ると選んでいても、ブラウザの許可が外れていれば受け取らない。
     const revoked = fakeNotifier({ defaultOn: false, granted: false });
@@ -1023,11 +1025,45 @@ describe('入力待ちの知らせ', () => {
     expect(store.get('notify.waiting')).toBeUndefined();
     expect(rt.getState().toasts.at(-1)?.message).toBe('通知が許可されませんでした');
   });
+  // デスクトップの許可は OS が持つ。システム設定で切られていたら、受け取るのままにせず、設定に許可の仕方を出す。
+  it('OS で通知が切られていれば、起動したときに受け取らないにして、切られていることを持つ', async () => {
+    const n = fakeNotifier({ defaultOn: true, status: 'denied' });
+    const { rt, store } = await started(n);
+    await flush();
+    expect(rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+    // 利用者の選んだ値は書き換えない。OS で許可し直せば、スイッチを入れ直すだけで戻る。
+    expect(store.get('notify.waiting')).toBeUndefined();
+  });
+  it('起動したときに尋ねて断られたときも、受け取らないにする', async () => {
+    let answer: NotifyPermission = 'undetermined';
+    const n = { ...fakeNotifier({ defaultOn: true }), prepare: vi.fn(async () => { answer = 'denied'; }), status: vi.fn(async () => answer) };
+    const { rt } = await started(n);
+    await flush();
+    expect(n.prepare).toHaveBeenCalledTimes(1);
+    expect(rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+  });
+  it('許されていれば、受け取るのまま', async () => {
+    const { rt } = await started(fakeNotifier({ defaultOn: true, status: 'granted' }));
+    await flush();
+    expect(rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+  });
+  it('受け取るにして OS で切られていたら、システム設定で許可するよう知らせる。許されたら切られた印を外す', async () => {
+    const n = fakeNotifier({ defaultOn: false, granted: false, grant: false, status: 'denied' });
+    const { rt } = await started(n);
+    rt.emit({ type: 'notify.set', on: true });
+    await flush();
+    expect(rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+    expect(rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。システム設定の「通知」で Hangar を許可してください');
+    n.request.mockResolvedValue(true);
+    rt.emit({ type: 'notify.set', on: true });
+    await flush();
+    expect(rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+  });
   it('通知の仕組みが無い環境でも、カードは積む', async () => {
     const { rt, wsHandlers } = await started(undefined);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
     expect(rt.getState().waitingToasts).toEqual(['s1']);
-    expect(rt.getState().notify).toEqual({ available: false, on: false });
+    expect(rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
   });
 });
 

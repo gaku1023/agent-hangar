@@ -53,7 +53,7 @@ export type SettingsProps = {
    * 入力待ちの通知。
    * 出せる環境か（available）と、受け取るか（on）。
    */
-  notify: { available: boolean; on: boolean };
+  notify: { available: boolean; on: boolean; blocked: boolean };
   /** 欄の下の 1 行の検証（B1）。準備の確かめが届く前は null。 */
   verify: { workspace: VerifyLine | null; tmux: VerifyLine | null; claude: VerifyLine | null; code: VerifyLine | null; node: VerifyLine | null };
   /** hangar の MCP サーバが user スコープに載っているか。届く前は null。 */
@@ -141,6 +141,6 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     nodePath: s?.nodePath ?? '',
     claudePath: s?.claudePath ?? null,
     retention: retentionSettings(store),
-    notify: { available: state.notify.available, on: state.notify.on },
+    notify: { available: state.notify.available, on: state.notify.on, blocked: state.notify.blocked },
   };
 }

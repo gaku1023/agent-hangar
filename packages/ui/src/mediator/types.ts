@@ -23,7 +23,8 @@ export type RuntimeEvent =
   | { type: 'waiting.changed'; ids: string[] }
   // 通知を出せるか、受け取るか。
   // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
-  | { type: 'notify.changed'; available: boolean; on: boolean }
+  // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
+  | { type: 'notify.changed'; available: boolean; on: boolean; blocked?: boolean }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
   | { type: 'window.focus' }
   // 目次から左のターミナルを跳ばした結果。
@@ -152,8 +153,12 @@ export type SessionViewState = {
   jump: JumpState | null;
 };
 export type Toast = { id: string; level: 'info' | 'error'; message: string };
-/** available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。 */
-export type NotifyState = { available: boolean; on: boolean };
+/**
+ * available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。
+ * blocked はデスクトップのシステム設定で切られていること。
+ * 受け取るにしても OS が捨てるので on にせず、設定に許可の仕方を出す。
+ */
+export type NotifyState = { available: boolean; on: boolean; blocked: boolean };
 /**
  * 欄ごとの保存の知らせ。
  * saved の n は同じ欄を保存するたびに進み、画面は変わるたびに「✓ 保存しました」を出し直す。

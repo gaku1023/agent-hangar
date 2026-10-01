@@ -1,4 +1,11 @@
 /**
+ * 通知の許可の状態。
+ * granted は出せる、denied は OS（デスクトップならシステム設定）かブラウザで切られている、undetermined はまだ尋ねていない、unsupported は尋ねられない環境である。
+ */
+export type NotifyPermission = 'granted' | 'denied' | 'undetermined' | 'unsupported';
+const PERMISSIONS: readonly string[] = ['granted', 'denied', 'undetermined', 'unsupported'];
+
+/**
  * 窓の外へ入力待ちを知らせる口。
  * デスクトップの殻（Tauri）では macOS の通知と Dock のバッジ、ブラウザでは Web Notification とアプリのバッジを使う。
  * どちらも無い環境では、ランタイムは通知を出さず、右下のカードとサイドバーの数だけで知らせる。
@@ -24,8 +31,17 @@ export type Notifier = {
    * ブラウザでは利用者の操作の中から呼ばないとダイアログが出ない。
    */
   request(): Promise<boolean>;
-  /** 既定で受け取る環境で、起動したときに OS の許可をあらかじめ尋ねておく。 */
-  prepare(): void;
+  /**
+   * 既定で受け取る環境で、起動したときに OS の許可をあらかじめ尋ねておく。
+   * 尋ね終えたら解ける。
+   */
+  prepare(): Promise<void>;
+  /**
+   * いまの許可の状態を読む。
+   * 尋ねはしないので、ダイアログは出ない。
+   * デスクトップでは殻が UNUserNotificationCenter から読む。
+   */
+  status(): Promise<NotifyPermission>;
   /**
    * 窓が背面にあるか。
    * 前にあるときは右下のカードで足りるので、通知を出さない。
@@ -65,6 +81,8 @@ export type DesktopEnv = {
  * macOS の通知（殻の notify_waiting）と Dock のバッジ（Tauri の set_badge_count）。
  * 許可は OS が持つ。
  * 尋ねる前も出せるとみなし、起動したときに notify_request で一度だけ尋ねておく（決まった後は OS が黙って答える）。
+ * システム設定で切られているかは notify_status で読む。
+ * 古い殻（命令が無い）や知らない答えのときは、まだ決まっていないとみなし、これまでどおり出せるものとして扱う。
  * 殻の失敗は画面に出さない。
  * 通知が出ないだけで、右下のカードとサイドバーの数は残るからである。
  */
@@ -76,7 +94,8 @@ export function createDesktopNotifier(env: DesktopEnv): Notifier {
     available: () => true,
     granted: () => true,
     request: ask,
-    prepare: () => { void ask(); },
+    prepare: () => ask().then(() => {}),
+    status: () => invoke('notify_status', undefined).then((r) => (typeof r === 'string' && PERMISSIONS.includes(r) ? (r as NotifyPermission) : 'undetermined'), () => 'undetermined' as const),
     background: () => inBackground(env.document),
     show: (n) => { invoke('notify_waiting', { sessionId: n.sessionId, title: n.title, body: n.body }).catch(() => {}); },
     badge: (count) => { invoke('plugin:window|set_badge_count', { value: count > 0 ? count : null }).catch(() => {}); },
@@ -116,7 +135,8 @@ export function createBrowserNotifier(env: BrowserEnv): Notifier {
       if (N.permission === 'granted') return true;
       return (await N.requestPermission()) === 'granted';
     },
-    prepare: () => {},
+    prepare: async () => {},
+    status: async () => (!N ? 'unsupported' : N.permission === 'granted' ? 'granted' : N.permission === 'denied' ? 'denied' : 'undetermined'),
     background: () => inBackground(env.document),
     show: (n) => {
       if (!N || N.permission !== 'granted') return;

@@ -592,12 +592,15 @@ describe('通知を受け取るか', () => {
     expect(a.effects).toEqual([{ kind: 'notify.request' }]);
     expect(a.state.notify.on).toBe(false);
     const b = run([runtime({ type: 'notify.changed', available: true, on: true })], a.state);
-    expect(b.state.notify).toEqual({ available: true, on: true });
+    expect(b.state.notify).toEqual({ available: true, on: true, blocked: false });
+    // OS で切られていれば、その印を持つ。
+    const c = run([runtime({ type: 'notify.changed', available: true, on: false, blocked: true })], b.state);
+    expect(c.state.notify).toEqual({ available: true, on: false, blocked: true });
   });
   it('受け取らないにすると、その場で切り替えて覚える', () => {
     const on = run([runtime({ type: 'notify.changed', available: true, on: true })]).state;
     const a = run([intent({ type: 'notify.set', on: false })], on);
-    expect(a.state.notify).toEqual({ available: true, on: false });
+    expect(a.state.notify).toEqual({ available: true, on: false, blocked: false });
     expect(a.effects).toEqual([{ kind: 'storage.save', key: 'notify.waiting', value: false }]);
   });
 });
