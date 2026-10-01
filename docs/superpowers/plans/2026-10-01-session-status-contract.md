@@ -18,7 +18,7 @@
   - Home（今日戻る・確かめる）
   - Archived の淡い表示
 - 3 提案の入口
-  - 指示の注入、HTTP の by-provider、claude.zsh の問い、事後の要約の提案
+  - 指示の注入、事後の要約の提案（claude.zsh の問いと by-provider の入口は 2026-10-02 にやめた）
 
 ## shared（`packages/shared/src/sessionState.ts`、index から再輸出）
 
@@ -110,3 +110,10 @@ export function clearOnNewPrompt(db: Db, deviceId: string, sessionId: string, pr
   - 上の HTTP の節に書いた、by-provider の GET（exit-prompt）と `putSessionState` の切り出し。
   - `ensureShellScript(home, port?)`。鍵は `statusline-header` を `curl -H @file` で読む（argv に載せない）。
   - `SummaryOutput.proposal?: SummaryProposal` を足した。
+
+## 2026-10-02 にやめたもの
+
+- main の claude.zsh が作り直され、ターミナルの claude も hangar の run（指示と MCP が渡る）になった。
+- 利用者の決定で、claude.zsh で抜けるときの問い（第 3 段 Task 3）と、それ用の by-provider の 2 つの入口（第 3 段 Task 2）をやめた。
+- 実装した 2 つの commit（45da99c と 136b3c1）は revert した（1ebc165 と db4328c）。
+- CandidateSource の 'exit' は型に残るが、書き手はいない。

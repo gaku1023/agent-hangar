@@ -57,7 +57,6 @@
 
 - 提案の入口は 3 つある。
   - 依頼を終えた区切りで、Claude が会話の中で聞く。
-  - claude.zsh で会話を抜けるときに聞く。
   - 事後の要約のときに作る。
 - 承認する場所は、会話の中と hangar の画面の両方である。
 - 会話の中で利用者が選んだものは、そのまま状態になる。
@@ -132,7 +131,7 @@ create table session_states (
 - `note`：Paused の理由（200 字まで）。Done では任意。
 - `return_on`：戻る日。`YYYY-MM-DD` の形の手元の暦の日付。Paused のときだけ持つ。
 - `set_by`：誰が付けたか。
-  - `user`：hangar の画面か claude.zsh で利用者が選んだ。
+  - `user`：hangar の画面で利用者が選んだ。
   - `conversation`：会話の中で利用者が選び、Claude が書いた。
   - `import`：導入時の一括。
 - `candidate_*`：提案である。`candidate_at` が null でなければ提案がある。
@@ -151,7 +150,7 @@ create table session_states (
 | 会話で選ぶ | MCP（`confirmed: true`） | どれでも | `status` を書き、`set_by='conversation'`、`candidate_*` を null に |
 | 確定 | 画面 | 提案あり | 提案の中身を `status` に写し、`set_by='user'`、`candidate_*` を null に |
 | 却下 | 画面 | 提案あり | `candidate_*` を null に、`rejected_at` に今の時刻 |
-| 手で選ぶ | 画面・claude.zsh | どれでも | `status` を書き、`set_by='user'`、`candidate_*` を null に |
+| 手で選ぶ | 画面 | どれでも | `status` を書き、`set_by='user'`、`candidate_*` を null に |
 | 印なしに戻す | 画面 | どれでも | `status`・`note`・`return_on`・`candidate_*` を null に |
 | 新しい発言 | 索引 | 発言の時刻が `set_at`・`candidate_at`・`rejected_at` のどれより後 | 全部を null に（印なし） |
 
@@ -254,31 +253,18 @@ hangar は `confirmed` の申告を確かめられない。
   - 本文は `{ returnOn? }` で、日を変えたときだけ渡す。
   - 提案がなければ 409 を返す。
 - `POST /api/sessions/:id/state/reject`：提案を却下する。提案がなければ 409 を返す。
-- `POST /api/sessions/by-provider/:providerSessionId/state`：claude.zsh から使う。
-  - 本文は `PUT` と同じ。
-  - Claude 側のセッション ID で引く。見つからなければ 404 を返す。
 
 どれも MCP からは呼べない（TODO の confirm と同じ）。
 変更のあとに `session.upsert` を配る。
 409 と 400 の本文は、トーストにそのまま出せる日本語の一文にする。
 
-## claude.zsh で抜けるとき
+## claude.zsh で抜けるとき（やめた）
 
-`config/shellHook.ts` の `__agent_hangar_leave` に問いを足す。
-
-- 問うのは、hangar が同じセッションを開いておらず、本文がある会話を抜けたときである。止めるかどうかの問いの後に聞く。
-- 1 つの打鍵で答える。
-
-  ```
-  このセッションをどうしますか？ [d] Done  [p] 明日の Paused  [Enter] そのまま
-  ```
-
-- サーバに提案があれば、問いの頭にその中身を出す。例：「Claude の提案：Done（直して main に入れた）」。
-- 答えは `POST /api/sessions/by-provider/:id/state` に `curl` で送る。
-  - 鍵は `~/.agent-hangar/token`、ポートは書き出すときのサーバのポートを埋め込む。
-  - 明日の Paused の理由は、提案があればその根拠、なければ空にする。
-- サーバが応答しない（1 秒）ときと、状態がすでに付いているときは、問わずに飛ばす。
-- 答えずに抜けた会話は、事後の要約で提案を作る。
+当初は、claude.zsh で会話を抜けるときに「Done / 明日の Paused / そのまま」を聞く予定だった。
+2026-10-02 に、main の claude.zsh が作り直された（ターミナルで起動した claude を、hangar の tmux の中で hangar の run として起こす）。
+これでターミナルの会話にも起動時の指示と MCP が渡るので、依頼を終えた区切りで Claude が会話の中で聞く。
+抜けるときの問いはそれと重なるので、利用者の決定（2026-10-02）でやめた。
+答えずに抜けた会話は、事後の要約で提案を作る。
 
 ## 事後の要約
 
@@ -306,7 +292,7 @@ hangar は `confirmed` の申告を確かめられない。
   - 押しても行が開かないように、包む要素でクリックを止める。portal の中の項目のクリックも止める。
   - 打鍵は行にカーソルがあるとき `.`（ピリオド）でも開く。
 - 提案の札を押すとポップが開く。
-  - 根拠の一文と、出どころ（会話・抜けるとき・要約）と時刻を出す。
+  - 根拠の一文と、出どころ（会話・要約）と時刻を出す。
   - ボタンは「確定」「日を変える」（Paused のみ）「却下」。
 - `set_by='conversation'` の状態は、札にポインタを乗せると「会話で承認」と出す。
 - Archived の行は、出すときに名前を淡くする。
@@ -401,7 +387,6 @@ hangar は `confirmed` の申告を確かめられない。
 - MCP の検査に落ちたら、何も書かない。
 - 古いサーバから来た `SessionDto` は `state` を欠くので、印なしとして扱う。
 - 同期で届いた行が `status` と `candidate_*` を両方持っていたら、読むときは状態を正とし、提案はないものとする（書き直しはしない）。
-- claude.zsh の送信が失敗したら、1 行で「hangar に届きませんでした」と出し、会話の後始末は続ける。
 
 ## 試験
 
@@ -420,10 +405,7 @@ hangar は `confirmed` の申告を確かめられない。
   - 検査（`note` の長さ、`return_on` の形、paused に日がないとき）
   - 共通の URL で `session_id` がないとき
 - **注入**：足した 3 行
-- **HTTP**：4 つの入口の 200・400・404・409。MCP から呼べないこと
-- **claude.zsh**
-  - 生成した文字列にポートと問いが入ること
-  - サーバが落ちているときに問わないこと（文字列の検査と、zsh で走らせる試験）
+- **HTTP**：3 つの入口の 200・400・404・409。MCP から呼べないこと
 - **要約**
   - スキーマの新しい項目
   - 提案を作る条件（状態あり・提案あり・却下済み・動いている、ではいずれも作らない）
@@ -441,7 +423,7 @@ hangar は `confirmed` の申告を確かめられない。
 - **実物**
   - hangar から起動したセッションに区切りで聞かせ、会話で Done を選んで状態になること
   - 答えずに進めて候補が残ること
-  - claude.zsh で抜けて問いが出ること
+  - ターミナルで起動した claude（hangar の run になる）でも、区切りで聞かれること
   - `.app` で節・札・ポップ・Home・Sessions のタブとトークンを確かめる。窓は 900×600 と 1440×900 で見る
   - 見た目の最終確認は利用者に頼む
 
@@ -455,7 +437,7 @@ hangar は `confirmed` の申告を確かめられない。
 2. **画面**
    - 節分けの関数、プロジェクト画面、Sessions 画面（タブ・節・トークン）、Home、Paused の入力、提案のポップ
 3. **提案の入口**
-   - 指示の注入、claude.zsh の問い、事後の要約
+   - 指示の注入、事後の要約
 
 ## 検討して捨てた案
 
