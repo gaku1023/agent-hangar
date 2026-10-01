@@ -117,19 +117,9 @@ describe('createPresent', () => {
     f.run();
     expect(name('#hero')).toBe('');
   });
-  // 狭いヘッダでは検索欄を畳み、虫眼鏡のボタンを出す。隠れた検索欄に名前を付けても行き先にならず、
-  // パレットの写しがその場に残って薄れていく。
-  it('検索欄が畳まれていれば、パレットは虫眼鏡のボタンへ戻る', () => {
-    document.body.innerHTML = '<div class="dialog palette"></div><input id="global-search" style="display: none"><button class="search-icon"></button>';
-    const f = fake();
-    createPresent(f.env)(() => { $('.palette').remove(); }, at({ name: 'home' }, { kind: 'palette' }), at({ name: 'home' }));
-    expect(name('.palette')).toBe(PALETTE_MORPH);
-    f.run();
-    expect(name('.search-icon')).toBe(PALETTE_MORPH);
-    expect(name('#global-search')).toBe('');
-  });
-  it('戻る先がどれも見えていなければ、パレットに名前を付けない。写しが残らない', () => {
-    document.body.innerHTML = '<div class="dialog palette"></div><input id="global-search" style="display: none"><button class="search-icon" style="display: none"></button>';
+  // 隠れた錠剤に名前を付けても行き先にならず、パレットの写しがその場に残って薄れていく。
+  it('戻る先の錠剤が見えていなければ、パレットに名前を付けない。写しが残らない', () => {
+    document.body.innerHTML = '<div class="dialog palette"></div><button id="global-search" style="display: none"></button>';
     const f = fake();
     createPresent(f.env)(() => { $('.palette').remove(); }, at({ name: 'home' }, { kind: 'palette' }), at({ name: 'home' }));
     expect(name('.palette')).toBe('');

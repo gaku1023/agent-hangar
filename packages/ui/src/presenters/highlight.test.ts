@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { markTerms } from './highlight.ts';
+import { countHits, markTerms } from './highlight.ts';
 
 describe('markTerms', () => {
   it('検索語を大文字と小文字を問わずに印し、残りはそのまま', () => {
@@ -14,5 +14,20 @@ describe('markTerms', () => {
   it('語が無ければ全体を印のない 1 つの塊にし、本文が空なら空', () => {
     expect(markTerms('本文', '  ')).toEqual([{ text: '本文', hit: false }]);
     expect(markTerms('', 'x')).toEqual([]);
+  });
+  it('literal のときは空白を含めた全体を 1 つの語として当てる', () => {
+    expect(markTerms('a b と a と b', 'a b', { literal: true })).toEqual([{ text: 'a b', hit: true }, { text: ' と a と b', hit: false }]);
+  });
+  it('caseSensitive のときは大文字と小文字を分ける', () => {
+    expect(markTerms('Foo foo', 'foo', { caseSensitive: true })).toEqual([{ text: 'Foo ', hit: false }, { text: 'foo', hit: true }]);
+  });
+});
+
+describe('countHits', () => {
+  it('markTerms が印す塊の数と同じ数を返す', () => {
+    expect(countHits('バリデーションの バリデーション', 'バリデーション', { literal: true })).toBe(2);
+    expect(countHits('sync sync-floor', 'sync sync-floor')).toBe(2);
+    expect(countHits('abc', '')).toBe(0);
+    expect(countHits('', 'x')).toBe(0);
   });
 });

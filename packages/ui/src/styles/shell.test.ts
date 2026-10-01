@@ -31,4 +31,10 @@ describe('セッション画面の高さ', () => {
       expect(body(css, s)).toMatch(/min-height: \d+px;/);
     }
   });
+  it('会話の欄を包む .tr-wrap も伸びて、.tr に高さを渡す', () => {
+    const b = body(read('transcript.css'), '.tr-wrap');
+    expect(b).toMatch(/display: flex;/);
+    expect(b).toMatch(/flex: 1;/);
+    expect(b).toMatch(/min-height: 0;/);
+  });
 });

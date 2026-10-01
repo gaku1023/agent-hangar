@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -48,6 +48,8 @@ export type ApiClient = {
   usageAggregate(days: number): Promise<UsageAggregateDto>;
   statusline(): Promise<StatuslineStatusDto>;
   shellHook(): Promise<ShellHookDto>;
+  /** 準備の確かめ。設定画面の検証と、空のホームの確認リストが読む。 */
+  readiness(): Promise<ReadinessDto>;
   addTodo(projectId: string, text: string): Promise<TodoDto>;
   setTodoDone(id: string, done: boolean): Promise<TodoDto>;
   removeTodo(id: string): Promise<TodoDto>;
@@ -131,6 +133,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     usageAggregate: (days) => call(`/api/usage/aggregate${qs({ days })}`),
     statusline: () => call('/api/statusline'),
     shellHook: () => call('/api/shell-hook'),
+    readiness: () => call('/api/readiness'),
     addTodo: (projectId, text) => post(`/api/projects/${projectId}/todos`, { text }),
     setTodoDone: (id, done) => call(`/api/todos/${id}`, { method: 'PATCH', body: JSON.stringify({ done }) }),
     removeTodo: (id) => call(`/api/todos/${id}`, { method: 'DELETE' }),

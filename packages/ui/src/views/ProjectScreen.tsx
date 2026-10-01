@@ -12,7 +12,7 @@ import { StatusSelect } from './primitives/StatusSelect.tsx';
 /**
  * プロジェクト詳細画面。
  * 右レールは TODO とメモとアーティファクトで、折りたためる。
- * スクラッチの擬似プロジェクトは実体のパスを持たないので、ステータスと外部で開く操作を出さない。
+ * スクラッチの擬似プロジェクトは実体のパスを持たないので、状態と外部で開く操作を出さない。
  */
 export function ProjectScreen(props: ProjectProps) {
   const emit = useEmit();
@@ -22,16 +22,16 @@ export function ProjectScreen(props: ProjectProps) {
     <div className="screen project-screen" data-rail={railOpen ? 'open' : 'closed'}>
       <div className="project-main">
         <PageHeading title={props.name} parent={props.parent}>
-          {!props.isScratch && <StatusSelect label="ステータス" value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />}
+          {!props.isScratch && <StatusSelect label="状態" value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />}
           <span className="spacer" />
           {props.isScratch
             ? <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', scratch: true })}><Icon name="add" />スクラッチで始める</button>
-            : <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.id })}><Icon name="add" />新規セッション</button>}
+            : <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.id })}><Icon name="add" />新しいセッション</button>}
           {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openEditor', id: props.id })}><Icon name="openEditor" />VS Code で開く</button>}
           {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openTerminalApp', id: props.id })}><Icon name="openTerminal" />ターミナルで開く</button>}
-          <button className="btn" aria-label={railOpen ? '右レールを隠す' : '右レールを出す'} onClick={() => setRailOpen(!railOpen)}><Icon name={railOpen ? 'paneClose' : 'paneOpen'} /></button>
+          <button className="btn" aria-label={railOpen ? '右の欄を閉じる' : '右の欄を開く'} onClick={() => setRailOpen(!railOpen)}><Icon name={railOpen ? 'paneClose' : 'paneOpen'} /></button>
         </PageHeading>
-        <div className="mono faint project-path">{props.path ?? 'この端末にパスがありません'}{!props.resolved && props.path ? '（見つかりません）' : ''}</div>
+        <div className="mono faint project-path">{props.path ?? 'この PC にパスがありません'}{!props.resolved && props.path ? '（見つかりません）' : ''}</div>
         <SessionRows rows={props.sessions} height="calc(100vh - 255px)" variant="project" />
       </div>
       {railOpen && (

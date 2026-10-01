@@ -1,43 +1,50 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { pick } from '../test/pick.ts';
+import type { SessionRowProps } from '../presenters/row.ts';
 import type { CloudSettingsProps, SettingsProps } from '../presenters/settings.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 import { SessionRows } from './SessionRows.tsx';
 import { Header } from './Header.tsx';
 import { SessionsScreen } from './SessionsScreen.tsx';
 import { SettingsScreen } from './SettingsScreen.tsx';
-import { ToastStack } from './ToastStack.tsx';
+
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null });
 
 describe('SessionsScreen', () => {
   it('絞り込みは search.filter、キーワードは search.query', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" allCount={0} conditions={[]} /></IntentRoot>);
     pick('プロジェクト', 'alpha');
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: 'p1' } });
+    expect(within(screen.getByRole('radiogroup', { name: '状態' })).getAllByRole('radio').map((r) => r.textContent)).toEqual(['すべて', '入力待ち', '実行中', '終了']);
     fireEvent.click(screen.getByRole('radio', { name: '実行中' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { running: true } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { live: 'running' } });
+    fireEvent.click(screen.getByRole('radio', { name: '入力待ち' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { live: 'waiting' } });
+    fireEvent.click(screen.getByRole('radio', { name: '終了' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { live: 'ended' } });
     const kw = screen.getByLabelText('キーワード');
     fireEvent.change(kw, { target: { value: 'x y' } });
     fireEvent.keyDown(kw, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: 'x y' });
   });
   it('絞り込みは、何で絞っているかを帯と札で見せる', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ projectId: 'p1', running: false }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ projectId: 'p1', live: 'ended' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" allCount={0} conditions={[]} /></IntentRoot>);
     expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('alpha');
     expect(within(screen.getByRole('radiogroup', { name: '状態' })).getByRole('radio', { name: '終了' })).toHaveAttribute('aria-checked', 'true');
     expect(within(screen.getByRole('radiogroup', { name: '期間' })).getByRole('radio', { name: '全期間' })).toHaveAttribute('aria-checked', 'true');
   });
   it('すべてのプロジェクトに戻すと projectId を外す', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{ projectId: 'p1' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{ projectId: 'p1' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" allCount={0} conditions={[]} /></IntentRoot>);
     pick('プロジェクト', 'すべてのプロジェクト');
     expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: undefined } });
   });
   it('日本語入力の確定の Enter では検索しない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" allCount={0} conditions={[]} /></IntentRoot>);
     const kw = screen.getByLabelText('キーワード');
     fireEvent.change(kw, { target: { value: '動画' } });
     fireEvent.keyDown(kw, { key: 'Enter', isComposing: true });
@@ -51,113 +58,278 @@ describe('SessionsScreen', () => {
     fireEvent.keyDown(file, { key: 'Enter', isComposing: true });
     expect(onIntent).not.toHaveBeenCalled();
   });
-  it('期間は since を now から N 日前にする', () => {
+  // 期間は相対の日数で持つ。絶対の時刻で持つと、時間が経つにつれて表示の日数がずれ、半日ほどで「全期間」に見えていた。
+  it('期間は日数で持ち、時間が経っても選んだ帯のまま見える', () => {
     const onIntent = vi.fn();
-    const before = Date.now();
-    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" allCount={0} conditions={[]} /></IntentRoot>);
     fireEvent.click(screen.getByRole('radio', { name: '7 日' }));
-    const call = onIntent.mock.calls.find((c) => c[0].type === 'search.filter')?.[0];
-    expect(call).toBeDefined();
-    const since = call.patch.since as number;
-    expect(since).toBeGreaterThanOrEqual(before - 7 * 86_400_000);
-    expect(since).toBeLessThanOrEqual(Date.now() - 7 * 86_400_000);
-    expect(call.patch.until).toBeUndefined();
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { days: 7 } });
+    rerender(<IntentRoot onIntent={onIntent}><SessionsScreen text="" filter={{ days: 7 }} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" allCount={0} conditions={[]} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('radio', { name: '全期間' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { days: undefined } });
+  });
+  it('選んだ期間の帯に印が付く', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ days: 1 }} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" allCount={0} conditions={[]} /></IntentRoot>);
+    const period = () => within(screen.getByRole('radiogroup', { name: '期間' }));
+    expect(period().getByRole('radio', { name: '今日' })).toHaveAttribute('aria-checked', 'true');
+    rerender(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{ days: 30 }} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" allCount={0} conditions={[]} /></IntentRoot>);
+    expect(period().getByRole('radio', { name: '30 日' })).toHaveAttribute('aria-checked', 'true');
   });
   // 件数は見出しの行に並べるが、見出しの名前には含めない。読み上げでは「セッション」の見出しとして見つかる。
-  it('画面の頭に見出しを置き、件数を添える', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={1196} loading={false} mode="all" /></IntentRoot>);
+  it('画面の頭に見出しを置き、全件の数を添える', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={1196} total={1196} loading={false} loadingMore={false} mode="all" allCount={1196} conditions={[]} /></IntentRoot>);
     const h = screen.getByRole('heading', { level: 1, name: 'セッション' });
     expect(within(h.closest('.page-title-row') as HTMLElement).getByText('1196 件')).toBeInTheDocument();
   });
-  it('検索中と件数の表示', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" /></IntentRoot>);
+  // サーバは上位の 50 件だけを返す。全件の数だけを出すと、並ぶ行の数と合わない。
+  it('切れているときは条件の行に「上位 N / 全件」と出し、一覧の末尾から次の 50 件を読める', () => {
+    const onIntent = vi.fn();
+    const rows = [row('s1'), row('s2')];
+    const at = (shown: number, loadingMore: boolean) => <IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={rows} shown={shown} total={132} loading={false} loadingMore={loadingMore} mode="search" allCount={1206} conditions={['『q』']} /></IntentRoot>;
+    const { rerender } = render(at(50, false));
+    expect(within(screen.getByRole('heading', { level: 1, name: 'セッション' }).closest('.page-title-row') as HTMLElement).getByText('1206 件')).toBeInTheDocument();
+    const cond = screen.getByRole('status', { name: '絞り込みの条件' });
+    expect(cond).toHaveTextContent('『q』 で絞り込み中');
+    expect(cond).toHaveTextContent('上位 50 / 132 件');
+    const more = within(screen.getByTestId('session-rows')).getByRole('button', { name: 'さらに 50 件を読み込む' });
+    expect(screen.getByText('残り 82 件')).toBeInTheDocument();
+    fireEvent.click(more);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.more', offset: 50 });
+    rerender(at(50, true));
+    expect(screen.getByRole('button', { name: '読み込んでいます' })).toBeDisabled();
+    expect(screen.getByText('上位 50 / 132 件')).toBeInTheDocument();
+    // 残りが 50 件に満たなければ、その数を言う。
+    rerender(at(100, false));
+    expect(screen.getByRole('button', { name: 'さらに 32 件を読み込む' })).toBeInTheDocument();
+    rerender(at(132, false));
+    expect(screen.getByText('132 件')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /さらに/ })).toBeNull();
+  });
+  it('条件が 1 つも効いていなければ条件の行を出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[row('s1')]} shown={1} total={1} loading={false} loadingMore={false} mode="all" allCount={1} conditions={[]} /></IntentRoot>);
+    expect(screen.queryByRole('status', { name: '絞り込みの条件' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '条件をクリア' })).toBeNull();
+  });
+  it('条件の行は効いている条件を並べ、「条件をクリア」で全部外す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SessionsScreen text="索引" filter={{ projectId: 'p1', days: 7 }} projects={[{ id: 'p1', name: 'orbit-notes' }]} rows={[row('s1')]} shown={1} total={1} loading={false} loadingMore={false} mode="search" allCount={1206} conditions={['『索引』', 'orbit-notes', '7 日']} /></IntentRoot>);
+    expect(screen.getByRole('status', { name: '絞り込みの条件' })).toHaveTextContent('『索引』 · orbit-notes · 7 日 で絞り込み中');
+    fireEvent.click(screen.getByRole('button', { name: '条件をクリア' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.clear' });
+  });
+  // 上の欄が全文検索の本体である（D1）。本文を探すことを札で言い、打った語は × で消せる。
+  it('上の欄は本文を探す欄で、語を × で消せる', () => {
+    const onIntent = vi.fn();
+    const { container } = render(<IntentRoot onIntent={onIntent}><SessionsScreen text="索引" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="search" allCount={3} conditions={['『索引』']} /></IntentRoot>);
+    const box = container.querySelector('.sessions-keyword')!;
+    expect(box.querySelector('svg')).toHaveAttribute('data-icon', 'fullText');
+    expect(box).toHaveTextContent('本文');
+    fireEvent.click(within(box as HTMLElement).getByRole('button', { name: 'キーワードを消す' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '' });
+  });
+  it('さらに読み込むを押したら、読み終えたところで読み足した最初の行へフォーカスを返す', () => {
+    const onIntent = vi.fn();
+    const at = (rows: SessionRowProps[], loadingMore: boolean, shown: number) => <IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={rows} shown={shown} total={4} loading={false} loadingMore={loadingMore} mode="search" allCount={0} conditions={[]} /></IntentRoot>;
+    const two = [row('s1'), row('s2')];
+    const { rerender } = render(at(two, false, 2));
+    const more = screen.getByRole('button', { name: /^さらに/ });
+    act(() => more.focus());
+    fireEvent.click(more);
+    rerender(at(two, true, 2));
+    // 押したボタンは読み込みの間 disabled になり、ブラウザはフォーカスを body へ落とす。jsdom は落とさないので、ここで落とす。
+    act(() => (document.activeElement as HTMLElement).blur());
+    rerender(at([...two, row('s3'), row('s4')], false, 4));
+    expect(document.activeElement).toBe(screen.getByText('ns3').closest('[role="row"]'));
+    expect(screen.getByText('ns3').closest('[role="row"]')).toHaveAttribute('data-cursor', 'true');
+  });
+  it('読み足せなかったときは一覧へフォーカスを返し、ほかへ移したフォーカスは奪わない', () => {
+    const onIntent = vi.fn();
+    const at = (loadingMore: boolean) => <IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={[row('s1'), row('s2')]} shown={2} total={4} loading={false} loadingMore={loadingMore} mode="search" allCount={0} conditions={[]} /></IntentRoot>;
+    const { rerender } = render(at(false));
+    fireEvent.click(screen.getByRole('button', { name: /^さらに/ }));
+    rerender(at(true));
+    act(() => (document.activeElement as HTMLElement).blur());
+    rerender(at(false));
+    expect(document.activeElement).toBe(screen.getByTestId('session-rows'));
+    // 読み込みの間に利用者がキーワードの欄へ移ったら、そのままにする。
+    fireEvent.click(screen.getByRole('button', { name: /^さらに/ }));
+    rerender(at(true));
+    const keyword = screen.getByLabelText('キーワード');
+    act(() => keyword.focus());
+    rerender(at(false));
+    expect(document.activeElement).toBe(keyword);
+  });
+  it('検索中は条件の行の件数の代わりにそう言う', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading loadingMore={false} mode="search" allCount={0} conditions={['『q』']} /></IntentRoot>);
     expect(screen.getByText('検索しています')).toBeInTheDocument();
   });
   it('検索で何も当たらなければ「一致するセッションはありません」', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="search" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="search" allCount={0} conditions={[]} /></IntentRoot>);
     expect(screen.getByText('一致するセッションはありません')).toBeInTheDocument();
     expect(screen.queryByText('セッションはまだありません')).toBeNull();
   });
   it('全件表示で空なら「セッションはまだありません」のまま', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading={false} loadingMore={false} mode="all" allCount={0} conditions={[]} /></IntentRoot>);
     expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();
   });
   it('検索中は空の文言を出さない', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[]} shown={0} total={0} loading loadingMore={false} mode="search" allCount={0} conditions={[]} /></IntentRoot>);
     expect(screen.queryByText('一致するセッションはありません')).toBeNull();
   });
 });
 
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
-  workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, sessionCount: 3, projectCount: 2,
-  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, mcpInstallCommand: 'npm run hangar -- mcp install',
+  workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
+  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' },
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
-  statuslineCommand: 'npm run hangar -- statusline install',
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
-  cloud: { configured: false, url: null, state: 'off', paused: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, syncClaudeConfig: false, configConfirmed: false },
+  cloud: { configured: false, url: null, state: 'off', stateLabel: '同期していません', paused: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, joinTokenExpiresAt: null, syncClaudeConfig: false, configConfirmed: false },
   shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', devices: [] },
   nodePath: '',
   claudePath: null,
   retention: null,
+  notify: { available: true, on: false, blocked: false },
+  verify: { workspace: null, tmux: null, claude: null, code: null, node: null },
+  mcpRegistered: null,
+  save: {},
+  todo: { must: 0, link: 0 },
   ...over,
 });
 
 const cloudProps = (over: Partial<CloudSettingsProps> = {}): CloudSettingsProps => ({
-  configured: true, url: 'https://h.workers.dev', state: 'idle', paused: false, lastPullAt: '1 分前', pending: 2, sweepPending: null, skipped: [],
+  configured: true, url: 'https://h.workers.dev', state: 'idle', stateLabel: '同期済み', paused: false, lastPullAt: '1 分前', pending: 2, sweepPending: null, skipped: [],
   devices: [{ id: 'dev-a', name: 'mac', platform: 'darwin', lastSeen: '今', self: true }, { id: 'dev-b', name: 'mini', platform: 'darwin', lastSeen: '3 分前', self: false }],
-  joinToken: null, syncClaudeConfig: false, configConfirmed: false,
+  joinToken: null, joinTokenExpiresAt: null, syncClaudeConfig: false, configConfirmed: false,
   ...over,
 });
 
+describe('SettingsScreen の通知', () => {
+  it('「通知を受け取る」のスイッチで切り替える', () => {
+    const onIntent = vi.fn();
+    const { unmount } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('switch', { name: '通知を受け取る' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'notify.set', on: true });
+    unmount();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ notify: { available: true, on: true, blocked: false } })} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('switch', { name: '通知を受け取る' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'notify.set', on: false });
+  });
+  it('OS で通知が切られていれば、システム設定で許可するよう添える。スイッチは入れ直せる', () => {
+    render(<IntentRoot onIntent={vi.fn()}><SettingsScreen {...settingsProps({ notify: { available: true, on: false, blocked: true } })} /></IntentRoot>);
+    expect(screen.getByRole('switch', { name: '通知を受け取る' })).not.toBeDisabled();
+    expect(screen.getByText(/システム設定の「通知」で Hangar を許可してください/)).toBeInTheDocument();
+  });
+  it('通知を出せない環境では、スイッチを押せなくして理由を添える', () => {
+    render(<IntentRoot onIntent={vi.fn()}><SettingsScreen {...settingsProps({ notify: { available: false, on: false, blocked: false } })} /></IntentRoot>);
+    expect(screen.getByRole('switch', { name: '通知を受け取る' })).toBeDisabled();
+    expect(screen.getByText(/通知を出せません/)).toBeInTheDocument();
+  });
+});
+
+/** 欄に書いて、欄を出る。パスの欄は欄を出たときに保存する。 */
+const typeAndLeave = (label: string, value: string) => {
+  const field = screen.getByLabelText(label);
+  fireEvent.change(field, { target: { value } });
+  fireEvent.blur(field);
+};
+
 describe('SettingsScreen', () => {
-  it('保存と作り直し', () => {
+  it('ワークスペースは欄を出たら保存し、欄の名前を添える。作り直しと、この PC', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ version: '0.1.0', index: { phase: 'idle', done: 3, total: 3 }, projectCount: 1 })} /></IntentRoot>);
-    fireEvent.change(screen.getByLabelText('ワークスペースのルート'), { target: { value: '/w2' } });
-    fireEvent.click(screen.getByText('保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '/w2' } });
+    typeAndLeave('ワークスペースのルート', '/w2');
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '/w2' }, field: 'workspaceRoot' });
     fireEvent.click(screen.getByText('索引を作り直す'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'index.rebuild' });
     expect(screen.getByText('mac')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'この PC' })).toBeInTheDocument();
     expect(screen.getByText(/再起動後に反映されます/)).toBeInTheDocument();
+    // 索引の文は presenter がヘッダーと同じ関数で作ったものをそのまま出す。
+    expect(screen.getByText('3 セッション、2 プロジェクト')).toBeInTheDocument();
+  });
+  it('パスの欄には保存のボタンが無い。要約器だけは 3 項目をまとめて保存する', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    for (const t of ['保存', 'ツールの設定を保存', 'Node のパスを保存']) expect(screen.queryByRole('button', { name: t })).toBeNull();
+    expect(screen.getByRole('button', { name: '要約器の設定を保存' })).toBeInTheDocument();
   });
   it('Node のパスを保存でき、空なら null を送る', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ nodePath: '/opt/homebrew/bin/node' })} /></IntentRoot>);
-    fireEvent.change(screen.getByLabelText('Node のパス'), { target: { value: '/opt/node22/bin/node' } });
-    fireEvent.click(screen.getByText('Node のパスを保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { nodePath: '/opt/node22/bin/node' } });
-    // 空白だけにするのは「指定を消す」なので、指定が入っていた端末では変更である。
-    fireEvent.change(screen.getByLabelText('Node のパス'), { target: { value: '  ' } });
-    fireEvent.click(screen.getByText('Node のパスを保存'));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { nodePath: null } });
+    typeAndLeave('Node のパス', '/opt/node22/bin/node');
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { nodePath: '/opt/node22/bin/node' }, field: 'nodePath' });
+    // 空白だけにするのは「指定を消す」なので、指定が入っていた PC では変更である。
+    typeAndLeave('Node のパス', '  ');
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { nodePath: null }, field: 'nodePath' });
   });
-  it('4 つの保存ボタンは、どれも変えたときだけ押せる', () => {
-    // 何も変えずに押せると、patch が飛んで「設定を保存しました」のトーストが出る。
-    // workspaceRoot に至っては、同じ値でもプロジェクトの登録し直しが走る。
+  it('変えずに欄を出ても送らない。前後の空白だけの違いも変更にしない', () => {
+    // 同じ値でも送ると、workspaceRoot ではプロジェクトの登録し直しが走る。
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ nodePath: '/opt/homebrew/bin/node' })} /></IntentRoot>);
-    const buttons = ['保存', 'ツールの設定を保存', '要約器の設定を保存', 'Node のパスを保存'].map((t) => screen.getByText(t));
-    for (const b of buttons) { expect(b).toBeDisabled(); fireEvent.click(b); }
-    expect(onIntent).not.toHaveBeenCalled();
-    const changes: [string, string][] = [['ワークスペースのルート', '/w2'], ['code のパス', '/usr/local/bin/code'], ['LM Studio の URL', 'http://127.0.0.1:2345'], ['Node のパス', '/opt/node22/bin/node']];
-    for (const [i, [label, value]] of changes.entries()) {
-      const field = screen.getByLabelText(label);
-      const before = (field as HTMLInputElement).value;
-      fireEvent.change(field, { target: { value } });
-      expect(buttons[i]).toBeEnabled();
-      // 元に戻せばまた押せなくなる。
-      fireEvent.change(field, { target: { value: before } });
-      expect(buttons[i]).toBeDisabled();
-    }
-    // パスの欄は送る前に前後の空白を落とすので、空白を足しただけでは変更にならない。
-    for (const [label, i] of [['code のパス', 1], ['Node のパス', 3]] as const) {
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ nodePath: '/opt/homebrew/bin/node', codePath: '/usr/local/bin/code' })} /></IntentRoot>);
+    for (const label of ['ワークスペースのルート', 'tmux のパス', 'claude のパス', 'code のパス', 'Node のパス']) {
       const field = screen.getByLabelText(label) as HTMLInputElement;
-      fireEvent.change(field, { target: { value: ` ${field.value} ` } });
-      expect(buttons[i]).toBeDisabled();
+      fireEvent.blur(field);
+      typeAndLeave(label, ` ${field.value} `);
     }
+    expect(onIntent).not.toHaveBeenCalled();
+    // 空白を足しただけの欄は、保存済みの値に戻す。
+    expect(screen.getByLabelText('code のパス')).toHaveValue('/usr/local/bin/code');
+  });
+  it('Enter でも保存し、日本語入力の確定の Enter では保存しない', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const field = screen.getByLabelText('code のパス');
+    fireEvent.change(field, { target: { value: '/usr/local/bin/code' } });
+    fireEvent.keyDown(field, { key: 'Enter', keyCode: 229 });
+    expect(onIntent).not.toHaveBeenCalled();
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { codePath: '/usr/local/bin/code' }, field: 'codePath' });
+  });
+  it('保存できたら欄の横に「✓ 保存しました」を 2 秒出し、保存し直すたびに出し直す', () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+      const tick = () => within(screen.getByLabelText('tmux のパス').closest('.inrow') as HTMLElement).queryByText('保存しました');
+      expect(tick()).toBeNull();
+      rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ save: { tmuxPath: { kind: 'saved', n: 1 } } })} /></IntentRoot>);
+      expect(tick()).not.toBeNull();
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(tick()).toBeNull();
+      rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ save: { tmuxPath: { kind: 'saved', n: 2 } } })} /></IntentRoot>);
+      expect(tick()).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('保存を断られたら、欄の下に理由を出し、書いた値は欄に残す', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    typeAndLeave('tmux のパス', '/nope/tmux');
+    rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ save: { tmuxPath: { kind: 'error', message: '「tmux のパス」に /nope/tmux が見つかりません' } } })} /></IntentRoot>);
+    expect(screen.getByRole('alert')).toHaveTextContent('「tmux のパス」に /nope/tmux が見つかりません');
+    expect(screen.getByLabelText('tmux のパス')).toHaveValue('/nope/tmux');
+  });
+  it('欄の下に、見つかったパスと版、または直し方を出す（B1）', () => {
+    const verify = {
+      workspace: { ok: true, soft: false, text: '/w', note: 'プロジェクト 12 件', fix: null, fixCommand: null },
+      tmux: { ok: false, soft: false, text: '見つかりません', note: null, fix: null, fixCommand: 'brew install tmux' },
+      claude: { ok: true, soft: false, text: '/Users/me/.local/bin/claude', note: '2.3.1', fix: null, fixCommand: null },
+      code: { ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'VS Code から code コマンドを入れてください', fixCommand: null },
+      node: null,
+    };
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ verify })} /></IntentRoot>);
+    const under = (label: string) => screen.getByLabelText(label).closest('.path-field')!.querySelector('.verify')!;
+    expect(under('ワークスペースのルート')).toHaveTextContent('/w（プロジェクト 12 件）');
+    expect(under('claude のパス')).toHaveTextContent('/Users/me/.local/bin/claude（2.3.1）');
+    expect(under('tmux のパス')).toHaveTextContent('見つかりません');
+    expect(under('tmux のパス')).toHaveAttribute('data-tone', 'ng');
+    expect(under('code のパス')).toHaveAttribute('data-tone', 'soft');
+    expect(under('code のパス')).toHaveTextContent('無くても動きます');
+    expect(under('Node のパス')).toHaveTextContent('確かめています');
+    fireEvent.click(screen.getByRole('button', { name: 'brew install tmux をコピー' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'brew install tmux' });
   });
   it('要約器の 2 欄も、サーバが整えた後の値で見比べる', () => {
     // サーバは URL の前後の空白と末尾の / を落とし、モデル名も trim する。
@@ -175,7 +347,7 @@ describe('SettingsScreen', () => {
     fireEvent.change(url, { target: { value: '  http://127.0.0.1:2345/  ' } });
     expect(save).toBeEnabled();
     fireEvent.click(save);
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 } });
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
     // 欄も整えた形に直しておく。整える前の文字列が残ると、押せない理由が読めない。
     expect(url).toHaveValue('http://127.0.0.1:2345');
   });
@@ -183,7 +355,7 @@ describe('SettingsScreen', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     const save = screen.getByText('要約器の設定を保存');
     expect(save).toBeDisabled();
-    fireEvent.click(screen.getByRole('switch', { name: 'Claude へ切り替える' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'LM Studio が使えないとき Claude へ切り替える' }));
     expect(save).toBeDisabled();
     // 読めない上限も「変えた」に入れる。押せないと案内を出す道が無くなる。
     fireEvent.change(screen.getByLabelText('1 時間の上限'), { target: { value: '' } });
@@ -192,7 +364,7 @@ describe('SettingsScreen', () => {
   it('スイッチは切り替えた時点で、その 1 項目だけを保存する', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
-    fireEvent.click(screen.getByRole('switch', { name: 'Claude へ切り替える' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'LM Studio が使えないとき Claude へ切り替える' }));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryFallback: false } });
   });
   it('1 時間の上限は − と ＋ でも変えられる', () => {
@@ -209,25 +381,25 @@ describe('SettingsScreen', () => {
     // .app から起こすと PATH で claude を引けない。欄が無いと、起動が 400 で断られたまま直せない。
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
-    fireEvent.change(screen.getByLabelText('claude のパス'), { target: { value: ' /Users/x/.local/bin/claude ' } });
-    fireEvent.click(screen.getByText('ツールの設定を保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { claudePath: '/Users/x/.local/bin/claude' } });
+    typeAndLeave('claude のパス', ' /Users/x/.local/bin/claude ');
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { claudePath: '/Users/x/.local/bin/claude' }, field: 'claudePath' });
   });
   it('サーバが正規化した claude のパスを入力欄に反映する', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ claudePath: '/Users/x/.local/bin/claude' })} /></IntentRoot>);
     expect(screen.getByLabelText('claude のパス')).toHaveValue('/Users/x/.local/bin/claude');
   });
-  it('ターミナルアプリは切り替えた時点で保存し、ツールの保存はパスだけを送る', () => {
+  it('ターミナルアプリは切り替えた時点で保存し、パスの欄はその 1 項目だけを送る。コマンドは hangar でそろえる', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ version: '0.2.0', index: { phase: 'idle', done: 3, total: 3 }, projectCount: 1 })} /></IntentRoot>);
     fireEvent.click(screen.getByRole('radio', { name: 'iTerm2' }));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { terminalApp: 'iterm' } });
-    expect(screen.getByText('ツールの設定を保存')).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('code のパス'), { target: { value: '/usr/local/bin/code' } });
-    fireEvent.click(screen.getByText('ツールの設定を保存'));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { codePath: '/usr/local/bin/code' } });
-    expect(screen.getByText('npm run hangar -- mcp install')).toBeInTheDocument();
+    typeAndLeave('code のパス', '/usr/local/bin/code');
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { codePath: '/usr/local/bin/code' }, field: 'codePath' });
+    expect(screen.getByText('hangar mcp install')).toBeInTheDocument();
+    expect(screen.getByText('hangar statusline install')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'hangar mcp install をコピー' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });
   });
   it('サーバが正規化した値に入力欄が追従する', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ tmuxPath: 'tmux', device: null, version: '0.2.0', sessionCount: 0, projectCount: 0 })} /></IntentRoot>);
@@ -238,18 +410,44 @@ describe('SettingsScreen', () => {
     expect(screen.getByRole('radio', { name: 'iTerm2' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByLabelText('code のパス')).toHaveValue('/usr/local/bin/code');
   });
-  it('何も変えていなければツールの保存は押せない', () => {
-    // 空の patch はサーバが 400 にするので、押せないようにする。
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ terminalApp: 'iterm', device: null, version: '0.2.0' })} /></IntentRoot>);
-    const save = screen.getByText('ツールの設定を保存');
-    expect(save).toBeDisabled();
-    fireEvent.click(save);
-    expect(onIntent).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText('code のパス'), { target: { value: '/usr/local/bin/code' } });
-    expect(save).toBeEnabled();
-    fireEvent.click(save);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { codePath: '/usr/local/bin/code' } });
+  it('MCP の登録を札で出す', () => {
+    const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ mcpRegistered: true })} /></IntentRoot>);
+    const mcp = () => within(screen.getByRole('heading', { name: /^MCP/ }).closest('section')!);
+    expect(mcp().getByText('登録済み')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ mcpRegistered: false })} /></IntentRoot>);
+    expect(mcp().getByText('まだ登録されていません')).toBeInTheDocument();
+  });
+});
+
+describe('SettingsScreen の目次（設定の A1）', () => {
+  it('左の目次に 5 つの群を並べ、群の中の節の名前も添える', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const toc = within(screen.getByRole('navigation', { name: '設定の目次' }));
+    expect(toc.getAllByRole('button').map((b) => b.textContent)).toEqual(['必須', '連携', '要約器', '同期', '情報']);
+    expect(toc.getByText('外のターミナル')).toBeInTheDocument();
+    for (const name of ['必須', '連携', '要約器', '同期', '情報']) expect(screen.getByRole('heading', { level: 2, name: new RegExp(`^${name}`) })).toBeInTheDocument();
+  });
+  it('最初は必須が灯り、押した群へ滑って灯る', () => {
+    const scrolled: string[] = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.id); };
+    try {
+      render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+      const toc = within(screen.getByRole('navigation', { name: '設定の目次' }));
+      expect(toc.getByRole('button', { name: '必須' })).toHaveAttribute('aria-current', 'true');
+      fireEvent.click(toc.getByRole('button', { name: '同期' }));
+      expect(scrolled).toEqual(['settings-sync']);
+      expect(toc.getByRole('button', { name: '同期' })).toHaveAttribute('aria-current', 'true');
+      expect(toc.getByRole('button', { name: '必須' })).not.toHaveAttribute('aria-current');
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
+  });
+  it('直すものがある群には、目次と見出しに印を付ける', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ todo: { must: 0, link: 2 } })} /></IntentRoot>);
+    const toc = within(screen.getByRole('navigation', { name: '設定の目次' }));
+    expect(toc.getByRole('img', { name: '直すもの 2 件' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /^連携/ })).toHaveTextContent('直すもの 2 件');
   });
 });
 
@@ -257,8 +455,10 @@ describe('SettingsScreen のフェーズ 3', () => {
   it('statusline の状態と追記のコマンドを出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     expect(screen.getByText('まだ追記されていません')).toBeTruthy();
-    expect(screen.getByText('npm run hangar -- statusline install')).toBeTruthy();
+    expect(screen.getByText('hangar statusline install')).toBeTruthy();
     expect(screen.getByText('/h/.claude/statusline.sh')).toBeTruthy();
+    // ヘッダーのゲージは使用率で、追記はターミナルで行う。
+    expect(screen.getByText('ヘッダーの使用率のゲージは、この追記からだけ届きます。追記はターミナルで行い、この画面からは書き換えません。')).toBeTruthy();
   });
   it('statusline の案内にポートの指定を添える', () => {
     // 4177 以外で動いているサーバに、4177 宛てのスニペットを追記させない。
@@ -271,7 +471,7 @@ describe('SettingsScreen のフェーズ 3', () => {
   });
   it('statusline の設定が無いときは案内を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ statusline: { command: null, scriptPath: null, installed: false } })} /></IntentRoot>);
-    expect(screen.getByText('statusLine の設定が見つかりません')).toBeTruthy();
+    expect(screen.getByText('statusline の設定が見つかりません')).toBeTruthy();
   });
   it('statusline がまだ届いていなければ読み込み中を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ statusline: null, summarizerModels: [] })} /></IntentRoot>);
@@ -282,16 +482,19 @@ describe('SettingsScreen のフェーズ 3', () => {
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ summarizerModels: ['qwen', 'gemma'] })} /></IntentRoot>);
     fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'http://127.0.0.1:2345' } });
     fireEvent.click(screen.getByText('要約器の設定を保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
     pick('モデル', 'qwen');
     fireEvent.change(screen.getByLabelText('1 時間の上限'), { target: { value: '5' } });
     fireEvent.click(screen.getByText('要約器の設定を保存'));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryHourlyCap: 5 } });
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryHourlyCap: 5 }, field: 'summarizer' });
   });
   it('外部の要約器をオンにするときは、保存済みの宛先を示して確かめる', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ lmStudioUrl: 'https://summarizer.example.com' })} /></IntentRoot>);
     const sw = screen.getByRole('switch', { name: '外部の要約器を許す' });
+    // 見える文も読み上げと同じにし、何が起きるかを淡い 1 行で添える。
+    expect(sw.closest('.settings-row')).toHaveTextContent(/^外部の要約器を許す/);
+    expect(screen.getByText('127.0.0.1 と localhost 以外の宛先へ本文を送れるようにします。')).toBeInTheDocument();
     fireEvent.click(sw);
     // まだ保存しない。スイッチもオフのまま。
     expect(onIntent).not.toHaveBeenCalled();
@@ -348,6 +551,8 @@ describe('SettingsScreen のフェーズ 3', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps()} /></IntentRoot>);
     const cap = screen.getByLabelText('1 時間の上限');
+    // 上限の案内は、ヘッダーのゲージの見出しと同じ「週」で言う。
+    expect(screen.getByText('件。1 から 200 まで。週の使用率が 80% を超えたら切り替えません。')).toBeTruthy();
     // 空は 0 に、文字は NaN になってしまうので、送る前に弾く。
     for (const bad of ['', '0', '-3', '1.5', '201']) {
       fireEvent.change(cap, { target: { value: bad } });
@@ -358,7 +563,7 @@ describe('SettingsScreen のフェーズ 3', () => {
     fireEvent.change(cap, { target: { value: '12' } });
     expect(screen.queryByText('1 から 200 までの整数を入れてください')).toBeNull();
     fireEvent.click(screen.getByText('要約器の設定を保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryHourlyCap: 12 } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryHourlyCap: 12 }, field: 'summarizer' });
   });
   it('モデルの一覧の状態を出し分ける', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ summarizerModels: null })} /></IntentRoot>);
@@ -372,11 +577,11 @@ describe('SettingsScreen のフェーズ 3', () => {
     fireEvent.click(screen.getByText('要約器を試す'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'summarizer.test' });
     rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ summarizerTest: { ok: true, id: 'lmstudio', ms: 820, summary: { title: '題', oneLiner: '1 文', body: '本文', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } } })} /></IntentRoot>);
-    expect(screen.getByText('lmstudio で成功しました（820 ミリ秒）')).toBeTruthy();
+    expect(screen.getByText('LM Studio で成功しました（820 ミリ秒）')).toBeTruthy();
     expect(screen.getByText('1 文')).toBeTruthy();
     rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ summarizerTest: { ok: false, tried: [{ id: 'lmstudio', message: 'ECONNREFUSED' }, { id: 'claude-headless', message: '上限に達しています' }] } })} /></IntentRoot>);
-    expect(screen.getByText('lmstudio: ECONNREFUSED')).toBeTruthy();
-    expect(screen.getByText('claude-headless: 上限に達しています')).toBeTruthy();
+    expect(screen.getByText('LM Studio: ECONNREFUSED')).toBeTruthy();
+    expect(screen.getByText('claude: 上限に達しています')).toBeTruthy();
   });
   it('使用量の 2 つの表を出す', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
@@ -398,12 +603,14 @@ describe('SettingsScreen の外のターミナル', () => {
   const shell = (over: Partial<SettingsProps['shell']>) => ({ ...settingsProps().shell, ...over });
   it('PC ごとの状態を並べ、入っていない PC には貼るコマンドを出す。書き換えるボタンは持たない', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ shell: shell({ devices: [{ id: 'd', name: 'mac', self: true, label: 'まだです' }, { id: 'd2', name: 'mini', self: false, label: '入っています' }] }) })} /></IntentRoot>);
-    const section = screen.getByRole('heading', { name: '外のターミナル' }).closest('section')!;
+    const section = screen.getByRole('heading', { name: /^外のターミナル/ }).closest('section')!;
     expect(within(section).getByText('mini')).toBeInTheDocument();
     expect(within(section).getByText('入っています')).toBeInTheDocument();
     expect(within(section).getByText('まだです')).toBeInTheDocument();
+    expect(within(section).getByText('この PC')).toBeInTheDocument();
     expect(within(section).getByText('/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install')).toBeInTheDocument();
-    expect(within(section).queryByRole('button')).toBeNull();
+    // 押せるのはコマンドのコピーだけで、~/.zshrc を書き換えるボタンは持たない。
+    expect(within(section).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install をコピー']);
     expect(within(section).queryByRole('checkbox')).toBeNull();
   });
   it('入っている PC では外し方を、使えない PC では直し方を出す', () => {
@@ -429,20 +636,22 @@ describe('SettingsScreen のクラウド同期', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { syncClaudeConfig: true } });
     rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ joinToken: 'tok-abc', syncClaudeConfig: true }) })} /></IntentRoot>);
     expect(screen.getByText('tok-abc')).toBeInTheDocument();
-    expect(screen.getByText('このトークンを持つ人は、あなたのセッションを読み書きできます。渡す相手に気をつけてください。')).toBeInTheDocument();
+    expect(screen.getByText(/持つ人は全セッションを読み書きできます/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '参加トークン をコピー' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'tok-abc' });
     fireEvent.click(screen.getByRole('button', { name: '取り込み内容を確認' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'sync.config.preview' });
   });
-  it('クラウドの節に取り残しの件数と諦めた本文の一覧を出す', () => {
+  it('クラウドの節に取り残しの件数と送れなかった本文の一覧を出す', () => {
     const skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }];
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ sweepPending: 1500, skipped }) })} /></IntentRoot>);
     expect(screen.getByText('未送信の本文 1500 件')).toBeInTheDocument();
-    expect(screen.getByText('諦めた本文 1 件。30 分ごとに試し直します。')).toBeInTheDocument();
+    expect(screen.getByText('送れなかった本文 1 件。30 分ごとに送り直します。')).toBeInTheDocument();
     expect(screen.getByText('transcripts/mini/u1.jsonl.gz: 復号できません（3 回）')).toBeInTheDocument();
     // 追いついた端末は 0 件と描く。数えられない端末は何も描かない。
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ sweepPending: 0, skipped: [] }) })} /></IntentRoot>);
     expect(screen.getByText('未送信の本文 0 件')).toBeInTheDocument();
-    expect(screen.queryByText('諦めた本文 0 件。30 分ごとに試し直します。')).toBeNull();
+    expect(screen.queryByText('送れなかった本文 0 件。30 分ごとに送り直します。')).toBeNull();
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
     expect(screen.queryByText(/未送信の本文/)).toBeNull();
   });
@@ -454,9 +663,12 @@ describe('SettingsScreen のクラウド同期', () => {
   it('今すぐ同期と一時停止の Intent', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
+    // 状態はヘッダーと同じ語で、受信の時刻は「最後の受信」と書く。
+    expect(screen.getByText('状態 同期済み')).toBeInTheDocument();
+    expect(screen.getByText('最後の受信 1 分前')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
-    fireEvent.click(screen.getByRole('button', { name: '一時停止' }));
+    fireEvent.click(screen.getByRole('button', { name: '同期を一時停止' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'sync.pause', paused: true });
     // 一時停止中は、同じボタンが再開になる。
     rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ state: 'paused', paused: true }) })} /></IntentRoot>);
@@ -471,10 +683,26 @@ describe('SettingsScreen のクラウド同期', () => {
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ joinToken: 'tok-abc' }) })} /></IntentRoot>);
     expect(screen.getByText('tok-abc')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '参加トークンを表示' })).toBeNull();
-    expect(screen.getByText('120 秒で自動的に消えます。1Password などに写してください。')).toBeInTheDocument();
+    expect(screen.getByText(/1Password などに写してください/)).toBeInTheDocument();
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
     expect(screen.queryByText('tok-abc')).toBeNull();
     expect(screen.getByRole('button', { name: '参加トークンを表示' })).toBeInTheDocument();
+  });
+  it('参加トークンの下に、減る棒と「あと N 秒で消えます」を出す（設定の E2）', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ joinToken: 'tok-abc', joinTokenExpiresAt: 1_000_000 + 30_000 }) })} /></IntentRoot>);
+      expect(screen.getByText(/^あと 30 秒で消えます/)).toBeInTheDocument();
+      const bar = screen.getByRole('progressbar', { name: '参加トークンが消えるまで' });
+      expect(bar).toHaveAttribute('aria-valuenow', '30');
+      expect(bar).not.toHaveAttribute('data-low');
+      act(() => { vi.advanceTimersByTime(21_000); });
+      expect(screen.getByText(/^あと 9 秒で消えます/)).toBeInTheDocument();
+      expect(bar).toHaveAttribute('data-low', 'true');
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('設定の同期を切っているあいだは取り込みの確認を押せない', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps() })} /></IntentRoot>);
@@ -485,7 +713,9 @@ describe('SettingsScreen のクラウド同期', () => {
   it('取り込みの対象と控えの置き場と、確認がまだであることを書く', () => {
     // 利用者の決定 2 と 12。何を書き換えるかと、控えがどこに残るかを押す前に見せる。
     const { rerender } = render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ syncClaudeConfig: true }) })} /></IntentRoot>);
-    expect(screen.getByText(/CLAUDE\.md、settings\.json、statusline のスクリプト、skills、memory、projects の memory/)).toBeInTheDocument();
+    expect(screen.getByText('CLAUDE.md、settings.json、statusline のスクリプト、skills、memory、projects の memory を PC の間で合わせます。')).toBeInTheDocument();
+    // 同期している PC の一覧で、自分の PC に印を付ける。
+    expect(screen.getByText('この PC', { selector: '.list .faint' })).toBeInTheDocument();
     expect(screen.getByText(/~\/\.agent-hangar\/backups\/claude-config\//)).toBeInTheDocument();
     expect(screen.getByText('まだ取り込みを確認していません。確認するまで ~/.claude には書き込みません。')).toBeInTheDocument();
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ cloud: cloudProps({ syncClaudeConfig: true, configConfirmed: true }) })} /></IntentRoot>);
@@ -514,16 +744,12 @@ describe('SettingsScreen のクラウド同期', () => {
 });
 
 describe('Header', () => {
-  it('日本語入力の確定の Enter では検索しない', () => {
+  it('探す・移動の錠剤を押すとパレットを開く', () => {
     const onIntent = vi.fn();
-    // sync は Task 23 が Header に足した props である。この節が見るのは検索欄だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header searchText="" indexLabel={null} usage={{ fiveHour: null, sevenDay: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
-    const box = screen.getByRole('searchbox');
-    fireEvent.change(box, { target: { value: '動画' } });
-    fireEvent.keyDown(box, { key: 'Enter', isComposing: true });
-    expect(onIntent).not.toHaveBeenCalled();
-    fireEvent.keyDown(box, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '動画' });
+    // sync は Task 23 が Header に足した props である。この節が見るのは錠剤だけなので、出さない形で渡す。
+    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
   });
 });
 
@@ -536,21 +762,25 @@ describe('ResolveProjectDialog', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'repoint', path: '/w/alpha-moved' } });
     fireEvent.click(screen.getByText('アーカイブにする'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } });
-    fireEvent.click(screen.getByText('紐づけを削除'));
+    // 一覧から削除は取り消せないので危険色にし、押しても Mediator が先に確認を出す。
+    const remove = screen.getByRole('button', { name: '一覧から削除' });
+    expect(remove).toHaveClass('btn-danger');
+    fireEvent.click(remove);
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } });
     fireEvent.click(screen.getByText('あとで'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
   });
 });
 
-describe('ToastStack', () => {
-  it('クリックで消す', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ToastStack toasts={[{ id: '1', level: 'error', message: 'oops' }]} /></IntentRoot>);
-    fireEvent.click(screen.getByText('oops'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
+describe('ResolveProjectDialog のフォーカス', () => {
+  it('開いたら中の最初の操作にフォーカスを入れる', () => {
+    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    const dialog = screen.getByRole('dialog', { name: 'alpha のディレクトリが見つかりません' });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).toBe(screen.getByLabelText('新しいパス'));
   });
 });
+
 
 describe('SessionRows（空のとき）', () => {
   it('emptyText を渡すとその文言、渡さなければ既定の文言', () => {
@@ -568,18 +798,18 @@ describe('ResolveProjectDialog のアイコン', () => {
     const iconOf = (name: string) => screen.getByRole('button', { name }).querySelector('svg')?.getAttribute('data-icon') ?? null;
     expect(iconOf('この場所にする')).toBe('repoint');
     expect(iconOf('アーカイブにする')).toBe('archive');
-    expect(iconOf('紐づけを削除')).toBe('unlink');
+    expect(iconOf('一覧から削除')).toBe('unlink');
   });
 });
 
 describe('SettingsScreen の読む面', () => {
   // settings.css の .settings-screen > section が白い面を敷く。節が直下から外れると、面が消える。
-  it('どの節も画面の直下に並ぶ', () => {
+  it('どの節もいずれかの群の直下に並ぶ', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><SettingsScreen {...settingsProps({})} /></IntentRoot>);
     const root = container.querySelector('.settings-screen');
     expect(root).not.toBeNull();
-    expect(root!.querySelectorAll(':scope > section').length).toBe(root!.querySelectorAll('section').length);
-    expect(root!.querySelectorAll(':scope > section').length).toBeGreaterThan(5);
+    expect(root!.querySelectorAll('.settings-group > section').length).toBe(root!.querySelectorAll('section').length);
+    expect(root!.querySelectorAll('.settings-group > section').length).toBeGreaterThan(5);
   });
 });
 
@@ -591,7 +821,7 @@ describe('SettingsScreen の会話の保持', () => {
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ retention })} /></IntentRoot>);
     expect(screen.getByRole('heading', { name: '会話の保持' })).toBeInTheDocument();
     expect(screen.getByText('10 年たつと約 178 GB')).toBeInTheDocument();
-    expect(screen.getByText(/値は設定の同期でほかの PC にも届きます/)).toBeInTheDocument();
+    expect(screen.getByText(/値は設定の同期で他の PC にも届きます/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio', { name: '1 年' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'settings' });
     onIntent.mockClear();

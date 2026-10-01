@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLOUD_HEADERS, encodeHeaderText, isHeaderSafe, isValidFileKey, type FileEntry } from '@agent-hangar/shared';
-import { MAX_R2_META_BYTES, buildMetadata, validKey } from '../src/files.ts';
+import { MAX_BODY_BYTES, MAX_R2_META_BYTES, buildMetadata, validKey } from '../src/files.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
@@ -49,6 +49,47 @@ const list = async (tok: string, since = 0, limit = 500): Promise<Listing> =>
   (await (await cloud.SELF.fetch(`https://x/files?since=${since}&limit=${limit}`, { headers: { authorization: `Bearer ${tok}` } })).json()) as Listing;
 
 const keysInR2 = async (): Promise<string[]> => (await cloud.env.BUCKET.list()).objects.map((o) => o.key).sort();
+
+/** 位置から中身が決まるバイト列。取り出した側で 1 バイトずつ突き合わせられる。 */
+const patterned = (n: number): Uint8Array<ArrayBuffer> => {
+  const buf = new Uint8Array(n);
+  for (let i = 0; i < n; i++) buf[i] = i % 251;
+  return buf;
+};
+
+const expectPatterned = async (key: string, n: number): Promise<void> => {
+  const g = await get(tokA, key);
+  expect(g.headers.get('content-length')).toBe(String(n));
+  const back = new Uint8Array(await g.arrayBuffer());
+  expect(back.length).toBe(n);
+  expect(back.every((v, i) => v === i % 251)).toBe(true);
+};
+
+/** n バイトの 0 を流す。同じ塊を使い回すので、記憶に載るのは 1 MiB だけである。 */
+const zeros = (n: number): ReadableStream<Uint8Array> => {
+  const block = new Uint8Array(1024 * 1024);
+  let left = n;
+  return new ReadableStream<Uint8Array>({
+    pull(ctrl) {
+      if (left <= 0) return ctrl.close();
+      const k = Math.min(left, block.length);
+      ctrl.enqueue(k === block.length ? block : block.subarray(0, k));
+      left -= k;
+    },
+  });
+};
+
+/** 長さを名乗らない本文。fetch は content-length を付けず chunked で送る。 */
+const chunked = (buf: Uint8Array, piece = 64 * 1024): ReadableStream<Uint8Array> => {
+  let at = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(ctrl) {
+      if (at >= buf.length) return ctrl.close();
+      ctrl.enqueue(buf.slice(at, at + piece));
+      at += piece;
+    },
+  });
+};
 
 beforeEach(async () => {
   resetSchemaCache();
@@ -110,23 +151,52 @@ describe('PUT と GET /files/<key>', () => {
     expect(r2).toMatchObject({ nextSeq: 3, more: false });
   });
 
-  it('1 つの部分を超える本文も multipart で預け、そのまま取り出せる', async () => {
+  it('長さの分かっている本文は、1 つの部分を超えてもそのまま預け、そのまま取り出せる', async () => {
     const n = 9 * 1024 * 1024 + 7; // PART_BYTES（8 MiB）を超え、端数も出る大きさ
-    const buf = new Uint8Array(n);
-    for (let i = 0; i < n; i++) buf[i] = i % 251;
+    const buf = patterned(n);
     const key = 'transcripts/dev-a/big.jsonl.gz';
     const r = await cloud.SELF.fetch(`https://x/files/${key}`, {
       method: 'PUT',
-      headers: { authorization: `Bearer ${tokA}`, ...meta({ [CLOUD_HEADERS.size]: String(n) }) },
+      // miniflare の dispatchFetch はバイト列の本文でも長さを付けずに流すので、端末と同じく明示する。
+      headers: { authorization: `Bearer ${tokA}`, ...meta({ [CLOUD_HEADERS.size]: String(n) }), 'content-length': String(n) },
       body: buf,
     });
     expect(r.status).toBe(201);
     expect((await list(tokA)).files.map((f) => f.storedSize)).toEqual([n]);
-    const g = await get(tokA, key);
-    expect(g.headers.get('content-length')).toBe(String(n));
-    const back = new Uint8Array(await g.arrayBuffer());
-    expect(back.length).toBe(n);
-    expect(back.every((v, i) => v === i % 251)).toBe(true);
+    await expectPatterned(key, n);
+    // 分けずに 1 回の put で置いた印である（multipart の etag は「-部分の数」で終わる）。
+    // Worker が本文を JS で読んで切り分けていないことを、外から見える形で確かめる。
+    expect((await cloud.env.BUCKET.head(key))!.etag).not.toContain('-');
+  });
+
+  it('長さの無い本文（古い端末の chunked）も multipart で預け、そのまま取り出せる', async () => {
+    const n = 9 * 1024 * 1024 + 7;
+    const buf = patterned(n);
+    const key = 'transcripts/dev-a/big.jsonl.gz';
+    const r = await cloud.SELF.fetch(`https://x/files/${key}`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${tokA}`, ...meta({ [CLOUD_HEADERS.size]: String(n) }) },
+      body: chunked(buf),
+      duplex: 'half',
+    } as RequestInit);
+    expect(r.status).toBe(201);
+    expect((await list(tokA)).files.map((f) => f.storedSize)).toEqual([n]);
+    await expectPatterned(key, n);    expect((await cloud.env.BUCKET.head(key))!.etag).toMatch(/-2$/);
+  });
+
+  it('上限を超える長さを名乗った本文は、読む前に 413 で断り、R2 にも索引にも残さない', async () => {
+    const key = 'transcripts/dev-a/huge.jsonl.gz';
+    const r = await cloud.SELF.fetch(`https://x/files/${key}`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${tokA}`, ...meta(), 'content-length': String(MAX_BODY_BYTES + 1) },
+      // 名乗った長さどおりに流す（食い違うと送る側の undici が先に倒れる）。中身は 1 つの塊を使い回す。
+      body: zeros(MAX_BODY_BYTES + 1),
+      duplex: 'half',
+    } as RequestInit);
+    expect(r.status).toBe(413);
+    expect(await r.json()).toEqual({ error: 'too large' });
+    expect(await keysInR2()).toEqual([]);
+    expect((await list(tokA)).files).toEqual([]);
   });
 
   it('無い鍵は 404、DELETE は本体と索引を消す', async () => {

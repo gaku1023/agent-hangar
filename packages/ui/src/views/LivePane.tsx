@@ -11,7 +11,7 @@ export function LivePane({ sessionId, pane, lead, children }: { sessionId: strin
   return (
     <div className="live">
       <div className="live-top">
-        <div className="live-head">{lead}<span className="faint">いま</span></div>
+        <div className="live-pane-head">{lead}<span className="faint">いま</span></div>
         <div className="live-lamp" data-tone={pane.lamp.tone}>
           <span className="live-dot" data-tone={pane.lamp.tone} />
           <span className="live-lamp-head">{pane.lamp.head}</span>

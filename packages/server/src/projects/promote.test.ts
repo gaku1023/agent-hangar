@@ -52,7 +52,7 @@ describe('promoteSession', () => {
   it('run が生きていれば移動せず、理由を返す。gitInit が偽なら呼ばない', () => {
     const gitInit = vi.fn();
     const r = promoteSession(deps({ runAlive: () => true, gitInit }), { sessionId: 's1', name: 'p2', gitInit: false, moveFiles: true });
-    expect(r).toMatchObject({ moved: false, reason: expect.stringContaining('実行中') });
+    expect(r).toMatchObject({ moved: false, reason: 'Claude が動いているのでファイルは移しませんでした。終了してから手で移してください' });
     expect(gitInit).not.toHaveBeenCalled();
     expect(fs.existsSync(path.join(dir, 'a.txt'))).toBe(true);
     expect(fs.existsSync(path.join(ws, 'p2'))).toBe(true);

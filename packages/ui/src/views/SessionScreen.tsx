@@ -1,5 +1,6 @@
 import { formatRoute } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
+import { RUN_KIND_LABEL } from '../presenters/format.ts';
 import type { SessionProps } from '../presenters/session.ts';
 import type { TerminalStatus } from '../runtime/terminals.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
@@ -32,10 +33,11 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       {/* 上段は頁の見出しの行を兼ねる。一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。 */}
       <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
         {props.summary?.oneLiner ? <span className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
-        {props.fromScratch && <span className="faint">再開すると cwd はスクラッチのままです</span>}
+        {props.fromScratch && <span className="faint">再開しても作業ディレクトリはスクラッチのままです</span>}
         {props.canPromote && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id })}><Icon name="promote" />プロジェクトに昇格</button>}
         {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined })}><Icon name="openTerminal" />ターミナルで開く</button>}
-        {run?.alive && <button className="btn" onClick={() => emit({ type: 'session.kill', runId: run.id })}><Icon name="stop" />停止</button>}
+        {/* 停止は取り消せないので危険色にする。作業中か、シェルタブを巻き込むときは Mediator が先に確認を出す。 */}
+        {run?.alive && <button className="btn btn-danger" onClick={() => emit({ type: 'session.kill', runId: run.id, working: props.live === 'busy' || props.live === 'waiting', shellTabs: props.tabs.filter((t) => t.kind === 'shell').length })}><Icon name="stop" />停止</button>}
         <button className="btn" disabled={!props.canResume} onClick={() => emit({ type: 'session.resume', id })}><Icon name="resume" />再開</button>
         <button className="btn" disabled={!props.canFork} onClick={() => emit({ type: 'session.fork', id })}><Icon name="fork" />フォーク</button>
         {/* 本文が他端末にあるときと、相手の heartbeat が途絶えたとき（Ruling 14）の逃げ道。
@@ -57,9 +59,9 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
         {props.contextPercent === null
           ? <span className="chip faint">コンテキスト 未取得</span>
           : (
-            <span className="chip gauge-wrap" title="コンテキスト使用率">
+            <span className="chip gauge-wrap" title="コンテキストの使用率">
               <span className="faint">コンテキスト</span>
-              <span className="gauge-bar" role="meter" aria-label="コンテキスト使用率" aria-valuenow={props.contextPercent} aria-valuemin={0} aria-valuemax={100}>
+              <span className="gauge-bar" role="meter" aria-label="コンテキストの使用率" aria-valuenow={props.contextPercent} aria-valuemin={0} aria-valuemax={100}>
                 <span className="gauge-fill" data-high={props.contextPercent >= 80 ? 'true' : undefined} style={{ width: `${Math.max(0, Math.min(100, props.contextPercent))}%` }} />
               </span>
             </span>
@@ -76,11 +78,11 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
       </div>
       {/* 細かな事実。判断の手がかりだが、チップほど目立たせない。 */}
       <div className="session-facts mono faint">
-        <span>{props.cwd}</span><span>{props.turns} ターン</span><span>{props.tokens} tokens</span>
+        <span>{props.cwd}</span><span>{props.turns} ターン</span><span>{props.tokens} トークン</span>
         <span>開始 {props.started}</span><span>最終 {props.lastActivity}</span>
-        {run && <span>run {run.kind} {run.started}</span>}
+        {run && <span>{RUN_KIND_LABEL[run.kind]} {run.started}</span>}
         {props.lock && <span>最終確認 {props.lock.heartbeat}</span>}
-        {props.remoteOnly && <span>本文は他の端末にあります</span>}
+        {props.remoteOnly && <span>本文は他の PC にあります</span>}
         {!props.hasTranscript && !props.gone && <span>本文がありません</span>}
       </div>
     </>
@@ -136,11 +138,11 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
     </div>
   );
 
-  const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} />;
+  const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} find={props.find} jump={props.jump} hasNewer={props.hasNewer} />;
 
   const artifacts = props.artifacts.length > 0 && <section className="session-artifacts"><ArtifactCards projectId={null} artifacts={props.artifacts} canAdd={false} /></section>;
 
-  const paneToggle = <button className="tr-toggle" aria-label={props.transcriptOpen ? '目次を閉じる' : '目次を開く'} onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>;
+  const paneToggle = <button className="tr-toggle" aria-label={props.transcriptOpen ? '右の欄を閉じる' : '右の欄を開く'} onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>;
 
   // 本文が消えた会話は、会話の欄もターンの目次も持たない。残っている要約と成果物だけを見せる。
   if (props.gone) return <div className="screen">{header}{goneNote}{summary}{artifacts}</div>;

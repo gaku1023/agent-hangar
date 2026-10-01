@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UX 刷新の試作</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #eef1f7; --aura-1: #cfe0ff; --aura-2: #e5d6ff; --surface: #fff; --line: #eceef5; --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --font-sans: 'Inter', 'Hiragino Sans', sans-serif; --font-mono: 'JetBrains Mono', Menlo, monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; font: 13px/1.5 var(--font-sans); color: var(--ink); -webkit-font-smoothing: antialiased; background: radial-gradient(40% 50% at 20% 10%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 80%, var(--aura-2), transparent 70%), var(--bg); }
+  main { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .lead { margin: 0 0 28px; color: var(--ink-2); }
+  .group { margin: 0 0 32px; }
+  .group h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0 0 10px 4px; }
+  .card { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; padding: 14px 18px; margin-bottom: 10px; border-radius: 14px; background: var(--surface); box-shadow: 0 1px 2px rgba(30, 40, 90, 0.06); color: var(--ink); text-decoration: none; transition: box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .card:hover { box-shadow: 0 1px 2px rgba(30, 40, 90, 0.06), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
+  .card b { font-size: 15px; font-weight: 650; }
+  .card span { grid-column: 1; color: var(--ink-2); }
+  .card code { grid-column: 2; grid-row: 1 / span 2; align-self: center; font: 500 11.5px var(--font-mono); color: var(--accent); }
+  @media (max-width: 640px) { .card { grid-template-columns: 1fr; } .card code { grid-column: 1; grid-row: auto; } }
+</style>
+</head>
+<body>
+<main>
+<h1>UX 刷新の試作</h1>
+<p class="lead">2026-10-01 の UX/UI 監査と QA で決めた方向について、見せ方の案を並べた試作の目次です。どれもブラウザで直接開けば動きます。各頁の上の「これにする」で選んだ案は、その頁の右上に並びます。</p>
+<p class="lead" style="border-left:3px solid #d98a2b;padding-left:10px"><b>並行する改修との境目：</b>実行中のセッション画面の右ペイン（ターミナルの右側）は、別に改修中の <code>2026-10-01-live-explainer-design.md</code> が持ちます。<code>session-layout.html</code> の D 軸（目次の幅と開閉）は選ばなくて大丈夫です。B2（右欄の先頭に置く）は終わった画面の右欄でだけ使えます。見出しの段は main に入った <code>2026-10-01-page-heading-design.md</code> の骨組みの上で並べ方を選びます。詳しくは <code>scope.md</code>。</p>
+<!-- session-proto -->
+<section class="group">
+  <h2>セッション画面、本文、入力待ち</h2>
+  <a class="card" href="session-layout-v2.html"><b>セッション画面の組み直し（描き直し。こちらで選ぶ）</b><span>今の main の見出しの段と、幅の上限なし（案 b）に合わせて描き直したもの。見出しの行の操作（A）、名前の重複（C）、畳んだ情報（B）、終わった画面の右欄（E）、知らせ（F）。検索欄がどれだけ動くかも見られる。右ペインは live-explainer の担当。</span><code>session-layout-v2.html</code></a>
+  <a class="card" href="session-layout.html"><b>セッション画面の組み直し（旧版。見比べ用）</b><span>端末に残りの高さを渡すための置き方。上段の操作（A）、名前の重複（C）、畳んだ情報（B）、目次の幅と開閉（D）、終了後の右欄（E）、切断と transcript の知らせ（F）。</span><code>session-layout.html</code></a>
+  <a class="card" href="transcript-render.html"><b>本文の表示</b><span>返答の器（M）、ツール行の密度（T）、ツール名の札（K）、差分（D）、長い本文の畳み（F）、本文の中の検索（S）、検索から開いたとき（J）。種類ごとのツールの中身の見本つき。</span><code>transcript-render.html</code></a>
+  <a class="card" href="waiting-notify.html"><b>入力待ちの知らせ</b><span>トーストの位置と形（A）、積み方（B）、「ホーム」の件数の印（C）、エラーのトースト（D）、macOS 通知と Dock のバッジ（N）。押すと端末へ移り、答えると消える動く見本つき。</span><code>waiting-notify.html</code></a>
+</section>
+<!-- /session-proto -->
+<!-- nav-proto -->
+<section class="group">
+  <h2>検索、設定、ホーム、初回と障害、ダイアログ</h2>
+  <a class="card" href="palette-search.html"><b>検索の入口とパレット</b><span>ヘッダーの入口の形（A）、何も打っていないパレットの並び（B）、打ち始めた後と「全文検索」の行（C、実際に打てる）、セッション一覧画面の欄の整理（D）。</span><code>palette-search.html</code></a>
+  <a class="card" href="settings-layout.html"><b>設定の組み直し</b><span>5 群への組み直しと目次の形（A）、パスの検証の出し方（B）、欄を出たら保存の知らせ方（C、実際に動く）、hangar コマンドとコピー（D）、参加トークンの残り秒数（E）。</span><code>settings-layout.html</code></a>
+  <a class="card" href="home-lists.html"><b>ホームと一覧の細部</b><span>「最近」のプロジェクト名（A）、要約の状態と本文なし（B）、カードの抜粋と「ここで新規」（C）、状態の日本語（D）、「確かめる」の畳み方（E）、何も動いていないとき（F）、ゲージの見出し（G）、「すべて見る →」（H）。</span><code>home-lists.html</code></a>
+  <a class="card" href="onboarding.html"><b>初回と障害の画面</b><span>空のホームの準備の確認リスト（A）、サーバにつながらないときの帯と再起動への切り替え（B、失敗を進められる）、起動画面の失敗の「もう一度試す」「ログを開く」（C）。</span><code>onboarding.html</code></a>
+  <a class="card" href="dialogs.html"><b>ダイアログの殻</b><span>高さの上限と中身のスクロール、下端の固定（A）、⌘↵ で起動の表示（B）、書きかけの下書き（C）、プロジェクトごとの前回値（D）、停止と削除の確認の危険の色（E）。</span><code>dialogs.html</code></a>
+</section>
+<!-- /nav-proto -->
+</main>
+</body>
+</html>

@@ -104,7 +104,7 @@ export class RunManager {
   }
 
   private tmux(): Tmux {
-    if (!this.deps.tmux) throw new RunError(400, 'tmux が見つかりません。Settings で tmuxPath を設定してください');
+    if (!this.deps.tmux) throw new RunError(400, 'tmux が見つかりません。設定の「tmux のパス」を入れてください');
     return this.deps.tmux;
   }
 
@@ -115,7 +115,7 @@ export class RunManager {
    * 利用者はターミナルを開くまで理由が分からない。だから渡す前にここで止める。
    */
   private claudeBin(): string {
-    if (!this.deps.claudeBin) throw new RunError(400, 'claude が見つかりません。Settings で claudePath を設定してください');
+    if (!this.deps.claudeBin) throw new RunError(400, 'claude が見つかりません。設定の「claude のパス」を入れてください');
     return this.deps.claudeBin;
   }
 
@@ -153,7 +153,7 @@ export class RunManager {
    */
   private addDirs(params: LaunchParams): string[] {
     const dirs = (params.addDirs ?? []).map((d) => d.trim()).filter(Boolean);
-    for (const d of dirs) if (d.startsWith('-')) throw new RunError(400, `addDirs にフラグのような値は使えません: ${d}`);
+    for (const d of dirs) if (d.startsWith('-')) throw new RunError(400, `追加ディレクトリに - で始まる値は使えません: ${d}`);
     return dirs;
   }
 
@@ -259,7 +259,7 @@ export class RunManager {
     // スクラッチは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
     // projectId が一緒に来ていても scratch を優先する。
     const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);
-    if (!p.path || !p.resolved) throw new RunError(400, 'プロジェクトのディレクトリがこの端末で見つかりません');
+    if (!p.path || !p.resolved) throw new RunError(400, 'プロジェクトのディレクトリがこの PC で見つかりません');
     // スクラッチのディレクトリは precheck より先に作る。precheck は cwd が実在するかを見るためである。
     const cwd = params.scratch ? newScratchDir(this.deps.home, new Date(this.now())) : p.path;
     this.precheck(cwd);
@@ -275,7 +275,7 @@ export class RunManager {
 
   /** scratch ではないときの起動先。projectId は必須である。 */
   private namedProject(projectId: string | undefined): ProjectInfo {
-    if (!projectId) throw new RunError(400, 'projectId は必須です');
+    if (!projectId) throw new RunError(400, 'プロジェクトを選んでください');
     return this.project(projectId);
   }
 
@@ -517,8 +517,8 @@ export class RunManager {
   /** run を止める。タブも閉じ、killed で終わらせる。 */
   kill(runId: string): RunDto {
     const run = getRun(this.db, runId);
-    if (!run) throw new RunError(404, 'run が見つかりません');
-    if (run.endedAt !== null) throw new RunError(409, 'この run は終了しています');
+    if (!run) throw new RunError(404, '起動した Claude が見つかりません');
+    if (run.endedAt !== null) throw new RunError(409, 'この Claude はもう終了しています');
     for (const t of listTabs(this.db, runId)) if (t.kind === 'shell') this.closeTab(t.id);
     this.stopBackground(run.sessionId);
     this.deps.tmux?.killSession(run.tmuxName);
@@ -578,7 +578,7 @@ export class RunManager {
   /** 同じ cwd で利用者のログインシェルを起こした独立の tmux セッションをタブとして足す。 */
   openTab(runId: string): TabDto {
     const run = getRun(this.db, runId);
-    if (!run) throw new RunError(404, 'run が見つかりません');
+    if (!run) throw new RunError(404, '起動した Claude が見つかりません');
     const s = this.session(run.sessionId);
     const tmux = this.precheck(s.cwd);
     // 番号は閉じた行も数えて振る。閉じたタブの番号は再利用しない。
@@ -640,8 +640,8 @@ export class RunManager {
 
   private agentPane(runId: string): PaneIo {
     const run = this.getRun(runId);
-    if (!run) throw new RunError(404, 'run が見つかりません');
-    if (run.endedAt !== null) throw new RunError(409, 'この run は終了しています');
+    if (!run) throw new RunError(404, '起動した Claude が見つかりません');
+    if (run.endedAt !== null) throw new RunError(409, 'この Claude はもう終了しています');
     const tmux = this.tmux();
     return {
       capture: () => tmux.capturePane(run.tmuxName),

@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>セッション画面の組み直し 2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet">
+<style>
+  /* ---- トークン（packages/ui/src/styles/tokens.css の写し。--ink-3 は変更予定の #6e6d88） ---- */
+  :root {
+    --bg: #eef1f7; --aura-1: #cfe0ff; --aura-2: #e5d6ff;
+    --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+    --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88;
+    --accent: #4a63e8; --accent-hi: #6b8cff; --accent-ink: #ffffff; --accent-soft: #eef2ff;
+    --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e; --error: #b3261e;
+    --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-done: #2b7048; --st-done-soft: #e3f1e8;
+    --cand: #6a4fd0; --cand-soft: #f1edff;
+    --term-bg: #1c1b2e; --term-fg: #e8e6f0; --term-tool: #ffb86b;
+    --glass-bg: rgba(255, 255, 255, 0.4);
+    --glass-bg-toast: rgba(255, 255, 255, 0.82);
+    --glass-bg-menu: rgba(255, 255, 255, 0.82);
+    --glass-blur: blur(12px) saturate(1.9);
+    --glass-blur-strong: blur(18px) saturate(1.8);
+    --glass-blur-toast: blur(14px);
+    --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+    --glass-drop: 0 10px 28px -12px rgba(30, 40, 90, 0.3);
+    --glass-drop-lg: 0 24px 50px -16px rgba(30, 40, 90, 0.45);
+    --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+    --term-lift: 0 12px 26px -16px rgba(20, 20, 60, 0.55);
+    --font-sans: 'Inter', 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+    --font-mono: 'JetBrains Mono', 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+    --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --fs-lg: 20px;
+    --row-h: 28px; --session-row-h: 56px;
+    --u: 4px; --r: 8px; --r-lg: 14px; --r-xl: 16px; --r-pill: 99px;
+    --float-gap: 8px; --main-w: 1200px; --sidebar-w: 208px; --sidebar-rail-w: 52px; --header-h: 44px; --lights-end: 81px;
+    --brand-mark: 26px; --brand-w: 104px;
+    --dur-fast: 200ms; --dur: 420ms;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --breathe-period: 3.2s;
+    --guide: #e5533d;
+  }
+  @media (prefers-reduced-motion: reduce) { :root { --dur-fast: 0ms; --dur: 0ms; } }
+  * { box-sizing: border-box; }
+  html { scroll-padding-top: 64px; }
+  body { margin: 0; font: var(--fs)/1.45 var(--font-sans); color: var(--ink); background: #f6f7fb; -webkit-font-smoothing: antialiased; }
+  button, input { font: inherit; color: inherit; }
+  a { color: var(--accent); text-decoration: none; }
+  svg.i { width: 16px; height: 16px; stroke-width: 1.5; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .mono { font-family: var(--font-mono); }
+  .faint { color: var(--ink-3); } .muted { color: var(--ink-2); }
+
+  /* ---- 試作の頁の枠 ---- */
+  .top { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; gap: 16px; padding: 10px 32px; background: rgba(246, 247, 251, 0.86); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  .top h1 { font-size: 16px; font-weight: 680; margin: 0; letter-spacing: -0.01em; white-space: nowrap; }
+  .top .toc { display: flex; gap: 4px; flex-wrap: wrap; }
+  .top .toc a { font-size: 12px; color: var(--ink-2); padding: 3px 9px; border-radius: 99px; }
+  .top .toc a:hover { background: #fff; }
+  .top .chosen { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; align-items: center; color: var(--ink-3); font-size: 12px; }
+  .top .chosen b { font: 600 11.5px var(--font-mono); color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 99px; }
+  .top .zoom { flex: none; font: 500 12px var(--font-sans); border: 0; padding: 5px 12px; border-radius: 99px; background: #fff; box-shadow: 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; }
+  .top .zoom[aria-pressed='true'] { background: var(--ink); color: #fff; }
+  .doc { max-width: 1520px; margin: 0 auto; padding: 24px 32px 120px; }
+  .purpose { margin: 0 0 28px; padding: 16px 20px; border-radius: 14px; background: #fff; box-shadow: 0 0 0 1px var(--line); max-width: 1080px; }
+  .purpose h2 { margin: 0 0 6px; font-size: 14px; font-weight: 650; }
+  .purpose h2.sub { margin-top: 16px; }
+  .purpose p { margin: 0 0 8px; color: var(--ink-2); }
+  .purpose ul { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); }
+  .purpose li { margin-bottom: 3px; }
+  .purpose code, .note code, section.sec > p code { font: 500 11.5px var(--font-mono); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+  .legend { display: grid; grid-template-columns: 56px 1fr; gap: 3px 10px; margin: 8px 0 0; font-size: 12.5px; }
+  .legend dt { font: 600 12px var(--font-mono); color: var(--accent); }
+  .legend dd { margin: 0; color: var(--ink-2); }
+  .rec { display: inline-block; background: #fff3d6; padding: 1px 7px; border-radius: 4px; color: #6b4a10; font-size: 11.5px; }
+  section.sec { margin: 0 0 64px; }
+  section.sec > h2 { display: flex; align-items: baseline; gap: 10px; font-size: 17px; font-weight: 680; margin: 0 0 4px; letter-spacing: -0.01em; }
+  section.sec > h2 em { font: 600 12px var(--font-mono); color: var(--accent); font-style: normal; }
+  section.sec > p { margin: 0 0 14px; color: var(--ink-2); max-width: 1000px; }
+  .picks { display: grid; gap: 20px; }
+  .picks.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 1100px) { .picks.two { grid-template-columns: minmax(0, 1fr); } }
+  .pick { background: #fff; border-radius: 16px; box-shadow: 0 1px 2px rgba(30, 40, 90, 0.06), 0 0 0 1px var(--line); display: flex; flex-direction: column; min-width: 0; transition: box-shadow var(--dur-fast) var(--ease-out); }
+  .pick.selected { box-shadow: 0 0 0 2px var(--accent), 0 6px 18px -8px rgba(74, 99, 232, 0.4); }
+  .pick .stage { position: relative; border-radius: 16px 16px 0 0; padding: 18px; overflow: hidden; background: #e9ebf1; }
+  .pick .body { padding: 12px 16px 14px; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
+  .pick .body .txt { flex: 1; min-width: 0; }
+  .pick .body h3 { margin: 0 0 3px; font-size: 13.5px; font-weight: 650; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .pick .body h3 em { font-style: normal; font: 600 11.5px var(--font-mono); color: var(--accent); }
+  .pick .body h3 .tag { font: 500 11px var(--font-sans); color: var(--ink-3); }
+  .pick .body h3 .tag.rec-tag { color: #6b4a10; background: #fff3d6; padding: 0 6px; border-radius: 4px; }
+  .pick .body p { margin: 0; color: var(--ink-2); font-size: 12.5px; }
+  .pick .body .choose { flex: none; border: 0; border-radius: 99px; padding: 5px 12px; font-size: 12px; font-weight: 560; cursor: pointer; background: var(--surface-2); color: var(--ink-2); }
+  .pick.selected .body .choose { background: var(--accent); color: #fff; }
+  .cap { margin: 0 0 6px; font-size: 11.5px; color: var(--ink-2); }
+  .note { margin: 10px 0 0; font-size: 12px; color: var(--ink-3); max-width: 1000px; }
+  table.tbl { border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); font-size: 12.5px; margin: 8px 0 0; }
+  table.tbl th, table.tbl td { text-align: left; padding: 7px 12px; border-top: 1px solid var(--line); vertical-align: top; }
+  table.tbl th { background: #fbfbfd; font-weight: 560; color: var(--ink-3); font-size: 11.5px; border-top: 0; }
+  table.tbl td.num { font-family: var(--font-mono); font-size: 12px; text-align: right; }
+  table.tbl td.diff { font-family: var(--font-mono); font-size: 12px; text-align: right; color: var(--guide); font-weight: 600; }
+  .fit { position: relative; overflow: hidden; border-radius: 12px; }
+  .fit.real { overflow-x: auto; }
+  .fit > .scaler { transform-origin: 0 0; }
+
+  /* ---- アプリの写し（base.css、session.css、workbench.css の main の値） ---- */
+  .win { position: relative; isolation: isolate; overflow: hidden; width: var(--win-w, 1440px); height: var(--win-h, 900px); border-radius: 12px; background: var(--bg); box-shadow: 0 30px 60px -30px rgba(20, 20, 60, 0.45), 0 0 0 1px rgba(20, 20, 60, 0.1); font-size: var(--fs); line-height: 1.45; text-align: left; }
+  .win::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%); }
+  .win .lights { position: absolute; left: 11px; top: 16px; z-index: 12; display: flex; gap: 8px; }
+  .win .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12); }
+  .win .lights i:nth-child(2) { background: #febc2e; } .win .lights i:nth-child(3) { background: #28c840; }
+
+  /* ヘッダ：窓の上辺に付いた帯。左の列に信号とロゴ、右の列に検索欄と右の塊 */
+  .w-header { position: absolute; left: 0; right: 0; top: 0; z-index: 10; height: var(--header-h); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); white-space: nowrap; }
+  .w-header .brand { position: absolute; left: var(--lights-end); top: 0; height: var(--header-h); display: flex; align-items: center; gap: 6px; width: var(--brand-w); overflow: hidden; color: var(--ink); }
+  .w-header .brand svg { width: var(--brand-mark); height: var(--brand-mark); flex: none; }
+  .brand-word { font-size: 16px; font-weight: 720; line-height: 1; letter-spacing: -0.03em; }
+  .brand-word::after { content: ''; display: inline-block; width: 8px; height: 2.5px; margin-left: 2px; border-radius: 1.25px; background: #ffb86b; }
+  .w-row { position: absolute; top: 0; right: 12px; height: var(--header-h); display: flex; align-items: center; gap: 18px; min-width: 0; }
+  .w-search { flex: 1 1 280px; max-width: 420px; min-width: 140px; height: 26px; display: flex; align-items: center; border-radius: var(--r-pill); padding: 0 12px; background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.12); color: var(--ink-3); font-size: var(--fs); transition: margin-left var(--dur) var(--ease-out); }
+  .w-search kbd { margin-left: auto; font: var(--fs-xs)/1 var(--font-mono); color: var(--ink-3); }
+  .w-spacer { flex: 1; }
+  .w-sync { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: var(--fs-sm); position: relative; padding-left: 18px; flex: none; }
+  .w-sync::before, .w-gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: 16px; translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+  .w-gauges { display: flex; align-items: center; gap: 12px; position: relative; padding-left: 18px; flex: none; }
+  .gauge { display: inline-flex; align-items: center; gap: 5px; }
+  .gauge-key { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
+  .gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; vertical-align: middle; }
+  .gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+  .gauge-num { font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+
+  /* サイドバー：ロゴは無く、開閉のボタンは開いた帯でホームの行の右端、畳んだ帯で一番上 */
+  .w-sidebar { position: absolute; z-index: 9; top: calc(var(--header-h) + var(--float-gap)); bottom: var(--float-gap); left: var(--float-gap); width: var(--sidebar-w); padding: 10px 8px; border-radius: var(--r-xl); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); }
+  .nav-row { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; }
+  .nav-row > .nav-item { flex: 1; min-width: 0; margin-bottom: 0; }
+  .sb-toggle { flex: none; width: 32px; height: 32px; display: grid; place-items: center; color: var(--ink-2); }
+  .sb-toggle svg { width: 18px; height: 18px; }
+  .nav-item { position: relative; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border-radius: var(--r-pill); white-space: nowrap; }
+  .nav-item svg { width: 18px; height: 18px; }
+  .nav-item.on { color: var(--ink); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+  .w-sidebar.rail { width: var(--sidebar-rail-w); padding: 6px; }
+  .w-sidebar.rail .sb-toggle { width: 40px; height: 40px; margin-bottom: 4px; }
+  .w-sidebar.rail .nav-item { width: 40px; height: 40px; padding: 0 11px; margin-bottom: 4px; border-radius: var(--r-lg); }
+  .w-sidebar.rail .nav-label { display: none; }
+
+  /* 本文の列。本文は --main-w を上限に中央へ寄る（セッション画面だけ上限を外す）。左右の位置は JS が main の式で決める */
+  .w-main { position: absolute; z-index: 1; top: 0; bottom: 0; right: 0; padding-top: calc(var(--header-h) + var(--float-gap)); overflow: hidden; }
+  .w-inner { height: 100%; padding: 8px 16px 16px; display: flex; flex-direction: column; min-height: 0; }
+
+  /* 検索欄の左端の線 */
+  .guide { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1.5px solid var(--guide); z-index: 20; pointer-events: none; }
+  .guide span { position: absolute; bottom: 10px; right: 5px; font: 600 11px var(--font-mono); color: #fff; background: var(--guide); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+  .guide.ghost { border-left: 1.5px dashed color-mix(in srgb, var(--guide) 60%, transparent); }
+  .guide.ghost span { background: #fff; color: var(--guide); box-shadow: inset 0 0 0 1px var(--guide); bottom: 36px; right: 5px; }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 12px; border: 0; border-radius: var(--r-pill); font-weight: 560; font-size: var(--fs); color: var(--ink); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; white-space: nowrap; flex: none; }
+  .btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
+  .btn-icon { width: var(--row-h); padding: 0; justify-content: center; }
+  .btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+  .btn-sm { height: 22px; padding: 0 9px; font-size: var(--fs-sm); }
+  .btn[disabled], .btn.is-disabled { opacity: 0.5; cursor: default; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); flex: none; }
+  .dot[data-s='busy'] { background: var(--busy); } .dot[data-s='idle'] { background: var(--idle); } .dot[data-s='waiting'] { background: var(--waiting); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.06); white-space: nowrap; }
+  kbd.k { font: 600 10.5px var(--font-mono); color: var(--ink-2); padding: 0 4px; border-radius: 4px; background: rgba(30, 40, 90, 0.06); }
+
+  .menu { position: absolute; z-index: 30; min-width: 248px; padding: 6px; border-radius: var(--r-lg); background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); font-size: var(--fs); }
+  .menu .mi { display: flex; align-items: flex-start; gap: 10px; padding: 6px 10px; border-radius: 10px; color: var(--ink); white-space: nowrap; }
+  .menu .mi > svg { margin-top: 1px; color: var(--ink-2); }
+  .menu .mi .t { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .menu .mi small { font-size: var(--fs-xs); color: var(--ink-2); white-space: normal; line-height: 1.4; }
+  .menu .mi.on { background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0 #fff, 0 2px 8px -2px rgba(30, 40, 90, 0.16); }
+  .menu .mi.off, .menu .mi.off > svg { color: var(--ink-3); }
+  .menu .mi.danger, .menu .mi.danger > svg { color: var(--error); }
+  .menu hr { border: 0; border-top: 1px solid rgba(30, 40, 90, 0.08); margin: 4px 6px; }
+  .tip { position: absolute; z-index: 31; padding: 5px 9px; border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; white-space: nowrap; }
+  .tip small { display: block; opacity: 0.72; font-weight: 400; }
+
+  /* ---- 見出しの段（PageHeading と base.css の .page-head の写し） ---- */
+  .page-head { flex: none; margin: 0 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line-strong); }
+  .page-parent { display: flex; align-items: center; gap: 3px; height: 18px; margin-bottom: 2px; min-width: 0; font-size: var(--fs-sm); color: var(--ink-3); white-space: nowrap; }
+  .page-parent a { color: var(--ink-2); }
+  .page-title-row { position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; min-height: var(--row-h); }
+  .page-title { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
+  .page-title-row .one { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+  .page-title-row .two { display: flex; flex-direction: column; justify-content: center; flex: 1; min-width: 0; line-height: 1.3; }
+  .page-title-row .two .page-title { max-width: 100%; }
+  .page-title-row .two .one { flex: none; font-size: var(--fs-sm); }
+  .page-title-row.tall { min-height: 46px; }
+  .split-btn { display: inline-flex; flex: none; }
+  .split-btn .btn:first-child { border-radius: 99px 0 0 99px; padding-right: 10px; }
+  .split-btn .btn:last-child { border-radius: 0 99px 99px 0; width: 28px; padding: 0; justify-content: center; margin-left: 1px; }
+  .stateline { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 3px 0 12px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.62); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.06); color: var(--ink-2); font-size: var(--fs-sm); white-space: nowrap; flex: none; }
+  .stateline b { color: var(--ink); font-weight: 600; }
+  .stateline .btn { height: 26px; }
+  .ring { width: 16px; height: 16px; flex: none; }
+  .ind { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-sm); color: var(--ink-2); flex: none; }
+  .pop { position: absolute; z-index: 30; width: 360px; padding: 14px 16px; border-radius: var(--r-lg); background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); }
+
+  /* 線の下 */
+  .lead-one { flex: none; margin: -6px 0 8px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .infoline { display: flex; align-items: center; height: 24px; margin: -6px 0 8px; font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; overflow: hidden; flex: none; }
+  .infoline > span { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-left: 1px solid rgba(30, 40, 90, 0.12); flex: none; }
+  .infoline > span:first-child { padding-left: 0; border-left: 0; }
+  .infoline > span.shrink { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .infoline .lk { color: var(--accent); }
+  .infoline .st { font-weight: 560; }
+  .infoline .st[data-s='busy'] { color: #8a520c; } .infoline .st[data-s='waiting'] { color: var(--waiting); } .infoline .st[data-s='remote'] { color: var(--st-active); }
+  .infoline .gauge-bar { width: 40px; }
+  .kv { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 5px 12px; font-size: var(--fs-sm); margin: 0; }
+  .kv dt { color: var(--ink-3); } .kv dd { margin: 0; color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kv .gauge-bar { width: 64px; margin-right: 6px; }
+  .kv-arts { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm); }
+  .kv-arts a { display: flex; align-items: center; gap: 8px; color: var(--ink); }
+  .kv-arts a svg { color: var(--ink-3); }
+
+  /* タブとターミナル */
+  .tabs-row { flex: none; display: grid; gap: 8px; }
+  .tabs { display: flex; align-items: flex-end; gap: 3px; height: var(--row-h); min-width: 0; }
+  .tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; height: var(--row-h); border-radius: var(--r) var(--r) 0 0; background: rgba(255, 255, 255, 0.55); color: var(--ink-2); white-space: nowrap; }
+  .tab.on { color: var(--term-fg); background: var(--term-bg); }
+  .tab .x { display: inline-flex; opacity: 0.7; }
+  .tab .x svg { width: 14px; height: 14px; }
+  .tab .alert { width: 7px; height: 7px; border-radius: 50%; background: #ff6a55; }
+  .tab-add { width: 20px; height: 20px; display: grid; place-items: center; color: var(--ink-2); align-self: center; }
+  .tabs .tab-right { margin-left: auto; align-self: center; display: flex; gap: 8px; align-items: center; }
+  .tabs .tab-right .btn-icon { height: 24px; width: 24px; }
+  .work { flex: 1; min-height: 0; display: grid; gap: 8px; position: relative; }
+  .term { position: relative; isolation: isolate; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--term-bg); border-radius: var(--r-lg); border-top-left-radius: 0; overflow: hidden; box-shadow: var(--term-lift); }
+  .term[data-live='busy'] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 90%, transparent), 0 0 22px -2px color-mix(in srgb, var(--busy) 45%, transparent), var(--term-lift); animation: rim-breathe var(--breathe-period) ease-in-out infinite; }
+  .term[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
+  .term[data-live='off'] { box-shadow: var(--term-lift); animation: none; }
+  @keyframes rim-breathe { 50% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 55%, transparent), 0 0 12px -4px color-mix(in srgb, var(--busy) 25%, transparent), var(--term-lift); } }
+  @media (prefers-reduced-motion: reduce) { .term[data-live='busy'] { animation: none; } }
+  .term-host { flex: 1; min-height: 0; padding: 10px 14px; font: 12.5px/1.55 var(--font-mono); color: var(--term-fg); white-space: pre; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+  .term-host.dim { opacity: 0.28; filter: saturate(0.4); }
+  .t-dim { opacity: 0.55; } .t-tool { color: var(--term-tool); } .t-add { color: #6fd3a5; } .t-del { color: #ff8a80; } .t-acc { color: #8fa6ff; } .t-user { color: #b9b7cc; }
+  .t-rule { display: block; border-top: 1px solid rgba(232, 230, 240, 0.28); margin: 6px 0 0; }
+  .t-ask { display: block; margin: 6px 0 0; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--term-tool) 55%, transparent); border-radius: 6px; white-space: pre; }
+  .t-sel { color: var(--term-tool); font-weight: 600; }
+  .t-foot { display: block; margin-top: 4px; opacity: 0.55; }
+  .statusline { flex: none; display: flex; align-items: center; gap: 14px; height: 24px; padding: 0 14px; border-top: 1px solid rgba(232, 230, 240, 0.1); background: rgba(255, 255, 255, 0.035); font: 11px var(--font-mono); color: color-mix(in srgb, var(--term-fg) 72%, var(--term-bg)); white-space: nowrap; overflow: hidden; }
+  .statusline .gauge-bar { width: 36px; height: 5px; background: rgba(232, 230, 240, 0.16); }
+  .statusline .lk { color: #8fa6ff; }
+  .sheet-status { flex: none; display: flex; align-items: center; gap: 14px; height: 26px; margin: 6px -12px -8px; padding: 0 14px; border-top: 1px solid var(--line); font: 11px var(--font-mono); color: var(--ink-2); white-space: nowrap; overflow: hidden; }
+  .sheet-status .lk { color: var(--accent); }
+
+  /* 切断と transcript 表示中の知らせ */
+  .veil { position: absolute; inset: 0; display: grid; place-items: center; z-index: 3; }
+  .off-card { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 340px; padding: 20px 22px 18px; border-radius: 16px; background: var(--surface); box-shadow: 0 20px 40px -18px rgba(0, 0, 0, 0.6); text-align: center; }
+  .off-card .ic { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: #fbeeea; color: var(--error); }
+  .off-card b { font-size: var(--fs-md); font-weight: 650; }
+  .off-card p { margin: 0 0 4px; color: var(--ink-2); font-size: var(--fs-sm); }
+  .off-pill { display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 6px 0 16px; border-radius: 99px; background: rgba(255, 255, 255, 0.14); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.12); color: var(--term-fg); }
+  .off-pill .btn { height: 30px; }
+  .off-big { display: flex; flex-direction: column; align-items: center; gap: 10px; color: color-mix(in srgb, var(--term-fg) 70%, var(--term-bg)); font-size: var(--fs-sm); }
+  .off-big .btn { height: 36px; padding: 0 18px; font-size: 14px; }
+  .tband { flex: none; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 6px 0 14px; background: color-mix(in srgb, var(--term-tool) 20%, var(--term-bg)); color: var(--term-fg); font-size: var(--fs-sm); border-bottom: 1px solid color-mix(in srgb, var(--term-tool) 40%, transparent); white-space: nowrap; }
+  .tband svg { color: var(--term-tool); }
+  .tband .faintd { color: color-mix(in srgb, var(--term-fg) 65%, transparent); }
+  .tband .btn { margin-left: auto; height: 24px; font-size: var(--fs-sm); }
+  .tpill-wrap { position: absolute; top: 10px; left: 0; right: 0; display: flex; justify-content: center; z-index: 3; pointer-events: none; }
+  .tpill { display: inline-flex; align-items: center; gap: 10px; height: 34px; padding: 0 4px 0 14px; border-radius: 99px; background: var(--glass-bg-toast); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), 0 10px 28px -8px rgba(0, 0, 0, 0.55); color: var(--ink); font-size: var(--fs-sm); white-space: nowrap; }
+  .tpill svg { color: var(--busy); }
+  .tpill .btn { height: 26px; }
+  .tline { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--term-tool); z-index: 3; }
+  .tabnote { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); white-space: nowrap; }
+  .tabnote.warn { color: #8a520c; } .tabnote.err { color: var(--error); }
+  .tabnote .btn { height: 24px; }
+
+  /* 実行中の右ペイン：live-explainer の担当の枠だけ */
+  .lx { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; outline: 1.5px dashed #b8a8f0; outline-offset: -1.5px; }
+  .lx-tag { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 6px 10px; border-radius: 10px; background: var(--cand-soft); color: var(--cand); font-size: var(--fs-sm); font-weight: 600; }
+  .lx-tag small { flex-basis: 100%; padding-left: 24px; font-weight: 500; font-size: 10.5px; color: color-mix(in srgb, var(--cand) 75%, #fff); }
+  .lx-sec { flex: none; padding: 6px 8px 8px; border-radius: 10px; background: #fafbfd; box-shadow: inset 0 0 0 1px var(--line); }
+  .lx-sec.grow { flex: 1; min-height: 0; overflow: hidden; }
+  .lx-k { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 10.5px; font-weight: 600; color: var(--ink-3); letter-spacing: 0.02em; }
+  .lx-k i { font-style: normal; font: 600 10px var(--font-mono); color: var(--cand); }
+  .sk { display: block; height: 7px; border-radius: 4px; background: #e3e5ee; }
+  .sk-row { display: flex; align-items: center; gap: 6px; height: 16px; }
+  .sk-row .dot { width: 7px; height: 7px; }
+  .sk-row .sk { flex: 1; }
+  .sk-row .sk.fix { flex: none; }
+  .lx-intent { padding: 6px 8px; border-radius: 8px; background: var(--cand-soft); display: flex; flex-direction: column; gap: 5px; }
+  .lx-intent .sk { background: color-mix(in srgb, var(--cand) 22%, #fff); }
+  .lx-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .lx-tiles span { height: 22px; border-radius: 5px; background: #e3e5ee; }
+  .lx-tiles span.w { background: #c9cff3; } .lx-tiles span.now { box-shadow: inset 0 0 0 1.5px var(--busy); }
+  .lx-rail { display: flex; align-items: center; justify-content: space-between; position: relative; padding: 2px 6px; }
+  .lx-rail::before { content: ''; position: absolute; left: 10px; right: 10px; top: 50%; border-top: 2px solid #e3e5ee; }
+  .lx-rail b { position: relative; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 2px #cfd2de; }
+  .lx-rail b.on { background: var(--st-done); box-shadow: none; }
+  .lx-toc { display: flex; flex-direction: column; gap: 6px; }
+  .lx-toc .t { padding: 4px 6px; border-radius: 6px; }
+  .lx-toc .t.open { background: var(--accent-soft); }
+  .lx-toc .t .sk-row { height: 12px; }
+  .lx-strip { display: flex; gap: 2px; margin-top: 4px; }
+  .lx-strip i { width: 6px; height: 5px; border-radius: 1px; background: #d6d8e2; }
+  .lx-strip i.w { background: #8f9df0; } .lx-strip i.r { background: #f0b56a; } .lx-strip i.c { background: #6fbf90; } .lx-strip i.e { background: #e27f73; }
+
+  /* 終わった画面：本文と右欄 */
+  .body2 { flex: 1; min-height: 0; display: grid; gap: 12px; }
+  .sheet { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 8px 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+  .toggles { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex: none; }
+  .tchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 520; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .tr { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; padding: 8px 0; }
+  .msg { max-width: 80ch; padding: 8px 12px; border-radius: var(--r-lg); white-space: pre-wrap; word-break: break-word; flex: none; }
+  .msg-user { background: var(--accent); color: var(--accent-ink); align-self: flex-end; border-bottom-right-radius: 5px; }
+  .msg-assistant { background: var(--surface-2); align-self: flex-start; border-bottom-left-radius: 5px; }
+  .msg code { font-family: var(--font-mono); font-size: 0.9em; padding: 0 3px; border-radius: 4px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+  .msg ul { margin: 4px 0 0; padding-left: 18px; white-space: normal; }
+  .msg-system { color: var(--ink-3); font-size: var(--fs-xs); align-self: center; flex: none; }
+  .tool { display: flex; align-items: center; gap: 6px; height: var(--row-h); border-left: 2px solid var(--line-strong); padding-left: 8px; color: var(--ink-2); white-space: nowrap; min-width: 0; flex: none; }
+  .tool .s { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--fs-sm) var(--font-mono); }
+  .tool .w { flex: none; font: var(--fs-sm) var(--font-mono); color: var(--ink-3); }
+  .rail { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+  .rail-panel { flex: none; padding: 12px 14px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); min-width: 0; }
+  .rail-panel h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+  .rail-panel h4 .n { font-weight: 500; color: var(--ink-3); }
+  .rail-panel h4 .act { margin-left: auto; }
+  .sum-body { margin: 0 0 8px; font-size: var(--fs); line-height: 1.6; }
+  .sum-next { margin: 0 0 8px; padding-left: 18px; font-size: var(--fs-sm); }
+  .sum-src { font-size: var(--fs-xs); color: var(--ink-3); }
+  .sum-sub { margin: -4px 0 8px; font-size: var(--fs-sm); color: var(--ink-3); }
+  .todo { display: flex; align-items: center; gap: 6px; min-height: var(--row-h); font-size: var(--fs); }
+  .todo-check { width: 18px; height: 18px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1.5px #c3c5d6; display: grid; place-items: center; color: #fff; }
+  .todo-check svg { width: 12px; height: 12px; stroke-width: 3; }
+  .todo.done .todo-check { background: var(--st-done); box-shadow: none; }
+  .todo.done .t { color: var(--ink-3); text-decoration: line-through; }
+  .todo-cand { margin: 2px -4px; padding: 4px 4px 8px; border-radius: var(--r); background: var(--cand-soft); }
+  .todo-cand .todo-check { box-shadow: inset 0 0 0 1.5px var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); }
+  .todo-cand .why { margin-left: 24px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; }
+  .todo-cand .acts { margin: 6px 0 0 24px; display: flex; gap: 4px; }
+  .file { display: flex; align-items: center; gap: 8px; height: 30px; border-radius: var(--r); padding: 0 6px; margin: 0 -6px; font-size: var(--fs-sm); }
+  .file svg { color: var(--ink-3); }
+  .file .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+  .file .p span { color: var(--ink-3); }
+  .file .add { color: var(--st-done); font: 500 var(--fs-xs) var(--font-mono); }
+  .file .del { color: var(--error); font: 500 var(--fs-xs) var(--font-mono); }
+  .file .new { font-size: 10.5px; color: var(--st-done); background: var(--st-done-soft); padding: 0 6px; border-radius: 99px; }
+  .seg { display: inline-flex; padding: 3px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.06); flex: none; }
+  .seg > span { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 12px; border-radius: var(--r-pill); color: var(--ink-2); font-size: var(--fs-sm); font-weight: 520; white-space: nowrap; }
+  .seg > span.on { color: var(--ink); font-weight: 600; background: var(--surface); box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(30, 40, 90, 0.14); }
+  .seg > span .n { color: var(--ink-3); font-weight: 500; }
+  .sumcard { flex: none; margin-bottom: 10px; padding: 10px 14px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+  .sumcard .h { display: flex; align-items: center; gap: 10px; }
+  .sumcard .h b { font-weight: 600; }
+  .sumcard .h .one { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+
+  /* 今の main（比べるための写し） */
+  .now-chips { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 4px; }
+  .now-facts { flex: none; display: flex; gap: 16px; margin-bottom: 8px; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+  .now-sum { flex: none; display: flex; align-items: baseline; gap: 12px; padding: 8px 12px; margin-bottom: 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+  .now-split { flex: none; display: grid; gap: 8px; }
+  .tr-pane { min-width: 0; min-height: 0; padding: 8px 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
+  .turn-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r); }
+  .turn-when { flex: none; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+  .turn-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hl { outline: 2px dashed var(--guide); outline-offset: 2px; border-radius: 6px; }
+  .overflow-mark { position: absolute; left: 0; right: 0; bottom: 0; height: 22px; z-index: 5; background: repeating-linear-gradient(135deg, rgba(229, 83, 61, 0.22) 0 6px, transparent 6px 12px); border-top: 1.5px dashed var(--guide); display: grid; place-items: center; font: 600 11px var(--font-sans); color: var(--guide); }
+
+  /* ホーム（検索欄の位置を比べるための写し） */
+  .home-label { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: var(--fs-md); font-weight: 650; }
+  .home-count { font: 500 12px var(--font-mono); color: var(--ink-3); }
+  .ask-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 22px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+  .ask-card .body { flex: 1; min-width: 0; }
+  .ask-card .q { color: var(--ink-2); font-size: var(--fs-sm); }
+  .live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 22px; }
+  .live-card { padding: 12px 14px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); display: flex; flex-direction: column; gap: 4px; }
+  .live-card .h { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .live-card .h .e { margin-left: auto; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); font-weight: 400; }
+  .live-card .m { font-size: var(--fs-sm); color: var(--ink-3); }
+  .live-card .a { font: var(--fs-xs) var(--font-mono); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .home-two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; }
+  .hlist { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+  .hrow { display: flex; align-items: center; gap: 10px; height: var(--session-row-h); padding: 0 14px; border-top: 1px solid var(--line); }
+  .hrow:first-child { border-top: 0; }
+  .hrow .mm { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+  .hrow .mm b { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hrow .mm span { font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hrow time { font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+  .prow { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-top: 1px solid var(--line); }
+  .prow:first-child { border-top: 0; }
+  .prow b { font-weight: 560; flex: 1; }
+  .prow span { font-size: var(--fs-sm); color: var(--ink-3); }
+
+  /* 見本の操作 */
+  .viewer { margin: 0 0 56px; }
+  .ctl { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 0 0 12px; padding: 12px 14px; border-radius: 14px; background: #fff; box-shadow: 0 0 0 1px var(--line); }
+  .ctl .grp { display: flex; align-items: center; gap: 6px; }
+  .ctl .grp > b { font: 600 11.5px var(--font-sans); color: var(--ink-3); min-width: 18px; }
+  .ctl .opts { display: inline-flex; padding: 3px; border-radius: 99px; background: rgba(30, 40, 90, 0.06); }
+  .ctl .opts button { border: 0; background: none; height: 24px; padding: 0 10px; border-radius: 99px; font-size: 12px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+  .ctl .opts button[aria-pressed='true'] { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 4px rgba(30, 40, 90, 0.16); }
+  .ctl .opts button:disabled { opacity: 0.4; cursor: default; }
+  .ctl .opts button:focus-visible, .ctl .cyc:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .ctl .sw { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+  .ctl .cyc { border: 0; height: 28px; padding: 0 12px; border-radius: 99px; font-size: 12px; font-weight: 600; cursor: pointer; color: #fff; background: var(--guide); }
+  .ctl .cyc[aria-pressed='true'] { background: var(--ink); }
+  .ctl .hr { flex-basis: 100%; height: 0; }
+  .readout { font-size: 12px; color: var(--ink-2); }
+  .readout b { font: 600 12px var(--font-mono); color: var(--ink); }
+  .readout .d { font: 600 12px var(--font-mono); color: var(--guide); }
+  .pos-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; max-width: 1200px; margin-bottom: 14px; }
+  .pos-grid .cap b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="top"><h1>セッション画面の組み直し 2</h1>
+  <nav class="toc"><a href="#viewer">見本</a><a href="#pos">検索欄の位置</a><a href="#axA">A 見出しの行の操作</a><a href="#axC">C 名前の重複</a><a href="#axB">B 畳んだ情報</a><a href="#axE">E 終わった画面の右欄</a><a href="#axF">F 知らせ</a></nav>
+  <div class="chosen" id="chosen"></div><button class="zoom" id="zoom" aria-pressed="false">実寸で見る</button></div>
+<div class="doc">
+
+<div class="purpose">
+  <h2>何を決めるための試作か</h2>
+  <p>セッション画面で、ターミナルに高さを渡すための組み直しの「見せ方」を決めます。元の試作（<code>session-layout.html</code>）を、main に入った見出しの改修（<code>2026-10-01-page-heading-design.md</code>）の骨組みの上で描き直しました。軸ごとに 3〜4 案を並べています。軸ごとに 1 つ選んでください（「これにする」）。選んだ案は上の見本に反映されるので、組み合わせて確かめられます。</p>
+  <ul>
+    <li><b>窓の骨組みは今の main のまま。</b>ヘッダーにパンくずは無く、左に信号とロゴ、右の列に検索欄と右の塊（同期、使用率、新しいセッション）を置く。各画面の本文の一番上に見出しの段（1 段目は親へのリンク「プロジェクト名 ›」、2 段目は状態の点・名前・要約の 1 文・操作のボタン、その下に 1px の線）。チップと細かな事実は線の下。</li>
+    <li><b>セッション画面だけ幅の上限（1200px）を外す（案 b）。</b>そのぶん広い窓では、セッション画面でだけ検索欄の左端が他の画面より左へ動く。見本の「画面」を切り替えるか、「交互に切り替える」を押すと、赤い線の位置の変わり方が見えます。</li>
+    <li><b>ターミナルは窓の残りの高さを全部使う。</b>下端は本文の列の余白（16px）まで。</li>
+    <li><b>実行中の右ペインは live-explainer の担当。</b>ここでは 7 段（状態の灯、意図、指揮役の手、サブエージェント、触っている層、作業の居場所、目次）の枠だけを描き、中身の案は出しません。幅は仮に 340px。元の試作の D 軸（目次の幅と開閉）は消しました。</li>
+    <li><b>終わった画面の右欄（要約、TODO、変更したファイル）と、切断・transcript 表示中の知らせはこちらで決める。</b></li>
+  </ul>
+  <dl class="legend">
+    <dt>A1〜A4</dt><dd>見出しの行の操作の並べ方（主ボタンと「…」、アイコン、分割ボタン、状態の文）</dd>
+    <dt>C1〜C4</dt><dd>名前の重複。パンくずは page-heading で消えたので、残る「見出しの名前」と「要約の題」の重なりをどうするか</dd>
+    <dt>B1〜B4</dt><dd>線の下に置いていたもの（状態と経過、モデル、コンテキスト、コスト、変更、ターン、作業ディレクトリ、アーティファクト）の置き場所。B2 は終わった画面だけ</dd>
+    <dt>E1〜E3</dt><dd>終わった画面の右欄（要約、TODO、変更したファイル）の組み方</dd>
+    <dt>F1〜F3</dt><dd>切断と transcript 表示中の知らせの形</dd>
+  </dl>
+  <p class="note" style="margin-top:10px">中身はすべて架空です。窓は既定で 1440 × 900 の実寸で描き、器の幅に合わせて縮めています。右上の「実寸で見る」で等倍になります。<span class="rec">おすすめ</span>の印は、試作を作る側の推しです。</p>
+  <h2 class="sub">状態ごとの操作</h2>
+  <table class="tbl"><tr><th>状態</th><th>主の操作（強調する 1 つ）</th><th>「…」に入るもの</th><th>無効にして理由を出すもの</th></tr>
+    <tr><td>実行中（作業中・休み）</td><td>VS Code で開く</td><td>ターミナルで開く、要約を作り直す、停止（危険色で最後）</td><td>フォーク「実行中は押せません。止めると押せます」</td></tr>
+    <tr><td>入力待ち</td><td>VS Code で開く（A4 だけ「ターミナルで答える」）</td><td>同上</td><td>同上</td></tr>
+    <tr><td>終了（この PC で続けられる）</td><td>再開</td><td>フォーク、VS Code で開く、要約を作り直す</td><td>なし</td></tr>
+    <tr><td>他の PC で実行中</td><td>この PC で再開</td><td>VS Code で開く、要約を作り直す</td><td>再開「MacBook-Air で実行中です」、フォーク「本文が MacBook-Air にあります」</td></tr>
+  </table>
+  <h2 class="sub">元の試作からの変更</h2>
+  <table class="tbl"><tr><th>箇所</th><th>元の試作</th><th>この試作</th></tr>
+    <tr><td>ヘッダー</td><td>パンくず、検索欄、右の塊。ロゴはサイドバー</td><td>ロゴ、検索欄、右の塊。今いる場所は見出しの段で示す</td></tr>
+    <tr><td>上段</td><td>40px の独自の帯</td><td>見出しの段（親の行 18px ＋ 見出しの行 28px ＋ 線）。A・B・C はその上の並べ方</td></tr>
+    <tr><td>D 軸</td><td>目次の幅と開閉の 3 案</td><td>消した。右ペインは live-explainer の 7 段の枠だけ</td></tr>
+    <tr><td>B2</td><td>右欄の先頭（実行中も）</td><td>終わった画面の右欄だけ。実行中は B1 と同じ 1 行</td></tr>
+    <tr><td>C 軸</td><td>パンくず・見出し・要約の題の 3 か所</td><td>見出しと要約の題の 2 か所だけ</td></tr>
+    <tr><td>用語</td><td>新規セッション、端末、cwd、tokens</td><td>新しいセッション、ターミナル、PC、作業ディレクトリ、トークン、コンテキスト、横に並べる、右の欄の開閉（⌘J）</td></tr>
+  </table>
+</div>
+
+<section class="sec viewer" id="viewer">
+  <h2><em>見本</em>組み合わせて見る</h2>
+  <p>画面、状態、窓の幅、サイドバー、各軸を切り替えると、下の窓が描き直されます。軸の既定は、選んだ案（無ければおすすめ）です。赤い線は検索欄の左端（＝本文の左端）、点線はもう一方の画面での位置です。</p>
+  <div class="ctl" id="ctl"></div>
+  <div id="stage"></div>
+  <p class="note">「今の main」は、比べるための現在の画面の写しです。名前の重複を赤い点線で囲み、ターミナルの板が窓からはみ出す分を斜線で示しています。</p>
+</section>
+
+<section class="sec" id="pos">
+  <h2><em>前提</em>検索欄の位置（案 b の確かめ）</h2>
+  <p>page-heading は「どの画面でも検索欄の左端を本文の左端にそろえる」ことで、画面を移っても検索欄が動かないようにしました。セッション画面だけ幅の上限を外すと、本文の左端が左へ寄り、検索欄もそれに付いて左へ動きます。動くのは、本文の列が 1200px より広いとき（開いた帯で窓が 1416px を超えるとき）だけです。下は 1680px の窓を上下に並べ、検索欄の左端に赤い線を引いたものです（点線はもう一方の画面での位置）。</p>
+  <div class="pos-grid" id="posGrid"></div>
+  <table class="tbl" id="posTbl"></table>
+  <p class="note">数は main の式（<code>--box-l</code>、<code>--gutter-l</code>、検索欄の <code>margin-left</code>）をそのまま当てたものです。セッション画面は <code>--main-w</code> を外したときの値で、検索欄も本文の左端にそろえたままにしています（どちらの画面でも「検索欄の左端 ＝ 本文の左端」は崩れない）。</p>
+</section>
+
+<section class="sec" id="axA">
+  <h2><em>A</em>見出しの行の操作の並べ方</h2>
+  <p>見出しの行の右側、要約の 1 文の後ろに並べる操作です。各案とも、上は作業中、下は「他の PC で実行中」で「…」を開いたところ（A2 は無効のアイコンに乗せたところ）です。</p>
+  <div class="picks" id="picksA"></div>
+</section>
+
+<section class="sec" id="axC">
+  <h2><em>C</em>名前の重複をなくす</h2>
+  <p>パンくずの末尾は page-heading で消えました。残る重なりは、見出しの名前と、要約の題（「ログインフォームの入力検証とエラー文の日本語化」のように、名前と少し違う言い回しのこともある）です。各案とも、左は作業中の見出しの段、右は終わった画面の全体です。</p>
+  <div class="picks" id="picksC"></div>
+</section>
+
+<section class="sec" id="axB">
+  <h2><em>B</em>畳んだ情報の置き場所</h2>
+  <p>今の main で線の下に並ぶチップの列と細かな事実の注記、アーティファクトの帯を、ターミナルの上に積まずに置く場所です。どの案も、ターミナルの上に積まれるのは見出しの段（線まで 61px）だけで、B1 はそこに 1 行 24px を足します。</p>
+  <div class="picks two" id="picksB"></div>
+</section>
+
+<section class="sec" id="axE">
+  <h2><em>E</em>終わった画面の右欄の組み方</h2>
+  <p>終わったセッションでは、ターミナルの場所に本文を広げ、右に要約、TODO、変更したファイルを置きます。ここは live-explainer の範囲の外なので、こちらで決めます。変更したファイルの行を押すと差分を開く想定です。右の欄の開閉（⌘J）は、本文の面の右上のボタンでも行えます。</p>
+  <div class="picks two" id="picksE"></div>
+</section>
+
+<section class="sec" id="axF">
+  <h2><em>F</em>切断と transcript 表示中の知らせ</h2>
+  <p>各案の左は切断、右は目次のターンを押して左のターミナルが transcript を見せている間です。知らせはターミナルの上（右ペインより左）に出すので、live-explainer の右ペインとはぶつかりません。</p>
+  <div class="picks" id="picksF"></div>
+</section>
+
+</div>
+<script>
+const ICON_SVG = {"house":"<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/>","folder":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>","messages-square":"<path d=\"M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z\"/><path d=\"M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1\"/>","settings":"<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","plus":"<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>","x":"<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>","chevron-right":"<path d=\"m9 18 6-6-6-6\"/>","chevron-down":"<path d=\"m6 9 6 6 6-6\"/>","chevron-up":"<path d=\"m18 15-6-6-6 6\"/>","panel-left":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/>","search":"<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>","panel-right-close":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/><path d=\"m8 9 3 3-3 3\"/>","panel-right-open":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/><path d=\"m10 15-3-3 3-3\"/>","bot":"<path d=\"M12 8V4H8\"/><rect width=\"16\" height=\"12\" x=\"4\" y=\"8\" rx=\"2\"/><path d=\"M2 14h2\"/><path d=\"M20 14h2\"/><path d=\"M15 13v2\"/><path d=\"M9 13v2\"/>","terminal":"<path d=\"M12 19h8\"/><path d=\"m4 17 6-6-6-6\"/>","workflow":"<rect width=\"8\" height=\"8\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M7 11v4a2 2 0 0 0 2 2h4\"/><rect width=\"8\" height=\"8\" x=\"13\" y=\"13\" rx=\"2\"/>","wrench":"<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z\"/>","square-terminal":"<path d=\"m7 11 2-2-2-2\"/><path d=\"M11 13h4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/>","code":"<path d=\"m16 18 6-6-6-6\"/><path d=\"m8 6-6 6 6 6\"/>","square":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/>","rotate-ccw":"<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/>","git-fork":"<circle cx=\"12\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\"/><path d=\"M12 12v3\"/>","download":"<path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/>","arrow-down-to-line":"<path d=\"M12 17V3\"/><path d=\"m6 11 6 6 6-6\"/><path d=\"M19 21H5\"/>","columns-2":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>","ellipsis":"<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>","copy":"<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>","check":"<path d=\"M20 6 9 17l-5-5\"/>","file-pen-line":"<path d=\"M14.364 13.634a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506l4.013-4.009a1 1 0 0 0-3.004-3.004z\"/><path d=\"M14.487 7.858A1 1 0 0 1 14 7V2\"/><path d=\"M20 19.645V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l2.516 2.516\"/><path d=\"M8 18h1\"/>","file-plus":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M9 15h6\"/><path d=\"M12 18v-6\"/>","file-text":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/>","globe":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>","list-todo":"<path d=\"M13 5h8\"/><path d=\"M13 12h8\"/><path d=\"M13 19h8\"/><path d=\"m3 17 2 2 4-4\"/><rect x=\"3\" y=\"4\" width=\"6\" height=\"6\" rx=\"1\"/>","circle-alert":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\"/><line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\"/>","bell":"<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/>","refresh-cw":"<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>","unplug":"<path d=\"m19 5 3-3\"/><path d=\"m2 22 3-3\"/><path d=\"M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z\"/><path d=\"M7.5 13.5 10 11\"/><path d=\"M10.5 16.5 13 14\"/><path d=\"m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z\"/>","scroll-text":"<path d=\"M15 12h-5\"/><path d=\"M15 8h-5\"/><path d=\"M19 17V5a2 2 0 0 0-2-2H4\"/><path d=\"M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3\"/>","info":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 16v-4\"/><path d=\"M12 8h.01\"/>","arrow-up":"<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>","arrow-down":"<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>","external-link":"<path d=\"M15 3h6v6\"/><path d=\"M10 14 21 3\"/><path d=\"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"/>","panel-right":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/>","files":"<path d=\"M15 2h-4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8\"/><path d=\"M16.706 2.706A2.4 2.4 0 0 0 15 2v5a1 1 0 0 0 1 1h5a2.4 2.4 0 0 0-.706-1.706z\"/><path d=\"M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1\"/>","pin":"<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>","eye":"<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","clock":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 6v6l4 2\"/>","brain":"<path d=\"M12 18V5\"/><path d=\"M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4\"/><path d=\"M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5\"/><path d=\"M17.997 5.125a4 4 0 0 1 2.526 5.77\"/><path d=\"M18 18a4 4 0 0 0 2-7.464\"/><path d=\"M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517\"/><path d=\"M6 18a4 4 0 0 1-2-7.464\"/><path d=\"M6.003 5.125a4 4 0 0 0-2.526 5.77\"/>","sparkles":"<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/><path d=\"M20 2v4\"/><path d=\"M22 4h-4\"/><circle cx=\"4\" cy=\"20\" r=\"2\"/>","pencil":"<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>","folder-up":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/><path d=\"M12 10v6\"/><path d=\"m9 13 3-3 3 3\"/>","git-branch":"<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>","list-checks":"<path d=\"M13 5h8\"/><path d=\"M13 12h8\"/><path d=\"M13 19h8\"/><path d=\"m3 17 2 2 4-4\"/><path d=\"m3 7 2 2 4-4\"/>","keyboard":"<path d=\"M10 8h.01\"/><path d=\"M12 12h.01\"/><path d=\"M14 8h.01\"/><path d=\"M16 12h.01\"/><path d=\"M18 8h.01\"/><path d=\"M6 8h.01\"/><path d=\"M7 16h10\"/><path d=\"M8 12h.01\"/><rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\"/>","triangle-alert":"<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>","corner-down-left":"<path d=\"M20 4v7a4 4 0 0 1-4 4H4\"/><path d=\"m9 10-5 5 5 5\"/>","search-code":"<path d=\"m13 13.5 2-2.5-2-2.5\"/><path d=\"m21 21-4.3-4.3\"/><path d=\"M9 8.5 7 11l2 2.5\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>","file-code":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 12.5 8 15l2 2.5\"/><path d=\"m14 12.5 2 2.5-2 2.5\"/>","layers":"<path d=\"M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z\"/><path d=\"M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12\"/><path d=\"M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17\"/>","octagon-x":"<path d=\"m15 9-6 6\"/><path d=\"M2.586 16.726A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2h6.624a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586z\"/><path d=\"m9 9 6 6\"/>","bell-ring":"<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M22 8c0-2.3-.8-4.3-2-6\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/><path d=\"M4 2C2.8 3.7 2 5.7 2 8\"/>","text-search":"<path d=\"M21 5H3\"/><path d=\"M10 12H3\"/><path d=\"M10 19H3\"/><circle cx=\"17\" cy=\"15\" r=\"3\"/><path d=\"m21 19-1.9-1.9\"/>","sprout":"<path d=\"M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3\"/><path d=\"M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4\"/><path d=\"M5 21h14\"/>","arrow-right":"<path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/>","maximize-2":"<path d=\"M15 3h6v6\"/><path d=\"m21 3-7 7\"/><path d=\"m3 21 7-7\"/><path d=\"M9 21H3v-6\"/>","minimize-2":"<path d=\"m14 10 7-7\"/><path d=\"M20 10h-6V4\"/><path d=\"m3 21 7-7\"/><path d=\"M4 14h6v6\"/>"};
+/* ---- 共通の部品 ---- */
+const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON_SVG[name] || ''}</svg>`;
+const LOGO = `<svg viewBox="14 13 72 72" aria-hidden="true"><defs><linearGradient id="hangar-rail" gradientUnits="userSpaceOnUse" x1="-13.362" y1="0" x2="34.096" y2="0"><stop offset="0" stop-color="#1c1b2e"/><stop offset="0.25" stop-color="#1c1b2e"/><stop offset="1" stop-color="#e2e7ff"/></linearGradient></defs><g transform="translate(46.256 25.106) scale(0.854)"><path d="M-13.362 3.178L34.096 -11.66" stroke="url(#hangar-rail)" stroke-width="2.6" stroke-linecap="round"/><g transform="translate(20.734 -6.483) scale(0.614)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#c6cae2" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#c6cae2"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#cdd5fc" stroke-width="4" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#f4caa4"/></g><g transform="translate(14.911 -4.662) scale(0.722)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#8e90a6" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#8e90a6"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#a1aff5" stroke-width="4" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#c1c0d3"/></g><g transform="translate(8.06 -2.52) scale(0.85)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#55556a" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#55556a"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#7689ef" stroke-width="4" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#e56656"/></g><g><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#1c1b2e" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#1c1b2e"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#4a63e8" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#ff6a55"/><circle cx="-16.5" cy="37" r="2" fill="#ffc34d"/><circle cx="-10" cy="37" r="2" fill="#3fb58a"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e8e6e1" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#ffb86b"/></g></g></svg>`;
+
+/* ---- 殻の幾何。base.css の式をそのまま当てる ----
+   --col1 は開いた帯で 216px、畳んだ帯で 60px。--head-end（信号とロゴの右端）は 81 + 104 + 12 = 197px。
+   上限のある画面：--box-l = max(0, (窓 − col1 − 1200) / 2)、--gutter-l = max(16, head-end − col1 − box-l)。
+   セッション画面（上限を外す）：--box-l = 0 として同じ式。検索欄の左端は、どちらも本文の左端にそろえる。 */
+const HEAD_END = 81 + 104 + 12;
+function geom({ w, rail, capped }) {
+  const col1 = rail ? 60 : 216;
+  const boxL = capped ? Math.max(0, (w - col1 - 1200) / 2) : 0;
+  const gutterL = Math.max(16, HEAD_END - col1 - boxL);
+  const innerW = capped ? Math.min(1200, w - col1) : w - col1;
+  return { col1, boxL, gutterL, innerW, left: col1 + boxL + gutterL };
+}
+
+function headerHTML(g) {
+  return `<div class="w-header"><a class="brand">${LOGO}<span class="brand-word">Hangar</span></a>
+    <div class="w-row" style="left:${g.col1}px"><div class="w-search" style="margin-left:${g.left - g.col1}px">セッションを検索（/）<kbd>⌘K</kbd></div><span class="w-spacer"></span>
+    <span class="w-sync"><span class="dot" data-s="idle"></span>同期 1 分前</span>
+    <span class="w-gauges"><span class="gauge"><span class="gauge-key">5 時間</span><span class="gauge-bar"><span class="gauge-fill" style="width:29%"></span></span><span class="gauge-num">29%</span></span><span class="gauge"><span class="gauge-key">週</span><span class="gauge-bar"><span class="gauge-fill" style="width:55%"></span></span><span class="gauge-num">55%</span></span></span>
+    <button class="btn btn-primary">${ic('plus')}新しいセッション</button></div></div>`;
+}
+
+function sidebarHTML({ rail = false, current = 'sessions' } = {}) {
+  const items = [['home', 'house', 'ホーム'], ['projects', 'folder', 'プロジェクト'], ['sessions', 'messages-square', 'セッション'], ['settings', 'settings', '設定']];
+  const item = ([k, icon, label]) => `<div class="nav-item${k === current ? ' on' : ''}">${ic(icon)}<span class="nav-label">${label}</span></div>`;
+  const tog = `<span class="sb-toggle" title="${rail ? '開く' : '閉じる'}（⌘B）">${ic('panel-left')}</span>`;
+  if (rail) return `<nav class="w-sidebar rail">${tog}${items.map(item).join('')}</nav>`;
+  return `<nav class="w-sidebar"><div class="nav-row">${item(items[0])}${tog}</div>${items.slice(1).map(item).join('')}</nav>`;
+}
+
+/** 窓。capped は本文の幅の上限（1200px）を持つか。guide は検索欄の左端の線、ghost はもう一方の画面での位置。 */
+function winHTML({ w = 1440, h = 900, rail = false, current = 'sessions', capped = true, main = '', guide = false, ghost = null, extra = '' } = {}) {
+  const g = geom({ w, rail, capped });
+  let lines = '';
+  if (guide) {
+    if (ghost && ghost.left !== g.left) lines += `<div class="guide ghost" style="left:${ghost.left}px"><span>${ghost.label}では ${ghost.left}px</span></div>`;
+    lines += `<div class="guide" style="left:${g.left}px"><span>検索欄と本文の左端 ${g.left}px</span></div>`;
+  }
+  return `<div class="win" style="--win-w:${w}px;--win-h:${h}px"><div class="lights"><i></i><i></i><i></i></div>${headerHTML(g)}${sidebarHTML({ rail, current })}<main class="w-main" style="left:${g.col1}px"><div class="w-inner" style="margin-left:${g.boxL}px;width:${g.innerW}px;padding-left:${g.gutterL}px">${main}</div></main>${extra}${lines}</div>`;
+}
+
+/* ---- 器の縮尺 ---- */
+let REAL = false;
+function fitAll() {
+  document.querySelectorAll('.fit').forEach((f) => {
+    const s = f.querySelector('.scaler');
+    if (!s) return;
+    const w = Number(f.dataset.w || 1440), h = Number(f.dataset.h || 900);
+    const z = REAL ? 1 : Math.min(1, f.clientWidth / w);
+    s.style.transform = `scale(${z})`;
+    s.style.width = w + 'px';
+    f.style.height = Math.ceil(h * z) + 'px';
+    f.classList.toggle('real', REAL);
+  });
+}
+function fitHTML(inner, w = 1440, h = 900) { return `<div class="fit" data-w="${w}" data-h="${h}"><div class="scaler">${inner}</div></div>`; }
+window.addEventListener('resize', fitAll);
+
+/* ---- 案の選択。頁ごとに localStorage へ覚える（使えないときは覚えないだけ） ---- */
+function setupPicks(storeKey) {
+  let chosen = {};
+  try { chosen = JSON.parse(localStorage.getItem(storeKey) || '{}') || {}; } catch (e) { chosen = {}; }
+  const paint = () => {
+    document.querySelectorAll('.pick[data-group]').forEach((c) => {
+      const on = chosen[c.dataset.group] === c.dataset.id;
+      c.classList.toggle('selected', on);
+      const b = c.querySelector('.choose'); if (b) b.textContent = on ? '選んだ' : 'これにする';
+    });
+    const ids = Object.values(chosen).sort();
+    const el = document.getElementById('chosen');
+    if (el) el.innerHTML = ids.length ? '選んだ案 ' + ids.map((i) => `<b>${i}</b>`).join('') : 'まだ選んでいません';
+    document.dispatchEvent(new CustomEvent('picks', { detail: { ...chosen } }));
+  };
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('.pick .choose');
+    if (!b) return;
+    const card = b.closest('.pick');
+    const g = card.dataset.group;
+    if (chosen[g] === card.dataset.id) delete chosen[g]; else chosen[g] = card.dataset.id;
+    try { localStorage.setItem(storeKey, JSON.stringify(chosen)); } catch (e2) { /* 覚えられなくても動く */ }
+    paint();
+  });
+  const zoom = document.getElementById('zoom');
+  zoom.addEventListener('click', () => { REAL = !REAL; zoom.setAttribute('aria-pressed', String(REAL)); zoom.textContent = REAL ? '実寸で表示中' : '実寸で見る'; fitAll(); });
+  paint();
+}
+function pickHTML({ group, id, title, tag = '', desc = '', stage = '' }) {
+  const tagHTML = tag ? `<span class="tag${tag === 'おすすめ' ? ' rec-tag' : ''}">${tag}</span>` : '';
+  return `<div class="pick" data-group="${group}" data-id="${id}"><div class="stage">${stage}</div><div class="body"><div class="txt"><h3><em>${id}</em>${title}${tagHTML}</h3><p>${desc}</p></div><button class="choose">これにする</button></div></div>`;
+}
+
+/* ---- 架空のセッション ---- */
+const S = {
+  name: 'ログイン画面のバリデーション', project: 'shop-web',
+  one: 'メールとパスワードの入力チェックを足し、エラー文を欄ごとに日本語で出す。',
+  sumTitle: 'ログインフォームの入力検証とエラー文の日本語化',
+  model: 'opus 5.5', effort: 'high', ctx: 42, cost: '$0.71', changed: 4, turns: 6, tokens: '2.7M', dir: '~/workspace/shop-web', started: '24 分前', last: '1 分前',
+};
+const STATES = {
+  busy: { label: '作業中', live: 'busy', alive: true, st: '作業中 3 分' },
+  waiting: { label: '入力待ち', live: 'waiting', alive: true, st: '入力待ち 2 分' },
+  offline: { label: '切断', live: 'busy', alive: true, st: '作業中 3 分', off: true },
+  transcript: { label: 'transcript 表示中', live: 'busy', alive: true, st: '作業中 3 分', tr: true },
+  ended: { label: '終了', live: null, alive: false, st: '終了 · 12 分前' },
+  remote: { label: '他の PC で実行中', live: null, alive: false, remote: true, st: 'MacBook-Air で実行中' },
+  now: { label: '今の main', live: 'idle', alive: true, now: true, st: '休み 13 分' },
+};
+const TURNS = [
+  ['12:02', 'ログイン画面にバリデーションを足して。エラー文は日本語で'],
+  ['12:06', 'パスワードの条件は 8 文字以上、英字と数字を両方'],
+  ['12:09', 'エラー文はフォームの下にまとめず、欄ごとに出して'],
+  ['12:14', 'テストも書いて'],
+  ['12:19', 'npm test が 1 件落ちてる。直して'],
+  ['12:23', 'OK、コミットして'],
+];
+
+function actions(st) {
+  if (st.remote) return { primary: { icon: 'download', label: 'この PC で再開' }, alt: [{ icon: 'rotate-ccw', label: '再開', off: 'MacBook-Air で実行中です' }, { icon: 'code', label: 'VS Code で開く' }], menu: [
+    { icon: 'rotate-ccw', label: '再開', off: 'MacBook-Air で実行中です。「この PC で再開」で本文を降ろして続けられます' },
+    { icon: 'git-fork', label: 'フォーク', off: '本文が MacBook-Air にあります' },
+    { icon: 'code', label: 'VS Code で開く' },
+    { icon: 'refresh-cw', label: '要約を作り直す' }] };
+  if (st.alive) return { primary: { icon: 'code', label: 'VS Code で開く' }, alt: [{ icon: 'square-terminal', label: 'ターミナルで開く' }, { icon: 'git-fork', label: 'フォーク', off: '実行中は押せません' }], menu: [
+    { icon: 'square-terminal', label: 'ターミナルで開く', note: 'macOS のターミナルで同じセッションにつなぐ' },
+    { icon: 'git-fork', label: 'フォーク', off: '実行中は押せません。止めると押せます' },
+    { icon: 'refresh-cw', label: '要約を作り直す' }, 'hr',
+    { icon: 'square', label: '停止', danger: true }] };
+  return { primary: { icon: 'rotate-ccw', label: '再開' }, alt: [{ icon: 'git-fork', label: 'フォーク' }, { icon: 'code', label: 'VS Code で開く' }], menu: [
+    { icon: 'git-fork', label: 'フォーク', note: 'この会話から枝分かれした新しいセッション' },
+    { icon: 'code', label: 'VS Code で開く' },
+    { icon: 'refresh-cw', label: '要約を作り直す' }] };
+}
+function menuHTML(items, style) {
+  return `<div class="menu" style="${style}">${items.map((m, i) => m === 'hr' ? '<hr>' : `<div class="mi${m.off ? ' off' : ''}${m.danger ? ' danger' : ''}${i === 0 && !m.off ? ' on' : ''}">${ic(m.icon)}<span class="t">${m.label}${m.off ? `<small>${m.off}</small>` : m.note ? `<small>${m.note}</small>` : ''}</span></div>`).join('')}</div>`;
+}
+const ctxBar = (w = 40) => `<span class="gauge-bar" style="width:${w}px"><span class="gauge-fill" style="width:${S.ctx}%"></span></span>`;
+const ring = () => { const c = 2 * Math.PI * 6; return `<svg class="ring" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="rgba(30,40,90,.12)" stroke-width="2.5"/><circle cx="8" cy="8" r="6" fill="none" stroke="#4a63e8" stroke-width="2.5" stroke-dasharray="${c * S.ctx / 100} ${c}" transform="rotate(-90 8 8)" stroke-linecap="round"/></svg>`; };
+
+function kvHTML(st) {
+  return `<dl class="kv"><dt>状態</dt><dd>${st.st}</dd><dt>モデル</dt><dd class="mono">${S.model} · ${S.effort}</dd><dt>コンテキスト</dt><dd>${ctxBar(64)}${S.ctx}%</dd><dt>推定コスト</dt><dd class="mono">${S.cost}</dd>
+    <dt>変更</dt><dd>${S.changed} ファイル</dd><dt>ターン</dt><dd>${S.turns} ターン · ${S.tokens} トークン</dd><dt>開始 / 最終</dt><dd>${S.started} / ${S.last}</dd>
+    <dt>作業ディレクトリ</dt><dd class="mono">${S.dir}</dd>${st.alive ? '<dt>起動</dt><dd class="mono">tmux · 24 分前</dd>' : ''}${st.remote ? '<dt>ロック</dt><dd>MacBook-Air · 最終確認 20 秒前</dd>' : ''}</dl>`;
+}
+const ARTS = `<div class="kv-arts"><a>${ic('file-code')}ログイン画面の試作<span class="faint" style="margin-left:auto">HTML</span></a><a>${ic('file-text')}エラー文の一覧<span class="faint" style="margin-left:auto">Markdown</span></a></div>`;
+
+function infolineHTML(st, o) {
+  const stKind = st.remote ? 'remote' : (st.live || 'ended');
+  const stItem = o.A === 'A4' ? '' : `<span class="st" data-s="${stKind}">${st.st}${st.remote ? ' · 最終確認 20 秒前' : ''}</span>`;
+  return `<div class="infoline">${stItem}<span class="mono">${S.model} · ${S.effort}</span><span>コンテキスト ${ctxBar()} ${S.ctx}%</span><span class="mono">${S.cost}</span><span>変更 ${S.changed}</span><span>${S.turns} ターン · ${S.tokens} トークン</span><span>開始 ${S.started}</span><span class="lk">${ic('layers')}アーティファクト 2${ic('chevron-down')}</span><span class="shrink mono faint">${S.dir}</span></div>`;
+}
+
+/* ---- 見出しの段 ---- */
+function statelineHTML(st, a) {
+  if (st.remote) return `<span class="stateline"><b>MacBook-Air で実行中</b><span>ここでは読むだけです</span><button class="btn btn-primary">${ic(a.primary.icon)}${a.primary.label}</button></span>`;
+  if (st.alive && st.live === 'waiting') return `<span class="stateline"><b>入力待ち 2 分</b><span>Bash の実行の許可を求めています</span><button class="btn btn-primary">${ic('terminal')}ターミナルで答える</button></span>`;
+  if (st.alive) return `<span class="stateline"><b>作業中 3 分</b><span class="mono">Bash npm test -- LoginForm</span><button class="btn btn-primary">${ic(a.primary.icon)}${a.primary.label}</button></span>`;
+  return `<span class="stateline"><b>終了 · 12 分前</b><span>この PC で続けられます</span><button class="btn btn-primary">${ic(a.primary.icon)}${a.primary.label}</button></span>`;
+}
+function sessionHeadHTML(st, o) {
+  const a = actions(st);
+  const dot = `<span class="dot" data-s="${st.live || 'ended'}"></span>`;
+  const more = `<button class="btn btn-icon" aria-label="ほかの操作">${ic('ellipsis')}</button>`;
+  const infoInline = o.B === 'B3' ? `<span class="ind">${ring()}${S.ctx}%</span><span class="ind mono">${S.cost}</span><button class="btn btn-icon btn-ghost" aria-label="このセッションの詳細">${ic('info')}</button>` : '';
+  let right = '';
+  if (o.A === 'A1') right = `${infoInline}<button class="btn btn-primary">${ic(a.primary.icon)}${a.primary.label}</button>${more}`;
+  if (o.A === 'A2') right = `${infoInline}<button class="btn btn-primary">${ic(a.primary.icon)}${a.primary.label}</button>${a.alt.map((x) => `<button class="btn btn-icon${x.off ? ' is-disabled' : ''}" aria-label="${x.label}">${ic(x.icon)}</button>`).join('')}${more}`;
+  if (o.A === 'A3') right = `${infoInline}<span class="split-btn"><button class="btn btn-primary">${ic(a.primary.icon)}${a.primary.label}</button><button class="btn btn-primary" aria-label="ほかの操作">${ic('chevron-down')}</button></span>`;
+  if (o.A === 'A4') right = `${infoInline}${statelineHTML(st, a)}${more}`;
+  let float = '';
+  if (o.menuOpen) float += menuHTML(a.menu, 'right:0;top:34px;width:300px');
+  if (o.tipOpen && o.A === 'A2') {
+    const off = a.alt.find((x) => x.off);
+    if (off) float += `<div class="tip" style="right:40px;top:34px">${off.label}できません<small>${off.off}</small></div>`;
+  }
+  if (o.popOpen && o.B === 'B3') float += `<div class="pop" style="right:${o.A === 'A4' ? 380 : 170}px;top:34px">${kvHTML(st)}${ARTS}</div>`;
+  let row, rowCls = '';
+  if (o.C === 'C4') { row = `${dot}<div class="two"><h1 class="page-title">${S.name}</h1><span class="one">${S.one}</span></div>`; rowCls = ' tall'; }
+  else if (o.C === 'C3') row = `${dot}<h1 class="page-title">${S.name}</h1><span class="w-spacer"></span>`;
+  else row = `${dot}<h1 class="page-title">${S.name}</h1><span class="one">${S.one}</span>`;
+  return `<div class="page-head"><div class="page-parent"><a>${S.project}</a><span>›</span></div><div class="page-title-row${rowCls}">${row}${right}${float}</div></div>`;
+}
+/** 線の下。C3 の 1 文と、B1 の 1 行（B2 は実行中だけ B1 と同じ）。 */
+function underHTML(st, o) {
+  let s = '';
+  if (o.C === 'C3') s += `<div class="lead-one">${S.one}</div>`;
+  if (o.B === 'B1' || (o.B === 'B2' && st.alive)) s += infolineHTML(st, o);
+  return s;
+}
+
+/* ---- ターミナル ---- */
+function termText(st) {
+  const H = [
+    '<span class="t-user">&gt; パスワードの条件は 8 文字以上、英字と数字を両方</span>', '',
+    '<span class="t-dim">⏺</span> <span class="t-tool">Update</span>(src/lib/validators.ts)',
+    '  <span class="t-dim">⎿  Updated src/lib/validators.ts with 12 additions</span>', '',
+    '<span class="t-dim">⏺</span> 8 文字以上で、英字と数字を両方含むときだけ通すようにしました。', '',
+    '<span class="t-user">&gt; エラー文はフォームの下にまとめず、欄ごとに出して</span>', '',
+    '<span class="t-dim">⏺</span> <span class="t-tool">Update</span>(src/components/LoginForm.tsx)',
+    '  <span class="t-dim">⎿  Updated src/components/LoginForm.tsx with 9 additions and 6 removals</span>',
+    '<span class="t-dim">⏺</span> <span class="t-tool">Update</span>(src/i18n/ja.json)',
+    '  <span class="t-dim">⎿  Updated src/i18n/ja.json with 3 additions and 1 removal</span>', '',
+    '<span class="t-dim">⏺</span> 欄ごとに出るようにしました。メールは形、パスワードは長さと文字の種類を、',
+    '  それぞれの欄の直下に出します。', '',
+  ];
+  if (st.tr) {
+    return [
+      '<span class="t-user">&gt; ログイン画面にバリデーションを足して。エラー文は日本語で</span>', '',
+      '<span class="t-dim">⏺</span> <span class="t-tool">Read</span>(src/components/LoginForm.tsx)', '',
+      '<span class="t-dim">⏺</span> 入力チェックはまだありません。<span class="t-acc">validators.ts</span> を足して、送信の前に確かめます。', '',
+      '<span class="t-user">&gt; パスワードの条件は 8 文字以上、英字と数字を両方</span>', '',
+      '<span class="t-dim">⏺</span> <span class="t-tool">Update</span>(src/lib/validators.ts)', '',
+      '<span class="t-user">&gt; エラー文はフォームの下にまとめず、欄ごとに出して</span>', '',
+      '<span class="t-dim">⏺</span> 欄ごとに出すように変えます。まとめて出していた <span class="t-acc">ErrorSummary</span> をやめ、',
+      '  各欄の下に <span class="t-acc">FieldError</span> を置きます。', '',
+      '<span class="t-dim">⏺</span> <span class="t-tool">Update</span>(src/components/LoginForm.tsx)',
+      '  <span class="t-dim">⎿  Updated src/components/LoginForm.tsx with 9 additions and 6 removals</span>',
+      '       <span class="t-dim">41</span> <span class="t-del">-      &lt;ErrorSummary errors={errors} /&gt;</span>',
+      '       <span class="t-dim">41</span> <span class="t-add">+      &lt;Field label="メールアドレス" name="email"&gt;</span>',
+      '       <span class="t-dim">42</span> <span class="t-add">+        &lt;FieldError message={errors.email} /&gt;</span>',
+      '       <span class="t-dim">43</span> <span class="t-add">+      &lt;/Field&gt;</span>', '',
+      '<span class="t-dim">⏺</span> <span class="t-tool">Update</span>(src/i18n/ja.json)',
+      '  <span class="t-dim">⎿  Updated src/i18n/ja.json with 3 additions and 1 removal</span>', '',
+      '<span class="t-dim">⏺</span> 欄ごとに出るようにしました。', '',
+      '<span class="t-user">&gt; テストも書いて</span>',
+      '<span class="t-foot">  Showing detailed transcript · ctrl+o to toggle</span>'].join('\n');
+  }
+  const L = [...H];
+  L.push('<span class="t-user">&gt; テストも書いて</span>', '');
+  L.push('<span class="t-dim">⏺</span> <span class="t-tool">Write</span>(src/components/LoginForm.test.tsx)');
+  L.push('  <span class="t-dim">⎿  Wrote 56 lines to src/components/LoginForm.test.tsx</span>', '');
+  L.push('<span class="t-dim">⏺</span> 6 件のテストを足しました。実行して確かめます。', '');
+  L.push('<span class="t-dim">⏺</span> <span class="t-tool">Bash</span>(npm test -- LoginForm)');
+  if (st.live === 'waiting') {
+    L.push('');
+    L.push(`<span class="t-ask"> <b>Bash command</b>\n\n   npm test -- LoginForm\n   <span class="t-dim">Run LoginForm tests</span>\n\n Do you want to proceed?\n <span class="t-sel">❯ 1. Yes</span>\n   2. Yes, and don't ask again for <b>npm test</b> commands in ${S.dir}\n   3. No, and tell Claude what to do differently <span class="t-dim">(esc)</span></span>`);
+    return L.join('\n');
+  }
+  if (st.live === 'idle') {
+    L.push('  <span class="t-dim">⎿  6 passed</span>', '', '<span class="t-dim">⏺</span> すべて通りました。', '');
+  } else {
+    L.push('  <span class="t-dim">⎿  Running…</span>', '');
+    L.push('<span class="t-tool">✶</span> <span class="t-tool">Testing…</span> <span class="t-dim">(38s · ↓ 2.1k tokens · esc to interrupt)</span>', '');
+  }
+  L.push('<span class="t-rule"></span>&gt; <span style="background:#e8e6f0;color:#1c1b2e"> </span><span class="t-rule"></span>');
+  L.push('<span class="t-dim">  ⏵⏵ accept edits on (shift+tab to cycle)</span>');
+  return L.join('\n');
+}
+function termHTML(st, o) {
+  let top = '', veil = '', dim = '';
+  if (st.off) {
+    dim = ' dim';
+    if (o.F === 'F1') veil = `<div class="veil"><div class="off-card"><span class="ic">${ic('unplug')}</span><b>ターミナルとの接続が切れました</b><p>Claude は動き続けています。5 秒後にもう一度つなぎます。</p><button class="btn btn-primary">${ic('refresh-cw')}再接続</button></div></div>`;
+    if (o.F === 'F2') veil = `<div class="veil"><span class="off-pill">${ic('unplug')}接続が切れました<button class="btn btn-primary">${ic('refresh-cw')}再接続</button></span></div>`;
+    if (o.F === 'F3') veil = `<div class="veil"><div class="off-big"><button class="btn btn-primary">${ic('refresh-cw')}再接続</button><span>5 秒後に自動でつなぎます</span></div></div>`;
+  }
+  if (st.tr) {
+    if (o.F === 'F1') top = `<div class="tband">${ic('scroll-text')}<b>transcript を表示中</b><span class="faintd">12:09 のターン · Claude は裏で動き続けています</span><button class="btn">${ic('arrow-down-to-line')}最新へ戻る<kbd class="k">esc</kbd></button></div>`;
+    if (o.F === 'F2') top = `<div class="tpill-wrap"><span class="tpill">${ic('scroll-text')}transcript を表示中 · 12:09<button class="btn btn-primary">${ic('arrow-down-to-line')}最新へ戻る</button></span></div>`;
+    if (o.F === 'F3') top = `<div class="tline"></div>`;
+  }
+  const status = o.B === 'B4' ? `<div class="statusline"><span>${S.model} · ${S.effort}</span><span>コンテキスト ${ctxBar(36)} ${S.ctx}%</span><span>${S.cost}</span><span>変更 ${S.changed}</span><span>${S.turns} ターン · ${S.tokens} トークン</span><span>開始 ${S.started}</span><span class="lk">アーティファクト 2</span><span style="margin-left:auto">${S.dir}</span></div>` : '';
+  const live = st.off ? 'off' : st.live;
+  return `<div class="term" data-live="${live}">${o.F === 'F1' ? top : ''}<div class="term-host${dim}"><div>${termText(st)}</div></div>${o.F !== 'F1' ? top : ''}${veil}${status}</div>`;
+}
+function tabsHTML(st, o, paneW) {
+  let note = '';
+  if (o.F === 'F3' && st.off) note = `<span class="tabnote err">${ic('unplug')}接続が切れました<button class="btn">再接続</button></span>`;
+  if (o.F === 'F3' && st.tr) note = `<span class="tabnote warn">${ic('scroll-text')}transcript を表示中 · 12:09<button class="btn">${ic('arrow-down-to-line')}最新へ戻る</button></span>`;
+  const alert = o.F === 'F3' && st.off ? '<span class="alert"></span>' : '';
+  const tabs = `<div class="tabs"><div class="tab on">${ic('bot')}<span>Claude</span>${alert}</div><div class="tab">${ic('terminal')}<span>zsh</span><span class="x">${ic('x')}</span></div><span class="tab-add">${ic('plus')}</span><span class="tab-right">${note}<button class="btn btn-icon btn-ghost" title="横に並べる" aria-label="横に並べる">${ic('columns-2')}</button></span></div>`;
+  return `<div class="tabs-row" style="grid-template-columns:minmax(0,1fr) ${paneW}px">${tabs}</div>`;
+}
+
+/* ---- 実行中の右ペイン：live-explainer の 7 段の枠だけ（中身の案は出さない） ---- */
+function explainerHTML(st) {
+  const lamp = st.live === 'waiting' ? 'waiting' : 'busy';
+  const sk = (w) => `<span class="sk${w.endsWith('px') ? ' fix' : ''}" style="${w.endsWith('px') ? `width:${w}` : `flex:0 1 ${w}`}"></span>`;
+  const row = (dot, a, b) => `<div class="sk-row">${dot}${sk(a)}${b ? `<span class="w-spacer"></span>${sk(b)}` : ''}</div>`;
+  const strip = (s) => `<div class="lx-strip">${[...s].map((c) => `<i class="${c === '.' ? '' : c}"></i>`).join('')}</div>`;
+  const tocRows = [
+    ['56%', '..w.w..'], ['64%', '.ww.r.w'], ['70%', '..www.rw.'], ['40%', '.w.rr.e.rw'], ['58%', '..w.r.r'], ['48%', '.c'],
+  ].map(([w, s], i) => `<div class="t${st.tr && i === 2 ? ' open' : ''}"><div class="sk-row">${sk('28px')}${sk(w)}</div>${strip(s)}</div>`).join('');
+  return `<aside class="lx" aria-label="右ペイン（live-explainer の担当）">
+    <div class="lx-tag">${ic('layers')}live-explainer の担当<small>中身・並び・幅・開閉は live-explainer の設計が決める。ここでは枠だけ</small></div>
+    <div class="lx-sec"><div class="lx-k"><i>1</i>状態の灯</div>${row(`<span class="dot" data-s="${lamp}"></span>`, '40%', '60px')}</div>
+    <div class="lx-sec"><div class="lx-k"><i>2</i>意図</div><div class="lx-intent">${sk('92%')}${sk('64%')}</div></div>
+    <div class="lx-sec"><div class="lx-k"><i>3</i>指揮役の手</div>${row('<span class="dot"></span>', '70%', '30px')}${row('<span class="dot"></span>', '55%', '30px')}${row('<span class="dot"></span>', '62%', '30px')}${row(`<span class="dot" data-s="busy"></span>`, '48%', '30px')}</div>
+    <div class="lx-sec"><div class="lx-k"><i>4</i>サブエージェント</div>${row(`<span class="dot" data-s="busy"></span>`, '58%', '44px')}${row(`<span class="dot" data-s="busy"></span>`, '46%', '44px')}${row('<span class="dot" data-s="idle"></span>', '52%', '44px')}</div>
+    <div class="lx-sec"><div class="lx-k"><i>5</i>触っている層</div><div class="lx-tiles"><span class="w now"></span><span class="w"></span><span></span><span class="w"></span><span></span><span></span><span></span><span></span></div></div>
+    <div class="lx-sec"><div class="lx-k"><i>6</i>作業の居場所</div><div class="lx-rail"><b class="on"></b><b class="on"></b><b></b><b></b></div></div>
+    <div class="lx-sec grow"><div class="lx-k"><i>7</i>目次（押すと左のターミナルもそのターンへ）</div><div class="lx-toc">${tocRows}</div></div>
+  </aside>`;
+}
+
+const PANE_W = 340;
+function runningMain(st, o) {
+  return `${sessionHeadHTML(st, o)}${underHTML(st, o)}${tabsHTML(st, o, PANE_W)}<div class="work" style="grid-template-columns:minmax(0,1fr) ${PANE_W}px">${termHTML(st, o)}${explainerHTML(st)}</div>`;
+}
+
+/* ---- 終わった画面 ---- */
+function transcriptSheet(o) {
+  const status = o.B === 'B4' ? `<div class="sheet-status"><span>${S.model} · ${S.effort}</span><span>コンテキスト ${S.ctx}%</span><span>${S.cost}</span><span>変更 ${S.changed}</span><span>${S.turns} ターン · ${S.tokens} トークン</span><span>開始 ${S.started}</span><span class="lk">アーティファクト 2</span><span style="margin-left:auto">${S.dir}</span></div>` : '';
+  return `<section class="sheet"><div class="toggles"><span class="tchip">${ic('brain')}思考</span><span class="tchip">${ic('file-code')}生の記録</span><span class="w-spacer"></span><span class="faint mono" style="font-size:12px">48 / 48</span><button class="btn btn-icon btn-ghost" title="右の欄を閉じる（⌘J）" aria-label="右の欄を閉じる">${ic('panel-right-close')}</button></div>
+  <div class="tr">
+    <div class="msg msg-user">パスワードの条件は 8 文字以上、英字と数字を両方</div>
+    <div class="tool">${ic('wrench')}<span class="s">Update src/lib/validators.ts</span><span class="w">12:07</span></div>
+    <div class="msg msg-assistant">8 文字以上で、英字と数字を両方含むときだけ通すようにしました。</div>
+    <div class="msg msg-user">エラー文はフォームの下にまとめず、欄ごとに出して</div>
+    <div class="tool">${ic('wrench')}<span class="s">Update src/components/LoginForm.tsx</span><span class="w">12:10</span></div>
+    <div class="tool">${ic('wrench')}<span class="s">Update src/i18n/ja.json</span><span class="w">12:11</span></div>
+    <div class="msg msg-assistant">欄ごとに出るようにしました。メールは形、パスワードは長さと文字の種類を、それぞれの欄の直下に出します。</div>
+    <div class="msg msg-user">テストも書いて</div>
+    <div class="tool">${ic('wrench')}<span class="s">Write src/components/LoginForm.test.tsx</span><span class="w">12:15</span></div>
+    <div class="tool">${ic('wrench')}<span class="s">Bash npm test -- LoginForm</span><span class="w">12:16</span></div>
+    <div class="msg msg-assistant">テストを 6 件足し、すべて通りました。
+<ul><li>メールの形が崩れているとき、メールの欄の下に文が出る</li><li>パスワードが 8 文字未満のとき、パスワードの欄の下に文が出る</li><li>両方正しいときは送信ボタンが押せる</li></ul></div>
+    <div class="msg msg-user">OK、コミットして</div>
+    <div class="tool">${ic('wrench')}<span class="s">Bash git add -A &amp;&amp; git commit -m "feat(login): validate fields"</span><span class="w">12:24</span></div>
+    <div class="msg msg-assistant">コミットしました（<code>a1b2c3d</code>）。
+<ul><li>入れたのは <code>LoginForm.tsx</code>、<code>LoginForm.test.tsx</code>、<code>validators.ts</code>、<code>ja.json</code> の 4 つです。</li><li>push はまだです。</li></ul></div>
+    <div class="msg-system">/exit</div>
+  </div>${status}</section>`;
+}
+function summaryPanel(o, { head = true } = {}) {
+  const sub = o.C === 'C2' ? `<div class="sum-sub">「${S.sumTitle}」</div>` : '';
+  return `<div class="rail-panel">${head ? `<h4>要約<span class="n">やりかけ · 6 ターン時点</span><button class="btn btn-sm btn-ghost act">${ic('refresh-cw')}作り直す</button></h4>` : ''}${sub}<p class="sum-body">ログインフォームにメールとパスワードの入力チェックを足し、エラー文を欄ごとに日本語で出すようにした。テストを 6 件足して通し、コミットまで済んでいる。</p><div class="faint" style="font-size:12px;margin-bottom:4px">次にやること</div><ul class="sum-next"><li>push して PR を作る</li><li>パスワードの条件を設定で変えられるようにするか決める</li></ul><div class="sum-src">出所 要約器 · haiku 4.5 · 12 分前</div></div>`;
+}
+function todoPanel() {
+  return `<div class="rail-panel"><h4>TODO<span class="n">3</span></h4>
+    <div class="todo done"><span class="todo-check">${ic('check')}</span><span class="t">エラー文を日本語にそろえる</span></div>
+    <div class="todo-cand"><div class="todo"><span class="todo-check"></span><span class="t">テストを足す</span></div><div class="why">このセッションが「6 件足して、すべて通りました」と言っています</div><div class="acts"><button class="btn btn-sm btn-primary">確定</button><button class="btn btn-sm">却下</button></div></div>
+    <div class="todo"><span class="todo-check"></span><span class="t">push して PR を作る</span></div></div>`;
+}
+function filesPanel() {
+  const f = [['src/components/', 'LoginForm.tsx', 18, 3], ['src/components/', 'LoginForm.test.tsx', 56, 0, true], ['src/lib/', 'validators.ts', 22, 0], ['src/i18n/', 'ja.json', 7, 1]];
+  return `<div class="rail-panel"><h4>変更したファイル<span class="n">4</span></h4><div>${f.map((x) => `<div class="file">${ic(x[4] ? 'file-plus' : 'file-pen-line')}<span class="p"><span>${x[0]}</span>${x[1]}</span>${x[4] ? '<span class="new">新規</span>' : ''}<span class="add">+${x[2]}</span>${x[3] ? `<span class="del">−${x[3]}</span>` : ''}</div>`).join('')}</div></div>`;
+}
+function infoPanel(st) { return `<div class="rail-panel"><h4>このセッション</h4>${kvHTML(st)}${ARTS}</div>`; }
+function endedMain(st, o) {
+  let rail, sumcard = '';
+  const infoFirst = o.B === 'B2' ? infoPanel(st) : '';
+  if (o.E === 'E1') rail = `${infoFirst}${summaryPanel(o)}${todoPanel()}${filesPanel()}`;
+  if (o.E === 'E2') rail = `<div style="display:flex;justify-content:center;flex:none"><span class="seg">${o.B === 'B2' ? '<span>情報</span>' : ''}<span class="on">要約</span><span>TODO <span class="n">3</span></span><span>ファイル <span class="n">4</span></span></span></div>${summaryPanel(o)}`;
+  if (o.E === 'E3') {
+    const t = o.C === 'C2' ? `<span class="faint">「${S.sumTitle}」</span>` : '';
+    sumcard = `<div class="sumcard"><div class="h">${ic('sparkles')}<b>要約</b>${t}<span class="one">ログインフォームにメールとパスワードの入力チェックを足し、エラー文を欄ごとに日本語で出すようにした。テストを 6 件…</span><button class="btn btn-sm btn-ghost">詳細${ic('chevron-down')}</button></div></div>`;
+    rail = `${infoFirst}${todoPanel()}${filesPanel()}`;
+  }
+  const body = `<div class="body2" style="grid-template-columns:minmax(0,1fr) 340px"><div style="display:flex;flex-direction:column;min-height:0;min-width:0">${sumcard}${transcriptSheet(o)}</div><aside class="rail">${rail}</aside></div>`;
+  return `${sessionHeadHTML(st, o)}${underHTML(st, o)}${body}`;
+}
+
+/* ---- 今の main（SessionScreen.tsx の並びの写し） ---- */
+function nowMain(h) {
+  const st = STATES.now;
+  const btns = [['square-terminal', 'ターミナルで開く'], ['square', '停止'], ['rotate-ccw', '再開', true], ['git-fork', 'フォーク', true], ['code', 'VS Code で開く']].map(([i, l, d]) => `<button class="btn"${d ? ' disabled' : ''}>${ic(i)}${l}</button>`).join('');
+  const turns = TURNS.map((t) => `<div class="turn-row"><span class="turn-when">${t[0]}</span><span class="turn-text">${t[1]}</span></div>`).join('');
+  return `<div class="page-head"><div class="page-parent"><a>${S.project}</a><span>›</span></div><div class="page-title-row"><span class="dot" data-s="idle"></span><h1 class="page-title hl">${S.name}</h1><span class="one">${S.one}</span>${btns}</div></div>
+  <div class="now-chips"><span class="chip">休み 13 分</span><span class="chip" style="color:var(--accent)">${S.project}</span><span class="chip mono">${S.model} · ${S.effort}</span><span class="chip"><span class="faint">コンテキスト</span>${ctxBar()}</span><span class="chip mono">${S.cost}</span><span class="chip">変更 ${S.changed}</span></div>
+  <div class="now-facts"><span>${S.dir}</span><span>${S.turns} ターン</span><span>${S.tokens} トークン</span><span>開始 ${S.started}</span><span>最終 ${S.last}</span><span>起動 tmux 24 分前</span></div>
+  <div class="now-sum"><b class="hl">${S.sumTitle}</b><span class="faint">やりかけ</span><span class="w-spacer"></span><button class="btn">要約を作り直す</button><button class="btn">詳細</button></div>
+  ${tabsHTML(st, {}, 0).replace('grid-template-columns:minmax(0,1fr) 0px', 'grid-template-columns:minmax(0,1fr)')}
+  <div class="now-split" style="height:${h - 250}px;grid-template-columns:minmax(0,1fr) minmax(240px,26%)">${termHTML(st, {})}<aside class="tr-pane"><div class="faint" style="font-size:12px;padding:4px 0 6px">${ic('panel-right-close')} 目次 ${TURNS.length}</div>${turns}</aside></div>`;
+}
+
+/* ---- ホーム（検索欄の位置を比べるための写し） ---- */
+function homeMain() {
+  const live = [['busy', 'ログイン画面のバリデーション', 'shop-web · opus 5.5', 'Bash npm test -- LoginForm', '3 分'], ['idle', '請求書の PDF 出力', 'billing-api · sonnet 5', 'Edit src/pdf/render.ts', '18 分'], ['busy', '検索の並び順を見直す', 'shop-web · opus 5.5', 'Read src/search/rank.ts', '6 分']];
+  const recent = [['商品一覧の無限スクロール', 'shop-web', '1 時間前'], ['CSV の取り込みで文字化けする件', 'billing-api', '3 時間前'], ['README の手順を今の CLI に合わせる', 'docs-site', '昨日'], ['在庫の数が負になる不具合', 'shop-web', '昨日']];
+  const projects = [['shop-web', '実行中 2 · TODO 5'], ['billing-api', '実行中 1 · TODO 2'], ['docs-site', 'TODO 1']];
+  return `<div class="page-head"><div class="page-parent"></div><div class="page-title-row"><h1 class="page-title">ホーム</h1></div></div>
+    <h2 class="home-label">要対応<span class="home-count">1</span></h2>
+    <div class="ask-card"><span class="dot" data-s="waiting"></span><div class="body"><div><b>配送先の住所の検証</b> <span class="faint">· shop-web · 5 分待っている</span></div><div class="q">郵便番号の欄は 7 桁の数字だけを受け付けてよいですか？</div></div><button class="btn btn-primary">答える</button></div>
+    <h2 class="home-label">実行中<span class="home-count">3</span></h2>
+    <div class="live-grid">${live.map(([s, n, m, a, e]) => `<div class="live-card"><div class="h"><span class="dot" data-s="${s}"></span>${n}<span class="e">${e}</span></div><div class="m">${m}</div><div class="a">${a}</div></div>`).join('')}</div>
+    <div class="home-two"><section><h2 class="home-label">最近</h2><div class="hlist">${recent.map(([n, p, t]) => `<div class="hrow"><span class="dot"></span><span class="mm"><b>${n}</b><span>${p}</span></span><time>${t}</time></div>`).join('')}</div></section>
+    <section><h2 class="home-label">プロジェクト</h2><div class="hlist">${projects.map(([n, c]) => `<div class="prow"><span class="dot" data-s="idle"></span><b>${n}</b><span>${c}</span></div>`).join('')}</div></section></div>`;
+}
+
+/** 1 枚の窓。win = { page: 'home' | 'session', w, h, rail, guide } */
+function screenHTML(stKey, o, extra = {}, win = {}) {
+  const w = win.w || 1440, h = win.h || 900, rail = !!win.rail, guide = !!win.guide;
+  if (win.page === 'home') {
+    return winHTML({ w, h, rail, current: 'home', capped: true, main: homeMain(), guide, ghost: { left: geom({ w, rail, capped: false }).left, label: 'セッション画面' } });
+  }
+  const st = STATES[stKey];
+  if (st.now) {
+    const g = geom({ w, rail, capped: true });
+    // .split の高さは calc(100vh − 250px)。上に積む分が 250px を超えるので、窓の下からはみ出す。
+    const topStack = 52 + 8 + 77 + 24 + 24 + 50 + 28;
+    const over = topStack + (h - 250) - (h - 16);
+    const mark = over > 0 ? `<div class="overflow-mark" style="left:${g.col1 + g.boxL}px;width:${g.innerW}px">ターミナルの板の下 ${over}px が窓からはみ出し、頁ごとスクロールする</div>` : '';
+    return winHTML({ w, h, rail, current: 'sessions', capped: true, main: nowMain(h), guide, extra: mark });
+  }
+  const main = st.alive ? runningMain(st, { ...o, ...extra }) : endedMain(st, { ...o, ...extra });
+  return winHTML({ w, h, rail, current: 'sessions', capped: false, main, guide, ghost: { left: geom({ w, rail, capped: true }).left, label: 'ホーム' } });
+}
+
+/* ---- 見本 ---- */
+const AXES = { A: ['A1', 'A2', 'A3', 'A4'], C: ['C1', 'C2', 'C3', 'C4'], B: ['B1', 'B2', 'B3', 'B4'], E: ['E1', 'E2', 'E3'], F: ['F1', 'F2', 'F3'] };
+const REC = { A: 'A1', C: 'C1', B: 'B1', E: 'E1', F: 'F1' };
+const view = { page: 'session', state: 'busy', w: 1440, rail: false, guide: true, A: 'A1', C: 'C1', B: 'B1', E: 'E1', F: 'F1', menuOpen: false };
+let cycleTimer = null;
+function opts(key, list, cur, disabled = false) { return `<span class="opts">${list.map(([v, l]) => `<button data-k="${key}" data-v="${v}" aria-pressed="${String(cur) === String(v)}"${disabled ? ' disabled' : ''}>${l}</button>`).join('')}</span>`; }
+function readoutHTML() {
+  const home = geom({ w: view.w, rail: view.rail, capped: true }).left;
+  const sess = geom({ w: view.w, rail: view.rail, capped: false }).left;
+  const d = home - sess;
+  return `<span class="readout">検索欄の左端　ホーム <b>${home}px</b> ／ セッション <b>${sess}px</b>　${d ? `<span class="d">差 ${d}px</span>` : '<span class="faint">差なし（この幅では動かない）</span>'}</span>`;
+}
+function drawCtl() {
+  const onSession = view.page === 'session';
+  const st = Object.entries(STATES).map(([k, v]) => [k, v.label]);
+  const axes = Object.entries(AXES).map(([ax, vs]) => `<span class="grp"><b>${ax}</b>${opts(ax, vs.map((v) => [v, v]), view[ax], !onSession)}</span>`).join('');
+  document.getElementById('ctl').innerHTML =
+    `<span class="grp"><b>画面</b>${opts('page', [['home', 'ホーム'], ['session', 'セッション']], view.page)}</span>`
+    + `<span class="grp"><b>状態</b>${opts('state', st, view.state, !onSession)}</span>`
+    + `<span class="hr"></span>`
+    + `<span class="grp"><b>窓の幅</b>${opts('w', [[1280, '1280'], [1440, '1440'], [1680, '1680']], view.w)}</span>`
+    + `<span class="grp"><b>サイドバー</b>${opts('rail', [['false', '開く'], ['true', '畳む']], String(view.rail))}</span>`
+    + `<button class="cyc" id="cyc" aria-pressed="${cycleTimer ? 'true' : 'false'}">${cycleTimer ? '止める' : 'ホームとセッションを交互に切り替える'}</button>`
+    + readoutHTML()
+    + `<span class="hr"></span>${axes}`
+    + `<label class="sw"><input type="checkbox" id="optMenu" ${view.menuOpen ? 'checked' : ''}>「…」を開く（B3 では ⓘ）</label>`
+    + `<label class="sw"><input type="checkbox" id="optGuide" ${view.guide ? 'checked' : ''}>検索欄の左端の線</label>`;
+}
+function drawStage() {
+  const extra = { menuOpen: view.menuOpen, popOpen: view.menuOpen && view.B === 'B3' };
+  if (extra.popOpen) extra.menuOpen = false;
+  document.getElementById('stage').innerHTML = fitHTML(screenHTML(view.state, view, extra, { page: view.page, w: view.w, rail: view.rail, guide: view.guide }), view.w, 900);
+  fitAll();
+}
+document.getElementById('ctl').addEventListener('click', (e) => {
+  if (e.target.closest('#cyc')) {
+    if (cycleTimer) { clearInterval(cycleTimer); cycleTimer = null; }
+    else {
+      if (view.state === 'now') view.state = 'busy';
+      cycleTimer = setInterval(() => { view.page = view.page === 'home' ? 'session' : 'home'; drawCtl(); drawStage(); }, 1300);
+    }
+    drawCtl(); return;
+  }
+  const b = e.target.closest('button[data-k]');
+  if (!b || b.disabled) return;
+  const k = b.dataset.k;
+  view[k] = k === 'w' ? Number(b.dataset.v) : k === 'rail' ? b.dataset.v === 'true' : b.dataset.v;
+  drawCtl(); drawStage();
+});
+document.getElementById('ctl').addEventListener('change', (e) => {
+  if (e.target.id === 'optMenu') view.menuOpen = e.target.checked;
+  if (e.target.id === 'optGuide') view.guide = e.target.checked;
+  drawStage();
+});
+
+/* ---- 検索欄の位置 ---- */
+function buildPos() {
+  const o = { ...REC };
+  document.getElementById('posGrid').innerHTML =
+    `<div><p class="cap"><b>ホーム</b>（上限 1200px のまま）· 1680px · 開いた帯</p>${fitHTML(screenHTML('busy', o, {}, { page: 'home', w: 1680, guide: true }), 1680, 230)}</div>`
+    + `<div><p class="cap"><b>セッション</b>（上限を外す）· 1680px · 開いた帯</p>${fitHTML(screenHTML('busy', o, {}, { page: 'session', w: 1680, guide: true }), 1680, 230)}</div>`;
+  const rows = [];
+  for (const rail of [false, true]) for (const w of [1280, 1440, 1680, 1920]) {
+    const a = geom({ w, rail, capped: true }).left, b = geom({ w, rail, capped: false }).left;
+    rows.push(`<tr><td>${rail ? '畳んだ帯' : '開いた帯'}</td><td class="num">${w}px</td><td class="num">${a}px</td><td class="num">${b}px</td><td class="${a - b ? 'diff' : 'num'}">${a - b ? `${a - b}px` : '0'}</td></tr>`);
+  }
+  document.getElementById('posTbl').innerHTML = `<tr><th>サイドバー</th><th>窓の幅</th><th>ホームなど（検索欄の左端）</th><th>セッション画面</th><th>動く幅</th></tr>${rows.join('')}`;
+}
+
+/* ---- 軸ごとの案 ---- */
+const base = { ...REC };
+const crop = (html, h) => fitHTML(html, 1440, h);
+const DESC = {
+  A1: ['主ボタン 1 つと「…」', 'おすすめ', '見出しの行の右端に、状態に合う操作を 1 つだけ主ボタンで置き、残りは「…」のメニューへ。無効の項目はメニューの中で灰色にし、理由を 1 行添える。線の上がいちばん静かで、要約の 1 文に幅が残る。'],
+  A2: ['主ボタンとアイコン 2 つ', '', '主ボタンの隣に、その状態でよく使う 2 つをアイコンだけで置く。無効のアイコンは乗せると吹き出しで理由を出す。「…」には残りを入れる。'],
+  A3: ['分割ボタン', '', '主の操作と ▾ を 1 つの錠剤にまとめる。▾ から残りを開く。ボタンの塊が 1 つになり、右端がそろう。'],
+  A4: ['状態の文に主操作を添える', '', '「作業中 3 分 · Bash npm test [VS Code で開く]」のように、いまの状態と理由を文で言い、末尾に主の操作を置く。入力待ちでは「ターミナルで答える」になる。状態は文で言うので、線の下の 1 行（B1）からは状態を外す。要約の 1 文の幅は狭くなる。'],
+  C1: ['見出しに一本化', 'おすすめ', '名前は見出しにだけ出す。要約の欄は「要約」の見出しと本文だけにし、要約の題は出さない。要約の 1 文は名前の右に続ける（今の main と同じ並び）。'],
+  C2: ['題は違うときだけ薄く', '', '要約の題が名前と違う言い回しのときだけ、終わった画面の要約の欄に薄い副題で添える（同じなら出さない）。実行中は要約の欄が無いので、見た目は C1 と同じ。'],
+  C3: ['見出しの行は名前だけ', '', '要約の 1 文を線の下の 1 行目へ移し、線の上を「点・名前・操作」だけにする。長い名前が切れにくく、操作の前に余白ができる。線の下が 1 行増える。'],
+  C4: ['2 段の見出し', '', '名前の下に要約の 1 文を小さく置く。1 文が切れずに読める。見出しの行が 46px になり、線がほかの画面より 18px 下がる（page-heading の「線の高さをそろえる」とぶつかる）。'],
+  B1: ['線の下に 1 行', 'おすすめ', '線の下に 24px の 1 行を置き、状態と経過、モデル、コンテキスト、コスト、変更、ターン、開始、アーティファクト（押すと一覧）、作業ディレクトリを区切りで並べる。狭いと作業ディレクトリから省く。今の main のチップの列と細かな事実を 1 行にしたもの。'],
+  B2: ['終わった画面は右欄の先頭', '終わった画面だけ', '終わった画面では、右欄の 1 枚目に「このセッション」の節として置く。実行中の右ペインは live-explainer のものなので、実行中は B1 と同じ 1 行になる。'],
+  B3: ['ポップオーバー', '', '見出しの行にはコンテキストの輪とコストだけを残し、残りは ⓘ を押すと開くガラスの板に入れる。線の下には何も置かない。ふだんは見えない。'],
+  B4: ['ターミナルの下端のステータスライン', '', 'VS Code の下端のように、ターミナルの板の下に 24px の帯を足して等幅で並べる。終わった画面では本文の面の下端に同じ帯を置く。線の下には何も置かない。'],
+  E1: ['右欄に積む', 'おすすめ', '要約、TODO、変更したファイルを 340px の右欄に縦に積む。全部が一度に見える。'],
+  E2: ['右欄をタブで切り替える', '', '右欄の上に「要約 / TODO / ファイル」の切り替えを置き、1 つずつ見せる。項目が長くても右欄に収まる。'],
+  E3: ['要約は本文の上、右欄は TODO とファイル', '', '要約は本文の上に 1 行で畳み、「詳細」で広げる。右欄は手を動かすもの（TODO と変更したファイル）だけにする。'],
+  F1: ['中央のカードと全幅の帯', 'おすすめ', '切断ではターミナルを暗く沈め、中央に白いカード（理由、自動で試すまでの秒数、再接続）。transcript ではターミナルの上端に杏の地の帯を差し込み、右端に「最新へ戻る（esc）」。'],
+  F2: ['浮く錠剤', '', '切断では中央に小さなガラスの錠剤、transcript ではターミナルの上に浮くガラスの錠剤。ターミナルの行を押し下げない。'],
+  F3: ['タブの行に寄せる', '', '知らせの文とボタンはタブの行の右端（横に並べるの手前）に出し、ターミナルの中は最小限（切断は大きな再接続ボタンだけ、transcript は上端の杏の線）にする。'],
+};
+function picks(ax, id, stage) { const d = DESC[id]; return pickHTML({ group: ax, id, title: d[0], tag: d[1], desc: d[2], stage }); }
+const two = (a, b) => `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start">${a}${b}</div>`;
+
+function buildAxes() {
+  document.getElementById('picksA').innerHTML = AXES.A.map((id) => {
+    const o = { ...base, A: id };
+    const s1 = crop(screenHTML('busy', o), 180);
+    const s2 = crop(screenHTML(id === 'A2' ? 'busy' : 'remote', o, { menuOpen: id !== 'A2', tipOpen: id === 'A2' }), 330);
+    return picks('A', id, `${s1}<div style="height:12px"></div>${s2}`);
+  }).join('');
+  document.getElementById('picksC').innerHTML = AXES.C.map((id) => {
+    const o = { ...base, C: id };
+    return picks('C', id, two(`<div><p class="cap">作業中（見出しの段）</p>${crop(screenHTML('busy', o), 200)}</div>`, `<div><p class="cap">終わった画面</p>${fitHTML(screenHTML('ended', o))}</div>`));
+  }).join('');
+  document.getElementById('picksB').innerHTML = AXES.B.map((id) => picks('B', id, `${fitHTML(screenHTML('busy', { ...base, B: id }, { popOpen: id === 'B3' }))}<div style="height:12px"></div>${fitHTML(screenHTML('ended', { ...base, B: id }))}`)).join('');
+  document.getElementById('picksE').innerHTML = AXES.E.map((id) => picks('E', id, fitHTML(screenHTML('ended', { ...base, E: id })))).join('');
+  document.getElementById('picksF').innerHTML = AXES.F.map((id) => picks('F', id, two(fitHTML(screenHTML('offline', { ...base, F: id })), fitHTML(screenHTML('transcript', { ...base, F: id }))))).join('');
+}
+
+buildPos();
+buildAxes();
+document.addEventListener('picks', (e) => {
+  const c = e.detail;
+  for (const ax of Object.keys(AXES)) view[ax] = c[ax] || REC[ax];
+  drawCtl(); drawStage();
+});
+setupPicks('hangar-proto-session-layout-v2');
+fitAll();
+</script>
+</body>
+</html>

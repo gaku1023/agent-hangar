@@ -9,8 +9,10 @@ import './styles/split.css';
 import './styles/rows.css';
 import './styles/home.css';
 import './styles/session.css';
+import './styles/transcript.css';
 import './styles/palette.css';
 import './styles/settings.css';
+import './styles/readiness.css';
 import './styles/sync.css';
 import './styles/controls.css';
 import { Root } from './Root.tsx';
@@ -18,17 +20,15 @@ import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
 import { createHashLocation } from './runtime/hashLocation.ts';
 import { createRuntime } from './runtime/runtime.ts';
-import { createTerminalHost } from './runtime/terminals.ts';
+import { createDesktopBridge } from './runtime/desktop.ts';
+import { FONT_SIZE_KEY, createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
 import { createXterm } from './runtime/xterm.ts';
-import { focusSoon } from './runtime/focusSoon.ts';
+import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { clickThrough } from './runtime/clickThrough.ts';
 import { createPresent } from './runtime/present.ts';
 import { FILE_DROP_EVENT, handleFileDrop } from './runtime/fileDrop.ts';
-
-// フォーカスの対象と、それを持つ要素の id の対応。
-// ターミナルは DOM の id では掴めないので、TerminalHost が別に受け持つ。
-const FOCUS_IDS = { search: 'global-search', newSessionName: 'new-session-name', palette: 'palette-input', promoteName: 'promote-name', todoInput: 'todo-input' } as const;
+import { pickNotifier, type BrowserEnv, type DesktopEnv } from './runtime/notifier.ts';
 
 // 鍵付きの URL で開かれたときは、サーバがもうクッキーを配り終えている。
 // 履歴に鍵を残さないよう、ここで URL から消す。ハッシュの経路は残す。
@@ -38,7 +38,12 @@ const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const api = createApi();
 // ターミナルの接続は React の外で持つ。
 // 画面を行き来してもバッファとスクロール位置が残る。
-const terminals = createTerminalHost({ wsUrl: (tab) => `${wsProto}://${location.host}/ws/pty?tab=${encodeURIComponent(tab)}`, createTerminal: createXterm });
+// 文字の大きさは端末ごとの一時の好みなので、この端末の localStorage に置き、同期しない。読み書きの失敗は TerminalHost が吸う。
+const terminals = createTerminalHost({
+  wsUrl: (tab) => `${wsProto}://${location.host}/ws/pty?tab=${encodeURIComponent(tab)}`,
+  createTerminal: createXterm,
+  fontSize: { load: () => JSON.parse(localStorage.getItem(FONT_SIZE_KEY) ?? 'null'), save: (px) => localStorage.setItem(FONT_SIZE_KEY, JSON.stringify(px)) },
+});
 // Hangar.app に落としたファイルは、落とした位置の端末にパスとして渡す。
 window.addEventListener(FILE_DROP_EVENT, (e) => { handleFileDrop((e as CustomEvent).detail, { hit: (x, y) => document.elementFromPoint(x, y), paste: terminals.paste, focus: terminals.focus }); });
 // 直前に押した要素。行を開いたときに、どの行から広げるかを決めるのに使う。
@@ -88,6 +93,11 @@ const runtime = createRuntime({
   // 窓に戻ってきたら他端末の変更を引く。間引きはサーバ側で行う。
   onWindowFocus: (cb) => { window.addEventListener('focus', cb); return () => window.removeEventListener('focus', cb); },
   present,
+  // 入力待ちを窓の外へ知らせる。
+  // デスクトップの殻では macOS の通知と Dock のバッジ、ブラウザでは Web Notification を使う。
+  notifier: pickNotifier(window as unknown as Partial<DesktopEnv> & BrowserEnv),
+  // デスクトップの殻の中なら、ログを開くと再起動を殻に頼める。ブラウザでは null になる。
+  desktop: createDesktopBridge(window),
 });
 runtime.start();
 createRoot(document.getElementById('root')!).render(<Root runtime={runtime} api={api} terminals={terminals} />);

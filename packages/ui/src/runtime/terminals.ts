@@ -3,8 +3,27 @@ export type TerminalLike = { cols: number; rows: number; element: HTMLElement | 
   /** WebGL の描画を付け外しする。外すと DOM の描画に戻る。open のあとにだけ呼ぶ。 */
   setGpu(on: boolean): void;
   /** 貼り付けとして送る。xterm は括弧付き貼り付けが有効なら括弧で包む。 */
-  paste(text: string): void };
-export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, text: string): void; disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void; subscribe(cb: () => void): () => void; dispose(): void };
+  paste(text: string): void;
+  /** 文字の大きさ（px）を変える。合わせ直しは呼び手が fit で行う。 */
+  setFontSize(px: number): void };
+export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, text: string): void; disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void;
+  /** 全部の端末の文字を 1px ずつ大きく、小さく、または既定に戻す。 */
+  zoom(step: 'in' | 'out' | 'reset'): void;
+  /** いまの文字の大きさ（px）。 */
+  fontSize(): number;
+  subscribe(cb: () => void): () => void; dispose(): void };
+
+/** 端末の文字の大きさを覚えておく localStorage の鍵。値は px の数そのもの。 */
+export const FONT_SIZE_KEY = 'terminal.fontSize';
+
+/** 端末の文字の大きさ（px）。既定と、⌘+ と ⌘− で動ける範囲。 */
+export const FONT_SIZE = { default: 13, min: 8, max: 32 } as const;
+
+/** 覚えておいた値を範囲に収める。数でなければ既定に戻す。 */
+function clampFontSize(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return FONT_SIZE.default;
+  return Math.min(FONT_SIZE.max, Math.max(FONT_SIZE.min, Math.round(v)));
+}
 
 type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[] };
 
@@ -12,8 +31,12 @@ type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus;
  * タブごとの xterm と WebSocket を React の外で持つ。
  * xterm とバッファとスクロール位置は残したまま、run の終了とタブを閉じたときとセッション画面を離れたときに接続を切る。
  */
-export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; createTerminal: () => TerminalLike; wsFactory?: (url: string) => WebSocket }): TerminalHost {
+export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; createTerminal: () => TerminalLike; wsFactory?: (url: string) => WebSocket;
+  /** 文字の大きさを覚えておく先。読めなくても書けなくても、大きさはその場では変わる。 */
+  fontSize?: { load(): unknown; save(px: number): void } }): TerminalHost {
   const entries = new Map<string, Entry>();
+  let fontSize: number = FONT_SIZE.default;
+  try { fontSize = clampFontSize(deps.fontSize?.load() ?? FONT_SIZE.default); } catch { /* 読めなければ既定のまま */ }
   const listeners = new Set<() => void>();
   /**
    * mount の前に来た focus。open していない xterm には入力欄がなく、画面を離れて枠ごと外れた xterm の入力欄に当てても効かないので、mount のあとに当て直す。
@@ -23,7 +46,12 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
   const setStatus = (e: Entry, s: TerminalStatus) => { if (e.status !== s) { e.status = s; notify(); } };
   const ensure = (tabId: string): Entry => {
     let e = entries.get(tabId);
-    if (!e) { e = { term: deps.createTerminal(), ws: null, status: 'closed', opened: false, subs: [] }; entries.set(tabId, e); }
+    if (!e) {
+      const term = deps.createTerminal();
+      term.setFontSize(fontSize);
+      e = { term, ws: null, status: 'closed', opened: false, subs: [] };
+      entries.set(tabId, e);
+    }
     return e;
   };
   const send = (e: Entry, m: unknown) => { if (e.ws && e.ws.readyState === 1) e.ws.send(JSON.stringify(m)); };
@@ -74,6 +102,15 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       const e = entries.get(tabId);
       if (e?.opened) e.term.paste(text);
     },
+    zoom(step) {
+      const next = step === 'reset' ? FONT_SIZE.default : clampFontSize(fontSize + (step === 'in' ? 1 : -1));
+      if (next === fontSize) return;
+      fontSize = next;
+      // 隠れたタブの端末にも効かせる。寸法の合わせ直しは、開いていない端末では mount のときに行われる。
+      for (const e of entries.values()) { e.term.setFontSize(next); if (e.opened) e.term.fit(); }
+      try { deps.fontSize?.save(next); } catch { /* 覚えられなくても、いまの画面には効いている */ }
+    },
+    fontSize: () => fontSize,
     status: (tabId) => entries.get(tabId)?.status ?? null,
     fit: (tabId) => entries.get(tabId)?.term.fit(),
     focus(tabId) {

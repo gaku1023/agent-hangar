@@ -246,8 +246,8 @@ export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Recor
   const scope = projectScope(deps, ctx, args);
   // プロジェクトに属していないセッションの URL では、横断の検索を渡さない。
   if (scope === null) throw new ToolError(NO_PROJECT);
-  const runningIds = new Set(deps.live().map((l) => l.sessionId));
-  const r = searchSessions(deps.db, { q, projectId: scope ?? str(args.project_id), since: num(args.since), until: num(args.until), file: str(args.file), limit: num(args.limit) }, runningIds);
+  // 状態では絞らないので、状態を返す関数は渡さない。
+  const r = searchSessions(deps.db, { q, projectId: scope ?? str(args.project_id), since: num(args.since), until: num(args.until), file: str(args.file), limit: num(args.limit) });
   const hits = r.hits.map((h) => {
     const s = getSession(deps.db, deps.live(), h.sessionId, { deviceId: deps.deviceId });
     return {

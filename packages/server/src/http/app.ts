@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
+import { checkToolPath, expandHome, isCommandName } from '../config/readiness.ts';
 import { RetentionConflictError, RetentionUnwritableError } from '../config/retention.ts';
 import { statuslineStatus } from '../config/statusline.ts';
 import type { Db } from '../db/open.ts';
@@ -96,6 +97,11 @@ export type AppDeps = {
   shellHook: () => ShellHookDto;
   /** Claude Code の保持期間。書き込みは cleanupPeriodDays の 1 か所だけで、原則「読み取り専用」の 4 つめの例外である。 */
   retention: { current(): RetentionDto; preview(days: number): RetentionPreviewDto; write(days: number, baseSha256: string): RetentionDto };
+  /**
+   * 準備の確かめ（ツールのパスと版、ワークスペース、MCP の登録、statusline の追記）。
+   * 設定画面の検証と、空のホームの確認リストが同じものを読む。読むだけで、何も書き換えない。
+   */
+  readiness: () => Promise<ReadinessDto>;
   uiDist?: string;
 };
 
@@ -106,6 +112,18 @@ const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
 const PATH_SETTING_KEYS = ['tmuxPath', 'codePath', 'nodePath', 'claudePath'] as const;
 const TERMINAL_APPS = new Set<string>(['terminal', 'iterm']);
+/**
+ * 「1 時間の上限」の上限。
+ * 画面の入力（SettingsScreen の Stepper）と同じにする。
+ */
+const SUMMARY_HOURLY_CAP_MAX = 200;
+/**
+ * 設定の項目の、画面の欄の見出し。
+ * エラー文は画面のトーストに出るので、内部のキー名ではなくこの見出しで言う。
+ */
+const SETTING_LABEL: Record<(typeof TEXT_SETTING_KEYS)[number] | (typeof PATH_SETTING_KEYS)[number], string> = {
+  workspaceRoot: 'ワークスペースのルート', claudeDir: '読み取り元', tmuxPath: 'tmux のパス', codePath: 'code のパス', nodePath: 'Node のパス', claudePath: 'claude のパス',
+};
 /**
  * 本文の大きさの上限。かならずバイト数で測る。
  * 文字数で測ると、日本語は 1 文字 3 バイトなので上限の 3 倍まで通ってしまう。
@@ -149,7 +167,7 @@ const ENTRY_NOTICE_HTML = `<!doctype html>
 <main>
 <h1>認証できていません</h1>
 <p><code>hangar start</code> が印字した鍵付きの URL から開いてください。</p>
-<p>その URL は、端末で <code>hangar url</code> を実行すれば何度でも出せます。</p>
+<p>その URL は、ターミナルで <code>hangar url</code> を実行すれば何度でも出せます。</p>
 <p>一度そこから開けば、このブラウザには鍵が残ります。次からはブックマークでそのまま開けます。</p>
 </main>
 </body>
@@ -390,9 +408,13 @@ export function createApp(deps: AppDeps): Hono {
 
   api.get('/search', (c) => {
     const q = c.req.query();
-    const running = q.running === undefined ? undefined : q.running === 'true';
-    const runningIds = new Set(deps.live().map((l) => l.sessionId));
-    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), running, file: q.file || undefined, limit: numberOr(q.limit) }, runningIds));
+    const live = q.live === 'running' || q.live === 'waiting' || q.live === 'ended' ? q.live : undefined;
+    // 数え方は UI と同じ liveFilterOf に任せる。
+    // Claude の一覧に載る前の run も実行中に入れる。
+    const status = new Map(deps.live().map((l) => [l.sessionId, l.status]));
+    const alive = new Set(deps.runs.listAlive().runs.filter((r) => r.endedAt === null).map((r) => r.sessionId));
+    const liveOf = (sid: string, psid: string) => liveFilterOf(status.get(psid) ?? null, alive.has(sid));
+    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset) }, liveOf));
   });
 
   api.get('/settings', (c) => c.json(toSettingsDto(deps.settings())));
@@ -438,20 +460,42 @@ export function createApp(deps: AppDeps): Hono {
     for (const key of TEXT_SETTING_KEYS) {
       if (!(key in body)) continue;
       const v = body[key];
-      if (typeof v !== 'string' || v.trim() === '') return c.json({ error: `${key} は空にできません` }, 400);
+      if (typeof v !== 'string' || v.trim() === '') return c.json({ error: `「${SETTING_LABEL[key]}」は空にできません` }, 400);
       patch[key] = v;
+    }
+    // ワークスペースは、保存する前にディレクトリがあることを確かめる。
+    // 無いところを保存すると、プロジェクトが 1 つも登録されないまま、何が悪いのかが画面から読めない。
+    if (patch.workspaceRoot !== undefined) {
+      const root = expandHome(patch.workspaceRoot.trim());
+      const st = fs.statSync(root, { throwIfNoEntry: false });
+      if (!st) return c.json({ error: `「${SETTING_LABEL.workspaceRoot}」に ${root} が見つかりません` }, 400);
+      if (!st.isDirectory()) return c.json({ error: `「${SETTING_LABEL.workspaceRoot}」の ${root} はディレクトリではありません` }, 400);
+      patch.workspaceRoot = root;
     }
     for (const key of PATH_SETTING_KEYS) {
       if (!(key in body)) continue;
       const v = body[key];
-      if (v !== null && typeof v !== 'string') return c.json({ error: `${key} は文字列か null です` }, 400);
+      if (v !== null && typeof v !== 'string') return c.json({ error: `「${SETTING_LABEL[key]}」の値の形が違います` }, 400);
       // 空文字は「未設定」と同じ意味なので null に寄せる。
       // 前後の空白は落とす。空白付きのままでは、そのパスで起動できない。
-      patch[key] = typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
+      if (typeof v !== 'string' || v.trim() === '') { patch[key] = null; continue; }
+      // 保存する前に、あることと実行できることを確かめる。
+      // 動かないパスを保存すると、起動や要約が後になって、別の場所で失敗する。
+      // 名前だけ（tmux など）は PATH から探して確かめ、打たれたまま保存する。起動のときも子プロセスが PATH から探すからである。
+      // ./x や bin/x のような相対パスは、サーバの作業ディレクトリで読むとどこを指すかが分からないので弾く。
+      const raw = v.trim();
+      const name = isCommandName(raw);
+      if (!name && !path.isAbsolute(expandHome(raw))) return c.json({ error: `「${SETTING_LABEL[key]}」は / か ~ で始まるパスか、tmux のようなコマンドの名前にしてください` }, 400);
+      const t = checkToolPath(raw);
+      if (t.problem === 'missing') return c.json({ error: name ? `「${SETTING_LABEL[key]}」の ${raw} が PATH に見つかりません` : `「${SETTING_LABEL[key]}」に ${t.path} が見つかりません` }, 400);
+      if (t.problem === 'notFile') return c.json({ error: `「${SETTING_LABEL[key]}」の ${t.path} はファイルではありません` }, 400);
+      if (t.problem === 'notExecutable') return c.json({ error: `「${SETTING_LABEL[key]}」の ${t.path} には実行権がありません` }, 400);
+      // パスは ~ を直した値で保存する（起動するときに ~ は直されない）。名前は打たれたまま残す。
+      patch[key] = name ? raw : t.path;
     }
     if ('terminalApp' in body) {
       const v = body.terminalApp;
-      if (typeof v !== 'string' || !TERMINAL_APPS.has(v)) return c.json({ error: 'terminalApp は terminal か iterm です' }, 400);
+      if (typeof v !== 'string' || !TERMINAL_APPS.has(v)) return c.json({ error: '「ターミナルアプリ」は Terminal.app か iTerm2 から選んでください' }, 400);
       patch.terminalApp = v as TerminalApp;
     }
     if ('lmStudioUrl' in body) {
@@ -459,37 +503,37 @@ export function createApp(deps: AppDeps): Hono {
       // 落とさないと、貼り付けで空白が混ざった値がそのまま設定に残る。
       const v = typeof body.lmStudioUrl === 'string' ? body.lmStudioUrl.trim() : body.lmStudioUrl;
       // host の無い http:// は繋ぎ先にならないので、形だけでなく URL として読めることを確かめる。
-      if (typeof v !== 'string' || !parseHttpUrl(v)) return c.json({ error: 'lmStudioUrl は http か https の URL です' }, 400);
+      if (typeof v !== 'string' || !parseHttpUrl(v)) return c.json({ error: '「LM Studio の URL」は http か https で始まる URL にしてください' }, 400);
       // 末尾の / は付けない。呼び出し側が /v1/... を足すので、二重の / を作らない。
       patch.lmStudioUrl = v.replace(/\/+$/, '');
     }
     if ('lmStudioModel' in body) {
       const v = body.lmStudioModel;
-      if (v !== null && typeof v !== 'string') return c.json({ error: 'lmStudioModel は文字列か null です' }, 400);
+      if (v !== null && typeof v !== 'string') return c.json({ error: '「モデル」の値の形が違います' }, 400);
       // 空文字と空白だけの文字列は「未設定」と同じ意味なので null に寄せる。
       // 前後の空白は落とす。パス系の設定と同じ扱いにそろえる。
       patch.lmStudioModel = typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
     }
     if ('summaryFallback' in body) {
       const v = body.summaryFallback;
-      if (typeof v !== 'boolean') return c.json({ error: 'summaryFallback は true か false です' }, 400);
+      if (typeof v !== 'boolean') return c.json({ error: '「LM Studio が使えないとき Claude へ切り替える」の値の形が違います' }, 400);
       patch.summaryFallback = v;
     }
     if ('summaryHourlyCap' in body) {
       const v = body.summaryHourlyCap;
-      if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) return c.json({ error: 'summaryHourlyCap は 1 以上の整数です' }, 400);
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > SUMMARY_HOURLY_CAP_MAX) return c.json({ error: `「1 時間の上限」は 1 から ${SUMMARY_HOURLY_CAP_MAX} までの整数にしてください` }, 400);
       patch.summaryHourlyCap = v;
     }
     if ('allowExternalSummarizer' in body) {
       const v = body.allowExternalSummarizer;
-      if (typeof v !== 'boolean') return c.json({ error: 'allowExternalSummarizer は true か false です' }, 400);
+      if (typeof v !== 'boolean') return c.json({ error: '「外部の要約器を許す」の値の形が違います' }, 400);
       patch.allowExternalSummarizer = v;
     }
     // Claude Code 設定の同期の入り切り。UI のチェックはこの項目だけを送る。
     // ここが無いと patch が空になり、切り替えが「更新できる設定が含まれていません」で弾かれる。
     if ('syncClaudeConfig' in body) {
       const v = body.syncClaudeConfig;
-      if (typeof v !== 'boolean') return c.json({ error: 'syncClaudeConfig は true か false です' }, 400);
+      if (typeof v !== 'boolean') return c.json({ error: '「Claude Code の設定を同期する」の値の形が違います' }, 400);
       patch.syncClaudeConfig = v;
     }
     if (Object.keys(patch).length === 0) return c.json({ error: '更新できる設定が含まれていません' }, 400);
@@ -499,7 +543,7 @@ export function createApp(deps: AppDeps): Hono {
     const allowExternal = patch.allowExternalSummarizer ?? cur.allowExternalSummarizer;
     const nextLmUrl = patch.lmStudioUrl ?? cur.lmStudioUrl;
     if (!allowExternal && !isLoopbackSummarizerUrl(nextLmUrl)) {
-      return c.json({ error: '要約器の宛先は 127.0.0.1 か localhost だけです。会話の本文が送られるため、外部の要約器は Settings で明示的に許してから指定してください' }, 400);
+      return c.json({ error: '要約器の宛先は 127.0.0.1 か localhost だけです。会話の本文が送られるため、ほかの宛先は、設定の「外部の要約器を許す」を入れてから指定してください' }, 400);
     }
     const before = deps.settings();
     const s = deps.updateSettings(patch);
@@ -518,7 +562,7 @@ export function createApp(deps: AppDeps): Hono {
         if (sess?.projectId) deps.hub.broadcast({ type: 'session.upsert', session: sess });
       }
     }
-    deps.hub.broadcast({ type: 'toast', level: 'info', message: '設定を保存しました' });
+    // 保存の知らせは画面が欄の横に出す（設定の C1）。サーバからはトーストを配らない。
     return c.json(toSettingsDto(s));
   });
   api.post('/index/rebuild', (c) => {
@@ -585,7 +629,7 @@ export function createApp(deps: AppDeps): Hono {
   });
   api.post('/runs/:id/open-terminal', async (c) => {
     const run = deps.runs.getRun(c.req.param('id'));
-    if (!run) return c.json({ error: 'run が見つかりません' }, 404);
+    if (!run) return c.json({ error: '起動した Claude が見つかりません' }, 404);
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
     const body = (b.value ?? {}) as { tabId?: string };
@@ -594,7 +638,7 @@ export function createApp(deps: AppDeps): Hono {
     const t = deps.runs.getTab(tabId);
     if (!t || t.runId !== run.id) return c.json({ error: 'タブが見つかりません' }, 404);
     // 終了した run の Claude のタブは繋ぎ先がもう無い。シェルタブは終了後も開いてよい。
-    if (!deps.runs.attachTarget(tabId)) return c.json({ error: 'この run は終了しています' }, 409);
+    if (!deps.runs.attachTarget(tabId)) return c.json({ error: 'この Claude はもう終了しています' }, 409);
     return external(c, () => deps.external.openTerminal({ tmuxName: t.tmuxName }));
   });
   // 目次で押した指示へ、Claude のタブを transcript の中で跳ばす。本文には書き出し（HEAD_LEN 字）だけを並べて受ける。
@@ -681,6 +725,7 @@ export function createApp(deps: AppDeps): Hono {
   });
   api.get('/statusline', (c) => c.json(statuslineStatus(deps.settings().claudeDir)));
   api.get('/shell-hook', (c) => c.json(deps.shellHook()));
+  api.get('/readiness', async (c) => c.json(await deps.readiness()));
 
   // TODO。変更のたびに一覧とプロジェクト（未完の数）を配る。
   const todosChanged = (projectId: string) => {

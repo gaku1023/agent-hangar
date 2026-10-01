@@ -1,33 +1,31 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
+import type { JumpState } from '../mediator/types.ts';
+import type { TranscriptFind } from '../presenters/find.ts';
 import type { TranscriptItem } from '../presenters/session.ts';
-import { Fold } from './primitives/Fold.tsx';
+import { Clamp, estimateLines, MSG_LINES } from './primitives/Clamp.tsx';
+import { Hl, MarkProvider, type Marking } from './primitives/Hl.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { isComposing } from './ime.ts';
 import { Markdown } from './primitives/Markdown.tsx';
+import { ToolItem } from './ToolItem.tsx';
+import { HitsContext, OpenContext, type OpenStore } from './transcriptOpen.tsx';
 
-function ToolItem({ sessionId, item }: { sessionId: string; item: Extract<TranscriptItem, { kind: 'tool' }> }) {
-  const emit = useEmit();
-  return (
-    <div className={`tool ${item.result?.isError ? 'tool-error' : ''}`}>
-      {/* 要約はコマンドの全文なので長い。折り返すと畳んだ行の高さを越えて次の行に重なるので、1 行で切って全文は title に持たせる。 */}
-      <Fold summary={<><Icon name="tool" /><span className="tool-summary mono" title={item.summary}>{item.summary}</span><span className="faint mono">{item.when}</span></>}>
-        <div className="tool-body mono">{item.inputJson}</div>
-        {item.result && <div className="tool-body mono" style={{ marginTop: 4 }}>{item.result.text || '（出力なし）'}</div>}
-      </Fold>
-      {item.subagent && <div className="sub"><button className="btn" onClick={() => emit({ type: 'transcript.selectAgent', sessionId, agentId: item.subagent!.agentId })}><Icon name="subagent" />サブエージェント {item.subagent.agentId} を見る</button></div>}
-    </div>
-  );
-}
+export type { TranscriptFind };
 
+/**
+ * 本文の 1 行。
+ * 利用者の指示は打ったとおりに右寄せの吹き出しで見せ、Claude の返答は吹き出しをやめて地の文の Markdown にする（M2）。
+ * 長いものは入れ子のスクロールにせず、高さで切って下端をぼかす（F1）。
+ */
 export function renderItem(sessionId: string, it: TranscriptItem): ReactNode {
   switch (it.kind) {
-    case 'user': return <div className="msg msg-user" style={{ maxHeight: '60vh', overflow: 'auto' }}>{it.text}</div>;
-    // 利用者の本文は打ったとおりに見せ、Claude の書いた本文だけを Markdown として読む。
-    case 'assistant': return <div className="msg msg-assistant" style={{ maxHeight: '60vh', overflow: 'auto' }}><Markdown text={it.text} /></div>;
-    case 'thinking': return <div className="msg msg-thinking"><Markdown text={it.text} /></div>;
-    case 'system': return <div className="msg msg-system">{it.text}</div>;
+    case 'user': return <div className="msg msg-user"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text, 60)} shown={MSG_LINES} tone="accent" height>{() => <Hl text={it.text} />}</Clamp></div>;
+    case 'assistant': return <div className="msg msg-assistant"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text)} shown={MSG_LINES} height>{() => <Markdown text={it.text} />}</Clamp></div>;
+    case 'thinking': return <div className="msg msg-thinking"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text)} shown={MSG_LINES} height>{() => <Markdown text={it.text} />}</Clamp></div>;
+    case 'system': return <div className="msg msg-system"><Hl text={it.text} /></div>;
     case 'tool': return <ToolItem sessionId={sessionId} item={it} />;
-    case 'meta': return <div className="msg msg-system mono">{it.name} {it.json}</div>;
+    case 'meta': return <div className="msg msg-system mono"><Hl text={`${it.name} ${it.json}`} /></div>;
   }
 }
 
@@ -67,7 +65,46 @@ export function rowWindow(offsets: number[], from: number, to: number): { first:
   return { first: lo, last };
 }
 
-export function Transcript(props: { sessionId: string; items: TranscriptItem[]; hasMore: boolean; loading: boolean; follow: boolean; live: boolean; remaining: number }) {
+/**
+ * 本文の中の検索の欄（S1）。本文の面の右上に浮くガラスで、件数、前へ・次へ、大文字小文字、閉じるを並べる。
+ * 語は打つたびに送る。日本語の変換中は送らず、確定したときに送る。
+ */
+function FindBar(props: { sessionId: string; find: TranscriptFind; topSeq: () => number | null }) {
+  const emit = useEmit();
+  const f = props.find;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState(f.query);
+  const composing = useRef(false);
+  // ⌘F を押すたびに（開いたままでも）欄へ戻り、語を選び直す。
+  useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, [f.n]);
+  const send = (query: string, caseSensitive: boolean) => emit({ type: 'transcript.findQuery', sessionId: props.sessionId, query, caseSensitive, from: props.topSeq() });
+  const step = (delta: number) => emit({ type: 'transcript.findStep', sessionId: props.sessionId, delta });
+  const close = () => emit({ type: 'transcript.find', sessionId: props.sessionId, open: false });
+  const count = f.query === '' ? '' : f.total === 0 ? '0 件' : `${f.current + 1} / ${f.total}`;
+  return (
+    <div className="tr-find" role="search">
+      <span className="tr-find-in">
+        <Icon name="search" />
+        <input ref={inputRef} type="search" aria-label="本文の中を探す" placeholder="本文の中を探す" value={draft} spellCheck={false}
+          onChange={(e) => { setDraft(e.target.value); if (!composing.current) send(e.target.value, f.caseSensitive); }}
+          onCompositionStart={() => { composing.current = true; }}
+          onCompositionEnd={(e) => { composing.current = false; send(e.currentTarget.value, f.caseSensitive); }}
+          onKeyDown={(e) => {
+            if (isComposing(e)) return;
+            if (e.key === 'Enter') { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
+            else if (e.key === 'Escape') { e.preventDefault(); close(); }
+          }} />
+        <button type="button" className="tr-find-opt" aria-label="大文字と小文字を区別" title="大文字と小文字を区別" aria-pressed={f.caseSensitive} onClick={() => send(draft, !f.caseSensitive)}><Icon name="matchCase" /></button>
+      </span>
+      <span className="tr-find-count mono" aria-live="polite">{count}</span>
+      <button type="button" className="tr-find-btn" aria-label="前の一致（⇧⏎）" title="前の一致（⇧⏎）" disabled={f.total === 0} onClick={() => step(-1)}><Icon name="prev" /></button>
+      <button type="button" className="tr-find-btn" aria-label="次の一致（⏎）" title="次の一致（⏎）" disabled={f.total === 0} onClick={() => step(1)}><Icon name="next" /></button>
+      <button type="button" className="tr-find-btn" aria-label="閉じる（esc）" title="閉じる（esc）" onClick={close}><Icon name="close" /></button>
+    </div>
+  );
+}
+
+export function Transcript(props: { sessionId: string; items: TranscriptItem[]; hasMore: boolean; loading: boolean; follow: boolean; live: boolean; remaining: number; find?: TranscriptFind | null; jump?: JumpState | null; hasNewer?: boolean }) {
   const emit = useEmit();
   const endRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -78,6 +115,15 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   const [, remeasured] = useReducer((n: number) => n + 1, 0);
   // 器のスクロール位置と高さ。これが変わったときだけ窓を引き直す。
   const [box, setBox] = useState({ top: 0, height: 0, rowsTop: 0 });
+  // 行の中で開いたもの（ツールの中身、畳んだ長い本文）。行は窓の外へ出ると DOM から外れるので、ここで覚える。
+  const opened = useRef(new Map<string, boolean>());
+  const revealed = useRef(new Set<number>());
+  const [, reopened] = useReducer((n: number) => n + 1, 0);
+  const openStore = useMemo<OpenStore>(() => ({
+    get: (seq, part) => opened.current.get(`${seq}:${part}`),
+    set: (seq, part, open) => { opened.current.set(`${seq}:${part}`, open); reopened(); },
+    revealed: (seq) => revealed.current.has(seq),
+  }), []);
   // 追従を切っている間に届いた新着の件数だけを、この View の局所状態として持つ。
   const [unseen, setUnseen] = useState(0);
   // 行は seq の順に並んでいるので、いちばん新しい seq は末尾から取れる。
@@ -144,7 +190,8 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     // 追っている間は窓が末尾に張り付くので、切れないままだと遡っても窓の外の空白しか出ない。
     if (!atBottom && props.follow && scrolledUp) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: false });
     // 末尾に着いたら追うのに戻すのは、新着が届くセッションだけでよい。live を見るのはこちらだけである。
-    if (atBottom && !props.follow && props.live) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true });
+    // 検索の結果から真ん中の頁だけを読んだときは、その後ろをまだ持っていないので、末尾に着いても追うのに戻さない。
+    if (atBottom && !props.follow && props.live && !props.hasNewer) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true });
     // いま器の上端に掛かっている行を目印にする。描いてある内容はこの描画の offsets と一致している。
     const top = Math.max(el.scrollTop - box.rowsTop, 0);
     const at = rowWindow(offsets, top, top).first;
@@ -224,18 +271,135 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     if (el) rowEls.current.set(seq, el); else rowEls.current.delete(seq);
   };
 
+  // この描画の offsets と器の位置。跳ぶ処理と、検索の欄が「いま見ている行」を引くときに使う。
+  const layout = useRef({ offsets, rowsTop: box.rowsTop });
+  layout.current = { offsets, rowsTop: box.rowsTop };
+  const topSeq = useCallback((): number | null => {
+    const el = boxRef.current;
+    const { offsets: o, rowsTop } = layout.current;
+    if (!el || n === 0) return null;
+    const top = Math.max(el.scrollTop - rowsTop, 0);
+    return props.items[rowWindow(o, top, top).first]?.seq ?? null;
+  }, [n, props.items]);
+
+  /**
+   * seq の行を器の上から 3 分の 1 のあたりへ送る。追っていたらやめる。
+   * 目印もその行に取り直す。取り直さないと、次に高さを測り直したときに前の目印へ引き戻される。
+   */
+  const scrollToSeq = useCallback((seq: number) => {
+    const el = boxRef.current;
+    const idx = props.items.findIndex((it) => it.seq === seq);
+    if (!el || idx < 0) return;
+    const { offsets: o, rowsTop } = layout.current;
+    const lead = Math.round(el.clientHeight / 3);
+    el.scrollTop = Math.max(o[idx]! + rowsTop - lead, 0);
+    lastScrollTop.current = el.scrollTop;
+    anchor.current = { seq, delta: Math.max(el.scrollTop - rowsTop, 0) - o[idx]! };
+    if (props.follow) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: false });
+    measureBox();
+  }, [props.items, props.follow, props.sessionId, emit, measureBox]);
+
+  // 本文の中の検索。今の一致が変わったら、その行の畳んだものを開き、行まで送る。
+  const find = props.find && props.find.query !== '' ? props.find : null;
+  const findKey = find && find.seq !== null ? `${find.query}|${find.caseSensitive}|${find.from}|${find.step}|${find.n}` : null;
+  const lastFindKey = useRef<string | null>(null);
+  // 送った後、行が描かれたら今の一致の印まで細かく寄せる。
+  const pendingMark = useRef(false);
+  useLayoutEffect(() => {
+    if (findKey === lastFindKey.current) return;
+    lastFindKey.current = findKey;
+    if (!find || find.seq === null) return;
+    const seq = find.seq;
+    // その行で利用者が畳んだものも、一致を見せるために開き直す。
+    for (const k of [...opened.current.keys()]) if (k.startsWith(`${seq}:`)) opened.current.delete(k);
+    revealed.current.add(seq);
+    scrollToSeq(seq);
+    pendingMark.current = true;
+    reopened();
+  });
+  // 今の一致の印だけを濃くする。印は描くたびに作り直されるので、毎回付け直す。
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    for (const m of el.querySelectorAll('mark.cur')) m.classList.remove('cur');
+    if (!find || find.seq === null) return;
+    const row = rowEls.current.get(find.seq);
+    if (!row) return;
+    const marks = row.querySelectorAll('mark.hit');
+    const m = marks[Math.min(find.ordinal, marks.length - 1)];
+    if (!m) return;
+    m.classList.add('cur');
+    if (!pendingMark.current) return;
+    pendingMark.current = false;
+    // 行の中の深い所にある一致は、行の頭へ送っただけでは見えないことがある。印そのものを器の 3 分の 1 へ寄せる。
+    const r = m.getBoundingClientRect();
+    if (r.height <= 0) return;
+    const b = el.getBoundingClientRect();
+    const d = r.top - b.top - el.clientHeight / 3;
+    if (Math.abs(d) < 1) return;
+    el.scrollTop = Math.max(el.scrollTop + d, 0);
+    lastScrollTop.current = el.scrollTop;
+    measureBox();
+  });
+
+  // 検索の結果から開いたとき（J1）。一致した行へ跳び、その行の地を淡い黄から薄れさせ、語の印を残す。
+  // 抜粋の seq の行が描く行に無ければ（ツールの結果など）、その後ろの最初の行へ跳ぶ。
+  const jumpTarget = props.jump ? props.items.find((it) => it.seq >= props.jump!.seq)?.seq ?? null : null;
+  const lastJump = useRef<string | null>(null);
+  const [flashSeq, setFlashSeq] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const j = props.jump;
+    if (!j || jumpTarget === null) return;
+    const key = `${j.seq}|${j.query}|${j.n}`;
+    if (lastJump.current === key) return;
+    lastJump.current = key;
+    revealed.current.add(jumpTarget);
+    scrollToSeq(jumpTarget);
+    setFlashSeq(jumpTarget);
+  });
+  // 光らせるのは 1 度だけ。消し終えたら外す。外さないと、窓の外へ出て戻るたびに光り直す。
+  // 光る行は窓の出入りで作り直されるので、行ではなく器で animationend を受ける。
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const done = (e: Event) => { if ((e.target as Element | null)?.closest?.('.tr-flash')) setFlashSeq(null); };
+    el.addEventListener('animationend', done);
+    return () => el.removeEventListener('animationend', done);
+  }, []);
+  const jumpMark: Marking | null = props.jump && props.jump.query ? { query: props.jump.query } : null;
+  const marking: Marking | null = find ? { query: find.query, literal: true, caseSensitive: find.caseSensitive } : null;
+
+  // スクロールバーの脇の一致の印。行の上端の位置を、全体の高さに対する割合で置く。
+  const ticks = find && find.ticks.length > 0 && total > 0
+    ? find.ticks.map((seq) => { const idx = props.items.findIndex((it) => it.seq === seq); return { seq, top: idx < 0 ? 0 : (offsets[idx]! / total) * 100 }; })
+    : null;
+
   return (
-    <div ref={boxRef} className="tr" onScroll={onScroll}>
-      {n === 0 && !props.loading && <div className="empty">本文がありません</div>}
-      {/* 押すと過去が前に入るので、ボタンは一覧の上に置く。窓の外にあるので仮想化の対象にしない。 */}
-      {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : `古い行を読み込む（残り ${props.remaining} 件）`}</button>}
-      <div ref={rowsRef} className="tr-rows" style={{ paddingTop: padTop, paddingBottom: padBottom }}>
-        {drawn.map((it) => (
-          <div key={it.seq} className="tr-row" data-seq={it.seq} ref={setRowEl(it.seq)}>{renderItem(props.sessionId, it)}</div>
-        ))}
+    <OpenContext.Provider value={openStore}>
+    <HitsContext.Provider value={find ? find.hits : null}>
+    <MarkProvider value={marking}>
+    <div className="tr-wrap">
+      {props.find && <FindBar sessionId={props.sessionId} find={props.find} topSeq={topSeq} />}
+      {ticks && <div className="tr-ticks" aria-hidden="true">{ticks.map((t) => <i key={t.seq} style={{ top: `${t.top}%` }} data-cur={t.seq === find!.seq ? 'true' : undefined} />)}</div>}
+      <div ref={boxRef} className="tr" onScroll={onScroll}>
+        {n === 0 && !props.loading && <div className="empty">本文がありません</div>}
+        {/* 押すと過去が前に入るので、ボタンは一覧の上に置く。窓の外にあるので仮想化の対象にしない。 */}
+        {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : `古い行を読み込む（残り ${props.remaining} 件）`}</button>}
+        <div ref={rowsRef} className="tr-rows" style={{ paddingTop: padTop, paddingBottom: padBottom }}>
+          {drawn.map((it) => (
+            <div key={it.seq} className={it.seq === flashSeq ? 'tr-row tr-flash' : 'tr-row'} data-seq={it.seq} ref={setRowEl(it.seq)}>
+              {!marking && it.seq === jumpTarget && jumpMark ? <MarkProvider value={jumpMark}>{renderItem(props.sessionId, it)}</MarkProvider> : renderItem(props.sessionId, it)}
+            </div>
+          ))}
+        </div>
+        {/* 検索の結果から真ん中の頁だけを読んで開いたときは、後ろ（新しい側）を読み足すボタンを一覧の下に置く。 */}
+        {props.hasNewer && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadNewer', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : '新しい行を読み込む'}</button>}
+        {props.live && !props.follow && unseen > 0 && <button className="btn btn-primary new-banner" onClick={() => emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true })}>新着 {unseen} 件</button>}
+        <div ref={endRef} />
       </div>
-      {props.live && !props.follow && unseen > 0 && <button className="btn btn-primary new-banner" onClick={() => emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true })}>新着 {unseen} 件</button>}
-      <div ref={endRef} />
     </div>
+    </MarkProvider>
+    </HitsContext.Provider>
+    </OpenContext.Provider>
   );
 }

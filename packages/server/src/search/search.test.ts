@@ -9,6 +9,8 @@ import { likeSnippet, searchSessions } from './search.ts';
 let dir: string;
 let db: Db;
 const idOf = (p: string) => (db.prepare('select id from sessions where provider_session_id = ?').get(p) as { id: string }).id;
+/** そのセッションがファイルを触ったことにする。索引の行を 1 つ足すだけで、本文は要らない。 */
+const touchFile = (sessionId: string, file: string) => db.prepare("insert into event_index (session_id, seq, kind, file_path_ref, byte_offset, byte_length, file_path) values (?, 9999, 'tool', 'x', 0, 0, ?)").run(sessionId, file);
 beforeEach(async () => {
   dir = copyFixtureClaudeDir(); db = openDb(':memory:');
   await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
@@ -49,12 +51,25 @@ describe('searchSessions', () => {
     expect(searchSessions(db, { q: 'channels ls' }).total).toBe(1);
     expect(searchSessions(db, { q: 'channels ls' }).hits[0]!.snippets[0]!.text).toContain('ls');
   });
+  // seq は主線とサブエージェントで別々に振るので、同じ seq が両方にある。
+  // 抜粋にどちらの行かを添え、主線を先に、seq の順に並べる。跳び先（J1）は主線の抜粋から取る。
+  it('抜粋はどの線の行かを持ち、主線を先に seq の順で並べる', () => {
+    const sid = idOf(SESSION_ALPHA);
+    const ins = db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
+    ins.run(sid, 'ag1', 0, 'assistant', 'サブで ぴよぴよ zebrafish を探す');
+    ins.run(sid, null, 7, 'user', '主線の後ろで ぴよぴよ zebrafish');
+    ins.run(sid, null, 3, 'user', '主線の前で ぴよぴよ zebrafish');
+    for (const q of ['zebrafish', 'よぴ']) {
+      const r = searchSessions(db, { q });
+      expect(r.hits[0]!.snippets.map((x) => [x.agentId, x.seq])).toEqual([[null, 3], [null, 7], ['ag1', 0]]);
+    }
+  });
   it('どこにも無い短い語は空の結果', () => {
     expect(searchSessions(db, { q: 'zz' })).toEqual({ hits: [], total: 0 });
     expect(searchSessions(db, { q: 'channels zz' })).toEqual({ hits: [], total: 0 });
   });
   it('短い語だけの経路でも絞り込みは効く', () => {
-    expect(searchSessions(db, { q: 'ls', running: true }, new Set()).total).toBe(0);
+    expect(searchSessions(db, { q: 'ls', live: 'running' }).total).toBe(0);
     expect(searchSessions(db, { q: 'ls', file: 'zzz' }).total).toBe(0);
     expect(searchSessions(db, { q: 'ls', until: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(1);
     expect(searchSessions(db, { q: '%' }).total).toBe(0);
@@ -67,12 +82,54 @@ describe('searchSessions', () => {
     expect(searchSessions(db, { q: 'channels', projectId: 'p2' }).total).toBe(0);
     expect(searchSessions(db, { q: 'channels', since: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(0);
     expect(searchSessions(db, { q: 'channels', until: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(1);
-    expect(searchSessions(db, { q: 'channels', running: true }, new Set()).total).toBe(0);
-    expect(searchSessions(db, { q: 'channels', running: true }, new Set([SESSION_ALPHA])).total).toBe(1);
-    expect(searchSessions(db, { q: 'channels', running: false }, new Set([SESSION_ALPHA])).total).toBe(0);
+    // 状態の判定は DB に無いので、呼ぶ側が provider_session_id と hangar の id から決める。
+    // 既定は終了。
+    expect(searchSessions(db, { q: 'channels', live: 'running' }).total).toBe(0);
+    expect(searchSessions(db, { q: 'channels', live: 'ended' }).total).toBe(1);
+    const liveOf = (_sid: string, psid: string) => (psid === SESSION_ALPHA ? 'waiting' as const : 'ended' as const);
+    expect(searchSessions(db, { q: 'channels', live: 'waiting' }, liveOf).total).toBe(1);
+    expect(searchSessions(db, { q: 'channels', live: 'running' }, liveOf).total).toBe(0);
+    expect(searchSessions(db, { q: 'channels', live: 'ended' }, liveOf).total).toBe(0);
+    expect(searchSessions(db, { q: 'channels', live: 'running' }, (sid) => (sid === idOf(SESSION_ALPHA) ? 'running' : 'ended')).total).toBe(1);
     expect(searchSessions(db, { q: 'channels', file: 'a.md' }).total).toBe(1);
     expect(searchSessions(db, { q: 'channels', file: 'zzz' }).total).toBe(0);
     expect(searchSessions(db, { q: 'hello' }).hits[0]!.sessionId).toBe(idOf(SESSION_OTHER));
+  });
+  // 一覧で「触ったファイル」だけを入れたとき、キーワードが無くても絞れるようにする。
+  it('キーワードが空でも、ファイルがあればそのファイルを触ったセッションを新しい順に返す', () => {
+    const r = searchSessions(db, { q: '', file: 'a.md' });
+    expect(r.total).toBe(1);
+    expect(r.hits).toEqual([{ sessionId: idOf(SESSION_ALPHA), matchCount: expect.any(Number), snippets: [] }]);
+    expect(r.hits[0]!.matchCount).toBeGreaterThan(0);
+    expect(searchSessions(db, { q: '  ', file: 'a.md' }).total).toBe(1);
+    expect(searchSessions(db, { q: '', file: 'zzz' })).toEqual({ hits: [], total: 0 });
+    expect(searchSessions(db, { q: '', file: '%' })).toEqual({ hits: [], total: 0 });
+    expect(searchSessions(db, { q: '', file: 'a.md', live: 'running' }).total).toBe(0);
+    expect(searchSessions(db, { q: '', file: 'a.md', live: 'waiting' }, () => 'waiting').total).toBe(1);
+    expect(searchSessions(db, { q: '', file: 'a.md', since: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(0);
+    // ファイルも無ければ、これまでどおり空の結果である。一覧は手元で組む。
+    expect(searchSessions(db, { q: '', projectId: 'p1' })).toEqual({ hits: [], total: 0 });
+  });
+  it('キーワードが空の経路も新しい順に並べる', () => {
+    const alpha = db.prepare('select * from sessions where id = ?').get(idOf(SESSION_ALPHA)) as Record<string, unknown>;
+    const other = db.prepare('select * from sessions where id = ?').get(idOf(SESSION_OTHER)) as Record<string, unknown>;
+    // 同じファイルを触ったことにして、2 件を並べる。
+    touchFile(idOf(SESSION_OTHER), '/w/shared/a.md');
+    upsertShared(db, 'sessions', { ...alpha, last_activity_at: 1000 }, 'd');
+    upsertShared(db, 'sessions', { ...other, last_activity_at: 2000 }, 'd');
+    expect(searchSessions(db, { q: '', file: 'a.md' }).hits.map((h) => h.sessionId)).toEqual([idOf(SESSION_OTHER), idOf(SESSION_ALPHA)]);
+  });
+  // 件数は全部を数え、行は limit で切る。続きは offset で読む。
+  it('offset から limit 件だけを返し、total は全件の数', () => {
+    touchFile(idOf(SESSION_OTHER), '/w/shared/a.md');
+    const both = searchSessions(db, { q: '', file: 'a.md' });
+    expect(both.total).toBe(2);
+    const first = searchSessions(db, { q: '', file: 'a.md', limit: 1 });
+    expect(first).toMatchObject({ total: 2, hits: [{ sessionId: both.hits[0]!.sessionId }] });
+    const rest = searchSessions(db, { q: '', file: 'a.md', limit: 1, offset: 1 });
+    expect(rest).toMatchObject({ total: 2, hits: [{ sessionId: both.hits[1]!.sessionId }] });
+    expect(searchSessions(db, { q: 'channels', offset: 5 })).toEqual({ hits: [], total: 1 });
+    expect(searchSessions(db, { q: 'channels', offset: -3 }).hits).toHaveLength(1);
   });
 });
 

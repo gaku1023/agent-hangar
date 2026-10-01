@@ -1,3 +1,4 @@
+import type { LiveFilter } from './liveFilter.ts';
 import type { StepKind } from './steps.ts';
 import type { TranscriptEvent } from './transcript.ts';
 
@@ -45,8 +46,13 @@ export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; tota
 export type LiveAgentDto = { agentId: string; title: string; state: 'running' | 'done' | 'error'; startedAt: number | null; lastAt: number | null; last: { text: string; mono: boolean; kind: StepKind; isError: boolean } | null; report: string | null; endNote: string | null; linked: boolean };
 export type LiveIntentDto = { text: string; at: number; stepsSince: number; inThisTurn: boolean };
 export type LiveDigestDto = { sessionId: string; turnStartSeq: number | null; intent: LiveIntentDto | null; agents: LiveAgentDto[] };
-export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; running?: boolean; file?: string; limit?: number };
-export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string }[] };
+export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number };
+/**
+ * 検索の 1 件。
+ * 抜粋の seq は主線とサブエージェントで別々に振るので、agentId でどの線の行かを表す（主線は null）。
+ * 抜粋は主線を先に、seq の順に並ぶ。
+ */
+export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string; agentId: string | null }[] };
 export type SearchResultDto = { hits: SearchHitDto[]; total: number };
 export type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';
@@ -65,6 +71,29 @@ export type UsageDayDto = { day: string; inputTokens: number; outputTokens: numb
 export type UsageProjectDto = { projectId: string | null; name: string; inputTokens: number; outputTokens: number; costUsd: number | null; sessions: number };
 export type UsageAggregateDto = { days: UsageDayDto[]; projects: UsageProjectDto[] };
 export type StatuslineStatusDto = { command: string | null; scriptPath: string | null; installed: boolean };
+/**
+ * ツールのパスを確かめた結果。
+ * problem は動かせない理由で、動かせるときは null。
+ * unset は設定が空、missing は無い、notFile はディレクトリなどファイルでない、notExecutable は実行権が無い。
+ * version は `--version` などで読んだ版で、読めなかったときは null。
+ */
+export type ToolProblem = 'unset' | 'missing' | 'notFile' | 'notExecutable';
+export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProblem | null; version: string | null };
+/**
+ * 準備の確かめ（GET /api/readiness）。
+ * 設定画面の欄の下の検証と、空のホームの確認リストが、同じこの 1 つを読む。
+ * node の auto は、設定が空で、サーバを動かしている Node をそのまま見せていることを表す。
+ * workspace の projectCount は、ワークスペースの直下から登録したプロジェクトの数である。
+ * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
+ * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。
+ */
+export type ReadinessDto = {
+  tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: ToolCheckDto & { auto: boolean } };
+  workspace: { path: string; exists: boolean; projectCount: number };
+  mcp: { registered: boolean; file: string };
+  statusline: StatuslineStatusDto;
+  commands: { mcp: string; statusline: string; shell: string };
+};
 /** 完了の候補。sessionId はセッション別でない MCP の URL から出たとき null、note は根拠が無いとき null。 */
 export type TodoCandidateDto = { sessionId: string | null; note: string | null; at: number };
 /** candidate は古いサーバからは欠ける。欠けたものは null として扱う。 */

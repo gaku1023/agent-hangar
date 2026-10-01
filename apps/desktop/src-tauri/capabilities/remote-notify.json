@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-notify",
+  "description": "サーバの UI（127.0.0.1:4177）から、入力待ちを macOS の通知と Dock のバッジで知らせるためだけの権限。通知を出す、通知の許可を求める、通知の許可の状態を読む、Dock のバッジに数を出すの 4 つだけを与える。",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:4177/*"] },
+  "permissions": ["allow-notify-waiting", "allow-notify-request", "allow-notify-status", "core:window:allow-set-badge-count"]
+}

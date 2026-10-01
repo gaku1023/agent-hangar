@@ -1,64 +1,70 @@
 import type { ReactNode } from 'react';
+import { parseMarkdown, type Block, type Inline } from '../../presenters/markdown.ts';
+import { CopyButton } from './CopyButton.tsx';
+import { Hl } from './Hl.tsx';
+import { Icon } from './Icon.tsx';
 
 /**
- * Claude の返答によく出る Markdown だけを読む。囲みのコード、見出し、太字、インラインのコード。
- * 箇条書きや表は、pre-wrap の地の文のままでも崩れずに読めるので手を付けない。
- * HTML は解釈しない。文字列を React の子として渡すだけなので、タグは文字のまま出る。
+ * Claude の書いた Markdown を描く。読み方は presenters/markdown.ts が決める。
+ * 文字はどれも Hl を通して React の子として渡すので、HTML は文字のまま出る。
+ * 葉を描く順は mdLeaves と同じにする。本文の中の検索がその順で一致を数えるからである。
  */
-export type MdBlock = { kind: 'text' | 'code' | 'heading'; text: string };
-
-const FENCE = /^\s*```/;
-const HEADING = /^#{1,6}\s+(.*)$/;
-
-export function parseBlocks(text: string): MdBlock[] {
-  const blocks: MdBlock[] = [];
-  let buf: string[] = [];
-  // 行で割って積むので、塊の境目にあった改行は地の文に残らない。境目の間は塊の縁の余白で取る。
-  const flush = () => {
-    if (buf.length > 0) blocks.push({ kind: 'text', text: buf.join('\n') });
-    buf = [];
-  };
-  const lines = text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (FENCE.test(line)) {
-      flush();
-      const code: string[] = [];
-      // 書きかけの返答では閉じの ``` がまだ来ていない。そのときは末尾までをコードにする。
-      for (i++; i < lines.length && !FENCE.test(lines[i]!); i++) code.push(lines[i]!);
-      blocks.push({ kind: 'code', text: code.join('\n') });
-      continue;
+function inline(nodes: Inline[]): ReactNode[] {
+  return nodes.map((n, i) => {
+    switch (n.t) {
+      case 'text': return <Hl key={i} text={n.text} />;
+      case 'code': return <code key={i}><Hl text={n.text} /></code>;
+      case 'strong': return <strong key={i}>{inline(n.children)}</strong>;
+      case 'em': return <em key={i}>{inline(n.children)}</em>;
+      case 'del': return <del key={i}>{inline(n.children)}</del>;
+      // 宛先は http と https だけが来る（safeHref）。外で開く既存の経路（PR のリンクと同じ）に乗せる。
+      case 'link': return <a key={i} href={n.href} target="_blank" rel="noreferrer noopener" title={n.href}>{inline(n.children)}<Icon name="externalLink" /></a>;
     }
-    const h = HEADING.exec(line);
-    if (h) { flush(); blocks.push({ kind: 'heading', text: h[1]! }); continue; }
-    buf.push(line);
-  }
-  flush();
-  return blocks;
+  });
 }
 
-const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+?\*\*)/g;
+/** 囲みのコード。上の帯に言語名とコピーのボタンを置く。中身を差し替えるときは children に渡す。 */
+export function CodeBlock(props: { lang: string; text: string; note?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="codeblock">
+      <div className="codeblock-h">
+        {props.lang && <span className="code-lang">{props.lang}</span>}
+        {props.note}
+        <CopyButton text={props.text} />
+      </div>
+      {props.children ?? <pre><Hl text={props.text} /></pre>}
+    </div>
+  );
+}
 
-function inline(text: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  let at = 0;
-  for (const m of text.matchAll(INLINE)) {
-    if (m.index > at) out.push(text.slice(at, m.index));
-    out.push(m[1] ? <code key={m.index}>{m[1].slice(1, -1)}</code> : <strong key={m.index}>{m[2]!.slice(2, -2)}</strong>);
-    at = m.index + m[0].length;
-  }
-  if (at < text.length) out.push(text.slice(at));
-  return out;
+function blocks(list: Block[]): ReactNode[] {
+  return list.map((b, i) => {
+    switch (b.t) {
+      case 'p': return <p key={i}>{inline(b.inl)}</p>;
+      case 'h': {
+        const Tag = `h${Math.min(Math.max(b.level, 1), 6)}` as 'h1';
+        return <Tag key={i}>{inline(b.inl)}</Tag>;
+      }
+      case 'code': return <CodeBlock key={i} lang={b.lang} text={b.text} />;
+      case 'list': {
+        const items = b.items.map((it, k) => <li key={k}>{blocks(it)}</li>);
+        return b.ordered ? <ol key={i} start={b.start === 1 ? undefined : b.start}>{items}</ol> : <ul key={i}>{items}</ul>;
+      }
+      case 'table': return (
+        // 広い表は横にだけ流す。本文の面の外へはみ出させない。
+        <div key={i} className="md-table">
+          <table>
+            <thead><tr>{b.head.map((c, k) => <th key={k} style={b.align[k] ? { textAlign: b.align[k]! } : undefined}>{inline(c)}</th>)}</tr></thead>
+            <tbody>{b.rows.map((r, k) => <tr key={k}>{r.map((c, j) => <td key={j} style={b.align[j] ? { textAlign: b.align[j]! } : undefined}>{inline(c)}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      );
+      case 'quote': return <blockquote key={i}>{blocks(b.children)}</blockquote>;
+      case 'hr': return <hr key={i} />;
+    }
+  });
 }
 
 export function Markdown(props: { text: string }) {
-  return (
-    <>
-      {parseBlocks(props.text).map((b, i) => {
-        if (b.kind === 'code') return <pre key={i} className="md-code">{b.text}</pre>;
-        if (b.kind === 'heading') return <div key={i} className="md-heading">{inline(b.text)}</div>;
-        return <div key={i}>{inline(b.text)}</div>;
-      })}
-    </>
-  );
+  return <div className="md">{blocks(parseMarkdown(props.text))}</div>;
 }
