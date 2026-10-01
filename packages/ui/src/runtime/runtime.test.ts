@@ -1220,6 +1220,51 @@ describe('入力待ちの知らせ', () => {
       await flush();
       expect(h.rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
     });
+    it('読んでいる間にスイッチを切られたら、答えが届いた時点の選んだ値と状態で決める', async () => {
+      // 許可されたと届いても、切った後なので受け取るに戻さない。
+      const n = mutableNotifier('desktop', 'granted');
+      const h = await boot2(n, true);
+      let answer!: (p: NotifyPermission) => void;
+      n.status.mockImplementationOnce(() => new Promise<NotifyPermission>((r) => { answer = r; }));
+      h.advance(5000);
+      h.fireFocus();
+      h.rt.emit({ type: 'notify.set', on: false });
+      answer('granted');
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: false, blocked: false });
+      // 切られたと届いても、もう受け取っていないので設定の仕方は知らせない。
+      const m = mutableNotifier('desktop', 'granted');
+      const k = await boot2(m, true);
+      m.status.mockImplementationOnce(() => new Promise<NotifyPermission>((r) => { answer = r; }));
+      k.advance(5000);
+      k.fireFocus();
+      k.rt.emit({ type: 'notify.set', on: false });
+      answer('denied');
+      await flush();
+      expect(k.rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+      expect(k.rt.getState().toasts).toEqual([]);
+    });
+    it('設定の仕方を知らせるのは、受け取っていたのに OS で切られたときだけ', async () => {
+      // 受け取らないと選んでいた。
+      const n = mutableNotifier('desktop', 'granted');
+      const h = await boot2(n, false);
+      n.set('denied');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify.blocked).toBe(true);
+      expect(h.rt.getState().toasts).toEqual([]);
+      // ブラウザで拒まれたのは OS の設定ではない。
+      const m = mutableNotifier('web', 'granted');
+      const k = await boot2(m, true);
+      expect(k.rt.getState().notify.on).toBe(true);
+      m.set('denied');
+      k.advance(5000);
+      k.fireFocus();
+      await flush();
+      expect(k.rt.getState().notify.on).toBe(false);
+      expect(k.rt.getState().toasts).toEqual([]);
+    });
     it('最後に読んでから 2 秒以内は読み直さない', async () => {
       const n = mutableNotifier('desktop', 'granted');
       const h = await boot2(n, false);
