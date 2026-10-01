@@ -45,13 +45,48 @@ export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoo
   const created: string[] = [];
   // SQL の文字列比較では NFC と NFD が一致しないので、正規化してから JS で比べる。
   const cwds = (db.prepare('select distinct cwd from sessions where deleted_at is null').all() as { cwd: string }[]).map((r) => r.cwd.normalize('NFC'));
-  const known = new Set((db.prepare('select path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { path: string }[]).map((r) => r.path.normalize('NFC')));
+  const known = knownRoots(db, deviceId);
   for (const dir of childDirs(workspaceRoot)) {
     if (!cwds.some((c) => isUnder(c, dir))) continue;
     if (known.has(dir)) continue;
     created.push(insertProject(db, deviceId, path.basename(dir), dir));
   }
   return { created };
+}
+
+export type WorkspaceDir = { name: string; path: string };
+
+/** この端末の、論理削除されていないルートのパス（NFC）。 */
+function knownRoots(db: Db, deviceId: string): Set<string> {
+  return new Set((db.prepare('select path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { path: string }[]).map((r) => r.path.normalize('NFC')));
+}
+
+/**
+ * ワークスペース直下の、まだプロジェクトになっていないディレクトリ。
+ * 新しいセッションのダイアログの検索と、作成のダイアログの一覧に出す。
+ * 一覧から削除したプロジェクトのフォルダは、ルートが論理削除されているので未登録に数える。
+ */
+export function listWorkspaceDirs(db: Db, deviceId: string, workspaceRoot: string): WorkspaceDir[] {
+  const known = knownRoots(db, deviceId);
+  return childDirs(workspaceRoot).filter((dir) => !known.has(dir)).map((dir) => ({ name: path.basename(dir), path: dir }));
+}
+
+/**
+ * 起動中に現れた未分類のセッションのための、その場の自動登録。
+ * cwd がワークスペース直下のディレクトリ（またはその下）にあり、そのディレクトリが実在し、隠しでなく、未登録なら、
+ * 起動時の syncProjectsFromWorkspace と同じ規則でプロジェクトにして id を返す。
+ * ワークスペースの外とワークスペースそのものは null（未分類に残し、利用者に知らせる）。
+ */
+export function registerWorkspaceChildOf(db: Db, deviceId: string, workspaceRoot: string, cwd: string): string | null {
+  const root = normalizeDir(workspaceRoot);
+  const c = normalizeDir(cwd);
+  if (!c.startsWith(root + '/')) return null;
+  const head = c.slice(root.length + 1).split('/')[0]!;
+  if (head.startsWith('.')) return null;
+  const dir = path.join(root, head);
+  if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return null;
+  if (knownRoots(db, deviceId).has(dir)) return null;
+  return insertProject(db, deviceId, head, dir);
 }
 
 /**
