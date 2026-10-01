@@ -1,17 +1,25 @@
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
 
 export function defaultSessionView(): SessionViewState {
-  return { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: null, transcriptOpen: true, split: false, splitTab: null };
+  return { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, openTurn: null, turnJump: null, find: null, jump: null };
 }
 
 /**
  * localStorage に残す形。follow だけは残さない。
  * 遡るために一度上へスクロールすると follow: false が焼き付き、次からそのセッションは最古の側で開いてしまう。
  * 追うかどうかはその場の操作で決まるものなので、開くたびに既定（真）から始める。
+ * 目次で開いたターンと、そこへ跳ばした結果も同じくその場のものなので残さない。
+ * 本文の中の検索と、検索の結果から開いたときの跳び先も残さない。
  */
-export function persistedSessionView(v: SessionViewState): Omit<SessionViewState, 'follow'> {
-  const { follow: _drop, ...rest } = v;
+export function persistedSessionView(v: SessionViewState): Omit<SessionViewState, 'follow' | 'openTurn' | 'turnJump' | 'find' | 'jump'> {
+  const { follow: _drop, openTurn: _turn, turnJump: _jump, find: _find, jump: _to, ...rest } = v;
   return rest;
+}
+
+/** 保存しない一時の状態（検索と跳び先）だけを変える。保存する形は変わらないので、書き込みも出さない。 */
+function local(state: State, id: string, p: Partial<SessionViewState>): Step {
+  const cur = state.sessionView[id] ?? defaultSessionView();
+  return { state: { ...state, sessionView: { ...state.sessionView, [id]: { ...cur, ...p } } }, effects: [] };
 }
 
 function patch(state: State, id: string, p: Partial<SessionViewState>): Step {
@@ -19,6 +27,17 @@ function patch(state: State, id: string, p: Partial<SessionViewState>): Step {
   const next = { ...cur, ...p };
   const effects: Effect[] = [{ kind: 'storage.save', key: `sv:${id}`, value: persistedSessionView(next) }];
   return { state: { ...state, sessionView: { ...state.sessionView, [id]: next } }, effects };
+}
+
+/**
+ * 検索の結果から開くときの跳び先を覚える（jump が null なら忘れる）。
+ * 跳ぶ間は末尾を追わない。追っていると窓が末尾に張り付き、跳び先が描かれない。
+ * 同じ所をもう一度開いたときも跳び直すよう、開いた回数を進める。
+ */
+export function jumpStep(state: State, id: string, jump: { seq: number; query: string } | null): State {
+  const cur = state.sessionView[id] ?? defaultSessionView();
+  if (!jump) return cur.jump === null ? state : local(state, id, { jump: null }).state;
+  return local(state, id, { jump: { ...jump, n: (cur.jump?.n ?? 0) + 1 }, follow: false }).state;
 }
 
 /**
@@ -46,6 +65,30 @@ export function agentTabStep(state: State, id: string): Step | null {
   return patch(state, id, { selectedTab: null, split: false, splitTab: null });
 }
 
+/**
+ * 目次から跳ばした Claude を transcript から抜けさせ、開いたターンを忘れる。
+ * 跳ばしていなければ（turnJump が無ければ）何もせず null を返す。
+ * 開いたターンと跳び先は保存しない状態なので、書き込みは出さない。
+ * 画面を離れたときにも呼ぶ。
+ * 抜けさせないと、戻ってきたとき Claude が古いターンを見せたまま止まって見える。
+ */
+export function leaveTranscriptStep(state: State, id: string): Step | null {
+  const run = (state.sessionView[id] ?? defaultSessionView()).turnJump?.runId;
+  if (!run) return null;
+  const r = local(state, id, { openTurn: null, turnJump: null });
+  return { state: r.state, effects: [{ kind: 'api.leaveTranscript', runId: run }] };
+}
+
+/**
+ * 跳ばした run が当てはまれば、跳び先（turnJump）だけを忘れる。
+ * 開いたターンは読めるので残す。
+ * 保存しない状態なので書き込みは出さない。
+ */
+function forgetJump(state: State, id: string, match: (runId: string) => boolean): State {
+  const tj = state.sessionView[id]?.turnJump;
+  return tj && match(tj.runId) ? local(state, id, { turnJump: null }).state : state;
+}
+
 const currentSession = (state: State): string | null => (state.screen.name === 'session' ? state.screen.id : null);
 const viewOf = (state: State, id: string) => state.sessionView[id] ?? defaultSessionView();
 
@@ -60,11 +103,17 @@ export function sessionViewStep(state: State, input: Input): Step | null {
         return { state, effects: open ? [{ kind: 'api.loadEvents', sessionId: ev.sessionId, fromSeq: -2 }] : [] };
       }
       case 'run.started': {
-        if (currentSession(state) !== ev.run.sessionId) return { state, effects: [] };
-        const r = patch(state, ev.run.sessionId, { selectedTab: null });
+        // 再開などで run が替わったら、前の run の跳び先は忘れる。
+        const fresh = forgetJump(state, ev.run.sessionId, (runId) => runId !== ev.run.id);
+        if (currentSession(fresh) !== ev.run.sessionId) return { state: fresh, effects: [] };
+        const r = patch(fresh, ev.run.sessionId, { selectedTab: null });
         return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId: ev.run.sessionId, tabId: ev.run.id }] };
       }
-      case 'run.ended': return { state, effects: [{ kind: 'terminal.disconnect', tabId: ev.run.id }] };
+      case 'run.ended': {
+        // 終わった run は transcript から抜けさせられない（サーバは 409 で断る）ので、跳び先ごと忘れる。
+        const fresh = forgetJump(state, ev.run.sessionId, (runId) => runId === ev.run.id);
+        return { state: fresh, effects: [{ kind: 'terminal.disconnect', tabId: ev.run.id }] };
+      }
       case 'tab.upsert': {
         const t = ev.tab;
         if (t.closedAt !== null) {
@@ -84,10 +133,17 @@ export function sessionViewStep(state: State, input: Input): Step | null {
       default: return null;
     }
   }
+  if (input.kind === 'runtime' && input.event.type === 'turnJump.done') {
+    const e = input.event;
+    // 別のターンを開いた後に届いた古い結果は捨てる。
+    const cur = viewOf(state, e.sessionId).turnJump;
+    if (cur?.seq !== e.seq) return { state, effects: [] };
+    return patch(state, e.sessionId, { turnJump: { ...cur, status: e.status } });
+  }
   if (input.kind === 'runtime' && input.event.type === 'split.resolved') {
     const e = input.event;
     // ランタイムが右に置けるタブを見つけられなかったときだけトーストにする。
-    if (!e.tabId) return { state, effects: [{ kind: 'toast', level: 'info', message: '分割にはタブが 2 つ必要です' }] };
+    if (!e.tabId) return { state, effects: [{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }] };
     return patch(state, e.sessionId, { split: true, splitTab: e.tabId });
   }
   if (input.kind !== 'intent') return null;
@@ -98,9 +154,50 @@ export function sessionViewStep(state: State, input: Input): Step | null {
     case 'transcript.follow': return patch(state, i.sessionId, { follow: i.follow });
     case 'summary.toggle': return patch(state, i.sessionId, { summaryOpen: !viewOf(state, i.sessionId).summaryOpen });
     case 'transcript.loadMore': return { state, effects: [{ kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: -1 }] };
+    case 'transcript.loadNewer': return { state, effects: [{ kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: -2 }] };
+    case 'transcript.find': {
+      if (!i.open) return local(state, i.sessionId, { find: null });
+      const cur = viewOf(state, i.sessionId).find;
+      return local(state, i.sessionId, { find: { query: cur?.query ?? '', caseSensitive: cur?.caseSensitive ?? false, from: cur?.from ?? null, step: cur?.step ?? 0, n: (cur?.n ?? 0) + 1 } });
+    }
+    case 'transcript.findQuery': {
+      const cur = viewOf(state, i.sessionId).find;
+      if (!cur) return { state, effects: [] };
+      return local(state, i.sessionId, { find: { ...cur, query: i.query, caseSensitive: i.caseSensitive, from: i.from, step: 0 } });
+    }
+    case 'transcript.findStep': {
+      const cur = viewOf(state, i.sessionId).find;
+      if (!cur) return { state, effects: [] };
+      return local(state, i.sessionId, { find: { ...cur, step: cur.step + i.delta } });
+    }
     case 'transcript.selectAgent': {
       const r = patch(state, i.sessionId, { agentId: i.agentId });
       return { state: r.state, effects: [...r.effects, { kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: 0 }] };
+    }
+    case 'turn.open': {
+      // 開いているターンを閉じる。
+      // 左の Claude をそこへ跳ばしていたら、transcript から抜けさせる。
+      if (viewOf(state, i.sessionId).openTurn === i.seq) {
+        const left = leaveTranscriptStep(state, i.sessionId);
+        const r = patch(left?.state ?? state, i.sessionId, { openTurn: null, turnJump: null });
+        return { state: r.state, effects: [...r.effects, ...(left?.effects ?? [])] };
+      }
+      // 跳び先を持たない（遠すぎて跳べない、または run が無い）ターンを開くとき。
+      // 前に跳ばしていたら、左の Claude を古いターンの transcript に残さないよう、先に抜けさせる。
+      if (!i.runId || !i.jump) {
+        const left = leaveTranscriptStep(state, i.sessionId);
+        const r = patch(left?.state ?? state, i.sessionId, { openTurn: i.seq, turnJump: null });
+        return { state: r.state, effects: [...r.effects, ...(left?.effects ?? [])] };
+      }
+      // 跳ぶ先は Claude のタブなので、シェルのタブを出していたら戻して繋ぎ直す。
+      const back = agentTabStep(state, i.sessionId);
+      const connect: Effect[] = back ? [...back.effects, { kind: 'terminal.connect', sessionId: i.sessionId, tabId: null }] : [];
+      const r = patch(back?.state ?? state, i.sessionId, { openTurn: i.seq, turnJump: { seq: i.seq, status: 'pending', runId: i.runId } });
+      return { state: r.state, effects: [...connect, ...r.effects, { kind: 'api.jumpToPrompt', sessionId: i.sessionId, runId: i.runId, seq: i.seq, ...i.jump }] };
+    }
+    case 'turn.latest': {
+      const r = patch(state, i.sessionId, { openTurn: null, turnJump: null, follow: true });
+      return { state: r.state, effects: [...r.effects, ...(i.runId ? [{ kind: 'api.leaveTranscript', runId: i.runId } as Effect] : [])] };
     }
     case 'transcript.toggle': {
       const sid = currentSession(state);

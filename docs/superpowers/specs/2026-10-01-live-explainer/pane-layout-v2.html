@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>右ペインの案 第 2 版</title>
+<style>
+:root {
+  --bg:#eef1f7; --surface:#fff; --surface-2:#f3f4f9; --line:#eceef5; --line-strong:#d9dbe6;
+  --ink:#1c1b2e; --ink-2:#5f5e78; --ink-3:#8a89a0; --accent:#4a63e8; --accent-soft:#eef2ff;
+  --busy:#c77a1a; --busy-soft:#fbf0e1; --idle:#3a8f5c; --idle-soft:#e3f1e8; --waiting:#a2452f; --waiting-soft:#f8e7e2;
+  --error:#b3261e; --cand:#6a4fd0; --cand-soft:#f1edff;
+  --k-read:#b9bccb; --k-write:#4a63e8; --k-run:#c77a1a; --k-fail:#b3261e; --k-agent:#6a4fd0;
+  --term-bg:#1c1b2e; --term-fg:#e8e6f0; --term-tool:#ffb86b;
+  --r:8px; --r-lg:14px;
+  --sans:'Inter','Hiragino Sans','Hiragino Kaku Gothic ProN',sans-serif; --mono:'JetBrains Mono','SFMono-Regular',Menlo,monospace;
+}
+* { box-sizing:border-box }
+body { margin:0; background:var(--bg); color:var(--ink); font:13px/1.55 var(--sans); }
+main { max-width:1240px; margin:0 auto; padding:28px 20px 90px; }
+h1 { font-size:20px; margin:0 0 6px; }
+h2 { font-size:17px; margin:40px 0 4px; }
+.lead { color:var(--ink-2); margin:0 0 8px; max-width:88ch; }
+.note { font-size:12px; color:var(--ink-2); max-width:88ch; }
+code, .mono { font-family:var(--mono); font-size:.92em; }
+.faint { color:var(--ink-3); }
+
+.comp { margin:18px 0 28px; padding:14px; border-radius:16px; background:rgba(255,255,255,.45); border:2px solid transparent; cursor:pointer; }
+.comp:hover { border-color:var(--line-strong); }
+.comp.selected { border-color:var(--accent); background:rgba(238,242,255,.7); }
+.comp-head { display:flex; align-items:baseline; gap:10px; margin-bottom:10px; }
+.comp-head h3 { margin:0; font-size:15px; }
+.tag { display:inline-block; font-size:11px; font-weight:600; color:#fff; background:var(--accent); border-radius:6px; padding:1px 7px; }
+.comp-head p { margin:0; color:var(--ink-2); }
+.scenes { display:grid; grid-template-columns:repeat(2, 1fr); gap:18px; }
+.scene { display:grid; grid-template-columns:200px 360px; gap:10px; align-items:start; }
+.scene-cap { grid-column:1 / -1; font-size:12px; font-weight:600; color:var(--ink-2); }
+
+.term { height:460px; background:var(--term-bg); color:var(--term-fg); border-radius:var(--r-lg); padding:10px 11px; font:10.5px/1.6 var(--mono); overflow:hidden; box-shadow:0 0 0 2px rgba(199,122,26,.55), 0 0 18px rgba(199,122,26,.35); }
+.term.wait { box-shadow:0 0 0 2px rgba(162,69,47,.75), 0 0 18px rgba(162,69,47,.4); }
+.term .t { color:var(--term-tool); } .term .d { opacity:.55; }
+
+.pane { height:460px; background:var(--surface); border-radius:var(--r-lg); box-shadow:0 1px 2px rgba(30,40,90,.06); padding:8px 12px; display:flex; flex-direction:column; gap:7px; overflow:hidden; }
+.sec-lab { font-size:10.5px; font-weight:600; color:var(--ink-3); letter-spacing:.03em; }
+
+/* 状態の灯 */
+.lamp { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:11px; background:var(--busy-soft); font-size:13.5px; font-weight:600; }
+.lamp.wait { background:var(--waiting-soft); color:var(--waiting); }
+.lamp .sub2 { font-weight:400; font-size:12px; color:var(--ink-2); margin-left:auto; }
+.dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--busy); animation:pulse 1.6s ease-in-out infinite; flex:none; }
+.dot.wait { background:var(--waiting); animation:none; }
+.dot.ok { background:var(--idle); animation:none; }
+.dot.fail { background:var(--error); animation:none; }
+.dot.still { animation:none; }
+@keyframes pulse { 50% { opacity:.3 } }
+
+/* 意図（自己申告は引用符と鮮度） */
+.intent { border-left:3px solid var(--cand); background:var(--cand-soft); border-radius:0 var(--r) var(--r) 0; padding:5px 9px; font-size:12.5px; }
+.intent .meta { display:block; font-size:10.5px; color:var(--cand); margin-top:2px; }
+.intent.stale { opacity:.55; }
+
+/* 動いている手 */
+.steps { display:flex; flex-direction:column; gap:1px; }
+.st { display:flex; gap:7px; align-items:center; font-size:12.5px; padding:2px 0; }
+.st .ic { flex:none; width:14px; text-align:center; font-size:11px; color:var(--idle); }
+.st.now { color:var(--busy); font-weight:560; }
+.st .x { margin-left:auto; flex:none; }
+.bar { display:inline-flex; height:6px; border-radius:3px; overflow:hidden; vertical-align:middle; }
+.bar i { display:block; height:100%; }
+.bar .add { background:#3a8f5c; } .bar .del { background:#c0473a; }
+.lane { display:grid; grid-template-columns:12px 1fr auto; gap:0 8px; align-items:center; padding:3px 7px; border-radius:8px; font-size:12.5px; }
+.lane:hover { background:var(--surface-2); }
+.lane .last { grid-column:2 / 4; font-size:11.5px; color:var(--ink-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lane .tm { font:10.5px var(--mono); color:var(--ink-3); }
+.lane.fail { background:#fbe9e7; }
+.lane.fail .last { color:var(--error); }
+.lane.wait { background:var(--waiting-soft); }
+.chips { display:flex; gap:5px; flex-wrap:wrap; }
+.chip { font-size:11.5px; border:1px solid var(--line-strong); border-radius:99px; padding:0 8px; background:#fff; }
+
+/* 居場所の帯 */
+.where { display:flex; align-items:center; gap:0; font-size:11px; color:var(--ink-2); }
+.where .n { display:flex; flex-direction:column; align-items:center; gap:2px; flex:none; width:62px; }
+.where .n i { width:10px; height:10px; border-radius:50%; border:2px solid var(--line-strong); background:#fff; }
+.where .n.on i { background:var(--accent); border-color:var(--accent); }
+.where .n.here i { background:var(--busy); border-color:var(--busy); }
+.where .ln { flex:1; height:2px; background:var(--line-strong); margin-bottom:14px; }
+.where .ln.on { background:var(--accent); }
+
+/* 層の地図 */
+.layers { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; }
+.layers .ly { border-radius:6px; padding:4px 5px; font-size:10.5px; text-align:center; background:var(--surface-2); color:var(--ink-3); position:relative; }
+.layers .ly b { display:block; font:600 11px var(--mono); color:inherit; }
+.layers .ly.r { background:#e7e9f2; color:var(--ink-2); }
+.layers .ly.w { background:#dfe5ff; color:var(--accent); }
+.layers .ly.now { box-shadow:0 0 0 2px var(--busy); }
+.layers .ly .pt { position:absolute; top:3px; right:4px; width:6px; height:6px; border-radius:50%; background:var(--k-agent); }
+
+/* 目次と色帯 */
+.toc { display:flex; flex-direction:column; gap:1px; margin-top:auto; border-top:1px solid var(--line); padding-top:5px; }
+.trow { display:flex; gap:7px; align-items:baseline; font-size:12px; padding:3px 6px; border-radius:6px; }
+.trow .when { font:10.5px var(--mono); color:var(--ink-3); flex:none; }
+.trow .tx { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.trow.open { background:var(--accent-soft); color:var(--accent); font-weight:560; }
+.band { display:flex; height:4px; gap:1px; margin:0 6px 3px 50px; border-radius:2px; overflow:hidden; }
+.band i { flex:1; }
+.band .r { background:var(--k-read) } .band .w { background:var(--k-write) } .band .x { background:var(--k-run) } .band .f { background:var(--k-fail) } .band .a { background:var(--k-agent) }
+.legend { display:flex; flex-wrap:wrap; gap:12px; font-size:11.5px; color:var(--ink-2); margin:6px 0 0; }
+.legend i { display:inline-block; width:14px; height:5px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+
+/* 文章ゼロ */
+.bigmap { display:grid; grid-template-columns:repeat(2,1fr); gap:6px; }
+.bigmap .ly { border-radius:10px; padding:10px 10px 8px; min-height:74px; background:var(--surface-2); position:relative; font-size:11px; color:var(--ink-3); }
+.bigmap .ly b { font:600 12.5px var(--mono); color:var(--ink-2); display:block; }
+.bigmap .ly.w { background:#dfe5ff; } .bigmap .ly.w b { color:var(--accent); }
+.bigmap .ly.r { background:#e9ebf3; }
+.bigmap .ly.now { box-shadow:0 0 0 2px var(--busy); }
+.bigmap .pts { display:flex; gap:4px; margin-top:6px; flex-wrap:wrap; }
+.bigmap .pts i { width:9px; height:9px; border-radius:50%; background:var(--k-agent); }
+.bigmap .pts i.f { background:var(--error); } .bigmap .pts i.wt { background:var(--waiting); }
+.float { position:absolute; left:10px; right:10px; bottom:-8px; transform:translateY(100%); z-index:2; padding:6px 9px; border-radius:9px; background:rgba(255,255,255,.9); backdrop-filter:blur(12px); box-shadow:0 10px 28px -12px rgba(30,40,90,.4), inset 0 0 0 1px var(--line-strong); font-size:11.5px; color:var(--ink); }
+.tband { display:flex; flex-direction:column; gap:5px; }
+.tband .tb { display:grid; grid-template-columns:36px 1fr; gap:6px; align-items:center; font:10.5px var(--mono); color:var(--ink-3); }
+.tband .tb .band { margin:0; height:8px; }
+
+/* 止まった瞬間 */
+.strip { display:flex; align-items:center; gap:8px; height:44px; padding:0 10px; border-radius:11px; background:var(--busy-soft); font-size:13px; font-weight:560; flex:none; }
+.strip .pts { margin-left:auto; display:flex; gap:3px; }
+.strip .pts i { width:7px; height:7px; border-radius:50%; background:var(--k-agent); }
+.stop-card { border-radius:12px; background:var(--waiting-soft); padding:10px 12px; }
+.stop-card .big { font-size:15px; font-weight:650; color:var(--waiting); display:flex; gap:7px; align-items:center; }
+.stop-card .q { margin-top:5px; font-size:13px; color:var(--ink); }
+.quiet { flex:1; display:flex; align-items:center; justify-content:center; color:var(--ink-3); font-size:12px; text-align:center; }
+
+/* 部品の比較 */
+.parts { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; margin-top:10px; }
+.part { padding:12px; border-radius:14px; background:var(--surface); border:2px solid transparent; cursor:pointer; box-shadow:0 1px 2px rgba(30,40,90,.06); }
+.part:hover { border-color:var(--line-strong); }
+.part.selected { border-color:var(--accent); background:#f7f8ff; }
+.part h4 { margin:0 0 3px; font-size:13px; }
+.part p { margin:0 0 8px; font-size:11.5px; color:var(--ink-2); }
+.part .demo { width:336px; max-width:100%; }
+.grid-dots { display:grid; grid-template-columns:70px repeat(14, 1fr); gap:2px; align-items:center; font-size:10.5px; color:var(--ink-2); }
+.grid-dots i { height:8px; border-radius:2px; background:var(--surface-2); }
+.grid-dots i.r { background:var(--k-read) } .grid-dots i.w { background:var(--k-write) } .grid-dots i.x { background:var(--k-run) } .grid-dots i.f { background:var(--k-fail) }
+.ring { width:34px; height:34px; border-radius:50%; background:conic-gradient(var(--k-agent) calc(var(--p)*1%), var(--surface-2) 0); display:grid; place-items:center; flex:none; }
+.ring::after { content:""; width:24px; height:24px; border-radius:50%; background:#fff; }
+.cards2 { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+.c2 { display:flex; flex-direction:column; align-items:center; gap:3px; padding:6px 4px; border-radius:9px; background:var(--surface-2); font-size:10.5px; text-align:center; color:var(--ink-2); }
+.tree { font:11.5px/1.7 var(--mono); color:var(--ink-2); }
+.tree .w { color:var(--accent); font-weight:600; } .tree .r { color:var(--ink-3); } .tree .now { color:var(--busy); font-weight:600; }
+.stack { display:flex; height:16px; border-radius:5px; overflow:hidden; }
+.stack i { display:block; height:100%; }
+.rail { display:flex; align-items:center; gap:6px; font-size:11.5px; }
+.rail span { padding:2px 8px; border-radius:99px; background:var(--surface-2); color:var(--ink-3); }
+.rail span.on { background:var(--accent-soft); color:var(--accent); font-weight:600; }
+.rail span.here { background:var(--busy-soft); color:var(--busy); font-weight:600; }
+</style>
+</head>
+<body>
+<main>
+<h1>右ペイン 第 2 版：Fable と 2 回壁打ちして絞った 3 構成と、部品の比較</h1>
+<p class="lead">壁打ちで変わった前提：<b>「いま〜している」は左のターミナルの最終行の言い換えで、横目ならターミナルが速い。</b>右ペインは<b>ターミナルに映らないもの</b>に使う。ここまでの累積、何のためか、なぜ止まったか、どの層を触っているか、そして指揮役の日に映らないサブエージェントの中身。</p>
+<p class="note">材料の実測：大きい 3 本の transcript で Bash が 6〜7 割、指揮役のセッションは Agent 300・SendMessage 129。Bash は 923 件すべてに Claude が書いた 1 行の説明（description）があり、1 手ごとなので古くならない。そこで「何をしているか」は<b>コマンド辞書ではなく description を主</b>にし、注入で「description は日本語・20 字以内」と頼む（無ければ英語のまま出す）。Read / Edit / Write はパスから決まった文にする。</p>
+<div class="legend"><span><i style="background:var(--k-read)"></i>読む</span><span><i style="background:var(--k-write)"></i>書く</span><span><i style="background:var(--k-run)"></i>走らせる</span><span><i style="background:var(--k-fail)"></i>失敗</span><span><i style="background:var(--k-agent)"></i>サブエージェント</span><span><span class="intent" style="padding:0 6px">「引用符」</span> 隣に確かめる事実が無い自己申告（ターンの意図）だけ</span></div>
+
+<h2>1. 構成を選ぶ</h2>
+<p class="note">各構成を 2 つの場面で描いた。左の場面は主線が自分で手を動かしている時、右は指揮役がサブエージェントを 5 本走らせている時（対極 2 だけは「動いている間」と「止まった瞬間」）。押して選び、ターミナルで感想を。</p>
+
+<!-- 推し -->
+<div class="comp" data-choice="p" onclick="toggleSelect(this)">
+  <div class="comp-head"><span class="tag">推し</span><h3>状態・手・居場所</h3><p>灯 → 意図 → 動いている手 → 居場所と層 → 目次。上ほど横目、下ほどじっくり。</p></div>
+  <div class="scenes">
+    <div class="scene"><div class="scene-cap">主線が手を動かしている</div>
+      <div class="term"><div class="d">⏺ Update(shellHook.ts)</div><div class="d">  ⎿ 57 additions, 4 removals</div><br><div class="t">⏺ Bash(npx vitest run shellHook)</div><div class="d">  ⎿ Running…</div></div>
+      <div class="pane">
+        <div class="lamp"><span class="dot"></span>作業中<span class="sub2">ターン 3・9 手目</span></div>
+        <div class="intent">「抜けたあと、答え終えた会話だけ止める。作業中は尋ねる」<span class="meta">Claude いわく・02:12・その後 9 手</span></div>
+        <div><div class="sec-lab">このターンの手</div>
+          <div class="steps">
+            <div class="st"><span class="ic">✓</span>読んだ：shellHook.ts ほか 2 件</div>
+            <div class="st"><span class="ic">✓</span>shellHook.ts を書き換えた<span class="x"><span class="bar"><i class="add" style="width:40px"></i><i class="del" style="width:4px"></i></span></span></div>
+            <div class="st"><span class="ic">✓</span>テストを足した<span class="x"><span class="bar"><i class="add" style="width:60px"></i></span></span></div>
+            <div class="st now"><span class="ic"><span class="dot"></span></span>shellHook のテストを走らせる</div>
+          </div></div>
+        <div><div class="sec-lab">作業の居場所</div>
+          <div class="where"><div class="n here"><i></i>変更 3</div><div class="ln"></div><div class="n"><i></i>コミット</div><div class="ln"></div><div class="n"><i></i>push</div><div class="ln"></div><div class="n"><i></i>main</div></div></div>
+        <div class="layers"><div class="ly w now"><b>server</b>書く</div><div class="ly"><b>ui</b>—</div><div class="ly"><b>desktop</b>—</div><div class="ly r"><b>shared</b>読む</div><div class="ly"><b>docs</b>—</div></div>
+        <div class="toc">
+          <div class="trow"><span class="when">02:01</span><span class="tx">hangar の shell hook の仕組みを見て</span></div><div class="band"><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i></div>
+          <div class="trow open"><span class="when">02:12</span><span class="tx">exit したら止まるようにして。作業中のは聞いて</span></div><div class="band"><i class="r"></i><i class="r"></i><i class="r"></i><i class="w"></i><i class="w"></i><i class="x"></i><i class="f"></i><i class="w"></i><i class="x"></i></div>
+        </div>
+      </div></div>
+    <div class="scene"><div class="scene-cap">指揮役がサブエージェントを 5 本走らせている</div>
+      <div class="term"><div class="t">⏺ Agent(T19 状態機械を実装)</div><div class="t">⏺ Agent(T20 画面の部品)</div><div class="t">⏺ Agent(T19 のレビュー)</div><div class="t">⏺ Agent(T18 の再確認)</div><div class="t">⏺ Agent(T21 端末の層)</div><div class="d">  ⎿ Running 5 agents…</div></div>
+      <div class="pane">
+        <div class="lamp"><span class="dot"></span>4 本動いている<span class="sub2">1 本が答え待ち・1 本失敗</span></div>
+        <div class="intent stale">「フェーズ 3 の残り 4 タスクを並列で片付ける」<span class="meta">Claude いわく・01:40・その後 64 手</span></div>
+        <div><div class="sec-lab">動いている手</div>
+          <div class="lane fail"><span class="dot fail"></span><b>T18 の再確認</b><span class="tm">6分</span><span class="last">失敗：テストが 2 件落ちた</span></div>
+          <div class="lane wait"><span class="dot wait"></span><b>T21 端末の層</b><span class="tm">3分</span><span class="last">あなたの答え待ち：tmux の既定を変えてよいか</span></div>
+          <div class="lane"><span class="dot"></span><b>T19 状態機械を実装</b><span class="tm">4分</span><span class="last">mediator のテストを走らせる</span></div>
+          <div class="lane"><span class="dot"></span><b>T20 画面の部品</b><span class="tm">2分</span><span class="last">Workbench.tsx を書き換えた</span></div>
+          <div class="lane"><span class="dot"></span><b>T19 のレビュー</b><span class="tm">1分</span><span class="last">mediator.ts を読んだ</span></div>
+          <div class="chips" style="margin-top:3px"><span class="chip">済 12</span></div></div>
+        <div class="layers"><div class="ly w now"><b>server</b>書く<span class="pt"></span></div><div class="ly w"><b>ui</b>書く<span class="pt"></span></div><div class="ly"><b>desktop</b>—</div><div class="ly r"><b>shared</b>読む</div><div class="ly"><b>docs</b>—</div></div>
+        <div class="toc"><div class="trow open"><span class="when">01:40</span><span class="tx">残りのタスクを並列で進めて</span></div><div class="band"><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="f"></i><i class="a"></i></div></div>
+      </div></div>
+  </div>
+</div>
+
+<!-- 対極 1 -->
+<div class="comp" data-choice="z" onclick="toggleSelect(this)">
+  <div class="comp-head"><span class="tag">対極 1</span><h3>文章ゼロ</h3><p>灯・層の地図・時間の帯だけ。文は押した所にだけ浮く。</p></div>
+  <div class="scenes">
+    <div class="scene"><div class="scene-cap">主線が手を動かしている（server を押した）</div>
+      <div class="term"><div class="d">⏺ Update(shellHook.ts)</div><div class="d">  ⎿ 57 additions, 4 removals</div><br><div class="t">⏺ Bash(npx vitest run shellHook)</div><div class="d">  ⎿ Running…</div></div>
+      <div class="pane">
+        <div class="lamp"><span class="dot"></span>作業中</div>
+        <div class="bigmap">
+          <div class="ly w now"><b>server</b>書く 2・走らせる 2<div class="float">shellHook.ts を書き換え（+57 −4）、テストを足した（+99）。いまテストを走らせる</div></div>
+          <div class="ly"><b>ui</b></div>
+          <div class="ly"><b>desktop</b></div>
+          <div class="ly r"><b>shared</b>読む 1</div>
+        </div>
+        <div style="margin-top:44px"><div class="sec-lab">ターンの帯</div>
+          <div class="tband">
+            <div class="tb">02:01<div class="band"><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i></div></div>
+            <div class="tb">02:08<div class="band"><i class="r"></i><i class="x"></i><i class="r"></i><i class="x"></i></div></div>
+            <div class="tb">02:12<div class="band"><i class="r"></i><i class="r"></i><i class="r"></i><i class="w"></i><i class="w"></i><i class="x"></i><i class="f"></i><i class="w"></i><i class="x"></i></div></div>
+          </div></div>
+      </div></div>
+    <div class="scene"><div class="scene-cap">サブエージェント 5 本（点が 1 本ずつ）</div>
+      <div class="term"><div class="t">⏺ Agent(T19 状態機械を実装)</div><div class="t">⏺ Agent(T20 画面の部品)</div><div class="t">⏺ Agent(T19 のレビュー)</div><div class="t">⏺ Agent(T18 の再確認)</div><div class="t">⏺ Agent(T21 端末の層)</div><div class="d">  ⎿ Running 5 agents…</div></div>
+      <div class="pane">
+        <div class="lamp"><span class="dot"></span>4 本動いている<span class="sub2">答え待ち 1・失敗 1</span></div>
+        <div class="bigmap">
+          <div class="ly w now"><b>server</b><div class="pts"><i></i><i></i><i class="f"></i></div></div>
+          <div class="ly w"><b>ui</b><div class="pts"><i></i></div></div>
+          <div class="ly"><b>desktop</b><div class="pts"><i class="wt"></i></div></div>
+          <div class="ly r"><b>shared</b></div>
+        </div>
+        <div><div class="sec-lab">時間の帯（本ごと）</div>
+          <div class="tband">
+            <div class="tb">T18<div class="band"><i class="r"></i><i class="x"></i><i class="f"></i><i class="f"></i></div></div>
+            <div class="tb">T19<div class="band"><i class="r"></i><i class="w"></i><i class="w"></i><i class="x"></i></div></div>
+            <div class="tb">T20<div class="band"><i class="r"></i><i class="r"></i><i class="w"></i></div></div>
+            <div class="tb">T21<div class="band"><i class="r"></i><i class="r"></i></div></div>
+            <div class="tb">rev<div class="band"><i class="r"></i></div></div>
+          </div></div>
+      </div></div>
+  </div>
+</div>
+
+<!-- 対極 2 -->
+<div class="comp" data-choice="s" onclick="toggleSelect(this)">
+  <div class="comp-head"><span class="tag">対極 2</span><h3>止まった瞬間だけ育つ</h3><p>動いている間は 44px の帯だけ。止まった時に「なぜ・何が変わったか・居場所」が開き、再開すると縮む。</p></div>
+  <div class="scenes">
+    <div class="scene"><div class="scene-cap">動いている間</div>
+      <div class="term"><div class="d">⏺ Update(shellHook.ts)</div><div class="d">  ⎿ 57 additions, 4 removals</div><br><div class="t">⏺ Bash(npx vitest run shellHook)</div><div class="d">  ⎿ Running…</div></div>
+      <div class="pane">
+        <div class="strip"><span class="dot"></span>作業中・9 手目<span class="pts"><i></i><i></i></span></div>
+        <div class="quiet">動いている間は静かにしています<br>止まったらここに理由が出ます</div>
+        <div class="toc"><div class="trow open"><span class="when">02:12</span><span class="tx">exit したら止まるようにして。作業中のは聞いて</span></div></div>
+      </div></div>
+    <div class="scene"><div class="scene-cap">止まった瞬間（あなたへの質問）</div>
+      <div class="term wait"><div>⏺ 作業中の会話も止めますか、</div><div>  それとも尋ねるだけにしますか？</div><br><div class="d">  ❯ 1. 尋ねる（推奨）</div><div class="d">    2. 止める</div></div>
+      <div class="pane">
+        <div class="stop-card"><div class="big"><span class="dot wait"></span>あなたの答え待ち</div><div class="q">作業中の会話も止めるか、尋ねるだけにするか</div></div>
+        <div><div class="sec-lab">このターンで変わったもの</div>
+          <div class="steps">
+            <div class="st"><span class="ic">✓</span>shellHook.ts を書き換えた<span class="x"><span class="bar"><i class="add" style="width:40px"></i><i class="del" style="width:4px"></i></span></span></div>
+            <div class="st"><span class="ic">✓</span>テストを足した<span class="x"><span class="bar"><i class="add" style="width:60px"></i></span></span></div>
+            <div class="st"><span class="ic" style="color:var(--error)">✕</span>テストが 1 件落ちた → 直した</div>
+          </div></div>
+        <div><div class="sec-lab">作業の居場所</div>
+          <div class="where"><div class="n here"><i></i>変更 3</div><div class="ln"></div><div class="n"><i></i>コミット</div><div class="ln"></div><div class="n"><i></i>push</div><div class="ln"></div><div class="n"><i></i>main</div></div></div>
+        <div class="intent">「抜けたあと、答え終えた会話だけ止める」<span class="meta">Claude いわく・02:12・その後 9 手</span></div>
+        <div class="toc"><div class="trow open"><span class="when">02:12</span><span class="tx">exit したら止まるようにして。作業中のは聞いて</span></div></div>
+      </div></div>
+  </div>
+</div>
+
+<h2>2. 部品ごとの見せ方を選ぶ</h2>
+<p class="note">構成とは別に、部品の描き方を比べる。どの構成にも差し替えられる。各行で 1 つずつ押してよい。</p>
+
+<h3 style="margin:18px 0 0;font-size:14px">サブエージェントの並び</h3>
+<div class="parts">
+  <div class="part" data-choice="lane-rows" onclick="toggleSelect(this)"><h4>L1 行（推し構成の形）</h4><p>1 本 40px、灯・題名・最後の手・経過。失敗と答え待ちは先頭に固定、済はチップに畳む。5〜6 本まで。</p>
+    <div class="demo"><div class="lane fail"><span class="dot fail"></span><b>T18 の再確認</b><span class="tm">6分</span><span class="last">失敗：テストが 2 件落ちた</span></div><div class="lane"><span class="dot"></span><b>T19 状態機械を実装</b><span class="tm">4分</span><span class="last">mediator のテストを走らせる</span></div><div class="lane"><span class="dot"></span><b>T20 画面の部品</b><span class="tm">2分</span><span class="last">Workbench.tsx を書き換えた</span></div></div></div>
+  <div class="part" data-choice="lane-grid" onclick="toggleSelect(this)"><h4>L2 時間の升目</h4><p>本ごとに 1 行、1 手を 1 升で色分け。文字は題名だけ。「書いては落ちて」が形で分かる。10 本でも入る。</p>
+    <div class="demo grid-dots">
+      <span>T18 再確認</span><i class="r"></i><i class="x"></i><i class="f"></i><i class="w"></i><i class="x"></i><i class="f"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      <span>T19 実装</span><i class="r"></i><i class="r"></i><i class="w"></i><i class="w"></i><i class="w"></i><i class="x"></i><i class="w"></i><i class="x"></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      <span>T20 部品</span><i class="r"></i><i class="r"></i><i class="r"></i><i class="w"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      <span>T21 端末</span><i class="r"></i><i class="r"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      <span>T19 レビュー</span><i class="r"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+    </div></div>
+  <div class="part" data-choice="lane-ring" onclick="toggleSelect(this)"><h4>L3 輪のカード</h4><p>本ごとに小さなカード。輪は手数の多さ（進みではない）。3 列で 6 本が一目。押すと L1 の行が開く。</p>
+    <div class="demo cards2">
+      <div class="c2"><span class="ring" style="--p:60;background:conic-gradient(var(--error) 60%, var(--surface-2) 0)"></span>T18 再確認</div>
+      <div class="c2"><span class="ring" style="--p:80"></span>T19 実装</div>
+      <div class="c2"><span class="ring" style="--p:30"></span>T20 部品</div>
+      <div class="c2"><span class="ring" style="--p:20;background:conic-gradient(var(--waiting) 20%, var(--surface-2) 0)"></span>T21 端末</div>
+      <div class="c2"><span class="ring" style="--p:10"></span>T19 レビュー</div>
+      <div class="c2" style="opacity:.6"><b>済 12</b></div>
+    </div></div>
+</div>
+
+<h3 style="margin:22px 0 0;font-size:14px">触っている層</h3>
+<div class="parts">
+  <div class="part" data-choice="map-tiles" onclick="toggleSelect(this)"><h4>M1 タイル</h4><p>パッケージ単位の升。読んだ＝薄、書いた＝濃、いま＝縁が灯る。「直したのに反映されない」の切り分けに直結。</p>
+    <div class="demo layers"><div class="ly w now"><b>server</b>書く</div><div class="ly w"><b>ui</b>書く</div><div class="ly"><b>desktop</b>—</div><div class="ly r"><b>shared</b>読む</div><div class="ly"><b>docs</b>—</div></div></div>
+  <div class="part" data-choice="map-tree" onclick="toggleSelect(this)"><h4>M2 縮めたツリー</h4><p>触ったファイルだけのツリー。ファイル名まで見える。5 件を超えると畳む。</p>
+    <div class="demo tree">packages/<br>&nbsp;server/src/config/<br>&nbsp;&nbsp;<span class="now">● shellHook.ts</span> <span class="bar"><i class="add" style="width:30px"></i><i class="del" style="width:3px"></i></span><br>&nbsp;&nbsp;<span class="w">shellHook.test.ts</span> <span class="bar"><i class="add" style="width:44px"></i></span><br>&nbsp;shared/src/<span class="r">transcript.ts</span></div></div>
+  <div class="part" data-choice="map-stack" onclick="toggleSelect(this)"><h4>M3 積み上げの棒</h4><p>このターンの手を層ごとに 1 本の棒へ。どこに手間がかかっているかの割合だけ。</p>
+    <div class="demo"><div class="stack"><i style="width:55%;background:var(--k-write)"></i><i style="width:25%;background:#8fa0f0"></i><i style="width:20%;background:var(--k-read)"></i></div><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink-2);margin-top:3px"><span>server 55%</span><span>ui 25%</span><span>shared 20%</span></div></div></div>
+</div>
+
+<h3 style="margin:22px 0 0;font-size:14px">作業の居場所（作業ツリー → コミット → push → main）</h3>
+<div class="parts">
+  <div class="part" data-choice="where-dots" onclick="toggleSelect(this)"><h4>W1 4 つの点</h4><p>線路の上の 4 駅。いまいる駅が灯る。</p>
+    <div class="demo where"><div class="n on"><i></i>変更 3</div><div class="ln on"></div><div class="n here"><i></i>コミット</div><div class="ln"></div><div class="n"><i></i>push</div><div class="ln"></div><div class="n"><i></i>main</div></div></div>
+  <div class="part" data-choice="where-pills" onclick="toggleSelect(this)"><h4>W2 札</h4><p>4 つの札。済んだ段は藍、いまは杏。文字が主。</p>
+    <div class="demo rail"><span class="on">変更 3</span><span class="here">コミット済</span><span>push</span><span>main</span></div></div>
+  <div class="part" data-choice="where-text" onclick="toggleSelect(this)"><h4>W3 1 行の文</h4><p>「コミット済み・push はまだ」とだけ。形は無い。</p>
+    <div class="demo" style="font-size:12.5px">コミット済み（<code>fd7ea9a</code>）・push はまだ</div></div>
+</div>
+
+<h3 style="margin:22px 0 0;font-size:14px">意図の鮮度（自己申告が古くなったとき）</h3>
+<div class="parts">
+  <div class="part" data-choice="int-fade" onclick="toggleSelect(this)"><h4>I1 手数で薄れる</h4><p>書かれてからの手数が増えるほど薄くなる。</p>
+    <div class="demo"><div class="intent">「答え終えた会話だけ止める」<span class="meta">Claude いわく・その後 3 手</span></div><div style="height:5px"></div><div class="intent stale">「フェーズ 3 の残りを並列で」<span class="meta">Claude いわく・その後 64 手</span></div></div></div>
+  <div class="part" data-choice="int-badge" onclick="toggleSelect(this)"><h4>I2 鮮度の札</h4><p>濃さは変えず、「その後 64 手」を札で目立たせる。</p>
+    <div class="demo"><div class="intent">「フェーズ 3 の残りを並列で」<span class="meta"><span style="background:var(--waiting-soft);color:var(--waiting);border-radius:5px;padding:0 5px;font-weight:600">その後 64 手</span>・01:40</span></div></div></div>
+  <div class="part" data-choice="int-fold" onclick="toggleSelect(this)"><h4>I3 古くなったら畳む</h4><p>一定の手数を超えたら 1 行に畳み、「意図は 64 手前のもの」とだけ出す。</p>
+    <div class="demo" style="font-size:12px;color:var(--ink-3)">▸ 意図は 64 手前のもの（01:40）</div></div>
+</div>
+
+</main>
+</body>
+</html>

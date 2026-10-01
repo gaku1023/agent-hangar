@@ -1,4 +1,4 @@
-import { splitFtsTokens, toFtsQuery, type SearchHitDto, type SearchParamsDto, type SearchResultDto } from '@agent-hangar/shared';
+import { splitFtsTokens, toFtsQuery, type LiveFilter, type SearchHitDto, type SearchParamsDto, type SearchResultDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 
 const DEFAULT_LIMIT = 50;
@@ -37,13 +37,19 @@ export function likeSnippet(text: string, token: string): string {
  * event_fts を全文検索し、session_id ごとに件数と抜粋をまとめて返す。
  * 3 文字以上の語は toFtsQuery で MATCH に載せ、複数語は AND になる。
  * 3 文字未満の語は trigram に当たらないので、行の text への like で補う。
- * running の判定は DB に無いので、実行中の provider_session_id の集合を第三引数で受ける。
+ * 検索語が無くても触ったファイルがあれば、そのファイルを触ったセッションを新しい順に返す。
+ * このときの件数はそのファイルに触れたイベントの数で、抜粋は持たない。
+ * total は条件に合う全件の数で、hits は offset から limit 件だけを持つ。
+ * 状態（実行中、入力待ち、終了）の判定は DB に無いので、hangar の id と provider_session_id から状態を返す関数を第三引数で受ける。
+ * 渡されなければ、どのセッションも終了とみなす。
  */
-export function searchSessions(db: Db, params: SearchParamsDto, runningIds: Set<string> = new Set()): SearchResultDto {
+export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (sessionId: string, providerSessionId: string) => LiveFilter = () => 'ended'): SearchResultDto {
   const { long, short } = splitFtsTokens(params.q);
   const match = long.length > 0 ? toFtsQuery(params.q) : null;
-  if (!match && short.length === 0) return { hits: [], total: 0 };
+  const hasText = match !== null || short.length > 0;
+  if (!hasText && !params.file) return { hits: [], total: 0 };
   const limit = Math.min(Math.max(params.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+  const offset = Math.max(params.offset ?? 0, 0);
 
   // 行の本文に対する条件。MATCH と like を組み合わせ、抜粋の取得でも同じものを使う。
   const textWhere: string[] = [];
@@ -60,6 +66,13 @@ export function searchSessions(db: Db, params: SearchParamsDto, runningIds: Set<
     where.push("exists (select 1 from event_index e where e.session_id = s.id and e.file_path like ? escape '\\')");
     args.push(likePattern(params.file));
   }
+  if (!hasText) {
+    // 本文の条件が無いので、セッションを直接並べる。件数はそのファイルに触れたイベントの数にする。
+    const sql = `select s.id sid, s.provider_session_id psid, (select count(*) from event_index e where e.session_id = s.id and e.file_path like ? escape '\\') n from sessions s where ${where.join(' and ')} order by s.last_activity_at desc`;
+    let rows = db.prepare(sql).all(likePattern(params.file!), ...args) as { sid: string; psid: string; n: number }[];
+    if (params.live !== undefined) rows = rows.filter((r) => liveOf(r.sid, r.psid) === params.live);
+    return { hits: rows.slice(offset, offset + limit).map((r) => ({ sessionId: r.sid, matchCount: r.n, snippets: [] })), total: rows.length };
+  }
   // MATCH があれば索引で候補が絞れるので event_fts を直接結合する。
   // like だけのときは全走査になるので、集計に回す行数を LIKE_ONLY_SCAN_CAP で打ち切ってから結合する。
   const source = match
@@ -67,13 +80,15 @@ export function searchSessions(db: Db, params: SearchParamsDto, runningIds: Set<
     : `(select session_id from event_fts f where ${textWhere.join(' and ')} limit ${LIKE_ONLY_SCAN_CAP}) f join sessions s on s.id = f.session_id where ${where.join(' and ')}`;
   const sql = `select s.id sid, s.provider_session_id psid, count(*) n from ${source} group by s.id order by n desc, s.last_activity_at desc`;
   let rows = db.prepare(sql).all(...textArgs, ...args) as { sid: string; psid: string; n: number }[];
-  if (params.running !== undefined) rows = rows.filter((r) => runningIds.has(r.psid) === params.running);
+  if (params.live !== undefined) rows = rows.filter((r) => liveOf(r.sid, r.psid) === params.live);
   const total = rows.length;
 
   // snippet() は MATCH した問い合わせでしか使えないので、like だけの経路は本文を取って切り出す。
   const column = match ? "snippet(event_fts, 4, '', '', '…', 12) text" : 'text';
-  const snip = db.prepare(`select seq, role, ${column} from event_fts f where f.session_id = ? and ${textWhere.join(' and ')} limit ${SNIPPETS_PER_HIT}`);
-  const hits: SearchHitDto[] = rows.slice(0, limit).map((r) => {
+  // seq は主線とサブエージェントで別々に振るので、どの線の行かを agentId で添える（主線は null）。
+  // 並びは主線を先に、seq の順にする。決めないと、跳び先（J1）に使う最初の抜粋が挿入の順で揺れる。
+  const snip = db.prepare(`select seq, role, agent_id agentId, ${column} from event_fts f where f.session_id = ? and ${textWhere.join(' and ')} order by (agent_id is not null), cast(seq as integer) limit ${SNIPPETS_PER_HIT}`);
+  const hits: SearchHitDto[] = rows.slice(offset, offset + limit).map((r) => {
     const snippets = snip.all(r.sid, ...textArgs) as SearchHitDto['snippets'];
     return {
       sessionId: r.sid,

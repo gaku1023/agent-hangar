@@ -109,7 +109,7 @@ describe('openInEditor', () => {
   it('code <target> を呼ぶ。codePath が無ければ投げる', async () => {
     await openInEditor({ codePath: '/usr/local/bin/code', target: '/w/alpha', exec: exec() });
     expect(calls).toEqual([{ cmd: '/usr/local/bin/code', args: ['/w/alpha'] }]);
-    await expect(openInEditor({ codePath: null, target: '/w', exec: exec() })).rejects.toThrow(/codePath/);
+    await expect(openInEditor({ codePath: null, target: '/w', exec: exec() })).rejects.toThrow('VS Code の code コマンドが見つかりません。設定の「code のパス」を入れてください');
     await expect(openInEditor({ codePath: '/x/code', target: '/w', exec: exec({ '/x/code': 2 }) })).rejects.toThrow(/VS Code/);
   });
 });

@@ -23,6 +23,19 @@ const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterv
 /** 本文の変化のたびにファイル全体を上げ直すので、窓を短くすると転送量が跳ねる。 */
 const DEBOUNCE_MS = 30_000;
 /**
+ * 一度上げた本文を、次に上げ直すまでの最短の間隔。
+ *
+ * R2 は部分更新ができないので、伸びている本文は上げ直すたびに全体を運ぶ。
+ * 30 秒の窓だけで上げ直すと、書き込みの続く数十 MB の本文が 1 時間に 100 回運ばれる。
+ * 2026-09-30 はそれで R2 への put が 2,744 回、分けて上げた部分が 744 本になり、
+ * Worker の CPU が無料プランの上限を超え、D1 の書き込みも枠の 80% に届いて同期が止まった。
+ *
+ * まだ一度も上げていない本文には効かない（30 秒の窓で上がる）。
+ * run の終わり（`flushSession`）と `uploadFile` も待たない。止まった本文は間を置かずに届く。
+ * hangar の外で動いているセッションは終わりを知らせてこないが、間隔が明ければ最後の中身が上がる。
+ */
+export const REUPLOAD_GAP_MS = 10 * 60_000;
+/**
  * 取り残しの走査が 1 度に積む数。
  * 本文は 1 件が数 MB になるので、初回の一括（フェーズ 0 の実測で gzip 後 750MB 前後）を
  * 一気に積まず、少しずつ流す。上げる仕事は 1 本の鎖に並ぶので、同時に流れるのは常に 1 件である。
@@ -107,6 +120,9 @@ export class TranscriptUploader {
   private readonly retriedSinceBoot = new Set<string>();
   private sweepStmt: ReturnType<Db['prepare']> | null = null;
   private timer: NodeJS.Timeout | null = null;
+  /** 張ってあるタイマーの期限。 */
+  private timerAt = 0;
+  private syncedAtStmt: ReturnType<Db['prepare']> | null = null;
   private chain: Promise<unknown> = Promise.resolve();
   private stopped = false;
 
@@ -119,10 +135,42 @@ export class TranscriptUploader {
   noteChanged(f: UploadTarget): void {
     if (this.stopped) return;
     this.pending.set(f.path, f);
-    if (this.timer) return;
-    // 窓はずらさない。書き込みが続くセッションでも、30 秒に 1 度は上がる。
-    this.timer = this.timers.setTimeout(() => { this.timer = null; this.startFlush(); }, this.deps.debounceMs ?? DEBOUNCE_MS);
+    // 窓はずらさない。書き込みが続くセッションでも、30 秒に 1 度は見に行く（上げ直すかは REUPLOAD_GAP_MS で決まる）。
+    this.arm(this.deps.debounceMs ?? DEBOUNCE_MS);
+  }
+
+  /**
+   * 待ち行列を流すタイマーを張る。タイマーは 1 つで、いちばん早い期限に合わせる。
+   * 張ってある期限より遅ければ何もしない（窓をずらさない）。早ければ張り直す。
+   * 張り直さないと、上げ直しの待ち（最大 10 分）が張ったタイマーの下で、新しい本文の 30 秒の窓が埋もれる。
+   */
+  private arm(ms: number): void {
+    if (this.stopped) return;
+    const at = this.now() + ms;
+    if (this.timer) {
+      if (this.timerAt <= at) return;
+      this.timers.clearTimeout(this.timer);
+    }
+    this.timerAt = at;
+    this.timer = this.timers.setTimeout(() => { this.timer = null; this.startFlush(); }, ms);
     (this.timer as { unref?: () => void }).unref?.();
+  }
+
+  /**
+   * 上げ直しの間隔が明けるまでの残り。0 なら今すぐ上げてよい。
+   * 一度も上げていない本文と、鍵に使えない ID（上げる側で知らせる）は待たない。
+   */
+  private reuploadWait(f: UploadTarget): number {
+    const key = this.safeKey(f.sessionId, f.agentId);
+    if (key === null) return 0;
+    this.syncedAtStmt ??= this.deps.db.prepare('select synced_at from file_sync where key = ?');
+    const row = this.syncedAtStmt.get(key) as { synced_at: number } | undefined;
+    if (!row) return 0;
+    // 上げた時刻が今より先なのは時計が戻ったときで、その時刻はもう当てにならない。
+    // 待たせると、見るたびに「まだ先」になって永久に上げ直せない。待たずに上げ、時刻を今で刻み直す。
+    const now = this.now();
+    if (row.synced_at > now) return 0;
+    return Math.max(0, row.synced_at + REUPLOAD_GAP_MS - now);
   }
 
   /** 上げる仕事は 1 本の鎖に並べ、同じファイルに対する putFile が重ならないようにする。 */
@@ -265,8 +313,20 @@ export class TranscriptUploader {
     return this.sweepStmt;
   }
 
+  /**
+   * 待ち行列を流す。上げ直しの間隔が明けていない本文は待ち行列に残し、明ける時刻にタイマーを張り直す。
+   * 張り直すので、知らせが止んだ後も最後の中身は必ず上がる。
+   */
   flushAll(): Promise<void> {
-    return this.enqueue(async () => { for (const f of [...this.pending.values()]) await this.attempt(f); });
+    return this.enqueue(async () => {
+      let wait = Infinity;
+      for (const f of [...this.pending.values()]) {
+        const w = this.reuploadWait(f);
+        if (w > 0) { wait = Math.min(wait, w); continue; }
+        await this.attempt(f);
+      }
+      if (wait !== Infinity) this.arm(wait);
+    });
   }
 
   /** run の終了と「この PC で再開」から呼ぶ。待ち行列と、既に上げたことのある鍵の両方を見る。 */

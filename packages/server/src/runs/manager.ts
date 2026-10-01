@@ -14,6 +14,7 @@ import type { LaunchInput, LiveSession } from '../provider/types.ts';
 import type { Tmux } from '../tmux/tmux.ts';
 import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
 import { parseBackgroundedId, realProcOps, sameStartTime, type ProcOps } from './procs.ts';
+import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type PaneIo } from './promptJump.ts';
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
@@ -103,7 +104,7 @@ export class RunManager {
   }
 
   private tmux(): Tmux {
-    if (!this.deps.tmux) throw new RunError(400, 'tmux が見つかりません。Settings で tmuxPath を設定してください');
+    if (!this.deps.tmux) throw new RunError(400, 'tmux が見つかりません。設定の「tmux のパス」を入れてください');
     return this.deps.tmux;
   }
 
@@ -114,7 +115,7 @@ export class RunManager {
    * 利用者はターミナルを開くまで理由が分からない。だから渡す前にここで止める。
    */
   private claudeBin(): string {
-    if (!this.deps.claudeBin) throw new RunError(400, 'claude が見つかりません。Settings で claudePath を設定してください');
+    if (!this.deps.claudeBin) throw new RunError(400, 'claude が見つかりません。設定の「claude のパス」を入れてください');
     return this.deps.claudeBin;
   }
 
@@ -152,7 +153,7 @@ export class RunManager {
    */
   private addDirs(params: LaunchParams): string[] {
     const dirs = (params.addDirs ?? []).map((d) => d.trim()).filter(Boolean);
-    for (const d of dirs) if (d.startsWith('-')) throw new RunError(400, `addDirs にフラグのような値は使えません: ${d}`);
+    for (const d of dirs) if (d.startsWith('-')) throw new RunError(400, `追加ディレクトリに - で始まる値は使えません: ${d}`);
     return dirs;
   }
 
@@ -258,7 +259,7 @@ export class RunManager {
     // スクラッチは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
     // projectId が一緒に来ていても scratch を優先する。
     const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);
-    if (!p.path || !p.resolved) throw new RunError(400, 'プロジェクトのディレクトリがこの端末で見つかりません');
+    if (!p.path || !p.resolved) throw new RunError(400, 'プロジェクトのディレクトリがこの PC で見つかりません');
     // スクラッチのディレクトリは precheck より先に作る。precheck は cwd が実在するかを見るためである。
     const cwd = params.scratch ? newScratchDir(this.deps.home, new Date(this.now())) : p.path;
     this.precheck(cwd);
@@ -274,7 +275,7 @@ export class RunManager {
 
   /** scratch ではないときの起動先。projectId は必須である。 */
   private namedProject(projectId: string | undefined): ProjectInfo {
-    if (!projectId) throw new RunError(400, 'projectId は必須です');
+    if (!projectId) throw new RunError(400, 'プロジェクトを選んでください');
     return this.project(projectId);
   }
 
@@ -516,8 +517,8 @@ export class RunManager {
   /** run を止める。タブも閉じ、killed で終わらせる。 */
   kill(runId: string): RunDto {
     const run = getRun(this.db, runId);
-    if (!run) throw new RunError(404, 'run が見つかりません');
-    if (run.endedAt !== null) throw new RunError(409, 'この run は終了しています');
+    if (!run) throw new RunError(404, '起動した Claude が見つかりません');
+    if (run.endedAt !== null) throw new RunError(409, 'この Claude はもう終了しています');
     for (const t of listTabs(this.db, runId)) if (t.kind === 'shell') this.closeTab(t.id);
     this.stopBackground(run.sessionId);
     this.deps.tmux?.killSession(run.tmuxName);
@@ -577,7 +578,7 @@ export class RunManager {
   /** 同じ cwd で利用者のログインシェルを起こした独立の tmux セッションをタブとして足す。 */
   openTab(runId: string): TabDto {
     const run = getRun(this.db, runId);
-    if (!run) throw new RunError(404, 'run が見つかりません');
+    if (!run) throw new RunError(404, '起動した Claude が見つかりません');
     const s = this.session(run.sessionId);
     const tmux = this.precheck(s.cwd);
     // 番号は閉じた行も数えて振る。閉じたタブの番号は再利用しない。
@@ -632,5 +633,40 @@ export class RunManager {
     if (!t) return null;
     if (t.kind === 'agent' && this.getRun(t.runId)?.endedAt != null) return null;
     return t;
+  }
+
+  /** run ごとの跳ぶ操作の列。続けて押されても、前の操作のキーと混ざらないように 1 つずつ流す。 */
+  private paneOps = new Map<string, Promise<unknown>>();
+
+  private agentPane(runId: string): PaneIo {
+    const run = this.getRun(runId);
+    if (!run) throw new RunError(404, '起動した Claude が見つかりません');
+    if (run.endedAt !== null) throw new RunError(409, 'この Claude はもう終了しています');
+    const tmux = this.tmux();
+    return {
+      capture: () => tmux.capturePane(run.tmuxName),
+      // ctrl+o だけはキーの名前で送り、ほかは -l で 1 文字として送る。{ や q を tmux のキー名として読ませない。
+      send: (key) => (key === 'C-o' ? tmux.sendKeys(run.tmuxName, 'C-o') : tmux.sendKeys(run.tmuxName, '-l', key)),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    };
+  }
+
+  private queuePane<T>(runId: string, op: () => Promise<T>): Promise<T> {
+    const next = (this.paneOps.get(runId) ?? Promise.resolve()).catch(() => {}).then(op);
+    this.paneOps.set(runId, next);
+    void next.finally(() => { if (this.paneOps.get(runId) === next) this.paneOps.delete(runId); }).catch(() => {});
+    return next;
+  }
+
+  /** Claude のタブを transcript の中の指示へ跳ばす。手順と送るキーの制限は promptJump.ts にある。 */
+  jumpToPrompt(runId: string, heads: string[], index: number, from: JumpFrom): Promise<JumpResult> {
+    const io = this.agentPane(runId);
+    return this.queuePane(runId, () => jumpToPrompt(io, heads, index, from));
+  }
+
+  /** Claude のタブが transcript を開いていれば閉じて、入力欄のある画面へ戻す。 */
+  leaveTranscript(runId: string): Promise<{ left: boolean }> {
+    const io = this.agentPane(runId);
+    return this.queuePane(runId, async () => ({ left: await leaveTranscript(io) }));
   }
 }

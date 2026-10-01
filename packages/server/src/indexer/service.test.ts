@@ -241,3 +241,42 @@ describe('他端末の本文の索引化', () => {
     svc.stop();
   });
 });
+
+describe('消えた本文の片付け', () => {
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+
+  it('手元の本文ファイルが消えたら、その索引を片付けて transcriptGone を出す', async () => {
+    const svc = make();
+    await svc.fullScan();
+    const id = alphaId();
+    expect(count('select count(*) c from transcript_files where session_id = ? and agent_id is null', id)).toBe(1);
+    const gone: string[] = [];
+    svc.on({ transcriptGone: (e) => gone.push(e.sessionId) });
+    fs.rmSync(alphaPath());
+    await svc.fullScan();
+    expect(count('select count(*) c from transcript_files where session_id = ? and agent_id is null', id)).toBe(0);
+    expect(count("select count(*) c from event_index where session_id = ? and ifnull(parent_agent, '') = ''", id)).toBe(0);
+    expect(gone).toEqual([id]);
+  });
+
+  it('他の PC の写し（device_id あり）の行は片付けない', async () => {
+    const svc = make();
+    await svc.fullScan();
+    const ghost = path.join(dir, 'nowhere', 'other.jsonl');
+    db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version, device_id) values (?, ?, null, 1, 1, 1, 1, ?)').run(ghost, alphaId(), 'other');
+    await svc.fullScan();
+    expect(count('select count(*) c from transcript_files where path = ?', ghost)).toBe(1);
+  });
+
+  it('projects そのものが見えないときは何も片付けない', async () => {
+    const svc = make();
+    await svc.fullScan();
+    const before = count('select count(*) c from transcript_files');
+    const gone: string[] = [];
+    svc.on({ transcriptGone: (e) => gone.push(e.sessionId) });
+    fs.rmSync(path.join(dir, 'projects'), { recursive: true, force: true });
+    await svc.fullScan();
+    expect(count('select count(*) c from transcript_files')).toBe(before);
+    expect(gone).toEqual([]);
+  });
+});

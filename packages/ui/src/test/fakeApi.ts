@@ -3,10 +3,12 @@ import type { ApiClient } from '../runtime/api.ts';
 
 type Extras = Pick<
   ApiClient,
-  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
-  | 'usageAggregate' | 'statusline' | 'shellHook' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
+  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncStatus' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
+  | 'retention' | 'retentionPreview' | 'writeRetention'
+  | 'live'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -25,6 +27,8 @@ export function fakeApiExtras(): Extras {
     openTab: vi.fn(async () => unused()),
     closeTab: vi.fn(async () => unused()),
     openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
+    jumpToPrompt: vi.fn(async () => ({ found: true as const })),
+    leaveTranscript: vi.fn(async () => ({ left: true })),
     openEditor: vi.fn(async () => {}),
     projectOpenEditor: vi.fn(async () => {}),
     projectOpenTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
@@ -32,6 +36,12 @@ export function fakeApiExtras(): Extras {
     usageAggregate: vi.fn(async () => ({ days: [], projects: [] })),
     statusline: vi.fn(async () => ({ command: null, scriptPath: null, installed: false })),
     shellHook: vi.fn(async () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' })),
+    // 準備の確かめは、空のホームでも取りに行くので、どのテストでも答えを返す。
+    readiness: vi.fn(async () => ({
+      tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset' as const, version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+      workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
+      commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+    })),
     addTodo: vi.fn(async (projectId: string, text: string) => ({ id: 't1', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1 })),
     setTodoDone: vi.fn(async (id: string, done: boolean) => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1 })),
     removeTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1 })),
@@ -58,5 +68,9 @@ export function fakeApiExtras(): Extras {
     configPreview: vi.fn(async () => ({ entries: [], confirmed: false })),
     configPull: vi.fn(async () => ({ applied: 0, conflicts: 0 })),
     devices: vi.fn(async () => []),
+    retention: vi.fn(async () => ({ days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null })),
+    retentionPreview: vi.fn(async () => unused()),
+    writeRetention: vi.fn(async () => unused()),
+    live: vi.fn(async (sessionId: string) => ({ sessionId, turnStartSeq: null, intent: null, agents: [] })),
   };
 }

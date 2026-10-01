@@ -1,25 +1,45 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
-import type { PaletteProps } from '../presenters/palette.ts';
+import type { PaletteIcon, PaletteItem, PaletteProps } from '../presenters/palette.ts';
 import { isComposing } from './ime.ts';
+import { Icon, type IconName } from './primitives/Icon.tsx';
 import { motionEase, motionMs } from './primitives/motion.ts';
+import { StatusDot } from './primitives/StatusDot.tsx';
 
-const KIND_LABEL = { command: 'コマンド', project: 'プロジェクト', session: 'セッション' } as const;
+/** presenter の絵の名前から Icon の名前へ。 */
+const ICON: Record<PaletteIcon, IconName> = { home: 'home', projects: 'projects', sessions: 'sessions', settings: 'settings', next: 'nextWaiting', sidebar: 'sidebar', keys: 'command', add: 'add', scratch: 'scratch', rebuild: 'rebuild', fulltext: 'fullText' };
+
+/** 名前の中の、打った語にそのまま一致する部分を印で囲む。部分列でしか当たらないときは囲まない。 */
+function highlight(label: string, query: string): ReactNode {
+  const q = query.trim().toLowerCase();
+  const at = q ? label.toLowerCase().indexOf(q) : -1;
+  if (at < 0) return label;
+  return <>{label.slice(0, at)}<mark>{label.slice(at, at + q.length)}</mark>{label.slice(at + q.length)}</>;
+}
+
+function Lead(props: { item: PaletteItem }) {
+  const l = props.item.lead;
+  if (l.kind === 'dot') return <StatusDot status={l.live} />;
+  if (l.kind === 'status') return <span className="st-dot" data-status={l.status} aria-hidden="true" />;
+  return <Icon name={ICON[l.icon]} />;
+}
 
 /**
  * コマンドパレット。
  * 入力の文字は Root が持ち、選択位置だけをここに持つ。
  * どちらもダイアログの外へ出ない一時の値なので、Mediator の状態にはしない。
  * 開いた時点のフォーカスもここで当てる。palette.open は focus の効果を出さない。
+ * 行は群ごとに見出しを付けて 1 列に並べ、↑↓ は群をまたいで送る。
  */
 export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => void }) {
   const emit = useEmit();
   const input = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(0);
+  const items = props.sections.flatMap((s) => s.items);
 
   useEffect(() => { input.current?.focus(); }, []);
-  // 開くときは、ヘッダの検索欄の錠剤からガラスが広がる。
+  // 開くときは、ヘッダーの「探す・移動」の錠剤からガラスが広がる。
   // 閉じて錠剤へ戻る動きは、器が消えた後なので runtime/present.ts が View Transitions で受け持つ。
   // 描画を遅らせない Web Animations で開くので、入力欄はこの描画でフォーカスを持ち、打った文字を落とさない。
   useLayoutEffect(() => {
@@ -34,22 +54,33 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
   }, []);
   // 入力が変わると並びが変わるので、選択を先頭に戻す。
   useEffect(() => { setIndex(0); }, [props.query]);
+  // 矢印で動かした選択は、一覧の見える位置へ寄せる。
+  // マウスで乗せたときは寄せない。端の行に乗せただけで一覧が動き、指の下の行が入れ替わってしまうからである。
+  const byKey = useRef(false);
+  useEffect(() => {
+    if (!byKey.current) return;
+    byKey.current = false;
+    // jsdom のように scrollIntoView を持たない環境では何もしない。
+    document.getElementById(`palette-opt-${index}`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [index]);
 
-  const run = (i: number) => {
-    const item = props.items[i];
+  const runItem = (item: PaletteItem | undefined) => {
     if (item) emit({ type: 'palette.run', command: { id: item.id, label: item.label } });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setIndex((i) => Math.min(props.items.length - 1, i + 1)); return; }
-    if (e.key === 'ArrowUp') { e.preventDefault(); setIndex((i) => Math.max(0, i - 1)); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); byKey.current = true; setIndex((i) => Math.min(items.length - 1, i + 1)); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); byKey.current = true; setIndex((i) => Math.max(0, i - 1)); return; }
     if (e.key === 'Escape') { e.preventDefault(); emit({ type: 'palette.close' }); return; }
     // 変換中の Enter は確定のための打鍵なので、実行に使わない。
     if (e.key !== 'Enter' || isComposing(e)) return;
     e.preventDefault();
-    run(index);
+    // ⌘↵ は、どの行を選んでいても全文検索の行を実行する。
+    if (e.metaKey || e.ctrlKey) { runItem(items.find((x) => x.kind === 'search')); return; }
+    runItem(items[index]);
   };
 
+  let at = 0;
   return (
     <div className="overlay" onClick={() => emit({ type: 'palette.close' })}>
       {/* 器は読み上げに対してダイアログである。
@@ -61,35 +92,61 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
           ref={input}
           id="palette-input"
           className="input palette-input"
-          aria-label="コマンドを検索"
+          aria-label="探す・移動"
           role="combobox"
           aria-expanded
           aria-controls="palette-list"
-          aria-activedescendant={props.items[index] ? `palette-opt-${index}` : undefined}
+          aria-activedescendant={items[index] ? `palette-opt-${index}` : undefined}
           placeholder="セッション、プロジェクト、コマンド"
           value={props.query}
           onChange={(e) => props.onQuery(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        {props.items.length === 0 && <div className="empty">一致する項目がありません</div>}
-        <ul id="palette-list" className="palette-list" role="listbox">
-          {props.items.map((item, i) => (
-            <li
-              key={item.id}
-              id={`palette-opt-${i}`}
-              className="palette-item"
-              role="option"
-              aria-selected={i === index}
-              data-active={i === index ? 'true' : undefined}
-              onMouseEnter={() => setIndex(i)}
-              onClick={() => run(i)}
-            >
-              <span className="palette-kind faint">{KIND_LABEL[item.kind]}</span>
-              <span className="palette-label">{item.label}</span>
-              <span className="palette-hint faint mono">{item.hint}</span>
-            </li>
+        {props.noMatch && <div className="palette-empty">名前には一致しません。</div>}
+        {items.length === 0 && <div className="empty">一致する項目がありません</div>}
+        <div id="palette-list" className="palette-list" role="listbox" aria-label="探す・移動の候補">
+          {props.sections.map((s) => (
+            <div key={s.title} className="palette-section" role="group" aria-label={s.title}>
+              {/* 群の名前は器の aria-label が読み上げるので、見出しは目で見る分だけにする。 */}
+              <div className="palette-group" aria-hidden="true">
+                {s.title}
+                {s.count !== null && <span className="palette-count">{s.count}</span>}
+                {s.limit && <span className="palette-limit">{s.limit}</span>}
+              </div>
+              {s.items.map((item) => {
+                const i = at++;
+                return (
+                  <div
+                    key={item.id}
+                    id={`palette-opt-${i}`}
+                    className="palette-item"
+                    role="option"
+                    aria-selected={i === index}
+                    data-active={i === index ? 'true' : undefined}
+                    data-kind={item.kind}
+                    onMouseEnter={() => { byKey.current = false; setIndex(i); }}
+                    onClick={() => runItem(item)}
+                  >
+                    <Lead item={item} />
+                    <span className="palette-label">{highlight(item.label, props.query)}</span>
+                    {item.sub && <span className="palette-sub">{item.sub}</span>}
+                    <span className="palette-meta">
+                      {item.meta && <span className={item.kind === 'project' ? 'palette-when mono' : 'palette-when'}>{item.meta}</span>}
+                      {item.keys && <kbd className="palette-keys">{item.keys}</kbd>}
+                      {item.kind !== 'search' && <span className="palette-ret"><kbd>↵</kbd>{item.kind === 'command' ? '' : ' 開く'}</span>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           ))}
-        </ul>
+        </div>
+        <div className="palette-foot" aria-hidden="true">
+          <span><kbd>↑</kbd><kbd>↓</kbd> 選ぶ</span>
+          <span><kbd>↵</kbd> 開く</span>
+          <span><kbd>⌘↵</kbd> 全文検索</span>
+          <span><kbd>esc</kbd> 閉じる</span>
+        </div>
       </div>
     </div>
   );

@@ -10,8 +10,8 @@ const rules = (css: string) => [...strip(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)]
 const all = files.flatMap((f) => rules(read(f)).map((r) => ({ ...r, file: f })));
 const blurs = all.filter((r) => /(^|[^-])backdrop-filter\s*:/.test(r.body));
 
-// 仕様：ガラスは浮く部品（ヘッダ、サイドバー、⌘K、ダイアログ、通知と切断の帯、選ぶ部品の一覧）にだけ使う。
-const GLASS = ['.sidebar', '.header', '.conn-banner', '.dialog', '.palette', '.toast', '.listbox-pop'];
+// 仕様：ガラスは浮く部品（ヘッダ、サイドバー、⌘K、ダイアログ、通知と切断の帯と保持期間の帯、選ぶ部品の一覧、操作のメニュー、本文の中の検索の欄）にだけ使う。
+const GLASS = ['.sidebar', '.header', '.conn-banner', '.retention-banner', '.dialog', '.palette', '.toast', '.listbox-pop', '.menu-pop', '.tr-find'];
 
 describe('浮くガラス', () => {
   it('backdrop-filter は浮く部品の規則にだけ現れる', () => {
@@ -25,9 +25,10 @@ describe('浮くガラス', () => {
 
 describe('骨格', () => {
   const base = read('base.css');
-  it('中身はヘッダの下をくぐり、切断の帯が出ている間は帯の分も下がる', () => {
+  it('中身はヘッダの下をくぐり、帯が出ている間は帯の数だけ下がる', () => {
     expect(base).toMatch(/\.main \{[^}]*grid-row: 1 \/ -1;/);
-    expect(base).toContain('.shell:has(.conn-banner) .main {');
+    expect(base).toContain('.shell:has(.banners > :nth-child(1)) .main {');
+    expect(base).toContain('.shell:has(.banners > :nth-child(2)) .main {');
   });
   // 信号の 3 点は、開閉に関わらずヘッダの左端に載る。ヘッダは VS Code のタイトルバーと同じく、窓の上辺と左右の端に付いた帯で、動かない。
   it('ヘッダは窓の上辺に付いた帯で、サイドバーは開閉に関わらずその下から始まる', () => {
@@ -38,11 +39,13 @@ describe('骨格', () => {
     expect(all.find((r) => r.selector === '.sidebar')?.body).toContain('margin: calc(var(--header-h) + var(--float-gap)) 0 var(--float-gap) var(--float-gap);');
     expect(all.filter((r) => r.selector.includes("[data-sidebar='collapsed']") && r.selector.includes('.header'))).toEqual([]);
   });
+  // ヘッダの左の列はロゴから始まる。殻の中では信号の 3 点がヘッダの左端に載るので、ロゴはその右（--head-lead）から始める。
   it('信号の 3 点の分の余白は、殻の中でだけ、ヘッダの左に取る', () => {
     expect(all.filter((r) => r.selector.includes('.sidebar') && r.body.includes('padding-top'))).toEqual([]);
     const lefts = all.filter((r) => r.body.includes('var(--lights-end)'));
-    expect(lefts.map((r) => r.selector)).toEqual(["[data-shell='desktop'] .header"]);
-    expect(lefts[0]?.body).toContain('padding-left: var(--lights-end);');
+    expect(lefts.map((r) => r.selector)).toEqual(["[data-shell='desktop'] .shell"]);
+    expect(lefts[0]?.body).toContain('--head-lead: var(--lights-end);');
+    expect(all.find((r) => r.selector === '.header-brand')?.body).toContain('padding-left: var(--head-lead);');
   });
   it('横スワイプで戻る／進むをしても、頁ごと（サイドバーも）は引っ張られない', () => {
     const r = all.find((r) => r.selector === 'html, body');
@@ -82,7 +85,7 @@ const px = (v: string) => {
 describe('読む面', () => {
   // 仕様の 3 枚の層の 2 枚目。設定の中身、プロジェクトの右レール、会話は、光の背景の上に白い不透明な面を敷いて読む。
   it.each([
-    ['settings.css', '.settings-screen > section'],
+    ['settings.css', '.settings-group > section'],
     ['workbench.css', '.rail-panel'],
     ['base.css', '.tr-sheet'],
   ])('%s の %s は白い読む面で、ぼかしを持たない', (file, selector) => {
@@ -107,24 +110,32 @@ describe('読む面', () => {
 
 describe('ヘッダの下の中身', () => {
   // j と k の行送りや Shift+Tab で届いた先が、浮いたヘッダの下に隠れないようにする（WCAG 2.4.11）。
-  it.each(['.main', '.shell:has(.conn-banner) .main'])('%s は上の余白と同じだけ scroll-padding-top を取る', (selector) => {
+  it.each(['.main', '.shell:has(.banners > :nth-child(1)) .main', '.shell:has(.banners > :nth-child(2)) .main'])('%s は上の余白と同じだけ scroll-padding-top を取る', (selector) => {
     const d = rule('base.css', selector);
     expect(d['scroll-padding-top']).toBe(d['padding-top']);
   });
-  // ヘッダの下も切断の帯の下も、中身は float-gap の隙間を空けて始まる。
-  it('中身の上の余白は、ヘッダと切断の帯の実際の寸法から出る', () => {
+  // ヘッダの下も帯の下も、中身は float-gap の隙間を空けて始まる。帯は 2 つまで縦に積み、間にも float-gap * 0.75 を空ける。
+  it('中身の上の余白は、ヘッダと帯の実際の寸法から出る', () => {
     const gap = tokens['--float-gap']!;
     const header = rule('base.css', '.header');
     const headerBottom = px(first(header.margin!)) + px(header.height!);
     expect(px(rule('base.css', '.main')['padding-top']!)).toBe(headerBottom + gap);
-    const banner = rule('base.css', '.conn-banner');
+    const box = rule('base.css', '.banners');
+    const between = px(box.gap!);
     // 帯は高さを決め打ちにし、上下の余白を持たない。中身が伸びて高さが変わると、この計算が合わなくなる。
-    expect(banner['min-height']).toBeUndefined();
-    expect(first(banner.padding!)).toBe('0');
-    const bannerH = px(banner.height!);
+    const heights = ['.conn-banner', '.retention-banner'].map((sel) => {
+      const banner = rule('base.css', sel);
+      expect(banner['min-height']).toBeUndefined();
+      expect(first(banner.padding!)).toBe('0');
+      expect(banner.margin).toBeUndefined();
+      return px(banner.height!);
+    });
+    expect(heights[0]).toBe(heights[1]);
+    const bannerH = heights[0]!;
     expect(px(rule('sync.css', '.btn-sm').height!)).toBeLessThanOrEqual(bannerH);
-    const bannerBottom = headerBottom + px(first(banner.margin!)) + bannerH;
-    expect(px(rule('base.css', '.shell:has(.conn-banner) .main')['padding-top']!)).toBe(bannerBottom + gap);
+    const oneBottom = headerBottom + px(first(box.margin!)) + bannerH;
+    expect(px(rule('base.css', '.shell:has(.banners > :nth-child(1)) .main')['padding-top']!)).toBe(oneBottom + gap);
+    expect(px(rule('base.css', '.shell:has(.banners > :nth-child(2)) .main')['padding-top']!)).toBe(oneBottom + between + bannerH + gap);
   });
 });
 

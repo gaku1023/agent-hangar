@@ -797,10 +797,15 @@ export class ClaudeConfigSync {
     for (const e of chosen) {
       try {
         if (e.size > CONFIG_MAX_BYTES) throw new Error('設定ファイルが上限を超えています');
+        const first = this.decide(e);
+        if (first.blocked !== null) { this.reportOnce(`pull:${e.key}`, e.sha256, `${e.path} を取り込めません: ${first.blocked}`); continue; }
+        if (first.action === 'skip') { this.remember(e, e.sha256); done.add(e.key); this.clearReported(`pull:${e.key}`); continue; }
+        const raw = await this.fetchPlain(e.key);
+        // 降ろしている間に手元が書き換わっていることがある（保持期間の書き込みは hangar 自身が settings.json を書く）。
+        // 通信の前の判断のまま上書きすると、その書き換えを黙って巻き戻すので、書く直前に判断し直す。
         const d = this.decide(e);
         if (d.blocked !== null) { this.reportOnce(`pull:${e.key}`, e.sha256, `${e.path} を取り込めません: ${d.blocked}`); continue; }
         if (d.action === 'skip') { this.remember(e, e.sha256); done.add(e.key); this.clearReported(`pull:${e.key}`); continue; }
-        const raw = await this.fetchPlain(e.key);
         // 平文の指紋で突き合わせる。鍵は全端末で共通なので、復号できたという事実だけでは差し替えを見抜けない。
         if (sha256Hex(raw) !== e.sha256) throw new Error('SHA-256 が一致しません');
         const content = isTextBuffer(raw) ? Buffer.from(denormalizeHome(raw.toString('utf8'), this.homeDir()), 'utf8') : raw;

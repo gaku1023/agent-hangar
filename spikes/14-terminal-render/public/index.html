@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>端末描画の見比べ</title>
+<link rel="stylesheet" href="/nm/@xterm/xterm/css/xterm.css">
+<link rel="stylesheet" href="/fs/index.css">
+<style>
+  @font-face { font-family: 'JBM Full'; src: url('/fonts/JetBrainsMono-wght.ttf') format('truetype'); font-weight: 100 800; }
+  body { margin: 0; padding: 16px; background: #f4f3f8; font: 13px/1.5 system-ui, sans-serif; color: #222; }
+  h1 { font-size: 16px; margin: 0 0 12px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 16px; }
+  .cell { background: #fff; border-radius: 8px; padding: 8px; box-shadow: 0 1px 3px #0002; }
+  .cell h2 { font-size: 12px; margin: 0 0 6px; font-weight: 600; }
+  .cell .note { font-size: 11px; color: #666; margin: 0 0 6px; max-width: 760px; }
+  .term { background: #1c1b2e; padding: 6px; border-radius: 4px; }
+  .live .term { width: calc(100vw - 64px); height: calc(100vh - 110px); }
+  .crop { overflow: hidden; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

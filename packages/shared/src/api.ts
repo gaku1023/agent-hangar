@@ -1,3 +1,5 @@
+import type { LiveFilter } from './liveFilter.ts';
+import type { StepKind } from './steps.ts';
 import type { TranscriptEvent } from './transcript.ts';
 
 export type ProjectStatus = 'active' | 'paused' | 'done' | 'archived';
@@ -17,13 +19,40 @@ export type SessionSummaryDto = { title: string; oneLiner: string; body: string;
 export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string };
 /** 実行中のセッションが最後に呼んだツールと、答えを待っている AskUserQuestion の問い。端末ローカルで、同期しない。 */
 export type SessionActivityDto = { tool: string; summary: string; question: string | null };
-export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; activity?: SessionActivityDto | null };
+export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity?: SessionActivityDto | null };
 export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; syncClaudeConfig: boolean; nodePath: string | null; claudePath: string | null };
+/**
+ * Claude Code の会話の保持期間。
+ * source は値がどこで決まったかで、default はユーザー設定にキーが無い（既定の 30 日）ことを表す。
+ * usage は測り終えるまで null である。
+ */
+export type RetentionSource = 'default' | 'user' | 'managed';
+export type RetentionUsageDto = { bytes: number; dailyBytes: number; freeBytes: number; measuredAt: number };
+export type RetentionDto = { days: number; source: RetentionSource; userValue: number | null; writable: boolean; unwritableReason: string | null; usage: RetentionUsageDto | null };
+export type RetentionPreviewLine = { kind: 'ctx' | 'add' | 'del'; text: string };
+/** 書いたらどうなるか。何も書かずに返す。baseSha256 は読んだ時点のファイルの指紋で、無ければ空文字。 */
+export type RetentionPreviewDto = { days: number; path: string; lines: RetentionPreviewLine[]; baseSha256: string; backupDir: string; projectedBytes: number | null };
+/** 確認をどこから開いたか。帯から開いたときだけ「ほかの期間…」を出す。 */
+export type RetentionFrom = 'banner' | 'session' | 'settings';
 export type IndexProgressDto = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: number; total: number };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[] };
+export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
-export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; running?: boolean; file?: string; limit?: number };
-export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string }[] };
+/**
+ * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。
+ * 指揮役の手と目次の色帯は UI が主線のイベントから作るので、ここには載せない。
+ * endNote は終わりの知らせの status が completed でなかったときのその値（failed、killed など）で、ほかは null。赤にはせず、状態は done のままである。
+ * linked はサブエージェントの transcript と結べたか。結べないレーンの agentId は `tool:<toolId>` である。
+ */
+export type LiveAgentDto = { agentId: string; title: string; state: 'running' | 'done' | 'error'; startedAt: number | null; lastAt: number | null; last: { text: string; mono: boolean; kind: StepKind; isError: boolean } | null; report: string | null; endNote: string | null; linked: boolean };
+export type LiveIntentDto = { text: string; at: number; stepsSince: number; inThisTurn: boolean };
+export type LiveDigestDto = { sessionId: string; turnStartSeq: number | null; intent: LiveIntentDto | null; agents: LiveAgentDto[] };
+export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number };
+/**
+ * 検索の 1 件。
+ * 抜粋の seq は主線とサブエージェントで別々に振るので、agentId でどの線の行かを表す（主線は null）。
+ * 抜粋は主線を先に、seq の順に並ぶ。
+ */
+export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string; agentId: string | null }[] };
 export type SearchResultDto = { hits: SearchHitDto[]; total: number };
 export type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';
@@ -42,6 +71,29 @@ export type UsageDayDto = { day: string; inputTokens: number; outputTokens: numb
 export type UsageProjectDto = { projectId: string | null; name: string; inputTokens: number; outputTokens: number; costUsd: number | null; sessions: number };
 export type UsageAggregateDto = { days: UsageDayDto[]; projects: UsageProjectDto[] };
 export type StatuslineStatusDto = { command: string | null; scriptPath: string | null; installed: boolean };
+/**
+ * ツールのパスを確かめた結果。
+ * problem は動かせない理由で、動かせるときは null。
+ * unset は設定が空、missing は無い、notFile はディレクトリなどファイルでない、notExecutable は実行権が無い。
+ * version は `--version` などで読んだ版で、読めなかったときは null。
+ */
+export type ToolProblem = 'unset' | 'missing' | 'notFile' | 'notExecutable';
+export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProblem | null; version: string | null };
+/**
+ * 準備の確かめ（GET /api/readiness）。
+ * 設定画面の欄の下の検証と、空のホームの確認リストが、同じこの 1 つを読む。
+ * node の auto は、設定が空で、サーバを動かしている Node をそのまま見せていることを表す。
+ * workspace の projectCount は、ワークスペースの直下から登録したプロジェクトの数である。
+ * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
+ * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。
+ */
+export type ReadinessDto = {
+  tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: ToolCheckDto & { auto: boolean } };
+  workspace: { path: string; exists: boolean; projectCount: number };
+  mcp: { registered: boolean; file: string };
+  statusline: StatuslineStatusDto;
+  commands: { mcp: string; statusline: string; shell: string };
+};
 /** 完了の候補。sessionId はセッション別でない MCP の URL から出たとき null、note は根拠が無いとき null。 */
 export type TodoCandidateDto = { sessionId: string | null; note: string | null; at: number };
 /** candidate は古いサーバからは欠ける。欠けたものは null として扱う。 */

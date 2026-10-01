@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LaunchParams, LaunchResultDto, ResumeHereConflictDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
+import type { LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
+import { RetentionConflictError } from '../config/retention.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
@@ -45,12 +46,12 @@ const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary
 /** 経路の検査だけをしたいので、RunManager は呼び出しを記録する偽物に差し替える。 */
 function fakeRuns(): RunsApi {
   return {
-    start: vi.fn((p: LaunchParams): LaunchResultDto => { if (!p.projectId) throw new RunError(400, 'projectId は必須です'); return launched; }),
+    start: vi.fn((p: LaunchParams): LaunchResultDto => { if (!p.projectId) throw new RunError(400, 'プロジェクトを選んでください'); return launched; }),
     resume: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
     fork: vi.fn((): LaunchResultDto => ({ ...launched, sessionId: 's2', run: { ...run, kind: 'fork', sessionId: 's2' } })),
     attach: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
     adopt: vi.fn(async (id: string): Promise<LaunchResultDto> => { if (id === 'busy') throw new RunError(409, '作業中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
-    kill: vi.fn((id: string): RunDto => { if (id !== 'r1') throw new RunError(404, 'run が見つかりません'); return { ...run, endedAt: 2, endReason: 'killed' }; }),
+    kill: vi.fn((id: string): RunDto => { if (id !== 'r1') throw new RunError(404, '起動した Claude が見つかりません'); return { ...run, endedAt: 2, endReason: 'killed' }; }),
     openTab: vi.fn((): TabDto => shellTab),
     closeTab: vi.fn((): TabDto => ({ ...shellTab, closedAt: 3 })),
     listAlive: vi.fn((): { runs: RunDto[]; tabs: TabDto[] } => ({ runs: [run], tabs: [agentTab, shellTab] })),
@@ -61,6 +62,8 @@ function fakeRuns(): RunsApi {
       const t = id === 't1' ? shellTab : id === 'r1' ? agentTab : id === 'dead' ? deadAgentTab : id === 'dead-t1' ? deadShellTab : null;
       return t && t.kind === 'agent' && t.runId === 'dead' ? null : t;
     }),
+    jumpToPrompt: vi.fn(async (id: string) => { if (id === 'dead') throw new RunError(409, 'この Claude はもう終了しています'); return { found: true as const }; }),
+    leaveTranscript: vi.fn(async () => ({ left: true })),
   };
 }
 
@@ -101,6 +104,26 @@ const fakeConfigSync = (): ConfigSyncApi => ({
   preview: () => ({ entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 5, remoteDevice: 'mini', size: 3 }], confirmed: false }),
   pull: async () => { calls.push('configPull'); return { applied: 1, conflicts: 0 }; },
 });
+const READY: ReadinessDto = {
+  tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+  workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: false, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
+  commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+};
+const RET: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: null };
+function fakeRetention() {
+  return {
+    current: vi.fn(() => RET),
+    preview: vi.fn((days: number) => ({ days, path: '/c/settings.json', lines: [], baseSha256: 'abc', backupDir: '/h/backups/claude-config', projectedBytes: null })),
+    write: vi.fn((days: number, sha: string): RetentionDto => { if (sha === 'stale') throw new RetentionConflictError(); return { ...RET, days, source: 'user', userValue: days }; }),
+  };
+}
+/** 実行できる空のファイルを ws/bin に置く。パスの欄は保存の前に存在と実行権を確かめるので、実物が要る。 */
+const exe = (name: string): string => {
+  const p = path.join(ws, 'bin', name);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, '#!/bin/sh\n', { mode: 0o755 });
+  return p;
+};
 const syncDeps = () => ({
   sync: fakeSync(),
   syncSkipped: () => skipped,
@@ -110,6 +133,8 @@ const syncDeps = () => ({
   joinToken: () => 'tok-abc' as string | null,
   devices: () => [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true, shell: null }],
   shellHook: () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' }),
+  retention: fakeRetention(),
+  readiness: async () => READY,
 });
 
 beforeEach(async () => {
@@ -301,27 +326,131 @@ describe('routes', () => {
     }
     const r = await get(`/api/sessions/${alpha.id}/events`);
     expect(r.status).toBe(404);
-    expect(await r.json()).toEqual({ error: 'このセッションの本文ファイルが見つかりません。Settings の「索引を作り直す」を試してください' });
+    expect(await r.json()).toEqual({ error: 'このセッションの本文はこの PC にありません' });
+  });
+  it('GET /api/sessions/:id/live はライブの要約を返し、無いセッションは 404', async () => {
+    const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    const r = await json(await get(`/api/sessions/${id}/live`));
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ sessionId: id, intent: null });
+    expect(Array.isArray(r.body.agents)).toBe(true);
+    expect((await get('/api/sessions/ghost/live')).status).toBe(404);
   });
   it('検索', async () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
     expect(body.total).toBe(1);
     expect((await json(await get('/api/search?q=channels'))).body.hits).toHaveLength(1);
     expect((await json(await get('/api/search?q='))).body).toEqual({ hits: [], total: 0 });
+    // キーワードが無くても、触ったファイルで絞れる。
+    expect((await json(await get('/api/search?q=&file=a.md'))).body.total).toBe(1);
+    // 続きは offset で読む。件数は全件のまま。
+    expect((await json(await get('/api/search?q=channels&offset=1'))).body).toEqual({ hits: [], total: 1 });
+  });
+  it('検索の状態の絞り込みは、実行中（作業中、休み、起動中）、入力待ち、終了に分ける', async () => {
+    const { body: sessions } = await json(await get('/api/sessions'));
+    const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
+    const total = async (live: string) => (await json(await get(`/api/search?q=channels&live=${live}`))).body.total;
+    // run も Claude の一覧も無ければ終了。
+    expect(await total('ended')).toBe(1);
+    expect(await total('running')).toBe(0);
+    // hangar の run が生きていれば、Claude の一覧に載る前でも起動中として実行中に数える。
+    vi.mocked(runs.listAlive).mockReturnValue({ runs: [{ ...run, sessionId: alpha.id }], tabs: [] });
+    expect(await total('running')).toBe(1);
+    expect(await total('ended')).toBe(0);
+    // 入力待ちは run があっても実行中に入れず、別に数える。
+    const waiting: LiveSessionDto = { sessionId: SESSION_ALPHA, status: 'waiting', name: null, nameSource: null, cwd: ws, pid: 1 };
+    app = createApp({ ...deps, live: () => [waiting] });
+    expect(await total('waiting')).toBe(1);
+    expect(await total('running')).toBe(0);
   });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
-    // 実在しないルートと、ファイルを指したルートの両方で 500 にしないことを見る。
-    // 以前は固定の /tmp/x を使っていたので、そこにファイルがあると落ちた。
+    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: path.join(ws, 'alpha') }) });
+    expect(r.status).toBe(200);
+    expect((await r.json()).workspaceRoot).toBe(path.join(ws, 'alpha'));
+    // 保存の知らせは画面が欄の横に出すので、サーバからトーストは配らない。
+    expect(sent.some((e) => e.type === 'toast')).toBe(false);
+  });
+  it('パスの欄は、保存する前に存在と実行権を確かめ、理由を欄の見出しで言う', async () => {
+    const error = async (body: unknown) => {
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(r.status).toBe(400);
+      return ((await r.json()) as { error: string }).error;
+    };
+    // 実在しないルートと、ファイルを指したルートは弾く。どちらも 500 にはしない。
     const missing = path.join(ws, 'no-such-root');
-    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: missing }) });
-    expect((await r.json()).workspaceRoot).toBe(missing);
-    expect(sent.some((e) => e.type === 'toast' && e.level === 'info')).toBe(true);
+    expect(await error({ workspaceRoot: missing })).toBe(`「ワークスペースのルート」に ${missing} が見つかりません`);
     const asFile = path.join(ws, 'root-is-a-file');
     fs.writeFileSync(asFile, 'x');
-    const r2 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: asFile }) });
-    expect(r2.status).toBe(200);
-    expect((await r2.json()).workspaceRoot).toBe(asFile);
+    expect(await error({ workspaceRoot: asFile })).toBe(`「ワークスペースのルート」の ${asFile} はディレクトリではありません`);
+    // ツールは、無い、ファイルでない、実行できないを分けて言う。
+    expect(await error({ tmuxPath: path.join(ws, 'no-tmux') })).toBe(`「tmux のパス」に ${path.join(ws, 'no-tmux')} が見つかりません`);
+    expect(await error({ claudePath: ws })).toBe(`「claude のパス」の ${ws} はファイルではありません`);
+    expect(await error({ codePath: asFile })).toBe(`「code のパス」の ${asFile} には実行権がありません`);
+    expect(await error({ nodePath: path.join(ws, 'no-node') })).toBe(`「Node のパス」に ${path.join(ws, 'no-node')} が見つかりません`);
+    // 弾いた値は保存していない。
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ workspaceRoot: ws, tmuxPath: null, claudePath: null, codePath: null, nodePath: null });
+  });
+  // 名前だけ（tmux など）は PATH から探して確かめ、打たれたまま保存する。起動のときも PATH から探すからである。
+  it('パスの欄は名前だけでも受け、PATH から探して確かめ、打たれたまま保存する', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const bin = path.dirname(exe('mytmux'));
+    vi.stubEnv('PATH', `/no/such/dir:${bin}`);
+    try {
+      const r = await patch({ tmuxPath: ' mytmux ' });
+      expect(r.status).toBe(200);
+      expect((await r.json()).tmuxPath).toBe('mytmux');
+      expect((await json(await get('/api/settings'))).body.tmuxPath).toBe('mytmux');
+      const missing = await patch({ tmuxPath: 'no-such-tool' });
+      expect(missing.status).toBe(400);
+      expect(((await missing.json()) as { error: string }).error).toBe('「tmux のパス」の no-such-tool が PATH に見つかりません');
+      // 相対パスは、サーバの作業ディレクトリで読むとどこを指すかが分からないので弾く。
+      for (const rel of ['./mytmux', 'bin/mytmux']) {
+        const bad = await patch({ claudePath: rel });
+        expect(bad.status).toBe(400);
+        expect(((await bad.json()) as { error: string }).error).toBe('「claude のパス」は / か ~ で始まるパスか、tmux のようなコマンドの名前にしてください');
+      }
+      expect((await json(await get('/api/settings'))).body).toMatchObject({ tmuxPath: 'mytmux', claudePath: null });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  // 起動するときに ~ は直されないので、パスは ~ をホームに直した値で保存する。
+  it('パスの欄の ~ はホームに直して保存する', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const tool = exe('hometool');
+    vi.stubEnv('HOME', ws);
+    try {
+      const r = await patch({ codePath: '~/bin/hometool' });
+      expect(r.status).toBe(200);
+      expect((await r.json()).codePath).toBe(tool);
+      expect((await json(await get('/api/settings'))).body.codePath).toBe(tool);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('設定の誤りは、内部のキー名ではなく画面の欄の見出しと画面名「設定」で言う', async () => {
+    const error = async (body: unknown) => {
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(r.status).toBe(400);
+      return ((await r.json()) as { error: string }).error;
+    };
+    expect(await error({ workspaceRoot: '' })).toBe('「ワークスペースのルート」は空にできません');
+    expect(await error({ claudeDir: ' ' })).toBe('「読み取り元」は空にできません');
+    expect(await error({ tmuxPath: 3 })).toBe('「tmux のパス」の値の形が違います');
+    expect(await error({ codePath: 3 })).toBe('「code のパス」の値の形が違います');
+    expect(await error({ nodePath: 3 })).toBe('「Node のパス」の値の形が違います');
+    expect(await error({ claudePath: 3 })).toBe('「claude のパス」の値の形が違います');
+    expect(await error({ terminalApp: 'kitty' })).toBe('「ターミナルアプリ」は Terminal.app か iTerm2 から選んでください');
+    expect(await error({ lmStudioUrl: 'ftp://x' })).toBe('「LM Studio の URL」は http か https で始まる URL にしてください');
+    expect(await error({ lmStudioModel: 3 })).toBe('「モデル」の値の形が違います');
+    expect(await error({ summaryFallback: 'yes' })).toBe('「LM Studio が使えないとき Claude へ切り替える」の値の形が違います');
+    expect(await error({ summaryHourlyCap: 0 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
+    // 画面の入力と同じく 200 までにする。
+    expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
+    expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約器を許す」の値の形が違います');
+    expect(await error({ syncClaudeConfig: 'yes' })).toBe('「Claude Code の設定を同期する」の値の形が違います');
+    expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約器の宛先は 127.0.0.1 か localhost だけです。会話の本文が送られるため、ほかの宛先は、設定の「外部の要約器を許す」を入れてから指定してください');
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -334,21 +463,23 @@ describe('routes', () => {
   });
   it('claudePath は保存でき、空なら null に戻る', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    const r = await patch({ claudePath: ' /Users/x/.local/bin/claude ' });
+    const claude = exe('claude');
+    const r = await patch({ claudePath: ` ${claude} ` });
     expect(r.status).toBe(200);
-    expect((await r.json()).claudePath).toBe('/Users/x/.local/bin/claude');
-    expect((await json(await get('/api/settings'))).body.claudePath).toBe('/Users/x/.local/bin/claude');
+    expect((await r.json()).claudePath).toBe(claude);
+    expect((await json(await get('/api/settings'))).body.claudePath).toBe(claude);
     const r2 = await patch({ claudePath: '' });
     expect(r2.status).toBe(200);
     expect((await r2.json()).claudePath).toBeNull();
     expect((await patch({ claudePath: 7 })).status).toBe(400);
   });
   it('nodePath は保存でき、空なら null に戻る', async () => {
-    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: ' /opt/node22/bin/node ' }) });
+    const node = exe('node');
+    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: ` ${node} ` }) });
     expect(r.status).toBe(200);
-    expect((await r.json()).nodePath).toBe('/opt/node22/bin/node');
-    expect((await json(await get('/api/settings'))).body.nodePath).toBe('/opt/node22/bin/node');
-    expect((await json(await get('/api/bootstrap'))).body.settings.nodePath).toBe('/opt/node22/bin/node');
+    expect((await r.json()).nodePath).toBe(node);
+    expect((await json(await get('/api/settings'))).body.nodePath).toBe(node);
+    expect((await json(await get('/api/bootstrap'))).body.settings.nodePath).toBe(node);
     const r2 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: '' }) });
     expect(r2.status).toBe(200);
     expect((await r2.json()).nodePath).toBeNull();
@@ -420,6 +551,20 @@ describe('routes', () => {
     expect((await app.request('/api/runs/r1/tabs/nope', { method: 'DELETE', headers: H })).status).toBe(404);
     expect(runs.closeTab).toHaveBeenCalledTimes(1);
   });
+  it('指示へ跳ぶ、transcript を閉じる', async () => {
+    const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const r = await post('/api/runs/r1/jump', { heads: ['一つめ', '二つめ'], index: 0, from: 'bottom' });
+    expect(await r.json()).toEqual({ found: true });
+    expect(runs.jumpToPrompt).toHaveBeenCalledWith('r1', ['一つめ', '二つめ'], 0, 'bottom');
+    // 形の崩れた本文は RunManager に渡さない。長すぎる書き出し、範囲外の index、知らない向き。
+    expect((await post('/api/runs/r1/jump', { heads: ['x'.repeat(17)], index: 0, from: 'top' })).status).toBe(400);
+    expect((await post('/api/runs/r1/jump', { heads: ['a'], index: 1, from: 'top' })).status).toBe(400);
+    expect((await post('/api/runs/r1/jump', { heads: ['a'], index: 0, from: 'side' })).status).toBe(400);
+    expect((await post('/api/runs/r1/jump', { heads: Array(1001).fill('a'), index: 0, from: 'top' })).status).toBe(400);
+    expect(runs.jumpToPrompt).toHaveBeenCalledTimes(1);
+    expect((await post('/api/runs/dead/jump', { heads: ['a'], index: 0, from: 'top' })).status).toBe(409);
+    expect(await (await post('/api/runs/r1/leave-transcript')).json()).toEqual({ left: true });
+  });
   it('ターミナルで開く、VS Code で開く', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     expect(await (await post('/api/runs/r1/open-terminal', { tabId: 't1' })).json()).toEqual({ app: 'terminal', fellBack: false });
@@ -442,6 +587,34 @@ describe('routes', () => {
     const { body: list } = await json(await get('/api/projects'));
     expect((await post(`/api/projects/${list[0].id}/open-editor`)).status).toBe(204);
     expect(await (await post(`/api/projects/${list[0].id}/open-terminal`)).json()).toEqual({ app: 'iterm', fellBack: true });
+    // 終わった画面の右欄（変更したファイル）から、そのセッションが変えたファイルだけを開ける。
+    const edited = '/Users/me/workspace/alpha/channels/a.md';
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: edited })).status).toBe(404);
+    db.prepare('update event_index set file_path = ? where file_path = ?').run(`${ws}/alpha/a.md`, edited);
+    fs.writeFileSync(`${ws}/alpha/a.md`, 'y');
+    fs.writeFileSync(`${ws}/alpha/other.md`, 'z');
+    (external.openEditor as ReturnType<typeof vi.fn>).mockClear();
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/a.md` })).status).toBe(204);
+    expect(external.openEditor).toHaveBeenLastCalledWith({ target: `${ws}/alpha/a.md` });
+    // あるファイルでも、そのセッションが変えていなければ開かない。
+    // 綴りを変えて枠の外へ出るパスも同じ。
+    const other = await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/other.md` });
+    expect(other.status).toBe(404);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/x/../a.md` })).status).toBe(404);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: 'a.md' })).status).toBe(400);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: 3 })).status).toBe(400);
+    // 別のセッションが編集したパスと、このセッションが読んだだけのパスは開かない。
+    const indexRow = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, file_path_ref, tool_name, file_path) values (?, ?, 'tool_call', 0, 0, 'x', ?, ?)");
+    indexRow.run('another-session', 900_001, 'Edit', `${ws}/alpha/other.md`);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/other.md` })).status).toBe(404);
+    fs.writeFileSync(`${ws}/alpha/read.md`, 'r');
+    indexRow.run(alpha.id, 900_002, 'Read', `${ws}/alpha/read.md`);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/read.md` })).status).toBe(404);
+    // 変えたファイルが、その後ディレクトリに替わっていたら開かない。
+    fs.mkdirSync(`${ws}/alpha/became-dir`);
+    indexRow.run(alpha.id, 900_003, 'Write', `${ws}/alpha/became-dir`);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/became-dir` })).status).toBe(404);
+    expect(external.openEditor).toHaveBeenCalledTimes(1);
     (external.openEditor as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('code が無い'));
     const bad = await post(`/api/sessions/${alpha.id}/open-editor`);
     expect(bad.status).toBe(500);
@@ -515,12 +688,22 @@ describe('routes', () => {
     expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: 'not json' })).status).toBe(400);
     // 認証は他の /api と同じ。トークンが無ければ受け付けない。
     expect((await app.request('/api/ingest/statusline', { method: 'POST', body: '{}' })).status).toBe(401);
-    const agg = await json(await get('/api/usage/aggregate?days=30'));
-    expect(agg.status).toBe(200);
-    expect(agg.body.projects.length).toBeGreaterThan(0);
+    // 集計は今日から遡る窓で数えるので、時計を fixture の日付（2026-09-01）の近くに止めて測る。
+    // 止めないと、fixture から 30 日を過ぎた日にこの試験だけが落ちる。
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-10T12:00:00'));
+    try {
+      const agg = await json(await get('/api/usage/aggregate?days=30'));
+      expect(agg.status).toBe(200);
+      expect(agg.body.projects.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
     expect((await get('/api/usage/aggregate?days=0')).status).toBe(400);
     expect((await json(await get('/api/statusline'))).body).toEqual({ command: null, scriptPath: null, installed: false });
     expect((await json(await get('/api/shell-hook'))).body).toEqual({ state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' });
+    // 準備の確かめは 1 つの読み取りにまとめてある。設定画面と空のホームが同じものを読む。
+    expect((await json(await get('/api/readiness'))).body).toEqual(READY);
     expect((await json(await get('/api/bootstrap'))).body).toMatchObject({ usage: { fiveHour: { usedPercent: 47 } }, todos: [], artifacts: [], summaryPending: ['pending-1'] });
   });
   it('TODO とメモ', async () => {
@@ -707,6 +890,7 @@ describe('routes', () => {
       expect(notice).toContain('hangar start');
       // 起動した後に URL を見直す道も案内する。案内にトークンそのものは出さない。
       expect(notice).toContain('hangar url');
+      expect(notice).toContain('ターミナルで <code>hangar url</code> を実行すれば');
       // 鍵が違うときも同じ扱いにする。
       const wrong = await ui.request('/?t=nope');
       expect(wrong.status).toBe(401);
@@ -947,17 +1131,17 @@ describe('設定の往復', () => {
       const cases: [keyof SettingsDto, unknown][] = [
         ['workspaceRoot', ws2],
         ['claudeDir', dir2],
-        ['tmuxPath', '/opt/homebrew/bin/tmux'],
+        ['tmuxPath', exe('tmux')],
         ['terminalApp', 'iterm'],
-        ['codePath', '/usr/local/bin/code'],
+        ['codePath', exe('code')],
         ['lmStudioUrl', 'http://127.0.0.1:9999'],
         ['lmStudioModel', 'gemma-3'],
         ['summaryFallback', false],
         ['summaryHourlyCap', 7],
         ['allowExternalSummarizer', true],
         ['syncClaudeConfig', true],
-        ['nodePath', '/opt/node22/bin/node'],
-        ['claudePath', '/Users/x/.local/bin/claude'],
+        ['nodePath', exe('node')],
+        ['claudePath', exe('claude')],
       ];
       for (const [key, value] of cases) {
         const r = await patch({ [key]: value });
@@ -997,6 +1181,31 @@ describe('設定の往復', () => {
   it('真偽値でない syncClaudeConfig は 400 で断る', async () => {
     const r = await patch({ syncClaudeConfig: 'yes' });
     expect(r.status).toBe(400);
-    expect((await r.json()).error).toBe('syncClaudeConfig は true か false です');
+    expect((await r.json()).error).toBe('「Claude Code の設定を同期する」の値の形が違います');
+  });
+});
+
+describe('保持期間', () => {
+  const send = (p: string, method: string, body: unknown) => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  it('bootstrap に載る', async () => {
+    const r = await app.request('/api/bootstrap', { headers: H });
+    expect((await r.json()).retention).toEqual(RET);
+  });
+  it('下見と書き込みは 1 以上 36500 以下の整数だけを受け付ける', async () => {
+    for (const days of [0, -1, 1.5, '30', 36501, null]) {
+      expect((await send('/api/retention/preview', 'POST', { days })).status).toBe(400);
+      expect((await send('/api/retention', 'PUT', { days, baseSha256: 'abc' })).status).toBe(400);
+    }
+    expect((await (await send('/api/retention/preview', 'POST', { days: 365 })).json()).days).toBe(365);
+    expect((await send('/api/retention', 'PUT', { days: 365 })).status).toBe(400);
+  });
+  it('指紋が古ければ 409 の retention_conflict', async () => {
+    const r = await send('/api/retention', 'PUT', { days: 365, baseSha256: 'stale' });
+    expect(r.status).toBe(409);
+    expect(await r.json()).toEqual({ error: 'retention_conflict' });
+  });
+  it('書けたら新しい値を返す。GET でも今の値を返す', async () => {
+    expect(await (await send('/api/retention', 'PUT', { days: 365, baseSha256: 'abc' })).json()).toMatchObject({ days: 365, source: 'user' });
+    expect(await (await app.request('/api/retention', { headers: H })).json()).toEqual(RET);
   });
 });

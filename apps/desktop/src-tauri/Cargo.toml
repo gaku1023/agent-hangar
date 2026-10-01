@@ -25,6 +25,12 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSEvent"] }
+# 入力待ちを macOS の通知で知らせ、押された通知からそのセッションへ戻るために使う（src/notify.rs）。
+# tauri-plugin-notification は押された通知を受け取れない（デスクトップでは押しても何も返らない）ので、
+# UNUserNotificationCenter を直に呼ぶ。objc2 と objc2-foundation は Tauri が既に使っている版をそのまま使う。
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSBundle", "NSError", "NSSet"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotification", "UNNotificationTrigger", "UNNotificationSound", "UNNotificationSettings"] }
 
 [dev-dependencies]
 tempfile = "3"

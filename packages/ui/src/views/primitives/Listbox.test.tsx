@@ -23,6 +23,12 @@ describe('Listbox の顔', () => {
     expect(face()).toHaveTextContent('beta');
     expect(face()).toHaveTextContent('~/w/beta');
   });
+  it('faceSub があれば、顔の 2 段目には sub の代わりにそれを描く', () => {
+    const opts: ListboxOption[] = [{ value: 'a', label: 'alpha', sub: '説明の文', subKind: 'prose', faceSub: '~/w/alpha/' }];
+    render(<Listbox label="プロジェクト" value="a" options={opts} onChange={() => {}} showSubInFace />);
+    expect(face()).toHaveTextContent('~/w/alpha/');
+    expect(face()).not.toHaveTextContent('説明の文');
+  });
   it('name を渡すと、同じ名前の hidden input に値を入れる', () => {
     const { container } = render(<Harness options={few} initial="c" name="projectId" />);
     expect((container.querySelector('input[type="hidden"][name="projectId"]') as HTMLInputElement).value).toBe('c');

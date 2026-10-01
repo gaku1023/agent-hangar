@@ -4,6 +4,8 @@ import type { Input } from './types.ts';
 import { NOT_YET } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
+import { periodStart, toSearchParams } from './screen.ts';
+import { liveStep } from './live.ts';
 
 function run(inputs: Input[], start: State = initialState()) {
   const effects: unknown[] = [];
@@ -53,7 +55,7 @@ describe('起動と接続', () => {
     // 最初の接続は「追いついた」ではないので黙る。
     expect(run([runtime({ type: 'ws.open' })]).effects).toEqual([{ kind: 'api.bootstrap' }]);
   });
-  it('いますぐ再接続はその場で ws をつなぎ直す', () => {
+  it('今すぐ再接続はその場で ws をつなぎ直す', () => {
     expect(run([intent({ type: 'conn.retry' })]).effects).toEqual([{ kind: 'ws.connect' }]);
   });
 });
@@ -71,13 +73,64 @@ describe('ナビゲーション', () => {
   it('検索語は URL に乗り、sessions 画面で検索効果になる', () => {
     const a = run([intent({ type: 'search.query', text: '動画' })]);
     expect(a.state.search.text).toBe('動画');
-    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }]);
+    // 検索したらフォーカスを結果の一覧へ移す。同じ語で検索し直して画面が作り直されないときも移るように、毎回出す。
+    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }, { kind: 'focus', target: 'results' }]);
     const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })], a.state);
     expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画' } }]);
     const c = run([intent({ type: 'search.filter', patch: { projectId: 'p1' } })], b.state);
     expect(c.state.search.filter).toEqual({ projectId: 'p1' });
     expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1' } }]);
-    expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+    expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }, { kind: 'focus', target: 'results' }]);
+  });
+  // 期間は日数のまま効果に載せ、時刻に直すのは問い合わせる瞬間（Runtime）に任せる。
+  it('期間は日数のまま検索効果に載る', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })]);
+    const b = run([intent({ type: 'search.filter', patch: { days: 7 } })], a.state);
+    expect(b.state.search.filter).toEqual({ days: 7 });
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', days: 7 } }]);
+  });
+  it('期間の始まりは、今日の 0 時から数えて日数分さかのぼった 0 時', () => {
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    expect(periodStart(1, now)).toBe(new Date(2026, 9, 1).getTime());
+    expect(periodStart(7, now)).toBe(new Date(2026, 8, 25).getTime());
+    expect(periodStart(30, now)).toBe(new Date(2026, 8, 2).getTime());
+    expect(toSearchParams({ q: 'x', days: 1, projectId: 'p1' }, now)).toEqual({ q: 'x', projectId: 'p1', since: new Date(2026, 9, 1).getTime() });
+    expect(toSearchParams({ q: 'x' }, now)).toEqual({ q: 'x' });
+  });
+  // サーバは既定で 50 件までしか返さないので、続きは offset を付けて読み足す。
+  it('search.more は今の条件のまま offset を付けて問い合わせる', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1' } })]);
+    expect(run([intent({ type: 'search.more', offset: 50 })], a.state).effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1', offset: 50 } }]);
+    // 手元で組む一覧には続きが無い。
+    const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
+    expect(run([intent({ type: 'search.more', offset: 50 })], b.state).effects).toEqual([]);
+  });
+  // 「条件をクリア」は語と絞り込みをまとめて外し、手元の全件の一覧へ戻す。語は URL にも乗っているので、URL からも外す。
+  it('search.clear は語と絞り込みを外し、語の無い一覧の URL へ移る', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1', days: 7, file: 'a.md' } })]);
+    const b = run([intent({ type: 'search.clear' })], a.state);
+    expect(b.state.search).toEqual({ text: '', filter: {} });
+    expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+    // 着いた先では手元の一覧を組むので、問い合わせない。
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state).effects).toEqual([]);
+  });
+  it('状態の絞り込みは live としてサーバへ渡す', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { live: 'waiting' } })]);
+    expect(a.effects).toContainEqual({ kind: 'api.search', params: { q: '動画', live: 'waiting' } });
+  });
+  // 触ったファイルは手元のセッションに無い情報なので、キーワードが無くてもサーバに問い合わせる。
+  it('キーワードが無くても、触ったファイルがあれば検索効果になる', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
+    expect(a.effects).toEqual([]);
+    const b = run([intent({ type: 'search.filter', patch: { file: 'a.md' } })], a.state);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md' } }]);
+    // ほかの画面から戻ってきたときも、同じ絞り込みで問い合わせ直す。
+    const c = run([runtime({ type: 'hash.changed', route: { name: 'home' } }), runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state);
+    expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md' } }]);
+    // ファイルを外せば手元の一覧に戻るので、問い合わせない。
+    expect(run([intent({ type: 'search.filter', patch: { file: undefined } })], b.state).effects).toEqual([]);
+    // ほかの絞り込みだけなら、これまでどおり手元で絞る。
+    expect(run([intent({ type: 'search.filter', patch: { projectId: 'p1' } })], a.state).effects).toEqual([]);
   });
 });
 
@@ -137,6 +190,41 @@ describe('オーバーレイ', () => {
     const a = run([intent({ type: 'project.resolve.open', id: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })], later);
     expect(a.state.resolveDeferred).toEqual([]);
     expect(run([server({ type: 'project.unresolved', projectId: 'p1' })], a.state).state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+  });
+});
+
+describe('ダイアログを開いている間の開く操作', () => {
+  const opens = [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' }), intent({ type: 'session.new.open', scratch: true })];
+  const holding: [string, State][] = [
+    ['未解決のプロジェクト', run([server({ type: 'project.unresolved', projectId: 'p1' })]).state],
+    ['停止の確認', run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })]).state],
+    ['書き込み中の保持期間', run([intent({ type: 'retention.edit', days: 365, from: 'banner' }), intent({ type: 'retention.write' })]).state],
+    ['送信中の新しいセッション', run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.submit', params: { projectId: 'p1' } })]).state],
+    ['昇格', run([intent({ type: 'session.promote.open', id: 's1' })]).state],
+  ];
+  // どの経路から来ても（キーでもボタンでも）、決めるまで閉じないダイアログや入力のあるダイアログを黙って差し替えない。
+  it.each(holding)('%s の上では、パレットもキーの一覧も新しいセッションも開かない', (_name, before) => {
+    expect(before.overlay.kind).not.toBe('none');
+    for (const i of opens) {
+      const r = run([i], before);
+      expect(r.state).toEqual(before);
+      expect(r.effects).toEqual([]);
+    }
+  });
+  it('何も開いていなければ開き、パレットからは切り替えられる', () => {
+    expect(run([opens[0]!]).state.overlay).toEqual({ kind: 'palette' });
+    const palette = run([intent({ type: 'palette.open' })]).state;
+    expect(run([intent({ type: 'shortcuts.open' })], palette).state.overlay).toEqual({ kind: 'shortcuts' });
+    expect(run([intent({ type: 'session.new.open', scratch: true })], palette).state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
+    expect(run([intent({ type: 'palette.open' })], palette).state.overlay).toEqual({ kind: 'palette' });
+  });
+  // 読むだけのダイアログ（キーの一覧、昇格の完了）は、差し替えても失うものが無い。
+  // 昇格の完了には「ここで新しいセッションを始める」のボタンもある。
+  it('読むだけのダイアログからは切り替えられる', () => {
+    const keys = run([intent({ type: 'shortcuts.open' })]).state;
+    expect(run([intent({ type: 'palette.open' })], keys).state.overlay).toEqual({ kind: 'palette' });
+    const promoted = { ...initialState(), overlay: { kind: 'promoted' as const, projectId: 'p1', moved: true, reason: null } };
+    expect(run([intent({ type: 'session.new.open', projectId: 'p1' })], promoted).state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
   });
 });
 
@@ -236,13 +324,81 @@ describe('起動', () => {
     expect(run([intent({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
   it('再開、フォーク、停止、外部で開くは API 効果', () => {
-    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1' }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' }), intent({ type: 'project.openEditor', id: 'p1' }), intent({ type: 'project.openTerminalApp', id: 'p1' })]);
+    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' }), intent({ type: 'project.openEditor', id: 'p1' }), intent({ type: 'project.openTerminalApp', id: 'p1' })]);
     expect(effects).toEqual([
       { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.fork', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
       { kind: 'api.openTerminalApp', runId: 'r1', tabId: 't1' }, { kind: 'api.openTerminalApp', runId: 'r1', tabId: null },
       { kind: 'api.openEditor', sessionId: 's1' }, { kind: 'api.projectOpenEditor', projectId: 'p1' }, { kind: 'api.projectOpenTerminal', projectId: 'p1' },
     ]);
     expect(state.launch).toEqual({ kind: 'submitting' });
+  });
+  it('変更したファイルを押すと、そのファイルを VS Code で開く', () => {
+    expect(run([intent({ type: 'session.openFile', sessionId: 's1', path: '/w/a.ts' })]).effects).toEqual([{ kind: 'api.openEditor', sessionId: 's1', file: '/w/a.ts' }]);
+  });
+});
+
+describe('新しいセッションの下書きと前回値', () => {
+  it('名前か初期プロンプトの書きかけを下書きとして持ち、端末に残す。両方空なら消す', () => {
+    const a = run([intent({ type: 'session.new.draft', name: 'API の節', prompt: '' })]);
+    expect(a.state.newSessionDraft).toEqual({ name: 'API の節', prompt: '' });
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: { name: 'API の節', prompt: '' } }]);
+    // 同じ中身なら書き直さない。
+    expect(run([intent({ type: 'session.new.draft', name: 'API の節', prompt: '' })], a.state).effects).toEqual([]);
+    const b = run([intent({ type: 'session.new.draft', name: ' ', prompt: '\n' })], a.state);
+    expect(b.state.newSessionDraft).toBeNull();
+    expect(b.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: null }]);
+  });
+  it('ダイアログから起動し終えたら下書きを消す', () => {
+    const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: 'やって' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', prompt: 'やって' } })]);
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
+    expect(b.state.newSessionDraft).toBeNull();
+    expect(b.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: null });
+    // 再開やフォークの完了では、書きかけの下書きに触れない。
+    const c = run([intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })]);
+    expect(c.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+  });
+  // 送った後に Esc で閉じても起動は止まらない。起動し終えたら、送った下書きは役目を終えている。
+  it('送信中に閉じても、ダイアログから送った起動が終われば下書きを消す', () => {
+    const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: 'やって' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', prompt: 'やって' } }), intent({ type: 'overlay.close' })]);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
+    expect(b.state.newSessionDraft).toBeNull();
+    expect(b.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: null });
+    expect(b.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's9' } });
+    // 一度消したら印も外す。次の再開の完了では、新しく書いた下書きに触れない。
+    const c = run([intent({ type: 'session.new.draft', name: '次', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], b.state);
+    expect(c.state.newSessionDraft).toEqual({ name: '次', prompt: '' });
+  });
+  it('ダイアログから送った起動に失敗したら、閉じていても下書きを残し、印を外す', () => {
+    const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n' } }), intent({ type: 'overlay.close' }), runtime({ type: 'launch.failed', message: 'x' })]);
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+    const b = run([intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], a.state);
+    expect(b.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+  });
+  it('起動した詳細をプロジェクトごとの前回値として持ち、端末に残す', () => {
+    const a = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: 'wt', addDirs: ['/a'] } })]);
+    // worktree は前回値に残さない。同じ名前が毎回入ると、前の worktree の中で起動してしまうからである。
+    const prefs = { p1: { model: 'opus', effort: 'high', permissionMode: 'acceptEdits', addDirs: ['/a'] } };
+    expect(a.state.launchPrefs).toEqual(prefs);
+    expect(a.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.prefs', value: prefs });
+    // スクラッチはプロジェクトを持たないので、スクラッチの 1 枠に持つ。
+    const b = run([runtime({ type: 'launch.failed', message: 'x' }), intent({ type: 'session.new.submit', params: { scratch: true, effort: 'low' } })], a.state);
+    expect(b.state.launchPrefs).toEqual({ ...prefs, ':scratch': { effort: 'low' } });
+  });
+  it('既定のまま起動したら、そのプロジェクトの前回値を消す。変わらなければ書き直さない', () => {
+    const start = { ...initialState(), launchPrefs: { p1: { model: 'opus' } } };
+    const a = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n' } })], start);
+    expect(a.state.launchPrefs).toEqual({});
+    expect(a.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.prefs', value: {} });
+    const b = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', model: 'opus' } })], start);
+    expect(b.effects).toEqual([{ kind: 'api.launch', params: { projectId: 'p1', model: 'opus' } }]);
+  });
+  it('プロジェクトを選ばずに送った失敗では前回値を残さない', () => {
+    const a = run([intent({ type: 'session.new.submit', params: { model: 'opus' } })]);
+    expect(a.state.launchPrefs).toEqual({});
+    expect(a.effects).toEqual([]);
   });
 });
 
@@ -293,6 +449,16 @@ describe('タブと接続', () => {
     expect(r.state.sessionView.s2?.selectedTab).toBeNull();
     expect(r.effects.filter((e) => String((e as { kind: string }).kind).startsWith('terminal.'))).toEqual([{ kind: 'terminal.disconnect', tabId: 't9' }]);
   });
+  it('右ペインの上下の比率は、離したときに丸めて保存する', () => {
+    expect(initialState().livePaneSplit).toBe(0.5);
+    const a = run([intent({ type: 'livePane.split', ratio: 0.3 })]);
+    expect(a.state.livePaneSplit).toBe(0.3);
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'livePane.split', value: 0.3 }]);
+    // 端まで寄せても、上の段と目次のどちらも残す。
+    expect(run([intent({ type: 'livePane.split', ratio: 0.99 })]).state.livePaneSplit).toBe(0.8);
+    expect(run([intent({ type: 'livePane.split', ratio: -1 })]).state.livePaneSplit).toBe(0.2);
+    expect(run([intent({ type: 'livePane.split', ratio: Number.NaN })]).state.livePaneSplit).toBe(0.5);
+  });
   it('サイドバーの折りたたみは開閉のたびに保存する', () => {
     expect(initialState().sidebarCollapsed).toBe(false);
     const a = run([intent({ type: 'sidebar.toggle' })]);
@@ -302,6 +468,125 @@ describe('タブと接続', () => {
     expect(b.state.sidebarCollapsed).toBe(false);
     expect(b.effects).toEqual([{ kind: 'storage.save', key: 'sidebar.collapsed', value: false }]);
   });
+  it('目次でターンを開くと、左の Claude のタブへ戻してからその指示へ跳ばす', () => {
+    // シェルのタブを出していた。跳ぶ先は Claude のタブなので、そちらへ戻す。
+    const start = run([intent({ type: 'tab.select', tabId: 't1' })], onSession()).state;
+    const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], start);
+    expect(a.state.sessionView.s1).toMatchObject({ openTurn: 7, turnJump: { seq: 7, status: 'pending', runId: 'r1' }, selectedTab: null });
+    expect(a.effects).toContainEqual({ kind: 'terminal.connect', sessionId: 's1', tabId: null });
+    expect(a.effects).toContainEqual({ kind: 'api.jumpToPrompt', sessionId: 's1', runId: 'r1', seq: 7, ...jump });
+    // 結果が届いたら、そのターンの注記に使う。
+    const b = run([runtime({ type: 'turnJump.done', sessionId: 's1', seq: 7, status: 'notFound' })], a.state);
+    expect(b.state.sessionView.s1?.turnJump).toEqual({ seq: 7, status: 'notFound', runId: 'r1' });
+    // 別のターンを開いた後に届いた古い結果は捨てる。
+    const c = run([intent({ type: 'turn.open', sessionId: 's1', seq: 9, runId: 'r1', jump }), runtime({ type: 'turnJump.done', sessionId: 's1', seq: 7, status: 'found' })], b.state);
+    expect(c.state.sessionView.s1?.turnJump).toEqual({ seq: 9, status: 'pending', runId: 'r1' });
+  });
+  it('跳ばしたターンを閉じると、左の Claude も transcript から抜けさせる', () => {
+    const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], onSession());
+    // 開いている行をもう一度押すと、目次は跳び先を持たずに来る。
+    const b = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: null, jump: null })], a.state);
+    expect(b.state.sessionView.s1).toMatchObject({ openTurn: null, turnJump: null });
+    expect(b.effects).toContainEqual({ kind: 'api.leaveTranscript', runId: 'r1' });
+    // 跳ばしていないターンを閉じても、抜けさせる相手はいない。
+    const c = run([intent({ type: 'turn.open', sessionId: 's1', seq: 3, runId: null, jump: null }), intent({ type: 'turn.open', sessionId: 's1', seq: 3, runId: null, jump: null })], b.state);
+    expect(c.effects.some((e) => (e as { kind: string }).kind === 'api.leaveTranscript')).toBe(false);
+  });
+  it('跳ばしたまま画面を離れると、左の Claude を transcript から抜けさせ、開いたターンを忘れる', () => {
+    const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], onSession());
+    const b = run([runtime({ type: 'hash.changed', route: { name: 'home' } })], a.state);
+    expect(b.effects).toContainEqual({ kind: 'api.leaveTranscript', runId: 'r1' });
+    expect(b.state.sessionView.s1).toMatchObject({ openTurn: null, turnJump: null });
+    // 跳ばしていなければ何も送らない。
+    const c = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } }), runtime({ type: 'hash.changed', route: { name: 'home' } })], b.state);
+    expect(c.effects.some((e) => (e as { kind: string }).kind === 'api.leaveTranscript')).toBe(false);
+  });
+  it('跳ばした run が終わるか替わったら跳び先を忘れ、離れても終わった run へ抜けさせに行かない', () => {
+    const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], onSession());
+    const ended = run([server({ type: 'run.ended', run: runDto('r1', 's1', 5) })], a.state);
+    expect(ended.state.sessionView.s1?.turnJump).toBeNull();
+    // 開いたターンはそのまま読める。
+    expect(ended.state.sessionView.s1?.openTurn).toBe(7);
+    const away = run([runtime({ type: 'hash.changed', route: { name: 'home' } })], ended.state);
+    expect(away.effects.some((e) => (e as { kind: string }).kind === 'api.leaveTranscript')).toBe(false);
+    // 再開で run が替わったときも、前の run の跳び先は忘れる。
+    const b = run([server({ type: 'run.started', run: runDto('r2', 's1'), tabs: [] })], a.state);
+    expect(b.state.sessionView.s1?.turnJump).toBeNull();
+    // 別のセッションの run や、同じセッションの前の run が終わっても、跳び先は残す。
+    const c = run([server({ type: 'run.ended', run: runDto('r9', 's2', 5) }), server({ type: 'run.ended', run: runDto('r0', 's1', 5) })], a.state);
+    expect(c.state.sessionView.s1?.turnJump).toEqual({ seq: 7, status: 'pending', runId: 'r1' });
+  });
+  it('跳ばした後に跳び先を持たない遠いターンを開くと、先に左の Claude を transcript から抜けさせる', () => {
+    const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], onSession());
+    // 目次は、跳ぶには遠すぎるターンを跳び先なしで送ってくる。
+    const b = run([intent({ type: 'turn.open', sessionId: 's1', seq: 3, runId: null, jump: null })], a.state);
+    expect(b.state.sessionView.s1).toMatchObject({ openTurn: 3, turnJump: null });
+    expect(b.effects).toContainEqual({ kind: 'api.leaveTranscript', runId: 'r1' });
+    expect(b.effects.some((e) => (e as { kind: string }).kind === 'api.jumpToPrompt')).toBe(false);
+  });
+  it('開いているターンをもう一度押すと閉じ、run が無ければ跳ばない', () => {
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: null, jump: null })], onSession());
+    expect(a.state.sessionView.s1).toMatchObject({ openTurn: 7, turnJump: null });
+    expect(a.effects.some((e) => (e as { kind: string }).kind === 'api.jumpToPrompt')).toBe(false);
+    const b = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: null, jump: null })], a.state);
+    expect(b.state.sessionView.s1?.openTurn).toBeNull();
+  });
+  it('最新へ戻ると、ターンを閉じて transcript を抜け、末尾を追う', () => {
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: null, jump: null }), intent({ type: 'transcript.follow', sessionId: 's1', follow: false })], onSession());
+    const b = run([intent({ type: 'turn.latest', sessionId: 's1', runId: 'r1' })], a.state);
+    expect(b.state.sessionView.s1).toMatchObject({ openTurn: null, turnJump: null, follow: true });
+    expect(b.effects).toContainEqual({ kind: 'api.leaveTranscript', runId: 'r1' });
+  });
+  it('本文の中の検索は、開くたびに欄へ戻る合図を進め、語を変えると数え直し、前へ次へで進め、閉じると消える', () => {
+    const a = run([intent({ type: 'transcript.find', sessionId: 's1', open: true })], onSession());
+    expect(a.state.sessionView.s1?.find).toEqual({ query: '', caseSensitive: false, from: null, step: 0, n: 1 });
+    // その場の操作なので保存しない。
+    expect(a.effects).toEqual([]);
+    const b = run([intent({ type: 'transcript.findQuery', sessionId: 's1', query: 'バリデーション', caseSensitive: true, from: 12 }), intent({ type: 'transcript.findStep', sessionId: 's1', delta: 1 }), intent({ type: 'transcript.findStep', sessionId: 's1', delta: 1 })], a.state);
+    expect(b.state.sessionView.s1?.find).toEqual({ query: 'バリデーション', caseSensitive: true, from: 12, step: 2, n: 1 });
+    const c = run([intent({ type: 'transcript.findQuery', sessionId: 's1', query: 'バリ', caseSensitive: true, from: 12 })], b.state);
+    expect(c.state.sessionView.s1?.find?.step).toBe(0);
+    // 開いたままもう一度 ⌘F を押すと、語は残したまま欄へ戻る。
+    const d = run([intent({ type: 'transcript.find', sessionId: 's1', open: true })], c.state);
+    expect(d.state.sessionView.s1?.find).toMatchObject({ query: 'バリ', n: 2 });
+    const e = run([intent({ type: 'transcript.find', sessionId: 's1', open: false })], d.state);
+    expect(e.state.sessionView.s1?.find).toBeNull();
+    // 閉じているときの前へ次へは何もしない。
+    expect(run([intent({ type: 'transcript.findStep', sessionId: 's1', delta: 1 })], e.state).state.sessionView.s1?.find).toBeNull();
+  });
+  it('検索の結果から開くと、跳び先を覚えて追うのをやめ、画面に着いたら跳び先の周りを読む', () => {
+    const a = run([intent({ type: 'session.open', id: 's1', seq: 42, q: 'パスワード' })]);
+    expect(a.state.sessionView.s1).toMatchObject({ jump: { seq: 42, query: 'パスワード', n: 1 }, follow: false });
+    expect(a.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    const b = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], a.state);
+    expect(b.effects).toContainEqual({ kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0, aroundSeq: 42 });
+    // 同じ所をもう一度開いたら、跳び直す合図を進める。
+    expect(run([intent({ type: 'session.open', id: 's1', seq: 42, q: 'パスワード' })], b.state).state.sessionView.s1?.jump?.n).toBe(2);
+    // 画面を離れたら跳び先は忘れる。検索を通さずに開いたときも跳ばない。
+    const c = run([runtime({ type: 'hash.changed', route: { name: 'home' } })], b.state);
+    expect(c.state.sessionView.s1?.jump).toBeNull();
+    const d = run([intent({ type: 'session.open', id: 's1' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], b.state);
+    expect(d.state.sessionView.s1?.jump).toBeNull();
+    expect(d.effects).toContainEqual({ kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0 });
+  });
+  it('新しい行を読み足すのは、持っている中でいちばん新しい行の後ろから', () => {
+    expect(run([intent({ type: 'transcript.loadNewer', sessionId: 's1' })]).effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: -2 }]);
+  });
+  it('検索と検索の結果からの跳び先は保存しない', () => {
+    const v = { ...defaultSessionView(), find: { query: 'x', caseSensitive: false, from: null, step: 0, n: 1 }, jump: { seq: 3, query: 'x', n: 1 } };
+    expect(persistedSessionView(v)).not.toHaveProperty('find');
+    expect(persistedSessionView(v)).not.toHaveProperty('jump');
+  });
+  it('開いたターンと跳んだ結果は保存しない', () => {
+    const v = { ...defaultSessionView(), openTurn: 3, turnJump: { seq: 3, status: 'found' as const, runId: 'r1' } };
+    expect(persistedSessionView(v)).not.toHaveProperty('openTurn');
+    expect(persistedSessionView(v)).not.toHaveProperty('turnJump');
+  });
   it('トランスクリプトの折りたたみ', () => {
     const a = run([intent({ type: 'transcript.toggle' })], onSession());
     expect(a.state.sessionView.s1?.transcriptOpen).toBe(false);
@@ -309,18 +594,81 @@ describe('タブと接続', () => {
   });
 });
 
-describe('waiting のトースト', () => {
-  const live = (id: string, status: 'busy' | 'waiting', name: string | null = null) => ({ sessionId: id, status, name, nameSource: null, cwd: '/x', pid: 1 });
-  it('新たに waiting になったものだけ知らせ、戻れば忘れる', () => {
-    const a = run([server({ type: 'live.update', live: [live('u1', 'waiting', 'alpha'), live('u2', 'busy')] })]);
-    expect(a.effects).toEqual([{ kind: 'toast', level: 'info', message: '「alpha」があなたの入力を待っています' }]);
-    expect(a.state.waitingSeen).toEqual(['u1']);
-    const b = run([server({ type: 'live.update', live: [live('u1', 'waiting', 'alpha'), live('u2', 'waiting')] })], a.state);
-    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '「u2」があなたの入力を待っています' }]);
-    const c = run([server({ type: 'live.update', live: [live('u1', 'busy')] })], b.state);
-    expect(c.effects).toEqual([]);
+describe('入力待ちの知らせ', () => {
+  const waiting = (...ids: string[]) => runtime({ type: 'waiting.changed', ids });
+  // transition はどの領域の後にも settleWaiting で開いているセッションのカードを下げるので、領域そのものも見る。
+  it('live 領域は、開いているセッションをカードにしない。通知の効果は出す', () => {
+    const at = { ...initialState(), screen: { name: 'session' as const, id: 's1' } };
+    const r = liveStep(at, waiting('s1', 's2'))!;
+    expect(r.state.waitingToasts).toEqual(['s2']);
+    expect(r.effects).toContainEqual({ kind: 'notify.waiting', sessionId: 's1' });
+  });
+  it('新たに入力待ちになったセッションをカードに積み、通知とバッジの効果を出す', () => {
+    const a = run([waiting('s1')]);
+    expect(a.state.waitingToasts).toEqual(['s1']);
+    expect(a.state.waitingSeen).toEqual(['s1']);
+    expect(a.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }, { kind: 'badge', count: 1 }]);
+    const b = run([waiting('s1', 's2')], a.state);
+    expect(b.state.waitingToasts).toEqual(['s1', 's2']);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's2' }, { kind: 'badge', count: 2 }]);
+  });
+  it('入力待ちが解けたらカードを消し、同じ数なら数え直さない', () => {
+    const a = run([waiting('s1', 's2')]);
+    const b = run([waiting('s2', 's3')], a.state);
+    expect(b.state.waitingToasts).toEqual(['s2', 's3']);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's3' }]);
+    const c = run([waiting()], b.state);
+    expect(c.state.waitingToasts).toEqual([]);
     expect(c.state.waitingSeen).toEqual([]);
-    expect(run([server({ type: 'live.update', live: [live('u1', 'waiting', 'alpha')] })], c.state).effects).toHaveLength(1);
+    expect(c.effects).toEqual([{ kind: 'badge', count: 0 }]);
+  });
+  it('解けてからまた入力待ちになれば、もう一度知らせる', () => {
+    const a = run([waiting('s1'), waiting(), waiting('s1')]);
+    expect(a.state.waitingToasts).toEqual(['s1']);
+    expect(a.effects.filter((e) => (e as { kind: string }).kind === 'notify.waiting')).toHaveLength(2);
+  });
+  it('いま開いているセッションの入力待ちはカードにしない。通知の効果は出す（窓が背面なら見えていないため）', () => {
+    const a = run([waiting('s1', 's2')], onSession('s1'));
+    expect(a.state.waitingToasts).toEqual(['s2']);
+    expect(a.effects).toContainEqual({ kind: 'notify.waiting', sessionId: 's1' });
+  });
+  it('カードのセッションを開いたら、そのカードを消す', () => {
+    const a = run([waiting('s1', 's2')]);
+    const b = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], a.state);
+    expect(b.state.waitingToasts).toEqual(['s2']);
+    // 開いて見たので、離れても同じ入力待ちをまた積まない。
+    const c = run([runtime({ type: 'hash.changed', route: { name: 'home' } }), waiting('s1', 's2')], b.state);
+    expect(c.state.waitingToasts).toEqual(['s2']);
+  });
+  it('入力待ちのカードは info や error のトーストとは別に持つ', () => {
+    const a = run([waiting('s1'), server({ type: 'toast', level: 'info', message: 'x' })]);
+    expect(a.state.toasts.map((t) => t.message)).toEqual(['x']);
+    expect(a.state.waitingToasts).toEqual(['s1']);
+  });
+  it('live.update そのものではカードを積まない（どのセッションかはランタイムが決めて返す）', () => {
+    const live = { sessionId: 'u1', status: 'waiting' as const, name: 'alpha', nameSource: null, cwd: '/x', pid: 1 };
+    const a = run([server({ type: 'live.update', live: [live] })]);
+    expect(a.state.waitingToasts).toEqual([]);
+    expect(a.effects).toEqual([]);
+  });
+});
+
+describe('通知を受け取るか', () => {
+  it('受け取るにすると、許可を求める効果だけを出す。結果が届いてから切り替える', () => {
+    const a = run([intent({ type: 'notify.set', on: true })]);
+    expect(a.effects).toEqual([{ kind: 'notify.request' }]);
+    expect(a.state.notify.on).toBe(false);
+    const b = run([runtime({ type: 'notify.changed', available: true, on: true })], a.state);
+    expect(b.state.notify).toEqual({ available: true, on: true, blocked: false });
+    // OS で切られていれば、その印を持つ。
+    const c = run([runtime({ type: 'notify.changed', available: true, on: false, blocked: true })], b.state);
+    expect(c.state.notify).toEqual({ available: true, on: false, blocked: true });
+  });
+  it('受け取らないにすると、その場で切り替えて覚える', () => {
+    const on = run([runtime({ type: 'notify.changed', available: true, on: true })]).state;
+    const a = run([intent({ type: 'notify.set', on: false })], on);
+    expect(a.state.notify).toEqual({ available: true, on: false, blocked: false });
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'notify.waiting', value: false }]);
   });
 });
 
@@ -482,14 +830,43 @@ describe('パレット', () => {
     expect(f.state.overlay).toEqual({ kind: 'none' });
     expect(f.effects).toEqual([]);
   });
+  // 新しいセッションは、パレットを開いた画面のプロジェクトを最初から選ぶ。どれを選ぶかは presenter が項目の ID に載せる。
+  it('新しいセッションは、ID に載せたプロジェクトかスクラッチを選んで開く', () => {
+    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:new-session:project:p1', label: '新しいセッション' } })], opened());
+    expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
+    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
+    const b = run([intent({ type: 'palette.run', command: { id: 'cmd:new-session:scratch', label: '新しいセッション' } })], opened());
+    expect(b.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
+  });
+  it('移動の行は、画面を移るかサイドバーを開閉する', () => {
+    expect(run([intent({ type: 'palette.run', command: { id: 'go:home', label: 'ホームへ' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'home' } }]);
+    expect(run([intent({ type: 'palette.run', command: { id: 'go:projects', label: 'プロジェクトへ' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'projects' } }]);
+    const s = run([intent({ type: 'palette.run', command: { id: 'go:sessions', label: 'セッション一覧へ' } })], opened());
+    expect(s.state.overlay).toEqual({ kind: 'none' });
+    expect(s.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+    const bar = run([intent({ type: 'palette.run', command: { id: 'cmd:sidebar', label: 'サイドバーの開閉' } })], opened());
+    expect(bar.state.overlay).toEqual({ kind: 'none' });
+    expect(bar.state.sidebarCollapsed).toBe(true);
+    expect(bar.effects).toEqual([{ kind: 'storage.save', key: 'sidebar.collapsed', value: true }]);
+  });
+  // 全文検索の行は、ヘッダーの検索欄が担っていた search.query と同じ経路でセッション一覧へ移る。
+  it('全文検索の行は、語を持ってセッション一覧へ移り、結果の一覧へフォーカスする', () => {
+    const a = run([intent({ type: 'palette.run', command: { id: 'search:索引 再構築', label: '『索引 再構築』を全文検索' } })], opened());
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.state.search.text).toBe('索引 再構築');
+    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '索引 再構築' } }, { kind: 'focus', target: 'results' }]);
+  });
   // パレットが開いていないのにコマンドが届いても、開いている別のダイアログを消さない。
   it('パレットが開いていなければオーバーレイを閉じない', () => {
     const un = run([server({ type: 'project.unresolved', projectId: 'p1' })]).state;
     const a = run([intent({ type: 'palette.run', command: { id: 'cmd:settings', label: '設定' } })], un);
     expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+    // 裏の画面も移さない（ダイアログを開いている間の画面の移動を参照）。
+    expect(a.effects).toEqual([]);
     const b = run([intent({ type: 'palette.run', command: { id: 'nope', label: '' } })], un);
     expect(b.state).toEqual(un);
+    // ダイアログを開く行も、決めるまで閉じないダイアログを差し替えない。
+    for (const id of ['cmd:new-session', 'cmd:new-scratch', 'cmd:shortcuts']) expect(run([intent({ type: 'palette.run', command: { id, label: '' } })], un).state).toEqual(un);
   });
 });
 
@@ -534,7 +911,7 @@ describe('分割', () => {
     const a = run([intent({ type: 'split.toggle' })], onSession('s1'));
     const b = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: null })], a.state);
     expect(b.state.sessionView.s1?.split).toBeFalsy();
-    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '分割にはタブが 2 つ必要です' }]);
+    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }]);
   });
   it('分割中に右のタブを選ぶと左右が入れ替わる', () => {
     const r = run([intent({ type: 'tab.select', tabId: 't2' })], split('t1', 't2'));
@@ -642,6 +1019,72 @@ describe('外で動くセッションを hangar で開く', () => {
   });
 });
 
+describe('プロジェクトを一覧から削除する確認', () => {
+  it('未解決のダイアログで一覧から削除を選ぶと、送らずに確認を出す', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'unlinkProject', projectId: 'p1' } });
+  });
+  it('やめると未解決のダイアログに戻り、あとでの扱いにはしない', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    const b = run([intent({ type: 'overlay.close' })], a.state);
+    expect(b.effects).toEqual([]);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(b.state.unresolvedQueue).toEqual(['p2']);
+    expect(b.state.resolveDeferred).toEqual([]);
+  });
+  it('承諾で送り、同じプロジェクトを聞き直さずに次の未解決へ進む', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    const b = run([intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' }, confirmed: true })], a.state);
+    expect(b.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'unlink' } }]);
+    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p2' });
+    expect(b.state.unresolvedQueue).toEqual([]);
+    const c = run([intent({ type: 'project.resolve', id: 'p2', action: { kind: 'unlink' }, confirmed: true })], b.state);
+    expect(c.state.overlay).toEqual({ kind: 'none' });
+  });
+  // 確認の最初のフォーカスは「やめる」なので、修飾の無い / や ? も Root に届く。
+  // パレットやキーの一覧、新しいセッションで確認を差し替えると、未解決のダイアログもキューに戻らず消える。
+  it('確認の上でパレットや新規セッションを開こうとしても、確認を差し替えない', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    for (const i of [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' }), intent({ type: 'session.new.open', scratch: false })]) {
+      const b = run([i], a.state);
+      expect(b.state).toEqual(a.state);
+      expect(b.effects).toEqual([]);
+    }
+    const c = run([intent({ type: 'overlay.close' })], a.state);
+    expect(c.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+  });
+  it('アーカイブと再指定は確認を挟まない', () => {
+    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })]);
+    expect(a.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'archive' } }]);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+  });
+});
+
+describe('停止の確認', () => {
+  it('休みでシェルタブが無ければ、確認せずにすぐ止める', () => {
+    const r = run([intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
+    expect(r.state.overlay).toEqual({ kind: 'none' });
+    expect(r.effects).toEqual([{ kind: 'api.killRun', runId: 'r1' }]);
+  });
+  it('作業中なら先に確認を出し、やめれば何も送らない', () => {
+    const a = run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'killRun', runId: 'r1', working: true, shellTabs: 0 } });
+    const closed = run([intent({ type: 'overlay.close' })], a.state);
+    expect(closed.effects).toEqual([]);
+    expect(closed.state).toEqual(initialState());
+  });
+  it('シェルタブがあれば休みでも確認を出し、承諾で止めて確認を閉じる', () => {
+    const a = run([intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 2 })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'killRun', runId: 'r1', working: false, shellTabs: 2 } });
+    const b = run([intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 2, confirmed: true })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    expect(b.effects).toEqual([{ kind: 'api.killRun', runId: 'r1' }]);
+  });
+});
+
 describe('この PC で再開', () => {
   it('この PC で再開の 409 は確認ダイアログになり、承諾で上書きを送る', () => {
     const a = run([intent({ type: 'session.resumeHere', id: 's1' })]);
@@ -746,6 +1189,91 @@ describe('この PC で再開', () => {
   });
 });
 
+describe('ダイアログを開いている間の入力待ちのカードと通知', () => {
+  // カードと通知は、ダイアログの上（右下の知らせ）や窓の外から来る。
+  // 確認や入力のあるダイアログを開いたまま裏の画面だけを移すと、何に答えているのかが分からなくなる（⌘I と同じ考え方）。
+  it('確認や入力のあるダイアログが開いていれば、画面を移さない', () => {
+    const at = run([runtime({ type: 'hash.changed', route: { name: 'home' } })]).state;
+    for (const before of [
+      run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })], at).state,
+      run([server({ type: 'project.unresolved', projectId: 'p1' })], at).state,
+      run([intent({ type: 'session.new.open', scratch: true })], at).state,
+    ]) {
+      const r = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' })], before);
+      expect(r.state).toEqual(before);
+      expect(r.effects).toEqual([]);
+    }
+  });
+  it('パレットや読むだけのダイアログなら、閉じてから移る', () => {
+    for (const open of [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' })]) {
+      const r = run([open, intent({ type: 'session.open', id: 's1', focus: 'terminal' })]);
+      expect(r.state.overlay).toEqual({ kind: 'none' });
+      expect(r.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    }
+  });
+});
+
+describe('ダイアログを開いている間の画面の移動', () => {
+  // ⌘, の設定、⌘[ ⌘] の戻る進む、パレットの行など、ダイアログの裏で画面を移す経路は、入力待ちのカードと同じ規則で止める。
+  const at = run([runtime({ type: 'hash.changed', route: { name: 'home' } })]).state;
+  const holding: [string, State][] = [
+    ['停止の確認', run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })], at).state],
+    ['未解決のプロジェクト', run([server({ type: 'project.unresolved', projectId: 'p1' })], at).state],
+    ['新しいセッション', run([intent({ type: 'session.new.open', scratch: true })], at).state],
+    ['昇格', run([intent({ type: 'session.promote.open', id: 's1' })], at).state],
+    ['保持期間', run([intent({ type: 'retention.edit', days: 365, from: 'banner' })], at).state],
+    ['設定の取り込み', run([intent({ type: 'sync.config.preview' })], at).state],
+  ];
+  const moves: Input[] = [
+    intent({ type: 'nav.go', to: { name: 'settings' } }),
+    intent({ type: 'nav.back' }),
+    intent({ type: 'nav.forward' }),
+    intent({ type: 'project.open', id: 'p1' }),
+    intent({ type: 'search.query', text: 'x' }),
+    intent({ type: 'search.clear' }),
+    intent({ type: 'palette.run', command: { id: 'cmd:settings', label: '設定' } }),
+    intent({ type: 'palette.run', command: { id: 'go:sessions', label: 'セッション' } }),
+    intent({ type: 'palette.run', command: { id: 'project:p1', label: 'p1' } }),
+    intent({ type: 'palette.run', command: { id: 'session:s1', label: 's1' } }),
+    intent({ type: 'palette.run', command: { id: 'search:x', label: 'x' } }),
+  ];
+  it.each(holding)('%s の上では、裏の画面を移さない', (_name, before) => {
+    expect(before.overlay.kind).not.toBe('none');
+    for (const m of moves) {
+      const r = run([m], before);
+      expect(r.state).toEqual(before);
+      expect(r.effects).toEqual([]);
+    }
+  });
+  it('パレットや読むだけのダイアログなら、閉じてから移る', () => {
+    for (const open of [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' })]) {
+      const r = run([open, intent({ type: 'nav.go', to: { name: 'settings' } })], at);
+      expect(r.state.overlay).toEqual({ kind: 'none' });
+      expect(r.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+      const b = run([open, intent({ type: 'nav.back' })], at);
+      expect(b.effects).toEqual([{ kind: 'history.go', delta: -1 }]);
+    }
+  });
+  // ダイアログの中の操作が意図して移すものは止めない。
+  it('ダイアログの中から意図して移る経路は動く', () => {
+    // 保持期間の「ほかの期間…」は設定へ移る。
+    const retention = run([intent({ type: 'retention.settings' })], holding[4]![1]);
+    expect(retention.state.overlay).toEqual({ kind: 'none' });
+    expect(retention.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+    // 昇格の完了の「プロジェクトを開く」。
+    const promoted = { ...at, overlay: { kind: 'promoted' as const, projectId: 'p9', moved: true, reason: null } };
+    expect(run([intent({ type: 'project.open', id: 'p9' })], promoted).effects).toEqual([{ kind: 'navigate', route: { name: 'project', id: 'p9' } }]);
+    // 新しいセッションの起動の完了は、ダイアログを閉じて開いたセッションへ移る。
+    const launched = run([intent({ type: 'session.new.submit', params: { projectId: 'p1' } }), runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], holding[2]![1]);
+    expect(launched.state.overlay).toEqual({ kind: 'none' });
+    expect(launched.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's9' } });
+    // 確認の承諾の後の移動（引き取りの完了）。
+    const adopt = run([intent({ type: 'session.adopt', id: 's1' })], at).state;
+    const adopted = run([intent({ type: 'session.adopt', id: 's1', confirmed: true }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], adopt);
+    expect(adopted.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+  });
+});
+
 describe('開いたら端末にフォーカス', () => {
   const focus = { kind: 'focus', target: 'terminal' };
   it('focus: terminal で開くと、その画面に着いたときに端末へフォーカスする', () => {
@@ -793,5 +1321,77 @@ describe('開いたら端末にフォーカス', () => {
       const v = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' })], start).state.sessionView.s1!;
       expect(v).toMatchObject({ selectedTab: null, split: false, splitTab: null });
     }
+  });
+});
+
+describe('次の入力待ちへ（C5）', () => {
+  it('どの入力待ちへ移るかはストアを見て決めるので、ランタイムに問う', () => {
+    expect(run([intent({ type: 'session.nextWaiting' })]).effects).toEqual([{ kind: 'waiting.next', from: null }]);
+    const onS1 = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]).state;
+    expect(run([intent({ type: 'session.nextWaiting' })], onS1).effects).toEqual([{ kind: 'waiting.next', from: 's1' }]);
+  });
+  it('決まったセッションは、ターミナルで答える経路（session.open の focus: terminal）で開く', () => {
+    const via = run([runtime({ type: 'waiting.resolved', sessionId: 's2' })]);
+    const direct = run([intent({ type: 'session.open', id: 's2', focus: 'terminal' })]);
+    expect(via).toEqual(direct);
+  });
+  it('入力待ちが無ければ短く知らせる', () => {
+    expect(run([runtime({ type: 'waiting.resolved', sessionId: null })]).effects).toEqual([{ kind: 'toast', level: 'info', message: '入力待ちのセッションはありません' }]);
+  });
+  it('パレットからも出せて、パレットは閉じる', () => {
+    const opened = run([intent({ type: 'palette.open' })]).state;
+    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:next-waiting', label: '次の入力待ちへ' } })], opened);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.effects).toEqual([{ kind: 'waiting.next', from: null }]);
+    // パレットの上でキーを打ったときも、パレットは閉じる。
+    const b = run([intent({ type: 'session.nextWaiting' })], opened);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+  });
+});
+
+describe('保持期間', () => {
+  it('閉じると覚え、保存する', () => {
+    const r = run([intent({ type: 'retention.dismiss' })]);
+    expect(r.state.retentionBannerDismissed).toBe(true);
+    expect(r.effects).toEqual([{ kind: 'storage.save', key: 'retention.bannerDismissed', value: true }]);
+  });
+  it('開くと下見を取り、書くと送信中になり、書けたら閉じる', () => {
+    let r = run([intent({ type: 'retention.edit', days: 365, from: 'banner' })]);
+    expect(r.state.overlay).toEqual({ kind: 'retention', days: 365, from: 'banner', reloaded: false, writing: false, previewError: null });
+    expect(r.effects).toEqual([{ kind: 'api.retentionPreview', days: 365 }]);
+    r = run([intent({ type: 'retention.write' })], r.state);
+    expect(r.state.overlay).toMatchObject({ kind: 'retention', writing: true });
+    expect(r.effects).toEqual([{ kind: 'api.writeRetention', days: 365 }]);
+    // 送信中にもう一度押しても二重に書かない。
+    expect(run([intent({ type: 'retention.write' })], r.state).effects).toEqual([]);
+    r = run([runtime({ type: 'retention.written', days: 365 })], r.state);
+    expect(r.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('409 なら下見を取り直し、読み直したことを出す', () => {
+    const r = run([intent({ type: 'retention.edit', days: 365, from: 'settings' }), intent({ type: 'retention.write' }), runtime({ type: 'retention.conflict', days: 365 })]);
+    expect(r.state.overlay).toEqual({ kind: 'retention', days: 365, from: 'settings', reloaded: true, writing: false, previewError: null });
+    expect(r.effects.at(-1)).toEqual({ kind: 'api.retentionPreview', days: 365 });
+  });
+  it('下見に失敗したら、ダイアログの中に理由を残す。開き直すと消える', () => {
+    const r = run([intent({ type: 'retention.edit', days: 365, from: 'banner' }), runtime({ type: 'retention.previewFailed', days: 365, message: '設定ファイルの書式を読み取れなかったので書き換えませんでした' })]);
+    expect(r.state.overlay).toMatchObject({ kind: 'retention', previewError: '設定ファイルの書式を読み取れなかったので書き換えませんでした' });
+    expect(run([intent({ type: 'retention.edit', days: 90, from: 'settings' })], r.state).state.overlay).toMatchObject({ days: 90, previewError: null });
+    // 別の日数の下見の失敗は、いま開いている確認には書かない。
+    expect(run([runtime({ type: 'retention.previewFailed', days: 90, message: 'x' })], r.state).state.overlay).toMatchObject({ previewError: '設定ファイルの書式を読み取れなかったので書き換えませんでした' });
+  });
+  it('書き込んでいる間は閉じられない。書き終われば閉じられる', () => {
+    const writing = run([intent({ type: 'retention.edit', days: 365, from: 'banner' }), intent({ type: 'retention.write' })]).state;
+    expect(run([intent({ type: 'overlay.close' })], writing).state.overlay).toMatchObject({ kind: 'retention', writing: true });
+    const failed = run([runtime({ type: 'retention.failed', message: 'x' })], writing).state;
+    expect(run([intent({ type: 'overlay.close' })], failed).state.overlay).toEqual({ kind: 'none' });
+  });
+  it('失敗したら送信中を解いてトーストを出す。「ほかの期間…」は設定画面へ移る', () => {
+    const open = run([intent({ type: 'retention.edit', days: 365, from: 'banner' })]).state;
+    const f = run([intent({ type: 'retention.write' }), runtime({ type: 'retention.failed', message: 'x' })], open);
+    expect(f.state.overlay).toMatchObject({ writing: false });
+    expect(f.effects.at(-1)).toEqual({ kind: 'toast', level: 'error', message: 'x' });
+    const s = run([intent({ type: 'retention.settings' })], open);
+    expect(s.state.overlay).toEqual({ kind: 'none' });
+    expect(s.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
   });
 });

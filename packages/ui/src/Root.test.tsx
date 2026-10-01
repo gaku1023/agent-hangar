@@ -6,15 +6,16 @@ import type { ApiClient } from './runtime/api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
+import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { fakeMotionTokens } from './test/motion.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [] };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
 
 // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
-const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), subscribe: () => () => {}, dispose: vi.fn() };
+const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
 
-const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false };
+const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null };
 
 function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost } = {}) {
   const b = over.boot ?? boot;
@@ -30,6 +31,8 @@ function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?:
     storage: { get: () => undefined, set: () => {}, keys: () => [] },
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     terminals: over.terminals ?? terminals,
+    // main.tsx と同じく、フォーカスの対象を id で探して当てる。
+    focus: (t) => focusSoon(() => document.getElementById(FOCUS_IDS[t]), (cb) => { requestAnimationFrame(cb); }),
   };
   const rt = createRuntime(deps);
   return { rt, deps, handlers, go, setHash: deps.location.setHash, terminals: deps.terminals };
@@ -47,6 +50,16 @@ async function mounted(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; te
   act(() => m.handlers[0]!.onOpen());
   await flush();
   return { ...m, wsHandlers: m.handlers };
+}
+
+/** 入力欄の打鍵を確かめるための、画面の外に置く欄。ヘッダーには打つ欄が無い（押す錠剤である）。 */
+const fields: HTMLElement[] = [];
+afterEach(() => { for (const el of fields.splice(0)) el.remove(); });
+function textField(): HTMLInputElement {
+  const el = document.createElement('input');
+  document.body.append(el);
+  fields.push(el);
+  return el;
 }
 
 describe('Root', () => {
@@ -90,24 +103,29 @@ describe('Root', () => {
     expect(screen.getByRole('status')).toHaveTextContent('1 秒後に再接続します');
     vi.useRealTimers();
   });
-  it('キーボード。/ で検索欄にフォーカスし、⌘K でパレットが開き、Esc で閉じる', async () => {
+  it('キーボード。/ と ⌘K でパレットが開き、Esc で閉じる', async () => {
     const { rt, deps, handlers } = make();
     rt.start();
     render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
     act(() => handlers[0]!.onOpen());
     await flush();
     fireEvent.keyDown(window, { key: '/' });
-    expect(document.activeElement?.id).toBe('global-search');
-    // 入力中の / は横取りしない。
-    fireEvent.keyDown(document.getElementById('global-search')!, { key: '/' });
-    // 幅が狭くて検索欄を畳んでいるときは、/ でパレットを開く。隠れた欄にフォーカスしても何も起きないからである。
-    const box = document.getElementById('global-search')!;
-    box.blur();
-    box.style.display = 'none';
-    fireEvent.keyDown(window, { key: '/' });
+    expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
+    // パレットの入力欄での / は文字なので、横取りしない。
+    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: '/' });
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
-    box.style.display = '';
+    expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
+    // ほかの入力欄で打つ / も文字である。
+    const field = textField();
+    field.focus();
+    fireEvent.keyDown(field, { key: '/' });
+    expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
+    field.blur();
+    // ヘッダーの錠剤を押しても開く。
+    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
+    expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     // 仮の板を本物のパレットに差し替えたので、見出しの文字ではなく入力欄のラベルで探す。
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
@@ -131,6 +149,23 @@ describe('Root', () => {
     expect(screen.getByRole('option', { name: /alpha/ })).toBeInTheDocument();
     fireEvent.click(screen.getByText('やめる'));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('書きかけのまま閉じた新しいセッションは、次に開くと下書きとして戻る', async () => {
+    const { rt, deps, handlers } = make();
+    rt.start();
+    render(<Root runtime={rt} api={deps.api} terminals={terminals} />);
+    act(() => handlers[0]!.onOpen());
+    await flush();
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
+    fireEvent.change(screen.getByLabelText('名前（任意）'), { target: { value: 'API の節' } });
+    fireEvent.keyDown(screen.getByLabelText('名前（任意）'), { key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(rt.getState().newSessionDraft).toEqual({ name: 'API の節', prompt: '' });
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
+    await flush();
+    expect(screen.getByLabelText('名前（任意）')).toHaveValue('API の節');
+    expect(within(screen.getByRole('dialog')).getByText('下書き')).toBeInTheDocument();
   });
   it('セッションを開くとサブエージェントの一覧が届き、選択欄が出る', async () => {
     const { rt, deps, handlers, setHash } = make({ boot: { ...boot, sessions: [session] }, api: { subagents: async () => ['agent-1'] } });
@@ -172,6 +207,21 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     expect(emit).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });
     key({ key: ',', metaKey: true });
     expect(emit).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+  });
+
+  // 今いるプロジェクト、今見ているセッションのプロジェクトを、ダイアログで最初から選んでおく。
+  it('⌘N は今の画面のプロジェクトを選んだ状態で開く', async () => {
+    const { rt, setHash } = await mounted();
+    const emit = vi.spyOn(rt, 'emit');
+    act(() => setHash('#/project/p1'));
+    await flush();
+    key({ key: 'n', metaKey: true });
+    expect(emit).toHaveBeenLastCalledWith({ type: 'session.new.open', scratch: false, projectId: 'p1' });
+    act(() => rt.emit({ type: 'overlay.close' }));
+    act(() => setHash('#/session/s1'));
+    await flush();
+    key({ key: 'n', metaKey: true });
+    expect(emit).toHaveBeenLastCalledWith({ type: 'session.new.open', scratch: false, projectId: 'p1' });
   });
 
   it('セッション画面でタブと分割とトランスクリプトのキーが効く', async () => {
@@ -232,18 +282,92 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     host.remove();
   });
 
+  it('セッション画面の ⌘+ ⌘− ⌘0 は全部の端末の文字の大きさを変え、ブラウザの拡大には渡さない', async () => {
+    // fireEvent は既定の動きを止めたときに false を返す。
+    const zoom = vi.fn();
+    const { wsHandlers, setHash } = await mounted({ terminals: { ...terminals, zoom } });
+    act(() => setHash('#/session/s1'));
+    await flush();
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent')] }));
+    await flush();
+    expect(key({ key: '=', metaKey: true })).toBe(false);
+    expect(key({ key: '-', metaKey: true })).toBe(false);
+    expect(key({ key: '0', metaKey: true })).toBe(false);
+    expect(zoom.mock.calls).toEqual([['in'], ['out'], ['reset']]);
+    // ターミナルにフォーカスがあっても ⌘ の組み合わせなので受ける。
+    const host = document.createElement('div');
+    host.className = 'term-host';
+    document.body.appendChild(host);
+    expect(fireEvent.keyDown(host, { key: '+', metaKey: true, shiftKey: true, bubbles: true })).toBe(false);
+    expect(zoom).toHaveBeenLastCalledWith('in');
+    host.remove();
+  });
+
+  it('端末の無い画面の ⌘+ ⌘− ⌘0 はブラウザに渡す', async () => {
+    const zoom = vi.fn();
+    await mounted({ terminals: { ...terminals, zoom } });
+    expect(key({ key: '=', metaKey: true })).toBe(true);
+    expect(key({ key: '0', metaKey: true })).toBe(true);
+    expect(zoom).not.toHaveBeenCalled();
+  });
+
+  it('端末の無いセッション画面（終わったセッションの本文だけ）の ⌘+ ⌘− ⌘0 はブラウザに渡す', async () => {
+    const zoom = vi.fn();
+    const { wsHandlers, setHash } = await mounted({ terminals: { ...terminals, zoom } });
+    act(() => setHash('#/session/s1'));
+    await flush();
+    expect(key({ key: '=', metaKey: true })).toBe(true);
+    expect(key({ key: '-', metaKey: true })).toBe(true);
+    expect(key({ key: '0', metaKey: true })).toBe(true);
+    // run が終わってシェルタブも残っていなければ、端末は画面に無い。
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: { ...rootRun('r1', 's1'), endedAt: 2 }, tabs: [rootTab('t1', 'r1', 'agent')] }));
+    await flush();
+    expect(key({ key: '=', metaKey: true })).toBe(true);
+    expect(zoom).not.toHaveBeenCalled();
+  });
+
+  it('⌘F は本文が出ているセッション画面でだけ受け、欄を開いてフォーカスする。ターミナルが出ていれば奪わない', async () => {
+    const { rt, wsHandlers, setHash } = await mounted();
+    // セッション画面の外ではブラウザに渡す。
+    expect(key({ key: 'f', metaKey: true })).toBe(true);
+    act(() => setHash('#/session/s1'));
+    await flush();
+    expect(key({ key: 'f', metaKey: true })).toBe(false);
+    await flush();
+    const box = screen.getByRole('searchbox', { name: '本文の中を探す' });
+    expect(box).toHaveFocus();
+    // Esc で閉じる。
+    fireEvent.keyDown(box, { key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('searchbox', { name: '本文の中を探す' })).toBeNull();
+    // ダイアログやパレットを開いている間は、裏の本文の欄を開かない。
+    for (const open of [{ type: 'palette.open' as const }, { type: 'shortcuts.open' as const }]) {
+      act(() => rt.emit(open));
+      await flush();
+      expect(key({ key: 'f', metaKey: true })).toBe(true);
+      await flush();
+      expect(screen.queryByRole('searchbox', { name: '本文の中を探す' })).toBeNull();
+      act(() => rt.emit(open.type === 'palette.open' ? { type: 'palette.close' } : { type: 'overlay.close' }));
+      await flush();
+    }
+    // ターミナルが出ていれば、⌘F はターミナルとブラウザのものである。
+    act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent')] }));
+    await flush();
+    expect(key({ key: 'f', metaKey: true })).toBe(true);
+  });
+
   it('パレットの入力は Root が持ち、閉じると空に戻る', async () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    const input = screen.getByLabelText('コマンドを検索') as HTMLInputElement;
+    const input = screen.getByLabelText('探す・移動') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'alp' } });
-    expect((screen.getByLabelText('コマンドを検索') as HTMLInputElement).value).toBe('alp');
+    expect((screen.getByLabelText('探す・移動') as HTMLInputElement).value).toBe('alp');
     act(() => rt.emit({ type: 'palette.close' }));
     await flush();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    expect((screen.getByLabelText('コマンドを検索') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('探す・移動') as HTMLInputElement).value).toBe('');
   });
 
   it('昇格のダイアログと完了のダイアログが出る', async () => {
@@ -255,7 +379,7 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     act(() => rt.emit({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: false }));
     act(() => rt.dispatch({ kind: 'runtime', event: { type: 'promote.done', projectId: 'p1', moved: true, reason: null } }));
     await flush();
-    expect(screen.getByText('この場所で新しいセッションを開始')).toBeTruthy();
+    expect(screen.getByText('ここで新しいセッションを始める')).toBeTruthy();
   });
 
   it('Esc は未解決のダイアログだけは閉じず、ほかのオーバーレイは閉じる', async () => {
@@ -275,23 +399,62 @@ describe('フェーズ 4 のオーバーレイ', () => {
     const { rt } = await mounted();
     act(() => rt.dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1024, remoteSize: 4096 } }));
     await flush();
-    expect(screen.getByRole('dialog', { name: '上書きの確認' })).toBeInTheDocument();
-    expect(screen.getByText('他の端末の本文 4.0 KB')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '本文を置き換えますか' })).toBeInTheDocument();
+    expect(screen.getByText('他の PC の本文 4.0 KB')).toBeInTheDocument();
     // Esc の扱いはフェーズ 3 のままで、新しいオーバーレイも overlayKind !== 'none' の枝で閉じる。
     key({ key: 'Escape' });
     await flush();
-    expect(screen.queryByRole('dialog', { name: '上書きの確認' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '本文を置き換えますか' })).toBeNull();
+  });
+
+  it('一覧から削除は確認を挟み、件数を出し、Esc で未解決のダイアログへ戻る', async () => {
+    const resolveProject = vi.fn(async () => ({}));
+    const { rt } = await mounted({ api: { resolveProject } });
+    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: '一覧から削除しますか' });
+    expect(dialog).toHaveTextContent('プロジェクト alpha を一覧から削除し、1 件のセッションを未分類に戻します。');
+    expect(resolveProject).not.toHaveBeenCalled();
+    key({ key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: '一覧から削除しますか' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'alpha のディレクトリが見つかりません' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    fireEvent.click(within(screen.getByRole('dialog', { name: '一覧から削除しますか' })).getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    expect(resolveProject).toHaveBeenCalledWith('p1', { kind: 'unlink' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // 確認の中のボタンにフォーカスがあるときの Esc は、確認の殻が受けて既定を止める。
+  // Root の Esc も重ねて閉じると、戻ったはずの未解決のダイアログまで「あとで」で閉じてしまう。
+  it('一覧から削除の確認の中の Esc は 1 度だけ閉じ、未解決のダイアログへ戻る', async () => {
+    const { rt } = await mounted();
+    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
+    await flush();
+    const cancel = within(screen.getByRole('dialog', { name: '一覧から削除しますか' })).getByRole('button', { name: 'やめる' });
+    expect(cancel).toHaveFocus();
+    fireEvent.keyDown(cancel, { key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog', { name: '一覧から削除しますか' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'alpha のディレクトリが見つかりません' })).toBeInTheDocument();
+    expect(screen.getByLabelText('新しいパス')).toHaveFocus();
   });
 
   it('取り込みの下見は store の一覧をそのまま出す', async () => {
     const { rt } = await mounted({ api: { configPreview: async () => ({ confirmed: false, entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 2, remoteDevice: 'mini', size: 10 }] }) } });
     act(() => rt.emit({ type: 'sync.config.preview' }));
     await flush();
-    expect(screen.getByRole('dialog', { name: '取り込み内容の確認' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: '~/.claude に取り込む内容' })).toBeInTheDocument();
     expect(screen.getByText('CLAUDE.md')).toBeInTheDocument();
     key({ key: 'Escape' });
     await flush();
-    expect(screen.queryByRole('dialog', { name: '取り込み内容の確認' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '~/.claude に取り込む内容' })).toBeNull();
   });
 });
 
@@ -332,6 +495,83 @@ describe('キーの見直し', () => {
     expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
   });
 
+  // セッション画面の ⌘W は窓（アプリ）を閉じない。閉じてよいのはフォーカスのある枠のシェルタブだけである。
+  const sessionWithShell = async () => {
+    const m = await mounted();
+    act(() => m.setHash('#/session/s1'));
+    await flush();
+    act(() => m.wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('r1', 'r1', 'agent'), rootTab('t2', 'r1', 'shell')] }));
+    await flush();
+    return m;
+  };
+  const paneHost = (tabId: string) => document.querySelector<HTMLElement>(`.term-host[data-tab="${tabId}"]`)!;
+
+  it('セッション画面の ⌘W は、Claude のタブでも窓に渡さず、何も閉じない', async () => {
+    const { rt } = await sessionWithShell();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('run の無いセッション画面でも ⌘W は窓に渡さない', async () => {
+    const { rt, setHash } = await mounted();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('分割中の ⌘W は、フォーカスのある枠のタブがシェルのときだけそれを閉じる', async () => {
+    const { rt } = await sessionWithShell();
+    act(() => rt.emit({ type: 'split.toggle' }));
+    await flush();
+    expect(paneHost('r1')).not.toBeNull();
+    expect(paneHost('t2')).not.toBeNull();
+    const emit = vi.spyOn(rt, 'emit');
+    // 左の Claude の枠にフォーカスがあれば、何も閉じない。
+    fireEvent.focusIn(paneHost('r1'));
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalled();
+    // 右のシェルの枠を押すと、そこが ⌘W の対象になる。
+    fireEvent.pointerDown(paneHost('t2'));
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+    expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
+  });
+
+  it('枠の外へフォーカスが移っても、最後にフォーカスのあった枠を覚えている', async () => {
+    const { rt } = await sessionWithShell();
+    act(() => rt.emit({ type: 'split.toggle' }));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    fireEvent.focusIn(paneHost('t2'));
+    const outside = screen.getByRole('button', { name: 'VS Code で開く' });
+    fireEvent.focusIn(outside);
+    key({ key: 'w', metaKey: true }, outside);
+    expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
+  });
+
+  it('枠の中で打った ⌘W は、その枠のタブを閉じる', async () => {
+    const { rt } = await sessionWithShell();
+    act(() => rt.emit({ type: 'split.toggle' }));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ key: 'w', metaKey: true }, paneHost('t2'));
+    expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
+  });
+
+  it('確認ダイアログを開いている間の ⌘W は、裏のシェルタブを閉じず、窓にも渡さない', async () => {
+    const { rt } = await sessionWithShell();
+    act(() => rt.emit({ type: 'tab.select', tabId: 't2' }));
+    act(() => rt.emit({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 1 }));
+    await flush();
+    expect(screen.getByRole('dialog', { name: '停止しますか' })).toBeInTheDocument();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'w', metaKey: true }, paneHost('t2')).defaultPrevented).toBe(true);
+    expect(key({ key: 'w', metaKey: true }).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
   it('Ctrl でも ⌘ と同じ操作になる', async () => {
     const { rt, wsHandlers, setHash } = await mounted();
     act(() => setHash('#/session/s1'));
@@ -361,18 +601,19 @@ describe('キーの見直し', () => {
     await mounted();
     key({ key: '?', shiftKey: true });
     await flush();
-    expect(screen.getByRole('dialog', { name: 'キーボード' })).toBeInTheDocument();
-    expect(screen.getByText('コマンドパレット')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toBeInTheDocument();
+    expect(screen.getByText('パレット（探す・移動）')).toBeInTheDocument();
+    expect(screen.getByText('⌘K / /')).toBeInTheDocument();
     key({ key: 'Escape' });
     await flush();
-    expect(screen.queryByRole('dialog', { name: 'キーボード' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'キーの一覧' })).toBeNull();
   });
 
   it('入力中の ? は文字なので、一覧を開かない', async () => {
     await mounted();
-    fireEvent.keyDown(document.getElementById('global-search')!, { key: '?', shiftKey: true });
+    fireEvent.keyDown(textField(), { key: '?', shiftKey: true });
     await flush();
-    expect(screen.queryByRole('dialog', { name: 'キーボード' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'キーの一覧' })).toBeNull();
   });
 
   it('⌘[ と ⌘] で履歴が動く', async () => {
@@ -382,6 +623,60 @@ describe('キーの見直し', () => {
     expect(go).toHaveBeenCalledWith(-1);
     key({ key: ']', metaKey: true });
     expect(go).toHaveBeenCalledWith(1);
+  });
+
+  it('入力欄の外の Backspace では戻らない', async () => {
+    // WKWebView は、入力欄の外の Backspace で履歴を 1 つ戻す。いまの Chrome と Safari には無い動きなので止める。
+    const { go, setHash, rt } = await mounted();
+    act(() => setHash('#/projects'));
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'Backspace' }).defaultPrevented).toBe(true);
+    expect(key({ key: 'Backspace' }, document.body).defaultPrevented).toBe(true);
+    expect(go).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('入力欄とターミナルの Backspace は文字を消すので止めない', async () => {
+    await mounted();
+    expect(key({ key: 'Backspace' }, textField()).defaultPrevented).toBe(false);
+    const host = document.createElement('div');
+    host.className = 'term-host';
+    const ta = document.createElement('textarea');
+    host.appendChild(ta);
+    document.body.appendChild(host);
+    expect(key({ key: 'Backspace' }, ta).defaultPrevented).toBe(false);
+    host.remove();
+  });
+
+  // 確認や入力のあるダイアログを開いたまま、裏の画面だけを移さない（入力待ちのカードと同じ規則）。
+  it('確認や入力のあるダイアログの裏では、⌘, も ⌘[ ⌘] も画面を移さない', async () => {
+    const { rt, go, setHash, deps } = await mounted();
+    act(() => setHash('#/projects'));
+    act(() => rt.emit({ type: 'session.new.open', scratch: true }));
+    await flush();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    key({ key: ',', metaKey: true });
+    key({ key: '[', metaKey: true });
+    key({ key: ']', metaKey: true });
+    await flush();
+    expect(deps.location.getHash()).toBe('#/projects');
+    expect(go).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('確認や入力のあるダイアログの裏では、スワイプの矢印も出さず画面も移さない', async () => {
+    const { rt, go, setHash } = await mounted();
+    act(() => setHash('#/projects'));
+    act(() => rt.emit({ type: 'session.new.open', scratch: true }));
+    await flush();
+    phaseOn();
+    const hint = screen.getByTestId('swipe-hint');
+    beginGesture();
+    for (let i = 0; i < 6; i++) wheel(-20);
+    expect(hint.dataset.dir).toBeUndefined();
+    endGesture();
+    expect(go).not.toHaveBeenCalled();
+    expect(hint.dataset.dir).toBeUndefined();
   });
 
   it('ブラウザでは自前のスワイプを使わない', async () => {
@@ -581,6 +876,224 @@ describe('キーの見直し', () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.run', command: { id: 'cmd:shortcuts', label: 'キーの一覧' } }));
     await flush();
-    expect(screen.getByRole('dialog', { name: 'キーボード' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toBeInTheDocument();
+  });
+});
+
+describe('次の入力待ちへ（C5）', () => {
+  const key = (init: KeyboardEventInit, target: EventTarget = window) => {
+    const ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+    act(() => { target.dispatchEvent(ev); });
+    return ev;
+  };
+  const waiting = (id: string, at: number): SessionDto => ({ ...session, id, providerSessionId: 'u' + id, name: '待ち ' + id, live: 'waiting', lastActivityAt: at });
+  // s3 は Claude のタブが生きていて、着いたらその端末にフォーカスできる。
+  const agentTab: TabDto = { id: 't3', runId: 'r3', sessionId: 's3', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r3', createdAt: 1, closedAt: null };
+  const withWaiting = () => ({ ...boot, sessions: [session, waiting('s2', 300), waiting('s3', 100)], runs: [rootRun('r3', 's3')], tabs: [agentTab] });
+
+  it('⌘I で、待っている時間の長いものから順に開き、端末にフォーカスする', async () => {
+    const host: TerminalHost = { ...terminals, focus: vi.fn() };
+    const m = make({ boot: withWaiting(), terminals: host });
+    m.rt.start();
+    render(<Root runtime={m.rt} api={m.deps.api} terminals={host} />);
+    act(() => m.handlers[0]!.onOpen());
+    await flush();
+    expect(key({ key: 'i', metaKey: true }).defaultPrevented).toBe(true);
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s3');
+    expect(host.focus).toHaveBeenCalledWith('t3');
+    key({ key: 'i', metaKey: true });
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s2');
+    key({ key: 'i', metaKey: true });
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s3');
+  });
+
+  it('ターミナルにフォーカスがあっても効く', async () => {
+    const m = make({ boot: withWaiting() });
+    m.rt.start();
+    render(<Root runtime={m.rt} api={m.deps.api} terminals={terminals} />);
+    act(() => m.handlers[0]!.onOpen());
+    await flush();
+    const termHost = document.createElement('div');
+    termHost.className = 'term-host';
+    const ta = document.createElement('textarea');
+    termHost.appendChild(ta);
+    document.body.appendChild(termHost);
+    expect(key({ key: 'i', metaKey: true }, ta).defaultPrevented).toBe(true);
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s3');
+    termHost.remove();
+  });
+
+  it('ダイアログを開いている間の ⌘I は、裏で画面を移さない', async () => {
+    const m = make({ boot: withWaiting() });
+    m.rt.start();
+    render(<Root runtime={m.rt} api={m.deps.api} terminals={terminals} />);
+    act(() => m.handlers[0]!.onOpen());
+    await flush();
+    act(() => m.rt.emit({ type: 'shortcuts.open' }));
+    await flush();
+    const before = m.deps.location.getHash();
+    expect(key({ key: 'i', metaKey: true }).defaultPrevented).toBe(false);
+    await flush();
+    expect(m.deps.location.getHash()).toBe(before);
+    expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toBeInTheDocument();
+  });
+
+  it('パレットを開いているときの ⌘I は、パレットを閉じて移る', async () => {
+    const m = make({ boot: withWaiting() });
+    m.rt.start();
+    render(<Root runtime={m.rt} api={m.deps.api} terminals={terminals} />);
+    act(() => m.handlers[0]!.onOpen());
+    await flush();
+    act(() => m.rt.emit({ type: 'palette.open' }));
+    await flush();
+    expect(key({ key: 'i', metaKey: true }).defaultPrevented).toBe(true);
+    await flush();
+    expect(m.deps.location.getHash()).toBe('#/session/s3');
+    expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
+  });
+
+  it('入力待ちが無ければ、短いトーストで知らせる', async () => {
+    await mounted();
+    key({ key: 'i', metaKey: true });
+    await flush();
+    expect(screen.getByText('入力待ちのセッションはありません')).toBeInTheDocument();
+  });
+
+  it('キーの一覧に載る', async () => {
+    await mounted();
+    key({ key: '?', shiftKey: true });
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: 'キーの一覧' });
+    expect(within(dialog).getByText('次の入力待ちへ')).toBeInTheDocument();
+    expect(within(dialog).getByText('⌘I')).toBeInTheDocument();
+  });
+});
+
+describe('入力欄の Esc（C4）', () => {
+  const key = (init: KeyboardEventInit, target: EventTarget) => {
+    const ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+    act(() => { target.dispatchEvent(ev); });
+    return ev;
+  };
+
+  it('何も開いていなければ、入力欄の Esc でフォーカスを外す', async () => {
+    await mounted();
+    const box = textField();
+    act(() => box.focus());
+    expect(key({ key: 'Escape' }, box).defaultPrevented).toBe(true);
+    expect(document.activeElement).not.toBe(box);
+  });
+
+  it('ダイアログの中の入力欄の Esc は、従来どおりダイアログを閉じる', async () => {
+    const { rt } = await mounted();
+    act(() => rt.emit({ type: 'session.promote.open', id: 's1' }));
+    await flush();
+    const input = screen.getByLabelText('プロジェクト名');
+    act(() => input.focus());
+    fireEvent.keyDown(input, { key: 'Escape' });
+    await flush();
+    expect(screen.queryByLabelText('プロジェクト名')).toBeNull();
+  });
+
+  it('パレットの入力欄の Esc は、パレットを閉じる', async () => {
+    const { rt } = await mounted();
+    act(() => rt.emit({ type: 'palette.open' }));
+    await flush();
+    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: 'Escape' });
+    await flush();
+    expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
+  });
+
+  it('ターミナルの Esc は Claude Code のものなので横取りしない', async () => {
+    const { rt } = await mounted();
+    const host = document.createElement('div');
+    host.className = 'term-host';
+    const ta = document.createElement('textarea');
+    host.appendChild(ta);
+    document.body.appendChild(host);
+    ta.focus();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'Escape' }, ta).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(ta);
+    expect(emit).not.toHaveBeenCalled();
+    host.remove();
+  });
+
+  it('日本語の変換中の Esc は変換を取り消す打鍵なので、欄を離れない', async () => {
+    await mounted();
+    const box = textField();
+    act(() => box.focus());
+    expect(key({ key: 'Escape', isComposing: true }, box).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(box);
+    expect(key({ key: 'Escape', keyCode: 229 } as KeyboardEventInit, box).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(box);
+  });
+
+  it('部品が自分で Esc を処理したときは、重ねてフォーカスを外さない', async () => {
+    await mounted();
+    const box = textField();
+    act(() => box.focus());
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    ev.preventDefault();
+    act(() => { box.dispatchEvent(ev); });
+    expect(document.activeElement).toBe(box);
+  });
+});
+
+describe('画面に入ったときの一覧のフォーカス（C1）', () => {
+  const rows = () => screen.getByTestId('session-rows');
+
+  it('Home に入ると、最近の一覧にフォーカスする', async () => {
+    await mounted();
+    expect(document.activeElement).toBe(rows());
+  });
+
+  it('セッションの一覧の画面に入っても一覧にフォーカスする', async () => {
+    const { setHash } = await mounted();
+    act(() => (document.activeElement as HTMLElement).blur());
+    act(() => setHash('#/sessions'));
+    await flush();
+    expect(document.activeElement).toBe(rows());
+  });
+
+  it('入力欄で打っている最中は、画面が変わってもフォーカスを奪わない', async () => {
+    const { setHash } = await mounted();
+    const box = textField();
+    act(() => box.focus());
+    act(() => setHash('#/sessions'));
+    await flush();
+    expect(document.activeElement).toBe(box);
+  });
+
+  it('パレットの全文検索の行を選ぶと、セッション一覧へ移って結果の一覧へフォーカスする', async () => {
+    const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん', agentId: null }] };
+    const search = vi.fn(async () => ({ hits: [hit], total: 1 }));
+    const { deps } = await mounted({ api: { search } });
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    fireEvent.change(screen.getByLabelText('探す・移動'), { target: { value: 'せっ' } });
+    fireEvent.click(screen.getByRole('option', { name: /『せっ』を全文検索/ }));
+    await flush();
+    await flush();
+    expect(deps.location.getHash()).toBe(`#/sessions?q=${encodeURIComponent('せっ')}`);
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ q: 'せっ' }));
+    expect(document.activeElement).toBe(rows());
+  });
+
+  it('パレットから同じ語で検索し直しても、結果の一覧へ移る（⌘↵）', async () => {
+    const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん', agentId: null }] };
+    await mounted({ api: { search: async () => ({ hits: [hit], total: 1 }) } });
+    const settle = () => act(() => new Promise((r) => setTimeout(r, 100)));
+    for (let n = 0; n < 2; n++) {
+      fireEvent.keyDown(window, { key: 'k', metaKey: true });
+      const input = screen.getByLabelText('探す・移動');
+      fireEvent.change(input, { target: { value: 'せっ' } });
+      fireEvent.keyDown(input, { key: 'Enter', metaKey: true });
+      await settle();
+      expect(document.activeElement).toBe(rows());
+    }
   });
 });

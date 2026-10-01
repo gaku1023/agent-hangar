@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { LiveStatus } from '@agent-hangar/shared';
 import { motionEase, motionMs } from './motion.ts';
 
-const LABEL: Record<LiveStatus, string> = { busy: '作業中', idle: '待機', waiting: '入力待ち' };
+const LABEL: Record<LiveStatus, string> = { busy: '作業中', idle: '休み', waiting: '入力待ち' };
 
 /** 状態の点。状態が変わる瞬間に 1 度だけ小さく膨らむ。最初の描画では膨らまない。 */
 export function StatusDot(props: { status: LiveStatus | null; title?: string }) {

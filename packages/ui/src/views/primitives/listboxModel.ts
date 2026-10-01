@@ -1,8 +1,11 @@
 import type { ProjectStatus } from '@agent-hangar/shared';
 import type { IconName } from './Icon.tsx';
 
-/** 一覧の 1 行。sub は 2 段目で、パスは mono、説明文（prose）は地の書体で描く。 */
-export type ListboxOption = { value: string; label: string; sub?: string; subKind?: 'path' | 'prose'; meta?: string; status?: ProjectStatus; icon?: IconName; danger?: boolean };
+/**
+ * 一覧の 1 行。sub は 2 段目で、パスは mono、説明文（prose）は地の書体で描く。
+ * faceSub は閉じた顔の 2 段目で、無ければ sub を使う。顔は mono で描くので、一覧では説明文、顔ではパスを見せたい行に使う。
+ */
+export type ListboxOption = { value: string; label: string; sub?: string; subKind?: 'path' | 'prose'; faceSub?: string; meta?: string; status?: ProjectStatus; icon?: IconName; danger?: boolean };
 export type ListboxGroup = { title: string; values: string[] };
 /** 描く単位。index は選ばれかけの行を数える通し番号で、群をまたいで続く。 */
 export type ListboxSection = { title: string | null; items: { option: ListboxOption; index: number }[] };

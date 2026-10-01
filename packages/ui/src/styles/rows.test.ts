@@ -6,8 +6,8 @@ const read = (f: string) => fs.readFileSync(new URL(f, import.meta.url), 'utf8')
 
 describe('2 段の行', () => {
   // 仮想スクロールの見積もり（SESSION_ROW_H）と、CSS の高さがずれると、スクロールの位置が行の途中で止まる。
-  it('行の高さは 44px で、tokens.css と SessionRows の見積もりが揃う', () => {
-    expect(SESSION_ROW_H).toBe(44);
+  it('行の高さは 56px で、tokens.css と SessionRows の見積もりが揃う', () => {
+    expect(SESSION_ROW_H).toBe(56);
     expect(read('./tokens.css')).toContain(`--session-row-h: ${SESSION_ROW_H}px;`);
     expect(read('./rows.css')).toMatch(/\.row-2 \{[^}]*height: var\(--session-row-h\);/);
   });
@@ -26,5 +26,32 @@ describe('2 段の行', () => {
     const css = read('./rows.css');
     expect(css).toMatch(/\.row-sub \.memo-pencil \{[^}]*height: calc\(var\(--u\) \* 5\);/);
     expect(css).toMatch(/\.row-sub \.memo-input \{[^}]*height: calc\(var\(--u\) \* 5\);/);
+  });
+});
+
+describe('要約の見立ての札と本文の無い行の印（B1）', () => {
+  const css = read('./rows.css');
+  // 色の札が 2 種しかないので、一覧を流し見ると色の行だけが目に止まる。
+  it('詰まっているは入力待ちの色、やめたは Paused の色、ほかは注記の色の語だけ', () => {
+    expect(css).toMatch(/\.row-state \{[^}]*color: var\(--ink-3\);/);
+    expect(css).toMatch(/\.row-state\[data-tone='blocked'\] \{[^}]*color: var\(--waiting\);/);
+    expect(css).toMatch(/\.row-state\[data-tone='abandoned'\] \{[^}]*color: var\(--st-paused\);[^}]*background: var\(--st-paused-soft\);/);
+  });
+  it('本文の無い行の印は枠だけの札にし、行の高さを持たない', () => {
+    const body = css.match(/\.row-gone \{([^}]*)\}/)?.[1] ?? '';
+    expect(body).toMatch(/box-shadow: inset 0 0 0 1px var\(--line-strong\);/);
+    expect(body).not.toMatch(/(^|;)\s*height:/);
+  });
+});
+
+describe('プロジェクトのカード（C1）', () => {
+  const css = read('./workbench.css');
+  it('抜粋は 2 行で切り、2 行分の高さを取る', () => {
+    expect(css).toMatch(/\.card-excerpt \{[^}]*-webkit-line-clamp: 2;[^}]*min-height: 2\.9em;/);
+  });
+  // 12 枚すべてに同じボタンが並ぶとうるさいので、乗せたときとキーボードで届いたときだけ見せる。
+  it('「ここで始める」は乗せたときと、カードの中にフォーカスがあるときだけ見せる', () => {
+    expect(css).toMatch(/\.card-here \{[^}]*opacity: 0;/);
+    expect(css).toMatch(/\.card:hover \.card-here,\s*\.card:focus-within \.card-here \{[^}]*opacity: 1;/);
   });
 });

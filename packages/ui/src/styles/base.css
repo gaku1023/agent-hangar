@@ -24,7 +24,18 @@ a:hover { text-decoration: underline; }
 /* 奥から「光の背景」「読む面」「浮くガラス」の 3 枚で組む。
    光の背景は .shell::before の 1 枚に描き、ゆっくり漂わせる。
    2 行目は接続が切れているあいだの帯。帯が無いときは auto が 0 に潰れるので、何も描かない。 */
-.shell { position: relative; isolation: isolate; display: grid; grid-template-columns: calc(var(--sidebar-w) + var(--float-gap)) minmax(0, 1fr); grid-template-rows: auto auto 1fr; height: 100%; overflow: hidden; }
+/* 左の列（サイドバーの列）の幅は --col1 に持つ。ヘッダは subgrid でこの列を使い、本文と検索欄の左の余白もこの値から決める。
+   値を登録しておくのは、開閉の動き（views/primitives/sidebarMotion.ts）が列の幅と一緒に --col1 も動かすためである。
+   登録していないと途中の値が補間されず、本文と検索欄の余白だけが動きの初めに跳ぶ。 */
+@property --col1 { syntax: '<length>'; inherits: true; initial-value: 0px; }
+/* アプリ全体の箱は clip にする。hidden はスクロールバーが無いだけで、scrollIntoView などからは動く。
+   WebKit では目次のターンを開いただけで箱ごと上へずれ、手では戻せなかった。 */
+.shell { --col1: calc(var(--sidebar-w) + var(--float-gap)); position: relative; isolation: isolate; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); grid-template-rows: auto auto 1fr; height: 100%; overflow: clip; }
+/* ヘッダの左の列に置くもの（信号の 3 点とロゴ）の右端が --head-end である。畳んだ帯は 60px しかなく、ロゴはその外まで伸びる。
+   本文は --main-w を上限に本文の列の中央へ寄り（その左の余りが --box-l）、そこから --gutter-l 空けて始まる。検索欄も同じ位置から始まる。
+   --gutter-l は既定の 16px だが、それではロゴの右端より左に来てしまう間だけ、ロゴの右端まで広げる。広い窓で中央へ寄った本文は、畳んでもそれ以上右へ寄らない。 */
+.shell { --head-lead: calc(var(--u) * 4); --head-end: calc(var(--head-lead) + var(--brand-w) + var(--u) * 3); --box-l: max(0px, calc((100vw - var(--col1) - var(--main-w)) / 2)); --gutter-l: max(calc(var(--u) * 4), calc(var(--head-end) - var(--col1) - var(--box-l))); }
+[data-shell='desktop'] .shell { --head-lead: var(--lights-end); }
 .shell::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%); animation: aura-drift var(--aura-period) ease-in-out infinite alternate; }
 @keyframes aura-drift { to { transform: translate(5%, -4%) rotate(8deg) scale(1.05); } }
 @media (prefers-reduced-motion: reduce) { .shell::before { animation: none; } }
@@ -36,9 +47,10 @@ a:hover { text-decoration: underline; }
    reduced motion では --dur が 0 になり、動かない。 */
 .shell > .sidebar { animation: glass-arrive-side var(--dur) var(--ease-out) backwards; }
 .shell > .header { animation: glass-arrive-head var(--dur) var(--ease-out) backwards; }
-/* サイドバーの開閉のボタン。開いた帯ではワードマークの右端に置き、ガラスの上では地を持たない。持ち上がらない（ナビの項目と同じ）。
+/* サイドバーの開閉のボタン。開いた帯ではホームの行の右端に置き、畳んだ帯では帯の一番上に置く。ガラスの上では地を持たない。持ち上がらない（ナビの項目と同じ）。
    アイコンは左の余白で置き、中央寄せにしない。開閉の途中は箱の幅が変わるので、中央寄せだとアイコンが幅に引きずられる。 */
-.sidebar-top { display: flex; align-items: center; margin-bottom: calc(var(--u) * 3.5); }
+.nav-row { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; }
+.nav-row > .nav-item { flex: 1; min-width: 0; margin-bottom: 0; }
 .btn.sidebar-toggle { position: relative; flex: none; width: 32px; height: 32px; padding: 0 7px; margin-left: auto; color: var(--ink-2); background: none; box-shadow: none; }
 .btn.sidebar-toggle svg { width: 18px; height: 18px; }
 .sidebar .btn.sidebar-toggle:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; transform: none; }
@@ -55,25 +67,47 @@ a:hover { text-decoration: underline; }
 .boot-wait { animation: enter var(--dur) var(--ease-out) var(--dur) backwards; }
 /* ヘッダは VS Code のタイトルバーと同じく、窓の上辺と左右の端に付いた帯である。浮かせず、角も丸めない。
    縁は下にだけ置く（白の 1px の線と、下へ落ちる薄い影）。 */
-.header { grid-column: 1 / -1; grid-row: 1; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 3); height: var(--header-h); margin: 0; padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 4); border-radius: 0; background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); container: header / inline-size; }
-/* デスクトップの殻の中では、信号の 3 点がヘッダの左端に載る。サイドバーを開いても閉じても同じ場所である。殻が付ける data-shell の印を見て、その分だけ左を空ける。 */
-[data-shell='desktop'] .header { padding-left: var(--lights-end); }
+.header { grid-column: 1 / -1; grid-row: 1; z-index: 2; display: grid; grid-template-columns: subgrid; align-items: center; height: var(--header-h); margin: 0; padding: 0; border-radius: 0; background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); }
+/* 左の列はロゴ。デスクトップの殻の中では信号の 3 点がヘッダの左端に載るので、その右（--head-lead）から始める。殻が付ける data-shell の印を見て決める。
+   ロゴはサイドバーを開いても畳んでも同じ形、同じ場所に置く。畳んだ帯の列は細く、ロゴはその外まではみ出すので、列の幅に縛らない。 */
+.header-brand { grid-column: 1 / -1; grid-row: 1; z-index: 1; display: flex; align-items: center; justify-self: start; height: 100%; padding-left: var(--head-lead); pointer-events: none; }
+.header-brand > .brand { pointer-events: auto; }
+/* 右の列は、検索欄と右の塊の 1 行。錠剤の左端の式が使う大きさの入れ物（container、100cqw）は、ヘッダではなくこの行に付ける。
+   container はレイアウトの封じ込めを伴い、封じ込めのある要素では subgrid が効かなくなるからである。
+   狭いときに部品を畳むのは、この行の幅と中身の幅を測る useHeaderFold.ts である（下の「ヘッダの右の塊の畳み方」）。 */
+.header-row { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: calc(var(--u) * 4.5); min-width: 0; height: 100%; container: header / inline-size; }
+/* 「探す・移動」の錠剤の左端は、本文の左端と同じ式で決める。本文は --main-w を上限に本文の列の中央へ寄り、そこから --gutter-l 空けて始まる。
+   本文の列の幅は、この行の幅（100cqw）である。 */
+.header-row > .search-pill { margin-left: max(var(--gutter-l), calc((100cqw - var(--main-w)) / 2 + var(--gutter-l))); }
+.header-row > .header-end { margin-right: calc(var(--u) * 3); }
+.header-end { display: flex; align-items: center; gap: calc(var(--u) * 4.5); flex: 0 1 auto; min-width: 0; }
 /* 中身はヘッダの下をくぐって流れる。上の余白は、ヘッダの高さと、その下の隙間の分である。
    scroll-padding-top を同じ値にしておくと、j と k の行送りや Shift+Tab で届いた先がヘッダの下に隠れない。 */
 .main { grid-column: 2; grid-row: 1 / -1; overflow: auto; padding-top: calc(var(--header-h) + var(--float-gap)); scroll-padding-top: calc(var(--header-h) + var(--float-gap)); }
-/* 切断の帯が出ている間は、帯の分も空ける。
+/* 帯（切断、保持期間）が出ている間は、帯の分も空ける。
    帯の下端は、ヘッダ header-h、帯の上の隙間 float-gap * 0.75、帯の高さ row-h の和である（ヘッダは窓の上辺に付いているので、上の隙間は無い）。
    そこに float-gap を足して、ヘッダの下と同じ隙間で中身を始める。
-   今の値では 34 + 6 + 28 + 8 = 76px になる。
+   今の値では 44 + 6 + 28 + 8 = 86px になる。
    scroll-padding-top も同じ値にし、キーボードで届いた先が帯とヘッダの下に隠れないようにする。 */
-.shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); }
-.main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4); }
+.shell:has(.banners > :nth-child(1)) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); }
+/* 帯が 2 つのときは、帯の間の隙間 float-gap * 0.75 と 2 つめの帯の高さを足す。44 + 6 + 28 + 6 + 28 + 8 = 120px。 */
+.shell:has(.banners > :nth-child(2)) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 2.5 + var(--row-h) * 2); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 2.5 + var(--row-h) * 2); }
+.main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4) var(--gutter-l); }
 /* 現れるものは、ぼかしが晴れながら --rise だけ上がって来る。
    ぼかしは 20% の時点で none にして晴らし切り、残りは薄れと移動だけで入る。
    WebKit は 0 より大きいぼかしを 0.2px でも 1px と同じに描くので、ゆっくり晴らすと、もやが動きの終わりまで残るためである。
    ダイアログ、通知、切断の帯の keyframes も同じ形にする。
    View Transitions がある環境では、出る画面との重ね合わせは runtime/present.ts が受け持ち、入る画面の動きはここが受け持つ。 */
 .screen { animation: enter var(--dur) var(--ease-out); }
+/* 一覧の画面（セッション一覧、プロジェクトの頁）は窓の下端まで伸ばし、一覧が残りの高さを受け取る（.screen-fill）。
+   上の帯（見出し、検索欄、絞り込み）の高さは折り返しで変わるので、100vh から決め打ちで引くと、帯が高いぶん一覧の下端が窓の外へ出る。
+   一覧には下限を持たせ、窓がそれより低いときだけ .main がスクロールする。
+   セッション画面は .screen-fill を使わず、.shell[data-wide] と .session-screen の縦の flex で同じことをする（session.css）。 */
+.main:has(> .main-inner > .screen-fill) > .main-inner { display: flex; flex-direction: column; min-height: 100%; }
+.screen-fill { display: flex; flex-direction: column; flex: 1 0 auto; }
+/* プロジェクトの頁は左の一覧と右の欄の 2 列なので、grid のまま行を伸ばし、左の列の中で一覧が残りを受け取る。 */
+.project-screen.screen-fill { display: grid; }
+.project-screen.screen-fill > .project-main { display: flex; flex-direction: column; }
 
 @keyframes enter { from { opacity: 0; transform: translateY(var(--rise)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 
@@ -93,15 +127,14 @@ a:hover { text-decoration: underline; }
 ::view-transition-old(session-morph-name), ::view-transition-new(session-morph-name) { height: 100%; object-fit: none; object-position: left center; }
 ::view-transition-old(session-morph-dot), ::view-transition-new(session-morph-dot) { height: 100%; object-fit: none; object-position: left center; }
 
-/* サイドバーのワードマーク。原図の余白を切り落とした群れを地に載せずに置き、名前の語尾に原図の手前の札と同じ杏のカーソルを添える。どちらも動かさない。 */
-/* 押すと Home へ行くリンクだが、リンクの青と下線は付けない。
-   開く途中で帯がまだ狭い間は、右の開閉のボタンの手前で切れる。帯が広がるにつれて、名前がボタンの陰から現れる。 */
-.brand { display: flex; align-items: center; gap: calc(var(--u) * 1.75); min-width: 0; overflow: hidden; padding: 0 calc(var(--u) * 1.5); border-radius: var(--r); color: var(--ink); text-decoration: none; }
+/* ヘッダのワードマーク。原図の余白を切り落とした群れを地に載せずに置き、名前の語尾に原図の手前の札と同じ杏のカーソルを添える。
+   押すと Home へ行くリンクだが、リンクの青と下線は付けない。箱の幅は --brand-w に決め打ちする（tokens.css）。 */
+.brand { display: flex; align-items: center; gap: calc(var(--u) * 1.5); width: var(--brand-w); min-width: 0; overflow: hidden; border-radius: var(--r); color: var(--ink); text-decoration: none; }
 .brand:hover { text-decoration: none; }
 /* 開閉のときの揺れは、フックの辺りを中心に回す（views/primitives/sidebarMotion.ts）。 */
-.brand-mark { flex: none; width: 44px; height: 44px; transform-origin: 50% 10%; }
-.brand-word { font-size: var(--fs-lg); font-weight: 720; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
-.brand-word::after { content: ''; display: inline-block; width: calc(var(--u) * 2.5); height: 3px; margin-left: 2px; border-radius: 1.5px; background: #ffb86b; }
+.brand-mark { flex: none; width: var(--brand-mark); height: var(--brand-mark); transform-origin: 50% 10%; }
+.brand-word { font-size: 16px; font-weight: 720; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
+.brand-word::after { content: ''; display: inline-block; width: calc(var(--u) * 2); height: 2.5px; margin-left: 2px; border-radius: 1.25px; background: #ffb86b; }
 
 /* ナビ。選択中の項目は、ガラスの上に錠剤が浮く。 */
 /* ナビの項目。閉じた帯と同じ 18px のアイコンにして、開閉しても大きさの調子が変わらないようにする。
@@ -110,34 +143,50 @@ a:hover { text-decoration: underline; }
 .nav-item:hover { background: rgba(255, 255, 255, 0.5); }
 .nav-item[aria-current='page'] { color: var(--ink); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
 .nav-item svg { width: 18px; height: 18px; }
+/* ホームに添える入力待ちの数（試作の C1）。開いた帯では項目の右端の錠剤、畳んだ帯ではアイコンの右上の丸にする。 */
+.nav-count { margin-left: auto; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--waiting); color: #ffffff; font-size: 11px; font-weight: 700; line-height: 1; }
 .nav-label { white-space: nowrap; transform-origin: 0 0; }
 
 /* 折りたたんだサイドバー（⌘B、サイドバーの開閉のボタン）。アイコンだけの細い帯に縮む。
    開閉の動きは views/primitives/sidebarMotion.ts が、ここにある 2 つの形の差を埋めて作る。
-   図と名前（Hangar_）は流れから外して隠し、開閉のボタンがその場所（帯の一番上）に来る。項目名は、乗せたときとキーボードで届いたときに出る吹き出しになる。リンクの名前は項目名のまま残る。
-   吹き出しは帯の外へ出るので、帯は中身を切らない。動いている間だけ切り、薄れていく図と項目名が本文の上にはみ出さないようにする。 */
-.shell[data-sidebar='collapsed'] { grid-template-columns: calc(var(--sidebar-rail-w) + var(--float-gap)) minmax(0, 1fr); }
+   開閉のボタンは、ホームの行の右端から帯の一番上へ移る。項目名は、乗せたときとキーボードで届いたときに出る吹き出しになる。リンクの名前は項目名のまま残る。
+   吹き出しは帯の外へ出るので、帯は中身を切らない。動いている間だけ切り、薄れていく項目名が本文の上にはみ出さないようにする。 */
+.shell[data-sidebar='collapsed'] { --col1: calc(var(--sidebar-rail-w) + var(--float-gap)); }
 .shell[data-sidebar='collapsed'] .sidebar { --item: 40px; padding: calc(var(--u) * 1.5); overflow: visible; }
-.shell[data-sidebar='collapsed'] .sidebar-top { margin-bottom: calc(var(--u) * 1); }
+/* 畳んだ帯では、ホームの行を縦に並べ替え、開閉のボタンを帯の一番上に出す。 */
+.shell[data-sidebar='collapsed'] .nav-row { flex-direction: column-reverse; align-items: flex-start; gap: calc(var(--u) * 1); margin-bottom: 0; }
+/* 縦に並べると flex の伸び縮みは高さに掛かるので、ホームの項目は他の項目と同じ大きさのままにする。 */
+.shell[data-sidebar='collapsed'] .nav-row > .nav-item { flex: none; }
 .shell[data-sidebar='collapsed'] .btn.sidebar-toggle { width: var(--item); height: var(--item); padding: 0 calc(var(--u) * 2.75); border-radius: var(--r-lg); }
 .shell[data-sidebar='collapsed'] .sidebar .btn.sidebar-toggle:hover { background: rgba(255, 255, 255, 0.5); }
 .shell[data-sidebar='collapsed'] .toggle-tip { top: 50%; right: auto; left: calc(var(--item) + var(--u) * 3); translate: 0 -50%; }
 .shell[data-sidebar-moving] .sidebar { overflow: hidden; }
-.shell[data-sidebar='collapsed'] .brand { position: absolute; visibility: hidden; pointer-events: none; }
 /* 項目の中の位置は、箱の幅に左右されない値で置く。動きの途中は箱の幅が変わるので、中央寄せや 100% で置くと、アイコンと吹き出しが幅に引きずられる。 */
 .shell[data-sidebar='collapsed'] .nav-item { position: relative; width: var(--item); height: var(--item); padding: 0 calc(var(--u) * 2.75); margin: 0 0 calc(var(--u) * 1); border-radius: var(--r-lg); }
 .shell[data-sidebar='collapsed'] .nav-label { position: absolute; left: calc(var(--item) + var(--u) * 3); top: 50%; translate: 0 -50%; padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
+.shell[data-sidebar='collapsed'] .nav-count { position: absolute; top: 3px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; margin: 0; font-size: 10px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
 .shell[data-sidebar='collapsed'] .nav-item:hover .nav-label, .shell[data-sidebar='collapsed'] .nav-item:focus-visible .nav-label { opacity: 1; visibility: visible; }
 /* 閉じる動きの間、項目名は吹き出しの地を持たず、開いた帯のときの文字のまま薄れる。 */
 .shell[data-sidebar-moving] .nav-label { padding: 0; background: none; color: inherit; font-size: inherit; font-weight: inherit; }
 
 /* ボタンと入力。ボタンは錠剤の形で、主ボタンだけ上から下へ淡いグラデーションを持つ。 */
-.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+/* 高さの決まった錠剤なので、文字は折り返さない。折り返すと 2 行目が箱の外へ出る。長い名前は .btn-label に入れて省略する。 */
+.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); max-width: 100%; height: var(--row-h); padding: 0 calc(var(--u) * 3); white-space: nowrap; border: 0; border-radius: var(--r-pill); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.btn > .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.btn > svg { flex: none; }
 .btn:hover { background: var(--surface); box-shadow: inset 0 1px 0 #ffffff, 0 3px 10px -2px rgba(30, 40, 90, 0.2); }
 .btn:hover:not(:disabled) { transform: translateY(-1px); }
 .btn:active:not(:disabled) { transform: scale(0.97); }
 .btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
 .btn-primary:hover { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); filter: brightness(1.04); }
+/* 取り消せない操作のボタン。普段は文字だけを赤くし、確認の側で押し切るボタンだけ赤で塗る。 */
+.btn-danger { color: var(--error); }
+.btn-danger-fill { background: var(--error); color: #ffffff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 4px 12px -4px rgba(179, 38, 30, 0.55); }
+.btn-danger-fill:hover { background: var(--error); filter: brightness(1.06); }
+/* アイコンだけの丸いボタン（「…」のメニュー）と、地を持たない文字のボタン（右欄の「作り直す」）。 */
+.btn-icon { justify-content: center; width: var(--row-h); padding: 0; }
+.btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+.btn-ghost:hover { background: var(--surface-2); box-shadow: none; color: var(--ink); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .input { height: var(--row-h); padding: 0 calc(var(--u) * 2.5); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); outline: none; }
@@ -146,6 +195,10 @@ a:hover { text-decoration: underline; }
 /* 一覧 */
 .list { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
 .list-scroll { overflow: auto; }
+/* 一覧の画面では、一覧が窓の下端までの残りを受け取る（.screen-fill、プロジェクトの頁は .project-main）。下限より低い窓では .main がスクロールする。 */
+.screen-fill > .rows-host, .project-main > .rows-host { display: flex; flex-direction: column; flex: 1 1 0; min-height: 200px; }
+.rows-host > .list { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.rows-host > .list > .list-scroll { flex: 1; min-height: 0; }
 .row { display: grid; align-items: center; height: var(--row-h); padding: 0 calc(var(--u) * 3); border-bottom: 1px solid var(--line); gap: calc(var(--u) * 3); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); white-space: nowrap; }
 .row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
 .row[aria-selected='true'] { background: var(--accent-soft); }
@@ -155,7 +208,8 @@ a:hover { text-decoration: underline; }
 .cell-right { text-align: right; }
 
 /* カード */
-.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(var(--u) * 3); }
+/* 列の数は幅で決める。狭い窓で 4 列のまま細くすると、日時や件数が 1 文字ずつ縦に折れる。 */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: calc(var(--u) * 3); }
 .card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); padding: calc(var(--u) * 3); display: flex; flex-direction: column; gap: var(--u); cursor: pointer; transition: box-shadow var(--dur) var(--ease-out); min-width: 0; }
 .card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
 .card-title { font-weight: 600; font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -167,7 +221,22 @@ a:hover { text-decoration: underline; }
 .dot[data-status='waiting'] { background: var(--waiting); }
 
 /* 見出しと区画 */
-.h1 { font-size: var(--fs-lg); font-weight: 650; letter-spacing: -0.01em; margin: 0 0 calc(var(--u) * 3); }
+/* 頁の見出し（views/PageHeading.tsx）。今いる場所はヘッダではなくここで示す。
+   上から、親へのリンクの行、見出しの行、下の線の順に置く。親の行は親が無い頁でも同じ高さを取り、見出しの行は --row-h を下限にする。
+   どの頁へ移っても、見出しと線の高さが変わらない（検索欄の横の位置が変わらないのと同じ考え）。 */
+.page-head { margin: 0 0 calc(var(--u) * 4); padding-bottom: calc(var(--u) * 3); border-bottom: 1px solid var(--line-strong); }
+.page-parent { display: flex; align-items: center; gap: 3px; height: 18px; margin-bottom: 2px; min-width: 0; font-size: var(--fs-sm); color: var(--ink-3); white-space: nowrap; }
+.page-parent a { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.page-parent a:hover { color: var(--accent); text-decoration: none; }
+.page-title-row { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; min-height: var(--row-h); }
+.page-title-row > .btn { flex: none; }
+/* 入り切らないときは、ボタンの名前を隠して印だけの丸いボタンにする（views/PageHeading.tsx の fitRow が data-compact を付ける）。
+   名前は読み上げのために DOM に残し、見た目だけ隠す。それでも入り切らない狭さでは、行を折り返す。 */
+.page-title-row[data-compact] { flex-wrap: wrap; gap: var(--u) calc(var(--u) * 1.5); }
+.page-title-row[data-compact] > .page-title { flex: 0 1 auto; min-width: 6em; }
+.page-title-row[data-compact] .btn:has(> .btn-label) { position: relative; justify-content: center; width: var(--row-h); padding: 0; }
+.page-title-row[data-compact] .btn-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.page-title { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
 .h2 { font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; margin: calc(var(--u) * 5) 0 calc(var(--u) * 2); }
 .section-head { display: flex; align-items: baseline; gap: calc(var(--u) * 2); }
 .empty { padding: calc(var(--u) * 8); text-align: center; color: var(--ink-2); }
@@ -179,35 +248,32 @@ a:hover { text-decoration: underline; }
 .fold[open] .fold-arrow { transform: rotate(90deg); }
 
 /* トランスクリプト */
-/* 高さは CSS だけで決める。実行中の画面では .tr-pane の側が上書きしてペーンに追随する。 */
-.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); height: calc(100vh - 260px); overflow: auto; padding: calc(var(--u) * 2) 0; }
-.msg { max-width: 80ch; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); white-space: pre-wrap; word-break: break-word; }
-.msg-user { background: var(--accent); color: var(--accent-ink); align-self: flex-end; border-bottom-right-radius: 5px; }
-.msg-assistant { background: var(--surface-2); align-self: flex-start; border-bottom-left-radius: 5px; }
-.msg-thinking { color: var(--ink-3); font-style: italic; align-self: flex-start; }
-.msg-system { color: var(--ink-3); font-size: var(--fs-xs); align-self: center; }
-.tool { border-left: 2px solid var(--line-strong); padding-left: calc(var(--u) * 2); }
-.tool-head { display: flex; gap: var(--u); align-items: center; height: var(--row-h); cursor: pointer; color: var(--ink-2); }
-.tool-body { white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow: auto; background: var(--surface-2); padding: calc(var(--u) * 2); border-radius: var(--r); }
-.tool-error { border-left-color: var(--error); }
-.sub { margin-left: calc(var(--u) * 4); border-left: 1px dashed var(--line-strong); padding-left: calc(var(--u) * 3); }
-.new-banner { position: sticky; bottom: var(--u); align-self: center; }
+/* 高さは決め打ちにせず、入れ物の縦の flex から残りを受け取る（session.css の .session-screen）。
+   窓の高さや帯の数が変わっても下端が窓に収まる。 */
+.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: 1; min-height: 0; overflow: auto; padding: calc(var(--u) * 2) 0; }
+/* 本文の中身（返答、ツール、Markdown、畳み、検索の印）は transcript.css に置く。 */
 
 /* 実行していないセッションでは、切替と会話を 1 枚の白い読む面に載せる。 */
-.tr-sheet { padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.tr-sheet { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
 
 /* ヘッダーの要素 */
-.crumbs { display: flex; gap: var(--u); color: var(--ink-2); white-space: nowrap; }
-.crumbs b { color: var(--ink); font-weight: 500; }
-/* 検索欄はヘッダの錠剤の中の、ひと回り小さな錠剤。右の余白は、内側に重ねる ⌘K の印の分。 */
-.search-box { flex: 1; max-width: 420px; height: calc(var(--row-h) - 2px); border-color: transparent; border-radius: var(--r-pill); padding: 0 calc(var(--u) * 13) 0 calc(var(--u) * 3); background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.12); }
-.search-kbd { margin-left: calc(var(--u) * -13); width: calc(var(--u) * 9); flex: none; pointer-events: none; font: var(--fs-xs)/1 var(--font-mono); color: var(--ink-3); }
+/* 「探す・移動」の錠剤（A1）。打つ欄ではなく押すボタンなので、ボタンと同じ浮いた錠剤にし、幅は中身の分だけにする。
+   虫眼鏡、文字、⌘K のキー帽の順に並べる。押すとパレットが開く。 */
+.search-pill { display: inline-flex; flex: none; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 5px 0 11px; border: 0; border-radius: var(--r-pill); color: var(--ink-2); font-weight: 520; white-space: nowrap; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.search-pill:hover { background: #fff; color: var(--ink); box-shadow: inset 0 1px 0 #fff, 0 3px 10px -2px rgba(30, 40, 90, 0.2); transform: translateY(-1px); }
+.search-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.search-kbd { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border-radius: 5px; font: 600 10.5px/18px var(--font-mono); color: var(--ink-2); background: rgba(30, 40, 90, 0.07); box-shadow: inset 0 -1px 0 rgba(30, 40, 90, 0.08); }
 .spacer { flex: 1; }
+/* 見せずに読み上げだけに届ける文。 */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 /* 切断の帯。浮いたヘッダの下に降りてきて、押せる逃げ道をひとつ添える。通知と同じガラスに、赤を少し混ぜる。
-   高さは row-h に決め打ちし、上下の余白は持たない。中身の上の余白（.shell:has(.conn-banner) .main）はこの高さから計算している。
+   高さは row-h に決め打ちし、上下の余白は持たない。中身の上の余白（.shell:has(.banners > ...) .main）はこの高さから計算している。
+   置き場所と外側の余白は、保持期間の帯と縦に積む箱（.banners）が持つ。
    中の小さいボタン（.btn-sm）は row-h より 6px 低いので、上下に 3px ずつ残って収まる。 */
-.conn-banner { grid-column: 2; grid-row: 2; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; padding: 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur) var(--ease-out); }
+.banners { grid-column: 2; grid-row: 2; z-index: 2; display: flex; flex-direction: column; gap: calc(var(--float-gap) * 0.75); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; }
+.banners:empty { display: none; }
+.conn-banner { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur) var(--ease-out); }
 .conn-retry { color: color-mix(in srgb, var(--error) 70%, var(--ink-3)); }
 /* 幅が足りないときは、折り返して帯の高さを変える代わりに、文言を省略記号で縮める。
    「接続が切れています」の見出しは縮めず、次の再接続までの秒数から先に縮める。
@@ -216,43 +282,140 @@ a:hover { text-decoration: underline; }
 .conn-banner > b { flex: none; }
 .conn-banner > .conn-retry { flex-shrink: 4; }
 .conn-banner .btn { margin-left: auto; flex: none; }
+.conn-banner .btn + .btn, .conn-banner .btn + .copy-btn { margin-left: 0; }
+/* 再接続が続けて失敗したら、同じ帯のまま濃い赤にする（初回と障害の B1）。高さと置き場所は変えない。 */
+.conn-banner[data-hard] { color: #ffffff; background: color-mix(in srgb, var(--error) 88%, #000000); box-shadow: 0 8px 20px -10px rgba(179, 38, 30, 0.6); }
+.conn-banner[data-hard] .btn { color: var(--error); }
+.conn-banner[data-hard] .copy-btn { margin-left: auto; color: #ffffff; }
+.conn-banner[data-hard] .copy-btn:hover { background: rgba(255, 255, 255, 0.16); color: #ffffff; }
+/* 保持期間の帯。形は切断の帯と同じで、色だけを警告の琥珀にする。 */
+.retention-banner { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--st-paused); background: color-mix(in srgb, var(--busy) 12%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur) var(--ease-out); }
+.retention-banner > b, .retention-banner > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.retention-banner > b { flex: none; }
+.retention-banner > .retention-detail { flex-shrink: 4; color: color-mix(in srgb, var(--st-paused) 65%, var(--ink-3)); }
+.retention-banner .btn { flex: none; }
+.retention-banner .btn:first-of-type { margin-left: auto; }
 @keyframes drop-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 
 /* オーバーレイ */
 .overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 18%, transparent); display: grid; place-items: center; z-index: 10; }
-.dialog { border-radius: 18px; background: var(--glass-bg-dialog); -webkit-backdrop-filter: var(--glass-blur-dialog); backdrop-filter: var(--glass-blur-dialog); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: calc(var(--u) * 5); width: 480px; max-width: calc(100vw - 32px); animation: pop var(--dur) var(--ease-out); display: flex; flex-direction: column; gap: calc(var(--u) * 3); }
+/* ダイアログの殻（views/primitives/Dialog.tsx）。見出し、中身、下端のボタンの 3 段で組む（A1）。
+   器は窓の高さから上下 32px ずつを引いた分までにし、器そのものはスクロールしない。
+   溢れた中身だけが .dialog-body の中でスクロールし、見出しと下端のボタンはいつも見える。
+   パレットも同じ器を使い、余白と中身の並びは palette.css が決める。 */
+.dialog { --dialog-pad: calc(var(--u) * 5); --dialog-gap: calc(var(--u) * 3); border-radius: 18px; background: var(--glass-bg-dialog); -webkit-backdrop-filter: var(--glass-blur-dialog); backdrop-filter: var(--glass-blur-dialog); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: 0; width: 480px; max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); overflow: hidden; outline: none; animation: pop var(--dur) var(--ease-out); display: flex; flex-direction: column; }
+.dialog-head { flex: none; position: relative; z-index: 1; display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; padding: calc(var(--u) * 4.5) var(--dialog-pad) var(--dialog-gap); transition: box-shadow var(--dur-fast) var(--ease-out); }
+.dialog-title { display: flex; align-items: center; gap: calc(var(--u) * 1.5); min-width: 0; font-size: 14px; font-weight: 700; }
+/* 見出しの右の ×。地を持たない丸いボタンにし、見出しの行の高さを変えないよう上下の余白を食う。 */
+.btn.dialog-close { flex: none; justify-content: center; width: var(--row-h); padding: 0; margin: calc(var(--u) * -1) calc(var(--u) * -1.5) calc(var(--u) * -1) auto; color: var(--ink-2); background: none; box-shadow: none; }
+.btn.dialog-close:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
+.dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: var(--dialog-gap); padding: 2px var(--dialog-pad) calc(var(--u) * 4); }
+/* 中身の段は縮めない。縮めると入力欄やテキストエリアが潰れ、中身ではなく段の中でスクロールしてしまう。 */
+.dialog-body > * { flex-shrink: 0; }
+/* 中身が空のダイアログ（確認で説明を見出しの段に入れたもの）は、中身の段の余白を詰める。 */
+.dialog-body:empty { display: none; }
+/* 中身が見出しの下をくぐり始めたら見出しの下に、続きがあれば下端の上に薄い影を出す。
+   data-top と data-bottom は Dialog がスクロールと大きさの変化のたびに付け直す。 */
+.dialog[data-top='true'] .dialog-head { box-shadow: 0 8px 14px -12px rgba(30, 40, 90, 0.45); }
+.dialog[data-bottom='true'] .dialog-foot { box-shadow: 0 -8px 14px -12px rgba(30, 40, 90, 0.45); }
+/* 取り消せない操作の確認（E1）。見出しの前に赤い丸のアイコンを置き、説明は見出しの下に添える。
+   中身は見出しの文の頭（丸の幅と隙間の分だけ右）にそろえる。 */
+.dialog-danger { width: 420px; }
+.dialog-danger .dialog-head { align-items: flex-start; gap: calc(var(--u) * 3); }
+.dialog-head-text { display: flex; flex-direction: column; gap: var(--u); min-width: 0; padding-top: calc(var(--u) * 1.75); }
+.dialog-disc { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: var(--error); background: color-mix(in srgb, var(--error) 11%, #ffffff); box-shadow: 0 0 0 5px color-mix(in srgb, var(--error) 5%, transparent); }
+.dialog-danger .dialog-body { padding-left: calc(var(--dialog-pad) + 36px + var(--u) * 3); }
 @keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(var(--blur-in)); } 20% { filter: none; } }
-.toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; gap: var(--u); z-index: 20; }
-.toast { background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; }
-.toast[data-level='error'] { background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); color: var(--error); }
+/* 右下に積む知らせ（試作は specs/2026-10-01-ux-refresh/waiting-notify.html の A1、B1、D1）。
+   上から error と info のトースト、並べきれない入力待ちの数、入力待ちのカードの順に、右端をそろえて積む。 */
+.toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 2); z-index: 20; max-width: calc(100vw - var(--u) * 8); }
+.toast { max-width: 420px; background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; text-align: left; }
+/* error は赤みのガラスに警告のアイコンと閉じる ×。本文は 2 行まで見せ、「詳しく」で開く。時間では消えないので、押しても何も起きない。 */
+.toast[data-level='error'] { display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 2) calc(var(--u) * 2.5) calc(var(--u) * 3); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); color: var(--error); cursor: default; }
+.toast[data-level='error'] > .icon { flex: none; margin-top: 2px; }
+.toast-message { font-size: var(--fs-sm); line-height: 1.5; color: color-mix(in srgb, var(--error) 80%, var(--ink)); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.toast[data-open='true'] .toast-message { display: block; }
+.btn-link.toast-more-link { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); font-weight: 560; color: var(--error); }
+.toast-close { flex: none; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: none; color: inherit; opacity: 0.7; cursor: pointer; }
+.toast-close:hover { background: rgba(255, 255, 255, 0.7); opacity: 1; }
+/* 入力待ちのカード。左の赤い縦の帯、名前と待っている時間、プロジェクト、問い（2 行まで）、「ターミナルで答える」。 */
+.toast-waiting-list { display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 2); }
+.toast-waiting-list:empty { display: none; }
+.toast.toast-waiting { position: relative; display: flex; gap: calc(var(--u) * 2.5); width: 360px; max-width: 100%; padding: calc(var(--u) * 2.5) calc(var(--u) * 3) calc(var(--u) * 2.5) calc(var(--u) * 3.5); box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--waiting) 26%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); }
+.toast-waiting::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--waiting); }
+.toast.toast-waiting:hover { background: rgba(255, 255, 255, 0.92); }
+/* 確認や入力のあるダイアログが開いている間は押せない。押してもダイアログの裏で画面は移らないので、押せるように見せない。 */
+.toast.toast-waiting[data-blocked='true'] { cursor: default; }
+.toast.toast-waiting[data-blocked='true']:hover { background: var(--glass-bg-toast); }
+.toast.toast-more:disabled { cursor: default; opacity: 0.6; }
+.toast-waiting > .dot { flex: none; margin-top: 6px; }
+.toast-body { flex: 1; min-width: 0; }
+.toast-head { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); min-width: 0; }
+.toast-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast-waited { flex: none; margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+.toast-project { font-size: var(--fs-xs); color: var(--ink-3); }
+.toast-question { margin-top: 3px; font-size: var(--fs-sm); color: var(--ink-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.toast-actions { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); }
+.toast-hint { font-size: var(--fs-xs); color: var(--ink-3); }
+.btn-link.toast-notify { margin-left: auto; font-size: var(--fs-xs); }
+/* 4 件目からは数だけの小さな錠剤にして、ホームの要対応へ案内する。 */
+.toast.toast-more { padding: 3px calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); color: var(--ink-2); }
+.toast.toast-more:hover { color: var(--ink); }
 @keyframes slide { from { opacity: 0; transform: translateX(16px); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 .progress { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
 
-/* ヘッダの畳み方（窓が狭いとき）。窓ではなくヘッダ自身の幅で決める。サイドバーの開閉でもヘッダの幅は変わるからである。
-   狭くなるほど、①最終更新 → ②同期の操作 → ③ゲージの棒（短い名前と数字だけに） → ④検索欄（虫眼鏡に）、同期の文、索引の進み
-   → ⑤パンくずの前の段 → ⑥新規セッションの文字（「＋」だけに）と同期の件数 → ⑦ゲージ、の順に畳む。
-   畳んだ操作は、同期の文なら設定、検索欄ならパレットから届く。新規セッションは最後まで縮めない。
-   ヘッダを大きさの入れ物にする指定（container）は、.header の規則の中に書いている。 */
-.header .crumbs { flex: 0 1 auto; min-width: 0; }
-.header .crumb { display: flex; min-width: 0; }
-.header .crumb-prev { flex: none; }
-/* 今いる名前は、どれだけ狭くても頭の 3 文字ほどは見せる。 */
-.header .crumb-last b, .header .crumb-last a { min-width: 3em; overflow: hidden; text-overflow: ellipsis; }
-.header .crumb-sep { flex: none; white-space: pre; }
-.header .search-box { min-width: 140px; }
-.header .btn.new-session { flex: none; }
-.header .btn.search-icon { display: none; flex: none; justify-content: center; width: var(--row-h); padding: 0; color: var(--ink-2); background: none; box-shadow: none; }
-.header .btn.search-icon:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
-.header .gauge-key { display: none; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
+/* 保持期間の確認の差分。足す行は緑、消す行は赤の淡い地にする。 */
+.diff { background: var(--surface-2); border-radius: var(--r); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); font-size: var(--fs-xs); line-height: 1.65; white-space: pre; overflow: auto; }
+.diff-path, .diff-ctx { color: var(--ink-3); }
+.diff-add { color: var(--st-done); background: var(--st-done-soft); margin: 0 calc(var(--u) * -2.5); padding: 0 calc(var(--u) * 2.5); }
+.diff-del { color: var(--error); background: color-mix(in srgb, var(--error) 8%, transparent); margin: 0 calc(var(--u) * -2.5); padding: 0 calc(var(--u) * 2.5); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: var(--u) calc(var(--u) * 3.5); margin: 0; font-size: var(--fs-sm); }
+.kv dt { color: var(--ink-2); }
+.kv dd { margin: 0; }
+/* 使用量のバー。いまの量は藍、見込みは琥珀の斜線で、いまの量の後ろに重ねる。 */
+.usage-meter { position: relative; height: 8px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--ink) 8%, transparent); overflow: hidden; }
+.usage-meter > i { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-pill); }
+.usage-now { background: var(--accent); }
+.usage-proj { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--busy) 55%, transparent) 0 4px, color-mix(in srgb, var(--busy) 25%, transparent) 4px 8px); }
+.usage-legend { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 3); margin-top: var(--u); font-size: var(--fs-xs); color: var(--ink-2); }
+.usage-warn { color: var(--st-paused); font-weight: 600; }
+
+/* ヘッダの右の塊の畳み方（窓が狭いとき）。
+   決め打ちの幅では畳まない。同期の文や件数のように長さの変わる中身に追いつかず、隣の部品に重なって描かれたからである。
+   代わりに、段ごとに要る幅を測り、収まるまで優先度の低い部品から畳む。
+   順は headerFold.ts の FOLD_STEPS が決め、useHeaderFold.ts が測って、畳む部品に data-folded の印を付ける。
+   測る仕組みが追いつかない一瞬や、測れない環境でも重ならないよう、どの部品も 0 まで縮み、はみ出しは切り詰める。
+   縮む重み（flex-shrink）は、同期の一行と索引の進みを重く、ゲージを中ほど、新しいセッションを軽くする。 */
+.header .gauges { flex: 0 100 auto; min-width: 0; overflow: hidden; }
+.header .btn.new-session { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.header .new-session .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header .progress { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 同期の操作は地を持たない文字のボタンにし、主ボタン（新しいセッション）だけが面を持つ。
+   同期と使用率の前には細い仕切りを置き、横にも塊ごとの間を見せる。 */
+.header .sync-action { color: var(--ink-2); background: none; box-shadow: none; }
+.header .sync-action:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
+.header .sync, .header .gauges { position: relative; padding-left: calc(var(--u) * 4.5); }
+.header .sync::before, .header .gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: calc(var(--u) * 4); translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+/* ゲージの見出し（5 時間、週）。
+   何の割合かが読めるよう、ゲージを出している間は隠さない。見出しの無い数字は読めないので、畳むときはゲージの組ごと畳む。 */
+.header .gauge-key { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 /* ゲージと同期の見た目は workbench.css と sync.css が後から読み込まれて決める。
-   コンテナクエリの中の規則は詳細度が上がらないので、どれも .header から書いて、後に読まれる規則に負けないようにする。 */
-@container header (max-width: 1080px) { .header .gauge-updated { display: none; } }
-@container header (max-width: 980px) { .header .sync-action { display: none; } }
-@container header (max-width: 880px) { .header .gauge-bar { display: none; } .header .gauge-key { display: inline; } .header .gauge-num { min-width: 0; } }
-@container header (max-width: 780px) { .header .search-box, .header .search-kbd, .header .progress, .header .sync-label { display: none; } .header .btn.search-icon { display: inline-flex; } }
-@container header (max-width: 680px) { .header .crumb-prev { display: none; } .header .crumbs::before { content: '…'; flex: none; color: var(--ink-3); } }
-@container header (max-width: 580px) { .header .new-session .btn-label, .header .sync-count { display: none; } .header .btn.new-session { justify-content: center; width: var(--row-h); padding: 0; } }
-@container header (max-width: 500px) { .header .gauges { display: none; } }
+   畳む規則は、どれも .header か .header-row から書いて詳細度を上げ、後に読まれる規則に負けないようにする。 */
+/* 畳んだ部品。見えなくするが、読み上げには残す（.sr-only と同じ形）。
+   行の流れからも外れるので、幅も間も取らない。 */
+.header-row [data-folded] { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* 同期の操作は、見えないボタンにフォーカスが止まらないよう、まるごと外す。
+   同期の文のリンクから設定へ行けば押せる。 */
+.header-row .sync-action[data-folded] { display: none; }
+/* 錠剤と新しいセッションは、文字を畳むと図だけの丸いボタンになる。 */
+.header .search-pill:has(> [data-folded]), .header .btn.new-session:has(> [data-folded]) { justify-content: center; width: var(--row-h); padding: 0; }
+/* 数字の幅の下限は、棒と並べたときに桁の増減で棒が揺れないためのもので、棒を畳んだら要らない。 */
+.header .gauge:has(> .gauge-bar[data-folded]) > .gauge-num { min-width: 0; }
+/* 測るあいだ（useHeaderFold.ts）は、右の塊とその中身を縮ませず、間の伸びる余白も伸ばさない。
+   すると、行の左端から右の塊の右の外側の端までが、その段で要る幅になる。
+   この形は描画の直後の測る間だけで、塗る前に外す。 */
+.header-row[data-fold-measuring] .header-end, .header-row[data-fold-measuring] .header-end * { flex-shrink: 0; }
+.header-row[data-fold-measuring] > .spacer { flex-grow: 0; }
 
 /* 起動ダイアログの入力欄 */
 .field { display: flex; flex-direction: column; gap: var(--u); font-size: var(--fs-sm); color: var(--ink-2); }
@@ -260,7 +423,23 @@ a:hover { text-decoration: underline; }
 .field textarea.input { height: auto; padding: var(--u) calc(var(--u) * 2); resize: vertical; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--u) * 2); }
 .dialog-wide { width: 560px; }
-.dialog-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+/* 起動ダイアログは欄をフォームで包む。フォームも中身の段と同じ隙間で縦に並べる。 */
+.dialog-form { display: flex; flex-direction: column; gap: var(--dialog-gap); }
+.dialog-form > * { flex-shrink: 0; }
+/* 起動ボタンの中のキー帽（B1）。押す場所と ⌘↵ が一緒に目に入る。主ボタンの地の上で読めるよう、淡い白の地にする。 */
+.btn .kc { display: inline-flex; align-items: center; height: 17px; padding: 0 calc(var(--u) * 1.25); margin-left: 2px; border-radius: 5px; font: 600 10.5px var(--font-mono); background: rgba(255, 255, 255, 0.22); }
+/* 下書きの札（C1）。書きかけを戻したダイアログであることを見出しの右で示す。止めている（Paused）の色を借りる。 */
+.draft-tag { display: inline-flex; flex: none; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 560; color: var(--st-paused); background: var(--st-paused-soft); }
+.draft-tag .icon, .linkish .icon { width: 12px; height: 12px; }
+/* 文字だけの小さな操作（下書きを消す、既定に戻す）。 */
+.linkish { display: inline-flex; flex: none; align-items: center; gap: 3px; padding: 0; border: 0; background: none; font-size: var(--fs-xs); font-weight: 560; color: var(--accent); cursor: pointer; }
+.linkish:hover { text-decoration: underline; }
+/* 詳細の見出しの前回値（D1）。畳んだままでも「前回と同じ」と中身が読め、右端の「既定に戻す」で空にできる。札は候補の色を借りる。 */
+.prev-tag { flex: none; padding: 1px calc(var(--u) * 1.75); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--cand); background: var(--cand-soft); }
+.prev-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 560; }
+.linkish.prev-reset { margin-left: auto; }
+/* 下端のボタンの段。器の中身がスクロールしても動かない。 */
+.dialog-foot { flex: none; position: relative; z-index: 1; display: flex; align-items: center; gap: calc(var(--u) * 2); padding: var(--dialog-gap) var(--dialog-pad) calc(var(--u) * 4); transition: box-shadow var(--dur-fast) var(--ease-out); }
 .error { color: var(--error); font-size: var(--fs-sm); }
 
 /* タブは端末の板から生えたフォルダの耳。選んだタブは板と同じ墨色になり、板とつながる。
@@ -273,7 +452,8 @@ a:hover { text-decoration: underline; }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
 .tab-selected .tab-close { color: var(--term-fg); }
 .tab-selected .tab-close:hover { color: var(--term-fg); background: rgba(255, 255, 255, 0.12); }
-.split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 240px); transition: grid-template-columns var(--dur) var(--ease-out); }
+/* 高さは決め打ちにせず、.session-screen の縦の flex から窓の残りを受け取る（session.css）。 */
+.split { display: grid; gap: calc(var(--u) * 2); transition: grid-template-columns var(--dur) var(--ease-out); }
 /* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
    xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
    閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */
@@ -292,10 +472,94 @@ a:hover { text-decoration: underline; }
 .term-status-error { color: var(--error); opacity: 1; }
 /* 会話の列は白い読む面にする。 */
 .tr-pane { min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
-.tr-pane .tr { height: auto; flex: 1; }
 /* 畳んだ列は 28px しかなく、開くボタンも同じ幅である。左右の余白を残すと、ボタンの半分ほどが隠れて押しにくくなる。 */
 .tr-pane[data-collapsed='true'] { padding: calc(var(--u) * 2) 0; }
 .tr-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: calc(var(--u) * 7); border: 0; background: transparent; cursor: pointer; color: var(--ink-2); height: var(--row-h); align-self: flex-start; }
+.tr-pane .turns .tr-toggle { margin-left: calc(var(--u) * -2); }
+
+/* 実行中の右ペイン。見出し、上の段（いま）、境目、目次の順に縦に積む。色は端末の縁の灯と同じ語彙（作業中は杏、入力待ちは赤、休みは灰）。 */
+.live { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: calc(var(--u) * 2); }
+.live[data-dragging] { cursor: row-resize; user-select: none; }
+/* 上の段は、境目の比率（--live-split、ペインの高さに対する割合）を高さの上限にし、あふれた分はこの中でスクロールする。
+   中身が短ければ上限まで伸ばさず、残りは目次に回る。窓が低いときも、目次（.live-toc の下限）を押し出さない。 */
+.live-top { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: 0 1 auto; min-height: 0; max-height: calc(var(--live-split, 0.5) * 100%); overflow-y: auto; overscroll-behavior: contain; }
+/* 下に続きがあるときは、下の端 28px をぼかして消す。行の途中で切れて見えると、スクロールできることに気付きにくい。 */
+.live-top[data-more] { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
+/* 境目。掴める幅は 9px 取り、見た目は 1px の線にする。触れるか掴むかフォーカスすると、線を太くして藍にする。 */
+.live-divider { position: relative; flex: none; height: 9px; margin: calc(var(--u) * -1) 0; cursor: row-resize; touch-action: none; outline: none; }
+.live-divider::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--line); transition: background var(--dur-fast) var(--ease-out), height var(--dur-fast) var(--ease-out), top var(--dur-fast) var(--ease-out); }
+.live-divider:hover::before, .live-divider:focus-visible::before, .live[data-dragging] > .live-divider::before { top: 3px; height: 3px; border-radius: 2px; background: var(--accent); }
+/* 窓が低くても、目次は見出しと「最新へ」と 2 行ぶんより縮めない（上のライブの帯が目次を 0 に潰さない）。 */
+.live-toc { display: flex; flex-direction: column; flex: 1; min-height: calc(var(--row-h) * 5); }
+/* 成果物の行。題名だけを 1 行で出し、押すと開く。VS Code で開けるものは右端に小さな印のボタンを添える。 */
+.live-artifact { display: flex; align-items: center; gap: var(--u); min-width: 0; }
+.live-artifact-open { display: flex; align-items: center; gap: calc(var(--u) * 2); flex: 1; min-width: 0; height: var(--row-h); padding: 0 calc(var(--u) * 1.75); border: 0; border-radius: var(--r); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.live-artifact-open:hover { background: var(--surface-2); }
+.live-artifact-icon { flex: none; width: 14px; text-align: center; }
+.live-artifact-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-artifact-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.live-artifact-editor { flex: none; justify-content: center; width: calc(var(--row-h) - 6px); padding: 0; }
+.live-pane-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); font-size: var(--fs-sm); }
+.live-lamp { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); font-weight: 600; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); }
+.live-lamp[data-tone='wait'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 12%, var(--surface)); }
+.live-lamp[data-tone='idle'] { color: var(--ink-2); background: var(--surface-2); }
+.live-lamp-sub { margin-left: auto; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-2); text-align: right; }
+.live-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+.live-dot[data-tone='busy'], .live-dot[data-tone='running'] { background: var(--busy); animation: live-pulse var(--breathe-period) ease-in-out infinite; }
+.live-dot[data-tone='wait'] { background: var(--waiting); }
+.live-dot[data-tone='done'] { background: var(--idle); }
+.live-dot[data-tone='error'] { background: var(--error); }
+@keyframes live-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none !important; } }
+.live-intent { padding: calc(var(--u) * 1.25) calc(var(--u) * 2.25); border-left: 3px solid var(--cand); border-radius: 0 var(--r) var(--r) 0; background: var(--cand-soft); font-size: var(--fs); transition: opacity var(--dur-fast) var(--ease-out); }
+.live-intent[data-stale='true'] { opacity: 0.55; }
+.live-intent-meta { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--cand); }
+.live-intent-none { font-size: var(--fs-sm); color: var(--ink-3); }
+.live-sec { display: flex; flex-direction: column; gap: 2px; }
+.live-label { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.live-step { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs); }
+.live-step[data-mark='now'] { color: var(--busy); font-weight: 560; }
+.live-step[data-mark='fail'] .live-step-ic { color: var(--error); }
+.live-step-ic { flex: none; width: 14px; text-align: center; font-size: var(--fs-xs); color: var(--idle); }
+.live-step-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-step-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.live-lane { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; column-gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 0.75) calc(var(--u) * 1.75); border: 0; border-radius: var(--r); background: transparent; color: var(--ink); font: inherit; font-size: var(--fs); text-align: left; cursor: pointer; }
+.live-lane:hover:not(:disabled) { background: var(--surface-2); }
+.live-lane:disabled { cursor: default; }
+.live-lane[data-tone='error'] { background: color-mix(in srgb, var(--error) 9%, var(--surface)); }
+.live-lane[data-tone='done'] { background: color-mix(in srgb, var(--idle) 9%, var(--surface)); }
+.live-lane-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-lane-time { font-size: var(--fs-xs); color: var(--ink-3); }
+.live-lane-line { grid-column: 2 / 4; font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-lane[data-tone='error'] .live-lane-line { color: var(--error); }
+.live-lane[data-tone='done'] .live-lane-line { color: var(--idle); }
+.live-chip { align-self: flex-start; font-size: var(--fs-xs); border: 1px solid var(--line-strong); border-radius: var(--r-pill); padding: 0 calc(var(--u) * 2); }
+.turn-band { display: flex; gap: 1px; height: 4px; margin: 0 calc(var(--u) * 2) calc(var(--u) * 1) 52px; overflow: hidden; border-radius: 2px; }
+.turn-band i { flex: 0 1 8px; }
+.turn-band i[data-k='read'] { background: color-mix(in srgb, var(--ink-3) 55%, var(--surface)); }
+.turn-band i[data-k='write'] { background: var(--accent); }
+.turn-band i[data-k='run'] { background: var(--busy); }
+.turn-band i[data-k='git'] { background: var(--idle); }
+.turn-band i[data-k='fail'] { background: var(--error); }
+.turn-band i[data-k='other'] { background: var(--line-strong); }
+
+/* ターンの目次。見出しと「最新へ」は動かさず、間の一覧だけがスクロールする。 */
+.turns { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.turns-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); flex: none; font-size: var(--fs-sm); }
+.turns-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: var(--u) 0; }
+.turns-more { align-self: center; flex: none; margin-bottom: calc(var(--u) * 2); }
+.turn { flex: none; border-radius: var(--r); }
+.turn[data-open='true'] { background: var(--surface-2); }
+.turn-row { display: flex; align-items: baseline; gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border: 0; border-radius: var(--r); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.turn-row:hover { background: var(--surface-2); }
+.turn[data-open='true'] > .turn-row { background: var(--accent-soft); color: var(--accent); font-weight: 560; }
+.turn-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.turn-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-tools { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.turn-body { display: flex; flex-direction: column; max-height: 55vh; overflow: auto; padding: calc(var(--u) * 2) calc(var(--u) * 2) var(--u); }
+.turn-body .msg { max-width: 100%; }
+.turn-note { margin-bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--ink-2); }
+.turns-foot { display: flex; justify-content: flex-end; flex: none; padding-top: calc(var(--u) * 2); border-top: 1px solid var(--line); }
 
 /* アイコン。大きさと線幅は Icon.tsx が決める。色は置かれた場所の文字色に従う。 */
 .icon { flex: none; }

@@ -116,7 +116,27 @@
 
 /* 状態の帯の「実行中」に添える、動いていることを示す緑の点。 */
 .seg-live { background: var(--idle); }
+/* 状態の帯の「入力待ち」に添える点。
+   ホームの要対応と同じ色にする。 */
+.seg-waiting { background: var(--waiting); }
 
 /* セッション画面の、本文の上の表示切り替え。 */
 .transcript-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); margin-bottom: var(--u); }
 .transcript-toggles-sep { width: 1px; height: 18px; background: var(--line-strong); }
+
+/* 操作のメニュー（views/primitives/MenuButton.tsx）。
+   押すと開くガラスの面で、選ぶ部品の一覧と同じ板にする。
+   押せない項目は薄くし、下に理由を 1 行添える。
+   取り消せない項目は区切りの後ろに危険色で置く。 */
+.menu-pop { position: fixed; z-index: 30; display: flex; flex-direction: column; padding: calc(var(--u) * 1.5); border-radius: var(--r-lg); background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); transform-origin: top right; animation: listbox-in var(--dur-fast) var(--ease-out); }
+.menu-pop[data-up='true'] { transform-origin: bottom right; animation-name: listbox-in-up; }
+.menu-item { display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); width: 100%; padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border: 0; border-radius: 10px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.menu-item > .icon { margin-top: 1px; color: var(--ink-2); }
+.menu-item:hover, .menu-item:focus { outline: none; background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0 #ffffff, 0 2px 8px -2px rgba(30, 40, 90, 0.16); }
+.menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.menu-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.4; }
+.menu-item-text small { font-size: var(--fs-xs); color: var(--ink-2); white-space: normal; }
+.menu-item[aria-disabled='true'] { cursor: default; color: var(--ink-3); }
+.menu-item[aria-disabled='true'] > .icon { color: var(--ink-3); }
+.menu-item[data-danger='true'], .menu-item[data-danger='true'] > .icon { color: var(--error); }
+.menu-sep { height: 0; margin: var(--u) calc(var(--u) * 1.5); border-top: 1px solid rgba(30, 40, 90, 0.08); }

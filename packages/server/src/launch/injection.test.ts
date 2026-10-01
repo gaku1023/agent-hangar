@@ -13,6 +13,7 @@ describe('renderInjection', () => {
     expect(t).toContain('search_sessions と get_transcript');
     expect(t).toContain('set_session_summary');
     expect(t).toContain('TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。\n完了にするのは利用者です。確かめられていないものは出さないでください。');
+    expect(t).toContain('ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。\nBash と Agent の description は日本語で 20 字以内にしてください。\n');
   });
   it('メモは 500 字、TODO は 10 件に切り、無ければ（なし）', () => {
     const t = renderInjection({ projectName: 'p', projectPath: '/p', memo: 'あ'.repeat(600), todos: Array.from({ length: 12 }, (_, i) => todo(i)) });

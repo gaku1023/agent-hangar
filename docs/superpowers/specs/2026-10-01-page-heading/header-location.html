@@ -1,0 +1,1301 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ヘッダーの位置表示</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet">
+<style>:root {
+  /* 光の背景。地の色と、その上をゆっくり漂う 2 つの淡い光。 */
+  --bg: #eef1f7;
+  --aura-1: #cfe0ff;
+  --aura-2: #e5d6ff;
+  /* 読む面。一覧、カード、会話は白で不透明にする。 */
+  --surface: #ffffff;
+  --surface-2: #f3f4f9;
+  --line: #eceef5;
+  --line-strong: #d9dbe6;
+  /* 文字。ガラスに合わせて少し青みに寄せた。白地で 16.9、6.3、3.4 : 1。 */
+  --ink: #1c1b2e;
+  --ink-2: #5f5e78;
+  --ink-3: #8a89a0;
+  --accent: #4a63e8;
+  --accent-hi: #6b8cff;
+  --accent-ink: #ffffff;
+  --accent-soft: #eef2ff;
+  --busy: #c77a1a;
+  --idle: #3a8f5c;
+  --waiting: #a2452f;
+  --ended: #9a968e;
+  --error: #b3261e;
+  --st-active: #2a57b8;
+  --st-active-soft: #e8eefc;
+  --st-paused: #8a5a0b;
+  --st-paused-soft: #faefd9;
+  --st-done: #2b7048;
+  --st-done-soft: #e3f1e8;
+  --st-archived: #66625b;
+  --st-archived-soft: #edebe6;
+  /* 完了の候補。セッションが「片付いた」と言ったが、まだ利用者が確かめていない TODO。
+     淡い地の上の文字は --cand で、地と白地の両方で 4.5 : 1 を超える（tokens.test.ts が見張る）。 */
+  --cand: #6a4fd0;
+  --cand-soft: #f1edff;
+  --term-bg: #1c1b2e;
+  --term-fg: #e8e6f0;
+  --term-tool: #ffb86b;
+  /* 浮くガラス。地の透け具合、ぼかし、縁、落ち影の値だけを持つ。
+     backdrop-filter の指定そのものは、浮く部品の規則にだけ書く（glass.test.ts が見張る）。 */
+  --glass-bg: rgba(255, 255, 255, 0.4);
+  --glass-bg-palette: rgba(255, 255, 255, 0.62);
+  --glass-bg-dialog: rgba(255, 255, 255, 0.72);
+  --glass-bg-toast: rgba(255, 255, 255, 0.82);
+  --glass-bg-menu: rgba(255, 255, 255, 0.82);
+  --glass-blur: blur(12px) saturate(1.9);
+  --glass-blur-strong: blur(18px) saturate(1.8);
+  --glass-blur-dialog: blur(18px) saturate(1.6);
+  --glass-blur-toast: blur(14px);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --glass-drop: 0 10px 28px -12px rgba(30, 40, 90, 0.3);
+  --glass-drop-lg: 0 24px 50px -16px rgba(30, 40, 90, 0.45);
+  --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+  /* 端末の板を持ち上げる影。縁の灯は、この上に輪と光を重ねる。 */
+  --term-lift: 0 12px 26px -16px rgba(20, 20, 60, 0.55);
+  --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs: 13px;
+  --fs-md: 15px;
+  --fs-lg: 20px;
+  --row-h: 28px;
+  --session-row-h: 56px;
+  --hit: #fff3c4;
+  --u: 4px;
+  --r: 8px;
+  --r-lg: 14px;
+  --r-xl: 16px;
+  --r-pill: 99px;
+  --float-gap: 8px;
+  --main-w: 1200px;
+  --sidebar-w: 208px;
+  /* 折りたたんだサイドバー（アイコンだけの帯）の幅。40px の項目の左右に 6px ずつ空ける。 */
+  --sidebar-rail-w: 52px;
+  /* デスクトップの信号の 3 点の右端に、隙間を足した位置。3 点は VS Code と同じく窓の左から 11〜71px、縦の中心は上から 22px にある（tauri.conf.json の trafficLightPosition）。
+     3 点はヘッダの左端に載るので、ヘッダの中身はここから始める。 */
+  --lights-end: 81px;
+  /* ヘッダ（窓の上辺に付いた帯）の高さ。縦の中心 22px が信号の 3 点の中心と揃う（tokens.test.ts）。
+     28px のボタンの上下に 8px ずつ空く。34px では 3px ずつしか空かず、帯が詰まって見えた。 */
+  --header-h: 44px;
+  --aura-period: 24s;
+  /* 動きのトークン。性格は「なめらか」で、すっと出て長く静かに止まる。
+     長さは必ずこれを通して書き、CSS にも JS にも数値を直書きしない（styles/motion.test.ts が見張る）。
+     JS からは views/primitives/motion.ts で読む。 */
+  --dur-fast: 200ms;
+  --dur: 420ms;
+  --dur-exit: 250ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  /* 現れるときの縦の移動と、晴れていくぼかし。 */
+  --rise: 6px;
+  --blur-in: 6px;
+  /* 端末の縁が、作業中にゆっくり明暗を往復する周期。 */
+  --breathe-period: 3.2s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms; --rise: 0px; --blur-in: 0px; }
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+/* 横スワイプで戻る／進むをするとき、頁ごと（サイドバーも）がゴムのように引っ張られないようにする。
+   動くのは端から出る矢印の丸だけ。中の一覧のスクロールは、それぞれの箱の中で今までどおり動く。 */
+html, body { overscroll-behavior: none; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--fs);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+.muted { color: var(--ink-2); }
+.faint { color: var(--ink-3); }
+.app-boot { display: grid; place-items: center; height: 100%; color: var(--ink-2); }
+
+/* レイアウト */
+/* 奥から「光の背景」「読む面」「浮くガラス」の 3 枚で組む。
+   光の背景は .shell::before の 1 枚に描き、ゆっくり漂わせる。
+   2 行目は接続が切れているあいだの帯。帯が無いときは auto が 0 に潰れるので、何も描かない。 */
+.shell { position: relative; isolation: isolate; display: grid; grid-template-columns: calc(var(--sidebar-w) + var(--float-gap)) minmax(0, 1fr); grid-template-rows: auto auto 1fr; height: 100%; overflow: hidden; }
+.shell::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%); animation: aura-drift var(--aura-period) ease-in-out infinite alternate; }
+@keyframes aura-drift { to { transform: translate(5%, -4%) rotate(8deg) scale(1.05); } }
+@media (prefers-reduced-motion: reduce) { .shell::before { animation: none; } }
+/* 浮くガラス。ぼかしはこの節と、切断の帯、ダイアログ、パレット、通知の規則にだけ書く（glass.test.ts が見張る）。 */
+/* 行が増えても全部を覆うように、端から端まで跨がせる。上はヘッダ（窓の上辺に付いた帯）の下に隙間を 1 つ空けて始める。 */
+.sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; margin: calc(var(--header-h) + var(--float-gap)) 0 var(--float-gap) var(--float-gap); padding: calc(var(--u) * 2.5) calc(var(--u) * 2); border-radius: var(--r-xl); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); overflow: hidden auto; }
+/* 頁を開いたときの入場。デスクトップの起動画面は、読み込みが終わった合図の後、この光の背景だけを描いて終わる。
+   頁が替わった後は、その光の上にサイドバーが左から、ヘッダが上から浮かんで来る。殻は作り直されないので、動くのは最初の 1 回だけである。
+   reduced motion では --dur が 0 になり、動かない。 */
+.shell > .sidebar { animation: glass-arrive-side var(--dur) var(--ease-out) backwards; }
+.shell > .header { animation: glass-arrive-head var(--dur) var(--ease-out) backwards; }
+/* サイドバーの開閉のボタン。開いた帯ではワードマークの右端に置き、ガラスの上では地を持たない。持ち上がらない（ナビの項目と同じ）。
+   アイコンは左の余白で置き、中央寄せにしない。開閉の途中は箱の幅が変わるので、中央寄せだとアイコンが幅に引きずられる。 */
+.sidebar-top { display: flex; align-items: center; margin-bottom: calc(var(--u) * 3.5); }
+.btn.sidebar-toggle { position: relative; flex: none; width: 32px; height: 32px; padding: 0 7px; margin-left: auto; color: var(--ink-2); background: none; box-shadow: none; }
+.btn.sidebar-toggle svg { width: 18px; height: 18px; }
+.sidebar .btn.sidebar-toggle:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; transform: none; }
+/* 乗せたとき（キーボードで届いたとき）に出る吹き出し。押すと何が起きるかと近道を添える。
+   開いた帯ではボタンの下に右端を揃えて出し（帯は中身を切るので、帯の中に収める）、畳んだ帯ではナビの項目名と同じく右に出す。
+   動いている間は出さない。 */
+.toggle-tip { position: absolute; top: calc(100% + var(--u) * 1.5); right: 0; z-index: 3; display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; white-space: nowrap; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
+.toggle-tip kbd { font-family: var(--font-mono); opacity: 0.65; }
+.btn.sidebar-toggle:hover .toggle-tip, .btn.sidebar-toggle:focus-visible .toggle-tip { opacity: 1; visibility: visible; }
+.shell[data-sidebar-moving] .toggle-tip { display: none; }
+@keyframes glass-arrive-side { from { opacity: 0; transform: translateX(-28px); } }
+@keyframes glass-arrive-head { from { opacity: 0; transform: translateY(-14px); } }
+/* 読み込み中の文は、ガラスが浮かび終わってから出す。それまでに読み込めれば一度も出ず、光とガラスの間に継ぎ目が見えない。 */
+.boot-wait { animation: enter var(--dur) var(--ease-out) var(--dur) backwards; }
+/* ヘッダは VS Code のタイトルバーと同じく、窓の上辺と左右の端に付いた帯である。浮かせず、角も丸めない。
+   縁は下にだけ置く（白の 1px の線と、下へ落ちる薄い影）。 */
+.header { grid-column: 1 / -1; grid-row: 1; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 4.5); height: var(--header-h); margin: 0; padding: 0 calc(var(--u) * 3) 0 calc(var(--u) * 4); border-radius: 0; background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); container: header / inline-size; }
+/* デスクトップの殻の中では、信号の 3 点がヘッダの左端に載る。サイドバーを開いても閉じても同じ場所である。殻が付ける data-shell の印を見て、その分だけ左を空ける。 */
+[data-shell='desktop'] .header { padding-left: var(--lights-end); }
+/* 中身はヘッダの下をくぐって流れる。上の余白は、ヘッダの高さと、その下の隙間の分である。
+   scroll-padding-top を同じ値にしておくと、j と k の行送りや Shift+Tab で届いた先がヘッダの下に隠れない。 */
+.main { grid-column: 2; grid-row: 1 / -1; overflow: auto; padding-top: calc(var(--header-h) + var(--float-gap)); scroll-padding-top: calc(var(--header-h) + var(--float-gap)); }
+/* 切断の帯が出ている間は、帯の分も空ける。
+   帯の下端は、ヘッダ header-h、帯の上の隙間 float-gap * 0.75、帯の高さ row-h の和である（ヘッダは窓の上辺に付いているので、上の隙間は無い）。
+   そこに float-gap を足して、ヘッダの下と同じ隙間で中身を始める。
+   今の値では 44 + 6 + 28 + 8 = 86px になる。
+   scroll-padding-top も同じ値にし、キーボードで届いた先が帯とヘッダの下に隠れないようにする。 */
+.shell:has(.conn-banner) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); }
+.main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4); }
+/* 現れるものは、ぼかしが晴れながら --rise だけ上がって来る。
+   ぼかしは 20% の時点で none にして晴らし切り、残りは薄れと移動だけで入る。
+   WebKit は 0 より大きいぼかしを 0.2px でも 1px と同じに描くので、ゆっくり晴らすと、もやが動きの終わりまで残るためである。
+   ダイアログ、通知、切断の帯の keyframes も同じ形にする。
+   View Transitions がある環境では、出る画面との重ね合わせは runtime/present.ts が受け持ち、入る画面の動きはここが受け持つ。 */
+.screen { animation: enter var(--dur) var(--ease-out); }
+
+@keyframes enter { from { opacity: 0; transform: translateY(var(--rise)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+
+/* 画面の移り変わり（View Transitions、runtime/present.ts）。
+   root は出る画面と入る画面を重ねて替える。old と new の長さと曲線を揃えるのは、変わらないヘッダとサイドバーが途中で明滅しないためである。
+   行が上段へ広がる組と、パレットが錠剤へ戻る組は、位置と大きさを同じ長さで移す。 */
+::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: var(--dur); animation-timing-function: var(--ease-out); }
+/* 行の器は上段の大きさへ広がるが、写しは引き伸ばさない。
+   既定のままだと写しが器の幅いっぱいに伸び、Home の札は 3 倍ほどの高さの影になる。
+   写しは元の大きさのまま左の中ほどに置き、はみ出す分は器で切る。
+   名前と状態の点は session-morph-name と session-morph-dot の組として、器とは別に動く。 */
+::view-transition-group(session-morph) { overflow: clip; }
+::view-transition-old(session-morph), ::view-transition-new(session-morph) { height: 100%; object-fit: none; object-position: left center; }
+/* 名前と状態の点の写しも引き伸ばさない。
+   名前の箱は、一覧の行では行の幅いっぱい、上段では文字の幅だけである。
+   既定のままだと、動きの初めに上段の名前の写しが行の幅まで拡大され、文字が 2 倍以上に膨らむ。 */
+::view-transition-old(session-morph-name), ::view-transition-new(session-morph-name) { height: 100%; object-fit: none; object-position: left center; }
+::view-transition-old(session-morph-dot), ::view-transition-new(session-morph-dot) { height: 100%; object-fit: none; object-position: left center; }
+
+/* サイドバーのワードマーク。原図の余白を切り落とした群れを地に載せずに置き、名前の語尾に原図の手前の札と同じ杏のカーソルを添える。どちらも動かさない。 */
+/* 押すと Home へ行くリンクだが、リンクの青と下線は付けない。
+   開く途中で帯がまだ狭い間は、右の開閉のボタンの手前で切れる。帯が広がるにつれて、名前がボタンの陰から現れる。 */
+.brand { display: flex; align-items: center; gap: calc(var(--u) * 1.75); min-width: 0; overflow: hidden; padding: 0 calc(var(--u) * 1.5); border-radius: var(--r); color: var(--ink); text-decoration: none; }
+.brand:hover { text-decoration: none; }
+/* 開閉のときの揺れは、フックの辺りを中心に回す（views/primitives/sidebarMotion.ts）。 */
+.brand-mark { flex: none; width: 44px; height: 44px; transform-origin: 50% 10%; }
+.brand-word { font-size: var(--fs-lg); font-weight: 720; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
+.brand-word::after { content: ''; display: inline-block; width: calc(var(--u) * 2.5); height: 3px; margin-left: 2px; border-radius: 1.5px; background: #ffb86b; }
+
+/* ナビ。選択中の項目は、ガラスの上に錠剤が浮く。 */
+/* ナビの項目。閉じた帯と同じ 18px のアイコンにして、開閉しても大きさの調子が変わらないようにする。
+   文字は 14px にする。日本語の項目名は字面が四角く詰まるので、15px（--fs-md）では本文やパンくずの 13px より目立ちすぎる（試作は specs/2026-09-29-ui-refresh/sidebar-type.html）。 */
+.nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 calc(var(--u) * 3); margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border: 0; border-radius: var(--r-pill); background: none; width: 100%; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.nav-item:hover { background: rgba(255, 255, 255, 0.5); }
+.nav-item[aria-current='page'] { color: var(--ink); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.nav-item svg { width: 18px; height: 18px; }
+.nav-label { white-space: nowrap; transform-origin: 0 0; }
+
+/* 折りたたんだサイドバー（⌘B、サイドバーの開閉のボタン）。アイコンだけの細い帯に縮む。
+   開閉の動きは views/primitives/sidebarMotion.ts が、ここにある 2 つの形の差を埋めて作る。
+   図と名前（Hangar_）は流れから外して隠し、開閉のボタンがその場所（帯の一番上）に来る。項目名は、乗せたときとキーボードで届いたときに出る吹き出しになる。リンクの名前は項目名のまま残る。
+   吹き出しは帯の外へ出るので、帯は中身を切らない。動いている間だけ切り、薄れていく図と項目名が本文の上にはみ出さないようにする。 */
+.shell[data-sidebar='collapsed'] { grid-template-columns: calc(var(--sidebar-rail-w) + var(--float-gap)) minmax(0, 1fr); }
+.shell[data-sidebar='collapsed'] .sidebar { --item: 40px; padding: calc(var(--u) * 1.5); overflow: visible; }
+.shell[data-sidebar='collapsed'] .sidebar-top { margin-bottom: calc(var(--u) * 1); }
+.shell[data-sidebar='collapsed'] .btn.sidebar-toggle { width: var(--item); height: var(--item); padding: 0 calc(var(--u) * 2.75); border-radius: var(--r-lg); }
+.shell[data-sidebar='collapsed'] .sidebar .btn.sidebar-toggle:hover { background: rgba(255, 255, 255, 0.5); }
+.shell[data-sidebar='collapsed'] .toggle-tip { top: 50%; right: auto; left: calc(var(--item) + var(--u) * 3); translate: 0 -50%; }
+.shell[data-sidebar-moving] .sidebar { overflow: hidden; }
+.shell[data-sidebar='collapsed'] .brand { position: absolute; visibility: hidden; pointer-events: none; }
+/* 項目の中の位置は、箱の幅に左右されない値で置く。動きの途中は箱の幅が変わるので、中央寄せや 100% で置くと、アイコンと吹き出しが幅に引きずられる。 */
+.shell[data-sidebar='collapsed'] .nav-item { position: relative; width: var(--item); height: var(--item); padding: 0 calc(var(--u) * 2.75); margin: 0 0 calc(var(--u) * 1); border-radius: var(--r-lg); }
+.shell[data-sidebar='collapsed'] .nav-label { position: absolute; left: calc(var(--item) + var(--u) * 3); top: 50%; translate: 0 -50%; padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
+.shell[data-sidebar='collapsed'] .nav-item:hover .nav-label, .shell[data-sidebar='collapsed'] .nav-item:focus-visible .nav-label { opacity: 1; visibility: visible; }
+/* 閉じる動きの間、項目名は吹き出しの地を持たず、開いた帯のときの文字のまま薄れる。 */
+.shell[data-sidebar-moving] .nav-label { padding: 0; background: none; color: inherit; font-size: inherit; font-weight: inherit; }
+
+/* ボタンと入力。ボタンは錠剤の形で、主ボタンだけ上から下へ淡いグラデーションを持つ。 */
+.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.btn:hover { background: var(--surface); box-shadow: inset 0 1px 0 #ffffff, 0 3px 10px -2px rgba(30, 40, 90, 0.2); }
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
+.btn-primary:hover { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); filter: brightness(1.04); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.input { height: var(--row-h); padding: 0 calc(var(--u) * 2.5); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); outline: none; }
+.select { height: var(--row-h); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); padding: 0 var(--u); }
+
+/* 一覧 */
+.list { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.list-scroll { overflow: auto; }
+.row { display: grid; align-items: center; height: var(--row-h); padding: 0 calc(var(--u) * 3); border-bottom: 1px solid var(--line); gap: calc(var(--u) * 3); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); white-space: nowrap; }
+.row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+.row[aria-selected='true'] { background: var(--accent-soft); }
+.row-head { font-size: var(--fs-xs); color: var(--ink-3); cursor: default; }
+.row-head:hover { background: transparent; }
+.cell { overflow: hidden; text-overflow: ellipsis; }
+.cell-right { text-align: right; }
+
+/* カード */
+.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(var(--u) * 3); }
+.card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); padding: calc(var(--u) * 3); display: flex; flex-direction: column; gap: var(--u); cursor: pointer; transition: box-shadow var(--dur) var(--ease-out); min-width: 0; }
+.card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
+.card-title { font-weight: 600; font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 状態点 */
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); transition: background var(--dur) var(--ease-out); vertical-align: middle; }
+.dot[data-status='busy'] { background: var(--busy); }
+.dot[data-status='idle'] { background: var(--idle); }
+.dot[data-status='waiting'] { background: var(--waiting); }
+
+/* 見出しと区画 */
+.h1 { font-size: var(--fs-lg); font-weight: 650; letter-spacing: -0.01em; margin: 0 0 calc(var(--u) * 3); }
+.h2 { font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; margin: calc(var(--u) * 5) 0 calc(var(--u) * 2); }
+.section-head { display: flex; align-items: baseline; gap: calc(var(--u) * 2); }
+.empty { padding: calc(var(--u) * 8); text-align: center; color: var(--ink-2); }
+
+/* 折りたたみ */
+.fold { border-bottom: 1px solid var(--line); }
+.fold-head { display: flex; align-items: center; gap: var(--u); height: var(--row-h); cursor: pointer; }
+.fold-arrow { display: inline-flex; align-items: center; transition: transform var(--dur) var(--ease-out); }
+.fold[open] .fold-arrow { transform: rotate(90deg); }
+
+/* トランスクリプト */
+/* 高さは CSS だけで決める。実行中の画面では .tr-pane の側が上書きしてペーンに追随する。 */
+.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); height: calc(100vh - 270px); overflow: auto; padding: calc(var(--u) * 2) 0; }
+.msg { max-width: 80ch; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); white-space: pre-wrap; word-break: break-word; }
+.msg-user { background: var(--accent); color: var(--accent-ink); align-self: flex-end; border-bottom-right-radius: 5px; }
+.msg-assistant { background: var(--surface-2); align-self: flex-start; border-bottom-left-radius: 5px; }
+.msg-thinking { color: var(--ink-3); font-style: italic; align-self: flex-start; }
+.msg-system { color: var(--ink-3); font-size: var(--fs-xs); align-self: center; }
+.tool { border-left: 2px solid var(--line-strong); padding-left: calc(var(--u) * 2); }
+/* 畳んだ行は高さが決まっているので、要約は 1 行で切る。矢印と時刻は縮めず、削るのは要約の側だけにする。 */
+.tool .fold-head { color: var(--ink-2); }
+.tool .fold-head > * { flex: none; }
+.tool .fold-head > .tool-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-body { white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow: auto; background: var(--surface-2); padding: calc(var(--u) * 2); border-radius: var(--r); }
+.tool-error { border-left-color: var(--error); }
+/* 本文の Markdown。.msg は pre-wrap なので、段落と箇条書きは地の文のままで読める。 */
+.msg strong, .md-heading { font-weight: 650; }
+.msg code { font-family: var(--font-mono); font-size: 0.9em; padding: 0 3px; border-radius: 4px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.md-code { margin: calc(var(--u) * 1.5) 0; padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: color-mix(in srgb, var(--ink) 6%, transparent); font: var(--fs-xs)/1.55 var(--font-mono); white-space: pre; overflow-x: auto; }
+.sub { margin-left: calc(var(--u) * 4); border-left: 1px dashed var(--line-strong); padding-left: calc(var(--u) * 3); }
+.new-banner { position: sticky; bottom: var(--u); align-self: center; }
+
+/* 実行していないセッションでは、切替と会話を 1 枚の白い読む面に載せる。 */
+.tr-sheet { padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+
+/* ヘッダーの要素 */
+.crumbs { display: flex; gap: var(--u); color: var(--ink-2); white-space: nowrap; }
+.crumbs b { color: var(--ink); font-weight: 500; }
+/* 検索欄はヘッダの錠剤の中の、ひと回り小さな錠剤。右の余白は、内側に重ねる ⌘K の印の分。 */
+.search-box { flex: 1; max-width: 420px; height: calc(var(--row-h) - 2px); border-color: transparent; border-radius: var(--r-pill); padding: 0 calc(var(--u) * 13) 0 calc(var(--u) * 3); background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.12); }
+.search-kbd { margin-left: calc(var(--u) * -13); width: calc(var(--u) * 9); flex: none; pointer-events: none; font: var(--fs-xs)/1 var(--font-mono); color: var(--ink-3); }
+.spacer { flex: 1; }
+
+/* 切断の帯。浮いたヘッダの下に降りてきて、押せる逃げ道をひとつ添える。通知と同じガラスに、赤を少し混ぜる。
+   高さは row-h に決め打ちし、上下の余白は持たない。中身の上の余白（.shell:has(.conn-banner) .main）はこの高さから計算している。
+   中の小さいボタン（.btn-sm）は row-h より 6px 低いので、上下に 3px ずつ残って収まる。 */
+.conn-banner { grid-column: 2; grid-row: 2; z-index: 2; display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; padding: 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur) var(--ease-out); }
+.conn-retry { color: color-mix(in srgb, var(--error) 70%, var(--ink-3)); }
+/* 幅が足りないときは、折り返して帯の高さを変える代わりに、文言を省略記号で縮める。
+   「接続が切れています」の見出しは縮めず、次の再接続までの秒数から先に縮める。
+   再接続のボタン（.btn）は flex: none で、どの幅でも押せる。 */
+.conn-banner > b, .conn-banner > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-banner > b { flex: none; }
+.conn-banner > .conn-retry { flex-shrink: 4; }
+.conn-banner .btn { margin-left: auto; flex: none; }
+@keyframes drop-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+
+/* オーバーレイ */
+.overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 18%, transparent); display: grid; place-items: center; z-index: 10; }
+.dialog { border-radius: 18px; background: var(--glass-bg-dialog); -webkit-backdrop-filter: var(--glass-blur-dialog); backdrop-filter: var(--glass-blur-dialog); box-shadow: var(--glass-edge), var(--glass-drop-lg); padding: calc(var(--u) * 5); width: 480px; max-width: calc(100vw - 32px); animation: pop var(--dur) var(--ease-out); display: flex; flex-direction: column; gap: calc(var(--u) * 3); }
+@keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+.toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; gap: var(--u); z-index: 20; }
+.toast { background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; }
+.toast[data-level='error'] { background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); color: var(--error); }
+@keyframes slide { from { opacity: 0; transform: translateX(16px); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+.progress { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* ヘッダの畳み方（窓が狭いとき）。窓ではなくヘッダ自身の幅で決める。サイドバーの開閉でもヘッダの幅は変わるからである。
+   狭くなるほど、①最終更新 → ②同期の操作 → ③ゲージの棒（短い名前と数字だけに） → ④検索欄（虫眼鏡に）、同期の文、索引の進み
+   → ⑤パンくずの前の段 → ⑥新規セッションの文字（「＋」だけに）と同期の件数 → ⑦ゲージ、の順に畳む。
+   畳んだ操作は、同期の文なら設定、検索欄ならパレットから届く。新規セッションは最後まで縮めない。
+   ヘッダを大きさの入れ物にする指定（container）は、.header の規則の中に書いている。 */
+.header .crumbs { flex: 0 1 auto; min-width: 0; }
+.header .crumb { display: flex; min-width: 0; }
+.header .crumb-prev { flex: none; }
+/* 今いる名前は、どれだけ狭くても頭の 3 文字ほどは見せる。 */
+.header .crumb-last b, .header .crumb-last a { min-width: 3em; overflow: hidden; text-overflow: ellipsis; }
+.header .crumb-sep { flex: none; white-space: pre; }
+.header .search-box { min-width: 140px; }
+.header .btn.new-session { flex: none; }
+.header .btn.search-icon { display: none; flex: none; justify-content: center; width: var(--row-h); padding: 0; color: var(--ink-2); background: none; box-shadow: none; }
+.header .btn.search-icon:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
+/* 同期の操作は地を持たない文字のボタンにし、主ボタン（新規セッション）だけが面を持つ。
+   同期と使用率の前には細い仕切りを置き、横にも塊ごとの間を見せる。 */
+.header .sync-action { color: var(--ink-2); background: none; box-shadow: none; }
+.header .sync-action:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
+.header .sync, .header .gauges { position: relative; padding-left: calc(var(--u) * 4.5); }
+.header .sync::before, .header .gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: calc(var(--u) * 4); translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+.header .gauge-key { display: none; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
+/* ゲージと同期の見た目は workbench.css と sync.css が後から読み込まれて決める。
+   コンテナクエリの中の規則は詳細度が上がらないので、どれも .header から書いて、後に読まれる規則に負けないようにする。 */
+@container header (max-width: 1080px) { .header .gauge-updated { display: none; } }
+@container header (max-width: 980px) { .header .sync-action { display: none; } }
+@container header (max-width: 880px) { .header .gauge-bar { display: none; } .header .gauge-key { display: inline; } .header .gauge-num { min-width: 0; } }
+@container header (max-width: 780px) { .header .search-box, .header .search-kbd, .header .progress, .header .sync-label { display: none; } .header .btn.search-icon { display: inline-flex; } }
+@container header (max-width: 680px) { .header .crumb-prev { display: none; } .header .crumbs::before { content: '…'; flex: none; color: var(--ink-3); } }
+@container header (max-width: 580px) { .header .new-session .btn-label, .header .sync-count { display: none; } .header .btn.new-session { justify-content: center; width: var(--row-h); padding: 0; } }
+@container header (max-width: 500px) { .header .gauges { display: none; } }
+
+/* 起動ダイアログの入力欄 */
+.field { display: flex; flex-direction: column; gap: var(--u); font-size: var(--fs-sm); color: var(--ink-2); }
+.field .input, .field .select { color: var(--ink); }
+.field textarea.input { height: auto; padding: var(--u) calc(var(--u) * 2); resize: vertical; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--u) * 2); }
+.dialog-wide { width: 560px; }
+.dialog-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+.error { color: var(--error); font-size: var(--fs-sm); }
+
+/* タブは端末の板から生えたフォルダの耳。選んだタブは板と同じ墨色になり、板とつながる。
+   帯と板の間には線も隙間も置かない。 */
+.tabs { display: flex; align-items: flex-end; gap: 3px; height: var(--row-h); }
+.tab { display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 3); height: var(--row-h); border-radius: var(--r) var(--r) 0 0; background: rgba(255, 255, 255, 0.55); cursor: pointer; color: var(--ink-2); transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.tab:hover { background: rgba(255, 255, 255, 0.85); }
+.tab-selected, .tab-selected:hover { color: var(--term-fg); background: var(--term-bg); }
+.tab-close, .tab-add { display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; height: calc(var(--u) * 5); width: calc(var(--u) * 5); border-radius: var(--r); }
+.tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
+.tab-selected .tab-close { color: var(--term-fg); }
+.tab-selected .tab-close:hover { color: var(--term-fg); background: rgba(255, 255, 255, 0.12); }
+.split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 250px); transition: grid-template-columns var(--dur) var(--ease-out); }
+/* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
+   xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
+   閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */
+.term-pane { position: relative; isolation: isolate; display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--term-lift); transition: box-shadow var(--dur) var(--ease-out); }
+/* 縁の灯。そのセッションの状態で 1.5px の輪と、外側の淡い光を灯す。
+   作業中だけ --breathe-period でゆっくり明暗を往復し、入力待ちは動かさない。休みと終了は灯さず、板を持ち上げる影だけにする。 */
+.term-pane[data-live='busy'] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 90%, transparent), 0 0 22px -2px color-mix(in srgb, var(--busy) 45%, transparent), var(--term-lift); animation: rim-breathe var(--breathe-period) ease-in-out infinite; }
+.term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
+@keyframes rim-breathe { 50% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 55%, transparent), 0 0 12px -4px color-mix(in srgb, var(--busy) 25%, transparent), var(--term-lift); } }
+@media (prefers-reduced-motion: reduce) { .term-pane[data-live='busy'] { animation: none; } }
+/* 耳の下の板は、左上だけを角張らせて耳とつなぐ。分割しているときは左の板をつなぐ。 */
+.tabs + .split > .term-pane, .tabs + .split > .split-h > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
+.term-host { flex: 1; min-height: 0; padding: var(--u); }
+.term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
+.term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }
+.term-status-error { color: var(--error); opacity: 1; }
+/* 会話の列は白い読む面にする。 */
+.tr-pane { min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
+.tr-pane .tr { height: auto; flex: 1; }
+/* 畳んだ列は 28px しかなく、開くボタンも同じ幅である。左右の余白を残すと、ボタンの半分ほどが隠れて押しにくくなる。 */
+.tr-pane[data-collapsed='true'] { padding: calc(var(--u) * 2) 0; }
+.tr-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: calc(var(--u) * 7); border: 0; background: transparent; cursor: pointer; color: var(--ink-2); height: var(--row-h); align-self: flex-start; }
+.tr-pane .turns .tr-toggle { margin-left: calc(var(--u) * -2); }
+
+/* ターンの目次。見出しと「最新へ」は動かさず、間の一覧だけがスクロールする。 */
+.turns { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.turns-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); flex: none; font-size: var(--fs-sm); }
+.turns-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: var(--u) 0; }
+.turns-more { align-self: center; flex: none; margin-bottom: calc(var(--u) * 2); }
+.turn { flex: none; border-radius: var(--r); }
+.turn[data-open='true'] { background: var(--surface-2); }
+.turn-row { display: flex; align-items: baseline; gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border: 0; border-radius: var(--r); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.turn-row:hover { background: var(--surface-2); }
+.turn[data-open='true'] > .turn-row { background: var(--accent-soft); color: var(--accent); font-weight: 560; }
+.turn-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.turn-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-tools { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.turn-body { display: flex; flex-direction: column; max-height: 55vh; overflow: auto; padding: calc(var(--u) * 2) calc(var(--u) * 2) var(--u); }
+.turn-body .msg { max-width: 100%; }
+.turn-note { margin-bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--ink-2); }
+.turns-foot { display: flex; justify-content: flex-end; flex: none; padding-top: calc(var(--u) * 2); border-top: 1px solid var(--line); }
+
+/* アイコン。大きさと線幅は Icon.tsx が決める。色は置かれた場所の文字色に従う。 */
+.icon { flex: none; }
+
+/* プロジェクトのステータス。色は data-status からトークンを引く。文字でも状態を示しているので、色は補助である。 */
+/* ステータスの札。Listbox の顔として、文字、その右の丸、矢印を描く。 */
+.status-host { display: inline-flex; flex: none; }
+.status-pill { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 2); border: 0; border-radius: var(--r-pill); font: inherit; font-weight: 500; cursor: pointer; color: var(--st-archived); background: var(--st-archived-soft); transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out); }
+.status-pill[data-status='active'] { color: var(--st-active); background: var(--st-active-soft); }
+.status-pill[data-status='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.status-pill[data-status='done'] { color: var(--st-done); background: var(--st-done-soft); }
+.status-pill[data-status='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
+.status-pill:hover { filter: brightness(0.97); }
+.status-pill[aria-expanded='true'] > .icon:last-child { transform: rotate(180deg); }
+.status-pill > .icon:last-child { transition: transform var(--dur-fast) var(--ease-out); }
+.st-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.st-dot[data-status='active'] { background: var(--st-active); }
+.st-dot[data-status='paused'] { background: var(--st-paused); }
+.st-dot[data-status='done'] { background: var(--st-done); }
+.st-dot[data-status='archived'] { background: var(--st-archived); }
+.h2 .st-dot { margin-right: calc(var(--u) * 2); vertical-align: middle; position: relative; top: -1px; }
+
+/* スワイプの矢印。ブラウザの手勢と同じで、払うほど端から出てくる。
+   --swipe-ratio が 0 から 1 へ動き、動いた時点で data-done が付いてすっと消える。 */
+.swipe-hint { position: fixed; top: 50%; z-index: 30; display: none; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 2px 10px color-mix(in srgb, var(--ink) 16%, transparent); color: var(--ink-2); pointer-events: none; }
+.swipe-hint[data-dir] { display: grid; }
+.swipe-hint[data-dir='back'] { left: 0; transform: translate(calc(-50% + var(--swipe-ratio, 0) * 44px), -50%) }
+.swipe-hint[data-dir='back'] svg { transform: rotate(180deg); }
+.swipe-hint[data-dir='forward'] { right: 0; transform: translate(calc(50% - var(--swipe-ratio, 0) * 44px), -50%); }
+.swipe-hint[data-armed='true'] { border-color: var(--accent); color: var(--accent); }
+.swipe-hint[data-done='true'] { opacity: 0; transition: opacity var(--dur-exit) var(--ease-in); }
+
+/* 使用量ゲージ、TODO、メモ、アーティファクト、プロジェクト画面の右レール（Task 22） */
+
+/* 使用量ゲージ。幅 48px、高さ 6px の棒で、80% 以上は警告色にする。 */
+.gauges { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
+.gauge { display: inline-flex; align-items: center; gap: var(--u); }
+.gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
+.gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); transition: width var(--dur) var(--ease-out), background var(--dur) var(--ease-out); }
+.gauge-fill[data-high='true'] { background: var(--waiting); }
+/* 行の高さを数字の枠（.roll の 1.2em）に揃える。本文の 1.5 のままだと、枠が行の下端に寄って数字が 3px ほど下がり、下端も欠ける。 */
+.gauge-num { font-size: var(--fs-xs); line-height: 1.2em; color: var(--ink-3); min-width: 32px; }
+.gauge-updated { font-size: var(--fs-xs); white-space: nowrap; }
+
+/* 数字の縦回転。古い値を上へ、新しい値を下から上へ動かす。 */
+.roll { position: relative; display: inline-block; overflow: hidden; height: 1.2em; vertical-align: bottom; }
+.roll-old { position: absolute; inset: 0; }
+.roll-new { display: block; }
+.roll[data-rolling='true'] .roll-old { animation: roll-up var(--dur) var(--ease-out) forwards; }
+.roll[data-rolling='true'] .roll-new { animation: roll-in var(--dur) var(--ease-out); }
+@keyframes roll-up { to { transform: translateY(-1.2em); opacity: 0; } }
+@keyframes roll-in { from { transform: translateY(1.2em); } }
+
+/* TODO。完了は打消し線で同じ並びに残す。 */
+.todos { display: flex; flex-direction: column; gap: var(--u); }
+.todo-list { list-style: none; margin: 0; padding: 0; }
+.todo { display: flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); }
+.todo-text { position: relative; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--dur) var(--ease-out); }
+/* 済んだ項目は、文字に線が左から引かれて薄くなる。 */
+.todo-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1px; background: var(--ink-3); transition: width var(--dur) var(--ease-out); }
+.todo[data-done='true'] .todo-text { color: var(--ink-3); }
+.todo[data-done='true'] .todo-text::after { width: 100%; }
+.todo-check { display: grid; flex: none; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; color: #ffffff; background: none; box-shadow: inset 0 0 0 1.5px #c3c5d6; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.todo-check svg { width: 12px; height: 12px; stroke-width: 3; stroke-dasharray: 24; stroke-dashoffset: 24; transition: stroke-dashoffset var(--dur) var(--ease-out); }
+.todo-check:active { transform: scale(0.88); }
+.todo-check[aria-checked='true'] { background: var(--st-done); box-shadow: none; }
+.todo-check[aria-checked='true'] svg { stroke-dashoffset: 0; }
+.todo-del { margin-left: auto; visibility: hidden; padding: 0 calc(var(--u) * 1.5); }
+.todo:hover .todo-del, .todo:focus-within .todo-del { visibility: visible; }
+/* 完了の候補。行の地を淡い紫にし、欄は半分塗り。根拠と出したセッションと 2 つのボタンを行の下に置く。 */
+.todo-item[data-candidate='true'] { margin: 2px calc(var(--u) * -1); padding: var(--u) var(--u) calc(var(--u) * 2); border-radius: var(--r); background: var(--cand-soft); }
+.todo-check[data-candidate='true'] { box-shadow: inset 0 0 0 1.5px var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); }
+.todo-check[data-candidate='true']:focus-visible { outline: 2px solid var(--cand); outline-offset: 2px; }
+.todo-cand { margin-left: calc(18px + var(--u) * 1.5); display: flex; flex-direction: column; gap: var(--u); }
+/* 淡い紫の地では --ink-3 が 3:1 を割る（2.97:1）ので、「· 12 分前」の薄字は --ink-2 に上げる。 */
+.todo-cand .faint { color: var(--ink-2); }
+.todo-why { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; }
+.todo-src { font-size: var(--fs-xs); color: var(--ink-2); }
+.todo-src-link { padding: 0; border: 0; background: none; font: inherit; color: var(--cand); cursor: pointer; }
+.todo-src-link:hover { text-decoration: underline; }
+.todo-acts { display: flex; gap: var(--u); }
+
+/* 右レールの一行の追加欄。入力が伸び、ボタンは縮まない。 */
+.rail-add { display: flex; gap: var(--u); }
+.rail-add .input { flex: 1; min-width: 0; }
+.rail-add .btn { flex: none; }
+
+/* メモ。保存は右端に置き、外部の更新の知らせは左に並べる。 */
+.memo-area { width: 100%; resize: vertical; }
+.memo-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+
+/* アーティファクトのカード。右レールでは 1 列に積む。 */
+.artifacts { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.artifact { cursor: pointer; padding: calc(var(--u) * 2); }
+.artifact-head { display: flex; align-items: center; gap: calc(var(--u) * 1.5); min-width: 0; }
+.artifact-favicon { flex: none; }
+.artifact-head .card-title { flex: 1; font-size: var(--fs); min-width: 0; }
+.artifact-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+
+/* プロジェクト画面。右レールは 280px で、隠すと本体が全幅になる。 */
+.project-screen { display: grid; grid-template-columns: 1fr 280px; gap: calc(var(--u) * 4); }
+.project-screen[data-rail='closed'] { grid-template-columns: 1fr; }
+.project-main { min-width: 0; }
+.project-head { display: flex; align-items: center; gap: calc(var(--u) * 3); margin-bottom: var(--u); }
+.project-path { margin-bottom: calc(var(--u) * 3); }
+.rail { display: flex; flex-direction: column; gap: calc(var(--u) * 4); min-width: 0; }
+/* 右レールの TODO、メモ、アーティファクトは、白い読む面に載せる。 */
+.rail-panel { padding: calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.rail-panel > .h2:first-child { margin-top: 0; }
+/* 白い面の中のアーティファクトのカードは、淡い地に落として、面の上に面を重ねない。 */
+.rail-panel .artifact { background: var(--surface-2); box-shadow: none; }
+.rail-panel .artifact:hover { background: color-mix(in srgb, var(--accent) 5%, var(--surface-2)); box-shadow: none; }
+
+/* プロジェクトのカードは FLIP のために 1 枚ずつ器に入れる。器は格子の升目いっぱいに広がる。 */
+.card-slot { display: flex; min-width: 0; }
+.card-slot > .card { flex: 1; min-width: 0; }
+.card-memo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-foot { display: flex; }
+
+/* タブの分割（Task 23） */
+
+/* 幅は grid のトラックで持ち、仕切りは 6px の掴める帯にする。
+   高さは外側から受け取る。フェーズ 2 の .split（ターミナルとトランスクリプトの 2 列）の
+   左の列に入るので、100% でその高さをそのまま受け継ぐ。
+   既存の .split は上書きしない。 */
+.split-h { display: grid; height: 100%; min-height: 0; transition: grid-template-columns var(--dur) var(--ease-out); }
+/* 掴んでいる間は transition を切る。
+   実測（Chrome、幅 1000px、0.5 から 0.3 へ）では、transition があると 21ms で 418px、73ms で 317px と遅れ、
+   目的の 298px に届くのは 154ms 後だった。transition なしでは 21ms の時点で 298px である。 */
+.split-h[data-dragging='true'] { transition: none; }
+/* 枠は外側の光（端末の縁の灯）を切らないように overflow を見せたままにする。はみ出す中身は、中の .term-pane が自分で切る。 */
+.split-pane { min-width: 0; min-height: 0; overflow: visible; display: flex; flex-direction: column; }
+.split-pane > .term-pane { flex: 1; min-height: 0; }
+.split-divider { cursor: col-resize; background: var(--line); transition: background var(--dur) var(--ease-out); }
+.split-divider:hover { background: var(--line-strong); }
+/* base.css の :focus-visible（--accent の 2px の輪郭、offset 1px）を消さない。
+   帯そのものも --accent で塗り、輪郭との間の 1px を --surface で抜く。
+   こうすると、左が暗いターミナル（--term-bg）でも右が白い面でも、隣り合う色との差が 3:1 を超える。
+   --accent #4a63e8 と --surface #ffffff の比は 4.95:1、--line #eceef5 からの変化の比は 4.27:1 である。 */
+.split-divider:focus-visible { background: var(--accent); box-shadow: 0 0 0 1px var(--surface); }
+
+/* セッションヘッダーのコンテキスト使用率と、アーティファクトの帯と、タブ列の分割ボタン。 */
+.gauge-wrap { display: inline-flex; align-items: center; gap: 4px; }
+/* 未取得のときに Settings へ導く 1 行。行の他の文字と同じ大きさで、色だけ --accent にする。 */
+.hint-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.session-artifacts { padding: 4px 0; }
+.tab-action { padding: 0 6px; }
+
+/* トランスクリプトの仮想スクロール（フェーズ 3 の繰り越し） */
+/* 窓の外にある行の高さは .tr-rows の上下の余白で持つ。
+   base.css の .tr は gap で行を離しているが、gap は測った高さに入らないので、
+   間隔を行の器の下余白に移し、offsetHeight がそのまま行の占める高さになるようにする。
+   .msg は align-self で左右と中央に寄るので、器も縦の flex にして寄せ方を保つ。
+   .tr は高さの決まったスクロール箱なので、器が縮まないように flex: none を付ける。 */
+.tr-rows { display: flex; flex-direction: column; flex: none; }
+.tr-row { display: flex; flex-direction: column; flex: none; padding-bottom: calc(var(--u) * 2); }
+
+/* セッション行の 1 行メモ（Task 24） */
+
+/* 一覧そのものがフォーカスを受ける。
+   j と k は一覧にフォーカスがあるときだけ効くので、当たっていることが見えないと「効かない」と受け取られる。
+   base.css の :focus-visible とは詳細度が並ぶため、ここで blanket に outline: none と書くと輪郭ごと消えてしまう。 */
+.rows-host:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--r);
+}
+
+/* マウスで押しただけのときは輪郭を出さない。 */
+.rows-host:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* カーソルの行。フォーカスの枠とは別の表し方にして、両方が同時に出ても読めるようにする。 */
+.row[data-cursor='true'] {
+  background: var(--accent-soft);
+}
+
+.memo-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.memo-cell .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memo-input {
+  height: 22px;
+  width: 100%;
+  padding: 0 4px;
+}
+
+/* 鉛筆は行にポインタが乗るか、行の中に焦点があるときだけ出す。 */
+.memo-pencil {
+  visibility: hidden;
+  padding: 0 4px;
+  font-size: var(--fs-xs);
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.row:hover .memo-pencil,
+.row:focus-within .memo-pencil {
+  visibility: visible;
+}
+
+/* 2 段の行（UI 刷新 2 回目）。1 段目に名前、2 段目に要約か抜粋。右端は画面の役目で変える（SessionRows の variant）。
+   高さは --session-row-h で持ち、SessionRows の SESSION_ROW_H と揃える（rows.test.ts）。
+   1 段の部品の --row-h（28px）とは別の値である。 */
+.row-2 { grid-template-columns: 16px minmax(0, 1fr) auto; gap: calc(var(--u) * 4); height: var(--session-row-h); padding: 0 calc(var(--u) * 5); }
+.row-main { display: flex; flex-direction: column; justify-content: center; gap: var(--u); min-width: 0; }
+.row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 560; }
+.row-proj { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
+.row-sub { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; height: calc(var(--u) * 5); font-size: var(--fs-sm); color: var(--ink-2); }
+.row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row-memo { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+/* project 変種の 2 段目は鉛筆（.btn、既定で --row-h = 28px）を持つ。1 行分の高さ（20px）に縮め、行の外にはみ出さないようにする。 */
+.row-sub .memo-pencil { height: calc(var(--u) * 5); padding: 0 var(--u); flex: none; }
+.row-sub .memo-input { height: calc(var(--u) * 5); flex: 1; }
+.row-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--u); font-size: var(--fs-xs); color: var(--ink-3); }
+.row-meta { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
+/* 一致した語の印。淡い黄の地だけを敷き、文字の色は周りのまま（読みやすさを落とさない）。 */
+.hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }
+
+/* セッション一覧の画面。画面の縁は .main-inner の余白に足して 28px にし、見出し・検索欄・絞り込み・一覧の間を段ごとに広げる。
+   一覧の高さ（SessionsScreen の LIST_H）は、この余白と見出しの高さから出している。 */
+.sessions-screen { padding: calc(var(--u) * 5) calc(var(--u) * 3) calc(var(--u) * 3); }
+.sessions-head { display: flex; align-items: baseline; gap: calc(var(--u) * 2.5); margin: 0 0 calc(var(--u) * 4); }
+.sessions-count { font-weight: 400; }
+.sessions-keyword { display: flex; margin-bottom: calc(var(--u) * 3.5); }
+.sessions-keyword .input { flex: 1; }
+.sessions-filters { display: flex; align-items: center; gap: calc(var(--u) * 3); margin-bottom: calc(var(--u) * 5); }
+
+/* Home（管制盤）。上から要対応、実行中、最近とプロジェクト（試作の 3-b）。
+   どの札も白い不透明な読む面で、ぼかしは掛けない。 */
+.home-label { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 5) 0 calc(var(--u) * 2) var(--u); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.home > section:first-child > .home-label, .home > .home-two:first-child .home-label { margin-top: 0; }
+.home-count { font-weight: 500; color: var(--ink-3); }
+
+/* 要対応の札。入力待ちの色を縁に薄く混ぜ、横長に 1 件 1 枚で積む。問いは 1 行に収め、溢れたら省略する。 */
+.ask-card { display: flex; align-items: center; gap: calc(var(--u) * 3); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); margin-bottom: calc(var(--u) * 2); border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 0 0 1px color-mix(in srgb, var(--waiting) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--waiting) 40%, transparent); }
+.ask-body { flex: 1; min-width: 0; }
+.ask-title, .ask-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-title b { font-weight: 600; }
+.ask-q { margin-top: 2px; color: var(--ink-2); }
+.ask-card .btn { flex: none; }
+/* 確かめるの行。要対応の札と同じ形で、縁の色だけを候補の色にする。 */
+.confirm-card { box-shadow: 0 0 0 1px color-mix(in srgb, var(--cand) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--cand) 40%, transparent); }
+.cand-mark { flex: none; width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); }
+.confirm-open { padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.confirm-open:hover b { text-decoration: underline; }
+
+/* 実行中の札。3 列に並べ、いま何をしているかを墨の地の 1 行で見せる。 */
+.live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(var(--u) * 2.5); }
+.live-card { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); min-width: 0; padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); cursor: pointer; transition: box-shadow var(--dur) var(--ease-out); }
+.live-card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
+.live-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.live-head { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-weight: 600; }
+.live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-elapsed { flex: none; font-weight: 500; color: var(--ink-2); }
+.live-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
+.live-act { padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: var(--r); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); background: var(--term-bg); color: var(--term-fg); }
+.live-act i { font-style: normal; color: var(--term-tool); }
+.live-note { color: color-mix(in srgb, var(--term-fg) 60%, var(--term-bg)); }
+.live-ctx { display: flex; align-items: center; gap: calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-3); }
+.live-ctx .gauge-bar { flex: 1; width: auto; }
+
+/* 最近とプロジェクトを 1.6 対 1 で横に並べる。 */
+.home-two { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: calc(var(--u) * 2.5); align-items: start; }
+/* 最近と同じ高さで頭打ちにし、溢れた分は一覧の中でスクロールする。 */
+.pj-list { overflow-y: auto; }
+.pj-row { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: var(--session-row-h); padding: 0 calc(var(--u) * 5); border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.pj-row:last-child { border-bottom: 0; }
+.pj-row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+.pj-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-counts { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+/* 点の色はプロジェクトのステータスの色（--st-*）。 */
+.pj-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--st-archived); }
+.pj-dot[data-status='active'] { background: var(--st-active); }
+.pj-dot[data-status='paused'] { background: var(--st-paused); }
+.pj-dot[data-status='done'] { background: var(--st-done); }
+
+/* セッション画面の上段とチップの列（UI 刷新 3 回目）。 */
+
+/* 上段。状態の点、名前、要約の 1 文、操作を 1 行に置く。
+   窓が狭いときは要約の 1 文から縮め、名前と操作のボタンは縮めない。 */
+.session-hero { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; }
+.session-hero .btn { flex: none; }
+.session-name { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; }
+.session-oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+
+/* チップの列。小さな錠剤で並べ、入り切らなければ次の行へ送る。 */
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 2) 0 var(--u); }
+.chip { display: inline-flex; align-items: center; gap: var(--u); height: calc(var(--u) * 5); padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.06); white-space: nowrap; }
+a.chip { color: var(--accent); text-decoration: none; }
+.chip-memo { max-width: 40ch; overflow: hidden; text-overflow: ellipsis; }
+
+/* 細かな事実（cwd、ターン、トークン、時刻、run）は、チップの下に注記の文字で並べる。 */
+.session-facts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 4); margin-bottom: calc(var(--u) * 2); font-size: var(--fs-xs); }
+
+/* コマンドパレットと昇格ダイアログ（Task 25） */
+
+/* パレットは .dialog の器をそのまま使い、ガラスだけを少し濃く、ぼかしを強くする。
+   開く動きは CommandPalette.tsx が、ヘッダの検索欄の錠剤から広げる。.dialog の pop は使わない。
+   広げる計算は左上を原点にするので、transform-origin を 0 0 にする。
+   一覧を縁まで敷き詰めたいので、内側の余白と段の隙間だけを外す。 */
+.palette { width: min(640px, 90vw); padding: calc(var(--u) * 2); gap: 0; background: var(--glass-bg-palette); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); transform-origin: 0 0; animation: none; }
+.palette-input { width: 100%; height: calc(var(--u) * 10); border: none; border-radius: var(--r); background: rgba(255, 255, 255, 0.85); font-size: var(--fs-md); }
+.palette-input:focus { border-color: transparent; box-shadow: none; }
+.palette-list { list-style: none; margin: 0; padding: var(--u) 0 0; max-height: 50vh; overflow: auto; }
+.palette-item { display: grid; grid-template-columns: calc(var(--u) * 22) 1fr auto; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 2.5); border-radius: var(--r); cursor: pointer; }
+.palette-item[data-active='true'] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.palette-kind { font-size: var(--fs-xs); }
+.palette-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: calc(var(--u) * 65); font-size: var(--fs-xs); }
+.palette .empty { padding: calc(var(--u) * 6); }
+
+/* 昇格ダイアログ。見出しのアイコンと、チェックボックスの 1 行。
+   完了のダイアログはボタンが 3 つ並ぶので、480px の器では入り切らず語の途中で折り返していた。
+   器を dialog-wide に広げたうえで、ボタンの中では折り返さず、それでも入らないときはボタンごと次の行へ落とす。 */
+.dialog-title { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.field-row { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.dialog-promote .dialog-foot { flex-wrap: wrap; row-gap: calc(var(--u) * 2); }
+.dialog-promote .btn { white-space: nowrap; }
+
+/* キーの一覧。
+   パレットと同じ幅の列（打鍵、説明）で並べ、群ごとに小さな見出しを置く。 */
+.keys-group { display: flex; flex-direction: column; gap: calc(var(--u) * 0.5); }
+.keys-row { display: grid; grid-template-columns: calc(var(--u) * 22) 1fr; align-items: baseline; gap: calc(var(--u) * 2); padding: calc(var(--u) * 0.5) 0; }
+
+/* Settings の statusline、要約器、使用量（Task 26） */
+
+/* 設定の中身は読む面である。節ごとに白い不透明な面を敷き、光の背景の上に並べる。 */
+.settings-screen > section { padding: calc(var(--u) * 3) calc(var(--u) * 4) calc(var(--u) * 4); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.settings-screen > section + section { margin-top: calc(var(--u) * 3); }
+.settings-screen > section > .h2:first-child { margin-top: 0; }
+
+/* ラベルと入力を横に並べる行。チェックボックスと小さな数値の入力に使う。 */
+/* palette.css の .field-row とは別物なので、設定画面だけの名前にしている。 */
+.settings-row { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); }
+.settings-row .input { color: var(--ink); }
+
+/* 設定の小さな表。行高は一覧と揃える。 */
+.mini { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.mini caption { text-align: left; padding-bottom: 2px; }
+.mini th { text-align: left; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.mini td, .mini th { height: 22px; padding: 0 4px; }
+.mini td.cell-right, .mini th.cell-right { text-align: right; }
+
+/* 端末で実行するコマンドの囲み。 */
+.snippet { margin: calc(var(--u) * 2) 0 0; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 8px; overflow-x: auto; font-size: var(--fs-sm); }
+
+/* スイッチの行は、文を左に、スイッチを右端に置く。 */
+.settings-switch-row { justify-content: space-between; }
+/* 外部の要約器をオンにする前の確かめの帯。 */
+.confirm-strip { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--ink); background: color-mix(in srgb, var(--error) 6%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 30%, transparent); }
+
+/* 同期の一行（ヘッダー）と、セッション画面のロックの札（フェーズ 4） */
+
+/* ヘッダーの真ん中に置く同期の一行。
+   ヘッダーは 1 行の flex なので、幅が足りなくなると子はどれも縮み、
+   日本語は 1 文字ごとに折り返せてしまう（「接続/中」「新規セッショ/ン」のように崩れる）。
+   そこで、この一行の中で縮んでよいのは文言だけにし、縮む役もこの一行が引き受ける。 */
+/* ヘッダーは grid の minmax(0, 1fr) の列に載っている。
+   列は 0 まで縮めるが、grid の子の min-width は既定で中身の min-content である。
+   min-width を外さないと、同期の一行が増えたぶんだけヘッダーが列から横に溢れる。 */
+.header { min-width: 0; }
+.sync { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs-sm); flex: 0 1000 auto; min-width: 0; }
+/* ボタンと「未送信 N」は縮ませない。折り返すとヘッダーの高さ（--header-h）の帯から溢れる。 */
+.sync > * { flex: none; white-space: nowrap; }
+/* 文言だけが縮む。溢れたら省略記号にし、全文は title で読めるようにする。 */
+.sync > .sync-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sync-error { color: var(--error); }
+/* 状態の点。狭いヘッダで文と操作を畳んでも、同期の具合はこれで分かる。 */
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.sync[data-state='pushing'] .sync-dot, .sync[data-state='pulling'] .sync-dot { background: var(--busy); }
+.sync[data-state='paused'] .sync-dot { background: var(--ended); }
+.sync[data-state='error'] .sync-dot { background: var(--error); }
+
+/* ヘッダーの高さに収める小さいボタン。.btn を上書きするので .btn と一緒に付ける。 */
+.btn-sm { height: calc(var(--row-h) - 6px); padding: 0 calc(var(--u) * 2); font-size: var(--fs-sm); }
+
+/* 他端末が握っている間の札。応答が途絶えたら警告の色にする。 */
+.lock { color: var(--accent); }
+.warn { color: var(--waiting); }
+
+/* 選ぶ部品（一覧、切り替えの帯、スイッチ、チップ、カード、増減）。
+   形と値は docs/superpowers/specs/2026-09-29-ui-refresh/choice-controls.html の試作に合わせる。 */
+
+/* スイッチ。押している間は玉が少し横に伸びる。 */
+.switch { position: relative; flex: none; width: 36px; height: 22px; padding: 0; border: 0; border-radius: var(--r-pill); background: #d5d7e3; box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.12); cursor: pointer; transition: background var(--dur) var(--ease-out); }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px rgba(30, 40, 90, 0.3); transition: transform var(--dur) var(--ease-out), width var(--dur-fast) var(--ease-out); }
+.switch:active:not(:disabled)::after { width: 22px; }
+.switch[aria-checked='true'] { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); }
+.switch[aria-checked='true']::after { transform: translateX(14px); }
+.switch[aria-checked='true']:active:not(:disabled)::after { transform: translateX(10px); }
+.switch:disabled { opacity: 0.5; cursor: default; }
+
+/* 一覧の顔。選んだ項目の点、名前、補足、下向きの矢印を描く。 */
+.listbox-face { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; min-width: 0; height: 34px; padding: 0 calc(var(--u) * 2.5) 0 calc(var(--u) * 3); border: 0; border-radius: 10px; text-align: left; cursor: pointer; color: var(--ink); background: rgba(255, 255, 255, 0.85); box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 2px rgba(30, 40, 90, 0.05); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.listbox-face:hover { background: var(--surface); box-shadow: inset 0 0 0 1px #c9cbe0, 0 3px 10px -4px rgba(30, 40, 90, 0.18); }
+.listbox-face[aria-expanded='true'] { background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.listbox-face-value { display: flex; align-items: center; gap: calc(var(--u) * 2); flex: 1; min-width: 0; }
+.listbox-face-label { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.listbox-face-sub { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.listbox-face-placeholder { flex: 1; color: var(--ink-3); }
+.listbox-face > .icon:last-child { flex: none; color: var(--ink-3); transition: transform var(--dur-fast) var(--ease-out); }
+.listbox-face[aria-expanded='true'] > .icon:last-child { transform: rotate(180deg); }
+/* 丸い札の形。一覧の上の絞り込みとサブエージェントで使う。 */
+.listbox-face.listbox-pill { width: auto; height: var(--row-h); border-radius: var(--r-pill); }
+.listbox-face.listbox-pill .listbox-face-value { flex: none; }
+
+/* 開いたときのガラスの面。上から検索欄、行、キーの案内。検索欄と案内は固定し、行だけがスクロールする。 */
+.listbox-pop { position: fixed; z-index: 30; display: flex; flex-direction: column; max-height: 320px; padding: calc(var(--u) * 1.5); border-radius: var(--r-lg); background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); transform-origin: top left; animation: listbox-in var(--dur-fast) var(--ease-out); }
+.listbox-pop[data-up='true'] { transform-origin: bottom left; animation-name: listbox-in-up; }
+@keyframes listbox-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)) scale(0.98); filter: blur(var(--blur-in)); } }
+@keyframes listbox-in-up { from { opacity: 0; transform: translateY(var(--rise)) scale(0.98); filter: blur(var(--blur-in)); } }
+.listbox-search { flex: none; position: relative; z-index: 1; display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 2.5); margin-bottom: var(--u); border-radius: 10px; color: var(--ink-3); background: rgba(255, 255, 255, 0.85); box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow var(--dur-fast) var(--ease-out); }
+/* 行が下をくぐり始めたら、検索欄の下に薄い影を落とす。 */
+.listbox-pop[data-scrolled='true'] .listbox-search { box-shadow: inset 0 0 0 1px var(--line), 0 6px 12px -8px rgba(30, 40, 90, 0.35); }
+.listbox-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ink); }
+.listbox-rows { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; outline: none; }
+.listbox-group-title { padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; font-size: var(--fs-xs); font-weight: 560; color: var(--ink-3); }
+.listbox-opt { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-height: 32px; padding: var(--u) calc(var(--u) * 2.5); border-radius: 10px; cursor: pointer; white-space: nowrap; }
+.listbox-opt[data-active='true'] { background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0 #ffffff, 0 2px 8px -2px rgba(30, 40, 90, 0.16); }
+.listbox-opt-main { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
+.listbox-opt-main b { font-weight: 560; }
+.listbox-opt-main small { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+.listbox-opt-main small[data-kind='prose'] { font-family: var(--font-sans); white-space: normal; }
+.listbox-opt mark { padding: 0 1px; border-radius: 3px; color: inherit; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.listbox-meta { font-size: var(--fs-xs); color: var(--ink-3); }
+.listbox-check { display: inline-flex; color: var(--accent); visibility: hidden; }
+.listbox-opt[aria-selected='true'] .listbox-check { visibility: visible; }
+.listbox-opt[aria-selected='true'] .listbox-opt-main b { color: var(--accent); }
+.listbox-opt[data-danger='true'] .listbox-opt-main b { color: var(--error); }
+.listbox-empty { padding: calc(var(--u) * 2.5); color: var(--ink-3); }
+.listbox-keys { flex: none; display: flex; gap: calc(var(--u) * 3); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; margin-top: var(--u); border-top: 1px solid rgba(30, 40, 90, 0.06); font-size: var(--fs-xs); color: var(--ink-3); }
+.listbox-keys kbd { padding: 0 4px; border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--ink-2); background: rgba(30, 40, 90, 0.06); }
+
+/* 切り替えの帯。白い玉は選んだ項目の下を滑る。 */
+.seg { position: relative; display: inline-flex; flex: none; padding: 3px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.06); }
+.seg > button { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: 22px; max-width: 160px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font-size: var(--fs-sm); font-weight: 520; white-space: nowrap; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
+.seg > button[aria-checked='true'] { color: var(--ink); font-weight: 600; }
+.seg-label { overflow: hidden; text-overflow: ellipsis; }
+.seg-lead { display: inline-flex; align-items: center; }
+.seg-thumb { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 0; width: 0; border-radius: var(--r-pill); background: var(--surface); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.14); }
+.seg[data-ready='true'] .seg-thumb { transition: left var(--dur) var(--ease-out), width var(--dur) var(--ease-out); }
+/* 詰めた形。項目が 6 個ある effort に使う。 */
+.seg-xs > button { padding: 0 calc(var(--u) * 1.75); font-size: 11.5px; gap: var(--u); }
+
+/* チップ。押すと灯るもの（aria-pressed）と、択一のもの（aria-checked）がある。 */
+.chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
+.chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 2.75); border: 0; border-radius: var(--r-pill); font-weight: 520; white-space: nowrap; cursor: pointer; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.chip:hover { color: var(--ink); background: var(--surface); }
+.chip[aria-pressed='true'], .chip[aria-checked='true'], .chip[data-on='true'] { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
+.chip-input input { width: 140px; border: 0; outline: 0; background: none; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink); }
+
+/* 意味を添えたカード。択一は 2 列に並べ、複数選択は右端に四角い印を置く。 */
+.option-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(var(--u) * 1.5); }
+.option-card { display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); width: 100%; padding: calc(var(--u) * 2.25) calc(var(--u) * 2.75); border: 0; border-radius: 12px; text-align: left; cursor: pointer; color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.option-card:hover:not(:disabled) { background: var(--surface); }
+.option-card > .icon { margin-top: 2px; color: var(--ink-3); }
+.option-card-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.4; }
+.option-card-text b { font-size: 12.5px; font-weight: 600; }
+.option-card-text small { font-size: 11.5px; color: var(--ink-3); }
+.option-card-text code { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
+.option-card[aria-checked='true'] { background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--accent), 0 4px 12px -6px rgba(74, 99, 232, 0.4); }
+.option-card[aria-checked='true'] > .icon { color: var(--accent); }
+.option-card[data-danger='true'] b { color: var(--error); }
+.option-card[data-danger='true'][aria-checked='true'] { box-shadow: inset 0 0 0 1.5px var(--error), 0 4px 12px -6px rgba(179, 38, 30, 0.35); }
+.option-card[data-danger='true'][aria-checked='true'] > .icon { color: var(--error); }
+.option-card:disabled { opacity: 0.5; cursor: default; }
+.check-card { align-items: center; }
+.check-box { display: grid; flex: none; place-items: center; width: 20px; height: 20px; border-radius: 6px; color: #ffffff; box-shadow: inset 0 0 0 1.5px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.check-box .icon { width: 14px; height: 14px; stroke-width: 3; opacity: 0; transform: scale(0.5); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
+.check-card[aria-checked='true'] .check-box { background: var(--accent); box-shadow: none; }
+.check-card[aria-checked='true'] .check-box .icon { opacity: 1; transform: none; }
+
+/* 増減のボタン。素の number の小さな矢印は隠す。 */
+.stepper { display: inline-flex; flex: none; align-items: center; height: 30px; border-radius: var(--r-pill); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+/* 入力欄の枠は消しているので、フォーカスは外側の輪で示す。 */
+.stepper:focus-within { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.stepper > button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink-2); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.stepper > button:hover:not(:disabled) { color: var(--ink); background: var(--surface-2); }
+.stepper > button:disabled { opacity: 0.4; cursor: default; }
+.stepper-input { width: 44px; border: 0; outline: 0; background: none; text-align: center; font-family: var(--font-mono); font-size: var(--fs); font-weight: 600; color: var(--ink); -moz-appearance: textfield; }
+.stepper-input::-webkit-inner-spin-button, .stepper-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* 起動ダイアログの詳細。左に値の名前、右に選ぶ部品を並べる。 */
+.launch-options { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: calc(var(--u) * 2.5); margin: calc(var(--u) * 2) 0; }
+.launch-option-label { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-2); }
+.launch-option-label-top { align-self: start; padding-top: calc(var(--u) * 2); }
+.launch-danger { margin-top: calc(var(--u) * 1.5); }
+.effort-bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 10px; }
+.effort-bars i { width: 2.5px; border-radius: 1px; background: currentColor; opacity: 0.25; }
+.effort-bars i[data-on='true'] { opacity: 1; }
+.effort-bars i:nth-child(1) { height: 3.6px; }
+.effort-bars i:nth-child(2) { height: 5.2px; }
+.effort-bars i:nth-child(3) { height: 6.8px; }
+.effort-bars i:nth-child(4) { height: 8.4px; }
+.effort-bars i:nth-child(5) { height: 10px; }
+
+/* 状態の帯の「実行中」に添える、動いていることを示す緑の点。 */
+.seg-live { background: var(--idle); }
+
+/* セッション画面の、本文の上の表示切り替え。 */
+.transcript-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); margin-bottom: var(--u); }
+.transcript-toggles-sep { width: 1px; height: 18px; background: var(--line-strong); }
+</style><style>:root{--font-sans:'Inter Variable','Inter','Hiragino Sans','Hiragino Kaku Gothic ProN',sans-serif;--font-mono:'JetBrains Mono Variable','JetBrains Mono','SFMono-Regular',Menlo,monospace}</style>
+<style>/* ---- 試作の外枠（アプリの外） ---- */
+html, body { margin: 0; background: #e7e9f0; }
+body { font: 13px/1.5 var(--font-sans); color: var(--ink); }
+.pc { padding: 20px 24px 40px; }
+.pc-head h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; }
+.pc-sub { margin: 0 0 14px; color: var(--ink-2); max-width: 1100px; }
+.pc-bar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 12px; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(30,40,90,.08); margin-bottom: 8px; }
+.pc-group { display: flex; align-items: center; gap: 4px; }
+.pc-k { font-size: 11px; color: var(--ink-3); margin-right: 4px; }
+.pc-bar button { font: inherit; font-size: 12px; height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); background: #fff; border-radius: 99px; color: var(--ink-2); cursor: pointer; }
+.pc-bar button[aria-pressed='true'] { background: var(--ink); border-color: var(--ink); color: #fff; }
+.pc-bar button.pc-cta { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pc-bar button.pc-cta[aria-pressed='true'] { background: var(--waiting); border-color: var(--waiting); }
+.pc-bar button:disabled { opacity: .35; cursor: default; }
+.pc-mono { font: 11px var(--font-mono); color: var(--ink-2); width: 52px; }
+.pc-check { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); margin-left: 8px; }
+.pc-note { min-height: 20px; margin: 0 0 10px 4px; font-size: 12px; color: var(--ink-2); }
+.pc-note b { color: var(--ink); }
+.pc-stage { overflow-x: auto; padding-bottom: 8px; }
+.pc-frame { position: relative; height: 700px; border-radius: 12px; overflow: hidden; background: var(--bg); box-shadow: 0 0 0 1px rgba(30,40,90,.18), 0 24px 60px -24px rgba(30,40,90,.5); }
+.pc-lights { position: absolute; z-index: 5; left: 11px; top: 16px; display: flex; gap: 8px; pointer-events: none; }
+.pc-lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.15); }
+.pc-lights i:nth-child(2) { background: #febc2e; } .pc-lights i:nth-child(3) { background: #28c840; }
+.pc-guide { position: absolute; z-index: 6; top: 0; bottom: 0; width: 0; border-left: 1.5px dashed #e5484d; pointer-events: none; transition: left 260ms cubic-bezier(.16,1,.3,1); }
+.pc-guide span { position: absolute; bottom: 10px; left: 4px; padding: 1px 5px; border-radius: 4px; background: #e5484d; color: #fff; font: 10px var(--font-mono); white-space: nowrap; }
+.pc-frame .shell { transition: grid-template-columns var(--dur) var(--ease-out); }
+.pc-frame .main { scrollbar-width: none; }
+.pc-frame .screen { animation: none; }
+
+/* ---- 新案：ヘッダー ---- */
+/* ヘッダーの列を殻の列に合わせ、中身を本文と同じ列に置く。 */
+.shell { --col1: calc(var(--sidebar-w) + var(--float-gap)); }
+.shell[data-sidebar='collapsed'] { --col1: calc(var(--sidebar-rail-w) + var(--float-gap)); }
+/* 本文と検索欄の左の余白。信号の 3 点より左には置かない（畳んだときは 60px の列の中に 3 点がはみ出すので）。 */
+.shell[data-v-mode='new'] { --head-end: var(--lights-end); --gutter-l: max(calc(var(--u) * 4), calc(var(--head-end) - var(--col1))); }
+/* ロゴをヘッダーへ移す案。畳んだときに左に残すもので、本文の始まりが決まる。 */
+.shell[data-v-logo='hb'][data-sidebar='collapsed'] { --head-end: calc(var(--lights-end) + 26px + 12px); }
+.shell[data-v-mode='new'] .main-inner { padding-left: var(--gutter-l); }
+/* container を付けるとレイアウトの封じ込めで subgrid が none になるので、container は内側の行へ移す。 */
+.header.hd-new { display: grid; grid-template-columns: subgrid; padding: 0; gap: 0; container: none; }
+.hd-new > .hd-row { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: calc(var(--u) * 4.5); min-width: 0; height: 100%; container: hdrow / inline-size; }
+/* 本文の列の幅は、ヘッダーの幅（100cqw）から左の列を引いたもの。本文は main-w で中央に寄るので、その左端に合わせる。 */
+.hd-new { --lane-l: max(var(--gutter-l), calc((100cqw - var(--main-w)) / 2 + var(--gutter-l))); }
+.hd-new .search-box, .hd-new .btn.search-icon { margin-left: var(--lane-l); }
+.hd-new[data-right='content'] .hd-end { margin-right: max(calc(var(--u) * 4), calc((100cqw - var(--main-w)) / 2 + var(--u) * 4)); }
+.hd-new .hd-end { margin-right: calc(var(--u) * 3); }
+.hd-end { display: flex; align-items: center; gap: calc(var(--u) * 4.5); flex: 0 1 auto; min-width: 0; }
+.hd-end > .gauges, .hd-end > .new-session { flex: none; }
+
+/* ---- 新案：見出し ---- */
+.ph { margin: 0 0 calc(var(--u) * 3); }
+.ph-parent { display: flex; align-items: center; gap: 3px; height: 18px; margin-bottom: 2px; font-size: var(--fs-sm); color: var(--ink-3); white-space: nowrap; }
+.ph-parent a { color: var(--ink-2); text-decoration: none; border-radius: 4px; }
+.ph-parent a:hover { color: var(--accent); }
+.ph-parent .icon { width: 14px; height: 14px; }
+.ph-parent.back a { display: inline-flex; align-items: center; gap: 4px; }
+.ph-row { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-height: var(--row-h); min-width: 0; }
+.ph-row .btn { flex: none; }
+.ph-title { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; }
+.ph-inline { flex: none; font-size: var(--fs-md); font-weight: 500; color: var(--ink-3); text-decoration: none; white-space: nowrap; }
+.ph-inline:hover { color: var(--accent); }
+.ph-inline-sep { flex: none; margin: 0 -4px; color: var(--ink-3); font-size: var(--fs-md); }
+.ph-count { font-weight: 400; font-size: var(--fs-sm); }
+.session-page .chips { margin-top: calc(var(--u) * 2); }
+/* セッション一覧だけにあった外側の余白は、新案では見出しの位置をそろえるために外す。 */
+.shell[data-v-mode='new'] .sessions-screen { padding: 0; }
+
+/* ---- 部品の足り分 ---- */
+.icon { flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.pill-status { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 99px; font-size: var(--fs-xs); color: var(--st-active); background: var(--st-active-soft); flex: none; }
+.pill-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.term { margin-top: 12px; height: 360px; border-radius: 14px; background: var(--term-bg); color: var(--term-fg); padding: 14px 16px; font: 12px/1.7 var(--font-mono); box-shadow: var(--term-lift); overflow: hidden; }
+.term .t-tool { color: var(--term-tool); }
+.term .t-dim { opacity: .55; }
+.fake-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 99px; background: rgba(30,40,90,.06); }
+.fake-seg span { padding: 2px 10px; border-radius: 99px; font-size: var(--fs-sm); color: var(--ink-2); }
+.fake-seg span.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(30,40,90,.15); }
+
+/* 狭いときの畳み方。幅は本文の列（行の幅）で測る。今の段（ヘッダー全体の幅）から、おおよそ左の列の分を引いた。 */
+@container hdrow (max-width: 900px) { .hd-new .gauge-updated { display: none; } }
+@container hdrow (max-width: 800px) { .hd-new .sync-action { display: none; } }
+@container hdrow (max-width: 700px) { .hd-new .gauge-bar { display: none; } .hd-new .gauge-key { display: inline; } .hd-new .gauge-num { min-width: 0; } }
+@container hdrow (max-width: 600px) { .hd-new .search-box, .hd-new .search-kbd, .hd-new .sync-label { display: none; } .hd-new .btn.search-icon { display: inline-flex; } }
+@container hdrow (max-width: 420px) { .hd-new .new-session .btn-label { display: none; } .hd-new .btn.new-session { justify-content: center; width: var(--row-h); padding: 0; } }
+@container hdrow (max-width: 340px) { .hd-new .gauges { display: none; } }
+
+/* ---- ロゴをヘッダーに置く案 ---- */
+.hd-brand { grid-column: 1 / -1; grid-row: 1; z-index: 1; display: flex; align-items: center; width: var(--col1); min-width: 0; height: 100%; padding-left: var(--lights-end); box-sizing: border-box; pointer-events: none; }
+.hd-brand > * { pointer-events: auto; }
+.hd-brand-link { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink); text-decoration: none; }
+.hd-brand-link img { flex: none; width: 26px; height: 26px; }
+.hd-brand-word { font-size: 16px; font-weight: 720; letter-spacing: -0.03em; white-space: nowrap; }
+.hd-brand-word::after { content: ''; display: inline-block; width: 8px; height: 2.5px; margin-left: 2px; border-radius: 1.5px; background: #ffb86b; }
+.shell[data-sidebar='collapsed'] .hd-brand { width: auto; }
+.shell[data-sidebar='collapsed'] .hd-brand .hd-brand-word { display: none; }
+/* ホームの行。項目の錠剤は縮み、右端に開閉のボタンが並ぶ。 */
+.nav-row { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; }
+.nav-row > .nav-item { flex: 1; min-width: 0; margin-bottom: 0; }
+.nav-row > .btn.sidebar-toggle { margin-left: 0; }
+/* ロゴが上に出たので、サイドバーは最初の項目から始める。 */
+.sidebar.no-top { padding-top: calc(var(--u) * 2); }
+
+/* 検索欄は右の塊より先に縮ませない。 */
+.hd-new .search-box { flex: 1 1 280px; }
+</style></head><body><div class="pc">
+  <div class="pc-head">
+    <h2>ヘッダーの位置表示：試作</h2>
+    <p class="pc-sub">左のサイドバーでページを移るか、「ページを順に移る」を押してください。赤い線は検索欄の左端を示します。今の形では、ページを移るたびに赤い線が左右に動きます。新案では、赤い線が見出しの左端と重なったまま動きません。</p>
+  </div>
+  <div class="pc-bar">
+    <div class="pc-group"><span class="pc-k">形</span>
+      <button data-set="mode:old">今の形</button><button data-set="mode:new">新案</button></div>
+    <div class="pc-group"><span class="pc-k">ロゴ</span>
+      <button data-set="logo:side">サイドバー（今）</button><button data-set="logo:ha">ヘッダー・畳むとロゴを隠す</button><button data-set="logo:hb">ヘッダー・畳んでも図を残す</button></div>
+    <div class="pc-group"><span class="pc-k">親へのリンク</span>
+      <button data-set="parent:above">A 見出しの上に小さく</button><button data-set="parent:inline">B 見出しの前に並べる</button><button data-set="parent:back">C ← で戻る</button></div>
+    <div class="pc-group"><span class="pc-k">親の行</span>
+      <button data-set="reserve:no">あるページだけ</button><button data-set="reserve:yes">全ページで場所を取る</button></div>
+    <div class="pc-group"><span class="pc-k">ヘッダー右側</span>
+      <button data-set="right:window">窓の右端</button><button data-set="right:content">本文の右端</button></div>
+    <div class="pc-group"><span class="pc-k">サイドバー</span>
+      <button data-set="side:open">開く</button><button data-set="side:collapsed">畳む</button></div>
+    <div class="pc-group"><span class="pc-k">窓の幅</span>
+      <input id="pc-width" type="range" min="700" max="1680" step="10" value="1280"><span id="pc-width-v" class="pc-mono">1280px</span></div>
+    <div class="pc-group"><button id="pc-cycle" class="pc-cta">ページを順に移る</button><label class="pc-check"><input id="pc-guide" type="checkbox" checked>赤い線</label></div>
+  </div>
+  <div class="pc-note" id="pc-note"></div>
+  <div class="pc-stage">
+    <div class="pc-frame" id="pc-frame" data-shell="desktop">
+      <div class="pc-lights"><i></i><i></i><i></i></div>
+      <div class="shell" id="shell"></div>
+      <div class="pc-guide" id="pc-guideline"></div>
+    </div>
+  </div>
+</div>
+<script>(() => {
+const P = {
+  home: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  projects: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  sessions: '<path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>',
+  add: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  sidebar: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  resume: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  fork: '<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/>',
+  stop: '<rect width="18" height="18" x="3" y="3" rx="2"/>',
+  openTerminal: '<path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>',
+  openEditor: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+  back: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  chevron: '<path d="m9 18 6-6-6-6"/>',
+  paneClose: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/>',
+};
+const I = (n) => `<svg class="icon" width="16" height="16" viewBox="0 0 24 24">${P[n]}</svg>`;
+
+const PROJECTS = [
+  { id: 'hangar', name: 'agent-hangar', path: '~/workspace/agent-hangar', last: 'ヘッダーの位置表示を本文の見出しへ移す', when: '3 分前', running: 2, todo: 4 },
+  { id: 'site', name: 'portfolio-site', path: '~/workspace/portfolio-site', last: 'OG 画像の生成をビルドに組み込んだ', when: '2 時間前', running: 0, todo: 1 },
+  { id: 'notes', name: 'ml-notes', path: '~/workspace/ml-notes', last: '損失の曲線を週ごとに並べる図を作った', when: '昨日', running: 0, todo: 0 },
+  { id: 'dots', name: 'dotfiles', path: '~/dotfiles', last: 'zsh の補完の読み込みを遅延させた', when: '3 日前', running: 0, todo: 2 },
+];
+const SESSIONS = [
+  { id: 's1', name: 'ヘッダーの位置表示をそろえる', proj: 'hangar', live: 'busy', one: '検索欄が動かないよう、見出しを本文へ移す試作を作っている', when: 'たった今' },
+  { id: 's2', name: '保持期間の通知', proj: 'hangar', live: 'waiting', one: '帯の文言と、確認ダイアログの既定値を詰めている', when: '5 分前' },
+  { id: 's3', name: 'OG 画像の自動生成', proj: 'site', live: null, one: 'ビルドの最後に satori で画像を書き出すようにした', when: '2 時間前' },
+  { id: 's4', name: 'ターンの目次', proj: 'hangar', live: null, one: '右欄をターンの目次にし、押すと端末もその指示へ跳ぶ', when: '昨日' },
+  { id: 's5', name: '週ごとの損失の図', proj: 'notes', live: null, one: '学習の損失を週ごとに並べる図を matplotlib で作った', when: '昨日' },
+  { id: 's6', name: 'zsh の起動を速くする', proj: 'dots', live: null, one: '補完の読み込みを遅延させ、起動を 420ms から 90ms にした', when: '3 日前' },
+  { id: 's7', name: 'スクショのドロップ', proj: 'hangar', live: null, one: '端末へ画像を落とすと、パスを貼り付けるようにした', when: '4 日前' },
+];
+const proj = (id) => PROJECTS.find((p) => p.id === id);
+
+const S = { logo: 'ha', mode: 'new', parent: 'above', reserve: 'no', right: 'window', side: 'open', page: 'home', pid: 'hangar', sid: 's1', width: 1280 };
+const NAV = [['home', 'ホーム', ['home']], ['projects', 'プロジェクト', ['projects', 'project']], ['sessions', 'セッション', ['sessions', 'session']], ['settings', '設定', ['settings']]];
+
+function crumbs() {
+  const p = proj(S.pid), s = SESSIONS.find((x) => x.id === S.sid);
+  switch (S.page) {
+    case 'home': return [{ label: 'ホーム' }];
+    case 'projects': return [{ label: 'プロジェクト' }];
+    case 'project': return [{ label: 'プロジェクト', go: 'projects' }, { label: p.name }];
+    case 'sessions': return [{ label: 'セッション' }];
+    case 'session': return [{ label: proj(s.proj).name, go: 'project', pid: s.proj }, { label: s.name }];
+    case 'settings': return [{ label: '設定' }];
+  }
+}
+const goAttr = (c) => `data-go="${c.go}"${c.pid ? ` data-pid="${c.pid}"` : ''}${c.sid ? ` data-sid="${c.sid}"` : ''}`;
+
+const logoInHeader = () => S.mode === 'new' && S.logo !== 'side' && !(S.logo === 'ha' && S.side === 'collapsed');
+function hdBrand() {
+  if (!logoInHeader()) return '';
+  return `<div class="hd-brand"><a class="hd-brand-link" href="#" data-go="home"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjE0IDEzIDcyIDcyIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9Imhhbmdhci1yYWlsIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeDE9Ii0xMy4zNjIiIHkxPSIwIiB4Mj0iMzQuMDk2IiB5Mj0iMCI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMWMxYjJlIi8+PHN0b3Agb2Zmc2V0PSIwLjI1IiBzdG9wLWNvbG9yPSIjMWMxYjJlIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZTJlN2ZmIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNDYuMjU2IDI1LjEwNikgc2NhbGUoMC44NTQpIj48cGF0aCBkPSJNLTEzLjM2MiAzLjE3OEwzNC4wOTYgLTExLjY2IiBzdHJva2U9InVybCgjaGFuZ2FyLXJhaWwpIiBzdHJva2Utd2lkdGg9IjIuNiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGcgZGF0YS1oYW5nZXI9IjMiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDIwLjczNCAtNi40ODMpIHNjYWxlKDAuNjE0KSI+PHBhdGggZD0iTTAgMTB2LTRhNC4yIDQuMiAwIDEgMC00LjItNC4yIiBmaWxsPSJub25lIiBzdHJva2U9IiNjNmNhZTIiIHN0cm9rZS13aWR0aD0iMi44IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48cmVjdCB4PSItMzAiIHk9IjI5IiB3aWR0aD0iNjAiIGhlaWdodD0iNDAiIHJ4PSI1IiBmaWxsPSIjYzZjYWUyIi8+PHBhdGggZD0iTTAgMTBMLTMxIDMxSDMxWiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjY2RkNWZjIiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48Y2lyY2xlIGN4PSItMjMiIGN5PSIzNyIgcj0iMiIgZmlsbD0iI2U2ZDZlNyIvPjxjaXJjbGUgY3g9Ii0xNi41IiBjeT0iMzciIHI9IjIiIGZpbGw9IiNlNmUyZTYiLz48Y2lyY2xlIGN4PSItMTAiIGN5PSIzNyIgcj0iMiIgZmlsbD0iI2NiZTBlZiIvPjxwYXRoIGQ9Ik0tMjMgNDZsNyA1LjUtNyA1LjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2U1ZTdmMCIgc3Ryb2tlLXdpZHRoPSIzLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxyZWN0IHg9Ii0xMiIgeT0iNTUiIHdpZHRoPSIxMyIgaGVpZ2h0PSI0IiByeD0iMiIgZmlsbD0iI2Y0Y2FhNCIvPjwvZz48ZyBkYXRhLWhhbmdlcj0iMiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTQuOTExIC00LjY2Mikgc2NhbGUoMC43MjIpIj48cGF0aCBkPSJNMCAxMHYtNGE0LjIgNC4yIDAgMSAwLTQuMi00LjIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzhlOTBhNiIgc3Ryb2tlLXdpZHRoPSIyLjgiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxyZWN0IHg9Ii0zMCIgeT0iMjkiIHdpZHRoPSI2MCIgaGVpZ2h0PSI0MCIgcng9IjUiIGZpbGw9IiM4ZTkwYTYiLz48cGF0aCBkPSJNMCAxMEwtMzEgMzFIMzFaIiBmaWxsPSJub25lIiBzdHJva2U9IiNhMWFmZjUiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxjaXJjbGUgY3g9Ii0yMyIgY3k9IjM3IiByPSIyIiBmaWxsPSIjZWViMmI2Ii8+PGNpcmNsZSBjeD0iLTE2LjUiIGN5PSIzNyIgcj0iMiIgZmlsbD0iI2VlZDhiMyIvPjxjaXJjbGUgY3g9Ii0xMCIgY3k9IjM3IiByPSIyIiBmaWxsPSIjOWNkMmNkIi8+PHBhdGggZD0iTS0yMyA0Nmw3IDUuNS03IDUuNSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZTZlNmViIiBzdHJva2Utd2lkdGg9IjMuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PHJlY3QgeD0iLTEyIiB5PSI1NSIgd2lkdGg9IjEzIiBoZWlnaHQ9IjQiIHJ4PSIyIiBmaWxsPSIjYzFjMGQzIi8+PC9nPjxnIGRhdGEtaGFuZ2VyPSIxIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSg4LjA2IC0yLjUyKSBzY2FsZSgwLjg1KSI+PHBhdGggZD0iTTAgMTB2LTRhNC4yIDQuMiAwIDEgMC00LjItNC4yIiBmaWxsPSJub25lIiBzdHJva2U9IiM1NTU1NmEiIHN0cm9rZS13aWR0aD0iMi44IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48cmVjdCB4PSItMzAiIHk9IjI5IiB3aWR0aD0iNjAiIGhlaWdodD0iNDAiIHJ4PSI1IiBmaWxsPSIjNTU1NTZhIi8+PHBhdGggZD0iTTAgMTBMLTMxIDMxSDMxWiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNzY4OWVmIiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48Y2lyY2xlIGN4PSItMjMiIGN5PSIzNyIgcj0iMiIgZmlsbD0iI2Y3OGU4NiIvPjxjaXJjbGUgY3g9Ii0xNi41IiBjeT0iMzciIHI9IjIiIGZpbGw9IiNmN2NkODAiLz48Y2lyY2xlIGN4PSItMTAiIGN5PSIzNyIgcj0iMiIgZmlsbD0iIzZlYzNhYyIvPjxwYXRoIGQ9Ik0tMjMgNDZsNyA1LjUtNyA1LjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2U3ZTZlNiIgc3Ryb2tlLXdpZHRoPSIzLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxyZWN0IHg9Ii0xMiIgeT0iNTUiIHdpZHRoPSIxMyIgaGVpZ2h0PSI0IiByeD0iMiIgZmlsbD0iI2U1NjY1NiIvPjwvZz48ZyBkYXRhLWhhbmdlcj0iMCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCAwKSBzY2FsZSgxKSI+PHBhdGggZD0iTTAgMTB2LTRhNC4yIDQuMiAwIDEgMC00LjItNC4yIiBmaWxsPSJub25lIiBzdHJva2U9IiMxYzFiMmUiIHN0cm9rZS13aWR0aD0iMi44IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48cmVjdCB4PSItMzAiIHk9IjI5IiB3aWR0aD0iNjAiIGhlaWdodD0iNDAiIHJ4PSI1IiBmaWxsPSIjMWMxYjJlIi8+PHBhdGggZD0iTTAgMTBMLTMxIDMxSDMxWiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNGE2M2U4IiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48Y2lyY2xlIGN4PSItMjMiIGN5PSIzNyIgcj0iMiIgZmlsbD0iI2ZmNmE1NSIvPjxjaXJjbGUgY3g9Ii0xNi41IiBjeT0iMzciIHI9IjIiIGZpbGw9IiNmZmMzNGQiLz48Y2lyY2xlIGN4PSItMTAiIGN5PSIzNyIgcj0iMiIgZmlsbD0iIzNmYjU4YSIvPjxwYXRoIGQ9Ik0tMjMgNDZsNyA1LjUtNyA1LjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2U4ZTZlMSIgc3Ryb2tlLXdpZHRoPSIzLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxyZWN0IHg9Ii0xMiIgeT0iNTUiIHdpZHRoPSIxMyIgaGVpZ2h0PSI0IiByeD0iMiIgZmlsbD0iI2ZmYjg2YiIvPjwvZz48L2c+PC9zdmc+Cg==" alt=""><span class="hd-brand-word">Hangar</span></a></div>`;
+}
+const toggleBtn = () => `<button class="btn sidebar-toggle" data-toggle-side="1" title="${S.side === 'collapsed' ? '開く' : '閉じる'}（⌘B）">${I('sidebar')}</button>`;
+function sidebar() {
+  const item = ([r, l, m]) => `<a class="nav-item" href="#" data-go="${r}"${m.includes(S.page) ? ' aria-current="page"' : ''}>${I(r)}<span class="nav-label">${l}</span></a>`;
+  if (S.mode === 'new' && S.logo !== 'side') {
+    // ロゴはヘッダーへ。開閉のボタンは、開いた帯ではホームの行の右端に、畳んだ帯では帯の一番上に置く。
+    if (S.side === 'collapsed') return `<nav class="sidebar" aria-label="主ナビゲーション"><div class="sidebar-top">${toggleBtn()}</div>${NAV.map(item).join('')}</nav>`;
+    return `<nav class="sidebar no-top" aria-label="主ナビゲーション"><div class="nav-row">${item(NAV[0])}${toggleBtn()}</div>${NAV.slice(1).map(item).join('')}</nav>`;
+  }
+  return `<nav class="sidebar" aria-label="主ナビゲーション"><div class="sidebar-top"><a class="brand" href="#" data-go="home"><img class="brand-mark" src="__LOGO__" width="44" height="44" alt=""><span class="brand-word">Hangar</span></a>${toggleBtn()}</div>${NAV.map(item).join('')}</nav>`;
+}
+
+function headerEnd() {
+  return `<span class="sync" data-state="idle"><span class="sync-dot"></span><a class="mono sync-label faint" href="#">同期 2 分前</a><button class="btn btn-sm sync-action">今すぐ同期</button><button class="btn btn-sm sync-action">一時停止</button></span>`
+    + `<span class="gauges"><span class="gauge"><span class="gauge-key">5h</span><span class="gauge-bar"><span class="gauge-fill" style="width:42%"></span></span><span class="gauge-num mono">42%</span></span><span class="gauge"><span class="gauge-key">7d</span><span class="gauge-bar"><span class="gauge-fill" style="width:18%"></span></span><span class="gauge-num mono">18%</span></span><span class="faint gauge-updated">最終更新 3 分前</span></span>`
+    + `<button class="btn btn-primary new-session">${I('add')}<span class="btn-label">新規セッション</span></button>`;
+}
+const searchBits = `<input class="input search-box" type="search" placeholder="セッションを検索（/）"><kbd class="search-kbd">⌘K</kbd><button class="btn search-icon">${I('search')}</button>`;
+
+function header() {
+  if (S.mode === 'old') {
+    const cs = crumbs();
+    const c = cs.map((c, i) => `<span class="crumb ${i === cs.length - 1 ? 'crumb-last' : 'crumb-prev'}">${i > 0 ? '<span class="faint crumb-sep"> / </span>' : ''}${c.go ? `<a href="#" ${goAttr(c)}>${c.label}</a>` : `<b>${c.label}</b>`}</span>`).join('');
+    return `<header class="header"><div class="crumbs">${c}</div>${searchBits}<span class="spacer"></span>${headerEnd()}</header>`;
+  }
+  return `<header class="header hd-new" data-right="${S.right}">${hdBrand()}<div class="hd-row">${searchBits}<span class="spacer"></span><span class="hd-end">${headerEnd()}</span></div></header>`;
+}
+
+/* 新案の見出し。parent は { label, go, pid }、なければ null。row は見出しの行の残り（ボタンなど）。 */
+function ph(title, parent, rowExtra = '', opts = {}) {
+  const lead = opts.lead ?? '';
+  const titleCls = opts.titleCls ?? 'ph-title';
+  let line = '';
+  let inline = '';
+  if (parent && S.parent === 'above') line = `<div class="ph-parent"><a href="#" ${goAttr(parent)}>${parent.label}</a><span>›</span></div>`;
+  if (parent && S.parent === 'back') line = `<div class="ph-parent back"><a href="#" ${goAttr(parent)}>${I('back')}${parent.label}</a></div>`;
+  if (parent && S.parent === 'inline') inline = `<a class="ph-inline" href="#" ${goAttr(parent)}>${parent.label}</a><span class="ph-inline-sep">›</span>`;
+  if (!line && S.reserve === 'yes' && S.parent !== 'inline') line = '<div class="ph-parent"></div>';
+  return `<div class="ph">${line}<div class="ph-row ${opts.rowCls ?? ''}">${lead}${inline}<h1 class="${titleCls}">${title}</h1>${rowExtra}</div></div>`;
+}
+
+function rows(list, variant, height) {
+  return `<div class="rows-host"><div class="list"><div class="list-scroll" style="height:${height}px;overflow:hidden">` + list.map((r) => `<div class="row row-2" data-go="session" data-sid="${r.id}"><span class="dot" data-status="${r.live ?? 'ended'}"></span><span class="row-main"><span class="row-name">${r.name}${variant === 'search' ? `<span class="row-proj">${proj(r.proj).name}</span>` : ''}</span><span class="row-sub"><span class="row-text">${r.one}</span></span></span><span class="row-side">${variant === 'project' ? '<span class="row-meta"><span class="mono">opus-5.5 · high</span><span>変更 6</span></span>' : ''}<time class="mono muted">${r.when}</time></span></div>`).join('') + '</div></div></div>';
+}
+
+function pageHome() {
+  const head = S.mode === 'new' ? ph('ホーム', null) : '';
+  return `<div class="screen home">${head}
+    <section><h2 class="home-label">要対応<span class="home-count">1</span></h2>
+      <div class="ask-card"><span class="dot" data-status="waiting"></span><div class="ask-body"><div class="ask-title"><b>保持期間の通知</b> <span class="faint">· agent-hangar · 5 分待っている</span></div><div class="ask-q">確認ダイアログの既定を 1 年にしてよいですか？</div></div><button class="btn btn-primary">答える</button></div></section>
+    <section><h2 class="home-label">実行中<span class="home-count">2</span></h2><div class="live-grid">
+      ${[SESSIONS[0], SESSIONS[1]].map((s) => `<div class="live-card" data-go="session" data-sid="${s.id}"><div class="live-head"><span class="dot" data-status="${s.live}"></span><span class="live-name">${s.name}</span><span class="live-elapsed mono">12 分</span></div><div class="live-meta">agent-hangar · opus-5.5</div><div class="live-act mono"><i>Edit</i> packages/ui/src/views/Header.tsx</div><div class="live-ctx">文脈<span class="gauge-bar"><span class="gauge-fill" style="width:38%"></span></span>38%</div></div>`).join('')}
+    </div></section>
+    <div class="home-two"><section><h2 class="home-label">最近</h2>${rows(SESSIONS.slice(2, 6), 'recent', 224)}</section>
+      <section><h2 class="home-label">プロジェクト</h2><div class="list pj-list">${PROJECTS.map((p) => `<button class="pj-row" data-go="project" data-pid="${p.id}"><span class="pj-dot" data-status="active"></span><span class="pj-name">${p.name}</span><span class="pj-counts">実行中 ${p.running} · TODO ${p.todo}</span></button>`).join('')}</div></section></div>
+  </div>`;
+}
+
+function pageProjects() {
+  const extra = `<input class="input" placeholder="名前で絞る"><span class="spacer"></span><button class="btn">アーカイブを表示（3）</button>`;
+  const head = S.mode === 'new' ? ph('プロジェクト', null, extra)
+    : `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px"><h1 class="h1" style="margin:0">プロジェクト</h1>${extra}</div>`;
+  const cards = PROJECTS.map((p) => `<div class="card-slot"><div class="card" data-go="project" data-pid="${p.id}"><div style="display:flex;align-items:center;gap:8px"><span class="card-title" style="flex:1">${p.name}</span><span class="pill-status">active</span></div><div class="mono faint" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.path}</div><div class="muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.last}</div><div class="faint" style="display:flex;gap:12px"><span>${p.when}</span>${p.running ? `<span>実行中 ${p.running}</span>` : ''}${p.todo ? `<span>TODO ${p.todo}</span>` : ''}</div><div class="card-foot"><span class="spacer"></span><button class="btn">${I('add')}ここで新規</button></div></div></div>`).join('');
+  return `<div class="screen">${head}<section><div class="section-head"><h2 class="h2">active</h2><span class="faint">4</span></div><div class="cards">${cards}</div></section><section><div class="section-head"><h2 class="h2">paused</h2><span class="faint">0</span></div><div class="faint" style="padding:4px 0 8px">なし</div></section></div>`;
+}
+
+function pageProject() {
+  const p = proj(S.pid);
+  const extra = `<span class="pill-status">active</span><span class="spacer"></span><button class="btn btn-primary">${I('add')}新規セッション</button><button class="btn">${I('openEditor')}VS Code で開く</button><button class="btn">${I('openTerminal')}ターミナルで開く</button><button class="btn">${I('paneClose')}</button>`;
+  const head = S.mode === 'new' ? ph(p.name, { label: 'プロジェクト', go: 'projects' }, extra)
+    : `<div class="project-head"><h1 class="h1" style="margin:0">${p.name}</h1>${extra}</div>`;
+  const list = SESSIONS.filter((s) => s.proj === p.id);
+  return `<div class="screen project-screen" data-rail="closed"><div class="project-main">${head}<div class="mono faint project-path">${p.path}</div>${rows(list.length ? list : SESSIONS.slice(0, 1), 'project', 392)}</div></div>`;
+}
+
+function pageSessions() {
+  const count = '<span class="faint mono sessions-count ph-count">128 件</span>';
+  const head = S.mode === 'new' ? ph('セッション', null, count) : `<h1 class="h1 sessions-head">セッション<span class="faint mono sessions-count">128 件</span></h1>`;
+  return `<div class="screen sessions-screen">${head}<div class="sessions-keyword"><input class="input" placeholder="キーワード（空なら全件）"></div>
+    <div class="sessions-filters"><button class="btn">すべてのプロジェクト</button><span class="fake-seg"><span class="on">全期間</span><span>今日</span><span>7 日</span><span>30 日</span></span><span class="fake-seg"><span class="on">すべて</span><span>実行中</span><span>終了</span></span><input class="input" placeholder="触ったファイル"></div>
+    ${rows(SESSIONS, 'search', 392)}</div>`;
+}
+
+function pageSession() {
+  const s = SESSIONS.find((x) => x.id === S.sid);
+  const p = proj(s.proj);
+  const dot = `<span class="dot" data-status="${s.live ?? 'ended'}"></span>`;
+  const btns = `<span class="session-oneliner">${s.one}</span>${s.live ? `<button class="btn">${I('openTerminal')}ターミナルで開く</button><button class="btn">${I('stop')}停止</button>` : ''}<button class="btn"${s.live ? ' disabled' : ''}>${I('resume')}再開</button><button class="btn">${I('fork')}フォーク</button><button class="btn">${I('openEditor')}VS Code で開く</button>`;
+  const hero = S.mode === 'new'
+    ? ph(s.name, { label: p.name, go: 'project', pid: p.id }, btns, { lead: dot, rowCls: 'session-hero', titleCls: 'session-name' })
+    : `<div class="session-hero">${dot}<h1 class="session-name">${s.name}</h1>${btns}</div>`;
+  return `<div class="screen session-page">${hero}
+    <div class="chips">${s.live ? '<span class="chip">作業中 · 12 分</span>' : ''}<a class="chip" href="#" data-go="project" data-pid="${p.id}">${p.name}</a><span class="chip mono">opus-5.5 · high</span><span class="chip gauge-wrap"><span class="faint">コンテキスト</span><span class="gauge-bar"><span class="gauge-fill" style="width:38%"></span></span></span><span class="chip mono">$1.84</span><span class="chip">変更 6</span></div>
+    <div class="session-facts faint mono"><span>cwd ${p.path}</span><span>ターン 14</span><span>開始 14:02</span></div>
+    <div class="term"><div class="t-dim">&gt; ヘッダーの左上の文字を本文の見出しへ移したい</div><div><span class="t-tool">● Read</span> packages/ui/src/views/Header.tsx</div><div><span class="t-tool">● Read</span> packages/ui/src/presenters/shell.ts</div><div>パンくずの幅がページごとに違うため、検索欄が左右に動いています。</div><div><span class="t-tool">● Edit</span> packages/ui/src/views/Header.tsx</div><div class="t-dim">  ⎿ 12 行を削除、4 行を追加</div></div>
+  </div>`;
+}
+
+function pageSettings() {
+  const head = S.mode === 'new' ? ph('設定', null) : '<h1 class="h1">設定</h1>';
+  return `<div class="screen settings-screen" style="max-width:720px">${head}
+    <section><h2 class="h2">ワークスペース</h2><div style="display:flex;gap:8px"><input class="input mono" style="flex:1" value="/Users/you/workspace"><button class="btn btn-primary" disabled>保存</button></div><div class="faint" style="margin-top:4px">直下のディレクトリのうち、Claude のセッションがあるものをプロジェクトとして登録します。</div></section>
+    <section><h2 class="h2">ツール</h2><div class="grid2"><label class="field">tmux のパス<input class="input mono" value="/opt/homebrew/bin/tmux"></label><label class="field">code のパス<input class="input mono" value="/usr/local/bin/code"></label><label class="field">claude のパス<input class="input mono" value="/Users/you/.local/bin/claude"></label></div></section>
+    <section><h2 class="h2">保持期間</h2><div class="muted">Claude Code は既定で 30 日を過ぎた会話の本文を消します。</div></section>
+  </div>`;
+}
+
+const PAGES = { home: pageHome, projects: pageProjects, project: pageProject, sessions: pageSessions, session: pageSession, settings: pageSettings };
+const PAGE_NAMES = { home: 'ホーム', projects: 'プロジェクト一覧', project: 'プロジェクト', sessions: 'セッション一覧', session: 'セッション', settings: '設定' };
+
+const shell = document.getElementById('shell');
+const frame = document.getElementById('pc-frame');
+function render() {
+  frame.style.width = S.width + 'px';
+  shell.dataset.sidebar = S.side === 'collapsed' ? 'collapsed' : '';
+  if (S.side !== 'collapsed') delete shell.dataset.sidebar;
+  shell.dataset.vMode = S.mode; shell.dataset.vLogo = S.logo;
+  shell.innerHTML = sidebar() + header() + `<main class="main"><div class="main-inner">${PAGES[S.page]()}</div></main>`;
+  document.querySelectorAll('[data-set]').forEach((b) => { const [k, v] = b.dataset.set.split(':'); b.setAttribute('aria-pressed', String(S[k] === v)); });
+  const newOnly = S.mode !== 'new';
+  document.querySelectorAll('[data-set^="parent:"],[data-set^="reserve:"],[data-set^="right:"],[data-set^="logo:"]').forEach((b) => { b.disabled = newOnly; });
+  document.querySelectorAll('[data-set^="reserve:"]').forEach((b) => { if (S.parent === 'inline') b.disabled = true; });
+  document.getElementById('pc-width-v').textContent = S.width + 'px';
+  requestAnimationFrame(guide);
+}
+function guide() {
+  const g = document.getElementById('pc-guideline');
+  g.style.display = document.getElementById('pc-guide').checked ? '' : 'none';
+  const box = [...shell.querySelectorAll('.header .search-box, .header .search-icon')].find((e) => e.offsetParent !== null && getComputedStyle(e).display !== 'none');
+  const fr = frame.getBoundingClientRect();
+  const x = box ? box.getBoundingClientRect().left - fr.left : 0;
+  const t = shell.querySelector('.ph-title, .session-name, .h1, .home-label');
+  const tx = t ? Math.round(t.getBoundingClientRect().left - fr.left) : null;
+  g.style.left = x + 'px';
+  g.innerHTML = `<span>検索欄 ${Math.round(x)}px</span>`;
+  const note = document.getElementById('pc-note');
+  note.innerHTML = `いまのページ：<b>${PAGE_NAMES[S.page]}</b>　検索欄の左端 <b>${Math.round(x)}px</b>　見出しの左端 <b>${tx ?? '—'}px</b>` + (S.mode === 'new' && tx !== null && Math.abs(tx - Math.round(x)) <= 1 ? '　→ そろっています' : '');
+}
+// サイドバーの開閉は列の幅が動くので、動いている間も線を追う。
+function follow(ms) { const end = performance.now() + ms; const tick = () => { guide(); if (performance.now() < end) requestAnimationFrame(tick); }; tick(); }
+
+document.addEventListener('click', (e) => {
+  const set = e.target.closest('[data-set]');
+  if (set) { const [k, v] = set.dataset.set.split(':'); S[k] = v; render(); if (k === 'side') follow(600); return; }
+  if (e.target.closest('[data-toggle-side]')) { S.side = S.side === 'open' ? 'collapsed' : 'open'; render(); follow(600); return; }
+  const go = e.target.closest('[data-go]');
+  if (go && shell.contains(go)) { e.preventDefault(); S.page = go.dataset.go; if (go.dataset.pid) S.pid = go.dataset.pid; if (go.dataset.sid) S.sid = go.dataset.sid; if (S.page === 'session' && !go.dataset.sid) S.sid = 's1'; render(); }
+});
+document.getElementById('pc-width').addEventListener('input', (e) => { S.width = Number(e.target.value); render(); });
+document.getElementById('pc-guide').addEventListener('change', guide);
+let timer = null;
+const ORDER = ['home', 'projects', 'project', 'sessions', 'session', 'settings'];
+document.getElementById('pc-cycle').addEventListener('click', (e) => {
+  const b = e.currentTarget;
+  if (timer) { clearInterval(timer); timer = null; b.setAttribute('aria-pressed', 'false'); b.textContent = 'ページを順に移る'; return; }
+  b.setAttribute('aria-pressed', 'true'); b.textContent = '止める';
+  timer = setInterval(() => { S.page = ORDER[(ORDER.indexOf(S.page) + 1) % ORDER.length]; S.pid = 'hangar'; S.sid = 's1'; render(); }, 1300);
+});
+window.addEventListener('resize', guide);
+render();
+})();
+</script></body></html>

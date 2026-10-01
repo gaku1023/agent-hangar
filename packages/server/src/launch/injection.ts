@@ -3,7 +3,7 @@ export type InjectionInput = { projectName: string; projectPath: string; memo: s
 const NONE = '（なし）';
 
 /**
- * --append-system-prompt で渡す短い指示。ファイルや設定は書かず、要約の更新と、片付いた TODO の候補を求める。
+ * --append-system-prompt で渡す短い指示。ファイルや設定は書かず、要約の更新、片付いた TODO の候補、ターンの意図、日本語の手の説明を求める。
  * TODO は ID を添えて渡す。ID が無いと、候補を出す前に get_project を呼んで引く一手が要るためである。
  */
 export function renderInjection(i: InjectionInput): string {
@@ -20,6 +20,8 @@ export function renderInjection(i: InjectionInput): string {
     'set_session_summary で題名、2〜3 文の要約、状態、次の一手を更新してください。',
     'TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。',
     '完了にするのは利用者です。確かめられていないものは出さないでください。',
+    'ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。',
+    'Bash と Agent の description は日本語で 20 字以内にしてください。',
     '',
   ].join('\n');
 }

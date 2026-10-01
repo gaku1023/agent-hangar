@@ -63,6 +63,16 @@ describe('getSession', () => {
     const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
     expect(getSession(db, live, alpha.id)).toEqual(alpha);
   });
+
+  it('transcriptMtime は、この PC の主線の本文の更新時刻だけを見る', () => {
+    const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    db.prepare('update transcript_files set mtime = 1234 where session_id = ? and agent_id is null').run(alpha.id);
+    db.prepare('update transcript_files set mtime = 9999 where session_id = ? and agent_id is not null').run(alpha.id);
+    db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version, device_id) values (?, ?, null, 1, 5555, 1, 1, ?)').run('/remote/x.jsonl', alpha.id, 'x');
+    expect(getSession(db, live, alpha.id)!.transcriptMtime).toBe(1234);
+    db.prepare('delete from transcript_files where session_id = ?').run(alpha.id);
+    expect(getSession(db, live, alpha.id)!.transcriptMtime).toBeNull();
+  });
 });
 
 describe('displayName', () => {

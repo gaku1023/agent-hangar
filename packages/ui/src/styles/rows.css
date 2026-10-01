@@ -14,6 +14,13 @@
   outline: none;
 }
 
+/* 行そのものにもフォーカスが当たる（roving tabindex）。
+   一覧の枠は中身を切り取るので、輪郭は内側に描く。 */
+.row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* カーソルの行。フォーカスの枠とは別の表し方にして、両方が同時に出ても読めるようにする。 */
 .row[data-cursor='true'] {
   background: var(--accent-soft);
@@ -54,17 +61,55 @@
 /* 2 段の行（UI 刷新 2 回目）。1 段目に名前、2 段目に要約か抜粋。右端は画面の役目で変える（SessionRows の variant）。
    高さは --session-row-h で持ち、SessionRows の SESSION_ROW_H と揃える（rows.test.ts）。
    1 段の部品の --row-h（28px）とは別の値である。 */
-.row-2 { grid-template-columns: 16px minmax(0, 1fr) auto; height: var(--session-row-h); }
-.row-main { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
+.row-2 { grid-template-columns: 16px minmax(0, 1fr) auto; gap: calc(var(--u) * 4); height: var(--session-row-h); padding: 0 calc(var(--u) * 5); }
+.row-main { display: flex; flex-direction: column; justify-content: center; gap: var(--u); min-width: 0; }
 .row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 560; }
 .row-proj { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
 .row-sub { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; height: calc(var(--u) * 5); font-size: var(--fs-sm); color: var(--ink-2); }
 .row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 2 段目の頭の要約の見立て（試作 home-lists の B1）。ふだんは注記の色の語だけにし、
+   詰まっている（入力待ちの色）とやめた（Paused の色）だけを淡い地の札にする。色の札が 2 種しかないので、流し見で色の行だけが目に止まる。 */
+.row-state { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.row-state[data-tone] { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-weight: 560; line-height: 1.4; }
+.row-state[data-tone='blocked'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); }
+.row-state[data-tone='abandoned'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .row-memo { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
 /* project 変種の 2 段目は鉛筆（.btn、既定で --row-h = 28px）を持つ。1 行分の高さ（20px）に縮め、行の外にはみ出さないようにする。 */
 .row-sub .memo-pencil { height: calc(var(--u) * 5); padding: 0 var(--u); flex: none; }
 .row-sub .memo-input { height: calc(var(--u) * 5); flex: 1; }
-.row-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 2px; font-size: var(--fs-xs); color: var(--ink-3); }
+.row-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--u); font-size: var(--fs-xs); color: var(--ink-3); }
+/* 時刻と本文の期限の印を横に並べる。印は行の高さを変えないよう、時刻と同じ行に小さく置く。 */
+.row-when { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.row-soon { flex: none; display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-size: var(--fs-xs); line-height: 1.4; color: var(--st-paused); background: var(--st-paused-soft); white-space: nowrap; }
+/* 本文の無い行の印。B1 の「枠だけの札」の形にするが、保持期間の周知（③a）の決めどおり文字は入れない。
+   消えた会話は数百件に上り、文字を並べると一覧が騒がしくなるためである。 */
+.row-gone { flex: none; display: inline-flex; align-items: center; padding: 1px 4px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); }
+.row-gone .icon { width: 12px; height: 12px; }
 .row-meta { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
 /* 一致した語の印。淡い黄の地だけを敷き、文字の色は周りのまま（読みやすさを落とさない）。 */
 .hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }
+
+/* セッション一覧の画面。見出し（.page-head）・検索欄・絞り込み・一覧の間を段ごとに広げる。
+   画面の縁は他の画面と同じく .main-inner の余白だけにし、見出しの位置を揃える。
+   一覧の高さ（SessionsScreen の LIST_H）は、見出しの高さとこの段の余白から出している。 */
+.sessions-count { font-weight: 400; }
+/* 上の欄は全文検索の本体（D1）。本文を探す絵と「本文」の札を添え、打った語は × で消せる。
+   欄の枠は箱の側に持たせ、中の入力欄は素の文字にする。 */
+.sessions-keyword { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); margin-bottom: calc(var(--u) * 3.5); border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
+.sessions-keyword:focus-within { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.sessions-keyword input { flex: 1; min-width: 60px; height: 100%; padding: 0; border: 0; outline: 0; background: none; color: var(--ink); }
+.sessions-keyword-tag { flex: none; height: 18px; padding: 0 calc(var(--u) * 1.5); border-radius: 5px; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; color: var(--ink-3); background: var(--surface-2); }
+.sessions-keyword-clear, .sessions-cond-clear { background: none; box-shadow: none; }
+.sessions-keyword-clear { color: var(--ink-3); }
+/* 入り切らなければ次の行へ送る。1 行に詰めると、狭い窓で部品どうしが重なる。 */
+.sessions-filters { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 3); margin-bottom: calc(var(--u) * 5); }
+/* 条件の行。条件が 1 つでも効いているときだけ、絞り込みの段の下に出す。
+   高さと余白の和は 28px で、一覧の高さ（SessionsScreen の LIST_H_COND）はこの分を引いている。 */
+.sessions-cond { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 20px; margin: calc(var(--u) * -2) var(--u) calc(var(--u) * 4); font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.sessions-cond > .icon { flex: none; color: var(--accent); }
+.sessions-cond-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sessions-cond b { color: var(--ink); font-weight: 600; }
+.sessions-cond-clear { flex: none; gap: 3px; padding: 0 var(--u); color: var(--accent); font-weight: 560; }
+.sessions-cond-count { margin-left: auto; flex: none; font-size: var(--fs-xs); }
+/* 検索の続きを読むボタン。最後の行の下に、行と一緒にスクロールして現れる。残りの件数を淡く添える。 */
+.sessions-more { display: flex; align-items: center; justify-content: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 3) 0; font-size: var(--fs-sm); }

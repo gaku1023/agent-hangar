@@ -1,17 +1,22 @@
 import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
 import { IntentRoot } from './intent/chain.tsx';
+import { canMoveBehind } from './mediator/screen.ts';
 import { defaultSessionView } from './mediator/sessionView.ts';
+import { presentConfirm } from './presenters/confirm.ts';
 import { presentHome } from './presenters/home.ts';
-import { presentNewSession } from './presenters/newSession.ts';
+import { presentOnboarding } from './presenters/onboarding.ts';
+import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
 import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
 import { presentPromote, presentPromoted } from './presenters/promote.ts';
+import { presentRetentionDialog } from './presenters/retentionDialog.ts';
 import { presentSession } from './presenters/session.ts';
 import { presentSessions } from './presenters/sessions.ts';
 import { presentSettings } from './presenters/settings.ts';
 import { presentShell } from './presenters/shell.ts';
+import { presentToasts } from './presenters/toasts.ts';
 import { createApi, type ApiClient } from './runtime/api.ts';
 import type { Runtime } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
@@ -20,6 +25,7 @@ import { createSwipeDetector, SWIPE_IDLE_MS, SWIPE_STALE_HIDE_MS } from './swipe
 import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
 import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
+import { RetentionDialog } from './views/RetentionDialog.tsx';
 import { ConfirmDialog } from './views/ConfirmDialog.tsx';
 import { HomeScreen } from './views/HomeScreen.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
@@ -36,6 +42,7 @@ import { SwipeHint } from './views/SwipeHint.tsx';
 import { blocksSwipe } from './views/swipeTarget.ts';
 import { motionMs } from './views/primitives/motion.ts';
 import { TerminalHostContext } from './views/TerminalPane.tsx';
+import { CopiedContext } from './views/primitives/CommandLine.tsx';
 import { ToastStack } from './views/ToastStack.tsx';
 
 /**
@@ -72,12 +79,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   // スワイプの矢印。React を通さずに触るので、節点だけ持つ。
   const swipeHintRef = useRef<HTMLDivElement>(null);
 
-  // トーストは 5 秒で消す。
-  useEffect(() => {
-    if (state.toasts.length === 0) return;
-    const t = setTimeout(() => rt.emit({ type: 'toast.dismiss', id: state.toasts[0]!.id }), 5000);
-    return () => clearTimeout(t);
-  }, [state.toasts, rt]);
+  // トーストの時間切れは、トーストごとに ToastStack が持つ（info だけが時間で消える）。
 
   // 未解決ダイアログの候補は Root が API を直接引く。
   // Presenter に通す値ではなく、ダイアログの中だけで使う一時データだからである。
@@ -101,21 +103,56 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const selectedTabId = shortcutView?.selectedTab ?? shortcutTabs[0]?.id ?? null;
   // TabStrip の分割ボタンと同じ条件で、タブが 2 つ無いときは ⌘\ を出さない。
   const canSplit = shortcutTabs.length >= 2;
+  // 終わったセッションの本文が画面に出ているか。ターミナルが出ていれば本文は無い（SessionScreen と同じく currentRunOf で決まる）。
+  const transcriptShown = !!sessionId && !shortcutRun && store.sessions[sessionId]?.hasTranscript === true;
+  // 最後にフォーカスのあったターミナルの枠のタブ。⌘W はこの枠のタブを閉じる。
+  // 分割中は左右のどちらにもフォーカスが来るので、選択中のタブ（左）では足りない。
+  // フォーカスは DOM の事実で、描き方も変えないので、Mediator へは入れずに Root が覚える。
+  const focusedPane = useRef<string | null>(null);
+  useEffect(() => {
+    const remember = (e: Event) => {
+      const tab = paneTabOf(e.target);
+      if (tab) focusedPane.current = tab;
+    };
+    // 枠の中の xterm にフォーカスが入ったときと、枠を押したときの両方で覚える。
+    // 案内の帯のように、押してもフォーカスの入らない所があるからである。
+    document.addEventListener('focusin', remember);
+    document.addEventListener('pointerdown', remember);
+    return () => { document.removeEventListener('focusin', remember); document.removeEventListener('pointerdown', remember); };
+  }, []);
+  // ⌘N で開くダイアログの最初の選択。ヘッダーの新規ボタンと同じものを選ぶ。
+  const { projectId: newProjectId, scratch: newScratch } = newSessionTarget(state, store);
 
   // キーボード。
   // 打鍵と操作の対応は keys.ts の表が持ち、ここは当たった操作を Intent に変えるだけにする。
-  // 受け取らなかった打鍵は preventDefault せずに落とすので、⌘W や ⌘1 はそのままブラウザと OS のものになる。
+  // 受け取らなかった打鍵は preventDefault せずに落とすので、⌘1 やセッション画面の外の ⌘W はそのままブラウザと OS のものになる。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      // WKWebView は、入力欄の外の Backspace で履歴を 1 つ戻す。いまの Chrome と Safari には無い動きなので止める。
+      // 入力欄とターミナル（xterm の textarea）では文字を消す打鍵なので、そのまま通す。
+      if (e.key === 'Backspace') {
+        if (!typing && !el?.isContentEditable) e.preventDefault();
+        return;
+      }
       // ターミナルにフォーカスがあるときは、⌘ を含む組み合わせだけを hangar が処理する。
       // Ctrl の打鍵は端末のものなので、preventDefault せずに xterm へ渡す。
       const inTerminal = !!el?.closest?.('.term-host');
       if (inTerminal && !e.metaKey) return;
       const id = matchKey(e);
       if (!id) return;
+      // 何も開いていないときの入力欄の Esc は、その欄を離れる打鍵にする。ヘッダーの検索欄から抜ける手がほかに無いからである。
+      // ダイアログやパレットの入力欄では、そのダイアログが自分で Esc を処理して閉じるので、ここでは触らない。
+      // 部品が先に Esc を処理した（既定を止めた）ときも重ねない。ターミナルの Esc は上で xterm へ渡している。
+      // 日本語の変換中の Esc は変換を取り消す打鍵なので、欄に残す。
+      const composing = e.isComposing || e.keyCode === 229;
+      if (id === 'overlay.close' && overlayKind === 'none' && (typing || el?.isContentEditable) && !e.defaultPrevented && !composing) {
+        e.preventDefault();
+        el?.blur();
+        return;
+      }
       // 修飾の無い打鍵は入力欄では文字なので、横取りしない。
       if (!e.metaKey && !e.ctrlKey && typing) return;
       const take = () => e.preventDefault();
@@ -126,33 +163,49 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
           return;
         }
         case 'tab.close': {
-          const t = shortcutTabs.find((x) => x.id === selectedTabId);
-          if (t && t.kind === 'shell') { take(); rt.emit({ type: 'tab.close', tabId: t.id }); }
+          // セッション画面では、閉じるものが無くても窓（アプリ）を閉じさせない。
+          // 押し違いでアプリごと落ちると、同梱サーバまで止まるからである。
+          if (!sessionId) return;
+          take();
+          // ダイアログやパレットを開いている間は、裏のタブを閉じない（⌘I と同じ扱い）。
+          if (overlayKind !== 'none') return;
+          // 対象は、打鍵を受けた枠か、最後にフォーカスのあった枠のタブにする。
+          // 覚えた枠がもう出ていなければ（別のタブや別のセッションに移った後）、選択中のタブに戻す。
+          const remembered = focusedPane.current && document.querySelector(`.term-host[data-tab="${CSS.escape(focusedPane.current)}"]`) ? focusedPane.current : null;
+          const target = paneTabOf(el) ?? remembered ?? selectedTabId;
+          const t = shortcutTabs.find((x) => x.id === target);
+          // Claude のタブは閉じない。止めるのは「停止」の役目である。
+          if (t && t.kind === 'shell') rt.emit({ type: 'tab.close', tabId: t.id });
           return;
         }
         case 'split.toggle': if (canSplit) { take(); rt.emit({ type: 'split.toggle' }); } return;
         case 'transcript.toggle': take(); rt.emit({ type: 'transcript.toggle' }); return;
+        // 本文の中の検索。本文が出ているときだけ受け、ターミナルが出ているときはターミナルとブラウザに渡す。
+        case 'transcript.find': if (transcriptShown && sessionId && overlayKind === 'none') { take(); rt.emit({ type: 'transcript.find', sessionId, open: true }); } return;
+        // 端末が画面にあるときだけ受ける。セッション画面でも、終わったセッションの本文だけなら端末は無い。
+        // 端末の無いときはブラウザの拡大に渡す。
+        // 端末が出るかどうかは presentSession と同じく currentRunOf で決まる。
+        case 'terminal.fontBigger': if (shortcutRun) { take(); props.terminals.zoom('in'); } return;
+        case 'terminal.fontSmaller': if (shortcutRun) { take(); props.terminals.zoom('out'); } return;
+        case 'terminal.fontReset': if (shortcutRun) { take(); props.terminals.zoom('reset'); } return;
         case 'palette.open': take(); rt.emit({ type: 'palette.open' }); return;
-        case 'session.new': take(); rt.emit({ type: 'session.new.open', scratch: false }); return;
+        case 'session.new': take(); rt.emit({ type: 'session.new.open', scratch: newScratch === true, ...(newProjectId ? { projectId: newProjectId } : {}) }); return;
         case 'session.newScratch': take(); rt.emit({ type: 'session.new.open', scratch: true }); return;
+        // 次の入力待ちへ。ダイアログを開いている間は、その裏で画面を移さない。
+        case 'session.nextWaiting': if (overlayKind === 'none' || overlayKind === 'palette') { take(); rt.emit({ type: 'session.nextWaiting' }); } return;
         case 'settings.open': take(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return;
         // 入力欄の Ctrl+B はカーソルを 1 字戻す macOS の打鍵なので、⌘B だけを受け取る。
         case 'sidebar.toggle': if (typing && !e.metaKey) return; take(); rt.emit({ type: 'sidebar.toggle' }); return;
         case 'shortcuts.open': take(); rt.emit({ type: 'shortcuts.open' }); return;
         case 'nav.back': take(); rt.emit({ type: 'nav.back' }); return;
         case 'nav.forward': take(); rt.emit({ type: 'nav.forward' }); return;
-        case 'search.focus': {
-          take();
-          // 狭いヘッダでは検索欄を畳んでいる。隠れた欄にはフォーカスできないので、代わりにパレットを開く。
-          const box = document.getElementById('global-search');
-          if (box && getComputedStyle(box).display !== 'none') box.focus(); else rt.emit({ type: 'palette.open' });
-          return;
-        }
         // Esc はオーバーレイを閉じる。
         // 未解決のプロジェクトだけは決めてもらうまで閉じない。
-        // 入力欄にフォーカスがあるときは、その入力欄を持つダイアログが自分で Esc を処理するので二重に出さない（上の typing で落ちる）。
+        // ダイアログの中にフォーカスがあるときは、ダイアログの殻（views/primitives/Dialog.tsx）が Esc を受けて既定を止めるので、二重に出さない。
+        // 二重に閉じると、確認の後ろに控えた未解決のダイアログまで「あとで」で閉じてしまう。
+        // ここが受けるのは、フォーカスが器の外（body など）にあるときの Esc だけである。
         case 'overlay.close':
-          if (overlayKind === 'none' || overlayKind === 'resolveProject') return;
+          if (e.defaultPrevented || overlayKind === 'none' || overlayKind === 'resolveProject') return;
           rt.emit(overlayKind === 'palette' ? { type: 'palette.close' } : { type: 'overlay.close' });
           return;
         default: return;
@@ -160,7 +213,13 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, shortcutTabs, selectedTabId, canSplit]);
+  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals, transcriptShown]);
+
+  // 確認や入力のあるダイアログの裏では、スワイプで画面を移さない（Mediator の canMoveBehind と同じ規則）。
+  // Mediator も nav.back を捨てるが、それだけだと矢印が出て「動いた」と見えてしまうので、手勢そのものを受けない。
+  // スワイプの効果は rt だけで組み直さないので、いまの値は ref で読む。
+  const swipeBlocked = useRef(false);
+  swipeBlocked.current = !canMoveBehind(state);
 
   // トラックパッドの横スワイプ。
   // ネイティブの手勢はスナップショットを滑らせる演出まで付いてくるので使わず、横方向のホイールを自分で積む。
@@ -199,7 +258,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     const navigate = (r: 'back' | 'forward') => {
       clearTimeout(timer);
       // 戻る先が無いときは動かない。アプリの最初の頁の手前は、デスクトップではサーバの起動を待つ頁である。
-      if (r === 'back' && !rt.canGoBack()) { hide(); return; }
+      if ((r === 'back' && !rt.canGoBack()) || swipeBlocked.current) { hide(); return; }
       rt.emit({ type: r === 'back' ? 'nav.back' : 'nav.forward' });
       show(r, 1, true, true);
       // data-done が付くと --dur-exit で薄れて消える。片付けは display: none にするので、薄れ切ってから片付ける。
@@ -212,6 +271,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       if (!phaseAware()) return;
       // 指が離れた後の惰性は、終わった手勢の残りである。次の手勢が始まるまで何もしない。
       if (ended) return;
+      if (swipeBlocked.current) { swipe.begin(); clearTimeout(timer); hide(); return; }
       // 打鍵が久しく途切れていたら、そこからは新しい手勢である。
       if (e.timeStamp - lastAt > SWIPE_IDLE_MS) owner = 'none';
       lastAt = e.timeStamp;
@@ -257,12 +317,13 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   let body: ReactNode;
   if (!store.bootstrapped || state.screen.name === 'booting') body = <div className="empty boot-wait">読み込んでいます</div>;
   else switch (state.screen.name) {
-    case 'home': body = <HomeScreen {...presentHome(state, store, now)} />; break;
+    case 'home': body = <HomeScreen {...presentHome(state, store, now)} onboarding={presentOnboarding(store)} />; break;
     case 'projects': body = <ProjectsScreen {...presentProjects(state, store, now, projectFilter, showArchived)} filter={projectFilter} showArchived={showArchived} onFilter={setProjectFilter} onShowArchived={setShowArchived} />; break;
     case 'project': body = <ProjectScreen {...presentProject(state, store, now, state.screen.id)} />; break;
     case 'session': {
       const p = presentSession(state, store, now, state.screen.id);
-      body = <SessionScreen {...p} terminalStatus={p.selectedTab ? props.terminals.status(p.selectedTab) : null} />;
+      // ターミナルの接続の様子は、枠ごとに TerminalPane が Host から読む（分割で片方だけ切れることがある）。
+      body = <SessionScreen {...p} />;
       break;
     }
     // 検索欄は defaultValue なので、外からの文言リセットで作り直せるように key を付ける。
@@ -276,15 +337,16 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     <>
       {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}
       {newSession && <NewSessionDialog key={newSession.projectId ?? ''} {...newSession} />}
-      {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery)!} onQuery={setPaletteQuery} />}
+      {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now)!} onQuery={setPaletteQuery} />}
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
-      {overlay.kind === 'confirm' && <ConfirmDialog confirm={overlay.confirm} />}
+      {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store)!} />}
       {/* 取り込みの下見は押したときだけ取りに来る一時の値なので、Presenter を通さず store から直に渡す。 */}
       {/* 未解決ダイアログの候補と同じ扱いである。 */}
       {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
+      {overlay.kind === 'retention' && <RetentionDialog {...presentRetentionDialog(state, store, now)!} />}
       {overlay.kind === 'shortcuts' && <ShortcutsDialog />}
-      <ToastStack toasts={state.toasts} />
+      <ToastStack {...presentToasts(state, store, now)} />
       <SwipeHint ref={swipeHintRef} />
     </>
   );
@@ -292,10 +354,19 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   return (
     <IntentRoot onIntent={rt.emit}>
       <TerminalHostContext.Provider value={props.terminals}>
-        <Shell {...shell} overlays={overlays}>{body}</Shell>
+        <CopiedContext.Provider value={state.copied}>
+          <Shell {...shell} overlays={overlays}>{body}</Shell>
+        </CopiedContext.Provider>
       </TerminalHostContext.Provider>
     </IntentRoot>
   );
+}
+
+/** 要素が居るターミナルの枠のタブ。枠の外なら null。 */
+function paneTabOf(target: EventTarget | null): string | null {
+  const el = target as HTMLElement | null;
+  const pane = el?.closest?.('.term-pane');
+  return pane?.querySelector<HTMLElement>('.term-host[data-tab]')?.dataset.tab ?? null;
 }
 
 const apiCache = new WeakMap<Runtime, ApiClient>();

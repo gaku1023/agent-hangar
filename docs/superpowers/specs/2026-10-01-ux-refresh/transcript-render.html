@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本文の表示</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet">
+<style>
+  /* ---- トークン（packages/ui/src/styles/tokens.css の写し。--ink-3 は変更予定の #6e6d88） ---- */
+  :root {
+    --bg: #eef1f7; --aura-1: #cfe0ff; --aura-2: #e5d6ff;
+    --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+    --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88;
+    --accent: #4a63e8; --accent-hi: #6b8cff; --accent-ink: #ffffff; --accent-soft: #eef2ff;
+    --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e; --error: #b3261e;
+    --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-done: #2b7048; --st-done-soft: #e3f1e8;
+    --cand: #6a4fd0; --cand-soft: #f1edff;
+    --term-bg: #1c1b2e; --term-fg: #e8e6f0; --term-tool: #ffb86b;
+    --glass-bg: rgba(255, 255, 255, 0.4);
+    --glass-bg-dialog: rgba(255, 255, 255, 0.72);
+    --glass-bg-toast: rgba(255, 255, 255, 0.82);
+    --glass-bg-menu: rgba(255, 255, 255, 0.82);
+    --glass-blur: blur(12px) saturate(1.9);
+    --glass-blur-strong: blur(18px) saturate(1.8);
+    --glass-blur-toast: blur(14px);
+    --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+    --glass-drop: 0 10px 28px -12px rgba(30, 40, 90, 0.3);
+    --glass-drop-lg: 0 24px 50px -16px rgba(30, 40, 90, 0.45);
+    --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+    --term-lift: 0 12px 26px -16px rgba(20, 20, 60, 0.55);
+    --font-sans: 'Inter', 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+    --font-mono: 'JetBrains Mono', 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+    --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --fs-lg: 20px;
+    --row-h: 28px; --session-row-h: 56px; --hit: #fff3c4;
+    --u: 4px; --r: 8px; --r-lg: 14px; --r-xl: 16px; --r-pill: 99px;
+    --float-gap: 8px; --sidebar-w: 208px; --sidebar-rail-w: 52px; --header-h: 44px; --lights-end: 81px;
+    --dur-fast: 200ms; --dur: 420ms; --dur-exit: 250ms;
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --rise: 6px; --blur-in: 6px; --breathe-period: 3.2s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :root { --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms; --rise: 0px; --blur-in: 0px; }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-padding-top: 64px; }
+  body { margin: 0; font: var(--fs)/1.45 var(--font-sans); color: var(--ink); background: #f6f7fb; -webkit-font-smoothing: antialiased; }
+  button, input { font: inherit; color: inherit; }
+  a { color: var(--accent); text-decoration: none; }
+  svg.i { width: 16px; height: 16px; stroke-width: 1.5; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .mono { font-family: var(--font-mono); }
+  .faint { color: var(--ink-3); } .muted { color: var(--ink-2); }
+
+  /* ---- 試作の頁の枠 ---- */
+  .top { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; gap: 16px; padding: 10px 32px; background: rgba(246, 247, 251, 0.86); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  .top h1 { font-size: 16px; font-weight: 680; margin: 0; letter-spacing: -0.01em; white-space: nowrap; }
+  .top .toc { display: flex; gap: 4px; flex-wrap: wrap; }
+  .top .toc a { font-size: 12px; color: var(--ink-2); padding: 3px 9px; border-radius: 99px; }
+  .top .toc a:hover { background: #fff; text-decoration: none; }
+  .top .chosen { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; align-items: center; color: var(--ink-3); font-size: 12px; }
+  .top .chosen b { font: 600 11.5px var(--font-mono); color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 99px; }
+  .top .zoom { flex: none; font: 500 12px var(--font-sans); border: 0; padding: 5px 12px; border-radius: 99px; background: #fff; box-shadow: 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; }
+  .top .zoom[aria-pressed='true'] { background: var(--ink); color: #fff; }
+  .doc { max-width: 1520px; margin: 0 auto; padding: 24px 32px 120px; }
+  .purpose { margin: 0 0 28px; padding: 16px 20px; border-radius: 14px; background: #fff; box-shadow: 0 0 0 1px var(--line); max-width: 1040px; }
+  .purpose h2 { margin: 0 0 6px; font-size: 14px; font-weight: 650; }
+  .purpose p { margin: 0 0 8px; color: var(--ink-2); }
+  .purpose ul { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); }
+  .purpose li { margin-bottom: 3px; }
+  .purpose code, .note code { font: 500 11.5px var(--font-mono); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+  .legend { display: grid; grid-template-columns: 56px 1fr; gap: 3px 10px; margin: 8px 0 0; font-size: 12.5px; }
+  .legend dt { font: 600 12px var(--font-mono); color: var(--accent); }
+  .legend dd { margin: 0; color: var(--ink-2); }
+  .rec { display: inline-block; background: #fff3d6; padding: 1px 7px; border-radius: 4px; color: #6b4a10; font-size: 11.5px; }
+  section.sec { margin: 0 0 64px; }
+  section.sec > h2 { display: flex; align-items: baseline; gap: 10px; font-size: 17px; font-weight: 680; margin: 0 0 4px; letter-spacing: -0.01em; }
+  section.sec > h2 em { font: 600 12px var(--font-mono); color: var(--accent); font-style: normal; }
+  section.sec > p { margin: 0 0 14px; color: var(--ink-2); max-width: 1000px; }
+  .picks { display: grid; gap: 20px; }
+  .picks.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 1100px) { .picks.two { grid-template-columns: minmax(0, 1fr); } }
+  .pick { background: #fff; border-radius: 16px; box-shadow: 0 1px 2px rgba(30, 40, 90, 0.06), 0 0 0 1px var(--line); display: flex; flex-direction: column; min-width: 0; transition: box-shadow var(--dur-fast) var(--ease-out); }
+  .pick.selected { box-shadow: 0 0 0 2px var(--accent), 0 6px 18px -8px rgba(74, 99, 232, 0.4); }
+  .pick .stage { position: relative; border-radius: 16px 16px 0 0; padding: 18px; overflow: hidden; background: radial-gradient(55% 50% at 18% 15%, var(--aura-1), transparent 70%), radial-gradient(50% 45% at 88% 80%, var(--aura-2), transparent 70%), var(--bg); }
+  .pick .stage.plain { background: #e9ebf1; }
+  .pick .body { padding: 12px 16px 14px; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: flex-start; }
+  .pick .body .txt { flex: 1; min-width: 0; }
+  .pick .body h3 { margin: 0 0 3px; font-size: 13.5px; font-weight: 650; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .pick .body h3 em { font-style: normal; font: 600 11.5px var(--font-mono); color: var(--accent); }
+  .pick .body h3 .tag { font: 500 11px var(--font-sans); color: var(--ink-3); }
+  .pick .body p { margin: 0; color: var(--ink-2); font-size: 12.5px; }
+  .pick .body .choose { flex: none; border: 0; border-radius: 99px; padding: 5px 12px; font-size: 12px; font-weight: 560; cursor: pointer; background: var(--surface-2); color: var(--ink-2); }
+  .pick.selected .body .choose { background: var(--accent); color: #fff; }
+  .note { margin: 10px 0 0; font-size: 12px; color: var(--ink-3); max-width: 1000px; }
+  table.tbl { border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); font-size: 12.5px; margin: 8px 0 0; }
+  table.tbl th, table.tbl td { text-align: left; padding: 7px 12px; border-top: 1px solid var(--line); vertical-align: top; }
+  table.tbl th { background: #fbfbfd; font-weight: 560; color: var(--ink-3); font-size: 11.5px; border-top: 0; }
+  /* 窓の写しを入れる器。JS が器の幅に合わせて zoom を決める（「実寸」を押すと 1 に固定し、横にスクロールする）。 */
+  .fit { position: relative; overflow: hidden; border-radius: 12px; }
+  .fit.real { overflow-x: auto; }
+  .fit > .scaler { transform-origin: 0 0; }
+
+  /* ---- アプリの写し（base.css、workbench.css、session.css に合わせた値） ---- */
+  .win { position: relative; isolation: isolate; overflow: hidden; width: var(--win-w, 1440px); height: var(--win-h, 900px); border-radius: 12px; background: var(--bg); box-shadow: 0 30px 60px -30px rgba(20, 20, 60, 0.45), 0 0 0 1px rgba(20, 20, 60, 0.1); font-size: var(--fs); line-height: 1.45; text-align: left; }
+  .win::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%); }
+  .win .lights { position: absolute; left: 11px; top: 16px; z-index: 12; display: flex; gap: 8px; }
+  .win .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12); }
+  .win .lights i:nth-child(2) { background: #febc2e; } .win .lights i:nth-child(3) { background: #28c840; }
+  .glass { background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); }
+  .w-header { position: absolute; left: 0; right: 0; top: 0; z-index: 10; display: flex; align-items: center; gap: 18px; height: var(--header-h); padding: 0 12px 0 var(--lights-end); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); white-space: nowrap; }
+  .crumbs { display: flex; gap: 4px; color: var(--ink-2); white-space: nowrap; min-width: 0; }
+  .crumbs b { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+  .crumbs a { color: var(--accent); }
+  .w-search { flex: 1; max-width: 420px; min-width: 140px; height: 26px; display: flex; align-items: center; border-radius: var(--r-pill); padding: 0 12px; background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.12); color: var(--ink-3); font-size: var(--fs); }
+  .w-search kbd { margin-left: auto; font: var(--fs-xs)/1 var(--font-mono); color: var(--ink-3); }
+  .w-spacer { flex: 1; }
+  .w-sync { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: var(--fs-sm); position: relative; padding-left: 18px; }
+  .w-sync::before, .w-gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: 16px; translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+  .w-gauges { display: flex; align-items: center; gap: 10px; position: relative; padding-left: 18px; }
+  .gauge { display: inline-flex; align-items: center; gap: 4px; }
+  .gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
+  .gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+  .gauge-fill[data-high='true'] { background: var(--waiting); }
+  .gauge-num { font-size: var(--fs-xs); color: var(--ink-3); min-width: 28px; }
+  .w-sidebar { position: absolute; z-index: 9; top: calc(var(--header-h) + var(--float-gap)); bottom: var(--float-gap); left: var(--float-gap); width: var(--sidebar-w); padding: 10px 8px; border-radius: var(--r-xl); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); }
+  .w-sidebar .sidebar-top { display: flex; align-items: center; margin-bottom: 14px; }
+  .w-sidebar .brand { display: flex; align-items: center; gap: 7px; padding: 0 6px; color: var(--ink); }
+  .w-sidebar .brand svg { width: 44px; height: 44px; flex: none; }
+  .w-sidebar .brand-word { font-size: var(--fs-lg); font-weight: 720; line-height: 1; letter-spacing: -0.03em; }
+  .w-sidebar .brand-word::after { content: ''; display: inline-block; width: 10px; height: 3px; margin-left: 2px; border-radius: 1.5px; background: #ffb86b; }
+  .w-sidebar .toggle { margin-left: auto; width: 32px; height: 32px; display: grid; place-items: center; color: var(--ink-2); }
+  .w-sidebar .toggle svg { width: 18px; height: 18px; }
+  .nav-item { position: relative; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border-radius: var(--r-pill); white-space: nowrap; cursor: default; }
+  .nav-item svg { width: 18px; height: 18px; }
+  .nav-item.on { color: var(--ink); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+  .w-sidebar.rail { width: var(--sidebar-rail-w); padding: 6px; }
+  .w-sidebar.rail .brand { display: none; }
+  .w-sidebar.rail .sidebar-top { margin-bottom: 4px; }
+  .w-sidebar.rail .toggle { margin: 0; width: 40px; height: 40px; }
+  .w-sidebar.rail .nav-item { width: 40px; height: 40px; padding: 0 11px; margin-bottom: 4px; border-radius: var(--r-lg); }
+  .w-sidebar.rail .nav-label { display: none; }
+  .w-main { position: absolute; z-index: 1; top: 0; bottom: 0; right: 0; left: calc(var(--sidebar-w) + var(--float-gap)); padding: calc(var(--header-h) + var(--float-gap) + 8px) 16px 16px; display: flex; flex-direction: column; min-height: 0; }
+  .w-main.rail { left: calc(var(--sidebar-rail-w) + var(--float-gap)); }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 12px; border: 0; border-radius: var(--r-pill); font-weight: 560; font-size: var(--fs); color: var(--ink); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; white-space: nowrap; flex: none; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+  .btn:hover { background: var(--surface); }
+  .btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
+  .btn-primary:hover { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); filter: brightness(1.04); }
+  .btn-icon { width: var(--row-h); padding: 0; justify-content: center; }
+  .btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+  .btn-ghost:hover { background: rgba(255, 255, 255, 0.7); color: var(--ink); }
+  .btn-sm { height: 22px; padding: 0 9px; font-size: var(--fs-sm); }
+  .btn[disabled], .btn.is-disabled { opacity: 0.5; cursor: default; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); flex: none; }
+  .dot[data-s='busy'] { background: var(--busy); } .dot[data-s='idle'] { background: var(--idle); } .dot[data-s='waiting'] { background: var(--waiting); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.06); white-space: nowrap; }
+  kbd.k { font: 600 10.5px var(--font-mono); color: var(--ink-2); padding: 0 4px; border-radius: 4px; background: rgba(30, 40, 90, 0.06); }
+
+  /* 浮くガラスのメニュー（listbox-pop と同じ地と縁） */
+  .menu { position: absolute; z-index: 30; min-width: 248px; padding: 6px; border-radius: var(--r-lg); background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); font-size: var(--fs); }
+  .menu .mi { display: flex; align-items: flex-start; gap: 10px; padding: 6px 10px; border-radius: 10px; color: var(--ink); white-space: nowrap; }
+  .menu .mi > svg { margin-top: 1px; color: var(--ink-2); }
+  .menu .mi .t { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .menu .mi small { font-size: var(--fs-xs); color: var(--ink-2); white-space: normal; line-height: 1.4; }
+  .menu .mi kbd { margin-left: auto; font: 500 11px var(--font-mono); color: var(--ink-3); }
+  .menu .mi.on { background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0 #fff, 0 2px 8px -2px rgba(30, 40, 90, 0.16); }
+  .menu .mi.off { color: var(--ink-3); }
+  .menu .mi.off > svg { color: var(--ink-3); }
+  .menu .mi.danger, .menu .mi.danger > svg { color: var(--error); }
+  .menu hr { border: 0; border-top: 1px solid rgba(30, 40, 90, 0.08); margin: 4px 6px; }
+  .tip { position: absolute; z-index: 31; padding: 5px 9px; border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; white-space: nowrap; }
+  .tip small { display: block; opacity: 0.72; font-weight: 400; }
+
+  /* ---- 本文の面（.tr-sheet と .msg の写し。幅は終了済みのセッション画面で本文が取る 860px） ---- */
+  .sheet { width: 860px; max-width: 100%; margin: 0 auto; padding: 8px 12px 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); position: relative; }
+  .tr { display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+  .msg { max-width: 80ch; padding: 8px 12px; border-radius: var(--r-lg); word-break: break-word; line-height: 1.6; }
+  .msg-user { background: var(--accent); color: var(--accent-ink); align-self: flex-end; border-bottom-right-radius: 5px; white-space: pre-wrap; }
+  .msg-assistant { background: var(--surface-2); align-self: flex-start; border-bottom-left-radius: 5px; }
+  .msg-system { color: var(--ink-3); font-size: var(--fs-xs); align-self: center; }
+  /* 返答の器（M 軸） */
+  .m2 .msg-assistant { background: none; padding: 4px 2px; max-width: 76ch; }
+  .m3 .msg-assistant { background: none; border-radius: 0; padding: 2px 0 2px 14px; border-left: 2px solid color-mix(in srgb, var(--accent) 35%, var(--line)); max-width: 76ch; }
+  .m3 .who { font-size: var(--fs-xs); font-weight: 600; color: var(--accent); margin: 0 0 2px; display: flex; align-items: center; gap: 5px; }
+  /* Markdown */
+  .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+  .md p { margin: 0 0 8px; }
+  .md h2 { font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; margin: 14px 0 6px; }
+  .md h3 { font-size: var(--fs); font-weight: 650; margin: 12px 0 4px; }
+  .md strong { font-weight: 650; }
+  .md a { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); text-underline-offset: 2px; }
+  .md a .i { width: 12px; height: 12px; vertical-align: -1px; margin-left: 1px; }
+  .md code { font-family: var(--font-mono); font-size: 0.88em; padding: 1px 4px; border-radius: 4px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+  .md ul, .md ol { margin: 0 0 8px; padding-left: 22px; }
+  .md li { margin: 2px 0; }
+  .md li::marker { color: var(--ink-3); }
+  .md ol li::marker { font-family: var(--font-mono); font-size: 0.9em; }
+  .md table { border-collapse: collapse; margin: 4px 0 10px; font-size: var(--fs-sm); background: var(--surface); border-radius: var(--r); overflow: hidden; box-shadow: 0 0 0 1px var(--line-strong); }
+  .md th, .md td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  .md th { background: #f7f8fb; font-weight: 600; color: var(--ink-2); border-top: 0; }
+  .md blockquote { margin: 0 0 8px; padding: 2px 12px; border-left: 3px solid var(--line-strong); color: var(--ink-2); }
+  .code { margin: 6px 0 10px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line-strong); overflow: hidden; }
+  .code-h { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 4px 0 12px; border-bottom: 1px solid var(--line); font: 500 var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+  .code-h .cp { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border: 0; border-radius: 99px; background: none; color: var(--ink-2); font: 500 var(--fs-xs) var(--font-sans); cursor: pointer; }
+  .code-h .cp:hover { background: var(--surface); color: var(--ink); }
+  .code-h .cp .i { width: 14px; height: 14px; }
+  .code-h .cp.done { color: var(--st-done); }
+  .code pre { margin: 0; padding: 10px 12px; font: 12px/1.6 var(--font-mono); white-space: pre; overflow-x: auto; color: var(--ink); }
+  .kw { color: #7a3fc4; } .st { color: #2b7048; } .nu { color: #b35a00; } .cm { color: var(--ink-3); } .fn { color: #2a57b8; }
+
+  /* ツールの行 */
+  .tool { min-width: 0; }
+  .trow { display: flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 8px 0 6px; border-radius: var(--r); color: var(--ink-2); white-space: nowrap; cursor: pointer; }
+  .trow:hover { background: var(--surface-2); }
+  .trow > .chev { color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
+  .tool.open > .trow > .chev { transform: rotate(90deg); }
+  .trow .sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font: var(--fs-sm) var(--font-mono); color: var(--ink); }
+  .trow .sum .d { color: var(--ink-3); }
+  .trow .meta { flex: none; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); display: inline-flex; gap: 8px; align-items: center; }
+  .trow .when { flex: none; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+  .add { color: var(--st-done); } .del { color: var(--error); }
+  .exit0 { color: var(--st-done); } .exit1 { color: var(--error); font-weight: 600; }
+  .tbody { margin: 2px 0 6px 28px; }
+  /* 札（K 軸） */
+  .badge { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 6px; font: 600 11px var(--font-mono); letter-spacing: 0.01em; }
+  .badge .i { width: 12px; height: 12px; }
+  .k1 .badge[data-c='read'] { color: var(--accent); background: var(--accent-soft); }
+  .k1 .badge[data-c='write'] { color: var(--st-done); background: var(--st-done-soft); }
+  .k1 .badge[data-c='run'] { color: #8a5a0b; background: #faefd9; }
+  .k1 .badge[data-c='web'] { color: var(--cand); background: var(--cand-soft); }
+  .k1 .badge[data-c='other'] { color: var(--ink-2); background: var(--surface-2); }
+  .k1 .badge .i { display: none; }
+  .k2 .badge { background: var(--term-bg); color: var(--term-tool); }
+  .k2 .badge .i { display: none; }
+  .k3 .badge { padding: 0; height: auto; background: none; color: var(--ink); font-size: 12px; font-weight: 650; }
+  .k3 .badge .i { width: 14px; height: 14px; color: var(--ink-2); }
+  .tool.err .trow { color: var(--error); }
+
+  /* 密度（T 軸） */
+  .t2 .tool { border-radius: 10px; box-shadow: 0 0 0 1px var(--line); background: var(--surface); }
+  .t2 .trow { height: 32px; }
+  .t2 .trow:hover { background: none; }
+  .t2 .peek { margin: 0 10px 8px 34px; font: 11.5px/1.55 var(--font-mono); color: var(--ink-2); white-space: pre; overflow: hidden; max-height: 54px; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+  .t2 .tbody { margin: 0 10px 10px 10px; }
+  .t2 .tool.err { box-shadow: 0 0 0 1px color-mix(in srgb, var(--error) 35%, transparent); }
+  .bundle > .trow .kinds { display: inline-flex; gap: 4px; }
+  .bundle > .inner { margin: 0 0 4px 22px; padding-left: 8px; border-left: 1px solid var(--line-strong); }
+  .t4 .tl { position: relative; padding-left: 26px; }
+  .t4 .tl::before { content: ''; position: absolute; left: 11px; top: 0; bottom: 0; width: 2px; background: var(--line); }
+  .t4 .tool { position: relative; }
+  .t4 .tool::before { content: ''; position: absolute; left: -19px; top: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--surface); box-shadow: inset 0 0 0 2px var(--line-strong); }
+  .t4 .tool.err::before { box-shadow: inset 0 0 0 2px var(--error); }
+  .t4 .trow { height: 26px; padding-left: 0; }
+  .t4 .trow > .chev { display: none; }
+  .t4 .tbody { margin-left: 0; }
+
+  /* 差分（D 軸） */
+  .diff { border-radius: var(--r); box-shadow: 0 0 0 1px var(--line-strong); overflow: hidden; font: 12px/1.6 var(--font-mono); background: var(--surface); }
+  .diff-h { display: flex; align-items: center; gap: 10px; height: 28px; padding: 0 10px; background: #f7f8fb; border-bottom: 1px solid var(--line); font-size: var(--fs-xs); color: var(--ink-2); }
+  .diff-h .p { color: var(--ink); }
+  .diff-h .cp { margin-left: auto; }
+  .dl { display: grid; grid-template-columns: 38px 38px 16px minmax(0, 1fr); white-space: pre; }
+  .dl .n { color: var(--ink-3); text-align: right; padding-right: 8px; user-select: none; font-size: 11px; }
+  .dl .s { color: var(--ink-3); text-align: center; }
+  .dl.a { background: #e9f6ee; } .dl.a .s { color: var(--st-done); } .dl.a .n { background: #d7efdf; }
+  .dl.r { background: #fcecea; } .dl.r .s { color: var(--error); } .dl.r .n { background: #f8dcd8; }
+  .dl ins { text-decoration: none; background: #b8e3c6; border-radius: 2px; }
+  .dl del { text-decoration: none; background: #f3bdb6; border-radius: 2px; }
+  .hunk { padding: 2px 10px; background: var(--accent-soft); color: var(--st-active); font-size: 11px; }
+  .gap { padding: 2px 10px; background: #f7f8fb; color: var(--ink-3); font-size: 11px; text-align: center; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; }
+  .split > div + div { border-left: 1px solid var(--line-strong); }
+  .sl { display: grid; grid-template-columns: 34px 16px minmax(0, 1fr); white-space: pre; min-height: 19px; }
+  .sl .n { color: var(--ink-3); text-align: right; padding-right: 6px; font-size: 11px; }
+  .sl .s { text-align: center; color: var(--ink-3); }
+  .sl.a { background: #e9f6ee; } .sl.r { background: #fcecea; } .sl.e { background: repeating-linear-gradient(135deg, #f7f8fb 0 4px, #fff 4px 8px); }
+  .sl.a .s { color: var(--st-done); } .sl.r .s { color: var(--error); }
+
+  /* ツールの中身 */
+  .bash { border-radius: var(--r); background: var(--term-bg); color: var(--term-fg); font: 12px/1.6 var(--font-mono); overflow: hidden; }
+  .bash .cmd { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; border-bottom: 1px solid rgba(232, 230, 240, 0.12); white-space: pre-wrap; }
+  .bash .cmd .pr { color: var(--term-tool); flex: none; }
+  .bash .cmd .cp { margin-left: auto; flex: none; color: color-mix(in srgb, var(--term-fg) 60%, transparent); display: inline-flex; }
+  .bash .out { padding: 8px 12px; white-space: pre; color: color-mix(in srgb, var(--term-fg) 85%, transparent); overflow: hidden; }
+  .bash .foot { display: flex; gap: 12px; padding: 4px 12px 6px; font-size: 11px; color: color-mix(in srgb, var(--term-fg) 55%, transparent); border-top: 1px solid rgba(232, 230, 240, 0.08); }
+  .bash .ok { color: #6fd3a5; } .bash .ng { color: #ff8a80; }
+  .args { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 4px 12px; padding: 8px 12px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line); font-size: var(--fs-sm); }
+  .args dt { font: 500 var(--fs-xs)/1.9 var(--font-mono); color: var(--ink-3); }
+  .args dd { margin: 0; font-family: var(--font-mono); white-space: pre-wrap; word-break: break-all; }
+  .web { border-radius: var(--r); box-shadow: 0 0 0 1px var(--line); overflow: hidden; }
+  .web .u { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #f7f8fb; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+  .fav { width: 16px; height: 16px; border-radius: 4px; display: grid; place-items: center; font: 700 10px var(--font-sans); color: #fff; background: #8a89a0; flex: none; }
+  .web .u a { font-family: var(--font-mono); font-size: var(--fs-xs); }
+  .web .q { padding: 8px 12px; font-size: var(--fs-sm); color: var(--ink-2); border-bottom: 1px solid var(--line); }
+  .web .r { padding: 8px 12px; font-size: var(--fs-sm); line-height: 1.6; }
+  .results { list-style: none; margin: 0; padding: 4px 0; }
+  .results li { display: flex; gap: 10px; align-items: baseline; padding: 5px 12px; font-size: var(--fs-sm); }
+  .results li .dom { margin-left: auto; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); white-space: nowrap; }
+  .read { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line); font-size: var(--fs-sm); }
+  .read .range { font: var(--fs-xs) var(--font-mono); color: var(--ink-2); background: var(--surface); padding: 1px 8px; border-radius: 99px; box-shadow: 0 0 0 1px var(--line-strong); }
+  .read .lnbar { flex: 1; height: 6px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
+  .read .lnbar i { position: absolute; top: 0; bottom: 0; background: var(--accent-hi); border-radius: 3px; }
+  .gallery { display: flex; flex-direction: column; gap: 14px; }
+  .gallery .lbl { font: 600 11.5px var(--font-mono); color: var(--ink-3); margin: 0 0 4px 6px; }
+
+  /* 畳み（F 軸） */
+  .fold-fade { position: relative; max-height: 320px; overflow: hidden; }
+  .fold-fade::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 90px; background: linear-gradient(transparent, var(--fold-bg, var(--surface-2))); }
+  .more { display: flex; justify-content: center; margin-top: -14px; position: relative; z-index: 1; }
+  .more .btn { height: 26px; font-size: var(--fs-sm); }
+  .more-left { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: var(--fs-sm); }
+  .more-left a { display: inline-flex; align-items: center; gap: 4px; font-weight: 560; }
+  .outline { margin: 6px 0 0; padding: 8px 10px; border-radius: var(--r); background: var(--surface); box-shadow: 0 0 0 1px var(--line); font-size: var(--fs-sm); }
+  .outline .ol-h { display: flex; justify-content: space-between; color: var(--ink-3); font-size: var(--fs-xs); margin-bottom: 4px; }
+  .outline a { display: flex; gap: 8px; padding: 3px 4px; border-radius: 6px; color: var(--ink); }
+  .outline a:hover { background: var(--surface-2); text-decoration: none; }
+  .outline a span { margin-left: auto; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+  .corner { position: relative; }
+  .corner .tagm { position: absolute; right: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px; border-radius: 99px; background: var(--surface); box-shadow: 0 0 0 1px var(--line-strong), 0 4px 10px -4px rgba(30, 40, 90, 0.25); font-size: var(--fs-xs); font-weight: 560; color: var(--ink-2); }
+  .clip-lines { overflow: hidden; }
+
+  /* 検索（S 軸と J 軸） */
+  mark.hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 1px; }
+  mark.cur { background: #ffd35c; color: inherit; border-radius: 3px; padding: 0 1px; box-shadow: 0 0 0 1.5px var(--busy); }
+  .msg-user mark.hit { background: rgba(255, 243, 196, 0.35); color: #fff; }
+  .find { display: flex; align-items: center; gap: 4px; height: 34px; padding: 0 4px 0 10px; border-radius: 12px; font-size: var(--fs-sm); }
+  .find.float { position: absolute; top: 6px; right: 12px; z-index: 5; width: 380px; background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); }
+  .find.bar { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-strong); margin: 0 0 6px; }
+  .find .in { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 8px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); color: var(--ink); }
+  .find .in .i { color: var(--ink-3); }
+  .find .cnt { font: var(--fs-xs) var(--font-mono); color: var(--ink-2); padding: 0 6px; white-space: nowrap; }
+  .find .ib { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 8px; color: var(--ink-2); }
+  .find .ib:hover { background: rgba(255, 255, 255, 0.8); }
+  .find .opt { font: 600 11px var(--font-mono); color: var(--ink-3); padding: 2px 5px; border-radius: 5px; }
+  .ticks { position: absolute; right: 2px; top: 90px; bottom: 16px; width: 6px; z-index: 4; }
+  .ticks i { position: absolute; left: 0; width: 6px; height: 3px; border-radius: 2px; background: #e8b400; }
+  .ticks i.c { background: var(--busy); height: 4px; }
+  .hitcount { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 99px; background: var(--hit); color: #6b4a10; font: 600 10.5px var(--font-mono); }
+  .scope { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+  .fromband { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; margin: 0 0 6px; border-radius: 10px; background: #fff8dc; box-shadow: inset 0 0 0 1px #f1dc8c; font-size: var(--fs-sm); color: #6b4a10; }
+  .fromband .btn { height: 24px; font-size: var(--fs-sm); }
+  .flash { animation: flash 1.8s var(--ease-out) 0.25s both; border-radius: var(--r-lg); }
+  @keyframes flash { 0% { box-shadow: 0 0 0 3px #ffd35c; background-color: #fff3c4; } 100% { box-shadow: 0 0 0 3px transparent; } }
+  @media (prefers-reduced-motion: reduce) { .flash { animation: none; box-shadow: 0 0 0 2px #ffd35c; } }
+  .gutter { position: relative; }
+  .gutter .gm { position: absolute; left: -12px; width: 4px; border-radius: 2px; background: #e8b400; }
+  .ringed { box-shadow: 0 0 0 2px #ffd35c; }
+  .replay { margin: 0 0 10px; }
+  .toggles { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .tchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 520; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .w-search .scope { margin-right: 6px; }
+  .mini-head { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 12px 0 16px; margin: -18px -18px 12px; border-radius: 16px 16px 0 0; background: var(--glass-bg); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); }
+  .mini-head .w-search { max-width: 420px; }
+  .ctlrow { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; font-size: 12px; color: var(--ink-2); }
+  .ctlrow .opts { display: inline-flex; padding: 3px; border-radius: 99px; background: rgba(30, 40, 90, 0.06); }
+  .ctlrow .opts button { border: 0; background: none; height: 24px; padding: 0 10px; border-radius: 99px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+  .ctlrow .opts button[aria-pressed='true'] { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 4px rgba(30, 40, 90, 0.16); }
+</style>
+</head>
+<body>
+<div class="top"><h1>本文の表示</h1>
+  <nav class="toc"><a href="#now">今</a><a href="#axM">M 返答の器</a><a href="#axT">T ツール行の密度</a><a href="#axK">K 札</a><a href="#axD">D 差分</a><a href="#kinds">種類ごとの中身</a><a href="#axF">F 長い本文</a><a href="#axS">S 本文の検索</a><a href="#axJ">J 検索から開く</a></nav>
+  <div class="chosen" id="chosen"></div></div>
+<div class="doc">
+
+<div class="purpose">
+  <h2>何を決めるための試作か</h2>
+  <p>終了済みのセッションの本文（と、実行中の目次で開いたターンの中身）の描き方を決めます。今は Claude の返答の Markdown が素の文字のまま（表の縦線、<code>- </code>、<code>[名前](URL)</code> が見える）で、ツール呼び出しはどれも同じ 1 行と JSON、長い本文は 60vh の箱の中でさらにスクロールします。直す中身は決まっているので、その見せ方を軸ごとに選んでください。</p>
+  <ul>
+    <li>Markdown を描く：見出し、太字、リンク、箇条書き、番号付き、表、引用、コードブロック（言語名とコピーのボタン）。</li>
+    <li>ツールを種類ごとに描き分ける：Edit / MultiEdit は赤と緑の差分、Write はパスとコード、Bash はコマンドと出力、Read はパスと行の範囲、WebFetch / WebSearch は URL や検索語と結果、その他は整形した引数。どれにもツール名の札を付ける。</li>
+    <li>入れ子のスクロールをやめ、長いものは畳んで「全文を表示」。</li>
+    <li>本文の中の検索（⌘F の欄、前へ・次へ、一致の印）と、検索の結果から開いたときの一致箇所の強調。</li>
+  </ul>
+  <dl class="legend">
+    <dt>M1〜M3</dt><dd>Claude の返答の器（吹き出し、地の文、左の線）</dd>
+    <dt>T1〜T4</dt><dd>ツール行の密度（1 行、カード、束ねる、時系列の線）</dd>
+    <dt>K1〜K3</dt><dd>ツール名の札の形（色分け、墨の札、文字とアイコン）</dd>
+    <dt>D1〜D3</dt><dd>差分の見せ方（統合、左右、統合と語の強調）</dd>
+    <dt>F1〜F4</dt><dd>長い本文と長い出力の畳み方と閾値の見せ方</dd>
+    <dt>S1〜S3</dt><dd>本文の中の検索の欄の置き場所</dd>
+    <dt>J1〜J3</dt><dd>検索の結果から開いたときの一致箇所の見せ方</dd>
+  </dl>
+  <p class="note" style="margin-top:10px">中身はすべて架空です。本文の面は、終了済みのセッション画面で本文が取る幅（860px）の実寸で描いています。ツールの行と札を押すと開閉し、コードのコピーのボタンも押せます。</p>
+</div>
+
+<section class="sec" id="now"><h2><em>今</em>比べるための現在の描き方</h2><p>Markdown は太字とコードだけ効き、表と箇条書きは記号のまま。ツールは JSON のまま。</p><div class="picks"><div class="pick"><div class="stage plain" id="nowStage"></div></div></div></section>
+<section class="sec" id="axM"><h2><em>M</em>Claude の返答の器</h2><p>同じ Markdown を 3 つの器で描いています。利用者の指示は、どの案でも右寄せの青い吹き出しのままです。</p><div class="picks" id="picksM"></div></section>
+<section class="sec" id="axT"><h2><em>T</em>ツール行の密度</h2><p>返答の間に Read、Edit 2 回、Bash 2 回（うち 1 回は失敗）が続く場面です。Edit の 1 つを開いたところを描いています。</p><div class="picks" id="picksT"></div></section>
+<section class="sec" id="axK"><h2><em>K</em>ツール名の札</h2><p>札の形だけを変えています（行は T1）。K1 は種類を 4 つの色に分けます（読む＝青、書く＝緑、実行＝杏、web＝紫、その他＝灰）。</p><div class="picks" id="picksK"></div></section>
+<section class="sec" id="axD"><h2><em>D</em>差分の見せ方</h2><p>Edit を開いたときの中身です。変わっていない行は前後 2 行だけ見せ、間は「⋯ 行」で畳みます。</p><div class="picks" id="picksD"></div></section>
+<section class="sec" id="kinds"><h2><em>見本</em>ツールの種類ごとの中身</h2><p>選んだ札（K）と差分（D）で描いた、種類ごとの開いた中身です。どれも行を押すと畳めます。選ぶものではありません（直したい所があれば種類の名前で伝えてください）。</p>
+  <div class="ctlrow" id="kindCtl"></div><div class="picks"><div class="pick"><div class="stage" id="kindStage"></div></div></div></section>
+<section class="sec" id="axF"><h2><em>F</em>長い本文と長い出力の畳み方</h2><p>左は 64 行ある Claude の返答、右は 212 行ある Bash の出力です。どの案も面の中の入れ子のスクロールはやめ、開くと面そのものが伸びます。</p><div class="picks" id="picksF"></div></section>
+<section class="sec" id="axS"><h2><em>S</em>本文の中の検索（⌘F）</h2><p>「バリデーション」で探して、12 件中 3 件目にいるところです。今いる一致は濃い黄と杏の縁、ほかは淡い黄。畳んだツールの中に一致があれば、行に件数を出します。</p><div class="picks" id="picksS"></div></section>
+<section class="sec" id="axJ"><h2><em>J</em>検索の結果から開いたとき</h2><p>セッションの一覧の検索（「パスワードの条件」）から、このセッションを開いた直後です。「もう一度」で着いた瞬間の動きを繰り返せます（reduced motion では動かさず、印だけを残します）。</p><div class="picks" id="picksJ"></div></section>
+</div>
+
+<script>
+const ICON_SVG = {"house":"<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/>","folder":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>","messages-square":"<path d=\"M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z\"/><path d=\"M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1\"/>","settings":"<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","plus":"<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>","x":"<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>","chevron-right":"<path d=\"m9 18 6-6-6-6\"/>","chevron-down":"<path d=\"m6 9 6 6 6-6\"/>","chevron-up":"<path d=\"m18 15-6-6-6 6\"/>","panel-left":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M9 3v18\"/>","search":"<path d=\"m21 21-4.34-4.34\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>","panel-right-close":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/><path d=\"m8 9 3 3-3 3\"/>","panel-right-open":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/><path d=\"m10 15-3-3 3-3\"/>","bot":"<path d=\"M12 8V4H8\"/><rect width=\"16\" height=\"12\" x=\"4\" y=\"8\" rx=\"2\"/><path d=\"M2 14h2\"/><path d=\"M20 14h2\"/><path d=\"M15 13v2\"/><path d=\"M9 13v2\"/>","terminal":"<path d=\"M12 19h8\"/><path d=\"m4 17 6-6-6-6\"/>","workflow":"<rect width=\"8\" height=\"8\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M7 11v4a2 2 0 0 0 2 2h4\"/><rect width=\"8\" height=\"8\" x=\"13\" y=\"13\" rx=\"2\"/>","wrench":"<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z\"/>","square-terminal":"<path d=\"m7 11 2-2-2-2\"/><path d=\"M11 13h4\"/><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/>","code":"<path d=\"m16 18 6-6-6-6\"/><path d=\"m8 6-6 6 6 6\"/>","square":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/>","rotate-ccw":"<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/>","git-fork":"<circle cx=\"12\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\"/><path d=\"M12 12v3\"/>","download":"<path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/>","arrow-down-to-line":"<path d=\"M12 17V3\"/><path d=\"m6 11 6 6 6-6\"/><path d=\"M19 21H5\"/>","columns-2":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>","ellipsis":"<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>","copy":"<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>","check":"<path d=\"M20 6 9 17l-5-5\"/>","file-pen-line":"<path d=\"M14.364 13.634a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506l4.013-4.009a1 1 0 0 0-3.004-3.004z\"/><path d=\"M14.487 7.858A1 1 0 0 1 14 7V2\"/><path d=\"M20 19.645V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l2.516 2.516\"/><path d=\"M8 18h1\"/>","file-plus":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M9 15h6\"/><path d=\"M12 18v-6\"/>","file-text":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/>","globe":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>","list-todo":"<path d=\"M13 5h8\"/><path d=\"M13 12h8\"/><path d=\"M13 19h8\"/><path d=\"m3 17 2 2 4-4\"/><rect x=\"3\" y=\"4\" width=\"6\" height=\"6\" rx=\"1\"/>","circle-alert":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\"/><line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\"/>","bell":"<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/>","refresh-cw":"<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>","unplug":"<path d=\"m19 5 3-3\"/><path d=\"m2 22 3-3\"/><path d=\"M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z\"/><path d=\"M7.5 13.5 10 11\"/><path d=\"M10.5 16.5 13 14\"/><path d=\"m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z\"/>","scroll-text":"<path d=\"M15 12h-5\"/><path d=\"M15 8h-5\"/><path d=\"M19 17V5a2 2 0 0 0-2-2H4\"/><path d=\"M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3\"/>","info":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 16v-4\"/><path d=\"M12 8h.01\"/>","arrow-up":"<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>","arrow-down":"<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>","external-link":"<path d=\"M15 3h6v6\"/><path d=\"M10 14 21 3\"/><path d=\"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"/>","panel-right":"<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M15 3v18\"/>","files":"<path d=\"M15 2h-4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8\"/><path d=\"M16.706 2.706A2.4 2.4 0 0 0 15 2v5a1 1 0 0 0 1 1h5a2.4 2.4 0 0 0-.706-1.706z\"/><path d=\"M5 7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h8a2 2 0 0 0 1.732-1\"/>","pin":"<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>","eye":"<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","clock":"<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 6v6l4 2\"/>","brain":"<path d=\"M12 18V5\"/><path d=\"M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4\"/><path d=\"M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5\"/><path d=\"M17.997 5.125a4 4 0 0 1 2.526 5.77\"/><path d=\"M18 18a4 4 0 0 0 2-7.464\"/><path d=\"M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517\"/><path d=\"M6 18a4 4 0 0 1-2-7.464\"/><path d=\"M6.003 5.125a4 4 0 0 0-2.526 5.77\"/>","sparkles":"<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/><path d=\"M20 2v4\"/><path d=\"M22 4h-4\"/><circle cx=\"4\" cy=\"20\" r=\"2\"/>","pencil":"<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>","folder-up":"<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/><path d=\"M12 10v6\"/><path d=\"m9 13 3-3 3 3\"/>","git-branch":"<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>","list-checks":"<path d=\"M13 5h8\"/><path d=\"M13 12h8\"/><path d=\"M13 19h8\"/><path d=\"m3 17 2 2 4-4\"/><path d=\"m3 7 2 2 4-4\"/>","keyboard":"<path d=\"M10 8h.01\"/><path d=\"M12 12h.01\"/><path d=\"M14 8h.01\"/><path d=\"M16 12h.01\"/><path d=\"M18 8h.01\"/><path d=\"M6 8h.01\"/><path d=\"M7 16h10\"/><path d=\"M8 12h.01\"/><rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\"/>","triangle-alert":"<path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3\"/><path d=\"M12 9v4\"/><path d=\"M12 17h.01\"/>","corner-down-left":"<path d=\"M20 4v7a4 4 0 0 1-4 4H4\"/><path d=\"m9 10-5 5 5 5\"/>","search-code":"<path d=\"m13 13.5 2-2.5-2-2.5\"/><path d=\"m21 21-4.3-4.3\"/><path d=\"M9 8.5 7 11l2 2.5\"/><circle cx=\"11\" cy=\"11\" r=\"8\"/>","file-code":"<path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5\"/><path d=\"M10 12.5 8 15l2 2.5\"/><path d=\"m14 12.5 2 2.5-2 2.5\"/>","layers":"<path d=\"M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z\"/><path d=\"M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12\"/><path d=\"M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17\"/>","octagon-x":"<path d=\"m15 9-6 6\"/><path d=\"M2.586 16.726A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2h6.624a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586z\"/><path d=\"m9 9 6 6\"/>","bell-ring":"<path d=\"M10.268 21a2 2 0 0 0 3.464 0\"/><path d=\"M22 8c0-2.3-.8-4.3-2-6\"/><path d=\"M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326\"/><path d=\"M4 2C2.8 3.7 2 5.7 2 8\"/>","text-search":"<path d=\"M21 5H3\"/><path d=\"M10 12H3\"/><path d=\"M10 19H3\"/><circle cx=\"17\" cy=\"15\" r=\"3\"/><path d=\"m21 19-1.9-1.9\"/>","sprout":"<path d=\"M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3\"/><path d=\"M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4\"/><path d=\"M5 21h14\"/>","arrow-right":"<path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/>","maximize-2":"<path d=\"M15 3h6v6\"/><path d=\"m21 3-7 7\"/><path d=\"m3 21 7-7\"/><path d=\"M9 21H3v-6\"/>","minimize-2":"<path d=\"m14 10 7-7\"/><path d=\"M20 10h-6V4\"/><path d=\"m3 21 7-7\"/><path d=\"M4 14h6v6\"/>"};
+/* ---- 共通の部品 ---- */
+const ic = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON_SVG[name] || ''}</svg>`;
+const LOGO = `<svg viewBox="14 13 72 72" aria-hidden="true"><defs><linearGradient id="hangar-rail" gradientUnits="userSpaceOnUse" x1="-13.362" y1="0" x2="34.096" y2="0"><stop offset="0" stop-color="#1c1b2e"/><stop offset="0.25" stop-color="#1c1b2e"/><stop offset="1" stop-color="#e2e7ff"/></linearGradient></defs><g transform="translate(46.256 25.106) scale(0.854)"><path d="M-13.362 3.178L34.096 -11.66" stroke="url(#hangar-rail)" stroke-width="2.6" stroke-linecap="round"/><g transform="translate(20.734 -6.483) scale(0.614)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#c6cae2" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#c6cae2"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#cdd5fc" stroke-width="4" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#f4caa4"/></g><g transform="translate(14.911 -4.662) scale(0.722)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#8e90a6" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#8e90a6"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#a1aff5" stroke-width="4" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#c1c0d3"/></g><g transform="translate(8.06 -2.52) scale(0.85)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#55556a" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#55556a"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#7689ef" stroke-width="4" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#e56656"/></g><g><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#1c1b2e" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#1c1b2e"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#4a63e8" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#ff6a55"/><circle cx="-16.5" cy="37" r="2" fill="#ffc34d"/><circle cx="-10" cy="37" r="2" fill="#3fb58a"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e8e6e1" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#ffb86b"/></g></g></svg>`;
+
+/** ヘッダ（窓の上辺に付いたガラスの帯）。crumbs は [{label, link}] */
+function headerHTML(crumbs) {
+  const c = crumbs.map((x, i) => `${i ? '<span class="faint"> / </span>' : ''}${x.link ? `<a>${x.label}</a>` : `<b>${x.label}</b>`}`).join('');
+  return `<div class="w-header"><div class="crumbs">${c}</div><div class="w-search">セッションを検索（/）<kbd>⌘K</kbd></div><span class="w-spacer"></span>
+    <span class="w-sync"><span class="dot" data-s="idle"></span>同期 1 分未満前</span>
+    <span class="w-gauges"><span class="gauge"><span class="gauge-bar"><span class="gauge-fill" style="width:29%"></span></span><span class="gauge-num">29%</span></span><span class="gauge"><span class="gauge-bar"><span class="gauge-fill" style="width:55%"></span></span><span class="gauge-num">55%</span></span></span>
+    <button class="btn btn-primary">${ic('plus')}新規セッション</button></div>`;
+}
+
+/** サイドバー。current は現在の項目、badge(item, rail) は項目に添える印の HTML を返す関数。 */
+function sidebarHTML({ rail = false, current = 'sessions', badge = null } = {}) {
+  const items = [['home', 'house', 'ホーム'], ['projects', 'folder', 'プロジェクト'], ['sessions', 'messages-square', 'セッション'], ['settings', 'settings', '設定']];
+  const nav = items.map(([k, icon, label]) => `<div class="nav-item${k === current ? ' on' : ''}" data-nav="${k}">${ic(icon)}<span class="nav-label">${label}</span>${badge ? badge(k, rail) : ''}</div>`).join('');
+  return `<nav class="w-sidebar${rail ? ' rail' : ''}"><div class="sidebar-top"><span class="brand">${LOGO}<span class="brand-word">Hangar</span></span><span class="toggle">${ic('panel-left')}</span></div>${nav}</nav>`;
+}
+
+function winHTML({ w = 1440, h = 900, rail = false, current = 'sessions', badge = null, crumbs = [], main = '', extra = '', mainCls = '' } = {}) {
+  return `<div class="win" style="--win-w:${w}px;--win-h:${h}px"><div class="lights"><i></i><i></i><i></i></div>${headerHTML(crumbs)}${sidebarHTML({ rail, current, badge })}<main class="w-main${rail ? ' rail' : ''} ${mainCls}">${main}</main>${extra}</div>`;
+}
+
+/* ---- 器の縮尺。器の幅に合わせて縮め、「実寸」のときは 1 のまま横にスクロールさせる ---- */
+let REAL = false;
+function fitAll() {
+  document.querySelectorAll('.fit').forEach((f) => {
+    const s = f.querySelector('.scaler');
+    if (!s) return;
+    const w = Number(f.dataset.w || 1440), h = Number(f.dataset.h || 900);
+    const z = REAL ? 1 : Math.min(1, f.clientWidth / w);
+    s.style.transform = `scale(${z})`;
+    s.style.width = w + 'px';
+    f.style.height = Math.ceil(h * z) + 'px';
+    f.classList.toggle('real', REAL);
+  });
+}
+function fitHTML(inner, w = 1440, h = 900) { return `<div class="fit" data-w="${w}" data-h="${h}"><div class="scaler">${inner}</div></div>`; }
+window.addEventListener('resize', fitAll);
+
+/* ---- 案の選択。頁ごとに localStorage へ覚える（使えないときは覚えないだけ） ---- */
+function setupPicks(storeKey) {
+  let chosen = {};
+  try { chosen = JSON.parse(localStorage.getItem(storeKey) || '{}') || {}; } catch (e) { chosen = {}; }
+  const paint = () => {
+    document.querySelectorAll('.pick[data-group]').forEach((c) => {
+      const on = chosen[c.dataset.group] === c.dataset.id;
+      c.classList.toggle('selected', on);
+      const b = c.querySelector('.choose'); if (b) b.textContent = on ? '選んだ' : 'これにする';
+    });
+    const ids = Object.values(chosen).sort();
+    const el = document.getElementById('chosen');
+    if (el) el.innerHTML = ids.length ? '選んだ案 ' + ids.map((i) => `<b>${i}</b>`).join('') : 'まだ選んでいません';
+    document.dispatchEvent(new CustomEvent('picks', { detail: { ...chosen } }));
+  };
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('.pick .choose');
+    if (!b) return;
+    const card = b.closest('.pick');
+    const g = card.dataset.group;
+    if (chosen[g] === card.dataset.id) delete chosen[g]; else chosen[g] = card.dataset.id;
+    try { localStorage.setItem(storeKey, JSON.stringify(chosen)); } catch (e2) { /* 覚えられなくても動く */ }
+    paint();
+  });
+  const zoom = document.getElementById('zoom');
+  if (zoom) zoom.addEventListener('click', () => { REAL = !REAL; zoom.setAttribute('aria-pressed', String(REAL)); zoom.textContent = REAL ? '実寸で表示中' : '実寸で見る'; fitAll(); });
+  paint();
+  return chosen;
+}
+
+function pickHTML({ group, id, title, tag = '', desc = '', stage = '', stageCls = '' }) {
+  return `<div class="pick" data-group="${group}" data-id="${id}"><div class="stage ${stageCls}">${stage}</div><div class="body"><div class="txt"><h3><em>${id}</em>${title}${tag ? `<span class="tag">${tag}</span>` : ''}</h3><p>${desc}</p></div><button class="choose">これにする</button></div></div>`;
+}
+
+
+/* ---- Markdown の中身（描いた後の HTML） ---- */
+const copyBtn = () => `<button class="cp" type="button">${ic('copy')}<span>コピー</span></button>`;
+const CODE_TS = `<span class="kw">export const</span> PASSWORD_RULES = [
+  { test: (v: <span class="kw">string</span>) =&gt; v.length &gt;= <span class="nu">8</span>, message: <span class="st">'password.tooShort'</span> },
+  { test: (v: <span class="kw">string</span>) =&gt; <span class="st">/[a-z]/i</span>.<span class="fn">test</span>(v) &amp;&amp; <span class="st">/\\d/</span>.<span class="fn">test</span>(v), message: <span class="st">'password.mixed'</span> },
+];`;
+const MD = `<div class="md">
+<h2>変えたところ</h2>
+<p>ログインフォームに入力チェックを足しました。<strong>送信の前</strong>に欄ごとに確かめ、エラー文は <code>ja.json</code> から引きます。書き方は <a>resolver の説明${ic('external-link')}</a> に合わせました。</p>
+<ul><li>メールは形だけを見る（届くかどうかは確かめない）</li><li>パスワードは 8 文字以上で、英字と数字を両方含む<ul><li>条件は <code>validators.ts</code> の <code>PASSWORD_RULES</code> に集めた</li></ul></li></ul>
+<ol><li><code>LoginForm.tsx</code> に <code>validate()</code> を足した</li><li>欄ごとに <code>FieldError</code> を置いた</li><li>テストを 6 件足した</li></ol>
+<table><tr><th>欄</th><th>条件</th><th>エラー文</th></tr><tr><td>メール</td><td>形が正しい</td><td>メールアドレスの形が正しくありません</td></tr><tr><td>パスワード</td><td>8 文字以上</td><td>8 文字以上で入力してください</td></tr><tr><td>パスワード</td><td>英字と数字</td><td>英字と数字を両方使ってください</td></tr></table>
+<div class="code"><div class="code-h">ts<span class="faint">· src/lib/validators.ts</span>${copyBtn()}</div><pre>${CODE_TS}</pre></div>
+<blockquote>push はまだです。PR を作るときは言ってください。</blockquote>
+</div>`;
+const RAW = `## 変えたところ
+
+ログインフォームに入力チェックを足しました。<b>送信の前</b>に欄ごとに確かめ、エラー文は <code>ja.json</code> から引きます。書き方は [resolver の説明](https://example.com/docs/resolver) に合わせました。
+
+- メールは形だけを見る（届くかどうかは確かめない）
+- パスワードは 8 文字以上で、英字と数字を両方含む
+  - 条件は <code>validators.ts</code> の <code>PASSWORD_RULES</code> に集めた
+
+1. <code>LoginForm.tsx</code> に <code>validate()</code> を足した
+2. 欄ごとに <code>FieldError</code> を置いた
+
+| 欄 | 条件 | エラー文 |
+|---|---|---|
+| メール | 形が正しい | メールアドレスの形が正しくありません |
+| パスワード | 8 文字以上 | 8 文字以上で入力してください |
+
+> push はまだです。PR を作るときは言ってください。`;
+
+/* ---- ツール ---- */
+const KIND = {
+  Read: ['read', 'file-text'], Grep: ['read', 'search-code'], Glob: ['read', 'files'],
+  Edit: ['write', 'file-pen-line'], MultiEdit: ['write', 'file-pen-line'], Write: ['write', 'file-plus'],
+  Bash: ['run', 'terminal'], Task: ['run', 'workflow'],
+  WebFetch: ['web', 'globe'], WebSearch: ['web', 'search'], TodoWrite: ['other', 'list-todo'],
+};
+const badge = (name) => { const [c, icon] = KIND[name] || ['other', 'wrench']; return `<span class="badge" data-c="${c}">${ic(icon)}${name}</span>`; };
+function toolHTML({ name, sum, meta = '', when, body = '', open = false, err = false, peek = '', hits = 0 }) {
+  return `<div class="tool${open ? ' open' : ''}${err ? ' err' : ''}"><div class="trow"><span class="chev">${ic('chevron-right')}</span>${badge(name)}<span class="sum">${sum}</span>${hits ? `<span class="hitcount">一致 ${hits}</span>` : ''}<span class="meta">${meta}</span><span class="when">${when}</span></div>${peek ? `<div class="peek">${peek}</div>` : ''}<div class="tbody" ${open ? '' : 'hidden'}>${body}</div></div>`;
+}
+
+/* 差分 */
+function diffHTML(mode, { head = true } = {}) {
+  const hdr = head ? `<div class="diff-h"><span class="p">src/components/LoginForm.tsx</span><span class="add">+3</span><span class="del">−1</span><span class="cp"></span></div>` : '';
+  if (mode === 'D2') {
+    const L = [[40, '    &lt;form onSubmit={submit}&gt;', 40, '    &lt;form onSubmit={submit}&gt;'], [41, '      &lt;ErrorSummary errors={errors} /&gt;', null, null, 'r'], [null, null, 41, '      &lt;Field label="メールアドレス" name="email"&gt;', 'a'], [null, null, 42, '        &lt;FieldError message={errors.email} /&gt;', 'a'], [null, null, 43, '      &lt;/Field&gt;', 'a'], [42, '      &lt;Field label="パスワード" name="password"&gt;', 44, '      &lt;Field label="パスワード" name="password"&gt;']];
+    const left = L.map((x) => x[4] === 'a' ? '<div class="sl e"><span class="n"></span><span class="s"></span><span></span></div>' : `<div class="sl${x[4] === 'r' ? ' r' : ''}"><span class="n">${x[0]}</span><span class="s">${x[4] === 'r' ? '−' : ''}</span><span>${x[1]}</span></div>`).join('');
+    const right = L.map((x) => x[4] === 'r' ? '<div class="sl e"><span class="n"></span><span class="s"></span><span></span></div>' : `<div class="sl${x[4] === 'a' ? ' a' : ''}"><span class="n">${x[2]}</span><span class="s">${x[4] === 'a' ? '+' : ''}</span><span>${x[3]}</span></div>`).join('');
+    return `<div class="diff">${hdr}<div class="hunk">@@ LoginForm の JSX @@</div><div class="split"><div>${left}</div><div>${right}</div></div><div class="gap">⋯ 38 行 ⋯</div></div>`;
+  }
+  const word = mode === 'D3';
+  const rows = [
+    ['', 40, 40, '    &lt;form onSubmit={submit}&gt;'],
+    ['r', 41, '', word ? '      &lt;<del>ErrorSummary errors={errors}</del> /&gt;' : '      &lt;ErrorSummary errors={errors} /&gt;'],
+    ['a', '', 41, word ? '      &lt;<ins>Field label="メールアドレス" name="email"</ins>&gt;' : '      &lt;Field label="メールアドレス" name="email"&gt;'],
+    ['a', '', 42, word ? '        &lt;<ins>FieldError message={errors.email}</ins> /&gt;' : '        &lt;FieldError message={errors.email} /&gt;'],
+    ['a', '', 43, '      &lt;/Field&gt;'],
+    ['', 42, 44, '      &lt;Field label="パスワード" name="password"&gt;'],
+  ];
+  return `<div class="diff">${hdr}<div class="hunk">@@ -40,3 +40,5 @@ LoginForm の JSX</div>${rows.map((r) => `<div class="dl ${r[0]}"><span class="n">${r[1]}</span><span class="n">${r[2]}</span><span class="s">${r[0] === 'a' ? '+' : r[0] === 'r' ? '−' : ''}</span><span>${r[3]}</span></div>`).join('')}<div class="gap">⋯ 38 行 ⋯</div></div>`;
+}
+const bashHTML = (cmd, out, code, dur) => `<div class="bash"><div class="cmd"><span class="pr">$</span><span>${cmd}</span><span class="cp">${ic('copy')}</span></div><div class="out">${out}</div><div class="foot"><span class="${code ? 'ng' : 'ok'}">終了コード ${code}</span><span>${dur}</span></div></div>`;
+const OUT_PASS = ` PASS  src/components/LoginForm.test.tsx
+  ✓ メールの形が崩れているとき、メールの欄の下に文が出る (18 ms)
+  ✓ パスワードが 8 文字未満のとき、パスワードの欄の下に文が出る (9 ms)
+  ✓ 両方正しいときは送信ボタンが押せる (12 ms)
+
+Tests:       6 passed, 6 total`;
+const OUT_FAIL = ` FAIL  src/components/LoginForm.test.tsx
+  ✕ 英字だけのパスワードで文が出る (14 ms)
+
+  ● 英字だけのパスワードで文が出る
+    Expected: "英字と数字を両方使ってください"
+    Received: undefined
+
+Tests:       1 failed, 5 passed, 6 total`;
+
+function toolsScene(T, D, { hits = false } = {}) {
+  const pk = (s) => (T === 'T2' ? s : '');
+  const items = [
+    { name: 'Read', sum: 'src/components/LoginForm.tsx <span class="d">1〜84 行</span>', when: '12:03', peek: pk('import { useState } from \'react\'\nimport { Field } from \'./Field\'\nexport function LoginForm() {') },
+    { name: 'Edit', sum: 'src/components/LoginForm.tsx', meta: '<span class="add">+3</span><span class="del">−1</span>', when: '12:04', open: true, body: diffHTML(D, { head: false }), hits: hits ? 2 : 0 },
+    { name: 'Edit', sum: 'src/i18n/ja.json', meta: '<span class="add">+3</span><span class="del">−1</span>', when: '12:04', peek: pk('+  "password.tooShort": "8 文字以上で入力してください",\n+  "password.mixed": "英字と数字を両方使ってください",') },
+    { name: 'Bash', sum: 'npm test -- LoginForm <span class="d">· LoginForm のテストを流す</span>', meta: '<span class="exit0">0</span>', when: '12:05', peek: pk(' PASS  src/components/LoginForm.test.tsx\nTests:       6 passed, 6 total') },
+    { name: 'Bash', sum: 'npm run lint', meta: '<span class="exit1">終了 1</span>', when: '12:05', err: true, peek: pk('src/lib/validators.ts\n  3:7  error  \'EMAIL\' is assigned a value but never used') },
+  ];
+  let tools;
+  if (T === 'T3') {
+    tools = `<div class="tool bundle open"><div class="trow"><span class="chev">${ic('chevron-right')}</span><span class="sum" style="font-family:var(--font-sans);font-size:13px">ツール 5 回</span><span class="meta"><span class="kinds">${badge('Read')}${badge('Edit')}<span>×2</span>${badge('Bash')}<span>×2</span></span><span class="exit1">失敗 1</span></span><span class="when">12:03〜12:05</span></div><div class="inner">${items.map(toolHTML).join('')}</div></div>`;
+  } else if (T === 'T4') {
+    tools = `<div class="tl">${items.map(toolHTML).join('')}</div>`;
+  } else tools = items.map(toolHTML).join('');
+  return `<div class="msg msg-user">パスワードの条件は 8 文字以上、英字と数字を両方</div>
+  <div class="msg msg-assistant"><div class="md"><p>条件を足します。まず今のフォームを読みます。</p></div></div>
+  ${tools}
+  <div class="msg msg-assistant"><div class="md"><p>テストは通りましたが、lint で使っていない定数が 1 つ見つかりました。消してもう一度流します。</p></div></div>`;
+}
+const sheet = (inner, cls = '') => `<div class="sheet ${cls}"><div class="toggles"><span class="tchip">${ic('brain')}思考</span><span class="tchip">${ic('file-code')}生の記録</span><span class="w-spacer"></span><span class="faint mono" style="font-size:12px">48 / 48</span></div><div class="tr">${inner}</div></div>`;
+const who = (M) => (M === 'M3' ? `<div class="who">${ic('sparkles')}Claude</div>` : '');
+
+/* ---- 今 ---- */
+document.getElementById('nowStage').innerHTML = sheet(`<div class="msg msg-user">エラー文の表もまとめて</div><div class="msg msg-assistant" style="white-space:pre-wrap;max-height:300px;overflow:auto">${RAW}</div><div class="tool" style="border-left:2px solid var(--line-strong);padding-left:8px"><div class="trow">${ic('chevron-right')}${ic('wrench')}<span class="sum">Edit src/components/LoginForm.tsx</span><span class="when">12:04</span></div><div style="margin:0 0 4px 24px;padding:8px;border-radius:8px;background:var(--surface-2);font:12px var(--font-mono);white-space:pre-wrap;max-height:120px;overflow:auto">{"file_path":"/Users/you/workspace/shop-web/src/components/LoginForm.tsx","old_string":"      &lt;ErrorSummary errors={errors} /&gt;","new_string":"      &lt;Field label=\\"メールアドレス\\" name=\\"email\\"&gt;\\n        &lt;FieldError message={errors.email} /&gt;\\n      &lt;/Field&gt;"}</div></div>`, 'k1');
+
+/* ---- 軸 ---- */
+const DESC = {
+  M1: ['吹き出しのまま', '', '今の淡い灰の吹き出しに Markdown を描く。表とコードは吹き出しの中に収める。会話らしさが残る。'],
+  M2: ['地の文', 'おすすめ', 'Claude の返答は吹き出しをやめ、白い面にそのまま文書として描く（幅は 76 字まで）。表とコードが広く使え、長い返答が読みやすい。'],
+  M3: ['左の線と名札', '', '返答の左に細い青の線と「Claude」の名札を置き、地は塗らない。誰の発言かの区切りは残しつつ、文書として読める。'],
+  T1: ['1 行', 'おすすめ', '今と同じ 28px の 1 行に、札、要約（パスやコマンド）、結果（+3 −1、終了コード）、時刻を並べる。押すと下に中身を開く。'],
+  T2: ['カード', '', '1 つずつ枠のあるカードにし、開かなくても中身の頭（3 行）が見える。場所は取るが、開かずに様子が分かる。'],
+  T3: ['続くツールを束ねる', '', '返答の間に続いたツールを「ツール 5 回」の 1 行に束ね、種類と失敗の数を添える。開くと T1 の行が並ぶ。本文が途切れない。'],
+  T4: ['時系列の線', '', '左に縦の線を引き、ツールを線の上の点として並べる。行は 26px と詰め、失敗は点を赤くする。'],
+  K1: ['色分けの札', 'おすすめ', '読む＝青、書く＝緑、実行＝杏、web＝紫、その他＝灰の淡い地の札。種類が色で一目で分かる。'],
+  K2: ['墨の札', '', 'Home の実行中の札と同じ、墨の地に杏の文字の札。どのツールも同じ形で、端末らしさが出る。'],
+  K3: ['文字とアイコン', '', '地を持たず、種類のアイコンと太字の名前だけ。いちばん静か。'],
+  D1: ['統合', 'おすすめ', 'GitHub の統合表示と同じ。左に前後の行番号、+ と − の行を緑と赤の地で上下に並べる。860px の幅でも折り返さない。'],
+  D2: ['左右', '', '左に前、右に後を並べる。対応の無い側は斜線で埋める。幅が要るので、狭いときは統合に落とす。'],
+  D3: ['統合と語の強調', '', 'D1 に加え、行の中で変わった語だけを濃い地で塗る。1 語だけ変えた行が見分けやすい。'],
+  F1: ['高さで切ってぼかす', 'おすすめ', '返答は 320px、出力は 12 行を超えたら切り、下端をぼかして「全文を表示（残り 52 行）」を置く。開くと同じ場所に「畳む」。'],
+  F2: ['行数で切って左下に文字のリンク', '', '返答は 16 行、出力は 12 行で切る。ぼかさず、下に「全文を表示 · 残り 48 行」と行数を文字で出す。'],
+  F3: ['見出しの目次を出す', '', '長い返答は最初の段落と、見出しの一覧だけを見せる。見出しを押すとそこから開く。出力は頭と末尾を 6 行ずつ見せ、間を畳む（テストの結果は末尾に出るため）。'],
+  F4: ['右下の札', '', '切り方は F1 と同じ。ぼかさず、面の右下に「続き 52 行」の小さな札だけを浮かべる。いちばん控えめ。'],
+  S1: ['右上に浮く欄', 'おすすめ', 'VS Code と同じく、本文の面の右上にガラスの欄を浮かべる。件数、前へ・次へ（⇧⏎ / ⏎）、大文字小文字、閉じる。右端のスクロールバーに一致の位置の印。'],
+  S2: ['切り替えの行が検索欄になる', '', '⌘F を押すと、本文の上の「思考・生の記録」の行が検索欄に替わる。面の上端に固定され、本文を覆わない。'],
+  S3: ['ヘッダの検索欄を使う', '', '⌘F でヘッダの検索欄に「このセッション」の札が付き、そこで本文の中を探す。⌘K（全体の検索）と同じ場所で済む。'],
+  J1: ['跳んで光らせる', 'おすすめ', '一致した返答へ跳び、その返答の地を淡い黄から 1.8 秒で薄れさせる。語の印は残す。検索欄は開かない。'],
+  J2: ['⌘F の欄を開いて来る', '', '検索語が入った状態で S の欄を開き、全部の一致に印を付けて最初の一致へ。そのまま次の一致へ進める。'],
+  J3: ['上端の帯と左の印', '', '面の上に「“パスワードの条件” で検索から開きました · 一致 3 件」の帯を出し、前へ・次へで巡る。一致のある返答の左に黄の印。'],
+};
+const P = (g, id, stage, stageCls = '') => { const d = DESC[id]; return pickHTML({ group: g, id, title: d[0], tag: d[1], desc: d[2], stage, stageCls }); };
+
+function buildM() {
+  document.getElementById('picksM').innerHTML = ['M1', 'M2', 'M3'].map((id) => P('M', id, sheet(`<div class="msg msg-user">エラー文の表もまとめて</div><div class="msg msg-assistant">${who(id)}${MD}</div>`, id.toLowerCase() + ' k1'))).join('');
+}
+function buildT() { document.getElementById('picksT').innerHTML = ['T1', 'T2', 'T3', 'T4'].map((id) => P('T', id, sheet(toolsScene(id, cur.D || 'D1'), `${id.toLowerCase()} ${(cur.K || 'K1').toLowerCase()} ${(cur.M || 'M2').toLowerCase()}`))).join(''); }
+function buildK() { document.getElementById('picksK').innerHTML = ['K1', 'K2', 'K3'].map((id) => P('K', id, sheet(toolsScene('T1', cur.D || 'D1'), `t1 ${id.toLowerCase()} ${(cur.M || 'M2').toLowerCase()}`))).join(''); }
+function buildD() { document.getElementById('picksD').innerHTML = ['D1', 'D2', 'D3'].map((id) => P('D', id, `<div style="width:860px;max-width:100%;margin:0 auto">${diffHTML(id)}</div>`)).join(''); }
+
+function kindsGallery(K, D) {
+  const G = (lbl, html) => `<div><div class="lbl">${lbl}</div>${html}</div>`;
+  const multi = `<div class="diff"><div class="diff-h"><span class="p">src/lib/validators.ts</span><span>3 か所</span><span class="add">+22</span><span class="del">−0</span></div><div class="hunk">@@ 1 か所目 @@</div>${['<span class="kw">export const</span> EMAIL = <span class="st">/^[^@\\s]+@[^@\\s]+$/</span>'].map((l) => `<div class="dl a"><span class="n"></span><span class="n">3</span><span class="s">+</span><span>${l}</span></div>`).join('')}<div class="gap">⋯ 12 行 ⋯</div><div class="hunk">@@ 2 か所目 @@</div><div class="dl a"><span class="n"></span><span class="n">16</span><span class="s">+</span><span><span class="kw">export const</span> PASSWORD_RULES = [</span></div><div class="gap">⋯ 1 か所 ⋯</div></div>`;
+  const write = `<div class="code"><div class="code-h">tsx<span class="faint">· 新しいファイル · 56 行</span>${copyBtn()}</div><pre><span class="cm"> 1</span>  <span class="kw">import</span> { render, screen } <span class="kw">from</span> <span class="st">'@testing-library/react'</span>
+<span class="cm"> 2</span>  <span class="kw">import</span> userEvent <span class="kw">from</span> <span class="st">'@testing-library/user-event'</span>
+<span class="cm"> 3</span>  <span class="kw">import</span> { LoginForm } <span class="kw">from</span> <span class="st">'./LoginForm'</span>
+<span class="cm"> 4</span>
+<span class="cm"> 5</span>  <span class="fn">test</span>(<span class="st">'メールの形が崩れているとき、メールの欄の下に文が出る'</span>, <span class="kw">async</span> () =&gt; {
+<span class="cm"> 6</span>    <span class="fn">render</span>(&lt;LoginForm /&gt;)</pre><div class="more-left" style="padding:0 12px 8px"><a>${ic('chevron-down')}全文を表示</a><span class="faint">残り 50 行</span></div></div>`;
+  const read = `<div class="read">${ic('file-text')}<span class="mono">src/components/LoginForm.tsx</span><span class="range">1〜84 行</span><span class="lnbar"><i style="left:0;width:100%"></i></span><span class="faint">全 84 行</span></div>`;
+  const read2 = `<div class="read">${ic('file-text')}<span class="mono">src/i18n/ja.json</span><span class="range">120〜160 行</span><span class="lnbar"><i style="left:38%;width:13%"></i></span><span class="faint">全 312 行</span></div>`;
+  const fetch = `<div class="web"><div class="u"><span class="fav" style="background:#4a63e8">E</span><a>https://example.com/docs/resolver</a><span class="faint" style="margin-left:auto;font-size:11px">200 · 12 KB · 0.8 秒</span></div><div class="q"><b style="color:var(--ink);font-weight:600">聞いたこと</b>　resolver にスキーマを渡す書き方と、エラー文を差し替える方法を要約して</div><div class="r">resolver にはスキーマを 1 つ渡し、各欄のエラーは <code class="mono">errors.&lt;欄名&gt;.message</code> で読む。文言はスキーマの側で差し替える。</div></div>`;
+  const search = `<div class="web"><div class="u">${ic('search')}<b style="font-weight:600">react form resolver エラー文 日本語</b><span class="faint" style="margin-left:auto;font-size:11px">結果 8 件</span></div><ul class="results"><li><span class="fav" style="background:#2b7048">D</span><a>Resolver の使い方</a><span class="dom">docs.example.com</span></li><li><span class="fav" style="background:#8a5a0b">B</span><a>フォームの検証とエラー文の国際化</a><span class="dom">blog.example.org</span></li><li><span class="fav">Q</span><a>resolver でエラー文を差し替えたい</a><span class="dom">qa.example.net</span></li><li class="faint" style="padding-left:38px">ほか 5 件</li></ul></div>`;
+  const grep = `<dl class="args"><dt>pattern</dt><dd>ErrorSummary</dd><dt>path</dt><dd>src/</dd><dt>glob</dt><dd>*.tsx</dd><dt>output_mode</dt><dd>files_with_matches</dd><dt>結果</dt><dd style="font-family:var(--font-sans)">2 ファイル · <span class="mono">src/components/LoginForm.tsx</span>、<span class="mono">src/components/SignupForm.tsx</span></dd></dl>`;
+  const task = `<dl class="args"><dt>description</dt><dd style="font-family:var(--font-sans)">SignupForm にも同じ検証が要るか調べる</dd><dt>subagent_type</dt><dd>Explore</dd><dt>prompt</dt><dd style="font-family:var(--font-sans)">SignupForm.tsx を読み、LoginForm と同じ入力チェックを足すべき欄を挙げて… <a>全文</a></dd></dl><div style="margin-top:6px"><button class="btn btn-sm">${ic('workflow')}サブエージェントを見る</button></div>`;
+  const rows = [
+    ['Edit', 'src/components/LoginForm.tsx', '<span class="add">+3</span><span class="del">−1</span>', diffHTML(D, { head: false })],
+    ['MultiEdit', 'src/lib/validators.ts <span class="d">· 3 か所</span>', '<span class="add">+22</span>', multi],
+    ['Write', 'src/components/LoginForm.test.tsx <span class="d">· 新しいファイル</span>', '56 行', write],
+    ['Bash', 'npm test -- LoginForm <span class="d">· LoginForm のテストを流す</span>', '<span class="exit0">0</span>', bashHTML('npm test -- LoginForm', OUT_PASS, 0, '2.4 秒')],
+    ['Bash', 'npm test -- LoginForm', '<span class="exit1">終了 1</span>', bashHTML('npm test -- LoginForm', OUT_FAIL, 1, '2.1 秒'), true],
+    ['Read', 'src/components/LoginForm.tsx <span class="d">1〜84 行</span>', '', read],
+    ['Read', 'src/i18n/ja.json <span class="d">120〜160 行</span>', '', read2],
+    ['WebFetch', 'example.com/docs/resolver', '200', fetch],
+    ['WebSearch', 'react form resolver エラー文 日本語', '8 件', search],
+    ['Grep', 'ErrorSummary <span class="d">in src/ *.tsx</span>', '2 ファイル', grep],
+    ['Task', 'SignupForm にも同じ検証が要るか調べる', 'Explore', task],
+  ];
+  return `<div class="sheet t1 ${K.toLowerCase()} m2"><div class="tr">${rows.map((r, i) => toolHTML({ name: r[0], sum: r[1], meta: r[2], when: `12:${String(3 + i).padStart(2, '0')}`, body: r[3], open: true, err: !!r[4] })).join('')}</div></div>`;
+}
+const kv = { K: 'K1', D: 'D1' };
+function buildKinds() {
+  document.getElementById('kindCtl').innerHTML = `札 <span class="opts">${['K1', 'K2', 'K3'].map((k) => `<button data-k="K" data-v="${k}" aria-pressed="${kv.K === k}">${k}</button>`).join('')}</span>差分 <span class="opts">${['D1', 'D2', 'D3'].map((k) => `<button data-k="D" data-v="${k}" aria-pressed="${kv.D === k}">${k}</button>`).join('')}</span>`;
+  document.getElementById('kindStage').innerHTML = kindsGallery(kv.K, kv.D);
+}
+document.getElementById('kindCtl').addEventListener('click', (e) => { const b = e.target.closest('button[data-k]'); if (!b) return; kv[b.dataset.k] = b.dataset.v; buildKinds(); });
+
+/* 長い本文 */
+const LONG_MD = `<div class="md"><p>全体を見直しました。気になったところを 4 つの見出しに分けて書きます。先に結論だけ言うと、急いで直すべきものは 1 つ（送信中の二重押し）で、残りは次の作業でよいと思います。</p>
+<h3 id="h1">1. 送信中の二重押し</h3><p>送信ボタンは押した後も押せるままで、遅い回線では同じ要求が 2 回飛びます。<code>isSubmitting</code> の間はボタンを無効にし、文言を「送信中」に替えるのがよいと思います。</p>
+<h3 id="h2">2. エラー文の出る時機</h3><p>今は打つたびに検証していて、メールを打ち始めた瞬間に「形が正しくありません」が出ます。欄を離れたときに初めて検証し、一度出た後は打つたびに更新する形が一般的です。</p>
+<h3>3. パスワードの表示の切り替え</h3><p>目のアイコンで表示を切り替えられると、打ち間違いが減ります。</p><h3>4. テストの足りないところ</h3><p>サーバが 401 を返したときの文言のテストがありません。</p></div>`;
+const LONG_OUT = ` PASS  src/components/LoginForm.test.tsx
+ PASS  src/components/SignupForm.test.tsx
+ PASS  src/lib/validators.test.ts
+ PASS  src/lib/format.test.ts
+ PASS  src/pages/Home.test.tsx
+ PASS  src/pages/Account.test.tsx
+ PASS  src/pages/Settings.test.tsx
+ PASS  src/hooks/useSession.test.ts
+ PASS  src/hooks/useToast.test.ts
+ PASS  src/api/client.test.ts
+ PASS  src/api/auth.test.ts
+ PASS  src/i18n/ja.test.ts
+ PASS  src/i18n/en.test.ts
+ PASS  src/components/Field.test.tsx`;
+const TAIL_OUT = ` PASS  src/components/Toast.test.tsx
+ PASS  src/components/Dialog.test.tsx
+
+Test Suites: 38 passed, 38 total
+Tests:       212 passed, 212 total
+Time:        9.84 s`;
+function foldScene(F) {
+  let msg, out;
+  const bashTop = (body) => `<div class="bash"><div class="cmd"><span class="pr">$</span><span>npm test</span><span class="cp">${ic('copy')}</span></div>${body}<div class="foot"><span class="ok">終了コード 0</span><span>9.8 秒</span><span>212 行</span></div></div>`;
+  if (F === 'F1') {
+    msg = `<div class="msg msg-assistant" style="--fold-bg:var(--surface-2)"><div class="fold-fade">${LONG_MD}</div><div class="more"><button class="btn">${ic('chevron-down')}全文を表示（残り 52 行）</button></div></div>`;
+    out = bashTop(`<div class="out fold-fade" style="max-height:230px;--fold-bg:var(--term-bg)">${LONG_OUT}</div><div class="more" style="padding-bottom:8px"><button class="btn">${ic('chevron-down')}全文を表示（残り 200 行）</button></div>`);
+  }
+  if (F === 'F2') {
+    msg = `<div class="msg msg-assistant"><div class="clip-lines" style="max-height:300px">${LONG_MD}</div><div class="more-left"><a>${ic('chevron-down')}全文を表示</a><span class="faint">残り 48 行 · 16 行を超えると畳みます</span></div></div>`;
+    out = bashTop(`<div class="out" style="max-height:220px">${LONG_OUT}</div><div class="more-left" style="padding:0 12px 8px;color:#e8e6f0"><a style="color:#8fa6ff">${ic('chevron-down')}全文を表示</a><span style="opacity:.6">残り 200 行 · 12 行を超えると畳みます</span></div>`);
+  }
+  if (F === 'F3') {
+    msg = `<div class="msg msg-assistant"><div class="md"><p>全体を見直しました。気になったところを 4 つの見出しに分けて書きます。先に結論だけ言うと、急いで直すべきものは 1 つ（送信中の二重押し）で、残りは次の作業でよいと思います。</p></div><div class="outline"><div class="ol-h"><span>見出し 4 つ · 全 64 行</span><a style="display:inline;padding:0;color:var(--accent)">全文を表示</a></div><a>1. 送信中の二重押し<span>12 行</span></a><a>2. エラー文の出る時機<span>18 行</span></a><a>3. パスワードの表示の切り替え<span>9 行</span></a><a>4. テストの足りないところ<span>21 行</span></a></div></div>`;
+    out = bashTop(`<div class="out" style="padding-bottom:4px">${LONG_OUT.split('\n').slice(0, 6).join('\n')}</div><div style="text-align:center;padding:3px;font-size:11px;color:#8fa6ff;border-top:1px dashed rgba(232,230,240,.15);border-bottom:1px dashed rgba(232,230,240,.15)">⋯ 200 行を畳んでいます · 押すと全部 ⋯</div><div class="out" style="padding-top:4px">${TAIL_OUT}</div>`);
+  }
+  if (F === 'F4') {
+    msg = `<div class="msg msg-assistant corner" style="padding-bottom:10px"><div class="clip-lines" style="max-height:320px">${LONG_MD}</div><span class="tagm">${ic('chevron-down')}続き 52 行</span></div>`;
+    out = `<div class="corner">${bashTop(`<div class="out" style="max-height:230px">${LONG_OUT}</div>`)}<span class="tagm" style="bottom:36px">${ic('chevron-down')}続き 200 行</span></div>`;
+  }
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start"><div class="sheet m1" style="width:auto">${'<div class="tr">' + msg + '</div>'}</div><div class="sheet k1" style="width:auto"><div class="tr">${toolHTML({ name: 'Bash', sum: 'npm test <span class="d">· 全部のテストを流す</span>', meta: '<span class="exit0">0</span>', when: '12:31', open: true, body: out })}</div></div></div>`;
+}
+function buildF() { document.getElementById('picksF').innerHTML = ['F1', 'F2', 'F3', 'F4'].map((id) => P('F', id, foldScene(id))).join(''); }
+
+/* 検索 */
+const H = (w, c) => `<mark class="${c ? 'cur' : 'hit'}">${w}</mark>`;
+function searchBody(curIdx = 2) {
+  let n = 0; const m = (w) => H(w, n++ === curIdx);
+  return `<div class="msg msg-user">ログイン画面に${m('バリデーション')}を足して。エラー文は日本語で</div>
+  <div class="msg msg-assistant"><div class="md"><p>入力の${m('バリデーション')}を足します。まず今のフォームを読みます。</p></div></div>
+  ${toolHTML({ name: 'Read', sum: 'src/components/LoginForm.tsx <span class="d">1〜84 行</span>', when: '12:03' })}
+  <div class="msg msg-assistant"><div class="md"><p>今のフォームには${m('バリデーション')}がなく、送信の後にサーバの 400 をそのまま出しています。送信の前に欄ごとに確かめる形にします。</p><ul><li>メールの${m('バリデーション')}は形だけを見る</li><li>パスワードは 8 文字以上</li></ul></div></div>
+  ${toolHTML({ name: 'Edit', sum: 'src/components/LoginForm.tsx', meta: '<span class="add">+18</span><span class="del">−3</span>', when: '12:04', hits: 3 })}
+  ${toolHTML({ name: 'Edit', sum: 'src/i18n/ja.json', meta: '<span class="add">+7</span><span class="del">−1</span>', when: '12:04' })}`;
+}
+function searchScene(S) {
+  const find = (cls) => `<div class="find ${cls}"><span class="in">${ic('search')}バリデーション<span class="w-spacer"></span><span class="opt">Aa</span></span><span class="cnt">3 / 12</span><span class="ib" title="前へ（⇧⏎）">${ic('arrow-up')}</span><span class="ib" title="次へ（⏎）">${ic('arrow-down')}</span><span class="ib" title="閉じる（esc）">${ic('x')}</span></div>`;
+  const ticks = `<div class="ticks">${[4, 9, 30, 34, 38, 52, 55, 57, 70, 78, 86, 93].map((t, i) => `<i class="${i === 2 ? 'c' : ''}" style="top:${t}%"></i>`).join('')}</div>`;
+  if (S === 'S1') return `<div class="sheet k1 m2 t1" style="min-height:560px"><div class="toggles"><span class="tchip">${ic('brain')}思考</span><span class="tchip">${ic('file-code')}生の記録</span><span class="w-spacer"></span><span class="faint mono" style="font-size:12px">48 / 48</span></div>${find('float')}${ticks}<div class="tr">${searchBody()}</div></div>`;
+  if (S === 'S2') return `<div class="sheet k1 m2 t1" style="min-height:560px">${find('bar')}<div class="tr">${searchBody()}</div></div>`;
+  return `<div class="mini-head"><div class="crumbs"><a>プロジェクト</a><span class="faint"> / </span><a>shop-web</a></div><div class="w-search" style="flex:1;color:var(--ink);box-shadow:inset 0 0 0 1px var(--accent),0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent);background:#fff"><span class="scope">${ic('messages-square')}このセッション</span>バリデーション<span style="margin-left:auto" class="mono faint">3 / 12</span><span style="display:inline-flex;margin-left:8px;color:var(--ink-2)">${ic('arrow-up')}${ic('arrow-down')}</span></div><span class="w-spacer"></span><kbd class="k">esc で全体の検索へ</kbd></div><div class="sheet k1 m2 t1">${sheetInner()}</div>`;
+}
+const sheetInner = () => `<div class="toggles"><span class="tchip">${ic('brain')}思考</span><span class="tchip">${ic('file-code')}生の記録</span><span class="w-spacer"></span><span class="faint mono" style="font-size:12px">48 / 48</span></div><div class="tr">${searchBody()}</div>`;
+function buildS() { document.getElementById('picksS').innerHTML = ['S1', 'S2', 'S3'].map((id) => P('S', id, searchScene(id))).join(''); }
+
+function jumpScene(J) {
+  const q = 'パスワードの条件';
+  const target = (extra = '') => `<div class="msg msg-assistant ${extra}"><div class="md"><p>${H(q, true)}は 8 文字以上で、英字と数字を両方含む形にしました。条件は <code>validators.ts</code> の <code>PASSWORD_RULES</code> に集めています。</p></div></div>`;
+  const before = `<div class="msg msg-user">${J === 'J1' ? '' : ''}${J === 'J1' ? q : H(q)}は 8 文字以上、英字と数字を両方</div>${toolHTML({ name: 'Edit', sum: 'src/lib/validators.ts', meta: '<span class="add">+22</span>', when: '12:06' })}`;
+  const after = `${toolHTML({ name: 'Bash', sum: 'npm test -- validators', meta: '<span class="exit0">0</span>', when: '12:07' })}<div class="msg msg-user">${J === 'J1' ? q : H(q)}を設定で変えられるようにするかは後で決める</div>`;
+  const replay = `<button class="btn btn-sm replay" data-replay>${ic('refresh-cw')}もう一度</button>`;
+  if (J === 'J1') return `${replay}<div class="sheet k1 m2 t1"><div class="tr">${before}${target('flash')}${after}</div></div>`;
+  if (J === 'J2') return `${replay}<div class="sheet k1 m2 t1" style="min-height:420px"><div class="find float" style="top:12px"><span class="in">${ic('search')}${q}<span class="w-spacer"></span><span class="opt">Aa</span></span><span class="cnt">2 / 3</span><span class="ib">${ic('arrow-up')}</span><span class="ib">${ic('arrow-down')}</span><span class="ib">${ic('x')}</span></div><div class="tr" style="padding-top:48px">${before}${target()}${after}</div></div>`;
+  return `${replay}<div class="sheet k1 m2 t1"><div class="fromband">${ic('text-search')}<span>“${q}” で検索から開きました · 一致 3 件</span><span class="w-spacer"></span><button class="btn">${ic('arrow-up')}前へ</button><button class="btn">${ic('arrow-down')}次へ</button><button class="btn btn-icon btn-ghost" style="height:24px;width:24px">${ic('x')}</button></div><div class="tr gutter" style="padding-left:14px">${before.replace('class="msg msg-user"', 'class="msg msg-user" style="position:relative"')}${target('ringed')}${after}</div></div>`;
+}
+function buildJ() { document.getElementById('picksJ').innerHTML = ['J1', 'J2', 'J3'].map((id) => P('J', id, jumpScene(id))).join(''); }
+
+/* ---- 操作（開閉、コピー、もう一度） ---- */
+document.addEventListener('click', (e) => {
+  const row = e.target.closest('.tool > .trow');
+  if (row) { const t = row.parentElement; const b = t.querySelector(':scope > .tbody, :scope > .inner'); t.classList.toggle('open'); if (b && b.classList.contains('tbody')) b.hidden = !t.classList.contains('open'); if (b && b.classList.contains('inner')) b.hidden = !t.classList.contains('open'); return; }
+  const cp = e.target.closest('.cp');
+  if (cp && cp.tagName === 'BUTTON') { cp.classList.add('done'); cp.innerHTML = `${ic('check')}<span>コピーしました</span>`; setTimeout(() => { cp.classList.remove('done'); cp.innerHTML = `${ic('copy')}<span>コピー</span>`; }, 1600); return; }
+  const rp = e.target.closest('[data-replay]');
+  if (rp) { const f = rp.parentElement.querySelector('.flash'); if (f) { f.classList.remove('flash'); void f.offsetWidth; f.classList.add('flash'); } }
+});
+
+let cur = {};
+function buildAll() { buildM(); buildT(); buildK(); buildD(); buildKinds(); buildF(); buildS(); buildJ(); }
+document.addEventListener('picks', (e) => {
+  const prev = JSON.stringify(cur); cur = e.detail;
+  kv.K = cur.K || kv.K; kv.D = cur.D || kv.D;
+  if (prev !== JSON.stringify(cur)) { buildT(); buildK(); buildKinds(); markSel(); }
+});
+function markSel() { document.querySelectorAll('.pick[data-group]').forEach((c) => c.classList.toggle('selected', cur[c.dataset.group] === c.dataset.id)); document.querySelectorAll('.pick[data-group] .choose').forEach((b) => { b.textContent = b.closest('.pick').classList.contains('selected') ? '選んだ' : 'これにする'; }); }
+buildAll();
+setupPicks('hangar-proto-transcript-render');
+</script>
+</body>
+</html>

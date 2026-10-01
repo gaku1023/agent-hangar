@@ -85,8 +85,28 @@ export class Tmux {
     this.run('set-option', '-t', `=${name}:`, key, value);
   }
 
+  /**
+   * 中のアプリが OSC 52 で写したものを、attach している端末（UI の xterm）へ通す。
+   * 既定の external では tmux のコピーモードの写しだけが外へ出て、アプリの OSC 52 は捨てられる。
+   * set-clipboard はサーバ全体の設定なので、同じサーバにある利用者自身のセッションにも効く。
+   * 利用者が off にしているときは覆さない。
+   * サーバが動いていなければ show-options が失敗するので、何もしない。set-option だけではサーバを起こさない。
+   */
+  enableClipboard(): void {
+    const cur = this.run('show-options', '-s', '-v', 'set-clipboard');
+    if (cur.code !== 0) return;
+    const v = cur.stdout.trim();
+    if (v === 'on' || v === 'off') return;
+    this.run('set-option', '-s', 'set-clipboard', 'on');
+  }
+
   sendKeys(name: string, ...keys: string[]): void {
     this.run('send-keys', '-t', `=${name}:`, ...keys);
+  }
+
+  /** ペインにいま見えている文字だけを返す。色や属性は落とす。 */
+  capturePane(name: string): string {
+    return this.run('capture-pane', '-p', '-t', `=${name}:`).stdout;
   }
 
   /**

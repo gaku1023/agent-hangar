@@ -138,8 +138,10 @@ const concat = (chunks: Uint8Array[], n: number): Uint8Array => {
 /**
  * 本文を R2 へ預け、預けた大きさを返す。上限を超えたら何も残さずに null を返す。
  *
- * 端末は本文を gzip して暗号化しながら流すので、送る前に大きさが分からない。
- * したがって要求は chunked で届き、`content-length` が無い。
+ * `content-length` の無い要求（古い端末の chunked）だけがここに来る。
+ * 古い端末は本文を gzip して暗号化しながら流すので、送る前に大きさが分からない。
+ * いまの端末は手元で書き出して長さを決めてから送るので、ここを通らない（`PUT /files/<key>` を見る）。
+ * ここは本文を JS で読むので、CPU の時間が本文の大きさに比例する。
  * R2 は長さの分からない読み取りの流れを受け取らないので、次の形にした。
  *
  * - 8 MiB に満たない本文は、そのまま 1 回の `put` で置く。
@@ -274,7 +276,20 @@ filesApp.put('/:key{.+}', async (c) => {
   // 500 は「あとで直るかもしれない失敗」なので上げる側が永久に送り直す。
   const customMetadata = buildMetadata(wirePath!, sha, device.id);
   if (!customMetadata) return c.json({ error: 'metadata too large' }, 413);
-  const storedSize = await storeBody(c.env.BUCKET, key, body, customMetadata);
+  const declared = toInt(h('content-length'));
+  let storedSize: number | null;
+  if (declared !== null) {
+    if (declared > MAX_BODY_BYTES) return c.json({ error: 'too large' }, 413);
+    // 長さの分かっている本文は、読まずにそのまま R2 へ渡す。
+    // workerd が JS を通さずに流すので、CPU の時間が本文の大きさに比例しない。
+    // storeBody のように JS で読んで切り分けると、数十 MB の本文で無料プランの 10 ms を何十倍も超え、
+    // 途中で止められていた（2026-09-30 に 52 件。止められた multipart が R2 に 20 本残った）。
+    const obj = await c.env.BUCKET.put(key, body, { customMetadata });
+    storedSize = obj?.size ?? declared;
+  } else {
+    // 長さを名乗らない古い端末の要求である。食い違いを避けるため、今までどおり受ける。
+    storedSize = await storeBody(c.env.BUCKET, key, body, customMetadata);
+  }
   if (storedSize === null) return c.json({ error: 'too large' }, 413);
   const now = Date.now();
   const r = await meteredBatch(c.env.DB, [

@@ -25,7 +25,7 @@ function Divider(props: { hostRef: RefObject<HTMLDivElement | null>; ratio: numb
   };
   // いまの割合を読み上げに出す。丸めの範囲をそのまま min と max にするので、端に着いたことも分かる。
   const percent = Math.round(props.ratio * 100);
-  return <div className="split-divider" role="separator" aria-label="分割の幅" aria-orientation="vertical"
+  return <div className="split-divider" role="separator" aria-label="左右の幅" aria-orientation="vertical"
     aria-valuenow={percent} aria-valuemin={20} aria-valuemax={80} aria-valuetext={`左 ${percent}%`}
     tabIndex={0} onPointerDown={onPointerDown} onKeyDown={onKeyDown} />;
 }

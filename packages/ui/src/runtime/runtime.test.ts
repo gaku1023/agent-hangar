@@ -1,19 +1,20 @@
+import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { ApiConflictError, type ApiClient } from './api.ts';
+import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { State } from '../mediator/types.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [] };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
 const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null };
 const launchResult: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'resume', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [] };
 const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1', events: seqs.map((seq) => ({ kind: 'user', seq, text: 'x' })), total, nextSeq: null });
 
 /** ターミナルの偽物。React の外で持つ接続の代わりに、呼ばれた tabId を並べる。 */
 function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: string[] } {
-  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), subscribe: () => () => {}, dispose: () => {} };
+  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, zoom: () => {}, fontSize: () => 13, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: () => {} };
   return h;
 }
 
@@ -66,6 +67,36 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('createRuntime', () => {
+  const aliveRun = { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start' as const, tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 };
+  it('実行中のセッションは本文を読むときに右ペインの要約も取り、1 秒に 1 回までにまとめる', async () => {
+    let clock = 10_000;
+    const { rt, api, setHash, timers } = harness({}, { now: () => clock });
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: aliveRun, tabs: [] } });
+    setHash('#/session/s1');
+    await flush();
+    expect(api.live).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().liveDigests.s1).toMatchObject({ sessionId: 's1' });
+    const before = timers.length;
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's1', count: 1 } });
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's1', count: 1 } });
+    await flush();
+    // 1 秒たつまでは取りに行かず、予約は 1 つだけにする。
+    expect(api.live).toHaveBeenCalledTimes(1);
+    const mine = timers.slice(before).filter((t) => t.ms === 1000);
+    expect(mine).toHaveLength(1);
+    clock += 1000;
+    mine[0]!.fn();
+    await flush();
+    expect(api.live).toHaveBeenCalledTimes(2);
+  });
+  it('生きた run の無いセッションでは要約を取らない', async () => {
+    const { rt, api, setHash } = harness();
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(api.live).not.toHaveBeenCalled();
+  });
   it('ws が開くと bootstrap を取り、現在のハッシュで画面を決める', async () => {
     const { rt, api, wsHandlers, setHash } = harness();
     rt.start();
@@ -89,6 +120,41 @@ describe('createRuntime', () => {
     expect(api.events).toHaveBeenLastCalledWith('s1', { beforeSeq: 2, agentId: null });
     expect([...rt.getStore().events['s1:']!.items.map((e) => e.seq)].sort()).toEqual([1, 2]);
   });
+  it('検索の結果から開いたら、跳び先の少し前から前向きに読む。ターミナルが出るセッションでは最新の側から読む', async () => {
+    const { rt, api, wsHandlers } = harness();
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'session.open', id: 's1', seq: 900, q: 'パスワード' });
+    await flush();
+    expect(api.events).toHaveBeenLastCalledWith('s1', { fromSeq: 800, agentId: null });
+    expect(rt.getState().sessionView.s1).toMatchObject({ jump: { seq: 900, query: 'パスワード', n: 1 }, follow: false });
+    // 跳び先が頭に近ければ 0 から読む。
+    rt.emit({ type: 'nav.go', to: { name: 'home' } });
+    await flush();
+    rt.emit({ type: 'session.open', id: 's1', seq: 30, q: 'x' });
+    await flush();
+    expect(api.events).toHaveBeenLastCalledWith('s1', { fromSeq: 0, agentId: null });
+    // run のあるセッションは右の欄が最新の側を使うので、真ん中は読まない。
+    wsHandlers[0]!.onEvent({ type: 'run.started', run: { id: 'r2', sessionId: 's2', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r2', pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, tabs: [] });
+    await flush();
+    rt.emit({ type: 'session.open', id: 's2', seq: 900, q: 'x' });
+    await flush();
+    expect(api.events).toHaveBeenLastCalledWith('s2', { latest: true, agentId: null });
+  });
+  it('真ん中の頁から開いた本文は、新しい行を読み足せる', async () => {
+    const events = vi.fn(async (_s: string, q: { fromSeq?: number; latest?: boolean; beforeSeq?: number }) => (q.fromSeq === 800 ? { ...page([800, 801], 2000), nextSeq: 802 } : page([q.fromSeq ?? 0], 2000)));
+    const { rt, wsHandlers } = harness({ events });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'session.open', id: 's1', seq: 900, q: 'x' });
+    await flush();
+    expect(rt.getStore().events['s1:']?.nextSeq).toBe(802);
+    rt.emit({ type: 'transcript.loadNewer', sessionId: 's1' });
+    await flush();
+    expect(events).toHaveBeenLastCalledWith('s1', { fromSeq: 802, agentId: null });
+  });
   it('追記が届いたら、持っている中でいちばん新しい seq の次から前向きに読む', async () => {
     const { rt, api, setHash } = harness();
     rt.start();
@@ -98,6 +164,46 @@ describe('createRuntime', () => {
     await flush();
     expect(api.events).toHaveBeenLastCalledWith('s1', { fromSeq: 3, agentId: null });
     expect([...rt.getStore().events['s1:']!.items.map((e) => e.seq)].sort()).toEqual([2, 3]);
+  });
+  it('検索の続きは、持っている結果の後ろに足す', async () => {
+    const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
+    const search = vi.fn(async (p: { offset?: number }) => (p.offset ? { hits: [hit('s3')], total: 3 } : { hits: [hit('s1'), hit('s2')], total: 3 }));
+    const { rt, setHash } = harness({ search });
+    rt.start();
+    setHash('#/sessions?q=x');
+    await flush();
+    expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2']);
+    rt.emit({ type: 'search.more', offset: 2 });
+    // 読み足している間も、持っている行は消さない。
+    expect(rt.getStore().search).toMatchObject({ loading: true, result: { total: 3 } });
+    expect(rt.getStore().search.result?.hits).toHaveLength(2);
+    await flush();
+    expect(search).toHaveBeenLastCalledWith({ q: 'x', offset: 2 });
+    expect(rt.getStore().search).toMatchObject({ loading: false, result: { total: 3 } });
+    expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2', 's3']);
+  });
+  it('期間の日数は、問い合わせる時刻で since に直してから送る', async () => {
+    const search = vi.fn(async () => ({ hits: [], total: 0 }));
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    const { rt, setHash } = harness({ search }, { now: () => now });
+    rt.start();
+    setHash('#/sessions?q=x');
+    await flush();
+    rt.emit({ type: 'search.filter', patch: { days: 1 } });
+    await flush();
+    expect(search).toHaveBeenLastCalledWith({ q: 'x', since: new Date(2026, 9, 1).getTime() });
+  });
+  it('検索の続きに失敗しても、読み込み中のまま残さず、持っている結果も消さない', async () => {
+    const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
+    const search = vi.fn(async (p: { offset?: number }) => { if (p.offset) throw new Error('500 /api/search'); return { hits: [hit('s1')], total: 3 }; });
+    const { rt, setHash } = harness({ search });
+    rt.start();
+    setHash('#/sessions?q=x');
+    await flush();
+    rt.emit({ type: 'search.more', offset: 1 });
+    await flush();
+    expect(rt.getStore().search).toMatchObject({ loading: false, result: { total: 3 } });
+    expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1']);
   });
   it('すべて読み終えていれば loadMore はサーバを呼ばない', async () => {
     const { rt, api, setHash } = harness({ events: vi.fn(async () => page([0, 1, 2], 3)) });
@@ -186,6 +292,20 @@ describe('createRuntime', () => {
     b.rt.start();
     expect(b.rt.getState().sessionView.s1).toMatchObject({ showThinking: true, showRaw: true, follow: true });
   });
+  it('右ペインの上下の比率を起動時に読み戻す。数でない値や範囲の外は丸める', () => {
+    const a = harness();
+    a.store.set('livePane.split', 0.35);
+    a.rt.start();
+    expect(a.rt.getState().livePaneSplit).toBe(0.35);
+    const b = harness();
+    b.store.set('livePane.split', 'half');
+    b.rt.start();
+    expect(b.rt.getState().livePaneSplit).toBe(0.5);
+    const c = harness();
+    c.store.set('livePane.split', 3);
+    c.rt.start();
+    expect(c.rt.getState().livePaneSplit).toBe(0.8);
+  });
   it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
     const a = harness();
     a.rt.start();
@@ -199,6 +319,20 @@ describe('createRuntime', () => {
     c.store.set('sidebar.collapsed', 'yes');
     c.rt.start();
     expect(c.rt.getState().sidebarCollapsed).toBe(false);
+  });
+  it('新しいセッションの下書きと前回値を起動時に読み戻す。形の違う値は捨てる', () => {
+    const a = harness();
+    a.store.set('newSession.draft', { name: 'n', prompt: 'やって' });
+    a.store.set('newSession.prefs', { p1: { model: 'opus', addDirs: ['/a'] }, p2: { model: 3 }, p3: 'x', p4: { addDirs: [1] } });
+    a.rt.start();
+    expect(a.rt.getState().newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    expect(a.rt.getState().launchPrefs).toEqual({ p1: { model: 'opus', addDirs: ['/a'] } });
+    const b = harness();
+    b.store.set('newSession.draft', { name: 1 });
+    b.store.set('newSession.prefs', []);
+    b.rt.start();
+    expect(b.rt.getState().newSessionDraft).toBeNull();
+    expect(b.rt.getState().launchPrefs).toEqual({});
   });
   it('保存済みの follow: false を無視し、開いた直後は必ず追う', () => {
     // 遡るために一度上へスクロールしただけで follow: false が焼き付くと、次から最古の側で開いてしまう。
@@ -308,6 +442,16 @@ describe('起動とターミナル', () => {
     await flush();
     expect(api.closeTab).toHaveBeenCalledWith('r1', 't1');
   });
+  it('生きた run が無ければ API を呼ばず、Claude が動いていないと知らせる', async () => {
+    const { rt, api, setHash } = harness();
+    rt.start();
+    await flush();
+    setHash('#/session/s1');
+    rt.emit({ type: 'tab.open', sessionId: 's1', kind: 'shell' });
+    await flush();
+    expect(api.openTab).not.toHaveBeenCalled();
+    expect(rt.getState().toasts.at(-1)?.message).toBe('Claude が動いていないので、シェルタブを開けません');
+  });
   it('セッションを渡り歩いても、離れたセッションの接続は残らない', () => {
     const forSession = (sid: string) => ({ run: { ...launched.run, id: `r-${sid}`, sessionId: sid }, tabs: [{ ...launched.tabs[0]!, id: `r-${sid}`, runId: `r-${sid}`, sessionId: sid }] });
     const { rt, terminals, setHash } = harness();
@@ -319,6 +463,24 @@ describe('起動とターミナル', () => {
     setHash('#/');
     expect(terminals.connected).toEqual(['r-s1', 'r-s2', 'r-s3']);
     expect(terminals.disconnected).toEqual(['r-s1', 'r-s2', 'r-s3']);
+  });
+  it('取り直した bootstrap から消えた run は終わったものとし、そのタブの接続を切る', async () => {
+    // サーバの再起動中に Claude が終わると、run.ended は届かない。
+    const shell = { ...launched.tabs[0]!, id: 't1', kind: 'shell' as const, title: 'zsh', tmuxName: 'hangar-r1-t1', createdAt: 2 };
+    const other = { ...launched.run, id: 'r2', sessionId: 's2', tmuxName: 'hangar-r2' };
+    const { rt, terminals, wsHandlers, setHash } = harness({ bootstrap: vi.fn(async () => ({ ...boot, runs: [other], tabs: [{ ...launched.tabs[0]!, id: 'r2', runId: 'r2', sessionId: 's2' }] })) });
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: launched.run, tabs: [...launched.tabs, shell] } });
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: other, tabs: [] } });
+    setHash('#/session/s1');
+    terminals.disconnected.length = 0;
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(terminals.disconnected).toEqual(expect.arrayContaining(['r1', 't1']));
+    expect(terminals.disconnected).not.toContain('r2');
+    expect(rt.getStore().runs.r1?.endedAt).not.toBeNull();
+    expect(rt.getStore().tabs.t1?.closedAt).not.toBeNull();
+    expect(rt.getStore().runs.r2?.endedAt).toBeNull();
   });
   it('bootstrap を取り直すたびに、参照されなくなった run を落とす', async () => {
     const ended = { ...launched.run, endedAt: 2, endReason: 'exited' as const };
@@ -344,6 +506,41 @@ describe('起動とターミナル', () => {
     await flush();
     expect(b.rt.getStore().runs.r1).toBeDefined();
   });
+  it('目次から跳ばした結果を、開いたターンの状態に戻す', async () => {
+    const jumpToPrompt = vi.fn(async () => ({ found: false as const, reason: 'notFound' as const }));
+    const { rt, setHash } = harness({ jumpToPrompt });
+    rt.start();
+    setHash('#/session/s1');
+    rt.emit({ type: 'turn.open', sessionId: 's1', seq: 4, runId: 'r1', jump: { heads: ['a'], index: 0, from: 'bottom' } });
+    expect(rt.getState().sessionView.s1?.turnJump).toEqual({ seq: 4, status: 'pending', runId: 'r1' });
+    await flush();
+    expect(jumpToPrompt).toHaveBeenCalledWith('r1', { heads: ['a'], index: 0, from: 'bottom' });
+    expect(rt.getState().sessionView.s1?.turnJump).toEqual({ seq: 4, status: 'notFound', runId: 'r1' });
+  });
+  it('transcript から抜けさせるのは、今も生きている run にだけで、断られても知らせない', async () => {
+    const aliveRun = p3Run('r1', 's1');
+    const leaveTranscript = vi.fn(async () => { throw new Error('run is not alive'); });
+    const { rt, setHash } = harness({ leaveTranscript });
+    rt.start();
+    await flush();
+    setHash('#/session/s1');
+    // 知らない run（終わって消えた run）には送らない。
+    rt.emit({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
+    await flush();
+    expect(leaveTranscript).not.toHaveBeenCalled();
+    // 終わった run にも送らない。
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: aliveRun, tabs: [] } });
+    rt.dispatch({ kind: 'server', event: { type: 'run.ended', run: { ...aliveRun, endedAt: 2 } } });
+    rt.emit({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
+    await flush();
+    expect(leaveTranscript).not.toHaveBeenCalled();
+    // 生きている run には送る。その間に終わって 409 で断られても、トーストは出さない。
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: { ...aliveRun, id: 'r2' }, tabs: [] } });
+    rt.emit({ type: 'turn.latest', sessionId: 's1', runId: 'r2' });
+    await flush();
+    expect(leaveTranscript).toHaveBeenCalledWith('r2');
+    expect(rt.getState().toasts).toEqual([]);
+  });
   it('iTerm2 から Terminal.app に落ちたらトーストで知らせる', async () => {
     const { rt } = harness({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
     rt.start();
@@ -354,7 +551,7 @@ describe('起動とターミナル', () => {
 });
 
 const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false };
+const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null };
 const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1 });
 const p3Run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
 const p3Tab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt: null });
@@ -495,6 +692,16 @@ describe('フェーズ 3 の効果', () => {
     expect(openArtifactEditor).toHaveBeenCalledWith('a1');
     expect(rt.getStore().artifacts.a1).toEqual(artifact);
   });
+  it('変更したファイルを開くときはそのファイルを送り、VS Code で開くときは作業ディレクトリ（file なし）を頼む', async () => {
+    const openEditor = vi.fn(async (_sessionId: string, _file?: string) => {});
+    const { rt } = harness({ openEditor });
+    rt.start();
+    rt.emit({ type: 'session.openFile', sessionId: 's1', path: '/w/alpha/src/a.ts' });
+    rt.emit({ type: 'session.openEditor', sessionId: 's1' });
+    await flush();
+    // file を落とすと、ファイルではなく作業ディレクトリが開く。
+    expect(openEditor.mock.calls).toEqual([['s1', '/w/alpha/src/a.ts'], ['s1']]);
+  });
   it('設定画面に入ると statusline と集計とモデル一覧を読む', async () => {
     const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
     const usageAggregate = vi.fn(async () => ({ days: [{ day: '2026-09-18', inputTokens: 1, outputTokens: 2, sessions: 1 }], projects: [] }));
@@ -551,7 +758,7 @@ describe('フェーズ 3 の効果', () => {
     rt.emit({ type: 'split.toggle' });
     await flush();
     expect(rt.getState().sessionView.s1?.split).toBeFalsy();
-    expect(rt.getState().toasts.at(-1)?.message).toBe('分割にはタブが 2 つ必要です');
+    expect(rt.getState().toasts.at(-1)?.message).toBe('横に並べるにはタブが 2 つ必要です');
     wsHandlers[0]!.onEvent({ type: 'tab.upsert', tab: p3Tab('t2', 'r1', 'shell') });
     rt.emit({ type: 'tab.select', tabId: 't1' });
     rt.emit({ type: 'split.toggle' });
@@ -741,5 +948,461 @@ describe('同期とこの PC で再開', () => {
     expect(timer).toBeDefined();
     timer!.fn();
     expect(rt.getStore().joinToken).toBeNull();
+  });
+});
+
+describe('保持期間（ランタイム）', () => {
+  const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
+  const preview = { days: 365, path: '/c/settings.json', lines: [], baseSha256: 'abc', backupDir: '/h/backups/claude-config', projectedBytes: null };
+  it('本文の無い会話を開いても、本文を読みに行かない', async () => {
+    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, memo: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null };
+    const { rt, api, wsHandlers, setHash } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [s1] })) });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    setHash('#/session/s1');
+    await flush();
+    expect(api.events).not.toHaveBeenCalled();
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('帯を閉じた覚えを起動時に読み戻す', () => {
+    const { rt, store } = harness();
+    store.set('retention.bannerDismissed', true);
+    rt.start();
+    expect(rt.getState().retentionBannerDismissed).toBe(true);
+  });
+  it('書き込みは下見の指紋を送り、成功なら store.retention を入れ替えてトーストを出す', async () => {
+    const written = { ...R, days: 365, source: 'user' as const, userValue: 365 };
+    const retentionPreview = vi.fn(async () => preview);
+    const writeRetention = vi.fn(async () => written);
+    const { rt } = harness({ retentionPreview, writeRetention });
+    rt.start();
+    rt.emit({ type: 'retention.edit', days: 365, from: 'banner' });
+    await flush();
+    expect(rt.getStore().retentionPreview?.baseSha256).toBe('abc');
+    rt.emit({ type: 'retention.write' });
+    await flush();
+    expect(writeRetention).toHaveBeenCalledWith(365, 'abc');
+    expect(rt.getStore().retention).toEqual(written);
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['保持期間を 1 年にしました']);
+  });
+  it('409 なら読み直したことを出し、下見を取り直す', async () => {
+    const retentionPreview = vi.fn(async () => preview);
+    const writeRetention = vi.fn(async () => { throw new RetentionConflictApiError(); });
+    const { rt } = harness({ retentionPreview, writeRetention });
+    rt.start();
+    rt.emit({ type: 'retention.edit', days: 365, from: 'banner' });
+    await flush();
+    rt.emit({ type: 'retention.write' });
+    await flush();
+    expect(rt.getState().overlay).toMatchObject({ kind: 'retention', reloaded: true, writing: false });
+    expect(retentionPreview).toHaveBeenCalledTimes(2);
+  });
+  it('下見に失敗したら、トーストではなくダイアログに理由を出す', async () => {
+    const retentionPreview = vi.fn(async () => { throw new Error('設定ファイルの書式を読み取れなかったので書き換えませんでした'); });
+    const { rt } = harness({ retentionPreview });
+    rt.start();
+    rt.emit({ type: 'retention.edit', days: 365, from: 'banner' });
+    await flush();
+    expect(rt.getState().overlay).toMatchObject({ kind: 'retention', previewError: '設定ファイルの書式を読み取れなかったので書き換えませんでした' });
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('設定画面に入ると保持期間を読み直す', async () => {
+    const retention = vi.fn(async () => R);
+    const { rt, wsHandlers, setHash } = harness({ retention });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    setHash('#/settings');
+    await flush();
+    expect(retention).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().retention).toEqual(R);
+  });
+});
+
+describe('入力待ちの知らせ', () => {
+  const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
+  const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '請求書の書き出し', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, ...over });
+  const live = (sessionId: string, status: 'busy' | 'waiting') => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
+  function fakeNotifier(o: { available?: boolean; defaultOn?: boolean; granted?: boolean; background?: boolean; grant?: boolean; status?: NotifyPermission } = {}) {
+    let open: ((id: string) => void) | null = null;
+    return {
+      defaultOn: o.defaultOn ?? true,
+      available: () => o.available ?? true,
+      granted: () => o.granted ?? true,
+      request: vi.fn(async () => o.grant ?? true),
+      prepare: vi.fn(async () => {}),
+      status: vi.fn(async (): Promise<NotifyPermission> => o.status ?? 'granted'),
+      background: () => o.background ?? true,
+      show: vi.fn(),
+      badge: vi.fn(),
+      onOpen: (cb: (id: string) => void) => { open = cb; return () => { open = null; }; },
+      fireOpen: (id: string) => open?.(id),
+    };
+  }
+  async function started(notifier: ReturnType<typeof fakeNotifier> | undefined, sessions: SessionDto[] = [waitingSession()], stored?: boolean) {
+    const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions })) }, notifier ? { notifier } : {});
+    if (stored !== undefined) h.store.set('notify.waiting', stored);
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    return h;
+  }
+
+  it('live.update をセッションに引き当てて、入力待ちのカードとバッジにする', async () => {
+    const n = fakeNotifier();
+    const { rt, wsHandlers } = await started(n);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(rt.getState().waitingToasts).toEqual(['s1']);
+    expect(n.badge).toHaveBeenLastCalledWith(1);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'busy')] });
+    expect(rt.getState().waitingToasts).toEqual([]);
+    expect(n.badge).toHaveBeenLastCalledWith(0);
+  });
+  it('起動したときにもう入力待ちのセッションも、カードにする', async () => {
+    const n = fakeNotifier();
+    const { rt } = await started(n, [waitingSession({ live: 'waiting' })]);
+    expect(rt.getState().waitingToasts).toEqual(['s1']);
+    expect(n.badge).toHaveBeenLastCalledWith(1);
+  });
+  it('窓が背面にあり、受け取る設定なら、名前を題に問いを本文にして通知する', async () => {
+    const n = fakeNotifier();
+    const { wsHandlers } = await started(n, [waitingSession({ activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '用紙の向きをどちらにしますか' } })]);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '用紙の向きをどちらにしますか' });
+  });
+  it('問いが取れないときは「入力を待っています」、名前が無ければ「（名前なし）」', async () => {
+    const n = fakeNotifier();
+    const { wsHandlers } = await started(n, [waitingSession({ name: null })]);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '（名前なし）', body: '入力を待っています' });
+  });
+  it('窓が前にあるときと、受け取らない設定のときは通知しない', async () => {
+    const front = fakeNotifier({ background: false });
+    (await started(front)).wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(front.show).not.toHaveBeenCalled();
+    const off = fakeNotifier();
+    (await started(off, undefined, false)).wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(off.show).not.toHaveBeenCalled();
+  });
+  it('通知を押したら、そのセッションを開いてターミナルにフォーカスする', async () => {
+    const n = fakeNotifier();
+    const { rt } = await started(n);
+    n.fireOpen('s1');
+    expect(rt.getState().screen).toEqual({ name: 'session', id: 's1' });
+  });
+  it('選んでいなければ環境の既定に従い、既定で受け取る環境ではあらかじめ許可を尋ねておく', async () => {
+    const desk = fakeNotifier({ defaultOn: true });
+    expect((await started(desk)).rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+    expect(desk.prepare).toHaveBeenCalledTimes(1);
+    const web = fakeNotifier({ defaultOn: false, granted: false });
+    expect((await started(web)).rt.getState().notify).toEqual({ available: true, on: false, blocked: false });
+    expect(web.prepare).not.toHaveBeenCalled();
+    // 受け取ると選んでいても、ブラウザの許可が外れていれば受け取らない。
+    const revoked = fakeNotifier({ defaultOn: false, granted: false });
+    expect((await started(revoked, undefined, true)).rt.getState().notify.on).toBe(false);
+  });
+  it('受け取るにすると許可を求め、許されたら切り替えて覚える', async () => {
+    const n = fakeNotifier({ defaultOn: false, granted: false });
+    const { rt, store } = await started(n);
+    rt.emit({ type: 'notify.set', on: true });
+    expect(n.request).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(rt.getState().notify.on).toBe(true);
+    expect(store.get('notify.waiting')).toBe(true);
+  });
+  it('許されなかったら受け取らないままにして、そう知らせる', async () => {
+    const n = fakeNotifier({ defaultOn: false, granted: false, grant: false });
+    const { rt, store } = await started(n);
+    rt.emit({ type: 'notify.set', on: true });
+    await flush();
+    expect(rt.getState().notify.on).toBe(false);
+    expect(store.get('notify.waiting')).toBeUndefined();
+    expect(rt.getState().toasts.at(-1)?.message).toBe('通知が許可されませんでした');
+  });
+  // デスクトップの許可は OS が持つ。システム設定で切られていたら、受け取るのままにせず、設定に許可の仕方を出す。
+  it('OS で通知が切られていれば、起動したときに受け取らないにして、切られていることを持つ', async () => {
+    const n = fakeNotifier({ defaultOn: true, status: 'denied' });
+    const { rt, store } = await started(n);
+    await flush();
+    expect(rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+    // 利用者の選んだ値は書き換えない。OS で許可し直せば、スイッチを入れ直すだけで戻る。
+    expect(store.get('notify.waiting')).toBeUndefined();
+  });
+  it('起動したときに尋ねて断られたときも、受け取らないにする', async () => {
+    let answer: NotifyPermission = 'undetermined';
+    const n = { ...fakeNotifier({ defaultOn: true }), prepare: vi.fn(async () => { answer = 'denied'; }), status: vi.fn(async () => answer) };
+    const { rt } = await started(n);
+    await flush();
+    expect(n.prepare).toHaveBeenCalledTimes(1);
+    expect(rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+  });
+  it('許されていれば、受け取るのまま', async () => {
+    const { rt } = await started(fakeNotifier({ defaultOn: true, status: 'granted' }));
+    await flush();
+    expect(rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+  });
+  it('受け取るにして OS で切られていたら、システム設定で許可するよう知らせる。許されたら切られた印を外す', async () => {
+    const n = fakeNotifier({ defaultOn: false, granted: false, grant: false, status: 'denied' });
+    const { rt } = await started(n);
+    rt.emit({ type: 'notify.set', on: true });
+    await flush();
+    expect(rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+    expect(rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。システム設定の「通知」で Hangar を許可してください');
+    n.request.mockResolvedValue(true);
+    rt.emit({ type: 'notify.set', on: true });
+    await flush();
+    expect(rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+  });
+  // OS やブラウザの許可は、hangar の外（システム設定、ブラウザの設定）で変わる。
+  // 窓が前面に戻ったときに読み直し、利用者が受け取ると選んでいれば、許可に合わせて受け取るを戻したり外したりする。
+  describe('窓が前面に戻ったときの許可の読み直し', () => {
+    /** 許可を外から書き換えられる偽の notifier。desktop は OS が許可を持つ殻、web はブラウザである。 */
+    function mutableNotifier(kind: 'desktop' | 'web', initial: NotifyPermission) {
+      let perm = initial;
+      const base = fakeNotifier({ defaultOn: kind === 'desktop' });
+      return {
+        ...base,
+        available: () => kind === 'desktop' || perm !== 'denied',
+        granted: () => kind === 'desktop' || perm === 'granted',
+        status: vi.fn(async (): Promise<NotifyPermission> => perm),
+        set: (p: NotifyPermission) => { perm = p; },
+      };
+    }
+    async function boot2(n: ReturnType<typeof mutableNotifier>, stored?: boolean) {
+      let clock = 100_000;
+      const visible = new Set<() => void>();
+      const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [] })) }, { notifier: n, now: () => clock, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
+      if (stored !== undefined) h.store.set('notify.waiting', stored);
+      h.rt.start();
+      h.wsHandlers[0]!.onOpen();
+      await flush();
+      return { ...h, fireVisible: () => { for (const l of visible) l(); }, advance: (ms: number) => { clock += ms; } };
+    }
+
+    it('OS で切られていたのを許可して戻ったら、受け取るに戻す', async () => {
+      const n = mutableNotifier('desktop', 'denied');
+      const h = await boot2(n, true);
+      expect(h.rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+      n.set('granted');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+      expect(h.store.get('notify.waiting')).toBe(true);
+    });
+    it('受け取っている間に OS で切られたら、受け取らないにして設定の仕方を知らせる', async () => {
+      const n = mutableNotifier('desktop', 'granted');
+      const h = await boot2(n);
+      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+      n.set('denied');
+      h.advance(5000);
+      h.fireVisible();
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+      expect(h.rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。システム設定の「通知」で Hangar を許可してください');
+      // 利用者の選んだ値は書き換えない。許可し直して戻れば、受け取るに戻る。
+      expect(h.store.has('notify.waiting')).toBe(false);
+      n.set('granted');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+    });
+    it('受け取らないと選んでいれば、許可されても受け取るにしない', async () => {
+      const n = mutableNotifier('desktop', 'denied');
+      const h = await boot2(n, false);
+      n.set('granted');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify.on).toBe(false);
+    });
+    it('ブラウザの許可も同じ契機で読み直す', async () => {
+      const n = mutableNotifier('web', 'denied');
+      const h = await boot2(n, true);
+      expect(h.rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
+      n.set('granted');
+      h.advance(5000);
+      h.fireVisible();
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+      n.set('denied');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
+    });
+    it('読んでいる間にスイッチを切られたら、答えが届いた時点の選んだ値と状態で決める', async () => {
+      // 許可されたと届いても、切った後なので受け取るに戻さない。
+      const n = mutableNotifier('desktop', 'granted');
+      const h = await boot2(n, true);
+      let answer!: (p: NotifyPermission) => void;
+      n.status.mockImplementationOnce(() => new Promise<NotifyPermission>((r) => { answer = r; }));
+      h.advance(5000);
+      h.fireFocus();
+      h.rt.emit({ type: 'notify.set', on: false });
+      answer('granted');
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: false, blocked: false });
+      // 切られたと届いても、もう受け取っていないので設定の仕方は知らせない。
+      const m = mutableNotifier('desktop', 'granted');
+      const k = await boot2(m, true);
+      m.status.mockImplementationOnce(() => new Promise<NotifyPermission>((r) => { answer = r; }));
+      k.advance(5000);
+      k.fireFocus();
+      k.rt.emit({ type: 'notify.set', on: false });
+      answer('denied');
+      await flush();
+      expect(k.rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+      expect(k.rt.getState().toasts).toEqual([]);
+    });
+    it('設定の仕方を知らせるのは、受け取っていたのに OS で切られたときだけ', async () => {
+      // 受け取らないと選んでいた。
+      const n = mutableNotifier('desktop', 'granted');
+      const h = await boot2(n, false);
+      n.set('denied');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify.blocked).toBe(true);
+      expect(h.rt.getState().toasts).toEqual([]);
+      // ブラウザで拒まれたのは OS の設定ではない。
+      const m = mutableNotifier('web', 'granted');
+      const k = await boot2(m, true);
+      expect(k.rt.getState().notify.on).toBe(true);
+      m.set('denied');
+      k.advance(5000);
+      k.fireFocus();
+      await flush();
+      expect(k.rt.getState().notify.on).toBe(false);
+      expect(k.rt.getState().toasts).toEqual([]);
+    });
+    it('最後に読んでから 2 秒以内は読み直さない', async () => {
+      const n = mutableNotifier('desktop', 'granted');
+      const h = await boot2(n, false);
+      const before = n.status.mock.calls.length;
+      h.fireFocus();
+      h.fireVisible();
+      await flush();
+      expect(n.status.mock.calls.length).toBe(before + 1);
+      h.advance(1999);
+      h.fireFocus();
+      await flush();
+      expect(n.status.mock.calls.length).toBe(before + 1);
+      h.advance(1);
+      h.fireFocus();
+      await flush();
+      expect(n.status.mock.calls.length).toBe(before + 2);
+    });
+  });
+  it('通知の仕組みが無い環境でも、カードは積む', async () => {
+    const { rt, wsHandlers } = await started(undefined);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(rt.getState().waitingToasts).toEqual(['s1']);
+    expect(rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
+  });
+});
+
+describe('設定の欄ごとの保存と準備の確かめ（ランタイム）', () => {
+  const READY = {
+    tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset' as const, version: null }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: false, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
+    commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+  };
+  it('保存できたら欄に印を付け、準備の確かめを取り直す', async () => {
+    const readiness = vi.fn(async () => READY);
+    const { rt, api } = harness({ readiness });
+    rt.start();
+    rt.emit({ type: 'settings.update', patch: { tmuxPath: '/bin/tmux' }, field: 'tmuxPath' });
+    await flush();
+    expect(api.updateSettings).toHaveBeenCalledWith({ tmuxPath: '/bin/tmux' });
+    expect(rt.getStore().settings?.tmuxPath).toBe('/bin/tmux');
+    expect(rt.getState().settingsSave.tmuxPath).toEqual({ kind: 'saved', n: 1 });
+    await flush();
+    expect(readiness).toHaveBeenCalled();
+    expect(rt.getStore().readiness).toEqual(READY);
+  });
+  it('保存を断られたら、理由を欄に返し、トーストにしない', async () => {
+    const { rt } = harness({ updateSettings: vi.fn(async () => { throw new Error('「tmux のパス」に /x が見つかりません'); }) });
+    rt.start();
+    rt.emit({ type: 'settings.update', patch: { tmuxPath: '/x' }, field: 'tmuxPath' });
+    await flush();
+    expect(rt.getState().settingsSave.tmuxPath).toEqual({ kind: 'error', message: '「tmux のパス」に /x が見つかりません' });
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('設定の画面に入ると準備の確かめも取る。もう一度確かめるでも取る', async () => {
+    const readiness = vi.fn(async () => READY);
+    const { rt, setHash } = harness({ readiness });
+    rt.start();
+    setHash('#/settings');
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(1);
+    rt.emit({ type: 'readiness.check' });
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(2);
+  });
+  it('セッションが 1 つも無い起動では、ホームの確認リストのために準備の確かめを取る', async () => {
+    const readiness = vi.fn(async () => READY);
+    const { rt, wsHandlers } = harness({ readiness });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().readiness).toEqual(READY);
+  });
+  it('参加トークンは消える時刻と一緒に置く', async () => {
+    const { rt } = harness({}, { now: () => 1_000 });
+    rt.start();
+    rt.emit({ type: 'sync.joinToken.show' });
+    await flush();
+    expect(rt.getStore().joinTokenExpiresAt).toBe(121_000);
+  });
+});
+
+describe('殻の操作（ランタイム）', () => {
+  it('殻があれば、ログを開くと再起動を殻に頼む', async () => {
+    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}) };
+    const { rt } = harness({}, { desktop });
+    rt.start();
+    expect(rt.getStore().desktop).toBe(true);
+    rt.emit({ type: 'shell.openLog' });
+    rt.emit({ type: 'shell.restart' });
+    await flush();
+    expect(desktop.openLog).toHaveBeenCalled();
+    expect(desktop.restart).toHaveBeenCalled();
+  });
+  it('殻が断ったらトーストで知らせる', async () => {
+    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => {}) };
+    const { rt } = harness({}, { desktop });
+    rt.start();
+    rt.emit({ type: 'shell.openLog' });
+    await flush();
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['ログを開けませんでした: denied']);
+  });
+  it('殻の無いブラウザでは desktop が偽で、コピーはクリップボードに書く', async () => {
+    const clipboard = vi.fn(async () => {});
+    const { rt } = harness({}, { clipboard });
+    rt.start();
+    expect(rt.getStore().desktop).toBe(false);
+    rt.emit({ type: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' });
+    await flush();
+    expect(clipboard).toHaveBeenCalledWith('~/.agent-hangar/desktop.log');
+    // 写せたことを状態に返す。ボタンはこれを見てから「コピーしました」を出す。
+    expect(rt.getState().copied).toEqual({ text: '~/.agent-hangar/desktop.log', n: 1 });
+  });
+  // 参加トークンのような秘密も写すので、写せなかったときに中身をトーストへ出さない。
+  it('コピーに失敗したら、中身を出さずに知らせ、写せた印は付けない', async () => {
+    const clipboard = vi.fn(async () => { throw new Error('denied'); });
+    const { rt } = harness({}, { clipboard });
+    rt.start();
+    rt.emit({ type: 'clipboard.copy', text: 'secret-token-123' });
+    await flush();
+    const messages = rt.getState().toasts.map((t) => t.message);
+    expect(messages).toEqual(['コピーできませんでした。文字を選んで ⌘C で写してください']);
+    expect(messages.join('')).not.toContain('secret-token-123');
+    expect(rt.getState().copied).toBeNull();
   });
 });

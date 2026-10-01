@@ -1,34 +1,41 @@
 import { useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
+import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 
 type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 
-/** 見つからないプロジェクトの扱いを決めるダイアログ。保持する状態は新しいパスの入力だけ。 */
+/**
+ * 見つからないプロジェクトの扱いを決めるダイアログ。保持する状態は新しいパスの入力だけ。
+ * 開いたら中の最初の操作（新しいパスの欄）にフォーカスを入れる。
+ * 起動時に出たとき、背景の打鍵がダイアログの裏の一覧へ流れないようにするためである。
+ */
 export function ResolveProjectDialog(props: { projectId: string; name: string; path: string | null; candidates: string[]; onQueryCandidates: (name: string) => void }) {
   const emit = useEmit();
   const [path, setPath] = useState('');
   const resolve = (action: ResolveAction) => emit({ type: 'project.resolve', id: props.projectId, action });
+  // 決めてもらうまで閉じないので、閉じる手（Esc、背景、×）を渡さない。閉じるのは「あとで」だけである。
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-label="プロジェクトの場所を確認">
-      <div className="dialog">
-        <div><b>{props.name}</b> のディレクトリが見つかりません。</div>
-        <div className="mono faint">{props.path ?? '（パスなし）'}</div>
-        <div>
-          <div className="muted" style={{ marginBottom: 4 }}>ディレクトリを再指定</div>
-          {props.candidates.length > 0 && <div className="list" style={{ marginBottom: 8 }}>{props.candidates.map((c) => <div key={c} className="row mono" style={{ gridTemplateColumns: '1fr' }} role="option" aria-selected={c === path} onClick={() => setPath(c)}>{c}</div>)}</div>}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="input mono" style={{ flex: 1 }} aria-label="新しいパス" value={path} onChange={(e) => { setPath(e.target.value); props.onQueryCandidates(e.target.value.split('/').pop() ?? ''); }} placeholder="/Users/you/workspace/..." />
-            <button className="btn btn-primary" disabled={!path} onClick={() => resolve({ kind: 'repoint', path })}><Icon name="repoint" />この場所にする</button>
-          </div>
-        </div>
+    <Dialog
+      title={`${props.name} のディレクトリが見つかりません`}
+      icon="warning"
+      footer={<>
+        <button type="button" className="btn" onClick={() => resolve({ kind: 'archive' })}><Icon name="archive" />アーカイブにする</button>
+        {/* 一覧から削除は取り消せず、同期で他の端末にも広がるので危険色にする。押すと Mediator が先に確認を出す。 */}
+        <button type="button" className="btn btn-danger" onClick={() => resolve({ kind: 'unlink' })}><Icon name="unlink" />一覧から削除</button>
+        <span className="spacer" />
+        <button type="button" className="btn" onClick={() => emit({ type: 'overlay.close' })}>あとで</button>
+      </>}
+    >
+      <div className="mono faint">{props.path ?? '（パスなし）'}</div>
+      <div>
+        <div className="muted" style={{ marginBottom: 4 }}>ディレクトリを再指定</div>
+        {props.candidates.length > 0 && <div className="list" style={{ marginBottom: 8 }}>{props.candidates.map((c) => <div key={c} className="row mono" style={{ gridTemplateColumns: '1fr' }} role="option" aria-selected={c === path} onClick={() => setPath(c)}>{c}</div>)}</div>}
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn" onClick={() => resolve({ kind: 'archive' })}><Icon name="archive" />アーカイブにする</button>
-          <button className="btn" onClick={() => resolve({ kind: 'unlink' })}><Icon name="unlink" />紐づけを削除</button>
-          <span className="spacer" />
-          <button className="btn" onClick={() => emit({ type: 'overlay.close' })}>あとで</button>
+          <input className="input mono" style={{ flex: 1 }} data-autofocus aria-label="新しいパス" value={path} onChange={(e) => { setPath(e.target.value); props.onQueryCandidates(e.target.value.split('/').pop() ?? ''); }} placeholder="/Users/you/workspace/..." />
+          <button type="button" className="btn btn-primary" disabled={!path} onClick={() => resolve({ kind: 'repoint', path })}><Icon name="repoint" />この場所にする</button>
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

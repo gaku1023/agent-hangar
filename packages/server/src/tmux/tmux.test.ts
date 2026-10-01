@@ -32,6 +32,12 @@ describe('Tmux.args', () => {
   });
 });
 
+describe('Tmux.enableClipboard（偽の tmux）', () => {
+  it('tmux を呼べなくても投げない', () => {
+    expect(() => new Tmux({ tmuxPath: '/nonexistent/tmux' }).enableClipboard()).not.toThrow();
+  });
+});
+
 describe('Tmux.listSessions（偽の tmux）', () => {
   it('tmux を呼べなければ null を返す', () => {
     expect(new Tmux({ tmuxPath: '/nonexistent/tmux' }).listSessions()).toBeNull();
@@ -137,6 +143,43 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
     tmux!.killSession(shellTab);
     await waitFor(() => !tmux!.hasSession(shellTab));
     fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('enableClipboard は set-clipboard を on にし、アプリの OSC 52 を外の端末へ通させる', () => {
+    const p = testSocketPath();
+    const t = new Tmux({ tmuxPath: TMUX!, socketPath: p });
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-tmux-'));
+    t.newSession({ name: 'hangar-test-clip', cwd, command: ['sh', '-c', 'sleep 30'] });
+    // 既定の external では、tmux のコピーモードの写しだけが外へ出て、アプリの OSC 52 は捨てられる。
+    // 利用者の ~/.tmux.conf に左右されないよう、既定の値に揃えてから試す。
+    t.run('set-option', '-s', 'set-clipboard', 'external');
+    t.enableClipboard();
+    expect(t.run('show-options', '-s', '-v', 'set-clipboard').stdout.trim()).toBe('on');
+    t.killServer();
+    removeTestSocket(p);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('enableClipboard は利用者が off にしたものを覆さない', () => {
+    const p = testSocketPath();
+    const t = new Tmux({ tmuxPath: TMUX!, socketPath: p });
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-tmux-'));
+    t.newSession({ name: 'hangar-test-clip-off', cwd, command: ['sh', '-c', 'sleep 30'] });
+    t.run('set-option', '-s', 'set-clipboard', 'off');
+    t.enableClipboard();
+    expect(t.run('show-options', '-s', '-v', 'set-clipboard').stdout.trim()).toBe('off');
+    t.killServer();
+    removeTestSocket(p);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('enableClipboard は tmux サーバが動いていなければ何もせず、起こしもしない', () => {
+    const p = testSocketPath();
+    const t = new Tmux({ tmuxPath: TMUX!, socketPath: p });
+    expect(() => t.enableClipboard()).not.toThrow();
+    // サーバが起きればソケットができる。
+    expect(fs.existsSync(p)).toBe(false);
+    removeTestSocket(p);
   });
 
   it('存在しない cwd では tmux を呼ばずに投げる', () => {

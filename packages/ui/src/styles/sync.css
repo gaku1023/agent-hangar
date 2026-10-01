@@ -3,19 +3,21 @@
 /* ヘッダーの真ん中に置く同期の一行。
    ヘッダーは 1 行の flex なので、幅が足りなくなると子はどれも縮み、
    日本語は 1 文字ごとに折り返せてしまう（「接続/中」「新規セッショ/ン」のように崩れる）。
-   そこで、この一行の中で縮んでよいのは文言だけにし、縮む役もこの一行が引き受ける。 */
+   そこで、どの子も折り返さず、縮んだ分は省略記号か切り詰めにする。縮む役はこの一行が先に引き受ける。
+   狭いときは、操作、件数、文の順に畳む（headerFold.ts）。畳むまでの一瞬や、測れない環境でも、隣のゲージに重ならないよう、一行ごと 0 まで縮み、はみ出しは切る。 */
 /* ヘッダーは grid の minmax(0, 1fr) の列に載っている。
    列は 0 まで縮めるが、grid の子の min-width は既定で中身の min-content である。
    min-width を外さないと、同期の一行が増えたぶんだけヘッダーが列から横に溢れる。 */
 .header { min-width: 0; }
-.sync { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs-sm); flex: 0 1000 auto; min-width: 0; }
-/* ボタンと「未送信 N」は縮ませない。折り返すとヘッダーの高さ（--header-h）の帯から溢れる。 */
-.sync > * { flex: none; white-space: nowrap; }
-/* 文言だけが縮む。溢れたら省略記号にし、全文は title で読めるようにする。 */
-.sync > .sync-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 切る箱の中でもボタンとリンクのフォーカスの輪が欠けないよう、上下と右に 4px の余地を取る。右の余地は負の外側の余白で打ち消し、隣との間は変えない。 */
+.sync { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs-sm); flex: 0 1000 auto; min-width: 0; overflow: hidden; padding-block: 4px; padding-right: 4px; margin-right: -4px; }
+.sync > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 文のリンクは、状態の点と文を並べる。縮むのはまず文で、溢れたら省略記号にし、全文は title で読めるようにする。 */
+.sync > .sync-label { display: inline-flex; align-items: center; gap: calc(var(--u) * 2); flex: 0 1000 auto; }
+.sync-label-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sync-error { color: var(--error); }
 /* 状態の点。狭いヘッダで文と操作を畳んでも、同期の具合はこれで分かる。 */
-.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.sync-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
 .sync[data-state='pushing'] .sync-dot, .sync[data-state='pulling'] .sync-dot { background: var(--busy); }
 .sync[data-state='paused'] .sync-dot { background: var(--ended); }
 .sync[data-state='error'] .sync-dot { background: var(--error); }

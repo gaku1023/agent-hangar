@@ -64,7 +64,7 @@ export class LmStudioSummarizer implements Summarizer {
     } catch (e) {
       throw new SummarizerError(this.id, `LM Studio に接続できません: ${e instanceof Error ? e.message : String(e)}`);
     }
-    if (isRedirect(r)) throw new SummarizerError(this.id, '要約器の宛先がリダイレクトを返しました。飛ばし先へは送りません。lmStudioUrl の宛先を確かめてください');
+    if (isRedirect(r)) throw new SummarizerError(this.id, '要約器の宛先がリダイレクトを返しました。飛ばし先へは送りません。設定の「LM Studio の URL」を確かめてください');
     if (!r.ok) throw new SummarizerError(this.id, `LM Studio が ${r.status} を返しました`);
     const j = (await r.json()) as { model?: unknown; choices?: { message?: { content?: unknown } }[] };
     const content = j.choices?.[0]?.message?.content;

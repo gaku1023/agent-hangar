@@ -1,22 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, ProjectDto, RunDto, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
+import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
-import { absoluteTime, costLabel, percentLabel, relativeTime, shortModel, tokensLabel } from './format.ts';
+import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
+import { presentConfirm } from './confirm.ts';
 import { presentHome } from './home.ts';
-import { presentNewSession } from './newSession.ts';
+import { newSessionTarget, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
 import { presentSessionRow } from './row.ts';
-import { buildItems, presentSession } from './session.ts';
+import { buildItems, presentSession, sessionActions } from './session.ts';
 import { presentSessions } from './sessions.ts';
 import { presentSettings } from './settings.ts';
+import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
+import { presentRetentionDialog } from './retentionDialog.ts';
 import { presentShell } from './shell.ts';
+import { presentToasts } from './toasts.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -28,6 +33,18 @@ function storeWith(): Store {
 }
 
 describe('format', () => {
+  it('使用率の枠が戻る時刻は、今日なら時刻だけ、別の日なら日付を添える', () => {
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    expect(resetsLabel(new Date(2026, 9, 1, 18, 0).getTime(), now)).toBe('18:00');
+    expect(resetsLabel(new Date(2026, 9, 4, 9, 5).getTime(), now)).toBe('10/4 09:05');
+    expect(resetsLabel(null, now)).toBeNull();
+  });
+  it('ヘッダーの使用率に、枠が戻る時刻を添える', () => {
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    const store = initialStore();
+    store.usage = { fiveHour: { usedPercent: 28, resetsAt: new Date(2026, 9, 1, 18, 0).getTime() }, sevenDay: { usedPercent: 7, resetsAt: new Date(2026, 9, 4, 9, 0).getTime() }, updatedAt: now };
+    expect(presentShell(initialState(), store, now).usage).toMatchObject({ fiveHour: 28, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00' });
+  });
   it('相対時刻', () => {
     expect(relativeTime(NOW - 30_000, NOW)).toBe('1 分未満前');
     expect(relativeTime(NOW - 3 * 60_000, NOW)).toBe('3 分前');
@@ -51,15 +68,48 @@ describe('format', () => {
   });
 });
 
+describe('presentConfirm', () => {
+  it('一覧から削除する確認には、プロジェクトの名前と未分類に戻るセッションの数を添える', () => {
+    const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'alpha' } } };
+    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'unlinkProject', projectId: 'alpha' }, project: { name: 'alpha', sessions: 2 } });
+  });
+  it('プロジェクトが store から消えていれば id を名前にし、数は 0 にする', () => {
+    const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'gone' } } };
+    expect(presentConfirm(state, storeWith())?.project).toEqual({ name: 'gone', sessions: 0 });
+  });
+  it('ほかの確認には何も添えず、確認が出ていなければ null', () => {
+    const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'adoptSession' as const, sessionId: 's1' } } };
+    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null });
+    expect(presentConfirm(initialState(), storeWith())).toBeNull();
+  });
+});
+
 describe('presentShell', () => {
-  it('現在のナビ項目とパンくずと索引の進行', () => {
+  // 今いる場所はヘッダのパンくずではなく、各頁の見出しで示す。ヘッダには頁ごとに変わる文字を渡さない。
+  it('現在のナビ項目と索引の進行を返し、パンくずは返さない', () => {
     const state = { ...initialState(), screen: { name: 'project' as const, id: 'alpha' } };
     const store = storeWith();
     store.index = { phase: 'indexing', done: 10, total: 40 };
     const p = presentShell(state, store, NOW);
     expect(p.nav.find((n) => n.current)?.label).toBe('プロジェクト');
-    expect(p.crumbs.map((c) => c.label)).toEqual(['プロジェクト', 'alpha']);
+    expect(p).not.toHaveProperty('crumbs');
     expect(p.indexLabel).toBe('索引 10 / 40 件');
+    expect(presentShell(state, { ...store, index: { phase: 'rebuilding', done: 10, total: 200 } }, NOW).indexLabel).toBe('索引の作り直し 10 / 200 件');
+    expect(presentShell(state, { ...store, index: { phase: 'scanning', done: 0, total: 0 } }, NOW).indexLabel).toBe('索引を準備中');
+    expect(presentShell(state, { ...store, index: { phase: 'idle', done: 0, total: 0 } }, NOW).indexLabel).toBeNull();
+  });
+  // セッション画面だけ本文の幅の上限を外す（案 b）。
+  // ほかの画面は 1200px のまま。
+  it('セッション画面だけ幅を広げる', () => {
+    expect(presentShell({ ...initialState(), screen: { name: 'session', id: 's1' } }, storeWith(), NOW).wide).toBe(true);
+    expect(presentShell({ ...initialState(), screen: { name: 'home' } }, storeWith(), NOW).wide).toBe(false);
+  });
+  it('設定の索引の文は、ヘッダーと同じ文にし、終わっていれば件数を出す', () => {
+    const store = storeWith();
+    store.index = { phase: 'rebuilding', done: 10, total: 200 };
+    expect(presentSettings(initialState(), store, NOW).indexLabel).toBe('索引の作り直し 10 / 200 件');
+    store.index = { phase: 'idle', done: 0, total: 0 };
+    expect(presentSettings(initialState(), store, NOW).indexLabel).toBe('3 セッション、3 プロジェクト');
   });
 });
 
@@ -77,6 +127,57 @@ describe('ローカルコマンドの記録', () => {
   });
   it('生の記録を出すときはそのまま出す', () => {
     expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] }).filter((i) => i.kind === 'system')).toHaveLength(5);
+  });
+  it('! で打ったシェルは「! コマンド」に、出力は中身だけに、タスクの知らせは要旨だけにする', () => {
+    const ev = [
+      sys(20, '<bash-input> git status</bash-input>'),
+      sys(21, '<bash-stdout>clean</bash-stdout><bash-stderr></bash-stderr>'),
+      sys(22, '<bash-stdout></bash-stdout><bash-stderr></bash-stderr>'),
+      sys(23, '<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent "調べもの" finished</summary>\n</task-notification>'),
+      sys(24, '<system-reminder>内部の注意書き</system-reminder>'),
+    ];
+    expect(buildItems(ev, { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['! git status', 'clean', 'Agent "調べもの" finished']);
+  });
+  it('読み込んだスキルの本文は、スキルの名前の 1 行にする', () => {
+    const skill = sys(9, 'Base directory for this skill: /Users/me/.claude/plugins/cache/x/superpowers/6.3.0/skills/brainstorming\n\n# Brainstorming Ideas Into Designs\n\n長い本文…');
+    expect(buildItems([skill], { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['スキル brainstorming を読み込みました']);
+    expect(buildItems([skill], { showThinking: false, showRaw: true, subagents: [] })[0]).toMatchObject({ text: skill.text });
+  });
+});
+
+describe('本文のツール', () => {
+  const ev = [
+    { kind: 'tool_call' as const, seq: 0, toolId: 't', name: 'Bash', input: { command: 'npm test' }, summary: 'Bash npm test' },
+    { kind: 'tool_result' as const, seq: 1, toolId: 't', text: 'ok', isError: false },
+    { kind: 'tool_call' as const, seq: 2, toolId: 'u', name: 'Read', input: { file_path: '/w/app/a.ts' }, summary: 'Read /w/app/a.ts' },
+  ];
+  it('種類ごとの見せ方を持ち、パスは作業ディレクトリからの相対にする', () => {
+    const items = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    expect(items[0]).toMatchObject({ kind: 'tool', view: { step: 'run', head: { main: 'npm test', meta: [{ text: '0', tone: 'ok' }] } }, raw: null });
+    expect(items[1]).toMatchObject({ kind: 'tool', view: { step: 'read', head: { main: 'a.ts' } } });
+  });
+  it('生の入力の JSON は、生の記録を出すときだけ持つ', () => {
+    const [item] = buildItems(ev, { showThinking: false, showRaw: true, subagents: [], cwd: '/w/app' });
+    expect(item).toMatchObject({ raw: { input: '{\n  "command": "npm test"\n}', result: 'ok' } });
+  });
+  it('同じ呼び出しと結果の見せ方は、描き直すたびには作らない', () => {
+    const a = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    const b = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    expect(a[0]!.kind === 'tool' && b[0]!.kind === 'tool' && a[0]!.view === b[0]!.view).toBe(true);
+  });
+});
+
+describe('本文の無い system', () => {
+  const events = [
+    { kind: 'system' as const, seq: 1, ts: 1, text: 'turn_duration', subtype: 'turn_duration' },
+    { kind: 'system' as const, seq: 2, ts: 1, text: 'stop_hook_summary', subtype: 'stop_hook_summary' },
+    { kind: 'system' as const, seq: 3, ts: 1, text: '留守の間の要約', subtype: 'away_summary' },
+  ];
+  it('種類の名前しか無い行は落とし、本文のある行は残す', () => {
+    expect(buildItems(events, { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['留守の間の要約']);
+  });
+  it('生の記録を出すときは種類の名前だけの行も出す', () => {
+    expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] })).toHaveLength(3);
   });
 });
 
@@ -170,6 +271,18 @@ describe('presentHome', () => {
     expect(p.running[0]).toMatchObject({ activity: null, note: '作業中', contextLabel: '未取得' });
     expect(p.running[1]).toMatchObject({ live: null, activity: null, note: '起動しています' });
   });
+  it('何も動いていないこと（idle）は、実行中も入力待ちも無いときだけ真にする', () => {
+    expect(presentHome(initialState(), homeStore(), NOW).idle).toBe(false);
+    const store = homeStore();
+    store.sessions = { s2: store.sessions.s2!, w1: store.sessions.w1! };
+    // 入力待ちも生きているので、「動いているセッションはありません」とは言わない。
+    expect(presentHome(initialState(), store, NOW).idle).toBe(false);
+    store.sessions = { s2: store.sessions.s2! };
+    expect(presentHome(initialState(), store, NOW).idle).toBe(true);
+    // Claude の一覧に載る前の run も動いているものに数える。
+    store.runs = { r2: runDto('r2', 's2') };
+    expect(presentHome(initialState(), store, NOW).idle).toBe(false);
+  });
   it('最近は要対応と実行中に出したものを除き、新しい順に並べる', () => {
     expect(presentHome(initialState(), homeStore(), NOW).recent.map((r) => r.id)).toEqual(['s3', 's2']);
   });
@@ -182,12 +295,15 @@ describe('presentHome', () => {
   });
   it('プロジェクトは active だけを小さな一覧にし、0 の数は出さない', () => {
     const store = homeStore();
-    // サーバの runningCount は入力待ちも含む。入力待ちは要対応に数えるので、実行中からは引く。
-    store.projects.alpha = { ...store.projects.alpha!, runningCount: 4, openTodoCount: 3 };
-    expect(presentHome(initialState(), store, NOW).projects).toEqual([{ id: 'alpha', name: 'alpha', status: 'active', counts: '実行中 2 · TODO 3 · 要対応 2' }]);
-    store.projects.alpha = { ...store.projects.alpha!, runningCount: 2 };
-    expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('TODO 3 · 要対応 2');
-    store.projects.alpha = { ...store.projects.alpha!, runningCount: 0, openTodoCount: 0 };
+    // 数は手元のセッションから数え、サーバの runningCount は見ない。
+    // 実行中は作業中、休み、起動中（hangar の run はあるが Claude の一覧にまだ無い）で、入力待ちは要対応に別に数える。
+    store.projects.alpha = { ...store.projects.alpha!, runningCount: 99, openTodoCount: 3 };
+    store.runs = { r2: runDto('r2', 's2') };
+    expect(presentHome(initialState(), store, NOW).projects).toEqual([{ id: 'alpha', name: 'alpha', status: 'active', counts: '実行中 3 · TODO 3 · 要対応 2' }]);
+    store.runs = {};
+    store.sessions = { w1: store.sessions.w1!, s2: store.sessions.s2! };
+    expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('TODO 3 · 要対応 1');
+    store.projects.alpha = { ...store.projects.alpha!, openTodoCount: 0 };
     store.sessions = { s2: store.sessions.s2! };
     expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('');
   });
@@ -202,6 +318,28 @@ describe('presentProjects', () => {
     expect(presentProjects(initialState(), storeWith(), NOW, 'bet', false).sections[0]!.cards).toHaveLength(0);
     expect(presentProjects(initialState(), storeWith(), NOW, '', true).sections.map((s) => s.status)).toEqual(['active', 'paused', 'done', 'archived']);
   });
+  it('カードの実行中と要対応は手元のセッションから数え、ホームと同じ数え方にする', () => {
+    const store = storeWith();
+    // サーバの runningCount は入力待ちを含み、起動中を含まないので使わない。
+    store.projects.alpha = { ...store.projects.alpha!, runningCount: 99 };
+    store.sessions.w1 = session('w1', { live: 'waiting' });
+    store.runs = { r2: runDto('r2', 's2') };
+    const alpha = presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards[0]!;
+    expect(alpha).toMatchObject({ runningCount: 2, waitingCount: 1 });
+  });
+  it('カードの抜粋は要約を優先し、雑音を除いた発言を次に使い、どちらも無ければそう書く', () => {
+    const store = storeWith();
+    const real = { ...session('x').summary!, oneLiner: '索引をセッションごとに分けた', source: 'in_session' as const };
+    const card = () => presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards[0]!;
+    store.sessions = { s1: session('s1', { firstPrompt: '<input class="a">', summary: real }) };
+    expect(card()).toMatchObject({ excerpt: '索引をセッションごとに分けた', excerptFromPrompt: false });
+    store.sessions = { s1: session('s1', { firstPrompt: '/init', summary: { ...real, oneLiner: '/init', source: 'baseline' } }), s2: session('s2', { firstPrompt: '画像の圧縮率を比べたい', lastActivityAt: NOW - 86_400_000 }) };
+    expect(card()).toMatchObject({ excerpt: '画像の圧縮率を比べたい', excerptFromPrompt: true });
+    store.sessions = { s1: session('s1', { firstPrompt: 'exit', summary: null }) };
+    expect(card()).toMatchObject({ excerpt: 'まだ要約がありません', excerptFromPrompt: false });
+    store.sessions = {};
+    expect(card()).toMatchObject({ excerpt: 'セッションはまだありません', excerptFromPrompt: false });
+  });
 });
 
 describe('presentProject', () => {
@@ -212,9 +350,20 @@ describe('presentProject', () => {
     expect(p.sessions.map((s) => s.id)).toEqual(['s1', 's4', 's2']);
     expect(presentProject(initialState(), store, NOW, 'nope').notFound).toBe(true);
   });
+  it('見出しの上には、一覧へ戻るリンクを出す', () => {
+    const parent = { label: 'プロジェクト', route: { name: 'projects' } };
+    expect(presentProject(initialState(), storeWith(), NOW, 'alpha').parent).toEqual(parent);
+    expect(presentProject(initialState(), storeWith(), NOW, 'nope').parent).toEqual(parent);
+  });
 });
 
 describe('presentSession', () => {
+  it('見出しの上には、属するプロジェクトへ戻るリンクを出し、属さなければ出さない', () => {
+    const store = storeWith();
+    expect(presentSession(initialState(), store, NOW, 's1').parent).toEqual({ label: 'alpha', route: { name: 'project', id: 'alpha' } });
+    expect(presentSession(initialState(), store, NOW, 's3').parent).toBeNull();
+    expect(presentSession(initialState(), store, NOW, 'nope').parent).toBeNull();
+  });
   it('ツール結果を呼び出しに畳み込み、思考は既定で隠し、サブエージェントを対応づける', () => {
     let store = storeWith();
     store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 6, nextSeq: null, events: [
@@ -230,11 +379,30 @@ describe('presentSession', () => {
     expect(p.items.map((i) => i.kind)).toEqual(['user', 'tool', 'assistant']);
     expect(p.items[1]).toMatchObject({ kind: 'tool', summary: 'Agent x', result: { text: 'done', isError: false }, subagent: { agentId: 'abc', label: 'Agent x' } });
     expect(p).toMatchObject({ name: 'name-s1', live: 'busy', tokens: '1.2M', turns: 2, loaded: 6, total: 6, hasMore: false, projectName: 'alpha' });
-    expect(p.summary).toMatchObject({ title: 't', sourceLabel: '自動', stateLabel: '完了' });
+    expect(p.summary).toMatchObject({ title: 't', sourceLabel: '自動', stateLabel: '済んだ' });
     const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), showThinking: true, showRaw: true, summaryOpen: true } } };
     const q = presentSession(state, store, NOW, 's1');
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
     expect(q.summaryOpen).toBe(true);
+  });
+  it('ターンの目次を作り、開いたターンの中身だけを渡す', () => {
+    let store = storeWith();
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 10, nextSeq: null, events: [
+      { kind: 'user', seq: 5, ts: NOW, text: 'はじめの指示' },
+      { kind: 'tool_call', seq: 6, toolId: 't1', name: 'Bash', input: {}, summary: 'Bash ls' },
+      { kind: 'assistant', seq: 7, text: '見ました' },
+      { kind: 'user', seq: 8, ts: NOW, text: '次の指示' },
+      { kind: 'assistant', seq: 9, text: 'はい' },
+    ] }, false);
+    const closed = presentSession(initialState(), store, NOW, 's1');
+    expect(closed.turnRows.map((t) => [t.seq, t.head, t.tools, t.open])).toEqual([[5, 'はじめの指示', 1, false], [8, '次の指示', 0, false]]);
+    // seq 0 から 4 はまだ読み込んでいないので、目次は会話の最初から始まっていない。
+    expect(closed.turnsComplete).toBe(false);
+    expect(closed.openTurnItems).toEqual([]);
+    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), openTurn: 5 } } };
+    const open = presentSession(state, store, NOW, 's1');
+    expect(open.turnRows[0]!.open).toBe(true);
+    expect(open.openTurnItems.map((i) => i.kind)).toEqual(['user', 'tool', 'assistant']);
   });
   it('実行中なら状態と経過の札を作り、変更数を渡す', () => {
     const store = storeWith();
@@ -273,22 +441,30 @@ describe('presentSession', () => {
     const at = NOW - 3_600_000;
     const sum = (over: Partial<SessionSummaryDto>): SessionSummaryDto => ({ title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: null, sourceModel: null, basedOnTurns: 5, updatedAt: at, ...over });
     store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'lmstudio', sourceModel: 'gemma-4-26b-a4b-it-heretic' }) });
-    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ sourceLabel: '事後', summarizerLabel: 'lmstudio / gemma-4-26b-a4b-it-heretic', generatedAt: absoluteTime(at) });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ sourceLabel: '事後', summarizerLabel: 'LM Studio / gemma-4-26b-a4b-it-heretic', generatedAt: absoluteTime(at) });
     // 種類は source_id が決める。モデル名から推測しない。
     store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'claude-headless', sourceModel: 'haiku' }) });
     expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'claude / haiku' });
-    // claude を名に含むモデルを LM Studio で使っても、lmstudio のままである。
+    // claude を名に含むモデルを LM Studio で使っても、LM Studio のままである。
     store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'lmstudio', sourceModel: 'claude-ish-7b' }) });
-    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'lmstudio / claude-ish-7b' });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'LM Studio / claude-ish-7b' });
     // モデル名を言えなかったときは種類だけを出す。
     store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'lmstudio', sourceModel: null }) });
-    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'lmstudio' });
+    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'LM Studio' });
     // source_id を持たない古い行は、種類が分からないので不明と出す。
     store.sessions.s1 = session('s1', { summary: sum({ sourceId: null, sourceModel: 'gemma-4-26b-a4b-it-heretic' }) });
     expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: '不明 / gemma-4-26b-a4b-it-heretic' });
     // 土台の要約は要約器を通していないので、種類もモデルも無い。
     store.sessions.s1 = session('s1');
     expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: null, generatedAt: absoluteTime(1) });
+  });
+  it('真ん中の頁から開いた本文は、新しい行がまだあることと跳び先を持ち、遡り終えたら古い行のボタンを出さない', () => {
+    let store = storeWith();
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 900, nextSeq: 101, events: [{ kind: 'user', seq: 100, text: 'a' }] }, false);
+    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), jump: { seq: 100, query: 'a', n: 1 } } } };
+    expect(presentSession(state, store, NOW, 's1')).toMatchObject({ hasNewer: true, hasMore: true, jump: { seq: 100, query: 'a', n: 1 } });
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', total: 900, nextSeq: null, events: [] }, true, true);
+    expect(presentSession(state, store, NOW, 's1')).toMatchObject({ hasNewer: true, hasMore: false });
   });
   it('無いセッションは notFound。run だけ先に届いていれば読み込み中', () => {
     expect(presentSession(initialState(), storeWith(), NOW, 'zz')).toMatchObject({ notFound: true, loadingSession: false });
@@ -305,12 +481,104 @@ describe('presentSessions', () => {
     expect(all.mode).toBe('all');
     expect(all.rows).toHaveLength(3);
     expect(all.projects.map((p) => p.name)).toEqual(['alpha', 'beta', 'old']);
-    store = { ...store, search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: 2, snippets: [{ seq: 1, role: 'user', text: '…hi…' }] }], total: 1 }, loading: false } };
+    store = { ...store, search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: 2, snippets: [{ seq: 1, role: 'user', text: '…hi…', agentId: null }] }], total: 1 }, loading: false } };
     const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
     const r = presentSessions(state, store, NOW);
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
     expect(r.rows[0]!.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
+    // 行を開くと、抜粋の seq と検索語を持って一致へ跳ぶ。
+    expect(r.rows[0]!.jump).toEqual({ seq: 1, q: 'hi' });
+    expect(all.rows[0]!.jump).toBeUndefined();
+  });
+  // seq は主線とサブエージェントで別々に振る。サブエージェントの seq で主線の本文へ跳ぶと、違う行に着く。
+  it('跳び先は主線の抜粋だけから取り、主線の抜粋が無ければ跳ばない', () => {
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const withSnippets = (snippets: { seq: number; role: string; text: string; agentId: string | null }[]) => presentSessions(state, { ...storeWith(), search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: snippets.length, snippets }], total: 1 }, loading: false } }, NOW).rows[0]!;
+    const sub = { seq: 2, role: 'assistant', text: '…hi…', agentId: 'ag1' };
+    const main = { seq: 9, role: 'user', text: '…hi…', agentId: null };
+    expect(withSnippets([sub, main]).jump).toEqual({ seq: 9, q: 'hi' });
+    const onlySub = withSnippets([sub]);
+    expect(onlySub.jump).toBeUndefined();
+    // 抜粋そのものは出す。一致がどこにあるかは読める。
+    expect(onlySub.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
+  });
+  it('切れた結果は、見せている件数と全件の数を分けて持ち、読み足しの最中を区別する', () => {
+    const base = storeWith();
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const hits = [{ sessionId: 's1', matchCount: 1, snippets: [] }, { sessionId: 's2', matchCount: 1, snippets: [] }];
+    const done = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: false } }, NOW);
+    expect(done).toMatchObject({ shown: 2, total: 132, loading: false, loadingMore: false });
+    const more = presentSessions(state, { ...base, search: { params: { q: 'hi', offset: 2 }, result: { hits, total: 132 }, loading: true } }, NOW);
+    expect(more).toMatchObject({ shown: 2, total: 132, loading: false, loadingMore: true });
+    const fresh = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: true } }, NOW);
+    expect(fresh).toMatchObject({ loading: true, loadingMore: false });
+    expect(presentSessions(initialState(), base, NOW)).toMatchObject({ shown: 3, total: 3, loadingMore: false });
+  });
+  it('期間は日数で持ち、手元の一覧は今日の 0 時から数えて絞る', () => {
+    const now = new Date(2026, 9, 1, 15, 30).getTime();
+    const store = initialStore();
+    store.bootstrapped = true;
+    store.projects = { alpha: project('alpha') };
+    store.sessions = {
+      today: session('today', { lastActivityAt: new Date(2026, 9, 1, 0, 5).getTime() }),
+      yesterday: session('yesterday', { lastActivityAt: new Date(2026, 8, 30, 23, 55).getTime() }),
+      week: session('week', { lastActivityAt: new Date(2026, 8, 25, 1).getTime() }),
+    };
+    const ids = (days: number | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { days } } }, store, now).rows.map((r) => r.id);
+    expect(ids(1)).toEqual(['today']);
+    expect(ids(7)).toEqual(['today', 'yesterday', 'week']);
+    expect(ids(undefined)).toHaveLength(3);
+  });
+  it('状態の絞り込みは、実行中（作業中、休み、起動中）、入力待ち、終了に分ける', () => {
+    const store = storeWith();
+    store.sessions.w1 = session('w1', { live: 'waiting' });
+    store.runs = { r2: runDto('r2', 's2') };
+    const ids = (live: SearchFilter['live']) => presentSessions({ ...initialState(), search: { text: '', filter: { live } } }, store, NOW).rows.map((r) => r.id).sort();
+    expect(ids('running')).toEqual(['s1', 's2']);
+    expect(ids('waiting')).toEqual(['w1']);
+    expect(ids('ended')).toEqual(['s3']);
+    expect(ids(undefined)).toEqual(['s1', 's2', 's3', 'w1']);
+  });
+  // 見出しの件数は条件に関わらずセッションの全件で、条件の行が絞った結果の件数を言う（D1）。
+  it('見出しには全件の数、条件の行にはいま効いている条件を並べる', () => {
+    const store = storeWith();
+    const none = presentSessions(initialState(), store, NOW);
+    expect(none).toMatchObject({ allCount: 3, conditions: [] });
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: '索引' }, search: { text: '索引', filter: { projectId: 'alpha', days: 7, live: 'waiting' as const, file: 'src/a.ts' } } };
+    const r = presentSessions(state, { ...store, search: { params: { q: '索引' }, result: { hits: [], total: 0 }, loading: false } }, NOW);
+    expect(r.allCount).toBe(3);
+    expect(r.conditions).toEqual(['『索引』', 'alpha', '7 日', '入力待ち', 'src/a.ts']);
+    const today = presentSessions({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } } }, store, NOW);
+    expect(today.conditions).toEqual(['今日', '実行中']);
+  });
+  it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
+    let store = storeWith();
+    store = { ...store, search: { params: { q: '', file: 'a.md' }, result: { hits: [{ sessionId: 's2', matchCount: 3, snippets: [] }], total: 1 }, loading: false } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const }, search: { text: '', filter: { file: 'a.md' } } };
+    const r = presentSessions(state, store, NOW);
+    expect(r.mode).toBe('search');
+    expect(r.rows.map((x) => x.id)).toEqual(['s2']);
+    expect(r.rows[0]!.excerpt).toBeUndefined();
+    expect(r.total).toBe(1);
+  });
+});
+
+describe('セッションの並び順', () => {
+  it('生きているものを先に、waiting、busy、idle の順に並べ、同じ状態の中は新しい順', () => {
+    const store = initialStore();
+    store.bootstrapped = true;
+    store.projects = { alpha: project('alpha') };
+    store.sessions = {
+      idleNew: session('idleNew', { live: 'idle', lastActivityAt: NOW - 1_000 }),
+      busyOld: session('busyOld', { live: 'busy', lastActivityAt: NOW - 90_000 }),
+      waitOld: session('waitOld', { live: 'waiting', lastActivityAt: NOW - 80_000 }),
+      busyNew: session('busyNew', { live: 'busy', lastActivityAt: NOW - 5_000 }),
+      waitNew: session('waitNew', { live: 'waiting', lastActivityAt: NOW - 70_000 }),
+      endedNew: session('endedNew', { lastActivityAt: NOW }),
+      endedOld: session('endedOld', { lastActivityAt: NOW - 100_000 }),
+    };
+    expect(presentSessions(initialState(), store, NOW).rows.map((r) => r.id)).toEqual(['waitNew', 'waitOld', 'busyNew', 'busyOld', 'idleNew', 'endedNew', 'endedOld']);
   });
 });
 
@@ -361,6 +629,203 @@ describe('presentSession（実行中）', () => {
   });
 });
 
+describe('presentSession（見出しの操作、A1）', () => {
+  const ids = (a: { menu: { id: string }[] }) => a.menu.map((m) => m.id);
+  it('実行中は VS Code で開くを主にし、残りは「…」へ。停止は危険色で最後、フォークは理由を添えて押せない', () => {
+    const store = storeWith();
+    store.runs = { r1: runDto('r1', 's1') };
+    store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
+    const a = presentSession(initialState(), store, NOW, 's1').actions;
+    expect(a.primary).toMatchObject({ id: 'openEditor', label: 'VS Code で開く', disabled: null });
+    expect(ids(a)).toEqual(['openTerminal', 'fork', 'regenerate', 'stop']);
+    expect(a.menu.find((m) => m.id === 'fork')!.disabled).toBe('実行中は押せません。止めると押せます');
+    expect(a.menu.at(-1)).toMatchObject({ id: 'stop', label: '停止', danger: true, disabled: null });
+  });
+  it('終わったセッションは再開を主にし、フォーク、VS Code で開く、要約を作り直すを「…」へ', () => {
+    const store = storeWith();
+    store.sessions.s2 = { ...store.sessions.s2!, live: null };
+    const a = presentSession(initialState(), store, NOW, 's2').actions;
+    expect(a.primary).toMatchObject({ id: 'resume', label: '再開', disabled: null });
+    expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate']);
+    expect(a.menu[0]).toMatchObject({ disabled: null, note: 'この会話から枝分かれした新しいセッション' });
+    // 本文が無ければ、再開もフォークも理由を添えて押せない。
+    store.sessions.s2 = { ...store.sessions.s2!, hasTranscript: false };
+    const b = presentSession(initialState(), store, NOW, 's2').actions;
+    expect(b.primary).toMatchObject({ id: 'resume', disabled: '本文がありません' });
+    expect(b.menu[0]!.disabled).toBe('本文がありません');
+  });
+  it('他の PC で実行中は「この PC で再開」を主にし、再開とフォークはロックの理由で押せない', () => {
+    const store = storeWith();
+    const lock = { deviceId: 'd2', deviceName: 'MacBook-Air', runId: 'r9', heartbeatAt: NOW - 20_000, stale: false };
+    store.sessions.s2 = { ...store.sessions.s2!, live: null, lock, remoteOnly: true };
+    const a = presentSession(initialState(), store, NOW, 's2').actions;
+    // 生きているロックは横取りさせない（Ruling 14）。
+    // 主の操作は出すが、理由を添えて押せなくする。
+    expect(a.primary).toMatchObject({ id: 'resumeHere', label: 'この PC で再開', disabled: 'MacBook-Air で実行中です。止まるか応答が無くなると選べます' });
+    expect(ids(a)).toEqual(['resume', 'fork', 'openEditor', 'regenerate']);
+    expect(a.menu[0]!.disabled).toBe('MacBook-Air で実行中です');
+    expect(a.menu[1]!.disabled).toBe('MacBook-Air で実行中です');
+    store.sessions.s2 = { ...store.sessions.s2!, lock: { ...lock, stale: true } };
+    const b = presentSession(initialState(), store, NOW, 's2').actions;
+    expect(b.primary).toMatchObject({ id: 'resumeHere', disabled: null });
+    expect(b.menu[0]!.disabled).toBe('MacBook-Air から応答がありません。「この PC で再開」で続けられます');
+    // ロックが無く本文だけが他の PC にあるとき。
+    store.sessions.s2 = { ...store.sessions.s2!, lock: null, remoteOnly: true };
+    const c = presentSession(initialState(), store, NOW, 's2').actions;
+    expect(c.primary).toMatchObject({ id: 'resumeHere', disabled: null });
+    expect(c.menu[0]!.disabled).toBe('本文が他の PC にあります。「この PC で再開」で本文を降ろして続けられます');
+    expect(c.menu[1]!.disabled).toBe('本文が他の PC にあります');
+  });
+  it('hangar の外で動いているときは、つなぐか引き取るを「…」に入れる', () => {
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: 'busy', lock: null, remoteOnly: false, hasTranscript: true, canResume: false, canFork: false, canResumeHere: false, outsideOpen: 'attach', canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
+    const a = sessionActions(facts);
+    expect(a.primary.id).toBe('openEditor');
+    expect(ids(a)).toEqual(['attach', 'fork', 'regenerate']);
+    expect(ids(sessionActions({ ...facts, outsideOpen: 'adopt' }))[0]).toBe('adopt');
+  });
+  it('昇格はメニューに入れ、要約の作成中と失敗は作り直すに 1 行添え、本文が消えた会話では作り直しを出さない', () => {
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: true, gone: null, summaryPending: true, summaryError: null, fromScratch: true };
+    const a = sessionActions(facts);
+    expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'promote']);
+    expect(a.menu[2]!.note).toBe('作成しています');
+    // スクラッチで始めたセッションの再開は、作業ディレクトリがスクラッチのままであることを添える。
+    expect(a.primary.note).toBe('再開しても作業ディレクトリはスクラッチのままです');
+    expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }).menu[2]!.note).toBe('前回は作成できませんでした');
+    expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }))).not.toContain('regenerate');
+  });
+});
+
+describe('presentSession（終わった画面の右欄、E1）', () => {
+  const call = (seq: number, name: string, input: Record<string, unknown>): TranscriptEvent => ({ kind: 'tool_call', seq, toolId: `t${seq}`, name, input, summary: name });
+  const result = (seq: number, text: string): TranscriptEvent => ({ kind: 'tool_result', seq, toolId: `t${seq - 1}`, text, isError: false });
+  it('変更したファイルを最初に触った順に、足した行と消した行の数と、新しいファイルかを添えて並べる', () => {
+    let store = storeWith();
+    store.sessions.s2 = { ...store.sessions.s2!, live: null, stats: { ...store.sessions.s2!.stats, filesChanged: 4 } };
+    const events: TranscriptEvent[] = [
+      { kind: 'user', seq: 0, text: 'go' },
+      call(1, 'Edit', { file_path: '/w/alpha/src/a.ts', old_string: 'x', new_string: 'y\nz' }),
+      call(2, 'Write', { file_path: '/w/alpha/src/new.ts', content: 'a\nb\nc' }), result(3, 'File created successfully at: /w/alpha/src/new.ts'),
+      call(4, 'Read', { file_path: '/w/alpha/src/b.ts' }),
+      call(5, 'Edit', { file_path: '/w/alpha/src/a.ts', old_string: 'q', new_string: '' }),
+      call(6, 'MultiEdit', { file_path: '/elsewhere/c.md', edits: [{ old_string: 'a', new_string: 'b' }] }),
+    ];
+    store = applyEventsPage(store, eventsKey('s2', null), { sessionId: 's2', events, total: events.length, nextSeq: null }, false);
+    const p = presentSession(initialState(), store, NOW, 's2');
+    expect(p.changedFiles).toEqual([
+      { path: '/w/alpha/src/a.ts', dir: 'src/', base: 'a.ts', added: 2, removed: 2, created: false },
+      { path: '/w/alpha/src/new.ts', dir: 'src/', base: 'new.ts', added: 3, removed: 0, created: true },
+      { path: '/elsewhere/c.md', dir: '/elsewhere/', base: 'c.md', added: 1, removed: 1, created: false },
+    ]);
+    // 統計にはもう 1 つある（サブエージェントの編集も数に入る）。
+    // 主線は全部読み込んでいるので、残りはサブエージェントの変更である。
+    expect(p.changedMore).toBe(1);
+    expect(p.changedNote).toBe('ほか 1 件はサブエージェントの変更です');
+  });
+  it('主線を読み切っていなければ、残りは古い本文を読み込むと出ると言う。サブエージェントを見ていて主線を読んでいなければ数だけ出す', () => {
+    let store = storeWith();
+    store.sessions.s2 = { ...store.sessions.s2!, live: null, stats: { ...store.sessions.s2!.stats, filesChanged: 3 } };
+    const events: TranscriptEvent[] = [{ kind: 'user', seq: 10, text: 'go' }, call(11, 'Edit', { file_path: '/w/alpha/src/a.ts', old_string: 'x', new_string: 'y' })];
+    const partial = applyEventsPage(store, eventsKey('s2', null), { sessionId: 's2', events, total: 40, nextSeq: null }, false);
+    const p = presentSession(initialState(), partial, NOW, 's2');
+    expect(p.changedMore).toBe(2);
+    expect(p.changedNote).toBe('ほか 2 件は、古い本文を読み込むと出ます');
+    const agent = { ...initialState(), sessionView: { s2: { ...defaultSessionView(), agentId: 'ag1' } } };
+    const q = presentSession(agent, store, NOW, 's2');
+    expect(q.changedFiles).toEqual([]);
+    expect(q.changedMore).toBe(3);
+    expect(q.changedNote).toBeNull();
+  });
+  it('TODO はそのセッションのプロジェクトのものを出す', () => {
+    const store = storeWith();
+    const todo = (id: string, projectId: string): TodoDto => ({ id, projectId, text: id, done: false, position: 1, sessionId: null, updatedAt: 1 });
+    store.todos = { a: todo('a', 'alpha'), b: todo('b', 'beta') };
+    expect(presentSession(initialState(), store, NOW, 's2').todos.map((t) => t.id)).toEqual(['a']);
+    expect(presentSession(initialState(), store, NOW, 's3').todos).toEqual([]);
+  });
+});
+
+describe('presentSession（transcript を表示中の帯、F1）', () => {
+  it('目次から生きている run の Claude を transcript に入れたと確かめられた間だけ、そのターンの時刻を出す', () => {
+    let store = storeWith();
+    store.runs = { r1: runDto('r1', 's1') };
+    store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
+    const events: TranscriptEvent[] = [{ kind: 'user', seq: 0, text: 'a', ts: Date.parse('2026-09-02T03:09:41Z') }, { kind: 'user', seq: 1, text: 'b' }];
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', events, total: 2, nextSeq: null }, false);
+    const at = (turnJump: State['sessionView'][string]['turnJump'], openTurn: number | null = 0) => presentSession({ ...initialState(), sessionView: { s1: { ...defaultSessionView(), openTurn, turnJump } } }, store, NOW, 's1').transcriptBand;
+    expect(at(null)).toBeNull();
+    expect(at({ seq: 0, status: 'found', runId: 'r1' })).toEqual({ when: absoluteTime(Date.parse('2026-09-02T03:09:41Z')).slice(11, 16) });
+    // 着けなかったときも、サーバは transcript を開いたままにする。
+    expect(at({ seq: 0, status: 'notFound', runId: 'r1' })).not.toBeNull();
+    // 答えを待つ間は、まだ transcript に入ったか分からない。
+    expect(at({ seq: 0, status: 'pending', runId: 'r1' })).toBeNull();
+    // transcript に入れなかったときと、跳ぶ API が失敗したときは、帯を出さない（目次の側で言う）。
+    expect(at({ seq: 0, status: 'mode', runId: 'r1' })).toBeNull();
+    expect(at({ seq: 0, status: 'failed', runId: 'r1' })).toBeNull();
+    // 前の run を跳ばしたまま、その run が終わったとき。
+    expect(at({ seq: 0, status: 'found', runId: 'r0' })).toBeNull();
+  });
+});
+
+describe('newSessionTarget', () => {
+  const at = (screen: State['screen']) => ({ ...initialState(), screen });
+  it('プロジェクトの画面ならそのプロジェクト、セッションの画面ならそのセッションのプロジェクト', () => {
+    const store = storeWith();
+    expect(newSessionTarget(at({ name: 'project', id: 'alpha' }), store)).toEqual({ projectId: 'alpha' });
+    expect(newSessionTarget(at({ name: 'session', id: 's1' }), store)).toEqual({ projectId: 'alpha' });
+    expect(presentShell(at({ name: 'session', id: 's1' }), store, NOW).newSession).toEqual({ projectId: 'alpha' });
+  });
+  it('ほかの画面と、プロジェクトの無いセッションでは何も選ばない', () => {
+    const store = storeWith();
+    expect(newSessionTarget(at({ name: 'home' }), store)).toEqual({});
+    expect(newSessionTarget(at({ name: 'sessions' }), store)).toEqual({});
+    expect(newSessionTarget(at({ name: 'session', id: 's3' }), store)).toEqual({});
+    expect(newSessionTarget(at({ name: 'session', id: 'zz' }), store)).toEqual({});
+  });
+  // スクラッチの擬似プロジェクトは選べないので、その画面の「新規」と同じくスクラッチで始める。
+  it('スクラッチのプロジェクトとそのセッションではスクラッチで開く', () => {
+    const store = storeWith();
+    store.projects = { ...store.projects, scratch: { ...project('scratch'), isScratch: true } };
+    store.sessions = { ...store.sessions, sc: session('sc', { projectId: 'scratch' }) };
+    expect(newSessionTarget(at({ name: 'project', id: 'scratch' }), store)).toEqual({ scratch: true });
+    expect(newSessionTarget(at({ name: 'session', id: 'sc' }), store)).toEqual({ scratch: true });
+  });
+});
+
+describe('presentSession（右ペインの灯）', () => {
+  // 最新の側から読んだ窓（seq 700 から）。今のターンの頭は窓より新しい 705 で、会話全体は 900 件ある。
+  const user = (seq: number): TranscriptEvent => ({ kind: 'user', seq, text: `指示 ${seq}` });
+  const callAt = (seq: number): TranscriptEvent => ({ kind: 'tool_call', seq, toolId: `t${seq}`, name: 'Read', input: { file_path: '/w/a.ts' }, summary: 'Read' });
+  const window = [user(700), ...[701, 702, 703, 704, 705, 706, 707, 708, 709, 710].map(callAt)];
+  const live = (total: number, turns: number, turnStartSeq: number | null): Store => {
+    let store = storeWith();
+    store.runs = { r1: runDto('r1', 's1') };
+    store.sessions.s1 = { ...store.sessions.s1!, stats: { ...store.sessions.s1!.stats, turns } };
+    store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', events: window, total, nextSeq: null }, false);
+    store.liveDigests = { s1: { sessionId: 's1', turnStartSeq, intent: null, agents: [] } };
+    return store;
+  };
+  it('全部を読み込んでいなければ、ターンの番号は統計から、頭は digest の turnStartSeq から取る', () => {
+    const p = presentSession(initialState(), live(900, 7, 705), NOW, 's1');
+    expect(p.turnsComplete).toBe(false);
+    // 窓の最初の指示（700）からではなく 705 から数えるので 6 手、ターンは窓の 1 ではなく統計の 7。
+    expect(p.livePane!.lamp).toEqual({ tone: 'busy', head: '作業中', sub: 'ターン 7・6 手目' });
+  });
+  it('全部を読み込んでいれば、ターンの番号は目次の数', () => {
+    const p = presentSession(initialState(), live(11, 7, 705), NOW, 's1');
+    expect(p.turnsComplete).toBe(true);
+    expect(p.livePane!.lamp.sub).toBe('ターン 1・6 手目');
+  });
+  it('統計も無く全部も読めていなければ、ターンの番号は出さず手の数だけ', () => {
+    const p = presentSession(initialState(), live(900, 0, 705), NOW, 's1');
+    expect(p.livePane!.lamp).toEqual({ tone: 'busy', head: '作業中', sub: '6 手目' });
+  });
+  it('digest がまだ無ければ、窓の最後のターンの頭から数える', () => {
+    const store = live(900, 7, 705);
+    store.liveDigests = {};
+    expect(presentSession(initialState(), store, NOW, 's1').livePane!.lamp.sub).toBe('ターン 7・10 手目');
+  });
+});
+
 describe('presentNewSession', () => {
   it('オーバーレイが newSession のときだけ、解決済みでアーカイブでないプロジェクトを名前順に出す', () => {
     const store = storeWith();
@@ -384,15 +849,52 @@ describe('presentNewSession', () => {
     expect(p1).toMatchObject({ status: store.projects.p1!.status, lastActivity: '1 分前' });
     expect(p.projects.find((x) => x.id === 'p7')!.lastActivity).toBe('');
   });
+  it('書きかけの下書きと、プロジェクトごとの前回値を渡す', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, newSessionDraft: { name: 'n', prompt: '' }, launchPrefs: { alpha: { model: 'opus' } } };
+    expect(presentNewSession(state, storeWith(), NOW)).toMatchObject({ draft: { name: 'n', prompt: '' }, prefs: { alpha: { model: 'opus' } } });
+  });
 });
 
 describe('presentSettings（フェーズ 2）', () => {
   it('ツールのパスと MCP のコマンド', () => {
     const store = storeWith();
     store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
-    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, mcpInstallCommand: 'npm run hangar -- mcp install' });
+    // コマンドは hangar の呼び方にそろえる。準備の確かめが届く前は hangar と書く。
+    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' } });
     store.settings = null;
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', codePath: null });
+  });
+});
+
+describe('presentSettings の検証と保存の知らせ（設定の B1 と C1）', () => {
+  const READY: ReadinessDto = {
+    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: true, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
+    commands: { mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install', shell: '/A/hangar shell install' },
+  };
+  it('準備の確かめが届く前は、欄の下を空にしておく', () => {
+    const p = presentSettings(initialState(), initialStore());
+    expect(p.verify).toEqual({ workspace: null, tmux: null, claude: null, code: null, node: null });
+    expect(p.mcpRegistered).toBeNull();
+    expect(p.todo).toEqual({ must: 0, link: 0 });
+  });
+  it('届いたら、欄ごとの検証と、MCP の登録と、コマンドの呼び方を渡す', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), readiness: READY });
+    expect(p.verify.tmux).toMatchObject({ ok: true, text: '/opt/homebrew/bin/tmux', note: '3.4' });
+    expect(p.verify.workspace).toMatchObject({ ok: true, note: 'プロジェクト 12 件' });
+    expect(p.verify.claude).toMatchObject({ ok: false });
+    expect(p.mcpRegistered).toBe(true);
+    expect(p.commands).toEqual({ mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install' });
+    // 直すものの数は、無くても動くもの（code）を数えない。連携は MCP と statusline を数える。
+    expect(p.todo).toEqual({ must: 1, link: 1 });
+  });
+  it('欄ごとの保存の知らせをそのまま渡す', () => {
+    const p = presentSettings({ ...initialState(), settingsSave: { tmuxPath: { kind: 'saved', n: 2 } } }, initialStore());
+    expect(p.save).toEqual({ tmuxPath: { kind: 'saved', n: 2 } });
+  });
+  it('参加トークンが消える時刻を渡す', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 }, NOW);
+    expect(p.cloud).toMatchObject({ joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 });
   });
 });
 
@@ -413,15 +915,23 @@ describe('書式', () => {
 describe('presentShell の接続', () => {
   it('つながっている間は何も出さない', () => {
     const s = { ...initialState(), connection: 'connected' as const };
-    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: false, staleLabel: '', retryLabel: '' });
+    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false });
   });
   it('切れている間は、止まった時刻と次に試すまでの秒を出す', () => {
     const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW - 120_000, nextRetryAt: NOW + 7_500 };
-    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します' });
+    expect(presentShell(s, initialStore(), NOW).conn).toEqual({ visible: true, staleLabel: '画面は 2 分前のまま止まっています', retryLabel: '8 秒後に再接続します', hard: false, desktop: false });
   });
   it('切れた直後は、時刻を言わずに止まったとだけ言う', () => {
     const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW - 30_000, nextRetryAt: NOW + 2_000 };
     expect(presentShell(s, initialStore(), NOW).conn.staleLabel).toBe('画面の更新が止まっています');
+  });
+  it('再接続が 3 回続けて失敗したら、同じ帯を強い形に切り替える（初回と障害の B1）', () => {
+    // 最初の切断で 1、再接続の失敗ごとに 1 ずつ増える。3 回の失敗は 4 である。
+    const at = (reconnectAttempt: number) => ({ ...initialState(), connection: 'disconnected' as const, staleSince: NOW, nextRetryAt: NOW + 1000, reconnectAttempt });
+    expect(presentShell(at(3), initialStore(), NOW).conn.hard).toBe(false);
+    expect(presentShell(at(4), initialStore(), NOW).conn.hard).toBe(true);
+    // 殻の中なら、ログを開くと再起動を殻に頼める。
+    expect(presentShell(at(4), { ...initialStore(), desktop: true }, NOW).conn.desktop).toBe(true);
   });
   it('待ち時間が尽きたら、試している最中だと出す', () => {
     const s = { ...initialState(), connection: 'disconnected' as const, staleSince: NOW, nextRetryAt: NOW };
@@ -435,9 +945,9 @@ describe('presentShell の接続', () => {
 describe('presentShell の使用量', () => {
   it('値が無ければ null、あれば百分率と最終更新', () => {
     const empty = presentShell(initialState(), initialStore(), NOW);
-    expect(empty.usage).toEqual({ fiveHour: null, sevenDay: null, updatedLabel: null });
+    expect(empty.usage).toEqual({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
     const store = { ...initialStore(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
-    expect(presentShell(initialState(), store, NOW).usage).toEqual({ fiveHour: 47, sevenDay: 7, updatedLabel: '10 分前' });
+    expect(presentShell(initialState(), store, NOW).usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
   });
 });
 
@@ -545,7 +1055,8 @@ describe('presentSettings のフェーズ 3 の項目', () => {
       usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 10, outputTokens: 2, sessions: 1 }], projects: [] },
     };
     const p = presentSettings(initialState(), store);
-    expect(p).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, summarizerModels: ['gemma', 'qwen'], statuslineCommand: 'npm run hangar -- statusline install' });
+    expect(p).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, summarizerModels: ['gemma', 'qwen'] });
+    expect(p.commands.statusline).toBe('hangar statusline install');
     expect(p.statusline?.installed).toBe(true);
     expect(p.usageAggregate?.days).toHaveLength(1);
     expect(p.summarizerTest).toBeNull();
@@ -639,7 +1150,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
     // まだ一度も往復していない間は、時刻の代わりに準備中と出す。
     expect(presentShell({ ...s, sync: { kind: 'idle', lastAt: null } }, initialStore(), NOW).sync).toMatchObject({ state: 'idle', label: '同期の準備中' });
   });
-  it('ヘッダーに取り残しの件数と諦めた本文の件数が出る', () => {
+  it('ヘッダーに取り残しの件数と送れなかった本文の件数が出る', () => {
     // 本文は 60 秒に 20 件ずつしか流れないので、残りが見えないと進んでいるか分からない。
     const state = { ...initialState(), sync: { kind: 'idle' as const, lastAt: NOW }, pending: 2 };
     const store: Store = { ...initialStore(), sync: syncStatus({ sweepPending: 1500, skipped: [{ key: 'k1', attempts: 3, message: 'x' }, { key: 'k2', attempts: 1, message: 'y' }] }) };
@@ -648,7 +1159,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
     expect(presentShell(state, { ...initialStore(), sync: syncStatus() }, NOW).sync).toMatchObject({ sweepPending: 0, skipped: 0 });
     expect(presentShell(state, initialStore(), NOW).sync).toMatchObject({ sweepPending: 0, skipped: 0 });
   });
-  it('Settings のクラウドの節に取り残しと諦めた本文が出る', () => {
+  it('設定のクラウドの節に取り残しと送れなかった本文が出る', () => {
     // ヘッダーと違って、ここは 0 件も描く。0 と書いてあれば「追いついた」と読める。
     const store: Store = { ...initialStore(), sync: syncStatus({ sweepPending: 0, skipped: [{ key: 'k1', attempts: 3, message: '復号できません' }] }) };
     const p = presentSettings(initialState(), store, NOW).cloud;
@@ -662,16 +1173,21 @@ describe('同期の Presenter（フェーズ 4）', () => {
     const store = storeWith();
     store.usage = { fiveHour: { usedPercent: 40, resetsAt: null }, sevenDay: null, updatedAt: NOW - 60_000 };
     const p = presentShell({ ...initialState(), sync: { kind: 'idle', lastAt: NOW } }, store, NOW);
-    expect(p.usage).toEqual({ fiveHour: 40, sevenDay: null, updatedLabel: '1 分前' });
+    expect(p.usage).toEqual({ fiveHour: 40, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: '1 分前' });
     expect(p.sync.visible).toBe(true);
   });
   it('Settings のクラウドの節', () => {
     const store: Store = { ...initialStore(), sync: syncStatus({ pending: 3 }), devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: NOW - 120_000, self: true, shell: null }], joinToken: 'tok', settings: fullSettings({ syncClaudeConfig: true }) };
     const p = presentSettings(initialState(), store, NOW).cloud;
-    expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok', syncClaudeConfig: true, configConfirmed: false });
+    expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', stateLabel: '同期済み', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok', syncClaudeConfig: true, configConfirmed: false });
     expect(p.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeen: '2 分前', self: true }]);
     const paused = presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'paused', claudeConfig: { enabled: true, confirmed: true } }) }, NOW).cloud;
-    expect(paused).toMatchObject({ configured: true, state: 'paused', paused: true, configConfirmed: true });
+    expect(paused).toMatchObject({ configured: true, state: 'paused', stateLabel: '一時停止中', paused: true, configConfirmed: true });
+    // ヘッダーと同じ語を使う。
+    // エラーの理由はヘッダーにだけ出す。
+    expect(presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'pushing' }) }, NOW).cloud.stateLabel).toBe('送信中');
+    expect(presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'pulling' }) }, NOW).cloud.stateLabel).toBe('受信中');
+    expect(presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'error' }) }, NOW).cloud.stateLabel).toBe('同期エラー');
   });
   it('Settings の外のターミナルの節。自端末は測り直した値を使い、古い版の端末は分からないと書く', () => {
     const devices = [
@@ -695,7 +1211,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
   });
   it('フェーズ 3 までの Settings の項目は消えていない', () => {
     const p = presentSettings(initialState(), { ...initialStore(), settings: fullSettings({ tmuxPath: '/t' }) }, NOW);
-    expect(p).toMatchObject({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/t', terminalApp: 'terminal', mcpInstallCommand: 'npm run hangar -- mcp install', statuslineCommand: 'npm run hangar -- statusline install', summaryHourlyCap: 20 });
+    expect(p).toMatchObject({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/t', terminalApp: 'terminal', summaryHourlyCap: 20 });
   });
   it('now を渡さない既存の呼び出しも通る', () => {
     expect(presentSettings(initialState(), initialStore()).cloud.state).toBe('off');
@@ -704,7 +1220,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
 
 describe('セッションのロック（フェーズ 4）', () => {
   it('他端末で実行中なら再開もフォークもこの PC で再開も止める', () => {
-    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto(), remoteOnly: true }) } };
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto(), remoteOnly: true, transcriptMtime: null }) } };
     const p = presentSession(initialState(), store, NOW, 's1');
     expect(p.lock).toEqual({ deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' });
     expect(p.remoteOnly).toBe(true);
@@ -715,24 +1231,24 @@ describe('セッションのロック（フェーズ 4）', () => {
   it('heartbeat が途絶えたロックは応答がありませんと見せ、この PC で再開だけを開ける（Ruling 14）', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ heartbeatAt: NOW - 600_000, stale: true }) }) } };
     const p = presentSession(initialState(), store, NOW, 's1');
-    expect(p.lock).toEqual({ deviceName: 'mini', stale: true, heartbeat: '10 分前', label: 'mini が応答がありません' });
+    expect(p.lock).toEqual({ deviceName: 'mini', stale: true, heartbeat: '10 分前', label: 'mini から応答がありません' });
     // 相手の run を止めには行かないので、同じ run の続きである再開とフォークは閉じたままにする。
     expect(p.canResume).toBe(false);
     expect(p.canFork).toBe(false);
     expect(p.canResumeHere).toBe(true);
   });
   it('stale のロックは、写しだけのセッションでもこの PC で再開ができる', () => {
-    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: true }), remoteOnly: true }) } };
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: true }), remoteOnly: true, transcriptMtime: null }) } };
     expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ remoteOnly: true, canResume: false, canFork: false, canResumeHere: true });
   });
   it('生きているロックでは、写しの有無にかかわらずこの PC で再開を閉じる', () => {
     const local: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }) }) } };
     expect(presentSession(initialState(), local, NOW, 's1').canResumeHere).toBe(false);
-    const remote: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }), remoteOnly: true }) } };
+    const remote: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }), remoteOnly: true, transcriptMtime: null }) } };
     expect(presentSession(initialState(), remote, NOW, 's1').canResumeHere).toBe(false);
   });
   it('写しだけで誰も動かしていなければ、この PC で再開ができる', () => {
-    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: null, remoteOnly: true }) } };
+    const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: null, remoteOnly: true, transcriptMtime: null }) } };
     const p = presentSession(initialState(), store, NOW, 's1');
     expect(p.lock).toBeNull();
     expect(p.canResumeHere).toBe(true);
@@ -761,5 +1277,214 @@ describe('セッションのロック（フェーズ 4）', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { hasTranscript: false }) } };
     expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ lock: null, remoteOnly: false, canResume: false, canResumeHere: false });
     expect(presentSession(initialState(), store, NOW, 'zz')).toMatchObject({ notFound: true, lock: null, remoteOnly: false, canResumeHere: false });
+  });
+});
+
+describe('保持期間の言い方と期限', () => {
+  const DAY = 86_400_000;
+  it('日数と大きさの言い方', () => {
+    expect([30, 90, 365, 3650, 45, 730].map(daysLabel)).toEqual(['30 日', '90 日', '1 年', '10 年', '45 日', '2 年']);
+    expect([1_610_612_736, 18 * 1024 ** 3, 52_428_800, 2048, 0].map(bytesLabel)).toEqual(['1.5 GB', '18 GB', '50 MB', '2 KB', '0 KB']);
+  });
+  it('本文の印は 4 通り', () => {
+    expect(transcriptMark(session('a', { transcriptMtime: NOW - 10 * DAY }), 30, NOW)).toBe('present');
+    expect(transcriptMark(session('a', { transcriptMtime: NOW - 24 * DAY }), 30, NOW)).toBe('expiring');
+    // 期限を過ぎてもまだ消えていなければ、次の起動で消えるので「まもなく」に入れる。
+    expect(transcriptMark(session('a', { transcriptMtime: NOW - 31 * DAY }), 30, NOW)).toBe('expiring');
+    expect(transcriptMark(session('a', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 31 * DAY }), 365, NOW)).toBe('gone');
+    expect(transcriptMark(session('a', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 3 * DAY }), 30, NOW)).toBe('none');
+    // 他の PC にしか本文が無い会話は、この PC の期限を持たない。
+    expect(transcriptMark(session('a', { remoteOnly: true, transcriptMtime: null }), 30, NOW)).toBe('present');
+  });
+});
+
+describe('presentShell の保持期間の帯', () => {
+  const DAY = 86_400_000;
+  const R: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
+  const withSessions = (list: SessionDto[], retention: RetentionDto | null = R): Store => ({ ...initialStore(), bootstrapped: true, retention, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
+  it('消えかけが無ければ、30 日で消えることと使用量を言う', () => {
+    expect(presentShell(initialState(), withSessions([]), NOW).retention).toEqual({ visible: true, title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも消えます ・ いま 1.5 GB', extendTo: 365 });
+  });
+  it('消えかけがあれば件数を言う', () => {
+    const s = [session('a', { transcriptMtime: NOW - 25 * DAY }), session('b', { transcriptMtime: NOW - 26 * DAY }), session('c', { transcriptMtime: NOW - 2 * DAY })];
+    expect(presentShell(initialState(), withSessions(s), NOW).retention).toMatchObject({ title: '2 件の会話が、まもなく削除されます', detail: 'Claude Code は 30 日で本文を消します ・ いま 1.5 GB' });
+  });
+  it('使用量をまだ測っていなければ、その部分を出さない', () => {
+    expect(presentShell(initialState(), withSessions([], { ...R, usage: null }), NOW).retention.detail).toBe('hangar の履歴からも消えます');
+  });
+  it('自分で値を入れた人、組織の設定、書けないとき、閉じた後には出さない', () => {
+    for (const r of [{ ...R, source: 'user' as const, userValue: 30 }, { ...R, source: 'managed' as const, writable: false }, { ...R, writable: false }]) {
+      expect(presentShell(initialState(), withSessions([], r), NOW).retention.visible).toBe(false);
+    }
+    expect(presentShell({ ...initialState(), retentionBannerDismissed: true }, withSessions([]), NOW).retention.visible).toBe(false);
+    expect(presentShell(initialState(), withSessions([], null), NOW).retention.visible).toBe(false);
+  });
+});
+
+describe('presentRetentionDialog', () => {
+  const DAY = 86_400_000;
+  const R: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
+  const P: RetentionPreviewDto = { days: 365, path: '/Users/me/.claude/settings.json', lines: [{ kind: 'ctx', text: '{' }, { kind: 'add', text: '  "cleanupPeriodDays" : 365,' }], baseSha256: 'abc', backupDir: '/Users/me/.agent-hangar/backups/claude-config', projectedBytes: 365 * 52_428_800 };
+  const open = (days = 365, from: 'banner' | 'settings' = 'banner') => ({ ...initialState(), overlay: { kind: 'retention' as const, days, from, reloaded: false, writing: false, previewError: null } });
+  const st = (over: Partial<Store> = {}): Store => ({ ...initialStore(), retention: R, retentionPreview: P, ...over });
+  it('延ばすときの題、説明、見込み、控えを出す', () => {
+    const p = presentRetentionDialog(open(), st(), NOW)!;
+    expect(p).toMatchObject({ title: '会話の保持期間を 1 年にします', lead: 'Claude Code の設定ファイルに、次の 1 行を足します。', path: P.path, backupDir: P.backupDir + '/', otherPcs: false, shrinkNote: null, showOther: true });
+    expect(p.bar).toMatchObject({ nowLabel: 'いま 1.5 GB', projLabel: '1 年たつと約 18 GB', freeLabel: '空き 400 GB', warn: false });
+  });
+  it('値を替えるときは「書き換えます」、同期が有効なら他の PC の行を出す', () => {
+    const lines = [{ kind: 'del' as const, text: '  "cleanupPeriodDays" : 3650' }, { kind: 'add' as const, text: '  "cleanupPeriodDays" : 365' }];
+    const p = presentRetentionDialog(open(365, 'settings'), st({ retention: { ...R, days: 3650, source: 'user', userValue: 3650 }, retentionPreview: { ...P, lines }, settings: { ...fullSettings(), syncClaudeConfig: true } }), NOW)!;
+    expect(p.lead).toBe('Claude Code の設定ファイルの、次の 1 行を書き換えます。');
+    expect(p.otherPcs).toBe(true);
+    expect(p.showOther).toBe(false);
+  });
+  it('縮めるときは題を変え、消える件数を言う', () => {
+    const s = { a: session('a', { transcriptMtime: NOW - 40 * DAY }), b: session('b', { transcriptMtime: NOW - 5 * DAY }) };
+    const p = presentRetentionDialog(open(30, 'settings'), st({ retention: { ...R, days: 365, source: 'user', userValue: 365 }, retentionPreview: { ...P, days: 30 }, sessions: s }), NOW)!;
+    expect(p.title).toBe('会話の保持期間を 30 日に縮めます');
+    expect(p.shrinkNote).toBe('次に Claude Code を使い始めたとき、1 件の会話の本文が削除されます。');
+  });
+  it('下見の失敗をそのまま渡す', () => {
+    const s = { ...initialState(), overlay: { kind: 'retention' as const, days: 365, from: 'banner' as const, reloaded: false, writing: false, previewError: 'x' } };
+    expect(presentRetentionDialog(s, st({ retentionPreview: null }), NOW)!.previewError).toBe('x');
+  });
+  it('見込みが空きの半分を超えたら警告にし、下見が届く前は差分を null にする', () => {
+    const big = presentRetentionDialog(open(3650), st({ retentionPreview: { ...P, days: 3650, projectedBytes: 300 * 1024 ** 3 } }), NOW)!;
+    expect(big.bar!.warn).toBe(true);
+    expect(presentRetentionDialog(open(), st({ retentionPreview: null }), NOW)!.lines).toBeNull();
+    expect(presentRetentionDialog(initialState(), st(), NOW)).toBeNull();
+  });
+});
+
+describe('presentSessionRow の本文の印', () => {
+  it('行の本文の印は、保持期間（無ければ 30 日）で決める', () => {
+    const DAY = 86_400_000;
+    const s = session('a', { transcriptMtime: NOW - 25 * DAY });
+    expect(presentSessionRow(s, initialStore(), NOW).transcript).toBe('expiring');
+    const kept = { ...initialStore(), retention: { days: 365, source: 'user' as const, userValue: 365, writable: true, unwritableReason: null, usage: null } };
+    expect(presentSessionRow(s, kept, NOW).transcript).toBe('present');
+  });
+});
+
+describe('presentSessionRow の要約の見立て（B1）', () => {
+  const judged = (state: SessionSummaryDto['state'], source: SessionSummaryDto['source'] = 'in_session') => session('a', { summary: { ...session('a').summary!, state, source } });
+  it('詰まっているとやめただけに色の調子を付け、ほかは調子なしで語だけを出す', () => {
+    const store = initialStore();
+    expect(presentSessionRow(judged('blocked'), store, NOW).summaryState).toEqual({ label: '詰まっている', tone: 'blocked' });
+    expect(presentSessionRow(judged('abandoned', 'post_hoc'), store, NOW).summaryState).toEqual({ label: 'やめた', tone: 'abandoned' });
+    expect(presentSessionRow(judged('in_progress'), store, NOW).summaryState).toEqual({ label: 'やりかけ', tone: null });
+    expect(presentSessionRow(judged('done'), store, NOW).summaryState).toEqual({ label: '済んだ', tone: null });
+  });
+  it('土台の要約の状態は生きているかどうかの写しで見立てではないので出さず、要約が無ければ出さない', () => {
+    const store = initialStore();
+    expect(presentSessionRow(judged('done', 'baseline'), store, NOW).summaryState).toBeNull();
+    expect(presentSessionRow(session('a', { summary: null }), store, NOW).summaryState).toBeNull();
+  });
+});
+
+describe('presentSession の本文が消えた会話', () => {
+  const DAY = 86_400_000;
+  const gone = session('g', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 40 * DAY });
+  const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
+  it('注記を出し、要約を開き、既定のままなら延ばす手を添える', () => {
+    const p = presentSession(initialState(), { ...initialStore(), retention: R, sessions: { g: gone } }, NOW, 'g');
+    expect(p.gone).toEqual({ note: '本文は、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 });
+    expect(p.summaryOpen).toBe(true);
+  });
+  it('自分で値を入れた後は、延ばす手を出さない。まだ 30 日を過ぎていなければ gone は null', () => {
+    expect(presentSession(initialState(), { ...initialStore(), retention: { ...R, source: 'user', userValue: 365 }, sessions: { g: gone } }, NOW, 'g').gone!.canExtend).toBe(false);
+    const recent = session('r', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 2 * DAY });
+    expect(presentSession(initialState(), { ...initialStore(), sessions: { r: recent } }, NOW, 'r').gone).toBeNull();
+  });
+});
+
+describe('presentSettings の会話の保持', () => {
+  const R: RetentionDto = { days: 3650, source: 'user', userValue: 3650, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
+  it('4 つの選択肢と、今の日数での見込みを出す', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), retention: R }, NOW).retention!;
+    expect(p.options.map((o) => o.label)).toEqual(['30 日', '90 日', '1 年', '10 年']);
+    expect(p.days).toBe(3650);
+    expect(p.bar!.projLabel).toBe('10 年たつと約 178 GB');
+  });
+  it('選択肢に無い値は 5 つめとして順に並べる', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), retention: { ...R, days: 45, userValue: 45 } }, NOW).retention!;
+    expect(p.options.map((o) => o.value)).toEqual(['30', '45', '90', '365', '3650']);
+  });
+  it('書けないときは理由と値だけを出す', () => {
+    const p = presentSettings(initialState(), { ...initialStore(), retention: { ...R, days: 14, source: 'managed', writable: false, unwritableReason: '組織の設定で決まっています' } }, NOW).retention!;
+    expect(p).toMatchObject({ writable: false, reason: '組織の設定で決まっています', valueLabel: '14 日' });
+  });
+  it('まだ届いていなければ null', () => {
+    expect(presentSettings(initialState(), initialStore(), NOW).retention).toBeNull();
+  });
+});
+
+describe('presentToasts（入力待ちのカード）', () => {
+  const waitingStore = (ids: string[]) => {
+    const s = storeWith();
+    for (const id of ids) s.sessions[id] = session(id, { live: 'waiting', lastActivityAt: NOW - 120_000 });
+    return s;
+  };
+  it('名前、プロジェクト、待っている時間、問いを出す。問いが取れなければ「入力を待っています」', () => {
+    const store = waitingStore(['w1']);
+    store.sessions.w1 = { ...store.sessions.w1!, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '向きはどちらにしますか' } };
+    const state = { ...initialState(), waitingToasts: ['w1'] };
+    expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', projectName: 'alpha', waited: '2 分', question: '向きはどちらにしますか' }]);
+    store.sessions.w1 = { ...store.sessions.w1!, activity: null };
+    expect(presentToasts(state, store, NOW).waiting[0]?.question).toBe('入力を待っています');
+  });
+  it('3 件までを新しいものが下に来る順で並べ、残りは数だけ返す', () => {
+    const ids = ['w1', 'w2', 'w3', 'w4', 'w5'];
+    const p = presentToasts({ ...initialState(), waitingToasts: ids }, waitingStore(ids), NOW);
+    expect(p.waiting.map((c) => c.sessionId)).toEqual(['w3', 'w4', 'w5']);
+    expect(p.more).toBe(2);
+  });
+  it('ストアに無いセッションのカードは出さない', () => {
+    const p = presentToasts({ ...initialState(), waitingToasts: ['gone'] }, storeWith(), NOW);
+    expect(p.waiting).toEqual([]);
+    expect(p.more).toBe(0);
+  });
+  it('通知を出せるのに受け取っていないときだけ、「通知を受け取る」を添える', () => {
+    const base = { ...initialState(), waitingToasts: ['w1'] };
+    const store = waitingStore(['w1']);
+    expect(presentToasts({ ...base, notify: { available: true, on: false, blocked: false } }, store, NOW).offerNotify).toBe(true);
+    expect(presentToasts({ ...base, notify: { available: true, on: true, blocked: false } }, store, NOW).offerNotify).toBe(false);
+    expect(presentToasts({ ...base, notify: { available: false, on: false, blocked: false } }, store, NOW).offerNotify).toBe(false);
+    // OS で切られているときは、カードごとに勧めない。直し方は設定の通知の節に出す。
+    expect(presentToasts({ ...base, notify: { available: true, on: false, blocked: true } }, store, NOW).offerNotify).toBe(false);
+  });
+  // 確認や入力のあるダイアログが開いている間は、カードを押しても画面を移さない（Mediator も止める）。押せないように見せる。
+  it('確認や入力のあるダイアログが開いている間は、カードを押せないものとして渡す', () => {
+    const base = { ...initialState(), waitingToasts: ['w1'] };
+    const store = waitingStore(['w1']);
+    expect(presentToasts(base, store, NOW).blocked).toBe(false);
+    expect(presentToasts({ ...base, overlay: { kind: 'palette' } }, store, NOW).blocked).toBe(false);
+    expect(presentToasts({ ...base, overlay: { kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } } }, store, NOW).blocked).toBe(true);
+    expect(presentToasts({ ...base, overlay: { kind: 'newSession', projectId: null, scratch: true } }, store, NOW).blocked).toBe(true);
+  });
+  it('info と error のトーストはそのまま渡す', () => {
+    const toasts = [{ id: '1', level: 'error' as const, message: 'oops' }];
+    expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);
+  });
+});
+
+describe('presentShell の入力待ちの数', () => {
+  it('ホームの項目に入力待ちの数を添え、ほかの項目には添えない', () => {
+    const store = storeWith();
+    store.sessions.w1 = session('w1', { live: 'waiting' });
+    store.sessions.w2 = session('w2', { live: 'waiting' });
+    const nav = presentShell(initialState(), store, NOW).nav;
+    expect(nav.find((n) => n.route.name === 'home')?.count).toBe(2);
+    expect(nav.filter((n) => n.route.name !== 'home').every((n) => n.count === 0)).toBe(true);
+    expect(presentShell(initialState(), storeWith(), NOW).nav.find((n) => n.route.name === 'home')?.count).toBe(0);
+  });
+});
+
+describe('presentSettings の通知', () => {
+  it('通知を出せるかと、受け取るかをそのまま渡す', () => {
+    const state = { ...initialState(), notify: { available: true, on: true, blocked: false } };
+    expect(presentSettings(state, initialStore(), NOW).notify).toEqual({ available: true, on: true, blocked: false });
+    expect(presentSettings({ ...state, notify: { available: true, on: false, blocked: true } }, initialStore(), NOW).notify).toEqual({ available: true, on: false, blocked: true });
   });
 });

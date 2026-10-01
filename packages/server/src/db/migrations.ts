@@ -277,4 +277,17 @@ alter table todos add column rejected_sessions text not null default '[]';
 alter table devices add column shell_hook text;
 `,
   },
+  {
+    // セッションが set_turn_intent で書いた「このターンで何のために何をするか」。右ペインの意図の段に出す。
+    // そのターンのあいだしか意味を持たないので端末ローカルの表にし、同期しない（D1 の書き込みの枠を使わない）。
+    version: 12,
+    sql: `
+create table turn_intents (
+  session_id text not null,
+  at integer not null,
+  text text not null,
+  primary key (session_id, at)
+);
+`,
+  },
 ];
