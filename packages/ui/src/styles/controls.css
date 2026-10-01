@@ -48,6 +48,14 @@
 .listbox-opt[aria-selected='true'] .listbox-opt-main b { color: var(--accent); }
 .listbox-opt[data-danger='true'] .listbox-opt-main b { color: var(--error); }
 .listbox-empty { padding: calc(var(--u) * 2.5); color: var(--ink-3); }
+/* 行の右の小さな札（未登録など）。 */
+.listbox-tag { flex: none; padding: 1px 6px; border-radius: 99px; font-size: 10.5px; color: var(--ink-3); background: rgba(30, 40, 90, 0.06); }
+/* 一覧の下端の操作。スクロールしても動かない。行と分けるため上に線を引き、名前はアクセントの色にする。 */
+.listbox-acts { flex: none; margin-top: var(--u); padding-top: var(--u); border-top: 1px solid rgba(30, 40, 90, 0.06); }
+.listbox-act { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-height: 32px; padding: var(--u) calc(var(--u) * 2.5); border-radius: 10px; cursor: pointer; white-space: nowrap; color: var(--accent); font-weight: 560; }
+.listbox-act[data-active='true'] { background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0 #ffffff, 0 2px 8px -2px rgba(30, 40, 90, 0.16); }
+.listbox-act-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.listbox-act small { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
 .listbox-keys { flex: none; display: flex; gap: calc(var(--u) * 3); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; margin-top: var(--u); border-top: 1px solid rgba(30, 40, 90, 0.06); font-size: var(--fs-xs); color: var(--ink-3); }
 .listbox-keys kbd { padding: 0 4px; border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--ink-2); background: rgba(30, 40, 90, 0.06); }
 

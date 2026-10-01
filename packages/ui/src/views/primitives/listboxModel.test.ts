@@ -69,3 +69,14 @@ describe('place', () => {
     expect(place({ top: 100, bottom: 128, left: 2, width: 90 }, 100, viewport, { minWidth: 300, align: 'end' }).left).toBe(8);
   });
 });
+
+describe('arrangeSections の searchOnly と hidden', () => {
+  const opts = [{ value: 'a', label: 'alpha' }, { value: 'u', label: 'url-short', searchOnly: true }, { value: 'h', label: 'hidden', hidden: true }];
+  it('語が無ければ searchOnly と hidden を並べない', () => {
+    expect(arrangeSections(opts, undefined, '').flatMap((s) => s.items.map((i) => i.option.value))).toEqual(['a']);
+  });
+  it('語があれば searchOnly は一致で並べ、hidden は並べない', () => {
+    expect(arrangeSections(opts, undefined, 'url').flatMap((s) => s.items.map((i) => i.option.value))).toEqual(['u']);
+    expect(arrangeSections(opts, undefined, 'hid').flatMap((s) => s.items.map((i) => i.option.value))).toEqual([]);
+  });
+});

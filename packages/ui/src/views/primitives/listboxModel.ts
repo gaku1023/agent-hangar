@@ -4,8 +4,11 @@ import type { IconName } from './Icon.tsx';
 /**
  * 一覧の 1 行。sub は 2 段目で、パスは mono、説明文（prose）は地の書体で描く。
  * faceSub は閉じた顔の 2 段目で、無ければ sub を使う。顔は mono で描くので、一覧では説明文、顔ではパスを見せたい行に使う。
+ * searchOnly は語があるときだけ並べる行（未登録のフォルダ）、hidden は並べずに選んだときの顔にだけ使う行（作る途中の新しいフォルダ）、tag は行の右の小さな札である。
  */
-export type ListboxOption = { value: string; label: string; sub?: string; subKind?: 'path' | 'prose'; faceSub?: string; meta?: string; status?: ProjectStatus; icon?: IconName; danger?: boolean };
+export type ListboxOption = { value: string; label: string; sub?: string; subKind?: 'path' | 'prose'; faceSub?: string; meta?: string; status?: ProjectStatus; icon?: IconName; danger?: boolean; searchOnly?: boolean; hidden?: boolean; tag?: string };
+/** 一覧の下端に置く操作。行ではないので選んでも値にならず、onAction を呼ぶ。 */
+export type ListboxAction = { value: string; label: string; sub?: string; icon: IconName };
 export type ListboxGroup = { title: string; values: string[] };
 /** 描く単位。index は選ばれかけの行を数える通し番号で、群をまたいで続く。 */
 export type ListboxSection = { title: string | null; items: { option: ListboxOption; index: number }[] };
@@ -29,7 +32,8 @@ export function matches(option: ListboxOption, query: string): boolean {
  * 群に入っていない行は、取りこぼさないよう最後に見出しなしで置く。
  */
 export function arrangeSections(options: ListboxOption[], groups: ListboxGroup[] | undefined, query: string): ListboxSection[] {
-  const hit = options.filter((o) => matches(o, query));
+  const listed = options.filter((o) => !o.hidden && (!o.searchOnly || query.trim() !== ''));
+  const hit = listed.filter((o) => matches(o, query));
   let index = 0;
   const items = (list: ListboxOption[]) => list.map((option) => ({ option, index: index++ }));
   if (!groups || query.trim()) return hit.length ? [{ title: null, items: items(hit) }] : [];

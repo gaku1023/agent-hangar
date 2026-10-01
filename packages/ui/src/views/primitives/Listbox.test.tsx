@@ -251,3 +251,48 @@ describe('Listbox の変化への追従', () => {
     expect(pop.style.top).toBe('240px');
   });
 });
+
+describe('Listbox の操作', () => {
+  const rows = Array.from({ length: 8 }, (_, i) => ({ value: `p${i}`, label: `proj${i}` }));
+  const setup = () => {
+    const onChange = vi.fn();
+    const onAction = vi.fn();
+    render(<Listbox label="場所" value={null} options={[...rows, { value: 'u', label: 'url-short', searchOnly: true, tag: '未登録' }]} onChange={onChange}
+      actions={(q) => [{ value: 'new', label: q ? `「${q}」を新しいフォルダとして作る` : '新しいフォルダを作る…', icon: 'folderPlus' }]} onAction={onAction} />);
+    fireEvent.click(screen.getByRole('button', { name: '場所' }));
+    return { onChange, onAction };
+  };
+  it('下端に操作を出し、語に合わせて名前を変える', () => {
+    setup();
+    expect(screen.getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
+    expect(screen.getByRole('option', { name: '「zzz」を新しいフォルダとして作る' })).toHaveAttribute('data-active', 'true');
+  });
+  it('一致する行が無ければ Enter で最初の操作を選び、onChange は呼ばない', () => {
+    const { onChange, onAction } = setup();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+    expect(onAction).toHaveBeenCalledWith('new', 'zzz');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+  it('矢印キーで行の続きとして操作へ進める', () => {
+    const { onAction } = setup();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'url' } });
+    expect(screen.getByRole('option', { name: 'url-short' })).toHaveTextContent('未登録');
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+    expect(onAction).toHaveBeenCalledWith('new', 'url');
+  });
+  it('searchOnly の行は語が無いと出ない', () => {
+    setup();
+    expect(screen.queryByRole('option', { name: 'url-short' })).toBeNull();
+  });
+  it('操作をクリックすると onAction を呼んで閉じる', () => {
+    const { onChange, onAction } = setup();
+    fireEvent.click(screen.getByRole('option', { name: '新しいフォルダを作る…' }));
+    expect(onAction).toHaveBeenCalledWith('new', '');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+});

@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useSt
 import { createPortal } from 'react-dom';
 import { isComposing } from '../ime.ts';
 import { Icon } from './Icon.tsx';
-import { arrangeSections, highlight, place, SEARCH_MIN, type ListboxGroup, type ListboxOption, type Placement } from './listboxModel.ts';
+import { arrangeSections, highlight, place, SEARCH_MIN, type ListboxAction, type ListboxGroup, type ListboxOption, type Placement } from './listboxModel.ts';
 
 export type ListboxProps = {
   label: string;
@@ -20,6 +20,9 @@ export type ListboxProps = {
   faceClassName?: string;
   faceProps?: Record<`data-${string}`, string>;
   renderFace?: (selected: ListboxOption | undefined) => ReactNode;
+  /** 一覧の下端に固定で置く操作。行の続きとして矢印キーで辿れる。選ぶと onAction を呼び、onChange は呼ばない。 */
+  actions?: (query: string) => ListboxAction[];
+  onAction?: (value: string, query: string) => void;
 };
 
 /**
@@ -45,8 +48,11 @@ export function Listbox(props: ListboxProps) {
   const searchable = props.options.length >= SEARCH_MIN;
   const sections = arrangeSections(props.options, props.groups, query);
   const items = sections.flatMap((s) => s.items);
+  const acts = open && props.actions ? props.actions(query) : [];
+  const total = items.length + acts.length;
   // 開いている間に選択肢が減ると、選ばれかけの行が範囲の外に出る。いちばん近い行に寄せる。
-  const current = items.length ? Math.min(active, items.length - 1) : -1;
+  // 一致する行が無いときは、最初の操作に印を置く。打って Enter で作れるようにするためである。
+  const current = total ? Math.min(items.length === 0 && acts.length ? Math.max(active, 0) : active, total - 1) : -1;
   const selected = props.options.find((o) => o.value === props.value);
 
   const show = () => {
@@ -122,7 +128,7 @@ export function Listbox(props: ListboxProps) {
       if (e.key === 'Enter' || e.key === 'Escape') e.stopPropagation();
       return;
     }
-    const n = items.length;
+    const n = total;
     const inInput = e.target === input.current;
     switch (e.key) {
       case 'ArrowDown': if (n) setActive((current + 1) % n); break;
@@ -130,7 +136,13 @@ export function Listbox(props: ListboxProps) {
       // 検索欄の Home と End は、文字の先頭と末尾へ動かす打鍵として残す。
       case 'Home': if (inInput) return; setActive(0); break;
       case 'End': if (inInput) return; setActive(Math.max(n - 1, 0)); break;
-      case 'Enter': { const hit = items[current]; if (hit) choose(hit.option); break; }
+      case 'Enter': {
+        const hit = items[current];
+        if (hit) { choose(hit.option); break; }
+        const act = acts[current - items.length];
+        if (act) { hide(true); props.onAction?.(act.value, query); }
+        break;
+      }
       case 'Escape': case 'Tab': hide(true); break;
       default: return;
     }
@@ -150,6 +162,7 @@ export function Listbox(props: ListboxProps) {
         <b>{marks(o.label)}</b>
         {o.sub && <small id={`${optId(index)}-sub`} data-kind={o.subKind ?? 'path'}>{o.subKind === 'prose' ? o.sub : marks(o.sub)}</small>}
       </span>
+      {o.tag && <span className="listbox-tag">{o.tag}</span>}
       {o.meta && <span className="listbox-meta">{o.meta}</span>}
       <span className="listbox-check" aria-hidden="true"><Icon name="check" /></span>
     </div>
@@ -202,6 +215,19 @@ export function Listbox(props: ListboxProps) {
               ))}
             {!items.length && <div className="listbox-empty">一致するものはありません</div>}
           </div>
+          {acts.length > 0 && (
+            <div className="listbox-acts" role="group" aria-label="作る">
+              {acts.map((a, j) => {
+                const index = items.length + j;
+                return (
+                  <div key={a.value} id={optId(index)} role="option" aria-selected="false" aria-label={a.label} className="listbox-act" data-active={index === current ? 'true' : undefined}
+                    onMouseMove={() => { if (index !== current) setActive(index); }} onClick={() => { hide(true); props.onAction?.(a.value, query); }}>
+                    <Icon name={a.icon} /><span className="listbox-act-label">{a.label}</span>{a.sub && <small>{a.sub}</small>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {searchable && (
             <div className="listbox-keys" aria-hidden="true">
               <span><kbd>↑</kbd><kbd>↓</kbd> 移動</span><span><kbd>Enter</kbd> 決める</span><span><kbd>Esc</kbd> 閉じる</span>
