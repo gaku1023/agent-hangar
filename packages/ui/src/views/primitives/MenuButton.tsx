@@ -24,10 +24,11 @@ export type MenuCloseHow = 'select' | 'escape' | 'tab' | 'outside';
  * 理由を読めるようにするためである。
  * onClose は閉じたときに、閉じ方（項目を選んだ・Esc・Tab・外を押した）を添えて呼ぶ。
  * 行の中の「⋯」のように、呼んだ側がフォーカスの戻し先を決めるのに使う。
+ * head は項目の前に置く読むだけの段（提案の根拠など）。項目ではないのでフォーカスは止まらない。
  * 面は document.body への portal に描く。
  * 見出しの段やカードの overflow で切られないようにするため。
  */
-export function MenuButton(props: { label: string; items: MenuItem[]; face?: ReactNode; faceClassName?: string; title?: string; minWidth?: number; align?: 'start' | 'end'; onClose?: (how: MenuCloseHow) => void }) {
+export function MenuButton(props: { label: string; items: MenuItem[]; head?: ReactNode; face?: ReactNode; faceClassName?: string; title?: string; minWidth?: number; align?: 'start' | 'end'; onClose?: (how: MenuCloseHow) => void }) {
   const [open, setOpen] = useState<null | 'first' | 'last'>(null);
   const [pos, setPos] = useState<Placement | null>(null);
   const face = useRef<HTMLButtonElement>(null);
@@ -132,6 +133,7 @@ export function MenuButton(props: { label: string; items: MenuItem[]; face?: Rea
       {open && createPortal(
         <div ref={pop} id={menuId} role="menu" aria-label={props.label} className="menu-pop" data-up={pos?.up ? 'true' : undefined} onKeyDown={onMenuKey}
           style={pos ? { left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom } : { visibility: 'hidden', left: 0, top: 0 }}>
+          {props.head && <div className="menu-head">{props.head}</div>}
           {props.items.map((item, i) => (
             <Fragment key={item.key}>
               {i === firstDanger && i > 0 && <div role="separator" className="menu-sep" />}

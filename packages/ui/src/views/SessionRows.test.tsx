@@ -528,3 +528,40 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(screen.getByRole('menu', { name: '名前 a の状態' })).toBeInTheDocument();
   });
 });
+
+describe('提案の札とポップ（Q3＋Q1）', () => {
+  const cand = { status: 'paused' as const, note: '明日の朝、CPU の数字を確かめる', returnOn: '2026-10-02', source: 'exit' as const, ago: '12 分前' };
+  it('枠だけの札を押すと根拠・出どころ・時刻のポップが開き、確定・日を変える・却下を選べる。行は開かない', () => {
+    const onIntent = mount([sr('a', { candidate: cand })]);
+    const face = screen.getByRole('button', { name: 'Paused · 10/2（金）？' });
+    expect(face).toHaveClass('row-cand');
+    fireEvent.click(face);
+    const menu = screen.getByRole('menu', { name: '名前 a への Claude の提案' });
+    expect(menu).toHaveTextContent('Paused · 10/2（金） にしますか');
+    expect(menu).toHaveTextContent('明日の朝、CPU の数字を確かめる');
+    expect(menu).toHaveTextContent('出どころ：抜けるとき · 12 分前');
+    expect(labels()).toEqual(['確定', '日を変える', '却下']);
+    // 頭の段にはフォーカスが止まらず、確定から始まる。
+    expect(document.activeElement).toBe(screen.getAllByRole('menuitem')[0]);
+    fireEvent.click(screen.getAllByRole('menuitem')[1]!);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.pause.open', id: 'a', from: 'candidate' });
+    expect(opened(onIntent)).toEqual([]);
+  });
+  it('Done の提案には「日を変える」が無く、y で確定、n で却下する', () => {
+    const onIntent = mount([sr('a', { candidate: { ...cand, status: 'done', returnOn: null } })]);
+    const face = screen.getByRole('button', { name: 'Done にする？' });
+    fireEvent.click(face);
+    expect(labels()).toEqual(['確定', '却下']);
+    fireEvent.keyDown(document.activeElement!, { key: 'y' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.confirm', id: 'a' });
+    fireEvent.click(face);
+    fireEvent.keyDown(document.activeElement!, { key: 'n' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.reject', id: 'a' });
+    expect(opened(onIntent)).toEqual([]);
+  });
+  it('根拠の無い提案は「根拠は書かれていません」と出す', () => {
+    mount([sr('a', { candidate: { ...cand, note: null } })]);
+    fireEvent.click(screen.getByRole('button', { name: 'Paused · 10/2（金）？' }));
+    expect(screen.getByRole('menu')).toHaveTextContent('根拠は書かれていません');
+  });
+});

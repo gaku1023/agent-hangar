@@ -138,6 +138,10 @@
 .menu-item-text small { font-size: var(--fs-xs); color: var(--ink-2); white-space: normal; }
 /* 打鍵の印。開いている間、その 1 字で選べる。 */
 .menu-kbd { margin-left: auto; align-self: center; padding: 0 5px; border-radius: 4px; font-family: var(--font-sans); font-size: var(--fs-xs); color: var(--ink-2); background: var(--surface-2); }
+/* メニューの頭の読むだけの段（提案の根拠、出どころ、時刻）。項目ではないのでフォーカスは止まらない。 */
+.menu-head { display: flex; flex-direction: column; gap: var(--u); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); }
+.menu-head-q { color: var(--ink); font-weight: 600; }
+.menu-head small { font-size: var(--fs-xs); color: var(--ink-2); }
 .menu-item[aria-disabled='true'] { cursor: default; color: var(--ink-3); }
 .menu-item[aria-disabled='true'] > .icon { color: var(--ink-3); }
 .menu-item[data-danger='true'], .menu-item[data-danger='true'] > .icon { color: var(--error); }

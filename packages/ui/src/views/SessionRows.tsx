@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { SessionStatus } from '@agent-hangar/shared';
 import { useEmit, type Emit } from '../intent/chain.tsx';
-import { returnOnLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
+import { CANDIDATE_SOURCE_LABEL, candidateLabel, returnOnLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { MenuButton, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
 import { RelativeTime } from './primitives/RelativeTime.tsx';
@@ -33,6 +33,28 @@ function stateItems(r: SessionRowProps, emit: Emit): MenuItem[] {
     { key: 'archived', label: 'Archived にする', kbd: 'a', disabled: r.state === 'archived' ? 'すでに Archived です' : null, onSelect: set('archived') },
     { key: 'none', label: '印なしに戻す', kbd: 'u', disabled: r.state === null && r.candidate === null ? '印は付いていません' : null, onSelect: set(null) },
   ];
+}
+
+/**
+ * 提案の札（Q3 の枠だけの札）と、押すと開くポップ（Q1）。
+ * ポップの頭に根拠の一文、出どころ、時刻を置き、項目は 確定・日を変える（Paused のみ）・却下。打鍵の印は Q1 の試作のとおり y と n。
+ * onClose は「⋯」と同じ作法（打鍵で開いて閉じたら行へフォーカスを戻す）を当てるために呼び側から受ける。
+ */
+function candidatePop(r: SessionRowProps, emit: Emit, onClose: (how: MenuCloseHow) => void) {
+  const c = r.candidate!;
+  const items: MenuItem[] = [
+    { key: 'confirm', label: '確定', kbd: 'y', onSelect: () => emit({ type: 'session.state.confirm', id: r.id }) },
+    ...(c.status === 'paused' ? [{ key: 'date', label: '日を変える', kbd: 'c', onSelect: () => emit({ type: 'session.pause.open', id: r.id, from: 'candidate' }) }] : []),
+    { key: 'reject', label: '却下', kbd: 'n', onSelect: () => emit({ type: 'session.state.reject', id: r.id }) },
+  ];
+  const head = (
+    <>
+      <b className="menu-head-q">{c.status === 'done' ? 'Done にしますか' : `Paused · ${c.returnOn ? returnOnLabel(c.returnOn, null) : '日付なし'} にしますか`}</b>
+      <span>{c.note ?? '根拠は書かれていません'}</span>
+      <small>出どころ：{CANDIDATE_SOURCE_LABEL[c.source]} · {c.ago}</small>
+    </>
+  );
+  return <MenuButton label={`${r.name} への Claude の提案`} face={candidateLabel(c)} faceClassName="row-cand" items={items} head={head} minWidth={260} onClose={onClose} />;
 }
 
 /** 2 段の行の高さ。tokens.css の --session-row-h と同じ値にする（styles/rows.test.ts が突き合わせる）。 */
@@ -231,6 +253,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
         {r.transcript === 'expiring' && <span className="row-soon">まもなく削除</span>}
         {r.transcript === 'gone' && <span className="row-gone" title={GONE_LABEL}><Icon name="transcriptGone" label={GONE_LABEL} /></span>}
         {r.live && <span className="row-live" data-live={r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{LIVE_WORD[r.live]}</span>}
+        {r.candidate && <span className="row-act" onClick={stopClick}>{candidatePop(r, emit, (how) => menuClosed(r.id, how))}</span>}
         {(r.state === 'done' || r.state === 'archived') && <span className="row-sq" data-s={r.state} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{STATUS_LABEL[r.state]}</span>}
         <span className="row-act row-more" onClick={stopClick}>
           <MenuButton label={`${r.name} の状態`} items={stateItems(r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={220} onClose={(how) => menuClosed(r.id, how)} />
