@@ -8,6 +8,7 @@ import { presentHome } from './presenters/home.ts';
 import { presentOnboarding } from './presenters/onboarding.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
+import { presentPause } from './presenters/pause.ts';
 import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
 import { presentPromote, presentPromoted } from './presenters/promote.ts';
@@ -29,6 +30,7 @@ import { RetentionDialog } from './views/RetentionDialog.tsx';
 import { ConfirmDialog } from './views/ConfirmDialog.tsx';
 import { HomeScreen } from './views/HomeScreen.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
+import { PauseDialog } from './views/PauseDialog.tsx';
 import { ProjectScreen } from './views/ProjectScreen.tsx';
 import { ProjectsScreen } from './views/ProjectsScreen.tsx';
 import { PromoteDialog, PromotedDialog } from './views/PromoteDialog.tsx';
@@ -333,6 +335,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
 
   // 起動ダイアログはプロジェクトが変わったら作り直す。入力欄が非制御で、defaultValue を作り直しでしか変えられないからである。
   const newSession = presentNewSession(state, store, now);
+  // Paused の入力は開くたびに作り直す（札と下書きの初期値を、開いたセッションと入口から取り直すため）。
+  const pause = presentPause(state, store, now);
   const overlays = (
     <>
       {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}
@@ -341,6 +345,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
       {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store)!} />}
+      {pause && <PauseDialog key={`${pause.sessionId}:${pause.from}`} {...pause} />}
       {/* 取り込みの下見は押したときだけ取りに来る一時の値なので、Presenter を通さず store から直に渡す。 */}
       {/* 未解決ダイアログの候補と同じ扱いである。 */}
       {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
