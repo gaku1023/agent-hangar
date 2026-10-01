@@ -1,12 +1,12 @@
 import type { LiveStatus, RunKind, SessionDto, SessionSummaryDto, StepCell, TranscriptEvent } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
-import { aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasRunOf, outsideOpenOf, tabsOf, todosOf, type Store } from '../store/store.ts';
 import { DEFAULT_DAYS, daysLabel, EXTEND_TO, transcriptMark } from './retention.ts';
 import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
-import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
-import { presentTool, type ToolView } from './tools.ts';
+import { presentArtifactCard, presentTodoCandidate, type ArtifactCardProps, type TodoItemProps } from './project.ts';
+import { presentTool, relPath, type ToolView } from './tools.ts';
 import { bandsOf, presentLivePane, resultsOf, type LivePaneProps } from './live.ts';
 import { buildTurns } from './turns.ts';
 import type { JumpState, TurnJumpStatus } from '../mediator/types.ts';
@@ -46,8 +46,46 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   hasNewer: boolean;
   /** 実行中の右ペイン。終わった run では null。 */
   livePane: LivePaneProps | null;
-  /** 右ペインの「いま」の段が取る高さの上限（割合）。 */
+  /**
+   * 見出しの行の操作（A1）。
+   * 主の操作 1 つと「…」のメニュー。
+   */
+  actions: SessionActions;
+  /**
+   * 終わった画面の右欄（E1）の変更したファイル。
+   * 読み込んだ主線の本文から作る。
+   * changedMore は統計の変更数のうち、行に出ていない数（サブエージェントの編集も数に入る）。
+   * changedNote はその訳で、主線を読み切っていればサブエージェントの変更、まだなら古い本文の中にあると言う。
+   * 主線を読んでいない（サブエージェントを見ている）間は訳が分からないので null にし、数だけ出す。
+   */
+  changedFiles: ChangedFileProps[]; changedMore: number; changedNote: string | null;
+  /**
+   * 終わった画面の右欄の TODO。
+   * そのセッションのプロジェクトのもの。
+   */
+  todos: TodoItemProps[];
+  /**
+   * 目次から跳ばした Claude が transcript を表示している間の帯（F1）。
+   * when は跳ばしたターンの時刻。
+   */
+  transcriptBand: { when: string } | null;
+  /** 右の欄の「いま」の段が取る高さの上限（割合）。 */
   livePaneSplit: number };
+
+export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'stop';
+/**
+ * 操作の 1 つ。
+ * disabled は押せない理由（押せるなら null）、note は下に添える 1 行。
+ * danger は取り消せない操作。
+ */
+export type SessionAction = { id: SessionActionId; label: string; disabled: string | null; note: string | null; danger?: boolean };
+export type SessionActions = { primary: SessionAction; menu: SessionAction[] };
+/**
+ * 変更したファイルの 1 行。
+ * path は本文に出てきた綴りのまま（開くときにサーバへ送る）。
+ * dir と base は作業ディレクトリからの相対で分けた見せ方。
+ */
+export type ChangedFileProps = { path: string; dir: string; base: string; added: number; removed: number; created: boolean };
 
 /**
  * 他端末がそのセッションを握っている間の表示。
@@ -153,10 +191,84 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
   return items;
 }
 
+const OPEN_EDITOR: SessionAction = { id: 'openEditor', label: 'VS Code で開く', disabled: null, note: null };
+const RUNNING_REASON = '実行中は押せません。止めると押せます';
+
+/** 見出しの行の操作を決めるのに要る事実。 */
+export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canFork' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch'>;
+
+/**
+ * 見出しの行の操作（試作 session-layout-v2.html の A1 と、状態ごとの操作の表）。
+ * 状態に合う操作を 1 つだけ主にし、残りは「…」のメニューに入れる。
+ * 停止は危険色でメニューの最後に置く。
+ * 押せない項目は消さずに残し、押せない理由を 1 行添える。
+ * 理由は再開とフォークを閉じている事実（実行中、ロック、本文の在りか）から言う。
+ * 生きているロックの「この PC で再開」は Ruling 14 のとおり閉じたままにし、主の操作のまま理由を添える。
+ */
+export function sessionActions(f: ActionFacts): SessionActions {
+  const running = f.run?.alive === true || (f.live !== null && f.lock === null && !f.remoteOnly);
+  const dev = f.lock?.deviceName ?? null;
+  const why = (kind: 'resume' | 'fork'): string => {
+    if (running) return RUNNING_REASON;
+    if (f.lock) return f.lock.stale && kind === 'resume' ? `${dev} から応答がありません。「この PC で再開」で続けられます` : `${dev} で実行中です`;
+    if (f.remoteOnly) return kind === 'resume' ? '本文が他の PC にあります。「この PC で再開」で本文を降ろして続けられます' : '本文が他の PC にあります';
+    if (!f.hasTranscript) return '本文がありません';
+    return '起動しています';
+  };
+  const resume: SessionAction = { id: 'resume', label: '再開', disabled: f.canResume ? null : why('resume'), note: f.fromScratch ? '再開しても作業ディレクトリはスクラッチのままです' : null };
+  const fork: SessionAction = { id: 'fork', label: 'フォーク', disabled: f.canFork ? null : why('fork'), note: f.canFork ? 'この会話から枝分かれした新しいセッション' : null };
+  const regenerate: SessionAction[] = f.gone ? [] : [{ id: 'regenerate', label: '要約を作り直す', disabled: null, note: f.summaryPending ? '作成しています' : f.summaryError ? '前回は作成できませんでした' : null }];
+  const promote: SessionAction[] = f.canPromote ? [{ id: 'promote', label: 'プロジェクトに昇格', disabled: null, note: null }] : [];
+  if (running) {
+    const alive = f.run?.alive === true;
+    const outside: SessionAction[] = f.outsideOpen === 'attach' ? [{ id: 'attach', label: 'hangar でつなぐ', disabled: null, note: '外で動いている Claude に hangar のターミナルからつなぐ' }]
+      : f.outsideOpen === 'adopt' ? [{ id: 'adopt', label: 'hangar で引き取る', disabled: null, note: '外のターミナルの claude を終わらせ、hangar で続ける' }] : [];
+    return { primary: OPEN_EDITOR, menu: [
+      ...(alive ? [{ id: 'openTerminal', label: 'ターミナルで開く', disabled: null, note: '外のターミナルで同じセッションにつなぐ' } satisfies SessionAction] : []),
+      ...outside, fork, ...regenerate, ...promote,
+      ...(alive ? [{ id: 'stop', label: '停止', disabled: null, note: null, danger: true } satisfies SessionAction] : []),
+    ] };
+  }
+  if (f.lock || f.remoteOnly) {
+    const here: SessionAction = { id: 'resumeHere', label: 'この PC で再開', disabled: f.canResumeHere ? null : `${dev ?? '他の PC'} で実行中です。止まるか応答が無くなると選べます`, note: null };
+    return { primary: here, menu: [resume, fork, OPEN_EDITOR, ...regenerate, ...promote] };
+  }
+  return { primary: resume, menu: [fork, OPEN_EDITOR, ...regenerate, ...promote] };
+}
+
+const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+/**
+ * 変更したファイル。
+ * 編集系のツールの呼び出しを、最初に触った順にパスで束ねる。
+ * 足した行と消した行は、本文の欄と同じ差分（ツールの見せ方の控え）から数える。
+ * Write は中身の行を足した数にする。
+ */
+function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResult>, cwd: string): ChangedFileProps[] {
+  const files = new Map<string, ChangedFileProps>();
+  for (const e of events) {
+    if (e.kind !== 'tool_call' || !FILE_TOOLS.has(e.name)) continue;
+    const input = (typeof e.input === 'object' && e.input !== null ? e.input : {}) as Record<string, unknown>;
+    const path = typeof input.file_path === 'string' ? input.file_path : typeof input.notebook_path === 'string' ? input.notebook_path : '';
+    if (!path) continue;
+    let f = files.get(path);
+    if (!f) {
+      const rel = relPath(path, cwd);
+      const cut = rel.lastIndexOf('/') + 1;
+      f = { path, dir: rel.slice(0, cut), base: rel.slice(cut), added: 0, removed: 0, created: false };
+      files.set(path, f);
+    }
+    const view = toolView(e, results.get(e.toolId) ?? null, cwd);
+    if (view.body.kind === 'diff') for (const h of view.body.hunks) for (const l of h.lines) { if (l.t === 'add') f.added++; else if (l.t === 'del') f.removed++; }
+    if (view.body.kind === 'code') { f.added += view.body.text === '' ? 0 : view.body.text.split('\n').length; if (view.head.dim === '新しいファイル') f.created = true; }
+  }
+  return [...files.values()];
+}
+
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, openTurnItems: [], turnJump: null, livePane: null, livePaneSplit: state.livePaneSplit, gone: null, find: null, jump: null, hasNewer: false };
+  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, openTurnItems: [], turnJump: null, livePane: null, livePaneSplit: state.livePaneSplit, gone: null, find: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -200,9 +312,29 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const gone = transcriptMark(s, r?.days ?? DEFAULT_DAYS, now) === 'gone'
     ? { note: `本文は、Claude Code の保持期間（${daysLabel(DEFAULT_DAYS)}）を過ぎたため削除されたとみられます。残っているのは要約だけです。`, canExtend: !!r && r.source === 'default' && r.writable, extendTo: EXTEND_TO }
     : null;
+  // 変更したファイルは主線から数える。
+  // サブエージェントを見ている間も、右欄は主線の分を出す。
+  const mainSlice = store.events[eventsKey(id, null)];
+  const mainEvents = view.agentId === null ? events : (mainSlice?.items ?? []);
+  const toolResults = new Map<string, ToolResult>();
+  for (const e of mainEvents) if (e.kind === 'tool_result') toolResults.set(e.toolId, { text: e.text, isError: e.isError });
+  const changedFiles = changedFilesOf(mainEvents, toolResults, s.cwd);
+  // 行に出ていない分の訳。
+  // 統計の変更数はサブエージェントの編集も数えるので、主線を読み切っていれば残りはサブエージェントの変更である。
+  const changedMore = Math.max(0, s.stats.filesChanged - changedFiles.length);
+  const changedNote = changedMore === 0 || !mainSlice ? null
+    : mainSlice.total <= mainSlice.items.length ? `ほか ${changedMore} 件はサブエージェントの変更です`
+    : `ほか ${changedMore} 件は、古い本文を読み込むと出ます`;
+  // transcript を表示中の帯は、今の生きた run を transcript に入れたと確かめられた間だけ出す。
+  // サーバは着けなかった（notFound）ときも transcript を開いたままにするので、そのときも出す。
+  // 答えを待つ間（pending）と、入れなかった（mode）ときと、API が失敗した（failed）ときは出さない。
+  // 失敗は目次の開いたターンの中で言う。
+  const tj = view.turnJump;
+  const aliveRun = aliveRunOf(store, id);
+  const transcriptBand = tj && aliveRun && tj.runId === aliveRun.id && (tj.status === 'found' || tj.status === 'notFound') ? { when: (turnRows.find((r) => r.seq === tj.seq)?.when ?? '').slice(0, 5) } : null;
   // splitTab が閉じたタブを指していることがあるので、左と違う最初のタブに落とす。
   const right = view.split && canSplit && selectedTab ? open.find((t) => t.id === view.splitTab && t.id !== selectedTab) ?? open.find((t) => t.id !== selectedTab) ?? null : null;
-  return {
+  const props: SessionProps = {
     ...base, name: s.name ?? '（名前なし）', live: s.live, cwd: s.cwd, projectName: project?.name ?? null, projectId: s.projectId,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。
     parent: project ? { label: project.name, route: { name: 'project', id: project.id } } : null,
@@ -232,5 +364,8 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     // 本文が消えた会話では、残っている要約を最初から開いて見せる。
     gone, summaryOpen: gone ? true : view.summaryOpen,
+    changedFiles, changedMore, changedNote, transcriptBand,
+    todos: s.projectId ? todosOf(store, s.projectId).map((t) => ({ id: t.id, text: t.text, done: t.done, candidate: presentTodoCandidate(t, store, now) })) : [],
   };
+  return { ...props, actions: sessionActions(props) };
 }

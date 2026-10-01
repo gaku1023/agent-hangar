@@ -27,7 +27,8 @@ describe('ボタン', () => {
 
 describe('広い窓', () => {
   it('セッション画面だけは幅の上限を外す', () => {
-    expect(body(base, '.shell:has(.main-inner > .session-screen)')).toMatch(/--main-w: 100vw;/);
+    // 外す画面は presenters/shell.ts の wide が決め、Shell が data-wide を付ける。
+    expect(body(read('session.css'), '.shell[data-wide]')).toMatch(/--main-w: 100vw;/);
   });
 });
 

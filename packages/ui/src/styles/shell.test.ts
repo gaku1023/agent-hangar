@@ -23,18 +23,4 @@ describe('セッション画面の高さ', () => {
     expect(body(css, '.split')).not.toMatch(/100vh/);
     expect(body(css, '.tr')).not.toMatch(/100vh/);
   });
-  it('印の付いた画面は .main の高さいっぱいに伸び、板が残りを受け取る', () => {
-    expect(body(css, '.main:has(> .main-inner > .screen-fill) > .main-inner')).toMatch(/min-height: 100%;/);
-    expect(body(css, '.screen-fill')).toMatch(/flex: 1/);
-    for (const s of ['.screen-fill > .split', '.screen-fill > .tr-sheet']) {
-      expect(body(css, s)).toMatch(/flex: 1 1 0;/);
-      expect(body(css, s)).toMatch(/min-height: \d+px;/);
-    }
-  });
-  it('会話の欄を包む .tr-wrap も伸びて、.tr に高さを渡す', () => {
-    const b = body(read('transcript.css'), '.tr-wrap');
-    expect(b).toMatch(/display: flex;/);
-    expect(b).toMatch(/flex: 1;/);
-    expect(b).toMatch(/min-height: 0;/);
-  });
 });

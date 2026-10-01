@@ -13,7 +13,7 @@ import { fakeMotionTokens } from './test/motion.ts';
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
 
 // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
-const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn() };
+const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
 
 const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null };
 
@@ -545,7 +545,7 @@ describe('キーの見直し', () => {
     await flush();
     const emit = vi.spyOn(rt, 'emit');
     fireEvent.focusIn(paneHost('t2'));
-    const outside = screen.getByRole('button', { name: '停止' });
+    const outside = screen.getByRole('button', { name: 'VS Code で開く' });
     fireEvent.focusIn(outside);
     key({ key: 'w', metaKey: true }, outside);
     expect(emit).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't2' });
@@ -646,6 +646,37 @@ describe('キーの見直し', () => {
     document.body.appendChild(host);
     expect(key({ key: 'Backspace' }, ta).defaultPrevented).toBe(false);
     host.remove();
+  });
+
+  // 確認や入力のあるダイアログを開いたまま、裏の画面だけを移さない（入力待ちのカードと同じ規則）。
+  it('確認や入力のあるダイアログの裏では、⌘, も ⌘[ ⌘] も画面を移さない', async () => {
+    const { rt, go, setHash, deps } = await mounted();
+    act(() => setHash('#/projects'));
+    act(() => rt.emit({ type: 'session.new.open', scratch: true }));
+    await flush();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    key({ key: ',', metaKey: true });
+    key({ key: '[', metaKey: true });
+    key({ key: ']', metaKey: true });
+    await flush();
+    expect(deps.location.getHash()).toBe('#/projects');
+    expect(go).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('確認や入力のあるダイアログの裏では、スワイプの矢印も出さず画面も移さない', async () => {
+    const { rt, go, setHash } = await mounted();
+    act(() => setHash('#/projects'));
+    act(() => rt.emit({ type: 'session.new.open', scratch: true }));
+    await flush();
+    phaseOn();
+    const hint = screen.getByTestId('swipe-hint');
+    beginGesture();
+    for (let i = 0; i < 6; i++) wheel(-20);
+    expect(hint.dataset.dir).toBeUndefined();
+    endGesture();
+    expect(go).not.toHaveBeenCalled();
+    expect(hint.dataset.dir).toBeUndefined();
   });
 
   it('ブラウザでは自前のスワイプを使わない', async () => {

@@ -53,6 +53,11 @@ export type Intent =
   // attach はバックグラウンドのサービスが持つセッションに hangar からつなぐ。adopt は外のターミナルの claude を引き取る。confirmed が無ければ先に確認を出す。
   | { type: 'session.attach'; id: SessionId } | { type: 'session.adopt'; id: SessionId; confirmed?: boolean }
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
+  /**
+   * そのセッションが変えたファイルを VS Code で開く（終わった画面の右欄）。
+   * path は本文に出てきた綴りのまま。
+   */
+  | { type: 'session.openFile'; sessionId: SessionId; path: string }
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
   | { type: 'session.takeover'; id: SessionId; force: boolean }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }

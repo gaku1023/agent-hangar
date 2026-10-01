@@ -11,7 +11,7 @@ import { daysLabel } from '../presenters/retention.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import type { Notifier } from './notifier.ts';
@@ -31,6 +31,11 @@ export type RuntimeDeps = {
   focus?: (target: Exclude<FocusTarget, 'terminal'>) => void;
   /** 窓が前面に来たことを知らせる。返り値で購読を外す。 */
   onWindowFocus?: (cb: () => void) => () => void;
+  /**
+   * 頁が見える状態に戻ったこと（document の visibilitychange で visible）を知らせる。返り値で購読を外す。
+   * 隠れていた窓を前に出しただけでは focus が来ないことがあるので、通知の許可の読み直しはこちらでも行う。
+   */
+  onWindowVisible?: (cb: () => void) => () => void;
   /**
    * 状態の変化を画面へ出す。
    * commit を呼ぶまで、getState は前に描いた状態を返し、React はそれを描き続ける。
@@ -63,6 +68,8 @@ export type Runtime = {
 const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
 /** OS（システム設定）で通知が切られているときの知らせ。 */
 const NOTIFY_BLOCKED = '通知が切られています。システム設定の「通知」で Hangar を許可してください';
+/** 通知の許可を読み直す間隔の下限。窓に戻ると focus と visibilitychange が続けて来るので、まとめて 1 度にする。 */
+export const NOTIFY_RECHECK_MS = 2000;
 /** クリップボードに写せなかったときの知らせ。写そうとした中身は出さない。 */
 const COPY_FAILED = 'コピーできませんでした。文字を選んで ⌘C で写してください';
 /** 検索の結果から開くとき、跳び先より前にどれだけ（seq の幅）読むか。跳び先の前の文脈が見える程度にする。 */
@@ -100,6 +107,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let searchSeq = 0;
   let unsubHash: (() => void) | null = null;
   let unsubFocus: (() => void) | null = null;
+  let unsubVisible: (() => void) | null = null;
+  /** 通知の許可を最後に読み直した時刻。 */
+  let notifyCheckedAt = -Infinity;
 
   const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
   const fail = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } });
@@ -181,7 +191,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // 見ているセッションの run は、まだ画面が引くので残す。
           // 本文も同じ基準で落とす。
           const open = state.screen.name === 'session' ? [state.screen.id] : [];
+          // サーバの再起動中に終わった run は、run.ended が届かないまま bootstrap から消える。
+          // 取り直す前に生きていたのに今は無い run とタブを拾っておき、混ぜた後で終わったことにする。
+          const gone = vanishedOnBootstrap(store, b, (deps.now ?? Date.now)());
           setStore(pruneEvents(pruneRuns(applyBootstrap(store, b), open), open));
+          // run.ended と tab.upsert を通すのは、届いていれば起きたこと（接続を切る、跳び先を忘れる）を同じ道で起こすためである。
+          for (const run of gone.runs) dispatch({ kind: 'server', event: { type: 'run.ended', run } });
+          for (const tab of gone.tabs) dispatch({ kind: 'server', event: { type: 'tab.upsert', tab } });
           // 同期の状態と端末の一覧は Mediator が持つので、読み込み直すたびに入れ直す。
           // ここで流さないと、次の sync.status が届くまでヘッダの同期表示が空になる。
           // 古いサーバはこの 2 つを持たないので、そのときは何もしない。
@@ -304,13 +320,22 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       }
       case 'api.openTerminalApp': deps.api.openTerminalApp(e.runId, e.tabId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
-      case 'api.openEditor': deps.api.openEditor(e.sessionId).catch(fail); return;
+      case 'api.openEditor': (e.file === undefined ? deps.api.openEditor(e.sessionId) : deps.api.openEditor(e.sessionId, e.file)).catch(fail); return;
       case 'api.jumpToPrompt': {
         const done = (status: TurnJumpStatus) => dispatch({ kind: 'runtime', event: { type: 'turnJump.done', sessionId: e.sessionId, seq: e.seq, status } });
         deps.api.jumpToPrompt(e.runId, { heads: e.heads, index: e.index, from: e.from }).then((r) => done(r.found ? 'found' : r.reason)).catch((err) => { done('failed'); fail(err); });
         return;
       }
-      case 'api.leaveTranscript': deps.api.leaveTranscript(e.runId).catch(fail); return;
+      case 'api.leaveTranscript': {
+        // 抜けさせるのは今も生きている run だけにする。
+        // 終わった run はサーバが 409 で断り、利用者には意味の無いトーストになる。
+        // 送った後に終わって断られることもあるので、失敗は静かに捨てる。
+        // 抜けられたかどうかは左の端末に出ている。
+        const run = store.runs[e.runId];
+        if (!run || run.endedAt !== null) return;
+        deps.api.leaveTranscript(e.runId).catch(() => {});
+        return;
+      }
       case 'api.projectOpenEditor': deps.api.projectOpenEditor(e.projectId).catch(fail); return;
       case 'api.projectOpenTerminal': deps.api.projectOpenTerminal(e.projectId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
       case 'terminal.connect': { const id = resolveTab(e.sessionId, e.tabId); if (id) deps.terminals.connect(id); return; }
@@ -451,6 +476,33 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     }
   }
 
+  /**
+   * 窓が前面に戻ったときに、通知の許可を読み直す。
+   * 許可は hangar の外（システム設定、ブラウザの設定）で変わるので、起動とスイッチだけでは追い付かない。
+   * 利用者が受け取ると選んでいれば（NOTIFY_KEY、選んでいなければ環境の既定）、許されたら受け取るに戻し、切られたら受け取らないにする。
+   * 受け取っていたのに切られたときだけ、許可の仕方を知らせる。
+   * 利用者の選んだ値は書き換えない。
+   * 最後に読んでから NOTIFY_RECHECK_MS の間は読まない。
+   * 選んだ値と状態は答えが届いた時点のものを使う。読んでいる間にスイッチが押されても、その結果を古い値で戻さないためである。
+   */
+  function recheckNotify(): void {
+    if (!notifier) return;
+    const at = (deps.now ?? Date.now)();
+    if (at - notifyCheckedAt < NOTIFY_RECHECK_MS) return;
+    notifyCheckedAt = at;
+    notifier.status().then((s) => {
+      const pref = deps.storage.get(NOTIFY_KEY);
+      const wanted = typeof pref === 'boolean' ? pref : notifier.defaultOn;
+      const available = notifier.available();
+      const blocked = s === 'denied' && available;
+      const on = wanted && available && notifier.granted() && !blocked;
+      const was = state.notify;
+      if (was.available === available && was.on === on && was.blocked === blocked) return;
+      dispatch({ kind: 'runtime', event: { type: 'notify.changed', available, on, blocked } });
+      if (was.on && blocked) toast(NOTIFY_BLOCKED);
+    }, () => {});
+  }
+
   function dispatch(input: Input): void {
     if (input.kind === 'server') {
       setStore(applyServerEvent(store, input.event));
@@ -513,9 +565,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         onEvent: (ev) => dispatch({ kind: 'server', event: ev }),
       });
       unsubHash = deps.location.onHashChange(() => dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } }));
-      unsubFocus = deps.onWindowFocus?.(() => dispatch({ kind: 'runtime', event: { type: 'window.focus' } })) ?? null;
+      unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); }) ?? null;
+      unsubVisible = deps.onWindowVisible?.(recheckNotify) ?? null;
       ws.connect();
     },
-    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubNotify?.(); unsubNotify = null; deps.terminals.dispose(); },
+    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubNotify?.(); unsubNotify = null; deps.terminals.dispose(); },
   };
 }

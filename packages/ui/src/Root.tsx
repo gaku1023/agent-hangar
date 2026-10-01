@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
 import { IntentRoot } from './intent/chain.tsx';
+import { canMoveBehind } from './mediator/screen.ts';
 import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentConfirm } from './presenters/confirm.ts';
 import { presentHome } from './presenters/home.ts';
@@ -214,6 +215,12 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     return () => window.removeEventListener('keydown', onKey);
   }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals, transcriptShown]);
 
+  // 確認や入力のあるダイアログの裏では、スワイプで画面を移さない（Mediator の canMoveBehind と同じ規則）。
+  // Mediator も nav.back を捨てるが、それだけだと矢印が出て「動いた」と見えてしまうので、手勢そのものを受けない。
+  // スワイプの効果は rt だけで組み直さないので、いまの値は ref で読む。
+  const swipeBlocked = useRef(false);
+  swipeBlocked.current = !canMoveBehind(state);
+
   // トラックパッドの横スワイプ。
   // ネイティブの手勢はスナップショットを滑らせる演出まで付いてくるので使わず、横方向のホイールを自分で積む。
   useEffect(() => {
@@ -251,7 +258,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     const navigate = (r: 'back' | 'forward') => {
       clearTimeout(timer);
       // 戻る先が無いときは動かない。アプリの最初の頁の手前は、デスクトップではサーバの起動を待つ頁である。
-      if (r === 'back' && !rt.canGoBack()) { hide(); return; }
+      if ((r === 'back' && !rt.canGoBack()) || swipeBlocked.current) { hide(); return; }
       rt.emit({ type: r === 'back' ? 'nav.back' : 'nav.forward' });
       show(r, 1, true, true);
       // data-done が付くと --dur-exit で薄れて消える。片付けは display: none にするので、薄れ切ってから片付ける。
@@ -264,6 +271,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       if (!phaseAware()) return;
       // 指が離れた後の惰性は、終わった手勢の残りである。次の手勢が始まるまで何もしない。
       if (ended) return;
+      if (swipeBlocked.current) { swipe.begin(); clearTimeout(timer); hide(); return; }
       // 打鍵が久しく途切れていたら、そこからは新しい手勢である。
       if (e.timeStamp - lastAt > SWIPE_IDLE_MS) owner = 'none';
       lastAt = e.timeStamp;
@@ -314,7 +322,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     case 'project': body = <ProjectScreen {...presentProject(state, store, now, state.screen.id)} />; break;
     case 'session': {
       const p = presentSession(state, store, now, state.screen.id);
-      body = <SessionScreen {...p} terminalStatus={p.selectedTab ? props.terminals.status(p.selectedTab) : null} />;
+      // ターミナルの接続の様子は、枠ごとに TerminalPane が Host から読む（分割で片方だけ切れることがある）。
+      body = <SessionScreen {...p} />;
       break;
     }
     // 検索欄は defaultValue なので、外からの文言リセットで作り直せるように key を付ける。

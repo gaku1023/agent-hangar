@@ -55,5 +55,24 @@ describe('PageHeading', () => {
       const btn = screen.getByRole('button', { name: '再開' });
       expect(btn).toHaveAttribute('title', '再開');
     });
+    it('ボタンが自分の title（押せない理由など）を持つときは、縮めても消さず、名前に添える', () => {
+      // セッション画面の主の操作は、押せない理由を title に持つ（views/SessionScreen.tsx）。
+      let rowW = 800;
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('page-title-row') ? rowW : 0; });
+      vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('page-title-row') ? (this.hasAttribute('data-compact') ? 300 : 600) : 0; });
+      const view = (title: string) => <IntentRoot onIntent={() => {}}><PageHeading title="名前"><button type="button" className="btn" title={title}><i /><span className="btn-label">再開</span></button></PageHeading></IntentRoot>;
+      const { rerender } = render(view('本文がありません'));
+      const btn = screen.getByRole('button', { name: '再開' });
+      expect(btn).toHaveAttribute('title', '本文がありません');
+      rowW = 400;
+      rerender(view('本文がありません'));
+      expect(btn).toHaveAttribute('title', '再開（本文がありません）');
+      // 縮めている間に理由が変わっても、新しい理由を添える。
+      rerender(view('他の PC で実行中です'));
+      expect(btn).toHaveAttribute('title', '再開（他の PC で実行中です）');
+      rowW = 800;
+      rerender(view('他の PC で実行中です'));
+      expect(btn).toHaveAttribute('title', '他の PC で実行中です');
+    });
   });
 });

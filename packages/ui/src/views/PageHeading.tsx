@@ -46,6 +46,7 @@ export function PageHeading(props: { title: string; parent?: ParentLink | null; 
  * 見出しの行が入り切るかを測り、入り切らなければ data-compact を付ける。
  * 名前を出した形で一度測るので、広がったときにも名前が戻る。付け外しは同じ描画の中で済み、ちらつかない。
  * 縮めたボタンには名前を title で残す。読み上げの名前は隠した文字のまま変わらない。
+ * ボタンが自分の title（セッション画面の主の操作の押せない理由など）を持つときは、それを消さずに名前の後ろへ添え、広がったら元に戻す。
  */
 export function fitRow(row: HTMLElement): void {
   row.removeAttribute('data-compact');
@@ -53,7 +54,15 @@ export function fitRow(row: HTMLElement): void {
   if (compact) row.setAttribute('data-compact', 'true');
   for (const label of row.querySelectorAll<HTMLElement>('.btn > .btn-label')) {
     const btn = label.parentElement!;
-    if (compact) btn.setAttribute('title', label.textContent ?? '');
+    // 今の title が前にここで書いた値と違えば、React が書き直した自分の title である。
+    // 同じなら、自分の title は前に控えた値のままである。
+    const now = btn.getAttribute('title') ?? '';
+    const own = btn.dataset.fitTitle !== undefined && now === btn.dataset.fitTitle ? btn.dataset.fitOwn ?? '' : now;
+    const name = label.textContent ?? '';
+    const next = compact ? (own ? `${name}（${own}）` : name) : own;
+    if (next) btn.setAttribute('title', next);
     else btn.removeAttribute('title');
+    btn.dataset.fitOwn = own;
+    btn.dataset.fitTitle = next;
   }
 }

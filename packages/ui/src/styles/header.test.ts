@@ -23,9 +23,60 @@ describe('ヘッダーの使用率のゲージ', () => {
     expect(keys.length).toBeGreaterThan(0);
     for (const r of keys) expect(r.body).not.toMatch(/display:\s*none/);
   });
-  it('狭い幅では棒だけを畳み、見出しと数字は残す', () => {
-    const narrow = rules.find((r) => r.selector === '.header .gauge-bar');
-    expect(narrow?.body).toMatch(/display:\s*none/);
+  // 見出しは、ゲージの組ごと畳むまで残す（headerFold.ts の順）。CSS のどこでも、見出しだけを隠さない。
+  it('見出しを隠す規則はどこにも無い', () => {
+    for (const r of rules.filter((x) => x.selector.includes('gauge-key'))) expect(r.body).not.toMatch(/display:\s*none|clip-path/);
+  });
+  it('棒を畳んだら、数字の幅の下限を外す', () => {
+    expect(rule('.header .gauge:has(> .gauge-bar[data-folded]) > .gauge-num')).toContain('min-width: 0;');
+  });
+});
+
+/** sync.css も同じ形で読む。 */
+const sync = read('./sync.css').replace(/\/\*[\s\S]*?\*\//g, '');
+const syncRule = (sel: string) => {
+  const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|\\n)${esc} \\{([^}]*)\\}`).exec(sync)?.[1] ?? '';
+};
+
+describe('ヘッダーの右の列を畳む仕組み', () => {
+  // 決め打ちの幅で畳むと、同期の文や件数の長さの変化に追いつかず、隣に重なって描かれた。畳むのは測る仕組み（useHeaderFold.ts）だけにする。
+  it('決め打ちの幅で畳むコンテナクエリを置かない', () => {
+    expect(bare).not.toMatch(/@container header \(max-width/);
+  });
+  // 畳んだ部品は見えなくするが、読み上げには残す（sr-only と同じ形）。
+  it('畳んだ部品は、見えなくして読み上げに残す', () => {
+    const folded = rule('.header-row [data-folded]');
+    expect(folded).toContain('position: absolute;');
+    expect(folded).toContain('clip-path: inset(50%);');
+    expect(folded).not.toMatch(/display:\s*none/);
+  });
+  // 見えないボタンにフォーカスが止まると、どこにいるのか分からなくなる。同期の操作は設定の画面から押せる。
+  it('畳んだ同期の操作は、フォーカスも止めない', () => {
+    expect(rule('.header-row .sync-action[data-folded]')).toMatch(/display:\s*none/);
+  });
+  it('錠剤と新しいセッションは、文字を畳むと丸いボタンになる', () => {
+    expect(rule('.header .search-pill:has(> [data-folded]), .header .btn.new-session:has(> [data-folded])')).toMatch(/width: var\(--row-h\);[^}]*padding: 0;/);
+  });
+  // 測るあいだは、部品が縮まない形にして、その段で要る幅をそのまま出す。
+  it('測るあいだは、右の塊とその中身を縮ませず、間の伸びる余白も伸ばさない', () => {
+    expect(rule('.header-row[data-fold-measuring] .header-end, .header-row[data-fold-measuring] .header-end *')).toContain('flex-shrink: 0;');
+    expect(rule('.header-row[data-fold-measuring] > .spacer')).toContain('flex-grow: 0;');
+  });
+  // 測る仕組みが追いつかない一瞬や、測れない環境でも、はみ出しは切り詰めになり、隣に重ならない。
+  it('右の塊の部品は 0 まで縮み、はみ出しは切り詰める', () => {
+    for (const sel of ['.header .gauges', '.header .btn.new-session', '.header .progress']) {
+      expect(rule(sel), sel).toContain('min-width: 0;');
+      expect(rule(sel), sel).toContain('overflow: hidden;');
+    }
+    for (const sel of ['.header .new-session .btn-label', '.header .progress']) expect(rule(sel), sel).toContain('text-overflow: ellipsis;');
+    expect(syncRule('.sync')).toContain('min-width: 0;');
+    expect(syncRule('.sync')).toContain('overflow: hidden;');
+    expect(syncRule('.sync > *')).toContain('min-width: 0;');
+    expect(syncRule('.sync > *')).toContain('overflow: hidden;');
+    expect(syncRule('.sync > *')).toContain('text-overflow: ellipsis;');
+    expect(syncRule('.sync-label-text')).toContain('text-overflow: ellipsis;');
+    expect(syncRule('.sync-dot')).toContain('flex: none;');
   });
 });
 
@@ -52,9 +103,8 @@ describe('ヘッダの列と検索欄の位置', () => {
     expect(rule('.search-pill')).toContain('flex: none;');
     expect(rule('.search-pill')).not.toMatch(/flex: 1/);
   });
-  it('狭いときは錠剤の文字とキー帽を畳み、虫眼鏡だけを残す', () => {
-    const narrow = rules.filter((r) => r.selector.split(',').some((x) => x.trim() === '.header .search-pill-label'));
-    expect(narrow.some((r) => /display:\s*none/.test(r.body))).toBe(true);
+  it('狭いときは錠剤の文字とキー帽を畳み、虫眼鏡だけを残す（畳む印は headerFold.ts が付ける）', () => {
+    expect(rule('.header .search-pill:has(> [data-folded]), .header .btn.new-session:has(> [data-folded])')).toContain('justify-content: center;');
     expect(base).not.toContain('search-icon');
     expect(base).not.toContain('.search-box');
   });

@@ -26,6 +26,7 @@ import { createWs } from './runtime/ws.ts';
 import { createXterm } from './runtime/xterm.ts';
 import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { clickThrough } from './runtime/clickThrough.ts';
+import { tabAlive } from './store/store.ts';
 import { createPresent } from './runtime/present.ts';
 import { FILE_DROP_EVENT, handleFileDrop } from './runtime/fileDrop.ts';
 import { pickNotifier, type BrowserEnv, type DesktopEnv } from './runtime/notifier.ts';
@@ -43,6 +44,9 @@ const terminals = createTerminalHost({
   wsUrl: (tab) => `${wsProto}://${location.host}/ws/pty?tab=${encodeURIComponent(tab)}`,
   createTerminal: createXterm,
   fontSize: { load: () => JSON.parse(localStorage.getItem(FONT_SIZE_KEY) ?? 'null'), save: (px) => localStorage.setItem(FONT_SIZE_KEY, JSON.stringify(px)) },
+  // 自動でつなぎ直す前に、そのタブがストアの上でまだ生きているかを確かめる。
+  // runtime は下で作るが、呼ばれるのは切れた後なので、そのときには出来ている。
+  alive: (tab) => tabAlive(runtime.getStore(), tab),
 });
 // Hangar.app に落としたファイルは、落とした位置の端末にパスとして渡す。
 window.addEventListener(FILE_DROP_EVENT, (e) => { handleFileDrop((e as CustomEvent).detail, { hit: (x, y) => document.elementFromPoint(x, y), paste: terminals.paste, focus: terminals.focus }); });
@@ -92,6 +96,12 @@ const runtime = createRuntime({
   focus: (t) => focusSoon(() => document.getElementById(FOCUS_IDS[t]), (cb) => { requestAnimationFrame(cb); }),
   // 窓に戻ってきたら他端末の変更を引く。間引きはサーバ側で行う。
   onWindowFocus: (cb) => { window.addEventListener('focus', cb); return () => window.removeEventListener('focus', cb); },
+  // 頁が見える状態に戻ったら、通知の許可を読み直す（focus が来ない戻り方もある）。
+  onWindowVisible: (cb) => {
+    const h = () => { if (document.visibilityState === 'visible') cb(); };
+    document.addEventListener('visibilitychange', h);
+    return () => document.removeEventListener('visibilitychange', h);
+  },
   present,
   // 入力待ちを窓の外へ知らせる。
   // デスクトップの殻では macOS の通知と Dock のバッジ、ブラウザでは Web Notification を使う。
