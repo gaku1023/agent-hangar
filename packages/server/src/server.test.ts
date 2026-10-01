@@ -343,6 +343,18 @@ describe('startServer', () => {
     }
   });
 
+  it('claude.zsh に、待ち受けているポートと鍵のヘッダの置き場を埋め込む', async () => {
+    // port: 0 で起こすと実際の番号は listen するまで決まらない。抜けるときの問いはこの番号へ送る。
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    try {
+      const body = fs.readFileSync(path.join(home, 'shell', 'claude.zsh'), 'utf8');
+      expect(body).toContain(`__agent_hangar_port=${s.port}\n`);
+      expect(body).toContain(`__agent_hangar_header='${path.join(home, 'statusline-header')}'\n`);
+    } finally {
+      await s.close();
+    }
+  });
+
   it('/ws はクエリ文字列のトークンを受け付けない', async () => {
     // URL は Referer、代理のログ、シェルの履歴、ブラウザの履歴に残る。秘密をそこに置く経路を残さない。
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
