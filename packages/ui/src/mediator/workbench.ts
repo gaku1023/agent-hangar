@@ -1,6 +1,6 @@
 import type { PaletteCommand } from '@agent-hangar/shared';
 import { overlayReplaceable } from './overlay.ts';
-import { nextWaitingStep, searchQueryStep } from './screen.ts';
+import { canMoveBehind, nextWaitingStep, searchQueryStep } from './screen.ts';
 import { sidebarStep } from './sidebar.ts';
 import type { Input, State, Step } from './types.ts';
 
@@ -14,6 +14,9 @@ function paletteRun(state: State, command: PaletteCommand): Step {
   // 閉じるのはパレット自身だけ。別のダイアログが開いているときに走っても、それは消さない。
   const closed: State = state.overlay.kind === 'palette' ? { ...state, overlay: { kind: 'none' } } : state;
   const [kind, rest] = splitId(command.id);
+  // 画面を移す行は、確認や入力のあるダイアログの裏では移さない（screen.ts の canMoveBehind）。
+  const moves = kind === 'project' || kind === 'session' || kind === 'search' || kind === 'go' || (kind === 'cmd' && rest === 'settings');
+  if (moves && !canMoveBehind(closed)) return { state: closed, effects: [] };
   if (kind === 'project') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'project', id: rest } }] };
   if (kind === 'session') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'session', id: rest } }] };
   // 全文検索の行。残りが検索語そのもので、語の中のコロンもそのまま残る。
