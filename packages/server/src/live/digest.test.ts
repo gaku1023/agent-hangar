@@ -233,3 +233,90 @@ describe('transcript が消えた本', () => {
     ]);
   });
 });
+
+// 実際の記録の言い回し。最初の知らせは completed でも「まだ報告していない」仮のもので、その後に本は動き続け、SubagentHandback で報告を返す。
+const INTERIM_NOTE = 'This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.';
+const INTERIM_RESULT = 'This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.';
+const FINAL_NOTE = 'A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.';
+const FINAL_RESULT = 'This agent\'s report was delivered to you as a message from "hhh1" (its SubagentHandback call). Read it there; it is not repeated here.';
+const real = (s: number, agentId: string, note: string, res: string) => user(s, `<task-notification>\n<task-id>${agentId}</task-id>\n<tool-use-id>toolu_a1</tool-use-id>\n<status>completed</status>\n<summary>Agent "待機後に一覧" finished</summary>\n<note>${note}</note>\n<result>${res}</result>\n</task-notification>`);
+const handback = (s: number, id: string, message: string) => [
+  toolUse(s, id, 'SubagentHandback', { message }),
+  result(s + 0.5, id, '{"success":true,"message":"Report delivered to your caller."}'),
+];
+
+describe('仮の知らせと SubagentHandback', () => {
+  // 実際の transcript は追記だけで伸びるので、切り口ごとに行を足して索引を取り直す。
+  const append = (file: string, rows: unknown[]) => fs.appendFileSync(file, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const mainFile = () => path.join(proj(), `${SID}.jsonl`);
+  const lane = () => buildLiveDigest(db, sid).agents.find((a) => a.agentId === 'hhh1')!;
+  /** 起こした本と、その本が背景で sleep を始めて「待ちます」と言ったところまで。 */
+  const start = () => {
+    write(mainFile(), [
+      user(1, '待たせて'),
+      toolUse(2, 'toolu_a1', 'Agent', { description: '待機後に一覧', prompt: 'p', run_in_background: true }),
+      result(3, 'toolu_a1', 'Async agent launched', launched('hhh1')),
+    ]);
+    write(sub('hhh1'), [
+      user(2.5, '60 秒待ってから一覧して'),
+      toolUse(5, 'toolu_s1', 'Bash', { command: 'sleep 60', description: '60秒待機（背景実行）', run_in_background: true }),
+      result(6, 'toolu_s1', 'Command running in background with ID: bgd9w00ny.'),
+      say(10, 'Background sleep の完了通知を待ちます。'),
+    ]);
+  };
+
+  it('仮の知らせだけでは running、動き出したら running のまま、報告を返したら done で報告の 1 行目', async () => {
+    // 1. 仮の知らせ（status は completed だが、まだ報告していない）。途中の発言を報告として引かない。
+    start();
+    append(mainFile(), [real(20, 'hhh1', INTERIM_NOTE, INTERIM_RESULT)]);
+    await index();
+    expect(lane()).toMatchObject({ state: 'running', report: null, endNote: null });
+
+    // 2. 知らせのあとに、本が新しい手を打った。
+    append(sub('hhh1'), [toolUse(30, 'toolu_s2', 'Bash', { command: 'ls -la /w', description: 'ディレクトリ一覧を表示' })]);
+    await index();
+    expect(lane()).toMatchObject({ state: 'running', report: null, last: { text: 'ディレクトリ一覧を表示' } });
+
+    // 3. SubagentHandback で報告を返し、最後の知らせが来た。報告は途中の発言ではなく、返した本文の 1 行目。
+    append(sub('hhh1'), [result(31, 'toolu_s2', 'total 0'), ...handback(40, 'toolu_hb', '0 件（空ディレクトリ、. と .. のみ）。\n前面の sleep はブロックされた。')]);
+    append(mainFile(), [real(41, 'hhh1', FINAL_NOTE, FINAL_RESULT)]);
+    await index();
+    expect(lane()).toMatchObject({ state: 'done', endNote: null, report: '0 件（空ディレクトリ、. と .. のみ）。' });
+  });
+
+  it('報告を返していれば、最後の知らせがまだ来ていなくても done', async () => {
+    start();
+    append(sub('hhh1'), handback(40, 'toolu_hb', '済：3 か所直した'));
+    await index();
+    expect(lane()).toMatchObject({ state: 'done', report: '済：3 か所直した' });
+  });
+
+  it('仮でない知らせのあとに本が動いたら、running に戻る', async () => {
+    start();
+    append(mainFile(), [real(20, 'hhh1', FINAL_NOTE, FINAL_RESULT)]);
+    await index();
+    expect(lane().state).toBe('done');
+    append(sub('hhh1'), [toolUse(30, 'toolu_s2', 'Read', { file_path: '/w/a.ts' })]);
+    await index();
+    expect(lane().state).toBe('running');
+  });
+
+  it('SubagentHandback の無い環境は、これまでどおり最後の発言を報告にする', async () => {
+    start();
+    append(mainFile(), [real(20, 'hhh1', FINAL_NOTE, FINAL_RESULT)]);
+    await index();
+    expect(lane()).toMatchObject({ state: 'done', report: 'Background sleep の完了通知を待ちます。' });
+  });
+
+  it('transcript の無い失敗のレーンは、Agent の結果の 1 行目を報告に出す', async () => {
+    write(path.join(proj(), `${SID}.jsonl`), [
+      user(1, '呼んで'),
+      toolUse(2, 'toolu_e1', 'Agent', { description: '壊れる担当', prompt: 'p' }),
+      result(3, 'toolu_e1', 'Agent type not found: "nope"\navailable: general-purpose', {}, true),
+    ]);
+    await index();
+    expect(buildLiveDigest(db, sid).agents).toEqual([
+      expect.objectContaining({ agentId: 'tool:toolu_e1', state: 'error', report: 'Agent type not found: "nope"', last: null }),
+    ]);
+  });
+});

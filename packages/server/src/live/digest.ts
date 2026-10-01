@@ -8,6 +8,8 @@ type Result = Extract<TranscriptEvent, { kind: 'tool_result' }>;
 type Stat = { agent: string; first: number | null; last: number | null };
 
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
+/** サブエージェントが呼び出し元へ報告を返す道具。 */
+const HANDBACK = 'SubagentHandback';
 /** 1 ターンで読む主線のイベントの上限。何千手も続く指揮役のターンでも、ここで打ち切る。 */
 const MAIN_CAP = 10_000;
 /** サブエージェントの末尾から読む数。最後の手と最後の報告が入れば足りる。 */
@@ -71,15 +73,20 @@ function notificationText(e: TranscriptEvent): string | null {
   return text !== null && text.trimStart().startsWith('<task-notification>') ? text : null;
 }
 
-/** バックグラウンドの本が終わったことを知らせる <task-notification> の、本ごとの最後の status。 */
-function notifications(main: TranscriptEvent[]): Map<string, string> {
-  const m = new Map<string, string>();
+/** 本が止まっただけで、まだ報告していないときの知らせ。status は completed で来るが、終わりではない。 */
+const INTERIM = /has not reported yet|may be interim/;
+
+type Note = { status: string; ts: number | null; interim: boolean };
+
+/** バックグラウンドの本が止まったことを知らせる <task-notification> の、本ごとの最後の status と時刻。 */
+function notifications(main: TranscriptEvent[]): Map<string, Note> {
+  const m = new Map<string, Note>();
   for (const e of main) {
     const text = notificationText(e);
     if (text === null) continue;
     const id = tag(text, 'task-id');
     const st = tag(text, 'status');
-    if (id && st) m.set(id, st);
+    if (id && st) m.set(id, { status: st, ts: e.ts ?? null, interim: INTERIM.test(text) });
   }
   return m;
 }
@@ -88,21 +95,30 @@ function stats(db: Db, sessionId: string): Stat[] {
   return db.prepare('select parent_agent agent, min(ts) first, max(ts) last from event_index where session_id = ? and parent_agent is not null group by parent_agent order by min(ts), min(seq)').all(sessionId) as Stat[];
 }
 
-/** サブエージェントの末尾から、最後の手と最後の報告を取る。 */
-function tail(db: Db, sessionId: string, agentId: string): Pick<LiveAgentDto, 'last'> & { said: string | null } {
+type Tail = Pick<LiveAgentDto, 'last'> & { said: string | null; handedBack: boolean };
+
+/**
+ * サブエージェントの末尾から、最後の手と最後の報告を取る。
+ * 本当の報告は、最後の SubagentHandback 呼び出しの input.message にある（そのあとに発言は続かない）。
+ * 途中の発言より新しければそちらを報告にし、handedBack を真にする。この道具の無い環境は、最後の発言を報告にする。
+ */
+function tail(db: Db, sessionId: string, agentId: string): Tail {
   let events: TranscriptEvent[];
   try {
     events = readEvents(db, sessionId, { agentId, latest: true, limit: AGENT_TAIL }).events;
   } catch (e) {
     // この本の transcript だけが無い（消えた、移した）。ほかのレーンは出す。
-    if (isEnoent(e)) return { last: null, said: null };
+    if (isEnoent(e)) return { last: null, said: null, handedBack: false };
     throw e;
   }
   const results = new Map(events.filter(isResult).map((r) => [r.toolId, r]));
   const call = [...events].reverse().find(isCall) ?? null;
   const last = call ? { ...stepLine(call), kind: stepKind(call), isError: results.get(call.toolId)?.isError === true } : null;
   const said = [...events].reverse().find((e) => e.kind === 'assistant' && e.text.trim() !== '');
-  return { last, said: said && said.kind === 'assistant' ? said.text : null };
+  const back = [...events].reverse().find((e): e is Call => isCall(e) && e.name === HANDBACK && isRec(e.input) && str(e.input.message) !== undefined);
+  const spoken = said && said.kind === 'assistant' ? said : null;
+  if (back && (!spoken || back.seq > spoken.seq)) return { last, said: str((back.input as Record<string, unknown>).message) ?? null, handedBack: true };
+  return { last, said: spoken?.text ?? null, handedBack: false };
 }
 
 /** 前のターンから動き続けている本の題名。起こした呼び出しが今のターンに無いので、その本が受け取った指示の書き出しにする。 */
@@ -114,6 +130,15 @@ function promptTitle(db: Db, sessionId: string, agentId: string): string {
     if (!isEnoent(e)) throw e;
   }
   return (first && first.kind === 'user' ? firstLine(first.text, 40) : null) ?? agentId;
+}
+
+/**
+ * レーンの 1 行の報告。報告を返していればその本文、なければ最後の発言の 1 行目。
+ * transcript の無い失敗のレーンは、Agent の結果（Agent type not found など）の 1 行目を出す。
+ */
+function reportOf(state: LiveAgentDto['state'], t: Tail, result: Result | null): string | null {
+  if (state === 'error') return t.said !== null ? firstLine(t.said) : result ? firstLine(result.text) : null;
+  return state === 'running' || t.said === null ? null : firstLine(t.said);
 }
 
 type Seed = { agentId: string; title: string; call: Call | null; result: Result | null; linked: boolean };
@@ -146,11 +171,15 @@ function agentsOf(db: Db, sessionId: string, main: TranscriptEvent[], since: num
   }
   return seeds.map((s): LiveAgentDto => {
     const stat = s.linked ? statOf.get(s.agentId) : undefined;
-    const t = stat ? tail(db, sessionId, s.agentId) : { last: null, said: null };
+    const t: Tail = stat ? tail(db, sessionId, s.agentId) : { last: null, said: null, handedBack: false };
     const note = done.get(s.agentId);
-    // 赤は Agent の結果が isError のときだけ。知らせの status は終わったことを示すだけで、completed 以外は endNote に残す。
+    // 知らせのあとに本が手を動かしていたら、起き直している（仮の知らせのあとに動き出すのが普通）。
+    const resumed = note?.ts != null && stat?.last != null && stat.last > note.ts;
+    // 赤は Agent の結果が isError のときだけ。報告を返したか、仮でない知らせが来て起き直していなければ done。
+    // 知らせの status は止まったことを示すだけで、completed 以外は endNote に残す。仮の知らせだけでは終わりにしない。
     const state: LiveAgentDto['state'] = s.result?.isError ? 'error'
-      : note !== undefined ? 'done'
+      : t.handedBack ? 'done'
+      : note !== undefined && !note.interim && !resumed ? 'done'
       : s.result && !s.result.agentLaunch?.async && s.call ? 'done'
       : 'running';
     const born = s.call?.ts ?? null;
@@ -159,8 +188,8 @@ function agentsOf(db: Db, sessionId: string, main: TranscriptEvent[], since: num
       startedAt: stat?.first ?? born, lastAt: stat?.last ?? born,
       // linked は agentLaunch か順番の突き合わせか前のターンからの本のときだけ真である。
       // 起こした直後でまだ transcript の無い本も、押せば空の transcript が開くだけなので真のままにする。
-      endNote: state === 'done' && note !== undefined && note !== 'completed' ? note : null,
-      last: t.last, report: state === 'running' || t.said === null ? null : firstLine(t.said), linked: s.linked,
+      endNote: state === 'done' && note !== undefined && !note.interim && note.status !== 'completed' ? note.status : null,
+      last: t.last, report: reportOf(state, t, s.result), linked: s.linked,
     };
   });
 }
