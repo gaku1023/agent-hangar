@@ -24,7 +24,7 @@ import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
 let db: Db;
 let home: string;
 let cwd: string;
-let fake: { bin: string; argsFile: string };
+let fake: { bin: string; argsFile: string; envFile: string };
 let tmux: Tmux | null;
 let claudeDir: string;
 const socketPath = testSocketPath();
@@ -171,6 +171,13 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(rm.listAlive().runs.map((x) => x.id)).toEqual([r.run.id]);
     expect(rm.getRun(r.run.id)?.tmuxName).toBe(r.run.tmuxName);
     expect(rm.getTab(r.run.id)?.kind).toBe('agent');
+  });
+
+  it('run を起こすと、外の端末からつなぐための設定を tmux サーバに入れる', () => {
+    const r = make().start({ projectId: 'p1' });
+    expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
+    expect(tmux!.run('show-options', '-s', '-v', 'extended-keys').stdout.trim()).not.toBe('off');
+    expect(tmux!.run('list-keys', '-T', 'root', 'S-Enter').stdout).toContain('hangar-');
   });
 
   it('scratch は新しいディレクトリを作り、スクラッチのプロジェクトに属するセッションを起動する', async () => {
@@ -400,6 +407,89 @@ function addTranscript(sessionId: string): void {
   db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/x/u-old.jsonl', sessionId, null, 10, 1, 10, 1);
 }
 
+const TERM_UUID = '480a20da-0b1b-4e20-b8f5-2b5c82124ecb';
+const b64 = (x: string) => Buffer.from(x, 'utf8').toString('base64');
+/** 包み方が送るのと同じ形の頼み。 */
+const fromTerminal = (dir: string, args: string[], env: Record<string, string> = {}) => ({ cwd: dir, args, env });
+
+describe('RunManager.startFromTerminal の入力検査（tmux 不要）', () => {
+  it('hangar が組み立てる引数と重なるものは 400、hangar に無い会話の再開は 404 で断る', () => {
+    const rm = make({ tmux: null });
+    expect(() => rm.startFromTerminal(fromTerminal(cwd, ['--session-id', 'x']))).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => rm.startFromTerminal(fromTerminal(cwd, ['-r', TERM_UUID]))).toThrow(expect.objectContaining({ status: 404 }));
+  });
+  it('同じ会話が hangar の外で動いていれば 409 で断る。二重に開かない', () => {
+    const id = ensureSession(db, TERM_UUID, cwd, 'd');
+    addTranscript(id);
+    const rm = make({ tmux: null, isLive: (u) => u === TERM_UUID });
+    expect(() => rm.startFromTerminal(fromTerminal(cwd, ['-r', TERM_UUID]))).toThrow(expect.objectContaining({ status: 409 }));
+  });
+});
+
+describe.skipIf(!TMUX)('RunManager.startFromTerminal（tmux 上）', () => {
+  it('作業ディレクトリを含む最も深いプロジェクトで起動し、利用者の引数を最後に足し、環境変数を渡す', async () => {
+    fake = writeFakeClaude(home, { recordEnv: ['AGENT_TEST_FROM_SHELL', 'TERM_PROGRAM'] });
+    const sub = path.join(cwd, 'sub');
+    fs.mkdirSync(sub);
+    const rm = make();
+    const r = rm.startFromTerminal(fromTerminal(sub, ['--model', 'opus', '直して'], { AGENT_TEST_FROM_SHELL: 'a b', TERM_PROGRAM: 'iTerm.app' }));
+    expect(r.attached).toBe(false);
+    expect(r.run.kind).toBe('start');
+    const args = await launchedArgs(r.run.id);
+    expect(args[0]).toBe('--mcp-config');
+    expect(args).toContain('--session-id');
+    expect(args.slice(-4, -1)).toEqual(['--model', 'opus', '直して']);
+    const s = db.prepare('select * from sessions where id = ?').get(r.sessionId) as Record<string, unknown>;
+    expect(s).toMatchObject({ project_id: 'p1', cwd: sub, provider_session_id: args[args.indexOf('--session-id') + 1] });
+    await waitFor(() => fs.existsSync(fake.envFile) && fs.readFileSync(fake.envFile, 'utf8').includes('TERM_PROGRAM='));
+    const env = fs.readFileSync(fake.envFile, 'utf8');
+    expect(env).toContain('AGENT_TEST_FROM_SHELL=a b');
+    // 外の端末の名前は渡さない。tmux の中では tmux が自分の名前を入れる。
+    expect(env).not.toContain('TERM_PROGRAM=iTerm.app');
+  });
+
+  it('どのプロジェクトにも入らない作業ディレクトリは未分類で起動する', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-outside-'));
+    const r = make().startFromTerminal(fromTerminal(outside, []));
+    const args = await launchedArgs(r.run.id);
+    const s = db.prepare('select project_id, cwd from sessions where id = ?').get(r.sessionId) as Record<string, unknown>;
+    expect(s).toEqual({ project_id: null, cwd: outside });
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('未分類');
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  it('-r <id> の会話の run が動いていれば、新しく起こさずにその run を返す', () => {
+    const rm = make();
+    const first = rm.startFromTerminal(fromTerminal(cwd, []));
+    const uuid = (db.prepare('select provider_session_id from sessions where id = ?').get(first.sessionId) as { provider_session_id: string }).provider_session_id;
+    const again = rm.startFromTerminal(fromTerminal(cwd, ['-r', uuid, '--model', 'opus']));
+    expect(again.attached).toBe(true);
+    expect(again.run.id).toBe(first.run.id);
+    expect(rm.listAlive().runs).toHaveLength(1);
+  });
+
+  it('-r <id> の会話がバックグラウンドで動いていれば、hangar の tmux の中の claude attach でつなぐ', async () => {
+    const id = ensureSession(db, TERM_UUID, cwd, 'd');
+    addTranscript(id);
+    const live = [{ sessionId: TERM_UUID, status: 'idle' as const, name: null, nameSource: null, cwd, pid: 777, background: { jobId: 'abcd1234' } }];
+    const r = make({ live: () => live, isLive: (u) => live.some((l) => l.sessionId === u) }).startFromTerminal(fromTerminal(cwd, ['-r', TERM_UUID]));
+    expect(r.attached).toBe(false);
+    expect((await launchedArgs(r.run.id)).slice(0, -1)).toEqual(['attach', 'abcd1234']);
+  });
+
+  it('-r <id> の会話が止まっていれば再開し、利用者の引数を足す', async () => {
+    const id = ensureSession(db, TERM_UUID, cwd, 'd');
+    addTranscript(id);
+    const r = make().startFromTerminal(fromTerminal(cwd, ['-r', TERM_UUID, '--effort', 'high']));
+    expect(r.attached).toBe(false);
+    expect(r.sessionId).toBe(id);
+    expect(r.run.kind).toBe('resume');
+    const args = await launchedArgs(r.run.id);
+    expect(args[args.indexOf('-r') + 1]).toBe(TERM_UUID);
+    expect(args.slice(-3, -1)).toEqual(['--effort', 'high']);
+  });
+});
+
 describe('resume と fork の入力検査（tmux 不要）', () => {
   it('無いセッション、本文なし、実行中は拒む', () => {
     const rm = make({ tmux: null, isLive: (u) => u === 'u-old' });
@@ -463,12 +553,18 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
 const liveEntry = (over: Partial<LiveSession> = {}): LiveSession => ({ sessionId: 'u-old', status: 'waiting', name: null, nameSource: null, cwd, pid: 4242, procStart: 'Wed Sep 30 03:01:55 2026', entrypoint: 'cli', ...over });
 
 /** 外のプロセスに触る口の偽物。runClaude の --bg でレジストリにバックグラウンドの項目を足す。 */
-function fakeProcs(live: LiveSession[], o: { startTime?: string | null; terminated?: boolean; bgOut?: string; bgSessionId?: string; bgFails?: boolean; agentsFails?: boolean; jobs?: { id: string; sessionId: string }[] } = {}) {
+function fakeProcs(live: LiveSession[], o: { startTime?: string | null; terminated?: boolean; lingers?: boolean; bgOut?: string; bgSessionId?: string; bgFails?: boolean; agentsFails?: boolean; jobs?: { id: string; sessionId: string }[] } = {}) {
   const calls: { terminate: number[]; claude: { args: string[]; cwd: string }[] } = { terminate: [], claude: [] };
   const procs: ProcOps = {
     listJobs: () => o.jobs ?? [],
     startTimeOf: () => (o.startTime === undefined ? 'Wed Sep 30 03:01:55 2026' : o.startTime),
-    terminate: async (pid) => { calls.terminate.push(pid); return o.terminated ?? true; },
+    terminate: async (pid) => {
+      calls.terminate.push(pid);
+      const ok = o.terminated ?? true;
+      // 止まった claude はレジストリから消える。lingers ならいつまでも残る。
+      if (ok && !o.lingers) { const i = live.findIndex((l) => l.pid === pid); if (i >= 0) live.splice(i, 1); }
+      return ok;
+    },
     runClaude: async (_bin, args, cwd) => {
       calls.claude.push({ args, cwd });
       if (args[0] === 'agents') { if (o.agentsFails) throw new Error("'claude agents --json' is disabled by CLAUDE_CODE_DISABLE_AGENT_VIEW."); return '[]'; }
@@ -542,16 +638,19 @@ describe.skipIf(!TMUX)('attach と引き取り（tmux 上）', () => {
     expect(fs.existsSync(path.join(home, 'mcp', `${id}.json`))).toBe(false);
   });
 
-  it('引き取りは元の claude を止め、同じ id でバックグラウンドに移してつなぐ', async () => {
+  it('引き取りは元の claude を止め、同じ id で hangar の tmux の中で再開する', async () => {
     const id = seedOldSession();
     const live = [liveEntry()];
     const f = fakeProcs(live);
-    const r = await make({ live: () => live, procs: f.procs }).adopt(id);
+    const r = await make({ live: () => live, isLive: (u) => live.some((l) => l.sessionId === u), procs: f.procs, sleep: async () => {} }).adopt(id);
     expect(f.calls.terminate).toEqual([4242]);
-    // 止める前に、この PC の Claude Code がバックグラウンドを使えるかを確かめる。
-    expect(f.calls.claude).toEqual([{ args: ['agents', '--json'], cwd }, { args: ['--bg', '--resume', 'u-old'], cwd }]);
+    // バックグラウンドには移さない。Claude Code はバックグラウンドのセッションを上限の後に自動で続けない。
+    expect(f.calls.claude).toEqual([]);
     expect(r.sessionId).toBe(id);
-    expect((await launchedArgs(r.run.id)).slice(0, -1)).toEqual(['attach', 'abcd1234']);
+    expect(r.run.kind).toBe('resume');
+    const args = await launchedArgs(r.run.id);
+    expect(args[0]).toBe('--mcp-config');
+    expect(args[args.indexOf('-r') + 1]).toBe('u-old');
   });
 
   it('すでにバックグラウンドのセッションは止めずにつなぐだけにする', async () => {
@@ -563,30 +662,30 @@ describe.skipIf(!TMUX)('attach と引き取り（tmux 上）', () => {
     expect((await launchedArgs(r.run.id)).slice(0, -1)).toEqual(['attach', 'abcd1234']);
   });
 
-  it('Claude が写しを作ったら、写しを同じプロジェクトの新しいセッションとして開く', async () => {
+  it('止めてもレジストリから消えなければ、再開せずに開き直す手を添えて断る', async () => {
     const id = seedOldSession();
     const live = [liveEntry()];
-    const f = fakeProcs(live, { bgSessionId: 'u-copy' });
-    const r = await make({ live: () => live, procs: f.procs }).adopt(id);
-    expect(r.sessionId).not.toBe(id);
-    expect(db.prepare('select provider_session_id, project_id from sessions where id = ?').get(r.sessionId)).toEqual({ provider_session_id: 'u-copy', project_id: 'p1' });
+    const f = fakeProcs(live, { lingers: true });
+    // 待つ間は時計だけを進める。実時間で待たない。
+    let t = Date.now();
+    const rm = make({ live: () => live, isLive: (u) => live.some((l) => l.sessionId === u), procs: f.procs, now: () => t, sleep: async (ms) => { t += ms; } });
+    await expect(rm.adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringContaining('claude --resume u-old') });
+    expect(rm.listAlive().runs).toEqual([]);
   });
 
-  it('移せなかったら、開き直す手を添えて 400 にする', async () => {
+  it('元の claude が終わらなければ断り、再開もしない', async () => {
     const id = seedOldSession();
-    const live = [liveEntry()];
-    const f = fakeProcs(live, { bgFails: true });
-    await expect(make({ live: () => live, procs: f.procs }).adopt(id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('claude --resume u-old') });
     const g = fakeProcs([liveEntry()], { terminated: false });
-    await expect(make({ live: () => [liveEntry()], procs: g.procs }).adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/終わりませんでした/) });
-    expect(g.calls.claude.map((c) => c.args[0])).toEqual(['agents']);
+    const rm = make({ live: () => [liveEntry()], procs: g.procs });
+    await expect(rm.adopt(id)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/終わりませんでした/) });
+    expect(rm.listAlive().runs).toEqual([]);
   });
 
-  it('バックグラウンドを使えない Claude Code では、止めずに断る', async () => {
-    const id = seedOldSession();
+  it('本文の無いセッションは、止める前に断る。止めた後で再開できずに終わらないようにする', async () => {
+    const id = seedOldSession(false);
     const live = [liveEntry()];
-    const f = fakeProcs(live, { agentsFails: true });
-    await expect(make({ live: () => live, procs: f.procs }).adopt(id)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/バックグラウンドを使えません/) });
+    const f = fakeProcs(live);
+    await expect(make({ live: () => live, procs: f.procs }).adopt(id)).rejects.toMatchObject({ status: 400 });
     expect(f.calls.terminate).toEqual([]);
   });
 

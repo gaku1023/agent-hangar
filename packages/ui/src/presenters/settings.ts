@@ -27,7 +27,7 @@ export type ShellSettingsProps = { state: ShellHookStateDto | null; zshrc: strin
 export const JOIN_TOKEN_TTL_MS = 120_000;
 
 /** PC ごとの状態の言い方。null は状態を知らせてこない古い版の hangar である。 */
-const SHELL_LABEL: Record<ShellHookStateDto, string> = { on: '入っています', off: 'まだです', unsupported: 'この Claude Code では使えません' };
+const SHELL_LABEL: Record<ShellHookStateDto, string> = { on: '入っています', off: 'まだです', unsupported: 'tmux が無いので使えません' };
 const shellLabel = (s: ShellHookStateDto | null): string => (s ? SHELL_LABEL[s] : '分かりません（hangar が古い版です）');
 
 /** 会話の保持の節。押しても保存せず、確認（retention.edit）を開く。 */

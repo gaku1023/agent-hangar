@@ -305,7 +305,7 @@ export function SettingsScreen(props: SettingsProps) {
             </section>
             <section>
               <h3 className="h2">外のターミナル<Badge ok={props.shell.state === null ? null : props.shell.state === 'on'} yes="この PC は導入済み" no="この PC は未導入" /></h3>
-              <div className="muted">VS Code などのターミナルで起動した claude も、hangar のターミナルで開けるようにします。~/.zshrc に 1 行を足し、claude を Claude のバックグラウンドで起こしてすぐつなぐ形に包みます。</div>
+              <div className="muted">VS Code などのターミナルで起動した claude も、hangar のターミナルで開けるようにします。~/.zshrc に 1 行を足し、claude を hangar の tmux の中で起こしてすぐつなぐ形に包みます。利用上限に当たっても、上限が戻れば Claude Code が自分で続けます。hangar が動いていないときは素の claude を起動します。</div>
               {props.shell.devices.length > 0 && (
                 <div className="list" style={{ marginTop: 8 }}>
                   {props.shell.devices.map((d) => (
@@ -325,7 +325,7 @@ export function SettingsScreen(props: SettingsProps) {
                 </>
               )}
               {props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>新しく開いたターミナルから効きます。1 回だけ包まずに起動するときは command claude、外すときは {props.shell.uninstallCommand} です。</div>}
-              {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>この PC の Claude Code ではバックグラウンドを使えません。claude update で新しくするか、管理設定でバックグラウンドが切られていないかを確かめてください。</div>}
+              {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>この PC では tmux が見つかりません。brew install tmux で入れるか、上の「tmux のパス」を入れてください。</div>}
               <div className="faint" style={{ marginTop: 4 }}>入れていないときも、外のターミナルで入力待ちか休みの claude は「hangar で引き取る」で開けます。</div>
             </section>
             {/* 入力待ちを OS の通知で知らせる。直すものの数には入れない（無くても動くため）。 */}
