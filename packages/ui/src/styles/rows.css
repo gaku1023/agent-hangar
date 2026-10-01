@@ -108,6 +108,19 @@
 /* 一致した語の印。淡い黄の地だけを敷き、文字の色は周りのまま（読みやすさを落とさない）。 */
 .hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }
 
+/* 節の見出し（P3 と ★）。仮想スクロールの項目として行のあいだに挟む。
+   高さは --section-head-h で持ち、SessionRows の SECTION_HEAD_H と揃える（rows.test.ts）。 */
+.row-head { display: flex; align-items: flex-end; gap: calc(var(--u) * 1.5); height: var(--section-head-h); padding: 0 calc(var(--u) * 5) calc(var(--u) * 1.5); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.row-head-count { font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.row-head-more { margin-left: auto; padding: 0 var(--u); border: 0; border-radius: 5px; background: none; font: inherit; font-size: var(--fs-xs); font-weight: 560; color: var(--accent); cursor: pointer; }
+.row-head-more:hover { text-decoration: underline; }
+/* 末尾の Archived の行は、ほかの節より控えめにする。 */
+.row-head[data-section='archived'] { font-weight: 500; color: var(--ink-3); }
+/* Archived の行は名前を淡くする。注記の色（--ink-3）も白地で 4.5 : 1 を超える。 */
+.row[data-archived='true'] .row-name { color: var(--ink-3); font-weight: 400; }
+/* 状態の札を押してタブへ移る（★ の E）。札の見た目はそのままにし、押せることは指の形で示す。 */
+.badge-link { display: inline-flex; padding: 0; border: 0; border-radius: 5px; background: none; font: inherit; color: inherit; cursor: pointer; }
+
 /* セッション一覧の画面。見出し（.page-head）・検索欄・絞り込み・一覧の間を段ごとに広げる。
    画面の縁は他の画面と同じく .main-inner の余白だけにし、見出しの位置を揃える。
    一覧の高さ（SessionsScreen の LIST_H）は、見出しの高さとこの段の余白から出している。 */

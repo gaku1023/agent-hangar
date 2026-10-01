@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import type { SessionStatus } from '@agent-hangar/shared';
+import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import type { Intent, SessionStatus, StatusFilter } from '@agent-hangar/shared';
 import { useEmit, type Emit } from '../intent/chain.tsx';
 import { CANDIDATE_SOURCE_LABEL, candidateLabel, returnOnLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
+import type { ListItem, SectionId } from '../presenters/sections.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { MenuButton, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
 import { RelativeTime } from './primitives/RelativeTime.tsx';
@@ -59,6 +60,14 @@ function candidatePop(r: SessionRowProps, emit: Emit, onClose: (how: MenuCloseHo
 
 /** 2 段の行の高さ。tokens.css の --session-row-h と同じ値にする（styles/rows.test.ts が突き合わせる）。 */
 export const SESSION_ROW_H = 56;
+/** 節の見出しの高さ。tokens.css の --section-head-h と同じ値にする（styles/rows.test.ts が突き合わせる）。 */
+export const SECTION_HEAD_H = 32;
+
+/** 見出しの件数の書き方。「1,221」のように桁を区切る。 */
+const countLabel = (n: number) => n.toLocaleString('en-US');
+
+/** 行だけを並べる（Home の最近、検索の結果）か、節の見出しを挟んで並べる（プロジェクト画面と Sessions の節）か。 */
+type RowsSource = { rows: SessionRowProps[]; items?: never } | { items: ListItem[]; rows?: never };
 
 /**
  * 一覧の役目。右端と 2 段目に何を出すかがこれで決まる。
@@ -99,16 +108,22 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * loadingMore は末尾の続きを読み足している最中であることを表す（検索の「さらに読み込む」）。
  * 読み終えたら、読み足した最初の行へフォーカスを返す。押したボタンが読み込みの間 disabled になり、フォーカスが body へ落ちるからである。
  * id は一覧の器に付ける。Mediator の focus の効果が、この id で一覧を探す（runtime/focusSoon.ts の FOCUS_IDS）。
+ * items を渡すと、行のあいだに節の見出しを挟む（P3 と ★）。見出しは行ではないので、カーソルとフォーカスは見出しを飛ばす。
+ * moreIntent は見出しの右端のボタン（「ほか N 件 ▸」「この節だけ見る ▸」）の Intent で、null ならボタンを出さない。
+ * badgeIntent を渡すと、行の状態の札がそのタブへ移るボタンになる（Sessions の ★）。
  */
-export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode; id?: string; loadingMore?: boolean }) {
+export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; foot?: ReactNode; id?: string; loadingMore?: boolean; moreIntent?: (target: SectionId) => Intent | null; badgeIntent?: (status: StatusFilter) => Intent }) {
   const emit = useEmit();
+  const items: ListItem[] = props.items ?? (props.rows ?? []).map((row) => ({ kind: 'row' as const, row }));
+  // カーソルと打鍵は行だけを渡り歩き、見出しは飛ばす。
+  const rows = items.flatMap((it) => (it.kind === 'row' ? [it.row] : []));
   // カーソルは一覧の中だけの状態なので Mediator には置かない。
   // 行の番号ではなくセッションの id で持つ。
   // 行の DOM は id で付いて動くので、番号で持つと並びが変わったときにフォーカスの行とカーソルの行が食い違い、Enter で別の行が開く。
   // null は未選択で、このとき Enter や o や m は何も起こさない。
   // 選んでいた行が一覧から消えたときも未選択に戻る。
   const [cursorId, setCursorId] = useState<string | null>(null);
-  const cursor = cursorId === null ? -1 : props.rows.findIndex((r) => r.id === cursorId);
+  const cursor = cursorId === null ? -1 : rows.findIndex((r) => r.id === cursorId);
   // 編集中のセッションの id。null なら編集していない。
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -136,7 +151,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
   // 画面に入ったら一覧にフォーカスする。行が後から届く画面もあるので、初めて並んだときに一度だけ当てる。
   // 行はまだ選ばない。最初の j や ↓ で先頭の行に入る。
   const autoPending = useRef(!!props.autoFocus);
-  const hasRows = props.rows.length > 0;
+  const hasRows = rows.length > 0;
   useEffect(() => {
     if (!autoPending.current || !hasRows) return;
     autoPending.current = false;
@@ -146,7 +161,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
   // 読み足しを始めたときの行の数。続きはその後ろに足されるので、読み終えたらこの位置の行が読み足した最初の行になる。
   // 読み足しの間も持っている行は消えない（runtime の search.more）。
   const moreFrom = useRef<number | null>(null);
-  const rowsLen = props.rows.length;
+  const rowsLen = rows.length;
   useEffect(() => {
     if (props.loadingMore) { moreFrom.current = rowsLen; return; }
     const from = moreFrom.current;
@@ -157,7 +172,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
     const a = document.activeElement;
     const lost = !a || a === document.body || (!!host && host.contains(a) && a !== host && !a.closest('[role="row"]'));
     if (!lost || !host) return;
-    const next = props.rows[from];
+    const next = rows[from];
     if (!next) { host.focus({ preventScroll: true }); return; }
     if (next.id === cursorId) { cursorRow()?.focus({ preventScroll: true }); return; }
     byKey.current = true;
@@ -190,6 +205,32 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
     else menuClosed(id, how);
   };
 
+  // 一覧の中で最後にフォーカスを持っていた要素（裁定 2B）。
+  // 行が別の節へ移る、畳んだ節へ入る、タブから外れると、その行の DOM は消えるか並び替えで付け直され、フォーカスは body に落ちる。
+  // ダイアログを閉じたときも、開いた元の行が消えていれば Dialog はフォーカスを返せない。
+  // 一覧の打鍵は器が受けるので、body に落ちたままでは j・Enter・. が効かない。描き直しのたびに確かめて拾い直す。
+  const lastInside = useRef<HTMLElement | null>(null);
+  const onHostFocus = (e: ReactFocusEvent) => { lastInside.current = e.target as HTMLElement; };
+  // 利用者が何も無いところを押してフォーカスを外したとき（行き先が無く、要素は残っている）は、奪い返さないよう忘れる。
+  // ダイアログやターミナルへ移ったときは覚えておき、そこが閉じて body に落ちたら拾う。
+  const onHostBlur = (e: ReactFocusEvent) => { if (e.relatedTarget === null && (e.target as HTMLElement).isConnected) lastInside.current = null; };
+  useLayoutEffect(() => {
+    const last = lastInside.current;
+    const host = hostRef.current;
+    if (!last || !host) return;
+    // 読み足しの間と読み終えた直後は、上の読み足しの効果がフォーカスの戻し先（読み足した最初の行）を決める。
+    if (props.loadingMore || moreFrom.current !== null) return;
+    const a = document.activeElement;
+    if (a && a !== document.body) return;
+    // モーダルのダイアログが開いている間は、フォーカスはダイアログのものである（holdsFocus と同じ）。
+    if (document.querySelector('[aria-modal="true"]')) return;
+    // 行がまだ一覧にあれば（並び替えで付け直された行など）そこへ戻す。同じ描き直しの中の並び替えは React がフォーカスを戻すので、これは取りこぼしの受けである。
+    // 消えた行の代わりはカーソルの行で、それも描いていなければ器にする。
+    // 器に戻したときは、カーソルの行が一覧に残っていればその行のまま、消えていれば未選択のまま、次の j で動き出す。
+    const target = last.isConnected && host.contains(last) ? last : cursorRow() ?? host;
+    target.focus({ preventScroll: true });
+  });
+
   const onKeyDown = (e: ReactKeyboardEvent) => {
     // 編集中の入力欄から上がってきたキーは横取りしない。
     if (editing !== null) return;
@@ -197,9 +238,9 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
     if (e.target !== e.currentTarget && (e.target as HTMLElement).getAttribute('role') !== 'row') return;
     // ⌘ や Ctrl の付いた打鍵はアプリ全体のもの（⌘K や ⌘J）なので、一覧では使わない。
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const max = props.rows.length - 1;
-    const cur = cursor >= 0 ? props.rows[cursor] : undefined;
-    const moveTo = (i: number) => { byKey.current = true; setCursorId(props.rows[i]?.id ?? null); };
+    const max = rows.length - 1;
+    const cur = cursor >= 0 ? rows[cursor] : undefined;
+    const moveTo = (i: number) => { byKey.current = true; setCursorId(rows[i]?.id ?? null); };
     switch (e.key) {
       case 'j': case 'ArrowDown': moveTo(Math.min(max, cursor + 1)); break;
       case 'k': case 'ArrowUp': moveTo(Math.max(0, cursor - 1)); break;
@@ -214,7 +255,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
     e.preventDefault();
   };
 
-  if (props.rows.length === 0) return <div className="list"><div className="empty">{props.emptyText ?? DEFAULT_EMPTY_TEXT}</div></div>;
+  if (items.length === 0) return <div className="list"><div className="empty">{props.emptyText ?? DEFAULT_EMPTY_TEXT}</div></div>;
 
   const memoEditor = (r: SessionRowProps) => (
     <input className="input memo-input" autoFocus aria-label={`${r.name} のメモ`} value={draft} onChange={(e) => setDraft(e.target.value)} onClick={(e) => e.stopPropagation()}
@@ -235,7 +276,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
       <span className="row-sub">
         {/* Paused は 2 段目の頭に戻る日の札を出す（四角の札は出さない）。当日と過ぎたものと、戻る日が無いもの（日付なし）は塗る。 */}
         {r.state === 'paused'
-          ? <span className="row-return" data-due={r.overdueDays !== null || r.returnOn === null ? 'true' : undefined} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{returnOnLabel(r.returnOn, r.overdueDays)}</span>
+          ? badge('paused', 'Paused', <span className="row-return" data-due={r.overdueDays !== null || r.returnOn === null ? 'true' : undefined} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{returnOnLabel(r.returnOn, r.overdueDays)}</span>)
           : r.summaryState && <span className="row-state" data-tone={r.summaryState.tone ?? undefined}>{r.summaryState.label}</span>}
         <span className={excerpt ? 'row-text mono' : 'row-text'}>{excerpt ? excerpt.map((s, i) => (s.hit ? <mark key={i} className="hit">{s.text}</mark> : <span key={i}>{s.text}</span>)) : r.oneLiner}</span>
         {props.variant === 'project' && r.memo && <span className="row-memo">✎ {r.memo}</span>}
@@ -262,7 +303,7 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
         {r.transcript === 'gone' && <span className="row-gone" title={GONE_LABEL}><Icon name="transcriptGone" label={GONE_LABEL} /></span>}
         {r.live && <span className="row-live" data-live={r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{LIVE_WORD[r.live]}</span>}
         {r.candidate && <span className="row-act" onClick={stopClick}>{candidatePop(r, emit, (how) => candidateClosed(r.id, how))}</span>}
-        {(r.state === 'done' || r.state === 'archived') && <span className="row-sq" data-s={r.state} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{STATUS_LABEL[r.state]}</span>}
+        {(r.state === 'done' || r.state === 'archived') && badge(r.state, STATUS_LABEL[r.state], <span className="row-sq" data-s={r.state} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{STATUS_LABEL[r.state]}</span>)}
         <span className="row-act row-more" onClick={stopClick}>
           <MenuButton label={`${r.name} の状態`} items={stateItems(r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={220} onClose={(how) => menuClosed(r.id, how)} />
         </span>
@@ -271,23 +312,43 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
     </span>
   );
 
-  // Tab で止まる行。まだ選んでいなければ先頭の行にする。
-  const tabStop = cursor >= 0 && cursor < props.rows.length ? cursor : 0;
+  // 行の状態の札（Done・Archived の四角の札と、Paused の戻る日の札）。Sessions ではそのタブへ移るボタンにする（★ の E）。
+  // 行が開かないよう、クリックは行へ渡さない。Enter はボタンのものなので、行の打鍵（onKeyDown）は横取りしない。
+  const badge = (status: StatusFilter, label: string, node: ReactNode) => (props.badgeIntent ? (
+    <button type="button" className="badge-link" aria-label={`${label} のセッションだけを見る`} onClick={(e) => { e.stopPropagation(); emit(props.badgeIntent!(status)); }}>{node}</button>
+  ) : node);
+
+  // 節の見出し。行ではないので、カーソルもフォーカスも止まらない。
+  const head = (h: Extract<ListItem, { kind: 'head' }>) => {
+    const intent = h.more && props.moreIntent ? props.moreIntent(h.more.target) : null;
+    return (
+      <div className="row-head" role="heading" aria-level={2} data-section={h.id}>
+        <span>{h.label}</span><span className="row-head-count">{countLabel(h.count)}</span>
+        {intent && <button type="button" className="row-head-more" onClick={() => emit(intent)}>{h.more!.label}</button>}
+      </div>
+    );
+  };
+
+  // Tab で止まる行。まだ選んでいなければ先頭の行にする。見出しには止まらない。
+  const tabStopId = (cursor >= 0 ? rows[cursor] : rows[0])?.id ?? null;
+  const cursorRowId = cursor >= 0 ? rows[cursor]!.id : null;
+  const rowEl = (r: SessionRowProps) => (
+    <div className="row row-2" role="row" tabIndex={r.id === tabStopId ? 0 : -1} data-cursor={r.id === cursorRowId ? 'true' : undefined} data-archived={r.state === 'archived' ? 'true' : undefined} data-morph-id={r.id}
+      onClick={() => emit(openIntent(r))} onFocus={() => setCursorId(r.id)}>
+      <StatusDot status={r.live} />
+      <span className="row-main">
+        <span className="row-name">{r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>
+        {sub(r)}
+      </span>
+      {side(r)}
+    </div>
+  );
   // 器は Tab の順には入れず（tabIndex=-1）、画面に入ったときのフォーカスの受け皿にだけ使う。
   // 行の打鍵はここへ上がってきて、カーソルの行について 1 度だけ処理する。
   return (
-    <div className="rows-host" id={props.id} data-testid="session-rows" ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown}>
-      <VirtualList items={props.rows} rowHeight={SESSION_ROW_H} height={props.height} keyOf={(r) => r.id} foot={props.foot} render={(r, i) => (
-        <div className="row row-2" role="row" tabIndex={i === tabStop ? 0 : -1} data-cursor={i === cursor ? 'true' : undefined} data-morph-id={r.id}
-          onClick={() => emit(openIntent(r))} onFocus={() => setCursorId(r.id)}>
-          <StatusDot status={r.live} />
-          <span className="row-main">
-            <span className="row-name">{r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>
-            {sub(r)}
-          </span>
-          {side(r)}
-        </div>
-      )} />
+    <div className="rows-host" id={props.id} data-testid="session-rows" ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown} onFocus={onHostFocus} onBlur={onHostBlur}>
+      <VirtualList items={items} rowHeight={(it) => (it.kind === 'head' ? SECTION_HEAD_H : SESSION_ROW_H)} height={props.height} keyOf={(it) => (it.kind === 'head' ? `head:${it.id}` : it.row.id)} foot={props.foot}
+        render={(it) => (it.kind === 'head' ? head(it) : rowEl(it.row))} />
     </div>
   );
 }

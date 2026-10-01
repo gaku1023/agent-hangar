@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { SESSION_ROW_H } from '../views/SessionRows.tsx';
+import { SECTION_HEAD_H, SESSION_ROW_H } from '../views/SessionRows.tsx';
 
 const read = (f: string) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
 
@@ -26,6 +26,16 @@ describe('2 段の行', () => {
     const css = read('./rows.css');
     expect(css).toMatch(/\.row-sub \.memo-pencil \{[^}]*height: calc\(var\(--u\) \* 5\);/);
     expect(css).toMatch(/\.row-sub \.memo-input \{[^}]*height: calc\(var\(--u\) \* 5\);/);
+  });
+  // 見出しの見積もりと CSS の高さがずれると、節の多い一覧でスクロールの位置が行の途中で止まる。
+  it('節の見出しの高さは 32px で、tokens.css と SessionRows の見積もりが揃う', () => {
+    expect(SECTION_HEAD_H).toBe(32);
+    expect(read('./tokens.css')).toContain(`--section-head-h: ${SECTION_HEAD_H}px;`);
+    expect(read('./rows.css')).toMatch(/\.row-head \{[^}]*height: var\(--section-head-h\);/);
+  });
+  it('Archived の行は名前を注記の色で淡く出す', () => {
+    // --ink-3 も白地で 4.5 : 1 を超える（tokens.test.ts）。淡くしても読める。
+    expect(read('./rows.css')).toMatch(/\.row\[data-archived='true'\] \.row-name \{[^}]*color: var\(--ink-3\);/);
   });
 });
 
