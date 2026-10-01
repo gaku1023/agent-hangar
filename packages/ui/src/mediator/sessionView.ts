@@ -182,7 +182,13 @@ export function sessionViewStep(state: State, input: Input): Step | null {
         const r = patch(left?.state ?? state, i.sessionId, { openTurn: null, turnJump: null });
         return { state: r.state, effects: [...r.effects, ...(left?.effects ?? [])] };
       }
-      if (!i.runId || !i.jump) return patch(state, i.sessionId, { openTurn: i.seq, turnJump: null });
+      // 跳び先を持たない（遠すぎて跳べない、または run が無い）ターンを開くとき。
+      // 前に跳ばしていたら、左の Claude を古いターンの transcript に残さないよう、先に抜けさせる。
+      if (!i.runId || !i.jump) {
+        const left = leaveTranscriptStep(state, i.sessionId);
+        const r = patch(left?.state ?? state, i.sessionId, { openTurn: i.seq, turnJump: null });
+        return { state: r.state, effects: [...r.effects, ...(left?.effects ?? [])] };
+      }
       // 跳ぶ先は Claude のタブなので、シェルのタブを出していたら戻して繋ぎ直す。
       const back = agentTabStep(state, i.sessionId);
       const connect: Effect[] = back ? [...back.effects, { kind: 'terminal.connect', sessionId: i.sessionId, tabId: null }] : [];
