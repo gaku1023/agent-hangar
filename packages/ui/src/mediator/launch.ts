@@ -1,4 +1,5 @@
 import type { LaunchParams } from '@agent-hangar/shared';
+import { overlayReplaceable } from './overlay.ts';
 import type { Effect, Input, LaunchPrefs, NewSessionDraft, State, Step } from './types.ts';
 
 /** 新しいセッションのダイアログの書きかけを残す localStorage の鍵。値は NewSessionDraft か null。 */
@@ -85,6 +86,8 @@ export function launchStep(state: State, input: Input): Step | null {
   const i = input.intent;
   switch (i.type) {
     case 'session.new.open':
+      // 確認や入力のあるダイアログが出ていれば、差し替えない（overlay.ts の overlayReplaceable）。
+      if (!overlayReplaceable(state.overlay)) return { state, effects: [] };
       // スクラッチはプロジェクトを選ばずに開く。ダイアログ側でプロジェクトの選択欄を隠す。
       return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
     case 'session.new.submit':
