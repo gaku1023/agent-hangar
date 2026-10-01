@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { SessionDto, SessionStateDto } from '@agent-hangar/shared';
+import type { ProjectDto, SessionDto, SessionStateDto } from '@agent-hangar/shared';
 import { periodStart } from '../mediator/screen.ts';
+import { initialState } from '../mediator/transition.ts';
+import { initialStore, type Store } from '../store/store.ts';
+import { presentProject } from './project.ts';
 import { returnOnLabel, sortForSections, type SessionRowProps } from './row.ts';
 import { DONE_HEAD, matchesStatus, returnKey, sectionRows, type ListItem } from './sections.ts';
 
@@ -133,5 +136,32 @@ describe('sortForSections', () => {
     expect(ids[0]).toBe('live');
     expect(ids.filter((id) => ['confirmed', 'imp-new', 'imp-old'].includes(id))).toEqual(['confirmed', 'imp-new', 'imp-old']);
     expect(ids.filter((id) => ['open', 'older'].includes(id))).toEqual(['open', 'older']);
+  });
+});
+
+describe('presentProject の節（P3）', () => {
+  const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null, ...o });
+  const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: NOW - H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, state: null, ...over });
+  const alpha: ProjectDto = { id: 'alpha', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 };
+  const storeOf = (list: SessionDto[]): Store => { const s = initialStore(); s.bootstrapped = true; s.projects = { alpha }; s.sessions = Object.fromEntries(list.map((x) => [x.id, x])); return s; };
+  const imported = (id: string, daysAgo: number) => dto(id, { lastActivityAt: NOW - daysAgo * DAY, state: st({ status: 'done', setBy: 'import', setAt: IMPORT_AT }) });
+  const proposedNfd = dto('nfd', { lastActivityAt: NOW - 5 * DAY, state: st({ candidate: { status: 'done', note: '直して push した', returnOn: null, source: 'post_hoc', at: NOW - H } }) });
+  const list = [imported('cpu', 1), imported('resp', 2), imported('ux', 3), imported('old', 6), proposedNfd];
+
+  // scenes.html の 5 番目の場面。畳んだ Done の中へ消えないこと。
+  it('提案を確定した行は、最後に動いた時刻が古くても Done の節の先頭へ移る', () => {
+    expect(shape(presentProject(initialState(), storeOf(list), NOW, 'alpha').items)).toEqual(['# continue 1', 'nfd', '# done 4 [ほか 1 件 ▸→done]', 'cpu', 'resp', 'ux']);
+    // 確定の後に session.upsert が届いた形。
+    const confirmed = { ...proposedNfd, state: st({ status: 'done', setBy: 'user', setAt: NOW }) };
+    expect(shape(presentProject(initialState(), storeOf([...list.slice(0, 4), confirmed]), NOW, 'alpha').items)).toEqual(['# done 5 [ほか 2 件 ▸→done]', 'nfd', 'cpu', 'resp']);
+  });
+  it('広げた節は State の sectionsOpen をプロジェクトごとに読む', () => {
+    const open = { ...initialState(), sectionsOpen: { alpha: ['done' as const] } };
+    expect(shape(presentProject(open, storeOf(list), NOW, 'alpha').items)).toEqual(['# continue 1', 'nfd', '# done 4 [畳む ▴→done]', 'cpu', 'resp', 'ux', 'old']);
+    const other = { ...initialState(), sectionsOpen: { beta: ['done' as const] } };
+    expect(shape(presentProject(other, storeOf(list), NOW, 'alpha').items)).toHaveLength(6);
+  });
+  it('見つからないプロジェクトは空の一覧', () => {
+    expect(presentProject(initialState(), storeOf(list), NOW, 'nope').items).toEqual([]);
   });
 });

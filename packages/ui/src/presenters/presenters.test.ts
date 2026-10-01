@@ -348,7 +348,7 @@ describe('presentProject', () => {
     const store = storeWith();
     store.sessions.s4 = session('s4', { live: 'idle', lastActivityAt: NOW - 86_400_000 * 9 });
     const p = presentProject(initialState(), store, NOW, 'alpha');
-    expect(p.sessions.map((s) => s.id)).toEqual(['s1', 's4', 's2']);
+    expect(p.items.flatMap((i) => (i.kind === 'row' ? [i.row.id] : []))).toEqual(['s1', 's4', 's2']);
     expect(presentProject(initialState(), store, NOW, 'nope').notFound).toBe(true);
   });
   it('見出しの上には、一覧へ戻るリンクを出す', () => {
@@ -1084,7 +1084,7 @@ describe('presentSessionRow のコストと run', () => {
     store.runs = { r1: runDto('r1', 's1') };
     store.sessions.s1 = { ...store.sessions.s1!, stats: { ...store.sessions.s1!.stats, costUsd: 3 } };
     expect(presentSessions(initialState(), store, NOW).rows[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
-    expect(presentProject(initialState(), store, NOW, 'alpha').sessions[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
+    expect(presentProject(initialState(), store, NOW, 'alpha').items.find((i) => i.kind === 'row')).toMatchObject({ row: { id: 's1', cost: '$3.00', runId: 'r1' } });
   });
 });
 

@@ -265,18 +265,18 @@ describe('ProjectCard（見つからないとき）', () => {
 describe('ProjectScreen', () => {
   it('見つからないときの表示と、操作ボタンの Intent', () => {
     const onIntent = vi.fn();
-    const { rerender } = render(<IntentRoot onIntent={onIntent}><ProjectScreen id="x" name="x" path={null} resolved={false} status="active" sessions={[]} notFound {...rail} /></IntentRoot>);
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><ProjectScreen id="x" name="x" path={null} resolved={false} status="active" items={[]} notFound {...rail} /></IntentRoot>);
     expect(screen.getByText('プロジェクトが見つかりません')).toBeInTheDocument();
-    rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path={null} resolved={false} status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
+    rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path={null} resolved={false} status="active" items={[]} notFound={false} {...rail} /></IntentRoot>);
     expect(screen.getByText('この PC にパスがありません')).toBeInTheDocument();
-    rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
+    rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" items={[]} notFound={false} {...rail} /></IntentRoot>);
     fireEvent.click(screen.getByText('新しいセッション'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
     expect(screen.getByText('/w/alpha')).toBeInTheDocument();
   });
   it('プロジェクトの操作は project.* の Intent', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" items={[]} notFound={false} {...rail} /></IntentRoot>);
     fireEvent.click(screen.getByText('VS Code で開く'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.openEditor', id: 'alpha' });
     fireEvent.click(screen.getByText('ターミナルで開く'));
@@ -288,7 +288,7 @@ const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('d
 
 describe('プロジェクトまわりのアイコン', () => {
   it('ProjectScreen の操作ボタン', () => {
-    render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" items={[]} notFound={false} {...rail} /></IntentRoot>);
     expect(iconOf(screen.getByRole('button', { name: '新しいセッション' }))).toBe('add');
     expect(iconOf(screen.getByRole('button', { name: 'VS Code で開く' }))).toBe('openEditor');
     expect(iconOf(screen.getByRole('button', { name: 'ターミナルで開く' }))).toBe('openTerminal');
@@ -304,7 +304,7 @@ describe('プロジェクトのステータスの色', () => {
     render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'paused', label: 'Paused', cards: [{ ...card('alpha'), status: 'paused' }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
     expect(screen.getByLabelText('alpha の状態').getAttribute('data-status')).toBe('paused');
     cleanup();
-    render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="done" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="done" items={[]} notFound={false} {...rail} /></IntentRoot>);
     expect(screen.getByLabelText('状態').getAttribute('data-status')).toBe('done');
   });
   it('セクションの見出しにステータスの色の点が付く', () => {
@@ -316,7 +316,7 @@ describe('プロジェクトのステータスの色', () => {
 describe('ProjectScreen の右レールの読む面', () => {
   // アーティファクトの節も白い面に載せ、面の中のカードは淡い地で重ねる（見出しと空のときの文が光の上に出ないように）。
   it('TODO、メモ、アーティファクトの節は白い面に載る', () => {
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" sessions={[]} notFound={false} {...rail} /></IntentRoot>);
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" items={[]} notFound={false} {...rail} /></IntentRoot>);
     const panels = [...container.querySelectorAll('.rail > .rail-panel')];
     expect(panels.map((p) => p.querySelector('.h2')?.textContent)).toEqual(['TODO', 'メモ', 'アーティファクト']);
   });

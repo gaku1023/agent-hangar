@@ -3,13 +3,15 @@ import type { State } from '../mediator/types.ts';
 import { artifactsOf, todosOf, type Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
 import type { ParentLink } from './heading.ts';
-import { presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
+import { presentSessionRow, sortForSections } from './row.ts';
+import { DONE_HEAD, sectionRows, type ListItem } from './sections.ts';
 
 /** 候補の TODO の表示。sessionId は、そのセッションが手元にあって開けるときだけ入る。 */
 export type TodoCandidateProps = { note: string; sessionId: string | null; sessionName: string; ago: string };
 export type TodoItemProps = { id: string; text: string; done: boolean; candidate: TodoCandidateProps | null };
 export type ArtifactCardProps = { id: string; title: string; description: string | null; favicon: string; url: string; lastPublished: string; versionCount: number; canOpenEditor: boolean };
-export type ProjectProps = { id: string; name: string; parent: ParentLink; path: string | null; resolved: boolean; status: ProjectStatus; sessions: SessionRowProps[]; notFound: boolean; isScratch: boolean; todos: TodoItemProps[]; memo: { markdown: string; updatedAt: number } | null; artifacts: ArtifactCardProps[] };
+/** items はセッションの一覧で、節の見出しと行の並び（P3）。 */
+export type ProjectProps = { id: string; name: string; parent: ParentLink; path: string | null; resolved: boolean; status: ProjectStatus; items: ListItem[]; notFound: boolean; isScratch: boolean; todos: TodoItemProps[]; memo: { markdown: string; updatedAt: number } | null; artifacts: ArtifactCardProps[] };
 
 const NO_NOTE = '根拠は書かれていません';
 const UNKNOWN_SESSION = '不明なセッション';
@@ -37,13 +39,15 @@ export function presentArtifactCard(a: ArtifactDto, now: number): ArtifactCardPr
 /** プロジェクト詳細の見出しの上には、一覧へ戻るリンクを出す。 */
 const PARENT: ParentLink = { label: 'プロジェクト', route: { name: 'projects' } };
 
-export function presentProject(_state: State, store: Store, now: number, id: string): ProjectProps {
+export function presentProject(state: State, store: Store, now: number, id: string): ProjectProps {
   const p = store.projects[id];
-  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', sessions: [], notFound: true, isScratch: false, todos: [], memo: null, artifacts: [] };
-  const sessions = sortSessions(Object.values(store.sessions).filter((s) => s.projectId === id)).map((s) => presentSessionRow(s, store, now));
+  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', items: [], notFound: true, isScratch: false, todos: [], memo: null, artifacts: [] };
+  // 節で読む（P3）。広げた節はプロジェクトごとに Mediator が覚えている（mediator/sections.ts）。
+  const rows = sortForSections(Object.values(store.sessions).filter((s) => s.projectId === id)).map((s) => presentSessionRow(s, store, now));
+  const items = sectionRows(rows, 'project', { now, doneHead: DONE_HEAD, expanded: new Set(state.sectionsOpen[id] ?? []) });
   const memo = store.memos[id];
   return {
-    id, name: p.name, parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, sessions, notFound: false, isScratch: p.isScratch,
+    id, name: p.name, parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, items, notFound: false, isScratch: p.isScratch,
     todos: todosOf(store, id).map((t) => ({ id: t.id, text: t.text, done: t.done, candidate: presentTodoCandidate(t, store, now) })),
     memo: memo ? { markdown: memo.markdown, updatedAt: memo.updatedAt } : null,
     artifacts: artifactsOf(store, { projectId: id }).map((a) => presentArtifactCard(a, now)),

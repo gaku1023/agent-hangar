@@ -32,7 +32,8 @@ export function ProjectScreen(props: ProjectProps) {
           <button className="btn" aria-label={railOpen ? '右の欄を閉じる' : '右の欄を開く'} onClick={() => setRailOpen(!railOpen)}><Icon name={railOpen ? 'paneClose' : 'paneOpen'} /></button>
         </PageHeading>
         <div className="mono faint project-path">{props.path ?? 'この PC にパスがありません'}{!props.resolved && props.path ? '（見つかりません）' : ''}</div>
-        <SessionRows rows={props.sessions} variant="project" />
+        {/* 見出しの「ほか N 件」と Archived の「表示」は、このプロジェクトの節をその場で広げる。 */}
+        <SessionRows items={props.items} variant="project" moreIntent={(target) => (target === 'done' || target === 'archived' ? { type: 'project.section.toggle', projectId: props.id, section: target } : null)} />
       </div>
       {railOpen && (
         <aside className="rail">
