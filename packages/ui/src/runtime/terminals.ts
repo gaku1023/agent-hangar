@@ -102,12 +102,14 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     };
     // 自分で閉じた接続（disconnect）は e.ws を先に外しているので、ここには来ない。
     // サーバが断った（error）ときは、待っても同じ答えなので自動ではつながず、「再接続」のボタンに任せる。
-    ws.onclose = () => {
+    // 中の端末が終わったとき（Claude の終了、タブを閉じた）は、サーバが 1000 と 'exited' で閉じる（server の pty/relay.ts）。切れたのではないので、つなぎ直さない。
+    ws.onclose = (ev?: { code?: number; reason?: string }) => {
       if (e.ws !== ws) return;
       e.ws = null;
       if (e.status === 'error') { notify(); return; }
       setStatus(e, 'closed');
-      if (e.want) { e.dropped = true; scheduleRetry(tabId, e); }
+      const exited = ev?.code === 1000 && ev.reason === 'exited';
+      if (e.want && !exited) { e.dropped = true; scheduleRetry(tabId, e); }
       notify();
     };
     ws.onerror = () => { /* onclose が続く */ };

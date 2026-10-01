@@ -4,10 +4,10 @@ import { createTerminalHost, type TerminalLike } from './terminals.ts';
 class FakeWs {
   static all: FakeWs[] = [];
   readyState = 0; sent: string[] = [];
-  onopen: (() => void) | null = null; onmessage: ((m: { data: string }) => void) | null = null; onclose: (() => void) | null = null; onerror: (() => void) | null = null;
+  onopen: (() => void) | null = null; onmessage: ((m: { data: string }) => void) | null = null; onclose: ((e?: { code: number; reason: string }) => void) | null = null; onerror: (() => void) | null = null;
   constructor(public url: string) { FakeWs.all.push(this); }
   send(d: string) { this.sent.push(d); }
-  close() { this.readyState = 3; this.onclose?.(); }
+  close(code?: number, reason?: string) { this.readyState = 3; this.onclose?.(code === undefined ? undefined : { code, reason: reason ?? '' }); }
   open() { this.readyState = 1; this.onopen?.(); }
   receive(m: unknown) { this.onmessage?.({ data: JSON.stringify(m) }); }
 }
@@ -278,6 +278,20 @@ describe('タブごとのつなぎ直し（F1）', () => {
       vi.advanceTimersByTime(60_000);
       expect(FakeWs.all).toHaveLength(1);
       expect(host.status('t1')).toBe('closed');
+    } finally { vi.useRealTimers(); }
+  });
+  // tmux の中の端末が終わると、サーバは 1000 と 'exited' で閉じる（pty/relay.ts）。切れたのではなく終わったので、つなぎ直さない。
+  it('中の端末が終わって閉じたときはつなぎ直さず、切れたとも言わない', () => {
+    vi.useFakeTimers();
+    try {
+      const { host } = make();
+      host.connect('t1');
+      FakeWs.all[0]!.open();
+      FakeWs.all[0]!.close(1000, 'exited');
+      expect(host.status('t1')).toBe('closed');
+      expect(host.link('t1')).toEqual({ retryAt: null, dropped: false });
+      vi.advanceTimersByTime(60_000);
+      expect(FakeWs.all).toHaveLength(1);
     } finally { vi.useRealTimers(); }
   });
   it('サーバが断ったとき（エラーの知らせ）は待ってもつながらないので、自動ではつなぎ直さない', () => {
