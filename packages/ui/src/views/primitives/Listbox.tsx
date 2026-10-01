@@ -45,7 +45,8 @@ export function Listbox(props: ListboxProps) {
   const listId = `${uid}-list`;
   const faceValueId = `${uid}-value`;
   const optId = (i: number) => `${uid}-opt-${i}`;
-  const searchable = props.options.length >= SEARCH_MIN;
+  // 操作があるときは件数によらず検索欄を出す。操作は打った語を使う（「『語』を新しいフォルダとして作る」）ので、打つ欄が要る。
+  const searchable = props.options.length >= SEARCH_MIN || !!props.actions;
   const sections = arrangeSections(props.options, props.groups, query);
   const items = sections.flatMap((s) => s.items);
   const acts = open && props.actions ? props.actions(query) : [];

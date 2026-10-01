@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { LaunchParams } from '@agent-hangar/shared';
+import type { LaunchParams, ProjectPlace } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { LaunchPrefs } from '../mediator/types.ts';
 import { SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
@@ -9,8 +9,8 @@ import { Dialog } from './primitives/Dialog.tsx';
 import { Fold } from './primitives/Fold.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
-import type { ListboxOption } from './primitives/listboxModel.ts';
-import { OptionCards, type OptionCardItem } from './primitives/OptionCard.tsx';
+import type { ListboxAction, ListboxOption } from './primitives/listboxModel.ts';
+import { CheckCard, OptionCards, type OptionCardItem } from './primitives/OptionCard.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 
 // 値は claude --help の --model の別名、--effort と --permission-mode の選択肢に合わせる。
@@ -36,6 +36,11 @@ const EFFORT_OPTIONS = EFFORTS.map((e, i) => ({ value: e, label: e || '既定', 
 /** プロジェクトの一覧の先頭に置くスクラッチの行。値はプロジェクトの id と重ならず、スクラッチの前回値の鍵と同じ綴りである。 */
 const SCRATCH = SCRATCH_CHOICE;
 const SCRATCH_OPTION: ListboxOption = { value: SCRATCH, label: 'スクラッチ', sub: '名前は決めずに始めて、あとでプロジェクトに昇格できる', subKind: 'prose', faceSub: '~/.agent-hangar/scratch/<日時>/', icon: 'scratch' };
+/** 新しいフォルダの行の値。プロジェクトの id ともスクラッチとも重ならない。行は顔にだけ使い、一覧には並べない。 */
+const NEW_DIR = ':new';
+/** 既存のフォルダ（未登録と Finder）の行の値の頭。後ろにパスを付ける。 */
+const DIR = ':dir:';
+const isDir = (v: string) => v.startsWith(DIR);
 
 /** 詳細の欄の値。追加ディレクトリは欄のまま 1 行 1 つの文字で持つ。 */
 type Options = { model: string; effort: string; permissionMode: string; worktree: string; addDirs: string };
@@ -67,6 +72,19 @@ export function NewSessionDialog(props: NewSessionProps) {
     return props.projectId && props.projects.some((p) => p.id === props.projectId) ? props.projectId : '';
   });
   const scratch = choice === SCRATCH;
+  const newDir = choice === NEW_DIR;
+  const dirPath = isDir(choice) ? choice.slice(DIR.length) : null;
+  // 未登録の一覧に載っているのはワークスペース直下のフォルダだけなので、載っていなければ外か深い階層である。
+  const outside = dirPath !== null && !props.dirs.some((d) => d.path === dirPath);
+  const root = props.workspaceRoot ?? '~/workspace';
+  const title = scratch ? 'スクラッチで始める' : newDir ? '新しいフォルダで始める' : dirPath ? 'フォルダを登録して始める' : '新しいセッション';
+  // 新しいフォルダの名前と git init。名前は「『語』を新しいフォルダとして作る」で選んだときの語を入れる。
+  const [newName, setNewName] = useState('');
+  const [gitInit, setGitInit] = useState(true);
+  // Finder で選んだ、未登録の一覧に無いフォルダ（ワークスペースの外か深い階層）。行を持たないので、ここで覚えて行を足す。
+  const [extraDir, setExtraDir] = useState<string | null>(null);
+  // 開いた時点の Finder の回数。これより新しい結果だけを使う。別のダイアログで選んだ結果が当たらないようにするためである。
+  const pickedAtOpen = useRef(props.picked?.n ?? 0);
   const [name, setName] = useState(props.draft?.name ?? '');
   const [prompt, setPrompt] = useState(props.draft?.prompt ?? '');
   // 開いたときに下書きを戻したか。「消す」を押すまで見出しに札を出す。
@@ -88,6 +106,19 @@ export function NewSessionDialog(props: NewSessionProps) {
     setDetail(optionsOf(props.prefs[value]));
     setReplaced((n) => n + 1);
   };
+  useEffect(() => {
+    const p = props.picked;
+    if (!p || p.n <= pickedAtOpen.current) return;
+    pickedAtOpen.current = p.n;
+    const known = props.projects.find((x) => x.path === p.path);
+    if (known) { choose(known.id); return; }
+    if (!props.dirs.some((d) => d.path === p.path)) setExtraDir(p.path);
+    choose(DIR + p.path);
+  }, [props.picked?.n]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // 作れた後に起動だけが失敗した。押し直しで二重に作らないよう、作ったプロジェクトを選び直す。
+    if (props.createdProjectId) setChoice(props.createdProjectId);
+  }, [props.createdProjectId]);
   const resetDetail = () => { setTouched(true); setDetail(DEFAULT_OPTIONS); setReplaced((n) => n + 1); };
   const { model, effort, permissionMode, worktree, addDirs } = detail;
   const nameInput = useRef<HTMLInputElement>(null);
@@ -113,8 +144,12 @@ export function NewSessionDialog(props: NewSessionProps) {
     if (props.submitting) return;
     setStaleError(null);
     const params: LaunchParams = {};
+    let place: ProjectPlace | undefined;
     // スクラッチはプロジェクトを持たず、サーバが使い捨てのディレクトリを作る。
     if (scratch) params.scratch = true;
+    // 新しいフォルダと未登録のフォルダは、Mediator がプロジェクトを作ってから起動する。
+    else if (newDir) place = { kind: 'newDir', name: newName.trim(), gitInit };
+    else if (dirPath) place = { kind: 'dir', path: dirPath };
     else if (choice) params.projectId = choice;
     if (name.trim()) params.name = name.trim();
     if (prompt.trim()) params.prompt = prompt.trim();
@@ -124,7 +159,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     if (worktree.trim()) params.worktree = worktree.trim();
     const dirs = dirsOf(addDirs);
     if (dirs.length) params.addDirs = dirs;
-    emit({ type: 'session.new.submit', params });
+    emit({ type: 'session.new.submit', params, ...(place ? { place } : {}) });
   };
 
   // ⌘Enter（Ctrl+Enter でも）はどこからでも起動する。初期プロンプトの欄の中でも起動できるようにするためである。
@@ -142,7 +177,27 @@ export function NewSessionDialog(props: NewSessionProps) {
   };
 
   const recent = new Set(props.recentIds);
-  const options = [SCRATCH_OPTION, ...props.projects.map((p) => ({ value: p.id, label: p.name, sub: p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status }))];
+  const options: ListboxOption[] = [
+    SCRATCH_OPTION,
+    ...props.projects.map((p) => ({ value: p.id, label: p.name, sub: p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status })),
+    ...props.dirs.map((d) => ({ value: DIR + d.path, label: d.name, sub: d.path, icon: 'folder' as const, tag: '未登録', searchOnly: true })),
+    ...(extraDir ? [{ value: DIR + extraDir, label: extraDir.split('/').pop() || extraDir, sub: extraDir, icon: 'folder' as const, hidden: true }] : []),
+    { value: NEW_DIR, label: newName.trim() || '新しいフォルダ', faceSub: `${root}/${newName.trim()}（新しく作る）`, icon: 'folderPlus', hidden: true },
+  ];
+  const names = new Set([...props.projects.map((p) => p.name), ...props.dirs.map((d) => d.name)]);
+  const actions = (q: string): ListboxAction[] => {
+    const t = q.trim();
+    const first: ListboxAction = t && !names.has(t)
+      ? { value: 'new', label: `「${t}」を新しいフォルダとして作る`, sub: `${root}/${t}`, icon: 'folderPlus' }
+      : { value: 'new', label: '新しいフォルダを作る…', icon: 'folderPlus' };
+    return props.desktop ? [first, { value: 'finder', label: 'ほかの場所を選ぶ…', sub: 'Finder', icon: 'folderOpen' }] : [first];
+  };
+  const onAction = (value: string, q: string) => {
+    if (value === 'finder') { emit({ type: 'folder.pick' }); return; }
+    const t = q.trim();
+    if (t && !names.has(t)) setNewName(t);
+    choose(NEW_DIR);
+  };
   const groups = [{ title: 'すぐ始める', values: [SCRATCH] }, { title: '最近', values: props.recentIds }, { title: 'すべて', values: props.projects.filter((p) => !recent.has(p.id)).map((p) => p.id) }];
   const parts = optionParts(detail);
   // 前回値のままなら、畳んだままでも「前回と同じ」と中身が読めるようにし、「既定に戻す」を添える（D1）。
@@ -164,7 +219,7 @@ export function NewSessionDialog(props: NewSessionProps) {
   // 書きかけを背景の押し違いで失わないよう、背景では閉じない。
   return (
     <Dialog
-      title={scratch ? 'スクラッチで始める' : '新しいセッション'}
+      title={title}
       titleAside={restored && (
         <>
           <span className="draft-tag"><Icon name="edit" />下書き</span>
@@ -185,9 +240,19 @@ export function NewSessionDialog(props: NewSessionProps) {
     >
       <div className="field">
         <span aria-hidden="true">プロジェクト</span>
-        <Listbox id="new-session-project" label="プロジェクト" value={choice || null} options={options} groups={groups} onChange={choose} showSubInFace searchPlaceholder="名前かパスで探す" minWidth={360} />
+        <Listbox id="new-session-project" label="プロジェクト" value={choice || null} options={options} groups={groups} onChange={choose} actions={actions} onAction={onAction} showSubInFace searchPlaceholder="名前かパスで探す" minWidth={360} />
       </div>
       {scratch && <div className="faint">~/.agent-hangar/scratch/ の下に日時のディレクトリを作って起動します。後からプロジェクトに昇格できます。</div>}
+      {newDir && (
+        <>
+          <label className="field" htmlFor="new-session-dir-name">フォルダの名前
+            <input id="new-session-dir-name" className="input mono" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="ワークスペースに作るディレクトリの名前" />
+          </label>
+          <div className="faint">{root}/{newName.trim()} を作り、プロジェクトに登録して起動します</div>
+          <CheckCard label="git init する" description="空のリポジトリを作ってから起動します" icon="gitInit" checked={gitInit} onChange={setGitInit} />
+        </>
+      )}
+      {dirPath && <div className="faint">{outside ? 'ワークスペースの外のフォルダです。この PC でのパスだけを覚えます。ほかの PC では、開いたときに場所を聞きます' : `${dirPath} はまだプロジェクトではありません。起動すると登録します`}</div>}
       <label className="field" htmlFor="new-session-name">名前（任意）
         <input ref={nameInput} id="new-session-name" className="input" data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder="一覧での表示名" />
       </label>

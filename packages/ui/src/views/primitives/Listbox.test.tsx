@@ -164,6 +164,14 @@ describe('Listbox の検索', () => {
     fireEvent.click(face());
     expect(screen.queryByRole('combobox')).toBeNull();
   });
+  it('操作があれば 8 件未満でも検索欄を出す（打った語を操作が使うため）', () => {
+    const onAction = vi.fn();
+    render(<Listbox label="プロジェクト" value={null} options={few} onChange={() => {}} actions={(q) => [{ value: 'new', label: `「${q}」を作る`, icon: 'folderPlus' }]} onAction={onAction} />);
+    fireEvent.click(face());
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+    expect(onAction).toHaveBeenCalledWith('new', 'zzz');
+  });
   it('8 件以上では検索欄に入力が向き、名前と補足で絞れ、一致を塗る', () => {
     render(<Harness options={many} />);
     fireEvent.click(face());
