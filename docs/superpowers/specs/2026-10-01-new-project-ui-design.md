@@ -138,12 +138,13 @@ Finder を取り消したら、選択を変えない。
 `place` があるときは、Mediator が `api.createProjectThenLaunch` の副作用を出し、runtime が次の順に行う。
 
 1. `POST /api/projects` で作るか登録する。失敗したら `launch.failed` を返して終える（プロジェクトはできていない）。
-2. できたプロジェクトを store に入れ、`project.created { projectId, from: 'newSession' }` を Mediator へ送る。Mediator はダイアログの選択をこのプロジェクトに差し替え（`overlay.projectId`）、送った詳細をこのプロジェクトの前回値にする。
+2. できたプロジェクトを store に入れ、`project.created { projectId }` を Mediator へ送る。Mediator は送信中の状態に `createdProjectId` を持たせ（`launch: { kind: 'submitting', createdProjectId }`）、送った詳細をこのプロジェクトの前回値にする。
 3. `projectId` を入れた params で、いまの `api.launch` と同じ起動をする。結果は `launch.done` か `launch.failed` である。
 
 2 の後に起動が失敗したら、プロジェクトは残し、ダイアログはできたプロジェクトを選んだまま失敗の文言を出す。
 押し直しても、もう一度作ることはない。
-ダイアログは `projectId` を開いたときにだけ読むので、`overlay.projectId` が変わったら選択を合わせる。
+失敗の状態も `createdProjectId` を持ち（`launch: { kind: 'failed', message, createdProjectId }`）、ダイアログはそれが変わったら選択をそのプロジェクトに合わせる。
+`overlay.projectId` は書き換えない。Root はダイアログを `overlay.projectId` を key にして描くので、書き換えると作り直され、名前と初期プロンプトの書きかけが消えるためである。
 
 ### プロジェクト画面
 
