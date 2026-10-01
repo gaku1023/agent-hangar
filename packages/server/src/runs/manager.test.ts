@@ -180,6 +180,28 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(tmux!.run('list-keys', '-T', 'root', 'S-Enter').stdout).toContain('hangar-');
   });
 
+  it('run の claude には UTF-8 のロケールを渡す。tmux サーバの環境には LANG が無く、claude が日本語を写すとクリップボードが空になる', async () => {
+    fake = writeFakeClaude(home, { recordEnv: ['LC_CTYPE'] });
+    const r = make().start({ projectId: 'p1' });
+    await launchedArgs(r.run.id);
+    await waitFor(() => fs.existsSync(fake.envFile));
+    expect(fs.readFileSync(fake.envFile, 'utf8')).toContain('LC_CTYPE=UTF-8\n');
+  });
+
+  it('ターミナルのシェルが文字のロケールを決めていれば、そちらを渡す', async () => {
+    fake = writeFakeClaude(home, { recordEnv: ['LC_CTYPE'] });
+    const r = make().startFromTerminal({ cwd, args: [], env: { LC_CTYPE: 'ja_JP.UTF-8' } });
+    await launchedArgs(r.run.id);
+    await waitFor(() => fs.existsSync(fake.envFile));
+    expect(fs.readFileSync(fake.envFile, 'utf8')).toContain('LC_CTYPE=ja_JP.UTF-8\n');
+  });
+
+  it('シェルタブにも UTF-8 のロケールを渡す', async () => {
+    const r = make().start({ projectId: 'p1' });
+    const tab = make().openTab(r.run.id);
+    expect(tmux!.run('show-environment', '-t', `=${tab.tmuxName}`, 'LC_CTYPE').stdout.trim()).toBe('LC_CTYPE=UTF-8');
+  });
+
   it('scratch は新しいディレクトリを作り、スクラッチのプロジェクトに属するセッションを起動する', async () => {
     const rm = make();
     // projectId が一緒に来ても scratch を優先する。
