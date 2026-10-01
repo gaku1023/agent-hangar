@@ -36,7 +36,7 @@ import { ClaudeHeadlessSummarizer } from './summary/claude.ts';
 import { SummaryJob } from './summary/job.ts';
 import { LmStudioSummarizer } from './summary/lmstudio.ts';
 import type { Summarizer } from './summary/types.ts';
-import { writeMemoConflictCopy, type SessionMemoBackup } from './sync/apply.ts';
+import { sessionIdOfChange, writeMemoConflictCopy, type SessionMemoBackup } from './sync/apply.ts';
 import { BACKUP_GENERATIONS, ClaudeConfigSync } from './sync/claudeConfig.ts';
 import { HttpCloudClient, type CloudClient } from './sync/client.ts';
 import { copyTranscriptForResume } from './sync/copy.ts';
@@ -664,13 +664,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     toast: (level, message) => toast(level, message),
     applied: (c) => {
       hub.broadcast({ type: 'sync.applied', table: c.tableName, rowId: c.rowId });
-      if (c.tableName === 'sessions' || c.tableName === 'runs' || c.tableName === 'session_summaries') {
-        const sessionId = c.tableName === 'runs'
-          ? (db.prepare('select session_id s from runs where id = ?').get(c.rowId) as { s: string } | undefined)?.s ?? null
-          : c.rowId;
-        const s = sessionId ? getSession(db, registry.current(), sessionId, { deviceId: device.id }) : null;
-        if (s) hub.broadcast({ type: 'session.upsert', session: s });
-      }
+      // セッションに付く表（sessions、runs、session_summaries、session_states）の行なら、そのセッションを配り直す。
+      const sessionId = sessionIdOfChange(db, c);
+      const s = sessionId ? getSession(db, registry.current(), sessionId, { deviceId: device.id }) : null;
+      if (s) hub.broadcast({ type: 'session.upsert', session: s });
       if (c.tableName === 'projects' || c.tableName === 'project_roots') {
         for (const p of listProjects(db, device.id, registry.current())) hub.broadcast({ type: 'project.upsert', project: p });
       }

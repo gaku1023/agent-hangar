@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChangeOut } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { applyRemoteBatch, applyRemoteChange, writeMemoConflictCopy } from './apply.ts';
+import { applyRemoteBatch, applyRemoteChange, sessionIdOfChange, writeMemoConflictCopy } from './apply.ts';
+import { getSessionState, setSessionState } from '../sessions/states.ts';
 
 const ch = (over: Partial<ChangeOut> & { rowId: string; updatedAt: number }): ChangeOut => ({ seq: 1, tableName: 'projects', op: 'upsert', deviceId: 'b', payload: { id: over.rowId, name: 'remote', status: 'active', is_scratch: 0, updated_at: over.updatedAt, deleted_at: null, origin_device: 'b' }, ...over });
 const o = { ownDeviceId: 'a', skipOwn: true };
@@ -320,5 +321,54 @@ describe('applyRemoteChange のセッションのメモ', () => {
     expect(files).toHaveLength(1);
     expect(files[0]).toMatch(/^session-id-[0-9a-f]{16}-\d{8}-\d{6}\.md$/);
     expect(fs.existsSync(path.join(home, 'backups', 'evil'))).toBe(false);
+  });
+});
+
+describe('セッションの状態の同期', () => {
+  const seedSession = (db: ReturnType<typeof openDb>) => upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/w', home_device: 'b' }, 'b');
+  const stateChange = (updatedAt: number, payload: Record<string, unknown>): ChangeOut => ({
+    seq: 1, tableName: 'session_states', rowId: 's1', op: 'upsert', deviceId: 'b', updatedAt,
+    payload: { session_id: 's1', status: null, note: null, return_on: null, set_by: null, set_at: null, candidate_status: null, candidate_note: null, candidate_return_on: null, candidate_source: null, candidate_at: null, rejected_at: null, updated_at: updatedAt, deleted_at: null, origin_device: 'b', ...payload },
+  });
+
+  it('状態と提案の列は同期で往復する', () => {
+    const a = openDb(':memory:');
+    seedSession(a);
+    setSessionState(a, 'a', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-02', setBy: 'user', now: 100 });
+    const sent = a.prepare("select payload, updated_at from changes where table_name = 'session_states'").get() as { payload: string; updated_at: number };
+    const b = openDb(':memory:');
+    seedSession(b);
+    expect(applyRemoteChange(b, { seq: 1, tableName: 'session_states', rowId: 's1', op: 'upsert', deviceId: 'a', updatedAt: sent.updated_at, payload: JSON.parse(sent.payload) }, { ownDeviceId: 'b', skipOwn: true })).toBe('applied');
+    expect(getSessionState(b, 's1')).toEqual(getSessionState(a, 's1'));
+  });
+  // Review Focus 1：後から上げた PC の一括 Done（updated_at 0）が、先に上げた PC で付けた状態に勝ってはいけない。
+  it('先に上げた PC で付けた状態は、後から上げた PC の一括 Done に負けない', () => {
+    const b = openDb(':memory:');
+    seedSession(b);
+    b.prepare("insert into session_states (session_id, status, set_by, set_at, updated_at, origin_device) values ('s1', 'done', 'import', 900, 0, 'import')").run();
+    expect(applyRemoteChange(b, stateChange(50, { status: 'paused', note: '明日', return_on: '2026-10-02', set_by: 'user', set_at: 50 }), o)).toBe('applied');
+    expect(getSessionState(b, 's1')).toMatchObject({ status: 'paused', returnOn: '2026-10-02', setBy: 'user' });
+  });
+  it('同じ束にセッションの行があれば、それを先に適用してから状態を適用する', () => {
+    const db = openDb(':memory:');
+    const session: ChangeOut = { seq: 2, tableName: 'sessions', rowId: 's1', op: 'upsert', deviceId: 'b', updatedAt: 10, payload: { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/w', home_device: 'b', updated_at: 10, deleted_at: null, origin_device: 'b' } };
+    expect(applyRemoteBatch(db, [stateChange(20, { status: 'done', set_by: 'user', set_at: 20 }), session], o).map((c) => c.tableName)).toEqual(['sessions', 'session_states']);
+  });
+  // 表を持たない古い端末は、SHARED_TABLES に無い表の変更を捨てる。束のほかの変更は止めない。
+  it('知らない表の変更は捨て、同じ束のほかの変更は適用する', () => {
+    const db = openDb(':memory:');
+    const applied = applyRemoteBatch(db, [{ ...ch({ rowId: 'x', updatedAt: 5 }), tableName: 'future_states' as never }, ch({ rowId: 'p1', updatedAt: 5 })], o);
+    expect(applied.map((c) => c.rowId)).toEqual(['p1']);
+  });
+  it('sessionIdOfChange は、状態・要約・セッションの行ではその id、run ではそのセッション、ほかは null', () => {
+    const db = openDb(':memory:');
+    seedSession(db);
+    upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'b', kind: 'start', tmux_name: 'hangar-r1', launch_params: '{}', started_at: 1, heartbeat_at: 1 }, 'b');
+    expect(sessionIdOfChange(db, { tableName: 'session_states', rowId: 's1' })).toBe('s1');
+    expect(sessionIdOfChange(db, { tableName: 'session_summaries', rowId: 's1' })).toBe('s1');
+    expect(sessionIdOfChange(db, { tableName: 'sessions', rowId: 's1' })).toBe('s1');
+    expect(sessionIdOfChange(db, { tableName: 'runs', rowId: 'r1' })).toBe('s1');
+    expect(sessionIdOfChange(db, { tableName: 'runs', rowId: 'nope' })).toBeNull();
+    expect(sessionIdOfChange(db, { tableName: 'todos', rowId: 't1' })).toBeNull();
   });
 });
