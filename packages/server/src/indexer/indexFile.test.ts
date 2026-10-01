@@ -10,7 +10,7 @@ import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
 import { localDay } from '../usage/aggregate.ts';
-import { setSessionState } from '../sessions/states.ts';
+import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 
 let dir: string;
 let db: Db;
@@ -464,10 +464,47 @@ describe('新しい発言で状態を外す', () => {
   /** 最後に積んだ変更の連番。未送信の差分は同じ行ごとに 1 つへまとまるので、書いたかどうかは件数ではなくこれで見る。 */
   const lastSeq = (table = 'session_states') => (db.prepare('select max(seq) s from changes where table_name = ?').get(table) as { s: number | null }).s;
 
-  it('状態を付けた後に打った発言で、状態を外して印なしに戻す', () => {
+  /** 状態を付けた後に resume したプロセス。発言を出したプロセスの起動時刻として返す。 */
+  const RESUMED = ALPHA_END + 120_000;
+  const resumed = { deviceId: DEV, processStartOf: () => RESUMED };
+
+  it('resume した後に打った発言で、状態を外して印なしに戻す。起動時刻はそのセッションと発言の時刻で引く', () => {
     const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
     setSessionState(db, DEV, sessionId, { status: 'done', setBy: 'user', now: ALPHA_END + 60_000 });
     appendJson(alphaMain().path, prompt('もう一つ直して', '2026-09-01T11:00:00.000Z'));
+    const asked: unknown[] = [];
+    indexFile(db, alphaMain(), { deviceId: DEV, processStartOf: (q) => { asked.push(q); return RESUMED; } });
+    expect(stateOf(sessionId)).toEqual({ status: null, candidate_at: null, rejected_at: null });
+    expect(asked).toEqual([{ sessionId, providerSessionId: SESSION_ALPHA, promptTs: Date.parse('2026-09-01T11:00:00.000Z') }]);
+  });
+  // 実物の確かめ（2026-10-02）：会話で Paused を選んだ直後に、同じ会話で打った発言で外れていた。
+  it('同じプロセスの続きの発言（プロセスの起動が状態を付けた時刻より前）では、状態を外さない', () => {
+    const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
+    setSessionState(db, DEV, sessionId, { status: 'paused', returnOn: '2026-09-02', setBy: 'conversation', now: ALPHA_END + 60_000 });
+    appendJson(alphaMain().path, prompt('ポーズになってなくね？', '2026-09-01T11:00:00.000Z'));
+    indexFile(db, alphaMain(), { deviceId: DEV, processStartOf: () => ALPHA_END - 600_000 });
+    expect(stateOf(sessionId)).toMatchObject({ status: 'paused' });
+  });
+  it('プロセスの起動時刻が取れなければ状態は外さず、提案は外す', () => {
+    const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
+    setSessionState(db, DEV, sessionId, { status: 'done', setBy: 'user', now: ALPHA_END + 60_000 });
+    appendJson(alphaMain().path, prompt('続けて', '2026-09-01T11:00:00.000Z'));
+    indexFile(db, alphaMain(), { deviceId: DEV, processStartOf: () => null });
+    expect(stateOf(sessionId)).toMatchObject({ status: 'done' });
+    // 起動時刻を引く口が渡されないときも同じである。
+    appendJson(alphaMain().path, prompt('もう一度', '2026-09-01T11:10:00.000Z'));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(stateOf(sessionId)).toMatchObject({ status: 'done' });
+  });
+  it('続きの発言で、提案と却下の印は外す', () => {
+    const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
+    proposeSessionState(db, DEV, sessionId, { status: 'done', note: '済んだ', returnOn: null, source: 'in_session', now: ALPHA_END + 60_000 });
+    appendJson(alphaMain().path, prompt('まだ続ける', '2026-09-01T11:00:00.000Z'));
+    indexFile(db, alphaMain(), { deviceId: DEV, processStartOf: () => null });
+    expect(stateOf(sessionId)).toEqual({ status: null, candidate_at: null, rejected_at: null });
+    proposeSessionState(db, DEV, sessionId, { status: 'done', note: '済んだ', returnOn: null, source: 'in_session', now: Date.parse('2026-09-01T11:05:00.000Z') });
+    rejectSessionState(db, DEV, sessionId, Date.parse('2026-09-01T11:06:00.000Z'));
+    appendJson(alphaMain().path, prompt('もう少し', '2026-09-01T11:10:00.000Z'));
     indexFile(db, alphaMain(), { deviceId: DEV });
     expect(stateOf(sessionId)).toEqual({ status: null, candidate_at: null, rejected_at: null });
   });
@@ -475,7 +512,7 @@ describe('新しい発言で状態を外す', () => {
     const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
     setSessionState(db, DEV, sessionId, { status: 'done', setBy: 'user', now: Date.parse('2026-09-01T11:00:00.000Z') });
     appendJson(alphaMain().path, prompt('遅れて索引に来た発言', '2026-09-01T10:30:00.000Z'));
-    indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaMain(), resumed);
     expect(stateOf(sessionId)).toMatchObject({ status: 'done' });
   });
   it('AskUserQuestion の答え（ツールの結果）、要約で続けた頭、中断の印では外さない', () => {
@@ -486,7 +523,7 @@ describe('新しい発言で状態を外す', () => {
       rec({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_ask', content: 'User has answered your questions: "このセッションをどうしますか"="Done にする".' }] } }, '2026-09-01T10:07:00.000Z'),
       rec({ type: 'user', isCompactSummary: true, isVisibleInTranscriptOnly: true, message: { role: 'user', content: 'This session is being continued from a previous conversation that ran out of context.' } }, '2026-09-01T10:08:00.000Z'),
       rec({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } }, '2026-09-01T10:09:00.000Z'));
-    indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaMain(), resumed);
     expect(stateOf(sessionId)).toMatchObject({ status: 'done' });
   });
   // Review Focus 3：作り直しは前からある発言を全部読み直す。
@@ -494,7 +531,7 @@ describe('新しい発言で状態を外す', () => {
     const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV, indexerVersion: 1 });
     setSessionState(db, DEV, sessionId, { status: 'paused', returnOn: '2026-09-02', setBy: 'user', now: ALPHA_END + 60_000 });
     const before = lastSeq();
-    indexFile(db, alphaMain(), { deviceId: DEV, indexerVersion: 2 });
+    indexFile(db, alphaMain(), { ...resumed, indexerVersion: 2 });
     expect(stateOf(sessionId)).toMatchObject({ status: 'paused' });
     expect(lastSeq()).toBe(before);
   });
@@ -510,7 +547,7 @@ describe('新しい発言で状態を外す', () => {
     const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
     setSessionState(db, DEV, sessionId, { status: 'done', setBy: 'user', now: ALPHA_END + 60_000 });
     appendJson(alphaSub().path, prompt('サブエージェントへの指示', '2026-09-01T11:00:00.000Z'));
-    indexFile(db, alphaSub(), { deviceId: DEV });
+    indexFile(db, alphaSub(), resumed);
     expect(stateOf(sessionId)).toMatchObject({ status: 'done' });
   });
   it('他端末の写しの発言では外さず、共有テーブルに書かない', () => {
@@ -523,7 +560,7 @@ describe('新しい発言で状態を外す', () => {
       const p = path.join(remoteDir, 'dev-b', 'projects', '-w-alpha', `${u}.jsonl`);
       fs.mkdirSync(path.dirname(p), { recursive: true });
       fs.writeFileSync(p, JSON.stringify({ type: 'user', message: { role: 'user', content: '別の PC で続けた' }, cwd: '/w/alpha', timestamp: '2026-09-02T00:00:00.000Z' }) + '\n');
-      indexFile(db, { path: p, sessionId: u, agentId: null, deviceId: 'dev-b' }, { deviceId: DEV, remote: true });
+      indexFile(db, { path: p, sessionId: u, agentId: null, deviceId: 'dev-b' }, { ...resumed, remote: true });
       expect(stateOf('s9')).toMatchObject({ status: 'done' });
       expect(lastSeq()).toBe(before);
     } finally {

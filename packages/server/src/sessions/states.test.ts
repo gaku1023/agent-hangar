@@ -48,7 +48,7 @@ describe('提案する', () => {
     proposeSessionState(db, 'd', 's1', { ...paused, now: 100 });
     rejectSessionState(db, 'd', 's1', 200);
     expect(proposeSessionState(db, 'd', 's1', { ...paused, now: 300 }).outcome).toBe('rejected_before');
-    expect(clearOnNewPrompt(db, 'd', 's1', 400)).toBe(true);
+    expect(clearOnNewPrompt(db, 'd', 's1', 400, () => null)).toBe(true);
     expect(proposeSessionState(db, 'd', 's1', { ...paused, now: 500 }).outcome).toBe('proposed');
   });
 });
@@ -116,38 +116,79 @@ describe('確定と却下', () => {
 });
 
 describe('新しい発言', () => {
-  it('発言の時刻が set_at・candidate_at・rejected_at のどれよりも後なら、全部を消して true', () => {
+  /** プロセスの起動時刻を返す偽物。引いた回数も数える。 */
+  const startedAt = (t: number | null) => { const f = () => { f.calls += 1; return t; }; f.calls = 0; return f; };
+  const EMPTY = { status: null, note: null, return_on: null, set_by: null, set_at: null, candidate_status: null, candidate_note: null, candidate_return_on: null, candidate_source: null, candidate_at: null, rejected_at: null };
+
+  it('resume した後の発言（プロセスの起動が set_at より後）なら、状態を全部消して true', () => {
     const db = seed();
     setSessionState(db, 'd', 's1', { status: 'paused', note: '見る', returnOn: '2026-10-02', setBy: 'conversation', now: 100 });
-    expect(clearOnNewPrompt(db, 'd', 's1', 101)).toBe(true);
-    expect(row(db)).toEqual({ status: null, note: null, return_on: null, set_by: null, set_at: null, candidate_status: null, candidate_note: null, candidate_return_on: null, candidate_source: null, candidate_at: null, rejected_at: null });
+    expect(clearOnNewPrompt(db, 'd', 's1', 300, startedAt(200))).toBe(true);
+    expect(row(db)).toEqual(EMPTY);
     expect(getSessionState(db, 's1')).toEqual(NO_STATE);
   });
-  it('発言の時刻が付けた時刻と同じか前なら外さない', () => {
+  // 実物の確かめ（2026-10-02）：会話で Paused を選んだ直後に、同じ会話で打った発言で外れていた。
+  it('同じプロセスの続きの発言（プロセスの起動が set_at より前）では、状態を外さず書かない', () => {
+    const db = seed();
+    setSessionState(db, 'd', 's1', { status: 'paused', note: '見る', returnOn: '2026-10-02', setBy: 'conversation', now: 100 });
+    const before = lastSeq(db);
+    expect(clearOnNewPrompt(db, 'd', 's1', 300, startedAt(50))).toBe(false);
+    expect(clearOnNewPrompt(db, 'd', 's1', 300, startedAt(100))).toBe(false);
+    expect(getSessionState(db, 's1')).toMatchObject({ status: 'paused', note: '見る', setBy: 'conversation', setAt: 100 });
+    expect(lastSeq(db)).toBe(before);
+  });
+  it('プロセスの起動時刻が取れなければ、状態を外さない', () => {
     const db = seed();
     setSessionState(db, 'd', 's1', { status: 'done', setBy: 'user', now: 100 });
-    expect(clearOnNewPrompt(db, 'd', 's1', 100)).toBe(false);
-    expect(clearOnNewPrompt(db, 'd', 's1', 99)).toBe(false);
+    expect(clearOnNewPrompt(db, 'd', 's1', 300, startedAt(null))).toBe(false);
     expect(getSessionState(db, 's1')!.status).toBe('done');
   });
-  it('提案だけ、却下だけのときもそれぞれの時刻と比べる', () => {
+  it('発言の時刻が付けた時刻と同じか前なら、プロセスを問わず外さず、起動時刻も引かない', () => {
+    const db = seed();
+    setSessionState(db, 'd', 's1', { status: 'done', setBy: 'user', now: 100 });
+    const f = startedAt(500);
+    expect(clearOnNewPrompt(db, 'd', 's1', 100, f)).toBe(false);
+    expect(clearOnNewPrompt(db, 'd', 's1', 99, f)).toBe(false);
+    expect(getSessionState(db, 's1')!.status).toBe('done');
+    expect(f.calls).toBe(0);
+  });
+  it('提案と却下は、プロセスを問わず、発言がそれぞれの時刻より後なら外す', () => {
     const db = seed();
     proposeSessionState(db, 'd', 's1', { ...paused, now: 100 });
-    expect(clearOnNewPrompt(db, 'd', 's1', 50)).toBe(false);
-    expect(clearOnNewPrompt(db, 'd', 's1', 150)).toBe(true);
+    expect(clearOnNewPrompt(db, 'd', 's1', 50, startedAt(null))).toBe(false);
+    expect(clearOnNewPrompt(db, 'd', 's1', 150, startedAt(null))).toBe(true);
+    expect(row(db)).toEqual(EMPTY);
     proposeSessionState(db, 'd', 's1', { ...paused, now: 200 });
     rejectSessionState(db, 'd', 's1', 300);
-    expect(clearOnNewPrompt(db, 'd', 's1', 250)).toBe(false);
-    expect(clearOnNewPrompt(db, 'd', 's1', 350)).toBe(true);
+    expect(clearOnNewPrompt(db, 'd', 's1', 250, startedAt(null))).toBe(false);
+    expect(clearOnNewPrompt(db, 'd', 's1', 350, startedAt(null))).toBe(true);
+    expect(row(db)).toEqual(EMPTY);
+  });
+  // 導入時の一括 Done も同じ規則に従う。導入時に動いていた会話は、次に resume したときに外れる。
+  it('一括 Done の行も、同じプロセスの続きでは外さず、resume した後の発言で外す', () => {
+    const db = seed();
+    db.prepare("insert into session_states (session_id, status, set_by, set_at, updated_at, origin_device) values ('s1', 'done', 'import', 1000, 0, 'import')").run();
+    expect(clearOnNewPrompt(db, 'd', 's1', 2_000, startedAt(500))).toBe(false);
+    expect(getSessionState(db, 's1')).toMatchObject({ status: 'done', setBy: 'import' });
+    expect(clearOnNewPrompt(db, 'd', 's1', 3_000, startedAt(2_500))).toBe(true);
+    expect(getSessionState(db, 's1')).toEqual(NO_STATE);
+  });
+  // 同期の競り合いで状態と提案を両方持つ行。続きの発言で提案だけが古くなる。
+  it('状態と提案を両方持つ行に続きの発言が来たら、提案だけを外して状態は残す', () => {
+    const db = seed();
+    setSessionState(db, 'd', 's1', { status: 'done', note: '済', setBy: 'conversation', now: 100 });
+    db.prepare("update session_states set candidate_status = 'paused', candidate_note = 'x', candidate_return_on = '2026-10-02', candidate_source = 'exit', candidate_at = 150, rejected_at = 120 where session_id = 's1'").run();
+    expect(clearOnNewPrompt(db, 'd', 's1', 300, startedAt(50))).toBe(true);
+    expect(row(db)).toEqual({ ...EMPTY, status: 'done', note: '済', set_by: 'conversation', set_at: 100 });
   });
   // Review Focus 2：発言は数が多い。状態の無いセッションで毎回書くと、D1 の無料枠を食う。
   it('行が無いか、状態も提案も却下も無ければ書かずに false', () => {
     const db = seed();
-    expect(clearOnNewPrompt(db, 'd', 's1', 1_000)).toBe(false);
+    expect(clearOnNewPrompt(db, 'd', 's1', 1_000, startedAt(500))).toBe(false);
     expect(lastSeq(db)).toBeNull();
     setSessionState(db, 'd', 's1', { status: null, setBy: 'user', now: 10 });
     const before = lastSeq(db);
-    expect(clearOnNewPrompt(db, 'd', 's1', 2_000)).toBe(false);
+    expect(clearOnNewPrompt(db, 'd', 's1', 2_000, startedAt(500))).toBe(false);
     expect(lastSeq(db)).toBe(before);
   });
 });

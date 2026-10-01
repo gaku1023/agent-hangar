@@ -32,6 +32,7 @@ import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
 import { RunError, RunManager } from './runs/manager.ts';
 import { aliveRunForSession } from './runs/queries.ts';
+import { processStartOfPrompt } from './sessions/promptProcess.ts';
 import { ClaudeHeadlessSummarizer } from './summary/claude.ts';
 import { SummaryJob } from './summary/job.ts';
 import { LmStudioSummarizer } from './summary/lmstudio.ts';
@@ -493,6 +494,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // 他端末から降ろした本文も索引化の対象にする。譲ったセッションは相手が持ち主なので見ない。
     remoteRoot: remoteRoot(home),
     isYielded: (uuid) => syncState.isYielded(uuid),
+    // 状態を外すのは resume した後の発言だけである。発言を出したプロセスの起動時刻を、登録と runs から引く。
+    processStartOf: (q) => processStartOfPrompt(db, device.id, registry.current(), q),
   });
 
   // 起動の途中かどうか。最初の全走査では未分類のセッションを数えきれないほど流すので、知らせるのは起動後だけにする。

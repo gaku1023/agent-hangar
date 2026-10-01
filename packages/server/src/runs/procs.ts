@@ -21,6 +21,23 @@ export function sameStartTime(a: string, b: string): boolean {
   return norm(a) === norm(b);
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * UTC の ps の lstart（`Thu Oct  2 02:30:05 2026`）を epoch のミリ秒に読む。読めなければ null。
+ * Date.parse に任せると、手元の時刻帯で読まれる。秒より細かい精度は持たない。
+ */
+export function parseProcStart(s: string): number | null {
+  const m = /^\w{3} (\w{3}) +(\d{1,2}) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/.exec(s.trim());
+  if (!m) return null;
+  const month = MONTHS.indexOf(m[1]!);
+  const [day, h, min, sec, year] = [m[2], m[3], m[4], m[5], m[6]].map(Number) as [number, number, number, number, number];
+  if (month < 0 || h > 23 || min > 59 || sec > 59) return null;
+  const t = Date.UTC(year, month, day, h, min, sec);
+  // 2 月 30 日のような暦に無い日は、Date.UTC が翌月へ繰り越すので見分けられる。
+  return new Date(t).getUTCDate() === day ? t : null;
+}
+
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);

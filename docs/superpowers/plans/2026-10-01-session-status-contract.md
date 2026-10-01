@@ -52,8 +52,8 @@ export type ProposeStateOutcome = 'proposed' | 'set' | 'rejected_before' | 'alre
 export function proposeSessionState(db: Db, deviceId: string, sessionId: string, o: { status: 'paused' | 'done'; note: string; returnOn: string | null; source: CandidateSource; now?: number }): { state: SessionStateDto; outcome: Exclude<ProposeStateOutcome, 'set'> };
 export function confirmSessionState(db: Db, deviceId: string, sessionId: string, o?: { returnOn?: string; now?: number }): { state: SessionStateDto; result: 'confirmed' | 'not_candidate' };
 export function rejectSessionState(db: Db, deviceId: string, sessionId: string, now?: number): { state: SessionStateDto; result: 'rejected' | 'not_candidate' };
-/** 利用者の新しい発言（promptTs）が set_at・candidate_at・rejected_at のどれより後なら、全部を null にして true を返す。 */
-export function clearOnNewPrompt(db: Db, deviceId: string, sessionId: string, promptTs: number): boolean;
+/** 利用者の新しい発言（promptTs）で古くなったものを外し、何か外したら true を返す。提案と却下の印は、発言がそれぞれの時刻より後なら外す。状態は、発言が set_at より後で、かつ processStartOf の返す起動時刻も set_at より後（resume した後の発言）のときだけ外す。 */
+export function clearOnNewPrompt(db: Db, deviceId: string, sessionId: string, promptTs: number, processStartOf: () => number | null): boolean;
 ```
 
 - 検査：paused は returnOn が必須（`isReturnOn`）、note は trim 後 200 字まで（提案では 1 字以上が必須）。違反は `StateInputError` にする。

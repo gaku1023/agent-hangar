@@ -27,7 +27,8 @@ type StateRow = {
 export type StateCols = Pick<StateRow, 'status' | 'note' | 'return_on' | 'set_by' | 'set_at' | 'candidate_status' | 'candidate_note' | 'candidate_return_on' | 'candidate_source' | 'candidate_at'>;
 
 const NO_CANDIDATE = { candidate_status: null, candidate_note: null, candidate_return_on: null, candidate_source: null, candidate_at: null } as const;
-const CLEARED = { status: null, note: null, return_on: null, set_by: null, set_at: null, ...NO_CANDIDATE, rejected_at: null } as const;
+const NO_STATUS = { status: null, note: null, return_on: null, set_by: null, set_at: null } as const;
+const CLEARED = { ...NO_STATUS, ...NO_CANDIDATE, rejected_at: null } as const;
 
 /** 行の無いセッションの状態（印なし）。 */
 export const NO_STATE: SessionStateDto = { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null };
@@ -144,15 +145,35 @@ export function rejectSessionState(db: Db, deviceId: string, sessionId: string, 
 }
 
 /**
- * 利用者の新しい発言（promptTs）が set_at・candidate_at・rejected_at のどれより後なら、全部を null にして true を返す。
- * 比べるのは値のある時刻だけである。状態が無いときの set_at（印なしに戻した時刻）は比べない。
+ * 状態（status・note・return_on・set_by・set_at）を外すか。resume した後の発言だけで外す。
+ * 発言が set_at より後で、かつ、その発言を出したプロセスが set_at より後に起動したものであるときに限る。
+ * 同じプロセスの続きの発言では外さない。会話で Paused を選んだ直後の一言で外れてしまう。
+ * 起動時刻が取れないときも外さない。利用者の目に見えない所で消えるより、残る方が害が小さい。
+ * 起動時刻は引くのに手間がかかるので、発言が set_at より後のときだけ引く。
+ */
+function stateClears(cur: StateRow, promptTs: number, processStartOf: () => number | null): boolean {
+  if (cur.status === null) return false;
+  const setAt = cur.set_at ?? 0;
+  if (promptTs <= setAt) return false;
+  const started = processStartOf();
+  return started !== null && started > setAt;
+}
+
+/**
+ * 利用者の新しい発言（promptTs）で、古くなったものを外す。何か外したら true を返す。
+ * 状態は resume した後の発言だけで外す（stateClears）。
+ * 提案と却下の印は、発言がそれぞれの時刻より後なら外す。会話を続けたら前の提案は古く、却下の後に続けたらまた提案を出してよい。
+ * 状態が無いときの set_at（印なしに戻した時刻）は比べない。
  * 外すものが何も無ければ書かない。発言は数が多いので、毎回書くと D1 の無料枠を食う。
  */
-export function clearOnNewPrompt(db: Db, deviceId: string, sessionId: string, promptTs: number): boolean {
+export function clearOnNewPrompt(db: Db, deviceId: string, sessionId: string, promptTs: number, processStartOf: () => number | null): boolean {
   const cur = liveRow(db, sessionId);
   if (!cur) return false;
-  const marks = [cur.status !== null ? cur.set_at ?? 0 : null, cur.candidate_at, cur.rejected_at].filter((t): t is number => t !== null);
-  if (marks.length === 0 || promptTs <= Math.max(...marks)) return false;
-  write(db, deviceId, sessionId, { ...CLEARED });
+  const patch: Partial<StateRow> = {};
+  if (stateClears(cur, promptTs, processStartOf)) Object.assign(patch, NO_STATUS);
+  if (cur.candidate_at !== null && promptTs > cur.candidate_at) Object.assign(patch, NO_CANDIDATE);
+  if (cur.rejected_at !== null && promptTs > cur.rejected_at) patch.rejected_at = null;
+  if (Object.keys(patch).length === 0) return false;
+  write(db, deviceId, sessionId, patch);
   return true;
 }
