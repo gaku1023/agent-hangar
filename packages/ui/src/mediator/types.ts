@@ -61,7 +61,7 @@ export type Effect =
   | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string } | { kind: 'api.fork'; sessionId: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
   | { kind: 'api.killRun'; runId: string } | { kind: 'api.openTab'; sessionId: string } | { kind: 'api.closeTab'; tabId: string }
-  | { kind: 'api.openTerminalApp'; runId: string; tabId: string | null } | { kind: 'api.openEditor'; sessionId: string }
+  | { kind: 'api.openTerminalApp'; runId: string; tabId: string | null } | { kind: 'api.openEditor'; sessionId: string; file?: string }
   | { kind: 'api.jumpToPrompt'; sessionId: string; runId: string; seq: number; heads: string[]; index: number; from: 'top' | 'bottom' }
   | { kind: 'api.leaveTranscript'; runId: string }
   | { kind: 'api.projectOpenEditor'; projectId: string } | { kind: 'api.projectOpenTerminal'; projectId: string }
@@ -145,8 +145,12 @@ export type SessionViewState = {
   agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null;
   /** 目次で開いているターン（区切りの行の seq）。その場の操作なので保存しない。 */
   openTurn: number | null;
-  /** 開いたターンへ左のターミナルを跳ばした結果。これも保存しない。 */
-  turnJump: { seq: number; status: TurnJumpStatus } | null;
+  /**
+   * 開いたターンへ左のターミナルを跳ばした結果。
+   * これも保存しない。
+   * runId は跳ばした Claude の run で、ターンを閉じたときと画面を離れたときに transcript から抜けさせる先である。
+   */
+  turnJump: { seq: number; status: TurnJumpStatus; runId: string } | null;
   /** 本文の中の検索。閉じていれば null。 */
   find: FindState | null;
   /** 検索の結果から開いたときの跳び先。無ければ null。 */

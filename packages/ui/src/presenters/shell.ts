@@ -31,8 +31,12 @@ export const DESKTOP_LOG_PATH = '~/.agent-hangar/desktop.log';
 export const HARD_AFTER_FAILURES = 3;
 /** 保持期間の帯。既定の 30 日のままで、書けて、まだ閉じていないときだけ出す。 */
 export type RetentionBannerProps = { visible: boolean; title: string; detail: string; extendTo: number };
-/** newSession はヘッダーの新規ボタンで開くダイアログの、最初の選択である。 */
-export type ShellProps = { sidebarCollapsed: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
+/**
+ * newSession はヘッダーの新規ボタンで開くダイアログの、最初の選択である。
+ * wide は本文の幅の上限（--main-w）を外す画面か。
+ * セッション画面だけ外し、ターミナルに幅と高さを渡す（UX 刷新 2 の案 b）。
+ */
+export type ShellProps = { sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -105,5 +109,5 @@ export function presentShell(state: State, store: Store, now: number): ShellProp
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
-  return { sidebarCollapsed: state.sidebarCollapsed, nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store) };
+  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store) };
 }

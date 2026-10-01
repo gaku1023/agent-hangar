@@ -171,6 +171,10 @@ a:hover { text-decoration: underline; }
 .btn-danger { color: var(--error); }
 .btn-danger-fill { background: var(--error); color: #ffffff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 4px 12px -4px rgba(179, 38, 30, 0.55); }
 .btn-danger-fill:hover { background: var(--error); filter: brightness(1.06); }
+/* アイコンだけの丸いボタン（「…」のメニュー）と、地を持たない文字のボタン（右欄の「作り直す」）。 */
+.btn-icon { justify-content: center; width: var(--row-h); padding: 0; }
+.btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+.btn-ghost:hover { background: var(--surface-2); box-shadow: none; color: var(--ink); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .input { height: var(--row-h); padding: 0 calc(var(--u) * 2.5); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); outline: none; }
@@ -221,12 +225,13 @@ a:hover { text-decoration: underline; }
 .fold[open] .fold-arrow { transform: rotate(90deg); }
 
 /* トランスクリプト */
-/* 高さは CSS だけで決める。実行中の画面では .tr-pane の側が上書きしてペーンに追随する。 */
-.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); height: calc(100vh - 270px); overflow: auto; padding: calc(var(--u) * 2) 0; }
+/* 高さは決め打ちにせず、入れ物の縦の flex から残りを受け取る（session.css の .session-screen）。
+   窓の高さや帯の数が変わっても下端が窓に収まる。 */
+.tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: 1; min-height: 0; overflow: auto; padding: calc(var(--u) * 2) 0; }
 /* 本文の中身（返答、ツール、Markdown、畳み、検索の印）は transcript.css に置く。 */
 
 /* 実行していないセッションでは、切替と会話を 1 枚の白い読む面に載せる。 */
-.tr-sheet { padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.tr-sheet { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
 
 /* ヘッダーの要素 */
 /* 「探す・移動」の錠剤（A1）。打つ欄ではなく押すボタンなので、ボタンと同じ浮いた錠剤にし、幅は中身の分だけにする。
@@ -424,7 +429,8 @@ a:hover { text-decoration: underline; }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
 .tab-selected .tab-close { color: var(--term-fg); }
 .tab-selected .tab-close:hover { color: var(--term-fg); background: rgba(255, 255, 255, 0.12); }
-.split { display: grid; gap: calc(var(--u) * 2); height: calc(100vh - 250px); transition: grid-template-columns var(--dur) var(--ease-out); }
+/* 高さは決め打ちにせず、.session-screen の縦の flex から窓の残りを受け取る（session.css）。 */
+.split { display: grid; gap: calc(var(--u) * 2); transition: grid-template-columns var(--dur) var(--ease-out); }
 /* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
    xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
    閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */

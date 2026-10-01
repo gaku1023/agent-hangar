@@ -17,6 +17,7 @@ import { createMcpApp } from '../mcp/app.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import { PromoteError } from '../projects/promote.ts';
 import { assignSessions, candidateDirs, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
+import { EDIT_TOOLS } from '../indexer/indexFile.ts';
 import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } from '../projects/todos.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
 import type { JumpFrom } from '../runs/promptJump.ts';
@@ -661,10 +662,22 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/sessions/:id/attach', (c) => runResult(c, () => deps.runs.attach(c.req.param('id')), 201));
   // hangar の外のターミナルで動く claude を止め、バックグラウンドに移してからつなぐ。
   api.post('/sessions/:id/adopt', (c) => runResultAsync(c, () => deps.runs.adopt(c.req.param('id')), 201));
-  api.post('/sessions/:id/open-editor', (c) => {
+  // 本文を送らなければ作業ディレクトリを開く。
+  // file を送ると、そのセッションが編集系のツールで変えたファイル（event_index に残る綴りそのまま）だけを開く。
+  // 画面の右欄の「変更したファイル」から来る道で、任意のパスを code に渡させないために、索引に無いパスは断る。
+  api.post('/sessions/:id/open-editor', async (c) => {
     const s = session(c.req.param('id'));
     if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
-    return external(c, () => deps.external.openEditor({ target: s.cwd }), true);
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const file = (b.value as { file?: unknown } | undefined)?.file;
+    if (file === undefined) return external(c, () => deps.external.openEditor({ target: s.cwd }), true);
+    if (typeof file !== 'string' || !path.isAbsolute(file)) return c.json({ error: 'file は絶対パスの文字列で送ってください' }, 400);
+    const marks = EDIT_TOOLS.map(() => '?').join(',');
+    const known = db.prepare(`select 1 from event_index where session_id = ? and tool_name in (${marks}) and file_path = ? limit 1`).get(s.id, ...EDIT_TOOLS, file);
+    if (!known) return c.json({ error: 'このセッションが変更したファイルではありません' }, 404);
+    if (!fs.existsSync(file)) return c.json({ error: '元のファイルが見つかりません' }, 404);
+    return external(c, () => deps.external.openEditor({ target: file }), true);
   });
   api.post('/projects', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);

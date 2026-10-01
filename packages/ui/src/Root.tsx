@@ -322,7 +322,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     case 'project': body = <ProjectScreen {...presentProject(state, store, now, state.screen.id)} />; break;
     case 'session': {
       const p = presentSession(state, store, now, state.screen.id);
-      body = <SessionScreen {...p} terminalStatus={p.selectedTab ? props.terminals.status(p.selectedTab) : null} />;
+      // ターミナルの接続の様子は、枠ごとに TerminalPane が Host から読む（分割で片方だけ切れることがある）。
+      body = <SessionScreen {...p} />;
       break;
     }
     // 検索欄は defaultValue なので、外からの文言リセットで作り直せるように key を付ける。

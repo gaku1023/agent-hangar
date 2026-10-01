@@ -314,7 +314,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       }
       case 'api.openTerminalApp': deps.api.openTerminalApp(e.runId, e.tabId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
-      case 'api.openEditor': deps.api.openEditor(e.sessionId).catch(fail); return;
+      case 'api.openEditor': (e.file === undefined ? deps.api.openEditor(e.sessionId) : deps.api.openEditor(e.sessionId, e.file)).catch(fail); return;
       case 'api.jumpToPrompt': {
         const done = (status: TurnJumpStatus) => dispatch({ kind: 'runtime', event: { type: 'turnJump.done', sessionId: e.sessionId, seq: e.seq, status } });
         deps.api.jumpToPrompt(e.runId, { heads: e.heads, index: e.index, from: e.from }).then((r) => done(r.found ? 'found' : r.reason)).catch((err) => { done('failed'); fail(err); });

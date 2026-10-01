@@ -332,6 +332,9 @@ describe('起動', () => {
     ]);
     expect(state.launch).toEqual({ kind: 'submitting' });
   });
+  it('変更したファイルを押すと、そのファイルを VS Code で開く', () => {
+    expect(run([intent({ type: 'session.openFile', sessionId: 's1', path: '/w/a.ts' })]).effects).toEqual([{ kind: 'api.openEditor', sessionId: 's1', file: '/w/a.ts' }]);
+  });
 });
 
 describe('新しいセッションの下書きと前回値', () => {
@@ -460,15 +463,36 @@ describe('タブと接続', () => {
     const start = run([intent({ type: 'tab.select', tabId: 't1' })], onSession()).state;
     const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
     const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], start);
-    expect(a.state.sessionView.s1).toMatchObject({ openTurn: 7, turnJump: { seq: 7, status: 'pending' }, selectedTab: null });
+    expect(a.state.sessionView.s1).toMatchObject({ openTurn: 7, turnJump: { seq: 7, status: 'pending', runId: 'r1' }, selectedTab: null });
     expect(a.effects).toContainEqual({ kind: 'terminal.connect', sessionId: 's1', tabId: null });
     expect(a.effects).toContainEqual({ kind: 'api.jumpToPrompt', sessionId: 's1', runId: 'r1', seq: 7, ...jump });
     // 結果が届いたら、そのターンの注記に使う。
     const b = run([runtime({ type: 'turnJump.done', sessionId: 's1', seq: 7, status: 'notFound' })], a.state);
-    expect(b.state.sessionView.s1?.turnJump).toEqual({ seq: 7, status: 'notFound' });
+    expect(b.state.sessionView.s1?.turnJump).toEqual({ seq: 7, status: 'notFound', runId: 'r1' });
     // 別のターンを開いた後に届いた古い結果は捨てる。
     const c = run([intent({ type: 'turn.open', sessionId: 's1', seq: 9, runId: 'r1', jump }), runtime({ type: 'turnJump.done', sessionId: 's1', seq: 7, status: 'found' })], b.state);
-    expect(c.state.sessionView.s1?.turnJump).toEqual({ seq: 9, status: 'pending' });
+    expect(c.state.sessionView.s1?.turnJump).toEqual({ seq: 9, status: 'pending', runId: 'r1' });
+  });
+  it('跳ばしたターンを閉じると、左の Claude も transcript から抜けさせる', () => {
+    const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], onSession());
+    // 開いている行をもう一度押すと、目次は跳び先を持たずに来る。
+    const b = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: null, jump: null })], a.state);
+    expect(b.state.sessionView.s1).toMatchObject({ openTurn: null, turnJump: null });
+    expect(b.effects).toContainEqual({ kind: 'api.leaveTranscript', runId: 'r1' });
+    // 跳ばしていないターンを閉じても、抜けさせる相手はいない。
+    const c = run([intent({ type: 'turn.open', sessionId: 's1', seq: 3, runId: null, jump: null }), intent({ type: 'turn.open', sessionId: 's1', seq: 3, runId: null, jump: null })], b.state);
+    expect(c.effects.some((e) => (e as { kind: string }).kind === 'api.leaveTranscript')).toBe(false);
+  });
+  it('跳ばしたまま画面を離れると、左の Claude を transcript から抜けさせ、開いたターンを忘れる', () => {
+    const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], onSession());
+    const b = run([runtime({ type: 'hash.changed', route: { name: 'home' } })], a.state);
+    expect(b.effects).toContainEqual({ kind: 'api.leaveTranscript', runId: 'r1' });
+    expect(b.state.sessionView.s1).toMatchObject({ openTurn: null, turnJump: null });
+    // 跳ばしていなければ何も送らない。
+    const c = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } }), runtime({ type: 'hash.changed', route: { name: 'home' } })], b.state);
+    expect(c.effects.some((e) => (e as { kind: string }).kind === 'api.leaveTranscript')).toBe(false);
   });
   it('開いているターンをもう一度押すと閉じ、run が無ければ跳ばない', () => {
     const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: null, jump: null })], onSession());
@@ -524,7 +548,7 @@ describe('タブと接続', () => {
     expect(persistedSessionView(v)).not.toHaveProperty('jump');
   });
   it('開いたターンと跳んだ結果は保存しない', () => {
-    const v = { ...defaultSessionView(), openTurn: 3, turnJump: { seq: 3, status: 'found' as const } };
+    const v = { ...defaultSessionView(), openTurn: 3, turnJump: { seq: 3, status: 'found' as const, runId: 'r1' } };
     expect(persistedSessionView(v)).not.toHaveProperty('openTurn');
     expect(persistedSessionView(v)).not.toHaveProperty('turnJump');
   });

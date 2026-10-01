@@ -587,6 +587,23 @@ describe('routes', () => {
     const { body: list } = await json(await get('/api/projects'));
     expect((await post(`/api/projects/${list[0].id}/open-editor`)).status).toBe(204);
     expect(await (await post(`/api/projects/${list[0].id}/open-terminal`)).json()).toEqual({ app: 'iterm', fellBack: true });
+    // 終わった画面の右欄（変更したファイル）から、そのセッションが変えたファイルだけを開ける。
+    const edited = '/Users/me/workspace/alpha/channels/a.md';
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: edited })).status).toBe(404);
+    db.prepare('update event_index set file_path = ? where file_path = ?').run(`${ws}/alpha/a.md`, edited);
+    fs.writeFileSync(`${ws}/alpha/a.md`, 'y');
+    fs.writeFileSync(`${ws}/alpha/other.md`, 'z');
+    (external.openEditor as ReturnType<typeof vi.fn>).mockClear();
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/a.md` })).status).toBe(204);
+    expect(external.openEditor).toHaveBeenLastCalledWith({ target: `${ws}/alpha/a.md` });
+    // あるファイルでも、そのセッションが変えていなければ開かない。
+    // 綴りを変えて枠の外へ出るパスも同じ。
+    const other = await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/other.md` });
+    expect(other.status).toBe(404);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/x/../a.md` })).status).toBe(404);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: 'a.md' })).status).toBe(400);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: 3 })).status).toBe(400);
+    expect(external.openEditor).toHaveBeenCalledTimes(1);
     (external.openEditor as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('code が無い'));
     const bad = await post(`/api/sessions/${alpha.id}/open-editor`);
     expect(bad.status).toBe(500);

@@ -16,7 +16,7 @@ export function Shell(props: ShellProps & { children: ReactNode; overlays: React
     if (ref.current) playSidebarMotion(ref.current);
   }, [props.sidebarCollapsed]);
   return (
-    <div ref={ref} className="shell" data-sidebar={props.sidebarCollapsed ? 'collapsed' : undefined}>
+    <div ref={ref} className="shell" data-sidebar={props.sidebarCollapsed ? 'collapsed' : undefined} data-wide={props.wide ? 'true' : undefined}>
       <Sidebar nav={props.nav} collapsed={props.sidebarCollapsed} />
       <Header indexLabel={props.indexLabel} usage={props.usage} sync={props.sync} newSession={props.newSession} />
       {/* 帯は 2 行目に縦に積む。切断を上に置く。どちらも無いときは箱が空になり、:empty で潰れる。 */}

@@ -8,8 +8,10 @@ import { Icon } from './primitives/Icon.tsx';
  * プロジェクトの TODO。並び替えは持たず、完了した項目も同じ並びに打消し線で残す。
  * 完了の候補は、欄を半分塗りにし、根拠と出したセッションと確定と却下を行の下に常に出す（開かずに判断できるように）。
  * 候補の欄を押したときの扱い（確定にする）は Runtime が決める。View は反転の Intent を出すだけにする。
+ * canAdd が偽なら足す欄を出さない（セッション画面の右欄。
+ * 足すのはプロジェクト画面に任せる）。
  */
-export function TodoList(props: { projectId: string; todos: TodoItemProps[] }) {
+export function TodoList(props: { projectId: string; todos: TodoItemProps[]; canAdd?: boolean }) {
   const emit = useEmit();
   const [text, setText] = useState('');
   const add = () => { if (!text.trim()) return; emit({ type: 'todo.add', projectId: props.projectId, text }); setText(''); };
@@ -52,11 +54,11 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[] }) {
           );
         })}
       </ul>
-      <div className="rail-add">
+      {props.canAdd !== false && <div className="rail-add">
         {/* 変換中の Enter で足すと、確定と同時に書きかけが消える。 */}
         <input id="todo-input" className="input" aria-label="TODO を追加" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) add(); }} />
         <button className="btn" onClick={add}><Icon name="add" />追加</button>
-      </div>
+      </div>}
     </div>
   );
 }
