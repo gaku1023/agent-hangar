@@ -51,6 +51,19 @@ describe('searchSessions', () => {
     expect(searchSessions(db, { q: 'channels ls' }).total).toBe(1);
     expect(searchSessions(db, { q: 'channels ls' }).hits[0]!.snippets[0]!.text).toContain('ls');
   });
+  // seq は主線とサブエージェントで別々に振るので、同じ seq が両方にある。
+  // 抜粋にどちらの行かを添え、主線を先に、seq の順に並べる。跳び先（J1）は主線の抜粋から取る。
+  it('抜粋はどの線の行かを持ち、主線を先に seq の順で並べる', () => {
+    const sid = idOf(SESSION_ALPHA);
+    const ins = db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
+    ins.run(sid, 'ag1', 0, 'assistant', 'サブで ぴよぴよ zebrafish を探す');
+    ins.run(sid, null, 7, 'user', '主線の後ろで ぴよぴよ zebrafish');
+    ins.run(sid, null, 3, 'user', '主線の前で ぴよぴよ zebrafish');
+    for (const q of ['zebrafish', 'よぴ']) {
+      const r = searchSessions(db, { q });
+      expect(r.hits[0]!.snippets.map((x) => [x.agentId, x.seq])).toEqual([[null, 3], [null, 7], ['ag1', 0]]);
+    }
+  });
   it('どこにも無い短い語は空の結果', () => {
     expect(searchSessions(db, { q: 'zz' })).toEqual({ hits: [], total: 0 });
     expect(searchSessions(db, { q: 'channels zz' })).toEqual({ hits: [], total: 0 });

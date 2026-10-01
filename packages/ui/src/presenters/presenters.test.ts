@@ -475,7 +475,7 @@ describe('presentSessions', () => {
     expect(all.mode).toBe('all');
     expect(all.rows).toHaveLength(3);
     expect(all.projects.map((p) => p.name)).toEqual(['alpha', 'beta', 'old']);
-    store = { ...store, search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: 2, snippets: [{ seq: 1, role: 'user', text: '…hi…' }] }], total: 1 }, loading: false } };
+    store = { ...store, search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: 2, snippets: [{ seq: 1, role: 'user', text: '…hi…', agentId: null }] }], total: 1 }, loading: false } };
     const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
     const r = presentSessions(state, store, NOW);
     expect(r.mode).toBe('search');
@@ -484,6 +484,18 @@ describe('presentSessions', () => {
     // 行を開くと、抜粋の seq と検索語を持って一致へ跳ぶ。
     expect(r.rows[0]!.jump).toEqual({ seq: 1, q: 'hi' });
     expect(all.rows[0]!.jump).toBeUndefined();
+  });
+  // seq は主線とサブエージェントで別々に振る。サブエージェントの seq で主線の本文へ跳ぶと、違う行に着く。
+  it('跳び先は主線の抜粋だけから取り、主線の抜粋が無ければ跳ばない', () => {
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const withSnippets = (snippets: { seq: number; role: string; text: string; agentId: string | null }[]) => presentSessions(state, { ...storeWith(), search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: snippets.length, snippets }], total: 1 }, loading: false } }, NOW).rows[0]!;
+    const sub = { seq: 2, role: 'assistant', text: '…hi…', agentId: 'ag1' };
+    const main = { seq: 9, role: 'user', text: '…hi…', agentId: null };
+    expect(withSnippets([sub, main]).jump).toEqual({ seq: 9, q: 'hi' });
+    const onlySub = withSnippets([sub]);
+    expect(onlySub.jump).toBeUndefined();
+    // 抜粋そのものは出す。一致がどこにあるかは読める。
+    expect(onlySub.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
   });
   it('切れた結果は、見せている件数と全件の数を分けて持ち、読み足しの最中を区別する', () => {
     const base = storeWith();
