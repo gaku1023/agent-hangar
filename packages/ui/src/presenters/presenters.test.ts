@@ -1262,6 +1262,15 @@ describe('presentToasts（入力待ちのカード）', () => {
     expect(presentToasts({ ...base, notify: { available: true, on: true } }, store, NOW).offerNotify).toBe(false);
     expect(presentToasts({ ...base, notify: { available: false, on: false } }, store, NOW).offerNotify).toBe(false);
   });
+  // 確認や入力のあるダイアログが開いている間は、カードを押しても画面を移さない（Mediator も止める）。押せないように見せる。
+  it('確認や入力のあるダイアログが開いている間は、カードを押せないものとして渡す', () => {
+    const base = { ...initialState(), waitingToasts: ['w1'] };
+    const store = waitingStore(['w1']);
+    expect(presentToasts(base, store, NOW).blocked).toBe(false);
+    expect(presentToasts({ ...base, overlay: { kind: 'palette' } }, store, NOW).blocked).toBe(false);
+    expect(presentToasts({ ...base, overlay: { kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } } }, store, NOW).blocked).toBe(true);
+    expect(presentToasts({ ...base, overlay: { kind: 'newSession', projectId: null, scratch: true } }, store, NOW).blocked).toBe(true);
+  });
   it('info と error のトーストはそのまま渡す', () => {
     const toasts = [{ id: '1', level: 'error' as const, message: 'oops' }];
     expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);

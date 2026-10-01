@@ -1099,6 +1099,30 @@ describe('この PC で再開', () => {
   });
 });
 
+describe('ダイアログを開いている間の入力待ちのカードと通知', () => {
+  // カードと通知は、ダイアログの上（右下の知らせ）や窓の外から来る。
+  // 確認や入力のあるダイアログを開いたまま裏の画面だけを移すと、何に答えているのかが分からなくなる（⌘I と同じ考え方）。
+  it('確認や入力のあるダイアログが開いていれば、画面を移さない', () => {
+    const at = run([runtime({ type: 'hash.changed', route: { name: 'home' } })]).state;
+    for (const before of [
+      run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })], at).state,
+      run([server({ type: 'project.unresolved', projectId: 'p1' })], at).state,
+      run([intent({ type: 'session.new.open', scratch: true })], at).state,
+    ]) {
+      const r = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' })], before);
+      expect(r.state).toEqual(before);
+      expect(r.effects).toEqual([]);
+    }
+  });
+  it('パレットや読むだけのダイアログなら、閉じてから移る', () => {
+    for (const open of [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' })]) {
+      const r = run([open, intent({ type: 'session.open', id: 's1', focus: 'terminal' })]);
+      expect(r.state.overlay).toEqual({ kind: 'none' });
+      expect(r.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    }
+  });
+});
+
 describe('開いたら端末にフォーカス', () => {
   const focus = { kind: 'focus', target: 'terminal' };
   it('focus: terminal で開くと、その画面に着いたときに端末へフォーカスする', () => {

@@ -6,7 +6,7 @@ import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
 
 const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, projectName: 'shop-web', waited: '2 分', question: `問い ${id}`, ...over });
-const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, offerNotify: false, ...over });
+const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, offerNotify: false, blocked: false, ...over });
 function mount(p: ToastsProps) {
   const onIntent = vi.fn();
   const r = render(<IntentRoot onIntent={onIntent}><ToastStack {...p} /></IntentRoot>);
@@ -46,6 +46,15 @@ describe('入力待ちのカード', () => {
     fireEvent.click(screen.getByRole('button', { name: '通知を受け取る' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'notify.set', on: true });
     expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
+  });
+  it('ダイアログが開いている間は、カードもボタンも押せず、何も出さない', () => {
+    const { onIntent } = mount(props({ waiting: [card('s1')], more: 2, blocked: true }));
+    const c = within(screen.getByRole('group', { name: '名前 s1 が入力を待っています' }));
+    expect(c.getByRole('button', { name: 'ターミナルで答える' })).toBeDisabled();
+    expect(c.getByText('ダイアログを閉じると開けます')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ほか 2 件をホームで見る' })).toBeDisabled();
+    fireEvent.click(screen.getByText('問い s1'));
+    expect(onIntent).not.toHaveBeenCalled();
   });
   it('受け取っていれば添えない', () => {
     mount(props({ waiting: [card('s1')] }));
