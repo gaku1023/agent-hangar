@@ -7,7 +7,7 @@ import { LAYOUT_SETTLED, MOVING_ATTR } from './primitives/sidebarMotion.ts';
 type FakeHost = TerminalHost & { mount: ReturnType<typeof vi.fn> };
 
 function fakeHost(): FakeHost {
-  return { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn() } as FakeHost;
+  return { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false }), reconnect: vi.fn() } as FakeHost;
 }
 
 describe('TerminalPane', () => {

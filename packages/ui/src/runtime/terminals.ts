@@ -6,7 +6,17 @@ export type TerminalLike = { cols: number; rows: number; element: HTMLElement | 
   paste(text: string): void;
   /** 文字の大きさ（px）を変える。合わせ直しは呼び手が fit で行う。 */
   setFontSize(px: number): void };
+/**
+ * タブの接続の様子。
+ * dropped は、つながっていた（またはつなごうとしていた）接続が思いがけず切れ、まだつなぎ直せていないこと。
+ * retryAt は次に自動でつなぎ直す時刻で、待っていないときは null。
+ */
+export type TerminalLink = { retryAt: number | null; dropped: boolean };
 export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, text: string): void; disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void;
+  /** 切れたタブのつなぎ直しの様子。知らないタブは切れていない扱いにする。 */
+  link(tabId: string): TerminalLink;
+  /** 待たずに今つなぎ直す（「再接続」のボタン）。間隔は最初に戻す。 */
+  reconnect(tabId: string): void;
   /** 全部の端末の文字を 1px ずつ大きく、小さく、または既定に戻す。 */
   zoom(step: 'in' | 'out' | 'reset'): void;
   /** いまの文字の大きさ（px）。 */
@@ -25,7 +35,14 @@ function clampFontSize(v: unknown): number {
   return Math.min(FONT_SIZE.max, Math.max(FONT_SIZE.min, Math.round(v)));
 }
 
-type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[] };
+/** つなぎ直しの間隔。1 秒から倍ずつ延ばし、30 秒で頭打ちにする。 */
+export const RETRY = { first: 1000, max: 30_000 } as const;
+
+/**
+ * want は利用者の側がつないでおきたいタブか（connect の後、disconnect の前）。思いがけず切れたときだけつなぎ直すために持つ。
+ * fails は続けて失敗した回数で、次の間隔を決める。timer と retryAt は待っている自動の試し。
+ */
+type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null };
 
 /**
  * タブごとの xterm と WebSocket を React の外で持つ。
@@ -49,42 +66,83 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     if (!e) {
       const term = deps.createTerminal();
       term.setFontSize(fontSize);
-      e = { term, ws: null, status: 'closed', opened: false, subs: [] };
+      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, timer: null, retryAt: null };
       entries.set(tabId, e);
     }
     return e;
   };
   const send = (e: Entry, m: unknown) => { if (e.ws && e.ws.readyState === 1) e.ws.send(JSON.stringify(m)); };
+  const stopRetry = (e: Entry) => { if (e.timer !== null) clearTimeout(e.timer); e.timer = null; e.retryAt = null; };
+  /**
+   * 思いがけず切れたタブを、間を延ばしながらつなぎ直す。
+   * 本体の WebSocket が戻るのを待たないのは、ターミナルの接続だけが切れることがあるからである（スリープからの復帰、tmux attach の落ち）。
+   */
+  const scheduleRetry = (tabId: string, e: Entry) => {
+    stopRetry(e);
+    const wait = Math.min(RETRY.first * 2 ** e.fails, RETRY.max);
+    e.fails++;
+    e.retryAt = Date.now() + wait;
+    e.timer = setTimeout(() => { e.timer = null; e.retryAt = null; if (e.want) open(tabId, e); }, wait);
+  };
+  const open = (tabId: string, e: Entry) => {
+    stopRetry(e);
+    if (e.ws && (e.ws.readyState === 0 || e.ws.readyState === 1)) return;
+    const ws = (deps.wsFactory ?? ((u) => new WebSocket(u)))(deps.wsUrl(tabId));
+    e.ws = ws;
+    setStatus(e, 'connecting');
+    notify();
+    ws.onopen = () => { e.fails = 0; e.dropped = false; setStatus(e, 'connected'); send(e, { t: 'resize', cols: e.term.cols, rows: e.term.rows }); };
+    ws.onmessage = (m) => {
+      let parsed: unknown;
+      try { parsed = JSON.parse(String(m.data)); } catch { return; }
+      if (typeof parsed !== 'object' || parsed === null) return;
+      const msg = parsed as { t?: unknown; d?: unknown; message?: unknown };
+      if (msg.t === 'data' && typeof msg.d === 'string') e.term.write(msg.d);
+      else if (msg.t === 'error') { e.term.write(`\r\n[agent-hangar] ${String(msg.message)}\r\n`); setStatus(e, 'error'); }
+    };
+    // 自分で閉じた接続（disconnect）は e.ws を先に外しているので、ここには来ない。
+    // サーバが断った（error）ときは、待っても同じ答えなので自動ではつながず、「再接続」のボタンに任せる。
+    ws.onclose = () => {
+      if (e.ws !== ws) return;
+      e.ws = null;
+      if (e.status === 'error') { notify(); return; }
+      setStatus(e, 'closed');
+      if (e.want) { e.dropped = true; scheduleRetry(tabId, e); }
+      notify();
+    };
+    ws.onerror = () => { /* onclose が続く */ };
+    if (e.subs.length === 0) {
+      e.subs.push(e.term.onData((d) => send(e, { t: 'data', d })));
+      e.subs.push(e.term.onResize((s) => send(e, { t: 'resize', cols: s.cols, rows: s.rows })));
+    }
+  };
 
   return {
     connect(tabId) {
       const e = ensure(tabId);
-      if (e.ws && (e.ws.readyState === 0 || e.ws.readyState === 1)) return;
-      const ws = (deps.wsFactory ?? ((u) => new WebSocket(u)))(deps.wsUrl(tabId));
-      e.ws = ws;
-      setStatus(e, 'connecting');
-      ws.onopen = () => { setStatus(e, 'connected'); send(e, { t: 'resize', cols: e.term.cols, rows: e.term.rows }); };
-      ws.onmessage = (m) => {
-        let parsed: unknown;
-        try { parsed = JSON.parse(String(m.data)); } catch { return; }
-        if (typeof parsed !== 'object' || parsed === null) return;
-        const msg = parsed as { t?: unknown; d?: unknown; message?: unknown };
-        if (msg.t === 'data' && typeof msg.d === 'string') e.term.write(msg.d);
-        else if (msg.t === 'error') { e.term.write(`\r\n[agent-hangar] ${String(msg.message)}\r\n`); setStatus(e, 'error'); }
-      };
-      ws.onclose = () => { if (e.ws === ws) { e.ws = null; if (e.status !== 'error') setStatus(e, 'closed'); } };
-      ws.onerror = () => { /* onclose が続く */ };
-      if (e.subs.length === 0) {
-        e.subs.push(e.term.onData((d) => send(e, { t: 'data', d })));
-        e.subs.push(e.term.onResize((s) => send(e, { t: 'resize', cols: s.cols, rows: s.rows })));
-      }
+      e.want = true;
+      open(tabId, e);
+    },
+    reconnect(tabId) {
+      const e = ensure(tabId);
+      e.want = true;
+      e.fails = 0;
+      if (e.status === 'error') e.status = 'closed';
+      open(tabId, e);
+    },
+    link(tabId) {
+      const e = entries.get(tabId);
+      return e ? { retryAt: e.retryAt, dropped: e.dropped } : { retryAt: null, dropped: false };
     },
     disconnect(tabId) {
       const e = entries.get(tabId);
       if (!e) return;
+      e.want = false; e.fails = 0; e.dropped = false;
+      stopRetry(e);
       const ws = e.ws; e.ws = null;
       ws?.close();
       setStatus(e, 'closed');
+      notify();
     },
     mount(tabId, el) {
       const e = ensure(tabId);
@@ -122,7 +180,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     },
     subscribe(cb) { listeners.add(cb); return () => { listeners.delete(cb); }; },
     dispose() {
-      for (const e of entries.values()) { e.ws?.close(); for (const s of e.subs) s.dispose(); e.term.dispose(); }
+      for (const e of entries.values()) { e.want = false; stopRetry(e); e.ws?.close(); for (const s of e.subs) s.dispose(); e.term.dispose(); }
       entries.clear(); listeners.clear(); pendingFocus = null;
     },
   };

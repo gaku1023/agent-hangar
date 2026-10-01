@@ -224,3 +224,128 @@ describe('文字の大きさ', () => {
     expect(failing.fontSize()).toBe(14);
   });
 });
+
+describe('タブごとのつなぎ直し（F1）', () => {
+  // 画面の外から閉じられたとき（サーバの再起動、スリープからの復帰）は、タブごとに間隔を延ばしながらつなぎ直す。
+  it('思いがけず切れたら、1 秒、2 秒、4 秒と間を延ばしてつなぎ直し、つながったら間を戻す', () => {
+    vi.useFakeTimers();
+    try {
+      const { host } = make();
+      host.connect('t1');
+      FakeWs.all[0]!.open();
+      expect(host.link('t1')).toEqual({ retryAt: null, dropped: false });
+      FakeWs.all[0]!.close();
+      expect(host.status('t1')).toBe('closed');
+      expect(host.link('t1')).toEqual({ retryAt: Date.now() + 1000, dropped: true });
+      vi.advanceTimersByTime(999);
+      expect(FakeWs.all).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(FakeWs.all).toHaveLength(2);
+      expect(host.status('t1')).toBe('connecting');
+      expect(host.link('t1')).toEqual({ retryAt: null, dropped: true });
+      // 繋がらないまま閉じたら、次は倍の間を空ける。
+      FakeWs.all[1]!.close();
+      expect(host.link('t1').retryAt).toBe(Date.now() + 2000);
+      vi.advanceTimersByTime(2000);
+      FakeWs.all[2]!.close();
+      expect(host.link('t1').retryAt).toBe(Date.now() + 4000);
+      vi.advanceTimersByTime(4000);
+      FakeWs.all[3]!.open();
+      expect(host.link('t1')).toEqual({ retryAt: null, dropped: false });
+      FakeWs.all[3]!.close();
+      expect(host.link('t1').retryAt).toBe(Date.now() + 1000);
+    } finally { vi.useRealTimers(); }
+  });
+  it('間は 30 秒で頭打ちにする', () => {
+    vi.useFakeTimers();
+    try {
+      const { host } = make();
+      host.connect('t1');
+      for (let i = 0; i < 8; i++) { FakeWs.all.at(-1)!.close(); vi.advanceTimersByTime(host.link('t1').retryAt! - Date.now()); }
+      FakeWs.all.at(-1)!.close();
+      expect(host.link('t1').retryAt).toBe(Date.now() + 30_000);
+    } finally { vi.useRealTimers(); }
+  });
+  it('自分で切ったとき（画面を離れた、run が終わった）はつなぎ直さない', () => {
+    vi.useFakeTimers();
+    try {
+      const { host } = make();
+      host.connect('t1');
+      FakeWs.all[0]!.open();
+      FakeWs.all[0]!.close();
+      host.disconnect('t1');
+      expect(host.link('t1')).toEqual({ retryAt: null, dropped: false });
+      vi.advanceTimersByTime(60_000);
+      expect(FakeWs.all).toHaveLength(1);
+      expect(host.status('t1')).toBe('closed');
+    } finally { vi.useRealTimers(); }
+  });
+  it('サーバが断ったとき（エラーの知らせ）は待ってもつながらないので、自動ではつなぎ直さない', () => {
+    vi.useFakeTimers();
+    try {
+      const { host } = make();
+      host.connect('t1');
+      FakeWs.all[0]!.receive({ t: 'error', message: 'gone' });
+      FakeWs.all[0]!.close();
+      expect(host.status('t1')).toBe('error');
+      expect(host.link('t1').retryAt).toBeNull();
+      vi.advanceTimersByTime(60_000);
+      expect(FakeWs.all).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+  });
+  it('「再接続」は待たずにすぐつなぎ、間を最初に戻す。エラーの後でもつなぐ', () => {
+    vi.useFakeTimers();
+    try {
+      const { host } = make();
+      const changes = vi.fn();
+      host.subscribe(changes);
+      host.connect('t1');
+      FakeWs.all[0]!.close();
+      vi.advanceTimersByTime(1000);
+      FakeWs.all[1]!.close();
+      expect(host.link('t1').retryAt).toBe(Date.now() + 2000);
+      changes.mockClear();
+      host.reconnect('t1');
+      expect(FakeWs.all).toHaveLength(3);
+      expect(host.link('t1').retryAt).toBeNull();
+      expect(changes).toHaveBeenCalled();
+      // 待っていた分の自動の試しは消える。
+      vi.advanceTimersByTime(2000);
+      expect(FakeWs.all).toHaveLength(3);
+      FakeWs.all[2]!.close();
+      expect(host.link('t1').retryAt).toBe(Date.now() + 1000);
+      host.reconnect('t1');
+      FakeWs.all[3]!.receive({ t: 'error', message: 'x' });
+      FakeWs.all[3]!.close();
+      expect(host.status('t1')).toBe('error');
+      host.reconnect('t1');
+      expect(FakeWs.all).toHaveLength(5);
+      expect(host.status('t1')).toBe('connecting');
+    } finally { vi.useRealTimers(); }
+  });
+  it('待っている間に外から connect が来たら、待たずにつなぐ', () => {
+    vi.useFakeTimers();
+    try {
+      const { host } = make();
+      host.connect('t1');
+      FakeWs.all[0]!.close();
+      host.connect('t1');
+      expect(FakeWs.all).toHaveLength(2);
+      expect(host.link('t1').retryAt).toBeNull();
+      vi.advanceTimersByTime(1000);
+      expect(FakeWs.all).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
+  });
+  it('知らないタブと、片付けた後', () => {
+    vi.useFakeTimers();
+    try {
+      const { host } = make();
+      expect(host.link('nope')).toEqual({ retryAt: null, dropped: false });
+      host.connect('t1');
+      FakeWs.all[0]!.close();
+      host.dispose();
+      vi.advanceTimersByTime(60_000);
+      expect(FakeWs.all).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+  });
+});
