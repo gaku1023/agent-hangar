@@ -26,6 +26,17 @@ const HEARTBEAT_MS = 30_000;
 const MAX_ERROR_LEN = 200;
 /** 引き取るときに、元の claude が SIGTERM で終わるのを待つ長さ。 */
 const TERMINATE_MS = 10_000;
+/**
+ * tmux のセッションに渡す環境に、UTF-8 の文字のロケールを足す。
+ * tmux の新しいセッションはサーバの環境を継ぎ、.app から起こした hangar が立てたサーバには LANG が無い。
+ * ロケールが無いと、claude が選んだ範囲を写すときの pbcopy が日本語を読めず、クリップボードを空にする。
+ * 呼び手（ターミナルのシェル）が LC_ALL か LC_CTYPE を決めていれば、そちらを使う。
+ */
+export function withUtf8Locale(env: Record<string, string> = {}): Record<string, string> {
+  if (env.LC_ALL || env.LC_CTYPE) return env;
+  return { LC_CTYPE: 'UTF-8', ...env };
+}
+
 /** 引き取るときに、止めた claude がレジストリから消えるのを待つ長さ。 */
 const GONE_WAIT_MS = 5_000;
 
@@ -187,7 +198,7 @@ export class RunManager {
     const now = this.now();
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(o.params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
-      tmux.newSession({ name: tmuxName, cwd: o.cwd, command, env: o.env });
+      tmux.newSession({ name: tmuxName, cwd: o.cwd, command, env: withUtf8Locale(o.env) });
       tmux.setOption(tmuxName, 'status', 'off');
       // ターミナルからこの run につなぐ人のための設定。サーバ全体の設定なので、サーバが起き直した後にも効くよう起動のたびに確かめる。
       tmux.ensureTerminalOptions();
@@ -601,7 +612,7 @@ export class RunManager {
     const tmuxName = `${run.tmuxName}-t${n}`;
     const shell = this.deps.shell ?? process.env.SHELL ?? '/bin/zsh';
     try {
-      tmux.newSession({ name: tmuxName, cwd: s.cwd, command: [shell, '-l'] });
+      tmux.newSession({ name: tmuxName, cwd: s.cwd, command: [shell, '-l'], env: withUtf8Locale() });
       tmux.setOption(tmuxName, 'status', 'off');
     } catch (e) {
       throw new RunError(400, `シェルの起動に失敗しました: ${this.safeError(e)}`);
