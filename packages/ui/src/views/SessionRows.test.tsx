@@ -461,6 +461,12 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(screen.queryByText('Paused')).toBeNull();
     expect(screen.getByText('10/2（金）')).not.toHaveAttribute('data-due');
   });
+  it('戻る日が無い Paused の行は、塗りの「日付なし」の札を出す', () => {
+    mount([sr('a', { state: 'paused', returnOn: null, overdueDays: null, summaryState: { label: '済んだ', tone: null } })]);
+    expect(screen.getByText('日付なし')).toHaveClass('row-return');
+    expect(screen.getByText('日付なし')).toHaveAttribute('data-due', 'true');
+    expect(screen.queryByText('済んだ')).toBeNull();
+  });
   it('「⋯」から 4 択を選ぶ。押しても行は開かない', () => {
     const onIntent = mount([sr('a')]);
     fireEvent.click(screen.getByRole('button', { name: '名前 a の状態' }));

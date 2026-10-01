@@ -1,4 +1,4 @@
-import { overdueDays, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy } from '@agent-hangar/shared';
+import { isReturnOn, overdueDays, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy } from '@agent-hangar/shared';
 import { aliveRunOf, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, STATE_LABEL } from './format.ts';
 import type { Segment } from './highlight.ts';
@@ -40,7 +40,8 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   // 古いサーバは state を送らない。欠けたものは印なしとして読む。
   const st = s.state ?? null;
   const status = st?.status ?? null;
-  const returnOn = status === 'paused' ? st!.returnOn : null;
+  // 戻る日が欠けた・暦に無い・形の違う Paused（同期や古い端末から届く）は null にして、undefined や壊れた文字列を行に流さない。
+  const returnOn = status === 'paused' && typeof st!.returnOn === 'string' && isReturnOn(st!.returnOn) ? st!.returnOn : null;
   const row: SessionRowProps = {
     id: s.id, name: s.name ?? '（名前なし）', oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
     projectName: s.projectId ? store.projects[s.projectId]?.name ?? null : null,
@@ -70,6 +71,23 @@ export function sortSessions(list: SessionDto[]): SessionDto[] {
   });
 }
 
+/**
+ * 節に分ける前の並び（P3 と ★）。
+ * 生きているものを先に置くのは sortSessions と同じで、残りは新しい順にする。
+ * 止まっている Done の行だけは、Done にした時刻（setAt）の新しい順にする。
+ * 提案を確定した行や手で Done にした行が、最後に動いた時刻が古くても Done の節の先頭に来て、畳んだ中に消えないようにするためである。
+ * 導入時の一括 Done は同じ時刻を持つので、その中は最後に動いた時刻の新しい順になる。
+ */
+export function sortForSections(list: SessionDto[]): SessionDto[] {
+  const key = (s: SessionDto) => (s.live === null && s.state?.status === 'done' ? s.state.setAt ?? 0 : s.lastActivityAt ?? 0);
+  return [...list].sort((a, b) => {
+    const la = a.live ? LIVE_ORDER[a.live] ?? 3 : ENDED_ORDER;
+    const lb = b.live ? LIVE_ORDER[b.live] ?? 3 : ENDED_ORDER;
+    if (la !== lb) return la - lb;
+    return key(b) - key(a) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0);
+  });
+}
+
 /** 状態の札の語。プロジェクトの状態と同じ英語にする。 */
 export const STATUS_LABEL: Record<SessionStatus, string> = { paused: 'Paused', done: 'Done', archived: 'Archived' };
 /** 提案の出どころの語。ポップに「出どころ：会話 · 12 分前」と出す。 */
@@ -80,8 +98,10 @@ const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土'];
 /**
  * 戻る日の札の文言。今日は「今日」、過ぎたものは「N 日過ぎ」、先のものは「10/2（金）」。
  * 曜日は日付だけから決まるので、今の時刻は要らない（過ぎたかどうかは overdue で受け取る）。
+ * 戻る日が無いか、暦に無い日と形の違う日は「日付なし」にする（NaN や undefined を札に出さない）。
  */
-export function returnOnLabel(returnOn: string, overdue: number | null): string {
+export function returnOnLabel(returnOn: string | null, overdue: number | null): string {
+  if (returnOn === null || !isReturnOn(returnOn)) return '日付なし';
   if (overdue === 0) return '今日';
   if (overdue !== null) return `${overdue} 日過ぎ`;
   const [y, m, d] = returnOn.split('-').map(Number);

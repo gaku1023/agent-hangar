@@ -233,9 +233,9 @@ export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高�
     const excerpt = props.variant === 'search' && r.excerpt && r.excerpt.length > 0 ? r.excerpt : null;
     return (
       <span className="row-sub">
-        {/* Paused は 2 段目の頭に戻る日の札を出す（四角の札は出さない）。当日と過ぎたものは塗る。 */}
-        {r.state === 'paused' && r.returnOn
-          ? <span className="row-return" data-due={r.overdueDays !== null ? 'true' : undefined} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{returnOnLabel(r.returnOn, r.overdueDays)}</span>
+        {/* Paused は 2 段目の頭に戻る日の札を出す（四角の札は出さない）。当日と過ぎたものと、戻る日が無いもの（日付なし）は塗る。 */}
+        {r.state === 'paused'
+          ? <span className="row-return" data-due={r.overdueDays !== null || r.returnOn === null ? 'true' : undefined} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{returnOnLabel(r.returnOn, r.overdueDays)}</span>
           : r.summaryState && <span className="row-state" data-tone={r.summaryState.tone ?? undefined}>{r.summaryState.label}</span>}
         <span className={excerpt ? 'row-text mono' : 'row-text'}>{excerpt ? excerpt.map((s, i) => (s.hit ? <mark key={i} className="hit">{s.text}</mark> : <span key={i}>{s.text}</span>)) : r.oneLiner}</span>
         {props.variant === 'project' && r.memo && <span className="row-memo">✎ {r.memo}</span>}

@@ -1506,6 +1506,13 @@ describe('presentSessionRow のセッションの状態', () => {
     expect(pick(withState({ status: 'done', note: null, returnOn: '2026-10-02', setBy: 'conversation', setAt: 1, candidate: null }))).toEqual({ state: 'done', returnOn: null, overdueDays: null, candidate: null, setBy: 'conversation' });
     expect(pick(withState({ status: 'archived', note: null, returnOn: null, setBy: 'import', setAt: 1, candidate: null })).state).toBe('archived');
   });
+  // 同期や古い端末から、戻る日が欠けた・暦に無い・形の違う Paused が届く（Ruling 2A）。undefined や壊れた文字列を行に流さず null にする。
+  it('Paused の戻る日が欠けた・暦に無い・形が違うときは、returnOn を null にして Paused のまま読む', () => {
+    for (const bad of [null, '2026-02-30', 'いつか', '']) {
+      expect(pick(withState({ status: 'paused', note: null, returnOn: bad, setBy: 'user', setAt: 1, candidate: null })), String(bad)).toEqual({ state: 'paused', returnOn: null, overdueDays: null, candidate: null, setBy: 'user' });
+    }
+    expect(pick(withState({ status: 'paused', note: null, returnOn: undefined as unknown as null, setBy: 'user', setAt: 1, candidate: null })).returnOn).toBeNull();
+  });
   it('提案は経過時間を添える', () => {
     const r = pick(withState({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: { status: 'done', note: '直した', returnOn: null, source: 'post_hoc', at: NOW - 12 * 60_000 } }));
     expect(r).toEqual({ state: null, returnOn: null, overdueDays: null, setBy: null, candidate: { status: 'done', note: '直した', returnOn: null, source: 'post_hoc', ago: '12 分前' } });
@@ -1518,6 +1525,12 @@ describe('戻る日と提案の札の文言', () => {
     expect(returnOnLabel('2026-09-28', 3)).toBe('3 日過ぎ');
     expect(returnOnLabel('2026-10-02', null)).toBe('10/2（金）');
     expect(returnOnLabel('2026-12-31', null)).toBe('12/31（木）');
+  });
+  it('戻る日が無いか壊れているときは、NaN や undefined を返さず「日付なし」', () => {
+    expect(returnOnLabel(null, null)).toBe('日付なし');
+    expect(returnOnLabel('2026-02-30', null)).toBe('日付なし');
+    expect(returnOnLabel('いつか', null)).toBe('日付なし');
+    expect(returnOnLabel('', 0)).toBe('日付なし');
   });
   it('提案の札は「Done にする？」か「Paused · 日？」', () => {
     expect(candidateLabel({ status: 'done', returnOn: null })).toBe('Done にする？');
