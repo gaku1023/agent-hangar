@@ -19,7 +19,7 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 3,
   turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, openTurnItems: [], turnJump: null, livePane: null, gone: null, find: null, jump: null, hasNewer: false,
-  actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, changedFiles: [], changedMore: 0, todos: [], transcriptBand: null };
+  actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null };
 
 /**
  * 見出しの操作は presenter が事実から決める。
@@ -228,16 +228,16 @@ describe('終わった画面の右欄（E1）', () => {
     rerender(<IntentRoot onIntent={() => {}}><SS {...p3} live={null} summaryError="LM Studio に繋がりません" /></IntentRoot>);
     expect(screen.getByText('要約を作成できませんでした')).toBeInTheDocument();
   });
-  it('変更したファイルは押すと VS Code で開き、読み込んだ範囲の外の数も言う', () => {
+  it('変更したファイルは押すと VS Code で開き、出ていない分の数と訳も言う', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} changedFiles={files} changedMore={2} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} changedFiles={files} changedMore={2} changedNote="ほか 2 件はサブエージェントの変更です" /></IntentRoot>);
     const row = screen.getByRole('button', { name: /new\.ts/ });
     expect(row).toHaveTextContent('新規');
     expect(row).toHaveTextContent('+56');
     expect(screen.getByRole('button', { name: /a\.ts/ })).toHaveTextContent('−3');
     fireEvent.click(row);
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.openFile', sessionId: 's1', path: '/w/alpha/src/new.ts' });
-    expect(screen.getByText('ほか 2 件は、古い本文を読み込むと出ます')).toBeInTheDocument();
+    expect(screen.getByText('ほか 2 件はサブエージェントの変更です')).toBeInTheDocument();
   });
   it('右の欄は本文の面の右上のボタンでも開閉でき、閉じると本文が全幅になる', () => {
     const onIntent = vi.fn();
@@ -250,7 +250,7 @@ describe('終わった画面の右欄（E1）', () => {
   });
 });
 
-const host: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => 'connected', fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false }), reconnect: vi.fn() };
+const host: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => 'connected', fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
 const running: SessionProps = { ...base, live: 'busy', liveLabel: '作業中 12 分', run: { id: 'r1', kind: 'start', alive: true, started: '1 分前' }, selectedTab: 'r1', canResume: false, canFork: false,
   tabs: [{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'シェル 1', kind: 'shell', selected: false, closable: true }] };
 const withHost = (ui: ReactElement, onIntent = vi.fn(), h: TerminalHost = host) => { render(<IntentRoot onIntent={onIntent}><TerminalHostContext.Provider value={h}>{ui}</TerminalHostContext.Provider></IntentRoot>); return onIntent; };
@@ -306,7 +306,7 @@ describe('SessionScreen（実行中）', () => {
 
 describe('ターミナルの知らせ（F1）', () => {
   it('分割中は枠ごとの接続の様子を出す。切れた枠だけに再接続のカードを出す', () => {
-    const h: TerminalHost = { ...host, reconnect: vi.fn(), status: (id) => (id === 't1' ? 'closed' : 'connected'), link: (id) => (id === 't1' ? { retryAt: Date.now() + 5000, dropped: true } : { retryAt: null, dropped: false }) };
+    const h: TerminalHost = { ...host, reconnect: vi.fn(), status: (id) => (id === 't1' ? 'closed' : 'connected'), link: (id) => (id === 't1' ? { retryAt: Date.now() + 5000, dropped: true, gaveUp: false, detached: false } : { retryAt: null, dropped: false, gaveUp: false, detached: false }) };
     withHost(<SS {...running} canSplit split={{ left: 'r1', right: 't1' }} />, vi.fn(), h);
     expect(within(screen.getByTestId('term-r1')).queryByText('ターミナルとの接続が切れました')).toBeNull();
     const right = within(screen.getByTestId('term-t1'));
@@ -323,11 +323,24 @@ describe('ターミナルの知らせ（F1）', () => {
     expect(within(screen.getByTestId('term-t1')).queryByText('transcript を表示中')).toBeNull();
     fireEvent.click(left.getByRole('button', { name: /最新へ戻る/ }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
-    // 枠の中の Esc も同じ道で戻す（Claude には渡さない）。
-    onIntent.mockClear();
-    const ev = fireEvent.keyDown(screen.getByTestId('term-r1').querySelector('.term-host')!, { key: 'Escape' });
-    expect(ev).toBe(false);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
+  });
+  it('帯が出ていても、枠の中の Esc は横取りせずに Claude へ渡す', () => {
+    // Esc は Claude の中断に要る。
+    // 利用者が xterm で自分で transcript を抜けた後に横取りすると、中断が「最新へ」に化けて失われる。
+    const onIntent = withHost(<SS {...running} transcriptBand={{ when: '12:09' }} />);
+    const outer = vi.fn();
+    document.addEventListener('keydown', outer);
+    try {
+      const target = screen.getByTestId('term-r1').querySelector('.term-host')!;
+      for (const init of [{ key: 'Escape' }, { key: 'Escape', shiftKey: true }, { key: 'Escape', isComposing: true }]) {
+        // 既定を止めず、外へも伝わる（Root の器も xterm も受け取れる）。
+        expect(fireEvent.keyDown(target, init)).toBe(true);
+      }
+      expect(outer).toHaveBeenCalledTimes(3);
+      expect(onIntent).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', outer);
+    }
   });
 });
 

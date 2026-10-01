@@ -494,6 +494,31 @@ describe('タブと接続', () => {
     const c = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } }), runtime({ type: 'hash.changed', route: { name: 'home' } })], b.state);
     expect(c.effects.some((e) => (e as { kind: string }).kind === 'api.leaveTranscript')).toBe(false);
   });
+  it('跳ばした run が終わるか替わったら跳び先を忘れ、離れても終わった run へ抜けさせに行かない', () => {
+    const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], onSession());
+    const ended = run([server({ type: 'run.ended', run: runDto('r1', 's1', 5) })], a.state);
+    expect(ended.state.sessionView.s1?.turnJump).toBeNull();
+    // 開いたターンはそのまま読める。
+    expect(ended.state.sessionView.s1?.openTurn).toBe(7);
+    const away = run([runtime({ type: 'hash.changed', route: { name: 'home' } })], ended.state);
+    expect(away.effects.some((e) => (e as { kind: string }).kind === 'api.leaveTranscript')).toBe(false);
+    // 再開で run が替わったときも、前の run の跳び先は忘れる。
+    const b = run([server({ type: 'run.started', run: runDto('r2', 's1'), tabs: [] })], a.state);
+    expect(b.state.sessionView.s1?.turnJump).toBeNull();
+    // 別のセッションの run や、同じセッションの前の run が終わっても、跳び先は残す。
+    const c = run([server({ type: 'run.ended', run: runDto('r9', 's2', 5) }), server({ type: 'run.ended', run: runDto('r0', 's1', 5) })], a.state);
+    expect(c.state.sessionView.s1?.turnJump).toEqual({ seq: 7, status: 'pending', runId: 'r1' });
+  });
+  it('跳ばした後に跳び先を持たない遠いターンを開くと、先に左の Claude を transcript から抜けさせる', () => {
+    const jump = { heads: ['a', 'b'], index: 0, from: 'bottom' as const };
+    const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: 'r1', jump })], onSession());
+    // 目次は、跳ぶには遠すぎるターンを跳び先なしで送ってくる。
+    const b = run([intent({ type: 'turn.open', sessionId: 's1', seq: 3, runId: null, jump: null })], a.state);
+    expect(b.state.sessionView.s1).toMatchObject({ openTurn: 3, turnJump: null });
+    expect(b.effects).toContainEqual({ kind: 'api.leaveTranscript', runId: 'r1' });
+    expect(b.effects.some((e) => (e as { kind: string }).kind === 'api.jumpToPrompt')).toBe(false);
+  });
   it('開いているターンをもう一度押すと閉じ、run が無ければ跳ばない', () => {
     const a = run([intent({ type: 'turn.open', sessionId: 's1', seq: 7, runId: null, jump: null })], onSession());
     expect(a.state.sessionView.s1).toMatchObject({ openTurn: 7, turnJump: null });

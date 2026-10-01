@@ -14,7 +14,7 @@ const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1
 
 /** ターミナルの偽物。React の外で持つ接続の代わりに、呼ばれた tabId を並べる。 */
 function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: string[] } {
-  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, zoom: () => {}, fontSize: () => 13, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false }), reconnect: () => {} };
+  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, zoom: () => {}, fontSize: () => 13, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: () => {} };
   return h;
 }
 
@@ -450,6 +450,24 @@ describe('起動とターミナル', () => {
     expect(terminals.connected).toEqual(['r-s1', 'r-s2', 'r-s3']);
     expect(terminals.disconnected).toEqual(['r-s1', 'r-s2', 'r-s3']);
   });
+  it('取り直した bootstrap から消えた run は終わったものとし、そのタブの接続を切る', async () => {
+    // サーバの再起動中に Claude が終わると、run.ended は届かない。
+    const shell = { ...launched.tabs[0]!, id: 't1', kind: 'shell' as const, title: 'zsh', tmuxName: 'hangar-r1-t1', createdAt: 2 };
+    const other = { ...launched.run, id: 'r2', sessionId: 's2', tmuxName: 'hangar-r2' };
+    const { rt, terminals, wsHandlers, setHash } = harness({ bootstrap: vi.fn(async () => ({ ...boot, runs: [other], tabs: [{ ...launched.tabs[0]!, id: 'r2', runId: 'r2', sessionId: 's2' }] })) });
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: launched.run, tabs: [...launched.tabs, shell] } });
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: other, tabs: [] } });
+    setHash('#/session/s1');
+    terminals.disconnected.length = 0;
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(terminals.disconnected).toEqual(expect.arrayContaining(['r1', 't1']));
+    expect(terminals.disconnected).not.toContain('r2');
+    expect(rt.getStore().runs.r1?.endedAt).not.toBeNull();
+    expect(rt.getStore().tabs.t1?.closedAt).not.toBeNull();
+    expect(rt.getStore().runs.r2?.endedAt).toBeNull();
+  });
   it('bootstrap を取り直すたびに、参照されなくなった run を落とす', async () => {
     const ended = { ...launched.run, endedAt: 2, endReason: 'exited' as const };
     const closed = { ...launched.tabs[0]!, closedAt: 3 };
@@ -484,6 +502,30 @@ describe('起動とターミナル', () => {
     await flush();
     expect(jumpToPrompt).toHaveBeenCalledWith('r1', { heads: ['a'], index: 0, from: 'bottom' });
     expect(rt.getState().sessionView.s1?.turnJump).toEqual({ seq: 4, status: 'notFound', runId: 'r1' });
+  });
+  it('transcript から抜けさせるのは、今も生きている run にだけで、断られても知らせない', async () => {
+    const aliveRun = p3Run('r1', 's1');
+    const leaveTranscript = vi.fn(async () => { throw new Error('run is not alive'); });
+    const { rt, setHash } = harness({ leaveTranscript });
+    rt.start();
+    await flush();
+    setHash('#/session/s1');
+    // 知らない run（終わって消えた run）には送らない。
+    rt.emit({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
+    await flush();
+    expect(leaveTranscript).not.toHaveBeenCalled();
+    // 終わった run にも送らない。
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: aliveRun, tabs: [] } });
+    rt.dispatch({ kind: 'server', event: { type: 'run.ended', run: { ...aliveRun, endedAt: 2 } } });
+    rt.emit({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
+    await flush();
+    expect(leaveTranscript).not.toHaveBeenCalled();
+    // 生きている run には送る。その間に終わって 409 で断られても、トーストは出さない。
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: { ...aliveRun, id: 'r2' }, tabs: [] } });
+    rt.emit({ type: 'turn.latest', sessionId: 's1', runId: 'r2' });
+    await flush();
+    expect(leaveTranscript).toHaveBeenCalledWith('r2');
+    expect(rt.getState().toasts).toEqual([]);
   });
   it('iTerm2 から Terminal.app に落ちたらトーストで知らせる', async () => {
     const { rt } = harness({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
@@ -635,6 +677,16 @@ describe('フェーズ 3 の効果', () => {
     expect(openArtifact).toHaveBeenCalledWith('a1');
     expect(openArtifactEditor).toHaveBeenCalledWith('a1');
     expect(rt.getStore().artifacts.a1).toEqual(artifact);
+  });
+  it('変更したファイルを開くときはそのファイルを送り、VS Code で開くときは作業ディレクトリ（file なし）を頼む', async () => {
+    const openEditor = vi.fn(async (_sessionId: string, _file?: string) => {});
+    const { rt } = harness({ openEditor });
+    rt.start();
+    rt.emit({ type: 'session.openFile', sessionId: 's1', path: '/w/alpha/src/a.ts' });
+    rt.emit({ type: 'session.openEditor', sessionId: 's1' });
+    await flush();
+    // file を落とすと、ファイルではなく作業ディレクトリが開く。
+    expect(openEditor.mock.calls).toEqual([['s1', '/w/alpha/src/a.ts'], ['s1']]);
   });
   it('設定画面に入ると statusline と集計とモデル一覧を読む', async () => {
     const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
@@ -1167,6 +1219,51 @@ describe('入力待ちの知らせ', () => {
       h.fireFocus();
       await flush();
       expect(h.rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
+    });
+    it('読んでいる間にスイッチを切られたら、答えが届いた時点の選んだ値と状態で決める', async () => {
+      // 許可されたと届いても、切った後なので受け取るに戻さない。
+      const n = mutableNotifier('desktop', 'granted');
+      const h = await boot2(n, true);
+      let answer!: (p: NotifyPermission) => void;
+      n.status.mockImplementationOnce(() => new Promise<NotifyPermission>((r) => { answer = r; }));
+      h.advance(5000);
+      h.fireFocus();
+      h.rt.emit({ type: 'notify.set', on: false });
+      answer('granted');
+      await flush();
+      expect(h.rt.getState().notify).toEqual({ available: true, on: false, blocked: false });
+      // 切られたと届いても、もう受け取っていないので設定の仕方は知らせない。
+      const m = mutableNotifier('desktop', 'granted');
+      const k = await boot2(m, true);
+      m.status.mockImplementationOnce(() => new Promise<NotifyPermission>((r) => { answer = r; }));
+      k.advance(5000);
+      k.fireFocus();
+      k.rt.emit({ type: 'notify.set', on: false });
+      answer('denied');
+      await flush();
+      expect(k.rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+      expect(k.rt.getState().toasts).toEqual([]);
+    });
+    it('設定の仕方を知らせるのは、受け取っていたのに OS で切られたときだけ', async () => {
+      // 受け取らないと選んでいた。
+      const n = mutableNotifier('desktop', 'granted');
+      const h = await boot2(n, false);
+      n.set('denied');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getState().notify.blocked).toBe(true);
+      expect(h.rt.getState().toasts).toEqual([]);
+      // ブラウザで拒まれたのは OS の設定ではない。
+      const m = mutableNotifier('web', 'granted');
+      const k = await boot2(m, true);
+      expect(k.rt.getState().notify.on).toBe(true);
+      m.set('denied');
+      k.advance(5000);
+      k.fireFocus();
+      await flush();
+      expect(k.rt.getState().notify.on).toBe(false);
+      expect(k.rt.getState().toasts).toEqual([]);
     });
     it('最後に読んでから 2 秒以内は読み直さない', async () => {
       const n = mutableNotifier('desktop', 'granted');

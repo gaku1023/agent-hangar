@@ -7,7 +7,7 @@ import { LAYOUT_SETTLED, MOVING_ATTR } from './primitives/sidebarMotion.ts';
 type FakeHost = TerminalHost & { mount: ReturnType<typeof vi.fn> };
 
 function fakeHost(): FakeHost {
-  return { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false }), reconnect: vi.fn() } as FakeHost;
+  return { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() } as FakeHost;
 }
 
 describe('TerminalPane', () => {
@@ -55,7 +55,7 @@ describe('TerminalPane', () => {
   it('思いがけず切れたら、中央のカードで言い、次に試すまでの秒数と再接続を出す', () => {
     const reconnect = vi.fn();
     const at = Date.now() + 4200;
-    const host = { ...fakeHost(), reconnect, status: () => 'closed' as const, link: () => ({ retryAt: at, dropped: true }) };
+    const host = { ...fakeHost(), reconnect, status: () => 'closed' as const, link: () => ({ retryAt: at, dropped: true, gaveUp: false, detached: false }) };
     const { container, rerender } = render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
     expect(screen.getByText('ターミナルとの接続が切れました')).toBeInTheDocument();
     expect(screen.getByText('Claude は動き続けています。5 秒後にもう一度つなぎます。')).toBeInTheDocument();
@@ -64,9 +64,36 @@ describe('TerminalPane', () => {
     fireEvent.click(screen.getByRole('button', { name: '再接続' }));
     expect(reconnect).toHaveBeenCalledWith('r1');
     // つなぎ直している間は秒ではなく、そうしていると言う。
-    const trying = { ...host, status: () => 'connecting' as const, link: () => ({ retryAt: null, dropped: true }) };
+    const trying = { ...host, status: () => 'connecting' as const, link: () => ({ retryAt: null, dropped: true, gaveUp: false, detached: false }) };
     rerender(<TerminalHostContext.Provider value={trying}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
     expect(screen.getByText('Claude は動き続けています。つなぎ直しています。')).toBeInTheDocument();
+  });
+  it('切れた印が残っていても、つながっている間はカードを出さない', () => {
+    // つながった瞬間に Host が知らせる前の 1 コマでも、つながっている端末を覆わない。
+    const host = { ...fakeHost(), status: () => 'connected' as const, link: () => ({ retryAt: null, dropped: true, gaveUp: false, detached: true }) };
+    const { container } = render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
+    expect(screen.queryByRole('button', { name: /再接続|つなぎ直す/ })).toBeNull();
+    expect(container.querySelector('.term-pane')).not.toHaveAttribute('data-off');
+  });
+  it('何度試してもつながらなかったら、動き続けているとは言わず、手動の再接続に任せる', () => {
+    const reconnect = vi.fn();
+    const host = { ...fakeHost(), reconnect, status: () => 'closed' as const, link: () => ({ retryAt: null, dropped: true, gaveUp: true, detached: false }) };
+    render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
+    expect(screen.getByText('つなげませんでした。')).toBeInTheDocument();
+    expect(screen.queryByText(/動き続けています/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '再接続' }));
+    expect(reconnect).toHaveBeenCalledWith('r1');
+  });
+  it('tmux から抜けて閉じたが run が生きているときは、カードに「つなぎ直す」を出す', () => {
+    const reconnect = vi.fn();
+    const host = { ...fakeHost(), reconnect, status: () => 'closed' as const, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: true }) };
+    const { container } = render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="r1" agent hint={null} live="busy" /></TerminalHostContext.Provider>);
+    expect(screen.getByText('ターミナルから切り離されました')).toBeInTheDocument();
+    expect(screen.getByText('Claude は動き続けています。')).toBeInTheDocument();
+    expect(container.querySelector('.term-pane')).toHaveAttribute('data-off', 'true');
+    expect(screen.queryByText('接続していません')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'つなぎ直す' }));
+    expect(reconnect).toHaveBeenCalledWith('r1');
   });
   it('サーバが断ったときもカードで言い、再接続を出す。最初のつなぎ中と、自分で切った後はカードを出さない', () => {
     const host = { ...fakeHost(), status: () => 'error' as const };

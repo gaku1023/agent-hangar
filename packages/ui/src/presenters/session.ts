@@ -54,9 +54,11 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   /**
    * 終わった画面の右欄（E1）の変更したファイル。
    * 読み込んだ主線の本文から作る。
-   * changedMore は読み込んだ範囲の外にある数。
+   * changedMore は統計の変更数のうち、行に出ていない数（サブエージェントの編集も数に入る）。
+   * changedNote はその訳で、主線を読み切っていればサブエージェントの変更、まだなら古い本文の中にあると言う。
+   * 主線を読んでいない（サブエージェントを見ている）間は訳が分からないので null にし、数だけ出す。
    */
-  changedFiles: ChangedFileProps[]; changedMore: number;
+  changedFiles: ChangedFileProps[]; changedMore: number; changedNote: string | null;
   /**
    * 終わった画面の右欄の TODO。
    * そのセッションのプロジェクトのもの。
@@ -264,7 +266,7 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, openTurnItems: [], turnJump: null, livePane: null, gone: null, find: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, todos: [], transcriptBand: null };
+  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, openTurnItems: [], turnJump: null, livePane: null, gone: null, find: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -310,15 +312,24 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     : null;
   // 変更したファイルは主線から数える。
   // サブエージェントを見ている間も、右欄は主線の分を出す。
-  const mainEvents = view.agentId === null ? events : (store.events[eventsKey(id, null)]?.items ?? []);
+  const mainSlice = store.events[eventsKey(id, null)];
+  const mainEvents = view.agentId === null ? events : (mainSlice?.items ?? []);
   const toolResults = new Map<string, ToolResult>();
   for (const e of mainEvents) if (e.kind === 'tool_result') toolResults.set(e.toolId, { text: e.text, isError: e.isError });
   const changedFiles = changedFilesOf(mainEvents, toolResults, s.cwd);
-  // transcript を表示中の帯は、今の生きた run を跳ばしている間だけ出す。
-  // transcript に入れなかった（mode）ときは出さない。
+  // 行に出ていない分の訳。
+  // 統計の変更数はサブエージェントの編集も数えるので、主線を読み切っていれば残りはサブエージェントの変更である。
+  const changedMore = Math.max(0, s.stats.filesChanged - changedFiles.length);
+  const changedNote = changedMore === 0 || !mainSlice ? null
+    : mainSlice.total <= mainSlice.items.length ? `ほか ${changedMore} 件はサブエージェントの変更です`
+    : `ほか ${changedMore} 件は、古い本文を読み込むと出ます`;
+  // transcript を表示中の帯は、今の生きた run を transcript に入れたと確かめられた間だけ出す。
+  // サーバは着けなかった（notFound）ときも transcript を開いたままにするので、そのときも出す。
+  // 答えを待つ間（pending）と、入れなかった（mode）ときと、API が失敗した（failed）ときは出さない。
+  // 失敗は目次の開いたターンの中で言う。
   const tj = view.turnJump;
   const aliveRun = aliveRunOf(store, id);
-  const transcriptBand = tj && aliveRun && tj.runId === aliveRun.id && tj.status !== 'mode' ? { when: (turnRows.find((r) => r.seq === tj.seq)?.when ?? '').slice(0, 5) } : null;
+  const transcriptBand = tj && aliveRun && tj.runId === aliveRun.id && (tj.status === 'found' || tj.status === 'notFound') ? { when: (turnRows.find((r) => r.seq === tj.seq)?.when ?? '').slice(0, 5) } : null;
   // splitTab が閉じたタブを指していることがあるので、左と違う最初のタブに落とす。
   const right = view.split && canSplit && selectedTab ? open.find((t) => t.id === view.splitTab && t.id !== selectedTab) ?? open.find((t) => t.id !== selectedTab) ?? null : null;
   const props: SessionProps = {
@@ -351,7 +362,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     // 本文が消えた会話では、残っている要約を最初から開いて見せる。
     gone, summaryOpen: gone ? true : view.summaryOpen,
-    changedFiles, changedMore: Math.max(0, s.stats.filesChanged - changedFiles.length), transcriptBand,
+    changedFiles, changedMore, changedNote, transcriptBand,
     todos: s.projectId ? todosOf(store, s.projectId).map((t) => ({ id: t.id, text: t.text, done: t.done, candidate: presentTodoCandidate(t, store, now) })) : [],
   };
   return { ...props, actions: sessionActions(props) };

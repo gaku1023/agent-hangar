@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabsOf, todosOf } from './store.ts';
+import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
@@ -127,6 +127,22 @@ describe('runs と tabs', () => {
 
 const todo = (id: string, projectId: string, position: number, done = false): TodoDto => ({ id, projectId, text: id, done, position, sessionId: null, updatedAt: 1 });
 const art = (id: string, projectId: string | null, last: number, sessionIds: string[] = ['s1']): ArtifactDto => ({ id, projectId, url: `https://claude.ai/code/artifact/${id}`, title: id, description: null, favicon: '📊', filePath: null, fileExists: false, firstPublishedAt: 1, lastPublishedAt: last, versionCount: 1, sessionIds });
+
+describe('tabAlive', () => {
+  it('Claude のタブは run が生きている間だけ、シェルのタブは閉じるまで生きている。知らないタブは生きていない', () => {
+    let s = initialStore();
+    s = applyServerEvent(s, { type: 'run.started', run: run('r1', 's1'), tabs: [tab('r1', 'r1', 'agent'), tab('t1', 'r1', 'shell')] });
+    expect(tabAlive(s, 'r1')).toBe(true);
+    expect(tabAlive(s, 't1')).toBe(true);
+    expect(tabAlive(s, 'nope')).toBe(false);
+    // シェルのタブは Claude が終わっても残る。
+    s = applyServerEvent(s, { type: 'run.ended', run: run('r1', 's1', 9) });
+    expect(tabAlive(s, 'r1')).toBe(false);
+    expect(tabAlive(s, 't1')).toBe(true);
+    s = applyServerEvent(s, { type: 'tab.upsert', tab: tab('t1', 'r1', 'shell', 10) });
+    expect(tabAlive(s, 't1')).toBe(false);
+  });
+});
 
 describe('フェーズ 3 のストア', () => {
   it('bootstrap は使用量と TODO とアーティファクトと要約の待ちを入れる', () => {

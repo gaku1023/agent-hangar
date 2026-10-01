@@ -299,7 +299,7 @@ function FilesPanel(props: SessionProps) {
           </li>
         ))}
       </ul>
-      {props.changedMore > 0 && <div className="rail-note">ほか {props.changedMore} 件は、古い本文を読み込むと出ます</div>}
+      {props.changedNote && <div className="rail-note">{props.changedNote}</div>}
     </section>
   );
 }
