@@ -1199,7 +1199,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
     const store: Store = { ...initialStore(), devices, shellHook: { state: 'on', zshrc: '/Users/me/.zshrc', line: 'x', command: '/A/bin/hangar shell install' } };
     expect(presentSettings(initialState(), store, NOW).shell).toEqual({
       state: 'on', zshrc: '/Users/me/.zshrc', line: 'x', command: '/A/bin/hangar shell install', uninstallCommand: '/A/bin/hangar shell uninstall',
-      devices: [{ id: 'd', name: 'mac', self: true, label: '入っています' }, { id: 'd2', name: 'mini', self: false, label: 'この Claude Code では使えません' }, { id: 'd3', name: 'old', self: false, label: '分かりません（hangar が古い版です）' }],
+      devices: [{ id: 'd', name: 'mac', self: true, label: '入っています' }, { id: 'd2', name: 'mini', self: false, label: 'tmux が無いので使えません' }, { id: 'd3', name: 'old', self: false, label: '分かりません（hangar が古い版です）' }],
     });
     expect(presentSettings(initialState(), { ...store, shellHook: null }, NOW).shell.state).toBeNull();
   });

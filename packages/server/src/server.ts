@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { listArtifacts } from './artifacts/queries.ts';
 import { backupsRoot, readCloudConfig, remoteRoot } from './config/cloud.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
-import { claudeSupportsBackground, ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, zshrcPath } from './config/shellHook.ts';
+import { ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, shellWrapSupported, zshrcPath } from './config/shellHook.ts';
 import { claudeJsonPath } from './config/claudeJson.ts';
 import { createReadiness } from './config/readiness.ts';
 import { defaultManagedDir, RetentionService } from './config/retention.ts';
@@ -402,8 +402,6 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   let settings: Settings = resolveToolPaths(loadSettings(home));
   saveSettings(home, settings);
   ensureWrapperScript(home);
-  // 包み方の本体は hangar の版と揃える。~/.zshrc の 1 行はこのファイルを読むだけなので、更新はここで行き渡る。
-  ensureShellScript(home);
   const fixed = ensureSpawnHelper();
   if (fixed.length) console.log('[pty] spawn-helper に実行権限を付けました:', fixed.join(', '));
 
@@ -593,10 +591,19 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     const p = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'hangar');
     return fs.existsSync(p) ? p : null;
   })();
-  // バックグラウンドを使えるかは claude を 1 度起こして確かめるので、測り直すまで覚えておく。
-  let shellSupported: boolean | null = null;
-  const shellHook = (recheck = false): ShellHookDto => {
-    if (shellSupported === null || recheck) shellSupported = claudeSupportsBackground(claudeBinOf(settings));
+  // 包み方の本体は hangar の版と揃える。~/.zshrc の 1 行はこのファイルを読むだけなので、更新はここで行き渡る。
+  // 本体には実際に待ち受けているポートと tmux のパスを埋め込むので、listen の後に書き、tmux のパスが変われば書き直す。
+  const writeShellScript = () => {
+    try {
+      ensureShellScript(home, { url: `http://${host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host}:${port}`, tokenFile: path.join(home, 'token'), tmuxPath: settings.tmuxPath });
+    } catch (e) {
+      console.error('[shell] 包み方の本体を書けませんでした', e instanceof Error ? e.message : e);
+    }
+  };
+  writeShellScript();
+  // 包めるかは tmux を実行できるかで見る。ファイルを見るだけなので、毎回測る。
+  const shellHook = (): ShellHookDto => {
+    const shellSupported = shellWrapSupported(settings.tmuxPath);
     const zshrc = zshrcPath();
     return { state: shellHookState(zshrc, shellSupported), zshrc, line: shellHookLine(home), command: shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar }) };
   };
@@ -730,6 +737,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const t = tmuxOf(settings);
       runs.setTmux(t);
       relay.setTmux(t);
+      if (patch.tmuxPath !== undefined) writeShellScript();
       // claudePath が変われば、これから起こす run と要約が新しい場所を使う。
       if (patch.claudePath !== undefined) {
         runs.setClaudeBin(claudeBinOf(settings));
@@ -770,7 +778,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     devices: () => listDevices(db, device.id),
     shellHook: () => {
       // Settings を開いたときに測り直す。CLI で入れた直後に開けば、ここで他の PC にも知らせる。
-      const h = shellHook(true);
+      const h = shellHook();
       const cur = db.prepare('select shell_hook from devices where id = ?').get(device.id) as { shell_hook: string | null } | undefined;
       if (cur && cur.shell_hook !== h.state) touchDevice();
       return h;
@@ -820,7 +828,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   /** 自端末の生存を devices に刻む。他端末の Settings の一覧と、ロックの端末名と、包み方の状態がここから出る。 */
   function touchDevice(): void {
     const row = db.prepare('select * from devices where id = ?').get(device.id) as Record<string, unknown> | undefined;
-    upsertShared(db, 'devices', { ...(row ?? {}), id: device.id, name: device.name, platform: device.platform, last_seen_at: Date.now(), shell_hook: shellHook(true).state, deleted_at: null }, device.id);
+    upsertShared(db, 'devices', { ...(row ?? {}), id: device.id, name: device.name, platform: device.platform, last_seen_at: Date.now(), shell_hook: shellHook().state, deleted_at: null }, device.id);
     hub.broadcast({ type: 'devices.update', devices: listDevices(db, device.id) });
   }
   touchDevice();

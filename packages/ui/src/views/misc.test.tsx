@@ -613,7 +613,7 @@ describe('SettingsScreen の外のターミナル', () => {
     expect(screen.getByText(/shell uninstall/)).toBeInTheDocument();
     expect(screen.queryByText(/shell install$/)).toBeNull();
     rerender(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ shell: shell({ state: 'unsupported' }) })} /></IntentRoot>);
-    expect(screen.getByText(/claude update/)).toBeInTheDocument();
+    expect(screen.getByText(/brew install tmux/)).toBeInTheDocument();
   });
 });
 

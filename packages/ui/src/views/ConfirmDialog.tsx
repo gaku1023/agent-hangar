@@ -62,7 +62,7 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
       >
         <div className="muted">外のターミナル（VS Code など）で動いている claude を終わらせ、同じ会話を hangar のターミナルで開き直します。</div>
         <div className="faint">答えを待っている問いは、答えなかったものとして閉じます。開いた後に文で答えてください。</div>
-        <div className="faint">元のターミナルからは <span className="mono">claude attach</span> で同じ画面に戻れます。</div>
+        <div className="faint">元のターミナルからは、外のターミナルの包み方を入れていれば、同じ会話の <span className="mono">claude -r</span> で hangar の画面に戻れます。</div>
       </Dialog>
     );
   }

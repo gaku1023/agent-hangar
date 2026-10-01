@@ -31,7 +31,7 @@ const setup = program
     if (!o.skipShell) {
       // 新しい PC は setup の流れで聞かれるようにする。同期している他の PC は Settings で入っているかが分かる。
       console.log('');
-      await runShellInstall({ claudeBin: claudeBinFor(home), yes: o.yes ?? false });
+      await runShellInstall({ tmuxPath: tmuxPathFor(home), yes: o.yes ?? false });
     }
     console.log('');
     console.log('MCP の登録は hangar mcp install で行えます。');
@@ -189,19 +189,19 @@ mcp
     if (!r.ok) process.exitCode = 1;
   });
 
-/** サーバと同じ順で claude を探す。Settings の claudePath、無ければ PATH。 */
-function claudeBinFor(home: string): string | null {
-  return process.env.HANGAR_CLAUDE_BIN ?? loadSettings(home).claudePath ?? whichCmd('claude');
+/** hangar が使う tmux。Settings の tmuxPath、無ければ PATH。 */
+function tmuxPathFor(home: string): string | null {
+  return loadSettings(home).tmuxPath ?? whichCmd('tmux');
 }
 
 const shell = program.command('shell').description('外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする');
 
 shell
   .command('install')
-  .description('~/.zshrc に 1 行を足し、claude を Claude のバックグラウンドで起こしてつなぐ形に包む（承諾を求め、控えを取る）')
+  .description('~/.zshrc に 1 行を足し、claude を hangar の tmux の中で起こしてつなぐ形に包む（承諾を求め、控えを取る）')
   .option('--yes', '問わずに足す')
   .action(async (o: { yes?: boolean }) => {
-    const r = await runShellInstall({ claudeBin: claudeBinFor(hangarHome()), yes: o.yes ?? false });
+    const r = await runShellInstall({ tmuxPath: tmuxPathFor(hangarHome()), yes: o.yes ?? false });
     if (!r.installed) process.exitCode = 1;
   });
 
@@ -213,7 +213,7 @@ shell
 shell
   .command('status')
   .description('この PC に入っているかを表示する')
-  .action(() => { console.log(shellStatusLine({ claudeBin: claudeBinFor(hangarHome()) })); });
+  .action(() => { console.log(shellStatusLine({ tmuxPath: tmuxPathFor(hangarHome()) })); });
 
 const statusline = program.command('statusline').description('statusline スクリプトへの追記');
 
