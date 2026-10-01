@@ -5,6 +5,7 @@
 pub mod deeplink;
 pub mod filedrop;
 pub mod health;
+pub mod logfile;
 pub mod node;
 pub mod paths;
 pub mod server;
@@ -12,6 +13,7 @@ pub mod server;
 use std::cell::Cell;
 use std::io::Write;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::webview::PageLoadEvent;
@@ -22,6 +24,8 @@ use tauri_plugin_deep_link::DeepLinkExt;
 struct AppState {
     server: Mutex<Option<server::ServerProcess>>,
     ui: Mutex<Ui>,
+    /// 起動の本体（`boot`）が走っているか。「もう一度試す」を連打しても、二つ目の起動を重ねない。
+    booting: AtomicBool,
 }
 
 /// ウィンドウが今どの段にいるか。
@@ -87,6 +91,20 @@ impl Ui {
             return None;
         }
         self.last_progress.clone()
+    }
+
+    /// 起動に失敗した後の「もう一度試す」。
+    /// サーバの頁へ移った後はやり直さないので偽を返す。
+    /// やり直すときは、殻が読み込み画面を読み込み直すので、読み込みの合図まで文言を貯める側へ戻す。
+    /// 前の失敗の文言と進み具合は、新しい頁へ持ち込まない。
+    fn retry(&mut self) -> bool {
+        if self.ready {
+            return false;
+        }
+        self.loaded = false;
+        self.pending_status = None;
+        self.last_progress = None;
+        true
     }
 
     fn page_loaded(&mut self, server_page: bool) -> (Option<(String, bool)>, Option<String>) {
@@ -661,6 +679,61 @@ fn boot(app: AppHandle) {
     watch_server(app);
 }
 
+/// 起動の本体を別のスレッドで走らせる。走っている間は二つ目を起こさず、偽を返す。
+fn spawn_boot(app: AppHandle) -> bool {
+    if app.state::<AppState>().booting.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    std::thread::spawn(move || {
+        boot(app.clone());
+        app.state::<AppState>().booting.store(false, Ordering::SeqCst);
+    });
+    true
+}
+
+// ここから下の 3 つが、頁から呼べる殻の命令である。
+// 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
+// どれも引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
+
+/// `~/.agent-hangar/desktop.log` を開く。起動画面と、UI の切断の帯の「ログを開く」が呼ぶ。
+#[tauri::command]
+async fn open_log() -> Result<(), String> {
+    let home = paths::hangar_home();
+    ensure_hangar_home(&home);
+    logfile::open_log(&home).inspect_err(|e| log(&format!("open log failed: {e}")))
+}
+
+/// アプリを再起動する。UI の切断の帯の「再起動」が呼ぶ。
+/// 終了の手続き（`RunEvent::Exit`）を通るので、子のサーバも止めてから起き直す。
+#[tauri::command]
+fn restart_app(app: AppHandle) {
+    log("restart requested from the UI");
+    app.request_restart();
+}
+
+/// 起動をやり直す。起動画面の「もう一度試す」が呼ぶ。
+/// 残っている子のサーバを止めてから、読み込み画面を読み込み直し、起動の本体をもう一度走らせる。
+/// 応答しないまま生きている子がポートを握っていると、やり直しても同じところで止まるからである。
+#[tauri::command]
+async fn retry_boot(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if state.booting.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    if !state.ui.lock().unwrap().retry() {
+        return Err("もう起動しています".to_string());
+    }
+    let previous = state.server.lock().unwrap().take();
+    if let Some(mut p) = previous {
+        p.stop();
+        log("stopped the previous server before retrying");
+    }
+    log("retrying the boot");
+    eval_main(&app, "location.reload()");
+    spawn_boot(app.clone());
+    Ok(())
+}
+
 /// トラックパッドの「指が離れた」瞬間を画面へ伝える。
 ///
 /// ホイールの打鍵には指の上げ下げが乗らないので、画面の側だけでは離した時点を当てられない。
@@ -756,7 +829,9 @@ pub fn run() {
         .manage(AppState {
             server: Mutex::new(None),
             ui: Mutex::new(Ui::default()),
+            booting: AtomicBool::new(false),
         })
+        .invoke_handler(tauri::generate_handler![open_log, restart_app, retry_boot])
         // 頁の読み込みが終わる前の評価は捨てられることがある。
         // 出しそこねた文言と、navigate の最中に届いたリンクをここで流す。
         .on_page_load(|webview, payload| {
@@ -776,8 +851,7 @@ pub fn run() {
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 handle_urls(app.handle(), &urls);
             }
-            let handle = app.handle().clone();
-            std::thread::spawn(move || boot(handle));
+            spawn_boot(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -880,6 +954,32 @@ mod tests {
         ui.remember_status("サーバを起動しています", false);
         ui.navigating();
         assert_eq!(ui.page_loaded(true).0, None);
+    }
+
+    // 起動に失敗した後の「もう一度試す」。殻は読み込み画面を読み込み直してから起動をやり直す。
+    // 読み込み直しの最中に出た文言は捨てられうるので、読み込みの合図まで貯める側へ戻す。
+    // 前の失敗の文言と進み具合は、新しい頁へ持ち込まない。
+    #[test]
+    fn a_retry_reloads_the_loading_page_and_holds_new_statuses_for_it() {
+        let mut ui = Ui::default();
+        ui.page_loaded(false);
+        ui.last_progress = Some("progress".to_string());
+        assert!(ui.retry());
+        assert_eq!(ui.progress_to_replay(false), None);
+        ui.remember_status("サーバが起動直後に終了しました。", true);
+        assert_eq!(
+            ui.page_loaded(false).0,
+            Some(("サーバが起動直後に終了しました。".to_string(), true))
+        );
+    }
+
+    // サーバの頁へ移った後は、やり直さない。
+    #[test]
+    fn a_retry_after_the_server_page_is_refused() {
+        let mut ui = Ui::default();
+        ui.page_loaded(false);
+        ui.navigating();
+        assert!(!ui.retry());
     }
 
     // 段に合わない読み込みの合図は無視する。

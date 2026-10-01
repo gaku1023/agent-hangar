@@ -227,3 +227,32 @@ describe('起動画面の動き', () => {
     expect(frames.size).toBe(0);
   });
 });
+
+// 起動に失敗したら、文の下に「もう一度試す」と「ログを開く」を出す（初回と障害の C1）。
+// どちらも殻の命令で、押すと殻が起動をやり直すか、ログのファイルを開く。
+describe('起動画面の失敗の操作', () => {
+  const tauri = window as unknown as { __TAURI_INTERNALS__?: { invoke: (cmd: string) => Promise<unknown> } };
+  afterEach(() => { delete tauri.__TAURI_INTERNALS__; });
+  const fail = async () => {
+    $('status').textContent = 'サーバが 20 秒以内に応答しませんでした。';
+    $('status').dataset.level = 'error';
+    await flush();
+  };
+  it('待っている間は出さず、失敗の文が出たら出す', async () => {
+    await boot();
+    expect($('boot-actions').hidden).toBe(true);
+    await fail();
+    expect($('boot-actions').hidden).toBe(false);
+  });
+  it('もう一度試すは起動のやり直しを、ログを開くはログを殻に頼む。やり直しは二度押せない', async () => {
+    const invoke = vi.fn(async () => null);
+    tauri.__TAURI_INTERNALS__ = { invoke };
+    await boot();
+    await fail();
+    ($('boot-retry') as HTMLButtonElement).click();
+    ($('boot-retry') as HTMLButtonElement).click();
+    ($('boot-log') as HTMLButtonElement).click();
+    expect(invoke.mock.calls).toEqual([['retry_boot'], ['open_log']]);
+    expect(($('boot-retry') as HTMLButtonElement).disabled).toBe(true);
+  });
+});

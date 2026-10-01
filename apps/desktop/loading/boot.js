@@ -133,3 +133,20 @@ const tick = setInterval(() => {
   const d = detailText(progress, ms);
   if (detail.textContent !== d) detail.textContent = d;
 }, 100);
+
+// 起動に失敗したら、文の下に「もう一度試す」と「ログを開く」を出す（初回と障害の C1）。
+// どちらも殻の命令（lib.rs の retry_boot と open_log）で、この頁（tauri://localhost）からだけ呼べる（capabilities/boot-screen.json）。
+// やり直すと殻がこの頁を読み込み直すので、ボタンは一度押したら押せなくしておく。
+const actions = document.getElementById('boot-actions');
+const retry = document.getElementById('boot-retry');
+const openLog = document.getElementById('boot-log');
+const invoke = (cmd) => window.__TAURI_INTERNALS__?.invoke?.(cmd);
+const showActions = () => { if (actions) actions.hidden = status.dataset.level !== 'error'; };
+new MutationObserver(showActions).observe(status, { attributes: true, attributeFilter: ['data-level'] });
+showActions();
+retry?.addEventListener('click', () => {
+  if (retry.disabled) return;
+  retry.disabled = true;
+  Promise.resolve(invoke('retry_boot')).catch(() => { retry.disabled = false; });
+});
+openLog?.addEventListener('click', () => { Promise.resolve(invoke('open_log')).catch(() => {}); });
