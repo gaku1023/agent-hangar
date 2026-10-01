@@ -158,7 +158,8 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
     const terminals = props.split ? <SplitPane left={pane(props.split.left)} right={pane(props.split.right)} /> : pane(props.selectedTab);
     return (
       <div className="screen session-screen screen-fill">
-        {header}{summary}{artifacts}
+        {/* 成果物は、右ペインの「いま」があればそこへ移す。上に並べると、その分だけ端末が縮む。 */}
+        {header}{summary}{props.livePane && props.transcriptOpen ? null : artifacts}
         <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} />
         {/* 右欄は会話の全文ではなくターンの目次にする。全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。 */}
         <div className="split" style={{ gridTemplateColumns: props.transcriptOpen ? 'minmax(0, 1fr) minmax(240px, 26%)' : 'minmax(0, 1fr) 28px' }}>
@@ -168,7 +169,7 @@ export function SessionScreen(props: SessionProps & { terminalStatus: TerminalSt
               ? (() => {
                 const toc = <TurnIndex sessionId={id} runId={run.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={props.livePane ? undefined : paneToggle} />;
                 // 実行中は右ペインの上に「いま」を出し、目次は一番下に残す。終わった run では今までどおり目次だけ。
-                return props.livePane ? <LivePane sessionId={id} pane={props.livePane} lead={paneToggle}>{toc}</LivePane> : toc;
+                return props.livePane ? <LivePane sessionId={id} pane={props.livePane} lead={paneToggle} split={props.livePaneSplit} artifacts={props.artifacts}>{toc}</LivePane> : toc;
               })()
               : paneToggle}
           </aside>

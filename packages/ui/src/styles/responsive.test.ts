@@ -58,6 +58,10 @@ describe('右ペインと会話の行', () => {
     expect(b).not.toMatch(/flex: none;/);
     expect(b).toMatch(/text-overflow: ellipsis;/);
   });
+  it('「いま」の上段は、境目の比率（--live-split）を高さの上限にする', () => {
+    expect(body(base, '.live-top')).toMatch(/max-height: calc\(var\(--live-split, 0\.5\) \* 100%\);/);
+    expect(body(base, '.live-divider')).toMatch(/cursor: row-resize;/);
+  });
   it('窓が低いときは「いま」の上段が縮んでスクロールし、目次を押し出さない', () => {
     const b = body(base, '.live-top');
     expect(b).toMatch(/min-height: 0;/);

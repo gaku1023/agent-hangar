@@ -18,7 +18,7 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: '作業中 12 分', filesChanged: 3,
-  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, openTurnItems: [], turnJump: null, livePane: null, gone: null, find: null, jump: null, hasNewer: false };
+  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, openTurnItems: [], turnJump: null, livePane: null, livePaneSplit: 0.5, gone: null, find: null, jump: null, hasNewer: false };
 
 describe('SessionScreen', () => {
   it('ヘッダー、要約の開閉、切替、続きの読み込み', () => {
@@ -170,6 +170,17 @@ describe('SessionScreen（実行中）', () => {
     withHost(<SessionScreen {...base} gone={{ note: 'n', canExtend: false, extendTo: 365 }} terminalStatus={null} />);
     expect(document.querySelector('.screen')).not.toHaveClass('screen-fill');
     expect(document.querySelector('.screen')).toHaveClass('session-screen');
+  });
+  it('実行中は成果物を右ペインの「いま」に出し、上にはカードを置かない。終わったセッションではカードのまま', () => {
+    const artifacts = [{ id: 'a1', title: '速習資料', description: '説明', favicon: '📄', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 1, canOpenEditor: false }];
+    const livePane = { lamp: { tone: 'idle' as const, head: '休み', sub: '' }, intent: { kind: 'none' as const, text: '意図は書かれていない' }, steps: [], lanes: [], doneFolded: 0 };
+    withHost(<SessionScreen {...running} artifacts={artifacts} livePane={livePane} livePaneSplit={0.3} terminalStatus="connected" />);
+    expect(document.querySelector('.session-artifacts')).toBeNull();
+    expect(document.querySelector('.live-top')!.textContent).toContain('速習資料');
+    expect((document.querySelector('.live') as HTMLElement).style.getPropertyValue('--live-split')).toBe('0.3');
+    cleanup();
+    withHost(<SessionScreen {...base} artifacts={artifacts} terminalStatus={null} />);
+    expect(document.querySelector('.session-artifacts')!.textContent).toContain('速習資料');
   });
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SessionScreen {...running} transcriptOpen={false} terminalStatus="connected" />);

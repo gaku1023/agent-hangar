@@ -446,6 +446,16 @@ describe('タブと接続', () => {
     expect(r.state.sessionView.s2?.selectedTab).toBeNull();
     expect(r.effects.filter((e) => String((e as { kind: string }).kind).startsWith('terminal.'))).toEqual([{ kind: 'terminal.disconnect', tabId: 't9' }]);
   });
+  it('右ペインの上下の比率は、離したときに丸めて保存する', () => {
+    expect(initialState().livePaneSplit).toBe(0.5);
+    const a = run([intent({ type: 'livePane.split', ratio: 0.3 })]);
+    expect(a.state.livePaneSplit).toBe(0.3);
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'livePane.split', value: 0.3 }]);
+    // 端まで寄せても、上の段と目次のどちらも残す。
+    expect(run([intent({ type: 'livePane.split', ratio: 0.99 })]).state.livePaneSplit).toBe(0.8);
+    expect(run([intent({ type: 'livePane.split', ratio: -1 })]).state.livePaneSplit).toBe(0.2);
+    expect(run([intent({ type: 'livePane.split', ratio: Number.NaN })]).state.livePaneSplit).toBe(0.5);
+  });
   it('サイドバーの折りたたみは開閉のたびに保存する', () => {
     expect(initialState().sidebarCollapsed).toBe(false);
     const a = run([intent({ type: 'sidebar.toggle' })]);

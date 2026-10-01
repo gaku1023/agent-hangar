@@ -292,6 +292,20 @@ describe('createRuntime', () => {
     b.rt.start();
     expect(b.rt.getState().sessionView.s1).toMatchObject({ showThinking: true, showRaw: true, follow: true });
   });
+  it('右ペインの上下の比率を起動時に読み戻す。数でない値や範囲の外は丸める', () => {
+    const a = harness();
+    a.store.set('livePane.split', 0.35);
+    a.rt.start();
+    expect(a.rt.getState().livePaneSplit).toBe(0.35);
+    const b = harness();
+    b.store.set('livePane.split', 'half');
+    b.rt.start();
+    expect(b.rt.getState().livePaneSplit).toBe(0.5);
+    const c = harness();
+    c.store.set('livePane.split', 3);
+    c.rt.start();
+    expect(c.rt.getState().livePaneSplit).toBe(0.8);
+  });
   it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
     const a = harness();
     a.rt.start();

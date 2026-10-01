@@ -4,7 +4,7 @@ import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
 import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
-import { SIDEBAR_KEY } from '../mediator/sidebar.ts';
+import { clampLivePaneSplit, LIVE_PANE_SPLIT_KEY, SIDEBAR_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
 import { NO_QUESTION } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
@@ -483,7 +483,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
-        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
+        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, livePaneSplit: clampLivePaneSplit(deps.storage.get(LIVE_PANE_SPLIT_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
         // 新しいセッションの書きかけと前回値。形の違う値（手で書き換えられたなど）は捨てる。
         newSessionDraft: readDraft(deps.storage.get(NEW_SESSION_DRAFT_KEY)), launchPrefs: readLaunchPrefs(deps.storage.get(LAUNCH_PREFS_KEY)),
       };

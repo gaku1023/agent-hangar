@@ -208,6 +208,8 @@ export type State = {
   resolveDeferred: string[];
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
+  /** 実行中の右ペインで「いま」の段が取る高さの上限（0.2〜0.8）。境目で変え、端末ごとに localStorage に残す。 */
+  livePaneSplit: number;
   /** 保持期間の帯を「このままでよい」で閉じたか。端末ごとに localStorage に残し、起動時に読み戻す。 */
   retentionBannerDismissed: boolean;
   /** 新しいセッションのダイアログの書きかけ。閉じても残し、次に開いたときに戻す。端末ごとに localStorage に残す。 */

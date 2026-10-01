@@ -47,4 +47,60 @@ describe('LivePane', () => {
     mount(pane({ intent: { kind: 'said', text: 'x', meta: 'm', stale: true } }));
     expect(document.querySelector('.live-intent')!.getAttribute('data-stale')).toBe('true');
   });
+
+  describe('上下の境目', () => {
+    const at = (split: number, onIntent = vi.fn()) => { render(<IntentRoot onIntent={onIntent}><LivePane sessionId="s1" pane={pane()} split={split}><div>目次</div></LivePane></IntentRoot>); return onIntent; };
+    it('上の段と目次の間に境目を置き、いまの比率を上の段の上限として渡す', () => {
+      at(0.4);
+      const sep = screen.getByRole('separator', { name: '「いま」と目次の高さ' });
+      expect(sep).toHaveAttribute('aria-orientation', 'horizontal');
+      expect(sep).toHaveAttribute('aria-valuenow', '40');
+      expect(sep.previousElementSibling).toHaveClass('live-top');
+      expect(sep.nextElementSibling).toHaveClass('live-toc');
+      expect((document.querySelector('.live') as HTMLElement).style.getPropertyValue('--live-split')).toBe('0.4');
+    });
+    it('上の段が切れて下に続きがあるときだけ、data-more を付ける', () => {
+      const h = (sh: number) => {
+        vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('live-top') ? sh : 0; });
+        vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('live-top') ? 200 : 0; });
+      };
+      h(400);
+      at(0.5);
+      expect(document.querySelector('.live-top')).toHaveAttribute('data-more', 'true');
+      cleanup();
+      vi.restoreAllMocks();
+      h(200);
+      at(0.5);
+      expect(document.querySelector('.live-top')).not.toHaveAttribute('data-more');
+      vi.restoreAllMocks();
+    });
+    it('矢印キーで 2% ずつ動かし、ダブルクリックで半分に戻す', () => {
+      const onIntent = at(0.5);
+      const sep = screen.getByRole('separator');
+      fireEvent.keyDown(sep, { key: 'ArrowDown' });
+      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 0.52 });
+      fireEvent.keyDown(sep, { key: 'ArrowUp' });
+      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 0.48 });
+      fireEvent.doubleClick(sep);
+      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 0.5 });
+    });
+  });
+  describe('成果物', () => {
+    const art = { id: 'a1', title: '速習資料', description: null, favicon: '📄', url: 'https://claude.ai/code/artifact/a1', lastPublished: '11 時間前', versionCount: 1, canOpenEditor: true };
+    it('上の段の終わりに、成果物を題名だけの 1 行ずつ並べ、押すと開く', () => {
+      const onIntent = vi.fn();
+      render(<IntentRoot onIntent={onIntent}><LivePane sessionId="s1" pane={pane()} artifacts={[art]}><div>目次</div></LivePane></IntentRoot>);
+      const top = document.querySelector('.live-top')!;
+      expect(top.textContent).toMatch(/成果物.*速習資料/);
+      expect(top.textContent!.indexOf('成果物')).toBeGreaterThan(top.textContent!.indexOf('クラウドを査読'));
+      fireEvent.click(screen.getByText('速習資料'));
+      expect(onIntent).toHaveBeenCalledWith({ type: 'artifact.open', id: 'a1' });
+      fireEvent.click(screen.getByRole('button', { name: '速習資料 を VS Code で開く' }));
+      expect(onIntent).toHaveBeenCalledWith({ type: 'artifact.openEditor', id: 'a1' });
+    });
+    it('成果物が無ければ節ごと出さない', () => {
+      mount(pane());
+      expect(document.querySelector('.live-top')!.textContent).not.toMatch(/成果物/);
+    });
+  });
 });

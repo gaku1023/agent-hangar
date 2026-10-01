@@ -63,6 +63,8 @@ export type Intent =
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
   | { type: 'sidebar.toggle' }
+  // 実行中の右ペインで、「いま」の段が取る高さの上限（ペインの高さに対する割合）。境目を離したときに 1 度だけ出す。
+  | { type: 'livePane.split'; ratio: number }
   | { type: 'summarizer.test' }
   | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
   | { type: 'transcript.showRaw'; sessionId: SessionId; show: boolean }
