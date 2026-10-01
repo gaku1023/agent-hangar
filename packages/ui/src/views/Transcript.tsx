@@ -152,7 +152,8 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   useEffect(() => {
     const onResize = () => measureBox();
     window.addEventListener('resize', onResize);
-    // 箱の高さは窓の残りで決まる（session.css）。帯の出入りや右欄の開け閉めでも変わるので、箱そのものも見張る。
+    // 箱の高さは窓の残りで決まる（session.css）。
+    // 帯の出入りや右欄の開け閉めでも変わるので、箱そのものも見張る。
     const el = boxRef.current;
     const ro = el && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onResize) : null;
     if (el) ro?.observe(el);

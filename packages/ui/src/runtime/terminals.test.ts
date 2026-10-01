@@ -280,7 +280,8 @@ describe('タブごとのつなぎ直し（F1）', () => {
       expect(host.status('t1')).toBe('closed');
     } finally { vi.useRealTimers(); }
   });
-  // tmux の中の端末が終わると、サーバは 1000 と 'exited' で閉じる（pty/relay.ts）。切れたのではなく終わったので、つなぎ直さない。
+  // tmux の中の端末が終わると、サーバは 1000 と 'exited' で閉じる（pty/relay.ts）。
+  // 切れたのではなく終わったので、つなぎ直さない。
   it('中の端末が終わって閉じたときはつなぎ直さず、切れたとも言わない', () => {
     vi.useFakeTimers();
     try {

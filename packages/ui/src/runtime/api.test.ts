@@ -30,7 +30,8 @@ describe('createApi（フェーズ 2）', () => {
     const ok = harness(204);
     expect(await ok.api.openEditor('s1')).toBeUndefined();
     expect(await ok.api.openEditor('s1', '/w/a.ts')).toBeUndefined();
-    // ファイルを開くときだけ本文に載せる。作業ディレクトリを開く道は今までどおり本文を持たない。
+    // ファイルを開くときだけ本文に載せる。
+    // 作業ディレクトリを開く道は今までどおり本文を持たない。
     expect(ok.calls.map((c) => [c.url, c.body ?? null])).toEqual([['/api/sessions/s1/open-editor', null], ['/api/sessions/s1/open-editor', '{"file":"/w/a.ts"}']]);
     expect(await ok.api.projectOpenEditor('p1')).toBeUndefined();
     const ng = harness(409, { error: '実行中です' });

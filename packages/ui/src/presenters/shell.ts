@@ -33,7 +33,8 @@ export const HARD_AFTER_FAILURES = 3;
 export type RetentionBannerProps = { visible: boolean; title: string; detail: string; extendTo: number };
 /**
  * newSession はヘッダーの新規ボタンで開くダイアログの、最初の選択である。
- * wide は本文の幅の上限（--main-w）を外す画面か。セッション画面だけ外し、ターミナルに幅と高さを渡す（UX 刷新 2 の案 b）。
+ * wide は本文の幅の上限（--main-w）を外す画面か。
+ * セッション画面だけ外し、ターミナルに幅と高さを渡す（UX 刷新 2 の案 b）。
  */
 export type ShellProps = { sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
 

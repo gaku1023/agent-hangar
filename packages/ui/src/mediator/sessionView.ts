@@ -69,7 +69,8 @@ export function agentTabStep(state: State, id: string): Step | null {
  * 目次から跳ばした Claude を transcript から抜けさせ、開いたターンを忘れる。
  * 跳ばしていなければ（turnJump が無ければ）何もせず null を返す。
  * 開いたターンと跳び先は保存しない状態なので、書き込みは出さない。
- * 画面を離れたときにも呼ぶ。抜けさせないと、戻ってきたとき Claude が古いターンを見せたまま止まって見える。
+ * 画面を離れたときにも呼ぶ。
+ * 抜けさせないと、戻ってきたとき Claude が古いターンを見せたまま止まって見える。
  */
 export function leaveTranscriptStep(state: State, id: string): Step | null {
   const run = (state.sessionView[id] ?? defaultSessionView()).turnJump?.runId;
@@ -158,7 +159,8 @@ export function sessionViewStep(state: State, input: Input): Step | null {
       return { state: r.state, effects: [...r.effects, { kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: 0 }] };
     }
     case 'turn.open': {
-      // 開いているターンを閉じる。左の Claude をそこへ跳ばしていたら、transcript から抜けさせる。
+      // 開いているターンを閉じる。
+      // 左の Claude をそこへ跳ばしていたら、transcript から抜けさせる。
       if (viewOf(state, i.sessionId).openTurn === i.seq) {
         const left = leaveTranscriptStep(state, i.sessionId);
         const r = patch(left?.state ?? state, i.sessionId, { openTurn: null, turnJump: null });

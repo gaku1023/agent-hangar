@@ -95,7 +95,8 @@ export function screenStep(state: State, input: Input): Step | null {
       effects.push({ kind: 'terminal.disconnectSession', sessionId: left });
       // 検索の結果からの跳び先は、その画面にいる間だけのものである。戻ってきたときに跳び直さない。
       next = jumpStep(next, left, null);
-      // 目次から跳ばした Claude は、離れる前に transcript から抜けさせる。戻ったときに古いターンのまま止まって見えないように。
+      // 目次から跳ばした Claude は、離れる前に transcript から抜けさせる。
+      // 戻ったときに古いターンのまま止まって見えないように。
       const leave = leaveTranscriptStep(next, left);
       if (leave) { next = leave.state; effects.push(...leave.effects); }
     }

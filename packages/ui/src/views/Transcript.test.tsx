@@ -84,7 +84,8 @@ describe('Transcript の仮想スクロール', () => {
     expect(big).toBeGreaterThan(0);
     expect(big).toBeLessThan(80);
   });
-  // 箱の高さは窓の残りで決まる。帯が出入りしたり右欄を開け閉めしたりすると、窓の大きさが変わらなくても箱が変わる。
+  // 箱の高さは窓の残りで決まる。
+  // 帯が出入りしたり右欄を開け閉めしたりすると、窓の大きさが変わらなくても箱が変わる。
   it('箱の大きさが変わったら測り直して、見える分の行を描く', () => {
     const observers: { cb: () => void; el: Element | null }[] = [];
     vi.stubGlobal('ResizeObserver', class { o: { cb: () => void; el: Element | null }; constructor(cb: () => void) { this.o = { cb, el: null }; observers.push(this.o); } observe(el: Element) { this.o.el = el; } disconnect() {} });

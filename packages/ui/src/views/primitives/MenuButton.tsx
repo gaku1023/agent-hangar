@@ -5,8 +5,10 @@ import { place, type Placement } from './listboxModel.ts';
 
 /**
  * メニューの 1 項目。
- * disabled は押せない理由で、押せる項目では null か省く。押せない項目も消さずに並べ、理由を 1 行添える。
- * note は押せる項目に添える補足の 1 行。danger は取り消せない操作で、区切りの後ろに危険色で置く。
+ * disabled は押せない理由で、押せる項目では null か省く。
+ * 押せない項目も消さずに並べ、理由を 1 行添える。
+ * note は押せる項目に添える補足の 1 行。
+ * danger は取り消せない操作で、区切りの後ろに危険色で置く。
  */
 export type MenuItem = { key: string; label: string; icon?: IconName; note?: string | null; disabled?: string | null; danger?: boolean; onSelect: () => void };
 
@@ -15,8 +17,10 @@ export type MenuItem = { key: string; label: string; icon?: IconName; note?: str
  * ボタンの ↓ と Enter と Space は最初の項目、↑ は最後の項目を開いてフォーカスする。
  * 開いている間は ↑ ↓ で項目を移り（端では反対の端へ回る）、Home と End で端へ、Enter と Space で選ぶ。
  * Esc は閉じてボタンへフォーカスを戻し、Tab と外を押したときは閉じるだけにする。
- * 押せない項目にもフォーカスは止まる。理由を読めるようにするためである。
- * 面は document.body への portal に描く。見出しの段やカードの overflow で切られないようにするため。
+ * 押せない項目にもフォーカスは止まる。
+ * 理由を読めるようにするためである。
+ * 面は document.body への portal に描く。
+ * 見出しの段やカードの overflow で切られないようにするため。
  */
 export function MenuButton(props: { label: string; items: MenuItem[]; face?: ReactNode; faceClassName?: string; title?: string; minWidth?: number; align?: 'start' | 'end' }) {
   const [open, setOpen] = useState<null | 'first' | 'last'>(null);
@@ -85,7 +89,8 @@ export function MenuButton(props: { label: string; items: MenuItem[]; face?: Rea
 
   const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const all = rows();
-    // キーを受けた項目から数える。フォーカスの位置と打鍵の宛先はふつう同じだが、宛先の方を信じる。
+    // キーを受けた項目から数える。
+    // フォーカスの位置と打鍵の宛先はふつう同じだが、宛先の方を信じる。
     const at = all.indexOf((e.target as HTMLElement).closest<HTMLElement>('[role="menuitem"]') as HTMLElement);
     const go = (i: number) => all[(i + all.length) % all.length]?.focus();
     switch (e.key) {

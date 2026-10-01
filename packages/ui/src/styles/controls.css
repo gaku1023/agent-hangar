@@ -124,8 +124,10 @@
 .transcript-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); margin-bottom: var(--u); }
 .transcript-toggles-sep { width: 1px; height: 18px; background: var(--line-strong); }
 
-/* 操作のメニュー（views/primitives/MenuButton.tsx）。押すと開くガラスの面で、選ぶ部品の一覧と同じ板にする。
-   押せない項目は薄くし、下に理由を 1 行添える。取り消せない項目は区切りの後ろに危険色で置く。 */
+/* 操作のメニュー（views/primitives/MenuButton.tsx）。
+   押すと開くガラスの面で、選ぶ部品の一覧と同じ板にする。
+   押せない項目は薄くし、下に理由を 1 行添える。
+   取り消せない項目は区切りの後ろに危険色で置く。 */
 .menu-pop { position: fixed; z-index: 30; display: flex; flex-direction: column; padding: calc(var(--u) * 1.5); border-radius: var(--r-lg); background: var(--glass-bg-menu); -webkit-backdrop-filter: var(--glass-blur-strong); backdrop-filter: var(--glass-blur-strong); box-shadow: var(--glass-edge), var(--glass-drop-lg); transform-origin: top right; animation: listbox-in var(--dur-fast) var(--ease-out); }
 .menu-pop[data-up='true'] { transform-origin: bottom right; animation-name: listbox-in-up; }
 .menu-item { display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); width: 100%; padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border: 0; border-radius: 10px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }

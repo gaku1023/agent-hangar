@@ -20,22 +20,29 @@ a.chip { color: var(--accent); text-decoration: none; }
 
 /* セッション画面の組み直し（UX 刷新 2 の 1、試作は specs/2026-10-01-ux-refresh/session-layout-v2.html）。 */
 
-/* 幅（案 b）。セッション画面だけ本文の幅の上限を外す。--box-l と検索の錠剤の式は base.css のままで、上限が無いので本文も錠剤も左へ寄る。 */
+/* 幅（案 b）。
+   セッション画面だけ本文の幅の上限を外す。
+   --box-l と検索の錠剤の式は base.css のままで、上限が無いので本文も錠剤も左へ寄る。 */
 .shell[data-wide] { --main-w: 100vw; }
-/* 高さ。本文の列を縦の flex にし、ヘッダと帯（切断、保持期間）の分を引いた残りを画面に渡す。
+/* 高さ。
+   本文の列を縦の flex にし、ヘッダと帯（切断、保持期間）の分を引いた残りを画面に渡す。
    帯が出ると .main の上の余白が増えるので、ターミナルの下端は窓の中に残る（入力の行が窓の外へ落ちない）。 */
 .shell[data-wide] .main { display: flex; flex-direction: column; }
 .shell[data-wide] .main-inner { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
 .session-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .session-screen > * { flex: none; }
-/* ターミナルの段（タブの下）と本文の段が残りを全部受け取る。窓がとても低いときだけ、この高さを下限に .main ごとスクロールさせる。 */
+/* ターミナルの段（タブの下）と本文の段が残りを全部受け取る。
+   窓がとても低いときだけ、この高さを下限に .main ごとスクロールさせる。 */
 .session-screen > .split, .session-screen > .session-body { flex: 1; min-height: 160px; }
 
-/* 見出しの行の主の操作。押せないときは aria-disabled にして、乗せると理由の吹き出しが出るようにする。 */
+/* 見出しの行の主の操作。
+   押せないときは aria-disabled にして、乗せると理由の吹き出しが出るようにする。 */
 .session-hero .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
 .session-hero .btn[aria-disabled='true']:hover { transform: none; filter: none; }
 
-/* 線の下の 1 行（B1）。24px の 1 行に区切りで並べ、折り返さない。狭いときは最後の作業ディレクトリから縮める。 */
+/* 線の下の 1 行（B1）。
+   24px の 1 行に区切りで並べ、折り返さない。
+   狭いときは最後の作業ディレクトリから縮める。 */
 .session-info { display: flex; align-items: center; height: 24px; margin: calc(var(--u) * -1.5) 0 calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; overflow: hidden; }
 .session-info > * { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 3); border-left: 1px solid rgba(30, 40, 90, 0.12); }
 .session-info > :first-child { padding-left: 0; border-left: 0; }
@@ -48,11 +55,14 @@ a.chip { color: var(--accent); text-decoration: none; }
 .session-info-state .warn { color: var(--st-paused); }
 .session-info-state .faint { font-weight: 400; }
 .session-info-memo { max-width: 40ch; overflow: hidden; text-overflow: ellipsis; }
-/* アーティファクトの数は押すと一覧が開く。文字のリンクの形にする。 */
+/* アーティファクトの数は押すと一覧が開く。
+   文字のリンクの形にする。 */
 .session-info-link { display: inline-flex; align-items: center; gap: var(--u); height: 22px; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
 .session-info-link .icon { width: 14px; height: 14px; }
 
-/* 終わった画面の本体（E1）。本文の面と、右に 340px の右欄を置く。右欄の開閉（⌘J）で本文が全幅になる。 */
+/* 終わった画面の本体（E1）。
+   本文の面と、右に 340px の右欄を置く。
+   右欄の開閉（⌘J）で本文が全幅になる。 */
 .session-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: calc(var(--u) * 3); }
 .session-body[data-rail='closed'] { grid-template-columns: minmax(0, 1fr); }
 .tr-sheet .tr-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -79,7 +89,8 @@ a.chip { color: var(--accent); text-decoration: none; }
 .changed-add { flex: none; font-size: var(--fs-xs); color: var(--st-done); }
 .changed-del { flex: none; font-size: var(--fs-xs); color: var(--error); }
 
-/* ターミナルの知らせ（F1）。切れている間は板を暗く沈め、縁の灯を消し、中央に白いカードを置く。 */
+/* ターミナルの知らせ（F1）。
+   切れている間は板を暗く沈め、縁の灯を消し、中央に白いカードを置く。 */
 .term-pane[data-off] { animation: none; box-shadow: var(--term-lift); }
 .term-pane[data-off] .term-host { opacity: 0.28; filter: saturate(0.4); }
 .term-veil { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; padding: calc(var(--u) * 4); }

@@ -596,7 +596,8 @@ describe('routes', () => {
     (external.openEditor as ReturnType<typeof vi.fn>).mockClear();
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/a.md` })).status).toBe(204);
     expect(external.openEditor).toHaveBeenLastCalledWith({ target: `${ws}/alpha/a.md` });
-    // あるファイルでも、そのセッションが変えていなければ開かない。綴りを変えて枠の外へ出るパスも同じ。
+    // あるファイルでも、そのセッションが変えていなければ開かない。
+    // 綴りを変えて枠の外へ出るパスも同じ。
     const other = await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/other.md` });
     expect(other.status).toBe(404);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/x/../a.md` })).status).toBe(404);

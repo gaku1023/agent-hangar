@@ -46,20 +46,41 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   hasNewer: boolean;
   /** 実行中の右ペイン。終わった run では null。 */
   livePane: LivePaneProps | null;
-  /** 見出しの行の操作（A1）。主の操作 1 つと「…」のメニュー。 */
+  /**
+   * 見出しの行の操作（A1）。
+   * 主の操作 1 つと「…」のメニュー。
+   */
   actions: SessionActions;
-  /** 終わった画面の右欄（E1）の変更したファイル。読み込んだ主線の本文から作る。changedMore は読み込んだ範囲の外にある数。 */
+  /**
+   * 終わった画面の右欄（E1）の変更したファイル。
+   * 読み込んだ主線の本文から作る。
+   * changedMore は読み込んだ範囲の外にある数。
+   */
   changedFiles: ChangedFileProps[]; changedMore: number;
-  /** 終わった画面の右欄の TODO。そのセッションのプロジェクトのもの。 */
+  /**
+   * 終わった画面の右欄の TODO。
+   * そのセッションのプロジェクトのもの。
+   */
   todos: TodoItemProps[];
-  /** 目次から跳ばした Claude が transcript を表示している間の帯（F1）。when は跳ばしたターンの時刻。 */
+  /**
+   * 目次から跳ばした Claude が transcript を表示している間の帯（F1）。
+   * when は跳ばしたターンの時刻。
+   */
   transcriptBand: { when: string } | null };
 
 export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'stop';
-/** 操作の 1 つ。disabled は押せない理由（押せるなら null）、note は下に添える 1 行。danger は取り消せない操作。 */
+/**
+ * 操作の 1 つ。
+ * disabled は押せない理由（押せるなら null）、note は下に添える 1 行。
+ * danger は取り消せない操作。
+ */
 export type SessionAction = { id: SessionActionId; label: string; disabled: string | null; note: string | null; danger?: boolean };
 export type SessionActions = { primary: SessionAction; menu: SessionAction[] };
-/** 変更したファイルの 1 行。path は本文に出てきた綴りのまま（開くときにサーバへ送る）。dir と base は作業ディレクトリからの相対で分けた見せ方。 */
+/**
+ * 変更したファイルの 1 行。
+ * path は本文に出てきた綴りのまま（開くときにサーバへ送る）。
+ * dir と base は作業ディレクトリからの相対で分けた見せ方。
+ */
 export type ChangedFileProps = { path: string; dir: string; base: string; added: number; removed: number; created: boolean };
 
 /**
@@ -174,8 +195,10 @@ export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOn
 
 /**
  * 見出しの行の操作（試作 session-layout-v2.html の A1 と、状態ごとの操作の表）。
- * 状態に合う操作を 1 つだけ主にし、残りは「…」のメニューに入れる。停止は危険色でメニューの最後に置く。
- * 押せない項目は消さずに残し、押せない理由を 1 行添える。理由は再開とフォークを閉じている事実（実行中、ロック、本文の在りか）から言う。
+ * 状態に合う操作を 1 つだけ主にし、残りは「…」のメニューに入れる。
+ * 停止は危険色でメニューの最後に置く。
+ * 押せない項目は消さずに残し、押せない理由を 1 行添える。
+ * 理由は再開とフォークを閉じている事実（実行中、ロック、本文の在りか）から言う。
  * 生きているロックの「この PC で再開」は Ruling 14 のとおり閉じたままにし、主の操作のまま理由を添える。
  */
 export function sessionActions(f: ActionFacts): SessionActions {
@@ -212,8 +235,10 @@ export function sessionActions(f: ActionFacts): SessionActions {
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 /**
- * 変更したファイル。編集系のツールの呼び出しを、最初に触った順にパスで束ねる。
- * 足した行と消した行は、本文の欄と同じ差分（ツールの見せ方の控え）から数える。Write は中身の行を足した数にする。
+ * 変更したファイル。
+ * 編集系のツールの呼び出しを、最初に触った順にパスで束ねる。
+ * 足した行と消した行は、本文の欄と同じ差分（ツールの見せ方の控え）から数える。
+ * Write は中身の行を足した数にする。
  */
 function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResult>, cwd: string): ChangedFileProps[] {
   const files = new Map<string, ChangedFileProps>();
@@ -283,12 +308,14 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const gone = transcriptMark(s, r?.days ?? DEFAULT_DAYS, now) === 'gone'
     ? { note: `本文は、Claude Code の保持期間（${daysLabel(DEFAULT_DAYS)}）を過ぎたため削除されたとみられます。残っているのは要約だけです。`, canExtend: !!r && r.source === 'default' && r.writable, extendTo: EXTEND_TO }
     : null;
-  // 変更したファイルは主線から数える。サブエージェントを見ている間も、右欄は主線の分を出す。
+  // 変更したファイルは主線から数える。
+  // サブエージェントを見ている間も、右欄は主線の分を出す。
   const mainEvents = view.agentId === null ? events : (store.events[eventsKey(id, null)]?.items ?? []);
   const toolResults = new Map<string, ToolResult>();
   for (const e of mainEvents) if (e.kind === 'tool_result') toolResults.set(e.toolId, { text: e.text, isError: e.isError });
   const changedFiles = changedFilesOf(mainEvents, toolResults, s.cwd);
-  // transcript を表示中の帯は、今の生きた run を跳ばしている間だけ出す。transcript に入れなかった（mode）ときは出さない。
+  // transcript を表示中の帯は、今の生きた run を跳ばしている間だけ出す。
+  // transcript に入れなかった（mode）ときは出さない。
   const tj = view.turnJump;
   const aliveRun = aliveRunOf(store, id);
   const transcriptBand = tj && aliveRun && tj.runId === aliveRun.id && tj.status !== 'mode' ? { when: (turnRows.find((r) => r.seq === tj.seq)?.when ?? '').slice(0, 5) } : null;

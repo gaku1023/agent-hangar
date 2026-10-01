@@ -6,7 +6,8 @@ import { Shell } from './Shell.tsx';
 const props = { sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, newSession: {} };
 
 describe('Shell の本文の幅', () => {
-  // セッション画面だけ幅の上限を外す（案 b）。CSS は .shell[data-wide] で --main-w を外し、本文に窓の残りの高さを渡す。
+  // セッション画面だけ幅の上限を外す（案 b）。
+  // CSS は .shell[data-wide] で --main-w を外し、本文に窓の残りの高さを渡す。
   it('wide の画面だけ殻に印を付ける', () => {
     const { container, rerender } = render(<IntentRoot onIntent={vi.fn()}><Shell {...props} wide overlays={null}><div>body</div></Shell></IntentRoot>);
     expect(container.querySelector('.shell')).toHaveAttribute('data-wide', 'true');

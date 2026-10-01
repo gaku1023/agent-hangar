@@ -224,7 +224,8 @@ a:hover { text-decoration: underline; }
 .fold[open] .fold-arrow { transform: rotate(90deg); }
 
 /* トランスクリプト */
-/* 高さは決め打ちにせず、入れ物の縦の flex から残りを受け取る（session.css の .session-screen）。窓の高さや帯の数が変わっても下端が窓に収まる。 */
+/* 高さは決め打ちにせず、入れ物の縦の flex から残りを受け取る（session.css の .session-screen）。
+   窓の高さや帯の数が変わっても下端が窓に収まる。 */
 .tr { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: 1; min-height: 0; overflow: auto; padding: calc(var(--u) * 2) 0; }
 /* 本文の中身（返答、ツール、Markdown、畳み、検索の印）は transcript.css に置く。 */
 

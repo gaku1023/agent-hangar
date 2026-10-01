@@ -21,7 +21,10 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
   turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, openTurnItems: [], turnJump: null, livePane: null, gone: null, find: null, jump: null, hasNewer: false,
   actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, changedFiles: [], changedMore: 0, todos: [], transcriptBand: null };
 
-/** 見出しの操作は presenter が事実から決める。画面の試験でも同じ関数で作り、事実と操作が食い違わないようにする。 */
+/**
+ * 見出しの操作は presenter が事実から決める。
+ * 画面の試験でも同じ関数で作り、事実と操作が食い違わないようにする。
+ */
 const SS = (props: SessionProps) => <SessionScreen {...props} actions={sessionActions(props)} />;
 /** 「…」のメニューを開いて、その中の項目を返す。 */
 const menu = () => { fireEvent.click(screen.getByRole('button', { name: 'ほかの操作' })); return within(screen.getByRole('menu', { name: 'ほかの操作' })); };
@@ -127,7 +130,8 @@ describe('見出しの段（A1、C1）', () => {
     fireEvent.click(menu().getByRole('menuitem', { name: /VS Code で開く/ }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.openEditor', sessionId: 's1' });
   });
-  // disabled にすると乗せても吹き出しが出ず、キーボードでも届かない。aria-disabled にして、押しても何もしないようにする。
+  // disabled にすると乗せても吹き出しが出ず、キーボードでも届かない。
+  // aria-disabled にして、押しても何もしないようにする。
   it('主の操作が押せないときは、理由を title と読み上げに持たせ、押しても何もしない', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} hasTranscript={false} canResume={false} canFork={false} items={[]} total={0} loaded={0} hasMore={false} /></IntentRoot>);
@@ -529,7 +533,8 @@ describe('SessionScreen の読む面の印', () => {
     expect(sheet!.querySelector('.tr')).not.toBeNull();
     expect(sheet).toContainElement(screen.getByLabelText('思考を表示'));
   });
-  // 画面は縦の flex で窓の残りを取る。ターミナルの段と本文の段がその残りを受け取る印。
+  // 画面は縦の flex で窓の残りを取る。
+  // ターミナルの段と本文の段がその残りを受け取る印。
   it('画面の器と、残りの高さを受け取る段に印を付ける', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} /></IntentRoot>);
     expect(container.querySelector('.screen.session-screen > .session-body')).not.toBeNull();

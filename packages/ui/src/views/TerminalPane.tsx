@@ -7,7 +7,10 @@ import { LAYOUT_SETTLED, MOVING_ATTR } from './primitives/sidebarMotion.ts';
 
 export const TerminalHostContext = createContext<TerminalHost | null>(null);
 
-/** 次に自動でつなぐ時刻までの秒数を、1 秒ごとに数え直す。待っていない間は時計を止める。 */
+/**
+ * 次に自動でつなぐ時刻までの秒数を、1 秒ごとに数え直す。
+ * 待っていない間は時計を止める。
+ */
 function useSecondsUntil(at: number | null): number | null {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -20,9 +23,12 @@ function useSecondsUntil(at: number | null): number | null {
 }
 
 /**
- * xterm を直接は持たない。マウント先の要素を TerminalHost に渡すだけで、接続と描画は Host が行う。
- * 接続の様子も枠ごとに Host から読む。分割して 2 つ並べたとき、片方だけが切れることがあるからである。
- * agent は Claude のタブか。transcript は、目次から跳ばした Claude が transcript を見せている間の帯（Claude の枠にだけ渡す）。
+ * xterm を直接は持たない。
+ * マウント先の要素を TerminalHost に渡すだけで、接続と描画は Host が行う。
+ * 接続の様子も枠ごとに Host から読む。
+ * 分割して 2 つ並べたとき、片方だけが切れることがあるからである。
+ * agent は Claude のタブか。
+ * transcript は、目次から跳ばした Claude が transcript を見せている間の帯（Claude の枠にだけ渡す）。
  */
 export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null }) {
   const host = useContext(TerminalHostContext);
@@ -42,7 +48,9 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   const status = host?.status(props.tabId) ?? null;
   const link = host?.link(props.tabId) ?? { retryAt: null, dropped: false };
   const secs = useSecondsUntil(link.retryAt);
-  // 切断（F1）。思いがけず切れたときと、サーバが断ったときだけカードを出す。最初のつなぎ中と、自分で切った後は隅の小さな文で足りる。
+  // 切断（F1）。
+  // 思いがけず切れたときと、サーバが断ったときだけカードを出す。
+  // 最初のつなぎ中と、自分で切った後は隅の小さな文で足りる。
   const failed = status === 'error';
   const dropped = !failed && link.dropped && status !== 'connected';
   const off = failed || dropped;
@@ -57,7 +65,8 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
     props.transcript.onLatest();
   };
 
-  // 縁はそのセッションの状態で灯る（base.css の .term-pane[data-live]）。終わったセッションと切れている間は灯さない。
+  // 縁はそのセッションの状態で灯る（base.css の .term-pane[data-live]）。
+  // 終わったセッションと切れている間は灯さない。
   return (
     <div className="term-pane" data-testid={`term-${props.tabId}`} data-live={props.live ?? 'ended'} data-off={off ? 'true' : undefined} onKeyDownCapture={onKeyCapture}>
       {props.transcript && (

@@ -146,7 +146,8 @@ export type SessionViewState = {
   /** 目次で開いているターン（区切りの行の seq）。その場の操作なので保存しない。 */
   openTurn: number | null;
   /**
-   * 開いたターンへ左のターミナルを跳ばした結果。これも保存しない。
+   * 開いたターンへ左のターミナルを跳ばした結果。
+   * これも保存しない。
    * runId は跳ばした Claude の run で、ターンを閉じたときと画面を離れたときに transcript から抜けさせる先である。
    */
   turnJump: { seq: number; status: TurnJumpStatus; runId: string } | null;

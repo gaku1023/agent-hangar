@@ -6,14 +6,18 @@ const read = (f: string) => fs.readFileSync(new URL(f, dir), 'utf8');
 const strip = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
 const files = fs.readdirSync(dir).filter((f) => f.endsWith('.css'));
 const rules = files.flatMap((f) => [...strip(read(f)).matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ file: f, selector: m[1]!.trim(), body: m[2]! })));
-/** 選択子がちょうど一致する規則の中身。1 つだけあることも確かめる。 */
+/**
+ * 選択子がちょうど一致する規則の中身。
+ * 1 つだけあることも確かめる。
+ */
 const body = (selector: string) => {
   const found = rules.filter((r) => r.selector === selector);
   expect(found, selector).toHaveLength(1);
   return found[0]!.body;
 };
 
-// セッション画面の組み直し（UX 刷新 2 の 1）。窓の残りの高さを縦の flex で配り、決め打ちの高さを使わない。
+// セッション画面の組み直し（UX 刷新 2 の 1）。
+// 窓の残りの高さを縦の flex で配り、決め打ちの高さを使わない。
 describe('セッション画面の縦の配り方', () => {
   it('窓の高さから決め打ちで引いた高さ（calc(100vh - …)）を、ターミナルにも本文にも使わない', () => {
     for (const r of rules) if (/\.split\b|\.tr\b|\.tr-sheet|\.session-/.test(r.selector)) expect(r.body, `${r.file}: ${r.selector}`).not.toMatch(/100vh/);

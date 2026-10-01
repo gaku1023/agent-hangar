@@ -98,7 +98,8 @@ describe('presentShell', () => {
     expect(presentShell(state, { ...store, index: { phase: 'scanning', done: 0, total: 0 } }, NOW).indexLabel).toBe('索引を準備中');
     expect(presentShell(state, { ...store, index: { phase: 'idle', done: 0, total: 0 } }, NOW).indexLabel).toBeNull();
   });
-  // セッション画面だけ本文の幅の上限を外す（案 b）。ほかの画面は 1200px のまま。
+  // セッション画面だけ本文の幅の上限を外す（案 b）。
+  // ほかの画面は 1200px のまま。
   it('セッション画面だけ幅を広げる', () => {
     expect(presentShell({ ...initialState(), screen: { name: 'session', id: 's1' } }, storeWith(), NOW).wide).toBe(true);
     expect(presentShell({ ...initialState(), screen: { name: 'home' } }, storeWith(), NOW).wide).toBe(false);
@@ -658,7 +659,8 @@ describe('presentSession（見出しの操作、A1）', () => {
     const lock = { deviceId: 'd2', deviceName: 'MacBook-Air', runId: 'r9', heartbeatAt: NOW - 20_000, stale: false };
     store.sessions.s2 = { ...store.sessions.s2!, live: null, lock, remoteOnly: true };
     const a = presentSession(initialState(), store, NOW, 's2').actions;
-    // 生きているロックは横取りさせない（Ruling 14）。主の操作は出すが、理由を添えて押せなくする。
+    // 生きているロックは横取りさせない（Ruling 14）。
+    // 主の操作は出すが、理由を添えて押せなくする。
     expect(a.primary).toMatchObject({ id: 'resumeHere', label: 'この PC で再開', disabled: 'MacBook-Air で実行中です。止まるか応答が無くなると選べます' });
     expect(ids(a)).toEqual(['resume', 'fork', 'openEditor', 'regenerate']);
     expect(a.menu[0]!.disabled).toBe('MacBook-Air で実行中です');

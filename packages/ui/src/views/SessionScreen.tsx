@@ -47,12 +47,14 @@ export function SessionScreen(props: SessionProps) {
       case 'resumeHere': emit({ type: 'session.resumeHere', id }); return;
       case 'fork': emit({ type: 'session.fork', id }); return;
       case 'openTerminal': if (run) emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined }); return;
-      // hangar の外で動いているあいだは本文しか見せられない。引き取りは外のターミナルの claude を終わらせるので、Mediator が確認に回す。
+      // hangar の外で動いているあいだは本文しか見せられない。
+      // 引き取りは外のターミナルの claude を終わらせるので、Mediator が確認に回す。
       case 'attach': emit({ type: 'session.attach', id }); return;
       case 'adopt': emit({ type: 'session.adopt', id }); return;
       case 'regenerate': emit({ type: 'summary.regenerate', sessionId: id }); return;
       case 'promote': emit({ type: 'session.promote.open', id }); return;
-      // 停止は取り消せない。作業中か、シェルタブを巻き込むときは Mediator が先に確認を出す。
+      // 停止は取り消せない。
+      // 作業中か、シェルタブを巻き込むときは Mediator が先に確認を出す。
       case 'stop': if (run) emit({ type: 'session.kill', runId: run.id, working: props.live === 'busy' || props.live === 'waiting', shellTabs: props.tabs.filter((t) => t.kind === 'shell').length }); return;
     }
   };
@@ -61,8 +63,10 @@ export function SessionScreen(props: SessionProps) {
 
   const header = (
     <>
-      {/* 見出しの行。一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。
-          名前は見出しにだけ出し、要約の題は出さない（C1）。操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。 */}
+      {/* 見出しの行。
+          一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。
+          名前は見出しにだけ出し、要約の題は出さない（C1）。
+          操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。 */}
       <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
         {props.summary?.oneLiner ? <span className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
         {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
@@ -79,7 +83,8 @@ export function SessionScreen(props: SessionProps) {
 
   const paneToggle = <button className="tr-toggle" aria-label={props.transcriptOpen ? '右の欄を閉じる' : '右の欄を開く'} title="右の欄の開閉（⌘J）" onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>;
 
-  // 本文が消えた会話は、会話の欄もターンの目次も持たない。残っている要約と TODO だけを見せる。
+  // 本文が消えた会話は、会話の欄もターンの目次も持たない。
+  // 残っている要約と TODO だけを見せる。
   if (props.gone) {
     return (
       <div className="screen session-screen">
@@ -97,7 +102,8 @@ export function SessionScreen(props: SessionProps) {
   }
 
   if (run && props.selectedTab) {
-    // 案内と transcript の帯は Claude のタブにだけ出す。分割で 2 つ並ぶときも、シェルの側には出さない。
+    // 案内と transcript の帯は Claude のタブにだけ出す。
+    // 分割で 2 つ並ぶときも、シェルの側には出さない。
     const pane = (tabId: string) => {
       const agentTab = tabId === run.id;
       const hint = agentTab && props.trustHint ? TRUST_HINT : agentTab && !run.alive ? ENDED_HINT : null;
@@ -110,7 +116,8 @@ export function SessionScreen(props: SessionProps) {
       <div className="screen session-screen">
         {header}
         <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} />
-        {/* 右欄は会話の全文ではなくターンの目次にする。全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。
+        {/* 右欄は会話の全文ではなくターンの目次にする。
+            全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。
             .split は縦の flex で窓の残りの高さを全部受け取る（session.css）。 */}
         <div className="split" style={{ gridTemplateColumns: props.transcriptOpen ? 'minmax(0, 1fr) minmax(240px, 26%)' : 'minmax(0, 1fr) 28px' }}>
           {terminals}
@@ -128,7 +135,8 @@ export function SessionScreen(props: SessionProps) {
     );
   }
 
-  // サブエージェントは、主線と 3 つまでなら帯に並べ、それより多ければ一覧にする。帯が横にあふれないようにするため。
+  // サブエージェントは、主線と 3 つまでなら帯に並べ、それより多ければ一覧にする。
+  // 帯が横にあふれないようにするため。
   const agentOptions = [{ value: '', label: '主線' }, ...props.subagents.map((a) => ({ value: a, label: a }))];
   const selectAgent = (v: string) => emit({ type: 'transcript.selectAgent', sessionId: id, agentId: v || null });
   const toggles = (
@@ -146,7 +154,9 @@ export function SessionScreen(props: SessionProps) {
   );
   const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} find={props.find} jump={props.jump} hasNewer={props.hasNewer} />;
 
-  // 終わった画面（E1）。本文の右に、要約、TODO、変更したファイルを上から積む。実行中の右は live-explainer の欄なので、ここだけに置く。
+  // 終わった画面（E1）。
+  // 本文の右に、要約、TODO、変更したファイルを上から積む。
+  // 実行中の右は live-explainer の欄なので、ここだけに置く。
   return (
     <div className="screen session-screen">
       {header}
@@ -173,7 +183,8 @@ function InfoLine(props: SessionProps) {
   const emit = useEmit();
   const run = props.run;
   const runFact = run ? `${RUN_KIND_LABEL[run.kind]} ${run.started}` : undefined;
-  // ロックの文言は presenter が lock.label に組み立てている（「<PC 名> で実行中」「<PC 名> から応答がありません」）。View は色だけを変える。
+  // ロックの文言は presenter が lock.label に組み立てている（「<PC 名> で実行中」「<PC 名> から応答がありません」）。
+  // View は色だけを変える。
   const state: ReactNode = props.lock
     ? <span className="session-info-state" data-s="remote"><span className={props.lock.stale ? 'warn' : 'lock'}>{props.lock.label}</span> <span className="faint">最終確認 {props.lock.heartbeat}</span></span>
     : props.liveLabel
@@ -216,7 +227,11 @@ function InfoLine(props: SessionProps) {
   );
 }
 
-/** 要約の欄。見立てと何ターン時点か、作り直すボタン、本文、次にやること、出所を出す。要約の題は見出しの名前と重なるので出さない（C1）。 */
+/**
+ * 要約の欄。
+ * 見立てと何ターン時点か、作り直すボタン、本文、次にやること、出所を出す。
+ * 要約の題は見出しの名前と重なるので出さない（C1）。
+ */
 function SummaryPanel(props: SessionProps) {
   const emit = useEmit();
   const s = props.summary;
@@ -235,7 +250,8 @@ function SummaryPanel(props: SessionProps) {
           <>
             <p className="sum-body">{s.body}</p>
             {s.nextSteps.length > 0 && <><div className="rail-sub">次にやること</div><ul className="sum-next">{s.nextSteps.map((n, i) => <li key={i}>{n}</li>)}</ul></>}
-            {/* 何がこの要約を書いたのかは、作り直すかどうかの判断に要る。土台の要約には要約器が無いので、そのときは要約器の札を出さない。 */}
+            {/* 何がこの要約を書いたのかは、作り直すかどうかの判断に要る。
+               土台の要約には要約器が無いので、そのときは要約器の札を出さない。 */}
             <div className="sum-src" data-testid="summary-source">出所 <span>{s.sourceLabel}</span>{s.summarizerLabel && <>、<span className="mono">{s.summarizerLabel}</span></>}、{s.generatedAt} 生成</div>
           </>
         )
@@ -244,7 +260,11 @@ function SummaryPanel(props: SessionProps) {
   );
 }
 
-/** TODO の欄。そのセッションのプロジェクトの TODO を、プロジェクト画面と同じ並びで出す。足す欄はプロジェクト画面に任せる。 */
+/**
+ * TODO の欄。
+ * そのセッションのプロジェクトの TODO を、プロジェクト画面と同じ並びで出す。
+ * 足す欄はプロジェクト画面に任せる。
+ */
 function TodoPanel(props: SessionProps) {
   if (!props.projectId) return null;
   return (
@@ -255,7 +275,11 @@ function TodoPanel(props: SessionProps) {
   );
 }
 
-/** 変更したファイルの欄。押すと VS Code で開く。サーバはそのセッションが変えたファイルかを確かめてから開く。 */
+/**
+ * 変更したファイルの欄。
+ * 押すと VS Code で開く。
+ * サーバはそのセッションが変えたファイルかを確かめてから開く。
+ */
 function FilesPanel(props: SessionProps) {
   const emit = useEmit();
   if (props.changedFiles.length === 0 && props.changedMore === 0) return null;

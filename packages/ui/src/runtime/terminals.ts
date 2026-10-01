@@ -13,9 +13,15 @@ export type TerminalLike = { cols: number; rows: number; element: HTMLElement | 
  */
 export type TerminalLink = { retryAt: number | null; dropped: boolean };
 export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, text: string): void; disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void;
-  /** 切れたタブのつなぎ直しの様子。知らないタブは切れていない扱いにする。 */
+  /**
+   * 切れたタブのつなぎ直しの様子。
+   * 知らないタブは切れていない扱いにする。
+   */
   link(tabId: string): TerminalLink;
-  /** 待たずに今つなぎ直す（「再接続」のボタン）。間隔は最初に戻す。 */
+  /**
+   * 待たずに今つなぎ直す（「再接続」のボタン）。
+   * 間隔は最初に戻す。
+   */
   reconnect(tabId: string): void;
   /** 全部の端末の文字を 1px ずつ大きく、小さく、または既定に戻す。 */
   zoom(step: 'in' | 'out' | 'reset'): void;
@@ -35,12 +41,17 @@ function clampFontSize(v: unknown): number {
   return Math.min(FONT_SIZE.max, Math.max(FONT_SIZE.min, Math.round(v)));
 }
 
-/** つなぎ直しの間隔。1 秒から倍ずつ延ばし、30 秒で頭打ちにする。 */
+/**
+ * つなぎ直しの間隔。
+ * 1 秒から倍ずつ延ばし、30 秒で頭打ちにする。
+ */
 export const RETRY = { first: 1000, max: 30_000 } as const;
 
 /**
- * want は利用者の側がつないでおきたいタブか（connect の後、disconnect の前）。思いがけず切れたときだけつなぎ直すために持つ。
- * fails は続けて失敗した回数で、次の間隔を決める。timer と retryAt は待っている自動の試し。
+ * want は利用者の側がつないでおきたいタブか（connect の後、disconnect の前）。
+ * 思いがけず切れたときだけつなぎ直すために持つ。
+ * fails は続けて失敗した回数で、次の間隔を決める。
+ * timer と retryAt は待っている自動の試し。
  */
 type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null };
 
@@ -102,7 +113,8 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     };
     // 自分で閉じた接続（disconnect）は e.ws を先に外しているので、ここには来ない。
     // サーバが断った（error）ときは、待っても同じ答えなので自動ではつながず、「再接続」のボタンに任せる。
-    // 中の端末が終わったとき（Claude の終了、タブを閉じた）は、サーバが 1000 と 'exited' で閉じる（server の pty/relay.ts）。切れたのではないので、つなぎ直さない。
+    // 中の端末が終わったとき（Claude の終了、タブを閉じた）は、サーバが 1000 と 'exited' で閉じる（server の pty/relay.ts）。
+    // 切れたのではないので、つなぎ直さない。
     ws.onclose = (ev?: { code?: number; reason?: string }) => {
       if (e.ws !== ws) return;
       e.ws = null;

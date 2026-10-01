@@ -41,7 +41,10 @@ export type ApiClient = {
   /** Claude のタブを transcript の中の指示へ跳ばす。 */
   jumpToPrompt(runId: string, body: { heads: string[]; index: number; from: 'top' | 'bottom' }): Promise<{ found: true } | { found: false; reason: 'mode' | 'notFound' }>;
   leaveTranscript(runId: string): Promise<{ left: boolean }>;
-  /** file を渡すと、作業ディレクトリではなくそのファイルを開く。サーバはそのセッションが変えたファイルかを確かめる。 */
+  /**
+   * file を渡すと、作業ディレクトリではなくそのファイルを開く。
+   * サーバはそのセッションが変えたファイルかを確かめる。
+   */
   openEditor(sessionId: string, file?: string): Promise<void>;
   projectOpenEditor(projectId: string): Promise<void>;
   projectOpenTerminal(projectId: string): Promise<{ app: TerminalApp; fellBack: boolean }>;
