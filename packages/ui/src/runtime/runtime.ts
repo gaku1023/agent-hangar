@@ -61,6 +61,8 @@ export type Runtime = {
 };
 
 const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
+/** クリップボードに写せなかったときの知らせ。写そうとした中身は出さない。 */
+const COPY_FAILED = 'コピーできませんでした。文字を選んで ⌘C で写してください';
 /** 検索の結果から開くとき、跳び先より前にどれだけ（seq の幅）読むか。跳び先の前の文脈が見える程度にする。 */
 const AROUND_BEFORE = 100;
 
@@ -249,8 +251,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'clipboard.copy': {
         const write = deps.clipboard ?? ((text: string) => navigator.clipboard.writeText(text));
-        // 書けない（クリップボードの権限が無いなど）ときは、手で写せるよう文をトーストで出す。
-        Promise.resolve().then(() => write(e.text)).catch(() => toast(`コピーできませんでした。手で写してください: ${e.text}`));
+        // 写せたら状態に返し、ボタンはそれを見てから「コピーしました」を出す。
+        // 書けない（クリップボードの権限が無いなど）ときは知らせるだけで、中身はトーストに出さない。
+        // 参加トークンのような秘密も写すからである。中身はボタンの横の欄に出ているので、そこから手で写せる。
+        Promise.resolve().then(() => write(e.text)).then(
+          () => dispatch({ kind: 'runtime', event: { type: 'clipboard.copied', text: e.text } }),
+          () => toast(COPY_FAILED),
+        );
         return;
       }
       case 'api.rebuildIndex': deps.api.rebuildIndex().catch(fail); return;

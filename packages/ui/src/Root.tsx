@@ -41,6 +41,7 @@ import { SwipeHint } from './views/SwipeHint.tsx';
 import { blocksSwipe } from './views/swipeTarget.ts';
 import { motionMs } from './views/primitives/motion.ts';
 import { TerminalHostContext } from './views/TerminalPane.tsx';
+import { CopiedContext } from './views/primitives/CommandLine.tsx';
 import { ToastStack } from './views/ToastStack.tsx';
 
 /**
@@ -344,7 +345,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   return (
     <IntentRoot onIntent={rt.emit}>
       <TerminalHostContext.Provider value={props.terminals}>
-        <Shell {...shell} overlays={overlays}>{body}</Shell>
+        <CopiedContext.Provider value={state.copied}>
+          <Shell {...shell} overlays={overlays}>{body}</Shell>
+        </CopiedContext.Provider>
       </TerminalHostContext.Provider>
     </IntentRoot>
   );

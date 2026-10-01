@@ -1116,5 +1116,19 @@ describe('殻の操作（ランタイム）', () => {
     rt.emit({ type: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' });
     await flush();
     expect(clipboard).toHaveBeenCalledWith('~/.agent-hangar/desktop.log');
+    // 写せたことを状態に返す。ボタンはこれを見てから「コピーしました」を出す。
+    expect(rt.getState().copied).toEqual({ text: '~/.agent-hangar/desktop.log', n: 1 });
+  });
+  // 参加トークンのような秘密も写すので、写せなかったときに中身をトーストへ出さない。
+  it('コピーに失敗したら、中身を出さずに知らせ、写せた印は付けない', async () => {
+    const clipboard = vi.fn(async () => { throw new Error('denied'); });
+    const { rt } = harness({}, { clipboard });
+    rt.start();
+    rt.emit({ type: 'clipboard.copy', text: 'secret-token-123' });
+    await flush();
+    const messages = rt.getState().toasts.map((t) => t.message);
+    expect(messages).toEqual(['コピーできませんでした。文字を選んで ⌘C で写してください']);
+    expect(messages.join('')).not.toContain('secret-token-123');
+    expect(rt.getState().copied).toBeNull();
   });
 });

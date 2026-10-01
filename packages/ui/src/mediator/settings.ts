@@ -18,6 +18,7 @@ export function settingsStep(state: State, input: Input): Step | null {
       return { state: mark(state, e.field, { kind: 'saved', n: prev?.kind === 'saved' ? prev.n + 1 : 1 }), effects: [] };
     }
     if (e.type === 'settings.failed') return { state: mark(state, e.field, { kind: 'error', message: e.message }), effects: [] };
+    if (e.type === 'clipboard.copied') return { state: { ...state, copied: { text: e.text, n: (state.copied?.n ?? 0) + 1 } }, effects: [] };
     return null;
   }
   if (input.kind !== 'intent') return null;

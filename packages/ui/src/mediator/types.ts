@@ -34,7 +34,9 @@ export type RuntimeEvent =
   | { type: 'retention.written'; days: number } | { type: 'retention.conflict'; days: number } | { type: 'retention.failed'; message: string }
   | { type: 'retention.previewFailed'; days: number; message: string }
   // 欄ごとの保存の結果。失敗はトーストにせず、その欄の下に理由を出す。
-  | { type: 'settings.saved'; field: string } | { type: 'settings.failed'; field: string; message: string };
+  | { type: 'settings.saved'; field: string } | { type: 'settings.failed'; field: string; message: string }
+  // クリップボードに写せた。写せなかったときはランタイムがトーストで知らせ、これは届かない。
+  | { type: 'clipboard.copied'; text: string };
 
 export type Input =
   | { kind: 'intent'; intent: Intent }
@@ -218,6 +220,12 @@ export type State = {
   pending: number;
   /** 欄ごとの保存の知らせ。欄の名前（設定の項目名）で引く。 */
   settingsSave: Record<string, SaveMark>;
+  /**
+   * 最後にクリップボードへ写せた文。
+   * n は写せるたびに進み、コピーのボタンは押した後に進んだのを見てから「コピーしました」を出す。
+   * 写せなかったときは進まない。
+   */
+  copied: { text: string; n: number } | null;
 };
 export type Step = { state: State; effects: Effect[] };
 export const NOT_YET = 'この操作は次のフェーズで実装します';
