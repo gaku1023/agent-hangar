@@ -550,6 +550,11 @@ describe('presentSessions', () => {
     const r = presentSessions(state, { ...store, search: { params: { q: '索引' }, result: { hits: [], total: 0 }, loading: false } }, NOW);
     expect(r.allCount).toBe(3);
     expect(r.conditions).toEqual(['『索引』', '入力待ち', '7 日', 'alpha', 'src/a.ts']);
+    // 見出しの件数は「すべて」のタブと同じ値で、Archived を除く。
+    const archived = session('s9', { state: { status: 'archived', note: null, returnOn: null, setBy: 'import', setAt: 1, candidate: null } });
+    const withArchived = presentSessions(initialState(), { ...store, sessions: { ...store.sessions, s9: archived } }, NOW);
+    expect(withArchived.allCount).toBe(3);
+    expect(withArchived.tabs.find((t) => t.tab === 'all')!.count).toBe('3');
     const today = presentSessions({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } } }, store, NOW);
     expect(today.conditions).toEqual(['実行中', '今日']);
   });

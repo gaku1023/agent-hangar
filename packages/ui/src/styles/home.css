@@ -63,8 +63,8 @@
 .pj-row { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: var(--session-row-h); padding: 0 calc(var(--u) * 5); border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
 .pj-row:last-child { border-bottom: 0; }
 .pj-row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
-.pj-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pj-counts { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.pj-name { flex: 1 0 12ch; min-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-counts { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
 /* 点の色はプロジェクトのステータスの色（--st-*）。 */
 .pj-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--st-archived); }
 .pj-dot[data-status='active'] { background: var(--st-active); }

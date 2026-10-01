@@ -70,11 +70,11 @@ function hintOf(token: string): string {
 export function presentSessions(state: State, store: Store, now: number): SessionsProps {
   const projects = Object.values(store.projects).map((p) => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name));
   const f = state.search.filter;
-  // 見出しの件数は条件に関わらず全件で、絞った結果の件数は条件の行が言う。
-  const allCount = Object.keys(store.sessions).length;
   const conditions = conditionsOf(state.search.text, f, store);
   // 節の元の並び（presenters/row.ts の sortForSections）。タブの件数もこの全件から数える。
   const all = sortForSections(Object.values(store.sessions)).map((s) => ({ s, row: presentSessionRow(s, store, now) }));
+  // 見出しの件数は条件に関わらず手元の全件で、「すべて」のタブと同じく Archived を除く。絞った結果の件数は条件の行が言う。
+  const allCount = all.filter((x) => x.row.state !== 'archived').length;
   const common: Pick<SessionsProps, 'tabs' | 'tab' | 'tokens' | 'hints'> = { tabs: presentTabs(all.map((x) => x.row)), tab: f.status ?? 'all', tokens: queryTokens(f, projects), hints: badTokens(state.search.text, projects).map(hintOf) };
   if (!usesServerSearch(state.search)) {
     let list = all;

@@ -74,7 +74,12 @@ describe('SessionsScreen', () => {
   it('画面の頭に見出しを置き、全件の数を添える', () => {
     render(<IntentRoot onIntent={() => {}}><SessionsScreen text="" filter={{}} projects={[]} rows={[]} shown={1196} total={1196} loading={false} loadingMore={false} mode="all" allCount={1196} conditions={[]} {...extra} /></IntentRoot>);
     const h = screen.getByRole('heading', { level: 1, name: 'セッション' });
-    expect(within(h.closest('.page-title-row') as HTMLElement).getByText('1196 件')).toBeInTheDocument();
+    expect(within(h.closest('.page-title-row') as HTMLElement).getByText('1,196 件')).toBeInTheDocument();
+  });
+  it('件数は桁を区切って出す（見出し、条件の行、残り）', () => {
+    render(<IntentRoot onIntent={() => {}}><SessionsScreen text="q" filter={{}} projects={[]} rows={[row('s1')]} shown={50} total={1320} loading={false} loadingMore={false} mode="search" allCount={1206} conditions={['『q』']} {...extra} /></IntentRoot>);
+    expect(screen.getByRole('status', { name: '絞り込みの条件' })).toHaveTextContent('上位 50 / 1,320 件');
+    expect(screen.getByText('残り 1,270 件')).toBeInTheDocument();
   });
   // サーバは上位の 50 件だけを返す。全件の数だけを出すと、並ぶ行の数と合わない。
   it('切れているときは条件の行に「上位 N / 全件」と出し、一覧の末尾から次の 50 件を読める', () => {
@@ -82,7 +87,7 @@ describe('SessionsScreen', () => {
     const rows = [row('s1'), row('s2')];
     const at = (shown: number, loadingMore: boolean) => <IntentRoot onIntent={onIntent}><SessionsScreen text="q" filter={{}} projects={[]} rows={rows} shown={shown} total={132} loading={false} loadingMore={loadingMore} mode="search" allCount={1206} conditions={['『q』']} {...extra} /></IntentRoot>;
     const { rerender } = render(at(50, false));
-    expect(within(screen.getByRole('heading', { level: 1, name: 'セッション' }).closest('.page-title-row') as HTMLElement).getByText('1206 件')).toBeInTheDocument();
+    expect(within(screen.getByRole('heading', { level: 1, name: 'セッション' }).closest('.page-title-row') as HTMLElement).getByText('1,206 件')).toBeInTheDocument();
     const cond = screen.getByRole('status', { name: '絞り込みの条件' });
     expect(cond).toHaveTextContent('『q』 で絞り込み中');
     expect(cond).toHaveTextContent('上位 50 / 132 件');

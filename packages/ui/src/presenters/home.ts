@@ -119,5 +119,5 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
     return { id: p.id, name: p.name, status: p.status, counts: counts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join(' · ') };
   });
 
-  return { attention, returning, confirm, running, recent, projects, idle: attention.length === 0 && returning.length === 0 && running.length === 0 };
+  return { attention, returning, confirm, running, recent, projects, idle: attention.length === 0 && running.length === 0 };
 }

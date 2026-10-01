@@ -4,9 +4,9 @@
  * 印なし（既定）は status の null で表す。Active は持たず、動きから毎回出す。
  */
 export type SessionStatus = 'paused' | 'done' | 'archived';
-/** 誰が付けたか。user は hangar の画面か claude.zsh、conversation は会話の中で利用者が選んだもの、import は導入時の一括。 */
+/** 誰が付けたか。user は hangar の画面で選んだもの、conversation は会話の中で利用者が選んだもの、import は導入時の一括。 */
 export type StateSetBy = 'user' | 'conversation' | 'import';
-/** 提案の出どころ。会話の中、claude.zsh で抜けるとき、事後の要約。 */
+/** 提案の出どころ。会話の中、事後の要約。exit は取りやめた claude.zsh の問いの名残で、いまは書き手がいない（v14 を切るときに CHECK ごと落とす）。 */
 export type CandidateSource = 'in_session' | 'exit' | 'post_hoc';
 export type SessionCandidateDto = { status: 'paused' | 'done'; note: string | null; returnOn: string | null; source: CandidateSource; at: number };
 export type SessionStateDto = { status: SessionStatus | null; note: string | null; returnOn: string | null; setBy: StateSetBy | null; setAt: number | null; candidate: SessionCandidateDto | null };

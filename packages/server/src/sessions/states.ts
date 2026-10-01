@@ -4,7 +4,7 @@ import { upsertShared } from '../db/shared.ts';
 
 /**
  * セッションの状態の移り方。設計は docs/superpowers/specs/2026-10-01-session-status-design.md の「状態の移り方」。
- * 書き手は MCP（提案と、会話で選んだもの）、HTTP（画面と claude.zsh）、索引（新しい発言で外すときだけ）である。
+ * 書き手は MCP（提案と、会話で選んだもの）、HTTP（画面）、索引（新しい発言で外すときだけ）である。
  * 変更のたびに session.upsert を配るのは呼び手の役目にする（TODO の候補と同じ分け方）。
  */
 
@@ -81,7 +81,7 @@ function returnOnOf(status: SessionStatus, v: string | null | undefined): string
 
 /**
  * 状態の入力の検査と整形を、書く前に 1 か所で済ませる。誤りは StateInputError にする。
- * 提案と MCP の確定は根拠を必須にする（requireNote）。画面と claude.zsh の手動の確定は根拠なしでよい。
+ * 提案と MCP の確定は根拠を必須にする（requireNote）。画面の手動の確定は根拠なしでよい。
  */
 export function validateStateInput(status: SessionStatus, o: { note?: string | null; returnOn?: string | null; requireNote: boolean }): { note: string | null; returnOn: string | null } {
   const note = noteOf(o.note, o.requireNote);

@@ -6,7 +6,7 @@ const NONE = '（なし）';
  * --append-system-prompt で渡す短い指示。ファイルや設定は書かず、要約の更新、片付いた TODO の候補、セッションの状態の問い、ターンの意図、日本語の手の説明を求める。
  * TODO は ID を添えて渡す。ID が無いと、候補を出す前に get_project を呼んで引く一手が要るためである。
  * 状態は、依頼を終えた区切りでだけ AskUserQuestion で聞かせる。利用者が選んだものは confirmed: true でそのまま状態になり、答えずに進めたものは候補として画面に残る。
- * attach で開く会話と claude.zsh で起こした会話にはこの指示が渡らないので、そちらは claude.zsh の問いと事後の要約で拾う。
+ * attach で開く会話にはこの指示が渡らないので、そちらは事後の要約で拾う。
  */
 export function renderInjection(i: InjectionInput): string {
   const memo = i.memo?.trim() ? [...i.memo.trim()].slice(0, 500).join('') : NONE;

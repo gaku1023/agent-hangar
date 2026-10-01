@@ -4,12 +4,12 @@ import { canMoveBehind, nextWaitingStep, searchQueryStep } from './screen.ts';
 import { sidebarStep } from './sidebar.ts';
 import type { Input, State, Step } from './types.ts';
 
-/** `cmd:new-session` のような項目 ID を種類と残りに割る。 */
 /** Paused の入力をそのセッションへ送ったら閉じる。別のセッションへの操作では閉じない。 */
 const closePause = (state: State, id: string): State => (state.overlay.kind === 'pause' && state.overlay.sessionId === id ? { ...state, overlay: { kind: 'none' } } : state);
 /** 状態の本文。渡されたものだけを載せる（省いた理由で、サーバの今の理由を消さないため）。 */
 const stateBody = (i: { status: SessionStatus | null; note?: string; returnOn?: string }) => ({ status: i.status, ...(i.note !== undefined ? { note: i.note } : {}), ...(i.returnOn !== undefined ? { returnOn: i.returnOn } : {}) });
 
+/** `cmd:new-session` のような項目 ID を種類と残りに割る。 */
 function splitId(id: string): [string, string] {
   const at = id.indexOf(':');
   return at < 0 ? [id, ''] : [id.slice(0, at), id.slice(at + 1)];

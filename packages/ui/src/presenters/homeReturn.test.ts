@@ -33,10 +33,11 @@ describe('presentHome の今日戻る（C1）', () => {
       { id: 'sync', name: 'sync', projectName: 'alpha', reason: 'sync を確かめる', returnOn: '2026-10-02', overdueDays: 0 },
     ]);
   });
-  it('札に出したものは最近から外し、今日戻るがあれば idle にしない', () => {
+  it('札に出したものは最近から外す。今日戻るは生きたセッションではないので、idle は妨げない', () => {
     const h = presentHome(initialState(), storeOf([paused('sync', 24, '2026-10-02'), paused('later', 30, '2026-10-05'), dto('x', 2)]), NOW);
     expect(h.recent.map((r) => r.id)).toEqual(['x', 'later']);
-    expect(h.idle).toBe(false);
+    expect(h.returning.map((r) => r.id)).toEqual(['sync']);
+    expect(h.idle).toBe(true);
     expect(presentHome(initialState(), storeOf([paused('later', 30, '2026-10-05')]), NOW).idle).toBe(true);
   });
   it('「今日」の境は手元の暦の 0 時で、期間の「今日」（periodStart(1, now)）と同じ', () => {

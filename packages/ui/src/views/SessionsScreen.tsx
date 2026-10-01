@@ -17,6 +17,8 @@ import { Segmented } from './primitives/Segmented.tsx';
 const PERIODS = [{ value: '', label: '全期間' }, { value: '1', label: '今日' }, { value: '7', label: '7 日' }, { value: '30', label: '30 日' }];
 /** サーバが 1 度に返す件数（server/src/search/search.ts の既定）。続きもこの件数ずつ読む。 */
 const PAGE = 50;
+/** 件数は桁を区切る（タブの件数と同じ書き方）。 */
+const fmt = (n: number) => n.toLocaleString('en-US');
 /** 欄が空のときの案内。トークンの書き方をここで見せる。 */
 const PLACEHOLDER = 'キーワード、または is:paused · since:7d · project: · file:';
 
@@ -36,14 +38,14 @@ export function SessionsScreen(props: SessionsProps) {
   const emit = useEmit();
   const period = props.filter.days ? String(props.filter.days) : '';
   // サーバが返したのが上位の一部なら、全件の数と並べて、並ぶ行の数と食い違わないようにする。
-  const count = props.loading ? '検索しています' : props.shown < props.total ? `上位 ${props.shown} / ${props.total} 件` : `${props.total} 件`;
+  const count = props.loading ? '検索しています' : props.shown < props.total ? `上位 ${fmt(props.shown)} / ${fmt(props.total)} 件` : `${fmt(props.total)} 件`;
   const filtered = props.conditions.length > 0;
   const left = props.total - props.shown;
   const more = props.mode === 'search' && !props.loading && left > 0;
   const foot = more ? (
     <div className="sessions-more">
       <button type="button" className="btn btn-sm" disabled={props.loadingMore} onClick={() => emit({ type: 'search.more', offset: props.shown })}>{props.loadingMore ? '読み込んでいます' : `さらに ${Math.min(PAGE, left)} 件を読み込む`}</button>
-      <span className="faint">残り {left} 件</span>
+      <span className="faint">残り {fmt(left)} 件</span>
     </div>
   ) : undefined;
   const pickTab = (tab: StatusTab) => { if (tab !== props.tab) emit({ type: 'search.filter', patch: { status: tab === 'all' ? undefined : tab } }); };
@@ -69,7 +71,7 @@ export function SessionsScreen(props: SessionsProps) {
   };
   return (
     <div className="screen sessions-screen screen-fill">
-      <PageHeading title="セッション"><span className="faint mono sessions-count">{props.allCount} 件</span></PageHeading>
+      <PageHeading title="セッション"><span className="faint mono sessions-count">{fmt(props.allCount)} 件</span></PageHeading>
       <div className="sessions-tabs" role="group" aria-label="状態">
         {props.tabs.map((t) => (
           <button key={t.tab} type="button" className="sessions-tab" aria-pressed={t.tab === props.tab} onClick={() => pickTab(t.tab)}>
