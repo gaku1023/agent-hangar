@@ -96,8 +96,9 @@
 .row-live[data-live='waiting'] { color: var(--waiting); }
 .row-live[data-live='busy'] { color: var(--busy); }
 /* 状態の札（F1）。列の幅いっぱいの同じ幅の四角い札にし、語の長さで位置がずれないようにする。
-   Done は全体のほとんどを占めるので線だけにして静かにし、Paused と Archived だけを地で塗る。 */
+   Done は全体のほとんどを占めるので線だけにして静かにし、ほかの 3 つを地で塗る。Active はプロジェクトの Active と同じ青にする。 */
 .row-sq { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 62px; height: 18px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; }
+.row-sq[data-s='active'] { color: var(--st-active); background: var(--st-active-soft); }
 .row-sq[data-s='done'] { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
 .row-sq[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .row-sq[data-s='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }

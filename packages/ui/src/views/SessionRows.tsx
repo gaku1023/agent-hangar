@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { Intent, SessionStatus, StatusFilter } from '@agent-hangar/shared';
 import { useEmit, type Emit } from '../intent/chain.tsx';
-import { CANDIDATE_SOURCE_LABEL, candidateLabel, candidateShortLabel, returnOnLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
+import { ACTIVE_LABEL, CANDIDATE_SOURCE_LABEL, candidateLabel, candidateShortLabel, returnOnLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import type { ListItem, SectionId } from '../presenters/sections.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { MenuButton, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
@@ -311,13 +311,16 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     </span>
   );
 
-  // 状態の列（F1）。状態の語の札（Done・Paused・Archived）を同じ幅で置き、状態の無い行は Claude の提案の札を置く。
+  // 状態の列（F1）。状態の語の札（Active・Paused・Done・Archived）を同じ幅で置き、どの行も空にしない。
+  // 状態の無い行は Active の札で、Claude の提案があればその札を代わりに置く。動いているかどうかは札に出さず、点と右の語が言う。
   // 状態と提案の両方を持つ行は無い（状態を正とし、提案は無いものとする。presenters/row.ts）。
   const status = (r: SessionRowProps) => (
     <span className="row-status">
       {r.state
         ? badge(r.state, STATUS_LABEL[r.state], <span className="row-sq" data-s={r.state} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{STATUS_LABEL[r.state]}</span>)
-        : r.candidate && <span className="row-act" onClick={stopClick}>{candidatePop(r, emit, (how) => candidateClosed(r.id, how))}</span>}
+        : r.candidate
+          ? <span className="row-act" onClick={stopClick}>{candidatePop(r, emit, (how) => candidateClosed(r.id, how))}</span>
+          : badge('active', ACTIVE_LABEL, <span className="row-sq" data-s="active">{ACTIVE_LABEL}</span>)}
     </span>
   );
 

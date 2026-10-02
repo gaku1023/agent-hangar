@@ -88,8 +88,12 @@ describe('SessionsScreen の節', () => {
     expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
   it('平らな結果でも、行の状態の札でタブへ移る', () => {
-    const { onIntent } = mount({ rows: [row('a', { state: 'archived' })], total: 1, conditions: ['7 日'] });
+    const { onIntent } = mount({ rows: [row('a', { state: 'archived' }), row('b')], total: 2, conditions: ['7 日'] });
     fireEvent.click(screen.getByRole('button', { name: 'Archived のセッションだけを見る' }));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'archived' } });
+    // 状態の無い行の Active の札も、Active のタブへ移る。
+    fireEvent.click(screen.getByRole('button', { name: 'Active のセッションだけを見る' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'active' } });
+    expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
 });

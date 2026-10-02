@@ -461,8 +461,10 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(status('名前 d')).toHaveTextContent('Archived');
     expect(screen.getByText('Archived')).not.toHaveAttribute('title');
     expect(status('名前 e')).toHaveTextContent('Paused');
-    // 状態の無い行の列は空で、場所だけを取る。
-    expect(status('名前 a')).toBeEmptyDOMElement();
+    // 状態の無い行は Active の札を出す。動いている行も止まっている行も同じ札で、動きは点と右の語が言う。
+    expect(status('名前 a')).toHaveTextContent('Active');
+    expect(status('名前 a').querySelector('.row-sq')).toHaveAttribute('data-s', 'active');
+    expect(status('名前 b').querySelector('.row-sq')).toHaveAttribute('data-s', 'active');
     // 戻る日は時刻の列に出し、今日と過ぎたものだけを塗る。最後の活動はポインタを乗せると読める。
     const when = (name: string) => rowOf(name).querySelector('.row-time')!;
     expect(when('名前 e')).toHaveTextContent('2 日過ぎ');
@@ -477,6 +479,15 @@ describe('セッションの状態の札と「⋯」', () => {
     mount([sr('a', { state: 'paused', returnOn: null, overdueDays: null })]);
     expect(rowOf('名前 a').querySelector('.row-time')).toHaveTextContent('日付なし');
     expect(screen.getByText('日付なし')).toHaveAttribute('data-due', 'true');
+  });
+  it('提案のある行は Active の札ではなく提案の札を出す', () => {
+    mount([sr('a', { candidate: { status: 'done', note: '直した', returnOn: null, source: 'in_session', ago: '1 時間前' } })]);
+    const col = rowOf('名前 a').querySelector('.row-status')!;
+    expect(col.querySelector('.row-sq')).toBeNull();
+    expect(col).toHaveTextContent('Done？');
+  });
+  it('Active の札はプロジェクトの Active と同じ青で、地を塗る', () => {
+    expect(rowsCss).toMatch(/\.row-sq\[data-s='active'\] \{[^}]*color: var\(--st-active\);[^}]*background: var\(--st-active-soft\);/);
   });
   it('statusColumn が偽なら状態の列を畳む', () => {
     render(<IntentRoot onIntent={vi.fn()}><SessionRows rows={[sr('a', { state: 'done' })]} height={400} variant="search" statusColumn={false} /></IntentRoot>);

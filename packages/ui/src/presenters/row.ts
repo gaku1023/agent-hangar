@@ -90,6 +90,8 @@ export function sortForSections(list: SessionDto[]): SessionDto[] {
 
 /** 状態の札の語。プロジェクトの状態と同じ英語にする。 */
 export const STATUS_LABEL: Record<SessionStatus, string> = { paused: 'Paused', done: 'Done', archived: 'Archived' };
+/** 状態の無い行（Active）の札の語。Active は値として持たないので、STATUS_LABEL とは別に置く。 */
+export const ACTIVE_LABEL = 'Active';
 /** 提案の出どころの語。ポップに「出どころ：会話 · 12 分前」と出す。exit は型に残るだけで、いまは書き手がいない。 */
 export const CANDIDATE_SOURCE_LABEL: Record<CandidateSource, string> = { in_session: '会話', exit: '抜けるとき', post_hoc: '要約' };
 
