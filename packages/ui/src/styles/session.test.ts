@@ -85,3 +85,13 @@ describe('ターミナルの知らせ（F1）', () => {
     expect(b).toMatch(/var\(--term-tool\)/);
   });
 });
+
+// タブの列は耳を板に付けるために下揃えにしている。
+// 列いっぱいの高さのタブと分割ボタンはそれで揃うが、列より低い追加ボタンは下に寄り、＋だけ 4px 下がって見えた。
+describe('タブの列の追加ボタン', () => {
+  it('列は下揃えのまま、列より低い追加ボタンだけを縦の中央に戻す', () => {
+    expect(body('.tabs')).toMatch(/align-items: flex-end;/);
+    expect(body('.tab-close, .tab-add')).toMatch(/height: calc\(var\(--u\) \* 5\);/);
+    expect(body('.tab-add')).toMatch(/align-self: center;/);
+  });
+});
