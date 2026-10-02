@@ -5,13 +5,26 @@ import type { LivePaneProps } from '../presenters/live.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { Icon } from './primitives/Icon.tsx';
 
+/** 離したとき、どちらかの端の下限までこれより近ければ、その端へ畳む（設計書 ④）。 */
+const SNAP_PX = 24;
+
+/** 離したときの比率。上の段か目次が下限まで SNAP_PX 以内なら、0 か 1 に畳む。高さが測れなければそのまま。 */
+export function snapSplit(ratio: number, m: { height: number; topMin: number; tocMin: number }, snapPx = SNAP_PX): number {
+  if (m.height <= 0) return ratio;
+  const top = ratio * m.height;
+  if (top - m.topMin < snapPx) return 0;
+  if (m.height - top - m.tocMin < snapPx) return 1;
+  return ratio;
+}
+
 /** 比率は 1% 単位で持つ。保存する値と読み上げの数をそろえる。 */
 const round = (r: number) => Math.round(clampLivePaneSplit(r) * 100) / 100;
 
 /**
  * 実行中のセッションの右ペイン。上の段ほど横目で読む情報で、目次（children）は下の段に置く。
  * 左のターミナルに映らないもの（何のためか、サブエージェント 1 本ずつの様子、成果物）を出す。
- * 上の段の高さは、境目の比率（split）を上限にし、あふれた分は上の段の中でスクロールする。中身が短ければ、残りは目次に回る。
+ * 上の段の高さは境目の比率（split）そのもので、中身が短ければ下に余白が残る。あふれた分は上の段の中でスクロールする。
+ * どちらの端へも、見出しの 1 行を残す所まで引ける。
  * ドラッグの途中は比率をここだけで持ち、離したときに 1 度だけ livePane.split を出す（毎フレーム状態機械を回さない）。
  */
 export function LivePane({ sessionId, pane, lead, children, split = LIVE_PANE_SPLIT_DEFAULT, artifacts = [] }: { sessionId: string; pane: LivePaneProps; lead?: ReactNode; children: ReactNode; split?: number; artifacts?: ArtifactCardProps[] }) {
@@ -34,11 +47,21 @@ export function LivePane({ sessionId, pane, lead, children, split = LIVE_PANE_SP
   const onPointerDown = (e: PointerEvent) => {
     e.preventDefault();
     const host = liveRef.current;
-    if (!host) return;
+    const top = topRef.current;
+    if (!host || !top) return;
     const rect = host.getBoundingClientRect();
+    // 比率は上の段の上端から測る（上の段の高さが、ドラッグした所になる）。
+    const topStart = top.getBoundingClientRect().top;
     let last = ratio;
-    const move = (ev: globalThis.PointerEvent) => { last = round((ev.clientY - rect.top) / rect.height); setDragging(last); };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setDragging(null); emit({ type: 'livePane.split', ratio: last }); };
+    const move = (ev: globalThis.PointerEvent) => { last = round((ev.clientY - topStart) / rect.height); setDragging(last); };
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      const toc = host.querySelector<HTMLElement>('.live-toc');
+      const lamp = host.querySelector<HTMLElement>('.live-lamp');
+      const tocMin = toc ? parseFloat(getComputedStyle(toc).minHeight) || 0 : 0;
+      setDragging(null);
+      emit({ type: 'livePane.split', ratio: snapSplit(last, { height: rect.height, topMin: lamp?.offsetHeight ?? 0, tocMin }) });
+    };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
@@ -107,7 +130,7 @@ export function LivePane({ sessionId, pane, lead, children, split = LIVE_PANE_SP
       </div>
       {/* 上の段と目次の境目。ドラッグか上下の矢印で動かし、ダブルクリックで半分に戻す。 */}
       <div className="live-divider" role="separator" aria-label="「いま」と目次の高さ" aria-orientation="horizontal"
-        aria-valuenow={percent} aria-valuemin={20} aria-valuemax={80} aria-valuetext={`「いま」${percent}%`} tabIndex={0}
+        aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-valuetext={`「いま」${percent}%`} tabIndex={0}
         onPointerDown={onPointerDown} onKeyDown={onKeyDown} onDoubleClick={() => emit({ type: 'livePane.split', ratio: LIVE_PANE_SPLIT_DEFAULT })} />
       <div className="live-toc">{children}</div>
     </div>

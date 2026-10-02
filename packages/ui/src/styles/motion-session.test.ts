@@ -20,3 +20,18 @@ describe('右の欄の開閉', () => {
     expect(body(".session-body[data-rail='closed']")).toMatch(/grid-template-columns: minmax\(0, 1fr\) 0px;/);
   });
 });
+
+describe('「いま」と目次の境目', () => {
+  it('境目は上の段の高さそのもの（flex-basis）で、上限（max-height）ではない', () => {
+    const top = body('.live-top');
+    expect(top).toMatch(/flex: 0 1 calc\(var\(--live-split, 0\.5\) \* 100%\);/);
+    expect(top).not.toMatch(/max-height/);
+  });
+  it('目次の下限は見出しと「最新へ」の 2 行ぶんで、5 行の下限は持たない', () => {
+    expect(body('.live-toc')).not.toMatch(/\* 5\)/);
+    expect(body('.live-toc')).toMatch(/min-height:/);
+  });
+  it('離した後と既定へ戻すときは滑らせ、ドラッグの間は追従させる', () => {
+    expect(body('.live:not([data-dragging]) > .live-top')).toMatch(/transition: flex-basis var\(--dur\) var\(--ease-out\);/);
+  });
+});

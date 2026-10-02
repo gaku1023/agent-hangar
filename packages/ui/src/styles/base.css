@@ -487,17 +487,20 @@ a:hover { text-decoration: underline; }
 /* 実行中の右ペイン。見出し、上の段（いま）、境目、目次の順に縦に積む。色は端末の縁の灯と同じ語彙（作業中は杏、入力待ちは赤、休みは灰）。 */
 .live { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: calc(var(--u) * 2); }
 .live[data-dragging] { cursor: row-resize; user-select: none; }
-/* 上の段は、境目の比率（--live-split、ペインの高さに対する割合）を高さの上限にし、あふれた分はこの中でスクロールする。
-   中身が短ければ上限まで伸ばさず、残りは目次に回る。窓が低いときも、目次（.live-toc の下限）を押し出さない。 */
-.live-top { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: 0 1 auto; min-height: 0; max-height: calc(var(--live-split, 0.5) * 100%); overflow-y: auto; overscroll-behavior: contain; }
+/* 上の段は、境目の比率（--live-split、ペインの高さに対する割合）を高さそのものにする（設計書 ④）。中身が短ければ下に余白が残り、あふれた分はこの中でスクロールする。
+   窓が低くて目次の下限を押すときは縮む（flex-shrink）。どちらの端でも、ランプの 1 行は残す。 */
+.live-top { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: 0 1 calc(var(--live-split, 0.5) * 100%); min-height: calc(var(--row-h) + var(--u) * 3); overflow-y: auto; overscroll-behavior: contain; }
+.live-top > * { flex: none; }
+/* 離した後と既定へ戻すときは滑らせる。ドラッグの間は指に追従させる。 */
+.live:not([data-dragging]) > .live-top { transition: flex-basis var(--dur) var(--ease-out); }
 /* 下に続きがあるときは、下の端 28px をぼかして消す。行の途中で切れて見えると、スクロールできることに気付きにくい。 */
 .live-top[data-more] { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
 /* 境目。掴める幅は 9px 取り、見た目は 1px の線にする。触れるか掴むかフォーカスすると、線を太くして藍にする。 */
 .live-divider { position: relative; flex: none; height: 9px; margin: calc(var(--u) * -1) 0; cursor: row-resize; touch-action: none; outline: none; }
 .live-divider::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--line); transition: background var(--dur-fast) var(--ease-out), height var(--dur-fast) var(--ease-out), top var(--dur-fast) var(--ease-out); }
 .live-divider:hover::before, .live-divider:focus-visible::before, .live[data-dragging] > .live-divider::before { top: 3px; height: 3px; border-radius: 2px; background: var(--accent); }
-/* 窓が低くても、目次は見出しと「最新へ」と 2 行ぶんより縮めない（上のライブの帯が目次を 0 に潰さない）。 */
-.live-toc { display: flex; flex-direction: column; flex: 1; min-height: calc(var(--row-h) * 5); }
+/* 目次は、見出しの 1 行と「最新へ」の行より縮めない（上の段を 1 まで引いても、目次が消えない）。 */
+.live-toc { display: flex; flex-direction: column; flex: 1 1 0; min-height: calc(var(--row-h) * 2 + var(--u) * 2 + 1px); }
 /* 成果物の行。題名だけを 1 行で出し、押すと開く。VS Code で開けるものは右端に小さな印のボタンを添える。 */
 .live-artifact { display: flex; align-items: center; gap: var(--u); min-width: 0; }
 .live-artifact-open { display: flex; align-items: center; gap: calc(var(--u) * 2); flex: 1; min-width: 0; height: var(--row-h); padding: 0 calc(var(--u) * 1.75); border: 0; border-radius: var(--r); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }

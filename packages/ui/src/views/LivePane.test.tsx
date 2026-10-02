@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { LivePaneProps } from '../presenters/live.ts';
-import { LivePane } from './LivePane.tsx';
+import { LivePane, snapSplit } from './LivePane.tsx';
 
 afterEach(cleanup);
 
@@ -84,6 +84,18 @@ describe('LivePane', () => {
       fireEvent.doubleClick(sep);
       expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 0.5 });
     });
+    it('読み上げの範囲は 0〜100%', () => {
+      at(0);
+      const sep = screen.getByRole('separator');
+      expect(sep).toHaveAttribute('aria-valuemin', '0');
+      expect(sep).toHaveAttribute('aria-valuemax', '100');
+      expect(sep).toHaveAttribute('aria-valuenow', '0');
+    });
+    it('矢印キーは端で 0 と 1 に止まる', () => {
+      const onIntent = at(1);
+      fireEvent.keyDown(screen.getByRole('separator'), { key: 'ArrowDown' });
+      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 1 });
+    });
   });
   describe('成果物', () => {
     const art = { id: 'a1', title: '速習資料', description: null, favicon: '📄', url: 'https://claude.ai/code/artifact/a1', lastPublished: '11 時間前', versionCount: 1, canOpenEditor: true };
@@ -102,5 +114,20 @@ describe('LivePane', () => {
       mount(pane());
       expect(document.querySelector('.live-top')!.textContent).not.toMatch(/成果物/);
     });
+  });
+});
+
+describe('snapSplit', () => {
+  const m = { height: 600, topMin: 36, tocMin: 70 };
+  it('上の段が下限まで 24px 以内なら 0 に畳む', () => {
+    expect(snapSplit(50 / 600, m)).toBe(0);
+    expect(snapSplit(70 / 600, m)).toBeCloseTo(70 / 600);
+  });
+  it('目次が下限まで 24px 以内なら 1 に畳む', () => {
+    expect(snapSplit((600 - 80) / 600, m)).toBe(1);
+    expect(snapSplit((600 - 120) / 600, m)).toBeCloseTo(480 / 600);
+  });
+  it('高さが測れない（0）ときは畳まない', () => {
+    expect(snapSplit(0.4, { height: 0, topMin: 0, tocMin: 0 })).toBe(0.4);
   });
 });

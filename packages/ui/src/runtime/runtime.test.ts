@@ -331,7 +331,7 @@ describe('createRuntime', () => {
     const c = harness();
     c.store.set('livePane.split', 3);
     c.rt.start();
-    expect(c.rt.getState().livePaneSplit).toBe(0.8);
+    expect(c.rt.getState().livePaneSplit).toBe(1);
   });
   it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
     const a = harness();
