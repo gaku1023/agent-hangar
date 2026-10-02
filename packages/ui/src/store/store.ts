@@ -1,5 +1,5 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
-import type { ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveSessionDto, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -200,10 +200,19 @@ export function runningSessionIds(store: Store): Set<string> {
 /**
  * 画面で数えるときのセッションの状態（実行中、入力待ち、終了）。
  * Claude の一覧に載る前の run も実行中に数える。
+ * 区切り（Paused・Done・Archived）を付けて休みのまま残っているもの（parked）は、プロセスが残っていても終了に数える。
  * alive を渡せば、何件も数えるときに run の集合を作り直さずに済む。
  */
 export function liveFilterOfSession(store: Store, session: SessionDto, alive: Set<string> = runningSessionIds(store)): LiveFilter {
-  return liveFilterOf(session.live, alive.has(session.id));
+  return liveFilterOf(session.live, alive.has(session.id), session.parked === true);
+}
+
+/**
+ * 一覧で見せる動き。区切りを付けて休みのまま残っているもの（parked）は、終わったものと同じに見せる。
+ * セッション画面は本当の動き（session.live）を出すので、これを使わない。
+ */
+export function shownLive(session: SessionDto): LiveStatus | null {
+  return session.parked ? null : session.live;
 }
 
 /** 終わっていない最新の run。 */

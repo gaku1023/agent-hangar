@@ -1532,6 +1532,27 @@ describe('presentSettings の通知', () => {
   });
 });
 
+describe('presentSession の、区切りを付けたので止めた知らせ', () => {
+  const stopped = (status: 'paused' | 'done' | 'archived', over: Partial<SessionDto> = {}) => {
+    const store = storeWith();
+    store.sessions.s2 = session('s2', { stoppedByStatus: true, state: { status, note: null, returnOn: status === 'paused' ? '2026-10-03' : null, setBy: 'conversation', setAt: NOW - 60_000, candidate: null }, ...over });
+    return presentSession(initialState(), store, NOW, 's2').stoppedNote;
+  };
+  it('止めた訳を状態の語で言い、再開で続けられると添える', () => {
+    expect(stopped('paused')).toBe('Paused にしたので止めました。再開で続けられます');
+    expect(stopped('done')).toBe('Done にしたので止めました。再開で続けられます');
+    expect(stopped('archived')).toBe('Archived にしたので止めました。再開で続けられます');
+  });
+  it('止めていないセッションと、古いサーバの行（印が欠ける）では出さない', () => {
+    expect(stopped('paused', { stoppedByStatus: false })).toBeNull();
+    const store = storeWith();
+    expect(presentSession(initialState(), store, NOW, 's2').stoppedNote).toBeNull();
+  });
+  it('また動いている間は出さない。バックグラウンドの本体が止まり切る前などに、動きの語と食い違わせない', () => {
+    expect(stopped('paused', { live: 'idle' })).toBeNull();
+  });
+});
+
 describe('presentSessionRow のセッションの状態', () => {
   const store = initialStore();
   const today = localDate(NOW);

@@ -1,5 +1,5 @@
 import { isReturnOn, overdueDays, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy } from '@agent-hangar/shared';
-import { aliveRunOf, type Store } from '../store/store.ts';
+import { aliveRunOf, shownLive, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, STATE_LABEL } from './format.ts';
 import type { Segment } from './highlight.ts';
 import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.ts';
@@ -45,10 +45,11 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   const row: SessionRowProps = {
     id: s.id, name: s.name ?? '（名前なし）', oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
     projectName: s.projectId ? store.projects[s.projectId]?.name ?? null : null,
-    live: s.live, stateLabel: s.summary ? STATE_LABEL[s.summary.state] : '', summaryState: summaryStateTag(s.summary), model: shortModel(s.stats.model), effort: s.stats.effort ?? '',
+    live: shownLive(s), stateLabel: s.summary ? STATE_LABEL[s.summary.state] : '', summaryState: summaryStateTag(s.summary), model: shortModel(s.stats.model), effort: s.stats.effort ?? '',
     when: relativeTime(s.lastActivityAt, now), whenAbs: absoluteTime(s.lastActivityAt), filesChanged: s.stats.filesChanged, prUrl: s.stats.prUrl, memo: s.memo, hasTranscript: s.hasTranscript,
     transcript: transcriptMark(s, store.retention?.days ?? DEFAULT_DAYS, now),
-    cost: costLabel(s.stats.costUsd), runId: aliveRunOf(store, s.id)?.id ?? null,
+    // 区切りを付けて休みのまま残っているもの（parked）は、終わった行と同じに作る。灯も run も持たせず、状態の節に入れる。
+    cost: costLabel(s.stats.costUsd), runId: s.parked ? null : aliveRunOf(store, s.id)?.id ?? null,
     state: status, returnOn, overdueDays: returnOn ? overdueDays(returnOn, now) : null,
     candidate: st?.candidate ? { status: st.candidate.status, note: st.candidate.note, returnOn: st.candidate.returnOn, source: st.candidate.source, ago: relativeTime(st.candidate.at, now) } : null,
     setBy: status ? st!.setBy : null,
@@ -61,11 +62,13 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
 const LIVE_ORDER: Record<string, number> = { waiting: 0, busy: 1, idle: 2 };
 /** 終わったセッションの順位。どの生きている状態よりも後ろに来る。 */
 const ENDED_ORDER = 9;
+/** 並びの順位。区切りを付けて休みのまま残っているもの（parked）は、終わったものと同じ順位にする。 */
+const liveRank = (s: SessionDto): number => { const l = shownLive(s); return l ? LIVE_ORDER[l] ?? 3 : ENDED_ORDER; };
 /** 生きているものを先頭に waiting、busy、idle の順で並べ、同じ順位の中は新しい順にする。 */
 export function sortSessions(list: SessionDto[]): SessionDto[] {
   return [...list].sort((a, b) => {
-    const la = a.live ? LIVE_ORDER[a.live] ?? 3 : ENDED_ORDER;
-    const lb = b.live ? LIVE_ORDER[b.live] ?? 3 : ENDED_ORDER;
+    const la = liveRank(a);
+    const lb = liveRank(b);
     if (la !== lb) return la - lb;
     return (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0);
   });
@@ -79,10 +82,10 @@ export function sortSessions(list: SessionDto[]): SessionDto[] {
  * 導入時の一括 Done は同じ時刻を持つので、その中は最後に動いた時刻の新しい順になる。
  */
 export function sortForSections(list: SessionDto[]): SessionDto[] {
-  const key = (s: SessionDto) => (s.live === null && s.state?.status === 'done' ? s.state.setAt ?? 0 : s.lastActivityAt ?? 0);
+  const key = (s: SessionDto) => (shownLive(s) === null && s.state?.status === 'done' ? s.state.setAt ?? 0 : s.lastActivityAt ?? 0);
   return [...list].sort((a, b) => {
-    const la = a.live ? LIVE_ORDER[a.live] ?? 3 : ENDED_ORDER;
-    const lb = b.live ? LIVE_ORDER[b.live] ?? 3 : ENDED_ORDER;
+    const la = liveRank(a);
+    const lb = liveRank(b);
     if (la !== lb) return la - lb;
     return key(b) - key(a) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0);
   });

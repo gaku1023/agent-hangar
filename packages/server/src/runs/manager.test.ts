@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Hono } from 'hono';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authMiddleware } from '../http/auth.ts';
-import { shortId, type TabDto } from '@agent-hangar/shared';
+import { shortId, type RunDto, type TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
@@ -1075,5 +1075,75 @@ describe.skipIf(!TMUX)('run に配る秘密は、その run の入口しか開�
     issueMcpSecret(db, '00000000-0000-7000-8000-000000000000', 1);
     make({ token: TOKEN, tmux: null }).recoverAtStartup();
     expect(mcpSecretFor(db, '00000000-0000-7000-8000-000000000000')).toBeNull();
+  });
+});
+
+describe('区切りを付けたセッションを止める（tmux 不要）', () => {
+  it('生きた run を parked で終わらせ、シェルのタブは残す', () => {
+    const { runId, sessionId, tabId } = seedRun();
+    addTranscript(sessionId);
+    const rm = make({ tmux: null });
+    const ended: RunDto[] = [];
+    rm.on({ runEnded: (r) => ended.push(r) });
+    expect(rm.park(sessionId)).toBe(true);
+    expect(ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'parked']]);
+    expect(rm.getRun(runId)!.endedAt).not.toBeNull();
+    // kill と違い、タブは閉じない。動かしていたサーバなどを黙って落とさない。
+    expect(rm.getTab(tabId)).not.toBeNull();
+  });
+
+  it('止めるものが無ければ偽を返し、何も終わらせない', () => {
+    const { sessionId } = seedRun({ endedAt: 5 });
+    const rm = make({ tmux: null });
+    const ended: RunDto[] = [];
+    rm.on({ runEnded: (r) => ended.push(r) });
+    expect(rm.park(sessionId)).toBe(false);
+    expect(rm.park('nope')).toBe(false);
+    expect(ended).toEqual([]);
+  });
+
+  it('他の端末の run は止めない', () => {
+    const { runId, sessionId } = seedRun();
+    const row = db.prepare('select * from runs where id = ?').get(runId) as Record<string, unknown>;
+    upsertShared(db, 'runs', { ...row, device_id: 'other' }, 'other');
+    const rm = make({ tmux: null });
+    expect(rm.park(sessionId)).toBe(false);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+  });
+
+  it('hangar の run が無いバックグラウンドのセッションは、本体を claude stop で止める', () => {
+    const id = seedOldSession();
+    const live = [liveEntry({ status: 'idle', background: { jobId: 'abcd1234' } })];
+    const f = fakeProcs(live);
+    const rm = make({ tmux: null, live: () => live, procs: f.procs });
+    expect(rm.park(id)).toBe(true);
+    expect(f.calls.claude).toEqual([{ args: ['stop', 'abcd1234'], cwd }]);
+  });
+
+  it('外のターミナルで動く claude（run もバックグラウンドの id も無い）は止めない', () => {
+    const id = seedOldSession();
+    const live = [liveEntry({ status: 'idle' })];
+    const f = fakeProcs(live);
+    const rm = make({ tmux: null, live: () => live, procs: f.procs });
+    expect(rm.park(id)).toBe(false);
+    expect(f.calls.claude).toEqual([]);
+    expect(f.calls.terminate).toEqual([]);
+  });
+});
+
+describe.skipIf(!TMUX)('区切りを付けたセッションを止める（tmux 上）', () => {
+  it('Claude の tmux セッションだけを落とし、シェルのタブの tmux セッションは残す', async () => {
+    const rm = make();
+    const r = rm.start({ projectId: 'p1' });
+    await launchedArgs(r.run.id);
+    addTranscript(r.sessionId);
+    const t1 = rm.openTab(r.run.id);
+    expect(rm.park(r.sessionId)).toBe(true);
+    await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+    expect(tmux!.hasSession(t1.tmuxName)).toBe(true);
+    expect(rm.getRun(r.run.id)!.endReason).toBe('parked');
+    // 終わった run でも、開いたシェルのタブがあれば一覧に残る。
+    expect(rm.listAlive().tabs.map((t) => t.id)).toContain(t1.id);
+    rm.closeTab(t1.id);
   });
 });

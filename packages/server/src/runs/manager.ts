@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { newId, shortId, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
+import { newId, shortId, type EndReason, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
@@ -222,7 +222,7 @@ export class RunManager {
   }
 
   /** run を終了として閉じる。すでに閉じていれば何もしない。 */
-  private end(runId: string, reason: 'exited' | 'killed' | 'lost'): RunDto | null {
+  private end(runId: string, reason: EndReason): RunDto | null {
     const row = this.db.prepare('select * from runs where id = ? and deleted_at is null').get(runId) as Record<string, unknown> | undefined;
     if (!row || row.ended_at !== null) return null;
     upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
@@ -552,16 +552,32 @@ export class RunManager {
   }
 
   /**
-   * バックグラウンドのサービスが持つセッションなら、その本体も止める。
+   * 区切り（Paused・Done・Archived）を付けたセッションの Claude を止める。止めるものがあれば true を返す。
+   * kill と違い、シェルのタブは残す。利用者がそこで動かしているサーバなどを、印を付けただけで落とさないためである。
+   * この端末の生きた run は parked で終わらせる。hangar の run が無いバックグラウンドのセッションは、本体だけを止める。
+   * 外のターミナルや VS Code で動く claude には触らない（run もバックグラウンドの id も無いので、ここでは何も起きない）。
+   */
+  park(sessionId: string): boolean {
+    const run = listAliveRuns(this.db, this.deviceId).filter((r) => r.sessionId === sessionId).at(-1) ?? null;
+    const background = this.stopBackground(sessionId);
+    if (!run) return background;
+    this.deps.tmux?.killSession(run.tmuxName);
+    this.end(run.id, 'parked');
+    return true;
+  }
+
+  /**
+   * バックグラウンドのサービスが持つセッションなら、その本体も止める。止めにいったら true を返す。
    * attach の run の tmux を落としても画面の口が閉じるだけで、claude は動き続けるからである。
    * 止め終わるのは待たない。失敗しても run は閉じ、ログにだけ残す。
    */
-  private stopBackground(sessionId: string): void {
+  private stopBackground(sessionId: string): boolean {
     const s = this.db.prepare('select provider_session_id, cwd from sessions where id = ?').get(sessionId) as { provider_session_id: string; cwd: string } | undefined;
     const jobId = s ? this.liveOf(s.provider_session_id)?.background?.jobId : undefined;
-    if (!s || !jobId || !this.deps.claudeBin) return;
+    if (!s || !jobId || !this.deps.claudeBin) return false;
     const cwd = isDirectory(s.cwd) ? s.cwd : this.deps.home;
     this.procs().runClaude(this.deps.claudeBin, ['stop', jobId], cwd).catch((e) => console.error('[runs] バックグラウンドのセッションを止められませんでした', this.safeError(e)));
+    return true;
   }
 
   /** 終了検知の周期起動。tick の失敗でサーバが落ちないよう、必ず捕まえる。 */

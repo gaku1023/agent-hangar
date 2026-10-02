@@ -4,7 +4,7 @@ import { periodStart } from '../mediator/screen.ts';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { presentProject } from './project.ts';
-import { returnOnLabel, sortForSections, type SessionRowProps } from './row.ts';
+import { presentSessionRow, returnOnLabel, sortForSections, type SessionRowProps } from './row.ts';
 import { DONE_HEAD, matchesStatus, returnKey, sectionRows, type ListItem } from './sections.ts';
 
 /** 2026-10-02（金）の朝 9 時。 */
@@ -21,6 +21,31 @@ const cand = (status: 'paused' | 'done') => ({ status, note: '直した', return
 const shape = (items: ListItem[]) => items.map((i) => (i.kind === 'head' ? `# ${i.id} ${i.count}${i.more ? ` [${i.more.label}→${i.more.target}]` : ''}` : i.row.id));
 const project = (rows: SessionRowProps[], expanded: string[] = [], now = NOW) => shape(sectionRows(rows, 'project', { now, doneHead: DONE_HEAD, expanded: new Set(expanded) }));
 const sessions = (rows: SessionRowProps[], expanded: string[] = [], now = NOW) => shape(sectionRows(rows, 'sessions', { now, doneHead: DONE_HEAD, expanded: new Set(expanded) }));
+
+describe('区切りを付けて休みのまま残っているもの（parked）の行', () => {
+  const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null, ...o });
+  const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 2 * H, lastActivityAt: NOW - H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, state: null, ...over });
+  const withRun = (sessionId: string): Store => ({ ...initialStore(), runs: { r1: { id: 'r1', sessionId, deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: NOW - 2 * H, endedAt: null, endReason: null, heartbeatAt: NOW } } });
+
+  it('行は終わったものと同じに作る。灯を出さず、「いま動いている」ではなく状態の節に入る', () => {
+    const s = dto('p', { live: 'idle', parked: true, state: st({ status: 'paused', note: '明日見る', returnOn: '2026-10-05', setBy: 'conversation', setAt: NOW - H }) });
+    const r = presentSessionRow(s, withRun('p'), NOW);
+    expect([r.live, r.runId, r.state]).toEqual([null, null, 'paused']);
+    expect(matchesStatus(r, 'active')).toBe(false);
+    expect(sessions([r])).toEqual(['# paused 1 [この節だけ見る ▸→paused]', 'p']);
+  });
+  it('印が付いていても、作業中の行は「いま動いている」に残る', () => {
+    const s = dto('p', { live: 'busy', state: st({ status: 'paused', note: '明日見る', returnOn: '2026-10-05', setBy: 'conversation', setAt: NOW - H }) });
+    const r = presentSessionRow(s, withRun('p'), NOW);
+    expect([r.live, r.runId]).toEqual(['busy', 'r1']);
+    expect(matchesStatus(r, 'active')).toBe(true);
+  });
+  it('並びでも、動いているものより後ろに置く。Done は Done にした時刻の新しい順に入る', () => {
+    const done = (id: string, setAt: number, over: Partial<SessionDto> = {}) => dto(id, { state: st({ status: 'done', setBy: 'user', setAt }), ...over });
+    const list = [done('old', NOW - 3 * H), done('parked', NOW - 2.5 * H, { live: 'idle', parked: true, lastActivityAt: NOW - 60_000 }), dto('idle', { live: 'idle' }), done('mid', NOW - 2 * H)];
+    expect(sortForSections(list).map((x) => x.id)).toEqual(['idle', 'mid', 'parked', 'old']);
+  });
+});
 
 describe('sectionRows（プロジェクト画面の P3）', () => {
   it('導入の翌日：全部 Done なら Done の節だけで、直近 3 件と「ほか N 件」を出し、広げれば全件', () => {

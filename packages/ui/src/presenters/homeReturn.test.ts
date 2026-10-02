@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProjectDto, SessionDto, SessionStateDto, TodoDto } from '@agent-hangar/shared';
+import type { ProjectDto, RunDto, SessionDto, SessionStateDto, TodoDto } from '@agent-hangar/shared';
 import { periodStart } from '../mediator/screen.ts';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
@@ -54,6 +54,33 @@ describe('presentHome の今日戻る（C1）', () => {
     const noNote = dto('n', 7, { projectId: null, state: st({ status: 'paused', returnOn: '2026-10-02', setBy: 'user', setAt: NOW }) });
     const h = presentHome(initialState(), storeOf([noNote, paused('g', 6, '2026-10-02', { projectId: 'gone' })]), NOW);
     expect(h.returning.map((r) => [r.id, r.projectName, r.reason])).toEqual([['g', null, 'g を確かめる'], ['n', null, '理由は書かれていません']]);
+  });
+});
+
+describe('presentHome の、区切りを付けて休みのまま残っているもの（parked）', () => {
+  const runOf = (sessionId: string): RunDto => ({ id: `r-${sessionId}`, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-r-${sessionId}`, pid: null, startedAt: NOW - 2 * H, endedAt: null, endReason: null, heartbeatAt: NOW });
+  const withRuns = (store: Store, ids: string[]): Store => ({ ...store, runs: Object.fromEntries(ids.map((id) => [`r-${id}`, runOf(id)])) });
+
+  it('実行中の札には出さず、最近に印付きの行として出す。hangar の run が生きていても同じ', () => {
+    const store = withRuns(storeOf([paused('later', 1, '2026-10-05', { live: 'idle', parked: true }), dto('d', 2, { live: 'idle', parked: true, state: st({ status: 'done', setBy: 'conversation', setAt: NOW - H }) }), dto('i', 3, { live: 'idle' })]), ['later']);
+    const h = presentHome(initialState(), store, NOW);
+    expect(h.running.map((r) => r.id)).toEqual(['i']);
+    expect(h.recent.map((r) => [r.id, r.state, r.live, r.runId])).toEqual([['later', 'paused', null, null], ['d', 'done', null, null]]);
+  });
+  it('戻る日が来ている Paused は、プロセスが残っていても今日戻るの札に出す', () => {
+    const h = presentHome(initialState(), storeOf([paused('sync', 24, '2026-10-02', { live: 'idle', parked: true })]), NOW);
+    expect(h.returning.map((r) => r.id)).toEqual(['sync']);
+    expect(h.running).toEqual([]);
+  });
+  it('ほかに動いているものが無ければ idle にする。プロジェクトの「実行中 N」にも数えない', () => {
+    const h = presentHome(initialState(), withRuns(storeOf([paused('later', 1, '2026-10-05', { live: 'idle', parked: true })]), ['later']), NOW);
+    expect(h.idle).toBe(true);
+    expect(h.projects.find((p) => p.id === 'alpha')!.counts).not.toContain('実行中');
+  });
+  it('印が付いていても、作業中は実行中の札に、入力待ちは要対応の札に今までどおり出す', () => {
+    const h = presentHome(initialState(), storeOf([paused('b', 1, '2026-10-05', { live: 'busy' }), paused('w', 1, '2026-10-05', { live: 'waiting' })]), NOW);
+    expect(h.running.map((r) => r.id)).toEqual(['b']);
+    expect(h.attention.map((a) => a.id)).toEqual(['w']);
   });
 });
 

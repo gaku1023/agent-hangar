@@ -191,7 +191,9 @@ function InfoLine(props: SessionProps) {
       ? <span className="session-info-state" data-s={props.live ?? undefined} title={runFact}>{props.liveLabel}</span>
       : props.remoteOnly
         ? <span className="session-info-state" data-s="remote">本文は他の PC にあります</span>
-        : <span className="session-info-state" title={runFact}>終了 · {props.lastActivity}</span>;
+        : props.stoppedNote
+          ? <span className="session-info-state" title={runFact}>{props.stoppedNote}</span>
+          : <span className="session-info-state" title={runFact}>終了 · {props.lastActivity}</span>;
   return (
     <div className="session-info">
       {state}

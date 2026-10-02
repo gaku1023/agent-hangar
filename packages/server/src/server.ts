@@ -32,6 +32,7 @@ import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
 import { RunError, RunManager } from './runs/manager.ts';
 import { aliveRunForSession } from './runs/queries.ts';
+import { ParkWatch, parkedSessionIds, statusChanged } from './sessions/park.ts';
 import { processStartOfPrompt } from './sessions/promptProcess.ts';
 import { ClaudeHeadlessSummarizer } from './summary/claude.ts';
 import { SummaryJob } from './summary/job.ts';
@@ -549,6 +550,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   // 実行中だったセッションの id。出入りを見て土台の要約の状態を書き替えるために持つ。
   let liveIds = new Set<string>();
+  // 会話ごとの直前の動き。動きが変わった印付きのセッションを配り直すために持つ。
+  let liveStatus = new Map<string, LiveSessionDto['status']>();
   const sessionIdOf = (providerSessionId: string): string | null =>
     (db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ?").get(providerSessionId) as { id: string } | undefined)?.id ?? null;
   registry.onChange((live) => {
@@ -568,6 +571,14 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const s = getSession(db, live, sessionId, { deviceId: device.id });
       if (s) hub.broadcast({ type: 'session.upsert', session: s });
     }
+    // 区切りを付けたセッションは、動きが変わると実行中に数えるか（parked）も変わる。
+    // UI は live.update から動きしか直せないので、印の付いたものだけ行ごと配り直す。
+    for (const providerSessionId of statusChanged(liveStatus, live)) {
+      const sessionId = sessionIdOf(providerSessionId);
+      const s = sessionId ? getSession(db, live, sessionId, { deviceId: device.id }) : null;
+      if (s?.state?.status) hub.broadcast({ type: 'session.upsert', session: s });
+    }
+    liveStatus = new Map(live.map((l) => [l.sessionId, l.status]));
     for (const p of listProjects(db, device.id, live)) hub.broadcast({ type: 'project.upsert', project: p });
     // hangar が起こした run に Claude の pid を書き込むのはここだけである。
     runs.linkRegistry(live);
@@ -625,6 +636,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // 引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引く。
     live: () => registry.current(),
   });
+  // 区切り（Paused・Done・Archived）を付けたセッションが休みになったら、Claude を止める。
+  const parkWatch = new ParkWatch({ parkedIds: () => parkedSessionIds(db, registry.current()), stop: (id) => runs.park(id) });
   const usage = new UsageTracker(db);
   const memos = new MemoStore({ db, deviceId: device.id, home });
   // Claude への切り替えの件数はプロセスの寿命で数えるので、要約器はここで 1 度だけ作り、
@@ -838,6 +851,15 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const lost = runs.recoverAtStartup();
   if (lost.length) console.log(`[runs] tmux セッションの無い run を ${lost.length} 件 lost で閉じました`);
   runs.startPolling(RUN_POLL_MS);
+  const parkTimer = setInterval(() => {
+    try {
+      const stopped = parkWatch.tick();
+      if (stopped.length) console.log(`[park] 区切りを付けて休みになったセッションを ${stopped.length} 件止めました`);
+    } catch (e) {
+      console.error('[park]', e instanceof Error ? e.message : e);
+    }
+  }, RUN_POLL_MS);
+  parkTimer.unref();
   // ここまでで既存のセッションの紐づけは済んでいる。以後に現れた未分類だけを知らせる。
   started = true;
 
@@ -900,6 +922,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const deadline = Date.now() + CLOSE_DEADLINE_MS;
       const left = (): number => Math.max(0, deadline - Date.now());
       clearInterval(rootTimer);
+      clearInterval(parkTimer);
       clearInterval(deviceTimer);
       if (configTimer) clearInterval(configTimer);
       retention.stop();

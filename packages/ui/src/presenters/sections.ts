@@ -26,7 +26,10 @@ const ORDER: Record<'project' | 'sessions', SectionId[]> = {
 /** Sessions の節とタブの対応。今日戻るにはタブが無い（Paused のタブが今日戻るも含む）。 */
 export const SECTION_TAB: Partial<Record<SectionId, StatusFilter>> = { proposed: 'proposed', live: 'active', paused: 'paused', none: 'none', done: 'done', archived: 'archived' };
 
-/** 動いているか（入力待ち、作業中、休み、起動中）。Claude の一覧に載る前でも、hangar の run が生きていれば動いている（shared の liveFilterOf と同じ）。 */
+/**
+ * 動いているか（入力待ち、作業中、休み、起動中）。Claude の一覧に載る前でも、hangar の run が生きていれば動いている（shared の liveFilterOf と同じ）。
+ * 区切りを付けて休みのまま残っているもの（parked）は、行を作るときに live も runId も null にしてあるので、ここでは動いていない側に入る。
+ */
 export function isLive(r: SessionRowProps): boolean {
   return r.live !== null || r.runId !== null;
 }
@@ -50,7 +53,7 @@ export function matchesStatus(r: SessionRowProps, f: StatusFilter): boolean {
   }
 }
 
-/** 行の節。動いているものは状態に関わらず「いま動いている」に置く。 */
+/** 行の節。動いているものは状態に関わらず「いま動いている」に置く（区切りを付けて休みのまま残っているものは、動いているものに数えない）。 */
 function sectionOf(r: SessionRowProps, kind: 'project' | 'sessions', today: string): SectionId {
   if (isLive(r)) return 'live';
   if (r.state === 'archived') return 'archived';
