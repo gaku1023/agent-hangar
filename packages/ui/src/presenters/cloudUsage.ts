@@ -37,11 +37,15 @@ export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody 
   const d1Pct = pct(d1, u.limits.d1RowsPerDay);
   const approx = est ? '約 ' : '';
   const paid = u.plan?.workersPaid ?? false;
+  // 一時停止の間はサーバが Cloudflare に問い合わせないので、トークンの有無は分からない。
+  // 見積もりに落ちていても「トークンが要ります」とは言わず、止めているからだと言う。トークンの失効の知らせ（notice）はそのまま出す。
+  const pausedNoFetch = est && sync?.state === 'paused' && !u.notice;
+  const missing = pausedNoFetch ? '同期の停止中' : 'トークンが要ります';
 
   const tiles: CloudUsageTile[] = [
-    u.month ? { key: 'bill', label: '今月の請求', value: `$${u.month.billedUsd.toFixed(2)}`, sub: u.month.throughDay ? `${dayMd(u.month.throughDay)} 分まで` : '', tone: 'ok' } : { key: 'bill', label: '今月の請求', value: '—', sub: 'トークンが要ります', tone: 'muted' },
+    u.month ? { key: 'bill', label: '今月の請求', value: `$${u.month.billedUsd.toFixed(2)}`, sub: u.month.throughDay ? `${dayMd(u.month.throughDay)} 分まで` : '', tone: 'ok' } : { key: 'bill', label: '今月の請求', value: '—', sub: missing, tone: 'muted' },
     { key: 'd1', label: 'D1 の書き込み（今日）', value: `${approx}${Math.round(d1Pct)}%`, sub: est ? '見積もり' : `${n(d1)} 行`, tone },
-    u.plan ? { key: 'plan', label: 'プラン', value: u.plan.label.split(' · ')[0]!, sub: u.plan.label.split(' · ')[1] ?? '', tone: 'ok' } : { key: 'plan', label: 'プラン', value: '—', sub: 'トークンが要ります', tone: 'muted' },
+    u.plan ? { key: 'plan', label: 'プラン', value: u.plan.label.split(' · ')[0]!, sub: u.plan.label.split(' · ')[1] ?? '', tone: 'ok' } : { key: 'plan', label: 'プラン', value: '—', sub: missing, tone: 'muted' },
   ];
   const today: CloudUsageBar[] = paid ? [] : [
     { label: 'D1 の書き込み', when: '今日', pct: d1Pct, tickPct: u.limits.stopRatio * 100, value: `${approx}${n(d1)} / ${n(u.limits.d1RowsPerDay)} 行`, tone },
@@ -74,9 +78,11 @@ export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody 
     strip = back
       ? { tone: 'stop', text: '無料枠の 80% に届いたので同期を止めました。枠は戻っています。「同期を再開」で再開できます。' }
       : { tone: 'stop', text: `無料枠の 80% に届いたので同期を止めました${gap}。${reset} に枠が戻ります。戻ったあと「同期を再開」で再開できます。` };
+  } else if (pausedNoFetch) {
+    strip = { tone: 'info', text: '同期を止めている間は Cloudflare に問い合わせません。再開すると Cloudflare の数と今月の費用が出ます。' };
   } else if (est) {
     strip = { tone: 'info', text: u.notice ?? 'Cloudflare の正確な数、R2、今月の費用は、読み取り専用のトークンを入れると出ます。' };
   }
 
-  return { tiles: paid ? tiles.filter((t) => t.key !== 'd1') : tiles, bars: [...today, ...month], splitAfter: today.length, legend, source, strip, command: est ? TOKEN_COMMAND : null };
+  return { tiles: paid ? tiles.filter((t) => t.key !== 'd1') : tiles, bars: [...today, ...month], splitAfter: today.length, legend, source, strip, command: est && !pausedNoFetch ? TOKEN_COMMAND : null };
 }

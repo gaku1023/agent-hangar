@@ -62,6 +62,18 @@ describe('presentCloudUsage', () => {
   it('手で止めたときは帯を出さない', () => {
     expect(presentCloudUsage(base, sync({ state: 'paused', pausedReason: 'user' }), NOW, TZ)!.strip).toBeNull();
   });
+  it('同期の停止中に見積もりへ落ちたときは、トークンを求めず、問い合わせていないと言う', () => {
+    const estimate = { ...base, source: 'estimate' as const, fetchedAt: null, plan: null, month: null };
+    const p = presentCloudUsage(estimate, sync({ state: 'paused', pausedReason: 'user' }), NOW, TZ)!;
+    expect(p.tiles.map((t) => [t.key, t.value, t.sub])).toEqual([['bill', '—', '同期の停止中'], ['d1', '約 23%', '見積もり'], ['plan', '—', '同期の停止中']]);
+    expect(p.strip).toEqual({ tone: 'info', text: '同期を止めている間は Cloudflare に問い合わせません。再開すると Cloudflare の数と今月の費用が出ます。' });
+    expect(p.command).toBeNull();
+    // 無料枠で止まったときは止まった帯のままにし、札だけ同じ言い方にする。
+    const q = presentCloudUsage(estimate, sync({ state: 'paused', pausedReason: 'quota', quotaPausedDay: '2026-10-02' }), NOW, TZ)!;
+    expect(q.tiles.map((t) => t.sub)).toEqual(['同期の停止中', '見積もり', '同期の停止中']);
+    expect(q.strip?.tone).toBe('stop');
+    expect(q.command).toBeNull();
+  });
   it('トークンなし：見積もりの札と棒、案内とコマンド', () => {
     const p = presentCloudUsage({ ...base, source: 'estimate', fetchedAt: null, plan: null, month: null, today: { ...base.today, d1RowsWritten: 26700, workersRequests: 3640 } }, sync(), NOW, TZ)!;
     expect(p.tiles).toEqual([
