@@ -160,14 +160,6 @@ export function applySearch(store: Store, params: SearchParamsDto, result: Searc
   return { ...store, search: { params, result, loading } };
 }
 
-/** 検索の続き（offset を付けて読んだ分）を、持っている結果の後ろに足す。重なった行は足さない。 */
-export function appendSearch(store: Store, params: SearchParamsDto, page: SearchResultDto): Store {
-  const cur = store.search.result?.hits ?? [];
-  const seen = new Set(cur.map((h) => h.sessionId));
-  const hits = [...cur, ...page.hits.filter((h) => !seen.has(h.sessionId))];
-  return { ...store, search: { params, result: { hits, total: page.total }, loading: false } };
-}
-
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {
   return { ...store, subagents: { ...store.subagents, [sessionId]: ids } };
 }

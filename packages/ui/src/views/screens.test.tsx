@@ -10,11 +10,11 @@ import { ProjectsScreen } from './ProjectsScreen.tsx';
 import { SESSION_ROW_H } from './SessionRows.tsx';
 
 // Task 22 で ProjectProps に増えた右レールの分。この節が見るのはヘッダーの操作だけなので空にする。
-const rail = { isScratch: false, todos: [], memo: null, artifacts: [], parent: { label: 'プロジェクト', route: { name: 'projects' as const } } };
+const rail = { pager: null, isScratch: false, todos: [], memo: null, artifacts: [], parent: { label: 'プロジェクト', route: { name: 'projects' as const } } };
 const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'last one', excerptFromPrompt: false });
 
 describe('HomeScreen', () => {
-  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
+  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], recentPager: null, projects: [], idle: false, ...over });
   const runningCard = (over: Partial<RunningCard> = {}): RunningCard => ({ id: 's1', name: 'キーボード操作の見直し', live: 'busy', elapsed: '12 分', meta: 'agent-hangar · opus 4.1 · high', activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38, contextLabel: '38%', ...over });
 
   it('確かめるの区画は候補を出し、確定と却下と本文の押下で Intent を出し、0 件なら省く', () => {
@@ -259,6 +259,23 @@ describe('ProjectCard（見つからないとき）', () => {
     fireEvent.click(screen.getByText('（見つかりません）'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
     expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
+  });
+});
+
+// 一覧のあるページはどれも同じページ送りの帯を使う。Home の最近とプロジェクト画面は、それぞれのページを list.page で覚える。
+describe('Home とプロジェクト画面のページ送り', () => {
+  const pager = { page: 1, pageCount: 4, size: 50, sizes: [25, 50, 100, 200], from: 1, to: 50, total: 180 };
+  it('Home の最近の下に帯を出し、home のページを移る', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><HomeScreen attention={[]} returning={[]} confirm={[]} running={[]} recent={[]} recentPager={pager} projects={[]} idle={false} /></IntentRoot>);
+    fireEvent.click(within(screen.getByRole('navigation', { name: '最近のページ' })).getByRole('button', { name: '2 ページ目' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'list.page', key: 'home', page: 2 });
+  });
+  it('プロジェクト画面は広げた節が長いときに帯を出し、そのプロジェクトのページを移る', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" items={[]} notFound={false} {...rail} pager={pager} /></IntentRoot>);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'セッションのページ' })).getByRole('button', { name: '次のページ' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'list.page', key: 'project:alpha', page: 2 });
   });
 });
 

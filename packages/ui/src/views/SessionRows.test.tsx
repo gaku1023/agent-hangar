@@ -442,7 +442,9 @@ const opened = (onIntent: ReturnType<typeof vi.fn>) => onIntent.mock.calls.filte
 const labels = () => screen.getAllByRole('menuitem').map((i) => i.querySelector('.menu-item-text > span')?.textContent);
 
 describe('セッションの状態の札と「⋯」', () => {
-  it('動きの語、状態の札、戻る日の札を描き分ける', () => {
+  const rowOf = (name: string) => screen.getByText(name).closest('[role="row"]') as HTMLElement;
+  // F1：状態は点の右の固定幅の列に語だけで出し、戻る日は右端の時刻の列に出す。
+  it('状態の列に語の札、動きの語は右端、戻る日は時刻の列に描き分ける', () => {
     mount([
       sr('a', { live: 'waiting' }),
       sr('b', { live: 'idle' }),
@@ -453,19 +455,38 @@ describe('セッションの状態の札と「⋯」', () => {
     ]);
     expect(screen.getByText('入力待ち')).toHaveClass('row-live');
     expect(screen.getByText('実行中')).toHaveAttribute('data-live', 'busy');
+    const status = (name: string) => rowOf(name).querySelector('.row-status')!;
+    expect(status('名前 c')).toHaveTextContent('Done');
     expect(screen.getByText('Done')).toHaveAttribute('title', '会話で承認');
+    expect(status('名前 d')).toHaveTextContent('Archived');
     expect(screen.getByText('Archived')).not.toHaveAttribute('title');
+    expect(status('名前 e')).toHaveTextContent('Paused');
+    // 状態の無い行の列は空で、場所だけを取る。
+    expect(status('名前 a')).toBeEmptyDOMElement();
+    // 戻る日は時刻の列に出し、今日と過ぎたものだけを塗る。最後の活動はポインタを乗せると読める。
+    const when = (name: string) => rowOf(name).querySelector('.row-time')!;
+    expect(when('名前 e')).toHaveTextContent('2 日過ぎ');
     expect(screen.getByText('2 日過ぎ')).toHaveAttribute('data-due', 'true');
-    // Paused の行の 2 段目の頭は戻る日の札で、要約の見立ての札は出さない。Paused は四角の札を出さない。
-    expect(screen.queryByText('済んだ')).toBeNull();
-    expect(screen.queryByText('Paused')).toBeNull();
     expect(screen.getByText('10/2（金）')).not.toHaveAttribute('data-due');
+    expect(screen.getByText('10/2（金）')).toHaveAttribute('title', '戻る日 · 最後の活動 3 分前');
+    expect(when('名前 c')).toHaveTextContent('3 分前');
+    // Paused の行も 2 段目の頭は要約の見立てになる。
+    expect(rowOf('名前 e').querySelector('.row-sub > .row-state')).toHaveTextContent('済んだ');
   });
-  it('戻る日が無い Paused の行は、塗りの「日付なし」の札を出す', () => {
-    mount([sr('a', { state: 'paused', returnOn: null, overdueDays: null, summaryState: { label: '済んだ', tone: null } })]);
-    expect(screen.getByText('日付なし')).toHaveClass('row-return');
+  it('戻る日が無い Paused の行は、時刻の列に塗りの「日付なし」を出す', () => {
+    mount([sr('a', { state: 'paused', returnOn: null, overdueDays: null })]);
+    expect(rowOf('名前 a').querySelector('.row-time')).toHaveTextContent('日付なし');
     expect(screen.getByText('日付なし')).toHaveAttribute('data-due', 'true');
-    expect(screen.queryByText('済んだ')).toBeNull();
+  });
+  it('statusColumn が偽なら状態の列を畳む', () => {
+    render(<IntentRoot onIntent={vi.fn()}><SessionRows rows={[sr('a', { state: 'done' })]} height={400} variant="search" statusColumn={false} /></IntentRoot>);
+    expect(screen.getByTestId('session-rows')).toHaveAttribute('data-status-col', 'false');
+    expect(rowOf('名前 a').querySelector('.row-status')).toBeNull();
+    expect(screen.queryByText('Done')).toBeNull();
+  });
+  it('状態の列は 62px、時刻の列は 72px の右寄せで、行ごとにずれない', () => {
+    expect(rowsCss).toMatch(/\.rows-host\[data-status-col='true'\] \.row-2 \{[^}]*grid-template-columns: 16px 62px minmax\(0, 1fr\) auto;/);
+    expect(rowsCss).toMatch(/\.row-time \{[^}]*justify-content: flex-end;[^}]*width: 72px;/);
   });
   it('「⋯」から 4 択を選ぶ。押しても行は開かない', () => {
     const onIntent = mount([sr('a')]);
@@ -539,8 +560,11 @@ describe('提案の札とポップ（Q3＋Q1）', () => {
   const cand = { status: 'paused' as const, note: '明日の朝、CPU の数字を確かめる', returnOn: '2026-10-02', source: 'exit' as const, ago: '12 分前' };
   it('枠だけの札を押すと根拠・出どころ・時刻のポップが開き、確定・日を変える・却下を選べる。行は開かない', () => {
     const onIntent = mount([sr('a', { candidate: cand })]);
-    const face = screen.getByRole('button', { name: 'Paused · 10/2（金）？' });
+    // 札は状態の列に短い語で置き、言い切りはポインタを乗せると読める（F1）。
+    const face = screen.getByRole('button', { name: 'Paused？' });
     expect(face).toHaveClass('row-cand');
+    expect(face).toHaveAttribute('title', 'Paused · 10/2（金）？');
+    expect(face.closest('.row-status')).not.toBeNull();
     fireEvent.click(face);
     const menu = screen.getByRole('menu', { name: '名前 a への Claude の提案' });
     expect(menu).toHaveTextContent('Paused · 10/2（金） にしますか');
@@ -555,7 +579,7 @@ describe('提案の札とポップ（Q3＋Q1）', () => {
   });
   it('Done の提案には「日を変える」が無く、y で確定、n で却下する', () => {
     const onIntent = mount([sr('a', { candidate: { ...cand, status: 'done', returnOn: null } })]);
-    const face = screen.getByRole('button', { name: 'Done にする？' });
+    const face = screen.getByRole('button', { name: 'Done？' });
     fireEvent.click(face);
     expect(labels()).toEqual(['確定', '却下']);
     fireEvent.keyDown(document.activeElement!, { key: 'y' });
@@ -567,14 +591,14 @@ describe('提案の札とポップ（Q3＋Q1）', () => {
   });
   it('根拠の無い提案は「根拠は書かれていません」と出す', () => {
     mount([sr('a', { candidate: { ...cand, note: null } })]);
-    fireEvent.click(screen.getByRole('button', { name: 'Paused · 10/2（金）？' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Paused？' }));
     expect(screen.getByRole('menu')).toHaveTextContent('根拠は書かれていません');
   });
   it.each([['y', 'session.state.confirm'], ['n', 'session.state.reject']])('札から Enter で開いて %s で選び、札が消えても、フォーカスは行に残る', (key, type) => {
     const onIntent = vi.fn();
     const ui = (rows: SessionRowProps[]) => <IntentRoot onIntent={onIntent}><SessionRows rows={rows} height={400} variant="project" /></IntentRoot>;
     const { rerender } = render(ui([sr('a', { candidate: cand })]));
-    const face = screen.getByRole('button', { name: 'Paused · 10/2（金）？' });
+    const face = screen.getByRole('button', { name: 'Paused？' });
     act(() => face.focus());
     fireEvent.click(face);
     fireEvent.keyDown(document.activeElement!, { key });

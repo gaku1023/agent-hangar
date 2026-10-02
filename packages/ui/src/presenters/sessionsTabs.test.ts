@@ -35,7 +35,7 @@ const scene = () => storeOf([
   dto('subs', 216, { state: st({ status: 'done', setBy: 'import', setAt: IMPORT_AT }) }),
 ]);
 const shape = (items: ListItem[] | null) => items?.map((i) => (i.kind === 'head' ? `# ${i.id} ${i.count}` : i.row.id)) ?? null;
-const withSearch = (search: State['search']): State => ({ ...initialState(), screen: { name: 'sessions' }, search });
+const withSearch = (search: Omit<State['search'], 'page'>): State => ({ ...initialState(), screen: { name: 'sessions' }, search: { ...search, page: 1 } });
 const ids = (filter: SearchFilter, store = scene()) => presentSessions(withSearch({ text: '', filter }), store, NOW).rows.map((r) => r.id);
 
 describe('presentSessions のタブと節（★）', () => {

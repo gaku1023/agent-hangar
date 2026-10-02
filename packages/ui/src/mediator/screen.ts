@@ -1,5 +1,6 @@
 import { formatRoute, type SearchFilter, type SearchParamsDto } from '@agent-hangar/shared';
 import { overlayReplaceable } from './overlay.ts';
+import { listPageStep, pageSizeStep, pageStep } from './paging.ts';
 import { agentTabStep, jumpStep, leaveTranscriptStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
 
@@ -8,7 +9,7 @@ import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.t
  * キーワードがあるときと、触ったファイルで絞るときである。触ったファイルは手元のセッションに無い情報だからである。
  * それ以外の絞り込みは、手元のセッションで絞る。
  */
-export function usesServerSearch(search: State['search']): boolean {
+export function usesServerSearch(search: Pick<State['search'], 'text' | 'filter'>): boolean {
   return search.text !== '' || !!search.filter.file;
 }
 
@@ -16,7 +17,7 @@ export function usesServerSearch(search: State['search']): boolean {
  * 条件が 1 つでも効いているか。キーワード、状態のタブ、プロジェクト、期間、動き、触ったファイルのどれか。
  * 無ければ Sessions は節で読み、あれば平らな結果にする（★）。
  */
-export function hasConditions(search: State['search']): boolean {
+export function hasConditions(search: Pick<State['search'], 'text' | 'filter'>): boolean {
   return search.text !== '' || Object.values(search.filter).some((v) => v !== undefined);
 }
 
@@ -50,6 +51,10 @@ export function searchParams(state: State): SearchQuery {
   // サーバに問い合わせるのはキーワードか触ったファイルがあるとき（usesServerSearch）なので、ここに来るときはいつも条件がある。
   if (f.status) p.status = f.status;
   else p.hideArchived = true;
+  // いまのページの範囲だけを読む。
+  p.limit = state.pageSize;
+  const offset = (state.search.page - 1) * state.pageSize;
+  if (offset > 0) p.offset = offset;
   return p;
 }
 
@@ -98,7 +103,7 @@ export function nextWaitingStep(state: State): Step {
  */
 export function searchQueryStep(state: State, text: string, filter?: SearchFilter): Step {
   if (!canMoveBehind(state)) return { state, effects: [] };
-  const next = { ...state, overlay: closeTransient(state), search: { text, filter: filter ?? state.search.filter } };
+  const next = { ...state, overlay: closeTransient(state), search: { text, filter: filter ?? state.search.filter, page: 1 } };
   return { state: next, effects: [{ kind: 'navigate', route: text ? { name: 'sessions', q: text } : { name: 'sessions' } }, { kind: 'focus', target: 'results' }] };
 }
 
@@ -154,7 +159,8 @@ export function screenStep(state: State, input: Input): Step | null {
     }
     if (route.name === 'sessions') {
       const text = route.q ?? '';
-      next = { ...next, search: { ...state.search, text } };
+      // 画面に入り直したら 1 ページ目から読む。
+      next = { ...next, search: { ...state.search, text, page: 1 } };
       if (usesServerSearch(next.search)) effects.push({ kind: 'api.search', params: searchParams(next) });
     }
     return { state: next, effects };
@@ -190,16 +196,25 @@ export function screenStep(state: State, input: Input): Step | null {
     case 'session.nextWaiting': return nextWaitingStep(state);
     case 'search.query': return searchQueryStep(state, i.text, i.filter);
     case 'search.filter': {
-      const next = { ...state, search: { ...state.search, filter: { ...state.search.filter, ...i.patch } } };
+      const next = { ...state, search: { ...state.search, filter: { ...state.search.filter, ...i.patch }, page: 1 } };
       const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [];
       return { state: next, effects };
     }
     // 語と絞り込みをまとめて外す。語は URL にも乗っているので、語の無い一覧の URL へ移る。
     // 着いた先（hash.changed）では語も触ったファイルも無いので、問い合わせずに手元の全件を組む。
-    case 'search.clear': return !canMoveBehind(state) ? { state, effects: [] } : { state: { ...state, search: { text: '', filter: {} } }, effects: [{ kind: 'navigate', route: { name: 'sessions' } }] };
-    case 'search.more': {
-      const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(state.search) ? [{ kind: 'api.search', params: { ...searchParams(state), offset: i.offset } }] : [];
-      return { state, effects };
+    case 'search.clear': return !canMoveBehind(state) ? { state, effects: [] } : { state: { ...state, search: { text: '', filter: {}, page: 1 } }, effects: [{ kind: 'navigate', route: { name: 'sessions' } }] };
+    // ページと件数。手元で組む一覧は Presenter が切り出すので、検索の結果だけを問い合わせ直す。
+    case 'search.page': {
+      const next = pageStep(state, i.page);
+      return { state: next, effects: next.screen.name === 'sessions' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [] };
+    }
+    // Home の最近とプロジェクト画面は手元の行を Presenter が切り出すので、ページを覚えるだけでよい。
+    case 'list.page': return { state: listPageStep(state, i.key, i.page), effects: [] };
+    case 'list.pageSize': {
+      const step = pageSizeStep(state, i.size);
+      if (!step) return { state, effects: [] };
+      const s = step.state;
+      return { state: s, effects: s.screen.name === 'sessions' && usesServerSearch(s.search) ? [...step.effects, { kind: 'api.search', params: searchParams(s) }] : step.effects };
     }
     default: return null;
   }

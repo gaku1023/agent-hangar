@@ -111,6 +111,11 @@ export function returnOnLabel(returnOn: string | null, overdue: number | null): 
   return `${m}/${d}（${WEEKDAY[new Date(Date.UTC(y!, m! - 1, d!)).getUTCDay()]}）`;
 }
 
+/** 行の状態の列に置く提案の札の語（F1）。列は 62px なので短く言い、言い切り（candidateLabel）はポインタを乗せると読める。 */
+export function candidateShortLabel(c: { status: 'paused' | 'done' }): string {
+  return c.status === 'done' ? 'Done？' : 'Paused？';
+}
+
 /** 提案の札の文言（Q3 の枠だけの札）。 */
 export function candidateLabel(c: { status: 'paused' | 'done'; returnOn: string | null }): string {
   return c.status === 'done' ? 'Done にする？' : `Paused · ${c.returnOn ? returnOnLabel(c.returnOn, null) : '日付なし'}？`;

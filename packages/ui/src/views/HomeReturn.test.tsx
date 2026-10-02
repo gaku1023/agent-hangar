@@ -4,7 +4,7 @@ import { IntentRoot } from '../intent/chain.tsx';
 import type { ConfirmCard, HomeProps, ReturnCard } from '../presenters/home.ts';
 import { HomeScreen } from './HomeScreen.tsx';
 
-const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
+const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], recentPager: null, projects: [], idle: false, ...over });
 const ret = (id: string, overdueDays: number | null, projectName: string | null = 'agent-hangar'): ReturnCard => ({ id, name: `戻る ${id}`, projectName, reason: `${id} の数字を見る`, returnOn: overdueDays === null ? null : '2026-10-02', overdueDays });
 
 describe('HomeScreen の今日戻る（C1）', () => {

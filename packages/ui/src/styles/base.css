@@ -449,6 +449,8 @@ a:hover { text-decoration: underline; }
 .tab:hover { background: rgba(255, 255, 255, 0.85); }
 .tab-selected, .tab-selected:hover { color: var(--term-fg); background: var(--term-bg); }
 .tab-close, .tab-add { display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; height: calc(var(--u) * 5); width: calc(var(--u) * 5); border-radius: var(--r); }
+/* 列は耳を板に付けるために下揃えなので、列より低い追加ボタンだけは縦の中央に戻す。戻さないと隣の文字と印より下に寄る。 */
+.tab-add { align-self: center; }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
 .tab-selected .tab-close { color: var(--term-fg); }
 .tab-selected .tab-close:hover { color: var(--term-fg); background: rgba(255, 255, 255, 0.12); }

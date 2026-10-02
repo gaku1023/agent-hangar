@@ -210,7 +210,7 @@ describe('ArtifactCards', () => {
 });
 
 describe('ProjectScreen の右レール', () => {
-  const props = { id: 'p1', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' as const } }, path: '/w/alpha', resolved: true, status: 'active' as const, items: [], notFound: false, isScratch: false, todos: [{ id: 't1', text: '買う', done: false, candidate: null }], memo: { markdown: '# a', updatedAt: 1 }, artifacts: [art('a1')] };
+  const props = { id: 'p1', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' as const } }, path: '/w/alpha', resolved: true, status: 'active' as const, items: [], pager: null, notFound: false, isScratch: false, todos: [{ id: 't1', text: '買う', done: false, candidate: null }], memo: { markdown: '# a', updatedAt: 1 }, artifacts: [art('a1')] };
   it('TODO とメモとアーティファクトを並べ、折りたためる', () => {
     wrap(<ProjectScreen {...props} />);
     expect(screen.getByLabelText('TODO を追加')).toBeTruthy();

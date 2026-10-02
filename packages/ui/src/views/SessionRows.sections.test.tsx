@@ -90,12 +90,12 @@ describe('SessionRows の状態の札（★ の E）', () => {
     render(<IntentRoot onIntent={vi.fn()}><SessionRows rows={[row('d1', { state: 'done' })]} height={400} variant="project" /></IntentRoot>);
     expect(screen.queryByRole('button', { name: /のセッションだけを見る$/ })).toBeNull();
   });
-  // 裁定 2A：戻る日の無い Paused の行も「日付なし」の札を出すので、その札もタブへ移るボタンにする。
-  it('戻る日の無い Paused の「日付なし」の札も、Paused のタブへ移るボタンになる', () => {
+  // F1：Paused も状態の列に語の札で出すので、その札がタブへ移るボタンになる（戻る日は時刻の列で、ボタンではない）。
+  it('Paused の札も、Paused のタブへ移るボタンになる', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SessionRows rows={[row('p1', { state: 'paused', returnOn: null })]} height={400} variant="search" badgeIntent={(status) => ({ type: 'search.filter', patch: { status } })} /></IntentRoot>);
     const b = screen.getByRole('button', { name: 'Paused のセッションだけを見る' });
-    expect(b).toHaveTextContent('日付なし');
+    expect(b).toHaveTextContent('Paused');
     fireEvent.click(b);
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'paused' } });
   });
