@@ -411,6 +411,17 @@ describe('presentSession', () => {
     expect(presentSession(initialState(), setEventsLoading(storeWith(), k, true), NOW, 's1').turnsPending).toBe(true);
     expect(presentSession(initialState(), setEventsLoading(storeWith(), k, false), NOW, 's1').turnsPending).toBe(false);
   });
+  it('本文が無い会話は、窓が作られないので pending にしない（仮の行が出続けない）', () => {
+    const store = storeWith();
+    store.sessions.s1 = { ...store.sessions.s1!, hasTranscript: false };
+    expect(presentSession(initialState(), store, NOW, 's1').turnsPending).toBe(false);
+  });
+  it('最初の読み込みが失敗しても、窓は loading が戻って残るので pending にしない', () => {
+    // runtime の api.loadEvents は、読み込みの前に loading の窓を作り、失敗したら loading を戻す。
+    const k = eventsKey('s1', null);
+    const failed = setEventsLoading(setEventsLoading(storeWith(), k, true), k, false);
+    expect(presentSession(initialState(), failed, NOW, 's1').turnsPending).toBe(false);
+  });
   it('実行中なら状態と経過の札を作り、変更数を渡す', () => {
     const store = storeWith();
     expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ liveLabel: '作業中 2 時間', filesChanged: 1 });
