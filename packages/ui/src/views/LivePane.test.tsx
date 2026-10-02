@@ -80,6 +80,26 @@ describe('LivePane', () => {
       delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
     }
   });
+  it('セッションを替えたときは、動く環境でも意図の入れ替えを動かさず、前の文の控えも出さない', () => {
+    const restore = fakeMotionTokens({ '--dur-fast': '200ms', '--dur': '420ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+    const frames: { el: Element; frames: Keyframe[] }[] = [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, f: Keyframe[]) {
+      frames.push({ el: this, frames: f });
+      return { finished: new Promise<void>(() => {}), cancel: vi.fn() };
+    };
+    try {
+      const at = (sessionId: string, text: string) => <IntentRoot onIntent={vi.fn()}><LivePane sessionId={sessionId} pane={pane({ intent: { kind: 'said', text, meta: 'm', stale: false } })}><div /></LivePane></IntentRoot>;
+      const { rerender } = render(at('s1', 'A'));
+      frames.length = 0;
+      rerender(at('s2', 'B'));
+      expect(document.querySelector('.live-intent-ghost')).toBeNull();
+      expect(document.querySelector('.live-intent')).toHaveTextContent('B');
+      expect(frames.filter((f) => f.el.classList.contains('live-intent') || f.el.classList.contains('live-intent-now') || f.el.classList.contains('live-intent-ghost'))).toHaveLength(0);
+    } finally {
+      restore();
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    }
+  });
   it('古い意図は data-stale を持つ', () => {
     mount(pane({ intent: { kind: 'said', text: 'x', meta: 'm', stale: true } }));
     expect(document.querySelector('.live-intent')!.getAttribute('data-stale')).toBe('true');

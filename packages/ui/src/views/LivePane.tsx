@@ -142,7 +142,7 @@ export function LivePane({ sessionId, pane, lead, children, split = LIVE_PANE_SP
           {pane.lamp.sub && <span className="live-lamp-sub">{pane.lamp.sub}</span>}
         </div>
         {pane.intent.kind === 'said'
-          ? <IntentBox text={pane.intent.text} meta={pane.intent.meta} stale={pane.intent.stale} />
+          ? <IntentBox key={sessionId} text={pane.intent.text} meta={pane.intent.meta} stale={pane.intent.stale} />
           : <div className="live-intent-none">{pane.intent.text}</div>}
         {steps.list.length > 0 && (
           <section className="live-sec">
