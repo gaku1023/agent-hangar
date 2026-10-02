@@ -455,7 +455,7 @@ a:hover { text-decoration: underline; }
 .tab-selected .tab-close { color: var(--term-fg); }
 .tab-selected .tab-close:hover { color: var(--term-fg); background: rgba(255, 255, 255, 0.12); }
 /* 高さは決め打ちにせず、.session-screen の縦の flex から窓の残りを受け取る（session.css）。 */
-.split { display: grid; gap: calc(var(--u) * 2); transition: grid-template-columns var(--dur) var(--ease-out); }
+.split { display: grid; gap: calc(var(--u) * 2); }
 /* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
    xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
    閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */
@@ -472,12 +472,17 @@ a:hover { text-decoration: underline; }
 .term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
 .term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }
 .term-status-error { color: var(--error); opacity: 1; }
-/* 会話の列は白い読む面にする。 */
-.tr-pane { min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
-/* 畳んだ列は 28px しかなく、開くボタンも同じ幅である。左右の余白を残すと、ボタンの半分ほどが隠れて押しにくくなる。 */
-.tr-pane[data-collapsed='true'] { padding: calc(var(--u) * 2) 0; }
+/* 会話の列は白い読む面にする。余白は中身の側（.tr-pane-inner）に持たせ、閉じた列（0px）に何も残さない。 */
+.tr-pane { min-width: 0; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
+.tr-pane-inner { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: calc(var(--u) * 2) calc(var(--u) * 3); }
+/* 閉じた列は、閉じる動きが終わったら影も見せない。 */
+.tr-pane[data-collapsed='true']:not([data-leaving]) { visibility: hidden; }
 .tr-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: calc(var(--u) * 7); border: 0; background: transparent; cursor: pointer; color: var(--ink-2); height: var(--row-h); align-self: flex-start; }
 .tr-pane .turns .tr-toggle { margin-left: calc(var(--u) * -2); }
+/* タブの帯の右端の、右の欄を開くボタン。帯の高さ（row-h）の下端に揃え、入る形で現れる。 */
+.tabs-trailing { margin-left: auto; align-self: center; }
+.tab-pane-open { gap: calc(var(--u) * 1.5); animation: enter var(--dur) var(--ease-out); }
+.tab-pane-open kbd { font-size: var(--fs-xs); color: var(--ink-3); }
 
 /* 実行中の右ペイン。見出し、上の段（いま）、境目、目次の順に縦に積む。色は端末の縁の灯と同じ語彙（作業中は杏、入力待ちは赤、休みは灰）。 */
 .live { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: calc(var(--u) * 2); }

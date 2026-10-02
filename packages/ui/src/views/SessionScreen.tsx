@@ -1,5 +1,5 @@
 import { formatRoute } from '@agent-hangar/shared';
-import { useId, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import { RUN_KIND_LABEL } from '../presenters/format.ts';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
@@ -11,6 +11,8 @@ import { Icon, type IconName } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
+import { PANE_SHAPE, playPaneMotion } from './primitives/paneMotion.ts';
+import { usePresence } from './primitives/usePresence.ts';
 import { SplitPane } from './SplitPane.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
@@ -34,6 +36,20 @@ const ACTION_ICON: Record<SessionActionId, IconName> = {
 export function SessionScreen(props: SessionProps) {
   const emit = useEmit();
   const reasonId = useId();
+  // 右の欄の開閉（設計書 ②）。閉じる動きが終わるまで中身を描き続け、開いたら滑らせて広げる。
+  // フックなので、下の早い return より前に置く。
+  const splitRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLDivElement>(null);
+  const running = Boolean(props.run && props.selectedTab);
+  const shape = running ? PANE_SHAPE.split : PANE_SHAPE.rail;
+  const boxRef = running ? splitRef : railRef;
+  const pane = usePresence<HTMLElement>(props.transcriptOpen, (inner) => (boxRef.current ? playPaneMotion(boxRef.current, shape.open, inner, false) : null));
+  const paneFirst = useRef(true);
+  useLayoutEffect(() => {
+    if (paneFirst.current) { paneFirst.current = false; return; }
+    if (props.transcriptOpen && boxRef.current) void playPaneMotion(boxRef.current, shape.closed, pane.ref.current, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.transcriptOpen]);
   if (props.notFound) return <div className="screen"><div className="empty">セッションが見つかりません</div></div>;
   // run は知っているのに、そのセッションの情報がまだ届いていない状態。
   if (props.loadingSession) return <div className="screen"><div className="empty">セッションを読み込んでいます</div></div>;
@@ -82,6 +98,8 @@ export function SessionScreen(props: SessionProps) {
   );
 
   const paneToggle = <button className="tr-toggle" aria-label={props.transcriptOpen ? '右の欄を閉じる' : '右の欄を開く'} title="右の欄の開閉（⌘J）" onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>;
+  // 閉じている間は、タブの帯の右端に開くボタンを置く（設計書 ②）。開いている間は欄の見出しの行の paneToggle を使う。
+  const paneOpen = <button type="button" className="btn btn-sm tab-pane-open" aria-label="右の欄を開く" title="右の欄の開閉（⌘J）" onClick={() => emit({ type: 'transcript.toggle' })}><Icon name="paneOpen" /><span>{props.livePane ? 'いま' : 'ターン'}</span><kbd className="mono">⌘J</kbd></button>;
 
   // 本文が消えた会話は、会話の欄もターンの目次も持たない。
   // 残っている要約と TODO だけを見せる。
@@ -104,31 +122,33 @@ export function SessionScreen(props: SessionProps) {
   if (run && props.selectedTab) {
     // 案内と transcript の帯は Claude のタブにだけ出す。
     // 分割で 2 つ並ぶときも、シェルの側には出さない。
-    const pane = (tabId: string) => {
+    const terminal = (tabId: string) => {
       const agentTab = tabId === run.id;
       const hint = agentTab && props.trustHint ? TRUST_HINT : agentTab && !run.alive ? ENDED_HINT : null;
       const transcript = agentTab && run.alive && props.transcriptBand ? { when: props.transcriptBand.when, onLatest: () => emit({ type: 'turn.latest', sessionId: id, runId: run.id }) } : null;
       return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} agent={agentTab} transcript={transcript} />;
     };
     // 分割は .split の左の列の中でさらに 2 列に割る。高さは外側の .split から 100% で伝わる。
-    const terminals = props.split ? <SplitPane left={pane(props.split.left)} right={pane(props.split.right)} /> : pane(props.selectedTab);
+    const terminals = props.split ? <SplitPane left={terminal(props.split.left)} right={terminal(props.split.right)} /> : terminal(props.selectedTab);
     return (
       <div className="screen session-screen">
         {header}
-        <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} />
+        <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} trailing={props.transcriptOpen ? null : paneOpen} />
         {/* 右欄は会話の全文ではなくターンの目次にする。
             全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。
             .split は縦の flex で窓の残りの高さを全部受け取る（session.css）。 */}
-        <div className="split" style={{ gridTemplateColumns: props.transcriptOpen ? 'minmax(0, 1fr) minmax(240px, 26%)' : 'minmax(0, 1fr) 28px' }}>
+        <div ref={splitRef} className="split" style={{ gridTemplateColumns: props.transcriptOpen ? PANE_SHAPE.split.open.cols : PANE_SHAPE.split.closed.cols, columnGap: props.transcriptOpen ? undefined : PANE_SHAPE.split.closed.gap }}>
           {terminals}
-          <aside className="tr-pane" data-collapsed={props.transcriptOpen ? undefined : 'true'}>
-            {props.transcriptOpen
-              ? (() => {
-                const toc = <TurnIndex sessionId={id} runId={run.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={props.livePane ? undefined : paneToggle} />;
-                // 実行中は右ペインの上に「いま」を出し、目次は一番下に残す。終わった run では今までどおり目次だけ。
-                return props.livePane ? <LivePane sessionId={id} pane={props.livePane} lead={paneToggle} split={props.livePaneSplit} artifacts={props.artifacts}>{toc}</LivePane> : toc;
-              })()
-              : paneToggle}
+          <aside className="tr-pane" data-collapsed={props.transcriptOpen ? undefined : 'true'} data-leaving={pane.leaving ? 'true' : undefined}>
+            {pane.mounted && (
+              <div ref={(el) => { pane.ref.current = el; }} className="tr-pane-inner">
+                {(() => {
+                  const toc = <TurnIndex sessionId={id} runId={run.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={props.livePane ? undefined : paneToggle} />;
+                  // 実行中は右ペインの上に「いま」を出し、目次は一番下に残す。終わった run では今までどおり目次だけ。
+                  return props.livePane ? <LivePane sessionId={id} pane={props.livePane} lead={paneToggle} split={props.livePaneSplit} artifacts={props.artifacts}>{toc}</LivePane> : toc;
+                })()}
+              </div>
+            )}
           </aside>
         </div>
       </div>
@@ -160,14 +180,16 @@ export function SessionScreen(props: SessionProps) {
   return (
     <div className="screen session-screen">
       {header}
-      <div className="session-body" data-rail={props.transcriptOpen ? 'open' : 'closed'}>
+      <div ref={railRef} className="session-body" data-rail={props.transcriptOpen ? 'open' : 'closed'}>
         <section className="tr-sheet">{toggles}{transcript}</section>
-        {props.transcriptOpen && (
-          <aside className="session-rail" aria-label="このセッションのまとめ">
-            <SummaryPanel {...props} />
-            <TodoPanel {...props} />
-            <FilesPanel {...props} />
-          </aside>
+        {pane.mounted && (
+          <div className="session-rail-slot">
+            <aside ref={(el) => { pane.ref.current = el; }} className="session-rail" aria-label="このセッションのまとめ">
+              <SummaryPanel {...props} />
+              <TodoPanel {...props} />
+              <FilesPanel {...props} />
+            </aside>
+          </div>
         )}
       </div>
     </div>

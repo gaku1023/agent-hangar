@@ -1,10 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { sessionActions, type SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { toolItem } from '../test/items.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { pick } from '../test/pick.ts';
 import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
@@ -302,6 +303,37 @@ describe('SessionScreen（実行中）', () => {
     withHost(<SS {...running} transcriptOpen={false} />);
     expect(screen.queryByText('hi')).toBeNull();
     expect(screen.getByLabelText('右の欄を開く')).toBeInTheDocument();
+  });
+  it('右の欄を閉じたら、列ごと消し、開くボタンをタブの帯の右端に出す', () => {
+    withHost(<SS {...running} transcriptOpen={false} />);
+    const split = document.querySelector('.split') as HTMLElement;
+    expect(split.style.gridTemplateColumns).toBe('minmax(0, 1fr) 0px');
+    const open = screen.getByRole('button', { name: '右の欄を開く' });
+    expect(open.closest('.tabs')).not.toBeNull();
+    expect(document.querySelector('.tr-pane .tr-toggle')).toBeNull();
+  });
+  it('開いている間は、開閉のボタンを欄の中に置き、タブの帯には出さない', () => {
+    withHost(<SS {...running} />);
+    expect(screen.getByRole('button', { name: '右の欄を閉じる' }).closest('.tr-pane')).not.toBeNull();
+    expect(document.querySelector('.tabs .tab-pane-open')).toBeNull();
+  });
+  describe('動く環境', () => {
+    let restore: () => void = () => {};
+    afterEach(() => { restore(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; });
+    it('閉じる動きが終わるまで欄の中身を残し、終わったら外す（列は先に 0px になる）', async () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      let finish: () => void = () => {};
+      const finished = new Promise<void>((r) => { finish = r; });
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished, cancel: vi.fn() }; };
+      const ui = (open: boolean) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={open} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui(true));
+      rerender(ui(false));
+      expect(document.querySelector('.tr-pane')).toHaveAttribute('data-leaving', 'true');
+      expect(document.querySelector('.tr-pane-inner')).not.toBeNull();
+      await act(async () => { finish(); await finished; });
+      expect(document.querySelector('.tr-pane-inner')).toBeNull();
+      expect(document.querySelector('.tr-pane')).not.toHaveAttribute('data-leaving');
+    });
   });
   it('信頼ダイアログの案内と終了の表示', () => {
     withHost(<SS {...running} live={null} trustHint />);

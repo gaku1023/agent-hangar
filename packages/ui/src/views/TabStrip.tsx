@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { TabItemProps } from '../presenters/session.ts';
 import { Icon } from './primitives/Icon.tsx';
@@ -11,7 +11,7 @@ import { Icon } from './primitives/Icon.tsx';
  * 追加と分割のボタンは別の操作なので、Tab の止まり先に残す。
  * 選ぶとフォーカスはターミナルへ移るので、矢印で移るだけでは選ばない（手動の選択）。
  */
-export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAdd: boolean; canSplit: boolean; split: boolean }) {
+export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAdd: boolean; canSplit: boolean; split: boolean; trailing?: ReactNode }) {
   const emit = useEmit();
   const listRef = useRef<HTMLDivElement>(null);
   // 矢印で移った先のタブ。列を離れたら忘れて、次に入ってきたときは選ばれたタブに止まる。
@@ -49,6 +49,8 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
       {props.canAdd && <button className="tab-add" aria-label="シェルタブを追加" onClick={() => emit({ type: 'tab.open', sessionId: props.sessionId, kind: 'shell' })}><Icon name="add" /></button>}
       {/* 横に並べるのはタブが 2 つ以上あるときだけ押せる。左は選択中のタブ、右は Mediator が選ぶ。 */}
       <button className="btn tab-action" aria-label="横に並べる" aria-pressed={props.split} disabled={!props.canSplit} title={props.canSplit ? '横に並べる（⌘\\）' : 'タブが 2 つ必要です'} onClick={() => emit({ type: 'split.toggle' })}><Icon name="split" /></button>
+      {/* 右の欄を閉じている間の、開くボタン（設計書 ②）。帯の右端に寄せる。 */}
+      {props.trailing && <span className="tabs-trailing">{props.trailing}</span>}
     </div>
   );
 }
