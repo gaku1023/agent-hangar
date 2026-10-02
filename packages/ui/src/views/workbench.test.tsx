@@ -10,6 +10,7 @@ import { MemoEditor } from './MemoEditor.tsx';
 import { ProjectCard } from './ProjectCard.tsx';
 import { ProjectScreen } from './ProjectScreen.tsx';
 import { TodoList } from './TodoList.tsx';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { RollingNumber } from './primitives/RollingNumber.tsx';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
 
@@ -33,8 +34,9 @@ describe('UsageGauge', () => {
 });
 
 describe('RollingNumber', () => {
-  it('値が変わると古い値を添えて回し、150 ミリ秒で片付ける', () => {
+  it('値が変わると古い値を添えて回し、--dur の長さで片付ける', () => {
     vi.useFakeTimers();
+    const restore = fakeMotionTokens();
     try {
       const { container, rerender } = render(<RollingNumber value={10} suffix="%" />);
       expect(container.querySelector('.roll-old')).toBeNull();
@@ -42,11 +44,18 @@ describe('RollingNumber', () => {
       expect(container.querySelector('.roll')?.getAttribute('data-rolling')).toBe('true');
       expect(container.querySelector('.roll-old')?.textContent).toBe('10%');
       expect(container.querySelector('.roll-new')?.textContent).toBe('20%');
-      act(() => { vi.advanceTimersByTime(150); });
+      act(() => { vi.advanceTimersByTime(420); });
       expect(container.querySelector('.roll-old')).toBeNull();
     } finally {
+      restore();
       vi.useRealTimers();
     }
+  });
+  it('動かない環境（長さ 0）では回さず、すぐ新しい値だけにする', () => {
+    const { container, rerender } = render(<RollingNumber value={10} suffix="%" />);
+    rerender(<RollingNumber value={20} suffix="%" />);
+    expect(container.querySelector('.roll-old')).toBeNull();
+    expect(container.querySelector('.roll-new')?.textContent).toBe('20%');
   });
 });
 

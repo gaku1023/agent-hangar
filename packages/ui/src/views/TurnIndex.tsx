@@ -4,7 +4,10 @@ import type { TurnJumpStatus } from '../mediator/types.ts';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
 import { jumpWindow } from '../presenters/turns.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
 import { revealWithin } from './primitives/revealWithin.ts';
+import { RollingText } from './primitives/RollingText.tsx';
+import { useMotionList } from './primitives/useMotionList.ts';
 import { renderItem } from './Transcript.tsx';
 
 export type TurnIndexProps = {
@@ -41,20 +44,56 @@ const firstLine = (s: string) => s.split('\n').find((l) => l.trim() !== '') ?? '
 export function TurnIndex(props: TurnIndexProps) {
   const emit = useEmit();
   const listRef = useRef<HTMLDivElement>(null);
-  const openRef = useRef<HTMLDivElement>(null);
+  const openRef = useRef<HTMLDivElement | null>(null);
   const openSeq = props.rows.find((r) => r.open)?.seq ?? null;
   const lastSeq = props.rows.length > 0 ? props.rows[props.rows.length - 1]!.seq : null;
 
+  // 行の出入り。古いものの読み込み（先頭への足し）は動かさない。
+  // 並びの滑りは使わない（新しい指示は末尾に足すだけで、残りの行は動かない）。
+  const { list: entries, ref: rowRef } = useMotionList(props.rows, (r) => String(r.seq), { enter: 'rise', flip: false, ignorePrepended: true });
+
   // 何も開いていない間は末尾（いちばん新しい指示）を見せ続ける。新しい指示が来たら下へついていく。
+  // 初回と動かない環境ではすぐ、そのあとは滑らかに追う。
+  const followed = useRef(false);
   useLayoutEffect(() => {
     const el = listRef.current;
-    if (el && openSeq === null) el.scrollTop = el.scrollHeight;
+    if (!el || openSeq !== null) return;
+    const smooth = followed.current && motionOn(el) && typeof el.scrollTo === 'function';
+    if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    else el.scrollTop = el.scrollHeight;
+    if (props.rows.length > 0) followed.current = true;
   }, [lastSeq, openSeq]);
+
+  // 閉じたターンの中身の控え。畳んで出る動きの間だけ描く。
+  // 控えは毎回の描画の後で更新する（中身は開いたあとに読み込まれて届くので、開いた瞬間の値では足りない）。
+  type OpenBody = { seq: number; items: TranscriptItem[] };
+  const lastOpen = useRef<OpenBody | null>(null);
+  const [closing, setClosing] = useState<OpenBody | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const closingRef = useRef<HTMLDivElement>(null);
+  const bodySeen = useRef(false);
+  useLayoutEffect(() => {
+    const was = lastOpen.current;
+    if (was && was.seq !== openSeq && motionOn()) setClosing(was);
+    // 最初の描画で開いていたターンは、新しい出来事ではないので伸ばさない。
+    if (bodySeen.current && openSeq !== null && was?.seq !== openSeq && bodyRef.current) growIn(bodyRef.current);
+    bodySeen.current = true;
+  }, [openSeq]);
+  useLayoutEffect(() => {
+    lastOpen.current = openSeq === null ? null : { seq: openSeq, items: props.openItems };
+  });
+  useLayoutEffect(() => {
+    if (!closing || !closingRef.current) return;
+    let alive = true;
+    void collapseOut(closingRef.current).then(() => { if (alive) setClosing(null); });
+    return () => { alive = false; };
+  }, [closing]);
+
   // 開いたターンは中身ごと見える位置へ寄せる。動かすのは目次の一覧だけにする。
   // scrollIntoView は WebKit で外側の箱（アプリ全体）までずらし、手で戻せなくなる。
   useEffect(() => {
     const list = listRef.current;
-    const item = openRef.current;
+    const item = openSeq === null ? null : openRef.current;
     if (list && item) revealWithin(list, item);
   }, [openSeq]);
 
@@ -75,7 +114,9 @@ export function TurnIndex(props: TurnIndexProps) {
     if (to !== null) {
       // 端で止まっても、矢印で一覧がスクロールしないように既定の動きは止める。
       e.preventDefault();
-      listRef.current?.querySelectorAll<HTMLElement>('.turn-row')[to]?.focus();
+      // 畳んで出る途中の行（disabled）は飛ばす。
+      const rowsNow = [...(listRef.current?.querySelectorAll<HTMLElement>('.turn-row:not(:disabled)') ?? [])];
+      rowsNow[rowsNow.indexOf(e.currentTarget as HTMLElement) + (to - i)]?.focus();
       return;
     }
     // ボタンの既定の Enter はクリックを起こす。ここで開いて既定を止め、二重に出さない。
@@ -86,30 +127,38 @@ export function TurnIndex(props: TurnIndexProps) {
     <div className="turns">
       <div className="turns-head">
         {props.lead}
-        <span className="faint">ターン {props.rows.length}{props.hasMore ? '+' : ''}</span>
+        <span className="faint">ターン <RollingText text={`${props.rows.length}${props.hasMore ? '+' : ''}`} /></span>
         {props.agentId && <><span className="faint">・サブエージェント {props.agentId}</span><button className="btn btn-sm" onClick={() => emit({ type: 'transcript.selectAgent', sessionId: props.sessionId, agentId: null })}>主線に戻る</button></>}
       </div>
       <div ref={listRef} className="turns-list">
         {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : `古いターンを読み込む（残り ${props.remaining} 件）`}</button>}
         {props.rows.length === 0 && !props.loading && <div className="empty">まだ指示がありません</div>}
-        {props.rows.map((r, i) => (
-          <div key={r.seq} ref={r.open ? openRef : undefined} className="turn" data-open={r.open ? 'true' : undefined}>
-            <button className="turn-row" aria-expanded={r.open} title={r.text} tabIndex={r.seq === stopSeq ? 0 : -1}
-              onClick={() => open(i)} onFocus={() => setFocusSeq(r.seq)} onKeyDown={(e) => onRowKey(e, i)}>
-              <span className="turn-when mono">{r.when}</span>
-              <span className="turn-text">{firstLine(r.text)}</span>
-              {r.tools > 0 && <span className="turn-tools mono">{r.tools}</span>}
-            </button>
-            {r.band.length > 0 && <div className="turn-band" aria-hidden="true">{r.band.map((k, i) => <i key={i} data-k={k} />)}</div>}
-            {r.open && (
-              <div className="turn-body">
-                {note && <div className="turn-note">{note}</div>}
-                {/* 指示そのものは行に出ているので、中身は返答から並べる。 */}
-                {props.openItems.filter((it) => it.seq !== r.seq).map((it) => <div key={it.seq} className="tr-row">{renderItem(props.sessionId, it)}</div>)}
-              </div>
-            )}
-          </div>
-        ))}
+        {entries.map(({ item: r, key, leaving }) => {
+          const i = props.rows.indexOf(r);
+          const isOpen = r.open && !leaving;
+          const bodyItems = (items: TranscriptItem[]) => items.filter((it) => it.seq !== r.seq).map((it) => <div key={it.seq} className="tr-row">{renderItem(props.sessionId, it)}</div>);
+          return (
+            <div key={key} ref={(el) => { rowRef(key)(el); if (isOpen) openRef.current = el; }} className="turn" data-open={isOpen ? 'true' : undefined} aria-hidden={leaving ? 'true' : undefined}>
+              <button className="turn-row" aria-expanded={isOpen} title={r.text} tabIndex={!leaving && r.seq === stopSeq ? 0 : -1} disabled={leaving}
+                onClick={() => open(i)} onFocus={() => setFocusSeq(r.seq)} onKeyDown={(e) => onRowKey(e, i)}>
+                <span className="turn-when mono">{r.when}</span>
+                <span className="turn-text">{firstLine(r.text)}</span>
+                {r.tools > 0 && <span className="turn-tools mono">{r.tools}</span>}
+              </button>
+              {r.band.length > 0 && <div className="turn-band" aria-hidden="true">{r.band.map((k, j) => <i key={j} data-k={k} />)}</div>}
+              {isOpen && (
+                <div ref={bodyRef} className="turn-body">
+                  {note && <div className="turn-note">{note}</div>}
+                  {/* 指示そのものは行に出ているので、中身は返答から並べる。 */}
+                  {bodyItems(props.openItems)}
+                </div>
+              )}
+              {!isOpen && closing?.seq === r.seq && (
+                <div ref={closingRef} className="turn-body" aria-hidden="true">{bodyItems(closing.items)}</div>
+              )}
+            </div>
+          );
+        })}
       </div>
       <div className="turns-foot">
         <button className="btn" onClick={() => { emit({ type: 'turn.latest', sessionId: props.sessionId, runId: props.runId }); const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }}><Icon name="latest" />最新へ</button>

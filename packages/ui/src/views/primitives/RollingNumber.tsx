@@ -1,26 +1,9 @@
-import { useEffect, useState } from 'react';
-import { motionMs } from './motion.ts';
+import { RollingText } from './RollingText.tsx';
 
 /**
- * 値が変わったとき、古い値を上へ、新しい値を下から上へ --dur の長さで動かす。
- * 桁ごとには分けない。
- * 古い値は回している間だけ置く。
- * 常に置くと同じ文字が 2 つ並び、読み上げも検索も二重になる。
+ * 数を回す。桁ごとには分けない。読めない値は「未取得」と書く。
+ * 回し方は RollingText が持つ。
  */
 export function RollingNumber(props: { value: number | null; suffix?: string }) {
-  const [prev, setPrev] = useState<number | null>(props.value);
-  const [rolling, setRolling] = useState(false);
-  useEffect(() => {
-    if (props.value === prev) return;
-    setRolling(true);
-    const t = setTimeout(() => { setPrev(props.value); setRolling(false); }, motionMs('--dur'));
-    return () => clearTimeout(t);
-  }, [props.value, prev]);
-  const text = (v: number | null) => (v === null ? '未取得' : `${v}${props.suffix ?? ''}`);
-  return (
-    <span className="roll" data-rolling={rolling ? 'true' : undefined}>
-      {rolling && <span className="roll-old" aria-hidden="true">{text(prev)}</span>}
-      <span className="roll-new">{text(props.value)}</span>
-    </span>
-  );
+  return <RollingText text={props.value === null ? '未取得' : `${props.value}${props.suffix ?? ''}`} />;
 }

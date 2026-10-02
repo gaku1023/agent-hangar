@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { TurnIndex, type TurnIndexProps } from './TurnIndex.tsx';
 
 afterEach(cleanup);
@@ -19,6 +20,10 @@ function setup(over: Partial<TurnIndexProps> = {}) {
   return { ...r, onIntent };
 }
 
+const row = (n: number): TurnRowProps => ({ seq: n, when: '10:00', text: `t${n}`, head: `t${n}`, tools: 0, open: false, band: [] });
+const indexUi = (p: Partial<TurnIndexProps> = {}) => <IntentRoot onIntent={vi.fn()}><TurnIndex sessionId="s1" runId={null} rows={[]} complete openItems={[]} turnJump={null} hasMore={false} loading={false} remaining={0} agentId={null} {...p} /></IntentRoot>;
+const renderIndex = (p: Partial<TurnIndexProps> = {}) => render(indexUi(p));
+
 describe('TurnIndex', () => {
   it('ターンを開いても scrollIntoView を呼ばない（WebKit ではアプリ全体を戻れない位置までずらす）', () => {
     const spy = vi.fn();
@@ -33,6 +38,18 @@ describe('TurnIndex', () => {
       if (had) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: undefined, configurable: true, writable: true });
       else delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
     }
+  });
+
+  it('見出しのターンの数は、数の回転（.roll）で出す', () => {
+    renderIndex({ rows: [row(0), row(1)] });
+    expect(document.querySelector('.turns-head .roll')).toHaveTextContent('2');
+  });
+  it('動かない環境では、新しい行が来たら末尾へすぐ追従する', () => {
+    const { rerender } = renderIndex({ rows: [row(0)] });
+    const list = document.querySelector('.turns-list') as HTMLElement;
+    Object.defineProperty(list, 'scrollHeight', { value: 500, configurable: true });
+    rerender(indexUi({ rows: [row(0), row(1)] }));
+    expect(list.scrollTop).toBe(500);
   });
 
   it('指示を 1 行ずつ、時刻とツールの数を添えて並べる', () => {
@@ -167,6 +184,81 @@ describe('TurnIndex のキー操作（C3）', () => {
     const b = rowsOf(container);
     act(() => b[2]!.focus());
     fireEvent.keyDown(b[2]!, { key: 'ArrowUp', metaKey: true });
+    expect(document.activeElement).toBe(b[2]);
+  });
+});
+
+describe('TurnIndex の動き', () => {
+  let restore: (() => void) | null = null;
+  let animations: { el: Element; frames: Keyframe[] }[] = [];
+  let finish: (() => void)[] = [];
+  beforeEach(() => {
+    restore = fakeMotionTokens(undefined, { everywhere: true });
+    animations = []; finish = [];
+    (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
+      animations.push({ el: this, frames });
+      return { finished: new Promise<void>((r) => finish.push(r)), cancel: vi.fn() };
+    };
+  });
+  afterEach(() => {
+    restore?.(); restore = null;
+    delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+  });
+  const turns = (c: HTMLElement) => [...c.querySelectorAll('.turn')];
+
+  it('新しい指示の行だけが入り、最初に出た行は動かさない', () => {
+    const { container, rerender } = renderIndex({ rows: [row(0), row(1)] });
+    expect(animations).toHaveLength(0);
+    rerender(indexUi({ rows: [row(0), row(1), row(2)] }));
+    expect(animations.map((a) => a.el)).toEqual([turns(container)[2]]);
+  });
+  it('古いターンの読み込みで先頭に足された行は動かさない', () => {
+    const { rerender } = renderIndex({ rows: [row(2), row(3)] });
+    rerender(indexUi({ rows: [row(0), row(1), row(2), row(3)] }));
+    expect(animations).toHaveLength(0);
+  });
+  it('末尾への追従は、動くときは滑らかに scrollTo する', () => {
+    const { rerender } = renderIndex({ rows: [row(0)] });
+    const list = document.querySelector('.turns-list') as HTMLElement;
+    const scrollTo = vi.fn();
+    list.scrollTo = scrollTo as unknown as typeof list.scrollTo;
+    Object.defineProperty(list, 'scrollHeight', { value: 500, configurable: true });
+    rerender(indexUi({ rows: [row(0), row(1)] }));
+    expect(scrollTo).toHaveBeenCalledWith({ top: 500, behavior: 'smooth' });
+  });
+  it('開いたターンの中身は伸びて入る', () => {
+    const { container, rerender } = renderIndex({ rows: [row(0), row(1)] });
+    rerender(indexUi({ rows: [row(0), { ...row(1), open: true }] }));
+    expect(animations.map((a) => a.el)).toEqual([container.querySelector('.turn-body')]);
+  });
+  it('閉じたターンの中身は、畳んで出るまで控えで描き続け、終わったら外す', async () => {
+    const openItems: TranscriptItem[] = [{ kind: 'assistant', seq: 2, text: '返答です', when: '10:00' }];
+    const { container, rerender } = renderIndex({ rows: [row(0), { ...row(1), open: true }], openItems });
+    rerender(indexUi({ rows: [row(0), row(1)], openItems: [] }));
+    const body = container.querySelector('.turn-body');
+    expect(body).toHaveAttribute('aria-hidden', 'true');
+    expect(body).toHaveTextContent('返答です');
+    await act(async () => { finish.forEach((f) => f()); });
+    expect(container.querySelector('.turn-body')).toBeNull();
+  });
+  it('消える行は読み上げと操作から外す（行の位置は元のまま）', () => {
+    const { container, rerender } = renderIndex({ rows: [row(0), row(1), row(2)] });
+    rerender(indexUi({ rows: [row(0), row(2)] }));
+    const gone = turns(container)[1]!;
+    expect(turns(container)).toHaveLength(3);
+    expect(gone).toHaveAttribute('aria-hidden', 'true');
+    const btn = gone.querySelector('button')!;
+    expect(btn).toBeDisabled();
+    expect(btn.tabIndex).toBe(-1);
+  });
+  it('矢印で移るとき、消えていく行は飛ばす', () => {
+    const { container, rerender } = renderIndex({ rows: [row(0), row(1), row(2)] });
+    rerender(indexUi({ rows: [row(0), row(2)] }));
+    const b = [...container.querySelectorAll<HTMLButtonElement>('.turn-row')];
+    act(() => b[0]!.focus());
+    fireEvent.keyDown(b[0]!, { key: 'ArrowDown' });
     expect(document.activeElement).toBe(b[2]);
   });
 });

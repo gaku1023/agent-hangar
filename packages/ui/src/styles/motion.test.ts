@@ -60,8 +60,8 @@ describe('JS の動き', () => {
     expect(kit).not.toMatch(/\d+ms/);
   });
   it('数字の回転は、長さを --dur から読む', () => {
-    expect(src('RollingNumber.tsx')).toContain("motionMs('--dur')");
-    expect(src('RollingNumber.tsx')).not.toMatch(/setTimeout\([^)]*,\s*\d+\)/);
+    expect(src('RollingText.tsx')).toContain("motionMs('--dur')");
+    expect(src('RollingText.tsx')).not.toMatch(/setTimeout\([^)]*,\s*\d+\)/);
   });
 });
 
