@@ -29,7 +29,7 @@ describe('presentCloudUsage', () => {
       ['D1 の書き込み', '今日', 23.48, 80, '23,480 / 100,000 行', 'ok'],
       ['Workers の要求', '今日', 4.12, 80, '4,120 / 100,000 回', 'ok'],
       ['R2 の保存', '今月', 1.65, null, '0.17 / 10 GB-月', 'ok'],
-      ['R2 の書く操作', '今月', 0.65, null, '6,470 / 100 万回', 'ok'],
+      ['R2 の書く操作', '今月', 0.65, null, '6,470 / 100 万', 'ok'],
       ['R2 Infrequent Access Data Retrieval', '今月', null, null, '3 GB', 'ok'],
     ]);
     expect(p.splitAfter).toBe(2);
@@ -42,17 +42,22 @@ describe('presentCloudUsage', () => {
     const p = presentCloudUsage({ ...base, today: { ...base.today, d1RowsWritten: 68120 } }, sync(), NOW, TZ)!;
     expect(p.tiles[1]).toMatchObject({ value: '68%', tone: 'warn' });
     expect(p.bars[0]!.tone).toBe('warn');
-    expect(p.legend[0]).toBe('あと 11,880 行で同期を止めます · 9:00 に戻る');
+    expect(p.legend).toEqual(['あと 11,880 行で同期を止めます · 9:00 に戻る']);
+    expect(p.source).toBe('Cloudflare の数 · 2 分前');
   });
   it('無料枠で停止中：止まった色と再開の帯。Cloudflare の数が 80% 未満なら食い違いを添える', () => {
     const p = presentCloudUsage({ ...base, today: { ...base.today, d1RowsWritten: 58590 } }, sync({ state: 'paused', pausedReason: 'quota', quotaPausedDay: '2026-10-02' }), NOW, TZ)!;
     expect(p.tiles[1]!.tone).toBe('stop');
     expect(p.bars[0]!.tone).toBe('stop');
+    expect(p.legend).toEqual([]);
+    expect(p.source).toBe('Cloudflare の数 · 2 分前');
     expect(p.strip).toEqual({ tone: 'stop', text: '無料枠の 80% に届いたので同期を止めました（Cloudflare の数では 59%）。9:00 に枠が戻ります。戻ったあと「同期を再開」で再開できます。' });
   });
   it('停止中で枠が戻った後は、戻ったと言う', () => {
     const p = presentCloudUsage(base, sync({ state: 'paused', pausedReason: 'quota', quotaPausedDay: '2026-10-01' }), NOW, TZ)!;
     expect(p.strip?.text).toBe('無料枠の 80% に届いたので同期を止めました。枠は戻っています。「同期を再開」で再開できます。');
+    expect(p.legend).toEqual([]);
+    expect(p.source).toBe('Cloudflare の数 · 2 分前');
   });
   it('手で止めたときは帯を出さない', () => {
     expect(presentCloudUsage(base, sync({ state: 'paused', pausedReason: 'user' }), NOW, TZ)!.strip).toBeNull();
@@ -65,7 +70,8 @@ describe('presentCloudUsage', () => {
       { key: 'plan', label: 'プラン', value: '—', sub: 'トークンが要ります', tone: 'muted' },
     ]);
     expect(p.bars.map((b) => b.value)).toEqual(['約 26,700 / 100,000 行', 'この PC 3,640 回']);
-    expect(p.source).toBe('hangar の見積もり（実際より 1〜4 割多め）');
+    expect(p.legend).toEqual([]);
+    expect(p.source).toBe('hangar の見積もり（実際より 1〜4 割多め）· 9:00 に戻る');
     expect(p.strip).toEqual({ tone: 'info', text: 'Cloudflare の正確な数、R2、今月の費用は、読み取り専用のトークンを入れると出ます。' });
     expect(p.command).toBe('npm run hangar -- setup cloud --usage-token');
   });
@@ -83,6 +89,8 @@ describe('presentCloudUsage', () => {
     expect(p.tiles.map((t) => t.key)).toEqual(['bill', 'plan']);
     expect(p.bars.every((b) => b.when === '今月')).toBe(true);
     expect(p.splitAfter).toBe(0);
+    expect(p.legend).toEqual(['今月は 9/5〜10/5']);
+    expect(p.source).toBe('Cloudflare の数 · 2 分前');
   });
   it('使用量がまだ届いていなければ null', () => {
     expect(presentCloudUsage(null, sync(), NOW, TZ)).toBeNull();

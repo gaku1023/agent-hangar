@@ -22,7 +22,7 @@ const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 function amount(consumed: number, unit: string, included: number | null): string {
   const c = unit === 'GB-月' ? (Math.round(consumed * 100) / 100).toString() : n(consumed);
   if (included === null) return `${c} ${unit}`;
-  return unit === '回' ? `${c} / ${compact(included)}回` : `${c} / ${n(included)} ${unit}`;
+  return unit === '回' ? `${c} / ${compact(included)}` : `${c} / ${n(included)} ${unit}`;
 }
 
 export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody | null, now: number, tz?: string): CloudUsageProps | null {
@@ -51,11 +51,15 @@ export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody 
   ];
   const month: CloudUsageBar[] = (u.month?.rows ?? []).map((r) => ({ label: r.label, when: '今月', pct: r.included === null ? null : pct(r.consumed, r.included), tickPct: null, value: amount(r.consumed, r.unit, r.included), tone: 'ok' }));
 
-  const legend: string[] = [];
-  if (!paid) legend.push(tone === 'warn' ? `あと ${n(Math.ceil(stopLine - d1))} 行で同期を止めます · ${reset} に戻る` : `今日の枠は ${reset} に戻る · 目盛りの ${Math.round(u.limits.stopRatio * 100)}% で同期を止める`);
-  if (u.month) legend.push(`今月は ${md(u.month.periodStart, tz)}〜${u.month.periodEnd ? md(u.month.periodEnd, tz) : ''}`);
+  // 凡例は試作 usage-merged.html の状態ごとの形に従う。
+  // 停止中は帯が戻る時刻を言うので出さない。見積もりは戻る時刻を出典の行に添える。止まりそうなときは残りの行数だけにする。
+  const monthLegend = u.month ? [`今月は ${md(u.month.periodStart, tz)}〜${u.month.periodEnd ? md(u.month.periodEnd, tz) : ''}`] : [];
+  const legend: string[] = paid ? monthLegend
+    : quotaPaused || est ? []
+    : tone === 'warn' ? [`あと ${n(Math.ceil(stopLine - d1))} 行で同期を止めます · ${reset} に戻る`]
+    : [`今日の枠は ${reset} に戻る · 目盛りの ${Math.round(u.limits.stopRatio * 100)}% で同期を止める`, ...monthLegend];
 
-  const source = est ? 'hangar の見積もり（実際より 1〜4 割多め）'
+  const source = est ? `hangar の見積もり（実際より 1〜4 割多め）${quotaPaused ? '' : `· ${reset} に戻る`}`
     : u.stale ? `Cloudflare の数 · ${u.fetchedAt ? hm(u.fetchedAt, tz) : ''} · 取得に失敗`
     : `Cloudflare の数 · ${relativeTime(u.fetchedAt, now)}`;
 
