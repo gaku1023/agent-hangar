@@ -1,4 +1,5 @@
 import { motionEase, motionMs } from './motion.ts';
+import { beginLayoutMotion, endLayoutMotion, LAYOUT_SETTLED } from './layoutMotion.ts';
 
 /**
  * サイドバーの開閉の動き（M4「なめらかな受け渡し」と「ハンガーの揺れ」）。
@@ -9,10 +10,10 @@ import { motionEase, motionMs } from './motion.ts';
  * reduced motion では --dur が 0 になり、動かさない。
  */
 
-/** 動いている間 .shell に付ける印。端末はこの間の寸法合わせを止める（TerminalPane）。 */
+/** 動いている間 .shell に付ける印。サイドバーの CSS（吹き出しを消すなど）が使う。端末への知らせは data-layout-moving。 */
 export const MOVING_ATTR = 'data-sidebar-moving';
-/** 動きが止まったことを知らせる window の出来事。端末はここで一度だけ寸法を合わせる。 */
-export const LAYOUT_SETTLED = 'hangar:layout-settled';
+/** 動きが止まったことを知らせる window の出来事（layoutMotion と同じもの）。 */
+export { LAYOUT_SETTLED };
 /** この動きが作った Animation の印。途中で開閉し直したら、前の動きをこれで探して捨てる。 */
 const ID = 'sidebar-motion';
 
@@ -79,7 +80,7 @@ function snap(shell: HTMLElement, p: Parts): Snap {
 
 function settle(shell: HTMLElement): void {
   shell.removeAttribute(MOVING_ATTR);
-  window.dispatchEvent(new Event(LAYOUT_SETTLED));
+  endLayoutMotion(shell);
 }
 
 export function playSidebarMotion(shell: HTMLElement): void {
@@ -98,6 +99,7 @@ export function playSidebarMotion(shell: HTMLElement): void {
 
   const opts: KeyframeAnimationOptions = { duration: dur, easing, id: ID };
   shell.setAttribute(MOVING_ATTR, '');
+  beginLayoutMotion(shell);
   // 幅。本文は格子の 2 列目、ヘッダは subgrid で同じ列を使うので、列の幅を動かせばどちらも付いてくる。
   // 本文と検索欄の左の余白（--gutter-l）は左の列の幅（--col1、base.css で登録してある）から決まるので、--col1 も同じ長さで動かす。
   // 列の幅そのものも並べて動かすのは、登録したカスタムプロパティの補間が効かない環境でも、開閉の動きだけは残すためである。

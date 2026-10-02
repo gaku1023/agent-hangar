@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { LiveStatus } from '@agent-hangar/shared';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { Icon } from './primitives/Icon.tsx';
-import { LAYOUT_SETTLED, MOVING_ATTR } from './primitives/sidebarMotion.ts';
+import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './primitives/layoutMotion.ts';
 
 export const TerminalHostContext = createContext<TerminalHost | null>(null);
 
@@ -36,8 +36,8 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
     const el = ref.current;
     if (!host || !el) return;
     host.mount(props.tabId, el);
-    // サイドバーの開閉の間は本文の幅が毎コマ変わる。合わせ直すたびに寸法をサーバへ送るので、止まってから一度だけ合わせる。
-    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (!el.closest(`[${MOVING_ATTR}]`)) host.fit(props.tabId); });
+    // 左右の欄や案内の帯が動いている間は本文の幅や高さが毎コマ変わる。合わせ直すたびに寸法をサーバへ送るので、止まってから一度だけ合わせる。
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (!el.closest(`[${LAYOUT_MOVING_ATTR}]`)) host.fit(props.tabId); });
     ro?.observe(el);
     const settled = () => host.fit(props.tabId);
     window.addEventListener(LAYOUT_SETTLED, settled);

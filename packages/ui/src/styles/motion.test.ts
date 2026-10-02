@@ -54,6 +54,11 @@ describe('JS の動き', () => {
     expect(src('sidebarMotion.ts')).toContain("motionEase('--ease-out', shell)");
     expect(src('sidebarMotion.ts')).not.toMatch(/\d+ms/);
   });
+  it('出入りの形は、長さと曲線をトークンで書く', () => {
+    const kit = src('motionKit.ts');
+    for (const t of ["motionMs('--dur', el)", "motionMs('--dur-exit', el)", "motionMs('--dur-fast', el)", "motionEase('--ease-out', el)", "motionEase('--ease-in', el)"]) expect(kit).toContain(t);
+    expect(kit).not.toMatch(/\d+ms/);
+  });
   it('数字の回転は、長さを --dur から読む', () => {
     expect(src('RollingNumber.tsx')).toContain("motionMs('--dur')");
     expect(src('RollingNumber.tsx')).not.toMatch(/setTimeout\([^)]*,\s*\d+\)/);

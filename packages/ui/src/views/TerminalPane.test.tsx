@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { createTerminalHost, type TerminalHost, type TerminalLike } from '../runtime/terminals.ts';
 import { TerminalHostContext, TerminalPane } from './TerminalPane.tsx';
-import { LAYOUT_SETTLED, MOVING_ATTR } from './primitives/sidebarMotion.ts';
+import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './primitives/layoutMotion.ts';
 
 type FakeHost = TerminalHost & { mount: ReturnType<typeof vi.fn> };
 
@@ -36,16 +36,16 @@ describe('TerminalPane', () => {
     expect(termsIn()).toEqual(['1']);
   });
   // サイドバーの開閉の間は本文の幅が毎コマ変わる。そのたびに合わせ直すと、端末の寸法をサーバへ送り続ける。
-  it('サイドバーが動いている間は寸法を合わせず、止まったら一度だけ合わせる', () => {
+  it('左右の欄が動いている間は寸法を合わせず、止まったら一度だけ合わせる', () => {
     const observers: (() => void)[] = [];
     vi.stubGlobal('ResizeObserver', class { constructor(cb: () => void) { observers.push(cb); } observe() {} disconnect() {} });
     const host = fakeHost();
     render(<div className="shell"><TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider></div>);
     const shell = document.querySelector<HTMLElement>('.shell')!;
-    shell.setAttribute(MOVING_ATTR, '');
+    shell.setAttribute(LAYOUT_MOVING_ATTR, '');
     observers[0]!();
     expect(host.fit).not.toHaveBeenCalled();
-    shell.removeAttribute(MOVING_ATTR);
+    shell.removeAttribute(LAYOUT_MOVING_ATTR);
     window.dispatchEvent(new Event(LAYOUT_SETTLED));
     expect(host.fit).toHaveBeenCalledTimes(1);
     observers[0]!();

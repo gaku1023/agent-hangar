@@ -296,6 +296,10 @@ a:hover { text-decoration: underline; }
 .retention-banner .btn { flex: none; }
 .retention-banner .btn:first-of-type { margin-left: auto; }
 @keyframes drop-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+/* 新しく入った行の地を、淡い黄から薄れさせる（motionKit の markHit）。検索から跳んだ行の .tr-flash と同じ長さと遅れ。 */
+[data-hit] { animation: hit var(--dur-flash) var(--ease-out) var(--dur-exit) both; }
+@keyframes hit { from { background-color: var(--hit); } }
+@media (prefers-reduced-motion: reduce) { [data-hit] { animation: none; } }
 
 /* オーバーレイ */
 .overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 18%, transparent); display: grid; place-items: center; z-index: 10; }
