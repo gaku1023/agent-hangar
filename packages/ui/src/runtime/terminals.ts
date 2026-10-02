@@ -27,6 +27,8 @@ export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, 
    * 間隔は最初に戻す。
    */
   reconnect(tabId: string): void;
+  /** 最初のデータが届いたか。知らないタブは true（隠さない）。 */
+  painted(tabId: string): boolean;
   /** 全部の端末の文字を 1px ずつ大きく、小さく、または既定に戻す。 */
   zoom(step: 'in' | 'out' | 'reset'): void;
   /** いまの文字の大きさ（px）。 */
@@ -57,9 +59,10 @@ export const RETRY = { first: 1000, max: 30_000, attempts: 5 } as const;
  * want は利用者の側がつないでおきたいタブか（connect の後、disconnect の前）。
  * 思いがけず切れたときだけつなぎ直すために持つ。
  * fails は続けて失敗した回数で、次の間隔を決める。
+ * painted は最初のデータが届いたか（それまで画面は透明にしておく）。
  * timer と retryAt は待っている自動の試し。
  */
-type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null };
+type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; painted: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null };
 
 /**
  * タブごとの xterm と WebSocket を React の外で持つ。
@@ -89,7 +92,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     if (!e) {
       const term = deps.createTerminal();
       term.setFontSize(fontSize);
-      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, timer: null, retryAt: null };
+      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, painted: false, timer: null, retryAt: null };
       entries.set(tabId, e);
     }
     return e;
@@ -127,7 +130,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       try { parsed = JSON.parse(String(m.data)); } catch { return; }
       if (typeof parsed !== 'object' || parsed === null) return;
       const msg = parsed as { t?: unknown; d?: unknown; message?: unknown };
-      if (msg.t === 'data' && typeof msg.d === 'string') e.term.write(msg.d);
+      if (msg.t === 'data' && typeof msg.d === 'string') { e.term.write(msg.d); if (!e.painted) { e.painted = true; notify(); } }
       else if (msg.t === 'error') { e.term.write(`\r\n[agent-hangar] ${String(msg.message)}\r\n`); setStatus(e, 'error'); }
     };
     // 自分で閉じた接続（disconnect）は e.ws を先に外しているので、ここには来ない。
@@ -215,6 +218,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       try { deps.fontSize?.save(next); } catch { /* 覚えられなくても、いまの画面には効いている */ }
     },
     fontSize: () => fontSize,
+    painted: (tabId) => entries.get(tabId)?.painted ?? true,
     status: (tabId) => entries.get(tabId)?.status ?? null,
     fit: (tabId) => entries.get(tabId)?.term.fit(),
     focus(tabId) {

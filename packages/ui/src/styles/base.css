@@ -470,7 +470,9 @@ a:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) { .term-pane[data-live='busy'] { animation: none; } }
 /* 耳の下の板は、左上だけを角張らせて耳とつなぐ。分割しているときは左の板をつなぐ。 */
 .tabs + .split > .term-pane, .tabs + .split > .split-h > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
-.term-host { flex: 1; min-height: 0; padding: var(--u); }
+/* 初めてつなぐときは、最初のデータが届くまで面を透明にし、届いたら --dur で現す（設計書 ⑨）。一度描いたタブは付け替えても透明にしない。 */
+.term-host { flex: 1; min-height: 0; padding: var(--u); transition: opacity var(--dur) var(--ease-out); }
+.term-host[data-painted='false'] { opacity: 0; }
 .term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
 .term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }
 .term-status-error { color: var(--error); opacity: 1; }
