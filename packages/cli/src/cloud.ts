@@ -29,6 +29,8 @@ export type SetupCloudOptions = {
   cloudDir?: string;
   log?: (line: string) => void;
   confirm?: ConfirmWord;
+  /** 使用量のトークンの問いを出さない。 */
+  skipUsageToken?: boolean;
 };
 
 const HEALTH_TIMEOUT_MS = 120_000;
@@ -452,7 +454,86 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
   stampTranscriptsFrom(o.home, conf.joinedAt);
   const joinToken = encodeJoinToken({ url, secret });
   printJoinToken(log, joinToken);
+  // 使用量のトークンは任意。端末から打たれたときだけ尋ね、飛ばしても setup はここで終わる。
+  if (process.stdin.isTTY && !o.skipUsageToken) {
+    log('');
+    for (const l of USAGE_TOKEN_HELP) log(l);
+    if ((await askLine('使用量のトークンをいま入れますか（後からでも可） [y/N]: ')).trim().toLowerCase() === 'y') {
+      await installUsageToken({ home: o.home, token: await readUsageToken(), fetch: fetchFn, wrangler: wr, log, cloudDir });
+    }
+  }
   return { url, joinToken };
+}
+
+// ---- 使用量のトークン ----
+
+/** 作るトークンの案内。setup の問いと --usage-token の前に出す。 */
+export const USAGE_TOKEN_HELP = [
+  '使用量と費用を設定画面に出すには、読み取り専用の API トークンを Worker に入れます（無くても同期は動きます）。',
+  '作り方: Cloudflare のダッシュボード → Manage account → Account API tokens → Create Token → Start from scratch',
+  '  権限は二つだけ: Account Analytics: Read と Billing: Read（Entire Account）',
+  '  1Password に保存し、op read "op://…" | npm run hangar -- setup cloud --usage-token で流し込めます。',
+];
+
+const CF_API = 'https://api.cloudflare.com/client/v4';
+
+/** 標準入力からトークンを読む。端末なら伏せ字で尋ね、パイプなら全部を読む。argv には載せない。 */
+export async function readUsageToken(): Promise<string> {
+  if (!process.stdin.isTTY) {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const c of process.stdin) {
+      size += (c as Buffer).length;
+      if (size > MAX_STDIN_BYTES) throw new Error('標準入力が長すぎます。トークンだけを渡してください');
+      chunks.push(c as Buffer);
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  }
+  holdStdin(true);
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  // 打った文字を画面に出さない。問いの文だけは書く。
+  const prompt = '使用量のトークンを貼り付けてください（表示しません）: ';
+  (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = (s: string) => { if (s.includes(prompt)) process.stdout.write(prompt); };
+  return new Promise<string>((resolve) => {
+    let done = false;
+    const finish = (a: string): void => { if (done) return; done = true; rl.close(); holdStdin(false); process.stdout.write('\n'); resolve(a); };
+    rl.on('close', () => finish(''));
+    rl.question(prompt, finish);
+  });
+}
+
+/**
+ * トークンを確かめてから Worker の secret に入れる。
+ * 確かめるのは、有効か（tokens/verify）と、二つの権限があるか（subscriptions と GraphQL を 1 回ずつ）。
+ */
+export async function installUsageToken(o: { home: string; token: string; fetch?: typeof fetch; wrangler?: WranglerRunner; log?: (l: string) => void; cloudDir?: string }): Promise<void> {
+  const log = o.log ?? ((l: string) => console.log(l));
+  const fetchFn = o.fetch ?? realFetch;
+  const token = o.token.trim();
+  if (!token) throw new Error('トークンが空です');
+  const read = readCloudConfig(o.home);
+  if (read.state === 'broken') throw new Error(brokenConfigMessage(o.home));
+  const conf = read.config;
+  if (!conf || !conf.accountId || !conf.workerName) throw new Error('トークンは、hangar setup cloud を実行した PC で入れてください（この PC は参加しただけなので、Worker の設定を持っていません）');
+  const accountId = conf.accountId;
+  const headers = { authorization: `Bearer ${token}` };
+  const status = async (p: string, init: RequestInit = {}): Promise<number> => {
+    try { return (await fetchFn(`${CF_API}${p}`, { ...init, headers: { ...headers, ...(init.headers as Record<string, string> | undefined) } })).status; } catch { return 0; }
+  };
+  if ((await status(`/accounts/${accountId}/tokens/verify`)) !== 200) throw new Error('トークンが有効ではありません。値と、アカウントのトークンであることを確かめてください');
+  if ((await status(`/accounts/${accountId}/subscriptions`)) !== 200) throw new Error('権限が足りません: Billing: Read を付けてください');
+  const gql = await status('/graphql', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{viewer{accounts(filter:{accountTag:"' + accountId + '"}){accountTag}}}' }) });
+  if (gql !== 200) throw new Error('権限が足りません: Account Analytics: Read を付けてください');
+  // wrangler を渡されたとき（試験と setup の続き）は、Worker の元の場所を探さない。
+  const wr = (o.wrangler ?? new WranglerRunner({ cloudDir: o.cloudDir ?? requireCloudDir(), accountId: null, log })).withAccount(accountId);
+  const cfg = wranglerConfigPath(o.home);
+  for (const [name, value] of [['USAGE_API_TOKEN', token], ['CF_ACCOUNT_ID', accountId]] as const) {
+    // 平文は標準入力から渡し、argv には載せない。
+    const put = await wr.run(['secret', 'put', name, '--config', cfg], value + '\n');
+    if (put.code !== 0) throw new Error(`secret の登録に失敗しました（${name}）: ${cleanWranglerError(put.stderr || put.stdout).join(' ')}`);
+  }
+  log('使用量のトークンを Worker に入れました。数分のうちに、どの PC の設定画面にも使用量と費用が出ます。');
+  log('外すときは: npx wrangler secret delete USAGE_API_TOKEN --config ' + cfg);
 }
 
 // ---- hangar join ----
