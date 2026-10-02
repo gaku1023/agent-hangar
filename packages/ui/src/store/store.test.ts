@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, BootstrapDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null });
@@ -253,6 +253,16 @@ describe('store の同期', () => {
     const s = applyBootstrap(initialStore(), { ...boot, sync, devices: [{ id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false, shell: null }] });
     expect(s.sync).toEqual(sync);
     expect(s.devices).toHaveLength(1);
+  });
+  it('使用量は bootstrap で入り、sync.usage で差し替わる。無い bootstrap は null', () => {
+    const usage: CloudUsageDto = { source: 'estimate', fetchedAt: null, stale: false, notice: null, limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000, stopRatio: 0.8 }, today: { d1RowsWritten: 1, workersRequests: null, resetAt: 2 }, plan: null, month: null };
+    expect(initialStore().cloudUsage).toBeNull();
+    expect(applyBootstrap(initialStore(), boot).cloudUsage).toBeNull();
+    let s = applyBootstrap(initialStore(), { ...boot, cloudUsage: usage });
+    expect(s.cloudUsage).toEqual(usage);
+    const next = { ...usage, today: { ...usage.today, d1RowsWritten: 9 } };
+    s = applyServerEvent(s, { type: 'sync.usage', usage: next });
+    expect(s.cloudUsage).toEqual(next);
   });
   it('sync.status で、片付いた取り残しと回復した失敗が消える', () => {
     // レビュアの再現筋である。サーバが 0 件になっても画面が 3 件のまま固まっていた。

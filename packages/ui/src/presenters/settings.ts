@@ -2,6 +2,7 @@ import type { IndexProgressDto, ShellHookStateDto, StatuslineStatusDto, Summariz
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime, SYNC_STATE_LABEL } from './format.ts';
+import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
 import { toolLine, workspaceLine, type VerifyLine } from './readiness.ts';
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
@@ -14,7 +15,7 @@ export type CloudDeviceProps = { id: string; name: string; platform: string; las
  * skipped は送れなかった本文で、件数だけでは直しようが無いので鍵と理由もそのまま渡す。
  * stateLabel はヘッダーと同じ表から引いた状態の語である。
  */
-export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; stateLabel: string; paused: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; joinTokenExpiresAt: number | null; syncClaudeConfig: boolean; configConfirmed: boolean };
+export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; stateLabel: string; paused: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; joinTokenExpiresAt: number | null; syncClaudeConfig: boolean; configConfirmed: boolean; usage: CloudUsageProps | null };
 
 /**
  * 外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする包み方。
@@ -101,6 +102,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     joinTokenExpiresAt: store.joinTokenExpiresAt,
     syncClaudeConfig: s?.syncClaudeConfig ?? false,
     configConfirmed: sync?.claudeConfig.confirmed ?? false,
+    usage: presentCloudUsage(store.cloudUsage, sync, now),
   };
   const h = store.shellHook;
   const command = h?.command ?? 'hangar shell install';

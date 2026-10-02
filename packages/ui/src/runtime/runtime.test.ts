@@ -1,6 +1,6 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
@@ -747,6 +747,25 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().summarizerModels).toEqual([]);
     // LM Studio に繋がらないのは普通の状態なので、トーストにしない。
     expect(rt.getState().toasts).toEqual([]);
+  });
+  it('設定を開くと使用量を取り直す', async () => {
+    const dto: CloudUsageDto = {
+      source: 'cloudflare', fetchedAt: 1_000, stale: false, notice: null,
+      limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000, stopRatio: 0.8 },
+      today: { d1RowsWritten: 23_480, workersRequests: 4_120, resetAt: 2_000 },
+      plan: { label: 'Workers 無料 · R2 従量', workersPaid: false }, month: null,
+    };
+    const syncUsage = vi.fn(async () => dto);
+    const { rt, wsHandlers, setHash } = harness({ syncUsage });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(rt.getStore().cloudUsage).toBeNull();
+    setHash('#/settings');
+    await flush();
+    // 一時停止の間はサーバが取りに行かないので、ここでは常に取り直しを頼む。
+    expect(syncUsage).toHaveBeenCalledWith(true);
+    expect(rt.getStore().cloudUsage).toEqual(dto);
   });
   it('要約器を試すと結果がストアに入る', async () => {
     const testSummarizer = vi.fn(async () => ({ ok: true as const, id: 'lmstudio' as const, ms: 12, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done' as const, nextSteps: [], source: 'post_hoc' as const, sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } }));

@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -77,6 +77,8 @@ export type ApiClient = {
   testSummarizer(): Promise<SummarizerTestDto>;
   // ここから下はクラウド同期（フェーズ 4）である。
   syncStatus(): Promise<SyncStatusBody>;
+  /** 設定の「使用量と費用」。refresh なら取り直す（サーバは一時停止の間は取りに行かず最後の値を返す）。 */
+  syncUsage(refresh: boolean): Promise<CloudUsageDto | null>;
   syncNow(): Promise<SyncStatusBody>;
   syncPause(paused: boolean): Promise<SyncStatusBody>;
   /** 窓が前面に来たことをサーバに伝えて pull を促す。サーバ側で間引く。 */
@@ -162,6 +164,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     summarizerModels: () => call('/api/summarizer/models'),
     testSummarizer: () => post('/api/summarizer/test'),
     syncStatus: () => call('/api/sync/status'),
+    syncUsage: (refresh) => call(refresh ? '/api/sync/usage?refresh=1' : '/api/sync/usage'),
     syncNow: () => post('/api/sync/now'),
     syncPause: (paused) => post('/api/sync/pause', { paused }),
     syncFocus: () => post('/api/sync/focus'),

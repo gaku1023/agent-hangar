@@ -6,7 +6,7 @@ type Extras = Pick<
   | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject'
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
-  | 'syncStatus' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
+  | 'syncStatus' | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'live'
 >;
@@ -62,6 +62,8 @@ export function fakeApiExtras(): Extras {
     testSummarizer: vi.fn(async () => ({ ok: false as const, tried: [] })),
     // フェーズ 4 の同期。状態を返すものは、使うテストが自分で上書きする。
     syncStatus: vi.fn(async () => unused()),
+    // 使用量は届いていない状態（null）が既定である。
+    syncUsage: vi.fn(async () => null),
     syncNow: vi.fn(async () => unused()),
     syncPause: vi.fn(async () => unused()),
     syncFocus: vi.fn(async () => {}),
