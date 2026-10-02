@@ -133,7 +133,7 @@ function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: { enter: 'r
 - 欄の中身は、閉じる動きが終わるまで描き続ける（`usePresence` 相当の小さな状態を `SessionScreen` に持つ）。終わったら外す。
 - 開くボタンの置き場所：
   - 閉じている間は、`TabStrip` の右端（`.tabs` の末尾）に置く。アイコンと「いま」の文字（終わった run では「ターン」）、⌘J の印を並べる。入る形で現れる。
-  - 開いている間は、今のまま欄の見出しの行（LivePane の lead、TurnIndex の lead）に置く。タブの帯のボタンは薄れて消える。
+  - 開いている間は、今のまま欄の見出しの行（LivePane の lead、TurnIndex の lead）に置く。タブの帯のボタンは、開き始めにその場で外す（目は開いていく欄に向くので、出る動きは付けない）。
 - 終わった形（`.session-body` と `.session-rail`）も同じ `paneMotion` で開閉する。
   - 開閉のボタンは今のまま本文の面の右上（`.transcript-toggles`）に置く。列はもともと消える作りなので、置き場所は変えない。
 
