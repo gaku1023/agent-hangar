@@ -4,7 +4,7 @@ import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPrev
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
-import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
+import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
 import { presentConfirm } from './confirm.ts';
 import { presentHome } from './home.ts';
@@ -404,6 +404,12 @@ describe('presentSession', () => {
     const open = presentSession(state, store, NOW, 's1');
     expect(open.turnRows[0]!.open).toBe(true);
     expect(open.openTurnItems.map((i) => i.kind)).toEqual(['user', 'tool', 'assistant']);
+  });
+  it('本文の窓がまだ無いか、最初の読み込みの途中で 0 件なら、目次は pending', () => {
+    const k = eventsKey('s1', null);
+    expect(presentSession(initialState(), storeWith(), NOW, 's1').turnsPending).toBe(true); // 窓が無い
+    expect(presentSession(initialState(), setEventsLoading(storeWith(), k, true), NOW, 's1').turnsPending).toBe(true);
+    expect(presentSession(initialState(), setEventsLoading(storeWith(), k, false), NOW, 's1').turnsPending).toBe(false);
   });
   it('実行中なら状態と経過の札を作り、変更数を渡す', () => {
     const store = storeWith();

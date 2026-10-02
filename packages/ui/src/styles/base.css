@@ -567,6 +567,10 @@ a:hover { text-decoration: underline; }
 .turns-more { align-self: center; flex: none; margin-bottom: calc(var(--u) * 2); }
 .turn { flex: none; border-radius: var(--r); }
 .turn[data-open='true'] { background: var(--surface-2); }
+/* 目次の仮の行。最初の events が届くまで、淡い帯をゆっくり流す。reduced motion では流さない。 */
+.turn-skel { flex: none; height: 26px; margin: 2px 0; border-radius: var(--r); background: linear-gradient(90deg, var(--surface-2), #fafbfd, var(--surface-2)); background-size: 200% 100%; animation: skel var(--aura-period) linear infinite; }
+@keyframes skel { to { background-position: -2000% 0; } }
+@media (prefers-reduced-motion: reduce) { .turn-skel { animation: none; } }
 .turn-row { display: flex; align-items: baseline; gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border: 0; border-radius: var(--r); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
 .turn-row:hover { background: var(--surface-2); }
 .turn[data-open='true'] > .turn-row { background: var(--accent-soft); color: var(--accent); font-weight: 560; }

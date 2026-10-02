@@ -4,7 +4,7 @@ import type { TurnJumpStatus } from '../mediator/types.ts';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
 import { jumpWindow } from '../presenters/turns.ts';
 import { Icon } from './primitives/Icon.tsx';
-import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
+import { collapseOut, fadeIn, growIn, motionOn } from './primitives/motionKit.ts';
 import { revealWithin } from './primitives/revealWithin.ts';
 import { RollingText } from './primitives/RollingText.tsx';
 import { useMotionList } from './primitives/useMotionList.ts';
@@ -20,6 +20,8 @@ export type TurnIndexProps = {
   openItems: TranscriptItem[];
   turnJump: { seq: number; status: TurnJumpStatus } | null;
   hasMore: boolean; loading: boolean; remaining: number;
+  /** 最初の events が届く前。仮の行を出す。 */
+  pending?: boolean;
   agentId: string | null;
   /** 見出しの行の先頭に置くもの。右欄を畳むボタンが入る。 */
   lead?: ReactNode;
@@ -53,6 +55,13 @@ export function TurnIndex(props: TurnIndexProps) {
   // 行の出入り。古いものの読み込み（先頭への足し）は動かさない。
   // 並びの滑りは使わない（新しい指示は末尾に足すだけで、残りの行は動かない）。
   const { list: entries, ref: rowRef } = useMotionList(props.rows, (r) => String(r.seq), { enter: 'rise', flip: false, ignorePrepended: true, scope });
+
+  // 仮の行から本物の行へ替わった描画では、一覧を薄れから現す（仮の行が突然入れ替わらないように）。
+  const wasPending = useRef(!!props.pending && props.rows.length === 0);
+  useLayoutEffect(() => {
+    if (wasPending.current && props.rows.length > 0 && listRef.current) fadeIn(listRef.current);
+    wasPending.current = !!props.pending && props.rows.length === 0;
+  }, [props.rows.length, props.pending]);
 
   // 何も開いていない間は末尾（いちばん新しい指示）を見せ続ける。新しい指示が来たら下へついていく。
   // 初回と動かない環境ではすぐ、そのあとは滑らかに追う。
@@ -154,7 +163,8 @@ export function TurnIndex(props: TurnIndexProps) {
       </div>
       <div ref={listRef} className="turns-list">
         {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : `古いターンを読み込む（残り ${props.remaining} 件）`}</button>}
-        {props.rows.length === 0 && !props.loading && <div className="empty">まだ指示がありません</div>}
+        {props.rows.length === 0 && props.pending && Array.from({ length: 6 }, (_, i) => <div key={`skel${i}`} className="turn-skel" style={{ width: `${70 + ((i * 37) % 30)}%` }} aria-hidden="true" />)}
+        {props.rows.length === 0 && !props.loading && !props.pending && <div className="empty">まだ指示がありません</div>}
         {entries.map(({ item: r, key, leaving }) => {
           const i = props.rows.indexOf(r);
           const isOpen = r.open && !leaving;

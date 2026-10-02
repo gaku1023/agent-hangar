@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
@@ -205,6 +205,19 @@ describe('TurnIndex のキー操作（C3）', () => {
   });
 });
 
+describe('TurnIndex の仮の行', () => {
+  it('届くまでは仮の行を 6 つ出し、「まだ指示がありません」は出さない', () => {
+    renderIndex({ rows: [], pending: true });
+    expect(document.querySelectorAll('.turn-skel')).toHaveLength(6);
+    expect(screen.queryByText('まだ指示がありません')).toBeNull();
+  });
+  it('読み込み済みで 0 件なら、仮の行は出さず「まだ指示がありません」を出す', () => {
+    renderIndex({ rows: [], pending: false });
+    expect(document.querySelectorAll('.turn-skel')).toHaveLength(0);
+    expect(screen.getByText('まだ指示がありません')).toBeInTheDocument();
+  });
+});
+
 describe('TurnIndex の動き', () => {
   let restore: (() => void) | null = null;
   let animations: { el: Element; frames: Keyframe[] }[] = [];
@@ -244,6 +257,18 @@ describe('TurnIndex の動き', () => {
     Object.defineProperty(list, 'scrollHeight', { value: 500, configurable: true });
     rerender(indexUi({ rows: [row(0), row(1)] }));
     expect(scrollTo).toHaveBeenCalledWith({ top: 500, behavior: 'smooth' });
+  });
+  it('仮の行から本物の行へ替わったら、一覧を薄れから現す', () => {
+    const { rerender } = renderIndex({ rows: [], pending: true });
+    expect(animations).toHaveLength(0);
+    rerender(indexUi({ rows: [row(0), row(1)], pending: false }));
+    expect(animations.map((a) => a.el)).toContain(document.querySelector('.turns-list'));
+    expect(animations.find((a) => a.el === document.querySelector('.turns-list'))!.frames).toEqual([{ opacity: 0 }, { opacity: 1 }]);
+  });
+  it('最初から行があるときは、一覧を薄れから現さない', () => {
+    const { rerender } = renderIndex({ rows: [row(0)] });
+    rerender(indexUi({ rows: [row(0), row(1)] }));
+    expect(animations.map((a) => a.el)).not.toContain(document.querySelector('.turns-list'));
   });
   it('開いたターンの中身は伸びて入る', () => {
     const { container, rerender } = renderIndex({ rows: [row(0), row(1)] });
