@@ -459,13 +459,26 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
     log('');
     for (const l of USAGE_TOKEN_HELP) log(l);
     if ((await askLine('使用量のトークンをいま入れますか（後からでも可） [y/N]: ')).trim().toLowerCase() === 'y') {
-      await installUsageToken({ home: o.home, token: await readUsageToken(), fetch: fetchFn, wrangler: wr, log, cloudDir });
+      await offerUsageToken(async () => installUsageToken({ home: o.home, token: await readUsageToken(), fetch: fetchFn, wrangler: wr, log, cloudDir }), log);
     }
   }
   return { url, joinToken };
 }
 
 // ---- 使用量のトークン ----
+
+/**
+ * setup の続きで使用量のトークンを入れる。任意の手順なので、失敗しても済んだ setup を落とさない。
+ * 理由を言い、入れ直し方を添えて戻る。理由の文は installUsageToken が組み立てたもので、トークンを含まない。
+ */
+export async function offerUsageToken(install: () => Promise<void>, log: (l: string) => void): Promise<void> {
+  try {
+    await install();
+  } catch (e) {
+    log(e instanceof Error ? e.message : String(e));
+    log('あとから npm run hangar -- setup cloud --usage-token で入れ直せます');
+  }
+}
 
 /** 作るトークンの案内。setup の問いと --usage-token の前に出す。 */
 export const USAGE_TOKEN_HELP = [
@@ -522,8 +535,19 @@ export async function installUsageToken(o: { home: string; token: string; fetch?
   };
   if ((await status(`/accounts/${accountId}/tokens/verify`)) !== 200) throw new Error('トークンが有効ではありません。値と、アカウントのトークンであることを確かめてください');
   if ((await status(`/accounts/${accountId}/subscriptions`)) !== 200) throw new Error('権限が足りません: Billing: Read を付けてください');
-  const gql = await status('/graphql', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{viewer{accounts(filter:{accountTag:"' + accountId + '"}){accountTag}}}' }) });
-  if (gql !== 200) throw new Error('権限が足りません: Account Analytics: Read を付けてください');
+  // GraphQL は権限の誤りを 200 と errors で返すことが多いので、Worker が引くのと同じ表を実際に引いて中身まで見る。
+  const analyticsOk = async (): Promise<boolean> => {
+    const day = new Date().toISOString().slice(0, 10);
+    const query = 'query($a:String!,$d:Date!){viewer{accounts(filter:{accountTag:$a}){d1AnalyticsAdaptiveGroups(limit:1,filter:{date_geq:$d,date_leq:$d}){sum{rowsWritten}}}}}';
+    try {
+      const res = await fetchFn(`${CF_API}/graphql`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ query, variables: { a: accountId, d: day } }) });
+      if (res.status !== 200) return false;
+      const body = (await res.json()) as { errors?: unknown[] | null; data?: { viewer?: { accounts?: { d1AnalyticsAdaptiveGroups?: unknown }[] } } | null };
+      if (Array.isArray(body.errors) && body.errors.length > 0) return false;
+      return Array.isArray(body.data?.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups);
+    } catch { return false; }
+  };
+  if (!(await analyticsOk())) throw new Error('権限が足りません: Account Analytics: Read を付けてください');
   // wrangler を渡されたとき（試験と setup の続き）は、Worker の元の場所を探さない。
   const wr = (o.wrangler ?? new WranglerRunner({ cloudDir: o.cloudDir ?? requireCloudDir(), accountId: null, log })).withAccount(accountId);
   const cfg = wranglerConfigPath(o.home);
