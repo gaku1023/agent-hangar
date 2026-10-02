@@ -368,6 +368,22 @@ describe('SessionScreen（実行中）', () => {
       expect(document.querySelector('.live')).not.toHaveAttribute('data-leaving');
       expect(document.querySelector('.turns')).toBe(before);
     });
+    it('会話が終わったら、薄れる前にランプを終わりの形（休みの色、「終わりました」）へ替える', () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; };
+      const ui = (lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui(livePane));
+      expect(document.querySelector('.live-lamp')).toHaveAttribute('data-tone', 'busy');
+      rerender(ui(null));
+      expect(document.querySelector('.live')).toHaveAttribute('data-leaving', 'true');
+      const lamp = document.querySelector('.live-lamp')!;
+      expect(lamp).toHaveAttribute('data-tone', 'idle');
+      expect(lamp.querySelector('.live-dot')).toHaveAttribute('data-tone', 'idle');
+      expect(lamp).toHaveTextContent('終わりました');
+      expect(lamp).not.toHaveTextContent('作業中');
+      // 意図などの中身は最後のまま残す。
+      expect(document.querySelector('.live-top')).toHaveTextContent('最後の意図');
+    });
     it('別のセッションへ替えたときは、前のセッションの「いま」を薄れさせずにすぐ外す', () => {
       restore = fakeMotionTokens(undefined, { everywhere: true });
       const animate = vi.fn(function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; });

@@ -2,6 +2,7 @@ import { formatRoute } from '@agent-hangar/shared';
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import { RUN_KIND_LABEL } from '../presenters/format.ts';
+import type { LampProps } from '../presenters/live.ts';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
 import { LivePane } from './LivePane.tsx';
 import { PageHeading } from './PageHeading.tsx';
@@ -25,6 +26,8 @@ import { TurnIndex } from './TurnIndex.tsx';
 
 const TRUST_HINT = 'Claude の起動を待っています。信頼確認のダイアログが出ていればターミナルで答えてください。';
 const ENDED_HINT = 'Claude は終了しました。シェルタブは残っています。';
+/** 会話が終わって「いま」が消えるときのランプ（設計書 ⑩）。休みの色にして、灯の脈も止める。 */
+const ENDED_LAMP: LampProps = { tone: 'idle', head: '終わりました', sub: '' };
 
 const ACTION_ICON: Record<SessionActionId, IconName> = {
   openEditor: 'openEditor', resume: 'resume', resumeHere: 'resumeHere', fork: 'fork', openTerminal: 'openTerminal',
@@ -53,8 +56,9 @@ export function SessionScreen(props: SessionProps) {
     if (props.transcriptOpen && boxRef.current) void playPaneMotion(boxRef.current, shape.closed, pane.ref.current, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.transcriptOpen]);
-  // 「いま」の出入り（設計書 ⑩）。消えるときは、ランプの色が替わるのを待ってから、見出し、上の段、境目を薄れさせ、終わったら外す。
-  // 消える間は最後の livePane を描き続ける。
+  // 「いま」の出入り（設計書 ⑩）。消えるときは、先にランプを終わりの形（休みの色、「終わりました」）へ替える。
+  // ランプの色は .live-lamp の transition で --dur かけて替わるので、それを待ってから、見出し、上の段、境目を薄れさせ、終わったら外す。
+  // 消える間は、ランプのほかは最後の livePane を描き続ける。
   // 画面はセッションごとに作り直されないので、最後に「いま」を出したセッションを覚え、別のセッションへ替えたときは薄れさせずにすぐ外す。
   const lastLive = useRef(props.livePane);
   const liveSession = useRef(props.id);
@@ -145,8 +149,9 @@ export function SessionScreen(props: SessionProps) {
       return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} agent={agentTab} transcript={transcript} />;
     };
     // 分割は .split の左の列の中でさらに 2 列に割る。高さは外側の .split から 100% で伝わる。
-    // 出る間は最後の livePane を描く。
-    const livePane = live.mounted ? (props.livePane ?? (liveSession.current === id ? lastLive.current : null)) : null;
+    // 出る間は、最後の livePane のランプだけを終わりの形にして描く。
+    const ended = live.mounted && !props.livePane && liveSession.current === id && lastLive.current ? { ...lastLive.current, lamp: ENDED_LAMP } : null;
+    const livePane = live.mounted ? (props.livePane ?? ended) : null;
     const terminals = props.split ? <SplitPane left={terminal(props.split.left)} right={terminal(props.split.right)} /> : terminal(props.selectedTab);
     return (
       <div className="screen session-screen">
