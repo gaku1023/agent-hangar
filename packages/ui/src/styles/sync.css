@@ -21,6 +21,8 @@
 .sync[data-state='pushing'] .sync-dot, .sync[data-state='pulling'] .sync-dot { background: var(--busy); }
 .sync[data-state='paused'] .sync-dot { background: var(--ended); }
 .sync[data-state='error'] .sync-dot { background: var(--error); }
+/* 無料枠で止まったときは、手で止めたのと見分けがつくよう点を赤にする（2026-10-02 の決定 H1）。 */
+.sync[data-reason='quota'] .sync-dot { background: var(--error); }
 
 /* ヘッダーの高さに収める小さいボタン。.btn を上書きするので .btn と一緒に付ける。 */
 .btn-sm { height: calc(var(--row-h) - 6px); padding: 0 calc(var(--u) * 2); font-size: var(--fs-sm); }

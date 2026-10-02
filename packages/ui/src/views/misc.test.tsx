@@ -749,7 +749,7 @@ describe('Header', () => {
   it('探す・移動の錠剤を押すとパレットを開く', () => {
     const onIntent = vi.fn();
     // sync は Task 23 が Header に足した props である。この節が見るのは錠剤だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false }} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null }} /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
   });
