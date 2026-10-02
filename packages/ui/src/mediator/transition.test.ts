@@ -76,10 +76,10 @@ describe('ナビゲーション', () => {
     // 検索したらフォーカスを結果の一覧へ移す。同じ語で検索し直して画面が作り直されないときも移るように、毎回出す。
     expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }, { kind: 'focus', target: 'results' }]);
     const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })], a.state);
-    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', hideArchived: true } }]);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', hideArchived: true, limit: 50 } }]);
     const c = run([intent({ type: 'search.filter', patch: { projectId: 'p1' } })], b.state);
     expect(c.state.search.filter).toEqual({ projectId: 'p1' });
-    expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1', hideArchived: true } }]);
+    expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1', hideArchived: true, limit: 50 } }]);
     expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }, { kind: 'focus', target: 'results' }]);
   });
   // 期間は日数のまま効果に載せ、時刻に直すのは問い合わせる瞬間（Runtime）に任せる。
@@ -87,7 +87,7 @@ describe('ナビゲーション', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })]);
     const b = run([intent({ type: 'search.filter', patch: { days: 7 } })], a.state);
     expect(b.state.search.filter).toEqual({ days: 7 });
-    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', days: 7, hideArchived: true } }]);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', days: 7, hideArchived: true, limit: 50 } }]);
   });
   it('期間の始まりは、今日の 0 時から数えて日数分さかのぼった 0 時', () => {
     const now = new Date(2026, 9, 1, 15, 30).getTime();
@@ -97,36 +97,28 @@ describe('ナビゲーション', () => {
     expect(toSearchParams({ q: 'x', days: 1, projectId: 'p1' }, now)).toEqual({ q: 'x', projectId: 'p1', since: new Date(2026, 9, 1).getTime() });
     expect(toSearchParams({ q: 'x' }, now)).toEqual({ q: 'x' });
   });
-  // サーバは既定で 50 件までしか返さないので、続きは offset を付けて読み足す。
-  it('search.more は今の条件のまま offset を付けて問い合わせる', () => {
-    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1' } })]);
-    expect(run([intent({ type: 'search.more', offset: 50 })], a.state).effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1', hideArchived: true, offset: 50 } }]);
-    // 手元で組む一覧には続きが無い。
-    const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
-    expect(run([intent({ type: 'search.more', offset: 50 })], b.state).effects).toEqual([]);
-  });
   // 「条件をクリア」は語と絞り込みをまとめて外し、手元の全件の一覧へ戻す。語は URL にも乗っているので、URL からも外す。
   it('search.clear は語と絞り込みを外し、語の無い一覧の URL へ移る', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1', days: 7, file: 'a.md' } })]);
     const b = run([intent({ type: 'search.clear' })], a.state);
-    expect(b.state.search).toEqual({ text: '', filter: {} });
+    expect(b.state.search).toEqual({ text: '', filter: {}, page: 1 });
     expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
     // 着いた先では手元の一覧を組むので、問い合わせない。
     expect(run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state).effects).toEqual([]);
   });
   it('状態の絞り込みは live としてサーバへ渡す', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { live: 'waiting' } })]);
-    expect(a.effects).toContainEqual({ kind: 'api.search', params: { q: '動画', live: 'waiting', hideArchived: true } });
+    expect(a.effects).toContainEqual({ kind: 'api.search', params: { q: '動画', live: 'waiting', hideArchived: true, limit: 50 } });
   });
   // 触ったファイルは手元のセッションに無い情報なので、キーワードが無くてもサーバに問い合わせる。
   it('キーワードが無くても、触ったファイルがあれば検索効果になる', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
     expect(a.effects).toEqual([]);
     const b = run([intent({ type: 'search.filter', patch: { file: 'a.md' } })], a.state);
-    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true } }]);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true, limit: 50 } }]);
     // ほかの画面から戻ってきたときも、同じ絞り込みで問い合わせ直す。
     const c = run([runtime({ type: 'hash.changed', route: { name: 'home' } }), runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state);
-    expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true } }]);
+    expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true, limit: 50 } }]);
     // ファイルを外せば手元の一覧に戻るので、問い合わせない。
     expect(run([intent({ type: 'search.filter', patch: { file: undefined } })], b.state).effects).toEqual([]);
     // ほかの絞り込みだけなら、これまでどおり手元で絞る。

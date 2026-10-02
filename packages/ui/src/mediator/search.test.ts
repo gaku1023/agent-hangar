@@ -15,17 +15,17 @@ const runtime = (e: Extract<Input, { kind: 'runtime' }>['event']): Input => ({ k
 describe('状態のタブと欄の条件（★）', () => {
   it('欄の Enter は、読んだ条件をまるごと渡して今の絞り込みと入れ替える', () => {
     const a = run([intent({ type: 'search.filter', patch: { projectId: 'p1', status: 'paused' } }), intent({ type: 'search.query', text: '動画', filter: { status: 'done', days: 7 } })]);
-    expect(a.state.search).toEqual({ text: '動画', filter: { status: 'done', days: 7 } });
+    expect(a.state.search).toEqual({ text: '動画', filter: { status: 'done', days: 7 }, page: 1 });
   });
   it('filter の無い search.query（パレットの全文検索）は今の絞り込みを保つ', () => {
     const a = run([intent({ type: 'search.filter', patch: { status: 'paused' } }), intent({ type: 'search.query', text: '動画' })]);
-    expect(a.state.search).toEqual({ text: '動画', filter: { status: 'paused' } });
+    expect(a.state.search).toEqual({ text: '動画', filter: { status: 'paused' }, page: 1 });
   });
   it('サーバへは状態を status で渡し、状態が無いときは Archived を除く印を付ける', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })]);
-    expect(a.effects).toEqual([{ kind: 'api.search', params: { q: '動画', hideArchived: true } }]);
+    expect(a.effects).toEqual([{ kind: 'api.search', params: { q: '動画', hideArchived: true, limit: 50 } }]);
     const b = run([intent({ type: 'search.filter', patch: { status: 'archived' } })], a.state);
-    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', status: 'archived' } }]);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', status: 'archived', limit: 50 } }]);
   });
   it('状態のタブだけなら手元で絞り、問い合わせない', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } }), intent({ type: 'search.filter', patch: { status: 'paused' } })]);
@@ -44,14 +44,14 @@ describe('状態のタブと欄の条件（★）', () => {
     expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }, { kind: 'focus', target: 'results' }]);
     // その hash.changed が、入れ替えた後の絞り込みで問い合わせる。
     const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })], a.state);
-    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', status: 'done' } }]);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', status: 'done', limit: 50 } }]);
   });
   it('語の無いまま触ったファイルだけを変えたときも、hash.changed が入れ替え後の絞り込みで問い合わせる', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } }), intent({ type: 'search.query', text: '', filter: { file: 'a.md' } }), runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
     expect(a.effects).toEqual([
       { kind: 'navigate', route: { name: 'sessions' } },
       { kind: 'focus', target: 'results' },
-      { kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true } },
+      { kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true, limit: 50 } },
     ]);
   });
 });

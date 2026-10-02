@@ -287,6 +287,19 @@ describe('presentHome', () => {
   });
   it('最近は要対応と実行中に出したものを除き、新しい順に並べる', () => {
     expect(presentHome(initialState(), homeStore(), NOW).recent.map((r) => r.id)).toEqual(['s3', 's2']);
+    expect(presentHome(initialState(), homeStore(), NOW).recentPager).toBeNull();
+  });
+  // 30 件で切るのをやめ、全件をページで送る（セッション一覧と同じ件数）。
+  it('最近は全件をページに分け、いまのページの分だけを並べる', () => {
+    const store = initialStore();
+    store.bootstrapped = true;
+    store.projects = { alpha: project('alpha') };
+    store.sessions = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`e${i}`, session(`e${i}`, { lastActivityAt: NOW - 60_000 * (i + 1) })]));
+    const at = (page: number) => presentHome({ ...initialState(), pageSize: 25, listPages: { home: page } }, store, NOW);
+    expect(at(1).recent.map((r) => r.id).slice(0, 2)).toEqual(['e0', 'e1']);
+    expect(at(1).recentPager).toMatchObject({ page: 1, pageCount: 3, from: 1, to: 25, total: 60 });
+    expect(at(3).recent.map((r) => r.id)).toEqual(Array.from({ length: 10 }, (_, i) => `e${50 + i}`));
+    expect(presentHome({ ...initialState(), pageSize: 25 }, store, NOW).recentPager).toMatchObject({ page: 1 });
   });
   it('終わったセッションは札から消えて、最近に入る', () => {
     const store = homeStore();
@@ -484,7 +497,7 @@ describe('presentSessions', () => {
     expect(all.rows).toHaveLength(3);
     expect(all.projects.map((p) => p.name)).toEqual(['alpha', 'beta', 'old']);
     store = { ...store, search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: 2, snippets: [{ seq: 1, role: 'user', text: '…hi…', agentId: null }] }], total: 1 }, loading: false } };
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} , page: 1 } };
     const r = presentSessions(state, store, NOW);
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
@@ -495,7 +508,7 @@ describe('presentSessions', () => {
   });
   // seq は主線とサブエージェントで別々に振る。サブエージェントの seq で主線の本文へ跳ぶと、違う行に着く。
   it('跳び先は主線の抜粋だけから取り、主線の抜粋が無ければ跳ばない', () => {
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} , page: 1 } };
     const withSnippets = (snippets: { seq: number; role: string; text: string; agentId: string | null }[]) => presentSessions(state, { ...storeWith(), search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: snippets.length, snippets }], total: 1 }, loading: false } }, NOW).rows[0]!;
     const sub = { seq: 2, role: 'assistant', text: '…hi…', agentId: 'ag1' };
     const main = { seq: 9, role: 'user', text: '…hi…', agentId: null };
@@ -505,17 +518,43 @@ describe('presentSessions', () => {
     // 抜粋そのものは出す。一致がどこにあるかは読める。
     expect(onlySub.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
   });
-  it('切れた結果は、見せている件数と全件の数を分けて持ち、読み足しの最中を区別する', () => {
+  it('検索の結果は、届いたページの行と全件の数でページ送りを組む', () => {
     const base = storeWith();
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {}, page: 3 }, pageSize: 25 };
     const hits = [{ sessionId: 's1', matchCount: 1, snippets: [] }, { sessionId: 's2', matchCount: 1, snippets: [] }];
-    const done = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: false } }, NOW);
-    expect(done).toMatchObject({ shown: 2, total: 132, loading: false, loadingMore: false });
-    const more = presentSessions(state, { ...base, search: { params: { q: 'hi', offset: 2 }, result: { hits, total: 132 }, loading: true } }, NOW);
-    expect(more).toMatchObject({ shown: 2, total: 132, loading: false, loadingMore: true });
-    const fresh = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: true } }, NOW);
-    expect(fresh).toMatchObject({ loading: true, loadingMore: false });
-    expect(presentSessions(initialState(), base, NOW)).toMatchObject({ shown: 3, total: 3, loadingMore: false });
+    const done = presentSessions(state, { ...base, search: { params: { q: 'hi', limit: 25, offset: 50 }, result: { hits, total: 132 }, loading: false } }, NOW);
+    // 範囲はサーバの並びでの位置で言う（手元に無いセッションの行は描けないが、ページの位置は変わらない）。
+    expect(done).toMatchObject({ total: 132, loading: false, pager: { page: 3, pageCount: 6, size: 25, from: 51, to: 75 } });
+    expect(done.rows.map((r) => r.id)).toEqual(['s1', 's2']);
+    const loading = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: true } }, NOW);
+    expect(loading).toMatchObject({ loading: true });
+  });
+  // 条件もタブも無いときは節で読み、ページ送りは出さない（S1）。
+  it('節で読むときはページ送りを出さない', () => {
+    expect(presentSessions(initialState(), storeWith(), NOW)).toMatchObject({ total: 3, pager: null });
+  });
+  it('手元で組む平らな一覧は、いまのページの行だけを切り出す', () => {
+    const store = initialStore();
+    store.bootstrapped = true;
+    store.projects = { alpha: project('alpha') };
+    store.sessions = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`s${i}`, session(`s${i}`, { lastActivityAt: 1_000_000 - i })]));
+    const at = (page: number) => presentSessions({ ...initialState(), search: { text: '', filter: { projectId: 'alpha' }, page }, pageSize: 25 }, store, NOW);
+    expect(at(1)).toMatchObject({ total: 60, pager: { page: 1, pageCount: 3, size: 25, from: 1, to: 25 } });
+    expect(at(1).rows.map((r) => r.id).slice(0, 2)).toEqual(['s0', 's1']);
+    expect(at(3).rows.map((r) => r.id)).toEqual(Array.from({ length: 10 }, (_, i) => `s${50 + i}`));
+    expect(at(3).pager).toMatchObject({ from: 51, to: 60 });
+    // 件数を減らしたあとなどで後ろの端を越えたら、最後のページに丸める。
+    expect(at(9).pager).toMatchObject({ page: 3, from: 51, to: 60 });
+  });
+  it('いちばん小さい件数（25）以下しか無ければ、ページ送りを出さない', () => {
+    const r = presentSessions({ ...initialState(), search: { text: '', filter: { projectId: 'alpha' }, page: 1 } }, storeWith(), NOW);
+    expect(r.pager).toBeNull();
+  });
+  // 状態がどれも同じタブ（Done・Paused・Archived・印なし）は、行の状態の列を畳む。見出し（タブ）が言っているから。
+  it('状態がどれも同じタブでは、状態の列を畳む', () => {
+    const tab = (status: 'done' | 'paused' | 'archived' | 'none' | 'proposed' | 'active' | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { status }, page: 1 } }, storeWith(), NOW).statusColumn;
+    expect([tab('done'), tab('paused'), tab('archived'), tab('none')]).toEqual([false, false, false, false]);
+    expect([tab('proposed'), tab('active'), tab(undefined)]).toEqual([true, true, true]);
   });
   it('期間は日数で持ち、手元の一覧は今日の 0 時から数えて絞る', () => {
     const now = new Date(2026, 9, 1, 15, 30).getTime();
@@ -527,7 +566,7 @@ describe('presentSessions', () => {
       yesterday: session('yesterday', { lastActivityAt: new Date(2026, 8, 30, 23, 55).getTime() }),
       week: session('week', { lastActivityAt: new Date(2026, 8, 25, 1).getTime() }),
     };
-    const ids = (days: number | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { days } } }, store, now).rows.map((r) => r.id);
+    const ids = (days: number | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { days } , page: 1 } }, store, now).rows.map((r) => r.id);
     expect(ids(1)).toEqual(['today']);
     expect(ids(7)).toEqual(['today', 'yesterday', 'week']);
     expect(ids(undefined)).toHaveLength(3);
@@ -536,7 +575,7 @@ describe('presentSessions', () => {
     const store = storeWith();
     store.sessions.w1 = session('w1', { live: 'waiting' });
     store.runs = { r2: runDto('r2', 's2') };
-    const ids = (live: SearchFilter['live']) => presentSessions({ ...initialState(), search: { text: '', filter: { live } } }, store, NOW).rows.map((r) => r.id).sort();
+    const ids = (live: SearchFilter['live']) => presentSessions({ ...initialState(), search: { text: '', filter: { live } , page: 1 } }, store, NOW).rows.map((r) => r.id).sort();
     expect(ids('running')).toEqual(['s1', 's2']);
     expect(ids('waiting')).toEqual(['w1']);
     expect(ids('ended')).toEqual(['s3']);
@@ -547,7 +586,7 @@ describe('presentSessions', () => {
     const store = storeWith();
     const none = presentSessions(initialState(), store, NOW);
     expect(none).toMatchObject({ allCount: 3, conditions: [] });
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: '索引' }, search: { text: '索引', filter: { projectId: 'alpha', days: 7, live: 'waiting' as const, file: 'src/a.ts' } } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: '索引' }, search: { text: '索引', filter: { projectId: 'alpha', days: 7, live: 'waiting' as const, file: 'src/a.ts' } , page: 1 } };
     const r = presentSessions(state, { ...store, search: { params: { q: '索引' }, result: { hits: [], total: 0 }, loading: false } }, NOW);
     expect(r.allCount).toBe(3);
     expect(r.conditions).toEqual(['『索引』', '入力待ち', '7 日', 'alpha', 'src/a.ts']);
@@ -556,13 +595,13 @@ describe('presentSessions', () => {
     const withArchived = presentSessions(initialState(), { ...store, sessions: { ...store.sessions, s9: archived } }, NOW);
     expect(withArchived.allCount).toBe(3);
     expect(withArchived.tabs.find((t) => t.tab === 'all')!.count).toBe('3');
-    const today = presentSessions({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } } }, store, NOW);
+    const today = presentSessions({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } , page: 1 } }, store, NOW);
     expect(today.conditions).toEqual(['実行中', '今日']);
   });
   it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
     let store = storeWith();
     store = { ...store, search: { params: { q: '', file: 'a.md' }, result: { hits: [{ sessionId: 's2', matchCount: 3, snippets: [] }], total: 1 }, loading: false } };
-    const state = { ...initialState(), screen: { name: 'sessions' as const }, search: { text: '', filter: { file: 'a.md' } } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const }, search: { text: '', filter: { file: 'a.md' } , page: 1 } };
     const r = presentSessions(state, store, NOW);
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);

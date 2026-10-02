@@ -7,7 +7,7 @@ import { SessionsScreen } from './SessionsScreen.tsx';
 
 const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over });
 const TABS: StatusTabProps[] = ([['all', 'すべて', '1,236'], ['proposed', '確かめる', '3'], ['paused', 'Paused', '4'], ['active', 'Active', '2'], ['none', '印なし', '3'], ['done', 'Done', '1,221'], ['archived', 'Archived', '5']] as [StatusTab, string, string][]).map(([tab, label, count]) => ({ tab, label, count, hot: tab === 'proposed' }));
-const props = (over: Partial<SessionsProps> = {}): SessionsProps => ({ text: '', filter: {}, projects: [{ id: 'p1', name: 'agent-hangar' }, { id: 'p4', name: 'my app' }], rows: [], shown: 0, total: 0, loading: false, loadingMore: false, mode: 'all', allCount: 1241, conditions: [], tabs: TABS, tab: 'all', sections: null, tokens: [], hints: [], ...over });
+const props = (over: Partial<SessionsProps> = {}): SessionsProps => ({ text: '', filter: {}, projects: [{ id: 'p1', name: 'agent-hangar' }, { id: 'p4', name: 'my app' }], rows: [], total: 0, loading: false, mode: 'all', allCount: 1241, conditions: [], tabs: TABS, tab: 'all', sections: null, tokens: [], hints: [], pager: null, statusColumn: true, ...over });
 const mount = (over: Partial<SessionsProps> = {}, onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><SessionsScreen {...props(over)} /></IntentRoot>), onIntent });
 const tabs = () => within(screen.getByRole('group', { name: '状態' }));
 
@@ -88,7 +88,7 @@ describe('SessionsScreen の節', () => {
     expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
   it('平らな結果でも、行の状態の札でタブへ移る', () => {
-    const { onIntent } = mount({ rows: [row('a', { state: 'archived' })], shown: 1, total: 1, conditions: ['7 日'] });
+    const { onIntent } = mount({ rows: [row('a', { state: 'archived' })], total: 1, conditions: ['7 日'] });
     fireEvent.click(screen.getByRole('button', { name: 'Archived のセッションだけを見る' }));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'archived' } });
   });

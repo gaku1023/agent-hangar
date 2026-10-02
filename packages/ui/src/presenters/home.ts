@@ -3,6 +3,7 @@ import type { State } from '../mediator/types.ts';
 import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
+import { pageSlice, pagerOf, type PagerProps } from './pager.ts';
 import { liveCountsOf } from './projects.ts';
 import { candidateLabel, presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
 import { dueOn, returnKey } from './sections.ts';
@@ -40,11 +41,12 @@ export type ConfirmCard = TodoConfirmCard | SessionConfirmCard;
  * idle は何も動いていないこと（実行中の札も要対応の札も無い）で、真なら実行中の札の場所に 1 行の文を出す（試作 home-lists の F1）。
  * 入力待ちも生きたセッションなので、入力待ちがあるときは偽にする。今日戻るの札も要対応に並ぶので、あれば偽にする。
  */
-export type HomeProps = { attention: AttentionCard[]; returning: ReturnCard[]; confirm: ConfirmCard[]; running: RunningCard[]; recent: SessionRowProps[]; projects: ProjectMini[]; idle: boolean };
+export type HomeProps = { attention: AttentionCard[]; returning: ReturnCard[]; confirm: ConfirmCard[]; running: RunningCard[]; recent: SessionRowProps[]; recentPager: PagerProps | null; projects: ProjectMini[]; idle: boolean };
 
 /** 問いの文が取れなかった入力待ち（権限の確認など）に出す文。 */
 export const NO_QUESTION = '入力を待っています';
-const RECENT_LIMIT = 30;
+/** 最近のページの鍵（State の listPages）。 */
+export const HOME_PAGE_KEY = 'home';
 /** 今日戻るの理由が無いときに出す文。 */
 const NO_REASON = '理由は書かれていません';
 /** 提案の根拠が無いときに出す文。TODO の候補（presenters/project.ts）と同じ言い方にする。 */
@@ -57,7 +59,7 @@ function stripLeadingTool(tool: string, summary: string): string {
   return summary.startsWith(prefix) ? summary.slice(prefix.length) : summary;
 }
 
-export function presentHome(_state: State, store: Store, now: number): HomeProps {
+export function presentHome(state: State, store: Store, now: number): HomeProps {
   const sessions = Object.values(store.sessions);
   const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? null : null);
   const name = (s: SessionDto) => s.name ?? '（名前なし）';
@@ -108,7 +110,10 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
 
   // 札に出したものは最近に重ねない。
   const shown = new Set([...attention.map((c) => c.id), ...returning.map((c) => c.id), ...running.map((c) => c.id)]);
-  const recent = sessions.filter((s) => !shown.has(s.id)).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).slice(0, RECENT_LIMIT).map((s) => presentSessionRow(s, store, now));
+  // 全件をページに分け、いまのページの分だけを行にする（行を組むのは見せる分だけ）。
+  const ended = sessions.filter((s) => !shown.has(s.id)).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
+  const recentPager = pagerOf(state.listPages[HOME_PAGE_KEY] ?? 1, state.pageSize, ended.length);
+  const recent = pageSlice(ended, recentPager).map((s) => presentSessionRow(s, store, now));
 
   const projects = Object.values(store.projects).filter((p) => p.status === 'active' && !p.isScratch).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).map((p): ProjectMini => {
     // 実行中と入力待ちは、プロジェクトのカードと同じく手元のセッションから数える。
@@ -119,5 +124,5 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
     return { id: p.id, name: p.name, status: p.status, counts: counts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join(' · ') };
   });
 
-  return { attention, returning, confirm, running, recent, projects, idle: attention.length === 0 && running.length === 0 };
+  return { attention, returning, confirm, running, recent, recentPager, projects, idle: attention.length === 0 && running.length === 0 };
 }

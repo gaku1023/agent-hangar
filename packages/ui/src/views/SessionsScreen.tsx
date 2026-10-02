@@ -6,6 +6,7 @@ import type { SessionsProps, StatusTab } from '../presenters/sessions.ts';
 import { isComposing } from './ime.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { PageHeading } from './PageHeading.tsx';
+import { Pager } from './Pager.tsx';
 import { SessionRows } from './SessionRows.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
@@ -15,8 +16,6 @@ import { Segmented } from './primitives/Segmented.tsx';
  * 「今日」は暦の今日（0 時から）、「7 日」は今日とその前の 6 日である（mediator/screen.ts の periodStart）。
  */
 const PERIODS = [{ value: '', label: '全期間' }, { value: '1', label: '今日' }, { value: '7', label: '7 日' }, { value: '30', label: '30 日' }];
-/** サーバが 1 度に返す件数（server/src/search/search.ts の既定）。続きもこの件数ずつ読む。 */
-const PAGE = 50;
 /** 件数は桁を区切る（タブの件数と同じ書き方）。 */
 const fmt = (n: number) => n.toLocaleString('en-US');
 /** 欄が空のときの案内。トークンの書き方をここで見せる。 */
@@ -37,17 +36,9 @@ const unset = (key: keyof SearchFilter) => ({ [key]: undefined }) as Partial<Sea
 export function SessionsScreen(props: SessionsProps) {
   const emit = useEmit();
   const period = props.filter.days ? String(props.filter.days) : '';
-  // サーバが返したのが上位の一部なら、全件の数と並べて、並ぶ行の数と食い違わないようにする。
-  const count = props.loading ? '検索しています' : props.shown < props.total ? `上位 ${fmt(props.shown)} / ${fmt(props.total)} 件` : `${fmt(props.total)} 件`;
+  // 件数は条件に合う全件で、いまのページの範囲は下のページ送りの帯が言う。
+  const count = props.loading ? '検索しています' : `${fmt(props.total)} 件`;
   const filtered = props.conditions.length > 0;
-  const left = props.total - props.shown;
-  const more = props.mode === 'search' && !props.loading && left > 0;
-  const foot = more ? (
-    <div className="sessions-more">
-      <button type="button" className="btn btn-sm" disabled={props.loadingMore} onClick={() => emit({ type: 'search.more', offset: props.shown })}>{props.loadingMore ? '読み込んでいます' : `さらに ${Math.min(PAGE, left)} 件を読み込む`}</button>
-      <span className="faint">残り {fmt(left)} 件</span>
-    </div>
-  ) : undefined;
   const pickTab = (tab: StatusTab) => { if (tab !== props.tab) emit({ type: 'search.filter', patch: { status: tab === 'all' ? undefined : tab } }); };
   // 見出しの「この節だけ見る」「ほか N 件」「表示」は、その節のタブを選ぶのと同じにする。今日戻るにはタブが無いので出さない。
   const moreIntent = (target: SectionId): Intent | null => {
@@ -111,8 +102,9 @@ export function SessionsScreen(props: SessionsProps) {
         </div>
       )}
       {props.sections
-        ? <SessionRows id="session-results" items={props.sections} variant="search" autoFocus moreIntent={moreIntent} badgeIntent={badgeIntent} />
-        : <SessionRows id="session-results" rows={props.rows} variant="search" autoFocus loadingMore={props.loadingMore} emptyText={props.mode === 'search' && !props.loading ? '一致するセッションはありません' : undefined} foot={foot} badgeIntent={badgeIntent} />}
+        ? <SessionRows id="session-results" items={props.sections} variant="search" autoFocus statusColumn={props.statusColumn} moreIntent={moreIntent} badgeIntent={badgeIntent} />
+        : <SessionRows id="session-results" rows={props.rows} variant="search" autoFocus page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? '一致するセッションはありません' : undefined} badgeIntent={badgeIntent} />}
+      {props.pager && <Pager label="セッション" pager={props.pager} onPage={(page) => emit({ type: 'search.page', page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}
     </div>
   );
 }

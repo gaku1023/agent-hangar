@@ -32,8 +32,12 @@ export type Intent =
   | { type: 'palette.open' } | { type: 'palette.close' } | { type: 'palette.run'; command: PaletteCommand }
   // filter は Sessions の欄で Enter したときに、欄を読んだ条件をまるごと渡す（欄が正）。無ければ今の絞り込みを保つ（パレットの全文検索）。
   | { type: 'search.query'; text: string; filter?: SearchFilter } | { type: 'search.filter'; patch: Partial<SearchFilter> }
-  // サーバは上位の結果だけを返すので、続きは今の条件のまま offset から読み足す。
-  | { type: 'search.more'; offset: number }
+  // 平らな一覧（タブ・条件・検索の結果）のページを移る。page は 1 から数える。
+  | { type: 'search.page'; page: number }
+  // Home の最近とプロジェクト画面の一覧のページを移る。key は 'home' か 'project:<id>'。
+  | { type: 'list.page'; key: string; page: number }
+  // 1 ページの件数を変える（25・50・100・200）。どの一覧も同じ件数を使う。セッション一覧は見ていた先頭の行を含むページに留まる。
+  | { type: 'list.pageSize'; size: number }
   // 「条件をクリア」。語と絞り込みをまとめて外す。
   | { type: 'search.clear' }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }

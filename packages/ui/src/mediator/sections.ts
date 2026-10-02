@@ -1,3 +1,4 @@
+import { projectPageKey } from './paging.ts';
 import type { Input, State, Step } from './types.ts';
 
 /**
@@ -13,5 +14,7 @@ export function sectionsStep(state: State, input: Input): Step | null {
   const sectionsOpen = { ...state.sectionsOpen };
   if (next.length > 0) sectionsOpen[projectId] = next;
   else delete sectionsOpen[projectId];
-  return { state: { ...state, sectionsOpen }, effects: [] };
+  // 広げた行の並びが変わるので、ページ送りは 1 ページ目からにする。
+  const { [projectPageKey(projectId)]: _drop, ...listPages } = state.listPages;
+  return { state: { ...state, sectionsOpen, listPages }, effects: [] };
 }

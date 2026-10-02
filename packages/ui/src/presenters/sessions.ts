@@ -4,6 +4,7 @@ import type { State } from '../mediator/types.ts';
 import { liveFilterOfSession, runningSessionIds, type Store } from '../store/store.ts';
 import { absoluteTime } from './format.ts';
 import { markTerms } from './highlight.ts';
+import { pageSlice, pagerOf, type PagerProps } from './pager.ts';
 import { presentSessionRow, sortForSections, type SessionRowProps } from './row.ts';
 import { DONE_HEAD, matchesStatus, sectionRows, type ListItem } from './sections.ts';
 
@@ -13,13 +14,17 @@ export type StatusTab = 'all' | StatusFilter;
 export type StatusTabProps = { tab: StatusTab; label: string; count: string; hot: boolean };
 
 /**
- * total は条件に合う全件の数、shown はそのうち読み込んだ件数である。
- * サーバは上位の結果だけを返すので、検索では shown が total より小さいことがある。
- * loading は新しい問い合わせの最中、loadingMore は続きを読み足している最中を表す。
- * rows は条件に合う行の平らな並びで、sections は条件が無いときの節の並び（★）。sections が null なら rows を描く。
+ * total は条件に合う全件の数である。
+ * loading は問い合わせの最中を表す（ページを移ったときも含む）。
+ * rows は条件に合う行の平らな並びのうち、いまのページの分で、sections は条件が無いときの節の並び（★）。sections が null なら rows を描く。
+ * pager は平らな一覧のページ送りで、節で読むときと、いちばん小さい件数に収まるときは null。
+ * statusColumn は行の状態の列を出すか。状態がどれも同じタブ（Done・Paused・Archived・印なし）では畳む（F1）。
  * tabs は件数つきの状態のタブ、tab は選んでいるタブ、tokens は欄の中のチップ、hints は読めなかったトークンの知らせである。
  */
-export type SessionsProps = { text: string; filter: SearchFilter; projects: { id: string; name: string }[]; rows: SessionRowProps[]; shown: number; total: number; loading: boolean; loadingMore: boolean; mode: 'all' | 'search'; allCount: number; conditions: string[]; tabs: StatusTabProps[]; tab: StatusTab; sections: ListItem[] | null; tokens: QueryToken[]; hints: string[] };
+export type SessionsProps = { text: string; filter: SearchFilter; projects: { id: string; name: string }[]; rows: SessionRowProps[]; total: number; loading: boolean; mode: 'all' | 'search'; allCount: number; conditions: string[]; tabs: StatusTabProps[]; tab: StatusTab; sections: ListItem[] | null; pager: PagerProps | null; statusColumn: boolean; tokens: QueryToken[]; hints: string[] };
+
+/** 状態がどれも同じになるタブ。行の状態の列を畳む。 */
+const UNIFORM_TABS: StatusTab[] = ['done', 'paused', 'archived', 'none'];
 
 /** 期間の語。絞り込みの帯と同じ語を使う。 */
 const PERIOD_LABEL: Record<number, string> = { 1: '今日', 7: '7 日', 30: '30 日' };
@@ -75,7 +80,8 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
   const all = sortForSections(Object.values(store.sessions)).map((s) => ({ s, row: presentSessionRow(s, store, now) }));
   // 見出しの件数は条件に関わらず手元の全件で、「すべて」のタブと同じく Archived を除く。絞った結果の件数は条件の行が言う。
   const allCount = all.filter((x) => x.row.state !== 'archived').length;
-  const common: Pick<SessionsProps, 'tabs' | 'tab' | 'tokens' | 'hints'> = { tabs: presentTabs(all.map((x) => x.row)), tab: f.status ?? 'all', tokens: queryTokens(f, projects), hints: badTokens(state.search.text, projects).map(hintOf) };
+  const tab = f.status ?? 'all';
+  const common: Pick<SessionsProps, 'tabs' | 'tab' | 'tokens' | 'hints' | 'statusColumn'> = { tabs: presentTabs(all.map((x) => x.row)), tab, tokens: queryTokens(f, projects), hints: badTokens(state.search.text, projects).map(hintOf), statusColumn: !UNIFORM_TABS.includes(tab) };
   if (!usesServerSearch(state.search)) {
     let list = all;
     if (f.projectId) list = list.filter(({ s }) => s.projectId === f.projectId);
@@ -90,8 +96,11 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
     if (status) rows = rows.filter((r) => matchesStatus(r, status));
     else if (filtered) rows = rows.filter((r) => r.state !== 'archived');
     // 条件が無いときは節で読む。条件かタブがあれば平らな結果にする。
+    // 節は Done を畳んで短く保つので、ページに分けない（S1）。平らな一覧だけをいまのページの分に切り出す。
     const sections = filtered ? null : sectionRows(rows, 'sessions', { now, doneHead: DONE_HEAD, expanded: new Set() });
-    return { text: '', filter: f, projects, rows, shown: rows.length, total: rows.length, loading: false, loadingMore: false, mode: 'all', allCount, conditions, sections, ...common };
+    const pager = sections ? null : pagerOf(state.search.page, state.pageSize, rows.length);
+    const shown = pageSlice(rows, pager);
+    return { text: '', filter: f, projects, rows: shown, total: rows.length, loading: false, mode: 'all', allCount, conditions, sections, pager, ...common };
   }
   const result = store.search.result;
   const rows: SessionRowProps[] = [];
@@ -109,7 +118,8 @@ export function presentSessions(state: State, store: Store, now: number): Sessio
     if (state.search.text && main) row.jump = { seq: main.seq, q: state.search.text };
     rows.push(row);
   }
-  // 件数は手元に無い行も含めて数える。続きの offset はサーバの並びでの位置だからである。
-  const more = (store.search.params?.offset ?? 0) > 0;
-  return { text: state.search.text, filter: f, projects, rows, shown: result?.hits.length ?? 0, total: result?.total ?? 0, loading: store.search.loading && !more, loadingMore: store.search.loading && more, mode: 'search', allCount, conditions, sections: null, ...common };
+  // サーバはいまのページの分だけを返すので、行は切り出さずにそのまま並べる。件数は手元に無い行も含めた全件である。
+  const total = result?.total ?? 0;
+  const pager = pagerOf(state.search.page, state.pageSize, total);
+  return { text: state.search.text, filter: f, projects, rows, total, loading: store.search.loading, mode: 'search', allCount, conditions, sections: null, pager, ...common };
 }

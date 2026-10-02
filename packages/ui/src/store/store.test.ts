@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
@@ -328,17 +328,6 @@ describe('次の入力待ち（C5）', () => {
     expect(nextWaitingSession(s, null)).toBe('z');
     expect(nextWaitingSession(s, 'z')).toBe('x');
     expect(nextWaitingSession(s, 'x')).toBe('y');
-  });
-});
-
-describe('検索の続き', () => {
-  const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
-  it('続きを後ろに足し、持っている行と重なった行は足さない', () => {
-    // 読み足す間に並びがずれると、前のページの末尾が続きの先頭にもう一度来る。
-    const first = applySearch(initialStore(), { q: 'x' }, { hits: [hit('s1'), hit('s2')], total: 3 }, false);
-    const next = appendSearch(first, { q: 'x', offset: 2 }, { hits: [hit('s2'), hit('s3')], total: 3 });
-    expect(next.search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2', 's3']);
-    expect(next.search).toMatchObject({ loading: false, result: { total: 3 } });
   });
 });
 

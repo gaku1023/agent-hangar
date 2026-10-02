@@ -161,6 +161,17 @@ describe('presentProject の節（P3）', () => {
     const other = { ...initialState(), sectionsOpen: { beta: ['done' as const] } };
     expect(shape(presentProject(other, storeOf(list), NOW, 'alpha').items)).toHaveLength(6);
   });
+  // 広げた Done と Archived は何百件にもなるので、広げた節の行をページに分ける。上の節（続きなど）と見出しは毎ページ出す。
+  it('広げた節の行はページに分け、上の節と見出しは毎ページ出す', () => {
+    const many = [proposedNfd, ...Array.from({ length: 30 }, (_, i) => imported(`d${i}`, i + 1))];
+    const at = (page: number) => presentProject({ ...initialState(), sectionsOpen: { alpha: ['done' as const] }, pageSize: 25, listPages: { 'project:alpha': page } }, storeOf(many), NOW, 'alpha');
+    expect(shape(at(1).items).slice(0, 5)).toEqual(['# continue 1', 'nfd', '# done 30 [畳む ▴→done]', 'd0', 'd1']);
+    expect(at(1).items).toHaveLength(3 + 25);
+    expect(at(1).pager).toMatchObject({ page: 1, pageCount: 2, from: 1, to: 25, total: 30 });
+    expect(shape(at(2).items)).toEqual(['# continue 1', 'nfd', '# done 30 [畳む ▴→done]', 'd25', 'd26', 'd27', 'd28', 'd29']);
+    // 畳んでいる間はページに分けない。
+    expect(presentProject({ ...initialState(), pageSize: 25 }, storeOf(many), NOW, 'alpha').pager).toBeNull();
+  });
   it('見つからないプロジェクトは空の一覧', () => {
     expect(presentProject(initialState(), storeOf(list), NOW, 'nope').items).toEqual([]);
   });

@@ -1,11 +1,12 @@
 import { formatRoute, type Route } from '@agent-hangar/shared';
 import { useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
-import type { AttentionCard, ConfirmCard, HomeProps, ReturnCard, RunningCard } from '../presenters/home.ts';
+import { HOME_PAGE_KEY, type AttentionCard, type ConfirmCard, type HomeProps, type ReturnCard, type RunningCard } from '../presenters/home.ts';
 import type { OnboardingProps } from '../presenters/onboarding.ts';
 import { returnOnLabel } from '../presenters/row.ts';
 import { Onboarding } from './Onboarding.tsx';
 import { PageHeading } from './PageHeading.tsx';
+import { Pager } from './Pager.tsx';
 import { SESSION_ROW_H, SessionRows } from './SessionRows.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
@@ -84,7 +85,8 @@ export function HomeScreen(props: HomeProps & { onboarding?: OnboardingProps | n
       <div className="home-two">
         <section>
           <SectionHead title="最近" all={{ route: { name: 'sessions' }, label: 'すべてのセッションを見る' }} />
-          <SessionRows rows={props.recent} height={Math.min(props.recent.length, HOME_VISIBLE_ROWS) * SESSION_ROW_H} variant="recent" autoFocus />
+          <SessionRows rows={props.recent} height={Math.min(props.recent.length, HOME_VISIBLE_ROWS) * SESSION_ROW_H} variant="recent" autoFocus page={props.recentPager?.page} />
+          {props.recentPager && <Pager label="最近" pager={props.recentPager} onPage={(page) => emit({ type: 'list.page', key: HOME_PAGE_KEY, page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}
         </section>
         <section>
           <SectionHead title="プロジェクト" all={{ route: { name: 'projects' }, label: 'すべてのプロジェクトを見る' }} />

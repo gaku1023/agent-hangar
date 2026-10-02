@@ -2,6 +2,7 @@ import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchRes
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
+import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
 import { clampLivePaneSplit, LIVE_PANE_SPLIT_KEY, SIDEBAR_KEY } from '../mediator/sidebar.ts';
@@ -11,7 +12,7 @@ import { daysLabel } from '../presenters/retention.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import type { Notifier } from './notifier.ts';
@@ -259,12 +260,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const seq = ++searchSeq;
         // 期間の日数は、送るこの瞬間の時刻で since に直す。
         const params = toSearchParams(e.params, (deps.now ?? Date.now)());
+        // 読んでいる間も持っている行は消さない。届いたら、そのページの行に入れ替える。
         setStore(applySearch(store, params, store.search.result, true));
-        // offset の付いた問い合わせは続きなので、持っている結果の後ろに足す。
-        const more = (params.offset ?? 0) > 0;
-        // 失敗したら読み込み中を解く。解かないと「さらに読み込む」が押せないまま残る。
+        // 失敗したら読み込み中を解く。解かないとページ送りが「検索しています」のまま残る。
         deps.api.search(params)
-          .then((r) => { if (seq === searchSeq) setStore(more ? appendSearch(store, params, r) : applySearch(store, params, r, false)); })
+          .then((r) => { if (seq === searchSeq) setStore(applySearch(store, params, r, false)); })
           .catch((err) => { if (seq === searchSeq) setStore(applySearch(store, store.search.params ?? params, store.search.result, false)); fail(err); });
         return;
       }
@@ -546,6 +546,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
         ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, livePaneSplit: clampLivePaneSplit(deps.storage.get(LIVE_PANE_SPLIT_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
+        pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
         // 新しいセッションの書きかけと前回値。形の違う値（手で書き換えられたなど）は捨てる。
         newSessionDraft: readDraft(deps.storage.get(NEW_SESSION_DRAFT_KEY)), launchPrefs: readLaunchPrefs(deps.storage.get(LAUNCH_PREFS_KEY)),
       };
