@@ -32,9 +32,9 @@ a:hover { text-decoration: underline; }
    WebKit では目次のターンを開いただけで箱ごと上へずれ、手では戻せなかった。 */
 .shell { --col1: calc(var(--sidebar-w) + var(--float-gap)); position: relative; isolation: isolate; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); grid-template-rows: auto auto 1fr; height: 100%; overflow: clip; }
 /* ヘッダの左の列に置くもの（信号の 3 点とロゴ）の右端が --head-end である。畳んだ帯は 60px しかなく、ロゴはその外まで伸びる。
-   本文は --main-w を上限に本文の列の中央へ寄り（その左の余りが --box-l）、そこから --gutter-l 空けて始まる。検索欄も同じ位置から始まる。
-   --gutter-l は既定の 16px だが、それではロゴの右端より左に来てしまう間だけ、ロゴの右端まで広げる。広い窓で中央へ寄った本文は、畳んでもそれ以上右へ寄らない。 */
-.shell { --head-lead: calc(var(--u) * 4); --head-end: calc(var(--head-lead) + var(--brand-w) + var(--u) * 3); --box-l: max(0px, calc((100vw - var(--col1) - var(--main-w)) / 2)); --gutter-l: max(calc(var(--u) * 4), calc(var(--head-end) - var(--col1) - var(--box-l))); }
+   本文は --main-w を上限に本文の列の中央へ寄り（その左の余りが --box-l）、そこから --gutter-l（16px）空けて始まる。左のナビを畳んでも、帯のすぐ右から始める。
+   ヘッダの検索欄は、ロゴの右に並ぶので、ロゴに重ならない間だけ --gutter-head まで右へ寄せる。畳んでいる間は、本文と検索欄の左端は揃わない（設計書 2026-10-02-session-motion ①）。 */
+.shell { --head-lead: calc(var(--u) * 4); --head-end: calc(var(--head-lead) + var(--brand-w) + var(--u) * 3); --box-l: max(0px, calc((100vw - var(--col1) - var(--main-w)) / 2)); --gutter-l: calc(var(--u) * 4); --gutter-head: max(calc(var(--u) * 4), calc(var(--head-end) - var(--col1) - var(--box-l))); }
 [data-shell='desktop'] .shell { --head-lead: var(--lights-end); }
 .shell::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%); animation: aura-drift var(--aura-period) ease-in-out infinite alternate; }
 @keyframes aura-drift { to { transform: translate(5%, -4%) rotate(8deg) scale(1.05); } }
@@ -76,9 +76,7 @@ a:hover { text-decoration: underline; }
    container はレイアウトの封じ込めを伴い、封じ込めのある要素では subgrid が効かなくなるからである。
    狭いときに部品を畳むのは、この行の幅と中身の幅を測る useHeaderFold.ts である（下の「ヘッダの右の塊の畳み方」）。 */
 .header-row { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: calc(var(--u) * 4.5); min-width: 0; height: 100%; container: header / inline-size; }
-/* 「探す・移動」の錠剤の左端は、本文の左端と同じ式で決める。本文は --main-w を上限に本文の列の中央へ寄り、そこから --gutter-l 空けて始まる。
-   本文の列の幅は、この行の幅（100cqw）である。 */
-.header-row > .search-pill { margin-left: max(var(--gutter-l), calc((100cqw - var(--main-w)) / 2 + var(--gutter-l))); }
+.header-row > .search-pill { margin-left: max(var(--gutter-head), calc((100cqw - var(--main-w)) / 2 + var(--gutter-head))); }
 .header-row > .header-end { margin-right: calc(var(--u) * 3); }
 .header-end { display: flex; align-items: center; gap: calc(var(--u) * 4.5); flex: 0 1 auto; min-width: 0; }
 /* 中身はヘッダの下をくぐって流れる。上の余白は、ヘッダの高さと、その下の隙間の分である。
