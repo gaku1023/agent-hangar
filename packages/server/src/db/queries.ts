@@ -45,7 +45,7 @@ type SessionRow = {
   a_summary: string | null;
   a_question: string | null;
   local_mtime: number | null;
-  // session_states の左結合。ss_id が null なら行が無い（印なし）。
+  // session_states の左結合。ss_id が null なら行が無い（Active）。
   ss_id: string | null;
   ss_status: SessionStatus | null;
   ss_note: string | null;
@@ -202,7 +202,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     remoteOnly: r.has_transcript === 1 && r.has_local === 0,
     // 保持期間の期限を UI が数えるための、この PC の本文の更新時刻。Claude Code もこれで古さを測るとみなす。
     transcriptMtime: r.local_mtime,
-    // セッションの状態と提案。行が無ければ印なしの null。rejected_at は載せない（toStateDto）。
+    // セッションの状態と提案。行が無ければ Active の null。rejected_at は載せない（toStateDto）。
     state: r.ss_id === null ? null : toStateDto({
       status: r.ss_status, note: r.ss_note, return_on: r.ss_return_on, set_by: r.ss_set_by, set_at: r.ss_set_at,
       candidate_status: r.ss_c_status, candidate_note: r.ss_c_note, candidate_return_on: r.ss_c_return_on, candidate_source: r.ss_c_source, candidate_at: r.ss_c_at,

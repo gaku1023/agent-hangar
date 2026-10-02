@@ -377,6 +377,8 @@ describe('routes', () => {
     expect(await total('&status=done')).toBe(0);
     // 知らない値は絞り込みなしとして扱う。
     expect(await total('&status=bogus')).toBe(1);
+    // なくした none も知らない値で、絞り込みなしになる。
+    expect(await total('&status=none')).toBe(1);
   });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
@@ -1265,7 +1267,7 @@ describe('セッションの状態', () => {
     expect(sent.at(-1)).toMatchObject({ type: 'session.upsert', session: { id, state: { status: 'paused' } } });
     // Done は戻る日を持たない。
     expect((await (await send(`/api/sessions/${id}/state`, { status: 'done', returnOn: '2026-10-02' }, 'PUT')).json()).state).toMatchObject({ status: 'done', returnOn: null });
-    // null は印なしに戻す。
+    // null は Active に戻す。
     expect((await (await send(`/api/sessions/${id}/state`, { status: null }, 'PUT')).json()).state).toMatchObject({ status: null, note: null, returnOn: null, candidate: null });
   });
   it('PUT の誤りは 400 と 404。本文はトーストに出せる日本語の一文', async () => {

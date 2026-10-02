@@ -30,7 +30,7 @@ const NO_CANDIDATE = { candidate_status: null, candidate_note: null, candidate_r
 const NO_STATUS = { status: null, note: null, return_on: null, set_by: null, set_at: null } as const;
 const CLEARED = { ...NO_STATUS, ...NO_CANDIDATE, rejected_at: null } as const;
 
-/** 行の無いセッションの状態（印なし）。 */
+/** 行の無いセッションの状態（Active）。 */
 export const NO_STATE: SessionStateDto = { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null };
 
 /**
@@ -89,15 +89,15 @@ export function validateStateInput(status: SessionStatus, o: { note?: string | n
   return { note, returnOn: returnOnOf(status, o.returnOn) };
 }
 
-/** 今の状態。行が無いか論理削除されていれば null（印なし）。 */
+/** 今の状態。行が無いか論理削除されていれば null（Active）。 */
 export function getSessionState(db: Db, sessionId: string): SessionStateDto | null {
   const r = liveRow(db, sessionId);
   return r ? toStateDto(r) : null;
 }
 
 /**
- * 状態を書く（会話で選ぶ・手で選ぶ・印なしに戻す）。提案は消す。
- * 印なしに戻しても rejected_at は残す。却下は、そのセッションに新しい発言があるまで効く。
+ * 状態を書く（会話で選ぶ・手で選ぶ・Active に戻す）。提案は消す。
+ * Active に戻しても rejected_at は残す。却下は、そのセッションに新しい発言があるまで効く。
  * 検査はすべて書く前に済ませ、誤りは StateInputError にして何も書かない。
  */
 export function setSessionState(db: Db, deviceId: string, sessionId: string, o: { status: SessionStatus | null; note?: string | null; returnOn?: string | null; setBy: 'user' | 'conversation'; requireNote?: boolean; now?: number }): SessionStateDto {
@@ -163,7 +163,7 @@ function stateClears(cur: StateRow, promptTs: number, processStartOf: () => numb
  * 利用者の新しい発言（promptTs）で、古くなったものを外す。何か外したら true を返す。
  * 状態は resume した後の発言だけで外す（stateClears）。
  * 提案と却下の印は、発言がそれぞれの時刻より後なら外す。会話を続けたら前の提案は古く、却下の後に続けたらまた提案を出してよい。
- * 状態が無いときの set_at（印なしに戻した時刻）は比べない。
+ * 状態が無いときの set_at（Active に戻した時刻）は比べない。
  * 外すものが何も無ければ書かない。発言は数が多いので、毎回書くと D1 の無料枠を食う。
  */
 export function clearOnNewPrompt(db: Db, deviceId: string, sessionId: string, promptTs: number, processStartOf: () => number | null): boolean {

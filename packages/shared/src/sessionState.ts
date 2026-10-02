@@ -1,7 +1,7 @@
 /**
- * セッションの状態（Paused・Done・Archived）と Claude の提案。
- * 設計は docs/superpowers/specs/2026-10-01-session-status-design.md。サーバと UI が同じ型と日付の数え方を使う。
- * 印なし（既定）は status の null で表す。Active は持たず、動きから毎回出す。
+ * セッションの状態（Active・Paused・Done・Archived）と Claude の提案。
+ * 設計は docs/superpowers/specs/2026-10-01-session-status-design.md と 2026-10-02-unmarked-to-active-design.md。サーバと UI が同じ型と日付の数え方を使う。
+ * Active（既定）は status の null で表し、値としては持たない。動いているかどうかは状態ではなく動きである。
  */
 export type SessionStatus = 'paused' | 'done' | 'archived';
 /** 誰が付けたか。user は hangar の画面で選んだもの、conversation は会話の中で利用者が選んだもの、import は導入時の一括。 */

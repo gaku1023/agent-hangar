@@ -17,7 +17,7 @@ export type ArtifactId = string;
  * status はセッションの状態のタブ（★）。none は状態も提案も無いもの、active は動いているもの、proposed は Claude の提案が残っているもの。
  * 無ければ「すべて」で、条件を入れたときだけ Archived を除く（presenters/sessions.ts と、サーバの検索の hideArchived）。
  */
-export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; file?: string; status?: SessionStatus | 'none' | 'active' | 'proposed' };
+export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; file?: string; status?: SessionStatus | 'active' | 'proposed' };
 /** 状態のタブの値（「すべて」以外）。 */
 export type StatusFilter = NonNullable<SearchFilter['status']>;
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[] };
@@ -54,7 +54,7 @@ export type Intent =
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId }
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
   | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string } | { type: 'session.setMemo'; id: SessionId; text: string }
-  // セッションの状態（Paused・Done・Archived）。status の null は印なしに戻す。画面の正は後から届く session.upsert である。
+  // セッションの状態（Paused・Done・Archived）。status の null は Active に戻す。画面の正は後から届く session.upsert である。
   | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string }
   // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。
   | { type: 'session.state.confirm'; id: SessionId; returnOn?: string } | { type: 'session.state.reject'; id: SessionId }

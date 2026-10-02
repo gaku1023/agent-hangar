@@ -67,7 +67,7 @@ describe('会話で選ぶ・手で選ぶ', () => {
     expect(setSessionState(db, 'd', 's1', { status: 'paused', note: '', returnOn: '2026-10-02', setBy: 'user', now: 3 })).toEqual({ status: 'paused', note: null, returnOn: '2026-10-02', setBy: 'user', setAt: 3, candidate: null });
     expect(() => setSessionState(db, 'd', 's1', { status: 'paused', setBy: 'user' })).toThrow(new StateInputError('Paused には戻る日が要ります'));
   });
-  it('印なしに戻す：状態・理由・戻る日・提案を消し、rejected_at は残す', () => {
+  it('Active に戻す：状態・理由・戻る日・提案を消し、rejected_at は残す', () => {
     const db = seed();
     proposeSessionState(db, 'd', 's1', { ...paused, now: 100 });
     rejectSessionState(db, 'd', 's1', 200);
