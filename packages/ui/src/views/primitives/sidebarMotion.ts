@@ -83,9 +83,15 @@ function settle(shell: HTMLElement): void {
   endLayoutMotion(shell);
 }
 
+/** 動かさないときも、止まったことは知らせる。数えるので、begin と対にして呼ぶ。 */
+function settleNow(shell: HTMLElement): void {
+  beginLayoutMotion(shell);
+  settle(shell);
+}
+
 export function playSidebarMotion(shell: HTMLElement): void {
   const dur = motionMs('--dur', shell);
-  if (!dur || typeof shell.animate !== 'function') { settle(shell); return; }
+  if (!dur || typeof shell.animate !== 'function') { settleNow(shell); return; }
   const easing = motionEase('--ease-out', shell);
   // 開閉し直したら、前の動きを捨ててから測る。残したままだと、途中の形を前の形として測ってしまう。
   for (const a of shell.getAnimations({ subtree: true })) if (a.id === ID) a.cancel();
@@ -104,7 +110,8 @@ export function playSidebarMotion(shell: HTMLElement): void {
   // 本文と検索欄の左の余白（--gutter-l）は左の列の幅（--col1、base.css で登録してある）から決まるので、--col1 も同じ長さで動かす。
   // 列の幅そのものも並べて動かすのは、登録したカスタムプロパティの補間が効かない環境でも、開閉の動きだけは残すためである。
   const cols = shell.animate([{ gridTemplateColumns: F.cols, '--col1': F.col1 }, { gridTemplateColumns: L.cols, '--col1': L.col1 }], opts);
-  cols.finished.then(() => settle(shell), () => {});
+  // 取り消された動き（開閉し直した）は、数だけ返す。印（MOVING_ATTR）は、すぐ後に始まる新しい動きのものなので外さない。
+  cols.finished.then(() => settle(shell), () => endLayoutMotion(shell));
 
   // 項目の箱は位置と大きさと角の丸みを移し、中のアイコンは、箱の動きを打ち消したうえで自分の場所の差を移す。
   const shown = { visibility: 'visible' } as const;

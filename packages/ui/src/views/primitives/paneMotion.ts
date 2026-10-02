@@ -52,14 +52,14 @@ export function playPaneMotion(box: HTMLElement, from: PaneShape, inner: HTMLEle
     if (opening) inner.animate([{ opacity: 0, filter: blur }, { offset: 0.35, filter: 'none' }, { opacity: 1, filter: 'none' }], { duration: dur, easing, id: ID });
     else inner.animate([{ opacity: 1 }, { opacity: 0, filter: blur }], { duration: motionMs('--dur-exit', box), easing: motionEase('--ease-in', box), fill: 'forwards', id: ID });
   }
-  // 後始末は、いちばん新しい動きのものだけが行う。捨てた動きの後始末（非同期に来る）が、新しい動きの印や幅を外さないようにする。
+  // 幅の固定を外すのは、いちばん新しい動きの後始末だけにする。捨てた動きの後始末（非同期に来る）が、新しい動きの幅を外さないようにする。
+  // 動きの数は、取り消された分も含めて必ず 1 つずつ返す（layoutMotion が数えている）。
   const gen = (generation.get(box) ?? 0) + 1;
   generation.set(box, gen);
   const done = () => {
-    if (generation.get(box) !== gen) return;
-    if (inner) { inner.style.width = ''; inner.style.minWidth = ''; }
+    if (generation.get(box) === gen && inner) { inner.style.width = ''; inner.style.minWidth = ''; }
     endLayoutMotion(box);
   };
-  // 取り消されたときも後始末する（世代が替わっていなければ、新しい動きは無く、印が残ってしまう）。
+  // 取り消されたときも後始末する。
   return cols.finished.then(done, done);
 }

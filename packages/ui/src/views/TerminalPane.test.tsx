@@ -70,7 +70,7 @@ describe('TerminalPane', () => {
   });
   describe('帯の出入り（動く環境）', () => {
     let restore = () => {};
-    afterEach(() => { restore(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; });
+    afterEach(() => { restore(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations; });
     const install = () => {
       restore = fakeMotionTokens(undefined, { everywhere: true });
       let resolve!: () => void;
@@ -92,6 +92,31 @@ describe('TerminalPane', () => {
       expect(document.querySelector('.term-pane')).toHaveAttribute(LAYOUT_MOVING_ATTR);
       await act(async () => { resolve(); await Promise.resolve(); await Promise.resolve(); });
       expect(screen.queryByText('待っています')).toBeNull();
+      expect(document.querySelector('.term-pane')).not.toHaveAttribute(LAYOUT_MOVING_ATTR);
+    });
+    it('出る途中で案内が戻ったら、取り消された畳みの後始末では印が外れず、伸び直しが終わってから外れる', async () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      const anims: { resolve: () => void; reject: () => void }[] = [];
+      const live: { cancel: () => void }[] = [];
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () {
+        let resolve!: () => void; let reject!: () => void;
+        const finished = new Promise<void>((res, rej) => { resolve = res; reject = () => rej(new Error('cancelled')); });
+        const i = anims.push({ resolve, reject }) - 1;
+        const a = { finished, cancel: () => anims[i]!.reject() };
+        live.push(a);
+        return a;
+      };
+      // usePresence は戻ったときに部分木の動きを取り消す。jsdom に getAnimations は無いので、作った動きを返す。
+      (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => live;
+      const host = fakeHost();
+      const { rerender } = render(pane(host, '待っています'));
+      rerender(pane(host, null));
+      rerender(pane(host, '待っています'));
+      // 畳みが取り消され、伸び直しが始まっている。
+      expect(anims).toHaveLength(2);
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+      expect(document.querySelector('.term-pane')).toHaveAttribute(LAYOUT_MOVING_ATTR);
+      await act(async () => { anims[1]!.resolve(); await Promise.resolve(); await Promise.resolve(); });
       expect(document.querySelector('.term-pane')).not.toHaveAttribute(LAYOUT_MOVING_ATTR);
     });
     it('transcript の帯が消えるときは、畳む間も「いつのターンか」を読み続ける', async () => {

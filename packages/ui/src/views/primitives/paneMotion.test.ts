@@ -64,4 +64,32 @@ describe('playPaneMotion', () => {
     expect(box).toHaveAttribute('data-layout-moving');
     box.remove();
   });
+  // 重なった動きの片方が先に終わっても、もう片方が終わるまで印を残す。端末は止まってから 1 度だけ合わせる。
+  it('2 回重ねて呼ぶと、捨てた動きの後始末では印が外れず、新しい動きが終わってから外れて 1 度だけ知らせる', async () => {
+    for (const [k, v] of Object.entries({ '--dur': '420ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--blur-in': '6px' })) document.documentElement.style.setProperty(k, v);
+    const ctl: { resolve: () => void; reject: () => void }[] = [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (_f: Keyframe[], o: KeyframeAnimationOptions) {
+      if (o.id !== 'pane-motion') return { finished: new Promise(() => {}), cancel: vi.fn() };
+      let resolve!: () => void; let reject!: () => void;
+      const finished = new Promise<void>((res, rej) => { resolve = res; reject = () => rej(new Error('cancelled')); });
+      ctl.push({ resolve, reject });
+      return { finished, cancel: vi.fn() };
+    };
+    const box = document.createElement('div');
+    document.body.appendChild(box);
+    const settled = vi.fn();
+    window.addEventListener(LAYOUT_SETTLED, settled);
+    const p1 = playPaneMotion(box, PANE_SHAPE.split.open, null, false)!;
+    const p2 = playPaneMotion(box, PANE_SHAPE.split.closed, null, true)!;
+    ctl[0]!.reject();
+    await p1;
+    expect(box).toHaveAttribute(LAYOUT_MOVING_ATTR);
+    expect(settled).not.toHaveBeenCalled();
+    ctl[1]!.resolve();
+    await p2;
+    expect(box).not.toHaveAttribute(LAYOUT_MOVING_ATTR);
+    expect(settled).toHaveBeenCalledTimes(1);
+    window.removeEventListener(LAYOUT_SETTLED, settled);
+    box.remove();
+  });
 });

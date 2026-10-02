@@ -95,4 +95,26 @@ describe('layoutMotion', () => {
     expect(settled).toHaveBeenCalledTimes(1);
     window.removeEventListener(LAYOUT_SETTLED, settled);
   });
+  // 動きが重なっても、最後の 1 つが終わるまで印を残し、止まったことは 1 度だけ知らせる。
+  it('重なった動きは数え、最後の 1 つが終わるまで印を残して、そのときに 1 度だけ知らせる', () => {
+    const el = document.createElement('div');
+    const settled = vi.fn();
+    window.addEventListener(LAYOUT_SETTLED, settled);
+    beginLayoutMotion(el);
+    beginLayoutMotion(el);
+    endLayoutMotion(el);
+    expect(el).toHaveAttribute(LAYOUT_MOVING_ATTR);
+    expect(settled).not.toHaveBeenCalled();
+    endLayoutMotion(el);
+    expect(el).not.toHaveAttribute(LAYOUT_MOVING_ATTR);
+    expect(settled).toHaveBeenCalledTimes(1);
+    // 余分な end は数を負にせず、知らせもしない。
+    endLayoutMotion(el);
+    expect(settled).toHaveBeenCalledTimes(1);
+    beginLayoutMotion(el);
+    expect(el).toHaveAttribute(LAYOUT_MOVING_ATTR);
+    endLayoutMotion(el);
+    expect(el).not.toHaveAttribute(LAYOUT_MOVING_ATTR);
+    window.removeEventListener(LAYOUT_SETTLED, settled);
+  });
 });
