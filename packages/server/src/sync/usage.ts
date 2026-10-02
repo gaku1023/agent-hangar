@@ -36,6 +36,8 @@ export function toUsageDto(body: CloudUsageBody | null, o: { quota: QuotaCounter
   if (body === null || !body.configured) return o.stale && o.lastGood ? { ...o.lastGood, stale: true } : estimate({ ...o, notice: null });
   const invalid = body.errors.find((e) => e.message.startsWith(INVALID));
   if (invalid && !body.today && !body.plan && !body.month) return estimate({ ...o, notice: invalid.message });
+  // 今日の数が無いまま見積もりを Cloudflare の数として出さない。前に取れた今日の数も無ければ見積もりの姿にする。
+  if (!body.today && !o.lastGood?.today) return estimate({ ...o, stale: true, notice: invalid?.message ?? null });
   const base = estimate({ ...o, notice: null });
   return {
     ...base,
@@ -68,6 +70,8 @@ export class CloudUsagePoller {
   private lastGood: CloudUsageDto | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private inflight: Promise<CloudUsageDto | null> | null = null;
+  /** stop の後に届いた結果は捨てる。閉じた DB を読まず、閉じたハブへも配らない。 */
+  private stopped = false;
   private readonly now: () => number;
   private readonly timers: Pick<Timers, 'setInterval' | 'clearInterval'>;
 
@@ -80,31 +84,43 @@ export class CloudUsagePoller {
 
   start(): void {
     if (!this.o.client || this.timer) return;
+    this.stopped = false;
     void this.refresh();
     this.timer = this.timers.setInterval(() => { void this.refresh(); }, USAGE_POLL_MS);
     (this.timer as { unref?: () => void }).unref?.();
   }
 
-  stop(): void { if (this.timer) { this.timers.clearInterval(this.timer); this.timer = null; } }
+  stop(): void {
+    this.stopped = true;
+    if (this.timer) { this.timers.clearInterval(this.timer); this.timer = null; }
+  }
 
+  /** 決して reject しない。呼び手の多くは結果を捨てる（void）ので、落ちればプロセスごと落ちる。 */
   refresh(): Promise<CloudUsageDto | null> {
-    if (!this.o.client) return Promise.resolve(null);
-    if (this.o.isPaused()) return Promise.resolve(this.last ?? this.publish(toUsageDto(null, { quota: this.o.quota, now: this.now(), stale: false, lastGood: null })));
-    this.inflight ??= this.load().finally(() => { this.inflight = null; });
+    if (!this.o.client || this.stopped) return Promise.resolve(this.o.client ? this.last : null);
+    try {
+      if (this.o.isPaused()) return Promise.resolve(this.last ?? this.publish(toUsageDto(null, { quota: this.o.quota, now: this.now(), stale: false, lastGood: null })));
+    } catch {
+      return Promise.resolve(this.last);
+    }
+    this.inflight ??= this.load().catch(() => this.last).finally(() => { this.inflight = null; });
     return this.inflight;
   }
 
-  private async load(): Promise<CloudUsageDto> {
+  private async load(): Promise<CloudUsageDto | null> {
     const now = this.now();
+    let body: CloudUsageBody;
     try {
-      const body = await this.o.client!.usage();
-      const dto = toUsageDto(body, { quota: this.o.quota, now, stale: false, lastGood: this.lastGood });
-      if (dto.source === 'cloudflare' && !dto.stale) this.lastGood = dto;
-      return this.publish(dto);
+      body = await this.o.client!.usage();
     } catch {
+      if (this.stopped) return this.last;
       // 同期は止めない。トーストも出さない。設定画面の出どころの文だけで知らせる。
       return this.publish(toUsageDto(null, { quota: this.o.quota, now, stale: true, lastGood: this.lastGood }));
     }
+    if (this.stopped) return this.last;
+    const dto = toUsageDto(body, { quota: this.o.quota, now, stale: false, lastGood: this.lastGood });
+    if (dto.source === 'cloudflare' && !dto.stale) this.lastGood = dto;
+    return this.publish(dto);
   }
 
   private publish(dto: CloudUsageDto): CloudUsageDto {

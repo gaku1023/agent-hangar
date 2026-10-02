@@ -46,6 +46,17 @@ describe('toUsageDto', () => {
     const d = toUsageDto({ ...BODY, today: null, plan: null, month: null, errors: ['today', 'plan', 'month'].map((part) => ({ part: part as 'today', message: msg })) }, { quota: quota(), now: NOW, stale: false, lastGood: null });
     expect(d).toMatchObject({ source: 'estimate', notice: msg });
   });
+  it('今日の数が取れず、前に取れた今日の数も無ければ、見積もりを Cloudflare の数と偽らない', () => {
+    const q = quota();
+    q.note({ rows: 26700, requests: 3640 });
+    const d = toUsageDto({ ...BODY, today: null, errors: [{ part: 'today', message: 'Cloudflare が誤りを返しました' }] }, { quota: q, now: NOW, stale: false, lastGood: null });
+    expect(d).toMatchObject({ source: 'estimate', stale: true, today: { d1RowsWritten: 26700, workersRequests: 3640 } });
+  });
+  it('今日の数が取れなくても、前に取れた今日の数があれば Cloudflare の数として stale で出す', () => {
+    const good = toUsageDto(BODY, { quota: quota(), now: NOW, stale: false, lastGood: null });
+    const d = toUsageDto({ ...BODY, today: null, errors: [{ part: 'today', message: 'Cloudflare が誤りを返しました' }] }, { quota: quota(), now: NOW, stale: false, lastGood: good });
+    expect(d).toMatchObject({ source: 'cloudflare', stale: true, today: { d1RowsWritten: 23480 } });
+  });
   it('Workers Paid はプランの語を変える', () => {
     const d = toUsageDto({ ...BODY, plan: { ...BODY.plan!, workersPaid: true, items: [{ id: 'workers_paid', name: 'Workers Paid', priceUsd: 5, frequency: 'monthly' }] } }, { quota: quota(), now: NOW, stale: false, lastGood: null });
     expect(d.plan).toEqual({ label: 'Workers Paid', workersPaid: true });
@@ -92,6 +103,32 @@ describe('CloudUsagePoller', () => {
   it('同期を設定していない端末は null', async () => {
     const p = new CloudUsagePoller({ client: null, quota: quota(), isPaused: () => false, broadcast: () => {}, now: () => NOW });
     expect(await p.refresh()).toBeNull();
+  });
+  it('stop の後に届いた結果は配らず、DB も読まず、refresh も落ちない', async () => {
+    for (const outcome of ['resolve', 'reject'] as const) {
+      const db = openDb(':memory:');
+      const q = new QuotaCounter({ state: new SyncStateStore(db), now: () => NOW });
+      let settle!: { resolve: (b: CloudUsageBody) => void; reject: (e: Error) => void };
+      const client = { usage: () => new Promise<CloudUsageBody>((resolve, reject) => { settle = { resolve, reject }; }) } as unknown as ConstructorParameters<typeof CloudUsagePoller>[0]['client'];
+      const sent: CloudUsageDto[] = [];
+      const p = new CloudUsagePoller({ client, quota: q, isPaused: () => false, broadcast: (u) => sent.push(u), now: () => NOW });
+      const pending = p.refresh();
+      p.stop();
+      // 閉じる途中を真似る。stop の後に DB を読めば、ここで投げる。
+      db.close();
+      if (outcome === 'resolve') settle.resolve(BODY);
+      else settle.reject(new Error('socket closed'));
+      await expect(pending).resolves.toBeNull();
+      expect(sent).toEqual([]);
+      expect(p.current()).toBeNull();
+    }
+  });
+  it('閉じた DB を読んで失敗しても refresh は落ちない', async () => {
+    const db = openDb(':memory:');
+    const q = new QuotaCounter({ state: new SyncStateStore(db), now: () => NOW });
+    const client = { usage: async () => { db.close(); throw new Error('offline'); } } as unknown as ConstructorParameters<typeof CloudUsagePoller>[0]['client'];
+    const p = new CloudUsagePoller({ client, quota: q, isPaused: () => false, broadcast: () => {}, now: () => NOW });
+    await expect(p.refresh()).resolves.toBeNull();
   });
   it('start は 5 分ごとに取りに行き、stop で止まる', async () => {
     vi.useFakeTimers();
