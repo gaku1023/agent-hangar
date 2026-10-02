@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type Ref } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import { clampLivePaneSplit, LIVE_PANE_SPLIT_DEFAULT } from '../mediator/sidebar.ts';
 import type { LivePaneProps, StepRowProps } from '../presenters/live.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { motionEase, motionMs, motionValue } from './primitives/motion.ts';
-import { motionOn, popMark, riseIn } from './primitives/motionKit.ts';
+import { motionOn, popMark, riseIn, slideFrom } from './primitives/motionKit.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
 
 /** 離したとき、どちらかの端の下限までこれより近ければ、その端へ畳む（設計書 ④）。 */
@@ -82,27 +82,50 @@ function StepRow({ s, rowRef, leaving }: { s: StepRowProps; rowRef: (el: HTMLEle
  * 上の段の高さは境目の比率（split）そのもので、中身が短ければ下に余白が残る。あふれた分は上の段の中でスクロールする。
  * どちらの端へも、見出しの 1 行を残す所まで引ける。
  * ドラッグの途中は比率をここだけで持ち、離したときに 1 度だけ livePane.split を出す（毎フレーム状態機械を回さない）。
+ * pane が null のとき（会話が終わったとき）は目次だけを描く（設計書 ⑩）。
+ * 目次は、pane の有無にかかわらず同じ位置の同じ要素に置く。作り直すとスクロールの位置が飛ぶため。
  */
-export function LivePane({ sessionId, pane, lead, children, split = LIVE_PANE_SPLIT_DEFAULT, artifacts = [] }: { sessionId: string; pane: LivePaneProps; lead?: ReactNode; children: ReactNode; split?: number; artifacts?: ArtifactCardProps[] }) {
+export function LivePane({ sessionId, pane, leaving, lead, children, split = LIVE_PANE_SPLIT_DEFAULT, artifacts = [], ref }: { sessionId: string; pane: LivePaneProps | null; leaving?: boolean; lead?: ReactNode; children: ReactNode; split?: number; artifacts?: ArtifactCardProps[]; ref?: Ref<HTMLDivElement> }) {
   const emit = useEmit();
   // 手、レーン、成果物の出入り。セッションを替えたときは別のものなので動かさない（scope）。
-  const steps = useMotionList(pane.steps, (s) => s.key, { enter: 'grow', scope: sessionId });
-  const lanes = useMotionList(pane.lanes, (l) => l.agentId, { enter: 'grow', scope: sessionId });
-  const arts = useMotionList(artifacts, (a) => a.id, { enter: 'grow', hit: true, scope: sessionId });
+  // pane が無いときも、フックは空の並びで呼ぶ（空の並びは数え直しなので、何も動かさない）。
+  const steps = useMotionList(pane?.steps ?? [], (s) => s.key, { enter: 'grow', scope: sessionId });
+  const lanes = useMotionList(pane?.lanes ?? [], (l) => l.agentId, { enter: 'grow', scope: sessionId });
+  const arts = useMotionList(pane ? artifacts : [], (a) => a.id, { enter: 'grow', hit: true, scope: sessionId });
   const liveRef = useRef<HTMLDivElement>(null);
+  // 「いま」の段の出入りで目次の位置が替わったら、前の位置から滑らせる（FLIP）。上の段が戻ったときは、上の段を入る形で入れる。
+  // セッションを替えた描画では、前のセッションの位置から動かさない。
+  const tocRef = useRef<HTMLDivElement>(null);
+  const tocTop = useRef<DOMRect | null>(null);
+  const had = useRef(pane !== null);
+  const lastSession = useRef(sessionId);
   const [dragging, setDragging] = useState<number | null>(null);
   // 上の段が上限で切れていて、下に続きがあるか。あるときだけ下の端をぼかし、中でスクロールできることを見せる。
   const topRef = useRef<HTMLDivElement>(null);
   const [more, setMore] = useState(false);
   const measure = () => { const t = topRef.current; if (t) setMore(t.scrollHeight - t.scrollTop - t.clientHeight > 2); };
   useLayoutEffect(measure);
+  useLayoutEffect(() => {
+    const toc = tocRef.current;
+    if (!toc) return;
+    const now = toc.getBoundingClientRect();
+    if (had.current !== (pane !== null) && tocTop.current && lastSession.current === sessionId) {
+      slideFrom(toc, tocTop.current, now);
+      if (pane && topRef.current) riseIn(topRef.current);
+    }
+    had.current = pane !== null;
+    tocTop.current = now;
+    lastSession.current = sessionId;
+  });
+  // 上の段は pane の有無で出し入れするので、出るたびに見張り直す。
+  const shown = pane !== null;
   useEffect(() => {
     const t = topRef.current;
     if (!t || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(measure);
     ro.observe(t);
     return () => ro.disconnect();
-  }, []);
+  }, [shown]);
   const ratio = dragging ?? split;
   const onPointerDown = (e: PointerEvent) => {
     e.preventDefault();
@@ -132,10 +155,11 @@ export function LivePane({ sessionId, pane, lead, children, split = LIVE_PANE_SP
   };
   const percent = Math.round(ratio * 100);
   return (
-    <div ref={liveRef} className="live" data-dragging={dragging !== null ? 'true' : undefined} style={{ '--live-split': String(ratio) } as CSSProperties}>
-      {/* 見出し（右欄を畳むボタンを含む）は上の段のスクロールに入れず、いつも見えるところに置く。 */}
-      <div className="live-pane-head">{lead}<span className="faint">いま</span></div>
-      <div ref={topRef} className="live-top" data-more={more ? 'true' : undefined} onScroll={measure}>
+    <div ref={(el) => { liveRef.current = el; if (typeof ref === 'function') ref(el); else if (ref) ref.current = el; }} className="live" data-off={pane ? undefined : 'true'} data-leaving={leaving ? 'true' : undefined} data-dragging={dragging !== null ? 'true' : undefined} style={{ '--live-split': String(ratio) } as CSSProperties}>
+      {/* 見出し（右欄を畳むボタンを含む）は上の段のスクロールに入れず、いつも見えるところに置く。
+          条件の要素は目次より前に並べ、目次が同じ要素のまま残るようにする。 */}
+      {pane && <div className="live-pane-head">{lead}<span className="faint">いま</span></div>}
+      {pane && <div ref={topRef} className="live-top" data-more={more ? 'true' : undefined} onScroll={measure}>
         <div className="live-lamp" data-tone={pane.lamp.tone}>
           <span className="live-dot" data-tone={pane.lamp.tone} />
           <span className="live-lamp-head">{pane.lamp.head}</span>
@@ -181,12 +205,12 @@ export function LivePane({ sessionId, pane, lead, children, split = LIVE_PANE_SP
             ))}
           </section>
         )}
-      </div>
+      </div>}
       {/* 上の段と目次の境目。ドラッグか上下の矢印で動かし、ダブルクリックで半分に戻す。 */}
-      <div className="live-divider" role="separator" aria-label="「いま」と目次の高さ" aria-orientation="horizontal"
+      {pane && <div className="live-divider" role="separator" aria-label="「いま」と目次の高さ" aria-orientation="horizontal"
         aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-valuetext={`「いま」${percent}%`} tabIndex={0}
-        onPointerDown={onPointerDown} onKeyDown={onKeyDown} onDoubleClick={() => emit({ type: 'livePane.split', ratio: LIVE_PANE_SPLIT_DEFAULT })} />
-      <div className="live-toc">{children}</div>
+        onPointerDown={onPointerDown} onKeyDown={onKeyDown} onDoubleClick={() => emit({ type: 'livePane.split', ratio: LIVE_PANE_SPLIT_DEFAULT })} />}
+      <div ref={tocRef} className="live-toc">{children}</div>
     </div>
   );
 }

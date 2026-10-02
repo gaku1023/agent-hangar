@@ -299,6 +299,18 @@ describe('SessionScreen（実行中）', () => {
     withHost(<SessionScreen {...running} artifacts={artifacts} livePane={livePane} transcriptOpen={false} />);
     expect(screen.getByRole('button', { name: /アーティファクト 1/ })).toBeInTheDocument();
   });
+  it('「いま」が消えても目次は作り直さない（スクロールの位置を保つ）', () => {
+    const livePane = { lamp: { tone: 'busy' as const, head: '作業中', sub: '' }, intent: { kind: 'none' as const, text: 'x' }, steps: [], lanes: [], doneFolded: 0 };
+    const ui = (lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
+    const { rerender } = render(ui(livePane));
+    const before = document.querySelector('.turns');
+    rerender(ui(null));
+    expect(document.querySelector('.live-top')).toBeNull();
+    expect(document.querySelector('.turns')).toBe(before);
+    rerender(ui(livePane));
+    expect(document.querySelector('.live-top')).not.toBeNull();
+    expect(document.querySelector('.turns')).toBe(before);
+  });
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SS {...running} transcriptOpen={false} />);
     expect(screen.queryByText('hi')).toBeNull();
@@ -333,6 +345,43 @@ describe('SessionScreen（実行中）', () => {
       await act(async () => { finish(); await finished; });
       expect(document.querySelector('.tr-pane-inner')).toBeNull();
       expect(document.querySelector('.tr-pane')).not.toHaveAttribute('data-leaving');
+    });
+    const livePane = { lamp: { tone: 'busy' as const, head: '作業中', sub: '' }, intent: { kind: 'none' as const, text: '最後の意図' }, steps: [], lanes: [], doneFolded: 0 };
+    it('会話が終わったら「いま」を薄れさせ、終わるまで最後の中身を残し、目次は作り直さない', async () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      let finish: () => void = () => {};
+      const finished = new Promise<void>((r) => { finish = r; });
+      const faded: Element[] = [];
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, f: Keyframe[]) {
+        if (f.at(-1)?.opacity === 0) faded.push(this);
+        return { finished, cancel: vi.fn() };
+      };
+      const ui = (lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui(livePane));
+      const before = document.querySelector('.turns');
+      rerender(ui(null));
+      expect(document.querySelector('.live')).toHaveAttribute('data-leaving', 'true');
+      expect(document.querySelector('.live-top')).toHaveTextContent('最後の意図');
+      expect(faded.map((el) => el.className)).toEqual(expect.arrayContaining(['live-pane-head', 'live-top', 'live-divider']));
+      await act(async () => { finish(); await finished; });
+      expect(document.querySelector('.live-top')).toBeNull();
+      expect(document.querySelector('.live')).not.toHaveAttribute('data-leaving');
+      expect(document.querySelector('.turns')).toBe(before);
+    });
+    it('別のセッションへ替えたときは、前のセッションの「いま」を薄れさせずにすぐ外す', () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      const animate = vi.fn(function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; });
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const ui = (id: string, lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} id={id} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui('s1', livePane));
+      animate.mockClear();
+      rerender(ui('s2', null));
+      expect(document.querySelector('.live-top')).toBeNull();
+      expect(document.querySelector('.live-pane-head')).toBeNull();
+      expect(document.querySelector('.live')).not.toHaveAttribute('data-leaving');
+      expect(screen.queryByText('最後の意図')).toBeNull();
+      // 目次も滑らせない（前のセッションの位置から動かさない）。
+      expect(animate.mock.calls.length).toBe(0);
     });
   });
   it('情報の行の数（ターン、トークン、コスト）は数の回転で出す', () => {

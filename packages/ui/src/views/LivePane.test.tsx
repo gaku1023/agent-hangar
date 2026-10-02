@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { act } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { LivePaneProps } from '../presenters/live.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
@@ -29,6 +29,12 @@ describe('LivePane', () => {
     const order = ['2 本動いている', '「答え終えた会話だけ止める」', 'テストを走らせる', '壊れる担当', '済 2', '目次'].map((s) => text.indexOf(s));
     expect(order.every((n) => n >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+  it('pane が無ければ目次だけを描き、見出しと上の段と境目を出さない', () => {
+    render(<IntentRoot onIntent={vi.fn()}><LivePane sessionId="s1" pane={null}><div>目次</div></LivePane></IntentRoot>);
+    expect(screen.getByText('目次')).toBeInTheDocument();
+    expect(document.querySelector('.live-top')).toBeNull();
+    expect(screen.queryByRole('separator')).toBeNull();
   });
   it('自己申告だけに引用符を付ける', () => {
     mount(pane());
@@ -99,6 +105,51 @@ describe('LivePane', () => {
       restore();
       delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
     }
+  });
+  describe('「いま」の出入りと目次の滑り', () => {
+    const frames: { el: Element; frames: Keyframe[] }[] = [];
+    let restore: () => void = () => {};
+    beforeEach(() => {
+      restore = fakeMotionTokens({ '--dur-fast': '200ms', '--dur': '420ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+      frames.length = 0;
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, f: Keyframe[]) {
+        frames.push({ el: this, frames: f });
+        return { finished: new Promise<void>(() => {}), cancel: vi.fn() };
+      };
+      // 目次は、上の段がある間は 200px、無いときは 40px の高さにあるとみなす。
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        const top = this.classList.contains('live-toc') && this.parentElement?.querySelector('.live-top') ? 200 : 40;
+        return { top, left: 0, right: 0, bottom: top, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+      });
+    });
+    afterEach(() => {
+      restore();
+      vi.restoreAllMocks();
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    });
+    const at = (sessionId: string, p: LivePaneProps | null) => <IntentRoot onIntent={vi.fn()}><LivePane sessionId={sessionId} pane={p}><div className="turns">目次</div></LivePane></IntentRoot>;
+    const tocSlides = () => frames.filter((f) => f.el.classList.contains('live-toc'));
+    it('「いま」が消えたら目次を前の位置から上へ滑らせ、戻ったら下へ滑らせて上の段を入れる', () => {
+      const { rerender } = render(at('s1', pane()));
+      const toc = document.querySelector('.live-toc');
+      frames.length = 0;
+      rerender(at('s1', null));
+      expect(document.querySelector('.live-toc')).toBe(toc);
+      expect(tocSlides().map((f) => f.frames[0]!.transform)).toEqual(['translate(0px, 160px)']);
+      frames.length = 0;
+      rerender(at('s1', pane()));
+      expect(tocSlides().map((f) => f.frames[0]!.transform)).toEqual(['translate(0px, -160px)']);
+      expect(frames.some((f) => f.el.classList.contains('live-top'))).toBe(true);
+    });
+    it('セッションを替えた描画では、目次を滑らせず、上の段も入れない', () => {
+      const { rerender } = render(at('s1', pane()));
+      frames.length = 0;
+      rerender(at('s2', null));
+      expect(tocSlides()).toHaveLength(0);
+      rerender(at('s3', pane()));
+      expect(tocSlides()).toHaveLength(0);
+      expect(frames.some((f) => f.el.classList.contains('live-top'))).toBe(false);
+    });
   });
   it('古い意図は data-stale を持つ', () => {
     mount(pane({ intent: { kind: 'said', text: 'x', meta: 'm', stale: true } }));

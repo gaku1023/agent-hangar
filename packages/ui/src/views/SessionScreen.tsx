@@ -8,6 +8,8 @@ import { PageHeading } from './PageHeading.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { ToggleChip } from './primitives/Chip.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
+import { motionEase, motionMs, motionValue } from './primitives/motion.ts';
+import { motionOn } from './primitives/motionKit.ts';
 import { Listbox } from './primitives/Listbox.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
@@ -51,6 +53,19 @@ export function SessionScreen(props: SessionProps) {
     if (props.transcriptOpen && boxRef.current) void playPaneMotion(boxRef.current, shape.closed, pane.ref.current, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.transcriptOpen]);
+  // 「いま」の出入り（設計書 ⑩）。消えるときは、ランプの色が替わるのを待ってから、見出し、上の段、境目を薄れさせ、終わったら外す。
+  // 消える間は最後の livePane を描き続ける。
+  // 画面はセッションごとに作り直されないので、最後に「いま」を出したセッションを覚え、別のセッションへ替えたときは薄れさせずにすぐ外す。
+  const lastLive = useRef(props.livePane);
+  const liveSession = useRef(props.id);
+  if (props.livePane) { lastLive.current = props.livePane; liveSession.current = props.id; }
+  const live = usePresence<HTMLDivElement>(props.livePane !== null, (el) => {
+    if (liveSession.current !== props.id || !motionOn(el)) return null;
+    const parts = el.querySelectorAll<HTMLElement>(':scope > .live-pane-head, :scope > .live-top, :scope > .live-divider');
+    const blur = `blur(${motionValue('--blur-in', el)})`;
+    const anims = [...parts].map((p) => p.animate([{ opacity: 1 }, { opacity: 0, filter: blur }], { duration: motionMs('--dur-exit', el), delay: motionMs('--dur', el), easing: motionEase('--ease-in', el), fill: 'forwards' }));
+    return Promise.all(anims.map((a) => a.finished)).catch(() => undefined);
+  });
   if (props.notFound) return <div className="screen"><div className="empty">セッションが見つかりません</div></div>;
   // run は知っているのに、そのセッションの情報がまだ届いていない状態。
   if (props.loadingSession) return <div className="screen"><div className="empty">セッションを読み込んでいます</div></div>;
@@ -130,6 +145,8 @@ export function SessionScreen(props: SessionProps) {
       return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} agent={agentTab} transcript={transcript} />;
     };
     // 分割は .split の左の列の中でさらに 2 列に割る。高さは外側の .split から 100% で伝わる。
+    // 出る間は最後の livePane を描く。
+    const livePane = live.mounted ? (props.livePane ?? (liveSession.current === id ? lastLive.current : null)) : null;
     const terminals = props.split ? <SplitPane left={terminal(props.split.left)} right={terminal(props.split.right)} /> : terminal(props.selectedTab);
     return (
       <div className="screen session-screen">
@@ -143,11 +160,12 @@ export function SessionScreen(props: SessionProps) {
           <aside className="tr-pane" data-collapsed={props.transcriptOpen ? undefined : 'true'} data-leaving={pane.leaving ? 'true' : undefined}>
             {pane.mounted && (
               <div ref={(el) => { pane.ref.current = el; }} className="tr-pane-inner">
-                {(() => {
-                  const toc = <TurnIndex sessionId={id} runId={run.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} pending={props.turnsPending} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={props.livePane ? undefined : paneToggle} />;
-                  // 実行中は右ペインの上に「いま」を出し、目次は一番下に残す。終わった run では今までどおり目次だけ。
-                  return props.livePane ? <LivePane sessionId={id} pane={props.livePane} lead={paneToggle} split={props.livePaneSplit} artifacts={props.artifacts}>{toc}</LivePane> : toc;
-                })()}
+                {/* 実行中は右ペインの上に「いま」を出し、目次は一番下に残す。終わった run では目次だけ。
+                    目次は「いま」の有無にかかわらず LivePane の中の同じ位置に置き、作り直さない（スクロールの位置を保つ）。
+                    前のセッションの「いま」は、別のセッションへ替えた描画では描かない。 */}
+                <LivePane ref={live.ref} sessionId={id} pane={livePane} leaving={live.leaving} lead={paneToggle} split={props.livePaneSplit} artifacts={props.artifacts}>
+                  <TurnIndex sessionId={id} runId={run.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} pending={props.turnsPending} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={livePane ? undefined : paneToggle} />
+                </LivePane>
               </div>
             )}
           </aside>
