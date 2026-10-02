@@ -102,7 +102,7 @@ type CloudUsageBody =
 - `month` は billable-usage の行を `ServiceName` ごとに足す。単位は `PricingUnit`（実物では `ConsumedUnit` が空文字だった）。`billedUsd` は `BilledCost` の和、`throughDay` は最新の `ChargePeriodEnd` の前日（UTC）。
 - 三つは独立に取り、一つが落ちても残りは返す。落ちた部分は `null` にして `errors` に 1 行の理由を載せる。理由に API の生の応答やトークンを載せない。
 - 写しは isolate のメモリに持つ。`today` は 5 分、`plan` と `month` は 6 時間。D1 にも R2 にも置かない（書けば、数えている書き込みそのものが増える）。
-  workers.dev では Cache API が効かないと理解しているので使わない（実装の最初に確かめる。効くならメモリの写しの代わりに使ってよい）。
+  Cloudflare の文書は workers.dev での Cache API について記載がない（2026-10-02 に確かめた。packages/cloud/src/usage.ts の頭の注記）。isolate のメモリの写しで足りるので使わない。
 - 無料プランの CPU は 1 要求 10ms。55 行ほどの JSON を足すだけで、本文を読み回す処理は無い。サブリクエストは最大 3 本。
 
 ### 2. 端末のサーバ
