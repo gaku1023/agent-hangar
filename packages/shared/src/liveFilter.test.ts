@@ -23,16 +23,19 @@ describe('liveFilterOf', () => {
 });
 
 describe('isParked', () => {
-  const base = { status: 'paused' as const, setAt: 1000, live: 'idle' as const, processStartedAt: 500 };
+  const base = { status: 'paused' as const, setBy: 'conversation' as const, setAt: 10_000, live: 'idle' as const, processStartedAt: 5_000 };
   it('状態が付いていて、休みで、プロセスの起動が印より前なら真', () => {
     expect(isParked(base)).toBe(true);
-    expect(isParked({ ...base, status: 'done' })).toBe(true);
-    expect(isParked({ ...base, status: 'archived' })).toBe(true);
+    expect(isParked({ ...base, status: 'done', setBy: 'user' })).toBe(true);
+    expect(isParked({ ...base, status: 'archived', setBy: 'user' })).toBe(true);
   });
   it('印なしは偽', () => {
-    expect(isParked({ ...base, status: null, setAt: null })).toBe(false);
+    expect(isParked({ ...base, status: null, setBy: null, setAt: null })).toBe(false);
     // 印なしに戻した時刻だけが残っている行も、印なしである。
     expect(isParked({ ...base, status: null })).toBe(false);
+  });
+  it('導入時の一括 Done（import）は偽。利用者が区切ると決めたものではない', () => {
+    expect(isParked({ ...base, status: 'done', setBy: 'import' })).toBe(false);
   });
   it('作業中と入力待ちは偽。動いている間は今までどおり出す', () => {
     expect(isParked({ ...base, live: 'busy' })).toBe(false);
@@ -42,10 +45,13 @@ describe('isParked', () => {
     expect(isParked({ ...base, live: null })).toBe(false);
   });
   it('印より後に起動したプロセス（再開したもの）は偽', () => {
-    expect(isParked({ ...base, processStartedAt: 1001 })).toBe(false);
+    expect(isParked({ ...base, processStartedAt: 10_001 })).toBe(false);
   });
-  it('印と同じ時刻に起動したものは真。秒より細かい起動時刻は取れない', () => {
-    expect(isParked({ ...base, processStartedAt: 1000 })).toBe(true);
+  it('起動時刻は秒までしか取れないので、印の 1 秒以上前に起動したものだけを真にする。同じ秒の再開を止めない', () => {
+    // 12:00:05.800 に再開したプロセスの起動時刻は 12:00:05.000 と読める。12:00:05.300 の印より前に見えても、前とは言い切れない。
+    expect(isParked({ ...base, processStartedAt: 10_000 })).toBe(false);
+    expect(isParked({ ...base, processStartedAt: 9_001 })).toBe(false);
+    expect(isParked({ ...base, processStartedAt: 9_000 })).toBe(true);
   });
   it('起動時刻が取れなければ偽。見えない所で止めるより、残る方が害が小さい', () => {
     expect(isParked({ ...base, processStartedAt: null })).toBe(false);

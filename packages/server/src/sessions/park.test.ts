@@ -30,6 +30,13 @@ describe('parkedSessionIds', () => {
     setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: T('2026-10-02T02:00:00.000Z') });
     expect(parkedSessionIds(db, [live('u1'), live('u-unknown')])).toEqual([]);
   });
+  it('同じ会話に登録が 2 つあるとき（hangar の run と外のターミナルなど）は返さない。どのプロセスが休みなのか決められない', () => {
+    const db = seed();
+    setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: SET_AT });
+    expect(parkedSessionIds(db, [live('u1'), live('u1', 'busy')])).toEqual([]);
+    expect(parkedSessionIds(db, [live('u1', 'busy'), live('u1')])).toEqual([]);
+    expect(parkedSessionIds(db, [live('u1'), live('u1')])).toEqual([]);
+  });
   it('動いているものが無ければ空', () => {
     expect(parkedSessionIds(seed(), [])).toEqual([]);
   });
@@ -96,6 +103,19 @@ describe('ParkWatch', () => {
     s.now = 22_000;
     watch.tick();
     expect(s.stopped).toEqual(['s1', 's1']);
+  });
+
+  it('動きが変わったと知らされたら、休みの数え直しになる。見回りの合間の一瞬の作業中を見逃さない', () => {
+    const { s, watch } = setup();
+    s.parked = ['s1'];
+    watch.tick();
+    s.now = 9_000;
+    watch.reset('s1');
+    watch.tick();
+    s.now = 12_000;
+    expect(watch.tick()).toEqual([]);
+    s.now = 19_000;
+    expect(watch.tick()).toEqual(['s1']);
   });
 
   it('止める処理が投げても、ほかの会話は止める', () => {

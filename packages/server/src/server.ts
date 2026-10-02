@@ -26,7 +26,7 @@ import { MemoStore } from './projects/memo.ts';
 import { promoteSession } from './projects/promote.ts';
 import { assignSession, assignSessions, checkProjectRoots, syncProjectsFromWorkspace } from './projects/registry.ts';
 import { ensureScratchProject } from './projects/scratch.ts';
-import { RegistryWatcher } from './provider/claude-code/registry.ts';
+import { readRegistry, RegistryWatcher } from './provider/claude-code/registry.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
 import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
@@ -575,7 +575,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // UI は live.update から動きしか直せないので、印の付いたものだけ行ごと配り直す。
     for (const providerSessionId of statusChanged(liveStatus, live)) {
       const sessionId = sessionIdOf(providerSessionId);
-      const s = sessionId ? getSession(db, live, sessionId, { deviceId: device.id }) : null;
+      if (!sessionId) continue;
+      // 動きが変わったら、休みの数え直しにする。
+      parkWatch.reset(sessionId);
+      const s = getSession(db, live, sessionId, { deviceId: device.id });
       if (s?.state?.status) hub.broadcast({ type: 'session.upsert', session: s });
     }
     liveStatus = new Map(live.map((l) => [l.sessionId, l.status]));
@@ -637,7 +640,12 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     live: () => registry.current(),
   });
   // 区切り（Paused・Done・Archived）を付けたセッションが休みになったら、Claude を止める。
-  const parkWatch = new ParkWatch({ parkedIds: () => parkedSessionIds(db, registry.current()), stop: (id) => runs.park(id) });
+  // 登録は 500 ミリ秒ごとの写しではなく、その場で読み直す。打ったばかりの発言で作業中に変わった会話を、古い写しのまま止めないためである。
+  // 読めなかったときは、何も止めない。
+  const parkWatch = new ParkWatch({
+    parkedIds: () => { try { return parkedSessionIds(db, readRegistry(claudeDir), device.id); } catch { return []; } },
+    stop: (id) => runs.park(id),
+  });
   const usage = new UsageTracker(db);
   const memos = new MemoStore({ db, deviceId: device.id, home });
   // Claude への切り替えの件数はプロセスの寿命で数えるので、要約器はここで 1 度だけ作り、
@@ -832,6 +840,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
 
   registry.start();
   liveIds = new Set(registry.current().map((l) => l.sessionId));
+  // 起動のときに動いていた会話の動きも覚えておく。最初の読み取りは onChange を通らない。
+  liveStatus = new Map(registry.current().map((l) => [l.sessionId, l.status]));
   await indexer.start();
   syncProjectsFromWorkspace(db, device.id, settings.workspaceRoot);
   assignSessions(db, device.id);

@@ -1079,10 +1079,13 @@ describe.skipIf(!TMUX)('run に配る秘密は、その run の入口しか開�
 });
 
 describe('区切りを付けたセッションを止める（tmux 不要）', () => {
-  it('生きた run を parked で終わらせ、シェルのタブは残す', () => {
+  /** シェルのタブの tmux セッションだけが残っている偽の tmux。Claude のセッションは落とせたことになる。 */
+  const tmuxWithoutRun = () => fakeTmux('echo "hangar-r1-t1"\nexit 0');
+
+  it('落とせたことを tmux で確かめてから、run を parked で終わらせる。シェルのタブは残す', () => {
     const { runId, sessionId, tabId } = seedRun();
     addTranscript(sessionId);
-    const rm = make({ tmux: null });
+    const rm = make({ tmux: tmuxWithoutRun() });
     const ended: RunDto[] = [];
     rm.on({ runEnded: (r) => ended.push(r) });
     expect(rm.park(sessionId)).toBe(true);
@@ -1090,11 +1093,41 @@ describe('区切りを付けたセッションを止める（tmux 不要）', ()
     expect(rm.getRun(runId)!.endedAt).not.toBeNull();
     // kill と違い、タブは閉じない。動かしていたサーバなどを黙って落とさない。
     expect(rm.getTab(tabId)).not.toBeNull();
+    expect(rm.tick()).toEqual({ ended: [], closedTabs: [] });
+  });
+
+  it('tmux が無ければ何もしない。止められていないのに run を閉じると、動いている claude を見失う', () => {
+    const { runId, sessionId } = seedRun();
+    addTranscript(sessionId);
+    const rm = make({ tmux: null });
+    expect(rm.park(sessionId)).toBe(false);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+  });
+
+  it('tmux を呼べなかったときは run を閉じず、次の見回りで消えたのを見てから parked で閉じる', () => {
+    const { runId, sessionId } = seedRun();
+    addTranscript(sessionId);
+    const rm = make({ tmux: fakeTmux('echo "lost server" >&2\nexit 1') });
+    expect(rm.park(sessionId)).toBe(true);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+    rm.setTmux(tmuxWithoutRun());
+    expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'parked']]);
+  });
+
+  it('落としたはずのセッションが残っていたら、run は閉じない。後で自分で終わったら exited にする', () => {
+    const { runId, sessionId } = seedRun();
+    addTranscript(sessionId);
+    const rm = make({ tmux: fakeTmux('echo "hangar-r1"\necho "hangar-r1-t1"\nexit 0') });
+    expect(rm.park(sessionId)).toBe(true);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+    expect(rm.tick().ended).toEqual([]);
+    rm.setTmux(tmuxWithoutRun());
+    expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'exited']]);
   });
 
   it('止めるものが無ければ偽を返し、何も終わらせない', () => {
     const { sessionId } = seedRun({ endedAt: 5 });
-    const rm = make({ tmux: null });
+    const rm = make({ tmux: tmuxWithoutRun() });
     const ended: RunDto[] = [];
     rm.on({ runEnded: (r) => ended.push(r) });
     expect(rm.park(sessionId)).toBe(false);
@@ -1106,7 +1139,7 @@ describe('区切りを付けたセッションを止める（tmux 不要）', ()
     const { runId, sessionId } = seedRun();
     const row = db.prepare('select * from runs where id = ?').get(runId) as Record<string, unknown>;
     upsertShared(db, 'runs', { ...row, device_id: 'other' }, 'other');
-    const rm = make({ tmux: null });
+    const rm = make({ tmux: tmuxWithoutRun() });
     expect(rm.park(sessionId)).toBe(false);
     expect(rm.getRun(runId)!.endedAt).toBeNull();
   });
@@ -1124,7 +1157,7 @@ describe('区切りを付けたセッションを止める（tmux 不要）', ()
     const id = seedOldSession();
     const live = [liveEntry({ status: 'idle' })];
     const f = fakeProcs(live);
-    const rm = make({ tmux: null, live: () => live, procs: f.procs });
+    const rm = make({ tmux: tmuxWithoutRun(), live: () => live, procs: f.procs });
     expect(rm.park(id)).toBe(false);
     expect(f.calls.claude).toEqual([]);
     expect(f.calls.terminate).toEqual([]);

@@ -429,7 +429,7 @@ export function createApp(deps: AppDeps): Hono {
     const liveStatus = new Map(deps.live().map((l) => [l.sessionId, l.status]));
     const alive = new Set(deps.runs.listAlive().runs.filter((r) => r.endedAt === null).map((r) => r.sessionId));
     // 区切りを付けて休みのまま残っているものは、画面と同じく終了に数える。
-    const parked = new Set(parkedSessionIds(db, deps.live()));
+    const parked = new Set(parkedSessionIds(db, deps.live(), deviceId));
     const liveOf = (sid: string, psid: string) => liveFilterOf(liveStatus.get(psid) ?? null, alive.has(sid), parked.has(sid));
     return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf));
   });

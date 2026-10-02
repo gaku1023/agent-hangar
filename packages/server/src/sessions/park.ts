@@ -6,14 +6,19 @@ import type { LiveSession } from '../provider/types.ts';
 /**
  * 区切り（Paused・Done・Archived）を付けたのに、休みのまま残っているセッションの id。
  * 判定は一覧に載せる parked と同じもの（shared の isParked）を使う。画面が実行中から外すものと、ここで止めるものを揃えるためである。
+ * 同じ会話に登録が 2 つ以上あるときは返さない。hangar の run と外のターミナルの両方で開いていると、
+ * 休みなのがどちらのプロセスか決められず、作業中の run を落としかねない。
+ * deviceId は、起動時刻の代わりに使う run をこの端末のものに限るために渡す。
  * 休みの会話だけを引くので、動いている会話が多くても軽い。
  */
-export function parkedSessionIds(db: Db, live: readonly LiveSession[]): string[] {
+export function parkedSessionIds(db: Db, live: readonly LiveSession[], deviceId?: string): string[] {
+  const entries = new Map<string, number>();
+  for (const l of live) entries.set(l.sessionId, (entries.get(l.sessionId) ?? 0) + 1);
   const out: string[] = [];
   for (const l of live) {
-    if (l.status !== 'idle') continue;
+    if (l.status !== 'idle' || entries.get(l.sessionId) !== 1) continue;
     const row = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(l.sessionId) as { id: string } | undefined;
-    if (row && getSession(db, [l], row.id)?.parked) out.push(row.id);
+    if (row && getSession(db, [l], row.id, deviceId ? { deviceId } : {})?.parked) out.push(row.id);
   }
   return out;
 }
@@ -46,6 +51,11 @@ export class ParkWatch {
   private seen = new Map<string, { since: number; tried: boolean }>();
 
   constructor(private readonly deps: ParkWatchDeps) {}
+
+  /** そのセッションの動きが変わった。休みの数え直しにする。見回りの合間に一瞬だけ作業中になった場合を拾う。 */
+  reset(sessionId: string): void {
+    this.seen.delete(sessionId);
+  }
 
   /** 1 回見回る。止めたセッションの id を返す。 */
   tick(): string[] {

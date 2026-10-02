@@ -513,6 +513,34 @@ describe('startServer', () => {
       await s.close();
     }
   }, 20000);
+  it('印を付けたセッションは、動きが変わるたびに行ごと配り直す。休みになれば parked が立ち、作業中に戻れば外れる', async () => {
+    // UI は live.update から動きしか直せない。行を配り直さないと、休みになっても実行中の札に残る。
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const token = tokenOf();
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const c = collector(s.port, token);
+    try {
+      await c.opened;
+      const list = (await (await fetch(`http://127.0.0.1:${s.port}/api/sessions`, { headers })).json()) as SessionDto[];
+      const alpha = list.find((x) => x.providerSessionId === SESSION_ALPHA)!;
+      const put = await fetch(`http://127.0.0.1:${s.port}/api/sessions/${alpha.id}/state`, { method: 'PUT', headers, body: JSON.stringify({ status: 'paused', note: '明日見る', returnOn: '2099-01-01' }) });
+      expect(put.status).toBe(200);
+      const reg = path.join(claudeDir, 'sessions', '12345.json');
+      const rec = JSON.parse(fs.readFileSync(reg, 'utf8')) as Record<string, unknown>;
+      // 印より前に起動したプロセスが、休みになった。
+      const upsertAfter = (from: number, pred: (x: SessionDto) => boolean) =>
+        c.waitFor((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert' && e.session.id === alpha.id && c.all().indexOf(e) >= from && pred(e.session));
+      let from = c.all().length;
+      fs.writeFileSync(reg, JSON.stringify({ ...rec, status: 'idle', procStart: 'Tue Sep  1 10:00:00 2026' }));
+      expect((await upsertAfter(from, (x) => x.live === 'idle')).session.parked).toBe(true);
+      from = c.all().length;
+      fs.writeFileSync(reg, JSON.stringify({ ...rec, status: 'busy', procStart: 'Tue Sep  1 10:00:00 2026' }));
+      expect((await upsertAfter(from, (x) => x.live === 'busy')).session.parked).toBe(false);
+    } finally {
+      c.close();
+      await s.close();
+    }
+  }, 20000);
 });
 
 describe('ルートの復帰', () => {

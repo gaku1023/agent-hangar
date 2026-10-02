@@ -67,6 +67,8 @@ export class RunManager {
   private timer: ReturnType<typeof setInterval> | null = null;
   /** 引き取りの途中のセッション。二度押しで元のプロセスを止めて移す手順が 2 本走らないようにする。 */
   private adopting = new Set<string>();
+  /** 区切りを付けたので落としにいった run。tmux から消えたのを見たときに、終わり方を parked と書くために持つ。 */
+  private parking = new Set<string>();
 
   constructor(private readonly deps: RunManagerDeps) {}
 
@@ -226,6 +228,7 @@ export class RunManager {
     const row = this.db.prepare('select * from runs where id = ? and deleted_at is null').get(runId) as Record<string, unknown> | undefined;
     if (!row || row.ended_at !== null) return null;
     upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
+    this.parking.delete(runId);
     const run = getRun(this.db, runId)!;
     // claude はもう居ない。秘密の入った設定ファイルを残さず、秘密そのものも無効にする。
     removeMcpConfig(this.deps.home, run.sessionId);
@@ -472,10 +475,12 @@ export class RunManager {
     }
     for (const run of listAliveRuns(this.db, this.deviceId)) {
       if (!names.has(run.tmuxName)) {
-        const e = this.end(run.id, 'exited');
+        const e = this.end(run.id, this.parking.has(run.id) ? 'parked' : 'exited');
         if (e) ended.push(e);
         continue;
       }
+      // 落としにいったのに残っているなら、落とせていない。後で自分で終わったときに parked と書かないよう、印を外す。
+      this.parking.delete(run.id);
       if (now - run.heartbeatAt >= HEARTBEAT_MS) {
         const row = this.db.prepare('select * from runs where id = ?').get(run.id) as Record<string, unknown>;
         upsertShared(this.db, 'runs', { ...row, heartbeat_at: now }, this.deviceId);
@@ -554,15 +559,21 @@ export class RunManager {
   /**
    * 区切り（Paused・Done・Archived）を付けたセッションの Claude を止める。止めるものがあれば true を返す。
    * kill と違い、シェルのタブは残す。利用者がそこで動かしているサーバなどを、印を付けただけで落とさないためである。
-   * この端末の生きた run は parked で終わらせる。hangar の run が無いバックグラウンドのセッションは、本体だけを止める。
+   * この端末の生きた run は、tmux から消えたのを確かめてから parked で終わらせる。hangar の run が無いバックグラウンドのセッションは、本体だけを止める。
    * 外のターミナルや VS Code で動く claude には触らない（run もバックグラウンドの id も無いので、ここでは何も起きない）。
    */
   park(sessionId: string): boolean {
     const run = listAliveRuns(this.db, this.deviceId).filter((r) => r.sessionId === sessionId).at(-1) ?? null;
     const background = this.stopBackground(sessionId);
-    if (!run) return background;
-    this.deps.tmux?.killSession(run.tmuxName);
-    this.end(run.id, 'parked');
+    const tmux = this.deps.tmux;
+    // tmux が無ければ run には触らない。止められていないのに run を閉じると、動いている claude を hangar が見失う。
+    if (!run || !tmux) return background;
+    tmux.killSession(run.tmuxName);
+    this.parking.add(run.id);
+    // 落とせたことを一覧で確かめてから閉じる。確かめられなければ、次の見回り（tick）に任せる。
+    // すぐ閉じるのは、claude が登録から消えてから見回りが来るまでの間、画面に「起動しています」と出さないためである。
+    const listed = tmux.listSessions();
+    if (listed !== null && !listed.includes(run.tmuxName)) this.end(run.id, 'parked');
     return true;
   }
 

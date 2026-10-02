@@ -360,6 +360,21 @@ describe('区切りを付けて休みのまま残っているセッション（p
     addRun({ id: 'r-alive', started: 3000 });
     expect(getSession(db, noStart, alphaId())!.parked).toBe(true);
   });
+  it('生きた run の始まりは、この端末の run だけを見る。他の端末に残った行で止めない', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 5000 });
+    const noStart = idle();
+    delete noStart[0]!.procStart;
+    upsertShared(db, 'runs', { id: 'r-other', session_id: alphaId(), device_id: 'other', kind: 'start', tmux_name: 'hangar-r-other', pid: null, launch_params: '{}', started_at: 3000, ended_at: null, end_reason: null, heartbeat_at: 3000 }, 'other');
+    expect(getSession(db, noStart, alphaId(), { deviceId: 'd' })!.parked).toBe(false);
+    expect(listSessions(db, noStart, { deviceId: 'd' }).find((s) => s.id === alphaId())!.parked).toBe(false);
+    addRun({ id: 'r-mine', started: 3000 });
+    expect(getSession(db, noStart, alphaId(), { deviceId: 'd' })!.parked).toBe(true);
+  });
+  it('導入時の一括 Done は偽', () => {
+    db.prepare("insert into session_states (session_id, status, set_by, set_at, updated_at, origin_device) values (?, 'done', 'import', ?, ?, 'import')").run(alphaId(), STARTED + 60_000, STARTED + 60_000);
+    expect(getSession(db, idle(), alphaId())!.state!.status).toBe('done');
+    expect(getSession(db, idle(), alphaId())!.parked).toBe(false);
+  });
   it('再開した run が生きていれば、登録に起動時刻が無くても偽', () => {
     setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 5000 });
     addRun({ id: 'r-resumed', started: 6000 });
@@ -381,6 +396,13 @@ describe('区切りを付けたので止めたセッション（stoppedByStatus�
   });
   it('印が無ければ偽', () => {
     addRun({ id: 'r1', started: 1000, ended: 2000, reason: 'parked' });
+    expect(getSession(db, [], alphaId())!.stoppedByStatus).toBe(false);
+  });
+  it('止めた後に付け直した印では偽。その印のために止めたのではない', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 1500 });
+    addRun({ id: 'r1', started: 1000, ended: 2000, reason: 'parked' });
+    setSessionState(db, 'd', alphaId(), { status: null, setBy: 'user', now: 2500 });
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'user', now: 3000 });
     expect(getSession(db, [], alphaId())!.stoppedByStatus).toBe(false);
   });
   it('ほかの理由で終わった run と、その後に起こした run では偽', () => {
