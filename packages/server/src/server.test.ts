@@ -945,6 +945,7 @@ describe('無料枠の勘定', () => {
     getFile: async () => { calls.push('getFile'); return Readable.from([]); },
     listFiles: async () => { calls.push('listFiles'); return { files: [], nextSeq: 0, more: false }; },
     deleteFile: async () => { calls.push('deleteFile'); },
+    usage: async () => { calls.push('usage'); return { configured: false as const }; },
   });
 
   const counter = () => {
@@ -984,6 +985,18 @@ describe('無料枠の勘定', () => {
       expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT, requests: 4 });
       await c.deleteFile('transcripts/d/u.jsonl.gz');
       expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT + D1_WRITES_PER_FILE_DELETE, requests: 5 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('usage は要求 1 回、行 0 として数える', async () => {
+    const { db, quota } = counter();
+    try {
+      const calls: string[] = [];
+      await countingClient(stubClient(calls), quota).usage();
+      expect(calls).toEqual(['usage']);
+      expect(quota.today()).toEqual({ rows: 0, requests: 1 });
     } finally {
       db.close();
     }

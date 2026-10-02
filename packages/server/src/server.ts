@@ -135,6 +135,8 @@ export function countingClient(inner: CloudClient, quota: QuotaCounter): CloudCl
     getFile: (k) => note(0, inner.getFile(k)),
     listFiles: (s, l) => note(0, inner.listFiles(s, l)),
     deleteFile: (k) => note(D1_WRITES_PER_FILE_DELETE, inner.deleteFile(k)),
+    // 使用量は読むだけで、D1 には 1 行も書かない（Worker の /usage は認証の検査で読むだけ）。
+    usage: () => note(0, inner.usage()),
   };
 }
 

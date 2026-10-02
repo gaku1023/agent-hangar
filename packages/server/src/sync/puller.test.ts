@@ -341,6 +341,7 @@ describe('RemotePuller', () => {
       putFile: (m, b) => cloud.putFile(m, b),
       getFile: (k) => cloud.getFile(k),
       deleteFile: (k) => cloud.deleteFile(k),
+      usage: () => cloud.usage(),
       listFiles: async (s, l) => ({ ...(await cloud.listFiles(s, l)), files: [], nextSeq: 0, more: false }),
     };
     state.set('filesSeq', 5);
