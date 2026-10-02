@@ -335,6 +335,25 @@ describe('SessionScreen（実行中）', () => {
       expect(document.querySelector('.tr-pane')).not.toHaveAttribute('data-leaving');
     });
   });
+  it('情報の行の数（ターン、トークン、コスト）は数の回転で出す', () => {
+    withHost(<SS {...running} cost="$1.20" />);
+    const info = document.querySelector('.session-info')!;
+    expect(info.querySelectorAll('.roll').length).toBeGreaterThanOrEqual(3);
+  });
+  it('情報の行の数は、セッションが替わったら回さず作り直す', () => {
+    const { rerender } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} cost="$1.20" /></IntentRoot>);
+    const before = [...document.querySelectorAll('.session-info .roll')];
+    rerender(<IntentRoot onIntent={vi.fn()}><SS {...base} id="s2" live={null} cost="$9.90" /></IntentRoot>);
+    const after = [...document.querySelectorAll('.session-info .roll')];
+    expect(after.length).toBe(before.length);
+    after.forEach((el) => expect(before).not.toContain(el));
+  });
+  it('要約の一行は、文が替わると作り直す（入る動きをもう一度出す）', () => {
+    const { rerender } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} /></IntentRoot>);
+    const first = document.querySelector('.session-oneliner');
+    rerender(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} summary={{ ...base.summary!, oneLiner: 'TWO' }} /></IntentRoot>);
+    expect(document.querySelector('.session-oneliner')).not.toBe(first);
+  });
   it('信頼ダイアログの案内と終了の表示', () => {
     withHost(<SS {...running} live={null} trustHint />);
     expect(screen.getByRole('status')).toHaveTextContent('信頼確認');
@@ -513,6 +532,43 @@ describe('TabStrip の横に並べるボタン', () => {
   it('分割中は押された状態にする', () => {
     render(<IntentRoot onIntent={() => {}}><TabStrip sessionId="s1" tabs={two} canAdd canSplit split /></IntentRoot>);
     expect(screen.getByLabelText('横に並べる')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('TabStrip の出入り', () => {
+  const one = [{ id: 't1', title: 'Claude', kind: 'agent' as const, selected: true, closable: false }];
+  const two = [...one, { id: 't2', title: 'シェル 1', kind: 'shell' as const, selected: false, closable: true }];
+  let restore: () => void = () => {};
+  afterEach(() => { restore(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; });
+  it('閉じたタブは畳んで出るあいだ、操作できない影として残し、終わったら外す', async () => {
+    restore = fakeMotionTokens(undefined, { everywhere: true });
+    let finish: () => void = () => {};
+    const finished = new Promise<void>((r) => { finish = r; });
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished, cancel: vi.fn() }; };
+    const onIntent = vi.fn();
+    const ui = (tabs: typeof two) => <IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={tabs} canAdd canSplit split={false} /></IntentRoot>;
+    const { rerender } = render(ui(two));
+    rerender(ui(one));
+    // 出ていくタブは tab の役を外し、読み上げにも、フォーカスにも、クリックにも出さない。
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+    const ghost = document.querySelector('.tabs [role="presentation"]') as HTMLElement;
+    expect(ghost).not.toBeNull();
+    expect(ghost).toHaveAttribute('aria-hidden', 'true');
+    expect(ghost).not.toHaveAttribute('tabindex');
+    expect(ghost.querySelector('.tab-close')).toBeNull();
+    fireEvent.click(ghost);
+    expect(onIntent).not.toHaveBeenCalled();
+    await act(async () => { finish(); await finished; });
+    expect(document.querySelector('.tabs [role="presentation"]')).toBeNull();
+  });
+  it('セッションが替わるときは、前のセッションのタブを畳まず入れ替える', () => {
+    restore = fakeMotionTokens(undefined, { everywhere: true });
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; };
+    const ui = (id: string, tabs: typeof two) => <IntentRoot onIntent={vi.fn()}><TabStrip sessionId={id} tabs={tabs} canAdd canSplit split={false} /></IntentRoot>;
+    const { rerender } = render(ui('s1', two));
+    rerender(ui('s2', [{ ...one[0]!, id: 'u1' }]));
+    expect(document.querySelector('.tabs [role="presentation"]')).toBeNull();
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
   });
 });
 

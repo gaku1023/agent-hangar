@@ -149,7 +149,7 @@ export function TurnIndex(props: TurnIndexProps) {
     <div className="turns">
       <div className="turns-head">
         {props.lead}
-        <span className="faint">ターン <RollingText text={`${props.rows.length}${props.hasMore ? '+' : ''}`} /></span>
+        <span className="faint">ターン <RollingText key={scope} text={`${props.rows.length}${props.hasMore ? '+' : ''}`} /></span>
         {props.agentId && <><span className="faint">・サブエージェント {props.agentId}</span><button className="btn btn-sm" onClick={() => emit({ type: 'transcript.selectAgent', sessionId: props.sessionId, agentId: null })}>主線に戻る</button></>}
       </div>
       <div ref={listRef} className="turns-list">

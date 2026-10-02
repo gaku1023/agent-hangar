@@ -5,7 +5,7 @@
 .session-hero { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; }
 .session-hero .btn { flex: none; }
 
-.session-oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.session-oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); animation: enter-x var(--dur) var(--ease-out); }
 
 /* チップの列。小さな錠剤で並べ、入り切らなければ次の行へ送る。 */
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 2) 0 var(--u); }

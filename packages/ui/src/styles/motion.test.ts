@@ -67,6 +67,8 @@ describe('JS の動き', () => {
 
 describe('現れる動き', () => {
   const base = strip(read('base.css'));
+  // 規則は base.css のほか session.css にもある。keyframes は base.css に集める。
+  const rules = base + strip(read('session.css'));
   const keyframes = (name: string) => base.match(new RegExp(`@keyframes ${name} \\{ from \\{([^}]*)\\} 20% \\{([^}]*)\\} \\}`));
   // 現れるものは、ぼかしが晴れながら来る。
   // WebKit は 0 より大きいぼかしを 0.2px でも 1px と同じに描くので、晴れきる手前のもやが動きの終わりまで残る。
@@ -76,8 +78,9 @@ describe('現れる動き', () => {
     ['.dialog', 'pop'],
     ['.toast', 'slide'],
     ['.conn-banner', 'drop-in'],
+    ['.session-oneliner', 'enter-x'],
   ])('%s は %s で、--dur と --ease-out で、ぼかしが晴れながら現れる', (selector, name) => {
-    expect(base).toMatch(new RegExp(`${selector.replace('.', '\\.')} \\{[^}]*animation: ${name} var\\(--dur\\) var\\(--ease-out\\);`));
+    expect(rules).toMatch(new RegExp(`${selector.replace('.', '\\.')} \\{[^}]*animation: ${name} var\\(--dur\\) var\\(--ease-out\\);`));
     const k = keyframes(name);
     expect(k?.[1]).toContain('opacity: 0;');
     expect(k?.[1]).toContain('filter: blur(var(--blur-in));');

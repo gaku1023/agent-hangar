@@ -11,6 +11,7 @@ import { Icon, type IconName } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
+import { RollingText } from './primitives/RollingText.tsx';
 import { PANE_SHAPE, playPaneMotion } from './primitives/paneMotion.ts';
 import { usePresence } from './primitives/usePresence.ts';
 import { SplitPane } from './SplitPane.tsx';
@@ -84,7 +85,7 @@ export function SessionScreen(props: SessionProps) {
           名前は見出しにだけ出し、要約の題は出さない（C1）。
           操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。 */}
       <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
-        {props.summary?.oneLiner ? <span className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
+        {props.summary?.oneLiner ? <span key={props.summary.oneLiner} className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
         {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
         <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? undefined}
           aria-describedby={primary.disabled ? reasonId : undefined} onClick={() => { if (!primary.disabled) act(primary.id); }}>
@@ -227,10 +228,10 @@ function InfoLine(props: SessionProps) {
             <span className="gauge-fill" data-high={props.contextPercent >= 80 ? 'true' : undefined} style={{ width: `${Math.max(0, Math.min(100, props.contextPercent))}%` }} />
           </span>{props.contextPercent}%</span>
         )}
-      {props.cost ? <span className="mono">{props.cost}</span> : <span className="faint">コスト 未取得</span>}
+      {props.cost ? <span className="mono"><RollingText key={`${props.id}:cost`} text={props.cost} /></span> : <span className="faint">コスト 未取得</span>}
       {props.contextPercent === null && !props.cost && <a className="hint-link" href={formatRoute({ name: 'settings' })} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: { name: 'settings' } }); }}>statusline を入れると出ます</a>}
-      {props.filesChanged > 0 && <span>変更 {props.filesChanged}</span>}
-      <span>{props.turns} ターン · {props.tokens} トークン</span>
+      {props.filesChanged > 0 && <span>変更 <RollingText key={`${props.id}:files`} text={String(props.filesChanged)} /></span>}
+      <span><RollingText key={`${props.id}:turns`} text={String(props.turns)} /> ターン · <RollingText key={`${props.id}:tokens`} text={props.tokens} /> トークン</span>
       <span>開始 {props.started}</span>
       {props.prUrl && <a href={props.prUrl} target="_blank" rel="noreferrer">PR</a>}
       {props.memo && <span className="session-info-memo" title={props.memo}>メモ：{props.memo}</span>}

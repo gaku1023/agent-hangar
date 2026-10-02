@@ -294,6 +294,8 @@ a:hover { text-decoration: underline; }
 .retention-banner .btn { flex: none; }
 .retention-banner .btn:first-of-type { margin-left: auto; }
 @keyframes drop-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+/* 横から入る形（要約の一行）。左から --rise だけ寄りながら、ぼかしが晴れる。 */
+@keyframes enter-x { from { opacity: 0; transform: translateX(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 /* 新しく入った行の地を、淡い黄から薄れさせる（motionKit の markHit）。検索から跳んだ行の .tr-flash と同じ長さと遅れ。 */
 [data-hit] { animation: hit var(--dur-flash) var(--ease-out) var(--dur-exit) both; }
 @keyframes hit { from { background-color: var(--hit); } }
