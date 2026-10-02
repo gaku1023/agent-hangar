@@ -62,3 +62,34 @@
 .settings-switch-row { justify-content: space-between; }
 /* 外部の要約器をオンにする前の確かめの帯。 */
 .confirm-strip { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--ink); background: color-mix(in srgb, var(--error) 6%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 30%, transparent); }
+
+/* 設定の「使用量と費用」（2026-10-02 の決定。試作 usage-merged.html）。 */
+.cu { margin-top: calc(var(--u) * 3); padding-top: calc(var(--u) * 3); border-top: 1px solid var(--line); }
+.cu-h { margin: 0 0 calc(var(--u) * 2); font-size: var(--fs); font-weight: 650; }
+.cu-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: calc(var(--u) * 2); }
+.cu-tile { padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface-2); }
+.cu-tile[data-tone='warn'] { background: var(--st-paused-soft); }
+.cu-tile[data-tone='warn'] .cu-v { color: var(--st-paused); }
+.cu-tile[data-tone='stop'] { background: color-mix(in srgb, var(--error) 8%, var(--surface)); }
+.cu-tile[data-tone='stop'] .cu-v { color: var(--error); }
+.cu-tile[data-tone='muted'] .cu-v { color: var(--ink-3); }
+.cu-k { font-size: var(--fs-xs); color: var(--ink-3); }
+.cu-v { margin-top: 2px; font: 650 18px var(--font-mono); }
+.cu-v small { margin-left: var(--u); font: 500 var(--fs-xs) var(--font-sans); color: var(--ink-2); }
+.cu-strip { margin-top: calc(var(--u) * 3); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r); font-size: var(--fs-sm); }
+.cu-strip[data-tone='stop'] { background: color-mix(in srgb, var(--error) 6%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 30%, transparent); }
+.cu-strip[data-tone='info'] { background: var(--surface-2); }
+.cu-bars { display: grid; gap: calc(var(--u) * 2.25); margin-top: calc(var(--u) * 3.5); }
+.cu-row { display: grid; grid-template-columns: 148px minmax(0, 1fr) 152px; gap: calc(var(--u) * 2.5); align-items: center; font-size: var(--fs-sm); }
+.cu-when { margin-left: var(--u); font-size: var(--fs-xs); color: var(--ink-3); }
+.cu-n { text-align: right; font-size: var(--fs-xs); color: var(--ink-2); }
+.cu-sep { height: 1px; margin-bottom: calc(var(--u) * 2.25); background: var(--line); }
+.cu-meter { position: relative; height: 6px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.cu-meter > i { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-pill); background: var(--accent); }
+.cu-meter[data-tone='warn'] > i { background: var(--busy); }
+.cu-meter[data-tone='stop'] > i { background: var(--error); }
+.cu-tick { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--st-paused); }
+.cu-legend { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 3); margin-top: var(--u); font-size: var(--fs-xs); color: var(--ink-2); }
+.cu-cmd { margin-top: calc(var(--u) * 1.5); }
+/* 狭い窓では、名前と数の列を縮めて棒を残す。 */
+@media (max-width: 700px) { .cu-row { grid-template-columns: 110px minmax(0, 1fr) 120px; } }

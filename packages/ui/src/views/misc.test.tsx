@@ -9,6 +9,8 @@ import { SessionRows } from './SessionRows.tsx';
 import { Header } from './Header.tsx';
 import { SessionsScreen } from './SessionsScreen.tsx';
 import { SettingsScreen } from './SettingsScreen.tsx';
+import { CloudUsage } from './CloudUsage.tsx';
+import type { CloudUsageProps } from '../presenters/cloudUsage.ts';
 
 const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null });
 // SessionsProps に増えた分。この節が見るのはタブとチップ以外なので、空にして平らな一覧を描かせる。
@@ -832,5 +834,42 @@ describe('SettingsScreen の会話の保持', () => {
     render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ retention: { ...retention, days: 14, writable: false, reason: '組織の設定で決まっています', valueLabel: '14 日' } })} /></IntentRoot>);
     expect(screen.queryByRole('radio', { name: '1 年' })).toBeNull();
     expect(screen.getByText(/組織の設定で決まっています/)).toBeInTheDocument();
+  });
+});
+
+const USAGE: CloudUsageProps = {
+  tiles: [
+    { key: 'bill', label: '今月の請求', value: '$0.00', sub: '9/30 分まで', tone: 'ok' },
+    { key: 'd1', label: 'D1 の書き込み（今日）', value: '68%', sub: '68,120 行', tone: 'warn' },
+    { key: 'plan', label: 'プラン', value: 'Workers 無料', sub: 'R2 従量', tone: 'ok' },
+  ],
+  bars: [
+    { label: 'D1 の書き込み', when: '今日', pct: 68.12, tickPct: 80, value: '68,120 / 100,000 行', tone: 'warn' },
+    { label: 'R2 の保存', when: '今月', pct: 1.65, tickPct: null, value: '0.17 / 10 GB-月', tone: 'ok' },
+    { label: 'R2 Infrequent Access Data Retrieval', when: '今月', pct: null, tickPct: null, value: '3 GB', tone: 'ok' },
+  ],
+  splitAfter: 1, legend: ['あと 11,880 行で同期を止めます · 9:00 に戻る'], source: 'Cloudflare の数 · 2 分前', strip: null, command: null,
+};
+
+describe('CloudUsage', () => {
+  it('札と棒と添え書きを描く', () => {
+    render(<CloudUsage {...USAGE} />);
+    const sec = screen.getByRole('region', { name: '使用量と費用' });
+    expect(within(sec).getByText('$0.00')).toBeTruthy();
+    expect(within(sec).getByText('68%').closest('[data-tone]')?.getAttribute('data-tone')).toBe('warn');
+    const meters = within(sec).getAllByRole('meter');
+    expect(meters).toHaveLength(2);
+    expect(meters[0]!.getAttribute('aria-valuenow')).toBe('68.12');
+    expect(within(sec).getByText('3 GB')).toBeTruthy();
+    expect(within(sec).getByText('Cloudflare の数 · 2 分前')).toBeTruthy();
+  });
+  it('停止の帯は alert、案内のコマンドは等幅で出す', () => {
+    render(<CloudUsage {...USAGE} strip={{ tone: 'stop', text: '無料枠の 80% に届いたので同期を止めました。' }} command="npm run hangar -- setup cloud --usage-token" />);
+    expect(screen.getByRole('alert').textContent).toContain('同期を止めました');
+    expect(screen.getByText('npm run hangar -- setup cloud --usage-token').className).toContain('mono');
+  });
+  it('凡例が空でも崩れず、出典だけ描く', () => {
+    render(<CloudUsage {...USAGE} legend={[]} />);
+    expect(screen.getByText('Cloudflare の数 · 2 分前')).toBeTruthy();
   });
 });

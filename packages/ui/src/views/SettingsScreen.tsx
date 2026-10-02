@@ -12,6 +12,7 @@ import { Icon, type IconName } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
+import { CloudUsage } from './CloudUsage.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
 
@@ -423,6 +424,8 @@ export function SettingsScreen(props: SettingsProps) {
                     {props.cloud.joinToken === null && <button className="btn" onClick={() => emit({ type: 'sync.joinToken.show' })}>参加トークンを表示</button>}
                   </div>
                   {props.cloud.joinToken !== null && <JoinToken token={props.cloud.joinToken} expiresAt={props.cloud.joinTokenExpiresAt} />}
+                  {/* 使用量と費用。操作ボタンの下、PC の一覧の上に置く（試作 usage-merged.html の「置き場所」）。 */}
+                  {props.cloud.usage && <CloudUsage {...props.cloud.usage} />}
                   <div className="list" style={{ marginTop: 8 }}>
                     {props.cloud.devices.map((d) => (
                       <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
