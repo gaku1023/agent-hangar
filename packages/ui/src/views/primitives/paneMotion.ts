@@ -43,7 +43,8 @@ export function playPaneMotion(box: HTMLElement, from: PaneShape, inner: HTMLEle
   beginLayoutMotion(box);
   // 中身は開いたときの幅に留める。閉じるときは前の形、開くときは今の形がその幅である。
   const width = opening ? to.innerW : before.innerW;
-  if (inner && width > 0) { inner.style.width = `${width}px`; inner.style.flex = 'none'; }
+  // 縦の伸び（flex）には触れない。縦に伸びる中身の高さを奪うと、目次のスクロールが先頭へ戻る。幅は min-width も留め、横に並ぶ箱（終わった画面の欄）でも縮まないようにする。
+  if (inner && width > 0) { inner.style.width = `${width}px`; inner.style.minWidth = `${width}px`; }
   const easing = motionEase('--ease-out', box);
   const cols = box.animate([{ gridTemplateColumns: before.cols, columnGap: before.gap }, { gridTemplateColumns: to.cols, columnGap: to.gap }], { duration: dur, easing, id: ID });
   if (inner) {
@@ -56,7 +57,7 @@ export function playPaneMotion(box: HTMLElement, from: PaneShape, inner: HTMLEle
   generation.set(box, gen);
   const done = () => {
     if (generation.get(box) !== gen) return;
-    if (inner) { inner.style.width = ''; inner.style.flex = ''; }
+    if (inner) { inner.style.width = ''; inner.style.minWidth = ''; }
     endLayoutMotion(box);
   };
   // 取り消されたときも後始末する（世代が替わっていなければ、新しい動きは無く、印が残ってしまう）。
