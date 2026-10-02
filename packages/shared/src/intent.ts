@@ -14,7 +14,7 @@ export type ArtifactId = string;
  * 一覧と検索の絞り込み。
  * 期間は相対の日数（今日を含めて何日分か）で持ち、時刻には問い合わせる瞬間に直す。
  * 絶対の時刻で持つと、時間が経つにつれて選んだ帯と中身が食い違う。
- * status はセッションの状態のタブ（★）。none は状態も提案も無いもの、active は動いているもの、proposed は Claude の提案が残っているもの。
+ * status はセッションの状態のタブ（★）。active は状態が無いもの（動いているかは問わない）、proposed は Claude の提案が残っているもの。
  * 無ければ「すべて」で、条件を入れたときだけ Archived を除く（presenters/sessions.ts と、サーバの検索の hideArchived）。
  */
 export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; file?: string; status?: SessionStatus | 'active' | 'proposed' };
