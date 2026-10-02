@@ -1,5 +1,7 @@
 import type { CloudUsageBody, CloudUsagePart } from '@agent-hangar/shared';
 
+// Cache API は文書に「カスタムドメインの Worker と Pages Functions で機能する」とあり、workers.dev での動作は書かれていない。そのため isolate のメモリを使う（https://developers.cloudflare.com/workers/runtime-apis/cache/）。
+
 /**
  * Cloudflare の使用量と費用を、読み取り専用のトークンで取ってまとめる。
  * 設計は docs/superpowers/specs/2026-10-02-cloud-usage-design.md の「1. Worker」。

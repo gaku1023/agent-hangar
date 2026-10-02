@@ -42,7 +42,7 @@ function workerScript(): Promise<string> {
 }
 
 /** Worker を 1 つ起こす。記憶は instance ごとに新しいので、テストごとに呼んでよい（おおよそ 100 ミリ秒）。 */
-export async function startCloud(options: { JOIN_SECRET_HASH?: string } = {}): Promise<CloudHarness> {
+export async function startCloud(options: { JOIN_SECRET_HASH?: string; bindings?: Record<string, string>; outbound?: (req: Request) => Response | Promise<Response> } = {}): Promise<CloudHarness> {
   const script = await workerScript();
   const joinSecretHash = options.JOIN_SECRET_HASH ?? '';
   const mf = new Miniflare({
@@ -53,7 +53,9 @@ export async function startCloud(options: { JOIN_SECRET_HASH?: string } = {}): P
     compatibilityFlags: ['nodejs_compat'],
     d1Databases: ['DB'],
     r2Buckets: ['BUCKET'],
-    bindings: { JOIN_SECRET_HASH: joinSecretHash },
+    bindings: { JOIN_SECRET_HASH: joinSecretHash, ...options.bindings },
+    // Worker から外への fetch を受ける。渡さなければ外へは出ない（試験は実物の Cloudflare に触らない）。
+    outboundService: options.outbound ?? (() => new Response('outbound fetch is not allowed in tests', { status: 599 })),
   });
   const env = {
     DB: await mf.getD1Database('DB'),
