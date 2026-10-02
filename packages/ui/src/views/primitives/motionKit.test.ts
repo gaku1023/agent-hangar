@@ -49,6 +49,17 @@ describe('motionKit', () => {
     expect(calls[0]!.opts).toMatchObject({ duration: 200, easing: 'ease-in', fill: 'forwards' });
     expect(calls[0]!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
   });
+  it('畳む途中で取り消されたら、はみ出しの指定を元に戻す。終わったときは隠したままにする', async () => {
+    tokens('100ms');
+    const el = document.createElement('div');
+    el.style.overflow = 'auto';
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = () => ({ finished: Promise.reject(new DOMException('cancelled', 'AbortError')), cancel: vi.fn() });
+    await collapseOut(el);
+    expect(el.style.overflow).toBe('auto');
+    fakeAnimate();
+    await collapseOut(el);
+    expect(el.style.overflow).toBe('hidden');
+  });
   it('横に畳むときは幅を 0 にする', async () => {
     tokens('100ms');
     const calls = fakeAnimate();

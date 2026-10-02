@@ -1,11 +1,13 @@
 import { act, render } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { usePresence } from './usePresence.ts';
 
 function Box(props: { open: boolean; exit: (el: HTMLDivElement) => Promise<unknown> | null }) {
   const p = usePresence<HTMLDivElement>(props.open, props.exit);
   return p.mounted ? <div ref={p.ref} data-testid="box" data-leaving={p.leaving ? 'true' : undefined} /> : null;
 }
+
+afterEach(() => { delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations; });
 
 describe('usePresence', () => {
   it('出る動きが無ければ、閉じた描画で外す', () => {
@@ -36,5 +38,19 @@ describe('usePresence', () => {
   it('最初から閉じていれば何も描かない', () => {
     const { queryByTestId } = render(<Box open={false} exit={() => null} />);
     expect(queryByTestId('box')).toBeNull();
+  });
+  it('出る途中で開き直したら、出る動きを取り消す（最後の形を残さない）', async () => {
+    const cancel = vi.fn();
+    const getAnimations = vi.fn(() => [{ cancel }]);
+    (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = getAnimations;
+    const exit = () => new Promise<void>(() => {});
+    const { rerender } = render(<Box open exit={exit} />);
+    rerender(<Box open exit={exit} />);
+    expect(cancel).not.toHaveBeenCalled();
+    rerender(<Box open={false} exit={exit} />);
+    expect(cancel).not.toHaveBeenCalled();
+    rerender(<Box open exit={exit} />);
+    expect(getAnimations).toHaveBeenCalledWith({ subtree: true });
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });

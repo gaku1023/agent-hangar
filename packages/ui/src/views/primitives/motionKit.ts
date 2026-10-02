@@ -53,13 +53,15 @@ export function collapseOut(el: HTMLElement, axis: 'y' | 'x' = 'y'): Promise<voi
   const size = sizeOf(el, axis);
   const p = prop(axis);
   const edge = axis === 'y' ? { paddingTop: '0px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px' } : { paddingLeft: '0px', paddingRight: '0px', marginLeft: '0px', marginRight: '0px' };
+  const overflow = el.style.overflow;
   el.style.overflow = 'hidden';
   const a = el.animate([
     { [p]: `${size}px`, opacity: 1 },
     { opacity: 0, offset: 0.6 },
     { [p]: '0px', opacity: 0, ...edge },
   ], { duration: motionMs('--dur-exit', el) + motionMs('--dur-fast', el), easing: motionEase('--ease-in', el), fill: 'forwards' });
-  return a.finished.then(() => undefined, () => undefined);
+  // 終わったら要素は外されるので隠したままにする。取り消された（出る途中で戻った）ときだけ、元の指定に戻す。
+  return a.finished.then(() => undefined, () => { el.style.overflow = overflow; });
 }
 
 /** 並びの FLIP。前の位置から今の位置へ滑らせる。 */

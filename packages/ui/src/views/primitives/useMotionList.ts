@@ -21,12 +21,15 @@ type Ghost<T> = { item: T; after: string | null };
  * 新しい key は入る形で入れ、消えた key は leaving のまま元の位置に残して、畳んで出る形が終わってから落とす。
  * 最初の描画、前の描画が空だった描画、key が全部入れ替わった描画では動かさない（一度に入れ替わったものは、新しい出来事ではない）。
  * 動かない環境（jsdom、reduced motion）では、消えた key をすぐ落とす。
+ * 出る途中で戻った key は、動きを取り消して元の姿に戻す。並べ替えの滑りは、残った行の並びが替わった描画だけで出す（スクロールや resize で位置が替わっただけの描画では出さない）。
+ * 描画の中で ref を書き換えるので、StrictMode や、捨てられる並行描画のもとでは安全ではない（この画面では使っていない）。
  */
 export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: MotionListOpts): { list: MotionEntry<T>[]; ref: (key: string) => (el: HTMLElement | null) => void } {
   const nodes = useRef(new Map<string, HTMLElement>());
   const rects = useRef(new Map<string, DOMRect>());
   const ghosts = useRef(new Map<string, Ghost<T>>());
-  const leavingStarted = useRef(new Set<string>());
+  const leavingStarted = useRef(new Map<string, object>());
+  const lastOrder = useRef('');
   const prev = useRef<{ item: T; key: string }[]>([]);
   const reset = useRef(false);
   const [, tick] = useReducer((n: number) => n + 1, 0);
@@ -42,13 +45,16 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
       if (!curKeys.has(p.key) && !ghosts.current.has(p.key)) ghosts.current.set(p.key, { item: p.item, after: i > 0 ? prev.current[i - 1]!.key : null });
     });
   }
-  for (const k of [...ghosts.current.keys()]) if (curKeys.has(k)) { ghosts.current.delete(k); leavingStarted.current.delete(k); }
+  const revived: string[] = [];
+  for (const k of [...ghosts.current.keys()]) if (curKeys.has(k)) { ghosts.current.delete(k); leavingStarted.current.delete(k); revived.push(k); }
 
   const list: MotionEntry<T>[] = cur.map((c) => ({ ...c, leaving: false }));
   for (const [key, g] of ghosts.current) {
     const at = g.after === null ? 0 : list.findIndex((e) => e.key === g.after) + 1;
     list.splice(at > 0 || g.after === null ? at : list.length, 0, { item: g.item, key, leaving: true });
   }
+  // 並びの比べは残った行だけで見る。消えた行を外す描画は、並びの替わりではない（行はもう畳み終えている）。
+  const order = cur.map((c) => c.key).join('\u0000');
   const before = prev.current;
   prev.current = cur;
 
@@ -56,6 +62,10 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
     const now = new Map<string, DOMRect>();
     for (const [k, el] of nodes.current) now.set(k, el.getBoundingClientRect());
     const wasEmpty = rects.current.size === 0;
+    const reordered = order !== lastOrder.current;
+    lastOrder.current = order;
+    // 出る途中で戻った行は、畳む動きの最後の形（高さ 0、薄れ切り）を残さず取り消す。
+    for (const k of revived) nodes.current.get(k)?.getAnimations?.().forEach((a) => a.cancel());
     if (!wasEmpty && !reset.current) {
       const firstOld = before.find((b) => curKeys.has(b.key))?.key;
       const prepended = new Set<string>();
@@ -63,8 +73,10 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
       for (const [k, el] of nodes.current) {
         if (ghosts.current.has(k)) {
           if (leavingStarted.current.has(k)) continue;
-          leavingStarted.current.add(k);
-          void collapseOut(el, opts.axis).then(() => { ghosts.current.delete(k); leavingStarted.current.delete(k); tick(); });
+          const mine = {};
+          leavingStarted.current.set(k, mine);
+          // 取り消されても解決するので、まだ自分の出る動きのときだけ落とす（戻って、また消えた行を巻き込まない）。
+          void collapseOut(el, opts.axis).then(() => { if (leavingStarted.current.get(k) !== mine) return; ghosts.current.delete(k); leavingStarted.current.delete(k); tick(); });
           continue;
         }
         const was = rects.current.get(k);
@@ -74,7 +86,7 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
           if (opts.hit) markHit(el);
           continue;
         }
-        if (opts.flip !== false) slideFrom(el, was, now.get(k)!);
+        if (reordered && opts.flip !== false) slideFrom(el, was, now.get(k)!);
       }
     }
     rects.current = now;

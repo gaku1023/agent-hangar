@@ -13,17 +13,29 @@ const texts = (c: HTMLElement) => [...c.querySelectorAll('li')].map((li) => `${l
 const tokens = { '--dur': '420ms', '--dur-fast': '200ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' };
 let animations: { el: Element; frames: Keyframe[] }[] = [];
 let finish: (() => void)[] = [];
+let fakes: { el: Element; cancel: () => void }[] = [];
+let tops: Record<string, number> = {};
 let restore: (() => void) | null = null;
 beforeEach(() => {
   restore = fakeMotionTokens(tokens, { everywhere: true });
-  animations = []; finish = [];
+  animations = []; finish = []; fakes = []; tops = {};
+  // jsdom は レイアウトを持たないので、行の位置は試験が決める。
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) { return new DOMRect(0, tops[this.textContent ?? ''] ?? 0, 10, 10); };
+  (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = function (this: Element) { return fakes.filter((f) => f.el === this); };
   (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
     animations.push({ el: this, frames });
     const finished = new Promise<void>((r) => finish.push(r));
-    return { finished, cancel: vi.fn() };
+    const cancel = vi.fn();
+    fakes.push({ el: this, cancel });
+    return { finished, cancel };
   };
 });
-afterEach(() => { restore?.(); restore = null; delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; });
+afterEach(() => {
+  restore?.(); restore = null;
+  delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+  delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+  delete (HTMLElement.prototype as unknown as { getBoundingClientRect?: unknown }).getBoundingClientRect;
+});
 
 describe('useMotionList', () => {
   it('最初の描画と、空から埋まった描画では動かさない', () => {
@@ -53,6 +65,38 @@ describe('useMotionList', () => {
     const { rerender } = render(<List items={['b', 'c']} opts={{ ignorePrepended: true }} />);
     rerender(<List items={['a', 'b', 'c', 'd']} opts={{ ignorePrepended: true }} />);
     expect(animations.map((a) => a.el.textContent)).toEqual(['d']);
+  });
+  it('出る途中で戻った key は、出る動きを取り消して、残す', async () => {
+    const { container, rerender } = render(<List items={['a', 'b', 'c']} />);
+    rerender(<List items={['a', 'c']} />);
+    const exit = fakes.filter((f) => f.el.textContent === 'b');
+    expect(exit).toHaveLength(1);
+    rerender(<List items={['a', 'b', 'c']} />);
+    expect(exit[0]!.cancel).toHaveBeenCalled();
+    expect(texts(container)).toEqual(['a', 'b', 'c']);
+    // 取り消された出る動きが解決しても、戻った行を落とさない。
+    await act(async () => { finish.forEach((f) => f()); });
+    expect(texts(container)).toEqual(['a', 'b', 'c']);
+  });
+  it('並びが替わっていない描画では、位置が動いていても滑らせない', () => {
+    tops = { a: 0, b: 20 };
+    const { rerender } = render(<List items={['a', 'b']} />);
+    tops = { a: 100, b: 120 };
+    rerender(<List items={['a', 'b']} />);
+    expect(animations).toHaveLength(0);
+    // 並びが替わったら、前の位置から滑らせる。
+    tops = { b: 0, a: 20 };
+    rerender(<List items={['b', 'a']} />);
+    expect(animations.map((a) => a.el.textContent).sort()).toEqual(['a', 'b']);
+  });
+  it('消えた行を外す描画では、残った行を滑らせない', async () => {
+    tops = { a: 0, b: 20, c: 40 };
+    const { rerender } = render(<List items={['a', 'b', 'c']} />);
+    tops = { a: 0, b: 20, c: 20 };
+    rerender(<List items={['a', 'c']} />);
+    animations = [];
+    await act(async () => { finish.forEach((f) => f()); });
+    expect(animations).toHaveLength(0);
   });
   it('動きの長さが 0 なら、消えた key をすぐ外す', () => {
     restore?.();
