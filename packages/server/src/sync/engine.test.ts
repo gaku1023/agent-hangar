@@ -603,6 +603,39 @@ describe('SyncEngine の pull', () => {
   });
 });
 
+/** 状態の鍵を直に触れる engine。枠の上限や now を差し替えられる。 */
+const makeEngine = (over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}) => {
+  const state = new SyncStateStore(db);
+  return { engine: make(over), client: cloud, state };
+};
+/** 上限 10 の枠を 80% 超えさせる。8 行の push で足りる（「80% に達したら」の試験と同じ量）。 */
+const pushEnoughToExceed = async (engine: SyncEngine, _client: FakeCloudClient) => {
+  await engine.start();
+  for (let i = 0; i < 8; i++) project(`p${i}`);
+  await engine.pushNow();
+};
+
+describe('止めた理由', () => {
+  it('利用者が止めたら user、再開で消える', () => {
+    const { engine } = makeEngine();
+    engine.setPaused(true);
+    expect(engine.status()).toMatchObject({ state: 'paused', pausedReason: 'user' });
+    engine.setPaused(false);
+    expect(engine.status().pausedReason).toBeNull();
+  });
+  it('無料枠の見張りが止めたら quota と、止めた UTC の日', async () => {
+    const { engine, client } = makeEngine({ quotaLimits: { d1Writes: 10, requests: 1_000 }, now: () => Date.parse('2026-10-02T03:00:00Z') });
+    await pushEnoughToExceed(engine, client);
+    expect(engine.status()).toMatchObject({ state: 'paused', pausedReason: 'quota', quotaPausedDay: '2026-10-02' });
+    engine.stop();
+  });
+  it('古い状態（paused だけ）は user として読む', () => {
+    const { engine, state } = makeEngine();
+    state.set('paused', true);
+    expect(engine.status().pausedReason).toBe('user');
+  });
+});
+
 describe('SyncEngine の無料枠の見張り', () => {
   it('数えが Worker の実際の D1 書き込みと一致する', async () => {
     const d1 = countingD1(cloud);
