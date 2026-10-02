@@ -1152,12 +1152,14 @@ describe('ヘッダーの無料枠で停止', () => {
   const shellSync = (sync: SyncStatusBody, now: number, tz?: string) => presentShell({ ...initialState(), sync: toSyncState(sync), pending: sync.pending }, { ...initialStore(), sync }, now, tz).sync;
   it('止めた日のうちは、戻る時刻を端末の時刻で言う', () => {
     const p = shellSync(paused({ pausedReason: 'quota', quotaPausedDay: '2026-10-02' }), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo');
-    expect(p).toMatchObject({ label: '無料枠で停止 · 9:00 に戻る', reason: 'quota', paused: true, state: 'paused' });
+    expect(p).toMatchObject({ label: '無料枠で停止 · 9:00 に戻る', reason: 'quota', quotaBack: false, paused: true, state: 'paused' });
   });
   it('UTC の日が変わったら、枠は戻りましたと言う', () => {
     const p = shellSync(paused({ pausedReason: 'quota', quotaPausedDay: '2026-10-02' }), at('2026-10-03T00:00:01Z'), 'Asia/Tokyo');
     expect(p.label).toBe('無料枠で停止 · 枠は戻りました');
     expect(p.reason).toBe('quota');
+    // 枠が戻ったら点は緑、文は注意の色にする（試作 usage-merged.html の H3）。
+    expect(p.quotaBack).toBe(true);
   });
   it('時差に依らない（ニューヨークでも同じ境目）', () => {
     const day = paused({ pausedReason: 'quota', quotaPausedDay: '2026-10-02' });
@@ -1165,7 +1167,7 @@ describe('ヘッダーの無料枠で停止', () => {
     expect(shellSync(day, at('2026-10-03T00:00:00Z'), 'America/New_York').label).toBe('無料枠で停止 · 枠は戻りました');
   });
   it('手で止めたときは今までどおり', () => {
-    expect(shellSync(paused({ pausedReason: 'user' }), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo')).toMatchObject({ label: '一時停止中', reason: 'user', paused: true });
+    expect(shellSync(paused({ pausedReason: 'user', quotaPausedDay: '2026-10-01' }), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo')).toMatchObject({ label: '一時停止中', reason: 'user', quotaBack: false, paused: true });
   });
   it('古いサーバで理由が無いときは、手で止めたものとして扱う', () => {
     expect(shellSync(paused({}), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo')).toMatchObject({ label: '一時停止中', reason: 'user' });
@@ -1182,7 +1184,7 @@ describe('ヘッダーの無料枠で停止', () => {
 describe('同期の Presenter（フェーズ 4）', () => {
   it('ヘッダーの同期状態は種別ごとに文言が変わる', () => {
     const s = { ...initialState(), sync: { kind: 'idle' as const, lastAt: NOW - 60_000 }, pending: 2 };
-    expect(presentShell(s, initialStore(), NOW).sync).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null });
+    expect(presentShell(s, initialStore(), NOW).sync).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null, quotaBack: false });
     expect(presentShell({ ...s, sync: { kind: 'off' } }, initialStore(), NOW).sync).toMatchObject({ visible: false, state: 'off', label: '' });
     expect(presentShell({ ...s, sync: { kind: 'pushing' } }, initialStore(), NOW).sync).toMatchObject({ visible: true, state: 'pushing', label: '送信中' });
     expect(presentShell({ ...s, sync: { kind: 'pulling' } }, initialStore(), NOW).sync).toMatchObject({ state: 'pulling', label: '受信中' });

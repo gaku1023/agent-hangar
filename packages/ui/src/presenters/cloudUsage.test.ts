@@ -92,6 +92,27 @@ describe('presentCloudUsage', () => {
     expect(p.legend).toEqual(['今月は 9/5〜10/5']);
     expect(p.source).toBe('Cloudflare の数 · 2 分前');
   });
+  it('期の初めで請求の行がまだ無い：$0.00 と出し、「分まで」と期の添え書きを出さず、落ちない', () => {
+    const p = presentCloudUsage({ ...base, month: { periodStart: '', periodEnd: '2026-11-05T00:00:00Z', throughDay: null, billedUsd: 0, rows: [] } }, sync(), NOW, TZ)!;
+    expect(p.tiles[0]).toEqual({ key: 'bill', label: '今月の請求', value: '$0.00', sub: '', tone: 'ok' });
+    expect(p.bars.map((b) => b.when)).toEqual(['今日', '今日']);
+    expect(p.legend).toEqual(['今日の枠は 9:00 に戻る · 目盛りの 80% で同期を止める']);
+  });
+  it('期の日付は UTC の日で書く（端末の時差で前の日にずれない）', () => {
+    const p = presentCloudUsage(base, sync(), NOW, 'America/Los_Angeles')!;
+    expect(p.legend[1]).toBe('今月は 9/5〜10/5');
+  });
+  it('期の終わりが読めなければ、終わりは空にする', () => {
+    const p = presentCloudUsage({ ...base, month: { ...base.month!, periodEnd: 'not-a-date' } }, sync(), NOW, TZ)!;
+    expect(p.legend[1]).toBe('今月は 9/5〜');
+  });
+  it('トークンなしで止まりそう：見積もりの残りの行数を「約」付きで凡例に出す', () => {
+    const p = presentCloudUsage({ ...base, source: 'estimate', fetchedAt: null, plan: null, month: null, today: { ...base.today, d1RowsWritten: 68120, workersRequests: 3640 } }, sync(), NOW, TZ)!;
+    expect(p.tiles[1]).toMatchObject({ value: '約 68%', tone: 'warn' });
+    expect(p.legend).toEqual(['あと約 11,880 行で同期を止めます · 9:00 に戻る']);
+    // 戻る時刻は凡例が言うので、出どころの行には重ねない。
+    expect(p.source).toBe('hangar の見積もり（実際より 1〜4 割多め）');
+  });
   it('使用量がまだ届いていなければ null', () => {
     expect(presentCloudUsage(null, sync(), NOW, TZ)).toBeNull();
   });

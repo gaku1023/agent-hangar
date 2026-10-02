@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, newSession: {} };
+const props = { sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null, quotaBack: false }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, newSession: {} };
 
 describe('Shell の本文の幅', () => {
   // セッション画面だけ幅の上限を外す（案 b）。
@@ -156,7 +156,7 @@ describe('Shell', () => {
   });
   it('同期の状態と操作を出し、off では出さない', () => {
     const onIntent = vi.fn();
-    const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null };
+    const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null, quotaBack: false };
     const { rerender } = render(<IntentRoot onIntent={onIntent}><Shell {...props} sync={sync} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByText('同期 1 分前')).toBeInTheDocument();
     expect(screen.getByText('未送信 2')).toBeInTheDocument();
@@ -172,11 +172,18 @@ describe('Shell', () => {
   });
   // 無料枠で止まったときは、手で止めたのと見分けがつくよう点と文を赤にする（CSS が data-reason を見る）。
   it('無料枠で止まったときは点に data-reason を付け、文を警告の色にする', () => {
-    const base = { visible: true, state: 'paused' as const, label: '無料枠で停止 · 9:00 に戻る', pending: 0, sweepPending: 0, skipped: 0, paused: true, reason: null };
+    const base = { visible: true, state: 'paused' as const, label: '無料枠で停止 · 9:00 に戻る', pending: 0, sweepPending: 0, skipped: 0, paused: true, reason: null, quotaBack: false };
     const { container, rerender } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...base, reason: 'quota' }} overlays={null}><div /></Shell></IntentRoot>);
     expect(container.querySelector('.sync')?.getAttribute('data-reason')).toBe('quota');
     expect(container.querySelector('.sync-label')).toHaveClass('sync-error');
     expect(screen.getByText('無料枠で停止 · 9:00 に戻る')).toBeInTheDocument();
+    // 枠が戻った後は、赤をやめて注意の色の文にする（試作の H3）。点の色は CSS が data-quota-back を見て緑にする。
+    rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...base, label: '無料枠で停止 · 枠は戻りました', reason: 'quota', quotaBack: true }} overlays={null}><div /></Shell></IntentRoot>);
+    expect(container.querySelector('.sync')?.hasAttribute('data-quota-back')).toBe(true);
+    expect(container.querySelector('.sync-label')).not.toHaveClass('sync-error');
+    expect(container.querySelector('.sync-label')).toHaveClass('sync-warn');
+    rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...base, reason: 'quota' }} overlays={null}><div /></Shell></IntentRoot>);
+    expect(container.querySelector('.sync')?.hasAttribute('data-quota-back')).toBe(false);
     rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...base, label: '一時停止中', reason: 'user' }} overlays={null}><div /></Shell></IntentRoot>);
     expect(container.querySelector('.sync')?.getAttribute('data-reason')).toBe('user');
     expect(container.querySelector('.sync-label')).not.toHaveClass('sync-error');
@@ -184,7 +191,7 @@ describe('Shell', () => {
     expect(container.querySelector('.sync')?.hasAttribute('data-reason')).toBe(false);
   });
   it('取り残しと送れなかった本文は、溜まっているときだけ出す', () => {
-    const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 0, sweepPending: 1500, skipped: 2, paused: false, reason: null };
+    const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 0, sweepPending: 1500, skipped: 2, paused: false, reason: null, quotaBack: false };
     const { rerender } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={sync} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByText('未送信の本文 1500')).toBeInTheDocument();
     expect(screen.getByText('送れなかった本文 2')).toBeInTheDocument();
@@ -194,7 +201,7 @@ describe('Shell', () => {
   });
   // 未送信が無いときに「未送信 0」と出すと、止まっているように見える。
   it('未送信が 0 なら件数を出さず、使用量ゲージも残る', () => {
-    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ visible: true, state: 'pushing', label: '送信中', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null }} usage={{ fiveHour: 12, sevenDay: 34, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} overlays={null}><div /></Shell></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ visible: true, state: 'pushing', label: '送信中', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null, quotaBack: false }} usage={{ fiveHour: 12, sevenDay: 34, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByText('送信中')).toBeInTheDocument();
     expect(screen.queryByText('未送信 0')).toBeNull();
     expect(screen.getByRole('meter', { name: '5 時間枠の使用率' })).toBeInTheDocument();

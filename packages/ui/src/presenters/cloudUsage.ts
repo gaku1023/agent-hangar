@@ -14,8 +14,9 @@ const TOKEN_COMMAND = 'npm run hangar -- setup cloud --usage-token';
 const n = (v: number): string => v.toLocaleString('en-US');
 const pct = (used: number, limit: number): number => Math.round((used / limit) * 10_000) / 100;
 const hm = (ms: number, tz?: string): string => new Intl.DateTimeFormat('ja-JP', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(ms);
-const md = (iso: string, tz?: string): string => new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', timeZone: tz }).format(Date.parse(iso)).replace(/月/, '/').replace(/日/, '');
 const dayMd = (day: string): string => { const [, m, d] = day.split('-'); return `${Number(m)}/${Number(d)}`; };
+/** 請求の期の日付。期は UTC の日で区切られるので、端末の時差で書かずに UTC の日のまま書く。読めない値（期の初めの空文字など）は何も書かない。 */
+const md = (iso: string): string => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? dayMd(iso.slice(0, 10)) : '');
 const compact = (v: number): string => (v >= 10_000 ? `${n(v / 10_000)} 万` : n(v));
 const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
@@ -53,13 +54,16 @@ export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody 
 
   // 凡例は試作 usage-merged.html の状態ごとの形に従う。
   // 停止中は帯が戻る時刻を言うので出さない。見積もりは戻る時刻を出典の行に添える。止まりそうなときは残りの行数だけにする。
-  const monthLegend = u.month ? [`今月は ${md(u.month.periodStart, tz)}〜${u.month.periodEnd ? md(u.month.periodEnd, tz) : ''}`] : [];
+  // 期の初めは請求の行がまだ無く、始まりの日が空になる。そのときは期の添え書きを出さない。
+  const monthLegend = u.month && md(u.month.periodStart) ? [`今月は ${md(u.month.periodStart)}〜${u.month.periodEnd ? md(u.month.periodEnd) : ''}`] : [];
   const legend: string[] = paid ? monthLegend
-    : quotaPaused || est ? []
-    : tone === 'warn' ? [`あと ${n(Math.ceil(stopLine - d1))} 行で同期を止めます · ${reset} に戻る`]
+    : quotaPaused ? []
+    : tone === 'warn' ? [`あと${est ? '約' : ''} ${n(Math.ceil(stopLine - d1))} 行で同期を止めます · ${reset} に戻る`]
+    : est ? []
     : [`今日の枠は ${reset} に戻る · 目盛りの ${Math.round(u.limits.stopRatio * 100)}% で同期を止める`, ...monthLegend];
 
-  const source = est ? `hangar の見積もり（実際より 1〜4 割多め）${quotaPaused ? '' : `· ${reset} に戻る`}`
+  // 止まりそうなときは凡例が戻る時刻を言うので、出どころの行には重ねない。
+  const source = est ? `hangar の見積もり（実際より 1〜4 割多め）${quotaPaused || tone === 'warn' ? '' : `· ${reset} に戻る`}`
     : u.stale ? `Cloudflare の数 · ${u.fetchedAt ? hm(u.fetchedAt, tz) : ''} · 取得に失敗`
     : `Cloudflare の数 · ${relativeTime(u.fetchedAt, now)}`;
 
