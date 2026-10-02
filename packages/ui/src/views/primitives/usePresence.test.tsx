@@ -7,7 +7,11 @@ function Box(props: { open: boolean; exit: (el: HTMLDivElement) => Promise<unkno
   return p.mounted ? <div ref={p.ref} data-testid="box" data-leaving={p.leaving ? 'true' : undefined} /> : null;
 }
 
-afterEach(() => { delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations; });
+afterEach(() => {
+  delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+  delete (globalThis as { CSSAnimation?: unknown }).CSSAnimation;
+  delete (globalThis as { CSSTransition?: unknown }).CSSTransition;
+});
 
 describe('usePresence', () => {
   it('出る動きが無ければ、閉じた描画で外す', () => {
@@ -52,5 +56,22 @@ describe('usePresence', () => {
     rerender(<Box open exit={exit} />);
     expect(getAnimations).toHaveBeenCalledWith({ subtree: true });
     expect(cancel).toHaveBeenCalledTimes(1);
+  });
+  it('開き直して取り消すのは Web Animations だけで、CSS の animation と transition（灯の脈など）は止めない', () => {
+    class FakeCSSAnimation { cancel = vi.fn(); }
+    class FakeCSSTransition { cancel = vi.fn(); }
+    (globalThis as { CSSAnimation?: unknown }).CSSAnimation = FakeCSSAnimation;
+    (globalThis as { CSSTransition?: unknown }).CSSTransition = FakeCSSTransition;
+    const css = new FakeCSSAnimation();
+    const tr = new FakeCSSTransition();
+    const web = { cancel: vi.fn() };
+    (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [css, tr, web];
+    const exit = () => new Promise<void>(() => {});
+    const { rerender } = render(<Box open exit={exit} />);
+    rerender(<Box open={false} exit={exit} />);
+    rerender(<Box open exit={exit} />);
+    expect(web.cancel).toHaveBeenCalledTimes(1);
+    expect(css.cancel).not.toHaveBeenCalled();
+    expect(tr.cancel).not.toHaveBeenCalled();
   });
 });

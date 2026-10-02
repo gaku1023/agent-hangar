@@ -45,9 +45,10 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
       }}>
       {list.map(({ item: t, key, leaving }) => {
         // 畳んで出ているタブは、見た目だけを残す。役も、フォーカスも、クリックも、閉じるボタンも持たせない。
+        // 選択の形も持たせない（閉じた時点の選択は、もう次のタブへ移っている）。
         if (leaving) {
           return (
-            <div key={key} ref={tabRef(key)} className={`tab${t.selected ? ' tab-selected' : ''}`} role="presentation" aria-hidden="true">
+            <div key={key} ref={tabRef(key)} className="tab" role="presentation" aria-hidden="true">
               <Icon name={t.kind === 'agent' ? 'agent' : 'shell'} /><span>{t.title}</span>
             </div>
           );

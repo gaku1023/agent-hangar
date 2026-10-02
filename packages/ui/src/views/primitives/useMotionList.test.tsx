@@ -118,6 +118,36 @@ describe('useMotionList', () => {
     expect(texts(container)).toEqual(['b']);
     expect(animations).toHaveLength(0);
   });
+  it('grow で先頭に足した行だけが伸びて入り、下の行は滑らせない（押されて動くだけ）', () => {
+    tops = { a: 0, b: 20 };
+    const { rerender } = render(<List items={['a', 'b']} opts={{ enter: 'grow' }} />);
+    tops = { x: 0, a: 20, b: 40 };
+    rerender(<List items={['x', 'a', 'b']} opts={{ enter: 'grow' }} />);
+    expect(animations.map((a) => a.el.textContent)).toEqual(['x']);
+  });
+  it('足した行があっても、残った行の並びが替わったら滑らせる', () => {
+    tops = { a: 0, b: 20 };
+    const { rerender } = render(<List items={['a', 'b']} opts={{ enter: 'grow' }} />);
+    tops = { x: 0, b: 10, a: 30 };
+    rerender(<List items={['x', 'b', 'a']} opts={{ enter: 'grow' }} />);
+    expect(animations.map((a) => a.el.textContent).sort()).toEqual(['a', 'b', 'x']);
+  });
+  it('消えた行が出始める描画でも、残った行の並びが同じなら滑らせない', () => {
+    tops = { a: 0, b: 20, c: 40 };
+    const { rerender } = render(<List items={['a', 'b', 'c']} />);
+    tops = { a: 0, b: 20, c: 20 };
+    rerender(<List items={['a', 'c']} />);
+    expect(animations.map((a) => a.el.textContent)).toEqual(['b']);
+  });
+  it('flip が偽なら、行の位置を測らない（入る行は key だけで見分ける）', () => {
+    let measured = 0;
+    HTMLElement.prototype.getBoundingClientRect = function () { measured++; return new DOMRect(0, 0, 10, 10); };
+    const { rerender } = render(<List items={['a']} opts={{ flip: false }} />);
+    rerender(<List items={['a', 'b']} opts={{ flip: false }} />);
+    rerender(<List items={['a', 'b']} opts={{ flip: false }} />);
+    expect(measured).toBe(0);
+    expect(animations.map((a) => a.el.textContent)).toEqual(['b']);
+  });
   it('動きの長さが 0 なら、消えた key をすぐ外す', () => {
     restore?.();
     restore = fakeMotionTokens({ ...tokens, '--dur': '0ms', '--dur-fast': '0ms', '--dur-exit': '0ms' }, { everywhere: true });

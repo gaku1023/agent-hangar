@@ -60,6 +60,20 @@ describe('motionKit', () => {
     await collapseOut(el);
     expect(el.style.overflow).toBe('hidden');
   });
+  it('伸びて入る形は、その向きの余白（padding と margin）も 0 から今の値へ伸ばす', () => {
+    tokens('100ms');
+    values = { ...values, 'padding-top': '8px', 'padding-bottom': '4px', 'margin-top': '2px', 'padding-left': '9px' };
+    const calls = fakeAnimate();
+    growIn(document.createElement('div'));
+    expect(calls[0]!.frames[0]).toMatchObject({ height: '0px', paddingTop: '0px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px' });
+    expect(calls[0]!.frames.at(-1)).toMatchObject({ paddingTop: '8px', paddingBottom: '4px', marginTop: '2px', marginBottom: '0px' });
+    // 縦に伸ばすときは、横の余白には触れない。
+    expect(calls[0]!.frames[0]).not.toHaveProperty('paddingLeft');
+    growIn(document.createElement('div'), 'x');
+    expect(calls[1]!.frames[0]).toMatchObject({ width: '0px', paddingLeft: '0px', paddingRight: '0px', marginLeft: '0px', marginRight: '0px' });
+    expect(calls[1]!.frames.at(-1)).toMatchObject({ paddingLeft: '9px', paddingRight: '0px' });
+    expect(calls[1]!.frames[0]).not.toHaveProperty('paddingTop');
+  });
   it('横に畳むときは幅を 0 にする', async () => {
     tokens('100ms');
     const calls = fakeAnimate();

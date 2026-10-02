@@ -29,18 +29,32 @@ export function fadeIn(el: HTMLElement): Animation | null {
 
 const sizeOf = (el: HTMLElement, axis: 'y' | 'x') => (axis === 'y' ? el.offsetHeight : el.offsetWidth);
 const prop = (axis: 'y' | 'x') => (axis === 'y' ? 'height' : 'width');
+/** その向きの余白（padding と margin）。border-box では高さが padding より小さくならないので、伸び縮みでは余白も一緒に動かす。 */
+const EDGES = {
+  y: { paddingTop: 'padding-top', paddingBottom: 'padding-bottom', marginTop: 'margin-top', marginBottom: 'margin-bottom' },
+  x: { paddingLeft: 'padding-left', paddingRight: 'padding-right', marginLeft: 'margin-left', marginRight: 'margin-right' },
+} as const;
+/** 余白を全部 0 にした形。 */
+const edgesZero = (axis: 'y' | 'x'): Keyframe => Object.fromEntries(Object.keys(EDGES[axis]).map((k) => [k, '0px']));
+/** 今の余白（計算済みの値）。 */
+const edgesNow = (el: HTMLElement, axis: 'y' | 'x'): Keyframe => {
+  const cs = getComputedStyle(el);
+  return Object.fromEntries(Object.entries(EDGES[axis]).map(([k, css]) => [k, cs.getPropertyValue(css) || '0px']));
+};
 
-/** 伸びて入る形。高さ（横なら幅）を 0 から伸ばし、下（右）の要素を押して滑らせる。伸びる間は中身をはみ出させない。 */
+/** 伸びて入る形。高さ（横なら幅）と、その向きの余白を 0 から伸ばし、下（右）の要素を押して滑らせる。伸びる間は中身をはみ出させない。 */
 export function growIn(el: HTMLElement, axis: 'y' | 'x' = 'y'): Animation | null {
   if (!motionOn(el)) return null;
   const size = sizeOf(el, axis);
   const p = prop(axis);
+  // 余白は動かし始める前に読む（動きの最初の形は 0 なので、あとから読むと 0 になる）。
+  const edges = edgesNow(el, axis);
   const overflow = el.style.overflow;
   el.style.overflow = 'hidden';
   const a = el.animate([
-    { [p]: '0px', opacity: 0, filter: `blur(${motionValue('--blur-in', el)})` },
+    { [p]: '0px', opacity: 0, filter: `blur(${motionValue('--blur-in', el)})`, ...edgesZero(axis) },
     { offset: 0.2, filter: 'none' },
-    { [p]: `${size}px`, opacity: 1, filter: 'none' },
+    { [p]: `${size}px`, opacity: 1, filter: 'none', ...edges },
   ], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
   const restore = () => { el.style.overflow = overflow; };
   a.finished.then(restore, restore);
@@ -52,7 +66,7 @@ export function collapseOut(el: HTMLElement, axis: 'y' | 'x' = 'y'): Promise<voi
   if (!motionOn(el)) return Promise.resolve();
   const size = sizeOf(el, axis);
   const p = prop(axis);
-  const edge = axis === 'y' ? { paddingTop: '0px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px' } : { paddingLeft: '0px', paddingRight: '0px', marginLeft: '0px', marginRight: '0px' };
+  const edge = edgesZero(axis);
   const overflow = el.style.overflow;
   el.style.overflow = 'hidden';
   const a = el.animate([

@@ -65,15 +65,18 @@ export function TurnIndex(props: TurnIndexProps) {
 
   // 何も開いていない間は末尾（いちばん新しい指示）を見せ続ける。新しい指示が来たら下へついていく。
   // 初回と動かない環境ではすぐ、そのあとは滑らかに追う。
+  // セッションやサブエージェントを替えた描画と、空（仮の行）から埋まる描画も、切り替えなので初回と同じにすぐ跳ぶ（一覧の端から端まで滑らせない）。
   const followed = useRef(false);
+  const followScope = useRef(scope);
   useLayoutEffect(() => {
+    if (followScope.current !== scope || props.rows.length === 0) { followScope.current = scope; followed.current = false; }
     const el = listRef.current;
     if (!el || openSeq !== null) return;
     const smooth = followed.current && motionOn(el) && typeof el.scrollTo === 'function';
     if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     else el.scrollTop = el.scrollHeight;
     if (props.rows.length > 0) followed.current = true;
-  }, [lastSeq, openSeq]);
+  }, [lastSeq, openSeq, scope]);
 
   // 閉じたターンの中身の控え。畳んで出る動きの間だけ描く。
   // 控えは毎回の描画の後で更新する（中身は開いたあとに読み込まれて届くので、開いた瞬間の値では足りない）。

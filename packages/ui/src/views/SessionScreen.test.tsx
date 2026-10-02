@@ -347,6 +347,25 @@ describe('SessionScreen（実行中）', () => {
       expect(document.querySelector('.tr-pane')).not.toHaveAttribute('data-leaving');
     });
     const livePane = { lamp: { tone: 'busy' as const, head: '作業中', sub: '' }, intent: { kind: 'none' as const, text: '最後の意図' }, steps: [], lanes: [], doneFolded: 0 };
+    it('別のセッションへ替えて右の欄の開閉が替わっても、欄を滑らせずにすぐその形にする', () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      const animate = vi.fn(function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; });
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const ui = (id: string, open: boolean) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} id={id} transcriptOpen={open} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui('s1', true));
+      animate.mockClear();
+      rerender(ui('s2', false));
+      expect(document.querySelector('.tr-pane-inner')).toBeNull();
+      expect(document.querySelector('[data-leaving]')).toBeNull();
+      expect(animate.mock.calls.length).toBe(0);
+      rerender(ui('s1', true));
+      expect(document.querySelector('.tr-pane-inner')).not.toBeNull();
+      expect(animate.mock.calls.length).toBe(0);
+      // 同じセッションの中での開閉は、これまでどおり動かす。
+      rerender(ui('s1', false));
+      expect(document.querySelector('.tr-pane')).toHaveAttribute('data-leaving', 'true');
+      expect(animate.mock.calls.length).toBeGreaterThan(0);
+    });
     it('会話が終わったら「いま」を薄れさせ、終わるまで最後の中身を残し、目次は作り直さない', async () => {
       restore = fakeMotionTokens(undefined, { everywhere: true });
       let finish: () => void = () => {};
@@ -605,6 +624,18 @@ describe('TabStrip の出入り', () => {
   const two = [...one, { id: 't2', title: 'シェル 1', kind: 'shell' as const, selected: false, closable: true }];
   let restore: () => void = () => {};
   afterEach(() => { restore(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; });
+  it('選んでいたタブを閉じても、出ていく影は選択の形を持たない', () => {
+    restore = fakeMotionTokens(undefined, { everywhere: true });
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; };
+    const picked = [{ ...one[0]!, selected: false }, { ...two[1]!, selected: true }];
+    const ui = (tabs: typeof two) => <IntentRoot onIntent={vi.fn()}><TabStrip sessionId="s1" tabs={tabs} canAdd canSplit split={false} /></IntentRoot>;
+    const { rerender } = render(ui(picked));
+    rerender(ui(one));
+    const ghost = document.querySelector('.tabs [role="presentation"]') as HTMLElement;
+    expect(ghost).not.toBeNull();
+    expect(ghost).not.toHaveClass('tab-selected');
+    expect(document.querySelectorAll('.tab-selected')).toHaveLength(1);
+  });
   it('閉じたタブは畳んで出るあいだ、操作できない影として残し、終わったら外す', async () => {
     restore = fakeMotionTokens(undefined, { everywhere: true });
     let finish: () => void = () => {};

@@ -29,10 +29,10 @@ type Ghost<T> = { item: T; after: string | null };
  */
 export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: MotionListOpts): { list: MotionEntry<T>[]; ref: (key: string) => (el: HTMLElement | null) => void } {
   const nodes = useRef(new Map<string, HTMLElement>());
-  const rects = useRef(new Map<string, DOMRect>());
+  // 前の描画で描いていた行。滑らせるときだけ位置も持つ（flip が偽なら測らず null を置く）。
+  const rects = useRef(new Map<string, DOMRect | null>());
   const ghosts = useRef(new Map<string, Ghost<T>>());
   const leavingStarted = useRef(new Map<string, object>());
-  const lastOrder = useRef('');
   const prev = useRef<{ item: T; key: string }[]>([]);
   const reset = useRef(false);
   const lastScope = useRef(opts.scope);
@@ -59,17 +59,19 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
     const at = g.after === null ? 0 : list.findIndex((e) => e.key === g.after) + 1;
     list.splice(at > 0 || g.after === null ? at : list.length, 0, { item: g.item, key, leaving: true });
   }
-  // 並びの比べは残った行だけで見る。消えた行を外す描画は、並びの替わりではない（行はもう畳み終えている）。
-  const order = cur.map((c) => c.key).join('\u0000');
+  // 並びの比べは、前の描画と今の描画の両方にある行の、互いの順だけで見る。
+  // 足した行や消えた行は並びの替わりではない（足した行の下の行は、伸びる行に押されて動くので、さらに滑らせると二重に動く）。
   const before = prev.current;
+  const kept = cur.filter((c) => prevKeys.has(c.key)).map((c) => c.key);
+  const keptBefore = before.filter((b) => curKeys.has(b.key)).map((b) => b.key);
+  const reordered = kept.some((k, i) => k !== keptBefore[i]);
   prev.current = cur;
+  const flip = opts.flip !== false;
 
   useLayoutEffect(() => {
-    const now = new Map<string, DOMRect>();
-    for (const [k, el] of nodes.current) now.set(k, el.getBoundingClientRect());
+    const now = new Map<string, DOMRect | null>();
+    for (const [k, el] of nodes.current) now.set(k, flip ? el.getBoundingClientRect() : null);
     const wasEmpty = rects.current.size === 0;
-    const reordered = order !== lastOrder.current;
-    lastOrder.current = order;
     // 出る途中で戻った行は、畳む動きの最後の形（高さ 0、薄れ切り）を残さず取り消す。
     for (const k of revived) nodes.current.get(k)?.getAnimations?.().forEach((a) => a.cancel());
     if (!wasEmpty && !reset.current) {
@@ -85,14 +87,14 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
           void collapseOut(el, opts.axis).then(() => { if (leavingStarted.current.get(k) !== mine) return; ghosts.current.delete(k); leavingStarted.current.delete(k); tick(); });
           continue;
         }
-        const was = rects.current.get(k);
-        if (!was) {
+        if (!rects.current.has(k)) {
           if (prepended.has(k)) continue;
           if (opts.enter === 'grow') growIn(el, opts.axis); else riseIn(el);
           if (opts.hit) markHit(el);
           continue;
         }
-        if (reordered && opts.flip !== false) slideFrom(el, was, now.get(k)!);
+        const was = rects.current.get(k);
+        if (reordered && was) slideFrom(el, was, now.get(k)!);
       }
     }
     // 切り替えの描画のあとは、空から埋まる描画と同じに扱う（次の描画の入りも動かさない）。

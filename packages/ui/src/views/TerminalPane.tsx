@@ -71,11 +71,12 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
     if (!host || !el) return;
     host.mount(props.tabId, el);
     // 左右の欄や案内の帯が動いている間は本文の幅や高さが毎コマ変わる。合わせ直すたびに寸法をサーバへ送るので、止まってから一度だけ合わせる。
-    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (!el.closest(`[${LAYOUT_MOVING_ATTR}]`)) host.fit(props.tabId); });
+    // 止まった知らせは、どの箱の動きが止まっても届く。ほかの外側の箱がまだ動いているなら、それが止まるまで待つ。
+    const fitIfStill = () => { if (!el.closest(`[${LAYOUT_MOVING_ATTR}]`)) host.fit(props.tabId); };
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fitIfStill);
     ro?.observe(el);
-    const settled = () => host.fit(props.tabId);
-    window.addEventListener(LAYOUT_SETTLED, settled);
-    return () => { ro?.disconnect(); window.removeEventListener(LAYOUT_SETTLED, settled); };
+    window.addEventListener(LAYOUT_SETTLED, fitIfStill);
+    return () => { ro?.disconnect(); window.removeEventListener(LAYOUT_SETTLED, fitIfStill); };
   }, [host, props.tabId]);
 
   const status = host?.status(props.tabId) ?? null;

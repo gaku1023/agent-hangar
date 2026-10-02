@@ -49,13 +49,19 @@ export function SessionScreen(props: SessionProps) {
   const running = Boolean(props.run && props.selectedTab);
   const shape = running ? PANE_SHAPE.split : PANE_SHAPE.rail;
   const boxRef = running ? splitRef : railRef;
-  const pane = usePresence<HTMLElement>(props.transcriptOpen, (inner) => (boxRef.current ? playPaneMotion(boxRef.current, shape.open, inner, false) : null));
+  // 開閉はセッションごとに覚えているので、別のセッションへ替えると開閉も替わることがある。それは切り替えなので動かさず、すぐその形にする。
+  // 最後に描き終えたセッションを覚えておき、替わった描画では開く動きも閉じる動きも出さない。
+  const paneSession = useRef(props.id);
+  const pane = usePresence<HTMLElement>(props.transcriptOpen, (inner) => (paneSession.current === props.id && boxRef.current ? playPaneMotion(boxRef.current, shape.open, inner, false) : null));
   const paneFirst = useRef(true);
   useLayoutEffect(() => {
     if (paneFirst.current) { paneFirst.current = false; return; }
+    if (paneSession.current !== props.id) return;
     if (props.transcriptOpen && boxRef.current) void playPaneMotion(boxRef.current, shape.closed, pane.ref.current, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.transcriptOpen]);
+  // 上の 2 つ（usePresence の中のものも含む）が今の描画を見終えてから、描き終えたセッションを書き換える。
+  useLayoutEffect(() => { paneSession.current = props.id; });
   // 「いま」の出入り（設計書 ⑩）。消えるときは、先にランプを終わりの形（休みの色、「終わりました」）へ替える。
   // ランプの色は .live-lamp の transition で --dur かけて替わるので、それを待ってから、見出し、上の段、境目を薄れさせ、終わったら外す。
   // 消える間は、ランプのほかは最後の livePane を描き続ける。

@@ -258,6 +258,36 @@ describe('TurnIndex の動き', () => {
     rerender(indexUi({ rows: [row(0), row(1)] }));
     expect(scrollTo).toHaveBeenCalledWith({ top: 500, behavior: 'smooth' });
   });
+  it('セッションやサブエージェントを替えたら、末尾へ滑らせずにすぐ跳ぶ', () => {
+    const { rerender } = renderIndex({ rows: [row(0), row(1)] });
+    const list = document.querySelector('.turns-list') as HTMLElement;
+    const scrollTo = vi.fn();
+    list.scrollTo = scrollTo as unknown as typeof list.scrollTo;
+    Object.defineProperty(list, 'scrollHeight', { value: 500, configurable: true });
+    list.scrollTop = 0;
+    rerender(indexUi({ sessionId: 's2', rows: [row(5), row(6), row(7)] }));
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(500);
+    list.scrollTop = 0;
+    rerender(indexUi({ sessionId: 's2', agentId: 'abc', rows: [row(8)] }));
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(500);
+    // 同じ範囲で新しい指示が来たら、また滑らかに追う。
+    rerender(indexUi({ sessionId: 's2', agentId: 'abc', rows: [row(8), row(9)] }));
+    expect(scrollTo).toHaveBeenCalledWith({ top: 500, behavior: 'smooth' });
+  });
+  it('空や仮の行から埋まった描画では、末尾へ滑らせずにすぐ跳ぶ', () => {
+    const { rerender } = renderIndex({ rows: [row(0)] });
+    const list = document.querySelector('.turns-list') as HTMLElement;
+    const scrollTo = vi.fn();
+    list.scrollTo = scrollTo as unknown as typeof list.scrollTo;
+    Object.defineProperty(list, 'scrollHeight', { value: 500, configurable: true });
+    rerender(indexUi({ rows: [], pending: true }));
+    list.scrollTop = 0;
+    rerender(indexUi({ rows: [row(3), row(4)] }));
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(list.scrollTop).toBe(500);
+  });
   it('仮の行から本物の行へ替わったら、一覧を薄れから現す', () => {
     const { rerender } = renderIndex({ rows: [], pending: true });
     expect(animations).toHaveLength(0);

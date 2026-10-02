@@ -53,6 +53,18 @@ describe('TerminalPane', () => {
     expect(host.fit).toHaveBeenCalledTimes(2);
     vi.unstubAllGlobals();
   });
+  it('ほかの箱の動きが止まった知らせでも、まだ自分の外側の箱が動いている間は合わせない', () => {
+    const host = fakeHost();
+    render(<div className="outer"><div className="inner"><TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider></div></div>);
+    const outer = document.querySelector<HTMLElement>('.outer')!;
+    outer.setAttribute(LAYOUT_MOVING_ATTR, '');
+    // 別の箱（たとえば案内の帯）の動きが止まった。
+    window.dispatchEvent(new Event(LAYOUT_SETTLED));
+    expect(host.fit).not.toHaveBeenCalled();
+    outer.removeAttribute(LAYOUT_MOVING_ATTR);
+    window.dispatchEvent(new Event(LAYOUT_SETTLED));
+    expect(host.fit).toHaveBeenCalledTimes(1);
+  });
   it('最初のデータが届くまで、端末の面は data-painted="false" で透明にしておく', () => {
     const host = { ...fakeHost(), painted: () => false };
     render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider>);
