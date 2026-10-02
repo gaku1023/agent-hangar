@@ -172,7 +172,7 @@ function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: { enter: 'r
 ### ④ 「いま」と目次の境目
 
 - 境目は、上の段（`.live-top`）の高さの上限ではなく、高さそのものにする。
-  - `flex: 0 0 calc(var(--live-split) * 100%)` に改め、`max-height` を外す。
+  - `flex: 0 1 calc(var(--live-split, 0.5) * 100%)` に改め（縮むのは、目次の下限を守るときだけ）、`max-height` を外す。
   - 中身が短ければ、上の段の下に余白が残る。
 - 比率の丸めを、0.2〜0.8 から 0〜1 に広げる（`clampLivePaneSplit`）。
   - 保存済みの値（0.2〜0.8）は、そのまま使える。
