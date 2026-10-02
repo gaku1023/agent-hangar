@@ -1,5 +1,9 @@
 # セッション画面の動き 設計
 
+> この設計の内容は、実装が済んだので `docs/design.md` の「セッション詳細」の節の「セッション画面の動き」へ移した（左の余白は「骨格」、動きの語彙は「見た目と動き」にも書いた）。
+> 以降は、決めたときの記録として残す。
+> 実装で設計と変えた所は、下に「実装で変えた所」として書き、本文もそれに合わせて直した。
+
 ## この文書の位置づけ
 
 セッション画面（ターミナルが写る画面）の開閉と更新に、動きを足す設計である。
@@ -7,7 +11,7 @@
 見た目の試作は `2026-10-02-session-motion/motion-proto.html` にある。
 操作盤の各欄で「今」と案を切り替えて比べられる。
 
-実装が済んだら、本体の設計書 `docs/design.md` の該当箇所へ内容を移す。
+実装が済んだので、本体の設計書 `docs/design.md` の該当箇所へ内容を移した。
 
 ## 目的
 
@@ -61,6 +65,9 @@
 - **畳んで出る形**：薄れながら高さ（タブは幅）を 0 に畳み、終わったら外す。下の行は詰まって滑る。長さは --dur-exit と --dur-fast の和で、曲線は --ease-in。試作と同じである。
 - 並びが変わった要素は、前の位置から滑らせる（FLIP、--dur、--ease-out）。
 - 最初の描画では動かさない。画面に入る動き（`.screen` の enter）と View Transitions に任せる。
+  - 前の描画が空だった描画、key が全部入れ替わった描画、セッションやサブエージェントを替えた描画も同じである。別の一覧への切り替えは、出入りとして見せない。
+  - リストは `scope` に `sessionId`（目次は `sessionId:agentId`）を渡し、単独の部品（意図の箱、情報の行の数）は `sessionId` で key する。
+  - 例外は、タブの帯の開くボタンである。リストではなく単独の部品なので、画面の enter と同じ形と長さの CSS の enter で入る。
 - reduced motion ではトークンが 0 になる。そのため、入る・出る・滑るがすべて即座になる。出る要素は 0ms で外れる。
 - `el.animate` の無い環境（jsdom）では、何もせずに最後の形にする。
 
@@ -74,25 +81,34 @@
 - `riseIn(el)`：入る形。
 - `growIn(el, axis)`：伸びて入る形。axis は 'y' か 'x'。
 - `collapseOut(el, axis)`：畳んで出る形。Promise を返し、終わったら解決する。
-- `flashHit(el)`：地を淡い黄（--hit）から薄れさせる。`.tr-flash` と同じ長さと遅れを使う。
+- `fadeIn(el)`：薄れから現す。開いた直後に、仮の行から本物の行へ替わった一覧を現すのに使う。
+- `slideFrom(el, before, after)`：前の位置から今の位置へ、移動だけで滑らせる（FLIP）。
+- `popMark(el)`：状態の印を 1 度だけ膨らませる。
+- `markHit(el)`：地を淡い黄（--hit）から薄れさせる。`.tr-flash` と同じ長さと遅れを使う（最初の案の名前は `flashHit`）。
+- `motionOn(el)`：動かす環境か（`el.animate` があり、長さのトークンが 0 でない）を返す。
 
 ### `views/primitives/useMotionList.ts`
 
 リストの出入りをまとめるフックである。
 
 ```ts
-function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: { enter: 'rise' | 'grow'; axis?: 'y' | 'x'; flash?: boolean }):
+function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: { enter: 'rise' | 'grow'; axis?: 'y' | 'x'; hit?: boolean; flip?: boolean; ignorePrepended?: boolean; scope?: string }):
   { list: { item: T; key: string; leaving: boolean }[]; ref: (key: string) => (el: HTMLElement | null) => void };
 ```
 
 - 前の描画に無かった key の要素は、入る形（または伸びて入る形）で入れる。
 - 消えた key の要素は、すぐには外さない。`leaving: true` で最後の中身のまま描き続け、畳んで出る形が終わってから list から落とす。
-- 残った要素は FLIP で滑らせる。
+- 残った要素は FLIP で滑らせる。滑らせるのは、残った要素の並びが替わった描画だけである（スクロールや resize で位置が替わっただけの描画では滑らせない）。`flip: false` で止められる。
+- 出る途中で戻った key は、出る動きを取り消して元の姿に戻す。
 - 初回の描画では動かさない（今の `useFlip` と同じく、前の位置が空なら動かさない）。
+- `scope` が替わった描画と、空になった描画（今の一覧が 0 件）は、切り替えとして扱う。出る行も入る動きも作らず、次の描画の入りも動かさない。
+- `ignorePrepended` を真にすると、先頭に足された要素（古いものの読み込み）は動かさない。
+- `hit` を真にすると、入った要素の地を `markHit` で淡い黄から薄れさせる。
 - leaving の要素は `aria-hidden` にし、押せないようにする。
 
 今の `useFlip`（プロジェクト一覧）は、これの enter: 'rise' で置き換えられる。
 置き換えるかは実装の手間で決め、置き換えないなら両方を残す。
+実装では置き換えず、`useFlip` は `ProjectsScreen` にそのまま残した。
 
 ### `views/primitives/layoutMotion.ts`
 
@@ -100,7 +116,10 @@ function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: { enter: 'r
 
 - 印を `data-layout-moving` に改める。付ける場所は、動いている箱（`.shell`、`.split`、`.session-body`、`.term-pane`）である。
 - `TerminalPane` は、`el.closest('[data-layout-moving]')` が真の間は ResizeObserver の fit を見送る。
-- 動きが終わったら `hangar:layout-settled` を出す（今と同じ）。端末はここで 1 回だけ fit する。
+- 印は要素ごとに数える。`beginLayoutMotion` で増やし `endLayoutMotion` で減らし、0 になったときだけ印を外す。
+  - 同じ箱で動きが重なっても（出る途中で開き直したときなど）、先に終わった方が印を早く外さない。
+  - すべての begin は必ず end と対にする（取り消されたときも end を呼ぶ）。
+- 動きが終わったら（数が 0 になったとき）`hangar:layout-settled` を出す（今と同じ）。端末はここで 1 回だけ fit する。
 - `sidebarMotion.ts` の `MOVING_ATTR` と `LAYOUT_SETTLED` は、ここから読むように移す。
 - 印で消している吹き出しの規則（`.shell[data-sidebar-moving] .toggle-tip` など）も、新しい名前に改める。
 
@@ -142,10 +161,13 @@ function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: { enter: 'r
 - 新しい行は、入る形で末尾に入る（`useMotionList`、enter: 'rise'）。
 - 何も開いていない間は、末尾へ滑らかに追従する（`scrollTo({ behavior: 'smooth' })`）。
   - reduced motion と初回の描画では、今と同じく即座に追従する。
-- ターンを開いたときの中身（`.turn-body`）は、伸びて入る形で開き、畳んで出る形で閉じる。寄せる動き（`revealWithin`）は、伸びた後の位置へ滑らかに動かす。
+- ターンを開いたときの中身（`.turn-body`）は、伸びて入る形で開き、畳んで出る形で閉じる。寄せる動き（`revealWithin`）は、伸び切ったあとの大きさで行う。
+  - `revealWithin` には滑らかに動かす選択が無いので、伸び切ったあとに一気に寄せる（滑らかには動かさない）。
+- 目次の行は FLIP で滑らせない（`flip: false`）。新しい指示は末尾に足すだけで、残りの行は動かないためである。
 - 見出しの数（ターン N）は `RollingNumber` で回す。
-- 古いターンを読み込んで先頭に足したときは動かさない（読み込みの結果で、新しい出来事ではないため）。
+- 古いターンを読み込んで先頭に足したときは動かさない（`ignorePrepended`。読み込みの結果で、新しい出来事ではないため）。
   - スクロールの位置は今のまま保つ。
+- セッションかサブエージェントを替えた描画は、切り替えとして動かさない（`scope`）。控えていた開いたターンの中身も捨てる。
 
 ### ④ 「いま」と目次の境目
 
@@ -167,6 +189,7 @@ function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: { enter: 'r
 ### ⑤ 「いま」の意図と手
 
 - 意図の文が変わったとき（A「入れ替え」）：
+  - セッションを替えたときは入れ替えない（`IntentBox` を `sessionId` で key する）。
   - 古い文は、上へ --rise だけ抜けながら、薄れてぼける（--dur-exit、--ease-in）。古い文は箱の中に重ねて描き、`aria-hidden` にする。
   - 新しい文は、入る形で現れる。開始は --dur-exit の半分だけ遅らせる。
   - 箱の高さは、古い高さから新しい高さへ --dur で滑る。
@@ -187,7 +210,7 @@ function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: { enter: 'r
 ### ⑦ 見出し周りとタブ
 
 - 要約の一行（`.session-oneliner`）は、初めて届いたときと文が変わったときに、左から 6px（--rise）浮かんで入る。
-- 情報の行の数（コスト、変更、ターン、コンテキスト）は `RollingNumber` で回す。経過時間は回さない。
+- 情報の行の数（コスト、変更、ターン、トークン）は `RollingText` で回す（`sessionId` で key し、セッションを替えたときは回さない）。経過時間は回さない。
 - タブは、足されたら幅を伸ばして入り、閉じたら幅を畳んで出る（`useMotionList`、axis: 'x'）。
 - 分割の開始と終了（`SplitPane`）は、今の `.split-h` の transition のままにする。
 
@@ -201,7 +224,8 @@ function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: { enter: 'r
 
 - 目次：最初の events が届くまでは、淡い仮の行（6 行、幅を少しずつ変える）を出す。届いたら、行を一度に入れて末尾へ即座に寄せる。そのあと一覧全体を --dur で薄れから現す。
   - 仮の行はゆっくり流れる光で示す。reduced motion では流さない。
-  - 仮の行を出すのは `rows.length === 0 && loading` の間だけである。届いて 0 件なら、今の「まだ指示がありません」を出す。
+  - 仮の行を出すのは、`turnsPending`（本文があり、窓がまだ作られていないか、読み込み中で 0 件）の間だけである。届いて 0 件なら、今の「まだ指示がありません」を出す。
+  - 本文の無いセッションでは、最初の読み込みが窓を作らずに返るので、`turnsPending` は `hasTranscript` で絞る。絞らないと、仮の行が出続ける。
 - ターミナル：初めてつなぐときは、最初のデータが届くまで端末の面を透明にしておく。届いたら --dur で現す。
   - 届いたかどうかは、TerminalHost に「最初の描画が済んだか」の印を持たせて読む。
   - 「接続しています」は今のまま右下に出す。
@@ -210,13 +234,30 @@ function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: { enter: 'r
 ### ⑩ 会話が終わったとき
 
 - 実行中の右の欄から「いま」の段が消えるとき：
-  - 先にランプの色と文が終わりの形へ --dur で変わる。
+  - 先にランプの色と文が終わりの形（休みの色、文言「終わりました」）へ --dur で変わる。点の脈も止まる。
   - 次に、見出し、上の段、境目が --dur-exit で薄れてぼける。
-  - そのあと目次だけの形に替わる。目次は、前の位置から上へ伸びて滑る（FLIP）。
+  - そのあと目次だけの形に替わる。目次は、前の位置から上へ滑る（FLIP。移動だけで、高さの伸びは flex により即座に起きる）。
   - 消える間は、最後の `livePane` を描き続ける（②と同じく、出る動きが終わるまで外さない）。
-- 再開して「いま」の段が戻るときは、逆の順にする。目次が下へ滑り、上の段が入る形で入る。
+- 再開して「いま」の段が戻るときは、逆の順にする。目次が下へ滑り、上の段が入る形で入る（見出しと境目は、入る動きを付けず現れる）。
+- 別のセッションへ替えたときは、前のセッションの「いま」を薄れさせずにすぐ外す。
 - 端末の縁の灯は、今と同じく状態の印で切り替わる。止まるときに急に消えないよう、`.term-pane` の `box-shadow` の transition（今ある）に任せる。
 - 目次は、今の作りでは LivePane の中と外で親が替わり、作り直される。スクロールの位置が飛ばないよう、外へ出すときも同じ key で描く（親の替わらない形に組み直す）。
+
+## 実装で変えた所
+
+設計からずれた点を、決めた理由とあわせて残す。
+
+- タブの帯の開くボタンは、開き始めにその場で外し、出る動きは付けない。目は開いていく欄に向くためである。
+- `layoutMotion` の印は、要素ごとに数える。重なった動きの片方が先に終わると、印が早く外れて端末が毎フレーム fit したためである。
+- `useMotionList` に `scope` を足し、空の一覧からの描画も切り替えとして扱う。セッションの切り替えを出入りの動きにしないためである。
+- セッションを替えたときは、意図の箱、情報の行の数、タブ、目次の数を `sessionId`（または `scope`）で key し、動かさない。
+- `turnsPending` は `hasTranscript` で絞る。本文の無いセッションで仮の行が出続けるためである。
+- 終わるときのランプの文言は「終わりました」にした。
+- ターンを開いたときの寄せ（`revealWithin`）は、伸び切ったあとに一気に動く。滑らかには動かさない。
+- 目次の FLIP（「いま」が消えるとき）は、移動だけである。高さの伸びは flex により即座に起きる。
+- 目次の行は FLIP で滑らせない。
+- `useFlip` は置き換えず、`ProjectsScreen` に残した。
+- 部品の名前は、`flashHit` を `markHit` に、`flash` の選択肢を `hit` にした。`fadeIn`、`slideFrom`、`popMark`、`motionOn` を足した。
 
 ## テスト
 
