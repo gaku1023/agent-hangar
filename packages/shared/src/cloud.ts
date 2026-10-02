@@ -216,3 +216,36 @@ export function configKey(deviceId: string, rel: string): string {
   if (!isSafeRelPath(rel)) throw new Error('設定ファイルのパスが不正です');
   return `config/${deviceId}/${rel}`;
 }
+
+/**
+ * Cloudflare の無料プランの日の枠。正本は料金の頁（D1 と Workers）で、API からは取れない
+ * （entitlements に入っていないことを 2026-10-02 に実物で確かめた）。
+ * 端末の見張り（packages/server/src/sync/quota.ts の QUOTA_LIMITS）もこの値を指す。
+ */
+export const CLOUD_FREE_LIMITS = { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000 } as const;
+
+/** R2 の月の込み量。billable-usage の ServiceName の頭で引く。単位は ServiceName ごとの PricingUnit（GB-months か Count）。 */
+const R2_INCLUDED: [prefix: string, included: number][] = [
+  ['R2 Data Storage', 10],
+  ['R2 Storage Class A Operations', 1_000_000],
+  ['R2 Storage Class B Operations', 10_000_000],
+];
+
+export function r2Included(serviceName: string): number | null {
+  const hit = R2_INCLUDED.find(([p]) => serviceName.startsWith(p));
+  return hit ? hit[1] : null;
+}
+
+export type CloudUsagePart = 'today' | 'plan' | 'month';
+
+/** Worker の `GET /usage` の応答。トークンが無い Worker は configured: false だけを返す。 */
+export type CloudUsageBody =
+  | { configured: false }
+  | {
+      configured: true;
+      fetchedAt: number;
+      today: { day: string; d1RowsWritten: number; workersRequests: number } | null;
+      plan: { workersPaid: boolean; items: { id: string; name: string; priceUsd: number; frequency: string | null }[]; periodStart: string | null; periodEnd: string | null } | null;
+      month: { periodStart: string; throughDay: string | null; billedUsd: number; currency: string; services: { family: string; name: string; consumed: number; unit: string; billedUsd: number }[] } | null;
+      errors: { part: CloudUsagePart; message: string }[];
+    };

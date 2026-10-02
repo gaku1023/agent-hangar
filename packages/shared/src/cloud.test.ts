@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { configKey, decodeHeaderText, decodeJoinToken, encodeFileKeyPath, encodeHeaderText, encodeJoinToken, isAllowedJoinUrl, isHeaderSafe, isSafeRelPath, isValidFileKey, MAX_KEY_BYTES, splitFileKey, type JoinToken, MAX_ID_CHARS, MAX_JOIN_TOKEN_CHARS, MAX_JOIN_URL_CHARS, MAX_REL_PATH_CHARS, SHARED_TABLES, TABLE_PK, transcriptKey } from './cloud.ts';
+import { CLOUD_FREE_LIMITS, r2Included, configKey, decodeHeaderText, decodeJoinToken, encodeFileKeyPath, encodeHeaderText, encodeJoinToken, isAllowedJoinUrl, isHeaderSafe, isSafeRelPath, isValidFileKey, MAX_KEY_BYTES, splitFileKey, type JoinToken, MAX_ID_CHARS, MAX_JOIN_TOKEN_CHARS, MAX_JOIN_URL_CHARS, MAX_REL_PATH_CHARS, SHARED_TABLES, TABLE_PK, transcriptKey } from './cloud.ts';
 
 describe('参加トークン', () => {
   it('URL と秘密を base64url の JSON で往復する', () => {
@@ -231,5 +231,20 @@ describe('R2 の鍵の形', () => {
     // URL に置いても壊れない。
     expect(new URL(`https://h/files/${encodeFileKeyPath('config/skills/日本語 メモ/SKILL.md')}`).pathname)
       .toBe('/files/config/skills/%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E3%83%A1%E3%83%A2/SKILL.md');
+  });
+});
+
+describe('無料枠の定数', () => {
+  it('D1 と Workers の日の枠は 10 万', () => {
+    expect(CLOUD_FREE_LIMITS).toEqual({ d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000 });
+  });
+  it('R2 の込み量は billable-usage の ServiceName の頭で引く', () => {
+    expect(r2Included('R2 Data Storage (First 10GB-Month included)')).toBe(10);
+    expect(r2Included('R2 Storage Class A Operations (First 1M included)')).toBe(1_000_000);
+    expect(r2Included('R2 Storage Class B Operations (First 10M included)')).toBe(10_000_000);
+  });
+  it('知らない項目は null（棒を描かず数だけ出す）', () => {
+    expect(r2Included('R2 Infrequent Access Data Retrieval')).toBeNull();
+    expect(r2Included('Workers Standard Requests')).toBeNull();
   });
 });
