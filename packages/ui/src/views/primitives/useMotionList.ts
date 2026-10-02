@@ -11,6 +11,8 @@ export type MotionListOpts = {
   flip?: boolean;
   /** 先頭に足された行（古いものの読み込み）は動かさない。 */
   ignorePrepended?: boolean;
+  /** 同じ key が別のものを指す範囲（セッション、サブエージェントなど）。替わった描画は、新しい出来事ではなく切り替えとして動かさない。 */
+  scope?: string;
 };
 export type MotionEntry<T> = { item: T; key: string; leaving: boolean };
 
@@ -20,6 +22,7 @@ type Ghost<T> = { item: T; after: string | null };
  * リストの出入り（設計書「共通の部品」）。
  * 新しい key は入る形で入れ、消えた key は leaving のまま元の位置に残して、畳んで出る形が終わってから落とす。
  * 最初の描画、前の描画が空だった描画、key が全部入れ替わった描画では動かさない（一度に入れ替わったものは、新しい出来事ではない）。
+ * 空になる描画と scope が替わった描画も、同じく切り替えとして扱う（消えた行を畳まず、次の描画の入りも動かさない）。
  * 動かない環境（jsdom、reduced motion）では、消えた key をすぐ落とす。
  * 出る途中で戻った key は、動きを取り消して元の姿に戻す。並べ替えの滑りは、残った行の並びが替わった描画だけで出す（スクロールや resize で位置が替わっただけの描画では出さない）。
  * 描画の中で ref を書き換えるので、StrictMode や、捨てられる並行描画のもとでは安全ではない（この画面では使っていない）。
@@ -32,14 +35,17 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
   const lastOrder = useRef('');
   const prev = useRef<{ item: T; key: string }[]>([]);
   const reset = useRef(false);
+  const lastScope = useRef(opts.scope);
   const [, tick] = useReducer((n: number) => n + 1, 0);
 
   const cur = items.map((item) => ({ item, key: keyOf(item) }));
   const curKeys = new Set(cur.map((c) => c.key));
   const prevKeys = new Set(prev.current.map((p) => p.key));
   // key が全部入れ替わったら、前の行は残さず、入る動きも出さない。
-  reset.current = prev.current.length > 0 && cur.length > 0 && !cur.some((c) => prevKeys.has(c.key));
-  if (reset.current) ghosts.current.clear();
+  const scopeChanged = lastScope.current !== opts.scope;
+  lastScope.current = opts.scope;
+  reset.current = scopeChanged || cur.length === 0 || (prev.current.length > 0 && !cur.some((c) => prevKeys.has(c.key)));
+  if (reset.current) { ghosts.current.clear(); leavingStarted.current.clear(); }
   else if (motionOn()) {
     prev.current.forEach((p, i) => {
       if (!curKeys.has(p.key) && !ghosts.current.has(p.key)) ghosts.current.set(p.key, { item: p.item, after: i > 0 ? prev.current[i - 1]!.key : null });
@@ -89,7 +95,8 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
         if (reordered && opts.flip !== false) slideFrom(el, was, now.get(k)!);
       }
     }
-    rects.current = now;
+    // 切り替えの描画のあとは、空から埋まる描画と同じに扱う（次の描画の入りも動かさない）。
+    rects.current = reset.current ? new Map() : now;
   });
 
   return { list, ref: (key) => (el) => { if (el) nodes.current.set(key, el); else nodes.current.delete(key); } };

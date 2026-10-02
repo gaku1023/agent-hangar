@@ -48,9 +48,11 @@ export function TurnIndex(props: TurnIndexProps) {
   const openSeq = props.rows.find((r) => r.open)?.seq ?? null;
   const lastSeq = props.rows.length > 0 ? props.rows[props.rows.length - 1]!.seq : null;
 
+  // 同じ seq が別のものを指す範囲。セッションとサブエージェントが替わる描画は、切り替えとして動かさない。
+  const scope = `${props.sessionId}:${props.agentId ?? ''}`;
   // 行の出入り。古いものの読み込み（先頭への足し）は動かさない。
   // 並びの滑りは使わない（新しい指示は末尾に足すだけで、残りの行は動かない）。
-  const { list: entries, ref: rowRef } = useMotionList(props.rows, (r) => String(r.seq), { enter: 'rise', flip: false, ignorePrepended: true });
+  const { list: entries, ref: rowRef } = useMotionList(props.rows, (r) => String(r.seq), { enter: 'rise', flip: false, ignorePrepended: true, scope });
 
   // 何も開いていない間は末尾（いちばん新しい指示）を見せ続ける。新しい指示が来たら下へついていく。
   // 初回と動かない環境ではすぐ、そのあとは滑らかに追う。
@@ -71,19 +73,32 @@ export function TurnIndex(props: TurnIndexProps) {
   const [closing, setClosing] = useState<OpenBody | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const closingRef = useRef<HTMLDivElement>(null);
-  const bodySeen = useRef(false);
+  const lastScope = useRef(scope);
+  const prevRows = useRef(0);
+  // 伸びて入る動き。開いたターンの寄せは、これが終わったあとの大きさで行う。
+  const growing = useRef<Animation | null>(null);
   useLayoutEffect(() => {
+    growing.current = null;
+    // セッションやサブエージェントが替わったら、前の控えは捨てる（別のものの中身を畳まない）。
+    if (lastScope.current !== scope) {
+      lastScope.current = scope;
+      lastOpen.current = null;
+      setClosing(null);
+      return;
+    }
     const was = lastOpen.current;
     if (was && was.seq !== openSeq && motionOn()) setClosing(was);
-    // 最初の描画で開いていたターンは、新しい出来事ではないので伸ばさない。
-    if (bodySeen.current && openSeq !== null && was?.seq !== openSeq && bodyRef.current) growIn(bodyRef.current);
-    bodySeen.current = true;
-  }, [openSeq]);
+    // 最初の描画で開いていたターンと、空から埋まった描画で開いていたターンは、新しい出来事ではないので伸ばさない。
+    if (prevRows.current > 0 && openSeq !== null && was?.seq !== openSeq && bodyRef.current) growing.current = growIn(bodyRef.current);
+  }, [openSeq, scope]);
   useLayoutEffect(() => {
     lastOpen.current = openSeq === null ? null : { seq: openSeq, items: props.openItems };
+    prevRows.current = props.rows.length;
   });
   useLayoutEffect(() => {
-    if (!closing || !closingRef.current) return;
+    if (!closing) return;
+    // 描く先の行が無い（消えた、開き直した）なら、畳むものが無いので控えを捨てる。
+    if (!closingRef.current) { setClosing(null); return; }
     let alive = true;
     void collapseOut(closingRef.current).then(() => { if (alive) setClosing(null); });
     return () => { alive = false; };
@@ -91,10 +106,17 @@ export function TurnIndex(props: TurnIndexProps) {
 
   // 開いたターンは中身ごと見える位置へ寄せる。動かすのは目次の一覧だけにする。
   // scrollIntoView は WebKit で外側の箱（アプリ全体）までずらし、手で戻せなくなる。
+  // 伸びて入る間は、伸び切ったあとの大きさで寄せる（伸びる前に測ると、中身が下へはみ出す）。
   useEffect(() => {
     const list = listRef.current;
     const item = openSeq === null ? null : openRef.current;
-    if (list && item) revealWithin(list, item);
+    if (!list || !item) return;
+    const grow = growing.current;
+    growing.current = null;
+    if (!grow) { revealWithin(list, item); return; }
+    let alive = true;
+    void grow.finished.then(() => { if (alive) revealWithin(list, item); }, () => {});
+    return () => { alive = false; };
   }, [openSeq]);
 
   const open = (i: number) => {

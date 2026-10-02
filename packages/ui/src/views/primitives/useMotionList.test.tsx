@@ -98,6 +98,26 @@ describe('useMotionList', () => {
     await act(async () => { finish.forEach((f) => f()); });
     expect(animations).toHaveLength(0);
   });
+  it('空になる描画は、消えた行を残さず、空から埋まる次の描画も動かさない（切り替えの途中の空）', () => {
+    const { container, rerender } = render(<List items={['a', 'b']} />);
+    rerender(<List items={[]} />);
+    expect(texts(container)).toEqual([]);
+    rerender(<List items={['x', 'y']} />);
+    expect(texts(container)).toEqual(['x', 'y']);
+    expect(animations).toHaveLength(0);
+  });
+  it('scope が替わった描画は、同じ key でも出入りも滑りも動かさない', () => {
+    tops = { a: 0, b: 20 };
+    const { container, rerender } = render(<List items={['a', 'b']} opts={{ scope: 's1' }} />);
+    tops = { b: 0, a: 20 };
+    rerender(<List items={['b', 'a', 'c']} opts={{ scope: 's2' }} />);
+    expect(texts(container)).toEqual(['b', 'a', 'c']);
+    expect(animations).toHaveLength(0);
+    // scope が替わった描画で消えた行も、残さない。
+    rerender(<List items={['b']} opts={{ scope: 's3' }} />);
+    expect(texts(container)).toEqual(['b']);
+    expect(animations).toHaveLength(0);
+  });
   it('動きの長さが 0 なら、消えた key をすぐ外す', () => {
     restore?.();
     restore = fakeMotionTokens({ ...tokens, '--dur': '0ms', '--dur-fast': '0ms', '--dur-exit': '0ms' }, { everywhere: true });

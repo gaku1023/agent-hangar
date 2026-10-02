@@ -52,6 +52,23 @@ describe('TurnIndex', () => {
     expect(list.scrollTop).toBe(500);
   });
 
+  it('動かない環境では、開いたターンをすぐ見える位置へ寄せる', () => {
+    const { container, rerender } = renderIndex({ rows: [row(0), row(1)] });
+    const list = container.querySelector('.turns-list') as HTMLElement;
+    const had = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'getBoundingClientRect');
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      return this === list ? new DOMRect(0, 0, 100, 100) : new DOMRect(0, 80, 100, 100);
+    };
+    try {
+      list.scrollTop = 0;
+      rerender(indexUi({ rows: [row(0), { ...row(1), open: true }] }));
+      expect(list.scrollTop).toBe(80);
+    } finally {
+      if (had) Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', had);
+      else delete (HTMLElement.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect;
+    }
+  });
+
   it('指示を 1 行ずつ、時刻とツールの数を添えて並べる', () => {
     const { container } = setup();
     const lines = [...container.querySelectorAll('.turn-row')].map((b) => b.textContent);
@@ -260,5 +277,41 @@ describe('TurnIndex の動き', () => {
     act(() => b[0]!.focus());
     fireEvent.keyDown(b[0]!, { key: 'ArrowDown' });
     expect(document.activeElement).toBe(b[2]);
+  });
+  it('開いたターンの寄せは、伸び切ったあとの大きさで行う（伸びる前には動かさない）', async () => {
+    const { container, rerender } = renderIndex({ rows: [row(0), row(1)] });
+    const list = container.querySelector('.turns-list') as HTMLElement;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      return this === list ? new DOMRect(0, 0, 100, 100) : new DOMRect(0, 80, 100, 100);
+    };
+    try {
+      list.scrollTop = 0;
+      rerender(indexUi({ rows: [row(0), { ...row(1), open: true }] }));
+      expect(list.scrollTop).toBe(0);
+      await act(async () => { finish.forEach((f) => f()); });
+      expect(list.scrollTop).toBe(80);
+    } finally {
+      delete (HTMLElement.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect;
+    }
+  });
+  it('エージェントの切り替え（途中で行が空になる）では、行を畳みも入れもせず、前の中身も残さない', async () => {
+    const openItems: TranscriptItem[] = [{ kind: 'assistant', seq: 2, text: '前の返答', when: '10:00' }];
+    const { container, rerender } = renderIndex({ rows: [row(0), { ...row(1), open: true }], openItems });
+    animations = [];
+    rerender(indexUi({ rows: [], agentId: 'abc' }));
+    expect(turns(container)).toHaveLength(0);
+    rerender(indexUi({ rows: [row(0), row(1)], agentId: 'abc' }));
+    await act(async () => { finish.forEach((f) => f()); });
+    expect(animations).toHaveLength(0);
+    expect(turns(container)).toHaveLength(2);
+    expect(container.querySelector('.turn-body')).toBeNull();
+  });
+  it('scope が替わった描画では、前の scope の閉じた中身を畳まない', () => {
+    const openItems: TranscriptItem[] = [{ kind: 'assistant', seq: 2, text: '前の返答', when: '10:00' }];
+    const { container, rerender } = renderIndex({ sessionId: 's1', rows: [row(0), { ...row(1), open: true }], openItems });
+    animations = [];
+    rerender(indexUi({ sessionId: 's2', rows: [row(0), row(1)], openItems: [] }));
+    expect(container.querySelector('.turn-body')).toBeNull();
+    expect(animations).toHaveLength(0);
   });
 });
