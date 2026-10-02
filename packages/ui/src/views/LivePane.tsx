@@ -1,9 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import { clampLivePaneSplit, LIVE_PANE_SPLIT_DEFAULT } from '../mediator/sidebar.ts';
-import type { LivePaneProps } from '../presenters/live.ts';
+import type { LivePaneProps, StepRowProps } from '../presenters/live.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { motionEase, motionMs, motionValue } from './primitives/motion.ts';
+import { motionOn, popMark, riseIn } from './primitives/motionKit.ts';
+import { useMotionList } from './primitives/useMotionList.ts';
 
 /** 離したとき、どちらかの端の下限までこれより近ければ、その端へ畳む（設計書 ④）。 */
 const SNAP_PX = 24;
@@ -21,6 +24,59 @@ export function snapSplit(ratio: number, m: { height: number; topMin: number; to
 const round = (r: number) => Math.round(clampLivePaneSplit(r) * 100) / 100;
 
 /**
+ * 意図の箱（設計書 ⑤、案 A「入れ替え」）。
+ * 文が替わったら、古い文は箱の中に重ねて上へ抜けながら薄れ、新しい文は --dur-exit の半分だけ遅れて入る。箱の高さは古い高さから滑る。
+ * 最初の描画と、動かない環境では何もしない。
+ */
+function IntentBox({ text, meta, stale }: { text: string; meta: string; stale: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const prev = useRef<{ text: string; meta: string; h: number } | null>(null);
+  const [ghost, setGhost] = useState<{ text: string; meta: string } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const was = prev.current;
+    prev.current = { text, meta, h: el.offsetHeight };
+    if (!was || was.text === text || !motionOn(el)) return;
+    setGhost({ text: was.text, meta: was.meta });
+    el.animate([{ height: `${was.h}px` }, { height: `${el.offsetHeight}px` }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
+    for (const c of el.querySelectorAll<HTMLElement>(':scope > .live-intent-now')) riseIn(c, motionMs('--dur-exit', el) / 2);
+  }, [text]);
+  // 控えは上へ抜けながら薄れ、終わったら外す。
+  useLayoutEffect(() => {
+    const g = ref.current?.querySelector<HTMLElement>('.live-intent-ghost');
+    if (!g || typeof g.animate !== 'function') return;
+    const a = g.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateY(calc(${motionValue('--rise', g)} * -1))`, filter: `blur(${motionValue('--blur-in', g)})` }], { duration: motionMs('--dur-exit', g), easing: motionEase('--ease-in', g), fill: 'forwards' });
+    let alive = true;
+    a.finished.then(() => { if (alive) setGhost(null); }, () => {});
+    return () => { alive = false; };
+  }, [ghost]);
+  return (
+    <div ref={ref} className="live-intent" data-stale={stale ? 'true' : undefined}>
+      <span className="live-intent-now">「{text}」<span className="live-intent-meta">{meta}</span></span>
+      {ghost && <span className="live-intent-ghost" aria-hidden="true">「{ghost.text}」<span className="live-intent-meta">{ghost.meta}</span></span>}
+    </div>
+  );
+}
+
+/** 指揮役の手の 1 行。「いま」だった手が済むか失敗したら、印を 1 度だけ膨らませる。 */
+function StepRow({ s, rowRef, leaving }: { s: StepRowProps; rowRef: (el: HTMLElement | null) => void; leaving: boolean }) {
+  const ic = useRef<HTMLSpanElement>(null);
+  const prev = useRef(s.mark);
+  useLayoutEffect(() => {
+    if (prev.current === 'now' && s.mark !== 'now' && ic.current) popMark(ic.current);
+    prev.current = s.mark;
+  }, [s.mark]);
+  return (
+    <div ref={rowRef} className="live-step" data-mark={s.mark} aria-hidden={leaving ? 'true' : undefined}>
+      <span ref={ic} className="live-step-ic">{s.mark === 'fail' ? '✕' : s.mark === 'now' ? <span className="live-dot" data-tone="busy" /> : '✓'}</span>
+      <span className={s.mono ? 'live-step-text mono' : 'live-step-text'}>{s.text}</span>
+      <span className="live-step-when mono">{s.when}</span>
+    </div>
+  );
+}
+
+/**
  * 実行中のセッションの右ペイン。上の段ほど横目で読む情報で、目次（children）は下の段に置く。
  * 左のターミナルに映らないもの（何のためか、サブエージェント 1 本ずつの様子、成果物）を出す。
  * 上の段の高さは境目の比率（split）そのもので、中身が短ければ下に余白が残る。あふれた分は上の段の中でスクロールする。
@@ -29,6 +85,10 @@ const round = (r: number) => Math.round(clampLivePaneSplit(r) * 100) / 100;
  */
 export function LivePane({ sessionId, pane, lead, children, split = LIVE_PANE_SPLIT_DEFAULT, artifacts = [] }: { sessionId: string; pane: LivePaneProps; lead?: ReactNode; children: ReactNode; split?: number; artifacts?: ArtifactCardProps[] }) {
   const emit = useEmit();
+  // 手、レーン、成果物の出入り。セッションを替えたときは別のものなので動かさない（scope）。
+  const steps = useMotionList(pane.steps, (s) => s.key, { enter: 'grow', scope: sessionId });
+  const lanes = useMotionList(pane.lanes, (l) => l.agentId, { enter: 'grow', scope: sessionId });
+  const arts = useMotionList(artifacts, (a) => a.id, { enter: 'grow', hit: true, scope: sessionId });
   const liveRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<number | null>(null);
   // 上の段が上限で切れていて、下に続きがあるか。あるときだけ下の端をぼかし、中でスクロールできることを見せる。
@@ -82,25 +142,19 @@ export function LivePane({ sessionId, pane, lead, children, split = LIVE_PANE_SP
           {pane.lamp.sub && <span className="live-lamp-sub">{pane.lamp.sub}</span>}
         </div>
         {pane.intent.kind === 'said'
-          ? <div className="live-intent" data-stale={pane.intent.stale ? 'true' : undefined}>「{pane.intent.text}」<span className="live-intent-meta">{pane.intent.meta}</span></div>
+          ? <IntentBox text={pane.intent.text} meta={pane.intent.meta} stale={pane.intent.stale} />
           : <div className="live-intent-none">{pane.intent.text}</div>}
-        {pane.steps.length > 0 && (
+        {steps.list.length > 0 && (
           <section className="live-sec">
             <div className="live-label">指揮役の手</div>
-            {pane.steps.map((s, i) => (
-              <div key={i} className="live-step" data-mark={s.mark}>
-                <span className="live-step-ic">{s.mark === 'fail' ? '✕' : s.mark === 'now' ? <span className="live-dot" data-tone="busy" /> : '✓'}</span>
-                <span className={s.mono ? 'live-step-text mono' : 'live-step-text'}>{s.text}</span>
-                <span className="live-step-when mono">{s.when}</span>
-              </div>
-            ))}
+            {steps.list.map(({ item, key, leaving }) => <StepRow key={key} s={item} rowRef={steps.ref(key)} leaving={leaving} />)}
           </section>
         )}
-        {pane.lanes.length > 0 && (
+        {lanes.list.length > 0 && (
           <section className="live-sec">
             <div className="live-label">サブエージェント</div>
-            {pane.lanes.map((l) => (
-              <button key={l.agentId} className="live-lane" data-tone={l.tone} disabled={!l.selectable} title={l.title}
+            {lanes.list.map(({ item: l, key, leaving }) => (
+              <button key={key} ref={lanes.ref(key)} className="live-lane" data-tone={l.tone} disabled={!l.selectable || leaving} aria-hidden={leaving ? 'true' : undefined} title={l.title}
                 onClick={() => emit({ type: 'transcript.selectAgent', sessionId, agentId: l.agentId })}>
                 <span className="live-dot" data-tone={l.tone} />
                 <span className="live-lane-title">{l.title}</span>
@@ -112,17 +166,17 @@ export function LivePane({ sessionId, pane, lead, children, split = LIVE_PANE_SP
           </section>
         )}
         {/* 成果物は作業中に何度も見るものではないので、上の段の終わりに題名だけの 1 行ずつ置く。押すと既定のブラウザで開く。 */}
-        {artifacts.length > 0 && (
+        {arts.list.length > 0 && (
           <section className="live-sec">
             <div className="live-label">成果物</div>
-            {artifacts.map((a) => (
-              <div key={a.id} className="live-artifact">
-                <button className="live-artifact-open" title={a.description ?? a.title} onClick={() => emit({ type: 'artifact.open', id: a.id })}>
+            {arts.list.map(({ item: a, key, leaving }) => (
+              <div key={key} ref={arts.ref(key)} className="live-artifact" aria-hidden={leaving ? 'true' : undefined}>
+                <button className="live-artifact-open" disabled={leaving} title={a.description ?? a.title} onClick={() => emit({ type: 'artifact.open', id: a.id })}>
                   <span className="live-artifact-icon" aria-hidden="true">{a.favicon}</span>
                   <span className="live-artifact-title">{a.title}</span>
                   <span className="live-artifact-when">{a.lastPublished}</span>
                 </button>
-                {a.canOpenEditor && <button className="btn btn-sm live-artifact-editor" aria-label={`${a.title} を VS Code で開く`} title="VS Code で開く" onClick={() => emit({ type: 'artifact.openEditor', id: a.id })}><Icon name="openEditor" /></button>}
+                {a.canOpenEditor && <button className="btn btn-sm live-artifact-editor" disabled={leaving} aria-label={`${a.title} を VS Code で開く`} title="VS Code で開く" onClick={() => emit({ type: 'artifact.openEditor', id: a.id })}><Icon name="openEditor" /></button>}
               </div>
             ))}
           </section>
