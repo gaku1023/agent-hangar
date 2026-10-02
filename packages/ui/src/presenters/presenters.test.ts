@@ -1508,13 +1508,13 @@ describe('presentToasts（入力待ちのカード）', () => {
     for (const id of ids) s.sessions[id] = session(id, { live: 'waiting', lastActivityAt: NOW - 120_000 });
     return s;
   };
-  it('名前、プロジェクト、待っている時間、問いを出す。問いが取れなければ「入力を待っています」', () => {
+  it('名前、待っている時間、問いを出す。問いが取れなければ null', () => {
     const store = waitingStore(['w1']);
     store.sessions.w1 = { ...store.sessions.w1!, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '向きはどちらにしますか' } };
     const state = { ...initialState(), waitingToasts: ['w1'] };
-    expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', projectName: 'alpha', waited: '2 分', question: '向きはどちらにしますか' }]);
+    expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', waited: '2 分', question: '向きはどちらにしますか' }]);
     store.sessions.w1 = { ...store.sessions.w1!, activity: null };
-    expect(presentToasts(state, store, NOW).waiting[0]?.question).toBe('入力を待っています');
+    expect(presentToasts(state, store, NOW).waiting[0]?.question).toBeNull();
   });
   it('3 件までを新しいものが下に来る順で並べ、残りは数だけ返す', () => {
     const ids = ['w1', 'w2', 'w3', 'w4', 'w5'];
