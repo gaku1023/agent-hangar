@@ -1064,6 +1064,20 @@ describe('同期の経路', () => {
     expect(calls).toEqual(['configPull']);
   });
 
+  it('GET /api/sync/usage は今の値を、refresh=1 は取り直した値を返す', async () => {
+    const dto = { source: 'estimate', fetchedAt: null, stale: false, notice: null, limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000, stopRatio: 0.8 }, today: { d1RowsWritten: 1, workersRequests: 2, resetAt: 3 }, plan: null, month: null };
+    const refreshed = { ...dto, today: { ...dto.today, d1RowsWritten: 9 } };
+    app = createApp({ ...deps, cloudUsage: { current: () => dto as never, refresh: async () => refreshed as never } });
+    expect((await json(await get('/api/sync/usage'))).body).toEqual(dto);
+    expect((await json(await get('/api/sync/usage?refresh=1'))).body).toEqual(refreshed);
+    expect((await json(await get('/api/bootstrap'))).body.cloudUsage).toEqual(dto);
+  });
+
+  it('cloudUsage が無いサーバの /api/sync/usage は null', async () => {
+    expect((await json(await get('/api/sync/usage'))).body).toBeNull();
+    expect((await json(await get('/api/bootstrap'))).body.cloudUsage).toBeNull();
+  });
+
   it('同期が未設定なら設定の経路は 404 で、参加トークンは null', async () => {
     app = createApp({ ...deps, configSync: null, joinToken: () => null });
     expect((await get('/api/sync/config/preview')).status).toBe(404);

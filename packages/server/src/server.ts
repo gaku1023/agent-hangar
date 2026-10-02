@@ -48,6 +48,7 @@ import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, type QuotaCounter
 import { SyncStateStore } from './sync/state.ts';
 import { markTranscriptsFrom } from './sync/transcriptsFrom.ts';
 import { TranscriptUploader } from './sync/uploader.ts';
+import { CloudUsagePoller } from './sync/usage.ts';
 import { Tmux } from './tmux/tmux.ts';
 import { UsageTracker } from './usage/statusline.ts';
 import { EventHub } from './ws/hub.ts';
@@ -464,6 +465,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   // 本文と設定の出し入れは engine を通らないので、無料枠の勘定に入るように包んでから渡す。
   const client = rawClient ? countingClient(rawClient, engine.quota) : null;
+  // 設定の「使用量と費用」。数える client を通すので、要求は無料枠の勘定に入る。
+  const cloudUsage = new CloudUsagePoller({ client, quota: engine.quota, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
   const uploader = client
     ? new TranscriptUploader({
         db, deviceId: device.id, claudeDir, client, key: fileKey, state: syncState,
@@ -670,9 +673,16 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const syncSweep = (): number | null => uploader?.pendingSweep() ?? null;
 
   // 同期のイベントを hub に流す。pull で入れ替わった行は、そのまま画面に届ける。
+  // 一時停止が解けたら取り直す。止まっている間は取りに行かないので、画面の値が古いままになる。
+  let wasPaused = isPaused();
   engine.on({
     // 付録を添えてから流す。添えないと、画面の件数が一度受け取った値のまま固まる。
-    status: (s) => hub.broadcast({ type: 'sync.status', status: { ...s, skipped: syncSkipped(), sweepPending: syncSweep() } }),
+    status: (s) => {
+      hub.broadcast({ type: 'sync.status', status: { ...s, skipped: syncSkipped(), sweepPending: syncSweep() } });
+      const pausedNow = s.state === 'paused';
+      if (wasPaused && !pausedNow) void cloudUsage.refresh();
+      wasPaused = pausedNow;
+    },
     toast: (level, message) => toast(level, message),
     applied: (c) => {
       hub.broadcast({ type: 'sync.applied', table: c.tableName, rowId: c.rowId });
@@ -726,6 +736,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 無ければリポジトリ内の packages/ui/dist を使う。
   const uiDist = opts.uiDist ?? process.env.HANGAR_UI_DIST ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
   const app = createApp({
+    cloudUsage,
     db, deviceId: device.id, deviceName: device.name, token, home, port, version: VERSION,
     // 最初の索引づけと紐づけが済むまで偽。.app はこれを見て起動画面に残る。
     ready: () => started,
@@ -846,6 +857,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // その間 /health は 200 を返しているので、準備完了だと見た相手からの SIGTERM が受け口の無い時刻に届く。
   // 走り出した push と pull は engine.idle() が掴んでいるので、close() は取りこぼさない。
   void engine.start().catch((e: unknown) => console.error('[sync]', e instanceof Error ? e.message : e));
+  cloudUsage.start();
   pullFiles();
   configSync?.start();
   retention.start();
@@ -891,6 +903,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       clearInterval(deviceTimer);
       if (configTimer) clearInterval(configTimer);
       retention.stop();
+      cloudUsage.stop();
       if (uploadTimer) clearInterval(uploadTimer);
       // 走っている押し出しを待ってから止める。待たずに止めると putFile と pushChanges が途中で切れる。
       await stopAfterIdle(configSync, 'config', left());

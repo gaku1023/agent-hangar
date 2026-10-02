@@ -1,0 +1,115 @@
+import { CLOUD_FREE_LIMITS, r2Included, type CloudUsageBody, type CloudUsageDto } from '@agent-hangar/shared';
+import type { CloudClient } from './client.ts';
+import type { Timers } from './engine.ts';
+import type { QuotaCounter } from './quota.ts';
+
+/** 使用量を取りに行く間隔。1 台あたり 1 日 288 回で、Workers の枠の 0.3% にあたる。 */
+export const USAGE_POLL_MS = 5 * 60_000;
+
+const INVALID = 'トークンが無効です';
+const nextUtcMidnight = (now: number): number => { const d = new Date(now); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); };
+const UNIT: Record<string, string> = { 'GB-months': 'GB-月', Count: '回' };
+const ROW_LABEL: [prefix: string, label: string][] = [
+  ['R2 Data Storage', 'R2 の保存'],
+  ['R2 Storage Class A Operations', 'R2 の書く操作'],
+  ['R2 Storage Class B Operations', 'R2 の読む操作'],
+];
+const rowLabel = (name: string): string => ROW_LABEL.find(([p]) => name.startsWith(p))?.[1] ?? name;
+
+function planLabel(p: NonNullable<Extract<CloudUsageBody, { configured: true }>['plan']>): string {
+  if (p.workersPaid) return 'Workers Paid';
+  const r2 = p.items.some((i) => i.id === 'r2_paid') ? ' · R2 従量' : '';
+  return `Workers 無料${r2}`;
+}
+
+/** 見積もりの形。トークンが無い端末、古い Worker、一度も取れないまま失敗したときに使う。 */
+function estimate(o: { quota: QuotaCounter; now: number; stale: boolean; notice: string | null }): CloudUsageDto {
+  return {
+    source: 'estimate', fetchedAt: null, stale: o.stale, notice: o.notice,
+    limits: { d1RowsPerDay: CLOUD_FREE_LIMITS.d1RowsPerDay, workersRequestsPerDay: CLOUD_FREE_LIMITS.workersRequestsPerDay, stopRatio: o.quota.ratio },
+    today: { d1RowsWritten: o.quota.d1().rows, workersRequests: o.quota.today().requests, resetAt: nextUtcMidnight(o.now) },
+    plan: null, month: null,
+  };
+}
+
+export function toUsageDto(body: CloudUsageBody | null, o: { quota: QuotaCounter; now: number; stale: boolean; lastGood: CloudUsageDto | null }): CloudUsageDto {
+  if (body === null || !body.configured) return o.stale && o.lastGood ? { ...o.lastGood, stale: true } : estimate({ ...o, notice: null });
+  const invalid = body.errors.find((e) => e.message.startsWith(INVALID));
+  if (invalid && !body.today && !body.plan && !body.month) return estimate({ ...o, notice: invalid.message });
+  const base = estimate({ ...o, notice: null });
+  return {
+    ...base,
+    source: 'cloudflare',
+    fetchedAt: body.fetchedAt,
+    today: body.today ? { d1RowsWritten: body.today.d1RowsWritten, workersRequests: body.today.workersRequests, resetAt: base.today.resetAt } : (o.lastGood?.today ?? base.today),
+    plan: body.plan ? { label: planLabel(body.plan), workersPaid: body.plan.workersPaid } : (o.lastGood?.plan ?? null),
+    month: body.month
+      ? {
+          periodStart: body.month.periodStart, periodEnd: body.plan?.periodEnd ?? o.lastGood?.month?.periodEnd ?? null, throughDay: body.month.throughDay, billedUsd: body.month.billedUsd,
+          rows: body.month.services.map((s) => ({ label: rowLabel(s.name), consumed: s.consumed, unit: UNIT[s.unit] ?? s.unit, included: r2Included(s.name) })),
+        }
+      : (o.lastGood?.month ?? null),
+    stale: o.stale || body.errors.length > 0,
+  };
+}
+
+// 呼ぶたびに大域の setInterval を引く。読み込み時に取り込むと、試験の偽の時計が効かない。
+const REAL_TIMERS: Pick<Timers, 'setInterval' | 'clearInterval'> = {
+  setInterval: ((fn: () => void, ms: number) => setInterval(fn, ms)) as typeof setInterval,
+  clearInterval: ((t: ReturnType<typeof setInterval>) => clearInterval(t)) as typeof clearInterval,
+};
+
+/**
+ * 使用量を取りに行き、画面へ配る。設計は仕様の「2. 端末のサーバ」。
+ * 一時停止の間は外と話さない（決定 4）ので、最後の値を返すだけにする。
+ */
+export class CloudUsagePoller {
+  private last: CloudUsageDto | null = null;
+  private lastGood: CloudUsageDto | null = null;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private inflight: Promise<CloudUsageDto | null> | null = null;
+  private readonly now: () => number;
+  private readonly timers: Pick<Timers, 'setInterval' | 'clearInterval'>;
+
+  constructor(private readonly o: { client: CloudClient | null; quota: QuotaCounter; isPaused: () => boolean; broadcast: (u: CloudUsageDto) => void; now?: () => number; timers?: Pick<Timers, 'setInterval' | 'clearInterval'> }) {
+    this.now = o.now ?? (() => Date.now());
+    this.timers = o.timers ?? REAL_TIMERS;
+  }
+
+  current(): CloudUsageDto | null { return this.last; }
+
+  start(): void {
+    if (!this.o.client || this.timer) return;
+    void this.refresh();
+    this.timer = this.timers.setInterval(() => { void this.refresh(); }, USAGE_POLL_MS);
+    (this.timer as { unref?: () => void }).unref?.();
+  }
+
+  stop(): void { if (this.timer) { this.timers.clearInterval(this.timer); this.timer = null; } }
+
+  refresh(): Promise<CloudUsageDto | null> {
+    if (!this.o.client) return Promise.resolve(null);
+    if (this.o.isPaused()) return Promise.resolve(this.last ?? this.publish(toUsageDto(null, { quota: this.o.quota, now: this.now(), stale: false, lastGood: null })));
+    this.inflight ??= this.load().finally(() => { this.inflight = null; });
+    return this.inflight;
+  }
+
+  private async load(): Promise<CloudUsageDto> {
+    const now = this.now();
+    try {
+      const body = await this.o.client!.usage();
+      const dto = toUsageDto(body, { quota: this.o.quota, now, stale: false, lastGood: this.lastGood });
+      if (dto.source === 'cloudflare' && !dto.stale) this.lastGood = dto;
+      return this.publish(dto);
+    } catch {
+      // 同期は止めない。トーストも出さない。設定画面の出どころの文だけで知らせる。
+      return this.publish(toUsageDto(null, { quota: this.o.quota, now, stale: true, lastGood: this.lastGood }));
+    }
+  }
+
+  private publish(dto: CloudUsageDto): CloudUsageDto {
+    this.last = dto;
+    this.o.broadcast(dto);
+    return dto;
+  }
+}
