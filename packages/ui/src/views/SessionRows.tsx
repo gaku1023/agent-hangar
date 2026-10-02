@@ -25,14 +25,14 @@ const LIVE_WORD = { waiting: '入力待ち', busy: '実行中', idle: '実行中
  */
 const stopClick = (e: ReactMouseEvent) => e.stopPropagation();
 
-/** 「⋯」の 4 択（A2）。打鍵の印は試作 rest.html の A2 のとおり。付いている状態と、外すものの無い「印なしに戻す」は理由を添えて押せなくする。 */
+/** 「⋯」の 4 択（A2）。打鍵の印は試作 rest.html の A2 のとおり。付いている状態と、外すものの無い「Active に戻す」は理由を添えて押せなくする。 */
 function stateItems(r: SessionRowProps, emit: Emit): MenuItem[] {
   const set = (status: SessionStatus | null) => () => emit({ type: 'session.state.set', id: r.id, status });
   return [
     { key: 'paused', label: 'Paused にする…', kbd: 'p', onSelect: () => emit({ type: 'session.pause.open', id: r.id, from: 'menu' }) },
     { key: 'done', label: 'Done にする', kbd: 'd', disabled: r.state === 'done' ? 'すでに Done です' : null, onSelect: set('done') },
     { key: 'archived', label: 'Archived にする', kbd: 'a', disabled: r.state === 'archived' ? 'すでに Archived です' : null, onSelect: set('archived') },
-    { key: 'none', label: '印なしに戻す', kbd: 'u', disabled: r.state === null && r.candidate === null ? '印は付いていません' : null, onSelect: set(null) },
+    { key: 'active', label: 'Active に戻す', kbd: 'u', disabled: r.state === null && r.candidate === null ? 'すでに Active です' : null, onSelect: set(null) },
   ];
 }
 

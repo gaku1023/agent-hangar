@@ -550,11 +550,11 @@ describe('presentSessions', () => {
     const r = presentSessions({ ...initialState(), search: { text: '', filter: { projectId: 'alpha' }, page: 1 } }, storeWith(), NOW);
     expect(r.pager).toBeNull();
   });
-  // 状態がどれも同じタブ（Done・Paused・Archived・印なし）は、行の状態の列を畳む。見出し（タブ）が言っているから。
+  // 状態がどれも同じタブ（Done・Paused・Archived）は、行の状態の列を畳む。見出し（タブ）が言っているから。Active のタブは sessionsTabs.test.ts で見る。
   it('状態がどれも同じタブでは、状態の列を畳む', () => {
-    const tab = (status: 'done' | 'paused' | 'archived' | 'none' | 'proposed' | 'active' | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { status }, page: 1 } }, storeWith(), NOW).statusColumn;
-    expect([tab('done'), tab('paused'), tab('archived'), tab('none')]).toEqual([false, false, false, false]);
-    expect([tab('proposed'), tab('active'), tab(undefined)]).toEqual([true, true, true]);
+    const tab = (status: 'done' | 'paused' | 'archived' | 'proposed' | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { status }, page: 1 } }, storeWith(), NOW).statusColumn;
+    expect([tab('done'), tab('paused'), tab('archived')]).toEqual([false, false, false]);
+    expect([tab('proposed'), tab(undefined)]).toEqual([true, true]);
   });
   it('期間は日数で持ち、手元の一覧は今日の 0 時から数えて絞る', () => {
     const now = new Date(2026, 9, 1, 15, 30).getTime();
@@ -1576,7 +1576,7 @@ describe('presentSessionRow のセッションの状態', () => {
   const today = localDate(NOW);
   const withState = (state: SessionDto['state']) => session('s1', { state });
   const pick = (s: SessionDto) => { const r = presentSessionRow(s, store, NOW); return { state: r.state, returnOn: r.returnOn, overdueDays: r.overdueDays, candidate: r.candidate, setBy: r.setBy }; };
-  it('state が欠けた古いサーバの行と null は、印なしとして読む', () => {
+  it('state が欠けた古いサーバの行と null は、Active として読む', () => {
     const none = { state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null };
     expect(pick(session('s1'))).toEqual(none);
     expect(pick(withState(null))).toEqual(none);

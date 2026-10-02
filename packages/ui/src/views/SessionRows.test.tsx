@@ -491,21 +491,25 @@ describe('セッションの状態の札と「⋯」', () => {
   it('「⋯」から 4 択を選ぶ。押しても行は開かない', () => {
     const onIntent = mount([sr('a')]);
     fireEvent.click(screen.getByRole('button', { name: '名前 a の状態' }));
-    expect(labels()).toEqual(['Paused にする…', 'Done にする', 'Archived にする', '印なしに戻す']);
+    expect(labels()).toEqual(['Paused にする…', 'Done にする', 'Archived にする', 'Active に戻す']);
     expect(screen.getAllByRole('menuitem').map((i) => i.querySelector('kbd')?.textContent)).toEqual(['p', 'd', 'a', 'u']);
     expect(screen.getAllByRole('menuitem')[3]).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(screen.getAllByRole('menuitem')[1]!);
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: 'done' });
     expect(opened(onIntent)).toEqual([]);
   });
-  it('付いている状態は選べず、印なしに戻すは選べる', () => {
-    const onIntent = mount([sr('a', { state: 'done' })]);
+  it('付いている状態は選べず、Active に戻すは選べる。Active の行では「すでに Active です」と添えて押せない', () => {
+    const onIntent = mount([sr('a', { state: 'done' }), sr('b')]);
     fireEvent.click(screen.getByRole('button', { name: '名前 a の状態' }));
     const items = screen.getAllByRole('menuitem');
     expect(items[1]).toHaveAttribute('aria-disabled', 'true');
     expect(items[1]).toHaveTextContent('すでに Done です');
     fireEvent.click(items[3]!);
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: null });
+    fireEvent.click(screen.getByRole('button', { name: '名前 b の状態' }));
+    const last = screen.getAllByRole('menuitem')[3]!;
+    expect(last).toHaveAttribute('aria-disabled', 'true');
+    expect(last).toHaveTextContent('すでに Active です');
   });
   it('打鍵 . でカーソルの行の「⋯」を開き、印の 1 字で選ぶ', () => {
     const onIntent = mount([sr('a'), sr('b', { state: 'done' })]);

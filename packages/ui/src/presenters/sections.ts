@@ -3,10 +3,11 @@ import type { SessionRowProps } from './row.ts';
 
 /**
  * 一覧の節（P3 と ★）。
- * returning は今日戻る、proposed は確かめる（Claude の提案が残っているもの）、live はいま動いている、
- * continue はプロジェクト画面の続き（印なし、提案あり、戻る日が先の Paused）、paused と none は Sessions の Paused と印なしである。
+ * returning は今日戻る、proposed は確かめる（Claude の提案が残っているもの）である。
+ * live と continue はプロジェクト画面のいま動いているものと続き（止まっている Active、提案あり、戻る日が先の Paused）、
+ * active と paused は Sessions の Active（状態が無いもの。動いているかは問わない）と Paused である。
  */
-export type SectionId = 'returning' | 'proposed' | 'live' | 'continue' | 'paused' | 'none' | 'done' | 'archived';
+export type SectionId = 'returning' | 'proposed' | 'live' | 'continue' | 'active' | 'paused' | 'done' | 'archived';
 /**
  * 一覧の項目。行と、節の見出しの和にする。
  * 見出しの count はその節の全件の数で、畳んで見せていない行も数える。
@@ -17,14 +18,14 @@ export type ListItem = { kind: 'row'; row: SessionRowProps } | { kind: 'head'; i
 /** Done の節で畳まずに見せる件数。導入の翌日に一覧が空にならず、確定した行も見失わない数にする（spec の P3）。 */
 export const DONE_HEAD = 3;
 
-const LABEL: Record<SectionId, string> = { returning: '今日戻る', proposed: '確かめる', live: 'いま動いている', continue: '続き', paused: 'Paused', none: '印なし', done: 'Done', archived: 'Archived' };
-/** 節の並び。Archived はどちらも末尾の 1 行にする。 */
+const LABEL: Record<SectionId, string> = { returning: '今日戻る', proposed: '確かめる', live: 'いま動いている', continue: '続き', active: 'Active', paused: 'Paused', done: 'Done', archived: 'Archived' };
+/** 節の並び。Archived はどちらも末尾の 1 行にする。Sessions は状態の並び（プロジェクトの状態と同じ順）で読む。 */
 const ORDER: Record<'project' | 'sessions', SectionId[]> = {
   project: ['returning', 'live', 'continue', 'done', 'archived'],
-  sessions: ['returning', 'proposed', 'live', 'paused', 'none', 'done', 'archived'],
+  sessions: ['returning', 'proposed', 'active', 'paused', 'done', 'archived'],
 };
 /** Sessions の節とタブの対応。今日戻るにはタブが無い（Paused のタブが今日戻るも含む）。 */
-export const SECTION_TAB: Partial<Record<SectionId, StatusFilter>> = { proposed: 'proposed', live: 'active', paused: 'paused', none: 'none', done: 'done', archived: 'archived' };
+export const SECTION_TAB: Partial<Record<SectionId, StatusFilter>> = { proposed: 'proposed', active: 'active', paused: 'paused', done: 'done', archived: 'archived' };
 
 /** 動いているか（入力待ち、作業中、休み、起動中）。Claude の一覧に載る前でも、hangar の run が生きていれば動いている（shared の liveFilterOf と同じ）。 */
 export function isLive(r: SessionRowProps): boolean {
@@ -40,25 +41,28 @@ export function dueOn(returnOn: string | null, today: string): boolean {
   return returnOn === null || !isReturnOn(returnOn) || returnOn <= today;
 }
 
-/** タブの絞り込み。節の振り分けとは違い、行の持ち物だけで決める（動いている Done は Active にも Done にも入る）。 */
+/** タブの絞り込み。節の振り分けとは違い、行の持ち物だけで決める。Active は状態が無いもので、提案のあるものも含む（確かめると重なる）。 */
 export function matchesStatus(r: SessionRowProps, f: StatusFilter): boolean {
   switch (f) {
-    case 'active': return isLive(r);
+    case 'active': return r.state === null;
     case 'proposed': return r.candidate !== null;
-    case 'none': return r.state === null && r.candidate === null;
     default: return r.state === f;
   }
 }
 
-/** 行の節。動いているものは状態に関わらず「いま動いている」に置く。 */
+/**
+ * 行の節。
+ * プロジェクト画面は、動いているものを状態に関わらず「いま動いている」に置く。
+ * Sessions は状態だけで決める。動いているものは Active の節の先頭に並び（sortForSections）、状態を付けたものは動いていてもその状態の節に入る。
+ */
 function sectionOf(r: SessionRowProps, kind: 'project' | 'sessions', today: string): SectionId {
-  if (isLive(r)) return 'live';
+  if (kind === 'project' && isLive(r)) return 'live';
   if (r.state === 'archived') return 'archived';
   if (r.state === 'paused' && dueOn(r.returnOn, today)) return 'returning';
   if (kind === 'project') return r.state === 'done' && r.candidate === null ? 'done' : 'continue';
   if (r.candidate !== null) return 'proposed';
   if (r.state === 'paused') return 'paused';
-  return r.state === 'done' ? 'done' : 'none';
+  return r.state === 'done' ? 'done' : 'active';
 }
 
 /** 今日戻るの並びの鍵。欠けた日と壊れた日は空にして先頭へ置く（Home も同じ並びに使い回す）。 */

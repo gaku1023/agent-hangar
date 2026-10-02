@@ -14,7 +14,7 @@ export type SummaryStateTag = { label: string; tone: 'blocked' | 'abandoned' | n
 export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; stateLabel: string; summaryState: SummaryStateTag | null; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; memo: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[];
   /** 検索の結果の行を開いたときの跳び先（抜粋の seq と検索語）。 */
   jump?: { seq: number; q: string };
-  /** セッションの状態。印なしは null。 */
+  /** セッションの状態。Active は null。 */
   state: SessionStatus | null;
   /** Paused の戻る日（YYYY-MM-DD）。Paused 以外は null。 */
   returnOn: string | null;
@@ -22,7 +22,7 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   overdueDays: number | null;
   /** Claude の提案。状態が付いていれば null（サーバの toStateDto が状態を正にしている）。 */
   candidate: { status: 'paused' | 'done'; note: string | null; returnOn: string | null; source: CandidateSource; ago: string } | null;
-  /** 状態を誰が付けたか。conversation は会話で利用者が選んだもので、札に「会話で承認」と添える。印なしは null。 */
+  /** 状態を誰が付けたか。conversation は会話で利用者が選んだもので、札に「会話で承認」と添える。Active は null。 */
   setBy: StateSetBy | null };
 
 /**
@@ -37,7 +37,7 @@ function summaryStateTag(summary: SessionSummaryDto | null): SummaryStateTag | n
 }
 
 export function presentSessionRow(s: SessionDto, store: Store, now: number, excerpt?: Segment[]): SessionRowProps {
-  // 古いサーバは state を送らない。欠けたものは印なしとして読む。
+  // 古いサーバは state を送らない。欠けたものは Active として読む。
   const st = s.state ?? null;
   const status = st?.status ?? null;
   // 戻る日が欠けた・暦に無い・形の違う Paused（同期や古い端末から届く）は null にして、undefined や壊れた文字列を行に流さない。

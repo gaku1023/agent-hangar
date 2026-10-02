@@ -59,7 +59,7 @@ export type ApiClient = {
   removeTodo(id: string): Promise<TodoDto>;
   confirmTodo(id: string): Promise<TodoDto>;
   rejectTodo(id: string): Promise<TodoDto>;
-  /** セッションの状態を手で変える。status の null は印なしに戻す。返り値は使わない（画面の正は session.upsert）。 */
+  /** セッションの状態を手で変える。status の null は Active に戻す。返り値は使わない（画面の正は session.upsert）。 */
   setSessionState(id: string, body: { status: SessionStatus | null; note?: string; returnOn?: string }): Promise<{ state: SessionStateDto }>;
   /** 提案を確定する。日を変えたときだけ returnOn を渡す。提案が無ければ 409 の一文で投げる。 */
   confirmSessionState(id: string, body: { returnOn?: string }): Promise<{ state: SessionStateDto }>;

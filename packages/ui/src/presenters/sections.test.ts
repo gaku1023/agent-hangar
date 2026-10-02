@@ -30,7 +30,7 @@ describe('sectionRows（プロジェクト画面の P3）', () => {
   });
   it('平日の朝：今日戻る → 続き → Done の順で、中身の無い節（いま動いている）は出さない', () => {
     const rows = [row('backspace'), row('nfd', { candidate: cand('done') }), done('resp'), paused('sync', '2026-10-02'), paused('explainer', '2026-10-09'), row('apple'), paused('retention', '2026-10-06')];
-    // 続きは印なし、提案あり、戻る日が先の Paused を、渡された並び（新しい順）のまま並べる。目当ての backspace は j 2 回で届く。
+    // 続きは止まっている Active、提案あり、戻る日が先の Paused を、渡された並び（新しい順）のまま並べる。目当ての backspace は j 2 回で届く。
     expect(project(rows)).toEqual(['# returning 1', 'sync', '# continue 5', 'backspace', 'nfd', 'explainer', 'apple', 'retention', '# done 1', 'resp']);
   });
   it('作業中：動いているものは状態に関わらず「いま動いている」に、入力待ち → 実行中の並びのまま置く', () => {
@@ -81,17 +81,29 @@ describe('戻る日が壊れた Paused（Ruling 2A）', () => {
 });
 
 describe('sectionRows（Sessions 画面の ★）', () => {
-  it('今日戻る → 確かめる → いま動いている → Paused → 印なし → Done、Archived は末尾の 1 行', () => {
+  it('今日戻る → 確かめる → Active → Paused → Done、Archived は末尾の 1 行。動いているものは Active の先頭', () => {
     const rows = [row('newui', { live: 'waiting' }), row('status', { live: 'busy' }), row('nfd', { candidate: cand('done') }), row('video', { candidate: cand('paused') }), row('e2e', { candidate: cand('done') }), row('backspace'), paused('sync', '2026-10-02'), paused('parkour', '2026-10-09'), done('resp'), done('subs'), row('apple', { state: 'archived' })];
     expect(sessions(rows)).toEqual([
       '# returning 1', 'sync',
       '# proposed 3 [この節だけ見る ▸→proposed]', 'nfd', 'video', 'e2e',
-      '# live 2 [この節だけ見る ▸→live]', 'newui', 'status',
+      '# active 3 [この節だけ見る ▸→active]', 'newui', 'status', 'backspace',
       '# paused 1 [この節だけ見る ▸→paused]', 'parkour',
-      '# none 1 [この節だけ見る ▸→none]', 'backspace',
       '# done 2 [この節だけ見る ▸→done]', 'resp', 'subs',
       '# archived 1 [表示 ▸→archived]',
     ]);
+  });
+  // Sessions の節は状態だけで決める。「いま動いている」の節は無い。
+  it('動いている Done・Paused・Archived は、それぞれの状態の節に入る', () => {
+    const rows = [done('status', { live: 'busy' }), paused('due', '2026-10-02', { live: 'waiting' }), paused('later', '2026-10-09', { live: 'idle' }), row('trial', { state: 'archived', live: 'idle' }), row('boot', { runId: 'r1' })];
+    expect(sessions(rows)).toEqual([
+      '# returning 1', 'due',
+      '# active 1 [この節だけ見る ▸→active]', 'boot',
+      '# paused 1 [この節だけ見る ▸→paused]', 'later',
+      '# done 1 [この節だけ見る ▸→done]', 'status',
+      '# archived 1 [表示 ▸→archived]',
+    ]);
+    // プロジェクト画面は今のまま、動いているものを先に「いま動いている」へ置く。
+    expect(project(rows)).toEqual(['# live 5', 'status', 'due', 'later', 'trial', 'boot']);
   });
   it('「ほか N 件」の数字は桁を区切る', () => {
     const rows = Array.from({ length: 1224 }, (_, k) => done('d' + k));
@@ -105,16 +117,16 @@ describe('sectionRows（Sessions 画面の ★）', () => {
 });
 
 describe('matchesStatus（タブの絞り込み）', () => {
-  it('節の振り分けではなく、行の持ち物だけで決める', () => {
+  it('節の振り分けではなく、行の持ち物だけで決める。Active は状態が無いもので、動きも提案も問わない', () => {
     const liveDone = row('l', { live: 'idle', state: 'done' });
-    expect(matchesStatus(liveDone, 'active')).toBe(true);
+    expect(matchesStatus(liveDone, 'active')).toBe(false);
     expect(matchesStatus(liveDone, 'done')).toBe(true);
     expect(matchesStatus(row('b', { runId: 'r1' }), 'active')).toBe(true);
+    expect(matchesStatus(row('n'), 'active')).toBe(true);
     expect(matchesStatus(row('c', { candidate: cand('done') }), 'proposed')).toBe(true);
-    expect(matchesStatus(row('c', { candidate: cand('done') }), 'none')).toBe(false);
-    expect(matchesStatus(row('n'), 'none')).toBe(true);
-    expect(matchesStatus(row('n'), 'active')).toBe(false);
+    expect(matchesStatus(row('c', { candidate: cand('done') }), 'active')).toBe(true);
     expect(matchesStatus(paused('p', '2026-10-09'), 'paused')).toBe(true);
+    expect(matchesStatus(paused('p', '2026-10-09'), 'active')).toBe(false);
     expect(matchesStatus(row('z', { state: 'archived' }), 'archived')).toBe(true);
   });
 });
