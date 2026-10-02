@@ -115,6 +115,61 @@ describe('collectUsage', () => {
     expect(calls.filter((c) => c.url.endsWith('/billable-usage'))).toHaveLength(2);
   });
 
+  it('請求の行がまだ無い（期の初め）ときは $0 の今月を返し、期の始まりは空にする', async () => {
+    const { fetch } = cf({ billable: () => new Response(JSON.stringify({ success: true, errors: [], result: [] }), { status: 200 }) });
+    const u = await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW });
+    expect(u.month).toEqual({ periodStart: '', throughDay: null, billedUsd: 0, currency: 'USD', services: [] });
+    expect(u.errors).toEqual([]);
+  });
+
+  it('GraphQL が errors と一部の data を返したら、欠けた数を 0 と読まずに today を null にする', async () => {
+    const partial = { data: { viewer: { accounts: [{ d1AnalyticsAdaptiveGroups: [{ dimensions: { date: '2026-10-01' }, sum: { rowsWritten: 5 } }], workersInvocationsAdaptive: null }] } }, errors: [{ message: 'not authorized for workersInvocationsAdaptive' }] };
+    const { fetch } = cf({ graphql: () => new Response(JSON.stringify(partial), { status: 200 }) });
+    const u = await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW });
+    expect(u.today).toBeNull();
+    expect(u.errors).toEqual([{ part: 'today', message: 'Cloudflare が誤りを返しました' }]);
+    expect(JSON.stringify(u)).not.toContain('not authorized');
+  });
+
+  it('GraphQL の data に片方の表が無ければ today を null にする', async () => {
+    const partial = { data: { viewer: { accounts: [{ d1AnalyticsAdaptiveGroups: [] }] } }, errors: null };
+    const { fetch } = cf({ graphql: () => new Response(JSON.stringify(partial), { status: 200 }) });
+    const u = await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW });
+    expect(u.today).toBeNull();
+  });
+
+  it('写しが温まっていても、一つがトークン無効なら三つとも null にし、写しを捨てる', async () => {
+    let deny = false;
+    const forbid = () => new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: 'Authentication error' }] }), { status: 403 });
+    const { fetch, calls } = cf({ graphql: () => (deny ? forbid() : new Response(JSON.stringify(fixture('graphql-today')))) });
+    await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW });
+    deny = true;
+    const u = await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW + TODAY_TTL_MS });
+    expect([u.today, u.plan, u.month]).toEqual([null, null, null]);
+    expect(u.errors).toEqual([{ part: 'today', message: INVALID_TOKEN_MESSAGE }]);
+    // 写しを捨てたので、次は三つとも取り直す。
+    calls.length = 0;
+    await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW + TODAY_TTL_MS + 1 });
+    expect(calls.map((c) => c.url.split('/').pop()).sort()).toEqual(['billable-usage', 'graphql', 'subscriptions']);
+  });
+
+  it('fetchedAt は今日の数を取った時刻（プランと請求の写しが古くても引きずられない）', async () => {
+    const { fetch } = cf();
+    await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW });
+    const u = await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW + TODAY_TTL_MS });
+    expect(u.fetchedAt).toBe(NOW + TODAY_TTL_MS);
+  });
+
+  it('今日の数が取れなかったときの fetchedAt は残りの古いほう', async () => {
+    let fail = false;
+    const { fetch } = cf({ graphql: () => (fail ? new Response('{}', { status: 500 }) : new Response(JSON.stringify(fixture('graphql-today')))) });
+    await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW });
+    fail = true;
+    const u = await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW + TODAY_TTL_MS });
+    expect(u.today).toBeNull();
+    expect(u.fetchedAt).toBe(NOW);
+  });
+
   it('fetchedAt は写しを取った時刻', async () => {
     const { fetch } = cf();
     await collectUsage({ token: TOKEN, accountId: ACC, fetch, now: NOW });

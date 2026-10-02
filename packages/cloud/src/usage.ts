@@ -51,11 +51,14 @@ async function fetchToday(d: Deps): Promise<Today> {
   const query = `query($a:String!,$d:Date!){viewer{accounts(filter:{accountTag:$a}){d1AnalyticsAdaptiveGroups(limit:10,filter:{date_geq:$d,date_leq:$d}){sum{rowsWritten} dimensions{date}} workersInvocationsAdaptive(limit:10,filter:{date_geq:$d,date_leq:$d}){sum{requests} dimensions{date}}}}}`;
   type Row<K extends string> = { sum?: Partial<Record<K, number>>; dimensions?: { date?: string } };
   const body = (await call(d, '/graphql', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, variables: { a: d.accountId, d: day } }) })) as {
-    data?: { viewer?: { accounts?: { d1AnalyticsAdaptiveGroups?: Row<'rowsWritten'>[]; workersInvocationsAdaptive?: Row<'requests'>[] }[] } };
+    errors?: unknown[] | null;
+    data?: { viewer?: { accounts?: { d1AnalyticsAdaptiveGroups?: Row<'rowsWritten'>[] | null; workersInvocationsAdaptive?: Row<'requests'>[] | null }[] } };
   };
+  // GraphQL は権限の誤りを 200 と errors で返し、data を一部だけ埋めることがある。欠けた表を 0 と読まない。
+  if (Array.isArray(body.errors) && body.errors.length > 0) throw failed(200);
   const acc = body.data?.viewer?.accounts?.[0];
-  if (!acc) throw failed(200);
-  const sum = <K extends string>(rows: Row<K>[] | undefined, key: K): number => (rows ?? []).filter((r) => r.dimensions?.date === day).reduce((n, r) => n + (Number(r.sum?.[key]) || 0), 0);
+  if (!acc || !Array.isArray(acc.d1AnalyticsAdaptiveGroups) || !Array.isArray(acc.workersInvocationsAdaptive)) throw failed(200);
+  const sum = <K extends string>(rows: Row<K>[], key: K): number => rows.filter((r) => r.dimensions?.date === day).reduce((n, r) => n + (Number(r.sum?.[key]) || 0), 0);
   return { day, d1RowsWritten: sum(acc.d1AnalyticsAdaptiveGroups, 'rowsWritten'), workersRequests: sum(acc.workersInvocationsAdaptive, 'requests') };
 }
 
@@ -120,6 +123,12 @@ export async function collectUsage(d: Deps): Promise<Configured> {
   // 部分ごとの順に並べる（Promise.all の中で push される順は決まらない）。
   const order: CloudUsagePart[] = ['today', 'plan', 'month'];
   errors.sort((a, b) => order.indexOf(a.part) - order.indexOf(b.part));
-  const ats = [today.at, plan.at, month.at].filter((v): v is number => v !== null);
-  return { configured: true, fetchedAt: ats.length ? Math.min(...ats) : d.now, today: today.value, plan: plan.value, month: month.value, errors };
+  // トークンが失効したら、写しが残っていても三つとも null にする（仕様の「5. setup」）。写しも捨てて、入れ直した後に取り直す。
+  if (errors.some((e) => e.message === INVALID_TOKEN_MESSAGE)) {
+    resetUsageMemo();
+    return { configured: true, fetchedAt: d.now, today: null, plan: null, month: null, errors };
+  }
+  // 出どころの時刻は今日の数のもの。プランと請求は 6 時間の写しなので、混ぜると今日の数まで古く見える。
+  const ats = [plan.at, month.at].filter((v): v is number => v !== null);
+  return { configured: true, fetchedAt: today.at ?? (ats.length ? Math.min(...ats) : d.now), today: today.value, plan: plan.value, month: month.value, errors };
 }
