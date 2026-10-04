@@ -86,6 +86,8 @@ export type Intent =
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
   | { type: 'sidebar.toggle' }
+  // サイドバーの「動いている」の行を、利用者が掴んで並べ替えたとき。ids は並べ替えた後の、動いているセッション全部の並び。
+  | { type: 'sidebar.order'; ids: SessionId[] }
   // 実行中の右ペインで、「いま」の段が取る高さの上限（ペインの高さに対する割合）。境目を離したときに 1 度だけ出す。
   | { type: 'livePane.split'; ratio: number }
   | { type: 'summarizer.test' }

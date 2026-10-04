@@ -236,6 +236,11 @@ export type State = {
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
   /**
+   * サイドバーの「動いている」の行を、利用者が並べた順（セッションの id）。端末ごとに localStorage に残し、起動時に読み戻す。
+   * ここに無いセッション（新しく動き始めたもの）は、並べた行の上に入る（presenters/shell.ts）。
+   */
+  sidebarOrder: string[];
+  /**
    * プロジェクト画面で広げた節（Done の「ほか N 件」と、末尾の Archived）。鍵はプロジェクトの id。
    * Presenter が読む（presenters/project.ts）ので View ではなくここに持つ。保存はしない。
    */

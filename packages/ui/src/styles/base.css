@@ -148,6 +148,26 @@ a:hover { text-decoration: underline; }
 /* ホームに添える入力待ちの数（試作の C1）。開いた帯では項目の右端の錠剤、畳んだ帯ではアイコンの右上の丸にする。 */
 .nav-count { margin-left: auto; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--waiting); color: #ffffff; font-size: 11px; font-weight: 700; line-height: 1; }
 .nav-label { white-space: nowrap; transform-origin: 0 0; }
+/* サイドバーの「動いている」。項目の下に、動いているセッションを 1 行ずつ並べる。
+   行は掴んで上下に動かせ、入る場所に線を出す。動かすのは行だけで、見出しは動かない。 */
+.side-live { margin-top: calc(var(--u) * 3); padding-top: calc(var(--u) * 2.5); border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.side-live-h { display: flex; align-items: center; gap: calc(var(--u) * 1.5); height: calc(var(--u) * 6); margin: 0; padding: 0 calc(var(--u) * 3); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; color: var(--ink-3); white-space: nowrap; }
+.side-live-n { font-weight: 500; font-variant-numeric: tabular-nums; }
+.side-live-list { list-style: none; margin: 0; padding: 0; }
+.side-live-row { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 30px; padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 3); border-radius: var(--r); color: var(--ink); cursor: grab; min-width: 0; transition: background var(--dur-fast) var(--ease-out); }
+.side-live-row:hover { background: rgba(255, 255, 255, 0.5); text-decoration: none; }
+.side-live-row:active { cursor: grabbing; }
+.side-live-row[aria-current='page'] { background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.side-live-row > .dot { flex: none; }
+.side-live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 入力待ちは行を動かさず、太字と待った時間で知らせる。 */
+.side-live-row[data-live='waiting'] .side-live-name { font-weight: 600; }
+.side-live-wait { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); }
+.side-live-row[data-dragging='true'] { opacity: 0.4; }
+.side-live-row[data-over='before'] { box-shadow: inset 0 2px 0 var(--accent); border-radius: 0; }
+.side-live-row[data-over='after'] { box-shadow: inset 0 -2px 0 var(--accent); border-radius: 0; }
+.side-live-more { display: flex; align-items: center; height: calc(var(--u) * 6.5); padding: 0 calc(var(--u) * 3); font-size: var(--fs-xs); color: var(--ink-3); }
+.side-live-more:hover { color: var(--accent); text-decoration: none; }
 
 /* 折りたたんだサイドバー（⌘B、サイドバーの開閉のボタン）。アイコンだけの細い帯に縮む。
    開閉の動きは views/primitives/sidebarMotion.ts が、ここにある 2 つの形の差を埋めて作る。
@@ -166,6 +186,10 @@ a:hover { text-decoration: underline; }
 /* 項目の中の位置は、箱の幅に左右されない値で置く。動きの途中は箱の幅が変わるので、中央寄せや 100% で置くと、アイコンと吹き出しが幅に引きずられる。 */
 .shell[data-sidebar='collapsed'] .nav-item { position: relative; width: var(--item); height: var(--item); padding: 0 calc(var(--u) * 2.75); margin: 0 0 calc(var(--u) * 1); border-radius: var(--r-lg); }
 .shell[data-sidebar='collapsed'] .nav-label { position: absolute; left: calc(var(--item) + var(--u) * 3); top: 50%; translate: 0 -50%; padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
+/* 畳んだ帯では、動いているセッションを点だけで縦に並べる。名前は title に持つ。見出しと「ほか N 件」は出さない。 */
+.shell[data-sidebar='collapsed'] .side-live { margin-top: calc(var(--u) * 2); padding-top: calc(var(--u) * 2); }
+.shell[data-sidebar='collapsed'] .side-live-h, .shell[data-sidebar='collapsed'] .side-live-name, .shell[data-sidebar='collapsed'] .side-live-wait, .shell[data-sidebar='collapsed'] .side-live-more { display: none; }
+.shell[data-sidebar='collapsed'] .side-live-row { justify-content: center; width: var(--item); height: 26px; padding: 0; }
 .shell[data-sidebar='collapsed'] .nav-count { position: absolute; top: 3px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; margin: 0; font-size: 10px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
 .shell[data-sidebar='collapsed'] .nav-item:hover .nav-label, .shell[data-sidebar='collapsed'] .nav-item:focus-visible .nav-label { opacity: 1; visibility: visible; }
 /* 閉じる動きの間、項目名は吹き出しの地を持たず、開いた帯のときの文字のまま薄れる。 */

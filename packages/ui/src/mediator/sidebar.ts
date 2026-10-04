@@ -10,6 +10,22 @@ export function sidebarStep(state: State, input: Input): Step | null {
   return { state: { ...state, sidebarCollapsed: collapsed }, effects: [{ kind: 'storage.save', key: SIDEBAR_KEY, value: collapsed }] };
 }
 
+/** サイドバーの「動いている」の並びを残す localStorage の鍵。値はセッションの id の配列。 */
+export const SIDEBAR_ORDER_KEY = 'sidebar.order';
+
+/** 並びを id の配列に整える。配列でなければ空にし、文字列でない要素と重なりは落とす。 */
+export function cleanSidebarOrder(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.filter((x): x is string => typeof x === 'string' && x !== ''))];
+}
+
+/** 「動いている」の行を並べ替えたとき。並びを覚え、保存する。ドラッグの途中は部品の中だけで動かし、ここへは離したときだけ来る。 */
+export function sidebarOrderStep(state: State, input: Input): Step | null {
+  if (input.kind !== 'intent' || input.intent.type !== 'sidebar.order') return null;
+  const order = cleanSidebarOrder(input.intent.ids);
+  return { state: { ...state, sidebarOrder: order }, effects: [{ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: order }] };
+}
+
 /** 右ペインの上下の比率を残す localStorage の鍵。値は 0.2〜0.8 の数そのもの。 */
 export const LIVE_PANE_SPLIT_KEY = 'livePane.split';
 /** はじめは半分。「いま」は右ペインの高さの半分までにし、残りを目次に渡す。 */

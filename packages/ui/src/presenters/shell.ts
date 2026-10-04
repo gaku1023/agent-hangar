@@ -1,7 +1,8 @@
-import type { IndexProgressDto, Route, SyncStateKind } from '@agent-hangar/shared';
+import type { IndexProgressDto, LiveStatus, Route, SyncStateKind } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { waitingSessionIds, type Store } from '../store/store.ts';
-import { indexProgressLabel, relativeTime, resetsLabel, SYNC_STATE_LABEL } from './format.ts';
+import { liveFilterOfSession, runningSessionIds, waitingSessionIds, type Store } from '../store/store.ts';
+import { durationLabel, indexProgressLabel, relativeTime, resetsLabel, SYNC_STATE_LABEL } from './format.ts';
+import { sortSessions } from './row.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts';
 
@@ -36,7 +37,15 @@ export type RetentionBannerProps = { visible: boolean; title: string; detail: st
  * wide は本文の幅の上限（--main-w）を外す画面か。
  * セッション画面だけ外し、ターミナルに幅と高さを渡す（UX 刷新 2 の案 b）。
  */
-export type ShellProps = { sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
+/** サイドバーの「動いている」の 1 行。waited は入力待ちのときだけ（「待ち 4 分」）。current はいま見ているセッション。 */
+export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; waited: string | null; current: boolean };
+/**
+ * サイドバーの「動いている」。
+ * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
+ * folded が真なら、見出しと件数だけを出す（ホーム）。
+ */
+export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; more: number; folded: boolean };
+export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -117,6 +126,27 @@ const NAV: { route: Route; label: string; matches: string[] }[] = [
   { route: { name: 'settings' }, label: '設定', matches: ['settings'] },
 ];
 
+/** サイドバーの「動いている」に並べる行の上限。超えた分は数だけにして、ホームへ案内する。 */
+export const SIDE_LIVE_MAX = 8;
+
+/**
+ * サイドバーの「動いている」。
+ * セッション画面にいる間、ほかのセッションのどれが待っているかを横目で見て、1 押しで移るための場所である。
+ * 並びは利用者が置いた順（state.sidebarOrder）を保つ。置いていないもの（新しく動き始めたもの）は、入力待ち、作業中、休みの順で、置いた行の上に入れる。
+ * 入力待ちになっても行は動かさない。自分で置いた場所が崩れるからで、待ちは色と太字と待った時間で知らせる。
+ * ホームでは、本文の「要対応」「実行中」と同じ件を出すだけになるので、見出しと件数だけにする（folded）。
+ */
+function sideLive(state: State, store: Store, now: number): SideLiveProps {
+  const alive = runningSessionIds(store);
+  const live = sortSessions(Object.values(store.sessions).filter((s) => { const f = liveFilterOfSession(store, s, alive); return f === 'running' || f === 'waiting'; }));
+  const placed = state.sidebarOrder.flatMap((id) => live.filter((s) => s.id === id));
+  const fresh = live.filter((s) => !state.sidebarOrder.includes(s.id));
+  const all = [...fresh, ...placed];
+  const current = state.screen.name === 'session' ? state.screen.id : null;
+  const rows = all.slice(0, SIDE_LIVE_MAX).map((s): SideLiveRow => ({ id: s.id, name: s.name ?? '（名前なし）', live: s.live, waited: s.live === 'waiting' ? `待ち ${durationLabel(now - (s.lastActivityAt ?? now))}` : null, current: s.id === current }));
+  return { count: all.length, ids: all.map((s) => s.id), rows, more: all.length - rows.length, folded: state.screen.name === 'home' || state.screen.name === 'booting' };
+}
+
 /** tz は日付と時刻を言うときの時差で、省略すると端末の時差になる。 */
 export function presentShell(state: State, store: Store, now: number, tz?: string): ShellProps {
   const s = state.screen;
@@ -128,5 +158,5 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
-  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store) };
+  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }
