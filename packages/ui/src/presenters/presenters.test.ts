@@ -261,8 +261,20 @@ describe('presentHome', () => {
   it('実行中は作業中と休みを拾い、入力待ちは要対応だけに出す', () => {
     const p = presentHome(initialState(), homeStore(), NOW);
     expect(p.running.map((r) => r.id)).toEqual(['s1', 'i1']);
-    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%' });
+    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%' });
     expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: '休み。最後の返答から 8 分', contextPercent: 22, contextLabel: '22%' });
+  });
+  it('意図は、作業中のセッションがこのターンに書いたものだけを出す', () => {
+    const store = homeStore();
+    const digest = (inThisTurn: boolean) => ({ sessionId: 's1', turnStartSeq: 1, intent: { text: '一覧の枠をなくす', at: NOW - 1000, stepsSince: 2, inThisTurn }, agents: [] });
+    store.liveDigests = { s1: digest(true), i1: { ...digest(true), sessionId: 'i1' } };
+    const p = presentHome(initialState(), store, NOW);
+    expect(p.running[0]).toMatchObject({ id: 's1', intent: '一覧の枠をなくす' });
+    // 休みのセッションは、意図が残っていても出さない。
+    expect(p.running[1]).toMatchObject({ id: 'i1', intent: null });
+    // 前のターンの意図は、いまの作業を言っていないので出さない。
+    store.liveDigests = { s1: digest(false) };
+    expect(presentHome(initialState(), store, NOW).running[0]).toMatchObject({ intent: null });
   });
   it('作業中でも呼び出しがまだ無ければ「作業中」、レジストリに載る前の run は「起動しています」', () => {
     // 信頼確認のダイアログ待ちの run は Claude のレジストリにまだ載らない。
@@ -1515,6 +1527,20 @@ describe('presentToasts（入力待ちのカード）', () => {
     expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', waited: '2 分', question: '向きはどちらにしますか' }]);
     store.sessions.w1 = { ...store.sessions.w1!, activity: null };
     expect(presentToasts(state, store, NOW).waiting[0]?.question).toBeNull();
+  });
+  it('ホームを見ている間は出さない（要対応の札が言っている）', () => {
+    const state = { ...initialState(), screen: { name: 'home' as const }, waitingToasts: ['w1', 'w2'] };
+    const p = presentToasts(state, waitingStore(['w1', 'w2']), NOW);
+    expect(p.waiting).toEqual([]);
+    expect(p.more).toBe(0);
+  });
+  it('そのセッション自身の画面を見ている間は、その件だけ出さない', () => {
+    const state = { ...initialState(), screen: { name: 'session' as const, id: 'w1' }, waitingToasts: ['w1', 'w2'] };
+    expect(presentToasts(state, waitingStore(['w1', 'w2']), NOW).waiting.map((c) => c.sessionId)).toEqual(['w2']);
+  });
+  it('ほかの画面では今までどおり出す', () => {
+    const state = { ...initialState(), screen: { name: 'projects' as const }, waitingToasts: ['w1'] };
+    expect(presentToasts(state, waitingStore(['w1']), NOW).waiting.map((c) => c.sessionId)).toEqual(['w1']);
   });
   it('3 件までを新しいものが下に来る順で並べ、残りは数だけ返す', () => {
     const ids = ['w1', 'w2', 'w3', 'w4', 'w5'];

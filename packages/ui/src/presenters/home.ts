@@ -18,8 +18,12 @@ import { dueOn, returnKey } from './sections.ts';
  * どれでもなければ null で、端末は開けない。
  */
 export type AttentionCard = { id: string; name: string; projectName: string | null; waited: string; question: string; answer: 'terminal' | 'attach' | 'adopt' | null };
-/** 実行中の札。activity があれば墨の地にツールと対象を、無ければ note の一言を出す。 */
-export type RunningCard = { id: string; name: string; live: LiveStatus | null; elapsed: string; meta: string; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string };
+/**
+ * 実行中の札。
+ * intent は Claude がこのターンに書いた意図の 1 文で、書かれていなければ null である（右の欄の「いま」と同じもの。presenters/live.ts）。
+ * activity があれば墨の帯にツールと対象を、無ければ note の一言を出す。
+ */
+export type RunningCard = { id: string; name: string; live: LiveStatus | null; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string };
 /** Home のプロジェクトの小さな一覧の 1 行。counts は 0 でない数だけを並べた文。 */
 export type ProjectMini = { id: string; name: string; status: ProjectStatus; counts: string };
 /**
@@ -108,7 +112,10 @@ export function presentHome(state: State, store: Store, now: number): HomeProps 
     const activity = s.live === 'busy' && s.activity ? { tool: s.activity.tool, summary: shortenPaths(stripLeadingTool(s.activity.tool, s.activity.summary)) } : null;
     const note = activity ? null : s.live === 'idle' ? `休み。最後の返答から ${durationLabel(now - (s.lastActivityAt ?? now))}` : s.live === 'busy' ? '作業中' : '起動しています';
     const meta = [projectName(s) ?? '未分類', shortModel(s.stats.model), s.stats.effort ?? ''].filter((x) => x !== '').join(' · ');
-    return { id: s.id, name: name(s), live: s.live, elapsed: durationLabel(now - (s.startedAt ?? now)), meta, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(s.stats.contextPercent) };
+    // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。
+    const said = store.liveDigests[s.id]?.intent;
+    const intent = s.live === 'busy' && said && said.inThisTurn ? said.text : null;
+    return { id: s.id, name: name(s), live: s.live, elapsed: durationLabel(now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(s.stats.contextPercent) };
   });
 
   // 札に出したものは最近に重ねない。

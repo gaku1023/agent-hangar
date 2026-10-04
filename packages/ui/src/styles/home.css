@@ -42,10 +42,16 @@
 /* セッションの提案の札（Q3）。枠だけの丸い札で、候補の色にする。 */
 .home-cand { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--cand); box-shadow: inset 0 0 0 1px var(--cand); }
 
-/* 実行中の札。3 列に並べ、いま何をしているかを墨の地の 1 行で見せる。 */
+/* 実行中の札。3 列に並べ、作業中は意図の 1 行と、いまの手を墨の帯の 1 行で見せる。 */
 .live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(var(--u) * 2.5); }
 .live-card { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); min-width: 0; padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); cursor: pointer; transition: box-shadow var(--dur) var(--ease-out); }
+/* 状態の輪。作業中は杏、入力待ちは赤茶の 1px の輪を灯す。セッション画面の端末の縁の灯と同じ言葉である。
+   休みと起動中は灯さない。ここでは呼吸させない（脈動は端末の縁だけ）。 */
+.live-card[data-live='busy'] { box-shadow: 0 0 0 1px color-mix(in srgb, var(--busy) 60%, transparent), var(--surface-shadow); }
+.live-card[data-live='waiting'] { box-shadow: 0 0 0 1px var(--waiting), var(--surface-shadow); }
 .live-card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
+.live-card[data-live='busy']:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--busy) 60%, transparent), var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
+.live-card[data-live='waiting']:hover { box-shadow: 0 0 0 1px var(--waiting), var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
 .live-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .live-head { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-weight: 600; }
 .live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -54,6 +60,10 @@
 .live-act { padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: var(--r); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); background: var(--term-bg); color: var(--term-fg); }
 .live-act i { font-style: normal; color: var(--term-tool); }
 .live-note { color: color-mix(in srgb, var(--term-fg) 60%, var(--term-bg)); }
+/* 意図の 1 行。Claude がこのターンに書いた「何のために何をするか」で、帯の上に白地の文字で置く。 */
+.live-intent { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink); }
+/* 休みと起動中の一言。端末の出力ではないので、墨の帯にしない。 */
+.live-rest { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink-2); }
 .live-ctx { display: flex; align-items: center; gap: calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-3); }
 .live-ctx .gauge-bar { flex: 1; width: auto; }
 

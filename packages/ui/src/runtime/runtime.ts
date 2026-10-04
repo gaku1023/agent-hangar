@@ -561,10 +561,19 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // ここでは取りに行かず、次に本文を読むときに取り直させる。
       // 本文を読むのは画面に出ているセッションだけなので、見ていないセッションの分は無駄に取らない。
       if (input.event.type === 'transcript.appended') subagentsAsked.delete(input.event.sessionId);
+      // ホームの実行中の札は意図の 1 行を出す。見ている間に動いたセッションの分を取り直す（loadLive が 1 秒に 1 回までにまとめる）。
+      if (state.screen.name === 'home') {
+        if (input.event.type === 'transcript.appended') loadLive(input.event.sessionId);
+        else if (input.event.type === 'session.upsert') loadLive(input.event.session.id);
+        else if (input.event.type === 'run.started') loadLive(input.event.run.sessionId);
+      }
     }
+    const wasHome = state.screen.name === 'home';
     const r = transition(state, input);
     if (r.state !== state) { const prev = shown; state = r.state; present(commit, prev, state); }
     for (const eff of r.effects) runEffect(eff);
+    // ホームへ入ったら、動いているセッションの意図をまとめて取りに行く。
+    if (!wasHome && state.screen.name === 'home') for (const run of Object.values(store.runs)) if (run.endedAt === null) loadLive(run.sessionId);
   }
 
   return {

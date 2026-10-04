@@ -39,12 +39,11 @@ a:hover { text-decoration: underline; }
    --gutter-l は既定の 16px だが、それではロゴの右端より左に来てしまう間だけ、ロゴの右端まで広げる。広い窓で中央へ寄った本文は、畳んでもそれ以上右へ寄らない。 */
 .shell { --head-lead: calc(var(--u) * 4); --head-end: calc(var(--head-lead) + var(--brand-w) + var(--u) * 3); --box-l: max(0px, calc((100vw - var(--col1) - var(--main-w)) / 2)); --gutter-l: max(calc(var(--u) * 4), calc(var(--head-end) - var(--col1) - var(--box-l))); }
 [data-shell='desktop'] .shell { --head-lead: var(--lights-end); }
-.shell::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%); animation: aura-drift var(--aura-period) ease-in-out infinite alternate; }
-@keyframes aura-drift { to { transform: translate(5%, -4%) rotate(8deg) scale(1.05); } }
-@media (prefers-reduced-motion: reduce) { .shell::before { animation: none; } }
+/* 背景の光は 1 色で、動かさない。2 色（青と藤色）を漂わせていたが、読む面が白なので光の仕事は溝を染めることだけで、常に動かす値打ちが無かった。 */
+.shell::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(60% 70% at 18% 8%, var(--aura-1), transparent 72%); }
 /* 浮くガラス。ぼかしはこの節と、切断の帯、ダイアログ、パレット、通知の規則にだけ書く（glass.test.ts が見張る）。 */
 /* 行が増えても全部を覆うように、端から端まで跨がせる。上はヘッダ（窓の上辺に付いた帯）の下に隙間を 1 つ空けて始める。 */
-.sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; margin: calc(var(--header-h) + var(--float-gap)) 0 var(--float-gap) var(--float-gap); padding: calc(var(--u) * 2.5) calc(var(--u) * 2); border-radius: var(--r-xl); background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--glass-drop); overflow: hidden auto; }
+.sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; margin: calc(var(--header-h) + var(--float-gap)) 0 var(--float-gap) var(--float-gap); padding: calc(var(--u) * 2.5) calc(var(--u) * 2); border-radius: var(--r-xl); overflow: hidden auto; }
 /* 頁を開いたときの入場。デスクトップの起動画面は、読み込みが終わった合図の後、この光の背景だけを描いて終わる。
    頁が替わった後は、その光の上にサイドバーが左から、ヘッダが上から浮かんで来る。殻は作り直されないので、動くのは最初の 1 回だけである。
    reduced motion では --dur が 0 になり、動かない。 */
@@ -220,7 +219,8 @@ a:hover { text-decoration: underline; }
 /* 状態点 */
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); transition: background var(--dur) var(--ease-out); vertical-align: middle; }
 .dot[data-status='busy'] { background: var(--busy); }
-.dot[data-status='idle'] { background: var(--idle); }
+/* 休みは灰にする（右の欄の灯と同じ）。緑（--idle）は「済んだ」の色で、終わったサブエージェントやコミットの札に使うので、休みには使わない。 */
+.dot[data-status='idle'] { background: var(--ink-3); }
 .dot[data-status='waiting'] { background: var(--waiting); }
 
 /* 見出しと区画 */

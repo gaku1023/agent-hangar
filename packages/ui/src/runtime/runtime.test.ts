@@ -93,6 +93,29 @@ describe('createRuntime', () => {
     await flush();
     expect(api.live).toHaveBeenCalledTimes(2);
   });
+  it('ホームへ入ったら、動いているセッションの意図を取りに行き、見ている間に動いた分を取り直す', async () => {
+    let clock = 10_000;
+    const { rt, api, setHash, timers } = harness({}, { now: () => clock });
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: aliveRun, tabs: [] } });
+    setHash('#/projects');
+    await flush();
+    // ホーム以外では取りに行かない。
+    expect(api.live).not.toHaveBeenCalled();
+    setHash('#/');
+    await flush();
+    expect(api.live).toHaveBeenCalledTimes(1);
+    expect(api.live).toHaveBeenCalledWith('s1');
+    const before = timers.length;
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's1', count: 1 } });
+    await flush();
+    // 1 秒に 1 回までにまとめる。
+    expect(api.live).toHaveBeenCalledTimes(1);
+    clock += 1000;
+    timers.slice(before).filter((t) => t.ms === 1000)[0]!.fn();
+    await flush();
+    expect(api.live).toHaveBeenCalledTimes(2);
+  });
   it('生きた run の無いセッションでは要約を取らない', async () => {
     const { rt, api, setHash } = harness();
     rt.start();

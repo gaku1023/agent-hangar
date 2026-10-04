@@ -6,9 +6,9 @@ const base = fs.readFileSync(new URL('./base.css', import.meta.url), 'utf8');
 
 describe('tokens.css', () => {
   it('必要なトークンをライトで定義する', () => {
-    for (const t of ['--bg', '--aura-1', '--aura-2', '--surface', '--line', '--ink', '--ink-2', '--ink-3', '--accent', '--accent-hi', '--busy', '--idle', '--waiting', '--ended', '--cand', '--cand-soft', '--font-sans', '--font-mono', '--row-h',
+    for (const t of ['--bg', '--aura-1', '--surface', '--line', '--ink', '--ink-2', '--ink-3', '--accent', '--accent-hi', '--busy', '--idle', '--waiting', '--ended', '--cand', '--cand-soft', '--font-sans', '--font-mono', '--row-h',
       '--dur-fast', '--dur', '--dur-exit', '--ease-out', '--ease-in', '--rise', '--blur-in', '--breathe-period',
-      '--glass-bg', '--glass-blur', '--glass-edge', '--glass-drop', '--r', '--r-lg', '--r-xl', '--r-pill', '--float-gap', '--header-h', '--aura-period']) {
+      '--glass-bg', '--glass-blur', '--glass-edge', '--glass-drop', '--r', '--r-lg', '--r-xl', '--r-pill', '--float-gap', '--header-h']) {
       expect(css, t).toContain(`${t}:`);
     }
   });
