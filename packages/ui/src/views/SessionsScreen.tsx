@@ -62,7 +62,7 @@ export function SessionsScreen(props: SessionsProps) {
   };
   return (
     <div className="screen sessions-screen screen-fill">
-      <PageHeading title="セッション"><span className="faint mono sessions-count">{fmt(props.allCount)} 件</span></PageHeading>
+      <PageHeading title="セッション"><span className="faint num sessions-count">{fmt(props.allCount)} 件</span></PageHeading>
       <div className="sessions-tabs" role="group" aria-label="状態">
         {props.tabs.map((t) => (
           <button key={t.tab} type="button" className="sessions-tab" aria-pressed={t.tab === props.tab} onClick={() => pickTab(t.tab)}>
@@ -98,7 +98,7 @@ export function SessionsScreen(props: SessionsProps) {
           <Icon name="filter" />
           <span className="sessions-cond-text">{props.conditions.map((c, i) => <span key={i}>{i > 0 && ' · '}<b>{c}</b></span>)} で絞り込み中</span>
           <button type="button" className="btn btn-sm sessions-cond-clear" onClick={() => emit({ type: 'search.clear' })}><Icon name="close" />条件をクリア</button>
-          <span className="faint mono sessions-cond-count">{count}</span>
+          <span className="faint num sessions-cond-count">{count}</span>
         </div>
       )}
       {props.sections

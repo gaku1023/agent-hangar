@@ -171,14 +171,24 @@ describe('線の下の 1 行（B1）', () => {
     expect(info(container).firstElementChild).toHaveTextContent('終了 · 1 分前');
     expect(info(container).firstElementChild).toHaveAttribute('title', '起動 1 分前');
   });
-  it('コンテキストとコストが未取得なら棒を描かず、設定へ導く', () => {
+  it('コンテキストとコストが両方とも未取得なら、棒を描かず 1 つにまとめ、押すと設定へ行く', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SS {...base} /></IntentRoot>);
     expect(screen.queryByLabelText('コンテキストの使用率')).toBeNull();
-    expect(screen.getByText('コンテキスト 未取得')).toBeInTheDocument();
-    expect(screen.getByText('コスト 未取得')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('statusline を入れると出ます'));
+    expect(screen.getAllByText(/未取得/)).toHaveLength(1);
+    const link = screen.getByRole('link', { name: 'コンテキスト・コスト 未取得' });
+    expect(link).toHaveAttribute('title', 'statusline を入れると出ます');
+    fireEvent.click(link);
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+  });
+  it('片方だけ未取得なら、その分だけを書く', () => {
+    render(<IntentRoot onIntent={() => {}}><SS {...base} cost="$1.20" /></IntentRoot>);
+    expect(screen.getByText('コンテキスト 未取得')).toBeInTheDocument();
+    expect(screen.queryByText(/コスト 未取得/)).toBeNull();
+  });
+  it('終わったセッションは、この先も値が届かないので未取得の断りを出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} /></IntentRoot>);
+    expect(screen.queryByText(/未取得/)).toBeNull();
   });
   it('値があるときは未取得の断りも案内も出さない', () => {
     render(<IntentRoot onIntent={() => {}}><SS {...p3} /></IntentRoot>);

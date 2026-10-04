@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
+import { Icon } from './primitives/Icon.tsx';
 
 /**
  * プロジェクトの Markdown メモ。
@@ -26,9 +27,14 @@ export function MemoEditor(props: { projectId: string; markdown: string; updated
   }, [props.markdown, props.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = () => { emit({ type: 'memo.save', projectId: props.projectId, markdown: draft }); setBase({ markdown: draft, updatedAt: props.updatedAt }); };
   const reload = () => { setBase({ markdown: props.markdown, updatedAt: props.updatedAt }); setDraft(props.markdown); };
+  // 空のメモは 1 行に畳む。8 行分の空の欄と押せない保存が、右の欄の中身（TODO、アーティファクト）より場所を取らないようにする。
+  // 書き始めたら、空に戻しても開いたままにする（打っている途中で欄が消えないように）。
+  const [opened, setOpened] = useState(false);
+  const open = opened || draft !== '' || props.markdown !== '';
+  if (!open) return <button type="button" className="btn memo-open" onClick={() => setOpened(true)}><Icon name="add" />メモを書く</button>;
   return (
     <div className="memo field">
-      <textarea className="input mono memo-area" aria-label="メモ" rows={8} value={draft} onChange={(e) => setDraft(e.target.value)} />
+      <textarea className="input mono memo-area" aria-label="メモ" rows={8} autoFocus={opened && props.markdown === ''} value={draft} onChange={(e) => setDraft(e.target.value)} />
       <div className="memo-foot">
         {external && <><span className="faint">外部で更新されました</span><button className="btn" onClick={reload}>読み込む</button></>}
         <span className="spacer" />

@@ -1,16 +1,10 @@
 /* セッション行の 1 行メモ（Task 24） */
 
-/* 一覧そのものがフォーカスを受ける。
-   j と k は一覧にフォーカスがあるときだけ効くので、当たっていることが見えないと「効かない」と受け取られる。
-   base.css の :focus-visible とは詳細度が並ぶため、ここで blanket に outline: none と書くと輪郭ごと消えてしまう。 */
+/* 一覧そのものがフォーカスを受ける（画面に入ってすぐ j や ↓ が効くように）。
+   一覧の外周に輪郭は描かない。画面を開くたびに、まだ何も選んでいない一覧を画面でいちばん強い線が囲むことになるからである。
+   どこに居るかは、打鍵で選んだ行（data-cursor の地色と、行そのものの輪郭）で示す。 */
+.rows-host:focus,
 .rows-host:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-  border-radius: var(--r);
-}
-
-/* マウスで押しただけのときは輪郭を出さない。 */
-.rows-host:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -24,6 +18,13 @@
 /* カーソルの行。フォーカスの枠とは別の表し方にして、両方が同時に出ても読めるようにする。 */
 .row[data-cursor='true'] {
   background: var(--accent-soft);
+}
+
+/* 動いていない行は点を描かない。終わった行はどれも同じ灰色の点になり、何も伝えないまま、作業中と入力待ちの色を拾いにくくする。
+   点の場所は残し、名前の書き出しは全行でそろえる。読み上げの名前（終了）は StatusDot が持つ。 */
+.row-2 > .dot[data-status='ended'],
+.palette-item .dot[data-status='ended'] {
+  background: transparent;
 }
 
 .memo-cell {
@@ -68,14 +69,14 @@
 .row-status { display: flex; align-items: center; min-width: 0; }
 .row-status > .badge-link, .row-status > .row-act { width: 100%; }
 .row-main { display: flex; flex-direction: column; justify-content: center; gap: var(--u); min-width: 0; }
-.row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 560; }
+.row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .row-proj { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
 .row-sub { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; height: calc(var(--u) * 5); font-size: var(--fs-sm); color: var(--ink-2); }
 .row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* 2 段目の頭の要約の見立て（試作 home-lists の B1）。ふだんは注記の色の語だけにし、
    詰まっている（入力待ちの色）とやめた（Paused の色）だけを淡い地の札にする。色の札が 2 種しかないので、流し見で色の行だけが目に止まる。 */
 .row-state { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
-.row-state[data-tone] { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-weight: 560; line-height: 1.4; }
+.row-state[data-tone] { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-weight: 600; line-height: 1.4; }
 .row-state[data-tone='blocked'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); }
 .row-state[data-tone='abandoned'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .row-memo { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
@@ -123,7 +124,7 @@
    高さは --section-head-h で持ち、SessionRows の SECTION_HEAD_H と揃える（rows.test.ts）。 */
 .row-head { display: flex; align-items: flex-end; gap: calc(var(--u) * 1.5); height: var(--section-head-h); padding: 0 calc(var(--u) * 5) calc(var(--u) * 1.5); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
 .row-head-count { font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.row-head-more { margin-left: auto; padding: 0 var(--u); border: 0; border-radius: 5px; background: none; font: inherit; font-size: var(--fs-xs); font-weight: 560; color: var(--accent); cursor: pointer; }
+.row-head-more { margin-left: auto; padding: 0 var(--u); border: 0; border-radius: 5px; background: none; font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); cursor: pointer; }
 .row-head-more:hover { text-decoration: underline; }
 /* 末尾の Archived の行は、ほかの節より控えめにする。 */
 .row-head[data-section='archived'] { font-weight: 500; color: var(--ink-3); }
@@ -138,7 +139,7 @@
 .sessions-count { font-weight: 400; }
 /* 状態のタブ（★）。件数つきで、入り切らなければ次の行へ送る（900px の窓では 7 つが 1 行に並ばない）。 */
 .sessions-tabs { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * 3); }
-.sessions-tab { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-size: var(--fs-sm); font-weight: 560; color: var(--ink-2); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.sessions-tab { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
 .sessions-tab:hover { background: var(--surface-2); }
 .sessions-tab[aria-pressed='true'] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .sessions-tab-n { font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
@@ -167,7 +168,7 @@
 .sessions-cond > .icon { flex: none; color: var(--accent); }
 .sessions-cond-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sessions-cond b { color: var(--ink); font-weight: 600; }
-.sessions-cond-clear { flex: none; gap: 3px; padding: 0 var(--u); color: var(--accent); font-weight: 560; }
+.sessions-cond-clear { flex: none; gap: 3px; padding: 0 var(--u); color: var(--accent); font-weight: 600; }
 .sessions-cond-count { margin-left: auto; flex: none; font-size: var(--fs-xs); }
 /* 検索の続きを読むボタン。最後の行の下に、行と一緒にスクロールして現れる。残りの件数を淡く添える。 */
 /* ページ送りの帯（A4）。一覧の下に貼り、一覧が残りの高さを受け取っても帯は縮まない。

@@ -11,7 +11,7 @@ import { SESSION_ROW_H } from './SessionRows.tsx';
 
 // Task 22 で ProjectProps に増えた右レールの分。この節が見るのはヘッダーの操作だけなので空にする。
 const rail = { pager: null, isScratch: false, todos: [], memo: null, artifacts: [], parent: { label: 'プロジェクト', route: { name: 'projects' as const } } };
-const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'last one', excerptFromPrompt: false });
+const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, pathLabel: null, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'last one', excerptFromPrompt: false });
 
 describe('HomeScreen', () => {
   const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], recentPager: null, projects: [], idle: false, ...over });
@@ -160,12 +160,12 @@ describe('HomeScreen', () => {
     expect(onIntent).toHaveBeenCalledTimes(2);
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 's1' });
   });
-  it('休みの札は呼び出しの代わりに一言を出し、使用率が無ければゲージを空にする', () => {
+  it('休みの札は呼び出しの代わりに一言を出し、使用率が無ければゲージの行を出さない', () => {
     render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ running: [runningCard({ live: 'idle', activity: null, note: '休み。最後の返答から 8 分', contextPercent: null, contextLabel: '未取得' })] })} /></IntentRoot>);
     const card = screen.getByRole('button', { name: /キーボード操作の見直し/ });
     expect(card).toHaveTextContent('休み。最後の返答から 8 分');
-    expect(card).toHaveTextContent('未取得');
-    expect(within(card).getByRole('meter')).not.toHaveAttribute('aria-valuenow');
+    expect(card).not.toHaveTextContent('未取得');
+    expect(within(card).queryByRole('meter')).toBeNull();
   });
   it('要対応と実行中が無ければ区画ごと省き、最近とプロジェクトは残す', () => {
     render(<IntentRoot onIntent={() => {}}><HomeScreen {...home()} /></IntentRoot>);
@@ -225,7 +225,7 @@ describe('ProjectCard の数', () => {
   });
   it('この PC にパスが無ければそう書き、ここで始めるで新しいセッションを開く', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), path: null }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), path: null, pathLabel: 'この PC にパスがありません' }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
     expect(screen.getByText('この PC にパスがありません')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'ここで始める' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
@@ -237,11 +237,25 @@ describe('ProjectCard の中身（C1）', () => {
   it('抜粋は 2 行の欄に出し、要約から取ったときは出所を添えない', () => {
     const { container } = render(one({ excerpt: '索引をセッションごとに分けた' }));
     expect(container.querySelector('.card-excerpt')).toHaveTextContent('索引をセッションごとに分けた');
+    expect(container.querySelector('.card-excerpt')).not.toHaveAttribute('title');
+  });
+  it('発言から取った抜粋は、出所を行にせず title に持つ（ほとんどのカードに同じ注記が並ばないように）', () => {
+    const { container } = render(one({ excerpt: '画像の圧縮率を比べたい', excerptFromPrompt: true }));
+    expect(container.querySelector('.card-excerpt')).toHaveAttribute('title', '最初の発言から');
     expect(screen.queryByText('最初の発言から')).toBeNull();
   });
-  it('発言から取った抜粋には「最初の発言から」を添える', () => {
-    render(one({ excerpt: '画像の圧縮率を比べたい', excerptFromPrompt: true }));
-    expect(screen.getByText('最初の発言から')).toBeInTheDocument();
+  it('ワークスペース直下のカードはパスの行を出さず、ほかは出す', () => {
+    const { container, rerender } = render(one());
+    expect(container.querySelector('.card-path')).toBeNull();
+    rerender(one({ path: '/elsewhere/tools/alpha', pathLabel: '/elsewhere/tools/alpha' }));
+    expect(container.querySelector('.card-path')).toHaveTextContent('/elsewhere/tools/alpha');
+    expect(container.querySelector('.card-path')).toHaveAttribute('title', '/elsewhere/tools/alpha');
+  });
+  it('Active の札は控えめにし、ほかの状態の札は常に出す', () => {
+    const { container, rerender } = render(one());
+    expect(container.querySelector('.card-status')).toHaveAttribute('data-quiet', 'true');
+    rerender(one({ status: 'paused' }));
+    expect(container.querySelector('.card-status')).not.toHaveAttribute('data-quiet');
   });
   it('「ここで始める」は最終活動と数の行の右端に置く', () => {
     const { container } = render(one());
@@ -287,8 +301,8 @@ describe('ProjectScreen', () => {
     rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path={null} resolved={false} status="active" items={[]} notFound={false} {...rail} /></IntentRoot>);
     expect(screen.getByText('この PC にパスがありません')).toBeInTheDocument();
     rerender(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" items={[]} notFound={false} {...rail} /></IntentRoot>);
-    fireEvent.click(screen.getByText('新しいセッション'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
+    // 新しいセッションの主ボタンはヘッダーにあるので、見出しの行には並べない。
+    expect(screen.queryByText('新しいセッション')).toBeNull();
     expect(screen.getByText('/w/alpha')).toBeInTheDocument();
   });
   it('プロジェクトの操作は project.* の Intent', () => {
@@ -306,7 +320,6 @@ const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('d
 describe('プロジェクトまわりのアイコン', () => {
   it('ProjectScreen の操作ボタン', () => {
     render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" items={[]} notFound={false} {...rail} /></IntentRoot>);
-    expect(iconOf(screen.getByRole('button', { name: '新しいセッション' }))).toBe('add');
     expect(iconOf(screen.getByRole('button', { name: 'VS Code で開く' }))).toBe('openEditor');
     expect(iconOf(screen.getByRole('button', { name: 'ターミナルで開く' }))).toBe('openTerminal');
   });

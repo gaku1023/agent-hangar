@@ -14,7 +14,7 @@ import { RollingNumber } from './primitives/RollingNumber.tsx';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
 
 const art = (id: string, over: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: '題名 ' + id, description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/' + id, lastPublished: '1 分前', versionCount: 2, canOpenEditor: false, ...over });
-const card = (over: Partial<ProjectCardProps> = {}): ProjectCardProps => ({ id: 'p1', name: 'alpha', path: '/w/alpha', resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 0, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'セッションはまだありません', excerptFromPrompt: false, ...over });
+const card = (over: Partial<ProjectCardProps> = {}): ProjectCardProps => ({ id: 'p1', name: 'alpha', path: '/w/alpha', pathLabel: null, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 0, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'セッションはまだありません', excerptFromPrompt: false, ...over });
 const wrap = (node: ReactNode, onIntent = vi.fn()) => { render(<IntentRoot onIntent={onIntent}>{node}</IntentRoot>); return onIntent; };
 
 describe('UsageGauge', () => {
@@ -79,11 +79,18 @@ describe('Header', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
   });
   it('最終更新が無ければ添えない', () => {
-    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
     expect(screen.queryByText(/最終更新/)).toBeNull();
-    expect(screen.getAllByText('未取得')).toHaveLength(2);
+    expect(screen.getAllByText('未取得')).toHaveLength(1);
     // 戻る時刻が届いていなければ、title に時刻を添えない。
     expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間枠の使用率 未取得');
+  });
+  it('使用率が一度も届いていない間は、空の棒を並べず 1 語にまとめ、押すと設定へ行く', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
+    expect(screen.queryByRole('meter')).toBeNull();
+    fireEvent.click(screen.getByRole('link', { name: '使用率 未取得' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
   });
 });
 
@@ -129,6 +136,12 @@ describe('TodoList', () => {
     const onIntent = wrap(<TodoList projectId="p1" todos={[]} />);
     fireEvent.keyDown(screen.getByLabelText('TODO を追加'), { key: 'Enter' });
     expect(onIntent).not.toHaveBeenCalled();
+    // 足す欄があるときは、空であることを欄の薄い字が言う。別の行では言わない。
+    expect(screen.getByPlaceholderText('TODO はまだありません')).toBeTruthy();
+    expect(screen.queryByText('TODO はまだありません')).toBeNull();
+  });
+  it('足す欄の無い場所では、空であることを行で書く', () => {
+    wrap(<TodoList projectId="p1" todos={[]} canAdd={false} />);
     expect(screen.getByText('TODO はまだありません')).toBeTruthy();
   });
   it('同じ文言の TODO が並んでもラベルが重ならない', () => {
@@ -144,6 +157,27 @@ describe('TodoList', () => {
     fireEvent.change(input, { target: { value: 'かう' } });
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
     expect(onIntent).not.toHaveBeenCalled();
+  });
+});
+
+describe('MemoEditor の空の状態', () => {
+  it('空のメモは 1 行に畳み、押すと欄が開く', () => {
+    wrap(<MemoEditor projectId="p1" markdown="" updatedAt={0} />);
+    expect(screen.queryByLabelText('メモ')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'メモを書く' }));
+    expect(screen.getByLabelText('メモ')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+  });
+  it('書き始めたあと空に戻しても、欄は開いたままにする', () => {
+    wrap(<MemoEditor projectId="p1" markdown="" updatedAt={0} />);
+    fireEvent.click(screen.getByRole('button', { name: 'メモを書く' }));
+    fireEvent.change(screen.getByLabelText('メモ'), { target: { value: 'a' } });
+    fireEvent.change(screen.getByLabelText('メモ'), { target: { value: '' } });
+    expect(screen.getByLabelText('メモ')).toBeInTheDocument();
+  });
+  it('中身のあるメモは最初から開いている', () => {
+    wrap(<MemoEditor projectId="p1" markdown="# a" updatedAt={1} />);
+    expect(screen.getByLabelText('メモ')).toHaveValue('# a');
   });
 });
 

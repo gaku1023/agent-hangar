@@ -192,21 +192,25 @@ function InfoLine(props: SessionProps) {
       : props.remoteOnly
         ? <span className="session-info-state" data-s="remote">本文は他の PC にあります</span>
         : <span className="session-info-state" title={runFact}>終了 · {props.lastActivity}</span>;
+  // コンテキストとコストが両方とも取れていないか。終わったセッションは、この先も値が届かないので何も出さない。
+  const noUsage = props.contextPercent === null && !props.cost;
   return (
     <div className="session-info">
       {state}
       {props.model && <span className="mono">{props.model}{props.effort ? ` · ${props.effort}` : ''}</span>}
       {/* コンテキストの使用率と推定コストは statusline の追記からしか届かない。
-          追記を入れていなければずっと null なので、空の棒ではなく「未取得」と書く。0% と見分けが付かない見せ方にしない。 */}
-      {props.contextPercent === null
+          追記を入れていなければずっと null なので、空の棒ではなく「未取得」と書く。0% と見分けが付かない見せ方にしない。
+          両方とも無いときは 1 つにまとめ、押すと設定へ行く（理由は title）。「未取得」を 2 つ並べ、助言の文を値の行に混ぜることはしない。 */}
+      {noUsage
+        ? props.live !== null && <a className="faint session-info-nousage" title="statusline を入れると出ます" href={formatRoute({ name: 'settings' })} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: { name: 'settings' } }); }}>コンテキスト・コスト 未取得</a>
+        : props.contextPercent === null
         ? <span className="faint">コンテキスト 未取得</span>
         : (
           <span title="コンテキストの使用率">コンテキスト <span className="gauge-bar" role="meter" aria-label="コンテキストの使用率" aria-valuenow={props.contextPercent} aria-valuemin={0} aria-valuemax={100}>
             <span className="gauge-fill" data-high={props.contextPercent >= 80 ? 'true' : undefined} style={{ width: `${Math.max(0, Math.min(100, props.contextPercent))}%` }} />
           </span>{props.contextPercent}%</span>
         )}
-      {props.cost ? <span className="mono">{props.cost}</span> : <span className="faint">コスト 未取得</span>}
-      {props.contextPercent === null && !props.cost && <a className="hint-link" href={formatRoute({ name: 'settings' })} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: { name: 'settings' } }); }}>statusline を入れると出ます</a>}
+      {!noUsage && (props.cost ? <span className="mono">{props.cost}</span> : <span className="faint">コスト 未取得</span>)}
       {props.filesChanged > 0 && <span>変更 {props.filesChanged}</span>}
       <span>{props.turns} ターン · {props.tokens} トークン</span>
       <span>開始 {props.started}</span>
@@ -292,7 +296,7 @@ function FilesPanel(props: SessionProps) {
           <li key={f.path}>
             <button type="button" className="changed-file" title={`${f.path} を VS Code で開く`} onClick={() => emit({ type: 'session.openFile', sessionId: props.id, path: f.path })}>
               <Icon name={f.created ? 'fileNew' : 'fileEdited'} />
-              <span className="changed-path mono"><span className="faint">{f.dir}</span>{f.base}</span>
+              <span className="changed-path mono"><span className="changed-dir faint">{f.dir}</span><span className="changed-base">{f.base}</span></span>
               {f.created && <span className="changed-new">新規</span>}
               <span className="changed-add mono">+{f.added}</span>
               {f.removed > 0 && <span className="changed-del mono">−{f.removed}</span>}

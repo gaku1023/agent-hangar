@@ -281,7 +281,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       {props.variant === 'project' && (
         <span className="row-meta">
           {r.model && <span className="mono">{r.model}{r.effort ? ` · ${r.effort}` : ''}</span>}
-          {r.filesChanged > 0 && <span>変更 {r.filesChanged}</span>}
+          {r.filesChanged > 0 && <span className="num">変更 {r.filesChanged}</span>}
           {r.prUrl && <a href={r.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>PR</a>}
           {r.cost && <span className="mono">{r.cost}</span>}
         </span>

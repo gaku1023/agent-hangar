@@ -154,15 +154,16 @@ describe('SessionRows のフェーズ 3', () => {
 });
 
 describe('一覧のフォーカスの見え方', () => {
-  it('一覧にフォーカスが当たったら accent の輪郭を出す', () => {
-    // base.css の :focus-visible と同じ詳細度なので、blanket な outline: none は輪郭を消してしまう。
-    expect(rowsCss).not.toMatch(/\.rows-host\s*\{[^}]*outline:\s*none/);
-    const rule = rowsCss.match(/\.rows-host:focus-visible\s*\{[^}]*\}/)?.[0] ?? '';
-    expect(rule).toContain('var(--accent)');
-    expect(rule).toMatch(/outline:\s*2px solid/);
+  it('一覧そのものには輪郭を描かない（開いた直後に、何も選んでいない一覧を枠が囲まないように）', () => {
+    const rule = rowsCss.match(/\.rows-host:focus,\s*\.rows-host:focus-visible\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toMatch(/outline:\s*none/);
+    expect(rowsCss).not.toMatch(/\.rows-host:focus-visible\s*\{[^}]*outline:\s*2px/);
   });
-  it('マウスで押しただけのときは輪郭を出さない', () => {
-    expect(rowsCss).toMatch(/\.rows-host:focus:not\(:focus-visible\)\s*\{[^}]*outline:\s*none/);
+  it('どこに居るかは、カーソルの行の地色で示す', () => {
+    expect(rowsCss).toMatch(/\.row\[data-cursor='true'\]\s*\{[^}]*background:\s*var\(--accent-soft\)/);
+  });
+  it('動いていない行の点は描かず、場所だけ残す', () => {
+    expect(rowsCss).toMatch(/\.row-2 > \.dot\[data-status='ended'\],\s*\.palette-item \.dot\[data-status='ended'\]\s*\{[^}]*background:\s*transparent/);
   });
   it('行のフォーカスの輪郭は内側に描き、一覧の枠で切れないようにする', () => {
     const rule = rowsCss.match(/\.row:focus-visible\s*\{[^}]*\}/)?.[0] ?? '';

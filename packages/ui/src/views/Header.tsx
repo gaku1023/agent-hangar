@@ -11,6 +11,8 @@ import { useHeaderFold } from './useHeaderFold.ts';
 
 /** ワードマークを押したときの行き先。 */
 const HOME = { name: 'home' } as const;
+/** 使用率がまだ取れていないときの行き先。 */
+const SETTINGS = { name: 'settings' } as const;
 
 /**
  * ヘッダ。左の列（サイドバーの列）にロゴ、右の列（本文の列）に「探す・移動」の錠剤と右の塊を置く（base.css の .header）。
@@ -21,6 +23,7 @@ export function Header(props: { indexLabel: string | null; usage: UsageProps; sy
   // 右の列は、収まるまで優先度の低い部品から畳む（headerFold.ts）。部品の data-fold-at が、何段目で畳むかを示す。
   const row = useRef<HTMLDivElement>(null);
   useHeaderFold(row);
+  const noUsage = props.usage.fiveHour === null && props.usage.sevenDay === null;
   return (
     <header className="header" data-tauri-drag-region="">
       {/* ロゴはサイドバーを開いても畳んでも同じ形、同じ場所に置く。開閉のたびに図のハンガーが揺れる（sidebarMotion.ts）。 */}
@@ -39,11 +42,16 @@ export function Header(props: { indexLabel: string | null; usage: UsageProps; sy
           <SyncStatus {...props.sync} />
           {/* 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
               最終更新を畳んでも読めるよう、各ゲージの title にも添える。 */}
+          {noUsage ? (
+            // 値が一度も届いていない間は、空の棒を 2 本並べない。1 語にまとめ、押すと設定へ行く。
+            <a className="gauges gauges-none" data-fold-at={foldAt('gauges')} href={formatRoute(SETTINGS)} title="statusline を入れると、5 時間と週の枠の使用率が出ます" onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: SETTINGS }); }}>使用率 未取得</a>
+          ) : (
           <span className="gauges" data-fold-at={foldAt('gauges')}>
             <UsageGauge label="5 時間枠の使用率" short="5 時間" percent={props.usage.fiveHour} resets={props.usage.fiveHourResets} updated={props.usage.updatedLabel} />
             <UsageGauge label="週の枠の使用率" short="週" percent={props.usage.sevenDay} resets={props.usage.sevenDayResets} updated={props.usage.updatedLabel} />
             {props.usage.updatedLabel && <span className="faint gauge-updated" data-fold-at={foldAt('gauge-updated')}>最終更新 {props.usage.updatedLabel}</span>}
           </span>
+          )}
           {/* 狭いときは「＋」だけになる。名前は aria-label に残す。 */}
           <button className="btn btn-primary new-session" aria-label="新しいセッション" onClick={() => emit({ type: 'session.new.open', ...props.newSession })}><Icon name="add" /><span className="btn-label" data-fold-at={foldAt('new-session-label')}>新しいセッション</span></button>
           {props.indexLabel && <span className="progress" data-fold-at={foldAt('progress')}>{props.indexLabel}</span>}

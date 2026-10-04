@@ -45,7 +45,7 @@ export function Pager(props: { label: string; pager: PagerProps; onPage: (page: 
   };
   return (
     <nav className="pager" aria-label={`${props.label}のページ`}>
-      <span className="pager-range mono"><b>{`${fmt(from)}–${fmt(to)}`}</b> / {fmt(total)} 件</span>
+      <span className="pager-range num"><b>{`${fmt(from)}–${fmt(to)}`}</b> / {fmt(total)} 件</span>
       <span className="pager-nums">
         <button type="button" className="pager-btn" aria-label="前のページ" disabled={page <= 1} onClick={() => go(page - 1)}>‹</button>
         {pageButtons(page, pageCount).map((n, i) => (n === '…'
@@ -56,7 +56,7 @@ export function Pager(props: { label: string; pager: PagerProps; onPage: (page: 
       <label className="pager-jump">ページ
         <input className="input" type="number" min={1} max={pageCount} aria-label="ページの番号" value={text}
           onChange={(e) => setDraft({ page, text: e.target.value })} onKeyDown={onKeyDown} onBlur={() => setDraft(null)} />
-        <span className="mono">/ {fmt(pageCount)}</span>
+        <span className="num">/ {fmt(pageCount)}</span>
       </label>
       <Listbox label="1 ページの件数" value={String(size)} options={sizes.map((n) => ({ value: String(n), label: `${n} 件ずつ` }))}
         onChange={(v) => props.onSize(Number(v))} faceClassName="listbox-face listbox-pill" align="end" />

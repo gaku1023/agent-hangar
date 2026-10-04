@@ -15,7 +15,7 @@
 .listbox-face:hover { background: var(--surface); box-shadow: inset 0 0 0 1px #c9cbe0, 0 3px 10px -4px rgba(30, 40, 90, 0.18); }
 .listbox-face[aria-expanded='true'] { background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .listbox-face-value { display: flex; align-items: center; gap: calc(var(--u) * 2); flex: 1; min-width: 0; }
-.listbox-face-label { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.listbox-face-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .listbox-face-sub { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .listbox-face-placeholder { flex: 1; color: var(--ink-3); }
 .listbox-face > .icon:last-child { flex: none; color: var(--ink-3); transition: transform var(--dur-fast) var(--ease-out); }
@@ -34,11 +34,11 @@
 .listbox-pop[data-scrolled='true'] .listbox-search { box-shadow: inset 0 0 0 1px var(--line), 0 6px 12px -8px rgba(30, 40, 90, 0.35); }
 .listbox-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ink); }
 .listbox-rows { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; outline: none; }
-.listbox-group-title { padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; font-size: var(--fs-xs); font-weight: 560; color: var(--ink-3); }
+.listbox-group-title { padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
 .listbox-opt { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-height: 32px; padding: var(--u) calc(var(--u) * 2.5); border-radius: 10px; cursor: pointer; white-space: nowrap; }
 .listbox-opt[data-active='true'] { background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0 #ffffff, 0 2px 8px -2px rgba(30, 40, 90, 0.16); }
 .listbox-opt-main { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
-.listbox-opt-main b { font-weight: 560; }
+.listbox-opt-main b { font-weight: 600; }
 .listbox-opt-main small { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
 .listbox-opt-main small[data-kind='prose'] { font-family: var(--font-sans); white-space: normal; }
 .listbox-opt mark { padding: 0 1px; border-radius: 3px; color: inherit; background: color-mix(in srgb, var(--accent) 16%, transparent); }
@@ -53,7 +53,7 @@
 
 /* 切り替えの帯。白い玉は選んだ項目の下を滑る。 */
 .seg { position: relative; display: inline-flex; flex: none; padding: 3px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.06); }
-.seg > button { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: 22px; max-width: 160px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font-size: var(--fs-sm); font-weight: 520; white-space: nowrap; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
+.seg > button { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: 22px; max-width: 160px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
 .seg > button[aria-checked='true'] { color: var(--ink); font-weight: 600; }
 .seg-label { overflow: hidden; text-overflow: ellipsis; }
 .seg-lead { display: inline-flex; align-items: center; }
@@ -64,7 +64,7 @@
 
 /* チップ。押すと灯るもの（aria-pressed）と、択一のもの（aria-checked）がある。 */
 .chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
-.chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 2.75); border: 0; border-radius: var(--r-pill); font-weight: 520; white-space: nowrap; cursor: pointer; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 2.75); border: 0; border-radius: var(--r-pill); font-weight: 600; white-space: nowrap; cursor: pointer; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .chip:hover { color: var(--ink); background: var(--surface); }
 .chip[aria-pressed='true'], .chip[aria-checked='true'], .chip[data-on='true'] { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
 .chip-input input { width: 140px; border: 0; outline: 0; background: none; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink); }

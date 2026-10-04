@@ -16,6 +16,9 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+/* 数と仮名が混じる短い語（「12 分前」「1,222 件」「変更 5」）。本文の書体のまま、数字の幅だけをそろえる。
+   等幅の書体には仮名が無く、数字だけが別の書体になって間が跳ぶので、等幅は識別子、パス、コード、数だけの表示に限る。 */
+.num { font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .muted { color: var(--ink-2); }
 .faint { color: var(--ink-3); }
 .app-boot { display: grid; place-items: center; height: 100%; color: var(--ink-2); }
@@ -141,7 +144,7 @@ a:hover { text-decoration: underline; }
    文字は 14px にする。日本語の項目名は字面が四角く詰まるので、15px（--fs-md）では本文やパンくずの 13px より目立ちすぎる（試作は specs/2026-09-29-ui-refresh/sidebar-type.html）。 */
 .nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 calc(var(--u) * 3); margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border: 0; border-radius: var(--r-pill); background: none; width: 100%; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .nav-item:hover { background: rgba(255, 255, 255, 0.5); }
-.nav-item[aria-current='page'] { color: var(--ink); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.nav-item[aria-current='page'] { color: var(--ink); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
 .nav-item svg { width: 18px; height: 18px; }
 /* ホームに添える入力待ちの数（試作の C1）。開いた帯では項目の右端の錠剤、畳んだ帯ではアイコンの右上の丸にする。 */
 .nav-count { margin-left: auto; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--waiting); color: #ffffff; font-size: 11px; font-weight: 700; line-height: 1; }
@@ -171,7 +174,7 @@ a:hover { text-decoration: underline; }
 
 /* ボタンと入力。ボタンは錠剤の形で、主ボタンだけ上から下へ淡いグラデーションを持つ。 */
 /* 高さの決まった錠剤なので、文字は折り返さない。折り返すと 2 行目が箱の外へ出る。長い名前は .btn-label に入れて省略する。 */
-.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); max-width: 100%; height: var(--row-h); padding: 0 calc(var(--u) * 3); white-space: nowrap; border: 0; border-radius: var(--r-pill); font-weight: 560; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); max-width: 100%; height: var(--row-h); padding: 0 calc(var(--u) * 3); white-space: nowrap; border: 0; border-radius: var(--r-pill); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .btn > .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .btn > svg { flex: none; }
 .btn:hover { background: var(--surface); box-shadow: inset 0 1px 0 #ffffff, 0 3px 10px -2px rgba(30, 40, 90, 0.2); }
@@ -237,7 +240,7 @@ a:hover { text-decoration: underline; }
 .page-title-row[data-compact] .btn:has(> .btn-label) { position: relative; justify-content: center; width: var(--row-h); padding: 0; }
 .page-title-row[data-compact] .btn-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .page-title { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
-.h2 { font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; margin: calc(var(--u) * 5) 0 calc(var(--u) * 2); }
+.h2 { font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em; margin: calc(var(--u) * 5) 0 calc(var(--u) * 2); }
 .section-head { display: flex; align-items: baseline; gap: calc(var(--u) * 2); }
 .empty { padding: calc(var(--u) * 8); text-align: center; color: var(--ink-2); }
 
@@ -259,7 +262,7 @@ a:hover { text-decoration: underline; }
 /* ヘッダーの要素 */
 /* 「探す・移動」の錠剤（A1）。打つ欄ではなく押すボタンなので、ボタンと同じ浮いた錠剤にし、幅は中身の分だけにする。
    虫眼鏡、文字、⌘K のキー帽の順に並べる。押すとパレットが開く。 */
-.search-pill { display: inline-flex; flex: none; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 5px 0 11px; border: 0; border-radius: var(--r-pill); color: var(--ink-2); font-weight: 520; white-space: nowrap; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.search-pill { display: inline-flex; flex: none; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 5px 0 11px; border: 0; border-radius: var(--r-pill); color: var(--ink-2); font-weight: 600; white-space: nowrap; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .search-pill:hover { background: #fff; color: var(--ink); box-shadow: inset 0 1px 0 #fff, 0 3px 10px -2px rgba(30, 40, 90, 0.2); transform: translateY(-1px); }
 .search-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .search-kbd { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border-radius: 5px; font: 600 10.5px/18px var(--font-mono); color: var(--ink-2); background: rgba(30, 40, 90, 0.07); box-shadow: inset 0 -1px 0 rgba(30, 40, 90, 0.08); }
@@ -335,7 +338,7 @@ a:hover { text-decoration: underline; }
 .toast[data-level='error'] > .icon { flex: none; margin-top: 2px; }
 .toast-message { font-size: var(--fs-sm); line-height: 1.5; color: color-mix(in srgb, var(--error) 80%, var(--ink)); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .toast[data-open='true'] .toast-message { display: block; }
-.btn-link.toast-more-link { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); font-weight: 560; color: var(--error); }
+.btn-link.toast-more-link { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); font-weight: 600; color: var(--error); }
 .toast-close { flex: none; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: none; color: inherit; opacity: 0.7; cursor: pointer; }
 .toast-close:hover { background: rgba(255, 255, 255, 0.7); opacity: 1; }
 /* 入力待ちのカード。左の赤い縦の帯、名前と待っている時間、プロジェクト、問い（2 行まで）、「ターミナルで答える」。 */
@@ -429,14 +432,14 @@ a:hover { text-decoration: underline; }
 /* 起動ボタンの中のキー帽（B1）。押す場所と ⌘↵ が一緒に目に入る。主ボタンの地の上で読めるよう、淡い白の地にする。 */
 .btn .kc { display: inline-flex; align-items: center; height: 17px; padding: 0 calc(var(--u) * 1.25); margin-left: 2px; border-radius: 5px; font: 600 10.5px var(--font-mono); background: rgba(255, 255, 255, 0.22); }
 /* 下書きの札（C1）。書きかけを戻したダイアログであることを見出しの右で示す。止めている（Paused）の色を借りる。 */
-.draft-tag { display: inline-flex; flex: none; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 560; color: var(--st-paused); background: var(--st-paused-soft); }
+.draft-tag { display: inline-flex; flex: none; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--st-paused); background: var(--st-paused-soft); }
 .draft-tag .icon, .linkish .icon { width: 12px; height: 12px; }
 /* 文字だけの小さな操作（下書きを消す、既定に戻す）。 */
-.linkish { display: inline-flex; flex: none; align-items: center; gap: 3px; padding: 0; border: 0; background: none; font-size: var(--fs-xs); font-weight: 560; color: var(--accent); cursor: pointer; }
+.linkish { display: inline-flex; flex: none; align-items: center; gap: 3px; padding: 0; border: 0; background: none; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); cursor: pointer; }
 .linkish:hover { text-decoration: underline; }
 /* 詳細の見出しの前回値（D1）。畳んだままでも「前回と同じ」と中身が読め、右端の「既定に戻す」で空にできる。札は候補の色を借りる。 */
 .prev-tag { flex: none; padding: 1px calc(var(--u) * 1.75); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--cand); background: var(--cand-soft); }
-.prev-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 560; }
+.prev-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 600; }
 .linkish.prev-reset { margin-left: auto; }
 /* 下端のボタンの段。器の中身がスクロールしても動かない。 */
 .dialog-foot { flex: none; position: relative; z-index: 1; display: flex; align-items: center; gap: calc(var(--u) * 2); padding: var(--dialog-gap) var(--dialog-pad) calc(var(--u) * 4); transition: box-shadow var(--dur-fast) var(--ease-out); }
@@ -520,7 +523,7 @@ a:hover { text-decoration: underline; }
 .live-sec { display: flex; flex-direction: column; gap: 2px; }
 .live-label { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
 .live-step { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs); }
-.live-step[data-mark='now'] { color: var(--busy); font-weight: 560; }
+.live-step[data-mark='now'] { color: var(--busy); font-weight: 600; }
 .live-step[data-mark='fail'] .live-step-ic { color: var(--error); }
 .live-step-ic { flex: none; width: 14px; text-align: center; font-size: var(--fs-xs); color: var(--idle); }
 .live-step-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -554,7 +557,7 @@ a:hover { text-decoration: underline; }
 .turn[data-open='true'] { background: var(--surface-2); }
 .turn-row { display: flex; align-items: baseline; gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border: 0; border-radius: var(--r); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
 .turn-row:hover { background: var(--surface-2); }
-.turn[data-open='true'] > .turn-row { background: var(--accent-soft); color: var(--accent); font-weight: 560; }
+.turn[data-open='true'] > .turn-row { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .turn-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
 .turn-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .turn-tools { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }

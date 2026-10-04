@@ -16,7 +16,7 @@
 /* 群。見出しの右に中の節の名前を淡く並べる。スクロールで跳んだとき、浮いているヘッダの下に見出しが来るようにする。 */
 .settings-group { scroll-margin-top: calc(var(--u) * 2); }
 .settings-group + .settings-group { margin-top: calc(var(--u) * 7); }
-.settings-group-h { display: flex; align-items: baseline; gap: calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2.5) var(--u); font-size: var(--fs-md); font-weight: 680; letter-spacing: -0.01em; }
+.settings-group-h { display: flex; align-items: baseline; gap: calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2.5) var(--u); font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em; }
 .settings-group-h > span:not(.badge) { font-size: var(--fs-sm); font-weight: 500; color: var(--ink-3); }
 .settings-group-h > .badge { margin-left: auto; align-self: center; }
 
@@ -27,7 +27,7 @@
 .settings-group > section > .h2:first-child > .badge { margin-left: auto; }
 
 /* 札（✓ 登録済み、まだです）。 */
-.badge { display: inline-flex; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 560; white-space: nowrap; }
+.badge { display: inline-flex; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
 .badge[data-tone='ok'] { color: var(--st-done); background: var(--st-done-soft); }
 .badge[data-tone='warn'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .badge .icon { width: 12px; height: 12px; stroke-width: 2; }
@@ -65,7 +65,7 @@
 
 /* 設定の「使用量と費用」（2026-10-02 の決定。試作 usage-merged.html）。 */
 .cu { margin-top: calc(var(--u) * 3); padding-top: calc(var(--u) * 3); border-top: 1px solid var(--line); }
-.cu-h { margin: 0 0 calc(var(--u) * 2); font-size: var(--fs); font-weight: 650; }
+.cu-h { margin: 0 0 calc(var(--u) * 2); font-size: var(--fs); font-weight: 700; }
 .cu-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: calc(var(--u) * 2); }
 .cu-tile { padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface-2); }
 .cu-tile[data-tone='warn'] { background: var(--st-paused-soft); }

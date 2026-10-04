@@ -93,6 +93,15 @@ export function indexProgressLabel(idx: IndexProgressDto): string | null {
   return `${idx.phase === 'rebuilding' ? '索引の作り直し' : '索引'} ${idx.done} / ${idx.total} 件`;
 }
 
+/**
+ * 文の中の長い絶対パスを、末尾の 2 階層だけにする（`/Users/a/work/app/src/rows.css` → `…/src/rows.css`）。
+ * 1 行しか無い場所（ホームの実行中の札の帯）で使う。頭から出すと、どの行も同じ頭で始まり、違いのある末尾が省略で消えるからである。
+ * 4 階層より浅いパスは、そのままでも短いので触らない。
+ */
+export function shortenPaths(text: string): string {
+  return text.replace(/(^|[\s='"(:])(~?(?:\/[^\s\/'"=;:&|()]+){4,})/g, (_m, lead: string, p: string) => `${lead}…/${p.split('/').slice(-2).join('/')}`);
+}
+
 /** 使用率の表示。値が無いときは「未取得」にする。 */
 export function percentLabel(n: number | null): string {
   return n === null ? '未取得' : `${Math.round(n)}%`;

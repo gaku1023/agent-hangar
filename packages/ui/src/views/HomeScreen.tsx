@@ -207,16 +207,17 @@ function LiveCard(props: { card: RunningCard; onOpen: () => void }) {
   const width = Math.max(0, Math.min(100, c.contextPercent ?? 0));
   return (
     <div className="live-card" role="button" tabIndex={0} data-morph-id={c.id} onClick={props.onOpen} onKeyDown={(e) => { if (e.key === 'Enter') props.onOpen(); }}>
-      <div className="live-head"><StatusDot status={c.live} /><span className="live-name">{c.name}</span><span className="live-elapsed mono">{c.elapsed}</span></div>
+      <div className="live-head"><StatusDot status={c.live} /><span className="live-name">{c.name}</span><span className="live-elapsed num">{c.elapsed}</span></div>
       <div className="live-meta">{c.meta}</div>
       <div className="live-act mono">{c.activity ? <><i>{c.activity.tool}</i>{c.activity.summary !== '' && <> {c.activity.summary}</>}</> : <span className="live-note">{c.note}</span>}</div>
-      <div className="live-ctx">
+      {/* コンテキストの使用率が届いていない間は、空の棒と「未取得」を並べず、行ごと出さない。 */}
+      {c.contextPercent !== null && <div className="live-ctx">
         コンテキスト
         <span className="gauge-bar" role="meter" aria-label="コンテキストの使用率" aria-valuemin={0} aria-valuemax={100} aria-valuenow={c.contextPercent ?? undefined}>
           <span className="gauge-fill" data-high={c.contextPercent !== null && c.contextPercent >= 80 ? 'true' : undefined} style={{ width: `${width}%` }} />
         </span>
         {c.contextLabel}
-      </div>
+      </div>}
     </div>
   );
 }
