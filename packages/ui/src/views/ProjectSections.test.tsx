@@ -5,7 +5,7 @@ import type { ProjectProps } from '../presenters/project.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
 import { ProjectScreen } from './ProjectScreen.tsx';
 
-const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: 'done', returnOn: null, returnTime: null, overdueDays: null, returnDue: false, candidate: null, setBy: 'import' });
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: 'done', returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: 'import' });
 const props = (items: ProjectProps['items']): ProjectProps => ({ id: 'alpha', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' } }, path: '/w/alpha', resolved: true, status: 'active', items, pager: null, notFound: false, isScratch: false, todos: [], memo: null, artifacts: [] });
 
 describe('ProjectScreen の節（P3）', () => {

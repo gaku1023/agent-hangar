@@ -85,6 +85,13 @@ export function returnAtIso(returnOn: string, returnTime: string): string | null
   return `${returnOn}T${returnTime}${off < 0 ? '-' : '+'}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
 }
 
+/** 当日の戻る時刻を過ぎてからの分（切り捨て）。時刻が無い、まだ過ぎていない、日が今日でないときは null。 */
+export function returnPastMinutes(returnOn: string, returnTime: string | null, now: number): number | null {
+  if (returnTime === null || !isReturnTime(returnTime) || overdueDays(returnOn, now) !== 0) return null;
+  const at = returnAtMs(returnOn, returnTime);
+  return now >= at ? Math.floor((now - at) / 60_000) : null;
+}
+
 /**
  * 戻る時点を過ぎたか。日が過ぎていれば true。当日は、時刻が無ければ朝から true（その日のうち）、時刻があればその時刻から true。
  * 形の違う日付は false にする（overdueDays と同じ）。形の違う時刻は無いものとして読む。

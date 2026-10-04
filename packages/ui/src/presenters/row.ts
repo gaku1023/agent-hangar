@@ -1,4 +1,4 @@
-import { isReturnOn, isReturnTime, overdueDays, returnDue, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy } from '@agent-hangar/shared';
+import { isReturnOn, isReturnTime, overdueDays, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy } from '@agent-hangar/shared';
 import { aliveRunOf, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, STATE_LABEL } from './format.ts';
 import type { Segment } from './highlight.ts';
@@ -24,6 +24,8 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   overdueDays: number | null;
   /** 戻る時点を過ぎたか（札を塗る）。時刻つきは当日でもその時刻から、時刻なしは当日の朝から。戻る日の欠けた Paused も true。 */
   returnDue: boolean;
+  /** 当日の戻る時刻を過ぎてからの分。札に「3 分過ぎ」と出す。時刻の前、時刻なし、前の日に過ぎたものは null。 */
+  returnPastMin: number | null;
   /** Claude の提案。状態が付いていれば null（サーバの toStateDto が状態を正にしている）。 */
   candidate: { status: 'paused' | 'done'; note: string | null; returnOn: string | null; returnTime: string | null; source: CandidateSource; ago: string } | null;
   /** 状態を誰が付けたか。conversation は会話で利用者が選んだもので、札に「会話で承認」と添える。Active は null。 */
@@ -57,6 +59,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
     cost: costLabel(s.stats.costUsd), runId: aliveRunOf(store, s.id)?.id ?? null,
     state: status, returnOn, returnTime, overdueDays: returnOn ? overdueDays(returnOn, now) : null,
     returnDue: status === 'paused' && (returnOn === null || returnDue(returnOn, returnTime, now)),
+    returnPastMin: returnOn !== null ? returnPastMinutes(returnOn, returnTime, now) : null,
     candidate: st?.candidate ? { status: st.candidate.status, note: st.candidate.note, returnOn: st.candidate.returnOn, returnTime: st.candidate.returnTime ?? null, source: st.candidate.source, ago: relativeTime(st.candidate.at, now) } : null,
     setBy: status ? st!.setBy : null,
   };
@@ -109,9 +112,11 @@ const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土'];
  * 曜日は日付だけから決まるので、今の時刻は要らない（過ぎたかどうかは overdue で受け取る）。
  * 戻る日が無いか、暦に無い日と形の違う日は「日付なし」にする（NaN や undefined を札に出さない）。
  * 時刻があれば「今日 13:30」「10/2（金）13:30」と日の後ろに添える。過ぎた日は日数だけを言う（何日も前の時刻は読んでも使い道が無い）。
+ * 当日の時刻を過ぎたら（pastMin）、日と同じく過ぎた長さを言う。1 分未満は「いま」、60 分未満は分、それ以上は時間（切り捨て）。
  */
-export function returnOnLabel(returnOn: string | null, overdue: number | null, returnTime: string | null = null): string {
+export function returnOnLabel(returnOn: string | null, overdue: number | null, returnTime: string | null = null, pastMin: number | null = null): string {
   if (returnOn === null || !isReturnOn(returnOn)) return '日付なし';
+  if (overdue === 0 && pastMin !== null) return pastMin < 1 ? 'いま' : pastMin < 60 ? `${pastMin} 分過ぎ` : `${Math.floor(pastMin / 60)} 時間過ぎ`;
   const time = returnTime !== null && isReturnTime(returnTime) ? returnTime : null;
   if (overdue === 0) return time ? `今日 ${time}` : '今日';
   if (overdue !== null) return `${overdue} 日過ぎ`;
@@ -123,8 +128,8 @@ export function returnOnLabel(returnOn: string | null, overdue: number | null, r
  * 行の時刻の列に置く戻る日の札の文言。列は 72px なので、先の日の時刻つきだけ曜日を省いて「10/6 13:30」にする。
  * 省いた曜日は、ポインタを乗せたときの説明（returnOnLabel）で読める。
  */
-export function returnOnRowLabel(returnOn: string | null, overdue: number | null, returnTime: string | null): string {
-  const full = returnOnLabel(returnOn, overdue, returnTime);
+export function returnOnRowLabel(returnOn: string | null, overdue: number | null, returnTime: string | null, pastMin: number | null = null): string {
+  const full = returnOnLabel(returnOn, overdue, returnTime, pastMin);
   return overdue === null && returnTime !== null && isReturnTime(returnTime) ? full.replace(/（.）/, ' ') : full;
 }
 

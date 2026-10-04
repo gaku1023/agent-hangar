@@ -29,8 +29,8 @@ describe('presentHome の今日戻る（C1）', () => {
     const h = presentHome(initialState(), store, NOW);
     expect(h.attention.map((a) => a.id)).toEqual(['w']);
     expect(h.returning).toEqual([
-      { id: 'e2e', name: 'e2e', projectName: 'alpha', reason: 'e2e を確かめる', returnOn: '2026-09-29', returnTime: null, overdueDays: 3, due: true },
-      { id: 'sync', name: 'sync', projectName: 'alpha', reason: 'sync を確かめる', returnOn: '2026-10-02', returnTime: null, overdueDays: 0, due: true },
+      { id: 'e2e', name: 'e2e', projectName: 'alpha', reason: 'e2e を確かめる', returnOn: '2026-09-29', returnTime: null, overdueDays: 3, due: true, pastMin: null },
+      { id: 'sync', name: 'sync', projectName: 'alpha', reason: 'sync を確かめる', returnOn: '2026-10-02', returnTime: null, overdueDays: 0, due: true, pastMin: null },
     ]);
   });
   it('札に出したものは最近から外す。今日戻るは生きたセッションではないので、idle は妨げない', () => {

@@ -1,4 +1,4 @@
-import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, type LiveStatus, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
+import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type LiveStatus, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortModel } from './format.ts';
@@ -27,7 +27,7 @@ export type ProjectMini = { id: string; name: string; status: ProjectStatus; cou
  * 戻る日が今日か過ぎた Paused 1 件につき 1 枚。戻る日が欠けたり壊れたりしたものも、利用者が決めるまで出す（returnOn と overdueDays は null）。
  * 動いているセッションは入力待ちか実行中の札に出るので、ここには重ねない。
  */
-export type ReturnCard = { id: string; name: string; projectName: string | null; reason: string; returnOn: string | null; returnTime: string | null; overdueDays: number | null; due: boolean };
+export type ReturnCard = { id: string; name: string; projectName: string | null; reason: string; returnOn: string | null; returnTime: string | null; overdueDays: number | null; due: boolean; pastMin: number | null };
 /** 確かめるの行のうち、TODO の完了の候補。押すとそのプロジェクトへ移る。 */
 export type TodoConfirmCard = { kind: 'todo'; id: string; text: string; projectId: string; projectName: string; sessionName: string; ago: string; note: string };
 /**
@@ -84,7 +84,7 @@ export function presentHome(state: State, store: Store, now: number): HomeProps 
       const r = on !== null && isReturnOn(on) ? on : null;
       const t = r !== null && typeof s.state?.returnTime === 'string' && isReturnTime(s.state.returnTime) ? s.state.returnTime : null;
       // 当日の時刻つきは、時刻の前から札に出す（朝のうちに今日の予定として見える）。塗るのは時刻を過ぎてからにする。
-      return { id: s.id, name: name(s), projectName: projectName(s), reason: s.state?.note || NO_REASON, returnOn: r, returnTime: t, overdueDays: r ? overdueDays(r, now) : null, due: r === null || returnDue(r, t, now) };
+      return { id: s.id, name: name(s), projectName: projectName(s), reason: s.state?.note || NO_REASON, returnOn: r, returnTime: t, overdueDays: r ? overdueDays(r, now) : null, due: r === null || returnDue(r, t, now), pastMin: r ? returnPastMinutes(r, t, now) : null };
     });
 
   // 確かめる。TODO の完了の候補とセッションの状態の提案を、候補になった時刻の古い順に混ぜる。

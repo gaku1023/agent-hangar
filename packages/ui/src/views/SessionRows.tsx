@@ -307,7 +307,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const time = (r: SessionRowProps) => (
     <span className="row-time">
       {r.state === 'paused'
-        ? <span className="row-return" data-due={r.returnDue ? 'true' : undefined} title={`${r.returnTime ? `戻る時刻 ${returnOnLabel(r.returnOn, r.overdueDays, r.returnTime)}` : '戻る日'} · 最後の活動 ${r.when}`}>{returnOnRowLabel(r.returnOn, r.overdueDays, r.returnTime)}</span>
+        ? <span className="row-return" data-due={r.returnDue ? 'true' : undefined} title={`${r.returnTime ? `戻る時刻 ${returnOnLabel(r.returnOn, r.overdueDays, r.returnTime)}` : '戻る日'} · 最後の活動 ${r.when}`}>{returnOnRowLabel(r.returnOn, r.overdueDays, r.returnTime, r.returnPastMin)}</span>
         : <RelativeTime label={r.when} abs={r.whenAbs} />}
     </span>
   );

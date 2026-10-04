@@ -176,7 +176,7 @@ function ConfirmSection(props: { cards: ConfirmCard[] }) {
 
 /** 戻る日の札の文言。行の戻る日の札（第 1 段の returnOnLabel）と同じ「今日」「N 日過ぎ」にし、日が読めなければ「日付なし」。 */
 function returnWhen(r: ReturnCard): string {
-  return r.returnOn === null ? '日付なし' : returnOnLabel(r.returnOn, r.overdueDays, r.returnTime);
+  return r.returnOn === null ? '日付なし' : returnOnLabel(r.returnOn, r.overdueDays, r.returnTime, r.pastMin);
 }
 
 /**
@@ -189,7 +189,7 @@ function ReturnCardView(props: { card: ReturnCard }) {
   const r = props.card;
   return (
     <div className="ask-card return-card">
-      <span className="return-when" data-due={r.due ? 'true' : undefined}>{returnWhen(r)}</span>
+      <span className="return-when" data-due={r.due ? 'true' : undefined} title={r.returnTime ? `戻る時刻 ${r.returnTime}` : undefined}>{returnWhen(r)}</span>
       <div className="ask-body">
         <div className="ask-title"><b>{r.name}</b> <span className="faint">· {r.projectName ?? '未分類'} · 今日戻る</span></div>
         <div className="ask-q">{r.reason}</div>

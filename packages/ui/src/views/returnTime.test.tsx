@@ -9,19 +9,21 @@ import { PauseDialog } from './PauseDialog.tsx';
 import { SessionRows } from './SessionRows.tsx';
 
 /** 戻る時刻（HH:MM）つきの Paused の見た目と入力。 */
-const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-05 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, candidate: null, setBy: null, ...over });
+const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-05 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
 
 describe('行の戻る時刻', () => {
   it('時刻を日の後ろに出し、塗るのは時刻を過ぎてからにする', () => {
     render(<IntentRoot onIntent={vi.fn()}><SessionRows rows={[
       sr('a', { state: 'paused', returnOn: '2026-10-05', returnTime: '21:50', overdueDays: 0, returnDue: false }),
-      sr('b', { state: 'paused', returnOn: '2026-10-05', returnTime: '11:30', overdueDays: 0, returnDue: true }),
+      sr('b', { state: 'paused', returnOn: '2026-10-05', returnTime: '11:30', overdueDays: 0, returnDue: true, returnPastMin: 30 }),
       sr('c', { state: 'paused', returnOn: '2026-10-06', returnTime: '13:30', overdueDays: null, returnDue: false }),
       sr('d', { state: 'paused', returnOn: '2026-10-05', returnTime: null, overdueDays: 0, returnDue: true }),
     ]} height={400} variant="project" /></IntentRoot>);
     // 当日でも時刻の前は、先の日と同じ文字だけの札にする。
     expect(screen.getByText('今日 21:50')).not.toHaveAttribute('data-due');
-    expect(screen.getByText('今日 11:30')).toHaveAttribute('data-due', 'true');
+    // 時刻を過ぎたら、過ぎた長さを言う。時刻はポインタを乗せると読める。
+    expect(screen.getByText('30 分過ぎ')).toHaveAttribute('data-due', 'true');
+    expect(screen.getByText('30 分過ぎ')).toHaveAttribute('title', '戻る時刻 今日 11:30 · 最後の活動 3 分前');
     expect(screen.getByText('10/6 13:30')).not.toHaveAttribute('data-due');
     // 列が狭いので曜日は省き、ポインタを乗せると言い切る。
     expect(screen.getByText('10/6 13:30')).toHaveAttribute('title', '戻る時刻 10/6（火）13:30 · 最後の活動 3 分前');
@@ -34,11 +36,11 @@ describe('行の戻る時刻', () => {
 
 describe('Home の今日戻るの札の時刻', () => {
   const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], recentPager: null, projects: [], idle: false, ...over });
-  const ret = (id: string, returnTime: string | null, due: boolean): ReturnCard => ({ id, name: `戻る ${id}`, projectName: 'agent-hangar', reason: `${id} を見る`, returnOn: '2026-10-05', returnTime, overdueDays: 0, due });
+  const ret = (id: string, returnTime: string | null, due: boolean): ReturnCard => ({ id, name: `戻る ${id}`, projectName: 'agent-hangar', reason: `${id} を見る`, returnOn: '2026-10-05', returnTime, overdueDays: 0, due, pastMin: due && returnTime ? 30 : null });
   it('時刻を出し、時刻の前のものは塗らない', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ returning: [ret('timer', '11:30', true), ret('night', '21:50', false), ret('allday', null, true)] })} /></IntentRoot>);
     const when = [...container.querySelectorAll('.return-when')];
-    expect(when.map((w) => [w.textContent, w.getAttribute('data-due')])).toEqual([['今日 11:30', 'true'], ['今日 21:50', null], ['今日', 'true']]);
+    expect(when.map((w) => [w.textContent, w.getAttribute('data-due')])).toEqual([['30 分過ぎ', 'true'], ['今日 21:50', null], ['今日', 'true']]);
   });
 });
 

@@ -124,3 +124,32 @@ describe('returnOnRowLabel（行の時刻の列は 72px）', () => {
     expect(returnOnRowLabel(null, null, '13:30')).toBe('日付なし');
   });
 });
+
+describe('時刻を過ぎた当日の札は、過ぎた長さを言う', () => {
+  it('returnOnLabel：1 分未満は「いま」、60 分未満は分、それ以上は時間（切り捨て）', () => {
+    expect(returnOnLabel('2026-10-05', 0, '13:30', 0)).toBe('いま');
+    expect(returnOnLabel('2026-10-05', 0, '13:30', 3)).toBe('3 分過ぎ');
+    expect(returnOnLabel('2026-10-05', 0, '13:30', 59)).toBe('59 分過ぎ');
+    expect(returnOnLabel('2026-10-05', 0, '13:30', 60)).toBe('1 時間過ぎ');
+    expect(returnOnLabel('2026-10-05', 0, '13:30', 150)).toBe('2 時間過ぎ');
+    // 時刻の前（過ぎた長さが無い）は時刻を言う。行の短い札も同じ。
+    expect(returnOnLabel('2026-10-05', 0, '13:30', null)).toBe('今日 13:30');
+    expect(returnOnRowLabel('2026-10-05', 0, '13:30', 3)).toBe('3 分過ぎ');
+    // 前の日に過ぎたものは日数のまま。
+    expect(returnOnLabel('2026-10-02', 3, '13:30', null)).toBe('3 日過ぎ');
+  });
+  it('行は、当日の時刻を過ぎてからの分を渡す。時刻の前、時刻なし、前の日は null', () => {
+    const past = (s: SessionDto, now: number) => presentSessionRow(s, storeOf([s]), now).returnPastMin;
+    const s = paused('a', '2026-10-05', '13:30');
+    expect(past(s, at(13, 29))).toBeNull();
+    expect(past(s, at(13, 30))).toBe(0);
+    expect(past(s, at(13, 33))).toBe(3);
+    expect(past(s, at(15, 45))).toBe(135);
+    expect(past(s, at(9, 0, 6))).toBeNull();
+    expect(past(paused('a', '2026-10-05', null), at(15))).toBeNull();
+  });
+  it('Home の今日戻るの札にも渡す', () => {
+    const h = presentHome(initialState(), storeOf([paused('timer', '2026-10-05', '11:30'), paused('night', '2026-10-05', '21:50')]), NOW);
+    expect(h.returning.map((r) => [r.id, r.pastMin])).toEqual([['timer', 30], ['night', null]]);
+  });
+});
