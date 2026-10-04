@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Active の行の空白を埋める</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f6f7fb; --surface: #fff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc;
+  --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8;
+  --font: 'Inter', 'Hiragino Sans', sans-serif; --mono: 'JetBrains Mono', Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 28px 80px; font: 13px/1.45 var(--font); color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 14px; margin: 26px 0 8px; color: var(--ink-2); }
+.lead { color: var(--ink-2); margin: 0 0 16px; max-width: 980px; }
+.lead b { color: var(--ink); }
+.wrap { max-width: 1120px; }
+.axes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.axis { background: var(--surface); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 12px 14px; }
+.axis h3 { margin: 0 0 8px; font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { border: 0; font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 7px; background: var(--surface-2); color: var(--ink-2); cursor: pointer; }
+.seg button[aria-pressed='true'] { background: var(--accent); color: #fff; font-weight: 600; }
+.seg button .rec { margin-left: 5px; font-size: 10.5px; opacity: 0.85; }
+.note { margin: 8px 0 0; font-size: 12px; color: var(--ink-2); min-height: 70px; }
+.note span { display: block; }
+.note .pro::before { content: '＋ '; color: var(--idle); font-weight: 700; }
+.note .con::before { content: '− '; color: var(--waiting); font-weight: 700; }
+
+.screen { background: var(--surface); box-shadow: 0 0 0 1px var(--line); border-radius: 12px; overflow: hidden; }
+.head { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 20px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.head .c { font-weight: 400; color: var(--ink-3); }
+.head .more { margin-left: auto; font-weight: 400; color: var(--accent); font-size: 11.5px; }
+.row { display: grid; grid-template-columns: 16px 62px minmax(0, 1fr) auto; gap: 16px; align-items: center; height: 56px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ended); justify-self: center; display: inline-block; }
+.dot[data-l='waiting'] { background: var(--waiting); } .dot[data-l='busy'] { background: var(--busy); }
+.dot[data-hide] { visibility: hidden; }
+.stc { display: flex; align-items: center; min-width: 0; }
+.sq { display: inline-flex; align-items: center; justify-content: center; width: 62px; height: 18px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.sq.done { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
+.sq.paused { color: var(--st-paused); background: var(--st-paused-soft); }
+.sq.active-fill { color: var(--st-active); background: var(--st-active-soft); }
+.sq.active-line { color: var(--st-active); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-active) 35%, transparent); }
+.sq.active-word { color: var(--ink-3); font-weight: 500; }
+.sq.live { font-weight: 600; }
+.sq.live[data-l='waiting'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); }
+.sq.live[data-l='busy'] { color: var(--busy); background: color-mix(in srgb, var(--busy) 12%, var(--surface)); }
+.main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.name { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); min-width: 0; white-space: nowrap; }
+.sub .t { overflow: hidden; text-overflow: ellipsis; }
+.tag { flex: none; font-size: 11px; color: var(--ink-3); }
+.tag.blocked { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); padding: 1px 7px; border-radius: 99px; font-weight: 560; }
+.side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.meta { font-family: var(--mono); display: flex; gap: 10px; }
+.when { display: flex; align-items: center; gap: 10px; }
+.lv { font-weight: 600; } .lv[data-l='waiting'] { color: var(--waiting); } .lv[data-l='busy'] { color: var(--busy); }
+.ret { color: var(--st-paused); font-weight: 600; }
+.time { width: 72px; text-align: right; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Active の行の空白を埋める</h1>
+<p class="lead">Active の行は状態の列が空で、点と名前のあいだに何も無い幅ができます。下の 3 つの軸を切り替えると、プロジェクト画面と Home の「最近」がその組み合わせに変わります。行は、いま見えているプロジェクト画面をもとにしています（費用は仮の数字です）。「今」を選ぶと今の形と比べられます。</p>
+
+<div class="axes" id="axes"></div>
+
+<h2>プロジェクト画面（agent-hangar）</h2>
+<div class="screen" id="project"></div>
+
+<h2>Home の「最近」（止まっているものを新しい順に）</h2>
+<div class="screen" id="recent"></div>
+</div>
+
+<script>
+const ROWS = [
+  { n: '印なし廃止の調査', tag: '詰まっている', blocked: true, s: '印なしをなくして 4 状態（Active・Paused・Done・Archived）にし、/Applications の Hangar もこの版に入れ替えた', st: null, l: 'waiting', ch: 30, cost: '$12.00', w: '1 分前' },
+  { n: 'デザイン品質調査', tag: '済んだ', s: '賞の水準を物差しに、Fable 2 体と 3 巡の壁打ちで「どこをどう直すか」を洗い出した', st: null, l: null, ch: 11, cost: '$30.00', w: '1 時間前' },
+  { n: '札の実装フィードバック', tag: 'やりかけ', s: 'Paused・Done・Archived を付けたセッションは、休みが 10 秒続いたら Claude を止める', st: null, l: null, ch: 11, cost: '$15.00', w: '1 時間前' },
+  { n: '解答してくださいの札デザイン', tag: 'やりかけ', s: '入力待ち・エラー・お知らせの札を色の見出しと本文の 2 段（E2）に作り直した', st: 'paused', ret: '10/3（土）', l: null, ch: 9, cost: '$5.00' },
+  { n: 'セッション画面のアニメーション改善', tag: 'やりかけ', s: '実装・審査・ビルドを済ませ、/Applications をブランチ版に入れ替えた', st: 'paused', ret: '10/3（土）', l: null, ch: 52, cost: '$45.00' },
+  { n: 'セッション一覧のページネーションと表示数', tag: '済んだ', s: '一覧のページ送り（A4）と状態の列（F1）を Sessions・Home・プロジェクト画面に入れた', st: 'done', l: null, ch: 40, cost: '$20.00', w: '1 時間前' },
+  { n: 'プラス記号の配置ずれ', tag: '済んだ', s: 'タブ列の＋だけ 4px 下がっていたのを中央に戻し、main とアプリに入れた。', st: 'done', l: null, ch: 3, cost: '$2.00', w: '1 時間前' },
+  { n: '同期の使用量表示', tag: '済んだ', s: '設定に Cloudflare の使用量・今月の費用・プランを出し、無料枠で止まったらヘッダーで知らせる', st: 'done', l: null, ch: 20, cost: '$40.00', w: '7 時間前' },
+];
+const LIVE_WORD = { waiting: '入力待ち', busy: '実行中' };
+
+const AXES = [
+  { id: 'a', title: '軸 1：止まっている Active の行', opts: [
+    { id: 'A0', label: '今（空白）', pro: '札は区切りを付けたものだけ、という決まりが 1 つで済む', con: '点と名前のあいだが空く。「何も付いていない」のか「出し忘れ」なのか分からない' },
+    { id: 'A1', label: 'A1　青い塗りの札', rec: true, pro: 'どの行にも状態が出る。続きがあるものが、Paused と同じ重みで目に入る。色はプロジェクトの Active と同じ', con: '札の種類が 1 つ増える' },
+    { id: 'A2', label: 'A2　青い線の札', pro: 'Done と同じ静かさで、空白だけが埋まる', con: 'Done（緑の線）と形が同じで、色だけで見分けることになる' },
+    { id: 'A3', label: 'A3　灰の語だけ', pro: 'いちばん静か。語はあるが札にはしない', con: 'ほかの 3 つは札なのに、Active だけ形が違う' },
+  ] },
+  { id: 'r', title: '軸 2：動いている行', opts: [
+    { id: 'R0', label: '今（空白）', pro: '動きは点と右の語が言っている', con: 'いちばん目立たせたい行の列が空く' },
+    { id: 'R1', label: 'R1　同じ Active の札', rec: true, pro: '状態の列はいつも状態を言う、という決まり 1 つになる。動きは今までどおり点と右の語', con: '動いている行に、点・札・右の語の 3 つが並ぶ' },
+    { id: 'R2', label: 'R2　動きの語を列へ', pro: '「入力待ち」が名前の左に来て、一覧の左端を流し見るだけで拾える。右端が軽くなる', con: '状態の列に動きが混ざる（戻る日を列に入れてやめたのと同じ形）' },
+  ] },
+  { id: 'c', title: '軸 3：止まっている行の灰色の点', opts: [
+    { id: 'C0', label: '今（点を出す）', rec: true, pro: '今のまま。点の列がそろう', con: '灰色の点は何も言っていない（デザイン調査の引き算の 1 つ）' },
+    { id: 'C1', label: 'C1　点は動いている行だけ', pro: '点があれば動いている、と読める。止まっている行は札だけになる', con: 'この件の範囲が広がる。ほかの画面の点にも関わる' },
+  ] },
+];
+const pick = { a: 'A1', r: 'R1', c: 'C0' };
+
+const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
+const activeBadge = () => ({ A0: '', A1: '<span class="sq active-fill">Active</span>', A2: '<span class="sq active-line">Active</span>', A3: '<span class="sq active-word">Active</span>' }[pick.a]);
+
+function badgeOf(r) {
+  if (r.st === 'done') return '<span class="sq done">Done</span>';
+  if (r.st === 'paused') return '<span class="sq paused">Paused</span>';
+  if (r.l === null) return activeBadge();
+  if (pick.r === 'R0') return '';
+  if (pick.r === 'R2') return `<span class="sq live" data-l="${r.l}">${LIVE_WORD[r.l]}</span>`;
+  // 軸 1 が「今（空白）」のときも、動いている行の札は青い塗りで見せる。
+  return pick.a === 'A0' ? '<span class="sq active-fill">Active</span>' : activeBadge();
+}
+function rowHtml(r) {
+  const dot = `<span class="dot" ${r.l ? `data-l="${r.l}"` : pick.c === 'C1' ? 'data-hide' : ''}></span>`;
+  const live = r.l && pick.r !== 'R2' ? `<span class="lv" data-l="${r.l}">${LIVE_WORD[r.l]}</span>` : '';
+  const when = r.ret ? `<span class="time ret">${r.ret}</span>` : `<span class="time">${r.w}</span>`;
+  return `<div class="row">${dot}<span class="stc">${badgeOf(r)}</span><div class="main"><div class="name">${r.n}</div><div class="sub"><span class="tag ${r.blocked ? 'blocked' : ''}">${r.tag}</span><span class="t">${r.s}</span></div></div><div class="side"><div class="meta"><span>opus 5.5 · high</span><span>変更 ${r.ch}</span><span>${r.cost}</span></div><div class="when">${live}${when}</div></div></div>`;
+}
+const head = (label, n, more) => `<div class="head">${label}<span class="c">${n}</span>${more ? `<span class="more">${more}</span>` : ''}</div>`;
+
+function render() {
+  const axes = document.getElementById('axes');
+  axes.innerHTML = '';
+  for (const a of AXES) {
+    const cur = a.opts.find((o) => o.id === pick[a.id]);
+    const box = el(`<div class="axis"><h3>${a.title}</h3><div class="seg"></div><p class="note"><span class="pro">${cur.pro}</span><span class="con">${cur.con}</span></p></div>`);
+    for (const o of a.opts) {
+      const b = el(`<button type="button" aria-pressed="${o.id === pick[a.id]}">${o.label}${o.rec ? '<span class="rec">推奨</span>' : ''}</button>`);
+      b.onclick = () => { pick[a.id] = o.id; render(); };
+      box.querySelector('.seg').append(b);
+    }
+    axes.append(box);
+  }
+  const live = ROWS.filter((r) => r.l), cont = ROWS.filter((r) => !r.l && r.st !== 'done'), done = ROWS.filter((r) => r.st === 'done');
+  document.getElementById('project').innerHTML = head('いま動いている', live.length) + live.map(rowHtml).join('') + head('続き', cont.length) + cont.map(rowHtml).join('') + head('Done', 61, 'ほか 58 件 ▸') + done.map(rowHtml).join('');
+  const recent = [ROWS[1], ROWS[5], ROWS[2], ROWS[6], ROWS[3], ROWS[4], ROWS[7]];
+  document.getElementById('recent').innerHTML = recent.map(rowHtml).join('');
+}
+render();
+</script>
+</body>
+</html>

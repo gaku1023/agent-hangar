@@ -97,8 +97,9 @@
 .row-live[data-live='waiting'] { color: var(--waiting); }
 .row-live[data-live='busy'] { color: var(--busy); }
 /* 状態の札（F1）。列の幅いっぱいの同じ幅の四角い札にし、語の長さで位置がずれないようにする。
-   Done は全体のほとんどを占めるので線だけにして静かにし、Paused と Archived だけを地で塗る。 */
+   Done は全体のほとんどを占めるので線だけにして静かにし、ほかの 3 つを地で塗る。Active はプロジェクトの Active と同じ青にする。 */
 .row-sq { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 62px; height: 18px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; }
+.row-sq[data-s='active'] { color: var(--st-active); background: var(--st-active-soft); }
 .row-sq[data-s='done'] { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
 .row-sq[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .row-sq[data-s='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
@@ -186,6 +187,8 @@
 .pager-jump .input { width: 52px; height: 26px; padding: 0 6px; text-align: center; }
 
 /* Paused の入力（B1）。戻る日の札を 5 つ並べ、下に理由の 1 行を置く。選んだ札は黄土の地と縁で示す。 */
+/* 時刻の欄（任意）。時刻は 5 字なので、欄を幅いっぱいに広げない。 */
+.pause-time .input { width: 132px; }
 .pause-chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
 .pause-chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: 28px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
 .pause-chip[aria-checked='true'] { color: var(--st-paused); background: var(--st-paused-soft); box-shadow: inset 0 0 0 1px var(--st-paused); font-weight: 600; }

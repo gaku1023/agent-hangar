@@ -25,6 +25,8 @@ export type RuntimeEvent =
   // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
   // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
   | { type: 'notify.changed'; available: boolean; on: boolean; blocked?: boolean }
+  // 時刻つきの Paused のうち、今日その時刻を過ぎたものの鍵（mediator/returnDue.ts の dueReturnKeys）。
+  | { type: 'return.due'; keys: string[] }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
   | { type: 'window.focus' }
   // 目次から左のターミナルを跳ばした結果。
@@ -73,6 +75,8 @@ export type Effect =
   // 入力待ちになったセッションを通知で知らせる。
   // 受け取る設定か、窓が背面かはランタイムが見る。
   | { kind: 'notify.waiting'; sessionId: string }
+  // 戻る時刻を過ぎた Paused を通知で知らせる。出すかどうかは notify.waiting と同じくランタイムが見る。
+  | { kind: 'notify.return'; sessionId: string }
   // 通知の許可を求める。
   // 利用者の操作の中で出すので、ブラウザの許可ダイアログも出せる。
   | { kind: 'notify.request' }
@@ -86,8 +90,8 @@ export type Effect =
   | { kind: 'api.confirmTodo'; id: string }
   | { kind: 'api.rejectTodo'; id: string }
   // セッションの状態。本文には渡されたものだけを載せる。
-  | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string } }
-  | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string } }
+  | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
+  | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
   | { kind: 'api.rejectSessionState'; id: string }
   | { kind: 'api.loadMemo'; projectId: string }
   | { kind: 'api.saveMemo'; projectId: string; markdown: string }
@@ -204,6 +208,10 @@ export type State = {
    * 入力待ちが解けるか、そのセッションを開くまで残す。
    */
   waitingToasts: string[];
+  /** 戻る時刻を過ぎたと知らせ終えた鍵（id|日 時刻）。同じ時点を 2 度知らせないために覚え、localStorage にも残す。 */
+  returnSeen: string[];
+  /** 右下に積む「戻る時刻を過ぎた」の札のセッション。古いものが先。閉じるか、そのセッションを開くか、状態が変わるまで残す。 */
+  returnToasts: string[];
   /** 通知の受け取り。 */
   notify: NotifyState;
   /** focus: terminal で開いたセッション。その画面に着いたら端末にフォーカスし、着いたら忘れる。 */

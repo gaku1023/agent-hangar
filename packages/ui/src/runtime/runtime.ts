@@ -7,6 +7,7 @@ import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
 import { clampLivePaneSplit, LIVE_PANE_SPLIT_KEY, SIDEBAR_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
+import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
 import { NO_QUESTION } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
@@ -77,6 +78,9 @@ const COPY_FAILED = 'コピーできませんでした。文字を選んで ⌘C
 const AROUND_BEFORE = 100;
 
 /** Mediator の効果を実行し、サーバとブラウザの出来事を入力に変える。 */
+/** 先の戻る時点を見直す間隔の上限。 */
+const RETURN_RECHECK_MAX_MS = 12 * 60 * 60_000;
+
 export function createRuntime(deps: RuntimeDeps): Runtime {
   let state = initialState();
   // React が読む状態。present が commit を呼ぶまで、前に描いた state のままでいる。
@@ -88,7 +92,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const notify = () => { for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
   const present = deps.present ?? ((c: () => void) => c());
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); syncWaiting(); } };
+  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); syncWaiting(); syncReturns(); } };
   /**
    * 入力待ちのセッションが変わったら Mediator へ届ける。
    * live.update はプロバイダの id で届くので、hangar のセッションへの引き当てはストアを持つここで行う。
@@ -101,6 +105,34 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (key === waitingKey) return;
     waitingKey = key;
     dispatch({ kind: 'runtime', event: { type: 'waiting.changed', ids } });
+  }
+  /**
+   * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
+   * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。
+   * 予約は次の時点が変わったときだけ入れ直す。ストアは本文が伸びるたびに変わるので、そのたびに積むと予約が溜まる。
+   * 予約は取り消せないので、古い予約は世代の番号で空振りさせる。
+   */
+  let returnDueKey = '';
+  let returnTimerAt: number | null = null;
+  let returnTimerGen = 0;
+  function syncReturns(): void {
+    // bootstrap の前はセッションが空で、過ぎたものが無いように見える。そこで届けると、覚えてある鍵を消してしまう。
+    if (!store.bootstrapped) return;
+    const now = clock();
+    const keys = dueReturnKeys(store.sessions, now);
+    const key = keys.join('\n');
+    if (key !== returnDueKey) {
+      returnDueKey = key;
+      dispatch({ kind: 'runtime', event: { type: 'return.due', keys } });
+    }
+    const next = nextReturnAt(store.sessions, now);
+    if (next === returnTimerAt) return;
+    returnTimerAt = next;
+    const gen = ++returnTimerGen;
+    if (next === null) return;
+    // 予約が少し早く走っても取りこぼさないよう、走ったら予約を忘れてから見直す（まだ過ぎていなければ入れ直す）。
+    // 何日も先の時点は、タイマーの上限（約 24 日）を越えないよう 12 時間ごとに見直す。
+    deps.setTimeout(() => { if (gen !== returnTimerGen) return; returnTimerAt = null; syncReturns(); }, Math.min(next - now, RETURN_RECHECK_MAX_MS));
   }
   const notifier = deps.notifier;
   let unsubNotify: (() => void) | null = null;
@@ -362,6 +394,15 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         notifier.show({ sessionId: s.id, title: s.name ?? '（名前なし）', body: s.activity?.question ?? NO_QUESTION });
         return;
       }
+      case 'notify.return': {
+        // 窓が前にあるときは右下の札で足りる（入力待ちと同じ）。
+        if (!notifier || !state.notify.on || !notifier.background()) return;
+        const s = store.sessions[e.sessionId];
+        if (!s) return;
+        const time = s.state?.returnTime;
+        notifier.show({ sessionId: s.id, title: s.name ?? '（名前なし）', body: `戻る時刻 ${time ?? ''} を過ぎました${s.state?.note ? ` · ${s.state.note}` : ''}` });
+        return;
+      }
       case 'notify.request':
         if (!notifier) return;
         notifier.request().then(async (granted) => {
@@ -547,6 +588,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       state = {
         ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, livePaneSplit: clampLivePaneSplit(deps.storage.get(LIVE_PANE_SPLIT_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
+        // 知らせ終えた戻る時点。開き直しても同じ時点を 2 度知らせない。
+        returnSeen: readReturnSeen(deps.storage.get(RETURN_SEEN_KEY)),
         // 新しいセッションの書きかけと前回値。形の違う値（手で書き換えられたなど）は捨てる。
         newSessionDraft: readDraft(deps.storage.get(NEW_SESSION_DRAFT_KEY)), launchPrefs: readLaunchPrefs(deps.storage.get(LAUNCH_PREFS_KEY)),
       };
@@ -585,7 +628,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         wrote = null;
         dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
       });
-      unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); }) ?? null;
+      unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); }) ?? null;
       unsubVisible = deps.onWindowVisible?.(recheckNotify) ?? null;
       ws.connect();
     },

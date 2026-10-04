@@ -36,8 +36,9 @@
 .more-chevron[data-open='true'] { transform: rotate(180deg); }
 /* 今日戻るの札（C1）。要対応の札と同じ形で、縁に戻る日の黄土を薄く混ぜる。 */
 .return-card { box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-paused) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--st-paused) 40%, transparent); }
-/* 戻る日の札。当日と過ぎたものしか出ないので塗りつぶす。白い文字は --st-paused の地で 4.5 : 1 を超える（tokens.test.ts）。 */
-.return-when { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--surface); background: var(--st-paused); }
+/* 戻る日の札。戻る時点を過ぎたものは塗りつぶす。白い文字は --st-paused の地で 4.5 : 1 を超える（tokens.test.ts）。当日の時刻の前のものは、枠と黄土の文字だけにする。 */
+.return-when { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--st-paused); box-shadow: inset 0 0 0 1px var(--st-paused); }
+.return-when[data-due='true'] { color: var(--surface); background: var(--st-paused); box-shadow: none; }
 /* セッションの提案の札（Q3）。枠だけの丸い札で、候補の色にする。 */
 .home-cand { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--cand); box-shadow: inset 0 0 0 1px var(--cand); }
 

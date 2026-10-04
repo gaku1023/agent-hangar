@@ -468,7 +468,7 @@ describe('新しい発言で状態を外す', () => {
   const RESUMED = ALPHA_END + 120_000;
   const resumed = { deviceId: DEV, processStartOf: () => RESUMED };
 
-  it('resume した後に打った発言で、状態を外して印なしに戻す。起動時刻はそのセッションと発言の時刻で引く', () => {
+  it('resume した後に打った発言で、状態を外して Active に戻す。起動時刻はそのセッションと発言の時刻で引く', () => {
     const { sessionId } = indexFile(db, alphaMain(), { deviceId: DEV });
     setSessionState(db, DEV, sessionId, { status: 'done', setBy: 'user', now: ALPHA_END + 60_000 });
     appendJson(alphaMain().path, prompt('もう一つ直して', '2026-09-01T11:00:00.000Z'));

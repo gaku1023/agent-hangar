@@ -1,6 +1,7 @@
 import { connectionStep } from './connection.ts';
 import { launchStep } from './launch.ts';
 import { liveStep, settleWaiting } from './live.ts';
+import { returnStep, settleReturn } from './returnDue.ts';
 import { notifyStep } from './notify.ts';
 import { overlayStep, settleQueue } from './overlay.ts';
 import { PAGE_SIZE_DEFAULT } from './paging.ts';
@@ -20,7 +21,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, listPages: {}, launch: { kind: 'idle' }, waitingSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sectionsOpen: {}, livePaneSplit: LIVE_PANE_SPLIT_DEFAULT, retentionBannerDismissed: false, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false, blocked: false }, nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0, settingsSave: {}, copied: null };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, listPages: {}, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], returnToasts: [], focusOnOpen: null, promote: { kind: 'idle' }, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sectionsOpen: {}, livePaneSplit: LIVE_PANE_SPLIT_DEFAULT, retentionBannerDismissed: false, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false, blocked: false }, nextToastId: 1, indexPhase: 'idle', sync: { kind: 'off' }, pending: 0, settingsSave: {}, copied: null };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -36,11 +37,11 @@ export function transition(state: State, input: Input): Step {
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, retentionStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionViewStep, sidebarStep, sectionsStep, livePaneSplitStep, liveStep, notifyStep, workbenchStep]) {
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, retentionStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionViewStep, sidebarStep, sectionsStep, livePaneSplitStep, liveStep, returnStep, notifyStep, workbenchStep]) {
     const r = step(state, input);
     // 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
-    // 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。
-    if (r) { const settled = settleWaiting(settleQueue(r.state)); return settled === r.state ? r : { ...r, state: settled }; }
+    // 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。戻る時刻の札も同じ（returnDue.ts の settleReturn）。
+    if (r) { const settled = settleReturn(settleWaiting(settleQueue(r.state))); return settled === r.state ? r : { ...r, state: settled }; }
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message), effects: [] };

@@ -377,6 +377,8 @@ describe('routes', () => {
     expect(await total('&status=done')).toBe(0);
     // 知らない値は絞り込みなしとして扱う。
     expect(await total('&status=bogus')).toBe(1);
+    // なくした none も知らない値で、絞り込みなしになる。
+    expect(await total('&status=none')).toBe(1);
   });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
@@ -1257,15 +1259,30 @@ describe('セッションの状態', () => {
   const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
   const err = async (r: Response) => ((await r.json()) as { error: string }).error;
 
+  it('PUT と確定は戻る時刻も受け、形の違う時刻は 400 で何が悪いかを返す', async () => {
+    const id = alphaId();
+    const r = await send(`/api/sessions/${id}/state`, { status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' }, 'PUT');
+    expect(r.status).toBe(200);
+    expect((await r.json()).state).toMatchObject({ status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' });
+    const bad = await send(`/api/sessions/${id}/state`, { status: 'paused', returnOn: '2026-10-05', returnTime: '25:00' }, 'PUT');
+    expect(bad.status).toBe(400);
+    expect(await err(bad)).toBe('戻る時刻は HH:MM の形で、00:00〜23:59 です（25:00）');
+    expect((await send(`/api/sessions/${id}/state`, { status: 'paused', returnOn: '2026-10-05', returnTime: 1330 }, 'PUT')).status).toBe(400);
+    await send(`/api/sessions/${id}/state`, { status: null }, 'PUT');
+    proposeSessionState(db, 'd', id, { status: 'paused', note: '明日見る', returnOn: '2026-10-02', returnTime: '09:00', source: 'in_session' });
+    expect((await send(`/api/sessions/${id}/state/confirm`, { returnOn: '2026-10-05', returnTime: 930 })).status).toBe(400);
+    const ok = await send(`/api/sessions/${id}/state/confirm`, { returnOn: '2026-10-05', returnTime: '21:50' });
+    expect((await ok.json()).state).toMatchObject({ status: 'paused', returnOn: '2026-10-05', returnTime: '21:50' });
+  });
   it('PUT は手で状態を変え、session.upsert を配る', async () => {
     const id = alphaId();
     const r = await send(`/api/sessions/${id}/state`, { status: 'paused', note: '明日の朝見る', returnOn: '2026-10-02' }, 'PUT');
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ state: { status: 'paused', note: '明日の朝見る', returnOn: '2026-10-02', setBy: 'user', setAt: expect.any(Number), candidate: null } });
+    expect(await r.json()).toEqual({ state: { status: 'paused', note: '明日の朝見る', returnOn: '2026-10-02', returnTime: null, setBy: 'user', setAt: expect.any(Number), candidate: null } });
     expect(sent.at(-1)).toMatchObject({ type: 'session.upsert', session: { id, state: { status: 'paused' } } });
     // Done は戻る日を持たない。
     expect((await (await send(`/api/sessions/${id}/state`, { status: 'done', returnOn: '2026-10-02' }, 'PUT')).json()).state).toMatchObject({ status: 'done', returnOn: null });
-    // null は印なしに戻す。
+    // null は Active に戻す。
     expect((await (await send(`/api/sessions/${id}/state`, { status: null }, 'PUT')).json()).state).toMatchObject({ status: null, note: null, returnOn: null, candidate: null });
   });
   it('PUT の誤りは 400 と 404。本文はトーストに出せる日本語の一文', async () => {
@@ -1296,7 +1313,7 @@ describe('セッションの状態', () => {
     sent.length = 0;
     const ok = await send(`/api/sessions/${id}/state/confirm`, { returnOn: '2026-10-05' });
     expect(ok.status).toBe(200);
-    expect((await ok.json()).state).toEqual({ status: 'paused', note: '明日見る', returnOn: '2026-10-05', setBy: 'user', setAt: expect.any(Number), candidate: null });
+    expect((await ok.json()).state).toEqual({ status: 'paused', note: '明日見る', returnOn: '2026-10-05', returnTime: null, setBy: 'user', setAt: expect.any(Number), candidate: null });
     expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
     expect((await send(`/api/sessions/${id}/state/confirm`)).status).toBe(409);
     expect((await send('/api/sessions/nope/state/confirm')).status).toBe(404);

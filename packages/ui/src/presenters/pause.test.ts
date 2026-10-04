@@ -36,11 +36,11 @@ describe('presentPause', () => {
     expect(presentPause(open('menu'), storeOf(session(null)), THU)).toMatchObject({ sessionId: 's1', sessionName: 'Worker の CPU 超過', from: 'menu', draft: '', candidateNote: null, initialReturnOn: '2026-10-02', today: '2026-10-01' });
   });
   it('Paused のセッションを開き直すと、今の理由と戻る日を入れておく', () => {
-    const s = session({ status: 'paused', note: '数字を見る', returnOn: '2026-10-05', setBy: 'user', setAt: 1, candidate: null });
+    const s = session({ status: 'paused', note: '数字を見る', returnOn: '2026-10-05', returnTime: null, setBy: 'user', setAt: 1, candidate: null });
     expect(presentPause(open('menu'), storeOf(s), THU)).toMatchObject({ draft: '数字を見る', initialReturnOn: '2026-10-05' });
   });
   it('提案から開くと、根拠を下書きに入れ、提案の日を選んでおく', () => {
-    const s = session({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: { status: 'paused', note: '明日の朝 CPU を見る', returnOn: '2026-10-02', source: 'exit', at: 1 } });
+    const s = session({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: { status: 'paused', note: '明日の朝 CPU を見る', returnOn: '2026-10-02', returnTime: null, source: 'exit', at: 1 } });
     expect(presentPause(open('candidate'), storeOf(s), THU)).toMatchObject({ from: 'candidate', draft: '明日の朝 CPU を見る', candidateNote: '明日の朝 CPU を見る', initialReturnOn: '2026-10-02' });
   });
   it('開いていないか、セッションが無ければ null', () => {

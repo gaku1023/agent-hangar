@@ -14,10 +14,10 @@ export type ArtifactId = string;
  * 一覧と検索の絞り込み。
  * 期間は相対の日数（今日を含めて何日分か）で持ち、時刻には問い合わせる瞬間に直す。
  * 絶対の時刻で持つと、時間が経つにつれて選んだ帯と中身が食い違う。
- * status はセッションの状態のタブ（★）。none は状態も提案も無いもの、active は動いているもの、proposed は Claude の提案が残っているもの。
+ * status はセッションの状態のタブ（★）。active は状態が無いもの（動いているかは問わない）、proposed は Claude の提案が残っているもの。
  * 無ければ「すべて」で、条件を入れたときだけ Archived を除く（presenters/sessions.ts と、サーバの検索の hideArchived）。
  */
-export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; file?: string; status?: SessionStatus | 'none' | 'active' | 'proposed' };
+export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; file?: string; status?: SessionStatus | 'active' | 'proposed' };
 /** 状態のタブの値（「すべて」以外）。 */
 export type StatusFilter = NonNullable<SearchFilter['status']>;
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[] };
@@ -54,10 +54,10 @@ export type Intent =
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId }
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
   | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string } | { type: 'session.setMemo'; id: SessionId; text: string }
-  // セッションの状態（Paused・Done・Archived）。status の null は印なしに戻す。画面の正は後から届く session.upsert である。
-  | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string }
-  // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。
-  | { type: 'session.state.confirm'; id: SessionId; returnOn?: string } | { type: 'session.state.reject'; id: SessionId }
+  // セッションの状態（Paused・Done・Archived）。status の null は Active に戻す。画面の正は後から届く session.upsert である。
+  | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }
+  // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。returnTime はその日の時刻（HH:MM）で、returnOn と一緒のときだけ効く。
+  | { type: 'session.state.confirm'; id: SessionId; returnOn?: string; returnTime?: string } | { type: 'session.state.reject'; id: SessionId }
   // Paused の入力（B1）。from は開いた入口で、提案の「日を変える」から開いたときは根拠を下書きに入れる。
   | { type: 'session.pause.open'; id: SessionId; from: 'menu' | 'candidate' } | { type: 'session.pause.close' }
   // 入力待ちのセッションを順に開き、端末にフォーカスする。どれへ移るかはストアを見たランタイムが決める。
@@ -110,6 +110,8 @@ export type Intent =
   // 窓が背面にあるとき、入力待ちを OS やブラウザの通知で知らせるか。
   // 受け取るにするときは許可を求める。
   | { type: 'notify.set'; on: boolean }
+  // 戻る時刻を過ぎた知らせの札を閉じる。
+  | { type: 'return.toast.dismiss'; id: SessionId }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'conn.retry' }
   | { type: 'retention.dismiss' }

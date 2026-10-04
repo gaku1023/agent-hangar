@@ -84,6 +84,15 @@ describe('現れる動き', () => {
   });
 });
 
+describe('知らせの札', () => {
+  const base = strip(read('base.css'));
+  // 入力待ちの点は、答えを待っている間ゆっくり脈を打つ。押せない間（ダイアログの裏）は止める。
+  it('入力待ちの点の脈は --breathe-period で打ち、押せない間と reduced motion では止まる', () => {
+    expect(base).toMatch(/\.notice\[data-kind='waiting'\]:not\(:disabled\) \.notice-dot::after \{[^}]*animation: notice-ping var\(--breathe-period\) var\(--ease-out\) infinite;/);
+    expect(base).toContain('@media (prefers-reduced-motion: reduce) { .notice-dot::after { animation: none !important; } }');
+  });
+});
+
 describe('画面の移り変わり', () => {
   // 出る画面と入る画面を同じ長さと曲線で重ねる。揃えないと、変わらないヘッダとサイドバーが途中で明滅する。
   it('View Transitions の組は、どれも --dur と --ease-out で動く', () => {

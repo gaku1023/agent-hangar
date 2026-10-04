@@ -329,41 +329,54 @@ a:hover { text-decoration: underline; }
 .dialog-disc { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: var(--error); background: color-mix(in srgb, var(--error) 11%, #ffffff); box-shadow: 0 0 0 5px color-mix(in srgb, var(--error) 5%, transparent); }
 .dialog-danger .dialog-body { padding-left: calc(var(--dialog-pad) + 36px + var(--u) * 3); }
 @keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(var(--blur-in)); } 20% { filter: none; } }
-/* 右下に積む知らせ（試作は specs/2026-10-01-ux-refresh/waiting-notify.html の A1、B1、D1）。
-   上から error と info のトースト、並べきれない入力待ちの数、入力待ちのカードの順に、右端をそろえて積む。 */
+/* 右下に積む知らせ。
+   上から error と info のトースト、通知の誘い、並べきれない入力待ちの数、入力待ちのカードの順に、右端をそろえて積む。 */
 .toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 2); z-index: 20; max-width: calc(100vw - var(--u) * 8); }
 .toast { max-width: 420px; background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; text-align: left; }
-/* error は赤みのガラスに警告のアイコンと閉じる ×。本文は 2 行まで見せ、「詳しく」で開く。時間では消えないので、押しても何も起きない。 */
-.toast[data-level='error'] { display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 2) calc(var(--u) * 2.5) calc(var(--u) * 3); background: color-mix(in srgb, var(--error) 10%, var(--glass-bg-toast)); color: var(--error); cursor: default; }
-.toast[data-level='error'] > .icon { flex: none; margin-top: 2px; }
-.toast-message { font-size: var(--fs-sm); line-height: 1.5; color: color-mix(in srgb, var(--error) 80%, var(--ink)); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.toast[data-open='true'] .toast-message { display: block; }
-.btn-link.toast-more-link { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); font-weight: 600; color: var(--error); }
-.toast-close { flex: none; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: none; color: inherit; opacity: 0.7; cursor: pointer; }
-.toast-close:hover { background: rgba(255, 255, 255, 0.7); opacity: 1; }
-/* 入力待ちのカード。左の赤い縦の帯、名前と待っている時間、プロジェクト、問い（2 行まで）、「ターミナルで答える」。 */
+/* 知らせの札。種類の色（--k）を薄く敷いた見出しと、その下の本文の 2 段でできている。
+   入力待ちは茶、error は赤、info は青で、色が近い入力待ちと error は見出しのラベルと印でも見分ける。 */
+.toast.notice { --k: var(--waiting); display: block; width: 360px; max-width: 100%; padding: 0; border: 0; overflow: hidden; font: inherit; box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--k) 24%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.notice[data-kind='error'] { --k: var(--error); cursor: default; }
+.notice[data-kind='info'] { --k: var(--accent); }
+/* 戻る時刻を過ぎた Paused の札。状態の色（黄土）を敷く。本文が開くボタンで、見出しの端に閉じるボタンを置く。 */
+.notice[data-kind='return'] { --k: var(--st-paused); cursor: default; }
+.notice[data-kind='return'] .notice-close { margin-left: 0; }
+.notice-open { width: 100%; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.notice-open:hover:not(:disabled) { background: rgba(255, 255, 255, 0.6); }
+.notice-open:disabled { opacity: 0.55; cursor: default; }
+.toast.notice[data-kind='waiting']:hover:not(:disabled), .toast.notice[data-kind='info']:hover { background: rgba(255, 255, 255, 0.95); transform: translateY(-1px); }
+/* 確認や入力のあるダイアログが開いている間は押せない。押してもダイアログの裏で画面は移らないので、薄くして押せるように見せない。 */
+.toast.notice:disabled { opacity: 0.55; cursor: default; }
+.toast.toast-more:disabled { cursor: default; opacity: 0.6; }
+.notice-head { display: flex; align-items: center; gap: calc(var(--u) * 1.5); min-width: 0; padding: calc(var(--u) * 1.5) calc(var(--u) * 3.5); font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; color: var(--k); background: color-mix(in srgb, var(--k) 10%, transparent); }
+.notice-head > .icon { flex: none; width: 13px; height: 13px; }
+.notice-label { flex: none; }
+.notice-sep { flex: none; font-weight: 400; opacity: 0.55; }
+/* 名前は見出しの中で省略し、待っている時間は必ず残す。 */
+.notice-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; letter-spacing: 0; color: var(--ink-2); }
+.notice-end { flex: none; margin-left: auto; padding-left: calc(var(--u) * 1.5); font-weight: 500; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.notice-dot { flex: none; position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--k); }
+/* 入力待ちの点は、答えを待っている間ゆっくり脈を打つ。押せない間は止める。 */
+.notice[data-kind='waiting']:not(:disabled) .notice-dot::after { content: ''; position: absolute; inset: -3px; border-radius: 50%; border: 1.5px solid var(--k); opacity: 0; animation: notice-ping var(--breathe-period) var(--ease-out) infinite; }
+@keyframes notice-ping { 0% { transform: scale(0.6); opacity: 0.7; } 70%, 100% { transform: scale(1.5); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .notice-dot::after { animation: none !important; } }
+.notice-close { flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin: -4px calc(var(--u) * -1.5) -4px auto; padding: 0; border: 0; border-radius: 6px; background: none; color: inherit; opacity: 0.75; cursor: pointer; }
+.notice-close:hover { background: rgba(255, 255, 255, 0.7); opacity: 1; }
+.notice-close > .icon { width: 13px; height: 13px; }
+.notice-body { display: block; padding: calc(var(--u) * 2.25) calc(var(--u) * 3.5) calc(var(--u) * 2.75); }
+/* 入力待ちの問いは 3 行まで見せる。問いが取れないときは、ここに名前が来る。 */
+.notice-title { font-size: var(--fs); line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+/* error と info の本文は 2 行まで見せ、error は「詳しく」で開く。 */
+.notice-message { font-size: var(--fs); line-height: 1.5; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.notice[data-open='true'] .notice-message { display: block; }
+.btn-link.notice-more { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); font-weight: 600; color: var(--error); }
 .toast-waiting-list { display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 2); }
 .toast-waiting-list:empty { display: none; }
-.toast.toast-waiting { position: relative; display: flex; gap: calc(var(--u) * 2.5); width: 360px; max-width: 100%; padding: calc(var(--u) * 2.5) calc(var(--u) * 3) calc(var(--u) * 2.5) calc(var(--u) * 3.5); box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--waiting) 26%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); }
-.toast-waiting::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--waiting); }
-.toast.toast-waiting:hover { background: rgba(255, 255, 255, 0.92); }
-/* 確認や入力のあるダイアログが開いている間は押せない。押してもダイアログの裏で画面は移らないので、押せるように見せない。 */
-.toast.toast-waiting[data-blocked='true'] { cursor: default; }
-.toast.toast-waiting[data-blocked='true']:hover { background: var(--glass-bg-toast); }
-.toast.toast-more:disabled { cursor: default; opacity: 0.6; }
-.toast-waiting > .dot { flex: none; margin-top: 6px; }
-.toast-body { flex: 1; min-width: 0; }
-.toast-head { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); min-width: 0; }
-.toast-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.toast-waited { flex: none; margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
-.toast-project { font-size: var(--fs-xs); color: var(--ink-3); }
-.toast-question { margin-top: 3px; font-size: var(--fs-sm); color: var(--ink-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.toast-actions { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); }
-.toast-hint { font-size: var(--fs-xs); color: var(--ink-3); }
-.btn-link.toast-notify { margin-left: auto; font-size: var(--fs-xs); }
-/* 4 件目からは数だけの小さな錠剤にして、ホームの要対応へ案内する。 */
-.toast.toast-more { padding: 3px calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); color: var(--ink-2); }
-.toast.toast-more:hover { color: var(--ink); }
+/* 小さな錠剤。通知の誘いと、4 件目からの数（ホームの要対応へ案内する）に使う。 */
+.toast.toast-pill { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 3px calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); color: var(--ink-2); }
+.toast.toast-offer { cursor: default; }
+.toast-offer > .btn-link { font-size: var(--fs-xs); }
+.toast.toast-more:hover:not(:disabled) { color: var(--ink); }
 @keyframes slide { from { opacity: 0; transform: translateX(16px); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 .progress { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
 
