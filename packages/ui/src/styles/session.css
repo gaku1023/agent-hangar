@@ -87,9 +87,10 @@ a.chip { color: var(--accent); text-decoration: none; }
 .changed-file:hover { background: var(--surface-2); }
 .changed-file > .icon { color: var(--ink-3); }
 /* 長いときはフォルダの側を省略し、ファイル名は必ず残す。頭から出して末尾を切ると、どの行も同じ頭になり、肝心の名前が消える。 */
-.changed-path { flex: 1; display: flex; min-width: 0; white-space: nowrap; }
+.changed-path { flex: 1; display: flex; min-width: 0; overflow: hidden; white-space: nowrap; }
+/* 縮むのはフォルダの側だけにする。ファイル名は、それだけで欄に収まらないときに限って省略する。 */
 .changed-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.changed-base { flex: 0 1 auto; min-width: 2ch; overflow: hidden; text-overflow: ellipsis; }
+.changed-base { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .changed-new { flex: none; padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); font-size: 10.5px; color: var(--st-done); background: var(--st-done-soft); }
 .changed-add { flex: none; font-size: var(--fs-xs); color: var(--st-done); }
 .changed-del { flex: none; font-size: var(--fs-xs); color: var(--error); }

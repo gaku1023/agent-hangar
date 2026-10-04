@@ -136,7 +136,7 @@ a:hover { text-decoration: underline; }
 .brand:hover { text-decoration: none; }
 /* 開閉のときの揺れは、フックの辺りを中心に回す（views/primitives/sidebarMotion.ts）。 */
 .brand-mark { flex: none; width: var(--brand-mark); height: var(--brand-mark); transform-origin: 50% 10%; }
-.brand-word { font-size: 16px; font-weight: 720; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
+.brand-word { font-size: 16px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
 .brand-word::after { content: ''; display: inline-block; width: calc(var(--u) * 2); height: 2.5px; margin-left: 2px; border-radius: 1.25px; background: #ffb86b; }
 
 /* ナビ。選択中の項目は、ガラスの上に錠剤が浮く。 */

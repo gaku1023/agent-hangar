@@ -4,7 +4,7 @@
 /* ターミナルで打つコマンドの行（設定の D1）。薄い地のコードと、右端のコピー。 */
 .cmd-line { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); padding: 0 var(--u) 0 calc(var(--u) * 2.5); height: 32px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line); font: var(--fs-sm) var(--font-mono); }
 .cmd-line > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; color: var(--ink); -webkit-user-select: all; user-select: all; }
-.copy-btn { display: inline-flex; align-items: center; gap: var(--u); flex: none; height: 24px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: 6px; background: none; color: var(--ink-2); font: 560 var(--fs-xs) var(--font-sans); cursor: pointer; }
+.copy-btn { display: inline-flex; align-items: center; gap: var(--u); flex: none; height: 24px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: 6px; background: none; color: var(--ink-2); font: 600 var(--fs-xs) var(--font-sans); cursor: pointer; }
 .copy-btn:hover { background: var(--surface); color: var(--ink); }
 .copy-btn[data-copied] { color: var(--st-done); }
 .copy-btn .icon { width: 13px; height: 13px; }

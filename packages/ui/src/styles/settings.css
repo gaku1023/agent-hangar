@@ -4,7 +4,7 @@
 .settings-layout { display: grid; grid-template-columns: 176px minmax(0, 720px); gap: calc(var(--u) * 5); align-items: start; }
 .settings-toc { position: sticky; top: calc(var(--header-h) + var(--float-gap) + var(--u) * 2); display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
 .settings-toc-group { display: flex; flex-direction: column; }
-.settings-toc-item { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 30px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font: 520 var(--fs-sm) var(--font-sans); text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.settings-toc-item { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 30px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font: 600 var(--fs-sm) var(--font-sans); text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .settings-toc-item:hover { background: rgba(255, 255, 255, 0.55); }
 .settings-toc-item[aria-current='true'] { color: var(--ink); font-weight: 600; background: rgba(255, 255, 255, 0.8); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
 .settings-toc-item .icon { width: 15px; height: 15px; }
@@ -74,7 +74,7 @@
 .cu-tile[data-tone='stop'] .cu-v { color: var(--error); }
 .cu-tile[data-tone='muted'] .cu-v { color: var(--ink-3); }
 .cu-k { font-size: var(--fs-xs); color: var(--ink-3); }
-.cu-v { margin-top: 2px; font: 650 18px var(--font-mono); }
+.cu-v { margin-top: 2px; font: 700 18px var(--font-mono); }
 .cu-v small { margin-left: var(--u); font: 500 var(--fs-xs) var(--font-sans); color: var(--ink-2); }
 .cu-strip { margin-top: calc(var(--u) * 3); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r); font-size: var(--fs-sm); }
 .cu-strip[data-tone='stop'] { background: color-mix(in srgb, var(--error) 6%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 30%, transparent); }
