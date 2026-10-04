@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { recordArtifactPublish } from '../artifacts/extract.ts';
 import { openDb, type Db } from '../db/open.ts';
@@ -331,16 +331,20 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
 
 describe('propose_session_status', () => {
   const scoped = () => ({ sessionId: alphaId });
-  const NONE = { status: null, note: null, returnOn: null, setBy: null, setAt: null };
+  // 過去の時点は断るので、今を 2026-10-01 12:00（手元の時刻）に止める。Date だけを偽り、タイマーは本物のままにする。
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 9, 1, 12, 0)); });
+  afterEach(() => { vi.useRealTimers(); });
+  const NONE = { status: null, note: null, returnOn: null, returnTime: null, returnAt: null, setBy: null, setAt: null };
   it('confirmed なしは提案にし、session.upsert を配る', () => {
     const r = call('propose_session_status', { status: 'paused', note: ' 明日の朝 CPU の数字を確かめる ', return_on: '2026-10-02' }, scoped());
-    expect(r).toEqual({ outcome: 'proposed', state: { ...NONE, candidate: { status: 'paused', note: '明日の朝 CPU の数字を確かめる', returnOn: '2026-10-02', source: 'in_session', at: expect.any(Number) } } });
+    expect(r).toEqual({ outcome: 'proposed', state: { ...NONE, candidate: { status: 'paused', note: '明日の朝 CPU の数字を確かめる', returnOn: '2026-10-02', returnTime: null, returnAt: null, source: 'in_session', at: expect.any(Number) } } });
     expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
-    expect((sent[0] as Extract<ServerEvent, { type: 'session.upsert' }>).session.state).toEqual(r.state);
+    // 配る状態は DTO のままで、returnAt は MCP の返事にだけ添える。
+    expect(r.state).toMatchObject((sent[0] as Extract<ServerEvent, { type: 'session.upsert' }>).session.state!);
   });
   it('confirmed: true は状態にし、会話で承認した印を残す。Done は戻る日を持たない', () => {
     const r = call('propose_session_status', { status: 'done', note: '直して main に入れた', return_on: '2026-10-02', confirmed: true }, scoped());
-    expect(r).toEqual({ outcome: 'set', state: { status: 'done', note: '直して main に入れた', returnOn: null, setBy: 'conversation', setAt: expect.any(Number), candidate: null } });
+    expect(r).toEqual({ outcome: 'set', state: { status: 'done', note: '直して main に入れた', returnOn: null, returnTime: null, returnAt: null, setBy: 'conversation', setAt: expect.any(Number), candidate: null } });
     expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
   });
   it('同じ状態がすでにあれば already_set で何も書かず、何も配らない', () => {
@@ -388,6 +392,55 @@ describe('propose_session_status', () => {
     expect(sent).toEqual([]);
     // 形の正しい戻る日は、Done では捨てられて同じ状態と見なされる。
     expect(call('propose_session_status', { status: 'done', note: 'n', return_on: '2026-10-02', confirmed: true }, scoped()).outcome).toBe('already_set');
+  });
+  it('日付だけの呼び出しは今までどおり通り、時刻は null で返る。今日の日付も通る', () => {
+    const r = call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', confirmed: true }, scoped());
+    expect(r).toEqual({ outcome: 'set', state: { status: 'paused', note: 'n', returnOn: '2026-10-02', returnTime: null, returnAt: null, setBy: 'conversation', setAt: expect.any(Number), candidate: null } });
+    expect(call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', confirmed: true }, scoped()).outcome).toBe('set');
+  });
+  it('日付と時刻を渡すと、時刻と、オフセット付きの時点が返る', () => {
+    const r = call('propose_session_status', { status: 'paused', note: 'timer の初回を見る', return_on: '2026-10-01', return_time: '13:30', confirmed: true }, scoped());
+    expect(r.outcome).toBe('set');
+    const state = r.state as { returnOn: string; returnTime: string; returnAt: string };
+    expect(state).toMatchObject({ status: 'paused', returnOn: '2026-10-01', returnTime: '13:30' });
+    expect(state.returnAt).toMatch(/^2026-10-01T13:30[+-]\d{2}:\d{2}$/);
+    expect(new Date(state.returnAt).getTime()).toBe(new Date(2026, 9, 1, 13, 30).getTime());
+    expect((sent[0] as Extract<ServerEvent, { type: 'session.upsert' }>).session.state).toMatchObject({ returnOn: '2026-10-01', returnTime: '13:30' });
+    // 同じ日でも時刻が違えば選び直しになり、同じなら already_set。
+    expect(call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', return_time: '13:30', confirmed: true }, scoped()).outcome).toBe('already_set');
+    expect(call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', return_time: '21:50', confirmed: true }, scoped()).outcome).toBe('set');
+    expect(call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', confirmed: true }, scoped()).outcome).toBe('set');
+  });
+  it('提案（confirmed なし）にも時刻が載る', () => {
+    const r = call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', return_time: '09:00' }, scoped());
+    expect((r.state as { candidate: unknown }).candidate).toMatchObject({ returnOn: '2026-10-02', returnTime: '09:00' });
+    expect((r.state as { candidate: { returnAt: string } }).candidate.returnAt).toMatch(/^2026-10-02T09:00[+-]\d{2}:\d{2}$/);
+  });
+  it('不正な時刻は、何が悪いかを言って何も書かない', () => {
+    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', return_time: '25:00', confirmed: true }, scoped())).toThrow(new ToolError('戻る時刻は HH:MM の形で、00:00〜23:59 です（25:00）'));
+    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', return_time: 1330 }, scoped())).toThrow(new ToolError('return_time は HH:MM の形の文字列です'));
+    // 時刻だけでは戻る時点にならない。
+    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_time: '13:30' }, scoped())).toThrow(new ToolError('Paused には戻る日が要ります'));
+    expect(sent).toEqual([]);
+    expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
+  });
+  it('過去の時点は、渡された時点と今を言って断る。confirmed の有無によらない', () => {
+    const offset = /[+-]\d{2}:\d{2}/.source;
+    // 今は 2026-10-01 12:00。同じ日の 11:59 と、ちょうど今は過去。
+    for (const confirmed of [true, undefined]) {
+      expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', return_time: '11:59', confirmed }, scoped())).toThrow(new RegExp(`^戻る時点が過去です（2026-10-01 11:59。いまは 2026-10-01 12:00 ${offset}）$`));
+      expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', return_time: '12:00', confirmed }, scoped())).toThrow(/^戻る時点が過去です/);
+      expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-09-30', confirmed }, scoped())).toThrow(new RegExp(`^戻る日が過去です（2026-09-30。いまは 2026-10-01 12:00 ${offset}）$`));
+      expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-09-30', return_time: '23:59', confirmed }, scoped())).toThrow(/^戻る時点が過去です（2026-09-30 23:59。/);
+    }
+    expect(sent).toEqual([]);
+    expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
+    // 1 分先は通る。
+    expect(call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-01', return_time: '12:01', confirmed: true }, scoped()).outcome).toBe('set');
+  });
+  it('Done は戻る時点を持たないので、過去の日付や時刻が付いていても断らずに捨てる', () => {
+    const r = call('propose_session_status', { status: 'done', note: 'n', return_on: '2026-09-01', return_time: '09:00', confirmed: true }, scoped());
+    expect(r.state).toMatchObject({ status: 'done', returnOn: null, returnTime: null, returnAt: null });
   });
   it('共通の URL では session_id が要り、セッション別 URL では別のセッションを指せない', () => {
     expect(() => call('propose_session_status', { status: 'done', note: 'n' })).toThrow(/session_id/);

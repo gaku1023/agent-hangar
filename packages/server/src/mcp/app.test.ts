@@ -88,7 +88,8 @@ describe('createMcpApp', () => {
     const tools = list.body.result!.tools as { name: string; inputSchema: { properties: Record<string, { description?: string }> } }[];
     const props = tools.find((t) => t.name === 'propose_session_status')!.inputSchema.properties;
     expect(props.note!.description).toBe('根拠の一文。必須（1〜200 字）');
-    expect(props.return_on!.description).toBe('戻る日。YYYY-MM-DD。paused では必須');
+    expect(props.return_on!.description).toBe('戻る日。YYYY-MM-DD（手元の暦。過去の日は不可）。paused では必須');
+    expect(props.return_time!.description).toBe('戻る時刻。HH:MM（24 時間、00:00〜23:59、手元の時刻）。確かめる時刻に意味があるときだけ渡す。省くと「その日のうち」になる。return_on と合わせて過去になる時点は不可');
     expect(props.confirmed!.description).toBe('利用者が会話の中で選んだときだけ true');
   });
 });

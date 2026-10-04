@@ -1,4 +1,4 @@
-import type { LaunchParams, LiveSessionDto, ProjectDto, ProjectStatus, ServerEvent, SessionDto, SessionStateDto, SummaryState, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
+import { localDate, localTime, returnAtIso, returnAtMs, type LaunchParams, type LiveSessionDto, type ProjectDto, type ProjectStatus, type ServerEvent, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
@@ -326,7 +326,30 @@ export function setTurnIntentTool(deps: ToolDeps, ctx: ToolContext, args: Record
  * 却下された提案は、そのセッションに新しい発言があるまで受け付けない（rejected_before）。
  * note と return_on の中身の検査は states.ts の validateStateInput に任せる。ここでは型と status だけを見て、StateInputError を ToolError に変える。
  * 検査は confirmed の有無によらず、already_set を比べる前に済ませる。どれかに落ちたら何も書かず、何も配らない。
+ * 戻る時点は return_on（日付）と、任意の return_time（HH:MM）で受ける。どちらも手元の暦と時計で読み、返す状態にはオフセット付きの returnAt を添えて、どのゾーンで読んだかを残す。
+ * 過去の時点はここで断る。states.ts では断らない（時刻を過ぎた提案を画面で確定でき、同期で届いた行も弾かないようにするため）。
  */
+/** 状態と提案に、戻る時点をオフセット付きで添える（2026-10-05T13:30+09:00）。時刻が無ければ null。 */
+function withReturnAt(state: SessionStateDto) {
+  const at = (o: { returnOn: string | null; returnTime: string | null }) => (o.returnOn && o.returnTime ? returnAtIso(o.returnOn, o.returnTime) : null);
+  return { ...state, returnAt: at(state), candidate: state.candidate ? { ...state.candidate, returnAt: at(state.candidate) } : null };
+}
+
+/**
+ * 戻る時点が過去なら断る。時刻があれば時点で、無ければ日で比べる（今日の日付だけは「その日のうち」なので通す）。
+ * 文には渡された時点と、比べた今をオフセット付きで入れる。呼び手のゾーンの読み違いに、文から気づけるようにする。
+ */
+function rejectPastReturn(returnOn: string | null, returnTime: string | null, now: number): void {
+  if (returnOn === null) return;
+  const today = localDate(now);
+  const nowText = `${today} ${localTime(now)} ${returnAtIso(today, localTime(now))!.slice(-6)}`;
+  if (returnTime !== null) {
+    if (returnAtMs(returnOn, returnTime) <= now) throw new ToolError(`戻る時点が過去です（${returnOn} ${returnTime}。いまは ${nowText}）`);
+  } else if (returnOn < today) {
+    throw new ToolError(`戻る日が過去です（${returnOn}。いまは ${nowText}）`);
+  }
+}
+
 export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
   const id = sessionIdOf(ctx, args);
   requireSession(deps, id);
@@ -334,21 +357,23 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
   if (status !== 'done' && status !== 'paused') throw new ToolError('status は done か paused です');
   if (args.note !== undefined && typeof args.note !== 'string') throw new ToolError('note は文字列です');
   if (args.return_on !== undefined && typeof args.return_on !== 'string') throw new ToolError('return_on は YYYY-MM-DD の形の文字列です');
+  if (args.return_time !== undefined && typeof args.return_time !== 'string') throw new ToolError('return_time は HH:MM の形の文字列です');
   if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') throw new ToolError('confirmed は true か false です');
   try {
     const given = args.note ?? '';
-    const { returnOn } = validateStateInput(status, { note: given, returnOn: args.return_on, requireNote: true });
+    const { returnOn, returnTime } = validateStateInput(status, { note: given, returnOn: args.return_on, returnTime: args.return_time, requireNote: true });
+    rejectPastReturn(returnOn, returnTime, now);
     let r: { outcome: ProposeStateOutcome; state: SessionStateDto };
     if (args.confirmed === true) {
       const cur = getSessionState(deps.db, id);
-      r = cur && cur.status === status && cur.returnOn === returnOn
+      r = cur && cur.status === status && cur.returnOn === returnOn && cur.returnTime === returnTime
         ? { outcome: 'already_set', state: cur }
-        : { outcome: 'set', state: setSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, setBy: 'conversation', requireNote: true, now }) };
+        : { outcome: 'set', state: setSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, returnTime, setBy: 'conversation', requireNote: true, now }) };
     } else {
-      r = proposeSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, source: 'in_session', now });
+      r = proposeSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, returnTime, source: 'in_session', now });
     }
     if (r.outcome === 'set' || r.outcome === 'proposed') deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId })! });
-    return { outcome: r.outcome, state: r.state };
+    return { outcome: r.outcome, state: withReturnAt(r.state) };
   } catch (e) {
     if (e instanceof StateInputError) throw new ToolError(e.message);
     throw e;

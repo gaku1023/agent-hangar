@@ -23,7 +23,7 @@ describe('提案する', () => {
     const db = seed();
     expect(getSessionState(db, 's1')).toBeNull();
     const r = proposeSessionState(db, 'd', 's1', { ...paused, now: 100 });
-    expect(r).toEqual({ outcome: 'proposed', state: { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: { status: 'paused', note: '明日の朝 CPU の数字を見る', returnOn: '2026-10-02', source: 'in_session', at: 100 } } });
+    expect(r).toEqual({ outcome: 'proposed', state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: { status: 'paused', note: '明日の朝 CPU の数字を見る', returnOn: '2026-10-02', returnTime: null, source: 'in_session', at: 100 } } });
     expect(row(db)).toEqual({ status: null, note: null, return_on: null, set_by: null, set_at: null, candidate_status: 'paused', candidate_note: '明日の朝 CPU の数字を見る', candidate_return_on: '2026-10-02', candidate_source: 'in_session', candidate_at: 100, rejected_at: null });
     expect(lastSeq(db)).not.toBeNull();
   });
@@ -32,7 +32,7 @@ describe('提案する', () => {
     proposeSessionState(db, 'd', 's1', { ...paused, now: 100 });
     const r = proposeSessionState(db, 'd', 's1', { status: 'done', note: '直して main に入れた', returnOn: '2026-10-02', source: 'post_hoc', now: 200 });
     expect(r.outcome).toBe('proposed');
-    expect(r.state.candidate).toEqual({ status: 'done', note: '直して main に入れた', returnOn: null, source: 'post_hoc', at: 200 });
+    expect(r.state.candidate).toEqual({ status: 'done', note: '直して main に入れた', returnOn: null, returnTime: null, source: 'post_hoc', at: 200 });
   });
   it('状態が付いていれば、同じでも違っても提案は書かずに already_set', () => {
     const db = seed();
@@ -58,13 +58,13 @@ describe('会話で選ぶ・手で選ぶ', () => {
     const db = seed();
     proposeSessionState(db, 'd', 's1', { ...paused, now: 100 });
     const s = setSessionState(db, 'd', 's1', { status: 'done', note: '直した', setBy: 'conversation', now: 150 });
-    expect(s).toEqual({ status: 'done', note: '直した', returnOn: null, setBy: 'conversation', setAt: 150, candidate: null });
+    expect(s).toEqual({ status: 'done', note: '直した', returnOn: null, returnTime: null, setBy: 'conversation', setAt: 150, candidate: null });
   });
   it('手で選ぶ：Done と Archived は戻る日を持たず、Paused は戻る日が要る', () => {
     const db = seed();
     expect(setSessionState(db, 'd', 's1', { status: 'done', returnOn: '2026-10-02', setBy: 'user', now: 1 })).toMatchObject({ status: 'done', returnOn: null, setBy: 'user' });
     expect(setSessionState(db, 'd', 's1', { status: 'archived', setBy: 'user', now: 2 })).toMatchObject({ status: 'archived', returnOn: null });
-    expect(setSessionState(db, 'd', 's1', { status: 'paused', note: '', returnOn: '2026-10-02', setBy: 'user', now: 3 })).toEqual({ status: 'paused', note: null, returnOn: '2026-10-02', setBy: 'user', setAt: 3, candidate: null });
+    expect(setSessionState(db, 'd', 's1', { status: 'paused', note: '', returnOn: '2026-10-02', setBy: 'user', now: 3 })).toEqual({ status: 'paused', note: null, returnOn: '2026-10-02', returnTime: null, setBy: 'user', setAt: 3, candidate: null });
     expect(() => setSessionState(db, 'd', 's1', { status: 'paused', setBy: 'user' })).toThrow(new StateInputError('Paused には戻る日が要ります'));
   });
   it('Active に戻す：状態・理由・戻る日・提案を消し、rejected_at は残す', () => {
@@ -72,7 +72,7 @@ describe('会話で選ぶ・手で選ぶ', () => {
     proposeSessionState(db, 'd', 's1', { ...paused, now: 100 });
     rejectSessionState(db, 'd', 's1', 200);
     setSessionState(db, 'd', 's1', { status: 'paused', note: '見る', returnOn: '2026-10-02', setBy: 'user', now: 300 });
-    expect(setSessionState(db, 'd', 's1', { status: null, setBy: 'user', now: 400 })).toEqual({ status: null, note: null, returnOn: null, setBy: 'user', setAt: 400, candidate: null });
+    expect(setSessionState(db, 'd', 's1', { status: null, setBy: 'user', now: 400 })).toEqual({ status: null, note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: 400, candidate: null });
     expect(row(db)).toMatchObject({ rejected_at: 200, candidate_at: null });
   });
 });
@@ -82,7 +82,7 @@ describe('確定と却下', () => {
     const db = seed();
     proposeSessionState(db, 'd', 's1', { ...paused, now: 100 });
     const r = confirmSessionState(db, 'd', 's1', { returnOn: '2026-10-05', now: 200 });
-    expect(r).toEqual({ result: 'confirmed', state: { status: 'paused', note: '明日の朝 CPU の数字を見る', returnOn: '2026-10-05', setBy: 'user', setAt: 200, candidate: null } });
+    expect(r).toEqual({ result: 'confirmed', state: { status: 'paused', note: '明日の朝 CPU の数字を見る', returnOn: '2026-10-05', returnTime: null, setBy: 'user', setAt: 200, candidate: null } });
   });
   it('Done の提案の確定は戻る日を持たない', () => {
     const db = seed();
@@ -100,7 +100,7 @@ describe('確定と却下', () => {
   it('却下：提案を消して rejected_at を刻む', () => {
     const db = seed();
     proposeSessionState(db, 'd', 's1', { ...paused, now: 100 });
-    expect(rejectSessionState(db, 'd', 's1', 200)).toEqual({ result: 'rejected', state: { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null } });
+    expect(rejectSessionState(db, 'd', 's1', 200)).toEqual({ result: 'rejected', state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } });
     expect(row(db)).toMatchObject({ candidate_at: null, candidate_status: null, rejected_at: 200 });
   });
   it('提案が無ければ、確定も却下も not_candidate で何も書かない', () => {
@@ -246,5 +246,49 @@ describe('検査と読み方', () => {
     setSessionState(db, 'd', 's1', { status: 'done', setBy: 'user', now: 1 });
     db.prepare("update session_states set deleted_at = 9 where session_id = 's1'").run();
     expect(getSessionState(db, 's1')).toBeNull();
+  });
+});
+
+describe('戻る時刻', () => {
+  const timeRow = (db: Db) => db.prepare('select return_on, return_time, candidate_return_on, candidate_return_time from session_states where session_id = ?').get('s1');
+  it('Paused に時刻を添えると、日付とは別の列に残る。省けば null のまま', () => {
+    const db = seed();
+    expect(setSessionState(db, 'd', 's1', { status: 'paused', returnOn: '2026-10-05', returnTime: '13:30', setBy: 'user', now: 100 })).toMatchObject({ status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' });
+    expect(timeRow(db)).toEqual({ return_on: '2026-10-05', return_time: '13:30', candidate_return_on: null, candidate_return_time: null });
+    // 時刻を省いて付け直すと、前の時刻は残らない。
+    expect(setSessionState(db, 'd', 's1', { status: 'paused', returnOn: '2026-10-06', setBy: 'user', now: 200 })).toMatchObject({ returnOn: '2026-10-06', returnTime: null });
+    expect(timeRow(db)).toMatchObject({ return_on: '2026-10-06', return_time: null });
+  });
+  it('00:00〜23:59 の外や形の違う時刻は、何が悪いかを言って何も書かない', () => {
+    const db = seed();
+    for (const t of ['25:00', '24:00', '12:60', '9:05', '13時半']) {
+      expect(() => setSessionState(db, 'd', 's1', { status: 'paused', returnOn: '2026-10-05', returnTime: t, setBy: 'user' }), t).toThrow(new StateInputError(`戻る時刻は HH:MM の形で、00:00〜23:59 です（${t}）`));
+    }
+    expect(getSessionState(db, 's1')).toBeNull();
+  });
+  it('Done と Archived は時刻を捨てるが、形は先に検査する', () => {
+    const db = seed();
+    expect(setSessionState(db, 'd', 's1', { status: 'done', returnOn: '2026-10-05', returnTime: '13:30', setBy: 'user' })).toMatchObject({ status: 'done', returnOn: null, returnTime: null });
+    expect(() => setSessionState(db, 'd', 's1', { status: 'archived', returnTime: '25:00', setBy: 'user' })).toThrow(StateInputError);
+  });
+  it('提案も時刻を持ち、確定で状態へ写る', () => {
+    const db = seed();
+    expect(proposeSessionState(db, 'd', 's1', { ...paused, returnOn: '2026-10-05', returnTime: '13:30', now: 100 }).state.candidate).toMatchObject({ returnOn: '2026-10-05', returnTime: '13:30' });
+    expect(timeRow(db)).toEqual({ return_on: null, return_time: null, candidate_return_on: '2026-10-05', candidate_return_time: '13:30' });
+    expect(confirmSessionState(db, 'd', 's1', { now: 200 }).state).toMatchObject({ status: 'paused', returnOn: '2026-10-05', returnTime: '13:30', candidate: null });
+    expect(timeRow(db)).toEqual({ return_on: '2026-10-05', return_time: '13:30', candidate_return_on: null, candidate_return_time: null });
+  });
+  it('確定で日を変えたら、時刻は渡したものにする（渡さなければ時刻なし）', () => {
+    const db = seed();
+    proposeSessionState(db, 'd', 's1', { ...paused, returnOn: '2026-10-05', returnTime: '13:30', now: 100 });
+    expect(confirmSessionState(db, 'd', 's1', { returnOn: '2026-10-06', now: 200 }).state).toMatchObject({ returnOn: '2026-10-06', returnTime: null });
+    const db2 = seed();
+    proposeSessionState(db2, 'd', 's1', { ...paused, returnOn: '2026-10-05', returnTime: '13:30', now: 100 });
+    expect(confirmSessionState(db2, 'd', 's1', { returnOn: '2026-10-06', returnTime: '21:50', now: 200 }).state).toMatchObject({ returnOn: '2026-10-06', returnTime: '21:50' });
+  });
+  it('時刻を過ぎた提案も確定できる（過去かどうかはここでは見ない）', () => {
+    const db = seed();
+    proposeSessionState(db, 'd', 's1', { ...paused, returnOn: '2020-01-01', returnTime: '00:00', now: 100 });
+    expect(confirmSessionState(db, 'd', 's1').result).toBe('confirmed');
   });
 });

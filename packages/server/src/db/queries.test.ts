@@ -309,13 +309,13 @@ describe('セッションの状態', () => {
   it('行が無ければ null、あれば状態と提案を載せ、rejected_at は載せない', () => {
     expect(getSession(db, [], alphaId())!.state).toBeNull();
     proposeSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日 CPU を見る', returnOn: '2026-10-02', source: 'exit', now: 500 });
-    expect(getSession(db, [], alphaId())!.state).toEqual({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: { status: 'paused', note: '明日 CPU を見る', returnOn: '2026-10-02', source: 'exit', at: 500 } });
+    expect(getSession(db, [], alphaId())!.state).toEqual({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: { status: 'paused', note: '明日 CPU を見る', returnOn: '2026-10-02', returnTime: null, source: 'exit', at: 500 } });
     rejectSessionState(db, 'd', alphaId(), 600);
     const rejected = getSession(db, [], alphaId())!.state!;
     expect(rejected.candidate).toBeNull();
     expect(Object.keys(rejected)).not.toContain('rejectedAt');
     setSessionState(db, 'd', alphaId(), { status: 'done', note: '直した', setBy: 'conversation', now: 700 });
-    expect(listSessions(db, []).find((s) => s.id === alphaId())!.state).toEqual({ status: 'done', note: '直した', returnOn: null, setBy: 'conversation', setAt: 700, candidate: null });
+    expect(listSessions(db, []).find((s) => s.id === alphaId())!.state).toEqual({ status: 'done', note: '直した', returnOn: null, returnTime: null, setBy: 'conversation', setAt: 700, candidate: null });
   });
   it('状態を付けても一覧の件数と並びは変わらない', () => {
     const before = listSessions(db, []).map((s) => s.id);

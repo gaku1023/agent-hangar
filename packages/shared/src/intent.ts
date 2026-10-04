@@ -55,9 +55,9 @@ export type Intent =
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
   | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string } | { type: 'session.setMemo'; id: SessionId; text: string }
   // セッションの状態（Paused・Done・Archived）。status の null は Active に戻す。画面の正は後から届く session.upsert である。
-  | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string }
-  // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。
-  | { type: 'session.state.confirm'; id: SessionId; returnOn?: string } | { type: 'session.state.reject'; id: SessionId }
+  | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }
+  // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。returnTime はその日の時刻（HH:MM）で、returnOn と一緒のときだけ効く。
+  | { type: 'session.state.confirm'; id: SessionId; returnOn?: string; returnTime?: string } | { type: 'session.state.reject'; id: SessionId }
   // Paused の入力（B1）。from は開いた入口で、提案の「日を変える」から開いたときは根拠を下書きに入れる。
   | { type: 'session.pause.open'; id: SessionId; from: 'menu' | 'candidate' } | { type: 'session.pause.close' }
   // 入力待ちのセッションを順に開き、端末にフォーカスする。どれへ移るかはストアを見たランタイムが決める。

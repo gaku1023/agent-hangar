@@ -908,12 +908,13 @@ export function createApp(deps: AppDeps): Hono {
     if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
     const b = await readJson(c, BODY_LIMITS.todo);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
-    const body = (b.value ?? {}) as { status?: unknown; note?: unknown; returnOn?: unknown };
+    const body = (b.value ?? {}) as { status?: unknown; note?: unknown; returnOn?: unknown; returnTime?: unknown };
     if (body.status !== null && !(typeof body.status === 'string' && SESSION_STATUSES.has(body.status))) return c.json({ error: '状態は paused、done、archived か、Active に戻す null です' }, 400);
     if (body.note !== undefined && typeof body.note !== 'string') return c.json({ error: '理由は文字列です' }, 400);
     if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
+    if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: '戻る時刻は HH:MM の形の文字列です' }, 400);
     const status = body.status as SessionStatus | null;
-    return stateResult(c, id, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, setBy: 'user' }) }));
+    return stateResult(c, id, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' }) }));
   };
   api.put('/sessions/:id/state', (c) => putSessionState(c, c.req.param('id')));
   api.post('/sessions/:id/state/confirm', async (c) => {
@@ -921,9 +922,10 @@ export function createApp(deps: AppDeps): Hono {
     if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const body = (b.value ?? {}) as { returnOn?: unknown };
+    const body = (b.value ?? {}) as { returnOn?: unknown; returnTime?: unknown };
     if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
-    return stateResult(c, id, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string }));
+    if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: '戻る時刻は HH:MM の形の文字列です' }, 400);
+    return stateResult(c, id, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }));
   });
   api.post('/sessions/:id/state/reject', (c) => {
     const id = c.req.param('id');
