@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 const rowsCssPath = ['packages/ui/src/styles/rows.css', 'src/styles/rows.css'].map((r) => `${process.cwd()}/${r}`).find(existsSync);
 const rowsCss = readFileSync(rowsCssPath!, 'utf8');
 
-const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, stateLabel: '完了', summaryState: null, model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', memo: null, hasTranscript: true, cost: '', runId: null, transcript: 'present', state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null });
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, stateLabel: '完了', summaryState: null, model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', memo: null, hasTranscript: true, cost: '', runId: null, transcript: 'present', state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, candidate: null, setBy: null });
 
 describe('SessionRows', () => {
   it('行のクリックと Enter で session.open', () => {
@@ -47,7 +47,7 @@ describe('SessionRows', () => {
 
 const p3Row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({
   id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high',
-  when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over,
+  when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, candidate: null, setBy: null, ...over,
 });
 
 describe('SessionRows のフェーズ 3', () => {
@@ -212,7 +212,7 @@ describe('カーソルの行を見える位置へ運ぶ', () => {
 });
 
 describe('SessionRows（2 段の行）', () => {
-  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', memo: 'スワイプは実機で', hasTranscript: true, transcript: 'present', cost: '$1.82', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over });
+  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', memo: 'スワイプは実機で', hasTranscript: true, transcript: 'present', cost: '$1.82', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, candidate: null, setBy: null, ...over });
   const rowOf = (name: string) => screen.getByText(name).closest('[role="row"]') as HTMLElement;
 
   it('最近は 1 段目の名前の右にプロジェクト名、2 段目に要約、右は時刻だけ', () => {
@@ -432,7 +432,7 @@ describe('SessionRows の本文の期限', () => {
 });
 
 /** 状態の試験の行。Task 13 の提案の試験も使う。 */
-const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over });
+const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, candidate: null, setBy: null, ...over });
 const mount = (rows: SessionRowProps[], onIntent = vi.fn()) => {
   render(<IntentRoot onIntent={onIntent}><SessionRows rows={rows} height={400} variant="project" /></IntentRoot>);
   return onIntent;
@@ -450,7 +450,7 @@ describe('セッションの状態の札と「⋯」', () => {
       sr('b', { live: 'idle' }),
       sr('c', { state: 'done', setBy: 'conversation' }),
       sr('d', { state: 'archived', setBy: 'user' }),
-      sr('e', { state: 'paused', returnOn: '2026-09-29', overdueDays: 2, summaryState: { label: '済んだ', tone: null } }),
+      sr('e', { state: 'paused', returnOn: '2026-09-29', overdueDays: 2, returnDue: true, summaryState: { label: '済んだ', tone: null } }),
       sr('f', { state: 'paused', returnOn: '2026-10-02', overdueDays: null }),
     ]);
     expect(screen.getByText('入力待ち')).toHaveClass('row-live');
@@ -476,12 +476,12 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(rowOf('名前 e').querySelector('.row-sub > .row-state')).toHaveTextContent('済んだ');
   });
   it('戻る日が無い Paused の行は、時刻の列に塗りの「日付なし」を出す', () => {
-    mount([sr('a', { state: 'paused', returnOn: null, overdueDays: null })]);
+    mount([sr('a', { state: 'paused', returnOn: null, overdueDays: null, returnDue: true })]);
     expect(rowOf('名前 a').querySelector('.row-time')).toHaveTextContent('日付なし');
     expect(screen.getByText('日付なし')).toHaveAttribute('data-due', 'true');
   });
   it('提案のある行は Active の札ではなく提案の札を出す', () => {
-    mount([sr('a', { candidate: { status: 'done', note: '直した', returnOn: null, source: 'in_session', ago: '1 時間前' } })]);
+    mount([sr('a', { candidate: { status: 'done', note: '直した', returnOn: null, returnTime: null, source: 'in_session', ago: '1 時間前' } })]);
     const col = rowOf('名前 a').querySelector('.row-status')!;
     expect(col.querySelector('.row-sq')).toBeNull();
     expect(col).toHaveTextContent('Done？');
@@ -572,7 +572,7 @@ describe('セッションの状態の札と「⋯」', () => {
 });
 
 describe('提案の札とポップ（Q3＋Q1）', () => {
-  const cand = { status: 'paused' as const, note: '明日の朝、CPU の数字を確かめる', returnOn: '2026-10-02', source: 'exit' as const, ago: '12 分前' };
+  const cand = { status: 'paused' as const, note: '明日の朝、CPU の数字を確かめる', returnOn: '2026-10-02', returnTime: null, source: 'exit' as const, ago: '12 分前' };
   it('枠だけの札を押すと根拠・出どころ・時刻のポップが開き、確定・日を変える・却下を選べる。行は開かない', () => {
     const onIntent = mount([sr('a', { candidate: cand })]);
     // 札は状態の列に短い語で置き、言い切りはポインタを乗せると読める（F1）。

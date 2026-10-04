@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent } from 'react';
-import { isReturnOn, STATE_NOTE_MAX } from '@agent-hangar/shared';
+import { isReturnOn, isReturnTime, STATE_NOTE_MAX } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { PauseChoice, PauseProps } from '../presenters/pause.ts';
 import { isComposing } from './ime.ts';
@@ -14,6 +14,7 @@ const tidy = (s: string) => s.replace(/\s*[\r\n]+\s*/g, ' ').trim();
  * 札は打鍵 1〜5 でも選べる。理由の欄と日付の欄で打った数字はその欄の文字なので、横取りしない。
  * 入力は送るまで外へ出ないので、Mediator ではなくここに持つ（PromoteDialog と同じ）。
  * 提案から開いて理由を変えずに送れば、提案の確定に日を添える。変えたら手で選んだことにする（set_by は user）。
+ * 時刻の欄は任意で、空なら「その日のうち」になる。入れたときだけ戻る時刻として送る。
  */
 export function PauseDialog(props: PauseProps) {
   const emit = useEmit();
@@ -21,6 +22,9 @@ export function PauseDialog(props: PauseProps) {
   const [choice, setChoice] = useState<PauseChoice['key']>(initial);
   const [picked, setPicked] = useState(initial === 'pick' ? props.initialReturnOn : '');
   const [note, setNote] = useState(props.draft);
+  const [time, setTime] = useState(props.initialReturnTime);
+  // 空と、打ちかけで形になっていない時刻は、時刻なしとして送る。
+  const returnTime = isReturnTime(time) ? { returnTime: time } : {};
   const returnOn = choice === 'pick' ? (isReturnOn(picked) ? picked : null) : props.choices.find((c) => c.key === choice)?.returnOn ?? null;
   // 字数は文字単位で数える。サーバと同じ数え方にしないと、通るはずの理由が 400 で返る。
   const text = tidy(note);
@@ -31,10 +35,10 @@ export function PauseDialog(props: PauseProps) {
   const submit = () => {
     if (!canSubmit || returnOn === null) return;
     if (props.from === 'candidate' && text === tidy(props.candidateNote ?? '')) {
-      emit({ type: 'session.state.confirm', id: props.sessionId, returnOn });
+      emit({ type: 'session.state.confirm', id: props.sessionId, returnOn, ...returnTime });
       return;
     }
-    emit({ type: 'session.state.set', id: props.sessionId, status: 'paused', returnOn, ...(text ? { note: text } : {}) });
+    emit({ type: 'session.state.set', id: props.sessionId, status: 'paused', returnOn, ...returnTime, ...(text ? { note: text } : {}) });
   };
 
   // 札の打鍵。欄の中の打鍵と、修飾の付いた打鍵は扱わない。
@@ -77,6 +81,10 @@ export function PauseDialog(props: PauseProps) {
           <input type="date" className="input" min={props.today} value={picked} onChange={(e) => setPicked(e.target.value)} onKeyDown={onFieldKey} />
         </label>
       )}
+      <label className="field pause-time">時刻（任意）
+        <input type="time" className="input" aria-label="時刻（任意）" value={time} onChange={(e) => setTime(e.target.value)} onKeyDown={onFieldKey} />
+        <span className="faint">空なら、その日のうち</span>
+      </label>
       <label className="field">何を確かめに戻るか
         <input className="input" aria-label="理由" value={note} placeholder="明日の朝、本番の CPU の数字を見る" onChange={(e) => setNote(e.target.value)} onKeyDown={onFieldKey} />
       </label>

@@ -1415,6 +1415,8 @@ describe('セッションの状態', () => {
       intent({ type: 'session.state.confirm', id: 's1' }),
       intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05' }),
       intent({ type: 'session.state.reject', id: 's1' }),
+      intent({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' }),
+      intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05', returnTime: '21:50' }),
     ]);
     expect(r.effects).toEqual([
       { kind: 'api.setSessionState', id: 's1', body: { status: 'done' } },
@@ -1423,6 +1425,8 @@ describe('セッションの状態', () => {
       { kind: 'api.confirmSessionState', id: 's1', body: {} },
       { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05' } },
       { kind: 'api.rejectSessionState', id: 's1' },
+      { kind: 'api.setSessionState', id: 's1', body: { status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' } },
+      { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05', returnTime: '21:50' } },
     ]);
     expect(r.state).toEqual(initialState());
   });

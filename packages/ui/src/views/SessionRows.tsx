@@ -50,7 +50,7 @@ function candidatePop(r: SessionRowProps, emit: Emit, onClose: (how: MenuCloseHo
   ];
   const head = (
     <>
-      <b className="menu-head-q">{c.status === 'done' ? 'Done にしますか' : `Paused · ${c.returnOn ? returnOnLabel(c.returnOn, null) : '日付なし'} にしますか`}</b>
+      <b className="menu-head-q">{c.status === 'done' ? 'Done にしますか' : `Paused · ${c.returnOn ? returnOnLabel(c.returnOn, null, c.returnTime) : '日付なし'} にしますか`}</b>
       <span>{c.note ?? '根拠は書かれていません'}</span>
       <small>出どころ：{CANDIDATE_SOURCE_LABEL[c.source]} · {c.ago}</small>
     </>
@@ -302,11 +302,12 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
 
   // 時刻の列（F1）。幅を決めて右に寄せ、行ごとに位置がずれないようにする。
   // Paused の行は戻る日を出す（その行にとって意味のある日だから）。今日と過ぎたものと、戻る日が無いもの（日付なし）は塗る。
+  // 時刻つきは時刻も出し、当日でも時刻の前は塗らない（塗るかどうかは presenters/row.ts の returnDue が決める）。
   // 最後の活動はポインタを乗せると読める。
   const time = (r: SessionRowProps) => (
     <span className="row-time">
       {r.state === 'paused'
-        ? <span className="row-return" data-due={r.overdueDays !== null || r.returnOn === null ? 'true' : undefined} title={`戻る日 · 最後の活動 ${r.when}`}>{returnOnLabel(r.returnOn, r.overdueDays)}</span>
+        ? <span className="row-return" data-due={r.returnDue ? 'true' : undefined} title={`${r.returnTime ? `戻る時刻 ${r.returnTime}` : '戻る日'} · 最後の活動 ${r.when}`}>{returnOnLabel(r.returnOn, r.overdueDays, r.returnTime)}</span>
         : <RelativeTime label={r.when} abs={r.whenAbs} />}
     </span>
   );

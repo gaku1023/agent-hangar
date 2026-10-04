@@ -9,10 +9,10 @@ import { presentHome } from './home.ts';
 const NOW = new Date(2026, 9, 2, 9, 0).getTime();
 const H = 3_600_000;
 const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null, ...o });
+const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
 const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, state: null, ...over });
 const paused = (id: string, hoursAgo: number, returnOn: string | null, over: Partial<SessionDto> = {}) => dto(id, hoursAgo, { state: st({ status: 'paused', note: `${id} を確かめる`, returnOn, setBy: 'user', setAt: NOW - hoursAgo * H }), ...over });
-const proposed = (id: string, status: 'paused' | 'done', at: number, returnOn: string | null = null, over: Partial<SessionDto> = {}) => dto(id, 3, { state: st({ candidate: { status, note: '直した', returnOn, source: 'in_session', at } }), ...over });
+const proposed = (id: string, status: 'paused' | 'done', at: number, returnOn: string | null = null, over: Partial<SessionDto> = {}) => dto(id, 3, { state: st({ candidate: { status, note: '直した', returnOn, returnTime: null, source: 'in_session', at } }), ...over });
 const todo = (id: string, at: number, projectId = 'alpha'): TodoDto => ({ id, projectId, text: `やる ${id}`, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: { sessionId: null, note: '片付いた', at } });
 function storeOf(list: SessionDto[], todos: TodoDto[] = []): Store {
   const s = initialStore();
@@ -29,8 +29,8 @@ describe('presentHome の今日戻る（C1）', () => {
     const h = presentHome(initialState(), store, NOW);
     expect(h.attention.map((a) => a.id)).toEqual(['w']);
     expect(h.returning).toEqual([
-      { id: 'e2e', name: 'e2e', projectName: 'alpha', reason: 'e2e を確かめる', returnOn: '2026-09-29', overdueDays: 3 },
-      { id: 'sync', name: 'sync', projectName: 'alpha', reason: 'sync を確かめる', returnOn: '2026-10-02', overdueDays: 0 },
+      { id: 'e2e', name: 'e2e', projectName: 'alpha', reason: 'e2e を確かめる', returnOn: '2026-09-29', returnTime: null, overdueDays: 3, due: true },
+      { id: 'sync', name: 'sync', projectName: 'alpha', reason: 'sync を確かめる', returnOn: '2026-10-02', returnTime: null, overdueDays: 0, due: true },
     ]);
   });
   it('札に出したものは最近から外す。今日戻るは生きたセッションではないので、idle は妨げない', () => {
@@ -51,7 +51,7 @@ describe('presentHome の今日戻る（C1）', () => {
     expect(h.returning.map((r) => [r.id, r.returnOn, r.overdueDays])).toEqual([['none', null, null], ['broken', null, null], ['ok', '2026-10-01', 1]]);
   });
   it('プロジェクトの無いセッションと消えたプロジェクトを指すセッションは、プロジェクト名を null にし、理由が無ければ決まりの文を出す', () => {
-    const noNote = dto('n', 7, { projectId: null, state: st({ status: 'paused', returnOn: '2026-10-02', setBy: 'user', setAt: NOW }) });
+    const noNote = dto('n', 7, { projectId: null, state: st({ status: 'paused', returnOn: '2026-10-02', returnTime: null, setBy: 'user', setAt: NOW }) });
     const h = presentHome(initialState(), storeOf([noNote, paused('g', 6, '2026-10-02', { projectId: 'gone' })]), NOW);
     expect(h.returning.map((r) => [r.id, r.projectName, r.reason])).toEqual([['g', null, 'g を確かめる'], ['n', null, '理由は書かれていません']]);
   });

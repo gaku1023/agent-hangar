@@ -12,7 +12,7 @@ import { SettingsScreen } from './SettingsScreen.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
 import type { CloudUsageProps } from '../presenters/cloudUsage.ts';
 
-const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null });
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, candidate: null, setBy: null });
 // SessionsProps に増えた分。この節が見るのはタブとチップ以外なので、空にして平らな一覧を描かせる。
 const extra = { tabs: [], tab: 'all' as const, sections: null, tokens: [], hints: [], pager: null, statusColumn: true };
 

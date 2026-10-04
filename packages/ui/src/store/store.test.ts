@@ -23,7 +23,7 @@ describe('store', () => {
   });
   it('session.upsert は state も丸ごと差し替える（状態の操作の画面の正）', () => {
     let s = applyBootstrap(initialStore(), boot);
-    const state = { status: 'paused' as const, note: '明日見る', returnOn: '2026-10-02', setBy: 'user' as const, setAt: 1, candidate: null };
+    const state = { status: 'paused' as const, note: '明日見る', returnOn: '2026-10-02', returnTime: null, setBy: 'user' as const, setAt: 1, candidate: null };
     s = applyServerEvent(s, { type: 'session.upsert', session: { ...session('s1', 'u1'), state } });
     expect(s.sessions.s1?.state).toEqual(state);
     s = applyServerEvent(s, { type: 'session.upsert', session: session('s1', 'u1') });

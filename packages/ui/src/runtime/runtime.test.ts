@@ -1474,7 +1474,7 @@ describe('殻の操作（ランタイム）', () => {
 });
 
 describe('セッションの状態', () => {
-  const NONE = { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null };
+  const NONE = { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null };
   it('状態の操作をそのまま API へ渡し、失敗はトーストにする', async () => {
     const setSessionState = vi.fn(async () => { throw new Error('Paused には戻る日が要ります'); });
     const confirmSessionState = vi.fn(async () => ({ state: NONE }));

@@ -176,12 +176,12 @@ function ConfirmSection(props: { cards: ConfirmCard[] }) {
 
 /** 戻る日の札の文言。行の戻る日の札（第 1 段の returnOnLabel）と同じ「今日」「N 日過ぎ」にし、日が読めなければ「日付なし」。 */
 function returnWhen(r: ReturnCard): string {
-  return r.returnOn === null ? '日付なし' : returnOnLabel(r.returnOn, r.overdueDays);
+  return r.returnOn === null ? '日付なし' : returnOnLabel(r.returnOn, r.overdueDays, r.returnTime);
 }
 
 /**
  * 今日戻るの札（C1）。入力待ちの札と同じ形で、縁を戻る日の黄土にする。
- * 当日と過ぎたものしか出ないので、戻る日の札はいつも塗りつぶす。
+ * 戻る日の札は、戻る時点を過ぎたものを塗りつぶす。当日の時刻つきは時刻の前から出すので、その間は文字だけにする。
  * 開くほかに、その場で戻る日を変えるか Done にできる。決めるまで毎朝ここに残るからである。
  */
 function ReturnCardView(props: { card: ReturnCard }) {
@@ -189,7 +189,7 @@ function ReturnCardView(props: { card: ReturnCard }) {
   const r = props.card;
   return (
     <div className="ask-card return-card">
-      <span className="return-when">{returnWhen(r)}</span>
+      <span className="return-when" data-due={r.due ? 'true' : undefined}>{returnWhen(r)}</span>
       <div className="ask-body">
         <div className="ask-title"><b>{r.name}</b> <span className="faint">· {r.projectName ?? '未分類'} · 今日戻る</span></div>
         <div className="ask-q">{r.reason}</div>

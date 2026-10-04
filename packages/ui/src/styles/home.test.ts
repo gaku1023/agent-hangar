@@ -19,7 +19,9 @@ describe('ホームの細部（試作 home-lists）', () => {
     expect(css).toMatch(/\.more-line \{[^}]*color: var\(--cand\);[^}]*cursor: pointer;/);
   });
   it('今日戻るの札は戻る日の黄土で塗り、提案の札は候補の色の枠だけにする（C1 と Q3）', () => {
-    expect(css).toMatch(/\.return-when \{[^}]*color: var\(--surface\);[^}]*background: var\(--st-paused\);/);
+    // 戻る時点を過ぎたものだけを塗る。当日の時刻の前のものは、枠と黄土の文字だけにする。
+    expect(css).toMatch(/\.return-when\[data-due='true'\] \{[^}]*color: var\(--surface\);[^}]*background: var\(--st-paused\);/);
+    expect(css).toMatch(/\.return-when \{[^}]*color: var\(--st-paused\);[^}]*box-shadow: inset 0 0 0 1px var\(--st-paused\);/);
     expect(css).toMatch(/\.home-cand \{[^}]*color: var\(--cand\);[^}]*box-shadow: inset 0 0 0 1px var\(--cand\);/);
   });
 });

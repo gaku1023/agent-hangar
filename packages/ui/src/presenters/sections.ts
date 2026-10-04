@@ -1,4 +1,4 @@
-import { isReturnOn, localDate, type StatusFilter } from '@agent-hangar/shared';
+import { isReturnOn, isReturnTime, localDate, type StatusFilter } from '@agent-hangar/shared';
 import type { SessionRowProps } from './row.ts';
 
 /**
@@ -65,8 +65,12 @@ function sectionOf(r: SessionRowProps, kind: 'project' | 'sessions', today: stri
   return r.state === 'done' ? 'done' : 'active';
 }
 
-/** 今日戻るの並びの鍵。欠けた日と壊れた日は空にして先頭へ置く（Home も同じ並びに使い回す）。 */
-export const returnKey = (r: { returnOn: string | null }) => (r.returnOn !== null && isReturnOn(r.returnOn) ? r.returnOn : '');
+/**
+ * 今日戻るの並びの鍵。欠けた日と壊れた日は空にして先頭へ置く（Home も同じ並びに使い回す）。
+ * 同じ日の中は時刻の早い順にし、時刻なし（その日のうち）はその日の最後に置く（24:00 は時刻として通らない値なので、どの時刻よりも後ろに並ぶ）。
+ */
+export const returnKey = (r: { returnOn: string | null; returnTime?: string | null }) =>
+  (r.returnOn !== null && isReturnOn(r.returnOn) ? `${r.returnOn} ${r.returnTime && isReturnTime(r.returnTime) ? r.returnTime : '24:00'}` : '');
 
 /** 件数の桁を区切る（1,221）。 */
 const num = (n: number) => n.toLocaleString('en-US');

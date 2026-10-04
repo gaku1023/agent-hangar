@@ -13,10 +13,10 @@ const H = 3_600_000;
 const DAY = 24 * H;
 const IMPORT_AT = new Date(2026, 9, 1, 8, 0).getTime();
 
-const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: id, oneLiner: '', projectName: 'agent-hangar', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '', whenAbs: '', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over });
+const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: id, oneLiner: '', projectName: 'agent-hangar', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '', whenAbs: '', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, candidate: null, setBy: null, ...over });
 const paused = (id: string, returnOn: string | null, over: Partial<SessionRowProps> = {}) => row(id, { state: 'paused', returnOn, setBy: 'user', ...over });
 const done = (id: string, over: Partial<SessionRowProps> = {}) => row(id, { state: 'done', setBy: 'import', ...over });
-const cand = (status: 'paused' | 'done') => ({ status, note: '直した', returnOn: status === 'paused' ? '2026-10-03' : null, source: 'in_session' as const, ago: '1 時間前' });
+const cand = (status: 'paused' | 'done') => ({ status, note: '直した', returnOn: status === 'paused' ? '2026-10-03' : null, returnTime: null, source: 'in_session' as const, ago: '1 時間前' });
 /** 見出しを「# id 件数 [ボタン→先]」、行を id にして並びを読む。 */
 const shape = (items: ListItem[]) => items.map((i) => (i.kind === 'head' ? `# ${i.id} ${i.count}${i.more ? ` [${i.more.label}→${i.more.target}]` : ''}` : i.row.id));
 const project = (rows: SessionRowProps[], expanded: string[] = [], now = NOW) => shape(sectionRows(rows, 'project', { now, doneHead: DONE_HEAD, expanded: new Set(expanded) }));
@@ -72,8 +72,8 @@ describe('戻る日が壊れた Paused（Ruling 2A）', () => {
     for (const r of rows.slice(1)) expect(returnOnLabel(r.returnOn, r.overdueDays)).toBe('日付なし');
     expect(returnOnLabel(rows[0]!.returnOn, 1)).toBe('1 日過ぎ');
   });
-  it('returnKey は正しい戻る日をそのまま、欠けた日と壊れた日を空にする（Home が使い回す）', () => {
-    expect(returnKey(paused('a', '2026-10-05'))).toBe('2026-10-05');
+  it('returnKey は正しい戻る日に時刻（無ければその日の最後）を添え、欠けた日と壊れた日を空にする（Home が使い回す）', () => {
+    expect(returnKey(paused('a', '2026-10-05'))).toBe('2026-10-05 24:00');
     expect(returnKey(paused('b', null))).toBe('');
     expect(returnKey(paused('c', 'いつか'))).toBe('');
     expect(returnKey(paused('d', '2026-02-30'))).toBe('');
@@ -132,7 +132,7 @@ describe('matchesStatus（タブの絞り込み）', () => {
 });
 
 describe('sortForSections', () => {
-  const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null, ...o });
+  const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
   const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: NOW - H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, state: null, ...over });
   // 確定した行や手で Done にした行は、最後に動いた時刻が古くても Done の節の先頭に来る。畳んだ中に消えないように。
   it('Done の行は Done にした時刻の新しい順、導入時の一括（同じ時刻）の中は最後に動いた時刻の新しい順', () => {
@@ -152,12 +152,12 @@ describe('sortForSections', () => {
 });
 
 describe('presentProject の節（P3）', () => {
-  const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null, ...o });
+  const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
   const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: NOW - H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, state: null, ...over });
   const alpha: ProjectDto = { id: 'alpha', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 };
   const storeOf = (list: SessionDto[]): Store => { const s = initialStore(); s.bootstrapped = true; s.projects = { alpha }; s.sessions = Object.fromEntries(list.map((x) => [x.id, x])); return s; };
   const imported = (id: string, daysAgo: number) => dto(id, { lastActivityAt: NOW - daysAgo * DAY, state: st({ status: 'done', setBy: 'import', setAt: IMPORT_AT }) });
-  const proposedNfd = dto('nfd', { lastActivityAt: NOW - 5 * DAY, state: st({ candidate: { status: 'done', note: '直して push した', returnOn: null, source: 'post_hoc', at: NOW - H } }) });
+  const proposedNfd = dto('nfd', { lastActivityAt: NOW - 5 * DAY, state: st({ candidate: { status: 'done', note: '直して push した', returnOn: null, returnTime: null, source: 'post_hoc', at: NOW - H } }) });
   const list = [imported('cpu', 1), imported('resp', 2), imported('ux', 3), imported('old', 6), proposedNfd];
 
   // scenes.html の 5 番目の場面。畳んだ Done の中へ消えないこと。

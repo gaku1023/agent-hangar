@@ -591,7 +591,7 @@ describe('presentSessions', () => {
     expect(r.allCount).toBe(3);
     expect(r.conditions).toEqual(['『索引』', '入力待ち', '7 日', 'alpha', 'src/a.ts']);
     // 見出しの件数は「すべて」のタブと同じ値で、Archived を除く。
-    const archived = session('s9', { state: { status: 'archived', note: null, returnOn: null, setBy: 'import', setAt: 1, candidate: null } });
+    const archived = session('s9', { state: { status: 'archived', note: null, returnOn: null, returnTime: null, setBy: 'import', setAt: 1, candidate: null } });
     const withArchived = presentSessions(initialState(), { ...store, sessions: { ...store.sessions, s9: archived } }, NOW);
     expect(withArchived.allCount).toBe(3);
     expect(withArchived.tabs.find((t) => t.tab === 'all')!.count).toBe('3');
@@ -1582,21 +1582,21 @@ describe('presentSessionRow のセッションの状態', () => {
     expect(pick(withState(null))).toEqual(none);
   });
   it('Paused は戻る日と過ぎた日数を持ち、Done と Archived は戻る日を持たない', () => {
-    expect(pick(withState({ status: 'paused', note: '見る', returnOn: addDays(today, -2), setBy: 'user', setAt: 1, candidate: null }))).toEqual({ state: 'paused', returnOn: addDays(today, -2), overdueDays: 2, candidate: null, setBy: 'user' });
-    expect(pick(withState({ status: 'paused', note: null, returnOn: addDays(today, 3), setBy: 'user', setAt: 1, candidate: null })).overdueDays).toBeNull();
-    expect(pick(withState({ status: 'done', note: null, returnOn: '2026-10-02', setBy: 'conversation', setAt: 1, candidate: null }))).toEqual({ state: 'done', returnOn: null, overdueDays: null, candidate: null, setBy: 'conversation' });
-    expect(pick(withState({ status: 'archived', note: null, returnOn: null, setBy: 'import', setAt: 1, candidate: null })).state).toBe('archived');
+    expect(pick(withState({ status: 'paused', note: '見る', returnOn: addDays(today, -2), returnTime: null, setBy: 'user', setAt: 1, candidate: null }))).toEqual({ state: 'paused', returnOn: addDays(today, -2), overdueDays: 2, candidate: null, setBy: 'user' });
+    expect(pick(withState({ status: 'paused', note: null, returnOn: addDays(today, 3), returnTime: null, setBy: 'user', setAt: 1, candidate: null })).overdueDays).toBeNull();
+    expect(pick(withState({ status: 'done', note: null, returnOn: '2026-10-02', returnTime: null, setBy: 'conversation', setAt: 1, candidate: null }))).toEqual({ state: 'done', returnOn: null, overdueDays: null, candidate: null, setBy: 'conversation' });
+    expect(pick(withState({ status: 'archived', note: null, returnOn: null, returnTime: null, setBy: 'import', setAt: 1, candidate: null })).state).toBe('archived');
   });
   // 同期や古い端末から、戻る日が欠けた・暦に無い・形の違う Paused が届く（Ruling 2A）。undefined や壊れた文字列を行に流さず null にする。
   it('Paused の戻る日が欠けた・暦に無い・形が違うときは、returnOn を null にして Paused のまま読む', () => {
     for (const bad of [null, '2026-02-30', 'いつか', '']) {
-      expect(pick(withState({ status: 'paused', note: null, returnOn: bad, setBy: 'user', setAt: 1, candidate: null })), String(bad)).toEqual({ state: 'paused', returnOn: null, overdueDays: null, candidate: null, setBy: 'user' });
+      expect(pick(withState({ status: 'paused', note: null, returnOn: bad, returnTime: null, setBy: 'user', setAt: 1, candidate: null })), String(bad)).toEqual({ state: 'paused', returnOn: null, overdueDays: null, candidate: null, setBy: 'user' });
     }
-    expect(pick(withState({ status: 'paused', note: null, returnOn: undefined as unknown as null, setBy: 'user', setAt: 1, candidate: null })).returnOn).toBeNull();
+    expect(pick(withState({ status: 'paused', note: null, returnOn: undefined as unknown as null, returnTime: null, setBy: 'user', setAt: 1, candidate: null })).returnOn).toBeNull();
   });
   it('提案は経過時間を添える', () => {
-    const r = pick(withState({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: { status: 'done', note: '直した', returnOn: null, source: 'post_hoc', at: NOW - 12 * 60_000 } }));
-    expect(r).toEqual({ state: null, returnOn: null, overdueDays: null, setBy: null, candidate: { status: 'done', note: '直した', returnOn: null, source: 'post_hoc', ago: '12 分前' } });
+    const r = pick(withState({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: { status: 'done', note: '直した', returnOn: null, returnTime: null, source: 'post_hoc', at: NOW - 12 * 60_000 } }));
+    expect(r).toEqual({ state: null, returnOn: null, overdueDays: null, setBy: null, candidate: { status: 'done', note: '直した', returnOn: null, returnTime: null, source: 'post_hoc', ago: '12 分前' } });
   });
 });
 
