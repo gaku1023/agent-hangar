@@ -5,7 +5,7 @@ import type { State } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { presentHome } from './home.ts';
 import { presentPause } from './pause.ts';
-import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
+import { candidateLabel, presentSessionRow, returnOnLabel, returnOnRowLabel } from './row.ts';
 import { returnKey } from './sections.ts';
 
 /** 戻る時刻（HH:MM）つきの Paused。2026-10-05（月）の 12:00 を今にする。 */
@@ -111,5 +111,16 @@ describe('presentPause の時刻', () => {
   it('提案から開くと、提案の時刻を入れておく', () => {
     const s = dto('s', 1, st({ candidate: { status: 'paused', note: 'n', returnOn: '2026-10-06', returnTime: '09:00', source: 'in_session', at: 1 } }));
     expect(presentPause(open('candidate'), storeOf([s]), NOW)).toMatchObject({ initialReturnOn: '2026-10-06', initialReturnTime: '09:00', candidateReturnTime: '09:00' });
+  });
+});
+
+describe('returnOnRowLabel（行の時刻の列は 72px）', () => {
+  it('先の日の時刻つきは曜日を省いて列に収める。ほかは returnOnLabel と同じ', () => {
+    expect(returnOnRowLabel('2026-10-06', null, '13:30')).toBe('10/6 13:30');
+    expect(returnOnRowLabel('2026-12-31', null, '13:30')).toBe('12/31 13:30');
+    expect(returnOnRowLabel('2026-10-06', null, null)).toBe('10/6（火）');
+    expect(returnOnRowLabel('2026-10-05', 0, '13:30')).toBe('今日 13:30');
+    expect(returnOnRowLabel('2026-10-02', 3, '13:30')).toBe('3 日過ぎ');
+    expect(returnOnRowLabel(null, null, '13:30')).toBe('日付なし');
   });
 });

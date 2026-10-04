@@ -119,6 +119,15 @@ export function returnOnLabel(returnOn: string | null, overdue: number | null, r
   return `${m}/${d}（${WEEKDAY[new Date(Date.UTC(y!, m! - 1, d!)).getUTCDay()]}）${time ?? ''}`;
 }
 
+/**
+ * 行の時刻の列に置く戻る日の札の文言。列は 72px なので、先の日の時刻つきだけ曜日を省いて「10/6 13:30」にする。
+ * 省いた曜日は、ポインタを乗せたときの説明（returnOnLabel）で読める。
+ */
+export function returnOnRowLabel(returnOn: string | null, overdue: number | null, returnTime: string | null): string {
+  const full = returnOnLabel(returnOn, overdue, returnTime);
+  return overdue === null && returnTime !== null && isReturnTime(returnTime) ? full.replace(/（.）/, ' ') : full;
+}
+
 /** 行の状態の列に置く提案の札の語（F1）。列は 62px なので短く言い、言い切り（candidateLabel）はポインタを乗せると読める。 */
 export function candidateShortLabel(c: { status: 'paused' | 'done' }): string {
   return c.status === 'done' ? 'Done？' : 'Paused？';

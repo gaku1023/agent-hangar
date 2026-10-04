@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { Intent, SessionStatus, StatusFilter } from '@agent-hangar/shared';
 import { useEmit, type Emit } from '../intent/chain.tsx';
-import { ACTIVE_LABEL, CANDIDATE_SOURCE_LABEL, candidateLabel, candidateShortLabel, returnOnLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
+import { ACTIVE_LABEL, CANDIDATE_SOURCE_LABEL, candidateLabel, candidateShortLabel, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import type { ListItem, SectionId } from '../presenters/sections.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { MenuButton, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
@@ -307,7 +307,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const time = (r: SessionRowProps) => (
     <span className="row-time">
       {r.state === 'paused'
-        ? <span className="row-return" data-due={r.returnDue ? 'true' : undefined} title={`${r.returnTime ? `戻る時刻 ${r.returnTime}` : '戻る日'} · 最後の活動 ${r.when}`}>{returnOnLabel(r.returnOn, r.overdueDays, r.returnTime)}</span>
+        ? <span className="row-return" data-due={r.returnDue ? 'true' : undefined} title={`${r.returnTime ? `戻る時刻 ${returnOnLabel(r.returnOn, r.overdueDays, r.returnTime)}` : '戻る日'} · 最後の活動 ${r.when}`}>{returnOnRowLabel(r.returnOn, r.overdueDays, r.returnTime)}</span>
         : <RelativeTime label={r.when} abs={r.whenAbs} />}
     </span>
   );

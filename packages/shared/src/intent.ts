@@ -110,6 +110,8 @@ export type Intent =
   // 窓が背面にあるとき、入力待ちを OS やブラウザの通知で知らせるか。
   // 受け取るにするときは許可を求める。
   | { type: 'notify.set'; on: boolean }
+  // 戻る時刻を過ぎた知らせの札を閉じる。
+  | { type: 'return.toast.dismiss'; id: SessionId }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'conn.retry' }
   | { type: 'retention.dismiss' }
