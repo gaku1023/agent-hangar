@@ -12,7 +12,7 @@ import { SessionsScreen } from './SessionsScreen.tsx';
 const styles = path.join(path.dirname(fileURLToPath(import.meta.url)), '../styles');
 const css = (name: string) => fs.readFileSync(path.join(styles, name), 'utf8');
 
-const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], recentPager: null, projects: [], idle: false, ...over });
+const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
 const card = (over: Partial<RunningCard> = {}): RunningCard => ({ id: 's1', name: 'キーボード操作の見直し', live: 'busy', elapsed: '12 分', meta: 'agent-hangar · opus 5.5 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38, contextLabel: '38%', ...over });
 const mountHome = (running: RunningCard[]) => render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ running })} /></IntentRoot>);
 

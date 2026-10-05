@@ -24,4 +24,18 @@ describe('ホームの細部（試作 home-lists）', () => {
     expect(css).toMatch(/\.return-when \{[^}]*color: var\(--st-paused\);[^}]*box-shadow: inset 0 0 0 1px var\(--st-paused\);/);
     expect(css).toMatch(/\.home-cand \{[^}]*color: var\(--cand\);[^}]*box-shadow: inset 0 0 0 1px var\(--cand\);/);
   });
+  it('1 列に置く。実行中の札は件数ぶんの列で幅を使い切り、最近は残りの高さを受け取って 5 行を下限にする', () => {
+    expect(css).not.toMatch(/\.home-two/);
+    expect(css).toMatch(/\.live-grid \{[^}]*grid-template-columns: repeat\(auto-fit, minmax\(340px, 1fr\)\);/);
+    expect(css).toMatch(/\.home-recent \{[^}]*flex: 1 1 auto;/);
+    expect(css).toMatch(/\.home-fit \{[^}]*flex: 1 1 0;[^}]*min-height: calc\(var\(--session-row-h\) \* 5\);/);
+  });
+  it('今日戻るの札は 1 行にし、溢れたら理由から切る', () => {
+    expect(css).toMatch(/\.return-card \{[^}]*height: 40px;/);
+    expect(css).toMatch(/\.return-card \.ask-q \{[^}]*flex: 1 1 0;/);
+    expect(css).toMatch(/\.return-proj \{[^}]*flex: none;/);
+  });
+  it('プロジェクトの 1 行は折り返した分を切り取って隠す', () => {
+    expect(css).toMatch(/\.home-pj-items \{[^}]*flex-wrap: wrap;[^}]*height: 24px;[^}]*overflow: hidden;/);
+  });
 });

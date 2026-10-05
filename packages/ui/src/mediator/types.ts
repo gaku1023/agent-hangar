@@ -194,7 +194,7 @@ export type State = {
   /** 一覧の 1 ページの件数（PAGE_SIZES のどれか）。どの一覧も同じ件数を使う。端末ごとに localStorage に残し、起動時に読み戻す。 */
   pageSize: number;
   /**
-   * Home の最近とプロジェクト画面の一覧のいまのページ（1 から）。鍵は 'home' か 'project:<id>'。無ければ 1 ページ目。
+   * プロジェクト画面の一覧のいまのページ（1 から）。鍵は 'project:<id>'。無ければ 1 ページ目。
    * プロジェクトの節を広げる・畳むと、そのプロジェクトは 1 ページ目に戻る。保存はしない。
    */
   listPages: Record<string, number>;
