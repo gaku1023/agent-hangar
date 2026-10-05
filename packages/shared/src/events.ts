@@ -1,4 +1,4 @@
-import type { ArtifactDto, CloudUsageDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TakeoverUpdateDto, TodoDto, UsageDto } from './api.ts';
+import type { AccountsDto, ArtifactDto, CloudUsageDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TakeoverUpdateDto, TodoDto, UsageDto } from './api.ts';
 import type { SharedTable } from './cloud.ts';
 
 export type ServerEvent =
@@ -14,6 +14,7 @@ export type ServerEvent =
   | { type: 'run.ended'; run: RunDto }
   | { type: 'tab.upsert'; tab: TabDto }
   | { type: 'usage.update'; usage: UsageDto }
+  | { type: 'accounts.update'; accounts: AccountsDto }
   | { type: 'todos.update'; projectId: string; todos: TodoDto[] }
   | { type: 'memo.update'; memo: MemoDto }
   | { type: 'artifact.upsert'; artifact: ArtifactDto }
