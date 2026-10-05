@@ -4,6 +4,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { writeFakeTool } from '../../test/fake-bin.ts';
+import { isWindows } from '../../test/platform.ts';
 import { STATUSLINE_MARKER } from './statusline.ts';
 import type { Settings } from './paths.ts';
 import { checkToolPath, createReadiness, expandHome, hangarCommandPrefix, readMcpRegistration, ToolVersions } from './readiness.ts';
@@ -22,11 +24,7 @@ afterEach(() => {
 
 /** 版を 1 行だけ出す偽のコマンドを置く。 */
 function fakeTool(name: string, line: string, mode = 0o755): string {
-  const p = path.join(tmp, 'bin', name);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, `#!/bin/sh\necho '${line}'\n`, { mode });
-  fs.chmodSync(p, mode);
-  return p;
+  return writeFakeTool(path.join(tmp, 'bin'), name, { sh: `echo '${line}'`, cmd: `echo ${line}` }, mode);
 }
 
 const baseSettings = (over: Partial<Settings> = {}): Settings => ({
@@ -37,7 +35,7 @@ const baseSettings = (over: Partial<Settings> = {}): Settings => ({
 
 describe('expandHome', () => {
   it('先頭の ~ だけをホームに直す', () => {
-    expect(expandHome('~/workspace', '/Users/me')).toBe('/Users/me/workspace');
+    expect(expandHome('~/workspace', '/Users/me')).toBe(path.join('/Users/me', 'workspace'));
     expect(expandHome('~', '/Users/me')).toBe('/Users/me');
     expect(expandHome('/a/~/b', '/Users/me')).toBe('/a/~/b');
   });
@@ -48,21 +46,31 @@ describe('checkToolPath', () => {
     expect(checkToolPath(null, tmp)).toEqual({ path: null, ok: false, problem: 'unset' });
     expect(checkToolPath(path.join(tmp, 'nope'), tmp)).toMatchObject({ ok: false, problem: 'missing' });
     expect(checkToolPath(tmp, tmp)).toMatchObject({ ok: false, problem: 'notFile' });
-    const plain = fakeTool('plain', 'x', 0o644);
-    expect(checkToolPath(plain, tmp)).toMatchObject({ ok: false, problem: 'notExecutable' });
+    // 実行権は macOS と Linux のもの。Windows は拡張子で見る（下の試験）。
+    if (!isWindows) {
+      const plain = fakeTool('plain', 'x', 0o644);
+      expect(checkToolPath(plain, tmp)).toMatchObject({ ok: false, problem: 'notExecutable' });
+    }
     const ok = fakeTool('tmux', 'tmux 3.4');
     expect(checkToolPath(ok, tmp)).toEqual({ path: ok, ok: true, problem: null });
+  });
+  it.runIf(isWindows)('Windows では、PATHEXT に無い拡張子のファイルを実行できないと見る', () => {
+    const txt = path.join(tmp, 'notes.txt');
+    fs.writeFileSync(txt, 'x');
+    expect(checkToolPath(txt, tmp)).toMatchObject({ ok: false, problem: 'notExecutable' });
   });
   // 名前だけ（tmux など）は、起動のときと同じく PATH から探す。サーバの作業ディレクトリでは読まない。
   it('/ を含まない名前は PATH から探す', () => {
     const ok = fakeTool('tmux', 'tmux 3.4');
     const bin = path.dirname(ok);
-    expect(checkToolPath('tmux', tmp, `/no/such/dir:${bin}`)).toEqual({ path: ok, ok: true, problem: null });
+    expect(checkToolPath('tmux', tmp, ['/no/such/dir', bin].join(path.delimiter))).toEqual({ path: ok, ok: true, problem: null });
     expect(checkToolPath(' tmux ', tmp, bin)).toEqual({ path: ok, ok: true, problem: null });
     expect(checkToolPath('no-such-tool', tmp, bin)).toEqual({ path: 'no-such-tool', ok: false, problem: 'missing' });
     // 実行権の無いものは PATH の先を探し続ける（シェルと同じ）。
-    fakeTool('plain', 'x', 0o644);
-    expect(checkToolPath('plain', tmp, bin)).toEqual({ path: 'plain', ok: false, problem: 'missing' });
+    if (!isWindows) {
+      fakeTool('plain', 'x', 0o644);
+      expect(checkToolPath('plain', tmp, bin)).toEqual({ path: 'plain', ok: false, problem: 'missing' });
+    }
     expect(checkToolPath('tmux', tmp, '')).toMatchObject({ ok: false, problem: 'missing' });
   });
   // ./x や bin/x のような相対パスは、サーバの作業ディレクトリで解釈すると、どこを指すかが分からない。
@@ -85,16 +93,14 @@ describe('ToolVersions', () => {
     expect(await v.get(fakeTool('tmux-next', 'tmux next-3.5a'), ['-V'])).toBe('3.5a');
   });
   it('時間内に終わらなければ null を返して待ち続けない', async () => {
-    const p = path.join(tmp, 'slow');
-    fs.writeFileSync(p, '#!/bin/sh\nsleep 5\necho 1.0\n', { mode: 0o755 });
+    const p = writeFakeTool(tmp, 'slow', { sh: 'sleep 5\necho 1.0', cmd: 'ping -n 6 127.0.0.1 > nul\r\necho 1.0' });
     const t0 = Date.now();
     expect(await new ToolVersions(200).get(p, ['--version'])).toBeNull();
     expect(Date.now() - t0).toBeLessThan(2000);
   });
   it('同じファイルは起こし直さず、覚えた版を返す', async () => {
-    const p = fakeTool('count', '1.0');
     const log = path.join(tmp, 'count.log');
-    fs.writeFileSync(p, `#!/bin/sh\necho x >> '${log}'\necho 1.0\n`, { mode: 0o755 });
+    const p = writeFakeTool(path.join(tmp, 'bin'), 'count', { sh: `echo x >> '${log}'\necho 1.0`, cmd: `echo x>> "${log}"\r\necho 1.0` });
     const v = new ToolVersions(3000);
     expect(await v.get(p, ['--version'])).toBe('1.0');
     expect(await v.get(p, ['--version'])).toBe('1.0');
@@ -107,7 +113,7 @@ describe('ToolVersions', () => {
     fs.utimesSync(p, when, when);
     const v = new ToolVersions(3000);
     expect(await v.get(p, ['--version'])).toBe('1.0');
-    fs.writeFileSync(p, "#!/bin/sh\necho '1.10'\n", { mode: 0o755 });
+    writeFakeTool(path.join(tmp, 'bin'), 'grow', { sh: "echo '1.10'", cmd: 'echo 1.10' });
     fs.utimesSync(p, when, when);
     expect(await v.get(p, ['--version'])).toBe('1.10');
   });
@@ -116,15 +122,14 @@ describe('ToolVersions', () => {
     fs.utimesSync(p, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'));
     const v = new ToolVersions(3000);
     expect(await v.get(p, ['--version'])).toBe('1.1');
-    fs.writeFileSync(p, "#!/bin/sh\necho '1.2'\n", { mode: 0o755 });
+    writeFakeTool(path.join(tmp, 'bin'), 'touch', { sh: "echo '1.2'", cmd: 'echo 1.2' });
     fs.utimesSync(p, new Date('2026-02-01T00:00:00Z'), new Date('2026-02-01T00:00:00Z'));
     expect(await v.get(p, ['--version'])).toBe('1.2');
   });
   // 読めなかった版を覚えると、一度の時間切れや起動の失敗で、そのファイルの版がずっと出なくなる。
   it('読めなかった版は覚えず、次に読み直す', async () => {
     const flag = path.join(tmp, 'ready');
-    const p = path.join(tmp, 'late');
-    fs.writeFileSync(p, `#!/bin/sh\nif [ -f '${flag}' ]; then echo 2.0; fi\n`, { mode: 0o755 });
+    const p = writeFakeTool(tmp, 'late', { sh: `if [ -f '${flag}' ]; then echo 2.0; fi`, cmd: `if exist "${flag}" echo 2.0` });
     const v = new ToolVersions(3000);
     expect(await v.get(p, ['--version'])).toBeNull();
     fs.writeFileSync(flag, '');

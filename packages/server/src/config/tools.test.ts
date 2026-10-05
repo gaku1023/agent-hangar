@@ -3,19 +3,24 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Settings } from './paths.ts';
-import { resolveToolPaths, which } from './tools.ts';
+import { writeFakeTool } from '../../test/fake-bin.ts';
+import { isWindows, posixIt } from '../../test/platform.ts';
+import { resolveToolPaths, which, whichMux } from './tools.ts';
 
 describe('which', () => {
   it('PATH の順に探し、実行できるものを返す', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-which-'));
-    fs.writeFileSync(path.join(dir, 'mytool'), '#!/bin/sh\n', { mode: 0o755 });
-    fs.writeFileSync(path.join(dir, 'noexec'), '', { mode: 0o644 });
-    expect(which('mytool', { PATH: dir })).toBe(path.join(dir, 'mytool'));
-    expect(which('noexec', { PATH: dir })).toBeNull();
+    const tool = writeFakeTool(dir, 'mytool', { sh: '', cmd: '' });
+    // 実行できないもの。macOS と Linux は実行権が無いファイル、Windows は PATHEXT に無い拡張子のファイルである。
+    const noexec = isWindows ? 'noexec.txt' : 'noexec';
+    fs.writeFileSync(path.join(dir, noexec), '', { mode: 0o644 });
+    expect(which('mytool', { PATH: dir })).toBe(tool);
+    expect(which(noexec, { PATH: dir })).toBeNull();
     expect(which('definitely-not-a-command-xyz', { PATH: dir })).toBeNull();
     fs.rmSync(dir, { recursive: true, force: true });
   });
-  it('PATH に無くても既知の場所を見る', () => {
+  // /bin/sh は Unix にしか無い。Windows の既知の置き場は次の試験が見る。
+  posixIt('PATH に無くても既知の場所を見る', () => {
     expect(['/bin/sh', '/usr/bin/sh']).toContain(which('sh', { PATH: '' }));   // macOS は /bin/sh、Ubuntu は /usr/bin/sh
   });
   it('PATH に無くても手元の ~/.local/bin と ~/.claude/local を見る', () => {
@@ -24,11 +29,23 @@ describe('which', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-'));
     fs.mkdirSync(path.join(home, '.local', 'bin'), { recursive: true });
     fs.mkdirSync(path.join(home, '.claude', 'local'), { recursive: true });
-    fs.writeFileSync(path.join(home, '.local', 'bin', 'mytool'), '#!/bin/sh\n', { mode: 0o755 });
-    fs.writeFileSync(path.join(home, '.claude', 'local', 'oldtool'), '#!/bin/sh\n', { mode: 0o755 });
-    expect(which('mytool', { PATH: '', HOME: home })).toBe(path.join(home, '.local', 'bin', 'mytool'));
-    expect(which('oldtool', { PATH: '', HOME: home })).toBe(path.join(home, '.claude', 'local', 'oldtool'));
+    const mytool = writeFakeTool(path.join(home, '.local', 'bin'), 'mytool', { sh: '', cmd: '' });
+    const oldtool = writeFakeTool(path.join(home, '.claude', 'local'), 'oldtool', { sh: '', cmd: '' });
+    const env = { PATH: '', HOME: home, USERPROFILE: home };
+    expect(which('mytool', env)).toBe(mytool);
+    // ~/.claude/local は古い npm 版の置き場で、Windows の既知の置き場には入れていない。
+    if (!isWindows) expect(which('oldtool', env)).toBe(oldtool);
     fs.rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe('whichMux', () => {
+  it('その OS の名前を順に探し、最初に見つかったものを返す', () => {
+    const asked: string[] = [];
+    const found = whichMux((c) => { asked.push(c); return c === 'tmux' ? '/x/tmux' : null; });
+    expect(found).toBe('/x/tmux');
+    expect(asked).toEqual(isWindows ? ['psmux', 'tmux'] : ['tmux']);
+    expect(whichMux(() => null)).toBeNull();
   });
 });
 
