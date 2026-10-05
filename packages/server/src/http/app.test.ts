@@ -1370,6 +1370,17 @@ describe('アカウントの取り付け', () => {
     expect((await get('/api/accounts')).status).toBe(404);
   });
 
+  it('MCP の get_usage は、accounts を渡した組み立てでだけ accounts を返す', async () => {
+    const usageOver = async (target: ReturnType<typeof createApp>) => {
+      const res = await target.request('/mcp', { method: 'POST', headers: { ...H, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_usage', arguments: {} } }) });
+      const text = await res.text();
+      const json = (res.headers.get('content-type') ?? '').includes('text/event-stream') ? text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim())[0]! : text;
+      return JSON.parse((JSON.parse(json) as { result: { content: { text: string }[] } }).result.content[0]!.text) as { accounts?: { name: string; current: boolean }[] };
+    };
+    expect((await usageOver(accountsApp)).accounts?.map((a) => [a.name, a.current])).toEqual([['メイン', true], ['大学', false]]);
+    expect((await usageOver(app)).accounts).toBeUndefined();
+  });
+
   it('アカウントの切り替えは、resume と同じく起動の前に同期の取り込みを待つ', async () => {
     const id = (await (await accountsApp.request('/api/accounts', { headers: H })).json() as { accounts: { id: string }[] }).accounts[1]!.id;
     calls.length = 0;
