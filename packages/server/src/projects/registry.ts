@@ -3,6 +3,7 @@ import path from 'node:path';
 import { newId, type ResolveAction } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
+import { isUnder, pathKey } from '../platform/paths.ts';
 
 /**
  * パスを比べられる形にそろえる。`..` や末尾の `/` を除き、Unicode を NFC にする。
@@ -27,20 +28,15 @@ function childDirs(root: string): string[] {
     .sort();
 }
 
-/** パスがそのディレクトリ自身か、その下にあるか。どちらも normalizeDir を通した値で比べる。 */
-function isUnder(p: string, dir: string): boolean {
-  return p === dir || p.startsWith(dir + '/');
-}
-
 /** ワークスペース直下のディレクトリのうち、セッションを持つものをプロジェクトとして登録する。 */
 export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoot: string): { created: string[] } {
   const created: string[] = [];
   // SQL の文字列比較では NFC と NFD が一致しないので、正規化してから JS で比べる。
   const cwds = (db.prepare('select distinct cwd from sessions where deleted_at is null').all() as { cwd: string }[]).map((r) => r.cwd.normalize('NFC'));
-  const known = new Set((db.prepare('select path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { path: string }[]).map((r) => r.path.normalize('NFC')));
+  const known = new Set((db.prepare('select path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { path: string }[]).map((r) => pathKey(r.path.normalize('NFC'))));
   for (const dir of childDirs(workspaceRoot)) {
     if (!cwds.some((c) => isUnder(c, dir))) continue;
-    if (known.has(dir)) continue;
+    if (known.has(pathKey(dir))) continue;
     const id = newId();
     upsertShared(db, 'projects', { id, name: path.basename(dir), status: 'active', is_scratch: 0 }, deviceId);
     upsertShared(db, 'project_roots', { id: newId(), project_id: id, device_id: deviceId, path: dir, resolved: 1 }, deviceId);

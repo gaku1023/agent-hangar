@@ -65,6 +65,13 @@ describe('assignSessions', () => {
     expect(sessionProject('s-alpha-sub')).toBe(pid);
     expect(sessionProject('s-other')).toBeNull();
   });
+  // Windows のファイルシステムは大文字小文字を区別しない。Claude が書く cwd とワークスペースの綴りが違っても同じフォルダである。
+  it.runIf(process.platform === 'win32')('Windows では、綴りの大文字小文字が違う cwd も紐づける', () => {
+    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
+    addSession('s-upper', path.join(ws, 'alpha', 'src').toUpperCase());
+    assignSessions(db, DEV);
+    expect(sessionProject('s-upper')).toBe(pid);
+  });
   it('最長一致のルートを選ぶ', () => {
     const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
     upsertShared(db, 'projects', { id: 'p-src', name: 'src', status: 'active', is_scratch: 0 }, DEV);
