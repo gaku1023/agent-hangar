@@ -1591,3 +1591,36 @@ describe('セッションの状態', () => {
     expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: 'Paused には戻る日が要ります' });
   });
 });
+
+describe('サイドバーの「動いている」の並び（ランタイム）', () => {
+  const running = (id: string, startedAt: number, live: SessionDto['live'] = 'busy'): SessionDto => ({ ...p3Session, id, providerSessionId: 'u-' + id, projectId: null, live, startedAt });
+  const liveRow = (sessionId: string, status: 'busy' | 'waiting') => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
+  async function started(sessions: SessionDto[], stored?: unknown) {
+    const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions })) });
+    if (stored !== undefined) h.store.set('sidebar.order', stored);
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    return h;
+  }
+
+  it('保存が空なら、動いているセッションを始めた順で並びに書き足して保存する', async () => {
+    const h = await started([running('s2', 20, 'waiting'), running('s1', 10), { ...running('s3', 5), live: null }]);
+    expect(h.rt.getState().sidebarOrder).toEqual(['s1', 's2']);
+    expect(h.store.get('sidebar.order')).toEqual(['s1', 's2']);
+  });
+  it('覚えた並びは保ち、初めて現れたものだけを末尾に足す', async () => {
+    const h = await started([running('s1', 10), running('s2', 20), running('s3', 30)], ['s3', 'gone', 's1']);
+    expect(h.rt.getState().sidebarOrder).toEqual(['s3', 'gone', 's1', 's2']);
+  });
+  it('入力待ちに変わっても、動いているものが一瞬消えても、並びは変わらない', async () => {
+    const h = await started([running('s1', 10), running('s2', 20)]);
+    h.wsHandlers[0]!.onEvent({ type: 'live.update', live: [liveRow('u-s2', 'waiting'), liveRow('u-s1', 'busy')] });
+    expect(h.rt.getState().sidebarOrder).toEqual(['s1', 's2']);
+    h.wsHandlers[0]!.onEvent({ type: 'live.update', live: [] });
+    expect(h.rt.getState().sidebarOrder).toEqual(['s1', 's2']);
+    h.wsHandlers[0]!.onEvent({ type: 'live.update', live: [liveRow('u-s2', 'busy'), liveRow('u-s1', 'busy')] });
+    expect(h.rt.getState().sidebarOrder).toEqual(['s1', 's2']);
+    expect(h.store.get('sidebar.order')).toEqual(['s1', 's2']);
+  });
+});
