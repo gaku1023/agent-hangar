@@ -173,8 +173,8 @@ macOS の動きは変えない。
 
 | | 通過 | 失敗 | スキップ |
 |---|---|---|---|
-| macOS | 3,592 | 0 | 11（Windows でだけ走る試験） |
-| Windows | 3,477 | 0 | 126 |
+| macOS | 3,600 | 0 | 13（Windows でだけ走る試験） |
+| Windows | 3,487 | 0 | 126 |
 
 - 直す前の Windows は、通過 3,245、失敗 220、スキップ 75 だった。
 - Windows のスキップ 126 件は、sh と bash を前提に書かれた実物の tmux の試験（`manager.test`、`tmux.test`、`relay.test`、`wrapper.test` で 62 件）、この区切りに入れない機能（zsh の包み、statusline の断片、`hangar.sh`、iTerm、`hangar open`）、chmod と実行権に頼る検査である。どれも理由をコメントに書いてある。
@@ -200,6 +200,8 @@ macOS の動きは変えない。
 | 端末を 10 回開閉したあとの conhost の数 | 18 のまま増えなかった。attach のプロセスも残らなかった |
 | ブラウザでの表示、日本語入力、Shift+Enter | 確かめていない。画面の前での確認が要る |
 | GitHub Actions の Windows のジョブ | 確かめていない。push がまだである |
+| 外で動く claude の引き取り（adopt） | 確かめていない。止めた claude の登録が残る件は直したが、実機で引き取りを通してはいない |
+| VS Code で開く（`code.cmd`） | 確かめていない。`.cmd` をシェル越しに起こす直しは試験でだけ見た |
 | macOS で同じ操作を手で通す | 確かめていない。macOS は試験（実物の tmux の 62 件を含む）と `npm run build`、`bundle-server` で見た |
 
 ### 見つけたこと
@@ -212,4 +214,7 @@ macOS の動きは変えない。
   確かめでは WMI（`Win32_Process` の `Create`）でサーバを起こした。殻の区切りで、サーバを親から切り離す方法を決めるときの材料になる。
 - 素の `npm ci` は `better-sqlite3` が node-gyp を始めて失敗していた。`.npmrc` の `ignore-scripts=true` で、同梱の prebuild を使うようにした。
 - cloud の試験の 1 件（上限を超える本文を 413 で断る）は、macOS の main でも全体の試験の 3 回に 1 回ほど落ちていた。Windows では毎回落ちた。試験の側で、断られた接続が途中で切れることを受けるようにした。
-
+- 枝全体の審査で、重い指摘が 4 件出て直した。
+  `.cmd` の道具（VS Code の `code.cmd`、npm 版の `claude.cmd`）を見つけるのに起こせなかった件、大文字小文字を区別しない比較が 2 か所で漏れていた件、
+  Windows で止めた claude の登録が残り「動いている」と読まれる件、包みがログの置き場を作れないと claude を起こさずに落ちる件である。
+- npm で入れた `claude.cmd` は起動を断り、ネイティブ版の `claude.exe` を案内する。`.cmd` はシェル越しにしか起こせず、改行や引用符を含む引数を安全に渡せないためである。
