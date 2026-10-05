@@ -1336,6 +1336,26 @@ describe.skipIf(!TMUX)('アカウント', () => {
     expect(slept).toBe(0);
   });
 
+  it('switchAccount：バックグラウンドのサービスが持つセッションは、何も止めずに 409 で断る', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m0 = make({ accounts });
+    const first = m0.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(first.sessionId) as { p: string }).p;
+    const live = [{ sessionId: uuid, status: 'idle' as const, name: null, nameSource: null, cwd, pid: 777, background: { jobId: 'abcd1234' } }];
+    const message = 'バックグラウンドのセッションは、アカウントを切り替えられません。止めてから、そのアカウントで再開してください';
+    // hangar の run（claude attach）が動いているとき。
+    const m = make({ accounts, live: () => live });
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message }));
+    expect(endedAt(first.run.id)).toBeNull();
+    // hangar の run が無いとき（サービスだけが動いている）も、同じ文言で断る。
+    m.kill(first.run.id);
+    const killedAt = endedAt(first.run.id);
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message }));
+    expect(endedAt(first.run.id)).toBe(killedAt);
+  });
+
   it('accounts を渡さない RunManager は今までどおり動く', async () => {
     const r = make().start({ projectId: 'p1' });
     expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=\n');

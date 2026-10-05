@@ -441,6 +441,8 @@ export class RunManager {
     // resume の前提も止める前に確かめる。本文が無いと、止めた時点でセッションの行ごと消え、起こし直せない。
     if (!this.hasBody(s)) throw new RunError(400, 'このセッションにはまだ本文がありません。そのアカウントで新しいセッションを始めてください');
     this.precheck(s.cwd);
+    // バックグラウンドのサービスは置き場ごとに別で、jobs と sessions は共有のリンクになる。この組み合わせの動きは実物で確かめていないので、確かめが済むまで断る。
+    if (this.liveOf(s.provider_session_id)?.background) throw new RunError(409, 'バックグラウンドのセッションは、アカウントを切り替えられません。止めてから、そのアカウントで再開してください');
     const alive = aliveRunForSession(this.db, s.id);
     // hangar の run が無いのにレジストリに残っているのは、hangar の外で動いている Claude である。止められないので待たずに断る。
     if (!alive && this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, 'このセッションは hangar の外で実行中です');
