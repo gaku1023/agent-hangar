@@ -196,7 +196,8 @@ describe('PUT と GET /files/<key>', () => {
       body: zeros(MAX_BODY_BYTES + 1),
       duplex: 'half',
     } as RequestInit).catch((e: unknown) => {
-      if (e instanceof TypeError && e.message === 'terminated') return null;
+      // miniflare の undici が投げる TypeError は別の領域のものなので、instanceof では見分けられない。
+      if ((e as { message?: unknown } | null)?.message === 'terminated') return null;
       throw e;
     });
     if (r) {
