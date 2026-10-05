@@ -35,6 +35,21 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+  windows:
+    runs-on: windows-latest
+    # 試験が固まったときの上限。
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # psmux は入れない。psmux を相手にする試験は describe.skipIf で飛ぶ。
+      # ここで見るのは、パス、道具の探し方、権限、プロセスの扱いが Windows で壊れていないことである。
+      - run: npm test
   desktop:
     runs-on: macos-latest
     # Rust のビルドがキャッシュ外れで長引いたときの上限。

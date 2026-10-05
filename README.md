@@ -369,6 +369,18 @@ npm run hangar -- cloud teardown       # Worker と D1 と R2 を消す（2 段�
     上げたければ、そのセッションを再開するか `hangar cloud backfill` を実行してください。
 12. **マイグレーションの版 8 が走ります。** `transcript_files` に `device_id` の列が増え、R2 との同期の台帳である `file_sync` が出来ます。索引の作り直しは起きません。
 
+## Windows で動かす（開発中）
+
+Windows 11（x64）では、サーバと UI をソースから動かせます。
+デスクトップのアプリはまだありません。
+
+1. Node 22、Git for Windows、Claude Code を入れます。
+2. tmux の代わりに psmux を入れます：`winget install marlocarlo.psmux`
+3. `npm ci` のあと `npm run dev` で起こし、ブラウザで `http://127.0.0.1:5173/` を開きます。
+
+止めるときは Ctrl+C です。
+まだ無いものは、通知、ターミナルで打った `claude` を hangar に載せる包み、外のターミナルへの受け渡し、statusline、`hangar open` です。
+
 ## 開発
 
 ```sh

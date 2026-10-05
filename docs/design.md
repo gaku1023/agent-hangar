@@ -2354,7 +2354,8 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
 - `nodePath` の重さ：Settings の `nodePath` は、次の起動で `.app` がそのまま起こす実行ファイルの場所なので、設定への書き込みが次回起動時のコード実行になる。
   いま穴が開いているわけではないが、UI か API の側に穴が 1 つできたときの被害の上限がここまで上がることを、前提として書き留めておく。
-- 配布ターゲットは Apple silicon の macOS 13 以降だけ。prebuild も `darwin-arm64` しか入れない。全アーキを入れると `node-pty` の win32 だけで 58MB になる。Intel と Windows は作らない。
+- 配布ターゲットは Apple silicon の macOS 13 以降である。prebuild も `darwin-arm64` しか入れない。全アーキを入れると `node-pty` の win32 だけで 58MB になる。Intel は作らない。
+- Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。デスクトップのアプリ、通知、インストーラはまだ無い。
 - Gatekeeper：Developer ID での署名も公証もせず、zip と SHA-256 の checksum を添えて配る（2026-09-20 の決定）。
   Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
   署名しないという決めのもとでは、これが既定の姿である。
