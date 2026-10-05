@@ -38,3 +38,23 @@ describe('samePath と pathKey', () => {
     expect(pathKey('/Work', 'linux')).toBe('/Work');
   });
 });
+
+// DB には、同期で届いた別の OS の端末のパスも入る。どの OS で動いていても、パスの形から比べ方を決める。
+describe('OS を渡さないとき', () => {
+  it('ドライブ文字か UNC で始まるパスは Windows の形として比べる', () => {
+    expect(isUnder('d:\\Workspace\\Alpha\\src', 'D:\\workspace\\alpha')).toBe(true);
+    expect(isStrictlyUnder('\\\\srv\\share\\a\\b', '\\\\SRV\\share\\a')).toBe(true);
+    expect(samePath('C:/Users/Me', 'c:/users/me')).toBe(true);
+    expect(pathKey('D:\\Work')).toBe('d:\\work');
+  });
+  it('それ以外は macOS と Linux の形として比べる', () => {
+    expect(isStrictlyUnder('/Users/me/.agent-hangar/scratch/20260901-100000', '/Users/me/.agent-hangar/scratch')).toBe(true);
+    expect(isStrictlyUnder('/Users/me/.agent-hangar/scratchpad', '/Users/me/.agent-hangar/scratch')).toBe(false);
+    expect(isUnder('/Users/Me/x', '/Users/me')).toBe(false);
+    expect(pathKey('/Work')).toBe('/Work');
+  });
+  it('Windows の形では / の区切りも受ける', () => {
+    expect(isUnder('D:/workspace/alpha/src', 'D:\\workspace\\alpha')).toBe(true);
+    expect(isUnder('D:/workspace/alphabet', 'D:\\workspace\\alpha')).toBe(false);
+  });
+});
