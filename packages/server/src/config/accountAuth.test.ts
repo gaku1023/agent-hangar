@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountAuth, accountEnv, parseAuthStatus, type RunClaude } from './accountAuth.ts';
 import type { Account } from './accounts.ts';
 
@@ -132,5 +132,40 @@ describe('AccountAuth', () => {
     auth.setOnChange(onChange);
     await auth.refresh(univ);
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  describe('通知先が投げても', () => {
+    const rejections: unknown[] = [];
+    const onRejection = (e: unknown) => { rejections.push(e); };
+    const boom = () => { throw new Error('配信に失敗'); };
+    beforeEach(() => { rejections.length = 0; process.on('unhandledRejection', onRejection); });
+    afterEach(() => { process.off('unhandledRejection', onRejection); });
+    const settle = () => new Promise((r) => setTimeout(r, 20));
+
+    it('ensureChecked は未処理の rejection にならず、状態は読める', async () => {
+      const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run: async () => ({ code: 0, stdout: OK }), onChange: boom });
+      auth.ensureChecked(univ);
+      await settle();
+      expect(rejections).toEqual([]);
+      expect(auth.get('a1')?.loggedIn).toBe(true);
+    });
+
+    it('login は未処理の rejection にならず、loginRunning は偽へ戻り、状態は読める', async () => {
+      let finish: (v: { code: number | null; stdout: string }) => void = () => {};
+      const run: RunClaude = (_b, args) => (args[1] === 'login' ? new Promise((r) => { finish = r; }) : Promise.resolve({ code: 0, stdout: OK }));
+      const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run, onChange: boom });
+      expect(auth.login(univ)).toBe(true);
+      expect(auth.loginRunning('a1')).toBe(true);
+      finish({ code: 0, stdout: '' });
+      await settle();
+      expect(rejections).toEqual([]);
+      expect(auth.loginRunning('a1')).toBe(false);
+      expect(auth.get('a1')?.loggedIn).toBe(true);
+    });
+
+    it('refresh を待つ側（HTTP）にも投げ返さない', async () => {
+      const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run: async () => ({ code: 0, stdout: OK }), onChange: boom });
+      await expect(auth.refresh(univ)).resolves.toMatchObject({ loggedIn: true });
+    });
   });
 });

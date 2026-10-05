@@ -62,6 +62,11 @@ export class AccountAuth {
     this.now = o.now ?? (() => Date.now());
   }
 
+  /** 通知先が投げても、状態の更新は済んでいる。未処理の rejection にしない。 */
+  private notify(): void {
+    try { this.onChange?.(); } catch (e) { console.error('[accounts] 配信に失敗しました', e instanceof Error ? e.message : e); }
+  }
+
   get(id: string): AccountAuthDto | null { return this.cache.get(id) ?? null; }
   loginRunning(id: string): boolean { return this.logins.has(id); }
   forget(id: string): void { this.cache.delete(id); this.checked.delete(id); }
@@ -74,7 +79,7 @@ export class AccountAuth {
    */
   ensureChecked(account: Account): void {
     if (this.checked.has(account.id) || this.refreshing.has(account.id) || this.logins.has(account.id)) return;
-    void this.refresh(account);
+    void this.refresh(account).catch(() => {});
   }
 
   async refresh(account: Account): Promise<AccountAuthDto | null> {
@@ -87,7 +92,7 @@ export class AccountAuth {
     this.refreshing.delete(account.id);
     this.checked.add(account.id);
     if (next) this.cache.set(account.id, next); else this.cache.delete(account.id);
-    this.onChange?.();
+    this.notify();
     return next;
   }
 
@@ -96,10 +101,11 @@ export class AccountAuth {
     const bin = this.o.claudeBin();
     if (!bin || this.logins.has(account.id)) return false;
     this.logins.add(account.id);
-    this.onChange?.();
+    this.notify();
     void this.run(bin, ['auth', 'login'], accountEnv(account), LOGIN_TIMEOUT_MS)
       .catch(() => null)
-      .then(() => { this.logins.delete(account.id); return this.refresh(account); });
+      .then(() => { this.logins.delete(account.id); return this.refresh(account); })
+      .catch(() => {});
     return true;
   }
 }
