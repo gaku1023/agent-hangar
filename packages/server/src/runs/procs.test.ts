@@ -41,12 +41,14 @@ describe('parseProcStart', () => {
 });
 
 describe('realProcOps', () => {
-  it('起動時刻を読み、SIGTERM で止めて終わるまで待つ', async () => {
-    const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+  it('起動時刻を読み、止めて終わるまで待つ', async () => {
+    // sleep は Windows に無いので、どの OS にもある Node を待たせる。
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' });
     const pid = child.pid!;
     const exited = new Promise((r) => child.on('exit', r));
     try {
-      expect(realProcOps.startTimeOf(pid)).toMatch(/^\w{3} \w{3} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4}$/);
+      // macOS と Linux は ps の lstart、Windows は 100 ナノ秒単位の整数。
+      expect(realProcOps.startTimeOf(pid)).toMatch(process.platform === 'win32' ? /^\d{17,19}$/ : /^\w{3} \w{3} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4}$/);
       // 読み取りは UTC で行う。手元の時刻帯で読むと、時刻帯の分だけずれる。
       expect(Math.abs(parseProcStart(realProcOps.startTimeOf(pid)!)! - Date.now())).toBeLessThan(10_000);
       // 子は親が回収するまでゾンビで残るので、回収を待ってから確かめる。
@@ -55,7 +57,8 @@ describe('realProcOps', () => {
       expect(await done).toBe(true);
       expect(realProcOps.startTimeOf(pid)).toBeNull();
     } finally {
-      child.kill('SIGKILL');
+      // Windows は SIGKILL を受けない（kill EINVAL）。既定の止め方にする。
+      if (child.exitCode === null && child.signalCode === null) child.kill();
     }
   });
 });
