@@ -21,6 +21,9 @@ export type RuntimeEvent =
   // 変わったときだけランタイムが届ける。
   // live.update はプロバイダの id で届き、hangar のセッションに引き当てるにはストアが要るからである。
   | { type: 'waiting.changed'; ids: string[] }
+  // サイドバーの「動いている」に載るセッションの一覧（hangar のセッションの id、始めた順）。
+  // 顔ぶれが変わったときだけランタイムが届ける。
+  | { type: 'live.changed'; ids: string[] }
   // 通知を出せるか、受け取るか。
   // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
   // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
@@ -191,7 +194,7 @@ export type State = {
   /** 一覧の 1 ページの件数（PAGE_SIZES のどれか）。どの一覧も同じ件数を使う。端末ごとに localStorage に残し、起動時に読み戻す。 */
   pageSize: number;
   /**
-   * Home の最近とプロジェクト画面の一覧のいまのページ（1 から）。鍵は 'home' か 'project:<id>'。無ければ 1 ページ目。
+   * プロジェクト画面の一覧のいまのページ（1 から）。鍵は 'project:<id>'。無ければ 1 ページ目。
    * プロジェクトの節を広げる・畳むと、そのプロジェクトは 1 ページ目に戻る。保存はしない。
    */
   listPages: Record<string, number>;
@@ -235,6 +238,11 @@ export type State = {
   resolveDeferred: string[];
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
+  /**
+   * サイドバーの「動いている」の行を、利用者が並べた順（セッションの id）。端末ごとに localStorage に残し、起動時に読み戻す。
+   * ここに無いセッション（新しく動き始めたもの）は、並べた行の上に入る（presenters/shell.ts）。
+   */
+  sidebarOrder: string[];
   /**
    * プロジェクト画面で広げた節（Done の「ほか N 件」と、末尾の Archived）。鍵はプロジェクトの id。
    * Presenter が読む（presenters/project.ts）ので View ではなくここに持つ。保存はしない。

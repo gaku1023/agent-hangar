@@ -11,7 +11,7 @@ const all = files.flatMap((f) => rules(read(f)).map((r) => ({ ...r, file: f })))
 const blurs = all.filter((r) => /(^|[^-])backdrop-filter\s*:/.test(r.body));
 
 // 仕様：ガラスは浮く部品（ヘッダ、サイドバー、⌘K、ダイアログ、通知と切断の帯と保持期間の帯、選ぶ部品の一覧、操作のメニュー、本文の中の検索の欄）にだけ使う。
-const GLASS = ['.sidebar', '.header', '.conn-banner', '.retention-banner', '.dialog', '.palette', '.toast', '.listbox-pop', '.menu-pop', '.tr-find'];
+const GLASS = ['.header', '.conn-banner', '.retention-banner', '.dialog', '.palette', '.toast', '.listbox-pop', '.menu-pop', '.tr-find'];
 
 describe('浮くガラス', () => {
   it('backdrop-filter は浮く部品の規則にだけ現れる', () => {
@@ -51,9 +51,12 @@ describe('骨格', () => {
     const r = all.find((r) => r.selector === 'html, body');
     expect(r?.body).toMatch(/overscroll-behavior:\s*none;/);
   });
-  it('背景の光は漂い、reduced motion では止まる', () => {
-    expect(base).toMatch(/\.shell::before \{[^}]*animation: aura-drift var\(--aura-period\)/);
-    expect(base).toContain('@media (prefers-reduced-motion: reduce) { .shell::before { animation: none; } }');
+  it('背景の光は 1 色で、動かさない', () => {
+    const rule = base.match(/\.shell::before \{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toContain('var(--aura-1)');
+    expect(rule).not.toContain('--aura-2');
+    expect(rule).not.toContain('animation');
+    expect(base).not.toContain('aura-drift');
   });
   // 狭い窓では、何が起きたかの見出しを最後まで残し、次の再接続までの秒数から先に縮める。
   it('切断の帯は、見出しを縮めず、再接続の秒数から先に縮める', () => {

@@ -3,8 +3,6 @@ import type { State } from '../mediator/types.ts';
 import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
-import { pageSlice, pagerOf, type PagerProps } from './pager.ts';
-import { liveCountsOf } from './projects.ts';
 import { candidateLabel, presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
 import { dueOn, returnKey } from './sections.ts';
 
@@ -18,9 +16,16 @@ import { dueOn, returnKey } from './sections.ts';
  * どれでもなければ null で、端末は開けない。
  */
 export type AttentionCard = { id: string; name: string; projectName: string | null; waited: string; question: string; answer: 'terminal' | 'attach' | 'adopt' | null };
-/** 実行中の札。activity があれば墨の地にツールと対象を、無ければ note の一言を出す。 */
-export type RunningCard = { id: string; name: string; live: LiveStatus | null; elapsed: string; meta: string; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string };
-/** Home のプロジェクトの小さな一覧の 1 行。counts は 0 でない数だけを並べた文。 */
+/**
+ * 実行中の札。
+ * intent は Claude がこのターンに書いた意図の 1 文で、書かれていなければ null である（右の欄の「いま」と同じもの。presenters/live.ts）。
+ * activity があれば墨の帯にツールと対象を、無ければ note の一言を出す。
+ */
+export type RunningCard = { id: string; name: string; live: LiveStatus | null; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string };
+/**
+ * Home のプロジェクトの 1 行に並べる 1 件。counts は 0 でない数だけを並べた文。
+ * 数えるのは TODO と確かめるだけにする。実行中と要対応は、すぐ上の札で見えているからである。
+ */
 export type ProjectMini = { id: string; name: string; status: ProjectStatus; counts: string };
 /**
  * 今日戻るの札（C1）。要対応の札の並びに、入力待ちの札の後ろで置く。
@@ -41,12 +46,15 @@ export type ConfirmCard = TodoConfirmCard | SessionConfirmCard;
  * idle は何も動いていないこと（実行中の札も要対応の札も無い）で、真なら実行中の札の場所に 1 行の文を出す（試作 home-lists の F1）。
  * 入力待ちも生きたセッションなので、入力待ちがあるときは偽にする。今日戻るの札も要対応に並ぶので、あれば偽にする。
  */
-export type HomeProps = { attention: AttentionCard[]; returning: ReturnCard[]; confirm: ConfirmCard[]; running: RunningCard[]; recent: SessionRowProps[]; recentPager: PagerProps | null; projects: ProjectMini[]; idle: boolean };
+export type HomeProps = { attention: AttentionCard[]; returning: ReturnCard[]; confirm: ConfirmCard[]; running: RunningCard[]; recent: SessionRowProps[]; projects: ProjectMini[]; idle: boolean };
 
 /** 問いの文が取れなかった入力待ち（権限の確認など）に出す文。 */
 export const NO_QUESTION = '入力を待っています';
-/** 最近のページの鍵（State の listPages）。 */
-export const HOME_PAGE_KEY = 'home';
+/**
+ * 最近に渡す行の上限。何行見せるかは窓の残りの高さで画面が決める（HomeScreen の useFitRows）ので、背の高い窓でも足りる数を渡す。
+ * 続きは「すべて見る」からセッション一覧で見る。
+ */
+export const HOME_RECENT_MAX = 40;
 /** 今日戻るの理由が無いときに出す文。 */
 const NO_REASON = '理由は書かれていません';
 /** 提案の根拠が無いときに出す文。TODO の候補（presenters/project.ts）と同じ言い方にする。 */
@@ -59,7 +67,7 @@ function stripLeadingTool(tool: string, summary: string): string {
   return summary.startsWith(prefix) ? summary.slice(prefix.length) : summary;
 }
 
-export function presentHome(state: State, store: Store, now: number): HomeProps {
+export function presentHome(_state: State, store: Store, now: number): HomeProps {
   const sessions = Object.values(store.sessions);
   const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? null : null);
   const name = (s: SessionDto) => s.name ?? '（名前なし）';
@@ -108,24 +116,24 @@ export function presentHome(state: State, store: Store, now: number): HomeProps 
     const activity = s.live === 'busy' && s.activity ? { tool: s.activity.tool, summary: shortenPaths(stripLeadingTool(s.activity.tool, s.activity.summary)) } : null;
     const note = activity ? null : s.live === 'idle' ? `休み。最後の返答から ${durationLabel(now - (s.lastActivityAt ?? now))}` : s.live === 'busy' ? '作業中' : '起動しています';
     const meta = [projectName(s) ?? '未分類', shortModel(s.stats.model), s.stats.effort ?? ''].filter((x) => x !== '').join(' · ');
-    return { id: s.id, name: name(s), live: s.live, elapsed: durationLabel(now - (s.startedAt ?? now)), meta, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(s.stats.contextPercent) };
+    // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。
+    const said = store.liveDigests[s.id]?.intent;
+    const intent = s.live === 'busy' && said && said.inThisTurn ? said.text : null;
+    return { id: s.id, name: name(s), live: s.live, elapsed: durationLabel(now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(s.stats.contextPercent) };
   });
 
   // 札に出したものは最近に重ねない。
   const shown = new Set([...attention.map((c) => c.id), ...returning.map((c) => c.id), ...running.map((c) => c.id)]);
-  // 全件をページに分け、いまのページの分だけを行にする（行を組むのは見せる分だけ）。
+  // 行を組むのは渡す分だけにする。ホームではページを送らない。
   const ended = sessions.filter((s) => !shown.has(s.id)).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
-  const recentPager = pagerOf(state.listPages[HOME_PAGE_KEY] ?? 1, state.pageSize, ended.length);
-  const recent = pageSlice(ended, recentPager).map((s) => presentSessionRow(s, store, now));
+  const recent = ended.slice(0, HOME_RECENT_MAX).map((s) => presentSessionRow(s, store, now));
 
   const projects = Object.values(store.projects).filter((p) => p.status === 'active' && !p.isScratch).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).map((p): ProjectMini => {
-    // 実行中と入力待ちは、プロジェクトのカードと同じく手元のセッションから数える。
-    // 入力待ちは要対応として別に数える。確かめるは TODO の候補とセッションの提案を合わせて数える。
-    const live = liveCountsOf(store, p.id, alive);
+    // 確かめるは TODO の候補とセッションの提案を合わせて数える。
     const confirmHere = candidates.filter(({ t }) => t.projectId === p.id).length + proposed.filter((s) => s.projectId === p.id).length;
-    const counts: [string, number][] = [['実行中', live.running], ['TODO', p.openTodoCount], ['要対応', live.waiting], ['確かめる', confirmHere]];
+    const counts: [string, number][] = [['TODO', p.openTodoCount], ['確かめる', confirmHere]];
     return { id: p.id, name: p.name, status: p.status, counts: counts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join(' · ') };
   });
 
-  return { attention, returning, confirm, running, recent, recentPager, projects, idle: attention.length === 0 && running.length === 0 };
+  return { attention, returning, confirm, running, recent, projects, idle: attention.length === 0 && running.length === 0 };
 }

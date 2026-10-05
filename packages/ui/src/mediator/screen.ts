@@ -208,7 +208,7 @@ export function screenStep(state: State, input: Input): Step | null {
       const next = pageStep(state, i.page);
       return { state: next, effects: next.screen.name === 'sessions' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [] };
     }
-    // Home の最近とプロジェクト画面は手元の行を Presenter が切り出すので、ページを覚えるだけでよい。
+    // プロジェクト画面は手元の行を Presenter が切り出すので、ページを覚えるだけでよい。
     case 'list.page': return { state: listPageStep(state, i.key, i.page), effects: [] };
     case 'list.pageSize': {
       const step = pageSizeStep(state, i.size);

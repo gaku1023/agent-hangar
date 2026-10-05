@@ -35,7 +35,7 @@ describe('行の戻る時刻', () => {
 });
 
 describe('Home の今日戻るの札の時刻', () => {
-  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], recentPager: null, projects: [], idle: false, ...over });
+  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
   const ret = (id: string, returnTime: string | null, due: boolean): ReturnCard => ({ id, name: `戻る ${id}`, projectName: 'agent-hangar', reason: `${id} を見る`, returnOn: '2026-10-05', returnTime, overdueDays: 0, due, pastMin: due && returnTime ? 30 : null });
   it('時刻を出し、時刻の前のものは塗らない', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ returning: [ret('timer', '11:30', true), ret('night', '21:50', false), ret('allday', null, true)] })} /></IntentRoot>);

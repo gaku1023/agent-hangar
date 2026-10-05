@@ -19,7 +19,7 @@ export function pageStep(state: State, page: number): State {
   return { ...state, search: { ...state.search, page: atLeastOne(page) } };
 }
 
-/** Home の最近とプロジェクト画面の一覧のページを移る。key は 'home' か 'project:<id>'。 */
+/** プロジェクト画面の一覧のページを移る。key は 'project:<id>'。 */
 export function listPageStep(state: State, key: string, page: number): State {
   return { ...state, listPages: { ...state.listPages, [key]: atLeastOne(page) } };
 }

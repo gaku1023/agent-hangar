@@ -1,8 +1,8 @@
-/* Home（管制盤）。上から要対応、実行中、最近とプロジェクト（試作の 3-b）。
+/* Home（管制盤）。上から要対応、実行中、確かめる、最近を 1 列に置く。プロジェクトは最近の見出しの下の 1 行。
    どの札も白い不透明な読む面で、ぼかしは掛けない。 */
 .home-label { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 5) 0 calc(var(--u) * 2) var(--u); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
 /* 見出しの線のすぐ下の区画は、線の下の余白（.page-head）だけで間を取る。 */
-.home > .page-head + section > .home-label, .home > .page-head + .home-two .home-head { margin-top: 0; }
+.home > .page-head + section > .home-label, .home > .page-head + section > .home-head { margin-top: 0; }
 .home-count { font-weight: 500; color: var(--ink-3); }
 /* 見出しと右端の「すべて見る →」の行（試作 home-lists の H1）。余白は .home-label と同じ値を行のほうに持たせる。 */
 .home-head { display: flex; align-items: baseline; margin: calc(var(--u) * 5) 0 calc(var(--u) * 2) var(--u); }
@@ -34,18 +34,30 @@
 .more-line:hover { background: color-mix(in srgb, var(--cand-soft) 70%, transparent); }
 .more-chevron { display: inline-flex; transition: transform var(--dur-fast) var(--ease-out); }
 .more-chevron[data-open='true'] { transform: rotate(180deg); }
-/* 今日戻るの札（C1）。要対応の札と同じ形で、縁に戻る日の黄土を薄く混ぜる。 */
-.return-card { box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-paused) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--st-paused) 40%, transparent); }
+/* 今日戻るの札（C1）。縁に戻る日の黄土を薄く混ぜる。入力待ちの札より低い 1 行にし、名前、プロジェクト、理由を横に並べる。
+   溢れたら理由、名前の順に切り、プロジェクトとボタンは切らない。 */
+.return-card { height: 40px; padding-top: 0; padding-bottom: 0; box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-paused) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--st-paused) 40%, transparent); }
+.return-card .ask-body { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); }
+.return-card .ask-title { flex: 0 1 auto; max-width: 45%; }
+.return-proj { flex: none; white-space: nowrap; }
+.return-card .ask-q { flex: 1 1 0; min-width: 0; margin: 0 0 0 calc(var(--u) * 1.5); }
 /* 戻る日の札。戻る時点を過ぎたものは塗りつぶす。白い文字は --st-paused の地で 4.5 : 1 を超える（tokens.test.ts）。当日の時刻の前のものは、枠と黄土の文字だけにする。 */
 .return-when { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--st-paused); box-shadow: inset 0 0 0 1px var(--st-paused); }
 .return-when[data-due='true'] { color: var(--surface); background: var(--st-paused); box-shadow: none; }
 /* セッションの提案の札（Q3）。枠だけの丸い札で、候補の色にする。 */
 .home-cand { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--cand); box-shadow: inset 0 0 0 1px var(--cand); }
 
-/* 実行中の札。3 列に並べ、いま何をしているかを墨の地の 1 行で見せる。 */
-.live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(var(--u) * 2.5); }
+/* 実行中の札。件数ぶんの列で幅を使い切る（本文の幅いっぱいで 3 列まで。2 件なら 2 列、1 件なら 1 列）。
+   作業中は意図の 1 行と、いまの手を墨の帯の 1 行で見せる。 */
+.live-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: calc(var(--u) * 2.5); }
 .live-card { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); min-width: 0; padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); cursor: pointer; transition: box-shadow var(--dur) var(--ease-out); }
+/* 状態の輪。作業中は杏、入力待ちは赤茶の 1px の輪を灯す。セッション画面の端末の縁の灯と同じ言葉である。
+   休みと起動中は灯さない。ここでは呼吸させない（脈動は端末の縁だけ）。 */
+.live-card[data-live='busy'] { box-shadow: 0 0 0 1px color-mix(in srgb, var(--busy) 60%, transparent), var(--surface-shadow); }
+.live-card[data-live='waiting'] { box-shadow: 0 0 0 1px var(--waiting), var(--surface-shadow); }
 .live-card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
+.live-card[data-live='busy']:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--busy) 60%, transparent), var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
+.live-card[data-live='waiting']:hover { box-shadow: 0 0 0 1px var(--waiting), var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
 .live-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .live-head { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-weight: 600; }
 .live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -54,18 +66,29 @@
 .live-act { padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: var(--r); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); background: var(--term-bg); color: var(--term-fg); }
 .live-act i { font-style: normal; color: var(--term-tool); }
 .live-note { color: color-mix(in srgb, var(--term-fg) 60%, var(--term-bg)); }
+/* 意図の 1 行。Claude がこのターンに書いた「何のために何をするか」で、帯の上に白地の文字で置く。 */
+.live-intent { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink); }
+/* 休みと起動中の一言。端末の出力ではないので、墨の帯にしない。 */
+.live-rest { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink-2); }
 .live-ctx { display: flex; align-items: center; gap: calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-3); }
 .live-ctx .gauge-bar { flex: 1; width: auto; }
 
-/* 最近とプロジェクトを 1.6 対 1 で横に並べる。 */
-.home-two { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: calc(var(--u) * 2.5); align-items: start; }
-/* 最近と同じ高さで頭打ちにし、溢れた分は一覧の中でスクロールする。 */
-.pj-list { overflow-y: auto; }
-.pj-row { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: var(--session-row-h); padding: 0 calc(var(--u) * 5); border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
-.pj-row:last-child { border-bottom: 0; }
-.pj-row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
-.pj-name { flex: 1 0 12ch; min-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pj-counts { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
+/* 最近。窓の残りの高さを受け取り（.screen-fill）、入るだけの行を行の境で打ち切って見せる（HomeScreen の useFitRows）。
+   下限は 5 行で、それより低い窓では .main がスクロールする。一覧の中ではスクロールしない。 */
+.home-recent { display: flex; flex-direction: column; flex: 1 1 auto; }
+.home-fit { flex: 1 1 0; min-height: calc(var(--session-row-h) * 5); }
+/* プロジェクトの 1 行。最近の見出しの下に、押すと開く錠剤を新しい順に並べる。
+   1 行に入らない分は折り返した先で切り取って隠し、右端に「ほか N」を出す。 */
+.home-pj { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 28px; margin: 0 0 calc(var(--u) * 2) var(--u); }
+.home-pj-label { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.home-pj-empty { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink-3); }
+.home-pj-items { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 4px calc(var(--u) * 1.5); height: 24px; overflow: hidden; }
+.home-pj-more { flex: none; }
+.pj-chip { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); max-width: 240px; height: 24px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line-strong); font: inherit; font-size: var(--fs-sm); color: var(--ink); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.pj-chip:hover { background: var(--surface); }
+.pj-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pj-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-counts { flex: none; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
 /* 点の色はプロジェクトのステータスの色（--st-*）。 */
 .pj-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--st-archived); }
 .pj-dot[data-status='active'] { background: var(--st-active); }

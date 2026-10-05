@@ -70,8 +70,8 @@ describe('Root', () => {
     expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
     act(() => handlers[0]!.onOpen());
     await flush();
-    // Home の区画の見出し。ナビの項目も同じ名前なので、見出しとして探す。
-    expect(screen.getByRole('heading', { level: 2, name: 'プロジェクト' })).toBeInTheDocument();
+    // Home の区画の見出し。
+    expect(screen.getByRole('heading', { level: 2, name: '最近' })).toBeInTheDocument();
     act(() => setHash('#/projects'));
     expect(screen.getByRole('heading', { level: 1, name: 'プロジェクト' })).toBeInTheDocument();
     expect(screen.getByText('alpha')).toBeInTheDocument();

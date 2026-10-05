@@ -5,7 +5,7 @@ import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } f
 import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
-import { clampLivePaneSplit, LIVE_PANE_SPLIT_KEY, SIDEBAR_KEY } from '../mediator/sidebar.ts';
+import { clampLivePaneSplit, cleanSidebarOrder, LIVE_PANE_SPLIT_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
 import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
 import { NO_QUESTION } from '../presenters/home.ts';
@@ -13,7 +13,7 @@ import { daysLabel } from '../presenters/retention.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, liveSessionIds, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import type { Notifier } from './notifier.ts';
@@ -92,7 +92,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const notify = () => { for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
   const present = deps.present ?? ((c: () => void) => c());
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); syncWaiting(); syncReturns(); } };
+  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); syncWaiting(); syncLive(); syncReturns(); } };
   /**
    * 入力待ちのセッションが変わったら Mediator へ届ける。
    * live.update はプロバイダの id で届くので、hangar のセッションへの引き当てはストアを持つここで行う。
@@ -105,6 +105,18 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (key === waitingKey) return;
     waitingKey = key;
     dispatch({ kind: 'runtime', event: { type: 'waiting.changed', ids } });
+  }
+  /**
+   * 動いているセッションの顔ぶれが変わったら Mediator へ届ける。サイドバーの「動いている」の並びに、初めて現れたものを書き足すためである（mediator/sidebar.ts の sidebarLiveStep）。
+   * 並びの順ではなく顔ぶれで比べる。ストアは本文が伸びるたびに変わるので、そのたびには送らない。
+   */
+  let liveKey = '';
+  function syncLive(): void {
+    const ids = liveSessionIds(store);
+    const key = [...ids].sort().join('\n');
+    if (key === liveKey) return;
+    liveKey = key;
+    dispatch({ kind: 'runtime', event: { type: 'live.changed', ids } });
   }
   /**
    * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
@@ -561,10 +573,19 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // ここでは取りに行かず、次に本文を読むときに取り直させる。
       // 本文を読むのは画面に出ているセッションだけなので、見ていないセッションの分は無駄に取らない。
       if (input.event.type === 'transcript.appended') subagentsAsked.delete(input.event.sessionId);
+      // ホームの実行中の札は意図の 1 行を出す。見ている間に動いたセッションの分を取り直す（loadLive が 1 秒に 1 回までにまとめる）。
+      if (state.screen.name === 'home') {
+        if (input.event.type === 'transcript.appended') loadLive(input.event.sessionId);
+        else if (input.event.type === 'session.upsert') loadLive(input.event.session.id);
+        else if (input.event.type === 'run.started') loadLive(input.event.run.sessionId);
+      }
     }
+    const wasHome = state.screen.name === 'home';
     const r = transition(state, input);
     if (r.state !== state) { const prev = shown; state = r.state; present(commit, prev, state); }
     for (const eff of r.effects) runEffect(eff);
+    // ホームへ入ったら、動いているセッションの意図をまとめて取りに行く。
+    if (!wasHome && state.screen.name === 'home') for (const run of Object.values(store.runs)) if (run.endedAt === null) loadLive(run.sessionId);
   }
 
   return {
@@ -586,7 +607,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
-        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, livePaneSplit: clampLivePaneSplit(deps.storage.get(LIVE_PANE_SPLIT_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
+        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)), livePaneSplit: clampLivePaneSplit(deps.storage.get(LIVE_PANE_SPLIT_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
         // 知らせ終えた戻る時点。開き直しても同じ時点を 2 度知らせない。
         returnSeen: readReturnSeen(deps.storage.get(RETURN_SEEN_KEY)),

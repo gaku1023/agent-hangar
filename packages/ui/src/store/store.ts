@@ -219,6 +219,19 @@ export function outsideOpenOf(store: Store, session: SessionDto): 'attach' | 'ad
 }
 
 /**
+ * サイドバーの「動いている」に載るセッションの id（実行中と入力待ち）。
+ * 始めた時刻の古い順に並べ、時刻の無いものは後ろ、同じ時刻は id の順にする。
+ * 状態や最後の活動では並べない。更新のたびに並びが揺れないようにするためである。
+ */
+export function liveSessionIds(store: Store): string[] {
+  const alive = runningSessionIds(store);
+  const at = (s: SessionDto) => s.startedAt ?? Number.POSITIVE_INFINITY;
+  return Object.values(store.sessions).filter((s) => liveFilterOfSession(store, s, alive) !== 'ended')
+    .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
+    .map((s) => s.id);
+}
+
+/**
  * 入力待ちのセッションの id。
  * 数え方は liveFilterOf に従い、Home の要対応の札と同じ順（最後の活動が古い、つまり長く待っている順）に並べる。
  * 時刻の無いものは後ろに置き、時刻が同じものは id の順にして、並びが揺れないようにする。
