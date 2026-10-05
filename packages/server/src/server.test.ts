@@ -24,6 +24,9 @@ import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
 import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 import { expectMode } from '../test/platform.ts';
 
+/** 見本の登録の pid は実在しない。Windows の既定は動いていない pid の登録を読まないので、試験では全部読ませる。 */
+const ALL_ALIVE = (): boolean => false;
+
 let home: string;
 let claudeDir: string;
 let ws: string;
@@ -119,7 +122,7 @@ describe('startServer', () => {
   });
 
   it('WebSocket と keep-alive の接続が残っていても close は 2 秒以内に終わる', async () => {
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     expect(s.port).toBeGreaterThan(0);
     const token = fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
     const ws = new WebSocket(`ws://127.0.0.1:${s.port}/ws`, { headers: { authorization: `Bearer ${token}` } });
@@ -147,7 +150,7 @@ describe('startServer', () => {
   it('cloud.json が無ければ同期は off で、経路は動く', async () => {
     // 参加していない端末でも、同期の経路は 404 にならずに「off」を返す。
     // 実物のクラウドには一切触らない（cloud.json が無いので client は作られない）。
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       const token = tokenOf();
       const api = (p: string, init?: RequestInit) => fetch(`http://127.0.0.1:${s.port}${p}`, { ...init, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init?.headers ?? {}) } });
@@ -176,7 +179,7 @@ describe('startServer', () => {
     // ここで見たいのは、cloud.json から client と鍵と上げ下ろしの部品が組み上がり、
     // 状態が off ではなくなり、参加トークンが作れることである。
     saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       const token = tokenOf();
       const api = (p: string) => fetch(`http://127.0.0.1:${s.port}${p}`, { headers: { authorization: `Bearer ${token}` } });
@@ -205,7 +208,7 @@ describe('startServer', () => {
     const joinedAt = 1_700_000_000_000;
     saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt });
     seedOldServerProgress();
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       expect(transcriptFloor()).toBe(String(joinedAt));
     } finally {
@@ -221,7 +224,7 @@ describe('startServer', () => {
     saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
     // ここで見たいのは件数の届き方なので、床は落としておく（そうしないと取り残しは 0 から動かない）。
     seedTranscriptFloor(0);
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     const col = collector(s.port, tokenOf());
     try {
       const token = tokenOf();
@@ -269,7 +272,7 @@ describe('startServer', () => {
     // 気に入らなくて切った利用者が入れ直したときに無確認で ~/.claude が書き換わる。
     // 宛先は誰も待ち受けていないループバックである。実物のクラウドには触らない。
     saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       const token = tokenOf();
       const auth = { authorization: `Bearer ${token}` };
@@ -303,7 +306,7 @@ describe('startServer', () => {
 
   it('この PC で再開は、本文が無ければ 400 で理由を返す', async () => {
     // 経路が copyTranscriptForResume まで繋がっていることを、~/.claude を書き換えない側から確かめる。
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       const r = await fetch(`http://127.0.0.1:${s.port}/api/sessions/nope/resume-here`, {
         method: 'POST', headers: { authorization: `Bearer ${tokenOf()}`, 'content-type': 'application/json' }, body: JSON.stringify({ overwrite: false }),
@@ -320,7 +323,7 @@ describe('startServer', () => {
     // 置き場ごと消した利用者のために、トークンと同じところで起動のたびに用意する。
     const header = path.join(home, 'statusline-header');
     expect(fs.existsSync(header)).toBe(false);
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       expect(fs.readFileSync(header, 'utf8')).toBe(`Authorization: Bearer ${tokenOf()}\n`);
       expectMode(header, 0o600);
@@ -331,11 +334,11 @@ describe('startServer', () => {
 
   it('トークンを作り直すと、ヘッダのファイルも次の起動で揃う', async () => {
     const header = path.join(home, 'statusline-header');
-    const first = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const first = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     await first.close();
     const old = tokenOf();
     fs.rmSync(path.join(home, 'token'));
-    const second = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const second = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       expect(tokenOf()).not.toBe(old);
       expect(fs.readFileSync(header, 'utf8')).toBe(`Authorization: Bearer ${tokenOf()}\n`);
@@ -346,7 +349,7 @@ describe('startServer', () => {
 
   it('/ws はクエリ文字列のトークンを受け付けない', async () => {
     // URL は Referer、代理のログ、シェルの履歴、ブラウザの履歴に残る。秘密をそこに置く経路を残さない。
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     const open = (url: string, headers: Record<string, string> = {}) => new Promise<WebSocket>((resolve, reject) => {
       const sock = new WebSocket(url, { headers });
       sock.once('open', () => resolve(sock));
@@ -364,7 +367,7 @@ describe('startServer', () => {
   });
 
   it('claudeDir を渡すと settings ではなくそれを読む', async () => {
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       const token = tokenOf();
       const r = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, { headers: { authorization: `Bearer ${token}` } });
@@ -376,7 +379,7 @@ describe('startServer', () => {
   });
 
   it('/ws 以外への upgrade 要求は握らずに切る', async () => {
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       const sock = net.connect(s.port, '127.0.0.1');
       await new Promise<void>((r) => sock.once('connect', r));
@@ -394,7 +397,7 @@ describe('startServer', () => {
 
   it('/ws/pty は PtyRelay が引き取り、無いタブには 404 を返す', async () => {
     // 番人に切られると応答が無いまま終わる。404 が返るのは relay が attach されている証拠である。
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       const sock = net.connect(s.port, '127.0.0.1');
       await new Promise<void>((r) => sock.once('connect', r));
@@ -411,7 +414,7 @@ describe('startServer', () => {
   }, 20000);
 
   it('run の経路が載り、hangar の外で実行中のセッションの再開は 409 になる', async () => {
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     const token = tokenOf();
     const api = (p: string, init?: RequestInit) => fetch(`http://127.0.0.1:${s.port}${p}`, { ...init, headers: { authorization: `Bearer ${token}` } });
     try {
@@ -436,7 +439,7 @@ describe('startServer', () => {
     // 起動時にプロジェクトが登録されるよう、ワークスペース配下のセッションを 1 つ置いておく。
     writeTranscript(dir, 'bbbbbbbb-0000-4000-8000-000000000001', 'first');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir }));
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     const c = collector(s.port, tokenOf());
     try {
       await c.opened;
@@ -457,7 +460,7 @@ describe('startServer', () => {
     writeTranscript(dir, 'bbbbbbbb-0000-4000-8000-000000000011', 'first');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir }));
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     const c = collector(s.port, tokenOf());
     const toastCount = () => c.all().filter((e) => e.type === 'toast' && e.message.includes(outside)).length;
     try {
@@ -482,7 +485,7 @@ describe('startServer', () => {
   }, 20000);
 
   it('実行中の登録が消えたら要約の状態を done に書き替える', async () => {
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     const token = tokenOf();
     const stateOf = async (): Promise<string | null> => {
       const r = await fetch(`http://127.0.0.1:${s.port}/api/sessions`, { headers: { authorization: `Bearer ${token}` } });
@@ -498,7 +501,7 @@ describe('startServer', () => {
     }
   }, 20000);
   it('実行中の登録が消えたら、答えを待っていた問いを消す。再開した直後に前の問いが出ない', async () => {
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     const db = openDb(dbPath(home));
     try {
       const id = (db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ?").get(SESSION_ALPHA) as { id: string }).id;
@@ -842,7 +845,7 @@ describe('一時停止は外と話さない', () => {
     // この確かめ方でクラウドとの往復が見えることを、先に固定しておく。
     const rec = await recorder();
     saveCloudConfig(home, { url: rec.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       // 最初の同期は起動を待たせない（信号の受け口を /health より前に立てるためである）。
       // だから往復は startServer が返った少し後に出る。出るまで待つ。
@@ -860,7 +863,7 @@ describe('一時停止は外と話さない', () => {
     const rec = await recorder();
     saveCloudConfig(home, { url: rec.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
     presetPaused();
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       const status = await (await fetch(`http://127.0.0.1:${s.port}/api/sync/status`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json() as { state: string };
       expect(status.state).toBe('paused');
@@ -1075,7 +1078,7 @@ describe('本文は使い始めた後に動いたものだけを上げる', () =
 
   /** 3 件の本文が索引された状態を作る。クラウドはまだ無い。 */
   async function indexWithoutCloud(): Promise<void> {
-    const first = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const first = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       await until(async () => {
         const db = openDb(dbPath(home));
@@ -1122,7 +1125,7 @@ describe('本文は使い始めた後に動いたものだけを上げる', () =
 
     const sink = await fileSink();
     saveCloudConfig(home, { url: sink.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       await until(async () => (sink.puts.length >= 1 ? sink.puts : null));
       // 参加より前で止まっている 2 件（alpha の本文と subagent）は上がらない。
@@ -1146,7 +1149,7 @@ describe('本文は使い始めた後に動いたものだけを上げる', () =
 
     const sink = await fileSink();
     saveCloudConfig(home, { url: sink.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       const keys = await until(async () => (sink.puts.length >= 3 ? sink.puts : null));
       expect(suffixes(keys)).toEqual([`${SESSION_ALPHA}.jsonl.gz`, `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`, `${SESSION_OTHER}.jsonl.gz`].sort());
@@ -1235,7 +1238,7 @@ describe('控えの世代を刈る', () => {
     const memos = path.join(home, 'backups', 'memos');
     const trNames = seed(tr, BACKUP_GENERATIONS + 7, '.jsonl');
     const memoNames = seed(memos, BACKUP_GENERATIONS + 4, '.md');
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       expect(fs.readdirSync(tr).sort()).toEqual(trNames.slice(7).sort());
       expect(fs.readdirSync(memos).sort()).toEqual(memoNames.slice(4).sort());
