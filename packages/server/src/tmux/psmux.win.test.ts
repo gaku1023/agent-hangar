@@ -2,16 +2,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PSMUX, psmuxNamespace } from '../../test/psmux.ts';
+import { PSMUX, psmuxNamespace, psmuxTestEnv } from '../../test/psmux.ts';
 import { waitFor } from '../../test/tmux.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
 import { Tmux } from './tmux.ts';
 
 // Windows の psmux を相手にした確かめ。macOS と Linux、psmux の無い Windows では丸ごと飛ぶ。
 describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
-  const tmux = new Tmux({ tmuxPath: PSMUX!, socketName: psmuxNamespace() });
+  // describe の本体は飛ばすときにも走るので、置き場を作るのは psmux があるときだけにする。
+  const env = PSMUX ? psmuxTestEnv() : {};
+  const tmux = new Tmux({ tmuxPath: PSMUX ?? 'psmux', socketName: psmuxNamespace(), env });
   const made: string[] = [];
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-psmux-'));
+  const cwd = PSMUX ? fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-psmux-')) : os.tmpdir();
   const start = (name: string, command: string[], env?: Record<string, string>): void => {
     made.push(name);
     tmux.newSession({ name, cwd, command, env });
@@ -20,7 +22,20 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
   afterEach(() => { while (made.length) tmux.killSession(made.pop()!); });
 
   it('サーバが無いうちは空の一覧を返す', () => {
-    expect(new Tmux({ tmuxPath: PSMUX!, socketName: psmuxNamespace() }).listSessions()).toEqual([]);
+    expect(new Tmux({ tmuxPath: PSMUX!, socketName: psmuxNamespace(), env }).listSessions()).toEqual([]);
+  });
+
+  // 試験が利用者の psmux に触れないことの確かめ。psmux を上げたら、まずこれを見る。
+  it('置き場を分けたセッションは、利用者の置き場からは見えず、予備のサーバも残さない', async () => {
+    start('hangar-iso', ['cmd.exe']);
+    const ns = (tmux as unknown as { socketName: string }).socketName;
+    const users = new Tmux({ tmuxPath: PSMUX!, socketName: ns });
+    expect(users.hasSession('hangar-iso')).toBe(false);
+    expect(fs.readdirSync(env.PSMUX_DATA_DIR!).some((f) => f.includes('hangar-iso'))).toBe(true);
+    expect(fs.readdirSync(env.PSMUX_DATA_DIR!).some((f) => f.includes('__warm__'))).toBe(false);
+    tmux.killSession('hangar-iso');
+    made.pop();
+    await waitFor(() => !fs.readdirSync(env.PSMUX_DATA_DIR!).some((f) => f.includes('hangar-iso')), 10_000);
   });
 
   it('切り離して作り、完全一致で見つけ、名指しで止める', async () => {
@@ -59,7 +74,7 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
     start('hangar-att', ['cmd.exe']);
     const open = () => {
       let out = '';
-      const p = nodePtySpawn(tmux.tmuxPath, tmux.attachArgs('hangar-att'), { name: 'xterm-256color', cols: 100, rows: 30, cwd: os.homedir(), env: process.env });
+      const p = nodePtySpawn(tmux.tmuxPath, tmux.attachArgs('hangar-att'), { name: 'xterm-256color', cols: 100, rows: 30, cwd: os.homedir(), env: { ...process.env, ...env } });
       p.onData((d) => { out += d; });
       return { p, text: () => out };
     };

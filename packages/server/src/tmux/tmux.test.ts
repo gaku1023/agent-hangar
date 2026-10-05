@@ -24,6 +24,15 @@ describe('Tmux.args', () => {
   });
 });
 
+describe('Tmux の環境変数', () => {
+  // psmux は PSMUX_DATA_DIR で置き場を分けられる。試験が利用者のセッションに触れないために使う。
+  it('env を渡すと、tmux を起こすときの環境に足す', () => {
+    const t = new Tmux({ tmuxPath: process.execPath, env: { HANGAR_TMUX_ENV_TEST: '値' } });
+    expect(t.run('-e', 'process.stdout.write(process.env.HANGAR_TMUX_ENV_TEST ?? "none")').stdout).toBe('値');
+    expect(new Tmux({ tmuxPath: process.execPath }).run('-e', 'process.stdout.write(process.env.HANGAR_TMUX_ENV_TEST ?? "none")').stdout).toBe('none');
+  });
+});
+
 describe('Tmux.killServer', () => {
   // psmux の kill-server は -L の別の名前空間のセッションまで落とす（2026-10-05 実測）。
   it('Windows では呼ばずに投げる', () => {

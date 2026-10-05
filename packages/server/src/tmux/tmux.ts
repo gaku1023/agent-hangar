@@ -6,8 +6,8 @@ export type TmuxResult = { code: number; stdout: string; stderr: string; failed:
 /** tmux を起こす口。試験では差し替える。 */
 export type TmuxExec = (file: string, args: string[]) => { status: number | null; stdout: string; stderr: string; error?: Error };
 
-const realExec: TmuxExec = (file, args) => {
-  const r = spawnSync(file, args, { encoding: 'utf8', windowsHide: true });
+const realExec = (env: NodeJS.ProcessEnv | undefined): TmuxExec => (file, args) => {
+  const r = spawnSync(file, args, { encoding: 'utf8', windowsHide: true, env: env ? { ...process.env, ...env } : process.env });
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
 };
 
@@ -35,12 +35,16 @@ export class Tmux {
   private readonly platform: NodeJS.Platform;
   private readonly exec: TmuxExec;
 
-  constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string; platform?: NodeJS.Platform; exec?: TmuxExec }) {
+  /**
+   * env は tmux を起こすときの環境に足す変数である。
+   * psmux は PSMUX_DATA_DIR で置き場ごと分けられるので、試験が利用者のセッションに触れないために使う。
+   */
+  constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string; platform?: NodeJS.Platform; exec?: TmuxExec; env?: NodeJS.ProcessEnv }) {
     this.tmuxPath = opts.tmuxPath;
     this.socketName = opts.socketName;
     this.socketPath = opts.socketPath;
     this.platform = opts.platform ?? process.platform;
-    this.exec = opts.exec ?? realExec;
+    this.exec = opts.exec ?? realExec(opts.env);
   }
 
   args(...a: string[]): string[] {
