@@ -41,9 +41,8 @@ export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; w
 /**
  * サイドバーの「動いている」。
  * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
- * folded が真なら、見出しと件数だけを出す（ホーム）。
  */
-export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; more: number; folded: boolean };
+export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; more: number };
 export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
 
 /**
@@ -134,7 +133,6 @@ export const SIDE_LIVE_MAX = 8;
  * 並びは覚えた順（state.sidebarOrder）だけで決め、状態や最後の活動では並べ直さない。動かすのは利用者の手だけである。
  * 覚えた並びにまだ無いもの（いま動き始めたもの）は、始めた順で末尾に置く。Mediator が同じ順で並びに書き足すので（sidebar.ts の sidebarLiveStep）、書き足す前と後で行は動かない。
  * 入力待ちになっても行は動かさない。待ちは色と太字と待った時間で知らせる。
- * ホームでは、本文の「要対応」「実行中」と同じ件を出すだけになるので、見出しと件数だけにする（folded）。
  */
 function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const live = liveSessionIds(store);
@@ -146,7 +144,7 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     const s = store.sessions[id]!;
     return { id, name: s.name ?? '（名前なし）', live: s.live, waited: s.live === 'waiting' ? `待ち ${durationLabel(now - (s.lastActivityAt ?? now))}` : null, current: id === current };
   });
-  return { count: ids.length, ids, rows, more: ids.length - rows.length, folded: state.screen.name === 'home' || state.screen.name === 'booting' };
+  return { count: ids.length, ids, rows, more: ids.length - rows.length };
 }
 
 /** tz は日付と時刻を言うときの時差で、省略すると端末の時差になる。 */

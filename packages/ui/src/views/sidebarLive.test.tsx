@@ -60,11 +60,12 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
   it('いま見ているセッションに印を付ける', () => {
     const live = liveOf(store, { ...initialState(), screen: { name: 'session', id: 'b' } });
     expect(live.rows.find((r) => r.id === 'b')?.current).toBe(true);
-    expect(live.folded).toBe(false);
   });
-  it('ホームでは見出しと件数だけにする（本文の要対応と実行中が同じ件を出している）', () => {
-    expect(liveOf(store, at('home')).folded).toBe(true);
-    expect(liveOf(store, at('projects')).folded).toBe(false);
+  it('ホームでも、ほかの画面と同じ行を同じ並びで出す', () => {
+    const st = { sidebarOrder: ['c', 'a', 'b'] };
+    expect(liveOf(store, { ...at('home'), ...st })).toEqual(liveOf(store, { ...at('projects'), ...st }));
+    render(<IntentRoot onIntent={vi.fn()}><Sidebar nav={[]} collapsed={false} live={liveOf(store, { ...at('home'), ...st })} /></IntentRoot>);
+    expect(screen.getAllByRole('link').map((a) => a.textContent)).toEqual([expect.stringContaining('name-c'), expect.stringContaining('name-a'), expect.stringContaining('name-b')]);
   });
   it('並べるのは上限までで、超えた分は数だけ返す。並べ替えの計算には全部の並びを渡す', () => {
     const many = storeWith(Array.from({ length: SIDE_LIVE_MAX + 3 }, (_, i) => session(`s${i}`, { lastActivityAt: NOW - i * 1000 })));
@@ -156,7 +157,7 @@ describe('行の移し方', () => {
 });
 
 const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', waited: null, current: false, ...over });
-const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '待ち 4 分' }), row('c', { current: true })], more: 0, folded: false, ...over });
+const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><Sidebar nav={[]} collapsed={false} live={live} /></IntentRoot>), onIntent });
 
 // jsdom はドラッグのイベントにポインタの位置を載せないので、作ったイベントに clientY を足してから送る。
@@ -182,11 +183,6 @@ describe('サイドバーの「動いている」の節（Sidebar）', () => {
   it('動いているものが無ければ、節ごと出さない', () => {
     mount(liveProps({ count: 0, ids: [], rows: [] }));
     expect(screen.queryByRole('heading', { name: /動いている/ })).toBeNull();
-  });
-  it('ホームでは見出しと件数だけを出し、行は出さない', () => {
-    mount(liveProps({ folded: true }));
-    expect(screen.getByRole('heading', { name: /動いている/ })).toHaveTextContent('3');
-    expect(screen.queryByRole('link', { name: /name-a/ })).toBeNull();
   });
   it('並べきれない分は「ほか N 件」にして、押すとホームへ行く', () => {
     const { onIntent } = mount(liveProps({ count: 11, more: 8 }));

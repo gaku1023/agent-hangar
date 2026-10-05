@@ -42,7 +42,7 @@ export function nudgeId(ids: string[], id: string, delta: -1 | 1): string[] {
  * 行を押すとそのセッションへ移る。行を掴んで上下に動かすと並べ替えられ、並びは端末が覚える（sidebar.order）。
  * キーボードでは、行に焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。
  * 動かすのは行だけで、見出しは動かない。ドラッグの途中の印（入る場所の線）は、ここだけで持つ。
- * 畳んだ帯では点だけを縦に並べ、名前は title に持つ（base.css）。ホームでは見出しと件数だけにする。
+ * 畳んだ帯では点だけを縦に並べ、名前は title に持つ（base.css）。
  */
 function LiveSection(props: { live: SideLiveProps }) {
   const emit = useEmit();
@@ -74,23 +74,21 @@ function LiveSection(props: { live: SideLiveProps }) {
   return (
     <section className="side-live" aria-label="動いているセッション">
       <h2 className="side-live-h">動いている<span className="side-live-n">{live.count}</span></h2>
-      {!live.folded && (
-        <ul className="side-live-list">
-          {live.rows.map((r) => (
-            <li key={r.id}>
-              <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable aria-current={r.current ? 'page' : undefined}
-                data-live={r.live ?? undefined} data-dragging={drag === r.id ? 'true' : undefined} data-over={over?.id === r.id ? (over.before ? 'before' : 'after') : undefined}
-                title={r.waited ? `${r.name}（${r.waited}）` : r.name}
-                onClick={(e) => { e.preventDefault(); emit({ type: 'session.open', id: r.id }); }} onKeyDown={(e) => onKeyDown(e, r)}
-                onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
-                onDragOver={(e) => onDragOver(e, r)} onDragLeave={() => { if (over?.id === r.id) setOver(null); }} onDrop={(e) => onDrop(e, r)} onDragEnd={end}>
-                <StatusDot status={r.live} /><span className="side-live-name">{r.name}</span>{r.waited && <span className="side-live-wait num">{r.waited}</span>}
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
-      {!live.folded && live.more > 0 && <a className="side-live-more" href={formatRoute(HOME)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: HOME }); }}>ほか {live.more} 件</a>}
+      <ul className="side-live-list">
+        {live.rows.map((r) => (
+          <li key={r.id}>
+            <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable aria-current={r.current ? 'page' : undefined}
+              data-live={r.live ?? undefined} data-dragging={drag === r.id ? 'true' : undefined} data-over={over?.id === r.id ? (over.before ? 'before' : 'after') : undefined}
+              title={r.waited ? `${r.name}（${r.waited}）` : r.name}
+              onClick={(e) => { e.preventDefault(); emit({ type: 'session.open', id: r.id }); }} onKeyDown={(e) => onKeyDown(e, r)}
+              onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
+              onDragOver={(e) => onDragOver(e, r)} onDragLeave={() => { if (over?.id === r.id) setOver(null); }} onDrop={(e) => onDrop(e, r)} onDragEnd={end}>
+              <StatusDot status={r.live} /><span className="side-live-name">{r.name}</span>{r.waited && <span className="side-live-wait num">{r.waited}</span>}
+            </a>
+          </li>
+        ))}
+      </ul>
+      {live.more > 0 && <a className="side-live-more" href={formatRoute(HOME)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: HOME }); }}>ほか {live.more} 件</a>}
     </section>
   );
 }
