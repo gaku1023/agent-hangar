@@ -1370,6 +1370,17 @@ describe('アカウントの取り付け', () => {
     expect((await get('/api/accounts')).status).toBe(404);
   });
 
+  it('リンクの点検は /bootstrap のときにし、statusline の配信では fs を触らない', async () => {
+    const dir = path.join(accountHome, '.claude-2');
+    expect(fs.existsSync(dir)).toBe(false);
+    await accountsApp.request('/api/bootstrap', { headers: H });
+    expect(fs.readlinkSync(path.join(dir, 'projects'))).toBe(path.join(accountHome, '.claude', 'projects'));
+    fs.unlinkSync(path.join(dir, 'projects'));
+    const limits = { rate_limits: { five_hour: { used_percentage: 47, resets_at: 1 }, seven_day: { used_percentage: 7, resets_at: 2 } } };
+    expect((await post('/api/ingest/statusline', { session_id: SESSION_ALPHA, ...limits })).status).toBe(204);
+    expect(fs.existsSync(path.join(dir, 'projects'))).toBe(false);
+  });
+
   it('MCP の get_usage は、accounts を渡した組み立てでだけ accounts を返す', async () => {
     const usageOver = async (target: ReturnType<typeof createApp>) => {
       const res = await target.request('/mcp', { method: 'POST', headers: { ...H, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_usage', arguments: {} } }) });

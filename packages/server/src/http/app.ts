@@ -345,7 +345,7 @@ export function createApp(deps: AppDeps): Hono {
       version: deps.version,
       retention: deps.retention.current(),
       cloudUsage: deps.cloudUsage?.current() ?? null,
-      accounts: accountsDeps ? buildAccountsDto(accountsDeps) : undefined,
+      accounts: accountsDeps ? buildAccountsDto(accountsDeps, { checkLinks: true }) : undefined,
     };
     return c.json(body);
   });

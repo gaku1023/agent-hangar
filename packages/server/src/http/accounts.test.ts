@@ -11,7 +11,7 @@ import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { RunError } from '../runs/manager.ts';
 import { UsageTracker } from '../usage/statusline.ts';
-import { accountsRoutes, type AccountsDeps } from './accounts.ts';
+import { accountsRoutes, buildAccountsDto, type AccountsDeps } from './accounts.ts';
 
 let db: Db;
 let home: string;
@@ -22,6 +22,7 @@ let app: Hono;
 let sent: AccountsDto[];
 let switchAccount: ReturnType<typeof vi.fn>;
 let order: string[];
+let deps: AccountsDeps;
 let ensureChecked: ReturnType<typeof vi.spyOn>;
 const OK = JSON.stringify({ loggedIn: true, email: 'taro@example.ac.jp', orgName: 'Example University', subscriptionType: 'enterprise' });
 const run: RunClaude = async (_b, args) => ({ code: 0, stdout: args[1] === 'status' ? OK : '' });
@@ -42,7 +43,7 @@ beforeEach(() => {
   switchAccount = vi.fn(async (sessionId: string) => { order.push('switch'); return { sessionId, run: { id: 'r9' }, tabs: [] }; });
   const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run });
   ensureChecked = vi.spyOn(auth, 'ensureChecked');
-  const deps: AccountsDeps = {
+  deps = {
     db, store, primaryDir,
     auth,
     beforeLaunch: async () => { order.push('before'); },
@@ -146,5 +147,54 @@ describe('アカウントの HTTP', () => {
     const id = (await call('POST', '/accounts', { name: '大学' })).json.accounts[1]!.id;
     await app.request('/sessions/s1/switch-account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account: id }) });
     expect(order).toEqual(['before', 'switch']);
+  });
+
+  it('リンクの点検は GET /accounts や追加・login・bootstrap のときだけで、使用量などからの配信は最後の結果を使い回す', async () => {
+    const id = (await call('POST', '/accounts', { name: '大学' })).json.accounts[1]!.id;
+    const dir = store.get(id)!.dir;
+    // 点検のあとで、リンクの場所に実物が置かれる。
+    fs.unlinkSync(path.join(dir, 'projects'));
+    fs.mkdirSync(path.join(dir, 'projects'));
+    // statusline や認証の変化からの配信（点検しない）は、最後の結果（問題なし）のまま。
+    expect(buildAccountsDto(deps).accounts[1]!.linkProblem).toBeNull();
+    expect((await call('PUT', '/accounts/current', { id })).json.accounts[1]!.linkProblem).toBeNull();
+    expect(sent.at(-1)!.accounts[1]!.linkProblem).toBeNull();
+    // GET /accounts は点検し直す。
+    expect((await call('GET', '/accounts')).json.accounts[1]!.linkProblem).toContain('projects');
+    // 点検したあとは、その結果を使い回す（実物を片付けても、次の点検まで変わらない）。
+    fs.rmSync(path.join(dir, 'projects'), { recursive: true });
+    expect(buildAccountsDto(deps).accounts[1]!.linkProblem).toContain('projects');
+    expect(buildAccountsDto(deps, { checkLinks: true }).accounts[1]!.linkProblem).toBeNull();
+  });
+
+  it('点検していないアカウントの linkProblem は null', async () => {
+    const dir = path.join(userHome, '.claude-univ');
+    fs.mkdirSync(path.join(dir, 'projects'), { recursive: true });
+    store.add({ name: '大学', dir });
+    expect(buildAccountsDto(deps).accounts[1]!.linkProblem).toBeNull();
+    expect(buildAccountsDto(deps, { checkLinks: true }).accounts[1]!.linkProblem).toContain('projects');
+  });
+
+  it('login のときも点検する', async () => {
+    const id = (await call('POST', '/accounts', { name: '大学' })).json.accounts[1]!.id;
+    const dir = store.get(id)!.dir;
+    fs.unlinkSync(path.join(dir, 'projects'));
+    fs.mkdirSync(path.join(dir, 'projects'));
+    const r = await call('POST', `/accounts/${id}/login`);
+    expect(r.status).toBe(202);
+    expect(r.json.accounts[1]!.linkProblem).toContain('projects');
+  });
+
+  it('追加のとき、置き場を作れなくても登録は通し、linkProblem に文を出して配る', async () => {
+    // 置き場の場所に通常のファイルがある。
+    const dir = path.join(userHome, '.claude-file');
+    fs.writeFileSync(dir, 'x');
+    const r = await call('POST', '/accounts', { name: '大学', dir });
+    expect(r.status).toBe(201);
+    expect(r.json.accounts).toHaveLength(2);
+    expect(typeof r.json.accounts[1]!.linkProblem).toBe('string');
+    expect(r.json.accounts[1]!.linkProblem!.length).toBeGreaterThan(0);
+    expect(sent.at(-1)?.accounts).toHaveLength(2);
+    expect((await call('GET', '/accounts')).json.accounts).toHaveLength(2);
   });
 });
