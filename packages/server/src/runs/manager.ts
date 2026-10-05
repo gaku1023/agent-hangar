@@ -423,6 +423,28 @@ export class RunManager {
     return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined }, account });
   }
 
+  /**
+   * 開いているセッションを、別のアカウントで再開し直す。
+   * 動いていれば止め、Claude のレジストリから消えるのを待ってから、同じ会話を選んだアカウントの置き場で起こす。
+   * 本文は置き場の間で共有なので写さない。
+   * 断る理由（知らないアカウント、壊れたリンク、同じアカウント）は、止める前に確かめる。止めてから断ると、利用者の作業だけが失われる。
+   */
+  async switchAccount(sessionId: string, accountId: string): Promise<LaunchResult> {
+    const s = this.session(sessionId);
+    const account = this.account(accountId);
+    if (!account) throw new RunError(400, 'アカウントが見つかりません');
+    if (this.accountFor(s.id) === account.id) throw new RunError(409, 'このセッションはもうそのアカウントで動いています');
+    this.accountEnvFor(account);
+    const alive = aliveRunForSession(this.db, s.id);
+    if (alive) this.kill(alive.id);
+    const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    for (let waited = 0; this.deps.isLive?.(s.provider_session_id); waited += 250) {
+      if (waited >= 5000) throw new RunError(409, '前の Claude がまだ終わっていません。少し待ってから、もう一度切り替えてください');
+      await sleep(250);
+    }
+    return this.resume(s.id, { account: account.id });
+  }
+
   /** レジストリのうち、Claude の UUID が一致する項目。 */
   private liveOf(providerSessionId: string): LiveSession | null {
     return this.deps.live?.().find((l) => l.sessionId === providerSessionId) ?? null;

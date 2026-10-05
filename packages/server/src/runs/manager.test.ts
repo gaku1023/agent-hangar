@@ -1230,6 +1230,79 @@ describe.skipIf(!TMUX)('アカウント', () => {
     expect(params(r.run.id).account).toBe(a.id);
   });
 
+  const endedAt = (runId: string) => (db.prepare('select ended_at from runs where id = ?').get(runId) as { ended_at: number | null }).ended_at;
+  const endReason = (runId: string) => (db.prepare('select end_reason from runs where id = ?').get(runId) as { end_reason: string }).end_reason;
+
+  it('switchAccount：動いているセッションを止め、同じ会話を別のアカウントで再開する', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    // 本文の無い start は止めるときにセッションの行ごと消えるので、先に本文があることにする。
+    addTranscript(first.sessionId);
+    const next = await m.switchAccount(first.sessionId, a.id);
+    expect(next.sessionId).toBe(first.sessionId);
+    expect(next.run.id).not.toBe(first.run.id);
+    expect(endReason(first.run.id)).toBe('killed');
+    expect(await envOf(next.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(m.accountFor(first.sessionId)).toBe(a.id);
+    const args = readArgs(fake.argsFile);
+    expect(args[args.indexOf('-r') + 1]).toBe((db.prepare('select provider_session_id p from sessions where id = ?').get(first.sessionId) as { p: string }).p);
+  });
+
+  it('switchAccount：止まっているセッションは、そのまま別のアカウントで再開する', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    m.kill(first.run.id);
+    const next = await m.switchAccount(first.sessionId, a.id);
+    expect(await envOf(next.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+  });
+
+  it('switchAccount：知らないアカウントは、セッションを止める前に 400 で断る', async () => {
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    await expect(m.switchAccount(first.sessionId, 'nope')).rejects.toThrow(expect.objectContaining({ status: 400, message: 'アカウントが見つかりません' }));
+    expect(endedAt(first.run.id)).toBeNull();
+  });
+
+  it('switchAccount：リンクが壊れているアカウントも、止める前に断る', async () => {
+    const a = accounts.add({ name: '大学' });
+    fs.mkdirSync(a.dir);
+    fs.writeFileSync(path.join(a.dir, 'projects'), 'x');
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('共有のリンクではありません') }));
+    expect(endedAt(first.run.id)).toBeNull();
+  });
+
+  it('switchAccount：止めたあともレジストリに残り続けたら 409 で断る。元の run は閉じたまま', async () => {
+    const a = accounts.add({ name: '大学' });
+    let slept = 0;
+    const m = make({ accounts, isLive: () => true, sleep: async (ms) => { slept += ms; } });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: expect.stringContaining('前の Claude がまだ終わっていません') }));
+    expect(slept).toBeGreaterThanOrEqual(5000);
+    expect(endReason(first.run.id)).toBe('killed');
+  });
+
+  it('switchAccount：同じアカウントへの切り替えは 409 で断り、何も止めない', async () => {
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    await expect(m.switchAccount(first.sessionId, 'primary')).rejects.toThrow(expect.objectContaining({ status: 409, message: 'このセッションはもうそのアカウントで動いています' }));
+    expect(endedAt(first.run.id)).toBeNull();
+  });
+
   it('accounts を渡さない RunManager は今までどおり動く', async () => {
     const r = make().start({ projectId: 'p1' });
     expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=\n');
