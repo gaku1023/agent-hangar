@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from '../config/accounts.ts';
 import { authMiddleware } from '../http/auth.ts';
-import { shortId, type TabDto } from '@agent-hangar/shared';
+import { runTmuxId, type TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
@@ -137,13 +137,23 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
 });
 
 describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
+  it('続けて起こした 2 つの run は、tmux の名前が重ならず、どちらも動く', () => {
+    // 名前が run の id の先頭 8 桁だけだったときは、約 65 秒の窓の中の 2 つ目が duplicate session で落ちていた。
+    const rm = make();
+    const a = rm.start({ projectId: 'p1', name: 'a' });
+    const b = rm.start({ projectId: 'p1', name: 'b' });
+    expect(a.run.tmuxName).not.toBe(b.run.tmuxName);
+    expect(tmux!.hasSession(a.run.tmuxName)).toBe(true);
+    expect(tmux!.hasSession(b.run.tmuxName)).toBe(true);
+  });
+
   it('sessions 行と runs 行を作り、ラッパー経由で起動し、status off にする', async () => {
     const rm = make();
     const started: unknown[] = [];
     rm.on({ runStarted: (r) => started.push(r) });
     const r = rm.start({ projectId: 'p1', name: 'first', prompt: 'やって', model: 'opus' });
     expect(r.run).toMatchObject({ kind: 'start', sessionId: r.sessionId, deviceId: 'd', endedAt: null, endReason: null, pid: null });
-    expect(r.run.tmuxName).toBe(`hangar-${shortId(r.run.id)}`);
+    expect(r.run.tmuxName).toBe(`hangar-${runTmuxId(r.run.id)}`);
     expect(r.tabs).toEqual([{ id: r.run.id, runId: r.run.id, sessionId: r.sessionId, kind: 'agent', title: 'Claude', tmuxName: r.run.tmuxName, createdAt: r.run.startedAt, closedAt: null }]);
     expect(started).toHaveLength(1);
     expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);

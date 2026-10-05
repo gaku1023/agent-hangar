@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { newId, shortId, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
+import { newId, runTmuxId, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import { ensureAccountLinks, linkProblem } from '../config/accountLinks.ts';
 import type { Db } from '../db/open.ts';
@@ -229,7 +229,7 @@ export class RunManager {
     const env = { ...this.accountEnvFor(own ? null : account), ...o.env };
     const params: LaunchParams = account ? { ...o.params, account: account.id } : o.params;
     const runId = newId();
-    const tmuxName = `hangar-${shortId(runId)}`;
+    const tmuxName = `hangar-${runTmuxId(runId)}`;
     const wrapper = ensureWrapperScript(this.deps.home);
     const log = runLogPath(this.deps.home, runId);
     // ラッパーはプロセス置換を使うので、sh ではなく bash で起こす。
