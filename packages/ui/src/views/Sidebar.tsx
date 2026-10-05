@@ -1,8 +1,9 @@
 import { formatRoute } from '@agent-hangar/shared';
-import { useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { NavItem, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
+import { MenuPop, type MenuAnchor, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
@@ -43,13 +44,29 @@ export function nudgeId(ids: string[], id: string, delta: -1 | 1): string[] {
  * キーボードでは、行に焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。
  * 動かすのは行だけで、見出しは動かない。ドラッグの途中の印（入る場所の線）は、ここだけで持つ。
  * 畳んだ帯では点だけを縦に並べ、名前は title に持つ（base.css）。
+ * 行を右クリックするか、行に焦点があるときに . を押すと、その行のメニューを出す。中身は「停止」だけで、画面を移らずに Claude を終わらせるためのものである。
+ * メニューは節に 1 つだけ持ち、開いている行には印（data-menu）を付けて、どの行のものかを見せる。
  */
 function LiveSection(props: { live: SideLiveProps }) {
   const emit = useEmit();
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<{ id: string; before: boolean } | null>(null);
+  // 開いているメニュー。at は吊るす相手で、右クリックなら押した点、打鍵なら行の矩形。
+  const [menu, setMenu] = useState<{ id: string; at: MenuAnchor } | null>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const anchor = useCallback(() => menu?.at ?? null, [menu]);
+  // 開いている間に行が消えたら（ほかの場所で止めた、Claude が自分で終わった）、開いていたことも忘れる。同じ行がまた現れたときに、勝手に開き直さないためである。
+  const gone = menu !== null && !props.live.rows.some((r) => r.id === menu.id);
+  useEffect(() => { if (gone) setMenu(null); }, [gone]);
   const { live } = props;
   if (live.count === 0) return null;
+  const menuRow = menu ? live.rows.find((r) => r.id === menu.id) ?? null : null;
+  const closeMenu = (how: MenuCloseHow) => {
+    const id = menu?.id;
+    setMenu(null);
+    // 外を押したときは、押した先にフォーカスを任せる。ほかは行へ戻す（止めて行が消えたら、戻す先は無い）。
+    if (how !== 'outside' && id) list.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
+  };
   const end = () => { setDrag(null); setOver(null); };
   const onDragOver = (e: DragEvent, r: SideLiveRow) => {
     if (drag === null || drag === r.id) return;
@@ -66,6 +83,13 @@ function LiveSection(props: { live: SideLiveProps }) {
     if (ids !== live.ids) emit({ type: 'sidebar.order', ids });
   };
   const onKeyDown = (e: KeyboardEvent, r: SideLiveRow) => {
+    // . は一覧の行の「⋯」と同じ打鍵。修飾の付いたものはアプリ全体の打鍵なので取らない。
+    if (e.key === '.' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      const box = e.currentTarget.getBoundingClientRect();
+      setMenu({ id: r.id, at: { top: box.top, bottom: box.bottom, left: box.left, width: box.width } });
+      return;
+    }
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
     const ids = nudgeId(live.ids, r.id, e.key === 'ArrowUp' ? -1 : 1);
@@ -74,13 +98,14 @@ function LiveSection(props: { live: SideLiveProps }) {
   return (
     <section className="side-live" aria-label="動いているセッション">
       <h2 className="side-live-h">動いている<span className="side-live-n">{live.count}</span></h2>
-      <ul className="side-live-list">
+      <ul className="side-live-list" ref={list}>
         {live.rows.map((r) => (
           <li key={r.id}>
-            <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable aria-current={r.current ? 'page' : undefined}
+            <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={menu?.id === r.id ? 'true' : undefined}
               data-live={r.live ?? undefined} data-dragging={drag === r.id ? 'true' : undefined} data-over={over?.id === r.id ? (over.before ? 'before' : 'after') : undefined}
               title={r.waited ? `${r.name}（${r.waited}）` : r.name}
               onClick={(e) => { e.preventDefault(); emit({ type: 'session.open', id: r.id }); }} onKeyDown={(e) => onKeyDown(e, r)}
+              onContextMenu={(e) => { e.preventDefault(); setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
               onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
               onDragOver={(e) => onDragOver(e, r)} onDragLeave={() => { if (over?.id === r.id) setOver(null); }} onDrop={(e) => onDrop(e, r)} onDragEnd={end}>
               <StatusDot status={r.live} /><span className="side-live-name">{r.name}</span>{r.waited && <span className="side-live-wait num">{r.waited}</span>}
@@ -88,9 +113,20 @@ function LiveSection(props: { live: SideLiveProps }) {
           </li>
         ))}
       </ul>
+      {menuRow && <MenuPop key={menuRow.id} label={`${menuRow.name} の操作`} items={rowItems(menuRow, emit)} anchor={anchor} minWidth={260} align="start" onClose={closeMenu} />}
       {live.more > 0 && <a className="side-live-more" href={formatRoute(HOME)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: HOME }); }}>ほか {live.more} 件</a>}
     </section>
   );
+}
+
+/**
+ * 行のメニューの項目。「停止」だけにする。
+ * 状態（Paused・Done）は会話の終わりと一覧の「⋯」で付けるので、ここには置かない。置くと、付けたのに行が残って見える。
+ * 言葉と色はセッション画面の「停止」に合わせ、何が起きるかを 1 行添える。hangar の外で動いているものは止められないので、押せない形で理由を言う。
+ */
+function rowItems(r: SideLiveRow, emit: ReturnType<typeof useEmit>): MenuItem[] {
+  const stop = r.stop;
+  return [{ key: 'stop', label: '停止', danger: true, note: 'Claude を終わらせます。会話の記録は残るので、あとで再開できます', disabled: stop ? null : 'hangar の外で動いています', onSelect: () => { if (stop) emit({ type: 'session.kill', ...stop }); } }];
 }
 
 /** 「ほか N 件」の行き先。ホームの実行中と要対応に全部が並ぶ。 */
