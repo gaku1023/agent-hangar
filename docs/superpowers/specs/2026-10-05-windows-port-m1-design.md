@@ -212,7 +212,8 @@ macOS の動きは変えない。
 - psmux は、名前空間ごとに予備のサーバ（`__warm__`）を 1 つ残す。利用者の既定の名前空間にも、hangar が初めてセッションを作った後に 1 つ残る。psmux の作りである。
 - SSH の中から `Start-Process` で起こしたサーバは、SSH を切ると落ちる。psmux のセッションは残る。
   確かめでは WMI（`Win32_Process` の `Create`）でサーバを起こした。殻の区切りで、サーバを親から切り離す方法を決めるときの材料になる。
-- 素の `npm ci` は `better-sqlite3` が node-gyp を始めて失敗していた。`.npmrc` の `ignore-scripts=true` で、同梱の prebuild を使うようにした。
+- 素の `npm ci` は、Windows では `better-sqlite3` が node-gyp を始めて失敗する。Windows では `npm ci --ignore-scripts` で入れ、同梱の prebuild を使う。
+  はじめは `.npmrc` に `ignore-scripts=true` を入れたが、Linux の `node-pty` には prebuild が無くビルドが要るので、Ubuntu の CI が壊れた。`.npmrc` はやめ、Windows でだけ付けることにした。
 - cloud の試験の 1 件（上限を超える本文を 413 で断る）は、macOS の main でも全体の試験の 3 回に 1 回ほど落ちていた。Windows では毎回落ちた。試験の側で、断られた接続が途中で切れることを受けるようにした。
 - 枝全体の審査で、重い指摘が 4 件出て直した。
   `.cmd` の道具（VS Code の `code.cmd`、npm 版の `claude.cmd`）を見つけるのに起こせなかった件、大文字小文字を区別しない比較が 2 か所で漏れていた件、

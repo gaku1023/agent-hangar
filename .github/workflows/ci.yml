@@ -45,7 +45,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      # better-sqlite3 は入れるたびに node-gyp でビルドを始める。ネイティブモジュールは Windows 向けの prebuild を同梱しているので、
+      # スクリプト無しで入れる。Linux の node-pty には prebuild が無くビルドが要るので、これは Windows のジョブでだけ行う。
+      - run: npm ci --ignore-scripts
       - run: npm run typecheck
       # psmux は入れない。psmux を相手にする試験は describe.skipIf で飛ぶ。
       # ここで見るのは、パス、道具の探し方、権限、プロセスの扱いが Windows で壊れていないことである。

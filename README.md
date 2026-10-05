@@ -376,7 +376,8 @@ Windows 11（x64）では、サーバと UI をソースから動かせます。
 
 1. Node 22、Git for Windows、Claude Code を入れます。
 2. tmux の代わりに psmux を入れます：`winget install marlocarlo.psmux`
-3. `npm ci` のあと `npm run dev` で起こし、ブラウザで `http://127.0.0.1:5173/` を開きます。
+3. `npm ci --ignore-scripts` のあと `npm run dev` で起こし、ブラウザで `http://127.0.0.1:5173/` を開きます。
+   `--ignore-scripts` を付けないと、`better-sqlite3` が C++ のビルドを始めて、ビルドの道具が無い PC では失敗します。ネイティブモジュールは同梱の prebuild で動きます。
 
 止めるときは Ctrl+C です。
 まだ無いものは、通知、ターミナルで打った `claude` を hangar に載せる包み、外のターミナルへの受け渡し、statusline、`hangar open` です。
