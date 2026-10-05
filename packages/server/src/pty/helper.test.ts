@@ -21,3 +21,17 @@ posixDescribe('fixSpawnHelpers', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 });
+
+describe('fixSpawnHelpers（Windows）', () => {
+  // Windows の Node はモードの実行ビットを返さないので、見るたびに「直した」と数えてしまう。spawn-helper は Windows では使わない。
+  it('Windows では何も直さず、空を返す', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-helper-win-'));
+    const a = path.join(root, 'prebuilds', 'darwin-arm64', 'spawn-helper');
+    fs.mkdirSync(path.dirname(a), { recursive: true });
+    fs.writeFileSync(a, '', { mode: 0o644 });
+    const before = fs.statSync(a).mode;
+    expect(fixSpawnHelpers(root, 'win32')).toEqual([]);
+    expect(fs.statSync(a).mode).toBe(before);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});
