@@ -406,6 +406,8 @@ export class RunManager {
     const s = this.session(sessionId);
     this.assertResumable(s);
     const account = this.account(this.deps.accounts ? this.accountFor(s.id) : undefined);
+    // リンクの確かめも行を作る前に済ませる。壊れていると、本文の無い行が残る。
+    this.accountEnvFor(account);
     // 新しい行を作る前に起動できるかを確かめる。失敗しても本文の無いセッションが残らないようにするため。
     this.precheck(s.cwd);
     const newUuid = crypto.randomUUID();

@@ -1181,6 +1181,21 @@ describe.skipIf(!TMUX)('アカウント', () => {
     expect(params(r.run.id).account).toBeUndefined();
   });
 
+  it('フォークは、最後に動かしたアカウントの置き場のリンクが壊れていれば 400 で断り、セッションの行を作らない', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1', account: a.id });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    m.kill(first.run.id);
+    // リンクを実ディレクトリに置き換えて壊す。
+    fs.rmSync(path.join(a.dir, 'projects'));
+    fs.mkdirSync(path.join(a.dir, 'projects'));
+    const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
+    expect(() => m.fork(first.sessionId)).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('置き場の projects が共有のリンクではありません') }));
+    expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
+  });
+
   it('accounts を渡さない RunManager は今までどおり動く', async () => {
     const r = make().start({ projectId: 'p1' });
     expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=\n');
