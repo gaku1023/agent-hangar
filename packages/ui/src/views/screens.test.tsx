@@ -3,8 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { pick } from '../test/pick.ts';
 import type { HomeProps, RunningCard } from '../presenters/home.ts';
+import type { SessionRowProps } from '../presenters/row.ts';
 import type { ProjectCardProps } from '../presenters/projects.ts';
-import { HOME_VISIBLE_ROWS, HomeScreen } from './HomeScreen.tsx';
+import { HOME_MIN_ROWS, HomeScreen } from './HomeScreen.tsx';
 import { ProjectScreen } from './ProjectScreen.tsx';
 import { ProjectsScreen } from './ProjectsScreen.tsx';
 import { SESSION_ROW_H } from './SessionRows.tsx';
@@ -14,7 +15,7 @@ const rail = { pager: null, isScratch: false, todos: [], memo: null, artifacts: 
 const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, pathLabel: null, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'last one', excerptFromPrompt: false });
 
 describe('HomeScreen', () => {
-  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], recentPager: null, projects: [], idle: false, ...over });
+  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
   const runningCard = (over: Partial<RunningCard> = {}): RunningCard => ({ id: 's1', name: 'キーボード操作の見直し', live: 'busy', elapsed: '12 分', meta: 'agent-hangar · opus 4.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38, contextLabel: '38%', ...over });
 
   it('確かめるの区画は候補を出し、確定と却下と本文の押下で Intent を出し、0 件なら省く', () => {
@@ -87,7 +88,7 @@ describe('HomeScreen', () => {
     rerender(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ idle: false })} /></IntentRoot>);
     expect(container.querySelector('.idle-line')).toBeNull();
   });
-  it('最近とプロジェクトの見出しの右端に「すべて見る」を置き、それぞれの一覧へ移る（H1）', () => {
+  it('最近の見出しの右端に「すべて見る」を置き、セッションの一覧へ移る（H1）', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><HomeScreen {...home()} /></IntentRoot>);
     const sessions = screen.getByRole('link', { name: 'すべてのセッションを見る' });
@@ -95,13 +96,11 @@ describe('HomeScreen', () => {
     expect(sessions).toHaveAttribute('href', '#/sessions');
     fireEvent.click(sessions);
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'nav.go', to: { name: 'sessions' } });
-    const projects = screen.getByRole('link', { name: 'すべてのプロジェクトを見る' });
-    expect(projects).toHaveAttribute('href', '#/projects');
-    fireEvent.click(projects);
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'nav.go', to: { name: 'projects' } });
     // 見出しの名前にリンクの語を混ぜない。
     expect(screen.getByRole('heading', { name: '最近' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'プロジェクト' })).toBeInTheDocument();
+    // プロジェクトは最近の区画の中の 1 行で、見出しを立てない。
+    expect(screen.queryByRole('heading', { name: 'プロジェクト' })).toBeNull();
+    expect(screen.getByRole('navigation', { name: 'プロジェクト' }).closest('section')).toBe(screen.getByRole('heading', { name: '最近' }).closest('section'));
   });
   it('要対応の札は問いを出し、「ターミナルで答える」で端末にフォーカスして開く', () => {
     const onIntent = vi.fn();
@@ -172,25 +171,67 @@ describe('HomeScreen', () => {
     expect(screen.queryByRole('heading', { name: /要対応/ })).toBeNull();
     expect(screen.queryByRole('heading', { name: /実行中/ })).toBeNull();
     expect(screen.getByRole('heading', { name: '最近' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'プロジェクト' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'プロジェクト' })).toBeInTheDocument();
     expect(screen.getByText('Active なプロジェクトはありません。設定でワークスペースを確かめてください。')).toBeInTheDocument();
   });
-  it('プロジェクトの小さな一覧は数を並べ、押すとプロジェクトを開く', () => {
+  it('プロジェクトの 1 行は数を並べ、押すとプロジェクトを開く', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ projects: [{ id: 'alpha', name: 'agent-hangar', status: 'active', counts: '実行中 2 · TODO 3' }] })} /></IntentRoot>);
-    const row = screen.getByRole('button', { name: /agent-hangar/ });
-    expect(row).toHaveTextContent('実行中 2 · TODO 3');
-    expect(row.querySelector('.pj-dot')).toHaveAttribute('data-status', 'active');
-    fireEvent.click(row);
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ projects: [{ id: 'alpha', name: 'agent-hangar', status: 'active', counts: 'TODO 3' }] })} /></IntentRoot>);
+    const chip = within(screen.getByRole('navigation', { name: 'プロジェクト' })).getByRole('button', { name: /agent-hangar/ });
+    expect(chip).toHaveTextContent('TODO 3');
+    expect(chip.querySelector('.pj-dot')).toHaveAttribute('data-status', 'active');
+    fireEvent.click(chip);
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
   });
-  it('プロジェクトの一覧は最近と同じ高さで頭打ちにし、中でスクロールする', () => {
+  describe('プロジェクトの 1 行に入らない分', () => {
     const projects = Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, name: `project-${i}`, status: 'active' as const, counts: '' }));
-    const { container } = render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ projects })} /></IntentRoot>);
-    expect(screen.getAllByRole('button', { name: /^project-/ })).toHaveLength(12);
-    const list = container.querySelector('.pj-list') as HTMLElement;
-    expect(list).not.toBeNull();
-    expect(list.style.maxHeight).toBe(`${HOME_VISIBLE_ROWS * SESSION_ROW_H}px`);
+    it('全部入っていれば（測れないときも）全部を出し、一覧へのリンクは出さない', () => {
+      render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ projects })} /></IntentRoot>);
+      expect(screen.getAllByRole('button', { name: /^project-/ })).toHaveLength(12);
+      expect(screen.queryByRole('link', { name: 'すべてのプロジェクトを見る' })).toBeNull();
+    });
+    it('折り返した分は Tab で止まらないようにし、右端に「ほか N」を出して一覧へ移る', () => {
+      // 5 件目から 2 行目へ折り返したことにする。
+      const spy = vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (this: HTMLElement) { return Number(this.textContent?.match(/^project-(\d+)/)?.[1] ?? 0) >= 4 ? 28 : 0; });
+      try {
+        const onIntent = vi.fn();
+        const { container } = render(<IntentRoot onIntent={onIntent}><HomeScreen {...home({ projects })} /></IntentRoot>);
+        const chips = [...container.querySelectorAll('.pj-chip')] as HTMLElement[];
+        expect(chips.map((c) => c.tabIndex)).toEqual([0, 0, 0, 0, -1, -1, -1, -1, -1, -1, -1, -1]);
+        expect(chips[4]).toHaveAttribute('aria-hidden', 'true');
+        const more = screen.getByRole('link', { name: 'すべてのプロジェクトを見る' });
+        expect(more).toHaveTextContent('ほか 8');
+        expect(more).toHaveAttribute('href', '#/projects');
+        fireEvent.click(more);
+        expect(onIntent).toHaveBeenLastCalledWith({ type: 'nav.go', to: { name: 'projects' } });
+      } finally { spy.mockRestore(); }
+    });
+  });
+  describe('最近の行の数', () => {
+    const row = (id: string): SessionRowProps => ({ id, name: `最近 ${id}` } as SessionRowProps);
+    const recent = Array.from({ length: 12 }, (_, i) => row(`s${i}`));
+    const shown = (container: HTMLElement) => container.querySelectorAll('.home-fit .row').length;
+    it('高さが測れないときは下限の行だけを出し、ページ送りは出さない', () => {
+      const { container } = render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ recent })} /></IntentRoot>);
+      expect(shown(container)).toBe(HOME_MIN_ROWS);
+      expect(screen.queryByRole('navigation', { name: '最近のページ' })).toBeNull();
+    });
+    it('器の高さに入るだけの行を、行の境で打ち切って出す', () => {
+      const spy = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('home-fit') ? SESSION_ROW_H * 8 + 30 : 0; });
+      try {
+        const { container } = render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ recent })} /></IntentRoot>);
+        expect(shown(container)).toBe(8);
+      } finally { spy.mockRestore(); }
+    });
+    it('器が低くても下限の行は出す。行が足りなければある分だけ', () => {
+      const spy = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(100);
+      try {
+        const { container, rerender } = render(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ recent })} /></IntentRoot>);
+        expect(shown(container)).toBe(HOME_MIN_ROWS);
+        rerender(<IntentRoot onIntent={() => {}}><HomeScreen {...home({ recent: recent.slice(0, 2) })} /></IntentRoot>);
+        expect(shown(container)).toBe(2);
+      } finally { spy.mockRestore(); }
+    });
   });
 });
 
@@ -276,15 +317,9 @@ describe('ProjectCard（見つからないとき）', () => {
   });
 });
 
-// 一覧のあるページはどれも同じページ送りの帯を使う。Home の最近とプロジェクト画面は、それぞれのページを list.page で覚える。
-describe('Home とプロジェクト画面のページ送り', () => {
+// プロジェクト画面は、そのプロジェクトのページを list.page で覚える。Home の最近はページを送らない（続きは「すべて見る」）。
+describe('プロジェクト画面のページ送り', () => {
   const pager = { page: 1, pageCount: 4, size: 50, sizes: [25, 50, 100, 200], from: 1, to: 50, total: 180 };
-  it('Home の最近の下に帯を出し、home のページを移る', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><HomeScreen attention={[]} returning={[]} confirm={[]} running={[]} recent={[]} recentPager={pager} projects={[]} idle={false} /></IntentRoot>);
-    fireEvent.click(within(screen.getByRole('navigation', { name: '最近のページ' })).getByRole('button', { name: '2 ページ目' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'list.page', key: 'home', page: 2 });
-  });
   it('プロジェクト画面は広げた節が長いときに帯を出し、そのプロジェクトのページを移る', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="active" items={[]} notFound={false} {...rail} pager={pager} /></IntentRoot>);
