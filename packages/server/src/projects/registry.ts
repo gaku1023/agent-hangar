@@ -3,7 +3,7 @@ import path from 'node:path';
 import { newId, type ResolveAction } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
-import { isUnder, pathKey } from '../platform/paths.ts';
+import { isUnder, pathKey, samePath } from '../platform/paths.ts';
 
 /**
  * パスを比べられる形にそろえる。`..` や末尾の `/` を除き、Unicode を NFC にする。
@@ -53,7 +53,7 @@ export function workspaceProjectCount(db: Db, deviceId: string, workspaceRoot: s
   const rows = db.prepare(`select r.path from project_roots r join projects p on p.id = r.project_id
     where r.device_id = ? and r.resolved = 1 and r.deleted_at is null and p.deleted_at is null and p.is_scratch = 0`).all(deviceId) as { path: string }[];
   const root = path.resolve(workspaceRoot);
-  return rows.filter((r) => path.dirname(r.path) === root).length;
+  return rows.filter((r) => samePath(path.dirname(r.path), root)).length;
 }
 
 /** この端末の解決済みルートを返す。 */

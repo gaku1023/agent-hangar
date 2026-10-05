@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copyFixtureClaudeDir, FIXTURE_CLAUDE_DIR, SESSION_ALPHA } from '../../../test/fixtures.ts';
 import { goneOn, readRegistry, RegistryWatcher } from './registry.ts';
 
+/** 見本の登録の pid は実在しない。Windows の既定は動いていない pid の項目を読まないので、試験では全部読ませる。 */
+const ALL_ALIVE = (): boolean => false;
+
 describe('readRegistry', () => {
   it('json だけを読み、3 値の status と名前を返す', () => {
     expect(readRegistry(FIXTURE_CLAUDE_DIR)).toEqual([
@@ -42,7 +45,7 @@ describe('RegistryWatcher', () => {
     const sessions = path.join(dir, 'sessions');
     fs.rmSync(path.join(sessions, '12345.json'));
     fs.chmodSync(sessions, 0o000);
-    const w = new RegistryWatcher(dir, 500);
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE);
     const seen: unknown[] = [];
     w.onChange((l) => seen.push(l));
     try {
@@ -60,7 +63,7 @@ describe('RegistryWatcher', () => {
   });
 
   it('変化したときだけ通知する', () => {
-    const w = new RegistryWatcher(dir, 500);
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE);
     const seen: unknown[] = [];
     w.onChange((l) => seen.push(l));
     w.start();

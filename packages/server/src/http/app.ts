@@ -17,6 +17,7 @@ import { createMcpApp } from '../mcp/app.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import { PromoteError } from '../projects/promote.ts';
 import { assignSessions, candidateDirs, normalizeDir, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
+import { samePath } from '../platform/paths.ts';
 import { EDIT_TOOLS } from '../indexer/indexFile.ts';
 import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } from '../projects/todos.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
@@ -720,7 +721,8 @@ export function createApp(deps: AppDeps): Hono {
     const dir = raw ? normalizeDir(raw) : '';
     if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return c.json({ error: 'path が存在するディレクトリではありません' }, 400);
     // 同じディレクトリを二重に登録しない。syncProjectsFromWorkspace と同じ判定にそろえる。
-    const known = db.prepare('select project_id from project_roots where device_id = ? and path = ? and deleted_at is null').get(deviceId, dir) as { project_id: string } | undefined;
+    // SQL の文字列比較は大文字小文字を区別する。Windows では綴り違いも同じフォルダなので、JS で比べる。
+    const known = (db.prepare('select project_id, path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { project_id: string; path: string }[]).find((r) => samePath(r.path.normalize('NFC'), dir));
     if (known) {
       const p = getProject(db, deviceId, deps.live(), known.project_id);
       if (p) return c.json(p);

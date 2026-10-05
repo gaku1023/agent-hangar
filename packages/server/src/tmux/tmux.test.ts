@@ -87,7 +87,8 @@ describe('Tmux.ensureTerminalOptions（偽の実行）', () => {
     return { calls, exec };
   };
   // pbcopy は macOS のコマンド。extended-keys と S-Enter の割り当ては、iTerm2 などの外の端末から tmux へつなぐための調整である。
-  // Windows の psmux には入れない。Windows Terminal から psmux へつないで Shift+Enter が改行になることは、実機で確かめてある。
+  // Windows の psmux には入れない。hangar の画面の端末は、Shift+Enter を自分で ESC CR にして送る（ui の xtermSetup.ts）ので、割り当てが無くても改行になる。
+  // Windows Terminal から psmux へ直につないだときの Shift+Enter は、まだ実機で確かめていない。
   it('Windows では、サーバの設定を何も書き換えない', () => {
     const { calls, exec } = recorder({});
     new Tmux({ tmuxPath: 'psmux', platform: 'win32', exec }).ensureTerminalOptions();
