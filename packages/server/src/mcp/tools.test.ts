@@ -11,6 +11,8 @@ import { latestIntent } from '../live/intents.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { rejectSessionState } from '../sessions/states.ts';
+import { AccountStore } from '../config/accounts.ts';
+import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { callTool, ToolError, TOOL_NAMES, type ToolDeps } from './tools.ts';
 
@@ -214,6 +216,21 @@ describe('MCP tools', () => {
     call('set_session_memo', { session_id: alphaId, text: 'メモ' });
     const ev = sent.find((e) => e.type === 'session.upsert');
     expect(ev && ev.type === 'session.upsert' ? ev.session.lock?.deviceName : null).toBe('mini');
+  });
+  it('get_usage はアカウントごとの値も返す。上の 3 つは最初のアカウントのまま', () => {
+    const userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mcp-user-'));
+    const store = new AccountStore({ home, primaryDir: path.join(userHome, '.claude'), homeDir: userHome });
+    const a = store.add({ name: '大学' });
+    store.setCurrent(a.id);
+    const tracker = new UsageTracker(db, { accountOf: (sid) => (sid === 'u' ? a.id : 'primary') });
+    tracker.ingest({ session_id: 'w', rate_limits: { five_hour: { used_percentage: 82, resets_at: 1 }, seven_day: { used_percentage: 41, resets_at: 2 } } });
+    tracker.ingest({ session_id: 'u', rate_limits: { five_hour: { used_percentage: 12, resets_at: 1 }, seven_day: { used_percentage: 9, resets_at: 2 } } });
+    deps = { ...deps, usage: () => tracker.current(), accounts: { store, usage: tracker } };
+    const out = call('get_usage') as { five_hour: { used_percentage: number }; accounts: { name: string; current: boolean; five_hour: { used_percentage: number } }[] };
+    expect(out.five_hour.used_percentage).toBe(82);
+    expect(out.accounts.map((x) => [x.name, x.current, x.five_hour.used_percentage])).toEqual([['メイン', false, 82], ['大学', true, 12]]);
+    expect(JSON.stringify(out)).not.toContain('@');
+    fs.rmSync(userHome, { recursive: true, force: true });
   });
   it('set_session_memo、get_usage、open_in_hangar', () => {
     expect(call('set_session_memo', { session_id: alphaId, text: 'メモ' })).toEqual({ ok: true, session_id: alphaId });
