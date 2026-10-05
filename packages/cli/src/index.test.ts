@@ -101,7 +101,8 @@ describe('hangar setup', () => {
     expect(h.out).toContain('--workspace');
     // setup cloud がぶら下がっている。
     expect(h.out).toContain('cloud');
-  });
+  // CLI を 2 回起こす。Windows の全体の試験の中では 3 秒あまりかかり（実測）、既定の 5 秒に時々届く。
+  }, 20_000);
 });
 
 describe('hangar cloud', () => {

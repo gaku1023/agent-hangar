@@ -203,7 +203,10 @@ describe('PUT と GET /files/<key>', () => {
       body = await r.json();
     } catch (e) {
       // miniflare の undici が投げる TypeError は別の領域のものなので、instanceof ではなく文言で見分ける。
-      if ((e as { message?: unknown } | null)?.message !== 'terminated') throw e;
+      // 応答の前に切れると "fetch failed"（原因は EPIPE か ECONNRESET）、応答の本文の途中で切れると "terminated" になる。
+      const err = e as { message?: unknown; cause?: { code?: unknown } } | null;
+      const cutOff = err?.message === 'terminated' || (err?.message === 'fetch failed' && ['EPIPE', 'ECONNRESET', 'UND_ERR_SOCKET'].includes(String(err.cause?.code)));
+      if (!cutOff) throw e;
     }
     if (status !== null) expect(status).toBe(413);
     if (body !== null) expect(body).toEqual({ error: 'too large' });
