@@ -177,7 +177,7 @@ macOS の動きは変えない。
 | Windows | 3,477 | 0 | 126 |
 
 - 直す前の Windows は、通過 3,245、失敗 220、スキップ 75 だった。
-- Windows のスキップ 126 件は、sh と bash を前提に書かれた実物の tmux の試験（`manager.test`、`tmux.test`、`relay.test`、`wrapper.test` で 59 件）、この区切りに入れない機能（zsh の包み、statusline の断片、`hangar.sh`、iTerm、`hangar open`）、chmod と実行権に頼る検査である。どれも理由をコメントに書いてある。
+- Windows のスキップ 126 件は、sh と bash を前提に書かれた実物の tmux の試験（`manager.test`、`tmux.test`、`relay.test`、`wrapper.test` で 62 件）、この区切りに入れない機能（zsh の包み、statusline の断片、`hangar.sh`、iTerm、`hangar open`）、chmod と実行権に頼る検査である。どれも理由をコメントに書いてある。
 - psmux を相手にする試験は `tmux/psmux.win.test.ts` の 8 件で、Windows で全部通った。
   作成と停止、完全一致、環境変数、キーの送り込み、node-pty 越しに 2 つの口からつなぐ、包み越しの起動、利用者の置き場からの隔離を見る。
 - `RunManager` の実物の試験（39 件）は psmux を相手には走っていない。`RunManager` と psmux の組み合わせは、下の通しの確かめでだけ見ている。
@@ -200,7 +200,7 @@ macOS の動きは変えない。
 | 端末を 10 回開閉したあとの conhost の数 | 18 のまま増えなかった。attach のプロセスも残らなかった |
 | ブラウザでの表示、日本語入力、Shift+Enter | 確かめていない。画面の前での確認が要る |
 | GitHub Actions の Windows のジョブ | 確かめていない。push がまだである |
-| macOS で同じ操作を手で通す | 確かめていない。macOS は試験（実物の tmux の 59 件を含む）と `npm run build`、`bundle-server` で見た |
+| macOS で同じ操作を手で通す | 確かめていない。macOS は試験（実物の tmux の 62 件を含む）と `npm run build`、`bundle-server` で見た |
 
 ### 見つけたこと
 
