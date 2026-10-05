@@ -329,15 +329,15 @@ export function accountOfSession(db: Db, sessionId: string): string | null {
   return accountIn(r?.launch_params ?? null);
 }
 
-/** 最初のアカウント以外で最後に動かしたセッションの一覧（セッションの id → アカウントの id）。 */
+/** 最初のアカウント以外で最後に動かしたセッションの一覧（セッションの id → アカウントの id）。run は 1 回だけ読み、セッションごとの最後の run を JS で選ぶ。 */
 export function sessionAccounts(db: Db): Record<string, string> {
-  const rows = db.prepare(`select r.session_id, r.launch_params from runs r
-    where r.deleted_at is null and r.launch_params like '%"account"%'
-      and not exists (select 1 from runs n where n.session_id = r.session_id and n.deleted_at is null and (n.started_at > r.started_at or (n.started_at = r.started_at and n.id > r.id)))`).all() as { session_id: string; launch_params: string | null }[];
+  const rows = db.prepare('select session_id, launch_params from runs where deleted_at is null order by started_at, id').all() as { session_id: string; launch_params: string | null }[];
+  const last = new Map<string, string | null>();
+  for (const r of rows) last.set(r.session_id, r.launch_params);
   const out: Record<string, string> = {};
-  for (const r of rows) {
-    const a = accountIn(r.launch_params);
-    if (a && a !== 'primary') out[r.session_id] = a;
+  for (const [sid, params] of last) {
+    const a = accountIn(params);
+    if (a && a !== 'primary') out[sid] = a;
   }
   return out;
 }
