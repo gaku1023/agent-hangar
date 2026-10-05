@@ -4,6 +4,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PSMUX, psmuxNamespace, psmuxTestEnv } from '../../test/psmux.ts';
 import { waitFor } from '../../test/tmux.ts';
+import { runCommand } from '../launch/command.ts';
+import { ensureWrapperScript, runLogPath } from '../launch/wrapper.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
 import { Tmux } from './tmux.ts';
 
@@ -93,5 +95,22 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
       try { a.p.kill(); } catch { /* 既に終わっている */ }
       try { b.p.kill(); } catch { /* 既に終わっている */ }
     }
+  }, 40_000);
+
+  // hangar が claude を起こすときと同じ組み立てを、psmux の上で通す。
+  it('Node の包み越しにコマンドを起こし、終了コードと HANGAR_RUN_ID を受け取る', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar home 空白-'));
+    const out = path.join(home, 'got.json');
+    const wrapper = ensureWrapperScript(home);
+    const log = runLogPath(home, 'r1');
+    const code = `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify([process.argv.slice(1), process.env.HANGAR_RUN_ID]))`;
+    const wrapped = runCommand({ runId: 'r1', wrapper, log, command: [process.execPath, '-e', code, '1 行目\n2 行目', 'a "b" c'] });
+    start('hangar-wrap', wrapped.command, wrapped.env);
+    await waitFor(() => fs.existsSync(out), 15_000);
+    expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toEqual([['1 行目\n2 行目', 'a "b" c'], 'r1']);
+    await waitFor(() => /exit=0/.test(fs.readFileSync(log, 'utf8')), 10_000);
+    // 正常に終わった包みは Enter を待たずに閉じ、セッションも消える。
+    await waitFor(() => !tmux.hasSession('hangar-wrap'), 10_000);
+    made.pop();
   }, 40_000);
 });

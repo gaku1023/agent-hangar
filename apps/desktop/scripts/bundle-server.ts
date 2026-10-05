@@ -130,6 +130,9 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
     });
   }
 
+  // Windows で claude を包むスクリプト。束には入らない単独のファイルで、server.mjs が隣から読む（launch/wrapper.ts）。
+  fs.copyFileSync(path.join(opts.repoRoot, 'packages/server/src/launch/hangar-run.mjs'), path.join(opts.outDir, 'hangar-run.mjs'));
+
   // sourcemap は配布物に入れない。
   // UI の写しの 68 パーセント（実測 2.19 MB）が index-*.js.map で、利用者の役には立たない。
   // 開発では packages/ui/dist をそのまま使うので、こちらの写しから落としても調査の手は減らない。

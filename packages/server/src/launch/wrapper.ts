@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ensureMode } from '../platform/secure.ts';
 
 export const WRAPPER_NAME = 'hangar-run.sh';
+export const WRAPPER_NAME_WIN = 'hangar-run.mjs';
 
 /**
  * tmux 内で claude を包むスクリプト。
@@ -30,14 +32,20 @@ export function wrapperScript(): string {
   ].join('\n');
 }
 
-/** <home>/bin/hangar-run.sh を 0o755 で置く。中身が同じなら書かない。 */
-export function ensureWrapperScript(home: string): string {
+/** Windows の包みの本体。同じディレクトリの hangar-run.mjs を読む。同梱版でも server.mjs の隣に置く。 */
+export function wrapperScriptWin(): string {
+  return fs.readFileSync(fileURLToPath(new URL('./hangar-run.mjs', import.meta.url)), 'utf8');
+}
+
+/** <home>/bin に包みを置く。macOS と Linux は hangar-run.sh を 0o755 で、Windows は hangar-run.mjs を置く。中身が同じなら書かない。 */
+export function ensureWrapperScript(home: string, platform: NodeJS.Platform = process.platform): string {
   const dir = path.join(home, 'bin');
-  const file = path.join(dir, WRAPPER_NAME);
-  const body = wrapperScript();
+  const win = platform === 'win32';
+  const file = path.join(dir, win ? WRAPPER_NAME_WIN : WRAPPER_NAME);
+  const body = win ? wrapperScriptWin() : wrapperScript();
   fs.mkdirSync(dir, { recursive: true });
   if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== body) fs.writeFileSync(file, body, { mode: 0o755 });
-  ensureMode(file, 0o755);
+  ensureMode(file, 0o755, platform);
   return file;
 }
 
