@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { claudeJsonPath, upsertUserMcpServer } from './claudeJson.ts';
-import { expectMode } from '../../test/platform.ts';
+import { expectMode, posixIt } from '../../test/platform.ts';
 
 let root: string;
 let dir: string;
@@ -134,7 +134,8 @@ describe('upsertUserMcpServer の安全（同時書き込み、リンク、控�
     expect(fs.existsSync(lock)).toBe(false);
   });
 
-  it('他人に読める権限なら 0600 へ狭め、それ以外は利用者が決めた権限を保つ', () => {
+  // Windows ではモードを読めないので、狭めたとは言わない。
+  posixIt('他人に読める権限なら 0600 へ狭め、それ以外は利用者が決めた権限を保つ', () => {
     fs.writeFileSync(file, JSON.stringify({ userID: 'u1' }), { mode: 0o600 });
     fs.chmodSync(file, 0o644);
     const r = upsertUserMcpServer(file, 'hangar', { type: 'http' }, { backupDir: backups });
