@@ -115,3 +115,25 @@ describe('openInEditor', () => {
     await expect(openInEditor({ codePath: '/x/code', target: '/w', exec: exec({ '/x/code': 2 }) })).rejects.toThrow(/VS Code/);
   });
 });
+
+// Windows の VS Code の code は code.cmd で、Node は .cmd をシェル無しでは起こせない。
+describe('openInEditor（Windows の code.cmd）', () => {
+  it('.cmd はシェル越しに、パスを引用符で包んで起こす', async () => {
+    const seen: { cmd: string; args: string[]; shell: boolean | undefined }[] = [];
+    const fake: Exec = async (cmd, args, opts) => { seen.push({ cmd, args, shell: opts?.shell }); return { code: 0, stdout: '', stderr: '' }; };
+    await openInEditor({ codePath: 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd', target: 'D:\\work space\\a.md', exec: fake, platform: 'win32' });
+    expect(seen).toEqual([{ cmd: '"C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd"', args: ['"D:\\work space\\a.md"'], shell: true }]);
+  });
+  it('.exe と、ほかの OS では、いまのまま直に起こす', async () => {
+    const seen: { cmd: string; args: string[]; shell: boolean | undefined }[] = [];
+    const fake: Exec = async (cmd, args, opts) => { seen.push({ cmd, args, shell: opts?.shell }); return { code: 0, stdout: '', stderr: '' }; };
+    await openInEditor({ codePath: 'C:\\x\\code.exe', target: 'D:\\a.md', exec: fake, platform: 'win32' });
+    await openInEditor({ codePath: '/x/code.cmd', target: '/w/a.md', exec: fake, platform: 'darwin' });
+    expect(seen).toEqual([{ cmd: 'C:\\x\\code.exe', args: ['D:\\a.md'], shell: undefined }, { cmd: '/x/code.cmd', args: ['/w/a.md'], shell: undefined }]);
+  });
+  // 引用符の中でも cmd.exe が読む文字。開けるふりをして別のものを起こさないよう、断る。
+  it('" を含むパスは起こさずに断る', async () => {
+    const fake: Exec = async () => ({ code: 0, stdout: '', stderr: '' });
+    await expect(openInEditor({ codePath: 'C:\\x\\code.cmd', target: 'D:\\a" & calc & ".md', exec: fake, platform: 'win32' })).rejects.toThrow(/開けません/);
+  });
+});

@@ -123,6 +123,15 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect((db.prepare('select deleted_at from sessions').get() as { deleted_at: number | null }).deleted_at).not.toBeNull();
   });
 
+  // npm で入れた古い Claude Code は claude.cmd になる。.cmd はシェル越しでしか起こせず、改行や引用符を含む引数を安全に渡せない。
+  it('Windows で claude が .cmd なら、起こす前に断ってネイティブ版を案内する', () => {
+    const rm = make({ claudeBin: 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd', tmux: fakeTmux({ status: 0 }), platform: 'win32' });
+    expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400, message: expect.stringMatching(/claude\.exe/) }));
+    expect(rm.listAlive()).toEqual({ runs: [], tabs: [] });
+    // ほかの OS では .cmd という名前でも断らない。
+    expect(() => make({ claudeBin: '/x/claude.cmd', tmux: fakeTmux({ status: 0 }), platform: 'darwin' }).start({ projectId: 'p1' })).not.toThrow(/claude\.exe/);
+  });
+
   it('tmux の失敗を返すときはトークンを伏せ、1 行に切り詰める', () => {
     // 外部コマンドの stderr には何が混じるか分からないので、そのまま応答に載せない。
     const noisy = path.join(home, 'noisy-tmux.sh');

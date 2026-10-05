@@ -7,6 +7,7 @@ import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
 import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../launch/mcpConfig.ts';
 import { runCommand, shellTabCommand } from '../launch/command.ts';
+import { needsShell } from '../platform/exec.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
 import { assignSession } from '../projects/registry.ts';
 import { ensureScratchProject, newScratchDir } from '../projects/scratch.ts';
@@ -50,7 +51,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * live は Claude のレジストリの今の中身である。引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引くのに使う。
  * procs は外のプロセスに触る口で、テストでは差し替える。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void> };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void> };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
@@ -126,6 +127,9 @@ export class RunManager {
    */
   private claudeBin(): string {
     if (!this.deps.claudeBin) throw new RunError(400, 'claude が見つかりません。設定の「claude のパス」を入れてください');
+    // npm で入れた古い Claude Code は Windows で claude.cmd になる。.cmd は cmd.exe 越しにしか起こせず、
+    // 注入するシステムプロンプトのような改行や引用符を含む引数を安全に渡せない。
+    if (needsShell(this.deps.claudeBin, this.deps.platform)) throw new RunError(400, 'この claude は .cmd なので起動できません。ネイティブ版の Claude Code を入れて、設定の「claude のパス」に claude.exe を入れてください');
     return this.deps.claudeBin;
   }
 

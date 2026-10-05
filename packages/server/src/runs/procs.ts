@@ -24,9 +24,14 @@ export const realProcOps: ProcOps = {
   startTimeOf: (pid) => startTimeOf(pid),
   terminate: (pid, timeoutMs) => terminate(pid, timeoutMs),
   listJobs(bin) {
-    const r = spawnSync(bin, ['agents', '--json', '--all'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
-    if (r.status !== 0) return null;
-    return parseJobs(r.stdout ?? '');
+    // 起こせない相手（Windows の .cmd など）で spawnSync が投げても、読めなかったことにして返す。
+    try {
+      const r = spawnSync(bin, ['agents', '--json', '--all'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+      if (r.status !== 0) return null;
+      return parseJobs(r.stdout ?? '');
+    } catch {
+      return null;
+    }
   },
   runClaude(bin, args, cwd) {
     return new Promise((resolve, reject) => {

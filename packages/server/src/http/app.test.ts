@@ -692,6 +692,16 @@ describe('routes', () => {
     expect(db.prepare('select path from project_roots where project_id = ? and deleted_at is null').get(id)).toEqual({ path: moved });
     expect((await json(await get(`/api/sessions/${other}`))).body.projectId).toBe(id);
   });
+  // Windows のファイルシステムは大文字小文字を区別しない。綴り違いで同じフォルダを二重に登録しない。
+  it.runIf(process.platform === 'win32')('Windows では、綴りの大文字小文字が違う同じフォルダを二重に登録しない', async () => {
+    const post = (p: string) => app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'gamma', path: p }) });
+    fs.mkdirSync(path.join(ws, 'gamma'));
+    const first = await post(path.join(ws, 'gamma'));
+    expect(first.status).toBe(201);
+    const again = await post(path.join(ws, 'gamma').toUpperCase());
+    expect(again.status).toBe(200);
+    expect((await again.json()).id).toBe((await first.json()).id);
+  });
   it('設定の新しい項目を検査する', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     // 実物の置き場（/opt/homebrew/bin/tmux）は PC によって無いので、偽の道具を置いて指す。

@@ -14,9 +14,16 @@ if (!log || !cmd) {
 }
 
 const stamp = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-fs.mkdirSync(path.dirname(log), { recursive: true });
+// ログを書けなくても claude は起こす。書けないことは 1 度だけ画面に出す。
+let warned = false;
+const cannotLog = (e) => {
+  if (warned) return;
+  warned = true;
+  process.stderr.write(`[agent-hangar] ログを書けません（${e.message}）。このまま続けます。\n`);
+};
+try { fs.mkdirSync(path.dirname(log), { recursive: true }); } catch (e) { cannotLog(e); }
 const append = (text) => {
-  try { fs.appendFileSync(log, text); } catch { /* ログに書けなくても claude は止めない */ }
+  try { fs.appendFileSync(log, text); } catch (e) { cannotLog(e); }
 };
 append(`${stamp()} start pid=${process.pid} cmd=${cmd}\n`);
 

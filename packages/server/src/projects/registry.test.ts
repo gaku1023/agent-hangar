@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { assignSession, assignSessions, candidateDirs, checkProjectRoots, resolveProject, syncProjectsFromWorkspace } from './registry.ts';
+import { assignSession, assignSessions, candidateDirs, checkProjectRoots, resolveProject, syncProjectsFromWorkspace, workspaceProjectCount } from './registry.ts';
 
 let ws: string;
 let db: Db;
@@ -168,3 +168,18 @@ describe('candidateDirs', () => {
     expect(candidateDirs(ws, 'zzz')).toEqual([]);
   });
 });
+
+describe('workspaceProjectCount', () => {
+  it('親がワークスペースの、解決済みのルートを数える', () => {
+    syncProjectsFromWorkspace(db, DEV, ws);
+    expect(workspaceProjectCount(db, DEV, ws)).toBe(1);
+    expect(workspaceProjectCount(db, DEV, path.join(ws, 'alpha'))).toBe(0);
+  });
+  // 設定のワークスペースを綴り違い（d:\workspace と D:\Workspace）で打ち直しても、同じフォルダである。
+  it.runIf(process.platform === 'win32')('Windows では、ワークスペースの綴りの大文字小文字が違っても数える', () => {
+    syncProjectsFromWorkspace(db, DEV, ws);
+    expect(workspaceProjectCount(db, DEV, ws.toUpperCase())).toBe(1);
+    expect(workspaceProjectCount(db, DEV, ws.toLowerCase())).toBe(1);
+  });
+});
+

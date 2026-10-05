@@ -200,6 +200,17 @@ describe('hangar-run.mjs（Node の包み）', () => {
     expect(fs.readFileSync(log, 'utf8')).toMatch(/exit=3$/m);
   });
 
+  // hangar-run.sh は、ログを開けなくても claude を起こす。ログのために claude が起きないのは本末転倒である。
+  it('ログの置き場を作れなくても、コマンドは起こして同じ終了コードで終わる', () => {
+    const h = tmpHome();
+    const blocker = path.join(h, 'not-a-dir');
+    fs.writeFileSync(blocker, 'x');
+    const r = run(path.join(blocker, 'logs', 'run-x.log'), child('console.log("動いた")'));
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('動いた');
+    expect(r.stderr).toContain('ログを書けません');
+  });
+
   it('起こせないコマンドは 127 で終わり、理由をログに残す', () => {
     const log = path.join(tmpHome(), 'run-4.log');
     const r = run(log, [path.join(tmpHome(), 'no-such-command.exe')], '\n');
