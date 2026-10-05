@@ -80,7 +80,8 @@ describe('checkToolPath', () => {
   });
   it('~ で始まるパスはホームから読む', () => {
     const ok = fakeTool('claude', '2.3.1 (Claude Code)');
-    expect(checkToolPath('~/bin/claude', tmp)).toEqual({ path: ok, ok: true, problem: null });
+    // Windows の偽の道具は claude.cmd になる。拡張子まで書いたパスで指す。
+    expect(checkToolPath(`~/bin/${path.basename(ok)}`, tmp)).toEqual({ path: ok, ok: true, problem: null });
   });
 });
 

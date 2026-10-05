@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writeFakeTool } from '../../test/fake-bin.ts';
 import type { LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
 import { RetentionConflictError } from '../config/retention.ts';
 import { openDb, type Db } from '../db/open.ts';
@@ -122,12 +123,7 @@ function fakeRetention() {
   };
 }
 /** 実行できる空のファイルを ws/bin に置く。パスの欄は保存の前に存在と実行権を確かめるので、実物が要る。 */
-const exe = (name: string): string => {
-  const p = path.join(ws, 'bin', name);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, '#!/bin/sh\n', { mode: 0o755 });
-  return p;
-};
+const exe = (name: string): string => writeFakeTool(path.join(ws, 'bin'), name, { sh: '', cmd: '' });
 const syncDeps = () => ({
   sync: fakeSync(),
   syncSkipped: () => skipped,
@@ -412,7 +408,7 @@ describe('routes', () => {
   it('パスの欄は名前だけでも受け、PATH から探して確かめ、打たれたまま保存する', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const bin = path.dirname(exe('mytmux'));
-    vi.stubEnv('PATH', `/no/such/dir:${bin}`);
+    vi.stubEnv('PATH', ['/no/such/dir', bin].join(path.delimiter));
     try {
       const r = await patch({ tmuxPath: ' mytmux ' });
       expect(r.status).toBe(200);
@@ -437,8 +433,10 @@ describe('routes', () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const tool = exe('hometool');
     vi.stubEnv('HOME', ws);
+    vi.stubEnv('USERPROFILE', ws);
     try {
-      const r = await patch({ codePath: '~/bin/hometool' });
+      // Windows の偽の道具は hometool.cmd になる。拡張子まで書いたパスで指す。
+      const r = await patch({ codePath: `~/bin/${path.basename(tool)}` });
       expect(r.status).toBe(200);
       expect((await r.json()).codePath).toBe(tool);
       expect((await json(await get('/api/settings'))).body.codePath).toBe(tool);
