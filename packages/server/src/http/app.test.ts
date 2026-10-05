@@ -19,6 +19,7 @@ import { issueMcpSecret } from '../runs/secrets.ts';
 import { proposeSessionState, setSessionState } from '../sessions/states.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
+import type { AccountsDeps } from './accounts.ts';
 import { createApp, type AppDeps, type ConfigSyncApi, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts, type SyncApi } from './app.ts';
 
 let dir: string;
@@ -1356,7 +1357,7 @@ describe('アカウントの取り付け', () => {
     const second = store.list()[1]!.id;
     // 本文の statusline は、statusline の session_id から引いたアカウントの使用量に載る。
     const tracker = new UsageTracker(db, { accountOf: (sid) => (sid === SESSION_ALPHA ? second : 'primary') });
-    const accounts = { db, store, primaryDir, usage: tracker, auth: new AccountAuth({ claudeBin: () => null }), runs: { switchAccount: vi.fn() } as never, broadcast: (a: never) => sent.push({ type: 'accounts.update', accounts: a }) };
+    const accounts: AccountsDeps = { db, store, primaryDir, usage: tracker, auth: new AccountAuth({ claudeBin: () => null }), runs: { switchAccount: vi.fn() } as unknown as AccountsDeps['runs'], broadcast: (a) => sent.push({ type: 'accounts.update', accounts: a }) };
     accountsApp = createApp({ ...deps, usage: tracker, accounts });
   });
   afterEach(() => { fs.rmSync(accountHome, { recursive: true, force: true }); });
