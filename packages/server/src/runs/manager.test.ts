@@ -1303,6 +1303,39 @@ describe.skipIf(!TMUX)('アカウント', () => {
     expect(endedAt(first.run.id)).toBeNull();
   });
 
+  it('switchAccount：本文のまだ無いセッションは、止める前に 400 で断る。run もセッションの行も残る', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: 'このセッションにはまだ本文がありません。そのアカウントで新しいセッションを始めてください' }));
+    expect(endedAt(first.run.id)).toBeNull();
+    expect(db.prepare('select 1 from sessions where id = ?').get(first.sessionId)).toBeTruthy();
+  });
+
+  it('switchAccount：作業ディレクトリが消えていれば、止める前に 400 で断る', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    fs.rmSync(cwd, { recursive: true, force: true });
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('ディレクトリが見つかりません') }));
+    expect(endedAt(first.run.id)).toBeNull();
+  });
+
+  it('switchAccount：hangar の run が無いのにレジストリに残っていれば、待たずに「hangar の外で実行中」と 409 で断る', async () => {
+    const a = accounts.add({ name: '大学' });
+    let slept = 0;
+    const m = make({ accounts, isLive: () => true, sleep: async (ms) => { slept += ms; } });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    m.kill(first.run.id);
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: 'このセッションは hangar の外で実行中です' }));
+    expect(slept).toBe(0);
+  });
+
   it('accounts を渡さない RunManager は今までどおり動く', async () => {
     const r = make().start({ projectId: 'p1' });
     expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=\n');

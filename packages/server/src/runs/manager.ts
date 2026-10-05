@@ -342,10 +342,13 @@ export class RunManager {
     return s;
   }
 
+  private hasBody(s: SessionRow): boolean {
+    return !!this.db.prepare('select 1 from transcript_files where session_id = ? and agent_id is null limit 1').get(s.id);
+  }
+
   /** 再開できる状態かを確かめる。本文の有無、hangar の run、hangar の外で動いている Claude は、どれも別の原因である。 */
   private assertResumable(s: SessionRow): void {
-    const hasBody = this.db.prepare('select 1 from transcript_files where session_id = ? and agent_id is null limit 1').get(s.id);
-    if (!hasBody) throw new RunError(400, 'このセッションには本文がありません');
+    if (!this.hasBody(s)) throw new RunError(400, 'このセッションには本文がありません');
     if (aliveRunForSession(this.db, s.id)) throw new RunError(409, 'このセッションは実行中です');
     if (this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, 'このセッションは hangar の外で実行中です');
   }
@@ -427,7 +430,7 @@ export class RunManager {
    * 開いているセッションを、別のアカウントで再開し直す。
    * 動いていれば止め、Claude のレジストリから消えるのを待ってから、同じ会話を選んだアカウントの置き場で起こす。
    * 本文は置き場の間で共有なので写さない。
-   * 断る理由（知らないアカウント、壊れたリンク、同じアカウント）は、止める前に確かめる。止めてから断ると、利用者の作業だけが失われる。
+   * 断る理由（知らないアカウント、壊れたリンク、同じアカウント、本文が無い、起動できない、外で動いている）は、止める前に確かめる。止めてから断ると、利用者の作業だけが失われる。
    */
   async switchAccount(sessionId: string, accountId: string): Promise<LaunchResult> {
     const s = this.session(sessionId);
@@ -435,7 +438,12 @@ export class RunManager {
     if (!account) throw new RunError(400, 'アカウントが見つかりません');
     if (this.accountFor(s.id) === account.id) throw new RunError(409, 'このセッションはもうそのアカウントで動いています');
     this.accountEnvFor(account);
+    // resume の前提も止める前に確かめる。本文が無いと、止めた時点でセッションの行ごと消え、起こし直せない。
+    if (!this.hasBody(s)) throw new RunError(400, 'このセッションにはまだ本文がありません。そのアカウントで新しいセッションを始めてください');
+    this.precheck(s.cwd);
     const alive = aliveRunForSession(this.db, s.id);
+    // hangar の run が無いのにレジストリに残っているのは、hangar の外で動いている Claude である。止められないので待たずに断る。
+    if (!alive && this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, 'このセッションは hangar の外で実行中です');
     if (alive) this.kill(alive.id);
     const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
     for (let waited = 0; this.deps.isLive?.(s.provider_session_id); waited += 250) {
