@@ -9,9 +9,9 @@ import { AccountStore } from '../config/accounts.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
-import { RunError } from '../runs/manager.ts';
+import { RunError, type RunListener } from '../runs/manager.ts';
 import { UsageTracker } from '../usage/statusline.ts';
-import { accountsRoutes, buildAccountsDto, type AccountsDeps } from './accounts.ts';
+import { accountsRoutes, announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from './accounts.ts';
 
 let db: Db;
 let home: string;
@@ -196,5 +196,18 @@ describe('アカウントの HTTP', () => {
     expect(r.json.accounts[1]!.linkProblem!.length).toBeGreaterThan(0);
     expect(sent.at(-1)?.accounts).toHaveLength(2);
     expect((await call('GET', '/accounts')).json.accounts).toHaveLength(2);
+  });
+
+  it('セッションの起動で accounts.update を配る（新しい run のアカウントが sessions に載る）', async () => {
+    const id = (await call('POST', '/accounts', { name: '大学' })).json.accounts[1]!.id;
+    const listeners: RunListener[] = [];
+    announceAccountsOnRunStarted({ on: (l) => { listeners.push(l); return () => {}; } }, deps);
+    expect(listeners).toHaveLength(1);
+    sent.length = 0;
+    const s = ensureSession(db, '11111111-1111-4111-8111-111111111111', '/w', 'd');
+    upsertShared(db, 'runs', { id: 'r1', session_id: s, device_id: 'd', kind: 'start', tmux_name: 't', pid: null, launch_params: JSON.stringify({ account: id }), started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    listeners[0]!.runStarted!({ sessionId: s } as Parameters<NonNullable<RunListener['runStarted']>>[0]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.sessions).toEqual({ [s]: id });
   });
 });

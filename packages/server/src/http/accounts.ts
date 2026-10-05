@@ -49,6 +49,11 @@ export function buildAccountsDto(deps: AccountsDeps, opts: { checkLinks?: boolea
   };
 }
 
+/** セッションが起動したとき（新規・再開・フォーク・ターミナルから）に accounts.update を配る。新しい run のアカウントが sessions に載るため。リンクは点検しない。 */
+export function announceAccountsOnRunStarted(runs: Pick<RunManager, 'on'>, deps: AccountsDeps): () => void {
+  return runs.on({ runStarted: () => deps.broadcast(buildAccountsDto(deps)) });
+}
+
 const bodyOf = async (c: Context): Promise<Record<string, unknown>> => {
   try {
     const v: unknown = await c.req.json();
