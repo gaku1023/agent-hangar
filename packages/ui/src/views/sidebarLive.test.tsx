@@ -5,7 +5,7 @@ import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SessionDto } from '@agent-hangar/shared';
 import { IntentRoot } from '../intent/chain.tsx';
-import { cleanSidebarOrder, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
+import { cleanSidebarOrder, mergeSidebarOrder, SIDEBAR_ORDER_KEY, SIDEBAR_ORDER_MAX, trimSidebarOrder } from '../mediator/sidebar.ts';
 import { initialState, transition } from '../mediator/transition.ts';
 import { presentShell, SIDE_LIVE_MAX, type SideLiveProps, type SideLiveRow } from '../presenters/shell.ts';
 import { initialStore, liveSessionIds, type Store } from '../store/store.ts';
@@ -85,6 +85,52 @@ describe('並びを覚える（sidebar.order）', () => {
     expect(cleanSidebarOrder('x')).toEqual([]);
     expect(cleanSidebarOrder(null)).toEqual([]);
     expect(cleanSidebarOrder(['a', 1, '', 'a', 'b'])).toEqual(['a', 'b']);
+  });
+  const appeared = (order: string[], ids: string[]) => transition({ ...initialState(), sidebarOrder: order }, { kind: 'runtime', event: { type: 'live.changed', ids } });
+  it('初めて現れたセッションを、届いた順で並びの末尾に書き足し、保存する', () => {
+    const r = appeared(['a'], ['c', 'a', 'b']);
+    expect(r.state.sidebarOrder).toEqual(['a', 'c', 'b']);
+    expect(r.effects).toContainEqual({ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: ['a', 'c', 'b'] });
+  });
+  it('保存が空の端末でも、現れた順で 1 回だけ確定する', () => {
+    const first = appeared([], ['a', 'b', 'c']);
+    expect(first.state.sidebarOrder).toEqual(['a', 'b', 'c']);
+    const again = transition(first.state, { kind: 'runtime', event: { type: 'live.changed', ids: ['c', 'b', 'a'] } });
+    expect(again.state.sidebarOrder).toEqual(['a', 'b', 'c']);
+    expect(again.effects).toEqual([]);
+  });
+  it('動いているものが減っても、ゼロになっても、覚えた並びは変えず、保存もしない', () => {
+    for (const ids of [['a'], []]) {
+      const r = appeared(['a', 'b', 'c'], ids);
+      expect(r.state.sidebarOrder).toEqual(['a', 'b', 'c']);
+      expect(r.effects).toEqual([]);
+    }
+  });
+  it('抜けていたセッションがまた現れても、覚えた席のまま動かさない', () => {
+    const r = appeared(['a', 'b', 'c'], ['a', 'b', 'c']);
+    expect(r.state.sidebarOrder).toEqual(['a', 'b', 'c']);
+    expect(r.effects).toEqual([]);
+  });
+  it('並べ替えは動いている行の席だけを入れ替え、抜けているセッションの席を残す', () => {
+    expect(mergeSidebarOrder(['a', 'x', 'b', 'c'], ['c', 'a', 'b'])).toEqual(['c', 'x', 'a', 'b']);
+    const r = transition({ ...initialState(), sidebarOrder: ['a', 'x', 'b', 'c'] }, { kind: 'intent', intent: { type: 'sidebar.order', ids: ['a', 'c', 'b'] } });
+    expect(r.state.sidebarOrder).toEqual(['a', 'x', 'c', 'b']);
+    expect(r.effects).toContainEqual({ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: ['a', 'x', 'c', 'b'] });
+  });
+  it('並べ替えに、まだ覚えていない id が混じっていたら末尾に足す', () => {
+    expect(mergeSidebarOrder(['a', 'b'], ['n', 'b', 'a'])).toEqual(['b', 'a', 'n']);
+    expect(mergeSidebarOrder([], ['b', 'a'])).toEqual(['b', 'a']);
+  });
+  it('覚える id は上限までにし、動いていないものを先頭の側から落とす。動いているものは落とさない', () => {
+    const old = Array.from({ length: SIDEBAR_ORDER_MAX }, (_, i) => `o${i}`);
+    expect(trimSidebarOrder(old, [])).toBe(old);
+    const trimmed = trimSidebarOrder(['live1', ...old, 'live2'], ['live1', 'live2']);
+    expect(trimmed).toHaveLength(SIDEBAR_ORDER_MAX);
+    expect(trimmed).toEqual(['live1', ...old.slice(2), 'live2']);
+    const allLive = Array.from({ length: SIDEBAR_ORDER_MAX + 5 }, (_, i) => `l${i}`);
+    expect(trimSidebarOrder(allLive, allLive)).toEqual(allLive);
+    const r = appeared(old, ['o0', 'new']);
+    expect(r.state.sidebarOrder).toEqual(['o0', ...old.slice(2), 'new']);
   });
 });
 
