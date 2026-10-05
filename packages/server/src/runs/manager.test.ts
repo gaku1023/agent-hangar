@@ -20,6 +20,7 @@ import type { LiveSession } from '../provider/types.ts';
 import { RunManager } from './manager.ts';
 import { realProcOps, type ProcOps } from './procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
+import { expectMode } from '../../test/platform.ts';
 
 let db: Db;
 let home: string;
@@ -992,7 +993,7 @@ describe.skipIf(!TMUX)('トークンを argv に載せない（tmux 上）', () 
     expect(args.join(' ')).not.toContain('Bearer');
 
     const cfgPath = args[1]!;
-    expect(fs.statSync(cfgPath).mode & 0o777).toBe(0o600);
+    expectMode(cfgPath, 0o600);
     // 設定ファイルにも本体のトークンは書かない。入るのはこの run 専用の秘密だけである。
     expect(fs.readFileSync(cfgPath, 'utf8')).not.toContain(TOKEN);
     expect(fs.readFileSync(cfgPath, 'utf8')).toContain(`Bearer ${mcpSecretFor(db, r.sessionId)}`);

@@ -11,6 +11,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
 import { RemotePuller, remoteTranscriptPath, RETRY_SKIPPED_AFTER_MS } from './puller.ts';
 import { SyncStateStore } from './state.ts';
+import { expectMode } from '../../test/platform.ts';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
 const key = deriveFileKey('join-secret');
@@ -222,9 +223,9 @@ describe('RemotePuller', () => {
     const p = make();
     await p.pullNow();
     const target = remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`);
-    expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+    expectMode(target, 0o600);
     const dirs = [path.join(home, 'remote'), path.join(home, 'remote', 'dev-b'), path.join(home, 'remote', 'dev-b', 'projects'), path.dirname(target)];
-    for (const d of dirs) expect([d, fs.statSync(d).mode & 0o777]).toEqual([d, 0o700]);
+    for (const d of dirs) expectMode(d, 0o700);
   });
 
   it('諦めた本文は、原因が直ってサーバを起こし直せば降りてくる', async () => {

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RetentionDto } from '@agent-hangar/shared';
 import { JsonTextEditError } from './jsonTextEdit.ts';
 import { measureUsage, previewRetention, readRetention, RetentionConflictError, RetentionService, RetentionUnwritableError, writeRetention } from './retention.ts';
+import { expectMode } from '../../test/platform.ts';
 
 const NOW = Date.parse('2026-10-01T00:00:00Z');
 let root: string;
@@ -136,10 +137,10 @@ describe('previewRetention と writeRetention', () => {
     fs.chmodSync(file(), 0o644);
     const r = writeRetention({ claudeDir, home: home(), days: 365, baseSha256: sha(SRC), now: new Date(2026, 9, 1, 12, 0, 0) });
     expect(fs.readFileSync(file(), 'utf8')).toBe(SRC.replace('3650', '365'));
-    expect(fs.statSync(file()).mode & 0o777).toBe(0o644);
+    expectMode(file(), 0o644);
     expect(r.backup).toBe(path.join(home(), 'backups', 'claude-config', '20261001-120000', 'settings.json'));
     expect(fs.readFileSync(r.backup!, 'utf8')).toBe(SRC);
-    expect(fs.statSync(r.backup!).mode & 0o777).toBe(0o600);
+    expectMode(r.backup!, 0o600);
   });
   it('同じ秒に 2 度書いても、先の控えを潰さない', () => {
     settings(SRC);
@@ -152,7 +153,7 @@ describe('previewRetention と writeRetention', () => {
   it('ファイルが無ければ 0600 で作り、控えは取らない', () => {
     const r = writeRetention({ claudeDir, home: home(), days: 365, baseSha256: '' });
     expect(JSON.parse(fs.readFileSync(file(), 'utf8'))).toEqual({ cleanupPeriodDays: 365 });
-    expect(fs.statSync(file()).mode & 0o777).toBe(0o600);
+    expectMode(file(), 0o600);
     expect(r.backup).toBeNull();
   });
   it('下見の後に変わっていたら、書かずに RetentionConflictError', () => {

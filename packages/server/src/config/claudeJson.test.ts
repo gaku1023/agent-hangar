@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { claudeJsonPath, upsertUserMcpServer } from './claudeJson.ts';
+import { expectMode } from '../../test/platform.ts';
 
 let root: string;
 let dir: string;
@@ -32,7 +33,7 @@ describe('claudeJsonPath', () => {
 describe('upsertUserMcpServer', () => {
   it('無ければ 0600 で作る', () => {
     upsertUserMcpServer(file, 'hangar', { type: 'http', url: 'http://x/mcp' }, { backupDir: backups });
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ mcpServers: { hangar: { type: 'http', url: 'http://x/mcp' } } });
   });
 
@@ -40,7 +41,7 @@ describe('upsertUserMcpServer', () => {
     fs.writeFileSync(file, JSON.stringify({ userID: 'u1', mcpServers: { other: { type: 'stdio' } } }), { mode: 0o600 });
     upsertUserMcpServer(file, 'hangar', { type: 'http', url: 'http://x/mcp' }, { backupDir: backups });
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ userID: 'u1', mcpServers: { other: { type: 'stdio' }, hangar: { type: 'http', url: 'http://x/mcp' } } });
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
     expect(fs.readdirSync(dir)).toEqual(['.claude.json']);
   });
 
@@ -88,8 +89,8 @@ describe('upsertUserMcpServer の安全（同時書き込み、リンク、控�
     const r = upsertUserMcpServer(file, 'hangar', { type: 'http' }, { backupDir: backups, now: new Date(2026, 8, 19, 3, 4, 5) });
     expect(r.backup).toBe(path.join(backups, 'claude.json-20260919030405'));
     expect(JSON.parse(fs.readFileSync(r.backup!, 'utf8'))).toEqual({ userID: 'u1' });
-    expect(fs.statSync(r.backup!).mode & 0o777).toBe(0o600);
-    expect(fs.statSync(backups).mode & 0o777).toBe(0o700);
+    expectMode(r.backup!, 0o600);
+    expectMode(backups, 0o700);
     // 同じ秒に 2 度書いても、前の控えを潰さない。
     const r2 = upsertUserMcpServer(file, 'hangar', { type: 'http' }, { backupDir: backups, now: new Date(2026, 8, 19, 3, 4, 5) });
     expect(r2.backup).toBe(path.join(backups, 'claude.json-20260919030405-2'));
@@ -138,13 +139,13 @@ describe('upsertUserMcpServer の安全（同時書き込み、リンク、控�
     fs.chmodSync(file, 0o644);
     const r = upsertUserMcpServer(file, 'hangar', { type: 'http' }, { backupDir: backups });
     expect(r.tightened).toBe(true);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
 
     const other = path.join(dir, 'other.json');
     fs.writeFileSync(other, '{}', { mode: 0o600 });
     fs.chmodSync(other, 0o700);
     const r2 = upsertUserMcpServer(other, 'hangar', { type: 'http' }, { backupDir: backups });
     expect(r2.tightened).toBe(false);
-    expect(fs.statSync(other).mode & 0o777).toBe(0o700);
+    expectMode(other, 0o700);
   });
 });

@@ -7,6 +7,7 @@ import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { ensureWrapperScript, MAX_RUN_LOGS, pruneRunLogs, runLogPath, wrapperScript } from './wrapper.ts';
+import { expectMode } from '../../test/platform.ts';
 
 let home: string;
 beforeEach(() => {
@@ -20,7 +21,7 @@ describe('ensureWrapperScript', () => {
   it('bin/hangar-run.sh を実行可能で書き、同じ内容なら書き直さない', () => {
     const p = ensureWrapperScript(home);
     expect(p).toBe(path.join(home, 'bin', 'hangar-run.sh'));
-    expect(fs.statSync(p).mode & 0o777).toBe(0o755);
+    expectMode(p, 0o755);
     expect(fs.readFileSync(p, 'utf8')).toBe(wrapperScript());
     const before = fs.statSync(p).mtimeMs;
     ensureWrapperScript(home);

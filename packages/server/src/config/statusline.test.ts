@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendStatuslineSnippet, ensureStatuslineHeaderFile, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
+import { expectMode } from '../../test/platform.ts';
 
 let dir: string;
 let home: string;
@@ -86,7 +87,7 @@ describe('writeStatuslineHeaderFile', () => {
     expect(file).toBe(statuslineHeaderPath(hangarHome));
     expect(file).toBe(path.join(hangarHome, 'statusline-header'));
     expect(fs.readFileSync(file, 'utf8')).toBe(`Authorization: Bearer ${TOKEN}\n`);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
   });
 
   it('既にあるファイルは中身を入れ替え、他人に読める権限なら狭める', () => {
@@ -97,7 +98,7 @@ describe('writeStatuslineHeaderFile', () => {
     fs.chmodSync(file, 0o644);
     writeStatuslineHeaderFile(hangarHome, TOKEN);
     expect(fs.readFileSync(file, 'utf8')).toBe(`Authorization: Bearer ${TOKEN}\n`);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
   });
 });
 
@@ -110,7 +111,7 @@ describe('ensureStatuslineHeaderFile', () => {
     const file = ensureStatuslineHeaderFile(hangarHome, TOKEN);
     expect(file).toBe(statuslineHeaderPath(hangarHome));
     expect(fs.readFileSync(file, 'utf8')).toBe(`Authorization: Bearer ${TOKEN}\n`);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
   });
 
   it('中身と権限が合っていれば書き直さない', () => {
@@ -141,7 +142,7 @@ describe('ensureStatuslineHeaderFile', () => {
     const file = ensureStatuslineHeaderFile(hangarHome, TOKEN);
     fs.chmodSync(file, 0o644);
     ensureStatuslineHeaderFile(hangarHome, TOKEN);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
   });
 });
 
@@ -315,7 +316,7 @@ describe('appendStatuslineSnippet', () => {
     expect(after).not.toContain(gone);
     expect(after).toContain('-H @"$__hangar_header"');
     expect(after).toBe(`#!/bin/bash\n${statuslineSnippet(4177)}echo hi\n`);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o755);
+    expectMode(file, 0o755);
     // 二度目は変えない。
     expect(appendStatuslineSnippet(file, 4177)).toEqual({ changed: false, backup: null });
   });
@@ -332,6 +333,6 @@ describe('appendStatuslineSnippet', () => {
     const file = path.join(dir, 'u.sh');
     fs.writeFileSync(file, '#!/bin/bash\necho hi\n', { mode: 0o755 });
     appendStatuslineSnippet(file, 4177);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o755);
+    expectMode(file, 0o755);
   });
 });

@@ -22,6 +22,7 @@ import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
 import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { expectMode } from '../test/platform.ts';
 
 let home: string;
 let claudeDir: string;
@@ -322,7 +323,7 @@ describe('startServer', () => {
     const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
     try {
       expect(fs.readFileSync(header, 'utf8')).toBe(`Authorization: Bearer ${tokenOf()}\n`);
-      expect(fs.statSync(header).mode & 0o777).toBe(0o600);
+      expectMode(header, 0o600);
     } finally {
       await s.close();
     }

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { ensureMode } from '../platform/secure.ts';
 
 export const WRAPPER_NAME = 'hangar-run.sh';
 
@@ -36,7 +37,7 @@ export function ensureWrapperScript(home: string): string {
   const body = wrapperScript();
   fs.mkdirSync(dir, { recursive: true });
   if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== body) fs.writeFileSync(file, body, { mode: 0o755 });
-  if ((fs.statSync(file).mode & 0o777) !== 0o755) fs.chmodSync(file, 0o755);
+  ensureMode(file, 0o755);
   return file;
 }
 

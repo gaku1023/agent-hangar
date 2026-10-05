@@ -7,6 +7,7 @@ import { upsertShared } from '../db/shared.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA } from '../../test/fixtures.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
 import { IndexerService } from './service.ts';
+import { expectMode } from '../../test/platform.ts';
 
 let dir: string;
 let db: Db;
@@ -210,7 +211,7 @@ describe('他端末の本文の索引化', () => {
     cleanups.push(() => svc.stop());
     await svc.start();
     // 他端末の会話の本文を置くので、~/.agent-hangar/mcp と同じく本人だけが読める。
-    expect(fs.statSync(root).mode & 0o777).toBe(0o700);
+    expectMode(root, 0o700);
     svc.stop();
   });
 

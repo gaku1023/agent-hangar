@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execCli, mcpRemoveArgs, runMcpInstall, runMcpUninstall, type CliExec } from './mcp.ts';
+import { expectMode, isWindows, posixIt } from '../../server/test/platform.ts';
 
 describe('mcpRemoveArgs', () => {
   it('user スコープの hangar を外す', () => {
@@ -33,7 +34,7 @@ describe('runMcpInstall', () => {
     expect(calls.flat().join(' ')).not.toContain('Bearer');
     expect(ok.message).not.toContain(token);
     // 設定ファイルは他人に読ませない。
-    expect(fs.statSync(claudeJson).mode & 0o077).toBe(0);
+    if (!isWindows) expect(fs.statSync(claudeJson).mode & 0o077).toBe(0);
   });
 
   it('既にある設定の他の項目を消さず、hangar だけを差し替える', async () => {
@@ -110,11 +111,12 @@ describe('runMcpInstall', () => {
     }
   });
 
-  it('他人にも読める設定ファイルは、トークンを書く前に 0600 へ狭めて告げる', async () => {
+  // Windows ではモードを読めないので、狭めたとは告げない。
+  posixIt('他人にも読める設定ファイルは、トークンを書く前に 0600 へ狭めて告げる', async () => {
     fs.writeFileSync(claudeJson, JSON.stringify({ userID: 'u1' }), { mode: 0o600 });
     fs.chmodSync(claudeJson, 0o644);
     const r = await runMcpInstall({ home, port: 4177, claudeJson, exec: okExec([]), probe: async () => ({ ok: true } as const) });
-    expect(fs.statSync(claudeJson).mode & 0o777).toBe(0o600);
+    expectMode(claudeJson, 0o600);
     expect(r.message).toContain('0600');
   });
 

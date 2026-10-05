@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFile, openDirInTerminalApp, openInEditor, openInTerminalApp, writeAttachCommand, writeCdCommand, type Exec } from './open.ts';
+import { expectMode } from '../../test/platform.ts';
 
 let home: string;
 let calls: { cmd: string; args: string[] }[];
@@ -25,7 +26,7 @@ describe('.command ファイル', () => {
   it('attach 用と cd 用を実行可能で書く', () => {
     const a = writeAttachCommand(home, '/opt/homebrew/bin/tmux', 'hangar-ab12cd34');
     expect(a).toBe(path.join(home, 'cmd', 'attach-hangar-ab12cd34.command'));
-    expect(fs.statSync(a).mode & 0o777).toBe(0o755);
+    expectMode(a, 0o755);
     // target は完全一致にする。素の名前だと tmux が前方一致で別のセッションに繋ぐ。
     expect(fs.readFileSync(a, 'utf8')).toBe("#!/usr/bin/env bash\n'/opt/homebrew/bin/tmux' attach -t '=hangar-ab12cd34'\nexit\n");
     const c = writeCdCommand(home, "/Users/me/work space/it's");

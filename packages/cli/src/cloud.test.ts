@@ -10,6 +10,7 @@ import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/
 import { BUNDLED_CLOUD_MARKER, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth } from './cloud.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
+import { expectMode } from '../../server/test/platform.ts';
 
 const ok = (stdout = ''): ExecResult => ({ code: 0, stdout, stderr: '' });
 const device = { id: 'dev-a', name: 'mac', platform: 'darwin' };
@@ -139,7 +140,7 @@ describe('runSetupCloud', () => {
       dbName: 'hangar',
       bucketName: 'hangar-files',
     });
-    expect(fs.statSync(path.join(home, 'cloud.json')).mode & 0o777).toBe(0o600);
+    expectMode(path.join(home, 'cloud.json'), 0o600);
 
     const cmds = w.calls.map((c) => c.args.slice(0, 3).join(' '));
     expect(cmds).toEqual(['whoami', 'd1 info hangar', 'd1 create hangar', 'r2 bucket create', 'deploy --config ' + path.join(home, 'cloud', 'wrangler.jsonc'), 'secret put JOIN_SECRET_HASH']);
@@ -478,7 +479,7 @@ describe('runJoin', () => {
     expect(authSeen).toBeNull();
     expect(got).toMatchObject({ url: 'https://h.workers.dev', joinSecret: 'sec', deviceToken: 'dt', workerName: null, accountId: null, dbName: null, bucketName: null });
     expect(loadCloudConfig(home)).toEqual(got);
-    expect(fs.statSync(path.join(home, 'cloud.json')).mode & 0o777).toBe(0o600);
+    expectMode(path.join(home, 'cloud.json'), 0o600);
 
     // 「どこに繋ごうとしているか」を人に見せてから聞く。
     const out = lines.join('\n');

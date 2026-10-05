@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { backupsRoot, cloudConfigPath, loadCloudConfig, readCloudConfig, remoteRoot, saveCloudConfig } from './cloud.ts';
+import { expectMode, isWindows } from '../../test/platform.ts';
 
 describe('cloud.json', () => {
   it('無ければ null、保存したら 0600 で読み戻せる', () => {
@@ -11,7 +12,7 @@ describe('cloud.json', () => {
     const c = { url: 'https://h.workers.dev', joinSecret: 's', deviceToken: 't', workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files', joinedAt: 1 };
     saveCloudConfig(home, c);
     expect(loadCloudConfig(home)).toEqual(c);
-    expect(fs.statSync(cloudConfigPath(home)).mode & 0o777).toBe(0o600);
+    expectMode(cloudConfigPath(home), 0o600);
     expect(remoteRoot(home)).toBe(path.join(home, 'remote'));
     expect(backupsRoot(home)).toBe(path.join(home, 'backups'));
     fs.rmSync(home, { recursive: true, force: true });
@@ -29,10 +30,10 @@ describe('cloud.json', () => {
     const home = path.join(tmp, 'nested');
     const c = { url: 'https://h.workers.dev', joinSecret: 's', deviceToken: 't', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 0 };
     saveCloudConfig(home, c);
-    expect(fs.statSync(home).mode & 0o777).toBe(0o700);
+    expectMode(home, 0o700);
     fs.chmodSync(cloudConfigPath(home), 0o644);
     saveCloudConfig(home, { ...c, deviceToken: 't2' });
-    expect(fs.statSync(cloudConfigPath(home)).mode & 0o777).toBe(0o600);
+    expectMode(cloudConfigPath(home), 0o600);
     expect(loadCloudConfig(home)?.deviceToken).toBe('t2');
     fs.rmSync(tmp, { recursive: true, force: true });
   });
@@ -57,7 +58,7 @@ describe('cloud.json の書き方', () => {
     // 切り詰めて書き直すのではなく、0600 で作った別のファイルを rename で被せる。
     // 同じ inode に書いていたら、0644 のまま秘密が置かれる一瞬ができる。
     expect(after.ino).not.toBe(before);
-    expect(after.mode & 0o777).toBe(0o600);
+    if (!isWindows) expect(after.mode & 0o777).toBe(0o600);
     expect(fs.readdirSync(home)).toEqual(['cloud.json']);
     fs.rmSync(home, { recursive: true, force: true });
   });
