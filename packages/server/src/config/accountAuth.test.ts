@@ -80,4 +80,57 @@ describe('AccountAuth', () => {
     auth.forget('a1');
     expect(auth.get('a1')).toBeNull();
   });
+
+  it('ensureChecked は、まだ読んでいないアカウントを裏で 1 回だけ読む。失敗しても読んだと数える', async () => {
+    const run = vi.fn<RunClaude>(async () => ({ code: 0, stdout: OK }));
+    const onChange = vi.fn();
+    const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run, onChange });
+    auth.ensureChecked(univ);
+    auth.ensureChecked(univ);
+    await vi.waitFor(() => expect(auth.get('a1')?.loggedIn).toBe(true));
+    auth.ensureChecked(univ);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    const failing = vi.fn<RunClaude>(async () => { throw new Error('no claude'); });
+    const auth2 = new AccountAuth({ claudeBin: () => '/bin/claude', run: failing });
+    auth2.ensureChecked(univ);
+    await vi.waitFor(() => expect(failing).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 5));
+    auth2.ensureChecked(univ);
+    expect(failing).toHaveBeenCalledTimes(1);
+    expect(auth2.get('a1')).toBeNull();
+  });
+
+  it('ensureChecked は、読み込みかログインが走っている間は起こさず、forget のあとは読み直す', async () => {
+    let release: (v: { code: number | null; stdout: string }) => void = () => {};
+    const run = vi.fn<RunClaude>((_b, args) => (args[1] === 'login' ? new Promise((r) => { release = r; }) : Promise.resolve({ code: 0, stdout: OK })));
+    const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run });
+    auth.login(univ);
+    auth.ensureChecked(univ);
+    expect(run).toHaveBeenCalledTimes(1);
+    release({ code: 0, stdout: '' });
+    await vi.waitFor(() => expect(auth.get('a1')?.loggedIn).toBe(true));
+    expect(run).toHaveBeenCalledTimes(2);
+
+    const slow = vi.fn<RunClaude>(() => new Promise((r) => { release = r; }));
+    const auth2 = new AccountAuth({ claudeBin: () => '/bin/claude', run: slow });
+    const pending = auth2.refresh(univ);
+    auth2.ensureChecked(univ);
+    expect(slow).toHaveBeenCalledTimes(1);
+    release({ code: 0, stdout: OK });
+    await pending;
+
+    auth2.forget('a1');
+    auth2.ensureChecked(univ);
+    expect(slow).toHaveBeenCalledTimes(2);
+  });
+
+  it('setOnChange で、あとから通知先を結べる', async () => {
+    const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run: async () => ({ code: 0, stdout: OK }) });
+    const onChange = vi.fn();
+    auth.setOnChange(onChange);
+    await auth.refresh(univ);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
 });

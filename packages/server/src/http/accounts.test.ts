@@ -21,6 +21,8 @@ let store: AccountStore;
 let app: Hono;
 let sent: AccountsDto[];
 let switchAccount: ReturnType<typeof vi.fn>;
+let order: string[];
+let ensureChecked: ReturnType<typeof vi.spyOn>;
 const OK = JSON.stringify({ loggedIn: true, email: 'taro@example.ac.jp', orgName: 'Example University', subscriptionType: 'enterprise' });
 const run: RunClaude = async (_b, args) => ({ code: 0, stdout: args[1] === 'status' ? OK : '' });
 const call = async (method: string, url: string, body?: unknown) => {
@@ -36,10 +38,14 @@ beforeEach(() => {
   fs.mkdirSync(path.join(primaryDir, 'projects'), { recursive: true });
   store = new AccountStore({ home, primaryDir, homeDir: userHome });
   sent = [];
-  switchAccount = vi.fn(async (sessionId: string) => ({ sessionId, run: { id: 'r9' }, tabs: [] }));
+  order = [];
+  switchAccount = vi.fn(async (sessionId: string) => { order.push('switch'); return { sessionId, run: { id: 'r9' }, tabs: [] }; });
+  const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run });
+  ensureChecked = vi.spyOn(auth, 'ensureChecked');
   const deps: AccountsDeps = {
     db, store, primaryDir,
-    auth: new AccountAuth({ claudeBin: () => '/bin/claude', run }),
+    auth,
+    beforeLaunch: async () => { order.push('before'); },
     usage: new UsageTracker(db, { accountOf: () => 'primary' }),
     runs: { switchAccount } as unknown as AccountsDeps['runs'],
     broadcast: (a) => sent.push(a),
@@ -126,5 +132,19 @@ describe('アカウントの HTTP', () => {
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: string }).error).toContain('まだ終わっていません');
     expect(store.current().id).toBe('primary');
+  });
+
+  it('一覧を開くと、まだ読んでいないアカウントを裏で読みに行く（応答は待たない）', async () => {
+    await call('POST', '/accounts', { name: '大学' });
+    ensureChecked.mockClear();
+    const r = await call('GET', '/accounts');
+    expect(r.status).toBe(200);
+    expect((ensureChecked.mock.calls as unknown[][]).map((c) => (c[0] as { id: string }).id)).toEqual(['primary', r.json.accounts[1]!.id]);
+  });
+
+  it('切り替えは、起動の前に beforeLaunch を待つ', async () => {
+    const id = (await call('POST', '/accounts', { name: '大学' })).json.accounts[1]!.id;
+    await app.request('/sessions/s1/switch-account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account: id }) });
+    expect(order).toEqual(['before', 'switch']);
   });
 });

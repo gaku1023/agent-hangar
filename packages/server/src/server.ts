@@ -18,7 +18,7 @@ import { openDb, type Db } from './db/open.ts';
 import { accountOfSession, getProject, getSession, listDevices, listProjects } from './db/queries.ts';
 import { upsertShared } from './db/shared.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './external/open.ts';
-import type { AccountsDeps } from './http/accounts.ts';
+import { buildAccountsDto, type AccountsDeps } from './http/accounts.ts';
 import { createApp, type ExternalApi } from './http/app.ts';
 import { writeBaselineIfNeeded } from './indexer/baseline.ts';
 import { IndexerService } from './indexer/service.ts';
@@ -647,6 +647,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     db, store: accountStore, auth: accountAuth, usage, runs, primaryDir: claudeDir,
     broadcast: (accounts) => hub.broadcast({ type: 'accounts.update', accounts }),
   };
+  // 認証を読み終えたとき、ログインが始まって終わったときに、画面へ配る。
+  accountAuth.setOnChange(() => accountsDeps.broadcast(buildAccountsDto(accountsDeps)));
   const memos = new MemoStore({ db, deviceId: device.id, home });
   // Claude への切り替えの件数はプロセスの寿命で数えるので、要約器はここで 1 度だけ作り、
   // 設定の変更は列の組み立てで反映する。毎回作り直すと 1 時間の窓が空になる。

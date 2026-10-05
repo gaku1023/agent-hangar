@@ -321,7 +321,7 @@ export function createApp(deps: AppDeps): Hono {
    * 間に合わなくても起動は続ける。同期の失敗で起動を止めない。
    */
   const beforeLaunch = () => deps.sync.pullBeforeLaunch(2000).catch(() => false);
-  const accountsDeps = deps.accounts ?? null;
+  const accountsDeps: AccountsDeps | null = deps.accounts ? { beforeLaunch, ...deps.accounts } : null;
   if (accountsDeps) accountsRoutes(api, accountsDeps);
 
   api.get('/bootstrap', (c) => {

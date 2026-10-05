@@ -1370,6 +1370,13 @@ describe('アカウントの取り付け', () => {
     expect((await get('/api/accounts')).status).toBe(404);
   });
 
+  it('アカウントの切り替えは、resume と同じく起動の前に同期の取り込みを待つ', async () => {
+    const id = (await (await accountsApp.request('/api/accounts', { headers: H })).json() as { accounts: { id: string }[] }).accounts[1]!.id;
+    calls.length = 0;
+    await post('/api/sessions/s1/switch-account', { account: id });
+    expect(calls).toEqual(['beforeLaunch']);
+  });
+
   it('使用量は、動かしたアカウントの accounts.update で配り、usage.update は最初のアカウントのときだけ', async () => {
     sent.length = 0;
     const limits = { rate_limits: { five_hour: { used_percentage: 47, resets_at: 1 }, seven_day: { used_percentage: 7, resets_at: 2 } } };

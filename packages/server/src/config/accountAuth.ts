@@ -49,26 +49,45 @@ export function parseAuthStatus(stdout: string, now: number): AccountAuthDto | n
 export class AccountAuth {
   private readonly cache = new Map<string, AccountAuthDto>();
   private readonly logins = new Set<string>();
+  /** 一度でも読み終えたアカウント。読めなかった（claude が無い、失敗）ものも数える。 */
+  private readonly checked = new Set<string>();
+  private readonly refreshing = new Set<string>();
+  private onChange: (() => void) | undefined;
   private readonly run: RunClaude;
   private readonly now: () => number;
 
   constructor(private readonly o: { claudeBin: () => string | null; run?: RunClaude; now?: () => number; onChange?: () => void }) {
+    this.onChange = o.onChange;
     this.run = o.run ?? realRun;
     this.now = o.now ?? (() => Date.now());
   }
 
   get(id: string): AccountAuthDto | null { return this.cache.get(id) ?? null; }
   loginRunning(id: string): boolean { return this.logins.has(id); }
-  forget(id: string): void { this.cache.delete(id); }
+  forget(id: string): void { this.cache.delete(id); this.checked.delete(id); }
+  /** 通知先をあとから結ぶ（AccountAuth を先に作り、通知の組み立てを後にできるように）。 */
+  setOnChange(fn: (() => void) | undefined): void { this.onChange = fn; }
+
+  /**
+   * まだ一度も読んでいないアカウントを、待たずに裏で 1 回だけ読む。
+   * 読み込みやログインが走っている間は起こさない。読めなかったときも読んだと数え、呼ぶたびに claude を起こさない。
+   */
+  ensureChecked(account: Account): void {
+    if (this.checked.has(account.id) || this.refreshing.has(account.id) || this.logins.has(account.id)) return;
+    void this.refresh(account);
+  }
 
   async refresh(account: Account): Promise<AccountAuthDto | null> {
     const bin = this.o.claudeBin();
     let next: AccountAuthDto | null = null;
+    this.refreshing.add(account.id);
     if (bin) {
       try { next = parseAuthStatus((await this.run(bin, ['auth', 'status', '--json'], accountEnv(account), STATUS_TIMEOUT_MS)).stdout, this.now()); } catch { next = null; }
     }
+    this.refreshing.delete(account.id);
+    this.checked.add(account.id);
     if (next) this.cache.set(account.id, next); else this.cache.delete(account.id);
-    this.o.onChange?.();
+    this.onChange?.();
     return next;
   }
 
@@ -77,7 +96,7 @@ export class AccountAuth {
     const bin = this.o.claudeBin();
     if (!bin || this.logins.has(account.id)) return false;
     this.logins.add(account.id);
-    this.o.onChange?.();
+    this.onChange?.();
     void this.run(bin, ['auth', 'login'], accountEnv(account), LOGIN_TIMEOUT_MS)
       .catch(() => null)
       .then(() => { this.logins.delete(account.id); return this.refresh(account); });
