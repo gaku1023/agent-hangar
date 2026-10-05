@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RetentionDto } from '@agent-hangar/shared';
 import { JsonTextEditError } from './jsonTextEdit.ts';
 import { measureUsage, previewRetention, readRetention, RetentionConflictError, RetentionService, RetentionUnwritableError, writeRetention } from './retention.ts';
-import { expectMode } from '../../test/platform.ts';
+import { expectMode, posixIt } from '../../test/platform.ts';
 
 const NOW = Date.parse('2026-10-01T00:00:00Z');
 let root: string;
@@ -94,7 +94,8 @@ describe('measureUsage', () => {
     expect(u.freeBytes).toBeGreaterThan(0);
     expect(u.measuredAt).toBe(NOW);
   });
-  it('シンボリックリンクはたどらず、読めないディレクトリは飛ばす', async () => {
+  // 書けない・読めない状態を chmod で作る。Windows の chmod ではできない。
+  posixIt('シンボリックリンクはたどらず、読めないディレクトリは飛ばす', async () => {
     put('p/a.jsonl', 1000, 1);
     const outside = path.join(root, 'outside');
     fs.mkdirSync(outside);

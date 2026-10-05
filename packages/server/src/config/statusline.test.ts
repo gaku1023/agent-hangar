@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendStatuslineSnippet, ensureStatuslineHeaderFile, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
-import { expectMode } from '../../test/platform.ts';
+import { expectMode, posixDescribe } from '../../test/platform.ts';
 
 let dir: string;
 let home: string;
@@ -146,7 +146,8 @@ describe('ensureStatuslineHeaderFile', () => {
   });
 });
 
-describe('statusline のスニペットを実際に走らせる', () => {
+// statusline の断片は bash。Windows 向けの差し込みは次の区切りで作る。
+posixDescribe('statusline のスニペットを実際に走らせる', () => {
   const TOKEN = 'a1b2c3d4'.repeat(8);
 
   /** HANGAR_HOME になる置き場を用意し、ヘッダのファイルを置く。 */

@@ -229,7 +229,8 @@ const emptyDirFor = (name: string): string => {
   return d;
 };
 
-describe('bin/hangar の Node 探索', () => {
+// hangar.sh は macOS の起動スクリプト。Windows の起動は殻の区切りで作る。
+describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () => {
   it.each([
     ['空白の無い', 'nd99'],
     ['空白を含む', 'nd 99'],

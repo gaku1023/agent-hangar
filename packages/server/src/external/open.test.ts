@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFile, openDirInTerminalApp, openInEditor, openInTerminalApp, writeAttachCommand, writeCdCommand, type Exec } from './open.ts';
-import { expectMode } from '../../test/platform.ts';
+import { expectMode, posixIt } from '../../test/platform.ts';
 
 let home: string;
 let calls: { cmd: string; args: string[] }[];
@@ -50,7 +50,8 @@ describe('openInTerminalApp', () => {
     expect(script).toContain('tell application "iTerm"');
     expect(script).toContain(`create window with default profile command "'/t/tmux' attach -t '=hangar-x'"`);
   });
-  it('iterm に渡すコマンドも tmux のパスと名前を引用符で包む', async () => {
+  // bash で引用を確かめる。Windows Terminal への受け渡しは次の区切りで作る。
+  posixIt('iterm に渡すコマンドも tmux のパスと名前を引用符で包む', async () => {
     // 設定から来る tmuxPath にスペースや ; や $() が混じっても、シェルの意味を持たせない。
     const tmuxPath = "/o p t/tmux; echo pwned $(id) `id`";
     const tmuxName = "hangar-x'; echo pwned #";

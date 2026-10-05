@@ -8,7 +8,7 @@ import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { ensureWrapperScript, MAX_RUN_LOGS, pruneRunLogs, runLogPath, wrapperScript, wrapperScriptWin } from './wrapper.ts';
-import { expectMode } from '../../test/platform.ts';
+import { expectMode, posixDescribe, posixIt } from '../../test/platform.ts';
 
 let home: string;
 beforeEach(() => {
@@ -19,7 +19,8 @@ afterEach(() => {
 });
 
 describe('ensureWrapperScript', () => {
-  it('bin/hangar-run.sh を実行可能で書き、同じ内容なら書き直さない', () => {
+  // Windows では hangar-run.mjs を置く（下の ensureWrapperScript（Windows）が見る）。
+  posixIt('bin/hangar-run.sh を実行可能で書き、同じ内容なら書き直さない', () => {
     const p = ensureWrapperScript(home);
     expect(p).toBe(path.join(home, 'bin', 'hangar-run.sh'));
     expectMode(p, 0o755);
@@ -74,7 +75,8 @@ describe('pruneRunLogs', () => {
   });
 });
 
-describe('ラッパーの引用（bash を直接呼ぶ）', () => {
+// hangar-run.sh は macOS と Linux の包み。Windows の包みは hangar-run.mjs の試験が見る。
+posixDescribe('ラッパーの引用（bash を直接呼ぶ）', () => {
   it('空白と引用符を含むログのパスとコマンドの引数を、そのまま渡す', () => {
     // 引用が抜けると、ログは別々のファイルに散り、引数は単語に割れて claude に届く。
     const wrapper = ensureWrapperScript(home);

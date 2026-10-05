@@ -3,9 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fixSpawnHelpers } from './helper.ts';
-import { expectMode } from '../../test/platform.ts';
+import { expectMode, posixDescribe } from '../../test/platform.ts';
 
-describe('fixSpawnHelpers', () => {
+// spawn-helper は macOS と Linux の node-pty にしか無い。
+posixDescribe('fixSpawnHelpers', () => {
   it('実行権限の無い spawn-helper を 755 にし、直したものだけ返す', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-pty-'));
     const a = path.join(root, 'prebuilds', 'darwin-arm64', 'spawn-helper');

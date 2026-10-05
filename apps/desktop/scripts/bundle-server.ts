@@ -85,7 +85,8 @@ function copyTree(src: string, dest: string, skip: RegExp, extra?: (rel: string)
     recursive: true,
     dereference: true,
     filter: (from) => {
-      const rel = path.relative(src, from);
+      // 下の正規表現と prebuilds の判定は / を前提に書いてある。Windows の \ のままでは絞り込みが外れ、.env まで写してしまう。
+      const rel = path.relative(src, from).split(path.sep).join('/');
       if (rel === '') return true;
       if (skip.test(rel)) return false;
       return extra ? extra(rel) : true;

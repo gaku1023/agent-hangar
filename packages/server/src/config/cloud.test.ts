@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { backupsRoot, cloudConfigPath, loadCloudConfig, readCloudConfig, remoteRoot, saveCloudConfig } from './cloud.ts';
-import { expectMode, isWindows } from '../../test/platform.ts';
+import { expectMode, isWindows, posixIt } from '../../test/platform.ts';
 
 describe('cloud.json', () => {
   it('無ければ null、保存したら 0600 で読み戻せる', () => {
@@ -62,7 +62,8 @@ describe('cloud.json の書き方', () => {
     expect(fs.readdirSync(home)).toEqual(['cloud.json']);
     fs.rmSync(home, { recursive: true, force: true });
   });
-  it('書けなかったら元のファイルを壊さず、書きかけも残さない', () => {
+  // 書けない・読めない状態を chmod で作る。Windows の chmod ではできない。
+  posixIt('書けなかったら元のファイルを壊さず、書きかけも残さない', () => {
     if (process.getuid?.() === 0) return;   // root は権限を無視するので試さない
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cloud-'));
     saveCloudConfig(home, SAMPLE);

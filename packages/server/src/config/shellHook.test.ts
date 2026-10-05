@@ -4,12 +4,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ensureShellScript, installShellHook, SHELL_MARKER, shellHookInstalled, shellHookLine, shellHookState, shellInstallCommand, shellScriptPath, shellWrapSupported, uninstallShellHook, zshrcPath } from './shellHook.ts';
+import { posixDescribe } from '../../test/platform.ts';
 
 let dir: string;
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-shell-')); });
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
-describe('~/.zshrc の 1 行', () => {
+// zsh の包み。Windows の包みは次の区切りで作る。
+posixDescribe('~/.zshrc の 1 行', () => {
   it('ホームの下なら $HOME からの相対で、本体が無ければ何もしない形にする', () => {
     expect(shellHookLine('/Users/me/.agent-hangar', '/Users/me')).toBe(`[ -f "$HOME/.agent-hangar/shell/claude.zsh" ] && source "$HOME/.agent-hangar/shell/claude.zsh"  ${SHELL_MARKER}`);
     expect(shellHookLine('/opt/hangar', '/Users/me')).toBe(`[ -f "/opt/hangar/shell/claude.zsh" ] && source "/opt/hangar/shell/claude.zsh"  ${SHELL_MARKER}`);
@@ -46,7 +48,8 @@ describe('~/.zshrc の 1 行', () => {
   });
 });
 
-describe('この PC の状態', () => {
+// zsh の包み。Windows の包みは次の区切りで作る。
+posixDescribe('この PC の状態', () => {
   it('包めなければ unsupported、包めれば行の有無で on と off', () => {
     const rc = path.join(dir, '.zshrc');
     expect(shellHookState(rc, false)).toBe('unsupported');

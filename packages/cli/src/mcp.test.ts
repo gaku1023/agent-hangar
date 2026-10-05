@@ -158,7 +158,8 @@ describe('execCli', () => {
   it('無いコマンドは notFound、あるコマンドの失敗は終了コードで返す', () => {
     // 実物の claude は呼ばない。ENOENT の見分け方だけを確かめる。
     expect(execCli('hangar-no-such-command-xyz', [])).toMatchObject({ notFound: true });
-    expect(execCli('sh', ['-c', 'echo out; echo err >&2; exit 3'])).toMatchObject({ status: 3, notFound: false });
-    expect(execCli('sh', ['-c', 'echo out']).stdout.trim()).toBe('out');
+    // sh は Windows に無いので、どの OS にもある Node を代役にする。
+    expect(execCli(process.execPath, ['-e', 'console.log("out"); console.error("err"); process.exit(3)'])).toMatchObject({ status: 3, notFound: false });
+    expect(execCli(process.execPath, ['-e', 'console.log("out")']).stdout.trim()).toBe('out');
   });
 });

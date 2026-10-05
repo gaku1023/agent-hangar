@@ -77,7 +77,8 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     // .app を Finder から起こすと PATH は /usr/bin:/bin:/usr/sbin:/sbin だけになり、
     // 裸の `claude` は引けない。それを tmux に渡すと、ペインの中で 127 で落ちるだけで
     // 応答は成功になり、利用者はターミナルを開くまで理由が分からない。
-    const rm = make({ claudeBin: null });
+    // tmux はある前提にする。実物の tmux を使わない OS でも、claude の検査まで進ませる。
+    const rm = make({ claudeBin: null, tmux: fakeTmux({ status: 0 }) });
     expect(() => rm.start({ projectId: 'p1' })).toThrow('claude が見つかりません。設定の「claude のパス」を入れてください');
     expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400 }));
     expect(() => rm.start({ scratch: true })).toThrow(/claude/);
@@ -744,11 +745,9 @@ function seedRun(o: { runId?: string; sessionId?: string; kind?: 'start' | 'resu
   return { runId, sessionId, tabId };
 }
 
-/** 決まった終了コードと出力を返す偽の tmux を書く。 */
-function fakeTmux(body: string): Tmux {
-  const bin = path.join(home, `fake-tmux-${Math.random().toString(16).slice(2)}.sh`);
-  fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-  return new Tmux({ tmuxPath: bin });
+/** 決まった終了コードと出力を返す偽の tmux。sh のスクリプトにすると Windows で起こせないので、起こす口を差し替える。 */
+function fakeTmux(r: { status: number; stdout?: string; stderr?: string }): Tmux {
+  return new Tmux({ tmuxPath: 'tmux', exec: () => ({ status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }) });
 }
 
 describe('tmux を呼べないとき（tmux 不要）', () => {
@@ -766,7 +765,7 @@ describe('tmux を呼べないとき（tmux 不要）', () => {
 
   it('recoverAtStartup も tmux の呼び出しが失敗したら何も閉じない', () => {
     seedRun();
-    const rm = make({ tmux: fakeTmux('echo "lost server" >&2\nexit 1') });
+    const rm = make({ tmux: fakeTmux({ status: 1, stderr: 'lost server\n' }) });
     expect(rm.recoverAtStartup()).toEqual([]);
     expect(rm.getRun('r1')?.endedAt).toBeNull();
     expect(rm.getTab('t1')?.closedAt).toBeNull();
@@ -775,7 +774,7 @@ describe('tmux を呼べないとき（tmux 不要）', () => {
   it('tmux サーバが動いていないだけなら、run もタブも閉じる', () => {
     // 呼び出しは成功していて、本当にセッションが 1 つも無い。これは観測できている。
     seedRun();
-    const rm = make({ tmux: fakeTmux('echo "no server running on /tmp/tmux-501/default" >&2\nexit 1') });
+    const rm = make({ tmux: fakeTmux({ status: 1, stderr: 'no server running on /tmp/tmux-501/default\n' }) });
     const r = rm.tick();
     expect(r.ended.map((x) => x.id)).toEqual(['r1']);
     expect(r.closedTabs.map((x) => x.id)).toEqual(['t1']);
@@ -831,7 +830,7 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
     // Claude の tmux セッションだけが消え、シェルタブは動いている状態。
     // ここで消すと、生きているシェルに UI から到達も停止もできなくなる。
     const { runId, sessionId, tabId } = seedRun();
-    const rm = make({ tmux: fakeTmux('echo "hangar-r1-t1"\nexit 0') });
+    const rm = make({ tmux: fakeTmux({ status: 0, stdout: 'hangar-r1-t1\n' }) });
     expect(rm.tick().ended.map((x) => x.id)).toEqual([runId]);
     expect(rm.getTab(tabId)?.closedAt).toBeNull();
     expect(deletedAt(sessionId)).toBeNull();
@@ -839,7 +838,7 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
 
   it('シェルタブも消えていれば tick 経由でも消す', () => {
     const { runId, sessionId } = seedRun();
-    const rm = make({ tmux: fakeTmux('exit 0') });
+    const rm = make({ tmux: fakeTmux({ status: 0 }) });
     expect(rm.tick().ended.map((x) => x.id)).toEqual([runId]);
     expect(deletedAt(sessionId)).not.toBeNull();
   });
@@ -884,7 +883,7 @@ describe('run のログの掃除（tmux 不要）', () => {
     old.forEach((id, i) => put(id, 1000 + i));
 
     // tmux を呼ばずに起動を最後まで通す。ログの掃除だけを見たい。
-    make({ tmux: fakeTmux('exit 0') }).start({ projectId: 'p1' });
+    make({ tmux: fakeTmux({ status: 0 }) }).start({ projectId: 'p1' });
 
     const names = fs.readdirSync(logs);
     expect(names).toContain('run-r1.log');
