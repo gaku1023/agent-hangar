@@ -314,3 +314,30 @@ export function getProject(db: Db, deviceId: string, live: LiveSessionDto[], id:
   const r = db.prepare(`${PROJECT_SELECT} and p.id = ?`).get(deviceId, id) as ProjectRow | undefined;
   return r ? toProjectDto(r, db, new Set(live.map((l) => l.sessionId))) : null;
 }
+
+const accountIn = (launchParams: string | null): string | null => {
+  if (!launchParams) return null;
+  try {
+    const a = (JSON.parse(launchParams) as { account?: unknown } | null)?.account;
+    return typeof a === 'string' && a ? a : null;
+  } catch { return null; }
+};
+
+/** そのセッションを最後に動かしたアカウント。run が無い、またはアカウントを記録する前の run なら null。 */
+export function accountOfSession(db: Db, sessionId: string): string | null {
+  const r = db.prepare('select launch_params from runs where session_id = ? and deleted_at is null order by started_at desc, id desc limit 1').get(sessionId) as { launch_params: string | null } | undefined;
+  return accountIn(r?.launch_params ?? null);
+}
+
+/** 最初のアカウント以外で最後に動かしたセッションの一覧（セッションの id → アカウントの id）。 */
+export function sessionAccounts(db: Db): Record<string, string> {
+  const rows = db.prepare(`select r.session_id, r.launch_params from runs r
+    where r.deleted_at is null and r.launch_params like '%"account"%'
+      and not exists (select 1 from runs n where n.session_id = r.session_id and n.deleted_at is null and (n.started_at > r.started_at or (n.started_at = r.started_at and n.id > r.id)))`).all() as { session_id: string; launch_params: string | null }[];
+  const out: Record<string, string> = {};
+  for (const r of rows) {
+    const a = accountIn(r.launch_params);
+    if (a && a !== 'primary') out[r.session_id] = a;
+  }
+  return out;
+}

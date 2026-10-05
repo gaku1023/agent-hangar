@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { newId, shortId, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
+import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
+import { ensureAccountLinks, linkProblem } from '../config/accountLinks.ts';
 import type { Db } from '../db/open.ts';
+import { accountOfSession } from '../db/queries.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
@@ -48,7 +51,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * live は Claude のレジストリの今の中身である。引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引くのに使う。
  * procs は外のプロセスに触る口で、テストでは差し替える。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void> };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: AccountStore };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
@@ -139,6 +142,36 @@ export class RunManager {
     return `http://127.0.0.1:${this.deps.port}/mcp/s/${sessionId}`;
   }
 
+  /**
+   * 起動に使うアカウントを解く。id が無ければいまのアカウントで、accounts を持たない RunManager は null を返す。
+   * 知らない id は 400 で断る。黙って別のアカウントで起こすと、利用者が選んだものと違う枠を使うためである。
+   */
+  private account(id: string | undefined): Account | null {
+    const store = this.deps.accounts;
+    if (!store) return null;
+    if (id === undefined) return store.current();
+    const a = store.get(id);
+    if (!a) throw new RunError(400, 'アカウントが見つかりません');
+    return a;
+  }
+
+  /** そのセッションを最後に動かしたアカウント。記録が無い、またはアカウントが消えていれば最初のアカウント。 */
+  accountFor(sessionId: string): string {
+    const id = accountOfSession(this.db, sessionId);
+    return id && this.deps.accounts?.get(id) ? id : PRIMARY_ACCOUNT_ID;
+  }
+
+  /**
+   * アカウントの置き場で起こすための環境変数。最初のアカウントは何も足さない。
+   * 起動の前にリンクを確かめる。リンクの場所に別のものがあれば、起こさずに伝える。
+   */
+  private accountEnvFor(a: Account | null): Record<string, string> {
+    if (!a || a.id === PRIMARY_ACCOUNT_ID) return {};
+    const problem = linkProblem(ensureAccountLinks(this.deps.claudeDir, a.dir).conflicts);
+    if (problem) throw new RunError(400, problem);
+    return { CLAUDE_CONFIG_DIR: a.dir };
+  }
+
   /** 起動できるかを先に確かめる。行を作る前に呼ぶので、失敗しても孤児の行が残らない。 */
   private precheck(cwd: string): Tmux {
     if (!isDirectory(cwd)) throw new RunError(400, `ディレクトリが見つかりません: ${cwd}`);
@@ -187,8 +220,14 @@ export class RunManager {
    * run の行を作り、tmux セッションで claude を起こす。失敗したら run を閉じて 400 を投げる。
    * claude の argv は provider が組み立てたものをそのまま受け取る。
    */
-  private launch(o: { sessionId: string; cwd: string; kind: RunKind; command: string[]; params: LaunchParams; env?: Record<string, string> }): LaunchResult {
+  private launch(o: { sessionId: string; cwd: string; kind: RunKind; command: string[]; params: LaunchParams; env?: Record<string, string>; account?: Account | null }): LaunchResult {
     const tmux = this.precheck(o.cwd);
+    // 利用者が自分で付けた CLAUDE_CONFIG_DIR（o.env）は、アカウントの置き場で上書きしない。
+    // その置き場が登録済みならそのアカウントとして、未登録なら何も記録しない。呼び手が別のアカウントを渡していても、実際に動く置き場に合わせる。
+    const own = o.env?.CLAUDE_CONFIG_DIR;
+    const account = own ? this.deps.accounts?.byDir(own) ?? null : o.account ?? null;
+    const env = { ...this.accountEnvFor(own ? null : account), ...o.env };
+    const params: LaunchParams = account ? { ...o.params, account: account.id } : o.params;
     const runId = newId();
     const tmuxName = `hangar-${shortId(runId)}`;
     const wrapper = ensureWrapperScript(this.deps.home);
@@ -196,9 +235,9 @@ export class RunManager {
     // ラッパーはプロセス置換を使うので、sh ではなく bash で起こす。
     const command = ['env', `HANGAR_RUN_ID=${runId}`, 'bash', wrapper, log, ...o.command];
     const now = this.now();
-    upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(o.params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
+    upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
-      tmux.newSession({ name: tmuxName, cwd: o.cwd, command, env: withUtf8Locale(o.env) });
+      tmux.newSession({ name: tmuxName, cwd: o.cwd, command, env: withUtf8Locale(env) });
       tmux.setOption(tmuxName, 'status', 'off');
       // ターミナルからこの run につなぐ人のための設定。サーバ全体の設定なので、サーバが起き直した後にも効くよう起動のたびに確かめる。
       tmux.ensureTerminalOptions();
@@ -262,6 +301,9 @@ export class RunManager {
   /** 新しいセッションを起こす。検査をすべて先に済ませてから行を作る。 */
   start(params: LaunchParams): LaunchResult {
     this.addDirs(params);
+    // 行を作る前に、アカウントとリンクを確かめる。知らないアカウントや壊れたリンクで、本文の無いセッションが残らないようにする。
+    const account = this.account(params.account);
+    this.accountEnvFor(account);
     // スクラッチは擬似プロジェクトの行と使い捨てのディレクトリを作ってしまうので、
     // 後の precheck を待たずに、ここで tmux と claude の有無だけ先に確かめる。
     // これが無いと、どちらも無い端末で起動を試すたびに空のディレクトリが溜まる。
@@ -280,7 +322,7 @@ export class RunManager {
     upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, name: params.name?.trim() || null, started_at: now, last_activity_at: now }, this.deps.deviceId);
     const input: LaunchInput = { ...this.baseInput(sessionId, p.id, cwd, params), mode: { kind: 'start', sessionUuid } };
     const command = claudeCodeProvider.launchCommand(this.claudeBin(), input);
-    return this.launch({ sessionId, cwd, kind: 'start', command, params });
+    return this.launch({ sessionId, cwd, kind: 'start', command, params, account });
   }
 
   /** scratch ではないときの起動先。projectId は必須である。 */
@@ -313,14 +355,15 @@ export class RunManager {
    * Claude のバックグラウンドのサービスが持っていたセッション（止まったもの、1 時間つながれずに止まったもの）は、
    * claude -r ではなく `claude attach` で起こす。-r で hangar の tmux に開くと、元のターミナルから attach で戻れなくなる。
    */
-  resume(sessionId: string, extra: { args?: string[]; env?: Record<string, string> } = {}): LaunchResult {
+  resume(sessionId: string, extra: { args?: string[]; env?: Record<string, string>; account?: string } = {}): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s);
+    const account = this.account(extra.account ?? (this.deps.accounts ? this.accountFor(s.id) : undefined));
     const bin = this.claudeBin();
     const job = this.procs().listJobs(bin)?.find((j) => j.sessionId === s.provider_session_id) ?? null;
-    if (job) return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command: [bin, 'attach', job.id], params: { projectId: s.project_id ?? undefined }, env: extra.env });
+    if (job) return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command: [bin, 'attach', job.id], params: { projectId: s.project_id ?? undefined }, env: extra.env, account });
     const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(s.id, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, false);
-    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command: [...command, ...(extra.args ?? [])], params: { projectId: s.project_id ?? undefined }, env: extra.env });
+    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command: [...command, ...(extra.args ?? [])], params: { projectId: s.project_id ?? undefined }, env: extra.env, account });
   }
 
   /**
@@ -334,6 +377,8 @@ export class RunManager {
   startFromTerminal(req: TerminalRequest): LaunchResult & { attached: boolean } {
     const { resume, rest } = splitTerminalArgs(req.args);
     const env = terminalEnv(req.env);
+    // 利用者が自分で置き場を付けたら、それを優先する。登録済みの置き場ならそのアカウントとして記録し、未登録なら記録しない。
+    const account = env.CLAUDE_CONFIG_DIR ? this.deps.accounts?.byDir(env.CLAUDE_CONFIG_DIR) ?? null : this.account(undefined);
     if (resume) {
       const id = findSession(this.db, resume);
       if (!id) throw new RunError(404, 'この会話は hangar に載っていません');
@@ -342,7 +387,7 @@ export class RunManager {
       // 以前の包み方や `claude --bg` で起こしたものはバックグラウンドで動いている。素の claude -r は写しを作るので、attach でつなぐ。
       const provider = (this.db.prepare('select provider_session_id from sessions where id = ?').get(id) as { provider_session_id: string }).provider_session_id;
       if (this.liveOf(provider)?.background) return { ...this.attach(id), attached: false };
-      return { ...this.resume(id, { args: rest, env }), attached: false };
+      return { ...this.resume(id, { args: rest, env, account: env.CLAUDE_CONFIG_DIR ? account?.id : undefined }), attached: false };
     }
     this.precheck(req.cwd);
     const sessionUuid = crypto.randomUUID();
@@ -353,13 +398,14 @@ export class RunManager {
     upsertShared(this.db, 'sessions', { ...cur, started_at: now, last_activity_at: now }, this.deps.deviceId);
     const input: LaunchInput = { ...this.baseInput(sessionId, projectId, req.cwd, {}), mode: { kind: 'start', sessionUuid } };
     const command = [...claudeCodeProvider.launchCommand(this.claudeBin(), input), ...rest];
-    return { ...this.launch({ sessionId, cwd: req.cwd, kind: 'start', command, params: { projectId: projectId ?? undefined }, env }), attached: false };
+    return { ...this.launch({ sessionId, cwd: req.cwd, kind: 'start', command, params: { projectId: projectId ?? undefined }, env, account }), attached: false };
   }
 
   /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐので null にする。 */
   fork(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s);
+    const account = this.account(this.deps.accounts ? this.accountFor(s.id) : undefined);
     // 新しい行を作る前に起動できるかを確かめる。失敗しても本文の無いセッションが残らないようにするため。
     this.precheck(s.cwd);
     const newUuid = crypto.randomUUID();
@@ -368,7 +414,7 @@ export class RunManager {
     const cur = this.db.prepare('select * from sessions where id = ?').get(newSessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, project_id: s.project_id, name: null, started_at: now, last_activity_at: now }, this.deps.deviceId);
     const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(newSessionId, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, true, newUuid);
-    return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined } });
+    return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined }, account });
   }
 
   /** レジストリのうち、Claude の UUID が一致する項目。 */

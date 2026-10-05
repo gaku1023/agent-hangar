@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AccountStore } from '../config/accounts.ts';
 import { authMiddleware } from '../http/auth.ts';
 import { shortId, type TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
@@ -1075,5 +1076,114 @@ describe.skipIf(!TMUX)('run に配る秘密は、その run の入口しか開�
     issueMcpSecret(db, '00000000-0000-7000-8000-000000000000', 1);
     make({ token: TOKEN, tmux: null }).recoverAtStartup();
     expect(mcpSecretFor(db, '00000000-0000-7000-8000-000000000000')).toBeNull();
+  });
+});
+
+describe.skipIf(!TMUX)('アカウント', () => {
+  let userHome: string;
+  let accounts: AccountStore;
+  const envOf = async (runId: string) => {
+    await launchedArgs(runId);
+    // 偽の claude は起動のたびに 1 行を足すので、最後の行がこの run のものである。
+    return fs.readFileSync(fake.envFile, 'utf8').trimEnd().split('\n').at(-1) + '\n';
+  };
+  beforeEach(() => {
+    userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-user-'));
+    fake = writeFakeClaude(home, { recordEnv: ['CLAUDE_CONFIG_DIR'] });
+    accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: userHome });
+  });
+  afterEach(() => fs.rmSync(userHome, { recursive: true, force: true }));
+  const params = (runId: string) => JSON.parse((db.prepare('select launch_params from runs where id = ?').get(runId) as { launch_params: string }).launch_params) as { account?: string };
+
+  it('最初のアカウントでは CLAUDE_CONFIG_DIR を足さず、run に primary と残す', async () => {
+    const r = make({ accounts }).start({ projectId: 'p1' });
+    expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=\n');
+    expect(params(r.run.id).account).toBe('primary');
+  });
+
+  it('アカウントを指定すると、置き場のリンクを張ってから、その置き場で起こす', async () => {
+    const a = accounts.add({ name: '大学' });
+    const r = make({ accounts }).start({ projectId: 'p1', account: a.id });
+    expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(fs.readlinkSync(path.join(a.dir, 'projects'))).toBe(path.join(claudeDir, 'projects'));
+    expect(params(r.run.id).account).toBe(a.id);
+  });
+
+  it('指定が無ければ、いまのアカウントで起こす', async () => {
+    const a = accounts.add({ name: '大学' });
+    accounts.setCurrent(a.id);
+    const r = make({ accounts }).start({ projectId: 'p1' });
+    expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+  });
+
+  it('知らないアカウントは 400 で断り、セッションの行を作らない', () => {
+    const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
+    expect(() => make({ accounts }).start({ projectId: 'p1', account: 'nope' })).toThrow('アカウントが見つかりません');
+    expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
+  });
+
+  it('リンクの場所に実ファイルがあれば 400 で断り、ファイルは残す', () => {
+    const a = accounts.add({ name: '大学' });
+    fs.mkdirSync(a.dir);
+    fs.mkdirSync(path.join(a.dir, 'projects'));
+    const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
+    expect(() => make({ accounts }).start({ projectId: 'p1', account: a.id })).toThrow('置き場の projects が共有のリンクではありません');
+    expect(fs.lstatSync(path.join(a.dir, 'projects')).isDirectory()).toBe(true);
+    expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
+  });
+
+  it('再開は最後に動かしたアカウントで起こす。消えたアカウントは最初のアカウントに落とす', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1', account: a.id });
+    await envOf(first.run.id);
+    // 本文の無い start は閉じるときにセッションの行ごと消えるので、先に本文があることにする。
+    addTranscript(first.sessionId);
+    m.kill(first.run.id);
+    expect(m.accountFor(first.sessionId)).toBe(a.id);
+    const again = m.resume(first.sessionId);
+    expect(await envOf(again.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    m.kill(again.run.id);
+    accounts.remove(a.id);
+    expect(m.accountFor(first.sessionId)).toBe('primary');
+  });
+
+  it('ターミナルから：CLAUDE_CONFIG_DIR が無ければいまのアカウント、登録済みの置き場ならそのアカウント、未登録ならそのまま渡して記録しない', async () => {
+    const a = accounts.add({ name: '大学' });
+    const b = accounts.add({ name: '個人' });
+    accounts.setCurrent(a.id);
+    // run の tmux 名は uuid の先頭 8 桁で、約 65 秒の刻みで重なる。生きたままだと次の起動が断られるので、確かめたら止める。
+    const m = make({ accounts });
+    const r1 = m.startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '' }));
+    expect(await envOf(r1.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(params(r1.run.id).account).toBe(a.id);
+    m.kill(r1.run.id);
+    const r2 = m.startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '', CLAUDE_CONFIG_DIR: b.dir + '/' }));
+    expect(await envOf(r2.run.id)).toBe(`CLAUDE_CONFIG_DIR=${b.dir}/\n`);
+    expect(params(r2.run.id).account).toBe(b.id);
+    m.kill(r2.run.id);
+    const r3 = m.startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '', CLAUDE_CONFIG_DIR: '/elsewhere' }));
+    expect(await envOf(r3.run.id)).toBe('CLAUDE_CONFIG_DIR=/elsewhere\n');
+    expect(params(r3.run.id).account).toBeUndefined();
+  });
+
+  it('ターミナルから再開するとき、未登録の置き場を付けたら、最後のアカウントを記録しない', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1', account: a.id });
+    await envOf(first.run.id);
+    // 本文の無い start は閉じるときにセッションの行ごと消えるので、先に本文があることにする。
+    addTranscript(first.sessionId);
+    m.kill(first.run.id);
+    const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(first.sessionId) as { p: string }).p;
+    const r = m.startFromTerminal(fromTerminal(cwd, ['-r', uuid], { PATH: process.env.PATH ?? '', CLAUDE_CONFIG_DIR: '/elsewhere' }));
+    expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=/elsewhere\n');
+    expect(params(r.run.id).account).toBeUndefined();
+  });
+
+  it('accounts を渡さない RunManager は今までどおり動く', async () => {
+    const r = make().start({ projectId: 'p1' });
+    expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=\n');
+    expect(params(r.run.id).account).toBeUndefined();
   });
 });
