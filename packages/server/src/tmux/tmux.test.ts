@@ -32,6 +32,22 @@ describe('Tmux.args', () => {
   });
 });
 
+describe('Tmux.killServer', () => {
+  // psmux の kill-server は -L の別の名前空間のセッションまで落とす（2026-10-05 実測）。
+  it('Windows では呼ばずに投げる', () => {
+    const calls: string[][] = [];
+    const t = new Tmux({ tmuxPath: '/x/tmux', socketName: 's', platform: 'win32', exec: (_f, a) => { calls.push(a); return { status: 0, stdout: '', stderr: '' }; } });
+    expect(() => t.killServer()).toThrow(/kill-server/);
+    expect(calls).toEqual([]);
+  });
+  it('macOS と Linux では名指しのサーバへ送る', () => {
+    const calls: string[][] = [];
+    const t = new Tmux({ tmuxPath: '/x/tmux', socketName: 's', platform: 'darwin', exec: (_f, a) => { calls.push(a); return { status: 0, stdout: '', stderr: '' }; } });
+    t.killServer();
+    expect(calls).toEqual([['-L', 's', 'kill-server']]);
+  });
+});
+
 describe('Tmux.enableClipboard（偽の tmux）', () => {
   it('tmux を呼べなくても投げない', () => {
     expect(() => new Tmux({ tmuxPath: '/nonexistent/tmux' }).enableClipboard()).not.toThrow();

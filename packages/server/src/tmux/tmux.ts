@@ -3,6 +3,14 @@ import fs from 'node:fs';
 
 export type TmuxResult = { code: number; stdout: string; stderr: string; failed: boolean };
 
+/** tmux を起こす口。試験では差し替える。 */
+export type TmuxExec = (file: string, args: string[]) => { status: number | null; stdout: string; stderr: string; error?: Error };
+
+const realExec: TmuxExec = (file, args) => {
+  const r = spawnSync(file, args, { encoding: 'utf8', windowsHide: true });
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
+};
+
 /** 外の端末が拡張キーを送れることを tmux に知らせる terminal-features の項目。 */
 const EXTKEYS_FEATURE = 'xterm*:extkeys';
 
@@ -24,11 +32,15 @@ export class Tmux {
   readonly tmuxPath: string;
   private readonly socketName: string | undefined;
   private readonly socketPath: string | undefined;
+  private readonly platform: NodeJS.Platform;
+  private readonly exec: TmuxExec;
 
-  constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string }) {
+  constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string; platform?: NodeJS.Platform; exec?: TmuxExec }) {
     this.tmuxPath = opts.tmuxPath;
     this.socketName = opts.socketName;
     this.socketPath = opts.socketPath;
+    this.platform = opts.platform ?? process.platform;
+    this.exec = opts.exec ?? realExec;
   }
 
   args(...a: string[]): string[] {
@@ -42,8 +54,8 @@ export class Tmux {
    * spawnSync はこの場合も status を null にするだけなので、終了コードでは区別できない。
    */
   run(...a: string[]): TmuxResult {
-    const r = spawnSync(this.tmuxPath, this.args(...a), { encoding: 'utf8' });
-    return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '', failed: r.error != null };
+    const r = this.exec(this.tmuxPath, this.args(...a));
+    return { code: r.status ?? 1, stdout: r.stdout, stderr: r.stderr, failed: r.error != null };
   }
 
   /**
@@ -158,7 +170,12 @@ export class Tmux {
     return this.args('attach', '-t', `=${name}`);
   }
 
+  /**
+   * サーバごと落とす。試験の後始末にだけ使う。
+   * Windows の psmux では呼ばない。psmux の kill-server は名前空間を越えて全部のセッションを落とすからである。
+   */
   killServer(): void {
+    if (this.platform === 'win32') throw new Error('kill-server は Windows では呼ばない。kill-session で名指しして止める');
     this.run('kill-server');
   }
 }
