@@ -1196,6 +1196,40 @@ describe.skipIf(!TMUX)('アカウント', () => {
     expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
   });
 
+  it('attach は、そのセッションを最後に動かしたアカウントを引き継ぎ、その置き場で claude attach を起こす', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m0 = make({ accounts });
+    const first = m0.start({ projectId: 'p1', account: a.id });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    m0.kill(first.run.id);
+    const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(first.sessionId) as { p: string }).p;
+    const live = [{ sessionId: uuid, status: 'idle' as const, name: null, nameSource: null, cwd, pid: 777, background: { jobId: 'abcd1234' } }];
+    const m = make({ accounts, live: () => live });
+    const r = m.attach(first.sessionId);
+    expect(r.run.kind).toBe('resume');
+    expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(params(r.run.id).account).toBe(a.id);
+    expect(m.accountFor(first.sessionId)).toBe(a.id);
+  });
+
+  it('ターミナルから新規：いまのアカウントのリンクが壊れていれば 400 で断り、セッションの行を作らない', () => {
+    const a = accounts.add({ name: '大学' });
+    accounts.setCurrent(a.id);
+    fs.mkdirSync(path.join(a.dir, 'projects'), { recursive: true });
+    const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
+    expect(() => make({ accounts }).startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '' }))).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('置き場の projects が共有のリンクではありません') }));
+    expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
+  });
+
+  it('ターミナルの CLAUDE_CONFIG_DIR が空文字なら、付けていないものとして、いまのアカウントの置き場で起こす', async () => {
+    const a = accounts.add({ name: '大学' });
+    accounts.setCurrent(a.id);
+    const r = make({ accounts }).startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '', CLAUDE_CONFIG_DIR: '' }));
+    expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(params(r.run.id).account).toBe(a.id);
+  });
+
   it('accounts を渡さない RunManager は今までどおり動く', async () => {
     const r = make().start({ projectId: 'p1' });
     expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=\n');

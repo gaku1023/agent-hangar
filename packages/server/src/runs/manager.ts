@@ -377,6 +377,8 @@ export class RunManager {
   startFromTerminal(req: TerminalRequest): LaunchResult & { attached: boolean } {
     const { resume, rest } = splitTerminalArgs(req.args);
     const env = terminalEnv(req.env);
+    // 空文字は付けていないのと同じに扱う。渡すと、いまのアカウントの置き場を空文字で上書きして既定の置き場で動いてしまう。
+    if (env.CLAUDE_CONFIG_DIR === '') delete env.CLAUDE_CONFIG_DIR;
     // 利用者が自分で置き場を付けたら、それを優先する。登録済みの置き場ならそのアカウントとして記録し、未登録なら記録しない。
     const account = env.CLAUDE_CONFIG_DIR ? this.deps.accounts?.byDir(env.CLAUDE_CONFIG_DIR) ?? null : this.account(undefined);
     if (resume) {
@@ -390,6 +392,8 @@ export class RunManager {
       return { ...this.resume(id, { args: rest, env, account: env.CLAUDE_CONFIG_DIR ? account?.id : undefined }), attached: false };
     }
     this.precheck(req.cwd);
+    // リンクの確かめは行を作る前に済ませる。利用者が自分で置き場を付けたときは、アカウントの置き場を使わないので確かめない。
+    if (!env.CLAUDE_CONFIG_DIR) this.accountEnvFor(account);
     const sessionUuid = crypto.randomUUID();
     const sessionId = ensureSession(this.db, sessionUuid, req.cwd, this.deps.deviceId);
     const projectId = assignSession(this.db, this.deps.deviceId, sessionId);
@@ -441,7 +445,7 @@ export class RunManager {
     const l = this.liveOf(s.provider_session_id);
     if (!l?.background) throw new RunError(409, 'このセッションはバックグラウンドで動いていません');
     const command = [this.claudeBin(), 'attach', l.background.jobId];
-    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command, params: { projectId: s.project_id ?? undefined } });
+    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command, params: { projectId: s.project_id ?? undefined }, account: this.account(this.deps.accounts ? this.accountFor(s.id) : undefined) });
   }
 
   /**
