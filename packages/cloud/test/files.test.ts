@@ -186,24 +186,27 @@ describe('PUT と GET /files/<key>', () => {
 
   it('上限を超える長さを名乗った本文は、読む前に 413 で断り、R2 にも索引にも残さない', async () => {
     const key = 'transcripts/dev-a/huge.jsonl.gz';
-    // Worker は本文を読まずに断って接続を閉じる。送る側がまだ本文を書いている途中だと、
-    // 応答を受け取る前に書き込みが EPIPE で倒れ、fetch が "terminated" で投げることがある。
-    // macOS では全体の試験の負荷で時々、Windows では毎回そうなる。どちらの場合も、断ったこと自体は下の「残さない」で確かめられる。
-    const r = await cloud.SELF.fetch(`https://x/files/${key}`, {
-      method: 'PUT',
-      headers: { authorization: `Bearer ${tokA}`, ...meta(), 'content-length': String(MAX_BODY_BYTES + 1) },
-      // 名乗った長さどおりに流す（食い違うと送る側の undici が先に倒れる）。中身は 1 つの塊を使い回す。
-      body: zeros(MAX_BODY_BYTES + 1),
-      duplex: 'half',
-    } as RequestInit).catch((e: unknown) => {
-      // miniflare の undici が投げる TypeError は別の領域のものなので、instanceof では見分けられない。
-      if ((e as { message?: unknown } | null)?.message === 'terminated') return null;
-      throw e;
-    });
-    if (r) {
-      expect(r.status).toBe(413);
-      expect(await r.json()).toEqual({ error: 'too large' });
+    // Worker は本文を読まずに断って接続を閉じる。送る側がまだ本文を書いている途中だと、書き込みが EPIPE で倒れ、
+    // 応答を受け取る前か、応答の本文を読む途中で、fetch が "terminated" で投げることがある。
+    // macOS では全体の試験の負荷で時々、Windows では毎回そうなる。どこまで読めたかにかかわらず、断ったこと自体は下の「残さない」で確かめられる。
+    let status: number | null = null;
+    let body: unknown = null;
+    try {
+      const r = await cloud.SELF.fetch(`https://x/files/${key}`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${tokA}`, ...meta(), 'content-length': String(MAX_BODY_BYTES + 1) },
+        // 名乗った長さどおりに流す（食い違うと送る側の undici が先に倒れる）。中身は 1 つの塊を使い回す。
+        body: zeros(MAX_BODY_BYTES + 1),
+        duplex: 'half',
+      } as RequestInit);
+      status = r.status;
+      body = await r.json();
+    } catch (e) {
+      // miniflare の undici が投げる TypeError は別の領域のものなので、instanceof ではなく文言で見分ける。
+      if ((e as { message?: unknown } | null)?.message !== 'terminated') throw e;
     }
+    if (status !== null) expect(status).toBe(413);
+    if (body !== null) expect(body).toEqual({ error: 'too large' });
     expect(await keysInR2()).toEqual([]);
     expect((await list(tokA)).files).toEqual([]);
   });
