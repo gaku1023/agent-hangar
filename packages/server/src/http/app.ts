@@ -27,6 +27,7 @@ import { confirmSessionState, rejectSessionState, setSessionState, StateInputErr
 import type { SyncEngine } from '../sync/engine.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
+import { accountsRoutes, buildAccountsDto, type AccountsDeps } from './accounts.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
@@ -73,13 +74,18 @@ export type AppDeps = {
   hub: { broadcast(ev: ServerEvent): void };
   runs: RunsApi;
   external: ExternalApi;
-  usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null } | null };
+  usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
   memos: MemoStore;
   summary: SummaryApi;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null };
   sync: SyncApi;
   /** 設定の「使用量と費用」。同期を設定していない端末と古い組み立てでは無い。 */
   cloudUsage?: { current(): CloudUsageDto | null; refresh(): Promise<CloudUsageDto | null> };
+  /**
+   * アカウントの一覧と切り替え。組み立てる側（server.ts）が 1 か所で作り、起動後の認証の読み直しにも同じものを使う。
+   * 渡さなければ、アカウントの口は生えない（古い試験の組み立てのため）。
+   */
+  accounts?: AccountsDeps;
   /** 降ろすのを諦めた項目。RemotePuller.skippedEntries() をそのまま載せる。渡さなければ空として扱う。 */
   syncSkipped?: () => SyncSkippedDto[];
   /**
@@ -315,6 +321,8 @@ export function createApp(deps: AppDeps): Hono {
    * 間に合わなくても起動は続ける。同期の失敗で起動を止めない。
    */
   const beforeLaunch = () => deps.sync.pullBeforeLaunch(2000).catch(() => false);
+  const accountsDeps = deps.accounts ?? null;
+  if (accountsDeps) accountsRoutes(api, accountsDeps);
 
   api.get('/bootstrap', (c) => {
     const live = deps.live();
@@ -337,6 +345,7 @@ export function createApp(deps: AppDeps): Hono {
       version: deps.version,
       retention: deps.retention.current(),
       cloudUsage: deps.cloudUsage?.current() ?? null,
+      accounts: accountsDeps ? buildAccountsDto(accountsDeps) : undefined,
     };
     return c.json(body);
   });
@@ -751,7 +760,11 @@ export function createApp(deps: AppDeps): Hono {
     try { raw = JSON.parse(text); } catch { return c.json({ error: '本文が JSON ではありません' }, 400); }
     const r = deps.usage.ingest(raw);
     if (!r) return c.json({ error: 'statusline の payload の形が違います' }, 400);
-    if (r.usageChanged) deps.hub.broadcast({ type: 'usage.update', usage: r.usage });
+    if (r.usageChanged) {
+      // usage.update は最初のアカウントの値だけを運ぶ（古い画面がそのまま動くため）。ほかのアカウントは accounts.update で配る。
+      if (r.accountId === 'primary') deps.hub.broadcast({ type: 'usage.update', usage: r.usage });
+      if (accountsDeps) accountsDeps.broadcast(buildAccountsDto(accountsDeps));
+    }
     if (r.providerSessionId) {
       const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(r.providerSessionId) as { id: string } | undefined;
       if (s) broadcastSession(s.id);

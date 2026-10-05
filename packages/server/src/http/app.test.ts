@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
+import { AccountAuth } from '../config/accountAuth.ts';
+import { AccountStore } from '../config/accounts.ts';
 import { RetentionConflictError } from '../config/retention.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -1337,5 +1339,45 @@ describe('セッションの状態', () => {
       expect([p, (await send(p, { status: 'done' }, m, auth)).status]).toEqual([p, 401]);
     }
     expect(TOOL_NAMES.filter((n) => /state|status/.test(n))).toEqual(['propose_session_status']);
+  });
+});
+
+describe('アカウントの取り付け', () => {
+  let accountHome: string;
+  let accountsApp: ReturnType<typeof createApp>;
+  const post = (p: string, body: unknown) => accountsApp.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+  beforeEach(() => {
+    accountHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app-acc-'));
+    const primaryDir = path.join(accountHome, '.claude');
+    fs.mkdirSync(path.join(primaryDir, 'projects'), { recursive: true });
+    const store = new AccountStore({ home: accountHome, primaryDir, homeDir: accountHome });
+    store.add({ name: '大学' });
+    const second = store.list()[1]!.id;
+    // 本文の statusline は、statusline の session_id から引いたアカウントの使用量に載る。
+    const tracker = new UsageTracker(db, { accountOf: (sid) => (sid === SESSION_ALPHA ? second : 'primary') });
+    const accounts = { db, store, primaryDir, usage: tracker, auth: new AccountAuth({ claudeBin: () => null }), runs: { switchAccount: vi.fn() } as never, broadcast: (a: never) => sent.push({ type: 'accounts.update', accounts: a }) };
+    accountsApp = createApp({ ...deps, usage: tracker, accounts });
+  });
+  afterEach(() => { fs.rmSync(accountHome, { recursive: true, force: true }); });
+
+  it('/bootstrap に accounts を載せ、渡さない組み立てでは載せない', async () => {
+    const withAccounts = (await (await accountsApp.request('/api/bootstrap', { headers: H })).json()) as { accounts?: { accounts: unknown[] } };
+    expect(withAccounts.accounts?.accounts).toHaveLength(2);
+    expect(((await (await get('/api/bootstrap')).json()) as { accounts?: unknown }).accounts).toBeUndefined();
+    expect((await accountsApp.request('/api/accounts', { headers: H })).status).toBe(200);
+    expect((await get('/api/accounts')).status).toBe(404);
+  });
+
+  it('使用量は、動かしたアカウントの accounts.update で配り、usage.update は最初のアカウントのときだけ', async () => {
+    sent.length = 0;
+    const limits = { rate_limits: { five_hour: { used_percentage: 47, resets_at: 1 }, seven_day: { used_percentage: 7, resets_at: 2 } } };
+    expect((await post('/api/ingest/statusline', { session_id: SESSION_ALPHA, ...limits })).status).toBe(204);
+    expect(sent.filter((e) => e.type === 'usage.update')).toHaveLength(0);
+    const update = sent.find((e) => e.type === 'accounts.update');
+    expect(update).toMatchObject({ accounts: { accounts: [{ id: 'primary', usage: { fiveHour: null } }, { usage: { fiveHour: { usedPercent: 47 } } }] } });
+    sent.length = 0;
+    expect((await post('/api/ingest/statusline', { session_id: SESSION_OTHER, ...limits })).status).toBe(204);
+    expect(sent.find((e) => e.type === 'usage.update')).toMatchObject({ usage: { fiveHour: { usedPercent: 47 } } });
   });
 });
