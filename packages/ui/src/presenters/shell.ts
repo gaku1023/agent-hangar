@@ -1,8 +1,7 @@
 import type { IndexProgressDto, LiveStatus, Route, SyncStateKind } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { liveFilterOfSession, runningSessionIds, waitingSessionIds, type Store } from '../store/store.ts';
+import { liveSessionIds, waitingSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel, SYNC_STATE_LABEL } from './format.ts';
-import { sortSessions } from './row.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts';
 
@@ -132,19 +131,22 @@ export const SIDE_LIVE_MAX = 8;
 /**
  * サイドバーの「動いている」。
  * セッション画面にいる間、ほかのセッションのどれが待っているかを横目で見て、1 押しで移るための場所である。
- * 並びは利用者が置いた順（state.sidebarOrder）を保つ。置いていないもの（新しく動き始めたもの）は、入力待ち、作業中、休みの順で、置いた行の上に入れる。
- * 入力待ちになっても行は動かさない。自分で置いた場所が崩れるからで、待ちは色と太字と待った時間で知らせる。
+ * 並びは覚えた順（state.sidebarOrder）だけで決め、状態や最後の活動では並べ直さない。動かすのは利用者の手だけである。
+ * 覚えた並びにまだ無いもの（いま動き始めたもの）は、始めた順で末尾に置く。Mediator が同じ順で並びに書き足すので（sidebar.ts の sidebarLiveStep）、書き足す前と後で行は動かない。
+ * 入力待ちになっても行は動かさない。待ちは色と太字と待った時間で知らせる。
  * ホームでは、本文の「要対応」「実行中」と同じ件を出すだけになるので、見出しと件数だけにする（folded）。
  */
 function sideLive(state: State, store: Store, now: number): SideLiveProps {
-  const alive = runningSessionIds(store);
-  const live = sortSessions(Object.values(store.sessions).filter((s) => { const f = liveFilterOfSession(store, s, alive); return f === 'running' || f === 'waiting'; }));
-  const placed = state.sidebarOrder.flatMap((id) => live.filter((s) => s.id === id));
-  const fresh = live.filter((s) => !state.sidebarOrder.includes(s.id));
-  const all = [...fresh, ...placed];
+  const live = liveSessionIds(store);
+  const on = new Set(live);
+  const known = new Set(state.sidebarOrder);
+  const ids = [...state.sidebarOrder.filter((id) => on.has(id)), ...live.filter((id) => !known.has(id))];
   const current = state.screen.name === 'session' ? state.screen.id : null;
-  const rows = all.slice(0, SIDE_LIVE_MAX).map((s): SideLiveRow => ({ id: s.id, name: s.name ?? '（名前なし）', live: s.live, waited: s.live === 'waiting' ? `待ち ${durationLabel(now - (s.lastActivityAt ?? now))}` : null, current: s.id === current }));
-  return { count: all.length, ids: all.map((s) => s.id), rows, more: all.length - rows.length, folded: state.screen.name === 'home' || state.screen.name === 'booting' };
+  const rows = ids.slice(0, SIDE_LIVE_MAX).map((id): SideLiveRow => {
+    const s = store.sessions[id]!;
+    return { id, name: s.name ?? '（名前なし）', live: s.live, waited: s.live === 'waiting' ? `待ち ${durationLabel(now - (s.lastActivityAt ?? now))}` : null, current: id === current };
+  });
+  return { count: ids.length, ids, rows, more: ids.length - rows.length, folded: state.screen.name === 'home' || state.screen.name === 'booting' };
 }
 
 /** tz は日付と時刻を言うときの時差で、省略すると端末の時差になる。 */

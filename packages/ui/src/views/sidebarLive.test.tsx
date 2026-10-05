@@ -8,7 +8,7 @@ import { IntentRoot } from '../intent/chain.tsx';
 import { cleanSidebarOrder, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
 import { initialState, transition } from '../mediator/transition.ts';
 import { presentShell, SIDE_LIVE_MAX, type SideLiveProps, type SideLiveRow } from '../presenters/shell.ts';
-import { initialStore, type Store } from '../store/store.ts';
+import { initialStore, liveSessionIds, type Store } from '../store/store.ts';
 import { moveId, nudgeId, Sidebar } from './Sidebar.tsx';
 
 const NOW = 1_800_000_000_000;
@@ -19,24 +19,43 @@ const at = (name: 'home' | 'projects') => ({ ...initialState(), screen: { name }
 
 describe('サイドバーの「動いている」の並び（presentShell）', () => {
   const store = storeWith([session('a', { live: 'idle' }), session('b', { live: 'busy' }), session('c', { live: 'waiting', lastActivityAt: NOW - 240_000 }), session('z', { live: null })]);
-  it('動いているセッションだけを、入力待ち、作業中、休みの順に並べる。終わったものは入れない', () => {
+  it('動いているセッションだけを並べる。入力待ちを上へ寄せない。終わったものは入れない', () => {
     const live = liveOf(store, at('projects'));
-    expect(live.rows.map((r) => r.id)).toEqual(['c', 'b', 'a']);
+    expect(live.rows.map((r) => r.id)).toEqual(['a', 'b', 'c']);
     expect(live.count).toBe(3);
-    expect(live.rows[0]).toMatchObject({ live: 'waiting', waited: '待ち 4 分', current: false });
+    expect(live.rows[2]).toMatchObject({ live: 'waiting', waited: '待ち 4 分', current: false });
     expect(live.rows[1]).toMatchObject({ live: 'busy', waited: null });
   });
+  it('置いていないセッションは、始めた時刻の古い順に並べる。時刻の無いものは後ろ、同じ時刻は id の順', () => {
+    const s = storeWith([session('n', { startedAt: null }), session('y', { startedAt: NOW - 100 }), session('x', { startedAt: NOW - 100 }), session('o', { startedAt: NOW - 900 })]);
+    expect(liveSessionIds(s)).toEqual(['o', 'x', 'y', 'n']);
+    expect(liveOf(s, at('projects')).ids).toEqual(['o', 'x', 'y', 'n']);
+  });
+  it('状態や最後の活動が変わっても、並びは変わらない', () => {
+    const before = liveOf(store, at('projects')).ids;
+    const after = storeWith([session('a', { live: 'waiting', lastActivityAt: NOW }), session('b', { live: 'idle', lastActivityAt: NOW - 1 }), session('c', { live: 'busy', lastActivityAt: NOW - 999_000 }), session('z', { live: null })]);
+    expect(liveOf(after, at('projects')).ids).toEqual(before);
+  });
   it('利用者が置いた順を保ち、入力待ちになっても行を動かさない', () => {
-    const live = liveOf(store, { ...at('projects'), sidebarOrder: ['a', 'b', 'c'] });
-    expect(live.rows.map((r) => r.id)).toEqual(['a', 'b', 'c']);
-    expect(live.ids).toEqual(['a', 'b', 'c']);
+    const live = liveOf(store, { ...at('projects'), sidebarOrder: ['c', 'a', 'b'] });
+    expect(live.rows.map((r) => r.id)).toEqual(['c', 'a', 'b']);
+    expect(live.ids).toEqual(['c', 'a', 'b']);
   });
-  it('置いていないセッション（新しく動き始めたもの）は、置いた行の上に入る', () => {
-    const live = liveOf(store, { ...at('projects'), sidebarOrder: ['a'] });
-    expect(live.rows.map((r) => r.id)).toEqual(['c', 'b', 'a']);
+  it('置いていないセッション（新しく動き始めたもの）は、置いた行の下に入る', () => {
+    const live = liveOf(store, { ...at('projects'), sidebarOrder: ['b'] });
+    expect(live.rows.map((r) => r.id)).toEqual(['b', 'a', 'c']);
   });
-  it('覚えた並びに、もう動いていないセッションが残っていても無視する', () => {
-    expect(liveOf(store, { ...at('projects'), sidebarOrder: ['gone', 'b', 'z'] }).rows.map((r) => r.id)).toEqual(['c', 'a', 'b']);
+  it('覚えた並びに、いま動いていないセッションが残っていても出さない', () => {
+    expect(liveOf(store, { ...at('projects'), sidebarOrder: ['gone', 'b', 'z'] }).rows.map((r) => r.id)).toEqual(['b', 'a', 'c']);
+  });
+  it('上限を超えて動いているときに新しく始めたものは「ほか N 件」に入り、見えている行は動かない', () => {
+    const ids = Array.from({ length: SIDE_LIVE_MAX }, (_, i) => `s${i}`);
+    const full = storeWith(ids.map((id) => session(id)));
+    const more = storeWith([...ids.map((id) => session(id)), session('new', { live: 'waiting', startedAt: NOW })]);
+    const st = { ...at('projects'), sidebarOrder: ids };
+    expect(liveOf(more, st).rows.map((r) => r.id)).toEqual(liveOf(full, st).rows.map((r) => r.id));
+    expect(liveOf(more, st).more).toBe(1);
+    expect(liveOf(more, st).ids.at(-1)).toBe('new');
   });
   it('いま見ているセッションに印を付ける', () => {
     const live = liveOf(store, { ...initialState(), screen: { name: 'session', id: 'b' } });
