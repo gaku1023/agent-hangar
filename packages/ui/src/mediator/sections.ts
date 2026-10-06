@@ -2,7 +2,7 @@ import { projectPageKey } from './paging.ts';
 import type { Input, State, Step } from './types.ts';
 
 /**
- * プロジェクト画面の節を広げる・畳む（P3）。Done の「ほか N 件」と、末尾の Archived の行。
+ * プロジェクト画面の節を広げる・畳む（P3）。末尾の Archived の行だけで、Done は畳まずにページ送りで見せる。
  * プロジェクトごとに覚え、画面を移っても戻れば広げたままにする。
  * 再起動すれば畳んだ形に戻る。Home の確かめるの「ほか N 件」と同じく見え方だけのもので、残す値ではないためである。
  */

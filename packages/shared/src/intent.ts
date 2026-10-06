@@ -41,8 +41,8 @@ export type Intent =
   // 「条件をクリア」。語と絞り込みをまとめて外す。
   | { type: 'search.clear' }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
-  // プロジェクト画面の節を広げる・畳む（P3）。Done の「ほか N 件」と、末尾の Archived の行。
-  | { type: 'project.section.toggle'; projectId: ProjectId; section: 'done' | 'archived' }
+  // プロジェクト画面の節を広げる・畳む（P3）。末尾の Archived の行だけで、Done は畳まない。
+  | { type: 'project.section.toggle'; projectId: ProjectId; section: 'archived' }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
   // 起動と作成のダイアログの「ほかの場所を選ぶ…」。殻の中だけで出す。
   | { type: 'folder.pick' }

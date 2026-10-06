@@ -91,7 +91,7 @@ describe('Home の最近とプロジェクト画面のページ送り', () => {
   });
   it('プロジェクトの節を広げる・畳むと、そのプロジェクトは 1 ページ目に戻る', () => {
     const at = run([intent({ type: 'list.page', key: 'project:p1', page: 4 }), intent({ type: 'list.page', key: 'project:p2', page: 2 })]).state;
-    const b = run([intent({ type: 'project.section.toggle', projectId: 'p1', section: 'done' })], at);
+    const b = run([intent({ type: 'project.section.toggle', projectId: 'p1', section: 'archived' })], at);
     expect(b.state.listPages).toEqual({ 'project:p2': 2 });
   });
   it('件数を変えると、どの一覧も見ていた先頭の行を含むページに留まる', () => {

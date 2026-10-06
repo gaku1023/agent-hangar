@@ -8,8 +8,8 @@ import { SessionRows } from './SessionRows.tsx';
 const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
 const head = (id: SectionId, label: string, count: number, more?: { label: string; target: SectionId }): ListItem => (more ? { kind: 'head', id, label, count, more } : { kind: 'head', id, label, count });
 const r = (id: string, over?: Partial<SessionRowProps>): ListItem => ({ kind: 'row', row: row(id, over) });
-const ITEMS: ListItem[] = [head('returning', '今日戻る', 1), r('a'), head('continue', '続き', 2), r('b'), r('c'), head('done', 'Done', 1221, { label: 'ほか 1218 件 ▸', target: 'done' }), r('d')];
-const toggle = (target: SectionId) => (target === 'done' ? { type: 'project.section.toggle' as const, projectId: 'p1', section: 'done' as const } : null);
+const ITEMS: ListItem[] = [head('returning', '今日戻る', 1), r('a'), head('continue', '続き', 2), r('b'), r('c'), head('done', 'Done', 1221), r('d'), head('archived', 'Archived', 3, { label: '表示 ▸', target: 'archived' })];
+const toggle = (target: SectionId) => (target === 'archived' ? { type: 'project.section.toggle' as const, projectId: 'p1', section: 'archived' as const } : null);
 const mount = (items: ListItem[] = ITEMS, onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><SessionRows items={items} height={400} variant="project" moreIntent={toggle} /></IntentRoot>), onIntent });
 const rowsOf = () => [...screen.getByTestId('session-rows').querySelectorAll<HTMLElement>('[role="row"]')];
 const list = () => screen.getByTestId('session-rows');
@@ -18,7 +18,7 @@ describe('SessionRows の節の見出し（P3 と ★）', () => {
   it('見出しは行ではなく、名前と桁を区切った件数と右端のボタンを出す', () => {
     mount();
     expect(rowsOf()).toHaveLength(4);
-    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['今日戻る1', '続き2', 'Done1,221ほか 1218 件 ▸']);
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['今日戻る1', '続き2', 'Done1,221', 'Archived3表示 ▸']);
   });
   it('j と k は見出しを飛ばして行だけを動く', () => {
     const { onIntent } = mount();
@@ -40,10 +40,10 @@ describe('SessionRows の節の見出し（P3 と ★）', () => {
   });
   it('見出しのボタンは moreIntent の Intent を出し、行は開かない。null ならボタンを出さない', () => {
     const { onIntent } = mount([head('done', 'Done', 5, { label: 'ほか 2 件 ▸', target: 'done' }), r('a'), head('archived', 'Archived', 2, { label: '表示 ▸', target: 'archived' })]);
-    fireEvent.click(screen.getByRole('button', { name: 'ほか 2 件 ▸' }));
+    fireEvent.click(screen.getByRole('button', { name: '表示 ▸' }));
     expect(onIntent).toHaveBeenCalledTimes(1);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.section.toggle', projectId: 'p1', section: 'done' });
-    expect(screen.queryByRole('button', { name: '表示 ▸' })).toBeNull();
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.section.toggle', projectId: 'p1', section: 'archived' });
+    expect(screen.queryByRole('button', { name: 'ほか 2 件 ▸' })).toBeNull();
   });
   it('見出しを押しても何も起きない', () => {
     const { onIntent } = mount();

@@ -9,14 +9,13 @@ const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'o
 const props = (items: ProjectProps['items']): ProjectProps => ({ id: 'alpha', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' } }, path: '/w/alpha', resolved: true, status: 'active', items, pager: null, notFound: false, isScratch: false, todos: [], memo: null, artifacts: [] });
 
 describe('ProjectScreen の節（P3）', () => {
-  it('Done の「ほか N 件」と Archived の「表示」は、そのプロジェクトの節を広げる Intent を出す', () => {
+  it('Archived の「表示」は、そのプロジェクトの節を広げる Intent を出す。Done は畳まないのでボタンが無い', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><ProjectScreen {...props([
-      { kind: 'head', id: 'done', label: 'Done', count: 4, more: { label: 'ほか 1 件 ▸', target: 'done' } }, { kind: 'row', row: row('a') },
+      { kind: 'head', id: 'done', label: 'Done', count: 1 }, { kind: 'row', row: row('a') },
       { kind: 'head', id: 'archived', label: 'Archived', count: 2, more: { label: '表示 ▸', target: 'archived' } },
     ])} /></IntentRoot>);
-    fireEvent.click(screen.getByRole('button', { name: 'ほか 1 件 ▸' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'project.section.toggle', projectId: 'alpha', section: 'done' });
+    expect(screen.getAllByRole('button').some((b) => /ほか|畳む/.test(b.textContent ?? ''))).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: '表示 ▸' }));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'project.section.toggle', projectId: 'alpha', section: 'archived' });
   });

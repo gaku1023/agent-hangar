@@ -51,10 +51,9 @@ describe('区切りを付けて休みのまま残っているもの（parked）�
 });
 
 describe('sectionRows（プロジェクト画面の P3）', () => {
-  it('導入の翌日：全部 Done なら Done の節だけで、直近 3 件と「ほか N 件」を出し、広げれば全件', () => {
+  it('導入の翌日：全部 Done なら Done の節だけで、畳まずに全件を出す', () => {
     const rows = [done('cpu'), done('nfd'), done('resp'), done('ux')];
-    expect(project(rows)).toEqual(['# done 4 [ほか 1 件 ▸→done]', 'cpu', 'nfd', 'resp']);
-    expect(project(rows, ['done'])).toEqual(['# done 4 [畳む ▴→done]', 'cpu', 'nfd', 'resp', 'ux']);
+    expect(project(rows)).toEqual(['# done 4', 'cpu', 'nfd', 'resp', 'ux']);
   });
   it('平日の朝：今日戻る → 続き → Done の順で、中身の無い節（いま動いている）は出さない', () => {
     const rows = [row('backspace'), row('nfd', { candidate: cand('done') }), done('resp'), paused('sync', '2026-10-02'), paused('explainer', '2026-10-09'), row('apple'), paused('retention', '2026-10-06')];
@@ -188,29 +187,37 @@ describe('presentProject の節（P3）', () => {
   const proposedNfd = dto('nfd', { lastActivityAt: NOW - 5 * DAY, state: st({ candidate: { status: 'done', note: '直して push した', returnOn: null, returnTime: null, source: 'post_hoc', at: NOW - H } }) });
   const list = [imported('cpu', 1), imported('resp', 2), imported('ux', 3), imported('old', 6), proposedNfd];
 
-  // scenes.html の 5 番目の場面。畳んだ Done の中へ消えないこと。
+  // scenes.html の 5 番目の場面。Done の先頭に来るので、ページ送りの 1 ページ目にも入る。
   it('提案を確定した行は、最後に動いた時刻が古くても Done の節の先頭へ移る', () => {
-    expect(shape(presentProject(initialState(), storeOf(list), NOW, 'alpha').items)).toEqual(['# continue 1', 'nfd', '# done 4 [ほか 1 件 ▸→done]', 'cpu', 'resp', 'ux']);
+    expect(shape(presentProject(initialState(), storeOf(list), NOW, 'alpha').items)).toEqual(['# continue 1', 'nfd', '# done 4', 'cpu', 'resp', 'ux', 'old']);
     // 確定の後に session.upsert が届いた形。
     const confirmed = { ...proposedNfd, state: st({ status: 'done', setBy: 'user', setAt: NOW }) };
-    expect(shape(presentProject(initialState(), storeOf([...list.slice(0, 4), confirmed]), NOW, 'alpha').items)).toEqual(['# done 5 [ほか 2 件 ▸→done]', 'nfd', 'cpu', 'resp']);
+    expect(shape(presentProject(initialState(), storeOf([...list.slice(0, 4), confirmed]), NOW, 'alpha').items)).toEqual(['# done 5', 'nfd', 'cpu', 'resp', 'ux', 'old']);
   });
-  it('広げた節は State の sectionsOpen をプロジェクトごとに読む', () => {
-    const open = { ...initialState(), sectionsOpen: { alpha: ['done' as const] } };
-    expect(shape(presentProject(open, storeOf(list), NOW, 'alpha').items)).toEqual(['# continue 1', 'nfd', '# done 4 [畳む ▴→done]', 'cpu', 'resp', 'ux', 'old']);
-    const other = { ...initialState(), sectionsOpen: { beta: ['done' as const] } };
-    expect(shape(presentProject(other, storeOf(list), NOW, 'alpha').items)).toHaveLength(6);
+  const archived = (id: string, daysAgo: number) => dto(id, { lastActivityAt: NOW - daysAgo * DAY, state: st({ status: 'archived', setBy: 'user', setAt: NOW - daysAgo * DAY }) });
+  it('広げた Archived は State の sectionsOpen をプロジェクトごとに読む', () => {
+    const withArchived = [...list, archived('trash', 9)];
+    const open = { ...initialState(), sectionsOpen: { alpha: ['archived' as const] } };
+    expect(shape(presentProject(open, storeOf(withArchived), NOW, 'alpha').items).slice(-2)).toEqual(['# archived 1 [隠す ▴→archived]', 'trash']);
+    const other = { ...initialState(), sectionsOpen: { beta: ['archived' as const] } };
+    expect(shape(presentProject(other, storeOf(withArchived), NOW, 'alpha').items).at(-1)).toBe('# archived 1 [表示 ▸→archived]');
   });
-  // 広げた Done と Archived は何百件にもなるので、広げた節の行をページに分ける。上の節（続きなど）と見出しは毎ページ出す。
-  it('広げた節の行はページに分け、上の節と見出しは毎ページ出す', () => {
+  // Done は何百件にもなるので、広げなくても行をページに分ける。上の節（続きなど）と見出しは毎ページ出す。
+  it('Done の行はいつもページに分け、上の節と見出しは毎ページ出す', () => {
     const many = [proposedNfd, ...Array.from({ length: 30 }, (_, i) => imported(`d${i}`, i + 1))];
-    const at = (page: number) => presentProject({ ...initialState(), sectionsOpen: { alpha: ['done' as const] }, pageSize: 25, listPages: { 'project:alpha': page } }, storeOf(many), NOW, 'alpha');
-    expect(shape(at(1).items).slice(0, 5)).toEqual(['# continue 1', 'nfd', '# done 30 [畳む ▴→done]', 'd0', 'd1']);
+    const at = (page: number) => presentProject({ ...initialState(), pageSize: 25, listPages: { 'project:alpha': page } }, storeOf(many), NOW, 'alpha');
+    expect(shape(at(1).items).slice(0, 5)).toEqual(['# continue 1', 'nfd', '# done 30', 'd0', 'd1']);
     expect(at(1).items).toHaveLength(3 + 25);
     expect(at(1).pager).toMatchObject({ page: 1, pageCount: 2, from: 1, to: 25, total: 30 });
-    expect(shape(at(2).items)).toEqual(['# continue 1', 'nfd', '# done 30 [畳む ▴→done]', 'd25', 'd26', 'd27', 'd28', 'd29']);
-    // 畳んでいる間はページに分けない。
-    expect(presentProject({ ...initialState(), pageSize: 25 }, storeOf(many), NOW, 'alpha').pager).toBeNull();
+    expect(shape(at(2).items)).toEqual(['# continue 1', 'nfd', '# done 30', 'd25', 'd26', 'd27', 'd28', 'd29']);
+    // いちばん小さい件数に収まるなら分けない。
+    expect(presentProject({ ...initialState(), pageSize: 25 }, storeOf(list), NOW, 'alpha').pager).toBeNull();
+  });
+  it('広げた Archived の行も Done と同じページ送りに数える', () => {
+    const many = [...Array.from({ length: 20 }, (_, i) => imported(`d${i}`, i + 1)), ...Array.from({ length: 10 }, (_, i) => archived(`a${i}`, i + 1))];
+    const at = (page: number) => presentProject({ ...initialState(), sectionsOpen: { alpha: ['archived' as const] }, pageSize: 25, listPages: { 'project:alpha': page } }, storeOf(many), NOW, 'alpha');
+    expect(at(1).pager).toMatchObject({ total: 30, from: 1, to: 25 });
+    expect(shape(at(2).items)).toEqual(['# done 20', '# archived 10 [隠す ▴→archived]', 'a5', 'a6', 'a7', 'a8', 'a9']);
   });
   it('見つからないプロジェクトは空の一覧', () => {
     expect(presentProject(initialState(), storeOf(list), NOW, 'nope').items).toEqual([]);
