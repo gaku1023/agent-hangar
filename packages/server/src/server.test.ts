@@ -543,7 +543,8 @@ describe('startServer', () => {
   }, 20000);
   it('印を付けたセッションは、動きが変わるたびに行ごと配り直す。休みになれば parked が立ち、作業中に戻れば外れる', async () => {
     // UI は live.update から動きしか直せない。行を配り直さないと、休みになっても実行中の札に残る。
-    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    // 偽の pid（12345）を生きていることにする。Windows の既定の判定では、無い pid の行は読み捨てられる。
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     const token = tokenOf();
     const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
     const c = collector(s.port, token);
