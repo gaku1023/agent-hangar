@@ -258,7 +258,8 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
     const MAC = process.platform === 'darwin';
     // extended-keys-format は tmux 3.5 から在る。3.4 までは show-options も set-option も invalid option で断る。
     // CI の Ubuntu に入る tmux は 3.4 なので、版を読んで期待を分ける。
-    const HAS_FORMAT = Number(/(\d+\.\d+)/.exec(tmux!.run('-V').stdout)?.[1] ?? 0) >= 3.5;
+    // tmux が無い場所ではこの describe ごと飛ぶが、ここは集める段で走るので null を踏まないようにする。
+    const HAS_FORMAT = Number(/(\d+\.\d+)/.exec(tmux?.run('-V').stdout ?? '')?.[1] ?? 0) >= 3.5;
 
     it('copy-command、extended-keys、extended-keys-format、terminal-features、S-Enter を入れる', () => {
       const { t, done } = fresh();
