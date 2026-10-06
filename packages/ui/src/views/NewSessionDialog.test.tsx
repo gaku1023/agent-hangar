@@ -473,6 +473,26 @@ describe('NewSessionDialog のアカウントの札', () => {
     start();
     expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
   });
+  it.each(['out', 'running'] as const)('選んでいた札が選べなくなったら（%s）、いまのアカウントへ戻し、そのとおりに起動する', (auth) => {
+    const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    rerender({ projectId: 'p1', accounts: accountsOf([{}, { auth }]) });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    expect(card('大学')).toHaveAttribute('aria-checked', 'false');
+    expect(card('大学')).toHaveAttribute('aria-disabled', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('まだ自分で選んでいない間は、開いたままいまのアカウントが変わるとはじめの選択も付いていく', () => {
+    const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    rerender({ projectId: 'p1', accounts: accountsOf([{}, {}], 'a1') });
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    expect(card('会社')).toHaveAttribute('aria-checked', 'false');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+  });
   it('選んだあとにプロジェクトを選び直しても、アカウントの選択は残る', () => {
     const { params } = collect({ accounts: accountsOf() });
     fireEvent.click(card('大学'));
