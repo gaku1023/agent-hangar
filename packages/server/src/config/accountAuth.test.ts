@@ -64,14 +64,57 @@ describe('AccountAuth', () => {
     };
     const onChange = vi.fn();
     const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run, onChange });
-    expect(auth.login(univ)).toBe(true);
+    expect(auth.login(univ)).toBe('started');
     expect(auth.loginRunning('a1')).toBe(true);
-    expect(auth.login(univ)).toBe(false);
+    expect(auth.login(univ)).toBe('running');
     finish({ code: 0, stdout: '' });
     await vi.waitFor(() => expect(auth.get('a1')?.loggedIn).toBe(true));
     expect(auth.loginRunning('a1')).toBe(false);
     expect(calls).toEqual([['auth', 'login'], ['auth', 'status', '--json']]);
     expect(onChange).toHaveBeenCalled();
+  });
+
+  it('login は、claude が無ければ no-claude、走っていれば running を返す', () => {
+    const none = new AccountAuth({ claudeBin: () => null, run: vi.fn() });
+    expect(none.login(univ)).toBe('no-claude');
+    const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run: () => new Promise(() => {}) });
+    expect(auth.login(univ)).toBe('started');
+    expect(auth.login(univ)).toBe('running');
+  });
+
+  it('cancelLogin は走っているログインを止め、認証は読み直さない', async () => {
+    const calls: string[][] = [];
+    let aborted = false;
+    const run: RunClaude = (_bin, args, _env, _ms, signal) => {
+      calls.push(args);
+      return new Promise((_resolve, reject) => { signal?.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); }); });
+    };
+    const onChange = vi.fn();
+    const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run, onChange });
+    auth.login(univ);
+    expect(auth.cancelLogin('a1')).toBe(true);
+    await vi.waitFor(() => expect(auth.loginRunning('a1')).toBe(false));
+    expect(aborted).toBe(true);
+    expect(calls).toEqual([['auth', 'login']]);
+    expect(onChange).toHaveBeenCalled();
+    expect(auth.cancelLogin('a1')).toBe(false);
+  });
+
+  it('中止したあとすぐログインし直しても、古い鎖が新しいログインを巻き込まない', async () => {
+    const calls: string[][] = [];
+    const run: RunClaude = (_bin, args, _env, _ms, signal) => {
+      calls.push(args);
+      if (args[1] !== 'login') return Promise.resolve({ code: 0, stdout: OK });
+      return new Promise((_resolve, reject) => { signal?.addEventListener('abort', () => reject(new Error('aborted'))); });
+    };
+    const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run });
+    auth.login(univ);
+    auth.cancelLogin('a1');
+    expect(auth.login(univ)).toBe('started');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(auth.loginRunning('a1')).toBe(true);
+    expect(calls).toEqual([['auth', 'login'], ['auth', 'login']]);
+    expect(auth.cancelLogin('a1')).toBe(true);
   });
 
   it('forget で覚えた状態を捨てる', async () => {
@@ -154,7 +197,7 @@ describe('AccountAuth', () => {
       let finish: (v: { code: number | null; stdout: string }) => void = () => {};
       const run: RunClaude = (_b, args) => (args[1] === 'login' ? new Promise((r) => { finish = r; }) : Promise.resolve({ code: 0, stdout: OK }));
       const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run, onChange: boom });
-      expect(auth.login(univ)).toBe(true);
+      expect(auth.login(univ)).toBe('started');
       expect(auth.loginRunning('a1')).toBe(true);
       finish({ code: 0, stdout: '' });
       await settle();

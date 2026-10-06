@@ -1,3 +1,4 @@
+import { PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 import type { CandidateSource, DeviceDto, LiveSessionDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
 import { toStateDto } from '../sessions/states.ts';
 import type { Db } from './open.ts';
@@ -337,7 +338,7 @@ export function sessionAccounts(db: Db): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [sid, params] of last) {
     const a = accountIn(params);
-    if (a && a !== 'primary') out[sid] = a;
+    if (a && a !== PRIMARY_ACCOUNT_ID) out[sid] = a;
   }
   return out;
 }

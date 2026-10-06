@@ -111,6 +111,45 @@ describe('アカウントの HTTP', () => {
     expect((await call('POST', `/accounts/${id}/refresh`)).json.accounts[1]!.auth?.loggedIn).toBe(true);
   });
 
+  it('login は、もう走っていれば 409、claude が無ければ 400 で理由を返し、cancel で止められる', async () => {
+    const id = (await call('POST', '/accounts', { name: '大学' })).json.accounts[1]!.id;
+    const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run: (_b, _a, _e, _t, signal) => new Promise((_r, reject) => { signal?.addEventListener('abort', () => reject(new Error('aborted'))); }) });
+    const slow = new Hono();
+    accountsRoutes(slow, { ...deps, auth });
+    const post = async (url: string) => {
+      const res = await slow.request(url, { method: 'POST' });
+      return { status: res.status, json: (await res.json()) as AccountsDto & { error?: string } };
+    };
+    const first = await post(`/accounts/${id}/login`);
+    expect(first.status).toBe(202);
+    expect(first.json.accounts[1]!.loginRunning).toBe(true);
+    const second = await post(`/accounts/${id}/login`);
+    expect(second.status).toBe(409);
+    expect(second.json.error).toContain('もう始まっています');
+    const cancelled = await post(`/accounts/${id}/login/cancel`);
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.json.accounts[1]!.loginRunning).toBe(false);
+    expect(((await (await slow.request('/accounts')).json()) as AccountsDto).accounts[1]!.loginRunning).toBe(false);
+    // 走っていなくても 200。
+    expect((await post(`/accounts/${id}/login/cancel`)).status).toBe(200);
+
+    const none = new Hono();
+    accountsRoutes(none, { ...deps, auth: new AccountAuth({ claudeBin: () => null, run }) });
+    const res = await none.request(`/accounts/${id}/login`, { method: 'POST' });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('claude が見つかりません');
+  });
+
+  it('login は、リンクを張れなければその理由を 400 で返し、ログインは始めない', async () => {
+    const dir = path.join(userHome, '.claude-file');
+    fs.writeFileSync(dir, 'x');
+    const id = (await call('POST', '/accounts', { name: '大学', dir })).json.accounts[1]!.id;
+    const r = await call('POST', `/accounts/${id}/login`);
+    expect(r.status).toBe(400);
+    expect(r.json.error?.length).toBeGreaterThan(0);
+    expect(deps.auth.loginRunning(id)).toBe(false);
+  });
+
   it('最初のアカウント以外で最後に動かしたセッションを sessions に載せる', async () => {
     const id = (await call('POST', '/accounts', { name: '大学' })).json.accounts[1]!.id;
     const s = ensureSession(db, '11111111-1111-4111-8111-111111111111', '/w', 'd');

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import type { AccountAuthDto } from '@agent-hangar/shared';
 import { PRIMARY_ACCOUNT_ID, type Account } from './accounts.ts';
 
-export type RunClaude = (bin: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number) => Promise<{ code: number | null; stdout: string }>;
+export type RunClaude = (bin: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, signal?: AbortSignal) => Promise<{ code: number | null; stdout: string }>;
 
 const STATUS_TIMEOUT_MS = 10_000;
 /** ブラウザでの承認を待つ上限。過ぎたら claude を終わらせ、未ログインのままにする。 */
@@ -10,8 +10,8 @@ const LOGIN_TIMEOUT_MS = 10 * 60_000;
 /** 置き場のログインより優先される認証の変数。渡すと、選んだアカウントではないもので動く。 */
 const AUTH_OVERRIDES = ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
-const realRun: RunClaude = (bin, args, env, timeoutMs) => new Promise((resolve, reject) => {
-  execFile(bin, args, { env, timeout: timeoutMs, killSignal: 'SIGKILL', encoding: 'utf8', maxBuffer: 1024 * 1024 }, (err, stdout) => {
+const realRun: RunClaude = (bin, args, env, timeoutMs, signal) => new Promise((resolve, reject) => {
+  execFile(bin, args, { env, timeout: timeoutMs, signal, killSignal: 'SIGKILL', encoding: 'utf8', maxBuffer: 1024 * 1024 }, (err, stdout) => {
     // 終了コードが 0 でないだけなら、標準出力を読む側に任せる。起動できない、時間切れは失敗にする。
     if (err) {
       const code: unknown = (err as { code?: unknown }).code;
@@ -48,7 +48,8 @@ export function parseAuthStatus(stdout: string, now: number): AccountAuthDto | n
  */
 export class AccountAuth {
   private readonly cache = new Map<string, AccountAuthDto>();
-  private readonly logins = new Set<string>();
+  /** 走っているログイン。中止の口（AbortController）を持つ。 */
+  private readonly logins = new Map<string, AbortController>();
   /** 一度でも読み終えたアカウント。読めなかった（claude が無い、失敗）ものも数える。 */
   private readonly checked = new Set<string>();
   private readonly refreshing = new Set<string>();
@@ -96,16 +97,36 @@ export class AccountAuth {
     return next;
   }
 
-  /** claude auth login を起こす。ブラウザは claude が開く。終わったら状態を読み直す。 */
-  login(account: Account): boolean {
+  /**
+   * claude auth login を起こす。ブラウザは claude が開く。終わったら状態を読み直す。
+   * 起こせなかった理由を返す：claude が無い（no-claude）、もう走っている（running）。
+   */
+  login(account: Account): 'started' | 'running' | 'no-claude' {
     const bin = this.o.claudeBin();
-    if (!bin || this.logins.has(account.id)) return false;
-    this.logins.add(account.id);
+    if (!bin) return 'no-claude';
+    if (this.logins.has(account.id)) return 'running';
+    const ctl = new AbortController();
+    this.logins.set(account.id, ctl);
     this.notify();
-    void this.run(bin, ['auth', 'login'], accountEnv(account), LOGIN_TIMEOUT_MS)
+    void this.run(bin, ['auth', 'login'], accountEnv(account), LOGIN_TIMEOUT_MS, ctl.signal)
       .catch(() => null)
-      .then(() => { this.logins.delete(account.id); return this.refresh(account); })
+      .then(() => {
+        // 中止されたもの（Map から外れた、あるいは別のログインに替わった）は読み直さない。
+        if (this.logins.get(account.id) !== ctl) return;
+        this.logins.delete(account.id);
+        return this.refresh(account);
+      })
       .catch(() => {});
+    return 'started';
+  }
+
+  /** 走っているログインを止める。止めたら true。認証は読み直さない（ブラウザで承認していないため）。 */
+  cancelLogin(id: string): boolean {
+    const ctl = this.logins.get(id);
+    if (!ctl) return false;
+    this.logins.delete(id);
+    ctl.abort();
+    this.notify();
     return true;
   }
 }

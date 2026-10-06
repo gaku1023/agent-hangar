@@ -117,9 +117,16 @@ export function accountsRoutes(api: Hono, deps: AccountsDeps): void {
 
   api.post('/accounts/:id/login', (c) => guard(c, () => {
     const a = must(c.req.param('id'));
-    ensureAccountLinks(deps.primaryDir, a.dir);
-    deps.auth.login(a);
+    try { ensureAccountLinks(deps.primaryDir, a.dir); } catch (e) { throw new AccountError(400, e instanceof Error ? e.message : String(e)); }
+    const started = deps.auth.login(a);
+    if (started === 'no-claude') throw new AccountError(400, 'claude が見つかりません。設定の「claude のパス」を入れてください');
+    if (started === 'running') return c.json({ error: 'このアカウントのログインは、もう始まっています。ブラウザで承認してください' }, 409);
     return c.json(changed(true), 202);
+  }));
+
+  api.post('/accounts/:id/login/cancel', (c) => guard(c, () => {
+    deps.auth.cancelLogin(must(c.req.param('id')).id);
+    return c.json(changed());
   }));
 
   api.post('/accounts/:id/refresh', (c) => guard(c, async () => {

@@ -83,6 +83,8 @@ export type AccountAuthDto = { loggedIn: boolean; email: string | null; plan: st
 export type AccountDto = { id: string; name: string; dir: string; color: string; primary: boolean; auth: AccountAuthDto | null; usage: UsageDto; loginRunning: boolean; linkProblem: string | null };
 /** sessions は、最初のアカウント以外で最後に動かしたセッションだけを載せる（セッションの id → アカウントの id）。載っていないものは最初のアカウントである。 */
 export type AccountsDto = { currentId: string; accounts: AccountDto[]; sessions: Record<string, string> };
+/** 最初のアカウント（既定の置き場）の id。 */
+export const PRIMARY_ACCOUNT_ID = 'primary';
 export type UsageDayDto = { day: string; inputTokens: number; outputTokens: number; sessions: number };
 export type UsageProjectDto = { projectId: string | null; name: string; inputTokens: number; outputTokens: number; costUsd: number | null; sessions: number };
 export type UsageAggregateDto = { days: UsageDayDto[]; projects: UsageProjectDto[] };

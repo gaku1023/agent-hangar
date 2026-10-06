@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { newId } from '@agent-hangar/shared';
+import { newId, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 
-/** 最初のアカウント（既定の置き場）の id。消せない。 */
-export const PRIMARY_ACCOUNT_ID = 'primary';
+/** 最初のアカウント（既定の置き場）の id。消せない。定義は shared にある（画面も使う）。 */
+export { PRIMARY_ACCOUNT_ID };
 /** 色の候補。追加のたびに、まだ使っていないものを前から選ぶ。 */
 export const ACCOUNT_COLORS = ['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a2452f'] as const;
 const NAME_MAX = 40;

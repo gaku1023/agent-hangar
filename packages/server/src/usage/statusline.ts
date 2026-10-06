@@ -1,4 +1,4 @@
-import type { RateWindowDto, UsageDto } from '@agent-hangar/shared';
+import { PRIMARY_ACCOUNT_ID, type RateWindowDto, type UsageDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 
 // Claude Code が statusLine コマンドの標準入力に渡す JSON を読む。
@@ -55,7 +55,6 @@ const sameWindow = (a: RateWindowDto | null, b: RateWindowDto | null) => a?.used
 
 export type IngestResult = { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string };
 
-const PRIMARY = 'primary';
 const EMPTY: UsageDto = { fiveHour: null, sevenDay: null, updatedAt: null };
 
 /**
@@ -74,19 +73,19 @@ export class UsageTracker {
   constructor(private readonly db: Db, opts: { now?: () => number; keep?: number; accountOf?: (providerSessionId: string | null) => string } = {}) {
     this.now = opts.now ?? (() => Date.now());
     this.keep = opts.keep ?? 500;
-    this.accountOf = opts.accountOf ?? (() => PRIMARY);
+    this.accountOf = opts.accountOf ?? (() => PRIMARY_ACCOUNT_ID);
     this.restore();
   }
 
   /** 最初のアカウントの値。事後の要約の止める判定と、古い呼び手が使う。 */
-  current(): UsageDto { return this.of(PRIMARY); }
+  current(): UsageDto { return this.of(PRIMARY_ACCOUNT_ID); }
   of(accountId: string): UsageDto { return this.state.get(accountId) ?? EMPTY; }
 
   /** アカウントごとに新しい順に読み、両方の窓が埋まるか行が尽きるまで辿る。 */
   private restore(): void {
-    const accounts = (this.db.prepare("select distinct coalesce(account, 'primary') a from usage_snapshots").all() as { a: string }[]).map((r) => r.a);
+    const accounts = (this.db.prepare('select distinct coalesce(account, ?) a from usage_snapshots').all(PRIMARY_ACCOUNT_ID) as { a: string }[]).map((r) => r.a);
     for (const a of accounts) {
-      const rows = this.db.prepare("select at, payload from usage_snapshots where coalesce(account, 'primary') = ? order by at desc limit ?").all(a, this.keep) as { at: number; payload: string }[];
+      const rows = this.db.prepare('select at, payload from usage_snapshots where coalesce(account, ?) = ? order by at desc limit ?').all(PRIMARY_ACCOUNT_ID, a, this.keep) as { at: number; payload: string }[];
       let s: UsageDto = EMPTY;
       for (const r of rows) {
         let p: StatuslinePayload | null = null;
@@ -109,7 +108,7 @@ export class UsageTracker {
     this.lastAt = at;
     const write = this.db.transaction(() => {
       this.db.prepare('insert into usage_snapshots (at, payload, account) values (?, ?, ?)').run(at, JSON.stringify(raw), accountId);
-      this.db.prepare("delete from usage_snapshots where coalesce(account, 'primary') = ? and at not in (select at from usage_snapshots where coalesce(account, 'primary') = ? order by at desc limit ?)").run(accountId, accountId, this.keep);
+      this.db.prepare('delete from usage_snapshots where coalesce(account, ?) = ? and at not in (select at from usage_snapshots where coalesce(account, ?) = ? order by at desc limit ?)').run(PRIMARY_ACCOUNT_ID, accountId, PRIMARY_ACCOUNT_ID, accountId, this.keep);
       if (p.providerSessionId) {
         // null の項目は既存の値を保つ（1 回目の payload は current_usage が null）。
         this.db.prepare(`insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)

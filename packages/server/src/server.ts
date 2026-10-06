@@ -13,7 +13,7 @@ import { createReadiness } from './config/readiness.ts';
 import { defaultManagedDir, RetentionService } from './config/retention.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { encodeJoinToken, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto } from '@agent-hangar/shared';
+import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
 import { accountOfSession, getProject, getSession, listDevices, listProjects } from './db/queries.ts';
 import { upsertShared } from './db/shared.ts';
@@ -636,10 +636,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // hangar の外で起こしたセッションと、消したアカウントの run は、最初のアカウントとして数える。
   const usage = new UsageTracker(db, {
     accountOf: (providerSessionId) => {
-      if (!providerSessionId) return 'primary';
+      if (!providerSessionId) return PRIMARY_ACCOUNT_ID;
       const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(providerSessionId) as { id: string } | undefined;
       const id = s ? accountOfSession(db, s.id) : null;
-      return id && accountStore.get(id) ? id : 'primary';
+      return id && accountStore.get(id) ? id : PRIMARY_ACCOUNT_ID;
     },
   });
   // アカウントの HTTP と、起動後の認証の読み直しが、同じ組み立てを使う。
