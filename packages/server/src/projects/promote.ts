@@ -4,6 +4,7 @@ import path from 'node:path';
 import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { isStrictlyUnder } from '../platform/paths.ts';
 import { isUnderScratch, scratchRoot } from './scratch.ts';
 
 export class PromoteError extends Error {
@@ -86,7 +87,7 @@ function resolveScratchDir(home: string, from: string): { real: string } | { rea
   } catch {
     return { reason: `${from} が見つかりませんでした` };
   }
-  if (!real.startsWith(realRoot + path.sep)) {
+  if (!isStrictlyUnder(real, realRoot)) {
     return { reason: `${from} はスクラッチの外（${real}）を指しているため、ファイルは移動しませんでした` };
   }
   return { real };

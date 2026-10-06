@@ -2,11 +2,13 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
-import { ensureWrapperScript, MAX_RUN_LOGS, pruneRunLogs, runLogPath, wrapperScript } from './wrapper.ts';
+import { ensureWrapperScript, MAX_RUN_LOGS, pruneRunLogs, runLogPath, wrapperScript, wrapperScriptWin } from './wrapper.ts';
+import { expectMode, posixDescribe, posixIt } from '../../test/platform.ts';
 
 let home: string;
 beforeEach(() => {
@@ -17,10 +19,11 @@ afterEach(() => {
 });
 
 describe('ensureWrapperScript', () => {
-  it('bin/hangar-run.sh を実行可能で書き、同じ内容なら書き直さない', () => {
+  // Windows では hangar-run.mjs を置く（下の ensureWrapperScript（Windows）が見る）。
+  posixIt('bin/hangar-run.sh を実行可能で書き、同じ内容なら書き直さない', () => {
     const p = ensureWrapperScript(home);
     expect(p).toBe(path.join(home, 'bin', 'hangar-run.sh'));
-    expect(fs.statSync(p).mode & 0o777).toBe(0o755);
+    expectMode(p, 0o755);
     expect(fs.readFileSync(p, 'utf8')).toBe(wrapperScript());
     const before = fs.statSync(p).mtimeMs;
     ensureWrapperScript(home);
@@ -72,7 +75,8 @@ describe('pruneRunLogs', () => {
   });
 });
 
-describe('ラッパーの引用（bash を直接呼ぶ）', () => {
+// hangar-run.sh は macOS と Linux の包み。Windows の包みは hangar-run.mjs の試験が見る。
+posixDescribe('ラッパーの引用（bash を直接呼ぶ）', () => {
   it('空白と引用符を含むログのパスとコマンドの引数を、そのまま渡す', () => {
     // 引用が抜けると、ログは別々のファイルに散り、引数は単語に割れて claude に届く。
     const wrapper = ensureWrapperScript(home);
@@ -145,5 +149,85 @@ describe.skipIf(!TMUX)('ラッパー（tmux 上）', () => {
     });
     await waitFor(() => !tmux.hasSession('hangar-wrap-err'));
     await waitFor(() => /oops/.test(fs.readFileSync(log, 'utf8')));
+  });
+});
+
+/** その試験の home の下に、新しい置き場を作る。home は afterEach が消す。 */
+const tmpHome = (): string => fs.mkdtempSync(path.join(home, 'h-'));
+
+const RUN_MJS = fileURLToPath(new URL('./hangar-run.mjs', import.meta.url));
+
+describe('ensureWrapperScript（Windows）', () => {
+  it('Windows では bin/hangar-run.mjs を置き、同じ内容なら書き直さない', () => {
+    const h = tmpHome();
+    const file = ensureWrapperScript(h, 'win32');
+    expect(path.basename(file)).toBe('hangar-run.mjs');
+    expect(fs.readFileSync(file, 'utf8')).toBe(wrapperScriptWin());
+    const before = fs.statSync(file).mtimeMs;
+    ensureWrapperScript(h, 'win32');
+    expect(fs.statSync(file).mtimeMs).toBe(before);
+  });
+});
+
+describe('hangar-run.mjs（Node の包み）', () => {
+  const run = (log: string, args: string[], input = '') =>
+    spawnSync(process.execPath, [RUN_MJS, log, ...args], { encoding: 'utf8', input, env: { ...process.env, HANGAR_RUN_ID: 'run-9' } });
+  const child = (code: string) => [process.execPath, '-e', code];
+
+  it('正常に終われば、開始と exit=0 をログに書き、同じ終了コードで終わる', () => {
+    const home = tmpHome();
+    const log = path.join(home, 'logs 空白', 'run-1.log');
+    const r = run(log, child('console.log("出力")'));
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('出力');
+    const text = fs.readFileSync(log, 'utf8');
+    expect(text).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ start pid=\d+ cmd=/m);
+    expect(text).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ exit=0$/m);
+  });
+
+  it('標準エラーを画面にもログにも出す', () => {
+    const log = path.join(tmpHome(), 'run-2.log');
+    const r = run(log, child('console.error("駄目でした")'));
+    expect(r.stderr).toContain('駄目でした');
+    expect(fs.readFileSync(log, 'utf8')).toContain('駄目でした');
+  });
+
+  it('異常終了なら、理由を出して Enter を待ち、同じ終了コードで終わる', () => {
+    const log = path.join(tmpHome(), 'run-3.log');
+    const r = run(log, child('process.exit(3)'), '\n');
+    expect(r.status).toBe(3);
+    expect(r.stdout).toContain('終了コード 3 で終了しました');
+    expect(fs.readFileSync(log, 'utf8')).toMatch(/exit=3$/m);
+  });
+
+  // hangar-run.sh は、ログを開けなくても claude を起こす。ログのために claude が起きないのは本末転倒である。
+  it('ログの置き場を作れなくても、コマンドは起こして同じ終了コードで終わる', () => {
+    const h = tmpHome();
+    const blocker = path.join(h, 'not-a-dir');
+    fs.writeFileSync(blocker, 'x');
+    const r = run(path.join(blocker, 'logs', 'run-x.log'), child('console.log("動いた")'));
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('動いた');
+    expect(r.stderr).toContain('ログを書けません');
+  });
+
+  it('起こせないコマンドは 127 で終わり、理由をログに残す', () => {
+    const log = path.join(tmpHome(), 'run-4.log');
+    const r = run(log, [path.join(tmpHome(), 'no-such-command.exe')], '\n');
+    expect(r.status).toBe(127);
+    expect(fs.readFileSync(log, 'utf8')).toMatch(/spawn failed/);
+  });
+
+  // 注入するシステムプロンプトは改行と引用符を含む。空白を含むパスの claude（C:\Program Files）も起こせる。
+  it('空白、引用符、改行を含む引数を、そのまま渡す', () => {
+    const home = tmpHome();
+    const out = path.join(home, 'args.json');
+    const args = ['--append-system-prompt', '1 行目\n2 行目 "引用" \'単\'', '-p', 'C:\\Program Files\\x y'];
+    // node -e の後ろに -- で始まる引数を置くと Node 自身のオプションと読まれるので、スクリプトのファイルにする。
+    const script = path.join(home, 'echo-args.cjs');
+    fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify([process.argv.slice(2), process.env.HANGAR_RUN_ID]))`);
+    const r = run(path.join(home, 'run-5.log'), [process.execPath, script, ...args]);
+    expect(r.status).toBe(0);
+    expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toEqual([args, 'run-9']);
   });
 });

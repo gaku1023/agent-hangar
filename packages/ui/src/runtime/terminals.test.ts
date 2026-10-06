@@ -39,6 +39,27 @@ function make(fontSize?: { load(): unknown; save(px: number): void }, alive?: (t
 }
 
 describe('createTerminalHost', () => {
+  it('最初のデータが届くまで painted は偽で、届いたら真になって知らせる', () => {
+    const { host } = make();
+    const cb = vi.fn();
+    host.subscribe(cb);
+    host.connect('t1');
+    expect(host.painted('t1')).toBe(false);
+    cb.mockClear();
+    FakeWs.all[0]!.open();
+    expect(host.painted('t1')).toBe(false);
+    cb.mockClear();
+    FakeWs.all[0]!.receive({ t: 'data', d: 'hi' });
+    expect(host.painted('t1')).toBe(true);
+    expect(cb).toHaveBeenCalled();
+    cb.mockClear();
+    FakeWs.all[0]!.receive({ t: 'data', d: 'again' });
+    expect(cb).not.toHaveBeenCalled();
+  });
+  it('知らないタブは描けている扱いにする', () => {
+    const { host } = make();
+    expect(host.painted('nope')).toBe(true);
+  });
   it('接続すると resize を送り、入出力を中継する', () => {
     const { host, terms } = make();
     const changes = vi.fn();

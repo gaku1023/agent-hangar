@@ -3,6 +3,7 @@ import path from 'node:path';
 import { newId, type ResolveAction } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
+import { isUnder, pathKey, samePath } from '../platform/paths.ts';
 
 /**
  * パスを比べられる形にそろえる。`..` や末尾の `/` を除き、Unicode を NFC にする。
@@ -27,20 +28,15 @@ function childDirs(root: string): string[] {
     .sort();
 }
 
-/** パスがそのディレクトリ自身か、その下にあるか。どちらも normalizeDir を通した値で比べる。 */
-function isUnder(p: string, dir: string): boolean {
-  return p === dir || p.startsWith(dir + '/');
-}
-
 /** ワークスペース直下のディレクトリのうち、セッションを持つものをプロジェクトとして登録する。 */
 export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoot: string): { created: string[] } {
   const created: string[] = [];
   // SQL の文字列比較では NFC と NFD が一致しないので、正規化してから JS で比べる。
   const cwds = (db.prepare('select distinct cwd from sessions where deleted_at is null').all() as { cwd: string }[]).map((r) => r.cwd.normalize('NFC'));
-  const known = new Set((db.prepare('select path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { path: string }[]).map((r) => r.path.normalize('NFC')));
+  const known = new Set((db.prepare('select path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { path: string }[]).map((r) => pathKey(r.path.normalize('NFC'))));
   for (const dir of childDirs(workspaceRoot)) {
     if (!cwds.some((c) => isUnder(c, dir))) continue;
-    if (known.has(dir)) continue;
+    if (known.has(pathKey(dir))) continue;
     const id = newId();
     upsertShared(db, 'projects', { id, name: path.basename(dir), status: 'active', is_scratch: 0 }, deviceId);
     upsertShared(db, 'project_roots', { id: newId(), project_id: id, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
@@ -57,7 +53,7 @@ export function workspaceProjectCount(db: Db, deviceId: string, workspaceRoot: s
   const rows = db.prepare(`select r.path from project_roots r join projects p on p.id = r.project_id
     where r.device_id = ? and r.resolved = 1 and r.deleted_at is null and p.deleted_at is null and p.is_scratch = 0`).all(deviceId) as { path: string }[];
   const root = path.resolve(workspaceRoot);
-  return rows.filter((r) => path.dirname(r.path) === root).length;
+  return rows.filter((r) => samePath(path.dirname(r.path), root)).length;
 }
 
 /** この端末の解決済みルートを返す。 */

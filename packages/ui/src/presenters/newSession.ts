@@ -1,7 +1,8 @@
 import type { ProjectStatus } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
-import type { Store } from '../store/store.ts';
+import { hasMultipleAccounts, type Store } from '../store/store.ts';
 import { SCRATCH_PREFS } from '../mediator/launch.ts';
+import { isPickableAccount, presentAccounts, type AccountView } from './accounts.ts';
 import { relativeTime } from './format.ts';
 
 export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
@@ -11,7 +12,29 @@ export type NewSessionProps = {
   draft: NewSessionDraft | null;
   /** 詳細のプロジェクトごとの前回値。鍵はプロジェクトの id で、スクラッチは ':scratch' である。 */
   prefs: Record<string, LaunchPrefs>;
+  /** どのアカウントで起こすかの札。アカウントが 1 件以下なら null で、段ごと出さず、起動の params にも account を入れない。 */
+  accounts: NewSessionAccounts | null;
 };
+export type NewSessionAccounts = { list: AccountView[]; currentId: string };
+
+/**
+ * 札のはじめの選択。いまのアカウントが選べればそれ、選べなければ選べる最初の 1 件。
+ * 1 件も選べなければ、いまのアカウントのまま（起動はサーバが断る）。
+ */
+export function defaultAccountChoice(accounts: NewSessionAccounts): string {
+  const current = accounts.list.find((a) => a.id === accounts.currentId);
+  if (current && isPickableAccount(current)) return current.id;
+  return accounts.list.find(isPickableAccount)?.id ?? accounts.currentId;
+}
+
+/**
+ * 利用者が選んだ id（まだ選んでいなければ null）から、いま札で選んでいる id を決める。
+ * 選んだ id が一覧から消えた、または選べなくなったときは、はじめの選択に戻す。
+ */
+export function accountChoice(accounts: NewSessionAccounts, picked: string | null): string {
+  const chosen = picked === null ? undefined : accounts.list.find((a) => a.id === picked);
+  return chosen && isPickableAccount(chosen) ? chosen.id : defaultAccountChoice(accounts);
+}
 
 /**
  * ダイアログのプロジェクトの一覧で、スクラッチの行に当てる値。
@@ -46,5 +69,12 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
   const projects = [...live].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, path: p.path, status: p.status, lastActivity: p.lastActivityAt === null ? '' : relativeTime(p.lastActivityAt, now) }));
   // 最近は最後に使った時刻の新しい順。使ったことのないプロジェクトは入れない。
   const recentIds = live.filter((p) => p.lastActivityAt !== null).sort((a, b) => b.lastActivityAt! - a.lastActivityAt!).slice(0, RECENT_COUNT).map((p) => p.id);
-  return { projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs };
+  return { projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs, accounts: newSessionAccounts(store, now) };
+}
+
+/** アカウントが 2 件以上のときだけ札の中身を作る。1 件以下の画面は今までと変えない。 */
+function newSessionAccounts(store: Store, now: number): NewSessionAccounts | null {
+  if (!hasMultipleAccounts(store)) return null;
+  const list = presentAccounts(store, now);
+  return { list, currentId: list.find((a) => a.current)?.id ?? '' };
 }

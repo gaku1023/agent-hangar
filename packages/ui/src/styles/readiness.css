@@ -4,7 +4,7 @@
 /* ターミナルで打つコマンドの行（設定の D1）。薄い地のコードと、右端のコピー。 */
 .cmd-line { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); padding: 0 var(--u) 0 calc(var(--u) * 2.5); height: 32px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line); font: var(--fs-sm) var(--font-mono); }
 .cmd-line > code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; color: var(--ink); -webkit-user-select: all; user-select: all; }
-.copy-btn { display: inline-flex; align-items: center; gap: var(--u); flex: none; height: 24px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: 6px; background: none; color: var(--ink-2); font: 560 var(--fs-xs) var(--font-sans); cursor: pointer; }
+.copy-btn { display: inline-flex; align-items: center; gap: var(--u); flex: none; height: 24px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: 6px; background: none; color: var(--ink-2); font: 600 var(--fs-xs) var(--font-sans); cursor: pointer; }
 .copy-btn:hover { background: var(--surface); color: var(--ink); }
 .copy-btn[data-copied] { color: var(--st-done); }
 .copy-btn .icon { width: 13px; height: 13px; }
@@ -22,7 +22,7 @@
 .verify .copy-btn { height: 20px; padding: 0 4px; }
 
 /* 欄の横の「✓ 保存しました」（設定の C1）。2 秒出て消える。 */
-.saved-tick { display: inline-flex; align-items: center; gap: var(--u); flex: none; font-size: var(--fs-xs); font-weight: 560; color: var(--st-done); white-space: nowrap; opacity: 0; transition: opacity var(--dur) var(--ease-out); }
+.saved-tick { display: inline-flex; align-items: center; gap: var(--u); flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--st-done); white-space: nowrap; opacity: 0; transition: opacity var(--dur) var(--ease-out); }
 .saved-tick[data-show] { opacity: 1; }
 .saved-tick .icon { width: 13px; height: 13px; stroke-width: 2.2; }
 .inrow { display: flex; align-items: center; gap: calc(var(--u) * 2); }
@@ -36,7 +36,7 @@
 .ck-card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
 .ck-head { display: flex; align-items: center; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 3.5) calc(var(--u) * 4) calc(var(--u) * 2.5); }
 .ck-head > .icon { color: var(--accent); }
-.ck-head h3 { margin: 0; font-size: var(--fs-md); font-weight: 650; }
+.ck-head h3 { margin: 0; font-size: var(--fs-md); font-weight: 700; }
 .ck-prog { margin-left: auto; font: 500 var(--fs-xs) var(--font-mono); color: var(--ink-3); }
 .ck-list { margin: 0; padding: 0; list-style: none; }
 .ck { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 2px calc(var(--u) * 2.5); align-items: start; padding: calc(var(--u) * 2.5) calc(var(--u) * 4); border-top: 1px solid var(--line); }

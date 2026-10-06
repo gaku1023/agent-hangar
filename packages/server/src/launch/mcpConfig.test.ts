@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mcpConfigJson, mcpConfigPath, pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from './mcpConfig.ts';
+import { expectMode, isWindows } from '../../test/platform.ts';
 
 let home: string;
 beforeEach(() => {
@@ -22,17 +23,17 @@ describe('writeMcpConfig', () => {
   it('0600 のファイルに書き、そのパスを返す', () => {
     const file = writeMcpConfig(home, 's1', 'http://x/mcp/s/s1', 'tok');
     expect(file).toBe(mcpConfigPath(home, 's1'));
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
     expect(fs.readFileSync(file, 'utf8')).toBe(mcpConfigJson('http://x/mcp/s/s1', 'tok'));
     // 置き場も他人に読ませない。
-    expect(fs.statSync(path.dirname(file)).mode & 0o077).toBe(0);
+    if (!isWindows) expect(fs.statSync(path.dirname(file)).mode & 0o077).toBe(0);
   });
 
   it('二度目は同じパスに上書きし、0600 を保つ', () => {
     fs.mkdirSync(path.join(home, 'mcp'), { recursive: true });
     fs.writeFileSync(path.join(home, 'mcp', 's1.json'), 'old', { mode: 0o644 });
     const file = writeMcpConfig(home, 's1', 'http://x/mcp/s/s1', 'tok2');
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
     expect(fs.readFileSync(file, 'utf8')).toContain('tok2');
   });
 

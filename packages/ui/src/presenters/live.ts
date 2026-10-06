@@ -3,7 +3,8 @@ import { durationLabel } from './format.ts';
 
 export type LampProps = { tone: 'busy' | 'wait' | 'idle'; head: string; sub: string };
 export type IntentProps = { kind: 'said'; text: string; meta: string; stale: boolean } | { kind: 'none'; text: string };
-export type StepRowProps = { text: string; mono: boolean; when: string; mark: 'done' | 'now' | 'fail' };
+/** key はその行の最初の手の seq（畳んだ読みの行は最初の手のまま）。行が出入りするとき、同じ行を同じものとして追うために使う。 */
+export type StepRowProps = { key: string; text: string; mono: boolean; when: string; mark: 'done' | 'now' | 'fail' };
 export type LaneProps = { agentId: string; title: string; tone: 'running' | 'done' | 'error'; elapsed: string; line: string; quoted: boolean; selectable: boolean };
 export type LivePaneProps = { lamp: LampProps; intent: IntentProps; steps: StepRowProps[]; lanes: LaneProps[]; doneFolded: number };
 
@@ -81,7 +82,7 @@ function mainSteps(i: LiveInput, results: ResultMap): StepRowProps[] {
       prev.reads++;
       return;
     }
-    rows.push({ ...line, when: c.ts === undefined ? '' : i.clock(c.ts), mark, reads: stepKind(c) === 'read' && mark === 'done' ? 1 : 0 });
+    rows.push({ ...line, key: String(c.seq), when: c.ts === undefined ? '' : i.clock(c.ts), mark, reads: stepKind(c) === 'read' && mark === 'done' ? 1 : 0 });
   });
   return rows.slice(-MAX_STEPS).map(({ reads, ...row }) => (reads > 1 ? { ...row, text: `${row.text} ほか ${reads - 1} 件` } : row));
 }

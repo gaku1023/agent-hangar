@@ -5,8 +5,8 @@ import type { SessionRowProps } from '../presenters/row.ts';
 import type { SessionsProps, StatusTab, StatusTabProps } from '../presenters/sessions.ts';
 import { SessionsScreen } from './SessionsScreen.tsx';
 
-const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over });
-const TABS: StatusTabProps[] = ([['all', 'すべて', '1,236'], ['proposed', '確かめる', '3'], ['paused', 'Paused', '4'], ['active', 'Active', '2'], ['none', '印なし', '3'], ['done', 'Done', '1,221'], ['archived', 'Archived', '5']] as [StatusTab, string, string][]).map(([tab, label, count]) => ({ tab, label, count, hot: tab === 'proposed' }));
+const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
+const TABS: StatusTabProps[] = ([['all', 'すべて', '1,236'], ['proposed', '確かめる', '3'], ['active', 'Active', '5'], ['paused', 'Paused', '4'], ['done', 'Done', '1,221'], ['archived', 'Archived', '5']] as [StatusTab, string, string][]).map(([tab, label, count]) => ({ tab, label, count, hot: tab === 'proposed' }));
 const props = (over: Partial<SessionsProps> = {}): SessionsProps => ({ text: '', filter: {}, projects: [{ id: 'p1', name: 'agent-hangar' }, { id: 'p4', name: 'my app' }], rows: [], total: 0, loading: false, mode: 'all', allCount: 1241, conditions: [], tabs: TABS, tab: 'all', sections: null, tokens: [], hints: [], pager: null, statusColumn: true, ...over });
 const mount = (over: Partial<SessionsProps> = {}, onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><SessionsScreen {...props(over)} /></IntentRoot>), onIntent });
 const tabs = () => within(screen.getByRole('group', { name: '状態' }));
@@ -14,7 +14,7 @@ const tabs = () => within(screen.getByRole('group', { name: '状態' }));
 describe('SessionsScreen の状態のタブ（★）', () => {
   it('件数つきのタブを並べ、確かめるの数字だけを灯し、選んでいるタブに印を付ける', () => {
     mount({ tab: 'paused' });
-    expect(tabs().getAllByRole('button').map((b) => b.textContent)).toEqual(['すべて1,236', '確かめる3', 'Paused4', 'Active2', '印なし3', 'Done1,221', 'Archived5']);
+    expect(tabs().getAllByRole('button').map((b) => b.textContent)).toEqual(['すべて1,236', '確かめる3', 'Active5', 'Paused4', 'Done1,221', 'Archived5']);
     expect(tabs().getByRole('button', { name: /^確かめる/ }).querySelector('[data-hot="true"]')).not.toBeNull();
     expect(tabs().getByRole('button', { name: /^Done/ }).querySelector('[data-hot="true"]')).toBeNull();
     expect(tabs().getByRole('button', { name: /^Paused/ })).toHaveAttribute('aria-pressed', 'true');
@@ -73,7 +73,7 @@ describe('SessionsScreen の節', () => {
     const { onIntent } = mount({ sections: [
       { kind: 'head', id: 'returning', label: '今日戻る', count: 1 }, { kind: 'row', row: row('r') },
       { kind: 'head', id: 'proposed', label: '確かめる', count: 1, more: { label: 'この節だけ見る ▸', target: 'proposed' } }, { kind: 'row', row: row('c') },
-      { kind: 'head', id: 'live', label: 'いま動いている', count: 1, more: { label: 'この節だけ見る ▸', target: 'live' } }, { kind: 'row', row: row('l', { live: 'busy' }) },
+      { kind: 'head', id: 'active', label: 'Active', count: 1, more: { label: 'この節だけ見る ▸', target: 'active' } }, { kind: 'row', row: row('l', { live: 'busy' }) },
       { kind: 'head', id: 'done', label: 'Done', count: 1221, more: { label: 'ほか 1218 件 ▸', target: 'done' } }, { kind: 'row', row: row('d', { state: 'done' }) },
     ] });
     const buttons = screen.getAllByRole('button', { name: 'この節だけ見る ▸' });
@@ -88,8 +88,12 @@ describe('SessionsScreen の節', () => {
     expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
   it('平らな結果でも、行の状態の札でタブへ移る', () => {
-    const { onIntent } = mount({ rows: [row('a', { state: 'archived' })], total: 1, conditions: ['7 日'] });
+    const { onIntent } = mount({ rows: [row('a', { state: 'archived' }), row('b')], total: 2, conditions: ['7 日'] });
     fireEvent.click(screen.getByRole('button', { name: 'Archived のセッションだけを見る' }));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'archived' } });
+    // 状態の無い行の Active の札も、Active のタブへ移る。
+    fireEvent.click(screen.getByRole('button', { name: 'Active のセッションだけを見る' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'active' } });
+    expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
 });

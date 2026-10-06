@@ -14,7 +14,7 @@ export type QueryToken = { key: QueryKey; token: string };
 /** project: を名前で引くための、プロジェクトの id と名前。 */
 export type QueryProject = { id: string; name: string };
 
-const STATUS_WORDS: readonly string[] = ['paused', 'done', 'archived', 'active', 'none', 'proposed'];
+const STATUS_WORDS: readonly string[] = ['paused', 'done', 'archived', 'active', 'proposed'];
 const LIVE_WORDS: readonly string[] = ['running', 'waiting'];
 /** since: で受ける日数の上限。打ち間違いの桁あふれを通さない。 */
 const MAX_DAYS = 3650;

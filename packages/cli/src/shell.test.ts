@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SHELL_MARKER, shellScriptPath } from '@agent-hangar/server';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
+import { posixDescribe } from '../../server/test/platform.ts';
 
 let dir: string;
 let home: string;
@@ -27,7 +28,8 @@ const base = () => ({ home, zshrc, loginShell: '/bin/zsh', log: (s: string) => l
 let logs: string[] = [];
 beforeEach(() => { logs = []; });
 
-describe('hangar shell install', () => {
+// zsh の包み。Windows の包みは次の区切りで作る。
+posixDescribe('hangar shell install', () => {
   it('行を見せて承諾を得てから足し、本体を置き、控えを取る', async () => {
     const asked: string[] = [];
     const r = await runShellInstall({ ...base(), tmuxPath: ok, ask: async (q) => { asked.push(q); return true; } });
@@ -61,7 +63,8 @@ describe('hangar shell install', () => {
   });
 });
 
-describe('hangar shell uninstall と status', () => {
+// zsh の包み。Windows の包みは次の区切りで作る。
+posixDescribe('hangar shell uninstall と status', () => {
   it('足した行だけを外し、状態を 1 行で出す', async () => {
     expect(shellStatusLine({ zshrc, tmuxPath: ok })).toMatch(/まだです/);
     expect(shellStatusLine({ zshrc, tmuxPath: off })).toMatch(/使えません/);

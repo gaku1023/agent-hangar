@@ -80,6 +80,55 @@ describe('ヘッダーの右の列を畳む仕組み', () => {
   });
 });
 
+describe('ヘッダのアカウントの切り替え', () => {
+  const controls = read('./controls.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const controlsRule = (sel: string) => {
+    const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?:^|\\n)${esc} \\{([^}]*)\\}`).exec(controls)?.[1] ?? '';
+  };
+  // 窓を掴む領域の中で、ほかの部品と同じく 0 まで縮み、はみ出しは切る。
+  it('ボタンは 0 まで縮み、はみ出しは切る', () => {
+    expect(rule('.header .account-switch')).toContain('min-width: 0;');
+    expect(rule('.header .account-switch')).toContain('overflow: hidden;');
+    expect(rule('.header .account-switch')).toContain('flex: 0 100 auto;');
+  });
+  // 切る箱の中では、外へ描く輪が欠ける。
+  it('フォーカスの輪は内側に描く', () => {
+    expect(rule('.header .account-switch:focus-visible')).toContain('outline-offset: -2px;');
+  });
+  // 仕切りの線はボタンの面に替わる。ボタンの中の計器に、もう 1 本引かない。
+  it('ボタンの中の計器には、仕切りの線も左の余白も付けない', () => {
+    expect(rule('.header .account-switch .gauges')).toContain('padding-left: 0;');
+    expect(rule('.header .account-switch .gauges::before')).toContain('display: none;');
+  });
+  // 名前は畳んでも読み上げに残す。隠すのは畳む印（data-folded）だけが行う。
+  it('名前を隠す規則はどこにも無い', () => {
+    for (const r of rules.filter((x) => x.selector.includes('account-name'))) expect(r.body).not.toMatch(/display:\s*none|clip-path/);
+  });
+  it('名前は、ゲージの見出しと同じ大きさ（--fs-xs）の 600 の字', () => {
+    expect(rule('.header .account-name')).toContain('font-size: var(--fs-xs);');
+    expect(rule('.header .account-name')).toContain('font-weight: 600;');
+  });
+  // 開いた先の面は .menu-pop で、ぼかしは新しい選択子に書かない（glass.test.ts）。
+  it('開いた先の規則に backdrop-filter を書かない', () => {
+    expect(controlsRule('.account-pop')).not.toContain('backdrop-filter');
+    expect(controlsRule('.account-pop')).toContain('outline: none;');
+  });
+  it('選んだ札は青い 2px の輪、押せない札は名前と計器だけを薄くする', () => {
+    expect(controlsRule(".account-card[aria-checked='true']")).toContain('inset 0 0 0 2px var(--accent)');
+    expect(controlsRule(".account-card[aria-disabled='true'] .account-meters-head, .account-card[aria-disabled='true'] .account-row")).toContain('opacity: 0.6;');
+  });
+  it('押せない札は、理由の文（メールの行）まで薄くせず、--ink-2 以上の濃さで読める。押せないことは cursor と枠で示す', () => {
+    // 札の全体と、計器の入れ物と、理由の文の行には opacity を掛けない。
+    for (const sel of [".account-card[aria-disabled='true']", ".account-card[aria-disabled='true'] .account-meters", '.account-mail', '.account-approve']) {
+      expect(controlsRule(sel)).not.toContain('opacity');
+    }
+    expect(controlsRule(".account-card[aria-disabled='true'] .account-mail:not([data-auth='out'])")).toContain('color: var(--ink-2);');
+    expect(controlsRule(".account-card[aria-disabled='true']")).toContain('cursor: not-allowed;');
+    expect(controls).toContain(":not(:focus-visible, [aria-checked='true']) { box-shadow: inset 0 0 0 1px var(--line); }");
+  });
+});
+
 describe('ヘッダの列と検索欄の位置', () => {
   // ヘッダは殻の列を subgrid で使う。container はレイアウトの封じ込めを伴い、封じ込めのある要素では subgrid が効かない。
   it('ヘッダは subgrid で殻の列を使い、大きさの入れ物は内側の行に付ける', () => {
@@ -87,15 +136,16 @@ describe('ヘッダの列と検索欄の位置', () => {
     expect(rule('.header')).not.toContain('container');
     expect(rule('.header-row')).toContain('container: header / inline-size;');
   });
-  // 本文と検索欄は同じ左の余白（--gutter-l）で始まる。本文は --main-w で中央に寄るので、検索欄もその分を足す。
-  // 余白を広げるのは、中央へ寄った本文がロゴの右端より左に来るときだけにする。いつも足すと、広い窓で畳んだときに本文が右へ逃げる。
-  it('本文の左の余白は、中央へ寄った分を引いてから、ロゴの右端に届く分だけ広げる', () => {
-    expect(base).toContain('--gutter-l: max(calc(var(--u) * 4), calc(var(--head-end) - var(--col1) - var(--box-l)));');
+  // 本文は、左のナビを畳んでも帯のすぐ右から始める（設計書 2026-10-02-session-motion ①）。
+  // ロゴの右端に揃える式は、ヘッダの中でロゴの右に並ぶ検索欄にだけ使う。本文にも使うと、畳んでも本文が広がらない。
+  it('本文の左の余白はいつも 16px で、ロゴに揃える式は検索欄の余白（--gutter-head）だけが持つ', () => {
+    expect(base).toContain('--gutter-l: calc(var(--u) * 4);');
+    expect(base).toContain('--gutter-head: max(calc(var(--u) * 4), calc(var(--head-end) - var(--col1) - var(--box-l)));');
     expect(base).toContain('--box-l: max(0px, calc((100vw - var(--col1) - var(--main-w)) / 2));');
   });
-  it('探す・移動の錠剤の左端は、本文の左端と同じ式で決まる', () => {
+  it('本文は --gutter-l で、探す・移動の錠剤は --gutter-head で始まる', () => {
     expect(rule('.main-inner')).toMatch(/max-width: var\(--main-w\);[^}]*margin: 0 auto;[^}]*var\(--gutter-l\);/);
-    expect(rule('.header-row > .search-pill')).toContain('margin-left: max(var(--gutter-l), calc((100cqw - var(--main-w)) / 2 + var(--gutter-l)));');
+    expect(rule('.header-row > .search-pill')).toContain('margin-left: max(var(--gutter-head), calc((100cqw - var(--main-w)) / 2 + var(--gutter-head)));');
   });
   // 錠剤は押すボタンで、幅は中身の分だけにする（A1）。欄のように伸ばすと、打てる欄に見える。
   it('探す・移動の錠剤は浮いた錠剤で、幅は中身の分だけ', () => {

@@ -13,11 +13,12 @@ import { createReadiness } from './config/readiness.ts';
 import { defaultManagedDir, RetentionService } from './config/retention.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { encodeJoinToken, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto } from '@agent-hangar/shared';
+import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
-import { getProject, getSession, listDevices, listProjects } from './db/queries.ts';
+import { accountOfSession, getProject, getSession, listDevices, listProjects } from './db/queries.ts';
 import { upsertShared } from './db/shared.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './external/open.ts';
+import { announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from './http/accounts.ts';
 import { createApp, type ExternalApi } from './http/app.ts';
 import { writeBaselineIfNeeded } from './indexer/baseline.ts';
 import { IndexerService } from './indexer/service.ts';
@@ -30,6 +31,8 @@ import { readRegistry, RegistryWatcher } from './provider/claude-code/registry.t
 import { ensureSpawnHelper } from './pty/helper.ts';
 import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
+import { AccountAuth } from './config/accountAuth.ts';
+import { AccountStore } from './config/accounts.ts';
 import { RunError, RunManager } from './runs/manager.ts';
 import { aliveRunForSession } from './runs/queries.ts';
 import { ParkWatch, parkedSessionIds, statusChanged } from './sessions/park.ts';
@@ -388,6 +391,11 @@ export type StartOptions = {
   /** 設定ファイルより優先する Claude Code のディレクトリ。テストがフィクスチャの複製を指すために使う。 */
   claudeDir?: string;
   uiDist?: string;
+  /**
+   * Claude の登録のうち、消えたプロセスの残りと見る pid。既定は OS で決める（provider/claude-code/registry.ts の goneOn）。
+   * テストの見本の登録は実在しない pid を持つので、テストは「残りは無い」を渡す。
+   */
+  registryIsGone?: (pid: number) => boolean;
 };
 
 /**
@@ -413,7 +421,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const claudeDir = opts.claudeDir ?? (settings.claudeDir || defaultClaudeDir());
   const db = openDb(dbPath(home));
   const hub = new EventHub(VERSION);
-  const registry = new RegistryWatcher(claudeDir);
+  const registry = new RegistryWatcher(claudeDir, undefined, opts.registryIsGone);
 
   // クラウド同期。cloud.json が無ければ client は null で、同期の状態は off になる。
   const cloudRead = readCloudConfig(home);
@@ -629,6 +637,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     const zshrc = zshrcPath();
     return { state: shellHookState(zshrc, shellSupported), zshrc, line: shellHookLine(home), command: shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar }) };
   };
+  // Claude Code のアカウント。置き場ごとのログインを切り替えるだけで、認証の中身は持たない。
+  const accountStore = new AccountStore({ home, primaryDir: claudeDir });
+  const accountAuth = new AccountAuth({ claudeBin: () => claudeBinOf(settings) });
   const runs = new RunManager({
     db, deviceId: device.id, home, tmux: tmuxOf(settings), port, token,
     claudeBin: claudeBinOf(settings),
@@ -638,6 +649,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     isLive: (providerSessionId) => registry.current().some((l) => l.sessionId === providerSessionId),
     // 引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引く。
     live: () => registry.current(),
+    accounts: accountStore,
   });
   // 区切り（Paused・Done・Archived）を付けたセッションが休みになったら、Claude を止める。
   // 登録は 500 ミリ秒ごとの写しではなく、その場で読み直す。打ったばかりの発言で作業中に変わった会話を、古い写しのまま止めないためである。
@@ -646,7 +658,25 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     parkedIds: () => { try { return parkedSessionIds(db, readRegistry(claudeDir), device.id); } catch { return []; } },
     stop: (id) => runs.park(id),
   });
-  const usage = new UsageTracker(db);
+  // statusline の payload からはアカウントが分からない（本文の置き場は共有）ので、セッションの最後の run から引く。
+  // hangar の外で起こしたセッションと、消したアカウントの run は、最初のアカウントとして数える。
+  const usage = new UsageTracker(db, {
+    accountOf: (providerSessionId) => {
+      if (!providerSessionId) return PRIMARY_ACCOUNT_ID;
+      const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(providerSessionId) as { id: string } | undefined;
+      const id = s ? accountOfSession(db, s.id) : null;
+      return id && accountStore.get(id) ? id : PRIMARY_ACCOUNT_ID;
+    },
+  });
+  // アカウントの HTTP と、起動後の認証の読み直しが、同じ組み立てを使う。
+  const accountsDeps: AccountsDeps = {
+    db, store: accountStore, auth: accountAuth, usage, runs, primaryDir: claudeDir,
+    broadcast: (accounts) => hub.broadcast({ type: 'accounts.update', accounts }),
+  };
+  // 認証を読み終えたとき、ログインが始まって終わったときに、画面へ配る。
+  accountAuth.setOnChange(() => accountsDeps.broadcast(buildAccountsDto(accountsDeps)));
+  // 起動のたびに、セッションとアカウントの対応を配る。
+  announceAccountsOnRunStarted(runs, accountsDeps);
   const memos = new MemoStore({ db, deviceId: device.id, home });
   // Claude への切り替えの件数はプロセスの寿命で数えるので、要約器はここで 1 度だけ作り、
   // 設定の変更は列の組み立てで反映する。毎回作り直すと 1 時間の窓が空になる。
@@ -758,6 +788,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const uiDist = opts.uiDist ?? process.env.HANGAR_UI_DIST ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
   const app = createApp({
     cloudUsage,
+    accounts: accountsDeps,
     db, deviceId: device.id, deviceName: device.name, token, home, port, version: VERSION,
     // 最初の索引づけと紐づけが済むまで偽。.app はこれを見て起動画面に残る。
     ready: () => started,

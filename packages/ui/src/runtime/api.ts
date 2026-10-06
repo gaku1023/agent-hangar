@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, DeviceDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -27,6 +27,12 @@ export type ApiClient = {
   setProjectStatus(id: string, status: ProjectStatus): Promise<ProjectDto>;
   resolveProject(id: string, action: ResolveAction): Promise<unknown>;
   candidates(id: string, name: string): Promise<string[]>;
+  // 初期プロンプト欄の候補と添付。
+  promptCommands(projectId: string | null): Promise<PromptCommandDto[]>;
+  /** プロジェクトのファイルを問いで探す（相対パス、最大 50 件）。問いが空なら最近変えたもの。 */
+  promptFiles(projectId: string, query: string): Promise<string[]>;
+  uploadDrop(file: Blob, name: string): Promise<DropDto>;
+  existingDrops(paths: string[]): Promise<string[]>;
   updateSettings(patch: Partial<SettingsDto>): Promise<SettingsDto>;
   rebuildIndex(): Promise<void>;
   launch(params: LaunchParams): Promise<LaunchResultDto>;
@@ -59,10 +65,10 @@ export type ApiClient = {
   removeTodo(id: string): Promise<TodoDto>;
   confirmTodo(id: string): Promise<TodoDto>;
   rejectTodo(id: string): Promise<TodoDto>;
-  /** セッションの状態を手で変える。status の null は印なしに戻す。返り値は使わない（画面の正は session.upsert）。 */
-  setSessionState(id: string, body: { status: SessionStatus | null; note?: string; returnOn?: string }): Promise<{ state: SessionStateDto }>;
+  /** セッションの状態を手で変える。status の null は Active に戻す。返り値は使わない（画面の正は session.upsert）。 */
+  setSessionState(id: string, body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }): Promise<{ state: SessionStateDto }>;
   /** 提案を確定する。日を変えたときだけ returnOn を渡す。提案が無ければ 409 の一文で投げる。 */
-  confirmSessionState(id: string, body: { returnOn?: string }): Promise<{ state: SessionStateDto }>;
+  confirmSessionState(id: string, body: { returnOn?: string; returnTime?: string }): Promise<{ state: SessionStateDto }>;
   rejectSessionState(id: string): Promise<{ state: SessionStateDto }>;
   memo(projectId: string): Promise<MemoDto>;
   saveMemo(projectId: string, markdown: string): Promise<MemoDto>;
@@ -93,6 +99,18 @@ export type ApiClient = {
   retention(): Promise<RetentionDto>;
   retentionPreview(days: number): Promise<RetentionPreviewDto>;
   writeRetention(days: number, baseSha256: string): Promise<RetentionDto>;
+  // Claude Code のアカウント。AccountsDto を返すものは、画面へは accounts.update と同じ道で入れる。
+  accounts(): Promise<AccountsDto>;
+  setCurrentAccount(id: string): Promise<AccountsDto>;
+  /** セッションを別のアカウントで再開する。サーバがいまのアカウントも変える。断る理由は 409 と 400 の一文で投げる。 */
+  switchAccount(sessionId: string, accountId: string): Promise<LaunchResultDto>;
+  addAccount(name: string): Promise<AccountsDto>;
+  updateAccount(id: string, patch: { name?: string; color?: string }): Promise<AccountsDto>;
+  removeAccount(id: string): Promise<AccountsDto>;
+  /** 202 が返るが、本文は使わない。ログインの進みは accounts.update で届く。 */
+  loginAccount(id: string): Promise<void>;
+  cancelAccountLogin(id: string): Promise<AccountsDto>;
+  refreshAccount(id: string): Promise<AccountsDto>;
 };
 
 /** 相対 URL の `/api/...` を叩く薄いクライアント。
@@ -124,6 +142,12 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     setProjectStatus: (id, status) => call(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     resolveProject: (id, action) => call(`/api/projects/${id}/resolve`, { method: 'POST', body: JSON.stringify(action) }),
     candidates: (id, name) => call(`/api/projects/${id}/candidates${qs({ name })}`),
+    promptCommands: (projectId) => call<{ commands: PromptCommandDto[] }>(`/api/prompt/commands${qs({ projectId })}`).then((r) => r.commands),
+    promptFiles: (projectId, query) => call<{ files: string[] }>(`/api/prompt/files${qs({ projectId, q: query })}`).then((r) => r.files),
+    // 本文はそのまま送る。サーバが通すのは application/octet-stream だけなので、call の既定の種類を上書きする。
+    // 送りきれないまま止まると「送っています」の札が残り、起動もできなくなる。60 秒で打ち切って、ふつうの失敗として知らせる。
+    uploadDrop: (file, name) => call(`/api/drops${qs({ name })}`, { method: 'POST', body: file, headers: { 'content-type': 'application/octet-stream' }, signal: AbortSignal.timeout(60_000) }),
+    existingDrops: (paths) => post<{ paths: string[] }>('/api/drops/existing', { paths }).then((r) => r.paths),
     updateSettings: (patch) => call('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
     rebuildIndex: () => post('/api/index/rebuild'),
     launch: (params) => post('/api/runs', params),
@@ -176,5 +200,14 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     retention: () => call('/api/retention'),
     retentionPreview: (days) => post('/api/retention/preview', { days }),
     writeRetention: (days, baseSha256) => call('/api/retention', { method: 'PUT', body: JSON.stringify({ days, baseSha256 }) }),
+    accounts: () => call('/api/accounts'),
+    setCurrentAccount: (id) => call('/api/accounts/current', { method: 'PUT', body: JSON.stringify({ id }) }),
+    switchAccount: (sessionId, accountId) => post(`/api/sessions/${sessionId}/switch-account`, { account: accountId }),
+    addAccount: (name) => post('/api/accounts', { name }),
+    updateAccount: (id, patch) => call(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    removeAccount: (id) => call(`/api/accounts/${id}`, { method: 'DELETE' }),
+    loginAccount: (id) => post(`/api/accounts/${id}/login`),
+    cancelAccountLogin: (id) => post(`/api/accounts/${id}/login/cancel`),
+    refreshAccount: (id) => post(`/api/accounts/${id}/refresh`),
   };
 }

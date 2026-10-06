@@ -17,7 +17,8 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[]; can
   const add = () => { if (!text.trim()) return; emit({ type: 'todo.add', projectId: props.projectId, text }); setText(''); };
   return (
     <div className="todos">
-      {props.todos.length === 0 && <div className="faint">TODO はまだありません</div>}
+      {/* 足す欄があるときは、空であることを別の行で言わない（欄の薄い字が言う）。足す欄の無い場所でだけ書く。 */}
+      {props.todos.length === 0 && props.canAdd === false && <div className="faint">TODO はまだありません</div>}
       <ul className="todo-list">
         {/* 同じ文言の項目が並ぶことがあるので、読み上げの名前に何件目かを混ぜて一意にする。 */}
         {props.todos.map((t, i) => {
@@ -56,7 +57,7 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[]; can
       </ul>
       {props.canAdd !== false && <div className="rail-add">
         {/* 変換中の Enter で足すと、確定と同時に書きかけが消える。 */}
-        <input id="todo-input" className="input" aria-label="TODO を追加" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) add(); }} />
+        <input id="todo-input" className="input" aria-label="TODO を追加" placeholder={props.todos.length === 0 ? 'TODO はまだありません' : undefined} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) add(); }} />
         <button className="btn" onClick={add}><Icon name="add" />追加</button>
       </div>}
     </div>

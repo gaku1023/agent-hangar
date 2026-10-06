@@ -7,6 +7,7 @@ import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { applyRemoteBatch, applyRemoteChange, sessionIdOfChange, writeMemoConflictCopy } from './apply.ts';
 import { getSessionState, setSessionState } from '../sessions/states.ts';
+import { expectMode } from '../../test/platform.ts';
 
 const ch = (over: Partial<ChangeOut> & { rowId: string; updatedAt: number }): ChangeOut => ({ seq: 1, tableName: 'projects', op: 'upsert', deviceId: 'b', payload: { id: over.rowId, name: 'remote', status: 'active', is_scratch: 0, updated_at: over.updatedAt, deleted_at: null, origin_device: 'b' }, ...over });
 const o = { ownDeviceId: 'a', skipOwn: true };
@@ -302,8 +303,8 @@ describe('applyRemoteChange のセッションのメモ', () => {
   it('入れ物は 0700、控えは 0600 にする', () => {
     const db = seed('手元のセッションメモ');
     applyRemoteChange(db, session('s1', '相手のメモ', localUpdatedAt(db) + 1), so);
-    expect(fs.statSync(memosDir()).mode & 0o777).toBe(0o700);
-    expect(fs.statSync(path.join(memosDir(), listBackups()[0]!)).mode & 0o777).toBe(0o600);
+    expectMode(memosDir(), 0o700);
+    expectMode(path.join(memosDir(), listBackups()[0]!), 0o600);
   });
 
   it('home を渡さなければ hangarHome() に落ちる（呼び手は必ず渡すこと）', () => {

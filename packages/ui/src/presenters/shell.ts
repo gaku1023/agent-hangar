@@ -1,7 +1,8 @@
-import type { IndexProgressDto, Route, SyncStateKind } from '@agent-hangar/shared';
+import type { IndexProgressDto, LiveStatus, Route, SyncStateKind } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { waitingSessionIds, type Store } from '../store/store.ts';
-import { indexProgressLabel, relativeTime, resetsLabel, SYNC_STATE_LABEL } from './format.ts';
+import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
+import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
+import { durationLabel, indexProgressLabel, relativeTime, resetsLabel, SYNC_STATE_LABEL } from './format.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts';
 
@@ -12,6 +13,14 @@ import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts'
 export type NavItem = { route: Route; label: string; current: boolean; count: number };
 /** fiveHourResets と sevenDayResets は、Claude の利用上限の枠が戻る時刻の文で、届いていなければ null である。 */
 export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiveHourResets: string | null; sevenDayResets: string | null; updatedLabel: string | null };
+/**
+ * ヘッダのアカウントの切り替え。アカウントが 1 件以下なら null で、ヘッダは今までのまま。
+ * shown は計器を出すアカウントで、セッション画面ではそのセッションのアカウント、ほかではいまのアカウントである。
+ * list は全アカウント（並びと current はいまのアカウントを基準にする）。
+ * sessionId は、セッション画面で開いているセッションの id で、ほかでは null。選ぶとそのセッションの切り替えになる。
+ * working は、そのセッションが動いていて作業中か。session.kill に添える値（SessionScreen.tsx）と同じ出どころである。
+ */
+export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sessionId: string | null; working: boolean } | null;
 /**
  * pending は未送信のメタデータ、sweepPending はまだ上げていない本文、skipped は送れなかった本文の件数である。
  * 後ろの 2 つは、数えられないときも 0 にする。
@@ -36,7 +45,22 @@ export type RetentionBannerProps = { visible: boolean; title: string; detail: st
  * wide は本文の幅の上限（--main-w）を外す画面か。
  * セッション画面だけ外し、ターミナルに幅と高さを渡す（UX 刷新 2 の案 b）。
  */
-export type ShellProps = { sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
+/**
+ * 行のメニューの「停止」に要るもの（session.kill にそのまま渡す）。
+ * working は作業中か入力待ちで、shellTabs は開いているシェルのタブの数。どちらかがあれば、止める前に確認を挟む（mediator/launch.ts）。
+ */
+export type SideLiveStop = { runId: string; working: boolean; shellTabs: number };
+/**
+ * サイドバーの「動いている」の 1 行。waited は入力待ちのときだけ（「待ち 4 分」）。current はいま見ているセッション。
+ * stop は hangar の run が生きているときだけ持つ。hangar の外で動いているもの（VS Code の中の claude など）は hangar から止められないので null にする。
+ */
+export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; waited: string | null; current: boolean; stop: SideLiveStop | null };
+/**
+ * サイドバーの「動いている」。
+ * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
+ */
+export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; more: number };
+export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -117,16 +141,61 @@ const NAV: { route: Route; label: string; matches: string[] }[] = [
   { route: { name: 'settings' }, label: '設定', matches: ['settings'] },
 ];
 
+/** サイドバーの「動いている」に並べる行の上限。超えた分は数だけにして、ホームへ案内する。 */
+export const SIDE_LIVE_MAX = 8;
+
+/**
+ * サイドバーの「動いている」。
+ * セッション画面にいる間、ほかのセッションのどれが待っているかを横目で見て、1 押しで移るための場所である。
+ * 並びは覚えた順（state.sidebarOrder）だけで決め、状態や最後の活動では並べ直さない。動かすのは利用者の手だけである。
+ * 覚えた並びにまだ無いもの（いま動き始めたもの）は、始めた順で末尾に置く。Mediator が同じ順で並びに書き足すので（sidebar.ts の sidebarLiveStep）、書き足す前と後で行は動かない。
+ * 入力待ちになっても行は動かさない。待ちは色と太字と待った時間で知らせる。
+ */
+function sideLive(state: State, store: Store, now: number): SideLiveProps {
+  const live = liveSessionIds(store);
+  const on = new Set(live);
+  const known = new Set(state.sidebarOrder);
+  const ids = [...state.sidebarOrder.filter((id) => on.has(id)), ...live.filter((id) => !known.has(id))];
+  const current = state.screen.name === 'session' ? state.screen.id : null;
+  const rows = ids.slice(0, SIDE_LIVE_MAX).map((id): SideLiveRow => {
+    const s = store.sessions[id]!;
+    const run = aliveRunOf(store, id);
+    // 作業中の数え方と、数えるタブは、セッション画面の「停止」と同じにする（views/SessionScreen.tsx）。
+    const stop = run ? { runId: run.id, working: s.live === 'busy' || s.live === 'waiting', shellTabs: tabsOf(store, run.id).filter((t) => t.kind === 'shell').length } : null;
+    return { id, name: s.name ?? '（名前なし）', live: s.live, waited: s.live === 'waiting' ? `待ち ${durationLabel(now - (s.lastActivityAt ?? now))}` : null, current: id === current, stop };
+  });
+  return { count: ids.length, ids, rows, more: ids.length - rows.length };
+}
+
+const gaugePercent = (g: AccountGauge | null): number | null => g?.percent ?? null;
+
+/**
+ * ヘッダの計器とアカウントの切り替え。
+ * アカウントが 2 件以上あるときだけ切り替えを出し、計器は shown の値から作る。
+ * 1 件以下のときは、今までどおり store.usage から作る。
+ */
+function headerAccount(state: State, store: Store, now: number): { account: HeaderAccountProps; usage: UsageProps } {
+  const u = store.usage;
+  const plain: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
+  if (!hasMultipleAccounts(store)) return { account: null, usage: plain };
+  const sessionId = state.screen.name === 'session' ? state.screen.id : null;
+  const raw = (sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
+  const list = presentAccounts(store, now);
+  const shown = list.find((a) => a.id === raw.id) ?? list[0]!;
+  const live = sessionId === null ? null : store.sessions[sessionId]?.live ?? null;
+  const usage: UsageProps = { fiveHour: gaugePercent(shown.fiveHour), sevenDay: gaugePercent(shown.sevenDay), fiveHourResets: shown.fiveHour?.resets ?? null, sevenDayResets: shown.sevenDay?.resets ?? null, updatedLabel: shown.updatedLabel };
+  return { account: { shown, list, sessionId, working: live === 'busy' || live === 'waiting' }, usage };
+}
+
 /** tz は日付と時刻を言うときの時差で、省略すると端末の時差になる。 */
 export function presentShell(state: State, store: Store, now: number, tz?: string): ShellProps {
   const s = state.screen;
   const idx = store.index;
   const indexLabel = indexProgressLabel(idx);
-  const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
-  const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
+  const { account, usage } = headerAccount(state, store, now);
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
-  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store) };
+  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(state, store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

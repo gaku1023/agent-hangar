@@ -3,6 +3,7 @@ import path from 'node:path';
 import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { isStrictlyUnder } from '../platform/paths.ts';
 
 export const SCRATCH_PROJECT_NAME = 'スクラッチ';
 
@@ -47,5 +48,5 @@ export function newScratchDir(home: string, now: Date = new Date()): string {
  * symlink までは辿らないので、cwd は保存されたときの綴りのまま比べられる。
  */
 export function isUnderScratch(home: string, cwd: string): boolean {
-  return path.resolve(cwd).startsWith(path.resolve(scratchRoot(home)) + path.sep);
+  return isStrictlyUnder(path.resolve(cwd), path.resolve(scratchRoot(home)));
 }

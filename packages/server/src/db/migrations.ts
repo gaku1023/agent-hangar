@@ -323,4 +323,26 @@ insert into session_states (session_id, status, set_by, set_at, updated_at, orig
   select id, 'done', 'import', cast(strftime('%s', 'now') as integer) * 1000, 0, 'import' from sessions where deleted_at is null;
 `,
   },
+  {
+    // Paused の戻る時刻（HH:MM、手元の時刻）。日付は return_on のまま持ち、時刻は別の列にする。
+    // 同じ列に日時を入れると、上げていない PC が同期で受け取ったときに日付として読めなくなる。別の列なら、知らない列として捨てるだけで済む。
+    // 既存の行は null のままで、「その日のうち」として今までどおり読む。
+    version: 14,
+    sql: `
+alter table session_states add column return_time text;
+alter table session_states add column candidate_return_time text;
+`,
+  },
+  {
+    // 使用量のスナップショットに、どのアカウントのセッションから届いたかを持つ。
+    // この表は同期しない（手元だけ）ので、列を足してもほかの PC には影響しない。
+    // 既存の行は null のままで、最初のアカウントとして読む。
+    // runs の索引は手元の DB の作りで、同期の対象ではない。accountOfSession の全表走査をなくす。
+    version: 15,
+    sql: `
+alter table usage_snapshots add column account text;
+create index usage_snapshots_account_at on usage_snapshots (account, at);
+create index if not exists runs_session_started on runs (session_id, started_at);
+`,
+  },
 ];

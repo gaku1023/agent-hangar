@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 import type { Env } from '../src/env.ts';
@@ -21,8 +22,9 @@ export type CloudHarness = {
   dispose: () => Promise<void>;
 };
 
-const ENTRY = new URL('../src/index.ts', import.meta.url).pathname;
-const BUNDLE_PATH = new URL('../src/index.bundle.js', import.meta.url).pathname;
+// URL の pathname は Windows で /D:/... になり、esbuild が解決できない。
+const ENTRY = fileURLToPath(new URL('../src/index.ts', import.meta.url));
+const BUNDLE_PATH = fileURLToPath(new URL('../src/index.bundle.js', import.meta.url));
 
 let bundled: Promise<string> | null = null;
 

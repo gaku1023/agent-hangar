@@ -7,6 +7,7 @@ import type { Db } from '../db/open.ts';
 import { workspaceProjectCount } from '../projects/registry.ts';
 import type { Settings } from './paths.ts';
 import { statuslineStatus } from './statusline.ts';
+import { isCommandName, isExecutableFile, needsShell } from '../platform/exec.ts';
 import { findOnPath } from './tools.ts';
 
 // 準備の確かめ。
@@ -16,16 +17,10 @@ import { findOnPath } from './tools.ts';
 /** 先頭の ~ だけをホームに直す。途中の ~ は名前の一部として残す。 */
 export function expandHome(p: string, homeDir: string = os.homedir()): string {
   if (p === '~') return homeDir;
-  return p.startsWith('~/') ? path.join(homeDir, p.slice(2)) : p;
+  return p.startsWith('~/') || p.startsWith('~\\') ? path.join(homeDir, p.slice(2)) : p;
 }
 
-/**
- * 設定の値がコマンドの名前（tmux など）か。
- * / を含まず ~ で始まらないものは、起動のときに子プロセスが PATH から探す。
- */
-export function isCommandName(p: string): boolean {
-  return !p.includes('/') && !p.startsWith('~');
-}
+export { isCommandName };
 
 /**
  * パスがツールとして動かせるか。子プロセスは起こさず、ファイルの有無と実行権だけを見る。
@@ -44,11 +39,7 @@ export function checkToolPath(p: string | null, homeDir: string = os.homedir(), 
   const st = fs.statSync(full, { throwIfNoEntry: false });
   if (!st) return { path: full, ok: false, problem: 'missing' };
   if (!st.isFile()) return { path: full, ok: false, problem: 'notFile' };
-  try {
-    fs.accessSync(full, fs.constants.X_OK);
-  } catch {
-    return { path: full, ok: false, problem: 'notExecutable' };
-  }
+  if (!isExecutableFile(full)) return { path: full, ok: false, problem: 'notExecutable' };
   return { path: full, ok: true, problem: null };
 }
 
@@ -71,8 +62,10 @@ export class ToolVersions {
     if (!st) return null;
     const key = `${file}\0${st.mtimeMs}\0${st.size}\0${args.join(' ')}`;
     if (this.cache.has(key)) return this.cache.get(key) ?? null;
+    // .cmd と .bat は cmd.exe を通さないと起こせない。引数は hangar が決めた固定の語（-V、--version）だけなので、引用の心配は無い。
+    const viaShell = needsShell(file);
     const v = await new Promise<string | null>((resolve) => {
-      execFile(file, args, { timeout: this.timeoutMs, killSignal: 'SIGKILL', maxBuffer: 64 * 1024 }, (err, stdout, stderr) => {
+      execFile(viaShell ? `"${file}"` : file, args, { timeout: this.timeoutMs, killSignal: 'SIGKILL', maxBuffer: 64 * 1024, shell: viaShell, windowsHide: true }, (err, stdout, stderr) => {
         // 時間切れと起動の失敗は「読めない」にする。版が読めなくても、動かせるかの判定は変えない。
         if (err && (err.killed || stdout === '')) return resolve(versionOf(String(stderr)) ?? null);
         resolve(versionOf(String(stdout)) ?? versionOf(String(stderr)));

@@ -4,6 +4,7 @@ import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoD
 import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
+import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { State } from '../mediator/types.ts';
 
@@ -14,7 +15,7 @@ const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1
 
 /** ターミナルの偽物。React の外で持つ接続の代わりに、呼ばれた tabId を並べる。 */
 function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: string[] } {
-  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, zoom: () => {}, fontSize: () => 13, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: () => {} };
+  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, zoom: () => {}, fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: () => {} };
   return h;
 }
 
@@ -90,6 +91,29 @@ describe('createRuntime', () => {
     expect(mine).toHaveLength(1);
     clock += 1000;
     mine[0]!.fn();
+    await flush();
+    expect(api.live).toHaveBeenCalledTimes(2);
+  });
+  it('ホームへ入ったら、動いているセッションの意図を取りに行き、見ている間に動いた分を取り直す', async () => {
+    let clock = 10_000;
+    const { rt, api, setHash, timers } = harness({}, { now: () => clock });
+    rt.start();
+    rt.dispatch({ kind: 'server', event: { type: 'run.started', run: aliveRun, tabs: [] } });
+    setHash('#/projects');
+    await flush();
+    // ホーム以外では取りに行かない。
+    expect(api.live).not.toHaveBeenCalled();
+    setHash('#/');
+    await flush();
+    expect(api.live).toHaveBeenCalledTimes(1);
+    expect(api.live).toHaveBeenCalledWith('s1');
+    const before = timers.length;
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's1', count: 1 } });
+    await flush();
+    // 1 秒に 1 回までにまとめる。
+    expect(api.live).toHaveBeenCalledTimes(1);
+    clock += 1000;
+    timers.slice(before).filter((t) => t.ms === 1000)[0]!.fn();
     await flush();
     expect(api.live).toHaveBeenCalledTimes(2);
   });
@@ -334,7 +358,7 @@ describe('createRuntime', () => {
     const c = harness();
     c.store.set('livePane.split', 3);
     c.rt.start();
-    expect(c.rt.getState().livePaneSplit).toBe(0.8);
+    expect(c.rt.getState().livePaneSplit).toBe(1);
   });
   it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
     const a = harness();
@@ -355,7 +379,7 @@ describe('createRuntime', () => {
     a.store.set('newSession.draft', { name: 'n', prompt: 'やって' });
     a.store.set('newSession.prefs', { p1: { model: 'opus', addDirs: ['/a'] }, p2: { model: 3 }, p3: 'x', p4: { addDirs: [1] } });
     a.rt.start();
-    expect(a.rt.getState().newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    expect(a.rt.getState().newSessionDraft).toEqual({ name: 'n', prompt: 'やって', attachments: [] });
     expect(a.rt.getState().launchPrefs).toEqual({ p1: { model: 'opus', addDirs: ['/a'] } });
     const b = harness();
     b.store.set('newSession.draft', { name: 1 });
@@ -750,6 +774,34 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().summarizerModels).toEqual([]);
     // LM Studio に繋がらないのは普通の状態なので、トーストにしない。
     expect(rt.getState().toasts).toEqual([]);
+  });
+  it('設定画面に入ると GET /api/accounts を呼び、結果を Store に入れる', async () => {
+    const accounts = vi.fn(async () => accountsFixture);
+    const { rt, wsHandlers, setHash } = harness({ accounts });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(accounts).not.toHaveBeenCalled();
+    setHash('#/settings');
+    await flush();
+    expect(accounts).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().accounts).toEqual(accountsFixture);
+    expect(rt.getState().toasts).toEqual([]);
+  });
+  it('古いサーバでアカウントの口が無く GET /api/accounts が失敗しても、トーストにせず Store も変えず、ほかの取得は進む', async () => {
+    const accounts = vi.fn(async () => { throw new Error('404 /api/accounts'); });
+    const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
+    const { rt, wsHandlers, setHash } = harness({ accounts, statusline });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    const before = rt.getStore().accounts;
+    setHash('#/settings');
+    await flush();
+    expect(accounts).toHaveBeenCalledTimes(1);
+    expect(rt.getState().toasts).toEqual([]);
+    expect(rt.getStore().accounts).toBe(before);
+    expect(rt.getStore().statusline?.installed).toBe(true);
   });
   it('設定を開くと使用量を取り直す', async () => {
     const dto: CloudUsageDto = {
@@ -1221,6 +1273,81 @@ describe('入力待ちの知らせ', () => {
     await flush();
     expect(rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
   });
+  describe('戻る時刻を過ぎた知らせ', () => {
+    /** 2026-10-05 の手元の時刻。 */
+    const at = (h: number, min = 0) => new Date(2026, 9, 5, h, min).getTime();
+    const timed = (id: string, returnTime: string | null, note = 'timer の初回を見る'): SessionDto => ({ ...waitingSession(), id, providerSessionId: 'u-' + id, name: '会話 ' + id, live: null, state: { status: 'paused', note, returnOn: '2026-10-05', returnTime, setBy: 'conversation', setAt: 1, candidate: null } });
+    async function startedAt(clock: { now: number }, sessions: SessionDto[], n = fakeNotifier(), seen?: string[]) {
+      const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions })) }, { notifier: n, now: () => clock.now });
+      if (seen) h.store.set('return.notified', seen);
+      h.rt.start();
+      h.wsHandlers[0]!.onOpen();
+      await flush();
+      return { ...h, n };
+    }
+    it('時刻の前は何も出さず、その時刻に見直す予約を入れ、時刻が来たら札と通知を 1 回出す', async () => {
+      const clock = { now: at(13, 0) };
+      const h = await startedAt(clock, [timed('s1', '13:30'), timed('s2', null)]);
+      expect(h.rt.getState().returnToasts).toEqual([]);
+      expect(h.n.show).not.toHaveBeenCalled();
+      const timer = h.timers.find((t) => t.ms === 30 * 60_000);
+      expect(timer).toBeDefined();
+      clock.now = at(13, 30);
+      timer!.fn();
+      expect(h.rt.getState().returnToasts).toEqual(['s1']);
+      expect(h.n.show).toHaveBeenCalledTimes(1);
+      expect(h.n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '会話 s1', body: '戻る時刻 13:30 を過ぎました · timer の初回を見る' });
+      expect(h.store.get('return.notified')).toEqual(['s1|2026-10-05 13:30']);
+      // 同じ予約がもう一度走っても、ストアが変わっても、2 度は出さない。
+      timer!.fn();
+      h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: timed('s2', null, '別の理由') });
+      expect(h.n.show).toHaveBeenCalledTimes(1);
+      expect(h.rt.getState().returnToasts).toEqual(['s1']);
+    });
+    it('ストアが変わるたびに予約を積まない（次の時点が同じなら予約は 1 つ）', async () => {
+      const clock = { now: at(13, 0) };
+      const h = await startedAt(clock, [timed('s1', '13:30')]);
+      const count = () => h.timers.filter((t) => t.ms === 30 * 60_000).length;
+      expect(count()).toBe(1);
+      h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: timed('s2', null) });
+      h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: timed('s3', null) });
+      expect(count()).toBe(1);
+    });
+    it('閉じている間に過ぎた今日の時点は、開いたときに 1 回知らせる。前に知らせ終えたものは出さない', async () => {
+      const clock = { now: at(14, 0) };
+      const fresh = await startedAt(clock, [timed('s1', '13:30')]);
+      expect(fresh.rt.getState().returnToasts).toEqual(['s1']);
+      expect(fresh.n.show).toHaveBeenCalledTimes(1);
+      const again = await startedAt(clock, [timed('s1', '13:30')], fakeNotifier(), ['s1|2026-10-05 13:30']);
+      expect(again.rt.getState().returnToasts).toEqual([]);
+      expect(again.n.show).not.toHaveBeenCalled();
+    });
+    it('窓が前にあるときと、通知を受け取らないときは、札だけにする', async () => {
+      const clock = { now: at(14, 0) };
+      const front = await startedAt(clock, [timed('s1', '13:30')], fakeNotifier({ background: false }));
+      expect(front.rt.getState().returnToasts).toEqual(['s1']);
+      expect(front.n.show).not.toHaveBeenCalled();
+      const off = fakeNotifier();
+      const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [timed('s1', '13:30')] })) }, { notifier: off, now: () => clock.now });
+      h.store.set('notify.waiting', false);
+      h.rt.start();
+      h.wsHandlers[0]!.onOpen();
+      await flush();
+      expect(h.rt.getState().returnToasts).toEqual(['s1']);
+      expect(off.show).not.toHaveBeenCalled();
+    });
+    it('時刻を付け直すと、新しい時点でもう一度知らせる', async () => {
+      const clock = { now: at(14, 0) };
+      const h = await startedAt(clock, [timed('s1', '13:30')]);
+      h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: timed('s1', '21:50') });
+      expect(h.rt.getState().returnToasts).toEqual([]);
+      clock.now = at(21, 50);
+      h.timers.at(-1)!.fn();
+      expect(h.rt.getState().returnToasts).toEqual(['s1']);
+      expect(h.n.show).toHaveBeenCalledTimes(2);
+      expect(h.n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '会話 s1', body: '戻る時刻 21:50 を過ぎました · timer の初回を見る' });
+    });
+  });
   // OS やブラウザの許可は、hangar の外（システム設定、ブラウザの設定）で変わる。
   // 窓が前面に戻ったときに読み直し、利用者が受け取ると選んでいれば、許可に合わせて受け取るを戻したり外したりする。
   describe('窓が前面に戻ったときの許可の読み直し', () => {
@@ -1474,7 +1601,7 @@ describe('殻の操作（ランタイム）', () => {
 });
 
 describe('セッションの状態', () => {
-  const NONE = { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null };
+  const NONE = { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null };
   it('状態の操作をそのまま API へ渡し、失敗はトーストにする', async () => {
     const setSessionState = vi.fn(async () => { throw new Error('Paused には戻る日が要ります'); });
     const confirmSessionState = vi.fn(async () => ({ state: NONE }));
@@ -1491,5 +1618,142 @@ describe('セッションの状態', () => {
     expect(confirmSessionState).toHaveBeenCalledWith('s1', { returnOn: '2026-10-05' });
     expect(rejectSessionState).toHaveBeenCalledWith('s1');
     expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: 'Paused には戻る日が要ります' });
+  });
+});
+
+describe('サイドバーの「動いている」の並び（ランタイム）', () => {
+  const running = (id: string, startedAt: number, live: SessionDto['live'] = 'busy'): SessionDto => ({ ...p3Session, id, providerSessionId: 'u-' + id, projectId: null, live, startedAt });
+  const liveRow = (sessionId: string, status: 'busy' | 'waiting') => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
+  async function started(sessions: SessionDto[], stored?: unknown) {
+    const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions })) });
+    if (stored !== undefined) h.store.set('sidebar.order', stored);
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    return h;
+  }
+
+  it('保存が空なら、動いているセッションを始めた順で並びに書き足して保存する', async () => {
+    const h = await started([running('s2', 20, 'waiting'), running('s1', 10), { ...running('s3', 5), live: null }]);
+    expect(h.rt.getState().sidebarOrder).toEqual(['s1', 's2']);
+    expect(h.store.get('sidebar.order')).toEqual(['s1', 's2']);
+  });
+  it('覚えた並びは保ち、初めて現れたものだけを末尾に足す', async () => {
+    const h = await started([running('s1', 10), running('s2', 20), running('s3', 30)], ['s3', 'gone', 's1']);
+    expect(h.rt.getState().sidebarOrder).toEqual(['s3', 'gone', 's1', 's2']);
+  });
+  it('入力待ちに変わっても、動いているものが一瞬消えても、並びは変わらない', async () => {
+    const h = await started([running('s1', 10), running('s2', 20)]);
+    h.wsHandlers[0]!.onEvent({ type: 'live.update', live: [liveRow('u-s2', 'waiting'), liveRow('u-s1', 'busy')] });
+    expect(h.rt.getState().sidebarOrder).toEqual(['s1', 's2']);
+    h.wsHandlers[0]!.onEvent({ type: 'live.update', live: [] });
+    expect(h.rt.getState().sidebarOrder).toEqual(['s1', 's2']);
+    h.wsHandlers[0]!.onEvent({ type: 'live.update', live: [liveRow('u-s2', 'busy'), liveRow('u-s1', 'busy')] });
+    expect(h.rt.getState().sidebarOrder).toEqual(['s1', 's2']);
+    expect(h.store.get('sidebar.order')).toEqual(['s1', 's2']);
+  });
+});
+
+describe('アカウント', () => {
+  const univ = accountsFixture.accounts[1]!;
+  async function started(overrides: Partial<ApiClient> = {}) {
+    const h = harness(overrides);
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    return h;
+  }
+  it('bootstrap の accounts が Store に入る', async () => {
+    const h = await started({ bootstrap: vi.fn(async () => ({ ...boot, accounts: accountsFixture })) });
+    expect(h.rt.getStore().accounts).toEqual(accountsFixture);
+  });
+  it('accounts を持たない bootstrap では null のまま', async () => {
+    const h = await started();
+    expect(h.rt.getStore().accounts).toBeNull();
+  });
+  it('account.choose は setCurrentAccount を呼び、応答の AccountsDto を Store に入れる', async () => {
+    const next = { ...accountsFixture, currentId: 'a1' };
+    const h = await started({ setCurrentAccount: vi.fn(async () => next) });
+    h.rt.emit({ type: 'account.choose', accountId: 'a1' });
+    await flush();
+    expect(h.api.setCurrentAccount).toHaveBeenCalledWith('a1');
+    expect(h.rt.getStore().accounts).toEqual(next);
+  });
+  it('accounts.load は一覧を取り、Store に入れる', async () => {
+    const h = await started();
+    h.rt.emit({ type: 'accounts.load' });
+    await flush();
+    expect(h.api.accounts).toHaveBeenCalledTimes(1);
+    expect(h.rt.getStore().accounts).toEqual(accountsFixture);
+  });
+  it('account.add は addAccount のあと、応答の末尾のアカウントの id で loginAccount を呼ぶ', async () => {
+    const added = { ...univ, id: 'a2', name: '研究室', color: '#1f7a5a', auth: null, loginRunning: false };
+    const next = { ...accountsFixture, accounts: [...accountsFixture.accounts, added] };
+    const h = await started({ addAccount: vi.fn(async () => next) });
+    h.rt.emit({ type: 'account.add', name: ' 研究室 ' });
+    await flush();
+    expect(h.api.addAccount).toHaveBeenCalledWith('研究室');
+    expect(h.api.loginAccount).toHaveBeenCalledTimes(1);
+    expect(h.api.loginAccount).toHaveBeenCalledWith('a2');
+    expect(h.rt.getStore().accounts).toEqual(next);
+  });
+  it('account.add の追加に失敗したら、ログインは始めず、サーバの文をトーストに出す', async () => {
+    const h = await started({ addAccount: vi.fn(async () => { throw new Error('その名前はもう使われています'); }) });
+    h.rt.emit({ type: 'account.add', name: '大学' });
+    await flush();
+    expect(h.api.loginAccount).not.toHaveBeenCalled();
+    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['その名前はもう使われています']);
+  });
+  it('account.switchSession（承諾）は switchAccount を呼び、成功で run が入ってそのセッションの画面へ移る', async () => {
+    const h = await started({ switchAccount: vi.fn(async () => launched) });
+    h.setHash('#/');
+    h.rt.emit({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false });
+    expect(h.rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: false } });
+    expect(h.api.switchAccount).not.toHaveBeenCalled();
+    h.rt.emit({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true });
+    await flush();
+    expect(h.api.switchAccount).toHaveBeenCalledWith('s1', 'a1');
+    expect(h.rt.getStore().runs.r1).toBeDefined();
+    expect(h.rt.getState()).toMatchObject({ launch: { kind: 'idle' }, overlay: { kind: 'none' }, screen: { name: 'session', id: 's1' } });
+  });
+  it('account.switchSession の失敗は、サーバの文をトーストに出し、launch は submitting のまま残らない', async () => {
+    const h = await started({ switchAccount: vi.fn(async () => { throw new Error('このセッションはもうそのアカウントで動いています'); }) });
+    h.rt.emit({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true, confirmed: true });
+    await flush();
+    expect(h.rt.getState().launch).toEqual({ kind: 'failed', message: 'このセッションはもうそのアカウントで動いています' });
+    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['このセッションはもうそのアカウントで動いています']);
+  });
+  it('account.login が 409 で失敗したら、その文をトーストに出す', async () => {
+    const h = await started({ loginAccount: vi.fn(async () => { throw new Error('ログインはすでに始まっています'); }) });
+    h.rt.emit({ type: 'account.login', accountId: 'a1' });
+    await flush();
+    expect(h.api.loginAccount).toHaveBeenCalledWith('a1');
+    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['ログインはすでに始まっています']);
+  });
+  it('update、remove（承諾）、login.cancel、refresh は、応答の AccountsDto を Store に入れる', async () => {
+    const next = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!], sessions: {} };
+    const h = await started({
+      updateAccount: vi.fn(async () => accountsFixture), removeAccount: vi.fn(async () => next),
+      cancelAccountLogin: vi.fn(async () => accountsFixture), refreshAccount: vi.fn(async () => accountsFixture),
+    });
+    h.rt.emit({ type: 'account.update', accountId: 'a1', name: '研究室' });
+    await flush();
+    expect(h.api.updateAccount).toHaveBeenCalledWith('a1', { name: '研究室' });
+    h.rt.emit({ type: 'account.remove', accountId: 'a1', confirmed: true });
+    await flush();
+    expect(h.api.removeAccount).toHaveBeenCalledWith('a1');
+    expect(h.rt.getStore().accounts).toEqual(next);
+    h.rt.emit({ type: 'account.login.cancel', accountId: 'a1' });
+    h.rt.emit({ type: 'account.refresh', accountId: 'a1' });
+    await flush();
+    expect(h.api.cancelAccountLogin).toHaveBeenCalledWith('a1');
+    expect(h.api.refreshAccount).toHaveBeenCalledWith('a1');
+    expect(h.rt.getStore().accounts).toEqual(accountsFixture);
+  });
+  it('accounts.update のイベントで Store が入れ替わる', async () => {
+    const h = await started({ bootstrap: vi.fn(async () => ({ ...boot, accounts: accountsFixture })) });
+    const next = { ...accountsFixture, currentId: 'a1', accounts: accountsFixture.accounts.map((a) => (a.id === 'a1' ? { ...a, loginRunning: true } : a)) };
+    h.wsHandlers[0]!.onEvent({ type: 'accounts.update', accounts: next });
+    expect(h.rt.getStore().accounts).toEqual(next);
   });
 });

@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import type { ApiClient } from '../runtime/api.ts';
+import { accountsFixture } from './accounts.ts';
 
 type Extras = Pick<
   ApiClient,
@@ -8,7 +9,8 @@ type Extras = Pick<
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncStatus' | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
   | 'retention' | 'retentionPreview' | 'writeRetention'
-  | 'live'
+  | 'live' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
+  | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -33,6 +35,10 @@ export function fakeApiExtras(): Extras {
     projectOpenEditor: vi.fn(async () => {}),
     projectOpenTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
     createProject: vi.fn(async () => unused()),
+    promptCommands: vi.fn(async () => []),
+    promptFiles: vi.fn(async () => []),
+    uploadDrop: vi.fn(async (_file: Blob, name: string) => ({ path: `/h/.agent-hangar/drops/1-0-${name}`, name, size: 0 })),
+    existingDrops: vi.fn(async (paths: string[]) => paths),
     usageAggregate: vi.fn(async () => ({ days: [], projects: [] })),
     statusline: vi.fn(async () => ({ command: null, scriptPath: null, installed: false })),
     shellHook: vi.fn(async () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' })),
@@ -47,9 +53,9 @@ export function fakeApiExtras(): Extras {
     removeTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1 })),
     confirmTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: true, position: 1, sessionId: null, updatedAt: 1, candidate: null })),
     rejectTodo: vi.fn(async (id: string) => ({ id, projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null })),
-    setSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null } })),
-    confirmSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null } })),
-    rejectSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null } })),
+    setSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
+    confirmSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
+    rejectSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
     memo: vi.fn(async (projectId: string) => ({ projectId, markdown: '', updatedAt: 0 })),
     saveMemo: vi.fn(async (projectId: string, markdown: string) => ({ projectId, markdown, updatedAt: 2 })),
     setSessionMemo: vi.fn(async () => unused()),
@@ -77,5 +83,15 @@ export function fakeApiExtras(): Extras {
     retentionPreview: vi.fn(async () => unused()),
     writeRetention: vi.fn(async () => unused()),
     live: vi.fn(async (sessionId: string) => ({ sessionId, turnStartSeq: null, intent: null, agents: [] })),
+    // アカウントは既定で 2 件の固定データを返す。切り替えの結果は使うテストが自分で上書きする。
+    accounts: vi.fn(async () => accountsFixture),
+    setCurrentAccount: vi.fn(async () => accountsFixture),
+    switchAccount: vi.fn(async (sessionId: string) => ({ run: { id: 'r-switch', sessionId, deviceId: 'd', kind: 'resume' as const, tmuxName: 'hangar-r-switch', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId, tabs: [{ id: 'r-switch', runId: 'r-switch', sessionId, kind: 'agent' as const, title: 'Claude', tmuxName: 'hangar-r-switch', createdAt: 1, closedAt: null }] })),
+    addAccount: vi.fn(async () => accountsFixture),
+    updateAccount: vi.fn(async () => accountsFixture),
+    removeAccount: vi.fn(async () => accountsFixture),
+    loginAccount: vi.fn(async () => undefined),
+    cancelAccountLogin: vi.fn(async () => accountsFixture),
+    refreshAccount: vi.fn(async () => accountsFixture),
   };
 }

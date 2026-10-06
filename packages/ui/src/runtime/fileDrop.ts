@@ -5,9 +5,21 @@
  */
 export const FILE_DROP_EVENT = 'hangar:drop';
 
-type Drop = { paths: string[]; x: number; y: number };
+/** Hangar.app の殻から届く、ファイルを窓の上で運んでいる知らせ。detail は位置（CSS の px）で、窓から出たら null。 */
+export const FILE_DRAG_EVENT = 'hangar:drag';
 
-function parse(detail: unknown): Drop | null {
+/** 運んでいる位置の形を確かめる。出たとき（null）と形の合わないものは null。 */
+export function parseDrag(detail: unknown): { x: number; y: number } | null {
+  if (typeof detail !== 'object' || detail === null) return null;
+  const d = detail as { x?: unknown; y?: unknown };
+  if (typeof d.x !== 'number' || typeof d.y !== 'number' || !Number.isFinite(d.x) || !Number.isFinite(d.y)) return null;
+  return { x: d.x, y: d.y };
+}
+
+export type Drop = { paths: string[]; x: number; y: number };
+
+/** 殻の知らせの形を確かめる。形の合わないものは null（欄からも端末からも無視する）。 */
+export function parseDrop(detail: unknown): Drop | null {
   if (typeof detail !== 'object' || detail === null) return null;
   const d = detail as { paths?: unknown; x?: unknown; y?: unknown };
   if (!Array.isArray(d.paths) || d.paths.length === 0 || !d.paths.every((p) => typeof p === 'string' && p !== '')) return null;
@@ -27,7 +39,7 @@ export function dropText(paths: string[]): string {
 
 /** 落とした位置にある端末へパスを貼り付ける。端末の外に落としたときは何もしない。 */
 export function handleFileDrop(detail: unknown, deps: { hit: (x: number, y: number) => Element | null; paste: (tabId: string, text: string) => void; focus: (tabId: string) => void }): boolean {
-  const d = parse(detail);
+  const d = parseDrop(detail);
   if (!d) return false;
   const tabId = deps.hit(d.x, d.y)?.closest<HTMLElement>('.term-host')?.dataset.tab;
   if (!tabId) return false;

@@ -1,5 +1,5 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
-import type { ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -35,6 +35,8 @@ export type Store = {
   joinTokenExpiresAt: number | null;
   // デスクトップの殻の中で動いているか。殻があれば、ログを開くと再起動を殻に頼める。
   desktop: boolean;
+  // Claude Code のアカウント（この PC の中だけにある）。未取得、またはサーバが知らせない間は null である。
+  accounts: AccountsDto | null;
 };
 
 export const emptyUsage = (): UsageDto => ({ fiveHour: null, sevenDay: null, updatedAt: null });
@@ -49,7 +51,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], joinToken: null, configPreview: null,
     retention: null, retentionPreview: null,
-    readiness: null, joinTokenExpiresAt: null, desktop: false,
+    readiness: null, joinTokenExpiresAt: null, desktop: false, accounts: null,
   };
 }
 
@@ -79,7 +81,7 @@ export function applyBootstrap(store: Store, b: BootstrapDto): Store {
   // 型の上では必ずあるので、欠けていたときだけ既定値で埋める。
   // 版が古いことは画面には出さない。
   const old = b as Partial<BootstrapDto>;
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: old.usage ?? emptyUsage(), todos: byId(old.todos ?? []), artifacts: byId(old.artifacts ?? []), summaryPending: Object.fromEntries((old.summaryPending ?? []).map((id) => [id, true as const])), sync: b.sync ? applySyncStatus(b.sync) : null, devices: b.devices ?? [], retention: old.retention ?? null, cloudUsage: b.cloudUsage ?? null };
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: old.usage ?? emptyUsage(), todos: byId(old.todos ?? []), artifacts: byId(old.artifacts ?? []), summaryPending: Object.fromEntries((old.summaryPending ?? []).map((id) => [id, true as const])), sync: b.sync ? applySyncStatus(b.sync) : null, devices: b.devices ?? [], retention: old.retention ?? null, cloudUsage: b.cloudUsage ?? null, accounts: b.accounts ?? null };
 }
 
 function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): Record<string, SessionDto> {
@@ -122,6 +124,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'memo.update': return { ...store, memos: { ...store.memos, [ev.memo.projectId]: ev.memo } };
     case 'artifact.upsert': return { ...store, artifacts: { ...store.artifacts, [ev.artifact.id]: ev.artifact } };
     case 'sync.status': return { ...store, sync: applySyncStatus(ev.status) };
+    case 'accounts.update': return { ...store, accounts: ev.accounts };
     case 'sync.usage': return { ...store, cloudUsage: ev.usage };
     case 'devices.update': return { ...store, devices: ev.devices };
     case 'retention.changed': return { ...store, retention: ev.retention };
@@ -136,6 +139,26 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     default: return store;
   }
 }
+
+export const accountList = (store: Store): AccountDto[] => store.accounts?.accounts ?? [];
+
+const primaryAccount = (list: AccountDto[]): AccountDto | null => list.find((a) => a.primary) ?? null;
+
+/** いまのアカウント。currentId が一覧に無ければ最初のアカウント。一覧が空なら null。 */
+export function currentAccount(store: Store): AccountDto | null {
+  const list = accountList(store);
+  return list.find((a) => a.id === store.accounts?.currentId) ?? primaryAccount(list);
+}
+
+/** そのセッションを最後に動かしたアカウント。対応に無い、または一覧に無い id なら最初のアカウント。一覧が空なら null。 */
+export function accountOfSession(store: Store, sessionId: string): AccountDto | null {
+  const list = accountList(store);
+  const id = store.accounts?.sessions[sessionId];
+  return (id ? list.find((a) => a.id === id) : undefined) ?? primaryAccount(list);
+}
+
+/** アカウントが 2 件以上あるか。1 件以下のうちは、画面にアカウントの印を出さない。 */
+export const hasMultipleAccounts = (store: Store): boolean => accountList(store).length >= 2;
 
 export function setEventsLoading(store: Store, key: string, loading: boolean): Store {
   const cur = store.events[key] ?? { items: [], total: 0, nextSeq: null, loading: false };
@@ -225,6 +248,19 @@ export function outsideOpenOf(store: Store, session: SessionDto): 'attach' | 'ad
   if (!l) return null;
   if (l.background) return 'attach';
   return l.status !== 'busy' && l.entrypoint === 'cli' ? 'adopt' : null;
+}
+
+/**
+ * サイドバーの「動いている」に載るセッションの id（実行中と入力待ち）。
+ * 始めた時刻の古い順に並べ、時刻の無いものは後ろ、同じ時刻は id の順にする。
+ * 状態や最後の活動では並べない。更新のたびに並びが揺れないようにするためである。
+ */
+export function liveSessionIds(store: Store): string[] {
+  const alive = runningSessionIds(store);
+  const at = (s: SessionDto) => s.startedAt ?? Number.POSITIVE_INFINITY;
+  return Object.values(store.sessions).filter((s) => liveFilterOfSession(store, s, alive) !== 'ended')
+    .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
+    .map((s) => s.id);
 }
 
 /**

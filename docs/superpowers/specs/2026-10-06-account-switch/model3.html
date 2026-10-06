@@ -1,0 +1,107 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>アカウントの札 試作 3</title><style>
+:root {
+  --bg: #eef1f7; --aura-1: #cfe0ff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-hi: #6b8cff; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-paused: #8a5a0b; --st-paused-soft: #faefd9; --error: #b3261e;
+  --ac-a: #2a57b8; --ac-b: #7a4a9e; --ac-c: #2b7048;
+  --font-sans: 'Inter', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif; --font-mono: 'JetBrains Mono', Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 13px/1.5 var(--font-sans); color: var(--ink); background: radial-gradient(900px 600px at 0 0, var(--aura-1), transparent 70%), var(--bg); background-attachment: fixed; }
+main { max-width: 1320px; margin: 0 auto; padding: 28px 24px 80px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 44px 0 4px; padding-bottom: 8px; border-bottom: 1px solid var(--line-strong); }
+.lead { color: var(--ink-2); margin: 0 0 16px; max-width: 800px; }
+.grid { display: grid; gap: 22px; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); align-items: start; }
+.opt { display: flex; flex-direction: column; gap: 8px; }
+.opt-head { display: flex; align-items: baseline; gap: 8px; }
+.opt-id { font: 700 12px var(--font-mono); color: #fff; background: var(--ink); border-radius: 6px; padding: 1px 7px; }
+.opt-name { font-weight: 700; }
+.opt-note { color: var(--ink-2); font-size: 12px; margin: 0; }
+.opt-note b { color: var(--ink); }
+.rec { font-size: 11px; font-weight: 700; color: var(--st-done); background: var(--st-done-soft); border-radius: 99px; padding: 1px 8px; }
+
+.dialog { border-radius: 18px; background: rgba(255,255,255,.92); box-shadow: inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5), 0 24px 50px -16px rgba(30,40,90,.45); display: flex; flex-direction: column; }
+.dialog-head { display: flex; align-items: center; gap: 8px; padding: 18px 20px 12px; font-size: 14px; font-weight: 700; }
+.dialog-body { display: flex; flex-direction: column; gap: 12px; padding: 2px 20px 16px; }
+.dialog-foot { display: flex; align-items: center; gap: 8px; padding: 12px 20px 16px; }
+.spacer { flex: 1; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.input { display: flex; align-items: center; height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; color: var(--ink); font-size: 13px; }
+.input.ph { color: var(--ink-3); }
+.input.focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(74,99,232,.18); }
+.listface { justify-content: space-between; gap: 8px; }
+.sub { color: var(--ink-3); font: 11px var(--font-mono); margin-left: 8px; }
+.caret { color: var(--ink-3); font-size: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 99px; font: 600 13px var(--font-sans); background: rgba(255,255,255,.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,.14); white-space: nowrap; }
+.btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 4px 12px -4px rgba(70,90,230,.6); }
+.kc { display: inline-flex; align-items: center; height: 17px; padding: 0 5px; border-radius: 5px; font: 600 10.5px var(--font-mono); background: rgba(255,255,255,.22); }
+.rest { height: 22px; border-radius: 8px; background: repeating-linear-gradient(90deg, var(--line) 0 60px, transparent 60px 68px); opacity: .7; }
+.faint { color: var(--ink-3); font-size: 12px; }
+
+.sq { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; font: 700 11px var(--font-sans); color: #fff; flex: none; }
+.sq.lg { width: 30px; height: 30px; border-radius: 9px; font-size: 14px; }
+.a { background: var(--ac-a); } .b { background: var(--ac-b); } .c { background: var(--ac-c); }
+.plan { font-size: 10.5px; font-weight: 600; color: var(--ink-2); background: var(--surface-2); border-radius: 99px; padding: 0 6px; white-space: nowrap; }
+.mail { font: 11px var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nm { font-weight: 700; font-size: 13px; color: var(--ink); white-space: nowrap; }
+
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cards.three { grid-template-columns: 1fr 1fr 1fr; }
+.card { min-width: 0; border-radius: 10px; background: #fff; box-shadow: inset 0 0 0 1px var(--line-strong); padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; }
+.card.on { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-soft); }
+.card-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.card-id { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.mrow { display: grid; grid-template-columns: 34px 1fr 30px; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-2); }
+.meter { height: 6px; border-radius: 99px; background: rgba(28,27,46,.08); overflow: hidden; }
+.meter > i { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
+.meter > i.hot { background: var(--busy); } .meter > i.full { background: var(--error); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.warn { font-size: 11px; font-weight: 600; color: var(--st-paused); }
+.stale { font-size: 10.5px; color: var(--ink-3); }
+
+.rows { border-radius: 10px; background: #fff; box-shadow: inset 0 0 0 1px var(--line-strong); overflow: hidden; }
+.arow { display: grid; grid-template-columns: 16px 30px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.arow:last-child { border-bottom: 0; }
+.arow.on { background: var(--accent-soft); }
+.radio { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-strong); background: #fff; }
+.arow.on .radio { box-shadow: inset 0 0 0 4.5px var(--accent); }
+.aid { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.aid-top { display: flex; align-items: center; gap: 6px; }
+.mini { display: grid; grid-template-columns: auto 54px 30px; align-items: center; gap: 2px 6px; font-size: 11px; color: var(--ink-2); }
+
+.ring { --p: 50; --c: var(--accent); width: 44px; height: 44px; border-radius: 50%; background: conic-gradient(var(--c) calc(var(--p) * 1%), rgba(28,27,46,.08) 0); display: grid; place-items: center; flex: none; }
+.ring > span { width: 34px; height: 34px; border-radius: 50%; background: #fff; display: grid; place-items: center; font: 700 11px var(--font-sans); font-variant-numeric: tabular-nums; }
+.card.on .ring > span { background: var(--accent-soft); }
+.ringrow { display: flex; align-items: center; gap: 10px; }
+.ringtxt { display: flex; flex-direction: column; font-size: 11px; color: var(--ink-2); line-height: 1.45; min-width: 0; }
+
+.pop { border-radius: 12px; background: rgba(255,255,255,.97); box-shadow: 0 10px 28px -12px rgba(30,40,90,.4), inset 0 0 0 1px var(--line-strong); padding: 5px; margin-top: -6px; }
+.pop .arow { border: 0; border-radius: 8px; padding: 7px 9px; grid-template-columns: 30px minmax(0,1fr) auto; }
+.add { display: flex; align-items: center; gap: 8px; padding: 7px 9px; color: var(--accent); font-weight: 600; font-size: 12px; border-top: 1px solid var(--line); margin-top: 4px; }
+
+.steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.step-n { font: 700 11px var(--font-mono); color: var(--ink-3); }
+.swatches { display: flex; gap: 6px; }
+.sw { width: 20px; height: 20px; border-radius: 6px; }
+.sw.on { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ink); }
+.term { border-radius: 12px; background: #1c1b2e; color: #e8e6f0; font: 11.5px/1.7 var(--font-mono); padding: 12px 14px; }
+.term .dim { color: #9a98b4; } .term .okc { color: #8fd6a8; }
+.done-line { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; background: var(--st-done-soft); color: var(--st-done); font-weight: 600; font-size: 12px; }
+</style></head><body><main><h1>アカウントの札 試作 3（印なし）</h1><p class="lead">頭文字の四角い印を外した形です。名前、メールアドレス、使用率はすべて仮の値です。</p><h2>1. 札</h2><div class="grid"><section class="opt"><div class="opt-head"><span class="opt-id">N1</span><span class="opt-name">印なし、横並びの札</span><span class="rec">推し</span></div><div class="dialog"><div class="dialog-head">新しいセッション</div><div class="dialog-body"><div class="field">プロジェクト<div class="input listface"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div></div><div class="field">アカウント<div class="cards"><div class="card on"><div class="card-top"><div class="card-id"><span class="nm">会社 <span class="plan">Max</span></span><span class="mail">taro@example.co.jp</span></div></div><div class="mrow">5 時間<div class="meter"><i class="hot" style="width:82%"></i></div><span class="num">82%</span></div><div class="mrow">7 日<div class="meter"><i class="" style="width:41%"></i></div><span class="num">41%</span></div></div><div class="card"><div class="card-top"><div class="card-id"><span class="nm">大学 <span class="plan">Enterprise</span></span><span class="mail">taro@example.ac.jp</span></div></div><div class="mrow">5 時間<div class="meter"><i class="" style="width:12%"></i></div><span class="num">12%</span></div><div class="mrow">7 日<div class="meter"><i class="" style="width:9%"></i></div><span class="num">9%</span></div></div></div></div><div class="rest"></div><div class="rest" style="height:40px"></div></div><div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">起動<span class="kc">⌘↵</span></span></div></div><p class="opt-note"><b>名前の文字がそのまま目印。</b>選んだ札は枠と地の色で分かる。色や頭文字を決める手間がなくなる。</p></section><section class="opt"><div class="opt-head"><span class="opt-id">N2</span><span class="opt-name">印なし、縦の一覧</span></div><div class="dialog"><div class="dialog-head">新しいセッション</div><div class="dialog-body"><div class="field">プロジェクト<div class="input listface"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div></div><div class="field">アカウント<div class="rows"><div class="arow on" style="grid-template-columns:16px minmax(0,1fr) auto"><span class="radio"></span><div class="aid"><div class="aid-top"><span class="nm">会社</span><span class="plan">Max</span></div><span class="mail">taro@example.co.jp</span></div><div class="mini"><span>5 時間</span><div class="meter"><i class="hot" style="width:82%"></i></div><span class="num">82%</span><span>7 日</span><div class="meter"><i style="width:41%"></i></div><span class="num">41%</span></div></div><div class="arow" style="grid-template-columns:16px minmax(0,1fr) auto"><span class="radio"></span><div class="aid"><div class="aid-top"><span class="nm">大学</span><span class="plan">Enterprise</span></div><span class="mail">taro@example.ac.jp</span></div><div class="mini"><span>5 時間</span><div class="meter"><i class="" style="width:12%"></i></div><span class="num">12%</span><span>7 日</span><div class="meter"><i style="width:9%"></i></div><span class="num">9%</span></div></div></div></div><div class="rest"></div><div class="rest" style="height:40px"></div></div><div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">起動<span class="kc">⌘↵</span></span></div></div><p class="opt-note"><b>印を外すと一覧がいちばんすっきりする。</b>名前とメールが左、使用量が右にそろう。</p></section><section class="opt"><div class="opt-head"><span class="opt-id">N3</span><span class="opt-name">印なし＋状態の一言</span></div><div class="dialog"><div class="dialog-head">新しいセッション</div><div class="dialog-body"><div class="field">プロジェクト<div class="input listface"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div></div><div class="field">アカウント<div class="cards"><div class="card on"><div class="card-top"><div class="card-id"><span class="nm">会社 <span class="plan">Max</span></span><span class="mail">taro@example.co.jp</span></div></div><div class="mrow">5 時間<div class="meter"><i class="full" style="width:96%"></i></div><span class="num">96%</span></div><div class="mrow">7 日<div class="meter"><i class="" style="width:41%"></i></div><span class="num">41%</span></div><span class="warn">まもなく上限。14:20 に戻ります</span></div><div class="card"><div class="card-top"><div class="card-id"><span class="nm">大学 <span class="plan">Enterprise</span></span><span class="mail">taro@example.ac.jp</span></div></div><div class="mrow">5 時間<div class="meter"><i class="" style="width:12%"></i></div><span class="num">12%</span></div><div class="mrow">7 日<div class="meter"><i class="" style="width:9%"></i></div><span class="num">9%</span></div><span class="stale">3 時間前の値</span></div></div></div><div class="rest"></div><div class="rest" style="height:40px"></div></div><div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">起動<span class="kc">⌘↵</span></span></div></div><p class="opt-note"><b>N1 に、上限が近いときと値が古いときの一言を足したもの。</b></p></section><section class="opt"><div class="opt-head"><span class="opt-id">N4</span><span class="opt-name">小さな色の点だけ</span></div><div class="dialog"><div class="dialog-head">新しいセッション</div><div class="dialog-body"><div class="field">プロジェクト<div class="input listface"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div></div><div class="field">アカウント<div class="cards"><div class="card on"><div class="card-top"><i style="width:8px;height:8px;border-radius:3px;background:var(--ac-a);flex:none"></i><div class="card-id"><span class="nm">会社 <span class="plan">Max</span></span><span class="mail">taro@example.co.jp</span></div></div><div class="mrow">5 時間<div class="meter"><i class="hot" style="width:82%"></i></div><span class="num">82%</span></div><div class="mrow">7 日<div class="meter"><i class="" style="width:41%"></i></div><span class="num">41%</span></div></div><div class="card"><div class="card-top"><i style="width:8px;height:8px;border-radius:3px;background:var(--ac-b);flex:none"></i><div class="card-id"><span class="nm">大学 <span class="plan">Enterprise</span></span><span class="mail">taro@example.ac.jp</span></div></div><div class="mrow">5 時間<div class="meter"><i class="" style="width:12%"></i></div><span class="num">12%</span></div><div class="mrow">7 日<div class="meter"><i class="" style="width:9%"></i></div><span class="num">9%</span></div></div></div></div><div class="rest"></div><div class="rest" style="height:40px"></div></div><div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">起動<span class="kc">⌘↵</span></span></div></div><p class="opt-note"><b>一覧やヘッダで色を手がかりにする場合の最小の印。</b>色を使わないなら要らない。</p></section><section class="opt"><div class="opt-head"><span class="opt-id">N5</span><span class="opt-name">比べるための、印あり（前の V1）</span></div><div class="dialog"><div class="dialog-head">新しいセッション</div><div class="dialog-body"><div class="field">プロジェクト<div class="input listface"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div></div><div class="field">アカウント<div class="cards"><div class="card on"><div class="card-top"><span class="sq lg a">会</span><div class="card-id"><span class="nm">会社 <span class="plan">Max</span></span><span class="mail">taro@example.co.jp</span></div></div><div class="mrow">5 時間<div class="meter"><i class="hot" style="width:82%"></i></div><span class="num">82%</span></div><div class="mrow">7 日<div class="meter"><i class="" style="width:41%"></i></div><span class="num">41%</span></div></div><div class="card"><div class="card-top"><span class="sq lg b">大</span><div class="card-id"><span class="nm">大学 <span class="plan">Enterprise</span></span><span class="mail">taro@example.ac.jp</span></div></div><div class="mrow">5 時間<div class="meter"><i class="" style="width:12%"></i></div><span class="num">12%</span></div><div class="mrow">7 日<div class="meter"><i class="" style="width:9%"></i></div><span class="num">9%</span></div></div></div></div><div class="rest"></div><div class="rest" style="height:40px"></div></div><div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">起動<span class="kc">⌘↵</span></span></div></div><p class="opt-note">名前の横に同じ意味の頭文字がもう 1 つ並ぶ。</p></section></div>
+<h2>2. 印をやめたときの、ほかの場所</h2>
+<p class="lead">印がなければ、ほかの場所も名前の文字で見せることになります。</p>
+<div class="grid">
+ <section class="opt"><div class="opt-head"><span class="opt-id">一覧</span><span class="opt-name">既定でないアカウントだけ、名前の札</span></div>
+  <div class="rows">
+   <div class="arow" style="grid-template-columns:minmax(0,1fr) auto"><div class="aid"><span class="nm">アカウントの切り替え</span><span class="faint">新規セッションで選べるようにする設計</span></div><span class="faint">3 分前</span></div>
+   <div class="arow" style="grid-template-columns:minmax(0,1fr) auto"><div class="aid"><div class="aid-top"><span class="nm">索引の見直し</span><span class="plan">大学</span></div><span class="faint">forgetVanished の安全弁を読む</span></div><span class="faint">18 分前</span></div>
+  </div><p class="opt-note">灰色の小さな札に名前だけ。色は使いません。</p></section>
+ <section class="opt"><div class="opt-head"><span class="opt-id">追加</span><span class="opt-name">名前を付けるだけ</span></div>
+  <div class="dialog"><div class="dialog-head">アカウントを追加</div><div class="dialog-body"><div class="field">名前<div class="input focus">大学</div></div><div class="faint">設定・スキル・履歴は今のものを共有します。このあとターミナルで claude のログインが開きます。</div></div>
+  <div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">ログインへ</span></div></div>
+  <p class="opt-note">色と頭文字を選ぶ段がなくなり、入力は名前の 1 つだけになります。</p></section>
+ <section class="opt"><div class="opt-head"><span class="opt-id">ヘッダ</span><span class="opt-name">使用量は名前つきで 1 組</span></div>
+  <div style="display:flex;align-items:center;gap:8px;height:44px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,.6);box-shadow:inset 0 0 0 1px rgba(255,255,255,.7),0 1px 3px rgba(30,40,90,.1);font-size:11px;color:var(--ink-2)"><b style="font:700 13px var(--font-mono);color:var(--ink)">Hangar_</b><span class="spacer"></span><span class="plan">会社</span>5h<div class="meter" style="width:46px"><i class="hot" style="width:82%"></i></div><b style="color:var(--ink)">82%</b>7d<div class="meter" style="width:46px"><i style="width:41%"></i></div><b style="color:var(--ink)">41%</b><span class="caret">▾</span></div>
+  <p class="opt-note">上限にいちばん近いアカウントを出し、押すと全アカウントの内訳が開きます（前の E2）。</p></section>
+</div></main></body></html>

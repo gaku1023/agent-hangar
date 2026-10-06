@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { Intent, SessionStatus, StatusFilter } from '@agent-hangar/shared';
 import { useEmit, type Emit } from '../intent/chain.tsx';
-import { CANDIDATE_SOURCE_LABEL, candidateLabel, candidateShortLabel, returnOnLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
+import { ACTIVE_LABEL, CANDIDATE_SOURCE_LABEL, candidateLabel, candidateShortLabel, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import type { ListItem, SectionId } from '../presenters/sections.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { MenuButton, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
@@ -25,14 +25,14 @@ const LIVE_WORD = { waiting: '入力待ち', busy: '実行中', idle: '実行中
  */
 const stopClick = (e: ReactMouseEvent) => e.stopPropagation();
 
-/** 「⋯」の 4 択（A2）。打鍵の印は試作 rest.html の A2 のとおり。付いている状態と、外すものの無い「印なしに戻す」は理由を添えて押せなくする。 */
+/** 「⋯」の 4 択（A2）。打鍵の印は試作 rest.html の A2 のとおり。付いている状態と、外すものの無い「Active に戻す」は理由を添えて押せなくする。 */
 function stateItems(r: SessionRowProps, emit: Emit): MenuItem[] {
   const set = (status: SessionStatus | null) => () => emit({ type: 'session.state.set', id: r.id, status });
   return [
     { key: 'paused', label: 'Paused にする…', kbd: 'p', onSelect: () => emit({ type: 'session.pause.open', id: r.id, from: 'menu' }) },
     { key: 'done', label: 'Done にする', kbd: 'd', disabled: r.state === 'done' ? 'すでに Done です' : null, onSelect: set('done') },
     { key: 'archived', label: 'Archived にする', kbd: 'a', disabled: r.state === 'archived' ? 'すでに Archived です' : null, onSelect: set('archived') },
-    { key: 'none', label: '印なしに戻す', kbd: 'u', disabled: r.state === null && r.candidate === null ? '印は付いていません' : null, onSelect: set(null) },
+    { key: 'active', label: 'Active に戻す', kbd: 'u', disabled: r.state === null && r.candidate === null ? 'すでに Active です' : null, onSelect: set(null) },
   ];
 }
 
@@ -50,7 +50,7 @@ function candidatePop(r: SessionRowProps, emit: Emit, onClose: (how: MenuCloseHo
   ];
   const head = (
     <>
-      <b className="menu-head-q">{c.status === 'done' ? 'Done にしますか' : `Paused · ${c.returnOn ? returnOnLabel(c.returnOn, null) : '日付なし'} にしますか`}</b>
+      <b className="menu-head-q">{c.status === 'done' ? 'Done にしますか' : `Paused · ${c.returnOn ? returnOnLabel(c.returnOn, null, c.returnTime) : '日付なし'} にしますか`}</b>
       <span>{c.note ?? '根拠は書かれていません'}</span>
       <small>出どころ：{CANDIDATE_SOURCE_LABEL[c.source]} · {c.ago}</small>
     </>
@@ -281,7 +281,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       {props.variant === 'project' && (
         <span className="row-meta">
           {r.model && <span className="mono">{r.model}{r.effort ? ` · ${r.effort}` : ''}</span>}
-          {r.filesChanged > 0 && <span>変更 {r.filesChanged}</span>}
+          {r.filesChanged > 0 && <span className="num">変更 {r.filesChanged}</span>}
           {r.prUrl && <a href={r.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>PR</a>}
           {r.cost && <span className="mono">{r.cost}</span>}
         </span>
@@ -302,22 +302,26 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
 
   // 時刻の列（F1）。幅を決めて右に寄せ、行ごとに位置がずれないようにする。
   // Paused の行は戻る日を出す（その行にとって意味のある日だから）。今日と過ぎたものと、戻る日が無いもの（日付なし）は塗る。
+  // 時刻つきは時刻も出し、当日でも時刻の前は塗らない（塗るかどうかは presenters/row.ts の returnDue が決める）。
   // 最後の活動はポインタを乗せると読める。
   const time = (r: SessionRowProps) => (
     <span className="row-time">
       {r.state === 'paused'
-        ? <span className="row-return" data-due={r.overdueDays !== null || r.returnOn === null ? 'true' : undefined} title={`戻る日 · 最後の活動 ${r.when}`}>{returnOnLabel(r.returnOn, r.overdueDays)}</span>
+        ? <span className="row-return" data-due={r.returnDue ? 'true' : undefined} title={`${r.returnTime ? `戻る時刻 ${returnOnLabel(r.returnOn, r.overdueDays, r.returnTime)}` : '戻る日'} · 最後の活動 ${r.when}`}>{returnOnRowLabel(r.returnOn, r.overdueDays, r.returnTime, r.returnPastMin)}</span>
         : <RelativeTime label={r.when} abs={r.whenAbs} />}
     </span>
   );
 
-  // 状態の列（F1）。状態の語の札（Done・Paused・Archived）を同じ幅で置き、状態の無い行は Claude の提案の札を置く。
+  // 状態の列（F1）。状態の語の札（Active・Paused・Done・Archived）を同じ幅で置き、どの行も空にしない。
+  // 状態の無い行は Active の札で、Claude の提案があればその札を代わりに置く。動いているかどうかは札に出さず、点と右の語が言う。
   // 状態と提案の両方を持つ行は無い（状態を正とし、提案は無いものとする。presenters/row.ts）。
   const status = (r: SessionRowProps) => (
     <span className="row-status">
       {r.state
         ? badge(r.state, STATUS_LABEL[r.state], <span className="row-sq" data-s={r.state} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{STATUS_LABEL[r.state]}</span>)
-        : r.candidate && <span className="row-act" onClick={stopClick}>{candidatePop(r, emit, (how) => candidateClosed(r.id, how))}</span>}
+        : r.candidate
+          ? <span className="row-act" onClick={stopClick}>{candidatePop(r, emit, (how) => candidateClosed(r.id, how))}</span>
+          : badge('active', ACTIVE_LABEL, <span className="row-sq" data-s="active">{ACTIVE_LABEL}</span>)}
     </span>
   );
 

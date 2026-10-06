@@ -7,6 +7,7 @@ import { upsertShared } from '../db/shared.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA } from '../../test/fixtures.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
 import { IndexerService } from './service.ts';
+import { expectMode, posixIt } from '../../test/platform.ts';
 
 let dir: string;
 let db: Db;
@@ -88,7 +89,8 @@ describe('IndexerService', () => {
     expect(count('select count(*) c from event_fts')).toBe(7 + 2 + 1 + 1);
   });
 
-  it('壊れたファイルは error に流し、他は進む', async () => {
+  // 書けない・読めない状態を chmod で作る。Windows の chmod ではできない。
+  posixIt('壊れたファイルは error に流し、他は進む', async () => {
     fs.mkdirSync(path.join(dir, 'projects/-x'));
     const bad = path.join(dir, 'projects/-x', 'cccccccc-0000-4000-8000-000000000001.jsonl');
     // 読めない通常ファイルを置き、statSync は通るが読み取りで失敗させる。
@@ -104,7 +106,8 @@ describe('IndexerService', () => {
     expect(svc.progress()).toEqual({ phase: 'idle', done: 4, total: 4 });
   });
 
-  it('読めないままのファイルは、中身が変わるまで一度しか知らせない', async () => {
+  // 書けない・読めない状態を chmod で作る。Windows の chmod ではできない。
+  posixIt('読めないままのファイルは、中身が変わるまで一度しか知らせない', async () => {
     fs.mkdirSync(path.join(dir, 'projects/-y'));
     const bad = path.join(dir, 'projects/-y', 'dddddddd-0000-4000-8000-000000000001.jsonl');
     fs.writeFileSync(bad, '{}\n');
@@ -210,7 +213,7 @@ describe('他端末の本文の索引化', () => {
     cleanups.push(() => svc.stop());
     await svc.start();
     // 他端末の会話の本文を置くので、~/.agent-hangar/mcp と同じく本人だけが読める。
-    expect(fs.statSync(root).mode & 0o777).toBe(0o700);
+    expectMode(root, 0o700);
     svc.stop();
   });
 

@@ -1,15 +1,17 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { LivePaneProps } from '../presenters/live.ts';
-import { LivePane } from './LivePane.tsx';
+import { fakeMotionTokens } from '../test/motion.ts';
+import { LivePane, snapSplit } from './LivePane.tsx';
 
 afterEach(cleanup);
 
 const pane = (p: Partial<LivePaneProps> = {}): LivePaneProps => ({
   lamp: { tone: 'busy', head: '2 本動いている', sub: '失敗 1' },
   intent: { kind: 'said', text: '答え終えた会話だけ止める', meta: 'Claude いわく・01:40・その後 3 手', stale: false },
-  steps: [{ text: 'テストを走らせる', mono: false, when: '01:41', mark: 'now' }],
+  steps: [{ key: '1', text: 'テストを走らせる', mono: false, when: '01:41', mark: 'now' }],
   lanes: [
     { agentId: 'tool:t9', title: '壊れる担当', tone: 'error', elapsed: '1 分', line: '失敗した', quoted: false, selectable: false },
     { agentId: 'a1', title: 'クラウドを査読', tone: 'running', elapsed: '4 分', line: 'テストを走らせる', quoted: false, selectable: true },
@@ -28,6 +30,12 @@ describe('LivePane', () => {
     expect(order.every((n) => n >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
+  it('pane が無ければ目次だけを描き、見出しと上の段と境目を出さない', () => {
+    render(<IntentRoot onIntent={vi.fn()}><LivePane sessionId="s1" pane={null}><div>目次</div></LivePane></IntentRoot>);
+    expect(screen.getByText('目次')).toBeInTheDocument();
+    expect(document.querySelector('.live-top')).toBeNull();
+    expect(screen.queryByRole('separator')).toBeNull();
+  });
   it('自己申告だけに引用符を付ける', () => {
     mount(pane());
     expect(screen.getByText('「済：README を直した」')).toBeTruthy();
@@ -42,6 +50,106 @@ describe('LivePane', () => {
   it('意図が無いときは言葉だけを出し、古い意図には印を付ける', () => {
     mount(pane({ intent: { kind: 'none', text: '意図は書かれていない' } }));
     expect(screen.getByText('意図は書かれていない')).toBeTruthy();
+  });
+  it('意図の箱は 1 つで、古い文の控えは動かない環境では出さない', () => {
+    const at = (text: string) => <IntentRoot onIntent={vi.fn()}><LivePane sessionId="s1" pane={pane({ intent: { kind: 'said', text, meta: 'm', stale: false } })}><div /></LivePane></IntentRoot>;
+    const { rerender } = render(at('A'));
+    rerender(at('B'));
+    expect(document.querySelectorAll('.live-intent')).toHaveLength(1);
+    expect(document.querySelector('.live-intent-ghost')).toBeNull();
+    expect(document.querySelector('.live-intent')).toHaveTextContent('B');
+  });
+  it('動く環境では、文が替わると古い文の控えを重ね、薄れ終えたら外す', async () => {
+    const restore = fakeMotionTokens({ '--dur-fast': '200ms', '--dur': '420ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+    const finish: (() => void)[] = [];
+    const frames: { el: Element; frames: Keyframe[] }[] = [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, f: Keyframe[]) {
+      frames.push({ el: this, frames: f });
+      return { finished: new Promise<void>((r) => finish.push(r)), cancel: vi.fn() };
+    };
+    try {
+      const at = (text: string) => <IntentRoot onIntent={vi.fn()}><LivePane sessionId="s1" pane={pane({ intent: { kind: 'said', text, meta: 'm', stale: false } })}><div /></LivePane></IntentRoot>;
+      const { rerender } = render(at('A'));
+      expect(document.querySelector('.live-intent-ghost')).toBeNull();
+      rerender(at('B'));
+      expect(document.querySelectorAll('.live-intent')).toHaveLength(1);
+      expect(document.querySelector('.live-intent-ghost')).toHaveTextContent('A');
+      expect(document.querySelector('.live-intent-now')).toHaveTextContent('B');
+      // 箱の高さの滑り、新しい文の入り、控えの抜けの 3 つが動く。
+      expect(frames.some((f) => f.el.classList.contains('live-intent') && 'height' in f.frames[0]!)).toBe(true);
+      expect(frames.some((f) => f.el.classList.contains('live-intent-now'))).toBe(true);
+      expect(frames.some((f) => f.el.classList.contains('live-intent-ghost'))).toBe(true);
+      await act(async () => { finish.forEach((f) => f()); await Promise.resolve(); });
+      expect(document.querySelector('.live-intent-ghost')).toBeNull();
+    } finally {
+      restore();
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    }
+  });
+  it('セッションを替えたときは、動く環境でも意図の入れ替えを動かさず、前の文の控えも出さない', () => {
+    const restore = fakeMotionTokens({ '--dur-fast': '200ms', '--dur': '420ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+    const frames: { el: Element; frames: Keyframe[] }[] = [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, f: Keyframe[]) {
+      frames.push({ el: this, frames: f });
+      return { finished: new Promise<void>(() => {}), cancel: vi.fn() };
+    };
+    try {
+      const at = (sessionId: string, text: string) => <IntentRoot onIntent={vi.fn()}><LivePane sessionId={sessionId} pane={pane({ intent: { kind: 'said', text, meta: 'm', stale: false } })}><div /></LivePane></IntentRoot>;
+      const { rerender } = render(at('s1', 'A'));
+      frames.length = 0;
+      rerender(at('s2', 'B'));
+      expect(document.querySelector('.live-intent-ghost')).toBeNull();
+      expect(document.querySelector('.live-intent')).toHaveTextContent('B');
+      expect(frames.filter((f) => f.el.classList.contains('live-intent') || f.el.classList.contains('live-intent-now') || f.el.classList.contains('live-intent-ghost'))).toHaveLength(0);
+    } finally {
+      restore();
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    }
+  });
+  describe('「いま」の出入りと目次の滑り', () => {
+    const frames: { el: Element; frames: Keyframe[] }[] = [];
+    let restore: () => void = () => {};
+    beforeEach(() => {
+      restore = fakeMotionTokens({ '--dur-fast': '200ms', '--dur': '420ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+      frames.length = 0;
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, f: Keyframe[]) {
+        frames.push({ el: this, frames: f });
+        return { finished: new Promise<void>(() => {}), cancel: vi.fn() };
+      };
+      // 目次は、上の段がある間は 200px、無いときは 40px の高さにあるとみなす。
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        const top = this.classList.contains('live-toc') && this.parentElement?.querySelector('.live-top') ? 200 : 40;
+        return { top, left: 0, right: 0, bottom: top, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+      });
+    });
+    afterEach(() => {
+      restore();
+      vi.restoreAllMocks();
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    });
+    const at = (sessionId: string, p: LivePaneProps | null) => <IntentRoot onIntent={vi.fn()}><LivePane sessionId={sessionId} pane={p}><div className="turns">目次</div></LivePane></IntentRoot>;
+    const tocSlides = () => frames.filter((f) => f.el.classList.contains('live-toc'));
+    it('「いま」が消えたら目次を前の位置から上へ滑らせ、戻ったら下へ滑らせて上の段を入れる', () => {
+      const { rerender } = render(at('s1', pane()));
+      const toc = document.querySelector('.live-toc');
+      frames.length = 0;
+      rerender(at('s1', null));
+      expect(document.querySelector('.live-toc')).toBe(toc);
+      expect(tocSlides().map((f) => f.frames[0]!.transform)).toEqual(['translate(0px, 160px)']);
+      frames.length = 0;
+      rerender(at('s1', pane()));
+      expect(tocSlides().map((f) => f.frames[0]!.transform)).toEqual(['translate(0px, -160px)']);
+      expect(frames.some((f) => f.el.classList.contains('live-top'))).toBe(true);
+    });
+    it('セッションを替えた描画では、目次を滑らせず、上の段も入れない', () => {
+      const { rerender } = render(at('s1', pane()));
+      frames.length = 0;
+      rerender(at('s2', null));
+      expect(tocSlides()).toHaveLength(0);
+      rerender(at('s3', pane()));
+      expect(tocSlides()).toHaveLength(0);
+      expect(frames.some((f) => f.el.classList.contains('live-top'))).toBe(false);
+    });
   });
   it('古い意図は data-stale を持つ', () => {
     mount(pane({ intent: { kind: 'said', text: 'x', meta: 'm', stale: true } }));
@@ -84,6 +192,18 @@ describe('LivePane', () => {
       fireEvent.doubleClick(sep);
       expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 0.5 });
     });
+    it('読み上げの範囲は 0〜100%', () => {
+      at(0);
+      const sep = screen.getByRole('separator');
+      expect(sep).toHaveAttribute('aria-valuemin', '0');
+      expect(sep).toHaveAttribute('aria-valuemax', '100');
+      expect(sep).toHaveAttribute('aria-valuenow', '0');
+    });
+    it('矢印キーは端で 0 と 1 に止まる', () => {
+      const onIntent = at(1);
+      fireEvent.keyDown(screen.getByRole('separator'), { key: 'ArrowDown' });
+      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 1 });
+    });
   });
   describe('成果物', () => {
     const art = { id: 'a1', title: '速習資料', description: null, favicon: '📄', url: 'https://claude.ai/code/artifact/a1', lastPublished: '11 時間前', versionCount: 1, canOpenEditor: true };
@@ -102,5 +222,20 @@ describe('LivePane', () => {
       mount(pane());
       expect(document.querySelector('.live-top')!.textContent).not.toMatch(/成果物/);
     });
+  });
+});
+
+describe('snapSplit', () => {
+  const m = { height: 600, topMin: 36, tocMin: 70 };
+  it('上の段が下限まで 24px 以内なら 0 に畳む', () => {
+    expect(snapSplit(50 / 600, m)).toBe(0);
+    expect(snapSplit(70 / 600, m)).toBeCloseTo(70 / 600);
+  });
+  it('目次が下限まで 24px 以内なら 1 に畳む', () => {
+    expect(snapSplit((600 - 80) / 600, m)).toBe(1);
+    expect(snapSplit((600 - 120) / 600, m)).toBeCloseTo(480 / 600);
+  });
+  it('高さが測れない（0）ときは畳まない', () => {
+    expect(snapSplit(0.4, { height: 0, topMin: 0, tocMin: 0 })).toBe(0.4);
   });
 });

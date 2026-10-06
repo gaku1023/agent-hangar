@@ -42,9 +42,9 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('create_session', D('プロジェクトで新しい Claude Code セッションを tmux 上に起動する。'), { project_id: z.string(), name: z.string().optional(), prompt: z.string().optional(), model: z.string().optional(), effort: z.string().optional(), permission_mode: z.string().optional(), scratch: z.boolean().optional() });
   reg('set_session_summary', D('このセッションの要約を更新する。依頼の完了、方針の変更、中断のときに呼ぶ。'), { session_id: z.string().optional(), title: z.string(), one_liner: z.string(), body: z.string(), state: STATE, next_steps: z.array(z.string()) });
   reg('set_turn_intent', D('このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。ターンを始めたときと方針を変えたときに呼ぶ。hangar の右ペインに出る。'), { session_id: z.string().optional(), text: z.string() });
-  reg('propose_session_status', D('このセッションの状態（Done か Paused）を提案する。利用者が会話の中で選んだときだけ confirmed を true にする。利用者に聞かずに true にしてはいけない。'), { session_id: z.string().optional(), status: z.enum(['done', 'paused']), note: z.string().describe('根拠の一文。必須（1〜200 字）'), return_on: z.string().optional().describe('戻る日。YYYY-MM-DD。paused では必須'), confirmed: z.boolean().optional().describe('利用者が会話の中で選んだときだけ true') });
+  reg('propose_session_status', D('このセッションの状態（Done か Paused）を提案する。利用者が会話の中で選んだときだけ confirmed を true にする。利用者に聞かずに true にしてはいけない。'), { session_id: z.string().optional(), status: z.enum(['done', 'paused']), note: z.string().describe('根拠の一文。必須（1〜200 字）'), return_on: z.string().optional().describe('戻る日。YYYY-MM-DD（手元の暦。過去の日は不可）。paused では必須'), return_time: z.string().optional().describe('戻る時刻。HH:MM（24 時間、00:00〜23:59、手元の時刻）。確かめる時刻に意味があるときだけ渡す。省くと「その日のうち」になる。return_on と合わせて過去になる時点は不可'), confirmed: z.boolean().optional().describe('利用者が会話の中で選んだときだけ true') });
   reg('set_session_memo', D('セッションの人間向け 1 行メモを書く。'), { session_id: z.string().optional(), text: z.string() });
-  reg('get_usage', D('Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。statusline から届いた最新の値。'), {});
+  reg('get_usage', D('Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。statusline から届いた最新の値。上の 3 項目は最初のアカウントの値で、accounts にアカウントごとの値（名前、いま使っているか、同じ 3 項目）が並ぶ。'), {});
   reg('open_in_hangar', D('セッションかプロジェクトを hangar の UI で開く URL とディープリンクを返す。'), { session_id: z.string().optional(), project_id: z.string().optional() });
   return server;
 }

@@ -71,7 +71,7 @@ describe('presentPalette（何も打っていないとき）', () => {
   });
   it('区切りを付けて休みのまま残っているものは、実行中ではなく最近に、終わったものと同じ見た目で置く', () => {
     const st = busy();
-    st.sessions.i1 = at(st.sessions.i1!, { parked: true, state: { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', setAt: NOW - MIN, candidate: null } });
+    st.sessions.i1 = at(st.sessions.i1!, { parked: true, state: { status: 'paused', note: '明日見る', returnOn: '2026-10-03', returnTime: null, setBy: 'conversation', setAt: NOW - MIN, candidate: null } });
     const p = presentPalette(withPalette(), st, '', NOW)!;
     expect(ids(p, '実行中')).toEqual(['session:b1']);
     expect(ids(p, '最近')[0]).toBe('session:i1');

@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>セッション画面の動きの試作</title>
+<style>
+:root {
+  --bg: #eef1f7; --aura-1: #cfe0ff; --aura-2: #e5d6ff;
+  --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88;
+  --accent: #4a63e8; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --error: #b3261e;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --term-bg: #1c1b2e; --term-fg: #e8e6f0; --term-tool: #ffb86b;
+  --glass-bg: rgba(255, 255, 255, 0.4);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --glass-drop: 0 10px 28px -12px rgba(30, 40, 90, 0.3);
+  --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+  --term-lift: 0 12px 26px -16px rgba(20, 20, 60, 0.55);
+  --font-sans: 'Inter', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs: 13px;
+  --row-h: 28px; --u: 4px; --r: 8px; --r-lg: 14px; --r-xl: 16px; --r-pill: 99px;
+  --float-gap: 8px; --header-h: 44px;
+  --dur-fast: 200ms; --dur: 420ms; --dur-exit: 250ms; --dur-flash: 1800ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --rise: 6px; --blur-in: 6px; --breathe-period: 3.2s;
+  --ctl-h: 214px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font-family: var(--font-sans); font-size: var(--fs); color: var(--ink); background: var(--bg); overflow: hidden; }
+button { font: inherit; }
+.faint { color: var(--ink-3); }
+
+/* ---- 殻 ---- */
+.stage { position: absolute; inset: 0 0 var(--ctl-h) 0; overflow: hidden; }
+.shell { position: relative; isolation: isolate; display: grid; grid-template-columns: 216px minmax(0, 1fr); grid-template-rows: var(--header-h) 1fr; height: 100%; overflow: clip; }
+.shell::before { content: ''; position: absolute; inset: -25%; z-index: -1; background: radial-gradient(40% 50% at 25% 15%, var(--aura-1), transparent 70%), radial-gradient(40% 50% at 85% 75%, var(--aura-2), transparent 70%); }
+.header { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: var(--glass-bg); backdrop-filter: blur(12px) saturate(1.9); box-shadow: inset 0 -1px 0 rgba(255,255,255,.6), 0 6px 18px -12px rgba(30,40,90,.3); z-index: 2; }
+.brand { width: 104px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.brand i { width: 22px; height: 22px; border-radius: 7px; background: linear-gradient(135deg, #6b8cff, #4a63e8); display: inline-block; }
+.search { height: 28px; width: 280px; border-radius: 99px; background: rgba(255,255,255,.7); display: flex; align-items: center; padding: 0 12px; color: var(--ink-3); font-size: var(--fs-sm); }
+.sidebar { grid-column: 1; grid-row: 2; margin: 8px 0 8px 8px; padding: 10px 8px; border-radius: var(--r-xl); background: var(--glass-bg); backdrop-filter: blur(12px) saturate(1.9); box-shadow: var(--glass-edge), var(--glass-drop); overflow: hidden; z-index: 2; }
+.nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 11px; border-radius: 10px; color: var(--ink-2); white-space: nowrap; }
+.nav-item[data-on] { background: rgba(255,255,255,.75); color: var(--ink); font-weight: 600; }
+.nav-ic { flex: none; width: 18px; height: 18px; border-radius: 5px; background: currentColor; opacity: .35; }
+.nav-label { transition: opacity var(--dur-fast) var(--ease-out); }
+.shell[data-sidebar='collapsed'] .nav-label { opacity: 0; }
+.side-toggle { margin-bottom: 6px; border: 0; background: none; color: var(--ink-2); height: 36px; width: 36px; border-radius: 10px; cursor: pointer; }
+.side-toggle:hover { background: rgba(255,255,255,.6); }
+.main { grid-column: 2; grid-row: 2; min-width: 0; overflow: hidden; display: flex; }
+.main-inner { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 8px 16px 16px 16px; }
+
+/* ---- 画面 ---- */
+.screen { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.screen.enter { animation: enter var(--dur) var(--ease-out); }
+@keyframes enter { from { opacity: 0; transform: translateY(var(--rise)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
+.heading { display: flex; align-items: center; gap: 10px; height: 36px; padding-bottom: 6px; border-bottom: 1px solid var(--line-strong); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--busy); flex: none; }
+.dot[data-s='idle'] { background: var(--ink-3); }
+.title { font-size: 18px; font-weight: 700; white-space: nowrap; }
+.oneliner { flex: 1; min-width: 0; color: var(--ink-2); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 12px; border: 0; border-radius: 99px; background: rgba(255,255,255,.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,.14); font-weight: 560; cursor: pointer; white-space: nowrap; }
+.btn-primary { background: var(--accent); color: #fff; }
+.info { display: flex; gap: 14px; font-size: var(--fs-sm); color: var(--ink-2); align-items: center; height: 20px; }
+.info b { color: var(--ink); font-weight: 560; }
+.roll { display: inline-flex; overflow: hidden; height: 1.4em; vertical-align: bottom; position: relative; }
+.roll > span { display: block; line-height: 1.4em; }
+.tabs { display: flex; align-items: flex-end; gap: 2px; height: 30px; }
+.tab { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 10px 10px 0 0; background: rgba(255,255,255,.5); color: var(--ink-2); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; }
+.tab[data-on] { background: var(--term-bg); color: var(--term-fg); }
+.tab-add { border: 0; background: none; color: var(--ink-3); height: 28px; width: 28px; border-radius: 8px; cursor: pointer; font-size: 16px; }
+.tabs-spacer { flex: 1; }
+.pane-btn { border: 0; background: rgba(255,255,255,.6); color: var(--ink-2); height: 26px; padding: 0 10px; margin-bottom: 2px; border-radius: 8px; cursor: pointer; font-size: var(--fs-sm); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.pane-btn:hover { background: #fff; color: var(--ink); }
+.pane-btn kbd { font-family: var(--font-mono); font-size: 10px; opacity: .6; }
+.pane-ic { display: inline-block; width: 14px; height: 12px; border: 1.5px solid currentColor; border-radius: 3px; position: relative; }
+.pane-ic::after { content: ''; position: absolute; top: 0; bottom: 0; right: 3px; width: 1.5px; background: currentColor; }
+
+.split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; column-gap: 8px; }
+.term-pane { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border-radius: 0 var(--r-lg) var(--r-lg) var(--r-lg); overflow: hidden; box-shadow: var(--term-lift); }
+.term-pane[data-live='busy'] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 90%, transparent), 0 0 22px -2px color-mix(in srgb, var(--busy) 45%, transparent), var(--term-lift); animation: rim-breathe var(--breathe-period) ease-in-out infinite; }
+@keyframes rim-breathe { 50% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 55%, transparent), 0 0 12px -4px color-mix(in srgb, var(--busy) 25%, transparent), var(--term-lift); } }
+.term-hints { flex: none; }
+.term-hint { padding: 5px 12px; background: var(--waiting); color: #fff; font-size: var(--fs-sm); overflow: hidden; }
+.term-hint[data-k='ended'] { background: #57546c; }
+.term-hint[data-k='band'] { background: #2f3a7a; display: flex; justify-content: space-between; }
+.term-host { flex: 1; min-height: 0; overflow: hidden; padding: 8px 10px; }
+.term-text { margin: 0; font: 12px/1.55 var(--font-mono); color: var(--term-fg); white-space: pre-wrap; word-break: break-all; }
+.term-text .t { color: var(--term-tool); }
+.term-text .p { color: #8fa2ff; }
+.term-status { position: absolute; right: 10px; bottom: 8px; font-size: var(--fs-xs); color: var(--term-fg); opacity: .7; }
+
+.tr-pane { min-width: 0; padding: 8px 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
+.tr-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tr-toggle { border: 0; background: transparent; color: var(--ink-2); height: var(--row-h); width: 28px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; }
+.tr-toggle:hover { background: var(--surface-2); }
+.split[data-closed='now'] .tr-pane { padding: 8px 0; }
+
+.live { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 8px; }
+.live-pane-head { display: flex; align-items: center; gap: 8px; height: var(--row-h); font-size: var(--fs-sm); flex: none; margin-left: -8px; }
+.live-top { display: flex; flex-direction: column; gap: 8px; flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.live[data-split='now'] .live-top, .live[data-split='cap'] .live-top { max-height: calc(var(--live-split) * 100%); }
+.live[data-split='fixed'] .live-top, .live[data-split='snap'] .live-top { flex: 0 0 calc(var(--live-split) * 100%); }
+.live-divider { position: relative; flex: none; height: 9px; margin: -4px 0; cursor: row-resize; touch-action: none; }
+.live-divider::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--line); transition: all var(--dur-fast) var(--ease-out); }
+.live-divider:hover::before, .live[data-dragging] .live-divider::before { top: 3px; height: 3px; border-radius: 2px; background: var(--accent); }
+.live-toc { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.live[data-split='now'] .live-toc { min-height: calc(var(--row-h) * 5); }
+.live[data-dragging] { cursor: row-resize; user-select: none; }
+.live-top > *, .live-sec > * { flex: none; }
+.live-lamp { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r); font-weight: 600; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out); }
+.live-lamp[data-tone='idle'] { color: var(--ink-2); background: var(--surface-2); }
+.live-lamp-sub { margin-left: auto; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-2); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--busy); animation: live-pulse var(--breathe-period) ease-in-out infinite; flex: none; }
+.live-dot[data-tone='idle'] { background: var(--ink-3); animation: none; }
+.live-dot[data-tone='done'] { background: var(--idle); animation: none; }
+@keyframes live-pulse { 50% { opacity: .3; } }
+.live-intent { position: relative; overflow: hidden; padding: 5px 9px; border-left: 3px solid var(--cand); border-radius: 0 var(--r) var(--r) 0; background: var(--cand-soft); }
+.live-intent-text { display: block; }
+.live-intent-meta { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--cand); }
+.live-sec { display: flex; flex-direction: column; gap: 2px; }
+.live-label { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.live-step { display: flex; align-items: center; gap: 8px; height: 22px; overflow: hidden; transition: color var(--dur) var(--ease-out); }
+.live-step[data-mark='now'] { color: var(--busy); font-weight: 560; }
+.live-step-ic { flex: none; width: 14px; text-align: center; font-size: var(--fs-xs); color: var(--idle); }
+.live-step-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-step-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.live-lane { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; column-gap: 8px; padding: 3px 7px; border-radius: var(--r); overflow: hidden; transition: background var(--dur) var(--ease-out); }
+.live-lane[data-tone='done'] { background: color-mix(in srgb, var(--idle) 9%, var(--surface)); }
+.live-lane-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-lane-time { font-size: var(--fs-xs); color: var(--ink-3); }
+.live-lane-line { grid-column: 2 / 4; font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--dur) var(--ease-out); }
+.live-lane[data-tone='done'] .live-lane-line { color: var(--idle); }
+.live-artifact { display: flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 7px; border-radius: var(--r); overflow: hidden; }
+.live-artifact-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.turns { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.turns-head { display: flex; align-items: center; gap: 8px; height: var(--row-h); flex: none; font-size: var(--fs-sm); }
+.turns-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: 4px 0; }
+.turn { flex: none; border-radius: var(--r); }
+.turn[data-open] { background: var(--surface-2); }
+.turn-row { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--r); background: transparent; color: var(--ink); text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.turn-row:hover { background: var(--surface-2); }
+.turn[data-open] > .turn-row { background: var(--accent-soft); color: var(--accent); font-weight: 560; }
+.turn-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); width: 34px; }
+.turn-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turn-tools { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.turn-body { overflow: hidden; }
+.turn-body-in { padding: 6px 10px 8px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+.turns-foot { display: flex; justify-content: flex-end; flex: none; padding-top: 8px; border-top: 1px solid var(--line); }
+.btn-sm { height: 22px; padding: 0 10px; font-size: var(--fs-sm); }
+.skel { flex: none; height: 26px; margin: 2px 0; border-radius: var(--r); background: linear-gradient(90deg, var(--surface-2), #fafbfd, var(--surface-2)); background-size: 200% 100%; animation: skel 1.4s linear infinite; }
+@keyframes skel { to { background-position: -200% 0; } }
+
+/* ---- 操作盤 ---- */
+.ctl { position: absolute; left: 0; right: 0; bottom: 0; height: var(--ctl-h); background: #fff; border-top: 1px solid var(--line-strong); padding: 8px 12px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 6px 14px; align-content: start; font-size: var(--fs-sm); }
+.ctl-g { display: flex; flex-direction: column; gap: 3px; padding: 4px 0; }
+.ctl-g h4 { margin: 0; font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; }
+.ctl-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.ctl button { height: 24px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; cursor: pointer; font-size: var(--fs-sm); }
+.ctl button:hover { border-color: var(--accent); color: var(--accent); }
+.ctl button.go { background: var(--accent); color: #fff; border-color: var(--accent); }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.seg label { padding: 2px 7px; cursor: pointer; border-right: 1px solid var(--line); white-space: nowrap; }
+.seg label:last-child { border-right: 0; }
+.seg input { display: none; }
+.seg label:has(input:checked) { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.note { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.45; }
+.global { grid-column: 1 / -1; display: flex; gap: 14px; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.global b { font-size: var(--fs); }
+</style>
+</head>
+<body>
+<div class="stage">
+<div class="shell" id="shell">
+  <header class="header"><div class="brand"><i></i>Hangar_</div><div class="search">検索 ⌘K</div></header>
+  <nav class="sidebar" id="sidebar">
+    <button class="side-toggle" id="sideToggle" title="サイドバーの開閉">☰</button>
+    <div class="nav-item"><span class="nav-ic"></span><span class="nav-label">ホーム</span></div>
+    <div class="nav-item"><span class="nav-ic"></span><span class="nav-label">プロジェクト</span></div>
+    <div class="nav-item" data-on><span class="nav-ic"></span><span class="nav-label">セッション</span></div>
+    <div class="nav-item"><span class="nav-ic"></span><span class="nav-label">アーティファクト</span></div>
+    <div class="nav-item"><span class="nav-ic"></span><span class="nav-label">設定</span></div>
+  </nav>
+  <main class="main"><div class="main-inner" id="inner">
+    <div class="screen" id="screen"></div>
+  </div></main>
+</div>
+</div>
+
+<div class="ctl" id="ctl">
+  <div class="global">
+    <b>セッション画面の動きの試作</b>
+    <span class="seg" data-name="speed"><label><input type="radio" name="speed" value="1" checked>等速</label><label><input type="radio" name="speed" value="3">スロー ×3</label></span>
+    <span class="seg" data-name="reduce"><label><input type="radio" name="reduce" value="0" checked>動きあり</label><label><input type="radio" name="reduce" value="1">動きを減らす</label></span>
+    <span class="note">各欄の「今」は今の挙動です。ボタンで出来事を起こし、上の画面で見比べてください。</span>
+  </div>
+
+  <div class="ctl-g"><h4>① 左のナビを畳む</h4>
+    <div class="ctl-row"><button class="go" data-do="side">開閉</button>
+    <span class="seg" data-name="gutter"><label><input type="radio" name="gutter" value="now">今（ロゴに揃う）</label><label><input type="radio" name="gutter" value="new" checked>帯のすぐ右</label></span></div>
+  </div>
+
+  <div class="ctl-g"><h4>② 右の欄を開閉（⌘J）</h4>
+    <div class="ctl-row"><button class="go" data-do="pane">開閉</button>
+    <span class="seg" data-name="pane"><label><input type="radio" name="pane" value="now">今</label><label><input type="radio" name="pane" value="a" checked>A 下へ潜る</label><label><input type="radio" name="pane" value="b">B 引き出し</label></span></div>
+    <div class="ctl-row"><span class="faint">開くボタン</span><span class="seg" data-name="btnloc"><label><input type="radio" name="btnloc" value="v1" checked>閉じたときだけタブの帯</label><label><input type="radio" name="btnloc" value="v2">いつもタブの帯</label></span></div>
+  </div>
+
+  <div class="ctl-g"><h4>③ ターンの目次</h4>
+    <div class="ctl-row"><button class="go" data-do="turn">ターンが増える</button><button data-do="turn3">3 つ続けて</button><button data-do="openTurn">最新を開閉</button></div>
+    <div class="ctl-row"><span class="seg" data-name="turn"><label><input type="radio" name="turn" value="now">今</label><label><input type="radio" name="turn" value="a" checked>A 浮かぶ</label><label><input type="radio" name="turn" value="b">B 浮かぶ＋光</label><label><input type="radio" name="turn" value="c">C 押し上げ</label></span></div>
+  </div>
+
+  <div class="ctl-g"><h4>④ 「いま」と目次の境目（ドラッグ）</h4>
+    <div class="ctl-row"><span class="seg" data-name="split"><label><input type="radio" name="split" value="now">今</label><label><input type="radio" name="split" value="fixed" checked>A 境目＝位置</label><label><input type="radio" name="split" value="snap">B A＋端で畳む</label></span></div>
+    <div class="note">今: 20〜80% に丸め、目次は 5 行分より縮まず、「いま」が短いと境目が止まる。A: 引いた所が境目になり、見出し 1 行分まで縮む。B: 端まで引くと片方を見出しだけに畳む。</div>
+  </div>
+
+  <div class="ctl-g"><h4>⑤ 「いま」の意図と手</h4>
+    <div class="ctl-row"><button class="go" data-do="intent">意図が変わる</button><button data-do="step">手が進む</button></div>
+    <div class="ctl-row"><span class="seg" data-name="intent"><label><input type="radio" name="intent" value="now">今</label><label><input type="radio" name="intent" value="a" checked>A 入れ替え</label><label><input type="radio" name="intent" value="b">B 転がる</label><label><input type="radio" name="intent" value="c">C その場で光る</label></span></div>
+  </div>
+
+  <div class="ctl-g"><h4>⑥ レーンと成果物</h4>
+    <div class="ctl-row"><button class="go" data-do="lane">レーンが増える</button><button data-do="laneDone">1 つ終わる</button><button data-do="art">成果物が増える</button></div>
+    <div class="ctl-row"><span class="seg" data-name="list"><label><input type="radio" name="list" value="now">今</label><label><input type="radio" name="list" value="a" checked>動かす（入る・出る・詰める）</label></span></div>
+  </div>
+
+  <div class="ctl-g"><h4>⑦ 見出し周りとタブ</h4>
+    <div class="ctl-row"><button class="go" data-do="summary">要約が届く</button><button data-do="tokens">数が変わる</button><button data-do="tab">タブを足す</button><button data-do="tabClose">タブを閉じる</button></div>
+    <div class="ctl-row"><span class="seg" data-name="head"><label><input type="radio" name="head" value="now">今</label><label><input type="radio" name="head" value="a" checked>動かす</label></span></div>
+  </div>
+
+  <div class="ctl-g"><h4>⑧ ターミナルの上の案内の帯</h4>
+    <div class="ctl-row"><button class="go" data-do="hint">信頼の案内</button><button data-do="band">「最新へ」の帯</button></div>
+    <div class="ctl-row"><span class="seg" data-name="hint"><label><input type="radio" name="hint" value="now">今</label><label><input type="radio" name="hint" value="a" checked>降りて来て、畳んで消える</label></span></div>
+  </div>
+
+  <div class="ctl-g"><h4>⑨ 開いた直後</h4>
+    <div class="ctl-row"><button class="go" data-do="reopen">画面を開き直す</button></div>
+    <div class="ctl-row"><span class="seg" data-name="boot"><label><input type="radio" name="boot" value="now">今</label><label><input type="radio" name="boot" value="a" checked>A 仮の行＋ふわっと</label><label><input type="radio" name="boot" value="b">B 空のまま＋ふわっと</label></span></div>
+  </div>
+
+  <div class="ctl-g"><h4>⑩ 会話が終わる</h4>
+    <div class="ctl-row"><button class="go" data-do="end">終わる</button><button data-do="resume">再開する</button></div>
+    <div class="ctl-row"><span class="seg" data-name="end"><label><input type="radio" name="end" value="now">今</label><label><input type="radio" name="end" value="a" checked>「いま」を畳み、目次が伸びる</label></span></div>
+  </div>
+</div>
+
+<script>
+/* ---------- 設定と動きの道具 ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const opt = (name) => { const el = document.querySelector(`input[name="${name}"]:checked`); return el ? el.value : null; };
+const BASE = { '--dur-fast': 200, '--dur': 420, '--dur-exit': 250, '--dur-flash': 1800 };
+function applySpeed() {
+  const k = opt('reduce') === '1' ? 0 : Number(opt('speed'));
+  for (const [n, v] of Object.entries(BASE)) document.documentElement.style.setProperty(n, `${v * k}ms`);
+  document.documentElement.style.setProperty('--rise', k ? '6px' : '0px');
+  document.documentElement.style.setProperty('--blur-in', k ? '6px' : '0px');
+}
+document.querySelectorAll('.ctl input').forEach((i) => i.addEventListener('change', () => { applySpeed(); if (i.name === 'split' || i.name === 'btnloc') renderPane(); if (i.name === 'gutter') applyGutter(false); }));
+const ms = (n) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(n)) || 0;
+const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
+const EASE_IN = 'cubic-bezier(0.4, 0, 1, 1)';
+const RISE = () => getComputedStyle(document.documentElement).getPropertyValue('--rise').trim();
+const BLUR = () => getComputedStyle(document.documentElement).getPropertyValue('--blur-in').trim();
+
+/* 入る：ぼかしが 20% で晴れ、--rise だけ上がって来る（今の enter と同じ形）。grow は高さも 0 から伸ばし、下の行を押し下げる。 */
+function enter(el, { grow = false, axis = 'y', flash = false } = {}) {
+  const d = ms('--dur');
+  if (grow) {
+    const h = axis === 'y' ? el.offsetHeight : el.offsetWidth;
+    const prop = axis === 'y' ? 'height' : 'width';
+    el.animate([{ [prop]: '0px', opacity: 0, filter: `blur(${BLUR()})` }, { offset: 0.2, filter: 'none' }, { [prop]: `${h}px`, opacity: 1, filter: 'none' }], { duration: d, easing: EASE });
+    if (axis === 'y') el.firstElementChild?.animate?.([{ transform: `translateY(${RISE()})` }, { transform: 'none' }], { duration: d, easing: EASE });
+  } else {
+    el.animate([{ opacity: 0, transform: `translateY(${RISE()})`, filter: `blur(${BLUR()})` }, { offset: 0.2, filter: 'none' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: d, easing: EASE });
+  }
+  if (flash) el.animate([{ backgroundColor: '#fff3c4' }, { backgroundColor: 'transparent' }], { duration: ms('--dur-flash'), delay: ms('--dur-exit'), easing: 'ease-out', fill: 'backwards' });
+}
+/* 出る：薄れながら高さを畳み、下の行が滑って詰める。終わったら外す。 */
+function exit(el, { axis = 'y' } = {}) {
+  const d = ms('--dur-exit');
+  const prop = axis === 'y' ? 'height' : 'width';
+  const h = axis === 'y' ? el.offsetHeight : el.offsetWidth;
+  el.style.pointerEvents = 'none';
+  const a = el.animate([{ [prop]: `${h}px`, opacity: 1 }, { opacity: 0, offset: 0.6 }, { [prop]: '0px', opacity: 0, marginTop: '0px', marginBottom: '0px', paddingTop: '0px', paddingBottom: '0px' }], { duration: d + ms('--dur-fast'), easing: EASE_IN, fill: 'forwards' });
+  if (!d) { el.remove(); return; }
+  a.onfinish = () => el.remove();
+}
+/* 並びの FLIP。mutate の前後で子の位置を測り、動いた子を前の位置から滑らせる。 */
+function flip(container, mutate) {
+  const before = new Map([...container.children].map((c) => [c, c.getBoundingClientRect()]));
+  mutate();
+  for (const c of container.children) {
+    const b = before.get(c); if (!b) continue;
+    const a = c.getBoundingClientRect();
+    const dy = b.top - a.top, dx = b.left - a.left;
+    if (dx || dy) c.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: ms('--dur'), easing: EASE });
+  }
+}
+/* 端末の折り返しを動きの間だけ止める（xterm の fit を止めるのと同じ）。終わったら 1 回だけ合わせ直す。 */
+function freezeTerm(run) {
+  const t = $('#termText');
+  if (!t) return run();
+  t.style.width = `${t.getBoundingClientRect().width}px`;
+  return Promise.resolve(run()).then(() => { t.style.width = ''; t.animate([{ opacity: 0.6 }, { opacity: 1 }], { duration: ms('--dur-fast') }); });
+}
+
+/* ---------- 状態 ---------- */
+const S = {
+  sidebar: 'open', pane: true, split: 0.42, live: true,
+  intent: 'セッション画面の開閉と更新にアニメーションを足すため、今の挙動を調べて試作を作る。',
+  intentAt: '12 秒前',
+  steps: [{ t: 'Read packages/ui/src/views/LivePane.tsx', w: '40 秒前' }, { t: 'Grep "transition" styles/', w: '25 秒前' }, { t: 'Write motion-proto.html', w: 'いま', now: true }],
+  lanes: [{ id: 'l1', title: 'アニメ現状の調査', line: 'base.css を読んでいる', tone: 'busy' }],
+  arts: [{ id: 'a1', title: '動きの試作' }],
+  turns: [], tabs: [{ id: 't0', name: 'Claude' }, { id: 't1', name: 'zsh' }], tabOn: 't0',
+  summary: null, tokens: 48210, hints: [], openTurn: null, laneN: 1, artN: 1, tabN: 1, intentN: 0, stepN: 0,
+};
+const TURN_TEXTS = ['セッション画面のアニメーションが不足している気がする', 'サイドバーを閉じた時にもっと画面全体を使って', 'ごめん両方です', '見出しの行に開くボタンなんてある？', '他にも追加できそうな部分ある？自然に', 'ターンと今の境界をもっと自由に', '試作を見せて', 'A で進めて', 'ビルドして入れ替えて'];
+for (let i = 0; i < 6; i++) S.turns.push({ seq: i, text: TURN_TEXTS[i], when: `${(6 - i) * 3}分前`, tools: `${3 + i * 2} 手` });
+const INTENTS = ['決まった条件をブラウザで触って比べられる試作にまとめる。', '境目の下限を外すため、比率の丸めと目次の最低の高さを調べる。', '選ばれた案で設計書を書き、利用者に確かめてもらう。', '右の欄の開閉を WAAPI で幅から補間する実装を書く。'];
+const STEPS = ['Edit views/SessionScreen.tsx', 'Bash npm test -w ui', 'Read styles/session.css', 'Edit views/TurnIndex.tsx', 'Bash npx vite build'];
+const LANES = ['テストの見直し', 'WebKit で崩れを拾う', 'reduced motion の確認'];
+const ARTS = ['設計書の草稿', '開閉の比較動画', '境目の試作'];
+
+/* ---------- 描画 ---------- */
+const TERM = () => `<span class="p">❯</span> セッション画面の動きを試作して
+
+<span class="t">⏺ Read</span>(packages/ui/src/views/SessionScreen.tsx)
+  ⎿  Read 236 lines
+<span class="t">⏺ Bash</span>(grep -rn "max-width\\|data-sidebar\\|grid-template-columns" styles/*.css | head -60)
+  ⎿  styles/base.css:33:.shell { --col1: calc(var(--sidebar-w) + var(--float-gap)); position: relative; isolation: isolate; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); }
+     styles/base.css:456:.split { display: grid; gap: calc(var(--u) * 2); transition: grid-template-columns var(--dur) var(--ease-out); }
+     styles/session.css:26:.shell[data-wide] { --main-w: 100vw; }
+
+⏺ 左のナビを畳んだとき、本文の左の余白は「ヘッダのロゴの右端に揃える」式で決まっているため、帯が細くなっても本文の左端はほとんど動かず、空いた分は余白になります。右の欄を閉じても 28px の列が残ります。ここを直し、開閉の動きを幅から補間するようにします。
+
+<span class="t">⏺ Write</span>(docs/superpowers/specs/2026-10-02-session-motion/motion-proto.html)
+  ⎿  Wrote 612 lines
+
+<span class="p">❯</span> `;
+
+function renderScreen() {
+  const sc = $('#screen');
+  sc.innerHTML = `
+    <div class="heading"><span class="dot" id="dot" data-s="${S.live ? 'busy' : 'idle'}"></span><span class="title">セッション画面の動き</span>
+      <span class="oneliner" id="oneliner">${S.summary ?? ''}</span>
+      <button class="btn btn-primary">${S.live ? '中断' : '再開'}</button><button class="btn">…</button></div>
+    <div class="info"><span>Opus 5.5</span><span>コンテキスト <b>42%</b></span><span>トークン <b class="roll" id="tok"><span>${S.tokens.toLocaleString()}</span></b></span><span>agent-hangar</span></div>
+    <div class="tabs" id="tabs"></div>
+    <div class="split" id="split">
+      <div class="term-pane" id="term" data-live="${S.live ? 'busy' : 'idle'}">
+        <div class="term-hints" id="hints"></div>
+        <div class="term-host"><pre class="term-text" id="termText">${TERM()}</pre></div>
+      </div>
+      <aside class="tr-pane" id="trPane"></aside>
+    </div>`;
+  renderTabs();
+  renderPane();
+  layoutPane(false);
+}
+function paneBtn() { return `<button class="pane-btn" data-do="pane" title="右の欄の開閉（⌘J）"><span class="pane-ic"></span>${S.pane ? '' : 'いま・ターン'}<kbd>⌘J</kbd></button>`; }
+function renderTabs() {
+  const el = $('#tabs');
+  const showBtn = opt('pane') !== 'now' && (opt('btnloc') === 'v2' || !S.pane);
+  el.innerHTML = S.tabs.map((t) => `<div class="tab" data-id="${t.id}" ${t.id === S.tabOn ? 'data-on' : ''}>${t.name}</div>`).join('') + `<button class="tab-add" data-do="tab">＋</button><span class="tabs-spacer"></span><span id="paneBtnSlot">${showBtn ? paneBtn() : ''}</span>`;
+}
+const TOGGLE = `<button class="tr-toggle" data-do="pane" title="右の欄の開閉（⌘J）"><span class="pane-ic"></span></button>`;
+function renderPane() {
+  const p = $('#trPane'); if (!p) return;
+  const mode = opt('pane');
+  if (!S.pane) { p.innerHTML = mode === 'now' ? TOGGLE : ''; return; }
+  const inPaneToggle = mode === 'now' || opt('btnloc') === 'v1';
+  const turns = `<div class="turns" id="turns"><div class="turns-head">${S.live ? '' : (inPaneToggle ? TOGGLE : '')}<b>ターン</b><span class="faint" id="turnCount">${S.turns.length}</span></div>
+      <div class="turns-list" id="turnList">${S.turns.map(turnHTML).join('')}</div>
+      <div class="turns-foot"><button class="btn btn-sm">最新へ</button></div></div>`;
+  if (!S.live) { p.innerHTML = `<div class="tr-inner">${turns}</div>`; scrollTurns(false); return; }
+  p.innerHTML = `<div class="tr-inner"><div class="live" id="live" data-split="${opt('split')}" style="--live-split:${S.split}">
+    <div class="live-pane-head">${inPaneToggle ? TOGGLE : ''}<span class="faint">いま</span></div>
+    <div class="live-top" id="liveTop">
+      <div class="live-lamp" id="lamp" data-tone="busy"><span class="live-dot" data-tone="busy"></span><span>作業中</span><span class="live-lamp-sub">ターン ${S.turns.length} · 2 分</span></div>
+      <div class="live-intent" id="intent"><span class="live-intent-text">${S.intent}</span><span class="live-intent-meta">意図 · ${S.intentAt}</span></div>
+      <div class="live-sec"><span class="live-label">手</span><div id="steps">${S.steps.map(stepHTML).join('')}</div></div>
+      <div class="live-sec"><span class="live-label">レーン</span><div id="lanes" style="display:flex;flex-direction:column;gap:2px">${S.lanes.map(laneHTML).join('')}</div></div>
+      <div class="live-sec"><span class="live-label">成果物</span><div id="arts">${S.arts.map(artHTML).join('')}</div></div>
+    </div>
+    <div class="live-divider" id="divider" tabindex="0"></div>
+    <div class="live-toc">${turns}</div></div></div>`;
+  scrollTurns(false);
+  bindDivider();
+}
+const turnHTML = (t) => `<div class="turn" data-seq="${t.seq}" ${S.openTurn === t.seq ? 'data-open' : ''}><button class="turn-row" data-turn="${t.seq}"><span class="turn-when">${t.when}</span><span class="turn-text">${t.text}</span><span class="turn-tools">${t.tools}</span></button>${S.openTurn === t.seq ? bodyHTML(t) : ''}</div>`;
+const bodyHTML = (t) => `<div class="turn-body"><div class="turn-body-in">「${t.text}」への応答の抜粋。ここを押すと左の Claude もこの指示へ跳ぶ。読んだファイル、書いたファイル、走らせたコマンドがこのあとに並ぶ。</div></div>`;
+const stepHTML = (s) => `<div class="live-step" ${s.now ? 'data-mark="now"' : ''}><span class="live-step-ic">${s.now ? '●' : '✓'}</span><span class="live-step-text">${s.t}</span><span class="live-step-when">${s.w}</span></div>`;
+const laneHTML = (l) => `<div class="live-lane" data-id="${l.id}" data-tone="${l.tone}"><span class="live-dot" data-tone="${l.tone === 'done' ? 'done' : 'busy'}"></span><span class="live-lane-title">${l.title}</span><span class="live-lane-time">${l.tone === 'done' ? '済み' : '1 分'}</span><span class="live-lane-line">${l.line}</span></div>`;
+const artHTML = (a) => `<div class="live-artifact" data-id="${a.id}"><span>▤</span><span class="live-artifact-title">${a.title}</span><span class="faint" style="font-size:11px">いま</span></div>`;
+function scrollTurns(smooth) {
+  const l = $('#turnList'); if (!l) return;
+  if (S.openTurn !== null) return;
+  l.scrollTo({ top: l.scrollHeight, behavior: smooth && ms('--dur') ? 'smooth' : 'auto' });
+}
+
+/* ---------- ① 左のナビ ---------- */
+function gutterPx() { return S.sidebar === 'collapsed' && opt('gutter') === 'now' ? 72 : 16; }
+function applyGutter() { $('#inner').style.paddingLeft = `${gutterPx()}px`; }
+function toggleSidebar() {
+  const shell = $('#shell');
+  const fromCol = S.sidebar === 'open' ? 216 : 60, fromG = gutterPx();
+  S.sidebar = S.sidebar === 'open' ? 'collapsed' : 'open';
+  const toCol = S.sidebar === 'open' ? 216 : 60, toG = gutterPx();
+  shell.dataset.sidebar = S.sidebar;
+  shell.style.gridTemplateColumns = `${toCol}px minmax(0, 1fr)`;
+  applyGutter();
+  const d = ms('--dur');
+  return freezeTerm(() => Promise.all([
+    shell.animate([{ gridTemplateColumns: `${fromCol}px minmax(0, 1fr)` }, { gridTemplateColumns: `${toCol}px minmax(0, 1fr)` }], { duration: d, easing: EASE }).finished,
+    $('#inner').animate([{ paddingLeft: `${fromG}px` }, { paddingLeft: `${toG}px` }], { duration: d, easing: EASE }).finished,
+  ]));
+}
+
+/* ---------- ② 右の欄 ---------- */
+function paneW() { const w = $('#split').getBoundingClientRect().width; return Math.max(240, Math.round(w * 0.26)); }
+function layoutPane() {
+  const sp = $('#split');
+  const mode = opt('pane');
+  if (S.pane) { sp.style.gridTemplateColumns = 'minmax(0, 1fr) minmax(240px, 26%)'; sp.style.columnGap = '8px'; sp.dataset.closed = ''; }
+  else if (mode === 'now') { sp.style.gridTemplateColumns = 'minmax(0, 1fr) 28px'; sp.style.columnGap = '8px'; sp.dataset.closed = 'now'; }
+  else { sp.style.gridTemplateColumns = 'minmax(0, 1fr) 0px'; sp.style.columnGap = '0px'; sp.dataset.closed = 'gone'; }
+  $('#trPane').style.visibility = !S.pane && mode !== 'now' ? 'hidden' : '';
+}
+async function togglePane() {
+  const mode = opt('pane');
+  const sp = $('#split'), p = $('#trPane');
+  if (mode === 'now') { S.pane = !S.pane; renderPane(); layoutPane(); renderTabs(); return; }
+  const total = sp.getBoundingClientRect().width;
+  const w = paneW();
+  const opening = !S.pane;
+  const d = ms('--dur');
+  const cols = (pw, gap) => ({ gridTemplateColumns: `${total - pw - gap}px ${pw}px`, columnGap: `${gap}px` });
+  const from = opening ? cols(0, 0) : cols(w, 8), to = opening ? cols(w, 8) : cols(0, 0);
+  // 中身は最後の幅のまま描いておき、列だけを広げる（中身が列と一緒に折り返さない）。
+  if (opening) { S.pane = true; renderPane(); }
+  p.style.visibility = '';
+  const inner = p.querySelector('.tr-inner') || p.firstElementChild;
+  p.style.minWidth = '0';
+  if (inner) inner.style.width = `${w - 24}px`;
+  if (inner) inner.style.flex = 'none';
+  const slot = $('#paneBtnSlot');
+  const run = async () => {
+    const anims = [sp.animate([from, to], { duration: d, easing: EASE }).finished];
+    if (inner) {
+      if (mode === 'a') {
+        anims.push(inner.animate(opening
+          ? [{ opacity: 0, filter: `blur(${BLUR()})` }, { offset: 0.35, filter: 'none' }, { opacity: 1, filter: 'none' }]
+          : [{ opacity: 1 }, { opacity: 0, filter: `blur(${BLUR()})` }], { duration: opening ? d : ms('--dur-exit'), easing: opening ? EASE : EASE_IN, fill: 'both' }).finished);
+      } else {
+        anims.push(p.animate(opening ? [{ transform: 'translateX(24px)', opacity: 0.4 }, { transform: 'none', opacity: 1 }] : [{ transform: 'none', opacity: 1 }, { transform: 'translateX(24px)', opacity: 0.4 }], { duration: d, easing: EASE, fill: 'both' }).finished);
+      }
+    }
+    // 開くボタンはタブの帯の右端で、閉じるときに入り、開くときに薄れて消える。
+    if (opt('btnloc') === 'v1') {
+      if (!opening) { S.pane = false; renderTabsBtnOnly(); const b = $('#paneBtnSlot .pane-btn'); if (b) enter(b); }
+      else { const b = $('#paneBtnSlot .pane-btn'); if (b) b.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ms('--dur-exit'), fill: 'forwards' }); }
+    } else { S.pane = opening; renderTabsBtnOnly(); }
+    await Promise.all(anims);
+  };
+  await freezeTerm(run);
+  S.pane = opening;
+  if (inner) { inner.style.width = ''; inner.style.flex = ''; inner.getAnimations().forEach((a) => a.cancel()); }
+  p.getAnimations().forEach((a) => a.cancel());
+  if (!opening) p.innerHTML = '';
+  layoutPane();
+  renderTabsBtnOnly();
+}
+function renderTabsBtnOnly() {
+  const slot = $('#paneBtnSlot');
+  const showBtn = opt('btnloc') === 'v2' || !S.pane;
+  if (showBtn && !slot.firstElementChild) slot.innerHTML = paneBtn();
+  else if (!showBtn) slot.innerHTML = '';
+  else slot.innerHTML = paneBtn();
+}
+
+/* ---------- ③ ターン ---------- */
+function addTurn() {
+  const list = $('#turnList'); if (!list) return;
+  const seq = S.turns.length;
+  const t = { seq, text: TURN_TEXTS[seq % TURN_TEXTS.length], when: 'いま', tools: '0 手' };
+  S.turns.forEach((x, i) => { if (x.when === 'いま') x.when = '1分前'; });
+  S.turns.push(t);
+  const mode = opt('turn');
+  const tmp = document.createElement('div'); tmp.innerHTML = turnHTML(t); const el = tmp.firstElementChild;
+  const prevNow = [...list.querySelectorAll('.turn-when')].find((w) => w.textContent === 'いま'); if (prevNow) prevNow.textContent = '1分前';
+  $('#turnCount') && rollText($('#turnCount'), String(S.turns.length), mode !== 'now');
+  const lampSub = $('#lamp .live-lamp-sub'); if (lampSub) lampSub.textContent = `ターン ${S.turns.length} · 2 分`;
+  if (mode === 'now') { list.appendChild(el); scrollTurns(false); return; }
+  if (mode === 'c') { flip(list, () => list.appendChild(el)); enter(el, { grow: true }); scrollTurns(true); return; }
+  list.appendChild(el);
+  enter(el, { flash: mode === 'b' });
+  scrollTurns(true);
+}
+function toggleTurnBody() {
+  const last = S.turns[S.turns.length - 1];
+  const node = $(`.turn[data-seq="${last.seq}"]`); if (!node) return;
+  const animate = opt('turn') !== 'now';
+  if (S.openTurn === last.seq) {
+    S.openTurn = null; node.removeAttribute('data-open');
+    const b = node.querySelector('.turn-body');
+    if (b && animate) exit(b); else b?.remove();
+  } else {
+    S.openTurn = last.seq; node.setAttribute('data-open', '');
+    node.insertAdjacentHTML('beforeend', bodyHTML(last));
+    const b = node.querySelector('.turn-body');
+    if (animate) enter(b, { grow: true });
+    const l = $('#turnList');
+    requestAnimationFrame(() => l.scrollTo({ top: node.offsetTop - l.offsetTop - 4, behavior: animate && ms('--dur') ? 'smooth' : 'auto' }));
+  }
+}
+
+/* ---------- ④ 境目 ---------- */
+function bindDivider() {
+  const dv = $('#divider'), live = $('#live'); if (!dv) return;
+  dv.onpointerdown = (e) => {
+    e.preventDefault();
+    const rect = live.getBoundingClientRect();
+    const mode = opt('split');
+    live.dataset.dragging = '';
+    const move = (ev) => {
+      let r = (ev.clientY - rect.top - 28 - 8) / (rect.height - 28 - 8);
+      if (mode === 'now') r = Math.max(0.2, Math.min(0.8, r));
+      else {
+        // 見出しの 1 行（ランプ、または目次の見出しと「最新へ」）は必ず残す。
+        const min = 44 / rect.height, max = 1 - (28 + 34 + 16) / rect.height;
+        r = Math.max(min, Math.min(max, r));
+      }
+      S.split = r; live.style.setProperty('--live-split', r);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      delete live.dataset.dragging;
+      if (mode === 'snap') {
+        const min = 44 / rect.height, max = 1 - (28 + 34 + 16) / rect.height;
+        const to = S.split < min + 0.06 ? min : S.split > max - 0.06 ? max : null;
+        if (to !== null) {
+          const from = S.split; S.split = to;
+          live.animate([{ '--live-split': from }, { '--live-split': to }], { duration: ms('--dur'), easing: EASE });
+          live.style.setProperty('--live-split', to);
+        }
+      }
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
+  dv.ondblclick = () => { const from = S.split; S.split = 0.42; live.style.setProperty('--live-split', 0.42); };
+}
+CSS.registerProperty?.({ name: '--live-split', syntax: '<number>', inherits: true, initialValue: '0.42' });
+
+/* ---------- ⑤ 意図と手 ---------- */
+function changeIntent() {
+  const box = $('#intent'); if (!box) return;
+  S.intent = INTENTS[S.intentN++ % INTENTS.length]; S.intentAt = 'いま';
+  const mode = opt('intent');
+  const html = `<span class="live-intent-text">${S.intent}</span><span class="live-intent-meta">意図 · いま</span>`;
+  if (mode === 'now') { box.innerHTML = html; return; }
+  const h0 = box.offsetHeight;
+  if (mode === 'a') {
+    const old = box.cloneNode(true); old.removeAttribute('id');
+    const r = box.getBoundingClientRect();
+    Object.assign(old.style, { position: 'fixed', left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, margin: 0, zIndex: 5, pointerEvents: 'none' });
+    document.body.appendChild(old);
+    old.animate([{ opacity: 1 }, { opacity: 0, transform: `translateY(calc(${RISE()} * -1))`, filter: `blur(${BLUR()})` }], { duration: ms('--dur-exit'), easing: EASE_IN, fill: 'forwards' }).onfinish = () => old.remove();
+    if (!ms('--dur-exit')) old.remove();
+    box.innerHTML = html;
+    const h1 = box.offsetHeight;
+    box.animate([{ height: `${h0}px` }, { height: `${h1}px` }], { duration: ms('--dur'), easing: EASE });
+    [...box.children].forEach((c) => c.animate([{ opacity: 0, transform: `translateY(${RISE()})`, filter: `blur(${BLUR()})` }, { offset: 0.2, filter: 'none' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: ms('--dur'), delay: ms('--dur-exit') * 0.5, easing: EASE, fill: 'backwards' }));
+  } else if (mode === 'b') {
+    const oldText = box.querySelector('.live-intent-text').cloneNode(true);
+    box.innerHTML = html;
+    const h1 = box.offsetHeight;
+    const nt = box.querySelector('.live-intent-text');
+    oldText.style.position = 'absolute'; oldText.style.left = '9px'; oldText.style.right = '9px'; oldText.style.top = '5px';
+    box.appendChild(oldText);
+    box.animate([{ height: `${h0}px` }, { height: `${h1}px` }], { duration: ms('--dur'), easing: EASE });
+    oldText.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateY(-110%)', opacity: 0 }], { duration: ms('--dur'), easing: EASE, fill: 'forwards' }).onfinish = () => oldText.remove();
+    if (!ms('--dur')) oldText.remove();
+    nt.animate([{ transform: 'translateY(110%)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: ms('--dur'), easing: EASE });
+  } else {
+    box.innerHTML = html;
+    const h1 = box.offsetHeight;
+    box.animate([{ height: `${h0}px` }, { height: `${h1}px` }], { duration: ms('--dur'), easing: EASE });
+    box.animate([{ backgroundColor: '#e2d9ff', boxShadow: '0 0 0 3px rgba(106,79,208,.18)' }, { backgroundColor: '#f1edff', boxShadow: '0 0 0 0 rgba(106,79,208,0)' }], { duration: ms('--dur-flash') * 0.6, easing: 'ease-out' });
+    box.querySelector('.live-intent-text').animate([{ opacity: 0, filter: `blur(${BLUR()})` }, { offset: 0.2, filter: 'none' }, { opacity: 1, filter: 'none' }], { duration: ms('--dur'), easing: EASE });
+  }
+}
+function advanceStep() {
+  const box = $('#steps'); if (!box) return;
+  const animate = opt('intent') !== 'now';
+  const cur = box.querySelector('[data-mark="now"]');
+  if (cur) { cur.removeAttribute('data-mark'); cur.querySelector('.live-step-ic').textContent = '✓'; cur.querySelector('.live-step-when').textContent = '1 秒前'; if (animate) cur.querySelector('.live-step-ic').animate([{ transform: 'scale(1.6)' }, { transform: 'none' }], { duration: ms('--dur'), easing: EASE }); }
+  const tmp = document.createElement('div'); tmp.innerHTML = stepHTML({ t: STEPS[S.stepN++ % STEPS.length], w: 'いま', now: true });
+  const el = tmp.firstElementChild;
+  box.appendChild(el);
+  if (animate) enter(el, { grow: true });
+  // 手は 4 つまで。古いものは畳んで消える。
+  while (box.children.length > 4) { const first = box.firstElementChild; if (animate) { first.dataset.leaving = '1'; exit(first); break; } else first.remove(); }
+  [...box.children].filter((c) => !c.dataset.leaving).length > 4 && box.firstElementChild.remove();
+}
+
+/* ---------- ⑥ レーンと成果物 ---------- */
+function addLane() {
+  const box = $('#lanes'); if (!box) return;
+  const l = { id: `l${++S.laneN}`, title: LANES[(S.laneN - 2) % LANES.length], line: '始めたところ', tone: 'busy' };
+  S.lanes.push(l);
+  const tmp = document.createElement('div'); tmp.innerHTML = laneHTML(l); const el = tmp.firstElementChild;
+  box.appendChild(el);
+  if (opt('list') !== 'now') enter(el, { grow: true });
+}
+function laneDone() {
+  const box = $('#lanes'); if (!box) return;
+  const el = [...box.children].find((c) => c.dataset.tone === 'busy' && !c.dataset.leaving); if (!el) return;
+  const animate = opt('list') !== 'now';
+  el.dataset.tone = 'done';
+  el.querySelector('.live-dot').dataset.tone = 'done';
+  el.querySelector('.live-lane-time').textContent = '済み';
+  el.querySelector('.live-lane-line').textContent = '終わった：結果を指揮役へ返した';
+  // 終わったレーンはしばらく緑で残し、そのあと畳んで消える。
+  setTimeout(() => { if (!el.isConnected) return; el.dataset.leaving = '1'; if (animate) exit(el); else el.remove(); }, animate ? 2400 * Math.max(1, Number(opt('speed'))) : 2400);
+}
+function addArt() {
+  const box = $('#arts'); if (!box) return;
+  const a = { id: `a${++S.artN}`, title: ARTS[(S.artN - 2) % ARTS.length] };
+  const tmp = document.createElement('div'); tmp.innerHTML = artHTML(a); const el = tmp.firstElementChild;
+  // 新しいものを上に足す。下の行は滑って下がる。
+  if (opt('list') === 'now') { box.prepend(el); return; }
+  flip(box, () => box.prepend(el));
+  enter(el, { grow: true, flash: true });
+}
+
+/* ---------- ⑦ 見出し周りとタブ ---------- */
+function rollText(el, text, animate) {
+  if (!animate || !ms('--dur')) { el.textContent = text; return; }
+  const old = el.textContent;
+  if (old === text) return;
+  el.classList.add('roll');
+  el.innerHTML = `<span>${old}</span>`;
+  const w0 = el.offsetWidth;
+  const o = el.firstElementChild;
+  const n = document.createElement('span'); n.textContent = text; n.style.position = 'absolute'; n.style.left = '0'; el.appendChild(n);
+  o.animate([{ transform: 'none', opacity: 1 }, { transform: 'translateY(-100%)', opacity: 0 }], { duration: ms('--dur'), easing: EASE, fill: 'forwards' });
+  n.animate([{ transform: 'translateY(100%)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: ms('--dur'), easing: EASE }).onfinish = () => { el.innerHTML = `<span>${text}</span>`; };
+}
+function summary() {
+  const el = $('#oneliner');
+  S.summary = 'セッション画面の開閉と更新に動きを足す。左右の欄は空いた分を本文が使う。';
+  el.textContent = S.summary;
+  if (opt('head') !== 'now') el.animate([{ opacity: 0, transform: 'translateX(-6px)', filter: `blur(${BLUR()})` }, { offset: 0.2, filter: 'none' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: ms('--dur'), easing: EASE });
+}
+function tokens() { S.tokens += 1200 + Math.floor(Math.random() * 3000); rollText($('#tok'), S.tokens.toLocaleString(), opt('head') !== 'now'); }
+function addTab() {
+  const t = { id: `t${++S.tabN + 1}`, name: `zsh ${S.tabN}` };
+  S.tabs.push(t);
+  const tabs = $('#tabs');
+  const tmp = document.createElement('div'); tmp.innerHTML = `<div class="tab" data-id="${t.id}">${t.name}</div>`; const el = tmp.firstElementChild;
+  tabs.insertBefore(el, tabs.querySelector('.tab-add'));
+  if (opt('head') !== 'now') enter(el, { grow: true, axis: 'x' });
+}
+function closeTab() {
+  const tabs = $('#tabs'); const list = [...tabs.querySelectorAll('.tab:not([data-on])')].filter((t) => !t.dataset.leaving);
+  const el = list[list.length - 1]; if (!el || S.tabs.length <= 1) return;
+  S.tabs = S.tabs.filter((t) => t.id !== el.dataset.id);
+  el.dataset.leaving = '1';
+  if (opt('head') !== 'now') exit(el, { axis: 'x' }); else el.remove();
+}
+
+/* ---------- ⑧ 案内の帯 ---------- */
+function toggleHint(kind) {
+  const box = $('#hints');
+  const ex = box.querySelector(`[data-k="${kind}"]`);
+  const animate = opt('hint') !== 'now';
+  if (ex) { if (animate) freezeTerm(() => { exit(ex); return new Promise((r) => setTimeout(r, ms('--dur-exit') + ms('--dur-fast'))); }); else ex.remove(); return; }
+  const tmp = document.createElement('div');
+  tmp.innerHTML = kind === 'trust' ? `<div class="term-hint" data-k="trust">このフォルダを信頼するか、左の Claude が尋ねています。↑↓ で選び Enter。</div>` : `<div class="term-hint" data-k="band"><span>会話の途中を見ています（3 分前）</span><span>最新へ ↓</span></div>`;
+  const el = tmp.firstElementChild;
+  box.appendChild(el);
+  if (animate) enter(el, { grow: true });
+}
+
+/* ---------- ⑨ 開いた直後 ---------- */
+function reopen() {
+  const mode = opt('boot');
+  const sc = $('#screen');
+  renderScreen();
+  sc.classList.remove('enter'); void sc.offsetWidth; sc.classList.add('enter');
+  const tt = $('#termText');
+  const term = $('#term');
+  const host = tt.parentElement;
+  const saved = tt.innerHTML;
+  tt.innerHTML = '';
+  const st = document.createElement('div'); st.className = 'term-status'; st.textContent = '接続しています'; term.appendChild(st);
+  const list = $('#turnList');
+  const savedTurns = list ? list.innerHTML : '';
+  if (list) list.innerHTML = mode === 'a' ? Array.from({ length: 6 }, (_, i) => `<div class="skel" style="width:${70 + (i * 37) % 30}%"></div>`).join('') : '';
+  setTimeout(() => {
+    if (list) {
+      list.innerHTML = savedTurns; list.scrollTop = list.scrollHeight;
+      if (mode !== 'now') list.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ms('--dur'), easing: EASE });
+    }
+  }, 500);
+  setTimeout(() => {
+    st.remove();
+    tt.innerHTML = saved;
+    if (mode !== 'now') tt.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ms('--dur'), easing: EASE });
+  }, 900);
+}
+
+/* ---------- ⑩ 終わる ---------- */
+async function endSession() {
+  if (!S.live || !S.pane) { S.live = false; renderScreen(); return; }
+  const mode = opt('end');
+  $('#term').dataset.live = 'idle';
+  $('#dot').dataset.s = 'idle';
+  if (mode === 'now') { S.live = false; renderPane(); return; }
+  const lamp = $('#lamp');
+  lamp.dataset.tone = 'idle'; lamp.querySelector('.live-dot').dataset.tone = 'idle'; lamp.children[1].textContent = '終わりました';
+  await new Promise((r) => setTimeout(r, ms('--dur')));
+  const top = $('#liveTop'), dv = $('#divider'), head = $('.live-pane-head');
+  const toc = $('.live-toc');
+  const tocTop = toc.getBoundingClientRect().top;
+  const d = ms('--dur');
+  [top, dv, head].forEach((el) => el.animate([{ opacity: 1 }, { opacity: 0, filter: `blur(${BLUR()})` }], { duration: ms('--dur-exit'), easing: EASE_IN, fill: 'forwards' }));
+  await new Promise((r) => setTimeout(r, ms('--dur-exit')));
+  S.live = false; renderPane();
+  const t2 = $('#turns');
+  const dy = tocTop - t2.getBoundingClientRect().top;
+  t2.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: d, easing: EASE });
+  t2.querySelector('.turns-head').animate([{ opacity: 0 }, { opacity: 1 }], { duration: d, easing: EASE });
+  await new Promise((r) => setTimeout(r, d));
+}
+function resume() { S.live = true; renderScreen(); const sc = $('#screen'); sc.classList.remove('enter'); void sc.offsetWidth; sc.classList.add('enter'); }
+
+/* ---------- 配線 ---------- */
+const ACTIONS = {
+  side: toggleSidebar, pane: togglePane, turn: addTurn, turn3: () => { addTurn(); setTimeout(addTurn, 180 * Number(opt('speed'))); setTimeout(addTurn, 360 * Number(opt('speed'))); }, openTurn: toggleTurnBody,
+  intent: changeIntent, step: advanceStep, lane: addLane, laneDone, art: addArt,
+  summary, tokens, tab: addTab, tabClose: closeTab, hint: () => toggleHint('trust'), band: () => toggleHint('band'),
+  reopen, end: endSession, resume,
+};
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-do]'); if (b && ACTIONS[b.dataset.do]) { ACTIONS[b.dataset.do](); return; }
+  const t = e.target.closest('[data-turn]');
+  if (t) { const seq = Number(t.dataset.turn); if (seq === S.turns[S.turns.length - 1].seq) toggleTurnBody(); }
+});
+document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'j') { e.preventDefault(); togglePane(); } });
+applySpeed();
+renderScreen();
+applyGutter();
+$('#sideToggle').onclick = toggleSidebar;
+</script>
+</body>
+</html>
