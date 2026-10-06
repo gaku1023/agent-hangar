@@ -155,8 +155,16 @@ describe('ConfirmDialog（アカウントを一覧から外す）', () => {
     const dialog = screen.getByRole('dialog', { name: '大学 を一覧から外しますか？' });
     expect(dialog).toHaveTextContent('登録を外すだけで、置き場（ログインと設定のリンク）は残ります。');
     expect(dialog).toHaveTextContent('このアカウントで動かしたセッションは、次から最初のアカウントで再開します。');
-    expect(dialog.classList.contains('dialog-danger')).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: '外す' }));
+    // 同じ種類の「一覧から削除」と同じく、赤い丸と赤く塗った承諾のボタンで、並びも「やめる」が承諾の左に寄る。
+    expect(dialog.classList.contains('dialog-danger')).toBe(true);
+    expect(dialog.querySelector('.dialog-disc [data-icon="unlink"]')).not.toBeNull();
+    const remove = screen.getByRole('button', { name: '外す' });
+    expect(remove).toHaveClass('btn-danger', 'btn-danger-fill');
+    expect(remove.querySelector('[data-icon="unlink"]')).not.toBeNull();
+    const footer = remove.parentElement!;
+    expect([...footer.children].map((c) => c.textContent)).toEqual(['', 'やめる', '外す']);
+    expect(footer.children[0]).toHaveClass('spacer');
+    fireEvent.click(remove);
     expect(onIntent).toHaveBeenCalledWith({ type: 'account.remove', accountId: 'a1', confirmed: true });
   });
   it('やめる側にフォーカスを置き、やめると閉じる', () => {

@@ -87,9 +87,10 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
     return (
       <Dialog
         title={`${name} を一覧から外しますか？`}
-        icon="warning"
+        danger
+        icon="unlink"
         onClose={close}
-        footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'account.remove', accountId: c.accountId, confirmed: true })}>外す</button></>}
+        footer={<><span className="spacer" />{cancel}<button type="button" className="btn btn-danger btn-danger-fill" onClick={() => emit({ type: 'account.remove', accountId: c.accountId, confirmed: true })}><Icon name="unlink" />外す</button></>}
       >
         <div className="muted">登録を外すだけで、置き場（ログインと設定のリンク）は残ります。</div>
         <div className="faint">このアカウントで動かしたセッションは、次から最初のアカウントで再開します。</div>
