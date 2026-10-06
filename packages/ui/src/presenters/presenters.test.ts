@@ -4,6 +4,7 @@ import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPrev
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { toSyncState } from '../mediator/sync.ts';
 import { initialState } from '../mediator/transition.ts';
+import { accountsFixture } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
@@ -1002,6 +1003,70 @@ describe('presentShell の使用量', () => {
     expect(empty.usage).toEqual({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
     const store = { ...initialStore(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
     expect(presentShell(initialState(), store, NOW).usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
+  });
+});
+
+describe('presentShell のアカウント', () => {
+  const two = (): Store => ({ ...storeWith(), accounts: accountsFixture, usage: { fiveHour: { usedPercent: 5, resetsAt: null }, sevenDay: { usedPercent: 6, resetsAt: null }, updatedAt: NOW - 600_000 } });
+  const at = (screen: State['screen']): State => ({ ...initialState(), screen });
+  it('アカウントが 1 件、または store.accounts が null なら account は null で、usage は store.usage から作る', () => {
+    const base = { ...storeWith(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
+    const expected = { fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' };
+    const none = presentShell(initialState(), base, NOW);
+    expect(none.account).toBeNull();
+    expect(none.usage).toEqual(expected);
+    const solo = presentShell(initialState(), { ...base, accounts: { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] } }, NOW);
+    expect(solo.account).toBeNull();
+    expect(solo.usage).toEqual(expected);
+    const empty = presentShell(at({ name: 'session', id: 's1' }), { ...base, accounts: { currentId: '', accounts: [], sessions: {} } }, NOW);
+    expect(empty.account).toBeNull();
+    expect(empty.usage).toEqual(expected);
+  });
+  it('2 件・ホームでは、いまのアカウントを出し、計器もその値で作る（sessionId は null）', () => {
+    const p = presentShell(initialState(), two(), NOW);
+    expect(p.account?.shown.id).toBe('primary');
+    expect(p.account?.shown.name).toBe('会社');
+    expect(p.account?.sessionId).toBeNull();
+    expect(p.account?.working).toBe(false);
+    expect(p.account?.list.map((a) => a.id)).toEqual(['primary', 'a1']);
+    expect(p.account?.list.map((a) => a.current)).toEqual([true, false]);
+    expect(p.usage).toEqual({ fiveHour: 82, sevenDay: 41, fiveHourResets: resetsLabel(1000, NOW), sevenDayResets: resetsLabel(2000, NOW), updatedLabel: relativeTime(500, NOW) });
+  });
+  it('いまのアカウントが大学なら、ホームでも大学を出す', () => {
+    const p = presentShell(initialState(), { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
+    expect(p.account?.shown.id).toBe('a1');
+    expect(p.usage.fiveHour).toBe(12);
+  });
+  it('2 件・セッション画面では、そのセッションのアカウントを出し、計器もその値で作る', () => {
+    const store = two();
+    store.sessions = { ...store.sessions, s9: session('s9', { live: 'busy' }) };
+    const p = presentShell(at({ name: 'session', id: 's9' }), store, NOW);
+    expect(p.account?.shown.id).toBe('a1');
+    expect(p.account?.shown.name).toBe('大学');
+    expect(p.account?.sessionId).toBe('s9');
+    expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 9 });
+    // 並びと current は、画面に関わらず、いまのアカウント（会社）のまま。
+    expect(p.account?.list.map((a) => [a.id, a.current])).toEqual([['primary', true], ['a1', false]]);
+  });
+  it('2 件・セッション画面で対応に無いセッションは、最初のアカウントを出す', () => {
+    const p = presentShell(at({ name: 'session', id: 's1' }), { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
+    expect(p.account?.shown.id).toBe('primary');
+    expect(p.account?.sessionId).toBe('s1');
+    expect(p.usage.fiveHour).toBe(82);
+  });
+  it('working は、そのセッションが作業中（busy か waiting）のときだけ真になる', () => {
+    const store = two();
+    const w = (live: SessionDto['live'] | 'missing', state: State = at({ name: 'session', id: 's9' })) => {
+      const sessions = live === 'missing' ? { ...store.sessions } : { ...store.sessions, s9: session('s9', { live }) };
+      return presentShell(state, { ...store, sessions }, NOW).account?.working;
+    };
+    expect(w('busy')).toBe(true);
+    expect(w('waiting')).toBe(true);
+    expect(w('idle')).toBe(false);
+    expect(w(null)).toBe(false);
+    expect(w('missing')).toBe(false);
+    // ホームでは、動いているセッションがあっても関係しない。
+    expect(w('busy', at({ name: 'home' }))).toBe(false);
   });
 });
 

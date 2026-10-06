@@ -146,3 +146,39 @@
 .menu-item[aria-disabled='true'] > .icon { color: var(--ink-3); }
 .menu-item[data-danger='true'], .menu-item[data-danger='true'] > .icon { color: var(--error); }
 .menu-sep { height: 0; margin: var(--u) calc(var(--u) * 1.5); border-top: 1px solid rgba(30, 40, 90, 0.08); }
+
+/* アカウントの切り替えの開いた先（views/AccountSwitcher.tsx）。
+   面は .menu-pop をそのまま使い（ガラスはそこにだけ書く）、幅は位置の計算が 380px で決める。
+   アカウントごとに 1 枚の札で、選ぶ札は青い 2px の輪、押せない札は薄くする。 */
+.account-pop { gap: calc(var(--u) * 2); padding: calc(var(--u) * 2.5); outline: none; }
+.account-cards { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.account-card { position: relative; display: block; width: 100%; padding: 9px 11px; border: 0; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.account-card:hover, .account-card:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--accent); }
+.account-card[aria-checked='true'] { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.account-card[aria-disabled='true'] { cursor: default; }
+.account-card[aria-disabled='true']:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.account-card[aria-disabled='true'] .account-meters { opacity: 0.6; }
+/* 札の右上の一言。名前の行が重ならないよう、行の右に余地を空ける。 */
+.account-card-tag { position: absolute; top: 9px; right: 11px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.account-card-tag[data-kind='shown'] { font-weight: 700; color: var(--accent); }
+.account-card .account-meters-head { padding-right: 96px; }
+
+/* 札の中身（views/primitives/AccountMeters.tsx）。切り替えの開いた先と、新規セッションのダイアログの札で使い回す。 */
+.account-meters { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); min-width: 0; }
+.account-meters-head { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
+.account-meters-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.account-plan { flex: none; padding: 0 6px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-xs); font-weight: 600; }
+.account-mail { min-height: 1.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); font-size: var(--fs-xs); }
+.account-mail[data-auth='out'] { color: var(--error); }
+.account-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 36px 92px; align-items: center; gap: calc(var(--u) * 2); color: var(--ink-2); font-size: var(--fs-xs); }
+.account-row .gauge-bar { width: 100%; }
+.account-row-num { text-align: right; color: var(--ink-3); }
+.account-row-num[data-high='true'] { color: var(--waiting); font-weight: 700; }
+.account-row-resets { white-space: nowrap; text-align: right; color: var(--ink-3); }
+.account-none { color: var(--ink-3); font-size: var(--fs-xs); }
+.account-note { color: var(--ink-3); font-size: var(--fs-xs); }
+.account-note[data-tone='warn'] { color: var(--st-paused); font-weight: 600; }
+
+.account-pop-foot { display: flex; justify-content: flex-end; padding: 0 calc(var(--u) * 1); }
+.account-settings { padding: var(--u) calc(var(--u) * 2); border: 0; border-radius: 8px; background: none; color: var(--accent); font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
+.account-settings:hover { background: rgba(255, 255, 255, 0.92); }

@@ -80,6 +80,46 @@ describe('ヘッダーの右の列を畳む仕組み', () => {
   });
 });
 
+describe('ヘッダのアカウントの切り替え', () => {
+  const controls = read('./controls.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const controlsRule = (sel: string) => {
+    const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?:^|\\n)${esc} \\{([^}]*)\\}`).exec(controls)?.[1] ?? '';
+  };
+  // 窓を掴む領域の中で、ほかの部品と同じく 0 まで縮み、はみ出しは切る。
+  it('ボタンは 0 まで縮み、はみ出しは切る', () => {
+    expect(rule('.header .account-switch')).toContain('min-width: 0;');
+    expect(rule('.header .account-switch')).toContain('overflow: hidden;');
+    expect(rule('.header .account-switch')).toContain('flex: 0 100 auto;');
+  });
+  // 切る箱の中では、外へ描く輪が欠ける。
+  it('フォーカスの輪は内側に描く', () => {
+    expect(rule('.header .account-switch:focus-visible')).toContain('outline-offset: -2px;');
+  });
+  // 仕切りの線はボタンの面に替わる。ボタンの中の計器に、もう 1 本引かない。
+  it('ボタンの中の計器には、仕切りの線も左の余白も付けない', () => {
+    expect(rule('.header .account-switch .gauges')).toContain('padding-left: 0;');
+    expect(rule('.header .account-switch .gauges::before')).toContain('display: none;');
+  });
+  // 名前は畳んでも読み上げに残す。隠すのは畳む印（data-folded）だけが行う。
+  it('名前を隠す規則はどこにも無い', () => {
+    for (const r of rules.filter((x) => x.selector.includes('account-name'))) expect(r.body).not.toMatch(/display:\s*none|clip-path/);
+  });
+  it('名前は、ゲージの見出しと同じ大きさ（--fs-xs）の 600 の字', () => {
+    expect(rule('.header .account-name')).toContain('font-size: var(--fs-xs);');
+    expect(rule('.header .account-name')).toContain('font-weight: 600;');
+  });
+  // 開いた先の面は .menu-pop で、ぼかしは新しい選択子に書かない（glass.test.ts）。
+  it('開いた先の規則に backdrop-filter を書かない', () => {
+    expect(controlsRule('.account-pop')).not.toContain('backdrop-filter');
+    expect(controlsRule('.account-pop')).toContain('outline: none;');
+  });
+  it('選んだ札は青い 2px の輪、押せない札は薄くする', () => {
+    expect(controlsRule(".account-card[aria-checked='true']")).toContain('inset 0 0 0 2px var(--accent)');
+    expect(controlsRule(".account-card[aria-disabled='true'] .account-meters")).toContain('opacity: 0.6;');
+  });
+});
+
 describe('ヘッダの列と検索欄の位置', () => {
   // ヘッダは殻の列を subgrid で使う。container はレイアウトの封じ込めを伴い、封じ込めのある要素では subgrid が効かない。
   it('ヘッダは subgrid で殻の列を使い、大きさの入れ物は内側の行に付ける', () => {

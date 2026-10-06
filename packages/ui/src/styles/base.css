@@ -439,6 +439,20 @@ a:hover { text-decoration: underline; }
 /* ゲージの見出し（5 時間、週）。
    何の割合かが読めるよう、ゲージを出している間は隠さない。見出しの無い数字は読めないので、畳むときはゲージの組ごと畳む。 */
 .header .gauge-key { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+/* アカウントの切り替え（views/AccountSwitcher.tsx）。アカウントが 2 件以上あるときだけ現れる。
+   色の点、名前、計器、▾ の全体が 1 つのボタンで、ゲージの前の仕切りはこのボタンの面に替わる。
+   窓を掴む領域の中の押す部品なので、ボタンにする。ほかの部品と同じく 0 まで縮み、はみ出しは切る。
+   切る箱の中でフォーカスの輪が欠けないよう、輪は内側に描く。 */
+.header .account-switch { position: relative; display: inline-flex; align-items: center; gap: calc(var(--u) * 2); flex: 0 100 auto; min-width: 0; overflow: hidden; height: var(--row-h); margin-left: calc(var(--u) * 2); padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink); font: inherit; white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.header .account-switch:hover, .header .account-switch[aria-expanded='true'] { background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 0 0 1px var(--accent); }
+.header .account-switch:focus-visible { outline-offset: -2px; }
+.header .account-switch .gauges { padding-left: 0; }
+.header .account-switch .gauges::before { display: none; }
+/* 名前は、ゲージの見出し（.gauge-key）と同じ大きさの字にする。 */
+.header .account-name { font-size: var(--fs-xs); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.header .account-caret { flex: none; color: var(--ink-3); font-size: var(--fs-xs); line-height: 1; }
+/* 値が一度も届いていない間の 1 語。 */
+.header .account-none { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
 /* ゲージと同期の見た目は workbench.css と sync.css が後から読み込まれて決める。
    畳む規則は、どれも .header か .header-row から書いて詳細度を上げ、後に読まれる規則に負けないようにする。 */
 /* 畳んだ部品。見えなくするが、読み上げには残す（.sr-only と同じ形）。
