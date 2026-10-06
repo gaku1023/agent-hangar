@@ -1,13 +1,12 @@
 import { useRef, type KeyboardEvent } from 'react';
-import type { AccountView } from '../presenters/accounts.ts';
-import { isPickableAccount } from '../presenters/newSession.ts';
+import { isPickableAccount, type AccountView } from '../presenters/accounts.ts';
 import { AccountMeters } from './primitives/AccountMeters.tsx';
 
 /**
  * 新規セッションのダイアログで、どのアカウントで起こすかを選ぶ横並びの札。
  * アカウントごとに 1 枚の札（radio）で、中身は AccountMeters（色の点、名前、プラン、メール、計器、注記）。
  * 枠が戻る時刻は計器の右に添えない。注記が言うからである。
- * 未ログインとログインの途中の札は aria-disabled で選べない。理由は札の中身（メールの行）が言う。
+ * 未ログインと初めてのログインの途中の札は aria-disabled で選べない。理由は札の中身（メールの行）が言う。
  * 矢印キーは選べる隣の札へ移して選び、端では反対の端へ回る（Segmented と同じ操作）。
  * 色は AccountMeters が描く。ここでは色を扱わない。
  */

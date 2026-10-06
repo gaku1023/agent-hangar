@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AccountDto } from '@agent-hangar/shared';
 import { initialStore } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
-import { presentAccount, presentAccounts } from './accounts.ts';
+import { isPickableAccount, presentAccount, presentAccounts, type AccountView } from './accounts.ts';
 import { resetsLabel } from './format.ts';
 
 const MIN = 60_000;
@@ -36,6 +36,16 @@ describe('presentAccount', () => {
     expect(view({ auth: { ...base.auth!, loggedIn: true } }).auth).toBe('in');
     expect(view({ loginRunning: true }).auth).toBe('running');
     expect(view({ loginRunning: true, auth: null }).auth).toBe('running');
+  });
+  it('loggedIn：認証が読めていてログイン済みなら真。し直しの途中は running のまま真、初回の途中と未読は偽', () => {
+    expect(view().loggedIn).toBe(true);
+    expect(view({ auth: { ...base.auth!, loggedIn: false } }).loggedIn).toBe(false);
+    expect(view({ auth: null }).loggedIn).toBe(false);
+    const again = view({ loginRunning: true });
+    expect([again.auth, again.loggedIn, again.email]).toEqual(['running', true, 'taro@example.co.jp']);
+    const first = view({ loginRunning: true, auth: { ...base.auth!, loggedIn: false } });
+    expect([first.auth, first.loggedIn]).toEqual(['running', false]);
+    expect(view({ loginRunning: true, auth: null }).loggedIn).toBe(false);
   });
   it('計器：80 以上は high、resets は resetsLabel の文、値の無い窓は null', () => {
     const v = view({ usage: { fiveHour: { usedPercent: 82, resetsAt: NOW + 3 * HOUR }, sevenDay: { usedPercent: 41, resetsAt: NOW + 30 * HOUR }, updatedAt: NOW - MIN } });
@@ -87,5 +97,18 @@ describe('presentAccounts', () => {
   });
   it('store.accounts が null なら空の配列', () => {
     expect(presentAccounts(initialStore(), NOW)).toEqual([]);
+  });
+});
+
+describe('isPickableAccount', () => {
+  const of = (auth: AccountView['auth'], loggedIn: boolean): AccountView => ({ ...view(), auth, loggedIn });
+  it.each([
+    ['out', false, false],
+    ['running', false, false],
+    ['running', true, true],
+    ['in', true, true],
+    ['unknown', false, true],
+  ] as const)('auth が %s で loggedIn が %s なら、選べる:%s', (auth, loggedIn, want) => {
+    expect(isPickableAccount(of(auth, loggedIn))).toBe(want);
   });
 });

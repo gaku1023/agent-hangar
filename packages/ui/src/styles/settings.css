@@ -100,7 +100,7 @@
 .account-set-list { margin: calc(var(--u) * 2) 0 0; padding: 0; list-style: none; }
 .account-set { border-bottom: 1px solid var(--line); }
 .account-set:last-child { border-bottom: 0; }
-.account-set-row { display: grid; grid-template-columns: 8px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.6fr) 116px; align-items: center; gap: calc(var(--u) * 3); min-height: calc(var(--row-h) + var(--u) * 3); padding: 0 calc(var(--u) * 3); font-size: var(--fs-sm); white-space: nowrap; }
+.account-set-row { display: grid; grid-template-columns: 8px minmax(0, 0.8fr) fit-content(260px) minmax(0, 2fr) 116px; align-items: center; gap: calc(var(--u) * 3); min-height: calc(var(--row-h) + var(--u) * 3); padding: 0 calc(var(--u) * 3); font-size: var(--fs-sm); white-space: nowrap; }
 .account-set-who { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
 .account-set-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink); }
 .account-set-tag { flex: none; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
@@ -110,6 +110,10 @@
 .account-set-state { color: var(--ink-2); }
 .account-set-state[data-auth='out'] { color: var(--error); }
 .account-set-acts { display: flex; align-items: center; gap: calc(var(--u) * 2); justify-content: flex-end; }
+/* 状態の列（プランとメール）に残りの幅を渡し、置き場の列は中身の幅まで（長いときだけ省略）。メールは入らないときだけ省略し、承認の添え書きは切らない。 */
+.account-set-state { display: flex; align-items: baseline; gap: calc(var(--u) * 2); }
+.account-set-ident { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.account-set-approve { flex: none; color: var(--ink-3); font-size: var(--fs-xs); }
 /* 色を選ぶ帯。点は大きめの押せる面に載せ、選んでいる色に輪を付ける。 */
 .account-set-colors { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 0 calc(var(--u) * 3) calc(var(--u) * 2) calc(var(--u) * 3 + 8px + var(--u) * 3); }
 .account-set-color { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-out); }

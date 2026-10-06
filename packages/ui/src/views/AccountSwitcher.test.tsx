@@ -18,10 +18,27 @@ const inSession = (over: Partial<Account> = {}): Account => ({ shown: list[1]!, 
 const mount = (account: Account) => {
   const onIntent = vi.fn();
   render(<IntentRoot onIntent={onIntent}><AccountSwitcher account={account}><span data-testid="gauges">計器</span></AccountSwitcher></IntentRoot>);
-  const face = screen.getByRole('button', { name: `アカウントを切り替える（いまは ${account.shown.name}）` });
+  const face = screen.getByRole('button', { name: new RegExp(`^アカウントを切り替える（いまは ${account.shown.name}[、）]`) });
   return { onIntent, face };
 };
 const card = (name: RegExp | string) => screen.getByRole('menuitemradio', { name });
+
+describe('AccountSwitcher のボタンの読み上げ', () => {
+  const label = (shown: Account['shown']) => mount(home({ shown })).face.getAttribute('aria-label');
+  it('名前に、5 時間と週の使用率（丸めた値）を添える', () => {
+    expect(label({ ...list[0]!, fiveHour: { percent: 82.4, high: true, resets: null }, sevenDay: { percent: 40.6, high: false, resets: null } })).toBe('アカウントを切り替える（いまは 会社、5 時間 82%、週 41%）');
+  });
+  it('値の無い窓は言わない', () => {
+    expect(label({ ...list[0]!, fiveHour: { percent: 82, high: true, resets: null }, sevenDay: null })).toBe('アカウントを切り替える（いまは 会社、5 時間 82%）');
+    document.body.innerHTML = '';
+    expect(label({ ...list[0]!, fiveHour: null, sevenDay: { percent: 41, high: false, resets: null } })).toBe('アカウントを切り替える（いまは 会社、週 41%）');
+  });
+  it('値が 1 つも無ければ名前だけで、メールアドレスは入れない', () => {
+    const l = label({ ...list[0]!, fiveHour: null, sevenDay: null });
+    expect(l).toBe('アカウントを切り替える（いまは 会社）');
+    expect(l).not.toContain('@');
+  });
+});
 
 describe('AccountSwitcher のボタン', () => {
   it('色の点と名前と計器と ▾ を 1 つのボタンに入れ、dialog を開く印を持つ', () => {
@@ -157,8 +174,8 @@ describe('AccountSwitcher で札を押す', () => {
     // ログイン済みの札は押せる印を持たない。
     expect(card(/会社/)).not.toHaveAttribute('aria-disabled');
   });
-  it('ログインの途中の札も押せず、右上は空で、メールの行が承認を促す', () => {
-    const running = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'running' as const } : a));
+  it('初めてのログインの途中の札も押せず、右上は空で、メールの行が承認を促す', () => {
+    const running = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'running' as const, loggedIn: false, email: null } : a));
     const { face, onIntent } = mount(home({ list: running }));
     fireEvent.click(face);
     onIntent.mockClear();
@@ -169,6 +186,19 @@ describe('AccountSwitcher で札を押す', () => {
     fireEvent.click(univ);
     expect(onIntent).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+  it('ログインし直しの途中の札は押せて、メールも承認の添え書きも見える', () => {
+    const again = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'running' as const, loggedIn: true } : a));
+    const { face, onIntent } = mount(home({ list: again }));
+    fireEvent.click(face);
+    onIntent.mockClear();
+    const univ = card(/大学/);
+    expect(univ).not.toHaveAttribute('aria-disabled');
+    expect(within(univ).getByText('切り替える')).toBeInTheDocument();
+    expect(within(univ).getByText('taro@example.ac.jp')).toBeInTheDocument();
+    expect(within(univ).getByText('ブラウザで承認してください…')).toBeInTheDocument();
+    fireEvent.click(univ);
+    expect(onIntent.mock.calls).toEqual([[{ type: 'account.choose', accountId: 'a1' }]]);
   });
   it('認証がまだ読めていない（unknown）札は、今までどおり押せる', () => {
     const unknown = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'unknown' as const } : a));

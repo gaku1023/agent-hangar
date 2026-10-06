@@ -1,21 +1,34 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useEmit } from '../intent/chain.tsx';
-import { homePath, type AccountView } from '../presenters/accounts.ts';
+import { APPROVE_TEXT, LOGGED_OUT_TEXT, homePath, type AccountView } from '../presenters/accounts.ts';
 import type { AccountSettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
+
+/**
+ * 行の「ログイン」と「やめる」は、押すとすぐ同じ場所で入れ替わる。
+ * 入れ替わった直後の押下（ダブルクリックの 2 回目）で打ち消し合わないよう、この間だけ押せなくする。
+ * 動きのトークンの長さに合わせた値で、数値の直書きが禁じられる CSS ではなくここに 1 か所だけ置く。
+ */
+const SWAP_GUARD_MS = 600;
 
 /** 選べる色の呼び名。読み上げと title に使う。知らない色は #rrggbb のまま呼ぶ。 */
 const COLOR_NAMES: Record<string, string> = { '#2a57b8': '青', '#7a4a9e': '紫', '#2b7048': '緑', '#c77a1a': '橙', '#a2452f': '赤茶' };
 const colorName = (c: string) => COLOR_NAMES[c] ?? c;
 
-/** 状態の文。ログイン済みは「プラン・メール」で、どちらかが無ければある方だけ。未読は空。 */
-function stateText(a: AccountView): string {
+/**
+ * 状態の文を、本体と添え書きに分ける。
+ * ログイン済みは「プラン・メール」で、どちらかが無ければある方だけ。未読は空。
+ * ログインし直しの途中は、「プラン・メール」を出したまま、承認の添え書きを足す。
+ * 初めてのログインの途中は、承認の添え書きだけ。
+ */
+function stateParts(a: AccountView): { main: string; hint: string } {
+  const who = [a.plan, a.email].filter((x): x is string => x !== null).join('・');
   switch (a.auth) {
-    case 'out': return '未ログイン';
-    case 'running': return 'ブラウザで承認してください…';
-    case 'in': return [a.plan, a.email].filter((x): x is string => x !== null).join('・');
-    case 'unknown': return '';
+    case 'out': return { main: LOGGED_OUT_TEXT, hint: '' };
+    case 'running': return a.loggedIn ? { main: who, hint: APPROVE_TEXT } : { main: '', hint: APPROVE_TEXT };
+    case 'in': return { main: who, hint: '' };
+    case 'unknown': return { main: '', hint: '' };
   }
 }
 
@@ -74,7 +87,20 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
   const a = props.account;
   const [editing, setEditing] = useState(false);
   const [coloring, setColoring] = useState(false);
-  const state = stateText(a);
+  const { main, hint } = stateParts(a);
+  const kind = a.auth === 'out' ? 'login' : a.auth === 'running' ? 'cancel' : null;
+  const [guarded, setGuarded] = useState(false);
+  const prevKind = useRef(kind);
+  // 「ログイン」と「やめる」が入れ替わった直後だけ、押せなくする。
+  useLayoutEffect(() => {
+    const before = prevKind.current;
+    prevKind.current = kind;
+    if (before === null || kind === null || before === kind) { setGuarded(false); return undefined; }
+    setGuarded(true);
+    const t = setTimeout(() => setGuarded(false), SWAP_GUARD_MS);
+    return () => clearTimeout(t);
+  }, [kind]);
+  const state = [main, hint].filter((x) => x !== '').join(' ');
   const path = homePath(a.dir);
   const items: MenuItem[] = [
     { key: 'rename', label: '名前を変える', onSelect: () => { setColoring(false); setEditing(true); } },
@@ -97,10 +123,13 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
           {a.primary && <span className="account-set-tag">最初のアカウント</span>}
         </span>
         <span className="account-set-dir mono" title={a.dir}>{path}</span>
-        <span className="account-set-state" data-auth={a.auth} title={state}>{state}</span>
+        <span className="account-set-state" data-auth={a.auth} title={state}>
+          <span className="account-set-ident">{main}</span>
+          {hint !== '' && <span className="account-set-approve">{hint}</span>}
+        </span>
         <span className="account-set-acts">
-          {a.auth === 'out' && <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'account.login', accountId: a.id })}>ログイン</button>}
-          {a.auth === 'running' && <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'account.login.cancel', accountId: a.id })}>やめる</button>}
+          {a.auth === 'out' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login', accountId: a.id })}>ログイン</button>}
+          {a.auth === 'running' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login.cancel', accountId: a.id })}>やめる</button>}
           <MenuButton label={`${a.name}の操作`} items={items} minWidth={240} />
         </span>
       </div>

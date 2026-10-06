@@ -10,6 +10,8 @@ export type AccountView = {
   email: string | null;
   /** 未読は 'unknown'、未ログインは 'out'、ログイン済みは 'in'、ログインの途中は 'running'。 */
   auth: 'unknown' | 'out' | 'in' | 'running';
+  /** 認証が読めていて、ログイン済みか。未読は false。ログインし直しの途中（auth が running）でも、元がログイン済みなら true。 */
+  loggedIn: boolean;
   fiveHour: AccountGauge | null; sevenDay: AccountGauge | null;
   /** 値の時刻の文（「3 分前」）。1 度も届いていなければ null。 */
   updatedLabel: string | null;
@@ -18,6 +20,10 @@ export type AccountView = {
   linkProblem: string | null;
   dir: string;
 };
+
+/** 認証の状態を言う文。AccountMeters と設定の行が同じものを使う。 */
+export const LOGGED_OUT_TEXT = '未ログイン';
+export const APPROVE_TEXT = 'ブラウザで承認してください…';
 
 const PLANS: Record<string, string> = { max: 'Max', pro: 'Pro', team: 'Team', enterprise: 'Enterprise' };
 const HOUR = 3_600_000;
@@ -44,11 +50,30 @@ export function presentAccount(a: AccountDto, currentId: string, now: number): A
     plan: plan === null ? null : PLANS[plan] ?? plan,
     email: a.auth?.email ?? null,
     auth: a.loginRunning ? 'running' : a.auth === null ? 'unknown' : a.auth.loggedIn ? 'in' : 'out',
+    loggedIn: a.auth?.loggedIn === true,
     fiveHour, sevenDay: gauge(a.usage.sevenDay, now),
     updatedLabel: a.usage.updatedAt === null ? null : relativeTime(a.usage.updatedAt, now),
     note: noteOf(a, fiveHour, now),
     linkProblem: a.linkProblem, dir: a.dir,
   };
+}
+
+/**
+ * 札で選べるか（新規セッションの札、ヘッダの切り替え）。
+ * 選べないのは、未ログイン（out）と、初めてのログインの途中（running で loggedIn が偽）。
+ * まだ読めていない（unknown）と、ログインし直しの途中（running で loggedIn が真）は、いまのログインが生きているので選べる。
+ */
+export const isPickableAccount = (a: AccountView): boolean => a.auth !== 'out' && !(a.auth === 'running' && !a.loggedIn);
+
+/**
+ * ヘッダの切り替えボタンの読み上げ。
+ * 名前に 5 時間と週の使用率（丸めた値）を添える。値が無い窓は言わない。メールアドレスは入れない。
+ */
+export function switchLabel(a: Pick<AccountView, 'name' | 'fiveHour' | 'sevenDay'>): string {
+  const parts = [a.name];
+  if (a.fiveHour !== null) parts.push(`5 時間 ${Math.round(a.fiveHour.percent)}%`);
+  if (a.sevenDay !== null) parts.push(`週 ${Math.round(a.sevenDay.percent)}%`);
+  return `アカウントを切り替える（いまは ${parts.join('、')}）`;
 }
 
 export function presentAccounts(store: Store, now: number): AccountView[] {

@@ -1133,7 +1133,7 @@ describe('アカウントの切り替え（セッション画面）', () => {
   };
   /** ヘッダから大学を選ぶ。 */
   const chooseUniv = async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'アカウントを切り替える（いまは 会社）' }));
+    fireEvent.click(screen.getByRole('button', { name: /^アカウントを切り替える（いまは 会社/ }));
     await flush();
     fireEvent.click(screen.getByRole('menuitemradio', { name: /大学/ }));
     await flush();

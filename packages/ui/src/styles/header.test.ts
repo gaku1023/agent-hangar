@@ -114,9 +114,18 @@ describe('ヘッダのアカウントの切り替え', () => {
     expect(controlsRule('.account-pop')).not.toContain('backdrop-filter');
     expect(controlsRule('.account-pop')).toContain('outline: none;');
   });
-  it('選んだ札は青い 2px の輪、押せない札は薄くする', () => {
+  it('選んだ札は青い 2px の輪、押せない札は名前と計器だけを薄くする', () => {
     expect(controlsRule(".account-card[aria-checked='true']")).toContain('inset 0 0 0 2px var(--accent)');
-    expect(controlsRule(".account-card[aria-disabled='true'] .account-meters")).toContain('opacity: 0.6;');
+    expect(controlsRule(".account-card[aria-disabled='true'] .account-meters-head, .account-card[aria-disabled='true'] .account-row")).toContain('opacity: 0.6;');
+  });
+  it('押せない札は、理由の文（メールの行）まで薄くせず、--ink-2 以上の濃さで読める。押せないことは cursor と枠で示す', () => {
+    // 札の全体と、計器の入れ物と、理由の文の行には opacity を掛けない。
+    for (const sel of [".account-card[aria-disabled='true']", ".account-card[aria-disabled='true'] .account-meters", '.account-mail', '.account-approve']) {
+      expect(controlsRule(sel)).not.toContain('opacity');
+    }
+    expect(controlsRule(".account-card[aria-disabled='true'] .account-mail:not([data-auth='out'])")).toContain('color: var(--ink-2);');
+    expect(controlsRule(".account-card[aria-disabled='true']")).toContain('cursor: not-allowed;');
+    expect(controls).toContain(":not(:focus-visible, [aria-checked='true']) { box-shadow: inset 0 0 0 1px var(--line); }");
   });
 });
 

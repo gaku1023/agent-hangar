@@ -430,12 +430,19 @@ describe('NewSessionDialog のアカウントの札', () => {
     start();
     expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
   });
-  it('いまのアカウントがログインの途中でも飛ばす。まだ読めていない（unknown）なら選ぶ', () => {
-    collect({ accounts: accountsOf([{ auth: 'running' }, {}]) });
+  it('いまのアカウントが初めてのログインの途中でも飛ばす。まだ読めていない（unknown）なら選ぶ', () => {
+    collect({ accounts: accountsOf([{ auth: 'running', loggedIn: false }, {}]) });
     expect(card('大学')).toHaveAttribute('aria-checked', 'true');
     document.body.innerHTML = '';
     collect({ accounts: accountsOf([{ auth: 'unknown' }, {}]) });
     expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+  });
+  it('いまのアカウントがログインし直しの途中でも、はじめの選択は動かず、選べる', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf([{ auth: 'running', loggedIn: true }, {}]) });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    expect(card('会社')).not.toHaveAttribute('aria-disabled');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
   });
   it('どれも選べないときは、いまのアカウントのままにする', () => {
     const { params } = collect({ projectId: 'p1', accounts: accountsOf([{ auth: 'out' }, { auth: 'out' }]) });
@@ -477,7 +484,7 @@ describe('NewSessionDialog のアカウントの札', () => {
     const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
     fireEvent.click(card('大学'));
     expect(card('大学')).toHaveAttribute('aria-checked', 'true');
-    rerender({ projectId: 'p1', accounts: accountsOf([{}, { auth }]) });
+    rerender({ projectId: 'p1', accounts: accountsOf([{}, { auth, loggedIn: false }]) });
     expect(card('会社')).toHaveAttribute('aria-checked', 'true');
     expect(card('大学')).toHaveAttribute('aria-checked', 'false');
     expect(card('大学')).toHaveAttribute('aria-disabled', 'true');

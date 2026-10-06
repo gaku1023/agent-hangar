@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountDto, AccountsDto } from '@agent-hangar/shared';
 import { IntentRoot } from '../intent/chain.tsx';
 import { presentAccounts } from '../presenters/accounts.ts';
@@ -77,9 +77,15 @@ describe('AccountSettings の状態', () => {
     expect(row('会社').querySelector('.account-set-state')).toHaveTextContent('Max・taro@example.co.jp');
     expect(row('大学').querySelector('.account-set-state')).toHaveTextContent('Enterprise・taro@example.ac.jp');
   });
-  it('途中は「ブラウザで承認してください…」を出し、「やめる」を押すと account.login.cancel を出す', () => {
-    const onIntent = mount(props({ a1: { loginRunning: true } }));
-    expect(row('大学').querySelector('.account-set-state')).toHaveTextContent('ブラウザで承認してください…');
+  it('ログインし直しの途中は、プランとメールを出したまま「ブラウザで承認してください…」を添える', () => {
+    mount(props({ a1: { loginRunning: true } }));
+    const state = row('大学').querySelector('.account-set-state')!;
+    expect(state).toHaveTextContent('Enterprise・taro@example.ac.jp');
+    expect(state).toHaveTextContent('ブラウザで承認してください…');
+  });
+  it('初めてのログインの途中は「ブラウザで承認してください…」だけを出し、「やめる」を押すと account.login.cancel を出す', () => {
+    const onIntent = mount(props({ a1: { loginRunning: true, auth: { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 } } }));
+    expect(row('大学').querySelector('.account-set-state')).toHaveTextContent(/^ブラウザで承認してください…$/);
     fireEvent.click(within(row('大学')).getByRole('button', { name: 'やめる' }));
     expect(onIntent.mock.calls).toEqual([[{ type: 'account.login.cancel', accountId: 'a1' }]]);
     // 途中の行には「ログイン」を出さない。
@@ -110,6 +116,51 @@ describe('AccountSettings の状態', () => {
     const problem = within(row('大学')).getByText('skills がリンクでなく実体のディレクトリです');
     expect(problem).toHaveClass('account-set-problem');
     expect(within(row('会社')).queryByText('skills がリンクでなく実体のディレクトリです')).toBeNull();
+  });
+});
+
+describe('AccountSettings の「ログイン」と「やめる」の入れ替わり', () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const OUT = { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 };
+  const mountSwap = (before: Record<string, Partial<AccountDto>>) => {
+    const onIntent = vi.fn();
+    const ui = (p: SettingsProps['accounts']) => <IntentRoot onIntent={onIntent}><AccountSettings {...p} /></IntentRoot>;
+    const view = render(ui(props(before)));
+    return { onIntent, swap: (after: Record<string, Partial<AccountDto>>) => view.rerender(ui(props(after))) };
+  };
+  it('「ログイン」を押して「やめる」へ入れ替わった直後は押せず、時間が過ぎると押せる', () => {
+    vi.useFakeTimers();
+    const { onIntent, swap } = mountSwap({ a1: { auth: OUT } });
+    fireEvent.click(within(row('大学')).getByRole('button', { name: 'ログイン' }));
+    expect(onIntent.mock.calls).toEqual([[{ type: 'account.login', accountId: 'a1' }]]);
+    swap({ a1: { auth: OUT, loginRunning: true } });
+    const stop = within(row('大学')).getByRole('button', { name: 'やめる' });
+    expect(stop).toBeDisabled();
+    fireEvent.click(stop);
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    act(() => { vi.advanceTimersByTime(599); });
+    expect(stop).toBeDisabled();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(stop).toBeEnabled();
+    fireEvent.click(stop);
+    expect(onIntent.mock.calls[1]).toEqual([{ type: 'account.login.cancel', accountId: 'a1' }]);
+  });
+  it('逆向きも同じで、「やめる」を押して「ログイン」へ戻った直後は押せない', () => {
+    vi.useFakeTimers();
+    const { onIntent, swap } = mountSwap({ a1: { auth: OUT, loginRunning: true } });
+    expect(within(row('大学')).getByRole('button', { name: 'やめる' })).toBeEnabled();
+    fireEvent.click(within(row('大学')).getByRole('button', { name: 'やめる' }));
+    swap({ a1: { auth: OUT } });
+    const login = within(row('大学')).getByRole('button', { name: 'ログイン' });
+    expect(login).toBeDisabled();
+    fireEvent.click(login);
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    act(() => { vi.advanceTimersByTime(600); });
+    expect(login).toBeEnabled();
+  });
+  it('はじめから出ているボタンは押せる（入れ替わっていない）', () => {
+    mount(props({ a1: { auth: OUT } }));
+    expect(within(row('大学')).getByRole('button', { name: 'ログイン' })).toBeEnabled();
   });
 });
 

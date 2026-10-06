@@ -86,10 +86,26 @@ describe('AccountMeters', () => {
     expect(screen.getByText('未ログイン')).toBeInTheDocument();
     expect(screen.queryByText('taro@example.co.jp')).toBeNull();
   });
-  it('ログインの途中なら「ブラウザで承認してください…」を出す', () => {
-    render(<AccountMeters account={view({ loginRunning: true })} showResets={false} />);
-    expect(screen.getByText('ブラウザで承認してください…')).toBeInTheDocument();
+  it('初めてのログインの途中なら、メールの行が「ブラウザで承認してください…」を言う', () => {
+    render(<AccountMeters account={view({ loginRunning: true, auth: { ...base.auth!, loggedIn: false, email: null } })} showResets={false} />);
+    expect(screen.getByText('ブラウザで承認してください…')).toHaveClass('account-mail');
     expect(screen.queryByText('taro@example.co.jp')).toBeNull();
+  });
+  it('ログインし直しの途中なら、メールを消さずに出したまま、「ブラウザで承認してください…」を添える', () => {
+    const { container } = render(<AccountMeters account={view({ loginRunning: true })} showResets={false} />);
+    expect(screen.getByText('taro@example.co.jp')).toHaveClass('account-mail');
+    expect(screen.getByText('ブラウザで承認してください…')).toHaveClass('account-approve');
+    expect(container.querySelector('.account-approve')).not.toBeNull();
+  });
+  it('ログインし直しの途中でなければ、承認の添え書きを出さない', () => {
+    const { container } = render(<AccountMeters account={view()} showResets={false} />);
+    expect(container.querySelector('.account-approve')).toBeNull();
+  });
+  it('警告の印は presenter が決めた high に従い、数え直さない', () => {
+    const v = withUsage();
+    const { container } = render(<AccountMeters account={{ ...v, fiveHour: { ...v.fiveHour!, percent: 82, high: false }, sevenDay: { ...v.sevenDay!, percent: 41, high: true } }} showResets={false} />);
+    expect(container.querySelectorAll('.gauge-fill')[0]).not.toHaveAttribute('data-high');
+    expect(container.querySelectorAll('.gauge-fill')[1]).toHaveAttribute('data-high', 'true');
   });
   it('認証が未読なら、メールの行は空のまま', () => {
     const { container } = render(<AccountMeters account={view({ auth: null })} showResets={false} />);

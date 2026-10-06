@@ -2,7 +2,7 @@ import type { ProjectStatus } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import { hasMultipleAccounts, type Store } from '../store/store.ts';
 import { SCRATCH_PREFS } from '../mediator/launch.ts';
-import { presentAccounts, type AccountView } from './accounts.ts';
+import { isPickableAccount, presentAccounts, type AccountView } from './accounts.ts';
 import { relativeTime } from './format.ts';
 
 export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
@@ -16,9 +16,6 @@ export type NewSessionProps = {
   accounts: NewSessionAccounts | null;
 };
 export type NewSessionAccounts = { list: AccountView[]; currentId: string };
-
-/** 札で選べるか。未ログインとログインの途中は選べない。まだ読めていない（unknown）は選べる。 */
-export const isPickableAccount = (a: AccountView): boolean => a.auth !== 'out' && a.auth !== 'running';
 
 /**
  * 札のはじめの選択。いまのアカウントが選べればそれ、選べなければ選べる最初の 1 件。

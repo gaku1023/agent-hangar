@@ -8,7 +8,7 @@ import { AccountCards } from './AccountCards.tsx';
 const NOW = new Date(2026, 9, 6, 12, 0).getTime();
 const list = presentAccounts({ ...initialStore(), accounts: accountsFixture }, NOW);
 /** 2 件のうち、指定の id の認証だけを替えた一覧。 */
-const withAuth = (id: string, auth: AccountView['auth']): AccountView[] => list.map((a) => (a.id === id ? { ...a, auth } : a));
+const withAuth = (id: string, auth: AccountView['auth'], loggedIn = auth === 'in'): AccountView[] => list.map((a) => (a.id === id ? { ...a, auth, loggedIn } : a));
 const third: AccountView = { ...list[1]!, id: 'a2', name: '個人', color: '#1f7a4d' };
 
 const mount = (value: string, options = list, onChange = vi.fn()) => {
@@ -71,7 +71,13 @@ describe('AccountCards', () => {
     expect(onChange).not.toHaveBeenCalled();
     expect(screen.getByRole('radio', { name: /会社/ })).not.toHaveAttribute('aria-disabled');
   });
-  it('ログインの途中の札も選べない。まだ読めていない札（unknown）は選べる', () => {
+  it('ログインし直しの途中の札（running で loggedIn が真）は選べる', () => {
+    const { onChange } = mount('primary', withAuth('a1', 'running', true));
+    expect(screen.getByRole('radio', { name: /大学/ })).not.toHaveAttribute('aria-disabled');
+    fireEvent.click(screen.getByRole('radio', { name: /大学/ }));
+    expect(onChange).toHaveBeenCalledWith('a1');
+  });
+  it('初めてのログインの途中の札は選べない', () => {
     const { onChange } = mount('primary', withAuth('a1', 'running'));
     expect(screen.getByRole('radio', { name: /大学/ })).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(screen.getByRole('radio', { name: /大学/ }));

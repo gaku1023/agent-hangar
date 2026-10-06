@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useEmit } from '../intent/chain.tsx';
-import type { AccountView } from '../presenters/accounts.ts';
+import { isPickableAccount, switchLabel, type AccountView } from '../presenters/accounts.ts';
 import type { HeaderAccountProps } from '../presenters/shell.ts';
 import { AccountMeters } from './primitives/AccountMeters.tsx';
 import { place, type Placement } from './primitives/listboxModel.ts';
@@ -17,7 +17,7 @@ const SETTINGS = { name: 'settings', at: 'accounts' } as const;
  * 色の点、名前、計器（children）、▾ の全体が 1 つのボタンで、押すとアカウントの一覧が開く。
  * ヘッダは窓を掴む領域なので、押す部品はボタンにする。
  * 一覧はアカウントごとに 1 枚の札で、選ぶと、ホームなら「いまのアカウント」を、セッション画面ならそのセッションのアカウントを替える。
- * いまの札を押しても何も出さず、閉じるだけにする。未ログインの札とログインの途中の札は押せない（右上は空で、理由は札の中身が言う）。
+ * いまの札を押しても何も出さず、閉じるだけにする。未ログインの札と初めてのログインの途中の札は押せない（右上は空で、理由は札の中身が言う）。ログインし直しの途中の札は、いまのログインが生きているので押せる。
  * 開くたびに accounts.load を出し、認証を読み直させる。
  * 面は document.body への portal に描く（ヘッダの重なりに切られないため）。
  * 位置は place() で決め、Esc と外側の押下で閉じる。Esc ではボタンへフォーカスを戻す。
@@ -69,10 +69,10 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
     };
   }, [open, reposition]);
 
-  // 未ログインとログインの途中の札は、押しても切り替えられない。shown の札だけは、押すと閉じるので除く。
-  const isBlocked = (a: AccountView) => (a.auth === 'out' || a.auth === 'running') && a.id !== shown.id;
+  // 選べない札（isPickableAccount）は、押しても切り替えられない。shown の札だけは、押すと閉じるので除く。
+  const blocked = (a: AccountView) => !isPickableAccount(a) && a.id !== shown.id;
   const choose = (a: AccountView) => {
-    if (isBlocked(a)) return;
+    if (blocked(a)) return;
     hide(true);
     if (a.id === shown.id) return;
     emit(sessionId === null ? { type: 'account.choose', accountId: a.id } : { type: 'account.switchSession', sessionId, accountId: a.id, working });
@@ -91,7 +91,7 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
 
   return (
     <>
-      <button ref={face} type="button" className="account-switch" aria-label={`アカウントを切り替える（いまは ${shown.name}）`} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? popId : undefined}
+      <button ref={face} type="button" className="account-switch" aria-label={switchLabel(shown)} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? popId : undefined}
         onClick={() => (open ? hide(false) : show())}>
         <span className="st-dot account-dot" style={{ color: shown.color }} aria-hidden="true" />
         <span className="account-name" data-fold-at={foldAt('account-name')}>{shown.name}</span>
@@ -104,7 +104,7 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
           <div role="menu" aria-label="アカウント" className="account-cards">
             {list.map((a) => {
               const isShown = a.id === shown.id;
-              const disabled = isBlocked(a);
+              const disabled = blocked(a);
               return (
                 <button key={a.id} type="button" role="menuitemradio" aria-checked={isShown} aria-disabled={disabled ? 'true' : undefined} className="account-card" onClick={() => choose(a)}>
                   {/* 押せない札の右上は空にする。理由は札の中身（メールの行）が言う。 */}
