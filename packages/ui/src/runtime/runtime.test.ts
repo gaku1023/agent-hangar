@@ -15,7 +15,7 @@ const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1
 
 /** ターミナルの偽物。React の外で持つ接続の代わりに、呼ばれた tabId を並べる。 */
 function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: string[] } {
-  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, zoom: () => {}, fontSize: () => 13, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: () => {} };
+  const h = { connected: [] as string[], disconnected: [] as string[], connect: (id: string) => { h.connected.push(id); }, disconnect: (id: string) => { h.disconnected.push(id); }, mount: () => {}, status: () => null, fit: () => {}, focus: vi.fn(), paste: () => {}, zoom: () => {}, fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: () => {} };
   return h;
 }
 
@@ -358,7 +358,7 @@ describe('createRuntime', () => {
     const c = harness();
     c.store.set('livePane.split', 3);
     c.rt.start();
-    expect(c.rt.getState().livePaneSplit).toBe(0.8);
+    expect(c.rt.getState().livePaneSplit).toBe(1);
   });
   it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
     const a = harness();

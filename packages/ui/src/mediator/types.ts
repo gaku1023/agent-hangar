@@ -265,7 +265,7 @@ export type State = {
    * Presenter が読む（presenters/project.ts）ので View ではなくここに持つ。保存はしない。
    */
   sectionsOpen: Record<string, ('done' | 'archived')[]>;
-  /** 実行中の右ペインで「いま」の段が取る高さの上限（0.2〜0.8）。境目で変え、端末ごとに localStorage に残す。 */
+  /** 実行中の右ペインで「いま」の段が取る高さの割合（0〜1）。境目で変え、端末ごとに localStorage に残す。 */
   livePaneSplit: number;
   /** 保持期間の帯を「このままでよい」で閉じたか。端末ごとに localStorage に残し、起動時に読み戻す。 */
   retentionBannerDismissed: boolean;

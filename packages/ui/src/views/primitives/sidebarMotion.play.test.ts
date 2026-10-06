@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './layoutMotion.ts';
 import { playSidebarMotion } from './sidebarMotion.ts';
 
 // jsdom は --dur を読めず 0 になり、動きを作らずに返る。ここでは長さがある場合の組み立てを見る。
@@ -52,5 +53,30 @@ describe('サイドバーの開閉の動き（長さがあるとき）', () => {
     playSidebarMotion(shell);
     expect(calls.some((c) => c.el.classList.contains('sidebar-toggle'))).toBe(true);
     expect(calls.some((c) => c.el.classList.contains('nav-item'))).toBe(true);
+  });
+  // 開閉し直すと前の動きは取り消される。その分の数も返さないと、新しい動きが終わっても印が残り続ける。
+  it('途中で開閉し直しても、新しい動きが終わったら印が外れ、止まったことを 1 度だけ知らせる', async () => {
+    const { shell } = mount(false);
+    const cols: { resolve: () => void; reject: () => void }[] = [];
+    Element.prototype.animate = function (this: Element) {
+      if (this !== shell) return { finished: new Promise(() => {}), cancel: () => {} } as unknown as Animation;
+      let resolve!: () => void; let reject!: () => void;
+      const finished = new Promise<void>((res, rej) => { resolve = res; reject = () => rej(new Error('cancelled')); });
+      cols.push({ resolve, reject });
+      return { finished, cancel: () => {} } as unknown as Animation;
+    };
+    const settled = vi.fn();
+    window.addEventListener(LAYOUT_SETTLED, settled);
+    playSidebarMotion(shell);
+    playSidebarMotion(shell);
+    cols[0]!.reject();
+    await Promise.resolve(); await Promise.resolve();
+    expect(shell).toHaveAttribute(LAYOUT_MOVING_ATTR);
+    expect(settled).not.toHaveBeenCalled();
+    cols[1]!.resolve();
+    await Promise.resolve(); await Promise.resolve();
+    expect(shell).not.toHaveAttribute(LAYOUT_MOVING_ATTR);
+    expect(settled).toHaveBeenCalledTimes(1);
+    window.removeEventListener(LAYOUT_SETTLED, settled);
   });
 });

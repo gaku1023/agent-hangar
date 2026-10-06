@@ -136,15 +136,16 @@ describe('ヘッダの列と検索欄の位置', () => {
     expect(rule('.header')).not.toContain('container');
     expect(rule('.header-row')).toContain('container: header / inline-size;');
   });
-  // 本文と検索欄は同じ左の余白（--gutter-l）で始まる。本文は --main-w で中央に寄るので、検索欄もその分を足す。
-  // 余白を広げるのは、中央へ寄った本文がロゴの右端より左に来るときだけにする。いつも足すと、広い窓で畳んだときに本文が右へ逃げる。
-  it('本文の左の余白は、中央へ寄った分を引いてから、ロゴの右端に届く分だけ広げる', () => {
-    expect(base).toContain('--gutter-l: max(calc(var(--u) * 4), calc(var(--head-end) - var(--col1) - var(--box-l)));');
+  // 本文は、左のナビを畳んでも帯のすぐ右から始める（設計書 2026-10-02-session-motion ①）。
+  // ロゴの右端に揃える式は、ヘッダの中でロゴの右に並ぶ検索欄にだけ使う。本文にも使うと、畳んでも本文が広がらない。
+  it('本文の左の余白はいつも 16px で、ロゴに揃える式は検索欄の余白（--gutter-head）だけが持つ', () => {
+    expect(base).toContain('--gutter-l: calc(var(--u) * 4);');
+    expect(base).toContain('--gutter-head: max(calc(var(--u) * 4), calc(var(--head-end) - var(--col1) - var(--box-l)));');
     expect(base).toContain('--box-l: max(0px, calc((100vw - var(--col1) - var(--main-w)) / 2));');
   });
-  it('探す・移動の錠剤の左端は、本文の左端と同じ式で決まる', () => {
+  it('本文は --gutter-l で、探す・移動の錠剤は --gutter-head で始まる', () => {
     expect(rule('.main-inner')).toMatch(/max-width: var\(--main-w\);[^}]*margin: 0 auto;[^}]*var\(--gutter-l\);/);
-    expect(rule('.header-row > .search-pill')).toContain('margin-left: max(var(--gutter-l), calc((100cqw - var(--main-w)) / 2 + var(--gutter-l)));');
+    expect(rule('.header-row > .search-pill')).toContain('margin-left: max(var(--gutter-head), calc((100cqw - var(--main-w)) / 2 + var(--gutter-head)));');
   });
   // 錠剤は押すボタンで、幅は中身の分だけにする（A1）。欄のように伸ばすと、打てる欄に見える。
   it('探す・移動の錠剤は浮いた錠剤で、幅は中身の分だけ', () => {

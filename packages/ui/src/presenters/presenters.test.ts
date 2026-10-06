@@ -6,7 +6,7 @@ import { toSyncState } from '../mediator/sync.ts';
 import { initialState } from '../mediator/transition.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
-import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
+import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
 import { presentConfirm } from './confirm.ts';
 import { HOME_RECENT_MAX, presentHome } from './home.ts';
@@ -455,6 +455,23 @@ describe('presentSession', () => {
     const open = presentSession(state, store, NOW, 's1');
     expect(open.turnRows[0]!.open).toBe(true);
     expect(open.openTurnItems.map((i) => i.kind)).toEqual(['user', 'tool', 'assistant']);
+  });
+  it('本文の窓がまだ無いか、最初の読み込みの途中で 0 件なら、目次は pending', () => {
+    const k = eventsKey('s1', null);
+    expect(presentSession(initialState(), storeWith(), NOW, 's1').turnsPending).toBe(true); // 窓が無い
+    expect(presentSession(initialState(), setEventsLoading(storeWith(), k, true), NOW, 's1').turnsPending).toBe(true);
+    expect(presentSession(initialState(), setEventsLoading(storeWith(), k, false), NOW, 's1').turnsPending).toBe(false);
+  });
+  it('本文が無い会話は、窓が作られないので pending にしない（仮の行が出続けない）', () => {
+    const store = storeWith();
+    store.sessions.s1 = { ...store.sessions.s1!, hasTranscript: false };
+    expect(presentSession(initialState(), store, NOW, 's1').turnsPending).toBe(false);
+  });
+  it('最初の読み込みが失敗しても、窓は loading が戻って残るので pending にしない', () => {
+    // runtime の api.loadEvents は、読み込みの前に loading の窓を作り、失敗したら loading を戻す。
+    const k = eventsKey('s1', null);
+    const failed = setEventsLoading(setEventsLoading(storeWith(), k, true), k, false);
+    expect(presentSession(initialState(), failed, NOW, 's1').turnsPending).toBe(false);
   });
   it('実行中なら状態と経過の札を作り、変更数を渡す', () => {
     const store = storeWith();

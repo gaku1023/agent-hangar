@@ -5,7 +5,7 @@
 .session-hero { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; }
 .session-hero .btn { flex: none; }
 
-.session-oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.session-oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); animation: enter-x var(--dur) var(--ease-out); }
 
 /* チップの列。小さな錠剤で並べ、入り切らなければ次の行へ送る。 */
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 2) 0 var(--u); }
@@ -22,7 +22,7 @@ a.chip { color: var(--accent); text-decoration: none; }
 
 /* 幅（案 b）。
    セッション画面だけ本文の幅の上限を外す。
-   --box-l と検索の錠剤の式は base.css のままで、上限が無いので本文も錠剤も左へ寄る。 */
+   --box-l と検索の錠剤の式（--gutter-head）は base.css のままで、上限が無いので本文も錠剤も左へ寄る。 */
 .shell[data-wide] { --main-w: 100vw; }
 /* 高さ。
    本文の列を縦の flex にし、ヘッダと帯（切断、保持期間）の分を引いた残りを画面に渡す。
@@ -66,7 +66,10 @@ a.chip { color: var(--accent); text-decoration: none; }
    本文の面と、右に 340px の右欄を置く。
    右欄の開閉（⌘J）で本文が全幅になる。 */
 .session-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: calc(var(--u) * 3); }
-.session-body[data-rail='closed'] { grid-template-columns: minmax(0, 1fr); }
+/* 閉じた右の欄は 0px の列にし、列の数を変えない（列の数が替わると、開閉の動きが補間されない）。 */
+.session-body[data-rail='closed'] { grid-template-columns: minmax(0, 1fr) 0px; column-gap: 0; }
+.session-rail-slot { min-width: 0; min-height: 0; overflow: hidden; display: flex; }
+.session-rail-slot > .session-rail { flex: 1; }
 .tr-sheet .tr-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .tr-sheet .transcript-toggles .tr-toggle { margin-right: calc(var(--u) * -2); }
 /* 本文が消えた会話は、注記と要約と TODO を 1 列に積む。 */

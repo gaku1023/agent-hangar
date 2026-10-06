@@ -1,10 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { sessionActions, type SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { toolItem } from '../test/items.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { pick } from '../test/pick.ts';
 import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
@@ -18,7 +19,7 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 3,
-  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, openTurnItems: [], turnJump: null, livePane: null, livePaneSplit: 0.5, gone: null, find: null, jump: null, hasNewer: false,
+  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, livePaneSplit: 0.5, gone: null, find: null, jump: null, hasNewer: false,
   actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, account: null };
 
 /**
@@ -283,7 +284,7 @@ describe('終わった画面の右欄（E1）', () => {
   });
 });
 
-const host: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => 'connected', fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
+const host: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => 'connected', fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
 const running: SessionProps = { ...base, live: 'busy', liveLabel: '作業中 12 分', run: { id: 'r1', kind: 'start', alive: true, started: '1 分前' }, selectedTab: 'r1', canResume: false, canFork: false,
   tabs: [{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'シェル 1', kind: 'shell', selected: false, closable: true }] };
 const withHost = (ui: ReactElement, onIntent = vi.fn(), h: TerminalHost = host) => { render(<IntentRoot onIntent={onIntent}><TerminalHostContext.Provider value={h}>{ui}</TerminalHostContext.Provider></IntentRoot>); return onIntent; };
@@ -327,10 +328,144 @@ describe('SessionScreen（実行中）', () => {
     withHost(<SessionScreen {...running} artifacts={artifacts} livePane={livePane} transcriptOpen={false} />);
     expect(screen.getByRole('button', { name: /アーティファクト 1/ })).toBeInTheDocument();
   });
+  it('「いま」が消えても目次は作り直さない（スクロールの位置を保つ）', () => {
+    const livePane = { lamp: { tone: 'busy' as const, head: '作業中', sub: '' }, intent: { kind: 'none' as const, text: 'x' }, steps: [], lanes: [], doneFolded: 0 };
+    const ui = (lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
+    const { rerender } = render(ui(livePane));
+    const before = document.querySelector('.turns');
+    rerender(ui(null));
+    expect(document.querySelector('.live-top')).toBeNull();
+    expect(document.querySelector('.turns')).toBe(before);
+    rerender(ui(livePane));
+    expect(document.querySelector('.live-top')).not.toBeNull();
+    expect(document.querySelector('.turns')).toBe(before);
+  });
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SS {...running} transcriptOpen={false} />);
     expect(screen.queryByText('hi')).toBeNull();
     expect(screen.getByLabelText('右の欄を開く')).toBeInTheDocument();
+  });
+  it('右の欄を閉じたら、列ごと消し、開くボタンをタブの帯の右端に出す', () => {
+    withHost(<SS {...running} transcriptOpen={false} />);
+    const split = document.querySelector('.split') as HTMLElement;
+    expect(split.style.gridTemplateColumns).toBe('minmax(0, 1fr) 0px');
+    const open = screen.getByRole('button', { name: '右の欄を開く' });
+    expect(open.closest('.tabs')).not.toBeNull();
+    expect(document.querySelector('.tr-pane .tr-toggle')).toBeNull();
+  });
+  it('開いている間は、開閉のボタンを欄の中に置き、タブの帯には出さない', () => {
+    withHost(<SS {...running} />);
+    expect(screen.getByRole('button', { name: '右の欄を閉じる' }).closest('.tr-pane')).not.toBeNull();
+    expect(document.querySelector('.tabs .tab-pane-open')).toBeNull();
+  });
+  describe('動く環境', () => {
+    let restore: () => void = () => {};
+    afterEach(() => { restore(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; });
+    it('閉じる動きが終わるまで欄の中身を残し、終わったら外す（列は先に 0px になる）', async () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      let finish: () => void = () => {};
+      const finished = new Promise<void>((r) => { finish = r; });
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished, cancel: vi.fn() }; };
+      const ui = (open: boolean) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={open} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui(true));
+      rerender(ui(false));
+      expect(document.querySelector('.tr-pane')).toHaveAttribute('data-leaving', 'true');
+      expect(document.querySelector('.tr-pane-inner')).not.toBeNull();
+      await act(async () => { finish(); await finished; });
+      expect(document.querySelector('.tr-pane-inner')).toBeNull();
+      expect(document.querySelector('.tr-pane')).not.toHaveAttribute('data-leaving');
+    });
+    const livePane = { lamp: { tone: 'busy' as const, head: '作業中', sub: '' }, intent: { kind: 'none' as const, text: '最後の意図' }, steps: [], lanes: [], doneFolded: 0 };
+    it('別のセッションへ替えて右の欄の開閉が替わっても、欄を滑らせずにすぐその形にする', () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      const animate = vi.fn(function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; });
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const ui = (id: string, open: boolean) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} id={id} transcriptOpen={open} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui('s1', true));
+      animate.mockClear();
+      rerender(ui('s2', false));
+      expect(document.querySelector('.tr-pane-inner')).toBeNull();
+      expect(document.querySelector('[data-leaving]')).toBeNull();
+      expect(animate.mock.calls.length).toBe(0);
+      rerender(ui('s1', true));
+      expect(document.querySelector('.tr-pane-inner')).not.toBeNull();
+      expect(animate.mock.calls.length).toBe(0);
+      // 同じセッションの中での開閉は、これまでどおり動かす。
+      rerender(ui('s1', false));
+      expect(document.querySelector('.tr-pane')).toHaveAttribute('data-leaving', 'true');
+      expect(animate.mock.calls.length).toBeGreaterThan(0);
+    });
+    it('会話が終わったら「いま」を薄れさせ、終わるまで最後の中身を残し、目次は作り直さない', async () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      let finish: () => void = () => {};
+      const finished = new Promise<void>((r) => { finish = r; });
+      const faded: Element[] = [];
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, f: Keyframe[]) {
+        if (f.at(-1)?.opacity === 0) faded.push(this);
+        return { finished, cancel: vi.fn() };
+      };
+      const ui = (lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui(livePane));
+      const before = document.querySelector('.turns');
+      rerender(ui(null));
+      expect(document.querySelector('.live')).toHaveAttribute('data-leaving', 'true');
+      expect(document.querySelector('.live-top')).toHaveTextContent('最後の意図');
+      expect(faded.map((el) => el.className)).toEqual(expect.arrayContaining(['live-pane-head', 'live-top', 'live-divider']));
+      await act(async () => { finish(); await finished; });
+      expect(document.querySelector('.live-top')).toBeNull();
+      expect(document.querySelector('.live')).not.toHaveAttribute('data-leaving');
+      expect(document.querySelector('.turns')).toBe(before);
+    });
+    it('会話が終わったら、薄れる前にランプを終わりの形（休みの色、「終わりました」）へ替える', () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; };
+      const ui = (lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui(livePane));
+      expect(document.querySelector('.live-lamp')).toHaveAttribute('data-tone', 'busy');
+      rerender(ui(null));
+      expect(document.querySelector('.live')).toHaveAttribute('data-leaving', 'true');
+      const lamp = document.querySelector('.live-lamp')!;
+      expect(lamp).toHaveAttribute('data-tone', 'idle');
+      expect(lamp.querySelector('.live-dot')).toHaveAttribute('data-tone', 'idle');
+      expect(lamp).toHaveTextContent('終わりました');
+      expect(lamp).not.toHaveTextContent('作業中');
+      // 意図などの中身は最後のまま残す。
+      expect(document.querySelector('.live-top')).toHaveTextContent('最後の意図');
+    });
+    it('別のセッションへ替えたときは、前のセッションの「いま」を薄れさせずにすぐ外す', () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      const animate = vi.fn(function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; });
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const ui = (id: string, lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} id={id} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui('s1', livePane));
+      animate.mockClear();
+      rerender(ui('s2', null));
+      expect(document.querySelector('.live-top')).toBeNull();
+      expect(document.querySelector('.live-pane-head')).toBeNull();
+      expect(document.querySelector('.live')).not.toHaveAttribute('data-leaving');
+      expect(screen.queryByText('最後の意図')).toBeNull();
+      // 目次も滑らせない（前のセッションの位置から動かさない）。
+      expect(animate.mock.calls.length).toBe(0);
+    });
+  });
+  it('情報の行の数（ターン、トークン、コスト）は数の回転で出す', () => {
+    withHost(<SS {...running} cost="$1.20" />);
+    const info = document.querySelector('.session-info')!;
+    expect(info.querySelectorAll('.roll').length).toBeGreaterThanOrEqual(3);
+  });
+  it('情報の行の数は、セッションが替わったら回さず作り直す', () => {
+    const { rerender } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} cost="$1.20" /></IntentRoot>);
+    const before = [...document.querySelectorAll('.session-info .roll')];
+    rerender(<IntentRoot onIntent={vi.fn()}><SS {...base} id="s2" live={null} cost="$9.90" /></IntentRoot>);
+    const after = [...document.querySelectorAll('.session-info .roll')];
+    expect(after.length).toBe(before.length);
+    after.forEach((el) => expect(before).not.toContain(el));
+  });
+  it('要約の一行は、文が替わると作り直す（入る動きをもう一度出す）', () => {
+    const { rerender } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} /></IntentRoot>);
+    const first = document.querySelector('.session-oneliner');
+    rerender(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} summary={{ ...base.summary!, oneLiner: 'TWO' }} /></IntentRoot>);
+    expect(document.querySelector('.session-oneliner')).not.toBe(first);
   });
   it('信頼ダイアログの案内と終了の表示', () => {
     withHost(<SS {...running} live={null} trustHint />);
@@ -510,6 +645,55 @@ describe('TabStrip の横に並べるボタン', () => {
   it('分割中は押された状態にする', () => {
     render(<IntentRoot onIntent={() => {}}><TabStrip sessionId="s1" tabs={two} canAdd canSplit split /></IntentRoot>);
     expect(screen.getByLabelText('横に並べる')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('TabStrip の出入り', () => {
+  const one = [{ id: 't1', title: 'Claude', kind: 'agent' as const, selected: true, closable: false }];
+  const two = [...one, { id: 't2', title: 'シェル 1', kind: 'shell' as const, selected: false, closable: true }];
+  let restore: () => void = () => {};
+  afterEach(() => { restore(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; });
+  it('選んでいたタブを閉じても、出ていく影は選択の形を持たない', () => {
+    restore = fakeMotionTokens(undefined, { everywhere: true });
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; };
+    const picked = [{ ...one[0]!, selected: false }, { ...two[1]!, selected: true }];
+    const ui = (tabs: typeof two) => <IntentRoot onIntent={vi.fn()}><TabStrip sessionId="s1" tabs={tabs} canAdd canSplit split={false} /></IntentRoot>;
+    const { rerender } = render(ui(picked));
+    rerender(ui(one));
+    const ghost = document.querySelector('.tabs [role="presentation"]') as HTMLElement;
+    expect(ghost).not.toBeNull();
+    expect(ghost).not.toHaveClass('tab-selected');
+    expect(document.querySelectorAll('.tab-selected')).toHaveLength(1);
+  });
+  it('閉じたタブは畳んで出るあいだ、操作できない影として残し、終わったら外す', async () => {
+    restore = fakeMotionTokens(undefined, { everywhere: true });
+    let finish: () => void = () => {};
+    const finished = new Promise<void>((r) => { finish = r; });
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished, cancel: vi.fn() }; };
+    const onIntent = vi.fn();
+    const ui = (tabs: typeof two) => <IntentRoot onIntent={onIntent}><TabStrip sessionId="s1" tabs={tabs} canAdd canSplit split={false} /></IntentRoot>;
+    const { rerender } = render(ui(two));
+    rerender(ui(one));
+    // 出ていくタブは tab の役を外し、読み上げにも、フォーカスにも、クリックにも出さない。
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+    const ghost = document.querySelector('.tabs [role="presentation"]') as HTMLElement;
+    expect(ghost).not.toBeNull();
+    expect(ghost).toHaveAttribute('aria-hidden', 'true');
+    expect(ghost).not.toHaveAttribute('tabindex');
+    expect(ghost.querySelector('.tab-close')).toBeNull();
+    fireEvent.click(ghost);
+    expect(onIntent).not.toHaveBeenCalled();
+    await act(async () => { finish(); await finished; });
+    expect(document.querySelector('.tabs [role="presentation"]')).toBeNull();
+  });
+  it('セッションが替わるときは、前のセッションのタブを畳まず入れ替える', () => {
+    restore = fakeMotionTokens(undefined, { everywhere: true });
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; };
+    const ui = (id: string, tabs: typeof two) => <IntentRoot onIntent={vi.fn()}><TabStrip sessionId={id} tabs={tabs} canAdd canSplit split={false} /></IntentRoot>;
+    const { rerender } = render(ui('s1', two));
+    rerender(ui('s2', [{ ...one[0]!, id: 'u1' }]));
+    expect(document.querySelector('.tabs [role="presentation"]')).toBeNull();
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
   });
 });
 

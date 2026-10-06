@@ -485,9 +485,10 @@ describe('タブと接続', () => {
     const a = run([intent({ type: 'livePane.split', ratio: 0.3 })]);
     expect(a.state.livePaneSplit).toBe(0.3);
     expect(a.effects).toEqual([{ kind: 'storage.save', key: 'livePane.split', value: 0.3 }]);
-    // 端まで寄せても、上の段と目次のどちらも残す。
-    expect(run([intent({ type: 'livePane.split', ratio: 0.99 })]).state.livePaneSplit).toBe(0.8);
-    expect(run([intent({ type: 'livePane.split', ratio: -1 })]).state.livePaneSplit).toBe(0.2);
+    // 端まで寄せられる。どちらの端でも、見出しの 1 行は CSS の下限で残る。
+    expect(run([intent({ type: 'livePane.split', ratio: 0.99 })]).state.livePaneSplit).toBe(0.99);
+    expect(run([intent({ type: 'livePane.split', ratio: -1 })]).state.livePaneSplit).toBe(0);
+    expect(run([intent({ type: 'livePane.split', ratio: 2 })]).state.livePaneSplit).toBe(1);
     expect(run([intent({ type: 'livePane.split', ratio: Number.NaN })]).state.livePaneSplit).toBe(0.5);
   });
   it('サイドバーの折りたたみは開閉のたびに保存する', () => {

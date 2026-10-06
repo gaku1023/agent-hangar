@@ -98,10 +98,10 @@ describe('読む面', () => {
     expect(d['box-shadow']).toBe('var(--surface-shadow)');
     expect(d['backdrop-filter']).toBeUndefined();
   });
-  // 畳んだ会話の列は 28px しかない。左右の余白を残すと、同じ幅の開くボタンが半分ほど隠れて押しにくくなる。
-  it('畳んだ会話の列は左右の余白を持たず、開くボタンを列の幅いっぱいに見せる', () => {
-    const d = rule('base.css', ".tr-pane[data-collapsed='true']");
-    expect(d.padding).toMatch(new RegExp(`^(${CALC}|\\S+) 0$`));
+  // 畳んだ会話の列は 0px になる（開くボタンはタブの帯へ移った）。余白は中身の側が持つので、列そのものは余白を持たない。
+  it('会話の列は余白を持たず、中身の側（.tr-pane-inner）が持つ。開閉のボタンの幅は 28px のまま', () => {
+    expect(rule('base.css', '.tr-pane').padding).toBeUndefined();
+    expect(rule('base.css', '.tr-pane-inner').padding).toMatch(new RegExp(`^${CALC} ${CALC}$`));
     expect(px(rule('base.css', '.tr-toggle').width!)).toBe(28);
   });
   it('白い面の中のアーティファクトのカードは、淡い地に落として面を重ねない', () => {

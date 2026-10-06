@@ -1,13 +1,14 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { createTerminalHost, type TerminalHost, type TerminalLike } from '../runtime/terminals.ts';
 import { TerminalHostContext, TerminalPane } from './TerminalPane.tsx';
-import { LAYOUT_SETTLED, MOVING_ATTR } from './primitives/sidebarMotion.ts';
+import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './primitives/layoutMotion.ts';
 
 type FakeHost = TerminalHost & { mount: ReturnType<typeof vi.fn> };
 
 function fakeHost(): FakeHost {
-  return { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() } as FakeHost;
+  return { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() } as FakeHost;
 }
 
 describe('TerminalPane', () => {
@@ -36,21 +37,122 @@ describe('TerminalPane', () => {
     expect(termsIn()).toEqual(['1']);
   });
   // サイドバーの開閉の間は本文の幅が毎コマ変わる。そのたびに合わせ直すと、端末の寸法をサーバへ送り続ける。
-  it('サイドバーが動いている間は寸法を合わせず、止まったら一度だけ合わせる', () => {
+  it('左右の欄が動いている間は寸法を合わせず、止まったら一度だけ合わせる', () => {
     const observers: (() => void)[] = [];
     vi.stubGlobal('ResizeObserver', class { constructor(cb: () => void) { observers.push(cb); } observe() {} disconnect() {} });
     const host = fakeHost();
     render(<div className="shell"><TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider></div>);
     const shell = document.querySelector<HTMLElement>('.shell')!;
-    shell.setAttribute(MOVING_ATTR, '');
+    shell.setAttribute(LAYOUT_MOVING_ATTR, '');
     observers[0]!();
     expect(host.fit).not.toHaveBeenCalled();
-    shell.removeAttribute(MOVING_ATTR);
+    shell.removeAttribute(LAYOUT_MOVING_ATTR);
     window.dispatchEvent(new Event(LAYOUT_SETTLED));
     expect(host.fit).toHaveBeenCalledTimes(1);
     observers[0]!();
     expect(host.fit).toHaveBeenCalledTimes(2);
     vi.unstubAllGlobals();
+  });
+  it('ほかの箱の動きが止まった知らせでも、まだ自分の外側の箱が動いている間は合わせない', () => {
+    const host = fakeHost();
+    render(<div className="outer"><div className="inner"><TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider></div></div>);
+    const outer = document.querySelector<HTMLElement>('.outer')!;
+    outer.setAttribute(LAYOUT_MOVING_ATTR, '');
+    // 別の箱（たとえば案内の帯）の動きが止まった。
+    window.dispatchEvent(new Event(LAYOUT_SETTLED));
+    expect(host.fit).not.toHaveBeenCalled();
+    outer.removeAttribute(LAYOUT_MOVING_ATTR);
+    window.dispatchEvent(new Event(LAYOUT_SETTLED));
+    expect(host.fit).toHaveBeenCalledTimes(1);
+  });
+  it('最初のデータが届くまで、端末の面は data-painted="false" で透明にしておく', () => {
+    const host = { ...fakeHost(), painted: () => false };
+    render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider>);
+    expect(document.querySelector('.term-host')).toHaveAttribute('data-painted', 'false');
+  });
+  it('描けているタブには data-painted を付けない', () => {
+    render(<TerminalHostContext.Provider value={fakeHost()}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider>);
+    expect(document.querySelector('.term-host')).not.toHaveAttribute('data-painted');
+  });
+  it('案内が消えたら、動かない環境ではすぐ外す', () => {
+    const host = fakeHost();
+    const { rerender } = render(<TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint="待っています" live={null} /></TerminalHostContext.Provider>);
+    rerender(<TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live={null} /></TerminalHostContext.Provider>);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+  describe('帯の出入り（動く環境）', () => {
+    let restore = () => {};
+    afterEach(() => { restore(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations; });
+    const install = () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      let resolve!: () => void;
+      const finished = new Promise<void>((r) => { resolve = r; });
+      const calls: Keyframe[][] = [];
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (f: Keyframe[]) { calls.push(f); return { finished, cancel: vi.fn() }; };
+      return { resolve, calls };
+    };
+    const pane = (host: TerminalHost, hint: string | null, transcript: { when: string; onLatest: () => void } | null = null) => <TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" agent hint={hint} live={null} transcript={transcript} /></TerminalHostContext.Provider>;
+    it('案内が消えるときは、畳み終わるまで描き続け、その間は寸法を合わせず、終わったら外す', async () => {
+      const { resolve, calls } = install();
+      const host = fakeHost();
+      const { rerender } = render(pane(host, '待っています'));
+      rerender(pane(host, null));
+      expect(calls).toHaveLength(1);
+      expect(screen.getByText('待っています')).toBeInTheDocument();
+      // 出ている間は読み上げの通知にしない。
+      expect(screen.queryByRole('status')).toBeNull();
+      expect(document.querySelector('.term-pane')).toHaveAttribute(LAYOUT_MOVING_ATTR);
+      await act(async () => { resolve(); await Promise.resolve(); await Promise.resolve(); });
+      expect(screen.queryByText('待っています')).toBeNull();
+      expect(document.querySelector('.term-pane')).not.toHaveAttribute(LAYOUT_MOVING_ATTR);
+    });
+    it('出る途中で案内が戻ったら、取り消された畳みの後始末では印が外れず、伸び直しが終わってから外れる', async () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      const anims: { resolve: () => void; reject: () => void }[] = [];
+      const live: { cancel: () => void }[] = [];
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () {
+        let resolve!: () => void; let reject!: () => void;
+        const finished = new Promise<void>((res, rej) => { resolve = res; reject = () => rej(new Error('cancelled')); });
+        const i = anims.push({ resolve, reject }) - 1;
+        const a = { finished, cancel: () => anims[i]!.reject() };
+        live.push(a);
+        return a;
+      };
+      // usePresence は戻ったときに部分木の動きを取り消す。jsdom に getAnimations は無いので、作った動きを返す。
+      (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => live;
+      const host = fakeHost();
+      const { rerender } = render(pane(host, '待っています'));
+      rerender(pane(host, null));
+      rerender(pane(host, '待っています'));
+      // 畳みが取り消され、伸び直しが始まっている。
+      expect(anims).toHaveLength(2);
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+      expect(document.querySelector('.term-pane')).toHaveAttribute(LAYOUT_MOVING_ATTR);
+      await act(async () => { anims[1]!.resolve(); await Promise.resolve(); await Promise.resolve(); });
+      expect(document.querySelector('.term-pane')).not.toHaveAttribute(LAYOUT_MOVING_ATTR);
+    });
+    it('transcript の帯が消えるときは、畳む間も「いつのターンか」を読み続ける', async () => {
+      const { resolve } = install();
+      const host = fakeHost();
+      const { rerender } = render(pane(host, null, { when: '10:30', onLatest: () => {} }));
+      rerender(pane(host, null, null));
+      const band = document.querySelector('.term-band')!;
+      expect(band).toHaveTextContent('10:30 のターン');
+      expect(band).toHaveAttribute('aria-hidden', 'true');
+      await act(async () => { resolve(); await Promise.resolve(); await Promise.resolve(); });
+      expect(document.querySelector('.term-band')).toBeNull();
+    });
+    it('案内が後から出るときは伸ばして入れ、最初の描画では動かさない', () => {
+      const { calls } = install();
+      const host = fakeHost();
+      const first = render(pane(host, '待っています'));
+      expect(calls).toHaveLength(0);
+      first.unmount();
+      const { rerender } = render(pane(host, null));
+      rerender(pane(host, '待っています'));
+      expect(calls).toHaveLength(1);
+      expect(document.querySelector('.term-pane')).toHaveAttribute(LAYOUT_MOVING_ATTR);
+    });
   });
   it('思いがけず切れたら、中央のカードで言い、次に試すまでの秒数と再接続を出す', () => {
     const reconnect = vi.fn();
