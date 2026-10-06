@@ -66,6 +66,27 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
       </Dialog>
     );
   }
+  // 文の仕上げ（名前、作業中の注意）は、アカウントの画面を作るときに足す。
+  if (c.kind === 'switchAccount') {
+    return (
+      <Dialog
+        title="アカウントを切り替えますか？"
+        icon="warning"
+        onClose={close}
+        footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'account.switchSession', sessionId: c.sessionId, accountId: c.accountId, working: c.working, confirmed: true })}>切り替える</button></>}
+      />
+    );
+  }
+  if (c.kind === 'removeAccount') {
+    return (
+      <Dialog
+        title="アカウントを一覧から外しますか？"
+        icon="warning"
+        onClose={close}
+        footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'account.remove', accountId: c.accountId, confirmed: true })}>一覧から外す</button></>}
+      />
+    );
+  }
   return (
     <Dialog
       title="本文を置き換えますか"

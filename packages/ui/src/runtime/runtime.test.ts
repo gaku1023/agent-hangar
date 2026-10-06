@@ -4,6 +4,7 @@ import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoD
 import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
+import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { State } from '../mediator/types.ts';
 
@@ -1622,5 +1623,109 @@ describe('サイドバーの「動いている」の並び（ランタイム）'
     h.wsHandlers[0]!.onEvent({ type: 'live.update', live: [liveRow('u-s2', 'busy'), liveRow('u-s1', 'busy')] });
     expect(h.rt.getState().sidebarOrder).toEqual(['s1', 's2']);
     expect(h.store.get('sidebar.order')).toEqual(['s1', 's2']);
+  });
+});
+
+describe('アカウント', () => {
+  const univ = accountsFixture.accounts[1]!;
+  async function started(overrides: Partial<ApiClient> = {}) {
+    const h = harness(overrides);
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    return h;
+  }
+  it('bootstrap の accounts が Store に入る', async () => {
+    const h = await started({ bootstrap: vi.fn(async () => ({ ...boot, accounts: accountsFixture })) });
+    expect(h.rt.getStore().accounts).toEqual(accountsFixture);
+  });
+  it('accounts を持たない bootstrap では null のまま', async () => {
+    const h = await started();
+    expect(h.rt.getStore().accounts).toBeNull();
+  });
+  it('account.choose は setCurrentAccount を呼び、応答の AccountsDto を Store に入れる', async () => {
+    const next = { ...accountsFixture, currentId: 'a1' };
+    const h = await started({ setCurrentAccount: vi.fn(async () => next) });
+    h.rt.emit({ type: 'account.choose', accountId: 'a1' });
+    await flush();
+    expect(h.api.setCurrentAccount).toHaveBeenCalledWith('a1');
+    expect(h.rt.getStore().accounts).toEqual(next);
+  });
+  it('accounts.load は一覧を取り、Store に入れる', async () => {
+    const h = await started();
+    h.rt.emit({ type: 'accounts.load' });
+    await flush();
+    expect(h.api.accounts).toHaveBeenCalledTimes(1);
+    expect(h.rt.getStore().accounts).toEqual(accountsFixture);
+  });
+  it('account.add は addAccount のあと、応答の末尾のアカウントの id で loginAccount を呼ぶ', async () => {
+    const added = { ...univ, id: 'a2', name: '研究室', color: '#1f7a5a', auth: null, loginRunning: false };
+    const next = { ...accountsFixture, accounts: [...accountsFixture.accounts, added] };
+    const h = await started({ addAccount: vi.fn(async () => next) });
+    h.rt.emit({ type: 'account.add', name: ' 研究室 ' });
+    await flush();
+    expect(h.api.addAccount).toHaveBeenCalledWith('研究室');
+    expect(h.api.loginAccount).toHaveBeenCalledTimes(1);
+    expect(h.api.loginAccount).toHaveBeenCalledWith('a2');
+    expect(h.rt.getStore().accounts).toEqual(next);
+  });
+  it('account.add の追加に失敗したら、ログインは始めず、サーバの文をトーストに出す', async () => {
+    const h = await started({ addAccount: vi.fn(async () => { throw new Error('その名前はもう使われています'); }) });
+    h.rt.emit({ type: 'account.add', name: '大学' });
+    await flush();
+    expect(h.api.loginAccount).not.toHaveBeenCalled();
+    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['その名前はもう使われています']);
+  });
+  it('account.switchSession（承諾）は switchAccount を呼び、成功で run が入ってそのセッションの画面へ移る', async () => {
+    const h = await started({ switchAccount: vi.fn(async () => launched) });
+    h.setHash('#/');
+    h.rt.emit({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false });
+    expect(h.rt.getState().overlay).toEqual({ kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: false } });
+    expect(h.api.switchAccount).not.toHaveBeenCalled();
+    h.rt.emit({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true });
+    await flush();
+    expect(h.api.switchAccount).toHaveBeenCalledWith('s1', 'a1');
+    expect(h.rt.getStore().runs.r1).toBeDefined();
+    expect(h.rt.getState()).toMatchObject({ launch: { kind: 'idle' }, overlay: { kind: 'none' }, screen: { name: 'session', id: 's1' } });
+  });
+  it('account.switchSession の失敗は、サーバの文をトーストに出し、launch は submitting のまま残らない', async () => {
+    const h = await started({ switchAccount: vi.fn(async () => { throw new Error('このセッションはもうそのアカウントで動いています'); }) });
+    h.rt.emit({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true, confirmed: true });
+    await flush();
+    expect(h.rt.getState().launch).toEqual({ kind: 'failed', message: 'このセッションはもうそのアカウントで動いています' });
+    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['このセッションはもうそのアカウントで動いています']);
+  });
+  it('account.login が 409 で失敗したら、その文をトーストに出す', async () => {
+    const h = await started({ loginAccount: vi.fn(async () => { throw new Error('ログインはすでに始まっています'); }) });
+    h.rt.emit({ type: 'account.login', accountId: 'a1' });
+    await flush();
+    expect(h.api.loginAccount).toHaveBeenCalledWith('a1');
+    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['ログインはすでに始まっています']);
+  });
+  it('update、remove（承諾）、login.cancel、refresh は、応答の AccountsDto を Store に入れる', async () => {
+    const next = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!], sessions: {} };
+    const h = await started({
+      updateAccount: vi.fn(async () => accountsFixture), removeAccount: vi.fn(async () => next),
+      cancelAccountLogin: vi.fn(async () => accountsFixture), refreshAccount: vi.fn(async () => accountsFixture),
+    });
+    h.rt.emit({ type: 'account.update', accountId: 'a1', name: '研究室' });
+    await flush();
+    expect(h.api.updateAccount).toHaveBeenCalledWith('a1', { name: '研究室' });
+    h.rt.emit({ type: 'account.remove', accountId: 'a1', confirmed: true });
+    await flush();
+    expect(h.api.removeAccount).toHaveBeenCalledWith('a1');
+    expect(h.rt.getStore().accounts).toEqual(next);
+    h.rt.emit({ type: 'account.login.cancel', accountId: 'a1' });
+    h.rt.emit({ type: 'account.refresh', accountId: 'a1' });
+    await flush();
+    expect(h.api.cancelAccountLogin).toHaveBeenCalledWith('a1');
+    expect(h.api.refreshAccount).toHaveBeenCalledWith('a1');
+    expect(h.rt.getStore().accounts).toEqual(accountsFixture);
+  });
+  it('accounts.update のイベントで Store が入れ替わる', async () => {
+    const h = await started({ bootstrap: vi.fn(async () => ({ ...boot, accounts: accountsFixture })) });
+    const next = { ...accountsFixture, currentId: 'a1', accounts: accountsFixture.accounts.map((a) => (a.id === 'a1' ? { ...a, loginRunning: true } : a)) };
+    h.wsHandlers[0]!.onEvent({ type: 'accounts.update', accounts: next });
+    expect(h.rt.getStore().accounts).toEqual(next);
   });
 });

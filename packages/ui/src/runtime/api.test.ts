@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { accountsFixture } from '../test/accounts.ts';
 import { ApiConflictError, createApi, RetentionConflictApiError } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
@@ -158,5 +159,36 @@ describe('createApi（セッションの状態）', () => {
   it('409 の本文の一文をそのまま投げる', async () => {
     const ng = harness(409, { error: 'このセッションには確かめる提案がありません' });
     await expect(ng.api.confirmSessionState('s1', {})).rejects.toThrow('このセッションには確かめる提案がありません');
+  });
+});
+
+describe('createApi（アカウント）', () => {
+  it('9 つの呼び出しの経路とメソッドと本文', async () => {
+    const { api, calls } = harness(200, accountsFixture);
+    expect(await api.accounts()).toEqual(accountsFixture);
+    await api.setCurrentAccount('a1');
+    await api.switchAccount('s1', 'a1');
+    await api.addAccount('大学');
+    await api.updateAccount('a1', { name: '研究室', color: '#7a4a9e' });
+    await api.removeAccount('a1');
+    await api.loginAccount('a1');
+    await api.cancelAccountLogin('a1');
+    await api.refreshAccount('a1');
+    expect(calls.map((c) => `${c.method} ${c.url} ${c.body ?? ''}`.trimEnd())).toEqual([
+      'GET /api/accounts',
+      'PUT /api/accounts/current {"id":"a1"}',
+      'POST /api/sessions/s1/switch-account {"account":"a1"}',
+      'POST /api/accounts {"name":"大学"}',
+      'PATCH /api/accounts/a1 {"name":"研究室","color":"#7a4a9e"}',
+      'DELETE /api/accounts/a1',
+      'POST /api/accounts/a1/login',
+      'POST /api/accounts/a1/login/cancel',
+      'POST /api/accounts/a1/refresh',
+    ]);
+  });
+  it('202 のログインは本文を捨てて undefined、失敗はサーバの文をそのまま投げる', async () => {
+    expect(await harness(202, { accepted: true }).api.loginAccount('a1')).toBeUndefined();
+    await expect(harness(409, { error: 'ログインはすでに始まっています' }).api.loginAccount('a1')).rejects.toThrow('ログインはすでに始まっています');
+    await expect(harness(409, { error: '同じアカウントです' }).api.switchAccount('s1', 'primary')).rejects.toThrow('同じアカウントです');
   });
 });

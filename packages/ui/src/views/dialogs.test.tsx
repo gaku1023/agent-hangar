@@ -211,3 +211,26 @@ describe('RetentionDialog', () => {
     expect(screen.queryByText('設定の同期で、次の取り込み時に届きます')).toBeNull();
   });
 });
+
+describe('ConfirmDialog（アカウント）', () => {
+  it('切り替えは見出しを出し、承諾で同じ Intent に confirmed を付けて出し、やめるで閉じる', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true }} /></IntentRoot>);
+    expect(screen.getByRole('dialog', { name: 'アカウントを切り替えますか？' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'やめる' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: '切り替える' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true, confirmed: true });
+    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'overlay.close' });
+  });
+  it('削除は見出しを出し、承諾で同じ Intent に confirmed を付けて出し、やめるで閉じる', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'removeAccount', accountId: 'a1' }} /></IntentRoot>);
+    expect(screen.getByRole('dialog', { name: 'アカウントを一覧から外しますか？' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'やめる' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: '一覧から外す' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'account.remove', accountId: 'a1', confirmed: true });
+    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'overlay.close' });
+  });
+});

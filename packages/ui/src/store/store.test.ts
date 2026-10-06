@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
+import { accountsFixture } from '../test/accounts.ts';
+import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentAccount, currentRunOf, emptyUsage, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
@@ -341,5 +342,44 @@ describe('保持期間の store', () => {
   it('retention.changed で差し替わる', () => {
     const next = { ...R, days: 365, source: 'user' as const, userValue: 365 };
     expect(applyServerEvent(initialStore(), { type: 'retention.changed', retention: next }).retention).toEqual(next);
+  });
+});
+
+describe('アカウントの store', () => {
+  const withAccounts = (accounts: typeof accountsFixture | null) => ({ ...initialStore(), accounts });
+  const one = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!], sessions: {} };
+  it('bootstrap に accounts が無ければ null、あれば入る', () => {
+    expect(applyBootstrap(initialStore(), boot).accounts).toBeNull();
+    expect(applyBootstrap(initialStore(), { ...boot, accounts: accountsFixture }).accounts).toEqual(accountsFixture);
+  });
+  it('accounts.update は丸ごと入れ替え、ほかの項目は変えない', () => {
+    const before = applyBootstrap(initialStore(), { ...boot, accounts: accountsFixture, usage: { fiveHour: { usedPercent: 3, resetsAt: null }, sevenDay: null, updatedAt: 7 } });
+    const next = { ...accountsFixture, currentId: 'a1', sessions: {} };
+    const after = applyServerEvent(before, { type: 'accounts.update', accounts: next });
+    expect(after.accounts).toEqual(next);
+    expect(after.usage).toBe(before.usage);
+    expect(after.sessions).toBe(before.sessions);
+  });
+  it('currentAccount は currentId の 1 件、一覧に無ければ primary、空なら null', () => {
+    expect(currentAccount(withAccounts({ ...accountsFixture, currentId: 'a1' }))?.id).toBe('a1');
+    expect(currentAccount(withAccounts({ ...accountsFixture, currentId: 'gone' }))?.id).toBe('primary');
+    expect(currentAccount(withAccounts(null))).toBeNull();
+    expect(currentAccount(withAccounts({ ...accountsFixture, accounts: [] }))).toBeNull();
+  });
+  it('accountList は null なら空の配列', () => {
+    expect(accountList(withAccounts(null))).toEqual([]);
+    expect(accountList(withAccounts(accountsFixture))).toHaveLength(2);
+  });
+  it('accountOfSession は対応にあればその 1 件、無ければ primary、一覧に無い id でも primary', () => {
+    const s = withAccounts(accountsFixture);
+    expect(accountOfSession(s, 's9')?.id).toBe('a1');
+    expect(accountOfSession(s, 'other')?.id).toBe('primary');
+    expect(accountOfSession(withAccounts({ ...accountsFixture, sessions: { s9: 'gone' } }), 's9')?.id).toBe('primary');
+    expect(accountOfSession(withAccounts(null), 's9')).toBeNull();
+  });
+  it('hasMultipleAccounts は null と 1 件が偽、2 件が真', () => {
+    expect(hasMultipleAccounts(withAccounts(null))).toBe(false);
+    expect(hasMultipleAccounts(withAccounts(one))).toBe(false);
+    expect(hasMultipleAccounts(withAccounts(accountsFixture))).toBe(true);
   });
 });

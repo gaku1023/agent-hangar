@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import type { ApiClient } from '../runtime/api.ts';
+import { accountsFixture } from './accounts.ts';
 
 type Extras = Pick<
   ApiClient,
@@ -9,6 +10,7 @@ type Extras = Pick<
   | 'syncStatus' | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'live'
+  | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -77,5 +79,15 @@ export function fakeApiExtras(): Extras {
     retentionPreview: vi.fn(async () => unused()),
     writeRetention: vi.fn(async () => unused()),
     live: vi.fn(async (sessionId: string) => ({ sessionId, turnStartSeq: null, intent: null, agents: [] })),
+    // アカウントは既定で 2 件の固定データを返す。切り替えの結果は使うテストが自分で上書きする。
+    accounts: vi.fn(async () => accountsFixture),
+    setCurrentAccount: vi.fn(async () => accountsFixture),
+    switchAccount: vi.fn(async (sessionId: string) => ({ run: { id: 'r-switch', sessionId, deviceId: 'd', kind: 'resume' as const, tmuxName: 'hangar-r-switch', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId, tabs: [{ id: 'r-switch', runId: 'r-switch', sessionId, kind: 'agent' as const, title: 'Claude', tmuxName: 'hangar-r-switch', createdAt: 1, closedAt: null }] })),
+    addAccount: vi.fn(async () => accountsFixture),
+    updateAccount: vi.fn(async () => accountsFixture),
+    removeAccount: vi.fn(async () => accountsFixture),
+    loginAccount: vi.fn(async () => undefined),
+    cancelAccountLogin: vi.fn(async () => accountsFixture),
+    refreshAccount: vi.fn(async () => accountsFixture),
   };
 }

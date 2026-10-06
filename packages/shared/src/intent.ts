@@ -124,6 +124,17 @@ export type Intent =
   | { type: 'settings.update'; patch: Partial<Settings>; field?: string }
   // 準備の確かめ（設定画面の検証と、空のホームの確認リスト）を取り直す。
   | { type: 'readiness.check' }
+  // Claude Code のアカウント。load は一覧を取り直す。choose は新しいセッションの既定（いまのアカウント）を変える。
+  // switchSession はそのセッションを別のアカウントで再開する。working は作業中かで、確認の文に使う。confirmed が無ければ先に確認を出す。
+  // add は名前だけで置き場を作り、続けてログインを始める。remove は一覧から外すだけで、置き場の中身は消さない。confirmed が無ければ先に確認を出す。
+  | { type: 'accounts.load' }
+  | { type: 'account.choose'; accountId: string }
+  | { type: 'account.switchSession'; sessionId: SessionId; accountId: string; working: boolean; confirmed?: boolean }
+  | { type: 'account.add'; name: string }
+  | { type: 'account.update'; accountId: string; name?: string; color?: string }
+  | { type: 'account.remove'; accountId: string; confirmed?: boolean }
+  | { type: 'account.login'; accountId: string } | { type: 'account.login.cancel'; accountId: string }
+  | { type: 'account.refresh'; accountId: string }
   // デスクトップの殻に頼む操作。殻の無いブラウザでは、画面が場所のコピーと文の案内に落とす。
   | { type: 'shell.openLog' } | { type: 'shell.restart' }
   | { type: 'clipboard.copy'; text: string };

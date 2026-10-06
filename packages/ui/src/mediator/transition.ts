@@ -1,3 +1,4 @@
+import { accountsStep } from './accounts.ts';
 import { connectionStep } from './connection.ts';
 import { launchStep } from './launch.ts';
 import { liveStep, settleWaiting } from './live.ts';
@@ -34,10 +35,11 @@ const NOT_YET_INTENTS = new Set(['session.takeover', 'project.new.open', 'projec
 /** 直交する領域の状態機械を順に試し、最初に応答した領域の結果を採る。残りは横断的な入力。 */
 export function transition(state: State, input: Input): Step {
   // promoteStep と retentionStep は overlay.close を横取りするので overlayStep より前に置く。
+  // accountsStep は確認を出す領域なので、overlayStep より前に置く。
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, retentionStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionViewStep, sidebarStep, sidebarOrderStep, sidebarLiveStep, sectionsStep, livePaneSplitStep, liveStep, returnStep, notifyStep, workbenchStep]) {
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionViewStep, sidebarStep, sidebarOrderStep, sidebarLiveStep, sectionsStep, livePaneSplitStep, liveStep, returnStep, notifyStep, workbenchStep]) {
     const r = step(state, input);
     // 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
     // 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。戻る時刻の札も同じ（returnDue.ts の settleReturn）。
