@@ -136,6 +136,13 @@ export class SyncEngine {
 
   protected now(): number { return this.deps.now ? this.deps.now() : Date.now(); }
   protected get paused(): boolean { return this.state.get('paused') === '1'; }
+  /**
+   * 一時停止のまま、利用者が頼んだ 1 巡を通している最中か。
+   * 立っている間だけ push と pull の入口が開く。定期実行と起動前の pull は `paused` を見るので、開かない。
+   */
+  private onePass = false;
+  /** push と pull の入口を閉じているか。一時停止していて、頼まれた 1 巡の最中でもないとき。 */
+  private get halted(): boolean { return this.paused && !this.onePass; }
 
   on(l: SyncListener): () => void { this.listeners.add(l); return () => { this.listeners.delete(l); }; }
 
@@ -288,7 +295,7 @@ export class SyncEngine {
 
   /** 利用者が押した「今すぐ同期」と定期実行の入口。最小間隔は見ない。 */
   pushNow(): Promise<{ pushed: number }> {
-    if (!this.deps.client || this.paused) return Promise.resolve({ pushed: 0 });
+    if (!this.deps.client || this.halted) return Promise.resolve({ pushed: 0 });
     if (this.pushing) return this.pushing;
     this.pushing = this.doPush(this.deps.client).finally(() => { this.pushing = null; this.emitStatus(); });
     this.emitStatus();
@@ -387,7 +394,7 @@ export class SyncEngine {
 
   /** 利用者が押した「今すぐ同期」と定期実行の入口。走っている pull があればそれに相乗りする。 */
   pullNow(): Promise<{ applied: number }> {
-    if (!this.deps.client || this.paused) return Promise.resolve({ applied: 0 });
+    if (!this.deps.client || this.halted) return Promise.resolve({ applied: 0 });
     if (this.pulling) return this.pulling;
     this.pulling = this.doPull(this.deps.client).finally(() => { this.pulling = null; this.emitStatus(); });
     this.emitStatus();
@@ -488,10 +495,26 @@ export class SyncEngine {
     return { applied: count.applied };
   }
 
-  /** 利用者が押した「今すぐ同期」。push してから pull する。最小間隔は見ない。 */
-  async syncNow(): Promise<void> {
-    await this.pushNow();
-    await this.pullNow();
+  /**
+   * 利用者が押した「今すぐ同期」。push してから pull する。最小間隔は見ない。
+   *
+   * evenIfPaused を渡すと、一時停止していてもこの 1 巡だけは通す。
+   * 止めた状態と止めた理由には触らないので、終われば元の一時停止に戻っている。
+   * 無料枠の見張りも止め直さない（もう止まっている）。枠を使うことを承知で押した 1 回として通す。
+   */
+  async syncNow(o: { evenIfPaused?: boolean } = {}): Promise<void> {
+    if (!o.evenIfPaused || !this.paused || this.onePass) {
+      await this.pushNow();
+      await this.pullNow();
+      return;
+    }
+    this.onePass = true;
+    try {
+      await this.pushNow();
+      await this.pullNow();
+    } finally {
+      this.onePass = false;
+    }
   }
 
   /** セッション起動の直前に呼ぶ。2 秒で諦めるが pull 自体は続く。 */
