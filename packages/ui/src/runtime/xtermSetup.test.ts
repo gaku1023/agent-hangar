@@ -54,6 +54,31 @@ describe('createKeyHandler', () => {
   });
 });
 
+describe('createKeyHandler（Windows と Linux の貼り付け）', () => {
+  // xterm は Ctrl+V を ^V（0x16）として中のアプリへ送り、ブラウザの貼り付けを止める。
+  // macOS の貼り付けは ⌘V なので困らないが、Windows と Linux では Ctrl+V で貼り付けられなくなる。
+  it('macOS 以外では、Ctrl+V を xterm に渡さず、ブラウザの貼り付けに任せる', () => {
+    const input = vi.fn();
+    const handle = createKeyHandler(input, false);
+    const e = key({ key: 'v', ctrlKey: true, keyCode: 86 });
+    expect(handle(e)).toBe(false);
+    // 既定の動き（貼り付け）は止めない。止めると paste のイベントが起きない。
+    expect(e.preventDefault).not.toHaveBeenCalled();
+    expect(input).not.toHaveBeenCalled();
+    expect(handle(key({ type: 'keyup', key: 'v', ctrlKey: true, keyCode: 86 }))).toBe(true);
+  });
+  it('macOS では、Ctrl+V はいまのまま xterm に渡す', () => {
+    const handle = createKeyHandler(vi.fn(), true);
+    expect(handle(key({ key: 'v', ctrlKey: true, keyCode: 86 }))).toBe(true);
+  });
+  it('Ctrl+C、Ctrl+Shift+V、Alt の付いた Ctrl+V は xterm に渡す', () => {
+    const handle = createKeyHandler(vi.fn(), false);
+    expect(handle(key({ key: 'c', ctrlKey: true, keyCode: 67 }))).toBe(true);
+    expect(handle(key({ key: 'V', ctrlKey: true, shiftKey: true, keyCode: 86 }))).toBe(true);
+    expect(handle(key({ key: 'v', ctrlKey: true, altKey: true, keyCode: 86 }))).toBe(true);
+  });
+});
+
 describe('terminalOptions', () => {
   const theme = { background: '#111111', foreground: '#eeeeee' };
 

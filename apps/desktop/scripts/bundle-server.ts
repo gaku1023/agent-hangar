@@ -85,7 +85,8 @@ function copyTree(src: string, dest: string, skip: RegExp, extra?: (rel: string)
     recursive: true,
     dereference: true,
     filter: (from) => {
-      const rel = path.relative(src, from);
+      // 下の正規表現と prebuilds の判定は / を前提に書いてある。Windows の \ のままでは絞り込みが外れ、.env まで写してしまう。
+      const rel = path.relative(src, from).split(path.sep).join('/');
       if (rel === '') return true;
       if (skip.test(rel)) return false;
       return extra ? extra(rel) : true;
@@ -129,6 +130,9 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
       logLevel: 'silent',
     });
   }
+
+  // Windows で claude を包むスクリプト。束には入らない単独のファイルで、server.mjs が隣から読む（launch/wrapper.ts）。
+  fs.copyFileSync(path.join(opts.repoRoot, 'packages/server/src/launch/hangar-run.mjs'), path.join(opts.outDir, 'hangar-run.mjs'));
 
   // sourcemap は配布物に入れない。
   // UI の写しの 68 パーセント（実測 2.19 MB）が index-*.js.map で、利用者の役には立たない。

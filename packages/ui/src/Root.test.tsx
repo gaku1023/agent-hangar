@@ -5,6 +5,7 @@ import { Root } from './Root.tsx';
 import type { ApiClient } from './runtime/api.ts';
 import { createRuntime, type RuntimeDeps } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
+import { accountsFixture } from './test/accounts.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
 import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { SWIPE_STALE_HIDE_MS } from './swipe.ts';
@@ -70,8 +71,8 @@ describe('Root', () => {
     expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
     act(() => handlers[0]!.onOpen());
     await flush();
-    // Home の区画の見出し。ナビの項目も同じ名前なので、見出しとして探す。
-    expect(screen.getByRole('heading', { level: 2, name: 'プロジェクト' })).toBeInTheDocument();
+    // Home の区画の見出し。
+    expect(screen.getByRole('heading', { level: 2, name: '最近' })).toBeInTheDocument();
     act(() => setHash('#/projects'));
     expect(screen.getByRole('heading', { level: 1, name: 'プロジェクト' })).toBeInTheDocument();
     expect(screen.getByText('alpha')).toBeInTheDocument();
@@ -161,7 +162,7 @@ describe('Root', () => {
     fireEvent.keyDown(screen.getByLabelText('名前（任意）'), { key: 'Escape' });
     await flush();
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(rt.getState().newSessionDraft).toEqual({ name: 'API の節', prompt: '' });
+    expect(rt.getState().newSessionDraft).toEqual({ name: 'API の節', prompt: '', attachments: [] });
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
     await flush();
     expect(screen.getByLabelText('名前（任意）')).toHaveValue('API の節');
@@ -1119,5 +1120,60 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Paused にする' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(setSessionState).toHaveBeenCalledWith('s1', expect.objectContaining({ status: 'paused', note: '数字を見る', returnOn: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }));
+  });
+});
+
+describe('アカウントの切り替え（セッション画面）', () => {
+  /** s1 が動いている 2 アカウントの画面。s1 は対応に無いので会社（最初のアカウント）で動いている。 */
+  const open = async (api: Partial<ApiClient>) => {
+    const m = await mounted({ boot: { ...boot, sessions: [{ ...session, live: 'busy' }], accounts: accountsFixture }, api });
+    act(() => m.setHash('#/session/s1'));
+    await flush();
+    return m;
+  };
+  /** ヘッダから大学を選ぶ。 */
+  const chooseUniv = async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^アカウントを切り替える（いまは 会社/ }));
+    await flush();
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /大学/ }));
+    await flush();
+  };
+
+  it('ヘッダで別のアカウントを選ぶと確認が出て、承諾すると switchAccount を呼び、確認が閉じる', async () => {
+    const switchAccount = vi.fn(fakeApiExtras().switchAccount);
+    await open({ switchAccount });
+    await chooseUniv();
+    const dialog = screen.getByRole('dialog', { name: '大学 に切り替えますか？' });
+    // 動いている作業中のセッションなので、中断の注意も出る。
+    expect(dialog).toHaveTextContent('途中の作業が中断されます。');
+    expect(switchAccount).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: '切り替える' }));
+    await flush();
+    expect(switchAccount).toHaveBeenCalledWith('s1', 'a1');
+    expect(screen.queryByRole('dialog', { name: '大学 に切り替えますか？' })).toBeNull();
+  });
+
+  it('確認でやめると何も呼ばず、確認が閉じる', async () => {
+    const switchAccount = vi.fn(fakeApiExtras().switchAccount);
+    await open({ switchAccount });
+    await chooseUniv();
+    fireEvent.click(within(screen.getByRole('dialog', { name: '大学 に切り替えますか？' })).getByRole('button', { name: 'やめる' }));
+    await flush();
+    expect(switchAccount).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: '大学 に切り替えますか？' })).toBeNull();
+  });
+
+  it('サーバが断ったら、その文がトーストに出て、確認は閉じたまま、画面は元のセッションである', async () => {
+    const refusal = 'このセッションにはまだ本文がありません。先に会話を始めてから切り替えてください。';
+    const switchAccount = vi.fn(async () => { throw new Error(refusal); });
+    const { go } = await open({ switchAccount });
+    await chooseUniv();
+    fireEvent.click(within(screen.getByRole('dialog', { name: '大学 に切り替えますか？' })).getByRole('button', { name: '切り替える' }));
+    await flush();
+    expect(switchAccount).toHaveBeenCalledWith('s1', 'a1');
+    expect(screen.getByText(refusal)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '大学 に切り替えますか？' })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('せっしょん');
+    expect(go).not.toHaveBeenCalled();
   });
 });

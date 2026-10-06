@@ -5,13 +5,14 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { TerminalApp } from '@agent-hangar/shared';
+import { needsShell } from '../platform/exec.ts';
 
-export type Exec = (cmd: string, args: string[], opts?: { timeoutMs?: number }) => Promise<{ code: number; stdout: string; stderr: string }>;
+export type Exec = (cmd: string, args: string[], opts?: { timeoutMs?: number; shell?: boolean }) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 /** child_process.execFile の Promise 版。失敗でも投げず code を返す。 */
 export const execFile: Exec = (cmd, args, opts) =>
   new Promise((resolve) => {
-    execFileCb(cmd, args, { timeout: opts?.timeoutMs ?? 30_000, encoding: 'utf8' }, (err, stdout, stderr) => {
+    execFileCb(cmd, args, { timeout: opts?.timeoutMs ?? 30_000, encoding: 'utf8', shell: opts?.shell ?? false, windowsHide: true }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0;
       resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
     });
@@ -107,8 +108,17 @@ export function openDirInTerminalApp(o: { home: string; dir: string; app: Termin
   });
 }
 
-export async function openInEditor(o: { codePath: string | null; target: string; exec?: Exec }): Promise<void> {
+export async function openInEditor(o: { codePath: string | null; target: string; exec?: Exec; platform?: NodeJS.Platform }): Promise<void> {
   if (!o.codePath) throw new Error('VS Code の code コマンドが見つかりません。設定の「code のパス」を入れてください');
-  const r = await (o.exec ?? execFile)(o.codePath, [o.target]);
+  const exec = o.exec ?? execFile;
+  let r: { code: number; stdout: string; stderr: string };
+  if (needsShell(o.codePath, o.platform)) {
+    // Windows の VS Code の code は code.cmd で、Node は .cmd をシェル無しでは起こせない。cmd.exe 越しに、パスを引用符で包んで渡す。
+    // " は Windows のファイル名に使えない文字で、引用を破る。含むものは開かずに断る。
+    if (o.codePath.includes('"') || o.target.includes('"')) throw new Error(`このパスは VS Code で開けません: ${o.target}`);
+    r = await exec(`"${o.codePath}"`, [`"${o.target}"`], { shell: true });
+  } else {
+    r = await exec(o.codePath, [o.target]);
+  }
   if (r.code !== 0) throw new Error(`VS Code を起動できませんでした: ${r.stderr.trim() || `exit ${r.code}`}`);
 }

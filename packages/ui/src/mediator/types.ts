@@ -21,10 +21,15 @@ export type RuntimeEvent =
   // 変わったときだけランタイムが届ける。
   // live.update はプロバイダの id で届き、hangar のセッションに引き当てるにはストアが要るからである。
   | { type: 'waiting.changed'; ids: string[] }
+  // サイドバーの「動いている」に載るセッションの一覧（hangar のセッションの id、始めた順）。
+  // 顔ぶれが変わったときだけランタイムが届ける。
+  | { type: 'live.changed'; ids: string[] }
   // 通知を出せるか、受け取るか。
   // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
   // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
   | { type: 'notify.changed'; available: boolean; on: boolean; blocked?: boolean }
+  // 時刻つきの Paused のうち、今日その時刻を過ぎたものの鍵（mediator/returnDue.ts の dueReturnKeys）。
+  | { type: 'return.due'; keys: string[] }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
   | { type: 'window.focus' }
   // 目次から左のターミナルを跳ばした結果。
@@ -73,6 +78,8 @@ export type Effect =
   // 入力待ちになったセッションを通知で知らせる。
   // 受け取る設定か、窓が背面かはランタイムが見る。
   | { kind: 'notify.waiting'; sessionId: string }
+  // 戻る時刻を過ぎた Paused を通知で知らせる。出すかどうかは notify.waiting と同じくランタイムが見る。
+  | { kind: 'notify.return'; sessionId: string }
   // 通知の許可を求める。
   // 利用者の操作の中で出すので、ブラウザの許可ダイアログも出せる。
   | { kind: 'notify.request' }
@@ -86,8 +93,8 @@ export type Effect =
   | { kind: 'api.confirmTodo'; id: string }
   | { kind: 'api.rejectTodo'; id: string }
   // セッションの状態。本文には渡されたものだけを載せる。
-  | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string } }
-  | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string } }
+  | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
+  | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
   | { kind: 'api.rejectSessionState'; id: string }
   | { kind: 'api.loadMemo'; projectId: string }
   | { kind: 'api.saveMemo'; projectId: string; markdown: string }
@@ -104,7 +111,17 @@ export type Effect =
   | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }
-  | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number };
+  | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
+  // Claude Code のアカウント。
+  | { kind: 'api.accounts.load' }
+  | { kind: 'api.accounts.setCurrent'; accountId: string }
+  | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }
+  | { kind: 'api.accounts.add'; name: string }
+  | { kind: 'api.accounts.update'; accountId: string; patch: { name?: string; color?: string } }
+  | { kind: 'api.accounts.remove'; accountId: string }
+  | { kind: 'api.accounts.login'; accountId: string }
+  | { kind: 'api.accounts.cancelLogin'; accountId: string }
+  | { kind: 'api.accounts.refresh'; accountId: string };
 
 export type Screen = { name: 'booting' } | Route;
 /** results はセッションの一覧の画面の結果の一覧である。 */
@@ -120,7 +137,10 @@ export type ConfirmRequest =
   | { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number }
   | { kind: 'adoptSession'; sessionId: string }
   | { kind: 'killRun'; runId: string; working: boolean; shellTabs: number }
-  | { kind: 'unlinkProject'; projectId: string };
+  | { kind: 'unlinkProject'; projectId: string }
+  // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。
+  | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean }
+  | { kind: 'removeAccount'; accountId: string };
 export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' } | { kind: 'notYet'; feature: string }
   | { kind: 'shortcuts' }
@@ -132,8 +152,12 @@ export type Overlay =
   | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null }
   // Paused の入力（B1）。from は開いた入口（「⋯」か提案の「日を変える」）。
   | { kind: 'pause'; sessionId: string; from: 'menu' | 'candidate' };
-/** 新しいセッションのダイアログの書きかけ。プロジェクトごとではなく 1 つだけ持つ。 */
-export type NewSessionDraft = { name: string; prompt: string };
+/**
+ * 新しいセッションのダイアログの書きかけ。プロジェクトごとではなく 1 つだけ持つ。
+ * 添付は、置き場（~/.agent-hangar/drops/）のパスで覚える。
+ * mediator から views の型を import しないよう、形をここに書く（promptComposerModel.ts の Attachment と同じ形）。
+ */
+export type NewSessionDraft = { name: string; prompt: string; attachments: { path: string; name: string; size: number | null }[] };
 /** 新しいセッションの詳細の前回値。起動したときの値のうち、既定でないものだけを持つ。 */
 export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMode' | 'worktree' | 'addDirs'>;
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting' } | { kind: 'failed'; message: string };
@@ -181,7 +205,16 @@ export type State = {
   staleSince: number | null;
   /** 次に自動で試す時刻。待っているのか固まっているのかを見せるために持つ。 */
   nextRetryAt: number | null;
-  sessionView: Record<string, SessionViewState>; search: { text: string; filter: SearchFilter };
+  sessionView: Record<string, SessionViewState>;
+  /** 一覧の語と絞り込み、平らな一覧のいまのページ（1 から）。ページは条件を変えるか画面に入り直すと 1 に戻る。 */
+  search: { text: string; filter: SearchFilter; page: number };
+  /** 一覧の 1 ページの件数（PAGE_SIZES のどれか）。どの一覧も同じ件数を使う。端末ごとに localStorage に残し、起動時に読み戻す。 */
+  pageSize: number;
+  /**
+   * プロジェクト画面の一覧のいまのページ（1 から）。鍵は 'project:<id>'。無ければ 1 ページ目。
+   * プロジェクトの節を広げる・畳むと、そのプロジェクトは 1 ページ目に戻る。保存はしない。
+   */
+  listPages: Record<string, number>;
   /** 起動の進み。ダイアログからの起動も、再開もフォークも同じ状態を共有する。 */
   launch: LaunchState;
   /**
@@ -195,6 +228,10 @@ export type State = {
    * 入力待ちが解けるか、そのセッションを開くまで残す。
    */
   waitingToasts: string[];
+  /** 戻る時刻を過ぎたと知らせ終えた鍵（id|日 時刻）。同じ時点を 2 度知らせないために覚え、localStorage にも残す。 */
+  returnSeen: string[];
+  /** 右下に積む「戻る時刻を過ぎた」の札のセッション。古いものが先。閉じるか、そのセッションを開くか、状態が変わるまで残す。 */
+  returnToasts: string[];
   /** 通知の受け取り。 */
   notify: NotifyState;
   /** focus: terminal で開いたセッション。その画面に着いたら端末にフォーカスし、着いたら忘れる。 */
@@ -218,6 +255,11 @@ export type State = {
   resolveDeferred: string[];
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
+  /**
+   * サイドバーの「動いている」の行を、利用者が並べた順（セッションの id）。端末ごとに localStorage に残し、起動時に読み戻す。
+   * ここに無いセッション（新しく動き始めたもの）は、並べた行の上に入る（presenters/shell.ts）。
+   */
+  sidebarOrder: string[];
   /**
    * プロジェクト画面で広げた節（Done の「ほか N 件」と、末尾の Archived）。鍵はプロジェクトの id。
    * Presenter が読む（presenters/project.ts）ので View ではなくここに持つ。保存はしない。

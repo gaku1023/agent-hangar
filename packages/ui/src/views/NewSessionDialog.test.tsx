@@ -1,16 +1,20 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { LaunchParams } from '@agent-hangar/shared';
+import type { Intent, LaunchParams } from '@agent-hangar/shared';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
+import { presentAccounts, type AccountView } from '../presenters/accounts.ts';
+import { accountsFixture } from '../test/accounts.ts';
+import { initialStore } from '../store/store.ts';
 import { pick } from '../test/pick.ts';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
+import { NO_ASSIST, PromptAssistContext } from './primitives/promptAssist.ts';
 
 const projects: NewSessionProps['projects'] = [
   { id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' },
   { id: 'p2', name: 'beta', path: '/w/beta', status: 'paused', lastActivity: '昨日' },
 ];
-const base: NewSessionProps = { projects, recentIds: ['p1'], projectId: null, submitting: false, error: null, scratch: false, draft: null, prefs: {} };
+const base: NewSessionProps = { projects, recentIds: ['p1'], projectId: null, submitting: false, error: null, scratch: false, draft: null, prefs: {}, accounts: null };
 
 /** 送られた params だけを集める。キーの有無を見たいので、呼び出しの照合ではなく値そのものを取る。 */
 function collectParams(over: Partial<NewSessionProps> = {}): LaunchParams[] {
@@ -233,6 +237,20 @@ describe('NewSessionDialog のスクラッチ', () => {
     start();
     expect(params).toEqual([{ scratch: true }]);
   });
+  it('初期プロンプトの @（ファイル）は、パスのあるプロジェクトを選んだときだけ使える', () => {
+    const noPath: NewSessionProps['projects'] = [...projects, { id: 'p3', name: 'gamma', path: null, status: 'active', lastActivity: '' }];
+    collectParams({ projects: noPath });
+    const files = () => screen.getByRole('button', { name: 'ファイル' });
+    // 未選択
+    expect(files()).toBeDisabled();
+    pick('プロジェクト', 'alpha');
+    expect(files()).toBeEnabled();
+    // パスの無いプロジェクトは、探す先のフォルダが無い。
+    pick('プロジェクト', 'gamma');
+    expect(files()).toBeDisabled();
+    pick('プロジェクト', 'スクラッチ');
+    expect(files()).toBeDisabled();
+  });
   it('scratch で開くとスクラッチが選ばれ、プロジェクトに選び直せば projectId で送る', () => {
     // ⌘⇧N、パレット、スクラッチのプロジェクト画面は、この状態でダイアログを開く。
     const params = collectParams({ scratch: true });
@@ -261,7 +279,7 @@ describe('NewSessionDialog のスクラッチ', () => {
 
 describe('NewSessionDialog の下書き（C1）', () => {
   it('前に閉じたときの書きかけを戻し、見出しの右に「下書き」の札と「消す」を出す', () => {
-    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} draft={{ name: 'API の節', prompt: '関数ごとに表を' }} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} draft={{ name: 'API の節', prompt: '関数ごとに表を', attachments: [] }} /></IntentRoot>);
     expect(screen.getByLabelText('名前（任意）')).toHaveValue('API の節');
     expect(screen.getByLabelText('初期プロンプト（任意）')).toHaveValue('関数ごとに表を');
     const head = screen.getByRole('dialog').querySelector('.dialog-head')!;
@@ -275,12 +293,12 @@ describe('NewSessionDialog の下書き（C1）', () => {
   });
   it('「消す」で名前と初期プロンプトを空にし、札を外し、下書きも消す', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} draft={{ name: 'n', prompt: 'p' }} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} draft={{ name: 'n', prompt: 'p', attachments: [] }} /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: '下書きを消す' }));
     expect(screen.getByLabelText('名前（任意）')).toHaveValue('');
     expect(screen.getByLabelText('初期プロンプト（任意）')).toHaveValue('');
     expect(screen.queryByText('下書き')).toBeNull();
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.draft', name: '', prompt: '' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.draft', name: '', prompt: '', attachments: [] });
     // 消した後は名前の欄から打ち直せる。
     expect(screen.getByLabelText('名前（任意）')).toHaveFocus();
   });
@@ -292,7 +310,108 @@ describe('NewSessionDialog の下書き（C1）', () => {
     // 打っている間は送らない。打鍵のたびに画面全体を描き直さないためである。
     expect(onIntent).not.toHaveBeenCalled();
     unmount();
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.draft', name: 'なまえ', prompt: 'やって' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.draft', name: 'なまえ', prompt: 'やって', attachments: [] });
+  });
+  it('添付があると、本文の後に空行とパスを足して起動する', () => {
+    const params = collectParams({ projectId: 'p1', draft: { name: '', prompt: '見て', attachments: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }] } });
+    start();
+    expect(params).toEqual([{ projectId: 'p1', prompt: '見て\n\n/h/.agent-hangar/drops/1-0-a.png' }]);
+  });
+  it('本文が空でも、添付だけで起動できる', () => {
+    const params = collectParams({ projectId: 'p1', draft: { name: '', prompt: '', attachments: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }] } });
+    start();
+    expect(params).toEqual([{ projectId: 'p1', prompt: '/h/.agent-hangar/drops/1-0-a.png' }]);
+  });
+  it('閉じるときの下書きに、添付も入れる', () => {
+    const drafts: unknown[] = [];
+    const a = { path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 };
+    const { unmount } = render(<IntentRoot onIntent={(i) => { if (i.type === 'session.new.draft') drafts.push(i); }}><NewSessionDialog {...base} draft={{ name: 'n', prompt: '', attachments: [a] }} /></IntentRoot>);
+    unmount();
+    expect(drafts).toEqual([{ type: 'session.new.draft', name: 'n', prompt: '', attachments: [a] }]);
+  });
+  it('下書きを消すと、添付も消える', () => {
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} draft={{ name: 'n', prompt: '', attachments: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }] }} /></IntentRoot>);
+    expect(screen.getByRole('listitem', { name: 'a.png' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '下書きを消す' }));
+    expect(screen.queryByRole('listitem', { name: 'a.png' })).toBeNull();
+  });
+  describe('添付を送っている最中', () => {
+    /** 手で解決できる送信を持つ、ダイアログの描画。 */
+    function pending(over: Partial<NewSessionProps> = {}) {
+      const intents: Intent[] = [];
+      let finish: (d: { path: string; name: string; size: number }) => void = () => {};
+      let fail: (e: Error) => void = () => {};
+      const upload = vi.fn(() => new Promise<{ path: string; name: string; size: number }>((res, rej) => { finish = res; fail = rej; }));
+      const ui = (props: Partial<NewSessionProps>) => (
+        <PromptAssistContext.Provider value={{ ...NO_ASSIST, upload }}>
+          <IntentRoot onIntent={(i) => intents.push(i)}><NewSessionDialog {...base} projectId="p1" {...over} {...props} /></IntentRoot>
+        </PromptAssistContext.Provider>
+      );
+      const view = render(ui({}));
+      return { ...view, intents, ui, finish: (d = { path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }) => finish(d), fail: (e: Error) => fail(e) };
+    }
+    const paste = () => fireEvent.paste(screen.getByLabelText('初期プロンプト（任意）'), { clipboardData: { files: [new File(['x'], 'a.png', { type: 'image/png' })] } });
+
+    it('起動ボタンは使えず「添付を送っています」と出し、⌘Enter でも起動しない。終われば添付のパスつきで起動できる', async () => {
+      const t = pending();
+      fireEvent.change(screen.getByLabelText('初期プロンプト（任意）'), { target: { value: '見て' } });
+      paste();
+      const btn = screen.getByRole('button', { name: '添付を送っています' });
+      expect(btn).toBeDisabled();
+      fireEvent.keyDown(screen.getByLabelText('初期プロンプト（任意）'), { key: 'Enter', metaKey: true });
+      expect(t.intents.filter((i) => i.type === 'session.new.submit')).toEqual([]);
+      await act(async () => { t.finish(); });
+      expect(screen.queryByRole('button', { name: '添付を送っています' })).toBeNull();
+      start();
+      expect(t.intents.filter((i) => i.type === 'session.new.submit')).toEqual([{ type: 'session.new.submit', params: { projectId: 'p1', prompt: '見て\n\n/h/.agent-hangar/drops/1-0-a.png' } }]);
+    });
+    it('失敗したら、起動できる状態に戻る', async () => {
+      const t = pending();
+      paste();
+      expect(screen.getByRole('button', { name: '添付を送っています' })).toBeDisabled();
+      await act(async () => { t.fail(new Error('x')); });
+      expect(screen.getByRole('button', { name: /起動/ })).toBeEnabled();
+    });
+    // 閉じる前の名前と本文で下書きを置き換えると、開き直したダイアログの書きかけを上書きする。遅れて着いた添付だけを足す Intent を送る。
+    it('送っている最中に閉じても、終わったときに、着いた添付だけを下書きへ足す（名前と本文は送らない）', async () => {
+      const t = pending();
+      fireEvent.change(screen.getByLabelText('名前（任意）'), { target: { value: 'なまえ' } });
+      fireEvent.change(screen.getByLabelText('初期プロンプト（任意）'), { target: { value: '見て' } });
+      paste();
+      t.unmount();
+      t.intents.length = 0;
+      await act(async () => { t.finish(); });
+      expect(t.intents).toEqual([{ type: 'session.new.draft.attach', attachments: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }] }]);
+    });
+    it('閉じた後に 2 件が終わったら、1 件ずつ、その 1 件だけを持つ Intent を送る', async () => {
+      const intents: Intent[] = [];
+      const done: ((d: { path: string; name: string; size: number }) => void)[] = [];
+      const upload = vi.fn(() => new Promise<{ path: string; name: string; size: number }>((res) => { done.push(res); }));
+      const view = render(
+        <PromptAssistContext.Provider value={{ ...NO_ASSIST, upload }}>
+          <IntentRoot onIntent={(i) => intents.push(i)}><NewSessionDialog {...base} projectId="p1" /></IntentRoot>
+        </PromptAssistContext.Provider>,
+      );
+      paste();
+      paste();
+      // 閉じる前に着いたものは、閉じるときの下書きに入る。ここでは何も着いていない。
+      view.unmount();
+      intents.length = 0;
+      const a = { path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 };
+      const b = { path: '/h/.agent-hangar/drops/1-1-b.png', name: 'b.png', size: 4 };
+      await act(async () => { done[0]!(a); });
+      await act(async () => { done[1]!(b); });
+      expect(intents).toEqual([{ type: 'session.new.draft.attach', attachments: [a] }, { type: 'session.new.draft.attach', attachments: [b] }]);
+    });
+    it('起動を送った後に閉じたなら、終わっても下書きを送らない', async () => {
+      const t = pending();
+      paste();
+      t.rerender(t.ui({ submitting: true }));
+      t.unmount();
+      t.intents.length = 0;
+      await act(async () => { t.finish(); });
+      expect(t.intents).toEqual([]);
+    });
   });
   it('起動を送った後に閉じたとき（起動し終えたとき）は、下書きを送らない', () => {
     const onIntent = vi.fn();
@@ -369,5 +488,170 @@ describe('NewSessionDialog の前回値（D1）', () => {
     start();
     expect(params).toEqual([{ scratch: true, effort: 'max' }]);
   });
+  it('初期プロンプトで / の候補から選ぶと、その文で起動する', async () => {
+    const out: LaunchParams[] = [];
+    const assist = { ...NO_ASSIST, commands: () => Promise.resolve([{ name: 'goal', description: '長く走る', argumentHint: null, source: 'user' as const, uses: 3 }]) };
+    render(<PromptAssistContext.Provider value={assist}><IntentRoot onIntent={(i) => { if (i.type === 'session.new.submit') out.push(i.params); }}><NewSessionDialog {...base} projectId="p1" /></IntentRoot></PromptAssistContext.Provider>);
+    await act(async () => {});
+    const ta = screen.getByLabelText('初期プロンプト（任意）');
+    fireEvent.focus(ta);
+    fireEvent.change(ta, { target: { value: '/g', selectionStart: 2, selectionEnd: 2 } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(out).toEqual([]);
+    start();
+    expect(out).toEqual([{ projectId: 'p1', prompt: '/goal' }]);
+  });
+  it('候補が開いている間の Esc は、ダイアログを閉じない', async () => {
+    const closed = vi.fn();
+    const assist = { ...NO_ASSIST, commands: () => Promise.resolve([{ name: 'goal', description: '', argumentHint: null, source: 'user' as const, uses: 0 }]) };
+    render(<PromptAssistContext.Provider value={assist}><IntentRoot onIntent={(i) => { if (i.type === 'overlay.close') closed(); }}><NewSessionDialog {...base} projectId="p1" /></IntentRoot></PromptAssistContext.Provider>);
+    await act(async () => {});
+    const ta = screen.getByLabelText('初期プロンプト（任意）');
+    fireEvent.focus(ta);
+    fireEvent.change(ta, { target: { value: '/', selectionStart: 1, selectionEnd: 1 } });
+    fireEvent.keyDown(ta, { key: 'Escape' });
+    expect(closed).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox', { name: 'スキルとコマンド' })).toBeNull();
+  });
 });
 
+describe('NewSessionDialog のアカウントの札', () => {
+  const NOW = new Date(2026, 9, 6, 12, 0).getTime();
+  const list = presentAccounts({ ...initialStore(), accounts: accountsFixture }, NOW);
+  const accountsOf = (over: Partial<AccountView>[] = [{}, {}], currentId = 'primary'): NonNullable<NewSessionProps['accounts']> => ({ list: list.map((a, i) => ({ ...a, ...over[i] })), currentId });
+  const cards = () => screen.getByRole('radiogroup', { name: 'アカウント' });
+  const card = (name: string) => within(cards()).getByRole('radio', { name: new RegExp(name) });
+  /** 起動と accounts.load を集める。 */
+  function collect(over: Partial<NewSessionProps> = {}) {
+    const intents: { type: string; params?: LaunchParams }[] = [];
+    const ui = (p: Partial<NewSessionProps>) => <IntentRoot onIntent={(i) => { intents.push(i as never); }}><NewSessionDialog {...base} {...p} /></IntentRoot>;
+    const view = render(ui(over));
+    return { intents, params: () => intents.filter((i) => i.type === 'session.new.submit').map((i) => i.params!), rerender: (p: Partial<NewSessionProps>) => view.rerender(ui(p)) };
+  }
+
+  it('accounts が null なら、アカウントの段を出さず、params に account を入れない', () => {
+    const { params, intents } = collect({ projectId: 'p1', accounts: null });
+    expect(screen.queryByRole('radiogroup', { name: 'アカウント' })).toBeNull();
+    expect(screen.queryByText('アカウント')).toBeNull();
+    start();
+    expect(params()).toEqual([{ projectId: 'p1' }]);
+    expect('account' in params()[0]!).toBe(false);
+    expect(intents.some((i) => i.type === 'accounts.load')).toBe(false);
+  });
+  it('段は、プロジェクトの欄の下、名前の欄の上に、見出し「アカウント」で出る', () => {
+    collect({ accounts: accountsOf() });
+    const project = screen.getByRole('button', { name: 'プロジェクト' });
+    const name = screen.getByLabelText('名前（任意）');
+    const order = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(order(project, cards())).toBe(true);
+    expect(order(cards(), name)).toBe(true);
+    expect(cards().closest('.field')).toHaveTextContent(/^アカウント/);
+    expect(within(cards()).getAllByRole('radio')).toHaveLength(2);
+  });
+  it('はじめはいまのアカウントを選び、そのまま起動すると account に入れる', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf() });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    expect(card('大学')).toHaveAttribute('aria-checked', 'false');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('大学を選んで起動すると account は a1 で、いまのアカウントは変えない（account.choose を出さない）', () => {
+    const { intents, params } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+    expect(intents.map((i) => i.type)).not.toContain('account.choose');
+  });
+  it('いまのアカウントが未ログインなら、はじめはログイン済みの最初の 1 件を選ぶ', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf([{ auth: 'out' }, {}]) });
+    expect(card('会社')).toHaveAttribute('aria-disabled', 'true');
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+  });
+  it('いまのアカウントが初めてのログインの途中でも飛ばす。まだ読めていない（unknown）なら選ぶ', () => {
+    collect({ accounts: accountsOf([{ auth: 'running', loggedIn: false }, {}]) });
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    document.body.innerHTML = '';
+    collect({ accounts: accountsOf([{ auth: 'unknown' }, {}]) });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+  });
+  it('いまのアカウントがログインし直しの途中でも、はじめの選択は動かず、選べる', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf([{ auth: 'running', loggedIn: true }, {}]) });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    expect(card('会社')).not.toHaveAttribute('aria-disabled');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('どれも選べないときは、いまのアカウントのままにする', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf([{ auth: 'out' }, { auth: 'out' }]) });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('未ログインの札は押しても選べない', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf([{}, { auth: 'out' }]) });
+    fireEvent.click(card('大学'));
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('開いたときに accounts.load を 1 回だけ出す', () => {
+    const { intents, rerender } = collect({ accounts: accountsOf() });
+    expect(intents.filter((i) => i.type === 'accounts.load')).toHaveLength(1);
+    fireEvent.click(card('大学'));
+    rerender({ accounts: accountsOf() });
+    expect(intents.filter((i) => i.type === 'accounts.load')).toHaveLength(1);
+  });
+  it('選んでいた id が props から消えたら、いまのアカウントに戻す', () => {
+    const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    rerender({ projectId: 'p1', accounts: { list: [list[0]!, { ...list[0]!, id: 'a2', name: '個人', current: false }], currentId: 'primary' } });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    expect(within(cards()).queryByRole('radio', { name: /大学/ })).toBeNull();
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('開いてから送るまでにいまのアカウントが変わっても、選んだとおりに起こす', () => {
+    const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    rerender({ projectId: 'p1', accounts: accountsOf([{}, {}], 'a1') });
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+  });
+  it.each(['out', 'running'] as const)('選んでいた札が選べなくなったら（%s）、いまのアカウントへ戻し、そのとおりに起動する', (auth) => {
+    const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    rerender({ projectId: 'p1', accounts: accountsOf([{}, { auth, loggedIn: false }]) });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    expect(card('大学')).toHaveAttribute('aria-checked', 'false');
+    expect(card('大学')).toHaveAttribute('aria-disabled', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('まだ自分で選んでいない間は、開いたままいまのアカウントが変わるとはじめの選択も付いていく', () => {
+    const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    rerender({ projectId: 'p1', accounts: accountsOf([{}, {}], 'a1') });
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    expect(card('会社')).toHaveAttribute('aria-checked', 'false');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+  });
+  it('選んだあとにプロジェクトを選び直しても、アカウントの選択は残る', () => {
+    const { params } = collect({ accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    pick('プロジェクト', 'alpha');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+  });
+  it('札の上の Enter は起動に使わず、⌘Enter なら起動する', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.keyDown(card('会社'), { key: 'Enter' });
+    expect(params()).toEqual([]);
+    fireEvent.keyDown(card('会社'), { key: 'Enter', metaKey: true });
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+});

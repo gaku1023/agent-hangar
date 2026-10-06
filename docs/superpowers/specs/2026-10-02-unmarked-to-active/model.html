@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>印なしを Active に統合する</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f6f7fb; --surface: #fff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc;
+  --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --font: 'Inter', 'Hiragino Sans', sans-serif; --mono: 'JetBrains Mono', Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 28px 80px; font: 13px/1.45 var(--font); color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 30px 0 8px; }
+.lead { color: var(--ink-2); margin: 0 0 16px; max-width: 980px; }
+.lead b { color: var(--ink); }
+.wrap { max-width: 1120px; }
+
+/* 軸の選択 */
+.axes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.axis { background: var(--surface); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 12px 14px; }
+.axis h3 { margin: 0 0 8px; font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { border: 0; font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 7px; background: var(--surface-2); color: var(--ink-2); cursor: pointer; }
+.seg button[aria-pressed='true'] { background: var(--accent); color: #fff; font-weight: 600; }
+.seg button .rec { margin-left: 5px; font-size: 10.5px; opacity: 0.85; }
+.note { margin: 8px 0 0; font-size: 12px; color: var(--ink-2); min-height: 52px; }
+.note .pro::before { content: '＋ '; color: var(--idle); font-weight: 700; }
+.note .con::before { content: '− '; color: var(--waiting); font-weight: 700; }
+.note span { display: block; }
+
+.sum { margin: 0 0 14px; padding: 9px 14px; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); font-size: 12.5px; color: var(--ink-2); }
+.sum b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.sum .bad { color: var(--waiting); font-weight: 600; }
+.sum .ok { color: var(--idle); font-weight: 600; }
+
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.screen { background: var(--surface); box-shadow: 0 0 0 1px var(--line); border-radius: 12px; padding: 14px 0 6px; overflow: hidden; }
+.screen > .cap, .side-card > .cap { padding: 0 20px 8px; font-size: 11.5px; color: var(--ink-3); font-weight: 600; letter-spacing: 0.02em; }
+.tabs { display: flex; gap: 4px; padding: 0 16px; margin-bottom: 10px; flex-wrap: wrap; }
+.tab { border: 0; background: none; font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 7px; color: var(--ink-2); cursor: pointer; display: inline-flex; align-items: center; }
+.tab[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tab .n { margin-left: 5px; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tab .lv { margin-left: 6px; display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--busy); font-variant-numeric: tabular-nums; }
+.tab[data-gone] { text-decoration: line-through; opacity: 0.45; }
+.kw { height: 32px; margin: 0 20px 10px; border-radius: 9px; box-shadow: inset 0 0 0 1px var(--line-strong); display: flex; align-items: center; padding: 0 10px; color: var(--ink-3); font-size: 12.5px; }
+
+.list { border-top: 1px solid var(--line); }
+.head { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 20px; background: #fafbfd; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.head .c { font-weight: 400; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.head .more { margin-left: auto; font-weight: 400; color: var(--accent); font-size: 11.5px; }
+.head[data-new] { background: var(--accent-soft); color: var(--accent); }
+.row { display: grid; grid-template-columns: 16px 62px minmax(0, 1fr) auto; gap: 16px; align-items: center; height: 56px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+.list[data-col='false'] .row { grid-template-columns: 16px minmax(0, 1fr) auto; }
+.list[data-col='false'] .stc { display: none; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ended); justify-self: center; display: inline-block; }
+.dot[data-l='waiting'] { background: var(--waiting); } .dot[data-l='busy'] { background: var(--busy); } .dot[data-l='idle'] { background: var(--idle); }
+.stc { display: flex; align-items: center; }
+.sq { display: inline-flex; align-items: center; justify-content: center; width: 62px; height: 18px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.sq.done { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
+.sq.paused { color: var(--st-paused); background: var(--st-paused-soft); }
+.sq.active { color: var(--st-active); background: var(--st-active-soft); }
+.main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.name { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj { margin-left: 6px; font-size: 11.5px; font-weight: 400; color: var(--ink-3); }
+.sub { font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+.ret { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 99px; font-size: 11px; font-weight: 600; color: var(--st-paused); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-paused) 40%, transparent); }
+.lv-word { color: var(--busy); font-weight: 560; }
+.when { width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
+
+.side-col { display: flex; flex-direction: column; gap: 16px; }
+.side-card { background: var(--surface); box-shadow: 0 0 0 1px var(--line); border-radius: 12px; padding: 14px 0 10px; }
+.menu { margin: 0 16px; border-radius: 10px; box-shadow: 0 0 0 1px var(--line-strong), 0 10px 28px -12px rgba(30, 40, 90, 0.3); padding: 4px; }
+.mi { display: flex; align-items: center; height: 30px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; }
+.mi kbd { margin-left: auto; font: 11px var(--mono); color: var(--ink-3); background: var(--surface-2); border-radius: 4px; padding: 1px 5px; }
+.mi[data-on] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.mi[data-off] { color: var(--ink-3); opacity: 0.6; }
+.mi[data-off] small { margin-left: 8px; font-size: 11px; }
+.mcap { margin: 8px 16px 0; font-size: 11.5px; color: var(--ink-3); }
+.proj-secs { margin: 0 16px; padding: 0; list-style: none; font-size: 12.5px; }
+.proj-secs li { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.proj-secs li:last-child { border: 0; }
+.proj-secs b { width: 104px; flex: none; font-weight: 600; }
+.proj-secs span { color: var(--ink-2); }
+code { font: 11.5px var(--mono); background: var(--surface-2); border-radius: 4px; padding: 1px 5px; }
+table.tok { margin: 0 16px; border-collapse: collapse; font-size: 12px; }
+table.tok td { padding: 4px 8px 4px 0; vertical-align: top; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>印なしを Active に統合する</h1>
+<p class="lead">状態が無いセッションを <b>Active</b> と呼び、プロジェクトと同じ 4 状態にします。動いているかどうかは丸い点で見せます。下の 4 つの軸を切り替えると、Sessions 画面と混ざった一覧がその組み合わせに変わります。行は、この PC の今日の実物（2026-10-02 20:16）をもとにしています（ほかのプロジェクトの行は名前を伏せました）。タブを押すと、その状態だけの一覧になります。</p>
+
+<div class="axes" id="axes"></div>
+<div class="sum" id="sum"></div>
+
+<div class="stage">
+  <div>
+    <div class="screen">
+      <div class="cap">Sessions 画面</div>
+      <div class="tabs" id="tabs"></div>
+      <div class="kw">キーワード、is:paused、project:… で絞る</div>
+      <div class="list" id="list"></div>
+    </div>
+    <h2>混ざった一覧（Home の「最近」）</h2>
+    <div class="screen" style="padding-top: 0">
+      <div class="list" id="mixed" style="border-top: 0"></div>
+    </div>
+  </div>
+  <div class="side-col">
+    <div class="side-card">
+      <div class="cap">行の「⋯」（Done の行で開いたところ）</div>
+      <div class="menu" id="menu"></div>
+      <p class="mcap" id="menucap"></p>
+    </div>
+    <div class="side-card">
+      <div class="cap">検索のトークン</div>
+      <table class="tok" id="tok"></table>
+    </div>
+    <div class="side-card">
+      <div class="cap">プロジェクト画面の節（変えない）</div>
+      <ul class="proj-secs">
+        <li><b>今日戻る</b><span>戻る日が来た Paused</span></li>
+        <li><b>いま動いている</b><span>動いているもの</span></li>
+        <li><b>続き</b><span>止まっている Active、提案あり、戻る日が先の Paused</span></li>
+        <li><b>Done</b><span>直近 3 件</span></li>
+      </ul>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+const P = 'agent-hangar';
+const ROWS = [
+  { n: '印なし廃止の調査', p: P, s: '印なしがどこで生まれ、どこに出て、何件あるかを調べ、なくし方を 4 案にまとめた', st: null, l: 'busy', w: '今' },
+  { n: 'デザイン品質調査', p: P, s: '賞の水準を物差しにしたデザイン調査。引き算 14 件と割れた 6 点', st: null, l: null, w: '20:07' },
+  { n: '札の実装フィードバック', p: P, s: 'Paused・Done・Archived を付けたセッションは、休みが 10 秒続いたら Claude を止める', st: null, l: null, w: '19:56' },
+  { n: 'askuserquestion実装', p: P, s: 'テストです。askuserquestionで、見えてますか？ってyes noで聞いてください。', st: null, l: null, w: '18:49' },
+  { n: '朝の確認（ほかのプロジェクト）', p: 'ほかのプロジェクト', s: '明日の朝に、数字が落ち着いたかを確かめる', st: 'paused', ret: '10/3（土）', l: null, w: '19:32' },
+  { n: '解答してくださいの札デザイン', p: P, s: '実物のアプリで新しい札を使ってみて、直したい点がないかを確かめる', st: 'paused', ret: '10/3（土）', l: null, w: '19:09' },
+  { n: 'セッション画面のアニメーション改善', p: P, s: 'セッション画面の開閉・更新の動き、畳んだら本文が幅を使う', st: 'paused', ret: '10/3（土）', l: null, w: '18:51' },
+  { n: 'セッション一覧のページネーションと表示数', p: P, s: 'ページ送りと状態の列を main bd0b0c3 へ push し、/Applications も入れ替えた', st: 'done', l: null, w: '19:38' },
+  { n: 'プラス記号の配置ずれ', p: P, s: 'タブ列の＋だけ 4px 下がっていたのを align-self: center で直した', st: 'done', l: null, w: '19:27' },
+  { n: '同期の使用量表示', p: P, s: '使用量と費用の表示を main 63e472a に入れて push し、Worker も配備した', st: 'done', l: null, w: '13:49' },
+];
+const DONE_TOTAL = 1225;
+
+const AXES = [
+  { id: 'sec', title: '軸 1：Sessions の節（条件が無いとき）', opts: [
+    { id: 'S0', label: '今', pro: '（比べるための今の形）', con: '「印なし」という状態でない状態が、Paused の下に埋もれている' },
+    { id: 'S2', label: 'S2　Active の節 1 つ', rec: true, pro: '節とタブと状態が 1 対 1 になる。動いているものは節の先頭に並び、点で分かる', con: '「いま動いている」の見出しが Sessions から消える（プロジェクト画面と Home には残る）' },
+    { id: 'S1', label: 'S1　いま動いている＋続き', pro: 'プロジェクト画面と同じ語になる。動いているものが見出しで分かれる', con: '「続き」の中身がプロジェクト画面と違う（あちらは提案と先の Paused も入る）。Active のタブと節が 1 対 1 にならない' },
+  ] },
+  { id: 'tab', title: '軸 2：状態のタブ', opts: [
+    { id: 'T0', label: '今', pro: '（比べるための今の形）', con: '動いているものが Active と印なしの両方に数えられている' },
+    { id: 'T1', label: 'T1　プロジェクトと同じ順', rec: true, pro: 'Active → Paused → Done → Archived。プロジェクトの状態と同じ並びで覚えられる', con: 'Paused と Active の位置が入れ替わる' },
+    { id: 'T2', label: 'T2　T1＋動いている数', pro: 'Active のうち動いている数が、タブを開かなくても分かる', con: 'タブに数字が 2 つ並ぶ。ヘッダーの実行中の数と重なる' },
+    { id: 'T3', label: 'T3　今の順のまま', pro: '位置が変わらない。印なしが消えるだけ', con: 'プロジェクトの状態と並びが違うまま残る' },
+  ] },
+  { id: 'badge', title: '軸 3：Active の行の札（混ざった一覧で効く）', opts: [
+    { id: 'M1', label: 'M1　札なし', rec: true, pro: '今と同じ。札は「区切りを付けた」ものだけに付き、付いていないものが続き、と読める', con: '状態の列が空のまま（デザイン調査の指摘 F は別に直す）' },
+    { id: 'M2', label: 'M2　止まっているものだけ', pro: '止まった Active が、Done と同じ重みで目に入る', con: '動いている行は点、止まった行は札、と決まりが 2 つになる' },
+    { id: 'M3', label: 'M3　全部に札', pro: '4 状態がどの行にも出る', con: '動いている行は点と札で二重になる。プロジェクト一覧で指摘された「Active の札だらけ」と同じ' },
+  ] },
+  { id: 'menu', title: '軸 4：「⋯」の語（今は「印なしに戻す」）', opts: [
+    { id: 'N1', label: 'N1　Active に戻す', rec: true, pro: 'ほかの 3 つ（Paused にする…・Done にする・Archived にする）と同じ形で読める', con: '止まっているものに「Active」と言う' },
+    { id: 'N2', label: 'N2　状態を外す', pro: 'やること（区切りを取り消す）をそのまま言う', con: '「状態が無い」という考え方が語に残る' },
+    { id: 'N3', label: 'N3　続きに戻す', pro: 'プロジェクト画面の節の語と合う', con: '状態の名前（Active）と語が 2 つになる' },
+  ] },
+];
+const pick = { sec: 'S2', tab: 'T1', badge: 'M1', menu: 'N1' };
+let tab = 'all';
+
+const live = (r) => r.l !== null;
+const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
+const num = (n) => n.toLocaleString('en-US');
+
+function badgeOf(r) {
+  if (r.st === 'done') return '<span class="sq done">Done</span>';
+  if (r.st === 'paused') return '<span class="sq paused">Paused</span>';
+  if (pick.sec === 'S0' && pick.tab === 'T0') return '';
+  if (pick.badge === 'M3' || (pick.badge === 'M2' && !live(r))) return '<span class="sq active">Active</span>';
+  return '';
+}
+function rowHtml(r) {
+  const side = (r.ret ? `<span class="ret">${r.ret}</span>` : '') + (r.l === 'busy' ? '<span class="lv-word">実行中</span>' : '') + `<span class="when">${r.w}</span>`;
+  return `<div class="row"><span class="dot" ${r.l ? `data-l="${r.l}"` : ''}></span><span class="stc">${badgeOf(r)}</span><div class="main"><div class="name">${r.n}<span class="proj">${r.p}</span></div><div class="sub">${r.s}</div></div><div class="side">${side}</div></div>`;
+}
+const headHtml = (label, count, more, isNew) => `<div class="head" ${isNew ? 'data-new' : ''}>${label}<span class="c">${num(count)}</span>${more ? `<span class="more">${more}</span>` : ''}</div>`;
+
+function sections() {
+  const act = ROWS.filter((r) => r.st === null), run = act.filter(live), still = act.filter((r) => !live(r));
+  const paused = ROWS.filter((r) => r.st === 'paused'), done = ROWS.filter((r) => r.st === 'done');
+  const out = [];
+  const sec = (label, rows, count, more, isNew) => { if (rows.length) out.push(headHtml(label, count ?? rows.length, more, isNew), ...rows.map(rowHtml)); };
+  if (pick.sec === 'S0') { sec('いま動いている', run, null, 'この節だけ見る ▸'); sec('Paused', paused, null, 'この節だけ見る ▸'); sec('印なし', still, null, 'この節だけ見る ▸'); }
+  if (pick.sec === 'S1') { sec('いま動いている', run, null, null); sec('続き', still, null, 'この節だけ見る ▸', true); sec('Paused', paused, null, 'この節だけ見る ▸'); }
+  if (pick.sec === 'S2') { sec('Active', act, null, 'この節だけ見る ▸', true); sec('Paused', paused, null, 'この節だけ見る ▸'); }
+  sec('Done', done, DONE_TOTAL, `ほか ${num(DONE_TOTAL - done.length)} 件 ▸`);
+  return out.join('');
+}
+
+function tabsOf() {
+  const act = ROWS.filter((r) => r.st === null);
+  const n = { all: act.length + 3 + DONE_TOTAL, proposed: 0, paused: 3, done: DONE_TOTAL, archived: 0 };
+  const t = (id, label, count, extra = '') => ({ id, label, count, extra });
+  if (pick.tab === 'T0') return [t('all', 'すべて', n.all), t('proposed', '確かめる', 0), t('paused', 'Paused', 3), t('active', 'Active', act.filter(live).length), t('none', '印なし', act.length), t('done', 'Done', n.done), t('archived', 'Archived', 0)];
+  const lv = pick.tab === 'T2' ? `<span class="lv"><span class="dot" data-l="busy"></span>${act.filter(live).length}</span>` : '';
+  const A = t('active', 'Active', act.length, lv), Pz = t('paused', 'Paused', 3);
+  return [t('all', 'すべて', n.all), t('proposed', '確かめる', 0), ...(pick.tab === 'T3' ? [Pz, A] : [A, Pz]), t('done', 'Done', n.done), t('archived', 'Archived', 0)];
+}
+
+function flat() {
+  const old = pick.tab === 'T0';
+  const rows = tab === 'active' ? ROWS.filter((r) => (old ? live(r) : r.st === null)) : tab === 'none' ? ROWS.filter((r) => r.st === null) : tab === 'proposed' || tab === 'archived' ? [] : ROWS.filter((r) => r.st === tab);
+  if (rows.length === 0) return '<div class="row" style="grid-template-columns: 1fr; color: var(--ink-3)">当てはまるセッションはありません</div>';
+  const tail = tab === 'done' ? `<div class="head">ページ 1 / 25<span class="more">次へ ▸</span></div>` : '';
+  return rows.map(rowHtml).join('') + tail;
+}
+
+function render() {
+  const axes = document.getElementById('axes');
+  axes.innerHTML = '';
+  for (const a of AXES) {
+    const cur = a.opts.find((o) => o.id === pick[a.id]);
+    const box = el(`<div class="axis"><h3>${a.title}</h3><div class="seg"></div><p class="note"><span class="pro">${cur.pro}</span><span class="con">${cur.con}</span></p></div>`);
+    for (const o of a.opts) {
+      const b = el(`<button type="button" aria-pressed="${o.id === pick[a.id]}">${o.label}${o.rec ? '<span class="rec">推奨</span>' : ''}</button>`);
+      b.onclick = () => { pick[a.id] = o.id; if (a.id === 'tab' && tab === 'none') tab = 'all'; render(); };
+      box.querySelector('.seg').append(b);
+    }
+    axes.append(box);
+  }
+  const tabs = tabsOf();
+  if (!tabs.some((t) => t.id === tab)) tab = 'all';
+  const tb = document.getElementById('tabs');
+  tb.innerHTML = '';
+  for (const t of tabs) {
+    const b = el(`<button type="button" class="tab" aria-pressed="${t.id === tab}">${t.label}<span class="n">${num(t.count)}</span>${t.extra}</button>`);
+    b.onclick = () => { tab = t.id; render(); };
+    tb.append(b);
+  }
+  const list = document.getElementById('list');
+  list.dataset.col = String(tab === 'all');
+  list.innerHTML = tab === 'all' ? sections() : flat();
+
+  const old = pick.tab === 'T0';
+  const total = 4 + 3 + DONE_TOTAL;
+  document.getElementById('sum').innerHTML = old
+    ? `タブの件数：Paused <b>3</b> ＋ Active <b>1</b> ＋ 印なし <b>4</b> ＋ Done <b>${num(DONE_TOTAL)}</b> ＋ Archived <b>0</b> ＝ <b>${num(total + 1)}</b>　<span class="bad">すべての ${num(total)} と合わない（動いている 1 件が二重）</span>`
+    : `タブの件数：Active <b>4</b> ＋ Paused <b>3</b> ＋ Done <b>${num(DONE_TOTAL)}</b> ＋ Archived <b>0</b> ＝ <b>${num(total)}</b>　<span class="ok">すべてと一致。4 状態で全件が重なりなく分かれる</span>`;
+
+  // 混ざった一覧は時刻の新しい順。動いているものは Home では上の札に出るので除く。
+  const mixed = ROWS.filter((r) => !live(r)).sort((a, b) => b.w.localeCompare(a.w));
+  document.getElementById('mixed').innerHTML = mixed.map(rowHtml).join('');
+
+  const word = { N1: 'Active に戻す', N2: '状態を外す', N3: '続きに戻す' }[pick.menu];
+  document.getElementById('menu').innerHTML = `<div class="mi">Paused にする…<kbd>p</kbd></div><div class="mi" data-off>Done にする<small>すでに Done です</small><kbd>d</kbd></div><div class="mi">Archived にする<kbd>a</kbd></div><div class="mi" data-on>${word}<kbd>u</kbd></div>`;
+  const why = { N1: 'すでに Active です', N2: '状態は付いていません', N3: 'すでに続きにあります' }[pick.menu];
+  document.getElementById('menucap').textContent = `Active の行で開くと、この項目は「${why}」と添えて押せなくなります。打鍵は u のままです。`;
+
+  document.getElementById('tok').innerHTML = old
+    ? '<tr><td><code>is:active</code></td><td>動いているもの</td></tr><tr><td><code>is:none</code></td><td>印なし</td></tr><tr><td><code>is:running</code></td><td>実行中</td></tr><tr><td><code>is:waiting</code></td><td>入力待ち</td></tr>'
+    : '<tr><td><code>is:active</code></td><td>状態が無いもの全部（意味が変わる）</td></tr><tr><td><code>is:none</code></td><td>なくす（読めないトークンの案内が出る）</td></tr><tr><td><code>is:running</code></td><td>実行中（今のまま）</td></tr><tr><td><code>is:waiting</code></td><td>入力待ち（今のまま）</td></tr>';
+}
+render();
+</script>
+</body>
+</html>

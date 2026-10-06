@@ -20,7 +20,7 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 3,
   turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, livePaneSplit: 0.5, gone: null, find: null, jump: null, hasNewer: false,
-  actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null };
+  actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, account: null };
 
 /**
  * 見出しの操作は presenter が事実から決める。
@@ -167,19 +167,48 @@ describe('線の下の 1 行（B1）', () => {
     expect(container.querySelector('.chips')).toBeNull();
     expect(container.querySelector('.session-facts')).toBeNull();
   });
+  it('アカウントが分かるときは、状態の次、モデルの前に、色の点と名前を出す。title は動かしているアカウントと言う', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} liveLabel="作業中 12 分" account={{ name: '大学', color: '#7a4a9e' }} /></IntentRoot>);
+    const items = [...info(container).children];
+    expect(items.map((c) => c.textContent).slice(0, 3)).toEqual(['作業中 12 分', '大学', 'fable 5.1 · high']);
+    const tag = items[1]!;
+    expect(tag).toHaveAttribute('title', 'このセッションを動かしているアカウント');
+    const dot = tag.querySelector('.st-dot') as HTMLElement;
+    expect(dot).toHaveStyle({ color: '#7a4a9e' });
+    expect(dot).toHaveAttribute('aria-hidden', 'true');
+    // 札は行の子として 1 つ足すだけで、ほかの子は変わらない。
+    const without = render(<IntentRoot onIntent={() => {}}><SS {...base} liveLabel="作業中 12 分" account={null} /></IntentRoot>);
+    expect(info(container).children).toHaveLength(info(without.container).children.length + 1);
+  });
+  it('アカウントが null なら、情報の行に何も足さない', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} liveLabel="作業中 12 分" account={null} /></IntentRoot>);
+    expect(container.querySelector('.session-info [title="このセッションを動かしているアカウント"]')).toBeNull();
+    expect(container.querySelector('.session-info .st-dot')).toBeNull();
+    expect([...info(container).children].map((c) => c.textContent).slice(0, 2)).toEqual(['作業中 12 分', 'fable 5.1 · high']);
+  });
   it('終わったセッションは状態を「終了」と最後の動きで言う。起こし方は title に持つ', () => {
     const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} run={{ id: 'r1', kind: 'start', alive: false, started: '1 分前' }} /></IntentRoot>);
     expect(info(container).firstElementChild).toHaveTextContent('終了 · 1 分前');
     expect(info(container).firstElementChild).toHaveAttribute('title', '起動 1 分前');
   });
-  it('コンテキストとコストが未取得なら棒を描かず、設定へ導く', () => {
+  it('コンテキストとコストが両方とも未取得なら、棒を描かず 1 つにまとめ、押すと設定へ行く', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SS {...base} /></IntentRoot>);
     expect(screen.queryByLabelText('コンテキストの使用率')).toBeNull();
-    expect(screen.getByText('コンテキスト 未取得')).toBeInTheDocument();
-    expect(screen.getByText('コスト 未取得')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('statusline を入れると出ます'));
+    expect(screen.getAllByText(/未取得/)).toHaveLength(1);
+    const link = screen.getByRole('link', { name: 'コンテキスト・コスト 未取得' });
+    expect(link).toHaveAttribute('title', 'statusline を入れると出ます');
+    fireEvent.click(link);
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+  });
+  it('片方だけ未取得なら、その分だけを書く', () => {
+    render(<IntentRoot onIntent={() => {}}><SS {...base} cost="$1.20" /></IntentRoot>);
+    expect(screen.getByText('コンテキスト 未取得')).toBeInTheDocument();
+    expect(screen.queryByText(/コスト 未取得/)).toBeNull();
+  });
+  it('終わったセッションは、この先も値が届かないので未取得の断りを出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} /></IntentRoot>);
+    expect(screen.queryByText(/未取得/)).toBeNull();
   });
   it('値があるときは未取得の断りも案内も出さない', () => {
     render(<IntentRoot onIntent={() => {}}><SS {...p3} /></IntentRoot>);

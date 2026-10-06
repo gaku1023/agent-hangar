@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { acquireFileLock, resolveRealFile, writeFileAtomically } from './claudeFileWrite.ts';
+import { isLoose, modeOf } from '../platform/secure.ts';
 
 export { resolveRealFile } from './claudeFileWrite.ts';
 
@@ -85,10 +86,12 @@ function takeBackup(realFile: string, backupDir: string, now: Date): string | nu
 
 /** 権限を決めて、実体の隣の一時ファイルから rename する。 */
 function writeJsonObject(realFile: string, value: JsonObject): { tightened: boolean } {
-  const cur = fs.existsSync(realFile) ? fs.statSync(realFile).mode & 0o777 : null;
+  const exists = fs.existsSync(realFile);
+  const cur = exists ? modeOf(realFile) : null;
   // 新しく作るときは 0600。既にあるときは利用者が決めた権限をそのまま使う。
   // ただしここにはトークンを書くので、他人にも読める権限のままでは書かない。
-  const tightened = cur !== null && (cur & 0o077) !== 0;
+  // Windows ではモードを読めないので、狭めたとは言わない。
+  const tightened = exists && isLoose(realFile);
   const mode = cur === null || tightened ? 0o600 : cur;
   writeFileAtomically(realFile, `${JSON.stringify(value, null, 2)}\n`, mode);
   return { tightened };

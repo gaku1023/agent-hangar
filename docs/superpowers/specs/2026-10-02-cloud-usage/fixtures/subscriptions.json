@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": [
+    {
+      "id": "SUBSCRIPTION0000000000000000",
+      "rate_plan": { "id": "r2_paid", "public_name": "R2 Paid", "currency": "USD", "scope": "account", "externally_managed": false },
+      "product": { "name": "prod_r2" },
+      "price": 0,
+      "currency": "USD",
+      "frequency": "monthly",
+      "state": "Paid",
+      "current_period_start": "2026-09-05T00:50:22Z",
+      "current_period_end": "2026-10-05T00:00:00Z"
+    }
+  ]
+}

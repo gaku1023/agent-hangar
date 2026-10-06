@@ -4,8 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AccountStore } from '../config/accounts.ts';
 import { authMiddleware } from '../http/auth.ts';
-import { shortId, type TabDto } from '@agent-hangar/shared';
+import { runTmuxId, type TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
@@ -20,6 +21,7 @@ import type { LiveSession } from '../provider/types.ts';
 import { RunManager } from './manager.ts';
 import { realProcOps, type ProcOps } from './procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
+import { expectMode } from '../../test/platform.ts';
 
 let db: Db;
 let home: string;
@@ -76,7 +78,8 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     // .app を Finder から起こすと PATH は /usr/bin:/bin:/usr/sbin:/sbin だけになり、
     // 裸の `claude` は引けない。それを tmux に渡すと、ペインの中で 127 で落ちるだけで
     // 応答は成功になり、利用者はターミナルを開くまで理由が分からない。
-    const rm = make({ claudeBin: null });
+    // tmux はある前提にする。実物の tmux を使わない OS でも、claude の検査まで進ませる。
+    const rm = make({ claudeBin: null, tmux: fakeTmux({ status: 0 }) });
     expect(() => rm.start({ projectId: 'p1' })).toThrow('claude が見つかりません。設定の「claude のパス」を入れてください');
     expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400 }));
     expect(() => rm.start({ scratch: true })).toThrow(/claude/);
@@ -121,6 +124,15 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect((db.prepare('select deleted_at from sessions').get() as { deleted_at: number | null }).deleted_at).not.toBeNull();
   });
 
+  // npm で入れた古い Claude Code は claude.cmd になる。.cmd はシェル越しでしか起こせず、改行や引用符を含む引数を安全に渡せない。
+  it('Windows で claude が .cmd なら、起こす前に断ってネイティブ版を案内する', () => {
+    const rm = make({ claudeBin: 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd', tmux: fakeTmux({ status: 0 }), platform: 'win32' });
+    expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400, message: expect.stringMatching(/claude\.exe/) }));
+    expect(rm.listAlive()).toEqual({ runs: [], tabs: [] });
+    // ほかの OS では .cmd という名前でも断らない。
+    expect(() => make({ claudeBin: '/x/claude.cmd', tmux: fakeTmux({ status: 0 }), platform: 'darwin' }).start({ projectId: 'p1' })).not.toThrow(/claude\.exe/);
+  });
+
   it('tmux の失敗を返すときはトークンを伏せ、1 行に切り詰める', () => {
     // 外部コマンドの stderr には何が混じるか分からないので、そのまま応答に載せない。
     const noisy = path.join(home, 'noisy-tmux.sh');
@@ -136,13 +148,23 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
 });
 
 describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
+  it('続けて起こした 2 つの run は、tmux の名前が重ならず、どちらも動く', () => {
+    // 名前が run の id の先頭 8 桁だけだったときは、約 65 秒の窓の中の 2 つ目が duplicate session で落ちていた。
+    const rm = make();
+    const a = rm.start({ projectId: 'p1', name: 'a' });
+    const b = rm.start({ projectId: 'p1', name: 'b' });
+    expect(a.run.tmuxName).not.toBe(b.run.tmuxName);
+    expect(tmux!.hasSession(a.run.tmuxName)).toBe(true);
+    expect(tmux!.hasSession(b.run.tmuxName)).toBe(true);
+  });
+
   it('sessions 行と runs 行を作り、ラッパー経由で起動し、status off にする', async () => {
     const rm = make();
     const started: unknown[] = [];
     rm.on({ runStarted: (r) => started.push(r) });
     const r = rm.start({ projectId: 'p1', name: 'first', prompt: 'やって', model: 'opus' });
     expect(r.run).toMatchObject({ kind: 'start', sessionId: r.sessionId, deviceId: 'd', endedAt: null, endReason: null, pid: null });
-    expect(r.run.tmuxName).toBe(`hangar-${shortId(r.run.id)}`);
+    expect(r.run.tmuxName).toBe(`hangar-${runTmuxId(r.run.id)}`);
     expect(r.tabs).toEqual([{ id: r.run.id, runId: r.run.id, sessionId: r.sessionId, kind: 'agent', title: 'Claude', tmuxName: r.run.tmuxName, createdAt: r.run.startedAt, closedAt: null }]);
     expect(started).toHaveLength(1);
     expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
@@ -214,6 +236,42 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     const args = await launchedArgs(r.run.id);
     expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('プロジェクト：スクラッチ（' + s.cwd + '）');
     expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
+  });
+
+  describe('添付のある初期プロンプトは、置き場を --add-dir で渡す', () => {
+    const addDirsOf = (args: string[]) => args.flatMap((a, i) => (a === '--add-dir' ? [args[i + 1]!] : []));
+    const attach = () => path.join(home, 'drops', '1000-0-a.png');
+
+    it('プロンプトに置き場の直下のパスの行があれば、置き場を 1 つ渡す', async () => {
+      const r = make().start({ projectId: 'p1', prompt: `見て\n\n${attach()}` });
+      const args = await launchedArgs(r.run.id);
+      expect(addDirsOf(args)).toEqual([path.join(home, 'drops')]);
+      // 可変長のオプションが位置引数（プロンプト）を飲まない。
+      expect(args.at(-2)).toBe(`見て\n\n${attach()}`);
+    });
+    it('利用者の addDirs が先で、置き場は後ろに 1 度だけ足す', async () => {
+      const r = make().start({ projectId: 'p1', prompt: `見て\n\n'${attach()}'`, addDirs: [cwd] });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([cwd, path.join(home, 'drops')]);
+    });
+    it('すでに置き場を渡していれば重ねない', async () => {
+      const r = make().start({ projectId: 'p1', prompt: attach(), addDirs: [path.join(home, 'drops')] });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([path.join(home, 'drops')]);
+    });
+    it('添付の無いプロンプトには足さない', async () => {
+      const r = make().start({ projectId: 'p1', prompt: `${attach()} を見て`, addDirs: [cwd] });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([cwd]);
+    });
+    it('プロンプトが無ければ --add-dir は付かない', async () => {
+      const r = make().start({ projectId: 'p1' });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([]);
+    });
+    it('run に残る起動の指定は、送られたままで、足した置き場を含まない', () => {
+      const params = { projectId: 'p1', prompt: attach(), addDirs: [cwd] };
+      const r = make().start(params);
+      const row = db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string };
+      expect(JSON.parse(row.launch_params)).toEqual(params);
+      expect(JSON.stringify(r)).not.toContain(path.join(home, 'drops'));
+    });
   });
 
   it('ディレクトリが無ければ 400 で、run の行は残らない', () => {
@@ -537,6 +595,8 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     expect(args[3]).toBe('u-old');
     expect(args).not.toContain('--session-id');
     expect(args).not.toContain('-n');
+    // 添付の置き場を渡すのは新規の起動だけで、再開には足さない。
+    expect(args).not.toContain('--add-dir');
     expect(args.at(-2)).toBe(args[args.indexOf('--append-system-prompt') + 1]);
     expect(() => rm.resume(id)).toThrow(expect.objectContaining({ status: 409 }));
   });
@@ -550,6 +610,7 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     const args = await launchedArgs(f.run.id);
     const i = args.indexOf('--fork-session');
     expect(args.slice(i - 2, i + 3)).toEqual(['-r', 'u-old', '--fork-session', '--session-id', args[i + 2]]);
+    expect(args).not.toContain('--add-dir');
     const s = db.prepare('select * from sessions where id = ?').get(f.sessionId) as Record<string, unknown>;
     expect(s).toMatchObject({ provider_session_id: args[i + 2], project_id: 'p1', cwd, name: null });
     expect(args[1]).toBe(path.join(home, 'mcp', `${f.sessionId}.json`));
@@ -743,11 +804,9 @@ function seedRun(o: { runId?: string; sessionId?: string; kind?: 'start' | 'resu
   return { runId, sessionId, tabId };
 }
 
-/** 決まった終了コードと出力を返す偽の tmux を書く。 */
-function fakeTmux(body: string): Tmux {
-  const bin = path.join(home, `fake-tmux-${Math.random().toString(16).slice(2)}.sh`);
-  fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-  return new Tmux({ tmuxPath: bin });
+/** 決まった終了コードと出力を返す偽の tmux。sh のスクリプトにすると Windows で起こせないので、起こす口を差し替える。 */
+function fakeTmux(r: { status: number; stdout?: string; stderr?: string }): Tmux {
+  return new Tmux({ tmuxPath: 'tmux', exec: () => ({ status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }) });
 }
 
 describe('tmux を呼べないとき（tmux 不要）', () => {
@@ -765,7 +824,7 @@ describe('tmux を呼べないとき（tmux 不要）', () => {
 
   it('recoverAtStartup も tmux の呼び出しが失敗したら何も閉じない', () => {
     seedRun();
-    const rm = make({ tmux: fakeTmux('echo "lost server" >&2\nexit 1') });
+    const rm = make({ tmux: fakeTmux({ status: 1, stderr: 'lost server\n' }) });
     expect(rm.recoverAtStartup()).toEqual([]);
     expect(rm.getRun('r1')?.endedAt).toBeNull();
     expect(rm.getTab('t1')?.closedAt).toBeNull();
@@ -774,7 +833,7 @@ describe('tmux を呼べないとき（tmux 不要）', () => {
   it('tmux サーバが動いていないだけなら、run もタブも閉じる', () => {
     // 呼び出しは成功していて、本当にセッションが 1 つも無い。これは観測できている。
     seedRun();
-    const rm = make({ tmux: fakeTmux('echo "no server running on /tmp/tmux-501/default" >&2\nexit 1') });
+    const rm = make({ tmux: fakeTmux({ status: 1, stderr: 'no server running on /tmp/tmux-501/default\n' }) });
     const r = rm.tick();
     expect(r.ended.map((x) => x.id)).toEqual(['r1']);
     expect(r.closedTabs.map((x) => x.id)).toEqual(['t1']);
@@ -830,7 +889,7 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
     // Claude の tmux セッションだけが消え、シェルタブは動いている状態。
     // ここで消すと、生きているシェルに UI から到達も停止もできなくなる。
     const { runId, sessionId, tabId } = seedRun();
-    const rm = make({ tmux: fakeTmux('echo "hangar-r1-t1"\nexit 0') });
+    const rm = make({ tmux: fakeTmux({ status: 0, stdout: 'hangar-r1-t1\n' }) });
     expect(rm.tick().ended.map((x) => x.id)).toEqual([runId]);
     expect(rm.getTab(tabId)?.closedAt).toBeNull();
     expect(deletedAt(sessionId)).toBeNull();
@@ -838,7 +897,7 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
 
   it('シェルタブも消えていれば tick 経由でも消す', () => {
     const { runId, sessionId } = seedRun();
-    const rm = make({ tmux: fakeTmux('exit 0') });
+    const rm = make({ tmux: fakeTmux({ status: 0 }) });
     expect(rm.tick().ended.map((x) => x.id)).toEqual([runId]);
     expect(deletedAt(sessionId)).not.toBeNull();
   });
@@ -883,7 +942,7 @@ describe('run のログの掃除（tmux 不要）', () => {
     old.forEach((id, i) => put(id, 1000 + i));
 
     // tmux を呼ばずに起動を最後まで通す。ログの掃除だけを見たい。
-    make({ tmux: fakeTmux('exit 0') }).start({ projectId: 'p1' });
+    make({ tmux: fakeTmux({ status: 0 }) }).start({ projectId: 'p1' });
 
     const names = fs.readdirSync(logs);
     expect(names).toContain('run-r1.log');
@@ -992,7 +1051,7 @@ describe.skipIf(!TMUX)('トークンを argv に載せない（tmux 上）', () 
     expect(args.join(' ')).not.toContain('Bearer');
 
     const cfgPath = args[1]!;
-    expect(fs.statSync(cfgPath).mode & 0o777).toBe(0o600);
+    expectMode(cfgPath, 0o600);
     // 設定ファイルにも本体のトークンは書かない。入るのはこの run 専用の秘密だけである。
     expect(fs.readFileSync(cfgPath, 'utf8')).not.toContain(TOKEN);
     expect(fs.readFileSync(cfgPath, 'utf8')).toContain(`Bearer ${mcpSecretFor(db, r.sessionId)}`);
@@ -1075,5 +1134,289 @@ describe.skipIf(!TMUX)('run に配る秘密は、その run の入口しか開�
     issueMcpSecret(db, '00000000-0000-7000-8000-000000000000', 1);
     make({ token: TOKEN, tmux: null }).recoverAtStartup();
     expect(mcpSecretFor(db, '00000000-0000-7000-8000-000000000000')).toBeNull();
+  });
+});
+
+describe.skipIf(!TMUX)('アカウント', () => {
+  let userHome: string;
+  let accounts: AccountStore;
+  const envOf = async (runId: string) => {
+    await launchedArgs(runId);
+    // 偽の claude は起動のたびに 1 行を足すので、最後の行がこの run のものである。
+    return fs.readFileSync(fake.envFile, 'utf8').trimEnd().split('\n').at(-1) + '\n';
+  };
+  beforeEach(() => {
+    userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-user-'));
+    fake = writeFakeClaude(home, { recordEnv: ['CLAUDE_CONFIG_DIR'] });
+    accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: userHome });
+  });
+  afterEach(() => fs.rmSync(userHome, { recursive: true, force: true }));
+  const params = (runId: string) => JSON.parse((db.prepare('select launch_params from runs where id = ?').get(runId) as { launch_params: string }).launch_params) as { account?: string };
+
+  it('最初のアカウントでは CLAUDE_CONFIG_DIR を足さず、run に primary と残す', async () => {
+    const r = make({ accounts }).start({ projectId: 'p1' });
+    expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=\n');
+    expect(params(r.run.id).account).toBe('primary');
+  });
+
+  it('アカウントを指定すると、置き場のリンクを張ってから、その置き場で起こす', async () => {
+    const a = accounts.add({ name: '大学' });
+    const r = make({ accounts }).start({ projectId: 'p1', account: a.id });
+    expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(fs.readlinkSync(path.join(a.dir, 'projects'))).toBe(path.join(claudeDir, 'projects'));
+    expect(params(r.run.id).account).toBe(a.id);
+  });
+
+  it('指定が無ければ、いまのアカウントで起こす', async () => {
+    const a = accounts.add({ name: '大学' });
+    accounts.setCurrent(a.id);
+    const r = make({ accounts }).start({ projectId: 'p1' });
+    expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+  });
+
+  it('知らないアカウントは 400 で断り、セッションの行を作らない', () => {
+    const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
+    expect(() => make({ accounts }).start({ projectId: 'p1', account: 'nope' })).toThrow('アカウントが見つかりません');
+    expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
+  });
+
+  it('リンクの場所に実ファイルがあれば 400 で断り、ファイルは残す', () => {
+    const a = accounts.add({ name: '大学' });
+    fs.mkdirSync(a.dir);
+    fs.mkdirSync(path.join(a.dir, 'projects'));
+    const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
+    expect(() => make({ accounts }).start({ projectId: 'p1', account: a.id })).toThrow('置き場の projects が共有のリンクではありません');
+    expect(fs.lstatSync(path.join(a.dir, 'projects')).isDirectory()).toBe(true);
+    expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
+  });
+
+  it('再開は最後に動かしたアカウントで起こす。消えたアカウントは最初のアカウントに落とす', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1', account: a.id });
+    await envOf(first.run.id);
+    // 本文の無い start は閉じるときにセッションの行ごと消えるので、先に本文があることにする。
+    addTranscript(first.sessionId);
+    m.kill(first.run.id);
+    expect(m.accountFor(first.sessionId)).toBe(a.id);
+    const again = m.resume(first.sessionId);
+    expect(await envOf(again.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    m.kill(again.run.id);
+    accounts.remove(a.id);
+    expect(m.accountFor(first.sessionId)).toBe('primary');
+  });
+
+  it('ターミナルから：CLAUDE_CONFIG_DIR が無ければいまのアカウント、登録済みの置き場ならそのアカウント、未登録ならそのまま渡して記録しない', async () => {
+    const a = accounts.add({ name: '大学' });
+    const b = accounts.add({ name: '個人' });
+    accounts.setCurrent(a.id);
+    // run の tmux 名は uuid の先頭 8 桁で、約 65 秒の刻みで重なる。生きたままだと次の起動が断られるので、確かめたら止める。
+    const m = make({ accounts });
+    const r1 = m.startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '' }));
+    expect(await envOf(r1.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(params(r1.run.id).account).toBe(a.id);
+    m.kill(r1.run.id);
+    const r2 = m.startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '', CLAUDE_CONFIG_DIR: b.dir + '/' }));
+    expect(await envOf(r2.run.id)).toBe(`CLAUDE_CONFIG_DIR=${b.dir}/\n`);
+    expect(params(r2.run.id).account).toBe(b.id);
+    m.kill(r2.run.id);
+    const r3 = m.startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '', CLAUDE_CONFIG_DIR: '/elsewhere' }));
+    expect(await envOf(r3.run.id)).toBe('CLAUDE_CONFIG_DIR=/elsewhere\n');
+    expect(params(r3.run.id).account).toBeUndefined();
+  });
+
+  it('ターミナルから再開するとき、未登録の置き場を付けたら、最後のアカウントを記録しない', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1', account: a.id });
+    await envOf(first.run.id);
+    // 本文の無い start は閉じるときにセッションの行ごと消えるので、先に本文があることにする。
+    addTranscript(first.sessionId);
+    m.kill(first.run.id);
+    const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(first.sessionId) as { p: string }).p;
+    const r = m.startFromTerminal(fromTerminal(cwd, ['-r', uuid], { PATH: process.env.PATH ?? '', CLAUDE_CONFIG_DIR: '/elsewhere' }));
+    expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=/elsewhere\n');
+    expect(params(r.run.id).account).toBeUndefined();
+  });
+
+  it('フォークは、最後に動かしたアカウントの置き場のリンクが壊れていれば 400 で断り、セッションの行を作らない', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1', account: a.id });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    m.kill(first.run.id);
+    // リンクを実ディレクトリに置き換えて壊す。
+    fs.rmSync(path.join(a.dir, 'projects'));
+    fs.mkdirSync(path.join(a.dir, 'projects'));
+    const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
+    expect(() => m.fork(first.sessionId)).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('置き場の projects が共有のリンクではありません') }));
+    expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
+  });
+
+  it('attach は、そのセッションを最後に動かしたアカウントを引き継ぎ、その置き場で claude attach を起こす', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m0 = make({ accounts });
+    const first = m0.start({ projectId: 'p1', account: a.id });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    m0.kill(first.run.id);
+    const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(first.sessionId) as { p: string }).p;
+    const live = [{ sessionId: uuid, status: 'idle' as const, name: null, nameSource: null, cwd, pid: 777, background: { jobId: 'abcd1234' } }];
+    const m = make({ accounts, live: () => live });
+    const r = m.attach(first.sessionId);
+    expect(r.run.kind).toBe('resume');
+    expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(params(r.run.id).account).toBe(a.id);
+    expect(m.accountFor(first.sessionId)).toBe(a.id);
+  });
+
+  it('ターミナルから新規：いまのアカウントのリンクが壊れていれば 400 で断り、セッションの行を作らない', () => {
+    const a = accounts.add({ name: '大学' });
+    accounts.setCurrent(a.id);
+    fs.mkdirSync(path.join(a.dir, 'projects'), { recursive: true });
+    const before = (db.prepare('select count(*) n from sessions').get() as { n: number }).n;
+    expect(() => make({ accounts }).startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '' }))).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('置き場の projects が共有のリンクではありません') }));
+    expect((db.prepare('select count(*) n from sessions').get() as { n: number }).n).toBe(before);
+  });
+
+  it('ターミナルの CLAUDE_CONFIG_DIR が空文字なら、付けていないものとして、いまのアカウントの置き場で起こす', async () => {
+    const a = accounts.add({ name: '大学' });
+    accounts.setCurrent(a.id);
+    const r = make({ accounts }).startFromTerminal(fromTerminal(cwd, [], { PATH: process.env.PATH ?? '', CLAUDE_CONFIG_DIR: '' }));
+    expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(params(r.run.id).account).toBe(a.id);
+  });
+
+  const endedAt = (runId: string) => (db.prepare('select ended_at from runs where id = ?').get(runId) as { ended_at: number | null }).ended_at;
+  const endReason = (runId: string) => (db.prepare('select end_reason from runs where id = ?').get(runId) as { end_reason: string }).end_reason;
+
+  it('switchAccount：動いているセッションを止め、同じ会話を別のアカウントで再開する', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    // 本文の無い start は止めるときにセッションの行ごと消えるので、先に本文があることにする。
+    addTranscript(first.sessionId);
+    const next = await m.switchAccount(first.sessionId, a.id);
+    expect(next.sessionId).toBe(first.sessionId);
+    expect(next.run.id).not.toBe(first.run.id);
+    expect(endReason(first.run.id)).toBe('killed');
+    expect(await envOf(next.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(m.accountFor(first.sessionId)).toBe(a.id);
+    const args = readArgs(fake.argsFile);
+    expect(args[args.indexOf('-r') + 1]).toBe((db.prepare('select provider_session_id p from sessions where id = ?').get(first.sessionId) as { p: string }).p);
+  });
+
+  it('switchAccount：止まっているセッションは、そのまま別のアカウントで再開する', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    m.kill(first.run.id);
+    const next = await m.switchAccount(first.sessionId, a.id);
+    expect(await envOf(next.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+  });
+
+  it('switchAccount：知らないアカウントは、セッションを止める前に 400 で断る', async () => {
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    await expect(m.switchAccount(first.sessionId, 'nope')).rejects.toThrow(expect.objectContaining({ status: 400, message: 'アカウントが見つかりません' }));
+    expect(endedAt(first.run.id)).toBeNull();
+  });
+
+  it('switchAccount：リンクが壊れているアカウントも、止める前に断る', async () => {
+    const a = accounts.add({ name: '大学' });
+    fs.mkdirSync(a.dir);
+    fs.writeFileSync(path.join(a.dir, 'projects'), 'x');
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('共有のリンクではありません') }));
+    expect(endedAt(first.run.id)).toBeNull();
+  });
+
+  it('switchAccount：止めたあともレジストリに残り続けたら 409 で断る。元の run は閉じたまま', async () => {
+    const a = accounts.add({ name: '大学' });
+    let slept = 0;
+    const m = make({ accounts, isLive: () => true, sleep: async (ms) => { slept += ms; } });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: expect.stringContaining('前の Claude がまだ終わっていません') }));
+    expect(slept).toBeGreaterThanOrEqual(5000);
+    expect(endReason(first.run.id)).toBe('killed');
+  });
+
+  it('switchAccount：同じアカウントへの切り替えは 409 で断り、何も止めない', async () => {
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    await expect(m.switchAccount(first.sessionId, 'primary')).rejects.toThrow(expect.objectContaining({ status: 409, message: 'このセッションはもうそのアカウントで動いています' }));
+    expect(endedAt(first.run.id)).toBeNull();
+  });
+
+  it('switchAccount：本文のまだ無いセッションは、止める前に 400 で断る。run もセッションの行も残る', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: 'このセッションにはまだ本文がありません。そのアカウントで新しいセッションを始めてください' }));
+    expect(endedAt(first.run.id)).toBeNull();
+    expect(db.prepare('select 1 from sessions where id = ?').get(first.sessionId)).toBeTruthy();
+  });
+
+  it('switchAccount：作業ディレクトリが消えていれば、止める前に 400 で断る', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m = make({ accounts });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    fs.rmSync(cwd, { recursive: true, force: true });
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('ディレクトリが見つかりません') }));
+    expect(endedAt(first.run.id)).toBeNull();
+  });
+
+  it('switchAccount：hangar の run が無いのにレジストリに残っていれば、待たずに「hangar の外で実行中」と 409 で断る', async () => {
+    const a = accounts.add({ name: '大学' });
+    let slept = 0;
+    const m = make({ accounts, isLive: () => true, sleep: async (ms) => { slept += ms; } });
+    const first = m.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    m.kill(first.run.id);
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: 'このセッションは hangar の外で実行中です' }));
+    expect(slept).toBe(0);
+  });
+
+  it('switchAccount：バックグラウンドのサービスが持つセッションは、何も止めずに 409 で断る', async () => {
+    const a = accounts.add({ name: '大学' });
+    const m0 = make({ accounts });
+    const first = m0.start({ projectId: 'p1' });
+    await envOf(first.run.id);
+    addTranscript(first.sessionId);
+    const uuid = (db.prepare('select provider_session_id p from sessions where id = ?').get(first.sessionId) as { p: string }).p;
+    const live = [{ sessionId: uuid, status: 'idle' as const, name: null, nameSource: null, cwd, pid: 777, background: { jobId: 'abcd1234' } }];
+    const message = 'バックグラウンドのセッションは、アカウントを切り替えられません。止めてから、そのアカウントで再開してください';
+    // hangar の run（claude attach）が動いているとき。
+    const m = make({ accounts, live: () => live });
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message }));
+    expect(endedAt(first.run.id)).toBeNull();
+    // hangar の run が無いとき（サービスだけが動いている）も、同じ文言で断る。
+    m.kill(first.run.id);
+    const killedAt = endedAt(first.run.id);
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message }));
+    expect(endedAt(first.run.id)).toBe(killedAt);
+  });
+
+  it('accounts を渡さない RunManager は今までどおり動く', async () => {
+    const r = make().start({ projectId: 'p1' });
+    expect(await envOf(r.run.id)).toBe('CLAUDE_CONFIG_DIR=\n');
+    expect(params(r.run.id).account).toBeUndefined();
   });
 });

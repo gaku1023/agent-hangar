@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, BootstrapDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentRunOf, emptyUsage, eventsKey, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
+import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import { accountsFixture } from '../test/accounts.ts';
+import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentAccount, currentRunOf, emptyUsage, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
@@ -23,7 +24,7 @@ describe('store', () => {
   });
   it('session.upsert は state も丸ごと差し替える（状態の操作の画面の正）', () => {
     let s = applyBootstrap(initialStore(), boot);
-    const state = { status: 'paused' as const, note: '明日見る', returnOn: '2026-10-02', setBy: 'user' as const, setAt: 1, candidate: null };
+    const state = { status: 'paused' as const, note: '明日見る', returnOn: '2026-10-02', returnTime: null, setBy: 'user' as const, setAt: 1, candidate: null };
     s = applyServerEvent(s, { type: 'session.upsert', session: { ...session('s1', 'u1'), state } });
     expect(s.sessions.s1?.state).toEqual(state);
     s = applyServerEvent(s, { type: 'session.upsert', session: session('s1', 'u1') });
@@ -254,6 +255,16 @@ describe('store の同期', () => {
     expect(s.sync).toEqual(sync);
     expect(s.devices).toHaveLength(1);
   });
+  it('使用量は bootstrap で入り、sync.usage で差し替わる。無い bootstrap は null', () => {
+    const usage: CloudUsageDto = { source: 'estimate', fetchedAt: null, stale: false, notice: null, limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000, stopRatio: 0.8 }, today: { d1RowsWritten: 1, workersRequests: null, resetAt: 2 }, plan: null, month: null };
+    expect(initialStore().cloudUsage).toBeNull();
+    expect(applyBootstrap(initialStore(), boot).cloudUsage).toBeNull();
+    let s = applyBootstrap(initialStore(), { ...boot, cloudUsage: usage });
+    expect(s.cloudUsage).toEqual(usage);
+    const next = { ...usage, today: { ...usage.today, d1RowsWritten: 9 } };
+    s = applyServerEvent(s, { type: 'sync.usage', usage: next });
+    expect(s.cloudUsage).toEqual(next);
+  });
   it('sync.status で、片付いた取り残しと回復した失敗が消える', () => {
     // レビュアの再現筋である。サーバが 0 件になっても画面が 3 件のまま固まっていた。
     // 片付いたことが画面に届かないと、件数を出す意味そのものが無くなる。
@@ -321,17 +332,6 @@ describe('次の入力待ち（C5）', () => {
   });
 });
 
-describe('検索の続き', () => {
-  const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
-  it('続きを後ろに足し、持っている行と重なった行は足さない', () => {
-    // 読み足す間に並びがずれると、前のページの末尾が続きの先頭にもう一度来る。
-    const first = applySearch(initialStore(), { q: 'x' }, { hits: [hit('s1'), hit('s2')], total: 3 }, false);
-    const next = appendSearch(first, { q: 'x', offset: 2 }, { hits: [hit('s2'), hit('s3')], total: 3 });
-    expect(next.search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2', 's3']);
-    expect(next.search).toMatchObject({ loading: false, result: { total: 3 } });
-  });
-});
-
 describe('保持期間の store', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
   it('bootstrap の retention を入れ、欠けていれば null', () => {
@@ -342,5 +342,44 @@ describe('保持期間の store', () => {
   it('retention.changed で差し替わる', () => {
     const next = { ...R, days: 365, source: 'user' as const, userValue: 365 };
     expect(applyServerEvent(initialStore(), { type: 'retention.changed', retention: next }).retention).toEqual(next);
+  });
+});
+
+describe('アカウントの store', () => {
+  const withAccounts = (accounts: typeof accountsFixture | null) => ({ ...initialStore(), accounts });
+  const one = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!], sessions: {} };
+  it('bootstrap に accounts が無ければ null、あれば入る', () => {
+    expect(applyBootstrap(initialStore(), boot).accounts).toBeNull();
+    expect(applyBootstrap(initialStore(), { ...boot, accounts: accountsFixture }).accounts).toEqual(accountsFixture);
+  });
+  it('accounts.update は丸ごと入れ替え、ほかの項目は変えない', () => {
+    const before = applyBootstrap(initialStore(), { ...boot, accounts: accountsFixture, usage: { fiveHour: { usedPercent: 3, resetsAt: null }, sevenDay: null, updatedAt: 7 } });
+    const next = { ...accountsFixture, currentId: 'a1', sessions: {} };
+    const after = applyServerEvent(before, { type: 'accounts.update', accounts: next });
+    expect(after.accounts).toEqual(next);
+    expect(after.usage).toBe(before.usage);
+    expect(after.sessions).toBe(before.sessions);
+  });
+  it('currentAccount は currentId の 1 件、一覧に無ければ primary、空なら null', () => {
+    expect(currentAccount(withAccounts({ ...accountsFixture, currentId: 'a1' }))?.id).toBe('a1');
+    expect(currentAccount(withAccounts({ ...accountsFixture, currentId: 'gone' }))?.id).toBe('primary');
+    expect(currentAccount(withAccounts(null))).toBeNull();
+    expect(currentAccount(withAccounts({ ...accountsFixture, accounts: [] }))).toBeNull();
+  });
+  it('accountList は null なら空の配列', () => {
+    expect(accountList(withAccounts(null))).toEqual([]);
+    expect(accountList(withAccounts(accountsFixture))).toHaveLength(2);
+  });
+  it('accountOfSession は対応にあればその 1 件、無ければ primary、一覧に無い id でも primary', () => {
+    const s = withAccounts(accountsFixture);
+    expect(accountOfSession(s, 's9')?.id).toBe('a1');
+    expect(accountOfSession(s, 'other')?.id).toBe('primary');
+    expect(accountOfSession(withAccounts({ ...accountsFixture, sessions: { s9: 'gone' } }), 's9')?.id).toBe('primary');
+    expect(accountOfSession(withAccounts(null), 's9')).toBeNull();
+  });
+  it('hasMultipleAccounts は null と 1 件が偽、2 件が真', () => {
+    expect(hasMultipleAccounts(withAccounts(null))).toBe(false);
+    expect(hasMultipleAccounts(withAccounts(one))).toBe(false);
+    expect(hasMultipleAccounts(withAccounts(accountsFixture))).toBe(true);
   });
 });

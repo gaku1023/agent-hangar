@@ -12,6 +12,7 @@ export type SyncStateKey =
   | 'lastPushAt'
   | 'lastPullAt'
   | 'paused'
+  | 'pausedReason'
   | 'lastError'
   | 'configPullConfirmed'
   | 'snapshotDone'

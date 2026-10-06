@@ -1,16 +1,10 @@
 /* セッション行の 1 行メモ（Task 24） */
 
-/* 一覧そのものがフォーカスを受ける。
-   j と k は一覧にフォーカスがあるときだけ効くので、当たっていることが見えないと「効かない」と受け取られる。
-   base.css の :focus-visible とは詳細度が並ぶため、ここで blanket に outline: none と書くと輪郭ごと消えてしまう。 */
+/* 一覧そのものがフォーカスを受ける（画面に入ってすぐ j や ↓ が効くように）。
+   一覧の外周に輪郭は描かない。画面を開くたびに、まだ何も選んでいない一覧を画面でいちばん強い線が囲むことになるからである。
+   どこに居るかは、打鍵で選んだ行（data-cursor の地色と、行そのものの輪郭）で示す。 */
+.rows-host:focus,
 .rows-host:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-  border-radius: var(--r);
-}
-
-/* マウスで押しただけのときは輪郭を出さない。 */
-.rows-host:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -24,6 +18,13 @@
 /* カーソルの行。フォーカスの枠とは別の表し方にして、両方が同時に出ても読めるようにする。 */
 .row[data-cursor='true'] {
   background: var(--accent-soft);
+}
+
+/* 動いていない行は点を描かない。終わった行はどれも同じ灰色の点になり、何も伝えないまま、作業中と入力待ちの色を拾いにくくする。
+   点の場所は残し、名前の書き出しは全行でそろえる。読み上げの名前（終了）は StatusDot が持つ。 */
+.row-2 > .dot[data-status='ended'],
+.palette-item .dot[data-status='ended'] {
+  background: transparent;
 }
 
 .memo-cell {
@@ -62,15 +63,20 @@
    高さは --session-row-h で持ち、SessionRows の SESSION_ROW_H と揃える（rows.test.ts）。
    1 段の部品の --row-h（28px）とは別の値である。 */
 .row-2 { grid-template-columns: 16px minmax(0, 1fr) auto; gap: calc(var(--u) * 4); height: var(--session-row-h); padding: 0 calc(var(--u) * 5); }
+/* 状態の列（F1）。点の右に 62px を取り、札の無い行も場所は取る。名前の書き出しは全行でそろう。
+   状態がどれも同じ一覧（Done のタブなど）では SessionRows が列を畳む（data-status-col が false）。 */
+.rows-host[data-status-col='true'] .row-2 { grid-template-columns: 16px 62px minmax(0, 1fr) auto; }
+.row-status { display: flex; align-items: center; min-width: 0; }
+.row-status > .badge-link, .row-status > .row-act { width: 100%; }
 .row-main { display: flex; flex-direction: column; justify-content: center; gap: var(--u); min-width: 0; }
-.row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 560; }
+.row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .row-proj { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
 .row-sub { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; height: calc(var(--u) * 5); font-size: var(--fs-sm); color: var(--ink-2); }
 .row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* 2 段目の頭の要約の見立て（試作 home-lists の B1）。ふだんは注記の色の語だけにし、
    詰まっている（入力待ちの色）とやめた（Paused の色）だけを淡い地の札にする。色の札が 2 種しかないので、流し見で色の行だけが目に止まる。 */
 .row-state { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
-.row-state[data-tone] { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-weight: 560; line-height: 1.4; }
+.row-state[data-tone] { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-weight: 600; line-height: 1.4; }
 .row-state[data-tone='blocked'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); }
 .row-state[data-tone='abandoned'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .row-memo { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
@@ -90,14 +96,21 @@
 .row-live { flex: none; font-size: var(--fs-xs); font-weight: 600; }
 .row-live[data-live='waiting'] { color: var(--waiting); }
 .row-live[data-live='busy'] { color: var(--busy); }
-.row-sq { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; }
-.row-sq[data-s='done'] { color: var(--st-done); background: var(--st-done-soft); }
+/* 状態の札（F1）。列の幅いっぱいの同じ幅の四角い札にし、語の長さで位置がずれないようにする。
+   Done は全体のほとんどを占めるので線だけにして静かにし、ほかの 3 つを地で塗る。Active はプロジェクトの Active と同じ青にする。 */
+.row-sq { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 62px; height: 18px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; }
+.row-sq[data-s='active'] { color: var(--st-active); background: var(--st-active-soft); }
+.row-sq[data-s='done'] { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
+.row-sq[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .row-sq[data-s='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
-/* 戻る日。当日と過ぎたものは塗る（地が --st-paused、文字が白。tokens.test.ts が 4.5 : 1 を見張る）。 */
-.row-return { flex: none; display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; line-height: 1.4; color: var(--st-paused); background: var(--st-paused-soft); white-space: nowrap; }
-.row-return[data-due='true'] { color: #ffffff; background: var(--st-paused); }
-/* 提案の札（Q3）。枠だけの紫の丸い札で、押すと根拠のポップ（Q1）が開く。 */
-.row-cand { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border: 0; border-radius: var(--r-pill); background: none; box-shadow: inset 0 0 0 1px var(--cand); color: var(--cand); font: inherit; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; cursor: pointer; }
+/* 時刻の列（F1）。幅を決めて右に寄せ、「4 時間前」と「15 時間前」で左の部品がずれないようにする。 */
+.row-time { flex: none; display: inline-flex; justify-content: flex-end; width: 72px; }
+/* 戻る日。先の日は黄土の文字だけ、当日と過ぎたもの（と日付なし）は塗る（地が --st-paused、文字が白。tokens.test.ts が 4.5 : 1 を見張る）。 */
+.row-return { flex: none; display: inline-flex; align-items: center; font-size: var(--fs-xs); font-weight: 600; line-height: 1.4; color: var(--st-paused); white-space: nowrap; }
+.row-return[data-due='true'] { color: #ffffff; background: var(--st-paused); padding: 1px 7px; border-radius: var(--r-pill); }
+/* 提案の札（Q3）。枠だけの紫の丸い札で、押すと根拠のポップ（Q1）が開く。状態の列では短い語（Done？・Paused？）で置く。 */
+.row-cand { flex: none; display: inline-flex; align-items: center; justify-content: center; height: 18px; padding: 0 7px; border: 0; border-radius: var(--r-pill); background: none; box-shadow: inset 0 0 0 1px var(--cand); color: var(--cand); font: inherit; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; cursor: pointer; }
+.row-status .row-cand { width: 62px; padding: 0; }
 .row-cand:hover, .row-cand[aria-expanded='true'] { background: var(--cand-soft); }
 /* 行の中の操作の器（提案の札と「⋯」）。押しても行が開かないよう、SessionRows がクリックを止める。 */
 .row-act { flex: none; display: inline-flex; }
@@ -112,7 +125,7 @@
    高さは --section-head-h で持ち、SessionRows の SECTION_HEAD_H と揃える（rows.test.ts）。 */
 .row-head { display: flex; align-items: flex-end; gap: calc(var(--u) * 1.5); height: var(--section-head-h); padding: 0 calc(var(--u) * 5) calc(var(--u) * 1.5); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
 .row-head-count { font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.row-head-more { margin-left: auto; padding: 0 var(--u); border: 0; border-radius: 5px; background: none; font: inherit; font-size: var(--fs-xs); font-weight: 560; color: var(--accent); cursor: pointer; }
+.row-head-more { margin-left: auto; padding: 0 var(--u); border: 0; border-radius: 5px; background: none; font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); cursor: pointer; }
 .row-head-more:hover { text-decoration: underline; }
 /* 末尾の Archived の行は、ほかの節より控えめにする。 */
 .row-head[data-section='archived'] { font-weight: 500; color: var(--ink-3); }
@@ -127,8 +140,10 @@
 .sessions-count { font-weight: 400; }
 /* 状態のタブ（★）。件数つきで、入り切らなければ次の行へ送る（900px の窓では 7 つが 1 行に並ばない）。 */
 .sessions-tabs { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * 3); }
-.sessions-tab { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-size: var(--fs-sm); font-weight: 560; color: var(--ink-2); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.sessions-tab { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
 .sessions-tab:hover { background: var(--surface-2); }
+/* 0 件のタブは淡くする。押せるままにし、選んでいる間は淡くしない。 */
+.sessions-tab[data-empty='true']:not([aria-pressed='true']) { font-weight: 500; color: var(--ink-3); }
 .sessions-tab[aria-pressed='true'] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .sessions-tab-n { font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 /* 確かめるが 1 件以上なら、数字を候補の色で灯す。淡い地の上の --cand は 4.5 : 1 を超える（tokens.test.ts）。 */
@@ -156,12 +171,28 @@
 .sessions-cond > .icon { flex: none; color: var(--accent); }
 .sessions-cond-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sessions-cond b { color: var(--ink); font-weight: 600; }
-.sessions-cond-clear { flex: none; gap: 3px; padding: 0 var(--u); color: var(--accent); font-weight: 560; }
+.sessions-cond-clear { flex: none; gap: 3px; padding: 0 var(--u); color: var(--accent); font-weight: 600; }
 .sessions-cond-count { margin-left: auto; flex: none; font-size: var(--fs-xs); }
 /* 検索の続きを読むボタン。最後の行の下に、行と一緒にスクロールして現れる。残りの件数を淡く添える。 */
-.sessions-more { display: flex; align-items: center; justify-content: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 3) 0; font-size: var(--fs-sm); }
+/* ページ送りの帯（A4）。一覧の下に貼り、一覧が残りの高さを受け取っても帯は縮まない。
+   左に範囲、中ほどに番号、右にページの番号の入力と件数。狭い欄（Home の最近）では折り返す。 */
+.pager { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 4); padding: calc(var(--u) * 3) calc(var(--u) * 1); font-size: var(--fs-sm); color: var(--ink-2); }
+.pager-range { white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
+.pager-range b { color: var(--ink); font-weight: 600; }
+/* 番号の列と跳び先の欄は、帯の中ほどに並べて置く。どちらも「どのページへ行くか」の部品である。 */
+.pager-nums { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.pager-btn { min-width: 28px; height: 26px; padding: 0 6px; border: 0; border-radius: 6px; background: none; font: inherit; font-variant-numeric: tabular-nums; color: var(--ink-2); cursor: pointer; }
+.pager-btn:hover:not(:disabled) { background: var(--surface-2); }
+/* いまのページは淡い地と色の文字で示す。塗りつぶすと、ヘッダーの主ボタンと同じ強さになって競る。 */
+.pager-btn[aria-current='page'] { background: var(--accent-soft); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); }
+.pager-btn:disabled { color: var(--line-strong); cursor: default; }
+.pager-gap { padding: 0 var(--u); color: var(--ink-3); }
+.pager-jump { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); margin-right: auto; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
+.pager-jump .input { width: 52px; height: 26px; padding: 0 6px; text-align: center; }
 
 /* Paused の入力（B1）。戻る日の札を 5 つ並べ、下に理由の 1 行を置く。選んだ札は黄土の地と縁で示す。 */
+/* 時刻の欄（任意）。時刻は 5 字なので、欄を幅いっぱいに広げない。 */
+.pause-time .input { width: 132px; }
 .pause-chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
 .pause-chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: 28px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
 .pause-chip[aria-checked='true'] { color: var(--st-paused); background: var(--st-paused-soft); box-shadow: inset 0 0 0 1px var(--st-paused); font-weight: 600; }

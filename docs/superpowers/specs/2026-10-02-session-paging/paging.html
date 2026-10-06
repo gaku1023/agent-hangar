@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>セッション一覧のページ分けと Done の札</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f6f7fb; --surface: #fff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e;
+  --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --font: 'Inter', 'Hiragino Sans', sans-serif; --mono: 'JetBrains Mono', Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 28px 80px; font: 13px/1.45 var(--font); color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 36px 0 6px; }
+.lead { color: var(--ink-2); margin: 0 0 14px; max-width: 1100px; }
+.lead b { color: var(--ink); }
+.opt { margin: 0 0 22px; background: var(--surface); border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.opt.rec { box-shadow: inset 0 0 0 1px var(--line), 0 0 0 3px var(--accent-soft); }
+.opt-head { padding: 12px 16px 10px; border-bottom: 1px solid var(--line); }
+.opt-head h3 { margin: 0; font-size: 14px; } .opt-head h3 b { color: var(--accent); margin-right: 6px; }
+.opt-head h3 .tag { margin-left: 8px; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 1px 7px; border-radius: 99px; }
+.opt-head p { margin: 4px 0 0; color: var(--ink-2); font-size: 12px; max-width: 1050px; }
+.opt-head .pc { display: flex; gap: 22px; margin-top: 6px; font-size: 12px; }
+.opt-head .pc span::before { font-weight: 700; margin-right: 4px; }
+.opt-head .pro::before { content: '＋'; color: var(--idle); }
+.opt-head .con::before { content: '−'; color: var(--waiting); }
+.body { display: flex; justify-content: center; padding: 14px 0 0; background: repeating-linear-gradient(90deg, #fafbfd, #fafbfd 10px, #f6f7fb 10px, #f6f7fb 20px); }
+.screen { width: 1040px; max-width: 100%; background: var(--surface); box-shadow: 0 0 0 1px var(--line); border-radius: 10px 10px 0 0; padding: 14px 20px 0; }
+
+/* 画面の上の部品（実物の Sessions 画面の略図） */
+.tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+.tab { border: 0; background: none; font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 7px; color: var(--ink-2); cursor: pointer; }
+.tab[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tab .n { margin-left: 5px; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.kw { height: 32px; border-radius: 9px; box-shadow: inset 0 0 0 1px var(--line-strong); display: flex; align-items: center; padding: 0 10px; color: var(--ink-3); font-size: 12.5px; margin-bottom: 10px; }
+
+/* 行 */
+.list { border-top: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 16px; align-items: center; height: 56px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+.row:hover { background: #fafbff; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ended); justify-self: center; }
+.dot[data-l='waiting'] { background: var(--waiting); } .dot[data-l='busy'] { background: var(--busy); }
+.main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.name { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.proj { font-size: 11.5px; font-weight: 400; color: var(--ink-3); }
+.sub { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); min-width: 0; white-space: nowrap; }
+.sub .t { overflow: hidden; text-overflow: ellipsis; }
+.st { flex: none; font-size: 11.5px; color: var(--ink-3); }
+.side { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+.when { font-variant-numeric: tabular-nums; }
+.when.fixed { width: 64px; text-align: right; }
+.sq { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 11.5px; font-weight: 600; }
+.sq.done { color: var(--st-done); background: var(--st-done-soft); }
+.sq.archived { color: var(--st-archived); background: var(--st-archived-soft); }
+.sq.ghost { background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
+.ret { flex: none; padding: 1px 7px; border-radius: 99px; font-size: 11.5px; font-weight: 600; color: var(--st-paused); background: var(--st-paused-soft); }
+.cand { flex: none; height: 20px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: 99px; box-shadow: inset 0 0 0 1px var(--cand); color: var(--cand); font-size: 11.5px; font-weight: 600; }
+.live { flex: none; font-size: 11.5px; font-weight: 600; color: var(--busy); }
+.more { width: 24px; text-align: center; color: var(--ink-3); visibility: hidden; }
+.row:hover .more { visibility: visible; }
+.col { display: inline-flex; justify-content: flex-start; width: 74px; }
+.mark { width: 16px; height: 16px; justify-self: center; display: grid; place-items: center; border-radius: 4px; font-size: 11px; font-weight: 700; }
+.mark.done { color: var(--st-done); background: var(--st-done-soft); }
+.mark.archived { color: var(--st-archived); background: var(--st-archived-soft); }
+.mark.paused { color: var(--st-paused); background: var(--st-paused-soft); }
+.row.dim .name { color: var(--ink-2); font-weight: 500; }
+.side-col { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.txt { font-size: 11px; font-weight: 600; } .txt.done { color: var(--st-done); } .txt.archived { color: var(--st-archived); }
+.chk { flex: none; font-size: 12px; font-weight: 700; } .chk.done { color: var(--st-done); } .chk.archived { color: var(--st-archived); }
+.chip { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 18px; padding: 0 7px; border-radius: 4px; font-size: 11.5px; }
+.chip b { font-weight: 600; } .chip i { width: 1px; height: 10px; background: currentColor; opacity: .3; }
+.chip.done { color: var(--st-done); background: var(--st-done-soft); } .chip.archived { color: var(--st-archived); background: var(--st-archived-soft); }
+.row.stripe-done { box-shadow: inset 3px 0 0 var(--st-done); } .row.stripe-archived { box-shadow: inset 3px 0 0 #b9b5ad; }
+.row.wide { grid-template-columns: 56px minmax(0, 1fr) auto; padding-left: 12px; }
+.lw { justify-self: center; font-size: 10.5px; font-weight: 600; padding: 1px 5px; border-radius: 4px; }
+.lw.done { color: var(--st-done); background: var(--st-done-soft); } .lw.archived { color: var(--st-archived); background: var(--st-archived-soft); } .lw.paused { color: var(--st-paused); background: var(--st-paused-soft); }
+.row.tint-done { background: #f7fbf8; } .row.tint-archived { background: #f8f7f5; }
+.row.tint-done .name::after { content: 'Done'; margin-left: 2px; font-size: 11px; font-weight: 600; color: var(--st-done); }
+.row.tint-archived .name::after { content: 'Archived'; margin-left: 2px; font-size: 11px; font-weight: 600; color: var(--st-archived); }
+#badges, #badges2, #badges3, #badges4, #badges5, #badges6 { --sw: 1040px; } #badges .screen, #badges2 .screen, #badges3 .screen, #badges4 .screen, #badges5 .screen, #badges6 .screen { width: var(--sw); }
+.row.f1 { grid-template-columns: 16px 62px minmax(0, 1fr) auto; gap: 12px; }
+.row.f1.fold { grid-template-columns: 16px minmax(0, 1fr) auto; }
+.fb { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 62px; height: 18px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.fb.done { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
+.fb.paused { color: var(--st-paused); background: var(--st-paused-soft); }
+.fb.archived { color: var(--st-archived); background: var(--st-archived-soft); }
+.fb.cand { color: var(--cand); box-shadow: inset 0 0 0 1px var(--cand); border-radius: 99px; }
+.fb.none { color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.fw72 { width: 72px; text-align: right; display: inline-flex; justify-content: flex-end; }
+.wd.paused { color: var(--st-paused); font-weight: 600; }
+.wd.due { color: #fff; background: var(--st-paused); padding: 1px 7px; border-radius: 99px; font-weight: 600; }
+.fm { width: 16px; height: 16px; border-radius: 50%; justify-self: center; display: grid; place-items: center; font-weight: 700; }
+.fm.done { background: var(--st-done-soft); color: var(--st-done); font-size: 10px; }
+.fm.archived { box-shadow: inset 0 0 0 1px var(--st-archived); }
+.fm.paused { background: var(--st-paused-soft); color: var(--st-paused); font-size: 7px; letter-spacing: -1px; }
+.fm.none { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.fm.cand { outline: 1px solid var(--cand); outline-offset: 2px; }
+.name.f3 { display: grid; grid-template-columns: clamp(220px, 30%, 380px) 62px; gap: 10px; align-items: center; }
+.name.f3 .proj { margin-left: 6px; }
+.name.f3 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side5 { display: flex; align-items: center; gap: 6px; }
+.stack96 { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; width: 96px; }
+.colhead { display: grid; grid-template-columns: 16px 62px minmax(0, 1fr) auto; gap: 12px; padding: 6px 20px; font-size: 11px; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.row.r36 { height: 36px; }
+.row.r36 .main { flex-direction: row; align-items: baseline; gap: 10px; }
+.row.r36 .sub { font-size: 12px; }
+.row.r36 .name { flex: none; max-width: 40%; }
+.fb.thin { width: auto; padding: 0 6px; }
+.row.pc { grid-template-columns: 16px var(--pcw, 84px) minmax(0, 1fr) auto; gap: 10px; }
+.ret.due { color: #fff; background: var(--st-paused); }
+.ret .pi { font-size: 9px; letter-spacing: -1px; margin-right: 4px; opacity: .8; }
+.pcol { display: flex; align-items: center; }
+.pcol.guide { box-shadow: inset 0 0 0 1px #e3e6f2; border-radius: 4px; height: 22px; }
+.sq.wide, .ret.wide, .cand.wide { width: 100%; justify-content: center; }
+.ret { display: inline-flex; align-items: center; white-space: nowrap; }
+.row.lc1 { grid-template-columns: 16px 70px minmax(0, 1fr) auto; gap: 10px; }
+.row.lc2 { grid-template-columns: 70px minmax(0, 1fr) auto; gap: 12px; padding-left: 14px; }
+.row.lc3 { grid-template-columns: 70px 16px minmax(0, 1fr) auto; gap: 10px; padding-left: 14px; }
+.row.lc5 { grid-template-columns: 16px 78px minmax(0, 1fr) auto; gap: 10px; }
+.lslot { display: flex; align-items: center; } .lslot .dot { justify-self: start; margin-left: 4px; }
+.row.lc1 .lslot, .row.lc3 .lslot, .row.lc5 .lslot { align-self: center; }
+.lslot.guide { box-shadow: inset 0 0 0 1px #e3e6f2; border-radius: 4px; height: 22px; }
+.slot { display: inline-flex; flex: none; } .slot.r { justify-content: flex-end; } .slot.c { justify-content: center; } .slot.l { justify-content: flex-start; }
+.slot.guide { box-shadow: inset 0 0 0 1px #e3e6f2; border-radius: 4px; }
+.sq.fw { width: 62px; justify-content: center; }
+.wsw { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; align-items: center; padding: 8px 0; background: var(--bg); font-size: 12px; color: var(--ink-3); }
+
+.head { display: flex; align-items: flex-end; gap: 6px; height: 32px; padding: 0 20px 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.head .c { font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.head .lnk { margin-left: auto; font-size: 11.5px; color: var(--accent); font-weight: 560; cursor: pointer; }
+.head .hp { margin-left: auto; display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 11.5px; color: var(--ink-3); }
+.fade { height: 26px; background: linear-gradient(var(--surface), #f4f5fa); border-bottom: 1px solid var(--line); display: grid; place-items: center; font-size: 11px; color: var(--ink-3); }
+
+/* ページ送り */
+.pager { display: flex; align-items: center; gap: 14px; padding: 12px 20px; font-size: 12px; color: var(--ink-2); }
+.pager.top { padding: 6px 4px 8px; border-bottom: 0; }
+.range { font-variant-numeric: tabular-nums; color: var(--ink-3); white-space: nowrap; }
+.range b { color: var(--ink); font-weight: 600; }
+.nums { display: flex; align-items: center; gap: 2px; margin: 0 auto; }
+.pg { min-width: 28px; height: 26px; padding: 0 6px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 12px; color: var(--ink-2); cursor: pointer; font-variant-numeric: tabular-nums; }
+.pg:hover:not(:disabled) { background: var(--surface-2); }
+.pg[aria-current='page'] { background: var(--accent); color: #fff; font-weight: 600; }
+.pg:disabled { color: #c3c3d1; cursor: default; }
+.gap { color: var(--ink-3); padding: 0 4px; }
+.size { display: inline-flex; gap: 2px; padding: 2px; background: #eceef4; border-radius: 7px; }
+.size button { border: 0; background: none; font: inherit; font-size: 11.5px; padding: 2px 8px; border-radius: 5px; color: var(--ink-2); cursor: pointer; font-variant-numeric: tabular-nums; }
+.size button[aria-pressed='true'] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.sel { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; border-radius: 7px; box-shadow: inset 0 0 0 1px var(--line-strong); font-size: 11.5px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.sel::after { content: '▾'; font-size: 9px; color: var(--ink-3); }
+.step { display: inline-flex; align-items: center; gap: 2px; }
+.kbd { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); padding: 0 4px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.spacer { flex: 1; }
+.jump { width: 44px; height: 24px; border-radius: 6px; border: 0; box-shadow: inset 0 0 0 1px var(--line-strong); text-align: center; font: inherit; font-size: 12px; }
+
+.note { font-size: 12px; color: var(--ink-2); background: var(--surface-2); border-radius: 10px; padding: 10px 14px; margin: 0 0 14px; max-width: 1100px; }
+.note b { color: var(--ink); }
+ol.why { margin: 4px 0 0; padding-left: 20px; } ol.why li { margin: 2px 0; }
+</style>
+</head>
+<body>
+<h1>セッション一覧のページ分けと Done の札</h1>
+<p class="lead">2026-10-02。セッション画面の一覧について 2 点。<b>(1) 件数を区切ってページで送り、1 ページの件数を選べるようにする</b>、<b>(2) Done の札の位置を直す</b>。どちらの試作もボタンは押して動きます（行は略して数行だけ描いています）。</p>
+
+<div class="note"><b>いまの作り</b>
+<ol class="why">
+  <li>条件もタブも無いときは節で並べ、Done は先頭 3 件だけを出して「ほか 1,220 件 ▸」で Done のタブへ移る。</li>
+  <li>タブ（Done など）を選ぶと、手元の全件（1,223 行）を仮想スクロールで 1 本に並べる。区切りは無い。</li>
+  <li>本文の全文検索だけはサーバから 50 件ずつ返り、末尾の「さらに 50 件を読み込む」で足していく。</li>
+</ol>
+ページ分けを入れると、2 と 3 を同じ部品にそろえられます（検索はサーバの offset と limit がそのまま使える。上限は 1 回 200 件）。</div>
+
+<h2>1. ページ送りをどこに置くか</h2>
+<p class="lead">Done のタブ（1,223 件）を開いたところで描いています。1 ページの件数は 25・50・100・200 から選び、選んだ数は次に開いたときも覚えておく想定です。</p>
+<div id="pagers"></div>
+
+<h2>2. 節で並べているとき（条件もタブも無いとき）をどうするか</h2>
+<p class="lead">スクショの画面です。いまは Done を 3 件だけ見せて「ほか N 件」でタブへ移っています。</p>
+<div id="sections"></div>
+
+<h2>3. Done の札をどこに置くか</h2>
+<p class="lead">いまの札は右端の時刻の左にあり、<b>時刻の文字幅（「4 時間前」と「15 時間前」）で左右にずれ</b>、<b>名前から遠い</b>（広い窓では 1,000px 以上離れる）。Done の節の中では見出しが Done と言っているので、<b>同じことを 3 回言っている</b>。下は同じ 6 行（Done・Done・Paused・提案あり・Archived・実行中）を各案で描いたもの。</p>
+<div class="wsw">画面の幅 <span class="size" id="wsw"><button data-w="1040px" aria-pressed="true">1,040</button><button data-w="1600px" aria-pressed="false">1,600</button><button data-w="1960px" aria-pressed="false">1,960（スクショ）</button></span><span>広い幅で、札と名前の離れ方を見比べられます（横にはみ出したら横スクロール）</span></div>
+<div id="badges"></div>
+<h2>3b. Done の札の追加案</h2>
+<p class="lead">軸を変えた案です。<b>右端の縁にそろえる</b>（D8・D9）、<b>名前の頭にそろえる</b>（D10・D11）、<b>2 段目の見立てとまとめる</b>（D12）、<b>文字を使わず行で言う</b>（D13・D15）、<b>左に語の列を作る</b>（D14）。</p>
+<div id="badges2"></div>
+<h2>3c. 幅をそろえる（決定）— 何を固定し、どこに置くか</h2>
+<p class="lead">右端の部品の幅を決めて、札が縦にずれないようにします。<b>どこまでを固定幅にするか</b>（時刻だけ／札も／右端の全部）と、<b>札を時刻の左に置くか右に置くか</b>で分けました。<label style="margin-left:10px"><input type="checkbox" id="guide"> 枠の幅を点線で見せる</label></p>
+<div id="badges3"></div>
+<h2>3d. W5 を左に寄せたら（状態の固定列を行の左へ）</h2>
+<p class="lead">W5 の「状態の固定列」を右端から左側へ移した形です。「左側」の読み方で 5 通りに分けました。L1〜L3 は列をどこに挟むか、L4 は右端の列の中で左寄せにするだけ、L5 は左の列に状態をぜんぶ集めるもの。枠の点線は 3c のチェックで出ます。</p>
+<div id="badges4"></div>
+<h2>3e. 左の列に Paused の戻る日の札も入れる</h2>
+<p class="lead">L1 の左の列に、Done・Archived に加えて Paused の戻る日の札（「10/5（日）」「今日」「3 日過ぎ」「日付なし」。今日と過ぎたものは塗る）も入れます。2 段目の頭からは戻る日の札が消え、要約の見立てと文だけになる。行は Paused の 3 通り（先・今日・過ぎ）を足して 9 行にしました。違いは <b>Paused の札の書き方</b>と<b>提案の札を左へ入れるか</b>です。</p>
+<div id="badges5"></div>
+<h2>3f. Fable との壁打ちから出た 7 案</h2>
+<div class="note"><b>Fable の見立て（P1〜P4 が「もう一歩」な理由）</b>
+<ol class="why">
+  <li><b>「何か」の列に「いつ」を入れた。</b>Done・Archived は状態、「10/5（日）」は日付。混ぜると列の意味がぼやけ、幅も日付に引っ張られて 84〜128px に育つ。欲しいのは「Paused を札に」であって「日付を左に」ではない。</li>
+  <li><b>1,223 件の Done が緑の壁紙になる。</b>全体の 97% に最も強い色を与えている。目で拾いたいのは残り 3%（印なし・Paused・Active・提案）。</li>
+  <li><b>止まった行で、灰の点と札が二重に「止まっている」と言う。</b>2 段目の「済んだ」とも重なる。</li>
+  <li><b>提案（紫）が右端に残り</b>、「この行をどうするか」を読むのに画面を往復する。</li>
+  <li><b>名前の書き出しが右へ押される。</b>「Done を左に」は「名前の近くに」の言い換えで、「名前の前に」ではなかったかもしれない。</li>
+</ol>
+共通の手として、<b>戻る日は右端の時刻の列へ移す</b>（Paused の行の時刻は「戻る日」を黄土で出す。今日・過ぎは塗る）。状態の列には語だけを置く。</div>
+<div id="badges6"></div>
+
+<script>
+const ROWS = [
+  { name: '同期の使用量表示', proj: 'agent-hangar', st: '済んだ', text: '設定に Cloudflare の使用量・今月の費用・プランを出し、無料枠で止まったときのヘッダーも入れた。main・配備・実物確認まで済み', when: '4 時間前', s: 'done' },
+  { name: 'conversation history retention', proj: 'agent-hangar', st: '済んだ', text: '状態と Claude の提案を 3 段で実装し、実物で確かめて main 3c3cf27 に入れた。/Applications の入れ替え、Worker の配備、片付けまで済んだ。', when: '6 時間前', s: 'done' },
+  { name: '状態の問いの確かめ', proj: 'agent-hangar', st: 'やりかけ', text: 'セッション状態マークが消える原因を特定し、設計仕様（新発言で外れる）だと判明した。', when: '15 時間前', s: 'done' },
+  { name: 'セッションの動き', proj: 'agent-hangar', st: 'やりかけ', text: '開閉・更新の動きを入れ、審査とビルドまで済ませた。main は未マージ。', when: '1 日前', s: 'paused', ret: '10/5 に戻る' },
+  { name: 'Explainer の試用', proj: 'hangar-explainers', st: '済んだ', text: 'mizchi/explainer を 4 本試し、ペルソナは hangar.db から作れた。', when: '2 日前', s: null, cand: 'Done？' },
+  { name: '試しの起動', proj: '未分類', st: '', text: '起動を確かめただけ', when: '9/12', s: 'archived' },
+  { name: 'ページ分けの設計', proj: 'agent-hangar', st: '', text: '一覧のページ分けと Done の札の位置を試作で比べている。', when: 'いま', s: null, live: '実行中' },
+];
+const DONE_ROWS = ROWS.filter((r) => r.s === 'done').concat([
+  { name: 'NFD のフォルダ名', proj: 'agent-hangar', st: '済んだ', text: '濁点入りのフォルダが一覧に出なかったのを normalizeDir で直した。', when: '1 日前', s: 'done' },
+  { name: '画面の高さに合わせる', proj: 'agent-hangar', st: '済んだ', text: '100vh−250px の決め打ちを、残りの高さを受け取る作りに直した。', when: '1 日前', s: 'done' },
+]);
+const TOTAL = 1223;
+const fmt = (n) => n.toLocaleString('en-US');
+
+/* ---------- 行の描き方（札の位置の案ごと） ---------- */
+function rowHtml(r, badge = 'now', ctx = 'flat') {
+  const sq = r.s === 'done' || r.s === 'archived' ? `<span class="sq ${r.s}">${r.s === 'done' ? 'Done' : 'Archived'}</span>` : '';
+  const showSq = !(badge === 'hideInSection' && ctx === 'section');
+  const ret = r.s === 'paused' ? `<span class="ret">${r.ret}</span>` : '';
+  const st = r.st ? `<span class="st">${r.st}</span>` : '';
+  const cand = r.cand ? `<span class="cand">${r.cand}</span>` : '';
+  const live = r.live ? `<span class="live">${r.live}</span>` : '';
+  const more = `<span class="more">⋯</span>`;
+  const dot = `<span class="dot" data-l="${r.live ? 'busy' : ''}"></span>`;
+  let lead = dot, nameExtra = '', subLead = ret + st, side = `${live}${cand}${showSq ? sq : ''}${more}<span class="when">${r.when}</span>`;
+  if (badge === 'sub') { subLead = (r.s === 'done' || r.s === 'archived' ? sq : '') + ret + st; side = `${live}${cand}${more}<span class="when">${r.when}</span>`; }
+  if (badge === 'name') { nameExtra = (r.s === 'done' || r.s === 'archived') ? sq : ''; side = `${live}${cand}${more}<span class="when">${r.when}</span>`; }
+  if (badge === 'mark') {
+    lead = r.live ? dot : r.s === 'done' ? '<span class="mark done" title="Done">✓</span>' : r.s === 'archived' ? '<span class="mark archived" title="Archived">–</span>' : r.s === 'paused' ? '<span class="mark paused" title="Paused">❙❙</span>' : dot;
+    side = `${live}${cand}${more}<span class="when">${r.when}</span>`;
+  }
+  if (badge === 'column') { side = `${live}${cand}${more}<span class="when fixed">${r.when}</span><span class="col">${sq || ''}</span>`; }
+  if (badge === 'fixedWhen') { side = `${live}${cand}${showSq ? sq : ''}${more}<span class="when fixed">${r.when}</span>`; }
+  const dim = badge === 'dim' && r.s === 'done';
+  if (badge === 'dim') { side = `${live}${cand}${r.s === 'archived' ? sq : ''}${more}<span class="when">${r.when}</span>`; }
+  const ended = r.s === 'done' || r.s === 'archived';
+  const word = ended ? (r.s === 'done' ? 'Done' : 'Archived') : '';
+  const base = `${live}${cand}${more}<span class="when">${r.when}</span>`;
+  let cls = '';
+  if (badge === 'stack') side = `<span class="side-col"><span class="side">${base}</span>${sq}</span>`;
+  if (badge === 'stackText') side = `<span class="side-col"><span class="side">${base}</span>${ended ? `<span class="txt ${r.s}">${word}</span>` : ''}</span>`;
+  if (badge === 'prefix') { nameExtra = ''; side = base; }
+  const prefix = badge === 'prefix' && ended ? sq : badge === 'check' && ended ? `<span class="chk ${r.s}" title="${word}">${r.s === 'done' ? '✓' : '–'}</span>` : '';
+  if (badge === 'check') side = base;
+  if (badge === 'merge') { side = base; subLead = ended ? `<span class="chip ${r.s}"><b>${word}</b>${r.st ? `<i></i>${r.st}` : ''}</span>` : ret + st; }
+  if (badge === 'stripe') { side = base; cls = ended ? ` stripe-${r.s}` : ''; }
+  if (badge === 'leftcol') { cls = ' wide'; side = base; lead = r.live ? dot : ended ? `<span class="lw ${r.s}">${word}</span>` : r.s === 'paused' ? '<span class="lw paused">Paused</span>' : dot; }
+  const slot = (w, al, inner) => `<span class="slot ${al}" style="width:${w}px">${inner}</span>`;
+  const sqF = ended ? sq.replace('class="sq ', 'class="sq fw ') : '';
+  const whenF = slot(64, 'r', `<span class="when">${r.when}</span>`);
+  if (badge === 'w1') side = `${live}${cand}${sq}${more}${whenF}`;
+  if (badge === 'w2') side = `${live}${cand}${slot(62, 'r', sq)}${more}${whenF}`;
+  if (badge === 'w2c') side = `${live}${cand}${slot(62, 'c', sqF)}${more}${whenF}`;
+  if (badge === 'w3') side = `${slot(52, 'r', live)}${slot(60, 'r', cand)}${slot(62, 'c', sqF)}${more}${whenF}`;
+  if (badge === 'w4') side = `${live}${cand}${more}${whenF}${slot(70, 'r', sqF)}`;
+  if (badge === 'w5') side = `<span class="side-col">${`<span class="side">${live}${cand}${more}${whenF}</span>`}${slot(64, 'r', sq)}</span>`;
+  if (badge.startsWith('L')) {
+    const st5 = r.live ? `<span class="live">${r.live}</span>` : r.cand ? `<span class="cand">${r.cand}</span>` : r.s === 'paused' ? '<span class="sq" style="color:var(--st-paused);background:var(--st-paused-soft)">Paused</span>' : sq;
+    const colInner = badge === 'L5' ? st5 : (badge === 'L2' ? (ended ? sq : dot) : sq);
+    const col = `<span class="lslot">${colInner}</span>`;
+    side = badge === 'L5' ? `${more}${whenF}` : badge === 'L4' ? `${live}${cand}${more}${whenF}${slot(70, 'l', sq)}` : `${live}${cand}${more}${whenF}`;
+    if (badge === 'L1') { cls = ' lc1'; lead = dot + col; }
+    if (badge === 'L2') { cls = ' lc2'; lead = col; }
+    if (badge === 'L3') { cls = ' lc3'; lead = col + dot; }
+    if (badge === 'L5') { cls = ' lc5'; lead = dot + col; }
+  }
+  if (badge === 'tint') { side = base; cls = ended ? ` tint-${r.s}` : ''; nameExtra = ''; }
+  return `<div class="row${dim ? ' dim' : ''}${cls}">${lead}<span class="main"><span class="name">${prefix}${r.name}${ctx !== 'project' ? `<span class="proj">${r.proj}</span>` : ''}${nameExtra}</span><span class="sub">${subLead}<span class="t">${r.text}</span></span></span><span class="side">${side}</span></div>`;
+}
+
+/* ---------- ページ送り ---------- */
+const state = {};
+function pageList(cur, last) {
+  const set = new Set([1, last, cur - 1, cur, cur + 1].filter((n) => n >= 1 && n <= last));
+  if (cur <= 3) [2, 3, 4].forEach((n) => n <= last && set.add(n));
+  if (cur >= last - 2) [last - 1, last - 2, last - 3].forEach((n) => n >= 1 && set.add(n));
+  const xs = [...set].sort((a, b) => a - b), out = [];
+  xs.forEach((n, i) => { if (i && n - xs[i - 1] > 1) out.push('…'); out.push(n); });
+  return out;
+}
+function nums(id, cur, last) {
+  return `<div class="nums"><button class="pg" data-go="${id}:${cur - 1}" ${cur <= 1 ? 'disabled' : ''}>‹</button>${pageList(cur, last).map((n) => (n === '…' ? '<span class="gap">…</span>' : `<button class="pg" data-go="${id}:${n}" ${n === cur ? 'aria-current="page"' : ''}>${n}</button>`)).join('')}<button class="pg" data-go="${id}:${cur + 1}" ${cur >= last ? 'disabled' : ''}>›</button></div>`;
+}
+const SIZES = [25, 50, 100, 200];
+const sizeSeg = (id, size) => `<span class="size">${SIZES.map((n) => `<button data-size="${id}:${n}" aria-pressed="${n === size}">${n}</button>`).join('')}</span>`;
+const sizeSel = (size) => `<span class="sel">${size} 件ずつ</span>`;
+const range = (cur, size, total = TOTAL) => `<span class="range"><b>${fmt((cur - 1) * size + 1)}–${fmt(Math.min(cur * size, total))}</b> / ${fmt(total)} 件</span>`;
+const step = (id, cur, last) => `<span class="step"><button class="pg" data-go="${id}:${cur - 1}" ${cur <= 1 ? 'disabled' : ''}>‹</button><button class="pg" data-go="${id}:${cur + 1}" ${cur >= last ? 'disabled' : ''}>›</button></span>`;
+
+function chrome(tab = 'done') {
+  const t = [['すべて', '1,262'], ['確かめる', '2'], ['Paused', '6'], ['Active', '3'], ['印なし', '31'], ['Done', '1,223'], ['Archived', '0']];
+  return `<div class="tabs">${t.map(([l, n]) => `<button class="tab" aria-pressed="${(tab === 'done' && l === 'Done') || (tab === 'all' && l === 'すべて')}">${l}<span class="n">${n}</span></button>`).join('')}</div><div class="kw">⌕　キーワード、または is:paused · since:7d · project: · file:</div>`;
+}
+const fewRows = (badge = 'now') => DONE_ROWS.slice(0, 5).map((r) => rowHtml(r, badge)).join('') + '<div class="fade">… このページの残りの行 …</div>';
+
+const PAGERS = [
+  { id: 'A1', title: '下に番号の帯、左に範囲、右に件数', desc: '一覧の末尾に「1–50 / 1,223 件」「‹ 1 2 3 4 5 … 25 ›」「件数」を 1 本の帯で置く。帯は一覧の下に貼り付け、スクロールしても見えている。',
+    pro: 'よく見る形で迷わない。一覧の上が今のまま', con: '縦に 44px を食う',
+    render: (s) => `${chrome()}<div class="list">${fewRows()}</div><div class="pager">${range(s.cur, s.size)}${nums(s.id, s.cur, s.last)}${sizeSeg(s.id, s.size)}</div>` },
+  { id: 'A2', title: '上の 1 行に小さく（範囲・‹ ›・件数）', desc: '検索欄の下、一覧のすぐ上に「1–50 / 1,223 件　‹ ›　50 件ずつ ▾」だけを置く。番号は並べない。打鍵の [ と ] で前後へ。',
+    pro: '場所を取らない。画面に入ってすぐ見える', con: '遠くのページへ跳べない（番号が無い）',
+    render: (s) => `${chrome()}<div class="pager top">${range(s.cur, s.size)}${step(s.id, s.cur, s.last)}<span class="kbd">[</span><span class="kbd">]</span><span class="spacer"></span>${sizeSel(s.size)}</div><div class="list">${fewRows()}</div>` },
+  { id: 'A3', title: '上に小さく＋下に番号', desc: 'A2 の上の 1 行と、A1 の下の帯を両方置く。件数は上だけ、番号は下だけにして重ねない。',
+    pro: '上で今どこか、下で次へ、のどちらも手元', con: '部品が 2 つに分かれ、少し賑やか',
+    render: (s) => `${chrome()}<div class="pager top">${range(s.cur, s.size)}<span class="spacer"></span>${sizeSel(s.size)}</div><div class="list">${fewRows()}</div><div class="pager">${nums(s.id, s.cur, s.last)}</div>` },
+  { id: 'A4', rec: true, pick: true, title: '下の帯に番号＋ページ番号の入力', desc: 'A1 の番号の横に「ページ [ 12 ] / 25」の入力を足し、遠くへ一気に跳べるようにする。',
+    pro: '1,000 件を超えても跳べる', con: '検索と期間の絞り込みで足りるなら過剰',
+    render: (s) => `${chrome()}<div class="list">${fewRows()}</div><div class="pager">${range(s.cur, s.size)}${nums(s.id, s.cur, s.last)}<span>ページ <input class="jump" value="${s.cur}" data-jump="${s.id}"> / ${s.last}</span>${sizeSel(s.size)}</div>` },
+];
+
+const SECTIONS = [
+  { id: 'S1', rec: true, title: '節はいまのまま、ページ分けはタブと検索だけ', desc: '節の並びは上の動いているもの・確かめるが主役なので、Done は 3 件＋「ほか 1,220 件 ▸」のまま。押すと Done のタブ（ページ分けあり）へ移る。',
+    pro: '節の役目（いま手を付けるもの）が崩れない', con: 'スクショの画面そのものにはページ送りが出ない',
+    render: (s) => `${chrome('all')}<div class="list"><div class="head">印なし<span class="c">31</span><span class="lnk">この節だけ見る ▸</span></div>${rowHtml(ROWS[4])}<div class="head">Done<span class="c">1,223</span><span class="lnk">ほか 1,220 件 ▸</span></div>${DONE_ROWS.slice(0, 3).map((r) => rowHtml(r, 'now', 'section')).join('')}</div>` },
+  { id: 'S2', title: 'Done の節の中でページを送る', desc: 'Done の見出しの右に「1–10 / 1,223　‹ ›」を置き、その場で次の 10 件に替える。タブへは移らない。節の件数は 10・25・50。',
+    pro: '画面を移らずに Done を遡れる', con: '節の中だけ別の区切りを持ち、j/k と並びが分かりにくい',
+    render: (s) => `${chrome('all')}<div class="list"><div class="head">印なし<span class="c">31</span><span class="lnk">この節だけ見る ▸</span></div>${rowHtml(ROWS[4])}<div class="head">Done<span class="c">1,223</span><span class="hp">${range(s.cur, s.size)}${step(s.id, s.cur, s.last)}${sizeSeg(s.id, s.size).replace(/>25</, '>10<').replace(/>50</, '>25<').replace(/>100</, '>50<').replace(/<button data-size="[^"]+:200"[^>]*>200<\/button>/, '')}</span></div>${DONE_ROWS.slice(0, 4).map((r) => rowHtml(r, 'now', 'section')).join('')}<div class="fade">… この節の残りの行 …</div></div>` },
+  { id: 'S3', title: '一覧全体をページに区切る（節は続きで見出しを繰り返す）', desc: '節を畳むのをやめ、全行を節の順に並べてからページに区切る。2 ページ目の頭には「Done（続き）」の見出しを出す。下の帯は A1 と同じ。',
+    pro: 'どの画面でもページ送りが同じ', con: '1 ページ目の大半が Done で埋まり、印なしなどが押し出される',
+    render: (s) => `${chrome('all')}<div class="list"><div class="head">Done（続き）<span class="c">1,223</span></div>${DONE_ROWS.slice(0, 4).map((r) => rowHtml(r, 'now', 'section')).join('')}<div class="fade">… このページの残りの行 …</div></div><div class="pager">${range(s.cur, s.size, 1262)}${nums(s.id, s.cur, s.last)}${sizeSeg(s.id, s.size)}</div>` },
+];
+
+const BADGES = [
+  { b: 'now', title: 'いま（比べるため）', desc: '右端、時刻の左。時刻の幅で札がずれ（3 行目）、名前から遠い。', pro: '—', con: 'ずれる・遠い・節の中で重複' },
+  { b: 'hideInSection', rec: true, title: '節の中では出さず、平らな一覧では時刻の幅をそろえる', desc: 'Done・Archived の節の中は見出しが言っているので札を出さない。「すべて」のタブや検索の結果では今の位置に出すが、時刻を固定幅・右寄せにして札が縦にそろうようにする。', pro: '重複が消え、出るところではそろう。行の作りは変えない', con: '名前から遠いのは変わらない', ctx: 'section', also: 'fixedWhen' },
+  { b: 'sub', title: '2 段目の頭へ（Paused の戻る日と同じ場所）', desc: '状態の札をすべて 2 段目の頭に寄せる。Paused の「10/5 に戻る」と並びがそろい、「Done · やりかけ」のように要約の見立てとも隣り合う。', pro: '状態がどれも同じ列に出る。名前の近く', con: '要約の文が札の分だけ短くなる' },
+  { b: 'name', title: '1 段目の名前の後ろへ', desc: '名前・プロジェクト名の後ろに札を置く。題の一部として読める。', pro: '目に入る位置。右端がすっきり', con: '名前の長さで位置が揃わない' },
+  { b: 'mark', title: '左の点を状態の印に替える', desc: '止まっている行の左の灰色の点（いまは全部同じ灰色）を、Done は ✓、Archived は –、Paused は ❙❙ の小さな印にする。動いている行は今の色の点のまま。', pro: '左端 1 列で流し見できる。場所を取らない', con: '印の意味を覚える必要がある（ホバーで語を出す）' },
+  { b: 'column', title: '右端に状態の列を作る（時刻の右）', desc: '時刻を固定幅にし、その右に状態の札の列（幅 74px）を設ける。札が無い行も列の幅は取る。', pro: '表のように縦にそろう', con: '札の無い行にも空きができる' },
+  { b: 'dim', title: '札をやめ、Done の行は名前を淡くする', desc: 'Done は「済んで閉じたもの」として名前の色を一段落とすだけにし、札は Archived だけに残す。', pro: '一覧が静かになる', con: '「すべて」で Done か印なしかが見分けにくい' },
+];
+
+/* ---------- 描画 ---------- */
+function card(o, inner) {
+  return `<div class="opt${o.rec ? ' rec' : ''}" id="card-${o.id ?? o.b}"><div class="opt-head"><h3><b>${o.id ?? ''}</b>${o.title}${o.rec ? `<span class="tag">${o.pick ? '決定' : 'おすすめ'}</span>` : ''}</h3><p>${o.desc}</p><div class="pc"><span class="pro">${o.pro}</span><span class="con">${o.con}</span></div></div><div class="body"><div class="screen">${inner}</div></div></div>`;
+}
+function renderPager(o, host) {
+  const s = state[o.id] ??= { id: o.id, cur: 1, size: o.id === 'S2' ? 10 : 50 };
+  s.last = Math.ceil((o.id === 'S3' ? 1262 : TOTAL) / s.size);
+  s.cur = Math.min(Math.max(1, s.cur), s.last);
+  const el = document.getElementById(`card-${o.id}`);
+  const html = card(o, o.render(s));
+  if (el) el.outerHTML = html; else host.insertAdjacentHTML('beforeend', html);
+}
+const pagersHost = document.getElementById('pagers');
+const sectionsHost = document.getElementById('sections');
+PAGERS.forEach((o) => renderPager(o, pagersHost));
+SECTIONS.forEach((o) => renderPager(o, sectionsHost));
+const all = [...PAGERS, ...SECTIONS];
+document.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]');
+  const size = e.target.closest('[data-size]');
+  if (go && !go.disabled) { const [id, n] = go.dataset.go.split(':'); state[id].cur = Number(n); renderPager(all.find((o) => o.id === id)); }
+  if (size) {
+    const [id, n] = size.dataset.size.split(':');
+    const s = state[id]; const first = (s.cur - 1) * s.size;
+    // S2 は 10・25・50 に読み替えた
+    s.size = id === 'S2' ? { 25: 10, 50: 25, 100: 50 }[n] ?? s.size : Number(n);
+    s.cur = Math.floor(first / s.size) + 1; // 見ていた先頭の行を含むページに留まる
+    renderPager(all.find((o) => o.id === id));
+  }
+});
+document.addEventListener('change', (e) => {
+  const j = e.target.closest('[data-jump]');
+  if (j) { state[j.dataset.jump].cur = Number(j.value) || 1; renderPager(all.find((o) => o.id === j.dataset.jump)); }
+});
+
+const badgesHost = document.getElementById('badges');
+BADGES.forEach((o, i) => {
+  o.id = `D${i + 1}`;
+  const flat = ROWS.map((r) => rowHtml(r, o.also ?? o.b)).join('');
+  const inSection = o.ctx === 'section'
+    ? `<div class="head">Done<span class="c">1,223</span><span class="lnk">ほか 1,220 件 ▸</span></div>${DONE_ROWS.slice(0, 3).map((r) => rowHtml(r, o.b, 'section')).join('')}<div class="head" style="margin-top:6px">「すべて」のタブ・検索の結果</div>`
+    : '';
+  badgesHost.insertAdjacentHTML('beforeend', card(o, `<div class="list">${inSection}${flat}</div>`));
+});
+
+const BADGES2 = [
+  { b: 'stack', title: '右端の 2 段目へ（上に時刻、下に札）', desc: '右端を 2 段にし、1 段目に時刻、2 段目に札を置く。どちらも右の縁にそろえるので、時刻の幅に関わらず札の右端が一直線になる。プロジェクト画面の右端（モデルや変更の 1 行の下に時刻）と同じ組み方。', pro: '縦に一直線。行の作りの延長で入る', con: '名前から遠いのは変わらない' },
+  { b: 'stackText', title: '右端の 2 段目に、地の無い緑の語だけ', desc: 'D8 の札の地をやめ、「Done」を緑の小さな文字だけにする。1,000 件並んでも緑の四角が並ばない。', pro: '静か。それでも右の縁で一直線', con: '流し見での目立ち方は札より弱い' },
+  { b: 'prefix', title: '名前の前に札を置く', desc: '名前の頭に「Done」の札を前置きする。名前の書き出しがそろっているので、札も左で縦にそろう。名前のすぐ隣なので、広い窓でも目の移動が無い。', pro: '名前の真横で縦にそろう', con: '名前の書き出し位置が行ごとに変わる（札のある行だけ右へずれる）' },
+  { b: 'check', title: '名前の前に ✓ だけ', desc: 'D10 の札を緑の ✓ の 1 字にする（Archived は –）。ホバーで「Done」と出す。', pro: '名前の位置がほぼ動かない。最小', con: '✓ の意味は覚える必要がある' },
+  { b: 'merge', title: '2 段目の見立てと 1 つの札にまとめる', desc: '2 段目の頭の「済んだ」「やりかけ」を、状態と同じ札に入れて「Done ｜ 済んだ」とする。Paused の戻る日と同じ列で、要約の文の手前。状態（利用者が決めたもの）と見立て（Claude の要約）が隣り合うので、「Done なのにやりかけ」も一目で分かる。', pro: '名前の近くで左にそろう。2 つの語が 1 つにまとまる', con: '要約の文が少し右へ押される' },
+  { b: 'stripe', title: '左の縁に緑の線', desc: '札をやめ、Done の行の左の縁に 3px の緑の線を引く（Archived は灰）。', pro: '文字が増えない。節の中でも重ならない', con: '色だけで言うので、色の見分けに頼る（読み上げには語を添える）' },
+  { b: 'leftcol', title: '左に状態の語の列を作る', desc: '左の点の列を広げ、止まっている行は点の代わりに「Done」「Paused」「Archived」の小さな札を置く。動いている行は今の色の点。', pro: '左端 1 列で状態を流し見できる。語なので覚えなくてよい', con: '本文が 40px 右へずれる' },
+  { b: 'tint', title: '行の地を淡い緑にし、名前の後ろに緑の語', desc: 'Done の行の地を淡い緑にし、名前の後ろに地の無い「Done」の語を添える。', pro: '面で分かる', con: 'Done が 1,223 件あると一覧のほとんどが緑になる' },
+];
+const badgesHost2 = document.getElementById('badges2');
+BADGES2.forEach((o, i) => {
+  o.id = `D${i + 8}`;
+  badgesHost2.insertAdjacentHTML('beforeend', card(o, `<div class="list">${ROWS.map((r) => rowHtml(r, o.b)).join('')}</div>`));
+});
+const BADGES3 = [
+  { b: 'w1', title: '時刻だけ固定幅（右寄せ）', desc: '時刻を 64px の枠に右寄せで入れる。札は時刻の左に今のまま置くが、時刻の幅が変わらないので Done の札は縦にそろう。Archived は札が長いぶん左へはみ出す。', pro: '変更がいちばん小さい', con: 'Done と Archived で札の左端がそろわない' },
+  { b: 'w2', rec: true, title: '時刻と札の枠を固定（札は枠の右寄せ）', desc: '時刻 64px、札の枠 62px を取り、札は枠の右寄せ。札が無い行も枠は取るので、提案の札や動きの語も同じ位置から左へ並ぶ。', pro: '札の右端・時刻がそろい、提案の札も位置が決まる', con: '札の無い行にも 62px の空き' },
+  { b: 'w2c', title: '時刻と札の枠を固定（札を同じ幅に）', desc: 'W2 の札を枠いっぱいの同じ幅（62px）にする。Done も Archived も同じ大きさの四角になる。', pro: '表の列のように左右ともそろう', con: 'Done の札が少し横に長くなる' },
+  { b: 'w3', title: '右端の全部を列にする', desc: '動きの語 52px・提案の札 60px・状態の札 62px・⋯・時刻 64px をそれぞれ固定幅の列にする。どの行でも同じ種類の部品が同じ縦の位置に出る。', pro: '完全に表としてそろう', con: '右端が 260px ほど常に埋まり、要約の文が短くなる' },
+  { b: 'w4', title: '札を時刻の右（いちばん右端）の固定列に', desc: '時刻 64px の右に状態の列 70px を置く。札は画面の右の縁にそろう。', pro: '右の縁で一直線に読める', con: '時刻が今より左へ寄る' },
+  { b: 'w5', title: '右端を 2 段にし、時刻の下に札（どちらも固定幅）', desc: '1 段目に時刻（64px 右寄せ）、2 段目に札（64px 右寄せ）。横の幅を使わない。', pro: '要約の文の幅が減らない', con: '右端が 2 段になり、時刻と札が縦に詰まる' },
+];
+const badgesHost3 = document.getElementById('badges3');
+BADGES3.forEach((o, i) => {
+  o.id = `W${i + 1}`;
+  badgesHost3.insertAdjacentHTML('beforeend', card(o, `<div class="list">${ROWS.map((r) => rowHtml(r, o.b)).join('')}</div>`));
+});
+const ROWS_P = [
+  ROWS[0], ROWS[2],
+  { ...ROWS[3], ret: '10/5（日）' },
+  { name: 'Projects の見直し', proj: 'agent-hangar', st: 'やりかけ', text: 'Projects は hangar に直接つなげない。残りの案は 3 つ。', when: '2 日前', s: 'paused', ret: '今日', due: true },
+  { name: 'Worker の CPU 超過', proj: 'agent-hangar', st: 'やりかけ', text: '同期を再開した。効果の確認は未。', when: '5 日前', s: 'paused', ret: '3 日過ぎ', due: true },
+  ROWS[4], ROWS[5], ROWS[6],
+  { name: 'README の手直し', proj: 'agent-hangar', st: '済んだ', text: 'インストールの手順を書き直した。', when: '3 日前', s: null },
+];
+function rowP(r, v) {
+  const ended = r.s === 'done' || r.s === 'archived';
+  const word = r.s === 'done' ? 'Done' : 'Archived';
+  const wide = v === 'P4' ? ' wide' : '';
+  const retTxt = v === 'P2' ? `Paused · ${r.ret}` : v === 'P3' ? `<span class="pi">❙❙</span>${r.ret}` : r.ret;
+  let col = ended ? `<span class="sq ${r.s}${wide}">${word}</span>` : r.s === 'paused' ? `<span class="ret${r.due ? ' due' : ''}${wide}">${retTxt}</span>` : '';
+  const candLeft = v === 'P4' && r.cand && !col;
+  if (candLeft) col = `<span class="cand wide">Done にする？</span>`;
+  const dot = `<span class="dot" data-l="${r.live ? 'busy' : ''}"></span>`;
+  const st = r.st ? `<span class="st">${r.st}</span>` : '';
+  const live = r.live ? `<span class="live">${r.live}</span>` : '';
+  const cand = r.cand && !candLeft ? `<span class="cand">Done にする？</span>` : '';
+  const w = { P1: 84, P2: 128, P3: 92, P4: 104 }[v];
+  return `<div class="row pc" style="--pcw:${w}px">${dot}<span class="pcol">${col}</span><span class="main"><span class="name">${r.name}<span class="proj">${r.proj}</span></span><span class="sub">${st}<span class="t">${r.text}</span></span></span><span class="side">${live}${cand}<span class="more">⋯</span><span class="slot r" style="width:64px"><span class="when">${r.when}</span></span></span></div>`;
+}
+const BADGES5 = [
+  { id: 'P1', rec: true, title: '戻る日だけを札に（列 84px）', desc: 'Paused の行は今の 2 段目の頭の札（黄土の丸い札）をそのまま左の列へ移す。Done・Archived は四角い札、Paused は丸い札、と形で分かれる。', pro: '今の札の見た目のまま場所だけ移る。列が狭い', con: '「10/5（日）」だけでは Paused と読めるかは形と色だけが頼り' },
+  { id: 'P2', title: '「Paused · 10/5（日）」と語を添える（列 128px）', desc: '札の頭に Paused の語を入れ、何の日付かを文字で言う。', pro: '初めて見ても読める', con: '列が 128px と広く、Done の行は右に空きが出る' },
+  { id: 'P3', title: '❙❙ の印＋戻る日（列 92px）', desc: '語の代わりに一時停止の印 ❙❙ を頭に付ける。', pro: 'P2 より狭く、P1 より Paused と分かる', con: '印は小さく、少し窮屈' },
+  { id: 'P4', title: '提案の札も左へ入れ、列の札をすべて同じ幅に（列 104px）', desc: '状態の無い行の Claude の提案（Done にする？）も左の列へ入れる。列の札は全部、列いっぱいの同じ幅の札にして、表の列にする。動きの語（実行中）は右のまま。', pro: '「この行の状態」は左の 1 列だけ見ればよい', con: '状態と提案が両方ある行は、提案が右に残る（今と同じ）' },
+];
+const badgesHost5 = document.getElementById('badges5');
+BADGES5.forEach((o) => {
+  badgesHost5.insertAdjacentHTML('beforeend', card(o, `<div class="list">${ROWS_P.map((r) => rowP(r, o.id)).join('')}</div>`));
+});
+const ROWS_F = [
+  ROWS_P[0], ROWS_P[1],
+  ROWS_P[2], ROWS_P[3], ROWS_P[4],
+  { name: 'しおりだけ挟んだ', proj: 'agent-hangar', st: 'やりかけ', text: '戻る日を決めずに挟んだもの。', when: '6 日前', s: 'paused', ret: null },
+  ROWS_P[5], ROWS_P[6], ROWS_P[7], ROWS_P[8],
+];
+const fWord = { done: 'Done', paused: 'Paused', archived: 'Archived' };
+/** 共通：右端の時刻の列。Paused は戻る日、今日・過ぎは塗る。日付なしは相対時刻。 */
+function fWhen(r) {
+  if (r.s === 'paused' && r.ret) return `<span class="wd ${r.due ? 'due' : 'paused'}" title="戻る日 · 最後の活動 ${r.when}">${r.ret}</span>`;
+  return `<span class="when">${r.when}</span>`;
+}
+function rowF(r, v, o = {}) {
+  const dot = `<span class="dot" data-l="${r.live ? 'busy' : ''}"></span>`;
+  const st = r.st ? `<span class="st">${r.st}</span>` : '';
+  const live = r.live ? `<span class="live">${r.live}</span>` : '';
+  const more = '<span class="more">⋯</span>';
+  const when72 = `<span class="fw72">${fWhen(r)}</span>`;
+  const badgeOf = (noDone = false) => r.s && !(noDone && r.s === 'done') ? `<span class="fb ${r.s}">${fWord[r.s]}</span>` : r.cand ? `<span class="fb cand">Done？</span>` : '';
+  const nameH = `${r.name}<span class="proj">${r.proj}</span>`;
+  const main = (nm = `<span class="name">${nameH}</span>`) => `<span class="main">${nm}<span class="sub">${st}<span class="t">${r.text}</span></span></span>`;
+  const sideStd = `<span class="side">${live}${more}${when72}</span>`;
+  if (v === 'F1' || v === 'F4' || v === 'F6') {
+    const fold = o.fold;
+    let b = v === 'F4' ? (r.s === 'done' ? '' : r.s ? badgeOf() : r.cand ? badgeOf() : r.live ? '' : '<span class="fb none">印なし</span>') : badgeOf();
+    if (v === 'F6' && o.noBadge) b = '';
+    if (fold || (v === 'F6' && o.noBadge)) return `<div class="row f1 fold">${dot}${main()}${sideStd}</div>`;
+    return `<div class="row f1">${dot}<span>${b}</span>${main()}${sideStd}</div>`;
+  }
+  if (v === 'F2') {
+    const m = r.live ? dot : `<span class="fm ${r.s ?? 'none'}${r.cand ? ' cand' : ''}" title="${r.s ? fWord[r.s] + (r.ret ? ' · ' + r.ret : '') : r.cand ? '印なし · 提案 Done？' : '印なし'}">${r.s === 'done' ? '✓' : r.s === 'paused' ? '❙❙' : ''}</span>`;
+    const cand = r.cand ? '<span class="cand">Done にする？</span>' : '';
+    return `<div class="row">${m}${main()}<span class="side">${live}${cand}${more}${when72}</span></div>`;
+  }
+  if (v === 'F3') {
+    return `<div class="row">${dot}${main(`<span class="name f3"><span class="nm">${nameH}</span><span>${badgeOf()}</span></span>`)}${sideStd}</div>`;
+  }
+  if (v === 'F5') {
+    const bottom = r.s ? `<span class="fb ${r.s}">${fWord[r.s]}</span>` : r.cand ? '<span class="fb cand">Done？</span>' : '<span style="height:18px"></span>';
+    return `<div class="row">${dot}${main()}<span class="side5">${live}${more}<span class="stack96">${fWhen(r)}${bottom}</span></span></div>`;
+  }
+  if (v === 'F7') {
+    const ended = r.s === 'done' || r.s === 'archived';
+    if (ended) return `<div class="row r36${r.s === 'archived' ? ' dim' : ''}">${dot}<span class="main"><span class="name">${nameH}<span class="fb thin ${r.s}">${fWord[r.s]}</span></span><span class="sub"><span class="t">· ${r.text}</span></span></span>${sideStd}</div>`;
+    const ret = r.s === 'paused' ? `<span class="ret${r.due ? ' due' : ''}">${r.ret ?? '日付なし'}</span>` : '';
+    const cand = r.cand ? '<span class="cand">Done にする？</span>' : '';
+    return `<div class="row">${dot}<span class="main"><span class="name">${nameH}${r.s === 'paused' ? '<span class="fb thin paused">Paused</span>' : ''}</span><span class="sub">${ret}${st}<span class="t">${r.text}</span></span></span><span class="side">${live}${cand}${more}<span class="fw72"><span class="when">${r.when}</span></span></span></div>`;
+  }
+}
+const sec = (label, n) => `<div class="head">${label}<span class="c">${n}</span></div>`;
+const F_CARDS = [
+  { id: 'F1', rec: true, title: '語の列と日付の列（Fable の推し）', desc: '点の右に 62px の状態の列。中は<b>語だけ</b>の同じ幅の札で、Done は線だけ（地なし）、Paused は黄土の地、Archived は灰の地。状態の無い行の提案（Done？）も同じ列。戻る日は右端の時刻の列へ。2 段目の頭は全行で見立てに戻る。下には Done のタブ（全行が Done）で列を畳んだ形も載せた。',
+    pro: 'ずれない・名前の近く・Paused が同格の語で並ぶ・Done が壁紙にならない・列は 62px で済む', con: '時刻の列の意味が行で変わる（ホバーで「戻る日」と補う）。印なし・実行中の行は名前の前が空く',
+    html: () => ROWS_F.map((r) => rowF(r, 'F1')).join('') + `<div class="head" style="margin-top:8px">Done のタブ（列を畳む）</div>` + ROWS_F.filter((r) => r.s === 'done').map((r) => rowF(r, 'F1', { fold: true })).join('') },
+  { id: 'F2', title: '点を状態の印に育てる', desc: '列を増やさず、左の 16px の点を状態の印にする。Done は淡い緑に ✓、Paused は淡い黄土に ❙❙、Archived は灰の輪、印なしは空の輪、提案があれば紫の外輪。動いている行は今の色の点。戻る日は時刻の列。印にホバーで語。',
+    pro: '名前が 1px も動かない。幅を取らない', con: '語が無い（「札」ではなく印）。印の意味を覚える',
+    html: () => ROWS_F.map((r) => rowF(r, 'F2')).join('') },
+  { id: 'F3', title: '名前の肩', desc: '1 段目の名前（＋プロジェクト名）に幅を決め（窓の 30%、220〜380px）、その右肩に 62px の札の列。名前の長さに関わらず札は同じ x に立ち、1,960px の窓でも左から約 420px。2 段目は全幅のまま。',
+    pro: '名前の書き出しは動かず、要約の幅も減らず、札が名前のすぐ右で縦にそろう', con: '名前が 380px で省略される。狭い窓では省略が増える',
+    html: () => ROWS_F.map((r) => rowF(r, 'F3')).join('') },
+  { id: 'F4', title: '地と図を逆にする（Done は無印、印なしに印）', desc: 'F1 の列から Done の札を消す（97% の既定の状態は地）。代わりに印なしに空の枠「印なし」を出す。札は 1,223 → 約 40 件に減る。',
+    pro: '一覧が劇的に静かになり、見るべき行だけが印を持つ。2 段目の「済んだ」との二重読みも消える', con: '「すべて」で Done と印なしの区別が「枠があるか」になる。Done の札をどこに置くか、という問いからは外れる',
+    html: () => ROWS_F.map((r) => rowF(r, 'F4')).join('') },
+  { id: 'F5', title: 'W5 を伸ばす（右端 2 段を「いつ／何か」に）', desc: '右端を 96px の 2 段の固定列にし、上段に時刻（Paused は戻る日に差し替え）、下段に状態の語の札（Done 線だけ・Paused・Archived・提案）。',
+    pro: '気に入った W5 の骨のまま。要約の幅を取らない。2 段の意味が整う', con: '名前から遠いのはそのまま',
+    html: () => ROWS_F.map((r) => rowF(r, 'F5')).join('') },
+  { id: 'F6', title: '状態は見出しが言い、行は混ざったときだけ言う', desc: '節の一覧と単一状態のタブでは行に札を出さない（節の見出しが言う。見出しはスクロールで貼り付ける）。「すべて」と検索結果のように状態が混ざる一覧だけ、上に列見出しを付けて F1 の列を出す。',
+    pro: '重複が完全に消える。いちばん見る画面が静か', con: '画面によって行の形が変わる',
+    html: () => `${sec('今日戻る', 1)}${rowF(ROWS_F[3], 'F6', { noBadge: true })}${rowF(ROWS_F[4], 'F6', { noBadge: true })}${sec('確かめる', 2)}${rowF(ROWS_F[6], 'F6', { noBadge: true })}${sec('Done', '1,223')}${rowF(ROWS_F[0], 'F6', { noBadge: true })}${rowF(ROWS_F[1], 'F6', { noBadge: true })}<div class="head" style="margin-top:10px">「すべて」のタブ・検索の結果（混ざる一覧）</div><div class="colhead"><span></span><span>状態</span><span>セッション</span><span style="text-align:right">最後の活動／戻る日</span></div>${ROWS_F.map((r) => rowF(r, 'F6')).join('')}` },
+  { id: 'F7', title: 'Done は 1 段、ほかは 2 段（高さで状態を言う）', desc: 'Done と Archived の行を 36px の 1 段（名前・薄い札・要約を 1 行）、ほかは今の 56px。1 画面に 1.5 倍の件数。',
+    pro: '札を見なくても「終わった行は短い」で分かる', con: 'j/k で高さが跳ぶ。Done の要約が 1 行に押し込まれる。56px の 2 段の決めを戻す',
+    html: () => ROWS_F.map((r) => rowF(r, 'F7')).join('') },
+];
+const badgesHost6 = document.getElementById('badges6');
+F_CARDS.forEach((o) => badgesHost6.insertAdjacentHTML('beforeend', card(o, `<div class="list">${o.html()}</div>`)));
+const BADGES4 = [
+  { b: 'L1', title: '点と名前のあいだに状態の列（70px）', desc: '左の点の右に 70px の列を挟み、Done・Archived の札を列の左寄せで置く。札の無い行も列の幅は取るので、名前の書き出しは全行でそろう。札の左端は画面の左側で一直線。', pro: '名前のすぐ左で、広い窓でも目が遠くへ行かない。名前の位置は動かない', con: '札の無い行（印なし・動いているもの）は名前の前が空く' },
+  { b: 'L2', title: '点の列を広げて、状態の札を点の代わりに', desc: '点の列を 70px に広げ、Done・Archived の行は点の代わりに札を、ほかの行は今の点を列の左に置く。L1 より左の空きが少ない。', pro: '空きが少ない。止まった行の灰色の点（情報の無い点）が札に替わる', con: '動いている色の点と札が同じ列に混ざる' },
+  { b: 'L3', title: 'いちばん左の縁に状態の列、その右に点', desc: '行の左の縁に 70px の列、その右に今の点と名前。札が画面の左の縁で一直線に並ぶ。', pro: '左の縁で一直線。表の 1 列目のように読める', con: '点が内側へ入り、点で動いているものを探しにくくなる' },
+  { b: 'L4', title: 'W5 のまま、札を列の中で左寄せ', desc: '右端の状態の列（70px）はそのままで、札を列の左に寄せる。「左側」をこの意味に取った場合。Done と Archived の左端が時刻のすぐ右でそろう。', pro: '時刻と札の間隔が一定', con: '右の縁はそろわなくなる（Done と Archived の長さの差が右に出る）' },
+  { b: 'L5', title: '左の列に状態をぜんぶ集める', desc: 'L1 の列（78px）に、Done・Archived だけでなく Paused・提案（Done？）・動き（実行中）も入れる。右端は時刻と ⋯ だけになる。1 つの行に出る状態は、動き＞提案＞Paused・Done・Archived の順で 1 つ。', pro: '状態はすべて左の 1 列で読める。右端がすっきり', con: '提案と状態が両方ある行では片方しか出ない（提案は ⋯ やホバーへ）' },
+];
+const badgesHost4 = document.getElementById('badges4');
+BADGES4.forEach((o) => {
+  o.id = o.b;
+  badgesHost4.insertAdjacentHTML('beforeend', card(o, `<div class="list">${ROWS.map((r) => rowHtml(r, o.b)).join('')}</div>`));
+});
+document.getElementById('guide').addEventListener('change', (e) => {
+  for (const x of document.querySelectorAll('#badges4 .lslot, #badges4 .slot, #badges5 .pcol, #badges5 .slot')) x.classList.toggle('guide', e.target.checked);
+  for (const x of document.querySelectorAll('#badges3 .slot')) x.classList.toggle('guide', e.target.checked);
+});
+document.getElementById('wsw').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-w]'); if (!b) return;
+  for (const x of document.querySelectorAll('#wsw button')) x.setAttribute('aria-pressed', String(x === b));
+  for (const h of [badgesHost, badgesHost2, badgesHost3, badgesHost4, badgesHost5, badgesHost6]) h.style.setProperty('--sw', b.dataset.w);
+});
+</script>
+</body>
+</html>

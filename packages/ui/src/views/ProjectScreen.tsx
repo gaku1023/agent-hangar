@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
+import { projectPageKey } from '../mediator/paging.ts';
 import type { ProjectProps } from '../presenters/project.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
 import { MemoEditor } from './MemoEditor.tsx';
 import { PageHeading } from './PageHeading.tsx';
+import { Pager } from './Pager.tsx';
 import { SessionRows } from './SessionRows.tsx';
 import { TodoList } from './TodoList.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -24,16 +26,18 @@ export function ProjectScreen(props: ProjectProps) {
         <PageHeading title={props.name} parent={props.parent}>
           {!props.isScratch && <StatusSelect label="状態" value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />}
           <span className="spacer" />
-          {props.isScratch
-            ? <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', scratch: true })}><Icon name="add" /><span className="btn-label">スクラッチで始める</span></button>
-            : <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', projectId: props.id })}><Icon name="add" /><span className="btn-label">新しいセッション</span></button>}
+          {/* 新しいセッションの主ボタンはヘッダーにあり、この画面ではこのプロジェクトを最初から選ぶ（presenters/newSession.ts）。同じ主ボタンを見出しの行にも並べない。
+              スクラッチは別の入口なので残す。 */}
+          {props.isScratch && <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', scratch: true })}><Icon name="add" /><span className="btn-label">スクラッチで始める</span></button>}
           {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openEditor', id: props.id })}><Icon name="openEditor" /><span className="btn-label">VS Code で開く</span></button>}
           {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openTerminalApp', id: props.id })}><Icon name="openTerminal" /><span className="btn-label">ターミナルで開く</span></button>}
           <button className="btn" aria-label={railOpen ? '右の欄を閉じる' : '右の欄を開く'} onClick={() => setRailOpen(!railOpen)}><Icon name={railOpen ? 'paneClose' : 'paneOpen'} /></button>
         </PageHeading>
         <div className="mono faint project-path">{props.path ?? 'この PC にパスがありません'}{!props.resolved && props.path ? '（見つかりません）' : ''}</div>
         {/* 見出しの「ほか N 件」と Archived の「表示」は、このプロジェクトの節をその場で広げる。 */}
-        <SessionRows items={props.items} variant="project" moreIntent={(target) => (target === 'done' || target === 'archived' ? { type: 'project.section.toggle', projectId: props.id, section: target } : null)} />
+        <SessionRows items={props.items} variant="project" page={props.pager?.page} moreIntent={(target) => (target === 'done' || target === 'archived' ? { type: 'project.section.toggle', projectId: props.id, section: target } : null)} />
+        {/* 広げた節が長いときだけ、その行をページに分ける。 */}
+        {props.pager && <Pager label="セッション" pager={props.pager} onPage={(page) => emit({ type: 'list.page', key: projectPageKey(props.id), page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}
       </div>
       {railOpen && (
         <aside className="rail">

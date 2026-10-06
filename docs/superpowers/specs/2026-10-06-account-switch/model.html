@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アカウントの切り替え 試作</title>
+<style>
+:root {
+  --bg: #eef1f7; --aura-1: #cfe0ff; --surface: #fff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-hi: #6b8cff; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --cand: #6a4fd0; --cand-soft: #f1edff;
+  /* 試作だけの色。アカウントの印に使う 2 色の候補。 */
+  --ac-a: #2a57b8; --ac-a-soft: #e8eefc; --ac-b: #7a4a9e; --ac-b-soft: #f3ebf9;
+  --font-sans: 'Inter', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif; --font-mono: 'JetBrains Mono', Menlo, monospace;
+  --u: 4px; --r: 8px; --r-pill: 99px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 13px/1.5 var(--font-sans); color: var(--ink); background: radial-gradient(900px 600px at 0 0, var(--aura-1), transparent 70%), var(--bg); background-attachment: fixed; }
+main { max-width: 1280px; margin: 0 auto; padding: 28px 24px 80px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 44px 0 4px; padding-bottom: 8px; border-bottom: 1px solid var(--line-strong); }
+.lead { color: var(--ink-2); margin: 0 0 16px; max-width: 760px; }
+.grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); align-items: start; }
+.grid.wide { grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); }
+.opt { display: flex; flex-direction: column; gap: 8px; }
+.opt-head { display: flex; align-items: baseline; gap: 8px; }
+.opt-id { font: 700 12px var(--font-mono); color: #fff; background: var(--ink); border-radius: 6px; padding: 1px 7px; }
+.opt-name { font-weight: 700; }
+.opt-note { color: var(--ink-2); font-size: 12px; margin: 0; }
+.opt-note b { color: var(--ink); }
+.rec { font-size: 11px; font-weight: 700; color: var(--st-done); background: var(--st-done-soft); border-radius: 99px; padding: 1px 8px; }
+
+/* ダイアログの写し */
+.dialog { border-radius: 18px; background: rgba(255,255,255,.92); box-shadow: inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5), 0 24px 50px -16px rgba(30,40,90,.45); display: flex; flex-direction: column; }
+.dialog-head { display: flex; align-items: center; gap: 8px; padding: 18px 20px 12px; }
+.dialog-title { font-size: 14px; font-weight: 700; }
+.dialog-body { display: flex; flex-direction: column; gap: 12px; padding: 2px 20px 16px; }
+.dialog-foot { display: flex; align-items: center; gap: 8px; padding: 12px 20px 16px; }
+.spacer { flex: 1; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.input { display: flex; align-items: center; height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; color: var(--ink); font-size: 13px; }
+.input.tall { height: 52px; align-items: flex-start; padding-top: 4px; color: var(--ink-3); }
+.listface { justify-content: space-between; gap: 8px; }
+.listface .sub { color: var(--ink-3); font: 11px var(--font-mono); margin-left: 8px; }
+.caret { color: var(--ink-3); font-size: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 0; border-radius: 99px; font: 600 13px var(--font-sans); background: rgba(255,255,255,.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,.14); color: var(--ink); white-space: nowrap; }
+.btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 4px 12px -4px rgba(70,90,230,.6); }
+.kc { display: inline-flex; align-items: center; height: 17px; padding: 0 5px; border-radius: 5px; font: 600 10.5px var(--font-mono); background: rgba(255,255,255,.22); }
+.seg { display: inline-flex; padding: 3px; border-radius: 99px; background: rgba(30,40,90,.06); box-shadow: inset 0 1px 2px rgba(30,40,90,.06); align-self: flex-start; }
+.seg > span { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border-radius: 99px; color: var(--ink-2); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.seg > span.on { color: var(--ink); background: #fff; box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(30,40,90,.14); }
+.fold { color: var(--ink-2); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.fold::before { content: '›'; color: var(--ink-3); }
+.prev-tag { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 99px; padding: 0 7px; }
+.faint { color: var(--ink-3); font-size: 12px; }
+
+/* アカウントの印 */
+.ac { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.ac-dot { width: 8px; height: 8px; border-radius: 3px; flex: none; }
+.ac-a .ac-dot { background: var(--ac-a); } .ac-b .ac-dot { background: var(--ac-b); }
+.ac-tag { height: 18px; padding: 0 7px; border-radius: 99px; }
+.ac-a.ac-tag { color: var(--ac-a); background: var(--ac-a-soft); } .ac-b.ac-tag { color: var(--ac-b); background: var(--ac-b-soft); }
+.ac-sq { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; font: 700 10px var(--font-sans); color: #fff; flex: none; }
+.ac-a.ac-sq { background: var(--ac-a); } .ac-b.ac-sq { background: var(--ac-b); }
+.plan { color: var(--ink-3); font-weight: 500; }
+
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.card { border-radius: 10px; background: #fff; box-shadow: inset 0 0 0 1px var(--line-strong); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.card.on { box-shadow: inset 0 0 0 2px var(--accent); background: var(--accent-soft); }
+.card-top { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; color: var(--ink); }
+.meter-row { display: grid; grid-template-columns: 34px 1fr 30px; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-2); }
+.meter { height: 6px; border-radius: 99px; background: rgba(28,27,46,.08); overflow: hidden; }
+.meter > i { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
+.meter > i.hot { background: var(--busy); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 一覧の写し */
+.list { background: #fff; border-radius: 14px; box-shadow: 0 1px 2px rgba(30,40,90,.06); overflow: hidden; }
+.row { display: grid; grid-template-columns: 16px minmax(0,1fr) auto; align-items: center; gap: 16px; height: 56px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #c9c7d3; justify-self: center; }
+.dot.busy { background: var(--busy); } .dot.idle { background: var(--idle); }
+.row-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.row-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+.row-sub { color: var(--ink-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+.row-end { display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 12px; }
+.badge { height: 20px; padding: 0 8px; border-radius: 99px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; }
+.b-active { color: #fff; background: var(--st-active); } .b-done { color: var(--st-done); background: var(--st-done-soft); } .b-paused { color: var(--st-paused); background: var(--st-paused-soft); }
+.row.edge-b { box-shadow: inset 3px 0 0 var(--ac-b); }
+
+/* セッション画面の頭、メニュー、ヘッダの使用量 */
+.panel { background: #fff; border-radius: 14px; box-shadow: 0 1px 2px rgba(30,40,90,.06); padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+.sess-title { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 99px; font-size: 11px; color: var(--ink-2); background: rgba(255,255,255,.75); box-shadow: inset 0 0 0 1px rgba(30,40,90,.1); }
+.menu { width: 250px; border-radius: 12px; background: rgba(255,255,255,.96); box-shadow: 0 10px 28px -12px rgba(30,40,90,.4), inset 0 0 0 1px var(--line-strong); padding: 5px; display: flex; flex-direction: column; }
+.mi { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 9px; border-radius: 7px; font-size: 13px; }
+.mi.hover { background: var(--accent-soft); }
+.mi .k { margin-left: auto; color: var(--ink-3); font: 11px var(--font-mono); }
+.msep { height: 1px; background: var(--line); margin: 4px 0; }
+.mhead { font-size: 11px; color: var(--ink-3); padding: 4px 9px 2px; }
+.hdr { display: flex; align-items: center; gap: 14px; height: 44px; padding: 0 14px; border-radius: 12px; background: rgba(255,255,255,.6); box-shadow: inset 0 0 0 1px rgba(255,255,255,.7), 0 1px 3px rgba(30,40,90,.1); }
+.hdr .brand { font: 700 13px var(--font-mono); }
+.hdr .search { flex: 1; height: 28px; border-radius: 99px; background: rgba(255,255,255,.8); box-shadow: inset 0 0 0 1px var(--line-strong); display: flex; align-items: center; padding: 0 12px; color: var(--ink-3); font-size: 12px; }
+.u { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-2); white-space: nowrap; }
+.u .meter { width: 46px; }
+.u b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.ustack { display: flex; flex-direction: column; gap: 2px; }
+.settings-row { display: grid; grid-template-columns: 22px 110px 1fr auto; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.settings-row:last-of-type { border-bottom: 0; }
+.mono { font: 12px var(--font-mono); color: var(--ink-2); }
+.ok { color: var(--st-done); font-size: 12px; font-weight: 600; }
+.ask { background: var(--surface-2); border-radius: 10px; padding: 10px 14px; margin-top: 14px; font-size: 12px; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<main>
+<h1>アカウントの切り替え 試作</h1>
+<p class="lead">名前、費用、使用率はすべて仮の値です。アカウントは「会社」（Max）と「大学」（Enterprise）の 2 つで描いています。色は試作用で、実装では既存のトークンから選び直します。</p>
+
+<h2>1. 新規セッションのダイアログで、どこでアカウントを選ぶか</h2>
+<p class="lead">初期値は、そのプロジェクトで前回選んだアカウントです。置き場所と、選ぶときに何が見えるかを変えた 6 案です。</p>
+<div class="grid">
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">A1</span><span class="opt-name">プロジェクトの下に 1 段</span><span class="rec">推し</span></div>
+    <div class="dialog">
+      <div class="dialog-head"><span class="dialog-title">新しいセッション</span></div>
+      <div class="dialog-body">
+        <div class="field">プロジェクト<div class="input listface"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div></div>
+        <div class="field">アカウント
+          <div class="seg"><span class="on"><i class="ac-dot" style="background:var(--ac-a);width:8px;height:8px;border-radius:3px"></i>会社<span class="plan">Max</span></span><span><i class="ac-dot" style="background:var(--ac-b);width:8px;height:8px;border-radius:3px"></i>大学<span class="plan">Enterprise</span></span></div>
+        </div>
+        <div class="field">名前（任意）<div class="input" style="color:var(--ink-3)">一覧での表示名</div></div>
+        <div class="field">初期プロンプト（任意）<div class="input tall"></div></div>
+        <div class="fold">詳細（model、effort、permission mode、worktree、追加ディレクトリ）</div>
+      </div>
+      <div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">起動<span class="kc">⌘↵</span></span></div>
+    </div>
+    <p class="opt-note"><b>いつも見える。</b>プロジェクトとアカウントが上下に並ぶので、会社の仕事を大学で起こす取り違えに気づきやすい。1 段ぶん縦に伸びる。</p>
+  </section>
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">A2</span><span class="opt-name">見出しの右に札</span></div>
+    <div class="dialog">
+      <div class="dialog-head"><span class="dialog-title">新しいセッション</span><span class="spacer"></span><span class="btn" style="height:24px;font-size:12px"><span class="ac ac-a"><i class="ac-dot"></i></span>会社<span class="caret">▾</span></span></div>
+      <div class="dialog-body">
+        <div class="field">プロジェクト<div class="input listface"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div></div>
+        <div class="field">名前（任意）<div class="input" style="color:var(--ink-3)">一覧での表示名</div></div>
+        <div class="field">初期プロンプト（任意）<div class="input tall"></div></div>
+        <div class="fold">詳細（model、effort、permission mode、worktree、追加ディレクトリ）</div>
+      </div>
+      <div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">起動<span class="kc">⌘↵</span></span></div>
+    </div>
+    <p class="opt-note"><b>高さは今のまま。</b>ダイアログ全体が「このアカウントで」という枠になる。小さいので見落としやすく、下書きの札と場所が重なる。</p>
+  </section>
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">A3</span><span class="opt-name">詳細の中（model と同じ扱い）</span></div>
+    <div class="dialog">
+      <div class="dialog-head"><span class="dialog-title">新しいセッション</span></div>
+      <div class="dialog-body">
+        <div class="field">プロジェクト<div class="input listface"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div></div>
+        <div class="field">名前（任意）<div class="input" style="color:var(--ink-3)">一覧での表示名</div></div>
+        <div class="field">初期プロンプト（任意）<div class="input tall"></div></div>
+        <div class="fold"><span class="prev-tag">前回と同じ</span>大学、opus、high</div>
+      </div>
+      <div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">起動<span class="kc">⌘↵</span></span></div>
+    </div>
+    <p class="opt-note"><b>作りはいちばん小さい。</b>既存の「前回と同じ」の仕組みにそのまま乗る。変えるには詳細を開く 1 手が要り、畳んだ行の文字でしか分からない。</p>
+  </section>
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">A4</span><span class="opt-name">起動ボタンに付ける</span></div>
+    <div class="dialog">
+      <div class="dialog-head"><span class="dialog-title">新しいセッション</span></div>
+      <div class="dialog-body">
+        <div class="field">プロジェクト<div class="input listface"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div></div>
+        <div class="field">名前（任意）<div class="input" style="color:var(--ink-3)">一覧での表示名</div></div>
+        <div class="field">初期プロンプト（任意）<div class="input tall"></div></div>
+        <div class="fold">詳細（model、effort、permission mode、worktree、追加ディレクトリ）</div>
+      </div>
+      <div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn"><span class="ac ac-b"><i class="ac-dot"></i></span>大学<span class="caret">▾</span></span><span class="btn btn-primary">大学で起動<span class="kc">⌘↵</span></span></div>
+    </div>
+    <p class="opt-note"><b>押す直前に必ず目に入る。</b>ボタンの文言がアカウントを言うので取り違えにくい。足元に選択が増え、ボタンの幅が変わる。</p>
+  </section>
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">A5</span><span class="opt-name">残りの使用量つきの札</span></div>
+    <div class="dialog">
+      <div class="dialog-head"><span class="dialog-title">新しいセッション</span></div>
+      <div class="dialog-body">
+        <div class="field">プロジェクト<div class="input listface"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div></div>
+        <div class="field">アカウント
+          <div class="cards">
+            <div class="card on"><div class="card-top"><span class="ac-sq ac-a">会</span>会社<span class="plan" style="font-size:11px">Max</span></div>
+              <div class="meter-row">5 時間<div class="meter"><i class="hot" style="width:82%"></i></div><span class="num">82%</span></div>
+              <div class="meter-row">7 日<div class="meter"><i style="width:41%"></i></div><span class="num">41%</span></div></div>
+            <div class="card"><div class="card-top"><span class="ac-sq ac-b">大</span>大学<span class="plan" style="font-size:11px">Enterprise</span></div>
+              <div class="meter-row">5 時間<div class="meter"><i style="width:12%"></i></div><span class="num">12%</span></div>
+              <div class="meter-row">7 日<div class="meter"><i style="width:9%"></i></div><span class="num">9%</span></div></div>
+          </div>
+        </div>
+        <div class="field">名前（任意）<div class="input" style="color:var(--ink-3)">一覧での表示名</div></div>
+        <div class="field">初期プロンプト（任意）<div class="input tall"></div></div>
+        <div class="fold">詳細（model、effort、permission mode、worktree、追加ディレクトリ）</div>
+      </div>
+      <div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">起動<span class="kc">⌘↵</span></span></div>
+    </div>
+    <p class="opt-note"><b>選ぶ理由がその場で見える。</b>どちらに余裕があるかで選べる。縦にいちばん伸びる。使用率は最後に動かしたときの値なので、古いことがある。</p>
+  </section>
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">A6</span><span class="opt-name">プロジェクトの欄に添える</span></div>
+    <div class="dialog">
+      <div class="dialog-head"><span class="dialog-title">新しいセッション</span></div>
+      <div class="dialog-body">
+        <div class="field">プロジェクト
+          <div style="display:flex;gap:6px"><div class="input listface" style="flex:1"><span>agent-hangar<span class="sub">~/workspace/agent-hangar</span></span><span class="caret">▾</span></div><div class="input listface" style="gap:6px"><span class="ac ac-a"><i class="ac-dot"></i></span>会社<span class="caret">▾</span></div></div>
+        </div>
+        <div class="field">名前（任意）<div class="input" style="color:var(--ink-3)">一覧での表示名</div></div>
+        <div class="field">初期プロンプト（任意）<div class="input tall"></div></div>
+        <div class="fold">詳細（model、effort、permission mode、worktree、追加ディレクトリ）</div>
+      </div>
+      <div class="dialog-foot"><span class="btn">やめる</span><span class="spacer"></span><span class="btn btn-primary">起動<span class="kc">⌘↵</span></span></div>
+    </div>
+    <p class="opt-note"><b>「どこで・誰として」が 1 行。</b>高さは今のまま。プロジェクトを選び直すと隣が前回値に変わるのが目で追える。パスの見える幅が狭くなる。</p>
+  </section>
+</div>
+
+<h2>2. 一覧で、どのアカウントのセッションかをどう見せるか</h2>
+<p class="lead">行はいまの 2 段（名前と要約）のままです。印の形と、出す範囲を変えた 5 案です。</p>
+<div class="grid wide">
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">B1</span><span class="opt-name">名前の後ろに札</span></div>
+    <div class="list">
+      <div class="row"><span class="dot busy"></span><div class="row-main"><div class="row-name">アカウントの切り替え<span class="ac ac-tag ac-a">会社</span></div><div class="row-sub">新規セッションで選べるようにする設計</div></div><div class="row-end"><span class="badge b-active">Active</span>3 分前</div></div>
+      <div class="row"><span class="dot idle"></span><div class="row-main"><div class="row-name">索引の見直し<span class="ac ac-tag ac-b">大学</span></div><div class="row-sub">forgetVanished の安全弁を読む</div></div><div class="row-end"><span class="badge b-active">Active</span>18 分前</div></div>
+      <div class="row"><span class="dot"></span><div class="row-main"><div class="row-name">ヘッダの余白<span class="ac ac-tag ac-a">会社</span></div><div class="row-sub">44px に合わせて直した</div></div><div class="row-end"><span class="badge b-done">Done</span>昨日</div></div>
+    </div>
+    <p class="opt-note"><b>全部の行に出す。</b>読めば必ず分かる。状態の札と合わせて 1 行に札が 2 つ並び、以前の「札を減らす」方向とは逆になる。</p>
+  </section>
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">B2</span><span class="opt-name">既定でないアカウントだけ札</span><span class="rec">推し</span></div>
+    <div class="list">
+      <div class="row"><span class="dot busy"></span><div class="row-main"><div class="row-name">アカウントの切り替え</div><div class="row-sub">新規セッションで選べるようにする設計</div></div><div class="row-end"><span class="badge b-active">Active</span>3 分前</div></div>
+      <div class="row"><span class="dot idle"></span><div class="row-main"><div class="row-name">索引の見直し<span class="ac ac-tag ac-b">大学</span></div><div class="row-sub">forgetVanished の安全弁を読む</div></div><div class="row-end"><span class="badge b-active">Active</span>18 分前</div></div>
+      <div class="row"><span class="dot"></span><div class="row-main"><div class="row-name">ヘッダの余白</div><div class="row-sub">44px に合わせて直した</div></div><div class="row-end"><span class="badge b-done">Done</span>昨日</div></div>
+    </div>
+    <p class="opt-note"><b>ふだんと違うものだけ目立つ。</b>既定（会社）の行は今と同じ見た目。既定がどちらかを覚えている前提になる。</p>
+  </section>
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">B3</span><span class="opt-name">要約の行の頭に小さく</span></div>
+    <div class="list">
+      <div class="row"><span class="dot busy"></span><div class="row-main"><div class="row-name">アカウントの切り替え</div><div class="row-sub"><span class="ac ac-a"><i class="ac-dot"></i>会社</span>新規セッションで選べるようにする設計</div></div><div class="row-end"><span class="badge b-active">Active</span>3 分前</div></div>
+      <div class="row"><span class="dot idle"></span><div class="row-main"><div class="row-name">索引の見直し</div><div class="row-sub"><span class="ac ac-b"><i class="ac-dot"></i>大学</span>forgetVanished の安全弁を読む</div></div><div class="row-end"><span class="badge b-active">Active</span>18 分前</div></div>
+      <div class="row"><span class="dot"></span><div class="row-main"><div class="row-name">ヘッダの余白</div><div class="row-sub"><span class="ac ac-a"><i class="ac-dot"></i>会社</span>44px に合わせて直した</div></div><div class="row-end"><span class="badge b-done">Done</span>昨日</div></div>
+    </div>
+    <p class="opt-note"><b>名前の行は静かなまま。</b>全部の行に出るが、2 段目なので主張は弱い。要約の見える幅が少し減る。</p>
+  </section>
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">B4</span><span class="opt-name">左の縁に色の線</span></div>
+    <div class="list">
+      <div class="row"><span class="dot busy"></span><div class="row-main"><div class="row-name">アカウントの切り替え</div><div class="row-sub">新規セッションで選べるようにする設計</div></div><div class="row-end"><span class="badge b-active">Active</span>3 分前</div></div>
+      <div class="row edge-b"><span class="dot idle"></span><div class="row-main"><div class="row-name">索引の見直し</div><div class="row-sub">forgetVanished の安全弁を読む</div></div><div class="row-end"><span class="badge b-active">Active</span>18 分前</div></div>
+      <div class="row"><span class="dot"></span><div class="row-main"><div class="row-name">ヘッダの余白</div><div class="row-sub">44px に合わせて直した</div></div><div class="row-end"><span class="badge b-done">Done</span>昨日</div></div>
+    </div>
+    <p class="opt-note"><b>文字を足さない。</b>一覧を流し見して塊で分かる。色だけが手がかりなので、どの色がどのアカウントかを覚える必要があり、色の見分けに頼る。</p>
+  </section>
+
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">B5</span><span class="opt-name">一覧には出さない</span></div>
+    <div class="list">
+      <div class="row"><span class="dot busy"></span><div class="row-main"><div class="row-name">アカウントの切り替え</div><div class="row-sub">新規セッションで選べるようにする設計</div></div><div class="row-end"><span class="badge b-active">Active</span>3 分前</div></div>
+      <div class="row"><span class="dot idle"></span><div class="row-main"><div class="row-name">索引の見直し</div><div class="row-sub">forgetVanished の安全弁を読む</div></div><div class="row-end"><span class="badge b-active">Active</span>18 分前</div></div>
+      <div class="row"><span class="dot"></span><div class="row-main"><div class="row-name">ヘッダの余白</div><div class="row-sub">44px に合わせて直した</div></div><div class="row-end"><span class="badge b-done">Done</span>昨日</div></div>
+    </div>
+    <p class="opt-note"><b>一覧は今のまま。</b>アカウントはセッション画面（下の 3）でだけ見る。絞り込みに <span class="mono">account:大学</span> を足せば探せる。一覧からは見分けられない。</p>
+  </section>
+</div>
+
+<h2>3. セッション画面と、再開のメニュー</h2>
+<p class="lead">決まった動き（再開は前回と同じアカウント、変えるときだけ選ぶ）を絵にしたものです。ここは 1 案で、違和感があれば言ってください。</p>
+<div class="grid wide">
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">C</span><span class="opt-name">情報の行にアカウントの札</span></div>
+    <div class="panel">
+      <div class="sess-title">索引の見直し<span class="badge b-active">Active</span></div>
+      <div class="chips"><span class="chip">agent-hangar</span><span class="chip"><span class="ac ac-b"><i class="ac-dot"></i></span>大学</span><span class="chip">opus</span><span class="chip">high</span><span class="chip">context 38%</span></div>
+    </div>
+    <p class="opt-note">model や effort と同じ並びに置きます。途中でアカウントを変えて再開したら、札は最後に動かしたアカウントになります。</p>
+  </section>
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">D</span><span class="opt-name">再開のメニュー</span></div>
+    <div style="display:flex;gap:16px;align-items:flex-start">
+      <div class="menu">
+        <div class="mi hover">再開<span class="k">大学</span></div>
+        <div class="mi">別のアカウントで再開<span class="k">›</span></div>
+        <div class="mi">フォーク</div>
+        <div class="msep"></div>
+        <div class="mi">Paused にする<span class="k">p</span></div>
+        <div class="mi">Done にする<span class="k">d</span></div>
+      </div>
+      <div class="menu" style="width:190px;margin-top:28px">
+        <div class="mhead">このセッションを動かすアカウント</div>
+        <div class="mi hover"><span class="ac ac-a"><i class="ac-dot"></i></span>会社<span class="k">Max</span></div>
+        <div class="mi" style="color:var(--ink-3)"><span class="ac ac-b"><i class="ac-dot"></i></span>大学<span class="k">いま</span></div>
+      </div>
+    </div>
+    <p class="opt-note">「再開」は押すだけで前回のアカウント。上限に当たったときなどは「別のアカウントで再開」から手で選びます。自動では切り替えません。</p>
+  </section>
+</div>
+
+<h2>4. ヘッダの使用量（5 時間・7 日）</h2>
+<p class="lead">いまは全体で 1 組ですが、アカウントごとに別の枠になります。3 案です。</p>
+<div class="grid wide">
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">E1</span><span class="opt-name">2 組を並べる</span></div>
+    <div class="hdr"><span class="brand">Hangar_</span><span class="search">検索</span>
+      <span class="u"><span class="ac ac-a"><i class="ac-dot"></i>会社</span>5h<span class="meter"><i class="hot" style="width:82%"></i></span><b>82%</b>7d<span class="meter"><i style="width:41%"></i></span><b>41%</b></span>
+      <span class="u"><span class="ac ac-b"><i class="ac-dot"></i>大学</span>5h<span class="meter"><i style="width:12%"></i></span><b>12%</b>7d<span class="meter"><i style="width:9%"></i></span><b>9%</b></span>
+    </div>
+    <p class="opt-note"><b>常に両方見える。</b>幅を多く使い、狭い窓では検索欄が縮む。アカウントが 3 つになると入らない。</p>
+  </section>
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">E2</span><span class="opt-name">きつい方を 1 組、残りは開いて見る</span><span class="rec">推し</span></div>
+    <div class="hdr"><span class="brand">Hangar_</span><span class="search">検索</span>
+      <span class="u"><span class="ac ac-a"><i class="ac-dot"></i>会社</span>5h<span class="meter"><i class="hot" style="width:82%"></i></span><b>82%</b>7d<span class="meter"><i style="width:41%"></i></span><b>41%</b><span class="caret">▾</span></span>
+    </div>
+    <p class="opt-note"><b>幅は今のまま。</b>上限にいちばん近いアカウントを出し、押すと全アカウントの内訳が開く。出ているのがどれかは印で分かる。</p>
+  </section>
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">E3</span><span class="opt-name">2 段に重ねる（5 時間だけ）</span></div>
+    <div class="hdr"><span class="brand">Hangar_</span><span class="search">検索</span>
+      <span class="ustack">
+        <span class="u"><span class="ac ac-a"><i class="ac-dot"></i>会社</span><span class="meter"><i class="hot" style="width:82%"></i></span><b>82%</b></span>
+        <span class="u"><span class="ac ac-b"><i class="ac-dot"></i>大学</span><span class="meter"><i style="width:12%"></i></span><b>12%</b></span>
+      </span>
+    </div>
+    <p class="opt-note"><b>両方見えて幅は小さい。</b>7 日の枠は押して開いた先へ移す。44px のヘッダに 2 段は詰まり、文字が小さくなる。</p>
+  </section>
+</div>
+
+<h2>5. 設定のアカウントの節</h2>
+<p class="lead">登録の入口です。hangar はリンクを張って置き場を用意するだけで、ログインは開いたターミナルで <span class="mono">claude</span> 自身が行います。hangar はトークンを読みません。</p>
+<div class="grid wide">
+  <section class="opt">
+    <div class="opt-head"><span class="opt-id">F</span><span class="opt-name">アカウントの一覧と追加</span></div>
+    <div class="panel">
+      <div class="settings-row"><span class="ac-sq ac-a">会</span><b>会社</b><span class="mono">~/.claude</span><span class="ok">Max ・ログイン済み ・既定</span></div>
+      <div class="settings-row"><span class="ac-sq ac-b">大</span><b>大学</b><span class="mono">~/.claude-univ</span><span class="ok">Enterprise ・ログイン済み</span></div>
+      <div style="display:flex;gap:8px;padding-top:6px"><span class="btn">アカウントを追加</span><span class="faint" style="align-self:center">置き場を作ってリンクを張り、ターミナルでログインを開きます</span></div>
+    </div>
+    <p class="opt-note">名前は自分で付けます。プランとログインの状態は <span class="mono">claude auth status</span> の結果を出します（メールアドレスは既定では出しません）。</p>
+  </section>
+</div>
+
+<div class="ask">決めたいのは 1（A1〜A6）、2（B1〜B5）、4（E1〜E3）の 3 つです。組み合わせでも、別の案でも構いません。</div>
+</main>
+</body>
+</html>

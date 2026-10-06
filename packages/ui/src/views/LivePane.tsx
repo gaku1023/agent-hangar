@@ -182,7 +182,7 @@ export function LivePane({ sessionId, pane, leaving, lead, children, split = LIV
                 onClick={() => emit({ type: 'transcript.selectAgent', sessionId, agentId: l.agentId })}>
                 <span className="live-dot" data-tone={l.tone} />
                 <span className="live-lane-title">{l.title}</span>
-                <span className="live-lane-time mono">{l.elapsed}</span>
+                <span className="live-lane-time num">{l.elapsed}</span>
                 <span className="live-lane-line">{l.quoted ? `「${l.line}」` : l.line}</span>
               </button>
             ))}

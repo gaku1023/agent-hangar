@@ -224,7 +224,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     if (file.agentId !== null) refreshFilesChanged(db, sessionId);
     else if (remote) writeSessionStats(db, sessionId, acc, reset);
     else applySessionFacts(db, sessionId, acc, reset, opts.deviceId);
-    // 利用者が新しく打った発言があれば、古くなった提案と却下の印を外す。resume した後の発言なら、状態も外して印なしに戻す。
+    // 利用者が新しく打った発言があれば、古くなった提案と却下の印を外す。resume した後の発言なら、状態も外して Active に戻す。
     // 同じプロセスの続きの発言かどうかは、発言を出したプロセスの起動時刻で見分ける。引く口が無ければ状態は外さない。
     // 手元の主線だけが書く。他端末の写しから外すと、持ち主の PC と同じ書き込みを二重に D1 へ送る。
     // 作り直しで前からある発言を読み直しても、状態を付けた時刻より前なので外れない。

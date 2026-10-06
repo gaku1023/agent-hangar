@@ -6,6 +6,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { promoteSession, PromoteError, type PromoteDeps } from './promote.ts';
 import { ensureScratchProject, newScratchDir } from './scratch.ts';
+import { posixIt } from '../../test/platform.ts';
 
 let home: string;
 let ws: string;
@@ -100,7 +101,8 @@ describe('promoteSession', () => {
     expect(fs.existsSync(path.join(ws, 'clash', 'a.txt'))).toBe(false);
   });
 
-  it('移動の途中で失敗したら、移したものをスクラッチに戻して理由を返す', () => {
+  // 書けない・読めない状態を chmod で作る。Windows の chmod ではできない。
+  posixIt('移動の途中で失敗したら、移したものをスクラッチに戻して理由を返す', () => {
     // zz は書き込み権限が無いディレクトリなので、親をまたぐ rename が EACCES で落ちる。
     // 名前順に a.txt、sub、zz と移すので、失敗するのは 2 つ移した後である。
     const zz = path.join(dir, 'zz');
@@ -121,7 +123,8 @@ describe('promoteSession', () => {
     }
   });
 
-  it('移動を始められなければ、何も動かさずに理由を返す', () => {
+  // 書けない・読めない状態を chmod で作る。Windows の chmod ではできない。
+  posixIt('移動を始められなければ、何も動かさずに理由を返す', () => {
     fs.chmodSync(dir, 0o555);
     try {
       const r = promoteSession(deps(), { sessionId: 's1', name: 'stuck', gitInit: false, moveFiles: true });

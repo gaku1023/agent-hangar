@@ -7,8 +7,9 @@ export type PauseChoice = { key: 'today' | 'tomorrow' | 'monday' | 'nextWeek' | 
 /**
  * Paused の入力。draft は理由の欄の下書き、candidateNote は提案から開いたときの Claude の根拠（変えたかを見るのに使う）。
  * today は暦の欄の下限で、initialReturnOn は開いたときに選んでおく日である。
+ * initialReturnTime は時刻の欄に入れておく時刻（HH:MM）で、無ければ空（その日のうち）。candidateReturnTime は提案の時刻で、変えたかを見るのに使う。
  */
-export type PauseProps = { sessionId: string; sessionName: string; from: 'menu' | 'candidate'; draft: string; candidateNote: string | null; initialReturnOn: string; today: string; choices: PauseChoice[] };
+export type PauseProps = { sessionId: string; sessionName: string; from: 'menu' | 'candidate'; draft: string; candidateNote: string | null; initialReturnOn: string; initialReturnTime: string; candidateReturnTime: string | null; today: string; choices: PauseChoice[] };
 
 /**
  * 戻る日の札を今の手元の暦から作る。
@@ -45,6 +46,8 @@ export function presentPause(state: State, store: Store, now: number): PauseProp
     draft: cand ? cand.note ?? '' : own?.note ?? '',
     candidateNote: cand?.note ?? null,
     initialReturnOn: cand?.returnOn ?? own?.returnOn ?? choices[1]!.returnOn!,
+    initialReturnTime: (cand ? cand.returnTime : own?.returnTime) ?? '',
+    candidateReturnTime: cand?.returnTime ?? null,
     today: choices[0]!.returnOn!,
     choices,
   };

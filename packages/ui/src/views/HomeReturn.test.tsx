@@ -5,7 +5,7 @@ import type { ConfirmCard, HomeProps, ReturnCard } from '../presenters/home.ts';
 import { HomeScreen } from './HomeScreen.tsx';
 
 const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
-const ret = (id: string, overdueDays: number | null, projectName: string | null = 'agent-hangar'): ReturnCard => ({ id, name: `戻る ${id}`, projectName, reason: `${id} の数字を見る`, returnOn: overdueDays === null ? null : '2026-10-02', overdueDays });
+const ret = (id: string, overdueDays: number | null, projectName: string | null = 'agent-hangar'): ReturnCard => ({ id, name: `戻る ${id}`, projectName, reason: `${id} の数字を見る`, returnOn: overdueDays === null ? null : '2026-10-02', returnTime: null, overdueDays, due: true, pastMin: null });
 
 describe('HomeScreen の今日戻る（C1）', () => {
   it('要対応の札の並びに、入力待ちの後ろで今日戻るの札を出し、戻る日を言う', () => {

@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>使用量と費用</title>
+<style>
+:root {
+  --bg: #eef1f7; --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-hi: #6b8cff; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e; --error: #b3261e;
+  --st-paused: #8a5a0b; --st-paused-soft: #faefd9; --st-done: #2b7048; --st-done-soft: #e3f1e8;
+  --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --u: 4px; --r: 8px; --r-lg: 14px; --r-pill: 99px; --row-h: 28px;
+  --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 16px 64px; background: var(--bg); color: var(--ink); font: var(--fs) var(--font-sans); }
+.wrap { max-width: 1520px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.lead { color: var(--ink-2); margin: 0 0 20px; line-height: 1.6; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 16px; }
+.opt { border-radius: 18px; padding: 12px; background: rgba(255,255,255,0.45); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.8); cursor: pointer; transition: box-shadow 200ms; }
+.opt:hover { box-shadow: inset 0 0 0 2px var(--accent-hi); }
+.opt.selected { box-shadow: inset 0 0 0 3px var(--accent); background: var(--accent-soft); }
+.opt-h { display: flex; align-items: baseline; gap: 8px; margin: 2px 4px 10px; }
+.opt-h b { font-size: 14px; }
+.opt-h .letter { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700; }
+.opt-h span.d { color: var(--ink-2); font-size: var(--fs-sm); }
+section.s { padding: 12px 16px 16px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.h2 { font-size: var(--fs-md); font-weight: 650; margin: 0 0 8px; }
+.h3 { font-size: var(--fs-sm); font-weight: 650; margin: 12px 0 6px; color: var(--ink); }
+.mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+.muted { color: var(--ink-2); } .faint { color: var(--ink-3); }
+.meta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; font-size: var(--fs-sm); }
+.btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; height: var(--row-h); padding: 0 12px; border: 0; border-radius: var(--r-pill); font: 560 var(--fs) var(--font-sans); background: rgba(255,255,255,0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,0.14); }
+.ghost { height: 18px; margin-top: 8px; border-radius: 6px; background: var(--surface-2); }
+.ghost.w60 { width: 60%; }
+.new { position: relative; margin: 10px -8px 0; padding: 8px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 4%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+.new::before { content: '新しく足す'; position: absolute; top: -8px; right: 8px; padding: 0 6px; border-radius: 99px; background: var(--accent); color: #fff; font-size: 10px; line-height: 16px; }
+/* 棒 */
+.meter { position: relative; height: 8px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--ink) 8%, transparent); overflow: visible; }
+.meter > i { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-pill); background: var(--accent); }
+.meter > i.proj { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--busy) 55%, transparent) 0 4px, color-mix(in srgb, var(--busy) 25%, transparent) 4px 8px); }
+.meter > .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--st-paused); }
+.meter.thin { height: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; font-size: var(--fs-xs); color: var(--ink-2); }
+.legend .warn { color: var(--st-paused); font-weight: 600; }
+.lbl { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-sm); margin-bottom: 4px; }
+.lbl b { font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tile { padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.tile .k { font-size: var(--fs-xs); color: var(--ink-3); }
+.tile .v { font: 650 18px var(--font-mono); margin-top: 2px; }
+.tile .v small { font: 500 var(--fs-xs) var(--font-sans); color: var(--ink-2); margin-left: 4px; }
+.mini { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.mini th { text-align: left; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.mini td, .mini th { height: 22px; padding: 0 4px; }
+.mini .r { text-align: right; font-family: var(--font-mono); }
+.badge { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 99px; font-size: var(--fs-xs); font-weight: 560; }
+.badge.ok { color: var(--st-done); background: var(--st-done-soft); }
+.badge.warn { color: var(--st-paused); background: var(--st-paused-soft); }
+.donut-row { display: flex; gap: 14px; align-items: center; }
+.note { margin-top: 18px; padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,0.6); color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.7; }
+</style>
+</head>
+<body>
+<style>
+.bars { display: grid; gap: 10px; }
+.bar-row { display: grid; grid-template-columns: 150px 1fr 150px; gap: 10px; align-items: center; font-size: var(--fs-sm); }
+.bar-row .n { text-align: right; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-2); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.col { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.col h4 { margin: 0 0 8px; font-size: var(--fs-sm); }
+.col h4 small { font-weight: 500; color: var(--ink-3); margin-left: 6px; }
+.big { font: 680 26px var(--font-mono); letter-spacing: -0.02em; }
+.src { font-size: var(--fs-xs); color: var(--ink-3); }
+.inv { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.inv td { height: 24px; border-bottom: 1px solid var(--line); padding: 0 4px; }
+.inv td.r { text-align: right; font-family: var(--font-mono); }
+.inv tr.tot td { border-bottom: 0; font-weight: 650; }
+details summary { cursor: pointer; font-size: var(--fs-sm); color: var(--ink-2); margin-top: 10px; }
+.fallback { margin-top: 18px; }
+.fallback .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border-radius: 99px; background: var(--surface-2); font-size: var(--fs-xs); color: var(--ink-2); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); }
+.facts { margin: 0 0 18px; padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,0.7); font-size: var(--fs-sm); line-height: 1.75; color: var(--ink-2); }
+.facts b { color: var(--ink); }
+</style>
+<div class="wrap">
+  <h1>設定に出す「使用量と費用」の組み立て</h1>
+  <p class="lead">実際に取れた値で組みました。D1 と Workers は今日の例の数（23,480 行、4,120 回）、R2 と費用は API が返した本物の数（10/1 まで反映）です。<br>前の画面の棒の形（A〜H）はあとで選び直せます。ここでは<b>何をどう並べるか</b>を選んでください。</p>
+
+  <div class="facts">
+    <b>API で取れたもの</b>：プラン（Workers は無料、R2 は従量の有料）、今月の請求額（R2 の 3 項目、どれも 0 ドル、前日まで）、D1 と Workers の今日の数（GraphQL。<b>D1 は標本抽出なしの正確な数</b>）。<br>
+    <b>取れなかったもの</b>：D1 と Workers の上限。entitlements は 17 件返ったが、Pages やルールの上限だけで、無料枠は入っていない → 上限は文書の値をプランで切り替えて埋め込む。
+  </div>
+
+  <div class="grid">
+
+    <!-- P1 -->
+    <div class="opt" data-choice="p1" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">1</span><b>棒の一覧（全部同じ形）</b><span class="d">今日の枠と今月の枠を 1 本ずつ並べる。費用は見出しの右</span></div>
+      <section class="s">
+        <div class="h2" style="display:flex;align-items:baseline;gap:8px">使用量と費用 <span class="faint" style="font-size:var(--fs-sm);font-weight:500">Workers 無料 · R2 従量</span><span style="margin-left:auto;font:650 var(--fs) var(--font-mono)">今月 $0.00</span></div>
+        <div class="bars">
+          <div class="bar-row"><span>D1 の書き込み（今日）</span><div class="meter thin"><i style="width:23.48%"></i><span class="tick" style="left:80%"></span></div><span class="n">23,480 / 100,000 行</span></div>
+          <div class="bar-row"><span>Workers の要求（今日）</span><div class="meter thin"><i style="width:4.12%"></i><span class="tick" style="left:80%"></span></div><span class="n">4,120 / 100,000 回</span></div>
+          <div class="bar-row"><span>R2 の保存（今月）</span><div class="meter thin"><i style="width:1.65%"></i></div><span class="n">0.17 / 10 GB-月</span></div>
+          <div class="bar-row"><span>R2 の書く操作（今月）</span><div class="meter thin"><i style="width:0.65%"></i></div><span class="n">6,470 / 1,000,000</span></div>
+          <div class="bar-row"><span>R2 の読む操作（今月）</span><div class="meter thin"><i style="width:0.2%"></i></div><span class="n">1,653 / 10,000,000</span></div>
+        </div>
+        <div class="legend"><span>今日の枠は 9:00 に戻る · 80% で同期を止める</span><span>今月は 9/5〜10/5</span><span class="src">Cloudflare の数 · 2 分前</span></div>
+      </section>
+    </div>
+
+    <!-- P2 -->
+    <div class="opt" data-choice="p2" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">2</span><b>毎日の枠と毎月の枠を左右に分ける</b><span class="d">戻る周期が違うものを混ぜない</span></div>
+      <section class="s">
+        <div class="h2">使用量と費用</div>
+        <div class="cols">
+          <div class="col">
+            <h4>毎日の無料枠<small>9:00 に戻る</small></h4>
+            <div class="lbl"><span>D1 の書き込み</span><span class="mono">23%</span></div>
+            <div class="meter thin"><i style="width:23.48%"></i><span class="tick" style="left:80%"></span></div>
+            <div class="legend"><span>23,480 / 100,000 行</span></div>
+            <div class="lbl" style="margin-top:8px"><span>Workers の要求</span><span class="mono">4%</span></div>
+            <div class="meter thin"><i style="width:4.12%"></i><span class="tick" style="left:80%"></span></div>
+            <div class="legend"><span>4,120 / 100,000 回</span></div>
+          </div>
+          <div class="col">
+            <h4>今月<small>9/5〜10/5 · R2 従量</small></h4>
+            <div class="big">$0.00</div>
+            <div class="legend" style="margin-top:2px"><span>10/1 までの請求額</span></div>
+            <div class="legend" style="margin-top:8px;display:grid;gap:2px"><span>保存 0.17 / 10 GB-月</span><span>書く操作 6,470 / 100 万</span><span>読む操作 1,653 / 1,000 万</span></div>
+          </div>
+        </div>
+        <div class="legend"><span>80% で同期を止める</span><span class="src">Cloudflare の数 · 2 分前</span></div>
+      </section>
+    </div>
+
+    <!-- P3 -->
+    <div class="opt" data-choice="p3" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">3</span><b>札を上に、詳しくは下に</b><span class="d">「今月いくら」「今日あとどれだけ」を大きく</span></div>
+      <section class="s">
+        <div class="h2">使用量と費用</div>
+        <div class="tiles">
+          <div class="tile"><div class="k">今月の請求</div><div class="v">$0.00<small>10/1 まで</small></div></div>
+          <div class="tile"><div class="k">D1 の書き込み（今日）</div><div class="v">23%<small>23,480 行</small></div></div>
+          <div class="tile"><div class="k">プラン</div><div class="v" style="font-size:14px;font-family:var(--font-sans)">Workers 無料<small>R2 従量</small></div></div>
+        </div>
+        <details open><summary>ほかの枠</summary>
+          <table class="mini" style="margin-top:4px">
+            <tbody>
+              <tr><td>Workers の要求（今日）</td><td class="r">4,120 / 100,000 回</td></tr>
+              <tr><td>R2 の保存（今月）</td><td class="r">0.17 / 10 GB-月</td></tr>
+              <tr><td>R2 の書く操作（今月）</td><td class="r">6,470 / 100 万</td></tr>
+              <tr><td>R2 の読む操作（今月）</td><td class="r">1,653 / 1,000 万</td></tr>
+            </tbody>
+          </table>
+        </details>
+        <div class="legend"><span class="src">Cloudflare の数 · 2 分前 · 今日の枠は 9:00 に戻る</span></div>
+      </section>
+    </div>
+
+    <!-- P4 -->
+    <div class="opt" data-choice="p4" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">4</span><b>請求書の形</b><span class="d">費用を主役に。製品ごとの行に込みの量と使った量</span></div>
+      <section class="s">
+        <div class="h2" style="display:flex;align-items:baseline">今月の費用 <span class="faint" style="font-size:var(--fs-sm);font-weight:500;margin-left:8px">9/5〜10/5</span></div>
+        <table class="inv">
+          <tbody>
+            <tr><td>R2 保存（10 GB-月まで込み）</td><td class="r faint">0.17 GB-月</td><td class="r">$0.00</td></tr>
+            <tr><td>R2 書く操作（100 万回まで込み）</td><td class="r faint">6,470</td><td class="r">$0.00</td></tr>
+            <tr><td>R2 読む操作（1,000 万回まで込み）</td><td class="r faint">1,653</td><td class="r">$0.00</td></tr>
+            <tr><td>Workers・D1</td><td class="r faint">無料プラン</td><td class="r">$0.00</td></tr>
+            <tr class="tot"><td>計（10/1 まで）</td><td></td><td class="r">$0.00</td></tr>
+          </tbody>
+        </table>
+        <div class="h3">毎日の無料枠 <span class="faint" style="font-weight:500">9:00 に戻る</span></div>
+        <div class="lbl"><span>D1 の書き込み</span><span class="mono">23,480 / 100,000 行</span></div>
+        <div class="meter thin"><i style="width:23.48%"></i><span class="tick" style="left:80%"></span></div>
+      </section>
+    </div>
+
+    <!-- P5 -->
+    <div class="opt" data-choice="p5" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">5</span><b>D1 だけ大きく、残りは畳む</b><span class="d">同期を止める理由になる数だけを前に出す</span></div>
+      <section class="s">
+        <div class="h2">使用量と費用</div>
+        <div class="lbl"><span>今日の D1 書き込み</span><span class="mono">23,480 / 100,000 行</span></div>
+        <div class="meter"><i style="width:23.48%"></i><span class="tick" style="left:80%"></span></div>
+        <div class="legend"><span>23%</span><span>80% で同期を止める</span><span>9:00 に戻る</span><span class="src">Cloudflare の数 · 2 分前</span></div>
+        <details><summary>今月の費用 $0.00 · Workers 無料 · R2 従量 · ほかの枠 4 つ</summary></details>
+      </section>
+    </div>
+
+    <!-- P6 -->
+    <div class="opt" data-choice="p6" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">6</span><b>近い順に並べる</b><span class="d">いちばん上限に近い枠を先頭に。普段は 2 本だけ見せる</span></div>
+      <section class="s">
+        <div class="h2" style="display:flex;align-items:baseline;gap:8px">使用量と費用 <span style="margin-left:auto" class="pill"><span class="dot"></span>どの枠にも余裕あり</span></div>
+        <div class="bars">
+          <div class="bar-row"><span>D1 の書き込み（今日）</span><div class="meter thin"><i style="width:23.48%"></i><span class="tick" style="left:80%"></span></div><span class="n">23%</span></div>
+          <div class="bar-row"><span>Workers の要求（今日）</span><div class="meter thin"><i style="width:4.12%"></i><span class="tick" style="left:80%"></span></div><span class="n">4%</span></div>
+        </div>
+        <details><summary>残り 3 つ（どれも 2% 未満）</summary></details>
+        <div class="legend" style="margin-top:8px"><span>今月 $0.00（R2 従量 · 10/1 まで）</span><span>Workers 無料</span><span class="src">Cloudflare の数 · 2 分前</span></div>
+      </section>
+    </div>
+
+  </div>
+
+  <div class="fallback">
+    <h3 style="margin:0 0 8px;font-size:15px">トークンが無いとき（どの案でも共通）</h3>
+    <div class="grid2">
+      <section class="s">
+        <div class="h2">使用量と費用</div>
+        <div class="lbl"><span>今日の D1 書き込み</span><span class="mono">約 26,700 / 100,000 行</span></div>
+        <div class="meter thin"><i style="width:26.7%"></i><span class="tick" style="left:80%"></span></div>
+        <div class="legend"><span>hangar の見積もり（実際より 1〜4 割多め）</span><span>9:00 に戻る</span></div>
+        <div class="faint" style="margin-top:10px;font-size:var(--fs-sm)">Cloudflare の正確な数と今月の費用は、読み取り専用のトークンを入れると出ます。<br><span class="mono">npm run hangar -- setup cloud --usage-token</span></div>
+      </section>
+      <div class="note" style="margin-top:0">
+        ・トークンが無くても同期はいつもどおり動き、見張りも今の見積もりで続ける。<br>
+        ・トークンは Worker の secret に置き、Worker が Cloudflare に問い合わせて全部の PC に配る（PC ごとに入れる必要は無い）。<br>
+        ・問い合わせは数分ごとにまとめる。今日の数は GraphQL（数分遅れ）、費用は 1 日 1 回の更新。
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

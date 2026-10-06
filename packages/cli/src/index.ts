@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { claudeJsonPath, defaultClaudeDir, hangarHome, installShutdown, loadSettings, readOrCreateDevice, readOrCreateToken, startServer } from '@agent-hangar/server';
-import { cloudBackfill, cloudStatus, promptWord, readJoinToken, runJoin, runSetupCloud, runTeardown } from './cloud.ts';
+import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage, startErrorMessage } from './probe.ts';
 import { formatSetupReport, runSetup, whichCmd } from './setup.ts';
@@ -42,8 +42,14 @@ setup
   .description('自分の Cloudflare アカウントに同期用の Worker と D1 と R2 を作ってデプロイする')
   .option('--name <name>', 'Worker の名前（D1 は同名、R2 は <name>-files）', 'hangar')
   .option('--rotate-secret', '参加用の秘密を作り直す（既存の暗号化ファイルが復号できなくなる。確認を求める）')
-  .action(async (o: { name: string; rotateSecret?: boolean }) => {
+  .option('--usage-token', '使用量と費用を出す読み取り専用のトークンを Worker に入れる（標準入力から受け取る）')
+  .action(async (o: { name: string; rotateSecret?: boolean; usageToken?: boolean }) => {
     const home = hangarHome();
+    if (o.usageToken) {
+      for (const l of USAGE_TOKEN_HELP) console.log(l);
+      await installUsageToken({ home, token: await readUsageToken() });
+      return;
+    }
     const device = readOrCreateDevice(home);
     await runSetupCloud({ home, device, name: o.name, rotateSecret: o.rotateSecret });
   });

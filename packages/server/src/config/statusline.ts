@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { StatuslineStatusDto } from '@agent-hangar/shared';
+import { hasMode } from '../platform/secure.ts';
 
 // statusline スクリプトへの追記は、hangar が ~/.claude 配下に書く唯一の操作である。
 // ここでは読み取りと、承諾を得た後に呼ばれる追記だけを提供し、問いかけは CLI が担う。
@@ -47,7 +48,7 @@ export function writeStatuslineHeaderFile(home: string, token: string): string {
 export function ensureStatuslineHeaderFile(home: string, token: string): string {
   const file = statuslineHeaderPath(home);
   try {
-    const ok = fs.readFileSync(file, 'utf8') === `Authorization: Bearer ${token}\n` && (fs.statSync(file).mode & 0o777) === 0o600;
+    const ok = fs.readFileSync(file, 'utf8') === `Authorization: Bearer ${token}\n` && hasMode(file, 0o600);
     if (ok) return file;
   } catch {
     // 無い、または読めない。下で置き直す。

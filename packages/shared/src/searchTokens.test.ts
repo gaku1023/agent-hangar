@@ -11,11 +11,16 @@ describe('parseQuery', () => {
   it('is: since: project: file: を読み、残りを検索語にする', () => {
     expect(parseQuery('is:paused 動画 since:30d project:agent-h file:rows.css', projects)).toEqual({ text: '動画', filter: { status: 'paused', days: 30, projectId: 'p1', file: 'rows.css' } });
   });
-  it('is: は状態の 6 つと、動きの running と waiting を受け、大文字小文字を問わない', () => {
-    for (const s of ['paused', 'done', 'archived', 'active', 'none', 'proposed'] as const) expect(parseQuery(`is:${s}`).filter).toEqual({ status: s });
+  it('is: は状態の 5 つと、動きの running と waiting を受け、大文字小文字を問わない', () => {
+    for (const s of ['paused', 'done', 'archived', 'active', 'proposed'] as const) expect(parseQuery(`is:${s}`).filter).toEqual({ status: s });
     expect(parseQuery('is:running').filter).toEqual({ live: 'running' });
     expect(parseQuery('is:waiting').filter).toEqual({ live: 'waiting' });
     expect(parseQuery('IS:Paused').filter).toEqual({ status: 'paused' });
+  });
+  // 状態が無いものは Active と呼ぶので none は無い。習慣で打った is:none は黙って捨てず、読めないトークンとして知らせる。
+  it('is:none は条件として読まず、語に残して badTokens が拾う', () => {
+    expect(parseQuery('is:none 動画')).toEqual({ text: 'is:none 動画', filter: {} });
+    expect(badTokens('is:none 動画')).toEqual(['is:none']);
   });
   it('同じ項目が 2 度あれば後ろが勝つ。状態と動きは別の項目なので両方残る', () => {
     expect(parseQuery('is:paused is:done').filter).toEqual({ status: 'done' });
@@ -70,7 +75,7 @@ describe('formatQuery と queryTokens', () => {
       ['動画 本文', { status: 'proposed', days: 30 }],
       ['', { live: 'running', projectId: 'p4', file: 'docs/a b.md' }],
       ['x', { projectId: 'p3' }],
-      ['', { status: 'none', projectId: 'p6' }],
+      ['', { status: 'active', projectId: 'p6' }],
     ];
     for (const [text, filter] of cases) expect(parseQuery(formatQuery(text, filter, projects), projects)).toEqual({ text, filter });
   });

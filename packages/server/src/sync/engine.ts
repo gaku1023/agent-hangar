@@ -184,6 +184,9 @@ export class SyncEngine {
       error: state === 'error' ? this.lastError : null,
       deviceCount,
       claudeConfig: { ...this.claudeConfig },
+      // 古いサーバが止めた状態は理由を持たない。利用者が止めたのと同じに読む。
+      pausedReason: state === 'paused' ? ((this.state.get('pausedReason') as 'quota' | 'user' | null) ?? 'user') : null,
+      quotaPausedDay: this.quota.pausedDay()?.replace(/^quota:/, '') ?? null,
     };
   }
 
@@ -369,13 +372,15 @@ export class SyncEngine {
     if (this.quota.pausedDay() === day || this.paused) return false;
     if (!this.quota.exceeded()) return false;
     this.quota.setPausedDay(day);
-    this.setPaused(true);
+    this.setPaused(true, 'quota');
     this.emit('toast', 'info', QUOTA_PAUSED_MESSAGE);
     return true;
   }
 
-  setPaused(paused: boolean): void {
+  /** reason は止めた理由。UI と CLI からは user、無料枠の見張りからは quota。再開すると消す。 */
+  setPaused(paused: boolean, reason: 'quota' | 'user' = 'user'): void {
     this.state.set('paused', paused);
+    this.state.set('pausedReason', paused ? reason : null);
     if (!paused && this.started && this.deps.client) { this.noteLocalChange(); this.enqueueWhileStarted(() => this.pullNow()); }
     this.emitStatus();
   }

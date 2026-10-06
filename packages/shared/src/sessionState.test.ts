@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, isReturnOn, localDate, overdueDays, STATE_NOTE_MAX } from './sessionState.ts';
+import { addDays, isReturnOn, isReturnTime, localDate, localTime, overdueDays, returnAtIso, returnAtMs, STATE_NOTE_MAX } from './sessionState.ts';
 
 /** 手元の暦の時刻。試験を走らせる機械のタイムゾーンによらず、同じ日付になる。 */
 const at = (y: number, m: number, d: number, h = 12, min = 0) => new Date(y, m - 1, d, h, min).getTime();
@@ -53,5 +53,42 @@ describe('overdueDays', () => {
   });
   it('理由の上限は 200 字', () => {
     expect(STATE_NOTE_MAX).toBe(200);
+  });
+});
+
+describe('isReturnTime', () => {
+  it('HH:MM の形で、00:00〜23:59 だけを通す', () => {
+    for (const s of ['00:00', '09:05', '13:30', '23:59']) expect(isReturnTime(s), s).toBe(true);
+    for (const s of ['24:00', '25:00', '12:60', '9:05', '13:3', '1330', '13:30:00', ' 13:30', '13：30', '']) expect(isReturnTime(s), s).toBe(false);
+  });
+});
+
+describe('localTime', () => {
+  it('手元の時刻を HH:MM で返す', () => {
+    expect(localTime(at(2026, 10, 5, 9, 5))).toBe('09:05');
+    expect(localTime(at(2026, 10, 5, 23, 59))).toBe('23:59');
+  });
+});
+
+describe('returnAtMs', () => {
+  it('戻る日と時刻を、手元の時刻として読む', () => {
+    expect(returnAtMs('2026-10-05', '13:30')).toBe(at(2026, 10, 5, 13, 30));
+    expect(returnAtMs('2026-10-05', '00:00')).toBe(at(2026, 10, 5, 0, 0));
+  });
+  it('日付か時刻の形が違えば NaN', () => {
+    expect(returnAtMs('2026-02-30', '13:30')).toBeNaN();
+    expect(returnAtMs('2026-10-05', '25:00')).toBeNaN();
+  });
+});
+
+describe('returnAtIso', () => {
+  it('手元のオフセットを付けて、どのゾーンで読んだかを残す', () => {
+    const iso = returnAtIso('2026-10-05', '13:30')!;
+    expect(iso).toMatch(/^2026-10-05T13:30[+-]\d{2}:\d{2}$/);
+    // 付けたオフセットで読み直すと、同じ時点になる。
+    expect(new Date(iso).getTime()).toBe(at(2026, 10, 5, 13, 30));
+  });
+  it('形が違えば null', () => {
+    expect(returnAtIso('2026-10-05', '25:00')).toBeNull();
   });
 });

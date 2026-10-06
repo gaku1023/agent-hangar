@@ -1,8 +1,9 @@
+import { CLOUD_FREE_LIMITS } from '@agent-hangar/shared';
 import type { SyncStateKey, SyncStateStore } from './state.ts';
 
-/** Cloudflare の無料枠。Workers の要求と D1 の書き込みが、どちらも 1 日 10 万である。 */
+/** Cloudflare の無料枠。Workers の要求と D1 の書き込みが、どちらも 1 日 10 万である。値の正本は共有の CLOUD_FREE_LIMITS。 */
 export type QuotaLimits = { d1Writes: number; requests: number };
-export const QUOTA_LIMITS: QuotaLimits = { d1Writes: 100_000, requests: 100_000 };
+export const QUOTA_LIMITS: QuotaLimits = { d1Writes: CLOUD_FREE_LIMITS.d1RowsPerDay, requests: CLOUD_FREE_LIMITS.workersRequestsPerDay };
 
 /** この割合に達したら同期を止める。利用者の決定（課金される形にしない）に沿った余白である。 */
 export const QUOTA_STOP_RATIO = 0.8;

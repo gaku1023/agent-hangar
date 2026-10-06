@@ -406,3 +406,23 @@ describe('HttpCloudClient', () => {
     });
   });
 });
+
+describe('usage', () => {
+  it('GET /usage を Bearer 付きで叩いて返す', async () => {
+    const { fetch, calls } = fakeFetch(() => json({ configured: false }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'dev-token', fetch });
+    expect(await c.usage()).toEqual({ configured: false });
+    expect(calls[0]!.url).toBe('https://w.example/usage');
+    expect(bearerIs(calls[0]!, 'dev-token')).toBe(true);
+  });
+  it('古い Worker の 404 は configured: false として扱う', async () => {
+    const { fetch } = fakeFetch(() => json({ error: 'not found' }, 404));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 't', fetch });
+    expect(await c.usage()).toEqual({ configured: false });
+  });
+  it('それ以外の失敗は CloudError のまま投げる', async () => {
+    const { fetch } = fakeFetch(() => json({ error: 'internal error' }, 500));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 't', fetch });
+    await expect(c.usage()).rejects.toMatchObject({ name: 'CloudError', status: 500 });
+  });
+});

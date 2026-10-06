@@ -2,18 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { addDays, localDate } from '@agent-hangar/shared';
 import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
+import { toSyncState } from '../mediator/sync.ts';
 import { initialState } from '../mediator/transition.ts';
+import { accountsFixture } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
 import { presentConfirm } from './confirm.ts';
-import { presentHome } from './home.ts';
+import { HOME_RECENT_MAX, presentHome } from './home.ts';
 import { newSessionTarget, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
 import { buildItems, presentSession, sessionActions } from './session.ts';
 import { presentSessions } from './sessions.ts';
+import { homePath } from './accounts.ts';
 import { presentSettings } from './settings.ts';
 import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
 import { presentRetentionDialog } from './retentionDialog.ts';
@@ -72,7 +75,7 @@ describe('format', () => {
 describe('presentConfirm', () => {
   it('一覧から削除する確認には、プロジェクトの名前と未分類に戻るセッションの数を添える', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'alpha' } } };
-    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'unlinkProject', projectId: 'alpha' }, project: { name: 'alpha', sessions: 2 } });
+    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'unlinkProject', projectId: 'alpha' }, project: { name: 'alpha', sessions: 2 }, accountName: null });
   });
   it('プロジェクトが store から消えていれば id を名前にし、数は 0 にする', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'gone' } } };
@@ -80,8 +83,18 @@ describe('presentConfirm', () => {
   });
   it('ほかの確認には何も添えず、確認が出ていなければ null', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'adoptSession' as const, sessionId: 's1' } } };
-    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null });
+    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null, accountName: null });
     expect(presentConfirm(initialState(), storeWith())).toBeNull();
+  });
+  it('切り替えと削除の確認には、指すアカウントの名前を添える。一覧に無ければ null', () => {
+    const store: Store = { ...storeWith(), accounts: accountsFixture };
+    const confirming = (confirm: State['overlay'] extends infer O ? (O extends { kind: 'confirm'; confirm: infer C } ? C : never) : never): State => ({ ...initialState(), overlay: { kind: 'confirm', confirm } });
+    const sw = confirming({ kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true });
+    expect(presentConfirm(sw, store)).toEqual({ confirm: { kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true }, project: null, accountName: '大学' });
+    expect(presentConfirm(confirming({ kind: 'switchAccount', sessionId: 's1', accountId: 'primary', working: false }), store)?.accountName).toBe('会社');
+    expect(presentConfirm(confirming({ kind: 'removeAccount', accountId: 'a1' }), store)).toEqual({ confirm: { kind: 'removeAccount', accountId: 'a1' }, project: null, accountName: '大学' });
+    expect(presentConfirm(confirming({ kind: 'removeAccount', accountId: 'gone' }), store)?.accountName).toBeNull();
+    expect(presentConfirm(sw, storeWith())?.accountName).toBeNull();
   });
 });
 
@@ -260,8 +273,20 @@ describe('presentHome', () => {
   it('実行中は作業中と休みを拾い、入力待ちは要対応だけに出す', () => {
     const p = presentHome(initialState(), homeStore(), NOW);
     expect(p.running.map((r) => r.id)).toEqual(['s1', 'i1']);
-    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%' });
+    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%' });
     expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: '休み。最後の返答から 8 分', contextPercent: 22, contextLabel: '22%' });
+  });
+  it('意図は、作業中のセッションがこのターンに書いたものだけを出す', () => {
+    const store = homeStore();
+    const digest = (inThisTurn: boolean) => ({ sessionId: 's1', turnStartSeq: 1, intent: { text: '一覧の枠をなくす', at: NOW - 1000, stepsSince: 2, inThisTurn }, agents: [] });
+    store.liveDigests = { s1: digest(true), i1: { ...digest(true), sessionId: 'i1' } };
+    const p = presentHome(initialState(), store, NOW);
+    expect(p.running[0]).toMatchObject({ id: 's1', intent: '一覧の枠をなくす' });
+    // 休みのセッションは、意図が残っていても出さない。
+    expect(p.running[1]).toMatchObject({ id: 'i1', intent: null });
+    // 前のターンの意図は、いまの作業を言っていないので出さない。
+    store.liveDigests = { s1: digest(false) };
+    expect(presentHome(initialState(), store, NOW).running[0]).toMatchObject({ intent: null });
   });
   it('作業中でも呼び出しがまだ無ければ「作業中」、レジストリに載る前の run は「起動しています」', () => {
     // 信頼確認のダイアログ待ちの run は Claude のレジストリにまだ載らない。
@@ -287,6 +312,15 @@ describe('presentHome', () => {
   it('最近は要対応と実行中に出したものを除き、新しい順に並べる', () => {
     expect(presentHome(initialState(), homeStore(), NOW).recent.map((r) => r.id)).toEqual(['s3', 's2']);
   });
+  // ホームではページを送らない。何行見せるかは画面が窓の高さで決めるので、背の高い窓でも足りる数だけ渡す。
+  it('最近は新しい順の先頭 HOME_RECENT_MAX 件だけを渡す', () => {
+    const store = initialStore();
+    store.bootstrapped = true;
+    store.projects = { alpha: project('alpha') };
+    store.sessions = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`e${i}`, session(`e${i}`, { lastActivityAt: NOW - 60_000 * (i + 1) })]));
+    const recent = presentHome({ ...initialState(), pageSize: 25, listPages: { home: 3 } }, store, NOW).recent.map((r) => r.id);
+    expect(recent).toEqual(Array.from({ length: HOME_RECENT_MAX }, (_, i) => `e${i}`));
+  });
   it('終わったセッションは札から消えて、最近に入る', () => {
     const store = homeStore();
     store.sessions.s1 = { ...store.sessions.s1!, live: null, lastActivityAt: NOW - 30_000 };
@@ -294,16 +328,16 @@ describe('presentHome', () => {
     expect(p.running.map((r) => r.id)).toEqual(['i1']);
     expect(p.recent[0]!.id).toBe('s1');
   });
-  it('プロジェクトは active だけを小さな一覧にし、0 の数は出さない', () => {
+  it('プロジェクトは active だけを並べ、札で見えている実行中と要対応は数えず、0 の数は出さない', () => {
     const store = homeStore();
     // 数は手元のセッションから数え、サーバの runningCount は見ない。
     // 実行中は作業中、休み、起動中（hangar の run はあるが Claude の一覧にまだ無い）で、入力待ちは要対応に別に数える。
     store.projects.alpha = { ...store.projects.alpha!, runningCount: 99, openTodoCount: 3 };
     store.runs = { r2: runDto('r2', 's2') };
-    expect(presentHome(initialState(), store, NOW).projects).toEqual([{ id: 'alpha', name: 'alpha', status: 'active', counts: '実行中 3 · TODO 3 · 要対応 2' }]);
+    expect(presentHome(initialState(), store, NOW).projects).toEqual([{ id: 'alpha', name: 'alpha', status: 'active', counts: 'TODO 3' }]);
     store.runs = {};
     store.sessions = { w1: store.sessions.w1!, s2: store.sessions.s2! };
-    expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('TODO 3 · 要対応 1');
+    expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('TODO 3');
     store.projects.alpha = { ...store.projects.alpha!, openTodoCount: 0 };
     store.sessions = { s2: store.sessions.s2! };
     expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('');
@@ -359,6 +393,23 @@ describe('presentProject', () => {
 });
 
 describe('presentSession', () => {
+  describe('account', () => {
+    const two = (over: Partial<typeof accountsFixture> = {}): Store => ({ ...storeWith(), sessions: { ...storeWith().sessions, s9: session('s9') }, accounts: { ...accountsFixture, ...over } });
+    it('2 件で対応があれば、そのアカウントの名前と色を出す', () => {
+      expect(presentSession(initialState(), two(), NOW, 's9').account).toEqual({ name: '大学', color: '#7a4a9e' });
+    });
+    it('2 件で対応が無ければ、最初のアカウントを出す', () => {
+      expect(presentSession(initialState(), two(), NOW, 's1').account).toEqual({ name: '会社', color: '#2a57b8' });
+    });
+    it('1 件、一覧が空、store.accounts が null なら null', () => {
+      expect(presentSession(initialState(), { ...two(), accounts: { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] } }, NOW, 's1').account).toBeNull();
+      expect(presentSession(initialState(), two({ accounts: [], sessions: {} }), NOW, 's1').account).toBeNull();
+      expect(presentSession(initialState(), storeWith(), NOW, 's1').account).toBeNull();
+    });
+    it('store に無いセッションの画面には札を出さない', () => {
+      expect(presentSession(initialState(), two(), NOW, 'nope').account).toBeNull();
+    });
+  });
   it('見出しの上には、属するプロジェクトへ戻るリンクを出し、属さなければ出さない', () => {
     const store = storeWith();
     expect(presentSession(initialState(), store, NOW, 's1').parent).toEqual({ label: 'alpha', route: { name: 'project', id: 'alpha' } });
@@ -500,7 +551,7 @@ describe('presentSessions', () => {
     expect(all.rows).toHaveLength(3);
     expect(all.projects.map((p) => p.name)).toEqual(['alpha', 'beta', 'old']);
     store = { ...store, search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: 2, snippets: [{ seq: 1, role: 'user', text: '…hi…', agentId: null }] }], total: 1 }, loading: false } };
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} , page: 1 } };
     const r = presentSessions(state, store, NOW);
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
@@ -511,7 +562,7 @@ describe('presentSessions', () => {
   });
   // seq は主線とサブエージェントで別々に振る。サブエージェントの seq で主線の本文へ跳ぶと、違う行に着く。
   it('跳び先は主線の抜粋だけから取り、主線の抜粋が無ければ跳ばない', () => {
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} , page: 1 } };
     const withSnippets = (snippets: { seq: number; role: string; text: string; agentId: string | null }[]) => presentSessions(state, { ...storeWith(), search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: snippets.length, snippets }], total: 1 }, loading: false } }, NOW).rows[0]!;
     const sub = { seq: 2, role: 'assistant', text: '…hi…', agentId: 'ag1' };
     const main = { seq: 9, role: 'user', text: '…hi…', agentId: null };
@@ -521,17 +572,43 @@ describe('presentSessions', () => {
     // 抜粋そのものは出す。一致がどこにあるかは読める。
     expect(onlySub.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
   });
-  it('切れた結果は、見せている件数と全件の数を分けて持ち、読み足しの最中を区別する', () => {
+  it('検索の結果は、届いたページの行と全件の数でページ送りを組む', () => {
     const base = storeWith();
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {}, page: 3 }, pageSize: 25 };
     const hits = [{ sessionId: 's1', matchCount: 1, snippets: [] }, { sessionId: 's2', matchCount: 1, snippets: [] }];
-    const done = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: false } }, NOW);
-    expect(done).toMatchObject({ shown: 2, total: 132, loading: false, loadingMore: false });
-    const more = presentSessions(state, { ...base, search: { params: { q: 'hi', offset: 2 }, result: { hits, total: 132 }, loading: true } }, NOW);
-    expect(more).toMatchObject({ shown: 2, total: 132, loading: false, loadingMore: true });
-    const fresh = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: true } }, NOW);
-    expect(fresh).toMatchObject({ loading: true, loadingMore: false });
-    expect(presentSessions(initialState(), base, NOW)).toMatchObject({ shown: 3, total: 3, loadingMore: false });
+    const done = presentSessions(state, { ...base, search: { params: { q: 'hi', limit: 25, offset: 50 }, result: { hits, total: 132 }, loading: false } }, NOW);
+    // 範囲はサーバの並びでの位置で言う（手元に無いセッションの行は描けないが、ページの位置は変わらない）。
+    expect(done).toMatchObject({ total: 132, loading: false, pager: { page: 3, pageCount: 6, size: 25, from: 51, to: 75 } });
+    expect(done.rows.map((r) => r.id)).toEqual(['s1', 's2']);
+    const loading = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: true } }, NOW);
+    expect(loading).toMatchObject({ loading: true });
+  });
+  // 条件もタブも無いときは節で読み、ページ送りは出さない（S1）。
+  it('節で読むときはページ送りを出さない', () => {
+    expect(presentSessions(initialState(), storeWith(), NOW)).toMatchObject({ total: 3, pager: null });
+  });
+  it('手元で組む平らな一覧は、いまのページの行だけを切り出す', () => {
+    const store = initialStore();
+    store.bootstrapped = true;
+    store.projects = { alpha: project('alpha') };
+    store.sessions = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`s${i}`, session(`s${i}`, { lastActivityAt: 1_000_000 - i })]));
+    const at = (page: number) => presentSessions({ ...initialState(), search: { text: '', filter: { projectId: 'alpha' }, page }, pageSize: 25 }, store, NOW);
+    expect(at(1)).toMatchObject({ total: 60, pager: { page: 1, pageCount: 3, size: 25, from: 1, to: 25 } });
+    expect(at(1).rows.map((r) => r.id).slice(0, 2)).toEqual(['s0', 's1']);
+    expect(at(3).rows.map((r) => r.id)).toEqual(Array.from({ length: 10 }, (_, i) => `s${50 + i}`));
+    expect(at(3).pager).toMatchObject({ from: 51, to: 60 });
+    // 件数を減らしたあとなどで後ろの端を越えたら、最後のページに丸める。
+    expect(at(9).pager).toMatchObject({ page: 3, from: 51, to: 60 });
+  });
+  it('いちばん小さい件数（25）以下しか無ければ、ページ送りを出さない', () => {
+    const r = presentSessions({ ...initialState(), search: { text: '', filter: { projectId: 'alpha' }, page: 1 } }, storeWith(), NOW);
+    expect(r.pager).toBeNull();
+  });
+  // 状態がどれも同じタブ（Done・Paused・Archived）は、行の状態の列を畳む。見出し（タブ）が言っているから。Active のタブは sessionsTabs.test.ts で見る。
+  it('状態がどれも同じタブでは、状態の列を畳む', () => {
+    const tab = (status: 'done' | 'paused' | 'archived' | 'proposed' | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { status }, page: 1 } }, storeWith(), NOW).statusColumn;
+    expect([tab('done'), tab('paused'), tab('archived')]).toEqual([false, false, false]);
+    expect([tab('proposed'), tab(undefined)]).toEqual([true, true]);
   });
   it('期間は日数で持ち、手元の一覧は今日の 0 時から数えて絞る', () => {
     const now = new Date(2026, 9, 1, 15, 30).getTime();
@@ -543,7 +620,7 @@ describe('presentSessions', () => {
       yesterday: session('yesterday', { lastActivityAt: new Date(2026, 8, 30, 23, 55).getTime() }),
       week: session('week', { lastActivityAt: new Date(2026, 8, 25, 1).getTime() }),
     };
-    const ids = (days: number | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { days } } }, store, now).rows.map((r) => r.id);
+    const ids = (days: number | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { days } , page: 1 } }, store, now).rows.map((r) => r.id);
     expect(ids(1)).toEqual(['today']);
     expect(ids(7)).toEqual(['today', 'yesterday', 'week']);
     expect(ids(undefined)).toHaveLength(3);
@@ -552,7 +629,7 @@ describe('presentSessions', () => {
     const store = storeWith();
     store.sessions.w1 = session('w1', { live: 'waiting' });
     store.runs = { r2: runDto('r2', 's2') };
-    const ids = (live: SearchFilter['live']) => presentSessions({ ...initialState(), search: { text: '', filter: { live } } }, store, NOW).rows.map((r) => r.id).sort();
+    const ids = (live: SearchFilter['live']) => presentSessions({ ...initialState(), search: { text: '', filter: { live } , page: 1 } }, store, NOW).rows.map((r) => r.id).sort();
     expect(ids('running')).toEqual(['s1', 's2']);
     expect(ids('waiting')).toEqual(['w1']);
     expect(ids('ended')).toEqual(['s3']);
@@ -563,22 +640,22 @@ describe('presentSessions', () => {
     const store = storeWith();
     const none = presentSessions(initialState(), store, NOW);
     expect(none).toMatchObject({ allCount: 3, conditions: [] });
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: '索引' }, search: { text: '索引', filter: { projectId: 'alpha', days: 7, live: 'waiting' as const, file: 'src/a.ts' } } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const, q: '索引' }, search: { text: '索引', filter: { projectId: 'alpha', days: 7, live: 'waiting' as const, file: 'src/a.ts' } , page: 1 } };
     const r = presentSessions(state, { ...store, search: { params: { q: '索引' }, result: { hits: [], total: 0 }, loading: false } }, NOW);
     expect(r.allCount).toBe(3);
     expect(r.conditions).toEqual(['『索引』', '入力待ち', '7 日', 'alpha', 'src/a.ts']);
     // 見出しの件数は「すべて」のタブと同じ値で、Archived を除く。
-    const archived = session('s9', { state: { status: 'archived', note: null, returnOn: null, setBy: 'import', setAt: 1, candidate: null } });
+    const archived = session('s9', { state: { status: 'archived', note: null, returnOn: null, returnTime: null, setBy: 'import', setAt: 1, candidate: null } });
     const withArchived = presentSessions(initialState(), { ...store, sessions: { ...store.sessions, s9: archived } }, NOW);
     expect(withArchived.allCount).toBe(3);
     expect(withArchived.tabs.find((t) => t.tab === 'all')!.count).toBe('3');
-    const today = presentSessions({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } } }, store, NOW);
+    const today = presentSessions({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } , page: 1 } }, store, NOW);
     expect(today.conditions).toEqual(['実行中', '今日']);
   });
   it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
     let store = storeWith();
     store = { ...store, search: { params: { q: '', file: 'a.md' }, result: { hits: [{ sessionId: 's2', matchCount: 3, snippets: [] }], total: 1 }, loading: false } };
-    const state = { ...initialState(), screen: { name: 'sessions' as const }, search: { text: '', filter: { file: 'a.md' } } };
+    const state = { ...initialState(), screen: { name: 'sessions' as const }, search: { text: '', filter: { file: 'a.md' } , page: 1 } };
     const r = presentSessions(state, store, NOW);
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
@@ -873,8 +950,25 @@ describe('presentNewSession', () => {
     expect(p.projects.find((x) => x.id === 'p7')!.lastActivity).toBe('');
   });
   it('書きかけの下書きと、プロジェクトごとの前回値を渡す', () => {
-    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, newSessionDraft: { name: 'n', prompt: '' }, launchPrefs: { alpha: { model: 'opus' } } };
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, newSessionDraft: { name: 'n', prompt: '', attachments: [] }, launchPrefs: { alpha: { model: 'opus' } } };
     expect(presentNewSession(state, storeWith(), NOW)).toMatchObject({ draft: { name: 'n', prompt: '' }, prefs: { alpha: { model: 'opus' } } });
+  });
+  describe('アカウントの札', () => {
+    const open = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    it('アカウントが 0 件でも 1 件でも null にする（段を出さない）', () => {
+      expect(presentNewSession(open, storeWith(), NOW)!.accounts).toBeNull();
+      const one = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] };
+      expect(presentNewSession(open, { ...storeWith(), accounts: one }, NOW)!.accounts).toBeNull();
+    });
+    it('2 件以上なら、一覧といまのアカウントの id を渡す', () => {
+      const p = presentNewSession(open, { ...storeWith(), accounts: accountsFixture }, NOW)!;
+      expect(p.accounts!.currentId).toBe('primary');
+      expect(p.accounts!.list.map((a) => [a.id, a.name, a.current])).toEqual([['primary', '会社', true], ['a1', '大学', false]]);
+      expect(presentNewSession(open, { ...storeWith(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW)!.accounts!.currentId).toBe('a1');
+    });
+    it('currentId が一覧に無ければ、最初のアカウントがいまのアカウントになる', () => {
+      expect(presentNewSession(open, { ...storeWith(), accounts: { ...accountsFixture, currentId: 'gone' } }, NOW)!.accounts!.currentId).toBe('primary');
+    });
   });
 });
 
@@ -918,6 +1012,45 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
   it('参加トークンが消える時刻を渡す', () => {
     const p = presentSettings(initialState(), { ...initialStore(), joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 }, NOW);
     expect(p.cloud).toMatchObject({ joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 });
+  });
+  describe('アカウントの節', () => {
+    it('アカウントが 1 件でもその一覧を渡し、選べる 5 色を添える', () => {
+      const one = { ...accountsFixture, accounts: accountsFixture.accounts.slice(0, 1) };
+      const p = presentSettings(initialState(), { ...initialStore(), accounts: one }, NOW);
+      expect(p.accounts.list.map((a) => [a.id, a.name, a.current, a.primary])).toEqual([['primary', '会社', true, true]]);
+      expect(p.accounts.colors).toEqual(['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a2452f']);
+    });
+    it('2 件なら 2 件とも、いまのアカウントに印を付けて渡す', () => {
+      const p = presentSettings(initialState(), { ...initialStore(), accounts: accountsFixture }, NOW);
+      expect(p.accounts.list.map((a) => [a.id, a.current])).toEqual([['primary', true], ['a1', false]]);
+    });
+    it('まだ届いていなければ一覧は空', () => {
+      expect(presentSettings(initialState(), initialStore(), NOW).accounts.list).toEqual([]);
+    });
+    it('行き先の印は、設定の画面が at=accounts で開かれたときだけ accounts になる', () => {
+      const at = (screen: State['screen']) => presentSettings({ ...initialState(), screen }, initialStore(), NOW).focus;
+      expect(at({ name: 'settings', at: 'accounts' })).toBe('accounts');
+      expect(at({ name: 'settings' })).toBeNull();
+      expect(at({ name: 'home' })).toBeNull();
+    });
+  });
+});
+
+describe('homePath', () => {
+  it('ホームの下を ~ で始まる形に縮める（macOS と Linux）', () => {
+    expect(homePath('/Users/taro/.claude-univ')).toBe('~/.claude-univ');
+    expect(homePath('/home/taro/.claude')).toBe('~/.claude');
+    expect(homePath('/Users/taro/work/a b')).toBe('~/work/a b');
+  });
+  it('ホームそのものは ~ にする', () => {
+    expect(homePath('/Users/taro')).toBe('~');
+    expect(homePath('/Users/taro/')).toBe('~');
+  });
+  it('ホームの下でなければそのまま返す', () => {
+    expect(homePath('/h/.claude')).toBe('/h/.claude');
+    expect(homePath('/Users')).toBe('/Users');
+    expect(homePath('/srv/Users/taro/x')).toBe('/srv/Users/taro/x');
+    expect(homePath('/homework/x')).toBe('/homework/x');
   });
 });
 
@@ -971,6 +1104,70 @@ describe('presentShell の使用量', () => {
     expect(empty.usage).toEqual({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
     const store = { ...initialStore(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
     expect(presentShell(initialState(), store, NOW).usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
+  });
+});
+
+describe('presentShell のアカウント', () => {
+  const two = (): Store => ({ ...storeWith(), accounts: accountsFixture, usage: { fiveHour: { usedPercent: 5, resetsAt: null }, sevenDay: { usedPercent: 6, resetsAt: null }, updatedAt: NOW - 600_000 } });
+  const at = (screen: State['screen']): State => ({ ...initialState(), screen });
+  it('アカウントが 1 件、または store.accounts が null なら account は null で、usage は store.usage から作る', () => {
+    const base = { ...storeWith(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
+    const expected = { fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' };
+    const none = presentShell(initialState(), base, NOW);
+    expect(none.account).toBeNull();
+    expect(none.usage).toEqual(expected);
+    const solo = presentShell(initialState(), { ...base, accounts: { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] } }, NOW);
+    expect(solo.account).toBeNull();
+    expect(solo.usage).toEqual(expected);
+    const empty = presentShell(at({ name: 'session', id: 's1' }), { ...base, accounts: { currentId: '', accounts: [], sessions: {} } }, NOW);
+    expect(empty.account).toBeNull();
+    expect(empty.usage).toEqual(expected);
+  });
+  it('2 件・ホームでは、いまのアカウントを出し、計器もその値で作る（sessionId は null）', () => {
+    const p = presentShell(initialState(), two(), NOW);
+    expect(p.account?.shown.id).toBe('primary');
+    expect(p.account?.shown.name).toBe('会社');
+    expect(p.account?.sessionId).toBeNull();
+    expect(p.account?.working).toBe(false);
+    expect(p.account?.list.map((a) => a.id)).toEqual(['primary', 'a1']);
+    expect(p.account?.list.map((a) => a.current)).toEqual([true, false]);
+    expect(p.usage).toEqual({ fiveHour: 82, sevenDay: 41, fiveHourResets: resetsLabel(1000, NOW), sevenDayResets: resetsLabel(2000, NOW), updatedLabel: relativeTime(500, NOW) });
+  });
+  it('いまのアカウントが大学なら、ホームでも大学を出す', () => {
+    const p = presentShell(initialState(), { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
+    expect(p.account?.shown.id).toBe('a1');
+    expect(p.usage.fiveHour).toBe(12);
+  });
+  it('2 件・セッション画面では、そのセッションのアカウントを出し、計器もその値で作る', () => {
+    const store = two();
+    store.sessions = { ...store.sessions, s9: session('s9', { live: 'busy' }) };
+    const p = presentShell(at({ name: 'session', id: 's9' }), store, NOW);
+    expect(p.account?.shown.id).toBe('a1');
+    expect(p.account?.shown.name).toBe('大学');
+    expect(p.account?.sessionId).toBe('s9');
+    expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 9 });
+    // 並びと current は、画面に関わらず、いまのアカウント（会社）のまま。
+    expect(p.account?.list.map((a) => [a.id, a.current])).toEqual([['primary', true], ['a1', false]]);
+  });
+  it('2 件・セッション画面で対応に無いセッションは、最初のアカウントを出す', () => {
+    const p = presentShell(at({ name: 'session', id: 's1' }), { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
+    expect(p.account?.shown.id).toBe('primary');
+    expect(p.account?.sessionId).toBe('s1');
+    expect(p.usage.fiveHour).toBe(82);
+  });
+  it('working は、そのセッションが作業中（busy か waiting）のときだけ真になる', () => {
+    const store = two();
+    const w = (live: SessionDto['live'] | 'missing', state: State = at({ name: 'session', id: 's9' })) => {
+      const sessions = live === 'missing' ? { ...store.sessions } : { ...store.sessions, s9: session('s9', { live }) };
+      return presentShell(state, { ...store, sessions }, NOW).account?.working;
+    };
+    expect(w('busy')).toBe(true);
+    expect(w('waiting')).toBe(true);
+    expect(w('idle')).toBe(false);
+    expect(w(null)).toBe(false);
+    expect(w('missing')).toBe(false);
+    // ホームでは、動いているセッションがあっても関係しない。
+    expect(w('busy', at({ name: 'home' }))).toBe(false);
   });
 });
 
@@ -1161,10 +1358,46 @@ const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ worksp
 const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 
+describe('ヘッダーの無料枠で停止', () => {
+  const at = (iso: string) => Date.parse(iso);
+  const paused = (o: Partial<SyncStatusBody>): SyncStatusBody => syncStatus({ state: 'paused', ...o });
+  // store.sync と state.sync（toSyncState(sync)）をそろえて、ヘッダーの同期の一行を返す。
+  const shellSync = (sync: SyncStatusBody, now: number, tz?: string) => presentShell({ ...initialState(), sync: toSyncState(sync), pending: sync.pending }, { ...initialStore(), sync }, now, tz).sync;
+  it('止めた日のうちは、戻る時刻を端末の時刻で言う', () => {
+    const p = shellSync(paused({ pausedReason: 'quota', quotaPausedDay: '2026-10-02' }), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo');
+    expect(p).toMatchObject({ label: '無料枠で停止 · 9:00 に戻る', reason: 'quota', quotaBack: false, paused: true, state: 'paused' });
+  });
+  it('UTC の日が変わったら、枠は戻りましたと言う', () => {
+    const p = shellSync(paused({ pausedReason: 'quota', quotaPausedDay: '2026-10-02' }), at('2026-10-03T00:00:01Z'), 'Asia/Tokyo');
+    expect(p.label).toBe('無料枠で停止 · 枠は戻りました');
+    expect(p.reason).toBe('quota');
+    // 枠が戻ったら点は緑、文は注意の色にする（試作 usage-merged.html の H3）。
+    expect(p.quotaBack).toBe(true);
+  });
+  it('時差に依らない（ニューヨークでも同じ境目）', () => {
+    const day = paused({ pausedReason: 'quota', quotaPausedDay: '2026-10-02' });
+    expect(shellSync(day, at('2026-10-02T23:59:00Z'), 'America/New_York').label).toBe('無料枠で停止 · 20:00 に戻る');
+    expect(shellSync(day, at('2026-10-03T00:00:00Z'), 'America/New_York').label).toBe('無料枠で停止 · 枠は戻りました');
+  });
+  it('手で止めたときは今までどおり', () => {
+    expect(shellSync(paused({ pausedReason: 'user', quotaPausedDay: '2026-10-01' }), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo')).toMatchObject({ label: '一時停止中', reason: 'user', quotaBack: false, paused: true });
+  });
+  it('古いサーバで理由が無いときは、手で止めたものとして扱う', () => {
+    expect(shellSync(paused({}), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo')).toMatchObject({ label: '一時停止中', reason: 'user' });
+  });
+  it('止まっていなければ、前の日の印が残っていても理由は null で、文も変わらない', () => {
+    const p = shellSync(syncStatus({ pausedReason: null, quotaPausedDay: '2026-10-01' }), NOW, 'Asia/Tokyo');
+    expect(p).toMatchObject({ reason: null, label: '同期 1 分前' });
+  });
+  it('エラーのときも理由は null', () => {
+    expect(shellSync(syncStatus({ state: 'error', error: '切れました', pausedReason: 'quota', quotaPausedDay: '2026-10-02' }), NOW, 'Asia/Tokyo')).toMatchObject({ reason: null, label: '同期エラー: 切れました' });
+  });
+});
+
 describe('同期の Presenter（フェーズ 4）', () => {
   it('ヘッダーの同期状態は種別ごとに文言が変わる', () => {
     const s = { ...initialState(), sync: { kind: 'idle' as const, lastAt: NOW - 60_000 }, pending: 2 };
-    expect(presentShell(s, initialStore(), NOW).sync).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false });
+    expect(presentShell(s, initialStore(), NOW).sync).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null, quotaBack: false });
     expect(presentShell({ ...s, sync: { kind: 'off' } }, initialStore(), NOW).sync).toMatchObject({ visible: false, state: 'off', label: '' });
     expect(presentShell({ ...s, sync: { kind: 'pushing' } }, initialStore(), NOW).sync).toMatchObject({ visible: true, state: 'pushing', label: '送信中' });
     expect(presentShell({ ...s, sync: { kind: 'pulling' } }, initialStore(), NOW).sync).toMatchObject({ state: 'pulling', label: '受信中' });
@@ -1449,13 +1682,27 @@ describe('presentToasts（入力待ちのカード）', () => {
     for (const id of ids) s.sessions[id] = session(id, { live: 'waiting', lastActivityAt: NOW - 120_000 });
     return s;
   };
-  it('名前、プロジェクト、待っている時間、問いを出す。問いが取れなければ「入力を待っています」', () => {
+  it('名前、待っている時間、問いを出す。問いが取れなければ null', () => {
     const store = waitingStore(['w1']);
     store.sessions.w1 = { ...store.sessions.w1!, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '向きはどちらにしますか' } };
     const state = { ...initialState(), waitingToasts: ['w1'] };
-    expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', projectName: 'alpha', waited: '2 分', question: '向きはどちらにしますか' }]);
+    expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', waited: '2 分', question: '向きはどちらにしますか' }]);
     store.sessions.w1 = { ...store.sessions.w1!, activity: null };
-    expect(presentToasts(state, store, NOW).waiting[0]?.question).toBe('入力を待っています');
+    expect(presentToasts(state, store, NOW).waiting[0]?.question).toBeNull();
+  });
+  it('ホームを見ている間は出さない（要対応の札が言っている）', () => {
+    const state = { ...initialState(), screen: { name: 'home' as const }, waitingToasts: ['w1', 'w2'] };
+    const p = presentToasts(state, waitingStore(['w1', 'w2']), NOW);
+    expect(p.waiting).toEqual([]);
+    expect(p.more).toBe(0);
+  });
+  it('そのセッション自身の画面を見ている間は、その件だけ出さない', () => {
+    const state = { ...initialState(), screen: { name: 'session' as const, id: 'w1' }, waitingToasts: ['w1', 'w2'] };
+    expect(presentToasts(state, waitingStore(['w1', 'w2']), NOW).waiting.map((c) => c.sessionId)).toEqual(['w2']);
+  });
+  it('ほかの画面では今までどおり出す', () => {
+    const state = { ...initialState(), screen: { name: 'projects' as const }, waitingToasts: ['w1'] };
+    expect(presentToasts(state, waitingStore(['w1']), NOW).waiting.map((c) => c.sessionId)).toEqual(['w1']);
   });
   it('3 件までを新しいものが下に来る順で並べ、残りは数だけ返す', () => {
     const ids = ['w1', 'w2', 'w3', 'w4', 'w5'];
@@ -1517,27 +1764,27 @@ describe('presentSessionRow のセッションの状態', () => {
   const today = localDate(NOW);
   const withState = (state: SessionDto['state']) => session('s1', { state });
   const pick = (s: SessionDto) => { const r = presentSessionRow(s, store, NOW); return { state: r.state, returnOn: r.returnOn, overdueDays: r.overdueDays, candidate: r.candidate, setBy: r.setBy }; };
-  it('state が欠けた古いサーバの行と null は、印なしとして読む', () => {
+  it('state が欠けた古いサーバの行と null は、Active として読む', () => {
     const none = { state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null };
     expect(pick(session('s1'))).toEqual(none);
     expect(pick(withState(null))).toEqual(none);
   });
   it('Paused は戻る日と過ぎた日数を持ち、Done と Archived は戻る日を持たない', () => {
-    expect(pick(withState({ status: 'paused', note: '見る', returnOn: addDays(today, -2), setBy: 'user', setAt: 1, candidate: null }))).toEqual({ state: 'paused', returnOn: addDays(today, -2), overdueDays: 2, candidate: null, setBy: 'user' });
-    expect(pick(withState({ status: 'paused', note: null, returnOn: addDays(today, 3), setBy: 'user', setAt: 1, candidate: null })).overdueDays).toBeNull();
-    expect(pick(withState({ status: 'done', note: null, returnOn: '2026-10-02', setBy: 'conversation', setAt: 1, candidate: null }))).toEqual({ state: 'done', returnOn: null, overdueDays: null, candidate: null, setBy: 'conversation' });
-    expect(pick(withState({ status: 'archived', note: null, returnOn: null, setBy: 'import', setAt: 1, candidate: null })).state).toBe('archived');
+    expect(pick(withState({ status: 'paused', note: '見る', returnOn: addDays(today, -2), returnTime: null, setBy: 'user', setAt: 1, candidate: null }))).toEqual({ state: 'paused', returnOn: addDays(today, -2), overdueDays: 2, candidate: null, setBy: 'user' });
+    expect(pick(withState({ status: 'paused', note: null, returnOn: addDays(today, 3), returnTime: null, setBy: 'user', setAt: 1, candidate: null })).overdueDays).toBeNull();
+    expect(pick(withState({ status: 'done', note: null, returnOn: '2026-10-02', returnTime: null, setBy: 'conversation', setAt: 1, candidate: null }))).toEqual({ state: 'done', returnOn: null, overdueDays: null, candidate: null, setBy: 'conversation' });
+    expect(pick(withState({ status: 'archived', note: null, returnOn: null, returnTime: null, setBy: 'import', setAt: 1, candidate: null })).state).toBe('archived');
   });
   // 同期や古い端末から、戻る日が欠けた・暦に無い・形の違う Paused が届く（Ruling 2A）。undefined や壊れた文字列を行に流さず null にする。
   it('Paused の戻る日が欠けた・暦に無い・形が違うときは、returnOn を null にして Paused のまま読む', () => {
     for (const bad of [null, '2026-02-30', 'いつか', '']) {
-      expect(pick(withState({ status: 'paused', note: null, returnOn: bad, setBy: 'user', setAt: 1, candidate: null })), String(bad)).toEqual({ state: 'paused', returnOn: null, overdueDays: null, candidate: null, setBy: 'user' });
+      expect(pick(withState({ status: 'paused', note: null, returnOn: bad, returnTime: null, setBy: 'user', setAt: 1, candidate: null })), String(bad)).toEqual({ state: 'paused', returnOn: null, overdueDays: null, candidate: null, setBy: 'user' });
     }
-    expect(pick(withState({ status: 'paused', note: null, returnOn: undefined as unknown as null, setBy: 'user', setAt: 1, candidate: null })).returnOn).toBeNull();
+    expect(pick(withState({ status: 'paused', note: null, returnOn: undefined as unknown as null, returnTime: null, setBy: 'user', setAt: 1, candidate: null })).returnOn).toBeNull();
   });
   it('提案は経過時間を添える', () => {
-    const r = pick(withState({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: { status: 'done', note: '直した', returnOn: null, source: 'post_hoc', at: NOW - 12 * 60_000 } }));
-    expect(r).toEqual({ state: null, returnOn: null, overdueDays: null, setBy: null, candidate: { status: 'done', note: '直した', returnOn: null, source: 'post_hoc', ago: '12 分前' } });
+    const r = pick(withState({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: { status: 'done', note: '直した', returnOn: null, returnTime: null, source: 'post_hoc', at: NOW - 12 * 60_000 } }));
+    expect(r).toEqual({ state: null, returnOn: null, overdueDays: null, setBy: null, candidate: { status: 'done', note: '直した', returnOn: null, returnTime: null, source: 'post_hoc', ago: '12 分前' } });
   });
 });
 

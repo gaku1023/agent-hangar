@@ -13,10 +13,10 @@ const H = 3_600_000;
 const DAY = 24 * H;
 const IMPORT_AT = new Date(2026, 9, 1, 8, 0).getTime();
 
-const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: id, oneLiner: '', projectName: 'agent-hangar', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '', whenAbs: '', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over });
+const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: id, oneLiner: '', projectName: 'agent-hangar', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '', whenAbs: '', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
 const paused = (id: string, returnOn: string | null, over: Partial<SessionRowProps> = {}) => row(id, { state: 'paused', returnOn, setBy: 'user', ...over });
 const done = (id: string, over: Partial<SessionRowProps> = {}) => row(id, { state: 'done', setBy: 'import', ...over });
-const cand = (status: 'paused' | 'done') => ({ status, note: '直した', returnOn: status === 'paused' ? '2026-10-03' : null, source: 'in_session' as const, ago: '1 時間前' });
+const cand = (status: 'paused' | 'done') => ({ status, note: '直した', returnOn: status === 'paused' ? '2026-10-03' : null, returnTime: null, source: 'in_session' as const, ago: '1 時間前' });
 /** 見出しを「# id 件数 [ボタン→先]」、行を id にして並びを読む。 */
 const shape = (items: ListItem[]) => items.map((i) => (i.kind === 'head' ? `# ${i.id} ${i.count}${i.more ? ` [${i.more.label}→${i.more.target}]` : ''}` : i.row.id));
 const project = (rows: SessionRowProps[], expanded: string[] = [], now = NOW) => shape(sectionRows(rows, 'project', { now, doneHead: DONE_HEAD, expanded: new Set(expanded) }));
@@ -30,7 +30,7 @@ describe('sectionRows（プロジェクト画面の P3）', () => {
   });
   it('平日の朝：今日戻る → 続き → Done の順で、中身の無い節（いま動いている）は出さない', () => {
     const rows = [row('backspace'), row('nfd', { candidate: cand('done') }), done('resp'), paused('sync', '2026-10-02'), paused('explainer', '2026-10-09'), row('apple'), paused('retention', '2026-10-06')];
-    // 続きは印なし、提案あり、戻る日が先の Paused を、渡された並び（新しい順）のまま並べる。目当ての backspace は j 2 回で届く。
+    // 続きは止まっている Active、提案あり、戻る日が先の Paused を、渡された並び（新しい順）のまま並べる。目当ての backspace は j 2 回で届く。
     expect(project(rows)).toEqual(['# returning 1', 'sync', '# continue 5', 'backspace', 'nfd', 'explainer', 'apple', 'retention', '# done 1', 'resp']);
   });
   it('作業中：動いているものは状態に関わらず「いま動いている」に、入力待ち → 実行中の並びのまま置く', () => {
@@ -72,8 +72,8 @@ describe('戻る日が壊れた Paused（Ruling 2A）', () => {
     for (const r of rows.slice(1)) expect(returnOnLabel(r.returnOn, r.overdueDays)).toBe('日付なし');
     expect(returnOnLabel(rows[0]!.returnOn, 1)).toBe('1 日過ぎ');
   });
-  it('returnKey は正しい戻る日をそのまま、欠けた日と壊れた日を空にする（Home が使い回す）', () => {
-    expect(returnKey(paused('a', '2026-10-05'))).toBe('2026-10-05');
+  it('returnKey は正しい戻る日に時刻（無ければその日の最後）を添え、欠けた日と壊れた日を空にする（Home が使い回す）', () => {
+    expect(returnKey(paused('a', '2026-10-05'))).toBe('2026-10-05 24:00');
     expect(returnKey(paused('b', null))).toBe('');
     expect(returnKey(paused('c', 'いつか'))).toBe('');
     expect(returnKey(paused('d', '2026-02-30'))).toBe('');
@@ -81,17 +81,29 @@ describe('戻る日が壊れた Paused（Ruling 2A）', () => {
 });
 
 describe('sectionRows（Sessions 画面の ★）', () => {
-  it('今日戻る → 確かめる → いま動いている → Paused → 印なし → Done、Archived は末尾の 1 行', () => {
+  it('今日戻る → 確かめる → Active → Paused → Done、Archived は末尾の 1 行。動いているものは Active の先頭', () => {
     const rows = [row('newui', { live: 'waiting' }), row('status', { live: 'busy' }), row('nfd', { candidate: cand('done') }), row('video', { candidate: cand('paused') }), row('e2e', { candidate: cand('done') }), row('backspace'), paused('sync', '2026-10-02'), paused('parkour', '2026-10-09'), done('resp'), done('subs'), row('apple', { state: 'archived' })];
     expect(sessions(rows)).toEqual([
       '# returning 1', 'sync',
       '# proposed 3 [この節だけ見る ▸→proposed]', 'nfd', 'video', 'e2e',
-      '# live 2 [この節だけ見る ▸→live]', 'newui', 'status',
+      '# active 3 [この節だけ見る ▸→active]', 'newui', 'status', 'backspace',
       '# paused 1 [この節だけ見る ▸→paused]', 'parkour',
-      '# none 1 [この節だけ見る ▸→none]', 'backspace',
       '# done 2 [この節だけ見る ▸→done]', 'resp', 'subs',
       '# archived 1 [表示 ▸→archived]',
     ]);
+  });
+  // Sessions の節は状態だけで決める。「いま動いている」の節は無い。
+  it('動いている Done・Paused・Archived は、それぞれの状態の節に入る', () => {
+    const rows = [done('status', { live: 'busy' }), paused('due', '2026-10-02', { live: 'waiting' }), paused('later', '2026-10-09', { live: 'idle' }), row('trial', { state: 'archived', live: 'idle' }), row('boot', { runId: 'r1' })];
+    expect(sessions(rows)).toEqual([
+      '# returning 1', 'due',
+      '# active 1 [この節だけ見る ▸→active]', 'boot',
+      '# paused 1 [この節だけ見る ▸→paused]', 'later',
+      '# done 1 [この節だけ見る ▸→done]', 'status',
+      '# archived 1 [表示 ▸→archived]',
+    ]);
+    // プロジェクト画面は今のまま、動いているものを先に「いま動いている」へ置く。
+    expect(project(rows)).toEqual(['# live 5', 'status', 'due', 'later', 'trial', 'boot']);
   });
   it('「ほか N 件」の数字は桁を区切る', () => {
     const rows = Array.from({ length: 1224 }, (_, k) => done('d' + k));
@@ -105,22 +117,22 @@ describe('sectionRows（Sessions 画面の ★）', () => {
 });
 
 describe('matchesStatus（タブの絞り込み）', () => {
-  it('節の振り分けではなく、行の持ち物だけで決める', () => {
+  it('節の振り分けではなく、行の持ち物だけで決める。Active は状態が無いもので、動きも提案も問わない', () => {
     const liveDone = row('l', { live: 'idle', state: 'done' });
-    expect(matchesStatus(liveDone, 'active')).toBe(true);
+    expect(matchesStatus(liveDone, 'active')).toBe(false);
     expect(matchesStatus(liveDone, 'done')).toBe(true);
     expect(matchesStatus(row('b', { runId: 'r1' }), 'active')).toBe(true);
+    expect(matchesStatus(row('n'), 'active')).toBe(true);
     expect(matchesStatus(row('c', { candidate: cand('done') }), 'proposed')).toBe(true);
-    expect(matchesStatus(row('c', { candidate: cand('done') }), 'none')).toBe(false);
-    expect(matchesStatus(row('n'), 'none')).toBe(true);
-    expect(matchesStatus(row('n'), 'active')).toBe(false);
+    expect(matchesStatus(row('c', { candidate: cand('done') }), 'active')).toBe(true);
     expect(matchesStatus(paused('p', '2026-10-09'), 'paused')).toBe(true);
+    expect(matchesStatus(paused('p', '2026-10-09'), 'active')).toBe(false);
     expect(matchesStatus(row('z', { state: 'archived' }), 'archived')).toBe(true);
   });
 });
 
 describe('sortForSections', () => {
-  const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null, ...o });
+  const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
   const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: NOW - H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, state: null, ...over });
   // 確定した行や手で Done にした行は、最後に動いた時刻が古くても Done の節の先頭に来る。畳んだ中に消えないように。
   it('Done の行は Done にした時刻の新しい順、導入時の一括（同じ時刻）の中は最後に動いた時刻の新しい順', () => {
@@ -140,12 +152,12 @@ describe('sortForSections', () => {
 });
 
 describe('presentProject の節（P3）', () => {
-  const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, setBy: null, setAt: null, candidate: null, ...o });
+  const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
   const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: NOW - H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, state: null, ...over });
   const alpha: ProjectDto = { id: 'alpha', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 };
   const storeOf = (list: SessionDto[]): Store => { const s = initialStore(); s.bootstrapped = true; s.projects = { alpha }; s.sessions = Object.fromEntries(list.map((x) => [x.id, x])); return s; };
   const imported = (id: string, daysAgo: number) => dto(id, { lastActivityAt: NOW - daysAgo * DAY, state: st({ status: 'done', setBy: 'import', setAt: IMPORT_AT }) });
-  const proposedNfd = dto('nfd', { lastActivityAt: NOW - 5 * DAY, state: st({ candidate: { status: 'done', note: '直して push した', returnOn: null, source: 'post_hoc', at: NOW - H } }) });
+  const proposedNfd = dto('nfd', { lastActivityAt: NOW - 5 * DAY, state: st({ candidate: { status: 'done', note: '直して push した', returnOn: null, returnTime: null, source: 'post_hoc', at: NOW - H } }) });
   const list = [imported('cpu', 1), imported('resp', 2), imported('ux', 3), imported('old', 6), proposedNfd];
 
   // scenes.html の 5 番目の場面。畳んだ Done の中へ消えないこと。
@@ -160,6 +172,17 @@ describe('presentProject の節（P3）', () => {
     expect(shape(presentProject(open, storeOf(list), NOW, 'alpha').items)).toEqual(['# continue 1', 'nfd', '# done 4 [畳む ▴→done]', 'cpu', 'resp', 'ux', 'old']);
     const other = { ...initialState(), sectionsOpen: { beta: ['done' as const] } };
     expect(shape(presentProject(other, storeOf(list), NOW, 'alpha').items)).toHaveLength(6);
+  });
+  // 広げた Done と Archived は何百件にもなるので、広げた節の行をページに分ける。上の節（続きなど）と見出しは毎ページ出す。
+  it('広げた節の行はページに分け、上の節と見出しは毎ページ出す', () => {
+    const many = [proposedNfd, ...Array.from({ length: 30 }, (_, i) => imported(`d${i}`, i + 1))];
+    const at = (page: number) => presentProject({ ...initialState(), sectionsOpen: { alpha: ['done' as const] }, pageSize: 25, listPages: { 'project:alpha': page } }, storeOf(many), NOW, 'alpha');
+    expect(shape(at(1).items).slice(0, 5)).toEqual(['# continue 1', 'nfd', '# done 30 [畳む ▴→done]', 'd0', 'd1']);
+    expect(at(1).items).toHaveLength(3 + 25);
+    expect(at(1).pager).toMatchObject({ page: 1, pageCount: 2, from: 1, to: 25, total: 30 });
+    expect(shape(at(2).items)).toEqual(['# continue 1', 'nfd', '# done 30 [畳む ▴→done]', 'd25', 'd26', 'd27', 'd28', 'd29']);
+    // 畳んでいる間はページに分けない。
+    expect(presentProject({ ...initialState(), pageSize: 25 }, storeOf(many), NOW, 'alpha').pager).toBeNull();
   });
   it('見つからないプロジェクトは空の一覧', () => {
     expect(presentProject(initialState(), storeOf(list), NOW, 'nope').items).toEqual([]);

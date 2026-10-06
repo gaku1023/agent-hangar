@@ -8,6 +8,7 @@ import {
   isHeaderSafe,
   isSafeRelPath,
   type ChangeIn,
+  type CloudUsageBody,
   type ChangeOut,
   type FileEntry,
   type FileMetaIn,
@@ -390,5 +391,13 @@ export class FakeCloudClient implements CloudClient {
     this.guard('deleteFile', key);
     this.checkKey(key, true);
     if (this.store.files.delete(key)) this.noteD1(D1_ROWS.fileDelete + D1_ROWS.note);
+  }
+
+  /** GET /usage の応答。試験が差し替える。既定はトークンの無い Worker と同じ。 */
+  usageBody: CloudUsageBody = { configured: false };
+
+  async usage(): Promise<CloudUsageBody> {
+    this.guard('usage');
+    return structuredClone(this.usageBody);
   }
 }

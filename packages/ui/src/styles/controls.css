@@ -15,7 +15,7 @@
 .listbox-face:hover { background: var(--surface); box-shadow: inset 0 0 0 1px #c9cbe0, 0 3px 10px -4px rgba(30, 40, 90, 0.18); }
 .listbox-face[aria-expanded='true'] { background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .listbox-face-value { display: flex; align-items: center; gap: calc(var(--u) * 2); flex: 1; min-width: 0; }
-.listbox-face-label { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.listbox-face-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .listbox-face-sub { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .listbox-face-placeholder { flex: 1; color: var(--ink-3); }
 .listbox-face > .icon:last-child { flex: none; color: var(--ink-3); transition: transform var(--dur-fast) var(--ease-out); }
@@ -34,11 +34,11 @@
 .listbox-pop[data-scrolled='true'] .listbox-search { box-shadow: inset 0 0 0 1px var(--line), 0 6px 12px -8px rgba(30, 40, 90, 0.35); }
 .listbox-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ink); }
 .listbox-rows { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; outline: none; }
-.listbox-group-title { padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; font-size: var(--fs-xs); font-weight: 560; color: var(--ink-3); }
+.listbox-group-title { padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
 .listbox-opt { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-height: 32px; padding: var(--u) calc(var(--u) * 2.5); border-radius: 10px; cursor: pointer; white-space: nowrap; }
 .listbox-opt[data-active='true'] { background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 1px 0 #ffffff, 0 2px 8px -2px rgba(30, 40, 90, 0.16); }
 .listbox-opt-main { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
-.listbox-opt-main b { font-weight: 560; }
+.listbox-opt-main b { font-weight: 600; }
 .listbox-opt-main small { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
 .listbox-opt-main small[data-kind='prose'] { font-family: var(--font-sans); white-space: normal; }
 .listbox-opt mark { padding: 0 1px; border-radius: 3px; color: inherit; background: color-mix(in srgb, var(--accent) 16%, transparent); }
@@ -51,9 +51,50 @@
 .listbox-keys { flex: none; display: flex; gap: calc(var(--u) * 3); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; margin-top: var(--u); border-top: 1px solid rgba(30, 40, 90, 0.06); font-size: var(--fs-xs); color: var(--ink-3); }
 .listbox-keys kbd { padding: 0 4px; border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--ink-2); background: rgba(30, 40, 90, 0.06); }
 
+/* 初期プロンプトの欄（PromptComposer）。枠は箱が持ち、中の textarea は枠なしにする。 */
+.pc { display: flex; flex-direction: column; gap: calc(var(--u) * 2); min-width: 0; }
+.pc-box { position: relative; display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.pc-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+/* ファイルを運んでいる間、落とせる欄として色を変える。文字は欄を覆って伝える（textarea の中身を動かさない）。 */
+.pc-box[data-drop='true'] { border-color: var(--accent); background: var(--accent-soft); }
+.pc-box[data-drop='true']::after { content: 'ここに落として添付'; position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit; font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 88%, transparent); pointer-events: none; }
+.pc-input { display: block; width: 100%; box-sizing: border-box; min-height: 84px; padding: var(--u) calc(var(--u) * 2); border: 0; outline: 0; resize: none; background: none; color: var(--ink); font: inherit; }
+.pc-tools { display: flex; align-items: center; gap: var(--u); padding: var(--u) calc(var(--u) * 1.5); border-top: 1px solid var(--line); }
+.pc-tool { display: inline-flex; align-items: center; gap: var(--u); height: 24px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font: 600 var(--fs-xs) var(--font-sans); cursor: pointer; }
+.pc-tool:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+.pc-tool:disabled { opacity: 0.5; cursor: default; }
+.pc-tool .icon { width: 13px; height: 13px; }
+.pc-tool-key { font: 600 12px var(--font-mono); color: var(--accent); }
+.pc-tools-hint { margin-left: auto; color: var(--ink-3); font-size: var(--fs-xs); }
+.pc-cards { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); margin: 0; padding: 0; list-style: none; }
+.pc-card { position: relative; display: flex; align-items: center; gap: calc(var(--u) * 2); max-width: 220px; padding: var(--u) calc(var(--u) * 7) var(--u) var(--u); border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.pc-thumb { flex: none; width: 44px; height: 44px; border-radius: 7px; object-fit: cover; background: var(--surface-2); }
+.pc-thumb-doc { display: grid; place-items: center; color: var(--ink-3); font: 600 10px var(--font-mono); }
+.pc-card-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; color: var(--ink); font-size: var(--fs-sm); }
+.pc-card-text b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-card-text small { color: var(--ink-3); font-size: var(--fs-xs); }
+.pc-card-x { position: absolute; top: var(--u); right: var(--u); display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink-3); cursor: pointer; }
+.pc-card-x:hover { background: var(--surface-2); color: var(--ink); }
+.pc-card-x .icon { width: 12px; height: 12px; }
+/* PromptComposer.tsx の POP_MAX_HEIGHT と同じ値。測る前の既定で、置いた後は窓の高さに合わせて上書きされる。 */
+.pc-pop { max-height: 300px; }
+.pc-cmd { font-family: var(--font-mono); font-weight: 600; font-size: var(--fs-sm); color: var(--ink); }
+.pc-cmd mark, .pc-file mark { background: var(--hit); color: inherit; border-radius: 2px; }
+.pc-arg { margin-left: calc(var(--u) * 1.5); font-weight: 400; font-size: var(--fs-xs); color: var(--ink-3); }
+/* Listbox の説明は折り返す決まり（data-kind='prose'）なので、この一覧では詰めるために詳しさで上書きする。 */
+.pc-pop .listbox-opt-main .pc-desc { white-space: nowrap; }
+.pc-file { gap: calc(var(--u) * 2.5); align-items: baseline; }
+/* 前の問いの一覧を残している間（まだ返事が来ていない）。入れられないので、薄くして知らせる。 */
+.pc-pop .listbox-rows[data-stale='true'] { opacity: 0.55; }
+.pc-file-name { flex: none; font-weight: 600; }
+.pc-file-dir { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-src { flex: none; padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); font-size: 10px; font-weight: 600; color: var(--ink-2); background: var(--surface-2); }
+.pc-src[data-source='project'] { color: var(--st-active); background: var(--st-active-soft); }
+.pc-src[data-source='plugin'] { color: var(--cand); background: var(--cand-soft); }
+
 /* 切り替えの帯。白い玉は選んだ項目の下を滑る。 */
 .seg { position: relative; display: inline-flex; flex: none; padding: 3px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.06); }
-.seg > button { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: 22px; max-width: 160px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font-size: var(--fs-sm); font-weight: 520; white-space: nowrap; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
+.seg > button { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: 22px; max-width: 160px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
 .seg > button[aria-checked='true'] { color: var(--ink); font-weight: 600; }
 .seg-label { overflow: hidden; text-overflow: ellipsis; }
 .seg-lead { display: inline-flex; align-items: center; }
@@ -64,7 +105,7 @@
 
 /* チップ。押すと灯るもの（aria-pressed）と、択一のもの（aria-checked）がある。 */
 .chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
-.chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 2.75); border: 0; border-radius: var(--r-pill); font-weight: 520; white-space: nowrap; cursor: pointer; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 2.75); border: 0; border-radius: var(--r-pill); font-weight: 600; white-space: nowrap; cursor: pointer; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .chip:hover { color: var(--ink); background: var(--surface); }
 .chip[aria-pressed='true'], .chip[aria-checked='true'], .chip[data-on='true'] { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
 .chip-input input { width: 140px; border: 0; outline: 0; background: none; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink); }
@@ -146,3 +187,51 @@
 .menu-item[aria-disabled='true'] > .icon { color: var(--ink-3); }
 .menu-item[data-danger='true'], .menu-item[data-danger='true'] > .icon { color: var(--error); }
 .menu-sep { height: 0; margin: var(--u) calc(var(--u) * 1.5); border-top: 1px solid rgba(30, 40, 90, 0.08); }
+
+/* アカウントの切り替えの開いた先（views/AccountSwitcher.tsx）。
+   面は .menu-pop をそのまま使い（ガラスはそこにだけ書く）、幅は位置の計算が 380px で決める。
+   アカウントごとに 1 枚の札で、選ぶ札は青い 2px の輪、押せない札は薄くする。 */
+.account-pop { gap: calc(var(--u) * 2); padding: calc(var(--u) * 2.5); outline: none; }
+.account-cards { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.account-card { position: relative; display: block; width: 100%; padding: 9px 11px; border: 0; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.account-card:hover, .account-card:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--accent); }
+.account-card[aria-checked='true'] { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+/* 選べない札：押せないことは cursor と薄い枠で示す。薄くするのは名前と計器だけで、理由の文は読めるままにする。 */
+.account-card[aria-disabled='true'] { cursor: not-allowed; }
+.account-card[aria-disabled='true']:not(:focus-visible, [aria-checked='true']) { box-shadow: inset 0 0 0 1px var(--line); }
+.account-card[aria-disabled='true'] .account-meters-head, .account-card[aria-disabled='true'] .account-row { opacity: 0.6; }
+.account-card[aria-disabled='true'] .account-mail:not([data-auth='out']) { color: var(--ink-2); }
+/* 札の右上の一言。名前の行が重ならないよう、行の右に余地を空ける。 */
+.account-card-tag { position: absolute; top: 9px; right: 11px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.account-card-tag[data-kind='shown'] { font-weight: 700; color: var(--accent); }
+.account-card .account-meters-head { padding-right: 96px; }
+
+/* 札の中身（views/primitives/AccountMeters.tsx）。切り替えの開いた先と、新規セッションのダイアログの札で使い回す。 */
+.account-meters { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); min-width: 0; }
+.account-meters-head { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
+.account-meters-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.account-plan { flex: none; padding: 0 6px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-xs); font-weight: 600; }
+.account-mail { min-height: 1.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); font-size: var(--fs-xs); }
+.account-mail[data-auth='out'] { color: var(--error); }
+.account-approve { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: var(--fs-xs); }
+.account-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 36px 92px; align-items: center; gap: calc(var(--u) * 2); color: var(--ink-2); font-size: var(--fs-xs); }
+.account-row .gauge-bar { width: 100%; }
+.account-row-num { text-align: right; color: var(--ink-3); }
+.account-row-num[data-high='true'] { color: var(--waiting); font-weight: 700; }
+.account-row-resets { white-space: nowrap; text-align: right; color: var(--ink-3); }
+.account-none { color: var(--ink-3); font-size: var(--fs-xs); }
+.account-note { color: var(--ink-3); font-size: var(--fs-xs); }
+.account-note[data-tone='warn'] { color: var(--st-paused); font-weight: 600; }
+
+.account-pop-foot { display: flex; justify-content: flex-end; padding: 0 calc(var(--u) * 1); }
+
+/* 新規セッションのダイアログの札（views/AccountCards.tsx）。選び方の見た目は .account-card をそのまま使う（青い 2px の輪と淡い地）。
+   .option-cards と同じ 2 列の grid で、3 件以上は折り返す。右上の一言は無いので名前の行の余地は要らず、
+   枠が戻る時刻の列も出さない（注記が言う）。札の高さは行でそろえ、中身は上から並べる。 */
+.account-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(var(--u) * 1.5); }
+.account-choices .account-card { display: flex; flex-direction: column; justify-content: flex-start; min-width: 0; }
+.account-choices .account-card .account-meters-head { padding-right: 0; }
+.account-choices .account-row { grid-template-columns: 40px minmax(0, 1fr) 36px; }
+.account-choices .account-row-resets { display: none; }
+.account-settings { padding: var(--u) calc(var(--u) * 2); border: 0; border-radius: 8px; background: none; color: var(--accent); font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
+.account-settings:hover { background: rgba(255, 255, 255, 0.92); }

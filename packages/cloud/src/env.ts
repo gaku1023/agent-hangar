@@ -11,8 +11,11 @@ export type DeviceRow = {
   last_pulled_seq: number;
 };
 
-/** Worker の束縛である。`JOIN_SECRET_HASH` は wrangler の secret で入れる。 */
-export type Env = { DB: D1Database; BUCKET: R2Bucket; JOIN_SECRET_HASH?: string };
+/**
+ * Worker の束縛である。`JOIN_SECRET_HASH`、`USAGE_API_TOKEN`、`CF_ACCOUNT_ID` は wrangler の secret で入れる。
+ * USAGE_API_TOKEN は読み取り専用（Billing Read、Account Analytics Read）の API トークンで、無ければ /usage は configured: false を返す。
+ */
+export type Env = { DB: D1Database; BUCKET: R2Bucket; JOIN_SECRET_HASH?: string; USAGE_API_TOKEN?: string; CF_ACCOUNT_ID?: string };
 
 /** 認証を通した後の文脈である。`c.get('device')` で取る。 */
 export type Vars = { device: DeviceRow };

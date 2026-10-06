@@ -147,7 +147,7 @@ describe('事後の要約からの状態の提案', () => {
 
   it('done の提案を post_hoc の候補として書き、要約と同じ 1 回の session.upsert に載せる', async () => {
     await runWith(proposing({ status: 'done', note: '直して main に入れた', returnInDays: null }));
-    expect(getSessionState(db, alphaId)?.candidate).toEqual({ status: 'done', note: '直して main に入れた', returnOn: null, source: 'post_hoc', at: NOW });
+    expect(getSessionState(db, alphaId)?.candidate).toEqual({ status: 'done', note: '直して main に入れた', returnOn: null, returnTime: null, source: 'post_hoc', at: NOW });
     const upserts = sent.filter((e) => e.type === 'session.upsert');
     expect(upserts).toHaveLength(1);
     expect(upserts[0]!.type === 'session.upsert' && upserts[0]!.session.state?.candidate?.status).toBe('done');

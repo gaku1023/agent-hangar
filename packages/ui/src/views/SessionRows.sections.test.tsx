@@ -5,7 +5,7 @@ import type { SessionRowProps } from '../presenters/row.ts';
 import type { ListItem, SectionId } from '../presenters/sections.ts';
 import { SessionRows } from './SessionRows.tsx';
 
-const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null, ...over });
+const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
 const head = (id: SectionId, label: string, count: number, more?: { label: string; target: SectionId }): ListItem => (more ? { kind: 'head', id, label, count, more } : { kind: 'head', id, label, count });
 const r = (id: string, over?: Partial<SessionRowProps>): ListItem => ({ kind: 'row', row: row(id, over) });
 const ITEMS: ListItem[] = [head('returning', '今日戻る', 1), r('a'), head('continue', '続き', 2), r('b'), r('c'), head('done', 'Done', 1221, { label: 'ほか 1218 件 ▸', target: 'done' }), r('d')];
@@ -90,12 +90,12 @@ describe('SessionRows の状態の札（★ の E）', () => {
     render(<IntentRoot onIntent={vi.fn()}><SessionRows rows={[row('d1', { state: 'done' })]} height={400} variant="project" /></IntentRoot>);
     expect(screen.queryByRole('button', { name: /のセッションだけを見る$/ })).toBeNull();
   });
-  // 裁定 2A：戻る日の無い Paused の行も「日付なし」の札を出すので、その札もタブへ移るボタンにする。
-  it('戻る日の無い Paused の「日付なし」の札も、Paused のタブへ移るボタンになる', () => {
+  // F1：Paused も状態の列に語の札で出すので、その札がタブへ移るボタンになる（戻る日は時刻の列で、ボタンではない）。
+  it('Paused の札も、Paused のタブへ移るボタンになる', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SessionRows rows={[row('p1', { state: 'paused', returnOn: null })]} height={400} variant="search" badgeIntent={(status) => ({ type: 'search.filter', patch: { status } })} /></IntentRoot>);
     const b = screen.getByRole('button', { name: 'Paused のセッションだけを見る' });
-    expect(b).toHaveTextContent('日付なし');
+    expect(b).toHaveTextContent('Paused');
     fireEvent.click(b);
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'paused' } });
   });

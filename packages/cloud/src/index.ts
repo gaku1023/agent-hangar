@@ -5,6 +5,7 @@ import type { Env, Vars } from './env.ts';
 import { filesApp } from './files.ts';
 import { joinHandler } from './join.ts';
 import { ensureSchema } from './schema.ts';
+import { collectUsage } from './usage.ts';
 import { VERSION } from './util.ts';
 
 /** クラウド Worker である。端末ごとのトークンで認証し、変更ログとファイルを預かる。中身の暗号化は端末側で行う。 */
@@ -26,10 +27,19 @@ app.use('/rows', authMiddleware());
 app.use('/rows/*', authMiddleware());
 app.use('/files', authMiddleware());
 app.use('/files/*', authMiddleware());
+app.use('/usage', authMiddleware());
 
 app.route('/changes', changesApp);
 app.route('/rows', rowsApp);
 app.route('/files', filesApp);
+
+// 使用量と費用。トークンの secret が無ければ外へ出ずに configured: false を返す。D1 には書かない。
+app.get('/usage', async (c) => {
+  const token = c.env.USAGE_API_TOKEN?.trim();
+  const accountId = c.env.CF_ACCOUNT_ID?.trim();
+  if (!token || !accountId) return c.json({ configured: false });
+  return c.json(await collectUsage({ token, accountId, fetch: (input, init) => fetch(input, init), now: Date.now() }));
+});
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 

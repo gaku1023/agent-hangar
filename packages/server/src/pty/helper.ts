@@ -6,7 +6,9 @@ import path from 'node:path';
  * node-pty の prebuild は spawn-helper に実行権限が無い状態で展開されることがある（フェーズ 0 で確認）。
  * そのままでは posix_spawnp failed で落ちるので、起動時に権限を確認して直す。
  */
-export function fixSpawnHelpers(packageDir: string): string[] {
+export function fixSpawnHelpers(packageDir: string, platform: NodeJS.Platform = process.platform): string[] {
+  // spawn-helper は macOS と Linux のもの。Windows の Node は実行ビットを返さないので、見るたびに「直した」と数えてしまう。
+  if (platform === 'win32') return [];
   const candidates: string[] = [];
   const prebuilds = path.join(packageDir, 'prebuilds');
   if (fs.existsSync(prebuilds)) for (const d of fs.readdirSync(prebuilds)) candidates.push(path.join(prebuilds, d, 'spawn-helper'));

@@ -3,7 +3,7 @@ import type { SettingsDto, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
-import type { VerifyLine } from '../presenters/readiness.ts';
+import { clientPlatform, muxInstallCommand, type VerifyLine } from '../presenters/readiness.ts';
 import { JOIN_TOKEN_TTL_MS, type SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { PageHeading } from './PageHeading.tsx';
@@ -12,6 +12,8 @@ import { Icon, type IconName } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
+import { AccountSettings } from './AccountSettings.tsx';
+import { CloudUsage } from './CloudUsage.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
 
@@ -21,7 +23,7 @@ export const SAVED_TICK_MS = 2000;
 /** 設定の 5 つの群。目次（A1）と、頁の中の群の見出しが同じ表を読む。 */
 export const SETTINGS_GROUPS: { id: string; title: string; subs: string[]; icon: IconName }[] = [
   { id: 'settings-must', title: '必須', subs: ['ワークスペース', 'ツール', 'Node'], icon: 'tool' },
-  { id: 'settings-link', title: '連携', subs: ['MCP', 'statusline', '外のターミナル', '通知'], icon: 'link' },
+  { id: 'settings-link', title: '連携', subs: ['MCP', 'statusline', '外のターミナル', '通知', 'アカウント'], icon: 'link' },
   { id: 'settings-summary', title: '要約器', subs: ['LM Studio', '切り替え'], icon: 'permissionAuto' },
   { id: 'settings-sync', title: '同期', subs: ['状態', 'PC', '参加トークン', 'Claude Code の設定'], icon: 'cloud' },
   { id: 'settings-info', title: '情報', subs: ['使用量', '索引', 'この PC', '会話の保持'], icon: 'info' },
@@ -228,11 +230,24 @@ export function SettingsScreen(props: SettingsProps) {
   const lmLine: VerifyLine | null = props.summarizerModels === null ? null
     : props.summarizerModels.length === 0 ? { ok: false, soft: false, text: 'LM Studio に繋がりません', note: null, fix: null, fixCommand: null }
       : { ok: true, soft: false, text: 'つながりました', note: `モデル ${props.summarizerModels.length} 個`, fix: null, fixCommand: null };
-  const go = (id: string) => {
-    setGroup(id);
+  const slideTo = (id: string) => {
     const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     document.getElementById(id)?.scrollIntoView?.({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   };
+  const go = (id: string) => {
+    setGroup(id);
+    slideTo(id);
+  };
+  // ヘッダの「アカウントの設定」から来たときは、アカウントの節が見える位置へ移る。
+  // 節は一覧が届いてから出るので、出たときにも見直す。
+  const showAccounts = props.accounts.list.length > 0;
+  useEffect(() => {
+    if (props.focus !== 'accounts' || !showAccounts) return;
+    setGroup('settings-link');
+    slideTo('settings-accounts');
+    // slideTo と setGroup は毎回作り直されるので、依存には入れない。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.focus, showAccounts]);
   const todoOf = (id: string) => (id === 'settings-must' ? props.todo.must : id === 'settings-link' ? props.todo.link : 0);
   return (
     <div className="screen settings-screen">
@@ -259,7 +274,7 @@ export function SettingsScreen(props: SettingsProps) {
             <section>
               <h3 className="h2">ツール</h3>
               <div className="grid2">
-                <PathField field="tmuxPath" label="tmux のパス" value={props.tmuxPath} nullable placeholder="brew install tmux のあとにパスを入れてください" line={props.verify.tmux} mark={props.save.tmuxPath} />
+                <PathField field="tmuxPath" label="tmux のパス" value={props.tmuxPath} nullable placeholder={`${muxInstallCommand(clientPlatform())} のあとにパスを入れてください`} line={props.verify.tmux} mark={props.save.tmuxPath} />
                 <div className="field">
                   <span aria-hidden="true">ターミナルアプリ</span>
                   {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出る。 */}
@@ -325,7 +340,7 @@ export function SettingsScreen(props: SettingsProps) {
                 </>
               )}
               {props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>新しく開いたターミナルから効きます。1 回だけ包まずに起動するときは command claude、外すときは {props.shell.uninstallCommand} です。</div>}
-              {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>この PC では tmux が見つかりません。brew install tmux で入れるか、上の「tmux のパス」を入れてください。</div>}
+              {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>この PC では tmux が見つかりません。{muxInstallCommand(clientPlatform())} で入れるか、上の「tmux のパス」を入れてください。</div>}
               <div className="faint" style={{ marginTop: 4 }}>入れていないときも、外のターミナルで入力待ちか休みの claude は「hangar で引き取る」で開けます。</div>
             </section>
             {/* 入力待ちを OS の通知で知らせる。直すものの数には入れない（無くても動くため）。 */}
@@ -338,6 +353,8 @@ export function SettingsScreen(props: SettingsProps) {
               {!props.notify.available && <div className="faint" style={{ marginTop: 4 }}>この環境では通知を出せません。ブラウザで拒んだときは、ブラウザの設定でこのページの通知を許可してください。</div>}
               {props.notify.available && props.notify.blocked && <div className="faint" style={{ marginTop: 4 }}>通知が切られています。システム設定の「通知」で Hangar を許可してください。許可して Hangar に戻ると、受け取るに戻ります。戻らないときは、このスイッチを入れ直してください。</div>}
             </section>
+            {/* アカウントの追加の入口はここだけ。1 件でも出す。届く前（一覧が空）は出さない。 */}
+            {showAccounts && <AccountSettings {...props.accounts} />}
           </Group>
           <Group id="settings-summary">
             <section>
@@ -423,6 +440,8 @@ export function SettingsScreen(props: SettingsProps) {
                     {props.cloud.joinToken === null && <button className="btn" onClick={() => emit({ type: 'sync.joinToken.show' })}>参加トークンを表示</button>}
                   </div>
                   {props.cloud.joinToken !== null && <JoinToken token={props.cloud.joinToken} expiresAt={props.cloud.joinTokenExpiresAt} />}
+                  {/* 使用量と費用。操作ボタンの下、PC の一覧の上に置く（試作 usage-merged.html の「置き場所」）。 */}
+                  {props.cloud.usage && <CloudUsage {...props.cloud.usage} />}
                   <div className="list" style={{ marginTop: 8 }}>
                     {props.cloud.devices.map((d) => (
                       <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>

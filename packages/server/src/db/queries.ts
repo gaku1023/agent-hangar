@@ -1,4 +1,6 @@
+import { PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 import type { CandidateSource, DeviceDto, LiveSessionDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
+import { isStrictlyUnder } from '../platform/paths.ts';
 import { toStateDto } from '../sessions/states.ts';
 import type { Db } from './open.ts';
 
@@ -45,16 +47,18 @@ type SessionRow = {
   a_summary: string | null;
   a_question: string | null;
   local_mtime: number | null;
-  // session_states の左結合。ss_id が null なら行が無い（印なし）。
+  // session_states の左結合。ss_id が null なら行が無い（Active）。
   ss_id: string | null;
   ss_status: SessionStatus | null;
   ss_note: string | null;
   ss_return_on: string | null;
+  ss_return_time: string | null;
   ss_set_by: StateSetBy | null;
   ss_set_at: number | null;
   ss_c_status: 'paused' | 'done' | null;
   ss_c_note: string | null;
   ss_c_return_on: string | null;
+  ss_c_return_time: string | null;
   ss_c_source: CandidateSource | null;
   ss_c_at: number | null;
 };
@@ -68,8 +72,8 @@ select s.*, exists(select 1 from transcript_files t where t.session_id = s.id an
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_id sum_source_id, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
   st.turns st_turns, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
   ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost, a.tool a_tool, a.summary a_summary, a.question a_question,
-  ss.session_id ss_id, ss.status ss_status, ss.note ss_note, ss.return_on ss_return_on, ss.set_by ss_set_by, ss.set_at ss_set_at,
-  ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at
+  ss.session_id ss_id, ss.status ss_status, ss.note ss_note, ss.return_on ss_return_on, ss.return_time ss_return_time, ss.set_by ss_set_by, ss.set_at ss_set_at,
+  ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_return_time ss_c_return_time, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at
 from sessions s
 left join projects p on p.id = s.project_id
 left join session_summaries m on m.session_id = s.id and m.deleted_at is null
@@ -179,7 +183,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
   // cwd はそのセッションを持つ端末のパスなので、ルートも同じ端末のものだけを見る。
   // スクラッチの起動は必ず <root>/<yyyymmdd-HHmmss> に入るので、ルート自身は下に含めない。
   // projects/scratch.ts の isUnderScratch と同じ判定である。
-  const underScratch = r.scratch_root !== null && r.cwd.startsWith(r.scratch_root + '/');
+  const underScratch = r.scratch_root !== null && isStrictlyUnder(r.cwd, r.scratch_root);
   return {
     id: r.id,
     provider: r.provider,
@@ -202,10 +206,10 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     remoteOnly: r.has_transcript === 1 && r.has_local === 0,
     // 保持期間の期限を UI が数えるための、この PC の本文の更新時刻。Claude Code もこれで古さを測るとみなす。
     transcriptMtime: r.local_mtime,
-    // セッションの状態と提案。行が無ければ印なしの null。rejected_at は載せない（toStateDto）。
+    // セッションの状態と提案。行が無ければ Active の null。rejected_at は載せない（toStateDto）。
     state: r.ss_id === null ? null : toStateDto({
-      status: r.ss_status, note: r.ss_note, return_on: r.ss_return_on, set_by: r.ss_set_by, set_at: r.ss_set_at,
-      candidate_status: r.ss_c_status, candidate_note: r.ss_c_note, candidate_return_on: r.ss_c_return_on, candidate_source: r.ss_c_source, candidate_at: r.ss_c_at,
+      status: r.ss_status, note: r.ss_note, return_on: r.ss_return_on, return_time: r.ss_return_time, set_by: r.ss_set_by, set_at: r.ss_set_at,
+      candidate_status: r.ss_c_status, candidate_note: r.ss_c_note, candidate_return_on: r.ss_c_return_on, candidate_return_time: r.ss_c_return_time, candidate_source: r.ss_c_source, candidate_at: r.ss_c_at,
     }),
     // 最後に呼んだツールと待っている問いは、実行中のときだけ載せる。終わったセッションの古い呼び出しは出さない。
     ...(live ? { activity: r.a_tool !== null ? { tool: r.a_tool, summary: r.a_summary ?? '', question: r.a_question } : null } : {}),
@@ -311,4 +315,31 @@ export function listProjects(db: Db, deviceId: string, live: LiveSessionDto[]): 
 export function getProject(db: Db, deviceId: string, live: LiveSessionDto[], id: string): ProjectDto | null {
   const r = db.prepare(`${PROJECT_SELECT} and p.id = ?`).get(deviceId, id) as ProjectRow | undefined;
   return r ? toProjectDto(r, db, new Set(live.map((l) => l.sessionId))) : null;
+}
+
+const accountIn = (launchParams: string | null): string | null => {
+  if (!launchParams) return null;
+  try {
+    const a = (JSON.parse(launchParams) as { account?: unknown } | null)?.account;
+    return typeof a === 'string' && a ? a : null;
+  } catch { return null; }
+};
+
+/** そのセッションを最後に動かしたアカウント。run が無い、またはアカウントを記録する前の run なら null。 */
+export function accountOfSession(db: Db, sessionId: string): string | null {
+  const r = db.prepare('select launch_params from runs where session_id = ? and deleted_at is null order by started_at desc, id desc limit 1').get(sessionId) as { launch_params: string | null } | undefined;
+  return accountIn(r?.launch_params ?? null);
+}
+
+/** 最初のアカウント以外で最後に動かしたセッションの一覧（セッションの id → アカウントの id）。run は 1 回だけ読み、セッションごとの最後の run を JS で選ぶ。 */
+export function sessionAccounts(db: Db): Record<string, string> {
+  const rows = db.prepare('select session_id, launch_params from runs where deleted_at is null order by started_at, id').all() as { session_id: string; launch_params: string | null }[];
+  const last = new Map<string, string | null>();
+  for (const r of rows) last.set(r.session_id, r.launch_params);
+  const out: Record<string, string> = {};
+  for (const [sid, params] of last) {
+    const a = accountIn(params);
+    if (a && a !== PRIMARY_ACCOUNT_ID) out[sid] = a;
+  }
+  return out;
 }

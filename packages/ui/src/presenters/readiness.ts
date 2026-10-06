@@ -9,7 +9,20 @@ export type VerifyLine = { ok: boolean; soft: boolean; text: string; note: strin
 
 export type ToolKey = 'tmux' | 'claude' | 'code' | 'node';
 
-/** ツールごとの直し方。コマンドで直せるものはコマンドを、そうでなければ文を持つ。 */
+/** tmux の役を担う道具の入れ方。Windows は psmux を入れる。 */
+export function muxInstallCommand(platform: string): string {
+  return platform === 'win32' ? 'winget install marlocarlo.psmux' : 'brew install tmux';
+}
+
+/**
+ * 画面を開いている PC の OS。
+ * hangar の画面は、サーバと同じ PC のブラウザか WebView で開くので、ブラウザの名乗りから読む。
+ */
+export function clientPlatform(userAgent: string | undefined = globalThis.navigator?.userAgent): string {
+  return userAgent !== undefined && /Windows/.test(userAgent) ? 'win32' : 'darwin';
+}
+
+/** ツールごとの直し方。コマンドで直せるものはコマンドを、そうでなければ文を持つ。tmux の入れ方だけは OS で変わるので、toolLine で差し替える。 */
 const FIX: Record<ToolKey, { fix: string | null; fixCommand: string | null; soft: boolean }> = {
   tmux: { fix: null, fixCommand: 'brew install tmux', soft: false },
   claude: { fix: 'claude コマンドの絶対パスを入れてください', fixCommand: null, soft: false },
@@ -25,14 +38,14 @@ function problemText(c: ToolCheckDto): string {
   return `${c.path} が見つかりません`;
 }
 
-export function toolLine(key: ToolKey, c: ToolCheckDto & { auto?: boolean }): VerifyLine {
+export function toolLine(key: ToolKey, c: ToolCheckDto & { auto?: boolean }, platform: string = clientPlatform()): VerifyLine {
   const f = FIX[key];
   if (c.ok) {
     const auto = key === 'node' && c.auto ? '自動で見つけました' : null;
     const note = [c.version, auto].filter((x): x is string => x !== null).join('、');
     return { ok: true, soft: false, text: c.path ?? '', note: note === '' ? null : note, fix: null, fixCommand: null };
   }
-  return { ok: false, soft: f.soft, text: problemText(c), note: f.soft ? '無くても動きます' : null, fix: f.fix, fixCommand: f.fixCommand };
+  return { ok: false, soft: f.soft, text: problemText(c), note: f.soft ? '無くても動きます' : null, fix: f.fix, fixCommand: key === 'tmux' ? muxInstallCommand(platform) : f.fixCommand };
 }
 
 /** ワークスペースの検証。登録したプロジェクトが 1 つも無いのも ✗ にする。何も始められないからである。 */
