@@ -8,7 +8,7 @@ import { APPROVE_TEXT, LOGGED_OUT_TEXT, type AccountGauge, type AccountView } fr
  * showResets のときは、枠が戻る時刻を右に添える。
  * 値が 1 つも無ければ、棒の代わりに 1 行で言う。
  * 認証は、未ログインと初めてのログインの途中だけメールの行で言い、未読のときは空のままにする。
-ログインし直しの途中（running で loggedIn が真）は、メールを消さずに出したまま、承認の添え書きを 1 行足す。
+ * ログインし直しの途中（running で loggedIn が真）は、メールを消さずに出したまま、承認の添え書きを 1 行足す。
  */
 export function AccountMeters(props: { account: AccountView; showResets: boolean }) {
   const a = props.account;
