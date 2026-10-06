@@ -35,7 +35,7 @@ export function ProjectScreen(props: ProjectProps) {
         </PageHeading>
         <div className="mono faint project-path">{props.path ?? 'この PC にパスがありません'}{!props.resolved && props.path ? '（見つかりません）' : ''}</div>
         {/* 見出しの「ほか N 件」と Archived の「表示」は、このプロジェクトの節をその場で広げる。 */}
-        <SessionRows items={props.items} variant="project" page={props.pager?.page} moreIntent={(target) => (target === 'done' || target === 'archived' ? { type: 'project.section.toggle', projectId: props.id, section: target } : null)} />
+        <SessionRows items={props.items} variant="project" page={props.pager?.page} moreIntent={(target) => (target === 'archived' ? { type: 'project.section.toggle', projectId: props.id, section: target } : null)} />
         {/* 広げた節が長いときだけ、その行をページに分ける。 */}
         {props.pager && <Pager label="セッション" pager={props.pager} onPage={(page) => emit({ type: 'list.page', key: projectPageKey(props.id), page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}
       </div>

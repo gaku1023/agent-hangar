@@ -39,17 +39,17 @@ export function presentArtifactCard(a: ArtifactDto, now: number): ArtifactCardPr
 }
 
 /**
- * 広げた節（Done の「ほか N 件」と Archived の「表示」）の行をページに分ける。
- * 広げた節は何百件にもなるので、その行だけを数えて切り出し、上の節（今日戻る・動いている・続き）の行と、節の見出しは毎ページ出す。
- * 広げた節の行がいちばん小さい件数に収まるなら、分けない。
+ * Done と、広げた Archived の行をページに分ける。
+ * どちらも何百件にもなるので、その行だけを数えて切り出し、上の節（今日戻る・動いている・続き）の行と、節の見出しは毎ページ出す。
+ * 分ける行がいちばん小さい件数に収まるなら、分けない。
  */
-function pageExpanded(items: ListItem[], expanded: Set<string>, page: number, size: number): { items: ListItem[]; pager: PagerProps | null } {
+function pageSections(items: ListItem[], paged: Set<string>, page: number, size: number): { items: ListItem[]; pager: PagerProps | null } {
   let section: string | null = null;
-  const inExpanded = items.map((it) => { if (it.kind === 'head') section = it.id; return it.kind === 'row' && section !== null && expanded.has(section); });
-  const pager = pagerOf(page, size, inExpanded.filter(Boolean).length);
+  const inPaged = items.map((it) => { if (it.kind === 'head') section = it.id; return it.kind === 'row' && section !== null && paged.has(section); });
+  const pager = pagerOf(page, size, inPaged.filter(Boolean).length);
   if (!pager) return { items, pager };
   let k = 0;
-  return { items: items.filter((_, i) => !inExpanded[i] || (++k >= pager.from && k <= pager.to)), pager };
+  return { items: items.filter((_, i) => !inPaged[i] || (++k >= pager.from && k <= pager.to)), pager };
 }
 
 /** プロジェクト詳細の見出しの上には、一覧へ戻るリンクを出す。 */
@@ -58,10 +58,10 @@ const PARENT: ParentLink = { label: 'プロジェクト', route: { name: 'projec
 export function presentProject(state: State, store: Store, now: number, id: string): ProjectProps {
   const p = store.projects[id];
   if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', items: [], pager: null, notFound: true, isScratch: false, todos: [], memo: null, artifacts: [] };
-  // 節で読む（P3）。広げた節はプロジェクトごとに Mediator が覚えている（mediator/sections.ts）。
+  // 節で読む（P3）。広げた Archived はプロジェクトごとに Mediator が覚えている（mediator/sections.ts）。
   const rows = sortForSections(Object.values(store.sessions).filter((s) => s.projectId === id)).map((s) => presentSessionRow(s, store, now));
   const expanded = new Set<string>(state.sectionsOpen[id] ?? []);
-  const { items, pager } = pageExpanded(sectionRows(rows, 'project', { now, doneHead: DONE_HEAD, expanded }), expanded, state.listPages[projectPageKey(id)] ?? 1, state.pageSize);
+  const { items, pager } = pageSections(sectionRows(rows, 'project', { now, doneHead: DONE_HEAD, expanded }), new Set([...expanded, 'done']), state.listPages[projectPageKey(id)] ?? 1, state.pageSize);
   const memo = store.memos[id];
   return {
     id, name: p.name, parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, items, pager, notFound: false, isScratch: p.isScratch,

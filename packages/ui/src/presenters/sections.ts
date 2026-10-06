@@ -11,11 +11,14 @@ export type SectionId = 'returning' | 'proposed' | 'live' | 'continue' | 'active
 /**
  * 一覧の項目。行と、節の見出しの和にする。
  * 見出しの count はその節の全件の数で、畳んで見せていない行も数える。
- * more は見出しの右端のボタンで、押すと target の節を広げるか（プロジェクト画面）、そのタブへ移る（Sessions）。
+ * more は見出しの右端のボタンで、押すと target の節を広げるか（プロジェクト画面の Archived）、そのタブへ移る（Sessions）。
  */
 export type ListItem = { kind: 'row'; row: SessionRowProps } | { kind: 'head'; id: SectionId; label: string; count: number; more?: { label: string; target: SectionId } };
 
-/** Done の節で畳まずに見せる件数。導入の翌日に一覧が空にならず、確定した行も見失わない数にする（spec の P3）。 */
+/**
+ * Sessions の Done の節で見せる件数。残りは「ほか N 件」でタブへ移る。
+ * プロジェクト画面の Done は畳まずに全件を出し、ページ送りに分ける（2026-10-06 の決定。導入時の一括で Done がほぼ全件になり、畳むと一覧の下が空くだけだったため）。
+ */
 export const DONE_HEAD = 3;
 
 const LABEL: Record<SectionId, string> = { returning: '今日戻る', proposed: '確かめる', live: 'いま動いている', continue: '続き', active: 'Active', paused: 'Paused', done: 'Done', archived: 'Archived' };
@@ -78,14 +81,10 @@ export const returnKey = (r: { returnOn: string | null; returnTime?: string | nu
 /** 件数の桁を区切る（1,221）。 */
 const num = (n: number) => n.toLocaleString('en-US');
 
-/** 見出しの右端のボタン。プロジェクト画面はその場で広げ、Sessions はそのタブへ移る。 */
+/** 見出しの右端のボタン。プロジェクト画面は Archived だけをその場で広げ、Sessions はそのタブへ移る。 */
 function moreOf(id: SectionId, kind: 'project' | 'sessions', count: number, open: boolean, doneHead: number): { label: string; target: SectionId } | undefined {
   const rest = count - doneHead;
-  if (kind === 'project') {
-    if (id === 'done' && rest > 0) return { label: open ? '畳む ▴' : `ほか ${num(rest)} 件 ▸`, target: 'done' };
-    if (id === 'archived') return { label: open ? '隠す ▴' : '表示 ▸', target: 'archived' };
-    return undefined;
-  }
+  if (kind === 'project') return id === 'archived' ? { label: open ? '隠す ▴' : '表示 ▸', target: 'archived' } : undefined;
   if (id === 'done' && rest > 0) return { label: `ほか ${num(rest)} 件 ▸`, target: 'done' };
   if (id === 'archived') return { label: '表示 ▸', target: 'archived' };
   return SECTION_TAB[id] ? { label: 'この節だけ見る ▸', target: id } : undefined;
@@ -94,8 +93,8 @@ function moreOf(id: SectionId, kind: 'project' | 'sessions', count: number, open
 /**
  * 行を節に分けて、見出しと行の並びにする。中身がある節だけを出す。
  * rows は sortForSections の並びで渡す。節の中はその並びを保ち、今日戻るだけを戻る日の古い順に並べ直す。
- * Done は doneHead 件まで、Archived は見出しだけを出す。
- * expanded に入った節（'done'、'archived'）は、プロジェクト画面では全件を出す。Sessions では使わない（広げる代わりにタブへ移る）。
+ * Archived は見出しだけを出す。Sessions の Done は doneHead 件までにし、プロジェクト画面の Done は全件を出す（ページ送りは presentProject が分ける）。
+ * expanded に入った Archived は、プロジェクト画面では全件を出す。Sessions では使わない（広げる代わりにタブへ移る）。
  */
 export function sectionRows(rows: SessionRowProps[], kind: 'project' | 'sessions', o: { now: number; doneHead: number; expanded: Set<string> }): ListItem[] {
   const today = localDate(o.now);
@@ -115,7 +114,7 @@ export function sectionRows(rows: SessionRowProps[], kind: 'project' | 'sessions
     const open = kind === 'project' && o.expanded.has(id);
     const more = moreOf(id, kind, list.length, open, o.doneHead);
     out.push(more ? { kind: 'head', id, label: LABEL[id], count: list.length, more } : { kind: 'head', id, label: LABEL[id], count: list.length });
-    const shown = id === 'done' && !open ? list.slice(0, o.doneHead) : id === 'archived' && !open ? [] : list;
+    const shown = id === 'done' && kind === 'sessions' ? list.slice(0, o.doneHead) : id === 'archived' && !open ? [] : list;
     for (const row of shown) out.push({ kind: 'row', row });
   }
   return out;
