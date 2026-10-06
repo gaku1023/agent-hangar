@@ -19,7 +19,7 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 3,
-  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, livePaneSplit: 0.5, gone: null, find: null, jump: null, hasNewer: false,
+  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, livePaneSplit: 0.5, stoppedNote: null, gone: null, find: null, jump: null, hasNewer: false,
   actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, account: null };
 
 /**
@@ -189,6 +189,12 @@ describe('線の下の 1 行（B1）', () => {
   it('終わったセッションは状態を「終了」と最後の動きで言う。起こし方は title に持つ', () => {
     const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} run={{ id: 'r1', kind: 'start', alive: false, started: '1 分前' }} /></IntentRoot>);
     expect(info(container).firstElementChild).toHaveTextContent('終了 · 1 分前');
+    expect(info(container).firstElementChild).toHaveAttribute('title', '起動 1 分前');
+  });
+  it('区切りを付けたので止めたセッションは、「終了」の代わりにその訳を言う', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} run={{ id: 'r1', kind: 'start', alive: false, started: '1 分前' }} stoppedNote="Paused にしたので止めました。再開で続けられます" /></IntentRoot>);
+    expect(info(container).firstElementChild).toHaveTextContent('Paused にしたので止めました。再開で続けられます');
+    expect(info(container).firstElementChild).not.toHaveTextContent('終了');
     expect(info(container).firstElementChild).toHaveAttribute('title', '起動 1 分前');
   });
   it('コンテキストとコストが両方とも未取得なら、棒を描かず 1 つにまとめ、押すと設定へ行く', () => {

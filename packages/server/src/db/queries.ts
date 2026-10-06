@@ -1,6 +1,7 @@
-import { PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
+import { isParked, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 import type { CandidateSource, DeviceDto, LiveSessionDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
 import { isStrictlyUnder } from '../platform/paths.ts';
+import { parseProcStart } from '../runs/procs.ts';
 import { toStateDto } from '../sessions/states.ts';
 import type { Db } from './open.ts';
 
@@ -61,6 +62,9 @@ type SessionRow = {
   ss_c_return_time: string | null;
   ss_c_source: CandidateSource | null;
   ss_c_at: number | null;
+  // 最後に起こした run の終わり方と終わった時刻。run が無いか、まだ動いていれば null。
+  last_end_reason: string | null;
+  last_ended_at: number | null;
 };
 
 const SESSION_SELECT = `
@@ -73,7 +77,9 @@ select s.*, exists(select 1 from transcript_files t where t.session_id = s.id an
   st.turns st_turns, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
   ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost, a.tool a_tool, a.summary a_summary, a.question a_question,
   ss.session_id ss_id, ss.status ss_status, ss.note ss_note, ss.return_on ss_return_on, ss.return_time ss_return_time, ss.set_by ss_set_by, ss.set_at ss_set_at,
-  ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_return_time ss_c_return_time, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at
+  ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_return_time ss_c_return_time, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at,
+  (select r.end_reason from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_end_reason,
+  (select r.ended_at from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_ended_at
 from sessions s
 left join projects p on p.id = s.project_id
 left join session_summaries m on m.session_id = s.id and m.deleted_at is null
@@ -151,7 +157,27 @@ function lockMap(db: Db, selfDeviceId: string | undefined, now: number): Map<str
   return out;
 }
 
-function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>): SessionDto {
+/**
+ * いま動いている claude のプロセスが、いつ起動したか（epoch のミリ秒）。分からなければ null。
+ * Claude の登録の procStart を先に見て、無ければ hangar の生きた run の始まりを使う。
+ * run は claude より先に始まるので、run の始まりで代えても「印より後に起動した」の判定は変わらない。
+ */
+export function processStartedAt(live: { procStart?: string } | undefined, aliveRunStartedAt: number | null): number | null {
+  const t = live?.procStart ? parseProcStart(live.procStart) : null;
+  return t ?? aliveRunStartedAt;
+}
+
+/**
+ * 生きた run の始まり（セッションごとに最新のもの）。
+ * deviceId を渡せば、この端末の run だけを見る。動いているプロセスはこの端末のものなので、他の端末に残った行と比べない。
+ */
+function aliveRunStarts(db: Db, deviceId: string | undefined): Map<string, number> {
+  const rows = db.prepare(`select session_id, max(started_at) t from runs where ended_at is null and deleted_at is null${deviceId ? ' and device_id = ?' : ''} group by session_id`)
+    .all(...(deviceId ? [deviceId] : [])) as { session_id: string; t: number }[];
+  return new Map(rows.map((r) => [r.session_id, r.t]));
+}
+
+function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const summary: SessionSummaryDto | null = r.sum_title !== null
     ? {
@@ -211,6 +237,10 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
       status: r.ss_status, note: r.ss_note, return_on: r.ss_return_on, return_time: r.ss_return_time, set_by: r.ss_set_by, set_at: r.ss_set_at,
       candidate_status: r.ss_c_status, candidate_note: r.ss_c_note, candidate_return_on: r.ss_c_return_on, candidate_return_time: r.ss_c_return_time, candidate_source: r.ss_c_source, candidate_at: r.ss_c_at,
     }),
+    parked: isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live?.status ?? null, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null) }),
+    // 止めた後に起こした run があれば、last_end_reason はその run のもの（動いている間は null）になるので偽に戻る。
+    // 止めた後に付け直した印でも偽にする。その印のために止めたのではない。
+    stoppedByStatus: r.ss_status !== null && r.last_end_reason === 'parked' && r.last_ended_at !== null && r.ss_set_at !== null && r.last_ended_at >= r.ss_set_at,
     // 最後に呼んだツールと待っている問いは、実行中のときだけ載せる。終わったセッションの古い呼び出しは出さない。
     ...(live ? { activity: r.a_tool !== null ? { tool: r.a_tool, summary: r.a_summary ?? '', question: r.a_question } : null } : {}),
   };
@@ -239,12 +269,13 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
   const rows = db.prepare(sql).all(...args) as SessionRow[];
   const lm = liveMapOf(live);
   const locks = lockMap(db, opts.deviceId, opts.now ? opts.now() : Date.now());
-  return rows.map((r) => toSessionDto(r, lm, locks));
+  const runStarts = aliveRunStarts(db, opts.deviceId);
+  return rows.map((r) => toSessionDto(r, lm, locks, runStarts));
 }
 
 export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { deviceId?: string; now?: () => number } = {}): SessionDto | null {
   const r = db.prepare(`${SESSION_SELECT} and s.id = ?`).get(id) as SessionRow | undefined;
-  return r ? toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, opts.now ? opts.now() : Date.now())) : null;
+  return r ? toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, opts.now ? opts.now() : Date.now()), aliveRunStarts(db, opts.deviceId)) : null;
 }
 
 /** Settings の端末一覧。最終確認の新しい順で、自端末に印を付ける。 */

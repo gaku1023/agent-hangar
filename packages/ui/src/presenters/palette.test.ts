@@ -69,6 +69,14 @@ describe('presentPalette（何も打っていないとき）', () => {
     expect(item(p, 'session:i1')).toMatchObject({ lead: { kind: 'dot', live: 'idle' }, meta: '休み 12 分' });
     expect(item(p, 'session:e0')).toMatchObject({ lead: { kind: 'dot', live: null }, meta: '1 時間前' });
   });
+  it('区切りを付けて休みのまま残っているものは、実行中ではなく最近に、終わったものと同じ見た目で置く', () => {
+    const st = busy();
+    st.sessions.i1 = at(st.sessions.i1!, { parked: true, state: { status: 'paused', note: '明日見る', returnOn: '2026-10-03', returnTime: null, setBy: 'conversation', setAt: NOW - MIN, candidate: null } });
+    const p = presentPalette(withPalette(), st, '', NOW)!;
+    expect(ids(p, '実行中')).toEqual(['session:b1']);
+    expect(ids(p, '最近')[0]).toBe('session:i1');
+    expect(item(p, 'session:i1')).toMatchObject({ lead: { kind: 'dot', live: null }, meta: '12 分前' });
+  });
   it('最近は札に出したものを重ねず、新しい順に 5 件まで。切ったら「上位 5」と全件の数を添える', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
     const recent = p.sections.find((x) => x.title === '最近')!;

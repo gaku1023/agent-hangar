@@ -24,6 +24,7 @@ import { RunError, type RunManager } from '../runs/manager.ts';
 import { decodeTerminalRequest } from '../runs/terminal.ts';
 import type { JumpFrom } from '../runs/promptJump.ts';
 import { searchSessions } from '../search/search.ts';
+import { parkedSessionIds } from '../sessions/park.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../sessions/states.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
@@ -486,7 +487,9 @@ export function createApp(deps: AppDeps): Hono {
     // Claude の一覧に載る前の run も実行中に入れる。
     const liveStatus = new Map(deps.live().map((l) => [l.sessionId, l.status]));
     const alive = new Set(deps.runs.listAlive().runs.filter((r) => r.endedAt === null).map((r) => r.sessionId));
-    const liveOf = (sid: string, psid: string) => liveFilterOf(liveStatus.get(psid) ?? null, alive.has(sid));
+    // 区切りを付けて休みのまま残っているものは、画面と同じく終了に数える。
+    const parked = new Set(parkedSessionIds(db, deps.live(), deviceId));
+    const liveOf = (sid: string, psid: string) => liveFilterOf(liveStatus.get(psid) ?? null, alive.has(sid), parked.has(sid));
     return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf));
   });
 

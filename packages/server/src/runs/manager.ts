@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { newId, runTmuxId, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
+import { newId, runTmuxId, type EndReason, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import { ensureAccountLinks, linkProblem } from '../config/accountLinks.ts';
 import type { Db } from '../db/open.ts';
@@ -75,6 +75,8 @@ export class RunManager {
   private timer: ReturnType<typeof setInterval> | null = null;
   /** 引き取りの途中のセッション。二度押しで元のプロセスを止めて移す手順が 2 本走らないようにする。 */
   private adopting = new Set<string>();
+  /** 区切りを付けたので落としにいった run。tmux から消えたのを見たときに、終わり方を parked と書くために持つ。 */
+  private parking = new Set<string>();
 
   constructor(private readonly deps: RunManagerDeps) {}
 
@@ -268,10 +270,11 @@ export class RunManager {
   }
 
   /** run を終了として閉じる。すでに閉じていれば何もしない。 */
-  private end(runId: string, reason: 'exited' | 'killed' | 'lost'): RunDto | null {
+  private end(runId: string, reason: EndReason): RunDto | null {
     const row = this.db.prepare('select * from runs where id = ? and deleted_at is null').get(runId) as Record<string, unknown> | undefined;
     if (!row || row.ended_at !== null) return null;
     upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
+    this.parking.delete(runId);
     const run = getRun(this.db, runId)!;
     // claude はもう居ない。秘密の入った設定ファイルを残さず、秘密そのものも無効にする。
     removeMcpConfig(this.deps.home, run.sessionId);
@@ -569,10 +572,12 @@ export class RunManager {
     }
     for (const run of listAliveRuns(this.db, this.deviceId)) {
       if (!names.has(run.tmuxName)) {
-        const e = this.end(run.id, 'exited');
+        const e = this.end(run.id, this.parking.has(run.id) ? 'parked' : 'exited');
         if (e) ended.push(e);
         continue;
       }
+      // 落としにいったのに残っているなら、落とせていない。後で自分で終わったときに parked と書かないよう、印を外す。
+      this.parking.delete(run.id);
       if (now - run.heartbeatAt >= HEARTBEAT_MS) {
         const row = this.db.prepare('select * from runs where id = ?').get(run.id) as Record<string, unknown>;
         upsertShared(this.db, 'runs', { ...row, heartbeat_at: now }, this.deviceId);
@@ -649,16 +654,38 @@ export class RunManager {
   }
 
   /**
-   * バックグラウンドのサービスが持つセッションなら、その本体も止める。
+   * 区切り（Paused・Done・Archived）を付けたセッションの Claude を止める。止めるものがあれば true を返す。
+   * kill と違い、シェルのタブは残す。利用者がそこで動かしているサーバなどを、印を付けただけで落とさないためである。
+   * この端末の生きた run は、tmux から消えたのを確かめてから parked で終わらせる。hangar の run が無いバックグラウンドのセッションは、本体だけを止める。
+   * 外のターミナルや VS Code で動く claude には触らない（run もバックグラウンドの id も無いので、ここでは何も起きない）。
+   */
+  park(sessionId: string): boolean {
+    const run = listAliveRuns(this.db, this.deviceId).filter((r) => r.sessionId === sessionId).at(-1) ?? null;
+    const background = this.stopBackground(sessionId);
+    const tmux = this.deps.tmux;
+    // tmux が無ければ run には触らない。止められていないのに run を閉じると、動いている claude を hangar が見失う。
+    if (!run || !tmux) return background;
+    tmux.killSession(run.tmuxName);
+    this.parking.add(run.id);
+    // 落とせたことを一覧で確かめてから閉じる。確かめられなければ、次の見回り（tick）に任せる。
+    // すぐ閉じるのは、claude が登録から消えてから見回りが来るまでの間、画面に「起動しています」と出さないためである。
+    const listed = tmux.listSessions();
+    if (listed !== null && !listed.includes(run.tmuxName)) this.end(run.id, 'parked');
+    return true;
+  }
+
+  /**
+   * バックグラウンドのサービスが持つセッションなら、その本体も止める。止めにいったら true を返す。
    * attach の run の tmux を落としても画面の口が閉じるだけで、claude は動き続けるからである。
    * 止め終わるのは待たない。失敗しても run は閉じ、ログにだけ残す。
    */
-  private stopBackground(sessionId: string): void {
+  private stopBackground(sessionId: string): boolean {
     const s = this.db.prepare('select provider_session_id, cwd from sessions where id = ?').get(sessionId) as { provider_session_id: string; cwd: string } | undefined;
     const jobId = s ? this.liveOf(s.provider_session_id)?.background?.jobId : undefined;
-    if (!s || !jobId || !this.deps.claudeBin) return;
+    if (!s || !jobId || !this.deps.claudeBin) return false;
     const cwd = isDirectory(s.cwd) ? s.cwd : this.deps.home;
     this.procs().runClaude(this.deps.claudeBin, ['stop', jobId], cwd).catch((e) => console.error('[runs] バックグラウンドのセッションを止められませんでした', this.safeError(e)));
+    return true;
   }
 
   /** 終了検知の周期起動。tick の失敗でサーバが落ちないよう、必ず捕まえる。 */

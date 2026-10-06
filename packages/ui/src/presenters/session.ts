@@ -3,7 +3,7 @@ import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, todosOf, type Store } from '../store/store.ts';
 import { DEFAULT_DAYS, daysLabel, EXTEND_TO, transcriptMark } from './retention.ts';
-import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
+import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, STATUS_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { presentArtifactCard, presentTodoCandidate, type ArtifactCardProps, type TodoItemProps } from './project.ts';
 import { presentTool, relPath, type ToolView } from './tools.ts';
@@ -75,7 +75,20 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
    */
   transcriptBand: { when: string } | null;
   /** 右の欄の「いま」の段が取る高さの上限（割合）。 */
-  livePaneSplit: number };
+  livePaneSplit: number;
+  /** 区切り（Paused・Done・Archived）を付けたので hangar が Claude を止めた、という知らせ。情報の行の「終了」の代わりに出す。そうでなければ null。 */
+  stoppedNote: string | null };
+
+/**
+ * 区切りを付けたので止めた、という知らせの文。端末が急に閉じた訳が分かるようにする。
+ * 印が外れるか、新しい run を起こすと、サーバが stoppedByStatus を偽に戻す。
+ * 動いている間は出さない。バックグラウンドの本体が止まり切る前に、動きの語と食い違わせないためである。
+ */
+function stoppedNoteOf(s: SessionDto): string | null {
+  const status = s.state?.status ?? null;
+  if (!s.stoppedByStatus || status === null || s.live !== null) return null;
+  return `${STATUS_LABEL[status]} にしたので止めました。再開で続けられます`;
+}
 
 export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'stop';
 /**
@@ -273,7 +286,7 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, account: null, livePaneSplit: state.livePaneSplit, gone: null, find: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null };
+  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, account: null, livePaneSplit: state.livePaneSplit, gone: null, find: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, stoppedNote: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -370,7 +383,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     // 本文が消えた会話では、残っている要約を最初から開いて見せる。
     gone, summaryOpen: gone ? true : view.summaryOpen,
-    changedFiles, changedMore, changedNote, transcriptBand,
+    changedFiles, changedMore, changedNote, transcriptBand, stoppedNote: stoppedNoteOf(s),
     todos: s.projectId ? todosOf(store, s.projectId).map((t) => ({ id: t.id, text: t.text, done: t.done, candidate: presentTodoCandidate(t, store, now) })) : [],
   };
   return { ...props, actions: sessionActions(props) };
