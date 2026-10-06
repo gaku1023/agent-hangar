@@ -926,6 +926,13 @@ describe('presentSession（右ペインの灯）', () => {
   });
 });
 
+/** path をパスに持つ解決済みのプロジェクトを 1 つだけ入れた store。 */
+function storeWithProjectAt(path: string): Store {
+  const s = initialStore();
+  s.bootstrapped = true;
+  s.projects = { p1: { ...project('p1'), path } };
+  return s;
+}
 describe('presentNewSession', () => {
   it('オーバーレイが newSession のときだけ、解決済みでアーカイブでないプロジェクトを名前順に出す', () => {
     const store = storeWith();
@@ -952,6 +959,22 @@ describe('presentNewSession', () => {
   it('書きかけの下書きと、プロジェクトごとの前回値を渡す', () => {
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, newSessionDraft: { name: 'n', prompt: '', attachments: [] }, launchPrefs: { alpha: { model: 'opus' } } };
     expect(presentNewSession(state, storeWith(), NOW)).toMatchObject({ draft: { name: 'n', prompt: '' }, prefs: { alpha: { model: 'opus' } } });
+  });
+  it('未登録のフォルダから、store にあるプロジェクトのパスを除く', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, workspaceDirs: [{ name: 'alpha', path: '/w/alpha' }, { name: 'fresh', path: '/w/fresh' }] };
+    const props = presentNewSession(state, storeWithProjectAt('/w/alpha'), NOW)!;
+    expect(props.dirs).toEqual([{ name: 'fresh', path: '/w/fresh' }]);
+  });
+  it('作れない名前として、アーカイブも含む store のプロジェクトのフォルダ名を小文字で渡す', () => {
+    const store = storeWithProjectAt('/w/Old-Kadai');
+    store.projects.p1 = { ...store.projects.p1!, status: 'archived' };
+    store.projects.p2 = { ...project('p2'), path: null, resolved: false };
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    expect(presentNewSession(state, store, NOW)!.takenNames).toEqual(['old-kadai']);
+  });
+  it('作れた後に起動だけ失敗したら、作ったプロジェクトを渡す', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, launch: { kind: 'failed' as const, message: 'x', createdProjectId: 'p9' } };
+    expect(presentNewSession(state, storeWithProjectAt('/w/alpha'), NOW)!.createdProjectId).toBe('p9');
   });
   describe('アカウントの札', () => {
     const open = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };

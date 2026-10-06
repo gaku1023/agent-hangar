@@ -15,9 +15,9 @@ import { upsertShared } from '../db/shared.ts';
 import { LiveDigester } from '../live/digest.ts';
 import { createMcpApp } from '../mcp/app.ts';
 import type { MemoStore } from '../projects/memo.ts';
+import { createProjectDir, ProjectCreateError, registerProjectDir } from '../projects/create.ts';
 import { PromoteError } from '../projects/promote.ts';
-import { assignSessions, candidateDirs, normalizeDir, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
-import { samePath } from '../platform/paths.ts';
+import { assignSessions, candidateDirs, listWorkspaceDirs, normalizeDir, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { EDIT_TOOLS } from '../indexer/indexFile.ts';
 import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } from '../projects/todos.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
@@ -83,6 +83,8 @@ export type AppDeps = {
   memos: MemoStore;
   summary: SummaryApi;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null };
+  /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する。 */
+  gitInit?: (dir: string) => void;
   sync: SyncApi;
   /** 設定の「使用量と費用」。同期を設定していない端末と古い組み立てでは無い。 */
   cloudUsage?: { current(): CloudUsageDto | null; refresh(): Promise<CloudUsageDto | null> };
@@ -773,28 +775,29 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/projects', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const body = (b.value ?? {}) as { name?: unknown; path?: unknown };
-    const name = typeof body.name === 'string' ? body.name.trim() : '';
-    const raw = typeof body.path === 'string' ? body.path.trim() : '';
-    if (!name) return c.json({ error: 'name は必須です' }, 400);
-    // `..` や末尾の `/` が残ると project_roots の前方一致に cwd が当たらず、
-    // そのプロジェクトには永久にセッションが紐づかない。必ず正規化してから入れる。
-    const dir = raw ? normalizeDir(raw) : '';
-    if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return c.json({ error: 'path が存在するディレクトリではありません' }, 400);
-    // 同じディレクトリを二重に登録しない。syncProjectsFromWorkspace と同じ判定にそろえる。
-    // SQL の文字列比較は大文字小文字を区別する。Windows では綴り違いも同じフォルダなので、JS で比べる。
-    const known = (db.prepare('select project_id, path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { project_id: string; path: string }[]).find((r) => samePath(r.path.normalize('NFC'), dir));
-    if (known) {
-      const p = getProject(db, deviceId, deps.live(), known.project_id);
-      if (p) return c.json(p);
+    const body = (b.value ?? {}) as { kind?: unknown; name?: unknown; path?: unknown; gitInit?: unknown };
+    try {
+      let projectId: string;
+      let created = true;
+      if (body.kind === 'newDir') {
+        if (typeof body.name !== 'string') return c.json({ error: 'name は必須です' }, 400);
+        ({ projectId } = createProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot, gitInit: deps.gitInit }, { name: body.name, gitInit: body.gitInit === true }));
+      } else {
+        // kind を省いた { name, path } は、フェーズ 2 からの既存のディレクトリの登録である。
+        if (body.kind !== undefined && body.kind !== 'dir') return c.json({ error: 'kind は newDir か dir です' }, 400);
+        if (typeof body.path !== 'string') return c.json({ error: 'path が存在するディレクトリではありません' }, 400);
+        ({ projectId, created } = registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: body.path, name: typeof body.name === 'string' ? body.name : undefined }));
+      }
+      const p = getProject(db, deviceId, deps.live(), projectId)!;
+      // 登録済みでも配る。アーカイブから戻したときに、ほかの画面の状態も変わるためである。
+      deps.hub.broadcast({ type: 'project.upsert', project: p });
+      return c.json(p, created ? 201 : 200);
+    } catch (e) {
+      if (e instanceof ProjectCreateError) return c.json({ error: e.message }, e.status);
+      throw e;
     }
-    const id = newId();
-    upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0 }, deviceId);
-    upsertShared(db, 'project_roots', { id: newId(), project_id: id, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
-    const p = getProject(db, deviceId, deps.live(), id)!;
-    deps.hub.broadcast({ type: 'project.upsert', project: p });
-    return c.json(p, 201);
   });
+  api.get('/workspace/dirs', (c) => c.json(listWorkspaceDirs(db, deviceId, deps.settings().workspaceRoot)));
   api.post('/projects/:id/open-editor', (c) => {
     const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
     if (!p?.path) return c.json({ error: 'プロジェクトが見つかりません' }, 404);

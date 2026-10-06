@@ -3,7 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { ConfigPreviewDialog } from './ConfigPreviewDialog.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
+import { NewProjectDialog } from './NewProjectDialog.tsx';
 import { RetentionDialog } from './RetentionDialog.tsx';
+import type { NewProjectProps } from '../presenters/newProject.ts';
+import type { Intent } from '@agent-hangar/shared';
+import { revealWithin } from './primitives/revealWithin.ts';
+
+// 一覧の中だけをスクロールしたかを確かめるため、寄せる関数を差し替える。
+vi.mock('./primitives/revealWithin.ts', () => ({ revealWithin: vi.fn() }));
 
 describe('ConfirmDialog', () => {
   it('大きさを並べ、上書きして再開を出す', () => {
@@ -282,5 +289,110 @@ describe('RetentionDialog', () => {
     expect(screen.getByText('設定ファイルがほかで変わったので、読み直しました。')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'ほかの期間…' })).toBeNull();
     expect(screen.queryByText('設定の同期で、次の取り込み時に届きます')).toBeNull();
+  });
+});
+
+describe('NewProjectDialog', () => {
+  const base: NewProjectProps = { dirs: [{ name: 'hangar-explainers', path: '/w/hangar-explainers' }, { name: 'RPG2', path: '/w/RPG2' }], workspaceRoot: '/w', desktop: true, picked: null, submitting: false, error: null };
+  const collect = (over: Partial<NewProjectProps> = {}) => {
+    const out: Intent[] = [];
+    const view = render(<IntentRoot onIntent={(i) => out.push(i)}><NewProjectDialog {...base} {...over} /></IntentRoot>);
+    return { out, view };
+  };
+  it('新しいフォルダを作る：名前と git init で「作成」と「作成して始める」を送る', () => {
+    const { out } = collect();
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいプロジェクト');
+    fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'price-watcher' } });
+    expect(screen.getByText('/w/price-watcher を作ります')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '作成' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'git init する' }));
+    fireEvent.click(screen.getByRole('button', { name: '作成して始める' }));
+    expect(out.filter((i) => i.type === 'project.new.submit')).toEqual([
+      { type: 'project.new.submit', place: { kind: 'newDir', name: 'price-watcher', gitInit: true }, startSession: false },
+      { type: 'project.new.submit', place: { kind: 'newDir', name: 'price-watcher', gitInit: false }, startSession: true },
+    ]);
+  });
+  it('既存のフォルダを登録：一覧から選ぶと名前に basename が入り、直した名前で送る', () => {
+    const { out } = collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    fireEvent.click(screen.getByRole('option', { name: 'hangar-explainers' }));
+    expect(screen.getByLabelText('プロジェクト名')).toHaveValue('hangar-explainers');
+    fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'explainers' } });
+    fireEvent.click(screen.getByRole('button', { name: '作成' }));
+    expect(out.find((i) => i.type === 'project.new.submit')).toEqual({ type: 'project.new.submit', place: { kind: 'dir', path: '/w/hangar-explainers', name: 'explainers' }, startSession: false });
+  });
+  it('既存のフォルダを登録：一覧は名前で絞れ、パスを打っても選べる', () => {
+    const { out } = collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    fireEvent.change(screen.getByLabelText('未登録のフォルダを探す'), { target: { value: 'rpg' } });
+    expect(screen.queryByRole('option', { name: 'hangar-explainers' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('フォルダのパス'), { target: { value: '/Users/me/thesis' } });
+    expect(screen.getByLabelText('プロジェクト名')).toHaveValue('thesis');
+    fireEvent.click(screen.getByRole('button', { name: '作成して始める' }));
+    expect(out.find((i) => i.type === 'project.new.submit')).toEqual({ type: 'project.new.submit', place: { kind: 'dir', path: '/Users/me/thesis', name: 'thesis' }, startSession: true });
+  });
+  it('既存のフォルダを登録：検索欄から ↓ と Enter で一覧の行を選べ、Enter では送信しない', () => {
+    const { out } = collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    const search = screen.getByRole('combobox', { name: '未登録のフォルダを探す' });
+    search.focus();
+    expect(search).toHaveAttribute('aria-activedescendant', screen.getByRole('option', { name: 'hangar-explainers' }).id);
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    const second = screen.getByRole('option', { name: 'RPG2' });
+    expect(search).toHaveAttribute('aria-activedescendant', second.id);
+    expect(second).toHaveAttribute('data-active', 'true');
+    fireEvent.keyDown(search, { key: 'Enter' });
+    expect(screen.getByLabelText('プロジェクト名')).toHaveValue('RPG2');
+    expect(screen.getByLabelText('フォルダのパス')).toHaveValue('/w/RPG2');
+    expect(out.filter((i) => i.type === 'project.new.submit')).toEqual([]);
+  });
+  it('既存のフォルダを登録：↑↓ で動かした行を、一覧の箱の中だけで見える位置へ寄せる', () => {
+    collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    vi.mocked(revealWithin).mockClear();
+    const search = screen.getByRole('combobox', { name: '未登録のフォルダを探す' });
+    fireEvent.keyDown(search, { key: 'ArrowDown' });
+    const rows = screen.getByRole('listbox', { name: 'ワークスペースの未登録のフォルダ' });
+    expect(revealWithin).toHaveBeenLastCalledWith(rows, screen.getByRole('option', { name: 'RPG2' }));
+    fireEvent.keyDown(search, { key: 'ArrowUp' });
+    expect(revealWithin).toHaveBeenLastCalledWith(rows, screen.getByRole('option', { name: 'hangar-explainers' }));
+  });
+  it('既存のフォルダを登録：名前を空にしたら名前を送らず、サーバに basename を使わせる', () => {
+    const { out } = collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    fireEvent.click(screen.getByRole('option', { name: 'hangar-explainers' }));
+    fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: '  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '作成' }));
+    const sent = out.find((i) => i.type === 'project.new.submit');
+    expect(sent).toEqual({ type: 'project.new.submit', place: { kind: 'dir', path: '/w/hangar-explainers' }, startSession: false });
+    expect(sent?.type === 'project.new.submit' && sent.place.name).toBeUndefined();
+  });
+  it('新しいフォルダを作る：名前の欄の Enter は「作成して始める」として送る', () => {
+    const { out } = collect();
+    const field = screen.getByLabelText('プロジェクト名');
+    fireEvent.change(field, { target: { value: 'price-watcher' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(out.find((i) => i.type === 'project.new.submit')).toEqual({ type: 'project.new.submit', place: { kind: 'newDir', name: 'price-watcher', gitInit: true }, startSession: true });
+  });
+  it('「ほかの場所を選ぶ…」は殻の中だけ。選ばれたパスをパスの欄に入れる。開いた時点の結果は使わない', () => {
+    const { out, view } = collect({ picked: { path: '/old', n: 2 } });
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    expect(screen.getByLabelText('フォルダのパス')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'ほかの場所を選ぶ…' }));
+    expect(out).toContainEqual({ type: 'folder.pick' });
+    view.rerender(<IntentRoot onIntent={(i) => out.push(i)}><NewProjectDialog {...base} picked={{ path: '/Users/me/thesis', n: 3 }} /></IntentRoot>);
+    expect(screen.getByLabelText('フォルダのパス')).toHaveValue('/Users/me/thesis');
+    view.unmount();
+    collect({ desktop: false });
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    expect(screen.queryByRole('button', { name: 'ほかの場所を選ぶ…' })).toBeNull();
+  });
+  it('送信中は両方のボタンを押せず、失敗の文言を出し、背景では閉じない', () => {
+    const { out, view } = collect({ submitting: true, error: '/w/price-watcher は既にあります' });
+    expect(screen.getByRole('button', { name: '作成' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '作成して始める' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('/w/price-watcher は既にあります');
+    fireEvent.click(view.container.querySelector('.overlay')!);
+    expect(out).toEqual([]);
   });
 });

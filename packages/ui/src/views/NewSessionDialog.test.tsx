@@ -14,7 +14,7 @@ const projects: NewSessionProps['projects'] = [
   { id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' },
   { id: 'p2', name: 'beta', path: '/w/beta', status: 'paused', lastActivity: '昨日' },
 ];
-const base: NewSessionProps = { projects, recentIds: ['p1'], projectId: null, submitting: false, error: null, scratch: false, draft: null, prefs: {}, accounts: null };
+const base: NewSessionProps = { projects, recentIds: ['p1'], projectId: null, submitting: false, error: null, scratch: false, draft: null, prefs: {}, dirs: [{ name: 'url-short', path: '/w/url-short' }], takenNames: ['alpha', 'beta'], workspaceRoot: '/w', desktop: true, picked: null, createdProjectId: null, accounts: null };
 
 /** 送られた params だけを集める。キーの有無を見たいので、呼び出しの照合ではなく値そのものを取る。 */
 function collectParams(over: Partial<NewSessionProps> = {}): LaunchParams[] {
@@ -273,7 +273,8 @@ describe('NewSessionDialog のスクラッチ', () => {
     render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} projects={many} recentIds={[]} /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: 'プロジェクト' }));
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'スクラッチ' } });
-    expect(screen.getAllByRole('option').map((o) => o.getAttribute('aria-label'))).toEqual(['スクラッチ']);
+    // 下端の操作も option なので、行だけを比べる。
+    expect(screen.getAllByRole('option').filter((o) => !o.classList.contains('listbox-act')).map((o) => o.getAttribute('aria-label'))).toEqual(['スクラッチ']);
   });
 });
 
@@ -512,6 +513,109 @@ describe('NewSessionDialog の前回値（D1）', () => {
     fireEvent.keyDown(ta, { key: 'Escape' });
     expect(closed).not.toHaveBeenCalled();
     expect(screen.queryByRole('listbox', { name: 'スキルとコマンド' })).toBeNull();
+  });
+});
+
+/** 送られた intent をすべて集める。 */
+function collect(over: Partial<NewSessionProps> = {}) {
+  const out: Intent[] = [];
+  const view = render(<IntentRoot onIntent={(i) => out.push(i)}><NewSessionDialog {...base} {...over} /></IntentRoot>);
+  return { out, view };
+}
+const openList = () => fireEvent.click(screen.getByRole('button', { name: 'プロジェクト' }));
+const typeQuery = (q: string) => fireEvent.change(screen.getByRole('combobox'), { target: { value: q } });
+
+describe('NewSessionDialog から作って始める', () => {
+  it('語に一致しなければ「『語』を新しいフォルダとして作る」を選べ、git init 付きの place で送る', () => {
+    const { out } = collect();
+    openList();
+    typeQuery('price');
+    fireEvent.click(screen.getByRole('option', { name: '「price」を新しいフォルダとして作る' }));
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいフォルダで始める');
+    expect(screen.getByLabelText('フォルダの名前')).toHaveValue('price');
+    expect(screen.getByText('/w/price を作り、プロジェクトに登録して起動します')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'git init する' })).toHaveAttribute('aria-checked', 'true');
+    start();
+    expect(out.filter((i) => i.type === 'session.new.submit')).toEqual([{ type: 'session.new.submit', params: {}, place: { kind: 'newDir', name: 'price', gitInit: true } }]);
+  });
+  it('語が既存のプロジェクトか未登録のフォルダの名前と同じなら、作る操作はその名前にしない', () => {
+    collect();
+    openList();
+    typeQuery('alpha');
+    expect(screen.queryByRole('option', { name: '「alpha」を新しいフォルダとして作る' })).toBeNull();
+    expect(screen.getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+    typeQuery('url-short');
+    expect(screen.queryByRole('option', { name: '「url-short」を新しいフォルダとして作る' })).toBeNull();
+  });
+  it('アーカイブのプロジェクトのフォルダ名と、大文字小文字だけ違う名前にも、作る操作をその名前にしない', () => {
+    collect({ takenNames: ['alpha', 'beta', 'old-kadai'] });
+    openList();
+    for (const q of ['old-kadai', 'Old-Kadai', 'ALPHA', 'URL-Short']) {
+      typeQuery(q);
+      expect(screen.queryByRole('option', { name: `「${q}」を新しいフォルダとして作る` })).toBeNull();
+      expect(screen.getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+    }
+  });
+  it('未登録のフォルダは語に一致したときだけ「未登録」の札付きで出て、選ぶと登録して始める', () => {
+    const { out } = collect();
+    openList();
+    expect(screen.queryByRole('option', { name: 'url-short' })).toBeNull();
+    typeQuery('url');
+    fireEvent.click(screen.getByRole('option', { name: 'url-short' }));
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
+    expect(screen.getByText('/w/url-short はまだプロジェクトではありません。起動すると登録します')).toBeInTheDocument();
+    start();
+    expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/url-short' } });
+  });
+  it('「ほかの場所を選ぶ…」は殻の中だけで出て、押すと folder.pick を送る', () => {
+    const { out, view } = collect();
+    openList();
+    fireEvent.click(screen.getByRole('option', { name: 'ほかの場所を選ぶ…' }));
+    expect(out).toContainEqual({ type: 'folder.pick' });
+    view.unmount();
+    collect({ desktop: false });
+    openList();
+    expect(screen.queryByRole('option', { name: 'ほかの場所を選ぶ…' })).toBeNull();
+  });
+  it('Finder で選んだワークスペースの外のフォルダは、外である旨を添えて登録して始める', () => {
+    const { out, view } = collect();
+    view.rerender(<IntentRoot onIntent={(i) => out.push(i)}><NewSessionDialog {...base} picked={{ path: '/Users/me/thesis', n: 1 }} /></IntentRoot>);
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
+    expect(screen.getByText('ワークスペースの外のフォルダです。この PC でのパスだけを覚えます。ほかの PC では、開いたときに場所を聞きます')).toBeInTheDocument();
+    start();
+    expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/Users/me/thesis' } });
+  });
+  it('Finder で選んだのが未登録の一覧にあるフォルダなら、未登録のフォルダと同じ 1 行で登録して始める', () => {
+    const { out, view } = collect();
+    view.rerender(<IntentRoot onIntent={(i) => out.push(i)}><NewSessionDialog {...base} picked={{ path: '/w/url-short', n: 1 }} /></IntentRoot>);
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
+    expect(screen.getByText('/w/url-short はまだプロジェクトではありません。起動すると登録します')).toBeInTheDocument();
+    expect(screen.queryByText(/ワークスペースの外のフォルダです/)).toBeNull();
+    start();
+    expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/url-short' } });
+  });
+  it('Finder で選んだのが登録済みのプロジェクトなら、そのプロジェクトを選ぶ', () => {
+    const { out, view } = collect();
+    view.rerender(<IntentRoot onIntent={(i) => out.push(i)}><NewSessionDialog {...base} picked={{ path: '/w/beta', n: 1 }} /></IntentRoot>);
+    expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('beta');
+    start();
+    expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: { projectId: 'p2' } });
+  });
+  it('開いたときに既にあった Finder の結果は使わない（別のダイアログで選んだもの）', () => {
+    collect({ picked: { path: '/Users/me/old', n: 3 } });
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいセッション');
+  });
+  it('作れた後に起動だけ失敗したら、作ったプロジェクトを選び直し、押し直しでは作らない', () => {
+    const projectsWithNew = [...projects, { id: 'p9', name: 'price', path: '/w/price', status: 'active' as const, lastActivity: '' }];
+    const { out, view } = collect();
+    openList();
+    typeQuery('price');
+    fireEvent.click(screen.getByRole('option', { name: '「price」を新しいフォルダとして作る' }));
+    view.rerender(<IntentRoot onIntent={(i) => out.push(i)}><NewSessionDialog {...base} projects={projectsWithNew} error="tmux が見つかりません" createdProjectId="p9" /></IntentRoot>);
+    expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('price');
+    expect(screen.getByRole('alert')).toHaveTextContent('tmux が見つかりません');
+    start();
+    expect(out.filter((i) => i.type === 'session.new.submit').at(-1)).toEqual({ type: 'session.new.submit', params: { projectId: 'p9' } });
   });
 });
 

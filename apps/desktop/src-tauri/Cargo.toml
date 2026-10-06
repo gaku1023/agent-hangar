@@ -15,6 +15,9 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2.11.5", features = [] }
 tauri-plugin-deep-link = "2.4.10"
+# プロジェクトを作るダイアログの「ほかの場所を選ぶ…」で、macOS のフォルダ選択を開く（lib.rs の pick_folder）。
+# 頁からは pick_folder の命令だけを呼ばせ、プラグインの JS の権限は与えない。
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"

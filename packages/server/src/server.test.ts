@@ -484,6 +484,30 @@ describe('startServer', () => {
     }
   }, 20000);
 
+  it('起動後にワークスペース直下の新しいフォルダのセッションが現れたら、その場でプロジェクトにする', async () => {
+    const alpha = path.join(ws, 'alpha');
+    fs.mkdirSync(alpha);
+    writeTranscript(alpha, 'bbbbbbbb-0000-4000-8000-000000000021', 'first');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir }));
+    const s = await startServer({ port: 0, home, claudeDir, uiDist: path.join(home, 'no-dist') });
+    const c = collector(s.port, tokenOf());
+    try {
+      await c.opened;
+      // 起動の後で作ったフォルダ。起動時の全走査には載っていない。
+      const fresh = path.join(ws, 'fresh');
+      fs.mkdirSync(path.join(fresh, 'src'), { recursive: true });
+      writeTranscript(path.join(fresh, 'src'), 'bbbbbbbb-0000-4000-8000-000000000022', 'hello');
+      const ev = await c.waitFor((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert' && e.session.providerSessionId === 'bbbbbbbb-0000-4000-8000-000000000022' && e.session.projectId !== null);
+      const proj = await c.waitFor((e): e is Extract<ServerEvent, { type: 'project.upsert' }> => e.type === 'project.upsert' && e.project.id === ev.session.projectId);
+      expect(proj.project).toMatchObject({ name: 'fresh', path: fresh });
+      // ワークスペースの中なので、未分類の知らせは出さない。
+      expect(c.all().some((e) => e.type === 'toast' && e.message.includes(fresh))).toBe(false);
+    } finally {
+      c.close();
+      await s.close();
+    }
+  }, 20000);
+
   it('実行中の登録が消えたら要約の状態を done に書き替える', async () => {
     const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     const token = tokenOf();

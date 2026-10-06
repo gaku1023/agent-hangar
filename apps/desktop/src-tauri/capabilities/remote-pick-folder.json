@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-pick-folder",
+  "description": "サーバの UI（127.0.0.1:4177）から、プロジェクトを作るダイアログの「ほかの場所を選ぶ…」で macOS のフォルダ選択を開くためだけの権限。選んだパスを返すだけで、ほかの殻の機能は与えない。",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:4177/*"] },
+  "permissions": ["allow-pick-folder"]
+}

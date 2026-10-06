@@ -1,18 +1,15 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { checkDirName, exists, makeProjectDir, ProjectCreateError } from './create.ts';
+import { insertProject } from './registry.ts';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { isUnderScratch, scratchRoot } from './scratch.ts';
 
-export class PromoteError extends Error {
-  constructor(readonly status: 400 | 404 | 409, message: string) {
-    super(message);
-    this.name = 'PromoteError';
-  }
-}
+/** 昇格の失敗。作る処理と同じ型にして、HTTP の側の扱いをそろえる。 */
+export const PromoteError = ProjectCreateError;
+export type PromoteError = ProjectCreateError;
 
 export type PromoteDeps = {
   db: Db;
@@ -24,43 +21,6 @@ export type PromoteDeps = {
 };
 
 export type PromoteResult = { projectId: string; moved: boolean; reason: string | null };
-
-const defaultGitInit = (dir: string) => {
-  execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
-};
-
-/** シンボリックリンクも「ある」と数える。リンク先が壊れていても上書きしないためである。 */
-function exists(p: string): boolean {
-  try {
-    fs.lstatSync(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * 作ったばかりのディレクトリを片付ける。
- * 空のときと、git init が作った .git だけが入っているときに限って消す。
- * 見覚えのないものが入っていれば消さずに残す。
- * hangar は利用者のファイルを消さないので、片付けはここまでである。
- */
-function removeFreshDir(dir: string): void {
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(dir);
-  } catch {
-    return;
-  }
-  if (entries.length === 0) {
-    fs.rmdirSync(dir);
-    return;
-  }
-  if (entries.length === 1 && entries[0] === '.git') {
-    fs.rmSync(path.join(dir, '.git'), { recursive: true, force: true });
-    fs.rmdirSync(dir);
-  }
-}
 
 type Move = { moved: boolean; reason: string | null };
 
@@ -189,34 +149,16 @@ export function promoteSession(
 ): PromoteResult {
   const s = deps.db.prepare('select id, cwd from sessions where id = ? and deleted_at is null').get(o.sessionId) as { id: string; cwd: string } | undefined;
   if (!s) throw new PromoteError(404, 'セッションが見つかりません');
-  const name = o.name.trim();
-  const bad = !name || name === '.' || name === '..' || name.includes('/') || name.includes('\\') || path.basename(name) !== name;
-  if (bad) throw new PromoteError(400, '名前はディレクトリ名として使える 1 字以上で、/ を含められません');
+  const name = checkDirName(o.name);
   if (!isUnderScratch(deps.home, s.cwd)) throw new PromoteError(400, 'このセッションはスクラッチではありません');
-  const dir = path.join(deps.workspaceRoot, name);
-  if (exists(dir)) throw new PromoteError(409, `${dir} は既にあります`);
 
-  // 1. ディレクトリを作り、必要なら git init。失敗したら作ったものを片付けて終える。
-  fs.mkdirSync(deps.workspaceRoot, { recursive: true });
-  try {
-    // recursive を付けないので、直前に誰かが作っていれば EEXIST で止まり、既にあるものを取り込まない。
-    fs.mkdirSync(dir);
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new PromoteError(409, `${dir} は既にあります`);
-    throw e;
-  }
-  try {
-    if (o.gitInit) (deps.gitInit ?? defaultGitInit)(dir);
-  } catch (e) {
-    removeFreshDir(dir);
-    throw new PromoteError(400, `git init に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
-  }
+  // 1. ディレクトリを作り、必要なら git init。失敗したら作ったものを片付けて終える（create.ts）。
+  const dir = makeProjectDir(deps.workspaceRoot, name, o.gitInit, deps.gitInit);
 
   // 2. プロジェクトとこの端末のルート。3. セッションの紐づけ。
-  const projectId = newId();
+  let projectId = '';
   const write = deps.db.transaction(() => {
-    upsertShared(deps.db, 'projects', { id: projectId, name, status: 'active', is_scratch: 0 }, deps.deviceId);
-    upsertShared(deps.db, 'project_roots', { id: newId(), project_id: projectId, device_id: deps.deviceId, path: dir, resolved: 1 }, deps.deviceId);
+    projectId = insertProject(deps.db, deps.deviceId, name, dir);
     const row = deps.db.prepare('select * from sessions where id = ?').get(s.id) as Record<string, unknown>;
     upsertShared(deps.db, 'sessions', { ...row, project_id: projectId }, deps.deviceId);
   });

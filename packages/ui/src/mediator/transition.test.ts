@@ -271,8 +271,8 @@ describe('その他', () => {
     expect(effects[2]).toEqual({ kind: 'api.rebuildIndex' });
   });
   it('次のフェーズの操作はトーストで知らせる', () => {
-    const { state, effects } = run([intent({ type: 'project.new.open' }), intent({ type: 'session.takeover', id: 's1', force: false })]);
-    expect(effects).toEqual([{ kind: 'toast', level: 'info', message: 'この操作は次のフェーズで実装します' }, { kind: 'toast', level: 'info', message: 'この操作は次のフェーズで実装します' }]);
+    const { state, effects } = run([intent({ type: 'session.takeover', id: 's1', force: false })]);
+    expect(effects).toEqual([{ kind: 'toast', level: 'info', message: 'この操作は次のフェーズで実装します' }]);
     expect(state).toEqual(initialState());
   });
 });
@@ -285,7 +285,7 @@ describe('起動', () => {
   it('ダイアログを開き、送信で submitting になり、done で画面へ移る', () => {
     const a = run([intent({ type: 'session.new.open', projectId: 'p1' })]);
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
-    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
+    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
     const b = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n' } })], a.state);
     expect(b.state.launch).toEqual({ kind: 'submitting' });
     expect(b.effects).toEqual([{ kind: 'api.launch', params: { projectId: 'p1', name: 'n' } }]);
@@ -312,7 +312,7 @@ describe('起動', () => {
     expect(run([intent({ type: 'session.new.submit', params: {} })]).state.launch).toEqual({ kind: 'failed', message: 'プロジェクトを選んでください' });
     const s = run([intent({ type: 'session.new.open', scratch: true })]);
     expect(s.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
-    expect(s.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
+    expect(s.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
     // スクラッチはプロジェクトが無くても送信できる。
     expect(run([intent({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
@@ -845,7 +845,7 @@ describe('パレット', () => {
   it('コマンドを実行して閉じる', () => {
     const a = run([intent({ type: 'palette.run', command: { id: 'cmd:new-scratch', label: 'スクラッチで始める' } })], opened());
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
-    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
+    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
     const b = run([intent({ type: 'palette.run', command: { id: 'cmd:settings', label: '設定' } })], opened());
     expect(b.state.overlay).toEqual({ kind: 'none' });
     expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
@@ -857,7 +857,7 @@ describe('パレット', () => {
     expect(e.effects).toEqual([{ kind: 'navigate', route: { name: 'session', id: 's1' } }]);
     const g = run([intent({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新しいセッション' } })], opened());
     expect(g.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: false });
-    expect(g.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
+    expect(g.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
     const f = run([intent({ type: 'palette.run', command: { id: 'nope', label: '' } })], opened());
     expect(f.state.overlay).toEqual({ kind: 'none' });
     expect(f.effects).toEqual([]);
@@ -866,7 +866,7 @@ describe('パレット', () => {
   it('新しいセッションは、ID に載せたプロジェクトかスクラッチを選んで開く', () => {
     const a = run([intent({ type: 'palette.run', command: { id: 'cmd:new-session:project:p1', label: '新しいセッション' } })], opened());
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
-    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }]);
+    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
     const b = run([intent({ type: 'palette.run', command: { id: 'cmd:new-session:scratch', label: '新しいセッション' } })], opened());
     expect(b.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
   });
@@ -1443,6 +1443,87 @@ describe('保持期間', () => {
     const s = run([intent({ type: 'retention.settings' })], open);
     expect(s.state.overlay).toEqual({ kind: 'none' });
     expect(s.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+  });
+});
+
+describe('プロジェクトを作る', () => {
+  const place = { kind: 'newDir' as const, name: 'fresh', gitInit: true };
+  const opened = () => run([intent({ type: 'palette.open' })]).state;
+  it('作成のダイアログを開くと、未登録の一覧を取りに行く', () => {
+    const { state, effects } = run([intent({ type: 'project.new.open' })]);
+    expect(state.overlay).toEqual({ kind: 'newProject' });
+    expect(state.projectCreate).toEqual({ kind: 'idle' });
+    expect(effects).toContainEqual({ kind: 'api.workspaceDirs' });
+  });
+  it('新しいセッションのダイアログを開いたときも、未登録の一覧を取りに行く', () => {
+    expect(run([intent({ type: 'session.new.open' })]).effects).toContainEqual({ kind: 'api.workspaceDirs' });
+    expect(run([intent({ type: 'palette.run', command: { id: 'cmd:new-session', label: '' } })], opened()).effects).toContainEqual({ kind: 'api.workspaceDirs' });
+  });
+  it('送ると作成を頼み、二重には送らない', () => {
+    const { state, effects } = run([intent({ type: 'project.new.open' }), intent({ type: 'project.new.submit', place, startSession: false }), intent({ type: 'project.new.submit', place, startSession: false })]);
+    expect(state.projectCreate).toEqual({ kind: 'submitting' });
+    expect(effects.filter((e) => (e as { kind: string }).kind === 'api.createProject')).toEqual([{ kind: 'api.createProject', place, startSession: false }]);
+  });
+  it('作成だけなら閉じてプロジェクトの画面へ移る', () => {
+    const { state, effects } = run([intent({ type: 'project.new.open' }), intent({ type: 'project.new.submit', place, startSession: false }), runtime({ type: 'project.create.done', projectId: 'p9', startSession: false })]);
+    expect(state.overlay).toEqual({ kind: 'none' });
+    expect(state.projectCreate).toEqual({ kind: 'idle' });
+    expect(effects).toContainEqual({ kind: 'navigate', route: { name: 'project', id: 'p9' } });
+  });
+  it('作成して始めるなら、そのプロジェクトを選んだ新しいセッションのダイアログを開く', () => {
+    const { state, effects } = run([intent({ type: 'project.new.open' }), intent({ type: 'project.new.submit', place, startSession: true }), runtime({ type: 'project.create.done', projectId: 'p9', startSession: true })]);
+    expect(state.overlay).toEqual({ kind: 'newSession', projectId: 'p9', scratch: false });
+    expect(state.launch).toEqual({ kind: 'idle' });
+    expect(effects).toContainEqual({ kind: 'focus', target: 'newSessionName' });
+  });
+  it('失敗したらダイアログに残して文言を持つ。閉じた後に届いた失敗はトーストにする', () => {
+    const a = run([intent({ type: 'project.new.open' }), intent({ type: 'project.new.submit', place, startSession: false }), runtime({ type: 'project.create.failed', message: '/w/fresh は既にあります' })]);
+    expect(a.state.overlay).toEqual({ kind: 'newProject' });
+    expect(a.state.projectCreate).toEqual({ kind: 'failed', message: '/w/fresh は既にあります' });
+    const b = run([intent({ type: 'project.new.open' }), intent({ type: 'project.new.submit', place, startSession: false }), intent({ type: 'overlay.close' }), runtime({ type: 'project.create.failed', message: 'x' })]);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    // トーストは effect で頼む（promote と同じ）。runtime がそれを server の toast に直して state.toasts に積む。
+    expect(b.effects).toContainEqual({ kind: 'toast', level: 'error', message: 'x' });
+  });
+  it('起動のダイアログから place 付きで送ると、作ってから起動するよう頼む', () => {
+    const { state, effects } = run([intent({ type: 'session.new.open' }), intent({ type: 'session.new.submit', params: { name: 'n' }, place })]);
+    expect(state.launch).toEqual({ kind: 'submitting' });
+    expect(effects).toContainEqual({ kind: 'api.createProjectThenLaunch', place, params: { name: 'n' } });
+  });
+  it('作れた後に起動だけ失敗したら、作ったプロジェクトを失敗の状態に持ち、詳細はそのプロジェクトの前回値にする', () => {
+    const { state } = run([
+      intent({ type: 'session.new.open' }),
+      intent({ type: 'session.new.submit', params: { model: 'opus' }, place }),
+      runtime({ type: 'project.created', projectId: 'p9', params: { model: 'opus', projectId: 'p9' } }),
+      runtime({ type: 'launch.failed', message: 'tmux が見つかりません' }),
+    ]);
+    expect(state.launch).toEqual({ kind: 'failed', message: 'tmux が見つかりません', createdProjectId: 'p9' });
+    expect(state.overlay).toMatchObject({ kind: 'newSession', projectId: null });
+    expect(state.launchPrefs.p9).toEqual({ model: 'opus' });
+  });
+  it('Finder を頼むと殻に頼み、選ばれたパスは回数を添えて持つ', () => {
+    const { state, effects } = run([intent({ type: 'folder.pick' }), runtime({ type: 'folder.picked', path: '/x' }), runtime({ type: 'folder.picked', path: '/x' })]);
+    expect(effects).toEqual([{ kind: 'desktop.pickFolder' }]);
+    expect(state.pickedFolder).toEqual({ path: '/x', n: 2 });
+  });
+  it('Finder のパスは NFC にそろえ、末尾の / を落とす（根の / はそのまま）', () => {
+    const nfd = '/w/が'.normalize('NFD');
+    expect(nfd).not.toBe('/w/が');
+    expect(run([runtime({ type: 'folder.picked', path: `${nfd}/` })]).state.pickedFolder).toEqual({ path: '/w/が', n: 1 });
+    expect(run([runtime({ type: 'folder.picked', path: '/' })]).state.pickedFolder).toEqual({ path: '/', n: 1 });
+  });
+  it('未登録の一覧が届いたら持つ', () => {
+    const dirs = [{ name: 'a', path: '/w/a' }];
+    expect(run([runtime({ type: 'workspaceDirs.loaded', dirs })]).state.workspaceDirs).toEqual(dirs);
+  });
+  it('作成のダイアログは Esc（overlay.close）で閉じ、状態を idle に戻す', () => {
+    const { state } = run([intent({ type: 'project.new.open' }), intent({ type: 'project.new.submit', place, startSession: false }), intent({ type: 'overlay.close' })]);
+    expect(state.overlay).toEqual({ kind: 'none' });
+    expect(state.projectCreate).toEqual({ kind: 'idle' });
+  });
+  it('パレットの「新しいプロジェクト」で作成のダイアログを開く', () => {
+    const { state } = run([intent({ type: 'palette.open' }), intent({ type: 'palette.run', command: { id: 'cmd:new-project', label: '新しいプロジェクト' } })]);
+    expect(state.overlay).toEqual({ kind: 'newProject' });
   });
 });
 

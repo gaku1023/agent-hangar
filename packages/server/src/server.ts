@@ -25,7 +25,7 @@ import { IndexerService } from './indexer/service.ts';
 import { ensureWrapperScript } from './launch/wrapper.ts';
 import { MemoStore } from './projects/memo.ts';
 import { promoteSession } from './projects/promote.ts';
-import { assignSession, assignSessions, checkProjectRoots, syncProjectsFromWorkspace } from './projects/registry.ts';
+import { assignSession, assignSessions, checkProjectRoots, registerWorkspaceChildOf, syncProjectsFromWorkspace } from './projects/registry.ts';
 import { ensureScratchProject } from './projects/scratch.ts';
 import { readRegistry, RegistryWatcher } from './provider/claude-code/registry.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
@@ -516,10 +516,13 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   let started = false;
   // 未分類だと知らせたセッション。本文が伸びるたびに同じ知らせを出さないために持つ。
   const toldUnassigned = new Set<string>();
+  // その場の自動登録を試したセッション。本文が伸びるたびにディスクを見に行かないために持つ。
+  const triedRegister = new Set<string>();
   /**
    * どのルートの配下でもない cwd のセッションは「未分類」に残る（設計どおり）。
    * ただし黙って残ると利用者は気付けないので、セッションごとに 1 度だけ知らせる。
-   * ここで勝手にプロジェクトを作ることはしない。紐づけは利用者が決める。
+   * ワークスペース直下のフォルダは、sessionChanged がその場でプロジェクトにするので、ここへ来るのはワークスペースの外だけである。
+   * 外のフォルダで勝手にプロジェクトを作ることはしない。紐づけは利用者が決める。
    */
   const tellUnassigned = (sessionId: string, cwd: string): void => {
     if (!started || toldUnassigned.has(sessionId)) return;
@@ -539,7 +542,14 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (e.deviceId === null) uploader?.noteChanged({ path: e.path, sessionId: e.providerSessionId, agentId: e.agentId });
       // 起動後に現れたセッションは project_id が空のままなので、ここで紐づけてから配る。
       const row = db.prepare('select project_id from sessions where id = ?').get(e.sessionId) as { project_id: string | null } | undefined;
-      const assigned = row && row.project_id === null ? assignSession(db, device.id, e.sessionId) : null;
+      let assigned = row && row.project_id === null ? assignSession(db, device.id, e.sessionId) : null;
+      // 当たるルートが無ければ、ワークスペース直下の新しいフォルダかを見て、起動時と同じ規則でその場でプロジェクトにする。
+      // 起動の途中は syncProjectsFromWorkspace が受け持つので行わない。同じセッションで何度も試さない。
+      if (row && row.project_id === null && !assigned && started && !triedRegister.has(e.sessionId)) {
+        triedRegister.add(e.sessionId);
+        const cwd = (db.prepare('select cwd from sessions where id = ?').get(e.sessionId) as { cwd: string }).cwd;
+        if (registerWorkspaceChildOf(db, device.id, settings.workspaceRoot, cwd)) assigned = assignSession(db, device.id, e.sessionId);
+      }
       // ロックを出すために自端末の ID を渡す。
       const s = getSession(db, registry.current(), e.sessionId, { deviceId: device.id });
       if (!s) return;

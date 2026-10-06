@@ -1,4 +1,4 @@
-import type { ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
+import type { ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
@@ -43,7 +43,9 @@ export type Intent =
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
   // プロジェクト画面の節を広げる・畳む（P3）。Done の「ほか N 件」と、末尾の Archived の行。
   | { type: 'project.section.toggle'; projectId: ProjectId; section: 'done' | 'archived' }
-  | { type: 'project.new.open' } | { type: 'project.new.submit'; name: string; gitInit: boolean; startSession: boolean }
+  | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
+  // 起動と作成のダイアログの「ほかの場所を選ぶ…」。殻の中だけで出す。
+  | { type: 'folder.pick' }
   | { type: 'project.resolve.open'; id: ProjectId }
   // 一覧から削除（unlink）は同期で他の端末へも広がるので、confirmed が無ければ先に確認を出す。
   | { type: 'project.resolve'; id: ProjectId; action: ResolveAction; confirmed?: boolean }
@@ -62,7 +64,8 @@ export type Intent =
   | { type: 'session.pause.open'; id: SessionId; from: 'menu' | 'candidate' } | { type: 'session.pause.close' }
   // 入力待ちのセッションを順に開き、端末にフォーカスする。どれへ移るかはストアを見たランタイムが決める。
   | { type: 'session.nextWaiting' }
-  | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams }
+  | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams; place?: ProjectPlace }
+  // place は、新しいフォルダと未登録のフォルダで始めるときだけ付ける。プロジェクトを作ってから起動する。
   // 新しいセッションのダイアログの書きかけ（名前と初期プロンプト）。ダイアログを閉じるときと「消す」で送る。両方空なら下書きを消す。
   | { type: 'session.new.draft'; name: string; prompt: string; attachments?: { path: string; name: string; size: number | null }[] }
   // ダイアログを閉じた後に送り終えた添付を、いまの下書きへ足す。名前と本文には触れない（開き直したダイアログの書きかけを上書きしないため）。下書きが無ければ、名前と本文が空のものを作る。

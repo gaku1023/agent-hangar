@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { Listbox } from './Listbox.tsx';
@@ -164,6 +164,14 @@ describe('Listbox の検索', () => {
     fireEvent.click(face());
     expect(screen.queryByRole('combobox')).toBeNull();
   });
+  it('操作があれば 8 件未満でも検索欄を出す（打った語を操作が使うため）', () => {
+    const onAction = vi.fn();
+    render(<Listbox label="プロジェクト" value={null} options={few} onChange={() => {}} actions={(q) => [{ value: 'new', label: `「${q}」を作る`, icon: 'folderPlus' }]} onAction={onAction} />);
+    fireEvent.click(face());
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+    expect(onAction).toHaveBeenCalledWith('new', 'zzz');
+  });
   it('8 件以上では検索欄に入力が向き、名前と補足で絞れ、一致を塗る', () => {
     render(<Harness options={many} />);
     fireEvent.click(face());
@@ -249,5 +257,59 @@ describe('Listbox の変化への追従', () => {
     top = 200;
     act(() => { window.dispatchEvent(new Event('resize')); });
     expect(pop.style.top).toBe('240px');
+  });
+});
+
+describe('Listbox の操作', () => {
+  const rows = Array.from({ length: 8 }, (_, i) => ({ value: `p${i}`, label: `proj${i}` }));
+  const setup = () => {
+    const onChange = vi.fn();
+    const onAction = vi.fn();
+    render(<Listbox label="場所" value={null} options={[...rows, { value: 'u', label: 'url-short', searchOnly: true, tag: '未登録' }]} onChange={onChange}
+      actions={(q) => [{ value: 'new', label: q ? `「${q}」を新しいフォルダとして作る` : '新しいフォルダを作る…', icon: 'folderPlus' }]} onAction={onAction} />);
+    fireEvent.click(screen.getByRole('button', { name: '場所' }));
+    return { onChange, onAction };
+  };
+  it('下端に操作を出し、語に合わせて名前を変える', () => {
+    setup();
+    expect(screen.getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
+    expect(screen.getByRole('option', { name: '「zzz」を新しいフォルダとして作る' })).toHaveAttribute('data-active', 'true');
+  });
+  it('一致する行が無ければ Enter で最初の操作を選び、onChange は呼ばない', () => {
+    const { onChange, onAction } = setup();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+    expect(onAction).toHaveBeenCalledWith('new', 'zzz');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+  it('矢印キーで行の続きとして操作へ進める', () => {
+    const { onAction } = setup();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'url' } });
+    expect(screen.getByRole('option', { name: 'url-short' })).toHaveTextContent('未登録');
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+    expect(onAction).toHaveBeenCalledWith('new', 'url');
+  });
+  it('searchOnly の行は語が無いと出ない', () => {
+    setup();
+    expect(screen.queryByRole('option', { name: 'url-short' })).toBeNull();
+  });
+  it('操作は listbox の中にあり、操作に印があるときは combobox の aria-activedescendant が指す', () => {
+    setup();
+    expect(within(screen.getByRole('listbox')).getByRole('option', { name: '新しいフォルダを作る…' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzz' } });
+    const active = within(screen.getByRole('listbox')).getByRole('option', { name: '「zzz」を新しいフォルダとして作る' });
+    expect(active).toHaveAttribute('data-active', 'true');
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', active.id);
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-controls', screen.getByRole('listbox').id);
+  });
+  it('操作をクリックすると onAction を呼んで閉じる', () => {
+    const { onChange, onAction } = setup();
+    fireEvent.click(screen.getByRole('option', { name: '新しいフォルダを作る…' }));
+    expect(onAction).toHaveBeenCalledWith('new', '');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).toBeNull();
   });
 });

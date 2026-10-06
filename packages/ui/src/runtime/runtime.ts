@@ -352,6 +352,34 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.rebuildIndex': deps.api.rebuildIndex().catch(fail); return;
       case 'api.launch': deps.api.launch(e.params).then(launched).catch(launchFailed); return;
+      case 'api.createProjectThenLaunch':
+        // 作ってから起動する。作れたら store に入れて Mediator に知らせ（起動だけが失敗しても二重に作らないため）、そのプロジェクトで起動する。
+        deps.api.createProject(e.place)
+          .then((p) => {
+            setStore({ ...store, projects: { ...store.projects, [p.id]: p } });
+            const params = { ...e.params, projectId: p.id };
+            dispatch({ kind: 'runtime', event: { type: 'project.created', projectId: p.id, params } });
+            return deps.api.launch(params).then(launched);
+          })
+          .catch(launchFailed);
+        return;
+      case 'api.createProject':
+        deps.api.createProject(e.place)
+          .then((p) => {
+            setStore({ ...store, projects: { ...store.projects, [p.id]: p } });
+            dispatch({ kind: 'runtime', event: { type: 'project.create.done', projectId: p.id, startSession: e.startSession } });
+          })
+          .catch((err) => dispatch({ kind: 'runtime', event: { type: 'project.create.failed', message: errMsg(err) } }));
+        return;
+      // 取れなければ空にする。一覧が出ないだけで、作ることもパスで選ぶこともできる。
+      case 'api.workspaceDirs': deps.api.workspaceDirs().then((dirs) => dispatch({ kind: 'runtime', event: { type: 'workspaceDirs.loaded', dirs } })).catch(() => dispatch({ kind: 'runtime', event: { type: 'workspaceDirs.loaded', dirs: [] } })); return;
+      case 'desktop.pickFolder':
+        if (!deps.desktop) return;
+        // 取り消したら何もしない。開く場所はワークスペースのルートにする。
+        deps.desktop.pickFolder(store.settings?.workspaceRoot ?? null)
+          .then((path) => { if (path) dispatch({ kind: 'runtime', event: { type: 'folder.picked', path } }); })
+          .catch((err: unknown) => failWith('フォルダを選べませんでした', err));
+        return;
       case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.attach': deps.api.attach(e.sessionId).then(launched).catch(launchFailed); return;

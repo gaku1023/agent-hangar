@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useSt
 import { createPortal } from 'react-dom';
 import { isComposing } from '../ime.ts';
 import { Icon } from './Icon.tsx';
-import { arrangeSections, highlight, place, SEARCH_MIN, type ListboxGroup, type ListboxOption, type Placement } from './listboxModel.ts';
+import { arrangeSections, highlight, place, SEARCH_MIN, type ListboxAction, type ListboxGroup, type ListboxOption, type Placement } from './listboxModel.ts';
 
 export type ListboxProps = {
   label: string;
@@ -20,6 +20,9 @@ export type ListboxProps = {
   faceClassName?: string;
   faceProps?: Record<`data-${string}`, string>;
   renderFace?: (selected: ListboxOption | undefined) => ReactNode;
+  /** 一覧の下端に固定で置く操作。行の続きとして矢印キーで辿れる。選ぶと onAction を呼び、onChange は呼ばない。 */
+  actions?: (query: string) => ListboxAction[];
+  onAction?: (value: string, query: string) => void;
 };
 
 /**
@@ -42,11 +45,15 @@ export function Listbox(props: ListboxProps) {
   const listId = `${uid}-list`;
   const faceValueId = `${uid}-value`;
   const optId = (i: number) => `${uid}-opt-${i}`;
-  const searchable = props.options.length >= SEARCH_MIN;
+  // 操作があるときは件数によらず検索欄を出す。操作は打った語を使う（「『語』を新しいフォルダとして作る」）ので、打つ欄が要る。
+  const searchable = props.options.length >= SEARCH_MIN || !!props.actions;
   const sections = arrangeSections(props.options, props.groups, query);
   const items = sections.flatMap((s) => s.items);
+  const acts = open && props.actions ? props.actions(query) : [];
+  const total = items.length + acts.length;
   // 開いている間に選択肢が減ると、選ばれかけの行が範囲の外に出る。いちばん近い行に寄せる。
-  const current = items.length ? Math.min(active, items.length - 1) : -1;
+  // 一致する行が無いときは、最初の操作に印を置く。打って Enter で作れるようにするためである。
+  const current = total ? Math.min(items.length === 0 && acts.length ? Math.max(active, 0) : active, total - 1) : -1;
   const selected = props.options.find((o) => o.value === props.value);
 
   const show = () => {
@@ -122,7 +129,7 @@ export function Listbox(props: ListboxProps) {
       if (e.key === 'Enter' || e.key === 'Escape') e.stopPropagation();
       return;
     }
-    const n = items.length;
+    const n = total;
     const inInput = e.target === input.current;
     switch (e.key) {
       case 'ArrowDown': if (n) setActive((current + 1) % n); break;
@@ -130,7 +137,13 @@ export function Listbox(props: ListboxProps) {
       // 検索欄の Home と End は、文字の先頭と末尾へ動かす打鍵として残す。
       case 'Home': if (inInput) return; setActive(0); break;
       case 'End': if (inInput) return; setActive(Math.max(n - 1, 0)); break;
-      case 'Enter': { const hit = items[current]; if (hit) choose(hit.option); break; }
+      case 'Enter': {
+        const hit = items[current];
+        if (hit) { choose(hit.option); break; }
+        const act = acts[current - items.length];
+        if (act) { hide(true); props.onAction?.(act.value, query); }
+        break;
+      }
       case 'Escape': case 'Tab': hide(true); break;
       default: return;
     }
@@ -150,6 +163,7 @@ export function Listbox(props: ListboxProps) {
         <b>{marks(o.label)}</b>
         {o.sub && <small id={`${optId(index)}-sub`} data-kind={o.subKind ?? 'path'}>{o.subKind === 'prose' ? o.sub : marks(o.sub)}</small>}
       </span>
+      {o.tag && <span className="listbox-tag">{o.tag}</span>}
       {o.meta && <span className="listbox-meta">{o.meta}</span>}
       <span className="listbox-check" aria-hidden="true"><Icon name="check" /></span>
     </div>
@@ -190,17 +204,33 @@ export function Listbox(props: ListboxProps) {
                 value={query} onChange={(e) => { setQuery(e.target.value); setActive(0); }} />
             </div>
           )}
-          <div ref={list} id={listId} role="listbox" aria-label={props.label} className="listbox-rows" tabIndex={searchable ? undefined : -1}
-            aria-activedescendant={searchable ? undefined : activeId} onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>
-            {sections.map((s, si) => s.title === null
-              ? <Fragment key={`s${si}`}>{s.items.map(option)}</Fragment>
-              : (
-                <div key={`s${si}`} role="group" aria-labelledby={`${uid}-g${si}`}>
-                  <div id={`${uid}-g${si}`} className="listbox-group-title">{s.title}</div>
-                  {s.items.map(option)}
-                </div>
-              ))}
-            {!items.length && <div className="listbox-empty">一致するものはありません</div>}
+          {/* listbox は、スクロールする行と、動かない操作の両方を包む。操作も option なので、listbox の中に置かないと ARIA の所有関係が切れる。 */}
+          <div ref={list} id={listId} role="listbox" aria-label={props.label} className="listbox-body" tabIndex={searchable ? undefined : -1}
+            aria-activedescendant={searchable ? undefined : activeId}>
+            <div className="listbox-rows" onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>
+              {sections.map((s, si) => s.title === null
+                ? <Fragment key={`s${si}`}>{s.items.map(option)}</Fragment>
+                : (
+                  <div key={`s${si}`} role="group" aria-labelledby={`${uid}-g${si}`}>
+                    <div id={`${uid}-g${si}`} className="listbox-group-title">{s.title}</div>
+                    {s.items.map(option)}
+                  </div>
+                ))}
+              {!items.length && <div className="listbox-empty">一致するものはありません</div>}
+            </div>
+            {acts.length > 0 && (
+              <div className="listbox-acts" role="group">
+                {acts.map((a, j) => {
+                  const index = items.length + j;
+                  return (
+                    <div key={a.value} id={optId(index)} role="option" aria-selected="false" aria-label={a.label} className="listbox-act" data-active={index === current ? 'true' : undefined}
+                      onMouseMove={() => { if (index !== current) setActive(index); }} onClick={() => { hide(true); props.onAction?.(a.value, query); }}>
+                      <Icon name={a.icon} /><span className="listbox-act-label">{a.label}</span>{a.sub && <small>{a.sub}</small>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
           {searchable && (
             <div className="listbox-keys" aria-hidden="true">

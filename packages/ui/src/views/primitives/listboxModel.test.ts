@@ -70,6 +70,26 @@ describe('place', () => {
   });
 });
 
+describe('matches の searchOnly', () => {
+  it('searchOnly の行は名前だけで当て、パスには当てない', () => {
+    const dir: ListboxOption = { value: 'u', label: 'url-short', sub: '/Users/me/workspace/url-short', searchOnly: true };
+    expect(matches(dir, 'work')).toBe(false);
+    expect(matches(dir, 'URL')).toBe(true);
+    expect(arrangeSections([dir], undefined, 'work')).toEqual([]);
+  });
+});
+
+describe('arrangeSections の searchOnly と hidden', () => {
+  const opts = [{ value: 'a', label: 'alpha' }, { value: 'u', label: 'url-short', searchOnly: true }, { value: 'h', label: 'hidden', hidden: true }];
+  it('語が無ければ searchOnly と hidden を並べない', () => {
+    expect(arrangeSections(opts, undefined, '').flatMap((s) => s.items.map((i) => i.option.value))).toEqual(['a']);
+  });
+  it('語があれば searchOnly は一致で並べ、hidden は並べない', () => {
+    expect(arrangeSections(opts, undefined, 'url').flatMap((s) => s.items.map((i) => i.option.value))).toEqual(['u']);
+    expect(arrangeSections(opts, undefined, 'hid').flatMap((s) => s.items.map((i) => i.option.value))).toEqual([]);
+  });
+});
+
 describe('roomFor と fitHeight', () => {
   const viewport = { height: 600 };
   const face = { top: 260, bottom: 380 };

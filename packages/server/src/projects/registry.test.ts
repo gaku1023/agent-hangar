@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { assignSession, assignSessions, candidateDirs, checkProjectRoots, resolveProject, syncProjectsFromWorkspace, workspaceProjectCount } from './registry.ts';
+import { assignSession, assignSessions, candidateDirs, checkProjectRoots, listWorkspaceDirs, registerWorkspaceChildOf, resolveProject, syncProjectsFromWorkspace, workspaceProjectCount } from './registry.ts';
 
 let ws: string;
 let db: Db;
@@ -166,6 +166,57 @@ describe('candidateDirs', () => {
   it('名前が近い直下ディレクトリを返す', () => {
     expect(candidateDirs(ws, 'alpha')).toEqual([path.join(ws, 'alpha'), path.join(ws, 'alpha-v2')]);
     expect(candidateDirs(ws, 'zzz')).toEqual([]);
+  });
+});
+
+describe('listWorkspaceDirs', () => {
+  it('登録済みと隠しを除いた直下のディレクトリを、名前順に返す', () => {
+    syncProjectsFromWorkspace(db, DEV, ws);
+    expect(listWorkspaceDirs(db, DEV, ws)).toEqual([
+      { name: 'alpha-v2', path: path.join(ws, 'alpha-v2') },
+      { name: 'beta', path: path.join(ws, 'beta') },
+    ]);
+  });
+  it('一覧から削除したプロジェクトのフォルダは、未登録に数える', () => {
+    const { created } = syncProjectsFromWorkspace(db, DEV, ws);
+    resolveProject(db, DEV, created[0]!, { kind: 'unlink' });
+    expect(listWorkspaceDirs(db, DEV, ws).map((d) => d.name)).toContain('alpha');
+  });
+  it('ディスク上の名前が NFD でも、NFC のパスで返し、NFC で登録済みのものは除く', () => {
+    const nfd = 'デ'.normalize('NFD');
+    fs.mkdirSync(path.join(ws, nfd));
+    fs.mkdirSync(path.join(ws, `ガ${nfd}`.normalize('NFD')));
+    upsertShared(db, 'projects', { id: 'p-nfc', name: 'デ', status: 'active', is_scratch: 0 }, DEV);
+    upsertShared(db, 'project_roots', { id: 'r-nfc', project_id: 'p-nfc', device_id: DEV, path: path.join(ws, 'デ'), resolved: 1 }, DEV);
+    const names = listWorkspaceDirs(db, DEV, ws).map((d) => d.name);
+    expect(names).not.toContain('デ');
+    expect(names).toContain('ガデ');
+    expect(listWorkspaceDirs(db, DEV, ws).every((d) => d.path === d.path.normalize('NFC'))).toBe(true);
+  });
+  it('ルートが無ければ空', () => {
+    expect(listWorkspaceDirs(db, DEV, path.join(ws, 'nope'))).toEqual([]);
+  });
+});
+
+describe('registerWorkspaceChildOf', () => {
+  it('直下の未登録のディレクトリの下の cwd なら、そのディレクトリをプロジェクトにする', () => {
+    const id = registerWorkspaceChildOf(db, DEV, ws, path.join(ws, 'beta', 'src', 'deep'));
+    expect(id).not.toBeNull();
+    expect(project(id!)).toMatchObject({ name: 'beta', status: 'active', is_scratch: 0 });
+    expect(root(id!)).toMatchObject({ path: path.join(ws, 'beta'), resolved: 1 });
+  });
+  it('外、ワークスペースそのもの、隠し、無いディレクトリ、登録済みなら null', () => {
+    syncProjectsFromWorkspace(db, DEV, ws);
+    for (const cwd of ['/somewhere/else', ws, path.join(ws, '.hidden'), path.join(ws, 'gone'), path.join(ws, 'alpha')]) {
+      expect(registerWorkspaceChildOf(db, DEV, ws, cwd)).toBeNull();
+    }
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 1 });
+  });
+  it('cwd が NFD でも NFC のパスで登録する', () => {
+    const nfd = 'ゲーム'.normalize('NFD');
+    fs.mkdirSync(path.join(ws, nfd));
+    const id = registerWorkspaceChildOf(db, DEV, ws, path.join(ws, nfd));
+    expect(root(id!)).toMatchObject({ path: path.join(ws, 'ゲーム') });
   });
 });
 

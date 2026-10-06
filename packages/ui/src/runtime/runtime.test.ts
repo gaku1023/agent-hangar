@@ -448,6 +448,57 @@ describe('createRuntime', () => {
 const launched: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [{ id: 'r1', runId: 'r1', sessionId: 's1', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r1', createdAt: 1, closedAt: null }] };
 
 describe('起動とターミナル', () => {
+  const created = { id: 'p9', name: 'fresh', status: 'active' as const, isScratch: false, path: '/w/fresh', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 };
+  it('place 付きの起動は、作ってから、作ったプロジェクトで起動する', async () => {
+    const createProject = vi.fn(async () => created);
+    const launch = vi.fn(async () => launched);
+    const { rt } = harness({ createProject, launch });
+    rt.start();
+    rt.emit({ type: 'session.new.open' });
+    rt.emit({ type: 'session.new.submit', params: { name: 'n' }, place: { kind: 'newDir', name: 'fresh', gitInit: true } });
+    await flush();
+    expect(createProject).toHaveBeenCalledWith({ kind: 'newDir', name: 'fresh', gitInit: true });
+    expect(launch).toHaveBeenCalledWith({ name: 'n', projectId: 'p9' });
+    expect(rt.getStore().projects.p9).toEqual(created);
+    expect(rt.getState()).toMatchObject({ launch: { kind: 'idle' }, screen: { name: 'session', id: 's1' } });
+  });
+  it('作れた後に起動だけ失敗したら、作ったプロジェクトを失敗の状態に持つ', async () => {
+    const { rt } = harness({ createProject: vi.fn(async () => created), launch: vi.fn(async () => { throw new Error('tmux が見つかりません'); }) });
+    rt.start();
+    rt.emit({ type: 'session.new.open' });
+    rt.emit({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/fresh' } });
+    await flush();
+    expect(rt.getState().launch).toEqual({ kind: 'failed', message: 'tmux が見つかりません', createdProjectId: 'p9' });
+  });
+  it('作れなければ起動せず、失敗の文言を出す', async () => {
+    const launch = vi.fn(async () => launched);
+    const { rt } = harness({ createProject: vi.fn(async () => { throw new Error('/w/fresh は既にあります'); }), launch });
+    rt.start();
+    rt.emit({ type: 'session.new.open' });
+    rt.emit({ type: 'session.new.submit', params: {}, place: { kind: 'newDir', name: 'fresh', gitInit: false } });
+    await flush();
+    expect(launch).not.toHaveBeenCalled();
+    expect(rt.getState().launch).toEqual({ kind: 'failed', message: '/w/fresh は既にあります' });
+  });
+  it('ダイアログを開くと未登録の一覧を取り、Finder の結果を持つ', async () => {
+    const pickFolder = vi.fn(async () => '/Users/me/thesis');
+    const { rt } = harness({ workspaceDirs: vi.fn(async () => [{ name: 'a', path: '/w/a' }]) }, { desktop: { openLog: vi.fn(), restart: vi.fn(), pickFolder } });
+    rt.start();
+    rt.emit({ type: 'project.new.open' });
+    rt.emit({ type: 'folder.pick' });
+    await flush();
+    expect(rt.getState().workspaceDirs).toEqual([{ name: 'a', path: '/w/a' }]);
+    expect(rt.getState().pickedFolder).toEqual({ path: '/Users/me/thesis', n: 1 });
+  });
+  it('作成のダイアログの送信は、作ってから done を返す', async () => {
+    const { rt } = harness({ createProject: vi.fn(async () => created) });
+    rt.start();
+    rt.emit({ type: 'project.new.open' });
+    rt.emit({ type: 'project.new.submit', place: { kind: 'newDir', name: 'fresh', gitInit: true }, startSession: false });
+    await flush();
+    expect(rt.getStore().projects.p9).toEqual(created);
+    expect(rt.getState()).toMatchObject({ overlay: { kind: 'none' }, projectCreate: { kind: 'idle' } });
+  });
   it('起動に成功するとストアに run が入り、セッション画面へ移ってターミナルに繋ぐ', async () => {
     const { rt, api, terminals, setHash } = harness({ launch: vi.fn(async () => launched) });
     rt.start();
@@ -1557,7 +1608,7 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
 
 describe('殻の操作（ランタイム）', () => {
   it('殻があれば、ログを開くと再起動を殻に頼む', async () => {
-    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}) };
+    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null) };
     const { rt } = harness({}, { desktop });
     rt.start();
     expect(rt.getStore().desktop).toBe(true);
@@ -1568,7 +1619,7 @@ describe('殻の操作（ランタイム）', () => {
     expect(desktop.restart).toHaveBeenCalled();
   });
   it('殻が断ったらトーストで知らせる', async () => {
-    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => {}) };
+    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null) };
     const { rt } = harness({}, { desktop });
     rt.start();
     rt.emit({ type: 'shell.openLog' });

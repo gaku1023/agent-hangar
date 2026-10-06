@@ -126,6 +126,7 @@ export function presentPalette(state: State, store: Store, query: string, now: n
   const commands = [
     cmd(newId, '新しいセッション', 'add', keysOf('session.new')),
     cmd('cmd:new-scratch', 'スクラッチで始める', 'scratch', keysOf('session.newScratch')),
+    cmd('cmd:new-project', '新しいプロジェクト', 'add'),
     cmd('cmd:rebuild-index', '索引を作り直す', 'rebuild'),
   ];
   const scoreAll = (items: PaletteItem[]) => items.map((item) => ({ item, score: fuzzyScore(q, item.label) }));
