@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { allowedOrigins, fetchSiteAllowed, hasRequestBody, jsonContentType, originAllowed, tokenEquals, tokenFromRequest } from './auth.ts';
+import { allowedOrigins, bodyContentTypeAllowed, fetchSiteAllowed, hasRequestBody, jsonContentType, originAllowed, tokenEquals, tokenFromRequest } from './auth.ts';
 
 afterEach(() => { vi.unstubAllEnvs(); });
 
@@ -73,6 +73,27 @@ describe('jsonContentType', () => {
     expect(jsonContentType('application/x-www-form-urlencoded')).toBe(false);
     expect(jsonContentType('multipart/form-data; boundary=x')).toBe(false);
     expect(jsonContentType(undefined)).toBe(false);
+  });
+});
+
+describe('bodyContentTypeAllowed', () => {
+  it('application/json はどの経路でも受ける', () => {
+    expect(bodyContentTypeAllowed('POST', '/api/projects', 'application/json')).toBe(true);
+    expect(bodyContentTypeAllowed('POST', '/api/drops', 'application/json; charset=utf-8')).toBe(true);
+  });
+  it('POST /api/drops だけは application/octet-stream を受ける', () => {
+    expect(bodyContentTypeAllowed('POST', '/api/drops', 'application/octet-stream')).toBe(true);
+    expect(bodyContentTypeAllowed('post', '/api/drops', 'Application/Octet-Stream')).toBe(true);
+  });
+  it('例外は動詞と経路が一致するときだけで、ほかの型は広げない', () => {
+    expect(bodyContentTypeAllowed('POST', '/api/drops', 'text/plain;charset=UTF-8')).toBe(false);
+    expect(bodyContentTypeAllowed('POST', '/api/drops', 'application/x-www-form-urlencoded')).toBe(false);
+    expect(bodyContentTypeAllowed('POST', '/api/drops', 'multipart/form-data; boundary=x')).toBe(false);
+    expect(bodyContentTypeAllowed('POST', '/api/drops', undefined)).toBe(false);
+    expect(bodyContentTypeAllowed('PUT', '/api/drops', 'application/octet-stream')).toBe(false);
+    expect(bodyContentTypeAllowed('POST', '/api/drops/existing', 'application/octet-stream')).toBe(false);
+    expect(bodyContentTypeAllowed('POST', '/api/drops/', 'application/octet-stream')).toBe(false);
+    expect(bodyContentTypeAllowed('POST', '/api/projects', 'application/octet-stream')).toBe(false);
   });
 });
 

@@ -7,17 +7,18 @@ import { fileURLToPath } from 'node:url';
 import { listArtifacts } from './artifacts/queries.ts';
 import { backupsRoot, readCloudConfig, remoteRoot } from './config/cloud.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
-import { claudeSupportsBackground, ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, zshrcPath } from './config/shellHook.ts';
+import { ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, shellWrapSupported, zshrcPath } from './config/shellHook.ts';
 import { claudeJsonPath } from './config/claudeJson.ts';
 import { createReadiness } from './config/readiness.ts';
 import { defaultManagedDir, RetentionService } from './config/retention.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { encodeJoinToken, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto } from '@agent-hangar/shared';
+import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
-import { getProject, getSession, listDevices, listProjects } from './db/queries.ts';
+import { accountOfSession, getProject, getSession, listDevices, listProjects } from './db/queries.ts';
 import { upsertShared } from './db/shared.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './external/open.ts';
+import { announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from './http/accounts.ts';
 import { createApp, type ExternalApi } from './http/app.ts';
 import { writeBaselineIfNeeded } from './indexer/baseline.ts';
 import { IndexerService } from './indexer/service.ts';
@@ -26,17 +27,21 @@ import { MemoStore } from './projects/memo.ts';
 import { promoteSession } from './projects/promote.ts';
 import { assignSession, assignSessions, checkProjectRoots, registerWorkspaceChildOf, syncProjectsFromWorkspace } from './projects/registry.ts';
 import { ensureScratchProject } from './projects/scratch.ts';
-import { RegistryWatcher } from './provider/claude-code/registry.ts';
+import { readRegistry, RegistryWatcher } from './provider/claude-code/registry.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
 import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
+import { AccountAuth } from './config/accountAuth.ts';
+import { AccountStore } from './config/accounts.ts';
 import { RunError, RunManager } from './runs/manager.ts';
 import { aliveRunForSession } from './runs/queries.ts';
+import { ParkWatch, parkedSessionIds, statusChanged } from './sessions/park.ts';
+import { processStartOfPrompt } from './sessions/promptProcess.ts';
 import { ClaudeHeadlessSummarizer } from './summary/claude.ts';
 import { SummaryJob } from './summary/job.ts';
 import { LmStudioSummarizer } from './summary/lmstudio.ts';
 import type { Summarizer } from './summary/types.ts';
-import { writeMemoConflictCopy, type SessionMemoBackup } from './sync/apply.ts';
+import { sessionIdOfChange, writeMemoConflictCopy, type SessionMemoBackup } from './sync/apply.ts';
 import { BACKUP_GENERATIONS, ClaudeConfigSync } from './sync/claudeConfig.ts';
 import { HttpCloudClient, type CloudClient } from './sync/client.ts';
 import { copyTranscriptForResume } from './sync/copy.ts';
@@ -47,6 +52,7 @@ import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, type QuotaCounter
 import { SyncStateStore } from './sync/state.ts';
 import { markTranscriptsFrom } from './sync/transcriptsFrom.ts';
 import { TranscriptUploader } from './sync/uploader.ts';
+import { CloudUsagePoller } from './sync/usage.ts';
 import { Tmux } from './tmux/tmux.ts';
 import { UsageTracker } from './usage/statusline.ts';
 import { EventHub } from './ws/hub.ts';
@@ -134,6 +140,8 @@ export function countingClient(inner: CloudClient, quota: QuotaCounter): CloudCl
     getFile: (k) => note(0, inner.getFile(k)),
     listFiles: (s, l) => note(0, inner.listFiles(s, l)),
     deleteFile: (k) => note(D1_WRITES_PER_FILE_DELETE, inner.deleteFile(k)),
+    // 使用量は読むだけで、D1 には 1 行も書かない（Worker の /usage は認証の検査で読むだけ）。
+    usage: () => note(0, inner.usage()),
   };
 }
 
@@ -383,6 +391,11 @@ export type StartOptions = {
   /** 設定ファイルより優先する Claude Code のディレクトリ。テストがフィクスチャの複製を指すために使う。 */
   claudeDir?: string;
   uiDist?: string;
+  /**
+   * Claude の登録のうち、消えたプロセスの残りと見る pid。既定は OS で決める（provider/claude-code/registry.ts の goneOn）。
+   * テストの見本の登録は実在しない pid を持つので、テストは「残りは無い」を渡す。
+   */
+  registryIsGone?: (pid: number) => boolean;
 };
 
 /**
@@ -402,15 +415,13 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   let settings: Settings = resolveToolPaths(loadSettings(home));
   saveSettings(home, settings);
   ensureWrapperScript(home);
-  // 包み方の本体は hangar の版と揃える。~/.zshrc の 1 行はこのファイルを読むだけなので、更新はここで行き渡る。
-  ensureShellScript(home);
   const fixed = ensureSpawnHelper();
   if (fixed.length) console.log('[pty] spawn-helper に実行権限を付けました:', fixed.join(', '));
 
   const claudeDir = opts.claudeDir ?? (settings.claudeDir || defaultClaudeDir());
   const db = openDb(dbPath(home));
   const hub = new EventHub(VERSION);
-  const registry = new RegistryWatcher(claudeDir);
+  const registry = new RegistryWatcher(claudeDir, undefined, opts.registryIsGone);
 
   // クラウド同期。cloud.json が無ければ client は null で、同期の状態は off になる。
   const cloudRead = readCloudConfig(home);
@@ -463,6 +474,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   // 本文と設定の出し入れは engine を通らないので、無料枠の勘定に入るように包んでから渡す。
   const client = rawClient ? countingClient(rawClient, engine.quota) : null;
+  // 設定の「使用量と費用」。数える client を通すので、要求は無料枠の勘定に入る。
+  const cloudUsage = new CloudUsagePoller({ client, quota: engine.quota, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
   const uploader = client
     ? new TranscriptUploader({
         db, deviceId: device.id, claudeDir, client, key: fileKey, state: syncState,
@@ -495,6 +508,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // 他端末から降ろした本文も索引化の対象にする。譲ったセッションは相手が持ち主なので見ない。
     remoteRoot: remoteRoot(home),
     isYielded: (uuid) => syncState.isYielded(uuid),
+    // 状態を外すのは resume した後の発言だけである。発言を出したプロセスの起動時刻を、登録と runs から引く。
+    processStartOf: (q) => processStartOfPrompt(db, device.id, registry.current(), q),
   });
 
   // 起動の途中かどうか。最初の全走査では未分類のセッションを数えきれないほど流すので、知らせるのは起動後だけにする。
@@ -553,6 +568,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   // 実行中だったセッションの id。出入りを見て土台の要約の状態を書き替えるために持つ。
   let liveIds = new Set<string>();
+  // 会話ごとの直前の動き。動きが変わった印付きのセッションを配り直すために持つ。
+  let liveStatus = new Map<string, LiveSessionDto['status']>();
   const sessionIdOf = (providerSessionId: string): string | null =>
     (db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ?").get(providerSessionId) as { id: string } | undefined)?.id ?? null;
   registry.onChange((live) => {
@@ -572,6 +589,17 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const s = getSession(db, live, sessionId, { deviceId: device.id });
       if (s) hub.broadcast({ type: 'session.upsert', session: s });
     }
+    // 区切りを付けたセッションは、動きが変わると実行中に数えるか（parked）も変わる。
+    // UI は live.update から動きしか直せないので、印の付いたものだけ行ごと配り直す。
+    for (const providerSessionId of statusChanged(liveStatus, live)) {
+      const sessionId = sessionIdOf(providerSessionId);
+      if (!sessionId) continue;
+      // 動きが変わったら、休みの数え直しにする。
+      parkWatch.reset(sessionId);
+      const s = getSession(db, live, sessionId, { deviceId: device.id });
+      if (s?.state?.status) hub.broadcast({ type: 'session.upsert', session: s });
+    }
+    liveStatus = new Map(live.map((l) => [l.sessionId, l.status]));
     for (const p of listProjects(db, device.id, live)) hub.broadcast({ type: 'project.upsert', project: p });
     // hangar が起こした run に Claude の pid を書き込むのはここだけである。
     runs.linkRegistry(live);
@@ -603,13 +631,25 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     const p = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'hangar');
     return fs.existsSync(p) ? p : null;
   })();
-  // バックグラウンドを使えるかは claude を 1 度起こして確かめるので、測り直すまで覚えておく。
-  let shellSupported: boolean | null = null;
-  const shellHook = (recheck = false): ShellHookDto => {
-    if (shellSupported === null || recheck) shellSupported = claudeSupportsBackground(claudeBinOf(settings));
+  // 包み方の本体は hangar の版と揃える。~/.zshrc の 1 行はこのファイルを読むだけなので、更新はここで行き渡る。
+  // 本体には実際に待ち受けているポートと tmux のパスを埋め込むので、listen の後に書き、tmux のパスが変われば書き直す。
+  const writeShellScript = () => {
+    try {
+      ensureShellScript(home, { url: `http://${host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host}:${port}`, tokenFile: path.join(home, 'token'), tmuxPath: settings.tmuxPath });
+    } catch (e) {
+      console.error('[shell] 包み方の本体を書けませんでした', e instanceof Error ? e.message : e);
+    }
+  };
+  writeShellScript();
+  // 包めるかは tmux を実行できるかで見る。ファイルを見るだけなので、毎回測る。
+  const shellHook = (): ShellHookDto => {
+    const shellSupported = shellWrapSupported(settings.tmuxPath);
     const zshrc = zshrcPath();
     return { state: shellHookState(zshrc, shellSupported), zshrc, line: shellHookLine(home), command: shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar }) };
   };
+  // Claude Code のアカウント。置き場ごとのログインを切り替えるだけで、認証の中身は持たない。
+  const accountStore = new AccountStore({ home, primaryDir: claudeDir });
+  const accountAuth = new AccountAuth({ claudeBin: () => claudeBinOf(settings) });
   const runs = new RunManager({
     db, deviceId: device.id, home, tmux: tmuxOf(settings), port, token,
     claudeBin: claudeBinOf(settings),
@@ -619,8 +659,34 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     isLive: (providerSessionId) => registry.current().some((l) => l.sessionId === providerSessionId),
     // 引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引く。
     live: () => registry.current(),
+    accounts: accountStore,
   });
-  const usage = new UsageTracker(db);
+  // 区切り（Paused・Done・Archived）を付けたセッションが休みになったら、Claude を止める。
+  // 登録は 500 ミリ秒ごとの写しではなく、その場で読み直す。打ったばかりの発言で作業中に変わった会話を、古い写しのまま止めないためである。
+  // 読めなかったときは、何も止めない。
+  const parkWatch = new ParkWatch({
+    parkedIds: () => { try { return parkedSessionIds(db, readRegistry(claudeDir), device.id); } catch { return []; } },
+    stop: (id) => runs.park(id),
+  });
+  // statusline の payload からはアカウントが分からない（本文の置き場は共有）ので、セッションの最後の run から引く。
+  // hangar の外で起こしたセッションと、消したアカウントの run は、最初のアカウントとして数える。
+  const usage = new UsageTracker(db, {
+    accountOf: (providerSessionId) => {
+      if (!providerSessionId) return PRIMARY_ACCOUNT_ID;
+      const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(providerSessionId) as { id: string } | undefined;
+      const id = s ? accountOfSession(db, s.id) : null;
+      return id && accountStore.get(id) ? id : PRIMARY_ACCOUNT_ID;
+    },
+  });
+  // アカウントの HTTP と、起動後の認証の読み直しが、同じ組み立てを使う。
+  const accountsDeps: AccountsDeps = {
+    db, store: accountStore, auth: accountAuth, usage, runs, primaryDir: claudeDir,
+    broadcast: (accounts) => hub.broadcast({ type: 'accounts.update', accounts }),
+  };
+  // 認証を読み終えたとき、ログインが始まって終わったときに、画面へ配る。
+  accountAuth.setOnChange(() => accountsDeps.broadcast(buildAccountsDto(accountsDeps)));
+  // 起動のたびに、セッションとアカウントの対応を配る。
+  announceAccountsOnRunStarted(runs, accountsDeps);
   const memos = new MemoStore({ db, deviceId: device.id, home });
   // Claude への切り替えの件数はプロセスの寿命で数えるので、要約器はここで 1 度だけ作り、
   // 設定の変更は列の組み立てで反映する。毎回作り直すと 1 時間の窓が空になる。
@@ -668,19 +734,23 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const syncSweep = (): number | null => uploader?.pendingSweep() ?? null;
 
   // 同期のイベントを hub に流す。pull で入れ替わった行は、そのまま画面に届ける。
+  // 一時停止が解けたら取り直す。止まっている間は取りに行かないので、画面の値が古いままになる。
+  let wasPaused = isPaused();
   engine.on({
     // 付録を添えてから流す。添えないと、画面の件数が一度受け取った値のまま固まる。
-    status: (s) => hub.broadcast({ type: 'sync.status', status: { ...s, skipped: syncSkipped(), sweepPending: syncSweep() } }),
+    status: (s) => {
+      hub.broadcast({ type: 'sync.status', status: { ...s, skipped: syncSkipped(), sweepPending: syncSweep() } });
+      const pausedNow = s.state === 'paused';
+      if (wasPaused && !pausedNow) void cloudUsage.refresh();
+      wasPaused = pausedNow;
+    },
     toast: (level, message) => toast(level, message),
     applied: (c) => {
       hub.broadcast({ type: 'sync.applied', table: c.tableName, rowId: c.rowId });
-      if (c.tableName === 'sessions' || c.tableName === 'runs' || c.tableName === 'session_summaries') {
-        const sessionId = c.tableName === 'runs'
-          ? (db.prepare('select session_id s from runs where id = ?').get(c.rowId) as { s: string } | undefined)?.s ?? null
-          : c.rowId;
-        const s = sessionId ? getSession(db, registry.current(), sessionId, { deviceId: device.id }) : null;
-        if (s) hub.broadcast({ type: 'session.upsert', session: s });
-      }
+      // セッションに付く表（sessions、runs、session_summaries、session_states）の行なら、そのセッションを配り直す。
+      const sessionId = sessionIdOfChange(db, c);
+      const s = sessionId ? getSession(db, registry.current(), sessionId, { deviceId: device.id }) : null;
+      if (s) hub.broadcast({ type: 'session.upsert', session: s });
       if (c.tableName === 'projects' || c.tableName === 'project_roots') {
         for (const p of listProjects(db, device.id, registry.current())) hub.broadcast({ type: 'project.upsert', project: p });
       }
@@ -727,6 +797,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 無ければリポジトリ内の packages/ui/dist を使う。
   const uiDist = opts.uiDist ?? process.env.HANGAR_UI_DIST ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
   const app = createApp({
+    cloudUsage,
+    accounts: accountsDeps,
     db, deviceId: device.id, deviceName: device.name, token, home, port, version: VERSION,
     // 最初の索引づけと紐づけが済むまで偽。.app はこれを見て起動画面に残る。
     ready: () => started,
@@ -743,6 +815,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const t = tmuxOf(settings);
       runs.setTmux(t);
       relay.setTmux(t);
+      if (patch.tmuxPath !== undefined) writeShellScript();
       // claudePath が変われば、これから起こす run と要約が新しい場所を使う。
       if (patch.claudePath !== undefined) {
         runs.setClaudeBin(claudeBinOf(settings));
@@ -783,7 +856,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     devices: () => listDevices(db, device.id),
     shellHook: () => {
       // Settings を開いたときに測り直す。CLI で入れた直後に開けば、ここで他の PC にも知らせる。
-      const h = shellHook(true);
+      const h = shellHook();
       const cur = db.prepare('select shell_hook from devices where id = ?').get(device.id) as { shell_hook: string | null } | undefined;
       if (cur && cur.shell_hook !== h.state) touchDevice();
       return h;
@@ -808,6 +881,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
 
   registry.start();
   liveIds = new Set(registry.current().map((l) => l.sessionId));
+  // 起動のときに動いていた会話の動きも覚えておく。最初の読み取りは onChange を通らない。
+  liveStatus = new Map(registry.current().map((l) => [l.sessionId, l.status]));
   await indexer.start();
   syncProjectsFromWorkspace(db, device.id, settings.workspaceRoot);
   assignSessions(db, device.id);
@@ -827,13 +902,22 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const lost = runs.recoverAtStartup();
   if (lost.length) console.log(`[runs] tmux セッションの無い run を ${lost.length} 件 lost で閉じました`);
   runs.startPolling(RUN_POLL_MS);
+  const parkTimer = setInterval(() => {
+    try {
+      const stopped = parkWatch.tick();
+      if (stopped.length) console.log(`[park] 区切りを付けて休みになったセッションを ${stopped.length} 件止めました`);
+    } catch (e) {
+      console.error('[park]', e instanceof Error ? e.message : e);
+    }
+  }, RUN_POLL_MS);
+  parkTimer.unref();
   // ここまでで既存のセッションの紐づけは済んでいる。以後に現れた未分類だけを知らせる。
   started = true;
 
   /** 自端末の生存を devices に刻む。他端末の Settings の一覧と、ロックの端末名と、包み方の状態がここから出る。 */
   function touchDevice(): void {
     const row = db.prepare('select * from devices where id = ?').get(device.id) as Record<string, unknown> | undefined;
-    upsertShared(db, 'devices', { ...(row ?? {}), id: device.id, name: device.name, platform: device.platform, last_seen_at: Date.now(), shell_hook: shellHook(true).state, deleted_at: null }, device.id);
+    upsertShared(db, 'devices', { ...(row ?? {}), id: device.id, name: device.name, platform: device.platform, last_seen_at: Date.now(), shell_hook: shellHook().state, deleted_at: null }, device.id);
     hub.broadcast({ type: 'devices.update', devices: listDevices(db, device.id) });
   }
   touchDevice();
@@ -846,6 +930,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // その間 /health は 200 を返しているので、準備完了だと見た相手からの SIGTERM が受け口の無い時刻に届く。
   // 走り出した push と pull は engine.idle() が掴んでいるので、close() は取りこぼさない。
   void engine.start().catch((e: unknown) => console.error('[sync]', e instanceof Error ? e.message : e));
+  cloudUsage.start();
   pullFiles();
   configSync?.start();
   retention.start();
@@ -888,9 +973,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const deadline = Date.now() + CLOSE_DEADLINE_MS;
       const left = (): number => Math.max(0, deadline - Date.now());
       clearInterval(rootTimer);
+      clearInterval(parkTimer);
       clearInterval(deviceTimer);
       if (configTimer) clearInterval(configTimer);
       retention.stop();
+      cloudUsage.stop();
       if (uploadTimer) clearInterval(uploadTimer);
       // 走っている押し出しを待ってから止める。待たずに止めると putFile と pushChanges が途中で切れる。
       await stopAfterIdle(configSync, 'config', left());

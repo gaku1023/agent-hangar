@@ -1,16 +1,22 @@
 import { formatRoute } from '@agent-hangar/shared';
-import { useId, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import { RUN_KIND_LABEL } from '../presenters/format.ts';
+import type { LampProps } from '../presenters/live.ts';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
 import { LivePane } from './LivePane.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { ToggleChip } from './primitives/Chip.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
+import { motionEase, motionMs, motionValue } from './primitives/motion.ts';
+import { motionOn } from './primitives/motionKit.ts';
 import { Listbox } from './primitives/Listbox.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
+import { RollingText } from './primitives/RollingText.tsx';
+import { PANE_SHAPE, playPaneMotion } from './primitives/paneMotion.ts';
+import { usePresence } from './primitives/usePresence.ts';
 import { SplitPane } from './SplitPane.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
@@ -20,6 +26,8 @@ import { TurnIndex } from './TurnIndex.tsx';
 
 const TRUST_HINT = 'Claude の起動を待っています。信頼確認のダイアログが出ていればターミナルで答えてください。';
 const ENDED_HINT = 'Claude は終了しました。シェルタブは残っています。';
+/** 会話が終わって「いま」が消えるときのランプ（設計書 ⑩）。休みの色にして、灯の脈も止める。 */
+const ENDED_LAMP: LampProps = { tone: 'idle', head: '終わりました', sub: '' };
 
 const ACTION_ICON: Record<SessionActionId, IconName> = {
   openEditor: 'openEditor', resume: 'resume', resumeHere: 'resumeHere', fork: 'fork', openTerminal: 'openTerminal',
@@ -34,6 +42,40 @@ const ACTION_ICON: Record<SessionActionId, IconName> = {
 export function SessionScreen(props: SessionProps) {
   const emit = useEmit();
   const reasonId = useId();
+  // 右の欄の開閉（設計書 ②）。閉じる動きが終わるまで中身を描き続け、開いたら滑らせて広げる。
+  // フックなので、下の早い return より前に置く。
+  const splitRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLDivElement>(null);
+  const running = Boolean(props.run && props.selectedTab);
+  const shape = running ? PANE_SHAPE.split : PANE_SHAPE.rail;
+  const boxRef = running ? splitRef : railRef;
+  // 開閉はセッションごとに覚えているので、別のセッションへ替えると開閉も替わることがある。それは切り替えなので動かさず、すぐその形にする。
+  // 最後に描き終えたセッションを覚えておき、替わった描画では開く動きも閉じる動きも出さない。
+  const paneSession = useRef(props.id);
+  const pane = usePresence<HTMLElement>(props.transcriptOpen, (inner) => (paneSession.current === props.id && boxRef.current ? playPaneMotion(boxRef.current, shape.open, inner, false) : null));
+  const paneFirst = useRef(true);
+  useLayoutEffect(() => {
+    if (paneFirst.current) { paneFirst.current = false; return; }
+    if (paneSession.current !== props.id) return;
+    if (props.transcriptOpen && boxRef.current) void playPaneMotion(boxRef.current, shape.closed, pane.ref.current, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.transcriptOpen]);
+  // 上の 2 つ（usePresence の中のものも含む）が今の描画を見終えてから、描き終えたセッションを書き換える。
+  useLayoutEffect(() => { paneSession.current = props.id; });
+  // 「いま」の出入り（設計書 ⑩）。消えるときは、先にランプを終わりの形（休みの色、「終わりました」）へ替える。
+  // ランプの色は .live-lamp の transition で --dur かけて替わるので、それを待ってから、見出し、上の段、境目を薄れさせ、終わったら外す。
+  // 消える間は、ランプのほかは最後の livePane を描き続ける。
+  // 画面はセッションごとに作り直されないので、最後に「いま」を出したセッションを覚え、別のセッションへ替えたときは薄れさせずにすぐ外す。
+  const lastLive = useRef(props.livePane);
+  const liveSession = useRef(props.id);
+  if (props.livePane) { lastLive.current = props.livePane; liveSession.current = props.id; }
+  const live = usePresence<HTMLDivElement>(props.livePane !== null, (el) => {
+    if (liveSession.current !== props.id || !motionOn(el)) return null;
+    const parts = el.querySelectorAll<HTMLElement>(':scope > .live-pane-head, :scope > .live-top, :scope > .live-divider');
+    const blur = `blur(${motionValue('--blur-in', el)})`;
+    const anims = [...parts].map((p) => p.animate([{ opacity: 1 }, { opacity: 0, filter: blur }], { duration: motionMs('--dur-exit', el), delay: motionMs('--dur', el), easing: motionEase('--ease-in', el), fill: 'forwards' }));
+    return Promise.all(anims.map((a) => a.finished)).catch(() => undefined);
+  });
   if (props.notFound) return <div className="screen"><div className="empty">セッションが見つかりません</div></div>;
   // run は知っているのに、そのセッションの情報がまだ届いていない状態。
   if (props.loadingSession) return <div className="screen"><div className="empty">セッションを読み込んでいます</div></div>;
@@ -68,7 +110,7 @@ export function SessionScreen(props: SessionProps) {
           名前は見出しにだけ出し、要約の題は出さない（C1）。
           操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。 */}
       <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
-        {props.summary?.oneLiner ? <span className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
+        {props.summary?.oneLiner ? <span key={props.summary.oneLiner} className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
         {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
         <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? undefined}
           aria-describedby={primary.disabled ? reasonId : undefined} onClick={() => { if (!primary.disabled) act(primary.id); }}>
@@ -82,6 +124,8 @@ export function SessionScreen(props: SessionProps) {
   );
 
   const paneToggle = <button className="tr-toggle" aria-label={props.transcriptOpen ? '右の欄を閉じる' : '右の欄を開く'} title="右の欄の開閉（⌘J）" onClick={() => emit({ type: 'transcript.toggle' })}><Icon name={props.transcriptOpen ? 'paneClose' : 'paneOpen'} /></button>;
+  // 閉じている間は、タブの帯の右端に開くボタンを置く（設計書 ②）。開いている間は欄の見出しの行の paneToggle を使う。
+  const paneOpen = <button type="button" className="btn btn-sm tab-pane-open" aria-label="右の欄を開く" title="右の欄の開閉（⌘J）" onClick={() => emit({ type: 'transcript.toggle' })}><Icon name="paneOpen" /><span>{props.livePane ? 'いま' : 'ターン'}</span><kbd className="mono">⌘J</kbd></button>;
 
   // 本文が消えた会話は、会話の欄もターンの目次も持たない。
   // 残っている要約と TODO だけを見せる。
@@ -104,31 +148,37 @@ export function SessionScreen(props: SessionProps) {
   if (run && props.selectedTab) {
     // 案内と transcript の帯は Claude のタブにだけ出す。
     // 分割で 2 つ並ぶときも、シェルの側には出さない。
-    const pane = (tabId: string) => {
+    const terminal = (tabId: string) => {
       const agentTab = tabId === run.id;
       const hint = agentTab && props.trustHint ? TRUST_HINT : agentTab && !run.alive ? ENDED_HINT : null;
       const transcript = agentTab && run.alive && props.transcriptBand ? { when: props.transcriptBand.when, onLatest: () => emit({ type: 'turn.latest', sessionId: id, runId: run.id }) } : null;
       return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} agent={agentTab} transcript={transcript} />;
     };
     // 分割は .split の左の列の中でさらに 2 列に割る。高さは外側の .split から 100% で伝わる。
-    const terminals = props.split ? <SplitPane left={pane(props.split.left)} right={pane(props.split.right)} /> : pane(props.selectedTab);
+    // 出る間は、最後の livePane のランプだけを終わりの形にして描く。
+    const ended = live.mounted && !props.livePane && liveSession.current === id && lastLive.current ? { ...lastLive.current, lamp: ENDED_LAMP } : null;
+    const livePane = live.mounted ? (props.livePane ?? ended) : null;
+    const terminals = props.split ? <SplitPane left={terminal(props.split.left)} right={terminal(props.split.right)} /> : terminal(props.selectedTab);
     return (
       <div className="screen session-screen">
         {header}
-        <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} />
+        <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} trailing={props.transcriptOpen ? null : paneOpen} />
         {/* 右欄は会話の全文ではなくターンの目次にする。
             全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。
             .split は縦の flex で窓の残りの高さを全部受け取る（session.css）。 */}
-        <div className="split" style={{ gridTemplateColumns: props.transcriptOpen ? 'minmax(0, 1fr) minmax(240px, 26%)' : 'minmax(0, 1fr) 28px' }}>
+        <div ref={splitRef} className="split" style={{ gridTemplateColumns: props.transcriptOpen ? PANE_SHAPE.split.open.cols : PANE_SHAPE.split.closed.cols, columnGap: props.transcriptOpen ? undefined : PANE_SHAPE.split.closed.gap }}>
           {terminals}
-          <aside className="tr-pane" data-collapsed={props.transcriptOpen ? undefined : 'true'}>
-            {props.transcriptOpen
-              ? (() => {
-                const toc = <TurnIndex sessionId={id} runId={run.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={props.livePane ? undefined : paneToggle} />;
-                // 実行中は右ペインの上に「いま」を出し、目次は一番下に残す。終わった run では今までどおり目次だけ。
-                return props.livePane ? <LivePane sessionId={id} pane={props.livePane} lead={paneToggle} split={props.livePaneSplit} artifacts={props.artifacts}>{toc}</LivePane> : toc;
-              })()
-              : paneToggle}
+          <aside className="tr-pane" data-collapsed={props.transcriptOpen ? undefined : 'true'} data-leaving={pane.leaving ? 'true' : undefined}>
+            {pane.mounted && (
+              <div ref={(el) => { pane.ref.current = el; }} className="tr-pane-inner">
+                {/* 実行中は右ペインの上に「いま」を出し、目次は一番下に残す。終わった run では目次だけ。
+                    目次は「いま」の有無にかかわらず LivePane の中の同じ位置に置き、作り直さない（スクロールの位置を保つ）。
+                    前のセッションの「いま」は、別のセッションへ替えた描画では描かない。 */}
+                <LivePane ref={live.ref} sessionId={id} pane={livePane} leaving={live.leaving} lead={paneToggle} split={props.livePaneSplit} artifacts={props.artifacts}>
+                  <TurnIndex sessionId={id} runId={run.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} pending={props.turnsPending} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={livePane ? undefined : paneToggle} />
+                </LivePane>
+              </div>
+            )}
           </aside>
         </div>
       </div>
@@ -160,14 +210,16 @@ export function SessionScreen(props: SessionProps) {
   return (
     <div className="screen session-screen">
       {header}
-      <div className="session-body" data-rail={props.transcriptOpen ? 'open' : 'closed'}>
+      <div ref={railRef} className="session-body" data-rail={props.transcriptOpen ? 'open' : 'closed'}>
         <section className="tr-sheet">{toggles}{transcript}</section>
-        {props.transcriptOpen && (
-          <aside className="session-rail" aria-label="このセッションのまとめ">
-            <SummaryPanel {...props} />
-            <TodoPanel {...props} />
-            <FilesPanel {...props} />
-          </aside>
+        {pane.mounted && (
+          <div className="session-rail-slot">
+            <aside ref={(el) => { pane.ref.current = el; }} className="session-rail" aria-label="このセッションのまとめ">
+              <SummaryPanel {...props} />
+              <TodoPanel {...props} />
+              <FilesPanel {...props} />
+            </aside>
+          </div>
         )}
       </div>
     </div>
@@ -176,7 +228,7 @@ export function SessionScreen(props: SessionProps) {
 
 /**
  * 見出しの線の下の 24px の 1 行（B1）。
- * 状態と経過、モデル、コンテキスト、コスト、変更、ターン、開始、アーティファクト、作業ディレクトリを区切りで並べる。
+ * 状態と経過、アカウント（2 件以上あるとき）、モデル、コンテキスト、コスト、変更、ターン、開始、アーティファクト、作業ディレクトリを区切りで並べる。
  * 折り返さず、狭いときは作業ディレクトリから省く。
  */
 function InfoLine(props: SessionProps) {
@@ -191,24 +243,32 @@ function InfoLine(props: SessionProps) {
       ? <span className="session-info-state" data-s={props.live ?? undefined} title={runFact}>{props.liveLabel}</span>
       : props.remoteOnly
         ? <span className="session-info-state" data-s="remote">本文は他の PC にあります</span>
-        : <span className="session-info-state" title={runFact}>終了 · {props.lastActivity}</span>;
+        : props.stoppedNote
+          ? <span className="session-info-state" title={runFact}>{props.stoppedNote}</span>
+          : <span className="session-info-state" title={runFact}>終了 · {props.lastActivity}</span>;
+  // コンテキストとコストが両方とも取れていないか。終わったセッションは、この先も値が届かないので何も出さない。
+  const noUsage = props.contextPercent === null && !props.cost;
   return (
     <div className="session-info">
       {state}
+      {/* アカウントが 2 件以上あるときだけ。状態の次、モデルの前に、色の点と名前を置く。 */}
+      {props.account && <span title="このセッションを動かしているアカウント"><span className="st-dot" style={{ color: props.account.color }} aria-hidden="true" />{props.account.name}</span>}
       {props.model && <span className="mono">{props.model}{props.effort ? ` · ${props.effort}` : ''}</span>}
       {/* コンテキストの使用率と推定コストは statusline の追記からしか届かない。
-          追記を入れていなければずっと null なので、空の棒ではなく「未取得」と書く。0% と見分けが付かない見せ方にしない。 */}
-      {props.contextPercent === null
+          追記を入れていなければずっと null なので、空の棒ではなく「未取得」と書く。0% と見分けが付かない見せ方にしない。
+          両方とも無いときは 1 つにまとめ、押すと設定へ行く（理由は title）。「未取得」を 2 つ並べ、助言の文を値の行に混ぜることはしない。 */}
+      {noUsage
+        ? props.live !== null && <a className="faint session-info-nousage" title="statusline を入れると出ます" href={formatRoute({ name: 'settings' })} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: { name: 'settings' } }); }}>コンテキスト・コスト 未取得</a>
+        : props.contextPercent === null
         ? <span className="faint">コンテキスト 未取得</span>
         : (
           <span title="コンテキストの使用率">コンテキスト <span className="gauge-bar" role="meter" aria-label="コンテキストの使用率" aria-valuenow={props.contextPercent} aria-valuemin={0} aria-valuemax={100}>
             <span className="gauge-fill" data-high={props.contextPercent >= 80 ? 'true' : undefined} style={{ width: `${Math.max(0, Math.min(100, props.contextPercent))}%` }} />
           </span>{props.contextPercent}%</span>
         )}
-      {props.cost ? <span className="mono">{props.cost}</span> : <span className="faint">コスト 未取得</span>}
-      {props.contextPercent === null && !props.cost && <a className="hint-link" href={formatRoute({ name: 'settings' })} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: { name: 'settings' } }); }}>statusline を入れると出ます</a>}
-      {props.filesChanged > 0 && <span>変更 {props.filesChanged}</span>}
-      <span>{props.turns} ターン · {props.tokens} トークン</span>
+      {!noUsage && (props.cost ? <span className="mono"><RollingText key={`${props.id}:cost`} text={props.cost} /></span> : <span className="faint">コスト 未取得</span>)}
+      {props.filesChanged > 0 && <span>変更 <RollingText key={`${props.id}:files`} text={String(props.filesChanged)} /></span>}
+      <span><RollingText key={`${props.id}:turns`} text={String(props.turns)} /> ターン · <RollingText key={`${props.id}:tokens`} text={props.tokens} /> トークン</span>
       <span>開始 {props.started}</span>
       {props.prUrl && <a href={props.prUrl} target="_blank" rel="noreferrer">PR</a>}
       {props.memo && <span className="session-info-memo" title={props.memo}>メモ：{props.memo}</span>}
@@ -292,7 +352,7 @@ function FilesPanel(props: SessionProps) {
           <li key={f.path}>
             <button type="button" className="changed-file" title={`${f.path} を VS Code で開く`} onClick={() => emit({ type: 'session.openFile', sessionId: props.id, path: f.path })}>
               <Icon name={f.created ? 'fileNew' : 'fileEdited'} />
-              <span className="changed-path mono"><span className="faint">{f.dir}</span>{f.base}</span>
+              <span className="changed-path mono"><span className="changed-dir faint">{f.dir}</span><span className="changed-base">{f.base}</span></span>
               {f.created && <span className="changed-new">新規</span>}
               <span className="changed-add mono">+{f.added}</span>
               {f.removed > 0 && <span className="changed-del mono">−{f.removed}</span>}

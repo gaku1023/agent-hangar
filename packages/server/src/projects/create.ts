@@ -4,6 +4,7 @@ import path from 'node:path';
 import { expandHome } from '../config/readiness.ts';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { isStrictlyUnder, samePath } from '../platform/paths.ts';
 import { insertProject, normalizeDir } from './registry.ts';
 
 /** 作れなかった理由。status はそのまま HTTP の状態にする。 */
@@ -115,10 +116,11 @@ export function registerProjectDir(deps: { db: Db; deviceId: string; workspaceRo
   // ルートやその上を登録すると、最も長い一致でワークスペースの下のセッションをすべて取り込み、
   // 直下のフォルダの自動の登録も止まる。Finder で何も選ばずに開くを押すとルートが返るので、ここで断る。
   const root = normalizeDir(expandHome(deps.workspaceRoot));
-  if (dir === '/' || root === dir || root.startsWith(dir + '/')) throw new ProjectCreateError(400, 'ワークスペースのルートやその上のフォルダはプロジェクトにできません');
+  if (dir === path.parse(dir).root || samePath(root, dir) || isStrictlyUnder(root, dir)) throw new ProjectCreateError(400, 'ワークスペースのルートやその上のフォルダはプロジェクトにできません');
   if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new ProjectCreateError(400, 'path が存在するディレクトリではありません');
-  const known = deps.db.prepare(`select r.project_id id from project_roots r join projects p on p.id = r.project_id
-    where r.device_id = ? and r.path = ? and r.deleted_at is null and p.deleted_at is null`).get(deps.deviceId, dir) as { id: string } | undefined;
+  // SQL の文字列比較は大文字小文字と NFC・NFD を区別する。Windows では綴り違いも同じフォルダなので、JS で比べる。
+  const known = (deps.db.prepare(`select r.project_id id, r.path from project_roots r join projects p on p.id = r.project_id
+    where r.device_id = ? and r.deleted_at is null and p.deleted_at is null`).all(deps.deviceId) as { id: string; path: string }[]).find((r) => samePath(r.path.normalize('NFC'), dir));
   if (known) {
     const row = deps.db.prepare('select * from projects where id = ?').get(known.id) as Record<string, unknown>;
     if (row.status === 'archived') upsertShared(deps.db, 'projects', { ...row, status: 'active' }, deps.deviceId);

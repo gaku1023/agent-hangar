@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
-import { Tmux } from './tmux.ts';
+import { Tmux, type TmuxExec } from './tmux.ts';
 
 const socketPath = testSocketPath();
 const tmux = TMUX ? new Tmux({ tmuxPath: TMUX, socketPath }) : null;
@@ -11,14 +11,6 @@ afterAll(() => {
   tmux?.killServer();
   removeTestSocket(socketPath);
 });
-
-/** 決まった終了コードと出力を返す偽の tmux を書く。 */
-function fakeTmux(body: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-faketmux-'));
-  const bin = path.join(dir, 'tmux');
-  fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-  return bin;
-}
 
 describe('Tmux.args', () => {
   it('ソケットの指定を先頭に付ける', () => {
@@ -32,27 +24,80 @@ describe('Tmux.args', () => {
   });
 });
 
+describe('Tmux の環境変数', () => {
+  // psmux は PSMUX_DATA_DIR で置き場を分けられる。試験が利用者のセッションに触れないために使う。
+  it('env を渡すと、tmux を起こすときの環境に足す', () => {
+    const t = new Tmux({ tmuxPath: process.execPath, env: { HANGAR_TMUX_ENV_TEST: '値' } });
+    expect(t.run('-e', 'process.stdout.write(process.env.HANGAR_TMUX_ENV_TEST ?? "none")').stdout).toBe('値');
+    expect(new Tmux({ tmuxPath: process.execPath }).run('-e', 'process.stdout.write(process.env.HANGAR_TMUX_ENV_TEST ?? "none")').stdout).toBe('none');
+  });
+});
+
+describe('Tmux.killServer', () => {
+  // psmux の kill-server は -L の別の名前空間のセッションまで落とす（2026-10-05 実測）。
+  it('Windows では呼ばずに投げる', () => {
+    const calls: string[][] = [];
+    const t = new Tmux({ tmuxPath: '/x/tmux', socketName: 's', platform: 'win32', exec: (_f, a) => { calls.push(a); return { status: 0, stdout: '', stderr: '' }; } });
+    expect(() => t.killServer()).toThrow(/kill-server/);
+    expect(calls).toEqual([]);
+  });
+  it('macOS と Linux では名指しのサーバへ送る', () => {
+    const calls: string[][] = [];
+    const t = new Tmux({ tmuxPath: '/x/tmux', socketName: 's', platform: 'darwin', exec: (_f, a) => { calls.push(a); return { status: 0, stdout: '', stderr: '' }; } });
+    t.killServer();
+    expect(calls).toEqual([['-L', 's', 'kill-server']]);
+  });
+});
+
 describe('Tmux.enableClipboard（偽の tmux）', () => {
   it('tmux を呼べなくても投げない', () => {
     expect(() => new Tmux({ tmuxPath: '/nonexistent/tmux' }).enableClipboard()).not.toThrow();
   });
 });
 
-describe('Tmux.listSessions（偽の tmux）', () => {
+describe('Tmux.listSessions（偽の実行）', () => {
+  const tmuxWith = (r: { status: number | null; stdout?: string; stderr?: string; error?: Error }) =>
+    new Tmux({ tmuxPath: 'tmux', exec: () => ({ status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error }) });
   it('tmux を呼べなければ null を返す', () => {
-    expect(new Tmux({ tmuxPath: '/nonexistent/tmux' }).listSessions()).toBeNull();
+    expect(tmuxWith({ status: null, error: new Error('ENOENT') }).listSessions()).toBeNull();
   });
   it('サーバが動いていないだけなら空配列を返す', () => {
-    const bin = fakeTmux('echo "no server running on /tmp/tmux-501/default" >&2\nexit 1');
-    expect(new Tmux({ tmuxPath: bin }).listSessions()).toEqual([]);
+    expect(tmuxWith({ status: 1, stderr: 'no server running on /tmp/tmux-501/default\n' }).listSessions()).toEqual([]);
+  });
+  // psmux は、サーバが無いときに何も出さず exit 0 で終わる（2026-10-05 実測）。
+  it('何も出さずに成功したら空配列を返す', () => {
+    expect(tmuxWith({ status: 0 }).listSessions()).toEqual([]);
   });
   it('それ以外の失敗は null を返す。観測できないことと動いていないことは違う', () => {
-    const bin = fakeTmux('echo "lost server" >&2\nexit 1');
-    expect(new Tmux({ tmuxPath: bin }).listSessions()).toBeNull();
+    expect(tmuxWith({ status: 1, stderr: 'lost server\n' }).listSessions()).toBeNull();
   });
-  it('成功したらセッション名を返す', () => {
-    const bin = fakeTmux('echo "hangar-a"\necho "hangar-b"\nexit 0');
-    expect(new Tmux({ tmuxPath: bin }).listSessions()).toEqual(['hangar-a', 'hangar-b']);
+  it('成功したらセッション名を返す。改行が CRLF でも名前に \\r を残さない', () => {
+    expect(tmuxWith({ status: 0, stdout: 'hangar-a\r\nhangar-b\r\n' }).listSessions()).toEqual(['hangar-a', 'hangar-b']);
+  });
+});
+
+describe('Tmux.ensureTerminalOptions（偽の実行）', () => {
+  const recorder = (answers: Record<string, string>) => {
+    const calls: string[][] = [];
+    const exec: TmuxExec = (_f, a) => {
+      calls.push(a);
+      const key = a.join(' ');
+      return { status: 0, stdout: answers[key] ?? '', stderr: '' };
+    };
+    return { calls, exec };
+  };
+  // pbcopy は macOS のコマンド。extended-keys と S-Enter の割り当ては、iTerm2 などの外の端末から tmux へつなぐための調整である。
+  // Windows の psmux には入れない。hangar の画面の端末は、Shift+Enter を自分で ESC CR にして送る（ui の xtermSetup.ts）ので、割り当てが無くても改行になる。
+  // Windows Terminal から psmux へ直につないだときの Shift+Enter は、まだ実機で確かめていない。
+  it('Windows では、サーバの設定を何も書き換えない', () => {
+    const { calls, exec } = recorder({});
+    new Tmux({ tmuxPath: 'psmux', platform: 'win32', exec }).ensureTerminalOptions();
+    expect(calls.filter((a) => a.includes('set-option') || a.includes('bind-key'))).toEqual([]);
+  });
+  it('macOS では、空の copy-command に pbcopy を入れる', () => {
+    const { calls, exec } = recorder({ 'show-options -s -v extended-keys': 'on' });
+    new Tmux({ tmuxPath: 'tmux', platform: 'darwin', exec }).ensureTerminalOptions();
+    expect(calls).toContainEqual(['set-option', '-s', 'copy-command', 'LC_CTYPE=UTF-8 pbcopy']);
   });
 });
 
@@ -180,6 +225,114 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
     // サーバが起きればソケットができる。
     expect(fs.existsSync(p)).toBe(false);
     removeTestSocket(p);
+  });
+
+  it('newSession の env は、もう動いているサーバでも新しいセッションに届く', async () => {
+    // tmux の新しいセッションは、起こしたシェルではなくサーバの環境を継ぐ。-e で渡したものだけが届く。
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-tmux-'));
+    const out = path.join(cwd, 'env.txt');
+    tmux!.newSession({ name: 'hangar-test-env-first', cwd, command: ['sh', '-c', 'sleep 30'] });
+    tmux!.newSession({ name: 'hangar-test-env', cwd, command: ['sh', '-c', `printf '%s|%s' "$HANGAR_TEST_A" "$HANGAR_TEST_B" > ${out}`], env: { HANGAR_TEST_A: 'a b', HANGAR_TEST_B: "c'd=e" } });
+    await waitFor(() => fs.existsSync(out) && fs.readFileSync(out, 'utf8') !== '');
+    expect(fs.readFileSync(out, 'utf8')).toBe("a b|c'd=e");
+    tmux!.killSession('hangar-test-env-first');
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  describe('ensureTerminalOptions', () => {
+    /** 既定の値に揃えた専用のサーバを起こす。利用者の ~/.tmux.conf に左右されないようにする。 */
+    function fresh(): { t: Tmux; cwd: string; done: () => void } {
+      const p = testSocketPath();
+      const t = new Tmux({ tmuxPath: TMUX!, socketPath: p });
+      const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-tmux-'));
+      t.newSession({ name: 'hangar-test-opt-keep', cwd, command: ['sh', '-c', 'sleep 30'] });
+      t.run('set-option', '-s', 'copy-command', '');
+      t.run('set-option', '-s', 'extended-keys', 'off');
+      t.run('set-option', '-s', 'extended-keys-format', 'xterm');
+      t.run('set-option', '-su', 'terminal-features');
+      t.run('unbind-key', '-n', 'S-Enter');
+      return { t, cwd, done: () => { t.killServer(); removeTestSocket(p); fs.rmSync(cwd, { recursive: true, force: true }); } };
+    }
+    const show = (t: Tmux, key: string) => t.run('show-options', '-s', '-v', key).stdout.trim();
+    // copy-command に入れる pbcopy は macOS にしか無い。ほかの OS では hangar は copy-command に触らない。
+    const MAC = process.platform === 'darwin';
+    // extended-keys-format は tmux 3.5 から在る。3.4 までは show-options も set-option も invalid option で断る。
+    // CI の Ubuntu に入る tmux は 3.4 なので、版を読んで期待を分ける。
+    // tmux が無い場所ではこの describe ごと飛ぶが、ここは集める段で走るので null を踏まないようにする。
+    const HAS_FORMAT = Number(/(\d+\.\d+)/.exec(tmux?.run('-V').stdout ?? '')?.[1] ?? 0) >= 3.5;
+
+    it('copy-command、extended-keys、extended-keys-format、terminal-features、S-Enter を入れる', () => {
+      const { t, done } = fresh();
+      t.ensureTerminalOptions();
+      // tmux サーバの環境には LANG が無いことが多い。素の pbcopy は UTF-8 を読めず、日本語を写すとクリップボードを空にする。
+      expect(show(t, 'copy-command')).toBe(MAC ? 'LC_CTYPE=UTF-8 pbcopy' : '');
+      expect(show(t, 'extended-keys')).toBe('on');
+      if (HAS_FORMAT) expect(show(t, 'extended-keys-format')).toBe('csi-u');
+      expect(show(t, 'terminal-features')).toContain('xterm*:extkeys');
+      expect(t.run('list-keys', '-T', 'root', 'S-Enter').stdout).toContain('hangar-');
+      done();
+    });
+
+    it('前の版が入れた素の pbcopy は、UTF-8 を読める形に置き換える', () => {
+      const { t, done } = fresh();
+      t.run('set-option', '-s', 'copy-command', 'pbcopy');
+      t.ensureTerminalOptions();
+      // macOS の外では置き換えない。そこの pbcopy は hangar が入れたものではない。
+      expect(show(t, 'copy-command')).toBe(MAC ? 'LC_CTYPE=UTF-8 pbcopy' : 'pbcopy');
+      done();
+    });
+
+    it('何度呼んでも terminal-features を重ねない', () => {
+      const { t, done } = fresh();
+      t.ensureTerminalOptions();
+      t.ensureTerminalOptions();
+      expect(show(t, 'terminal-features').split('\n').filter((l) => l.includes('xterm*:extkeys'))).toHaveLength(1);
+      done();
+    });
+
+    it('利用者が決めた値は覆さない', () => {
+      const { t, done } = fresh();
+      t.run('set-option', '-s', 'copy-command', 'my-copy');
+      t.run('set-option', '-s', 'extended-keys', 'always');
+      t.run('set-option', '-s', 'extended-keys-format', 'xterm');
+      t.run('bind-key', '-n', 'S-Enter', 'send-keys', 'X');
+      t.ensureTerminalOptions();
+      expect(show(t, 'copy-command')).toBe('my-copy');
+      expect(show(t, 'extended-keys')).toBe('always');
+      // extended-keys を利用者が既に入れているなら、その書式も利用者のものである。
+      if (HAS_FORMAT) expect(show(t, 'extended-keys-format')).toBe('xterm');
+      expect(t.run('list-keys', '-T', 'root', 'S-Enter').stdout).not.toContain('hangar-');
+      done();
+    });
+
+    it('tmux サーバが動いていなければ何もせず、起こしもしない', () => {
+      const p = testSocketPath();
+      const t = new Tmux({ tmuxPath: TMUX!, socketPath: p });
+      expect(() => t.ensureTerminalOptions()).not.toThrow();
+      expect(fs.existsSync(p)).toBe(false);
+      removeTestSocket(p);
+    });
+
+    it('外の端末の Shift+Enter は、run では ESC CR、シェルタブでは CR として中に届く', async () => {
+      const { nodePtySpawn } = await import('../pty/nodePty.ts');
+      const { t, cwd, done } = fresh();
+      t.ensureTerminalOptions();
+      // 中のプログラムは端末を生のまま読み、届いたバイトを 16 進で書き出す。
+      const dump = (out: string) => ['sh', '-c', `stty raw -echo; dd bs=1 count=2 2>/dev/null | od -An -tx1 | tr -d ' \\n' > ${out}; sleep 5`];
+      for (const [name, want] of [['hangar-abc12345', '1b0d'], ['hangar-abc12345-t1', '0d']] as const) {
+        const out = path.join(cwd, `${name}.hex`);
+        t.newSession({ name, cwd, command: dump(out) });
+        const client = nodePtySpawn(TMUX!, t.attachArgs(name), { name: 'xterm-256color', cols: 80, rows: 24, cwd, env: { ...process.env, TERM: 'xterm-256color', TMUX: '' } });
+        await new Promise((r) => setTimeout(r, 800));
+        // iTerm2 などが送る CSI u の Shift+Enter。シェルタブでは 2 バイト目を待つので、続けて a を送る。
+        client.write('\x1b[13;2u');
+        if (want === '0d') client.write('a');
+        await waitFor(() => fs.existsSync(out) && fs.readFileSync(out, 'utf8') !== '');
+        expect(fs.readFileSync(out, 'utf8')).toBe(want === '0d' ? '0d61' : want);
+        client.kill();
+      }
+      done();
+    });
   });
 
   it('存在しない cwd では tmux を呼ばずに投げる', () => {

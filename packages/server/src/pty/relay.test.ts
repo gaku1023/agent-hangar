@@ -127,6 +127,20 @@ describe('PtyRelay（偽の spawn）', () => {
     clip.mockRestore();
     ws.close();
   });
+  it('attach の前に、外の端末のための設定を tmux に入れる', async () => {
+    const f = fakeSpawn();
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    const opts = vi.spyOn(tmux, 'ensureTerminalOptions').mockImplementation(() => {});
+    const spawn = vi.fn(f.spawn);
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-a', spawn });
+    await listen(relay);
+    const { ws } = await connect(`tab=t1`);
+    await waitFor(() => f.procs.length === 1);
+    expect(opts).toHaveBeenCalledTimes(1);
+    expect(opts.mock.invocationCallOrder[0]!).toBeLessThan(spawn.mock.invocationCallOrder[0]!);
+    opts.mockRestore();
+    ws.close();
+  });
   it('プロセスの終了で接続を閉じる', async () => {
     const f = fakeSpawn();
     relay.close(); await new Promise<void>((r) => server.close(() => r()));

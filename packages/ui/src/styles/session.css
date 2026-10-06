@@ -5,7 +5,7 @@
 .session-hero { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; }
 .session-hero .btn { flex: none; }
 
-.session-oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.session-oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); animation: enter-x var(--dur) var(--ease-out); }
 
 /* チップの列。小さな錠剤で並べ、入り切らなければ次の行へ送る。 */
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); margin: calc(var(--u) * 2) 0 var(--u); }
@@ -22,7 +22,7 @@ a.chip { color: var(--accent); text-decoration: none; }
 
 /* 幅（案 b）。
    セッション画面だけ本文の幅の上限を外す。
-   --box-l と検索の錠剤の式は base.css のままで、上限が無いので本文も錠剤も左へ寄る。 */
+   --box-l と検索の錠剤の式（--gutter-head）は base.css のままで、上限が無いので本文も錠剤も左へ寄る。 */
 .shell[data-wide] { --main-w: 100vw; }
 /* 高さ。
    本文の列を縦の flex にし、ヘッダと帯（切断、保持期間）の分を引いた残りを画面に渡す。
@@ -48,7 +48,9 @@ a.chip { color: var(--accent); text-decoration: none; }
 .session-info > :first-child { padding-left: 0; border-left: 0; }
 .session-info > .session-info-cwd { flex: 0 1 auto; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
 .session-info .gauge-bar { width: 40px; }
-.session-info-state { font-weight: 560; }
+.session-info-state { font-weight: 600; }
+.session-info > .session-info-nousage { color: var(--ink-3); }
+.session-info > .session-info-nousage:hover { color: var(--accent); text-decoration: none; }
 .session-info-state[data-s='busy'] { color: #8a520c; }
 .session-info-state[data-s='waiting'] { color: var(--waiting); }
 .session-info-state[data-s='remote'] { color: var(--st-active); }
@@ -64,7 +66,10 @@ a.chip { color: var(--accent); text-decoration: none; }
    本文の面と、右に 340px の右欄を置く。
    右欄の開閉（⌘J）で本文が全幅になる。 */
 .session-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: calc(var(--u) * 3); }
-.session-body[data-rail='closed'] { grid-template-columns: minmax(0, 1fr); }
+/* 閉じた右の欄は 0px の列にし、列の数を変えない（列の数が替わると、開閉の動きが補間されない）。 */
+.session-body[data-rail='closed'] { grid-template-columns: minmax(0, 1fr) 0px; column-gap: 0; }
+.session-rail-slot { min-width: 0; min-height: 0; overflow: hidden; display: flex; }
+.session-rail-slot > .session-rail { flex: 1; }
 .tr-sheet .tr-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .tr-sheet .transcript-toggles .tr-toggle { margin-right: calc(var(--u) * -2); }
 /* 本文が消えた会話は、注記と要約と TODO を 1 列に積む。 */
@@ -84,7 +89,11 @@ a.chip { color: var(--accent); text-decoration: none; }
 .changed-file { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: 30px; padding: 0 calc(var(--u) * 1.5); border: 0; border-radius: var(--r); background: none; color: var(--ink); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
 .changed-file:hover { background: var(--surface-2); }
 .changed-file > .icon { color: var(--ink-3); }
-.changed-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 長いときはフォルダの側を省略し、ファイル名は必ず残す。頭から出して末尾を切ると、どの行も同じ頭になり、肝心の名前が消える。 */
+.changed-path { flex: 1; display: flex; min-width: 0; overflow: hidden; white-space: nowrap; }
+/* 縮むのはフォルダの側だけにする。ファイル名は、それだけで欄に収まらないときに限って省略する。 */
+.changed-dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.changed-base { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .changed-new { flex: none; padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); font-size: 10.5px; color: var(--st-done); background: var(--st-done-soft); }
 .changed-add { flex: none; font-size: var(--fs-xs); color: var(--st-done); }
 .changed-del { flex: none; font-size: var(--fs-xs); color: var(--error); }
@@ -96,7 +105,7 @@ a.chip { color: var(--accent); text-decoration: none; }
 .term-veil { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; padding: calc(var(--u) * 4); }
 .term-off-card { display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * 2); width: min(340px, 100%); padding: calc(var(--u) * 5) calc(var(--u) * 5.5) calc(var(--u) * 4.5); border-radius: 16px; background: var(--surface); box-shadow: 0 20px 40px -18px rgba(0, 0, 0, 0.6); text-align: center; color: var(--ink); }
 .term-off-ic { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: color-mix(in srgb, var(--error) 9%, var(--surface)); color: var(--error); }
-.term-off-card b { font-size: var(--fs-md); font-weight: 650; }
+.term-off-card b { font-size: var(--fs-md); font-weight: 700; }
 .term-off-card p { margin: 0 0 var(--u); font-size: var(--fs-sm); color: var(--ink-2); }
 /* transcript を表示している間は、ターミナルの上端に杏の地の全幅の帯を差し込み、右端に「最新へ戻る」を置く。 */
 .term-band { flex: none; display: flex; align-items: center; gap: calc(var(--u) * 2.5); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3.5); background: color-mix(in srgb, var(--term-tool) 20%, var(--term-bg)); color: var(--term-fg); font-size: var(--fs-sm); border-bottom: 1px solid color-mix(in srgb, var(--term-tool) 40%, transparent); white-space: nowrap; overflow: hidden; }

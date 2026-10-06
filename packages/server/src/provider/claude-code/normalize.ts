@@ -176,6 +176,26 @@ export function recordFacts(raw: unknown): RecordFacts {
   return facts;
 }
 
+/** 中断の印。Esc で止めたとき、Claude Code が user の本文として書く（[Request interrupted by user] と [… for tool use]）。 */
+const INTERRUPT_MARK = '[Request interrupted by user';
+
+/**
+ * 利用者がいま打った発言か。セッションの状態を外す合図に使う（sessions/states.ts の clearOnNewPrompt）。
+ * isUserTurn より狭く、次の 2 つを外す。どちらも Claude Code が本文付きの user として書くが、利用者が打ったものではない。
+ * - 要約で続けた会話の頭（isCompactSummary）。自動の要約は作業の途中でも起きる。
+ * - 中断の印（[Request interrupted by user …]）。
+ * ツールの結果（AskUserQuestion の答えを含む）は text を持たないので、isUserTurn の時点で外れている。
+ * これを数え違えると、会話で Done を選んだ直後に状態が外れてしまう。
+ */
+export function isTypedPrompt(raw: unknown, facts: RecordFacts = recordFacts(raw)): boolean {
+  if (!facts.isUserTurn || !isRec(raw)) return false;
+  if (raw.isCompactSummary === true) return false;
+  // 作業中に打って積まれた指示（queued_command）は本文を attachment に持つ。中断の印はそこには来ない。
+  if (raw.type !== 'user') return true;
+  const msg = isRec(raw.message) ? raw.message : null;
+  return !contentText(msg?.content).trimStart().startsWith(INTERRUPT_MARK);
+}
+
 export type IndexText = { seq: number; role: 'user' | 'assistant' | 'tool'; text: string };
 
 export function indexTexts(events: TranscriptEvent[]): IndexText[] {

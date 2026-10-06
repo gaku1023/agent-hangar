@@ -75,13 +75,19 @@ describe('指揮役の手', () => {
     const events = [prompt('x'), r1, res(r1), r2, res(r2), r3, res(r3), e1, res(e1), t1, res(t1, true), w1, res(w1), ag, res(ag), mcp, res(mcp), t2];
     const p = presentLivePane(input({ events }));
     expect(p.steps).toEqual([
-      { text: 'a.ts を書き換えた', mono: false, when: 't4', mark: 'done' },
-      { text: 'テストを走らせる', mono: false, when: 't5', mark: 'fail' },
-      { text: 'd.md を書いた', mono: false, when: 't6', mark: 'done' },
-      { text: 'もう一度走らせる', mono: false, when: 't7', mark: 'now' },
+      { key: String(e1.seq), text: 'a.ts を書き換えた', mono: false, when: 't4', mark: 'done' },
+      { key: String(t1.seq), text: 'テストを走らせる', mono: false, when: 't5', mark: 'fail' },
+      { key: String(w1.seq), text: 'd.md を書いた', mono: false, when: 't6', mark: 'done' },
+      { key: String(t2.seq), text: 'もう一度走らせる', mono: false, when: 't7', mark: 'now' },
     ]);
     const all = presentLivePane(input({ events: [prompt('x'), r1, res(r1), r2, res(r2), r3, res(r3)] }));
-    expect(all.steps).toEqual([{ text: '読んだ：a.ts ほか 2 件', mono: false, when: 't1', mark: 'done' }]);
+    expect(all.steps).toEqual([{ key: String(r1.seq), text: '読んだ：a.ts ほか 2 件', mono: false, when: 't1', mark: 'done' }]);
+  });
+  it('手の行は、その行の最初の手の seq を key に持つ（畳んだ読みの行も最初の手）', () => {
+    seq = 10;
+    const r1 = call('Read', { file_path: '/w/a.ts' }); const r2 = call('Read', { file_path: '/w/b.ts' }); const e1 = call('Edit', { file_path: '/w/a.ts' });
+    const steps = presentLivePane(input({ events: [r1, res(r1), r2, res(r2), e1, res(e1)], turnFrom: 0 })).steps;
+    expect(steps.map((s) => s.key)).toEqual([String(r1.seq), String(e1.seq)]);
   });
   it('サブエージェントの transcript を開いている間は、指揮役の手を出さない', () => {
     seq = 0;

@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { claudeJsonPath, defaultClaudeDir, hangarHome, installShutdown, loadSettings, readOrCreateDevice, readOrCreateToken, startServer } from '@agent-hangar/server';
-import { cloudBackfill, cloudStatus, promptWord, readJoinToken, runJoin, runSetupCloud, runTeardown } from './cloud.ts';
+import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage, startErrorMessage } from './probe.ts';
 import { formatSetupReport, runSetup, whichCmd } from './setup.ts';
@@ -31,7 +31,7 @@ const setup = program
     if (!o.skipShell) {
       // 新しい PC は setup の流れで聞かれるようにする。同期している他の PC は Settings で入っているかが分かる。
       console.log('');
-      await runShellInstall({ claudeBin: claudeBinFor(home), yes: o.yes ?? false });
+      await runShellInstall({ tmuxPath: tmuxPathFor(home), yes: o.yes ?? false });
     }
     console.log('');
     console.log('MCP の登録は hangar mcp install で行えます。');
@@ -42,8 +42,14 @@ setup
   .description('自分の Cloudflare アカウントに同期用の Worker と D1 と R2 を作ってデプロイする')
   .option('--name <name>', 'Worker の名前（D1 は同名、R2 は <name>-files）', 'hangar')
   .option('--rotate-secret', '参加用の秘密を作り直す（既存の暗号化ファイルが復号できなくなる。確認を求める）')
-  .action(async (o: { name: string; rotateSecret?: boolean }) => {
+  .option('--usage-token', '使用量と費用を出す読み取り専用のトークンを Worker に入れる（標準入力から受け取る）')
+  .action(async (o: { name: string; rotateSecret?: boolean; usageToken?: boolean }) => {
     const home = hangarHome();
+    if (o.usageToken) {
+      for (const l of USAGE_TOKEN_HELP) console.log(l);
+      await installUsageToken({ home, token: await readUsageToken() });
+      return;
+    }
     const device = readOrCreateDevice(home);
     await runSetupCloud({ home, device, name: o.name, rotateSecret: o.rotateSecret });
   });
@@ -189,19 +195,19 @@ mcp
     if (!r.ok) process.exitCode = 1;
   });
 
-/** サーバと同じ順で claude を探す。Settings の claudePath、無ければ PATH。 */
-function claudeBinFor(home: string): string | null {
-  return process.env.HANGAR_CLAUDE_BIN ?? loadSettings(home).claudePath ?? whichCmd('claude');
+/** hangar が使う tmux。Settings の tmuxPath、無ければ PATH。 */
+function tmuxPathFor(home: string): string | null {
+  return loadSettings(home).tmuxPath ?? whichCmd('tmux');
 }
 
 const shell = program.command('shell').description('外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする');
 
 shell
   .command('install')
-  .description('~/.zshrc に 1 行を足し、claude を Claude のバックグラウンドで起こしてつなぐ形に包む（承諾を求め、控えを取る）')
+  .description('~/.zshrc に 1 行を足し、claude を hangar の tmux の中で起こしてつなぐ形に包む（承諾を求め、控えを取る）')
   .option('--yes', '問わずに足す')
   .action(async (o: { yes?: boolean }) => {
-    const r = await runShellInstall({ claudeBin: claudeBinFor(hangarHome()), yes: o.yes ?? false });
+    const r = await runShellInstall({ tmuxPath: tmuxPathFor(hangarHome()), yes: o.yes ?? false });
     if (!r.installed) process.exitCode = 1;
   });
 
@@ -213,7 +219,7 @@ shell
 shell
   .command('status')
   .description('この PC に入っているかを表示する')
-  .action(() => { console.log(shellStatusLine({ claudeBin: claudeBinFor(hangarHome()) })); });
+  .action(() => { console.log(shellStatusLine({ tmuxPath: tmuxPathFor(hangarHome()) })); });
 
 const statusline = program.command('statusline').description('statusline スクリプトへの追記');
 

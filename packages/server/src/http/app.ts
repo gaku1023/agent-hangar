@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type ServerEvent, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { liveFilterOf, MAX_JUMP_HEADS, newId, PRIMARY_ACCOUNT_ID, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
@@ -21,15 +21,22 @@ import { assignSessions, candidateDirs, listWorkspaceDirs, normalizeDir, resolve
 import { EDIT_TOOLS } from '../indexer/indexFile.ts';
 import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } from '../projects/todos.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
+import { decodeTerminalRequest } from '../runs/terminal.ts';
 import type { JumpFrom } from '../runs/promptJump.ts';
 import { searchSessions } from '../search/search.ts';
+import { parkedSessionIds } from '../sessions/park.ts';
+import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../sessions/states.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
+import { accountsRoutes, buildAccountsDto, type AccountsDeps } from './accounts.ts';
+import { listPromptCommands } from '../prompt/commands.ts';
+import { listProjectFiles } from '../prompt/files.ts';
+import { MAX_DROP_BYTES, pruneDrops, resolveDrop, saveDrop } from '../prompt/drops.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
-export type RunsApi = Pick<RunManager, 'start' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript'>;
+export type RunsApi = Pick<RunManager, 'start' | 'startFromTerminal' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */
 export type ExternalApi = {
   openTerminal(o: { tmuxName: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
@@ -72,13 +79,20 @@ export type AppDeps = {
   hub: { broadcast(ev: ServerEvent): void };
   runs: RunsApi;
   external: ExternalApi;
-  usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null } | null };
+  usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
   memos: MemoStore;
   summary: SummaryApi;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null };
   /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する。 */
   gitInit?: (dir: string) => void;
   sync: SyncApi;
+  /** 設定の「使用量と費用」。同期を設定していない端末と古い組み立てでは無い。 */
+  cloudUsage?: { current(): CloudUsageDto | null; refresh(): Promise<CloudUsageDto | null> };
+  /**
+   * アカウントの一覧と切り替え。組み立てる側（server.ts）が 1 か所で作り、起動後の認証の読み直しにも同じものを使う。
+   * 渡さなければ、アカウントの口は生えない（古い試験の組み立てのため）。
+   */
+  accounts?: AccountsDeps;
   /** 降ろすのを諦めた項目。RemotePuller.skippedEntries() をそのまま載せる。渡さなければ空として扱う。 */
   syncSkipped?: () => SyncSkippedDto[];
   /**
@@ -111,6 +125,8 @@ export type AppDeps = {
 
 const STATUSES = new Set(['active', 'paused', 'done', 'archived']);
 const RESOLVE_KINDS = new Set(['repoint', 'archive', 'unlink']);
+/** セッションの状態として受け付ける値。Active は null で表す。 */
+const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
 /** 空にできない文字列の設定。 */
 const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
@@ -136,6 +152,8 @@ const BODY_LIMITS = {
   /** 経路ごとの指定が無い JSON の本文。 */
   default: 64 * 1024,
   statusline: 256 * 1024,
+  /** ターミナルの包み方からの起動。シェルの環境変数をまるごと載せるので、ほかより大きく取る。 */
+  terminal: 512 * 1024,
   memo: 1024 * 1024,
   todo: 4 * 1024,
   url: 2 * 1024,
@@ -234,7 +252,9 @@ async function readJson(c: Context, limit: number): Promise<{ tooLarge: true } |
   }
 }
 
-const tooLargeResult = (c: Context, limit: number) => c.json({ error: `本文が大きすぎます（上限は ${Math.round(limit / 1024)}KB です）` }, 413);
+// 上限が 1 MB 以上のちょうどの MB なら MB で、それ以外は KB で読ませる（添付の 20 MB が「20480KB」では読みにくいため）。
+const sizeLabel = (limit: number) => (limit >= 1024 * 1024 && limit % (1024 * 1024) === 0 ? `${limit / (1024 * 1024)}MB` : `${Math.round(limit / 1024)}KB`);
+const tooLargeResult = (c: Context, limit: number) => c.json({ error: `本文が大きすぎます（上限は ${sizeLabel(limit)} です）` }, 413);
 
 /** RunError は status 付きで返し、それ以外は投げ直す。 */
 function runResult<T>(c: Context, fn: () => T, status: 200 | 201 = 200) {
@@ -310,6 +330,8 @@ export function createApp(deps: AppDeps): Hono {
    * 間に合わなくても起動は続ける。同期の失敗で起動を止めない。
    */
   const beforeLaunch = () => deps.sync.pullBeforeLaunch(2000).catch(() => false);
+  const accountsDeps: AccountsDeps | null = deps.accounts ? { beforeLaunch, ...deps.accounts } : null;
+  if (accountsDeps) accountsRoutes(api, accountsDeps);
 
   api.get('/bootstrap', (c) => {
     const live = deps.live();
@@ -331,6 +353,8 @@ export function createApp(deps: AppDeps): Hono {
       index: deps.indexer.progress(),
       version: deps.version,
       retention: deps.retention.current(),
+      cloudUsage: deps.cloudUsage?.current() ?? null,
+      accounts: accountsDeps ? buildAccountsDto(accountsDeps, { checkLinks: true }) : undefined,
     };
     return c.json(body);
   });
@@ -354,6 +378,50 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(p);
   });
   api.get('/projects/:id/candidates', (c) => c.json(candidateDirs(deps.settings().workspaceRoot, c.req.query('name') ?? '')));
+  // 初期プロンプト欄の `/` の候補。projectId が無ければ（スクラッチなど）、プロジェクトのものは読まない。
+  api.get('/prompt/commands', (c) => {
+    const id = c.req.query('projectId');
+    const project = id ? requireProject(id) : null;
+    if (id && !project) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
+    return c.json({ commands: listPromptCommands({ claudeDir: deps.settings().claudeDir, projectPath: project?.path ?? null }) });
+  });
+  // 初期プロンプト欄の `@` の候補。パスの無いプロジェクト（まだ場所が決まっていないもの）では空を返す。
+  api.get('/prompt/files', async (c) => {
+    const id = c.req.query('projectId');
+    if (!id) return c.json({ error: 'projectId が要ります' }, 400);
+    const project = requireProject(id);
+    if (!project) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
+    return c.json({ files: project.path ? await listProjectFiles(project.path, c.req.query('q') ?? '') : [] });
+  });
+  // 初期プロンプト欄の添付。端末へのドロップ（殻の filedrop.rs）と同じ置き場に置く。
+  const dropsDir = path.join(deps.home, 'drops');
+  const DROP_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+  api.post('/drops/existing', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const paths = (b.value as { paths?: unknown } | null | undefined)?.paths;
+    if (!Array.isArray(paths)) return c.json({ error: 'paths が要ります' }, 400);
+    // フォルダを落としたときは元のパスがそのまま添付になるので、ファイルに限らず「ある」かだけを見る。
+    return c.json({ paths: paths.filter((p): p is string => typeof p === 'string' && path.isAbsolute(p) && fs.existsSync(p)) });
+  });
+  api.post('/drops', async (c) => {
+    // 先に長さの申告で断り、読んだ後にも実際の大きさで断る（申告は偽れる）。
+    if (Number(c.req.header('content-length') ?? 0) > MAX_DROP_BYTES) return tooLargeResult(c, MAX_DROP_BYTES);
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    if (bytes.byteLength > MAX_DROP_BYTES) return tooLargeResult(c, MAX_DROP_BYTES);
+    if (bytes.byteLength === 0) return c.json({ error: '中身がありません' }, 400);
+    pruneDrops(dropsDir, Date.now());
+    return c.json(saveDrop(dropsDir, c.req.query('name') ?? '', bytes), 201);
+  });
+  api.get('/drops/:name', (c) => {
+    const file = resolveDrop(dropsDir, c.req.param('name'));
+    if (!file) return c.notFound();
+    // 画像だけを画像として返す。ほかは開かせない。置いたものを頁として解釈させないためである。
+    c.header('Content-Type', DROP_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream');
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('Cache-Control', 'private, max-age=3600');
+    return c.body(fs.readFileSync(file));
+  });
   api.post('/projects/:id/resolve', async (c) => {
     const id = c.req.param('id');
     const b = await readJson(c, BODY_LIMITS.default);
@@ -410,15 +478,21 @@ export function createApp(deps: AppDeps): Hono {
     }
   });
 
+  /** /api/search の status として受ける値。知らない値は絞り込みなしとして扱う。 */
+  const STATUS_FILTERS: ReadonlySet<string> = new Set(['paused', 'done', 'archived', 'active', 'proposed']);
   api.get('/search', (c) => {
     const q = c.req.query();
     const live = q.live === 'running' || q.live === 'waiting' || q.live === 'ended' ? q.live : undefined;
+    const status = q.status && STATUS_FILTERS.has(q.status) ? (q.status as NonNullable<SearchParamsDto['status']>) : undefined;
+    const hideArchived = q.hideArchived === 'true' || q.hideArchived === '1';
     // 数え方は UI と同じ liveFilterOf に任せる。
     // Claude の一覧に載る前の run も実行中に入れる。
-    const status = new Map(deps.live().map((l) => [l.sessionId, l.status]));
+    const liveStatus = new Map(deps.live().map((l) => [l.sessionId, l.status]));
     const alive = new Set(deps.runs.listAlive().runs.filter((r) => r.endedAt === null).map((r) => r.sessionId));
-    const liveOf = (sid: string, psid: string) => liveFilterOf(status.get(psid) ?? null, alive.has(sid));
-    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset) }, liveOf));
+    // 区切りを付けて休みのまま残っているものは、画面と同じく終了に数える。
+    const parked = new Set(parkedSessionIds(db, deps.live(), deviceId));
+    const liveOf = (sid: string, psid: string) => liveFilterOf(liveStatus.get(psid) ?? null, alive.has(sid), parked.has(sid));
+    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf));
   });
 
   api.get('/settings', (c) => c.json(toSettingsDto(deps.settings())));
@@ -590,6 +664,11 @@ export function createApp(deps: AppDeps): Hono {
   });
   // 前面化は待たせない。間引き（前の pull から 5 秒）は SyncEngine.onFocus の中にある。
   api.post('/sync/focus', (c) => { void deps.sync.onFocus().catch(() => {}); return c.body(null, 202); });
+  // 設定を開いたときは refresh=1 で取り直す。一時停止の間は取りに行かず、最後の値を返す（CloudUsagePoller が守る）。
+  api.get('/sync/usage', async (c) => {
+    if (!deps.cloudUsage) return c.json(null);
+    return c.json(c.req.query('refresh') === '1' ? await deps.cloudUsage.refresh() : deps.cloudUsage.current());
+  });
   api.get('/devices', (c) => c.json(deps.devices()));
   // 参加トークンは全セッションの読み書き権を持つ。ログには出さず、UI が押したときだけ取りに来る。
   api.get('/sync/joinToken', (c) => c.json({ token: deps.joinToken() }));
@@ -619,6 +698,15 @@ export function createApp(deps: AppDeps): Hono {
     // 他端末の最新を先に取り込む。間に合わなくても起動する（結果は見ない）。
     await beforeLaunch();
     return runResult(c, () => deps.runs.start(params), 201);
+  });
+  // ターミナルの包み方（~/.agent-hangar/shell/claude.zsh）からの起動。断ったら、包み方は素の claude を起動する。
+  api.post('/runs/terminal', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.terminal);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.terminal);
+    const req = decodeTerminalRequest(b.value);
+    if (!req) return c.json({ error: '本文の形が違います' }, 400);
+    await beforeLaunch();
+    return runResult(c, () => deps.runs.startFromTerminal(req), 201);
   });
   api.delete('/runs/:id', (c) => runResult(c, () => deps.runs.kill(c.req.param('id'))));
   // タブの追加と削除は本文を取らない。UI は content-type だけを付けた空の要求を送る。
@@ -729,7 +817,11 @@ export function createApp(deps: AppDeps): Hono {
     try { raw = JSON.parse(text); } catch { return c.json({ error: '本文が JSON ではありません' }, 400); }
     const r = deps.usage.ingest(raw);
     if (!r) return c.json({ error: 'statusline の payload の形が違います' }, 400);
-    if (r.usageChanged) deps.hub.broadcast({ type: 'usage.update', usage: r.usage });
+    if (r.usageChanged) {
+      // usage.update は最初のアカウントの値だけを運ぶ（古い画面がそのまま動くため）。ほかのアカウントは accounts.update で配る。
+      if (r.accountId === PRIMARY_ACCOUNT_ID) deps.hub.broadcast({ type: 'usage.update', usage: r.usage });
+      if (accountsDeps) accountsDeps.broadcast(buildAccountsDto(accountsDeps));
+    }
     if (r.providerSessionId) {
       const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(r.providerSessionId) as { id: string } | undefined;
       if (s) broadcastSession(s.id);
@@ -866,6 +958,50 @@ export function createApp(deps: AppDeps): Hono {
     deps.hub.broadcast({ type: 'session.upsert', session: s });
     return c.json(s);
   });
+  // セッションの状態（Paused・Done・Archived）と Claude の提案の確定・却下。どれも利用者の操作で、MCP からは呼べない。
+  // run に配る MCP の秘密は /api を開けない（authMiddleware は本体のトークンしか見ない）。
+  // 成功したら session.upsert を配る。画面の正はその配信である。
+  const NO_STATE_CANDIDATE = 'このセッションには確かめる提案がありません';
+  const liveSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id) !== undefined;
+  const stateResult = (c: Context, id: string, fn: () => { state: SessionStateDto; result?: string }) => {
+    try {
+      const r = fn();
+      if (r.result === 'not_candidate') return c.json({ error: NO_STATE_CANDIDATE }, 409);
+      broadcastSession(id);
+      return c.json({ state: r.state });
+    } catch (e) {
+      if (e instanceof StateInputError) return c.json({ error: e.message }, 400);
+      throw e;
+    }
+  };
+  const putSessionState = async (c: Context, id: string) => {
+    if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    const b = await readJson(c, BODY_LIMITS.todo);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
+    const body = (b.value ?? {}) as { status?: unknown; note?: unknown; returnOn?: unknown; returnTime?: unknown };
+    if (body.status !== null && !(typeof body.status === 'string' && SESSION_STATUSES.has(body.status))) return c.json({ error: '状態は paused、done、archived か、Active に戻す null です' }, 400);
+    if (body.note !== undefined && typeof body.note !== 'string') return c.json({ error: '理由は文字列です' }, 400);
+    if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
+    if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: '戻る時刻は HH:MM の形の文字列です' }, 400);
+    const status = body.status as SessionStatus | null;
+    return stateResult(c, id, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' }) }));
+  };
+  api.put('/sessions/:id/state', (c) => putSessionState(c, c.req.param('id')));
+  api.post('/sessions/:id/state/confirm', async (c) => {
+    const id = c.req.param('id');
+    if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    const body = (b.value ?? {}) as { returnOn?: unknown; returnTime?: unknown };
+    if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
+    if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: '戻る時刻は HH:MM の形の文字列です' }, 400);
+    return stateResult(c, id, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }));
+  });
+  api.post('/sessions/:id/state/reject', (c) => {
+    const id = c.req.param('id');
+    if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    return stateResult(c, id, () => rejectSessionState(db, deviceId, id));
+  });
   api.post('/sessions/:id/promote', async (c) => {
     const id = c.req.param('id');
     const b = await readJson(c, BODY_LIMITS.default);
@@ -903,7 +1039,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, hub: deps.hub, usage: () => deps.usage.current(), memos: deps.memos }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, hub: deps.hub, usage: () => deps.usage.current(), accounts: deps.accounts, memos: deps.memos }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);

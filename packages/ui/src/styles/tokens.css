@@ -1,8 +1,7 @@
 :root {
-  /* 光の背景。地の色と、その上をゆっくり漂う 2 つの淡い光。 */
+  /* 光の背景。地の色と、その左上に置く 1 つの淡い光。光は動かさない。 */
   --bg: #eef1f7;
   --aura-1: #cfe0ff;
-  --aura-2: #e5d6ff;
   /* 読む面。一覧、カード、会話は白で不透明にする。 */
   --surface: #ffffff;
   --surface-2: #f3f4f9;
@@ -39,10 +38,11 @@
   /* 浮くガラス。地の透け具合、ぼかし、縁、落ち影の値だけを持つ。
      backdrop-filter の指定そのものは、浮く部品の規則にだけ書く（glass.test.ts が見張る）。 */
   --glass-bg: rgba(255, 255, 255, 0.4);
-  --glass-bg-palette: rgba(255, 255, 255, 0.62);
-  --glass-bg-dialog: rgba(255, 255, 255, 0.72);
-  --glass-bg-toast: rgba(255, 255, 255, 0.82);
-  --glass-bg-menu: rgba(255, 255, 255, 0.82);
+  /* 開いて出るもの（パレット、ダイアログ、知らせ、メニュー）は、裏の文字や墨の端末が透けて中身が濁らない濃さにする。 */
+  --glass-bg-palette: rgba(255, 255, 255, 0.88);
+  --glass-bg-dialog: rgba(255, 255, 255, 0.9);
+  --glass-bg-toast: rgba(255, 255, 255, 0.95);
+  --glass-bg-menu: rgba(255, 255, 255, 0.94);
   --glass-blur: blur(12px) saturate(1.9);
   --glass-blur-strong: blur(18px) saturate(1.8);
   --glass-blur-dialog: blur(18px) saturate(1.6);
@@ -62,6 +62,7 @@
   --fs-lg: 20px;
   --row-h: 28px;
   --session-row-h: 56px;
+  --section-head-h: 32px;
   --hit: #fff3c4;
   --u: 4px;
   --r: 8px;
@@ -83,7 +84,6 @@
   /* ヘッダ（窓の上辺に付いた帯）の高さ。縦の中心 22px が信号の 3 点の中心と揃う（tokens.test.ts）。
      28px のボタンの上下に 8px ずつ空く。34px では 3px ずつしか空かず、帯が詰まって見えた。 */
   --header-h: 44px;
-  --aura-period: 24s;
   /* 動きのトークン。性格は「なめらか」で、すっと出て長く静かに止まる。
      長さは必ずこれを通して書き、CSS にも JS にも数値を直書きしない（styles/motion.test.ts が見張る）。
      JS からは views/primitives/motion.ts で読む。 */
@@ -97,6 +97,8 @@
   --blur-in: 6px;
   /* 端末の縁が、作業中にゆっくり明暗を往復する周期。 */
   --breathe-period: 3.2s;
+  /* 開いた直後の目次の仮の行を、淡い帯がゆっくり流れる周期。 */
+  --skel-period: 24s;
   /* 検索の結果から開いたとき、跳んだ行の地を淡い黄から薄れさせる長さ。 */
   --dur-flash: 1800ms;
 }

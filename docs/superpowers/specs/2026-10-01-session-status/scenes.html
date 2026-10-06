@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>場面で比べる：P0 と P3</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f6f7fb; --surface: #fff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff; --hitbg: #fff3c4;
+  --font: 'Inter', 'Hiragino Sans', sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 28px 70px; font: 13px/1.45 var(--font); color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+h1 { font-size: 20px; margin: 0 0 4px; } .lead { color: var(--ink-2); margin: 0 0 8px; max-width: 1150px; }
+.measure { display: inline-block; margin: 4px 0 18px; padding: 10px 14px; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); }
+.measure b { color: var(--ink); }
+.scene { margin: 0 0 26px; }
+.scene h2 { font-size: 15px; margin: 0 0 2px; } .scene .goal { color: var(--ink-2); margin: 0 0 10px; font-size: 12px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.opt { background: var(--surface); border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.opt-head { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.opt-head h3 { margin: 0; font-size: 13px; } .opt-head .score { margin-left: auto; font-size: 12px; color: var(--ink-2); }
+.opt-head .score b { font-size: 15px; color: var(--ink); }
+.opt-head .score.bad b { color: var(--waiting); } .opt-head .score.good b { color: var(--idle); }
+.row { display: grid; grid-template-columns: 22px 12px minmax(0,1fr) auto; gap: 8px; align-items: center; height: 48px; padding: 0 14px 0 6px; border-bottom: 1px solid var(--line); }
+.row.target { background: var(--hitbg); }
+.row .k { font-size: 10px; color: var(--ink-3); text-align: right; font-variant-numeric: tabular-nums; }
+.row .main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row .name { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .sub { font-size: 11.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 6px; align-items: center; }
+.row .side { font-size: 11px; color: var(--ink-3); display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ended); display: inline-block; }
+.dot.busy { background: var(--busy); } .dot.waiting { background: var(--waiting); }
+.live { font-size: 11px; font-weight: 600; } .live.busy { color: var(--busy); } .live.waiting { color: var(--waiting); }
+.sq { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600; }
+.sq[data-s=done] { color: var(--st-done); background: var(--st-done-soft); }
+.when { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 99px; font-size: 10.5px; font-weight: 600; color: var(--st-paused); box-shadow: inset 0 0 0 1px var(--st-paused); }
+.when.due { color: #fff; background: var(--st-paused); box-shadow: none; }
+.cand { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 99px; font-size: 11px; font-weight: 600; color: var(--cand); box-shadow: inset 0 0 0 1px var(--cand); }
+.sec { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px; font-size: 12px; font-weight: 650; color: var(--ink-2); border-bottom: 1px solid var(--line); background: #fafbfd; }
+.sec .n { font-weight: 400; color: var(--ink-3); } .sec .chev { margin-left: auto; color: var(--accent); font-weight: 500; }
+.foot { padding: 9px 14px; font-size: 12px; color: var(--ink-3); } .foot a { color: var(--accent); }
+.empty { padding: 30px 14px; text-align: center; color: var(--ink-3); font-size: 12px; }
+.def { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 0 0 22px; }
+.def div { background: var(--surface); border-radius: 12px; padding: 10px 14px; box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); font-size: 12px; }
+.def b { color: var(--ink); }
+.anim .row.flash { animation: fl 1.6s ease-out infinite alternate; }
+@keyframes fl { from { background: var(--cand-soft); } to { background: var(--surface); } }
+.gone { height: 48px; border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 14px; color: var(--ink-3); font-size: 12px; background: repeating-linear-gradient(45deg, #fafbfd, #fafbfd 6px, #f3f4f9 6px, #f3f4f9 12px); }
+</style>
+</head>
+<body>
+<h1>場面で比べる：P0（節なしの 1 本の流れ）と P3（節を出す）</h1>
+<p class="lead">見比べる手がかりを、見た目の好みではなく<b>目当ての行まで j を何回押すか</b>にしました。黄色の行が目当て、左の小さな数字がその行までの j の回数です（節の見出しは止まらずに飛ばします）。</p>
+<div class="measure">実測（この PC の索引、30 分以上あけた再開 86 回）：再開したセッションは、そのプロジェクトの新しい順で <b>1 番目が 69%</b>、<b>3 番目までが 89%</b>、6 番目までが 98% でした。</div>
+<div class="def">
+<div><b>P0（Fable の案）</b>：節を作りません。並びは 入力待ち → 実行中 → 当日と過ぎた Paused → 残り全部を新しい順（印なし・提案・先の Paused・Done を混ぜる）。Archived だけ末尾の 1 行から開きます。「Done を隠す」は切替として置き、既定は見せます。</div>
+<div><b>P3（私の案の手直し）</b>：中身があるときだけ節を出します。今日戻る → いま動いている → 続き → Done（畳む）。</div>
+</div>
+<div id="scenes"></div>
+<script>
+const R = (n, sub, t, o = {}) => ({ n, sub, t, ...o });
+const scenes = [
+  { h: '1. 導入した翌日', goal: '過去の 1,214 件をまとめて Done にした直後。目当ては昨日最後に触ったセッション。',
+    rows: [R('Worker の CPU 超過', '同期を枠 80% で止めて配備した', '18 時間前', { st: 'done', target: 1 }), R('NFD のフォルダ名', 'normalizeDir で直して push', '20 時間前', { st: 'done' }), R('レスポンシブの監査', '崩れを拾い直した', '1 日前', { st: 'done' }), R('UX 監査の残り 3 つ', 'ダイアログの裏でブラウザの戻る', '1 日前', { st: 'done' })] },
+  { h: '2. 平日の朝', goal: 'Active なし。今日戻る Paused が 1 件、先の Paused 2 件、印なし 2 件、昨日の Done。目当ては昨日最後に触った印なしの行（89% の場面）。',
+    rows: [R('Worker の同期の再開', '本番の CPU の数字を見て同期を戻す', '1 日前', { when: '今日', due: 1 }), R('Backspace で戻る動きを止める', '直したが手で確かめていない', '14 時間前', { target: 1 }), R('NFD のフォルダ名', 'normalizeDir で直して push', '15 時間前', { cand: 'Done にする？' }), R('レスポンシブの監査', '崩れを拾い直した', '16 時間前', { st: 'done' }), R('mizchi/explainer の続き', 'web 横断の上位候補を試す', '2 日前', { when: '来週' }), R('りんごとみかんの質問', '試しに聞いただけ', '2 日前'), R('保持期間の周知', '他の PC にも入れる', '3 日前', { when: '金曜' })] },
+  { h: '3. 作業中', goal: '2 本が動いている。目当ては 1 時間前に Done にしたばかりのセッションをもう一度開くこと。',
+    rows: [R('新規プロジェクトの UI', 'Finder での確認を待っている', '2 分前', { live: 'waiting' }), R('セッションの状態の協議', '試作を作っている', 'いま', { live: 'busy' }), R('UX 監査の残り 3 つ', 'ダイアログの裏でブラウザの戻る', '1 時間前', { st: 'done', target: 1 }), R('Backspace で戻る動きを止める', '直したが手で確かめていない', '2 時間前'), R('Worker の同期の再開', '本番の CPU の数字を見て同期を戻す', '1 日前', { when: '明日' }), R('レスポンシブの監査', '崩れを拾い直した', '1 日前', { st: 'done' })] },
+  { h: '4. 2 週間あけて戻った', goal: '挟んだ Paused 4 件がすべて期限切れ。目当ては 2 週間前に最後に触ったセッション（印なし）。',
+    rows: [R('Worker の同期の再開', '本番の CPU の数字を見て同期を戻す', '15 日前', { when: '12 日過ぎ', due: 1 }), R('mizchi/explainer の続き', 'web 横断の上位候補を試す', '16 日前', { when: '9 日過ぎ', due: 1 }), R('保持期間の周知', '他の PC にも入れる', '17 日前', { when: '10 日過ぎ', due: 1 }), R('新規プロジェクトの UI の確認', 'Finder で確かめる', '14 日前', { when: '13 日過ぎ', due: 1 }), R('セッションの状態の実装', '計画の 3 タスク目まで', '14 日前', { target: 1 }), R('NFD のフォルダ名', 'normalizeDir で直して push', '15 日前', { st: 'done' })] },
+];
+const side = (r) => (r.live ? `<span class="live ${r.live}">${r.live === 'busy' ? '実行中' : '入力待ち'}</span>` : '') + (r.cand ? `<span class="cand">${r.cand}</span>` : '') + (r.st === 'done' ? '<span class="sq" data-s="done">Done</span>' : '');
+const rowH = (r, k) => `<div class="row ${r.target ? 'target' : ''}"><span class="k">${k}</span><span class="dot ${r.live || ''}"></span><div class="main"><div class="name">${r.n}</div><div class="sub">${r.when ? `<span class="when ${r.due ? 'due' : ''}">${r.when}</span>` : ''}${r.sub}</div></div><div class="side">${side(r)}<span>${r.t}</span></div></div>`;
+function p0(rows) {
+  const lv = rows.filter((r) => r.live), due = rows.filter((r) => !r.live && r.due), rest = rows.filter((r) => !r.live && !r.due);
+  const list = [...lv, ...due, ...rest];
+  let k = 0, score = null;
+  const h = list.map((r) => { k++; if (r.target) score = k; return rowH(r, k); }).join('') + '<div class="foot">Archived 12 · <a>表示</a>　|　<a>Done を隠す</a></div>';
+  return { h, score };
+}
+function p3(rows) {
+  const due = rows.filter((r) => !r.live && r.due), lv = rows.filter((r) => r.live), cont = rows.filter((r) => !r.live && !r.due && r.st !== 'done'), done = rows.filter((r) => r.st === 'done' && !r.live);
+  let k = 0, score = null, h = '';
+  const put = (list) => list.map((r) => { k++; if (r.target) score = k; return rowH(r, k); }).join('');
+  if (due.length) h += `<div class="sec">今日戻る <span class="n">${due.length}</span></div>` + put(due);
+  if (lv.length) h += `<div class="sec">いま動いている <span class="n">${lv.length}</span></div>` + put(lv);
+  if (cont.length) h += `<div class="sec">続き <span class="n">${cont.length}</span></div>` + put(cont);
+  h += `<div class="sec">Done <span class="n">${done.length > 3 ? 1214 : done.length + 1200}</span><span class="chev">▸ 開く</span></div>`;
+  if (!cont.length && !lv.length && !due.length) h = '<div class="empty">印なしのセッションはありません</div>' + h;
+  if (score === null && done.some((r) => r.target)) score = '開く＋' + (done.findIndex((r) => r.target) + 1);
+  return { h, score };
+}
+document.getElementById('scenes').innerHTML = scenes.map((s) => {
+  const a = p0(s.rows), b = p3(s.rows);
+  const cls = (x, y) => typeof x === 'number' && (typeof y !== 'number' || x < y) ? 'good' : (typeof x === 'number' && x === y ? '' : 'bad');
+  return `<div class="scene"><h2>${s.h}</h2><p class="goal">${s.goal}</p><div class="pair"><div class="opt"><div class="opt-head"><h3>P0 節なし</h3><span class="score ${cls(a.score, b.score)}">目当てまで <b>j ${a.score}</b> 回</span></div>${a.h}</div><div class="opt"><div class="opt-head"><h3>P3 節を出す</h3><span class="score ${cls(b.score, a.score)}">目当てまで <b>${typeof b.score === 'number' ? 'j ' + b.score + ' 回' : b.score + ' 回'}</b></span></div>${b.h}</div></div></div>`;
+}).join('') + `<div class="scene anim"><h2>5. 「Done にする？」を確定した直後</h2><p class="goal">「NFD のフォルダ名」の提案を確定した瞬間に、行がどう動くか。</p><div class="pair"><div class="opt"><div class="opt-head"><h3>P0：札が変わり、行はその場に残る</h3></div>${rowH(R('Backspace で戻る動きを止める', '直したが手で確かめていない', '14 時間前'), 1)}<div class="row flash"><span class="k">2</span><span class="dot"></span><div class="main"><div class="name">NFD のフォルダ名</div><div class="sub">normalizeDir で直して push</div></div><div class="side"><span class="sq" data-s="done">Done</span><span>15 時間前</span></div></div>${rowH(R('レスポンシブの監査', '崩れを拾い直した', '16 時間前', { st: 'done' }), 3)}</div><div class="opt"><div class="opt-head"><h3>P3：行が畳んだ Done の中へ消える</h3></div><div class="sec">続き <span class="n">1</span></div>${rowH(R('Backspace で戻る動きを止める', '直したが手で確かめていない', '14 時間前'), 1)}<div class="gone">「NFD のフォルダ名」は Done へ移りました</div><div class="sec">Done <span class="n">1215</span><span class="chev">▸ 開く</span></div></div></div></div>`;
+</script>
+</body>
+</html>

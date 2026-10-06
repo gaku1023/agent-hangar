@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { LaunchParams, ProjectPlace } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { LaunchPrefs } from '../mediator/types.ts';
-import { SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
+import { accountChoice, SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
+import { AccountCards } from './AccountCards.tsx';
 import { isComposing } from './ime.ts';
 import { ChoiceChips } from './primitives/Chip.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
@@ -11,6 +12,8 @@ import { Icon } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import type { ListboxAction, ListboxOption } from './primitives/listboxModel.ts';
 import { CheckCard, OptionCards, type OptionCardItem } from './primitives/OptionCard.tsx';
+import { PromptComposer } from './primitives/PromptComposer.tsx';
+import { composePrompt, type Attachment } from './primitives/promptComposerModel.ts';
 import { Segmented } from './primitives/Segmented.tsx';
 
 // 値は claude --help の --model の別名、--effort と --permission-mode の選択肢に合わせる。
@@ -60,7 +63,9 @@ function optionParts(o: Options): string[] {
  * 欄はすべてここの状態で持つ。詳細の見出しに選んだ値を送信の前から出し、下書きを戻して消せるようにするためである。
  * スクラッチはプロジェクトの一覧の先頭の 1 行として選ぶ。props.scratch は開いたときにその行を選んでおくかどうかである。
  * 詳細の初期値は、選んだプロジェクトの前回値（props.prefs）にする（D1）。
- * 名前と初期プロンプトの書きかけは、閉じるときに下書きとして送り、次に開いたときに props.draft から戻す（C1）。
+ * 名前と初期プロンプトと添付の書きかけは、閉じるときに下書きとして送り、次に開いたときに props.draft から戻す（C1）。
+ * アカウントが 2 件以上あるときだけ、プロジェクトの下に「どのアカウントで起こすか」の札を出し、送るときに選んだ id を params.account に必ず入れる。
+ * 選んでもいまのアカウントは変えない（account.choose は出さない）。1 件以下のときは段も params.account も出さず、今までと変わらない。
  * 打鍵のたびには送らない。送るたびに画面全体を描き直すことになるからである。
  * プロジェクトが未選択のまま送っても止めない。未選択の判定は Mediator が持ち、失敗のメッセージが error として戻ってくる。
  */
@@ -85,8 +90,13 @@ export function NewSessionDialog(props: NewSessionProps) {
   const [extraDir, setExtraDir] = useState<string | null>(null);
   // 開いた時点の Finder の回数。これより新しい結果だけを使う。別のダイアログで選んだ結果が当たらないようにするためである。
   const pickedAtOpen = useRef(props.picked?.n ?? 0);
+  // @ の候補はプロジェクトのフォルダを探すので、スクラッチとパスの無いプロジェクトでは渡さない。/ の候補は自分のスキルだけになる。
+  const assistProject = scratch || !choice ? null : props.projects.find((p) => p.id === choice)?.path ? choice : null;
   const [name, setName] = useState(props.draft?.name ?? '');
   const [prompt, setPrompt] = useState(props.draft?.prompt ?? '');
+  const [attachments, setAttachments] = useState<Attachment[]>(props.draft?.attachments ?? []);
+  // 置き場へ送っている最中の添付の数。終わるまで起動させない（添付が抜けたまま起動しないため）。
+  const [uploading, setUploading] = useState(0);
   // 開いたときに下書きを戻したか。「消す」を押すまで見出しに札を出す。
   const [restored, setRestored] = useState(props.draft !== null);
   // 詳細の初期値は、選んだプロジェクトの前回値にする（D1）。
@@ -122,26 +132,51 @@ export function NewSessionDialog(props: NewSessionProps) {
   const resetDetail = () => { setTouched(true); setDetail(DEFAULT_OPTIONS); setReplaced((n) => n + 1); };
   const { model, effort, permissionMode, worktree, addDirs } = detail;
   const nameInput = useRef<HTMLInputElement>(null);
+  // アカウントは、利用者が選んだ id だけを覚える。選んでいなければ、いまのアカウント（選べなければ選べる最初の 1 件）。
+  // 選んだ id が一覧から消えたとき、選べなくなったときも、同じ規則でいまのアカウントへ戻る。
+  const [pickedAccount, setPickedAccount] = useState<string | null>(null);
+  const account = props.accounts ? accountChoice(props.accounts, pickedAccount) : null;
+  // 開いたときに 1 回、認証と使用量を読み直させる。
+  const hasAccounts = props.accounts !== null;
+  useEffect(() => { if (hasAccounts) emit({ type: 'accounts.load' }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 閉じるとき（どの経路で閉じても、ダイアログは外される）に、書きかけを下書きとして送る。
   // 起動を送った後に外されたときは、起動し終えたので送らない（Mediator が下書きを消す）。
-  const latest = useRef({ name, prompt, submitting: props.submitting, emit });
-  latest.current = { name, prompt, submitting: props.submitting, emit };
-  useEffect(() => () => {
-    const l = latest.current;
-    if (!l.submitting) l.emit({ type: 'session.new.draft', name: l.name, prompt: l.prompt });
+  const latest = useRef({ name, prompt, attachments, submitting: props.submitting, emit });
+  latest.current = { name, prompt, attachments, submitting: props.submitting, emit };
+  const gone = useRef(false);
+  useEffect(() => {
+    gone.current = false;
+    return () => {
+      gone.current = true;
+      const l = latest.current;
+      if (!l.submitting) l.emit({ type: 'session.new.draft', name: l.name, prompt: l.prompt, attachments: l.attachments });
+    };
   }, []);
+  // 送っている最中に閉じられても添付を失わない。外された後に送り終えたものは、Mediator の下書きへ添付だけを足す。
+  // 閉じるときの名前と本文で下書きを置き換えない。閉じた後に開き直して書いた下書きや、起動して消えた下書きを、古い中身で蘇らせたり上書きしたりするからである。
+  // 起動を送った後に外されたときは、Mediator が下書きを消すので送らない。
+  const changeAttachments = (next: Attachment[]) => {
+    setAttachments(next);
+    const l = latest.current;
+    const before = new Set(l.attachments.map((a) => a.path));
+    l.attachments = next;
+    // 外された後に着いた分だけを送る（全部ではない。閉じるときの下書きにすでに入っているものは足し直さない）。
+    const arrived = next.filter((a) => !before.has(a.path));
+    if (gone.current && !l.submitting && arrived.length) l.emit({ type: 'session.new.draft.attach', attachments: arrived });
+  };
 
   const discardDraft = () => {
     setName('');
     setPrompt('');
+    setAttachments([]);
     setRestored(false);
-    emit({ type: 'session.new.draft', name: '', prompt: '' });
+    emit({ type: 'session.new.draft', name: '', prompt: '', attachments: [] });
     nameInput.current?.focus();
   };
 
   const submit = () => {
-    if (props.submitting) return;
+    if (props.submitting || uploading > 0) return;
     setStaleError(null);
     const params: LaunchParams = {};
     let place: ProjectPlace | undefined;
@@ -151,8 +186,12 @@ export function NewSessionDialog(props: NewSessionProps) {
     else if (newDir) place = { kind: 'newDir', name: newName.trim(), gitInit };
     else if (dirPath) place = { kind: 'dir', path: dirPath };
     else if (choice) params.projectId = choice;
+    // 開いてから送るまでにいまのアカウントが変わっても、選んだとおりに起こすため、いまのアカウントと同じでも入れる。
+    if (account !== null) params.account = account;
     if (name.trim()) params.name = name.trim();
-    if (prompt.trim()) params.prompt = prompt.trim();
+    // 添付は、本文の後にパスを足して渡す。起動の API は変えない（promptComposerModel.ts の composePrompt）。
+    const text = composePrompt(prompt, attachments);
+    if (text) params.prompt = text;
     if (model.trim()) params.model = model.trim();
     if (effort) params.effort = effort;
     if (permissionMode) params.permissionMode = permissionMode;
@@ -235,8 +274,8 @@ export function NewSessionDialog(props: NewSessionProps) {
       footer={<>
         <button type="button" className="btn" onClick={close}>やめる</button>
         <span className="spacer" />
-        <button type="button" className="btn btn-primary" disabled={props.submitting} aria-keyshortcuts="Meta+Enter" onClick={submit}>
-          {props.submitting ? '起動しています' : <>起動<span className="kc" aria-hidden="true">⌘↵</span></>}
+        <button type="button" className="btn btn-primary" disabled={props.submitting || uploading > 0} aria-keyshortcuts="Meta+Enter" onClick={submit}>
+          {props.submitting ? '起動しています' : uploading > 0 ? '添付を送っています' : <>起動<span className="kc" aria-hidden="true">⌘↵</span></>}
         </button>
       </>}
     >
@@ -255,12 +294,20 @@ export function NewSessionDialog(props: NewSessionProps) {
         </>
       )}
       {dirPath && <div className="faint">{outside ? 'ワークスペースの外のフォルダです。この PC でのパスだけを覚えます。ほかの PC では、開いたときに場所を聞きます' : `${dirPath} はまだプロジェクトではありません。起動すると登録します`}</div>}
+      {props.accounts && account !== null && (
+        <div className="field">
+          <span aria-hidden="true">アカウント</span>
+          <AccountCards label="アカウント" value={account} options={props.accounts.list} onChange={setPickedAccount} />
+        </div>
+      )}
       <label className="field" htmlFor="new-session-name">名前（任意）
         <input ref={nameInput} id="new-session-name" className="input" data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder="一覧での表示名" />
       </label>
-      <label className="field" htmlFor="new-session-prompt">初期プロンプト（任意）
-        <textarea id="new-session-prompt" className="input" rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-      </label>
+      {/* 欄は箱（枠と道具の段）を持つので、label は欄の外に置く。 */}
+      <div className="field">
+        <label htmlFor="new-session-prompt">初期プロンプト（任意）</label>
+        <PromptComposer id="new-session-prompt" value={prompt} onChange={setPrompt} projectId={assistProject} attachments={attachments} onAttachmentsChange={changeAttachments} onPendingChange={setUploading} />
+      </div>
       <Fold summary={foldSummary}>
         <div className="launch-options">
           <span className="launch-option-label" aria-hidden="true">model</span>

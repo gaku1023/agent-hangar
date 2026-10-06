@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D1 の書き込み量</title>
+<style>
+:root {
+  --bg: #eef1f7; --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-hi: #6b8cff; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e; --error: #b3261e;
+  --st-paused: #8a5a0b; --st-paused-soft: #faefd9; --st-done: #2b7048; --st-done-soft: #e3f1e8;
+  --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --u: 4px; --r: 8px; --r-lg: 14px; --r-pill: 99px; --row-h: 28px;
+  --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 16px 64px; background: var(--bg); color: var(--ink); font: var(--fs) var(--font-sans); }
+.wrap { max-width: 1520px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.lead { color: var(--ink-2); margin: 0 0 20px; line-height: 1.6; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 16px; }
+.opt { border-radius: 18px; padding: 12px; background: rgba(255,255,255,0.45); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.8); cursor: pointer; transition: box-shadow 200ms; }
+.opt:hover { box-shadow: inset 0 0 0 2px var(--accent-hi); }
+.opt.selected { box-shadow: inset 0 0 0 3px var(--accent); background: var(--accent-soft); }
+.opt-h { display: flex; align-items: baseline; gap: 8px; margin: 2px 4px 10px; }
+.opt-h b { font-size: 14px; }
+.opt-h .letter { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700; }
+.opt-h span.d { color: var(--ink-2); font-size: var(--fs-sm); }
+section.s { padding: 12px 16px 16px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.h2 { font-size: var(--fs-md); font-weight: 650; margin: 0 0 8px; }
+.h3 { font-size: var(--fs-sm); font-weight: 650; margin: 12px 0 6px; color: var(--ink); }
+.mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+.muted { color: var(--ink-2); } .faint { color: var(--ink-3); }
+.meta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; font-size: var(--fs-sm); }
+.btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; height: var(--row-h); padding: 0 12px; border: 0; border-radius: var(--r-pill); font: 560 var(--fs) var(--font-sans); background: rgba(255,255,255,0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30,40,90,0.14); }
+.ghost { height: 18px; margin-top: 8px; border-radius: 6px; background: var(--surface-2); }
+.ghost.w60 { width: 60%; }
+.new { position: relative; margin: 10px -8px 0; padding: 8px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 4%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+.new::before { content: '新しく足す'; position: absolute; top: -8px; right: 8px; padding: 0 6px; border-radius: 99px; background: var(--accent); color: #fff; font-size: 10px; line-height: 16px; }
+/* 棒 */
+.meter { position: relative; height: 8px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--ink) 8%, transparent); overflow: visible; }
+.meter > i { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-pill); background: var(--accent); }
+.meter > i.proj { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--busy) 55%, transparent) 0 4px, color-mix(in srgb, var(--busy) 25%, transparent) 4px 8px); }
+.meter > .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--st-paused); }
+.meter.thin { height: 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; font-size: var(--fs-xs); color: var(--ink-2); }
+.legend .warn { color: var(--st-paused); font-weight: 600; }
+.lbl { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-sm); margin-bottom: 4px; }
+.lbl b { font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tile { padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.tile .k { font-size: var(--fs-xs); color: var(--ink-3); }
+.tile .v { font: 650 18px var(--font-mono); margin-top: 2px; }
+.tile .v small { font: 500 var(--fs-xs) var(--font-sans); color: var(--ink-2); margin-left: 4px; }
+.mini { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.mini th { text-align: left; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.mini td, .mini th { height: 22px; padding: 0 4px; }
+.mini .r { text-align: right; font-family: var(--font-mono); }
+.badge { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 99px; font-size: var(--fs-xs); font-weight: 560; }
+.badge.ok { color: var(--st-done); background: var(--st-done-soft); }
+.badge.warn { color: var(--st-paused); background: var(--st-paused-soft); }
+.donut-row { display: flex; gap: 14px; align-items: center; }
+.note { margin-top: 18px; padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,0.6); color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>D1 の書き込み量を、設定の「クラウド同期」の節にどう出すか</h1>
+  <p class="lead">数は例です：今日 23,480 行、止める線 80,000 行（無料枠 100,000 の 80%）、Workers の要求 4,120 回、いまは日本時間 15:48（枠が戻るのは 9:00）。<br>青い枠の中が新しく足すところです。気になる案を押してから、端末で返事をください（混ぜたい案があればそれも）。</p>
+
+  <div class="grid">
+
+    <!-- A -->
+    <div class="opt" data-choice="a" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">A</span><b>棒 1 本＋凡例</b><span class="d">保存期間の棒と同じ部品。止める線に目盛り</span></div>
+      <section class="s">
+        <div class="h2">クラウド同期</div>
+        <div class="mono muted">https://hangar.example.workers.dev</div>
+        <div class="meta faint"><span>状態 同期済み</span><span>最後の受信 2 分前</span><span>未送信 0 件</span></div>
+        <div class="new">
+          <div class="lbl"><span>今日の D1 書き込み</span><span class="mono">23,480 / 100,000 行</span></div>
+          <div class="meter"><i style="width:23.48%"></i><span class="tick" style="left:80%"></span></div>
+          <div class="legend"><span>23%</span><span>80% で同期を止めます</span><span>9:00 に 0 へ戻ります</span></div>
+        </div>
+        <div class="btns"><span class="btn">今すぐ同期</span><span class="btn">同期を一時停止</span><span class="btn">参加トークンを表示</span></div>
+        <div class="ghost"></div><div class="ghost w60"></div>
+      </section>
+    </div>
+
+    <!-- B -->
+    <div class="opt" data-choice="b" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">B</span><b>止まるまでの残り</b><span class="d">棒の右端を「止める線」にする</span></div>
+      <section class="s">
+        <div class="h2">クラウド同期</div>
+        <div class="mono muted">https://hangar.example.workers.dev</div>
+        <div class="meta faint"><span>状態 同期済み</span><span>最後の受信 2 分前</span><span>未送信 0 件</span></div>
+        <div class="new">
+          <div class="lbl"><span>止まるまで <b class="mono">あと 56,520 行</b></span><span class="faint" style="font-size:var(--fs-xs)">9:00 に戻ります</span></div>
+          <div class="meter"><i style="width:29.35%"></i></div>
+          <div class="legend"><span>今日 23,480 行</span><span>止める線 80,000 行（無料枠の 80%）</span></div>
+        </div>
+        <div class="btns"><span class="btn">今すぐ同期</span><span class="btn">同期を一時停止</span><span class="btn">参加トークンを表示</span></div>
+        <div class="ghost"></div><div class="ghost w60"></div>
+      </section>
+    </div>
+
+    <!-- C -->
+    <div class="opt" data-choice="c" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">C</span><b>棒 2 本</b><span class="d">D1 の書き込みと Workers の要求を並べる</span></div>
+      <section class="s">
+        <div class="h2">クラウド同期</div>
+        <div class="mono muted">https://hangar.example.workers.dev</div>
+        <div class="meta faint"><span>状態 同期済み</span><span>最後の受信 2 分前</span><span>未送信 0 件</span></div>
+        <div class="new">
+          <div class="lbl"><span>D1 の書き込み</span><span class="mono">23,480 行 · 23%</span></div>
+          <div class="meter thin"><i style="width:23.48%"></i><span class="tick" style="left:80%"></span></div>
+          <div class="lbl" style="margin-top:10px"><span>Workers の要求</span><span class="mono">4,120 回 · 4%</span></div>
+          <div class="meter thin"><i style="width:4.12%"></i><span class="tick" style="left:80%"></span></div>
+          <div class="legend"><span>どちらも 1 日 100,000 まで。80% で同期を止めます</span><span>9:00 に戻ります</span></div>
+        </div>
+        <div class="btns"><span class="btn">今すぐ同期</span><span class="btn">同期を一時停止</span><span class="btn">参加トークンを表示</span></div>
+        <div class="ghost w60"></div>
+      </section>
+    </div>
+
+    <!-- D -->
+    <div class="opt" data-choice="d" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">D</span><b>数字の札 3 枚</b><span class="d">棒を使わず、数を大きく読む</span></div>
+      <section class="s">
+        <div class="h2">クラウド同期</div>
+        <div class="mono muted">https://hangar.example.workers.dev</div>
+        <div class="meta faint"><span>状態 同期済み</span><span>最後の受信 2 分前</span><span>未送信 0 件</span></div>
+        <div class="new">
+          <div class="tiles">
+            <div class="tile"><div class="k">今日の D1 書き込み</div><div class="v">23%<small>23,480 行</small></div></div>
+            <div class="tile"><div class="k">Workers の要求</div><div class="v">4%<small>4,120 回</small></div></div>
+            <div class="tile"><div class="k">枠が戻るまで</div><div class="v">17:12<small>9:00</small></div></div>
+          </div>
+          <div class="legend"><span>どちらかが 80% に届くと同期を止めます</span></div>
+        </div>
+        <div class="btns"><span class="btn">今すぐ同期</span><span class="btn">同期を一時停止</span><span class="btn">参加トークンを表示</span></div>
+        <div class="ghost w60"></div>
+      </section>
+    </div>
+
+    <!-- E -->
+    <div class="opt" data-choice="e" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">E</span><b>状態の行に文字だけ</b><span class="d">いちばん控えめ。棒も新しい段も作らない</span></div>
+      <section class="s">
+        <div class="h2">クラウド同期</div>
+        <div class="mono muted">https://hangar.example.workers.dev</div>
+        <div class="new" style="margin-top:6px">
+          <div class="meta faint" style="margin-top:0"><span>状態 同期済み</span><span>最後の受信 2 分前</span><span>未送信 0 件</span><span style="color:var(--ink-2)">D1 書き込み 23%（80% で停止 · 9:00 に戻る）</span></div>
+        </div>
+        <div class="btns"><span class="btn">今すぐ同期</span><span class="btn">同期を一時停止</span><span class="btn">参加トークンを表示</span></div>
+        <div class="ghost"></div><div class="ghost w60"></div>
+      </section>
+    </div>
+
+    <!-- F -->
+    <div class="opt" data-choice="f" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">F</span><b>小見出し「無料枠」と小さな表</b><span class="d">数を全部、表で正確に読む</span></div>
+      <section class="s">
+        <div class="h2">クラウド同期</div>
+        <div class="mono muted">https://hangar.example.workers.dev</div>
+        <div class="meta faint"><span>状態 同期済み</span><span>最後の受信 2 分前</span><span>未送信 0 件</span></div>
+        <div class="btns"><span class="btn">今すぐ同期</span><span class="btn">同期を一時停止</span><span class="btn">参加トークンを表示</span></div>
+        <div class="new">
+          <div class="h3" style="margin-top:0">無料枠（今日 · 9:00 に戻る） <span class="badge ok" style="margin-left:6px">余裕あり</span></div>
+          <table class="mini">
+            <thead><tr><th></th><th class="r">今日</th><th class="r">止める線</th><th class="r">枠</th></tr></thead>
+            <tbody>
+              <tr><td>D1 の書き込み</td><td class="r">23,480 行</td><td class="r">80,000</td><td class="r">100,000</td></tr>
+              <tr><td>Workers の要求</td><td class="r">4,120 回</td><td class="r">80,000</td><td class="r">100,000</td></tr>
+            </tbody>
+          </table>
+          <div class="legend"><span>D1 の数は Worker の報告（全 PC の合計）です</span></div>
+        </div>
+        <div class="ghost w60"></div>
+      </section>
+    </div>
+
+    <!-- G -->
+    <div class="opt" data-choice="g" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">G</span><b>丸いゲージ</b><span class="d">ひと目で割合。文は右に</span></div>
+      <section class="s">
+        <div class="h2">クラウド同期</div>
+        <div class="mono muted">https://hangar.example.workers.dev</div>
+        <div class="meta faint"><span>状態 同期済み</span><span>最後の受信 2 分前</span><span>未送信 0 件</span></div>
+        <div class="new">
+          <div class="donut-row">
+            <svg width="64" height="64" viewBox="0 0 36 36" aria-hidden="true">
+              <circle cx="18" cy="18" r="15.9" fill="none" stroke="color-mix(in srgb, #1c1b2e 8%, transparent)" stroke-width="3.4"/>
+              <circle cx="18" cy="18" r="15.9" fill="none" stroke="#4a63e8" stroke-width="3.4" stroke-dasharray="23.48 100" stroke-linecap="round" transform="rotate(-90 18 18)" pathLength="100"/>
+              <line x1="18" y1="18" x2="18" y2="18" />
+              <circle cx="18" cy="18" r="15.9" fill="none" stroke="#8a5a0b" stroke-width="4.6" stroke-dasharray="0.8 99.2" stroke-dashoffset="-80" transform="rotate(-90 18 18)" pathLength="100"/>
+              <text x="18" y="20.5" text-anchor="middle" font-size="8" font-weight="700" fill="#1c1b2e" font-family="JetBrains Mono, Menlo, monospace">23%</text>
+            </svg>
+            <div>
+              <div style="font-weight:600">今日の D1 書き込み 23,480 行</div>
+              <div class="faint" style="font-size:var(--fs-sm);margin-top:2px">80%（80,000 行）で同期を止めます · 9:00 に戻ります</div>
+              <div class="faint" style="font-size:var(--fs-xs);margin-top:2px">Workers の要求 4,120 回（4%）</div>
+            </div>
+          </div>
+        </div>
+        <div class="btns"><span class="btn">今すぐ同期</span><span class="btn">同期を一時停止</span><span class="btn">参加トークンを表示</span></div>
+        <div class="ghost w60"></div>
+      </section>
+    </div>
+
+    <!-- H -->
+    <div class="opt" data-choice="h" onclick="toggleSelect(this)">
+      <div class="opt-h"><span class="letter">H</span><b>今日の終わりの見込み</b><span class="d">いまの速さで書き続けたら何 % で終わるかを斜線で重ねる</span></div>
+      <section class="s">
+        <div class="h2">クラウド同期</div>
+        <div class="mono muted">https://hangar.example.workers.dev</div>
+        <div class="meta faint"><span>状態 同期済み</span><span>最後の受信 2 分前</span><span>未送信 0 件</span></div>
+        <div class="new">
+          <div class="lbl"><span>今日の D1 書き込み</span><span class="mono">23,480 行 · 23%</span></div>
+          <div class="meter"><i class="proj" style="width:83%"></i><i style="width:23.48%"></i><span class="tick" style="left:80%"></span></div>
+          <div class="legend"><span>いま 23%</span><span class="warn">このままだと 9:00 までに 83%（止める線を越えます）</span><span>止める線 80%</span></div>
+        </div>
+        <div class="btns"><span class="btn">今すぐ同期</span><span class="btn">同期を一時停止</span><span class="btn">参加トークンを表示</span></div>
+        <div class="ghost w60"></div>
+      </section>
+    </div>
+
+  </div>
+
+  <div class="note">
+    どの案でも共通にするつもりのこと：<br>
+    ・PC が複数あって Worker の報告が取れていない日は、止める線が台数で割られて低くなります（2 台なら 40,000 行）。そのときは線をその位置に描き、「この PC の見積もり」と添えます。<br>
+    ・無料枠で止まった日は、棒の色を止まった色に変え、「無料枠で停止中。枠が戻ったら『同期を再開』で再開できます」と出します（この見た目は次の画面で、ヘッダーと一緒に案を出します）。<br>
+    ・H の見込みは、0 時（UTC）からの経過時間で割った単純な伸ばしです。朝のうちは当てにならないので、何時間か経つまでは出さない作りにします。
+  </div>
+</div>
+</body>
+</html>

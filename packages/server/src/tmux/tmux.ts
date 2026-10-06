@@ -3,6 +3,23 @@ import fs from 'node:fs';
 
 export type TmuxResult = { code: number; stdout: string; stderr: string; failed: boolean };
 
+/** tmux を起こす口。試験では差し替える。 */
+export type TmuxExec = (file: string, args: string[]) => { status: number | null; stdout: string; stderr: string; error?: Error };
+
+const realExec = (env: NodeJS.ProcessEnv | undefined): TmuxExec => (file, args) => {
+  const r = spawnSync(file, args, { encoding: 'utf8', windowsHide: true, env: env ? { ...process.env, ...env } : process.env });
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
+};
+
+/** 外の端末が拡張キーを送れることを tmux に知らせる terminal-features の項目。 */
+const EXTKEYS_FEATURE = 'xterm*:extkeys';
+
+/** マウスで選んだ範囲を渡すコマンド。tmux は copy-command をシェルで走らせるので、ロケールを前に置ける。 */
+const COPY_COMMAND = 'LC_CTYPE=UTF-8 pbcopy';
+
+/** hangar の run のセッション名（hangar-<id>）に当たる書式。シェルタブ（hangar-<id>-t<n>）は外れる。 */
+const RUN_SESSION_FORMAT = '#{m/r:^hangar-[0-9a-f]+$,#{session_name}}';
+
 /** tmux サーバがまだ起きていないときの list-sessions の言い分。これは「動いていない」であって失敗ではない。 */
 const NO_SERVER = /no server running/i;
 
@@ -15,11 +32,19 @@ export class Tmux {
   readonly tmuxPath: string;
   private readonly socketName: string | undefined;
   private readonly socketPath: string | undefined;
+  private readonly platform: NodeJS.Platform;
+  private readonly exec: TmuxExec;
 
-  constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string }) {
+  /**
+   * env は tmux を起こすときの環境に足す変数である。
+   * psmux は PSMUX_DATA_DIR で置き場ごと分けられるので、試験が利用者のセッションに触れないために使う。
+   */
+  constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string; platform?: NodeJS.Platform; exec?: TmuxExec; env?: NodeJS.ProcessEnv }) {
     this.tmuxPath = opts.tmuxPath;
     this.socketName = opts.socketName;
     this.socketPath = opts.socketPath;
+    this.platform = opts.platform ?? process.platform;
+    this.exec = opts.exec ?? realExec(opts.env);
   }
 
   args(...a: string[]): string[] {
@@ -33,15 +58,19 @@ export class Tmux {
    * spawnSync はこの場合も status を null にするだけなので、終了コードでは区別できない。
    */
   run(...a: string[]): TmuxResult {
-    const r = spawnSync(this.tmuxPath, this.args(...a), { encoding: 'utf8' });
-    return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '', failed: r.error != null };
+    const r = this.exec(this.tmuxPath, this.args(...a));
+    return { code: r.status ?? 1, stdout: r.stdout, stderr: r.stderr, failed: r.error != null };
   }
 
   /**
    * 切り離した状態でセッションを作る。command は `--` の後ろにそのまま並べる。
    * tmux は `-c` のディレクトリが無くても黙ってホームに落ちて成功するため、先に自分で確かめて投げる。
    */
-  newSession(opts: { name: string; cwd: string; command: string[]; width?: number; height?: number }): void {
+  /**
+   * env は新しいセッションの環境に足す変数である。
+   * tmux の新しいセッションは、起こしたプロセスではなくサーバの環境を継ぐので、シェルの変数を渡すにはここで -e を付ける。
+   */
+  newSession(opts: { name: string; cwd: string; command: string[]; width?: number; height?: number; env?: Record<string, string> }): void {
     if (!isDirectory(opts.cwd)) throw new Error(`tmux new-session failed: cwd not found: ${opts.cwd}`);
     const r = this.run(
       'new-session',
@@ -54,6 +83,7 @@ export class Tmux {
       String(opts.width ?? 120),
       '-y',
       String(opts.height ?? 40),
+      ...Object.entries(opts.env ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
       '--',
       ...opts.command,
     );
@@ -74,7 +104,7 @@ export class Tmux {
     const r = this.run('list-sessions', '-F', '#{session_name}');
     if (r.failed) return null;
     if (r.code !== 0) return NO_SERVER.test(r.stderr) ? [] : null;
-    return r.stdout.split('\n').filter(Boolean);
+    return r.stdout.split(/\r?\n/).filter(Boolean);
   }
 
   killSession(name: string): void {
@@ -100,13 +130,48 @@ export class Tmux {
     this.run('set-option', '-s', 'set-clipboard', 'on');
   }
 
+  /**
+   * 外の端末（iTerm2 など）からつなぐための設定を入れる。どれもサーバ全体の設定なので、利用者の値は覆さない。
+   * copy-command：iTerm2 は既定で OSC 52 の書き込みを許さないので、マウスで選んだ範囲を pbcopy で直接クリップボードへ渡す。
+   * pbcopy はロケールで文字コードを決める。tmux サーバの環境には LANG が無いことが多く、そのままでは日本語を写すとクリップボードが空になる。
+   * extended-keys と terminal-features：外の端末から Shift+Enter を区別して受ける。
+   * S-Enter：tmux は CSI u の Shift+Enter を素の CR に潰すので、hangar の run でだけ、Claude Code が改行と読む ESC CR に変える。
+   * シェルタブ（hangar-<id>-t<n>）と利用者自身のセッションには Shift+Enter のまま送る。
+   * サーバが動いていなければ何もしない。set-option だけではサーバを起こさない。
+   */
+  ensureTerminalOptions(): void {
+    // ここから下は、macOS の外の端末（iTerm2 など）から tmux へつなぐための調整である。
+    // Windows の psmux には入れない。pbcopy は無く、Shift+Enter は Windows Terminal からそのまま通る。
+    if (this.platform === 'win32') return;
+    const show = (key: string) => this.run('show-options', '-s', '-v', key);
+    const copy = show('copy-command');
+    if (copy.code !== 0) return;
+    const cur = copy.stdout.trim();
+    // 素の pbcopy は前の版が入れた値なので、hangar のものとして置き換える。
+    if ((cur === '' || cur === 'pbcopy') && this.platform === 'darwin') this.run('set-option', '-s', 'copy-command', COPY_COMMAND);
+    // extended-keys-format は tmux 3.5 から在る。3.4 までは invalid option で断られるので、在るときだけ入れる。
+    const modern = show('extended-keys-format').code === 0;
+    if (show('extended-keys').stdout.trim() === 'off') {
+      this.run('set-option', '-s', 'extended-keys', 'on');
+      if (modern) this.run('set-option', '-s', 'extended-keys-format', 'csi-u');
+    }
+    if (!show('terminal-features').stdout.includes(EXTKEYS_FEATURE)) this.run('set-option', '-as', 'terminal-features', EXTKEYS_FEATURE);
+    const bound = this.run('list-keys', '-T', 'root', 'S-Enter');
+    if (bound.code === 0 && bound.stdout.trim() !== '' && !bound.stdout.includes(RUN_SESSION_FORMAT)) return;
+    // 3.4 までの send-keys S-Enter は、中のプログラムが拡張キーを求めていないと「S-Enter」という文字をそのまま打ち込む
+    // （3.3a と 3.4 で実測。3.5 からは CR になる）。そこでは Enter を送る。
+    // 拡張キーを求めたプログラムにも Shift 抜きで届くが、文字が入るよりよい。
+    const passThrough = modern ? 'send-keys S-Enter' : 'send-keys Enter';
+    this.run('bind-key', '-n', 'S-Enter', 'if-shell', '-F', RUN_SESSION_FORMAT, 'send-keys Escape Enter', passThrough);
+  }
+
   sendKeys(name: string, ...keys: string[]): void {
     this.run('send-keys', '-t', `=${name}:`, ...keys);
   }
 
   /** ペインにいま見えている文字だけを返す。色や属性は落とす。 */
   capturePane(name: string): string {
-    return this.run('capture-pane', '-p', '-t', `=${name}:`).stdout;
+    return this.run('capture-pane', '-p', '-t', `=${name}:`).stdout.replace(/\r\n/g, '\n');
   }
 
   /**
@@ -118,7 +183,12 @@ export class Tmux {
     return this.args('attach', '-t', `=${name}`);
   }
 
+  /**
+   * サーバごと落とす。試験の後始末にだけ使う。
+   * Windows の psmux では呼ばない。psmux の kill-server は名前空間を越えて全部のセッションを落とすからである。
+   */
   killServer(): void {
+    if (this.platform === 'win32') throw new Error('kill-server は Windows では呼ばない。kill-session で名指しして止める');
     this.run('kill-server');
   }
 }

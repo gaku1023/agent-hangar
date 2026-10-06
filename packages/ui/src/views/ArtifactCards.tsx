@@ -11,7 +11,8 @@ export function ArtifactCards(props: { projectId: string | null; artifacts: Arti
   const add = () => { if (!url.trim() || !props.projectId) return; emit({ type: 'artifact.add', projectId: props.projectId, url }); setUrl(''); };
   return (
     <div className="artifacts">
-      {props.artifacts.length === 0 && <div className="faint">アーティファクトはまだありません</div>}
+      {/* 足す欄があるときは、空であることを別の行で言わない。 */}
+      {props.artifacts.length === 0 && !(props.canAdd && props.projectId) && <div className="faint">アーティファクトはまだありません</div>}
       {props.artifacts.map((a) => (
         <div key={a.id} className="card artifact" role="link" tabIndex={0} onClick={() => emit({ type: 'artifact.open', id: a.id })} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'artifact.open', id: a.id }); }}>
           <div className="artifact-head">

@@ -38,6 +38,8 @@ describe('一覧と絞り込み', () => {
   });
   it('セッションの絞り込みは、入り切らなければ次の行へ送る', () => {
     expect(body(read('rows.css'), '.sessions-filters')).toMatch(/flex-wrap: wrap;/);
+    // 900px の窓では 7 つのタブ（「Done 1,221」など）が 1 行に収まらない。
+    expect(body(read('rows.css'), '.sessions-tabs')).toMatch(/flex-wrap: wrap;/);
   });
   it('一覧の画面も、一覧が窓の下端までの残りを受け取る', () => {
     expect(body(base, '.screen-fill > .rows-host, .project-main > .rows-host')).toMatch(/flex: 1 1 0;/);
@@ -59,13 +61,14 @@ describe('右ペインと会話の行', () => {
     expect(b).not.toMatch(/flex: none;/);
     expect(b).toMatch(/text-overflow: ellipsis;/);
   });
-  it('「いま」の上段は、境目の比率（--live-split）を高さの上限にする', () => {
-    expect(body(base, '.live-top')).toMatch(/max-height: calc\(var\(--live-split, 0\.5\) \* 100%\);/);
+  it('「いま」の上段は、境目の比率（--live-split）を高さそのもの（flex-basis）にする', () => {
+    expect(body(base, '.live-top')).toMatch(/flex: 0 1 calc\(var\(--live-split, 0\.5\) \* 100%\);/);
     expect(body(base, '.live-divider')).toMatch(/cursor: row-resize;/);
   });
   it('窓が低いときは「いま」の上段が縮んでスクロールし、目次を押し出さない', () => {
     const b = body(base, '.live-top');
-    expect(b).toMatch(/min-height: 0;/);
+    // 下限は見出しの 1 行ぶん。0 ではないが、flex-shrink が 1 なので窓が低ければ縮む。
+    expect(b).toMatch(/min-height: calc\(var\(--row-h\)/);
     expect(b).toMatch(/overflow-y: auto;/);
     expect(b).not.toMatch(/flex: none;/);
   });

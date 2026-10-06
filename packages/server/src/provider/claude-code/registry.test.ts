@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copyFixtureClaudeDir, FIXTURE_CLAUDE_DIR, SESSION_ALPHA } from '../../../test/fixtures.ts';
-import { readRegistry, RegistryWatcher } from './registry.ts';
+import { goneOn, readRegistry, RegistryWatcher } from './registry.ts';
+
+/** 見本の登録の pid は実在しない。Windows の既定は動いていない pid の項目を読まないので、試験では全部読ませる。 */
+const ALL_ALIVE = (): boolean => false;
 
 describe('readRegistry', () => {
   it('json だけを読み、3 値の status と名前を返す', () => {
@@ -42,7 +45,7 @@ describe('RegistryWatcher', () => {
     const sessions = path.join(dir, 'sessions');
     fs.rmSync(path.join(sessions, '12345.json'));
     fs.chmodSync(sessions, 0o000);
-    const w = new RegistryWatcher(dir, 500);
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE);
     const seen: unknown[] = [];
     w.onChange((l) => seen.push(l));
     try {
@@ -60,7 +63,7 @@ describe('RegistryWatcher', () => {
   });
 
   it('変化したときだけ通知する', () => {
-    const w = new RegistryWatcher(dir, 500);
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE);
     const seen: unknown[] = [];
     w.onChange((l) => seen.push(l));
     w.start();
@@ -78,5 +81,32 @@ describe('RegistryWatcher', () => {
     expect(seen).toHaveLength(2);
     expect(seen[1]).toEqual([]);
     w.stop();
+  });
+});
+
+// Windows では claude を穏やかに止める手段が無く、止めた claude は自分の登録を消せない。
+// 残った登録を「動いている」と読むと、引き取りも再開も「hangar の外で動いている」と断ってしまう。
+describe('readRegistry（消えたプロセスの登録）', () => {
+  it('isGone が真を返す pid の項目は読まない。既定では全部読む', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const sessions = path.join(dir, 'sessions');
+      fs.rmSync(path.join(sessions, '12345.json'));
+      fs.writeFileSync(path.join(sessions, '7.json'), JSON.stringify({ pid: 7, sessionId: 'u-dead', cwd: '/x', status: 'idle' }));
+      fs.writeFileSync(path.join(sessions, '8.json'), JSON.stringify({ pid: 8, sessionId: 'u-alive', cwd: '/y', status: 'idle' }));
+      expect(readRegistry(dir).map((l) => l.sessionId)).toEqual(['u-alive', 'u-dead']);
+      expect(readRegistry(dir, (pid) => pid === 7).map((l) => l.sessionId)).toEqual(['u-alive']);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it('Windows では、動いていない pid を消えたと見る。ほかの OS では見ない', () => {
+    // 動いている pid（この試験のプロセス）と、動いていない pid。
+    expect(goneOn('win32')(process.pid)).toBe(false);
+    expect(goneOn('win32')(2 ** 30)).toBe(true);
+    expect(goneOn('darwin')(2 ** 30)).toBe(false);
+    expect(goneOn('linux')(2 ** 30)).toBe(false);
+    // pid が読めなかった項目（0）は、消えたとは決めない。
+    expect(goneOn('win32')(0)).toBe(false);
   });
 });

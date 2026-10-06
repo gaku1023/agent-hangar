@@ -19,11 +19,11 @@ export function SyncStatus(props: SyncProps) {
   const skippedText = `送れなかった本文 ${props.skipped}`;
   const counts = [props.pending > 0 ? pendingText : null, props.sweepPending > 0 ? sweepText : null, props.skipped > 0 ? skippedText : null].filter((t) => t !== null);
   return (
-    <span className="sync" data-state={props.state}>
+    <span className="sync" data-state={props.state} data-reason={props.reason ?? undefined} data-quota-back={props.quotaBack ? '' : undefined}>
       {/* 状態の点はリンクの中に置く。狭いヘッダで文を畳んでも点は残り、押せば設定を開く。
           設定には「今すぐ同期」と「同期を一時停止」もあるので、畳んだ操作への道にもなる。
           文は幅が足りないと省略記号に切り詰まり、件数は畳むので、全文と件数は title から読めるようにする。 */}
-      <a className={props.state === 'error' ? 'mono sync-label sync-error' : 'mono sync-label faint'} href={formatRoute(SETTINGS)} title={`${[props.label, ...counts].join('、')}（押すと同期の設定を開く）`} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: SETTINGS }); }}>
+      <a className={props.state === 'error' || (props.reason === 'quota' && !props.quotaBack) ? 'mono sync-label sync-error' : props.quotaBack ? 'mono sync-label sync-warn' : 'mono sync-label faint'} href={formatRoute(SETTINGS)} title={`${[props.label, ...counts].join('、')}（押すと同期の設定を開く）`} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: SETTINGS }); }}>
         <span className="sync-dot" aria-hidden="true" />
         <span className="sync-label-text" data-fold-at={foldAt('sync-label')}>{props.label}</span>
       </a>

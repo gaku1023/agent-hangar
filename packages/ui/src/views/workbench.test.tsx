@@ -10,11 +10,12 @@ import { MemoEditor } from './MemoEditor.tsx';
 import { ProjectCard } from './ProjectCard.tsx';
 import { ProjectScreen } from './ProjectScreen.tsx';
 import { TodoList } from './TodoList.tsx';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { RollingNumber } from './primitives/RollingNumber.tsx';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
 
 const art = (id: string, over: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: '題名 ' + id, description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/' + id, lastPublished: '1 分前', versionCount: 2, canOpenEditor: false, ...over });
-const card = (over: Partial<ProjectCardProps> = {}): ProjectCardProps => ({ id: 'p1', name: 'alpha', path: '/w/alpha', resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 0, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'セッションはまだありません', excerptFromPrompt: false, ...over });
+const card = (over: Partial<ProjectCardProps> = {}): ProjectCardProps => ({ id: 'p1', name: 'alpha', path: '/w/alpha', pathLabel: null, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 0, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'セッションはまだありません', excerptFromPrompt: false, ...over });
 const wrap = (node: ReactNode, onIntent = vi.fn()) => { render(<IntentRoot onIntent={onIntent}>{node}</IntentRoot>); return onIntent; };
 
 describe('UsageGauge', () => {
@@ -33,8 +34,9 @@ describe('UsageGauge', () => {
 });
 
 describe('RollingNumber', () => {
-  it('値が変わると古い値を添えて回し、150 ミリ秒で片付ける', () => {
+  it('値が変わると古い値を添えて回し、--dur の長さで片付ける', () => {
     vi.useFakeTimers();
+    const restore = fakeMotionTokens();
     try {
       const { container, rerender } = render(<RollingNumber value={10} suffix="%" />);
       expect(container.querySelector('.roll-old')).toBeNull();
@@ -42,20 +44,27 @@ describe('RollingNumber', () => {
       expect(container.querySelector('.roll')?.getAttribute('data-rolling')).toBe('true');
       expect(container.querySelector('.roll-old')?.textContent).toBe('10%');
       expect(container.querySelector('.roll-new')?.textContent).toBe('20%');
-      act(() => { vi.advanceTimersByTime(150); });
+      act(() => { vi.advanceTimersByTime(420); });
       expect(container.querySelector('.roll-old')).toBeNull();
     } finally {
+      restore();
       vi.useRealTimers();
     }
+  });
+  it('動かない環境（長さ 0）では回さず、すぐ新しい値だけにする', () => {
+    const { container, rerender } = render(<RollingNumber value={10} suffix="%" />);
+    rerender(<RollingNumber value={20} suffix="%" />);
+    expect(container.querySelector('.roll-old')).toBeNull();
+    expect(container.querySelector('.roll-new')?.textContent).toBe('20%');
   });
 });
 
 // 同期を設定していない端末のヘッダー。フェーズ 3 のゲージの検査はこの形のままである。
-const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false };
+const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null, quotaBack: false };
 
 describe('Header', () => {
   it('2 つのゲージと最終更新を出す', () => {
-    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00', updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header account={null} newSession={{}} indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00', updatedLabel: '10 分前' }} sync={noSync} /></IntentRoot>);
     expect(screen.getByRole('meter', { name: '5 時間枠の使用率' })).toBeTruthy();
     expect(screen.getByRole('meter', { name: '週の枠の使用率' })).toBeTruthy();
     // 何の割合かが画面から読めるよう、見出しを常に出す。
@@ -69,8 +78,8 @@ describe('Header', () => {
   // 幅が狭いと、同期のボタンと錠剤の文字と新規セッションの文字を畳む（headerFold.ts が測って畳む）。畳んでも同じ操作ができる。
   it('畳んだときの逃げ道。同期の文は設定へ、虫眼鏡はパレットへ、新規セッションは名前を残す', () => {
     const onIntent = vi.fn();
-    const sync = { visible: true, state: 'idle' as const, label: '同期済み · 3 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false };
-    render(<IntentRoot onIntent={onIntent}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
+    const sync = { visible: true, state: 'idle' as const, label: '同期済み · 3 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null, quotaBack: false };
+    render(<IntentRoot onIntent={onIntent}><Header account={null} newSession={{}} indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
     fireEvent.click(screen.getByRole('link', { name: '同期済み · 3 分前' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
     fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
@@ -79,11 +88,18 @@ describe('Header', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
   });
   it('最終更新が無ければ添えない', () => {
-    render(<IntentRoot onIntent={() => {}}><Header newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Header account={null} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
     expect(screen.queryByText(/最終更新/)).toBeNull();
-    expect(screen.getAllByText('未取得')).toHaveLength(2);
+    expect(screen.getAllByText('未取得')).toHaveLength(1);
     // 戻る時刻が届いていなければ、title に時刻を添えない。
     expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間枠の使用率 未取得');
+  });
+  it('使用率が一度も届いていない間は、空の棒を並べず 1 語にまとめ、押すと設定へ行く', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><Header account={null} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></IntentRoot>);
+    expect(screen.queryByRole('meter')).toBeNull();
+    fireEvent.click(screen.getByRole('link', { name: '使用率 未取得' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
   });
 });
 
@@ -129,6 +145,12 @@ describe('TodoList', () => {
     const onIntent = wrap(<TodoList projectId="p1" todos={[]} />);
     fireEvent.keyDown(screen.getByLabelText('TODO を追加'), { key: 'Enter' });
     expect(onIntent).not.toHaveBeenCalled();
+    // 足す欄があるときは、空であることを欄の薄い字が言う。別の行では言わない。
+    expect(screen.getByPlaceholderText('TODO はまだありません')).toBeTruthy();
+    expect(screen.queryByText('TODO はまだありません')).toBeNull();
+  });
+  it('足す欄の無い場所では、空であることを行で書く', () => {
+    wrap(<TodoList projectId="p1" todos={[]} canAdd={false} />);
     expect(screen.getByText('TODO はまだありません')).toBeTruthy();
   });
   it('同じ文言の TODO が並んでもラベルが重ならない', () => {
@@ -144,6 +166,27 @@ describe('TodoList', () => {
     fireEvent.change(input, { target: { value: 'かう' } });
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
     expect(onIntent).not.toHaveBeenCalled();
+  });
+});
+
+describe('MemoEditor の空の状態', () => {
+  it('空のメモは 1 行に畳み、押すと欄が開く', () => {
+    wrap(<MemoEditor projectId="p1" markdown="" updatedAt={0} />);
+    expect(screen.queryByLabelText('メモ')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'メモを書く' }));
+    expect(screen.getByLabelText('メモ')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+  });
+  it('書き始めたあと空に戻しても、欄は開いたままにする', () => {
+    wrap(<MemoEditor projectId="p1" markdown="" updatedAt={0} />);
+    fireEvent.click(screen.getByRole('button', { name: 'メモを書く' }));
+    fireEvent.change(screen.getByLabelText('メモ'), { target: { value: 'a' } });
+    fireEvent.change(screen.getByLabelText('メモ'), { target: { value: '' } });
+    expect(screen.getByLabelText('メモ')).toBeInTheDocument();
+  });
+  it('中身のあるメモは最初から開いている', () => {
+    wrap(<MemoEditor projectId="p1" markdown="# a" updatedAt={1} />);
+    expect(screen.getByLabelText('メモ')).toHaveValue('# a');
   });
 });
 
@@ -210,7 +253,7 @@ describe('ArtifactCards', () => {
 });
 
 describe('ProjectScreen の右レール', () => {
-  const props = { id: 'p1', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' as const } }, path: '/w/alpha', resolved: true, status: 'active' as const, sessions: [], notFound: false, isScratch: false, todos: [{ id: 't1', text: '買う', done: false, candidate: null }], memo: { markdown: '# a', updatedAt: 1 }, artifacts: [art('a1')] };
+  const props = { id: 'p1', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' as const } }, path: '/w/alpha', resolved: true, status: 'active' as const, items: [], pager: null, notFound: false, isScratch: false, todos: [{ id: 't1', text: '買う', done: false, candidate: null }], memo: { markdown: '# a', updatedAt: 1 }, artifacts: [art('a1')] };
   it('TODO とメモとアーティファクトを並べ、折りたためる', () => {
     wrap(<ProjectScreen {...props} />);
     expect(screen.getByLabelText('TODO を追加')).toBeTruthy();

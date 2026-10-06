@@ -1,9 +1,9 @@
 import type { LiveStatus, RunKind, SessionDto, SessionSummaryDto, StepCell, TranscriptEvent } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
-import { aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasRunOf, outsideOpenOf, tabsOf, todosOf, type Store } from '../store/store.ts';
+import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, todosOf, type Store } from '../store/store.ts';
 import { DEFAULT_DAYS, daysLabel, EXTEND_TO, transcriptMark } from './retention.ts';
-import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
+import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, STATUS_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { presentArtifactCard, presentTodoCandidate, type ArtifactCardProps, type TodoItemProps } from './project.ts';
 import { presentTool, relPath, type ToolView } from './tools.ts';
@@ -37,7 +37,7 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   /** 保持期間で本文が消えたとみられる会話の注記。そうでなければ null。 */
   gone: { note: string; canExtend: boolean; extendTo: number } | null;
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
-  turnRows: TurnRowProps[]; turnsComplete: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null;
+  turnRows: TurnRowProps[]; turnsComplete: boolean; turnsPending: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null;
   /** 本文の中の検索（⌘F）。閉じていれば null。 */
   find: TranscriptFind | null;
   /** 検索の結果から開いたときの跳び先。 */
@@ -46,6 +46,11 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   hasNewer: boolean;
   /** 実行中の右ペイン。終わった run では null。 */
   livePane: LivePaneProps | null;
+  /**
+   * そのセッションを最後に動かしたアカウントの札（名前と色）。
+   * アカウントが 2 件以上あるときだけ出し、1 件以下なら null で、情報の行に何も足さない。
+   */
+  account: { name: string; color: string } | null;
   /**
    * 見出しの行の操作（A1）。
    * 主の操作 1 つと「…」のメニュー。
@@ -70,7 +75,20 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
    */
   transcriptBand: { when: string } | null;
   /** 右の欄の「いま」の段が取る高さの上限（割合）。 */
-  livePaneSplit: number };
+  livePaneSplit: number;
+  /** 区切り（Paused・Done・Archived）を付けたので hangar が Claude を止めた、という知らせ。情報の行の「終了」の代わりに出す。そうでなければ null。 */
+  stoppedNote: string | null };
+
+/**
+ * 区切りを付けたので止めた、という知らせの文。端末が急に閉じた訳が分かるようにする。
+ * 印が外れるか、新しい run を起こすと、サーバが stoppedByStatus を偽に戻す。
+ * 動いている間は出さない。バックグラウンドの本体が止まり切る前に、動きの語と食い違わせないためである。
+ */
+function stoppedNoteOf(s: SessionDto): string | null {
+  const status = s.state?.status ?? null;
+  if (!s.stoppedByStatus || status === null || s.live !== null) return null;
+  return `${STATUS_LABEL[status]} にしたので止めました。再開で続けられます`;
+}
 
 export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'stop';
 /**
@@ -268,7 +286,7 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, openTurnItems: [], turnJump: null, livePane: null, livePaneSplit: state.livePaneSplit, gone: null, find: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null };
+  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, account: null, livePaneSplit: state.livePaneSplit, gone: null, find: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, stoppedNote: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -334,15 +352,16 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const transcriptBand = tj && aliveRun && tj.runId === aliveRun.id && (tj.status === 'found' || tj.status === 'notFound') ? { when: (turnRows.find((r) => r.seq === tj.seq)?.when ?? '').slice(0, 5) } : null;
   // splitTab が閉じたタブを指していることがあるので、左と違う最初のタブに落とす。
   const right = view.split && canSplit && selectedTab ? open.find((t) => t.id === view.splitTab && t.id !== selectedTab) ?? open.find((t) => t.id !== selectedTab) ?? null : null;
+  const sessionAccount = hasMultipleAccounts(store) ? accountOfSession(store, id) : null;
   const props: SessionProps = {
-    ...base, name: s.name ?? '（名前なし）', live: s.live, cwd: s.cwd, projectName: project?.name ?? null, projectId: s.projectId,
+    ...base, account: sessionAccount ? { name: sessionAccount.name, color: sessionAccount.color } : null, name: s.name ?? '（名前なし）', live: s.live, cwd: s.cwd, projectName: project?.name ?? null, projectId: s.projectId,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。
     parent: project ? { label: project.name, route: { name: 'project', id: project.id } } : null,
     summary: s.summary ? { ...s.summary, sourceLabel: SOURCE_LABEL[s.summary.source], stateLabel: STATE_LABEL[s.summary.state], summarizerLabel: summarizerLabel(s.summary.sourceId, s.summary.sourceModel), generatedAt: absoluteTime(s.summary.updatedAt) } : null,
     model: shortModel(s.stats.model), effort: s.stats.effort ?? '', turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), prUrl: s.stats.prUrl, memo: s.memo,
     started: relativeTime(s.startedAt, now), lastActivity: relativeTime(s.lastActivityAt, now), hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length && !slice.olderDone : false, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
-    turnRows, turnsComplete: complete, openTurnItems, turnJump: view.turnJump, livePane, livePaneSplit: state.livePaneSplit,
+    turnRows, turnsComplete: complete, turnsPending: s.hasTranscript && (!slice || (slice.loading && slice.items.length === 0)), openTurnItems, turnJump: view.turnJump, livePane, livePaneSplit: state.livePaneSplit,
     // 検索は描く行（思考と生の記録の切り替えを通した後）の中で数える。
     find: view.find ? { ...view.find, ...findIn(items, view.find) } : null, jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(run.startedAt, now) } : null,
@@ -364,7 +383,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     // 本文が消えた会話では、残っている要約を最初から開いて見せる。
     gone, summaryOpen: gone ? true : view.summaryOpen,
-    changedFiles, changedMore, changedNote, transcriptBand,
+    changedFiles, changedMore, changedNote, transcriptBand, stoppedNote: stoppedNoteOf(s),
     todos: s.projectId ? todosOf(store, s.projectId).map((t) => ({ id: t.id, text: t.text, done: t.done, candidate: presentTodoCandidate(t, store, now) })) : [],
   };
   return { ...props, actions: sessionActions(props) };

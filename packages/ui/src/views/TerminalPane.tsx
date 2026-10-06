@@ -1,8 +1,10 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { LiveStatus } from '@agent-hangar/shared';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { Icon } from './primitives/Icon.tsx';
-import { LAYOUT_SETTLED, MOVING_ATTR } from './primitives/sidebarMotion.ts';
+import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED, beginLayoutMotion, endLayoutMotion } from './primitives/layoutMotion.ts';
+import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
+import { usePresence } from './primitives/usePresence.ts';
 
 export const TerminalHostContext = createContext<TerminalHost | null>(null);
 
@@ -32,16 +34,49 @@ function useSecondsUntil(at: number | null): number | null {
 export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null }) {
   const host = useContext(TerminalHostContext);
   const ref = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
+  // 帯の高さが変わる間は端末の寸法を合わせない（設計書 ⑧）。
+  const withLayout = (run: () => Promise<void>) => {
+    const p = paneRef.current;
+    if (!p || !motionOn(p)) return null;
+    beginLayoutMotion(p);
+    return run().then(() => endLayoutMotion(p));
+  };
+  // 出る間も中身を読めるように、最後に出していた中身を控えておく。
+  const lastHint = useRef(props.hint);
+  if (props.hint) lastHint.current = props.hint;
+  const hint = usePresence<HTMLDivElement>(props.hint !== null, (el) => withLayout(() => collapseOut(el)));
+  const lastBand = useRef(props.transcript ?? null);
+  if (props.transcript) lastBand.current = props.transcript;
+  const band = usePresence<HTMLDivElement>(!!props.transcript, (el) => withLayout(() => collapseOut(el)));
+  // 入るときは伸ばして、下の端末の面を押し下げる。最初の描画では動かさない。
+  const shown = useRef({ hint: props.hint !== null, band: !!props.transcript });
+  useLayoutEffect(() => {
+    const p = paneRef.current;
+    const grow = (el: HTMLElement | null) => {
+      if (!el || !p) return;
+      const a = growIn(el);
+      if (!a) return;
+      beginLayoutMotion(p);
+      a.finished.then(() => endLayoutMotion(p), () => endLayoutMotion(p));
+    };
+    if (props.hint !== null && !shown.current.hint) grow(hint.ref.current);
+    if (props.transcript && !shown.current.band) grow(band.ref.current);
+    shown.current = { hint: props.hint !== null, band: !!props.transcript };
+    // 入る向きの変わり目だけで動かすので、依存は有無だけにする。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.hint !== null, !!props.transcript]);
   useEffect(() => {
     const el = ref.current;
     if (!host || !el) return;
     host.mount(props.tabId, el);
-    // サイドバーの開閉の間は本文の幅が毎コマ変わる。合わせ直すたびに寸法をサーバへ送るので、止まってから一度だけ合わせる。
-    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { if (!el.closest(`[${MOVING_ATTR}]`)) host.fit(props.tabId); });
+    // 左右の欄や案内の帯が動いている間は本文の幅や高さが毎コマ変わる。合わせ直すたびに寸法をサーバへ送るので、止まってから一度だけ合わせる。
+    // 止まった知らせは、どの箱の動きが止まっても届く。ほかの外側の箱がまだ動いているなら、それが止まるまで待つ。
+    const fitIfStill = () => { if (!el.closest(`[${LAYOUT_MOVING_ATTR}]`)) host.fit(props.tabId); };
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fitIfStill);
     ro?.observe(el);
-    const settled = () => host.fit(props.tabId);
-    window.addEventListener(LAYOUT_SETTLED, settled);
-    return () => { ro?.disconnect(); window.removeEventListener(LAYOUT_SETTLED, settled); };
+    window.addEventListener(LAYOUT_SETTLED, fitIfStill);
+    return () => { ro?.disconnect(); window.removeEventListener(LAYOUT_SETTLED, fitIfStill); };
   }, [host, props.tabId]);
 
   const status = host?.status(props.tabId) ?? null;
@@ -66,18 +101,18 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   // 縁はそのセッションの状態で灯る（base.css の .term-pane[data-live]）。
   // 終わったセッションと切れている間は灯さない。
   return (
-    <div className="term-pane" data-testid={`term-${props.tabId}`} data-live={props.live ?? 'ended'} data-off={off ? 'true' : undefined}>
-      {props.transcript && (
-        <div className="term-band">
+    <div ref={paneRef} className="term-pane" data-testid={`term-${props.tabId}`} data-live={props.live ?? 'ended'} data-off={off ? 'true' : undefined}>
+      {band.mounted && lastBand.current && (
+        <div ref={band.ref} className="term-band" aria-hidden={band.leaving ? 'true' : undefined}>
           <Icon name="transcriptView" />
           <b>transcript を表示中</b>
-          <span className="term-band-sub">{props.transcript.when ? `${props.transcript.when} のターン · ` : ''}Claude は裏で動き続けています</span>
-          <button type="button" className="btn" onClick={props.transcript.onLatest}><Icon name="latest" />最新へ戻る</button>
+          <span className="term-band-sub">{lastBand.current.when ? `${lastBand.current.when} のターン · ` : ''}Claude は裏で動き続けています</span>
+          <button type="button" className="btn" onClick={lastBand.current.onLatest}><Icon name="latest" />最新へ戻る</button>
         </div>
       )}
-      {props.hint && <div className="term-hint" role="status">{props.hint}</div>}
+      {hint.mounted && <div ref={hint.ref} className="term-hint" role={hint.leaving ? undefined : 'status'}>{props.hint ?? lastHint.current}</div>}
       {/* key を付けて、タブが変わったら枠ごと作り直す。前のタブの xterm の要素を残さないためである。 */}
-      <div key={props.tabId} ref={ref} className="term-host" data-tab={props.tabId} onClick={() => host?.focus(props.tabId)} />
+      <div key={props.tabId} ref={ref} className="term-host" data-tab={props.tabId} data-painted={host?.painted(props.tabId) === false ? 'false' : undefined} onClick={() => host?.focus(props.tabId)} />
       {off && (
         <div className="term-veil">
           <div className="term-off-card">

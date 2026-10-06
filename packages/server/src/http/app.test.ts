@@ -2,18 +2,25 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writeFakeTool } from '../../test/fake-bin.ts';
 import type { LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
+import { AccountAuth } from '../config/accountAuth.ts';
+import { AccountStore } from '../config/accounts.ts';
 import { RetentionConflictError } from '../config/retention.ts';
 import { openDb, type Db } from '../db/open.ts';
-import { upsertShared } from '../db/shared.ts';
+import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { PromoteError } from '../projects/promote.ts';
 import { proposeTodoDone } from '../projects/todos.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
+import { TOOL_NAMES } from '../mcp/tools.ts';
 import { RunError } from '../runs/manager.ts';
+import { issueMcpSecret } from '../runs/secrets.ts';
+import { proposeSessionState, setSessionState } from '../sessions/states.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
+import type { AccountsDeps } from './accounts.ts';
 import { createApp, type AppDeps, type ConfigSyncApi, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts, type SyncApi } from './app.ts';
 
 let dir: string;
@@ -64,6 +71,7 @@ function fakeRuns(): RunsApi {
     }),
     jumpToPrompt: vi.fn(async (id: string) => { if (id === 'dead') throw new RunError(409, 'この Claude はもう終了しています'); return { found: true as const }; }),
     leaveTranscript: vi.fn(async () => ({ left: true })),
+    startFromTerminal: vi.fn((req: { cwd: string; args: string[] }) => { if (req.args.includes('--session-id')) throw new RunError(400, '--session-id を付けた起動は hangar では開けません'); return { ...launched, attached: false }; }),
   };
 }
 
@@ -118,12 +126,7 @@ function fakeRetention() {
   };
 }
 /** 実行できる空のファイルを ws/bin に置く。パスの欄は保存の前に存在と実行権を確かめるので、実物が要る。 */
-const exe = (name: string): string => {
-  const p = path.join(ws, 'bin', name);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, '#!/bin/sh\n', { mode: 0o755 });
-  return p;
-};
+const exe = (name: string): string => writeFakeTool(path.join(ws, 'bin'), name, { sh: '', cmd: '' });
 const syncDeps = () => ({
   sync: fakeSync(),
   syncSkipped: () => skipped,
@@ -144,10 +147,10 @@ beforeEach(async () => {
   resumeHereResult = launched;
   dir = copyFixtureClaudeDir(); db = openDb(':memory:'); sent.length = 0;
   ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app-'));
-  fs.mkdirSync(`${ws}/alpha`);
+  fs.mkdirSync(path.join(ws, 'alpha'));
   const indexer = new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false });
   await indexer.fullScan();
-  db.prepare('update sessions set cwd = ? where provider_session_id = ?').run(`${ws}/alpha`, SESSION_ALPHA);
+  db.prepare('update sessions set cwd = ? where provider_session_id = ?').run(path.join(ws, 'alpha'), SESSION_ALPHA);
   syncProjectsFromWorkspace(db, 'd', ws); assignSessions(db, 'd');
   let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
   runs = fakeRuns();
@@ -287,7 +290,7 @@ describe('routes', () => {
     const r = await app.request(`/api/projects/${id}`, { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ status: 'paused' }) });
     expect((await r.json()).status).toBe('paused');
     expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id, status: 'paused' } });
-    expect((await json(await get(`/api/projects/${id}/candidates?name=alp`))).body).toEqual([`${ws}/alpha`]);
+    expect((await json(await get(`/api/projects/${id}/candidates?name=alp`))).body).toEqual([path.join(ws, 'alpha')]);
     const r2 = await app.request(`/api/projects/${id}/resolve`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'archive' }) });
     expect((await r2.json()).status).toBe('archived');
     expect((await get('/api/projects/nope')).status).toBe(404);
@@ -363,6 +366,38 @@ describe('routes', () => {
     expect(await total('waiting')).toBe(1);
     expect(await total('running')).toBe(0);
   });
+  it('検索は、区切りを付けて休みのまま残っているものを実行中にも Active にも数えない', async () => {
+    const { body: sessions } = await json(await get('/api/sessions'));
+    const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
+    const total = async (qs: string) => (await json(await get(`/api/search?q=channels&${qs}`))).body.total;
+    const idle: LiveSessionDto = { sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: ws, pid: 1, procStart: 'Fri Oct  2 02:30:05 2026' };
+    vi.mocked(runs.listAlive).mockReturnValue({ runs: [{ ...run, sessionId: alpha.id }], tabs: [] });
+    app = createApp({ ...deps, live: () => [idle] });
+    expect(await total('live=running')).toBe(1);
+    setSessionState(db, 'd', alpha.id, { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: Date.UTC(2026, 9, 2, 3, 0, 0) });
+    expect(await total('live=running')).toBe(0);
+    expect(await total('live=ended')).toBe(1);
+    expect(await total('status=active')).toBe(0);
+    // 作業中に戻れば、印が付いていても実行中に数える。
+    app = createApp({ ...deps, live: () => [{ ...idle, status: 'busy' }] });
+    expect(await total('live=running')).toBe(1);
+    // Active は状態の無いものなので、印の付いたものは作業中でも Paused に数える。
+    expect(await total('status=active')).toBe(0);
+    expect(await total('status=paused')).toBe(1);
+  });
+  it('検索はセッションの状態（status）と、Archived を除く印（hideArchived）を受け、知らない値は無視する', async () => {
+    const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    setSessionState(db, 'd', id, { status: 'archived', setBy: 'user' });
+    const total = async (qs: string) => (await json(await get(`/api/search?q=channels${qs}`))).body.total;
+    expect(await total('')).toBe(1);
+    expect(await total('&hideArchived=true')).toBe(0);
+    expect(await total('&status=archived&hideArchived=true')).toBe(1);
+    expect(await total('&status=done')).toBe(0);
+    // 知らない値は絞り込みなしとして扱う。
+    expect(await total('&status=bogus')).toBe(1);
+    // なくした none も知らない値で、絞り込みなしになる。
+    expect(await total('&status=none')).toBe(1);
+  });
   it('設定の取得と更新', async () => {
     expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
     const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: path.join(ws, 'alpha') }) });
@@ -395,7 +430,7 @@ describe('routes', () => {
   it('パスの欄は名前だけでも受け、PATH から探して確かめ、打たれたまま保存する', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const bin = path.dirname(exe('mytmux'));
-    vi.stubEnv('PATH', `/no/such/dir:${bin}`);
+    vi.stubEnv('PATH', ['/no/such/dir', bin].join(path.delimiter));
     try {
       const r = await patch({ tmuxPath: ' mytmux ' });
       expect(r.status).toBe(200);
@@ -420,8 +455,10 @@ describe('routes', () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const tool = exe('hometool');
     vi.stubEnv('HOME', ws);
+    vi.stubEnv('USERPROFILE', ws);
     try {
-      const r = await patch({ codePath: '~/bin/hometool' });
+      // Windows の偽の道具は hometool.cmd になる。拡張子まで書いたパスで指す。
+      const r = await patch({ codePath: `~/bin/${path.basename(tool)}` });
       expect(r.status).toBe(200);
       expect((await r.json()).codePath).toBe(tool);
       expect((await json(await get('/api/settings'))).body.codePath).toBe(tool);
@@ -516,6 +553,18 @@ describe('routes', () => {
     expect(body.tabs).toHaveLength(2);
     expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null });
   });
+  it('ターミナルからの起動は base64 の本文を読んで渡し、断ったら理由を返す', async () => {
+    const post = (body: unknown) => app.request('/api/runs/terminal', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const b64 = (x: string) => Buffer.from(x).toString('base64');
+    const r = await post({ cwd: b64('/w/a'), args: b64(['--model', 'opus'].join('\0')), env: b64('A=1\0') });
+    expect(r.status).toBe(201);
+    expect(await r.json()).toEqual({ ...launched, attached: false });
+    expect(runs.startFromTerminal).toHaveBeenCalledWith({ cwd: '/w/a', args: ['--model', 'opus'], env: { A: '1' } });
+    expect((await post({ cwd: 'x' })).status).toBe(400);
+    const refused = await post({ cwd: b64('/w/a'), args: b64('--session-id\0x'), env: '' });
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toContain('--session-id');
+  });
   it('起動、再開、フォーク、停止', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     const r = await post('/api/runs', { projectId: 'p1', name: 'n' });
@@ -582,7 +631,7 @@ describe('routes', () => {
     const { body: sessions } = await json(await get('/api/sessions'));
     const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`)).status).toBe(204);
-    expect(external.openEditor).toHaveBeenCalledWith({ target: `${ws}/alpha` });
+    expect(external.openEditor).toHaveBeenCalledWith({ target: path.join(ws, 'alpha') });
     expect((await post('/api/sessions/nope/open-editor')).status).toBe(404);
     const { body: list } = await json(await get('/api/projects'));
     expect((await post(`/api/projects/${list[0].id}/open-editor`)).status).toBe(204);
@@ -636,16 +685,16 @@ describe('routes', () => {
     expect(((await long.json()).error as string).length).toBeLessThanOrEqual(201);
   });
   it('プロジェクトの作成', async () => {
-    fs.mkdirSync(`${ws}/beta`);
-    const r = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'beta', path: `${ws}/beta` }) });
+    fs.mkdirSync(path.join(ws, 'beta'));
+    const r = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'beta', path: path.join(ws, 'beta') }) });
     expect(r.status).toBe(201);
     const p = await r.json();
-    expect(p).toMatchObject({ name: 'beta', path: `${ws}/beta`, resolved: true, status: 'active' });
+    expect(p).toMatchObject({ name: 'beta', path: path.join(ws, 'beta'), resolved: true, status: 'active' });
     expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id: p.id } });
     expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) })).status).toBe(400);
     expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: '', path: ws }) })).status).toBe(400);
     // .. を含むパスは正規化してから入れる。生のまま入れると前方一致でセッションが当たらなくなる。
-    const again = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'beta again', path: `${ws}/beta/../beta` }) });
+    const again = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'beta again', path: path.join(ws, 'beta') + path.sep + '..' + path.sep + 'beta' }) });
     expect(again.status).toBe(200);
     expect((await again.json()).id).toBe(p.id);
     expect(db.prepare('select count(*) c from project_roots where deleted_at is null').get()).toEqual({ c: 2 });
@@ -699,9 +748,21 @@ describe('routes', () => {
     expect(db.prepare('select path from project_roots where project_id = ? and deleted_at is null').get(id)).toEqual({ path: moved });
     expect((await json(await get(`/api/sessions/${other}`))).body.projectId).toBe(id);
   });
+  // Windows のファイルシステムは大文字小文字を区別しない。綴り違いで同じフォルダを二重に登録しない。
+  it.runIf(process.platform === 'win32')('Windows では、綴りの大文字小文字が違う同じフォルダを二重に登録しない', async () => {
+    const post = (p: string) => app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'gamma', path: p }) });
+    fs.mkdirSync(path.join(ws, 'gamma'));
+    const first = await post(path.join(ws, 'gamma'));
+    expect(first.status).toBe(201);
+    const again = await post(path.join(ws, 'gamma').toUpperCase());
+    expect(again.status).toBe(200);
+    expect((await again.json()).id).toBe((await first.json()).id);
+  });
   it('設定の新しい項目を検査する', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    expect(await (await patch({ terminalApp: 'iterm', tmuxPath: '/opt/homebrew/bin/tmux' })).json()).toMatchObject({ terminalApp: 'iterm', tmuxPath: '/opt/homebrew/bin/tmux' });
+    // 実物の置き場（/opt/homebrew/bin/tmux）は PC によって無いので、偽の道具を置いて指す。
+    const tmuxBin = exe('tmux');
+    expect(await (await patch({ terminalApp: 'iterm', tmuxPath: tmuxBin })).json()).toMatchObject({ terminalApp: 'iterm', tmuxPath: tmuxBin });
     expect((await patch({ terminalApp: 'kitty' })).status).toBe(400);
     expect((await patch({ tmuxPath: 3 })).status).toBe(400);
     expect((await (await patch({ codePath: null })).json()).codePath).toBeNull();
@@ -1071,6 +1132,20 @@ describe('同期の経路', () => {
     expect(calls).toEqual(['configPull']);
   });
 
+  it('GET /api/sync/usage は今の値を、refresh=1 は取り直した値を返す', async () => {
+    const dto = { source: 'estimate', fetchedAt: null, stale: false, notice: null, limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000, stopRatio: 0.8 }, today: { d1RowsWritten: 1, workersRequests: 2, resetAt: 3 }, plan: null, month: null };
+    const refreshed = { ...dto, today: { ...dto.today, d1RowsWritten: 9 } };
+    app = createApp({ ...deps, cloudUsage: { current: () => dto as never, refresh: async () => refreshed as never } });
+    expect((await json(await get('/api/sync/usage'))).body).toEqual(dto);
+    expect((await json(await get('/api/sync/usage?refresh=1'))).body).toEqual(refreshed);
+    expect((await json(await get('/api/bootstrap'))).body.cloudUsage).toEqual(dto);
+  });
+
+  it('cloudUsage が無いサーバの /api/sync/usage は null', async () => {
+    expect((await json(await get('/api/sync/usage'))).body).toBeNull();
+    expect((await json(await get('/api/bootstrap'))).body.cloudUsage).toBeNull();
+  });
+
   it('同期が未設定なら設定の経路は 404 で、参加トークンは null', async () => {
     app = createApp({ ...deps, configSync: null, joinToken: () => null });
     expect((await get('/api/sync/config/preview')).status).toBe(404);
@@ -1241,5 +1316,289 @@ describe('保持期間', () => {
   it('書けたら新しい値を返す。GET でも今の値を返す', async () => {
     expect(await (await send('/api/retention', 'PUT', { days: 365, baseSha256: 'abc' })).json()).toMatchObject({ days: 365, source: 'user' });
     expect(await (await app.request('/api/retention', { headers: H })).json()).toEqual(RET);
+  });
+});
+
+describe('セッションの状態', () => {
+  const send = (p: string, body?: unknown, method = 'POST', headers: Record<string, string> = H) =>
+    app.request(p, { method, headers: { ...headers, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+  const err = async (r: Response) => ((await r.json()) as { error: string }).error;
+
+  it('PUT と確定は戻る時刻も受け、形の違う時刻は 400 で何が悪いかを返す', async () => {
+    const id = alphaId();
+    const r = await send(`/api/sessions/${id}/state`, { status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' }, 'PUT');
+    expect(r.status).toBe(200);
+    expect((await r.json()).state).toMatchObject({ status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' });
+    const bad = await send(`/api/sessions/${id}/state`, { status: 'paused', returnOn: '2026-10-05', returnTime: '25:00' }, 'PUT');
+    expect(bad.status).toBe(400);
+    expect(await err(bad)).toBe('戻る時刻は HH:MM の形で、00:00〜23:59 です（25:00）');
+    expect((await send(`/api/sessions/${id}/state`, { status: 'paused', returnOn: '2026-10-05', returnTime: 1330 }, 'PUT')).status).toBe(400);
+    await send(`/api/sessions/${id}/state`, { status: null }, 'PUT');
+    proposeSessionState(db, 'd', id, { status: 'paused', note: '明日見る', returnOn: '2026-10-02', returnTime: '09:00', source: 'in_session' });
+    expect((await send(`/api/sessions/${id}/state/confirm`, { returnOn: '2026-10-05', returnTime: 930 })).status).toBe(400);
+    const ok = await send(`/api/sessions/${id}/state/confirm`, { returnOn: '2026-10-05', returnTime: '21:50' });
+    expect((await ok.json()).state).toMatchObject({ status: 'paused', returnOn: '2026-10-05', returnTime: '21:50' });
+  });
+  it('PUT は手で状態を変え、session.upsert を配る', async () => {
+    const id = alphaId();
+    const r = await send(`/api/sessions/${id}/state`, { status: 'paused', note: '明日の朝見る', returnOn: '2026-10-02' }, 'PUT');
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ state: { status: 'paused', note: '明日の朝見る', returnOn: '2026-10-02', returnTime: null, setBy: 'user', setAt: expect.any(Number), candidate: null } });
+    expect(sent.at(-1)).toMatchObject({ type: 'session.upsert', session: { id, state: { status: 'paused' } } });
+    // Done は戻る日を持たない。
+    expect((await (await send(`/api/sessions/${id}/state`, { status: 'done', returnOn: '2026-10-02' }, 'PUT')).json()).state).toMatchObject({ status: 'done', returnOn: null });
+    // null は Active に戻す。
+    expect((await (await send(`/api/sessions/${id}/state`, { status: null }, 'PUT')).json()).state).toMatchObject({ status: null, note: null, returnOn: null, candidate: null });
+  });
+  it('PUT の誤りは 400 と 404。本文はトーストに出せる日本語の一文', async () => {
+    const id = alphaId();
+    const paused = await send(`/api/sessions/${id}/state`, { status: 'paused' }, 'PUT');
+    expect(paused.status).toBe(400);
+    expect(await err(paused)).toBe('Paused には戻る日が要ります');
+    for (const body of [{}, { status: 'active' }, { status: 'done', note: 5 }, { status: 'paused', returnOn: 20261002 }, { status: 'paused', returnOn: '2026-02-30' }, { status: 'done', note: 'あ'.repeat(201) }]) {
+      const r = await send(`/api/sessions/${id}/state`, body, 'PUT');
+      expect([JSON.stringify(body), r.status]).toEqual([JSON.stringify(body), 400]);
+      expect(await err(r)).toMatch(/[ぁ-んァ-ン一-龥]/);
+    }
+    expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
+    const missing = await send('/api/sessions/nope/state', { status: 'done' }, 'PUT');
+    expect(missing.status).toBe(404);
+    expect(await err(missing)).toBe('セッションが見つかりません');
+    // 論理削除したセッションも見つからない扱いにする。
+    softDeleteShared(db, 'sessions', id, 'd');
+    expect((await send(`/api/sessions/${id}/state`, { status: 'done' }, 'PUT')).status).toBe(404);
+  });
+  it('confirm は提案を状態にし、日を変えればその日にする。提案が無ければ 409', async () => {
+    const id = alphaId();
+    const none = await send(`/api/sessions/${id}/state/confirm`);
+    expect(none.status).toBe(409);
+    expect(await err(none)).toBe('このセッションには確かめる提案がありません');
+    proposeSessionState(db, 'd', id, { status: 'paused', note: '明日見る', returnOn: '2026-10-02', source: 'in_session' });
+    expect((await send(`/api/sessions/${id}/state/confirm`, { returnOn: '2026-02-30' })).status).toBe(400);
+    sent.length = 0;
+    const ok = await send(`/api/sessions/${id}/state/confirm`, { returnOn: '2026-10-05' });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).state).toEqual({ status: 'paused', note: '明日見る', returnOn: '2026-10-05', returnTime: null, setBy: 'user', setAt: expect.any(Number), candidate: null });
+    expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
+    expect((await send(`/api/sessions/${id}/state/confirm`)).status).toBe(409);
+    expect((await send('/api/sessions/nope/state/confirm')).status).toBe(404);
+  });
+  it('reject は提案を消し、同じセッションから出し直させない。提案が無ければ 409', async () => {
+    const id = alphaId();
+    expect((await send(`/api/sessions/${id}/state/reject`)).status).toBe(409);
+    proposeSessionState(db, 'd', id, { status: 'done', note: '直した', returnOn: null, source: 'post_hoc' });
+    sent.length = 0;
+    const ok = await send(`/api/sessions/${id}/state/reject`);
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).state).toMatchObject({ status: null, candidate: null });
+    expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
+    expect(proposeSessionState(db, 'd', id, { status: 'done', note: 'もう一度', returnOn: null, source: 'post_hoc' }).outcome).toBe('rejected_before');
+    expect((await send('/api/sessions/nope/state/reject')).status).toBe(404);
+  });
+  it('MCP からは呼べない。run に配る秘密は /api を開けず、MCP のツールにも確定と却下は無い', async () => {
+    const id = alphaId();
+    const auth = { authorization: `Bearer ${issueMcpSecret(db, id, 1)}` };
+    for (const [p, m] of [[`/api/sessions/${id}/state`, 'PUT'], [`/api/sessions/${id}/state/confirm`, 'POST'], [`/api/sessions/${id}/state/reject`, 'POST']] as const) {
+      expect([p, (await send(p, { status: 'done' }, m, auth)).status]).toEqual([p, 401]);
+    }
+    expect(TOOL_NAMES.filter((n) => /state|status/.test(n))).toEqual(['propose_session_status']);
+  });
+});
+
+describe('アカウントの取り付け', () => {
+  let accountHome: string;
+  let accountsApp: ReturnType<typeof createApp>;
+  const post = (p: string, body: unknown) => accountsApp.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+  beforeEach(() => {
+    accountHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app-acc-'));
+    const primaryDir = path.join(accountHome, '.claude');
+    fs.mkdirSync(path.join(primaryDir, 'projects'), { recursive: true });
+    const store = new AccountStore({ home: accountHome, primaryDir, homeDir: accountHome });
+    store.add({ name: '大学' });
+    const second = store.list()[1]!.id;
+    // 本文の statusline は、statusline の session_id から引いたアカウントの使用量に載る。
+    const tracker = new UsageTracker(db, { accountOf: (sid) => (sid === SESSION_ALPHA ? second : 'primary') });
+    const accounts: AccountsDeps = { db, store, primaryDir, usage: tracker, auth: new AccountAuth({ claudeBin: () => null }), runs: { switchAccount: vi.fn() } as unknown as AccountsDeps['runs'], broadcast: (a) => sent.push({ type: 'accounts.update', accounts: a }) };
+    accountsApp = createApp({ ...deps, usage: tracker, accounts });
+  });
+  afterEach(() => { fs.rmSync(accountHome, { recursive: true, force: true }); });
+
+  it('/bootstrap に accounts を載せ、渡さない組み立てでは載せない', async () => {
+    const withAccounts = (await (await accountsApp.request('/api/bootstrap', { headers: H })).json()) as { accounts?: { accounts: unknown[] } };
+    expect(withAccounts.accounts?.accounts).toHaveLength(2);
+    expect(((await (await get('/api/bootstrap')).json()) as { accounts?: unknown }).accounts).toBeUndefined();
+    expect((await accountsApp.request('/api/accounts', { headers: H })).status).toBe(200);
+    expect((await get('/api/accounts')).status).toBe(404);
+  });
+
+  it('リンクの点検は /bootstrap のときにし、statusline の配信では fs を触らない', async () => {
+    const dir = path.join(accountHome, '.claude-2');
+    expect(fs.existsSync(dir)).toBe(false);
+    await accountsApp.request('/api/bootstrap', { headers: H });
+    expect(fs.readlinkSync(path.join(dir, 'projects'))).toBe(path.join(accountHome, '.claude', 'projects'));
+    fs.unlinkSync(path.join(dir, 'projects'));
+    const limits = { rate_limits: { five_hour: { used_percentage: 47, resets_at: 1 }, seven_day: { used_percentage: 7, resets_at: 2 } } };
+    expect((await post('/api/ingest/statusline', { session_id: SESSION_ALPHA, ...limits })).status).toBe(204);
+    expect(fs.existsSync(path.join(dir, 'projects'))).toBe(false);
+  });
+
+  it('MCP の get_usage は、accounts を渡した組み立てでだけ accounts を返す', async () => {
+    const usageOver = async (target: ReturnType<typeof createApp>) => {
+      const res = await target.request('/mcp', { method: 'POST', headers: { ...H, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_usage', arguments: {} } }) });
+      const text = await res.text();
+      const json = (res.headers.get('content-type') ?? '').includes('text/event-stream') ? text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim())[0]! : text;
+      return JSON.parse((JSON.parse(json) as { result: { content: { text: string }[] } }).result.content[0]!.text) as { accounts?: { name: string; current: boolean }[] };
+    };
+    expect((await usageOver(accountsApp)).accounts?.map((a) => [a.name, a.current])).toEqual([['メイン', true], ['大学', false]]);
+    expect((await usageOver(app)).accounts).toBeUndefined();
+  });
+
+  it('アカウントの切り替えは、resume と同じく起動の前に同期の取り込みを待つ', async () => {
+    const id = (await (await accountsApp.request('/api/accounts', { headers: H })).json() as { accounts: { id: string }[] }).accounts[1]!.id;
+    calls.length = 0;
+    await post('/api/sessions/s1/switch-account', { account: id });
+    expect(calls).toEqual(['beforeLaunch']);
+  });
+
+  it('使用量は、動かしたアカウントの accounts.update で配り、usage.update は最初のアカウントのときだけ', async () => {
+    sent.length = 0;
+    const limits = { rate_limits: { five_hour: { used_percentage: 47, resets_at: 1 }, seven_day: { used_percentage: 7, resets_at: 2 } } };
+    expect((await post('/api/ingest/statusline', { session_id: SESSION_ALPHA, ...limits })).status).toBe(204);
+    expect(sent.filter((e) => e.type === 'usage.update')).toHaveLength(0);
+    const update = sent.find((e) => e.type === 'accounts.update');
+    expect(update).toMatchObject({ accounts: { accounts: [{ id: 'primary', usage: { fiveHour: null } }, { usage: { fiveHour: { usedPercent: 47 } } }] } });
+    sent.length = 0;
+    expect((await post('/api/ingest/statusline', { session_id: SESSION_OTHER, ...limits })).status).toBe(204);
+    expect(sent.find((e) => e.type === 'usage.update')).toMatchObject({ usage: { fiveHour: { usedPercent: 47 } } });
+  });
+});
+
+describe('GET /api/prompt/commands', () => {
+  it('読み取り元のスキルと組み込みを返す', async () => {
+    const dir = path.join(deps.settings().claudeDir, 'skills', 'demo-skill');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: demo-skill\ndescription: 試し\n---\n');
+    const r = await json(await get('/api/prompt/commands'));
+    expect(r.status).toBe(200);
+    const list = (r.body as { commands: { name: string; source: string }[] }).commands;
+    expect(list).toContainEqual(expect.objectContaining({ name: 'demo-skill', source: 'user', description: '試し' }));
+    expect(list).toContainEqual(expect.objectContaining({ name: 'init', source: 'builtin' }));
+  });
+  it('projectId を渡すと、そのプロジェクトの .claude の下も読む', async () => {
+    const id = list0ProjectId();
+    const p = (await json(await get(`/api/projects/${id}`))).body as { path: string };
+    const dir = path.join(p.path, '.claude', 'skills', 'proj-skill');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: proj-skill\ndescription: x\n---\n');
+    const r = await json(await get(`/api/prompt/commands?projectId=${id}`));
+    expect((r.body as { commands: { name: string; source: string }[] }).commands).toContainEqual(expect.objectContaining({ name: 'proj-skill', source: 'project' }));
+  });
+  it('知らない projectId は 404', async () => {
+    expect((await get('/api/prompt/commands?projectId=nope')).status).toBe(404);
+  });
+  it('トークンが無ければ 401', async () => {
+    expect((await get('/api/prompt/commands', {})).status).toBe(401);
+  });
+});
+
+describe('GET /api/prompt/files', () => {
+  it('プロジェクトのファイルを問いで探して返す', async () => {
+    const id = list0ProjectId();
+    const p = (await json(await get(`/api/projects/${id}`))).body as { path: string };
+    const probe = path.join(p.path, 'prompt-files-probe.ts');
+    fs.writeFileSync(probe, 'x');
+    try {
+      const r = await json(await get(`/api/prompt/files?projectId=${id}&q=prompt-files-probe`));
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ files: ['prompt-files-probe.ts'] });
+    } finally {
+      fs.rmSync(probe, { force: true });
+    }
+  });
+  it('projectId が無ければ 400、知らなければ 404', async () => {
+    expect((await get('/api/prompt/files?q=a')).status).toBe(400);
+    expect((await get('/api/prompt/files?projectId=nope&q=a')).status).toBe(404);
+  });
+});
+
+describe('/api/drops', () => {
+  // ブラウザは本文を送るとき必ず Content-Length を付ける。app.request は付けないので、実際の形に合わせてここで付ける。
+  const post = (name: string, body: Uint8Array<ArrayBuffer> | string, headers: Record<string, string> = {}) => app.request(`/api/drops?name=${encodeURIComponent(name)}`, { method: 'POST', body, headers: { ...H, 'content-type': 'application/octet-stream', 'content-length': String(typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength), ...headers } });
+
+  it('本文を置き場に置き、パスと名前と大きさを返す', async () => {
+    const r = await json(await post('画面 1.png', new Uint8Array([1, 2, 3])));
+    expect(r.status).toBe(201);
+    const d = r.body as { path: string; name: string; size: number };
+    expect(d.name).toBe('画面 1.png');
+    expect(d.size).toBe(3);
+    expect(path.dirname(d.path)).toBe(path.join(deps.home, 'drops'));
+    expect(path.basename(d.path)).toMatch(/^\d+-0-画面_1\.png$/);
+    expect([...fs.readFileSync(d.path)]).toEqual([1, 2, 3]);
+  });
+  it('置いたファイルを名前で読める。画像は種類を付け、中身を勝手に解釈させない', async () => {
+    const d = (await json(await post('a.png', new Uint8Array([9, 8])))).body as { path: string };
+    const r = await get(`/api/drops/${encodeURIComponent(path.basename(d.path))}`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toBe('image/png');
+    expect(r.headers.get('x-content-type-options')).toBe('nosniff');
+    expect([...new Uint8Array(await r.arrayBuffer())]).toEqual([9, 8]);
+  });
+  it('画像でないものは、開かせずに落とす種類で返す', async () => {
+    const d = (await json(await post('a.html', '<script>1</script>'))).body as { path: string };
+    const r = await get(`/api/drops/${encodeURIComponent(path.basename(d.path))}`);
+    expect(r.headers.get('content-type')).toBe('application/octet-stream');
+  });
+  it('置き場の外を指す名前は 404', async () => {
+    fs.writeFileSync(path.join(deps.home, 'secret'), 's');
+    for (const n of ['..%2Fsecret', '%2e%2e%2fsecret', '..', 'nope.png']) expect((await get(`/api/drops/${n}`)).status).toBe(404);
+  });
+  it('20 MB を超える本文は 413 で、何も置かない', async () => {
+    const r = await post('big.bin', new Uint8Array(20 * 1024 * 1024 + 1));
+    expect(r.status).toBe(413);
+    expect(fs.existsSync(path.join(deps.home, 'drops')) ? fs.readdirSync(path.join(deps.home, 'drops')).filter((n) => n.endsWith('big.bin')) : []).toEqual([]);
+  });
+  it('413 の文言は、上限を MB で読ませる（20480KB ではなく 20MB）', async () => {
+    const r = await post('big.bin', new Uint8Array(20 * 1024 * 1024 + 1));
+    expect((await r.json()).error).toBe('本文が大きすぎます（上限は 20MB です）');
+  });
+  it('長さの申告が 20 MB を超えていれば、読む前に 413 にする', async () => {
+    expect((await post('lie.bin', new Uint8Array([1]), { 'content-length': String(20 * 1024 * 1024 + 1) })).status).toBe(413);
+  });
+  it('置き場の中の、外を指すシンボリックリンクは読ませない', async () => {
+    const outside = path.join(deps.home, 'outside-secret');
+    fs.writeFileSync(outside, 's');
+    const drops = path.join(deps.home, 'drops');
+    fs.mkdirSync(drops, { recursive: true });
+    fs.symlinkSync(outside, path.join(drops, 'link.png'));
+    expect((await get('/api/drops/link.png')).status).toBe(404);
+  });
+  it('本文の型は application/octet-stream だけを受ける（text/plain は断る）', async () => {
+    expect((await post('a.png', new Uint8Array([1]), { 'content-type': 'text/plain;charset=UTF-8' })).status).toBe(415);
+    expect((await post('a.png', new Uint8Array([1]), { 'content-type': 'multipart/form-data; boundary=x' })).status).toBe(415);
+  });
+  it('octet-stream の例外は POST /api/drops だけで、ほかの経路は 415 のまま', async () => {
+    const body = JSON.stringify({ paths: [] });
+    const r = await app.request('/api/drops/existing', { method: 'POST', headers: { ...H, 'content-type': 'application/octet-stream', 'content-length': String(body.length) }, body });
+    expect(r.status).toBe(415);
+    const p = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/octet-stream', 'content-length': String(body.length) }, body });
+    expect(p.status).toBe(415);
+  });
+  it('例外の経路でも、トークンと Sec-Fetch-Site の検査は効く', async () => {
+    expect((await post('a.png', new Uint8Array([1]), { authorization: 'Bearer wrong' })).status).toBe(401);
+    expect((await post('a.png', new Uint8Array([1]), { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+    expect((await post('a.png', new Uint8Array([1]), { origin: 'https://evil.example' })).status).toBe(403);
+  });
+  it('空の本文は 400', async () => {
+    expect((await post('empty.png', new Uint8Array(0))).status).toBe(400);
+  });
+  it('existing は、渡したパスのうち、いまあるファイルだけを返す', async () => {
+    const d = (await json(await post('a.png', new Uint8Array([1])))).body as { path: string };
+    const r = await json(await app.request('/api/drops/existing', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ paths: [d.path, path.join(deps.home, 'drops', 'gone.png'), 42] }) }));
+    expect(r.body).toEqual({ paths: [d.path] });
+  });
+  it('トークンが無ければ 401', async () => {
+    expect((await app.request('/api/drops?name=a.png', { method: 'POST', body: new Uint8Array([1]) })).status).toBe(401);
   });
 });

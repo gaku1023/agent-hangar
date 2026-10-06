@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { accountsFixture } from '../test/accounts.ts';
 import { ApiConflictError, createApi, RetentionConflictApiError } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
@@ -144,5 +145,103 @@ describe('保持期間の API', () => {
   it('409 の retention_conflict は RetentionConflictApiError にする', async () => {
     const { api } = harness(409, { error: 'retention_conflict' });
     await expect(api.writeRetention(365, 'abc')).rejects.toBeInstanceOf(RetentionConflictApiError);
+  });
+});
+
+describe('createApi（セッションの状態）', () => {
+  it('経路とメソッドと本文', async () => {
+    const { api, calls } = harness(200, { state: { status: 'done', note: null, returnOn: null, setBy: 'user', setAt: 1, candidate: null } });
+    expect(await api.setSessionState('s1', { status: 'done' })).toMatchObject({ state: { status: 'done' } });
+    await api.setSessionState('s1', { status: null });
+    await api.confirmSessionState('s1', { returnOn: '2026-10-05' });
+    await api.confirmSessionState('s1', {});
+    await api.rejectSessionState('s1');
+    expect(calls.map((c) => `${c.method} ${c.url} ${c.body ?? ''}`)).toEqual([
+      'PUT /api/sessions/s1/state {"status":"done"}',
+      'PUT /api/sessions/s1/state {"status":null}',
+      'POST /api/sessions/s1/state/confirm {"returnOn":"2026-10-05"}',
+      'POST /api/sessions/s1/state/confirm {}',
+      'POST /api/sessions/s1/state/reject ',
+    ]);
+  });
+  it('409 の本文の一文をそのまま投げる', async () => {
+    const ng = harness(409, { error: 'このセッションには確かめる提案がありません' });
+    await expect(ng.api.confirmSessionState('s1', {})).rejects.toThrow('このセッションには確かめる提案がありません');
+  });
+});
+
+describe('createApi（アカウント）', () => {
+  it('9 つの呼び出しの経路とメソッドと本文', async () => {
+    const { api, calls } = harness(200, accountsFixture);
+    expect(await api.accounts()).toEqual(accountsFixture);
+    await api.setCurrentAccount('a1');
+    await api.switchAccount('s1', 'a1');
+    await api.addAccount('大学');
+    await api.updateAccount('a1', { name: '研究室', color: '#7a4a9e' });
+    await api.removeAccount('a1');
+    await api.loginAccount('a1');
+    await api.cancelAccountLogin('a1');
+    await api.refreshAccount('a1');
+    expect(calls.map((c) => `${c.method} ${c.url} ${c.body ?? ''}`.trimEnd())).toEqual([
+      'GET /api/accounts',
+      'PUT /api/accounts/current {"id":"a1"}',
+      'POST /api/sessions/s1/switch-account {"account":"a1"}',
+      'POST /api/accounts {"name":"大学"}',
+      'PATCH /api/accounts/a1 {"name":"研究室","color":"#7a4a9e"}',
+      'DELETE /api/accounts/a1',
+      'POST /api/accounts/a1/login',
+      'POST /api/accounts/a1/login/cancel',
+      'POST /api/accounts/a1/refresh',
+    ]);
+  });
+  it('202 のログインは本文を捨てて undefined、失敗はサーバの文をそのまま投げる', async () => {
+    expect(await harness(202, { accepted: true }).api.loginAccount('a1')).toBeUndefined();
+    await expect(harness(409, { error: 'ログインはすでに始まっています' }).api.loginAccount('a1')).rejects.toThrow('ログインはすでに始まっています');
+    await expect(harness(409, { error: '同じアカウントです' }).api.switchAccount('s1', 'primary')).rejects.toThrow('同じアカウントです');
+  });
+});
+
+describe('初期プロンプト欄の API', () => {
+  it('promptCommands は projectId を付けて読み、commands を取り出す', async () => {
+    const cmd = { name: 'goal', description: '', argumentHint: null, source: 'user', uses: 1 };
+    const { api, calls } = harness(200, { commands: [cmd] });
+    expect(await api.promptCommands('p1')).toEqual([cmd]);
+    expect(calls[0]!.url).toBe('/api/prompt/commands?projectId=p1');
+    await api.promptCommands(null);
+    expect(calls[1]!.url).toBe('/api/prompt/commands');
+  });
+  it('promptFiles は projectId と問いを付けて読み、files を取り出す', async () => {
+    const { api, calls } = harness(200, { files: ['a.ts'] });
+    expect(await api.promptFiles('p1', 'a')).toEqual(['a.ts']);
+    expect(calls[0]!.url).toBe('/api/prompt/files?projectId=p1&q=a');
+    await api.promptFiles('p1', '');
+    expect(calls[1]!.url).toBe('/api/prompt/files?projectId=p1');
+  });
+  it('uploadDrop は本文をそのまま送り、名前を問い合わせに付ける', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ path: '/h/drops/1-0-a.png', name: 'a b.png', size: 3 }), { status: 201 }));
+    const api = createApi(fetchFn as unknown as typeof fetch);
+    const blob = new Blob([new Uint8Array([1, 2, 3])]);
+    expect(await api.uploadDrop(blob, 'a b.png')).toEqual({ path: '/h/drops/1-0-a.png', name: 'a b.png', size: 3 });
+    const [url, init] = fetchFn.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(url).toBe('/api/drops?name=a+b.png');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(blob);
+    expect((init.headers as Record<string, string>)['content-type']).toBe('application/octet-stream');
+  });
+  // 送りきれない間は「送っています」の札が残り、起動もできないままになる。時間切れで失敗に回す（札は外れ、知らせが出る）。
+  it('uploadDrop だけが時間切れの signal を付けて送る', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ path: '/h/drops/1-0-a.png', name: 'a.png', size: 1 }), { status: 201 }));
+    const api = createApi(fetchFn as unknown as typeof fetch);
+    await api.uploadDrop(new Blob(['x']), 'a.png');
+    const [, init] = fetchFn.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal!.aborted).toBe(false);
+    await api.existingDrops(['/h/drops/1-0-a.png']);
+    expect((fetchFn.mock.calls[1]! as unknown as [string, RequestInit])[1].signal).toBeUndefined();
+  });
+  it('existingDrops は、残っているパスだけを取り出す', async () => {
+    const { api, calls } = harness(200, { paths: ['/d/b.png'] });
+    expect(await api.existingDrops(['/d/a.png', '/d/b.png'])).toEqual(['/d/b.png']);
+    expect(calls[0]!.url).toBe('/api/drops/existing');
   });
 });

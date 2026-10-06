@@ -122,6 +122,13 @@ describe('POST /changes', () => {
     expect(await seqs()).toEqual([]);
   });
 
+  it('セッションの状態の行を受け取り、ほかの端末へ渡す', async () => {
+    const st: ChangeIn = { tableName: 'session_states', rowId: 's1', op: 'upsert', payload: { session_id: 's1', status: 'paused', return_on: '2026-10-02', updated_at: 100, deleted_at: null, origin_device: 'dev-a' }, updatedAt: 100 };
+    expect(await pushed(tokA, [st])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
+    const got = await pull(tokB, 0);
+    expect(got.changes.map((c) => [c.tableName, c.rowId, c.payload.status])).toEqual([['session_states', 's1', 'paused']]);
+  });
+
   it('push は自端末の last_seen_at を進める', async () => {
     await cloud.env.DB.prepare('update devices set last_seen_at = 0').run();
     await push(tokA, []);

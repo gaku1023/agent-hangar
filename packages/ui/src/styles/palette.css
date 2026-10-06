@@ -45,6 +45,8 @@
 .dialog-promote .btn { white-space: nowrap; }
 
 /* キーの一覧。
-   パレットと同じ幅の列（打鍵、説明）で並べ、群ごとに小さな見出しを置く。 */
+   打鍵と説明の 2 列で並べ、群ごとに小さな見出しを置く。
+   打鍵の列は、いちばん長い並び（j / k / ↑ / ↓）が 1 行に収まる幅にし、折り返さない。 */
+.keys-row > .mono { white-space: nowrap; }
 .keys-group { display: flex; flex-direction: column; gap: calc(var(--u) * 0.5); }
-.keys-row { display: grid; grid-template-columns: calc(var(--u) * 22) 1fr; align-items: baseline; gap: calc(var(--u) * 2); padding: calc(var(--u) * 0.5) 0; }
+.keys-row { display: grid; grid-template-columns: calc(var(--u) * 30) 1fr; align-items: baseline; gap: calc(var(--u) * 2); padding: calc(var(--u) * 0.5) 0; }

@@ -226,3 +226,13 @@ export function applyRemoteBatch(db: Db, changes: ChangeOut[], o: ApplyOptions):
   run();
   return applied;
 }
+
+/**
+ * pull で入れ替わった行のうち、画面に配り直すセッション。行がセッションに付く表だけで、ほかは null を返す。
+ * session_states を足したときに、server.ts の配り直しから外れないよう、ここで 1 か所にまとめる。
+ */
+export function sessionIdOfChange(db: Db, c: Pick<ChangeOut, 'tableName' | 'rowId'>): string | null {
+  if (c.tableName === 'sessions' || c.tableName === 'session_summaries' || c.tableName === 'session_states') return c.rowId;
+  if (c.tableName === 'runs') return (db.prepare('select session_id s from runs where id = ?').get(c.rowId) as { s: string } | undefined)?.s ?? null;
+  return null;
+}

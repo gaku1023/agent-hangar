@@ -11,6 +11,7 @@ import {
   isSafeRelPath,
   isValidFileKey,
   type ChangeIn,
+  type CloudUsageBody,
   type FileMetaIn,
   type ListFilesResponse,
   type PullChangesResponse,
@@ -129,6 +130,8 @@ export interface CloudClient {
   getFile(key: string): Promise<Readable>;
   listFiles(since: number, limit: number): Promise<ListFilesResponse>;
   deleteFile(key: string): Promise<void>;
+  /** 使用量と費用。古い Worker（404）は configured: false として返す。 */
+  usage(): Promise<CloudUsageBody>;
 }
 
 export type HttpCloudClientOptions = {
@@ -220,6 +223,15 @@ export class HttpCloudClient implements CloudClient {
   pullChanges(since: number, limit: number) { return this.json<PullChangesResponse>(`/changes?since=${since}&limit=${limit}`); }
   snapshot(after: string | null, limit: number) { return this.json<SnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }
   listFiles(since: number, limit: number) { return this.json<ListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
+
+  async usage(): Promise<CloudUsageBody> {
+    try {
+      return await this.json<CloudUsageBody>('/usage');
+    } catch (e) {
+      if (e instanceof CloudError && e.status === 404) return { configured: false };
+      throw e;
+    }
+  }
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
     this.requireValidKey(meta.key);

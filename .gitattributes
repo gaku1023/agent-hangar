@@ -1,2 +1,2 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# 改行は LF にそろえる。Windows の checkout でも CRLF にしない。
+* text=auto eol=lf

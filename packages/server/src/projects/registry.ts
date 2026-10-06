@@ -3,6 +3,7 @@ import path from 'node:path';
 import { newId, type ResolveAction } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
+import { isStrictlyUnder, isUnder, pathKey, samePath } from '../platform/paths.ts';
 
 /**
  * パスを比べられる形にそろえる。`..` や末尾の `/` を除き、Unicode を NFC にする。
@@ -27,11 +28,6 @@ function childDirs(root: string): string[] {
     .sort();
 }
 
-/** パスがそのディレクトリ自身か、その下にあるか。どちらも normalizeDir を通した値で比べる。 */
-function isUnder(p: string, dir: string): boolean {
-  return p === dir || p.startsWith(dir + '/');
-}
-
 /** プロジェクト行と、この端末のルート（解決済み）を作る。作ったプロジェクトの id を返す。 */
 export function insertProject(db: Db, deviceId: string, name: string, dir: string): string {
   const id = newId();
@@ -48,7 +44,7 @@ export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoo
   const known = knownRoots(db, deviceId);
   for (const dir of childDirs(workspaceRoot)) {
     if (!cwds.some((c) => isUnder(c, dir))) continue;
-    if (known.has(dir)) continue;
+    if (known.has(pathKey(dir))) continue;
     created.push(insertProject(db, deviceId, path.basename(dir), dir));
   }
   return { created };
@@ -56,9 +52,9 @@ export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoo
 
 export type WorkspaceDir = { name: string; path: string };
 
-/** この端末の、論理削除されていないルートのパス（NFC）。 */
+/** この端末の、論理削除されていないルートのパスの比べる鍵（NFC にしてから pathKey）。 */
 function knownRoots(db: Db, deviceId: string): Set<string> {
-  return new Set((db.prepare('select path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { path: string }[]).map((r) => r.path.normalize('NFC')));
+  return new Set((db.prepare('select path from project_roots where device_id = ? and deleted_at is null').all(deviceId) as { path: string }[]).map((r) => pathKey(r.path.normalize('NFC'))));
 }
 
 /**
@@ -68,7 +64,7 @@ function knownRoots(db: Db, deviceId: string): Set<string> {
  */
 export function listWorkspaceDirs(db: Db, deviceId: string, workspaceRoot: string): WorkspaceDir[] {
   const known = knownRoots(db, deviceId);
-  return childDirs(workspaceRoot).filter((dir) => !known.has(dir)).map((dir) => ({ name: path.basename(dir), path: dir }));
+  return childDirs(workspaceRoot).filter((dir) => !known.has(pathKey(dir))).map((dir) => ({ name: path.basename(dir), path: dir }));
 }
 
 /**
@@ -80,12 +76,12 @@ export function listWorkspaceDirs(db: Db, deviceId: string, workspaceRoot: strin
 export function registerWorkspaceChildOf(db: Db, deviceId: string, workspaceRoot: string, cwd: string): string | null {
   const root = normalizeDir(workspaceRoot);
   const c = normalizeDir(cwd);
-  if (!c.startsWith(root + '/')) return null;
-  const head = c.slice(root.length + 1).split('/')[0]!;
+  if (!isStrictlyUnder(c, root)) return null;
+  const head = path.relative(root, c).split(/[\\/]/)[0]!;
   if (head.startsWith('.')) return null;
   const dir = path.join(root, head);
   if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return null;
-  if (knownRoots(db, deviceId).has(dir)) return null;
+  if (knownRoots(db, deviceId).has(pathKey(dir))) return null;
   return insertProject(db, deviceId, head, dir);
 }
 
@@ -97,7 +93,7 @@ export function workspaceProjectCount(db: Db, deviceId: string, workspaceRoot: s
   const rows = db.prepare(`select r.path from project_roots r join projects p on p.id = r.project_id
     where r.device_id = ? and r.resolved = 1 and r.deleted_at is null and p.deleted_at is null and p.is_scratch = 0`).all(deviceId) as { path: string }[];
   const root = path.resolve(workspaceRoot);
-  return rows.filter((r) => path.dirname(r.path) === root).length;
+  return rows.filter((r) => samePath(path.dirname(r.path), root)).length;
 }
 
 /** この端末の解決済みルートを返す。 */

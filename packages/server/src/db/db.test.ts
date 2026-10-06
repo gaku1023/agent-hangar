@@ -4,7 +4,8 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it, vi } from 'vitest';
 import { MIGRATIONS } from './migrations.ts';
-import { openDb } from './open.ts';
+import { openDb, type Db } from './open.ts';
+import { applyRemoteChange } from '../sync/apply.ts';
 import { onSharedWrite, softDeleteShared, upsertShared } from './shared.ts';
 
 /** version 以下のマイグレーションだけを当てた実物のファイルを作る。既存の DB からの移行を試すため。 */
@@ -39,7 +40,7 @@ describe('openDb', () => {
   it('共有テーブル、ローカルテーブル、FTS を作る', () => {
     const db = openDb(':memory:');
     const names = db.prepare("select name from sqlite_master where type in ('table') order by name").all().map((r) => (r as { name: string }).name);
-    for (const t of ['devices', 'projects', 'project_roots', 'sessions', 'runs', 'run_tabs', 'session_summaries', 'todos', 'project_memos', 'artifacts', 'artifact_versions', 'takeover_requests', 'changes', 'transcript_files', 'event_index', 'event_fts', 'session_stats', 'usage_snapshots', 'sync_state', 'settings_local', 'mcp_secrets', 'schema_migrations', 'session_activity']) {
+    for (const t of ['devices', 'projects', 'project_roots', 'sessions', 'runs', 'run_tabs', 'session_summaries', 'todos', 'project_memos', 'artifacts', 'artifact_versions', 'takeover_requests', 'changes', 'transcript_files', 'event_index', 'event_fts', 'session_stats', 'usage_snapshots', 'sync_state', 'settings_local', 'mcp_secrets', 'schema_migrations', 'session_activity', 'session_states']) {
       expect(names, t).toContain(t);
     }
   });
@@ -378,5 +379,74 @@ describe('ログの組み立ての頑丈さ', () => {
     spy2.mockRestore();
     expect(more[0]).toContain('TypeError');
     expect(more[0]).not.toContain('a'.repeat(32));
+  });
+});
+
+describe('version 13 のセッションの状態', () => {
+  it('表を作り、生きているセッションだけを Done にし、changes には積まない', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig13-'));
+    const file = path.join(tmp, 'hangar.db');
+    openDbAt(file, 12);
+    const old = new Database(file);
+    const ins = old.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, deleted_at, origin_device) values (?, 'claude-code', ?, '/w', 'd', 1, ?, 'd')");
+    ins.run('s1', 'u1', null);
+    ins.run('s2', 'u2', null);
+    ins.run('gone', 'u3', 5);
+    old.close();
+    const before = Math.floor(Date.now() / 1000) * 1000;
+    const db = openDb(file);
+    const rows = db.prepare('select session_id, status, note, return_on, set_by, set_at, candidate_at, rejected_at, updated_at, deleted_at, origin_device from session_states order by session_id').all() as Record<string, unknown>[];
+    // 削除済みのセッションには行を作らない。
+    expect(rows.map((r) => r.session_id)).toEqual(['s1', 's2']);
+    for (const r of rows) {
+      // updated_at を 0 にするのは、先に上げた PC で付けた状態が、後から上げた PC の一括 Done に後勝ちで負けないようにするためである。
+      expect(r).toMatchObject({ status: 'done', note: null, return_on: null, set_by: 'import', candidate_at: null, rejected_at: null, updated_at: 0, deleted_at: null, origin_device: 'import' });
+      expect(r.set_at as number).toBeGreaterThanOrEqual(before);
+      expect(r.set_at as number).toBeLessThanOrEqual(Date.now());
+    }
+    // 各 PC が自分のマイグレーションで同じ行を作るので、送らない。
+    expect(db.prepare("select count(*) c from changes where table_name = 'session_states'").get()).toEqual({ c: 0 });
+    db.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+  it('空の DB から作っても行は無く、状態と書き手の検査が効く', () => {
+    const db = openDb(':memory:');
+    expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
+    db.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values ('s1', 'claude-code', 'u1', '/w', 'd', 1, 'd')").run();
+    expect(() => db.prepare("insert into session_states (session_id, status, updated_at, origin_device) values ('s1', 'active', 1, 'd')").run()).toThrow(/CHECK/);
+    expect(() => db.prepare("insert into session_states (session_id, set_by, updated_at, origin_device) values ('s1', 'claude', 1, 'd')").run()).toThrow(/CHECK/);
+    expect(() => db.prepare("insert into session_states (session_id, candidate_status, updated_at, origin_device) values ('s1', 'archived', 1, 'd')").run()).toThrow(/CHECK/);
+    // 外部キーで、無いセッションの行は作れない。
+    expect(() => db.prepare("insert into session_states (session_id, updated_at, origin_device) values ('nope', 1, 'd')").run()).toThrow(/FOREIGN KEY/);
+  });
+});
+
+describe('version 14 の戻る時刻', () => {
+  it('列を 2 本足し、既存の行の日付は変えず、時刻は null のままにする', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig14-'));
+    const file = path.join(tmp, 'hangar.db');
+    openDbAt(file, 13);
+    const old = new Database(file);
+    old.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values ('s1', 'claude-code', 'u1', '/w', 'd', 1, 'd')").run();
+    old.prepare("insert into session_states (session_id, status, note, return_on, set_by, set_at, updated_at, origin_device) values ('s1', 'paused', '明日見る', '2026-10-05', 'user', 5, 5, 'd')").run();
+    old.close();
+    const db = openDb(file);
+    expect(db.prepare('select status, note, return_on, return_time, candidate_return_time, updated_at from session_states').get()).toEqual({ status: 'paused', note: '明日見る', return_on: '2026-10-05', return_time: null, candidate_return_time: null, updated_at: 5 });
+    expect(db.prepare("select count(*) c from changes where table_name = 'session_states'").get()).toEqual({ c: 0 });
+    db.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+  it('version 13 のままの PC は、時刻つきの行を受け取っても日付をそのまま読める（知らない列は捨てる）', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig14-'));
+    const file = path.join(tmp, 'hangar.db');
+    openDbAt(file, 13);
+    const old = new Database(file);
+    old.pragma('foreign_keys = ON');
+    old.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values ('s1', 'claude-code', 'u1', '/w', 'd', 1, 'd')").run();
+    const payload = { session_id: 's1', status: 'paused', note: 'timer を見る', return_on: '2026-10-05', return_time: '13:30', set_by: 'conversation', set_at: 50, candidate_return_time: null, deleted_at: null, origin_device: 'new' };
+    expect(applyRemoteChange(old as unknown as Db, { seq: 1, tableName: 'session_states', rowId: 's1', op: 'upsert', deviceId: 'new', updatedAt: 50, payload }, { ownDeviceId: 'd', skipOwn: true })).toBe('applied');
+    expect(old.prepare('select status, return_on, note from session_states').get()).toEqual({ status: 'paused', return_on: '2026-10-05', note: 'timer を見る' });
+    old.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
   });
 });

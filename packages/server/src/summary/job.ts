@@ -1,9 +1,10 @@
-import type { LiveSessionDto, ServerEvent, SummarizerTestDto } from '@agent-hangar/shared';
+import { addDays, localDate, type LiveSessionDto, type ServerEvent, type SummarizerTestDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
+import { getSessionState, proposeSessionState, StateInputError } from '../sessions/states.ts';
 import { buildSummaryInput, CANNED_INPUT } from './input.ts';
-import type { Summarizer, SummaryInput, SummaryOutput } from './types.ts';
+import type { Summarizer, SummaryInput, SummaryOutput, SummaryProposal } from './types.ts';
 
 const STALE_TURNS = 5;
 
@@ -129,6 +130,33 @@ export class SummaryJob {
     return { tried };
   }
 
+  /**
+   * 要約が添えた状態の提案を、セッションの候補として書く。
+   * 書くのは、状態も提案も無いときだけである。却下済みは proposeSessionState が rejected_before で断る。
+   * 動いているセッションには書かない。止まっているかは書く直前に見直す。
+   * run を止めた直後は生存のキャッシュが「生きている」と出るが、要約には数秒以上かかるので、書くころには落ち着いている。
+   * 戻る日は書くときの手元の暦から数える。
+   * 提案の検査で落ちても要約は失敗にしない。要約が本筋で、提案は添え物だからである。
+   */
+  private proposeFrom(sessionId: string, p: SummaryProposal | undefined): void {
+    if (!p || this.isLive(sessionId)) return;
+    const cur = getSessionState(this.deps.db, sessionId);
+    if (cur && (cur.status !== null || cur.candidate !== null)) return;
+    const now = this.now();
+    try {
+      proposeSessionState(this.deps.db, this.deps.deviceId, sessionId, {
+        status: p.status,
+        note: p.note,
+        returnOn: p.status === 'paused' ? addDays(localDate(now), p.returnInDays ?? 1) : null,
+        source: 'post_hoc',
+        now,
+      });
+    } catch (e) {
+      if (!(e instanceof StateInputError)) throw e;
+      console.error(`[summary] 状態の提案を書けませんでした: ${e.message}`);
+    }
+  }
+
   private async summarizeOne(sessionId: string): Promise<void> {
     const input = buildSummaryInput(this.deps.db, sessionId, this.isLive(sessionId));
     if (!input) throw new Error('本文がありません');
@@ -146,6 +174,7 @@ export class SummaryJob {
       source_model: r.out.model ?? null,
       based_on_turns: input.turns,
     }, this.deps.deviceId, 'session_id');
+    this.proposeFrom(sessionId, r.out.proposal);
     const s = getSession(this.deps.db, this.deps.live(), sessionId);
     if (s) this.emit({ type: 'session.upsert', session: s });
     this.emit({ type: 'summary.updated', sessionId });

@@ -1,5 +1,6 @@
-import type { LaunchParams, LiveSessionDto, ProjectDto, ProjectStatus, ServerEvent, SessionDto, SummaryState, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
+import { localDate, localTime, returnAtIso, returnAtMs, type LaunchParams, type LiveSessionDto, type ProjectDto, type ProjectStatus, type ServerEvent, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
+import type { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -8,6 +9,7 @@ import type { MemoStore } from '../projects/memo.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
+import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
 
 export type ToolDeps = {
@@ -18,6 +20,8 @@ export type ToolDeps = {
   runs: { start(params: LaunchParams): LaunchResult };
   hub: { broadcast(ev: ServerEvent): void };
   usage: () => UsageDto;
+  /** アカウントごとの使用量を返すための口。無ければ get_usage は最初のアカウントの値だけを返す。 */
+  accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
   memos: MemoStore;
 };
 /** セッション別 URL では、そのセッションに固定される。共通 URL では null。 */
@@ -34,6 +38,7 @@ export class ToolError extends Error {
 export const TOOL_NAMES = [
   'list_projects', 'get_project', 'update_project', 'list_sessions', 'search_sessions', 'get_transcript',
   'create_session', 'set_session_summary', 'set_turn_intent', 'set_session_memo', 'get_usage', 'open_in_hangar',
+  'propose_session_status',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -317,6 +322,67 @@ export function setTurnIntentTool(deps: ToolDeps, ctx: ToolContext, args: Record
   return { ok: true, session_id: id, at: it.at };
 }
 
+/**
+ * このセッションの状態（Done か Paused）を提案する。
+ * confirmed が true のときだけ状態にする。利用者が会話の中で選んだという申告で、hangar はそれを確かめられない。
+ * その余地は利用者の決定（2026-10-01）として受け入れ、代わりに set_by を conversation にして後から分かるようにする。
+ * 却下された提案は、そのセッションに新しい発言があるまで受け付けない（rejected_before）。
+ * note と return_on の中身の検査は states.ts の validateStateInput に任せる。ここでは型と status だけを見て、StateInputError を ToolError に変える。
+ * 検査は confirmed の有無によらず、already_set を比べる前に済ませる。どれかに落ちたら何も書かず、何も配らない。
+ * 戻る時点は return_on（日付）と、任意の return_time（HH:MM）で受ける。どちらも手元の暦と時計で読み、返す状態にはオフセット付きの returnAt を添えて、どのゾーンで読んだかを残す。
+ * 過去の時点はここで断る。states.ts では断らない（時刻を過ぎた提案を画面で確定でき、同期で届いた行も弾かないようにするため）。
+ */
+/** 状態と提案に、戻る時点をオフセット付きで添える（2026-10-05T13:30+09:00）。時刻が無ければ null。 */
+function withReturnAt(state: SessionStateDto) {
+  const at = (o: { returnOn: string | null; returnTime: string | null }) => (o.returnOn && o.returnTime ? returnAtIso(o.returnOn, o.returnTime) : null);
+  return { ...state, returnAt: at(state), candidate: state.candidate ? { ...state.candidate, returnAt: at(state.candidate) } : null };
+}
+
+/**
+ * 戻る時点が過去なら断る。時刻があれば時点で、無ければ日で比べる（今日の日付だけは「その日のうち」なので通す）。
+ * 文には渡された時点と、比べた今をオフセット付きで入れる。呼び手のゾーンの読み違いに、文から気づけるようにする。
+ */
+function rejectPastReturn(returnOn: string | null, returnTime: string | null, now: number): void {
+  if (returnOn === null) return;
+  const today = localDate(now);
+  const nowText = `${today} ${localTime(now)} ${returnAtIso(today, localTime(now))!.slice(-6)}`;
+  if (returnTime !== null) {
+    if (returnAtMs(returnOn, returnTime) <= now) throw new ToolError(`戻る時点が過去です（${returnOn} ${returnTime}。いまは ${nowText}）`);
+  } else if (returnOn < today) {
+    throw new ToolError(`戻る日が過去です（${returnOn}。いまは ${nowText}）`);
+  }
+}
+
+export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
+  const id = sessionIdOf(ctx, args);
+  requireSession(deps, id);
+  const status = args.status;
+  if (status !== 'done' && status !== 'paused') throw new ToolError('status は done か paused です');
+  if (args.note !== undefined && typeof args.note !== 'string') throw new ToolError('note は文字列です');
+  if (args.return_on !== undefined && typeof args.return_on !== 'string') throw new ToolError('return_on は YYYY-MM-DD の形の文字列です');
+  if (args.return_time !== undefined && typeof args.return_time !== 'string') throw new ToolError('return_time は HH:MM の形の文字列です');
+  if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') throw new ToolError('confirmed は true か false です');
+  try {
+    const given = args.note ?? '';
+    const { returnOn, returnTime } = validateStateInput(status, { note: given, returnOn: args.return_on, returnTime: args.return_time, requireNote: true });
+    rejectPastReturn(returnOn, returnTime, now);
+    let r: { outcome: ProposeStateOutcome; state: SessionStateDto };
+    if (args.confirmed === true) {
+      const cur = getSessionState(deps.db, id);
+      r = cur && cur.status === status && cur.returnOn === returnOn && cur.returnTime === returnTime
+        ? { outcome: 'already_set', state: cur }
+        : { outcome: 'set', state: setSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, returnTime, setBy: 'conversation', requireNote: true, now }) };
+    } else {
+      r = proposeSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, returnTime, source: 'in_session', now });
+    }
+    if (r.outcome === 'set' || r.outcome === 'proposed') deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId })! });
+    return { outcome: r.outcome, state: withReturnAt(r.state) };
+  } catch (e) {
+    if (e instanceof StateInputError) throw new ToolError(e.message);
+    throw e;
+  }
+}
+
 export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const id = sessionIdOf(ctx, args);
   requireSession(deps, id);
@@ -326,11 +392,21 @@ export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Recor
   return { ok: true, session_id: id };
 }
 
-/** statusline から届いた最新の使用率。まだ届いていない窓は null になる。 */
-export function getUsageTool(deps: ToolDeps) {
-  const u = deps.usage();
+/** UsageDto を MCP の応答の形にする。まだ届いていない窓は null になる。 */
+function usageBody(u: UsageDto) {
   const w = (x: { usedPercent: number; resetsAt: number | null } | null) => (x ? { used_percentage: x.usedPercent, resets_at: x.resetsAt } : null);
   return { five_hour: w(u.fiveHour), seven_day: w(u.sevenDay), updated_at: u.updatedAt };
+}
+
+/**
+ * statusline から届いた最新の使用率。上の 3 項目は最初のアカウントの値のまま、accounts にアカウントごとの値を並べる。
+ * メールアドレスなど認証の情報は入れない。
+ */
+export function getUsageTool(deps: ToolDeps) {
+  const top = usageBody(deps.usage());
+  if (!deps.accounts) return top;
+  const currentId = deps.accounts.store.current().id;
+  return { ...top, accounts: deps.accounts.store.list().map((a) => ({ name: a.name, current: a.id === currentId, ...usageBody(deps.accounts!.usage.of(a.id)) })) };
 }
 
 export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -360,6 +436,7 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'set_session_memo': return setSessionMemoTool(deps, ctx, args);
     case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
+    case 'propose_session_status': return proposeSessionStatusTool(deps, ctx, args);
     default: throw new ToolError(`知らないツールです: ${name}`);
   }
 }

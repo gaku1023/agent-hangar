@@ -4,6 +4,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
+import { proposeSessionState, setSessionState } from '../sessions/states.ts';
 import { likeSnippet, searchSessions } from './search.ts';
 
 let dir: string;
@@ -130,6 +131,66 @@ describe('searchSessions', () => {
     expect(rest).toMatchObject({ total: 2, hits: [{ sessionId: both.hits[1]!.sessionId }] });
     expect(searchSessions(db, { q: 'channels', offset: 5 })).toEqual({ hits: [], total: 1 });
     expect(searchSessions(db, { q: 'channels', offset: -3 }).hits).toHaveLength(1);
+  });
+});
+
+describe('searchSessions の状態（session_states）', () => {
+  // マイグレーション v13 の一括 Done は空の DB で走るので、索引の後に入ったセッションには行が無く、Active である。
+  it('Paused・Done・Archived は状態の列で、Active は状態が無いもので絞る', () => {
+    const alpha = idOf(SESSION_ALPHA);
+    expect(searchSessions(db, { q: 'channels', status: 'active' }).total).toBe(1);
+    setSessionState(db, 'd', alpha, { status: 'paused', note: '明日確かめる', returnOn: '2026-10-02', setBy: 'user' });
+    expect(searchSessions(db, { q: 'channels', status: 'paused' }).total).toBe(1);
+    expect(searchSessions(db, { q: 'channels', status: 'done' }).total).toBe(0);
+    expect(searchSessions(db, { q: 'channels', status: 'active' }).total).toBe(0);
+    // キーワードの無い、触ったファイルだけの経路でも効く。
+    expect(searchSessions(db, { q: '', file: 'a.md', status: 'paused' }).total).toBe(1);
+    expect(searchSessions(db, { q: '', file: 'a.md', status: 'done' }).total).toBe(0);
+    expect(searchSessions(db, { q: '', file: 'a.md', status: 'active' }).total).toBe(0);
+    expect(searchSessions(db, { q: 'hello', status: 'active' }).hits.map((h) => h.sessionId)).toEqual([idOf(SESSION_OTHER)]);
+    // 手で Active に戻した行（status が null の行）も Active に入る。
+    setSessionState(db, 'd', alpha, { status: null, setBy: 'user' });
+    expect(searchSessions(db, { q: 'channels', status: 'active' }).total).toBe(1);
+  });
+  it('確かめるは、状態の無い行に残った提案だけを数える。提案のある行は Active にも入る', () => {
+    const other = idOf(SESSION_OTHER);
+    expect(searchSessions(db, { q: 'hello', status: 'proposed' }).total).toBe(0);
+    proposeSessionState(db, 'd', other, { status: 'done', note: '直して push した', returnOn: null, source: 'post_hoc' });
+    expect(searchSessions(db, { q: 'hello', status: 'proposed' }).total).toBe(1);
+    expect(searchSessions(db, { q: 'hello', status: 'active' }).total).toBe(1);
+  });
+  it('状態があれば提案は無いものとし、論理削除済みの行は無いものとする', () => {
+    const other = idOf(SESSION_OTHER);
+    setSessionState(db, 'd', other, { status: 'done', setBy: 'user' });
+    // 書き込みの経路は状態を書くと提案を消すが、同期で両方が揃った行を想定して直に足す。
+    db.prepare("update session_states set candidate_status = 'done', candidate_note = 'x', candidate_source = 'post_hoc', candidate_at = 1 where session_id = ?").run(other);
+    expect(searchSessions(db, { q: 'hello', status: 'proposed' }).total).toBe(0);
+    expect(searchSessions(db, { q: 'hello', status: 'done' }).total).toBe(1);
+    expect(searchSessions(db, { q: 'hello', status: 'active' }).total).toBe(0);
+    // 行が論理削除されたら、状態も提案も無い Active に戻る。
+    db.prepare('update session_states set deleted_at = 1 where session_id = ?').run(other);
+    expect(searchSessions(db, { q: 'hello', status: 'done' }).total).toBe(0);
+    expect(searchSessions(db, { q: 'hello', status: 'proposed' }).total).toBe(0);
+    expect(searchSessions(db, { q: 'hello', status: 'active' }).total).toBe(1);
+  });
+  it('「すべて」で条件を入れたとき（hideArchived）は Archived を除き、Archived のタブなら出す', () => {
+    setSessionState(db, 'd', idOf(SESSION_ALPHA), { status: 'archived', setBy: 'user' });
+    expect(searchSessions(db, { q: 'channels' }).total).toBe(1);
+    expect(searchSessions(db, { q: 'channels', hideArchived: true }).total).toBe(0);
+    expect(searchSessions(db, { q: '', file: 'a.md', hideArchived: true }).total).toBe(0);
+    expect(searchSessions(db, { q: 'channels', status: 'archived', hideArchived: true }).total).toBe(1);
+  });
+  it('Active は動きを見ない。動いていても止まっていても、状態が無ければ入り、状態があれば入らない', () => {
+    const alpha = idOf(SESSION_ALPHA);
+    const running = (sid: string) => (sid === alpha ? 'running' as const : 'ended' as const);
+    expect(searchSessions(db, { q: 'channels', status: 'active' }).total).toBe(1);
+    expect(searchSessions(db, { q: 'channels', status: 'active' }, running).total).toBe(1);
+    setSessionState(db, 'd', alpha, { status: 'done', setBy: 'user' });
+    expect(searchSessions(db, { q: 'channels', status: 'active' }, running).total).toBe(0);
+    // 動きの条件と重ねれば、動いている Active だけに絞れる。
+    setSessionState(db, 'd', alpha, { status: null, setBy: 'user' });
+    expect(searchSessions(db, { q: 'channels', status: 'active', live: 'running' }, running).total).toBe(1);
+    expect(searchSessions(db, { q: 'channels', status: 'active', live: 'running' }).total).toBe(0);
   });
 });
 

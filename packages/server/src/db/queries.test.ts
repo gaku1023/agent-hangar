@@ -8,6 +8,7 @@ import { softDeleteShared, upsertShared } from './shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from '../../test/fixtures.ts';
+import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 import { LOCK_STALE_MS, displayName, getProject, getSession, listDevices, listProjects, listSessions } from './queries.ts';
 
 let dir: string;
@@ -300,5 +301,117 @@ describe('実行中のセッションの activity', () => {
   it('実行中でも、呼び出しがまだ無ければ null', () => {
     db.prepare('delete from session_activity').run();
     expect(listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!.activity).toBeNull();
+  });
+});
+
+describe('セッションの状態', () => {
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+  it('行が無ければ null、あれば状態と提案を載せ、rejected_at は載せない', () => {
+    expect(getSession(db, [], alphaId())!.state).toBeNull();
+    proposeSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日 CPU を見る', returnOn: '2026-10-02', source: 'exit', now: 500 });
+    expect(getSession(db, [], alphaId())!.state).toEqual({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: { status: 'paused', note: '明日 CPU を見る', returnOn: '2026-10-02', returnTime: null, source: 'exit', at: 500 } });
+    rejectSessionState(db, 'd', alphaId(), 600);
+    const rejected = getSession(db, [], alphaId())!.state!;
+    expect(rejected.candidate).toBeNull();
+    expect(Object.keys(rejected)).not.toContain('rejectedAt');
+    setSessionState(db, 'd', alphaId(), { status: 'done', note: '直した', setBy: 'conversation', now: 700 });
+    expect(listSessions(db, []).find((s) => s.id === alphaId())!.state).toEqual({ status: 'done', note: '直した', returnOn: null, returnTime: null, setBy: 'conversation', setAt: 700, candidate: null });
+  });
+  it('状態を付けても一覧の件数と並びは変わらない', () => {
+    const before = listSessions(db, []).map((s) => s.id);
+    setSessionState(db, 'd', alphaId(), { status: 'archived', setBy: 'user' });
+    expect(listSessions(db, []).map((s) => s.id)).toEqual(before);
+  });
+});
+
+describe('区切りを付けて休みのまま残っているセッション（parked）', () => {
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+  // 登録の procStart は UTC の ps の lstart で、秒までしか持たない。
+  const PROC_START = 'Fri Oct  2 02:30:05 2026';
+  const STARTED = Date.UTC(2026, 9, 2, 2, 30, 5);
+  const idle = (o: Partial<LiveSessionDto> = {}): LiveSessionDto[] => [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/Users/me/workspace/alpha', pid: 1, procStart: PROC_START, ...o }];
+  const addRun = (o: { id: string; started: number; ended?: number; reason?: string }) =>
+    upsertShared(db, 'runs', { id: o.id, session_id: alphaId(), device_id: 'd', kind: 'start', tmux_name: `hangar-${o.id}`, pid: null, launch_params: '{}', started_at: o.started, ended_at: o.ended ?? null, end_reason: o.reason ?? null, heartbeat_at: o.started }, 'd');
+
+  it('印が付いていて、休みで、プロセスの起動が印より前なら真', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: STARTED + 60_000 });
+    expect(getSession(db, idle(), alphaId())!.parked).toBe(true);
+    expect(listSessions(db, idle()).find((s) => s.id === alphaId())!.parked).toBe(true);
+  });
+  it('印なし、作業中、入力待ち、動いていないものは偽', () => {
+    expect(getSession(db, idle(), alphaId())!.parked).toBe(false);
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'user', now: STARTED + 60_000 });
+    expect(getSession(db, idle({ status: 'busy' }), alphaId())!.parked).toBe(false);
+    expect(getSession(db, idle({ status: 'waiting' }), alphaId())!.parked).toBe(false);
+    expect(getSession(db, [], alphaId())!.parked).toBe(false);
+  });
+  it('印より後に起動したプロセス（再開したもの）は偽', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: STARTED - 60_000 });
+    expect(getSession(db, idle(), alphaId())!.parked).toBe(false);
+  });
+  it('登録に起動時刻が無ければ、生きた run の始まりで比べる', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 5000 });
+    const noStart = idle();
+    delete noStart[0]!.procStart;
+    // run も無ければ分からないので偽。
+    expect(getSession(db, noStart, alphaId())!.parked).toBe(false);
+    addRun({ id: 'r-old', started: 1000, ended: 2000, reason: 'exited' });
+    expect(getSession(db, noStart, alphaId())!.parked).toBe(false);
+    addRun({ id: 'r-alive', started: 3000 });
+    expect(getSession(db, noStart, alphaId())!.parked).toBe(true);
+  });
+  it('生きた run の始まりは、この端末の run だけを見る。他の端末に残った行で止めない', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 5000 });
+    const noStart = idle();
+    delete noStart[0]!.procStart;
+    upsertShared(db, 'runs', { id: 'r-other', session_id: alphaId(), device_id: 'other', kind: 'start', tmux_name: 'hangar-r-other', pid: null, launch_params: '{}', started_at: 3000, ended_at: null, end_reason: null, heartbeat_at: 3000 }, 'other');
+    expect(getSession(db, noStart, alphaId(), { deviceId: 'd' })!.parked).toBe(false);
+    expect(listSessions(db, noStart, { deviceId: 'd' }).find((s) => s.id === alphaId())!.parked).toBe(false);
+    addRun({ id: 'r-mine', started: 3000 });
+    expect(getSession(db, noStart, alphaId(), { deviceId: 'd' })!.parked).toBe(true);
+  });
+  it('導入時の一括 Done は偽', () => {
+    db.prepare("insert into session_states (session_id, status, set_by, set_at, updated_at, origin_device) values (?, 'done', 'import', ?, ?, 'import')").run(alphaId(), STARTED + 60_000, STARTED + 60_000);
+    expect(getSession(db, idle(), alphaId())!.state!.status).toBe('done');
+    expect(getSession(db, idle(), alphaId())!.parked).toBe(false);
+  });
+  it('再開した run が生きていれば、登録に起動時刻が無くても偽', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 5000 });
+    addRun({ id: 'r-resumed', started: 6000 });
+    const noStart = idle();
+    delete noStart[0]!.procStart;
+    expect(getSession(db, noStart, alphaId())!.parked).toBe(false);
+  });
+});
+
+describe('区切りを付けたので止めたセッション（stoppedByStatus）', () => {
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+  const addRun = (o: { id: string; started: number; ended?: number; reason?: string }) =>
+    upsertShared(db, 'runs', { id: o.id, session_id: alphaId(), device_id: 'd', kind: 'start', tmux_name: `hangar-${o.id}`, pid: null, launch_params: '{}', started_at: o.started, ended_at: o.ended ?? null, end_reason: o.reason ?? null, heartbeat_at: o.started }, 'd');
+
+  it('最後の run が parked で終わり、印が残っていれば真', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 1500 });
+    addRun({ id: 'r1', started: 1000, ended: 2000, reason: 'parked' });
+    expect(getSession(db, [], alphaId())!.stoppedByStatus).toBe(true);
+  });
+  it('印が無ければ偽', () => {
+    addRun({ id: 'r1', started: 1000, ended: 2000, reason: 'parked' });
+    expect(getSession(db, [], alphaId())!.stoppedByStatus).toBe(false);
+  });
+  it('止めた後に付け直した印では偽。その印のために止めたのではない', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 1500 });
+    addRun({ id: 'r1', started: 1000, ended: 2000, reason: 'parked' });
+    setSessionState(db, 'd', alphaId(), { status: null, setBy: 'user', now: 2500 });
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'user', now: 3000 });
+    expect(getSession(db, [], alphaId())!.stoppedByStatus).toBe(false);
+  });
+  it('ほかの理由で終わった run と、その後に起こした run では偽', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'user', now: 1500 });
+    addRun({ id: 'r1', started: 1000, ended: 2000, reason: 'killed' });
+    expect(getSession(db, [], alphaId())!.stoppedByStatus).toBe(false);
+    addRun({ id: 'r2', started: 3000, ended: 4000, reason: 'parked' });
+    expect(getSession(db, [], alphaId())!.stoppedByStatus).toBe(true);
+    addRun({ id: 'r3', started: 5000 });
+    expect(getSession(db, [], alphaId())!.stoppedByStatus).toBe(false);
   });
 });

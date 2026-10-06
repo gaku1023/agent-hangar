@@ -1,7 +1,7 @@
 import type { LiveStatus, ProjectStatus, SessionDto } from '@agent-hangar/shared';
 import { KEYMAP, type KeyId } from '../keys.ts';
 import type { State } from '../mediator/types.ts';
-import { liveFilterOfSession, nextWaitingSession, runningSessionIds, type Store } from '../store/store.ts';
+import { liveFilterOfSession, nextWaitingSession, runningSessionIds, shownLive, type Store } from '../store/store.ts';
 import { durationLabel, relativeTime } from './format.ts';
 import { newSessionTarget } from './newSession.ts';
 
@@ -61,9 +61,10 @@ export function fuzzyScore(query: string, text: string): number {
 /** 右端に添える語。入力待ちは待った長さ、作業中は動き始めてからの長さ、休みは最後の返答からの長さ、終わったものは最後の活動の時期。 */
 function sessionMeta(s: SessionDto, running: boolean, now: number): string {
   const since = (ts: number | null) => durationLabel(now - (ts ?? now));
-  if (s.live === 'waiting') return `${since(s.lastActivityAt)}待っている`;
-  if (s.live === 'busy') return `作業中 ${since(s.startedAt)}`;
-  if (s.live === 'idle') return `休み ${since(s.lastActivityAt)}`;
+  const live = shownLive(s);
+  if (live === 'waiting') return `${since(s.lastActivityAt)}待っている`;
+  if (live === 'busy') return `作業中 ${since(s.startedAt)}`;
+  if (live === 'idle') return `休み ${since(s.lastActivityAt)}`;
   // hangar の run は生きているが、Claude の一覧にまだ載っていないもの。
   if (running) return '起動しています';
   return relativeTime(s.lastActivityAt, now);
@@ -96,7 +97,7 @@ export function presentPalette(state: State, store: Store, query: string, now: n
 
   // セッションは状態で 3 つに分ける。入力待ちは実行中に含めない（用語の D1）。
   const sessions = byRecency(Object.values(store.sessions));
-  const sessionItem = (s: SessionDto, running: boolean): PaletteItem => ({ id: `session:${s.id}`, label: s.name ?? '（名前なし）', kind: 'session', lead: { kind: 'dot', live: s.live }, sub: projectName(s), meta: sessionMeta(s, running, now), keys: '' });
+  const sessionItem = (s: SessionDto, running: boolean): PaletteItem => ({ id: `session:${s.id}`, label: s.name ?? '（名前なし）', kind: 'session', lead: { kind: 'dot', live: shownLive(s) }, sub: projectName(s), meta: sessionMeta(s, running, now), keys: '' });
   const scoreSession = (s: SessionDto) => fuzzyScore(q, `${s.name ?? '（名前なし）'} ${s.summary?.oneLiner ?? s.firstPrompt ?? ''}`);
   const byState = { waiting: [] as Scored[], running: [] as Scored[], ended: [] as Scored[] };
   for (const s of sessions) {

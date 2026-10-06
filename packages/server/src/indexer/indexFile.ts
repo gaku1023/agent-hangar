@@ -4,7 +4,8 @@ import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { readNewLines } from '../provider/claude-code/lines.ts';
 import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
-import { indexTexts, normalizeRecord, recordFacts } from '../provider/claude-code/normalize.ts';
+import { indexTexts, isTypedPrompt, normalizeRecord, recordFacts } from '../provider/claude-code/normalize.ts';
+import { clearOnNewPrompt } from '../sessions/states.ts';
 import { foldActivity, type Activity } from '../provider/claude-code/activity.ts';
 import { localDay } from '../usage/aggregate.ts';
 import type { DiscoveredFile } from '../provider/types.ts';
@@ -13,8 +14,13 @@ export const INDEXER_VERSION = 1;
 export const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const FTS_MAX_CHARS = 20000;
 
+/**
+ * 利用者が打った発言を出した claude のプロセスの起動時刻（epoch のミリ秒）を引く口。取れなければ null。
+ * 状態を外すのは resume した後の発言だけなので、その見分けに使う。サーバでは sessions/promptProcess.ts を渡す。
+ */
+export type ProcessStartOf = (q: { sessionId: string; providerSessionId: string; promptTs: number }) => number | null;
 /** remote が true なら他端末から降ろした写しである。sessions と session_summaries には書かない。 */
-export type IndexFileOptions = { deviceId: string; indexerVersion?: number; cwdFallback?: string; remote?: boolean };
+export type IndexFileOptions = { deviceId: string; indexerVersion?: number; cwdFallback?: string; remote?: boolean; processStartOf?: ProcessStartOf };
 export type IndexFileResult = { sessionId: string; providerSessionId: string; appended: number; changed: boolean; badLines: number; artifactIds: string[]; skipped: boolean };
 
 type TfRow = { path: string; session_id: string; agent_id: string | null; size: number; mtime: number; indexed_bytes: number; indexer_version: number };
@@ -23,6 +29,8 @@ type TfRow = { path: string; session_id: string; agent_id: string | null; size: 
 type Acc = {
   cwd?: string; firstTs?: number; lastTs?: number; firstPrompt?: string; lastPrompt?: string;
   aiTitle?: string; customTitle?: string; agentName?: string; prUrl?: string; model?: string; effort?: string;
+  /** 利用者が打った発言（isTypedPrompt）のうち、最も新しい時刻。状態を外す合図に使う。 */
+  lastTypedPromptTs?: number;
   userTurns: number; input: number; output: number;
   daily: Map<string, { input: number; output: number }>;
 };
@@ -188,6 +196,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
         if (acc.firstPrompt === undefined) acc.firstPrompt = head;
         acc.lastPrompt = head;
       }
+      if (f.ts !== undefined && isTypedPrompt(p.rec, f)) acc.lastTypedPromptTs = Math.max(acc.lastTypedPromptTs ?? f.ts, f.ts);
       if (f.aiTitle) acc.aiTitle = f.aiTitle;
       if (f.customTitle) acc.customTitle = f.customTitle;
       if (f.agentName) acc.agentName = f.agentName;
@@ -215,6 +224,14 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     if (file.agentId !== null) refreshFilesChanged(db, sessionId);
     else if (remote) writeSessionStats(db, sessionId, acc, reset);
     else applySessionFacts(db, sessionId, acc, reset, opts.deviceId);
+    // 利用者が新しく打った発言があれば、古くなった提案と却下の印を外す。resume した後の発言なら、状態も外して Active に戻す。
+    // 同じプロセスの続きの発言かどうかは、発言を出したプロセスの起動時刻で見分ける。引く口が無ければ状態は外さない。
+    // 手元の主線だけが書く。他端末の写しから外すと、持ち主の PC と同じ書き込みを二重に D1 へ送る。
+    // 作り直しで前からある発言を読み直しても、状態を付けた時刻より前なので外れない。
+    const promptTs = acc.lastTypedPromptTs;
+    if (mainLocal && promptTs !== undefined) {
+      clearOnNewPrompt(db, opts.deviceId, sessionId, promptTs, () => opts.processStartOf?.({ sessionId, providerSessionId: file.sessionId, promptTs }) ?? null);
+    }
     artifactIdsOut = [...artifactIds];
   });
   run();

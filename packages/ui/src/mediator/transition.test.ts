@@ -6,6 +6,7 @@ import { initialState, transition, type State } from './transition.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
 import { liveStep } from './live.ts';
+import { readDraft } from './launch.ts';
 
 function run(inputs: Input[], start: State = initialState()) {
   const effects: unknown[] = [];
@@ -76,10 +77,10 @@ describe('ナビゲーション', () => {
     // 検索したらフォーカスを結果の一覧へ移す。同じ語で検索し直して画面が作り直されないときも移るように、毎回出す。
     expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }, { kind: 'focus', target: 'results' }]);
     const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })], a.state);
-    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画' } }]);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', hideArchived: true, limit: 50 } }]);
     const c = run([intent({ type: 'search.filter', patch: { projectId: 'p1' } })], b.state);
     expect(c.state.search.filter).toEqual({ projectId: 'p1' });
-    expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1' } }]);
+    expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1', hideArchived: true, limit: 50 } }]);
     expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }, { kind: 'focus', target: 'results' }]);
   });
   // 期間は日数のまま効果に載せ、時刻に直すのは問い合わせる瞬間（Runtime）に任せる。
@@ -87,7 +88,7 @@ describe('ナビゲーション', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })]);
     const b = run([intent({ type: 'search.filter', patch: { days: 7 } })], a.state);
     expect(b.state.search.filter).toEqual({ days: 7 });
-    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', days: 7 } }]);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', days: 7, hideArchived: true, limit: 50 } }]);
   });
   it('期間の始まりは、今日の 0 時から数えて日数分さかのぼった 0 時', () => {
     const now = new Date(2026, 9, 1, 15, 30).getTime();
@@ -97,36 +98,28 @@ describe('ナビゲーション', () => {
     expect(toSearchParams({ q: 'x', days: 1, projectId: 'p1' }, now)).toEqual({ q: 'x', projectId: 'p1', since: new Date(2026, 9, 1).getTime() });
     expect(toSearchParams({ q: 'x' }, now)).toEqual({ q: 'x' });
   });
-  // サーバは既定で 50 件までしか返さないので、続きは offset を付けて読み足す。
-  it('search.more は今の条件のまま offset を付けて問い合わせる', () => {
-    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1' } })]);
-    expect(run([intent({ type: 'search.more', offset: 50 })], a.state).effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1', offset: 50 } }]);
-    // 手元で組む一覧には続きが無い。
-    const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
-    expect(run([intent({ type: 'search.more', offset: 50 })], b.state).effects).toEqual([]);
-  });
   // 「条件をクリア」は語と絞り込みをまとめて外し、手元の全件の一覧へ戻す。語は URL にも乗っているので、URL からも外す。
   it('search.clear は語と絞り込みを外し、語の無い一覧の URL へ移る', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1', days: 7, file: 'a.md' } })]);
     const b = run([intent({ type: 'search.clear' })], a.state);
-    expect(b.state.search).toEqual({ text: '', filter: {} });
+    expect(b.state.search).toEqual({ text: '', filter: {}, page: 1 });
     expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
     // 着いた先では手元の一覧を組むので、問い合わせない。
     expect(run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state).effects).toEqual([]);
   });
   it('状態の絞り込みは live としてサーバへ渡す', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { live: 'waiting' } })]);
-    expect(a.effects).toContainEqual({ kind: 'api.search', params: { q: '動画', live: 'waiting' } });
+    expect(a.effects).toContainEqual({ kind: 'api.search', params: { q: '動画', live: 'waiting', hideArchived: true, limit: 50 } });
   });
   // 触ったファイルは手元のセッションに無い情報なので、キーワードが無くてもサーバに問い合わせる。
   it('キーワードが無くても、触ったファイルがあれば検索効果になる', () => {
     const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
     expect(a.effects).toEqual([]);
     const b = run([intent({ type: 'search.filter', patch: { file: 'a.md' } })], a.state);
-    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md' } }]);
+    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true, limit: 50 } }]);
     // ほかの画面から戻ってきたときも、同じ絞り込みで問い合わせ直す。
     const c = run([runtime({ type: 'hash.changed', route: { name: 'home' } }), runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state);
-    expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md' } }]);
+    expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true, limit: 50 } }]);
     // ファイルを外せば手元の一覧に戻るので、問い合わせない。
     expect(run([intent({ type: 'search.filter', patch: { file: undefined } })], b.state).effects).toEqual([]);
     // ほかの絞り込みだけなら、これまでどおり手元で絞る。
@@ -340,42 +333,80 @@ describe('起動', () => {
 describe('新しいセッションの下書きと前回値', () => {
   it('名前か初期プロンプトの書きかけを下書きとして持ち、端末に残す。両方空なら消す', () => {
     const a = run([intent({ type: 'session.new.draft', name: 'API の節', prompt: '' })]);
-    expect(a.state.newSessionDraft).toEqual({ name: 'API の節', prompt: '' });
-    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: { name: 'API の節', prompt: '' } }]);
+    expect(a.state.newSessionDraft).toEqual({ name: 'API の節', prompt: '', attachments: [] });
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: { name: 'API の節', prompt: '', attachments: [] } }]);
     // 同じ中身なら書き直さない。
     expect(run([intent({ type: 'session.new.draft', name: 'API の節', prompt: '' })], a.state).effects).toEqual([]);
     const b = run([intent({ type: 'session.new.draft', name: ' ', prompt: '\n' })], a.state);
     expect(b.state.newSessionDraft).toBeNull();
     expect(b.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: null }]);
   });
+  it('下書きは添付も覚える。名前も本文も空でも、添付があれば残す', () => {
+    const a = { path: '/h/drops/1-0-a.png', name: 'a.png', size: 3 };
+    const r = run([intent({ type: 'session.new.draft', name: '', prompt: '', attachments: [a] })]);
+    expect(r.state.newSessionDraft).toEqual({ name: '', prompt: '', attachments: [a] });
+    expect(r.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: { name: '', prompt: '', attachments: [a] } });
+  });
+  it('添付を付けない下書きの Intent は、添付なしとして扱う', () => {
+    const r = run([intent({ type: 'session.new.draft', name: 'n', prompt: '' })]);
+    expect(r.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [] });
+  });
+  it('readDraft は、古い形（添付なし）を空の添付として読み、形の違う添付は捨てる', () => {
+    expect(readDraft({ name: 'n', prompt: 'p' })).toEqual({ name: 'n', prompt: 'p', attachments: [] });
+    expect(readDraft({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: null }, { path: 1 }, 'x', { path: '/b', name: 'b', size: 2 }] })).toEqual({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: null }, { path: '/b', name: 'b', size: 2 }] });
+    // 空のパスは捨て、同じパスは 1 件にする（手で書き換えられた保存値が、札の key の重複にならないように）。
+    expect(readDraft({ name: 'n', prompt: 'p', attachments: [{ path: '', name: 'e', size: null }, { path: '/a', name: 'a', size: 1 }, { path: '/a', name: 'a2', size: 2 }] })).toEqual({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: 1 }] });
+  });
+  // 閉じた後に終わった送信は、いまの下書きへ添付だけを足す。閉じる前の名前と本文で下書きを置き換えると、開き直したダイアログの書きかけを上書きする。
+  describe('session.new.draft.attach', () => {
+    const a = { path: '/h/drops/1-0-a.png', name: 'a.png', size: 3 };
+    const b = { path: '/h/drops/1-1-b.png', name: 'b.png', size: 4 };
+    it('いまの下書きの名前と本文は残し、添付だけを足して端末に残す', () => {
+      const start = run([intent({ type: 'session.new.draft', name: '開き直して書いた名前', prompt: '新しい本文', attachments: [a] })]);
+      const r = run([intent({ type: 'session.new.draft.attach', attachments: [b] })], start.state);
+      expect(r.state.newSessionDraft).toEqual({ name: '開き直して書いた名前', prompt: '新しい本文', attachments: [a, b] });
+      expect(r.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: { name: '開き直して書いた名前', prompt: '新しい本文', attachments: [a, b] } }]);
+    });
+    it('下書きが無ければ、名前と本文が空の下書きを作る', () => {
+      const r = run([intent({ type: 'session.new.draft.attach', attachments: [a] })]);
+      expect(r.state.newSessionDraft).toEqual({ name: '', prompt: '', attachments: [a] });
+      expect(r.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: { name: '', prompt: '', attachments: [a] } }]);
+    });
+    it('同じパスはもう一度足さない。足すものが無ければ書き直さない', () => {
+      const start = run([intent({ type: 'session.new.draft', name: 'n', prompt: '', attachments: [a] })]);
+      const r = run([intent({ type: 'session.new.draft.attach', attachments: [{ ...a, name: '別名.png' }] })], start.state);
+      expect(r.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [a] });
+      expect(r.effects).toEqual([]);
+    });
+  });
   it('ダイアログから起動し終えたら下書きを消す', () => {
     const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: 'やって' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', prompt: 'やって' } })]);
-    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって', attachments: [] });
     const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
     expect(b.state.newSessionDraft).toBeNull();
     expect(b.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: null });
     // 再開やフォークの完了では、書きかけの下書きに触れない。
     const c = run([intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })]);
-    expect(c.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+    expect(c.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [] });
   });
   // 送った後に Esc で閉じても起動は止まらない。起動し終えたら、送った下書きは役目を終えている。
   it('送信中に閉じても、ダイアログから送った起動が終われば下書きを消す', () => {
     const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: 'やって' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', prompt: 'やって' } }), intent({ type: 'overlay.close' })]);
     expect(a.state.overlay).toEqual({ kind: 'none' });
-    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって', attachments: [] });
     const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
     expect(b.state.newSessionDraft).toBeNull();
     expect(b.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: null });
     expect(b.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's9' } });
     // 一度消したら印も外す。次の再開の完了では、新しく書いた下書きに触れない。
     const c = run([intent({ type: 'session.new.draft', name: '次', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], b.state);
-    expect(c.state.newSessionDraft).toEqual({ name: '次', prompt: '' });
+    expect(c.state.newSessionDraft).toEqual({ name: '次', prompt: '', attachments: [] });
   });
   it('ダイアログから送った起動に失敗したら、閉じていても下書きを残し、印を外す', () => {
     const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n' } }), intent({ type: 'overlay.close' }), runtime({ type: 'launch.failed', message: 'x' })]);
-    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [] });
     const b = run([intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], a.state);
-    expect(b.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+    expect(b.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [] });
   });
   it('起動した詳細をプロジェクトごとの前回値として持ち、端末に残す', () => {
     const a = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: 'wt', addDirs: ['/a'] } })]);
@@ -454,9 +485,10 @@ describe('タブと接続', () => {
     const a = run([intent({ type: 'livePane.split', ratio: 0.3 })]);
     expect(a.state.livePaneSplit).toBe(0.3);
     expect(a.effects).toEqual([{ kind: 'storage.save', key: 'livePane.split', value: 0.3 }]);
-    // 端まで寄せても、上の段と目次のどちらも残す。
-    expect(run([intent({ type: 'livePane.split', ratio: 0.99 })]).state.livePaneSplit).toBe(0.8);
-    expect(run([intent({ type: 'livePane.split', ratio: -1 })]).state.livePaneSplit).toBe(0.2);
+    // 端まで寄せられる。どちらの端でも、見出しの 1 行は CSS の下限で残る。
+    expect(run([intent({ type: 'livePane.split', ratio: 0.99 })]).state.livePaneSplit).toBe(0.99);
+    expect(run([intent({ type: 'livePane.split', ratio: -1 })]).state.livePaneSplit).toBe(0);
+    expect(run([intent({ type: 'livePane.split', ratio: 2 })]).state.livePaneSplit).toBe(1);
     expect(run([intent({ type: 'livePane.split', ratio: Number.NaN })]).state.livePaneSplit).toBe(0.5);
   });
   it('サイドバーの折りたたみは開閉のたびに保存する', () => {
@@ -1492,5 +1524,109 @@ describe('プロジェクトを作る', () => {
   it('パレットの「新しいプロジェクト」で作成のダイアログを開く', () => {
     const { state } = run([intent({ type: 'palette.open' }), intent({ type: 'palette.run', command: { id: 'cmd:new-project', label: '新しいプロジェクト' } })]);
     expect(state.overlay).toEqual({ kind: 'newProject' });
+  });
+});
+
+describe('セッションの状態', () => {
+  it('状態の操作は api 効果になる。本文には渡されたものだけを載せる', () => {
+    const r = run([
+      intent({ type: 'session.state.set', id: 's1', status: 'done' }),
+      intent({ type: 'session.state.set', id: 's1', status: 'paused', note: '明日見る', returnOn: '2026-10-02' }),
+      intent({ type: 'session.state.set', id: 's1', status: null }),
+      intent({ type: 'session.state.confirm', id: 's1' }),
+      intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05' }),
+      intent({ type: 'session.state.reject', id: 's1' }),
+      intent({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' }),
+      intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05', returnTime: '21:50' }),
+    ]);
+    expect(r.effects).toEqual([
+      { kind: 'api.setSessionState', id: 's1', body: { status: 'done' } },
+      { kind: 'api.setSessionState', id: 's1', body: { status: 'paused', note: '明日見る', returnOn: '2026-10-02' } },
+      { kind: 'api.setSessionState', id: 's1', body: { status: null } },
+      { kind: 'api.confirmSessionState', id: 's1', body: {} },
+      { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05' } },
+      { kind: 'api.rejectSessionState', id: 's1' },
+      { kind: 'api.setSessionState', id: 's1', body: { status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' } },
+      { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05', returnTime: '21:50' } },
+    ]);
+    expect(r.state).toEqual(initialState());
+  });
+  it('Paused の入力を開いて閉じる。そのセッションへ送ったら閉じる', () => {
+    const opened = run([intent({ type: 'session.pause.open', id: 's1', from: 'candidate' })]);
+    expect(opened.state.overlay).toEqual({ kind: 'pause', sessionId: 's1', from: 'candidate' });
+    expect(run([intent({ type: 'session.pause.close' })], opened.state).state.overlay).toEqual({ kind: 'none' });
+    expect(run([intent({ type: 'overlay.close' })], opened.state).state.overlay).toEqual({ kind: 'none' });
+    expect(run([intent({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02' })], opened.state).state.overlay).toEqual({ kind: 'none' });
+    expect(run([intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-02' })], opened.state).state.overlay).toEqual({ kind: 'none' });
+    // 別のセッションへの操作では閉じない。
+    expect(run([intent({ type: 'session.state.set', id: 's2', status: 'done' })], opened.state).state.overlay).toEqual({ kind: 'pause', sessionId: 's1', from: 'candidate' });
+  });
+  it('入力のあるダイアログの上には開かない', () => {
+    const busy: State = { ...initialState(), overlay: { kind: 'promote', sessionId: 's9' } };
+    expect(run([intent({ type: 'session.pause.open', id: 's1', from: 'menu' })], busy).state.overlay).toEqual({ kind: 'promote', sessionId: 's9' });
+  });
+});
+
+describe('アカウント', () => {
+  const effectsOf = (i: Extract<Input, { kind: 'intent' }>['intent'], start: State = initialState()) => run([intent(i)], start).effects;
+  it('読み込み、選択、更新、ログイン、ログインの取り消し、取り直しは、それぞれの Effect を 1 つ出す', () => {
+    expect(effectsOf({ type: 'accounts.load' })).toEqual([{ kind: 'api.accounts.load' }]);
+    expect(effectsOf({ type: 'account.choose', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.setCurrent', accountId: 'a1' }]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '研究室', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室', color: '#7a4a9e' } }]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
+    expect(effectsOf({ type: 'account.login', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.login', accountId: 'a1' }]);
+    expect(effectsOf({ type: 'account.login.cancel', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.cancelLogin', accountId: 'a1' }]);
+    expect(effectsOf({ type: 'account.refresh', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.refresh', accountId: 'a1' }]);
+  });
+  it('更新の名前は前後の空白を落とし、空になれば patch に入れず、patch が空なら Effect を出さない', () => {
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '  研究室 ' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室' } }]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ' })).toEqual([]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1' })).toEqual([]);
+  });
+  it('追加は名前の前後の空白を落とし、空白だけなら何も出さない', () => {
+    expect(effectsOf({ type: 'account.add', name: '  大学 ' })).toEqual([{ kind: 'api.accounts.add', name: '大学' }]);
+    const blank = run([intent({ type: 'account.add', name: '   ' })]);
+    expect(blank.effects).toEqual([]);
+    expect(blank.state).toEqual(initialState());
+  });
+  it('切り替えは confirmed が無ければ確認（作業中の印を運ぶ）で止まり、Effect を出さない', () => {
+    const a = run([intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true })]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true } });
+    expect(a.state.launch).toEqual({ kind: 'idle' });
+    expect(a.effects).toEqual([]);
+  });
+  it('切り替えを承諾したら、確認を閉じ、launch を submitting にして Effect を 1 つ出す', () => {
+    const asked = run([intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false })]);
+    const b = run([intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true })], asked.state);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    expect(b.state.launch).toEqual({ kind: 'submitting' });
+    expect(b.effects).toEqual([{ kind: 'api.accounts.switchSession', sessionId: 's1', accountId: 'a1' }]);
+  });
+  it('送信中の切り替え（承諾）は何もしない', () => {
+    const busy: State = { ...initialState(), launch: { kind: 'submitting' } };
+    const r = run([intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true })], busy);
+    expect(r.effects).toEqual([]);
+    expect(r.state).toEqual(busy);
+  });
+  it('削除は confirmed が無ければ確認、あれば確認を閉じて Effect を出す', () => {
+    const asked = run([intent({ type: 'account.remove', accountId: 'a1' })]);
+    expect(asked.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'removeAccount', accountId: 'a1' } });
+    expect(asked.effects).toEqual([]);
+    const done = run([intent({ type: 'account.remove', accountId: 'a1', confirmed: true })], asked.state);
+    expect(done.state.overlay).toEqual({ kind: 'none' });
+    expect(done.effects).toEqual([{ kind: 'api.accounts.remove', accountId: 'a1' }]);
+  });
+  it('切り替えの結果：成功で画面はそのセッションへ、失敗でトーストと failed。確認を閉じた後でも成り立つ', () => {
+    const submitted = run([
+      intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false }),
+      intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true }),
+    ]).state;
+    const ok = run([runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], submitted);
+    expect(ok.state.launch).toEqual({ kind: 'idle' });
+    expect(ok.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    const ng = run([runtime({ type: 'launch.failed', message: '同じアカウントです' })], submitted);
+    expect(ng.state.launch).toEqual({ kind: 'failed', message: '同じアカウントです' });
+    expect(ng.effects).toEqual([{ kind: 'toast', level: 'error', message: '同じアカウントです' }]);
   });
 });

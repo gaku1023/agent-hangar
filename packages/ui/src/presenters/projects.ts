@@ -6,9 +6,10 @@ import { relativeTime, STATUS_LABEL } from './format.ts';
 
 /**
  * excerpt はカードの 2 行の抜粋で、要約を優先し、無ければ雑音を除いた発言にする（excerpt.ts）。
- * excerptFromPrompt は抜粋を発言から取ったことを表し、カードはその旨を小さく添える。
+ * excerptFromPrompt は抜粋を発言から取ったことを表し、カードは抜粋の title にその旨を持つ。
+ * pathLabel はカードに出すパスで、出すまでもないとき（ワークスペース直下で、フォルダ名がプロジェクト名と同じ）は null にする。
  */
-export type ProjectCardProps = { id: string; name: string; path: string | null; resolved: boolean; status: ProjectStatus; lastActivity: string; runningCount: number; waitingCount: number; openTodoCount: number; memoHead: string | null; excerpt: string; excerptFromPrompt: boolean };
+export type ProjectCardProps = { id: string; name: string; path: string | null; pathLabel: string | null; resolved: boolean; status: ProjectStatus; lastActivity: string; runningCount: number; waitingCount: number; openTodoCount: number; memoHead: string | null; excerpt: string; excerptFromPrompt: boolean };
 
 /** 抜粋が取れなかったカードの文。セッションが 1 件も無いときと、あっても要約も意味のある発言も無いときで分ける。 */
 const NO_SESSIONS = 'セッションはまだありません';
@@ -31,11 +32,26 @@ export function liveCountsOf(store: Store, projectId: string, alive: Set<string>
   return { running, waiting };
 }
 
+/**
+ * カードに出すパス。
+ * ワークスペースの下にあるものは、ワークスペースからの相対で出す。どのカードも同じ頭（/Users/…/workspace/）で始まり、違いのある末尾が省略で消えるからである。
+ * 相対がプロジェクト名と同じなら、名前の繰り返しになるので出さない（null）。
+ * ワークスペースの外にあるものは、そのまま出す（View が頭を省略して末尾を残す）。
+ * フォルダ名は NFD で届くことがあるので、比べるときは NFC にそろえる。
+ */
+export function cardPathLabel(path: string | null, name: string, workspaceRoot: string): string | null {
+  if (path === null) return 'この PC にパスがありません';
+  const root = workspaceRoot.replace(/\/+$/, '');
+  if (root === '' || !path.startsWith(`${root}/`)) return path;
+  const rel = path.slice(root.length + 1);
+  return rel.normalize('NFC') === name.normalize('NFC') ? null : rel;
+}
+
 export function presentProjectCard(p: ProjectDto, store: Store, now: number, alive: Set<string> = runningSessionIds(store)): ProjectCardProps {
   const mine = Object.values(store.sessions).filter((s) => s.projectId === p.id);
   const ex = cardExcerpt(mine);
   const counts = liveCountsOf(store, p.id, alive);
-  return { id: p.id, name: p.name, path: p.path, resolved: p.resolved, status: p.status, lastActivity: relativeTime(p.lastActivityAt, now), runningCount: counts.running, waitingCount: counts.waiting, openTodoCount: p.openTodoCount, memoHead: p.memoHead, excerpt: ex?.text ?? (mine.length === 0 ? NO_SESSIONS : NO_SUMMARY), excerptFromPrompt: ex?.fromPrompt ?? false };
+  return { id: p.id, name: p.name, path: p.path, pathLabel: cardPathLabel(p.path, p.name, store.settings?.workspaceRoot ?? ''), resolved: p.resolved, status: p.status, lastActivity: relativeTime(p.lastActivityAt, now), runningCount: counts.running, waitingCount: counts.waiting, openTodoCount: p.openTodoCount, memoHead: p.memoHead, excerpt: ex?.text ?? (mine.length === 0 ? NO_SESSIONS : NO_SUMMARY), excerptFromPrompt: ex?.fromPrompt ?? false };
 }
 
 export function presentProjects(_state: State, store: Store, now: number, filter: string, showArchived: boolean): ProjectsProps {

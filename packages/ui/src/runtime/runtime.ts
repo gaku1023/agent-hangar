@@ -1,17 +1,19 @@
-import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type AccountsDto, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
+import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
-import { clampLivePaneSplit, LIVE_PANE_SPLIT_KEY, SIDEBAR_KEY } from '../mediator/sidebar.ts';
+import { clampLivePaneSplit, cleanSidebarOrder, LIVE_PANE_SPLIT_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
+import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
 import { NO_QUESTION } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, appendSearch, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, liveSessionIds, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import type { Notifier } from './notifier.ts';
@@ -76,6 +78,9 @@ const COPY_FAILED = 'コピーできませんでした。文字を選んで ⌘C
 const AROUND_BEFORE = 100;
 
 /** Mediator の効果を実行し、サーバとブラウザの出来事を入力に変える。 */
+/** 先の戻る時点を見直す間隔の上限。 */
+const RETURN_RECHECK_MAX_MS = 12 * 60 * 60_000;
+
 export function createRuntime(deps: RuntimeDeps): Runtime {
   let state = initialState();
   // React が読む状態。present が commit を呼ぶまで、前に描いた state のままでいる。
@@ -87,7 +92,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const notify = () => { for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
   const present = deps.present ?? ((c: () => void) => c());
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); syncWaiting(); } };
+  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); syncWaiting(); syncLive(); syncReturns(); } };
   /**
    * 入力待ちのセッションが変わったら Mediator へ届ける。
    * live.update はプロバイダの id で届くので、hangar のセッションへの引き当てはストアを持つここで行う。
@@ -100,6 +105,46 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (key === waitingKey) return;
     waitingKey = key;
     dispatch({ kind: 'runtime', event: { type: 'waiting.changed', ids } });
+  }
+  /**
+   * 動いているセッションの顔ぶれが変わったら Mediator へ届ける。サイドバーの「動いている」の並びに、初めて現れたものを書き足すためである（mediator/sidebar.ts の sidebarLiveStep）。
+   * 並びの順ではなく顔ぶれで比べる。ストアは本文が伸びるたびに変わるので、そのたびには送らない。
+   */
+  let liveKey = '';
+  function syncLive(): void {
+    const ids = liveSessionIds(store);
+    const key = [...ids].sort().join('\n');
+    if (key === liveKey) return;
+    liveKey = key;
+    dispatch({ kind: 'runtime', event: { type: 'live.changed', ids } });
+  }
+  /**
+   * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
+   * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。
+   * 予約は次の時点が変わったときだけ入れ直す。ストアは本文が伸びるたびに変わるので、そのたびに積むと予約が溜まる。
+   * 予約は取り消せないので、古い予約は世代の番号で空振りさせる。
+   */
+  let returnDueKey = '';
+  let returnTimerAt: number | null = null;
+  let returnTimerGen = 0;
+  function syncReturns(): void {
+    // bootstrap の前はセッションが空で、過ぎたものが無いように見える。そこで届けると、覚えてある鍵を消してしまう。
+    if (!store.bootstrapped) return;
+    const now = clock();
+    const keys = dueReturnKeys(store.sessions, now);
+    const key = keys.join('\n');
+    if (key !== returnDueKey) {
+      returnDueKey = key;
+      dispatch({ kind: 'runtime', event: { type: 'return.due', keys } });
+    }
+    const next = nextReturnAt(store.sessions, now);
+    if (next === returnTimerAt) return;
+    returnTimerAt = next;
+    const gen = ++returnTimerGen;
+    if (next === null) return;
+    // 予約が少し早く走っても取りこぼさないよう、走ったら予約を忘れてから見直す（まだ過ぎていなければ入れ直す）。
+    // 何日も先の時点は、タイマーの上限（約 24 日）を越えないよう 12 時間ごとに見直す。
+    deps.setTimeout(() => { if (gen !== returnTimerGen) return; returnTimerAt = null; syncReturns(); }, Math.min(next - now, RETURN_RECHECK_MAX_MS));
   }
   const notifier = deps.notifier;
   let unsubNotify: (() => void) | null = null;
@@ -128,6 +173,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * 付録（送れなかった本文と取り残しの件数）は HTTP も websocket も運ぶので、型は両方とも SyncStatusBody である。
    */
   const syncStatus = (status: SyncStatusBody) => dispatch({ kind: 'server', event: { type: 'sync.status', status } });
+  /** アカウントの応答も同じく、accounts.update の経路に載せる。 */
+  const accountsUpdated = (accounts: AccountsDto) => dispatch({ kind: 'server', event: { type: 'accounts.update', accounts } });
 
   /** サブエージェントの一覧を 1 回だけ取る。
    * 本文の読み込みと同じ経路で呼ぶが、ページを継ぎ足すたびに取り直す必要はない。
@@ -259,12 +306,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const seq = ++searchSeq;
         // 期間の日数は、送るこの瞬間の時刻で since に直す。
         const params = toSearchParams(e.params, (deps.now ?? Date.now)());
+        // 読んでいる間も持っている行は消さない。届いたら、そのページの行に入れ替える。
         setStore(applySearch(store, params, store.search.result, true));
-        // offset の付いた問い合わせは続きなので、持っている結果の後ろに足す。
-        const more = (params.offset ?? 0) > 0;
-        // 失敗したら読み込み中を解く。解かないと「さらに読み込む」が押せないまま残る。
+        // 失敗したら読み込み中を解く。解かないとページ送りが「検索しています」のまま残る。
         deps.api.search(params)
-          .then((r) => { if (seq === searchSeq) setStore(more ? appendSearch(store, params, r) : applySearch(store, params, r, false)); })
+          .then((r) => { if (seq === searchSeq) setStore(applySearch(store, params, r, false)); })
           .catch((err) => { if (seq === searchSeq) setStore(applySearch(store, store.search.params ?? params, store.search.result, false)); fail(err); });
         return;
       }
@@ -390,6 +436,15 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         notifier.show({ sessionId: s.id, title: s.name ?? '（名前なし）', body: s.activity?.question ?? NO_QUESTION });
         return;
       }
+      case 'notify.return': {
+        // 窓が前にあるときは右下の札で足りる（入力待ちと同じ）。
+        if (!notifier || !state.notify.on || !notifier.background()) return;
+        const s = store.sessions[e.sessionId];
+        if (!s) return;
+        const time = s.state?.returnTime;
+        notifier.show({ sessionId: s.id, title: s.name ?? '（名前なし）', body: `戻る時刻 ${time ?? ''} を過ぎました${s.state?.note ? ` · ${s.state.note}` : ''}` });
+        return;
+      }
       case 'notify.request':
         if (!notifier) return;
         notifier.request().then(async (granted) => {
@@ -417,6 +472,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.confirmTodo': deps.api.confirmTodo(e.id).catch(fail); return;
       case 'api.rejectTodo': deps.api.rejectTodo(e.id).catch(fail); return;
+      // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
+      case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
+      case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
+      case 'api.rejectSessionState': deps.api.rejectSessionState(e.id).catch(fail); return;
       case 'api.removeTodo': deps.api.removeTodo(e.id).catch(fail); return;
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
       // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。
@@ -440,6 +499,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.shellHook().then((h) => setStore({ ...store, shellHook: h })).catch(fail);
         deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
         deps.api.retention().then((r) => setStore({ ...store, retention: r })).catch(fail);
+        // アカウントの認証は、この呼び出しで読まれる（節に出るメールとプラン）。
+        // アカウントの口が無い古いサーバでは 404 になる。節に出すものが無いだけなので、失敗は握って黙る。
+        deps.api.accounts().then(accountsUpdated).catch(() => {});
+        // 一時停止の間はサーバが取りに行かず最後の値を返すので、ここでは状態を見ずに頼んでよい。
+        deps.api.syncUsage(true).then((u) => setStore({ ...store, cloudUsage: u })).catch(fail);
         loadReadiness();
         // LM Studio が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
         deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));
@@ -500,6 +564,22 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           if (r.token !== null) deps.setTimeout(() => { if (store.joinToken === r.token) setStore(applyJoinToken(store, null)); }, JOIN_TOKEN_TTL_MS);
         }).catch(fail);
         return;
+      case 'api.accounts.load': deps.api.accounts().then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.setCurrent': deps.api.setCurrentAccount(e.accountId).then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.switchSession': deps.api.switchAccount(e.sessionId, e.accountId).then(launched).catch(launchFailed); return;
+      case 'api.accounts.add':
+        // 追加の直後にログインを始める。新しいアカウントは応答の末尾の 1 件である。
+        deps.api.addAccount(e.name).then((accounts) => {
+          accountsUpdated(accounts);
+          const added = accounts.accounts.at(-1);
+          if (added) deps.api.loginAccount(added.id).catch(fail);
+        }).catch(fail);
+        return;
+      case 'api.accounts.update': deps.api.updateAccount(e.accountId, e.patch).then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.remove': deps.api.removeAccount(e.accountId).then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.login': deps.api.loginAccount(e.accountId).catch(fail); return;
+      case 'api.accounts.cancelLogin': deps.api.cancelAccountLogin(e.accountId).then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.refresh': deps.api.refreshAccount(e.accountId).then(accountsUpdated).catch(fail); return;
       default: {
         // 効果を足したときに処理を忘れると、ここで型が合わなくなる。
         const _exhaustive: never = e;
@@ -542,10 +622,19 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // ここでは取りに行かず、次に本文を読むときに取り直させる。
       // 本文を読むのは画面に出ているセッションだけなので、見ていないセッションの分は無駄に取らない。
       if (input.event.type === 'transcript.appended') subagentsAsked.delete(input.event.sessionId);
+      // ホームの実行中の札は意図の 1 行を出す。見ている間に動いたセッションの分を取り直す（loadLive が 1 秒に 1 回までにまとめる）。
+      if (state.screen.name === 'home') {
+        if (input.event.type === 'transcript.appended') loadLive(input.event.sessionId);
+        else if (input.event.type === 'session.upsert') loadLive(input.event.session.id);
+        else if (input.event.type === 'run.started') loadLive(input.event.run.sessionId);
+      }
     }
+    const wasHome = state.screen.name === 'home';
     const r = transition(state, input);
     if (r.state !== state) { const prev = shown; state = r.state; present(commit, prev, state); }
     for (const eff of r.effects) runEffect(eff);
+    // ホームへ入ったら、動いているセッションの意図をまとめて取りに行く。
+    if (!wasHome && state.screen.name === 'home') for (const run of Object.values(store.runs)) if (run.endedAt === null) loadLive(run.sessionId);
   }
 
   return {
@@ -567,7 +656,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
-        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, livePaneSplit: clampLivePaneSplit(deps.storage.get(LIVE_PANE_SPLIT_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
+        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)), livePaneSplit: clampLivePaneSplit(deps.storage.get(LIVE_PANE_SPLIT_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
+        pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
+        // 知らせ終えた戻る時点。開き直しても同じ時点を 2 度知らせない。
+        returnSeen: readReturnSeen(deps.storage.get(RETURN_SEEN_KEY)),
         // 新しいセッションの書きかけと前回値。形の違う値（手で書き換えられたなど）は捨てる。
         newSessionDraft: readDraft(deps.storage.get(NEW_SESSION_DRAFT_KEY)), launchPrefs: readLaunchPrefs(deps.storage.get(LAUNCH_PREFS_KEY)),
       };
@@ -606,7 +698,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         wrote = null;
         dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
       });
-      unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); }) ?? null;
+      unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); }) ?? null;
       unsubVisible = deps.onWindowVisible?.(recheckNotify) ?? null;
       ws.connect();
     },

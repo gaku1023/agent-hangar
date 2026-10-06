@@ -46,4 +46,12 @@ describe('ClaudeHeadlessSummarizer', () => {
     await expect(new ClaudeHeadlessSummarizer({ claudeBin: '/c', hourlyCap: 20, usage: () => usage(null), spawn: async () => ({ code: 0, stdout: JSON.stringify({ result: 'x' }), stderr: '' }) }).summarize(CANNED_INPUT)).rejects.toThrow(/structured_output/);
     await expect(new ClaudeHeadlessSummarizer({ claudeBin: null, hourlyCap: 20, usage: () => usage(null), spawn: spawnOk }).summarize(CANNED_INPUT)).rejects.toThrow(/claude/);
   });
+  it('structured_output の状態の提案を要約に添え、--json-schema にも項目を載せる', async () => {
+    const so = { ...good.structured_output, proposed_status: 'done', proposed_note: '直して main に入れた', proposed_return_in_days: 0 };
+    const spawnWith: SpawnText = async () => ({ code: 0, stdout: JSON.stringify({ ...good, structured_output: so }), stderr: '' });
+    const spawn = vi.fn(spawnWith);
+    const out = await new ClaudeHeadlessSummarizer({ claudeBin: '/c', hourlyCap: 20, usage: () => usage(null), spawn }).summarize(CANNED_INPUT);
+    expect(out.proposal).toEqual({ status: 'done', note: '直して main に入れた', returnInDays: null });
+    expect(JSON.parse(spawn.mock.calls[0]![1][6]!).required).toEqual(expect.arrayContaining(['proposed_status', 'proposed_note', 'proposed_return_in_days']));
+  });
 });

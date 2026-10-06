@@ -3,8 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { which } from '../src/config/tools.ts';
 
-/** tmux の絶対パス。無ければ null で、tmux に依存するテストは describe.skipIf(!TMUX) で飛ばす。 */
-export const TMUX: string | null = which('tmux');
+/**
+ * tmux の絶対パス。無ければ null で、tmux に依存するテストは describe.skipIf(!TMUX) で飛ばす。
+ * Windows では常に null にする。ここを使う試験は sh や bash を前提に書いてあり、後始末で kill-server を呼ぶ。
+ * psmux の kill-server は利用者のセッションまで落とすので、psmux を相手にする試験は tmux/psmux.win.test.ts に分けてある。
+ */
+export const TMUX: string | null = process.platform === 'win32' ? null : which('tmux');
 
 /** 作ったソケットの置き場。ワーカーが終わるときにまとめて消す。 */
 const socketDirs: string[] = [];

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sessions 画面の絞り込み 9 案</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f6f7fb; --surface: #fff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88; --accent: #4a63e8; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff; --hit: #fff3c4;
+  --font: 'Inter', 'Hiragino Sans', sans-serif; --mono: 'JetBrains Mono', Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 28px 80px; font: 13px/1.45 var(--font); color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
+h1 { font-size: 20px; margin: 0 0 4px; } .lead { color: var(--ink-2); margin: 0 0 12px; max-width: 1120px; }
+.ctl { position: sticky; top: 0; z-index: 5; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 10px 0; background: var(--bg); }
+.ctl .lb { font-size: 12px; color: var(--ink-3); }
+.seg { display: inline-flex; gap: 2px; padding: 2px; background: #e6e8f0; border-radius: 8px; }
+.seg span, .seg button { border: 0; background: none; font: inherit; padding: 3px 9px; border-radius: 6px; font-size: 12px; color: var(--ink-2); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; white-space: nowrap; }
+.seg .on { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.opt { margin: 0 0 26px; background: var(--surface); border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; cursor: pointer; }
+.opt.selected { box-shadow: 0 0 0 2px var(--accent); }
+.opt.rec { box-shadow: inset 0 0 0 1px var(--line), 0 0 0 3px var(--accent-soft); }
+.opt-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; padding: 12px 16px 10px; border-bottom: 1px solid var(--line); }
+.opt-head h3 { margin: 0; font-size: 14px; } .opt-head h3 b { color: var(--accent); margin-right: 6px; }
+.opt-head p { margin: 4px 0 0; color: var(--ink-2); font-size: 12px; }
+.tally { font-size: 11.5px; color: var(--ink-2); text-align: right; white-space: nowrap; line-height: 1.6; }
+.tally b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.body { display: flex; justify-content: center; padding: 14px 0 0; background: repeating-linear-gradient(90deg, #fafbfd, #fafbfd 10px, #f6f7fb 10px, #f6f7fb 20px); }
+.screen { width: 1000px; max-width: 100%; background: var(--surface); box-shadow: 0 0 0 1px var(--line); border-radius: 10px 10px 0 0; transition: width .3s; overflow: hidden; }
+.narrow .screen { width: 690px; }
+.page-h { padding: 14px 18px 10px; font-size: 18px; font-weight: 700; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 8px; }
+.page-h small { font-size: 12px; color: var(--ink-3); font-weight: 400; }
+.top { padding: 12px 18px 4px; }
+.kw { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 8px 4px 12px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); margin-bottom: 12px; flex-wrap: wrap; }
+.kw .ph { color: var(--ink-3); } .kw .typed { color: var(--ink); }
+.kw .tag { height: 18px; padding: 0 6px; border-radius: 5px; font-size: 11px; font-weight: 600; background: var(--surface-2); color: var(--ink-3); line-height: 18px; margin-left: auto; }
+.tok { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border-radius: 6px; font: 11.5px var(--mono); background: var(--accent-soft); color: var(--accent); }
+.tok.st { background: var(--st-paused-soft); color: var(--st-paused); }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
+.lbx { height: 28px; padding: 0 10px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line-strong); display: inline-flex; align-items: center; gap: 6px; font-size: 12px; background: #fff; white-space: nowrap; }
+.inp { height: 28px; width: 150px; padding: 0 10px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line-strong); display: inline-flex; align-items: center; font-size: 12px; color: var(--ink-3); }
+.flab { font-size: 11px; color: var(--ink-3); }
+.cond { display: flex; align-items: center; gap: 8px; margin: -4px 0 10px; font-size: 12px; color: var(--ink-2); }
+.cond b { color: var(--ink); } .cond .clr { color: var(--accent); font-weight: 560; } .cond .cnt { margin-left: auto; font-size: 11px; color: var(--ink-3); }
+.tabs { display: flex; gap: 2px; padding: 0 18px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tab { padding: 9px 10px 8px; font-size: 12.5px; color: var(--ink-2); border-bottom: 2px solid transparent; white-space: nowrap; display: inline-flex; gap: 5px; align-items: center; }
+.tab.on { color: var(--ink); font-weight: 600; border-color: var(--accent); }
+.tab .n { color: var(--ink-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.tab .n.hot { color: #fff; background: var(--cand); border-radius: 99px; padding: 0 6px; font-size: 10.5px; font-weight: 600; }
+.sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13.5px; color: var(--ink-2); margin-bottom: 12px; line-height: 2; }
+.slot { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; border-radius: 7px; background: var(--surface-2); color: var(--ink); font-weight: 600; box-shadow: inset 0 -1px 0 var(--line-strong); }
+.slot.set { background: var(--accent-soft); color: var(--accent); }
+.split { display: grid; grid-template-columns: 170px minmax(0, 1fr); }
+.narrow .split { grid-template-columns: 52px minmax(0, 1fr); }
+.side { border-right: 1px solid var(--line); padding: 10px 6px; background: #fbfbfd; }
+.si { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: 7px; font-size: 12.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; }
+.si.on { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.si .n { margin-left: auto; font-size: 11px; color: var(--ink-3); }
+.si .n.hot { color: #fff; background: var(--cand); border-radius: 99px; padding: 0 6px; }
+.narrow .si .t, .narrow .si .n { display: none; }
+.narrow .si { justify-content: center; padding: 0; }
+.grid { display: inline-grid; grid-template-columns: auto repeat(5, auto); gap: 0; font-size: 11.5px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line-strong); overflow: hidden; margin-bottom: 12px; }
+.grid > span { padding: 4px 10px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.grid > span.h { color: var(--ink-3); font-weight: 600; text-align: left; background: #fafbfd; }
+.grid > span.z { color: #c9c8d6; } .grid > span.on { background: var(--hit); color: var(--ink); font-weight: 600; }
+.tg { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; font-size: 12px; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.tg .sw { width: 26px; height: 15px; border-radius: 99px; background: #d4d6e0; position: relative; }
+.tg .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #fff; }
+.tg.on .sw { background: var(--accent); } .tg.on .sw::after { left: 13px; }
+/* rows */
+.list { border-top: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: 12px minmax(0,1fr) auto; gap: 12px; align-items: center; height: 52px; padding: 0 18px; border-bottom: 1px solid var(--line); }
+.row .main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row .name { font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .name .pj { font-weight: 400; color: var(--ink-3); font-size: 11px; margin-left: 6px; }
+.row .sub { font-size: 11.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 6px; align-items: center; }
+.row .rs { font-size: 11px; color: var(--ink-3); display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ended); display: inline-block; flex: none; }
+.dot.busy { background: var(--busy); } .dot.waiting { background: var(--waiting); }
+.live { font-size: 11px; font-weight: 600; } .live.busy { color: var(--busy); } .live.waiting { color: var(--waiting); }
+.sq { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600; flex: none; }
+.sq[data-s=active] { color: var(--st-active); background: var(--st-active-soft); } .sq[data-s=paused] { color: var(--st-paused); background: var(--st-paused-soft); } .sq[data-s=done] { color: var(--st-done); background: var(--st-done-soft); } .sq[data-s=archived] { color: var(--st-archived); background: var(--st-archived-soft); }
+.sq.click { cursor: pointer; box-shadow: 0 0 0 1px currentColor; }
+.when { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 99px; font-size: 10.5px; font-weight: 600; color: var(--st-paused); box-shadow: inset 0 0 0 1px var(--st-paused); flex: none; }
+.when.due { color: #fff; background: var(--st-paused); box-shadow: none; }
+.cand { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 99px; font-size: 11px; font-weight: 600; color: var(--cand); box-shadow: inset 0 0 0 1px var(--cand); flex: none; }
+.more { width: 22px; height: 22px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink-3); font-weight: 700; }
+.hit { background: var(--hit); border-radius: 3px; padding: 0 2px; color: var(--ink); }
+.sec { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 18px; font-size: 12px; font-weight: 650; color: var(--ink-2); border-bottom: 1px solid var(--line); background: #fafbfd; }
+.sec .n { font-weight: 400; color: var(--ink-3); } .sec .chev { margin-left: auto; color: var(--accent); font-weight: 500; font-size: 11.5px; }
+.sd { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.sd[data-s=paused] { background: var(--st-paused); } .sd[data-s=done] { background: var(--st-done); } .sd[data-s=active] { background: var(--st-active); } .sd[data-s=none] { box-shadow: inset 0 0 0 1.5px var(--ink-3); } .sd[data-s=cand] { background: var(--cand); border-radius: 50%; } .sd[data-s=archived] { background: var(--st-archived); } .sd[data-s=all] { background: var(--ink-3); border-radius: 50%; }
+.foot { padding: 10px 18px; font-size: 12px; color: var(--ink-3); } .foot a { color: var(--accent); }
+.fade { height: 26px; background: linear-gradient(var(--surface), transparent); }
+.note { margin: 0 0 18px; padding: 12px 16px; background: var(--surface); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); max-width: 1120px; color: var(--ink-2); font-size: 12.5px; }
+.note b { color: var(--ink); }
+</style>
+</head>
+<body>
+<h1>Sessions 画面の絞り込み：9 案を同じデータで比べる</h1>
+<p class="lead">どの案も同じデータで描いています（導入後の想定：Done 1,221、Paused 4（うち今日戻る 1）、提案中 3、Active 2（うち入力待ち 1）、印なし 3、Archived 5）。上の切替で、窓の幅（広い 1280px／狭い 900px）と、条件の有無（既定／「30 日以内に『動画』」で絞った後）を変えられます。各案の右上には、静止時に見えている操作部品の数と、3 つの場面に要る手数を書きました。</p>
+<div class="note"><b>Fable の整理</b>：「動きは操作部品にしない（行の丸い点だけ）、状態は Segmented にしない」。同じ形の部品が 2 本並ぶから混ざる、という見立てです。入力待ちと実行中は Home がすでに出しているので、<b>A1 と F 以外の案は動きの切替を外してあります</b>。今は Listbox 1・Segmented 2・入力欄 2 の計 5 部品です。<br><b>場面</b>：① 30 日以内に「動画」を扱った会話を探す　② Paused を全部見渡す　③ 提案 3 件を片付ける（どの案も最後に 1 件ずつ「札 → 確定」の 2 手 × 3 が加わります）</div>
+<div class="ctl"><span class="lb">窓の幅</span><span class="seg" id="w"><button class="on" data-v="wide">広い（1280）</button><button data-v="narrow">狭い（900）</button></span><span class="lb">条件</span><span class="seg" id="c"><button class="on" data-v="0">既定</button><button data-v="1">「30 日以内に『動画』」で絞った後</button></span></div>
+<div id="opts"></div>
+<script>
+const ROWS = [
+  { n: '新規プロジェクトの UI', pj: 'agent-hangar', sub: 'Finder での確認を待っている', t: '3 分前', live: 'waiting', st: 'active' },
+  { n: 'セッションの状態の協議', pj: 'agent-hangar', sub: '絞り込みの案を試作している', t: 'いま', live: 'busy', st: 'active' },
+  { n: 'Worker の同期の再開', pj: 'agent-hangar', sub: 'CPU の数字を見て同期を戻す', t: '1 日前', st: 'paused', when: '今日', due: 1 },
+  { n: 'NFD のフォルダ名', pj: 'agent-hangar', sub: 'normalizeDir で直して push', t: '2 時間前', cand: 'Done にする？' },
+  { n: '動画の書き出しを速くする', pj: 'my-voice-box', sub: 'ffmpeg の並列を 4 に', t: '5 時間前', cand: 'Paused · 明日？', hitw: '動画' },
+  { n: 'E2E の待ち時間', pj: 'seller-data-hub', sub: '待ちを 30 秒から 10 秒へ', t: '6 時間前', cand: 'Done にする？' },
+  { n: 'Backspace で戻る動きを止める', pj: 'agent-hangar', sub: '直したが手で確かめていない', t: '8 時間前' },
+  { n: 'パルクールの動画チャンネル研究', pj: '金剛山プロジェクト', sub: 'Windows で続きをやる', t: '2 日前', st: 'paused', when: '金曜', hitw: '動画' },
+  { n: 'レスポンシブの監査', pj: 'agent-hangar', sub: '崩れを拾い直した', t: '12 時間前', st: 'done' },
+  { n: '動画の字幕を自動で付ける', pj: 'my-voice-box', sub: 'whisper の large で試した', t: '9 日前', st: 'done', hitw: '動画' },
+];
+const hl = (s, w) => w && s.includes(w) ? s.replace(w, `<span class="hit">${w}</span>`) : s;
+function row(r, o = {}) {
+  const sq = r.st && r.st !== 'active' ? `<span class="sq ${o.clickSq ? 'click' : ''}" data-s="${r.st}">${r.st[0].toUpperCase() + r.st.slice(1)}</span>` : '';
+  const live = r.live ? `<span class="live ${r.live}">${r.live === 'busy' ? '実行中' : '入力待ち'}</span>` : '';
+  const when = r.when ? `<span class="when ${r.due ? 'due' : ''}">${r.when}</span>` : '';
+  return `<div class="row"><span class="dot ${r.live || ''}"></span><div class="main"><div class="name">${hl(r.n, o.q)}<span class="pj">${r.pj}</span></div><div class="sub">${when}${hl(r.sub, o.q)}</div></div><div class="rs">${live}${r.cand ? `<span class="cand">${r.cand}</span>` : ''}${sq}<span>${r.t}</span><span class="more">⋯</span></div></div>`;
+}
+const qRows = () => ROWS.filter((r) => r.hitw);
+const list = (rows, o) => `<div class="list">${rows.map((r) => row(r, o)).join('')}</div>`;
+const kw = (filled, extra = '') => `<div class="kw">🔍 ${filled ? '<span class="typed">動画</span>' : '<span class="ph">キーワード（空なら全件）</span>'}${extra}<span class="tag">本文</span></div>`;
+const proj = '<span class="lbx">すべてのプロジェクト ▾</span>';
+const period = (on) => `<span class="seg">${['全期間', '今日', '7 日', '30 日'].map((p) => `<span class="${p === (on || '全期間') ? 'on' : ''}">${p}</span>`).join('')}</span>`;
+const file = '<span class="inp">触ったファイル</span>';
+const cond = (txt, n) => `<div class="cond">⚲ <span>${txt}</span><span class="clr">× 解除</span><span class="cnt">${n} 件</span></div>`;
+const head = (n) => `<div class="page-h">セッション <small>${n}</small></div>`;
+const secs = (o = {}) => {
+  const by = (f) => ROWS.filter(f);
+  let h = '';
+  h += `<div class="sec"><span class="sd" data-s="paused"></span>今日戻る <span class="n">1</span></div>` + by((r) => r.due).map((r) => row(r, o)).join('');
+  h += `<div class="sec"><span class="sd" data-s="cand"></span>確かめる <span class="n">3</span><span class="chev">${o.secOnly ? 'この節だけ見る ▸' : ''}</span></div>` + by((r) => r.cand).map((r) => row(r, o)).join('');
+  h += `<div class="sec"><span class="sd" data-s="active"></span>いま動いている <span class="n">2</span></div>` + by((r) => r.live).map((r) => row(r, o)).join('');
+  h += `<div class="sec"><span class="sd" data-s="paused"></span>Paused <span class="n">3</span><span class="chev">${o.secOnly ? 'この節だけ見る ▸' : ''}</span></div>` + by((r) => r.st === 'paused' && !r.due).map((r) => row(r, o)).join('');
+  h += `<div class="sec"><span class="sd" data-s="none"></span>印なし <span class="n">3</span></div>` + by((r) => !r.st && !r.cand && !r.live).map((r) => row(r, o)).join('');
+  h += `<div class="sec"><span class="sd" data-s="done"></span>Done <span class="n">1,221</span><span class="chev">ほか 1,218 件 ▸</span></div>` + by((r) => r.st === 'done').map((r) => row(r, o)).join('');
+  return `<div class="list">${h}</div><div class="foot">Archived 5 件 · <a>しまったものも見せる</a></div>`;
+};
+const tabsBar = (on = 'すべて') => `<div class="tabs">${[['すべて', '1,236', 'all'], ['確かめる', '3', 'cand', 1], ['Paused', '4', 'paused'], ['Active', '2', 'active'], ['印なし', '3', 'none'], ['Done', '1,221', 'done'], ['Archived', '5', 'archived']].map(([l, n, s, hot]) => `<span class="tab ${l === on ? 'on' : ''}"><span class="sd" data-s="${s}"></span>${l} <span class="n ${hot ? 'hot' : ''}">${n}</span></span>`).join('')}</div>`;
+
+const OPTS = [
+  { k: 'A1', h: '（前回の D1）動き・状態の 2 本の切替', p: '比べるための基準です。動きの切替をそのまま残し、その下に状態の切替を足します。', parts: 6, cost: ['① 2 手', '② 1 手', '③ 提案の絞りがないので Home へ'],
+    r: (c) => head(c ? '3 件' : '1,236 件') + `<div class="top">${kw(c)}<div class="filters">${proj}${period(c ? '30 日' : '')}${file}</div><div class="filters"><span class="flab">動き</span><span class="seg"><span class="on">すべて</span><span><i class="dot waiting"></i>入力待ち</span><span><i class="dot busy"></i>実行中</span><span>止まっている</span></span></div><div class="filters"><span class="flab">状態</span><span class="seg"><span class="on">Archived 以外</span><span>Paused</span><span>Done</span><span>印なし</span><span>Archived</span><span>すべて</span></span></div>${c ? cond('キーワード <b>動画</b> · 期間 <b>30 日</b>', 3) : ''}</div>` + list(c ? qRows() : ROWS) },
+  { k: 'A', h: '件数つきの見出しタブ', p: '検索欄の上に、状態のタブを件数つきで並べます。提案が溜まるとタブの数字が紫に灯ります。動きの切替は外します。', parts: 5, cost: ['① 2 手', '② 1 手', '③ 1 手（確かめるタブ）'],
+    r: (c) => head(c ? '3 件' : '1,236 件') + tabsBar() + `<div class="top">${kw(c)}<div class="filters">${proj}${period(c ? '30 日' : '')}${file}</div>${c ? cond('キーワード <b>動画</b> · 期間 <b>30 日</b>', 3) : ''}</div>` + list(c ? qRows() : ROWS) },
+  { k: 'B', h: '条件を文で組む', p: '「[Archived 以外] のセッションを [すべてのプロジェクト] から、[全期間]」の角括弧の語を押して変えます。絞り込みの段と条件の行が 1 本になります。', parts: 4, cost: ['① 3 手（語を押して選ぶ）', '② 2 手', '③ 2 手（[確かめる] を選ぶ）'],
+    r: (c) => head(c ? '3 件' : '1,236 件') + `<div class="top">${kw(c)}<div class="sentence"><span class="slot ${''}">Archived 以外</span>のセッションを<span class="slot">すべてのプロジェクト</span>から、<span class="slot ${c ? 'set' : ''}">${c ? '30 日以内' : '全期間'}</span>、触ったファイルは<span class="slot">どれでも</span>${c ? '<span style="margin-left:auto;font-size:11px;color:var(--ink-3)">3 件</span>' : ''}</div></div>` + list(c ? qRows() : ROWS) },
+  { k: 'C', h: '検索欄の中のトークン', p: '<code>is:paused</code> <code>is:proposed</code> <code>since:30d</code> <code>project:hangar</code> <code>file:rows.css</code> を欄に打つとチップになります。部品は欄 1 本だけです。<code>is:running</code> で動きにも絞れます。', parts: 1, cost: ['① 1 回の打鍵列', '② 1 回の打鍵列（is:paused）', '③ 1 回の打鍵列（is:proposed）'],
+    r: (c) => head(c ? '3 件' : '1,236 件') + `<div class="top"><div class="kw">🔍 ${c ? '<span class="tok">since:30d</span><span class="typed">動画</span>' : '<span class="ph">キーワード、または is:paused · is:proposed · since:7d · project: · file:</span>'}<span class="tag">本文</span></div>${c ? cond('キーワード <b>動画</b> · 期間 <b>30 日</b>', 3) : ''}</div>` + list(c ? qRows() : ROWS) },
+  { k: 'D', h: '左の細い面に決まった見方（受信箱型）', p: '画面の左に、今日戻る・確かめる・Paused・Active・すべて・Done・Archived を件数つきで並べます。狭い窓では印だけの細い列に縮みます。', parts: 5, cost: ['① 2 手', '② 1 手', '③ 1 手'],
+    r: (c) => head(c ? '3 件' : '1,236 件') + `<div class="split"><div class="side">${[['今日戻る', '1', 'paused'], ['確かめる', '3', 'cand', 1], ['Paused', '4', 'paused'], ['Active', '2', 'active'], ['すべて', '1,236', 'all', 0, 1], ['Done', '1,221', 'done'], ['Archived', '5', 'archived']].map(([l, n, s, hot, on]) => `<div class="si ${on ? 'on' : ''}"><span class="sd" data-s="${s}"></span><span class="t">${l}</span><span class="n ${hot ? 'hot' : ''}">${n}</span></div>`).join('')}</div><div><div class="top">${kw(c)}<div class="filters">${proj}${period(c ? '30 日' : '')}${file}</div>${c ? cond('キーワード <b>動画</b> · 期間 <b>30 日</b>', 3) : ''}</div>${list(c ? qRows() : ROWS)}</div></div>` },
+  { k: 'E', h: '行の札を押して絞る', p: '状態の部品は持たず、行の四角の札や提案の札を押すと、その状態で絞ります（条件の行にチップが入ります）。単独では入口がないので、ほかの案の補助として使います。', parts: 3, cost: ['① 2 手', '② Paused の行が見えていれば 1 手', '③ 提案の行が見えていれば 1 手'],
+    r: (c) => head(c ? '3 件' : '1,236 件') + `<div class="top">${kw(c)}<div class="filters">${proj}${period(c ? '30 日' : '')}${file}</div>${c ? cond('キーワード <b>動画</b> · 期間 <b>30 日</b>', 3) : '<div class="cond" style="color:var(--ink-3)">行の札（<span class="sq click" data-s="paused">Paused</span> など）を押すと、その状態で絞ります</div>'}</div>` + list(c ? qRows() : ROWS, { clickSq: true }) },
+  { k: 'F', h: '動き × 状態の格子', p: '動き 3 段 × 状態 5 列の小さな表に件数を出し、マスや見出しを押して絞ります。2 つの軸が別物であることを形で示します。', parts: 5, cost: ['① 2 手', '② 1 手（Paused の列見出し）', '③ 格子に提案がないので別の入口が要る'],
+    r: (c) => head(c ? '3 件' : '1,236 件') + `<div class="top">${kw(c)}<div class="filters">${proj}${period(c ? '30 日' : '')}${file}</div><div class="grid"><span class="h"></span><span class="h">印なし</span><span class="h">Active</span><span class="h">Paused</span><span class="h">Done</span><span class="h">Archived</span><span class="h"><i class="dot waiting"></i> 入力待ち</span><span class="z">0</span><span>1</span><span class="z">0</span><span class="z">0</span><span class="z">0</span><span class="h"><i class="dot busy"></i> 実行中</span><span class="z">0</span><span>1</span><span class="z">0</span><span class="z">0</span><span class="z">0</span><span class="h">止まっている</span><span>6</span><span class="z">0</span><span>4</span><span>1,221</span><span>5</span></div>${c ? cond('キーワード <b>動画</b> · 期間 <b>30 日</b>', 3) : ''}</div>` + list(c ? qRows() : ROWS) },
+  { k: 'G', h: '節で読む一覧（プロジェクト画面と同じ形）', p: '条件がないときは、今日戻る → 確かめる → いま動いている → Paused → 印なし → Done（直近）の節で並べます。検索語や条件が入ると節は消えて平らな結果になります。状態の部品は持ちません。', parts: 4, cost: ['① 2 手（節は消える）', '② 0 手（節で見える。全部なら見出しを 1 手）', '③ 0 手（確かめるの節）'],
+    r: (c) => head(c ? '3 件' : '1,236 件') + `<div class="top">${kw(c)}<div class="filters">${proj}${period(c ? '30 日' : '')}${file}</div>${c ? cond('キーワード <b>動画</b> · 期間 <b>30 日</b>', 3) : ''}</div>` + (c ? list(qRows()) : secs({ secOnly: true })) },
+  { k: 'H', h: '2 つの切替だけ', p: '状態の部品を「確かめるものだけ」「しまったものも見せる」の 2 つの切替にまで減らします。Paused の見渡しは Home とプロジェクト画面に任せます。', parts: 5, cost: ['① 2 手', '② Sessions では見渡せない（Home へ）', '③ 1 手'],
+    r: (c) => head(c ? '3 件' : '1,236 件') + `<div class="top">${kw(c)}<div class="filters">${proj}${period(c ? '30 日' : '')}${file}<span class="tg"><span class="sw"></span>確かめるものだけ</span><span class="tg"><span class="sw"></span>しまったものも</span></div>${c ? cond('キーワード <b>動画</b> · 期間 <b>30 日</b>', 3) : ''}</div>` + list(c ? qRows() : ROWS) },
+  { k: '★', rec: 1, h: 'Fable の推奨：G の節＋A のタブ＋C の裏口', p: '条件がないときは G の節で読み、上の A のタブを押すとその節だけを全件に広げます。条件が入ると節は消え、タブは条件に重なります（例：Paused タブ＋「動画」）。欄では <code>is:paused</code> なども受け、タブを押すと欄にもトークンが出ます。行の札を押すとそのタブへ移ります（E）。', parts: 5, cost: ['① 2 手、または 1 回の打鍵列', '② 0 手（全部なら 1 手）', '③ 0 手（全部なら 1 手）'],
+    r: (c) => head(c ? '3 件' : '1,236 件') + tabsBar() + `<div class="top">${kw(c)}<div class="filters">${proj}${period(c ? '30 日' : '')}${file}</div>${c ? cond('キーワード <b>動画</b> · 期間 <b>30 日</b>', 3) : ''}</div>` + (c ? list(qRows(), { clickSq: true }) : secs({ clickSq: true })) },
+];
+let W = 'wide', C = 0;
+function draw() {
+  document.getElementById('opts').innerHTML = OPTS.map((o) => `<div class="opt ${o.rec ? 'rec' : ''} ${W}" data-choice="${o.k}" onclick="if(event.target.closest('.screen'))return;toggleSelect(this)"><div class="opt-head"><div><h3><b>${o.k}</b>${o.h}</h3><p>${o.p}</p></div><div class="tally">静止時の部品 <b>${o.parts}</b>（今は 5）<br>${o.cost.join('<br>')}</div></div><div class="body"><div class="screen">${o.r(C)}</div></div></div>`).join('');
+}
+for (const [id, set] of [['w', (v) => W = v], ['c', (v) => C = +v]]) document.getElementById(id).addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; set(b.dataset.v); [...e.currentTarget.children].forEach((x) => x.classList.toggle('on', x === b)); draw(); });
+draw();
+</script>
+</body>
+</html>

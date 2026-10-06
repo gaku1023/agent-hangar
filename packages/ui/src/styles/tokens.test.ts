@@ -6,9 +6,9 @@ const base = fs.readFileSync(new URL('./base.css', import.meta.url), 'utf8');
 
 describe('tokens.css', () => {
   it('必要なトークンをライトで定義する', () => {
-    for (const t of ['--bg', '--aura-1', '--aura-2', '--surface', '--line', '--ink', '--ink-2', '--ink-3', '--accent', '--accent-hi', '--busy', '--idle', '--waiting', '--ended', '--cand', '--cand-soft', '--font-sans', '--font-mono', '--row-h',
+    for (const t of ['--bg', '--aura-1', '--surface', '--line', '--ink', '--ink-2', '--ink-3', '--accent', '--accent-hi', '--busy', '--idle', '--waiting', '--ended', '--cand', '--cand-soft', '--font-sans', '--font-mono', '--row-h',
       '--dur-fast', '--dur', '--dur-exit', '--ease-out', '--ease-in', '--rise', '--blur-in', '--breathe-period',
-      '--glass-bg', '--glass-blur', '--glass-edge', '--glass-drop', '--r', '--r-lg', '--r-xl', '--r-pill', '--float-gap', '--header-h', '--aura-period']) {
+      '--glass-bg', '--glass-blur', '--glass-edge', '--glass-drop', '--r', '--r-lg', '--r-xl', '--r-pill', '--float-gap', '--header-h']) {
       expect(css, t).toContain(`${t}:`);
     }
   });
@@ -34,6 +34,8 @@ describe('tokens.css', () => {
   it('注記の色は白地で 4.5:1 以上、主ボタンの白い文字は 4.5:1 以上', () => {
     expect(contrast(token('--ink-3'), token('--surface'))).toBeGreaterThanOrEqual(4.5);
     expect(contrast(token('--accent-ink'), token('--accent'))).toBeGreaterThanOrEqual(4.5);
+    // 戻る日の塗りの札（Home の今日戻る）は、黄土の地に白の文字を載せる。
+    expect(contrast(token('--surface'), token('--st-paused'))).toBeGreaterThanOrEqual(4.5);
   });
 });
 
@@ -56,6 +58,19 @@ describe('tokens.css (候補)', () => {
     expect(contrast(token('--ink-2'), token('--cand-soft'))).toBeGreaterThanOrEqual(4.5);
     const workbench = fs.readFileSync(new URL('./workbench.css', import.meta.url), 'utf8');
     expect(workbench).toMatch(/\.todo-cand \.faint\s*\{[^}]*color:\s*var\(--ink-2\)/);
+  });
+});
+
+describe('tokens.css（セッションの状態）', () => {
+  const rows = fs.readFileSync(new URL('./rows.css', import.meta.url), 'utf8');
+  it('塗りの戻る日の札は、--st-paused の地に白い文字で 4.5:1 を超える', () => {
+    expect(rows).toMatch(/\.row-return\[data-due='true'\] \{[^}]*color: #ffffff;[^}]*background: var\(--st-paused\);/);
+    expect(contrast('#ffffff', token('--st-paused'))).toBeGreaterThan(4.5);
+  });
+  it('淡い地の札と枠だけの提案の札の文字も 4.5:1 を超える', () => {
+    for (const [fg, bg] of [['--st-paused', '--st-paused-soft'], ['--st-done', '--st-done-soft'], ['--st-archived', '--st-archived-soft'], ['--cand', '--surface'], ['--cand', '--accent-soft']] as const) {
+      expect(contrast(token(fg), token(bg)), `${fg} / ${bg}`).toBeGreaterThan(4.5);
+    }
   });
 });
 

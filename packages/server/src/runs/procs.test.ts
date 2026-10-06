@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { parseBackgroundedId, parseJobs, realProcOps, sameStartTime } from './procs.ts';
+import { parseBackgroundedId, parseJobs, parseProcStart, realProcOps, sameStartTime } from './procs.ts';
 
 describe('parseBackgroundedId', () => {
   it('名前の有無どちらでも id を拾い、無ければ null', () => {
@@ -30,20 +30,35 @@ describe('sameStartTime', () => {
   });
 });
 
+describe('parseProcStart', () => {
+  it('UTC の ps の lstart を epoch のミリ秒に読む。1 桁の日の空白埋めも読む', () => {
+    expect(parseProcStart('Thu Oct  2 02:30:05 2026')).toBe(Date.parse('2026-10-02T02:30:05.000Z'));
+    expect(parseProcStart('Wed Sep 30 03:01:55 2026 ')).toBe(Date.parse('2026-09-30T03:01:55.000Z'));
+  });
+  it('読めない書式と暦に無い日は null', () => {
+    for (const s of ['', 'garbage', '2026-10-02T02:30:05Z', 'Thu Foo  2 02:30:05 2026', 'Mon Feb 30 00:00:00 2026', 'Thu Oct  2 25:30:05 2026']) expect(parseProcStart(s), s).toBeNull();
+  });
+});
+
 describe('realProcOps', () => {
-  it('起動時刻を読み、SIGTERM で止めて終わるまで待つ', async () => {
-    const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+  it('起動時刻を読み、止めて終わるまで待つ', async () => {
+    // sleep は Windows に無いので、どの OS にもある Node を待たせる。
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' });
     const pid = child.pid!;
     const exited = new Promise((r) => child.on('exit', r));
     try {
-      expect(realProcOps.startTimeOf(pid)).toMatch(/^\w{3} \w{3} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4}$/);
+      // macOS と Linux は ps の lstart、Windows は 100 ナノ秒単位の整数。
+      expect(realProcOps.startTimeOf(pid)).toMatch(process.platform === 'win32' ? /^\d{17,19}$/ : /^\w{3} \w{3} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4}$/);
+      // 読み取りは UTC で行う。手元の時刻帯で読むと、時刻帯の分だけずれる。
+      expect(Math.abs(parseProcStart(realProcOps.startTimeOf(pid)!)! - Date.now())).toBeLessThan(10_000);
       // 子は親が回収するまでゾンビで残るので、回収を待ってから確かめる。
       const done = realProcOps.terminate(pid, 5000);
       await exited;
       expect(await done).toBe(true);
       expect(realProcOps.startTimeOf(pid)).toBeNull();
     } finally {
-      child.kill('SIGKILL');
+      // Windows は SIGKILL を受けない（kill EINVAL）。既定の止め方にする。
+      if (child.exitCode === null && child.signalCode === null) child.kill();
     }
   });
 });

@@ -4,12 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
 import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { BUNDLED_CLOUD_MARKER, cloudBackfill, cloudStatus, defaultCloudDir, joinWorker, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, waitForHealth } from './cloud.ts';
+import { BUNDLED_CLOUD_MARKER, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth } from './cloud.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
+import { expectMode } from '../../server/test/platform.ts';
 
 const ok = (stdout = ''): ExecResult => ({ code: 0, stdout, stderr: '' });
 const device = { id: 'dev-a', name: 'mac', platform: 'darwin' };
@@ -139,7 +140,7 @@ describe('runSetupCloud', () => {
       dbName: 'hangar',
       bucketName: 'hangar-files',
     });
-    expect(fs.statSync(path.join(home, 'cloud.json')).mode & 0o777).toBe(0o600);
+    expectMode(path.join(home, 'cloud.json'), 0o600);
 
     const cmds = w.calls.map((c) => c.args.slice(0, 3).join(' '));
     expect(cmds).toEqual(['whoami', 'd1 info hangar', 'd1 create hangar', 'r2 bucket create', 'deploy --config ' + path.join(home, 'cloud', 'wrangler.jsonc'), 'secret put JOIN_SECRET_HASH']);
@@ -478,7 +479,7 @@ describe('runJoin', () => {
     expect(authSeen).toBeNull();
     expect(got).toMatchObject({ url: 'https://h.workers.dev', joinSecret: 'sec', deviceToken: 'dt', workerName: null, accountId: null, dbName: null, bucketName: null });
     expect(loadCloudConfig(home)).toEqual(got);
-    expect(fs.statSync(path.join(home, 'cloud.json')).mode & 0o777).toBe(0o600);
+    expectMode(path.join(home, 'cloud.json'), 0o600);
 
     // 「どこに繋ごうとしているか」を人に見せてから聞く。
     const out = lines.join('\n');
@@ -1114,5 +1115,141 @@ describe('cloudBackfill', () => {
     expect(out).toContain('参加より前の本文');
     // 床は 0（床なし）になっている。もう一度落としても 0 のままである。
     expect(backfillTranscripts(home)).toEqual({ from: 0 });
+  });
+});
+
+describe('installUsageToken', () => {
+  const ACC = '0123456789abcdef0123456789abcdef';
+  const okJson = (v: unknown) => new Response(JSON.stringify(v), { status: 200 });
+  const cfFetch = (o: { verify?: number; subs?: number; gql?: number; gqlBody?: unknown } = {}) => {
+    const calls: string[] = [];
+    const bodies: string[] = [];
+    const f = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(url);
+      if (typeof init?.body === 'string') bodies.push(init.body);
+      expect(url).not.toContain('tok-secret');
+      expect((init?.headers as Record<string, string>).authorization).toBe('Bearer tok-secret');
+      if (url.endsWith('/tokens/verify')) return o.verify ? new Response('{}', { status: o.verify }) : okJson({ success: true, result: { status: 'active' } });
+      if (url.endsWith('/subscriptions')) return o.subs ? new Response('{}', { status: o.subs }) : okJson({ success: true, result: [] });
+      if (url.endsWith('/graphql')) return o.gql ? new Response('{}', { status: o.gql }) : okJson(o.gqlBody ?? { data: { viewer: { accounts: [{ d1AnalyticsAdaptiveGroups: [] }] } }, errors: null });
+      return new Response('{}', { status: 404 });
+    }) as typeof fetch;
+    return { f, calls, bodies };
+  };
+  /** cloud.json を一時の home に書く。accountId が null なら参加しただけの端末。 */
+  const setupHome = (over: Partial<CloudConfig>) => {
+    const d = dirs();
+    saveCloudConfig(d.home, conf(over));
+    return d;
+  };
+  const SET = { accountId: ACC, workerName: 'hangar' };
+
+  it('確かめてから、二つの secret を標準入力で入れる。argv にトークンを出さない', async () => {
+    const { home, cloudDir } = setupHome(SET);
+    const w = fakeWrangler({ 'secret put': () => ok('Success') });
+    const lines: string[] = [];
+    await installUsageToken({ home, token: 'tok-secret\n', fetch: cfFetch().f, wrangler: w.runner(null, cloudDir), log: (l) => lines.push(l) });
+    expect(w.calls.map((c) => c.args.slice(0, 3))).toEqual([['secret', 'put', 'USAGE_API_TOKEN'], ['secret', 'put', 'CF_ACCOUNT_ID']]);
+    expect(w.calls.map((c) => c.input)).toEqual(['tok-secret\n', `${ACC}\n`]);
+    for (const c of w.calls) expect(c.args.join(' ')).not.toContain('tok-secret');
+    expect(w.calls[0]!.args).toContain('--config');
+    expect(lines.join('\n')).not.toContain('tok-secret');
+  });
+  it('verify が通らなければ入れない', async () => {
+    const { home, cloudDir } = setupHome(SET);
+    const w = fakeWrangler({ 'secret put': () => ok() });
+    await expect(installUsageToken({ home, token: 'tok-secret', fetch: cfFetch({ verify: 401 }).f, wrangler: w.runner(null, cloudDir), log: () => {} })).rejects.toThrow('トークンが有効ではありません');
+    expect(w.calls).toHaveLength(0);
+  });
+  it('権限が足りなければ、足りない権限の名前を言う', async () => {
+    const { home, cloudDir } = setupHome(SET);
+    const w = fakeWrangler({ 'secret put': () => ok() });
+    await expect(installUsageToken({ home, token: 'tok-secret', fetch: cfFetch({ subs: 403 }).f, wrangler: w.runner(null, cloudDir), log: () => {} })).rejects.toThrow('Billing: Read');
+    await expect(installUsageToken({ home, token: 'tok-secret', fetch: cfFetch({ gql: 403 }).f, wrangler: w.runner(null, cloudDir), log: () => {} })).rejects.toThrow('Account Analytics: Read');
+    expect(w.calls).toHaveLength(0);
+  });
+  // GraphQL は権限の誤りを 200 と errors で返すことが多い。状態の番号だけでは通ってしまう。
+  it('GraphQL が 200 でも errors か欠けた data なら、Account Analytics: Read が足りないと言う', async () => {
+    const { home, cloudDir } = setupHome(SET);
+    const w = fakeWrangler({ 'secret put': () => ok() });
+    for (const gqlBody of [
+      { data: null, errors: [{ message: 'not authorized' }] },
+      { data: { viewer: { accounts: [{ d1AnalyticsAdaptiveGroups: null }] } }, errors: [{ message: 'not authorized' }] },
+      { data: { viewer: { accounts: [] } }, errors: null },
+    ]) {
+      await expect(installUsageToken({ home, token: 'tok-secret', fetch: cfFetch({ gqlBody }).f, wrangler: w.runner(null, cloudDir), log: () => {} })).rejects.toThrow('権限が足りません: Account Analytics: Read を付けてください');
+    }
+    expect(w.calls).toHaveLength(0);
+  });
+  it('GraphQL の確かめは、今日の D1 の書き込みをこのアカウントで引く', async () => {
+    const { home, cloudDir } = setupHome(SET);
+    const w = fakeWrangler({ 'secret put': () => ok() });
+    const cf = cfFetch();
+    await installUsageToken({ home, token: 'tok-secret', fetch: cf.f, wrangler: w.runner(null, cloudDir), log: () => {} });
+    const gql = JSON.parse(cf.bodies.find((b) => b.includes('query'))!) as { query: string; variables: { a: string; d: string } };
+    expect(gql.query).toContain('d1AnalyticsAdaptiveGroups(limit:1');
+    expect(gql.query).toContain('rowsWritten');
+    expect(gql.variables.a).toBe(ACC);
+    expect(gql.variables.d).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+  it('参加しただけの端末では、setup した端末で入れるよう案内する', async () => {
+    const { home, cloudDir } = setupHome({ accountId: null, workerName: null });
+    const w = fakeWrangler({});
+    await expect(installUsageToken({ home, token: 'tok-secret', fetch: cfFetch().f, wrangler: w.runner(null, cloudDir), log: () => {} })).rejects.toThrow('setup cloud を実行した PC');
+    expect(w.calls).toHaveLength(0);
+  });
+  it('空のトークンは断る', async () => {
+    const { home, cloudDir } = setupHome(SET);
+    const w = fakeWrangler({});
+    await expect(installUsageToken({ home, token: '  \n', fetch: cfFetch().f, wrangler: w.runner(null, cloudDir), log: () => {} })).rejects.toThrow('トークンが空です');
+  });
+  it('secret の登録に失敗したら、トークンを含まない理由で落ちる', async () => {
+    const { home, cloudDir } = setupHome(SET);
+    const w = fakeWrangler({ 'secret put': () => ({ code: 1, stdout: '', stderr: 'boom' }) });
+    const err = await installUsageToken({ home, token: 'tok-secret', fetch: cfFetch().f, wrangler: w.runner(null, cloudDir), log: () => {} }).catch((e: Error) => e);
+    expect((err as Error).message).toContain('USAGE_API_TOKEN');
+    expect((err as Error).message).not.toContain('tok-secret');
+  });
+  it('setup の続きで入れるのに失敗しても、setup は落とさず、入れ直し方を言う', async () => {
+    const lines: string[] = [];
+    await expect(offerUsageToken(async () => { throw new Error('権限が足りません: Billing: Read を付けてください'); }, (l) => lines.push(l))).resolves.toBeUndefined();
+    expect(lines).toEqual(['権限が足りません: Billing: Read を付けてください', 'あとから npm run hangar -- setup cloud --usage-token で入れ直せます']);
+  });
+  it('setup の続きで入れられたら、何も足さない', async () => {
+    const lines: string[] = [];
+    await offerUsageToken(async () => { lines.push('入れました'); }, (l) => lines.push(l));
+    expect(lines).toEqual(['入れました']);
+  });
+  it('案内は権限を二つ挙げる', () => {
+    expect(USAGE_TOKEN_HELP.join('\n')).toContain('Account Analytics: Read');
+    expect(USAGE_TOKEN_HELP.join('\n')).toContain('Billing: Read');
+  });
+});
+
+describe('runSetupCloud の使用量のトークンの問い', () => {
+  const setIsTTY = (v: boolean | undefined) => Object.defineProperty(process.stdin, 'isTTY', { value: v, configurable: true });
+  const run = async (extra: { skipUsageToken?: boolean }) => {
+    const { home, cloudDir } = dirs();
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('https://hangar.gaku.workers.dev'),
+      'secret put JOIN_SECRET_HASH': () => ok(),
+    });
+    const lines: string[] = [];
+    await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch(0).fetch, sleep: async () => {}, cloudDir, log: (l) => lines.push(l), ...extra });
+    return lines.join('\n');
+  };
+  afterEach(() => { Reflect.deleteProperty(process.stdin, 'isTTY'); vi.restoreAllMocks(); });
+
+  it('端末でないときは尋ねない', async () => {
+    setIsTTY(false);
+    expect(await run({})).not.toContain('API トークン');
+  });
+  it('端末でも skipUsageToken なら尋ねない', async () => {
+    setIsTTY(true);
+    expect(await run({ skipUsageToken: true })).not.toContain('API トークン');
   });
 });

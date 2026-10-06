@@ -4,6 +4,7 @@ import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { checkDirName, exists, makeProjectDir, ProjectCreateError } from './create.ts';
 import { insertProject } from './registry.ts';
+import { isStrictlyUnder } from '../platform/paths.ts';
 import { isUnderScratch, scratchRoot } from './scratch.ts';
 
 /** 昇格の失敗。作る処理と同じ型にして、HTTP の側の扱いをそろえる。 */
@@ -46,7 +47,7 @@ function resolveScratchDir(home: string, from: string): { real: string } | { rea
   } catch {
     return { reason: `${from} が見つかりませんでした` };
   }
-  if (!real.startsWith(realRoot + path.sep)) {
+  if (!isStrictlyUnder(real, realRoot)) {
     return { reason: `${from} はスクラッチの外（${real}）を指しているため、ファイルは移動しませんでした` };
   }
   return { real };

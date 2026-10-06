@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
 import { IntentRoot } from './intent/chain.tsx';
 import { canMoveBehind } from './mediator/screen.ts';
@@ -9,6 +9,7 @@ import { presentOnboarding } from './presenters/onboarding.ts';
 import { presentNewProject } from './presenters/newProject.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
+import { presentPause } from './presenters/pause.ts';
 import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
 import { presentPromote, presentPromoted } from './presenters/promote.ts';
@@ -31,6 +32,7 @@ import { ConfirmDialog } from './views/ConfirmDialog.tsx';
 import { HomeScreen } from './views/HomeScreen.tsx';
 import { NewProjectDialog } from './views/NewProjectDialog.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
+import { PauseDialog } from './views/PauseDialog.tsx';
 import { ProjectScreen } from './views/ProjectScreen.tsx';
 import { ProjectsScreen } from './views/ProjectsScreen.tsx';
 import { PromoteDialog, PromotedDialog } from './views/PromoteDialog.tsx';
@@ -45,6 +47,7 @@ import { blocksSwipe } from './views/swipeTarget.ts';
 import { motionMs } from './views/primitives/motion.ts';
 import { TerminalHostContext } from './views/TerminalPane.tsx';
 import { CopiedContext } from './views/primitives/CommandLine.tsx';
+import { PromptAssistContext, type PromptAssist } from './views/primitives/promptAssist.ts';
 import { ToastStack } from './views/ToastStack.tsx';
 
 /**
@@ -89,6 +92,19 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const unresolvedId = overlay.kind === 'resolveProject' ? overlay.projectId : null;
   const queryCandidates = (name: string) => { if (unresolvedId) (props.api ?? apiFromRuntime(rt)).candidates(unresolvedId, name).then(setCandidates).catch(() => setCandidates([])); };
   useEffect(() => { if (unresolvedId) queryCandidates(store.projects[unresolvedId]?.name ?? ''); else setCandidates([]); }, [unresolvedId]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 初期プロンプト欄がサーバに頼むこと。画面は fetch を呼ばないので、ここで api をつなぐ。
+  // 知らせは、ほかの失敗と同じく server の toast の入力として流す（runtime 内の toast と同じ経路）。
+  const promptAssist = useMemo<PromptAssist>(() => {
+    const api = props.api ?? apiFromRuntime(rt);
+    return {
+      commands: (projectId) => api.promptCommands(projectId),
+      files: (projectId, query) => api.promptFiles(projectId, query),
+      upload: (file) => api.uploadDrop(file, file.name),
+      existing: (paths) => api.existingDrops(paths),
+      notify: (message) => rt.dispatch({ kind: 'server', event: { type: 'toast', level: 'error', message } }),
+    };
+  }, [props.api, rt]);
 
   // パレットの入力の文字は Root が持つ。
   // ダイアログの外へ出ない一時の値なので、Mediator には入れない。
@@ -335,6 +351,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
 
   // 起動ダイアログはプロジェクトが変わったら作り直す。入力欄が非制御で、defaultValue を作り直しでしか変えられないからである。
   const newSession = presentNewSession(state, store, now);
+  // Paused の入力は開くたびに作り直す（札と下書きの初期値を、開いたセッションと入口から取り直すため）。
+  const pause = presentPause(state, store, now);
   const overlays = (
     <>
       {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}
@@ -344,6 +362,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
       {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store)!} />}
+      {pause && <PauseDialog key={`${pause.sessionId}:${pause.from}`} {...pause} />}
       {/* 取り込みの下見は押したときだけ取りに来る一時の値なので、Presenter を通さず store から直に渡す。 */}
       {/* 未解決ダイアログの候補と同じ扱いである。 */}
       {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
@@ -358,7 +377,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     <IntentRoot onIntent={rt.emit}>
       <TerminalHostContext.Provider value={props.terminals}>
         <CopiedContext.Provider value={state.copied}>
-          <Shell {...shell} overlays={overlays}>{body}</Shell>
+          <PromptAssistContext.Provider value={promptAssist}>
+            <Shell {...shell} overlays={overlays}>{body}</Shell>
+          </PromptAssistContext.Provider>
         </CopiedContext.Provider>
       </TerminalHostContext.Provider>
     </IntentRoot>

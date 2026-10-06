@@ -101,4 +101,26 @@ describe('MenuButton', () => {
     fireEvent.click(face);
     expect(screen.queryByRole('menu')).toBeNull();
   });
+  it('打鍵の印のある項目は、その 1 字で選ぶ。修飾付きと押せない項目は選ばない', () => {
+    const onSelect = vi.fn();
+    const off = vi.fn();
+    render(<MenuButton label="状態" items={[{ key: 'd', label: 'Done にする', kbd: 'd', onSelect }, { key: 'a', label: 'Archived にする', kbd: 'a', disabled: 'すでに Archived です', onSelect: off }]} />);
+    fireEvent.click(screen.getByRole('button', { name: '状態' }));
+    expect(screen.getAllByRole('menuitem')[0]!.querySelector('kbd')).toHaveTextContent('d');
+    fireEvent.keyDown(document.activeElement!, { key: 'd', metaKey: true });
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.activeElement!, { key: 'a' });
+    expect(off).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.activeElement!, { key: 'd' });
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+  it('head は項目の前に置く読むだけの段で、フォーカスは最初の項目から始まる', () => {
+    render(<MenuButton label="提案" head={<span>根拠の一文</span>} items={[{ key: 'ok', label: '確定', onSelect: vi.fn() }]} />);
+    fireEvent.click(screen.getByRole('button', { name: '提案' }));
+    const menu = screen.getByRole('menu', { name: '提案' });
+    expect(menu.firstElementChild).toHaveClass('menu-head');
+    expect(menu.firstElementChild).toHaveTextContent('根拠の一文');
+    expect(document.activeElement).toBe(screen.getByRole('menuitem'));
+  });
 });

@@ -1,8 +1,13 @@
-import type { PaletteCommand } from '@agent-hangar/shared';
+import type { PaletteCommand, SessionStatus } from '@agent-hangar/shared';
 import { overlayReplaceable } from './overlay.ts';
 import { canMoveBehind, nextWaitingStep, searchQueryStep } from './screen.ts';
 import { sidebarStep } from './sidebar.ts';
 import type { Input, State, Step } from './types.ts';
+
+/** Paused の入力をそのセッションへ送ったら閉じる。別のセッションへの操作では閉じない。 */
+const closePause = (state: State, id: string): State => (state.overlay.kind === 'pause' && state.overlay.sessionId === id ? { ...state, overlay: { kind: 'none' } } : state);
+/** 状態の本文。渡されたものだけを載せる（省いた理由で、サーバの今の理由を消さないため）。 */
+const stateBody = (i: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }) => ({ status: i.status, ...(i.note !== undefined ? { note: i.note } : {}), ...(i.returnOn !== undefined ? { returnOn: i.returnOn } : {}), ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) });
 
 /** `cmd:new-session` のような項目 ID を種類と残りに割る。 */
 function splitId(id: string): [string, string] {
@@ -67,6 +72,9 @@ export function workbenchStep(state: State, input: Input): Step | null {
     case 'todo.remove': return { state, effects: [{ kind: 'api.removeTodo', id: i.id }] };
     case 'todo.confirm': return { state, effects: [{ kind: 'api.confirmTodo', id: i.id }] };
     case 'todo.reject': return { state, effects: [{ kind: 'api.rejectTodo', id: i.id }] };
+    case 'session.state.set': return { state: closePause(state, i.id), effects: [{ kind: 'api.setSessionState', id: i.id, body: stateBody(i) }] };
+    case 'session.state.confirm': return { state: closePause(state, i.id), effects: [{ kind: 'api.confirmSessionState', id: i.id, body: i.returnOn !== undefined ? { returnOn: i.returnOn, ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) } : {} }] };
+    case 'session.state.reject': return { state, effects: [{ kind: 'api.rejectSessionState', id: i.id }] };
     case 'memo.save': return { state, effects: [{ kind: 'api.saveMemo', projectId: i.projectId, markdown: i.markdown }] };
     case 'session.setMemo': return { state, effects: [{ kind: 'api.setSessionMemo', sessionId: i.id, text: i.text }] };
     case 'artifact.open': return { state, effects: [{ kind: 'api.openArtifact', id: i.id }] };

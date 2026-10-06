@@ -64,6 +64,19 @@ export function highlight(text: string, query: string): Segment[] {
   return [{ text: text.slice(0, i), hit: false }, { text: text.slice(i, i + q.length), hit: true }, { text: text.slice(i + q.length), hit: false }].filter((s) => s.text);
 }
 
+/** 一覧の高さの下限。これより狭いと、行が 1 つも読めない。 */
+export const POPUP_FLOOR = 96;
+
+/** 顔の上、または下に、一覧が使える高さ。顔との隙間と窓の縁を除く。place が上下を決める数と同じである。 */
+export function roomFor(face: { top: number; bottom: number }, viewport: { height: number }, up: boolean): number {
+  return up ? face.top - GAP - EDGE : viewport.height - face.bottom - GAP - EDGE;
+}
+
+/** 開く側の高さに収める一覧の高さ。上限と使える高さの小さいほうだが、下限は割らない（窓が極端に低いときは、はみ出すより読める行を優先する）。 */
+export function fitHeight(face: { top: number; bottom: number }, viewport: { height: number }, up: boolean, max: number): number {
+  return Math.max(POPUP_FLOOR, Math.min(max, roomFor(face, viewport, up)));
+}
+
 /**
  * 一覧を置く位置。顔の直下に置き、下に収まらず上のほうが広ければ上に開く。
  * 上に開くときは bottom で置く。一覧の高さが検索で変わっても、顔から離れないようにするため。
@@ -72,8 +85,8 @@ export function place(face: { top: number; bottom: number; left: number; width: 
   const width = Math.max(face.width, opts.minWidth ?? 0);
   const want = opts.align === 'end' ? face.left + face.width - width : face.left;
   const left = Math.max(EDGE, Math.min(want, viewport.width - width - EDGE));
-  const below = viewport.height - face.bottom - GAP - EDGE;
-  const above = face.top - GAP - EDGE;
+  const below = roomFor(face, viewport, false);
+  const above = roomFor(face, viewport, true);
   const up = popupHeight > below && above > below;
   return up ? { left, width, bottom: viewport.height - face.top + GAP, up } : { left, width, top: face.bottom + GAP, up };
 }

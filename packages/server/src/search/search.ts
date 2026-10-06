@@ -40,7 +40,8 @@ export function likeSnippet(text: string, token: string): string {
  * 検索語が無くても触ったファイルがあれば、そのファイルを触ったセッションを新しい順に返す。
  * このときの件数はそのファイルに触れたイベントの数で、抜粋は持たない。
  * total は条件に合う全件の数で、hits は offset から limit 件だけを持つ。
- * 状態（実行中、入力待ち、終了）の判定は DB に無いので、hangar の id と provider_session_id から状態を返す関数を第三引数で受ける。
+ * セッションの状態（Active・Paused・Done・Archived、提案）は session_states で絞る。Active は状態が無いもので、行の無いセッションも Active である。
+ * 動き（実行中、入力待ち、終了）の判定は DB に無いので、hangar の id と provider_session_id から状態を返す関数を第三引数で受ける。
  * 渡されなければ、どのセッションも終了とみなす。
  */
 export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (sessionId: string, providerSessionId: string) => LiveFilter = () => 'ended'): SearchResultDto {
@@ -66,11 +67,22 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
     where.push("exists (select 1 from event_index e where e.session_id = s.id and e.file_path like ? escape '\\')");
     args.push(likePattern(params.file));
   }
+  // 状態と提案を両方持つ行は、状態を正として提案は無いものとする（spec の「失敗の扱い」。states.ts の visibleCandidate と同じ読み方）。
+  const stateIs = (cond: string) => `exists (select 1 from session_states st where st.session_id = s.id and st.deleted_at is null and ${cond})`;
+  const visibleCandidate = 'st.status is null and st.candidate_at is not null and st.candidate_status is not null and st.candidate_source is not null';
+  if (params.status === 'paused' || params.status === 'done' || params.status === 'archived') { where.push(stateIs('st.status = ?')); args.push(params.status); }
+  if (params.status === 'proposed') where.push(stateIs(visibleCandidate));
+  // Active は状態が無いもの。提案だけの行と、手で Active に戻した行（status が null の行）も入る。
+  if (params.status === 'active') where.push(`not ${stateIs('st.status is not null')}`);
+  // 「すべて」のタブで条件を入れたときは、Archived（試し・失敗）を除く。
+  if (params.hideArchived && params.status === undefined) where.push(`not ${stateIs("st.status = 'archived'")}`);
+  // 動きの絞り込みは、呼ぶ側の liveOf で決める。無ければ liveOf を呼ばない。
+  const keep = (r: { sid: string; psid: string }) => params.live === undefined || liveOf(r.sid, r.psid) === params.live;
   if (!hasText) {
     // 本文の条件が無いので、セッションを直接並べる。件数はそのファイルに触れたイベントの数にする。
     const sql = `select s.id sid, s.provider_session_id psid, (select count(*) from event_index e where e.session_id = s.id and e.file_path like ? escape '\\') n from sessions s where ${where.join(' and ')} order by s.last_activity_at desc`;
     let rows = db.prepare(sql).all(likePattern(params.file!), ...args) as { sid: string; psid: string; n: number }[];
-    if (params.live !== undefined) rows = rows.filter((r) => liveOf(r.sid, r.psid) === params.live);
+    rows = rows.filter(keep);
     return { hits: rows.slice(offset, offset + limit).map((r) => ({ sessionId: r.sid, matchCount: r.n, snippets: [] })), total: rows.length };
   }
   // MATCH があれば索引で候補が絞れるので event_fts を直接結合する。
@@ -80,7 +92,7 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
     : `(select session_id from event_fts f where ${textWhere.join(' and ')} limit ${LIKE_ONLY_SCAN_CAP}) f join sessions s on s.id = f.session_id where ${where.join(' and ')}`;
   const sql = `select s.id sid, s.provider_session_id psid, count(*) n from ${source} group by s.id order by n desc, s.last_activity_at desc`;
   let rows = db.prepare(sql).all(...textArgs, ...args) as { sid: string; psid: string; n: number }[];
-  if (params.live !== undefined) rows = rows.filter((r) => liveOf(r.sid, r.psid) === params.live);
+  rows = rows.filter(keep);
   const total = rows.length;
 
   // snippet() は MATCH した問い合わせでしか使えないので、like だけの経路は本文を取って切り出す。

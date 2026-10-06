@@ -1,6 +1,7 @@
 import type { LiveFilter } from './liveFilter.ts';
 import type { StepKind } from './steps.ts';
 import type { TranscriptEvent } from './transcript.ts';
+import type { SessionStateDto, SessionStatus } from './sessionState.ts';
 
 export type ProjectStatus = 'active' | 'paused' | 'done' | 'archived';
 export type LiveStatus = 'busy' | 'idle' | 'waiting';
@@ -19,7 +20,13 @@ export type SessionSummaryDto = { title: string; oneLiner: string; body: string;
 export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string };
 /** 実行中のセッションが最後に呼んだツールと、答えを待っている AskUserQuestion の問い。端末ローカルで、同期しない。 */
 export type SessionActivityDto = { tool: string; summary: string; question: string | null };
-export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity?: SessionActivityDto | null };
+/**
+ * state はセッションの状態と提案。古いサーバからは欠けるので任意にし、欠けたものと null は Active として読む。
+ * parked は、区切りを付けたのにプロセスが休みのまま残っていること（shared の isParked）。真なら画面では実行中に数えない。
+ * stoppedByStatus は、区切りを付けたので hangar が Claude を止め、その印がまだ残っていること。
+ * どちらも古いサーバからは欠けるので任意にし、欠けたものは偽として読む。
+ */
+export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity?: SessionActivityDto | null; state?: SessionStateDto | null; parked?: boolean; stoppedByStatus?: boolean };
 export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; syncClaudeConfig: boolean; nodePath: string | null; claudePath: string | null };
 /**
  * Claude Code の会話の保持期間。
@@ -35,7 +42,7 @@ export type RetentionPreviewDto = { days: number; path: string; lines: Retention
 /** 確認をどこから開いたか。帯から開いたときだけ「ほかの期間…」を出す。 */
 export type RetentionFrom = 'banner' | 'session' | 'settings';
 export type IndexProgressDto = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: number; total: number };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null };
+export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage?: CloudUsageDto | null; accounts?: AccountsDto };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。
@@ -46,7 +53,11 @@ export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; tota
 export type LiveAgentDto = { agentId: string; title: string; state: 'running' | 'done' | 'error'; startedAt: number | null; lastAt: number | null; last: { text: string; mono: boolean; kind: StepKind; isError: boolean } | null; report: string | null; endNote: string | null; linked: boolean };
 export type LiveIntentDto = { text: string; at: number; stepsSince: number; inThisTurn: boolean };
 export type LiveDigestDto = { sessionId: string; turnStartSeq: number | null; intent: LiveIntentDto | null; agents: LiveAgentDto[] };
-export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number };
+/**
+ * status はセッションの状態で絞る（session_states を見る）。hideArchived は「すべて」のタブで条件を入れたときに Archived を除く印である。
+ * どちらも Sessions 画面だけが送り、MCP の search_sessions は送らない。
+ */
+export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number; status?: SessionStatus | 'active' | 'proposed'; hideArchived?: boolean };
 /**
  * 検索の 1 件。
  * 抜粋の seq は主線とサブエージェントで別々に振るので、agentId でどの線の行かを表す（主線は null）。
@@ -56,7 +67,8 @@ export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { 
 export type SearchResultDto = { hits: SearchHitDto[]; total: number };
 export type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';
-export type EndReason = 'exited' | 'killed' | 'lost';
+/** parked は、区切り（Paused・Done・Archived）を付けたセッションが休みになったので hangar が止めたもの。 */
+export type EndReason = 'exited' | 'killed' | 'lost' | 'parked';
 export type TerminalApp = 'terminal' | 'iterm';
 /** 1 回の起動または再開。tmux 上の寿命と一致する。 */
 export type RunDto = { id: string; sessionId: string; deviceId: string; kind: RunKind; tmuxName: string; pid: number | null; startedAt: number; endedAt: number | null; endReason: EndReason | null; heartbeatAt: number };
@@ -67,6 +79,18 @@ export type LaunchResultDto = { run: RunDto; sessionId: string; tabs: TabDto[] }
 /** statusline の payload から得た使用率。窓の値が無いときは null で、updatedAt は使用率が届いた時刻。 */
 export type RateWindowDto = { usedPercent: number; resetsAt: number | null };
 export type UsageDto = { fiveHour: RateWindowDto | null; sevenDay: RateWindowDto | null; updatedAt: number | null };
+/** `claude auth status --json` から読んだもの。hangar が認証について知るのはこれだけで、トークンは含まない。 */
+export type AccountAuthDto = { loggedIn: boolean; email: string | null; plan: string | null; orgName: string | null; checkedAt: number };
+/**
+ * Claude Code のアカウント。置き場（CLAUDE_CONFIG_DIR）と 1 対 1 で、この PC の中だけにある。
+ * primary は最初のアカウント（既定の置き場）で、消せない。
+ * linkProblem は置き場のリンクが壊れている理由で、起動できるときは null。
+ */
+export type AccountDto = { id: string; name: string; dir: string; color: string; primary: boolean; auth: AccountAuthDto | null; usage: UsageDto; loginRunning: boolean; linkProblem: string | null };
+/** sessions は、最初のアカウント以外で最後に動かしたセッションだけを載せる（セッションの id → アカウントの id）。載っていないものは最初のアカウントである。 */
+export type AccountsDto = { currentId: string; accounts: AccountDto[]; sessions: Record<string, string> };
+/** 最初のアカウント（既定の置き場）の id。 */
+export const PRIMARY_ACCOUNT_ID = 'primary';
 export type UsageDayDto = { day: string; inputTokens: number; outputTokens: number; sessions: number };
 export type UsageProjectDto = { projectId: string | null; name: string; inputTokens: number; outputTokens: number; costUsd: number | null; sessions: number };
 export type UsageAggregateDto = { days: UsageDayDto[]; projects: UsageProjectDto[] };
@@ -112,7 +136,11 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
 /** 他端末がそのセッションを実行中であることの印。stale は heartbeat が途切れていることを示す。 */
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
-export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean } };
+/**
+ * pausedReason は止めた理由。quota は無料枠の見張りが止めた、user は利用者が止めた。古いサーバは送らない（undefined）。
+ * quotaPausedDay は見張りが止めた UTC の日（yyyy-MM-dd）。
+ */
+export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean }; pausedReason?: 'quota' | 'user' | null; quotaPausedDay?: string | null };
 /**
  * 降ろすのを諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。
  * 載るのは降ろす側（RemotePuller）の諦めだけである。
@@ -143,3 +171,26 @@ export type ConfigPreviewAction = 'create' | 'overwrite' | 'conflict' | 'skip';
 export type ConfigPreviewEntryDto = { path: string; action: ConfigPreviewAction; localMtime: number | null; remoteMtime: number; remoteDevice: string; size: number };
 export type ConfigPreviewDto = { entries: ConfigPreviewEntryDto[]; confirmed: boolean };
 export type ResumeHereConflictDto = { error: 'local_smaller'; localSize: number; remoteSize: number };
+
+/**
+ * 設定の「使用量と費用」に出す形。端末のサーバが Worker の /usage か見積もりから作る。
+ * source が estimate のときは plan と month が null で、today は hangar の見積もりである。
+ * stale は最後の取得が失敗していること（値は最後に取れたもの）。notice はトークンの失効など、画面に添える 1 行。
+ */
+export type CloudUsageDto = {
+  source: 'cloudflare' | 'estimate';
+  fetchedAt: number | null;
+  stale: boolean;
+  notice: string | null;
+  limits: { d1RowsPerDay: number; workersRequestsPerDay: number; stopRatio: number };
+  today: { d1RowsWritten: number; workersRequests: number | null; resetAt: number };
+  plan: { label: string; workersPaid: boolean } | null;
+  month: { periodStart: string; periodEnd: string | null; throughDay: string | null; billedUsd: number; rows: { label: string; consumed: number; unit: string; included: number | null }[] } | null;
+};
+
+/** 初期プロンプト欄の `/` の候補の出どころ。 */
+export type PromptCommandSource = 'project' | 'user' | 'plugin' | 'builtin';
+/** 初期プロンプト欄の `/` の候補。uses は、セッションの最初の一言になった回数。 */
+export type PromptCommandDto = { name: string; description: string; argumentHint: string | null; source: PromptCommandSource; uses: number };
+/** `~/.agent-hangar/drops/` に置いたファイル。 */
+export type DropDto = { path: string; name: string; size: number };

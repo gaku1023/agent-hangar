@@ -78,4 +78,18 @@ describe('createMcpApp', () => {
     expect((db.prepare('select memo from sessions where id = ?').get(alphaId) as { memo: string }).memo).toBe('from mcp');
     expect((await app.request('/s/nope', { method: 'POST', headers: H, body: '{}' })).status).toBe(404);
   });
+  it('propose_session_status の説明文は、聞かずに confirmed を立てないよう求める', async () => {
+    const list = await rpc('/', 'tools/list', {}, 6);
+    const tools = list.body.result!.tools as { name: string; description: string }[];
+    expect(tools.find((t) => t.name === 'propose_session_status')!.description).toBe('agent-hangar: このセッションの状態（Done か Paused）を提案する。利用者が会話の中で選んだときだけ confirmed を true にする。利用者に聞かずに true にしてはいけない。');
+  });
+  it('propose_session_status の引数には説明が載る', async () => {
+    const list = await rpc('/', 'tools/list', {}, 7);
+    const tools = list.body.result!.tools as { name: string; inputSchema: { properties: Record<string, { description?: string }> } }[];
+    const props = tools.find((t) => t.name === 'propose_session_status')!.inputSchema.properties;
+    expect(props.note!.description).toBe('根拠の一文。必須（1〜200 字）');
+    expect(props.return_on!.description).toBe('戻る日。YYYY-MM-DD（手元の暦。過去の日は不可）。paused では必須');
+    expect(props.return_time!.description).toBe('戻る時刻。HH:MM（24 時間、00:00〜23:59、手元の時刻）。確かめる時刻に意味があるときだけ渡す。省くと「その日のうち」になる。return_on と合わせて過去になる時点は不可');
+    expect(props.confirmed!.description).toBe('利用者が会話の中で選んだときだけ true');
+  });
 });

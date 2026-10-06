@@ -1,4 +1,4 @@
-import type { ArtifactDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TakeoverUpdateDto, TodoDto, UsageDto } from './api.ts';
+import type { AccountsDto, ArtifactDto, CloudUsageDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TakeoverUpdateDto, TodoDto, UsageDto } from './api.ts';
 import type { SharedTable } from './cloud.ts';
 
 export type ServerEvent =
@@ -14,6 +14,7 @@ export type ServerEvent =
   | { type: 'run.ended'; run: RunDto }
   | { type: 'tab.upsert'; tab: TabDto }
   | { type: 'usage.update'; usage: UsageDto }
+  | { type: 'accounts.update'; accounts: AccountsDto }
   | { type: 'todos.update'; projectId: string; todos: TodoDto[] }
   | { type: 'memo.update'; memo: MemoDto }
   | { type: 'artifact.upsert'; artifact: ArtifactDto }
@@ -26,6 +27,8 @@ export type ServerEvent =
    * 付録が欠けると、画面の件数が一度受け取った値のまま固まる。
    */
   | { type: 'sync.status'; status: SyncStatusBody }
+  /** 設定の「使用量と費用」。端末のサーバが 5 分ごとに取り直して配る。 */
+  | { type: 'sync.usage'; usage: CloudUsageDto }
   | { type: 'sync.applied'; table: SharedTable; rowId: string }
   | { type: 'takeover.update'; update: TakeoverUpdateDto }
   | { type: 'devices.update'; devices: DeviceDto[] }

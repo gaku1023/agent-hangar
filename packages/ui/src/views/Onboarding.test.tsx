@@ -11,7 +11,7 @@ const READY: ReadinessDto = {
   workspace: { path: '/Users/me/workspace', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: 'bash x', scriptPath: '/Users/me/.claude/statusline.sh', installed: false },
   commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
 };
-const emptyHome = { attention: [], confirm: [], running: [], recent: [], projects: [], idle: true };
+const emptyHome = { attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: true };
 
 describe('presentOnboarding', () => {
   it('セッションもプロジェクトも無いときだけ出す。スクラッチのプロジェクトは数えない', () => {
