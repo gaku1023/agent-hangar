@@ -14,6 +14,7 @@ import { ClaudeConfigSync, CONFIG_MAX_BYTES, denormalizeHome, HOME_MARKER, isCon
 import { safeDeviceLabel, timestampLabel } from './copy.ts';
 import { decryptBuffer, deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
 import { SyncStateStore } from './state.ts';
+import { expectMode, posixIt } from '../../test/platform.ts';
 
 const key = deriveFileKey('join-secret');
 const NOW = 1_700_000_000_000;
@@ -740,7 +741,8 @@ describe('受け取りの守り', () => {
     c.stop();
   });
 
-  it('新しく届いたスクリプトは実行できる形で置く', async () => {
+  // 実行権は Windows に無い。
+  posixIt('新しく届いたスクリプトは実行できる形で置く', async () => {
     const e = await remotePut('statusline.sh', '#!/bin/sh\necho hi\n');
     write('settings.json', JSON.stringify({ statusLine: { command: '~/.claude/statusline.sh' } }));
     const c = make();
@@ -783,7 +785,7 @@ describe('受け取りの守り', () => {
     c.confirm();
     expect(await c.applyPull([e])).toEqual({ applied: 1, conflicts: 0, backedUp: 1 });
     expect(fs.readFileSync(abs, 'utf8')).toBe('#!/bin/sh\nnew\n');
-    expect(fs.statSync(abs).mode & 0o777).toBe(0o755);
+    expectMode(abs, 0o755);
     c.stop();
   });
 });

@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
+import { posixDescribe } from '../../test/platform.ts';
 
 const dirs: string[] = [];
 function tmpDir(): string {
@@ -17,7 +18,8 @@ afterEach(() => {
   while (dirs.length) fs.rmSync(dirs.pop()!, { recursive: true, force: true });
 });
 
-describe('writeFakeClaude', () => {
+// 偽の claude は sh のスクリプト。これを使う実物の tmux の試験は Windows では走らせない。
+posixDescribe('writeFakeClaude', () => {
   it('引数と HANGAR_RUN_ID を記録し、改行を含む引数も 1 要素で返す', () => {
     const dir = tmpDir();
     const { bin, argsFile } = writeFakeClaude(dir, { sleepSec: 0 });

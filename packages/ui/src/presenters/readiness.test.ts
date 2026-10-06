@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReadinessDto } from '@agent-hangar/shared';
-import { presentChecks, toolLine, workspaceLine } from './readiness.ts';
+import { clientPlatform, muxInstallCommand, presentChecks, toolLine, workspaceLine } from './readiness.ts';
 
 const READY: ReadinessDto = {
   tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
@@ -53,5 +53,24 @@ describe('始める前の確認（初回の A1）', () => {
     const c = presentChecks({ ...READY, tools: { ...READY.tools, tmux: { path: null, ok: false, problem: 'unset', version: null } } });
     expect(c.items[0]).toMatchObject({ ok: false, soft: false, command: 'brew install tmux', action: 'settings' });
     expect(c.progress).toBe('5 つ中 1 つ');
+  });
+});
+
+describe('tmux の役を担う道具の入れ方', () => {
+  it('その PC の OS に合わせて案内する', () => {
+    expect(muxInstallCommand('darwin')).toBe('brew install tmux');
+    expect(muxInstallCommand('linux')).toBe('brew install tmux');
+    expect(muxInstallCommand('win32')).toBe('winget install marlocarlo.psmux');
+  });
+  // hangar の画面は、サーバと同じ PC のブラウザか WebView で開く。ブラウザの名乗りから OS を読む。
+  it('ブラウザの名乗りから Windows を見分ける', () => {
+    expect(clientPlatform('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')).toBe('win32');
+    expect(clientPlatform('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15')).toBe('darwin');
+    expect(clientPlatform(undefined)).toBe('darwin');
+  });
+  it('Windows では、tmux が無いときに psmux の入れ方を出す', () => {
+    const missing = { path: null, ok: false, problem: 'unset' as const, version: null };
+    expect(toolLine('tmux', missing, 'win32').fixCommand).toBe('winget install marlocarlo.psmux');
+    expect(toolLine('tmux', missing, 'darwin').fixCommand).toBe('brew install tmux');
   });
 });

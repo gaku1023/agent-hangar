@@ -3,6 +3,14 @@ import fs from 'node:fs';
 
 export type TmuxResult = { code: number; stdout: string; stderr: string; failed: boolean };
 
+/** tmux を起こす口。試験では差し替える。 */
+export type TmuxExec = (file: string, args: string[]) => { status: number | null; stdout: string; stderr: string; error?: Error };
+
+const realExec = (env: NodeJS.ProcessEnv | undefined): TmuxExec => (file, args) => {
+  const r = spawnSync(file, args, { encoding: 'utf8', windowsHide: true, env: env ? { ...process.env, ...env } : process.env });
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
+};
+
 /** 外の端末が拡張キーを送れることを tmux に知らせる terminal-features の項目。 */
 const EXTKEYS_FEATURE = 'xterm*:extkeys';
 
@@ -24,11 +32,19 @@ export class Tmux {
   readonly tmuxPath: string;
   private readonly socketName: string | undefined;
   private readonly socketPath: string | undefined;
+  private readonly platform: NodeJS.Platform;
+  private readonly exec: TmuxExec;
 
-  constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string }) {
+  /**
+   * env は tmux を起こすときの環境に足す変数である。
+   * psmux は PSMUX_DATA_DIR で置き場ごと分けられるので、試験が利用者のセッションに触れないために使う。
+   */
+  constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string; platform?: NodeJS.Platform; exec?: TmuxExec; env?: NodeJS.ProcessEnv }) {
     this.tmuxPath = opts.tmuxPath;
     this.socketName = opts.socketName;
     this.socketPath = opts.socketPath;
+    this.platform = opts.platform ?? process.platform;
+    this.exec = opts.exec ?? realExec(opts.env);
   }
 
   args(...a: string[]): string[] {
@@ -42,8 +58,8 @@ export class Tmux {
    * spawnSync はこの場合も status を null にするだけなので、終了コードでは区別できない。
    */
   run(...a: string[]): TmuxResult {
-    const r = spawnSync(this.tmuxPath, this.args(...a), { encoding: 'utf8' });
-    return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '', failed: r.error != null };
+    const r = this.exec(this.tmuxPath, this.args(...a));
+    return { code: r.status ?? 1, stdout: r.stdout, stderr: r.stderr, failed: r.error != null };
   }
 
   /**
@@ -88,7 +104,7 @@ export class Tmux {
     const r = this.run('list-sessions', '-F', '#{session_name}');
     if (r.failed) return null;
     if (r.code !== 0) return NO_SERVER.test(r.stderr) ? [] : null;
-    return r.stdout.split('\n').filter(Boolean);
+    return r.stdout.split(/\r?\n/).filter(Boolean);
   }
 
   killSession(name: string): void {
@@ -124,12 +140,15 @@ export class Tmux {
    * サーバが動いていなければ何もしない。set-option だけではサーバを起こさない。
    */
   ensureTerminalOptions(): void {
+    // ここから下は、macOS の外の端末（iTerm2 など）から tmux へつなぐための調整である。
+    // Windows の psmux には入れない。pbcopy は無く、Shift+Enter は Windows Terminal からそのまま通る。
+    if (this.platform === 'win32') return;
     const show = (key: string) => this.run('show-options', '-s', '-v', key);
     const copy = show('copy-command');
     if (copy.code !== 0) return;
     const cur = copy.stdout.trim();
     // 素の pbcopy は前の版が入れた値なので、hangar のものとして置き換える。
-    if ((cur === '' || cur === 'pbcopy') && process.platform === 'darwin') this.run('set-option', '-s', 'copy-command', COPY_COMMAND);
+    if ((cur === '' || cur === 'pbcopy') && this.platform === 'darwin') this.run('set-option', '-s', 'copy-command', COPY_COMMAND);
     if (show('extended-keys').stdout.trim() === 'off') {
       this.run('set-option', '-s', 'extended-keys', 'on');
       this.run('set-option', '-s', 'extended-keys-format', 'csi-u');
@@ -146,7 +165,7 @@ export class Tmux {
 
   /** ペインにいま見えている文字だけを返す。色や属性は落とす。 */
   capturePane(name: string): string {
-    return this.run('capture-pane', '-p', '-t', `=${name}:`).stdout;
+    return this.run('capture-pane', '-p', '-t', `=${name}:`).stdout.replace(/\r\n/g, '\n');
   }
 
   /**
@@ -158,7 +177,12 @@ export class Tmux {
     return this.args('attach', '-t', `=${name}`);
   }
 
+  /**
+   * サーバごと落とす。試験の後始末にだけ使う。
+   * Windows の psmux では呼ばない。psmux の kill-server は名前空間を越えて全部のセッションを落とすからである。
+   */
   killServer(): void {
+    if (this.platform === 'win32') throw new Error('kill-server は Windows では呼ばない。kill-session で名指しして止める');
     this.run('kill-server');
   }
 }

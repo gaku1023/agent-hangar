@@ -387,6 +387,11 @@ export type StartOptions = {
   /** 設定ファイルより優先する Claude Code のディレクトリ。テストがフィクスチャの複製を指すために使う。 */
   claudeDir?: string;
   uiDist?: string;
+  /**
+   * Claude の登録のうち、消えたプロセスの残りと見る pid。既定は OS で決める（provider/claude-code/registry.ts の goneOn）。
+   * テストの見本の登録は実在しない pid を持つので、テストは「残りは無い」を渡す。
+   */
+  registryIsGone?: (pid: number) => boolean;
 };
 
 /**
@@ -412,7 +417,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const claudeDir = opts.claudeDir ?? (settings.claudeDir || defaultClaudeDir());
   const db = openDb(dbPath(home));
   const hub = new EventHub(VERSION);
-  const registry = new RegistryWatcher(claudeDir);
+  const registry = new RegistryWatcher(claudeDir, undefined, opts.registryIsGone);
 
   // クラウド同期。cloud.json が無ければ client は null で、同期の状態は off になる。
   const cloudRead = readCloudConfig(home);

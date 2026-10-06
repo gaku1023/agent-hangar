@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFile, openDirInTerminalApp, openInEditor, openInTerminalApp, writeAttachCommand, writeCdCommand, type Exec } from './open.ts';
+import { expectMode, posixIt } from '../../test/platform.ts';
 
 let home: string;
 let calls: { cmd: string; args: string[] }[];
@@ -25,7 +26,7 @@ describe('.command ファイル', () => {
   it('attach 用と cd 用を実行可能で書く', () => {
     const a = writeAttachCommand(home, '/opt/homebrew/bin/tmux', 'hangar-ab12cd34');
     expect(a).toBe(path.join(home, 'cmd', 'attach-hangar-ab12cd34.command'));
-    expect(fs.statSync(a).mode & 0o777).toBe(0o755);
+    expectMode(a, 0o755);
     // target は完全一致にする。素の名前だと tmux が前方一致で別のセッションに繋ぐ。
     expect(fs.readFileSync(a, 'utf8')).toBe("#!/usr/bin/env bash\n'/opt/homebrew/bin/tmux' attach -t '=hangar-ab12cd34'\nexit\n");
     const c = writeCdCommand(home, "/Users/me/work space/it's");
@@ -49,7 +50,8 @@ describe('openInTerminalApp', () => {
     expect(script).toContain('tell application "iTerm"');
     expect(script).toContain(`create window with default profile command "'/t/tmux' attach -t '=hangar-x'"`);
   });
-  it('iterm に渡すコマンドも tmux のパスと名前を引用符で包む', async () => {
+  // bash で引用を確かめる。Windows Terminal への受け渡しは次の区切りで作る。
+  posixIt('iterm に渡すコマンドも tmux のパスと名前を引用符で包む', async () => {
     // 設定から来る tmuxPath にスペースや ; や $() が混じっても、シェルの意味を持たせない。
     const tmuxPath = "/o p t/tmux; echo pwned $(id) `id`";
     const tmuxName = "hangar-x'; echo pwned #";
@@ -111,5 +113,27 @@ describe('openInEditor', () => {
     expect(calls).toEqual([{ cmd: '/usr/local/bin/code', args: ['/w/alpha'] }]);
     await expect(openInEditor({ codePath: null, target: '/w', exec: exec() })).rejects.toThrow('VS Code の code コマンドが見つかりません。設定の「code のパス」を入れてください');
     await expect(openInEditor({ codePath: '/x/code', target: '/w', exec: exec({ '/x/code': 2 }) })).rejects.toThrow(/VS Code/);
+  });
+});
+
+// Windows の VS Code の code は code.cmd で、Node は .cmd をシェル無しでは起こせない。
+describe('openInEditor（Windows の code.cmd）', () => {
+  it('.cmd はシェル越しに、パスを引用符で包んで起こす', async () => {
+    const seen: { cmd: string; args: string[]; shell: boolean | undefined }[] = [];
+    const fake: Exec = async (cmd, args, opts) => { seen.push({ cmd, args, shell: opts?.shell }); return { code: 0, stdout: '', stderr: '' }; };
+    await openInEditor({ codePath: 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd', target: 'D:\\work space\\a.md', exec: fake, platform: 'win32' });
+    expect(seen).toEqual([{ cmd: '"C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd"', args: ['"D:\\work space\\a.md"'], shell: true }]);
+  });
+  it('.exe と、ほかの OS では、いまのまま直に起こす', async () => {
+    const seen: { cmd: string; args: string[]; shell: boolean | undefined }[] = [];
+    const fake: Exec = async (cmd, args, opts) => { seen.push({ cmd, args, shell: opts?.shell }); return { code: 0, stdout: '', stderr: '' }; };
+    await openInEditor({ codePath: 'C:\\x\\code.exe', target: 'D:\\a.md', exec: fake, platform: 'win32' });
+    await openInEditor({ codePath: '/x/code.cmd', target: '/w/a.md', exec: fake, platform: 'darwin' });
+    expect(seen).toEqual([{ cmd: 'C:\\x\\code.exe', args: ['D:\\a.md'], shell: undefined }, { cmd: '/x/code.cmd', args: ['/w/a.md'], shell: undefined }]);
+  });
+  // 引用符の中でも cmd.exe が読む文字。開けるふりをして別のものを起こさないよう、断る。
+  it('" を含むパスは起こさずに断る', async () => {
+    const fake: Exec = async () => ({ code: 0, stdout: '', stderr: '' });
+    await expect(openInEditor({ codePath: 'C:\\x\\code.cmd', target: 'D:\\a" & calc & ".md', exec: fake, platform: 'win32' })).rejects.toThrow(/開けません/);
   });
 });

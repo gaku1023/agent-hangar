@@ -7,6 +7,8 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
 import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../launch/mcpConfig.ts';
+import { runCommand, shellTabCommand } from '../launch/command.ts';
+import { needsShell } from '../platform/exec.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
 import { promptMentionsDrops } from '../prompt/drops.ts';
 import { assignSession } from '../projects/registry.ts';
@@ -34,8 +36,9 @@ const TERMINATE_MS = 10_000;
  * ロケールが無いと、claude が選んだ範囲を写すときの pbcopy が日本語を読めず、クリップボードを空にする。
  * 呼び手（ターミナルのシェル）が LC_ALL か LC_CTYPE を決めていれば、そちらを使う。
  */
-export function withUtf8Locale(env: Record<string, string> = {}): Record<string, string> {
-  if (env.LC_ALL || env.LC_CTYPE) return env;
+export function withUtf8Locale(env: Record<string, string> = {}, platform: NodeJS.Platform = process.platform): Record<string, string> {
+  // LC_CTYPE は Unix のロケールの変数で、Windows では意味を持たない。
+  if (platform === 'win32' || env.LC_ALL || env.LC_CTYPE) return env;
   return { LC_CTYPE: 'UTF-8', ...env };
 }
 
@@ -50,7 +53,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * live は Claude のレジストリの今の中身である。引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引くのに使う。
  * procs は外のプロセスに触る口で、テストでは差し替える。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void> };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void> };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
@@ -126,6 +129,9 @@ export class RunManager {
    */
   private claudeBin(): string {
     if (!this.deps.claudeBin) throw new RunError(400, 'claude が見つかりません。設定の「claude のパス」を入れてください');
+    // npm で入れた古い Claude Code は Windows で claude.cmd になる。.cmd は cmd.exe 越しにしか起こせず、
+    // 注入するシステムプロンプトのような改行や引用符を含む引数を安全に渡せない。
+    if (needsShell(this.deps.claudeBin, this.deps.platform)) throw new RunError(400, 'この claude は .cmd なので起動できません。ネイティブ版の Claude Code を入れて、設定の「claude のパス」に claude.exe を入れてください');
     return this.deps.claudeBin;
   }
 
@@ -195,12 +201,11 @@ export class RunManager {
     const tmuxName = `hangar-${shortId(runId)}`;
     const wrapper = ensureWrapperScript(this.deps.home);
     const log = runLogPath(this.deps.home, runId);
-    // ラッパーはプロセス置換を使うので、sh ではなく bash で起こす。
-    const command = ['env', `HANGAR_RUN_ID=${runId}`, 'bash', wrapper, log, ...o.command];
+    const wrapped = runCommand({ runId, wrapper, log, command: o.command });
     const now = this.now();
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(o.params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
-      tmux.newSession({ name: tmuxName, cwd: o.cwd, command, env: withUtf8Locale(o.env) });
+      tmux.newSession({ name: tmuxName, cwd: o.cwd, command: wrapped.command, env: withUtf8Locale({ ...o.env, ...wrapped.env }) });
       tmux.setOption(tmuxName, 'status', 'off');
       // ターミナルからこの run につなぐ人のための設定。サーバ全体の設定なので、サーバが起き直した後にも効くよう起動のたびに確かめる。
       tmux.ensureTerminalOptions();
@@ -618,9 +623,9 @@ export class RunManager {
     // 番号は閉じた行も数えて振る。閉じたタブの番号は再利用しない。
     const n = (this.db.prepare('select count(*) c from run_tabs where run_id = ?').get(runId) as { c: number }).c + 1;
     const tmuxName = `${run.tmuxName}-t${n}`;
-    const shell = this.deps.shell ?? process.env.SHELL ?? '/bin/zsh';
+    const command = shellTabCommand({ shell: this.deps.shell });
     try {
-      tmux.newSession({ name: tmuxName, cwd: s.cwd, command: [shell, '-l'], env: withUtf8Locale() });
+      tmux.newSession({ name: tmuxName, cwd: s.cwd, command, env: withUtf8Locale() });
       tmux.setOption(tmuxName, 'status', 'off');
     } catch (e) {
       throw new RunError(400, `シェルの起動に失敗しました: ${this.safeError(e)}`);
