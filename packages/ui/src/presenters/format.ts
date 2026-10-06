@@ -80,6 +80,8 @@ export const STATUS_LABEL = { active: 'Active', paused: 'Paused', done: 'Done', 
  * ヘッダーの一行と設定の「状態」の両方がここから引く。
  * ヘッダーは idle のときに語の代わりに最後の同期の時刻を出し、error のときは理由を後ろに添える。
  */
+/** 一時停止のまま、利用者が押した 1 回の同期が進んでいるあいだの文。ヘッダーと設定の両方がこれを使う。 */
+export const SYNC_ONCE_LABEL = '1 回だけ同期中…';
 export const SYNC_STATE_LABEL: Record<SyncStateKind, string> = { off: '同期していません', idle: '同期済み', pushing: '送信中', pulling: '受信中', paused: '一時停止中', error: '同期エラー' };
 
 /**

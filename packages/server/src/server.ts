@@ -13,7 +13,7 @@ import { createReadiness } from './config/readiness.ts';
 import { defaultManagedDir, RetentionService } from './config/retention.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto } from '@agent-hangar/shared';
+import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto, type SyncStatusDto } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
 import { accountOfSession, getProject, getSession, listDevices, listProjects } from './db/queries.ts';
 import { upsertShared } from './db/shared.ts';
@@ -75,6 +75,8 @@ const FLUSH_AGAIN_MS = 5_000;
  * これは監視そのものが張れなかったときの備えであって、Linux のための穴埋めではない。
  */
 const CONFIG_PUSH_MS = 60_000;
+/** 一時停止のまま頼まれた 1 巡の最中に、進み（未送信の件数）を画面へ配る間隔。手元の DB を数えるだけで、外とは話さない。 */
+const PASS_TICK_MS = 1_000;
 /**
  * 上がっていない本文を拾い直す走査の間隔。
  * 索引は「変化したファイル」しか知らせないので、これが無いと参加より前に索引が済んでいた本文は
@@ -529,17 +531,35 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     },
     done: () => {
       // 件数は 1 巡で動いているが、状態は paused のままなのでエンジンは配り直さない。ここで配る。
+      // 進みを配っていたタイマーも、ここで止める。
+      if (passTicker) { clearInterval(passTicker); passTicker = null; }
       const status = engine.status();
       const sweepPending = syncSweep();
-      hub.broadcast({ type: 'sync.status', status: { ...status, skipped: syncSkipped(), sweepPending } });
+      broadcastSync(status);
       // 一時停止の間は状態が paused に隠れて失敗が画面に出ないので、残りの件数で伝える。
       const left = [status.pending > 0 ? `未送信 ${status.pending} 件` : null, (sweepPending ?? 0) > 0 ? `未送信の本文 ${sweepPending} 件` : null].filter((t) => t !== null);
       if (left.length > 0) toast('error', `1 回だけ同期しましたが、${left.join('、')}が残りました。同期は一時停止のままです`);
       else toast('info', '1 回だけ同期しました。同期は一時停止のままです');
     },
   });
+  /**
+   * 1 巡の最中に、進みを画面へ配るタイマー。
+   * そのあいだも状態は paused のままで、エンジンは送信中や受信中を名乗らない。
+   * 始まったこと（oncePass）と、減っていく未送信の件数を、ここから配る。
+   */
+  let passTicker: ReturnType<typeof setInterval> | null = null;
   /** 利用者が押した「今すぐ同期」。止まっていれば 1 巡だけ通し、止まっていなければ今までどおり。 */
-  const syncNow = (): Promise<void> => (engine.status().state === 'paused' ? pausedPass.run() : engine.syncNow());
+  const syncNow = (): Promise<void> => {
+    if (engine.status().state !== 'paused') return engine.syncNow();
+    const done = pausedPass.run();
+    if (pausedPass.active() && !passTicker) {
+      // 押した直後に 1 度配る。応答が返るのはメタデータの送受信の後なので、待たせるとボタンが効いていないように見える。
+      broadcastSync(engine.status());
+      passTicker = setInterval(() => { broadcastSync(engine.status()); }, PASS_TICK_MS);
+      passTicker.unref();
+    }
+    return done;
+  };
 
   const indexer = new IndexerService({
     db, deviceId: device.id, claudeDir,
@@ -771,6 +791,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
    */
   const syncSkipped = (): SyncSkippedDto[] => puller?.skippedEntries() ?? [];
   const syncSweep = (): number | null => uploader?.pendingSweep() ?? null;
+  const syncOncePass = (): boolean => pausedPass.active();
+  /** 同期の状態を、付録を添えて画面へ配る。 */
+  const broadcastSync = (s: SyncStatusDto): void => {
+    hub.broadcast({ type: 'sync.status', status: { ...s, skipped: syncSkipped(), sweepPending: syncSweep(), oncePass: syncOncePass() } });
+  };
 
   // 同期のイベントを hub に流す。pull で入れ替わった行は、そのまま画面に届ける。
   // 一時停止が解けたら取り直す。止まっている間は取りに行かないので、画面の値が古いままになる。
@@ -778,7 +803,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   engine.on({
     // 付録を添えてから流す。添えないと、画面の件数が一度受け取った値のまま固まる。
     status: (s) => {
-      hub.broadcast({ type: 'sync.status', status: { ...s, skipped: syncSkipped(), sweepPending: syncSweep() } });
+      broadcastSync(s);
       const pausedNow = s.state === 'paused';
       if (wasPaused && !pausedNow) void cloudUsage.refresh();
       wasPaused = pausedNow;
@@ -894,6 +919,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // 降ろすのを諦めた項目。onError は 1 度しか鳴らないので、状態にも載せて後から見られるようにする。
     syncSkipped,
     syncSweep,
+    syncOncePass,
     resumeHere,
     // ClaudeConfigSync に pull() は無いので、確認を立ててから applyPull(pendingRemote()) を呼ぶ形に包む。
     configSync: configSync ? { preview: () => configSync.preview(), pull: async () => { const entries = configSync.pendingRemote(); configSync.confirm(); return configSync.applyPull(entries); } } : null,
@@ -1025,6 +1051,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       retention.stop();
       cloudUsage.stop();
       if (uploadTimer) clearInterval(uploadTimer);
+      if (passTicker) { clearInterval(passTicker); passTicker = null; }
       // 頼まれた 1 巡が走っていれば先に待つ。各段はこの後の stop で空振りになるので、待ち切れなくても害は無い。
       await Promise.race([pausedPass.idle(), new Promise<void>((r) => { setTimeout(r, left()).unref(); })]);
       // 走っている押し出しを待ってから止める。待たずに止めると putFile と pushChanges が途中で切れる。

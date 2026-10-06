@@ -156,8 +156,10 @@ export type SyncSkippedDto = { key: string; attempts: number; message: string };
  * sweepPending は、これから上がる本文の件数である。
  * 消したセッションの本文と、上げるのを諦めた本文は入らない（諦めた本文は skipped として別に出るので、入れると二重に数える）。
  * 数えられないときは null になる（同期を設定していない端末と、この口を持たない古いサーバ）。
+ * oncePass は、一時停止のまま利用者が「今すぐ同期」で頼んだ 1 巡の最中かどうかである。
+ * そのあいだも state は paused のままなので、進んでいることはこの印でしか分からない。古いサーバは送らない。
  */
-export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | null };
+export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | null; oncePass?: boolean };
 /** 同期の状態の応答。SyncStatusDto に付録を足したものである。 */
 export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
 export type TakeoverPhase = 'requested' | 'waiting' | 'acked' | 'copying' | 'resumed' | 'timeout' | 'failed' | 'cancelled';

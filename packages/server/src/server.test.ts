@@ -1261,13 +1261,16 @@ describe('本文は使い始めた後に動いたものだけを上げる', () =
       // 止まっているあいだは、起動の走査も上げない。
       await new Promise((r) => setTimeout(r, 300));
       expect(sink.puts).toEqual([]);
-      expect((await call('/api/sync/now', 'POST')).status).toBe(200);
+      const now = await call('/api/sync/now', 'POST');
+      expect(now.status).toBe(200);
+      // 応答が返る時点では本文がまだ残っている。状態は paused のままなので、進んでいることは oncePass で伝える。
+      expect(await now.json()).toMatchObject({ state: 'paused', oncePass: true });
       const keys = await until(async () => (sink.puts.length >= 3 ? sink.puts : null));
       expect(suffixes(keys)).toEqual([`${SESSION_ALPHA}.jsonl.gz`, `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`, `${SESSION_OTHER}.jsonl.gz`].sort());
       // 上げきっても、同期は止めたままである。
       const status = await until(async () => {
         const st = await (await call('/api/sync/status')).json() as SyncStatusBody;
-        return st.sweepPending === 0 ? st : null;
+        return st.sweepPending === 0 && st.oncePass === false ? st : null;
       });
       expect(status.state).toBe('paused');
     } finally {

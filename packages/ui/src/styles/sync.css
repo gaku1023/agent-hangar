@@ -26,6 +26,8 @@
 /* 枠が戻った後は、再開してよいと分かるよう点を緑に、文を注意の色にする（試作 usage-merged.html の H3）。 */
 .sync[data-reason='quota'][data-quota-back] .sync-dot { background: var(--idle); }
 .sync-warn { color: var(--st-paused); }
+/* 一時停止のまま押した 1 回の同期が進んでいるあいだは、止めた理由より先に、動いていることを点で見せる。 */
+.sync[data-once] .sync-dot, .sync[data-reason='quota'][data-once] .sync-dot { background: var(--busy); }
 
 /* ヘッダーの高さに収める小さいボタン。.btn を上書きするので .btn と一緒に付ける。 */
 .btn-sm { height: calc(var(--row-h) - 6px); padding: 0 calc(var(--u) * 2); font-size: var(--fs-sm); }
