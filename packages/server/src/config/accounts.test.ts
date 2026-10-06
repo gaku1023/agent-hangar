@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { expectMode } from '../../test/platform.ts';
 import { AccountError, AccountStore, PRIMARY_ACCOUNT_ID } from './accounts.ts';
 
 let home: string;
@@ -34,7 +35,7 @@ describe('AccountStore', () => {
     const a = s.add({ name: '大学' });
     expect(a.dir).toBe(path.join(homeDir, '.claude-3'));
     expect(a.color).not.toBe(s.primary().color);
-    expect(fs.statSync(path.join(home, 'accounts.json')).mode & 0o777).toBe(0o600);
+    expectMode(path.join(home, 'accounts.json'), 0o600);
     expect(make().list().map((x) => x.name)).toEqual([s.primary().name, '大学']);
   });
 

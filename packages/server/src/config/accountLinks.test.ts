@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { expectMode, posixIt } from '../../test/platform.ts';
 import { LINKED_ENTRIES, ensureAccountLinks, linkProblem } from './accountLinks.ts';
 
 let root: string;
@@ -26,23 +27,24 @@ describe('ensureAccountLinks', () => {
     expect(LINKED_ENTRIES).not.toContain('.claude.json');
   });
 
-  it('置き場を 0700 で作り、最初の置き場にある項目だけをリンクにする', () => {
+  // Windows の symlink は管理者権限か開発者モードが要るので、Unix だけで確かめる（リンクを張る道は、アカウントを足したときだけ通る）。
+  posixIt('置き場を 0700 で作り、最初の置き場にある項目だけをリンクにする', () => {
     const r = ensureAccountLinks(primary, dir);
     expect(r).toEqual({ created: ['settings.json', 'skills', 'projects'], conflicts: [] });
-    expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+    expectMode(dir, 0o700);
     expect(fs.readlinkSync(path.join(dir, 'projects'))).toBe(path.join(primary, 'projects'));
     expect(fs.existsSync(path.join(dir, 'CLAUDE.md'))).toBe(false);
     expect(fs.existsSync(path.join(dir, '.claude.json'))).toBe(false);
   });
 
-  it('二度目は何も作らない。あとから最初の置き場に増えた項目は足す', () => {
+  posixIt('二度目は何も作らない。あとから最初の置き場に増えた項目は足す', () => {
     ensureAccountLinks(primary, dir);
     expect(ensureAccountLinks(primary, dir)).toEqual({ created: [], conflicts: [] });
     fs.writeFileSync(path.join(primary, 'CLAUDE.md'), '# x');
     expect(ensureAccountLinks(primary, dir).created).toEqual(['CLAUDE.md']);
   });
 
-  it('実ファイル、実ディレクトリ、別の先を指すリンクは、消さずに conflicts に挙げる', () => {
+  posixIt('実ファイル、実ディレクトリ、別の先を指すリンクは、消さずに conflicts に挙げる', () => {
     fs.mkdirSync(dir);
     fs.writeFileSync(path.join(dir, 'settings.json'), '{"mine":1}');
     fs.mkdirSync(path.join(dir, 'skills'));
