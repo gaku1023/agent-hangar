@@ -37,6 +37,10 @@ const finish = (code) => {
   process.stdin.once('end', () => process.exit(code));
 };
 
+// HANGAR_UNSET_ENV に ; 区切りで挙げた変数は、claude に渡さない。tmux のセッションはサーバの環境を継ぐので、足さないだけでは外れない（launch/command.ts）。
+for (const name of (process.env.HANGAR_UNSET_ENV ?? '').split(';').filter(Boolean)) delete process.env[name];
+delete process.env.HANGAR_UNSET_ENV;
+
 // 標準入力と標準出力は端末をそのまま渡す。標準エラーだけ受け取って、画面とログの両方へ流す。
 const child = spawn(cmd, args, { stdio: ['inherit', 'inherit', 'pipe'], windowsHide: false });
 child.stderr.on('data', (d) => {

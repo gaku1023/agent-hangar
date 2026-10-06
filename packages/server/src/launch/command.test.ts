@@ -13,6 +13,15 @@ describe('runCommand', () => {
     expect(r.command).toEqual(['C:\\Program Files\\nodejs\\node.exe', 'C:\\h\\bin\\hangar-run.mjs', 'C:\\h\\logs\\run-r1.log', 'C:\\Program Files\\x\\claude.exe', '-p', 'やること']);
     expect(r.env).toEqual({ HANGAR_RUN_ID: 'r1' });
   });
+  // tmux の新しいセッションは、tmux サーバを起こしたシェルの環境を継ぐ。最初のアカウントで起こすときに、その CLAUDE_CONFIG_DIR を持ち込まない。
+  it('外す変数は、macOS と Linux では env -u で外す', () => {
+    const r = runCommand({ runId: 'r1', wrapper: '/h/bin/hangar-run.sh', log: '/h/logs/run-r1.log', command: ['/x/claude'], platform: 'darwin', unset: ['CLAUDE_CONFIG_DIR'] });
+    expect(r.command).toEqual(['env', '-u', 'CLAUDE_CONFIG_DIR', 'HANGAR_RUN_ID=r1', 'bash', '/h/bin/hangar-run.sh', '/h/logs/run-r1.log', '/x/claude']);
+  });
+  it('外す変数は、Windows では包みに名前を渡して、包みが消してから起こす', () => {
+    const r = runCommand({ runId: 'r1', wrapper: 'C:\\h\\bin\\hangar-run.mjs', log: 'C:\\h\\logs\\run-r1.log', command: ['claude.exe'], platform: 'win32', node: 'node.exe', unset: ['CLAUDE_CONFIG_DIR'] });
+    expect(r.env).toEqual({ HANGAR_RUN_ID: 'r1', HANGAR_UNSET_ENV: 'CLAUDE_CONFIG_DIR' });
+  });
 });
 
 describe('shellTabCommand', () => {

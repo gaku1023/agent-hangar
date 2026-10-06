@@ -242,7 +242,9 @@ export class RunManager {
     const tmuxName = `hangar-${runTmuxId(runId)}`;
     const wrapper = ensureWrapperScript(this.deps.home);
     const log = runLogPath(this.deps.home, runId);
-    const wrapped = runCommand({ runId, wrapper, log, command: o.command });
+    // 置き場を足さない起動（最初のアカウント）は、tmux サーバが持っている CLAUDE_CONFIG_DIR も外す。
+    // tmux サーバを別のアカウントのシェルから起こしていると、足さないだけではその置き場で動いてしまう。
+    const wrapped = runCommand({ runId, wrapper, log, command: o.command, unset: env.CLAUDE_CONFIG_DIR ? [] : ['CLAUDE_CONFIG_DIR'] });
     const now = this.now();
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
