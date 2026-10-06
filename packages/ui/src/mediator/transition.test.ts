@@ -1457,6 +1457,12 @@ describe('アカウント', () => {
     expect(effectsOf({ type: 'account.login.cancel', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.cancelLogin', accountId: 'a1' }]);
     expect(effectsOf({ type: 'account.refresh', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.refresh', accountId: 'a1' }]);
   });
+  it('更新の名前は前後の空白を落とし、空になれば patch に入れず、patch が空なら Effect を出さない', () => {
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '  研究室 ' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室' } }]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ' })).toEqual([]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1' })).toEqual([]);
+  });
   it('追加は名前の前後の空白を落とし、空白だけなら何も出さない', () => {
     expect(effectsOf({ type: 'account.add', name: '  大学 ' })).toEqual([{ kind: 'api.accounts.add', name: '大学' }]);
     const blank = run([intent({ type: 'account.add', name: '   ' })]);

@@ -1,5 +1,5 @@
 import type { AccountDto, RateWindowDto } from '@agent-hangar/shared';
-import { accountList, type Store } from '../store/store.ts';
+import { accountList, currentAccount, type Store } from '../store/store.ts';
 import { relativeTime, resetsLabel } from './format.ts';
 
 export type AccountGauge = { percent: number; high: boolean; resets: string | null };
@@ -30,7 +30,8 @@ const gauge = (w: RateWindowDto | null, now: number): AccountGauge | null =>
 function noteOf(a: AccountDto, five: AccountGauge | null, now: number): AccountView['note'] {
   if (five?.high) return { tone: 'warn', text: five.resets === null ? 'まもなく上限' : `まもなく上限。${five.resets} に戻ります` };
   const at = a.usage.updatedAt;
-  if (at === null || now - at < HOUR) return null;
+  // 境は「1 時間より古い」。ちょうど 1 時間は注記なし。
+  if (at === null || now - at <= HOUR) return null;
   const hours = Math.floor((now - at) / HOUR);
   return { tone: 'stale', text: hours >= 24 ? `${Math.floor(hours / 24)} 日前の値` : `${hours} 時間前の値` };
 }
@@ -51,6 +52,7 @@ export function presentAccount(a: AccountDto, currentId: string, now: number): A
 }
 
 export function presentAccounts(store: Store, now: number): AccountView[] {
-  const currentId = store.accounts?.currentId ?? '';
+  // currentId が一覧に無いとき（外した直後など）は、currentAccount と同じく最初のアカウントがいまのアカウントになる。
+  const currentId = currentAccount(store)?.id ?? '';
   return accountList(store).map((a) => presentAccount(a, currentId, now));
 }

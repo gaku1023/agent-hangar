@@ -24,8 +24,10 @@ export function accountsStep(state: State, input: Input): Step | null {
       return { state, effects: name === '' ? [] : [{ kind: 'api.accounts.add', name }] };
     }
     case 'account.update': {
-      const patch = { ...(i.name !== undefined ? { name: i.name } : {}), ...(i.color !== undefined ? { color: i.color } : {}) };
-      return { state, effects: [{ kind: 'api.accounts.update', accountId: i.accountId, patch }] };
+      // 名前は add と同じく前後の空白を落とす。空になった名前は送らず、送るものが無ければ何もしない。
+      const name = i.name?.trim();
+      const patch = { ...(name ? { name } : {}), ...(i.color !== undefined ? { color: i.color } : {}) };
+      return { state, effects: Object.keys(patch).length === 0 ? [] : [{ kind: 'api.accounts.update', accountId: i.accountId, patch }] };
     }
     case 'account.remove': {
       if (!i.confirmed) return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'removeAccount', accountId: i.accountId } } }, effects: [] };

@@ -53,6 +53,9 @@ describe('presentAccount', () => {
   it('note：5 時間が 79 で値が古ければ stale（1 時間以上は時間、24 時間以上は日）、59 分前なら null', () => {
     expect(view({ usage: usage(79, 3 * HOUR + 10 * MIN) }).note).toEqual({ tone: 'stale', text: '3 時間前の値' });
     expect(view({ usage: usage(79, 59 * MIN) }).note).toBeNull();
+    // 境は「1 時間より古い」。ちょうど 1 時間は注記なし、1 時間 1 分から出る。
+    expect(view({ usage: usage(79, HOUR) }).note).toBeNull();
+    expect(view({ usage: usage(79, HOUR + MIN) }).note).toEqual({ tone: 'stale', text: '1 時間前の値' });
     expect(view({ usage: usage(79, 26 * HOUR) }).note).toEqual({ tone: 'stale', text: '1 日前の値' });
   });
   it('note：5 時間が 85 で値も古ければ warn が優先', () => {
@@ -77,6 +80,10 @@ describe('presentAccounts', () => {
     const store = { ...initialStore(), accounts: { ...accountsFixture, currentId: 'a1' } };
     const list = presentAccounts(store, NOW);
     expect(list.map((a) => [a.id, a.current])).toEqual([['primary', false], ['a1', true]]);
+  });
+  it('currentId が一覧に無いときは、最初のアカウントの 1 件だけが current', () => {
+    const store = { ...initialStore(), accounts: { ...accountsFixture, currentId: 'gone' } };
+    expect(presentAccounts(store, NOW).map((a) => [a.id, a.current])).toEqual([['primary', true], ['a1', false]]);
   });
   it('store.accounts が null なら空の配列', () => {
     expect(presentAccounts(initialStore(), NOW)).toEqual([]);
