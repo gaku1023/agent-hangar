@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { dropText, handleFileDrop, quotePath } from './fileDrop.ts';
+import { dropText, handleFileDrop, parseDrag, parseDrop, quotePath } from './fileDrop.ts';
 
 beforeEach(() => { document.body.innerHTML = '<div class="term-host" data-tab="t1"><canvas id="cv"></canvas></div><div id="outside"></div>'; });
 
@@ -40,5 +40,19 @@ describe('handleFileDrop', () => {
       expect(handleFileDrop(bad, d)).toBe(false);
     }
     expect(d.paste).not.toHaveBeenCalled();
+  });
+});
+
+describe('parseDrag', () => {
+  it('位置があればそれを返し、出たとき（null）と形の違うものは null', () => {
+    expect(parseDrag({ x: 1, y: 2 })).toEqual({ x: 1, y: 2 });
+    for (const bad of [null, undefined, {}, { x: '1', y: 2 }, { x: Infinity, y: 2 }]) expect(parseDrag(bad)).toBeNull();
+  });
+});
+
+describe('parseDrop', () => {
+  it('形の合う知らせだけを返す', () => {
+    expect(parseDrop({ paths: ['/a.png'], x: 1, y: 2 })).toEqual({ paths: ['/a.png'], x: 1, y: 2 });
+    for (const bad of [null, {}, { paths: [], x: 1, y: 2 }, { paths: [''], x: 1, y: 2 }, { paths: ['/a'], x: NaN, y: 2 }]) expect(parseDrop(bad)).toBeNull();
   });
 });

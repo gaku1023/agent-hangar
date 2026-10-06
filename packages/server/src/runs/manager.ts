@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { newId, shortId, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -7,6 +8,7 @@ import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
 import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../launch/mcpConfig.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
+import { promptMentionsDrops } from '../prompt/drops.ts';
 import { assignSession } from '../projects/registry.ts';
 import { ensureScratchProject, newScratchDir } from '../projects/scratch.ts';
 import { hasTranscriptFile } from '../provider/claude-code/discover.ts';
@@ -278,7 +280,13 @@ export class RunManager {
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, name: params.name?.trim() || null, started_at: now, last_activity_at: now }, this.deps.deviceId);
-    const input: LaunchInput = { ...this.baseInput(sessionId, p.id, cwd, params), mode: { kind: 'start', sessionUuid } };
+    const base = this.baseInput(sessionId, p.id, cwd, params);
+    // 添付つきの初期プロンプトは、置き場（hangar の home の drops）の中のファイルを指す。
+    // 置き場は作業ディレクトリの外なので、足さないと claude が読む前に許可を尋ねて止まる。
+    // 足すのは claude に渡す引数だけで、run に残す起動の指定（params）は変えない。画面が覚える addDirs に混ざらないためである。
+    const dropsDir = path.join(this.deps.home, 'drops');
+    const addDirs = promptMentionsDrops(params.prompt, dropsDir) && !base.addDirs?.includes(dropsDir) ? [...(base.addDirs ?? []), dropsDir] : base.addDirs;
+    const input: LaunchInput = { ...base, addDirs, mode: { kind: 'start', sessionUuid } };
     const command = claudeCodeProvider.launchCommand(this.claudeBin(), input);
     return this.launch({ sessionId, cwd, kind: 'start', command, params });
   }

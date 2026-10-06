@@ -51,6 +51,47 @@
 .listbox-keys { flex: none; display: flex; gap: calc(var(--u) * 3); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5) 2px; margin-top: var(--u); border-top: 1px solid rgba(30, 40, 90, 0.06); font-size: var(--fs-xs); color: var(--ink-3); }
 .listbox-keys kbd { padding: 0 4px; border-radius: 4px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: var(--ink-2); background: rgba(30, 40, 90, 0.06); }
 
+/* 初期プロンプトの欄（PromptComposer）。枠は箱が持ち、中の textarea は枠なしにする。 */
+.pc { display: flex; flex-direction: column; gap: calc(var(--u) * 2); min-width: 0; }
+.pc-box { position: relative; display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.pc-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+/* ファイルを運んでいる間、落とせる欄として色を変える。文字は欄を覆って伝える（textarea の中身を動かさない）。 */
+.pc-box[data-drop='true'] { border-color: var(--accent); background: var(--accent-soft); }
+.pc-box[data-drop='true']::after { content: 'ここに落として添付'; position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit; font-weight: 600; color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 88%, transparent); pointer-events: none; }
+.pc-input { display: block; width: 100%; box-sizing: border-box; min-height: 84px; padding: var(--u) calc(var(--u) * 2); border: 0; outline: 0; resize: none; background: none; color: var(--ink); font: inherit; }
+.pc-tools { display: flex; align-items: center; gap: var(--u); padding: var(--u) calc(var(--u) * 1.5); border-top: 1px solid var(--line); }
+.pc-tool { display: inline-flex; align-items: center; gap: var(--u); height: 24px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font: 600 var(--fs-xs) var(--font-sans); cursor: pointer; }
+.pc-tool:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+.pc-tool:disabled { opacity: 0.5; cursor: default; }
+.pc-tool .icon { width: 13px; height: 13px; }
+.pc-tool-key { font: 600 12px var(--font-mono); color: var(--accent); }
+.pc-tools-hint { margin-left: auto; color: var(--ink-3); font-size: var(--fs-xs); }
+.pc-cards { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); margin: 0; padding: 0; list-style: none; }
+.pc-card { position: relative; display: flex; align-items: center; gap: calc(var(--u) * 2); max-width: 220px; padding: var(--u) calc(var(--u) * 7) var(--u) var(--u); border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.pc-thumb { flex: none; width: 44px; height: 44px; border-radius: 7px; object-fit: cover; background: var(--surface-2); }
+.pc-thumb-doc { display: grid; place-items: center; color: var(--ink-3); font: 600 10px var(--font-mono); }
+.pc-card-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; color: var(--ink); font-size: var(--fs-sm); }
+.pc-card-text b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-card-text small { color: var(--ink-3); font-size: var(--fs-xs); }
+.pc-card-x { position: absolute; top: var(--u); right: var(--u); display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink-3); cursor: pointer; }
+.pc-card-x:hover { background: var(--surface-2); color: var(--ink); }
+.pc-card-x .icon { width: 12px; height: 12px; }
+/* PromptComposer.tsx の POP_MAX_HEIGHT と同じ値。測る前の既定で、置いた後は窓の高さに合わせて上書きされる。 */
+.pc-pop { max-height: 300px; }
+.pc-cmd { font-family: var(--font-mono); font-weight: 600; font-size: var(--fs-sm); color: var(--ink); }
+.pc-cmd mark, .pc-file mark { background: var(--hit); color: inherit; border-radius: 2px; }
+.pc-arg { margin-left: calc(var(--u) * 1.5); font-weight: 400; font-size: var(--fs-xs); color: var(--ink-3); }
+/* Listbox の説明は折り返す決まり（data-kind='prose'）なので、この一覧では詰めるために詳しさで上書きする。 */
+.pc-pop .listbox-opt-main .pc-desc { white-space: nowrap; }
+.pc-file { gap: calc(var(--u) * 2.5); align-items: baseline; }
+/* 前の問いの一覧を残している間（まだ返事が来ていない）。入れられないので、薄くして知らせる。 */
+.pc-pop .listbox-rows[data-stale='true'] { opacity: 0.55; }
+.pc-file-name { flex: none; font-weight: 600; }
+.pc-file-dir { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-src { flex: none; padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); font-size: 10px; font-weight: 600; color: var(--ink-2); background: var(--surface-2); }
+.pc-src[data-source='project'] { color: var(--st-active); background: var(--st-active-soft); }
+.pc-src[data-source='plugin'] { color: var(--cand); background: var(--cand-soft); }
+
 /* 切り替えの帯。白い玉は選んだ項目の下を滑る。 */
 .seg { position: relative; display: inline-flex; flex: none; padding: 3px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); box-shadow: inset 0 1px 2px rgba(30, 40, 90, 0.06); }
 .seg > button { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: 22px; max-width: 160px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }

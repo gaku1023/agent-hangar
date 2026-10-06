@@ -216,6 +216,42 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
   });
 
+  describe('添付のある初期プロンプトは、置き場を --add-dir で渡す', () => {
+    const addDirsOf = (args: string[]) => args.flatMap((a, i) => (a === '--add-dir' ? [args[i + 1]!] : []));
+    const attach = () => path.join(home, 'drops', '1000-0-a.png');
+
+    it('プロンプトに置き場の直下のパスの行があれば、置き場を 1 つ渡す', async () => {
+      const r = make().start({ projectId: 'p1', prompt: `見て\n\n${attach()}` });
+      const args = await launchedArgs(r.run.id);
+      expect(addDirsOf(args)).toEqual([path.join(home, 'drops')]);
+      // 可変長のオプションが位置引数（プロンプト）を飲まない。
+      expect(args.at(-2)).toBe(`見て\n\n${attach()}`);
+    });
+    it('利用者の addDirs が先で、置き場は後ろに 1 度だけ足す', async () => {
+      const r = make().start({ projectId: 'p1', prompt: `見て\n\n'${attach()}'`, addDirs: [cwd] });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([cwd, path.join(home, 'drops')]);
+    });
+    it('すでに置き場を渡していれば重ねない', async () => {
+      const r = make().start({ projectId: 'p1', prompt: attach(), addDirs: [path.join(home, 'drops')] });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([path.join(home, 'drops')]);
+    });
+    it('添付の無いプロンプトには足さない', async () => {
+      const r = make().start({ projectId: 'p1', prompt: `${attach()} を見て`, addDirs: [cwd] });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([cwd]);
+    });
+    it('プロンプトが無ければ --add-dir は付かない', async () => {
+      const r = make().start({ projectId: 'p1' });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([]);
+    });
+    it('run に残る起動の指定は、送られたままで、足した置き場を含まない', () => {
+      const params = { projectId: 'p1', prompt: attach(), addDirs: [cwd] };
+      const r = make().start(params);
+      const row = db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string };
+      expect(JSON.parse(row.launch_params)).toEqual(params);
+      expect(JSON.stringify(r)).not.toContain(path.join(home, 'drops'));
+    });
+  });
+
   it('ディレクトリが無ければ 400 で、run の行は残らない', () => {
     fs.rmSync(cwd, { recursive: true, force: true });
     const rm = make();
@@ -537,6 +573,8 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     expect(args[3]).toBe('u-old');
     expect(args).not.toContain('--session-id');
     expect(args).not.toContain('-n');
+    // 添付の置き場を渡すのは新規の起動だけで、再開には足さない。
+    expect(args).not.toContain('--add-dir');
     expect(args.at(-2)).toBe(args[args.indexOf('--append-system-prompt') + 1]);
     expect(() => rm.resume(id)).toThrow(expect.objectContaining({ status: 409 }));
   });
@@ -550,6 +588,7 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     const args = await launchedArgs(f.run.id);
     const i = args.indexOf('--fork-session');
     expect(args.slice(i - 2, i + 3)).toEqual(['-r', 'u-old', '--fork-session', '--session-id', args[i + 2]]);
+    expect(args).not.toContain('--add-dir');
     const s = db.prepare('select * from sessions where id = ?').get(f.sessionId) as Record<string, unknown>;
     expect(s).toMatchObject({ provider_session_id: args[i + 2], project_id: 'p1', cwd, name: null });
     expect(args[1]).toBe(path.join(home, 'mcp', `${f.sessionId}.json`));

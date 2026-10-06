@@ -64,7 +64,9 @@ export type Intent =
   | { type: 'session.nextWaiting' }
   | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams }
   // 新しいセッションのダイアログの書きかけ（名前と初期プロンプト）。ダイアログを閉じるときと「消す」で送る。両方空なら下書きを消す。
-  | { type: 'session.new.draft'; name: string; prompt: string }
+  | { type: 'session.new.draft'; name: string; prompt: string; attachments?: { path: string; name: string; size: number | null }[] }
+  // ダイアログを閉じた後に送り終えた添付を、いまの下書きへ足す。名前と本文には触れない（開き直したダイアログの書きかけを上書きしないため）。下書きが無ければ、名前と本文が空のものを作る。
+  | { type: 'session.new.draft.attach'; attachments: { path: string; name: string; size: number | null }[] }
   | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId }
   // 停止は作業中か、そのランにシェルタブがあるときだけ先に確認を出す。どちらなのかは View が添え、確認を出すかは Mediator が決める。
   | { type: 'session.kill'; runId: RunId; working: boolean; shellTabs: number; confirmed?: boolean }

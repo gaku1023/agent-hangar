@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrangeSections, highlight, matches, place, type ListboxOption } from './listboxModel.ts';
+import { arrangeSections, fitHeight, highlight, matches, place, roomFor, POPUP_FLOOR, type ListboxOption } from './listboxModel.ts';
 
 const o = (value: string, sub?: string): ListboxOption => ({ value, label: value, sub });
 const flat = (s: ReturnType<typeof arrangeSections>) => s.map((x) => [x.title, x.items.map((i) => `${i.index}:${i.option.value}`)]);
@@ -67,5 +67,26 @@ describe('place', () => {
   it('窓からはみ出さないよう、左右に 8px を残して寄せる', () => {
     expect(place({ top: 100, bottom: 128, left: 900, width: 90 }, 100, viewport, { minWidth: 300 }).left).toBe(692);
     expect(place({ top: 100, bottom: 128, left: 2, width: 90 }, 100, viewport, { minWidth: 300, align: 'end' }).left).toBe(8);
+  });
+});
+
+describe('roomFor と fitHeight', () => {
+  const viewport = { height: 600 };
+  const face = { top: 260, bottom: 380 };
+  it('下は窓の下端まで、上は窓の上端まで、顔との隙間（6px）と縁（8px）を引いた高さ', () => {
+    expect(roomFor(face, viewport, false)).toBe(206);
+    expect(roomFor(face, viewport, true)).toBe(246);
+  });
+  it('place が上下を決めるのと同じ数で測る', () => {
+    const f = { top: 260, bottom: 380, left: 0, width: 100 };
+    expect(place(f, 300, { width: 800, height: 600 }).up).toBe(true);
+    expect(roomFor(f, viewport, true)).toBeGreaterThan(roomFor(f, viewport, false));
+  });
+  it('上限と使える高さの小さいほうにする。広ければ上限のまま', () => {
+    expect(fitHeight(face, viewport, true, 300)).toBe(246);
+    expect(fitHeight({ top: 100, bottom: 220 }, viewport, false, 300)).toBe(300);
+  });
+  it('使える高さがごくわずかでも、2 行は見える下限を割らない', () => {
+    expect(fitHeight({ top: 20, bottom: 560 }, viewport, false, 300)).toBe(POPUP_FLOOR);
   });
 });

@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { LaunchParams } from '@agent-hangar/shared';
+import type { Intent, LaunchParams } from '@agent-hangar/shared';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
 import { pick } from '../test/pick.ts';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
+import { NO_ASSIST, PromptAssistContext } from './primitives/promptAssist.ts';
 
 const projects: NewSessionProps['projects'] = [
   { id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' },
@@ -233,6 +234,20 @@ describe('NewSessionDialog のスクラッチ', () => {
     start();
     expect(params).toEqual([{ scratch: true }]);
   });
+  it('初期プロンプトの @（ファイル）は、パスのあるプロジェクトを選んだときだけ使える', () => {
+    const noPath: NewSessionProps['projects'] = [...projects, { id: 'p3', name: 'gamma', path: null, status: 'active', lastActivity: '' }];
+    collectParams({ projects: noPath });
+    const files = () => screen.getByRole('button', { name: 'ファイル' });
+    // 未選択
+    expect(files()).toBeDisabled();
+    pick('プロジェクト', 'alpha');
+    expect(files()).toBeEnabled();
+    // パスの無いプロジェクトは、探す先のフォルダが無い。
+    pick('プロジェクト', 'gamma');
+    expect(files()).toBeDisabled();
+    pick('プロジェクト', 'スクラッチ');
+    expect(files()).toBeDisabled();
+  });
   it('scratch で開くとスクラッチが選ばれ、プロジェクトに選び直せば projectId で送る', () => {
     // ⌘⇧N、パレット、スクラッチのプロジェクト画面は、この状態でダイアログを開く。
     const params = collectParams({ scratch: true });
@@ -261,7 +276,7 @@ describe('NewSessionDialog のスクラッチ', () => {
 
 describe('NewSessionDialog の下書き（C1）', () => {
   it('前に閉じたときの書きかけを戻し、見出しの右に「下書き」の札と「消す」を出す', () => {
-    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} draft={{ name: 'API の節', prompt: '関数ごとに表を' }} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} draft={{ name: 'API の節', prompt: '関数ごとに表を', attachments: [] }} /></IntentRoot>);
     expect(screen.getByLabelText('名前（任意）')).toHaveValue('API の節');
     expect(screen.getByLabelText('初期プロンプト（任意）')).toHaveValue('関数ごとに表を');
     const head = screen.getByRole('dialog').querySelector('.dialog-head')!;
@@ -275,12 +290,12 @@ describe('NewSessionDialog の下書き（C1）', () => {
   });
   it('「消す」で名前と初期プロンプトを空にし、札を外し、下書きも消す', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} draft={{ name: 'n', prompt: 'p' }} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><NewSessionDialog {...base} draft={{ name: 'n', prompt: 'p', attachments: [] }} /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: '下書きを消す' }));
     expect(screen.getByLabelText('名前（任意）')).toHaveValue('');
     expect(screen.getByLabelText('初期プロンプト（任意）')).toHaveValue('');
     expect(screen.queryByText('下書き')).toBeNull();
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.draft', name: '', prompt: '' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.draft', name: '', prompt: '', attachments: [] });
     // 消した後は名前の欄から打ち直せる。
     expect(screen.getByLabelText('名前（任意）')).toHaveFocus();
   });
@@ -292,7 +307,108 @@ describe('NewSessionDialog の下書き（C1）', () => {
     // 打っている間は送らない。打鍵のたびに画面全体を描き直さないためである。
     expect(onIntent).not.toHaveBeenCalled();
     unmount();
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.draft', name: 'なまえ', prompt: 'やって' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.draft', name: 'なまえ', prompt: 'やって', attachments: [] });
+  });
+  it('添付があると、本文の後に空行とパスを足して起動する', () => {
+    const params = collectParams({ projectId: 'p1', draft: { name: '', prompt: '見て', attachments: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }] } });
+    start();
+    expect(params).toEqual([{ projectId: 'p1', prompt: '見て\n\n/h/.agent-hangar/drops/1-0-a.png' }]);
+  });
+  it('本文が空でも、添付だけで起動できる', () => {
+    const params = collectParams({ projectId: 'p1', draft: { name: '', prompt: '', attachments: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }] } });
+    start();
+    expect(params).toEqual([{ projectId: 'p1', prompt: '/h/.agent-hangar/drops/1-0-a.png' }]);
+  });
+  it('閉じるときの下書きに、添付も入れる', () => {
+    const drafts: unknown[] = [];
+    const a = { path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 };
+    const { unmount } = render(<IntentRoot onIntent={(i) => { if (i.type === 'session.new.draft') drafts.push(i); }}><NewSessionDialog {...base} draft={{ name: 'n', prompt: '', attachments: [a] }} /></IntentRoot>);
+    unmount();
+    expect(drafts).toEqual([{ type: 'session.new.draft', name: 'n', prompt: '', attachments: [a] }]);
+  });
+  it('下書きを消すと、添付も消える', () => {
+    render(<IntentRoot onIntent={() => {}}><NewSessionDialog {...base} draft={{ name: 'n', prompt: '', attachments: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }] }} /></IntentRoot>);
+    expect(screen.getByRole('listitem', { name: 'a.png' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '下書きを消す' }));
+    expect(screen.queryByRole('listitem', { name: 'a.png' })).toBeNull();
+  });
+  describe('添付を送っている最中', () => {
+    /** 手で解決できる送信を持つ、ダイアログの描画。 */
+    function pending(over: Partial<NewSessionProps> = {}) {
+      const intents: Intent[] = [];
+      let finish: (d: { path: string; name: string; size: number }) => void = () => {};
+      let fail: (e: Error) => void = () => {};
+      const upload = vi.fn(() => new Promise<{ path: string; name: string; size: number }>((res, rej) => { finish = res; fail = rej; }));
+      const ui = (props: Partial<NewSessionProps>) => (
+        <PromptAssistContext.Provider value={{ ...NO_ASSIST, upload }}>
+          <IntentRoot onIntent={(i) => intents.push(i)}><NewSessionDialog {...base} projectId="p1" {...over} {...props} /></IntentRoot>
+        </PromptAssistContext.Provider>
+      );
+      const view = render(ui({}));
+      return { ...view, intents, ui, finish: (d = { path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }) => finish(d), fail: (e: Error) => fail(e) };
+    }
+    const paste = () => fireEvent.paste(screen.getByLabelText('初期プロンプト（任意）'), { clipboardData: { files: [new File(['x'], 'a.png', { type: 'image/png' })] } });
+
+    it('起動ボタンは使えず「添付を送っています」と出し、⌘Enter でも起動しない。終われば添付のパスつきで起動できる', async () => {
+      const t = pending();
+      fireEvent.change(screen.getByLabelText('初期プロンプト（任意）'), { target: { value: '見て' } });
+      paste();
+      const btn = screen.getByRole('button', { name: '添付を送っています' });
+      expect(btn).toBeDisabled();
+      fireEvent.keyDown(screen.getByLabelText('初期プロンプト（任意）'), { key: 'Enter', metaKey: true });
+      expect(t.intents.filter((i) => i.type === 'session.new.submit')).toEqual([]);
+      await act(async () => { t.finish(); });
+      expect(screen.queryByRole('button', { name: '添付を送っています' })).toBeNull();
+      start();
+      expect(t.intents.filter((i) => i.type === 'session.new.submit')).toEqual([{ type: 'session.new.submit', params: { projectId: 'p1', prompt: '見て\n\n/h/.agent-hangar/drops/1-0-a.png' } }]);
+    });
+    it('失敗したら、起動できる状態に戻る', async () => {
+      const t = pending();
+      paste();
+      expect(screen.getByRole('button', { name: '添付を送っています' })).toBeDisabled();
+      await act(async () => { t.fail(new Error('x')); });
+      expect(screen.getByRole('button', { name: /起動/ })).toBeEnabled();
+    });
+    // 閉じる前の名前と本文で下書きを置き換えると、開き直したダイアログの書きかけを上書きする。遅れて着いた添付だけを足す Intent を送る。
+    it('送っている最中に閉じても、終わったときに、着いた添付だけを下書きへ足す（名前と本文は送らない）', async () => {
+      const t = pending();
+      fireEvent.change(screen.getByLabelText('名前（任意）'), { target: { value: 'なまえ' } });
+      fireEvent.change(screen.getByLabelText('初期プロンプト（任意）'), { target: { value: '見て' } });
+      paste();
+      t.unmount();
+      t.intents.length = 0;
+      await act(async () => { t.finish(); });
+      expect(t.intents).toEqual([{ type: 'session.new.draft.attach', attachments: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 }] }]);
+    });
+    it('閉じた後に 2 件が終わったら、1 件ずつ、その 1 件だけを持つ Intent を送る', async () => {
+      const intents: Intent[] = [];
+      const done: ((d: { path: string; name: string; size: number }) => void)[] = [];
+      const upload = vi.fn(() => new Promise<{ path: string; name: string; size: number }>((res) => { done.push(res); }));
+      const view = render(
+        <PromptAssistContext.Provider value={{ ...NO_ASSIST, upload }}>
+          <IntentRoot onIntent={(i) => intents.push(i)}><NewSessionDialog {...base} projectId="p1" /></IntentRoot>
+        </PromptAssistContext.Provider>,
+      );
+      paste();
+      paste();
+      // 閉じる前に着いたものは、閉じるときの下書きに入る。ここでは何も着いていない。
+      view.unmount();
+      intents.length = 0;
+      const a = { path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 3 };
+      const b = { path: '/h/.agent-hangar/drops/1-1-b.png', name: 'b.png', size: 4 };
+      await act(async () => { done[0]!(a); });
+      await act(async () => { done[1]!(b); });
+      expect(intents).toEqual([{ type: 'session.new.draft.attach', attachments: [a] }, { type: 'session.new.draft.attach', attachments: [b] }]);
+    });
+    it('起動を送った後に閉じたなら、終わっても下書きを送らない', async () => {
+      const t = pending();
+      paste();
+      t.rerender(t.ui({ submitting: true }));
+      t.unmount();
+      t.intents.length = 0;
+      await act(async () => { t.finish(); });
+      expect(t.intents).toEqual([]);
+    });
   });
   it('起動を送った後に閉じたとき（起動し終えたとき）は、下書きを送らない', () => {
     const onIntent = vi.fn();
@@ -369,5 +485,29 @@ describe('NewSessionDialog の前回値（D1）', () => {
     start();
     expect(params).toEqual([{ scratch: true, effort: 'max' }]);
   });
+  it('初期プロンプトで / の候補から選ぶと、その文で起動する', async () => {
+    const out: LaunchParams[] = [];
+    const assist = { ...NO_ASSIST, commands: () => Promise.resolve([{ name: 'goal', description: '長く走る', argumentHint: null, source: 'user' as const, uses: 3 }]) };
+    render(<PromptAssistContext.Provider value={assist}><IntentRoot onIntent={(i) => { if (i.type === 'session.new.submit') out.push(i.params); }}><NewSessionDialog {...base} projectId="p1" /></IntentRoot></PromptAssistContext.Provider>);
+    await act(async () => {});
+    const ta = screen.getByLabelText('初期プロンプト（任意）');
+    fireEvent.focus(ta);
+    fireEvent.change(ta, { target: { value: '/g', selectionStart: 2, selectionEnd: 2 } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    expect(out).toEqual([]);
+    start();
+    expect(out).toEqual([{ projectId: 'p1', prompt: '/goal' }]);
+  });
+  it('候補が開いている間の Esc は、ダイアログを閉じない', async () => {
+    const closed = vi.fn();
+    const assist = { ...NO_ASSIST, commands: () => Promise.resolve([{ name: 'goal', description: '', argumentHint: null, source: 'user' as const, uses: 0 }]) };
+    render(<PromptAssistContext.Provider value={assist}><IntentRoot onIntent={(i) => { if (i.type === 'overlay.close') closed(); }}><NewSessionDialog {...base} projectId="p1" /></IntentRoot></PromptAssistContext.Provider>);
+    await act(async () => {});
+    const ta = screen.getByLabelText('初期プロンプト（任意）');
+    fireEvent.focus(ta);
+    fireEvent.change(ta, { target: { value: '/', selectionStart: 1, selectionEnd: 1 } });
+    fireEvent.keyDown(ta, { key: 'Escape' });
+    expect(closed).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox', { name: 'スキルとコマンド' })).toBeNull();
+  });
 });
-

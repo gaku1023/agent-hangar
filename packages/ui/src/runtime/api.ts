@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, DeviceDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, DeviceDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -27,6 +27,12 @@ export type ApiClient = {
   setProjectStatus(id: string, status: ProjectStatus): Promise<ProjectDto>;
   resolveProject(id: string, action: ResolveAction): Promise<unknown>;
   candidates(id: string, name: string): Promise<string[]>;
+  // 初期プロンプト欄の候補と添付。
+  promptCommands(projectId: string | null): Promise<PromptCommandDto[]>;
+  /** プロジェクトのファイルを問いで探す（相対パス、最大 50 件）。問いが空なら最近変えたもの。 */
+  promptFiles(projectId: string, query: string): Promise<string[]>;
+  uploadDrop(file: Blob, name: string): Promise<DropDto>;
+  existingDrops(paths: string[]): Promise<string[]>;
   updateSettings(patch: Partial<SettingsDto>): Promise<SettingsDto>;
   rebuildIndex(): Promise<void>;
   launch(params: LaunchParams): Promise<LaunchResultDto>;
@@ -124,6 +130,12 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     setProjectStatus: (id, status) => call(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     resolveProject: (id, action) => call(`/api/projects/${id}/resolve`, { method: 'POST', body: JSON.stringify(action) }),
     candidates: (id, name) => call(`/api/projects/${id}/candidates${qs({ name })}`),
+    promptCommands: (projectId) => call<{ commands: PromptCommandDto[] }>(`/api/prompt/commands${qs({ projectId })}`).then((r) => r.commands),
+    promptFiles: (projectId, query) => call<{ files: string[] }>(`/api/prompt/files${qs({ projectId, q: query })}`).then((r) => r.files),
+    // 本文はそのまま送る。サーバが通すのは application/octet-stream だけなので、call の既定の種類を上書きする。
+    // 送りきれないまま止まると「送っています」の札が残り、起動もできなくなる。60 秒で打ち切って、ふつうの失敗として知らせる。
+    uploadDrop: (file, name) => call(`/api/drops${qs({ name })}`, { method: 'POST', body: file, headers: { 'content-type': 'application/octet-stream' }, signal: AbortSignal.timeout(60_000) }),
+    existingDrops: (paths) => post<{ paths: string[] }>('/api/drops/existing', { paths }).then((r) => r.paths),
     updateSettings: (patch) => call('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
     rebuildIndex: () => post('/api/index/rebuild'),
     launch: (params) => post('/api/runs', params),

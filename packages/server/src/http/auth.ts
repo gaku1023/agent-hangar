@@ -57,6 +57,25 @@ export function jsonContentType(contentType: string | undefined): boolean {
 }
 
 /**
+ * 本文の型の例外。動詞と経路が完全に一致する要求にだけ、JSON のほかに 1 つの型を認める。
+ * 初期プロンプト欄の添付は、ファイルのバイト列をそのまま送るので JSON にできない。
+ * application/octet-stream は「単純な要求」で使える型（text/plain など）ではないので、
+ * 別のサイトのページから送ると前検査が起き、CORS の許可を返さないここでは届かない。
+ * JSON だけにしている理由（前検査を必ず挟ませる）は、この型でも保たれる。
+ * 「単純でない型なら通す」に広げない。通す型は、ここに書いた 1 つだけである。
+ */
+const BODY_TYPE_EXCEPTIONS: readonly { method: string; path: string; type: string }[] = [
+  { method: 'POST', path: '/api/drops', type: 'application/octet-stream' },
+];
+
+/** 本文を持つ要求の型を通すか。JSON か、例外の表に動詞・経路・型がそろって載っているものだけを通す。 */
+export function bodyContentTypeAllowed(method: string, path: string, contentType: string | undefined): boolean {
+  if (jsonContentType(contentType)) return true;
+  const type = (contentType ?? '').split(';')[0]?.trim().toLowerCase();
+  return BODY_TYPE_EXCEPTIONS.some((e) => e.method === method.toUpperCase() && e.path === path && e.type === type);
+}
+
+/**
  * 本文を持つ要求かどうか。
  * node の受け口は本文の無い POST にも空のストリームを付けるので、ストリームの有無では測れない。
  * 見出しで測る。ブラウザは本文を送るとき必ずどちらかを付けるので、塞ぎたい経路はここに入る。
@@ -98,7 +117,7 @@ export function authMiddleware(token: string, port: number): MiddlewareHandler {
     // 開きっぱなしのタブはここに落ちる。UI はこの文をそのままトーストに出す。
     if (!tokenEquals(got, token)) return c.json({ error: '認証が切れました。ページを再読み込みしてください' }, 401);
     // 本文を持つ要求だけ型を見る。本文の無い POST は今までどおり通す。
-    if (hasRequestBody(c.req.header('content-length'), c.req.header('transfer-encoding')) && !jsonContentType(c.req.header('content-type'))) {
+    if (hasRequestBody(c.req.header('content-length'), c.req.header('transfer-encoding')) && !bodyContentTypeAllowed(c.req.method, c.req.path, c.req.header('content-type'))) {
       return c.json({ error: '要求の形式が正しくありません' }, 415);
     }
     await next();
