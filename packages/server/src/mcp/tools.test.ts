@@ -223,8 +223,8 @@ describe('MCP tools', () => {
     const a = store.add({ name: '大学' });
     store.setCurrent(a.id);
     const tracker = new UsageTracker(db, { accountOf: (sid) => (sid === 'u' ? a.id : 'primary') });
-    tracker.ingest({ session_id: 'w', rate_limits: { five_hour: { used_percentage: 82, resets_at: 1 }, seven_day: { used_percentage: 41, resets_at: 2 } } });
-    tracker.ingest({ session_id: 'u', rate_limits: { five_hour: { used_percentage: 12, resets_at: 1 }, seven_day: { used_percentage: 9, resets_at: 2 } } });
+    tracker.ingest({ session_id: 'w', rate_limits: { five_hour: { used_percentage: 82, resets_at: 4_000_000_000 }, seven_day: { used_percentage: 41, resets_at: 4_000_100_000 } } });
+    tracker.ingest({ session_id: 'u', rate_limits: { five_hour: { used_percentage: 12, resets_at: 4_000_000_000 }, seven_day: { used_percentage: 9, resets_at: 4_000_100_000 } } });
     deps = { ...deps, usage: () => tracker.current(), accounts: { store, usage: tracker } };
     const out = call('get_usage') as { five_hour: { used_percentage: number }; accounts: { name: string; current: boolean; five_hour: { used_percentage: number } }[] };
     expect(out.five_hour.used_percentage).toBe(82);

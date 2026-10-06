@@ -1,4 +1,4 @@
-import { PRIMARY_ACCOUNT_ID, type RateWindowDto, type UsageDto } from '@agent-hangar/shared';
+import { PRIMARY_ACCOUNT_ID, type RateWindowDto, type UsageDto, usageAt } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 
 // Claude Code が statusLine コマンドの標準入力に渡す JSON を読む。
@@ -79,7 +79,8 @@ export class UsageTracker {
 
   /** 最初のアカウントの値。事後の要約の止める判定と、古い呼び手が使う。 */
   current(): UsageDto { return this.of(PRIMARY_ACCOUNT_ID); }
-  of(accountId: string): UsageDto { return this.state.get(accountId) ?? EMPTY; }
+  /** 戻る時刻を過ぎた窓は 0% として返す（usageAt）。持っている値そのものは次の payload まで変えない。 */
+  of(accountId: string): UsageDto { return usageAt(this.state.get(accountId) ?? EMPTY, this.now()); }
 
   /** アカウントごとに新しい順に読み、両方の窓が埋まるか行が尽きるまで辿る。 */
   private restore(): void {

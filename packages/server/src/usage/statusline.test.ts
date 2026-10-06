@@ -83,7 +83,7 @@ describe('アカウントごとの使用量', () => {
   it('セッションのアカウントへ振り分け、互いに上書きしない', () => {
     const db = openDb(':memory:');
     let t = 100;
-    const u = new UsageTracker(db, { now: () => t++, accountOf });
+    const u = new UsageTracker(db, { now: () => t, accountOf });
     const r1 = u.ingest(payload('work-session', 82, 41))!;
     const r2 = u.ingest(payload('univ-session', 12, 9))!;
     expect([r1.accountId, r2.accountId]).toEqual(['primary', 'a1']);
@@ -96,10 +96,10 @@ describe('アカウントごとの使用量', () => {
   it('起動時に、アカウントごとの直近の値と時刻を復元する', () => {
     const db = openDb(':memory:');
     let t = 100;
-    const u = new UsageTracker(db, { now: () => t++, accountOf });
+    const u = new UsageTracker(db, { now: () => t, accountOf });
     u.ingest(payload('univ-session', 12, 9));
     u.ingest(payload('work-session', 82, 41));
-    const again = new UsageTracker(db, { accountOf });
+    const again = new UsageTracker(db, { now: () => t, accountOf });
     expect(again.of('a1').fiveHour?.usedPercent).toBe(12);
     expect(again.of('a1').updatedAt).toBe(100);
     expect(again.current().updatedAt).toBe(101);
@@ -108,17 +108,28 @@ describe('アカウントごとの使用量', () => {
   it('keep はアカウントごとに数える。片方が多くても、もう片方の値は押し出されない', () => {
     const db = openDb(':memory:');
     let t = 100;
-    const u = new UsageTracker(db, { now: () => t++, keep: 3, accountOf });
+    const u = new UsageTracker(db, { now: () => t, keep: 3, accountOf });
     u.ingest(payload('univ-session', 12, 9));
     for (let i = 0; i < 10; i++) u.ingest(payload('work-session', 50 + i, 41));
     expect((db.prepare("select count(*) n from usage_snapshots where account = 'primary'").get() as { n: number }).n).toBe(3);
     expect((db.prepare("select count(*) n from usage_snapshots where account = 'a1'").get() as { n: number }).n).toBe(1);
-    expect(new UsageTracker(db, { accountOf }).of('a1').fiveHour?.usedPercent).toBe(12);
+    expect(new UsageTracker(db, { now: () => t, accountOf }).of('a1').fiveHour?.usedPercent).toBe(12);
   });
 
   it('v15 より前に積まれた行（account が null）は primary として復元する', () => {
     const db = openDb(':memory:');
     db.prepare('insert into usage_snapshots (at, payload) values (?, ?)').run(50, JSON.stringify(payload('old', 70, 30)));
-    expect(new UsageTracker(db).current().fiveHour?.usedPercent).toBe(70);
+    expect(new UsageTracker(db, { now: () => 0 }).current().fiveHour?.usedPercent).toBe(70);
+  });
+
+  it('戻る時刻を過ぎた窓は、新しい値が届かなくても 0% として読む', () => {
+    const db = openDb(':memory:');
+    let t = 100;
+    const u = new UsageTracker(db, { now: () => t, accountOf });
+    u.ingest(payload('work-session', 35, 30));
+    t = 1_000_000;
+    expect(u.current()).toEqual({ fiveHour: { usedPercent: 0, resetsAt: null }, sevenDay: { usedPercent: 30, resetsAt: 2_000_000 }, updatedAt: 100 });
+    t = 2_000_000;
+    expect(new UsageTracker(db, { now: () => t, accountOf }).current().sevenDay).toEqual({ usedPercent: 0, resetsAt: null });
   });
 });

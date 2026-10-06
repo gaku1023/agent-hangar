@@ -1,4 +1,4 @@
-import type { IndexProgressDto, LiveStatus, Route, SyncStateKind } from '@agent-hangar/shared';
+import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
@@ -175,7 +175,7 @@ const gaugePercent = (g: AccountGauge | null): number | null => g?.percent ?? nu
  * 1 件以下のときは、今までどおり store.usage から作る。
  */
 function headerAccount(state: State, store: Store, now: number): { account: HeaderAccountProps; usage: UsageProps } {
-  const u = store.usage;
+  const u = usageAt(store.usage, now);
   const plain: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
   if (!hasMultipleAccounts(store)) return { account: null, usage: plain };
   const sessionId = state.screen.name === 'session' ? state.screen.id : null;
