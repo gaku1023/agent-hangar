@@ -715,8 +715,14 @@ async fn pick_folder(app: AppHandle, default_path: Option<String>) -> Option<Str
             builder = builder.set_directory(dir);
         }
     }
-    let picked = tauri::async_runtime::spawn_blocking(move || builder.blocking_pick_folder()).await.ok().flatten()?;
-    picked.into_path().ok().map(|p| p.to_string_lossy().into_owned())
+    let picked = tauri::async_runtime::spawn_blocking(move || builder.blocking_pick_folder())
+        .await
+        .ok()
+        .flatten()?;
+    picked
+        .into_path()
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 /// `~/.agent-hangar/desktop.log` を開く。起動画面と、UI の切断の帯の「ログを開く」が呼ぶ。

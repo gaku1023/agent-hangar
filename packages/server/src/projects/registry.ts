@@ -80,7 +80,9 @@ export function registerWorkspaceChildOf(db: Db, deviceId: string, workspaceRoot
   const head = path.relative(root, c).split(/[\\/]/)[0]!;
   if (head.startsWith('.')) return null;
   const dir = path.join(root, head);
-  if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return null;
+  // 実在は、NFC にしたパスを開いてではなく、直下の一覧に載っているかで確かめる。
+  // ディスク上の名前が NFD のとき、正規化を区別するファイルシステム（Linux など）では NFC のパスでは開けない。
+  if (!childDirs(root).some((d) => samePath(d, dir))) return null;
   if (knownRoots(db, deviceId).has(pathKey(dir))) return null;
   return insertProject(db, deviceId, head, dir);
 }

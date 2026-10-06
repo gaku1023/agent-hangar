@@ -707,8 +707,8 @@ describe('routes', () => {
     const r = await postProject({ kind: 'newDir', name: 'fresh', gitInit: true });
     expect(r.status).toBe(201);
     const p = await r.json();
-    expect(p).toMatchObject({ name: 'fresh', path: `${ws}/fresh`, resolved: true, status: 'active' });
-    expect(gitInit).toHaveBeenCalledWith(`${ws}/fresh`);
+    expect(p).toMatchObject({ name: 'fresh', path: path.join(ws, 'fresh'), resolved: true, status: 'active' });
+    expect(gitInit).toHaveBeenCalledWith(path.join(ws, 'fresh'));
     expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id: p.id } });
     expect((await postProject({ kind: 'newDir', name: 'fresh', gitInit: false })).status).toBe(409);
     const bad = await postProject({ kind: 'newDir', name: 'a/b', gitInit: false });
@@ -720,7 +720,7 @@ describe('routes', () => {
     fs.mkdirSync(`${ws}/gamma`);
     const r = await postProject({ kind: 'dir', path: `${ws}/gamma` });
     expect(r.status).toBe(201);
-    expect(await r.json()).toMatchObject({ name: 'gamma', path: `${ws}/gamma` });
+    expect(await r.json()).toMatchObject({ name: 'gamma', path: path.join(ws, 'gamma') });
     expect((await postProject({ kind: 'other', path: ws })).status).toBe(400);
   });
   it('未登録のフォルダの一覧を返す', async () => {
