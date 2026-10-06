@@ -68,6 +68,12 @@ describe('presentAccount', () => {
     expect(view({ usage: usage(79, HOUR + MIN) }).note).toEqual({ tone: 'stale', text: '1 時間前の値' });
     expect(view({ usage: usage(79, 26 * HOUR) }).note).toEqual({ tone: 'stale', text: '1 日前の値' });
   });
+  it('戻る時刻を過ぎた窓は 0% で、戻る時刻は出さない。上限の注記も出さず、古い値の注記だけ残る', () => {
+    const v = view({ usage: { fiveHour: { usedPercent: 85, resetsAt: NOW - 2 * HOUR }, sevenDay: { usedPercent: 41, resetsAt: NOW + 30 * HOUR }, updatedAt: NOW - 3 * HOUR } });
+    expect(v.fiveHour).toEqual({ percent: 0, high: false, resets: null });
+    expect(v.sevenDay).toEqual({ percent: 41, high: false, resets: resetsLabel(NOW + 30 * HOUR, NOW) });
+    expect(v.note).toEqual({ tone: 'stale', text: '3 時間前の値' });
+  });
   it('note：5 時間が 85 で値も古ければ warn が優先', () => {
     expect(view({ usage: usage(85, 5 * HOUR) }).note?.tone).toBe('warn');
   });

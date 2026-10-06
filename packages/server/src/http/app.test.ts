@@ -775,7 +775,7 @@ describe('routes', () => {
     expect((await post('/api/ingest/statusline', first)).status).toBe(204);
     expect(sent.filter((e) => e.type === 'usage.update')).toHaveLength(0);
     expect(sent.at(-1)).toMatchObject({ type: 'session.upsert', session: { providerSessionId: SESSION_ALPHA, stats: { model: 'claude-opus-4-1' } } });
-    const second = { ...first, context_window: { context_window_size: 200000, current_usage: { input_tokens: 50000 } }, rate_limits: { five_hour: { used_percentage: 47, resets_at: 1 }, seven_day: { used_percentage: 7, resets_at: 2 } } };
+    const second = { ...first, context_window: { context_window_size: 200000, current_usage: { input_tokens: 50000 } }, rate_limits: { five_hour: { used_percentage: 47, resets_at: 4_000_000_000 }, seven_day: { used_percentage: 7, resets_at: 4_000_100_000 } } };
     expect((await post('/api/ingest/statusline', second)).status).toBe(204);
     expect(sent.find((e) => e.type === 'usage.update')).toMatchObject({ usage: { fiveHour: { usedPercent: 47 }, sevenDay: { usedPercent: 7 } } });
     expect((await json(await get('/api/usage'))).body).toMatchObject({ fiveHour: { usedPercent: 47 } });
@@ -1439,7 +1439,7 @@ describe('アカウントの取り付け', () => {
     await accountsApp.request('/api/bootstrap', { headers: H });
     expect(fs.readlinkSync(path.join(dir, 'projects'))).toBe(path.join(accountHome, '.claude', 'projects'));
     fs.unlinkSync(path.join(dir, 'projects'));
-    const limits = { rate_limits: { five_hour: { used_percentage: 47, resets_at: 1 }, seven_day: { used_percentage: 7, resets_at: 2 } } };
+    const limits = { rate_limits: { five_hour: { used_percentage: 47, resets_at: 4_000_000_000 }, seven_day: { used_percentage: 7, resets_at: 4_000_100_000 } } };
     expect((await post('/api/ingest/statusline', { session_id: SESSION_ALPHA, ...limits })).status).toBe(204);
     expect(fs.existsSync(path.join(dir, 'projects'))).toBe(false);
   });
@@ -1464,7 +1464,7 @@ describe('アカウントの取り付け', () => {
 
   it('使用量は、動かしたアカウントの accounts.update で配り、usage.update は最初のアカウントのときだけ', async () => {
     sent.length = 0;
-    const limits = { rate_limits: { five_hour: { used_percentage: 47, resets_at: 1 }, seven_day: { used_percentage: 7, resets_at: 2 } } };
+    const limits = { rate_limits: { five_hour: { used_percentage: 47, resets_at: 4_000_000_000 }, seven_day: { used_percentage: 7, resets_at: 4_000_100_000 } } };
     expect((await post('/api/ingest/statusline', { session_id: SESSION_ALPHA, ...limits })).status).toBe(204);
     expect(sent.filter((e) => e.type === 'usage.update')).toHaveLength(0);
     const update = sent.find((e) => e.type === 'accounts.update');

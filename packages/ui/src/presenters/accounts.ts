@@ -1,4 +1,4 @@
-import type { AccountDto, RateWindowDto } from '@agent-hangar/shared';
+import { type AccountDto, type RateWindowDto, windowAt } from '@agent-hangar/shared';
 import { accountList, currentAccount, type Store } from '../store/store.ts';
 import { relativeTime, resetsLabel } from './format.ts';
 
@@ -30,8 +30,11 @@ const HOUR = 3_600_000;
 /** 既存の計器（UsageGauge）の警告色と同じ線。 */
 const HIGH = 80;
 
-const gauge = (w: RateWindowDto | null, now: number): AccountGauge | null =>
-  w === null ? null : { percent: w.usedPercent, high: w.usedPercent >= HIGH, resets: resetsLabel(w.resetsAt, now) };
+/** 戻る時刻を過ぎた窓は 0% として出す（windowAt）。 */
+const gauge = (raw: RateWindowDto | null, now: number): AccountGauge | null => {
+  const w = windowAt(raw, now);
+  return w === null ? null : { percent: w.usedPercent, high: w.usedPercent >= HIGH, resets: resetsLabel(w.resetsAt, now) };
+};
 
 function noteOf(a: AccountDto, five: AccountGauge | null, now: number): AccountView['note'] {
   if (five?.high) return { tone: 'warn', text: five.resets === null ? 'まもなく上限' : `まもなく上限。${five.resets} に戻ります` };

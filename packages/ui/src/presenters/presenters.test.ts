@@ -4,7 +4,7 @@ import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPrev
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { toSyncState } from '../mediator/sync.ts';
 import { initialState } from '../mediator/transition.ts';
-import { accountsFixture } from '../test/accounts.ts';
+import { accountsFixture, FIVE_RESETS, SEVEN_RESETS } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
@@ -1154,7 +1154,7 @@ describe('presentShell のアカウント', () => {
     expect(p.account?.working).toBe(false);
     expect(p.account?.list.map((a) => a.id)).toEqual(['primary', 'a1']);
     expect(p.account?.list.map((a) => a.current)).toEqual([true, false]);
-    expect(p.usage).toEqual({ fiveHour: 82, sevenDay: 41, fiveHourResets: resetsLabel(1000, NOW), sevenDayResets: resetsLabel(2000, NOW), updatedLabel: relativeTime(500, NOW) });
+    expect(p.usage).toEqual({ fiveHour: 82, sevenDay: 41, fiveHourResets: resetsLabel(FIVE_RESETS, NOW), sevenDayResets: resetsLabel(SEVEN_RESETS, NOW), updatedLabel: relativeTime(500, NOW) });
   });
   it('いまのアカウントが大学なら、ホームでも大学を出す', () => {
     const p = presentShell(initialState(), { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
