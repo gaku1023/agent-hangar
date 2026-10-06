@@ -2,6 +2,7 @@ import type { IndexProgressDto, ShellHookStateDto, StatuslineStatusDto, Summariz
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime, SYNC_STATE_LABEL } from './format.ts';
+import { presentAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
 import { toolLine, workspaceLine, type VerifyLine } from './readiness.ts';
@@ -34,6 +35,12 @@ const shellLabel = (s: ShellHookStateDto | null): string => (s ? SHELL_LABEL[s] 
 /** 会話の保持の節。押しても保存せず、確認（retention.edit）を開く。 */
 export type RetentionSettingsProps = { days: number; options: { value: string; label: string }[]; writable: boolean; reason: string | null; valueLabel: string; bar: UsageBarProps | null; syncNote: boolean };
 
+/** アカウントに付けられる 5 色（#rrggbb）。サーバは何色でも受けるが、画面からはここから選ぶ。 */
+export const ACCOUNT_COLORS = ['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a2452f'];
+
+/** アカウントの節。一覧が空なのは、まだ届いていないときだけ（1 件でもあれば出す）。 */
+export type AccountSettingsProps = { list: AccountView[]; colors: string[] };
+
 export type SettingsProps = {
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; indexLabel: string; sessionCount: number; projectCount: number;
   tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null;
@@ -63,6 +70,9 @@ export type SettingsProps = {
   save: Record<string, SaveMark>;
   /** 群ごとの直すものの数。目次に印を付ける。無くても動くものは数えない。 */
   todo: { must: number; link: number };
+  accounts: AccountSettingsProps;
+  /** 開いたときに見える位置へ移る節。ヘッダの「アカウントの設定」から来たときだけ入る。 */
+  focus: 'accounts' | null;
 };
 
 /** 選択肢は決まった 4 つに、今の値がそこに無ければそれを足して、短い順に並べる。 */
@@ -143,6 +153,8 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     nodePath: s?.nodePath ?? '',
     claudePath: s?.claudePath ?? null,
     retention: retentionSettings(store),
+    accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
+    focus: state.screen.name === 'settings' && state.screen.at === 'accounts' ? 'accounts' : null,
     notify: { available: state.notify.available, on: state.notify.on, blocked: state.notify.blocked },
   };
 }

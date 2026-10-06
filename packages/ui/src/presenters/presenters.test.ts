@@ -16,6 +16,7 @@ import { presentProjects } from './projects.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
 import { buildItems, presentSession, sessionActions } from './session.ts';
 import { presentSessions } from './sessions.ts';
+import { homePath } from './accounts.ts';
 import { presentSettings } from './settings.ts';
 import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
 import { presentRetentionDialog } from './retentionDialog.ts';
@@ -994,6 +995,45 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
   it('参加トークンが消える時刻を渡す', () => {
     const p = presentSettings(initialState(), { ...initialStore(), joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 }, NOW);
     expect(p.cloud).toMatchObject({ joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 });
+  });
+  describe('アカウントの節', () => {
+    it('アカウントが 1 件でもその一覧を渡し、選べる 5 色を添える', () => {
+      const one = { ...accountsFixture, accounts: accountsFixture.accounts.slice(0, 1) };
+      const p = presentSettings(initialState(), { ...initialStore(), accounts: one }, NOW);
+      expect(p.accounts.list.map((a) => [a.id, a.name, a.current, a.primary])).toEqual([['primary', '会社', true, true]]);
+      expect(p.accounts.colors).toEqual(['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a2452f']);
+    });
+    it('2 件なら 2 件とも、いまのアカウントに印を付けて渡す', () => {
+      const p = presentSettings(initialState(), { ...initialStore(), accounts: accountsFixture }, NOW);
+      expect(p.accounts.list.map((a) => [a.id, a.current])).toEqual([['primary', true], ['a1', false]]);
+    });
+    it('まだ届いていなければ一覧は空', () => {
+      expect(presentSettings(initialState(), initialStore(), NOW).accounts.list).toEqual([]);
+    });
+    it('行き先の印は、設定の画面が at=accounts で開かれたときだけ accounts になる', () => {
+      const at = (screen: State['screen']) => presentSettings({ ...initialState(), screen }, initialStore(), NOW).focus;
+      expect(at({ name: 'settings', at: 'accounts' })).toBe('accounts');
+      expect(at({ name: 'settings' })).toBeNull();
+      expect(at({ name: 'home' })).toBeNull();
+    });
+  });
+});
+
+describe('homePath', () => {
+  it('ホームの下を ~ で始まる形に縮める（macOS と Linux）', () => {
+    expect(homePath('/Users/taro/.claude-univ')).toBe('~/.claude-univ');
+    expect(homePath('/home/taro/.claude')).toBe('~/.claude');
+    expect(homePath('/Users/taro/work/a b')).toBe('~/work/a b');
+  });
+  it('ホームそのものは ~ にする', () => {
+    expect(homePath('/Users/taro')).toBe('~');
+    expect(homePath('/Users/taro/')).toBe('~');
+  });
+  it('ホームの下でなければそのまま返す', () => {
+    expect(homePath('/h/.claude')).toBe('/h/.claude');
+    expect(homePath('/Users')).toBe('/Users');
+    expect(homePath('/srv/Users/taro/x')).toBe('/srv/Users/taro/x');
+    expect(homePath('/homework/x')).toBe('/homework/x');
   });
 });
 

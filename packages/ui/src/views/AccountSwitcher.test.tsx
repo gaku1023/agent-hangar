@@ -205,7 +205,8 @@ describe('AccountSwitcher の閉じ方と設定への道', () => {
     fireEvent.click(face);
     onIntent.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'アカウントの設定' }));
-    expect(onIntent.mock.calls).toEqual([[{ type: 'nav.go', to: { name: 'settings' } }]]);
+    // アカウントの節が見える位置へ着く。
+    expect(onIntent.mock.calls).toEqual([[{ type: 'nav.go', to: { name: 'settings', at: 'accounts' } }]]);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
   it('閉じてもう一度開くたびに accounts.load を出す', () => {

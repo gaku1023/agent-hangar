@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { pick } from '../test/pick.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
-import type { CloudSettingsProps, SettingsProps } from '../presenters/settings.ts';
+import { presentAccounts } from '../presenters/accounts.ts';
+import { ACCOUNT_COLORS, type CloudSettingsProps, type SettingsProps } from '../presenters/settings.ts';
+import { initialStore } from '../store/store.ts';
+import { accountsFixture } from '../test/accounts.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 import { SessionRows } from './SessionRows.tsx';
 import { Header } from './Header.tsx';
@@ -158,6 +161,8 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   mcpRegistered: null,
   save: {},
   todo: { must: 0, link: 0 },
+  accounts: { list: presentAccounts({ ...initialStore(), accounts: accountsFixture }, Date.parse('2026-10-06T12:00:00+09:00')), colors: ACCOUNT_COLORS },
+  focus: null,
   ...over,
 });
 
@@ -389,6 +394,46 @@ describe('SettingsScreen の目次（設定の A1）', () => {
     expect(toc.getAllByRole('button').map((b) => b.textContent)).toEqual(['必須', '連携', '要約器', '同期', '情報']);
     expect(toc.getByText('外のターミナル')).toBeInTheDocument();
     for (const name of ['必須', '連携', '要約器', '同期', '情報']) expect(screen.getByRole('heading', { level: 2, name: new RegExp(`^${name}`) })).toBeInTheDocument();
+  });
+  it('目次の「連携」に、小見出しとして「アカウント」を足す（群は増やさない）', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const toc = within(screen.getByRole('navigation', { name: '設定の目次' }));
+    expect(toc.getByText('アカウント')).toHaveClass('settings-toc-sub');
+    expect(toc.getAllByRole('button')).toHaveLength(5);
+  });
+  it('アカウントの節は「連携」の群の中に出し、1 件でも出す', () => {
+    const one = presentAccounts({ ...initialStore(), accounts: { ...accountsFixture, accounts: accountsFixture.accounts.slice(0, 1) } }, 0);
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ accounts: { list: one, colors: ACCOUNT_COLORS } })} /></IntentRoot>);
+    const link = screen.getByRole('group', { name: /^連携/ });
+    expect(within(link).getByRole('heading', { level: 3, name: 'アカウント' })).toBeInTheDocument();
+    expect(within(link).getAllByRole('listitem')).toHaveLength(1);
+  });
+  it('アカウントがまだ届いていなければ、節を出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ accounts: { list: [], colors: ACCOUNT_COLORS } })} /></IntentRoot>);
+    expect(screen.queryByRole('heading', { level: 3, name: 'アカウント' })).toBeNull();
+  });
+  it('アカウントの設定から来たとき（focus が accounts）、節が見える位置へ滑り、連携の群が灯る', () => {
+    const scrolled: string[] = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.id); };
+    try {
+      render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ focus: 'accounts' })} /></IntentRoot>);
+      expect(scrolled).toEqual(['settings-accounts']);
+      expect(within(screen.getByRole('navigation', { name: '設定の目次' })).getByRole('button', { name: '連携' })).toHaveAttribute('aria-current', 'true');
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
+  });
+  it('focus が無ければ、開いても滑らない', () => {
+    const scrolled: string[] = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.id); };
+    try {
+      render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+      expect(scrolled).toEqual([]);
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
   });
   it('最初は必須が灯り、押した群へ滑って灯る', () => {
     const scrolled: string[] = [];

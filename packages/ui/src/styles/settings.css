@@ -93,3 +93,37 @@
 .cu-cmd { margin-top: calc(var(--u) * 1.5); }
 /* 狭い窓では、名前と数の列を縮めて棒を残す。 */
 @media (max-width: 700px) { .cu-row { grid-template-columns: 110px minmax(0, 1fr) 120px; } }
+
+/* 設定の「アカウント」の節（2026-10-06）。行の作りはクラウド同期の PC の一覧と同じ（.list の中に 1 行ずつ）。 */
+/* 頭文字の四角い印は作らず、8px の色の点（.st-dot）で目印にする。 */
+.account-set-section { scroll-margin-top: calc(var(--u) * 2); }
+.account-set-list { margin: calc(var(--u) * 2) 0 0; padding: 0; list-style: none; }
+.account-set { border-bottom: 1px solid var(--line); }
+.account-set:last-child { border-bottom: 0; }
+.account-set-row { display: grid; grid-template-columns: 8px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.6fr) 116px; align-items: center; gap: calc(var(--u) * 3); min-height: calc(var(--row-h) + var(--u) * 3); padding: 0 calc(var(--u) * 3); font-size: var(--fs-sm); white-space: nowrap; }
+.account-set-who { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
+.account-set-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink); }
+.account-set-tag { flex: none; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
+.account-set-tag[data-kind='current'] { padding: 0 6px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.account-set-input { width: 100%; min-width: 0; height: calc(var(--row-h) - 4px); color: var(--ink); }
+.account-set-dir, .account-set-state { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
+.account-set-state { color: var(--ink-2); }
+.account-set-state[data-auth='out'] { color: var(--error); }
+.account-set-acts { display: flex; align-items: center; gap: calc(var(--u) * 2); justify-content: flex-end; }
+/* 色を選ぶ帯。点は大きめの押せる面に載せ、選んでいる色に輪を付ける。 */
+.account-set-colors { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 0 calc(var(--u) * 3) calc(var(--u) * 2) calc(var(--u) * 3 + 8px + var(--u) * 3); }
+.account-set-color { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-out); }
+.account-set-color .st-dot { width: 14px; height: 14px; }
+.account-set-color:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.account-set-color[aria-checked='true'] { box-shadow: inset 0 0 0 2px var(--accent); }
+/* 置き場のリンクの不整合など、注意の 1 行。 */
+.account-set-problem { padding: 0 calc(var(--u) * 3) calc(var(--u) * 2) calc(var(--u) * 3 + 8px + var(--u) * 3); font-size: var(--fs-xs); font-weight: 600; color: var(--st-paused); }
+.account-set-add { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 3); }
+.account-set-add .input { flex: 1; min-width: 0; max-width: 280px; color: var(--ink); }
+.account-set-help { margin-top: var(--u); font-size: var(--fs-xs); }
+/* 狭い窓では、置き場と状態を 2 行目へ回す。 */
+@media (max-width: 700px) {
+  .account-set-row { grid-template-columns: 8px minmax(0, 1fr) auto; row-gap: 0; padding-top: var(--u); padding-bottom: var(--u); }
+  .account-set-acts { grid-column: 3; grid-row: 1; }
+  .account-set-dir, .account-set-state { grid-column: 2 / 4; }
+}

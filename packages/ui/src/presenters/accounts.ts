@@ -56,3 +56,15 @@ export function presentAccounts(store: Store, now: number): AccountView[] {
   const currentId = currentAccount(store)?.id ?? '';
   return accountList(store).map((a) => presentAccount(a, currentId, now));
 }
+
+/**
+ * ホームの下の置き場を、~ で始まる形に縮める。
+ * ホームのディレクトリは View が知らないので、/Users/<名前>/ と /home/<名前>/ の形で見分ける。
+ * ホームの下でなければそのまま返す。
+ */
+export function homePath(path: string): string {
+  const m = /^\/(?:Users|home)\/[^/]+(?:\/(.*))?$/.exec(path);
+  if (m === null) return path;
+  const rest = m[1] ?? '';
+  return rest === '' ? '~' : `~/${rest}`;
+}

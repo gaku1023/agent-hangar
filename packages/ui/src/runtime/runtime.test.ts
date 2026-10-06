@@ -775,6 +775,19 @@ describe('フェーズ 3 の効果', () => {
     // LM Studio に繋がらないのは普通の状態なので、トーストにしない。
     expect(rt.getState().toasts).toEqual([]);
   });
+  it('設定画面に入ると GET /api/accounts を呼び、結果を Store に入れる', async () => {
+    const accounts = vi.fn(async () => accountsFixture);
+    const { rt, wsHandlers, setHash } = harness({ accounts });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(accounts).not.toHaveBeenCalled();
+    setHash('#/settings');
+    await flush();
+    expect(accounts).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().accounts).toEqual(accountsFixture);
+    expect(rt.getState().toasts).toEqual([]);
+  });
   it('設定を開くと使用量を取り直す', async () => {
     const dto: CloudUsageDto = {
       source: 'cloudflare', fetchedAt: 1_000, stale: false, notice: null,

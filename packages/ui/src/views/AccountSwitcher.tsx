@@ -9,8 +9,8 @@ import { foldAt } from './headerFold.ts';
 
 /** 開いた先の幅。 */
 const WIDTH = 380;
-/** 設定の画面の、アカウントの節への道（SyncStatus.tsx の同期のリンクと同じ行き先）。 */
-const SETTINGS = { name: 'settings' } as const;
+/** 設定の画面の、アカウントの節への道。着くと、その節が見える位置へ移る。 */
+const SETTINGS = { name: 'settings', at: 'accounts' } as const;
 
 /**
  * ヘッダのアカウントの切り替え。
