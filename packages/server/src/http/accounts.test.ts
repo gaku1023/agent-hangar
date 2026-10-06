@@ -140,6 +140,27 @@ describe('アカウントの HTTP', () => {
     expect(((await res.json()) as { error: string }).error).toContain('claude が見つかりません');
   });
 
+  it('ログインの途中のアカウントを外すと、外す前にログインの子プロセスを止める。最初のアカウントは外せず、止めもしない', async () => {
+    const id = (await call('POST', '/accounts', { name: '大学' })).json.accounts[1]!.id;
+    let aborted = 0;
+    const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run: (_b, _a, _e, _t, signal) => new Promise((_r, reject) => { signal?.addEventListener('abort', () => { aborted += 1; reject(new Error('aborted')); }); }) });
+    const cancel = vi.spyOn(auth, 'cancelLogin');
+    const slow = new Hono();
+    accountsRoutes(slow, { ...deps, auth });
+    const send = (method: string, url: string) => slow.request(url, { method });
+    expect((await send('POST', `/accounts/${id}/login`)).status).toBe(202);
+    expect(auth.loginRunning(id)).toBe(true);
+    expect((await send('POST', '/accounts/primary/login')).status).toBe(202);
+    expect((await send('DELETE', '/accounts/primary')).status).toBe(400);
+    expect(cancel).not.toHaveBeenCalled();
+    const removed = await send('DELETE', `/accounts/${id}`);
+    expect(removed.status).toBe(200);
+    expect(cancel).toHaveBeenCalledWith(id);
+    expect(aborted).toBe(1);
+    expect(auth.loginRunning(id)).toBe(false);
+    expect(auth.loginRunning('primary')).toBe(true);
+  });
+
   it('login は、リンクを張れなければその理由を 400 で返し、ログインは始めない', async () => {
     const dir = path.join(userHome, '.claude-file');
     fs.writeFileSync(dir, 'x');

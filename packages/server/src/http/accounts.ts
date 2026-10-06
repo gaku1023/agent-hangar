@@ -110,6 +110,8 @@ export function accountsRoutes(api: Hono, deps: AccountsDeps): void {
 
   api.delete('/accounts/:id', (c) => guard(c, () => {
     const id = c.req.param('id');
+    // ログインの途中なら、外す前に子プロセスを止める（外したあとも claude が待ち続けないように）。最初のアカウントは外せないので触らない。
+    if (id !== PRIMARY_ACCOUNT_ID) deps.auth.cancelLogin(id);
     deps.store.remove(id);
     deps.auth.forget(id);
     return c.json(changed());
