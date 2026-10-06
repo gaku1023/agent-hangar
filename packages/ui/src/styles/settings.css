@@ -97,21 +97,25 @@
 /* 設定の「アカウント」の節（2026-10-06）。行の作りはクラウド同期の PC の一覧と同じ（.list の中に 1 行ずつ）。 */
 /* 頭文字の四角い印は作らず、8px の色の点（.st-dot）で目印にする。 */
 .account-set-section { scroll-margin-top: calc(var(--u) * 2); }
-.account-set-list { margin: calc(var(--u) * 2) 0 0; padding: 0; list-style: none; }
-.account-set { border-bottom: 1px solid var(--line); }
+/* 列は一覧が 1 つ持ち、li と行は subgrid で受ける。全行で、名前と「いま」の列、置き場の列、状態の列、操作の列の左端がそろう。
+   名前と置き場の列は全行でいちばん長い中身の幅（fit-content）、状態の列が残りを取る。
+   行の左右の余白（padding）は、subgrid の端の項目の margin として端の列に入るので、端の 2 列は余白の分だけ広げる。 */
+.account-set-list { display: grid; grid-template-columns: calc(8px + var(--u) * 3) fit-content(16em) fit-content(260px) minmax(0, 1fr) calc(116px + var(--u) * 3); column-gap: calc(var(--u) * 3); margin: calc(var(--u) * 2) 0 0; padding: 0; list-style: none; }
+.account-set { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; column-gap: calc(var(--u) * 3); border-bottom: 1px solid var(--line); }
 .account-set:last-child { border-bottom: 0; }
-.account-set-row { display: grid; grid-template-columns: 8px fit-content(24em) fit-content(260px) minmax(0, 1fr) 116px; align-items: center; gap: calc(var(--u) * 3); min-height: calc(var(--row-h) + var(--u) * 3); padding: 0 calc(var(--u) * 3); font-size: var(--fs-sm); white-space: nowrap; }
+.account-set > * { grid-column: 1 / -1; }
+.account-set-row { display: grid; grid-template-columns: subgrid; column-gap: calc(var(--u) * 3); align-items: center; min-height: calc(var(--row-h) + var(--u) * 3); padding: 0 calc(var(--u) * 3); font-size: var(--fs-sm); white-space: nowrap; }
 .account-set-who { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
 /* 名前は行でいちばん大事な文字なので、札より先に縮めない。縮めるのは札が先で、名前は長すぎる（12em を超える）ときだけ省略する。 */
 .account-set-name { flex: 0 0 auto; max-width: 12em; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink); }
 .account-set-tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
 .account-set-tag[data-kind='current'] { padding: 0 6px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.account-set-input { width: 100%; min-width: 0; height: calc(var(--row-h) - 4px); color: var(--ink); }
+.account-set-input { width: 12em; max-width: 100%; min-width: 0; height: calc(var(--row-h) - 4px); color: var(--ink); }
 .account-set-dir, .account-set-state { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
 .account-set-state { color: var(--ink-2); }
 .account-set-state[data-auth='out'] { color: var(--error); }
 .account-set-acts { display: flex; align-items: center; gap: calc(var(--u) * 2); justify-content: flex-end; }
-/* 状態の列（プランとメール）に残りの幅を渡し、置き場の列は中身の幅まで（長いときだけ省略）。入らないときは、承認の添え書きを先に縮め、メールは最後に省略する。 */
+/* 状態の列（プランとメール）に残りの幅を渡す。入らないときは、承認の添え書きを先に縮め、メールは最後に省略する。 */
 .account-set-state { display: flex; align-items: baseline; gap: calc(var(--u) * 2); }
 .account-set-ident { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .account-set-approve { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); font-size: var(--fs-xs); }
@@ -128,7 +132,8 @@
 .account-set-help { margin-top: var(--u); font-size: var(--fs-xs); }
 /* 狭い窓では、置き場と状態を 2 行目へ回す。 */
 @media (max-width: 700px) {
-  .account-set-row { grid-template-columns: 8px minmax(0, 1fr) auto; row-gap: 0; padding-top: var(--u); padding-bottom: var(--u); }
+  .account-set-list { grid-template-columns: calc(8px + var(--u) * 3) minmax(0, 1fr) auto; }
+  .account-set-row { row-gap: 0; padding-top: var(--u); padding-bottom: var(--u); }
   .account-set-acts { grid-column: 3; grid-row: 1; }
   .account-set-dir, .account-set-state { grid-column: 2 / 4; }
 }

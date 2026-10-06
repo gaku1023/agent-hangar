@@ -120,7 +120,6 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
             ? <NameField account={a} onDone={() => setEditing(false)} />
             : <b className="account-set-name" title={a.name}>{a.name}</b>}
           {a.current && <span className="account-set-tag" data-kind="current">いま</span>}
-          {a.primary && <span className="account-set-tag">最初のアカウント</span>}
         </span>
         <span className="account-set-dir mono" title={a.dir}>{path}</span>
         <span className="account-set-state" data-auth={a.auth} title={state}>

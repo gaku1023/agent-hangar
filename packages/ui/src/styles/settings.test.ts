@@ -24,12 +24,23 @@ describe('設定のアカウントの行', () => {
     expect(tag).toContain('white-space: nowrap;');
     expect(tag).not.toMatch(/flex:\s*none/);
   });
-  it('名前の列は中身の幅（fit-content）で、状態の列が残りを取る。列の割合で名前の列を決めない', () => {
-    const row = rule('.account-set-row');
-    expect(row).toMatch(/grid-template-columns:\s*8px fit-content\(\d+em\) fit-content\(\d+px\) minmax\(0, 1fr\) 116px;/);
-    expect(row).toContain('gap: calc(var(--u) * 3);');
+  it('列は一覧が 1 つ持ち、名前の列と置き場の列は全行の中身の幅（fit-content）、状態の列が残りを取る。列の割合で名前の列を決めない', () => {
+    const list = rule('.account-set-list');
+    expect(list).toContain('display: grid;');
+    expect(list).toMatch(/grid-template-columns:\s*calc\(8px \+ var\(--u\) \* 3\) fit-content\(\d+em\) fit-content\(\d+px\) minmax\(0, 1fr\) calc\(116px \+ var\(--u\) \* 3\);/);
+    expect(list).toContain('column-gap: calc(var(--u) * 3);');
   });
-  it('狭い窓の 2 行の作りは、名前の列を 1fr のまま残す', () => {
-    expect(css).toMatch(/@media \(max-width: 700px\) \{\s*\.account-set-row \{ grid-template-columns: 8px minmax\(0, 1fr\) auto;/);
+  // 行ごとに自分の列を持つと、置き場と状態の左端が行ごとにずれる。
+  it('li と行は一覧の列を subgrid で受け、全行で列の左端がそろう。行は自分の列を持たない', () => {
+    expect(rule('.account-set')).toContain('grid-template-columns: subgrid;');
+    expect(rule('.account-set')).toContain('grid-column: 1 / -1;');
+    expect(rule('.account-set-row')).toContain('grid-template-columns: subgrid;');
+    expect(rule('.account-set-row')).not.toMatch(/fit-content|minmax|\b116px/);
+    // 色の帯と注意の行は、li の中で全幅に置く。
+    expect(rule('.account-set > *')).toContain('grid-column: 1 / -1;');
+  });
+  it('狭い窓の 2 行の作りは、一覧の列を 3 列に替え、行は列を持たないまま', () => {
+    expect(css).toMatch(/@media \(max-width: 700px\) \{\s*\.account-set-list \{ grid-template-columns: calc\(8px \+ var\(--u\) \* 3\) minmax\(0, 1fr\) auto; \}/);
+    expect(css).toMatch(/\.account-set-dir, \.account-set-state \{ grid-column: 2 \/ 4; \}/);
   });
 });

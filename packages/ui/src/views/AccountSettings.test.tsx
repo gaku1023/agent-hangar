@@ -29,14 +29,13 @@ const choose = (name: string, item: string | RegExp) => {
 };
 
 describe('AccountSettings の一覧', () => {
-  it('2 件を並べ、いまのアカウントに「いま」、最初のアカウントに「最初のアカウント」を添える', () => {
+  it('2 件を並べ、いまのアカウントに「いま」を添える。最初のアカウントの文字は行に出さない（外せない理由はメニューが言う）', () => {
     mount();
     expect(screen.getByRole('heading', { name: 'アカウント' })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem').map((li) => li.querySelector('.account-set-name')?.textContent)).toEqual(['会社', '大学']);
     expect(within(row('会社')).getByText('いま')).toBeInTheDocument();
-    expect(within(row('会社')).getByText('最初のアカウント')).toBeInTheDocument();
     expect(within(row('大学')).queryByText('いま')).toBeNull();
-    expect(within(row('大学')).queryByText('最初のアカウント')).toBeNull();
+    expect(screen.queryByText('最初のアカウント')).toBeNull();
   });
   it('いまのアカウントが大学なら「いま」は大学に付く', () => {
     mount(props({}, 'a1'));
