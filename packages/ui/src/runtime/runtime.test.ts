@@ -788,6 +788,21 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().accounts).toEqual(accountsFixture);
     expect(rt.getState().toasts).toEqual([]);
   });
+  it('古いサーバでアカウントの口が無く GET /api/accounts が失敗しても、トーストにせず Store も変えず、ほかの取得は進む', async () => {
+    const accounts = vi.fn(async () => { throw new Error('404 /api/accounts'); });
+    const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
+    const { rt, wsHandlers, setHash } = harness({ accounts, statusline });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    const before = rt.getStore().accounts;
+    setHash('#/settings');
+    await flush();
+    expect(accounts).toHaveBeenCalledTimes(1);
+    expect(rt.getState().toasts).toEqual([]);
+    expect(rt.getStore().accounts).toBe(before);
+    expect(rt.getStore().statusline?.installed).toBe(true);
+  });
   it('設定を開くと使用量を取り直す', async () => {
     const dto: CloudUsageDto = {
       source: 'cloudflare', fetchedAt: 1_000, stale: false, notice: null,

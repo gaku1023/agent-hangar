@@ -472,7 +472,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
         deps.api.retention().then((r) => setStore({ ...store, retention: r })).catch(fail);
         // アカウントの認証は、この呼び出しで読まれる（節に出るメールとプラン）。
-        deps.api.accounts().then(accountsUpdated).catch(fail);
+        // アカウントの口が無い古いサーバでは 404 になる。節に出すものが無いだけなので、失敗は握って黙る。
+        deps.api.accounts().then(accountsUpdated).catch(() => {});
         // 一時停止の間はサーバが取りに行かず最後の値を返すので、ここでは状態を見ずに頼んでよい。
         deps.api.syncUsage(true).then((u) => setStore({ ...store, cloudUsage: u })).catch(fail);
         loadReadiness();
