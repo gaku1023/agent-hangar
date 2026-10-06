@@ -149,14 +149,20 @@ export class Tmux {
     const cur = copy.stdout.trim();
     // 素の pbcopy は前の版が入れた値なので、hangar のものとして置き換える。
     if ((cur === '' || cur === 'pbcopy') && this.platform === 'darwin') this.run('set-option', '-s', 'copy-command', COPY_COMMAND);
+    // extended-keys-format は tmux 3.5 から在る。3.4 までは invalid option で断られるので、在るときだけ入れる。
+    const modern = show('extended-keys-format').code === 0;
     if (show('extended-keys').stdout.trim() === 'off') {
       this.run('set-option', '-s', 'extended-keys', 'on');
-      this.run('set-option', '-s', 'extended-keys-format', 'csi-u');
+      if (modern) this.run('set-option', '-s', 'extended-keys-format', 'csi-u');
     }
     if (!show('terminal-features').stdout.includes(EXTKEYS_FEATURE)) this.run('set-option', '-as', 'terminal-features', EXTKEYS_FEATURE);
     const bound = this.run('list-keys', '-T', 'root', 'S-Enter');
     if (bound.code === 0 && bound.stdout.trim() !== '' && !bound.stdout.includes(RUN_SESSION_FORMAT)) return;
-    this.run('bind-key', '-n', 'S-Enter', 'if-shell', '-F', RUN_SESSION_FORMAT, 'send-keys Escape Enter', 'send-keys S-Enter');
+    // 3.4 までの send-keys S-Enter は、中のプログラムが拡張キーを求めていないと「S-Enter」という文字をそのまま打ち込む
+    // （3.3a と 3.4 で実測。3.5 からは CR になる）。そこでは Enter を送る。
+    // 拡張キーを求めたプログラムにも Shift 抜きで届くが、文字が入るよりよい。
+    const passThrough = modern ? 'send-keys S-Enter' : 'send-keys Enter';
+    this.run('bind-key', '-n', 'S-Enter', 'if-shell', '-F', RUN_SESSION_FORMAT, 'send-keys Escape Enter', passThrough);
   }
 
   sendKeys(name: string, ...keys: string[]): void {

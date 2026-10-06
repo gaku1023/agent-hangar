@@ -254,14 +254,19 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
       return { t, cwd, done: () => { t.killServer(); removeTestSocket(p); fs.rmSync(cwd, { recursive: true, force: true }); } };
     }
     const show = (t: Tmux, key: string) => t.run('show-options', '-s', '-v', key).stdout.trim();
+    // copy-command に入れる pbcopy は macOS にしか無い。ほかの OS では hangar は copy-command に触らない。
+    const MAC = process.platform === 'darwin';
+    // extended-keys-format は tmux 3.5 から在る。3.4 までは show-options も set-option も invalid option で断る。
+    // CI の Ubuntu に入る tmux は 3.4 なので、版を読んで期待を分ける。
+    const HAS_FORMAT = Number(/(\d+\.\d+)/.exec(tmux!.run('-V').stdout)?.[1] ?? 0) >= 3.5;
 
     it('copy-command、extended-keys、extended-keys-format、terminal-features、S-Enter を入れる', () => {
       const { t, done } = fresh();
       t.ensureTerminalOptions();
       // tmux サーバの環境には LANG が無いことが多い。素の pbcopy は UTF-8 を読めず、日本語を写すとクリップボードを空にする。
-      expect(show(t, 'copy-command')).toBe('LC_CTYPE=UTF-8 pbcopy');
+      expect(show(t, 'copy-command')).toBe(MAC ? 'LC_CTYPE=UTF-8 pbcopy' : '');
       expect(show(t, 'extended-keys')).toBe('on');
-      expect(show(t, 'extended-keys-format')).toBe('csi-u');
+      if (HAS_FORMAT) expect(show(t, 'extended-keys-format')).toBe('csi-u');
       expect(show(t, 'terminal-features')).toContain('xterm*:extkeys');
       expect(t.run('list-keys', '-T', 'root', 'S-Enter').stdout).toContain('hangar-');
       done();
@@ -271,7 +276,8 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
       const { t, done } = fresh();
       t.run('set-option', '-s', 'copy-command', 'pbcopy');
       t.ensureTerminalOptions();
-      expect(show(t, 'copy-command')).toBe('LC_CTYPE=UTF-8 pbcopy');
+      // macOS の外では置き換えない。そこの pbcopy は hangar が入れたものではない。
+      expect(show(t, 'copy-command')).toBe(MAC ? 'LC_CTYPE=UTF-8 pbcopy' : 'pbcopy');
       done();
     });
 
@@ -293,7 +299,7 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
       expect(show(t, 'copy-command')).toBe('my-copy');
       expect(show(t, 'extended-keys')).toBe('always');
       // extended-keys を利用者が既に入れているなら、その書式も利用者のものである。
-      expect(show(t, 'extended-keys-format')).toBe('xterm');
+      if (HAS_FORMAT) expect(show(t, 'extended-keys-format')).toBe('xterm');
       expect(t.run('list-keys', '-T', 'root', 'S-Enter').stdout).not.toContain('hangar-');
       done();
     });
