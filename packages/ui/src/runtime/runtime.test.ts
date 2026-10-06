@@ -379,7 +379,7 @@ describe('createRuntime', () => {
     a.store.set('newSession.draft', { name: 'n', prompt: 'やって' });
     a.store.set('newSession.prefs', { p1: { model: 'opus', addDirs: ['/a'] }, p2: { model: 3 }, p3: 'x', p4: { addDirs: [1] } });
     a.rt.start();
-    expect(a.rt.getState().newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    expect(a.rt.getState().newSessionDraft).toEqual({ name: 'n', prompt: 'やって', attachments: [] });
     expect(a.rt.getState().launchPrefs).toEqual({ p1: { model: 'opus', addDirs: ['/a'] } });
     const b = harness();
     b.store.set('newSession.draft', { name: 1 });

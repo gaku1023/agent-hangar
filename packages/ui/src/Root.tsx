@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
 import { IntentRoot } from './intent/chain.tsx';
 import { canMoveBehind } from './mediator/screen.ts';
@@ -45,6 +45,7 @@ import { blocksSwipe } from './views/swipeTarget.ts';
 import { motionMs } from './views/primitives/motion.ts';
 import { TerminalHostContext } from './views/TerminalPane.tsx';
 import { CopiedContext } from './views/primitives/CommandLine.tsx';
+import { PromptAssistContext, type PromptAssist } from './views/primitives/promptAssist.ts';
 import { ToastStack } from './views/ToastStack.tsx';
 
 /**
@@ -89,6 +90,19 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const unresolvedId = overlay.kind === 'resolveProject' ? overlay.projectId : null;
   const queryCandidates = (name: string) => { if (unresolvedId) (props.api ?? apiFromRuntime(rt)).candidates(unresolvedId, name).then(setCandidates).catch(() => setCandidates([])); };
   useEffect(() => { if (unresolvedId) queryCandidates(store.projects[unresolvedId]?.name ?? ''); else setCandidates([]); }, [unresolvedId]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 初期プロンプト欄がサーバに頼むこと。画面は fetch を呼ばないので、ここで api をつなぐ。
+  // 知らせは、ほかの失敗と同じく server の toast の入力として流す（runtime 内の toast と同じ経路）。
+  const promptAssist = useMemo<PromptAssist>(() => {
+    const api = props.api ?? apiFromRuntime(rt);
+    return {
+      commands: (projectId) => api.promptCommands(projectId),
+      files: (projectId, query) => api.promptFiles(projectId, query),
+      upload: (file) => api.uploadDrop(file, file.name),
+      existing: (paths) => api.existingDrops(paths),
+      notify: (message) => rt.dispatch({ kind: 'server', event: { type: 'toast', level: 'error', message } }),
+    };
+  }, [props.api, rt]);
 
   // パレットの入力の文字は Root が持つ。
   // ダイアログの外へ出ない一時の値なので、Mediator には入れない。
@@ -360,7 +374,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     <IntentRoot onIntent={rt.emit}>
       <TerminalHostContext.Provider value={props.terminals}>
         <CopiedContext.Provider value={state.copied}>
-          <Shell {...shell} overlays={overlays}>{body}</Shell>
+          <PromptAssistContext.Provider value={promptAssist}>
+            <Shell {...shell} overlays={overlays}>{body}</Shell>
+          </PromptAssistContext.Provider>
         </CopiedContext.Provider>
       </TerminalHostContext.Provider>
     </IntentRoot>

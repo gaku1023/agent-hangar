@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { posixIt } from '../../server/test/platform.ts';
 
 /** 実物の hangar を子プロセスで動かす。実物の ~/.claude と ~/.agent-hangar には触らせない。 */
 const CLI = fileURLToPath(new URL('../bin/hangar.mjs', import.meta.url));
@@ -100,7 +101,8 @@ describe('hangar setup', () => {
     expect(h.out).toContain('--workspace');
     // setup cloud がぶら下がっている。
     expect(h.out).toContain('cloud');
-  });
+  // CLI を 2 回起こす。Windows の全体の試験の中では 3 秒あまりかかり（実測）、既定の 5 秒に時々届く。
+  }, 20_000);
 });
 
 describe('hangar cloud', () => {
@@ -151,7 +153,8 @@ describe('hangar open', () => {
     expect(r.out).not.toContain('?t=');
   });
 
-  it('サーバが居れば、鍵付きの URL を印字してから開く', async () => {
+  // osascript でブラウザを開く。Windows で開く経路は次の区切りで作る。
+  posixIt('サーバが居れば、鍵付きの URL を印字してから開く', async () => {
     const port = await listenHealth();
     const r = await runCli(['open', '--port', String(port)]);
     expect(r.code).toBe(0);

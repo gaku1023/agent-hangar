@@ -60,7 +60,7 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir: claude }));
 
     const r = await bundleServer({ repoRoot, outDir: out, uiDist: ui });
-    expect(r.files.sort()).toEqual(['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'manifest.json', 'node_modules', 'server.mjs', 'ui']);
+    expect(r.files.sort()).toEqual(['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'hangar-run.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui']);
 
     // バンドルが外部のまま残した import の宛先と、同梱した node_modules がぴたり一致することを見る。
     // 定数を書き写しても何も主張しないが、これは「外に出したものは必ず隣に置いてある」という起動の条件である。
@@ -229,7 +229,8 @@ const emptyDirFor = (name: string): string => {
   return d;
 };
 
-describe('bin/hangar の Node 探索', () => {
+// hangar.sh は macOS の起動スクリプト。Windows の起動は殻の区切りで作る。
+describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () => {
   it.each([
     ['空白の無い', 'nd99'],
     ['空白を含む', 'nd 99'],

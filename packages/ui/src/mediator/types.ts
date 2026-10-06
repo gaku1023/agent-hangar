@@ -152,8 +152,12 @@ export type Overlay =
   | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null }
   // Paused の入力（B1）。from は開いた入口（「⋯」か提案の「日を変える」）。
   | { kind: 'pause'; sessionId: string; from: 'menu' | 'candidate' };
-/** 新しいセッションのダイアログの書きかけ。プロジェクトごとではなく 1 つだけ持つ。 */
-export type NewSessionDraft = { name: string; prompt: string };
+/**
+ * 新しいセッションのダイアログの書きかけ。プロジェクトごとではなく 1 つだけ持つ。
+ * 添付は、置き場（~/.agent-hangar/drops/）のパスで覚える。
+ * mediator から views の型を import しないよう、形をここに書く（promptComposerModel.ts の Attachment と同じ形）。
+ */
+export type NewSessionDraft = { name: string; prompt: string; attachments: { path: string; name: string; size: number | null }[] };
 /** 新しいセッションの詳細の前回値。起動したときの値のうち、既定でないものだけを持つ。 */
 export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMode' | 'worktree' | 'addDirs'>;
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting' } | { kind: 'failed'; message: string };

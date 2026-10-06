@@ -3,7 +3,7 @@ import type { SettingsDto, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
-import type { VerifyLine } from '../presenters/readiness.ts';
+import { clientPlatform, muxInstallCommand, type VerifyLine } from '../presenters/readiness.ts';
 import { JOIN_TOKEN_TTL_MS, type SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { PageHeading } from './PageHeading.tsx';
@@ -274,7 +274,7 @@ export function SettingsScreen(props: SettingsProps) {
             <section>
               <h3 className="h2">ツール</h3>
               <div className="grid2">
-                <PathField field="tmuxPath" label="tmux のパス" value={props.tmuxPath} nullable placeholder="brew install tmux のあとにパスを入れてください" line={props.verify.tmux} mark={props.save.tmuxPath} />
+                <PathField field="tmuxPath" label="tmux のパス" value={props.tmuxPath} nullable placeholder={`${muxInstallCommand(clientPlatform())} のあとにパスを入れてください`} line={props.verify.tmux} mark={props.save.tmuxPath} />
                 <div className="field">
                   <span aria-hidden="true">ターミナルアプリ</span>
                   {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出る。 */}
@@ -340,7 +340,7 @@ export function SettingsScreen(props: SettingsProps) {
                 </>
               )}
               {props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>新しく開いたターミナルから効きます。1 回だけ包まずに起動するときは command claude、外すときは {props.shell.uninstallCommand} です。</div>}
-              {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>この PC では tmux が見つかりません。brew install tmux で入れるか、上の「tmux のパス」を入れてください。</div>}
+              {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>この PC では tmux が見つかりません。{muxInstallCommand(clientPlatform())} で入れるか、上の「tmux のパス」を入れてください。</div>}
               <div className="faint" style={{ marginTop: 4 }}>入れていないときも、外のターミナルで入力待ちか休みの claude は「hangar で引き取る」で開けます。</div>
             </section>
             {/* 入力待ちを OS の通知で知らせる。直すものの数には入れない（無くても動くため）。 */}

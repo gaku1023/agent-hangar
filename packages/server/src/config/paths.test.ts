@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dbPath, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings } from './paths.ts';
+import { expectMode } from '../../test/platform.ts';
 
 let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-')); process.env.HANGAR_HOME = tmp; });
@@ -18,14 +19,14 @@ describe('paths', () => {
     // デスクトップの .app が先に作った置き場所が 0755 のままでも、起動のたびにここで直る。
     const home = path.join(tmp, 'home');
     ensureHome(home);
-    expect(fs.statSync(home).mode & 0o777).toBe(0o700);
+    expectMode(home, 0o700);
     fs.chmodSync(home, 0o755);
     ensureHome(home);
-    expect(fs.statSync(home).mode & 0o777).toBe(0o700);
+    expectMode(home, 0o700);
     // 利用者がより厳しくした権限は緩めない。
     fs.chmodSync(home, 0o500);
     ensureHome(home);
-    expect(fs.statSync(home).mode & 0o777).toBe(0o500);
+    expectMode(home, 0o500);
   });
   it('トークンは一度だけ作り、0600 で保存する', () => {
     ensureHome(tmp);
@@ -33,7 +34,7 @@ describe('paths', () => {
     const b = readOrCreateToken(tmp);
     expect(a).toBe(b);
     expect(a).toMatch(/^[0-9a-f]{64}$/);
-    expect(fs.statSync(path.join(tmp, 'token')).mode & 0o777).toBe(0o600);
+    expectMode(path.join(tmp, 'token'), 0o600);
   });
   it('端末情報は一度だけ作る', () => {
     ensureHome(tmp);
@@ -55,7 +56,7 @@ describe('paths', () => {
     const file = path.join(tmp, 'settings.json');
     fs.writeFileSync(file, '{}', { mode: 0o644 });
     saveSettings(tmp, loadSettings(tmp));
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
   });
   it('古い settings.json に無い項目は既定値で埋める', () => {
     ensureHome(tmp);

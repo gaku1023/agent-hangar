@@ -8,7 +8,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "build": "npm run build --workspaces --if-present",
-    "dev": "npm run dev --workspace packages/server & npm run dev --workspace packages/ui & wait",
+    "dev": "node scripts/dev.mjs",
     "hangar": "hangar"
   },
   "devDependencies": {

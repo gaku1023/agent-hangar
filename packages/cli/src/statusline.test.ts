@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { STATUSLINE_MARKER, statuslineHeaderPath } from '@agent-hangar/server';
 import { runStatuslineInstall } from './statusline.ts';
+import { expectMode } from '../../server/test/platform.ts';
 
 function claudeDir(command: string | null, script = '#!/bin/bash\necho x\n') {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cli-sl-'));
@@ -100,7 +101,7 @@ describe('runStatuslineInstall', () => {
     const header = statuslineHeaderPath(home);
     const token = fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
     expect(fs.readFileSync(header, 'utf8')).toBe(`Authorization: Bearer ${token}\n`);
-    expect(fs.statSync(header).mode & 0o777).toBe(0o600);
+    expectMode(header, 0o600);
     // スクリプトに書くのはファイルの名前だけで、トークンそのものは書かない。
     expect(fs.readFileSync(a.file, 'utf8')).not.toContain(token);
     fs.rmSync(a.home, { recursive: true, force: true });

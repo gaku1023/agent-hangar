@@ -853,6 +853,32 @@ fn open_waiting(app: &AppHandle, session_id: &str) {
     }
 }
 
+/// 殻から届く位置を CSS の px にする。
+/// wry は macOS で位置を窓のポイント（CSS の px と同じ）で返し、Tauri はそれを物理の型に包むだけで換算しない。
+/// 倍率で割ると半分の位置を指してしまうので、macOS では値をそのまま使う。
+fn css_point(
+    w: &tauri::WebviewWindow,
+    position: tauri::PhysicalPosition<f64>,
+) -> tauri::LogicalPosition<f64> {
+    if cfg!(target_os = "macos") {
+        tauri::LogicalPosition::new(position.x, position.y)
+    } else {
+        position.to_logical::<f64>(w.scale_factor().unwrap_or(1.0))
+    }
+}
+
+/// ドラッグが窓の上にある間の位置を UI へ渡す。出たとき（と落としたとき）は None を渡す。
+fn file_dragged(app: &AppHandle, position: Option<tauri::PhysicalPosition<f64>>) {
+    let Some(w) = app.get_webview_window("main") else {
+        return;
+    };
+    let over = position.map(|p| {
+        let at = css_point(&w, p);
+        (at.x, at.y)
+    });
+    let _ = w.eval(filedrop::drag_js(over));
+}
+
 /// 窓に落とされたファイルを drops/ に写し、写した先を落とした位置と一緒に UI へ渡す。
 /// 写すのは別のスレッドで行い、窓の描画を止めない。
 fn file_dropped(
@@ -863,13 +889,7 @@ fn file_dropped(
     let Some(w) = app.get_webview_window("main") else {
         return;
     };
-    // wry は macOS で落とした位置を窓のポイント（CSS の px と同じ）で返し、Tauri はそれを物理の型に包むだけで換算しない。
-    // 倍率で割ると半分の位置を指してしまうので、値をそのまま CSS の px として使う。
-    let at = if cfg!(target_os = "macos") {
-        tauri::LogicalPosition::new(position.x, position.y)
-    } else {
-        position.to_logical::<f64>(w.scale_factor().unwrap_or(1.0))
-    };
+    let at = css_point(&w, position);
     let size = w
         .inner_size()
         .ok()
@@ -949,9 +969,25 @@ pub fn run() {
                 ..
             } => log(&format!("window {label} close requested")),
             RunEvent::WindowEvent {
+                event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { position, .. }),
+                ..
+            } => file_dragged(app, Some(position)),
+            RunEvent::WindowEvent {
+                event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Over { position }),
+                ..
+            } => file_dragged(app, Some(position)),
+            RunEvent::WindowEvent {
+                event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Leave),
+                ..
+            } => file_dragged(app, None),
+            RunEvent::WindowEvent {
                 event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }),
                 ..
-            } => file_dropped(app, paths, position),
+            } => {
+                // 写している間も色は戻す。落とし先への添付は、写し終わってから hangar:drop で届く。
+                file_dragged(app, None);
+                file_dropped(app, paths, position)
+            }
             RunEvent::ExitRequested { code, .. } => log(&match code {
                 None => "exit requested by the user".to_string(),
                 Some(c) => format!("exit requested with code {c}"),

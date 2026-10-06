@@ -88,6 +88,17 @@ pub fn drop_js(paths: &[PathBuf], x: f64, y: f64) -> String {
     format!("window.dispatchEvent(new CustomEvent(\"hangar:drop\",{{detail:{lit}}}));")
 }
 
+/// UI に `hangar:drag` を投げる式。窓の上をドラッグしている間は位置（CSS の px）を、出たら null を渡す。
+/// 殻が Web 側のドラッグのイベントを止めているので、落とせる場所の色を変えるにはここから知らせる。
+pub fn drag_js(over: Option<(f64, f64)>) -> String {
+    let detail = match over {
+        Some((x, y)) => serde_json::json!({ "x": x, "y": y }),
+        None => serde_json::Value::Null,
+    };
+    let lit = serde_json::to_string(&detail).unwrap_or_else(|_| "null".to_string());
+    format!("window.dispatchEvent(new CustomEvent(\"hangar:drag\",{{detail:{lit}}}));")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +182,17 @@ mod tests {
         assert_eq!(v["paths"][0], "/a/b\"c\u{2028}.png");
         assert_eq!(v["x"], 12.5);
         assert_eq!(v["y"], 30.0);
+    }
+
+    #[test]
+    fn drag_js_sends_the_point_while_over_and_null_when_leaving() {
+        assert_eq!(
+            drag_js(Some((12.5, 30.0))),
+            "window.dispatchEvent(new CustomEvent(\"hangar:drag\",{detail:{\"x\":12.5,\"y\":30.0}}));"
+        );
+        assert_eq!(
+            drag_js(None),
+            "window.dispatchEvent(new CustomEvent(\"hangar:drag\",{detail:null}));"
+        );
     }
 }

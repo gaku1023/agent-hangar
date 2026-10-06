@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { entryUrl, openInBrowser, openLocationScript } from './url.ts';
+import { posixIt } from '../../server/test/platform.ts';
 
 describe('entryUrl', () => {
   it('鍵を問い合わせに載せた URL を作る', () => {
@@ -34,7 +35,8 @@ describe('openInBrowser', () => {
     expect(openLocationScript('http://127.0.0.1:4177/?t=a"b\\c')).toBe('open location "http://127.0.0.1:4177/?t=a\\"b\\\\c"\n');
   });
 
-  it('実測。起こしたプロセスの argv に鍵は現れない（argv に載せた場合は現れる）', () => {
+  // ps で argv を読む実測。ブラウザを開く経路の Windows 版は次の区切りで作る。
+  posixIt('実測。起こしたプロセスの argv に鍵は現れない（argv に載せた場合は現れる）', () => {
     const token = crypto.randomBytes(32).toString('hex');
     const url = entryUrl(4177, token);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-open-'));

@@ -17,13 +17,22 @@ export const NEWLINE_SEQ = '\x1b\r';
 
 type KeyEventLike = Pick<KeyboardEvent, 'type' | 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing' | 'keyCode' | 'preventDefault'>;
 
+/** 画面を開いている PC が macOS か。ブラウザの名乗りから読む。 */
+export function isMacClient(userAgent: string | undefined = globalThis.navigator?.userAgent): boolean {
+  return userAgent === undefined || /Macintosh|Mac OS X/.test(userAgent);
+}
+
 /**
  * xterm の attachCustomKeyEventHandler に渡す関数を作る。
  * false を返した打鍵は xterm が処理しない。
  * xterm 6 は Shift+Enter でも CR を送り、Claude Code では送信になってしまうので、改行の列に差し替える。
  */
-export function createKeyHandler(input: (data: string) => void): (e: KeyEventLike) => boolean {
+export function createKeyHandler(input: (data: string) => void, mac: boolean = isMacClient()): (e: KeyEventLike) => boolean {
   return (e) => {
+    // xterm は Ctrl+V を ^V（0x16）として中のアプリへ送り、ブラウザの貼り付けを止める。
+    // macOS の貼り付けは ⌘V なので困らないが、Windows と Linux では Ctrl+V で貼り付けられなくなる。
+    // xterm に渡さなければブラウザが paste のイベントを起こし、xterm がそれを貼り付けとして受ける。既定の動きは止めない。
+    if (!mac && e.type === 'keydown' && (e.key === 'v' || e.key === 'V') && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) return false;
     if (e.key !== 'Enter' || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return true;
     // 変換中の Enter は IME の確定である。keyCode 229 は IME が打鍵を受け取っている印。
     if (e.isComposing || e.keyCode === 229) return true;

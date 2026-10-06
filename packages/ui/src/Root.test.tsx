@@ -162,7 +162,7 @@ describe('Root', () => {
     fireEvent.keyDown(screen.getByLabelText('名前（任意）'), { key: 'Escape' });
     await flush();
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(rt.getState().newSessionDraft).toEqual({ name: 'API の節', prompt: '' });
+    expect(rt.getState().newSessionDraft).toEqual({ name: 'API の節', prompt: '', attachments: [] });
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
     await flush();
     expect(screen.getByLabelText('名前（任意）')).toHaveValue('API の節');

@@ -9,7 +9,7 @@ type Extras = Pick<
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncStatus' | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
   | 'retention' | 'retentionPreview' | 'writeRetention'
-  | 'live'
+  | 'live' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
 >;
 
@@ -35,6 +35,10 @@ export function fakeApiExtras(): Extras {
     projectOpenEditor: vi.fn(async () => {}),
     projectOpenTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
     createProject: vi.fn(async () => unused()),
+    promptCommands: vi.fn(async () => []),
+    promptFiles: vi.fn(async () => []),
+    uploadDrop: vi.fn(async (_file: Blob, name: string) => ({ path: `/h/.agent-hangar/drops/1-0-${name}`, name, size: 0 })),
+    existingDrops: vi.fn(async (paths: string[]) => paths),
     usageAggregate: vi.fn(async () => ({ days: [], projects: [] })),
     statusline: vi.fn(async () => ({ command: null, scriptPath: null, installed: false })),
     shellHook: vi.fn(async () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' })),

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { newId, type TerminalApp } from '@agent-hangar/shared';
+import { isLoose } from '../platform/secure.ts';
 
 export type DeviceInfo = { id: string; name: string; platform: string };
 export type Settings = {
@@ -74,7 +75,7 @@ export function ensureHome(home: string): void {
   // デスクトップの .app が先に 0755 で作った手元や、古い版が残した手元も、起動のたびにここで直る。
   // 利用者が 0700 より厳しくした権限は緩めない。
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-  if (fs.statSync(home).mode & 0o077) fs.chmodSync(home, 0o700);
+  if (isLoose(home)) fs.chmodSync(home, 0o700);
 }
 
 export function readOrCreateToken(home: string): string {

@@ -6,6 +6,7 @@ import { initialState, transition, type State } from './transition.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
 import { liveStep } from './live.ts';
+import { readDraft } from './launch.ts';
 
 function run(inputs: Input[], start: State = initialState()) {
   const effects: unknown[] = [];
@@ -332,42 +333,80 @@ describe('起動', () => {
 describe('新しいセッションの下書きと前回値', () => {
   it('名前か初期プロンプトの書きかけを下書きとして持ち、端末に残す。両方空なら消す', () => {
     const a = run([intent({ type: 'session.new.draft', name: 'API の節', prompt: '' })]);
-    expect(a.state.newSessionDraft).toEqual({ name: 'API の節', prompt: '' });
-    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: { name: 'API の節', prompt: '' } }]);
+    expect(a.state.newSessionDraft).toEqual({ name: 'API の節', prompt: '', attachments: [] });
+    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: { name: 'API の節', prompt: '', attachments: [] } }]);
     // 同じ中身なら書き直さない。
     expect(run([intent({ type: 'session.new.draft', name: 'API の節', prompt: '' })], a.state).effects).toEqual([]);
     const b = run([intent({ type: 'session.new.draft', name: ' ', prompt: '\n' })], a.state);
     expect(b.state.newSessionDraft).toBeNull();
     expect(b.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: null }]);
   });
+  it('下書きは添付も覚える。名前も本文も空でも、添付があれば残す', () => {
+    const a = { path: '/h/drops/1-0-a.png', name: 'a.png', size: 3 };
+    const r = run([intent({ type: 'session.new.draft', name: '', prompt: '', attachments: [a] })]);
+    expect(r.state.newSessionDraft).toEqual({ name: '', prompt: '', attachments: [a] });
+    expect(r.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: { name: '', prompt: '', attachments: [a] } });
+  });
+  it('添付を付けない下書きの Intent は、添付なしとして扱う', () => {
+    const r = run([intent({ type: 'session.new.draft', name: 'n', prompt: '' })]);
+    expect(r.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [] });
+  });
+  it('readDraft は、古い形（添付なし）を空の添付として読み、形の違う添付は捨てる', () => {
+    expect(readDraft({ name: 'n', prompt: 'p' })).toEqual({ name: 'n', prompt: 'p', attachments: [] });
+    expect(readDraft({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: null }, { path: 1 }, 'x', { path: '/b', name: 'b', size: 2 }] })).toEqual({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: null }, { path: '/b', name: 'b', size: 2 }] });
+    // 空のパスは捨て、同じパスは 1 件にする（手で書き換えられた保存値が、札の key の重複にならないように）。
+    expect(readDraft({ name: 'n', prompt: 'p', attachments: [{ path: '', name: 'e', size: null }, { path: '/a', name: 'a', size: 1 }, { path: '/a', name: 'a2', size: 2 }] })).toEqual({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: 1 }] });
+  });
+  // 閉じた後に終わった送信は、いまの下書きへ添付だけを足す。閉じる前の名前と本文で下書きを置き換えると、開き直したダイアログの書きかけを上書きする。
+  describe('session.new.draft.attach', () => {
+    const a = { path: '/h/drops/1-0-a.png', name: 'a.png', size: 3 };
+    const b = { path: '/h/drops/1-1-b.png', name: 'b.png', size: 4 };
+    it('いまの下書きの名前と本文は残し、添付だけを足して端末に残す', () => {
+      const start = run([intent({ type: 'session.new.draft', name: '開き直して書いた名前', prompt: '新しい本文', attachments: [a] })]);
+      const r = run([intent({ type: 'session.new.draft.attach', attachments: [b] })], start.state);
+      expect(r.state.newSessionDraft).toEqual({ name: '開き直して書いた名前', prompt: '新しい本文', attachments: [a, b] });
+      expect(r.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: { name: '開き直して書いた名前', prompt: '新しい本文', attachments: [a, b] } }]);
+    });
+    it('下書きが無ければ、名前と本文が空の下書きを作る', () => {
+      const r = run([intent({ type: 'session.new.draft.attach', attachments: [a] })]);
+      expect(r.state.newSessionDraft).toEqual({ name: '', prompt: '', attachments: [a] });
+      expect(r.effects).toEqual([{ kind: 'storage.save', key: 'newSession.draft', value: { name: '', prompt: '', attachments: [a] } }]);
+    });
+    it('同じパスはもう一度足さない。足すものが無ければ書き直さない', () => {
+      const start = run([intent({ type: 'session.new.draft', name: 'n', prompt: '', attachments: [a] })]);
+      const r = run([intent({ type: 'session.new.draft.attach', attachments: [{ ...a, name: '別名.png' }] })], start.state);
+      expect(r.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [a] });
+      expect(r.effects).toEqual([]);
+    });
+  });
   it('ダイアログから起動し終えたら下書きを消す', () => {
     const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: 'やって' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', prompt: 'やって' } })]);
-    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって', attachments: [] });
     const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
     expect(b.state.newSessionDraft).toBeNull();
     expect(b.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: null });
     // 再開やフォークの完了では、書きかけの下書きに触れない。
     const c = run([intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })]);
-    expect(c.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+    expect(c.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [] });
   });
   // 送った後に Esc で閉じても起動は止まらない。起動し終えたら、送った下書きは役目を終えている。
   it('送信中に閉じても、ダイアログから送った起動が終われば下書きを消す', () => {
     const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: 'やって' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', prompt: 'やって' } }), intent({ type: 'overlay.close' })]);
     expect(a.state.overlay).toEqual({ kind: 'none' });
-    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって' });
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: 'やって', attachments: [] });
     const b = run([runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], a.state);
     expect(b.state.newSessionDraft).toBeNull();
     expect(b.effects).toContainEqual({ kind: 'storage.save', key: 'newSession.draft', value: null });
     expect(b.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's9' } });
     // 一度消したら印も外す。次の再開の完了では、新しく書いた下書きに触れない。
     const c = run([intent({ type: 'session.new.draft', name: '次', prompt: '' }), intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], b.state);
-    expect(c.state.newSessionDraft).toEqual({ name: '次', prompt: '' });
+    expect(c.state.newSessionDraft).toEqual({ name: '次', prompt: '', attachments: [] });
   });
   it('ダイアログから送った起動に失敗したら、閉じていても下書きを残し、印を外す', () => {
     const a = run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.draft', name: 'n', prompt: '' }), intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n' } }), intent({ type: 'overlay.close' }), runtime({ type: 'launch.failed', message: 'x' })]);
-    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+    expect(a.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [] });
     const b = run([intent({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], a.state);
-    expect(b.state.newSessionDraft).toEqual({ name: 'n', prompt: '' });
+    expect(b.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [] });
   });
   it('起動した詳細をプロジェクトごとの前回値として持ち、端末に残す', () => {
     const a = run([intent({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n', model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: 'wt', addDirs: ['/a'] } })]);

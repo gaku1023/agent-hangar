@@ -1,5 +1,6 @@
 import { PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 import type { CandidateSource, DeviceDto, LiveSessionDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
+import { isStrictlyUnder } from '../platform/paths.ts';
 import { toStateDto } from '../sessions/states.ts';
 import type { Db } from './open.ts';
 
@@ -182,7 +183,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
   // cwd はそのセッションを持つ端末のパスなので、ルートも同じ端末のものだけを見る。
   // スクラッチの起動は必ず <root>/<yyyymmdd-HHmmss> に入るので、ルート自身は下に含めない。
   // projects/scratch.ts の isUnderScratch と同じ判定である。
-  const underScratch = r.scratch_root !== null && r.cwd.startsWith(r.scratch_root + '/');
+  const underScratch = r.scratch_root !== null && isStrictlyUnder(r.cwd, r.scratch_root);
   return {
     id: r.id,
     provider: r.provider,

@@ -20,11 +20,21 @@ export function launchPrefsOf(params: LaunchParams): LaunchPrefs {
   return out;
 }
 
-/** localStorage から読んだ下書き。形が違えば（手で書き換えられたなど）捨てる。 */
+/** localStorage から読んだ下書き。形が違えば（手で書き換えられたなど）捨てる。添付の無い古い形は、空の添付として読む。 */
 export function readDraft(v: unknown): NewSessionDraft | null {
   if (!v || typeof v !== 'object') return null;
-  const { name, prompt } = v as Record<string, unknown>;
-  return typeof name === 'string' && typeof prompt === 'string' ? { name, prompt } : null;
+  const { name, prompt, attachments } = v as Record<string, unknown>;
+  if (typeof name !== 'string' || typeof prompt !== 'string') return null;
+  const list = Array.isArray(attachments) ? attachments : [];
+  const ok = (a: unknown): a is NewSessionDraft['attachments'][number] => {
+    if (!a || typeof a !== 'object') return false;
+    const r = a as Record<string, unknown>;
+    return typeof r.path === 'string' && typeof r.name === 'string' && (r.size === null || typeof r.size === 'number');
+  };
+  // 空のパスと同じパスの重複は捨てる（手で書き換えられた保存値が、札の key の重複にならないように）。
+  const seen = new Set<string>();
+  const kept = list.filter(ok).filter((a) => a.path !== '' && !seen.has(a.path) && !!seen.add(a.path));
+  return { name, prompt, attachments: kept.map((a) => ({ path: a.path, name: a.name, size: a.size })) };
 }
 
 /** localStorage から読んだ前回値。形の違う項目は捨て、残りが空になったプロジェクトは外す。 */
@@ -55,9 +65,9 @@ function rememberPrefs(state: State, params: LaunchParams): Step {
   return { state: { ...state, launchPrefs: next }, effects: [{ kind: 'storage.save', key: LAUNCH_PREFS_KEY, value: next }] };
 }
 
-/** 下書きを書き換える。名前も初期プロンプトも空白だけなら消す。変わらなければ何もしない。 */
+/** 下書きを書き換える。名前も初期プロンプトも空白だけで、添付も無ければ消す。変わらなければ何もしない。 */
 function setDraft(state: State, draft: NewSessionDraft | null): Step {
-  const next = draft && (draft.name.trim() || draft.prompt.trim()) ? draft : null;
+  const next = draft && (draft.name.trim() || draft.prompt.trim() || draft.attachments.length) ? draft : null;
   if (sameJson(next, state.newSessionDraft)) return { state, effects: [] };
   return { state: { ...state, newSessionDraft: next }, effects: [{ kind: 'storage.save', key: NEW_SESSION_DRAFT_KEY, value: next }] };
 }
@@ -100,7 +110,14 @@ export function launchStep(state: State, input: Input): Step | null {
         const r = rememberPrefs(state, i.params);
         return { state: { ...r.state, launch: { kind: 'submitting' }, newSessionSent: true }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
       }
-    case 'session.new.draft': return setDraft(state, { name: i.name, prompt: i.prompt });
+    case 'session.new.draft': return setDraft(state, { name: i.name, prompt: i.prompt, attachments: i.attachments ?? [] });
+    case 'session.new.draft.attach': {
+      // 名前と本文は、いまの下書きのまま残す。同じパスは足さない（setDraft は変わらなければ何もしない）。
+      const cur = state.newSessionDraft ?? { name: '', prompt: '', attachments: [] };
+      const have = new Set(cur.attachments.map((x) => x.path));
+      const fresh = i.attachments.filter((x) => !have.has(x.path) && !!have.add(x.path));
+      return setDraft(state, { ...cur, attachments: [...cur.attachments, ...fresh] });
+    }
     case 'overlay.close':
       // newSession のときだけ横取りする。
       // overlayStep の overlay.close はキューを進めるだけで、launch を idle に戻せない。

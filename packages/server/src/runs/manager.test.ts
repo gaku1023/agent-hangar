@@ -21,6 +21,7 @@ import type { LiveSession } from '../provider/types.ts';
 import { RunManager } from './manager.ts';
 import { realProcOps, type ProcOps } from './procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
+import { expectMode } from '../../test/platform.ts';
 
 let db: Db;
 let home: string;
@@ -77,7 +78,8 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     // .app を Finder から起こすと PATH は /usr/bin:/bin:/usr/sbin:/sbin だけになり、
     // 裸の `claude` は引けない。それを tmux に渡すと、ペインの中で 127 で落ちるだけで
     // 応答は成功になり、利用者はターミナルを開くまで理由が分からない。
-    const rm = make({ claudeBin: null });
+    // tmux はある前提にする。実物の tmux を使わない OS でも、claude の検査まで進ませる。
+    const rm = make({ claudeBin: null, tmux: fakeTmux({ status: 0 }) });
     expect(() => rm.start({ projectId: 'p1' })).toThrow('claude が見つかりません。設定の「claude のパス」を入れてください');
     expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400 }));
     expect(() => rm.start({ scratch: true })).toThrow(/claude/);
@@ -120,6 +122,15 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(rm.listAlive()).toEqual({ runs: [], tabs: [] });
     // 本文の生まれなかったセッション行は、後始末で消える。
     expect((db.prepare('select deleted_at from sessions').get() as { deleted_at: number | null }).deleted_at).not.toBeNull();
+  });
+
+  // npm で入れた古い Claude Code は claude.cmd になる。.cmd はシェル越しでしか起こせず、改行や引用符を含む引数を安全に渡せない。
+  it('Windows で claude が .cmd なら、起こす前に断ってネイティブ版を案内する', () => {
+    const rm = make({ claudeBin: 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd', tmux: fakeTmux({ status: 0 }), platform: 'win32' });
+    expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400, message: expect.stringMatching(/claude\.exe/) }));
+    expect(rm.listAlive()).toEqual({ runs: [], tabs: [] });
+    // ほかの OS では .cmd という名前でも断らない。
+    expect(() => make({ claudeBin: '/x/claude.cmd', tmux: fakeTmux({ status: 0 }), platform: 'darwin' }).start({ projectId: 'p1' })).not.toThrow(/claude\.exe/);
   });
 
   it('tmux の失敗を返すときはトークンを伏せ、1 行に切り詰める', () => {
@@ -225,6 +236,42 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     const args = await launchedArgs(r.run.id);
     expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('プロジェクト：スクラッチ（' + s.cwd + '）');
     expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
+  });
+
+  describe('添付のある初期プロンプトは、置き場を --add-dir で渡す', () => {
+    const addDirsOf = (args: string[]) => args.flatMap((a, i) => (a === '--add-dir' ? [args[i + 1]!] : []));
+    const attach = () => path.join(home, 'drops', '1000-0-a.png');
+
+    it('プロンプトに置き場の直下のパスの行があれば、置き場を 1 つ渡す', async () => {
+      const r = make().start({ projectId: 'p1', prompt: `見て\n\n${attach()}` });
+      const args = await launchedArgs(r.run.id);
+      expect(addDirsOf(args)).toEqual([path.join(home, 'drops')]);
+      // 可変長のオプションが位置引数（プロンプト）を飲まない。
+      expect(args.at(-2)).toBe(`見て\n\n${attach()}`);
+    });
+    it('利用者の addDirs が先で、置き場は後ろに 1 度だけ足す', async () => {
+      const r = make().start({ projectId: 'p1', prompt: `見て\n\n'${attach()}'`, addDirs: [cwd] });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([cwd, path.join(home, 'drops')]);
+    });
+    it('すでに置き場を渡していれば重ねない', async () => {
+      const r = make().start({ projectId: 'p1', prompt: attach(), addDirs: [path.join(home, 'drops')] });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([path.join(home, 'drops')]);
+    });
+    it('添付の無いプロンプトには足さない', async () => {
+      const r = make().start({ projectId: 'p1', prompt: `${attach()} を見て`, addDirs: [cwd] });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([cwd]);
+    });
+    it('プロンプトが無ければ --add-dir は付かない', async () => {
+      const r = make().start({ projectId: 'p1' });
+      expect(addDirsOf(await launchedArgs(r.run.id))).toEqual([]);
+    });
+    it('run に残る起動の指定は、送られたままで、足した置き場を含まない', () => {
+      const params = { projectId: 'p1', prompt: attach(), addDirs: [cwd] };
+      const r = make().start(params);
+      const row = db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string };
+      expect(JSON.parse(row.launch_params)).toEqual(params);
+      expect(JSON.stringify(r)).not.toContain(path.join(home, 'drops'));
+    });
   });
 
   it('ディレクトリが無ければ 400 で、run の行は残らない', () => {
@@ -548,6 +595,8 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     expect(args[3]).toBe('u-old');
     expect(args).not.toContain('--session-id');
     expect(args).not.toContain('-n');
+    // 添付の置き場を渡すのは新規の起動だけで、再開には足さない。
+    expect(args).not.toContain('--add-dir');
     expect(args.at(-2)).toBe(args[args.indexOf('--append-system-prompt') + 1]);
     expect(() => rm.resume(id)).toThrow(expect.objectContaining({ status: 409 }));
   });
@@ -561,6 +610,7 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     const args = await launchedArgs(f.run.id);
     const i = args.indexOf('--fork-session');
     expect(args.slice(i - 2, i + 3)).toEqual(['-r', 'u-old', '--fork-session', '--session-id', args[i + 2]]);
+    expect(args).not.toContain('--add-dir');
     const s = db.prepare('select * from sessions where id = ?').get(f.sessionId) as Record<string, unknown>;
     expect(s).toMatchObject({ provider_session_id: args[i + 2], project_id: 'p1', cwd, name: null });
     expect(args[1]).toBe(path.join(home, 'mcp', `${f.sessionId}.json`));
@@ -754,11 +804,9 @@ function seedRun(o: { runId?: string; sessionId?: string; kind?: 'start' | 'resu
   return { runId, sessionId, tabId };
 }
 
-/** 決まった終了コードと出力を返す偽の tmux を書く。 */
-function fakeTmux(body: string): Tmux {
-  const bin = path.join(home, `fake-tmux-${Math.random().toString(16).slice(2)}.sh`);
-  fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-  return new Tmux({ tmuxPath: bin });
+/** 決まった終了コードと出力を返す偽の tmux。sh のスクリプトにすると Windows で起こせないので、起こす口を差し替える。 */
+function fakeTmux(r: { status: number; stdout?: string; stderr?: string }): Tmux {
+  return new Tmux({ tmuxPath: 'tmux', exec: () => ({ status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }) });
 }
 
 describe('tmux を呼べないとき（tmux 不要）', () => {
@@ -776,7 +824,7 @@ describe('tmux を呼べないとき（tmux 不要）', () => {
 
   it('recoverAtStartup も tmux の呼び出しが失敗したら何も閉じない', () => {
     seedRun();
-    const rm = make({ tmux: fakeTmux('echo "lost server" >&2\nexit 1') });
+    const rm = make({ tmux: fakeTmux({ status: 1, stderr: 'lost server\n' }) });
     expect(rm.recoverAtStartup()).toEqual([]);
     expect(rm.getRun('r1')?.endedAt).toBeNull();
     expect(rm.getTab('t1')?.closedAt).toBeNull();
@@ -785,7 +833,7 @@ describe('tmux を呼べないとき（tmux 不要）', () => {
   it('tmux サーバが動いていないだけなら、run もタブも閉じる', () => {
     // 呼び出しは成功していて、本当にセッションが 1 つも無い。これは観測できている。
     seedRun();
-    const rm = make({ tmux: fakeTmux('echo "no server running on /tmp/tmux-501/default" >&2\nexit 1') });
+    const rm = make({ tmux: fakeTmux({ status: 1, stderr: 'no server running on /tmp/tmux-501/default\n' }) });
     const r = rm.tick();
     expect(r.ended.map((x) => x.id)).toEqual(['r1']);
     expect(r.closedTabs.map((x) => x.id)).toEqual(['t1']);
@@ -841,7 +889,7 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
     // Claude の tmux セッションだけが消え、シェルタブは動いている状態。
     // ここで消すと、生きているシェルに UI から到達も停止もできなくなる。
     const { runId, sessionId, tabId } = seedRun();
-    const rm = make({ tmux: fakeTmux('echo "hangar-r1-t1"\nexit 0') });
+    const rm = make({ tmux: fakeTmux({ status: 0, stdout: 'hangar-r1-t1\n' }) });
     expect(rm.tick().ended.map((x) => x.id)).toEqual([runId]);
     expect(rm.getTab(tabId)?.closedAt).toBeNull();
     expect(deletedAt(sessionId)).toBeNull();
@@ -849,7 +897,7 @@ describe('起動に失敗した run の後始末（tmux 不要）', () => {
 
   it('シェルタブも消えていれば tick 経由でも消す', () => {
     const { runId, sessionId } = seedRun();
-    const rm = make({ tmux: fakeTmux('exit 0') });
+    const rm = make({ tmux: fakeTmux({ status: 0 }) });
     expect(rm.tick().ended.map((x) => x.id)).toEqual([runId]);
     expect(deletedAt(sessionId)).not.toBeNull();
   });
@@ -894,7 +942,7 @@ describe('run のログの掃除（tmux 不要）', () => {
     old.forEach((id, i) => put(id, 1000 + i));
 
     // tmux を呼ばずに起動を最後まで通す。ログの掃除だけを見たい。
-    make({ tmux: fakeTmux('exit 0') }).start({ projectId: 'p1' });
+    make({ tmux: fakeTmux({ status: 0 }) }).start({ projectId: 'p1' });
 
     const names = fs.readdirSync(logs);
     expect(names).toContain('run-r1.log');
@@ -1003,7 +1051,7 @@ describe.skipIf(!TMUX)('トークンを argv に載せない（tmux 上）', () 
     expect(args.join(' ')).not.toContain('Bearer');
 
     const cfgPath = args[1]!;
-    expect(fs.statSync(cfgPath).mode & 0o777).toBe(0o600);
+    expectMode(cfgPath, 0o600);
     // 設定ファイルにも本体のトークンは書かない。入るのはこの run 専用の秘密だけである。
     expect(fs.readFileSync(cfgPath, 'utf8')).not.toContain(TOKEN);
     expect(fs.readFileSync(cfgPath, 'utf8')).toContain(`Bearer ${mcpSecretFor(db, r.sessionId)}`);

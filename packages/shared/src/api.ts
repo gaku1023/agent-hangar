@@ -177,3 +177,10 @@ export type CloudUsageDto = {
   plan: { label: string; workersPaid: boolean } | null;
   month: { periodStart: string; periodEnd: string | null; throughDay: string | null; billedUsd: number; rows: { label: string; consumed: number; unit: string; included: number | null }[] } | null;
 };
+
+/** 初期プロンプト欄の `/` の候補の出どころ。 */
+export type PromptCommandSource = 'project' | 'user' | 'plugin' | 'builtin';
+/** 初期プロンプト欄の `/` の候補。uses は、セッションの最初の一言になった回数。 */
+export type PromptCommandDto = { name: string; description: string; argumentHint: string | null; source: PromptCommandSource; uses: number };
+/** `~/.agent-hangar/drops/` に置いたファイル。 */
+export type DropDto = { path: string; name: string; size: number };
