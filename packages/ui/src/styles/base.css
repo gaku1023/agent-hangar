@@ -155,7 +155,7 @@ a:hover { text-decoration: underline; }
 .side-live-n { font-weight: 500; font-variant-numeric: tabular-nums; }
 .side-live-list { list-style: none; margin: 0; padding: 0; }
 .side-live-row { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 30px; padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 3); border-radius: var(--r); color: var(--ink); cursor: grab; min-width: 0; transition: background var(--dur-fast) var(--ease-out); }
-.side-live-row:hover { background: rgba(255, 255, 255, 0.5); text-decoration: none; }
+.side-live-row:hover, .side-live-row[data-menu='true'] { background: rgba(255, 255, 255, 0.5); text-decoration: none; }
 .side-live-row:active { cursor: grabbing; }
 .side-live-row[aria-current='page'] { background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
 .side-live-row > .dot { flex: none; }
