@@ -935,6 +935,23 @@ describe('presentNewSession', () => {
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, newSessionDraft: { name: 'n', prompt: '' }, launchPrefs: { alpha: { model: 'opus' } } };
     expect(presentNewSession(state, storeWith(), NOW)).toMatchObject({ draft: { name: 'n', prompt: '' }, prefs: { alpha: { model: 'opus' } } });
   });
+  describe('アカウントの札', () => {
+    const open = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    it('アカウントが 0 件でも 1 件でも null にする（段を出さない）', () => {
+      expect(presentNewSession(open, storeWith(), NOW)!.accounts).toBeNull();
+      const one = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] };
+      expect(presentNewSession(open, { ...storeWith(), accounts: one }, NOW)!.accounts).toBeNull();
+    });
+    it('2 件以上なら、一覧といまのアカウントの id を渡す', () => {
+      const p = presentNewSession(open, { ...storeWith(), accounts: accountsFixture }, NOW)!;
+      expect(p.accounts!.currentId).toBe('primary');
+      expect(p.accounts!.list.map((a) => [a.id, a.name, a.current])).toEqual([['primary', '会社', true], ['a1', '大学', false]]);
+      expect(presentNewSession(open, { ...storeWith(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW)!.accounts!.currentId).toBe('a1');
+    });
+    it('currentId が一覧に無ければ、最初のアカウントがいまのアカウントになる', () => {
+      expect(presentNewSession(open, { ...storeWith(), accounts: { ...accountsFixture, currentId: 'gone' } }, NOW)!.accounts!.currentId).toBe('primary');
+    });
+  });
 });
 
 describe('presentSettings（フェーズ 2）', () => {

@@ -180,5 +180,14 @@
 .account-note[data-tone='warn'] { color: var(--st-paused); font-weight: 600; }
 
 .account-pop-foot { display: flex; justify-content: flex-end; padding: 0 calc(var(--u) * 1); }
+
+/* 新規セッションのダイアログの札（views/AccountCards.tsx）。選び方の見た目は .account-card をそのまま使う（青い 2px の輪と淡い地）。
+   .option-cards と同じ 2 列の grid で、3 件以上は折り返す。右上の一言は無いので名前の行の余地は要らず、
+   枠が戻る時刻の列も出さない（注記が言う）。札の高さは行でそろえ、中身は上から並べる。 */
+.account-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(var(--u) * 1.5); }
+.account-choices .account-card { display: flex; flex-direction: column; justify-content: flex-start; min-width: 0; }
+.account-choices .account-card .account-meters-head { padding-right: 0; }
+.account-choices .account-row { grid-template-columns: 40px minmax(0, 1fr) 36px; }
+.account-choices .account-row-resets { display: none; }
 .account-settings { padding: var(--u) calc(var(--u) * 2); border: 0; border-radius: 8px; background: none; color: var(--accent); font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
 .account-settings:hover { background: rgba(255, 255, 255, 0.92); }

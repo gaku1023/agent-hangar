@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { LaunchParams } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { LaunchPrefs } from '../mediator/types.ts';
-import { SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
+import { accountChoice, SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
+import { AccountCards } from './AccountCards.tsx';
 import { isComposing } from './ime.ts';
 import { ChoiceChips } from './primitives/Chip.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
@@ -56,6 +57,8 @@ function optionParts(o: Options): string[] {
  * スクラッチはプロジェクトの一覧の先頭の 1 行として選ぶ。props.scratch は開いたときにその行を選んでおくかどうかである。
  * 詳細の初期値は、選んだプロジェクトの前回値（props.prefs）にする（D1）。
  * 名前と初期プロンプトの書きかけは、閉じるときに下書きとして送り、次に開いたときに props.draft から戻す（C1）。
+ * アカウントが 2 件以上あるときだけ、プロジェクトの下に「どのアカウントで起こすか」の札を出し、送るときに選んだ id を params.account に必ず入れる。
+ * 選んでもいまのアカウントは変えない（account.choose は出さない）。1 件以下のときは段も params.account も出さず、今までと変わらない。
  * 打鍵のたびには送らない。送るたびに画面全体を描き直すことになるからである。
  * プロジェクトが未選択のまま送っても止めない。未選択の判定は Mediator が持ち、失敗のメッセージが error として戻ってくる。
  */
@@ -91,6 +94,13 @@ export function NewSessionDialog(props: NewSessionProps) {
   const resetDetail = () => { setTouched(true); setDetail(DEFAULT_OPTIONS); setReplaced((n) => n + 1); };
   const { model, effort, permissionMode, worktree, addDirs } = detail;
   const nameInput = useRef<HTMLInputElement>(null);
+  // アカウントは、利用者が選んだ id だけを覚える。選んでいなければ、いまのアカウント（選べなければ選べる最初の 1 件）。
+  // 選んだ id が一覧から消えたとき、選べなくなったときも、同じ規則でいまのアカウントへ戻る。
+  const [pickedAccount, setPickedAccount] = useState<string | null>(null);
+  const account = props.accounts ? accountChoice(props.accounts, pickedAccount) : null;
+  // 開いたときに 1 回、認証と使用量を読み直させる。
+  const hasAccounts = props.accounts !== null;
+  useEffect(() => { if (hasAccounts) emit({ type: 'accounts.load' }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 閉じるとき（どの経路で閉じても、ダイアログは外される）に、書きかけを下書きとして送る。
   // 起動を送った後に外されたときは、起動し終えたので送らない（Mediator が下書きを消す）。
@@ -116,6 +126,8 @@ export function NewSessionDialog(props: NewSessionProps) {
     // スクラッチはプロジェクトを持たず、サーバが使い捨てのディレクトリを作る。
     if (scratch) params.scratch = true;
     else if (choice) params.projectId = choice;
+    // 開いてから送るまでにいまのアカウントが変わっても、選んだとおりに起こすため、いまのアカウントと同じでも入れる。
+    if (account !== null) params.account = account;
     if (name.trim()) params.name = name.trim();
     if (prompt.trim()) params.prompt = prompt.trim();
     if (model.trim()) params.model = model.trim();
@@ -188,6 +200,12 @@ export function NewSessionDialog(props: NewSessionProps) {
         <Listbox id="new-session-project" label="プロジェクト" value={choice || null} options={options} groups={groups} onChange={choose} showSubInFace searchPlaceholder="名前かパスで探す" minWidth={360} />
       </div>
       {scratch && <div className="faint">~/.agent-hangar/scratch/ の下に日時のディレクトリを作って起動します。後からプロジェクトに昇格できます。</div>}
+      {props.accounts && account !== null && (
+        <div className="field">
+          <span aria-hidden="true">アカウント</span>
+          <AccountCards label="アカウント" value={account} options={props.accounts.list} onChange={setPickedAccount} />
+        </div>
+      )}
       <label className="field" htmlFor="new-session-name">名前（任意）
         <input ref={nameInput} id="new-session-name" className="input" data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder="一覧での表示名" />
       </label>
