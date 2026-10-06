@@ -17,7 +17,7 @@ const SETTINGS = { name: 'settings' } as const;
  * 色の点、名前、計器（children）、▾ の全体が 1 つのボタンで、押すとアカウントの一覧が開く。
  * ヘッダは窓を掴む領域なので、押す部品はボタンにする。
  * 一覧はアカウントごとに 1 枚の札で、選ぶと、ホームなら「いまのアカウント」を、セッション画面ならそのセッションのアカウントを替える。
- * いまの札を押しても何も出さず、閉じるだけにする。未ログインの札は押せない。
+ * いまの札を押しても何も出さず、閉じるだけにする。未ログインの札とログインの途中の札は押せない（右上は空で、理由は札の中身が言う）。
  * 開くたびに accounts.load を出し、認証を読み直させる。
  * 面は document.body への portal に描く（ヘッダの重なりに切られないため）。
  * 位置は place() で決め、Esc と外側の押下で閉じる。Esc ではボタンへフォーカスを戻す。
@@ -69,8 +69,10 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
     };
   }, [open, reposition]);
 
+  // 未ログインとログインの途中の札は、押しても切り替えられない。shown の札だけは、押すと閉じるので除く。
+  const isBlocked = (a: AccountView) => (a.auth === 'out' || a.auth === 'running') && a.id !== shown.id;
   const choose = (a: AccountView) => {
-    if (a.auth === 'out' && a.id !== shown.id) return;
+    if (isBlocked(a)) return;
     hide(true);
     if (a.id === shown.id) return;
     emit(sessionId === null ? { type: 'account.choose', accountId: a.id } : { type: 'account.switchSession', sessionId, accountId: a.id, working });
@@ -102,10 +104,11 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
           <div role="menu" aria-label="アカウント" className="account-cards">
             {list.map((a) => {
               const isShown = a.id === shown.id;
-              const disabled = a.auth === 'out' && !isShown;
+              const disabled = isBlocked(a);
               return (
                 <button key={a.id} type="button" role="menuitemradio" aria-checked={isShown} aria-disabled={disabled ? 'true' : undefined} className="account-card" onClick={() => choose(a)}>
-                  <span className="account-card-tag" data-kind={isShown ? 'shown' : disabled ? 'out' : 'go'}>{isShown ? (sessionId === null ? 'いまのアカウント' : 'このセッション') : disabled ? '未ログイン' : '切り替える'}</span>
+                  {/* 押せない札の右上は空にする。理由は札の中身（メールの行）が言う。 */}
+                  {!disabled && <span className="account-card-tag" data-kind={isShown ? 'shown' : 'go'}>{isShown ? (sessionId === null ? 'いまのアカウント' : 'このセッション') : '切り替える'}</span>}
                   <AccountMeters account={a} showResets />
                 </button>
               );

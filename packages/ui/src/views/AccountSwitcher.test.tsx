@@ -141,20 +141,45 @@ describe('AccountSwitcher で札を押す', () => {
       document.body.innerHTML = '';
     }
   });
-  it('未ログインの札は aria-disabled で「未ログイン」と出し、押しても何も出ず、開いたまま', () => {
+  it('未ログインの札は aria-disabled で、右上は空にし、メールの行だけが「未ログイン」と言う。押しても何も出ず、開いたまま', () => {
     const out = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'out' as const } : a));
     const { face, onIntent } = mount(home({ list: out }));
     fireEvent.click(face);
     onIntent.mockClear();
     const univ = card(/大学/);
     expect(univ).toHaveAttribute('aria-disabled', 'true');
-    expect(within(univ).getAllByText('未ログイン').length).toBeGreaterThan(0);
-    expect(within(univ).queryByText('切り替える')).toBeNull();
+    expect(within(univ).getAllByText('未ログイン')).toHaveLength(1);
+    expect(univ.querySelector('.account-card-tag')).toBeNull();
+    expect(univ.querySelector('.account-mail')).toHaveTextContent('未ログイン');
     fireEvent.click(univ);
     expect(onIntent).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     // ログイン済みの札は押せる印を持たない。
     expect(card(/会社/)).not.toHaveAttribute('aria-disabled');
+  });
+  it('ログインの途中の札も押せず、右上は空で、メールの行が承認を促す', () => {
+    const running = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'running' as const } : a));
+    const { face, onIntent } = mount(home({ list: running }));
+    fireEvent.click(face);
+    onIntent.mockClear();
+    const univ = card(/大学/);
+    expect(univ).toHaveAttribute('aria-disabled', 'true');
+    expect(univ.querySelector('.account-card-tag')).toBeNull();
+    expect(within(univ).getByText('ブラウザで承認してください…')).toBeInTheDocument();
+    fireEvent.click(univ);
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+  it('認証がまだ読めていない（unknown）札は、今までどおり押せる', () => {
+    const unknown = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'unknown' as const } : a));
+    const { face, onIntent } = mount(home({ list: unknown }));
+    fireEvent.click(face);
+    onIntent.mockClear();
+    const univ = card(/大学/);
+    expect(univ).not.toHaveAttribute('aria-disabled');
+    expect(within(univ).getByText('切り替える')).toBeInTheDocument();
+    fireEvent.click(univ);
+    expect(onIntent.mock.calls).toEqual([[{ type: 'account.choose', accountId: 'a1' }]]);
   });
 });
 
