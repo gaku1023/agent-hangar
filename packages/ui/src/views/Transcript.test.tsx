@@ -71,6 +71,29 @@ function draw(over: Over) {
   return { ...r, el, scrollTo, seqs, redraw, onIntent };
 }
 
+describe('Transcript の追従の寄せ', () => {
+  // WebKit の滑らかなスクロール（scrollIntoView の smooth）は、途中で scrollTop を書き換えても止まらず、書き換えを古い位置で上書きする。
+  // 追従は測り直しのたびに下端へ跳び直すので、任せると上へ引き戻され、それを利用者が戻したと読んで追従が切れていた。
+  it('新着を追うのに、ブラウザの滑らかなスクロールを使わない', () => {
+    const spy = vi.fn();
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = spy;
+    try {
+      const t = draw({ items: [], follow: true });
+      t.redraw({ items: many(20) });
+      t.redraw({ items: many(21) });
+      expect(spy.mock.calls.filter(([o]) => (o as ScrollIntoViewOptions | undefined)?.behavior === 'smooth')).toEqual([]);
+    } finally { Element.prototype.scrollIntoView = orig; }
+  });
+  it('末尾のすぐ近くに新着が届いたら、下端へ寄せる', () => {
+    const t = draw({ items: many(20), follow: true });
+    Object.defineProperty(t.el, 'scrollHeight', { value: 1500, configurable: true });
+    Object.defineProperty(t.el, 'scrollTop', { value: 800, configurable: true, writable: true });
+    t.redraw({ items: many(21) });
+    expect(t.el.scrollTop).toBe(900);
+  });
+});
+
 describe('Transcript の仮想スクロール', () => {
   it('500 行でも 5,000 行でも、DOM に載る行の数は変わらない', () => {
     const a = draw({ items: many(500), follow: false });

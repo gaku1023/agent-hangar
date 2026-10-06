@@ -809,6 +809,40 @@ function fakeTmux(r: { status: number; stdout?: string; stderr?: string }): Tmux
   return new Tmux({ tmuxPath: 'tmux', exec: () => ({ status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }) });
 }
 
+describe('アカウントの置き場と tmux サーバの環境（tmux 不要）', () => {
+  // tmux の新しいセッションは、tmux サーバを起こしたシェルの環境を継ぐ。
+  // 大学のアカウントのシェルから tmux サーバが起きていると、何も足さない最初のアカウントの起動まで、その置き場で動いてしまう。
+  let userHome: string;
+  beforeEach(() => { userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-env-')); });
+  afterEach(() => fs.rmSync(userHome, { recursive: true, force: true }));
+  /** new-session に渡したコマンドを拾う偽の tmux。 */
+  const capture = () => {
+    const calls: string[][] = [];
+    const t = new Tmux({ tmuxPath: 'tmux', exec: (_file, args) => { calls.push(args); return { status: 0, stdout: '', stderr: '' }; } });
+    return { t, launched: () => calls.find((a) => a[0] === 'new-session')! };
+  };
+
+  it('最初のアカウントで起こすときは、CLAUDE_CONFIG_DIR を env -u で外す', () => {
+    const accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: userHome });
+    const c = capture();
+    make({ accounts, tmux: c.t }).start({ projectId: 'p1' });
+    const args = c.launched();
+    // 起動のコマンドは動いている OS で組む（launch/command.ts）。Windows は包みに名前を渡す。
+    if (process.platform === 'win32') expect(args).toContain('HANGAR_UNSET_ENV=CLAUDE_CONFIG_DIR');
+    else { const i = args.indexOf('env'); expect(args.slice(i, i + 3)).toEqual(['env', '-u', 'CLAUDE_CONFIG_DIR']); }
+  });
+  it('別のアカウントで起こすときは外さず、その置き場を渡す', () => {
+    const accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: userHome });
+    const a = accounts.add({ name: '大学' });
+    const c = capture();
+    make({ accounts, tmux: c.t }).start({ projectId: 'p1', account: a.id });
+    const args = c.launched();
+    expect(args).not.toContain('-u');
+    expect(args.some((x) => x.startsWith('HANGAR_UNSET_ENV='))).toBe(false);
+    expect(args).toContain(`CLAUDE_CONFIG_DIR=${a.dir}`);
+  });
+});
+
 describe('tmux を呼べないとき（tmux 不要）', () => {
   it('tick は tmux の呼び出しが失敗したら何も閉じない', () => {
     // tmuxPath のバイナリが消えている状態。brew upgrade の symlink の張り替えでも起きる。

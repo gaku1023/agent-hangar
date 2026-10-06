@@ -211,6 +211,15 @@ describe('hangar-run.mjs（Node の包み）', () => {
     expect(r.stderr).toContain('ログを書けません');
   });
 
+  it('HANGAR_UNSET_ENV に挙げた変数を消してから起こし、HANGAR_UNSET_ENV そのものも渡さない', () => {
+    const log = path.join(tmpHome(), 'run-6.log');
+    const r = spawnSync(process.execPath, [RUN_MJS, log, ...child('console.log(JSON.stringify([process.env.CLAUDE_CONFIG_DIR ?? null, process.env.KEEP ?? null, process.env.HANGAR_UNSET_ENV ?? null]))')], {
+      encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: '/elsewhere', KEEP: 'k', HANGAR_UNSET_ENV: 'CLAUDE_CONFIG_DIR' },
+    });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout.trim())).toEqual([null, 'k', null]);
+  });
+
   it('起こせないコマンドは 127 で終わり、理由をログに残す', () => {
     const log = path.join(tmpHome(), 'run-4.log');
     const r = run(log, [path.join(tmpHome(), 'no-such-command.exe')], '\n');
