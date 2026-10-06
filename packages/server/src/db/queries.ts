@@ -1,3 +1,4 @@
+import { PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 import type { CandidateSource, DeviceDto, LiveSessionDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { toStateDto } from '../sessions/states.ts';
@@ -314,4 +315,31 @@ export function listProjects(db: Db, deviceId: string, live: LiveSessionDto[]): 
 export function getProject(db: Db, deviceId: string, live: LiveSessionDto[], id: string): ProjectDto | null {
   const r = db.prepare(`${PROJECT_SELECT} and p.id = ?`).get(deviceId, id) as ProjectRow | undefined;
   return r ? toProjectDto(r, db, new Set(live.map((l) => l.sessionId))) : null;
+}
+
+const accountIn = (launchParams: string | null): string | null => {
+  if (!launchParams) return null;
+  try {
+    const a = (JSON.parse(launchParams) as { account?: unknown } | null)?.account;
+    return typeof a === 'string' && a ? a : null;
+  } catch { return null; }
+};
+
+/** そのセッションを最後に動かしたアカウント。run が無い、またはアカウントを記録する前の run なら null。 */
+export function accountOfSession(db: Db, sessionId: string): string | null {
+  const r = db.prepare('select launch_params from runs where session_id = ? and deleted_at is null order by started_at desc, id desc limit 1').get(sessionId) as { launch_params: string | null } | undefined;
+  return accountIn(r?.launch_params ?? null);
+}
+
+/** 最初のアカウント以外で最後に動かしたセッションの一覧（セッションの id → アカウントの id）。run は 1 回だけ読み、セッションごとの最後の run を JS で選ぶ。 */
+export function sessionAccounts(db: Db): Record<string, string> {
+  const rows = db.prepare('select session_id, launch_params from runs where deleted_at is null order by started_at, id').all() as { session_id: string; launch_params: string | null }[];
+  const last = new Map<string, string | null>();
+  for (const r of rows) last.set(r.session_id, r.launch_params);
+  const out: Record<string, string> = {};
+  for (const [sid, params] of last) {
+    const a = accountIn(params);
+    if (a && a !== PRIMARY_ACCOUNT_ID) out[sid] = a;
+  }
+  return out;
 }

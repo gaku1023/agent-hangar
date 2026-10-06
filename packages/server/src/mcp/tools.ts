@@ -1,5 +1,6 @@
 import { localDate, localTime, returnAtIso, returnAtMs, type LaunchParams, type LiveSessionDto, type ProjectDto, type ProjectStatus, type ServerEvent, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
+import type { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -19,6 +20,8 @@ export type ToolDeps = {
   runs: { start(params: LaunchParams): LaunchResult };
   hub: { broadcast(ev: ServerEvent): void };
   usage: () => UsageDto;
+  /** アカウントごとの使用量を返すための口。無ければ get_usage は最初のアカウントの値だけを返す。 */
+  accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
   memos: MemoStore;
 };
 /** セッション別 URL では、そのセッションに固定される。共通 URL では null。 */
@@ -389,11 +392,21 @@ export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Recor
   return { ok: true, session_id: id };
 }
 
-/** statusline から届いた最新の使用率。まだ届いていない窓は null になる。 */
-export function getUsageTool(deps: ToolDeps) {
-  const u = deps.usage();
+/** UsageDto を MCP の応答の形にする。まだ届いていない窓は null になる。 */
+function usageBody(u: UsageDto) {
   const w = (x: { usedPercent: number; resetsAt: number | null } | null) => (x ? { used_percentage: x.usedPercent, resets_at: x.resetsAt } : null);
   return { five_hour: w(u.fiveHour), seven_day: w(u.sevenDay), updated_at: u.updatedAt };
+}
+
+/**
+ * statusline から届いた最新の使用率。上の 3 項目は最初のアカウントの値のまま、accounts にアカウントごとの値を並べる。
+ * メールアドレスなど認証の情報は入れない。
+ */
+export function getUsageTool(deps: ToolDeps) {
+  const top = usageBody(deps.usage());
+  if (!deps.accounts) return top;
+  const currentId = deps.accounts.store.current().id;
+  return { ...top, accounts: deps.accounts.store.list().map((a) => ({ name: a.name, current: a.id === currentId, ...usageBody(deps.accounts!.usage.of(a.id)) })) };
 }
 
 export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {

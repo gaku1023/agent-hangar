@@ -37,7 +37,7 @@ export type RetentionPreviewDto = { days: number; path: string; lines: Retention
 /** 確認をどこから開いたか。帯から開いたときだけ「ほかの期間…」を出す。 */
 export type RetentionFrom = 'banner' | 'session' | 'settings';
 export type IndexProgressDto = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: number; total: number };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage?: CloudUsageDto | null };
+export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage?: CloudUsageDto | null; accounts?: AccountsDto };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。
@@ -73,6 +73,18 @@ export type LaunchResultDto = { run: RunDto; sessionId: string; tabs: TabDto[] }
 /** statusline の payload から得た使用率。窓の値が無いときは null で、updatedAt は使用率が届いた時刻。 */
 export type RateWindowDto = { usedPercent: number; resetsAt: number | null };
 export type UsageDto = { fiveHour: RateWindowDto | null; sevenDay: RateWindowDto | null; updatedAt: number | null };
+/** `claude auth status --json` から読んだもの。hangar が認証について知るのはこれだけで、トークンは含まない。 */
+export type AccountAuthDto = { loggedIn: boolean; email: string | null; plan: string | null; orgName: string | null; checkedAt: number };
+/**
+ * Claude Code のアカウント。置き場（CLAUDE_CONFIG_DIR）と 1 対 1 で、この PC の中だけにある。
+ * primary は最初のアカウント（既定の置き場）で、消せない。
+ * linkProblem は置き場のリンクが壊れている理由で、起動できるときは null。
+ */
+export type AccountDto = { id: string; name: string; dir: string; color: string; primary: boolean; auth: AccountAuthDto | null; usage: UsageDto; loginRunning: boolean; linkProblem: string | null };
+/** sessions は、最初のアカウント以外で最後に動かしたセッションだけを載せる（セッションの id → アカウントの id）。載っていないものは最初のアカウントである。 */
+export type AccountsDto = { currentId: string; accounts: AccountDto[]; sessions: Record<string, string> };
+/** 最初のアカウント（既定の置き場）の id。 */
+export const PRIMARY_ACCOUNT_ID = 'primary';
 export type UsageDayDto = { day: string; inputTokens: number; outputTokens: number; sessions: number };
 export type UsageProjectDto = { projectId: string | null; name: string; inputTokens: number; outputTokens: number; costUsd: number | null; sessions: number };
 export type UsageAggregateDto = { days: UsageDayDto[]; projects: UsageProjectDto[] };

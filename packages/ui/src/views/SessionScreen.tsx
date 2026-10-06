@@ -176,7 +176,7 @@ export function SessionScreen(props: SessionProps) {
 
 /**
  * 見出しの線の下の 24px の 1 行（B1）。
- * 状態と経過、モデル、コンテキスト、コスト、変更、ターン、開始、アーティファクト、作業ディレクトリを区切りで並べる。
+ * 状態と経過、アカウント（2 件以上あるとき）、モデル、コンテキスト、コスト、変更、ターン、開始、アーティファクト、作業ディレクトリを区切りで並べる。
  * 折り返さず、狭いときは作業ディレクトリから省く。
  */
 function InfoLine(props: SessionProps) {
@@ -197,6 +197,8 @@ function InfoLine(props: SessionProps) {
   return (
     <div className="session-info">
       {state}
+      {/* アカウントが 2 件以上あるときだけ。状態の次、モデルの前に、色の点と名前を置く。 */}
+      {props.account && <span title="このセッションを動かしているアカウント"><span className="st-dot" style={{ color: props.account.color }} aria-hidden="true" />{props.account.name}</span>}
       {props.model && <span className="mono">{props.model}{props.effort ? ` · ${props.effort}` : ''}</span>}
       {/* コンテキストの使用率と推定コストは statusline の追記からしか届かない。
           追記を入れていなければずっと null なので、空の棒ではなく「未取得」と書く。0% と見分けが付かない見せ方にしない。

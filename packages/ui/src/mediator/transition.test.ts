@@ -1484,3 +1484,67 @@ describe('セッションの状態', () => {
     expect(run([intent({ type: 'session.pause.open', id: 's1', from: 'menu' })], busy).state.overlay).toEqual({ kind: 'promote', sessionId: 's9' });
   });
 });
+
+describe('アカウント', () => {
+  const effectsOf = (i: Extract<Input, { kind: 'intent' }>['intent'], start: State = initialState()) => run([intent(i)], start).effects;
+  it('読み込み、選択、更新、ログイン、ログインの取り消し、取り直しは、それぞれの Effect を 1 つ出す', () => {
+    expect(effectsOf({ type: 'accounts.load' })).toEqual([{ kind: 'api.accounts.load' }]);
+    expect(effectsOf({ type: 'account.choose', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.setCurrent', accountId: 'a1' }]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '研究室', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室', color: '#7a4a9e' } }]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
+    expect(effectsOf({ type: 'account.login', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.login', accountId: 'a1' }]);
+    expect(effectsOf({ type: 'account.login.cancel', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.cancelLogin', accountId: 'a1' }]);
+    expect(effectsOf({ type: 'account.refresh', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.refresh', accountId: 'a1' }]);
+  });
+  it('更新の名前は前後の空白を落とし、空になれば patch に入れず、patch が空なら Effect を出さない', () => {
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '  研究室 ' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室' } }]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ' })).toEqual([]);
+    expect(effectsOf({ type: 'account.update', accountId: 'a1' })).toEqual([]);
+  });
+  it('追加は名前の前後の空白を落とし、空白だけなら何も出さない', () => {
+    expect(effectsOf({ type: 'account.add', name: '  大学 ' })).toEqual([{ kind: 'api.accounts.add', name: '大学' }]);
+    const blank = run([intent({ type: 'account.add', name: '   ' })]);
+    expect(blank.effects).toEqual([]);
+    expect(blank.state).toEqual(initialState());
+  });
+  it('切り替えは confirmed が無ければ確認（作業中の印を運ぶ）で止まり、Effect を出さない', () => {
+    const a = run([intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true })]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true } });
+    expect(a.state.launch).toEqual({ kind: 'idle' });
+    expect(a.effects).toEqual([]);
+  });
+  it('切り替えを承諾したら、確認を閉じ、launch を submitting にして Effect を 1 つ出す', () => {
+    const asked = run([intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false })]);
+    const b = run([intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true })], asked.state);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    expect(b.state.launch).toEqual({ kind: 'submitting' });
+    expect(b.effects).toEqual([{ kind: 'api.accounts.switchSession', sessionId: 's1', accountId: 'a1' }]);
+  });
+  it('送信中の切り替え（承諾）は何もしない', () => {
+    const busy: State = { ...initialState(), launch: { kind: 'submitting' } };
+    const r = run([intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true })], busy);
+    expect(r.effects).toEqual([]);
+    expect(r.state).toEqual(busy);
+  });
+  it('削除は confirmed が無ければ確認、あれば確認を閉じて Effect を出す', () => {
+    const asked = run([intent({ type: 'account.remove', accountId: 'a1' })]);
+    expect(asked.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'removeAccount', accountId: 'a1' } });
+    expect(asked.effects).toEqual([]);
+    const done = run([intent({ type: 'account.remove', accountId: 'a1', confirmed: true })], asked.state);
+    expect(done.state.overlay).toEqual({ kind: 'none' });
+    expect(done.effects).toEqual([{ kind: 'api.accounts.remove', accountId: 'a1' }]);
+  });
+  it('切り替えの結果：成功で画面はそのセッションへ、失敗でトーストと failed。確認を閉じた後でも成り立つ', () => {
+    const submitted = run([
+      intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false }),
+      intent({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true }),
+    ]).state;
+    const ok = run([runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], submitted);
+    expect(ok.state.launch).toEqual({ kind: 'idle' });
+    expect(ok.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
+    const ng = run([runtime({ type: 'launch.failed', message: '同じアカウントです' })], submitted);
+    expect(ng.state.launch).toEqual({ kind: 'failed', message: '同じアカウントです' });
+    expect(ng.effects).toEqual([{ kind: 'toast', level: 'error', message: '同じアカウントです' }]);
+  });
+});

@@ -1,4 +1,4 @@
-import type { RateWindowDto, UsageDto } from '@agent-hangar/shared';
+import { PRIMARY_ACCOUNT_ID, type RateWindowDto, type UsageDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 
 // Claude Code が statusLine コマンドの標準入力に渡す JSON を読む。
@@ -53,36 +53,49 @@ export function parseStatusline(raw: unknown): StatuslinePayload | null {
 
 const sameWindow = (a: RateWindowDto | null, b: RateWindowDto | null) => a?.usedPercent === b?.usedPercent && a?.resetsAt === b?.resetsAt;
 
-export type IngestResult = { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null };
+export type IngestResult = { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string };
+
+const EMPTY: UsageDto = { fiveHour: null, sevenDay: null, updatedAt: null };
 
 /**
- * 使用率の現在値を持ち、payload を積む。
+ * 使用率の現在値をアカウントごとに持ち、payload を積む。
  * 使用率は Claude のセッションが動いている間だけ届くので、値が無い payload では直前の値を保つ。
+ * 本文の置き場はアカウントの間で共有なので、どのアカウントの値かは payload からは分からない。
+ * 呼び手が渡す accountOf が、セッションの id から run を引いて決める。
  */
 export class UsageTracker {
-  private state: UsageDto = { fiveHour: null, sevenDay: null, updatedAt: null };
+  private readonly state = new Map<string, UsageDto>();
   private lastAt = 0;
   private readonly now: () => number;
   private readonly keep: number;
+  private readonly accountOf: (providerSessionId: string | null) => string;
 
-  constructor(private readonly db: Db, opts: { now?: () => number; keep?: number } = {}) {
+  constructor(private readonly db: Db, opts: { now?: () => number; keep?: number; accountOf?: (providerSessionId: string | null) => string } = {}) {
     this.now = opts.now ?? (() => Date.now());
     this.keep = opts.keep ?? 500;
+    this.accountOf = opts.accountOf ?? (() => PRIMARY_ACCOUNT_ID);
     this.restore();
   }
 
-  current(): UsageDto { return this.state; }
+  /** 最初のアカウントの値。事後の要約の止める判定と、古い呼び手が使う。 */
+  current(): UsageDto { return this.of(PRIMARY_ACCOUNT_ID); }
+  of(accountId: string): UsageDto { return this.state.get(accountId) ?? EMPTY; }
 
-  /** 新しい順に読み、両方の窓が埋まるか行が尽きるまで辿る。 */
+  /** アカウントごとに新しい順に読み、両方の窓が埋まるか行が尽きるまで辿る。 */
   private restore(): void {
-    const rows = this.db.prepare('select at, payload from usage_snapshots order by at desc limit ?').all(this.keep) as { at: number; payload: string }[];
-    for (const r of rows) {
-      let p: StatuslinePayload | null = null;
-      try { p = parseStatusline(JSON.parse(r.payload)); } catch { continue; }
-      if (!p?.rateLimits) continue;
-      if (this.state.fiveHour === null && p.rateLimits.fiveHour) this.state = { ...this.state, fiveHour: p.rateLimits.fiveHour, updatedAt: this.state.updatedAt ?? r.at };
-      if (this.state.sevenDay === null && p.rateLimits.sevenDay) this.state = { ...this.state, sevenDay: p.rateLimits.sevenDay, updatedAt: this.state.updatedAt ?? r.at };
-      if (this.state.fiveHour && this.state.sevenDay) break;
+    const accounts = (this.db.prepare('select distinct coalesce(account, ?) a from usage_snapshots').all(PRIMARY_ACCOUNT_ID) as { a: string }[]).map((r) => r.a);
+    for (const a of accounts) {
+      const rows = this.db.prepare('select at, payload from usage_snapshots where coalesce(account, ?) = ? order by at desc limit ?').all(PRIMARY_ACCOUNT_ID, a, this.keep) as { at: number; payload: string }[];
+      let s: UsageDto = EMPTY;
+      for (const r of rows) {
+        let p: StatuslinePayload | null = null;
+        try { p = parseStatusline(JSON.parse(r.payload)); } catch { continue; }
+        if (!p?.rateLimits) continue;
+        if (s.fiveHour === null && p.rateLimits.fiveHour) s = { ...s, fiveHour: p.rateLimits.fiveHour, updatedAt: s.updatedAt ?? r.at };
+        if (s.sevenDay === null && p.rateLimits.sevenDay) s = { ...s, sevenDay: p.rateLimits.sevenDay, updatedAt: s.updatedAt ?? r.at };
+        if (s.fiveHour && s.sevenDay) break;
+      }
+      if (s !== EMPTY) this.state.set(a, s);
     }
     this.lastAt = (this.db.prepare('select max(at) at from usage_snapshots').get() as { at: number | null }).at ?? 0;
   }
@@ -90,11 +103,12 @@ export class UsageTracker {
   ingest(raw: unknown): IngestResult | null {
     const p = parseStatusline(raw);
     if (!p) return null;
+    const accountId = this.accountOf(p.providerSessionId);
     const at = Math.max(this.now(), this.lastAt + 1);
     this.lastAt = at;
     const write = this.db.transaction(() => {
-      this.db.prepare('insert into usage_snapshots (at, payload) values (?, ?)').run(at, JSON.stringify(raw));
-      this.db.prepare('delete from usage_snapshots where at not in (select at from usage_snapshots order by at desc limit ?)').run(this.keep);
+      this.db.prepare('insert into usage_snapshots (at, payload, account) values (?, ?, ?)').run(at, JSON.stringify(raw), accountId);
+      this.db.prepare('delete from usage_snapshots where coalesce(account, ?) = ? and at not in (select at from usage_snapshots where coalesce(account, ?) = ? order by at desc limit ?)').run(PRIMARY_ACCOUNT_ID, accountId, PRIMARY_ACCOUNT_ID, accountId, this.keep);
       if (p.providerSessionId) {
         // null の項目は既存の値を保つ（1 回目の payload は current_usage が null）。
         this.db.prepare(`insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)
@@ -106,12 +120,13 @@ export class UsageTracker {
       }
     });
     write();
+    const before = this.of(accountId);
     let usageChanged = false;
     if (p.rateLimits) {
-      const next: UsageDto = { fiveHour: p.rateLimits.fiveHour ?? this.state.fiveHour, sevenDay: p.rateLimits.sevenDay ?? this.state.sevenDay, updatedAt: at };
-      usageChanged = !sameWindow(next.fiveHour, this.state.fiveHour) || !sameWindow(next.sevenDay, this.state.sevenDay) || this.state.updatedAt === null;
-      this.state = next;
+      const next: UsageDto = { fiveHour: p.rateLimits.fiveHour ?? before.fiveHour, sevenDay: p.rateLimits.sevenDay ?? before.sevenDay, updatedAt: at };
+      usageChanged = !sameWindow(next.fiveHour, before.fiveHour) || !sameWindow(next.sevenDay, before.sevenDay) || before.updatedAt === null;
+      this.state.set(accountId, next);
     }
-    return { usage: this.state, usageChanged, providerSessionId: p.providerSessionId };
+    return { usage: this.of(accountId), usageChanged, providerSessionId: p.providerSessionId, accountId };
   }
 }

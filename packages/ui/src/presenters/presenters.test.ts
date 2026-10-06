@@ -4,6 +4,7 @@ import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPrev
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { toSyncState } from '../mediator/sync.ts';
 import { initialState } from '../mediator/transition.ts';
+import { accountsFixture } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
@@ -15,6 +16,7 @@ import { presentProjects } from './projects.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
 import { buildItems, presentSession, sessionActions } from './session.ts';
 import { presentSessions } from './sessions.ts';
+import { homePath } from './accounts.ts';
 import { presentSettings } from './settings.ts';
 import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
 import { presentRetentionDialog } from './retentionDialog.ts';
@@ -73,7 +75,7 @@ describe('format', () => {
 describe('presentConfirm', () => {
   it('一覧から削除する確認には、プロジェクトの名前と未分類に戻るセッションの数を添える', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'alpha' } } };
-    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'unlinkProject', projectId: 'alpha' }, project: { name: 'alpha', sessions: 2 } });
+    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'unlinkProject', projectId: 'alpha' }, project: { name: 'alpha', sessions: 2 }, accountName: null });
   });
   it('プロジェクトが store から消えていれば id を名前にし、数は 0 にする', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'gone' } } };
@@ -81,8 +83,18 @@ describe('presentConfirm', () => {
   });
   it('ほかの確認には何も添えず、確認が出ていなければ null', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'adoptSession' as const, sessionId: 's1' } } };
-    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null });
+    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null, accountName: null });
     expect(presentConfirm(initialState(), storeWith())).toBeNull();
+  });
+  it('切り替えと削除の確認には、指すアカウントの名前を添える。一覧に無ければ null', () => {
+    const store: Store = { ...storeWith(), accounts: accountsFixture };
+    const confirming = (confirm: State['overlay'] extends infer O ? (O extends { kind: 'confirm'; confirm: infer C } ? C : never) : never): State => ({ ...initialState(), overlay: { kind: 'confirm', confirm } });
+    const sw = confirming({ kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true });
+    expect(presentConfirm(sw, store)).toEqual({ confirm: { kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true }, project: null, accountName: '大学' });
+    expect(presentConfirm(confirming({ kind: 'switchAccount', sessionId: 's1', accountId: 'primary', working: false }), store)?.accountName).toBe('会社');
+    expect(presentConfirm(confirming({ kind: 'removeAccount', accountId: 'a1' }), store)).toEqual({ confirm: { kind: 'removeAccount', accountId: 'a1' }, project: null, accountName: '大学' });
+    expect(presentConfirm(confirming({ kind: 'removeAccount', accountId: 'gone' }), store)?.accountName).toBeNull();
+    expect(presentConfirm(sw, storeWith())?.accountName).toBeNull();
   });
 });
 
@@ -381,6 +393,23 @@ describe('presentProject', () => {
 });
 
 describe('presentSession', () => {
+  describe('account', () => {
+    const two = (over: Partial<typeof accountsFixture> = {}): Store => ({ ...storeWith(), sessions: { ...storeWith().sessions, s9: session('s9') }, accounts: { ...accountsFixture, ...over } });
+    it('2 件で対応があれば、そのアカウントの名前と色を出す', () => {
+      expect(presentSession(initialState(), two(), NOW, 's9').account).toEqual({ name: '大学', color: '#7a4a9e' });
+    });
+    it('2 件で対応が無ければ、最初のアカウントを出す', () => {
+      expect(presentSession(initialState(), two(), NOW, 's1').account).toEqual({ name: '会社', color: '#2a57b8' });
+    });
+    it('1 件、一覧が空、store.accounts が null なら null', () => {
+      expect(presentSession(initialState(), { ...two(), accounts: { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] } }, NOW, 's1').account).toBeNull();
+      expect(presentSession(initialState(), two({ accounts: [], sessions: {} }), NOW, 's1').account).toBeNull();
+      expect(presentSession(initialState(), storeWith(), NOW, 's1').account).toBeNull();
+    });
+    it('store に無いセッションの画面には札を出さない', () => {
+      expect(presentSession(initialState(), two(), NOW, 'nope').account).toBeNull();
+    });
+  });
   it('見出しの上には、属するプロジェクトへ戻るリンクを出し、属さなければ出さない', () => {
     const store = storeWith();
     expect(presentSession(initialState(), store, NOW, 's1').parent).toEqual({ label: 'alpha', route: { name: 'project', id: 'alpha' } });
@@ -907,6 +936,23 @@ describe('presentNewSession', () => {
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, newSessionDraft: { name: 'n', prompt: '', attachments: [] }, launchPrefs: { alpha: { model: 'opus' } } };
     expect(presentNewSession(state, storeWith(), NOW)).toMatchObject({ draft: { name: 'n', prompt: '' }, prefs: { alpha: { model: 'opus' } } });
   });
+  describe('アカウントの札', () => {
+    const open = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    it('アカウントが 0 件でも 1 件でも null にする（段を出さない）', () => {
+      expect(presentNewSession(open, storeWith(), NOW)!.accounts).toBeNull();
+      const one = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] };
+      expect(presentNewSession(open, { ...storeWith(), accounts: one }, NOW)!.accounts).toBeNull();
+    });
+    it('2 件以上なら、一覧といまのアカウントの id を渡す', () => {
+      const p = presentNewSession(open, { ...storeWith(), accounts: accountsFixture }, NOW)!;
+      expect(p.accounts!.currentId).toBe('primary');
+      expect(p.accounts!.list.map((a) => [a.id, a.name, a.current])).toEqual([['primary', '会社', true], ['a1', '大学', false]]);
+      expect(presentNewSession(open, { ...storeWith(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW)!.accounts!.currentId).toBe('a1');
+    });
+    it('currentId が一覧に無ければ、最初のアカウントがいまのアカウントになる', () => {
+      expect(presentNewSession(open, { ...storeWith(), accounts: { ...accountsFixture, currentId: 'gone' } }, NOW)!.accounts!.currentId).toBe('primary');
+    });
+  });
 });
 
 describe('presentSettings（フェーズ 2）', () => {
@@ -949,6 +995,45 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
   it('参加トークンが消える時刻を渡す', () => {
     const p = presentSettings(initialState(), { ...initialStore(), joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 }, NOW);
     expect(p.cloud).toMatchObject({ joinToken: 'tok', joinTokenExpiresAt: NOW + 30_000 });
+  });
+  describe('アカウントの節', () => {
+    it('アカウントが 1 件でもその一覧を渡し、選べる 5 色を添える', () => {
+      const one = { ...accountsFixture, accounts: accountsFixture.accounts.slice(0, 1) };
+      const p = presentSettings(initialState(), { ...initialStore(), accounts: one }, NOW);
+      expect(p.accounts.list.map((a) => [a.id, a.name, a.current, a.primary])).toEqual([['primary', '会社', true, true]]);
+      expect(p.accounts.colors).toEqual(['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a2452f']);
+    });
+    it('2 件なら 2 件とも、いまのアカウントに印を付けて渡す', () => {
+      const p = presentSettings(initialState(), { ...initialStore(), accounts: accountsFixture }, NOW);
+      expect(p.accounts.list.map((a) => [a.id, a.current])).toEqual([['primary', true], ['a1', false]]);
+    });
+    it('まだ届いていなければ一覧は空', () => {
+      expect(presentSettings(initialState(), initialStore(), NOW).accounts.list).toEqual([]);
+    });
+    it('行き先の印は、設定の画面が at=accounts で開かれたときだけ accounts になる', () => {
+      const at = (screen: State['screen']) => presentSettings({ ...initialState(), screen }, initialStore(), NOW).focus;
+      expect(at({ name: 'settings', at: 'accounts' })).toBe('accounts');
+      expect(at({ name: 'settings' })).toBeNull();
+      expect(at({ name: 'home' })).toBeNull();
+    });
+  });
+});
+
+describe('homePath', () => {
+  it('ホームの下を ~ で始まる形に縮める（macOS と Linux）', () => {
+    expect(homePath('/Users/taro/.claude-univ')).toBe('~/.claude-univ');
+    expect(homePath('/home/taro/.claude')).toBe('~/.claude');
+    expect(homePath('/Users/taro/work/a b')).toBe('~/work/a b');
+  });
+  it('ホームそのものは ~ にする', () => {
+    expect(homePath('/Users/taro')).toBe('~');
+    expect(homePath('/Users/taro/')).toBe('~');
+  });
+  it('ホームの下でなければそのまま返す', () => {
+    expect(homePath('/h/.claude')).toBe('/h/.claude');
+    expect(homePath('/Users')).toBe('/Users');
+    expect(homePath('/srv/Users/taro/x')).toBe('/srv/Users/taro/x');
+    expect(homePath('/homework/x')).toBe('/homework/x');
   });
 });
 
@@ -1002,6 +1087,70 @@ describe('presentShell の使用量', () => {
     expect(empty.usage).toEqual({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
     const store = { ...initialStore(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
     expect(presentShell(initialState(), store, NOW).usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
+  });
+});
+
+describe('presentShell のアカウント', () => {
+  const two = (): Store => ({ ...storeWith(), accounts: accountsFixture, usage: { fiveHour: { usedPercent: 5, resetsAt: null }, sevenDay: { usedPercent: 6, resetsAt: null }, updatedAt: NOW - 600_000 } });
+  const at = (screen: State['screen']): State => ({ ...initialState(), screen });
+  it('アカウントが 1 件、または store.accounts が null なら account は null で、usage は store.usage から作る', () => {
+    const base = { ...storeWith(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
+    const expected = { fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' };
+    const none = presentShell(initialState(), base, NOW);
+    expect(none.account).toBeNull();
+    expect(none.usage).toEqual(expected);
+    const solo = presentShell(initialState(), { ...base, accounts: { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] } }, NOW);
+    expect(solo.account).toBeNull();
+    expect(solo.usage).toEqual(expected);
+    const empty = presentShell(at({ name: 'session', id: 's1' }), { ...base, accounts: { currentId: '', accounts: [], sessions: {} } }, NOW);
+    expect(empty.account).toBeNull();
+    expect(empty.usage).toEqual(expected);
+  });
+  it('2 件・ホームでは、いまのアカウントを出し、計器もその値で作る（sessionId は null）', () => {
+    const p = presentShell(initialState(), two(), NOW);
+    expect(p.account?.shown.id).toBe('primary');
+    expect(p.account?.shown.name).toBe('会社');
+    expect(p.account?.sessionId).toBeNull();
+    expect(p.account?.working).toBe(false);
+    expect(p.account?.list.map((a) => a.id)).toEqual(['primary', 'a1']);
+    expect(p.account?.list.map((a) => a.current)).toEqual([true, false]);
+    expect(p.usage).toEqual({ fiveHour: 82, sevenDay: 41, fiveHourResets: resetsLabel(1000, NOW), sevenDayResets: resetsLabel(2000, NOW), updatedLabel: relativeTime(500, NOW) });
+  });
+  it('いまのアカウントが大学なら、ホームでも大学を出す', () => {
+    const p = presentShell(initialState(), { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
+    expect(p.account?.shown.id).toBe('a1');
+    expect(p.usage.fiveHour).toBe(12);
+  });
+  it('2 件・セッション画面では、そのセッションのアカウントを出し、計器もその値で作る', () => {
+    const store = two();
+    store.sessions = { ...store.sessions, s9: session('s9', { live: 'busy' }) };
+    const p = presentShell(at({ name: 'session', id: 's9' }), store, NOW);
+    expect(p.account?.shown.id).toBe('a1');
+    expect(p.account?.shown.name).toBe('大学');
+    expect(p.account?.sessionId).toBe('s9');
+    expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 9 });
+    // 並びと current は、画面に関わらず、いまのアカウント（会社）のまま。
+    expect(p.account?.list.map((a) => [a.id, a.current])).toEqual([['primary', true], ['a1', false]]);
+  });
+  it('2 件・セッション画面で対応に無いセッションは、最初のアカウントを出す', () => {
+    const p = presentShell(at({ name: 'session', id: 's1' }), { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
+    expect(p.account?.shown.id).toBe('primary');
+    expect(p.account?.sessionId).toBe('s1');
+    expect(p.usage.fiveHour).toBe(82);
+  });
+  it('working は、そのセッションが作業中（busy か waiting）のときだけ真になる', () => {
+    const store = two();
+    const w = (live: SessionDto['live'] | 'missing', state: State = at({ name: 'session', id: 's9' })) => {
+      const sessions = live === 'missing' ? { ...store.sessions } : { ...store.sessions, s9: session('s9', { live }) };
+      return presentShell(state, { ...store, sessions }, NOW).account?.working;
+    };
+    expect(w('busy')).toBe(true);
+    expect(w('waiting')).toBe(true);
+    expect(w('idle')).toBe(false);
+    expect(w(null)).toBe(false);
+    expect(w('missing')).toBe(false);
+    // ホームでは、動いているセッションがあっても関係しない。
+    expect(w('busy', at({ name: 'home' }))).toBe(false);
   });
 });
 

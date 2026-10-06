@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Intent, LaunchParams } from '@agent-hangar/shared';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
+import { presentAccounts, type AccountView } from '../presenters/accounts.ts';
+import { accountsFixture } from '../test/accounts.ts';
+import { initialStore } from '../store/store.ts';
 import { pick } from '../test/pick.ts';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
 import { NO_ASSIST, PromptAssistContext } from './primitives/promptAssist.ts';
@@ -11,7 +14,7 @@ const projects: NewSessionProps['projects'] = [
   { id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' },
   { id: 'p2', name: 'beta', path: '/w/beta', status: 'paused', lastActivity: '昨日' },
 ];
-const base: NewSessionProps = { projects, recentIds: ['p1'], projectId: null, submitting: false, error: null, scratch: false, draft: null, prefs: {} };
+const base: NewSessionProps = { projects, recentIds: ['p1'], projectId: null, submitting: false, error: null, scratch: false, draft: null, prefs: {}, accounts: null };
 
 /** 送られた params だけを集める。キーの有無を見たいので、呼び出しの照合ではなく値そのものを取る。 */
 function collectParams(over: Partial<NewSessionProps> = {}): LaunchParams[] {
@@ -509,5 +512,146 @@ describe('NewSessionDialog の前回値（D1）', () => {
     fireEvent.keyDown(ta, { key: 'Escape' });
     expect(closed).not.toHaveBeenCalled();
     expect(screen.queryByRole('listbox', { name: 'スキルとコマンド' })).toBeNull();
+  });
+});
+
+describe('NewSessionDialog のアカウントの札', () => {
+  const NOW = new Date(2026, 9, 6, 12, 0).getTime();
+  const list = presentAccounts({ ...initialStore(), accounts: accountsFixture }, NOW);
+  const accountsOf = (over: Partial<AccountView>[] = [{}, {}], currentId = 'primary'): NonNullable<NewSessionProps['accounts']> => ({ list: list.map((a, i) => ({ ...a, ...over[i] })), currentId });
+  const cards = () => screen.getByRole('radiogroup', { name: 'アカウント' });
+  const card = (name: string) => within(cards()).getByRole('radio', { name: new RegExp(name) });
+  /** 起動と accounts.load を集める。 */
+  function collect(over: Partial<NewSessionProps> = {}) {
+    const intents: { type: string; params?: LaunchParams }[] = [];
+    const ui = (p: Partial<NewSessionProps>) => <IntentRoot onIntent={(i) => { intents.push(i as never); }}><NewSessionDialog {...base} {...p} /></IntentRoot>;
+    const view = render(ui(over));
+    return { intents, params: () => intents.filter((i) => i.type === 'session.new.submit').map((i) => i.params!), rerender: (p: Partial<NewSessionProps>) => view.rerender(ui(p)) };
+  }
+
+  it('accounts が null なら、アカウントの段を出さず、params に account を入れない', () => {
+    const { params, intents } = collect({ projectId: 'p1', accounts: null });
+    expect(screen.queryByRole('radiogroup', { name: 'アカウント' })).toBeNull();
+    expect(screen.queryByText('アカウント')).toBeNull();
+    start();
+    expect(params()).toEqual([{ projectId: 'p1' }]);
+    expect('account' in params()[0]!).toBe(false);
+    expect(intents.some((i) => i.type === 'accounts.load')).toBe(false);
+  });
+  it('段は、プロジェクトの欄の下、名前の欄の上に、見出し「アカウント」で出る', () => {
+    collect({ accounts: accountsOf() });
+    const project = screen.getByRole('button', { name: 'プロジェクト' });
+    const name = screen.getByLabelText('名前（任意）');
+    const order = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(order(project, cards())).toBe(true);
+    expect(order(cards(), name)).toBe(true);
+    expect(cards().closest('.field')).toHaveTextContent(/^アカウント/);
+    expect(within(cards()).getAllByRole('radio')).toHaveLength(2);
+  });
+  it('はじめはいまのアカウントを選び、そのまま起動すると account に入れる', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf() });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    expect(card('大学')).toHaveAttribute('aria-checked', 'false');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('大学を選んで起動すると account は a1 で、いまのアカウントは変えない（account.choose を出さない）', () => {
+    const { intents, params } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+    expect(intents.map((i) => i.type)).not.toContain('account.choose');
+  });
+  it('いまのアカウントが未ログインなら、はじめはログイン済みの最初の 1 件を選ぶ', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf([{ auth: 'out' }, {}]) });
+    expect(card('会社')).toHaveAttribute('aria-disabled', 'true');
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+  });
+  it('いまのアカウントが初めてのログインの途中でも飛ばす。まだ読めていない（unknown）なら選ぶ', () => {
+    collect({ accounts: accountsOf([{ auth: 'running', loggedIn: false }, {}]) });
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    document.body.innerHTML = '';
+    collect({ accounts: accountsOf([{ auth: 'unknown' }, {}]) });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+  });
+  it('いまのアカウントがログインし直しの途中でも、はじめの選択は動かず、選べる', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf([{ auth: 'running', loggedIn: true }, {}]) });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    expect(card('会社')).not.toHaveAttribute('aria-disabled');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('どれも選べないときは、いまのアカウントのままにする', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf([{ auth: 'out' }, { auth: 'out' }]) });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('未ログインの札は押しても選べない', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf([{}, { auth: 'out' }]) });
+    fireEvent.click(card('大学'));
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('開いたときに accounts.load を 1 回だけ出す', () => {
+    const { intents, rerender } = collect({ accounts: accountsOf() });
+    expect(intents.filter((i) => i.type === 'accounts.load')).toHaveLength(1);
+    fireEvent.click(card('大学'));
+    rerender({ accounts: accountsOf() });
+    expect(intents.filter((i) => i.type === 'accounts.load')).toHaveLength(1);
+  });
+  it('選んでいた id が props から消えたら、いまのアカウントに戻す', () => {
+    const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    rerender({ projectId: 'p1', accounts: { list: [list[0]!, { ...list[0]!, id: 'a2', name: '個人', current: false }], currentId: 'primary' } });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    expect(within(cards()).queryByRole('radio', { name: /大学/ })).toBeNull();
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('開いてから送るまでにいまのアカウントが変わっても、選んだとおりに起こす', () => {
+    const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    rerender({ projectId: 'p1', accounts: accountsOf([{}, {}], 'a1') });
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+  });
+  it.each(['out', 'running'] as const)('選んでいた札が選べなくなったら（%s）、いまのアカウントへ戻し、そのとおりに起動する', (auth) => {
+    const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    rerender({ projectId: 'p1', accounts: accountsOf([{}, { auth, loggedIn: false }]) });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    expect(card('大学')).toHaveAttribute('aria-checked', 'false');
+    expect(card('大学')).toHaveAttribute('aria-disabled', 'true');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
+  });
+  it('まだ自分で選んでいない間は、開いたままいまのアカウントが変わるとはじめの選択も付いていく', () => {
+    const { params, rerender } = collect({ projectId: 'p1', accounts: accountsOf() });
+    expect(card('会社')).toHaveAttribute('aria-checked', 'true');
+    rerender({ projectId: 'p1', accounts: accountsOf([{}, {}], 'a1') });
+    expect(card('大学')).toHaveAttribute('aria-checked', 'true');
+    expect(card('会社')).toHaveAttribute('aria-checked', 'false');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+  });
+  it('選んだあとにプロジェクトを選び直しても、アカウントの選択は残る', () => {
+    const { params } = collect({ accounts: accountsOf() });
+    fireEvent.click(card('大学'));
+    pick('プロジェクト', 'alpha');
+    start();
+    expect(params()).toEqual([{ projectId: 'p1', account: 'a1' }]);
+  });
+  it('札の上の Enter は起動に使わず、⌘Enter なら起動する', () => {
+    const { params } = collect({ projectId: 'p1', accounts: accountsOf() });
+    fireEvent.keyDown(card('会社'), { key: 'Enter' });
+    expect(params()).toEqual([]);
+    fireEvent.keyDown(card('会社'), { key: 'Enter', metaKey: true });
+    expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
   });
 });

@@ -1,6 +1,7 @@
 import type { IndexProgressDto, LiveStatus, Route, SyncStateKind } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { aliveRunOf, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
+import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel, SYNC_STATE_LABEL } from './format.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts';
@@ -12,6 +13,14 @@ import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts'
 export type NavItem = { route: Route; label: string; current: boolean; count: number };
 /** fiveHourResets と sevenDayResets は、Claude の利用上限の枠が戻る時刻の文で、届いていなければ null である。 */
 export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiveHourResets: string | null; sevenDayResets: string | null; updatedLabel: string | null };
+/**
+ * ヘッダのアカウントの切り替え。アカウントが 1 件以下なら null で、ヘッダは今までのまま。
+ * shown は計器を出すアカウントで、セッション画面ではそのセッションのアカウント、ほかではいまのアカウントである。
+ * list は全アカウント（並びと current はいまのアカウントを基準にする）。
+ * sessionId は、セッション画面で開いているセッションの id で、ほかでは null。選ぶとそのセッションの切り替えになる。
+ * working は、そのセッションが動いていて作業中か。session.kill に添える値（SessionScreen.tsx）と同じ出どころである。
+ */
+export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sessionId: string | null; working: boolean } | null;
 /**
  * pending は未送信のメタデータ、sweepPending はまだ上げていない本文、skipped は送れなかった本文の件数である。
  * 後ろの 2 つは、数えられないときも 0 にする。
@@ -51,7 +60,7 @@ export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; w
  * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
  */
 export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; more: number };
-export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
+export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -158,16 +167,35 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
   return { count: ids.length, ids, rows, more: ids.length - rows.length };
 }
 
+const gaugePercent = (g: AccountGauge | null): number | null => g?.percent ?? null;
+
+/**
+ * ヘッダの計器とアカウントの切り替え。
+ * アカウントが 2 件以上あるときだけ切り替えを出し、計器は shown の値から作る。
+ * 1 件以下のときは、今までどおり store.usage から作る。
+ */
+function headerAccount(state: State, store: Store, now: number): { account: HeaderAccountProps; usage: UsageProps } {
+  const u = store.usage;
+  const plain: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
+  if (!hasMultipleAccounts(store)) return { account: null, usage: plain };
+  const sessionId = state.screen.name === 'session' ? state.screen.id : null;
+  const raw = (sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
+  const list = presentAccounts(store, now);
+  const shown = list.find((a) => a.id === raw.id) ?? list[0]!;
+  const live = sessionId === null ? null : store.sessions[sessionId]?.live ?? null;
+  const usage: UsageProps = { fiveHour: gaugePercent(shown.fiveHour), sevenDay: gaugePercent(shown.sevenDay), fiveHourResets: shown.fiveHour?.resets ?? null, sevenDayResets: shown.sevenDay?.resets ?? null, updatedLabel: shown.updatedLabel };
+  return { account: { shown, list, sessionId, working: live === 'busy' || live === 'waiting' }, usage };
+}
+
 /** tz は日付と時刻を言うときの時差で、省略すると端末の時差になる。 */
 export function presentShell(state: State, store: Store, now: number, tz?: string): ShellProps {
   const s = state.screen;
   const idx = store.index;
   const indexLabel = indexProgressLabel(idx);
-  const u = store.usage;
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
-  const usage: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
+  const { account, usage } = headerAccount(state, store, now);
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
-  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, sync: syncProps(state, store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
+  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(state, store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

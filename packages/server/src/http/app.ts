@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { liveFilterOf, MAX_JUMP_HEADS, newId, PRIMARY_ACCOUNT_ID, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
@@ -28,6 +28,7 @@ import { confirmSessionState, rejectSessionState, setSessionState, StateInputErr
 import type { SyncEngine } from '../sync/engine.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
+import { accountsRoutes, buildAccountsDto, type AccountsDeps } from './accounts.ts';
 import { listPromptCommands } from '../prompt/commands.ts';
 import { listProjectFiles } from '../prompt/files.ts';
 import { MAX_DROP_BYTES, pruneDrops, resolveDrop, saveDrop } from '../prompt/drops.ts';
@@ -77,13 +78,18 @@ export type AppDeps = {
   hub: { broadcast(ev: ServerEvent): void };
   runs: RunsApi;
   external: ExternalApi;
-  usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null } | null };
+  usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
   memos: MemoStore;
   summary: SummaryApi;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null };
   sync: SyncApi;
   /** 設定の「使用量と費用」。同期を設定していない端末と古い組み立てでは無い。 */
   cloudUsage?: { current(): CloudUsageDto | null; refresh(): Promise<CloudUsageDto | null> };
+  /**
+   * アカウントの一覧と切り替え。組み立てる側（server.ts）が 1 か所で作り、起動後の認証の読み直しにも同じものを使う。
+   * 渡さなければ、アカウントの口は生えない（古い試験の組み立てのため）。
+   */
+  accounts?: AccountsDeps;
   /** 降ろすのを諦めた項目。RemotePuller.skippedEntries() をそのまま載せる。渡さなければ空として扱う。 */
   syncSkipped?: () => SyncSkippedDto[];
   /**
@@ -321,6 +327,8 @@ export function createApp(deps: AppDeps): Hono {
    * 間に合わなくても起動は続ける。同期の失敗で起動を止めない。
    */
   const beforeLaunch = () => deps.sync.pullBeforeLaunch(2000).catch(() => false);
+  const accountsDeps: AccountsDeps | null = deps.accounts ? { beforeLaunch, ...deps.accounts } : null;
+  if (accountsDeps) accountsRoutes(api, accountsDeps);
 
   api.get('/bootstrap', (c) => {
     const live = deps.live();
@@ -343,6 +351,7 @@ export function createApp(deps: AppDeps): Hono {
       version: deps.version,
       retention: deps.retention.current(),
       cloudUsage: deps.cloudUsage?.current() ?? null,
+      accounts: accountsDeps ? buildAccountsDto(accountsDeps, { checkLinks: true }) : undefined,
     };
     return c.json(body);
   });
@@ -802,7 +811,11 @@ export function createApp(deps: AppDeps): Hono {
     try { raw = JSON.parse(text); } catch { return c.json({ error: '本文が JSON ではありません' }, 400); }
     const r = deps.usage.ingest(raw);
     if (!r) return c.json({ error: 'statusline の payload の形が違います' }, 400);
-    if (r.usageChanged) deps.hub.broadcast({ type: 'usage.update', usage: r.usage });
+    if (r.usageChanged) {
+      // usage.update は最初のアカウントの値だけを運ぶ（古い画面がそのまま動くため）。ほかのアカウントは accounts.update で配る。
+      if (r.accountId === PRIMARY_ACCOUNT_ID) deps.hub.broadcast({ type: 'usage.update', usage: r.usage });
+      if (accountsDeps) accountsDeps.broadcast(buildAccountsDto(accountsDeps));
+    }
     if (r.providerSessionId) {
       const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(r.providerSessionId) as { id: string } | undefined;
       if (s) broadcastSession(s.id);
@@ -1020,7 +1033,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, hub: deps.hub, usage: () => deps.usage.current(), memos: deps.memos }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, hub: deps.hub, usage: () => deps.usage.current(), accounts: deps.accounts, memos: deps.memos }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);

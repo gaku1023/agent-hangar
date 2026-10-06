@@ -111,7 +111,17 @@ export type Effect =
   | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }
-  | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number };
+  | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
+  // Claude Code のアカウント。
+  | { kind: 'api.accounts.load' }
+  | { kind: 'api.accounts.setCurrent'; accountId: string }
+  | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }
+  | { kind: 'api.accounts.add'; name: string }
+  | { kind: 'api.accounts.update'; accountId: string; patch: { name?: string; color?: string } }
+  | { kind: 'api.accounts.remove'; accountId: string }
+  | { kind: 'api.accounts.login'; accountId: string }
+  | { kind: 'api.accounts.cancelLogin'; accountId: string }
+  | { kind: 'api.accounts.refresh'; accountId: string };
 
 export type Screen = { name: 'booting' } | Route;
 /** results はセッションの一覧の画面の結果の一覧である。 */
@@ -127,7 +137,10 @@ export type ConfirmRequest =
   | { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number }
   | { kind: 'adoptSession'; sessionId: string }
   | { kind: 'killRun'; runId: string; working: boolean; shellTabs: number }
-  | { kind: 'unlinkProject'; projectId: string };
+  | { kind: 'unlinkProject'; projectId: string }
+  // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。
+  | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean }
+  | { kind: 'removeAccount'; accountId: string };
 export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' } | { kind: 'notYet'; feature: string }
   | { kind: 'shortcuts' }

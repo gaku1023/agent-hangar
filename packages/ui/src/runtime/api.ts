@@ -1,4 +1,4 @@
-import type { ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, DeviceDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
+import type { AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, DeviceDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -99,6 +99,18 @@ export type ApiClient = {
   retention(): Promise<RetentionDto>;
   retentionPreview(days: number): Promise<RetentionPreviewDto>;
   writeRetention(days: number, baseSha256: string): Promise<RetentionDto>;
+  // Claude Code のアカウント。AccountsDto を返すものは、画面へは accounts.update と同じ道で入れる。
+  accounts(): Promise<AccountsDto>;
+  setCurrentAccount(id: string): Promise<AccountsDto>;
+  /** セッションを別のアカウントで再開する。サーバがいまのアカウントも変える。断る理由は 409 と 400 の一文で投げる。 */
+  switchAccount(sessionId: string, accountId: string): Promise<LaunchResultDto>;
+  addAccount(name: string): Promise<AccountsDto>;
+  updateAccount(id: string, patch: { name?: string; color?: string }): Promise<AccountsDto>;
+  removeAccount(id: string): Promise<AccountsDto>;
+  /** 202 が返るが、本文は使わない。ログインの進みは accounts.update で届く。 */
+  loginAccount(id: string): Promise<void>;
+  cancelAccountLogin(id: string): Promise<AccountsDto>;
+  refreshAccount(id: string): Promise<AccountsDto>;
 };
 
 /** 相対 URL の `/api/...` を叩く薄いクライアント。
@@ -188,5 +200,14 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     retention: () => call('/api/retention'),
     retentionPreview: (days) => post('/api/retention/preview', { days }),
     writeRetention: (days, baseSha256) => call('/api/retention', { method: 'PUT', body: JSON.stringify({ days, baseSha256 }) }),
+    accounts: () => call('/api/accounts'),
+    setCurrentAccount: (id) => call('/api/accounts/current', { method: 'PUT', body: JSON.stringify({ id }) }),
+    switchAccount: (sessionId, accountId) => post(`/api/sessions/${sessionId}/switch-account`, { account: accountId }),
+    addAccount: (name) => post('/api/accounts', { name }),
+    updateAccount: (id, patch) => call(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    removeAccount: (id) => call(`/api/accounts/${id}`, { method: 'DELETE' }),
+    loginAccount: (id) => post(`/api/accounts/${id}/login`),
+    cancelAccountLogin: (id) => post(`/api/accounts/${id}/login/cancel`),
+    refreshAccount: (id) => post(`/api/accounts/${id}/refresh`),
   };
 }

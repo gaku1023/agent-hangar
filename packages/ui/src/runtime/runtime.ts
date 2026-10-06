@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type AccountsDto, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -173,6 +173,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * 付録（送れなかった本文と取り残しの件数）は HTTP も websocket も運ぶので、型は両方とも SyncStatusBody である。
    */
   const syncStatus = (status: SyncStatusBody) => dispatch({ kind: 'server', event: { type: 'sync.status', status } });
+  /** アカウントの応答も同じく、accounts.update の経路に載せる。 */
+  const accountsUpdated = (accounts: AccountsDto) => dispatch({ kind: 'server', event: { type: 'accounts.update', accounts } });
 
   /** サブエージェントの一覧を 1 回だけ取る。
    * 本文の読み込みと同じ経路で呼ぶが、ページを継ぎ足すたびに取り直す必要はない。
@@ -469,6 +471,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.shellHook().then((h) => setStore({ ...store, shellHook: h })).catch(fail);
         deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
         deps.api.retention().then((r) => setStore({ ...store, retention: r })).catch(fail);
+        // アカウントの認証は、この呼び出しで読まれる（節に出るメールとプラン）。
+        // アカウントの口が無い古いサーバでは 404 になる。節に出すものが無いだけなので、失敗は握って黙る。
+        deps.api.accounts().then(accountsUpdated).catch(() => {});
         // 一時停止の間はサーバが取りに行かず最後の値を返すので、ここでは状態を見ずに頼んでよい。
         deps.api.syncUsage(true).then((u) => setStore({ ...store, cloudUsage: u })).catch(fail);
         loadReadiness();
@@ -531,6 +536,22 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           if (r.token !== null) deps.setTimeout(() => { if (store.joinToken === r.token) setStore(applyJoinToken(store, null)); }, JOIN_TOKEN_TTL_MS);
         }).catch(fail);
         return;
+      case 'api.accounts.load': deps.api.accounts().then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.setCurrent': deps.api.setCurrentAccount(e.accountId).then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.switchSession': deps.api.switchAccount(e.sessionId, e.accountId).then(launched).catch(launchFailed); return;
+      case 'api.accounts.add':
+        // 追加の直後にログインを始める。新しいアカウントは応答の末尾の 1 件である。
+        deps.api.addAccount(e.name).then((accounts) => {
+          accountsUpdated(accounts);
+          const added = accounts.accounts.at(-1);
+          if (added) deps.api.loginAccount(added.id).catch(fail);
+        }).catch(fail);
+        return;
+      case 'api.accounts.update': deps.api.updateAccount(e.accountId, e.patch).then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.remove': deps.api.removeAccount(e.accountId).then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.login': deps.api.loginAccount(e.accountId).catch(fail); return;
+      case 'api.accounts.cancelLogin': deps.api.cancelAccountLogin(e.accountId).then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.refresh': deps.api.refreshAccount(e.accountId).then(accountsUpdated).catch(fail); return;
       default: {
         // 効果を足したときに処理を忘れると、ここで型が合わなくなる。
         const _exhaustive: never = e;

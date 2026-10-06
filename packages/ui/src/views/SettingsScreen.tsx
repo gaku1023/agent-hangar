@@ -12,6 +12,7 @@ import { Icon, type IconName } from './primitives/Icon.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
+import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
@@ -22,7 +23,7 @@ export const SAVED_TICK_MS = 2000;
 /** 設定の 5 つの群。目次（A1）と、頁の中の群の見出しが同じ表を読む。 */
 export const SETTINGS_GROUPS: { id: string; title: string; subs: string[]; icon: IconName }[] = [
   { id: 'settings-must', title: '必須', subs: ['ワークスペース', 'ツール', 'Node'], icon: 'tool' },
-  { id: 'settings-link', title: '連携', subs: ['MCP', 'statusline', '外のターミナル', '通知'], icon: 'link' },
+  { id: 'settings-link', title: '連携', subs: ['MCP', 'statusline', '外のターミナル', '通知', 'アカウント'], icon: 'link' },
   { id: 'settings-summary', title: '要約器', subs: ['LM Studio', '切り替え'], icon: 'permissionAuto' },
   { id: 'settings-sync', title: '同期', subs: ['状態', 'PC', '参加トークン', 'Claude Code の設定'], icon: 'cloud' },
   { id: 'settings-info', title: '情報', subs: ['使用量', '索引', 'この PC', '会話の保持'], icon: 'info' },
@@ -229,11 +230,24 @@ export function SettingsScreen(props: SettingsProps) {
   const lmLine: VerifyLine | null = props.summarizerModels === null ? null
     : props.summarizerModels.length === 0 ? { ok: false, soft: false, text: 'LM Studio に繋がりません', note: null, fix: null, fixCommand: null }
       : { ok: true, soft: false, text: 'つながりました', note: `モデル ${props.summarizerModels.length} 個`, fix: null, fixCommand: null };
-  const go = (id: string) => {
-    setGroup(id);
+  const slideTo = (id: string) => {
     const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     document.getElementById(id)?.scrollIntoView?.({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   };
+  const go = (id: string) => {
+    setGroup(id);
+    slideTo(id);
+  };
+  // ヘッダの「アカウントの設定」から来たときは、アカウントの節が見える位置へ移る。
+  // 節は一覧が届いてから出るので、出たときにも見直す。
+  const showAccounts = props.accounts.list.length > 0;
+  useEffect(() => {
+    if (props.focus !== 'accounts' || !showAccounts) return;
+    setGroup('settings-link');
+    slideTo('settings-accounts');
+    // slideTo と setGroup は毎回作り直されるので、依存には入れない。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.focus, showAccounts]);
   const todoOf = (id: string) => (id === 'settings-must' ? props.todo.must : id === 'settings-link' ? props.todo.link : 0);
   return (
     <div className="screen settings-screen">
@@ -339,6 +353,8 @@ export function SettingsScreen(props: SettingsProps) {
               {!props.notify.available && <div className="faint" style={{ marginTop: 4 }}>この環境では通知を出せません。ブラウザで拒んだときは、ブラウザの設定でこのページの通知を許可してください。</div>}
               {props.notify.available && props.notify.blocked && <div className="faint" style={{ marginTop: 4 }}>通知が切られています。システム設定の「通知」で Hangar を許可してください。許可して Hangar に戻ると、受け取るに戻ります。戻らないときは、このスイッチを入れ直してください。</div>}
             </section>
+            {/* アカウントの追加の入口はここだけ。1 件でも出す。届く前（一覧が空）は出さない。 */}
+            {showAccounts && <AccountSettings {...props.accounts} />}
           </Group>
           <Group id="settings-summary">
             <section>
