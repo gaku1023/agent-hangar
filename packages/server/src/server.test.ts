@@ -927,6 +927,35 @@ describe('一時停止は外と話さない', () => {
     }
   });
 
+  it('一時停止のあいだでも、今すぐ同期を押した 1 回だけは叩き、停止に戻る', async () => {
+    // 利用者が自分で押した 1 回は通す。メタデータだけでなく、本文と設定の出し入れ（/files）まで巡る。
+    const rec = await recorder();
+    saveCloudConfig(home, { url: rec.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    presetPaused();
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    const call = (p: string, method = 'GET') => fetch(`http://127.0.0.1:${s.port}${p}`, { method, headers: { authorization: `Bearer ${tokenOf()}`, origin: `http://127.0.0.1:${s.port}` } });
+    try {
+      expect(rec.seen).toEqual([]);
+      const now = await call('/api/sync/now', 'POST');
+      expect(now.status).toBe(200);
+      // 応答はメタデータの送受信が済んだ時点で返る。押しても止めた状態は変わらない。
+      expect(((await now.json()) as { state: string }).state).toBe('paused');
+      expect(rec.seen.some((r) => r.endsWith('/changes'))).toBe(true);
+      // 残り（ファイルの取り込み）は裏で続く。出るまで待つ。
+      for (let i = 0; i < 300 && !rec.seen.some((r) => r.includes('/files')); i++) await new Promise((r) => setTimeout(r, 10));
+      expect(rec.seen.some((r) => r.includes('/files'))).toBe(true);
+      // 1 巡が終わったら、もう叩かない。
+      let settled = rec.seen.length;
+      for (let i = 0; i < 50; i++) { await new Promise((r) => setTimeout(r, 20)); if (rec.seen.length === settled && i > 10) break; settled = rec.seen.length; }
+      await new Promise((r) => setTimeout(r, 300));
+      expect(rec.seen.length).toBe(settled);
+      expect(((await (await call('/api/sync/status')).json()) as { state: string }).state).toBe('paused');
+    } finally {
+      await s.close();
+      await rec.close();
+    }
+  });
+
   it('設定の同期は、切っているときと一時停止のあいだは押し出さない', () => {
     // fs.watch からの push も 60 秒ごとの push も、この判定を通ってから出る。
     expect(configSyncActive({ syncClaudeConfig: true, paused: false })).toBe(true);
@@ -1209,6 +1238,38 @@ describe('本文は使い始めた後に動いたものだけを上げる', () =
       // 上げ終わったものを上げ直さない。
       await new Promise((r) => setTimeout(r, 300));
       expect(sink.puts.length).toBe(3);
+    } finally {
+      await s.close();
+      await sink.close();
+    }
+  }, 20000);
+
+  it('一時停止のあいだは上げず、今すぐ同期を押した 1 回で取り残しを上げきる', async () => {
+    setTranscriptMtime(Date.now() - 60_000);
+    await indexWithoutCloud();
+    seedTranscriptFloor(0);
+    {
+      const db = openDb(dbPath(home));
+      try { db.prepare("insert into sync_state (key, value) values ('paused', '1') on conflict(key) do update set value = '1'").run(); } finally { db.close(); }
+    }
+
+    const sink = await fileSink();
+    saveCloudConfig(home, { url: sink.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    const call = (p: string, method = 'GET') => fetch(`http://127.0.0.1:${s.port}${p}`, { method, headers: { authorization: `Bearer ${tokenOf()}`, origin: `http://127.0.0.1:${s.port}` } });
+    try {
+      // 止まっているあいだは、起動の走査も上げない。
+      await new Promise((r) => setTimeout(r, 300));
+      expect(sink.puts).toEqual([]);
+      expect((await call('/api/sync/now', 'POST')).status).toBe(200);
+      const keys = await until(async () => (sink.puts.length >= 3 ? sink.puts : null));
+      expect(suffixes(keys)).toEqual([`${SESSION_ALPHA}.jsonl.gz`, `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`, `${SESSION_OTHER}.jsonl.gz`].sort());
+      // 上げきっても、同期は止めたままである。
+      const status = await until(async () => {
+        const st = await (await call('/api/sync/status')).json() as SyncStatusBody;
+        return st.sweepPending === 0 ? st : null;
+      });
+      expect(status.state).toBe('paused');
     } finally {
       await s.close();
       await sink.close();

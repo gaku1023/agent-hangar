@@ -47,6 +47,7 @@ import { HttpCloudClient, type CloudClient } from './sync/client.ts';
 import { copyTranscriptForResume } from './sync/copy.ts';
 import { deriveFileKey } from './sync/crypto.ts';
 import { SyncEngine } from './sync/engine.ts';
+import { PausedPass } from './sync/pausedPass.ts';
 import { RemotePuller } from './sync/puller.ts';
 import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, type QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
@@ -157,6 +158,7 @@ export function sessionMemoBackupMessage(o: SessionMemoBackup): string {
  * Claude Code 設定の同期が外と話してよいか。
  * 切っているときはもちろん、一時停止のあいだも押し出さない。
  * 「一時停止」は外と話すのをやめることで、無料枠の 80% で自分から止まったときも同じである（決定 4）。
+ * 利用者が「今すぐ同期」で頼んだ 1 巡の最中は、呼び手が paused を false にして渡す（startServer の isPaused）。
  * `ClaudeConfigSync` は `enabled()` しか見ないので、判定はこちらで組み立てて渡す。
  */
 export function configSyncActive(o: { syncClaudeConfig: boolean; paused: boolean }): boolean {
@@ -443,8 +445,12 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 以後、本文の取り残しの走査はこの時刻より後に動いた転記だけを拾う（sync/transcriptsFrom.ts）。
   // メタデータの同期はこの刻みを見ないので、今までどおり全部が揃う。
   if (cloud) markTranscriptsFrom(syncState, cloud.joinedAt > 0 ? cloud.joinedAt : Date.now());
-  /** 同期が止まっているか。利用者が押した一時停止も、枠の 80% で自分から止まった分もここに出る。 */
-  const isPaused = (): boolean => engine.status().state === 'paused';
+  /**
+   * 同期が止まっているか。利用者が押した一時停止も、枠の 80% で自分から止まった分もここに出る。
+   * 止まっていても、利用者が「今すぐ同期」で頼んだ 1 巡の最中だけは止まっていないと答える（pausedPass）。
+   * 本文と設定の出し入れはどれもここを見るので、その 1 巡だけ通る。
+   */
+  const isPaused = (): boolean => engine.status().state === 'paused' && !pausedPass.active();
   /**
    * 本文とメモの控えの世代を刈る。
    *
@@ -501,6 +507,39 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
         onError: (k, m) => { console.error('[pull]', k, m); toast('error', `本文を降ろせませんでした（${k}）: ${m}`); },
       })
     : null;
+
+  /** 1 段ずつ失敗を畳む。繋がらない段があっても、残りの段は試す。 */
+  const passStep = async (label: string, work: () => Promise<unknown>): Promise<void> => {
+    try { await work(); } catch (e) { console.error(`[${label}]`, e instanceof Error ? e.message : e); }
+  };
+  /**
+   * 一時停止のまま「今すぐ同期」を押したときの 1 巡。
+   * メタデータの送受信、他端末の本文と設定の受け取り、設定の押し出し、取り残した本文の全部、の順に回す。
+   * 本文は走査の上限（1 回 20 件）を外して上げきる。次の走査は止まっていて来ないからである。
+   * 上げ直しの間隔（10 分）は外さないので、続けて押しても同じ本文を運び直さない。
+   * 終わりに使用量を取り直す。止まっている間は取りに行かないので、押した分の枠がここでしか見えない。
+   */
+  const pausedPass = new PausedPass({
+    metadata: () => engine.syncNow({ evenIfPaused: true }),
+    rest: async () => {
+      await passStep('files', async () => { await puller?.pullNow(); });
+      await passStep('config', async () => { await configSync?.pushChanged(); });
+      await passStep('upload', async () => { if (uploader) { uploader.sweep(Infinity); await uploader.idle(); } });
+      await passStep('usage', () => cloudUsage.refresh());
+    },
+    done: () => {
+      // 件数は 1 巡で動いているが、状態は paused のままなのでエンジンは配り直さない。ここで配る。
+      const status = engine.status();
+      const sweepPending = syncSweep();
+      hub.broadcast({ type: 'sync.status', status: { ...status, skipped: syncSkipped(), sweepPending } });
+      // 一時停止の間は状態が paused に隠れて失敗が画面に出ないので、残りの件数で伝える。
+      const left = [status.pending > 0 ? `未送信 ${status.pending} 件` : null, (sweepPending ?? 0) > 0 ? `未送信の本文 ${sweepPending} 件` : null].filter((t) => t !== null);
+      if (left.length > 0) toast('error', `1 回だけ同期しましたが、${left.join('、')}が残りました。同期は一時停止のままです`);
+      else toast('info', '1 回だけ同期しました。同期は一時停止のままです');
+    },
+  });
+  /** 利用者が押した「今すぐ同期」。止まっていれば 1 巡だけ通し、止まっていなければ今までどおり。 */
+  const syncNow = (): Promise<void> => (engine.status().state === 'paused' ? pausedPass.run() : engine.syncNow());
 
   const indexer = new IndexerService({
     db, deviceId: device.id, claudeDir,
@@ -757,7 +796,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (c.tableName === 'devices') hub.broadcast({ type: 'devices.update', devices: listDevices(db, device.id) });
     },
     // メタデータの pull の後に、ファイルの新着を取りに行く。
-    pulled: () => { pullFiles(); },
+    // 頼まれた 1 巡の最中は、その巡が自分で降ろしに行く（pausedPass の rest）。
+    pulled: () => { if (!pausedPass.active()) pullFiles(); },
   });
 
   /** 他端末の本文を手元に写してから再開する。~/.claude への本文の書き込みはここだけを通る。 */
@@ -844,7 +884,13 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
         return !!s && registry.current().some((l) => l.sessionId === s.p);
       },
     }, o),
-    sync: engine,
+    sync: {
+      status: () => engine.status(),
+      syncNow,
+      setPaused: (paused) => engine.setPaused(paused),
+      onFocus: () => engine.onFocus(),
+      pullBeforeLaunch: (timeoutMs) => engine.pullBeforeLaunch(timeoutMs),
+    },
     // 降ろすのを諦めた項目。onError は 1 度しか鳴らないので、状態にも載せて後から見られるようにする。
     syncSkipped,
     syncSweep,
@@ -979,6 +1025,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       retention.stop();
       cloudUsage.stop();
       if (uploadTimer) clearInterval(uploadTimer);
+      // 頼まれた 1 巡が走っていれば先に待つ。各段はこの後の stop で空振りになるので、待ち切れなくても害は無い。
+      await Promise.race([pausedPass.idle(), new Promise<void>((r) => { setTimeout(r, left()).unref(); })]);
       // 走っている押し出しを待ってから止める。待たずに止めると putFile と pushChanges が途中で切れる。
       await stopAfterIdle(configSync, 'config', left());
       await stopUploader(uploader, left());

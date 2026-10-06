@@ -110,6 +110,35 @@ describe('SyncEngine の push', () => {
     e.stop();
   });
 
+  it('一時停止中でも、利用者の syncNow は 1 回だけ送受信して、停止に戻る', async () => {
+    const e = make();
+    await e.start();
+    e.setPaused(true, 'quota');
+    project('p1');
+    const pullsBefore = cloud.calls.filter((c) => c.method === 'pullChanges').length;
+    await e.syncNow({ evenIfPaused: true });
+    expect(unpushed()).toBe(0);
+    expect(cloud.calls.filter((c) => c.method === 'pullChanges').length).toBeGreaterThan(pullsBefore);
+    // 止めた状態も、止めた理由もそのまま残る。
+    expect(e.status()).toMatchObject({ state: 'paused', pausedReason: 'quota' });
+    // 1 回きりである。その後の書き込みと定期実行は、今までどおり外へ出ない。
+    project('p2');
+    await timers.advance(120_000);
+    await e.idle();
+    expect(unpushed()).toBe(1);
+    e.stop();
+  });
+
+  it('一時停止中の syncNow は、頼まれなければ今までどおり何もしない', async () => {
+    const e = make();
+    await e.start();
+    e.setPaused(true);
+    project('p1');
+    await e.syncNow();
+    expect(unpushed()).toBe(1);
+    e.stop();
+  });
+
   it('一時停止中は送らず、再開で送る', async () => {
     const e = make();
     await e.start();

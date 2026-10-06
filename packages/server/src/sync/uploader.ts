@@ -215,13 +215,16 @@ export class TranscriptUploader {
    * 上げたければ、そのセッションを再開すればよい（ファイルが動くので索引が noteChanged を鳴らす）。
    * 全部まとめて上げ直したいときは hangar cloud backfill で床を落とす。
    * 戻り値は新たに積んだ件数である。
+   *
+   * limit に Infinity を渡すと、取り残しを 1 度に全部積む。
+   * 一時停止中の「今すぐ同期」の 1 巡がそう呼ぶ（次の走査が来ないので、ここで上げきる）。
    */
   sweep(limit: number = SWEEP_BATCH): number {
     if (this.stopped || limit <= 0) return 0;
     // 止まっているあいだは外と話さない。走査で積んでも上げずに捨てるだけなので、そもそも引かない。
     if (this.deps.isPaused()) return 0;
     if (!isSafeKeyId(this.deps.deviceId)) return 0;
-    const rows = this.sweepStatement().all({ head: `transcripts/${this.deps.deviceId}/`, from: this.transcriptFloor(), limit: limit * SWEEP_SCAN_MULT }) as SweepRow[];
+    const rows = this.sweepStatement().all({ head: `transcripts/${this.deps.deviceId}/`, from: this.transcriptFloor(), limit: Number.isFinite(limit) ? limit * SWEEP_SCAN_MULT : -1 }) as SweepRow[];
     let queued = 0;
     for (const r of rows) {
       if (queued >= limit) break;

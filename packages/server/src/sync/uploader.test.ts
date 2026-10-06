@@ -493,6 +493,22 @@ describe('TranscriptUploader の取り残しの走査', () => {
     up.stop();
   });
 
+  it('上限を外すと、取り残しを 1 度に全部積む', async () => {
+    // 一時停止中の「今すぐ同期」は 1 巡で上げきる。走査の余裕（上限の 5 倍）より多くても残さない。
+    for (let i = 0; i < 7; i++) {
+      const uuid = `33333333-3333-4333-8333-00000000000${i}`;
+      const f = path.join(projDir(), `${uuid}.jsonl`);
+      write(f, `{"n":${i}}\n`);
+      addIndexed(f, uuid, null);
+    }
+    const up = make();
+    expect(up.sweep(Infinity)).toBe(7);
+    await up.idle();
+    expect(puts()).toBe(7);
+    expect(up.sweep(Infinity)).toBe(0);
+    up.stop();
+  });
+
   it('他端末から降ろした写しは積まない（持ち主が上げる）', () => {
     addIndexed(mainFile(), UUID, null, 'dev-b');
     const up = make();

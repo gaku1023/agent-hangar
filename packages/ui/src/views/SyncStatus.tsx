@@ -34,7 +34,8 @@ export function SyncStatus(props: SyncProps) {
       {/* 送れなかった本文は放っておけば 30 分ごとに送り直すが、そのあいだ気付く手立てがここしか無い。
           誤りなので、狭いヘッダでも畳まない。 */}
       {props.skipped > 0 && <span className="sync-error sync-skipped">{skippedText}</span>}
-      <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} onClick={() => emit({ type: 'sync.now' })}>今すぐ同期</button>
+      {/* 一時停止の間は、押した 1 回だけ同期して停止に戻る。名前は変えず、添え書きで伝える。 */}
+      <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} title={props.paused ? '一時停止のまま、1 回だけ同期する' : undefined} onClick={() => emit({ type: 'sync.now' })}>今すぐ同期</button>
       <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} onClick={() => emit({ type: 'sync.pause', paused: !props.paused })}>{props.paused ? '同期を再開' : '同期を一時停止'}</button>
     </span>
   );
