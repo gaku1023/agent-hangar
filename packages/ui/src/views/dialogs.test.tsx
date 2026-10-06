@@ -108,6 +108,71 @@ describe('ConfirmDialog（一覧から削除）', () => {
   });
 });
 
+describe('ConfirmDialog（アカウントの切り替え）', () => {
+  const sw = (working: boolean) => ({ kind: 'switchAccount' as const, sessionId: 's1', accountId: 'a1', working });
+  it('見出しに名前を出し、止めて同じ会話を再開することと、新しいセッションの既定も変わることを書く。承諾で確認つきの Intent を出す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={sw(false)} accountName="大学" /></IntentRoot>);
+    const dialog = screen.getByRole('dialog', { name: '大学 に切り替えますか？' });
+    expect(dialog).toHaveTextContent('このセッションの Claude をいったん止め、同じ会話を 大学 で再開します。');
+    expect(dialog).toHaveTextContent('新しいセッションの既定も 大学 になります。');
+    expect(dialog).not.toHaveTextContent('途中の作業が中断されます。');
+    fireEvent.click(screen.getByRole('button', { name: '切り替える' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true });
+  });
+  it('作業中のときだけ、途中の作業が中断されることを注意として足す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={sw(true)} accountName="大学" /></IntentRoot>);
+    const dialog = screen.getByRole('dialog', { name: '大学 に切り替えますか？' });
+    expect(dialog).toHaveTextContent('途中の作業が中断されます。');
+    // 取り消せる操作なので、危険の丸も赤いボタンも使わない。承諾は引き取りの確認と同じ強さである。
+    expect(dialog.classList.contains('dialog-danger')).toBe(false);
+    expect(screen.getByRole('button', { name: '切り替える' })).toHaveClass('btn-primary');
+    expect(screen.getByRole('button', { name: '切り替える' })).not.toHaveClass('btn-danger-fill');
+    fireEvent.click(screen.getByRole('button', { name: '切り替える' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true, confirmed: true });
+  });
+  it('やめる側にフォーカスを置き、やめると閉じる', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={sw(true)} accountName="大学" /></IntentRoot>);
+    const cancel = screen.getByRole('button', { name: 'やめる' });
+    expect(cancel).toHaveFocus();
+    fireEvent.click(cancel);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+    expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'account.switchSession' }));
+  });
+  it('名前が一覧に無いときは id を名前の代わりにする', () => {
+    render(<IntentRoot onIntent={() => {}}><ConfirmDialog confirm={sw(false)} accountName={null} /></IntentRoot>);
+    expect(screen.getByRole('dialog', { name: 'a1 に切り替えますか？' })).toBeInTheDocument();
+  });
+});
+
+describe('ConfirmDialog（アカウントを一覧から外す）', () => {
+  const rm = { kind: 'removeAccount' as const, accountId: 'a1' };
+  it('見出しに名前を出し、置き場は残ることと、このアカウントのセッションは最初のアカウントで再開することを書き、承諾で外す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={rm} accountName="大学" /></IntentRoot>);
+    const dialog = screen.getByRole('dialog', { name: '大学 を一覧から外しますか？' });
+    expect(dialog).toHaveTextContent('登録を外すだけで、置き場（ログインと設定のリンク）は残ります。');
+    expect(dialog).toHaveTextContent('このアカウントで動かしたセッションは、次から最初のアカウントで再開します。');
+    expect(dialog.classList.contains('dialog-danger')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: '外す' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'account.remove', accountId: 'a1', confirmed: true });
+  });
+  it('やめる側にフォーカスを置き、やめると閉じる', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={rm} accountName="大学" /></IntentRoot>);
+    const cancel = screen.getByRole('button', { name: 'やめる' });
+    expect(cancel).toHaveFocus();
+    fireEvent.click(cancel);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+  it('名前が一覧に無いときは id を名前の代わりにする', () => {
+    render(<IntentRoot onIntent={() => {}}><ConfirmDialog confirm={rm} accountName={null} /></IntentRoot>);
+    expect(screen.getByRole('dialog', { name: 'a1 を一覧から外しますか？' })).toBeInTheDocument();
+  });
+});
+
 describe('ConfigPreviewDialog', () => {
   it('一覧を出し、取り込むが Intent になる', () => {
     const onIntent = vi.fn();
@@ -209,28 +274,5 @@ describe('RetentionDialog', () => {
     expect(screen.getByText('設定ファイルがほかで変わったので、読み直しました。')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'ほかの期間…' })).toBeNull();
     expect(screen.queryByText('設定の同期で、次の取り込み時に届きます')).toBeNull();
-  });
-});
-
-describe('ConfirmDialog（アカウント）', () => {
-  it('切り替えは見出しを出し、承諾で同じ Intent に confirmed を付けて出し、やめるで閉じる', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true }} /></IntentRoot>);
-    expect(screen.getByRole('dialog', { name: 'アカウントを切り替えますか？' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'やめる' })).toHaveFocus();
-    fireEvent.click(screen.getByRole('button', { name: '切り替える' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true, confirmed: true });
-    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'overlay.close' });
-  });
-  it('削除は見出しを出し、承諾で同じ Intent に confirmed を付けて出し、やめるで閉じる', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ConfirmDialog confirm={{ kind: 'removeAccount', accountId: 'a1' }} /></IntentRoot>);
-    expect(screen.getByRole('dialog', { name: 'アカウントを一覧から外しますか？' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'やめる' })).toHaveFocus();
-    fireEvent.click(screen.getByRole('button', { name: '一覧から外す' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'account.remove', accountId: 'a1', confirmed: true });
-    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'overlay.close' });
   });
 });

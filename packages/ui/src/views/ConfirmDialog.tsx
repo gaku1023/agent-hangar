@@ -10,11 +10,11 @@ const sizeLabel = (n: number): string => (n >= 1024 * 1024 ? `${(n / 1024 / 1024
 /**
  * 取り消せない操作の確認。
  * 「この PC で再開」で手元の本文を他の PC の本文に置き換える場面、外のターミナルの claude を引き取る場面、ランを止める場面、
- * 見つからないプロジェクトを一覧から削除する場面を扱う。
+ * 見つからないプロジェクトを一覧から削除する場面、アカウントを切り替える場面とアカウントを一覧から外す場面を扱う。
  * どうするかを決めるのは利用者なので、View は起きることを並べるだけで判断をしない。
  * 開いた時点のフォーカスは、殻がやめる側に置く。Enter の押し違いで押し切らせないためである。
  */
-export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: ConfirmProjectProps | null }) {
+export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: ConfirmProjectProps | null; accountName?: string | null }) {
   const emit = useEmit();
   const c = props.confirm;
   const close = () => emit({ type: 'overlay.close' });
@@ -66,25 +66,34 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
       </Dialog>
     );
   }
-  // 文の仕上げ（名前、作業中の注意）は、アカウントの画面を作るときに足す。
   if (c.kind === 'switchAccount') {
+    const name = props.accountName ?? c.accountId;
+    // 止めて再開するだけで、あとから戻せる。危険の赤にはせず、引き取りの確認と同じ強さにする。
     return (
       <Dialog
-        title="アカウントを切り替えますか？"
+        title={`${name} に切り替えますか？`}
         icon="warning"
         onClose={close}
         footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'account.switchSession', sessionId: c.sessionId, accountId: c.accountId, working: c.working, confirmed: true })}>切り替える</button></>}
-      />
+      >
+        <div className="muted">このセッションの Claude をいったん止め、同じ会話を <b>{name}</b> で再開します。</div>
+        {c.working && <div>途中の作業が中断されます。</div>}
+        <div className="faint">新しいセッションの既定も <b>{name}</b> になります。</div>
+      </Dialog>
     );
   }
   if (c.kind === 'removeAccount') {
+    const name = props.accountName ?? c.accountId;
     return (
       <Dialog
-        title="アカウントを一覧から外しますか？"
+        title={`${name} を一覧から外しますか？`}
         icon="warning"
         onClose={close}
-        footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'account.remove', accountId: c.accountId, confirmed: true })}>一覧から外す</button></>}
-      />
+        footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'account.remove', accountId: c.accountId, confirmed: true })}>外す</button></>}
+      >
+        <div className="muted">登録を外すだけで、置き場（ログインと設定のリンク）は残ります。</div>
+        <div className="faint">このアカウントで動かしたセッションは、次から最初のアカウントで再開します。</div>
+      </Dialog>
     );
   }
   return (

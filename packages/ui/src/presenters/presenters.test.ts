@@ -74,7 +74,7 @@ describe('format', () => {
 describe('presentConfirm', () => {
   it('一覧から削除する確認には、プロジェクトの名前と未分類に戻るセッションの数を添える', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'alpha' } } };
-    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'unlinkProject', projectId: 'alpha' }, project: { name: 'alpha', sessions: 2 } });
+    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'unlinkProject', projectId: 'alpha' }, project: { name: 'alpha', sessions: 2 }, accountName: null });
   });
   it('プロジェクトが store から消えていれば id を名前にし、数は 0 にする', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'unlinkProject' as const, projectId: 'gone' } } };
@@ -82,8 +82,18 @@ describe('presentConfirm', () => {
   });
   it('ほかの確認には何も添えず、確認が出ていなければ null', () => {
     const state = { ...initialState(), overlay: { kind: 'confirm' as const, confirm: { kind: 'adoptSession' as const, sessionId: 's1' } } };
-    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null });
+    expect(presentConfirm(state, storeWith())).toEqual({ confirm: { kind: 'adoptSession', sessionId: 's1' }, project: null, accountName: null });
     expect(presentConfirm(initialState(), storeWith())).toBeNull();
+  });
+  it('切り替えと削除の確認には、指すアカウントの名前を添える。一覧に無ければ null', () => {
+    const store: Store = { ...storeWith(), accounts: accountsFixture };
+    const confirming = (confirm: State['overlay'] extends infer O ? (O extends { kind: 'confirm'; confirm: infer C } ? C : never) : never): State => ({ ...initialState(), overlay: { kind: 'confirm', confirm } });
+    const sw = confirming({ kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true });
+    expect(presentConfirm(sw, store)).toEqual({ confirm: { kind: 'switchAccount', sessionId: 's1', accountId: 'a1', working: true }, project: null, accountName: '大学' });
+    expect(presentConfirm(confirming({ kind: 'switchAccount', sessionId: 's1', accountId: 'primary', working: false }), store)?.accountName).toBe('会社');
+    expect(presentConfirm(confirming({ kind: 'removeAccount', accountId: 'a1' }), store)).toEqual({ confirm: { kind: 'removeAccount', accountId: 'a1' }, project: null, accountName: '大学' });
+    expect(presentConfirm(confirming({ kind: 'removeAccount', accountId: 'gone' }), store)?.accountName).toBeNull();
+    expect(presentConfirm(sw, storeWith())?.accountName).toBeNull();
   });
 });
 
@@ -382,6 +392,23 @@ describe('presentProject', () => {
 });
 
 describe('presentSession', () => {
+  describe('account', () => {
+    const two = (over: Partial<typeof accountsFixture> = {}): Store => ({ ...storeWith(), sessions: { ...storeWith().sessions, s9: session('s9') }, accounts: { ...accountsFixture, ...over } });
+    it('2 件で対応があれば、そのアカウントの名前と色を出す', () => {
+      expect(presentSession(initialState(), two(), NOW, 's9').account).toEqual({ name: '大学', color: '#7a4a9e' });
+    });
+    it('2 件で対応が無ければ、最初のアカウントを出す', () => {
+      expect(presentSession(initialState(), two(), NOW, 's1').account).toEqual({ name: '会社', color: '#2a57b8' });
+    });
+    it('1 件、一覧が空、store.accounts が null なら null', () => {
+      expect(presentSession(initialState(), { ...two(), accounts: { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] } }, NOW, 's1').account).toBeNull();
+      expect(presentSession(initialState(), two({ accounts: [], sessions: {} }), NOW, 's1').account).toBeNull();
+      expect(presentSession(initialState(), storeWith(), NOW, 's1').account).toBeNull();
+    });
+    it('store に無いセッションの画面には札を出さない', () => {
+      expect(presentSession(initialState(), two(), NOW, 'nope').account).toBeNull();
+    });
+  });
   it('見出しの上には、属するプロジェクトへ戻るリンクを出し、属さなければ出さない', () => {
     const store = storeWith();
     expect(presentSession(initialState(), store, NOW, 's1').parent).toEqual({ label: 'alpha', route: { name: 'project', id: 'alpha' } });
