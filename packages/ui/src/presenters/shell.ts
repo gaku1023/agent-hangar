@@ -2,7 +2,7 @@ import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind,
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
-import { durationLabel, indexProgressLabel, relativeTime, resetsLabel, SYNC_STATE_LABEL } from './format.ts';
+import { durationLabel, indexProgressLabel, relativeTime, resetsLabel, SYNC_ONCE_LABEL, SYNC_STATE_LABEL } from './format.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts';
 
@@ -26,7 +26,7 @@ export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sess
  * 後ろの 2 つは、数えられないときも 0 にする。
  * ヘッダーは 0 件を描かない約束なので、「分からない」と「無い」をここで同じ扱いにしてよい。
  */
-export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; sweepPending: number; skipped: number; paused: boolean; reason: 'quota' | 'user' | null; quotaBack: boolean };
+export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; sweepPending: number; skipped: number; paused: boolean; reason: 'quota' | 'user' | null; quotaBack: boolean; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean };
 /** 切れているあいだだけ出す帯。つながっている間は visible が false で、文言も空である。 */
 /**
  * 切断の帯。
@@ -108,15 +108,18 @@ function syncProps(state: State, store: Store, now: number, tz?: string): SyncPr
   const today = new Date(now).toISOString().slice(0, 10);
   // 無料枠で止めた日が過ぎていれば、枠はもう戻っている。点を緑に、文を注意の色にする（試作 usage-merged.html の H3）。
   const quotaBack = reason === 'quota' && quotaDay !== null && quotaDay < today;
+  // 一時停止のまま押した 1 巡の最中。状態は paused のままなので、付録の印で見分ける。
+  const once = s.kind === 'paused' && store.sync?.oncePass === true;
   // 語は設定の「状態」と同じ表から引く。
   const label =
     s.kind === 'off' ? ''
+    : once ? SYNC_ONCE_LABEL
     : reason === 'quota' ? (quotaBack ? '無料枠で停止 · 枠は戻りました' : `無料枠で停止 · ${resetClockLabel(now, tz)} に戻る`)
     : s.kind === 'error' ? `${SYNC_STATE_LABEL.error}: ${s.message}`
     : s.kind !== 'idle' ? SYNC_STATE_LABEL[s.kind]
     : s.lastAt === null ? '同期の準備中'
     : `同期 ${relativeTime(s.lastAt, now)}`;
-  return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused: s.kind === 'paused', reason, quotaBack };
+  return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused: s.kind === 'paused', reason, quotaBack, once };
 }
 
 /**

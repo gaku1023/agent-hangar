@@ -101,6 +101,8 @@ export type AppDeps = {
    * 渡さなければ null、つまり「数えられない」として扱う。0 件（追いついた）と区別する。
    */
   syncSweep?: () => number | null;
+  /** 一時停止のまま頼まれた 1 巡の最中か。渡さなければ false として扱う。 */
+  syncOncePass?: () => boolean;
   /** 他端末の本文を手元に写してから再開する。写しより手元が小さいときだけ 409 の本体を返す。 */
   resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto;
   /** 同期を設定していない端末では null。そのとき設定の経路は 404 を返す。 */
@@ -324,7 +326,7 @@ export function createApp(deps: AppDeps): Hono {
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
   const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
   /** 同期の状態。諦めた項目と、取り残しの残り件数を添えて返す。 */
-  const syncStatus = (): SyncStatusBody => ({ ...deps.sync.status(), skipped: deps.syncSkipped?.() ?? [], sweepPending: deps.syncSweep?.() ?? null });
+  const syncStatus = (): SyncStatusBody => ({ ...deps.sync.status(), skipped: deps.syncSkipped?.() ?? [], sweepPending: deps.syncSweep?.() ?? null, oncePass: deps.syncOncePass?.() ?? false });
   /**
    * セッションを起こす前に、他端末の変更を 2 秒だけ待って取り込む。
    * 間に合わなくても起動は続ける。同期の失敗で起動を止めない。

@@ -683,6 +683,13 @@ describe('SettingsScreen のクラウド同期', () => {
     fireEvent.click(screen.getByRole('button', { name: '同期を再開' }));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'sync.pause', paused: false });
   });
+  it('1 回だけ同期している最中は、今すぐ同期を押せない姿にする', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ state: 'paused', paused: true, once: true, stateLabel: '1 回だけ同期中…' }) })} /></IntentRoot>);
+    expect(screen.getByText('状態 1 回だけ同期中…')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '今すぐ同期' })).toBeNull();
+    expect(screen.getByRole('button', { name: '同期中…' })).toBeDisabled();
+  });
   it('参加トークンは押すまで出さず、消えたら表示のボタンに戻る', () => {
     // 全セッションの読み書き権を持つ秘密なので、画面に出したままにしない。
     // ランタイムが 120 秒で store から消すので、props が null に戻ったらボタンの姿に戻る。
