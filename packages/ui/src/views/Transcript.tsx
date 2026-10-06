@@ -4,6 +4,7 @@ import type { JumpState } from '../mediator/types.ts';
 import type { TranscriptFind } from '../presenters/find.ts';
 import type { TranscriptItem } from '../presenters/session.ts';
 import { Clamp, estimateLines, MSG_LINES } from './primitives/Clamp.tsx';
+import { createGlide, type Glide } from './primitives/glide.ts';
 import { Hl, MarkProvider, type Marking } from './primitives/Hl.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { isComposing } from './ime.ts';
@@ -106,8 +107,12 @@ function FindBar(props: { sessionId: string; find: TranscriptFind; topSeq: () =>
 
 export function Transcript(props: { sessionId: string; items: TranscriptItem[]; hasMore: boolean; loading: boolean; follow: boolean; live: boolean; remaining: number; find?: TranscriptFind | null; jump?: JumpState | null; hasNewer?: boolean }) {
   const emit = useEmit();
-  const endRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  // 新着を追う寄せ。ブラウザの滑らかなスクロールは使わない（primitives/glide.ts）。
+  // 位置を一気に書き換える所はすべて jumpTo を通し、寄せている途中ならそれを止めてから書き換える。
+  const glide = useRef<Glide | null>(null);
+  const jumpTo = (el: HTMLElement, top: number) => { glide.current?.stop(); el.scrollTop = top; };
+  useEffect(() => () => glide.current?.stop(), []);
   const rowsRef = useRef<HTMLDivElement>(null);
   // 描いてある行の実体と、測れた高さ。高さは seq で覚えるので、行が増えても測り直しにならない。
   const rowEls = useRef(new Map<number, HTMLDivElement>());
@@ -147,7 +152,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     // 開いた直後は窓が末尾に張り付いているので、上端から滑らかに動かすと窓の外の空白だけが流れて見える。
     // 最初の 1 回は跳ばして下端に着ける。
     const el = boxRef.current;
-    if (props.follow && el) el.scrollTop = el.scrollHeight;
+    if (props.follow && el) jumpTo(el, el.scrollHeight);
   }, [measureBox]);
   useEffect(() => {
     const onResize = () => measureBox();
@@ -173,10 +178,11 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     seenMax.current = maxSeq;
     if (props.follow) {
       // 末尾まで 1 画面より離れているときに滑らかに動かすと、窓の外の空白を延々と流すことになる。
-      // その距離なら跳ばし、すぐ近くのときだけ滑らかに寄せる。jsdom には scrollIntoView が無いので、存在するときだけ呼ぶ。
+      // その距離なら跳ばし、すぐ近くのときだけ滑らかに寄せる。
       const el = boxRef.current;
-      if (el && el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) el.scrollTop = el.scrollHeight;
-      else endRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
+      if (!el) return;
+      if (el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) jumpTo(el, el.scrollHeight);
+      else (glide.current ??= createGlide(el)).toBottom();
     }
   }, [maxSeq, n, props.follow]);
 
@@ -253,7 +259,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     let moved = false;
     if (props.follow) {
       // 測り直しで全体の高さが動くので、追っている間はその場で下端へ寄せ直す。
-      if (changed) { el.scrollTop = el.scrollHeight; moved = true; }
+      if (changed) { jumpTo(el, el.scrollHeight); moved = true; }
     } else if (changed || shifted) {
       // 目印の行の上端を、いま分かっている高さで出し直して、そこへ戻す。
       // 前に入った行の見積もりの誤差も、窓の中の行の測り直しも、まとめてここで吸収する。
@@ -264,7 +270,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
         for (let i = 0; i < idx; i++) top += measured.current.get(props.items[i]!.seq) ?? estimateRow(props.items[i]!);
         const rowsTop = rowsRef.current ? rowsRef.current.offsetTop - el.offsetTop : box.rowsTop;
         const want = Math.max(top + a.delta + rowsTop, 0);
-        if (Math.abs(el.scrollTop - want) >= 1) { el.scrollTop = want; moved = true; }
+        if (Math.abs(el.scrollTop - want) >= 1) { jumpTo(el, want); moved = true; }
       }
     }
     // scrollTop を書き換えても scroll は同じ間に届かないので、ここで測り直して窓を合わせる。
@@ -297,7 +303,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     if (!el || idx < 0) return;
     const { offsets: o, rowsTop } = layout.current;
     const lead = Math.round(el.clientHeight / 3);
-    el.scrollTop = Math.max(o[idx]! + rowsTop - lead, 0);
+    jumpTo(el, Math.max(o[idx]! + rowsTop - lead, 0));
     lastScrollTop.current = el.scrollTop;
     anchor.current = { seq, delta: Math.max(el.scrollTop - rowsTop, 0) - o[idx]! };
     if (props.follow) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: false });
@@ -342,7 +348,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     const b = el.getBoundingClientRect();
     const d = r.top - b.top - el.clientHeight / 3;
     if (Math.abs(d) < 1) return;
-    el.scrollTop = Math.max(el.scrollTop + d, 0);
+    jumpTo(el, Math.max(el.scrollTop + d, 0));
     lastScrollTop.current = el.scrollTop;
     measureBox();
   });
@@ -400,7 +406,6 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
         {/* 検索の結果から真ん中の頁だけを読んで開いたときは、後ろ（新しい側）を読み足すボタンを一覧の下に置く。 */}
         {props.hasNewer && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadNewer', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : '新しい行を読み込む'}</button>}
         {props.live && !props.follow && unseen > 0 && <button className="btn btn-primary new-banner" onClick={() => emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true })}>新着 {unseen} 件</button>}
-        <div ref={endRef} />
       </div>
     </div>
     </MarkProvider>
