@@ -174,7 +174,8 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     const startActivity: Activity | null = saved ? { tool: saved.tool, summary: saved.summary, toolId: saved.tool_id, question: saved.question } : null;
     let activity = startActivity;
     parsed.forEach((p, i) => {
-      watch?.(p.rec);
+      // 受け口が投げても、見張りのせいで索引の取引を巻き戻さない。
+      try { watch?.(p.rec); } catch { /* 見張りは振る舞いを変えない */ }
       const events = normalizeRecord(p.rec, seq, file.agentId);
       if (mainLocal) activity = foldActivity(activity, events);
       for (const ev of events) {

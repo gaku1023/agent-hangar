@@ -94,7 +94,8 @@ export class RegistryWatcher {
     } catch { return; }
     if (regKey !== this.lastRegKey) {
       this.lastRegKey = regKey;
-      for (const d of drifts) this.compat.note(d);
+      // 受け口が投げても、見張りのせいで登録の読み取りと通知を止めない。
+      try { for (const d of drifts) this.compat.note(d); } catch { /* 見張りは振る舞いを変えない */ }
     }
     const key = JSON.stringify(live);
     if (key === this.lastKey) return;

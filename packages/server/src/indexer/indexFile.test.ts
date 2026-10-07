@@ -590,6 +590,14 @@ describe('Claude Code との互換の見張り', () => {
     const sid = findSession(db, NEW)!;
     expect((db.prepare('select kind from event_index where session_id = ? order by seq').all(sid) as { kind: string }[]).map((r) => r.kind)).toEqual(['user', 'meta', 'system', 'meta']);
   });
+  it('ずれの受け口が投げても、そのファイルの索引は最後まで作る', () => {
+    const p = path.join(dir, 'projects', '-Users-me-workspace-alpha', `${NEW}.jsonl`);
+    appendJson(p, ...lines(NEW));
+    const sink = { note: () => { throw new Error('sink'); } };
+    expect(() => indexFile(db, { path: p, sessionId: NEW, agentId: null, deviceId: null }, { deviceId: DEV, compat: { sink, since: () => '2.1.292' } })).not.toThrow();
+    const sid = findSession(db, NEW)!;
+    expect((db.prepare('select kind from event_index where session_id = ? order by seq').all(sid) as { kind: string }[]).map((r) => r.kind)).toEqual(['user', 'meta', 'system', 'meta']);
+  });
   it('他端末から降ろした写しは見張らない', () => {
     const p = path.join(dir, 'remote-copy.jsonl');
     appendJson(p, ...lines(NEW));

@@ -173,6 +173,28 @@ describe('RegistryWatcher', () => {
     w.stop();
   });
 
+  it('ずれの受け口が投げても、登録の読み取りと通知は続ける', () => {
+    const file = path.join(dir, 'sessions/12345.json');
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(file, JSON.stringify({ ...rec, status: 'thinking' }));
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: () => { throw new Error('sink'); } });
+    const changes: unknown[] = [];
+    w.onChange((l) => changes.push(l));
+    try {
+      expect(() => w.start()).not.toThrow();
+      // 知らない status は作業中と読む。
+      expect(w.current().map((l) => l.status)).toEqual(['busy']);
+      // 登録が変わり、読み飛ばす登録のずれも出る。受け口はまた投げる。
+      fs.writeFileSync(file, JSON.stringify({ ...rec, status: 'idle' }));
+      fs.writeFileSync(path.join(dir, 'sessions/7.json'), '[]');
+      expect(() => vi.advanceTimersByTime(500)).not.toThrow();
+      expect(w.current().map((l) => l.status)).toEqual(['idle']);
+      expect(changes).toHaveLength(1);
+    } finally {
+      w.stop();
+    }
+  });
+
   it('登録が同じなら、裏だけの印などの付け足しが変わってもずれを数え直さない', () => {
     const file = path.join(dir, 'sessions/12345.json');
     const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
