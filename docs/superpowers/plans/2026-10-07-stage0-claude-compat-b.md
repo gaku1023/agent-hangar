@@ -54,7 +54,7 @@
   `CompatDto` は置き場を持たないので、`HANGAR_HOME` で hangar の置き場を変えたときは、文と実物がずれる。
   `HANGAR_HOME` は開発と試験のための口なので、このために DTO は足さない（計画 A の型をそのまま使う）。
 - **試作に無い文言は、次のとおり足す。**
-  止めた機能のうち試作に無い 8 つ（下の Task 1 の表）、ずれはあっても止めた機能が無いときの「知らない形を記録しましたが、止めた機能はありません」、中身が届く前の「ずれの中身を読み込んでいます」、準備の確かめが届く前の「確かめています」、分からない版の「不明」、読み上げの「ずれはありません」「まだ確かめていない版です」「ずれがあります」である。
+  止めた機能のうち試作に無い 8 つ（下の Task 1 の表。利用者に見せて 3 つを直した。statusline の行は値を出し続けるので「更新を止めています」、レジストリの行は「登録」をやめて節の本文と同じ「状態のファイル」、`--help` の行は設定の画面と同じ「外のターミナルの包み方」に合わせ、表の列も「外のターミナル」にした）、ずれはあっても止めた機能が無いときの「知らない形を記録しましたが、止めた機能はありません」、中身が届く前の「ずれの中身を読み込んでいます」、準備の確かめが届く前の「確かめています」、分からない版の「不明」、読み上げの「ずれはありません」「まだ確かめていない版です」「ずれがあります」である。
 
 ## Global Constraints
 
@@ -134,11 +134,11 @@
 | トランスクリプト | すべて | （なし） | （なし） |
 | レジストリ | `status=` | 休みで止める | 休んでいるセッションを自動で止めるのを控えています |
 | レジストリ | `pid=` | 引き取り | 外のターミナルで動いている会話を引き取るのを止めています |
-| レジストリ | ほか（`sessionId=`、`entry=`） | 実行中の印 | 形の読めない登録の会話を、実行中として出すのを控えています |
+| レジストリ | ほか（`sessionId=`、`entry=`） | 実行中の印 | 状態のファイルが読めない会話を、実行中として出すのを控えています |
 | statusline | `….resets_at=ms` | （なし） | （なし） |
-| statusline | ほか | 使用率の一部 | 使用率のゲージの欠けた項目を、直前の値のまま止めています |
+| statusline | ほか | 使用率の一部 | 使用率のゲージの欠けた項目の更新を止めています |
 | `~/.claude` の項目 | すべて | アカウントの共有 | 新しい ~/.claude の項目をアカウントの間で共有するのを控えています |
-| CLI | `help.` | 包みの一覧 | 外のターミナルの包みで、サブコマンドの一覧を claude --help から作るのを止めています |
+| CLI | `help.` | 外のターミナル | 外のターミナルの包み方で、サブコマンドの一覧を claude --help から作るのを止めています |
 | CLI | `auth-status` | ログインの状態 | アカウントのログインの状態を読むのを止めています |
 | CLI | `agents-json` | attach で再開 | バックグラウンドのセッションを attach で再開するのを止めています |
 | CLI | `print-json` | Claude で要約 | Claude で要約するのを止めています |
@@ -183,19 +183,19 @@ describe('止めた機能の表（stopOf）', () => {
   });
   it('レジストリは、pid が無ければ引き取りを、読めない登録は実行中の印を止める', () => {
     expect(stopOf(drift('registry', 'pid=(missing)'))).toEqual({ short: '引き取り', line: '外のターミナルで動いている会話を引き取るのを止めています' });
-    expect(stopOf(drift('registry', 'sessionId=(missing)'))).toEqual({ short: '実行中の印', line: '形の読めない登録の会話を、実行中として出すのを控えています' });
+    expect(stopOf(drift('registry', 'sessionId=(missing)'))).toEqual({ short: '実行中の印', line: '状態のファイルが読めない会話を、実行中として出すのを控えています' });
     expect(stopOf(drift('registry', 'entry=(not-object)'))?.short).toBe('実行中の印');
   });
   it('statusline は、ミリ秒の resets_at は記録だけで、欠けた項目は使用率の一部を止める', () => {
     expect(stopOf(drift('statusline', 'rate_limits.seven_day.resets_at=ms'))).toBeNull();
-    expect(stopOf(drift('statusline', 'rate_limits.five_hour.resets_at=(missing)'))).toEqual({ short: '使用率の一部', line: '使用率のゲージの欠けた項目を、直前の値のまま止めています' });
+    expect(stopOf(drift('statusline', 'rate_limits.five_hour.resets_at=(missing)'))).toEqual({ short: '使用率の一部', line: '使用率のゲージの欠けた項目の更新を止めています' });
     expect(stopOf(drift('statusline', 'session_id=(missing)'))?.short).toBe('使用率の一部');
   });
   it('~/.claude の項目は、アカウントの間で共有するのを控える', () => {
     expect(stopOf(drift('claude-dir', 'entry=brand-new'))).toEqual({ short: 'アカウントの共有', line: '新しい ~/.claude の項目をアカウントの間で共有するのを控えています' });
   });
   it('CLI は出力の種類ごとに止めるものが違い、サブコマンドの増減は記録だけ', () => {
-    expect(stopOf(drift('cli', 'help.commands=(missing)'))).toEqual({ short: '包みの一覧', line: '外のターミナルの包みで、サブコマンドの一覧を claude --help から作るのを止めています' });
+    expect(stopOf(drift('cli', 'help.commands=(missing)'))).toEqual({ short: '外のターミナル', line: '外のターミナルの包み方で、サブコマンドの一覧を claude --help から作るのを止めています' });
     expect(stopOf(drift('cli', 'auth-status=(not-json)'))).toEqual({ short: 'ログインの状態', line: 'アカウントのログインの状態を読むのを止めています' });
     expect(stopOf(drift('cli', 'auth-status.loggedIn=(missing)'))?.short).toBe('ログインの状態');
     expect(stopOf(drift('cli', 'agents-json.kind=remote'))).toEqual({ short: 'attach で再開', line: 'バックグラウンドのセッションを attach で再開するのを止めています' });
@@ -319,10 +319,10 @@ export const CONTRACT_LABEL: Record<CompatContract, string> = {
 const JUMP: CompatStop = { short: '目次から跳ぶ', line: 'ターンの目次から端末の指示へ跳ぶのを止めています' };
 const PARK: CompatStop = { short: '休みで止める', line: '休んでいるセッションを自動で止めるのを控えています' };
 const ADOPT: CompatStop = { short: '引き取り', line: '外のターミナルで動いている会話を引き取るのを止めています' };
-const LIVE: CompatStop = { short: '実行中の印', line: '形の読めない登録の会話を、実行中として出すのを控えています' };
-const USAGE: CompatStop = { short: '使用率の一部', line: '使用率のゲージの欠けた項目を、直前の値のまま止めています' };
+const LIVE: CompatStop = { short: '実行中の印', line: '状態のファイルが読めない会話を、実行中として出すのを控えています' };
+const USAGE: CompatStop = { short: '使用率の一部', line: '使用率のゲージの欠けた項目の更新を止めています' };
 const SHARE: CompatStop = { short: 'アカウントの共有', line: '新しい ~/.claude の項目をアカウントの間で共有するのを控えています' };
-const HELP: CompatStop = { short: '包みの一覧', line: '外のターミナルの包みで、サブコマンドの一覧を claude --help から作るのを止めています' };
+const HELP: CompatStop = { short: '外のターミナル', line: '外のターミナルの包み方で、サブコマンドの一覧を claude --help から作るのを止めています' };
 const AUTH: CompatStop = { short: 'ログインの状態', line: 'アカウントのログインの状態を読むのを止めています' };
 const ATTACH: CompatStop = { short: 'attach で再開', line: 'バックグラウンドのセッションを attach で再開するのを止めています' };
 const SUMMARY: CompatStop = { short: 'Claude で要約', line: 'Claude で要約するのを止めています' };
@@ -341,7 +341,7 @@ const STOPS: Record<CompatContract, readonly (readonly [RegExp, CompatStop | nul
   // ミリ秒の resets_at は秒に直さずにそのまま使う（自動で直す）。欠けた項目は直前の値を保つ。
   statusline: [[/\.resets_at=ms$/, null], [/^/, USAGE]],
   'claude-dir': [[/^/, SHARE]],
-  // サブコマンドの増減は、包みの一覧を claude --help から作り直して吸収するので、止めたものは無い。
+  // サブコマンドの増減は、包み方のサブコマンドの一覧を claude --help から作り直して吸収するので、止めたものは無い。
   cli: [[/^help[.=]/, HELP], [/^auth-status[.=]/, AUTH], [/^agents-json[.=]/, ATTACH], [/^print-json[.=]/, SUMMARY], [/^/, null]],
   screen: [[/^/, JUMP]],
 };
