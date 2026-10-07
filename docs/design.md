@@ -78,6 +78,8 @@ Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`�
 ブラウザからも同じ UI が動くが、入口は鍵付きの URL に限る。
 鍵の無い要求には 401 で `hangar url` を案内する画面を返す。
 配布する `.app` には、esbuild で単一ファイルにまとめたサーバ（`server.mjs`）を、ネイティブモジュールと UI とともに同梱する。
+CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ本体をたどらない `packages/server/src/cliEntry.ts` から名前を取る。
+入口から取ると、esbuild がサーバ全体を `cli.mjs` にも束ね、同梱物にサーバが二重に入るためである。
 ネイティブモジュールは Node の ABI に縛られるため、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、探索ではそれと一致する Node だけを採る。
 起動時に 4177 で既にサーバが応答していれば、そのサーバを採用して子プロセスを起こさない。
 

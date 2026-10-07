@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken } from '@agent-hangar/server';
+import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken } from '@agent-hangar/server/src/cliEntry.ts';
 import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage } from './probe.ts';

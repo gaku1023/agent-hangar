@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream, stampTranscriptsFrom } from '@agent-hangar/server';
+import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream, stampTranscriptsFrom } from '@agent-hangar/server/src/cliEntry.ts';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import { configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, PULL_LIMIT, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';

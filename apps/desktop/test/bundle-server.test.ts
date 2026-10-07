@@ -206,6 +206,23 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     expect(await waitHealth(`http://127.0.0.1:${port}/health`, 500)).toBe(false);
   });
 
+  it('cli.mjs はサーバ本体を抱えない。外に残す import は better-sqlite3 だけで、大きさは 512KB に満たない', async () => {
+    const out = tmp('hangar-dist-');
+    const ui = tmp('hangar-ui-');
+    dirs.push(out, ui);
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    const cli = fs.readFileSync(path.join(out, 'cli.mjs'), 'utf8');
+    const bare = [...new Set([...cli.matchAll(/^import[^\n]* from "([^"]+)";$/gm)].map((m) => m[1]!))].filter((sp) => !sp.startsWith('node:'));
+    // CLI が DB を開くのは本文の床（stampTranscriptsFrom、readTranscriptsFrom）のためで、端末（node-pty）は使わない。
+    expect(bare).toEqual(['better-sqlite3']);
+    // サーバにしか無い関数。CLI がサーバの入口から import すると、esbuild がこれらを束ねてしまう。
+    expect(cli).not.toContain('function startServer(');
+    expect(cli).not.toContain('function createApp(');
+    // 2026-10-07 の試しでは約 240KB だった。サーバを抱えると 2MB を超える。
+    expect(fs.statSync(path.join(out, 'cli.mjs')).size).toBeLessThan(512 * 1024);
+  });
+
   it('UI のビルドが無ければ、何をすればよいかを述べて止まる', async () => {
     const out = tmp('hangar-dist-');
     const ui = tmp('hangar-ui-');

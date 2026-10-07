@@ -7,7 +7,8 @@ export type BundleOptions = { repoRoot: string; outDir: string; uiDist: string }
 
 /**
  * バンドルに入れず、隣の node_modules から読ませるモジュール。
- * サーバと CLI の import から到達するネイティブはこの二つだけである（実測）。
+ * サーバの import から到達するネイティブはこの二つだけである（実測）。
+ * CLI（cli.mjs）が使うのは better-sqlite3 だけで、node-pty はサーバだけが使う。
  * どちらも prebuildify 形式で、実体は build/Release ではなく prebuilds の下にある。
  */
 export const NATIVE_MODULES = ['better-sqlite3', 'node-pty'];
