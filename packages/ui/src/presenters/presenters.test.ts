@@ -924,6 +924,13 @@ describe('presentSession（右ペインの灯）', () => {
     store.liveDigests = {};
     expect(presentSession(initialState(), store, NOW, 's1').livePane!.lamp.sub).toBe('ターン 7・10 手目');
   });
+  it('右ペインの比率は、そのセッションの値があればそれ、無ければ最後に動かした値', () => {
+    const store = live(900, 7, 705);
+    const last = { ...initialState(), livePaneSplit: 0.4 };
+    expect(presentSession(last, store, NOW, 's1').livePaneSplit).toBe(0.4);
+    const own = { ...last, sessionView: { s1: { ...defaultSessionView(), livePaneSplit: 0.2 } } };
+    expect(presentSession(own, store, NOW, 's1').livePaneSplit).toBe(0.2);
+  });
 });
 
 /** path をパスに持つ解決済みのプロジェクトを 1 つだけ入れた store。 */

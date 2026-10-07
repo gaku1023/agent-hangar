@@ -93,8 +93,8 @@ export type Intent =
   | { type: 'sidebar.toggle' }
   // サイドバーの「動いている」の行を、利用者が掴んで並べ替えたとき。ids は並べ替えた後の、動いているセッション全部の並び。
   | { type: 'sidebar.order'; ids: SessionId[] }
-  // 実行中の右ペインで、「いま」の段が取る高さの上限（ペインの高さに対する割合）。境目を離したときに 1 度だけ出す。
-  | { type: 'livePane.split'; ratio: number }
+  // 実行中の右ペインで、「いま」の段が取る高さの上限（ペインの高さに対する割合）。境目を離したときに 1 度だけ出す。セッションごとに覚える。
+  | { type: 'livePane.split'; sessionId: SessionId; ratio: number }
   | { type: 'summarizer.test' }
   | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
   | { type: 'transcript.showRaw'; sessionId: SessionId; show: boolean }

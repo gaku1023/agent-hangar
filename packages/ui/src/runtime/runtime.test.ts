@@ -360,6 +360,19 @@ describe('createRuntime', () => {
     c.rt.start();
     expect(c.rt.getState().livePaneSplit).toBe(1);
   });
+  it('セッションごとの右ペインの比率を起動時に読み戻す。数でない値は持たないものとし、範囲の外は丸める', () => {
+    const a = harness();
+    a.store.set('sv:s1', { livePaneSplit: 0.25 });
+    a.store.set('sv:s2', { livePaneSplit: 'half' });
+    a.store.set('sv:s3', { livePaneSplit: 3 });
+    a.store.set('sv:s4', { showRaw: true });
+    a.rt.start();
+    const sv = a.rt.getState().sessionView;
+    expect(sv.s1?.livePaneSplit).toBe(0.25);
+    expect(sv.s2?.livePaneSplit).toBeNull();
+    expect(sv.s3?.livePaneSplit).toBe(1);
+    expect(sv.s4?.livePaneSplit).toBeNull();
+  });
   it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
     const a = harness();
     a.rt.start();
