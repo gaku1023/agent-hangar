@@ -158,6 +158,38 @@ describe('RegistryWatcher', () => {
     expect(seen.map((d) => d.value)).toEqual(['status=thinking', 'status=thinking']);
     w.stop();
   });
+
+  it('読み飛ばす登録が動いているセッションの隣に増えたら、live が変わらなくても 1 回だけ数える', () => {
+    const seen: Drift[] = [];
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: (d) => seen.push(d) });
+    w.start();
+    vi.advanceTimersByTime(1000);
+    expect(seen).toEqual([]);
+    fs.writeFileSync(path.join(dir, 'sessions/7.json'), '[]');
+    vi.advanceTimersByTime(500);
+    expect(seen).toEqual([{ contract: 'registry', value: 'entry=(not-object)', version: null }]);
+    vi.advanceTimersByTime(1500);
+    expect(seen).toHaveLength(1);
+    w.stop();
+  });
+
+  it('登録が同じなら、裏だけの印などの付け足しが変わってもずれを数え直さない', () => {
+    const file = path.join(dir, 'sessions/12345.json');
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(file, JSON.stringify({ ...rec, status: 'thinking' }));
+    const seen: Drift[] = [];
+    let n = 0;
+    // 読み直しのたびに出力が変わる（本文の索引が進むと印が変わるのと同じ）。登録のファイルは変わらない。
+    const enrich = (live: ReturnType<typeof readRegistry>) => live.map((l) => ({ ...l, aside: { shell: false, agents: ++n } }));
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, enrich, { note: (d) => seen.push(d) });
+    const changes: unknown[] = [];
+    w.onChange((l) => changes.push(l));
+    w.start();
+    vi.advanceTimersByTime(2000);
+    expect(changes.length).toBeGreaterThan(1);
+    expect(seen.map((d) => d.value)).toEqual(['status=thinking']);
+    w.stop();
+  });
 });
 
 // Windows では claude を穏やかに止める手段が無く、止めた claude は自分の登録を消せない。

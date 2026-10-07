@@ -57,6 +57,8 @@ export class RegistryWatcher {
   private timer: NodeJS.Timeout | null = null;
   private last: LiveSession[] = [];
   private lastKey = '';
+  /** 足し付けの前の登録の読み取りとずれの一覧の鍵。ずれを数え直すかを決める。 */
+  private lastRegKey = '';
   private listeners = new Set<(live: LiveSession[]) => void>();
   /**
    * enrich は、読んだ登録に裏だけの印などを足す関数（live/aside.ts）。読み直しのたびに通し、足した後の形で変化を見る。
@@ -77,15 +79,25 @@ export class RegistryWatcher {
    * 登録ディレクトリを読み直し、変わっていたら知らせる。
    * 読み取りが失敗しても投げない。setInterval の中なので、投げるとプロセスごと落ちる。
    * 次の周期でやり直せばよい。
-   * ずれは登録が変わったときだけ数える。500 ミリ秒ごとに同じ登録を読み直すたびに数えると、回数が意味を失う。
+   * ずれは、足し付け（enrich）の前の登録の読み取りと、ずれの一覧が変わったときだけ数える。
+   * 500 ミリ秒ごとに同じ登録を読み直すたびに数えると、回数が意味を失う。
+   * 足し付けの後の形では見ない。読み飛ばした登録は live に載らず、印だけが変わるときは登録は変わっていないからである。
    */
   private poll(notify: boolean): void {
     let live: LiveSession[];
     const drifts: Drift[] = [];
-    try { live = this.enrich(readRegistry(this.claudeDir, this.isGone, (d) => drifts.push(d))); } catch { return; }
+    let regKey: string;
+    try {
+      const raw = readRegistry(this.claudeDir, this.isGone, (d) => drifts.push(d));
+      regKey = JSON.stringify(raw) + JSON.stringify(drifts);
+      live = this.enrich(raw);
+    } catch { return; }
+    if (regKey !== this.lastRegKey) {
+      this.lastRegKey = regKey;
+      for (const d of drifts) this.compat.note(d);
+    }
     const key = JSON.stringify(live);
     if (key === this.lastKey) return;
-    for (const d of drifts) this.compat.note(d);
     this.last = live; this.lastKey = key;
     if (notify) for (const cb of this.listeners) cb(live);
   }
