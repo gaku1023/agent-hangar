@@ -1,7 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { SyncStatusBody } from '@agent-hangar/shared';
-import type { Input } from './types.ts';
-import { NOT_YET } from './types.ts';
+import type { Input, Overlay, SessionViewState } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
@@ -237,8 +236,8 @@ describe('索引の進み', () => {
 
 describe('セッション表示の一時状態', () => {
   it('思考と生 JSON と追従の切り替えを保存する', () => {
-    const { state, effects } = run([intent({ type: 'transcript.showThinking', sessionId: 's1', show: true }), intent({ type: 'summary.toggle', sessionId: 's1' })]);
-    expect(state.sessionView.s1).toMatchObject({ showThinking: true, summaryOpen: true, showRaw: false, follow: true });
+    const { state, effects } = run([intent({ type: 'transcript.showThinking', sessionId: 's1', show: true }), intent({ type: 'transcript.showRaw', sessionId: 's1', show: true })]);
+    expect(state.sessionView.s1).toMatchObject({ showThinking: true, showRaw: true, follow: true });
     expect(effects[0]).toMatchObject({ kind: 'storage.save', key: 'sv:s1' });
   });
   it('本文の追記は開いているセッションだけ読み直す', () => {
@@ -269,11 +268,6 @@ describe('その他', () => {
     expect(effects[0]).toEqual({ kind: 'api.setProjectStatus', projectId: 'p1', status: 'paused' });
     expect(effects[1]).toEqual({ kind: 'api.updateSettings', patch: { workspaceRoot: '/w' } });
     expect(effects[2]).toEqual({ kind: 'api.rebuildIndex' });
-  });
-  it('次のフェーズの操作はトーストで知らせる', () => {
-    const { state, effects } = run([intent({ type: 'session.takeover', id: 's1', force: false })]);
-    expect(effects).toEqual([{ kind: 'toast', level: 'info', message: 'この操作は次のフェーズで実装します' }]);
-    expect(state).toEqual(initialState());
   });
 });
 
@@ -351,8 +345,9 @@ describe('新しいセッションの下書きと前回値', () => {
     const r = run([intent({ type: 'session.new.draft', name: 'n', prompt: '' })]);
     expect(r.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [] });
   });
-  it('readDraft は、古い形（添付なし）を空の添付として読み、形の違う添付は捨てる', () => {
-    expect(readDraft({ name: 'n', prompt: 'p' })).toEqual({ name: 'n', prompt: 'p', attachments: [] });
+  it('readDraft は、添付の配列が無い古い形を捨て、形の違う添付は捨てる', () => {
+    expect(readDraft({ name: 'n', prompt: 'p' })).toBeNull();
+    expect(readDraft({ name: 'n', prompt: 'p', attachments: 'x' })).toBeNull();
     expect(readDraft({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: null }, { path: 1 }, 'x', { path: '/b', name: 'b', size: 2 }] })).toEqual({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: null }, { path: '/b', name: 'b', size: 2 }] });
     // 空のパスは捨て、同じパスは 1 件にする（手で書き換えられた保存値が、札の key の重複にならないように）。
     expect(readDraft({ name: 'n', prompt: 'p', attachments: [{ path: '', name: 'e', size: null }, { path: '/a', name: 'a', size: 1 }, { path: '/a', name: 'a2', size: 2 }] })).toEqual({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: 1 }] });
@@ -998,7 +993,7 @@ describe('画面に入るときの読み込み', () => {
   });
 });
 
-const status = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, ...over });
+const status = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false, ...over });
 
 describe('同期', () => {
   it('sync.status が領域の状態と未送信件数になる', () => {
@@ -1033,11 +1028,6 @@ describe('同期', () => {
     const c = run([intent({ type: 'sync.config.apply' })], b.state);
     expect(c.state.overlay).toEqual({ kind: 'none' });
     expect(c.effects).toEqual([{ kind: 'api.configPull' }]);
-  });
-  it('sync.applied は Mediator の状態を変えない', () => {
-    const r = run([server({ type: 'sync.applied', table: 'sessions', rowId: 's1' })]);
-    expect(r.state).toEqual(initialState());
-    expect(r.effects).toEqual([]);
   });
 });
 
@@ -1227,11 +1217,9 @@ describe('この PC で再開', () => {
     const b = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's2', localSize: 3, remoteSize: 4 })], a.state);
     expect(b.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's2', localSize: 3, remoteSize: 4 } });
   });
-  it('同期の操作は未実装の案内を出さないが、引き継ぎは出す', () => {
+  it('同期の操作は未実装の案内を出さない', () => {
     expect(run([intent({ type: 'sync.now' })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
     expect(run([intent({ type: 'sync.pause', paused: false })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
-    // 引き継ぎはこのフェーズでは実装しないので、NOT_YET_INTENTS に残っている。
-    expect(run([intent({ type: 'session.takeover', id: 's1', force: false })]).effects).toEqual([{ kind: 'toast', level: 'info', message: NOT_YET }]);
   });
 });
 
@@ -1642,5 +1630,12 @@ describe('アカウント', () => {
     const ng = run([runtime({ type: 'launch.failed', message: '同じアカウントです' })], submitted);
     expect(ng.state.launch).toEqual({ kind: 'failed', message: '同じアカウントです' });
     expect(ng.effects).toEqual([{ kind: 'toast', level: 'error', message: '同じアカウントです' }]);
+  });
+});
+
+describe('使われていない口を消した後', () => {
+  it('未実装の知らせのオーバーレイと、要約の開閉は持たない', () => {
+    expectTypeOf<Extract<Overlay, { kind: 'notYet' }>>().toBeNever();
+    expectTypeOf<SessionViewState>().not.toHaveProperty('summaryOpen');
   });
 });

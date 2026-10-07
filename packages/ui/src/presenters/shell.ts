@@ -1,4 +1,4 @@
-import { asideOf, type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, usageAt } from '@agent-hangar/shared';
+import { asideOf, type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, type UsageDto, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
@@ -176,15 +176,19 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
 
 const gaugePercent = (g: AccountGauge | null): number | null => g?.percent ?? null;
 
+/** 使用率がまだ届いていないときの値。 */
+const NO_USAGE: UsageDto = { fiveHour: null, sevenDay: null, updatedAt: null };
+
 /**
  * ヘッダの計器とアカウントの切り替え。
  * アカウントが 2 件以上あるときだけ切り替えを出し、計器は shown の値から作る。
- * 1 件以下のときは、今までどおり store.usage から作る。
+ * 1 件以下のときは、いまのアカウント（最初のアカウント）の値から作る。使用率は accounts.update だけで届く。
  */
 function headerAccount(state: State, store: Store, now: number): { account: HeaderAccountProps; usage: UsageProps } {
-  const u = usageAt(store.usage, now);
-  const plain: UsageProps = { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) };
-  if (!hasMultipleAccounts(store)) return { account: null, usage: plain };
+  if (!hasMultipleAccounts(store)) {
+    const u = usageAt(currentAccount(store)?.usage ?? NO_USAGE, now);
+    return { account: null, usage: { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) } };
+  }
   const sessionId = state.screen.name === 'session' ? state.screen.id : null;
   const raw = (sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
   const list = presentAccounts(store, now);

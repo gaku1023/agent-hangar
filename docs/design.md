@@ -10,8 +10,8 @@
 
 **agent-hangar** は、個人用のローカルなエージェントセッション管理アプリである。
 Claude Code のセッションをプロジェクト単位で束ね、起動、観察、検索、記録を一箇所で行う。
-Codex や OpenCode などの他のコーディングエージェントは、後から **Provider** として追加する。
-初版で扱う Provider は Claude Code だけである。
+対応するエージェントは Claude Code だけである。
+2 つ目のエージェントを足すときに、そのときの実際の必要から共通の形を引き出す。
 
 このアプリが解決するのは次の不便である。
 
@@ -44,7 +44,7 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
   - 加えて、`~/.claude/` の外にある `~/.claude.json` の `mcpServers.hangar` を `hangar mcp install` が書き換える。Claude Code の設定である点は同じなので例外に数える。`claude mcp add` に任せないのは、`--header` の値が argv に載り、64 桁のトークンが同じ機械の誰からでも `ps` で読めるためである。削除は今までどおり `claude mcp remove` に任せる（こちらはトークンを渡さない）。
 - **ファイルを消さない**：hangar は利用者のファイルを削除しない。プロジェクトの削除は紐づけの解除であり、ディレクトリには触れない。例外はスクラッチを昇格するときの移動だけである。
 - **サーバが正**：状態はローカルサーバが持ち、UI は描画に必要な値だけを受け取る。ブラウザでも Tauri でも同じ UI が動く。
-- **Provider 非依存の表示**：トランスクリプトは正規化した共通形式に変換して描く。表示コードは Claude Code の jsonl 形式を知らない。
+- **正規化した形式で描く**：トランスクリプトは正規化した共通形式に変換して描く。表示コードは Claude Code の jsonl 形式を知らない。
 - **同期前提のスキーマ**：データはすべて端末間で同期できる形で持つ。フェーズ 1 から 3 では同期せずにこの形だけを保ち、フェーズ 4 で実際に同期した。
 - **軽い索引**：巨大な jsonl を DB に丸ごと写さない。索引と検索用テキストだけを持ち、本文はファイルから読む。
 
@@ -99,7 +99,7 @@ Root
 │     └─ SettingsScreen     各設定セクション
 └─ Overlays
    ├─ CommandPalette
-   ├─ NewSessionDialog / NewProjectDialog / PromoteDialog / ResolveProjectDialog / TakeoverDialog
+   ├─ NewSessionDialog / NewProjectDialog / PromoteDialog / ResolveProjectDialog
    └─ ToastStack
 ```
 
@@ -177,12 +177,10 @@ type Intent =
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
   | { type: 'session.promote.open'; id: SessionId }
   | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
-  | { type: 'session.takeover'; id: SessionId; force: boolean }
-  | { type: 'session.takeover.cancel'; id: SessionId }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
   | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
   | { type: 'sync.joinToken.show' }
-  | { type: 'summary.toggle'; sessionId: SessionId } | { type: 'summary.regenerate'; sessionId: SessionId }
+  | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
   | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
@@ -197,9 +195,7 @@ type Intent =
   | { type: 'settings.update'; patch: Partial<Settings> } | { type: 'summarizer.test' };
 ```
 
-`session.takeover` と `session.takeover.cancel` は型にあるだけで、これを出すボタンはどの View にも無い。
-引き継ぎをフェーズ 4 で作らなかったためである（後述）。
-押しても何も起きない口を生やさないために、View からは `session.resumeHere` だけを出す。
+他端末で動いているセッションに対して View が出すのは `session.resumeHere` だけで、引き継ぎの握手の Intent は持たない（後述）。
 
 `transcript.follow` の `follow: false` は、利用者が自分でスクロールを上げたときだけ発行する。
 末尾へ送るスムーズスクロールの途中では発行しない。
@@ -222,9 +218,9 @@ type Intent =
 領域ごとに小さな状態機械を書き、`transition` はそれらを合成する。
 
 - `screen`：`booting | home | projects | project(id) | session(id) | sessions(query) | settings`。
-- `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。引き継ぎのダイアログは作らなかったので `takeover(sessionId)` は無い。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
+- `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
 外のターミナルの claude を引き取る確認は `confirm('adoptSession')`、ランを止める確認は `confirm('killRun')`、見つからないプロジェクトを一覧から削除する確認は `confirm('unlinkProject')` である。
-- `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉、要約パネルの開閉。
+- `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉。
 - `launch`：`idle | submitting | failed(message)`。場所の指定つきで起動するときは、送信中と失敗の状態が、途中で作れたプロジェクトの id を `createdProjectId` に持つ。
 - `projectCreate`：`idle | submitting | failed(message)`。作成のダイアログの送信の状態である。
 - `workspaceDirs`：ワークスペース直下の未登録のフォルダ（`{ name, path }[]`）。2 つのダイアログを開いたときに読み、まだ読んでいなければ null である。
@@ -267,7 +263,7 @@ type Intent =
 - 一覧は仮想スクロールで描く。1 行 44px の 2 段の行（1 段目に名前、2 段目に要約の 1 文）で、100 件を超えても遅くしない。
 - 時刻は相対表示（「3 分前」）を基本にし、ホバーで絶対時刻を出す。
 - 識別子、パス、時刻（04:28）、数だけの表示は等幅フォントで描く。数と仮名が混じる短い語（「12 分前」「1,222 件」「変更 5」）は本文の書体のまま、数字の幅だけをそろえる（`.num`）。
-- UI の一時状態（開いているタブ、分割、折りたたみ、要約パネルの開閉）は端末の localStorage に保存し、同期しない。
+- UI の一時状態（開いているタブ、分割、折りたたみ）は端末の localStorage に保存し、同期しない。
 
 ## データモデル
 
@@ -312,7 +308,7 @@ create table project_roots (
 
 create table sessions (
   id text primary key,
-  provider text not null,                         -- 'claude-code' | 'opencode' | ...
+  provider text not null,                         -- いまは 'claude-code' だけ。列と一意の制約は残す（D8）
   provider_session_id text not null,              -- Claude Code では UUID
   project_id text references projects(id),        -- null は未分類
   name text,                                      -- hangar が保持する表示名
@@ -381,8 +377,8 @@ create table artifact_versions (
   updated_at integer not null, deleted_at integer, origin_device text not null
 );
 
--- 引き継ぎの握手の台帳。state は requested から acked か forced か cancelled へ一方向に進む。
--- フェーズ 4 では誰もこの表に書かない。引き継ぎを作らなかったためである（後述）。
+-- 引き継ぎの握手のために v1 で作った表。握手は作らないと決め、共有テーブルの一覧（SHARED_TABLES）からも外した。
+-- 表はマイグレーションに残るが、誰も書かず、同期でも運ばない。
 create table takeover_requests (
   id text primary key, run_id text not null references runs(id),
   from_device text not null, requested_at integer not null,
@@ -497,7 +493,7 @@ create table settings_local (key text primary key, value text not null);
 
 ### 正規化トランスクリプト
 
-`packages/shared` に、Provider 非依存のイベント型を定義する。
+`packages/shared` に、jsonl の形式に依らないイベント型を定義する。
 UI はこの型だけを描く。
 
 ```ts
@@ -515,27 +511,15 @@ type TranscriptEvent =
 `summary` はツール呼び出しを 1 行で表す文字列で、折りたたみ表示に使う（例：`Edit src/app.ts`）。
 `meta` は表示しないが、索引の抽出元になる。
 
-## Provider 抽象
+## Claude Code に固有の部分
 
-### インターフェース
+hangar が対応するのは Claude Code だけである（2026-10-07 の決定 D7）。
+Claude Code の保存形式と起動方法を hangar に翻訳する部分は、`packages/server/src/provider/claude-code/` と `packages/server/src/launch/args.ts` にある。
+以前は Provider のインターフェースを置いていたが、実装していたのは起動の 2 項目だけで、索引はインターフェースを通らずに jsonl を読んでいたので、段 1 で消した。
+jsonl の読み、登録、起動の引数を 1 つの塊に集めるのは、後の段で行う。
+`sessions.provider` の列と `(provider, provider_session_id)` の一意の制約は、永続する識別子なので残す（D8）。
 
-Provider は、あるコーディングエージェントの「保存形式」と「起動方法」を hangar に翻訳する層である。
-UI とサーバの他の部分は、このインターフェースだけを見る。
-
-```ts
-interface Provider {
-  readonly id: 'claude-code' | 'opencode';
-  discover(): AsyncIterable<DiscoveredSession>;              // 既存セッションの列挙
-  watch(onChange: (path: string) => void): () => void;       // 保存先の変化を通知
-  readEvents(file: string, fromByte: number): AsyncIterable<{ event: TranscriptEvent; offset: number; length: number }>;
-  liveStatus(): Promise<LiveSession[]>;                       // 実行中セッションの busy / idle
-  launchCommand(params: LaunchParams): string[];              // 新規起動のコマンド列
-  resumeCommand(session: Session, fork: boolean): string[];
-  usage?(): Promise<UsageSnapshot | null>;
-}
-```
-
-### Claude Code Provider
+### 保存先と読み方
 
 Claude Code の保存先と、その読み方を定める。
 
@@ -677,6 +661,7 @@ Root はダイアログを `overlay.projectId` を key にして描くので、�
 名前、初期プロンプト、添付の書きかけは、どの経路で閉じても（やめる、×、Esc）下書きとして残す。
 ダイアログは閉じるときに書きかけを `session.new.draft` で送り、打鍵のたびには送らない（送るたびに画面全体を描き直すことになるため）。
 下書きはプロジェクトごとではなく 1 つだけ持つ。
+添付の配列が無い保存（添付を足す前の形）は、形が違うものとして読み戻さない。
 次に開くと、名前、初期プロンプト、添付に戻し、見出しの右に「下書き」の札と「消す」を出す。
 「消す」は欄を空にし、下書きも消す。
 ダイアログから起動し終えたら、下書きは役目を終えたので Mediator が消す。
@@ -1038,7 +1023,7 @@ MCP は Streamable HTTP で提供する。
 - `get_project(project_id)`：詳細。TODO、メモ、直近のセッション、アーティファクト。
 - `update_project(project_id, { status?, add_todos?, toggle_todos?, propose_done?, append_memo? })`。
 - `list_sessions({ project_id?, running?, limit? })`。
-- `search_sessions({ query, project_id?, since?, until?, provider?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
+- `search_sessions({ query, project_id?, since?, until?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
 - `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch? })`：tmux で起動して run を返す。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。
@@ -1192,7 +1177,7 @@ UI は設定画面に入ったとき、設定を保存した後、セッショ�
 Sessions 画面は検索画面を兼ねる。
 キーワードが空なら全件を新しい順に出す。
 検索対象は利用者の発言、アシスタントの本文、ツール呼び出しのファイルパスとコマンドである。
-絞り込みはプロジェクト、期間、Provider、状態（入力待ち、実行中、終了）、触ったファイルである。
+絞り込みはプロジェクト、期間、状態（入力待ち、実行中、終了）、触ったファイルである。
 キーワードが空でも、触ったファイルで絞るときはサーバの検索を使い、そのファイルを触ったセッションを新しい順に出す。
 触ったファイルは手元のセッションの情報に無いからである。
 プロジェクトは検索欄つきの一覧で、先頭に「すべてのプロジェクト」を置く。
@@ -1376,6 +1361,9 @@ hangar はトークンを読まず、渡すのは `CLAUDE_CONFIG_DIR` だけで�
 アカウントの節があるのは設定だけで、1 件でも追加の入口として出す。
 複数のアカウントを使わない人の画面に、使わない部品を置かないためである。
 
+アカウントが 1 件のときも、計器はそのアカウント（最初のアカウント）の値から作る。
+使用率は `accounts.update` だけで配り、最初のアカウントの値だけを運ぶ別の知らせは持たない（段 1 で `usage.update` を消した）。
+
 ヘッダの名前を押すと、アカウントごとに 1 枚の札を並べた一覧が開く。
 札は名前、プラン、メールアドレス、5 時間と週の使用量、戻る時刻を持ち、下に「アカウントの設定」を置く。
 未ログインの札と、初めてのログインの途中の札は選べない。
@@ -1459,7 +1447,7 @@ Claude Code の保持期間がユーザー設定に無い（既定の 30 日）�
 最後の `tool_call` の名前と要約を残し、それが AskUserQuestion なら入力の最初の問いの文も残す。
 その呼び出しへの `tool_result` が来たら、答えが済んだとして問いを消す。
 値は端末ローカルの表 `session_activity`（マイグレーション version 9）に置き、共有テーブルにも同期の changes にも入れない。
-`SessionDto.activity`（`{ tool, summary, question }`）は実行中のセッションにだけ載り、呼び出しがまだ無ければ `null` になる。
+`SessionDto.activity`（`{ tool, summary, question }`）は実行中のセッションにだけ値を持ち、実行中でないときと、呼び出しがまだ無いときは `null` になる。
 Home を開いたときにトランスクリプトを読み直すことはしない。
 主線のトランスクリプトを忘れさせたとき（`forgetTranscriptFile`）は、そのセッションの `session_activity` の行も一緒に消す。
 
@@ -2386,9 +2374,12 @@ Worker の `changes` は、受信から 14 日を過ぎ、かつ接続した全�
 古いサーバが先に走ったという理由で区切りが消えてはいけない。
 
 サーバ側の刻みは保険として残す。
-効くのは、区切りの無い `cloud.json` を持つ端末（CLI が刻むようになる前に参加した端末）だけである。
+効くのは、`cloud.json` はあるのに DB に区切りの行が無い端末である。
+CLI が刻むようになる前に参加した端末のほか、DB を作り直した端末や、`cloud.json` だけを写した試しの `HANGAR_HOME` も当たる。
+段 1 で、これは古い版のための分岐ではないと判断して残した。
+消すと、区切りの行が無い端末は 0（区切りなし）と読み、手元の本文を全部上げる。
 使う値は `cloud.json` の `joinedAt` で、それを読めない古い設定のときだけ今の時刻にする。
-`joinedAt` は参加し直しと秘密の作り直しで今の時刻へ書き換わるが、読むのは区切りが 1 つも無いときだけなので、書き換わった値が入るのは「CLI が刻むようになる前の設定で参加し直した端末」に限られる。
+`joinedAt` は参加し直しと秘密の作り直しで今の時刻へ書き換わるが、読むのは区切りが 1 つも無いときだけなので、書き換わった値が入るのは、区切りの行が無い端末に限られる。
 その端末では、参加し直した時点が新しい区切りになる。
 区切りは一度刻んだら動かさないので、それ以降は後ろへ動かない。
 行が無いときも 0 として読むので、刻む前の端末の振る舞いは変わらない。
@@ -2453,10 +2444,10 @@ heartbeat は 30 秒ごとの push で更新する。
 控えが取れなければ `~/.claude` を触らずに戻る。
 手元の方が大きいか同じときは、黙って上書きしない。
 
-**引き継ぎは実装していない。**
-2026-09-19 の判断で、ロックの表示と「この PC で再開」までに絞り、`takeover_requests` を使った握手は後のフェーズへ送った。
-2 台で使う実感が無いまま、同期の中でいちばん複雑な部分を作らないためである。
-`takeover_requests` の表と `Intent` の `session.takeover` は残っているが、誰も書かず誰も出さない。
+**引き継ぎは作らない。**
+2026-09-19 の判断で、ロックの表示と「この PC で再開」までに絞った。
+段 1（2026-10-07）で、型、Intent、ServerEvent を消し、`takeover_requests` を共有テーブルの一覧からも外した。
+表は v1 のマイグレーションに残るが、誰も書かず、同期でも運ばない。
 `EndReason` に `taken_over` は足していない。
 引き継ぎが無いので、他端末の run はこちらの操作では止まらない。
 「この PC で再開」は本文を降ろして手元で新しい run を立てるだけなので、同じセッションの本文が 2 か所で伸びうる。
@@ -2490,7 +2481,7 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 - **フェーズ 1**：サーバ、インデクサ、読み取り専用の UI。Projects、セッション一覧、トランスクリプト、Sessions（検索）、土台の要約。計画は `docs/plans/phase1-readonly.md`。
 - **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。計画は `docs/plans/phase2-launch.md`。
 - **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。併せて、鍵付きの入口と入口の 3 つの検査（Origin、`Sec-Fetch-Site`、`Content-Type`）を入れた。計画は `docs/plans/phase3-workbench.md`。
-- **フェーズ 4**：クラウド同期。Worker と D1 と R2 の setup、メタデータと本文と Claude Code 設定の同期、無料枠の見張り、他端末のロックと「この PC で再開」まで実装した。引き継ぎの握手は作らず、後のフェーズへ送った。計画は `docs/plans/phase4-sync.md`、実物での確認は `docs/plans/phase4-real-run.md`。
+- **フェーズ 4**：クラウド同期。Worker と D1 と R2 の setup、メタデータと本文と Claude Code 設定の同期、無料枠の見張り、他端末のロックと「この PC で再開」まで実装した。引き継ぎの握手は作らなかった（段 1 で作らないと決めた）。計画は `docs/plans/phase4-sync.md`、実物での確認は `docs/plans/phase4-real-run.md`。
 - **フェーズ 5**：デスクトップ配布。Tauri v2 のシェル、サーバの同梱と子プロセスとしての起動、Node の探索、`hangar://` のディープリンク、タグから `.app` を作る Releases のワークフローまで実装した。署名と公証は行わない。計画は `docs/plans/phase5-desktop.md`。
 
 ## 会話の保持期間
@@ -2516,7 +2507,6 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - Claude 側で利用者が付けた名前（`nameSource` が `user`）は、hangar が保持する名前より優先する。
 - `history.jsonl` にあって本文ファイルが見つからないセッションは、一覧に「本文なし」として出す。
 - 初回索引は背景で走らせ、UI は「N / 総数 件」の静的な文字で進行を示す。
-- Provider の第二弾は OpenCode で、`~/.local/share/opencode/opencode.db` を読む。Codex は CLI が無いため対象にしない。
 - 意味検索は持たないが、LM Studio に埋め込みモデルがあるので、将来ローカルで追加できる。
 - `event_index` の一意制約は `(session_id, ifnull(parent_agent, ''), seq)`。サブエージェントの本文は別ファイルで独立に伸びるので、主線と `seq` の空間を分ける。
 - 端末ローカルのテーブル `session_stats` を持つ。ターン数、モデル、effort、変更ファイル数、PR の URL、トークン数、最後の発言を索引から導出して置き、共有しない。
@@ -2554,7 +2544,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - スクラッチの擬似プロジェクト：端末ごとに 1 つで、名前は「スクラッチ」、この端末の `project_roots.path` は `~/.agent-hangar/scratch`。ディレクトリ名は `<yyyymmdd-HHmmss>`（ローカル時刻、同じ秒に 2 つ作るときは `-2`、`-3`）。Projects 画面と Home のカードにはこの行を出さず、Sessions 画面の絞り込みには出す。
 - スクラッチかどうかの判定は、スクラッチのルートの下にあるかで行い、ルート自身は含めない。`scratch_root` は `project_roots` を端末で絞って引く。
 - 昇格：`POST /api/sessions/:id/promote { name, gitInit, moveFiles }`。`name` は `/` を含まない 1 字以上で、`<workspaceRoot>/<name>` が既にあれば 409。移動は先に全件の衝突を調べてから `fs.renameSync` で行い、途中で失敗したら逆順に戻す。`moveFiles` が真でも run が生きていれば移動せず、`moved: false` と理由を返す。
-- プロジェクトの作成：`POST /api/projects` は本文を 2 つの形で受ける。`{ kind: 'newDir', name, gitInit }` は `<workspaceRoot>/<name>` を作り（`git init` は選ばれたときだけ）、プロジェクト行とこの端末の `project_roots` を作って 201 を返す。名前の検証、既にあれば 409、`git init` に失敗したら作ったものを片付けることは、昇格と同じ `createProjectDir` を通る。`{ kind: 'dir', path, name? }` は既存のディレクトリを登録し（`registerProjectDir`）、新しければ 201、登録済みなら 200 で既存を返す。名前を省くと basename になり、アーカイブされたプロジェクトなら Active に戻す。先頭の `~/` はホームに直し、相対パスと、ワークスペースのルートやその上のフォルダ（`/` を含む）は 400 で断る。ルートを登録すると最も長い一致でワークスペースの下のセッションをすべて取り込み、直下のフォルダの自動の登録も止まるためである（Finder で何も選ばずに「開く」を押すとルートが返る）。`kind` の無い `{ name, path }` も `dir` として受ける。
+- プロジェクトの作成：`POST /api/projects` は本文を 2 つの形で受ける。`{ kind: 'newDir', name, gitInit }` は `<workspaceRoot>/<name>` を作り（`git init` は選ばれたときだけ）、プロジェクト行とこの端末の `project_roots` を作って 201 を返す。名前の検証、既にあれば 409、`git init` に失敗したら作ったものを片付けることは、昇格と同じ `createProjectDir` を通る。`{ kind: 'dir', path, name? }` は既存のディレクトリを登録し（`registerProjectDir`）、新しければ 201、登録済みなら 200 で既存を返す。名前を省くと basename になり、アーカイブされたプロジェクトなら Active に戻す。先頭の `~/` はホームに直し、相対パスと、ワークスペースのルートやその上のフォルダ（`/` を含む）は 400 で断る。ルートを登録すると最も長い一致でワークスペースの下のセッションをすべて取り込み、直下のフォルダの自動の登録も止まるためである（Finder で何も選ばずに「開く」を押すとルートが返る）。`kind` の無い本文は 400 で断る。
 - 未登録のフォルダの一覧：`GET /api/workspace/dirs` は、ワークスペース直下の隠しでなく、この端末で登録済みのルートに当たらないディレクトリを、名前順に `{ name, path }[]` で返す。比較は `normalizeDir`（NFC）でそろえる。一覧から削除したプロジェクトのフォルダは、ルートが論理削除されているので未登録に数える。
 - その場の登録：サーバの `sessionChanged` で、未分類のセッションを紐づけられなかったとき、cwd がワークスペース直下のディレクトリ（またはその下）で、実在し、隠しでなく、まだ登録されていなければ、起動時の `syncProjectsFromWorkspace` と同じ規則でプロジェクトにし（`registry.ts` の `registerWorkspaceChildOf`）、紐づけ直して `project.upsert` と `session.upsert` を配る。同じセッションで何度も試さない。起動の途中は行わない（起動時の全走査は `syncProjectsFromWorkspace` が受け持つ）。当たらなかった cwd だけが、これまでどおりトーストで知らされる。
 - フォルダ選択の殻の命令：`pick_folder(default_path)` は `blocking_pick_folder` で macOS のフォルダ選択を開き、選んだパスか、取り消しなら null を返す。頁に与える権限は `allow-pick-folder` の 1 つだけで（`capabilities/remote-pick-folder.json`）、プラグインの JS の権限は与えない。UI の `DesktopBridge.pickFolder` は殻の外では口が無く、Finder の操作を出さない。
@@ -2568,7 +2558,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 要約の配信が失敗しても待ち行列は進める。配信の失敗は 1 行だけ記録し、次のジョブを止めない。
 - Claude への切り替えの上限：呼び出しの時刻をメモリに持ち、直近 1 時間の件数が上限に達していれば使わない。週の枠の使用率が 80 以上でも使わず、`claude` が PATH に無ければ使わない。サーバを再起動すると件数は 0 に戻る。
 - MCP の `update_project` の TODO の書き込みは、全部成功か全部失敗のどちらかにする。途中で失敗したものが残ったままイベントだけ配られないようにするためである。
-- `GET /api/bootstrap` は `usage`、`todos`（全プロジェクトの未削除）、`artifacts`（全件）、`summaryPending`（作成中のセッション ID）も返す。メモの全文は含めない。
+- `GET /api/bootstrap` は `accounts`（使用率はアカウントごとにここに載る）、`todos`（全プロジェクトの未削除）、`artifacts`（全件）、`summaryPending`（作成中のセッション ID）も返す。メモの全文は含めない。
 - UI の CSS は `base.css` に足さず、View ごとのファイル（`workbench.css`、`split.css`、`rows.css`、`palette.css`、`settings.css`）に分けて `main.tsx` から `base.css` の後に読み込む。
 - 要約の出所：`session_summaries.source_id` に書いた要約器の id（`lmstudio` か `claude-headless`）、`source_model` にモデルの名前だけを置く。土台の要約とセッション自身の要約はどちらも null にする。`source_id` が無かった頃の行は null のままにして、UI は要約器を「不明」と出す。モデル名から種類を推し量って焼き付けることはしない。
 - サーバの終了：`close()` は HTTP と WebSocket を畳んだ後、走っている要約のジョブが終わるまで最大 5 秒待ってから DB を閉じる。要約は DB に書き込むので、待たずに閉じると閉じた DB に触れることになる。5 秒で終わらなければ 1 行記録して待たずに閉じる。
@@ -2580,7 +2570,6 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - `follow` は永続化しない：`SessionViewState` の保存の形から `follow` を落とし、読み戻すときにも落として既定の真に戻す。上へ一度スクロールしただけで `follow: false` が焼き付き、次からそのセッションが最古の側で開くのを避ける。
 - 要約の帯の「詳細」：本文と次の一手に加えて、出所（土台、セッション内、事後）、要約器の種類とモデル名、何ターン時点か、生成の時刻を出す。要約器を通していない要約は種類とモデル名の札を出さない。
 - `store.events`：開いていないセッションのトランスクリプトを落とす。古いページを削るのではないので、「もっと読む」で遡ったぶんは、そのセッションを開いている限り残る。落としたぶんは、セッション画面に入るたび先頭から読み直すので取り直される。
-- 古いサーバの `bootstrap`：フェーズ 3 で増えた項目（`usage`、`todos`、`artifacts`、`summaryPending`）が欠けていても画面は立つ。欠けた項目は空として埋め、版が古いことは画面に出さない。
 - `palette.run` が閉じるのはパレット自身だけにする。別のダイアログが開いている間に走っても、そのダイアログは閉じない。ダイアログを開く行（新しいセッション、スクラッチ、キーの一覧）も、そのダイアログを差し替えない。画面を移す行（プロジェクト、セッション、移動、全文検索、設定）も、その裏では移さない。
 - `promote.done` と `promote.failed` は、昇格の最中（`promote` が `submitting`）でなければ何もしない。遅れて届いた結果で状態を書き換えないためである。
 - 未解決のプロジェクトで「あとで」を選んだら、同じ起動の間はもう聞かない。覚えるのは Mediator の状態だけで永続化しないので、立て直せばまた聞く。利用者が自分で開きにきたときは覚えを忘れて出す。
@@ -2596,7 +2585,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 端末ローカルの `file_sync` で、上げ下ろしの最後の SHA-256 を持つ。指紋は上げる側も降ろす側も、圧縮と暗号化の前の平文のものである。
 - 本文は差分ではなくファイル全体を上げ直す。R2 が部分更新を持たないためである。
 - 設定の R2 の鍵にも端末 ID を入れて `config/<端末 ID>/<相対パス>` にする。入れずに実物で 2 台を動かすと、同じ鍵を奪い合って、負けた端末が「SHA-256 が一致しません」で永久に取り込めなくなった（2026-09-19 の実物確認で判明）。
-- 引き継ぎの握手は `takeover_requests` の同期に乗せる設計だが、フェーズ 4 では実装しなかった。ロックの表示と「この PC で再開」までに絞った（2026-09-19 の判断）。`EndReason` に `taken_over` は足さない。
+- 引き継ぎの握手は作らない。ロックの表示と「この PC で再開」までに絞った（2026-09-19 の判断）。段 1 で型と共有テーブルの一覧からも外した。`EndReason` に `taken_over` は足さない。
 - ロックは他端末の生きた run で引き、heartbeat の新旧では解かない。2 分を超えたら `stale` を立て、そのときだけ「この PC で再開」を押せるようにする。
 - 同期は自分の端末同士のためのもので、他人と 1 つの箱を共有しない。別の人は自分の Cloudflare アカウントで `setup cloud` を走らせる。
 - 無料枠の 80% で同期を自動で一時停止し、トーストで知らせる。課金される形にはしない。止めるのは 1 日に 1 度だけにする。
@@ -2675,7 +2664,5 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 未決事項は次のとおりである。
 
 - 権限確認ダイアログの待ちがレジストリで `waiting` になるか `busy` のままかは、auto モード以外で確かめる。
-- OpenCode Provider の詳細設計。フェーズ 5 以降に別文書で書く（フェーズ 3 では扱わなかった）。
-- 引き継ぎの握手。`takeover_requests` を使う設計はこの文書に残したまま、実装は後のフェーズへ送った。2 台で使い続けて、本文の枝分かれが実際に困るかどうかを見てから決める。
 - 使わなくなった端末の始末。`transcripts/<端末 ID>/` と `config/<端末 ID>/` と `devices` の行を畳む操作が無い。
 - `findSession` と `ensureSession` が `deleted_at` を見ていないこと。削除の見え方そのものを変える話なので、手元と写しで規則がずれないように一度にまとめて直す。

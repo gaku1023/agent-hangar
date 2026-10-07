@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -7,6 +7,7 @@ import { getSessionState, proposeSessionState, rejectSessionState, setSessionSta
 import { IndexerService } from '../indexer/service.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { isSummaryStale, SummaryJob } from './job.ts';
+import type { SummaryEnqueueOpts } from '../http/app.ts';
 import { SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput, type SummaryProposal } from './types.ts';
 
 let dir: string; let db: Db; let alphaId: string;
@@ -58,7 +59,7 @@ describe('SummaryJob', () => {
     expect(upsert?.type === 'session.upsert' && upsert.session.summary).toMatchObject({ sourceId: 'lmstudio', sourceModel: 'qwen3-27b' });
     expect(sent.map((e) => e.type)).toEqual(['summary.pending', 'session.upsert', 'summary.updated']);
     expect(job.enqueue(alphaId)).toBe(false);     // もう stale ではない
-    expect(job.enqueue(alphaId, true)).toBe(true);
+    expect(job.enqueue(alphaId, { force: true })).toBe(true);
     await job.idle();
   });
   it('使えない要約器を飛ばし、失敗したら次へ。全部だめなら summary.failed', async () => {
@@ -77,18 +78,18 @@ describe('SummaryJob', () => {
     const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 1 }];
     const job = make([fake('lmstudio')], live);
     expect(job.enqueue(alphaId)).toBe(false);
-    expect(job.enqueue(alphaId, true)).toBe(true);
+    expect(job.enqueue(alphaId, { force: true })).toBe(true);
     await job.idle();
     const beta = (db.prepare("select id from sessions where provider_session_id = 'aaaaaaaa-0000-4000-8000-000000000002'").get() as { id: string }).id;
-    expect(job.enqueue(beta, true)).toBe(false);
+    expect(job.enqueue(beta, { force: true })).toBe(false);
   });
   it('配信が失敗しても待ち行列は進む', async () => {
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     const boom = { broadcast: (e: ServerEvent) => { sent.push(e); throw new Error('socket closed'); } };
     const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [fake('lmstudio')], live: () => [], hub: boom });
     const other = (db.prepare("select id from sessions where provider_session_id = 'aaaaaaaa-0000-4000-8000-000000000003'").get() as { id: string }).id;
-    expect(job.enqueue(alphaId, true)).toBe(true);
-    expect(job.enqueue(other, true)).toBe(true);
+    expect(job.enqueue(alphaId, { force: true })).toBe(true);
+    expect(job.enqueue(other, { force: true })).toBe(true);
     await job.idle();
     expect(job.pending()).toEqual([]);
     for (const id of [alphaId, other]) {
@@ -115,14 +116,14 @@ describe('SummaryJob', () => {
   });
   it('モデル名を言わない要約器なら source_model は null で、source_id だけが残る', async () => {
     const job = make([fake('lmstudio')]);
-    job.enqueue(alphaId, true);
+    job.enqueue(alphaId, { force: true });
     await job.idle();
     expect(db.prepare('select source_id, source_model from session_summaries where session_id = ?').get(alphaId)).toEqual({ source_id: 'lmstudio', source_model: null });
   });
   it('直列に走り、test は DB に書かない', async () => {
     const job = make([fake('lmstudio', { delayMs: 20, model: 'qwen3-27b' })]);
     const beta = (db.prepare("select id from sessions where provider_session_id = 'aaaaaaaa-0000-4000-8000-000000000003'").get() as { id: string }).id;
-    job.enqueue(alphaId, true); job.enqueue(beta, true);
+    job.enqueue(alphaId, { force: true }); job.enqueue(beta, { force: true });
     expect(job.pending()).toEqual([alphaId, beta]);
     await job.idle();
     expect(sent.filter((e) => e.type === 'summary.updated').map((e) => (e as { sessionId: string }).sessionId)).toEqual([alphaId, beta]);
@@ -141,7 +142,7 @@ describe('事後の要約からの状態の提案', () => {
   const proposing = (proposal?: SummaryProposal): Summarizer => ({ id: 'lmstudio', available: async () => true, summarize: async () => (proposal ? { ...out, proposal } : out) });
   const runWith = async (s: Summarizer, live: LiveSessionDto[] = []) => {
     const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [s], live: () => live, hub: { broadcast: (e) => sent.push(e) }, now: () => NOW });
-    expect(job.enqueue(alphaId, true)).toBe(true);
+    expect(job.enqueue(alphaId, { force: true })).toBe(true);
     await job.idle();
   };
 
@@ -193,5 +194,12 @@ describe('事後の要約からの状態の提案', () => {
     expect(getSessionState(db, alphaId)?.candidate ?? null).toBeNull();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+describe('要約の受け付け方', () => {
+  it('force は { force: true } で渡し、真偽値は受けない', () => {
+    expectTypeOf<SummaryEnqueueOpts>().toEqualTypeOf<{ force?: boolean; ignoreLive?: boolean }>();
+    expectTypeOf<Parameters<SummaryJob['enqueue']>[1]>().toEqualTypeOf<{ force?: boolean; ignoreLive?: boolean } | undefined>();
   });
 });

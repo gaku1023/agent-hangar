@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, DeviceDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -83,7 +83,6 @@ export type ApiClient = {
   summarizerModels(): Promise<{ models: string[] }>;
   testSummarizer(): Promise<SummarizerTestDto>;
   // ここから下はクラウド同期（フェーズ 4）である。
-  syncStatus(): Promise<SyncStatusBody>;
   /** 設定の「使用量と費用」。refresh なら取り直す（サーバは一時停止の間は取りに行かず最後の値を返す）。 */
   syncUsage(refresh: boolean): Promise<CloudUsageDto | null>;
   syncNow(): Promise<SyncStatusBody>;
@@ -95,7 +94,6 @@ export type ApiClient = {
   joinToken(): Promise<{ token: string | null }>;
   configPreview(): Promise<ConfigPreviewDto>;
   configPull(): Promise<{ applied: number; conflicts: number }>;
-  devices(): Promise<DeviceDto[]>;
   // 会話の保持期間。書き込みは下見の指紋を添え、ほかで変わっていたら 409 で断られる。
   retention(): Promise<RetentionDto>;
   retentionPreview(days: number): Promise<RetentionPreviewDto>;
@@ -189,7 +187,6 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     regenerateSummary: (sessionId) => post(`/api/sessions/${sessionId}/summarize`),
     summarizerModels: () => call('/api/summarizer/models'),
     testSummarizer: () => post('/api/summarizer/test'),
-    syncStatus: () => call('/api/sync/status'),
     syncUsage: (refresh) => call(refresh ? '/api/sync/usage?refresh=1' : '/api/sync/usage'),
     syncNow: () => post('/api/sync/now'),
     syncPause: (paused) => post('/api/sync/pause', { paused }),
@@ -198,7 +195,6 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     joinToken: () => call('/api/sync/joinToken'),
     configPreview: () => call('/api/sync/config/preview'),
     configPull: () => post('/api/sync/config/pull'),
-    devices: () => call('/api/devices'),
     retention: () => call('/api/retention'),
     retentionPreview: (days) => post('/api/retention/preview', { days }),
     writeRetention: (days, baseSha256) => call('/api/retention', { method: 'PUT', body: JSON.stringify({ days, baseSha256 }) }),

@@ -1,7 +1,7 @@
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
 
 export function defaultSessionView(): SessionViewState {
-  return { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, livePaneSplit: null, openTurn: null, turnJump: null, find: null, jump: null };
+  return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, livePaneSplit: null, openTurn: null, turnJump: null, find: null, jump: null };
 }
 
 /**
@@ -152,7 +152,6 @@ export function sessionViewStep(state: State, input: Input): Step | null {
     case 'transcript.showThinking': return patch(state, i.sessionId, { showThinking: i.show });
     case 'transcript.showRaw': return patch(state, i.sessionId, { showRaw: i.show });
     case 'transcript.follow': return patch(state, i.sessionId, { follow: i.follow });
-    case 'summary.toggle': return patch(state, i.sessionId, { summaryOpen: !viewOf(state, i.sessionId).summaryOpen });
     case 'transcript.loadMore': return { state, effects: [{ kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: -1 }] };
     case 'transcript.loadNewer': return { state, effects: [{ kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: -2 }] };
     case 'transcript.find': {

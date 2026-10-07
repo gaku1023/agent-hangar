@@ -9,7 +9,7 @@ export const ASIDE_FREE = '指揮役は入力を受け付けている';
  * 本体は入力を受け付けていて、裏の作業だけが動いているなら、その印を返す。
  * 入力待ちと休みは本体の状態のほうが強いので、印があっても裏だけとは読まない。
  */
-export function asideOf(live: LiveStatus | null, aside: LiveAsideDto | null | undefined): LiveAsideDto | null {
+export function asideOf(live: LiveStatus | null, aside: LiveAsideDto | null): LiveAsideDto | null {
   return live === 'busy' && aside ? aside : null;
 }
 
