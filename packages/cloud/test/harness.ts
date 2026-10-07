@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
-import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
+import { bindingNames, bundleWorker, workerMetadata } from '../scripts/build-worker.ts';
 import type { Env } from '../src/env.ts';
 
 /**
@@ -23,23 +23,14 @@ export type CloudHarness = {
 };
 
 // URL の pathname は Windows で /D:/... になり、esbuild が解決できない。
-const ENTRY = fileURLToPath(new URL('../src/index.ts', import.meta.url));
+const CLOUD_DIR = fileURLToPath(new URL('..', import.meta.url));
 const BUNDLE_PATH = fileURLToPath(new URL('../src/index.bundle.js', import.meta.url));
 
 let bundled: Promise<string> | null = null;
 
-/** Worker を 1 つの ESM に束ねる。テストのファイルごとに 1 回で足りる。 */
+/** Worker を 1 つの ESM に束ねる。配布版に同梱する cloud/worker.mjs と同じ束である。テストのファイルごとに 1 回で足りる。 */
 function workerScript(): Promise<string> {
-  bundled ??= build({
-    entryPoints: [ENTRY],
-    bundle: true,
-    format: 'esm',
-    platform: 'browser',
-    conditions: ['workerd', 'worker', 'browser'],
-    mainFields: ['workerd', 'browser', 'module', 'main'],
-    target: 'es2022',
-    write: false,
-  }).then((r) => r.outputFiles[0]!.text);
+  bundled ??= bundleWorker(CLOUD_DIR);
   return bundled;
 }
 
@@ -47,14 +38,16 @@ function workerScript(): Promise<string> {
 export async function startCloud(options: { JOIN_SECRET_HASH?: string; bindings?: Record<string, string>; outbound?: (req: Request) => Response | Promise<Response> } = {}): Promise<CloudHarness> {
   const script = await workerScript();
   const joinSecretHash = options.JOIN_SECRET_HASH ?? '';
+  const meta = workerMetadata(CLOUD_DIR);
   const mf = new Miniflare({
     modules: true,
     script,
     scriptPath: BUNDLE_PATH,
-    compatibilityDate: '2026-08-01',
-    compatibilityFlags: ['nodejs_compat'],
-    d1Databases: ['DB'],
-    r2Buckets: ['BUCKET'],
+    // 互換の日付と旗と束縛の名前は、配布版に同梱する metadata.json と同じ定義から取る。
+    compatibilityDate: meta.compatibility_date,
+    compatibilityFlags: meta.compatibility_flags,
+    d1Databases: bindingNames(meta, 'd1'),
+    r2Buckets: bindingNames(meta, 'r2_bucket'),
     bindings: { JOIN_SECRET_HASH: joinSecretHash, ...options.bindings },
     // Worker から外への fetch を受ける。渡さなければ外へは出ない（試験は実物の Cloudflare に触らない）。
     outboundService: options.outbound ?? (() => new Response('outbound fetch is not allowed in tests', { status: 599 })),

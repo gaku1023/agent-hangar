@@ -1,10 +1,11 @@
 import { Command } from 'commander';
-import { claudeJsonPath, defaultClaudeDir, hangarHome, installShutdown, loadSettings, readOrCreateDevice, readOrCreateToken, startServer } from '@agent-hangar/server';
+import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken } from '@agent-hangar/server/src/cliEntry.ts';
 import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
-import { oneLineError, probeHealth, serverDownMessage, startErrorMessage } from './probe.ts';
+import { oneLineError, probeHealth, serverDownMessage } from './probe.ts';
 import { formatSetupReport, runSetup, whichCmd } from './setup.ts';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
+import { runStart } from './start.ts';
 import { runStatuslineInstall } from './statusline.ts';
 import { entryUrl, openInBrowser } from './url.ts';
 
@@ -109,24 +110,20 @@ program
   .option('--port <n>', 'ポート', '4177')
   .option('--no-open', 'ブラウザを開かない')
   .action(async (o: { port: string; open: boolean }) => {
-    let s: Awaited<ReturnType<typeof startServer>>;
-    const startup = startServer({ port: Number(o.port) });
-    // 受け口は解決を待たずに立てる。理由は packages/server/src/main.ts と同じである。
-    installShutdown(startup);
-    try {
-      s = await startup;
-    } catch (e) {
-      // 生のスタックを 11 行出しても、次に何をすればよいかは分からない。
-      console.error(startErrorMessage(e, Number(o.port)));
-      process.exit(1);
-    }
-    // 鍵は端末にだけ印字する。サーバのログには載せない。見直したくなったら hangar url で出せる。
-    const url = entryUrl(s.port, readOrCreateToken(hangarHome()));
-    console.log('');
-    console.log(`この URL から開いてください: ${url}`);
-    console.log('鍵はページを開いた時点でクッキーに変わり、URL からは消えます。以後はブックマークから開けます。');
-    console.log('この URL を出し直すには hangar url を実行してください。');
-    if (o.open) openInBrowser(url);
+    const port = Number(o.port);
+    // サーバは子プロセスで起こす（start.ts）。CLI がサーバのコードを import すると、cli.mjs にサーバが二重に入る。
+    process.exitCode = await runStart({
+      port,
+      onReady: () => {
+        // 鍵は端末にだけ印字する。サーバのログには載せない。見直したくなったら hangar url で出せる。
+        const url = entryUrl(port, readOrCreateToken(hangarHome()));
+        console.log('');
+        console.log(`この URL から開いてください: ${url}`);
+        console.log('鍵はページを開いた時点でクッキーに変わり、URL からは消えます。以後はブックマークから開けます。');
+        console.log('この URL を出し直すには hangar url を実行してください。');
+        if (o.open) openInBrowser(url);
+      },
+    });
   });
 
 program
