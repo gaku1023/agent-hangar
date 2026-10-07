@@ -345,8 +345,9 @@ describe('新しいセッションの下書きと前回値', () => {
     const r = run([intent({ type: 'session.new.draft', name: 'n', prompt: '' })]);
     expect(r.state.newSessionDraft).toEqual({ name: 'n', prompt: '', attachments: [] });
   });
-  it('readDraft は、古い形（添付なし）を空の添付として読み、形の違う添付は捨てる', () => {
-    expect(readDraft({ name: 'n', prompt: 'p' })).toEqual({ name: 'n', prompt: 'p', attachments: [] });
+  it('readDraft は、添付の配列が無い古い形を捨て、形の違う添付は捨てる', () => {
+    expect(readDraft({ name: 'n', prompt: 'p' })).toBeNull();
+    expect(readDraft({ name: 'n', prompt: 'p', attachments: 'x' })).toBeNull();
     expect(readDraft({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: null }, { path: 1 }, 'x', { path: '/b', name: 'b', size: 2 }] })).toEqual({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: null }, { path: '/b', name: 'b', size: 2 }] });
     // 空のパスは捨て、同じパスは 1 件にする（手で書き換えられた保存値が、札の key の重複にならないように）。
     expect(readDraft({ name: 'n', prompt: 'p', attachments: [{ path: '', name: 'e', size: null }, { path: '/a', name: 'a', size: 1 }, { path: '/a', name: 'a2', size: 2 }] })).toEqual({ name: 'n', prompt: 'p', attachments: [{ path: '/a', name: 'a', size: 1 }] });
