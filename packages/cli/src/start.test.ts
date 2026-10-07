@@ -165,11 +165,12 @@ describe('runStart', () => {
   it('子に HANGAR_PORT と HANGAR_PARENT_PID を渡し、/health が ready を返したら onReady を 1 度だけ呼び、子が終わるまで待つ', async () => {
     const port = await deadPort();
     // サーバの代わりの小さな子。親の PID を受け取れていなければ 4 で終わる。
-    // 渡されたポートで ready を返し、少ししてから 0 で終わる。
+    // 渡されたポートで ready を返し、最初の ready を返し終えてから少しして 0 で終わる。
+    // 待ち受けてからの時間で終わらせると、遅い機械では CLI が ready を見る前に子が終わってしまう。
     const script = [
       "if (process.env.HANGAR_PARENT_PID !== String(process.ppid)) process.exit(4);",
-      "const s = require('node:http').createServer((q, r) => { r.writeHead(200, { 'content-type': 'application/json' }).end('{\"ok\":true,\"ready\":true}'); });",
-      "s.listen(Number(process.env.HANGAR_PORT), '127.0.0.1', () => setTimeout(() => process.exit(0), 800));",
+      "const s = require('node:http').createServer((q, r) => { r.writeHead(200, { 'content-type': 'application/json' }).end('{\"ok\":true,\"ready\":true}', () => setTimeout(() => process.exit(0), 150)); });",
+      "s.listen(Number(process.env.HANGAR_PORT), '127.0.0.1');",
     ].join('\n');
     const onReady = vi.fn();
     const code = await runStart({ port, onReady, args: ['-e', script] });
