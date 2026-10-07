@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SyncStatusBody } from '@agent-hangar/shared';
 import type { Input } from './types.ts';
-import { NOT_YET } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
@@ -269,11 +268,6 @@ describe('その他', () => {
     expect(effects[0]).toEqual({ kind: 'api.setProjectStatus', projectId: 'p1', status: 'paused' });
     expect(effects[1]).toEqual({ kind: 'api.updateSettings', patch: { workspaceRoot: '/w' } });
     expect(effects[2]).toEqual({ kind: 'api.rebuildIndex' });
-  });
-  it('次のフェーズの操作はトーストで知らせる', () => {
-    const { state, effects } = run([intent({ type: 'session.takeover', id: 's1', force: false })]);
-    expect(effects).toEqual([{ kind: 'toast', level: 'info', message: 'この操作は次のフェーズで実装します' }]);
-    expect(state).toEqual(initialState());
   });
 });
 
@@ -1227,11 +1221,9 @@ describe('この PC で再開', () => {
     const b = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's2', localSize: 3, remoteSize: 4 })], a.state);
     expect(b.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's2', localSize: 3, remoteSize: 4 } });
   });
-  it('同期の操作は未実装の案内を出さないが、引き継ぎは出す', () => {
+  it('同期の操作は未実装の案内を出さない', () => {
     expect(run([intent({ type: 'sync.now' })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
     expect(run([intent({ type: 'sync.pause', paused: false })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
-    // 引き継ぎはこのフェーズでは実装しないので、NOT_YET_INTENTS に残っている。
-    expect(run([intent({ type: 'session.takeover', id: 's1', force: false })]).effects).toEqual([{ kind: 'toast', level: 'info', message: NOT_YET }]);
   });
 });
 

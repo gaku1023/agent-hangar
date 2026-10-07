@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, ConfigPreviewDto, DeviceDto, Intent, LaunchResultDto, MemoDto, PromoteResultDto, RunDto, ServerEvent, SessionDto, SessionLockDto, SettingsDto, SummarizerTestDto, SyncStatusBody, SyncStatusDto, TabDto, TodoDto, UsageDto } from './index.ts';
 
 describe('フェーズ 2 の DTO', () => {
@@ -69,5 +69,12 @@ describe('フェーズ 4 の DTO', () => {
   it('この PC で再開と設定の同期の Intent がある', () => {
     const is: Intent[] = [{ type: 'session.resumeHere', id: 's1' }, { type: 'session.resumeHere', id: 's1', overwrite: true }, { type: 'sync.config.preview' }, { type: 'sync.config.apply' }, { type: 'sync.joinToken.show' }];
     expect(is).toHaveLength(5);
+  });
+});
+
+describe('引き継ぎを消した後', () => {
+  it('引き継ぎの Intent と ServerEvent は無い', () => {
+    expectTypeOf<Extract<Intent, { type: 'session.takeover' | 'session.takeover.cancel' }>>().toBeNever();
+    expectTypeOf<Extract<ServerEvent, { type: 'takeover.update' }>>().toBeNever();
   });
 });

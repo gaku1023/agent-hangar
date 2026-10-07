@@ -82,9 +82,7 @@ export type Intent =
    */
   | { type: 'session.openFile'; sessionId: SessionId; path: string }
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
-  | { type: 'session.takeover'; id: SessionId; force: boolean }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
-  | { type: 'session.takeover.cancel'; id: SessionId }
   | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
   | { type: 'sync.joinToken.show' }
   | { type: 'summary.toggle'; sessionId: SessionId } | { type: 'summary.regenerate'; sessionId: SessionId }

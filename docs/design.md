@@ -99,7 +99,7 @@ Root
 │     └─ SettingsScreen     各設定セクション
 └─ Overlays
    ├─ CommandPalette
-   ├─ NewSessionDialog / NewProjectDialog / PromoteDialog / ResolveProjectDialog / TakeoverDialog
+   ├─ NewSessionDialog / NewProjectDialog / PromoteDialog / ResolveProjectDialog
    └─ ToastStack
 ```
 
@@ -177,8 +177,6 @@ type Intent =
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
   | { type: 'session.promote.open'; id: SessionId }
   | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
-  | { type: 'session.takeover'; id: SessionId; force: boolean }
-  | { type: 'session.takeover.cancel'; id: SessionId }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
   | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
   | { type: 'sync.joinToken.show' }
@@ -197,9 +195,7 @@ type Intent =
   | { type: 'settings.update'; patch: Partial<Settings> } | { type: 'summarizer.test' };
 ```
 
-`session.takeover` と `session.takeover.cancel` は型にあるだけで、これを出すボタンはどの View にも無い。
-引き継ぎをフェーズ 4 で作らなかったためである（後述）。
-押しても何も起きない口を生やさないために、View からは `session.resumeHere` だけを出す。
+他端末で動いているセッションに対して View が出すのは `session.resumeHere` だけで、引き継ぎの握手の Intent は持たない（後述）。
 
 `transcript.follow` の `follow: false` は、利用者が自分でスクロールを上げたときだけ発行する。
 末尾へ送るスムーズスクロールの途中では発行しない。
@@ -222,7 +218,7 @@ type Intent =
 領域ごとに小さな状態機械を書き、`transition` はそれらを合成する。
 
 - `screen`：`booting | home | projects | project(id) | session(id) | sessions(query) | settings`。
-- `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。引き継ぎのダイアログは作らなかったので `takeover(sessionId)` は無い。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
+- `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
 外のターミナルの claude を引き取る確認は `confirm('adoptSession')`、ランを止める確認は `confirm('killRun')`、見つからないプロジェクトを一覧から削除する確認は `confirm('unlinkProject')` である。
 - `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉、要約パネルの開閉。
 - `launch`：`idle | submitting | failed(message)`。場所の指定つきで起動するときは、送信中と失敗の状態が、途中で作れたプロジェクトの id を `createdProjectId` に持つ。
@@ -381,8 +377,8 @@ create table artifact_versions (
   updated_at integer not null, deleted_at integer, origin_device text not null
 );
 
--- 引き継ぎの握手の台帳。state は requested から acked か forced か cancelled へ一方向に進む。
--- フェーズ 4 では誰もこの表に書かない。引き継ぎを作らなかったためである（後述）。
+-- 引き継ぎの握手のために v1 で作った表。握手は作らないと決め、共有テーブルの一覧（SHARED_TABLES）からも外した。
+-- 表はマイグレーションに残るが、誰も書かず、同期でも運ばない。
 create table takeover_requests (
   id text primary key, run_id text not null references runs(id),
   from_device text not null, requested_at integer not null,
@@ -2453,10 +2449,10 @@ heartbeat は 30 秒ごとの push で更新する。
 控えが取れなければ `~/.claude` を触らずに戻る。
 手元の方が大きいか同じときは、黙って上書きしない。
 
-**引き継ぎは実装していない。**
-2026-09-19 の判断で、ロックの表示と「この PC で再開」までに絞り、`takeover_requests` を使った握手は後のフェーズへ送った。
-2 台で使う実感が無いまま、同期の中でいちばん複雑な部分を作らないためである。
-`takeover_requests` の表と `Intent` の `session.takeover` は残っているが、誰も書かず誰も出さない。
+**引き継ぎは作らない。**
+2026-09-19 の判断で、ロックの表示と「この PC で再開」までに絞った。
+段 1（2026-10-07）で、型、Intent、ServerEvent を消し、`takeover_requests` を共有テーブルの一覧からも外した。
+表は v1 のマイグレーションに残るが、誰も書かず、同期でも運ばない。
 `EndReason` に `taken_over` は足していない。
 引き継ぎが無いので、他端末の run はこちらの操作では止まらない。
 「この PC で再開」は本文を降ろして手元で新しい run を立てるだけなので、同じセッションの本文が 2 か所で伸びうる。
@@ -2596,7 +2592,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 端末ローカルの `file_sync` で、上げ下ろしの最後の SHA-256 を持つ。指紋は上げる側も降ろす側も、圧縮と暗号化の前の平文のものである。
 - 本文は差分ではなくファイル全体を上げ直す。R2 が部分更新を持たないためである。
 - 設定の R2 の鍵にも端末 ID を入れて `config/<端末 ID>/<相対パス>` にする。入れずに実物で 2 台を動かすと、同じ鍵を奪い合って、負けた端末が「SHA-256 が一致しません」で永久に取り込めなくなった（2026-09-19 の実物確認で判明）。
-- 引き継ぎの握手は `takeover_requests` の同期に乗せる設計だが、フェーズ 4 では実装しなかった。ロックの表示と「この PC で再開」までに絞った（2026-09-19 の判断）。`EndReason` に `taken_over` は足さない。
+- 引き継ぎの握手は作らない。ロックの表示と「この PC で再開」までに絞った（2026-09-19 の判断）。段 1 で型と共有テーブルの一覧からも外した。`EndReason` に `taken_over` は足さない。
 - ロックは他端末の生きた run で引き、heartbeat の新旧では解かない。2 分を超えたら `stale` を立て、そのときだけ「この PC で再開」を押せるようにする。
 - 同期は自分の端末同士のためのもので、他人と 1 つの箱を共有しない。別の人は自分の Cloudflare アカウントで `setup cloud` を走らせる。
 - 無料枠の 80% で同期を自動で一時停止し、トーストで知らせる。課金される形にはしない。止めるのは 1 日に 1 度だけにする。
@@ -2676,6 +2672,5 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 
 - 権限確認ダイアログの待ちがレジストリで `waiting` になるか `busy` のままかは、auto モード以外で確かめる。
 - OpenCode Provider の詳細設計。フェーズ 5 以降に別文書で書く（フェーズ 3 では扱わなかった）。
-- 引き継ぎの握手。`takeover_requests` を使う設計はこの文書に残したまま、実装は後のフェーズへ送った。2 台で使い続けて、本文の枝分かれが実際に困るかどうかを見てから決める。
 - 使わなくなった端末の始末。`transcripts/<端末 ID>/` と `config/<端末 ID>/` と `devices` の行を畳む操作が無い。
 - `findSession` と `ensureSession` が `deleted_at` を見ていないこと。削除の見え方そのものを変える話なので、手元と写しで規則がずれないように一度にまとめて直す。

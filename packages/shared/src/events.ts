@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, CloudUsageDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TakeoverUpdateDto, TodoDto, UsageDto } from './api.ts';
+import type { AccountsDto, ArtifactDto, CloudUsageDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto, UsageDto } from './api.ts';
 import type { SharedTable } from './cloud.ts';
 
 export type ServerEvent =
@@ -30,7 +30,6 @@ export type ServerEvent =
   /** 設定の「使用量と費用」。端末のサーバが 5 分ごとに取り直して配る。 */
   | { type: 'sync.usage'; usage: CloudUsageDto }
   | { type: 'sync.applied'; table: SharedTable; rowId: string }
-  | { type: 'takeover.update'; update: TakeoverUpdateDto }
   | { type: 'devices.update'; devices: DeviceDto[] }
   | { type: 'retention.changed'; retention: RetentionDto }
   | { type: 'toast'; level: 'info' | 'error'; message: string };

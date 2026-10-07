@@ -319,5 +319,4 @@ export type State = {
   copied: { text: string; n: number } | null;
 };
 export type Step = { state: State; effects: Effect[] };
-export const NOT_YET = 'この操作は次のフェーズで実装します';
 export const ITERM_HINT = 'iTerm2 で開くとき、初回に macOS の自動化の許可ダイアログが出ます';
