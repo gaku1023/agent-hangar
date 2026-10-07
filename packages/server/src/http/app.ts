@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { liveFilterOf, MAX_JUMP_HEADS, newId, PRIMARY_ACCOUNT_ID, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
@@ -345,7 +345,6 @@ export function createApp(deps: AppDeps): Hono {
       live,
       runs: alive.runs,
       tabs: alive.tabs,
-      usage: deps.usage.current(),
       todos: listTodos(db),
       artifacts: listArtifacts(db),
       summaryPending: deps.summary.pending(),
@@ -813,11 +812,8 @@ export function createApp(deps: AppDeps): Hono {
     try { raw = JSON.parse(text); } catch { return c.json({ error: '本文が JSON ではありません' }, 400); }
     const r = deps.usage.ingest(raw);
     if (!r) return c.json({ error: 'statusline の payload の形が違います' }, 400);
-    if (r.usageChanged) {
-      // usage.update は最初のアカウントの値だけを運ぶ（古い画面がそのまま動くため）。ほかのアカウントは accounts.update で配る。
-      if (r.accountId === PRIMARY_ACCOUNT_ID) deps.hub.broadcast({ type: 'usage.update', usage: r.usage });
-      accountsDeps.broadcast(buildAccountsDto(accountsDeps));
-    }
+    // 使用率は、動かしたアカウントの値として accounts.update で配る。最初のアカウントも同じ道で届く。
+    if (r.usageChanged) accountsDeps.broadcast(buildAccountsDto(accountsDeps));
     if (r.providerSessionId) {
       const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(r.providerSessionId) as { id: string } | undefined;
       if (s) broadcastSession(s.id);

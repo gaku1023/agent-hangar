@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, CloudUsageDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto, UsageDto } from './api.ts';
+import type { AccountsDto, ArtifactDto, CloudUsageDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
 export type ServerEvent =
   | { type: 'ready'; version: string }
@@ -12,7 +12,6 @@ export type ServerEvent =
   | { type: 'run.upsert'; run: RunDto }
   | { type: 'run.ended'; run: RunDto }
   | { type: 'tab.upsert'; tab: TabDto }
-  | { type: 'usage.update'; usage: UsageDto }
   | { type: 'accounts.update'; accounts: AccountsDto }
   | { type: 'todos.update'; projectId: string; todos: TodoDto[] }
   | { type: 'memo.update'; memo: MemoDto }

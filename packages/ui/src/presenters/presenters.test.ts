@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { addDays, localDate } from '@agent-hangar/shared';
-import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { toSyncState } from '../mediator/sync.ts';
 import { initialState } from '../mediator/transition.ts';
@@ -45,8 +45,8 @@ describe('format', () => {
   });
   it('ヘッダーの使用率に、枠が戻る時刻を添える', () => {
     const now = new Date(2026, 9, 1, 15, 30).getTime();
-    const store = initialStore();
-    store.usage = { fiveHour: { usedPercent: 28, resetsAt: new Date(2026, 9, 1, 18, 0).getTime() }, sevenDay: { usedPercent: 7, resetsAt: new Date(2026, 9, 4, 9, 0).getTime() }, updatedAt: now };
+    const usage = { fiveHour: { usedPercent: 28, resetsAt: new Date(2026, 9, 1, 18, 0).getTime() }, sevenDay: { usedPercent: 7, resetsAt: new Date(2026, 9, 4, 9, 0).getTime() }, updatedAt: now };
+    const store: Store = { ...initialStore(), accounts: { currentId: 'primary', accounts: [{ ...accountsFixture.accounts[0]!, usage }], sessions: {} } };
     expect(presentShell(initialState(), store, now).usage).toMatchObject({ fiveHour: 28, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00' });
   });
   it('相対時刻', () => {
@@ -1129,29 +1129,29 @@ describe('presentShell の接続', () => {
 });
 
 describe('presentShell の使用量', () => {
-  it('値が無ければ null、あれば百分率と最終更新', () => {
+  const solo = (usage: UsageDto): Store => ({ ...initialStore(), accounts: { currentId: 'primary', accounts: [{ ...accountsFixture.accounts[0]!, usage }], sessions: {} } });
+  it('値が無ければ null、あれば最初のアカウントの百分率と最終更新', () => {
     const empty = presentShell(initialState(), initialStore(), NOW);
     expect(empty.usage).toEqual({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
-    const store = { ...initialStore(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
-    expect(presentShell(initialState(), store, NOW).usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
+    const p = presentShell(initialState(), solo({ fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 }), NOW);
+    expect(p.usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
   });
 });
 
 describe('presentShell のアカウント', () => {
-  const two = (): Store => ({ ...storeWith(), accounts: accountsFixture, usage: { fiveHour: { usedPercent: 5, resetsAt: null }, sevenDay: { usedPercent: 6, resetsAt: null }, updatedAt: NOW - 600_000 } });
+  const two = (): Store => ({ ...storeWith(), accounts: accountsFixture });
   const at = (screen: State['screen']): State => ({ ...initialState(), screen });
-  it('アカウントが 1 件、または store.accounts が null なら account は null で、usage は store.usage から作る', () => {
-    const base = { ...storeWith(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
-    const expected = { fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' };
-    const none = presentShell(initialState(), base, NOW);
-    expect(none.account).toBeNull();
-    expect(none.usage).toEqual(expected);
-    const solo = presentShell(initialState(), { ...base, accounts: { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] } }, NOW);
+  it('アカウントが 1 件なら account は null で、計器はそのアカウントの値から作る。store.accounts が null なら計器も空', () => {
+    const u = { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 };
+    const solo = presentShell(initialState(), { ...storeWith(), accounts: { ...accountsFixture, accounts: [{ ...accountsFixture.accounts[0]!, usage: u }] } }, NOW);
     expect(solo.account).toBeNull();
-    expect(solo.usage).toEqual(expected);
-    const empty = presentShell(at({ name: 'session', id: 's1' }), { ...base, accounts: { currentId: '', accounts: [], sessions: {} } }, NOW);
+    expect(solo.usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
+    const none = presentShell(initialState(), storeWith(), NOW);
+    expect(none.account).toBeNull();
+    expect(none.usage).toEqual({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
+    const empty = presentShell(at({ name: 'session', id: 's1' }), { ...storeWith(), accounts: { currentId: '', accounts: [], sessions: {} } }, NOW);
     expect(empty.account).toBeNull();
-    expect(empty.usage).toEqual(expected);
+    expect(empty.usage).toEqual(none.usage);
   });
   it('2 件・ホームでは、いまのアカウントを出し、計器もその値で作る（sessionId は null）', () => {
     const p = presentShell(initialState(), two(), NOW);
@@ -1468,8 +1468,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
     expect(presentSettings(initialState(), initialStore(), NOW).cloud).toMatchObject({ sweepPending: null, skipped: [] });
   });
   it('同期の行を足してもフェーズ 3 の使用量ゲージは残る', () => {
-    const store = storeWith();
-    store.usage = { fiveHour: { usedPercent: 40, resetsAt: null }, sevenDay: null, updatedAt: NOW - 60_000 };
+    const store: Store = { ...storeWith(), accounts: { currentId: 'primary', accounts: [{ ...accountsFixture.accounts[0]!, usage: { fiveHour: { usedPercent: 40, resetsAt: null }, sevenDay: null, updatedAt: NOW - 60_000 } }], sessions: {} } };
     const p = presentShell({ ...initialState(), sync: { kind: 'idle', lastAt: NOW } }, store, NOW);
     expect(p.usage).toEqual({ fiveHour: 40, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: '1 分前' });
     expect(p.sync.visible).toBe(true);

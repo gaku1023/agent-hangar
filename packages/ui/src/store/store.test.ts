@@ -4,7 +4,7 @@ import { accountsFixture } from '../test/accounts.ts';
 import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentAccount, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null });
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
 
 describe('store', () => {
   it('bootstrap を正規化して入れる', () => {
@@ -164,9 +164,8 @@ describe('tabAlive', () => {
 });
 
 describe('フェーズ 3 のストア', () => {
-  it('bootstrap は使用量と TODO とアーティファクトと要約の待ちを入れる', () => {
-    const s = applyBootstrap(initialStore(), { ...boot, usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: null, updatedAt: 9 }, todos: [todo('t2', 'p1', 2), todo('t1', 'p1', 1)], artifacts: [art('a1', 'p1', 5)], summaryPending: ['s1'] });
-    expect(s.usage.fiveHour?.usedPercent).toBe(47);
+  it('bootstrap は TODO とアーティファクトと要約の待ちを入れる', () => {
+    const s = applyBootstrap(initialStore(), { ...boot, todos: [todo('t2', 'p1', 2), todo('t1', 'p1', 1)], artifacts: [art('a1', 'p1', 5)], summaryPending: ['s1'] });
     expect(todosOf(s, 'p1').map((t) => t.id)).toEqual(['t1', 't2']);
     expect(artifactsOf(s, { projectId: 'p1' }).map((a) => a.id)).toEqual(['a1']);
     expect(s.summaryPending).toEqual({ s1: true });
@@ -177,10 +176,8 @@ describe('フェーズ 3 のストア', () => {
     expect(todosOf(s, 'p1').map((t) => [t.id, t.done])).toEqual([['t2', true]]);
     expect(todosOf(s, 'p2').map((t) => t.id)).toEqual(['t9']);
   });
-  it('usage、memo、artifact、要約の待ちのイベントを取り込む', () => {
+  it('memo、artifact、要約の待ちのイベントを取り込む', () => {
     let s = applyBootstrap(initialStore(), boot);
-    s = applyServerEvent(s, { type: 'usage.update', usage: { fiveHour: null, sevenDay: { usedPercent: 7, resetsAt: 2 }, updatedAt: 3 } });
-    expect(s.usage.sevenDay?.usedPercent).toBe(7);
     const memo: MemoDto = { projectId: 'p1', markdown: '# m', updatedAt: 4 };
     s = applyServerEvent(s, { type: 'memo.update', memo });
     expect(s.memos.p1).toEqual(memo);
@@ -335,11 +332,10 @@ describe('アカウントの store', () => {
     expect(applyBootstrap(initialStore(), { ...boot, accounts: accountsFixture }).accounts).toEqual(accountsFixture);
   });
   it('accounts.update は丸ごと入れ替え、ほかの項目は変えない', () => {
-    const before = applyBootstrap(initialStore(), { ...boot, accounts: accountsFixture, usage: { fiveHour: { usedPercent: 3, resetsAt: null }, sevenDay: null, updatedAt: 7 } });
+    const before = applyBootstrap(initialStore(), { ...boot, accounts: accountsFixture });
     const next = { ...accountsFixture, currentId: 'a1', sessions: {} };
     const after = applyServerEvent(before, { type: 'accounts.update', accounts: next });
     expect(after.accounts).toEqual(next);
-    expect(after.usage).toBe(before.usage);
     expect(after.sessions).toBe(before.sessions);
   });
   it('currentAccount は currentId の 1 件、一覧に無ければ primary、空なら null', () => {
