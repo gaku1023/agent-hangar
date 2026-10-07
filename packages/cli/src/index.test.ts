@@ -260,9 +260,15 @@ describe('hangar start', () => {
         },
       });
       let out = '';
-      child.stdout.on('data', (b: Buffer) => { out += b.toString(); });
-      child.stderr.on('data', (b: Buffer) => { out += b.toString(); });
-      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`時間切れ\n${out}`)); }, 60_000);
+      // 止め方を SIGTERM にするのは、CLI が子のサーバへ渡して両方を降ろすため（SIGKILL では子が取り残される）。
+      // 守りが外れて URL まで出たら、待たずに止めて、下の断言で落とす。
+      const collect = (b: Buffer): void => {
+        out += b.toString();
+        if (out.includes('?t=')) child.kill('SIGTERM');
+      };
+      child.stdout.on('data', collect);
+      child.stderr.on('data', collect);
+      const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error(`時間切れ\n${out}`)); }, 60_000);
       child.on('error', reject);
       child.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? 1, out }); });
     });
