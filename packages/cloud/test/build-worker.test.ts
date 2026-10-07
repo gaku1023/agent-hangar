@@ -1,7 +1,9 @@
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Miniflare } from 'miniflare';
 import { afterEach, describe, expect, it } from 'vitest';
 import { bindingNames, bundleWorker, WORKER_METADATA, WORKER_MODULE, workerMetadata } from '../scripts/build-worker.ts';
@@ -53,6 +55,19 @@ describe('同梱する Worker の束と束縛の定義', () => {
       expect(await r.json()).toMatchObject({ ok: true });
     } finally {
       await mf.dispose();
+    }
+  });
+
+  it('束は、どの作業ディレクトリから束ねても同じ中身になる（配布版は apps/desktop から束ね、試験は別の場所から束ねる）', async () => {
+    const digest = (s: string): string => `${s.length} ${createHash('sha256').update(s).digest('hex')}`;
+    const here = digest(await bundleWorker(cloudDir));
+    // esbuild は読み込まれた時点の作業ディレクトリを覚えるので、process.chdir では確かめられない。別の node を、深さの違う場所で起こす。
+    const tsx = import.meta.resolve('tsx');
+    const mod = pathToFileURL(path.join(cloudDir, 'scripts', 'build-worker.ts')).href;
+    const code = `const m = await import(${JSON.stringify(mod)}); const s = await m.bundleWorker(${JSON.stringify(cloudDir)}); const h = (await import('node:crypto')).createHash('sha256').update(s).digest('hex'); process.stdout.write(s.length + ' ' + h);`;
+    for (const cwd of [path.resolve(cloudDir, '../..'), path.resolve(cloudDir, '../../apps/desktop'), fs.realpathSync(os.tmpdir())]) {
+      const out = execFileSync(process.execPath, ['--import', tsx, '--input-type=module', '-e', code], { cwd, encoding: 'utf8' });
+      expect(out, cwd).toBe(here);
     }
   });
 

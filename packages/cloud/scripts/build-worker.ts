@@ -49,6 +49,9 @@ type WranglerConfig = {
 export async function bundleWorker(cloudDir: string): Promise<string> {
   const r = await build({
     entryPoints: [path.join(cloudDir, 'src', 'index.ts')],
+    // 束に残る元のファイルのパスの注釈は、作業ディレクトリからの相対で書かれる。
+    // 根を packages/cloud に決め、どこから束ねても（試験はリポジトリの根、配布版は apps/desktop）同じ中身にする。
+    absWorkingDir: cloudDir,
     bundle: true,
     format: 'esm',
     platform: 'browser',
