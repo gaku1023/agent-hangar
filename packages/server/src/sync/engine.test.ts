@@ -6,7 +6,8 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { D1_ROWS, FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
-import { CloudError } from './client.ts';
+import { COMPAT_VERSION } from '@agent-hangar/shared';
+import { CloudError, MIN_WORKER_COMPAT } from './client.ts';
 import { SyncEngine } from './engine.ts';
 import { QUOTA_STOP_RATIO, QuotaCounter } from './quota.ts';
 import { SyncStateStore } from './state.ts';
@@ -866,6 +867,128 @@ describe('SyncEngine の 413（大きすぎる行）', () => {
     await timers.advance(10 * 60_000);
     expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1']);
     expect(unpushed()).toBe(0);
+    e.stop();
+  });
+});
+
+describe('互換の版', () => {
+  /** Worker の下限を上げて、書き込みの push を断らせる。push で止まった状態を作る。 */
+  const blockOnPush = async (e: SyncEngine): Promise<void> => {
+    cloud.minDeviceCompat = COMPAT_VERSION + 1;
+    project('p1');
+    await timers.advance(1_000);
+    await e.idle();
+  };
+
+  it('Worker に断られたら（426）同期を止め、この PC の hangar を上げるよう error に出す', async () => {
+    const e = make();
+    await e.start();
+    await blockOnPush(e);
+    expect(e.compatBlocked()).toBe(true);
+    expect(e.status()).toMatchObject({ state: 'error', pending: 1 });
+    expect(e.status().error).toContain('この PC の hangar');
+    // 止めた後は、書き込みも定期実行も外へ出ない。
+    const calls = cloud.calls.length;
+    project('p2');
+    await timers.advance(5 * 60_000);
+    await e.idle();
+    expect(cloud.calls.length).toBe(calls);
+    expect(unpushed()).toBe(2);
+    e.stop();
+  });
+
+  it('Worker の版がこの PC の下限より古ければ同期を止め、Worker を上げるよう error に出す', async () => {
+    cloud = new FakeCloudClient({ deviceId: 'a', minWorkerCompat: COMPAT_VERSION });
+    cloud.workerCompat = COMPAT_VERSION - 1;
+    const e = make();
+    await e.start();
+    expect(e.compatBlocked()).toBe(true);
+    expect(e.status().state).toBe('error');
+    expect(e.status().error).toContain('Worker');
+    expect(e.status().error).toContain('今すぐ同期');
+    e.stop();
+  });
+
+  it('版の見出しを返さない古い Worker（版 0）でも、この PC の下限が 0 なら同期は動く', async () => {
+    expect(MIN_WORKER_COMPAT).toBe(0);
+    cloud.workerCompat = 0;
+    const e = make();
+    await e.start();
+    project('p1');
+    await timers.advance(1_000);
+    await e.idle();
+    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1']);
+    expect(e.compatBlocked()).toBe(false);
+    expect(e.status()).toMatchObject({ state: 'idle', error: null, pending: 0 });
+    e.stop();
+  });
+
+  it('止まった後も、利用者の今すぐ同期は 1 度だけ試し直し、直っていれば戻る', async () => {
+    const e = make();
+    await e.start();
+    await blockOnPush(e);
+    // まだ合わなければ、試し直しても止まったまま。
+    const before = cloud.calls.length;
+    await e.syncNow();
+    expect(cloud.calls.length).toBeGreaterThan(before);
+    expect(e.compatBlocked()).toBe(true);
+    // Worker の側が合えば、次の今すぐ同期で戻る。
+    cloud.minDeviceCompat = 0;
+    await e.syncNow();
+    expect(e.compatBlocked()).toBe(false);
+    expect(e.status()).toMatchObject({ state: 'idle', error: null, pending: 0 });
+    e.stop();
+  });
+
+  it('push で止まった後の起動前の pull は、外へ出ずに false を返す', async () => {
+    const e = make();
+    await e.start();
+    await blockOnPush(e);
+    const before = cloud.calls.length;
+    expect(await e.pullBeforeLaunch()).toBe(false);
+    expect(cloud.calls.length).toBe(before);
+    e.stop();
+  });
+
+  it('止めた印は DB に残さない。立て直したら最初の要求でまた確かめる', async () => {
+    const e = make();
+    await e.start();
+    await blockOnPush(e);
+    e.stop();
+    // この PC の hangar を入れ替えて立て直した筋（相手とも版が合っている）。
+    cloud.minDeviceCompat = 0;
+    const e2 = make();
+    expect(e2.compatBlocked()).toBe(false);
+    await e2.start();
+    expect(e2.status()).toMatchObject({ state: 'idle', error: null, pending: 0 });
+    e2.stop();
+  });
+
+  it('一時停止していても、版で止まったことを error で見せる', async () => {
+    const e = make();
+    await e.start();
+    e.setPaused(true);
+    cloud.minDeviceCompat = COMPAT_VERSION + 1;
+    project('p1');
+    await e.syncNow({ evenIfPaused: true });
+    expect(e.status().state).toBe('error');
+    expect(e.status().error).toContain('この PC の hangar');
+    expect(e.status().pausedReason).toBeNull();
+    e.stop();
+  });
+
+  it('一時停止のまま何も送らない今すぐ同期では、止めた印を外さない', async () => {
+    const e = make();
+    await e.start();
+    e.setPaused(true);
+    cloud.minDeviceCompat = COMPAT_VERSION + 1;
+    project('p1');
+    await e.syncNow({ evenIfPaused: true });
+    expect(e.compatBlocked()).toBe(true);
+    // 一時停止の 1 巡でない今すぐ同期は何も送らないので、表示だけが一時停止に戻ることはない。
+    await e.syncNow();
+    expect(e.compatBlocked()).toBe(true);
+    expect(e.status().state).toBe('error');
     e.stop();
   });
 });
