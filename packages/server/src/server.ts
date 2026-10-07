@@ -169,6 +169,15 @@ export function configSyncActive(o: { syncClaudeConfig: boolean; paused: boolean
 }
 
 /**
+ * 本文と設定の出し入れ、他端末の本文の取り込み、使用量の取りに行きを止めるか。
+ * 互換の版で止まっているときは、利用者が頼んだ 1 巡の最中でも止める（その 1 巡のメタデータの送受信が先に試し直し、まだ合わなければまた止まっている）。
+ * 一時停止のあいだは止めるが、利用者が「今すぐ同期」で頼んだ 1 巡の最中だけは通す（PausedPass）。
+ */
+export function syncHalted(o: { paused: boolean; oncePass: boolean; compatBlocked: boolean }): boolean {
+  return o.compatBlocked || (o.paused && !o.oncePass);
+}
+
+/**
  * WebSocket の upgrade を受け付ける経路。
  * ここに無い経路は番人が切る。attach する側とこの集合が食い違うと、
  * 101 を返した直後の接続を番人が切ってしまうので、定数を正本にして両方から参照する。
@@ -453,9 +462,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   /**
    * 同期が止まっているか。利用者が押した一時停止も、枠の 80% で自分から止まった分もここに出る。
    * 止まっていても、利用者が「今すぐ同期」で頼んだ 1 巡の最中だけは止まっていないと答える（pausedPass）。
+   * 互換の版が合わずに止まっているときも止まっていると答える（1 巡の最中でも）。
    * 本文と設定の出し入れはどれもここを見るので、その 1 巡だけ通る。
    */
-  const isPaused = (): boolean => engine.status().state === 'paused' && !pausedPass.active();
+  const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: pausedPass.active(), compatBlocked: engine.compatBlocked() });
   /**
    * 本文とメモの控えの世代を刈る。
    *
@@ -553,7 +563,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   let passTicker: ReturnType<typeof setInterval> | null = null;
   /** 利用者が押した「今すぐ同期」。止まっていれば 1 巡だけ通し、止まっていなければ今までどおり。 */
   const syncNow = (): Promise<void> => {
-    if (engine.status().state !== 'paused') return engine.syncNow();
+    // 一時停止しているかは、止めた印でも見る。版で止まっている間は、一時停止していても状態が error になるからである。
+    // 印で見ないと、一時停止のまま版で止まった後の押下が 1 巡の道に回らず、何も送らない。
+    const paused = engine.status().state === 'paused' || (engine.compatBlocked() && engine.state.get('paused') === '1');
+    if (!paused) return engine.syncNow();
     const done = pausedPass.run();
     if (pausedPass.active() && !passTicker) {
       // 押した直後に 1 度配る。応答が返るのはメタデータの送受信の後なので、待たせるとボタンが効いていないように見える。
