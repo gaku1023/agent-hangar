@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeFakeTool } from '../../../../test/fake-bin.ts';
 import { posixIt } from '../../../../test/platform.ts';
-import { BUILTIN_SUBCOMMANDS, claudeVersionOf, parseHelp, readClaudeHelp, subcommandsFromHelp } from './cli.ts';
+import { agentsJsonDrifts, authStatusDrifts, BUILTIN_SUBCOMMANDS, claudeVersionOf, parseHelp, printJsonDrifts, readClaudeHelp, subcommandsFromHelp } from './cli.ts';
 
 const HELP = [
   'Usage: claude [options] [command] [prompt]',
@@ -103,5 +103,44 @@ describe('readClaudeHelp', () => {
   posixIt('0 以外で終わった claude は null', async () => {
     const bad = writeFakeTool(path.join(tmp, 'bad'), 'claude', { sh: 'echo "Commands:"; exit 3', cmd: 'exit /b 3' });
     expect(await readClaudeHelp(bad)).toBeNull();
+  });
+});
+
+const c = (value: string) => ({ contract: 'cli', value, version: null });
+
+describe('authStatusDrifts', () => {
+  it('loggedIn があればずれは無い。出力が空なら見ない', () => {
+    expect(authStatusDrifts('{"loggedIn":false}')).toEqual([]);
+    expect(authStatusDrifts('')).toEqual([]);
+  });
+  it('JSON でない、オブジェクトでない、loggedIn が無い出力を返す', () => {
+    expect(authStatusDrifts('Not logged in')).toEqual([c('auth-status=(not-json)')]);
+    expect(authStatusDrifts('[]')).toEqual([c('auth-status=(not-object)')]);
+    expect(authStatusDrifts('{"email":"x"}')).toEqual([c('auth-status.loggedIn=(missing)')]);
+  });
+});
+
+describe('agentsJsonDrifts', () => {
+  it('対話とバックグラウンドの行はずれを出さない。バックグラウンドの行だけ id と sessionId を見る', () => {
+    expect(agentsJsonDrifts(JSON.stringify([{ kind: 'interactive', sessionId: 's1' }, { kind: 'background', id: 'b1', sessionId: 's2' }]))).toEqual([]);
+    expect(agentsJsonDrifts('')).toEqual([]);
+  });
+  it('形の違いを種類ごとに 1 つだけ返す。知らない種類の行も、バックグラウンドと同じく id と sessionId を見る', () => {
+    expect(agentsJsonDrifts('disabled')).toEqual([c('agents-json=(not-json)')]);
+    expect(agentsJsonDrifts('{"sessions":[]}')).toEqual([c('agents-json=(not-array)')]);
+    expect(agentsJsonDrifts(JSON.stringify([{ kind: 'remote' }, { kind: 'remote' }, { kind: 'background', sessionId: 's' }, 3]))).toEqual([
+      c('agents-json.kind=remote'), c('agents-json.id=(missing)'), c('agents-json.sessionId=(missing)'), c('agents-json.row=(not-object)'),
+    ]);
+  });
+});
+
+describe('printJsonDrifts', () => {
+  it('structured_output があればずれは無い', () => {
+    expect(printJsonDrifts('{"type":"result","structured_output":{}}')).toEqual([]);
+  });
+  it('JSON でない、オブジェクトでない、structured_output が無い出力を返す', () => {
+    expect(printJsonDrifts('oops')).toEqual([c('print-json=(not-json)')]);
+    expect(printJsonDrifts('[]')).toEqual([c('print-json=(not-object)')]);
+    expect(printJsonDrifts('{"type":"result"}')).toEqual([c('print-json.structured_output=(missing)')]);
   });
 });

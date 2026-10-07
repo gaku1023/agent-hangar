@@ -22,7 +22,8 @@ import type { LaunchInput, LiveSession } from '../provider/types.ts';
 import type { Tmux } from '../tmux/tmux.ts';
 import { RunError } from './errors.ts';
 import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
-import { realProcOps, sameStartTime, type ProcOps } from './procs.ts';
+import { realProcOpsWith, sameStartTime, type ProcOps } from './procs.ts';
+import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type PaneIo } from './promptJump.ts';
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 import { splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
@@ -56,7 +57,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * live は Claude のレジストリの今の中身である。引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引くのに使う。
  * procs は外のプロセスに触る口で、テストでは差し替える。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: AccountStore };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: AccountStore; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
@@ -77,6 +78,8 @@ export class RunManager {
   private adopting = new Set<string>();
   /** 区切りを付けたので落としにいった run。tmux から消えたのを見たときに、終わり方を parked と書くために持つ。 */
   private parking = new Set<string>();
+  /** 本物のプロセスに触る口。procs を渡されなかったときに、compat を結んで 1 度だけ作る。 */
+  private realProcs: ProcOps | null = null;
 
   constructor(private readonly deps: RunManagerDeps) {}
 
@@ -479,7 +482,7 @@ export class RunManager {
   }
 
   private procs(): ProcOps {
-    return this.deps.procs ?? realProcOps;
+    return this.deps.procs ?? (this.realProcs ??= realProcOpsWith(this.deps.compat ?? NO_COMPAT));
   }
 
   /**

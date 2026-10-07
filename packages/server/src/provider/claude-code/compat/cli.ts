@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { needsShell } from '../../../platform/exec.ts';
-import type { Drift } from './types.ts';
+import { isRec, type Drift } from './types.ts';
 
 /**
  * --help を読めないときに使う、シェルの包みがそのまま渡すサブコマンド。2.1.292 の `claude --help` の Commands である。
@@ -80,4 +80,55 @@ export function readClaudeHelp(bin: string, timeoutMs = 5_000): Promise<string |
       resolve(err ? null : String(stdout));
     });
   });
+}
+
+/** JSON として読む。読めなければ undefined。 */
+function parseJson(stdout: string): unknown {
+  try { return JSON.parse(stdout); } catch { return undefined; }
+}
+
+/**
+ * `claude auth status --json` の形。必ずある loggedIn だけを見る（未ログインと API キーでは、ほかの項目が無い）。
+ * 出力が空なら見ない（claude を起こせなかったのは形のずれではない）。
+ */
+export function authStatusDrifts(stdout: string): Drift[] {
+  if (stdout.trim() === '') return [];
+  const raw = parseJson(stdout);
+  if (raw === undefined) return [cliDrift('auth-status=(not-json)')];
+  if (!isRec(raw)) return [cliDrift('auth-status=(not-object)')];
+  return typeof raw.loggedIn === 'boolean' ? [] : [cliDrift('auth-status.loggedIn=(missing)')];
+}
+
+/** `claude agents --json` の行の種類。 */
+export const KNOWN_AGENT_KINDS: ReadonlySet<string> = new Set(['interactive', 'background']);
+
+/**
+ * `claude agents --json --all` の形。hangar が読むのはバックグラウンドの行の id と sessionId だけなので、そこだけを見る（runs/procs.ts の parseJobs）。
+ * 同じ形の違いは 1 つにまとめる。出力が空なら見ない。
+ */
+export function agentsJsonDrifts(stdout: string): Drift[] {
+  if (stdout.trim() === '') return [];
+  const raw = parseJson(stdout);
+  if (raw === undefined) return [cliDrift('agents-json=(not-json)')];
+  if (!Array.isArray(raw)) return [cliDrift('agents-json=(not-array)')];
+  const out = new Map<string, Drift>();
+  const add = (v: string) => { if (!out.has(v)) out.set(v, cliDrift(v)); };
+  for (const r of raw) {
+    if (!isRec(r)) { add('agents-json.row=(not-object)'); continue; }
+    if (typeof r.kind !== 'string') add('agents-json.kind=(missing)');
+    else if (!KNOWN_AGENT_KINDS.has(r.kind)) add(`agents-json.kind=${r.kind}`);
+    if (r.kind !== 'interactive') {
+      if (typeof r.id !== 'string') add('agents-json.id=(missing)');
+      if (typeof r.sessionId !== 'string') add('agents-json.sessionId=(missing)');
+    }
+  }
+  return [...out.values()];
+}
+
+/** `claude -p --output-format json` の形。要約が読む structured_output があるか（summary/claude.ts）。 */
+export function printJsonDrifts(stdout: string): Drift[] {
+  const raw = parseJson(stdout);
+  if (raw === undefined) return [cliDrift('print-json=(not-json)')];
+  if (!isRec(raw)) return [cliDrift('print-json=(not-object)')];
+  return raw.structured_output === undefined ? [cliDrift('print-json.structured_output=(missing)')] : [];
 }

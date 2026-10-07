@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { UsageDto } from '@agent-hangar/shared';
+import { printJsonDrifts } from '../provider/claude-code/compat/cli.ts';
+import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 import { parseSummaryOutput, SUMMARY_SCHEMA, SUMMARY_SYSTEM_PROMPT, SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput } from './types.ts';
 
 export type SpawnText = (cmd: string, args: string[], stdin: string, timeoutMs: number) => Promise<{ code: number; stdout: string; stderr: string }>;
@@ -33,7 +35,7 @@ export class ClaudeHeadlessSummarizer implements Summarizer {
   private readonly spawnFn: SpawnText;
   private readonly now: () => number;
 
-  constructor(private readonly o: { claudeBin: string | null; hourlyCap: number; usage: () => UsageDto; spawn?: SpawnText; now?: () => number }) {
+  constructor(private readonly o: { claudeBin: string | null; hourlyCap: number; usage: () => UsageDto; spawn?: SpawnText; now?: () => number; compat?: CompatSink }) {
     this.spawnFn = o.spawn ?? spawnText;
     this.now = o.now ?? (() => Date.now());
   }
@@ -63,6 +65,8 @@ export class ClaudeHeadlessSummarizer implements Summarizer {
       throw new SummarizerError(this.id, e instanceof Error ? e.message : String(e));
     }
     if (r.code !== 0) throw new SummarizerError(this.id, `claude が ${r.code} で終了しました: ${r.stderr.trim().split('\n').at(-1) ?? ''}`);
+    // 形が違えば、Claude Code との互換のずれとして記録する。失敗の扱いはいまのまま。
+    for (const d of printJsonDrifts(r.stdout)) (this.o.compat ?? NO_COMPAT).note(d);
     let j: unknown;
     try {
       j = JSON.parse(r.stdout);

@@ -1,5 +1,7 @@
 import { execFile, spawnSync } from 'node:child_process';
 import { parseStartTime, sameStartTime, startTimeOf, terminate } from '../platform/proc.ts';
+import { agentsJsonDrifts } from '../provider/claude-code/compat/cli.ts';
+import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 
 /** hangar の外で動く claude のプロセスに触る口。テストでは差し替える。 */
 export type ProcOps = {
@@ -20,28 +22,38 @@ export { sameStartTime };
 /** Claude の procStart を epoch のミリ秒に読む。読めなければ null。 */
 export const parseProcStart = parseStartTime;
 
-export const realProcOps: ProcOps = {
-  startTimeOf: (pid) => startTimeOf(pid),
-  terminate: (pid, timeoutMs) => terminate(pid, timeoutMs),
-  listJobs(bin) {
-    // 起こせない相手（Windows の .cmd など）で spawnSync が投げても、読めなかったことにして返す。
-    try {
-      const r = spawnSync(bin, ['agents', '--json', '--all'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
-      if (r.status !== 0) return null;
-      return parseJobs(r.stdout ?? '');
-    } catch {
-      return null;
-    }
-  },
-  runClaude(bin, args, cwd) {
-    return new Promise((resolve, reject) => {
-      execFile(bin, args, { cwd, encoding: 'utf8', timeout: 30_000, windowsHide: true }, (err, stdout, stderr) => {
-        if (err) reject(new Error((stderr || err.message).trim()));
-        else resolve(stdout);
+/**
+ * 本物のプロセスに触る口。compat は `claude agents --json` の形のずれを受け取る（provider/claude-code/compat/cli.ts）。
+ */
+export function realProcOpsWith(compat: CompatSink): ProcOps {
+  return {
+    startTimeOf: (pid) => startTimeOf(pid),
+    terminate: (pid, timeoutMs) => terminate(pid, timeoutMs),
+    listJobs(bin) {
+      // 起こせない相手（Windows の .cmd など）で spawnSync が投げても、読めなかったことにして返す。
+      try {
+        const r = spawnSync(bin, ['agents', '--json', '--all'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+        if (r.status !== 0) return null;
+        const out = r.stdout ?? '';
+        for (const d of agentsJsonDrifts(out)) compat.note(d);
+        return parseJobs(out);
+      } catch {
+        return null;
+      }
+    },
+    runClaude(bin, args, cwd) {
+      return new Promise((resolve, reject) => {
+        execFile(bin, args, { cwd, encoding: 'utf8', timeout: 30_000, windowsHide: true }, (err, stdout, stderr) => {
+          if (err) reject(new Error((stderr || err.message).trim()));
+          else resolve(stdout);
+        });
       });
-    });
-  },
-};
+    },
+  };
+}
+
+/** ずれを記録しない本物の口。試験と、compat を渡さない呼び手が使う。 */
+export const realProcOps: ProcOps = realProcOpsWith(NO_COMPAT);
 
 /** `claude agents --json` の出力から、バックグラウンドのセッションだけを拾う。対話のセッションも並ぶので kind で分ける。 */
 export function parseJobs(out: string): { id: string; sessionId: string }[] | null {
