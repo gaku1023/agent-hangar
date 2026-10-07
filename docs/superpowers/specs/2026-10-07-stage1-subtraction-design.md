@@ -15,7 +15,8 @@
 - **端末側の無料枠の見張りと Worker の台帳（D4）**：`sync/quota.ts`、`server.ts` の `D1_WRITES_*` と `countingClient`、`d1RowsToday`、台数割り、`pausedReason` と `quotaPausedDay`、Worker の `meter.ts` と `meteredBatch`、`meteredRun`。
 - **Provider のインターフェース（D7）**：`provider/types.ts` の `interface Provider` だけを消す。
 - **使われていない口**：Intent `summary.toggle`、`Overlay.notYet`、ServerEvent `sync.applied`、UI の `ApiClient.devices` と `syncStatus`、`deleteFile` と Worker の DELETE、MCP `search_sessions` の `provider` 引数、`parseBackgroundedId`、未参照の CSS クラス。どれも、各 PR で `git grep` をもう一度回して未使用を確かめてから消す。
-- **古い版のための分岐**：相手が別の機械や別の部品のもの（古い端末、古い Worker、古いサーバ）は、互換の版番号を入れてから消す。手元だけで閉じるもの（DTO の任意項目、kind の無い `POST /api/projects`、`SummaryEnqueueOpts` の真偽値、床の無い `cloud.json`、殻の `_up_/server-dist`）は先に消す。
+- **古い版のための分岐**：相手が別の機械や別の部品のもの（古い端末、古い Worker、古いサーバ）は、互換の版番号を入れてから消す。手元だけで閉じるもの（DTO の任意項目、kind の無い `POST /api/projects`、`SummaryEnqueueOpts` の真偽値、殻の `_up_/server-dist`）は先に消す。
+床の無い `cloud.json` の保険は消さない。古い版のためではなく、DB に床の行が無い端末（DB の写しを置いた別の `HANGAR_HOME` もこれにあたる）すべてのための保険で、消すと本文を全部上げ直すためである。
 - **同梱の重複**：cli.mjs がサーバ全体を抱えている（`cli/src/index.ts` がサーバの入口から import している）のをやめる。同梱の `cloud/` は、目印で必ず断るので誰も使っていない。これを Worker を 1 本にビルドしたものに替える。殻がサーバへ渡している `HANGAR_CLOUD_DIR` は、サーバが読んでいないので消す。
 
 ## 残す境界
