@@ -84,7 +84,9 @@ export async function runStart(o: StartOptions): Promise<number> {
   });
   // 端末の Ctrl-C は process group に届くので子にも直に届くが、kill で CLI だけに送られた信号は子へ渡す。
   // サーバの installShutdown は 2 度目の信号を無視するので、重なっても構わない。
-  const handlers = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((sig) => [sig, (): void => { if (!gone) child.kill(sig); }] as const);
+  // 信号が来たら止める途中とみなす。起動の途中で止めても失敗とは言わず、行き違いで起動が済んでも URL を出さない。
+  let stopping = false;
+  const handlers = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((sig) => [sig, (): void => { stopping = true; if (!gone) child.kill(sig); }] as const);
   for (const [sig, h] of handlers) process.on(sig, h);
   try {
     let ready = false;
@@ -92,8 +94,8 @@ export async function runStart(o: StartOptions): Promise<number> {
       ready = await probeReady(o.port);
       if (!ready) await new Promise((r) => setTimeout(r, READY_POLL_MS));
     }
-    if (ready) o.onReady();
-    else console.error('サーバが起動の途中で終わりました。上に出た子のログを見てください。');
+    if (ready && !stopping) o.onReady();
+    else if (!ready && !stopping) console.error('サーバが起動の途中で終わりました。上に出た子のログを見てください。');
     return await exited;
   } finally {
     for (const [sig, h] of handlers) process.off(sig, h);

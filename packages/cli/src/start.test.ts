@@ -43,6 +43,30 @@ async function deadPort(): Promise<number> {
 
 const errors = (spy: { mock: { calls: unknown[][] } }): string => spy.mock.calls.flat().join('\n');
 
+/** ファイルができるまで待つ。子が準備を済ませた合図に使う。 */
+async function waitForFile(file: string): Promise<void> {
+  while (!fs.existsSync(file)) await new Promise((r) => setTimeout(r, 20));
+}
+
+/**
+ * SIGTERM を受け手で拾って 0 で終わる子の終了コード。
+ * Windows の child.kill は信号を送らずにその場で終わらせるので、子は受け手を通らず、runStart は 1 を返す。
+ */
+const STOPPED_CODE = process.platform === 'win32' ? 1 : 0;
+
+/**
+ * CLI に SIGTERM が届いたことにする。
+ * vitest の worker が先に持っていた受け手は外しておき、runStart の受け手にだけ届ける。
+ */
+function emitSigtermToRunStart(before: NodeJS.SignalsListener[]): void {
+  for (const l of before) process.off('SIGTERM', l);
+  try {
+    process.emit('SIGTERM', 'SIGTERM');
+  } finally {
+    for (const l of before) process.on('SIGTERM', l);
+  }
+}
+
 describe('serverArgs', () => {
   it('隣に server.mjs があれば（配布版）、それだけを起こす', () => {
     const dir = tempDir();
@@ -95,6 +119,47 @@ describe('runStart', () => {
     expect(code).toBe(3);
     expect(onReady).not.toHaveBeenCalled();
     expect(errors(err)).toContain('起動の途中で終わりました');
+  });
+
+  it('起動の途中で利用者が止めたら（CLI に SIGTERM）、子へ渡し、失敗の行も URL も出さずに子の終了コードを返す', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onReady = vi.fn();
+    const trapped = path.join(tempDir(), 'trapped');
+    // 待ち受けないまま、SIGTERM で 0 で終わる子（サーバの installShutdown の代わり）。受け手を付けたら印を置く。
+    const script = [
+      "process.on('SIGTERM', () => process.exit(0));",
+      `require('node:fs').writeFileSync(${JSON.stringify(trapped)}, '');`,
+      'setInterval(() => {}, 1000);',
+    ].join('\n');
+    const before = process.listeners('SIGTERM');
+    const run = runStart({ port: await deadPort(), onReady, args: ['-e', script] });
+    await waitForFile(trapped);
+    emitSigtermToRunStart(before);
+    expect(await run).toBe(STOPPED_CODE);
+    expect(onReady).not.toHaveBeenCalled();
+    expect(errors(err)).not.toContain('起動の途中で終わりました');
+  });
+
+  it('止めた後に起動が済んでも、onReady を呼ばない（URL を出さず、ブラウザも開かない）', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onReady = vi.fn();
+    const trapped = path.join(tempDir(), 'trapped');
+    // SIGTERM を受けてから待ち受け、ready を 1 度返したら 0 で終わる子。止める信号と起動の完了が行き違った場合の代わりである。
+    const script = [
+      "process.on('SIGTERM', () => {",
+      "  const s = require('node:http').createServer((q, r) => { r.writeHead(200, { 'content-type': 'application/json' }).end('{\"ok\":true,\"ready\":true}', () => setTimeout(() => process.exit(0), 100)); });",
+      "  s.listen(Number(process.env.HANGAR_PORT), '127.0.0.1');",
+      '});',
+      `require('node:fs').writeFileSync(${JSON.stringify(trapped)}, '');`,
+      'setInterval(() => {}, 1000);',
+    ].join('\n');
+    const before = process.listeners('SIGTERM');
+    const run = runStart({ port: await deadPort(), onReady, args: ['-e', script] });
+    await waitForFile(trapped);
+    emitSigtermToRunStart(before);
+    expect(await run).toBe(STOPPED_CODE);
+    expect(onReady).not.toHaveBeenCalled();
+    expect(errors(err)).not.toContain('起動の途中で終わりました');
   });
 
   it('子に HANGAR_PORT と HANGAR_PARENT_PID を渡し、/health が ready を返したら onReady を 1 度だけ呼び、子が終わるまで待つ', async () => {
