@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { posixIt } from '../../server/test/platform.ts';
+import { probeHealth } from './probe.ts';
 
 /** 実物の hangar を子プロセスで動かす。実物の ~/.claude と ~/.agent-hangar には触らせない。 */
 const CLI = fileURLToPath(new URL('../bin/hangar.mjs', import.meta.url));
@@ -172,6 +173,51 @@ describe('hangar start', () => {
     expect(r.out).not.toContain('EADDRINUSE');
     expect(r.out).not.toContain('node:net');
     expect(r.out).not.toMatch(/^\s+at /m);
-    expect(r.out).not.toContain(readToken());
+    // 子を起こす前に断るので、鍵のファイルはまだ作られていないことがある。鍵付きの URL が出ないことを見る。
+    expect(r.out).not.toContain('?t=');
+  }, 90_000);
+
+  // 子を SIGTERM で止める。Windows の信号の扱いは移植の区切りで作る。
+  posixIt('子のサーバを起こし、起動が済んでから鍵付きの URL を出し、SIGTERM で子も降りる', async () => {
+    const port = await deadPort();
+    const root = path.dirname(home);
+    const ws = path.join(root, 'ws');
+    const tmuxDir = path.join(root, 'tmux');
+    fs.mkdirSync(ws);
+    fs.mkdirSync(tmuxDir);
+    fs.mkdirSync(path.join(claudeDir, 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir }));
+    // hangar の中から試験を走らせたときに、外のサーバ向けの値を子へ持ち込まない。
+    const { HANGAR_PARENT_PID: _pid, HANGAR_UI_DIST: _ui, HANGAR_PORT: _port, ...base } = process.env;
+    const child = spawn(process.execPath, [CLI, 'start', '--port', String(port), '--no-open'], {
+      env: {
+        ...base,
+        HOME: root,
+        HANGAR_HOME: home,
+        HANGAR_CLAUDE_DIR: claudeDir,
+        HANGAR_TEST_MARKER: marker,
+        // 存在する場所を渡す。無い場所だと tmux は黙って本物のサーバへつなぐ。
+        TMUX_TMPDIR: tmuxDir,
+        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+      },
+    });
+    let out = '';
+    child.stdout.on('data', (b: Buffer) => { out += b.toString(); });
+    child.stderr.on('data', (b: Buffer) => { out += b.toString(); });
+    const closed = new Promise<number | null>((r) => child.on('close', (code) => r(code)));
+    try {
+      const until = Date.now() + 60_000;
+      while (!out.includes('?t=') && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+      expect(out).toContain(`この URL から開いてください: http://127.0.0.1:${port}/?t=${readToken()}`);
+      // URL を出した時点で、サーバは起動を済ませている。
+      const health = (await (await fetch(`http://127.0.0.1:${port}/health`)).json()) as { ok: boolean; ready: boolean };
+      expect(health).toMatchObject({ ok: true, ready: true });
+      expect(await waitOpened(400)).toBe('');
+    } finally {
+      child.kill('SIGTERM');
+    }
+    expect(await closed).toBe(0);
+    // 子のサーバも降りていて、ポートを掴んだまま残らない。
+    expect(await probeHealth(port, 500)).toBe(false);
   }, 90_000);
 });

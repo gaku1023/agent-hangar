@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +29,15 @@ const dirSize = (dir: string): number => {
   }
   return total;
 };
+
+/** 誰も待ち受けていないポートを 1 つ取る。 */
+async function freePort(): Promise<number> {
+  const s = net.createServer();
+  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
+  const port = (s.address() as net.AddressInfo).port;
+  await new Promise((r) => s.close(r));
+  return port;
+}
 
 async function waitHealth(url: string, ms: number): Promise<boolean> {
   const t0 = Date.now();
@@ -153,6 +163,47 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     expect(url.startsWith('http://127.0.0.1:4231/?t=')).toBe(true);
     expect(url.endsWith(token)).toBe(true);
     expect(token.length).toBeGreaterThan(16);
+  });
+
+  it('bin/hangar start がリンク越しでも隣の server.mjs を子で起こし、同梱の UI を配り、SIGINT で子も降りる', async () => {
+    const out = tmp('hangar-dist-');
+    const ui = tmp('hangar-ui-');
+    const home = tmp('hangar-home-');
+    const claude = tmp('hangar-claude-');
+    const ws = tmp('hangar-ws-');
+    const link = tmp('hangar link-');
+    const tmuxDir = tmp('hangar-tmux-');
+    dirs.push(out, ui, home, claude, ws, link, tmuxDir);
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
+    fs.mkdirSync(path.join(claude, 'projects'));
+    fs.mkdirSync(path.join(claude, 'sessions'));
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir: claude }));
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    // README が案内する /usr/local/bin/hangar と同じ形のリンク越しに起こす。
+    fs.symlinkSync(path.join(out, 'bin/hangar'), path.join(link, 'hangar'));
+    const port = await freePort();
+    const { HANGAR_PARENT_PID: _pid, HANGAR_UI_DIST: _ui, HANGAR_PORT: _port, HANGAR_CLOUD_DIR: _cloud, ...base } = process.env;
+    const child = spawn(path.join(link, 'hangar'), ['start', '--port', String(port), '--no-open'], {
+      env: { ...base, HANGAR_HOME: home, HANGAR_NODE: process.execPath, HANGAR_CLAUDE_DIR: claude, TMUX_TMPDIR: tmuxDir },
+    });
+    let text = '';
+    child.stdout.on('data', (b: Buffer) => { text += b.toString(); });
+    child.stderr.on('data', (b: Buffer) => { text += b.toString(); });
+    const closed = new Promise<number | null>((r) => child.on('close', (code) => r(code)));
+    try {
+      const until = Date.now() + 30_000;
+      while (!text.includes('?t=') && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+      const token = fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
+      expect(text).toContain(`http://127.0.0.1:${port}/?t=${token}`);
+      // bin/hangar が渡した HANGAR_UI_DIST を子のサーバが継いでいる。
+      const html = await (await fetch(`http://127.0.0.1:${port}/?t=${token}`)).text();
+      expect(html).toContain('bundled-ui');
+    } finally {
+      // bin/hangar は exec で node に替わるので、この PID は cli.mjs の node である。
+      child.kill('SIGINT');
+    }
+    expect(await closed).toBe(0);
+    expect(await waitHealth(`http://127.0.0.1:${port}/health`, 500)).toBe(false);
   });
 
   it('UI のビルドが無ければ、何をすればよいかを述べて止まる', async () => {

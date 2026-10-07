@@ -69,6 +69,9 @@ UI は同じサーバから配信され、HTTP で読み書きし、WebSocket �
 ターミナルは WebSocket 上の別チャネルで、node-pty の入出力をそのまま流す。
 MCP は Streamable HTTP で、共通の `/mcp` とセッション別の `/mcp/s/<sessionId>` を持つ。
 Tauri のシェルは、起動時にサーバの子プロセスを立て、終了時に止める。
+`hangar start` も、サーバを子プロセスとして立てる。
+配布版は `cli.mjs` の隣の `server.mjs` を、リポジトリでは `packages/server/src/main.ts` を tsx で起こし、`HANGAR_PORT` と `HANGAR_PARENT_PID` を渡す。
+`/health` の `ready` が真になってから、鍵付きの URL を印字する。
 Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探す。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
 `hangar://` のディープリンクは deep-link プラグインで受ける。
@@ -946,6 +949,7 @@ UI を初めて開くときは、鍵を載せた入口の URL を使う。
 鍵を端末にだけ印字するのは、サーバのログに載せないためである。
 `hangar start` が待ち受けに失敗したときは、生のスタックではなく日本語の 1 行を出して終了コード 1 で終わる。
 使用中のポート、権限の無いポート、そのほかの失敗を、それぞれ次の一手の分かる文にする。
+サーバは子プロセスなので、`hangar start` は子を起こす前にそのポートを自分で一度開いて確かめ、失敗をこの 1 行にする。
 
 `GET /` は、クエリの `t` か、既に持っているクッキーのどちらかが合うときだけ UI の HTML を配る。
 合わないときは案内だけを書いた HTML を 401 で返し、トークンは配らない。
