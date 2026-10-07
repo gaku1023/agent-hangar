@@ -43,7 +43,7 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
         title="停止しますか"
         danger
         icon="stop"
-        lead={c.aside ? '裏で作業が動いています。止めると、その作業も消えます。' : c.working ? '作業中です。止めると Claude の作業は途中で終わります。' : undefined}
+        lead={c.aside ? 'バックグラウンドで作業が動いています。止めると、それも終わります。' : c.working ? '作業中です。止めると Claude の作業は途中で終わります。' : undefined}
         onClose={close}
         footer={<><span className="spacer" />{cancel}<button type="button" className="btn btn-danger btn-danger-fill" onClick={() => emit({ type: 'session.kill', runId: c.runId, working: c.working, aside: c.aside, shellTabs: c.shellTabs, confirmed: true })}>停止する</button></>}
       >

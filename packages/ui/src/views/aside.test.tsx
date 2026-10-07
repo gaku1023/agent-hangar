@@ -12,12 +12,12 @@ function fakeHost(): TerminalHost {
 
 // 本体は入力を受け付けていて、裏の作業だけが動いているときの見せ方。
 describe('裏だけ動いている', () => {
-  it('点は作業中の印のまま裏だけの印を足し、「裏で作業中」と読み上げる', () => {
+  it('点は作業中の印のまま裏だけの印を足し、「バックグラウンドで作業中」と読み上げる', () => {
     const { container } = render(<StatusDot status="busy" aside />);
     const dot = container.querySelector('.dot')!;
     expect(dot).toHaveAttribute('data-status', 'busy');
     expect(dot).toHaveAttribute('data-aside', 'true');
-    expect(screen.getByLabelText('裏で作業中')).toHaveAttribute('title', '裏で作業中');
+    expect(screen.getByLabelText('バックグラウンドで作業中')).toHaveAttribute('title', 'バックグラウンドで作業中');
   });
   it('裏の印があっても、作業中でなければ足さない', () => {
     const { container } = render(<StatusDot status="waiting" aside />);
@@ -30,6 +30,6 @@ describe('裏だけ動いている', () => {
   });
   it('停止の確認は、裏の作業も消えることを言う', () => {
     render(<IntentRoot onIntent={() => {}}><ConfirmDialog confirm={{ kind: 'killRun', runId: 'r1', working: true, aside: true, shellTabs: 0 }} /></IntentRoot>);
-    expect(screen.getByText('裏で作業が動いています。止めると、その作業も消えます。')).toBeInTheDocument();
+    expect(screen.getByText('バックグラウンドで作業が動いています。止めると、それも終わります。')).toBeInTheDocument();
   });
 });

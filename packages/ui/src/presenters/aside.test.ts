@@ -26,25 +26,25 @@ function storeWith(): Store {
 }
 
 describe('裏だけ動いているセッションの見せ方', () => {
-  it('サイドバーの行は、丸を裏だけにし、短い語を添える。止めるときは作業中として確かめる', () => {
+  it('サイドバーの行は、丸を裏だけにする（語は添えない）。止めるときは作業中として確かめる', () => {
     const rows = presentShell(initialState(), storeWith(), NOW).live.rows;
-    expect(rows.find((r) => r.id === 'a')).toMatchObject({ live: 'busy', aside: '裏', waited: null, stop: { runId: 'r1', working: true, aside: true } });
-    expect(rows.find((r) => r.id === 'b')).toMatchObject({ live: 'busy', aside: null });
+    expect(rows.find((r) => r.id === 'a')).toMatchObject({ live: 'busy', aside: true, waited: null, stop: { runId: 'r1', working: true, aside: true } });
+    expect(rows.find((r) => r.id === 'b')).toMatchObject({ live: 'busy', aside: false });
   });
   it('一覧の行とパレットの丸も裏だけにする', () => {
     const store = storeWith();
     expect(presentSessionRow(store.sessions.a!, store, NOW)).toMatchObject({ live: 'busy', aside: true });
     expect(presentSessionRow(store.sessions.b!, store, NOW)).toMatchObject({ live: 'busy', aside: false });
     const items = presentPalette({ ...initialState(), overlay: { kind: 'palette' } }, store, 'name-a', NOW)!.sections.flatMap((s) => s.items);
-    expect(items.find((i) => i.id === 'session:a')).toMatchObject({ lead: { kind: 'dot', live: 'busy', aside: true }, meta: '裏で作業中 3 分' });
+    expect(items.find((i) => i.id === 'session:a')).toMatchObject({ lead: { kind: 'dot', live: 'busy', aside: true }, meta: 'バックグラウンドで作業中 3 分' });
   });
   it('ホームの札は、いまの手を出さず、指揮役が空いていることを言う', () => {
     const card = presentHome(initialState(), storeWith(), NOW).running.find((c) => c.id === 'a');
-    expect(card).toMatchObject({ live: 'busy', aside: true, activity: null, intent: null, note: '裏でシェルが動いている。指揮役は空いている' });
+    expect(card).toMatchObject({ live: 'busy', aside: true, activity: null, intent: null, note: 'バックグラウンドでシェル。指揮役は入力を受け付けている' });
   });
-  it('セッション画面の見出しは「裏で作業中」と最後の返答からの長さ、灯は裏だけの色', () => {
+  it('セッション画面の見出しは「バックグラウンドで作業中」と最後の返答からの長さ、灯は裏だけの色', () => {
     const p = presentSession(initialState(), storeWith(), NOW, 'a');
-    expect(p).toMatchObject({ live: 'busy', aside: true, liveLabel: '裏で作業中 3 分' });
-    expect(p.livePane?.lamp).toEqual({ tone: 'aside', head: '裏でシェルが動いている', sub: '指揮役は空いている' });
+    expect(p).toMatchObject({ live: 'busy', aside: true, liveLabel: 'バックグラウンドで作業中 3 分' });
+    expect(p.livePane?.lamp).toEqual({ tone: 'aside', head: 'バックグラウンドでシェル', sub: '指揮役は入力を受け付けている' });
   });
 });
