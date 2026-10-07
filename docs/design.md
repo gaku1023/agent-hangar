@@ -1022,7 +1022,7 @@ MCP は Streamable HTTP で提供する。
 - `get_project(project_id)`：詳細。TODO、メモ、直近のセッション、アーティファクト。
 - `update_project(project_id, { status?, add_todos?, toggle_todos?, propose_done?, append_memo? })`。
 - `list_sessions({ project_id?, running?, limit? })`。
-- `search_sessions({ query, project_id?, since?, until?, provider?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
+- `search_sessions({ query, project_id?, since?, until?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
 - `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch? })`：tmux で起動して run を返す。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。

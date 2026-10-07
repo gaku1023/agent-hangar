@@ -63,8 +63,8 @@ describe('フェーズ 4 の DTO', () => {
   });
   it('同期と端末の ServerEvent がある', () => {
     const status: SyncStatusBody = { state: 'pushing', url: null, lastPushAt: null, lastPullAt: null, pending: 3, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }], sweepPending: 12 };
-    const evs: ServerEvent[] = [{ type: 'sync.status', status }, { type: 'sync.applied', table: 'sessions', rowId: 's1' }, { type: 'devices.update', devices: [] }];
-    expect(evs.map((e) => e.type)).toEqual(['sync.status', 'sync.applied', 'devices.update']);
+    const evs: ServerEvent[] = [{ type: 'sync.status', status }, { type: 'devices.update', devices: [] }];
+    expect(evs.map((e) => e.type)).toEqual(['sync.status', 'devices.update']);
   });
   it('この PC で再開と設定の同期の Intent がある', () => {
     const is: Intent[] = [{ type: 'session.resumeHere', id: 's1' }, { type: 'session.resumeHere', id: 's1', overwrite: true }, { type: 'sync.config.preview' }, { type: 'sync.config.apply' }, { type: 'sync.joinToken.show' }];
@@ -82,5 +82,11 @@ describe('引き継ぎを消した後', () => {
 describe('使われていない Intent を消した後', () => {
   it('要約の開閉の Intent は無い', () => {
     expectTypeOf<Extract<Intent, { type: 'summary.toggle' }>>().toBeNever();
+  });
+});
+
+describe('使われていない ServerEvent を消した後', () => {
+  it('sync.applied は無い。pull で変わった行は session.upsert などで届く', () => {
+    expectTypeOf<Extract<ServerEvent, { type: 'sync.applied' }>>().toBeNever();
   });
 });

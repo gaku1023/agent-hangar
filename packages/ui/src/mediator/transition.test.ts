@@ -1028,11 +1028,6 @@ describe('同期', () => {
     expect(c.state.overlay).toEqual({ kind: 'none' });
     expect(c.effects).toEqual([{ kind: 'api.configPull' }]);
   });
-  it('sync.applied は Mediator の状態を変えない', () => {
-    const r = run([server({ type: 'sync.applied', table: 'sessions', rowId: 's1' })]);
-    expect(r.state).toEqual(initialState());
-    expect(r.effects).toEqual([]);
-  });
 });
 
 describe('外で動くセッションを hangar で開く', () => {

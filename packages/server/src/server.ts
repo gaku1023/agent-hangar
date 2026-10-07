@@ -813,7 +813,6 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     },
     toast: (level, message) => toast(level, message),
     applied: (c) => {
-      hub.broadcast({ type: 'sync.applied', table: c.tableName, rowId: c.rowId });
       // セッションに付く表（sessions、runs、session_summaries、session_states）の行なら、そのセッションを配り直す。
       const sessionId = sessionIdOfChange(db, c);
       const s = sessionId ? getSession(db, registry.current(), sessionId, { deviceId: device.id }) : null;

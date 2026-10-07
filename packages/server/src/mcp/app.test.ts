@@ -92,4 +92,13 @@ describe('createMcpApp', () => {
     expect(props.return_time!.description).toBe('戻る時刻。HH:MM（24 時間、00:00〜23:59、手元の時刻）。確かめる時刻に意味があるときだけ渡す。省くと「その日のうち」になる。return_on と合わせて過去になる時点は不可');
     expect(props.confirmed!.description).toBe('利用者が会話の中で選んだときだけ true');
   });
+  it('search_sessions は provider を引数に持たず、古い呼び手が渡しても断らない', async () => {
+    const list = await rpc('/', 'tools/list', {}, 8);
+    const tools = list.body.result!.tools as { name: string; inputSchema: { properties: Record<string, unknown> } }[];
+    expect(Object.keys(tools.find((t) => t.name === 'search_sessions')!.inputSchema.properties).sort()).toEqual(['file', 'limit', 'project_id', 'query', 'since', 'until']);
+    const r = await rpc('/', 'tools/call', { name: 'search_sessions', arguments: { query: 'チャンネル', provider: 'claude-code' } }, 9);
+    expect(r.body.result!.isError).toBeUndefined();
+    const content = r.body.result!.content as { text: string }[];
+    expect(JSON.parse(content[0]!.text).hits.length).toBeGreaterThan(0);
+  });
 });
