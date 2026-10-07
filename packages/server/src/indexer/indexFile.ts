@@ -7,6 +7,7 @@ import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPub
 import { indexTexts, isTypedPrompt, normalizeRecord, recordFacts } from '../provider/claude-code/normalize.ts';
 import { clearOnNewPrompt } from '../sessions/states.ts';
 import { foldActivity, type Activity } from '../provider/claude-code/activity.ts';
+import { transcriptWatcher, type TranscriptCompat } from '../provider/claude-code/compat/transcript.ts';
 import { localDay } from '../usage/aggregate.ts';
 import type { DiscoveredFile } from '../provider/types.ts';
 
@@ -19,8 +20,11 @@ const FTS_MAX_CHARS = 20000;
  * 状態を外すのは resume した後の発言だけなので、その見分けに使う。サーバでは sessions/promptProcess.ts を渡す。
  */
 export type ProcessStartOf = (q: { sessionId: string; providerSessionId: string; promptTs: number }) => number | null;
-/** remote が true なら他端末から降ろした写しである。sessions と session_summaries には書かない。 */
-export type IndexFileOptions = { deviceId: string; indexerVersion?: number; cwdFallback?: string; remote?: boolean; processStartOf?: ProcessStartOf };
+/**
+ * remote が true なら他端末から降ろした写しである。sessions と session_summaries には書かない。
+ * compat を渡すと、手元の本文の行を Claude Code との互換の契約で見張る（他端末の写しは見ない）。
+ */
+export type IndexFileOptions = { deviceId: string; indexerVersion?: number; cwdFallback?: string; remote?: boolean; processStartOf?: ProcessStartOf; compat?: TranscriptCompat };
 export type IndexFileResult = { sessionId: string; providerSessionId: string; appended: number; changed: boolean; badLines: number; artifactIds: string[]; skipped: boolean };
 
 type TfRow = { path: string; session_id: string; agent_id: string | null; size: number; mtime: number; indexed_bytes: number; indexer_version: number };
@@ -124,6 +128,8 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
   const agentKey = file.agentId ?? '';
   // 「いま何をしているか」は手元の主線だけから取る。サブエージェントと他端末の写しは見ない。
   const mainLocal = file.agentId === null && !remote;
+  // 形式のずれの見張り。手元の本文だけを見る。他端末の写しは、その端末の claude の版で書かれている。
+  const watch = opts.compat && !remote ? transcriptWatcher(opts.compat) : null;
 
   const parsed: { offset: number; length: number; rec: unknown }[] = [];
   let badLines = 0;
@@ -168,6 +174,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     const startActivity: Activity | null = saved ? { tool: saved.tool, summary: saved.summary, toolId: saved.tool_id, question: saved.question } : null;
     let activity = startActivity;
     parsed.forEach((p, i) => {
+      watch?.(p.rec);
       const events = normalizeRecord(p.rec, seq, file.agentId);
       if (mainLocal) activity = foldActivity(activity, events);
       for (const ev of events) {

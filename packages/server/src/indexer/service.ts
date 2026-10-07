@@ -4,6 +4,7 @@ import type { IndexProgressDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { listRemoteTranscriptFiles, listTranscriptFiles, readHistoryIndex, selectFilesToIndex, type HistoryEntry } from '../provider/claude-code/discover.ts';
+import type { TranscriptCompat } from '../provider/claude-code/compat/transcript.ts';
 import type { DiscoveredFile } from '../provider/types.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
 import { ensureSession, forgetTranscriptFile, indexFile, type ProcessStartOf } from './indexFile.ts';
@@ -28,6 +29,8 @@ export type IndexerServiceOptions = {
   isYielded?: (sessionUuid: string) => boolean;
   /** 打った発言を出したプロセスの起動時刻を引く口。渡さなければ、発言で状態を外さない（提案は外す）。 */
   processStartOf?: ProcessStartOf;
+  /** 手元の本文の行を Claude Code との互換の契約で見張る口。渡さなければ見張らない。 */
+  compat?: TranscriptCompat;
 };
 
 /** 進行中の走査に付ける段階。rebuild のときだけ rebuilding になる。 */
@@ -126,7 +129,7 @@ export class IndexerService {
   /** 1 ファイルを索引化し、変わっていたら土台の要約を書いて sessionChanged を出す。 */
   private indexOne(file: DiscoveredFile, history: Map<string, HistoryEntry>): boolean {
     try {
-      const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, cwdFallback: history.get(file.sessionId)?.cwd, remote: file.deviceId !== null, processStartOf: this.opts.processStartOf });
+      const r = indexFile(this.opts.db, file, { deviceId: this.opts.deviceId, cwdFallback: history.get(file.sessionId)?.cwd, remote: file.deviceId !== null, processStartOf: this.opts.processStartOf, compat: this.opts.compat });
       this.reportedErrors.delete(file.path);
       if (!r.changed) return false;
       // 土台の要約は共有テーブルなので、本文を持つ端末だけが書く。

@@ -8,7 +8,8 @@ import { openDb, type Db } from '../db/open.ts';
 import { listTranscriptFiles } from '../provider/claude-code/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
-import { findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
+import { ensureSession, findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
+import type { Drift } from '../provider/claude-code/compat/types.ts';
 import { localDay } from '../usage/aggregate.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 
@@ -566,5 +567,35 @@ describe('新しい発言で状態を外す', () => {
     } finally {
       fs.rmSync(remoteDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('Claude Code との互換の見張り', () => {
+  const NEW = 'bbbbbbbb-0000-4000-8000-0000000000c1';
+  const lines = (uuid: string) => [
+    { type: 'user', message: { role: 'user', content: '古い版の発言' }, uuid: 'c1', timestamp: '2026-10-01T00:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: uuid, version: '2.1.100' },
+    { type: 'old-meta', sessionId: uuid },
+    { type: 'system', subtype: 'turn_end', content: '', timestamp: '2026-10-01T00:00:01.000Z', sessionId: uuid, version: '2.1.300' },
+    { type: 'new-meta', sessionId: uuid },
+  ];
+  it('手元の本文の行を見張り、版を添えてずれを渡す。索引の中身は変えない', () => {
+    const p = path.join(dir, 'projects', '-Users-me-workspace-alpha', `${NEW}.jsonl`);
+    appendJson(p, ...lines(NEW));
+    const seen: Drift[] = [];
+    indexFile(db, { path: p, sessionId: NEW, agentId: null, deviceId: null }, { deviceId: DEV, compat: { sink: { note: (d) => seen.push(d) }, since: () => '2.1.292' } });
+    expect(seen).toEqual([
+      { contract: 'transcript', value: 'system.subtype=turn_end', version: '2.1.300' },
+      { contract: 'transcript', value: 'type=new-meta', version: '2.1.300' },
+    ]);
+    const sid = findSession(db, NEW)!;
+    expect((db.prepare('select kind from event_index where session_id = ? order by seq').all(sid) as { kind: string }[]).map((r) => r.kind)).toEqual(['user', 'meta', 'system', 'meta']);
+  });
+  it('他端末から降ろした写しは見張らない', () => {
+    const p = path.join(dir, 'remote-copy.jsonl');
+    appendJson(p, ...lines(NEW));
+    ensureSession(db, NEW, '/Users/me/workspace/alpha', DEV);
+    const seen: Drift[] = [];
+    indexFile(db, { path: p, sessionId: NEW, agentId: null, deviceId: 'other' }, { deviceId: DEV, remote: true, compat: { sink: { note: (d) => seen.push(d) }, since: () => '2.1.292' } });
+    expect(seen).toEqual([]);
   });
 });
