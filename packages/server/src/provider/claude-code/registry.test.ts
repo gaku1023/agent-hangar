@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copyFixtureClaudeDir, FIXTURE_CLAUDE_DIR, SESSION_ALPHA } from '../../../test/fixtures.ts';
+import type { Drift } from './compat/types.ts';
 import { goneOn, readRegistry, RegistryWatcher } from './registry.ts';
 
 /** 見本の登録の pid は実在しない。Windows の既定は動いていない pid の項目を読まないので、試験では全部読ませる。 */
@@ -69,6 +70,31 @@ describe('readRegistry', () => {
   it('ディレクトリが無ければ空', () => {
     expect(readRegistry('/nonexistent')).toEqual([]);
   });
+  it('配列や null の登録は読まずにずれとして知らせ、ほかの登録は読み続ける', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const sessions = path.join(dir, 'sessions');
+      fs.writeFileSync(path.join(sessions, '7.json'), '[]');
+      fs.writeFileSync(path.join(sessions, '8.json'), 'null');
+      const seen: Drift[] = [];
+      expect(readRegistry(dir, ALL_ALIVE, (d) => seen.push(d)).map((l) => l.sessionId)).toEqual([SESSION_ALPHA]);
+      expect(seen).toEqual([
+        { contract: 'registry', value: 'entry=(not-object)', version: null },
+        { contract: 'registry', value: 'entry=(not-object)', version: null },
+      ]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+  it('知らない status は作業中として読み、登録の版を添えてずれとして知らせる', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const sessions = path.join(dir, 'sessions');
+      fs.rmSync(path.join(sessions, '12345.json'));
+      fs.writeFileSync(path.join(sessions, '7.json'), JSON.stringify({ pid: 7, sessionId: 'u-new', cwd: '/x', status: 'thinking', version: '2.1.300' }));
+      const seen: Drift[] = [];
+      expect(readRegistry(dir, ALL_ALIVE, (d) => seen.push(d))).toEqual([{ sessionId: 'u-new', status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 7 }]);
+      expect(seen).toEqual([{ contract: 'registry', value: 'status=thinking', version: '2.1.300' }]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
 });
 
 describe('RegistryWatcher', () => {
@@ -115,6 +141,21 @@ describe('RegistryWatcher', () => {
     vi.advanceTimersByTime(500);
     expect(seen).toHaveLength(2);
     expect(seen[1]).toEqual([]);
+    w.stop();
+  });
+
+  it('ずれは登録が変わったときだけ数え、同じ登録の読み直しでは数えない', () => {
+    const file = path.join(dir, 'sessions/12345.json');
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(file, JSON.stringify({ ...rec, status: 'thinking' }));
+    const seen: Drift[] = [];
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: (d) => seen.push(d) });
+    w.start();
+    vi.advanceTimersByTime(1500);
+    expect(seen.map((d) => d.value)).toEqual(['status=thinking']);
+    fs.writeFileSync(file, JSON.stringify({ ...rec, status: 'thinking', statusUpdatedAt: rec.statusUpdatedAt + 1 }));
+    vi.advanceTimersByTime(500);
+    expect(seen.map((d) => d.value)).toEqual(['status=thinking', 'status=thinking']);
     w.stop();
   });
 });
