@@ -600,6 +600,8 @@ DB のマイグレーションを要らない形にするためにファイル�
 
 読む口は `GET /api/compat` で、確かめた版、手元の版、ずれの一覧を返す。
 `GET /api/readiness` の応答の `compat` にも、確かめた版、手元の版、ずれの件数を載せる。
+手元の版は、どちらも起動に使う claude（`HANGAR_CLAUDE_BIN`、Settings の `claudePath`、`which('claude')` の順）から読む。
+確認リストの claude の行は Settings の `claudePath` だけを見るので、そこが空でも互換の要約には版が載る。
 画面に出すのは設定の確認リストの 1 行だけで、ヘッダーと知らせの札には出さない。
 
 ## セッションの起動と観察

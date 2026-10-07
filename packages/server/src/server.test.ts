@@ -451,6 +451,30 @@ describe('startServer', () => {
     }
   }, 15_000);
 
+  // 偽の claude は sh の case で引数を見るので、Windows では飛ばす。
+  posixIt('設定の claudePath が空でも、準備の確かめの手元の版は /api/compat と同じ引き方（環境変数）で読む', async () => {
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ claudePath: null }));
+    const bin = writeFakeTool(path.join(home, 'bin'), 'claude', { sh: 'case "$1" in --version) echo "9.9.9 (Claude Code)" ;; esac', cmd: '' });
+    const prev = process.env.HANGAR_CLAUDE_BIN;
+    process.env.HANGAR_CLAUDE_BIN = bin;
+    try {
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      try {
+        const auth = { authorization: `Bearer ${tokenOf()}` };
+        const ready = (await (await fetch(`http://127.0.0.1:${s.port}/api/readiness`, { headers: auth })).json()) as ReadinessDto;
+        const compat = (await (await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: auth })).json()) as CompatDto;
+        // 道具の行は設定の claudePath を見るので空のまま。互換の要約だけがサーバの引き方に従う。
+        expect(ready.tools.claude.path).toBeNull();
+        expect(compat.localVersion).toBe('9.9.9');
+        expect(ready.compat.localVersion).toBe(compat.localVersion);
+      } finally {
+        await s.close();
+      }
+    } finally {
+      if (prev === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prev;
+    }
+  }, 15_000);
+
   it('claude のパスが普通のファイルの下を指しても（ENOTDIR）、サーバは落ちず、/api/compat は手元の版を null で返す', async () => {
     const plain = path.join(home, 'plain');
     fs.writeFileSync(plain, 'not a directory\n');

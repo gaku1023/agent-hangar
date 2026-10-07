@@ -209,4 +209,17 @@ describe('createReadiness', () => {
     const none = createReadiness({ settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install' });
     expect((await none()).compat).toEqual({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, driftCount: 0 });
   });
+  it('手元の版を返す口を渡せば、設定の claude ではなくその版を互換の要約に載せ、件数は版を読んでから数える', async () => {
+    // 設定の claudePath が空でも、サーバは環境変数や PATH から claude を引く。/api/compat と同じ引き方にそろえる。
+    let drifts = 2;
+    const read = createReadiness({
+      settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install',
+      // 版が変われば記録が空になる。件数はその後に数える。
+      compatLocalVersion: async () => { drifts = 0; return '2.1.301'; },
+      compatDriftCount: () => drifts,
+    });
+    const r = await read();
+    expect(r.tools.claude.version).toBeNull();
+    expect(r.compat).toEqual({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: '2.1.301', driftCount: 0 });
+  });
 });

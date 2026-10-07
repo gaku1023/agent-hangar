@@ -1023,6 +1023,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       settings: () => settings, claudeDir, claudeJson: claudeJsonPath(), db, deviceId: device.id,
       shellCommand: () => shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar }),
       compatDriftCount: () => { claudeDirWatch.check(); return compatLog.count(); },
+      // /api/compat と同じ引き方で読む。同じ版の覚えを使うので、claude を余計に起こさない。
+      compatLocalVersion: refreshClaudeVersion,
     }),
     // Claude Code との互換の一覧。確認リストの 6 行目を開いたときに読む。
     compat: async () => {

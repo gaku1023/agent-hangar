@@ -118,6 +118,11 @@ export type ReadinessOptions = {
   timeoutMs?: number;
   /** 記録した Claude Code との互換のずれの件数。渡さなければ 0 とする。 */
   compatDriftCount?: () => number;
+  /**
+   * 互換の要約に載せる手元の claude の版。サーバは GET /api/compat と同じ引き方（環境変数、設定、PATH）で読む口を渡す。
+   * 渡さなければ、道具の行で読んだ設定の claude の版を使う。
+   */
+  compatLocalVersion?: () => Promise<string | null>;
 };
 
 /** 準備の確かめを返す関数を作る。版の覚えは、この関数が生きている間だけ持つ。 */
@@ -132,11 +137,12 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
   return async () => {
     const s = o.settings();
     const nodeSet = s.nodePath !== null && s.nodePath !== undefined && s.nodePath.trim() !== '';
-    const [tmux, claude, code, node] = await Promise.all([
+    const [tmux, claude, code, node, compatLocal] = await Promise.all([
       tool(s.tmuxPath, ['-V']),
       tool(s.claudePath ?? null, ['--version']),
       tool(s.codePath, ['--version']),
       nodeSet ? tool(s.nodePath ?? null, ['--version']) : Promise.resolve<ToolCheckDto>({ path: serverNode.path, ok: true, problem: null, version: serverNode.version }),
+      o.compatLocalVersion ? o.compatLocalVersion() : Promise.resolve(undefined),
     ]);
     const root = expandHome(s.workspaceRoot, homeDir);
     const exists = fs.statSync(root, { throwIfNoEntry: false })?.isDirectory() ?? false;
@@ -148,8 +154,9 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
       mcp: { registered: readMcpRegistration(o.claudeJson), file: o.claudeJson },
       statusline: statuslineStatus(o.claudeDir, homeDir),
       commands: { mcp: `${prefix} mcp install`, statusline: `${prefix} statusline install`, shell },
-      // 手元の版は、上で読んだ claude の版と同じものを使う（同じ claude を 2 度起こさない）。
-      compat: { verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: claude.version, driftCount: o.compatDriftCount?.() ?? 0 },
+      // 口が無ければ、上で読んだ claude の版と同じものを使う（同じ claude を 2 度起こさない）。
+      // 件数は版を読んだ後に数える。版が変わったときは、読んだ時点で記録が空になっている。
+      compat: { verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: compatLocal === undefined ? claude.version : compatLocal, driftCount: o.compatDriftCount?.() ?? 0 },
     };
   };
 }
