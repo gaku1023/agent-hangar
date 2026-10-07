@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url';
-import { build, type BuildOptions } from 'esbuild';
+import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 import { COMPAT_HEADER, compatHeaders } from '@agent-hangar/shared';
+import { bindingNames, bundleWorker, workerBuildOptions, workerMetadata } from '../scripts/build-worker.ts';
 import type { Env } from '../src/env.ts';
 
 /**
@@ -29,47 +30,37 @@ export type CloudHarness = {
 };
 
 // URL の pathname は Windows で /D:/... になり、esbuild が解決できない。
-const ENTRY = fileURLToPath(new URL('../src/index.ts', import.meta.url));
+const CLOUD_DIR = fileURLToPath(new URL('..', import.meta.url));
 const SRC_DIR = fileURLToPath(new URL('../src/', import.meta.url));
 const BUNDLE_PATH = fileURLToPath(new URL('../src/index.bundle.js', import.meta.url));
-
-const COMMON: BuildOptions = {
-  bundle: true,
-  format: 'esm',
-  platform: 'browser',
-  conditions: ['workerd', 'worker', 'browser'],
-  mainFields: ['workerd', 'browser', 'module', 'main'],
-  target: 'es2022',
-  write: false,
-};
 
 const bundles = new Map<string, Promise<string>>();
 
 /**
  * Worker を 1 つの ESM に束ねる。テストのファイルごとに、下限の値ごとに 1 回で足りる。
- * minDeviceCompat を渡すと、端末に求める下限だけを差し替えた Worker を束ねる。
+ * 下限を渡さなければ、配布版に同梱する cloud/worker.mjs と同じ束である。
+ * minDeviceCompat を渡すと、端末に求める下限だけを差し替えた Worker を、同じ設定（workerBuildOptions）で束ねる。
  * 差し替えは試験の中だけにあり、配備される入口（src/index.ts の既定の輸出）は MIN_DEVICE_COMPAT のままである。
  */
 function workerScript(minDeviceCompat?: number): Promise<string> {
   const k = minDeviceCompat === undefined ? 'default' : String(minDeviceCompat);
   let p = bundles.get(k);
   if (!p) {
-    const opts: BuildOptions = minDeviceCompat === undefined
-      ? { ...COMMON, entryPoints: [ENTRY] }
-      : {
-          ...COMMON,
+    p = minDeviceCompat === undefined
+      ? bundleWorker(CLOUD_DIR)
+      : build({
+          ...workerBuildOptions(CLOUD_DIR),
           stdin: {
             contents: `import { createApp } from './index.ts';\nexport default createApp({ minDeviceCompat: ${minDeviceCompat} });\n`,
             resolveDir: SRC_DIR,
             sourcefile: 'floor-entry.ts',
             loader: 'ts',
           },
-        };
-    p = build(opts).then((r) => {
-      const out = r.outputFiles?.[0];
-      if (!out) throw new Error('Worker を束ねられませんでした');
-      return out.text;
-    });
+        }).then((r) => {
+          const out = r.outputFiles?.[0];
+          if (!out) throw new Error('Worker を束ねられませんでした');
+          return out.text;
+        });
     bundles.set(k, p);
   }
   return p;
@@ -86,14 +77,16 @@ function withCompat(init: RequestInit = {}): RequestInit {
 export async function startCloud(options: { JOIN_SECRET_HASH?: string; bindings?: Record<string, string>; outbound?: (req: Request) => Response | Promise<Response>; minDeviceCompat?: number } = {}): Promise<CloudHarness> {
   const script = await workerScript(options.minDeviceCompat);
   const joinSecretHash = options.JOIN_SECRET_HASH ?? '';
+  const meta = workerMetadata(CLOUD_DIR);
   const mf = new Miniflare({
     modules: true,
     script,
     scriptPath: BUNDLE_PATH,
-    compatibilityDate: '2026-08-01',
-    compatibilityFlags: ['nodejs_compat'],
-    d1Databases: ['DB'],
-    r2Buckets: ['BUCKET'],
+    // 互換の日付と旗と束縛の名前は、配布版に同梱する metadata.json と同じ定義から取る。
+    compatibilityDate: meta.compatibility_date,
+    compatibilityFlags: meta.compatibility_flags,
+    d1Databases: bindingNames(meta, 'd1'),
+    r2Buckets: bindingNames(meta, 'r2_bucket'),
     bindings: { JOIN_SECRET_HASH: joinSecretHash, ...options.bindings },
     // Worker から外への fetch を受ける。渡さなければ外へは出ない（試験は実物の Cloudflare に触らない）。
     outboundService: options.outbound ?? (() => new Response('outbound fetch is not allowed in tests', { status: 599 })),

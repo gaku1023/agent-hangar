@@ -44,6 +44,25 @@ export async function probeHealth(port: number, timeoutMs = 1000): Promise<boole
 }
 
 /**
+ * そのポートの hangar が起動を済ませたか。
+ * `/health` は待ち受けた時点で 200 を返し、索引などの起動の残りが済むと `ready` が真になる。
+ * `ready` を持たない応答は、済んだものとみなす（.app の health.rs の boot_state と同じ扱い）。
+ */
+export async function probeReady(port: number, timeoutMs = 1000): Promise<boolean> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!r.ok) {
+      await drain(r);
+      return false;
+    }
+    const body = (await r.json()) as { ok?: unknown; ready?: unknown };
+    return body.ok === true && body.ready !== false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 手元の鍵で、認証の要る経路を 1 つ叩く。
  * `/health` だけでは「そのポートで何かが応答する」ことしか分からず、
  * `HANGAR_HOME` がサーバとずれていれば、違う鍵を書いたまま成功と言ってしまう。

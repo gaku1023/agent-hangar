@@ -20,12 +20,11 @@ export function launchPrefsOf(params: LaunchParams): LaunchPrefs {
   return out;
 }
 
-/** localStorage から読んだ下書き。形が違えば（手で書き換えられたなど）捨てる。添付の無い古い形は、空の添付として読む。 */
+/** localStorage から読んだ下書き。形が違えば（手で書き換えられたなど）捨てる。添付の配列が無いもの（添付を足す前の形）も、形が違うものとして捨てる。 */
 export function readDraft(v: unknown): NewSessionDraft | null {
   if (!v || typeof v !== 'object') return null;
   const { name, prompt, attachments } = v as Record<string, unknown>;
-  if (typeof name !== 'string' || typeof prompt !== 'string') return null;
-  const list = Array.isArray(attachments) ? attachments : [];
+  if (typeof name !== 'string' || typeof prompt !== 'string' || !Array.isArray(attachments)) return null;
   const ok = (a: unknown): a is NewSessionDraft['attachments'][number] => {
     if (!a || typeof a !== 'object') return false;
     const r = a as Record<string, unknown>;
@@ -33,7 +32,7 @@ export function readDraft(v: unknown): NewSessionDraft | null {
   };
   // 空のパスと同じパスの重複は捨てる（手で書き換えられた保存値が、札の key の重複にならないように）。
   const seen = new Set<string>();
-  const kept = list.filter(ok).filter((a) => a.path !== '' && !seen.has(a.path) && !!seen.add(a.path));
+  const kept = attachments.filter(ok).filter((a) => a.path !== '' && !seen.has(a.path) && !!seen.add(a.path));
   return { name, prompt, attachments: kept.map((a) => ({ path: a.path, name: a.name, size: a.size })) };
 }
 

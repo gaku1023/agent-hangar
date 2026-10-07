@@ -1,4 +1,4 @@
-import type { LiveSessionDto, TranscriptEvent } from '@agent-hangar/shared';
+import type { LiveSessionDto } from '@agent-hangar/shared';
 
 /** deviceId が null なら手元（~/.claude）のファイル。文字列ならその端末から降ろした写しである。 */
 export type DiscoveredFile = { path: string; sessionId: string; agentId: string | null; deviceId: string | null };
@@ -22,13 +22,3 @@ export type LaunchInput = {
   worktree?: string;
   addDirs?: string[];
 };
-
-export interface Provider {
-  readonly id: 'claude-code' | 'opencode';
-  discover(): DiscoveredFile[];
-  watch(onChange: (path: string) => void): () => void;
-  readEvents(file: string, fromByte: number): { events: TranscriptEvent[]; offset: number; length: number }[];
-  liveStatus(): LiveSession[];
-  launchCommand(bin: string, input: LaunchInput): string[];
-  resumeCommand(bin: string, input: Omit<LaunchInput, 'mode'>, session: { providerSessionId: string }, fork: boolean, newSessionUuid?: string): string[];
-}

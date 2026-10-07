@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { accountsFixture } from '../test/accounts.ts';
-import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentAccount, currentRunOf, emptyUsage, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
+import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentAccount, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
-const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null });
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
+const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null });
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
 
 describe('store', () => {
   it('bootstrap を正規化して入れる', () => {
@@ -38,7 +38,7 @@ describe('store', () => {
     s = applyServerEvent(s, { type: 'session.upsert', session: { ...session('s1', 'u1'), state } });
     expect(s.sessions.s1?.state).toEqual(state);
     s = applyServerEvent(s, { type: 'session.upsert', session: session('s1', 'u1') });
-    expect(s.sessions.s1?.state).toBeUndefined();
+    expect(s.sessions.s1?.state).toBeNull();
   });
   it('関係ないイベントは同じ参照を返す', () => {
     const s = applyBootstrap(initialStore(), boot);
@@ -144,7 +144,7 @@ describe('runs と tabs', () => {
   });
 });
 
-const todo = (id: string, projectId: string, position: number, done = false): TodoDto => ({ id, projectId, text: id, done, position, sessionId: null, updatedAt: 1 });
+const todo = (id: string, projectId: string, position: number, done = false): TodoDto => ({ id, projectId, text: id, done, position, sessionId: null, updatedAt: 1, candidate: null });
 const art = (id: string, projectId: string | null, last: number, sessionIds: string[] = ['s1']): ArtifactDto => ({ id, projectId, url: `https://claude.ai/code/artifact/${id}`, title: id, description: null, favicon: '📊', filePath: null, fileExists: false, firstPublishedAt: 1, lastPublishedAt: last, versionCount: 1, sessionIds });
 
 describe('tabAlive', () => {
@@ -164,9 +164,8 @@ describe('tabAlive', () => {
 });
 
 describe('フェーズ 3 のストア', () => {
-  it('bootstrap は使用量と TODO とアーティファクトと要約の待ちを入れる', () => {
-    const s = applyBootstrap(initialStore(), { ...boot, usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: null, updatedAt: 9 }, todos: [todo('t2', 'p1', 2), todo('t1', 'p1', 1)], artifacts: [art('a1', 'p1', 5)], summaryPending: ['s1'] });
-    expect(s.usage.fiveHour?.usedPercent).toBe(47);
+  it('bootstrap は TODO とアーティファクトと要約の待ちを入れる', () => {
+    const s = applyBootstrap(initialStore(), { ...boot, todos: [todo('t2', 'p1', 2), todo('t1', 'p1', 1)], artifacts: [art('a1', 'p1', 5)], summaryPending: ['s1'] });
     expect(todosOf(s, 'p1').map((t) => t.id)).toEqual(['t1', 't2']);
     expect(artifactsOf(s, { projectId: 'p1' }).map((a) => a.id)).toEqual(['a1']);
     expect(s.summaryPending).toEqual({ s1: true });
@@ -177,10 +176,8 @@ describe('フェーズ 3 のストア', () => {
     expect(todosOf(s, 'p1').map((t) => [t.id, t.done])).toEqual([['t2', true]]);
     expect(todosOf(s, 'p2').map((t) => t.id)).toEqual(['t9']);
   });
-  it('usage、memo、artifact、要約の待ちのイベントを取り込む', () => {
+  it('memo、artifact、要約の待ちのイベントを取り込む', () => {
     let s = applyBootstrap(initialStore(), boot);
-    s = applyServerEvent(s, { type: 'usage.update', usage: { fiveHour: null, sevenDay: { usedPercent: 7, resetsAt: 2 }, updatedAt: 3 } });
-    expect(s.usage.sevenDay?.usedPercent).toBe(7);
     const memo: MemoDto = { projectId: 'p1', markdown: '# m', updatedAt: 4 };
     s = applyServerEvent(s, { type: 'memo.update', memo });
     expect(s.memos.p1).toEqual(memo);
@@ -201,17 +198,6 @@ describe('フェーズ 3 のストア', () => {
 });
 
 describe('フェーズ 3 の繰り越し', () => {
-  it('フェーズ 3 の項目を返さないサーバでも、既定値で埋めて画面を立てる', () => {
-    // 古いサーバは usage、todos、artifacts、summaryPending を返さない。
-    const old = { ...boot } as Partial<BootstrapDto>;
-    delete old.usage; delete old.todos; delete old.artifacts; delete old.summaryPending;
-    const s = applyBootstrap(initialStore(), old as BootstrapDto);
-    expect(s.bootstrapped).toBe(true);
-    expect(s.usage).toEqual(emptyUsage());
-    expect(s.todos).toEqual({});
-    expect(s.artifacts).toEqual({});
-    expect(s.summaryPending).toEqual({});
-  });
   it('最終公開が同じアーティファクトは id の昇順で、届いた順に依らない', () => {
     const ids = ['ab', 'aa', 'ac'];
     const fill = (order: string[]) => order.reduce((s, id) => applyServerEvent(s, { type: 'artifact.upsert', artifact: art(id, 'p1', 5) }), initialStore());
@@ -253,14 +239,13 @@ describe('store の同期', () => {
     let s = applyBootstrap(initialStore(), boot);
     expect(s.sync?.state).toBe('off');
     expect(s.devices).toEqual([]);
-    s = applyServerEvent(s, { type: 'sync.status', status: { state: 'pushing', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 4, error: null, deviceCount: 2, claudeConfig: { enabled: true, confirmed: true }, skipped: [], sweepPending: null } });
+    s = applyServerEvent(s, { type: 'sync.status', status: { state: 'pushing', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 4, error: null, deviceCount: 2, claudeConfig: { enabled: true, confirmed: true }, skipped: [], sweepPending: null, oncePass: false } });
     expect(s.sync).toMatchObject({ state: 'pushing', pending: 4 });
     s = applyServerEvent(s, { type: 'devices.update', devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true, shell: null }] });
     expect(s.devices).toHaveLength(1);
-    expect(applyServerEvent(s, { type: 'sync.applied', table: 'projects', rowId: 'p1' })).toBe(s);
   });
   it('bootstrap が運ぶ sync と devices をそのまま入れる', () => {
-    const sync = { state: 'idle' as const, url: 'https://h', lastPushAt: 1000, lastPullAt: 2000, pending: 5, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: 7 };
+    const sync = { state: 'idle' as const, url: 'https://h', lastPushAt: 1000, lastPullAt: 2000, pending: 5, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: 7, oncePass: false };
     const s = applyBootstrap(initialStore(), { ...boot, sync, devices: [{ id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false, shell: null }] });
     expect(s.sync).toEqual(sync);
     expect(s.devices).toHaveLength(1);
@@ -278,26 +263,12 @@ describe('store の同期', () => {
   it('sync.status で、片付いた取り残しと回復した失敗が消える', () => {
     // レビュアの再現筋である。サーバが 0 件になっても画面が 3 件のまま固まっていた。
     // 片付いたことが画面に届かないと、件数を出す意味そのものが無くなる。
-    const sync: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }], sweepPending: 3 };
+    const sync: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }], sweepPending: 3, oncePass: false };
     let s = applyBootstrap(initialStore(), { ...boot, sync });
     expect(s.sync).toMatchObject({ sweepPending: 3 });
     expect(s.sync?.skipped).toHaveLength(1);
     s = applyServerEvent(s, { type: 'sync.status', status: { ...sync, skipped: [], sweepPending: 0 } });
     expect(s.sync).toMatchObject({ sweepPending: 0, skipped: [] });
-  });
-  it('付録を持たない古いサーバの sync.status では、件数を引き継がずに落とす', () => {
-    // 古い数字を残すのは、何も出さないより悪い。分からないときは分からないと出す。
-    const sync: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'k1', attempts: 3, message: 'x' }], sweepPending: 1500 };
-    let s = applyBootstrap(initialStore(), { ...boot, sync });
-    const { skipped: _s, sweepPending: _p, ...older } = sync;
-    s = applyServerEvent(s, { type: 'sync.status', status: older as SyncStatusBody });
-    expect(s.sync).toMatchObject({ sweepPending: null, skipped: [] });
-  });
-  it('sync と devices を持たない古いサーバでも壊れない', () => {
-    const { sync: _sync, devices: _devices, ...older } = boot;
-    const s = applyBootstrap(initialStore(), older as BootstrapDto);
-    expect(s.sync).toBeNull();
-    expect(s.devices).toEqual([]);
   });
   it('参加トークンと設定の下見を持つ', () => {
     let s = initialStore();
@@ -344,10 +315,8 @@ describe('次の入力待ち（C5）', () => {
 
 describe('保持期間の store', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
-  it('bootstrap の retention を入れ、欠けていれば null', () => {
+  it('bootstrap の retention を入れる', () => {
     expect(applyBootstrap(initialStore(), { ...boot, retention: R }).retention).toEqual(R);
-    const { retention: _drop, ...old } = boot;
-    expect(applyBootstrap(initialStore(), old as BootstrapDto).retention).toBeNull();
   });
   it('retention.changed で差し替わる', () => {
     const next = { ...R, days: 365, source: 'user' as const, userValue: 365 };
@@ -358,16 +327,15 @@ describe('保持期間の store', () => {
 describe('アカウントの store', () => {
   const withAccounts = (accounts: typeof accountsFixture | null) => ({ ...initialStore(), accounts });
   const one = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!], sessions: {} };
-  it('bootstrap に accounts が無ければ null、あれば入る', () => {
-    expect(applyBootstrap(initialStore(), boot).accounts).toBeNull();
+  it('bootstrap の accounts をそのまま入れる。届く前は null', () => {
+    expect(initialStore().accounts).toBeNull();
     expect(applyBootstrap(initialStore(), { ...boot, accounts: accountsFixture }).accounts).toEqual(accountsFixture);
   });
   it('accounts.update は丸ごと入れ替え、ほかの項目は変えない', () => {
-    const before = applyBootstrap(initialStore(), { ...boot, accounts: accountsFixture, usage: { fiveHour: { usedPercent: 3, resetsAt: null }, sevenDay: null, updatedAt: 7 } });
+    const before = applyBootstrap(initialStore(), { ...boot, accounts: accountsFixture });
     const next = { ...accountsFixture, currentId: 'a1', sessions: {} };
     const after = applyServerEvent(before, { type: 'accounts.update', accounts: next });
     expect(after.accounts).toEqual(next);
-    expect(after.usage).toBe(before.usage);
     expect(after.sessions).toBe(before.sessions);
   });
   it('currentAccount は currentId の 1 件、一覧に無ければ primary、空なら null', () => {

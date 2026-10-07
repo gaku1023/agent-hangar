@@ -37,7 +37,7 @@ export function presentPause(state: State, store: Store, now: number): PauseProp
   const { sessionId, from } = state.overlay;
   const s = store.sessions[sessionId];
   if (!s) return null;
-  const st = s.state ?? null;
+  const st = s.state;
   const cand = from === 'candidate' ? st?.candidate ?? null : null;
   const own = st?.status === 'paused' ? st : null;
   const choices = pauseChoices(now);

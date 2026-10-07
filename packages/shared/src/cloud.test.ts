@@ -27,8 +27,10 @@ describe('鍵と表', () => {
     expect(configKey('dev1', 'CLAUDE.md')).not.toBe(configKey('dev2', 'CLAUDE.md'));
     expect(splitFileKey(configKey('dev1', 'skills/x/SKILL.md'))).toEqual({ prefix: 'config', rel: 'dev1/skills/x/SKILL.md' });
   });
-  it('共有テーブルの主キーは session_summaries と session_states と project_memos だけが違う', () => {
-    expect(SHARED_TABLES).toHaveLength(13);
+  it('共有テーブルは 12 で、主キーは session_summaries と session_states と project_memos だけが違う', () => {
+    expect(SHARED_TABLES).toHaveLength(12);
+    expect(SHARED_TABLES).not.toContain('takeover_requests');
+    expect(Object.keys(TABLE_PK).sort()).toEqual([...SHARED_TABLES].sort());
     expect(TABLE_PK.session_summaries).toBe('session_id');
     expect(TABLE_PK.session_states).toBe('session_id');
     expect(TABLE_PK.project_memos).toBe('project_id');

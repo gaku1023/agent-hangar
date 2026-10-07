@@ -154,7 +154,7 @@ export type ConfirmRequest =
   | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean }
   | { kind: 'removeAccount'; accountId: string };
 export type Overlay =
-  | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' } | { kind: 'notYet'; feature: string }
+  | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' }
   | { kind: 'shortcuts' }
   | { kind: 'newSession'; projectId: string | null; scratch: boolean }
   | { kind: 'promote'; sessionId: string }
@@ -186,7 +186,7 @@ export type FindState = { query: string; caseSensitive: boolean; from: number | 
 /** 検索の結果から開いたときの跳び先（J1）。n は開いた回数で、同じ所をもう一度開いても跳び直す合図にする。 */
 export type JumpState = { seq: number; query: string; n: number };
 export type SessionViewState = {
-  agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null;
+  agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null;
   /** 右ペインの「いま」の段が取る高さの割合。まだ境目を動かしていなければ null で、画面は最後に動かした値（State の livePaneSplit）で開く。 */
   livePaneSplit: number | null;
   /** 目次で開いているターン（区切りの行の seq）。その場の操作なので保存しない。 */
@@ -319,5 +319,4 @@ export type State = {
   copied: { text: string; n: number } | null;
 };
 export type Step = { state: State; effects: Effect[] };
-export const NOT_YET = 'この操作は次のフェーズで実装します';
 export const ITERM_HINT = 'iTerm2 で開くとき、初回に macOS の自動化の許可ダイアログが出ます';

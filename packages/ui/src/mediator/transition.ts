@@ -17,7 +17,7 @@ import { settingsStep } from './settings.ts';
 import { LIVE_PANE_SPLIT_DEFAULT, livePaneSplitStep, sidebarLiveStep, sidebarOrderStep, sidebarStep } from './sidebar.ts';
 import { syncStep } from './sync.ts';
 import { workbenchStep } from './workbench.ts';
-import { NOT_YET, type Input, type State, type Step } from './types.ts';
+import type { Input, State, Step } from './types.ts';
 
 export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
@@ -29,9 +29,6 @@ export function initialState(): State {
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
   return { ...state, toasts: [...state.toasts, { id: String(state.nextToastId), level, message }], nextToastId: state.nextToastId + 1 };
 }
-
-/** フェーズ 4 以降に残る操作だけ。フェーズ 3 で実装した Intent はここから外した。 */
-const NOT_YET_INTENTS = new Set(['session.takeover']);
 
 /** 直交する領域の状態機械を順に試し、最初に応答した領域の結果を採る。残りは横断的な入力。 */
 export function transition(state: State, input: Input): Step {
@@ -70,9 +67,7 @@ export function transition(state: State, input: Input): Step {
     case 'project.setStatus': return { state, effects: [{ kind: 'api.setProjectStatus', projectId: i.id, status: i.status }] };
     case 'index.rebuild': return { state, effects: [{ kind: 'api.rebuildIndex' }] };
     case 'toast.dismiss': return { state: { ...state, toasts: state.toasts.filter((t) => t.id !== i.id) }, effects: [] };
-    default:
-      if (NOT_YET_INTENTS.has(i.type)) return { state, effects: [{ kind: 'toast', level: 'info', message: NOT_YET }] };
-      return { state, effects: [] };
+    default: return { state, effects: [] };
   }
 }
 

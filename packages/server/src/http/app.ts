@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { COMPAT_VERSION, liveFilterOf, MAX_JUMP_HEADS, newId, PRIMARY_ACCOUNT_ID, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { COMPAT_VERSION, liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
@@ -46,10 +46,11 @@ export type ExternalApi = {
   openUrl(url: string): Promise<void>;
 };
 /**
- * 要約の受け付け方。true は従来どおり force と同じ。
+ * 要約の受け付け方。
+ * force は条件をすべて飛ばす（手動の作り直し）。
  * ignoreLive はレジストリの生存判定だけを飛ばす。土台かどうかと 5 ターンの判定は残る。
  */
-export type SummaryEnqueueOpts = boolean | { force?: boolean; ignoreLive?: boolean };
+export type SummaryEnqueueOpts = { force?: boolean; ignoreLive?: boolean };
 /** SummaryJob のうち HTTP から触る部分だけ。 */
 export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts): boolean; pending(): string[]; test(): Promise<SummarizerTestDto>; listModels(): Promise<string[]> };
 /** SyncEngine のうち HTTP から触る部分だけ。 */
@@ -86,13 +87,10 @@ export type AppDeps = {
   /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する。 */
   gitInit?: (dir: string) => void;
   sync: SyncApi;
-  /** 設定の「使用量と費用」。同期を設定していない端末と古い組み立てでは無い。 */
-  cloudUsage?: { current(): CloudUsageDto | null; refresh(): Promise<CloudUsageDto | null> };
-  /**
-   * アカウントの一覧と切り替え。組み立てる側（server.ts）が 1 か所で作り、起動後の認証の読み直しにも同じものを使う。
-   * 渡さなければ、アカウントの口は生えない（古い試験の組み立てのため）。
-   */
-  accounts?: AccountsDeps;
+  /** 設定の「使用量と費用」。同期を設定していない端末では current() が null を返す。 */
+  cloudUsage: { current(): CloudUsageDto | null; refresh(): Promise<CloudUsageDto | null> };
+  /** アカウントの一覧と切り替え。組み立てる側（server.ts）が 1 か所で作り、起動後の認証の読み直しにも同じものを使う。 */
+  accounts: AccountsDeps;
   /** 降ろすのを諦めた項目。RemotePuller.skippedEntries() をそのまま載せる。渡さなければ空として扱う。 */
   syncSkipped?: () => SyncSkippedDto[];
   /**
@@ -333,8 +331,8 @@ export function createApp(deps: AppDeps): Hono {
    * 間に合わなくても起動は続ける。同期の失敗で起動を止めない。
    */
   const beforeLaunch = () => deps.sync.pullBeforeLaunch(2000).catch(() => false);
-  const accountsDeps: AccountsDeps | null = deps.accounts ? { beforeLaunch, ...deps.accounts } : null;
-  if (accountsDeps) accountsRoutes(api, accountsDeps);
+  const accountsDeps: AccountsDeps = { beforeLaunch, ...deps.accounts };
+  accountsRoutes(api, accountsDeps);
 
   api.get('/bootstrap', (c) => {
     const live = deps.live();
@@ -349,15 +347,14 @@ export function createApp(deps: AppDeps): Hono {
       live,
       runs: alive.runs,
       tabs: alive.tabs,
-      usage: deps.usage.current(),
       todos: listTodos(db),
       artifacts: listArtifacts(db),
       summaryPending: deps.summary.pending(),
       index: deps.indexer.progress(),
       version: deps.version,
       retention: deps.retention.current(),
-      cloudUsage: deps.cloudUsage?.current() ?? null,
-      accounts: accountsDeps ? buildAccountsDto(accountsDeps, { checkLinks: true }) : undefined,
+      cloudUsage: deps.cloudUsage.current(),
+      accounts: buildAccountsDto(accountsDeps, { checkLinks: true }),
     };
     return c.json(body);
   });
@@ -668,10 +665,7 @@ export function createApp(deps: AppDeps): Hono {
   // 前面化は待たせない。間引き（前の pull から 5 秒）は SyncEngine.onFocus の中にある。
   api.post('/sync/focus', (c) => { void deps.sync.onFocus().catch(() => {}); return c.body(null, 202); });
   // 設定を開いたときは refresh=1 で取り直す。一時停止の間は取りに行かず、最後の値を返す（CloudUsagePoller が守る）。
-  api.get('/sync/usage', async (c) => {
-    if (!deps.cloudUsage) return c.json(null);
-    return c.json(c.req.query('refresh') === '1' ? await deps.cloudUsage.refresh() : deps.cloudUsage.current());
-  });
+  api.get('/sync/usage', async (c) => c.json(c.req.query('refresh') === '1' ? await deps.cloudUsage.refresh() : deps.cloudUsage.current()));
   api.get('/devices', (c) => c.json(deps.devices()));
   // 参加トークンは全セッションの読み書き権を持つ。ログには出さず、UI が押したときだけ取りに来る。
   api.get('/sync/joinToken', (c) => c.json({ token: deps.joinToken() }));
@@ -785,11 +779,11 @@ export function createApp(deps: AppDeps): Hono {
       if (body.kind === 'newDir') {
         if (typeof body.name !== 'string') return c.json({ error: 'name は必須です' }, 400);
         ({ projectId } = createProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot, gitInit: deps.gitInit }, { name: body.name, gitInit: body.gitInit === true }));
-      } else {
-        // kind を省いた { name, path } は、フェーズ 2 からの既存のディレクトリの登録である。
-        if (body.kind !== undefined && body.kind !== 'dir') return c.json({ error: 'kind は newDir か dir です' }, 400);
+      } else if (body.kind === 'dir') {
         if (typeof body.path !== 'string') return c.json({ error: 'path が存在するディレクトリではありません' }, 400);
         ({ projectId, created } = registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: body.path, name: typeof body.name === 'string' ? body.name : undefined }));
+      } else {
+        return c.json({ error: 'kind は newDir か dir です' }, 400);
       }
       const p = getProject(db, deviceId, deps.live(), projectId)!;
       // 登録済みでも配る。アーカイブから戻したときに、ほかの画面の状態も変わるためである。
@@ -820,11 +814,8 @@ export function createApp(deps: AppDeps): Hono {
     try { raw = JSON.parse(text); } catch { return c.json({ error: '本文が JSON ではありません' }, 400); }
     const r = deps.usage.ingest(raw);
     if (!r) return c.json({ error: 'statusline の payload の形が違います' }, 400);
-    if (r.usageChanged) {
-      // usage.update は最初のアカウントの値だけを運ぶ（古い画面がそのまま動くため）。ほかのアカウントは accounts.update で配る。
-      if (r.accountId === PRIMARY_ACCOUNT_ID) deps.hub.broadcast({ type: 'usage.update', usage: r.usage });
-      if (accountsDeps) accountsDeps.broadcast(buildAccountsDto(accountsDeps));
-    }
+    // 使用率は、動かしたアカウントの値として accounts.update で配る。最初のアカウントも同じ道で届く。
+    if (r.usageChanged) accountsDeps.broadcast(buildAccountsDto(accountsDeps));
     if (r.providerSessionId) {
       const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(r.providerSessionId) as { id: string } | undefined;
       if (s) broadcastSession(s.id);

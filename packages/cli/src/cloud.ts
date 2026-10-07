@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream, stampTranscriptsFrom } from '@agent-hangar/server';
+import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream, stampTranscriptsFrom } from '@agent-hangar/server/src/cliEntry.ts';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import { COMPAT_VERSION, compatHeaders, configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, parseCompat, PULL_LIMIT, readCompatRefusal, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
@@ -52,23 +52,16 @@ export const RENAME_WORD = 'replace';
 
 /**
  * packages/cloud の置き場。
- * 配布版では CLI が単一ファイルにまとまるので、import.meta.url からの相対ではリポジトリの外を指してしまう。
- * そのため HANGAR_CLOUD_DIR を先に見る。
- * 無ければ従来どおり CLI の src からの相対で探す。
+ * HANGAR_CLOUD_DIR があればそこを使う（開発で別の写しを指すための上書き）。
+ * 無ければ、この CLI の src からの相対で探す。
+ * 配布版の cli.mjs では、この相対は .app の中の存在しない場所を指すので、requireCloudDir が clone を案内して止まる。
+ * 配布版に同梱した cloud/ は Worker を束ねたもの（worker.mjs と metadata.json）で、源ではないので、ここでは指さない。
  */
 export function defaultCloudDir(): string {
   const fromEnv = process.env.HANGAR_CLOUD_DIR;
   if (fromEnv) return path.resolve(fromEnv);
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cloud');
 }
-
-/**
- * 配布版の .app に同梱した cloud/ の目印。
- * 同梱の写しには wrangler も hono も入っていないので、そこからはデプロイできない。
- * apps/desktop/scripts/bundle-server.ts がこの名前のファイルを置く。
- * 名前が両側で揃っていることは apps/desktop/test/bundle-server.test.ts が突き合わせる。
- */
-export const BUNDLED_CLOUD_MARKER = '.bundled';
 
 /**
  * wrangler deploy が読むもの。
@@ -85,17 +78,17 @@ const CLOUD_DEPS: [specifier: string, name: string][] = [
  * 揃っていなければ、何がどこに無いのかを述べて止める。
  * 黙って wrangler を呼ぶと、意味の分からない終了コードだけが残る。
  *
- * 依存の解決だけでは足りない。
- * createRequire の解決は親をたどるので、.app をリポジトリの中や node_modules を持つディレクトリの下に
- * 置くと、無関係な wrangler を拾って検査が素通りし、実物のアカウントに資源を作ってしまう。
- * そのため、同梱の写しであること自体を目印で先に見る。
+ * 源（src/index.ts、wrangler.jsonc、package.json）を、依存より先に見る。
+ * createRequire の解決は親をたどるので、.app をリポジトリの中や node_modules を持つディレクトリの下に置くと、
+ * 無関係な wrangler を拾って依存の検査が素通りし、実物のアカウントに資源を作ってしまう。
+ * 配布版に同梱した cloud/ は束ねた worker.mjs だけで源を持たないので、依存を見る前にここで止まる。
  */
 export function requireCloudDir(): string {
   const dir = defaultCloudDir();
   const where = process.env.HANGAR_CLOUD_DIR ? 'HANGAR_CLOUD_DIR' : 'この CLI の置き場からの相対';
   for (const rel of [['src', 'index.ts'], ['wrangler.jsonc'], ['package.json']]) {
     if (!fs.existsSync(path.join(dir, ...rel))) {
-      throw new Error(`Worker のソース（${rel.join('/')}）が ${dir} にありません（${where}で決めました）。HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
+      throw new Error(`Worker のソース（${rel.join('/')}）が ${dir} にありません（${where}で決めました）。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行するか、HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
     }
   }
   let name: string | undefined;
@@ -106,9 +99,6 @@ export function requireCloudDir(): string {
   }
   if (name !== '@agent-hangar/cloud') {
     throw new Error(`${dir} は packages/cloud ではありません（${where}で決めました。package.json の name は ${name ?? '読めません'}）。HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
-  }
-  if (fs.existsSync(path.join(dir, BUNDLED_CLOUD_MARKER))) {
-    throw new Error(`${dir} は配布版に同梱した写しなので、ここからはデプロイできません。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行してください`);
   }
   for (const [specifier, dep] of CLOUD_DEPS) {
     try {

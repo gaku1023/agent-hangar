@@ -78,9 +78,9 @@ export class SummaryJob {
    * 呼び手が run の終了を知っている場面では `ignoreLive` を使う。
    * 土台かどうかと 5 ターンの判定はそのまま残る。
    */
-  enqueue(sessionId: string, opts: boolean | { force?: boolean; ignoreLive?: boolean } = false): boolean {
-    const force = opts === true || (typeof opts === 'object' && opts.force === true);
-    const ignoreLive = force || (typeof opts === 'object' && opts.ignoreLive === true);
+  enqueue(sessionId: string, opts: { force?: boolean; ignoreLive?: boolean } = {}): boolean {
+    const force = opts.force === true;
+    const ignoreLive = force || opts.ignoreLive === true;
     if (this.running === sessionId || this.queue.includes(sessionId)) return false;
     const hasBody = this.deps.db.prepare('select 1 from event_index where session_id = ? and parent_agent is null limit 1').get(sessionId);
     if (!hasBody) return false;

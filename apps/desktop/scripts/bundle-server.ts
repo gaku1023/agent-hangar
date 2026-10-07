@@ -2,12 +2,14 @@ import { build } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bundleWorker, WORKER_METADATA, WORKER_MODULE, workerMetadata } from '../../../packages/cloud/scripts/build-worker.ts';
 
 export type BundleOptions = { repoRoot: string; outDir: string; uiDist: string };
 
 /**
  * バンドルに入れず、隣の node_modules から読ませるモジュール。
- * サーバと CLI の import から到達するネイティブはこの二つだけである（実測）。
+ * サーバの import から到達するネイティブはこの二つだけである（実測）。
+ * CLI（cli.mjs）が使うのは better-sqlite3 だけで、node-pty はサーバだけが使う。
  * どちらも prebuildify 形式で、実体は build/Release ではなく prebuilds の下にある。
  */
 export const NATIVE_MODULES = ['better-sqlite3', 'node-pty'];
@@ -29,26 +31,8 @@ export const PREBUILD_ARCH = 'darwin-arm64';
  */
 const SKIP_IN_NATIVE = /^(deps|src|test|third_party|scripts|node_modules|binding\.gyp|build\/Release\/obj(\.target)?)(\/|$)/;
 
-/**
- * packages/cloud のうち、同梱に要らない中身。
- * デプロイに要らないもの（試験、依存、wrangler の作業場）に加えて、秘密と記録も落とす。
- * .dev.vars と .env には Worker の秘密が入り、ログには実物のアカウントの様子が残る。
- * CI は clean な checkout から作るので公開の Release には入らないが、
- * 手元で bundle-server を回して .app を人に渡す道がある。
- */
-const SKIP_IN_CLOUD = /^(test|node_modules|\.wrangler)(\/|$)|(^|\/)\.dev\.vars(\.|$)|(^|\/)\.env(rc)?(\.|$)|\.log$/;
-
 /** UI の写しのうち、配布物に要らない中身。 */
 const SKIP_IN_UI = /\.map$/;
-
-/**
- * 同梱した cloud/ に置く目印の名前。
- * packages/cli/src/cloud.ts の requireCloudDir() がこの名前を見て、配布版からのデプロイを断る。
- * 片方だけ変えると断れなくなるので、名前は両方で揃える。
- * 揃っていることは apps/desktop/test/bundle-server.test.ts が、
- * packages/cli/src/cloud.ts の宣言を読んで突き合わせる。
- */
-export const BUNDLED_CLOUD_MARKER = '.bundled';
 
 const BANNER = "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);";
 
@@ -95,14 +79,6 @@ function copyTree(src: string, dest: string, skip: RegExp, extra?: (rel: string)
   pruneEmptyDirs(dest);
 }
 
-/**
- * packages/cloud を同梱用に写す。
- * 何を落とすかを試験から確かめられるように、bundleServer と同じ道をここに切り出してある。
- */
-export function copyCloudTree(src: string, dest: string): void {
-  copyTree(src, dest, SKIP_IN_CLOUD);
-}
-
 export async function bundleServer(opts: BundleOptions): Promise<{ files: string[] }> {
   if (!fs.existsSync(path.join(opts.uiDist, 'index.html'))) {
     throw new Error(`UI のビルドがありません: ${opts.uiDist}（先に npm run build を実行してください）`);
@@ -145,16 +121,13 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
     copyTree(src, path.join(opts.outDir, 'node_modules', m), SKIP_IN_NATIVE, keepPrebuild);
   }
 
-  // Worker のソースを同梱する。
-  // 単一ファイルにまとめると CLI から packages/cloud への相対が届かなくなるので、bin/hangar が
-  // HANGAR_CLOUD_DIR でここを指す。
-  copyCloudTree(path.join(opts.repoRoot, 'packages/cloud'), path.join(opts.outDir, 'cloud'));
-  // 同梱した写しである目印を置く。
-  // ここには wrangler も hono も入っていないのでデプロイはできないが、
-  // .app をリポジトリの中や node_modules を持つディレクトリの下に置くと、親をたどって拾った
-  // wrangler のせいで検査が素通りし、実物のアカウントに資源を作ってしまう。
-  // 名前は packages/cli/src/cloud.ts の BUNDLED_CLOUD_MARKER と合わせる。
-  fs.writeFileSync(path.join(opts.outDir, 'cloud', BUNDLED_CLOUD_MARKER), 'agent-hangar: 配布版に同梱した packages/cloud の写しです。ここからはデプロイできません。\n');
+  // Worker を 1 本に束ねたものと、その束縛の定義を同梱する。
+  // 源の写しは置かない。wrangler も hono も同梱しないので源からはデプロイできず、手元の秘密を運ぶ道になるだけだった。
+  // 段 5 で、利用者の API トークンと Cloudflare の REST でこの束を上げる。いまは置くだけで、誰も読まない。
+  const cloudSrc = path.join(opts.repoRoot, 'packages/cloud');
+  fs.mkdirSync(path.join(opts.outDir, 'cloud'));
+  fs.writeFileSync(path.join(opts.outDir, 'cloud', WORKER_MODULE), await bundleWorker(cloudSrc));
+  fs.writeFileSync(path.join(opts.outDir, 'cloud', WORKER_METADATA), JSON.stringify(workerMetadata(cloudSrc), null, 2) + '\n');
 
   fs.mkdirSync(path.join(opts.outDir, 'bin'));
   fs.copyFileSync(fileURLToPath(new URL('./hangar.sh', import.meta.url)), path.join(opts.outDir, 'bin', 'hangar'));

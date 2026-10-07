@@ -9,7 +9,7 @@ Claude Code のセッションをプロジェクト単位で束ね、起動、�
 macOS の `.app` を入れると、サーバの起動をアプリに任せて使えます（配布の状況は次の節にあります）。
 フェーズ 4 のクラウド同期では、自分の Cloudflare アカウントに Worker と D1 と R2 を置き、自分の端末の間でセッションのメタデータと本文と Claude Code の設定を同期できます。
 フェーズ 3 までで入った、使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブの分割、事後要約、コマンドパレットと、フェーズ 2 までで入った tmux でのセッション起動、ブラウザに埋め込んだターミナル、セッション内のシェルタブ、MCP、外部アプリとの連携もそのまま使えます。
-実行中のセッションを他端末から奪う「引き継ぎ」は後のフェーズで、計画は `docs/plans/` にあります。
+実行中のセッションを他端末から奪う「引き継ぎ」は作りません。
 
 ## インストール（配布版）
 
@@ -92,7 +92,7 @@ Developer ID での署名も公証もしないので、初回だけ Gatekeeper �
 クラウド同期の設定（`hangar setup cloud`）は、同梱の `hangar` からは通りません。
 wrangler が 205MB あるので同梱していないためです。
 クラウド同期を使うときは、このリポジトリを clone して `npm install` した場所から `npm run hangar -- setup cloud` を実行してください。
-同梱の `hangar` は、wrangler が見つからないことを告げて止まります。
+同梱の `hangar` は、Worker の源が無いことを告げ、clone した場所から実行するよう案内して止まります。
 
 配布の版とサーバの版は別々に進みます。
 `.app` は `0.1.0`、サーバは `0.3.0` です（サーバの版は `/health` が返します）。
@@ -321,7 +321,7 @@ npm run hangar -- cloud backfill       # 参加より前の本文も上げ直す
 
 他の端末で実行中のセッションは「<端末名> で実行中」と出て、再開とフォークが押せなくなります。
 その端末を止めてから「この PC で再開」を押すと、本文を手元に降ろして続きから始められます。
-実行中のまま奪い取る「引き継ぎ」は、まだ作っていません。
+実行中のまま奪い取る「引き継ぎ」はありません。
 
 ### やめるとき
 
@@ -406,10 +406,11 @@ npm run build                         # UI を作る
 cd apps/desktop && npx tauri build    # server-dist を作り、.app を src-tauri/target/release/bundle/macos に出す
 ```
 
-`.app` に入るのは、esbuild でまとめた `server.mjs` と `cli.mjs`、UI、`better-sqlite3` と `node-pty` の darwin-arm64 の prebuild、`bin/hangar`、Worker のソース、`manifest.json` です。
+`.app` に入るのは、esbuild でまとめた `server.mjs` と `cli.mjs`、UI、`better-sqlite3` と `node-pty` の darwin-arm64 の prebuild、`bin/hangar`、Worker を 1 本に束ねた `cloud/worker.mjs` とその束縛の定義 `cloud/metadata.json`、`manifest.json` です。
+`cloud/` は、後の版でアプリから Cloudflare へ Worker を上げるための下地で、いまはどこからも読んでいません。
 UI の sourcemap は入れません。
 UI の写しの 68 パーセント（実測 2.19MB）が `.map` で、利用者の役に立たないためです。
-実測で 7.7MB でした。
+実測で 6.5MB でした。
 
 配布は、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json` の版を揃えてから `git tag vX.Y.Z && git push origin vX.Y.Z` で行います。
 GitHub Actions が型検査とテストを回し、`.app` を zip と checksum 付きで Releases に置きます。

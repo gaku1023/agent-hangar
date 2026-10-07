@@ -1,11 +1,13 @@
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bundleServer, BUNDLED_CLOUD_MARKER, copyCloudTree, NATIVE_MODULES, PREBUILD_ARCH } from '../scripts/bundle-server.ts';
+import { bundleServer, NATIVE_MODULES, PREBUILD_ARCH } from '../scripts/bundle-server.ts';
+import { bundleWorker, workerMetadata } from '../../../packages/cloud/scripts/build-worker.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const tmp = (p: string): string => fs.mkdtempSync(path.join(os.tmpdir(), p));
@@ -28,6 +30,15 @@ const dirSize = (dir: string): number => {
   }
   return total;
 };
+
+/** 誰も待ち受けていないポートを 1 つ取る。 */
+async function freePort(): Promise<number> {
+  const s = net.createServer();
+  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
+  const port = (s.address() as net.AddressInfo).port;
+  await new Promise((r) => s.close(r));
+  return port;
+}
 
 async function waitHealth(url: string, ms: number): Promise<boolean> {
   const t0 = Date.now();
@@ -78,10 +89,8 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
       'node_modules/node-pty/lib/index.js',
       `node_modules/node-pty/prebuilds/${PREBUILD_ARCH}/pty.node`,
       `node_modules/node-pty/prebuilds/${PREBUILD_ARCH}/spawn-helper`,
-      'cloud/src/index.ts',
-      'cloud/wrangler.jsonc',
-      'cloud/package.json',
-      `cloud/${BUNDLED_CLOUD_MARKER}`,
+      'cloud/worker.mjs',
+      'cloud/metadata.json',
     ]) {
       expect(fs.existsSync(path.join(out, f)), f).toBe(true);
     }
@@ -96,8 +105,6 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
       'node_modules/node-pty/third_party',
       'node_modules/node-pty/prebuilds/win32-x64',
       'node_modules/node-pty/prebuilds/darwin-x64',
-      'cloud/test',
-      'cloud/node_modules',
       // sourcemap は配布物に入れない。UI の写しの大半を占めるうえ、利用者の役には立たない。
       'ui/assets/index.js.map',
     ]) {
@@ -155,6 +162,96 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     expect(token.length).toBeGreaterThan(16);
   });
 
+  it('bin/hangar start がリンク越しでも隣の server.mjs を子で起こし、同梱の UI を配り、SIGINT で子も降りる', async () => {
+    const out = tmp('hangar-dist-');
+    const ui = tmp('hangar-ui-');
+    const home = tmp('hangar-home-');
+    const claude = tmp('hangar-claude-');
+    const ws = tmp('hangar-ws-');
+    const link = tmp('hangar link-');
+    const tmuxDir = tmp('hangar-tmux-');
+    dirs.push(out, ui, home, claude, ws, link, tmuxDir);
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
+    fs.mkdirSync(path.join(claude, 'projects'));
+    fs.mkdirSync(path.join(claude, 'sessions'));
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir: claude }));
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    // README が案内する /usr/local/bin/hangar と同じ形のリンク越しに起こす。
+    fs.symlinkSync(path.join(out, 'bin/hangar'), path.join(link, 'hangar'));
+    const port = await freePort();
+    const { HANGAR_PARENT_PID: _pid, HANGAR_UI_DIST: _ui, HANGAR_PORT: _port, HANGAR_CLOUD_DIR: _cloud, ...base } = process.env;
+    const child = spawn(path.join(link, 'hangar'), ['start', '--port', String(port), '--no-open'], {
+      env: { ...base, HANGAR_HOME: home, HANGAR_NODE: process.execPath, HANGAR_CLAUDE_DIR: claude, TMUX_TMPDIR: tmuxDir },
+    });
+    let text = '';
+    child.stdout.on('data', (b: Buffer) => { text += b.toString(); });
+    child.stderr.on('data', (b: Buffer) => { text += b.toString(); });
+    const closed = new Promise<number | null>((r) => child.on('close', (code) => r(code)));
+    try {
+      const until = Date.now() + 30_000;
+      while (!text.includes('?t=') && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+      const token = fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
+      expect(text).toContain(`http://127.0.0.1:${port}/?t=${token}`);
+      // bin/hangar が渡した HANGAR_UI_DIST を子のサーバが継いでいる。
+      const html = await (await fetch(`http://127.0.0.1:${port}/?t=${token}`)).text();
+      expect(html).toContain('bundled-ui');
+    } finally {
+      // bin/hangar は exec で node に替わるので、この PID は cli.mjs の node である。
+      child.kill('SIGINT');
+    }
+    expect(await closed).toBe(0);
+    expect(await waitHealth(`http://127.0.0.1:${port}/health`, 500)).toBe(false);
+  });
+
+  it('cli.mjs はサーバ本体を抱えない。外に残す import は better-sqlite3 だけで、大きさは 512KB に満たない', async () => {
+    const out = tmp('hangar-dist-');
+    const ui = tmp('hangar-ui-');
+    dirs.push(out, ui);
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    const cli = fs.readFileSync(path.join(out, 'cli.mjs'), 'utf8');
+    const bare = [...new Set([...cli.matchAll(/^import[^\n]* from "([^"]+)";$/gm)].map((m) => m[1]!))].filter((sp) => !sp.startsWith('node:'));
+    // CLI が DB を開くのは本文の床（stampTranscriptsFrom、readTranscriptsFrom）のためで、端末（node-pty）は使わない。
+    expect(bare).toEqual(['better-sqlite3']);
+    // サーバにしか無い関数。CLI がサーバの入口から import すると、esbuild がこれらを束ねてしまう。
+    expect(cli).not.toContain('function startServer(');
+    expect(cli).not.toContain('function createApp(');
+    // 2026-10-07 の試しでは約 240KB だった。サーバを抱えると 2MB を超える。
+    expect(fs.statSync(path.join(out, 'cli.mjs')).size).toBeLessThan(512 * 1024);
+  });
+
+  it('cloud/ には Worker を 1 本に束ねた worker.mjs と束縛の定義 metadata.json だけを置き、源の写しを置かない', async () => {
+    const out = tmp('hangar-dist-');
+    const ui = tmp('hangar-ui-');
+    dirs.push(out, ui);
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    // 源（src、wrangler.jsonc、package.json）も、手元の秘密や記録（.dev.vars、.env、.wrangler、ログ）も置かない。
+    // 束は src/index.ts から届くコードだけでできているので、手元の秘密のファイルは入りようがない。
+    expect(fs.readdirSync(path.join(out, 'cloud')).sort()).toEqual(['metadata.json', 'worker.mjs']);
+    const cloudSrc = path.join(repoRoot, 'packages/cloud');
+    // 置いた束は、packages/cloud の試験が miniflare で起こしているのと同じ束である。
+    expect(fs.readFileSync(path.join(out, 'cloud/worker.mjs'), 'utf8')).toBe(await bundleWorker(cloudSrc));
+    expect(JSON.parse(fs.readFileSync(path.join(out, 'cloud/metadata.json'), 'utf8'))).toEqual(workerMetadata(cloudSrc));
+  });
+
+  it('同梱の hangar の setup cloud は、wrangler を探す前に、clone した場所から実行するよう案内して止まる', async () => {
+    const out = tmp('hangar-dist-');
+    const ui = tmp('hangar-ui-');
+    const home = tmp('hangar-home-');
+    const userHome = tmp('hangar-userhome-');
+    dirs.push(out, ui, home, userHome);
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    // runHangar は PATH と LANG のほかは渡さないので、手元の HANGAR_CLOUD_DIR は届かない。
+    const r = await runHangar(path.join(out, 'bin/hangar'), ['setup', 'cloud'], { HANGAR_HOME: home, HANGAR_NODE: process.execPath, HOME: userHome });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('src/index.ts');
+    expect(r.stderr).toContain('clone して npm install');
+    // 資源を作りに行っていない。参加の記録も書かない。
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+  });
+
   it('UI のビルドが無ければ、何をすればよいかを述べて止まる', async () => {
     const out = tmp('hangar-dist-');
     const ui = tmp('hangar-ui-');
@@ -183,7 +280,7 @@ function fakeDist(o: { nodeMajor?: number | null; arch?: string; manifest?: stri
   // cli.mjs の代わりに、受け取った環境と引数をそのまま印字する探り script を置く。
   fs.writeFileSync(
     path.join(dist, 'cli.mjs'),
-    'console.log(JSON.stringify({ ui: process.env.HANGAR_UI_DIST, cloud: process.env.HANGAR_CLOUD_DIR, node: process.env.HANGAR_TEST_SHIM ?? null, args: process.argv.slice(2) }));\n',
+    'console.log(JSON.stringify({ ui: process.env.HANGAR_UI_DIST, cloud: process.env.HANGAR_CLOUD_DIR ?? null, node: process.env.HANGAR_TEST_SHIM ?? null, args: process.argv.slice(2) }));\n',
   );
   const major = o.nodeMajor === undefined ? UNREACHABLE_MAJOR : o.nodeMajor;
   if (o.manifest !== undefined) fs.writeFileSync(path.join(dist, 'manifest.json'), o.manifest);
@@ -234,7 +331,7 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
   it.each([
     ['空白の無い', 'nd99'],
     ['空白を含む', 'nd 99'],
-  ])('settings.json の nodePath が%sパスでも Node を見つけ、UI と Worker の置き場を渡す', async (_label, leaf) => {
+  ])('settings.json の nodePath が%sパスでも Node を見つけ、UI の置き場を渡し、Worker の置き場は渡さない', async (_label, leaf) => {
     const dist = fakeDist();
     const node = fakeNode(path.join(emptyDirFor('hangar nodes-'), leaf, 'node'));
     const home = emptyDirFor('hangar home-');
@@ -244,7 +341,7 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     expect(r.code, r.stderr).toBe(0);
     expect(JSON.parse(r.stdout)).toEqual({
       ui: path.join(dist, 'ui'),
-      cloud: path.join(dist, 'cloud'),
+      cloud: null,
       node,
       args: ['status', '--port', '4231'],
     });
@@ -367,10 +464,10 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
 
     const r = await runHangar(path.join(b, 'hangar'), [], { HANGAR_NODE: node, HANGAR_HOME: emptyDirFor('hangar home-'), HOME: emptyDirFor('hangar userhome-') });
     expect(r.code, r.stderr).toBe(0);
-    expect(JSON.parse(r.stdout)).toMatchObject({ ui: path.join(dist, 'ui'), cloud: path.join(dist, 'cloud') });
+    expect(JSON.parse(r.stdout)).toMatchObject({ ui: path.join(dist, 'ui'), cloud: null });
   });
 
-  it('HANGAR_CLOUD_DIR が既に指定されていれば、同梱の cloud で上書きしない', async () => {
+  it('利用者が HANGAR_CLOUD_DIR を決めていれば、そのまま CLI へ届く（開発用の上書きを残す）', async () => {
     const dist = fakeDist();
     const node = fakeNode(path.join(emptyDirFor('hangar nodes-'), 'n d', 'node'));
     const mine = emptyDirFor('hangar cloud-');
@@ -391,40 +488,5 @@ describe('bundleServer が途中で失敗したとき', () => {
     await expect(bundleServer({ repoRoot: path.join(out, 'no-such-repo'), outDir: out, uiDist: ui })).rejects.toThrow();
     expect(fs.existsSync(out)).toBe(true);
     expect(fs.existsSync(path.join(out, '.gitkeep'))).toBe(true);
-  });
-});
-
-describe('同梱する packages/cloud の写し', () => {
-  it('Worker のソースは写し、秘密と記録は写さない', () => {
-    const src = emptyDirFor('hangar cloud-src-');
-    const dest = path.join(emptyDirFor('hangar cloud-dest-'), 'cloud');
-    const write = (rel: string, body: string): void => {
-      fs.mkdirSync(path.dirname(path.join(src, rel)), { recursive: true });
-      fs.writeFileSync(path.join(src, rel), body);
-    };
-    for (const rel of ['src/index.ts', 'wrangler.jsonc', 'package.json']) write(rel, '{}\n');
-    // 手元で一度でも wrangler を動かすと、この並びが packages/cloud に残る。
-    // CI の clean な checkout では出ないので、人に渡す .app だけが秘密を運ぶ。
-    for (const rel of ['.dev.vars', '.dev.vars.local', '.env', '.env.local', '.envrc', 'wrangler.log', 'logs/deploy.log', 'src/nested/.env']) write(rel, 'SECRET=1\n');
-    for (const rel of ['test/index.test.ts', 'node_modules/hono/index.js', '.wrangler/state/x.sqlite']) write(rel, '{}\n');
-
-    copyCloudTree(src, dest);
-
-    for (const rel of ['src/index.ts', 'wrangler.jsonc', 'package.json']) expect(fs.existsSync(path.join(dest, rel)), rel).toBe(true);
-    for (const rel of ['.dev.vars', '.dev.vars.local', '.env', '.env.local', '.envrc', 'wrangler.log', 'logs/deploy.log', 'src/nested/.env', 'test', 'node_modules', '.wrangler']) {
-      expect(fs.existsSync(path.join(dest, rel)), rel).toBe(false);
-    }
-    // 中身を落とした跡のディレクトリも残さない。
-    // 空でも、手元にログや秘密の並びがあったという事実は伝わってしまう。
-    for (const rel of ['logs', 'src/nested']) expect(fs.existsSync(path.join(dest, rel)), rel).toBe(false);
-  });
-
-  it('同梱の目印の名前が、CLI 側の宣言と一字一句そろっている', () => {
-    // 名前がずれると、配布版から実物の Cloudflare へデプロイする事故を止める検査が黙って効かなくなる。
-    // 片側だけを変えたらこの試験が落ちる。
-    const cli = fs.readFileSync(path.join(repoRoot, 'packages/cli/src/cloud.ts'), 'utf8');
-    const m = cli.match(/export const BUNDLED_CLOUD_MARKER = '([^']*)';/);
-    expect(m, 'packages/cli/src/cloud.ts の BUNDLED_CLOUD_MARKER の宣言が読めない').not.toBeNull();
-    expect(m![1]).toBe(BUNDLED_CLOUD_MARKER);
   });
 });

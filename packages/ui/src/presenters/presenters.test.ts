@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import { addDays, localDate } from '@agent-hangar/shared';
-import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent } from '@agent-hangar/shared';
+import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { toSyncState } from '../mediator/sync.ts';
 import { initialState } from '../mediator/transition.ts';
@@ -14,7 +14,7 @@ import { newSessionTarget, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { presentProjects } from './projects.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
-import { buildItems, presentSession, sessionActions } from './session.ts';
+import { buildItems, presentSession, sessionActions, type SessionProps } from './session.ts';
 import { presentSessions } from './sessions.ts';
 import { homePath } from './accounts.ts';
 import { presentSettings } from './settings.ts';
@@ -25,7 +25,7 @@ import { presentToasts } from './toasts.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -45,8 +45,8 @@ describe('format', () => {
   });
   it('ヘッダーの使用率に、枠が戻る時刻を添える', () => {
     const now = new Date(2026, 9, 1, 15, 30).getTime();
-    const store = initialStore();
-    store.usage = { fiveHour: { usedPercent: 28, resetsAt: new Date(2026, 9, 1, 18, 0).getTime() }, sevenDay: { usedPercent: 7, resetsAt: new Date(2026, 9, 4, 9, 0).getTime() }, updatedAt: now };
+    const usage = { fiveHour: { usedPercent: 28, resetsAt: new Date(2026, 9, 1, 18, 0).getTime() }, sevenDay: { usedPercent: 7, resetsAt: new Date(2026, 9, 4, 9, 0).getTime() }, updatedAt: now };
+    const store: Store = { ...initialStore(), accounts: { currentId: 'primary', accounts: [{ ...accountsFixture.accounts[0]!, usage }], sessions: {} } };
     expect(presentShell(initialState(), store, now).usage).toMatchObject({ fiveHour: 28, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00' });
   });
   it('相対時刻', () => {
@@ -214,7 +214,7 @@ describe('presentHome', () => {
     store.todos = {
       a: todoDto('a', 1, false, { sessionId: 's1', note: '新しい', at: NOW - 60_000 }, 'alpha'),
       b: todoDto('b', 1, false, { sessionId: null, note: null, at: NOW - 30 * 60_000 }, 'beta'),
-      // done かつ candidate は DTO では起きない（サーバが null にする）が、古いサーバや手で作った値でも数えない。
+      // done かつ candidate は DTO では起きない（サーバが null にする）が、同期の競り合いで食い違っても数えない。
       c: todoDto('c', 2, true, { sessionId: 's1', note: 'x', at: NOW - 90 * 60_000 }, 'alpha'),
       d: todoDto('d', 3, false, null, 'alpha'),
     };
@@ -432,10 +432,10 @@ describe('presentSession', () => {
     expect(p.items[1]).toMatchObject({ kind: 'tool', summary: 'Agent x', result: { text: 'done', isError: false }, subagent: { agentId: 'abc', label: 'Agent x' } });
     expect(p).toMatchObject({ name: 'name-s1', live: 'busy', tokens: '1.2M', turns: 2, loaded: 6, total: 6, hasMore: false, projectName: 'alpha' });
     expect(p.summary).toMatchObject({ title: 't', sourceLabel: '自動', stateLabel: '済んだ' });
-    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), showThinking: true, showRaw: true, summaryOpen: true } } };
+    const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), showThinking: true, showRaw: true } } };
     const q = presentSession(state, store, NOW, 's1');
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
-    expect(q.summaryOpen).toBe(true);
+    expectTypeOf<SessionProps>().not.toHaveProperty('summaryOpen');
   });
   it('ターンの目次を作り、開いたターンの中身だけを渡す', () => {
     let store = storeWith();
@@ -837,7 +837,7 @@ describe('presentSession（終わった画面の右欄、E1）', () => {
   });
   it('TODO はそのセッションのプロジェクトのものを出す', () => {
     const store = storeWith();
-    const todo = (id: string, projectId: string): TodoDto => ({ id, projectId, text: id, done: false, position: 1, sessionId: null, updatedAt: 1 });
+    const todo = (id: string, projectId: string): TodoDto => ({ id, projectId, text: id, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null });
     store.todos = { a: todo('a', 'alpha'), b: todo('b', 'beta') };
     expect(presentSession(initialState(), store, NOW, 's2').todos.map((t) => t.id)).toEqual(['a']);
     expect(presentSession(initialState(), store, NOW, 's3').todos).toEqual([]);
@@ -1129,29 +1129,29 @@ describe('presentShell の接続', () => {
 });
 
 describe('presentShell の使用量', () => {
-  it('値が無ければ null、あれば百分率と最終更新', () => {
+  const solo = (usage: UsageDto): Store => ({ ...initialStore(), accounts: { currentId: 'primary', accounts: [{ ...accountsFixture.accounts[0]!, usage }], sessions: {} } });
+  it('値が無ければ null、あれば最初のアカウントの百分率と最終更新', () => {
     const empty = presentShell(initialState(), initialStore(), NOW);
     expect(empty.usage).toEqual({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
-    const store = { ...initialStore(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
-    expect(presentShell(initialState(), store, NOW).usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
+    const p = presentShell(initialState(), solo({ fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 }), NOW);
+    expect(p.usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
   });
 });
 
 describe('presentShell のアカウント', () => {
-  const two = (): Store => ({ ...storeWith(), accounts: accountsFixture, usage: { fiveHour: { usedPercent: 5, resetsAt: null }, sevenDay: { usedPercent: 6, resetsAt: null }, updatedAt: NOW - 600_000 } });
+  const two = (): Store => ({ ...storeWith(), accounts: accountsFixture });
   const at = (screen: State['screen']): State => ({ ...initialState(), screen });
-  it('アカウントが 1 件、または store.accounts が null なら account は null で、usage は store.usage から作る', () => {
-    const base = { ...storeWith(), usage: { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 } };
-    const expected = { fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' };
-    const none = presentShell(initialState(), base, NOW);
-    expect(none.account).toBeNull();
-    expect(none.usage).toEqual(expected);
-    const solo = presentShell(initialState(), { ...base, accounts: { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] } }, NOW);
+  it('アカウントが 1 件なら account は null で、計器はそのアカウントの値から作る。store.accounts が null なら計器も空', () => {
+    const u = { fiveHour: { usedPercent: 47, resetsAt: null }, sevenDay: { usedPercent: 7, resetsAt: null }, updatedAt: NOW - 600_000 };
+    const solo = presentShell(initialState(), { ...storeWith(), accounts: { ...accountsFixture, accounts: [{ ...accountsFixture.accounts[0]!, usage: u }] } }, NOW);
     expect(solo.account).toBeNull();
-    expect(solo.usage).toEqual(expected);
-    const empty = presentShell(at({ name: 'session', id: 's1' }), { ...base, accounts: { currentId: '', accounts: [], sessions: {} } }, NOW);
+    expect(solo.usage).toEqual({ fiveHour: 47, sevenDay: 7, fiveHourResets: null, sevenDayResets: null, updatedLabel: '10 分前' });
+    const none = presentShell(initialState(), storeWith(), NOW);
+    expect(none.account).toBeNull();
+    expect(none.usage).toEqual({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
+    const empty = presentShell(at({ name: 'session', id: 's1' }), { ...storeWith(), accounts: { currentId: '', accounts: [], sessions: {} } }, NOW);
     expect(empty.account).toBeNull();
-    expect(empty.usage).toEqual(expected);
+    expect(empty.usage).toEqual(none.usage);
   });
   it('2 件・ホームでは、いまのアカウントを出し、計器もその値で作る（sessionId は null）', () => {
     const p = presentShell(initialState(), two(), NOW);
@@ -1385,7 +1385,7 @@ describe('presentSettings の既定値', () => {
 });
 
 const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null, ...over });
-const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, ...over });
+const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 
 describe('ヘッダーの無料枠で停止', () => {
@@ -1410,9 +1410,8 @@ describe('ヘッダーの無料枠で停止', () => {
     expect(quota).toMatchObject({ label: '1 回だけ同期中…', once: true, paused: true, state: 'paused' });
     const user = shellSync(paused({ pausedReason: 'user', oncePass: true }), at('2026-10-02T06:48:00Z'));
     expect(user).toMatchObject({ label: '1 回だけ同期中…', once: true });
-    // 終われば元の文に戻る。印を送らない古いサーバも同じ。
+    // 終われば元の文に戻る。
     expect(shellSync(paused({ pausedReason: 'user', oncePass: false }), at('2026-10-02T06:48:00Z'))).toMatchObject({ label: '一時停止中', once: false });
-    expect(shellSync(paused({ pausedReason: 'user' }), at('2026-10-02T06:48:00Z')).once).toBe(false);
     // 設定の「状態」も同じ語で言う。
     const settings = presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({ oncePass: true }) }).cloud;
     expect(settings).toMatchObject({ stateLabel: '1 回だけ同期中…', once: true, paused: true });
@@ -1469,8 +1468,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
     expect(presentSettings(initialState(), initialStore(), NOW).cloud).toMatchObject({ sweepPending: null, skipped: [] });
   });
   it('同期の行を足してもフェーズ 3 の使用量ゲージは残る', () => {
-    const store = storeWith();
-    store.usage = { fiveHour: { usedPercent: 40, resetsAt: null }, sevenDay: null, updatedAt: NOW - 60_000 };
+    const store: Store = { ...storeWith(), accounts: { currentId: 'primary', accounts: [{ ...accountsFixture.accounts[0]!, usage: { fiveHour: { usedPercent: 40, resetsAt: null }, sevenDay: null, updatedAt: NOW - 60_000 } }], sessions: {} } };
     const p = presentShell({ ...initialState(), sync: { kind: 'idle', lastAt: NOW } }, store, NOW);
     expect(p.usage).toEqual({ fiveHour: 40, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: '1 分前' });
     expect(p.sync.visible).toBe(true);
@@ -1686,10 +1684,9 @@ describe('presentSession の本文が消えた会話', () => {
   const DAY = 86_400_000;
   const gone = session('g', { hasTranscript: false, transcriptMtime: null, lastActivityAt: NOW - 40 * DAY });
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
-  it('注記を出し、要約を開き、既定のままなら延ばす手を添える', () => {
+  it('注記を出し、既定のままなら延ばす手を添える', () => {
     const p = presentSession(initialState(), { ...initialStore(), retention: R, sessions: { g: gone } }, NOW, 'g');
     expect(p.gone).toEqual({ note: '本文は、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 });
-    expect(p.summaryOpen).toBe(true);
   });
   it('自分で値を入れた後は、延ばす手を出さない。まだ 30 日を過ぎていなければ gone は null', () => {
     expect(presentSession(initialState(), { ...initialStore(), retention: { ...R, source: 'user', userValue: 365 }, sessions: { g: gone } }, NOW, 'g').gone!.canExtend).toBe(false);
@@ -1813,7 +1810,7 @@ describe('presentSession の、区切りを付けたので止めた知らせ', (
     expect(stopped('done')).toBe('Done にしたので止めました。再開で続けられます');
     expect(stopped('archived')).toBe('Archived にしたので止めました。再開で続けられます');
   });
-  it('止めていないセッションと、古いサーバの行（印が欠ける）では出さない', () => {
+  it('止めていないセッションでは出さない', () => {
     expect(stopped('paused', { stoppedByStatus: false })).toBeNull();
     const store = storeWith();
     expect(presentSession(initialState(), store, NOW, 's2').stoppedNote).toBeNull();
@@ -1828,7 +1825,7 @@ describe('presentSessionRow のセッションの状態', () => {
   const today = localDate(NOW);
   const withState = (state: SessionDto['state']) => session('s1', { state });
   const pick = (s: SessionDto) => { const r = presentSessionRow(s, store, NOW); return { state: r.state, returnOn: r.returnOn, overdueDays: r.overdueDays, candidate: r.candidate, setBy: r.setBy }; };
-  it('state が欠けた古いサーバの行と null は、Active として読む', () => {
+  it('state が null なら Active として読む', () => {
     const none = { state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null };
     expect(pick(session('s1'))).toEqual(none);
     expect(pick(withState(null))).toEqual(none);

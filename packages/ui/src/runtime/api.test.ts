@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { accountsFixture } from '../test/accounts.ts';
-import { ApiConflictError, createApi, RetentionConflictApiError } from './api.ts';
+import { ApiConflictError, createApi, RetentionConflictApiError, type ApiClient } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -98,21 +98,23 @@ describe('フェーズ 3 の経路', () => {
 describe('フェーズ 4 の同期の経路', () => {
   it('経路とメソッドと本文が合っている', async () => {
     const { api, calls } = harness();
-    await api.syncStatus();
     await api.syncNow();
     await api.syncPause(true);
     await api.resumeHere('s1', false);
     await api.joinToken();
     await api.configPreview();
     await api.configPull();
-    await api.devices();
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'GET /api/sync/status', 'POST /api/sync/now', 'POST /api/sync/pause',
+      'POST /api/sync/now', 'POST /api/sync/pause',
       'POST /api/sessions/s1/resume-here', 'GET /api/sync/joinToken',
-      'GET /api/sync/config/preview', 'POST /api/sync/config/pull', 'GET /api/devices',
+      'GET /api/sync/config/preview', 'POST /api/sync/config/pull',
     ]);
-    expect(JSON.parse(String(calls[2]!.body))).toEqual({ paused: true });
-    expect(JSON.parse(String(calls[3]!.body))).toEqual({ overwrite: false });
+    expect(JSON.parse(String(calls[1]!.body))).toEqual({ paused: true });
+    expect(JSON.parse(String(calls[2]!.body))).toEqual({ overwrite: false });
+  });
+  it('同期の状態と端末の一覧は bootstrap と websocket で届くので、取りに行く口を持たない', () => {
+    expectTypeOf<ApiClient>().not.toHaveProperty('syncStatus');
+    expectTypeOf<ApiClient>().not.toHaveProperty('devices');
   });
   it('前面化は本文を返さない', async () => {
     const no = harness(204);

@@ -21,7 +21,7 @@ const UNKNOWN_SESSION = '不明なセッション';
 /**
  * 候補の TODO を表示用の文にする。候補でなければ null。
  * 出したセッションが手元に無い（削除済み、同期前、セッション別でない URL から出た）ときは、開けないので名前の代わりに決まりの文を出す。
- * 完了の行は候補を持たないものとして扱う。サーバは null にして返すが、古いサーバの値でも Home に出さないためである。
+ * 完了の行は候補を持たないものとして扱う。サーバも null にして返すが、同期の競り合いで食い違っても Home に出さない。
  */
 export function presentTodoCandidate(t: TodoDto, store: Store, now: number): TodoCandidateProps | null {
   const c = t.candidate;
