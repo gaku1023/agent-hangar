@@ -221,6 +221,8 @@ export class HttpCloudClient implements CloudClient {
    * 互換の版は、成否より先に見る。
    * 426 なら Worker がこの PC を断った。Worker の名乗った版が下限より古ければ、こちらが Worker を断る。
    * 古い Worker は要求をもう済ませている（push なら行を受け取っている）が、こちらは失敗として扱う。
+   * Worker の版は、Worker が自分で作った応答にだけ問う。
+   * 端が Worker を通さずに返す 5xx、408、429（CPU 超過の 1102 や日の上限など）は見出しを持たず、Worker の版を語らないので、これまでどおり CloudError に落とす。
    * 行は未送信のまま残り、Worker を上げた後の送り直しは LWW で同じ結果になる。
    */
   private async send(path: string, init: RequestInit & { duplex?: 'half' }, ms: number): Promise<{ res: Response; d: Deadline }> {
@@ -245,7 +247,8 @@ export class HttpCloudClient implements CloudClient {
       throw new CompatError('device', COMPAT_VERSION, readCompatRefusal(text));
     }
     const workerCompat = parseCompat(res.headers.get(COMPAT_HEADER));
-    if (workerCompat < this.minWorkerCompat) {
+    const fromWorker = res.status < 500 && res.status !== 408 && res.status !== 429;
+    if (fromWorker && workerCompat < this.minWorkerCompat) {
       void res.body?.cancel().catch(() => {});
       d.clear();
       throw new CompatError('worker', workerCompat, this.minWorkerCompat);

@@ -498,4 +498,13 @@ describe('互換の版', () => {
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 1 });
     await expect(c.usage()).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker' });
   });
+
+  it.each([503, 429, 408])('Worker を通らずに端が返した %i（版の見出しなし）は、版の不一致にせず、その status の CloudError にする', async (status) => {
+    const { fetch } = fakeFetch(() => new Response('edge', { status }));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 1 });
+    const e = await c.pullChanges(0, 10).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    expect(e).not.toBeInstanceOf(CompatError);
+    expect(e).toMatchObject({ status });
+  });
 });
