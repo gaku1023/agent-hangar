@@ -23,6 +23,7 @@ import type { Tmux } from '../tmux/tmux.ts';
 import { RunError } from './errors.ts';
 import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
 import { realProcOpsWith, sameStartTime, type ProcOps } from './procs.ts';
+import { screenDrift } from '../provider/claude-code/compat/screen.ts';
 import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type PaneIo } from './promptJump.ts';
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
@@ -815,7 +816,8 @@ export class RunManager {
   /** Claude のタブを transcript の中の指示へ跳ばす。手順と送るキーの制限は promptJump.ts にある。 */
   jumpToPrompt(runId: string, heads: string[], index: number, from: JumpFrom): Promise<JumpResult> {
     const io = this.agentPane(runId);
-    return this.queuePane(runId, () => jumpToPrompt(io, heads, index, from));
+    // 画面の目印が見つからなかったら、Claude Code との互換のずれとして記録する（provider/claude-code/compat/screen.ts）。
+    return this.queuePane(runId, () => jumpToPrompt(io, heads, index, from, (mark) => this.deps.compat?.note(screenDrift(mark))));
   }
 
   /** Claude のタブが transcript を開いていれば閉じて、入力欄のある画面へ戻す。 */
