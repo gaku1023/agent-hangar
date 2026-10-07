@@ -156,7 +156,7 @@ describe('行の移し方', () => {
   });
 });
 
-const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: null, waited: null, current: false, stop: { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }, ...over });
+const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, waited: null, current: false, stop: { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }, ...over });
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><Sidebar nav={[]} collapsed={false} live={live} /></IntentRoot>), onIntent });
 
@@ -168,6 +168,12 @@ const dragAt = (kind: 'dragOver' | 'drop', el: HTMLElement, clientY: number) => 
 };
 
 describe('サイドバーの「動いている」の節（Sidebar）', () => {
+  it('バックグラウンドだけ動いている行は、丸だけを薄いオレンジにし、名前の横に語を添えない', () => {
+    const { container } = mount({ count: 1, ids: ['a'], rows: [row('a', { aside: true })], more: 0 });
+    const link = screen.getByRole('link', { name: /name-a/ });
+    expect(link).toHaveTextContent(/^name-a$/);
+    expect(container.querySelector('.dot')).toHaveAttribute('data-aside', 'true');
+  });
   it('見出しに件数を出し、行を押すとそのセッションを開く', () => {
     const { onIntent } = mount(liveProps());
     expect(screen.getByRole('heading', { name: /動いている/ })).toHaveTextContent('3');

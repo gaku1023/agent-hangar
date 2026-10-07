@@ -1,4 +1,4 @@
-import { asideMark, asideOf, type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, usageAt } from '@agent-hangar/shared';
+import { asideOf, type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
@@ -48,15 +48,15 @@ export type RetentionBannerProps = { visible: boolean; title: string; detail: st
 /**
  * 行のメニューの「停止」に要るもの（session.kill にそのまま渡す）。
  * working は作業中か入力待ちで、shellTabs は開いているシェルのタブの数。どちらかがあれば、止める前に確認を挟む（mediator/launch.ts）。
- * aside は裏だけ動いていることで、確認の文言を「裏の作業も消える」にする。
+ * aside は裏だけ動いていることで、確認の文言を「バックグラウンドの作業も終わる」にする。
  */
 export type SideLiveStop = { runId: string; working: boolean; aside: boolean; shellTabs: number };
 /**
  * サイドバーの「動いている」の 1 行。waited は入力待ちのときだけ（「待ち 4 分」）。current はいま見ているセッション。
- * aside は裏だけ動いているときだけの短い語（「裏」「裏 2」）。
+ * aside は裏だけ動いていること。丸を薄いオレンジにするだけで、名前の横に語は添えない（利用者の決定）。
  * stop は hangar の run が生きているときだけ持つ。hangar の外で動いているもの（VS Code の中の claude など）は hangar から止められないので null にする。
  */
-export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: string | null; waited: string | null; current: boolean; stop: SideLiveStop | null };
+export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; waited: string | null; current: boolean; stop: SideLiveStop | null };
 /**
  * サイドバーの「動いている」。
  * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
@@ -169,7 +169,7 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     // 裏だけ動いているものも作業中として確かめる。止めると裏の作業も消える。
     const aside = asideOf(s.live, s.liveAside);
     const stop = run ? { runId: run.id, working: s.live === 'busy' || s.live === 'waiting', aside: aside !== null, shellTabs: tabsOf(store, run.id).filter((t) => t.kind === 'shell').length } : null;
-    return { id, name: s.name ?? '（名前なし）', live: s.live, aside: aside ? asideMark(aside) : null, waited: s.live === 'waiting' ? `待ち ${durationLabel(now - (s.lastActivityAt ?? now))}` : null, current: id === current, stop };
+    return { id, name: s.name ?? '（名前なし）', live: s.live, aside: aside !== null, waited: s.live === 'waiting' ? `待ち ${durationLabel(now - (s.lastActivityAt ?? now))}` : null, current: id === current, stop };
   });
   return { count: ids.length, ids, rows, more: ids.length - rows.length };
 }

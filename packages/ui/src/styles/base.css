@@ -161,8 +161,6 @@ a:hover { text-decoration: underline; }
 /* 入力待ちは行を動かさず、太字と待った時間で知らせる。 */
 .side-live-row[data-live='waiting'] .side-live-name { font-weight: 600; }
 .side-live-wait { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); }
-/* 裏だけ動いている行は、丸の色に加えて「裏」「裏 2」の語を添える。色を見落としても読めるようにする。 */
-.side-live-aside { flex: none; font-size: var(--fs-xs); font-weight: 500; color: color-mix(in srgb, var(--busy) 80%, var(--ink)); }
 .side-live-row[data-dragging='true'] { opacity: 0.4; }
 .side-live-row[data-over='before'] { box-shadow: inset 0 2px 0 var(--accent); border-radius: 0; }
 .side-live-row[data-over='after'] { box-shadow: inset 0 -2px 0 var(--accent); border-radius: 0; }
@@ -579,7 +577,9 @@ a:hover { text-decoration: underline; }
 .live-lamp[data-tone='aside'] { color: var(--ink); background: color-mix(in srgb, var(--busy) 6%, var(--surface)); }
 .live-lamp[data-tone='wait'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 12%, var(--surface)); }
 .live-lamp[data-tone='idle'] { color: var(--ink-2); background: var(--surface-2); }
-.live-lamp-sub { margin-left: auto; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-2); text-align: right; }
+/* 見出しは折らず、補足だけを残りの幅で折る。長い見出し（「バックグラウンドで 2 本」）と長い補足が並んでも、見出しが 2 行に割れないようにする。 */
+.live-lamp-head { flex: none; white-space: nowrap; }
+.live-lamp-sub { flex: 1; min-width: 0; margin-left: auto; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-2); text-align: right; text-wrap: balance; }
 .live-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
 .live-dot[data-tone='busy'], .live-dot[data-tone='running'] { background: var(--busy); animation: live-pulse var(--breathe-period) ease-in-out infinite; }
 .live-dot[data-tone='wait'] { background: var(--waiting); }
