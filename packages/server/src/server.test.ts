@@ -425,6 +425,32 @@ describe('startServer', () => {
     // until の上限（8 秒）より長くし、失敗したときに until の言葉で落ちるようにする。
   }, 15_000);
 
+  // 偽の claude は sh の case で引数を見るので、Windows では飛ばす。
+  posixIt('前の記録と手元の claude の版が違えば、読んだ版で記録を空にし、その版を compat.json に残す', async () => {
+    fs.writeFileSync(path.join(home, 'compat.json'), JSON.stringify({
+      version: 1, localVersion: '1.0.0',
+      entries: [{ contract: 'transcript', value: 'type=old', version: '1.0.0', count: 3, firstSeenAt: 1, lastSeenAt: 1 }],
+    }));
+    const bin = writeFakeTool(path.join(home, 'bin'), 'claude', { sh: 'case "$1" in --version) echo "9.9.9 (Claude Code)" ;; esac', cmd: '' });
+    const prev = process.env.HANGAR_CLAUDE_BIN;
+    process.env.HANGAR_CLAUDE_BIN = bin;
+    try {
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      try {
+        const body = (await (await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json()) as CompatDto;
+        expect(body.localVersion).toBe('9.9.9');
+        expect(body.drifts.map((d) => d.value)).not.toContain('type=old');
+      } finally {
+        await s.close();
+      }
+      const saved = JSON.parse(fs.readFileSync(path.join(home, 'compat.json'), 'utf8')) as { localVersion: unknown; entries: { value: string }[] };
+      expect(saved.localVersion).toBe('9.9.9');
+      expect(saved.entries.map((e) => e.value)).not.toContain('type=old');
+    } finally {
+      if (prev === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prev;
+    }
+  }, 15_000);
+
   it('claude のパスが普通のファイルの下を指しても（ENOTDIR）、サーバは落ちず、/api/compat は手元の版を null で返す', async () => {
     const plain = path.join(home, 'plain');
     fs.writeFileSync(plain, 'not a directory\n');

@@ -30,6 +30,8 @@ function isEntry(v: unknown): v is CompatDriftDto {
  */
 export class CompatLog implements CompatSink {
   private readonly entries = new Map<string, CompatDriftDto>();
+  /** 記録したときの手元の claude の版。分からない（新しい記録か、版を持たない古い形のファイル）ときは null。 */
+  private seenVersion: string | null = null;
   private dirty = false;
   private timer: NodeJS.Timeout | null = null;
   private readonly now: () => number;
@@ -51,7 +53,21 @@ export class CompatLog implements CompatSink {
     try { raw = JSON.parse(fs.readFileSync(this.o.file, 'utf8')); } catch { return; }
     const list = isRec(raw) && Array.isArray(raw.entries) ? raw.entries.filter(isEntry) : [];
     for (const e of list) this.entries.set(this.key(e.contract, e.value), { ...e });
+    if (isRec(raw) && typeof raw.localVersion === 'string') this.seenVersion = raw.localVersion;
     this.trim();
+  }
+
+  /**
+   * 手元の claude の版を知らせる。版が変わったら、ずれを全部消して数え直す。
+   * 前の版で出たずれが、新しい版でも出るとは限らないためである。
+   * 読めない版（null）では消さない。前の版が分からないときは「変わった」と言えないので、持つだけにする。
+   * 持った版は、ずれが増えなくても書き出す。書かないと、次の起動でまた前の版が分からなくなる。
+   */
+  setLocalVersion(v: string | null): void {
+    if (v === null || v === this.seenVersion) return;
+    if (this.seenVersion !== null) this.entries.clear();
+    this.seenVersion = v;
+    this.dirty = true;
   }
 
   note(d: Drift): void {
@@ -96,7 +112,7 @@ export class CompatLog implements CompatSink {
     const tmp = `${this.o.file}.tmp`;
     try {
       fs.mkdirSync(path.dirname(this.o.file), { recursive: true });
-      fs.writeFileSync(tmp, JSON.stringify({ version: FILE_VERSION, entries: this.list() }, null, 2) + '\n', { mode: 0o600 });
+      fs.writeFileSync(tmp, JSON.stringify({ version: FILE_VERSION, localVersion: this.seenVersion, entries: this.list() }, null, 2) + '\n', { mode: 0o600 });
       fs.renameSync(tmp, this.o.file);
       this.dirty = false;
     } catch (e) {

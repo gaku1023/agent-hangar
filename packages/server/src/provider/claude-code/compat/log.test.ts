@@ -77,6 +77,52 @@ describe('CompatLog', () => {
     fs.writeFileSync(file, JSON.stringify({ version: 1, entries: [{ contract: 'nope', value: 'x' }, { contract: 'cli', value: 'subcommand.added=x', version: null, count: 1, firstSeenAt: 1, lastSeenAt: 1 }] }));
     expect(new CompatLog({ file, localVersion: () => null }).list().map((e) => e.value)).toEqual(['subcommand.added=x']);
   });
+  it('手元の claude の版が変わったら記録を空にし、同じ版と読めない版では残す', () => {
+    const file = compatPath(tmp);
+    const log = new CompatLog({ file, localVersion: () => null, now: () => 1 });
+    log.note({ contract: 'cli', value: 'subcommand.added=x', version: null });
+    // 前の版が分からないうちは「変わった」と言えないので、持つだけで消さない。
+    log.setLocalVersion('2.1.292');
+    expect(log.count()).toBe(1);
+    log.setLocalVersion('2.1.292');
+    expect(log.count()).toBe(1);
+    // 読めないときは消さない。
+    log.setLocalVersion(null);
+    expect(log.count()).toBe(1);
+    log.flush();
+    log.setLocalVersion('2.1.300');
+    expect(log.count()).toBe(0);
+    // 空にしたことも書き出す。
+    log.flush();
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8')) as { localVersion: unknown; entries: unknown[] };
+    expect(saved).toMatchObject({ localVersion: '2.1.300', entries: [] });
+  });
+  it('書き出して読み直すと手元の版も残り、次に違う版が来たら空にする', () => {
+    const file = compatPath(tmp);
+    const log = new CompatLog({ file, localVersion: () => null, now: () => 1 });
+    log.setLocalVersion('2.1.292');
+    log.note({ contract: 'cli', value: 'subcommand.added=x', version: null });
+    log.flush();
+    const again = new CompatLog({ file, localVersion: () => null });
+    again.setLocalVersion('2.1.292');
+    expect(again.count()).toBe(1);
+    const third = new CompatLog({ file, localVersion: () => null });
+    third.setLocalVersion('2.1.300');
+    expect(third.count()).toBe(0);
+  });
+  it('手元の版の無い古い形のファイルも読め、その後の最初の版では消さない', () => {
+    const file = compatPath(tmp);
+    fs.writeFileSync(file, JSON.stringify({ version: 1, entries: [{ contract: 'cli', value: 'subcommand.added=x', version: '2.1.1', count: 1, firstSeenAt: 1, lastSeenAt: 1 }] }));
+    const log = new CompatLog({ file, localVersion: () => null });
+    expect(log.count()).toBe(1);
+    log.setLocalVersion('2.1.300');
+    expect(log.count()).toBe(1);
+    // 持った版は、ずれが増えなくても書き出す。書かないと、次の起動でまた前の版が分からなくなる。
+    log.flush();
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ localVersion: '2.1.300' });
+    log.setLocalVersion('2.1.301');
+    expect(log.count()).toBe(0);
+  });
   it('書けない置き場でも投げない', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     fs.writeFileSync(path.join(tmp, 'blocker'), 'x');

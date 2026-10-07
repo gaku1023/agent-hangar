@@ -725,6 +725,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 裏で void で走らせるので、決して拒否しない（捕まらない拒否は Node ごと落とす）。
   // パスが普通のファイルの下を指すと stat が ENOTDIR で投げるので、読めないもの（null）として扱う。
   // 待つ間に閉じたか、claude のパスが変わったときは、遅れて届いた古い版で上書きしない。
+  // 読めた版はずれの記録にも知らせる。版が変わっていれば、記録を空にして数え直す。
   const refreshClaudeVersion = async (): Promise<string | null> => {
     const bin = claudeBinOf(settings);
     let v: string | null = null;
@@ -733,7 +734,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     } catch {
       v = null;
     }
-    if (!closed && claudeBinOf(settings) === bin) claudeVersion = v;
+    if (!closed && claudeBinOf(settings) === bin) {
+      claudeVersion = v;
+      compatLog.setLocalVersion(v);
+    }
     return v;
   };
   // 包みがそのまま渡すサブコマンド。起動のたびと claude のパスを変えたときに claude --help から作り直す。
