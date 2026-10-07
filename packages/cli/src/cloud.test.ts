@@ -6,7 +6,7 @@ import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
-import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
+import { COMPAT_HEADER, COMPAT_VERSION, decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
 import { BUNDLED_CLOUD_MARKER, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth } from './cloud.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
@@ -1251,5 +1251,51 @@ describe('runSetupCloud の使用量のトークンの問い', () => {
   it('端末でも skipUsageToken なら尋ねない', async () => {
     setIsTTY(true);
     expect(await run({ skipUsageToken: true })).not.toContain('API トークン');
+  });
+});
+
+describe('互換の版', () => {
+  it('Worker へ出す要求（health の待ち、参加、status）に、この PC の版を載せる', async () => {
+    const sent: { url: string; compat: string | undefined }[] = [];
+    const f = (async (input: string | URL | Request, init?: RequestInit) => {
+      sent.push({ url: String(input), compat: (init?.headers as Record<string, string> | undefined)?.[COMPAT_HEADER] });
+      if (String(input).endsWith('/join')) return new Response(JSON.stringify({ deviceToken: 't', deviceId: device.id }), { status: 201 });
+      return new Response(JSON.stringify({ ok: true, version: '0.4.0', compat: COMPAT_VERSION }), { status: 200 });
+    }) as typeof fetch;
+    expect(await waitForHealth('https://h', { fetch: f, sleep: async () => {} })).toBe(true);
+    await joinWorker('https://h', 's', device, { fetch: f, sleep: async () => {} });
+    const { home } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't' }));
+    await cloudStatus({ home, fetch: f });
+    const toWorker = sent.filter((s) => s.url.startsWith('https://h/'));
+    expect(toWorker.map((s) => s.url)).toEqual(['https://h/health', 'https://h/join', 'https://h/health']);
+    for (const s of toWorker) expect(s.compat, s.url).toBe(String(COMPAT_VERSION));
+  });
+
+  it('参加を版が古いと断られたら、待たずに hangar を上げるよう伝える', async () => {
+    const need = COMPAT_VERSION + 1;
+    const f = (async () => new Response(JSON.stringify({ error: 'upgrade required', minCompat: need, compat: need }), { status: 426 })) as typeof fetch;
+    const slept: number[] = [];
+    const e: Error = await joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retryForbidden: true }).then(
+      () => { throw new Error('断られるはずが通った'); },
+      (x: unknown) => x as Error,
+    );
+    expect(e.message).toContain('この PC の hangar が古い');
+    expect(e.message).toContain(`${need} 以上`);
+    expect(slept).toHaveLength(0);
+  });
+
+  it('status は、この PC と Worker の互換の版を 1 行で見せる', async () => {
+    const { home } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't' }));
+    const health = (body: unknown) => (async (input: string | URL | Request) => {
+      if (String(input) === 'https://h/health') return new Response(JSON.stringify(body), { status: 200 });
+      throw new TypeError('ECONNREFUSED');
+    }) as typeof fetch;
+    expect(await cloudStatus({ home, fetch: health({ ok: true, version: '0.5.0', compat: COMPAT_VERSION }) })).toContain(`互換の版: この PC ${COMPAT_VERSION}、Worker ${COMPAT_VERSION}`);
+    // 版を返さないのは、版番号を入れる前の古い Worker である。
+    expect(await cloudStatus({ home, fetch: health({ ok: true, version: '0.4.0' }) })).toContain(`互換の版: この PC ${COMPAT_VERSION}、Worker 0`);
+    const dead = (async () => { throw new TypeError('ECONNREFUSED'); }) as typeof fetch;
+    expect(await cloudStatus({ home, fetch: dead })).toContain(`互換の版: この PC ${COMPAT_VERSION}、Worker 不明`);
   });
 });
