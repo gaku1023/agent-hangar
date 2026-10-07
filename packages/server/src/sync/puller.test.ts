@@ -4,8 +4,8 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { transcriptKey, type FileEntry, type FileMetaIn } from '@agent-hangar/shared';
-import type { CloudClient } from './client.ts';
+import { COMPAT_VERSION, transcriptKey, type FileEntry, type FileMetaIn } from '@agent-hangar/shared';
+import { CompatError, type CloudClient } from './client.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { deriveFileKey, encryptBuffer, sha256Hex } from './crypto.ts';
@@ -203,6 +203,20 @@ describe('RemotePuller', () => {
     expect(await p.pullNow()).toEqual({ downloaded: 1, configEntries: 0 });
     expect(p.skippedEntries()).toEqual([]);
     expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', rel), 'utf8')).toBe('fixed\n');
+  });
+
+  it('互換の版で断られた回は、項目を諦めに数えず、filesSeq も進めない', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    const p = make();
+    const realGet = cloud.getFile.bind(cloud);
+    cloud.getFile = async () => { throw new CompatError('device', COMPAT_VERSION, COMPAT_VERSION + 1); };
+    for (let i = 0; i < 3; i++) await expect(p.pullNow()).rejects.toBeInstanceOf(CompatError);
+    expect(p.skippedEntries()).toEqual([]);
+    expect(errors).toEqual([]);
+    expect(state.getNumber('filesSeq', 0)).toBe(0);
+    // 版が合えば、同じ項目が降りてくる。
+    cloud.getFile = realGet;
+    expect(await p.pullNow()).toEqual({ downloaded: 1, configEntries: 0 });
   });
 
   it('設定の取り込みも 3 回で諦めて先に進む', async () => {
