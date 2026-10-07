@@ -8,8 +8,8 @@ import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { State } from '../mediator/types.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
-const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
+const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false };
 const launchResult: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'resume', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [] };
 const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1', events: seqs.map((seq) => ({ kind: 'user', seq, text: 'x' })), total, nextSeq: null });
 
@@ -859,19 +859,17 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().accounts).toEqual(accountsFixture);
     expect(rt.getState().toasts).toEqual([]);
   });
-  it('古いサーバでアカウントの口が無く GET /api/accounts が失敗しても、トーストにせず Store も変えず、ほかの取得は進む', async () => {
-    const accounts = vi.fn(async () => { throw new Error('404 /api/accounts'); });
-    const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
+  it('GET /api/accounts が失敗したらトーストで知らせ、ほかの取得は進む', async () => {
+    const accounts = vi.fn(async () => { throw new Error('500 /api/accounts'); });
+    const statusline = vi.fn(async () => ({ command: 'bash statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
     const { rt, wsHandlers, setHash } = harness({ accounts, statusline });
     rt.start();
     wsHandlers[0]!.onOpen();
     await flush();
-    const before = rt.getStore().accounts;
     setHash('#/settings');
     await flush();
     expect(accounts).toHaveBeenCalledTimes(1);
-    expect(rt.getState().toasts).toEqual([]);
-    expect(rt.getStore().accounts).toBe(before);
+    expect(rt.getState().toasts.map((t) => t.message)).toContain('500 /api/accounts');
     expect(rt.getStore().statusline?.installed).toBe(true);
   });
   it('設定を開くと使用量を取り直す', async () => {
@@ -1058,17 +1056,6 @@ describe('同期とこの PC で再開', () => {
     wsHandlers[0]!.onEvent({ type: 'sync.status', status: { ...stuck, sweepPending: 0, skipped: [] } });
     await flush();
     expect(rt.getStore().sync).toMatchObject({ sweepPending: 0, skipped: [] });
-  });
-  it('sync を持たない古いサーバの bootstrap では何もしない', async () => {
-    const { sync: _s, devices: _d, ...older } = boot;
-    const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => older as BootstrapDto) });
-    rt.start();
-    wsHandlers[0]!.onOpen();
-    await flush();
-    expect(rt.getStore().bootstrapped).toBe(true);
-    expect(rt.getState().sync).toEqual({ kind: 'off' });
-    expect(rt.getState().pending).toBe(0);
-    expect(rt.getStore().devices).toEqual([]);
   });
   it('窓が前面に来たら syncFocus を呼び、失敗してもトーストを出さない', async () => {
     const { rt, api, fireFocus } = harness({ syncFocus: vi.fn(async () => { throw new Error('500 /api/sync/focus'); }) });
@@ -1737,10 +1724,6 @@ describe('アカウント', () => {
   it('bootstrap の accounts が Store に入る', async () => {
     const h = await started({ bootstrap: vi.fn(async () => ({ ...boot, accounts: accountsFixture })) });
     expect(h.rt.getStore().accounts).toEqual(accountsFixture);
-  });
-  it('accounts を持たない bootstrap では null のまま', async () => {
-    const h = await started();
-    expect(h.rt.getStore().accounts).toBeNull();
   });
   it('account.choose は setCurrentAccount を呼び、応答の AccountsDto を Store に入れる', async () => {
     const next = { ...accountsFixture, currentId: 'a1' };

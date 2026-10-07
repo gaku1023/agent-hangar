@@ -15,7 +15,7 @@ const base: CloudUsageDto = {
     { label: 'R2 Infrequent Access Data Retrieval', consumed: 3, unit: 'GB', included: null },
   ] },
 };
-const sync = (o: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://w', lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: 0, ...o });
+const sync = (o: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://w', lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: 0, oncePass: false, ...o });
 
 describe('presentCloudUsage', () => {
   it('ふだん：札 3 枚と棒（今日 2、区切り、今月）', () => {

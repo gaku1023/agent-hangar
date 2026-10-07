@@ -1,5 +1,5 @@
 import { asideOf, liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
-import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -57,31 +57,13 @@ export function initialStore(): Store {
 
 const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object.fromEntries(items.map((i) => [i.id, i]));
 
-/**
- * 同期の状態を入れ替える。
- * 付録（送れなかった本文と取り残しの件数）は、HTTP の応答も websocket の通知も運ぶ。
- * これより古いサーバの通知にだけ載っていないので、そのときは「分からない」に寄せる。
- * 直前の値は引き継がない。
- * 引き継ぐと、片付いた取り残しと回復した失敗が、画面に出たまま固まってしまう。
- * 件数を出す目的は「進んでいるのか止まっているのか」を読ませることなので、
- * 古い数字を残すのは、何も出さないより悪い。
- */
-export function applySyncStatus(next: SyncStatusBody): SyncStatusBody {
-  const d = next as Partial<SyncDetailDto>;
-  return { ...next, skipped: d.skipped ?? [], sweepPending: d.sweepPending ?? null };
-}
-
 /** bootstrap を入れる。
  * runs と tabs だけは差し替えずに混ぜる。
  * サーバが返すのは生きた run と開いたシェルタブが残る run だけなので、
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  // フェーズ 3 で増えた項目は、それより古いサーバには無い。
-  // 型の上では必ずあるので、欠けていたときだけ既定値で埋める。
-  // 版が古いことは画面には出さない。
-  const old = b as Partial<BootstrapDto>;
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: old.usage ?? emptyUsage(), todos: byId(old.todos ?? []), artifacts: byId(old.artifacts ?? []), summaryPending: Object.fromEntries((old.summaryPending ?? []).map((id) => [id, true as const])), sync: b.sync ? applySyncStatus(b.sync) : null, devices: b.devices ?? [], retention: old.retention ?? null, cloudUsage: b.cloudUsage ?? null, accounts: b.accounts ?? null };
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: b.usage, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts };
 }
 
 const sameAside = (a: LiveAsideDto | null, b: LiveAsideDto | null): boolean => a === b || (a !== null && b !== null && a.shell === b.shell && a.agents === b.agents);
@@ -126,7 +108,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     }
     case 'memo.update': return { ...store, memos: { ...store.memos, [ev.memo.projectId]: ev.memo } };
     case 'artifact.upsert': return { ...store, artifacts: { ...store.artifacts, [ev.artifact.id]: ev.artifact } };
-    case 'sync.status': return { ...store, sync: applySyncStatus(ev.status) };
+    case 'sync.status': return { ...store, sync: ev.status };
     case 'accounts.update': return { ...store, accounts: ev.accounts };
     case 'sync.usage': return { ...store, cloudUsage: ev.usage };
     case 'devices.update': return { ...store, devices: ev.devices };

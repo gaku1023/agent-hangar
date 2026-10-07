@@ -1385,7 +1385,7 @@ describe('presentSettings の既定値', () => {
 });
 
 const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null, ...over });
-const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, ...over });
+const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 
 describe('ヘッダーの無料枠で停止', () => {
@@ -1410,9 +1410,8 @@ describe('ヘッダーの無料枠で停止', () => {
     expect(quota).toMatchObject({ label: '1 回だけ同期中…', once: true, paused: true, state: 'paused' });
     const user = shellSync(paused({ pausedReason: 'user', oncePass: true }), at('2026-10-02T06:48:00Z'));
     expect(user).toMatchObject({ label: '1 回だけ同期中…', once: true });
-    // 終われば元の文に戻る。印を送らない古いサーバも同じ。
+    // 終われば元の文に戻る。
     expect(shellSync(paused({ pausedReason: 'user', oncePass: false }), at('2026-10-02T06:48:00Z'))).toMatchObject({ label: '一時停止中', once: false });
-    expect(shellSync(paused({ pausedReason: 'user' }), at('2026-10-02T06:48:00Z')).once).toBe(false);
     // 設定の「状態」も同じ語で言う。
     const settings = presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({ oncePass: true }) }).cloud;
     expect(settings).toMatchObject({ stateLabel: '1 回だけ同期中…', once: true, paused: true });

@@ -53,7 +53,7 @@ export type RetentionPreviewDto = { days: number; path: string; lines: Retention
 /** 確認をどこから開いたか。帯から開いたときだけ「ほかの期間…」を出す。 */
 export type RetentionFrom = 'banner' | 'session' | 'settings';
 export type IndexProgressDto = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: number; total: number };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage?: CloudUsageDto | null; accounts?: AccountsDto };
+export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; usage: UsageDto; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。
@@ -166,11 +166,11 @@ export type SyncSkippedDto = { key: string; attempts: number; message: string };
  * websocket の sync.status も、同じ付録を運ぶ。片方だけにすると、画面の件数が古いまま貼り付く。
  * sweepPending は、これから上がる本文の件数である。
  * 消したセッションの本文と、上げるのを諦めた本文は入らない（諦めた本文は skipped として別に出るので、入れると二重に数える）。
- * 数えられないときは null になる（同期を設定していない端末と、この口を持たない古いサーバ）。
+ * 数えられないときは null になる（同期を設定していない端末）。
  * oncePass は、一時停止のまま利用者が「今すぐ同期」で頼んだ 1 巡の最中かどうかである。
- * そのあいだも state は paused のままなので、進んでいることはこの印でしか分からない。古いサーバは送らない。
+ * そのあいだも state は paused のままなので、進んでいることはこの印でしか分からない。
  */
-export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | null; oncePass?: boolean };
+export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | null; oncePass: boolean };
 /** 同期の状態の応答。SyncStatusDto に付録を足したものである。 */
 export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
 /** shell はその端末の包み方（hangar shell install）の状態。まだ知らせてこない古い版の端末は null になる。 */
