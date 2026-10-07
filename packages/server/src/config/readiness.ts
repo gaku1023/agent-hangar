@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ReadinessDto, ToolCheckDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { workspaceProjectCount } from '../projects/registry.ts';
 import type { Settings } from './paths.ts';
 import { statuslineStatus } from './statusline.ts';
@@ -115,6 +116,8 @@ export type ReadinessOptions = {
   serverNode?: { path: string; version: string };
   /** 版を読む子プロセスの時間の上限。 */
   timeoutMs?: number;
+  /** 記録した Claude Code との互換のずれの件数。渡さなければ 0 とする。 */
+  compatDriftCount?: () => number;
 };
 
 /** 準備の確かめを返す関数を作る。版の覚えは、この関数が生きている間だけ持つ。 */
@@ -145,6 +148,8 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
       mcp: { registered: readMcpRegistration(o.claudeJson), file: o.claudeJson },
       statusline: statuslineStatus(o.claudeDir, homeDir),
       commands: { mcp: `${prefix} mcp install`, statusline: `${prefix} statusline install`, shell },
+      // 手元の版は、上で読んだ claude の版と同じものを使う（同じ claude を 2 度起こさない）。
+      compat: { verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: claude.version, driftCount: o.compatDriftCount?.() ?? 0 },
     };
   };
 }

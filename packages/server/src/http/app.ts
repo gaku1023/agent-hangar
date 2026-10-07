@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type CompatDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
@@ -120,6 +121,11 @@ export type AppDeps = {
    * 設定画面の検証と、空のホームの確認リストが同じものを読む。読むだけで、何も書き換えない。
    */
   readiness: () => Promise<ReadinessDto>;
+  /**
+   * Claude Code との互換（確かめた版、手元の版、記録したずれの一覧）。確認リストの 6 行目を開いたときに読む。
+   * 渡さなければ、確かめた版だけを持つ空の一覧を返す。
+   */
+  compat?: () => Promise<CompatDto>;
   uiDist?: string;
 };
 
@@ -831,6 +837,7 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/statusline', (c) => c.json(statuslineStatus(deps.settings().claudeDir)));
   api.get('/shell-hook', (c) => c.json(deps.shellHook()));
   api.get('/readiness', async (c) => c.json(await deps.readiness()));
+  api.get('/compat', async (c) => c.json(deps.compat ? await deps.compat() : ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] } satisfies CompatDto)));
 
   // TODO。変更のたびに一覧とプロジェクト（未完の数）を配る。
   const todosChanged = (projectId: string) => {

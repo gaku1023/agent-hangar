@@ -50,6 +50,11 @@ describe('createApi（フェーズ 2）', () => {
     const ng = harness(500, {});
     await expect(ng.api.bootstrap()).rejects.toThrow('500 /api/bootstrap');
   });
+  it('Claude Code との互換は GET /api/compat で取る', async () => {
+    const { api, calls } = harness(200, { verifiedVersion: '2.1.292', localVersion: null, drifts: [] });
+    expect(await api.compat()).toEqual({ verifiedVersion: '2.1.292', localVersion: null, drifts: [] });
+    expect(calls.at(-1)).toMatchObject({ url: '/api/compat', method: 'GET' });
+  });
 });
 
 describe('フェーズ 3 の経路', () => {

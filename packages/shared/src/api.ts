@@ -1,3 +1,4 @@
+import type { CompatSummaryDto } from './claudeCompat.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { StepKind } from './steps.ts';
 import type { TranscriptEvent } from './transcript.ts';
@@ -121,6 +122,7 @@ export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProb
  * workspace の projectCount は、ワークスペースの直下から登録したプロジェクトの数である。
  * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
  * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。
+ * compat は Claude Code との互換の要約で、確認リストの 6 行目が読む。ずれの中身は GET /api/compat で取る。
  */
 export type ReadinessDto = {
   tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: ToolCheckDto & { auto: boolean } };
@@ -128,6 +130,7 @@ export type ReadinessDto = {
   mcp: { registered: boolean; file: string };
   statusline: StatuslineStatusDto;
   commands: { mcp: string; statusline: string; shell: string };
+  compat: CompatSummaryDto;
 };
 /** 完了の候補。sessionId はセッション別でない MCP の URL から出たとき null、note は根拠が無いとき null。 */
 export type TodoCandidateDto = { sessionId: string | null; note: string | null; at: number };
