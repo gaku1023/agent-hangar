@@ -703,10 +703,18 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const claudeBinOf = (s: Settings): string | null => process.env.HANGAR_CLAUDE_BIN ?? s.claudePath ?? which('claude');
   // 手元の claude の版。ずれの記録の既定の版と、GET /api/compat の手元の版に使う。同じファイルなら起こし直さない。
   const claudeVersions = new ToolVersions();
+  // 裏で void で走らせるので、決して拒否しない（捕まらない拒否は Node ごと落とす）。
+  // パスが普通のファイルの下を指すと stat が ENOTDIR で投げるので、読めないもの（null）として扱う。
+  // 待つ間に閉じたか、claude のパスが変わったときは、遅れて届いた古い版で上書きしない。
   const refreshClaudeVersion = async (): Promise<string | null> => {
     const bin = claudeBinOf(settings);
-    const v = bin ? await claudeVersions.get(bin, ['--version']) : null;
-    if (!closed) claudeVersion = v;
+    let v: string | null = null;
+    try {
+      v = bin ? await claudeVersions.get(bin, ['--version']) : null;
+    } catch {
+      v = null;
+    }
+    if (!closed && claudeBinOf(settings) === bin) claudeVersion = v;
     return v;
   };
   // 包みがそのまま渡すサブコマンド。起動のたびと claude のパスを変えたときに claude --help から作り直す。
@@ -728,16 +736,21 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   /**
    * 包みがそのまま渡すサブコマンドを claude --help から作り直し、包みを書き直す。
    * 読めなければ組み込みの一覧を使う。組み込みとの差は Claude Code との互換のずれとして記録する。
-   * 起動を待たせないよう裏で走らせ、閉じた後に届いたら何もしない。
+   * 起動を待たせないよう裏で走らせ、決して拒否しない。
+   * 閉じた後に届いたときと、待つ間に claude のパスが変わったときは何もしない（新しいパスの読み取りが書く）。
    */
   const refreshSubcommands = async (): Promise<void> => {
-    const bin = claudeBinOf(settings);
-    const text = bin ? await readClaudeHelp(bin) : null;
-    if (closed) return;
-    const r = subcommandsFromHelp(text);
-    for (const d of r.drifts) compatLog.note(d);
-    shellSubcommands = r.subcommands;
-    writeShellScript();
+    try {
+      const bin = claudeBinOf(settings);
+      const text = bin ? await readClaudeHelp(bin) : null;
+      if (closed || claudeBinOf(settings) !== bin) return;
+      const r = subcommandsFromHelp(text);
+      for (const d of r.drifts) compatLog.note(d);
+      shellSubcommands = r.subcommands;
+      writeShellScript();
+    } catch (e) {
+      console.error('[shell] claude --help からサブコマンドを作り直せませんでした', e instanceof Error ? e.message : e);
+    }
   };
   writeShellScript();
   void refreshSubcommands();

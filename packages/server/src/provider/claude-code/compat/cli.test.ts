@@ -104,6 +104,10 @@ describe('readClaudeHelp', () => {
     const bad = writeFakeTool(path.join(tmp, 'bad'), 'claude', { sh: 'echo "Commands:"; exit 3', cmd: 'exit /b 3' });
     expect(await readClaudeHelp(bad)).toBeNull();
   });
+  it('起動の前に投げる場所（空、NUL 入り）も、投げずに null を返す', async () => {
+    await expect(readClaudeHelp('')).resolves.toBeNull();
+    await expect(readClaudeHelp('claude\0x')).resolves.toBeNull();
+  });
 });
 
 const c = (value: string) => ({ contract: 'cli', value, version: null });

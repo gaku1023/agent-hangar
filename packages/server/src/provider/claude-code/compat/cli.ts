@@ -76,9 +76,14 @@ export function readClaudeHelp(bin: string, timeoutMs = 5_000): Promise<string |
   // .cmd と .bat は cmd.exe を通さないと起こせない。引数は固定の --help だけなので、引用の心配は無い。
   const viaShell = needsShell(bin);
   return new Promise((resolve) => {
-    execFile(viaShell ? `"${bin}"` : bin, ['--help'], { timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024, shell: viaShell, windowsHide: true, encoding: 'utf8' }, (err, stdout) => {
-      resolve(err ? null : String(stdout));
-    });
+    // 空や NUL 入りのパス、ENOTDIR などは execFile がその場で投げる。投げずに「読めない」にする。
+    try {
+      execFile(viaShell ? `"${bin}"` : bin, ['--help'], { timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024, shell: viaShell, windowsHide: true, encoding: 'utf8' }, (err, stdout) => {
+        resolve(err ? null : String(stdout));
+      });
+    } catch {
+      resolve(null);
+    }
   });
 }
 
