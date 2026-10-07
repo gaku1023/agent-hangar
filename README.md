@@ -406,7 +406,8 @@ npm run build                         # UI を作る
 cd apps/desktop && npx tauri build    # server-dist を作り、.app を src-tauri/target/release/bundle/macos に出す
 ```
 
-`.app` に入るのは、esbuild でまとめた `server.mjs` と `cli.mjs`、UI、`better-sqlite3` と `node-pty` の darwin-arm64 の prebuild、`bin/hangar`、Worker のソース、`manifest.json` です。
+`.app` に入るのは、esbuild でまとめた `server.mjs` と `cli.mjs`、UI、`better-sqlite3` と `node-pty` の darwin-arm64 の prebuild、`bin/hangar`、Worker を 1 本に束ねた `cloud/worker.mjs` とその束縛の定義 `cloud/metadata.json`、`manifest.json` です。
+`cloud/` は、後の版でアプリから Cloudflare へ Worker を上げるための下地で、いまはどこからも読んでいません。
 UI の sourcemap は入れません。
 UI の写しの 68 パーセント（実測 2.19MB）が `.map` で、利用者の役に立たないためです。
 実測で 7.7MB でした。
