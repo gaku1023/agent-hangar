@@ -28,6 +28,7 @@ import { promoteSession } from './projects/promote.ts';
 import { assignSession, assignSessions, checkProjectRoots, registerWorkspaceChildOf, syncProjectsFromWorkspace } from './projects/registry.ts';
 import { ensureScratchProject } from './projects/scratch.ts';
 import { readRegistry, RegistryWatcher } from './provider/claude-code/registry.ts';
+import { AsideReader } from './live/aside.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
 import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
@@ -425,7 +426,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const claudeDir = opts.claudeDir ?? (settings.claudeDir || defaultClaudeDir());
   const db = openDb(dbPath(home));
   const hub = new EventHub(VERSION);
-  const registry = new RegistryWatcher(claudeDir, undefined, opts.registryIsGone);
+  // 裏でサブエージェントだけが動いているものに、読み直しのたびに印を足す（live/aside.ts）。
+  const aside = new AsideReader(db);
+  const registry = new RegistryWatcher(claudeDir, undefined, opts.registryIsGone, (live) => aside.apply(live, Date.now()));
 
   // クラウド同期。cloud.json が無ければ client は null で、同期の状態は off になる。
   const cloudRead = readCloudConfig(home);

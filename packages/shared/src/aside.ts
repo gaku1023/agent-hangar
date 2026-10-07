@@ -18,7 +18,8 @@ export function asideMark(a: LiveAsideDto): string {
   return a.agents > 0 ? `裏 ${a.agents}` : '裏';
 }
 
-/** 右の欄の灯の見出し。 */
+/** 右の欄の灯の見出し。裏の担当が数えられないとき（workflow など）は、何が動いているかを言わない。 */
 export function asideHead(a: LiveAsideDto): string {
-  return a.agents > 0 ? `裏で ${a.agents} 本動いている` : '裏でシェルが動いている';
+  if (a.agents > 0) return `裏で ${a.agents} 本動いている`;
+  return a.shell ? '裏でシェルが動いている' : '裏で作業が動いている';
 }

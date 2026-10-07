@@ -17,13 +17,15 @@ export type SessionSummaryDto = { title: string; oneLiner: string; body: string;
  * procStart はそのプロセスの起動時刻（UTC の ps の lstart の書式）。pid の使い回しを見分けるのに使う。古い Claude は書かない。
  * entrypoint は claude を起こしたもの。ターミナルの CLI は cli、VS Code の拡張は claude-vscode になる。
  * aside は、本体は入力を受け付けていて、裏の作業だけが動いていることの印（LiveAsideDto）。無ければ付かない。
+ * statusAt は動きが最後に変わった時刻（登録の statusUpdatedAt、ミリ秒）。裏だけかを決めるのに使う（server の live/aside.ts）。古い Claude は書かない。
  */
-export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto };
+export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto; statusAt?: number };
 /**
  * 本体（指揮役）は入力を受け付けていて、裏の作業だけが動いていること。
  * status は busy のままにする。Claude も、裏でサブエージェントが動く間は本体が空いていても busy と書く。
  * busy のままなので、自動の停止、引き取りの断り、停止の確認は、作業中と同じに働く。変えるのは見せ方だけである。
- * shell は、裏で Bash が動いていること（Claude の登録の status が shell）。agents は、裏で動いているサブエージェントの本数で、今は数えず 0 にしている。
+ * shell は、裏で Bash が動いていること（Claude の登録の status が shell）。
+ * agents は、裏で動いているサブエージェントの本数。登録は busy としか書かないので、server が本文から推す（live/aside.ts）。数えられないときは 0 である。
  */
 export type LiveAsideDto = { shell: boolean; agents: number };
 /** 実行中のセッションが最後に呼んだツールと、答えを待っている AskUserQuestion の問い。端末ローカルで、同期しない。 */
