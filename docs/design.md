@@ -10,8 +10,8 @@
 
 **agent-hangar** は、個人用のローカルなエージェントセッション管理アプリである。
 Claude Code のセッションをプロジェクト単位で束ね、起動、観察、検索、記録を一箇所で行う。
-Codex や OpenCode などの他のコーディングエージェントは、後から **Provider** として追加する。
-初版で扱う Provider は Claude Code だけである。
+対応するエージェントは Claude Code だけである。
+2 つ目のエージェントを足すときに、そのときの実際の必要から共通の形を引き出す。
 
 このアプリが解決するのは次の不便である。
 
@@ -44,7 +44,7 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
   - 加えて、`~/.claude/` の外にある `~/.claude.json` の `mcpServers.hangar` を `hangar mcp install` が書き換える。Claude Code の設定である点は同じなので例外に数える。`claude mcp add` に任せないのは、`--header` の値が argv に載り、64 桁のトークンが同じ機械の誰からでも `ps` で読めるためである。削除は今までどおり `claude mcp remove` に任せる（こちらはトークンを渡さない）。
 - **ファイルを消さない**：hangar は利用者のファイルを削除しない。プロジェクトの削除は紐づけの解除であり、ディレクトリには触れない。例外はスクラッチを昇格するときの移動だけである。
 - **サーバが正**：状態はローカルサーバが持ち、UI は描画に必要な値だけを受け取る。ブラウザでも Tauri でも同じ UI が動く。
-- **Provider 非依存の表示**：トランスクリプトは正規化した共通形式に変換して描く。表示コードは Claude Code の jsonl 形式を知らない。
+- **正規化した形式で描く**：トランスクリプトは正規化した共通形式に変換して描く。表示コードは Claude Code の jsonl 形式を知らない。
 - **同期前提のスキーマ**：データはすべて端末間で同期できる形で持つ。フェーズ 1 から 3 では同期せずにこの形だけを保ち、フェーズ 4 で実際に同期した。
 - **軽い索引**：巨大な jsonl を DB に丸ごと写さない。索引と検索用テキストだけを持ち、本文はファイルから読む。
 
@@ -308,7 +308,7 @@ create table project_roots (
 
 create table sessions (
   id text primary key,
-  provider text not null,                         -- 'claude-code' | 'opencode' | ...
+  provider text not null,                         -- いまは 'claude-code' だけ。列と一意の制約は残す（D8）
   provider_session_id text not null,              -- Claude Code では UUID
   project_id text references projects(id),        -- null は未分類
   name text,                                      -- hangar が保持する表示名
@@ -493,7 +493,7 @@ create table settings_local (key text primary key, value text not null);
 
 ### 正規化トランスクリプト
 
-`packages/shared` に、Provider 非依存のイベント型を定義する。
+`packages/shared` に、jsonl の形式に依らないイベント型を定義する。
 UI はこの型だけを描く。
 
 ```ts
@@ -511,27 +511,15 @@ type TranscriptEvent =
 `summary` はツール呼び出しを 1 行で表す文字列で、折りたたみ表示に使う（例：`Edit src/app.ts`）。
 `meta` は表示しないが、索引の抽出元になる。
 
-## Provider 抽象
+## Claude Code に固有の部分
 
-### インターフェース
+hangar が対応するのは Claude Code だけである（2026-10-07 の決定 D7）。
+Claude Code の保存形式と起動方法を hangar に翻訳する部分は、`packages/server/src/provider/claude-code/` と `packages/server/src/launch/args.ts` にある。
+以前は Provider のインターフェースを置いていたが、実装していたのは起動の 2 項目だけで、索引はインターフェースを通らずに jsonl を読んでいたので、段 1 で消した。
+jsonl の読み、登録、起動の引数を 1 つの塊に集めるのは、後の段で行う。
+`sessions.provider` の列と `(provider, provider_session_id)` の一意の制約は、永続する識別子なので残す（D8）。
 
-Provider は、あるコーディングエージェントの「保存形式」と「起動方法」を hangar に翻訳する層である。
-UI とサーバの他の部分は、このインターフェースだけを見る。
-
-```ts
-interface Provider {
-  readonly id: 'claude-code' | 'opencode';
-  discover(): AsyncIterable<DiscoveredSession>;              // 既存セッションの列挙
-  watch(onChange: (path: string) => void): () => void;       // 保存先の変化を通知
-  readEvents(file: string, fromByte: number): AsyncIterable<{ event: TranscriptEvent; offset: number; length: number }>;
-  liveStatus(): Promise<LiveSession[]>;                       // 実行中セッションの busy / idle
-  launchCommand(params: LaunchParams): string[];              // 新規起動のコマンド列
-  resumeCommand(session: Session, fork: boolean): string[];
-  usage?(): Promise<UsageSnapshot | null>;
-}
-```
-
-### Claude Code Provider
+### 保存先と読み方
 
 Claude Code の保存先と、その読み方を定める。
 
@@ -1188,7 +1176,7 @@ UI は設定画面に入ったとき、設定を保存した後、セッショ�
 Sessions 画面は検索画面を兼ねる。
 キーワードが空なら全件を新しい順に出す。
 検索対象は利用者の発言、アシスタントの本文、ツール呼び出しのファイルパスとコマンドである。
-絞り込みはプロジェクト、期間、Provider、状態（入力待ち、実行中、終了）、触ったファイルである。
+絞り込みはプロジェクト、期間、状態（入力待ち、実行中、終了）、触ったファイルである。
 キーワードが空でも、触ったファイルで絞るときはサーバの検索を使い、そのファイルを触ったセッションを新しい順に出す。
 触ったファイルは手元のセッションの情報に無いからである。
 プロジェクトは検索欄つきの一覧で、先頭に「すべてのプロジェクト」を置く。
@@ -2512,7 +2500,6 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - Claude 側で利用者が付けた名前（`nameSource` が `user`）は、hangar が保持する名前より優先する。
 - `history.jsonl` にあって本文ファイルが見つからないセッションは、一覧に「本文なし」として出す。
 - 初回索引は背景で走らせ、UI は「N / 総数 件」の静的な文字で進行を示す。
-- Provider の第二弾は OpenCode で、`~/.local/share/opencode/opencode.db` を読む。Codex は CLI が無いため対象にしない。
 - 意味検索は持たないが、LM Studio に埋め込みモデルがあるので、将来ローカルで追加できる。
 - `event_index` の一意制約は `(session_id, ifnull(parent_agent, ''), seq)`。サブエージェントの本文は別ファイルで独立に伸びるので、主線と `seq` の空間を分ける。
 - 端末ローカルのテーブル `session_stats` を持つ。ターン数、モデル、effort、変更ファイル数、PR の URL、トークン数、最後の発言を索引から導出して置き、共有しない。
@@ -2671,6 +2658,5 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 未決事項は次のとおりである。
 
 - 権限確認ダイアログの待ちがレジストリで `waiting` になるか `busy` のままかは、auto モード以外で確かめる。
-- OpenCode Provider の詳細設計。フェーズ 5 以降に別文書で書く（フェーズ 3 では扱わなかった）。
 - 使わなくなった端末の始末。`transcripts/<端末 ID>/` と `config/<端末 ID>/` と `devices` の行を畳む操作が無い。
 - `findSession` と `ensureSession` が `deleted_at` を見ていないこと。削除の見え方そのものを変える話なので、手元と写しで規則がずれないように一度にまとめて直す。
