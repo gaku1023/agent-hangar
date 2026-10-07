@@ -235,6 +235,23 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     expect(JSON.parse(fs.readFileSync(path.join(out, 'cloud/metadata.json'), 'utf8'))).toEqual(workerMetadata(cloudSrc));
   });
 
+  it('同梱の hangar の setup cloud は、wrangler を探す前に、clone した場所から実行するよう案内して止まる', async () => {
+    const out = tmp('hangar-dist-');
+    const ui = tmp('hangar-ui-');
+    const home = tmp('hangar-home-');
+    const userHome = tmp('hangar-userhome-');
+    dirs.push(out, ui, home, userHome);
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    // runHangar は PATH と LANG のほかは渡さないので、手元の HANGAR_CLOUD_DIR は届かない。
+    const r = await runHangar(path.join(out, 'bin/hangar'), ['setup', 'cloud'], { HANGAR_HOME: home, HANGAR_NODE: process.execPath, HOME: userHome });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('src/index.ts');
+    expect(r.stderr).toContain('clone して npm install');
+    // 資源を作りに行っていない。参加の記録も書かない。
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+  });
+
   it('UI のビルドが無ければ、何をすればよいかを述べて止まる', async () => {
     const out = tmp('hangar-dist-');
     const ui = tmp('hangar-ui-');

@@ -92,7 +92,7 @@ Developer ID での署名も公証もしないので、初回だけ Gatekeeper �
 クラウド同期の設定（`hangar setup cloud`）は、同梱の `hangar` からは通りません。
 wrangler が 205MB あるので同梱していないためです。
 クラウド同期を使うときは、このリポジトリを clone して `npm install` した場所から `npm run hangar -- setup cloud` を実行してください。
-同梱の `hangar` は、wrangler が見つからないことを告げて止まります。
+同梱の `hangar` は、Worker の源が無いことを告げ、clone した場所から実行するよう案内して止まります。
 
 配布の版とサーバの版は別々に進みます。
 `.app` は `0.1.0`、サーバは `0.3.0` です（サーバの版は `/health` が返します）。

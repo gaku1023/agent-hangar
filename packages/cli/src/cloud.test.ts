@@ -8,7 +8,7 @@ import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
 import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { BUNDLED_CLOUD_MARKER, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth, writeWranglerConfig } from './cloud.ts';
+import { cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth, writeWranglerConfig } from './cloud.ts';
 import { bindingNames, workerMetadata } from '../../cloud/scripts/build-worker.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
@@ -1045,11 +1045,13 @@ describe('Worker のソースの置き場', () => {
     process.env.HANGAR_CLOUD_DIR = cloudDir;
     expect(() => requireCloudDir()).toThrow(/HANGAR_CLOUD_DIR/);
     expect(() => requireCloudDir()).toThrow(/src\/index\.ts/);
+    expect(() => requireCloudDir()).toThrow(/clone して npm install/);
   });
 
   /**
    * packages/cloud の見た目をした一式を作る。
    * 依存は親の node_modules に置くので、createRequire の解決が親をたどる様子をそのまま再現できる。
+   * bundled を立てると、配布版に同梱する形（Worker の束と束縛の定義だけで、源が無い）にする。
    */
   function fakeCloudTree(o: { deps: string[]; bundled?: boolean; name?: string }): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cloudtree-'));
@@ -1060,13 +1062,18 @@ describe('Worker のソースの置き場', () => {
       fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: d, version: '0.0.0', main: 'index.js' }));
       fs.writeFileSync(path.join(dir, 'index.js'), 'module.exports = {};\n');
     }
-    // .app の置き場に相当する一段下に、同梱された cloud/ の写しを作る。
+    // .app の置き場に相当する一段下に、cloud/ を作る。
     const dir = path.join(root, 'app', 'cloud');
+    fs.mkdirSync(dir, { recursive: true });
+    if (o.bundled) {
+      fs.writeFileSync(path.join(dir, 'worker.mjs'), 'export default {};\n');
+      fs.writeFileSync(path.join(dir, 'metadata.json'), '{}\n');
+      return dir;
+    }
     fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'src', 'index.ts'), 'export default {};\n');
     fs.writeFileSync(path.join(dir, 'wrangler.jsonc'), '{}\n');
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: o.name ?? '@agent-hangar/cloud', version: '0.0.0' }));
-    if (o.bundled) fs.writeFileSync(path.join(dir, BUNDLED_CLOUD_MARKER), 'bundled\n');
     return dir;
   }
 
@@ -1083,17 +1090,13 @@ describe('Worker のソースの置き場', () => {
     expect(() => requireCloudDir()).toThrow(/hono が/);
   });
 
-  it('同梱の写しなら、親から wrangler を拾える置き場でも止まる', () => {
+  it('配布版に同梱した cloud/（Worker の束だけ）を指されたら、親から wrangler を拾える置き場でも、clone を案内して止まる', () => {
     // レビューでの事故の再現。
-    // .app を node_modules のあるディレクトリの下に置くと、親をたどった wrangler で検査が素通りし、
-    // 実物のアカウントに資源を作ってしまった。
-    const bundled = fakeCloudTree({ deps: ALL_DEPS, bundled: true });
-    process.env.HANGAR_CLOUD_DIR = bundled;
-    expect(() => requireCloudDir()).toThrow(/配布版に同梱した写し/);
-
-    // 目印を外すと同じ置き場が通る。止めているのは目印であって、依存の有無ではない。
-    fs.rmSync(path.join(bundled, BUNDLED_CLOUD_MARKER));
-    expect(requireCloudDir()).toBe(bundled);
+    // .app を node_modules のあるディレクトリの下に置くと、親をたどった wrangler で依存の検査が素通りし、実物のアカウントに資源を作ってしまった。
+    // 同梱の cloud/ は源を持たないので、依存を見る前に源の検査で止まる。
+    process.env.HANGAR_CLOUD_DIR = fakeCloudTree({ deps: ALL_DEPS, bundled: true });
+    expect(() => requireCloudDir()).toThrow(/src\/index\.ts/);
+    expect(() => requireCloudDir()).toThrow(/clone して npm install/);
   });
 
   it('packages/cloud でないディレクトリなら、name を挙げて止まる', () => {
