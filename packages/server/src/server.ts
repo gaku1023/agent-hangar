@@ -537,7 +537,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const pausedPass = new PausedPass({
     metadata: () => engine.syncNow({ evenIfPaused: true }),
     rest: async () => {
-      await passStep('files', async () => { await puller?.pullNow(); });
+      // 版で断られた後は本文の降ろしにも行かない（1 巡の最中でも isPaused は版の止まりで真になる）。
+      await passStep('files', async () => { if (!isPaused()) await puller?.pullNow(); });
       await passStep('config', async () => { await configSync?.pushChanged(); });
       await passStep('upload', async () => { if (uploader) { uploader.sweep(Infinity); await uploader.idle(); } });
       await passStep('usage', () => cloudUsage.refresh());
@@ -549,6 +550,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const status = engine.status();
       const sweepPending = syncSweep();
       broadcastSync(status);
+      // 版で断られた 1 巡は何も同期していない。成功や残りの件数の知らせは出さず、同期の状態と同じ版の文で知らせる。
+      if (engine.compatBlocked()) {
+        toast('error', status.error ?? 'クラウドと互換の版が合わないので、同期できませんでした');
+        return;
+      }
       // 一時停止の間は状態が paused に隠れて失敗が画面に出ないので、残りの件数で伝える。
       const left = [status.pending > 0 ? `未送信 ${status.pending} 件` : null, (sweepPending ?? 0) > 0 ? `未送信の本文 ${sweepPending} 件` : null].filter((t) => t !== null);
       if (left.length > 0) toast('error', `1 回だけ同期しましたが、${left.join('、')}が残りました。同期は一時停止のままです`);

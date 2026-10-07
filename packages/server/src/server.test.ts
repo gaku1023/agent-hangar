@@ -1437,18 +1437,27 @@ describe('互換の版', () => {
     joinTo(w.url);
     presetPaused();
     const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    const c = collector(s.port, tokenOf());
     try {
+      await c.opened;
       expect(w.seen).toEqual([]);
       const first = await pressSyncNow(s.port);
       expect(first.state).toBe('error');
       expect(first.error).toContain('この PC の hangar');
       // 1 巡の残り（本文と設定の出し入れ）が終わるまで待つ。
       await until(async () => { const v = await syncStatus(s.port); return v.oncePass ? null : v; });
+      // 断られた後は、メタデータ以外の道（本文、設定、使用量）へ出ない。
+      expect(w.seen.filter((r) => r.path !== '/changes' && r.path !== '/rows')).toEqual([]);
+      // 何も同期していないのに「1 回だけ同期しました」を出さず、版の文で知らせる。
+      const toast = await c.waitFor((e): e is Extract<ServerEvent, { type: 'toast' }> => e.type === 'toast' && e.message.includes('この PC の hangar'));
+      expect(toast.level).toBe('error');
+      expect(c.all().some((e) => e.type === 'toast' && e.message.includes('1 回だけ同期しました'))).toBe(false);
       const before = metaCalls(w.seen);
       const second = await pressSyncNow(s.port);
       expect(second.state).toBe('error');
       expect(metaCalls(w.seen)).toBeGreaterThan(before);
     } finally {
+      c.close();
       await s.close();
       await w.close();
     }
