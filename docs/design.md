@@ -1445,7 +1445,7 @@ Claude Code の保持期間がユーザー設定に無い（既定の 30 日）�
 最後の `tool_call` の名前と要約を残し、それが AskUserQuestion なら入力の最初の問いの文も残す。
 その呼び出しへの `tool_result` が来たら、答えが済んだとして問いを消す。
 値は端末ローカルの表 `session_activity`（マイグレーション version 9）に置き、共有テーブルにも同期の changes にも入れない。
-`SessionDto.activity`（`{ tool, summary, question }`）は実行中のセッションにだけ載り、呼び出しがまだ無ければ `null` になる。
+`SessionDto.activity`（`{ tool, summary, question }`）は実行中のセッションにだけ値を持ち、実行中でないときと、呼び出しがまだ無いときは `null` になる。
 Home を開いたときにトランスクリプトを読み直すことはしない。
 主線のトランスクリプトを忘れさせたとき（`forgetTranscriptFile`）は、そのセッションの `session_activity` の行も一緒に消す。
 

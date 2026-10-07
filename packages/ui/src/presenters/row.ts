@@ -43,8 +43,8 @@ function summaryStateTag(summary: SessionSummaryDto | null): SummaryStateTag | n
 }
 
 export function presentSessionRow(s: SessionDto, store: Store, now: number, excerpt?: Segment[]): SessionRowProps {
-  // 古いサーバは state を送らない。欠けたものは Active として読む。
-  const st = s.state ?? null;
+  // state が null なら Active として読む。
+  const st = s.state;
   const status = st?.status ?? null;
   // 戻る日が欠けた・暦に無い・形の違う Paused（同期や古い端末から届く）は null にして、undefined や壊れた文字列を行に流さない。
   const returnOn = status === 'paused' && typeof st!.returnOn === 'string' && isReturnOn(st!.returnOn) ? st!.returnOn : null;

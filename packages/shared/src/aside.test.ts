@@ -6,7 +6,6 @@ describe('裏だけ動いている（aside）', () => {
     const a = { shell: true, agents: 0 };
     expect(asideOf('busy', a)).toEqual(a);
     expect(asideOf('busy', null)).toBeNull();
-    expect(asideOf('busy', undefined)).toBeNull();
     // 入力待ちと休みは本体の状態のほうが強い。古い印が残っていても裏だけとは読まない。
     expect(asideOf('waiting', a)).toBeNull();
     expect(asideOf('idle', a)).toBeNull();

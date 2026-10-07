@@ -25,7 +25,7 @@ import { presentToasts } from './toasts.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -214,7 +214,7 @@ describe('presentHome', () => {
     store.todos = {
       a: todoDto('a', 1, false, { sessionId: 's1', note: '新しい', at: NOW - 60_000 }, 'alpha'),
       b: todoDto('b', 1, false, { sessionId: null, note: null, at: NOW - 30 * 60_000 }, 'beta'),
-      // done かつ candidate は DTO では起きない（サーバが null にする）が、古いサーバや手で作った値でも数えない。
+      // done かつ candidate は DTO では起きない（サーバが null にする）が、同期の競り合いで食い違っても数えない。
       c: todoDto('c', 2, true, { sessionId: 's1', note: 'x', at: NOW - 90 * 60_000 }, 'alpha'),
       d: todoDto('d', 3, false, null, 'alpha'),
     };
@@ -837,7 +837,7 @@ describe('presentSession（終わった画面の右欄、E1）', () => {
   });
   it('TODO はそのセッションのプロジェクトのものを出す', () => {
     const store = storeWith();
-    const todo = (id: string, projectId: string): TodoDto => ({ id, projectId, text: id, done: false, position: 1, sessionId: null, updatedAt: 1 });
+    const todo = (id: string, projectId: string): TodoDto => ({ id, projectId, text: id, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null });
     store.todos = { a: todo('a', 'alpha'), b: todo('b', 'beta') };
     expect(presentSession(initialState(), store, NOW, 's2').todos.map((t) => t.id)).toEqual(['a']);
     expect(presentSession(initialState(), store, NOW, 's3').todos).toEqual([]);
@@ -1810,7 +1810,7 @@ describe('presentSession の、区切りを付けたので止めた知らせ', (
     expect(stopped('done')).toBe('Done にしたので止めました。再開で続けられます');
     expect(stopped('archived')).toBe('Archived にしたので止めました。再開で続けられます');
   });
-  it('止めていないセッションと、古いサーバの行（印が欠ける）では出さない', () => {
+  it('止めていないセッションでは出さない', () => {
     expect(stopped('paused', { stoppedByStatus: false })).toBeNull();
     const store = storeWith();
     expect(presentSession(initialState(), store, NOW, 's2').stoppedNote).toBeNull();
@@ -1825,7 +1825,7 @@ describe('presentSessionRow のセッションの状態', () => {
   const today = localDate(NOW);
   const withState = (state: SessionDto['state']) => session('s1', { state });
   const pick = (s: SessionDto) => { const r = presentSessionRow(s, store, NOW); return { state: r.state, returnOn: r.returnOn, overdueDays: r.overdueDays, candidate: r.candidate, setBy: r.setBy }; };
-  it('state が欠けた古いサーバの行と null は、Active として読む', () => {
+  it('state が null なら Active として読む', () => {
     const none = { state: null, returnOn: null, overdueDays: null, candidate: null, setBy: null };
     expect(pick(session('s1'))).toEqual(none);
     expect(pick(withState(null))).toEqual(none);

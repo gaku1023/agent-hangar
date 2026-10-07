@@ -74,7 +74,7 @@ function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): R
     const status = l?.status ?? null;
     const name = l?.nameSource === 'user' && l.name ? l.name : s.name;
     const aside = l?.aside ?? null;
-    out[id] = status === s.live && name === s.name && sameAside(aside, s.liveAside ?? null) ? s : { ...s, live: status, name, liveAside: aside };
+    out[id] = status === s.live && name === s.name && sameAside(aside, s.liveAside) ? s : { ...s, live: status, name, liveAside: aside };
   }
   return out;
 }
@@ -201,7 +201,7 @@ export function runningSessionIds(store: Store): Set<string> {
  * alive を渡せば、何件も数えるときに run の集合を作り直さずに済む。
  */
 export function liveFilterOfSession(store: Store, session: SessionDto, alive: Set<string> = runningSessionIds(store)): LiveFilter {
-  return liveFilterOf(session.live, alive.has(session.id), session.parked === true);
+  return liveFilterOf(session.live, alive.has(session.id), session.parked);
 }
 
 /**

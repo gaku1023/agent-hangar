@@ -324,7 +324,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const turnNo = complete && turnList.length > 0 ? turnList.length : s.stats.turns > 0 ? s.stats.turns : null;
   const livePane = alive ? presentLivePane({
     digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0, turnNo,
-    live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity ?? null, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
+    live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
     idleFor: durationLabel(now - (s.lastActivityAt ?? now)), results,
   }) : null;
   const open = run ? tabsOf(store, run.id) : [];

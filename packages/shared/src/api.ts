@@ -31,13 +31,13 @@ export type LiveAsideDto = { shell: boolean; agents: number };
 /** 実行中のセッションが最後に呼んだツールと、答えを待っている AskUserQuestion の問い。端末ローカルで、同期しない。 */
 export type SessionActivityDto = { tool: string; summary: string; question: string | null };
 /**
- * state はセッションの状態と提案。古いサーバからは欠けるので任意にし、欠けたものと null は Active として読む。
+ * state はセッションの状態と提案で、null は Active である。
  * parked は、区切りを付けたのにプロセスが休みのまま残っていること（shared の isParked）。真なら画面では実行中に数えない。
  * stoppedByStatus は、区切りを付けたので hangar が Claude を止め、その印がまだ残っていること。
- * どちらも古いサーバからは欠けるので任意にし、欠けたものは偽として読む。
- * liveAside は登録の aside を写したもの（LiveSessionDto）。古いサーバからは欠けるので任意にし、欠けたものは null として読む。
+ * liveAside は登録の aside を写したもの（LiveSessionDto）で、無ければ null である。
+ * activity は実行中のときだけ値を持ち、実行中でなければ null である。
  */
-export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity?: SessionActivityDto | null; state?: SessionStateDto | null; parked?: boolean; stoppedByStatus?: boolean; liveAside?: LiveAsideDto | null };
+export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null };
 export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; syncClaudeConfig: boolean; nodePath: string | null; claudePath: string | null };
 /**
  * Claude Code の会話の保持期間。
@@ -131,8 +131,8 @@ export type ReadinessDto = {
 };
 /** 完了の候補。sessionId はセッション別でない MCP の URL から出たとき null、note は根拠が無いとき null。 */
 export type TodoCandidateDto = { sessionId: string | null; note: string | null; at: number };
-/** candidate は古いサーバからは欠ける。欠けたものは null として扱う。 */
-export type TodoDto = { id: string; projectId: string; text: string; done: boolean; position: number; sessionId: string | null; updatedAt: number; candidate?: TodoCandidateDto | null };
+/** candidate は完了の候補で、候補でなければ null。完了の行では必ず null である（サーバが読むときにそろえる）。 */
+export type TodoDto = { id: string; projectId: string; text: string; done: boolean; position: number; sessionId: string | null; updatedAt: number; candidate: TodoCandidateDto | null };
 export type MemoDto = { projectId: string; markdown: string; updatedAt: number };
 export type ArtifactDto = { id: string; projectId: string | null; url: string; title: string | null; description: string | null; favicon: string | null; filePath: string | null; fileExists: boolean; firstPublishedAt: number; lastPublishedAt: number; versionCount: number; sessionIds: string[] };
 export type PromoteResultDto = { project: ProjectDto; session: SessionDto; moved: boolean; reason: string | null };
