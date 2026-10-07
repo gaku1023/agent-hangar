@@ -84,7 +84,7 @@ type Hangar = 'ok' | 'refused' | 'down';
  * 包み方の本体を、本物の zsh で疑似端末の上に動かす。
  * 偽の claude、curl、tmux は、呼ばれた引数を 1 行ずつ記録する。curl は受け取った本文も残す。
  */
-function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'none' | 'set'; insideTmux?: 'hangar' | 'other'; noWrap?: boolean } = {}): { calls: string[]; body: { cwd: string; args: string[]; env: Record<string, string> } | null; stderr: string } {
+function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'none' | 'set'; insideTmux?: 'hangar' | 'other'; noWrap?: boolean; subcommands?: string[] } = {}): { calls: string[]; body: { cwd: string; args: string[]; env: Record<string, string> } | null; stderr: string } {
   const home = path.join(dir, 'home');
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin, { recursive: true });
@@ -103,7 +103,7 @@ function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'n
       reply === 'refused' ? `echo '{"error":"--agent を付けた起動は hangar では開けません"}'; exit 22` : 'echo "curl: (7) Failed to connect" >&2; exit 7',
   ]);
   const tmuxBin = fake('tmux', []);
-  ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile, tmuxPath: o.tmux === 'none' ? null : tmuxBin });
+  ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile, tmuxPath: o.tmux === 'none' ? null : tmuxBin, subcommands: o.subcommands });
   const tmpdir = path.join(dir, 'tmux-tmp');
   fs.mkdirSync(path.join(tmpdir, `tmux-${process.getuid!()}`), { recursive: true });
   const tmuxEnv = o.insideTmux === 'hangar' ? `${tmpdir}/tmux-${process.getuid!()}/default,1,0` : o.insideTmux === 'other' ? `${tmpdir}/tmux-${process.getuid!()}/mine,1,0` : '';
@@ -158,7 +158,7 @@ describe.skipIf(!ZSH)('包み方の本体（zsh 上）', () => {
     expect(r.stderr).toContain('--agent を付けた起動は hangar では開けません');
   });
   it('サブコマンド、-p、-c、--help などは包まない', () => {
-    for (const a of ['mcp list', '-p hello', '--model opus -p hello', '-c', '--version', '--bg', '--session-id x', '--append-system-prompt x']) {
+    for (const a of ['mcp list', 'purge /tmp/x -y', '-p hello', '--model opus -p hello', '-c', '--version', '--bg', '--session-id x', '--append-system-prompt x']) {
       expect(runWrapped(a).calls, a).toEqual([`claude ${a}`]);
     }
   });
@@ -181,5 +181,25 @@ describe.skipIf(!ZSH)('包み方の本体（zsh 上）', () => {
   it('hangar の tmux の中では入れ子にせず switch-client で移り、ほかの tmux の中では素の claude にする', () => {
     expect(runWrapped('', { insideTmux: 'hangar' }).calls.at(-1)).toBe('tmux switch-client -t =hangar-0123abcd');
     expect(runWrapped('x', { insideTmux: 'other' }).calls).toEqual(['claude x']);
+  });
+  it('渡したサブコマンドの一覧だけを素通しにする', () => {
+    expect(runWrapped('newcmd x', { subcommands: ['newcmd'] }).calls).toEqual(['claude newcmd x']);
+    expect(runWrapped('mcp list', { subcommands: ['newcmd'] }).calls.map((c) => c.split(' ')[0])).toEqual(['curl', 'tmux']);
+  });
+});
+
+describe('包み方の本体のサブコマンドの一覧', () => {
+  const caseLine = (home: string) => fs.readFileSync(shellScriptPath(home), 'utf8').split('\n').find((l) => l.endsWith(') command claude "$@"; return ;;'));
+  it('渡さなければ組み込みの一覧を書く。daemon と project は書かない', () => {
+    const home = path.join(dir, 'home');
+    ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile: path.join(dir, 'token'), tmuxPath: null });
+    expect(caseLine(home)).toBe('    agents|attach|auth|auto-mode|doctor|gateway|import|install|kill|logs|mcp|plugin|plugins|purge|respawn|rm|setup-token|stop|ultrareview|update|upgrade) command claude "$@"; return ;;');
+  });
+  it('名前の形でないものは書かない。1 つも残らなければ組み込みの一覧を書く', () => {
+    const home = path.join(dir, 'home');
+    ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile: path.join(dir, 'token'), tmuxPath: null, subcommands: ['b-c', 'a', 'bad;touch x', 'A'] });
+    expect(caseLine(home)).toBe('    b-c|a) command claude "$@"; return ;;');
+    ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile: path.join(dir, 'token'), tmuxPath: null, subcommands: ['$(x)'] });
+    expect(caseLine(home)).toContain('    agents|attach|');
   });
 });

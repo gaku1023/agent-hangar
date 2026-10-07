@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { BUILTIN_SUBCOMMANDS, SUBCOMMAND_NAME } from '../provider/claude-code/compat/cli.ts';
 
 /** ~/.zshrc に足す行の目印。外すときはこの目印の付いた行だけを消す。 */
 export const SHELL_MARKER = '# agent-hangar';
@@ -35,10 +36,21 @@ export type ShellScriptOptions = {
   tokenFile: string;
   /** hangar が使う tmux。無ければ包まない。 */
   tmuxPath: string | null;
+  /** 包まずにそのまま渡すサブコマンド。サーバが起動のたびに claude --help から作る。渡さなければ組み込みの一覧。 */
+  subcommands?: readonly string[];
 };
 
 /** zsh の単一引用符で囲む。中の ' は閉じて \' を挟んで開き直す。 */
 const zshQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * case に書くサブコマンドの並び。名前の形（SUBCOMMAND_NAME）に合わないものは書かない。シェルの文として読まれないようにするためである。
+ * 1 つも残らなければ組み込みの一覧にする。
+ */
+function subcommandPattern(list: readonly string[] | undefined): string {
+  const ok = (list ?? BUILTIN_SUBCOMMANDS).filter((s) => SUBCOMMAND_NAME.test(s));
+  return (ok.length > 0 ? ok : BUILTIN_SUBCOMMANDS).join('|');
+}
 
 /**
  * 包み方の本体。
@@ -85,9 +97,9 @@ __agent_hangar_launch() {
 claude() {
   # 端末でないとき（パイプやスクリプトの中）、HANGAR_NO_WRAP を立てたとき、tmux が無いときは包まない。
   if [[ ! -t 0 || ! -t 1 || -n "$HANGAR_NO_WRAP" || ! -x "$__agent_hangar_tmux" ]]; then command claude "$@"; return; fi
-  # サブコマンドはそのまま渡す。
+  # サブコマンドはそのまま渡す。一覧は hangar が起動のたびに claude --help から作る。
   case "$1" in
-    agents|attach|auth|auto-mode|daemon|doctor|gateway|import|install|kill|logs|mcp|plugin|plugins|project|respawn|rm|setup-token|stop|ultrareview|update|upgrade) command claude "$@"; return ;;
+    ${subcommandPattern(o.subcommands)}) command claude "$@"; return ;;
   esac
   local a resume="" want=0
   for a in "$@"; do
