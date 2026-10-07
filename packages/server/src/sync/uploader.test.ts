@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import { gunzipSync } from 'node:zlib';
-import type { FileMetaIn } from '@agent-hangar/shared';
+import { COMPAT_VERSION, type FileMetaIn } from '@agent-hangar/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { FakeCloudClient, MAX_BODY_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
@@ -305,7 +305,7 @@ describe('TranscriptUploader', () => {
     up.stop();
   });
 
-  it.each([500, 503, 408, 429])('%i は一時の失敗として待ち行列に残し、復帰で送る', async (status) => {
+  it.each([500, 503, 408, 429, 426])('%i は一時の失敗として待ち行列に残し、復帰で送る', async (status) => {
     const up = make();
     const realPut = cloud.putFile.bind(cloud);
     failPut(status);
@@ -316,6 +316,21 @@ describe('TranscriptUploader', () => {
     expect(errors).toHaveLength(1);
     expect(skipRow()).toBeNull();
     cloud.putFile = realPut;
+    await up.flushAll();
+    expect(cloud.files.size).toBe(1);
+    up.stop();
+  });
+
+  it('互換の版で断られた本文は諦めず、版が合えば上げる', async () => {
+    const up = make();
+    cloud.minDeviceCompat = COMPAT_VERSION + 1;
+    up.noteChanged({ path: mainFile(), sessionId: UUID, agentId: null });
+    await timers.advance(30_000);
+    await up.idle();
+    expect(puts()).toBe(1);
+    expect(skipRow()).toBeNull();
+    expect(up.skippedUploads()).toEqual([]);
+    cloud.minDeviceCompat = 0;
     await up.flushAll();
     expect(cloud.files.size).toBe(1);
     up.stop();

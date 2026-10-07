@@ -60,9 +60,10 @@ export const RETRY_SKIPPED_AFTER_MS = 30 * 60_000;
  * 何度やり直しても同じ答えが返る失敗かどうか。
  * 4xx は相手が「この要求は受け取らない」と言っているので、送り直しても結果は変わらない。
  * 408（時間切れ）と 429（多すぎる）は後で通るので除く。
+ * 426 は互換の版が合わないときで、この PC か Worker のどちらかを上げれば通るので除く（client.ts の CompatError）。
  * 5xx と 0（繋がらなかった）は一時の失敗として待ち行列に残す。
  */
-const isPermanentStatus = (status: number): boolean => status >= 400 && status < 500 && status !== 408 && status !== 429;
+const isPermanentStatus = (status: number): boolean => status >= 400 && status < 500 && status !== 408 && status !== 426 && status !== 429;
 
 /**
  * 何度やり直しても上がらない失敗。

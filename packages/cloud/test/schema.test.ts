@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { COMPAT_VERSION } from '@agent-hangar/shared';
 import { ensureSchema, resetSchemaCache, SCHEMA_STATEMENTS } from '../src/schema.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
 
@@ -96,7 +97,7 @@ describe('schema', () => {
   it('/health は ok と版を返し、そのついでに表ができている', async () => {
     const r = await cloud.SELF.fetch('https://x/health');
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ ok: true, version: '0.4.0' });
+    expect(await r.json()).toEqual({ ok: true, version: '0.4.0', compat: COMPAT_VERSION });
     const names = (
       await cloud.env.DB.prepare("select name from sqlite_master where type = 'table'").all<{ name: string }>()
     ).results.map((r2) => r2.name);
