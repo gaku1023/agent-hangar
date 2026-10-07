@@ -10,7 +10,7 @@ import {
   statuslineSnippet,
   statuslineSnippetUpToDate,
   writeStatuslineHeaderFile,
-} from '@agent-hangar/server';
+} from '@agent-hangar/server/src/cliEntry.ts';
 
 export type Ask = (question: string) => Promise<boolean>;
 

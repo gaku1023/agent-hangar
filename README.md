@@ -92,7 +92,7 @@ Developer ID での署名も公証もしないので、初回だけ Gatekeeper �
 クラウド同期の設定（`hangar setup cloud`）は、同梱の `hangar` からは通りません。
 wrangler が 205MB あるので同梱していないためです。
 クラウド同期を使うときは、このリポジトリを clone して `npm install` した場所から `npm run hangar -- setup cloud` を実行してください。
-同梱の `hangar` は、wrangler が見つからないことを告げて止まります。
+同梱の `hangar` は、Worker の源が無いことを告げ、clone した場所から実行するよう案内して止まります。
 
 配布の版とサーバの版は別々に進みます。
 `.app` は `0.1.0`、サーバは `0.3.0` です（サーバの版は `/health` が返します）。
@@ -406,10 +406,11 @@ npm run build                         # UI を作る
 cd apps/desktop && npx tauri build    # server-dist を作り、.app を src-tauri/target/release/bundle/macos に出す
 ```
 
-`.app` に入るのは、esbuild でまとめた `server.mjs` と `cli.mjs`、UI、`better-sqlite3` と `node-pty` の darwin-arm64 の prebuild、`bin/hangar`、Worker のソース、`manifest.json` です。
+`.app` に入るのは、esbuild でまとめた `server.mjs` と `cli.mjs`、UI、`better-sqlite3` と `node-pty` の darwin-arm64 の prebuild、`bin/hangar`、Worker を 1 本に束ねた `cloud/worker.mjs` とその束縛の定義 `cloud/metadata.json`、`manifest.json` です。
+`cloud/` は、後の版でアプリから Cloudflare へ Worker を上げるための下地で、いまはどこからも読んでいません。
 UI の sourcemap は入れません。
 UI の写しの 68 パーセント（実測 2.19MB）が `.map` で、利用者の役に立たないためです。
-実測で 7.7MB でした。
+実測で 6.5MB でした。
 
 配布は、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json` の版を揃えてから `git tag vX.Y.Z && git push origin vX.Y.Z` で行います。
 GitHub Actions が型検査とテストを回し、`.app` を zip と checksum 付きで Releases に置きます。

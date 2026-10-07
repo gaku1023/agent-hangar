@@ -61,7 +61,7 @@
 | --- | --- |
 | `packages/server/src/db/backup.ts`（新規） | DB の控えを取り、5 世代に刈る |
 | `packages/server/src/db/open.ts` | 当てる前に控えを取る |
-| `packages/shared/src/compat.ts`（新規） | 互換の DTO、版の比べ方、確認リストの状態 |
+| `packages/shared/src/claudeCompat.ts`（新規） | 互換の DTO、版の比べ方、確認リストの状態 |
 | `packages/server/src/provider/claude-code/compat/types.ts`（新規） | `Drift`、`CompatSink`、記録の版の読み方 |
 | `packages/server/src/provider/claude-code/compat/version.ts`（新規） | 確かめた版 |
 | `packages/server/src/provider/claude-code/compat/log.ts`（新規） | `compat.json` の読み書き |
@@ -346,9 +346,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 2: 互換の DTO と版の比べ方（shared）
 
 **Files:**
-- Create: `packages/shared/src/compat.ts`
+- Create: `packages/shared/src/claudeCompat.ts`
 - Modify: `packages/shared/src/index.ts`
-- Test: `packages/shared/src/compat.test.ts`
+- Test: `packages/shared/src/claudeCompat.test.ts`
 
 **Interfaces:**
 - Produces: `CompatContract = 'transcript' | 'registry' | 'statusline' | 'claude-dir' | 'cli' | 'screen'`、`COMPAT_CONTRACTS: readonly CompatContract[]`。
@@ -358,11 +358,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 落ちる試験を書く**
 
-`packages/shared/src/compat.test.ts` を作る。
+`packages/shared/src/claudeCompat.test.ts` を作る。
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { compareClaudeVersions, compatState } from './compat.ts';
+import { compareClaudeVersions, compatState } from './claudeCompat.ts';
 
 describe('compareClaudeVersions', () => {
   it('区切りごとに数として比べる', () => {
@@ -396,12 +396,12 @@ describe('compatState', () => {
 
 - [ ] **Step 2: 落ちるのを確かめる**
 
-Run: `npx vitest run packages/shared/src/compat.test.ts`
+Run: `npx vitest run packages/shared/src/claudeCompat.test.ts`
 Expected: FAIL。`./compat.ts` が無い。
 
 - [ ] **Step 3: `compat.ts` を作り、index から出す**
 
-`packages/shared/src/compat.ts` を作る。
+`packages/shared/src/claudeCompat.ts` を作る。
 
 ```ts
 /**
@@ -449,18 +449,18 @@ export function compatState(s: CompatSummaryDto): CompatState {
 `packages/shared/src/index.ts` の末尾に足す。
 
 ```ts
-export * from './compat.ts';
+export * from './claudeCompat.ts';
 ```
 
 - [ ] **Step 4: 通るのを確かめる**
 
-Run: `npx vitest run packages/shared/src/compat.test.ts`
+Run: `npx vitest run packages/shared/src/claudeCompat.test.ts`
 Expected: PASS。
 
 - [ ] **Step 5: コミットする**
 
 ```bash
-git add packages/shared/src/compat.ts packages/shared/src/compat.test.ts packages/shared/src/index.ts
+git add packages/shared/src/claudeCompat.ts packages/shared/src/claudeCompat.test.ts packages/shared/src/index.ts
 git commit -m "feat(shared): add the Claude Code compat DTOs and version compare
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -2108,8 +2108,10 @@ import { describe, expect, it } from 'vitest';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { posixIt } from '../../test/platform.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
-import { parseBackgroundedId, parseJobs, parseProcStart, realProcOps, realProcOpsWith, sameStartTime } from './procs.ts';
+import { parseJobs, parseProcStart, realProcOps, realProcOpsWith, sameStartTime } from './procs.ts';
 ```
+
+`parseBackgroundedId` は段 1 の PR 1 で消したので、import に入れない。
 
 `describe('parseJobs', …)` の後に足す。
 
@@ -2535,7 +2537,7 @@ Expected: FAIL。`compat` が readiness の答えに無い、`/api/compat` が 4
 `packages/shared/src/api.ts` の import に足す。
 
 ```ts
-import type { CompatSummaryDto } from './compat.ts';
+import type { CompatSummaryDto } from './claudeCompat.ts';
 ```
 
 `ReadinessDto` を doc コメントごと置き換える。

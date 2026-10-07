@@ -71,10 +71,16 @@ MCP は Streamable HTTP で、共通の `/mcp` とセッション別の `/mcp/s/
 Tauri のシェルは、起動時にサーバの子プロセスを立て、終了時に止める。
 Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探す。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
+`hangar start` も、サーバを子プロセスとして立てる。
+子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
+配布版は `cli.mjs` の隣の `server.mjs` を、リポジトリでは `packages/server/src/main.ts` を tsx で起こし、`HANGAR_PORT` と `HANGAR_PARENT_PID` を渡す。
+`/health` の `ready` が真になってから、鍵付きの URL を印字する。
 `hangar://` のディープリンクは deep-link プラグインで受ける。
 ブラウザからも同じ UI が動くが、入口は鍵付きの URL に限る。
 鍵の無い要求には 401 で `hangar url` を案内する画面を返す。
 配布する `.app` には、esbuild で単一ファイルにまとめたサーバ（`server.mjs`）を、ネイティブモジュールと UI とともに同梱する。
+CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ本体をたどらない `packages/server/src/cliEntry.ts` から名前を取る。
+入口から取ると、esbuild がサーバ全体を `cli.mjs` にも束ね、同梱物にサーバが二重に入るためである。
 ネイティブモジュールは Node の ABI に縛られるため、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、探索ではそれと一致する Node だけを採る。
 起動時に 4177 で既にサーバが応答していれば、そのサーバを採用して子プロセスを起こさない。
 
@@ -931,6 +937,11 @@ UI を初めて開くときは、鍵を載せた入口の URL を使う。
 鍵を端末にだけ印字するのは、サーバのログに載せないためである。
 `hangar start` が待ち受けに失敗したときは、生のスタックではなく日本語の 1 行を出して終了コード 1 で終わる。
 使用中のポート、権限の無いポート、そのほかの失敗を、それぞれ次の一手の分かる文にする。
+サーバは子プロセスなので、`hangar start` は子を起こす前にそのポートを自分で一度開いて確かめ、失敗をこの 1 行にする。
+`--port` は 1 から 65535 の整数に限り、0 は断る。
+0 を渡すと子は空いているポートを自分で選ぶが、CLI はその番号を知る手が無いためである。
+設定の破損やデータベースの失敗など、そのほかの起動の失敗では、子が自分のログを出し、続けて CLI が 1 行を出し、`hangar start` は URL を印字せずに子の終了コードで終わる。
+起動の途中で利用者が止めたとき（Ctrl-C や kill）は、この 1 行も URL も出さない。
 
 `GET /` は、クエリの `t` か、既に持っているクッキーのどちらかが合うときだけ UI の HTML を配る。
 合わないときは案内だけを書いた HTML を 401 で返し、トークンは配らない。
@@ -2646,7 +2657,11 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 既知の限界：無料枠の数え直しと孤児の掃除は、偽のクラウドとローカルの workerd（miniflare）の試験だけで確かめた（2026-09-20）。
   実物の Cloudflare では動かしていない。
 - 既知の限界：フェーズ 4 の実物確認は、1 台の Mac の上で `HANGAR_HOME` と `HANGAR_CLAUDE_DIR` を分けて 2 端末を模して行った（2026-09-19 の決定）。実際に別のマシンから参加することは確かめていない。
-- 配布版の同梱形態：サーバと CLI を esbuild で単一ファイル（`server.mjs`、`cli.mjs`）にまとめ、UI、ネイティブモジュール、`bin/hangar`、Worker のソース、`manifest.json` とともに `.app` の `Contents/Resources/server/` へ置く。UI の sourcemap は入れないので、実測で 7.7MB である。Node 本体は同梱しない。
+- 配布版の同梱形態：サーバと CLI を esbuild で単一ファイル（`server.mjs`、`cli.mjs`）にまとめ、UI、ネイティブモジュール、`bin/hangar`、`cloud/`、`manifest.json` とともに `.app` の `Contents/Resources/server/` へ置く。
+  `cloud/` には、Worker を 1 本に束ねた `worker.mjs` と、その束縛の定義 `metadata.json`（互換の日付と旗、D1 と R2 の束縛の名前）だけを置き、源は置かない。
+  `cloud/` は段 5 で Cloudflare の REST から Worker を上げるための下地で、いまは誰も読まない。
+  UI の sourcemap は入れないので、実測で 6.5MB である。
+  Node 本体は同梱しない。
 - Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
 - `nodePath` の重さ：Settings の `nodePath` は、次の起動で `.app` がそのまま起こす実行ファイルの場所なので、設定への書き込みが次回起動時のコード実行になる。
   いま穴が開いているわけではないが、UI か API の側に穴が 1 つできたときの被害の上限がここまで上がることを、前提として書き留めておく。
@@ -2661,7 +2676,10 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   翻訳された場所からプロセスは起動するが、ウィンドウは出ずログにも 1 行も書かれないので、利用者が最初に見るのはアプリの案内ではなく macOS の拒否である。
   アプリ自身も同梱サーバを起こす前に検疫属性を外すが、読み取り専用の写しでは書き込めないので効かない。
 - 二重起動：single-instance のプラグインを入れない。起動時に 4177 が既に応答していれば、そのサーバを採用して子プロセスを起こさない。ブラウザや `hangar start` で先に起きているサーバと食い合わないためである。
-- wrangler は同梱しない。205MB あり、`.app` の大きさが 20 倍近くになる。配布版の `hangar setup cloud` は、wrangler が見つからないことを告げて止まる。クラウド同期を使う端末は、リポジトリを clone して設定する。
+- wrangler は同梱しない。
+  205MB あり、`.app` の大きさが 20 倍近くになる。
+  配布版の `hangar setup cloud` は、Worker の源が無いことを告げ、clone した場所から実行するよう案内して止まる。
+  クラウド同期を使う端末は、リポジトリを clone して設定する。
 - 既知の限界：フェーズ 5 の実物確認（2026-09-20）で見ていないものが二つある。
   App Translocation の案内の画面そのものは、Gatekeeper のダイアログを人が承認しないと先へ進まないので、通しでは見ていない（案内の枝は単体試験で押さえてある）。
   システム設定の外観をダークにしたときの見え方は、利用者の環境を変えるので確かめず、配信される UI に `prefers-color-scheme` の規則が 1 件も無いことの確認で代えた。

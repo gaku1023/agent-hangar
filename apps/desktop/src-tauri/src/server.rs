@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 pub const PORT: u16 = 4177;
 
 /// 同梱サーバのディレクトリ。開発時は `HANGAR_SERVER_DIR` で差し替える。
-/// バンドラの都合で置き場所が `server/` か `_up_/server-dist/` のどちらかになるので両方を見る。
+/// 置き場所は `tauri.conf.json` の `bundle.resources`（`"../server-dist": "server"`）で `server/` に決めてある。
 pub fn server_dir(resource_dir: &Path) -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("HANGAR_SERVER_DIR") {
         let p = PathBuf::from(p);
@@ -17,10 +17,8 @@ pub fn server_dir(resource_dir: &Path) -> Option<PathBuf> {
             None
         };
     }
-    ["server", "_up_/server-dist"]
-        .iter()
-        .map(|rel| resource_dir.join(rel))
-        .find(|p| p.join("server.mjs").is_file())
+    let p = resource_dir.join("server");
+    p.join("server.mjs").is_file().then_some(p)
 }
 
 pub struct ServerProcess {
@@ -68,8 +66,8 @@ pub fn augmented_path(current: Option<&str>, user_home: &Path) -> String {
 }
 
 /// `node server.mjs` を起動する。標準出力と標準エラーはログファイルに追記する。
-/// UI と Worker のソースは同梱の場所を環境変数で教える。
-/// 単一ファイルにまとめた server.mjs と cli.mjs からは、相対では届かないためである。
+/// UI の置き場は、同梱の場所を環境変数で教える。
+/// 単一ファイルにまとめた server.mjs からは、相対では届かないためである。
 pub fn spawn_server(
     node: &Path,
     dir: &Path,
@@ -88,7 +86,6 @@ pub fn spawn_server(
         .env("HANGAR_PARENT_PID", std::process::id().to_string())
         .env("HANGAR_PORT", PORT.to_string())
         .env("HANGAR_UI_DIST", dir.join("ui"))
-        .env("HANGAR_CLOUD_DIR", dir.join("cloud"))
         .env("HANGAR_HOME", hangar_home)
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
@@ -215,18 +212,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn server_dir_finds_bundled_layouts() {
+    fn server_dir_finds_the_bundled_server_only_under_server() {
         let res = tempfile::tempdir().unwrap();
         assert_eq!(server_dir(res.path()), None);
+        // 古い置き場所（_up_/server-dist）は見ない。
         std::fs::create_dir_all(res.path().join("_up_/server-dist")).unwrap();
         std::fs::write(res.path().join("_up_/server-dist/server.mjs"), "").unwrap();
-        assert_eq!(
-            server_dir(res.path()),
-            Some(res.path().join("_up_/server-dist"))
-        );
+        assert_eq!(server_dir(res.path()), None);
         std::fs::create_dir_all(res.path().join("server")).unwrap();
         std::fs::write(res.path().join("server/server.mjs"), "").unwrap();
         assert_eq!(server_dir(res.path()), Some(res.path().join("server")));
+    }
+
+    // server_dir が見る置き場所と、バンドルが置く場所を 1 か所でつなぐ。
+    // tauri.conf.json の resources を変えたら、ここが落ちる。
+    #[test]
+    fn the_bundle_puts_the_server_where_server_dir_looks() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["bundle"]["resources"]["../server-dist"], "server");
     }
 
     #[test]
@@ -251,8 +255,10 @@ mod tests {
             text.contains(&format!("ui={}", dir.path().join("ui").display())),
             "{text}"
         );
+        // サーバは HANGAR_CLOUD_DIR を読まないので渡さない。
+        // 試験を走らせる人の環境に残っていることはあるので、同梱の cloud/ を指していないことだけを見る。
         assert!(
-            text.contains(&format!("cloud={}", dir.path().join("cloud").display())),
+            !text.contains(&format!("cloud={}", dir.path().join("cloud").display())),
             "{text}"
         );
         assert!(text.contains("port=4177"), "{text}");

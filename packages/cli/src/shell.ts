@@ -10,7 +10,7 @@ import {
   shellWrapSupported,
   uninstallShellHook,
   zshrcPath,
-} from '@agent-hangar/server';
+} from '@agent-hangar/server/src/cliEntry.ts';
 import { promptYesNo, type Ask } from './statusline.ts';
 
 type ShellOpts = {
