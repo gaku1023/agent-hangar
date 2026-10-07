@@ -2108,8 +2108,10 @@ import { describe, expect, it } from 'vitest';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { posixIt } from '../../test/platform.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
-import { parseBackgroundedId, parseJobs, parseProcStart, realProcOps, realProcOpsWith, sameStartTime } from './procs.ts';
+import { parseJobs, parseProcStart, realProcOps, realProcOpsWith, sameStartTime } from './procs.ts';
 ```
+
+`parseBackgroundedId` は段 1 の PR 1 で消したので、import に入れない。
 
 `describe('parseJobs', …)` の後に足す。
 
