@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
+import * as cli from './cliEntry.ts';
 import * as api from './index.ts';
 
 /**
- * CLI はこのパッケージの内側へ deep import せず、ここから取る。
- * 名前が消えると CLI の hangar cloud teardown が「R2 にしか無い本文を降ろす」経路ごと落ちるので、
- * 輸出の一覧を検査として置いておく。
+ * CLI は、このパッケージの内側を個々にたどらず、cliEntry.ts から取る。
+ * index.ts は server.ts（HTTP、MCP、tmux、node-pty）まで抱えるので、CLI がそこから取ると cli.mjs にサーバが二重に入る。
+ * 名前が消えると CLI の hangar cloud teardown が「R2 にしか無い本文を降ろす」経路ごと落ちるので、輸出の一覧を検査として置いておく。
  */
 describe('パッケージの入口', () => {
-  it('CLI が使う名前を出している', () => {
-    for (const name of ['HttpCloudClient', 'deriveFileKey', 'decryptStream', 'sha256Stream', 'remoteTranscriptPath'] as const) {
-      expect(api[name], name).toBeTypeOf('function');
+  it('CLI の入口が、CLI の使う名前を出している', () => {
+    for (const name of ['HttpCloudClient', 'deriveFileKey', 'decryptStream', 'sha256Stream', 'remoteTranscriptPath', 'stampTranscriptsFrom', 'readTranscriptsFrom', 'upsertUserMcpServer', 'statuslineStatus', 'installShellHook'] as const) {
+      expect(cli[name], name).toBeTypeOf('function');
+    }
+  });
+  it('CLI の入口は、サーバ本体を出さない', () => {
+    for (const name of ['startServer', 'installShutdown', 'STOP_WATCHDOG_MS', 'VERSION']) {
+      expect(name in cli, name).toBe(false);
     }
   });
   it('これまでの名前を落としていない', () => {

@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { oneLineError, probeAuthorized, probeHealth, serverDownMessage, startErrorMessage } from './probe.ts';
+import { oneLineError, probeAuthorized, probeHealth, probeReady, serverDownMessage, startErrorMessage } from './probe.ts';
 
 /** 使い捨ての受け口。自分で起こしたものだけを閉じる。ポート番号でプロセスを止めることはしない。 */
 const servers: ReturnType<typeof createServer>[] = [];
@@ -38,6 +38,25 @@ describe('probeHealth', () => {
     const { port } = await listen((req) => ({ status: req.url === '/health' ? 200 : 404 }));
     expect(await probeHealth(port)).toBe(true);
     expect(await probeHealth(await deadPort(), 500)).toBe(false);
+  });
+});
+
+describe('probeReady', () => {
+  it('ok が真で ready が偽でなければ真。ready が偽、ok が無い、200 でない、JSON でない、誰も居ないときは偽', async () => {
+    const cases: [body: string, status: number, want: boolean][] = [
+      ['{"ok":true,"ready":true}', 200, true],
+      // ready を持たない古いサーバは待たない。.app の boot_state と同じ扱いである。
+      ['{"ok":true}', 200, true],
+      ['{"ok":true,"ready":false}', 200, false],
+      ['{"ready":true}', 200, false],
+      ['{"ok":true,"ready":true}', 500, false],
+      ['not json', 200, false],
+    ];
+    for (const [body, status, want] of cases) {
+      const { port } = await listen(() => ({ status, body }));
+      expect(await probeReady(port), `${status} ${body}`).toBe(want);
+    }
+    expect(await probeReady(await deadPort(), 500)).toBe(false);
   });
 });
 

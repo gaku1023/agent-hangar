@@ -7,11 +7,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { CompatDto, ReadinessDto, ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
+import { COMPAT_HEADER, COMPAT_VERSION } from '@agent-hangar/shared';
 import { Readable } from 'node:stream';
 import { saveCloudConfig } from './config/cloud.ts';
 import { dbPath } from './config/paths.ts';
 import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
+import Database from 'better-sqlite3';
+import { DbBackupError } from './db/backup.ts';
+import { MIGRATIONS } from './db/migrations.ts';
 import { openDb } from './db/open.ts';
 import { upsertShared } from './db/shared.ts';
 import { IndexerService } from './indexer/service.ts';
@@ -21,7 +25,7 @@ import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
-import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { expectMode, posixIt } from '../test/platform.ts';
@@ -73,6 +77,12 @@ const seedOldServerProgress = (): void => {
   }
 };
 
+/** startServer より先に DB を作って、同期を止めた状態にしておく。 */
+function presetPaused(): void {
+  const db = openDb(dbPath(home));
+  try { db.prepare("insert into sync_state (key, value) values ('paused', '1') on conflict(key) do update set value = '1'").run(); } finally { db.close(); }
+}
+
 /** 実際の Claude Code と同じ配置で、発言 1 つだけの本文ファイルを置く。 */
 function writeTranscript(cwd: string, sessionId: string, text: string, uuid = 'u1'): void {
   const dir = path.join(claudeDir, 'projects', mangleCwd(cwd));
@@ -121,6 +131,26 @@ describe('startServer', () => {
     // 番人の集合から経路が抜けると、101 を返した直後の接続を番人が切ってしまう。
     // その状態は upgrade が失敗する経路からは観測できないので、ここで集合そのものを見る。
     expect([...WS_PATHS].sort()).toEqual(['/ws', '/ws/pty']);
+  });
+
+  it('DB の控えが取れなければ、マイグレーションを当てずに起動を止める', async () => {
+    // 1 つ前の版までの DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
+    const latest = MIGRATIONS[MIGRATIONS.length - 1]!.version;
+    const file = path.join(home, 'hangar.db');
+    const seed = new Database(file);
+    seed.exec('create table if not exists schema_migrations (version integer primary key, applied_at integer not null)');
+    for (const m of MIGRATIONS.filter((m) => m.version < latest)) {
+      seed.exec(m.sql);
+      seed.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
+    }
+    seed.close();
+    fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'backups', 'db'), 'x');
+    await expect(startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') })).rejects.toBeInstanceOf(DbBackupError);
+    const check = new Database(file, { readonly: true });
+    try {
+      expect((check.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(latest - 1);
+    } finally { check.close(); }
   });
 
   it('WebSocket と keep-alive の接続が残っていても close は 2 秒以内に終わる', async () => {
@@ -999,12 +1029,6 @@ describe('一時停止は外と話さない', () => {
     };
   }
 
-  /** startServer より先に DB を作って、同期を止めた状態にしておく。 */
-  function presetPaused(): void {
-    const db = openDb(dbPath(home));
-    try { db.prepare("insert into sync_state (key, value) values ('paused', '1') on conflict(key) do update set value = '1'").run(); } finally { db.close(); }
-  }
-
   it('止めていなければ起動でクラウドを叩く', async () => {
     // この確かめ方でクラウドとの往復が見えることを、先に固定しておく。
     const rec = await recorder();
@@ -1472,6 +1496,128 @@ describe('控えの世代を刈る', () => {
       expect(fs.readdirSync(memos).sort()).toEqual(memoNames.slice(4).sort());
     } finally {
       await s.close();
+    }
+  });
+});
+
+describe('互換の版', () => {
+  type Seen = { method: string; path: string; compat: string | undefined };
+  type Answer = { status: number; body: unknown; compat?: string };
+
+  /** 決まった応答を返す立て替えの Worker。受けた要求と、載っていた版の見出しを記録する。実物のクラウドには触らない。 */
+  async function fakeWorker(answer: (method: string, path: string) => Answer): Promise<{ url: string; seen: Seen[]; close: () => Promise<void> }> {
+    const seen: Seen[] = [];
+    const srv = http.createServer((req, res) => {
+      const p = (req.url ?? '').split('?')[0]!;
+      const h = req.headers[COMPAT_HEADER];
+      seen.push({ method: req.method ?? '', path: p, compat: Array.isArray(h) ? h[0] : h });
+      req.resume();
+      const a = answer(req.method ?? '', p);
+      res.writeHead(a.status, { 'content-type': 'application/json', ...(a.compat === undefined ? {} : { [COMPAT_HEADER]: a.compat }) });
+      res.end(JSON.stringify(a.body));
+    });
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const port = (srv.address() as net.AddressInfo).port;
+    return {
+      url: `http://127.0.0.1:${port}`,
+      seen,
+      close: async () => { srv.closeAllConnections?.(); await new Promise<void>((r) => srv.close(() => r())); },
+    };
+  }
+
+  /** 下限を上げた Worker の断り。 */
+  const refuse = (floor: number): Answer => ({ status: 426, body: { error: 'upgrade required', minCompat: floor, compat: floor }, compat: String(floor) });
+  const joinTo = (url: string): void => saveCloudConfig(home, { url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
+  const syncStatus = async (port: number): Promise<SyncStatusBody> => (await (await fetch(`http://127.0.0.1:${port}/api/sync/status`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json()) as SyncStatusBody;
+  const pressSyncNow = async (port: number): Promise<SyncStatusBody> => {
+    const r = await fetch(`http://127.0.0.1:${port}/api/sync/now`, { method: 'POST', headers: { authorization: `Bearer ${tokenOf()}`, origin: `http://127.0.0.1:${port}` } });
+    expect(r.status).toBe(200);
+    return (await r.json()) as SyncStatusBody;
+  };
+  const metaCalls = (seen: Seen[]): number => seen.filter((r) => r.path === '/changes' || r.path === '/rows').length;
+
+  it('版で止まっている間は、本文と設定の出し入れも止める。頼まれた 1 巡の最中でも止める', () => {
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: false })).toBe(false);
+    expect(syncHalted({ paused: true, oncePass: false, compatBlocked: false })).toBe(true);
+    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: false })).toBe(false);
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: true })).toBe(true);
+    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: true })).toBe(true);
+  });
+
+  it('Worker に版が古いと断られたら、同期を止めて、この PC の hangar を上げるよう出す', async () => {
+    const floor = COMPAT_VERSION + 1;
+    const w = await fakeWorker(() => refuse(floor));
+    joinTo(w.url);
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    try {
+      const st = await until(async () => { const v = await syncStatus(s.port); return v.state === 'error' ? v : null; });
+      expect(st.error).toContain('この PC の hangar');
+      expect(st.error).toContain(`${floor} 以上`);
+      // 今すぐ同期を押せば 1 度だけ試し直す。まだ合わないので止まったまま。
+      const before = metaCalls(w.seen);
+      const after = await pressSyncNow(s.port);
+      expect(after.state).toBe('error');
+      expect(after.error).toContain('この PC の hangar');
+      expect(metaCalls(w.seen)).toBeGreaterThan(before);
+    } finally {
+      await s.close();
+      await w.close();
+    }
+  });
+
+  it('一時停止中に今すぐ同期で断られたら理由を出し、もう一度押せばまた試し直す', async () => {
+    const floor = COMPAT_VERSION + 1;
+    const w = await fakeWorker(() => refuse(floor));
+    joinTo(w.url);
+    presetPaused();
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    const c = collector(s.port, tokenOf());
+    try {
+      await c.opened;
+      expect(w.seen).toEqual([]);
+      const first = await pressSyncNow(s.port);
+      expect(first.state).toBe('error');
+      expect(first.error).toContain('この PC の hangar');
+      // 1 巡の残り（本文と設定の出し入れ）が終わるまで待つ。
+      await until(async () => { const v = await syncStatus(s.port); return v.oncePass ? null : v; });
+      // 断られた後は、メタデータ以外の道（本文、設定、使用量）へ出ない。
+      expect(w.seen.filter((r) => r.path !== '/changes' && r.path !== '/rows')).toEqual([]);
+      // 何も同期していないのに「1 回だけ同期しました」を出さず、版の文で知らせる。
+      const toast = await c.waitFor((e): e is Extract<ServerEvent, { type: 'toast' }> => e.type === 'toast' && e.message.includes('この PC の hangar'));
+      expect(toast.level).toBe('error');
+      expect(c.all().some((e) => e.type === 'toast' && e.message.includes('1 回だけ同期しました'))).toBe(false);
+      const before = metaCalls(w.seen);
+      const second = await pressSyncNow(s.port);
+      expect(second.state).toBe('error');
+      expect(metaCalls(w.seen)).toBeGreaterThan(before);
+    } finally {
+      c.close();
+      await s.close();
+      await w.close();
+    }
+  });
+
+  it('Worker が版の見出しを返さない間（版 0）も同期は動き、要求にはこの PC の版を載せる', async () => {
+    const w = await fakeWorker((method, p) => {
+      if (p === '/rows') return { status: 200, body: { changes: [], nextAfter: null, seq: 0 } };
+      if (p === '/changes' && method === 'GET') return { status: 200, body: { changes: [], nextSeq: 0, more: false } };
+      if (p === '/changes') return { status: 200, body: { seq: 0, accepted: 0, skipped: 0 } };
+      if (p === '/files') return { status: 200, body: { files: [], nextSeq: 0, more: false } };
+      if (p.startsWith('/files/') && method === 'PUT') return { status: 201, body: { seq: 1 } };
+      if (p === '/usage') return { status: 200, body: { configured: false } };
+      return { status: 404, body: { error: 'not found' } };
+    });
+    joinTo(w.url);
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    try {
+      const st = await until(async () => { const v = await syncStatus(s.port); return v.lastPullAt !== null ? v : null; });
+      expect(st.error).toBeNull();
+      expect(st.state).not.toBe('error');
+      expect(w.seen.length).toBeGreaterThan(0);
+      for (const r of w.seen) expect(r.compat, `${r.method} ${r.path}`).toBe(String(COMPAT_VERSION));
+    } finally {
+      await s.close();
+      await w.close();
     }
   });
 });

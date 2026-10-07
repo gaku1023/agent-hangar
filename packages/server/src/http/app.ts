@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type CompatDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { COMPAT_VERSION, liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type CompatDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
@@ -312,7 +312,8 @@ export function createApp(deps: AppDeps): Hono {
   const { db, deviceId } = deps;
 
   // 鍵の要らない経路なので、起動の進み具合は段階と件数だけを載せる。
-  app.get('/health', (c) => c.json({ ok: true, version: deps.version, ready: deps.ready?.() ?? true, index: deps.indexer.progress() }));
+  // compat は互換の版番号で、殻が 4177 の既存のサーバを採る前に照合する（照合は段 1 の PR 7 で入れる）。
+  app.get('/health', (c) => c.json({ ok: true, version: deps.version, compat: COMPAT_VERSION, ready: deps.ready?.() ?? true, index: deps.indexer.progress() }));
 
   const api = new Hono();
   api.use('*', authMiddleware(deps.token, deps.port));

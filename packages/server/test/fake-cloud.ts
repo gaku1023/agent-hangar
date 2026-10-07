@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import {
+  COMPAT_VERSION,
   MAX_PUSH_BATCH,
   PULL_LIMIT,
   SHARED_TABLES,
@@ -17,7 +18,7 @@ import {
   type PushChangesResponse,
   type SnapshotResponse,
 } from '@agent-hangar/shared';
-import { CloudError, isValidFileKey, type CloudClient } from '../src/sync/client.ts';
+import { CloudError, CompatError, isValidFileKey, MIN_WORKER_COMPAT, type CloudClient } from '../src/sync/client.ts';
 
 type StoredFile = { entry: FileEntry; body: Buffer };
 
@@ -36,6 +37,10 @@ export type FakeCloudStore = {
   unauthorized: boolean;
   /** その日（UTC で区切る）に D1 へ書いた行数。実物の Worker の台帳（packages/cloud/src/meter.ts）に当たる。 */
   d1Rows: Map<string, number>;
+  /** Worker の互換の版。0 にすると、版の見出しを返さない古い Worker（版番号を入れる前に配備したもの）の真似になる。 */
+  workerCompat: number;
+  /** Worker が端末に求める下限。実物の原本は packages/cloud/src/compat.ts の MIN_DEVICE_COMPAT。 */
+  minDeviceCompat: number;
   now: () => number;
 };
 
@@ -52,6 +57,12 @@ const TABLES = new Set<string>(SHARED_TABLES);
 export const MAX_ROW_BYTES = 128 * 1024;
 export const MAX_ROW_ID_CHARS = 64;
 export const MAX_BODY_BYTES = 100 * 1024 * 1024;
+
+/**
+ * 実物の Worker が端末に求める互換の版の下限（packages/cloud/src/compat.ts の写し）。
+ * ずれていないことは fake-cloud.test.ts の「端末に求める下限は実物の Worker の写し」が原本を読んで縛る。
+ */
+export const MIN_DEVICE_COMPAT = 0;
 
 /**
  * 実物の Worker が D1 へ書く行数の写しである。
@@ -132,9 +143,12 @@ export class FakeCloudClient implements CloudClient {
   readonly calls: { method: string; args: unknown[] }[] = [];
   private readonly store: FakeCloudStore;
   readonly deviceId: string;
+  /** この端末が Worker に求める互換の版の下限。HttpCloudClient の minWorkerCompat に当たる。 */
+  readonly minWorkerCompat: number;
 
-  constructor(o: { deviceId?: string; store?: FakeCloudStore; now?: () => number } = {}) {
+  constructor(o: { deviceId?: string; store?: FakeCloudStore; now?: () => number; minWorkerCompat?: number } = {}) {
     this.deviceId = o.deviceId ?? 'self';
+    this.minWorkerCompat = o.minWorkerCompat ?? MIN_WORKER_COMPAT;
     this.store = o.store ?? {
       changes: [],
       rows: new Map(),
@@ -146,6 +160,8 @@ export class FakeCloudClient implements CloudClient {
       offline: false,
       unauthorized: false,
       d1Rows: new Map(),
+      workerCompat: COMPAT_VERSION,
+      minDeviceCompat: MIN_DEVICE_COMPAT,
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -156,6 +172,12 @@ export class FakeCloudClient implements CloudClient {
   /** true の間、全メソッドが 401 を投げる。参加用の秘密を回した後と端末の行を消した後の筋を書くために使う。 */
   get unauthorized(): boolean { return this.store.unauthorized; }
   set unauthorized(v: boolean) { this.store.unauthorized = v; }
+  /** Worker の互換の版。下げると、この端末の下限より古い Worker の真似になる。 */
+  get workerCompat(): number { return this.store.workerCompat; }
+  set workerCompat(v: number) { this.store.workerCompat = v; }
+  /** Worker が端末に求める下限。上げると、この端末が古いと断られる。 */
+  get minDeviceCompat(): number { return this.store.minDeviceCompat; }
+  set minDeviceCompat(v: number) { this.store.minDeviceCompat = v; }
   get changes(): ChangeOut[] { return this.store.changes; }
   get rows(): Map<string, ChangeOut> { return this.store.rows; }
   get files(): Map<string, StoredFile> { return this.store.files; }
@@ -198,6 +220,13 @@ export class FakeCloudClient implements CloudClient {
     this.calls.push({ method, args });
     // 繋がらなければ認証にも辿り着かないので、offline を先に見る。
     if (this.store.offline) throw new CloudError(0, 'offline');
+    // 版の関所は Worker のどの経路よりも先にある（認証より先）。/health だけは版を問わずに通る。
+    // 偽物の端末は常に今の版を名乗る（HttpCloudClient と同じ）。
+    if (method !== 'health' && COMPAT_VERSION < this.store.minDeviceCompat) throw new CompatError('device', COMPAT_VERSION, this.store.minDeviceCompat);
+    // 応答の版をこの端末の下限と比べる（HttpCloudClient の send と同じく、成否より先に見る）。
+    // 実物では古い Worker が要求を済ませてから端末が断るが、偽物は先に断る。
+    // どちらでも行は未送信のまま残り、Worker を上げた後の送り直しは LWW で同じ結果になる。
+    if (this.store.workerCompat < this.minWorkerCompat) throw new CompatError('worker', this.store.workerCompat, this.minWorkerCompat);
     if (this.store.unauthorized) throw new CloudError(401, errorBody('unauthorized'));
   }
 

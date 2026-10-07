@@ -61,10 +61,10 @@ while IFS= read -r n; do
   # アプリ本体（node.rs の parse_probe）も全行から v<版> <アーキ> の行を探すので、扱いを揃えてある。
   probe="$("$n" -p 'process.versions.node.split(".")[0] + " " + process.arch' 2>/dev/null)"
   if printf '%s\n' "$probe" | grep -qxF -- "$want $want_arch"; then
-    # 同梱した UI と Worker のソースの場所を、バンドルの中から渡す。
+    # 同梱した UI の場所を、バンドルの中から渡す。
     # 単一ファイルにまとめた時点で、コードの置き場からの相対では探せなくなる。
+    # hangar start が子として起こす server.mjs も、この値を継ぐ。
     export HANGAR_UI_DIST="$dist/ui"
-    export HANGAR_CLOUD_DIR="${HANGAR_CLOUD_DIR:-$dist/cloud}"
     exec "$n" "$dist/cli.mjs" "$@"
   fi
 done <<CANDIDATES

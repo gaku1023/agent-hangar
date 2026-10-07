@@ -2,12 +2,14 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
-import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { BUNDLED_CLOUD_MARKER, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth } from './cloud.ts';
+import { COMPAT_HEADER, COMPAT_VERSION, decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
+import { cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth, writeWranglerConfig } from './cloud.ts';
+import { bindingNames, workerMetadata } from '../../cloud/scripts/build-worker.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
 import { expectMode } from '../../server/test/platform.ts';
@@ -1043,11 +1045,13 @@ describe('Worker のソースの置き場', () => {
     process.env.HANGAR_CLOUD_DIR = cloudDir;
     expect(() => requireCloudDir()).toThrow(/HANGAR_CLOUD_DIR/);
     expect(() => requireCloudDir()).toThrow(/src\/index\.ts/);
+    expect(() => requireCloudDir()).toThrow(/clone して npm install/);
   });
 
   /**
    * packages/cloud の見た目をした一式を作る。
    * 依存は親の node_modules に置くので、createRequire の解決が親をたどる様子をそのまま再現できる。
+   * bundled を立てると、配布版に同梱する形（Worker の束と束縛の定義だけで、源が無い）にする。
    */
   function fakeCloudTree(o: { deps: string[]; bundled?: boolean; name?: string }): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cloudtree-'));
@@ -1058,13 +1062,18 @@ describe('Worker のソースの置き場', () => {
       fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: d, version: '0.0.0', main: 'index.js' }));
       fs.writeFileSync(path.join(dir, 'index.js'), 'module.exports = {};\n');
     }
-    // .app の置き場に相当する一段下に、同梱された cloud/ の写しを作る。
+    // .app の置き場に相当する一段下に、cloud/ を作る。
     const dir = path.join(root, 'app', 'cloud');
+    fs.mkdirSync(dir, { recursive: true });
+    if (o.bundled) {
+      fs.writeFileSync(path.join(dir, 'worker.mjs'), 'export default {};\n');
+      fs.writeFileSync(path.join(dir, 'metadata.json'), '{}\n');
+      return dir;
+    }
     fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'src', 'index.ts'), 'export default {};\n');
     fs.writeFileSync(path.join(dir, 'wrangler.jsonc'), '{}\n');
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: o.name ?? '@agent-hangar/cloud', version: '0.0.0' }));
-    if (o.bundled) fs.writeFileSync(path.join(dir, BUNDLED_CLOUD_MARKER), 'bundled\n');
     return dir;
   }
 
@@ -1081,17 +1090,13 @@ describe('Worker のソースの置き場', () => {
     expect(() => requireCloudDir()).toThrow(/hono が/);
   });
 
-  it('同梱の写しなら、親から wrangler を拾える置き場でも止まる', () => {
+  it('配布版に同梱した cloud/（Worker の束だけ）を指されたら、親から wrangler を拾える置き場でも、clone を案内して止まる', () => {
     // レビューでの事故の再現。
-    // .app を node_modules のあるディレクトリの下に置くと、親をたどった wrangler で検査が素通りし、
-    // 実物のアカウントに資源を作ってしまった。
-    const bundled = fakeCloudTree({ deps: ALL_DEPS, bundled: true });
-    process.env.HANGAR_CLOUD_DIR = bundled;
-    expect(() => requireCloudDir()).toThrow(/配布版に同梱した写し/);
-
-    // 目印を外すと同じ置き場が通る。止めているのは目印であって、依存の有無ではない。
-    fs.rmSync(path.join(bundled, BUNDLED_CLOUD_MARKER));
-    expect(requireCloudDir()).toBe(bundled);
+    // .app を node_modules のあるディレクトリの下に置くと、親をたどった wrangler で依存の検査が素通りし、実物のアカウントに資源を作ってしまった。
+    // 同梱の cloud/ は源を持たないので、依存を見る前に源の検査で止まる。
+    process.env.HANGAR_CLOUD_DIR = fakeCloudTree({ deps: ALL_DEPS, bundled: true });
+    expect(() => requireCloudDir()).toThrow(/src\/index\.ts/);
+    expect(() => requireCloudDir()).toThrow(/clone して npm install/);
   });
 
   it('packages/cloud でないディレクトリなら、name を挙げて止まる', () => {
@@ -1251,5 +1256,82 @@ describe('runSetupCloud の使用量のトークンの問い', () => {
   it('端末でも skipUsageToken なら尋ねない', async () => {
     setIsTTY(true);
     expect(await run({ skipUsageToken: true })).not.toContain('API トークン');
+  });
+});
+
+describe('互換の版', () => {
+  it('Worker へ出す要求（health の待ち、参加、status）に、この PC の版を載せる', async () => {
+    const sent: { url: string; compat: string | undefined }[] = [];
+    const f = (async (input: string | URL | Request, init?: RequestInit) => {
+      sent.push({ url: String(input), compat: (init?.headers as Record<string, string> | undefined)?.[COMPAT_HEADER] });
+      if (String(input).endsWith('/join')) return new Response(JSON.stringify({ deviceToken: 't', deviceId: device.id }), { status: 201 });
+      return new Response(JSON.stringify({ ok: true, version: '0.4.0', compat: COMPAT_VERSION }), { status: 200 });
+    }) as typeof fetch;
+    expect(await waitForHealth('https://h', { fetch: f, sleep: async () => {} })).toBe(true);
+    await joinWorker('https://h', 's', device, { fetch: f, sleep: async () => {} });
+    const { home } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't' }));
+    await cloudStatus({ home, fetch: f });
+    const toWorker = sent.filter((s) => s.url.startsWith('https://h/'));
+    expect(toWorker.map((s) => s.url)).toEqual(['https://h/health', 'https://h/join', 'https://h/health']);
+    for (const s of toWorker) expect(s.compat, s.url).toBe(String(COMPAT_VERSION));
+  });
+
+  it('参加を版が古いと断られたら、待たずに hangar を上げるよう伝える', async () => {
+    const need = COMPAT_VERSION + 1;
+    const f = (async () => new Response(JSON.stringify({ error: 'upgrade required', minCompat: need, compat: need }), { status: 426 })) as typeof fetch;
+    const slept: number[] = [];
+    const e: Error = await joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, retryForbidden: true }).then(
+      () => { throw new Error('断られるはずが通った'); },
+      (x: unknown) => x as Error,
+    );
+    expect(e.message).toContain('この PC の hangar が古い');
+    expect(e.message).toContain(`${need} 以上`);
+    expect(slept).toHaveLength(0);
+  });
+
+  it('426 の見出しだけ返して本文が閉じない相手でも、締め切りで打ち切って止まる', async () => {
+    const f = (async () => new Response(new ReadableStream({ start() {} }), { status: 426 })) as typeof fetch;
+    const slept: number[] = [];
+    const e: Error = await joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, timeoutMs: 50, retryForbidden: true }).then(
+      () => { throw new Error('断られるはずが通った'); },
+      (x: unknown) => x as Error,
+    );
+    expect(e.message).toContain('この PC の hangar が古い');
+    expect(e.message).toContain('それより新しい版');
+    expect(slept).toHaveLength(0);
+  }, 2000);
+
+  it('status は、この PC と Worker の互換の版を 1 行で見せる', async () => {
+    const { home } = dirs();
+    saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't' }));
+    const health = (body: unknown) => (async (input: string | URL | Request) => {
+      if (String(input) === 'https://h/health') return new Response(JSON.stringify(body), { status: 200 });
+      throw new TypeError('ECONNREFUSED');
+    }) as typeof fetch;
+    expect(await cloudStatus({ home, fetch: health({ ok: true, version: '0.5.0', compat: COMPAT_VERSION }) })).toContain(`互換の版: この PC ${COMPAT_VERSION}、Worker ${COMPAT_VERSION}`);
+    // 版を返さないのは、版番号を入れる前の古い Worker である。
+    expect(await cloudStatus({ home, fetch: health({ ok: true, version: '0.4.0' }) })).toContain(`互換の版: この PC ${COMPAT_VERSION}、Worker 0`);
+    const dead = (async () => { throw new TypeError('ECONNREFUSED'); }) as typeof fetch;
+    expect(await cloudStatus({ home, fetch: dead })).toContain(`互換の版: この PC ${COMPAT_VERSION}、Worker 不明`);
+  });
+});
+
+describe('setup cloud の書く wrangler の設定', () => {
+  it('互換の日付と旗、D1 と R2 の束縛の名前が、同梱する束縛の定義（packages/cloud/wrangler.jsonc から作る）とそろっている', () => {
+    // 片方だけ変えると、wrangler で上げた Worker と、段 5 で同梱の定義から上げる Worker が食い違う。
+    const { home } = dirs();
+    const file = writeWranglerConfig(home, { name: 'hangar', main: '/x/src/index.ts', dbName: 'hangar', dbId: DB_ID, bucketName: 'hangar-files' });
+    const cfg = JSON.parse(fs.readFileSync(file, 'utf8').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')) as {
+      compatibility_date: string;
+      compatibility_flags: string[];
+      d1_databases: { binding: string }[];
+      r2_buckets: { binding: string }[];
+    };
+    const meta = workerMetadata(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cloud'));
+    expect(cfg.compatibility_date).toBe(meta.compatibility_date);
+    expect(cfg.compatibility_flags).toEqual(meta.compatibility_flags);
+    expect(cfg.d1_databases.map((d) => d.binding)).toEqual(bindingNames(meta, 'd1'));
+    expect(cfg.r2_buckets.map((b) => b.binding)).toEqual(bindingNames(meta, 'r2_bucket'));
   });
 });

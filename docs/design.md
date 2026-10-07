@@ -71,10 +71,16 @@ MCP は Streamable HTTP で、共通の `/mcp` とセッション別の `/mcp/s/
 Tauri のシェルは、起動時にサーバの子プロセスを立て、終了時に止める。
 Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探す。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
+`hangar start` も、サーバを子プロセスとして立てる。
+子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
+配布版は `cli.mjs` の隣の `server.mjs` を、リポジトリでは `packages/server/src/main.ts` を tsx で起こし、`HANGAR_PORT` と `HANGAR_PARENT_PID` を渡す。
+`/health` の `ready` が真になってから、鍵付きの URL を印字する。
 `hangar://` のディープリンクは deep-link プラグインで受ける。
 ブラウザからも同じ UI が動くが、入口は鍵付きの URL に限る。
 鍵の無い要求には 401 で `hangar url` を案内する画面を返す。
 配布する `.app` には、esbuild で単一ファイルにまとめたサーバ（`server.mjs`）を、ネイティブモジュールと UI とともに同梱する。
+CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ本体をたどらない `packages/server/src/cliEntry.ts` から名前を取る。
+入口から取ると、esbuild がサーバ全体を `cli.mjs` にも束ね、同梱物にサーバが二重に入るためである。
 ネイティブモジュールは Node の ABI に縛られるため、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、探索ではそれと一致する Node だけを採る。
 起動時に 4177 で既にサーバが応答していれば、そのサーバを採用して子プロセスを起こさない。
 
@@ -980,6 +986,11 @@ UI を初めて開くときは、鍵を載せた入口の URL を使う。
 鍵を端末にだけ印字するのは、サーバのログに載せないためである。
 `hangar start` が待ち受けに失敗したときは、生のスタックではなく日本語の 1 行を出して終了コード 1 で終わる。
 使用中のポート、権限の無いポート、そのほかの失敗を、それぞれ次の一手の分かる文にする。
+サーバは子プロセスなので、`hangar start` は子を起こす前にそのポートを自分で一度開いて確かめ、失敗をこの 1 行にする。
+`--port` は 1 から 65535 の整数に限り、0 は断る。
+0 を渡すと子は空いているポートを自分で選ぶが、CLI はその番号を知る手が無いためである。
+設定の破損やデータベースの失敗など、そのほかの起動の失敗では、子が自分のログを出し、続けて CLI が 1 行を出し、`hangar start` は URL を印字せずに子の終了コードで終わる。
+起動の途中で利用者が止めたとき（Ctrl-C や kill）は、この 1 行も URL も出さない。
 
 `GET /` は、クエリの `t` か、既に持っているクッキーのどちらかが合うときだけ UI の HTML を配る。
 合わないときは案内だけを書いた HTML を 401 で返し、トークンは配らない。
@@ -2482,6 +2493,63 @@ Claude Code の設定は、変化を検知して 5 秒のデバウンスで push
 未送信の件数は配るたびに数え直すので、減っていくのが見える。
 D1 の Time Travel（無料枠で 7 日）で巻き戻せる。
 
+### 互換の版番号
+
+hangar の部品のうち、別々に上がりうるのは、端末どうし（同期で Worker を挟む）、端末と Worker、殻と 4177 で動いている既存のサーバである。
+UI とサーバと CLI は同じ束で配るので、版番号を持たない。
+別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1）を名乗り、相手に下限を持つ。
+古い版のための分岐を部品ごとに抱える代わりに、下限より古い相手とは話さずに、理由を出して止まる。
+
+**見出し。**
+サーバと CLI は、Worker へ出すすべての要求に、見出し `X-Hangar-Compat` で自分の版を載せる。
+Worker は、断ったものも含めたすべての応答に、同じ見出しで自分の版を載せる。
+見出しの無い相手は、版番号を入れる前の古い版とみなし、版 0 として読む。
+整数として読めない値も版 0 として読む。
+Worker の `/health` は `{ ok, version, compat }` を返し、サーバの `/health` も `compat` を返す。
+
+**Worker の下限。**
+Worker は、端末に求める下限 `MIN_DEVICE_COMPAT`（`packages/cloud/src/compat.ts`）を持つ。
+下限より古い端末の要求には、スキーマの用意にも認証にも進まずに、426 と `{ error: 'upgrade required', minCompat, compat }` を返す。
+`/health` だけは版を問わずに通す。
+版を確かめに来る口だからである。
+いまの下限は 0 で、見出しの無い端末も通す。
+
+**端末の下限。**
+サーバは、Worker に求める下限 `MIN_WORKER_COMPAT`（`packages/server/src/sync/client.ts`）を持つ。
+いまの下限は 0 で、見出しを返さない Worker とも話す。
+Worker から 426 が返るか、応答の見出しの版が下限より古ければ、`HttpCloudClient` は `CompatError` を投げる。
+応答の見出しで Worker の版を比べるのは、Worker 自身が作った応答、つまり状態が 500 未満で、408 でも 429 でもないものだけである。
+Cloudflare の端が Worker を通さずに返す 5xx や 429（CPU の超過や 1 日の要求の上限など）は、見出しを持たない。
+それは Worker の版を語らないので、版の不一致にはせず、普通の失敗として扱う。
+`SyncEngine` は `CompatError` を受けたら同期を止め、状態を `error` にして、どちらを上げればよいかを `error` の文に書く。
+426 なら「この PC の hangar を新しい版に入れ替える」、Worker が古ければ「setup した PC で `hangar setup cloud` をもう一度実行して Worker を入れ替え、今すぐ同期を押す」である。
+止めている間は、メタデータの送受信も、本文と設定の出し入れも、使用量の取りに行きも外へ出ない（`server.ts` の `syncHalted`）。
+一時停止していても、版で止まったことを先に見せる。
+直す道が `error` の文にしか無いからである。
+一時停止のまま「今すぐ同期」を押した 1 巡（`PausedPass`）でも、メタデータの送受信が版で断られたら、その 1 巡の本文の取り込みは外へ出ない（`isPaused` を通す）。
+その 1 巡の終わりの知らせは、「1 回だけ同期しました」ではなく、版の文を error として出す。
+止めた印は `sync_state` に残さない。
+この PC の hangar を入れ替えれば立て直しで消え、Worker を入れ替えたなら、利用者が押した「今すぐ同期」が 1 回だけ試し直して戻る。
+本文の上げ下ろしは、426 を直りようのない失敗として諦めない。
+どちらかを上げれば通るからである。
+`hangar join` と `hangar setup cloud` の参加も版を載せ、426 なら hangar を上げるよう伝えて止める。
+426 を受けたときの本文の読みにも、参加の 1 回ごとの締め切りを掛け、本文を流さない相手で止まらないようにする。
+`hangar cloud status` は、この PC と Worker の版を 1 行で出す。
+
+**いつ上げるか。**
+`COMPAT_VERSION` を上げるのは、次のどれかを、古い相手と話せない形で変えるときだけである。
+
+- 同期の形（共有テーブルの行の運び方、変更ログ、ファイルの鍵と暗号の形式）。
+- Worker の API（経路、要求と応答の形、見出し）。
+- 殻とサーバの合図（`/health` の形、起動と停止のやりとり）。
+
+項目を足すだけで古い相手も読める変更では上げない。
+版を上げても、下限を上げなければ、相手は断られない。
+下限を上げるのは、相手がすべて版番号を持つ版に上がってからである。
+Worker の `MIN_DEVICE_COMPAT` は、同期に参加しているすべての端末が上がってから上げ、Worker を配備し直す。
+
+殻が 4177 の既存のサーバを採る前に、その `/health` の版を自分が同梱するサーバの版と比べる照合は、まだ入れていない（段 1 の PR 7）。
+
 ### 他端末セッションのロックと「この PC で再開」
 
 他端末のセッションは、閲覧と検索は常にできる。
@@ -2558,7 +2626,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 異論があれば、この文書を直してから実装を変える。
 
 - ポートは 4177 固定。データディレクトリは `~/.agent-hangar/`。
-- ID は UUID v7。マイグレーションは番号付き SQL をアプリ起動時に適用する。版は 8 まで進んでいる（4 で `usage_daily` の鍵に `file_path` を足して `artifact_versions(artifact_id)` の索引を置き、5 で `session_summaries` に `source_id` を足し、6 で `usage_daily` を空にして `transcript_files.indexer_version` を 0 に戻し、7 で `mcp_secrets` を作り、8 で `transcript_files` に `device_id` と索引を足して `file_sync` を作った）。版 6 は、`file_path` を持たない古い行をどちらに寄せても作り直しの消し方が正しくならないための積み直しである。全ファイルが索引の作り直しに回るので、実物の DB では約 35 秒かかり、その間だけ日別の使用量が欠ける。版 8 の `device_id` は既存の行では null のままにする。端末の ID は DB ではなく `device.json` にあり、マイグレーションからは読めないためである。
+- ID は UUID v7。マイグレーションは番号付き SQL をアプリ起動時に適用する。版は 15 まで進んでいる（4 で `usage_daily` の鍵に `file_path` を足して `artifact_versions(artifact_id)` の索引を置き、5 で `session_summaries` に `source_id` を足し、6 で `usage_daily` を空にして `transcript_files.indexer_version` を 0 に戻し、7 で `mcp_secrets` を作り、8 で `transcript_files` に `device_id` と索引を足して `file_sync` を作り、9 で `session_activity` を作り、10 で `todos` に完了の候補の 4 列を足し、11 で `devices.shell_hook` を足し、12 で `turn_intents` を作り、13 で `session_states` を作って生きているセッションをまとめて Done にし、14 で `session_states` に戻る時刻の 2 列を足し、15 で `usage_snapshots.account` と 2 つの索引を足した）。版 6 は、`file_path` を持たない古い行をどちらに寄せても作り直しの消し方が正しくならないための積み直しである。全ファイルが索引の作り直しに回るので、実物の DB では約 35 秒かかり、その間だけ日別の使用量が欠ける。版 8 の `device_id` は既存の行では null のままにする。端末の ID は DB ではなく `device.json` にあり、マイグレーションからは読めないためである。
 - FTS5 のトークナイザは trigram。
 - R2 の鍵は端末 ID を含み、同じセッション ID の本文が端末ごとに分岐しても上書きしない。
 - Claude 側で利用者が付けた名前（`nameSource` が `user`）は、hangar が保持する名前より優先する。
@@ -2687,14 +2755,27 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   当番を取りにいくのも 6 時間に 1 回でよいので、isolate は自分が最後に取りにいった時刻を覚え、その間は D1 に触らずに帰る。
 - 既知の限界：使わなくなった端末の `transcripts/<端末 ID>/` と `config/<端末 ID>/` を畳む口が無い。
   掃除が拾うのは索引に無い本体と、本体の無い索引の行だけで、索引に載っている他端末のファイルは消さない。
-- `~/.agent-hangar/backups/` の 3 種類（`claude-config/`、`transcripts/`、`memos/`）は、どれも新しい方から 20 世代を残して刈る。
+- `~/.agent-hangar/backups/` のうち 20 世代で刈るのは 3 種類（`claude-config/`、`transcripts/`、`memos/`）で、どれも新しい方から 20 世代を残す。
   `claude-config/` は取り込みのたびに、`transcripts/` と `memos/` は控えを取った後とサーバを起こしたときに刈る。
   いま取った控えが最も新しいので、「控えを取れなければ書かない」という決まりには触らない。
   この置き場の外に残る控え（プロジェクトのメモの隣の `memo.md.bak-<日時>` と、設定の同期の `*.conflict-*`）は消さない。
+- `~/.agent-hangar/backups/db/` は DB の控えで、新しい方から 5 世代を残す。
+  DB を開く側（サーバと、DB を開く CLI）は、すでに 1 本以上のマイグレーションを当てた DB に当てていないものがあるとき、当てる前に `VACUUM INTO` で `hangar-v<当てた最後の版>-<UTC の時刻>.db` を作る（`packages/server/src/db/backup.ts`）。
+  新しい DB と `:memory:` では作らない。
+  写しは控えの形でない一時の名前に書き、`fsync` してから改名する。
+  失敗や中断で、控えに見える壊れたファイルが残らない。
+  `backups/db` がシンボリックリンクなら、ほかの控えの置き場と同じく取らずに止める。
+  控えが取れなければマイグレーションを当てず、理由を出して起動を止める。
+  「控えが取れなければ書かない」の原則に合わせた。
+  刈るのは控えの形の名前のものだけで、置き場に利用者が置いたファイルには触れない。
 - 既知の限界：無料枠の数え直しと孤児の掃除は、偽のクラウドとローカルの workerd（miniflare）の試験だけで確かめた（2026-09-20）。
   実物の Cloudflare では動かしていない。
 - 既知の限界：フェーズ 4 の実物確認は、1 台の Mac の上で `HANGAR_HOME` と `HANGAR_CLAUDE_DIR` を分けて 2 端末を模して行った（2026-09-19 の決定）。実際に別のマシンから参加することは確かめていない。
-- 配布版の同梱形態：サーバと CLI を esbuild で単一ファイル（`server.mjs`、`cli.mjs`）にまとめ、UI、ネイティブモジュール、`bin/hangar`、Worker のソース、`manifest.json` とともに `.app` の `Contents/Resources/server/` へ置く。UI の sourcemap は入れないので、実測で 7.7MB である。Node 本体は同梱しない。
+- 配布版の同梱形態：サーバと CLI を esbuild で単一ファイル（`server.mjs`、`cli.mjs`）にまとめ、UI、ネイティブモジュール、`bin/hangar`、`cloud/`、`manifest.json` とともに `.app` の `Contents/Resources/server/` へ置く。
+  `cloud/` には、Worker を 1 本に束ねた `worker.mjs` と、その束縛の定義 `metadata.json`（互換の日付と旗、D1 と R2 の束縛の名前）だけを置き、源は置かない。
+  `cloud/` は段 5 で Cloudflare の REST から Worker を上げるための下地で、いまは誰も読まない。
+  UI の sourcemap は入れないので、実測で 6.5MB である。
+  Node 本体は同梱しない。
 - Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
 - `nodePath` の重さ：Settings の `nodePath` は、次の起動で `.app` がそのまま起こす実行ファイルの場所なので、設定への書き込みが次回起動時のコード実行になる。
   いま穴が開いているわけではないが、UI か API の側に穴が 1 つできたときの被害の上限がここまで上がることを、前提として書き留めておく。
@@ -2709,7 +2790,10 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   翻訳された場所からプロセスは起動するが、ウィンドウは出ずログにも 1 行も書かれないので、利用者が最初に見るのはアプリの案内ではなく macOS の拒否である。
   アプリ自身も同梱サーバを起こす前に検疫属性を外すが、読み取り専用の写しでは書き込めないので効かない。
 - 二重起動：single-instance のプラグインを入れない。起動時に 4177 が既に応答していれば、そのサーバを採用して子プロセスを起こさない。ブラウザや `hangar start` で先に起きているサーバと食い合わないためである。
-- wrangler は同梱しない。205MB あり、`.app` の大きさが 20 倍近くになる。配布版の `hangar setup cloud` は、wrangler が見つからないことを告げて止まる。クラウド同期を使う端末は、リポジトリを clone して設定する。
+- wrangler は同梱しない。
+  205MB あり、`.app` の大きさが 20 倍近くになる。
+  配布版の `hangar setup cloud` は、Worker の源が無いことを告げ、clone した場所から実行するよう案内して止まる。
+  クラウド同期を使う端末は、リポジトリを clone して設定する。
 - 既知の限界：フェーズ 5 の実物確認（2026-09-20）で見ていないものが二つある。
   App Translocation の案内の画面そのものは、Gatekeeper のダイアログを人が承認しないと先へ進まないので、通しでは見ていない（案内の枝は単体試験で押さえてある）。
   システム設定の外観をダークにしたときの見え方は、利用者の環境を変えるので確かめず、配信される UI に `prefers-color-scheme` の規則が 1 件も無いことの確認で代えた。

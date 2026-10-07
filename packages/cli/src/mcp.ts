@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { ensureHome, readOrCreateToken, upsertUserMcpServer } from '@agent-hangar/server';
+import { ensureHome, readOrCreateToken, upsertUserMcpServer } from '@agent-hangar/server/src/cliEntry.ts';
 import { probeAuthorized, type AuthProbe } from './probe.ts';
 
 /** notFound は、コマンド自体を起こせなかったこと。終了コードでは区別できない。 */

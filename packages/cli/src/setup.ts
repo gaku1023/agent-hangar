@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { StatuslineStatusDto } from '@agent-hangar/shared';
-import { defaultClaudeDir, ensureHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, statuslineStatus } from '@agent-hangar/server';
+import { defaultClaudeDir, ensureHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, statuslineStatus } from '@agent-hangar/server/src/cliEntry.ts';
 
 export type SetupReport = {
   home: string;

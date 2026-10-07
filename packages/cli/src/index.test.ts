@@ -5,8 +5,11 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MIGRATIONS } from '../../server/src/db/migrations.ts';
 import { posixIt } from '../../server/test/platform.ts';
+import { probeHealth } from './probe.ts';
 
 /** 実物の hangar を子プロセスで動かす。実物の ~/.claude と ~/.agent-hangar には触らせない。 */
 const CLI = fileURLToPath(new URL('../bin/hangar.mjs', import.meta.url));
@@ -172,6 +175,111 @@ describe('hangar start', () => {
     expect(r.out).not.toContain('EADDRINUSE');
     expect(r.out).not.toContain('node:net');
     expect(r.out).not.toMatch(/^\s+at /m);
-    expect(r.out).not.toContain(readToken());
+    // 子を起こす前に断るので、鍵のファイルはまだ作られていないことがある。鍵付きの URL が出ないことを見る。
+    expect(r.out).not.toContain('?t=');
+  }, 90_000);
+
+  // 子を SIGTERM で止める。Windows の信号の扱いは移植の区切りで作る。
+  posixIt('子のサーバを起こし、起動が済んでから鍵付きの URL を出し、SIGTERM で子も降りる', async () => {
+    const port = await deadPort();
+    const root = path.dirname(home);
+    const ws = path.join(root, 'ws');
+    const tmuxDir = path.join(root, 'tmux');
+    fs.mkdirSync(ws);
+    fs.mkdirSync(tmuxDir);
+    fs.mkdirSync(path.join(claudeDir, 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir }));
+    // hangar の中から試験を走らせたときに、外のサーバ向けの値を子へ持ち込まない。
+    const { HANGAR_PARENT_PID: _pid, HANGAR_UI_DIST: _ui, HANGAR_PORT: _port, ...base } = process.env;
+    const child = spawn(process.execPath, [CLI, 'start', '--port', String(port), '--no-open'], {
+      env: {
+        ...base,
+        HOME: root,
+        HANGAR_HOME: home,
+        HANGAR_CLAUDE_DIR: claudeDir,
+        HANGAR_TEST_MARKER: marker,
+        // 存在する場所を渡す。無い場所だと tmux は黙って本物のサーバへつなぐ。
+        TMUX_TMPDIR: tmuxDir,
+        PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+      },
+    });
+    let out = '';
+    child.stdout.on('data', (b: Buffer) => { out += b.toString(); });
+    child.stderr.on('data', (b: Buffer) => { out += b.toString(); });
+    const closed = new Promise<number | null>((r) => child.on('close', (code) => r(code)));
+    try {
+      const until = Date.now() + 60_000;
+      while (!out.includes('?t=') && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+      expect(out).toContain(`この URL から開いてください: http://127.0.0.1:${port}/?t=${readToken()}`);
+      // URL を出した時点で、サーバは起動を済ませている。
+      const health = (await (await fetch(`http://127.0.0.1:${port}/health`)).json()) as { ok: boolean; ready: boolean };
+      expect(health).toMatchObject({ ok: true, ready: true });
+      expect(await waitOpened(400)).toBe('');
+    } finally {
+      child.kill('SIGTERM');
+    }
+    expect(await closed).toBe(0);
+    // 子のサーバも降りていて、ポートを掴んだまま残らない。
+    expect(await probeHealth(port, 500)).toBe(false);
+  }, 90_000);
+
+  it('DB の控えが取れないときは、子のサーバの理由を出して止まり、マイグレーションを当てない', async () => {
+    const port = await deadPort();
+    const root = path.dirname(home);
+    const ws = path.join(root, 'ws');
+    const tmuxDir = path.join(root, 'tmux');
+    fs.mkdirSync(ws);
+    fs.mkdirSync(tmuxDir);
+    fs.mkdirSync(path.join(claudeDir, 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir }));
+    // 1 つ前の版までの DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
+    const latest = MIGRATIONS[MIGRATIONS.length - 1]!.version;
+    const file = path.join(home, 'hangar.db');
+    const seed = new Database(file);
+    seed.exec('create table if not exists schema_migrations (version integer primary key, applied_at integer not null)');
+    for (const m of MIGRATIONS.filter((m) => m.version < latest)) {
+      seed.exec(m.sql);
+      seed.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
+    }
+    seed.close();
+    fs.mkdirSync(path.join(home, 'backups'));
+    fs.writeFileSync(path.join(home, 'backups', 'db'), 'x');
+    // hangar の中から試験を走らせたときに、外のサーバ向けの値を子へ持ち込まない。
+    const { HANGAR_PARENT_PID: _pid, HANGAR_UI_DIST: _ui, HANGAR_PORT: _port, ...base } = process.env;
+    const r = await new Promise<{ code: number; out: string }>((resolve, reject) => {
+      const child = spawn(process.execPath, [CLI, 'start', '--port', String(port), '--no-open'], {
+        env: {
+          ...base,
+          HOME: root,
+          HANGAR_HOME: home,
+          HANGAR_CLAUDE_DIR: claudeDir,
+          HANGAR_TEST_MARKER: marker,
+          // 存在する場所を渡す。無い場所だと tmux は黙って本物のサーバへつなぐ。
+          TMUX_TMPDIR: tmuxDir,
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        },
+      });
+      let out = '';
+      // 止め方を SIGTERM にするのは、CLI が子のサーバへ渡して両方を降ろすため（SIGKILL では子が取り残される）。
+      // 守りが外れて URL まで出たら、待たずに止めて、下の断言で落とす。
+      const collect = (b: Buffer): void => {
+        out += b.toString();
+        if (out.includes('?t=')) child.kill('SIGTERM');
+      };
+      child.stdout.on('data', collect);
+      child.stderr.on('data', collect);
+      const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error(`時間切れ\n${out}`)); }, 60_000);
+      child.on('error', reject);
+      child.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? 1, out }); });
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('マイグレーションを当てずに止めました');
+    expect(r.out).toContain('起動の途中で終わりました');
+    expect(r.out).not.toContain('?t=');
+    const check = new Database(file, { readonly: true });
+    try {
+      expect((check.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(latest - 1);
+    } finally { check.close(); }
+    expect(await probeHealth(port, 500)).toBe(false);
   }, 90_000);
 });
