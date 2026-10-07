@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { build } from 'esbuild';
+import { build, type BuildOptions } from 'esbuild';
 
 /**
  * Worker を 1 本の ESM に束ねる道具と、その束縛の定義。
  * 使うのは 2 か所である。
  * test/harness.ts は、束ねた Worker を miniflare で起こして試す。
+ * 端末に求める下限を差し替えた Worker を試すときは、入口だけを差し替え、workerBuildOptions の設定はそのまま通す。
  * apps/desktop/scripts/bundle-server.ts は、同じ束を配布版の cloud/worker.mjs に、定義を cloud/metadata.json に置く。
  * 同じ関数を通すので、配布物に入る束は試験で起こした束と同じになる。
  */
@@ -47,10 +48,9 @@ type WranglerConfig = {
   vars?: Record<string, unknown>;
 };
 
-/** Worker を 1 本の ESM に束ねる。外への import を残さない。 */
-export async function bundleWorker(cloudDir: string): Promise<string> {
-  const r = await build({
-    entryPoints: [path.join(cloudDir, 'src', 'index.ts')],
+/** esbuild に渡す設定のうち、入口を除く部分である。外への import を残さない。 */
+export function workerBuildOptions(cloudDir: string): BuildOptions {
+  return {
     // 束に残る元のファイルのパスの注釈は、作業ディレクトリからの相対で書かれる。
     // 根を packages/cloud に決め、どこから束ねても（試験はリポジトリの根、配布版は apps/desktop）同じ中身にする。
     absWorkingDir: cloudDir,
@@ -61,8 +61,13 @@ export async function bundleWorker(cloudDir: string): Promise<string> {
     mainFields: ['workerd', 'browser', 'module', 'main'],
     target: 'es2022',
     write: false,
-  });
-  return r.outputFiles[0]!.text;
+  };
+}
+
+/** Worker を 1 本の ESM に束ねる。入口は src/index.ts である。 */
+export async function bundleWorker(cloudDir: string): Promise<string> {
+  const r = await build({ ...workerBuildOptions(cloudDir), entryPoints: [path.join(cloudDir, 'src', 'index.ts')] });
+  return r.outputFiles![0]!.text;
 }
 
 /**

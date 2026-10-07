@@ -6,10 +6,15 @@ import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import {
   CLOUD_HEADERS,
+  COMPAT_HEADER,
+  COMPAT_VERSION,
+  compatHeaders,
   encodeFileKeyPath,
   encodeHeaderText,
   isSafeRelPath,
   isValidFileKey,
+  parseCompat,
+  readCompatRefusal,
   type ChangeIn,
   type CloudUsageBody,
   type FileMetaIn,
@@ -31,6 +36,38 @@ export class CloudError extends Error {
 }
 
 const toCloudError = (e: unknown): CloudError => (e instanceof CloudError ? e : new CloudError(0, e instanceof Error ? e.message : String(e)));
+
+/**
+ * この PC が Worker に求める互換の版の下限。
+ * 0 の間は、版の見出しを返さない古い Worker（版 0 として読む）とも話す。
+ * Worker の API を古い Worker と話せない形で変えたら、その版に上げる。
+ */
+export const MIN_WORKER_COMPAT = 0;
+
+/** 上げるべき側。device はこの PC の hangar、worker はクラウドの Worker である。 */
+export type CompatUpgrade = 'device' | 'worker';
+
+function compatMessage(upgrade: CompatUpgrade, have: number, need: number | null): string {
+  if (upgrade === 'device') {
+    const want = need === null ? 'それより新しい版' : `${need} 以上`;
+    return `この PC の hangar が古いので、クラウドが同期を断りました（この PC の互換の版は ${have}、クラウドが求めるのは ${want}）。この PC の hangar を新しい版に入れ替えてください`;
+  }
+  return `クラウドの Worker が古いので、同期を止めました（Worker の互換の版は ${have}、この PC が求めるのは ${need ?? '?'} 以上）。setup した PC で hangar setup cloud をもう一度実行して Worker を入れ替えてから、「今すぐ同期」を押してください`;
+}
+
+/**
+ * 互換の版が合わないときに投げる。
+ * Worker に 426 で断られたら device（この PC を上げる）、Worker の名乗った版がこちらの下限より古ければ worker（Worker を上げる）である。
+ * message は CloudError と違って応答の本文ではなく、利用者に見せる文で、どちらを上げればよいかを書く（同期の状態の error にそのまま出る）。
+ * status は 426 に揃える。届いた要求として無料枠に数える既存の分岐（status が 0 でない）に、そのまま乗る。
+ * 直りようのない 4xx として諦める所（uploader の isPermanentStatus）は、426 を一時の失敗として扱う。
+ */
+export class CompatError extends CloudError {
+  constructor(readonly upgrade: CompatUpgrade, readonly have: number, readonly need: number | null) {
+    super(426, compatMessage(upgrade, have, need));
+    this.name = 'CompatError';
+  }
+}
 
 /**
  * `GET /changes?since=` が圧縮で消えた区間を指したときの floor を読む。
@@ -146,6 +183,8 @@ export type HttpCloudClientOptions = {
   spoolDir?: string;
   /** putFile の本文の上限。既定は Worker と同じ 100 MiB。 */
   maxBodyBytes?: number;
+  /** この PC が Worker に求める互換の版の下限。既定は MIN_WORKER_COMPAT。試験が上げるために使う。 */
+  minWorkerCompat?: number;
 };
 
 /** fetch で Worker を叩く実装。token はヘッダにだけ載せ、URL にもログにも出さない。 */
@@ -156,6 +195,7 @@ export class HttpCloudClient implements CloudClient {
   private readonly transferTimeoutMs: number;
   private readonly spoolDir: string;
   private readonly maxBodyBytes: number;
+  private readonly minWorkerCompat: number;
   /**
    * 端末トークンは閉じ込めて持つ。
    * 文字列の項目にすると console.log(client) や JSON.stringify(client) で読めてしまう。
@@ -169,6 +209,7 @@ export class HttpCloudClient implements CloudClient {
     this.transferTimeoutMs = o.transferTimeoutMs ?? DEFAULT_TRANSFER_TIMEOUT_MS;
     this.spoolDir = o.spoolDir ?? os.tmpdir();
     this.maxBodyBytes = o.maxBodyBytes ?? MAX_PUT_BODY_BYTES;
+    this.minWorkerCompat = o.minWorkerCompat ?? MIN_WORKER_COMPAT;
     const token = o.token;
     this.authorization = () => `Bearer ${token}`;
   }
@@ -176,22 +217,41 @@ export class HttpCloudClient implements CloudClient {
   /**
    * 要求を投げて応答の見出しまでを受ける。
    * 締め切りは呼び手が本体を読み終えるまで生きているので、Deadline は返して呼び手が clear する。
+   *
+   * 互換の版は、成否より先に見る。
+   * 426 なら Worker がこの PC を断った。Worker の名乗った版が下限より古ければ、こちらが Worker を断る。
+   * 古い Worker は要求をもう済ませている（push なら行を受け取っている）が、こちらは失敗として扱う。
+   * Worker の版は、Worker が自分で作った応答にだけ問う。
+   * 端が Worker を通さずに返す 5xx、408、429（CPU 超過の 1102 や日の上限など）は見出しを持たず、Worker の版を語らないので、これまでどおり CloudError に落とす。
+   * 行は未送信のまま残り、Worker を上げた後の送り直しは LWW で同じ結果になる。
    */
   private async send(path: string, init: RequestInit & { duplex?: 'half' }, ms: number): Promise<{ res: Response; d: Deadline }> {
     const d = new Deadline(ms);
     let res: Response;
     try {
-      // authorization は後ろに置く。呼び手のヘッダで取り違えて外れることがない。
+      // 版と authorization は後ろに置く。呼び手のヘッダで取り違えて外れることがない。
       res = await d.race(
         this.fetchFn(`${this.base}${path}`, {
           ...init,
           signal: d.signal,
-          headers: { ...((init.headers as Record<string, string> | undefined) ?? {}), authorization: this.authorization() },
+          headers: { ...((init.headers as Record<string, string> | undefined) ?? {}), ...compatHeaders(), authorization: this.authorization() },
         } as RequestInit),
       );
     } catch (e) {
       d.clear();
       throw toCloudError(e);
+    }
+    if (res.status === 426) {
+      const text = await d.race(res.text()).catch(() => '');
+      d.clear();
+      throw new CompatError('device', COMPAT_VERSION, readCompatRefusal(text));
+    }
+    const workerCompat = parseCompat(res.headers.get(COMPAT_HEADER));
+    const fromWorker = res.status < 500 && res.status !== 408 && res.status !== 429;
+    if (fromWorker && workerCompat < this.minWorkerCompat) {
+      void res.body?.cancel().catch(() => {});
+      d.clear();
+      throw new CompatError('worker', workerCompat, this.minWorkerCompat);
     }
     if (!res.ok) {
       const text = await d.race(res.text()).catch(() => '');

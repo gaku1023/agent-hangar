@@ -9,7 +9,7 @@ import { createGunzip } from 'node:zlib';
 import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream, stampTranscriptsFrom } from '@agent-hangar/server/src/cliEntry.ts';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
-import { configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, PULL_LIMIT, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
+import { COMPAT_VERSION, compatHeaders, configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, parseCompat, PULL_LIMIT, readCompatRefusal, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
 import { parseAccountId, parseDatabaseId, parseWorkerUrl, WranglerRunner } from './wrangler.ts';
 
 export type DeviceLike = { id: string; name: string; platform: string };
@@ -213,7 +213,7 @@ export async function waitForHealth(url: string, o: { fetch: typeof fetch; sleep
   for (let waited = 0; ; waited += interval) {
     try {
       // 1 回の探りが間隔より長引いたら諦める。応答を返さない宛先で待ちが終わらなくなるのを防ぐ。
-      const r = await o.fetch(`${url}/health`, { signal: AbortSignal.timeout(interval) });
+      const r = await o.fetch(`${url}/health`, { headers: compatHeaders(), signal: AbortSignal.timeout(interval) });
       if (r.ok && ((await r.json()) as { ok?: boolean }).ok === true) return true;
     } catch {
       // 接続できないうちも、探りが長引いたときも待つ。
@@ -260,7 +260,7 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
     const timer = setTimeout(() => { timedOut = true; ac.abort(); }, timeout);
     timer.unref?.();
     try {
-      r = await o.fetch(`${url}/join`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ secret, device }), signal: ac.signal });
+      r = await o.fetch(`${url}/join`, { method: 'POST', headers: { 'content-type': 'application/json', ...compatHeaders() }, body: JSON.stringify({ secret, device }), signal: ac.signal });
     } catch (e) {
       // 打ち切りも接続の失敗も、待たずにその場で断る。秘密は文面に載せない。
       if (timedOut) throw new Error(`${url} が ${timeout} ミリ秒のあいだ応答しませんでした。宛先が正しいか、${url}/health が返るかを確かめてください`);
@@ -269,6 +269,23 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
       clearTimeout(timer);
     }
     if (r.status === 201) return (await r.json()) as JoinResponse;
+    // 版が古くて断られたときは、待っても変わらない。上げる側を伝えて止める。
+    // 本文から読むのは下限の数だけで、本文そのものは出さない。
+    if (r.status === 426) {
+      // 本文が流れてこない相手でも止まるよう、読みも同じ締め切りで打ち切る（打ち切ったら不明として扱う）。
+      let bodyTimer: ReturnType<typeof setTimeout> | undefined;
+      const body = await Promise.race([
+        r.text().catch(() => ''),
+        new Promise<string>((resolve) => {
+          bodyTimer = setTimeout(() => { void r.body?.cancel().catch(() => {}); resolve(''); }, timeout);
+          bodyTimer.unref?.();
+        }),
+      ]);
+      clearTimeout(bodyTimer);
+      const need = readCompatRefusal(body);
+      const want = need === null ? 'それより新しい版' : `${need} 以上`;
+      throw new Error(`この PC の hangar が古いので、Worker が参加を断りました（この PC の互換の版は ${COMPAT_VERSION}、Worker が求めるのは ${want}）。hangar を新しい版に入れ替えてから、もう一度実行してください`);
+    }
     const waitable = r.status === 503 || (r.status === 403 && o.retryForbidden === true);
     if (waitable && i < retries) {
       o.log?.('Worker への反映を待っています');
@@ -691,13 +708,18 @@ export async function cloudStatus(o: CloudStatusOptions): Promise<string> {
   const c = read.config;
 
   const lines: string[] = [];
+  // Worker の互換の版。届かなければ null（不明）である。
+  let workerCompat: number | null = null;
   try {
-    const r = await fetchFn(`${c.url}/health`, { signal: AbortSignal.timeout(STATUS_TIMEOUT_MS) });
-    const j = r.ok ? ((await r.json()) as { ok?: boolean; version?: string }) : null;
+    const r = await fetchFn(`${c.url}/health`, { headers: compatHeaders(), signal: AbortSignal.timeout(STATUS_TIMEOUT_MS) });
+    const j = r.ok ? ((await r.json()) as { ok?: boolean; version?: string; compat?: unknown }) : null;
+    // 版を返さない Worker は、版番号を入れる前の古い Worker である（版 0）。
+    if (j?.ok) workerCompat = typeof j.compat === 'number' ? parseCompat(String(j.compat)) : 0;
     lines.push(`Worker: ${c.url}（${j?.ok ? `ok, ${j.version ?? '?'}` : `HTTP ${r.status}`}）`);
   } catch (e) {
     lines.push(`Worker: ${c.url}（接続できません: ${e instanceof Error ? e.message : String(e)}）`);
   }
+  lines.push(`互換の版: この PC ${COMPAT_VERSION}、Worker ${workerCompat ?? '不明'}`);
   lines.push(c.workerName ? `役割: setup を実行した端末（Worker ${c.workerName}）` : '役割: 参加した端末（teardown はできません）');
   lines.push(transcriptFloorLine(readTranscriptsFrom(o.home)));
   lines.push(`アカウント ID と参加用の秘密は ${cloudConfigPath(o.home)} にあります（画面に出すと漏れるので表示しません）。`);

@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { MAX_PUSH_BATCH } from '@agent-hangar/shared';
-import { CloudError, goneFloor } from '../src/sync/client.ts';
-import { FakeCloudClient, MAX_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS } from './fake-cloud.ts';
+import { COMPAT_VERSION, MAX_PUSH_BATCH } from '@agent-hangar/shared';
+import { CloudError, CompatError, goneFloor } from '../src/sync/client.ts';
+import { FakeCloudClient, MAX_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS, MIN_DEVICE_COMPAT } from './fake-cloud.ts';
 
 const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId, updated_at: updatedAt }, updatedAt });
 /**
@@ -20,7 +20,7 @@ const meta = (key: string, over: Record<string, unknown> = {}) => ({ key, path: 
  * 偽物は実物を写したものなので、実物だけが変わったら落ちて写し直しを促す。
  * `packages/server` は `packages/cloud` に依存しないので、import ではなく原本の文字列から読む。
  */
-function workerConstant(file: 'changes.ts' | 'files.ts', name: string): number {
+function workerConstant(file: 'changes.ts' | 'files.ts' | 'compat.ts', name: string): number {
   const src = fs.readFileSync(new URL(`../../cloud/src/${file}`, import.meta.url), 'utf8');
   const m = new RegExp(`export const ${name} = ([0-9*\\s]+);`).exec(src);
   if (!m) throw new Error(`${name} を packages/cloud/src/${file} から読めない`);
@@ -373,5 +373,60 @@ describe('FakeCloudClient', () => {
     expect(MAX_ROW_BYTES).toBe(workerConstant('changes.ts', 'MAX_ROW_BYTES'));
     expect(MAX_ROW_ID_CHARS).toBe(workerConstant('changes.ts', 'MAX_ROW_ID_CHARS'));
     expect(MAX_BODY_BYTES).toBe(workerConstant('files.ts', 'MAX_BODY_BYTES'));
+  });
+});
+
+describe('互換の版', () => {
+  it('端末に求める下限は実物の Worker の写しで、既定では今の版どうしなので通る', async () => {
+    expect(MIN_DEVICE_COMPAT).toBe(workerConstant('compat.ts', 'MIN_DEVICE_COMPAT'));
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    expect(a.workerCompat).toBe(COMPAT_VERSION);
+    expect(a.minDeviceCompat).toBe(MIN_DEVICE_COMPAT);
+    expect(await a.pushChanges([ch('p1', 1)])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
+  });
+
+  it('Worker が下限を上げたら、どの経路も 426 の CompatError で断って何も預からず、/health だけは通る', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    a.minDeviceCompat = COMPAT_VERSION + 1;
+    await expect(a.pushChanges([ch('p1', 1)])).rejects.toMatchObject({ name: 'CompatError', status: 426, upgrade: 'device', have: COMPAT_VERSION, need: COMPAT_VERSION + 1 });
+    await expect(a.pullChanges(0, 10)).rejects.toBeInstanceOf(CompatError);
+    await expect(a.snapshot(null, 10)).rejects.toBeInstanceOf(CompatError);
+    await expect(a.listFiles(0, 10)).rejects.toBeInstanceOf(CompatError);
+    await expect(a.putFile(meta('transcripts/a/u.jsonl.gz'), Readable.from([Buffer.from('x')]))).rejects.toBeInstanceOf(CompatError);
+    await expect(a.getFile('transcripts/a/u.jsonl.gz')).rejects.toBeInstanceOf(CompatError);
+    await expect(a.usage()).rejects.toBeInstanceOf(CompatError);
+    expect(a.changes).toHaveLength(0);
+    expect(a.files.size).toBe(0);
+    expect(await a.health()).toEqual({ ok: true, version: 'fake' });
+  });
+
+  it('版の関所は認証より先にある（実物の Worker と同じ順）', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    a.unauthorized = true;
+    a.minDeviceCompat = COMPAT_VERSION + 1;
+    await expect(a.pullChanges(0, 10)).rejects.toMatchObject({ status: 426 });
+  });
+
+  it('Worker の版がこの端末の下限より古ければ、Worker を上げるよう断る', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a', minWorkerCompat: 1 });
+    expect(a.minWorkerCompat).toBe(1);
+    a.workerCompat = 0;
+    await expect(a.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 0, need: 1 });
+    expect(a.changes).toHaveLength(0);
+  });
+
+  it('版の見出しを返さない古い Worker（版 0）とも、下限が 0 の端末は話す', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    expect(a.minWorkerCompat).toBe(0);
+    a.workerCompat = 0;
+    expect(await a.pushChanges([ch('p1', 1)])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
+  });
+
+  it('別の端末も、同じ Worker の版と下限を見る', async () => {
+    const a = new FakeCloudClient({ deviceId: 'a' });
+    const b = a.asDevice('b');
+    a.minDeviceCompat = COMPAT_VERSION + 1;
+    await expect(b.pullChanges(0, 10)).rejects.toBeInstanceOf(CompatError);
+    expect(b.minDeviceCompat).toBe(COMPAT_VERSION + 1);
   });
 });

@@ -2,7 +2,7 @@ import { MAX_PUSH_BATCH, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOu
 import type { Db } from '../db/open.ts';
 import { onSharedWrite } from '../db/shared.ts';
 import { applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
-import { CloudError, goneFloor, type CloudClient } from './client.ts';
+import { CloudError, CompatError, goneFloor, type CloudClient } from './client.ts';
 import { D1_WRITES_PER_PULL, QuotaCounter, pushD1Writes, quotaDayKey, type QuotaLimits } from './quota.ts';
 import { SyncStateStore } from './state.ts';
 
@@ -105,6 +105,14 @@ export class SyncEngine {
    */
   private pushError: string | null = null;
   private pullError: string | null = null;
+  /**
+   * 互換の版が合わずに止めた理由（CompatError の文）。null なら止めていない。
+   *
+   * 一時停止（paused）とは別に持ち、sync_state には残さない。
+   * 直す道は、この PC の hangar を入れ替える（立て直しで消える）か、Worker を入れ替えて「今すぐ同期」を押す（syncNow で外す）かである。
+   * 残すと、直した後も止まり続ける。
+   */
+  private compatBlock: string | null = null;
   private claudeConfig = { enabled: false, confirmed: false };
   private started = false;
   /** 413 で諦めた行。同じ行で何度も知らせない。 */
@@ -141,8 +149,11 @@ export class SyncEngine {
    * 立っている間だけ push と pull の入口が開く。定期実行と起動前の pull は `paused` を見るので、開かない。
    */
   private onePass = false;
-  /** push と pull の入口を閉じているか。一時停止していて、頼まれた 1 巡の最中でもないとき。 */
-  private get halted(): boolean { return this.paused && !this.onePass; }
+  /** push と pull の入口を閉じているか。版で止まっているとき、または一時停止していて頼まれた 1 巡の最中でもないとき。 */
+  private get halted(): boolean { return this.compatBlock !== null || (this.paused && !this.onePass); }
+
+  /** 互換の版が合わずに止まっているか。本文と設定の出し入れと使用量も、これを見て止まる（server.ts の syncHalted）。 */
+  compatBlocked(): boolean { return this.compatBlock !== null; }
 
   on(l: SyncListener): () => void { this.listeners.add(l); return () => { this.listeners.delete(l); }; }
 
@@ -159,8 +170,10 @@ export class SyncEngine {
   protected get lastError(): string | null { return this.pushError ?? this.pullError; }
 
   /** 失敗の理由を残す。CloudError の message は応答本文の先頭 200 字なので、Worker は本文に秘密を入れない。 */
-  protected failPush(e: unknown): void { this.pushError = errorMessage(e); this.persistError(); }
-  protected failPull(e: unknown): void { this.pullError = errorMessage(e); this.persistError(); }
+  protected failPush(e: unknown): void { this.pushError = errorMessage(e); this.noteCompat(e); this.persistError(); }
+  protected failPull(e: unknown): void { this.pullError = errorMessage(e); this.noteCompat(e); this.persistError(); }
+  /** 版が合わないと分かったら止める。理由の文は CompatError が持っている（どちらを上げればよいか）。 */
+  private noteCompat(e: unknown): void { if (e instanceof CompatError) this.compatBlock = e.message; }
   protected clearPushError(): void { if (this.pushError === null) return; this.pushError = null; this.persistError(); }
   protected clearPullError(): void { if (this.pullError === null) return; this.pullError = null; this.persistError(); }
   private persistError(): void { this.state.set('lastError', this.lastError); }
@@ -175,6 +188,8 @@ export class SyncEngine {
 
   status(): SyncStatusDto {
     const state: SyncStateKind = !this.deps.client ? 'off'
+      // 版で止まっているときは、一時停止より先に見せる。直す道（どちらを上げるか）が error の文にしか無いからである。
+      : this.compatBlock !== null ? 'error'
       : this.paused ? 'paused'
       : this.pushing ? 'pushing'
       : this.pulling ? 'pulling'
@@ -188,7 +203,7 @@ export class SyncEngine {
       lastPushAt: num('lastPushAt'),
       lastPullAt: num('lastPullAt'),
       pending: this.pending(),
-      error: state === 'error' ? this.lastError : null,
+      error: state === 'error' ? (this.compatBlock ?? this.lastError) : null,
       deviceCount,
       claudeConfig: { ...this.claudeConfig },
       // 古いサーバが止めた状態は理由を持たない。利用者が止めたのと同じに読む。
@@ -503,6 +518,10 @@ export class SyncEngine {
    * 無料枠の見張りも止め直さない（もう止まっている）。枠を使うことを承知で押した 1 回として通す。
    */
   async syncNow(o: { evenIfPaused?: boolean } = {}): Promise<void> {
+    // 版で止まっていても、利用者が押した 1 回は試し直す。Worker を入れ替えた後に戻る道はここだけである。
+    // まだ合わなければ、その 1 回の失敗でまた止まる。
+    // 一時停止のまま何も送らない回では外さない。外すと、試してもいないのに表示だけが一時停止に戻る。
+    if (!this.paused || o.evenIfPaused || this.onePass) this.compatBlock = null;
     if (!o.evenIfPaused || !this.paused || this.onePass) {
       await this.pushNow();
       await this.pullNow();
@@ -519,7 +538,7 @@ export class SyncEngine {
 
   /** セッション起動の直前に呼ぶ。2 秒で諦めるが pull 自体は続く。 */
   async pullBeforeLaunch(timeoutMs = 2000): Promise<boolean> {
-    if (!this.deps.client || this.paused) return false;
+    if (!this.deps.client || this.paused || this.compatBlock !== null) return false;
     let timer: NodeJS.Timeout | null = null;
     const gaveUp = new Promise<boolean>((r) => { timer = this.timers.setTimeout(() => r(false), timeoutMs); });
     const done = this.pulling ?? this.pullNow();
