@@ -480,16 +480,30 @@ describe('タブと接続', () => {
     expect(r.state.sessionView.s2?.selectedTab).toBeNull();
     expect(r.effects.filter((e) => String((e as { kind: string }).kind).startsWith('terminal.'))).toEqual([{ kind: 'terminal.disconnect', tabId: 't9' }]);
   });
-  it('右ペインの上下の比率は、離したときに丸めて保存する', () => {
+  it('右ペインの上下の比率は、離したときに丸めて、そのセッションの値と最後に動かした値の両方に保存する', () => {
     expect(initialState().livePaneSplit).toBe(0.5);
-    const a = run([intent({ type: 'livePane.split', ratio: 0.3 })]);
+    const a = run([intent({ type: 'livePane.split', sessionId: 's1', ratio: 0.3 })]);
     expect(a.state.livePaneSplit).toBe(0.3);
-    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'livePane.split', value: 0.3 }]);
+    expect(a.state.sessionView.s1?.livePaneSplit).toBe(0.3);
+    expect(a.effects).toEqual([
+      { kind: 'storage.save', key: 'livePane.split', value: 0.3 },
+      { kind: 'storage.save', key: 'sv:s1', value: expect.objectContaining({ livePaneSplit: 0.3 }) },
+    ]);
     // 端まで寄せられる。どちらの端でも、見出しの 1 行は CSS の下限で残る。
-    expect(run([intent({ type: 'livePane.split', ratio: 0.99 })]).state.livePaneSplit).toBe(0.99);
-    expect(run([intent({ type: 'livePane.split', ratio: -1 })]).state.livePaneSplit).toBe(0);
-    expect(run([intent({ type: 'livePane.split', ratio: 2 })]).state.livePaneSplit).toBe(1);
-    expect(run([intent({ type: 'livePane.split', ratio: Number.NaN })]).state.livePaneSplit).toBe(0.5);
+    const at = (ratio: number) => run([intent({ type: 'livePane.split', sessionId: 's1', ratio })]).state.sessionView.s1?.livePaneSplit;
+    expect(at(0.99)).toBe(0.99);
+    expect(at(-1)).toBe(0);
+    expect(at(2)).toBe(1);
+    expect(at(Number.NaN)).toBe(0.5);
+  });
+  it('右ペインの比率はセッションごとに持ち、ほかのセッションの値は変えない', () => {
+    const a = run([intent({ type: 'livePane.split', sessionId: 's1', ratio: 0.3 })]);
+    const b = run([intent({ type: 'livePane.split', sessionId: 's2', ratio: 0.7 })], a.state);
+    expect(b.state.sessionView.s1?.livePaneSplit).toBe(0.3);
+    expect(b.state.sessionView.s2?.livePaneSplit).toBe(0.7);
+    expect(b.state.livePaneSplit).toBe(0.7);
+    // まだ動かしていないセッションは自分の値を持たない（画面は最後に動かした値で開く）。
+    expect(defaultSessionView().livePaneSplit).toBeNull();
   });
   it('サイドバーの折りたたみは開閉のたびに保存する', () => {
     expect(initialState().sidebarCollapsed).toBe(false);

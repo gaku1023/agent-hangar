@@ -186,11 +186,11 @@ describe('LivePane', () => {
       const onIntent = at(0.5);
       const sep = screen.getByRole('separator');
       fireEvent.keyDown(sep, { key: 'ArrowDown' });
-      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 0.52 });
+      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', sessionId: 's1', ratio: 0.52 });
       fireEvent.keyDown(sep, { key: 'ArrowUp' });
-      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 0.48 });
+      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', sessionId: 's1', ratio: 0.48 });
       fireEvent.doubleClick(sep);
-      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 0.5 });
+      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', sessionId: 's1', ratio: 0.5 });
     });
     it('読み上げの範囲は 0〜100%', () => {
       at(0);
@@ -202,7 +202,7 @@ describe('LivePane', () => {
     it('矢印キーは端で 0 と 1 に止まる', () => {
       const onIntent = at(1);
       fireEvent.keyDown(screen.getByRole('separator'), { key: 'ArrowDown' });
-      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', ratio: 1 });
+      expect(onIntent).toHaveBeenLastCalledWith({ type: 'livePane.split', sessionId: 's1', ratio: 1 });
     });
   });
   describe('成果物', () => {

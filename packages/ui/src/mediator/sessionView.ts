@@ -1,7 +1,7 @@
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
 
 export function defaultSessionView(): SessionViewState {
-  return { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, openTurn: null, turnJump: null, find: null, jump: null };
+  return { agentId: null, showThinking: false, showRaw: false, follow: true, summaryOpen: false, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, livePaneSplit: null, openTurn: null, turnJump: null, find: null, jump: null };
 }
 
 /**

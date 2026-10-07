@@ -5,7 +5,7 @@ import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } f
 import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
-import { clampLivePaneSplit, cleanSidebarOrder, LIVE_PANE_SPLIT_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
+import { clampLivePaneSplit, cleanSidebarOrder, LIVE_PANE_SPLIT_KEY, readSessionLivePaneSplit, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
 import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
 import { NO_QUESTION } from '../presenters/home.ts';
@@ -652,7 +652,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         if (!v || typeof v !== 'object') continue;
         // follow は残さない決まりだが、古い保存に残っていることがある。読み戻すときに落として既定（真）に戻す。
         const { follow: _ignore, ...rest } = v as Partial<SessionViewState>;
-        sv[k.slice(3)] = { ...defaultSessionView(), ...rest };
+        sv[k.slice(3)] = { ...defaultSessionView(), ...rest, livePaneSplit: readSessionLivePaneSplit(rest.livePaneSplit) };
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {

@@ -143,7 +143,7 @@ export function LivePane({ sessionId, pane, leaving, lead, children, split = LIV
       const lamp = host.querySelector<HTMLElement>('.live-lamp');
       const tocMin = toc ? parseFloat(getComputedStyle(toc).minHeight) || 0 : 0;
       setDragging(null);
-      emit({ type: 'livePane.split', ratio: snapSplit(last, { height: rect.height, topMin: lamp?.offsetHeight ?? 0, tocMin }) });
+      emit({ type: 'livePane.split', sessionId, ratio: snapSplit(last, { height: rect.height, topMin: lamp?.offsetHeight ?? 0, tocMin }) });
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -151,7 +151,7 @@ export function LivePane({ sessionId, pane, leaving, lead, children, split = LIV
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     e.preventDefault();
-    emit({ type: 'livePane.split', ratio: round(split + (e.key === 'ArrowUp' ? -0.02 : 0.02)) });
+    emit({ type: 'livePane.split', sessionId, ratio: round(split + (e.key === 'ArrowUp' ? -0.02 : 0.02)) });
   };
   const percent = Math.round(ratio * 100);
   return (
@@ -209,7 +209,7 @@ export function LivePane({ sessionId, pane, leaving, lead, children, split = LIV
       {/* 上の段と目次の境目。ドラッグか上下の矢印で動かし、ダブルクリックで半分に戻す。 */}
       {pane && <div className="live-divider" role="separator" aria-label="「いま」と目次の高さ" aria-orientation="horizontal"
         aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-valuetext={`「いま」${percent}%`} tabIndex={0}
-        onPointerDown={onPointerDown} onKeyDown={onKeyDown} onDoubleClick={() => emit({ type: 'livePane.split', ratio: LIVE_PANE_SPLIT_DEFAULT })} />}
+        onPointerDown={onPointerDown} onKeyDown={onKeyDown} onDoubleClick={() => emit({ type: 'livePane.split', sessionId, ratio: LIVE_PANE_SPLIT_DEFAULT })} />}
       <div ref={tocRef} className="live-toc">{children}</div>
     </div>
   );

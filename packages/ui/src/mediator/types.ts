@@ -187,6 +187,8 @@ export type FindState = { query: string; caseSensitive: boolean; from: number | 
 export type JumpState = { seq: number; query: string; n: number };
 export type SessionViewState = {
   agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; summaryOpen: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null;
+  /** 右ペインの「いま」の段が取る高さの割合。まだ境目を動かしていなければ null で、画面は最後に動かした値（State の livePaneSplit）で開く。 */
+  livePaneSplit: number | null;
   /** 目次で開いているターン（区切りの行の seq）。その場の操作なので保存しない。 */
   openTurn: number | null;
   /**
@@ -285,7 +287,7 @@ export type State = {
    * Presenter が読む（presenters/project.ts）ので View ではなくここに持つ。保存はしない。
    */
   sectionsOpen: Record<string, 'archived'[]>;
-  /** 実行中の右ペインで「いま」の段が取る高さの割合（0〜1）。境目で変え、端末ごとに localStorage に残す。 */
+  /** 最後に動かした、実行中の右ペインで「いま」の段が取る高さの割合（0〜1）。境目を動かしていないセッションはこれで開く。端末ごとに localStorage に残す。 */
   livePaneSplit: number;
   /** 保持期間の帯を「このままでよい」で閉じたか。端末ごとに localStorage に残し、起動時に読み戻す。 */
   retentionBannerDismissed: boolean;
