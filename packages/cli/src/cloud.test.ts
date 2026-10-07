@@ -1285,6 +1285,18 @@ describe('互換の版', () => {
     expect(slept).toHaveLength(0);
   });
 
+  it('426 の見出しだけ返して本文が閉じない相手でも、締め切りで打ち切って止まる', async () => {
+    const f = (async () => new Response(new ReadableStream({ start() {} }), { status: 426 })) as typeof fetch;
+    const slept: number[] = [];
+    const e: Error = await joinWorker('https://h', 's', device, { fetch: f, sleep: async (ms) => { slept.push(ms); }, timeoutMs: 50, retryForbidden: true }).then(
+      () => { throw new Error('断られるはずが通った'); },
+      (x: unknown) => x as Error,
+    );
+    expect(e.message).toContain('この PC の hangar が古い');
+    expect(e.message).toContain('それより新しい版');
+    expect(slept).toHaveLength(0);
+  }, 2000);
+
   it('status は、この PC と Worker の互換の版を 1 行で見せる', async () => {
     const { home } = dirs();
     saveCloudConfig(home, conf({ url: 'https://h', deviceToken: 't' }));

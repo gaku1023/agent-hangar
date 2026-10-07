@@ -282,7 +282,17 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
     // 版が古くて断られたときは、待っても変わらない。上げる側を伝えて止める。
     // 本文から読むのは下限の数だけで、本文そのものは出さない。
     if (r.status === 426) {
-      const need = readCompatRefusal(await r.text().catch(() => ''));
+      // 本文が流れてこない相手でも止まるよう、読みも同じ締め切りで打ち切る（打ち切ったら不明として扱う）。
+      let bodyTimer: ReturnType<typeof setTimeout> | undefined;
+      const body = await Promise.race([
+        r.text().catch(() => ''),
+        new Promise<string>((resolve) => {
+          bodyTimer = setTimeout(() => { void r.body?.cancel().catch(() => {}); resolve(''); }, timeout);
+          bodyTimer.unref?.();
+        }),
+      ]);
+      clearTimeout(bodyTimer);
+      const need = readCompatRefusal(body);
       const want = need === null ? 'それより新しい版' : `${need} 以上`;
       throw new Error(`この PC の hangar が古いので、Worker が参加を断りました（この PC の互換の版は ${COMPAT_VERSION}、Worker が求めるのは ${want}）。hangar を新しい版に入れ替えてから、もう一度実行してください`);
     }
