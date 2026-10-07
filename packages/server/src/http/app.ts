@@ -46,10 +46,11 @@ export type ExternalApi = {
   openUrl(url: string): Promise<void>;
 };
 /**
- * 要約の受け付け方。true は従来どおり force と同じ。
+ * 要約の受け付け方。
+ * force は条件をすべて飛ばす（手動の作り直し）。
  * ignoreLive はレジストリの生存判定だけを飛ばす。土台かどうかと 5 ターンの判定は残る。
  */
-export type SummaryEnqueueOpts = boolean | { force?: boolean; ignoreLive?: boolean };
+export type SummaryEnqueueOpts = { force?: boolean; ignoreLive?: boolean };
 /** SummaryJob のうち HTTP から触る部分だけ。 */
 export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts): boolean; pending(): string[]; test(): Promise<SummarizerTestDto>; listModels(): Promise<string[]> };
 /** SyncEngine のうち HTTP から触る部分だけ。 */
