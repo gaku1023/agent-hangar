@@ -18,7 +18,7 @@
 ## 範囲
 
 - 計画 B は、spec の「画面」の節のうち、計画 A が作らなかった見た目（presenter、View、CSS、文言）と、ずれの中身を取る時機である。
-- 計画 A の Task 2（shared の `compat.ts`）と Task 11（`ReadinessDto.compat`、`GET /api/compat`、`ApiClient.compat`、偽の API と見本の `READY` の `compat`）が済んでいることを前提にする。
+- 計画 A の Task 2（shared の `claudeCompat.ts`。段 1 の PR 3 が `compat.ts` に互換の版番号を置くので名前を分けた）と Task 11（`ReadinessDto.compat`、`GET /api/compat`、`ApiClient.compat`、偽の API と見本の `READY` の `compat`）が済んでいることを前提にする。
 - 計画 B は新しい DTO も API も作らない。
 
 ## 決めたこと
