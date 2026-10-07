@@ -36,12 +36,18 @@ const ALL_ALIVE = (): boolean => false;
 let home: string;
 let claudeDir: string;
 let ws: string;
+let prevClaudeBin: string | undefined;
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-'));
   claudeDir = copyFixtureClaudeDir();
   ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws-'));
+  // サーバは起動の裏で claude --help と --version を読む。手元の本物の claude を起こさないよう、無いパスに向ける。
+  // 偽の claude を使う試験は、この値を上書きする。
+  prevClaudeBin = process.env.HANGAR_CLAUDE_BIN;
+  process.env.HANGAR_CLAUDE_BIN = path.join(home, 'no-claude');
 });
 afterEach(() => {
+  if (prevClaudeBin === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prevClaudeBin;
   fs.rmSync(home, { recursive: true, force: true });
   fs.rmSync(claudeDir, { recursive: true, force: true });
   fs.rmSync(ws, { recursive: true, force: true });
@@ -474,6 +480,16 @@ describe('startServer', () => {
       if (prev === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prev;
     }
   }, 15_000);
+
+  it('試験の準備は claude を無いパスに向け、手元の本物の claude を起こさない', async () => {
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    try {
+      const body = (await (await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json()) as CompatDto;
+      expect(body.localVersion).toBeNull();
+    } finally {
+      await s.close();
+    }
+  });
 
   it('claude のパスが普通のファイルの下を指しても（ENOTDIR）、サーバは落ちず、/api/compat は手元の版を null で返す', async () => {
     const plain = path.join(home, 'plain');
