@@ -271,13 +271,13 @@ function LiveCard(props: { card: RunningCard; onOpen: () => void }) {
   const c = props.card;
   const width = Math.max(0, Math.min(100, c.contextPercent ?? 0));
   return (
-    <div className="live-card" role="button" tabIndex={0} data-live={c.live ?? undefined} data-morph-id={c.id} onClick={props.onOpen} onKeyDown={(e) => { if (e.key === 'Enter') props.onOpen(); }}>
-      <div className="live-head"><StatusDot status={c.live} /><span className="live-name">{c.name}</span><span className="live-elapsed num">{c.elapsed}</span></div>
+    <div className="live-card" role="button" tabIndex={0} data-live={c.aside ? 'aside' : c.live ?? undefined} data-morph-id={c.id} onClick={props.onOpen} onKeyDown={(e) => { if (e.key === 'Enter') props.onOpen(); }}>
+      <div className="live-head"><StatusDot status={c.live} aside={c.aside} /><span className="live-name">{c.name}</span><span className="live-elapsed num">{c.elapsed}</span></div>
       <div className="live-meta">{c.meta}</div>
       {/* 作業中は、意図（白地の 1 行）と、いまの手（墨の帯の 1 行）を出す。墨の帯は端末の出力だけに使う。
           休みと起動中は端末が何も出していないので、帯にせず白地の文で言う。 */}
       {c.intent && <div className="live-intent" title={c.intent}>{c.intent}</div>}
-      {c.live === 'busy'
+      {c.live === 'busy' && !c.aside
         ? <div className="live-act mono">{c.activity ? <><i>{c.activity.tool}</i>{c.activity.summary !== '' && <> {c.activity.summary}</>}</> : <span className="live-note">{c.note}</span>}</div>
         : <div className="live-rest">{c.note}</div>}
       {/* コンテキストの使用率が届いていない間は、空の棒と「未取得」を並べず、行ごと出さない。 */}

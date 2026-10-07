@@ -41,6 +41,14 @@ describe('listSessions', () => {
     expect(beta).toMatchObject({ hasTranscript: false, live: null, name: 'beta の README を書いて', projectId: null });
   });
 
+  it('裏だけ動いている印を、登録から写す', () => {
+    const aside = { shell: true, agents: 0 };
+    const list = listSessions(db, [{ sessionId: SESSION_ALPHA, status: 'busy', name: null, nameSource: null, cwd: '/Users/me/workspace/alpha', pid: 1, aside }]);
+    expect(list.find((s) => s.providerSessionId === SESSION_ALPHA)).toMatchObject({ live: 'busy', liveAside: aside });
+    expect(list.find((s) => s.providerSessionId === SESSION_BETA)!.liveAside).toBeNull();
+    expect(listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!.liveAside).toBeNull();
+  });
+
   it('projectId と ids で絞る', () => {
     expect(listSessions(db, live, { projectId: 'p1' })).toHaveLength(1);
     const id = listSessions(db, live)[0]!.id;

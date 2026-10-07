@@ -25,6 +25,11 @@ describe('parkedSessionIds', () => {
     // s1 は休み、s2 は作業中、s3 は印なし。
     expect(parkedSessionIds(db, [live('u1'), live('u2', 'busy'), live('u3')])).toEqual(['s1']);
   });
+  it('裏だけ動いている会話（本体は空いていて、裏で Bash が動いている）は返さない。止めると裏の作業も消える', () => {
+    const db = seed();
+    setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: SET_AT });
+    expect(parkedSessionIds(db, [{ ...live('u1', 'busy'), aside: { shell: true, agents: 0 } }])).toEqual([]);
+  });
   it('再開して開いたもの（印より後に起動）と、hangar が知らない会話は返さない', () => {
     const db = seed();
     setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: T('2026-10-02T02:00:00.000Z') });

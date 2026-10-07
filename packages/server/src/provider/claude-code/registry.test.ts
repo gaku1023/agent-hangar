@@ -31,6 +31,19 @@ describe('readRegistry', () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+  it('本体が休みで裏の Bash だけが動いている（shell）は、作業中のまま裏だけの印を付ける', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const sessions = path.join(dir, 'sessions');
+      fs.rmSync(path.join(sessions, '12345.json'));
+      fs.writeFileSync(path.join(sessions, '7.json'), JSON.stringify({ pid: 7, sessionId: 'u-shell', cwd: '/x', status: 'shell' }));
+      fs.writeFileSync(path.join(sessions, '8.json'), JSON.stringify({ pid: 8, sessionId: 'u-busy', cwd: '/y', status: 'busy' }));
+      expect(readRegistry(dir, ALL_ALIVE)).toEqual([
+        { sessionId: 'u-busy', status: 'busy', name: null, nameSource: null, cwd: '/y', pid: 8 },
+        { sessionId: 'u-shell', status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 7, aside: { shell: true, agents: 0 } },
+      ]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
   it('ディレクトリが無ければ空', () => {
     expect(readRegistry('/nonexistent')).toEqual([]);
   });

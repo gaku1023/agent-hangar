@@ -273,7 +273,7 @@ describe('presentHome', () => {
   it('実行中は作業中と休みを拾い、入力待ちは要対応だけに出す', () => {
     const p = presentHome(initialState(), homeStore(), NOW);
     expect(p.running.map((r) => r.id)).toEqual(['s1', 'i1']);
-    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%' });
+    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', aside: false, elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%' });
     expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: '休み。最後の返答から 8 分', contextPercent: 22, contextLabel: '22%' });
   });
   it('意図は、作業中のセッションがこのターンに書いたものだけを出す', () => {

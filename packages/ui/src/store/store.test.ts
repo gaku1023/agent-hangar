@@ -22,6 +22,16 @@ describe('store', () => {
     s = applyServerEvent(s, { type: 'live.update', live: [] });
     expect(s.sessions.s1?.live).toBeNull();
   });
+  it('live.update は裏だけ動いている印も引き直す', () => {
+    let s = applyBootstrap(initialStore(), boot);
+    const base = { sessionId: 'u1', status: 'busy' as const, name: null, nameSource: null, cwd: '/x', pid: 1 };
+    s = applyServerEvent(s, { type: 'live.update', live: [{ ...base, aside: { shell: true, agents: 0 } }] });
+    expect(s.sessions.s1).toMatchObject({ live: 'busy', liveAside: { shell: true, agents: 0 } });
+    s = applyServerEvent(s, { type: 'live.update', live: [base] });
+    expect(s.sessions.s1).toMatchObject({ live: 'busy', liveAside: null });
+    s = applyServerEvent(s, { type: 'live.update', live: [] });
+    expect(s.sessions.s1).toMatchObject({ live: null, liveAside: null });
+  });
   it('session.upsert は state も丸ごと差し替える（状態の操作の画面の正）', () => {
     let s = applyBootstrap(initialStore(), boot);
     const state = { status: 'paused' as const, note: '明日見る', returnOn: '2026-10-02', returnTime: null, setBy: 'user' as const, setAt: 1, candidate: null };

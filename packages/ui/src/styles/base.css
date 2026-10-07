@@ -161,6 +161,8 @@ a:hover { text-decoration: underline; }
 /* 入力待ちは行を動かさず、太字と待った時間で知らせる。 */
 .side-live-row[data-live='waiting'] .side-live-name { font-weight: 600; }
 .side-live-wait { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); }
+/* 裏だけ動いている行は、丸の色に加えて「裏」「裏 2」の語を添える。色を見落としても読めるようにする。 */
+.side-live-aside { flex: none; font-size: var(--fs-xs); font-weight: 500; color: color-mix(in srgb, var(--busy) 80%, var(--ink)); }
 .side-live-row[data-dragging='true'] { opacity: 0.4; }
 .side-live-row[data-over='before'] { box-shadow: inset 0 2px 0 var(--accent); border-radius: 0; }
 .side-live-row[data-over='after'] { box-shadow: inset 0 -2px 0 var(--accent); border-radius: 0; }
@@ -244,6 +246,7 @@ a:hover { text-decoration: underline; }
 /* 休みは灰にする（右の欄の灯と同じ）。緑（--idle）は「済んだ」の色で、終わったサブエージェントやコミットの札に使うので、休みには使わない。 */
 .dot[data-status='idle'] { background: var(--ink-3); }
 .dot[data-status='waiting'] { background: var(--waiting); }
+.dot[data-aside='true'] { background: var(--aside); }
 
 /* 見出しと区画 */
 /* 頁の見出し（views/PageHeading.tsx）。今いる場所はヘッダではなくここで示す。
@@ -521,6 +524,8 @@ a:hover { text-decoration: underline; }
 /* 縁の灯。そのセッションの状態で 1.5px の輪と、外側の淡い光を灯す。
    作業中だけ --breathe-period でゆっくり明暗を往復し、入力待ちは動かさない。休みと終了は灯さず、板を持ち上げる影だけにする。 */
 .term-pane[data-live='busy'] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 90%, transparent), 0 0 22px -2px color-mix(in srgb, var(--busy) 45%, transparent), var(--term-lift); animation: rim-breathe var(--breathe-period) ease-in-out infinite; }
+/* 裏だけ動いているときは、入力できるので呼吸させず、薄いオレンジの輪だけを静かに灯す。 */
+.term-pane[data-live='aside'] { box-shadow: 0 0 0 1.5px var(--aside), var(--term-lift); }
 .term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
 @keyframes rim-breathe { 50% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 55%, transparent), 0 0 12px -4px color-mix(in srgb, var(--busy) 25%, transparent), var(--term-lift); } }
 @media (prefers-reduced-motion: reduce) { .term-pane[data-live='busy'] { animation: none; } }
@@ -571,12 +576,14 @@ a:hover { text-decoration: underline; }
 .live-artifact-editor { flex: none; justify-content: center; width: calc(var(--row-h) - 6px); padding: 0; }
 .live-pane-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); font-size: var(--fs-sm); }
 .live-lamp { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); font-weight: 600; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out); }
+.live-lamp[data-tone='aside'] { color: var(--ink); background: color-mix(in srgb, var(--busy) 6%, var(--surface)); }
 .live-lamp[data-tone='wait'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 12%, var(--surface)); }
 .live-lamp[data-tone='idle'] { color: var(--ink-2); background: var(--surface-2); }
 .live-lamp-sub { margin-left: auto; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-2); text-align: right; }
 .live-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
 .live-dot[data-tone='busy'], .live-dot[data-tone='running'] { background: var(--busy); animation: live-pulse var(--breathe-period) ease-in-out infinite; }
 .live-dot[data-tone='wait'] { background: var(--waiting); }
+.live-dot[data-tone='aside'] { background: var(--aside); }
 .live-dot[data-tone='done'] { background: var(--idle); }
 .live-dot[data-tone='error'] { background: var(--error); }
 @keyframes live-pulse { 50% { opacity: 0.3; } }

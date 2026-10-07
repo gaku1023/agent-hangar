@@ -55,8 +55,10 @@
    休みと起動中は灯さない。ここでは呼吸させない（脈動は端末の縁だけ）。 */
 .live-card[data-live='busy'] { box-shadow: 0 0 0 1px color-mix(in srgb, var(--busy) 60%, transparent), var(--surface-shadow); }
 .live-card[data-live='waiting'] { box-shadow: 0 0 0 1px var(--waiting), var(--surface-shadow); }
+.live-card[data-live='aside'] { box-shadow: 0 0 0 1px color-mix(in srgb, var(--busy) 28%, transparent), var(--surface-shadow); }
 .live-card:hover { box-shadow: var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
 .live-card[data-live='busy']:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--busy) 60%, transparent), var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
+.live-card[data-live='aside']:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--busy) 28%, transparent), var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
 .live-card[data-live='waiting']:hover { box-shadow: 0 0 0 1px var(--waiting), var(--surface-shadow), 0 8px 20px -12px rgba(30, 40, 90, 0.25); }
 .live-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .live-head { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-weight: 600; }

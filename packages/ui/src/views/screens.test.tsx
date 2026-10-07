@@ -16,7 +16,7 @@ const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id
 
 describe('HomeScreen', () => {
   const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
-  const runningCard = (over: Partial<RunningCard> = {}): RunningCard => ({ id: 's1', name: 'キーボード操作の見直し', live: 'busy', elapsed: '12 分', meta: 'agent-hangar · opus 4.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38, contextLabel: '38%', ...over });
+  const runningCard = (over: Partial<RunningCard> = {}): RunningCard => ({ id: 's1', name: 'キーボード操作の見直し', live: 'busy', aside: false, elapsed: '12 分', meta: 'agent-hangar · opus 4.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38, contextLabel: '38%', ...over });
 
   it('確かめるの区画は候補を出し、確定と却下と本文の押下で Intent を出し、0 件なら省く', () => {
     const onIntent = vi.fn();

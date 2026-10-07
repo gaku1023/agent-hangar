@@ -348,7 +348,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const rowEl = (r: SessionRowProps) => (
     <div className="row row-2" role="row" tabIndex={r.id === tabStopId ? 0 : -1} data-cursor={r.id === cursorRowId ? 'true' : undefined} data-archived={r.state === 'archived' ? 'true' : undefined} data-morph-id={r.id}
       onClick={() => emit(openIntent(r))} onFocus={() => setCursorId(r.id)}>
-      <StatusDot status={r.live} />
+      <StatusDot status={r.live} aside={r.aside} />
       {statusColumn && status(r)}
       <span className="row-main">
         <span className="row-name">{r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>

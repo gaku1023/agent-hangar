@@ -225,6 +225,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     memo: r.memo,
     hasTranscript: r.has_transcript === 1,
     live: live?.status ?? null,
+    liveAside: live?.aside ?? null,
     summary,
     stats,
     lock: locks.get(r.id) ?? null,

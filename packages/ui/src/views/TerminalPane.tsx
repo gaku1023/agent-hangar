@@ -31,7 +31,7 @@ function useSecondsUntil(at: number | null): number | null {
  * agent は Claude のタブか。
  * transcript は、目次から跳ばした Claude が transcript を見せている間の帯（Claude の枠にだけ渡す）。
  */
-export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null }) {
+export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null }) {
   const host = useContext(TerminalHostContext);
   const ref = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -101,7 +101,7 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   // 縁はそのセッションの状態で灯る（base.css の .term-pane[data-live]）。
   // 終わったセッションと切れている間は灯さない。
   return (
-    <div ref={paneRef} className="term-pane" data-testid={`term-${props.tabId}`} data-live={props.live ?? 'ended'} data-off={off ? 'true' : undefined}>
+    <div ref={paneRef} className="term-pane" data-testid={`term-${props.tabId}`} data-live={props.aside === true && props.live === 'busy' ? 'aside' : props.live ?? 'ended'} data-off={off ? 'true' : undefined}>
       {band.mounted && lastBand.current && (
         <div ref={band.ref} className="term-band" aria-hidden={band.leaving ? 'true' : undefined}>
           <Icon name="transcriptView" />

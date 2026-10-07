@@ -1,4 +1,4 @@
-import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type LiveStatus, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
+import { ASIDE_FREE, asideHead, asideOf, isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type LiveStatus, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
@@ -20,8 +20,9 @@ export type AttentionCard = { id: string; name: string; projectName: string | nu
  * 実行中の札。
  * intent は Claude がこのターンに書いた意図の 1 文で、書かれていなければ null である（右の欄の「いま」と同じもの。presenters/live.ts）。
  * activity があれば墨の帯にツールと対象を、無ければ note の一言を出す。
+ * aside は裏だけ動いていること。そのときは activity も intent も出さず、note で裏のものと指揮役が空いていることを言う。
  */
-export type RunningCard = { id: string; name: string; live: LiveStatus | null; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string };
+export type RunningCard = { id: string; name: string; live: LiveStatus | null; aside: boolean; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string };
 /**
  * Home のプロジェクトの 1 行に並べる 1 件。counts は 0 でない数だけを並べた文。
  * 数えるのは TODO と確かめるだけにする。実行中と要対応は、すぐ上の札で見えているからである。
@@ -114,13 +115,16 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
   const running = sortSessions(sessions.filter((s) => liveFilterOfSession(store, s, alive) === 'running')).map((s): RunningCard => {
     // 対象が取れない呼び出し（答えた後の AskUserQuestion など）は summary にツール名が入る。同じ語を 2 度並べないよう空にする。
     // summary の先頭に「ツール名+半角空白」が付くこともある（サーバの toolSummary が付けた分）。カードはツール名を <i> で先に出すので、その重なりを削る。
-    const activity = s.live === 'busy' && s.activity ? { tool: s.activity.tool, summary: shortenPaths(stripLeadingTool(s.activity.tool, s.activity.summary)) } : null;
-    const note = activity ? null : s.live === 'idle' ? `休み。最後の返答から ${durationLabel(now - (s.lastActivityAt ?? now))}` : s.live === 'busy' ? '作業中' : '起動しています';
+    // 裏だけ動いているときは、本体の手も意図も今のものではないので出さず、裏のものと指揮役が空いていることを言う。
+    const aside = asideOf(s.live, s.liveAside);
+    const working = s.live === 'busy' && aside === null;
+    const activity = working && s.activity ? { tool: s.activity.tool, summary: shortenPaths(stripLeadingTool(s.activity.tool, s.activity.summary)) } : null;
+    const note = activity ? null : aside ? `${asideHead(aside)}。${ASIDE_FREE}` : s.live === 'idle' ? `休み。最後の返答から ${durationLabel(now - (s.lastActivityAt ?? now))}` : s.live === 'busy' ? '作業中' : '起動しています';
     const meta = [projectName(s) ?? '未分類', shortModel(s.stats.model), s.stats.effort ?? ''].filter((x) => x !== '').join(' · ');
     // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。
     const said = store.liveDigests[s.id]?.intent;
-    const intent = s.live === 'busy' && said && said.inThisTurn ? said.text : null;
-    return { id: s.id, name: name(s), live: s.live, elapsed: durationLabel(now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(s.stats.contextPercent) };
+    const intent = working && said && said.inThisTurn ? said.text : null;
+    return { id: s.id, name: name(s), live: s.live, aside: aside !== null, elapsed: durationLabel(now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(s.stats.contextPercent) };
   });
 
   // 札に出したものは最近に重ねない。
