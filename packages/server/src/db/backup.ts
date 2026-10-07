@@ -28,38 +28,60 @@ export function defaultDbBackupDir(dbFile: string): string {
 /**
  * VACUUM INTO で DB の写しを取り、新しいものから keep 個を残して古いものを消す。
  * VACUUM はトランザクションの中では動かないので、マイグレーションを当てる前に、トランザクションの外で呼ぶ。
+ * 写しは控えの形でない一時の名前に書き、0600 にして fsync してから改名する。途中で失敗したり落ちたりしても、控えに見えるものは残らない。
+ * 置き場がシンボリックリンクなら取らない（刈る側の pruneBackupFiles と、書く側の resolveUnder にそろえる）。
  * 写しが取れなければ DbBackupError を投げる。刈り込みの失敗は投げない（控えはもう取れている）。
  */
 export function backupDb(db: Database.Database, dir: string, lastVersion: number, now: Date, keep: number = DB_BACKUP_GENERATIONS): string {
   const file = path.join(dir, `hangar-v${lastVersion}-${backupStamp(now)}.db`);
+  // NAME は .db で終わる形だけを控えと見るので、.tmp を付けた名前は刈り込みにも控えにも数えられない。
+  const tmp = `${file}.tmp`;
   try {
+    assertNotSymlink(dir);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    db.prepare('vacuum into ?').run(file);
+    // 前の失敗の残りが同じ名前であると VACUUM INTO が断るので、先に消す。
+    fs.rmSync(tmp, { force: true });
+    db.prepare('vacuum into ?').run(tmp);
     // 写しは会話の索引をそのまま持つので、トークンと同じ 0600 にする。
-    fs.chmodSync(file, 0o600);
+    fs.chmodSync(tmp, 0o600);
+    // VACUUM INTO の出力は SQLite が fsync しない。続くマイグレーションは耐久的に確定するので、先に写しを固める。
+    const fd = fs.openSync(tmp, 'r+');
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, file);
   } catch (e) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* 残っても控えの形ではない */ }
     throw new DbBackupError(file, e);
   }
   try {
-    pruneDbBackups(dir, keep);
+    pruneDbBackups(dir, keep, path.basename(file));
   } catch (e) {
     console.error('[db] 古い控えを刈れませんでした', e instanceof Error ? e.message : e);
   }
   return file;
 }
 
+/** 置き場そのものがリンクだと、書くのも刈るのもリンクの先に出てしまう。無いのは構わない（これから作る）。 */
+function assertNotSymlink(dir: string): void {
+  if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error('backups/db がシンボリックリンクなので控えを置きません');
+}
+
 /**
  * 控えの形の名前のファイルだけを、時刻の新しい順に keep 個残して消す。
+ * protect の名前（いま取った控え）は時刻に関わらず残し、数に入れる。時計が戻っても、いま取った控えを刈らないため。
  * 置き場に利用者が置いたファイルとリンクには触れない。消せなかったものは次の機会に回す。
  */
-export function pruneDbBackups(dir: string, keep: number = DB_BACKUP_GENERATIONS): number {
+export function pruneDbBackups(dir: string, keep: number = DB_BACKUP_GENERATIONS, protect?: string): number {
+  assertNotSymlink(dir);
   const limit = Math.max(1, keep);
   const files = fs.readdirSync(dir, { withFileTypes: true })
     .filter((e) => e.isFile() && NAME.test(e.name))
     .map((e) => ({ name: e.name, stamp: NAME.exec(e.name)![2]! }))
     .sort((a, b) => (a.stamp < b.stamp ? 1 : a.stamp > b.stamp ? -1 : a.name < b.name ? 1 : -1));
+  const protectedHere = protect !== undefined && files.some((f) => f.name === protect);
+  // 守る控えが 1 つ入る分、ほかは keep - 1 個まで。
+  const others = files.filter((f) => f.name !== protect);
   let removed = 0;
-  for (const f of files.slice(limit)) {
+  for (const f of others.slice(protectedHere ? limit - 1 : limit)) {
     try { fs.rmSync(path.join(dir, f.name)); removed++; } catch { /* 次の機会に消える */ }
   }
   return removed;
