@@ -156,7 +156,7 @@ describe('行の移し方', () => {
   });
 });
 
-const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', waited: null, current: false, stop: { runId: `r-${id}`, working: true, shellTabs: 0 }, ...over });
+const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: null, waited: null, current: false, stop: { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }, ...over });
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><Sidebar nav={[]} collapsed={false} live={live} /></IntentRoot>), onIntent });
 
@@ -235,9 +235,9 @@ describe('行の「停止」に要る情報（presentShell）', () => {
   it('hangar の run が生きていれば、その id と、作業中かどうかと、開いているシェルのタブの数を持つ', () => {
     const store = withRuns([session('a', { live: 'idle' }), session('b', { live: 'busy' }), session('c', { live: 'waiting' })], [run('ra', 'a'), run('rb', 'b'), run('rc', 'c')],
       [tab('t1', 'ra', 'agent'), tab('t2', 'ra', 'shell'), tab('t3', 'ra', 'shell'), tab('t4', 'ra', 'shell', 5)]);
-    expect(stopOf(store, 'a')).toEqual({ runId: 'ra', working: false, shellTabs: 2 });
-    expect(stopOf(store, 'b')).toEqual({ runId: 'rb', working: true, shellTabs: 0 });
-    expect(stopOf(store, 'c')).toEqual({ runId: 'rc', working: true, shellTabs: 0 });
+    expect(stopOf(store, 'a')).toEqual({ runId: 'ra', working: false, aside: false, shellTabs: 2 });
+    expect(stopOf(store, 'b')).toEqual({ runId: 'rb', working: true, aside: false, shellTabs: 0 });
+    expect(stopOf(store, 'c')).toEqual({ runId: 'rc', working: true, aside: false, shellTabs: 0 });
   });
   it('hangar の外で動いているもの（生きた run が無い）は、止める手を持たない', () => {
     const store = withRuns([session('a', { live: 'busy' }), session('b', { live: 'idle' })], [run('rb-old', 'b', 9)]);
@@ -264,11 +264,11 @@ describe('行のメニュー（右クリックと .）', () => {
     expect(screen.getByRole('menu')).toHaveAccessibleName('name-a の操作');
   });
   it('「停止」を押すと、その行の run を止める手を出し、メニューを閉じる。行は開かない', () => {
-    const { onIntent } = mount(liveProps({ rows: [row('a', { stop: { runId: 'r9', working: false, shellTabs: 2 } }), row('b')] }));
+    const { onIntent } = mount(liveProps({ rows: [row('a', { stop: { runId: 'r9', working: false, aside: false, shellTabs: 2 } }), row('b')] }));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: /停止/ }));
     expect(onIntent).toHaveBeenCalledTimes(1);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r9', working: false, shellTabs: 2 });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r9', working: false, aside: false, shellTabs: 2 });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('data-menu');
   });

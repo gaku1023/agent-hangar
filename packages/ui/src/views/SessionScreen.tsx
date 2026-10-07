@@ -97,7 +97,7 @@ export function SessionScreen(props: SessionProps) {
       case 'promote': emit({ type: 'session.promote.open', id }); return;
       // 停止は取り消せない。
       // 作業中か、シェルタブを巻き込むときは Mediator が先に確認を出す。
-      case 'stop': if (run) emit({ type: 'session.kill', runId: run.id, working: props.live === 'busy' || props.live === 'waiting', shellTabs: props.tabs.filter((t) => t.kind === 'shell').length }); return;
+      case 'stop': if (run) emit({ type: 'session.kill', runId: run.id, working: props.live === 'busy' || props.live === 'waiting', aside: props.aside, shellTabs: props.tabs.filter((t) => t.kind === 'shell').length }); return;
     }
   };
   const item = (a: SessionAction): MenuItem => ({ key: a.id, label: a.label, icon: ACTION_ICON[a.id], note: a.note, disabled: a.disabled, danger: a.danger, onSelect: () => act(a.id) });
@@ -109,7 +109,7 @@ export function SessionScreen(props: SessionProps) {
           一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。
           名前は見出しにだけ出し、要約の題は出さない（C1）。
           操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。 */}
-      <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
+      <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
         {props.summary?.oneLiner ? <span key={props.summary.oneLiner} className="session-oneliner" title={props.summary.oneLiner}>{props.summary.oneLiner}</span> : <span className="spacer" />}
         {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
         <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? undefined}
@@ -152,7 +152,7 @@ export function SessionScreen(props: SessionProps) {
       const agentTab = tabId === run.id;
       const hint = agentTab && props.trustHint ? TRUST_HINT : agentTab && !run.alive ? ENDED_HINT : null;
       const transcript = agentTab && run.alive && props.transcriptBand ? { when: props.transcriptBand.when, onLatest: () => emit({ type: 'turn.latest', sessionId: id, runId: run.id }) } : null;
-      return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} agent={agentTab} transcript={transcript} />;
+      return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} aside={props.aside} agent={agentTab} transcript={transcript} />;
     };
     // 分割は .split の左の列の中でさらに 2 列に割る。高さは外側の .split から 100% で伝わる。
     // 出る間は、最後の livePane のランプだけを終わりの形にして描く。
@@ -240,7 +240,7 @@ function InfoLine(props: SessionProps) {
   const state: ReactNode = props.lock
     ? <span className="session-info-state" data-s="remote"><span className={props.lock.stale ? 'warn' : 'lock'}>{props.lock.label}</span> <span className="faint">最終確認 {props.lock.heartbeat}</span></span>
     : props.liveLabel
-      ? <span className="session-info-state" data-s={props.live ?? undefined} title={runFact}>{props.liveLabel}</span>
+      ? <span className="session-info-state" data-s={props.aside ? 'aside' : props.live ?? undefined} title={runFact}>{props.liveLabel}</span>
       : props.remoteOnly
         ? <span className="session-info-state" data-s="remote">本文は他の PC にあります</span>
         : props.stoppedNote

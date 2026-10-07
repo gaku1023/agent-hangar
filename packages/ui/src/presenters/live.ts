@@ -1,7 +1,7 @@
-import { stepKind, stepLine, type LiveDigestDto, type LiveStatus, type SessionActivityDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
+import { ASIDE_FREE, asideHead, stepKind, stepLine, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type SessionActivityDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
 import { durationLabel } from './format.ts';
 
-export type LampProps = { tone: 'busy' | 'wait' | 'idle'; head: string; sub: string };
+export type LampProps = { tone: 'busy' | 'aside' | 'wait' | 'idle'; head: string; sub: string };
 export type IntentProps = { kind: 'said'; text: string; meta: string; stale: boolean } | { kind: 'none'; text: string };
 /** key はその行の最初の手の seq（畳んだ読みの行は最初の手のまま）。行が出入りするとき、同じ行を同じものとして追うために使う。 */
 export type StepRowProps = { key: string; text: string; mono: boolean; when: string; mark: 'done' | 'now' | 'fail' };
@@ -17,6 +17,8 @@ export type LiveInput = {
   /** 今のターンの番号。読み込んだ窓からも統計からも決められないときは null で、灯は手の数だけを出す。 */
   turnNo: number | null;
   live: LiveStatus | null;
+  /** 裏だけ動いていることの印（shared の asideOf を通したもの）。無ければ省ける。 */
+  aside?: LiveAsideDto | null;
   activity: SessionActivityDto | null;
   now: number;
   /** サブエージェントの transcript を開いているか。開いていれば events は主線ではない。 */
@@ -94,6 +96,8 @@ function lampOf(i: LiveInput, steps: number, results: ResultMap): LampProps {
   const done = agents.filter((a) => a.state === 'done').length;
   if (i.live === 'waiting' && i.activity?.question) return { tone: 'wait', head: 'あなたの答え待ち', sub: [...i.activity.question].slice(0, 40).join('') };
   if (i.live === 'waiting') return { tone: 'wait', head: '入力待ち', sub: i.activity?.summary ?? '' };
+  // 本体は入力を受け付けていて、裏だけが動いている。作業中の色にせず、指揮役が空いていることを言う。
+  if (i.aside) return { tone: 'aside', head: asideHead(i.aside), sub: ASIDE_FREE };
   if (running > 0) {
     const mainBusy = !i.viewingAgent && i.events.some((e) => isCall(e) && e.seq >= i.turnFrom && !AGENT_TOOLS.has(e.name) && !OWN_MCP.test(e.name) && !results.has(e.toolId));
     return { tone: 'busy', head: `${running} 本動いている`, sub: [mainBusy ? '指揮役も手を動かしている' : '', failed ? `失敗 ${failed}` : '', done ? `済 ${done}` : ''].filter(Boolean).join('、') };

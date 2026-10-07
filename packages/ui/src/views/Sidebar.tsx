@@ -108,7 +108,7 @@ function LiveSection(props: { live: SideLiveProps }) {
               onContextMenu={(e) => { e.preventDefault(); setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
               onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
               onDragOver={(e) => onDragOver(e, r)} onDragLeave={() => { if (over?.id === r.id) setOver(null); }} onDrop={(e) => onDrop(e, r)} onDragEnd={end}>
-              <StatusDot status={r.live} /><span className="side-live-name">{r.name}</span>{r.waited && <span className="side-live-wait num">{r.waited}</span>}
+              <StatusDot status={r.live} aside={r.aside !== null} /><span className="side-live-name">{r.name}</span>{r.waited && <span className="side-live-wait num">{r.waited}</span>}{r.aside && <span className="side-live-aside num">{r.aside}</span>}
             </a>
           </li>
         ))}

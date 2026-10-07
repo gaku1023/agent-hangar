@@ -5,7 +5,7 @@ import type { SessionRowProps } from '../presenters/row.ts';
 import type { ListItem, SectionId } from '../presenters/sections.ts';
 import { SessionRows } from './SessionRows.tsx';
 
-const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
+const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
 const head = (id: SectionId, label: string, count: number, more?: { label: string; target: SectionId }): ListItem => (more ? { kind: 'head', id, label, count, more } : { kind: 'head', id, label, count });
 const r = (id: string, over?: Partial<SessionRowProps>): ListItem => ({ kind: 'row', row: row(id, over) });
 const ITEMS: ListItem[] = [head('returning', '今日戻る', 1), r('a'), head('continue', '続き', 2), r('b'), r('c'), head('done', 'Done', 1221), r('d'), head('archived', 'Archived', 3, { label: '表示 ▸', target: 'archived' })];

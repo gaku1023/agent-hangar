@@ -1,5 +1,5 @@
-import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
-import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
+import { asideOf, liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
+import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, UsageDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -84,6 +84,8 @@ export function applyBootstrap(store: Store, b: BootstrapDto): Store {
   return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, usage: old.usage ?? emptyUsage(), todos: byId(old.todos ?? []), artifacts: byId(old.artifacts ?? []), summaryPending: Object.fromEntries((old.summaryPending ?? []).map((id) => [id, true as const])), sync: b.sync ? applySyncStatus(b.sync) : null, devices: b.devices ?? [], retention: old.retention ?? null, cloudUsage: b.cloudUsage ?? null, accounts: b.accounts ?? null };
 }
 
+const sameAside = (a: LiveAsideDto | null, b: LiveAsideDto | null): boolean => a === b || (a !== null && b !== null && a.shell === b.shell && a.agents === b.agents);
+
 function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): Record<string, SessionDto> {
   const map = new Map(live.map((l) => [l.sessionId, l]));
   const out: Record<string, SessionDto> = {};
@@ -91,7 +93,8 @@ function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): R
     const l = map.get(s.providerSessionId);
     const status = l?.status ?? null;
     const name = l?.nameSource === 'user' && l.name ? l.name : s.name;
-    out[id] = status === s.live && name === s.name ? s : { ...s, live: status, name };
+    const aside = l?.aside ?? null;
+    out[id] = status === s.live && name === s.name && sameAside(aside, s.liveAside ?? null) ? s : { ...s, live: status, name, liveAside: aside };
   }
   return out;
 }
@@ -228,6 +231,11 @@ export function liveFilterOfSession(store: Store, session: SessionDto, alive: Se
  */
 export function shownLive(session: SessionDto): LiveStatus | null {
   return session.parked ? null : session.live;
+}
+
+/** 本体は入力を受け付けていて、裏の作業だけが動いているか（shared の asideOf）。一覧の見せ方は shownLive にそろえる。 */
+export function shownAside(session: SessionDto): LiveAsideDto | null {
+  return asideOf(shownLive(session), session.liveAside);
 }
 
 /** 終わっていない最新の run。 */

@@ -1,4 +1,4 @@
-import type { LiveStatus, RunKind, SessionDto, SessionSummaryDto, StepCell, TranscriptEvent } from '@agent-hangar/shared';
+import { ASIDE_WORD, asideOf, type LiveStatus, type RunKind, type SessionDto, type SessionSummaryDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, todosOf, type Store } from '../store/store.ts';
@@ -33,7 +33,7 @@ export function summarizerLabel(sourceId: string | null, sourceModel: string | n
   return sourceModel && sourceModel !== kind ? `${kind} / ${sourceModel}` : kind;
 }
 
-export type SessionProps = { id: string; name: string; parent: ParentLink | null; live: LiveStatus | null; cwd: string; projectName: string | null; projectId: string | null; summary: (SessionSummaryDto & { sourceLabel: string; stateLabel: string; summarizerLabel: string | null; generatedAt: string }) | null; summaryOpen: boolean; model: string; effort: string; turns: number; tokens: string; prUrl: string | null; memo: string | null; started: string; lastActivity: string; hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; contextPercent: number | null; cost: string; artifacts: ArtifactCardProps[]; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null; liveLabel: string | null; filesChanged: number;
+export type SessionProps = { id: string; name: string; parent: ParentLink | null; live: LiveStatus | null; aside: boolean; cwd: string; projectName: string | null; projectId: string | null; summary: (SessionSummaryDto & { sourceLabel: string; stateLabel: string; summarizerLabel: string | null; generatedAt: string }) | null; summaryOpen: boolean; model: string; effort: string; turns: number; tokens: string; prUrl: string | null; memo: string | null; started: string; lastActivity: string; hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; contextPercent: number | null; cost: string; artifacts: ArtifactCardProps[]; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null; liveLabel: string | null; filesChanged: number;
   /** 保持期間で本文が消えたとみられる会話の注記。そうでなければ null。 */
   gone: { note: string; canExtend: boolean; extendTo: number } | null;
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
@@ -120,6 +120,13 @@ function lockProps(lock: SessionDto['lock'], now: number): SessionLockProps | nu
 
 /** チップの状態の言い方。Home の札（休み、入力待ち）と揃える。 */
 const LIVE_WORD: Record<LiveStatus, string> = { busy: '作業中', idle: '休み', waiting: '入力待ち' };
+
+function liveLabelOf(s: SessionDto, now: number): string | null {
+  if (!s.live) return null;
+  const since = (ts: number | null) => durationLabel(now - (ts ?? now));
+  if (asideOf(s.live, s.liveAside)) return `${ASIDE_WORD} ${since(s.lastActivityAt)}`;
+  return `${LIVE_WORD[s.live]} ${since(s.live === 'busy' ? s.startedAt : s.lastActivityAt)}`;
+}
 
 const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
 const when = (ts: number | undefined) => (ts === undefined ? '' : absoluteTime(ts).slice(11));
@@ -286,7 +293,7 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, account: null, livePaneSplit: view.livePaneSplit ?? state.livePaneSplit, gone: null, find: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, stoppedNote: null };
+  const base = { id, parent: null, live: null, aside: false, cwd: '', projectName: null, projectId: null, summary: null, summaryOpen: view.summaryOpen, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, account: null, livePaneSplit: view.livePaneSplit ?? state.livePaneSplit, gone: null, find: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, stoppedNote: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -317,7 +324,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const turnNo = complete && turnList.length > 0 ? turnList.length : s.stats.turns > 0 ? s.stats.turns : null;
   const livePane = alive ? presentLivePane({
     digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0, turnNo,
-    live: s.live, activity: s.activity ?? null, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
+    live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity ?? null, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
     idleFor: durationLabel(now - (s.lastActivityAt ?? now)), results,
   }) : null;
   const open = run ? tabsOf(store, run.id) : [];
@@ -354,7 +361,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const right = view.split && canSplit && selectedTab ? open.find((t) => t.id === view.splitTab && t.id !== selectedTab) ?? open.find((t) => t.id !== selectedTab) ?? null : null;
   const sessionAccount = hasMultipleAccounts(store) ? accountOfSession(store, id) : null;
   const props: SessionProps = {
-    ...base, account: sessionAccount ? { name: sessionAccount.name, color: sessionAccount.color } : null, name: s.name ?? '（名前なし）', live: s.live, cwd: s.cwd, projectName: project?.name ?? null, projectId: s.projectId,
+    ...base, account: sessionAccount ? { name: sessionAccount.name, color: sessionAccount.color } : null, name: s.name ?? '（名前なし）', live: s.live, aside: asideOf(s.live, s.liveAside) !== null, cwd: s.cwd, projectName: project?.name ?? null, projectId: s.projectId,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。
     parent: project ? { label: project.name, route: { name: 'project', id: project.id } } : null,
     summary: s.summary ? { ...s.summary, sourceLabel: SOURCE_LABEL[s.summary.source], stateLabel: STATE_LABEL[s.summary.state], summarizerLabel: summarizerLabel(s.summary.sourceId, s.summary.sourceModel), generatedAt: absoluteTime(s.summary.updatedAt) } : null,
@@ -376,7 +383,8 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     outsideOpen: outsideOpenOf(store, s),
     contextPercent: s.stats.contextPercent, cost: costLabel(s.stats.costUsd), filesChanged: s.stats.filesChanged,
     // 作業中は Home の実行中の札と同じく始まりから、入力待ちと休みは Home の要対応と休みの札と同じく最後の動きから数える。
-    liveLabel: s.live ? `${LIVE_WORD[s.live]} ${durationLabel(now - ((s.live === 'busy' ? s.startedAt : s.lastActivityAt) ?? now))}` : null,
+    // 裏だけ動いているときは、本体は最後の返答から空いているので、休みと同じく最後の動きから数える。
+    liveLabel: liveLabelOf(s, now),
     artifacts: artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(a, now)),
     summaryPending: store.summaryPending[id] === true, summaryError: state.summaryFailed[id] ?? null,
     fromScratch: s.fromScratch, canPromote: !!(s.projectId && store.projects[s.projectId]?.isScratch),

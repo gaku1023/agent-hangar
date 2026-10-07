@@ -16,8 +16,16 @@ export type SessionSummaryDto = { title: string; oneLiner: string; body: string;
  * background は Claude のバックグラウンドのサービスが持つセッションにだけ付く。jobId は `claude attach` に渡す短い id である。
  * procStart はそのプロセスの起動時刻（UTC の ps の lstart の書式）。pid の使い回しを見分けるのに使う。古い Claude は書かない。
  * entrypoint は claude を起こしたもの。ターミナルの CLI は cli、VS Code の拡張は claude-vscode になる。
+ * aside は、本体は入力を受け付けていて、裏の作業だけが動いていることの印（LiveAsideDto）。無ければ付かない。
  */
-export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string };
+export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto };
+/**
+ * 本体（指揮役）は入力を受け付けていて、裏の作業だけが動いていること。
+ * status は busy のままにする。Claude も、裏でサブエージェントが動く間は本体が空いていても busy と書く。
+ * busy のままなので、自動の停止、引き取りの断り、停止の確認は、作業中と同じに働く。変えるのは見せ方だけである。
+ * shell は、裏で Bash が動いていること（Claude の登録の status が shell）。agents は、裏で動いているサブエージェントの本数で、今は数えず 0 にしている。
+ */
+export type LiveAsideDto = { shell: boolean; agents: number };
 /** 実行中のセッションが最後に呼んだツールと、答えを待っている AskUserQuestion の問い。端末ローカルで、同期しない。 */
 export type SessionActivityDto = { tool: string; summary: string; question: string | null };
 /**
@@ -25,8 +33,9 @@ export type SessionActivityDto = { tool: string; summary: string; question: stri
  * parked は、区切りを付けたのにプロセスが休みのまま残っていること（shared の isParked）。真なら画面では実行中に数えない。
  * stoppedByStatus は、区切りを付けたので hangar が Claude を止め、その印がまだ残っていること。
  * どちらも古いサーバからは欠けるので任意にし、欠けたものは偽として読む。
+ * liveAside は登録の aside を写したもの（LiveSessionDto）。古いサーバからは欠けるので任意にし、欠けたものは null として読む。
  */
-export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity?: SessionActivityDto | null; state?: SessionStateDto | null; parked?: boolean; stoppedByStatus?: boolean };
+export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity?: SessionActivityDto | null; state?: SessionStateDto | null; parked?: boolean; stoppedByStatus?: boolean; liveAside?: LiveAsideDto | null };
 export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; syncClaudeConfig: boolean; nodePath: string | null; claudePath: string | null };
 /**
  * Claude Code の会話の保持期間。

@@ -16,6 +16,8 @@
   --accent-ink: #ffffff;
   --accent-soft: #eef2ff;
   --busy: #c77a1a;
+  /* 裏だけ動いている（本体は入力を受け付けていて、裏の作業だけが動いている）。作業中のオレンジを白へ寄せた色で、灯さず静かに置く。 */
+  --aside: color-mix(in srgb, var(--busy) 42%, #ffffff);
   --idle: #3a8f5c;
   --waiting: #a2452f;
   --ended: #9a968e;

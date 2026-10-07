@@ -16,7 +16,7 @@ const paletteCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '.
 const items: PaletteItem[] = [
   { id: 'cmd:new-session', label: '新しいセッション', kind: 'command', lead: { kind: 'icon', icon: 'add' }, sub: '', meta: '', keys: '⌘N' },
   { id: 'project:p1', label: 'alpha', kind: 'project', lead: { kind: 'status', status: 'active' }, sub: '', meta: '/w/alpha', keys: '' },
-  { id: 'session:s1', label: '動画の変換', kind: 'session', lead: { kind: 'dot', live: 'waiting' }, sub: 'alpha', meta: '4 分待っている', keys: '' },
+  { id: 'session:s1', label: '動画の変換', kind: 'session', lead: { kind: 'dot', live: 'waiting', aside: false }, sub: 'alpha', meta: '4 分待っている', keys: '' },
 ];
 const sections: PaletteSection[] = [
   { title: 'コマンド', count: 1, limit: null, items: [items[0]!] },

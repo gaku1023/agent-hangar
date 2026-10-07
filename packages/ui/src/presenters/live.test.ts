@@ -16,6 +16,11 @@ describe('状態の灯', () => {
     const p = presentLivePane(input({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: 'tmux の既定を変えてよいか' }, digest: digest({ agents: [agent({})] }) }));
     expect(p.lamp).toEqual({ tone: 'wait', head: 'あなたの答え待ち', sub: 'tmux の既定を変えてよいか' });
   });
+  it('裏だけ動いているときは、裏のものと、指揮役が空いていることを出す', () => {
+    expect(presentLivePane(input({ aside: { shell: true, agents: 0 } })).lamp).toEqual({ tone: 'aside', head: '裏でシェルが動いている', sub: '指揮役は空いている' });
+    // 入力待ちは裏の印より強い。
+    expect(presentLivePane(input({ live: 'waiting', aside: { shell: true, agents: 0 } })).lamp.tone).toBe('wait');
+  });
   it('サブエージェントが動いていれば本数と、失敗と済みの数', () => {
     const p = presentLivePane(input({ digest: digest({ agents: [agent({ agentId: 'a' }), agent({ agentId: 'b' }), agent({ agentId: 'c', state: 'error' }), agent({ agentId: 'd', state: 'done' })] }) }));
     expect(p.lamp).toEqual({ tone: 'busy', head: '2 本動いている', sub: '失敗 1、済 1' });

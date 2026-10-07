@@ -150,7 +150,7 @@ export function launchStep(state: State, input: Input): Step | null {
       // サーバの停止はシェルタブを全部閉じてから tmux を落とす。
       // 作業中の Claude かシェルタブを巻き込むときだけ先に確認を出し、休みで巻き込むものが無ければすぐ止める。
       if (!i.confirmed && (i.working || i.shellTabs > 0)) {
-        return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'killRun', runId: i.runId, working: i.working, shellTabs: i.shellTabs } } }, effects: [] };
+        return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'killRun', runId: i.runId, working: i.working, aside: i.aside, shellTabs: i.shellTabs } } }, effects: [] };
       }
       const overlay = i.confirmed && state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
       return { state: { ...state, overlay }, effects: [{ kind: 'api.killRun', runId: i.runId }] };

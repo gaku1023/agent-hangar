@@ -30,8 +30,11 @@ export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean
     try { rec = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
     if (typeof rec.sessionId !== 'string') continue;
     if (typeof rec.pid === 'number' && isGone(rec.pid)) continue;
+    // shell は、本体が休みで裏の Bash だけが動いていること。作業中のまま、裏だけの印を付ける（LiveAsideDto）。
+    // 知らない値は作業中と読む。止めてよいかを誤るより、待たせるほうが害が小さい。
     const status = STATUSES.has(rec.status as LiveStatus) ? (rec.status as LiveStatus) : 'busy';
     const l: LiveSession = { sessionId: rec.sessionId, status, name: typeof rec.name === 'string' ? rec.name : null, nameSource: typeof rec.nameSource === 'string' ? rec.nameSource : null, cwd: typeof rec.cwd === 'string' ? rec.cwd : '', pid: typeof rec.pid === 'number' ? rec.pid : 0 };
+    if (rec.status === 'shell') l.aside = { shell: true, agents: 0 };
     // jobId が無いと `claude attach` に渡すものが無いので、bg と書いてあってもバックグラウンドとは扱わない。
     if (rec.kind === 'bg' && typeof rec.jobId === 'string' && rec.jobId !== '') l.background = { jobId: rec.jobId };
     if (typeof rec.procStart === 'string' && rec.procStart !== '') l.procStart = rec.procStart;

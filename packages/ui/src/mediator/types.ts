@@ -148,7 +148,7 @@ export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null 
 export type ConfirmRequest =
   | { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number }
   | { kind: 'adoptSession'; sessionId: string }
-  | { kind: 'killRun'; runId: string; working: boolean; shellTabs: number }
+  | { kind: 'killRun'; runId: string; working: boolean; aside?: boolean; shellTabs: number }
   | { kind: 'unlinkProject'; projectId: string }
   // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。
   | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean }

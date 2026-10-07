@@ -13,7 +13,7 @@ const H = 3_600_000;
 const DAY = 24 * H;
 const IMPORT_AT = new Date(2026, 9, 1, 8, 0).getTime();
 
-const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: id, oneLiner: '', projectName: 'agent-hangar', live: null, stateLabel: '', summaryState: null, model: '', effort: '', when: '', whenAbs: '', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
+const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: id, oneLiner: '', projectName: 'agent-hangar', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '', whenAbs: '', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
 const paused = (id: string, returnOn: string | null, over: Partial<SessionRowProps> = {}) => row(id, { state: 'paused', returnOn, setBy: 'user', ...over });
 const done = (id: string, over: Partial<SessionRowProps> = {}) => row(id, { state: 'done', setBy: 'import', ...over });
 const cand = (status: 'paused' | 'done') => ({ status, note: '直した', returnOn: status === 'paused' ? '2026-10-03' : null, returnTime: null, source: 'in_session' as const, ago: '1 時間前' });
