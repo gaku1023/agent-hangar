@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CompatLog, compatPath } from './log.ts';
+import { COMPAT_MAX_VALUE, CompatLog, compatPath } from './log.ts';
 
 let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-compat-')); });
@@ -40,6 +40,18 @@ describe('CompatLog', () => {
     t += 1; log.note({ contract: 'transcript', value: 'type=a', version: null });
     t += 1; log.note({ contract: 'transcript', value: 'type=d', version: null });
     expect(log.list().map((e) => e.value).sort()).toEqual(['type=a', 'type=c', 'type=d']);
+  });
+  it('値は COMPAT_MAX_VALUE 文字で切り、切った値で 1 件にまとめる', () => {
+    // 値は外のデータから来て、報告にも写される。長い値で記録が膨らまないようにする。
+    expect(COMPAT_MAX_VALUE).toBe(200);
+    const log = new CompatLog({ file: null, localVersion: () => null, now: () => 1 });
+    const head = `type=${'x'.repeat(COMPAT_MAX_VALUE)}`;
+    log.note({ contract: 'transcript', value: `${head}1`, version: null });
+    log.note({ contract: 'transcript', value: `${head}2`, version: null });
+    log.note({ contract: 'transcript', value: 'type=short', version: null });
+    const list = log.list();
+    expect(list.map((e) => e.value.length).sort((a, b) => a - b)).toEqual(['type=short'.length, COMPAT_MAX_VALUE]);
+    expect(list.find((e) => e.value.length === COMPAT_MAX_VALUE)).toMatchObject({ value: head.slice(0, COMPAT_MAX_VALUE), count: 2 });
   });
   it('書き出して読み直すと同じ一覧になり、変わっていなければ書かない', () => {
     const file = compatPath(tmp);

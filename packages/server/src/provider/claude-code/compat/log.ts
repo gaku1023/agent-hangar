@@ -7,6 +7,8 @@ import { isRec, type CompatSink, type Drift } from './types.ts';
 export const COMPAT_MAX_ENTRIES = 100;
 /** 書き出しの間隔。登録は 500 ミリ秒ごとに読み直すので、ずれを受け取るたびには書かない。 */
 export const COMPAT_FLUSH_MS = 5_000;
+/** 値の長さの上限。値は外のデータから来て、報告にも写されるので、ここで切る。 */
+export const COMPAT_MAX_VALUE = 200;
 const FILE_VERSION = 1;
 
 /** ずれの記録の置き場。端末ごとのもので、同期しない。 */
@@ -54,13 +56,14 @@ export class CompatLog implements CompatSink {
 
   note(d: Drift): void {
     const at = this.now();
-    const k = this.key(d.contract, d.value);
+    const value = d.value.slice(0, COMPAT_MAX_VALUE);
+    const k = this.key(d.contract, value);
     const version = d.version ?? this.o.localVersion();
     const cur = this.entries.get(k);
     if (cur) {
       this.entries.set(k, { ...cur, count: cur.count + 1, lastSeenAt: at, version: version ?? cur.version });
     } else {
-      this.entries.set(k, { contract: d.contract, value: d.value, version, count: 1, firstSeenAt: at, lastSeenAt: at });
+      this.entries.set(k, { contract: d.contract, value, version, count: 1, firstSeenAt: at, lastSeenAt: at });
       this.trim();
     }
     this.dirty = true;
