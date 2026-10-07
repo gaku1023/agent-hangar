@@ -1,5 +1,4 @@
-import type { AccountsDto, ArtifactDto, CloudUsageDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TakeoverUpdateDto, TodoDto, UsageDto } from './api.ts';
-import type { SharedTable } from './cloud.ts';
+import type { AccountsDto, ArtifactDto, CloudUsageDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
 export type ServerEvent =
   | { type: 'ready'; version: string }
@@ -13,7 +12,6 @@ export type ServerEvent =
   | { type: 'run.upsert'; run: RunDto }
   | { type: 'run.ended'; run: RunDto }
   | { type: 'tab.upsert'; tab: TabDto }
-  | { type: 'usage.update'; usage: UsageDto }
   | { type: 'accounts.update'; accounts: AccountsDto }
   | { type: 'todos.update'; projectId: string; todos: TodoDto[] }
   | { type: 'memo.update'; memo: MemoDto }
@@ -29,8 +27,6 @@ export type ServerEvent =
   | { type: 'sync.status'; status: SyncStatusBody }
   /** 設定の「使用量と費用」。端末のサーバが 5 分ごとに取り直して配る。 */
   | { type: 'sync.usage'; usage: CloudUsageDto }
-  | { type: 'sync.applied'; table: SharedTable; rowId: string }
-  | { type: 'takeover.update'; update: TakeoverUpdateDto }
   | { type: 'devices.update'; devices: DeviceDto[] }
   | { type: 'retention.changed'; retention: RetentionDto }
   | { type: 'toast'; level: 'info' | 'error'; message: string };

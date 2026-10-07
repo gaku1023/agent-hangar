@@ -53,12 +53,3 @@ export function parseJobs(out: string): { id: string; sessionId: string }[] | nu
     return o.kind === 'background' && typeof o.id === 'string' && typeof o.sessionId === 'string' ? [{ id: o.id, sessionId: o.sessionId }] : [];
   });
 }
-
-/**
- * `claude --bg` の出力からバックグラウンドの id を拾う。
- * 1 行目が `backgrounded · <id>` または `backgrounded · <id> · <名前>` の形で出る。
- */
-export function parseBackgroundedId(out: string): string | null {
-  const m = /backgrounded\s*·\s*([0-9a-f]{6,})/.exec(out);
-  return m ? m[1]! : null;
-}

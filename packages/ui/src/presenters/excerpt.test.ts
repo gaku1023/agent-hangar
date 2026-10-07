@@ -3,7 +3,7 @@ import type { SessionDto, SessionSummaryDto } from '@agent-hangar/shared';
 import { cardExcerpt, meaningfulUtterance } from './excerpt.ts';
 
 const summary = (oneLiner: string, source: SessionSummaryDto['source'] = 'in_session'): SessionSummaryDto => ({ title: 't', oneLiner, body: '', state: 'in_progress', nextSteps: [], source, sourceId: null, sourceModel: null, basedOnTurns: 1, updatedAt: 1 });
-const session = (id: string, at: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'p', name: id, cwd: '/w/p', firstPrompt: null, aiTitle: null, startedAt: at, lastActivityAt: at, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, ...over });
+const session = (id: string, at: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'p', name: id, cwd: '/w/p', firstPrompt: null, aiTitle: null, startedAt: at, lastActivityAt: at, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
 
 describe('meaningfulUtterance（抜粋から除く雑音の規則）', () => {
   it('HTML やコードだけの発言は除く', () => {

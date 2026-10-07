@@ -1,12 +1,11 @@
 import { buildClaudeArgs } from '../../launch/args.ts';
-import type { LaunchInput, Provider } from '../types.ts';
+import type { LaunchInput } from '../types.ts';
 
 /**
- * claude の起動コマンドだけを受け持つ provider。
+ * claude の起動コマンドを組み立てる。
  * 走査や本文の読み出しはサーバが各モジュールを直接呼ぶので、ここには持たせない。
  */
-export const claudeCodeProvider: Pick<Provider, 'id' | 'launchCommand' | 'resumeCommand'> = {
-  id: 'claude-code',
+export const claudeCodeProvider = {
   /** 実行ファイルは呼び手が決める。設定や環境変数で差し替えられるので、ここに `claude` を書かない。 */
   launchCommand(bin: string, input: LaunchInput): string[] {
     return [bin, ...buildClaudeArgs(input)];

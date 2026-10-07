@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import type { LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../config/accountAuth.ts';
@@ -139,6 +139,15 @@ const syncDeps = () => ({
   retention: fakeRetention(),
   readiness: async () => READY,
 });
+/** 使用量の口。値がまだ無い状態（同期を設定していない端末と同じ）を返す。 */
+const noCloudUsage = (): AppDeps['cloudUsage'] => ({ current: () => null, refresh: async () => null });
+/** 最初のアカウントだけを持つアカウントの口。サーバはいつもアカウントの口を持つので、どの組み立ても渡す。 */
+const primaryOnlyAccounts = (tracker: UsageTracker): AccountsDeps => ({
+  db, store: new AccountStore({ home: ws, primaryDir: dir, homeDir: ws }), primaryDir: dir, usage: tracker,
+  auth: new AccountAuth({ claudeBin: () => null }),
+  runs: { switchAccount: vi.fn() } as unknown as AccountsDeps['runs'],
+  broadcast: (a) => sent.push({ type: 'accounts.update', accounts: a }),
+});
 
 beforeEach(async () => {
   calls.length = 0;
@@ -164,6 +173,7 @@ beforeEach(async () => {
     settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }), live: () => [], indexer,
     hub: { broadcast: (e) => sent.push(e) }, runs, external, usage, memos, summary,
     promote: (o) => { if (o.name === 'taken') throw new PromoteError(409, 'あります'); return { projectId: list0ProjectId(), moved: o.moveFiles, reason: null }; },
+    accounts: primaryOnlyAccounts(usage), cloudUsage: noCloudUsage(),
     ...syncDeps(),
   };
   app = createApp(deps);
@@ -203,7 +213,7 @@ describe('auth', () => {
     // 4177 以外で立てたとき、UI はそのポートの Origin を送る。決め打ちだと書き込みが全部 403 になる。
     const other = createApp({ ...deps, port: 4198 });
     // 403 かどうかだけを見たいので、状態を変えない本文を送る（存在しない path なので 400 になる）。
-    const req = (origin: string) => other.request('/api/projects', { method: 'POST', headers: { ...H, origin, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) });
+    const req = (origin: string) => other.request('/api/projects', { method: 'POST', headers: { ...H, origin, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dir', name: 'x', path: '/nonexistent' }) });
     for (const o of ['http://127.0.0.1:4198', 'http://localhost:4198', 'tauri://localhost']) {
       expect([o, (await req(o)).status]).toEqual([o, 400]);
     }
@@ -223,7 +233,7 @@ describe('auth', () => {
   // Content-Type を text/plain にすれば前検査も起きないので、クッキーだけで書き込めてしまっていた。
   // ブラウザは本文を送るとき必ず Content-Length を付ける。本文の型の検査はそれを見る。
   const cookieOnlyPost = (headers: Record<string, string>) => {
-    const body = JSON.stringify({ name: 'x', path: '/nonexistent' });
+    const body = JSON.stringify({ kind: 'dir', name: 'x', path: '/nonexistent' });
     return app.request('/api/projects', { method: 'POST', headers: { cookie: `hangar_token=${TOKEN}`, 'content-length': String(body.length), ...headers }, body });
   };
 
@@ -247,7 +257,7 @@ describe('auth', () => {
 
   it('正しい経路は今までどおり通る', async () => {
     // Bearer を付けた curl は Sec-Fetch-Site を送らない。
-    expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) })).status).toBe(400);
+    expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dir', name: 'x', path: '/nonexistent' }) })).status).toBe(400);
     // 本文を持たない curl -X POST は Content-Length も Transfer-Encoding も付けない。今までどおり通す。
     expect((await app.request('/api/index/rebuild', { method: 'POST', headers: H })).status).toBe(202);
     // ブラウザで開いた UI は same-origin になる。
@@ -261,7 +271,7 @@ describe('auth', () => {
     try {
       // npm run dev では Vite のプロキシが Authorization を足して中継する。
       // ブラウザから見た宛先は 5173 なので Sec-Fetch-Site は same-origin、Origin は 5173 になる。
-      const viaProxy = await app.request('/api/projects', { method: 'POST', headers: { ...H, origin: 'http://127.0.0.1:5173', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) });
+      const viaProxy = await app.request('/api/projects', { method: 'POST', headers: { ...H, origin: 'http://127.0.0.1:5173', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dir', name: 'x', path: '/nonexistent' }) });
       expect(viaProxy.status).toBe(400);
       // 5173 のページが直に叩く形も、開発のときだけは通す。
       expect((await cookieOnlyPost({ origin: 'http://127.0.0.1:5173', 'sec-fetch-site': 'same-site', 'content-type': 'application/json' })).status).toBe(400);
@@ -686,15 +696,15 @@ describe('routes', () => {
   });
   it('プロジェクトの作成', async () => {
     fs.mkdirSync(path.join(ws, 'beta'));
-    const r = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'beta', path: path.join(ws, 'beta') }) });
+    const r = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dir', name: 'beta', path: path.join(ws, 'beta') }) });
     expect(r.status).toBe(201);
     const p = await r.json();
     expect(p).toMatchObject({ name: 'beta', path: path.join(ws, 'beta'), resolved: true, status: 'active' });
     expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id: p.id } });
-    expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x', path: '/nonexistent' }) })).status).toBe(400);
-    expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: '', path: ws }) })).status).toBe(400);
+    expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dir', name: 'x', path: '/nonexistent' }) })).status).toBe(400);
+    expect((await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dir', name: '', path: ws }) })).status).toBe(400);
     // .. を含むパスは正規化してから入れる。生のまま入れると前方一致でセッションが当たらなくなる。
-    const again = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'beta again', path: path.join(ws, 'beta') + path.sep + '..' + path.sep + 'beta' }) });
+    const again = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dir', name: 'beta again', path: path.join(ws, 'beta') + path.sep + '..' + path.sep + 'beta' }) });
     expect(again.status).toBe(200);
     expect((await again.json()).id).toBe(p.id);
     expect(db.prepare('select count(*) c from project_roots where deleted_at is null').get()).toEqual({ c: 2 });
@@ -723,6 +733,12 @@ describe('routes', () => {
     expect(await r.json()).toMatchObject({ name: 'gamma', path: path.join(ws, 'gamma') });
     expect((await postProject({ kind: 'other', path: ws })).status).toBe(400);
   });
+  it('kind の無い本文は断る', async () => {
+    fs.mkdirSync(`${ws}/gamma`);
+    const r = await postProject({ name: 'gamma', path: `${ws}/gamma` });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toBe('kind は newDir か dir です');
+  });
   it('未登録のフォルダの一覧を返す', async () => {
     fs.mkdirSync(`${ws}/delta`);
     fs.mkdirSync(`${ws}/.secret`);
@@ -750,7 +766,7 @@ describe('routes', () => {
   });
   // Windows のファイルシステムは大文字小文字を区別しない。綴り違いで同じフォルダを二重に登録しない。
   it.runIf(process.platform === 'win32')('Windows では、綴りの大文字小文字が違う同じフォルダを二重に登録しない', async () => {
-    const post = (p: string) => app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'gamma', path: p }) });
+    const post = (p: string) => app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dir', name: 'gamma', path: p }) });
     fs.mkdirSync(path.join(ws, 'gamma'));
     const first = await post(path.join(ws, 'gamma'));
     expect(first.status).toBe(201);
@@ -773,11 +789,11 @@ describe('routes', () => {
   it('statusline の受け口と使用量', async () => {
     const first = { session_id: SESSION_ALPHA, model: { id: 'claude-opus-4-1' }, effort: 'high', context_window: { context_window_size: 200000, current_usage: null } };
     expect((await post('/api/ingest/statusline', first)).status).toBe(204);
-    expect(sent.filter((e) => e.type === 'usage.update')).toHaveLength(0);
+    expect(sent.filter((e) => e.type === 'accounts.update')).toHaveLength(0);
     expect(sent.at(-1)).toMatchObject({ type: 'session.upsert', session: { providerSessionId: SESSION_ALPHA, stats: { model: 'claude-opus-4-1' } } });
     const second = { ...first, context_window: { context_window_size: 200000, current_usage: { input_tokens: 50000 } }, rate_limits: { five_hour: { used_percentage: 47, resets_at: 4_000_000_000 }, seven_day: { used_percentage: 7, resets_at: 4_000_100_000 } } };
     expect((await post('/api/ingest/statusline', second)).status).toBe(204);
-    expect(sent.find((e) => e.type === 'usage.update')).toMatchObject({ usage: { fiveHour: { usedPercent: 47 }, sevenDay: { usedPercent: 7 } } });
+    expect(sent.find((e) => e.type === 'accounts.update')).toMatchObject({ accounts: { accounts: [{ id: 'primary', usage: { fiveHour: { usedPercent: 47 }, sevenDay: { usedPercent: 7 } } }] } });
     expect((await json(await get('/api/usage'))).body).toMatchObject({ fiveHour: { usedPercent: 47 } });
     expect((await json(await get(`/api/sessions/${await alphaId()}`))).body.stats.contextPercent).toBe(25);
     expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: 'not json' })).status).toBe(400);
@@ -799,7 +815,7 @@ describe('routes', () => {
     expect((await json(await get('/api/shell-hook'))).body).toEqual({ state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' });
     // 準備の確かめは 1 つの読み取りにまとめてある。設定画面と空のホームが同じものを読む。
     expect((await json(await get('/api/readiness'))).body).toEqual(READY);
-    expect((await json(await get('/api/bootstrap'))).body).toMatchObject({ usage: { fiveHour: { usedPercent: 47 } }, todos: [], artifacts: [], summaryPending: ['pending-1'] });
+    expect((await json(await get('/api/bootstrap'))).body).toMatchObject({ accounts: { accounts: [{ id: 'primary', usage: { fiveHour: { usedPercent: 47 } } }] }, todos: [], artifacts: [], summaryPending: ['pending-1'] });
   });
   it('TODO とメモ', async () => {
     const pid = list0ProjectId();
@@ -975,7 +991,7 @@ describe('routes', () => {
       fs.mkdirSync(path.join(dist, 'assets'));
       fs.writeFileSync(path.join(dist, 'assets', 'a.js'), 'console.log(1)');
       const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
-      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), ...syncDeps(), uiDist: dist });
+      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), accounts: primaryOnlyAccounts(usage), cloudUsage: noCloudUsage(), ...syncDeps(), uiDist: dist });
       // 鍵を持たない GET / にはクッキーを配らない。curl 1 本でトークンが取れてはいけない。
       const bare = await ui.request('/');
       expect(bare.status).toBe(401);
@@ -1019,7 +1035,7 @@ describe('routes', () => {
     try {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
       const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
-      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), ...syncDeps(), uiDist: dist });
+      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), accounts: primaryOnlyAccounts(usage), cloudUsage: noCloudUsage(), ...syncDeps(), uiDist: dist });
       // SameSite=Strict はポートを数えない。手元の別のポートに置かれたページが、認証済みの UI を枠に入れられてしまう。
       for (const r of [await ui.request(`/?t=${TOKEN}`), await ui.request('/', { headers: { cookie: `hangar_token=${TOKEN}` } }), await ui.request('/')]) {
         expect(r.headers.get('x-frame-options')).toBe('DENY');
@@ -1141,7 +1157,7 @@ describe('同期の経路', () => {
     expect((await json(await get('/api/bootstrap'))).body.cloudUsage).toEqual(dto);
   });
 
-  it('cloudUsage が無いサーバの /api/sync/usage は null', async () => {
+  it('使用量がまだ無ければ /api/sync/usage と bootstrap の cloudUsage は null', async () => {
     expect((await json(await get('/api/sync/usage'))).body).toBeNull();
     expect((await json(await get('/api/bootstrap'))).body.cloudUsage).toBeNull();
   });
@@ -1425,12 +1441,13 @@ describe('アカウントの取り付け', () => {
   });
   afterEach(() => { fs.rmSync(accountHome, { recursive: true, force: true }); });
 
-  it('/bootstrap に accounts を載せ、渡さない組み立てでは載せない', async () => {
-    const withAccounts = (await (await accountsApp.request('/api/bootstrap', { headers: H })).json()) as { accounts?: { accounts: unknown[] } };
-    expect(withAccounts.accounts?.accounts).toHaveLength(2);
-    expect(((await (await get('/api/bootstrap')).json()) as { accounts?: unknown }).accounts).toBeUndefined();
+  it('/bootstrap はいつも accounts を載せ、アカウントの経路はいつもある', async () => {
+    const withAccounts = (await (await accountsApp.request('/api/bootstrap', { headers: H })).json()) as { accounts: { accounts: unknown[] } };
+    expect(withAccounts.accounts.accounts).toHaveLength(2);
+    const primaryOnly = (await (await get('/api/bootstrap')).json()) as { accounts: { accounts: { id: string }[] } };
+    expect(primaryOnly.accounts.accounts.map((a) => a.id)).toEqual(['primary']);
     expect((await accountsApp.request('/api/accounts', { headers: H })).status).toBe(200);
-    expect((await get('/api/accounts')).status).toBe(404);
+    expect((await get('/api/accounts')).status).toBe(200);
   });
 
   it('リンクの点検は /bootstrap のときにし、statusline の配信では fs を触らない', async () => {
@@ -1444,7 +1461,7 @@ describe('アカウントの取り付け', () => {
     expect(fs.existsSync(path.join(dir, 'projects'))).toBe(false);
   });
 
-  it('MCP の get_usage は、accounts を渡した組み立てでだけ accounts を返す', async () => {
+  it('MCP の get_usage は、いつも accounts を返す', async () => {
     const usageOver = async (target: ReturnType<typeof createApp>) => {
       const res = await target.request('/mcp', { method: 'POST', headers: { ...H, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_usage', arguments: {} } }) });
       const text = await res.text();
@@ -1452,7 +1469,7 @@ describe('アカウントの取り付け', () => {
       return JSON.parse((JSON.parse(json) as { result: { content: { text: string }[] } }).result.content[0]!.text) as { accounts?: { name: string; current: boolean }[] };
     };
     expect((await usageOver(accountsApp)).accounts?.map((a) => [a.name, a.current])).toEqual([['メイン', true], ['大学', false]]);
-    expect((await usageOver(app)).accounts).toBeUndefined();
+    expect((await usageOver(app)).accounts?.map((a) => [a.name, a.current])).toEqual([['メイン', true]]);
   });
 
   it('アカウントの切り替えは、resume と同じく起動の前に同期の取り込みを待つ', async () => {
@@ -1462,16 +1479,14 @@ describe('アカウントの取り付け', () => {
     expect(calls).toEqual(['beforeLaunch']);
   });
 
-  it('使用量は、動かしたアカウントの accounts.update で配り、usage.update は最初のアカウントのときだけ', async () => {
+  it('使用量は、動かしたアカウントの accounts.update で配る。最初のアカウントも同じ道で届く', async () => {
     sent.length = 0;
     const limits = { rate_limits: { five_hour: { used_percentage: 47, resets_at: 4_000_000_000 }, seven_day: { used_percentage: 7, resets_at: 4_000_100_000 } } };
     expect((await post('/api/ingest/statusline', { session_id: SESSION_ALPHA, ...limits })).status).toBe(204);
-    expect(sent.filter((e) => e.type === 'usage.update')).toHaveLength(0);
-    const update = sent.find((e) => e.type === 'accounts.update');
-    expect(update).toMatchObject({ accounts: { accounts: [{ id: 'primary', usage: { fiveHour: null } }, { usage: { fiveHour: { usedPercent: 47 } } }] } });
+    expect(sent.find((e) => e.type === 'accounts.update')).toMatchObject({ accounts: { accounts: [{ id: 'primary', usage: { fiveHour: null } }, { usage: { fiveHour: { usedPercent: 47 } } }] } });
     sent.length = 0;
     expect((await post('/api/ingest/statusline', { session_id: SESSION_OTHER, ...limits })).status).toBe(204);
-    expect(sent.find((e) => e.type === 'usage.update')).toMatchObject({ usage: { fiveHour: { usedPercent: 47 } } });
+    expect(sent.find((e) => e.type === 'accounts.update')).toMatchObject({ accounts: { accounts: [{ id: 'primary', usage: { fiveHour: { usedPercent: 47 } } }, {}] } });
   });
 });
 
@@ -1600,5 +1615,12 @@ describe('/api/drops', () => {
   });
   it('トークンが無ければ 401', async () => {
     expect((await app.request('/api/drops?name=a.png', { method: 'POST', body: new Uint8Array([1]) })).status).toBe(401);
+  });
+});
+
+describe('組み立ての必須の口', () => {
+  it('アカウントと使用量の口は、どの組み立ても必ず渡す', () => {
+    expectTypeOf<undefined>().not.toExtend<AppDeps['accounts']>();
+    expectTypeOf<undefined>().not.toExtend<AppDeps['cloudUsage']>();
   });
 });

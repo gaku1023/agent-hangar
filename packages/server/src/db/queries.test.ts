@@ -296,7 +296,7 @@ describe('ロックと remoteOnly と端末一覧', () => {
 
 describe('実行中のセッションの activity', () => {
   const put = () => db.prepare('insert or replace into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?,?,?,?,?,?)');
-  it('実行中なら最後の呼び出しと問いを載せ、実行中でなければ欄ごと載せない', () => {
+  it('実行中なら最後の呼び出しと問いを載せ、実行中でなければ null', () => {
     const all = listSessions(db, live);
     const alpha = all.find((s) => s.providerSessionId === SESSION_ALPHA)!;
     const beta = all.find((s) => s.providerSessionId === SESSION_BETA)!;
@@ -304,7 +304,7 @@ describe('実行中のセッションの activity', () => {
     put().run(beta.id, 'Edit', 'b.ts', 't1', null, 1);
     const again = listSessions(db, live);
     expect(again.find((s) => s.id === alpha.id)!.activity).toEqual({ tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: 'どちらにしますか？' });
-    expect('activity' in again.find((s) => s.id === beta.id)!).toBe(false);
+    expect(again.find((s) => s.id === beta.id)!.activity).toBeNull();
   });
   it('実行中でも、呼び出しがまだ無ければ null', () => {
     db.prepare('delete from session_activity').run();

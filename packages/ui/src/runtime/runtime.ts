@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type AccountsDto, type BootstrapDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type AccountsDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -251,10 +251,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           for (const tab of gone.tabs) dispatch({ kind: 'server', event: { type: 'tab.upsert', tab } });
           // 同期の状態と端末の一覧は Mediator が持つので、読み込み直すたびに入れ直す。
           // ここで流さないと、次の sync.status が届くまでヘッダの同期表示が空になる。
-          // 古いサーバはこの 2 つを持たないので、そのときは何もしない。
-          const older = b as Partial<BootstrapDto>;
-          if (older.sync) dispatch({ kind: 'server', event: { type: 'sync.status', status: older.sync } });
-          if (older.devices) dispatch({ kind: 'server', event: { type: 'devices.update', devices: older.devices } });
+          dispatch({ kind: 'server', event: { type: 'sync.status', status: b.sync } });
+          dispatch({ kind: 'server', event: { type: 'devices.update', devices: b.devices } });
           // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
           for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
@@ -500,8 +498,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
         deps.api.retention().then((r) => setStore({ ...store, retention: r })).catch(fail);
         // アカウントの認証は、この呼び出しで読まれる（節に出るメールとプラン）。
-        // アカウントの口が無い古いサーバでは 404 になる。節に出すものが無いだけなので、失敗は握って黙る。
-        deps.api.accounts().then(accountsUpdated).catch(() => {});
+        deps.api.accounts().then(accountsUpdated).catch(fail);
         // 一時停止の間はサーバが取りに行かず最後の値を返すので、ここでは状態を見ずに頼んでよい。
         deps.api.syncUsage(true).then((u) => setStore({ ...store, cloudUsage: u })).catch(fail);
         loadReadiness();
@@ -651,7 +648,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const v = deps.storage.get(k);
         if (!v || typeof v !== 'object') continue;
         // follow は残さない決まりだが、古い保存に残っていることがある。読み戻すときに落として既定（真）に戻す。
-        const { follow: _ignore, ...rest } = v as Partial<SessionViewState>;
+        // summaryOpen は使われていない欄として消した。古い保存に残っているので、読み戻すときに捨てる（捨てないと次の保存で書き戻る）。
+        const { follow: _ignore, summaryOpen: _gone, ...rest } = v as Partial<SessionViewState> & { summaryOpen?: unknown };
         sv[k.slice(3)] = { ...defaultSessionView(), ...rest, livePaneSplit: readSessionLivePaneSplit(rest.livePaneSplit) };
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。

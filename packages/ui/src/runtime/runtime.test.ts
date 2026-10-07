@@ -8,8 +8,8 @@ import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { State } from '../mediator/types.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], usage: { fiveHour: null, sevenDay: null, updatedAt: null }, todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null }, devices: [], retention: null };
-const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
+const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false };
 const launchResult: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'resume', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [] };
 const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1', events: seqs.map((seq) => ({ kind: 'user', seq, text: 'x' })), total, nextSeq: null });
 
@@ -32,7 +32,6 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, ...p })),
     rebuildIndex: vi.fn(async () => {}),
     ...fakeApiExtras(),
-    syncStatus: vi.fn(async () => syncStatus),
     syncNow: vi.fn(async () => syncStatus),
     syncPause: vi.fn(async () => ({ ...syncStatus, state: 'paused' as const })),
     syncFocus: vi.fn(async () => {}),
@@ -40,7 +39,6 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     joinToken: vi.fn(async () => ({ token: 'tok' })),
     configPreview: vi.fn(async () => ({ entries: [], confirmed: false })),
     configPull: vi.fn(async () => ({ applied: 2, conflicts: 1 })),
-    devices: vi.fn(async () => []),
     ...overrides,
   };
   const focusListeners = new Set<() => void>();
@@ -346,6 +344,15 @@ describe('createRuntime', () => {
     b.rt.start();
     expect(b.rt.getState().sessionView.s1).toMatchObject({ showThinking: true, showRaw: true, follow: true });
   });
+  it('古い保存に残る summaryOpen は、読み戻すときに捨て、書き戻さない', () => {
+    const b = harness();
+    b.store.set('sv:s1', { showThinking: true, summaryOpen: true });
+    b.rt.start();
+    expect(b.rt.getState().sessionView.s1).toMatchObject({ showThinking: true });
+    expect(b.rt.getState().sessionView.s1).not.toHaveProperty('summaryOpen');
+    b.rt.emit({ type: 'transcript.showRaw', sessionId: 's1', show: true });
+    expect(b.store.get('sv:s1')).not.toHaveProperty('summaryOpen');
+  });
   it('右ペインの上下の比率を起動時に読み戻す。数でない値や範囲の外は丸める', () => {
     const a = harness();
     a.store.set('livePane.split', 0.35);
@@ -389,7 +396,7 @@ describe('createRuntime', () => {
   });
   it('新しいセッションの下書きと前回値を起動時に読み戻す。形の違う値は捨てる', () => {
     const a = harness();
-    a.store.set('newSession.draft', { name: 'n', prompt: 'やって' });
+    a.store.set('newSession.draft', { name: 'n', prompt: 'やって', attachments: [] });
     a.store.set('newSession.prefs', { p1: { model: 'opus', addDirs: ['/a'] }, p2: { model: 3 }, p3: 'x', p4: { addDirs: [1] } });
     a.rt.start();
     expect(a.rt.getState().newSessionDraft).toEqual({ name: 'n', prompt: 'やって', attachments: [] });
@@ -669,14 +676,14 @@ describe('起動とターミナル', () => {
 });
 
 const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null };
-const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1 });
+const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
+const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null });
 const p3Run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
 const p3Tab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt: null });
 
 describe('フェーズ 3 の効果', () => {
   it('TODO の追加は前後の空白を落として渡し、削除は id をそのまま渡す', async () => {
-    const addTodo = vi.fn(async (projectId: string, text: string) => ({ id: 't9', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1 }));
+    const addTodo = vi.fn(async (projectId: string, text: string) => ({ id: 't9', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null }));
     const removeTodo = vi.fn(async (id: string) => p3Todo(id, false));
     const { rt, wsHandlers } = harness({ addTodo, removeTodo });
     rt.start();
@@ -852,19 +859,17 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().accounts).toEqual(accountsFixture);
     expect(rt.getState().toasts).toEqual([]);
   });
-  it('古いサーバでアカウントの口が無く GET /api/accounts が失敗しても、トーストにせず Store も変えず、ほかの取得は進む', async () => {
-    const accounts = vi.fn(async () => { throw new Error('404 /api/accounts'); });
-    const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
+  it('GET /api/accounts が失敗したらトーストで知らせ、ほかの取得は進む', async () => {
+    const accounts = vi.fn(async () => { throw new Error('500 /api/accounts'); });
+    const statusline = vi.fn(async () => ({ command: 'bash statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
     const { rt, wsHandlers, setHash } = harness({ accounts, statusline });
     rt.start();
     wsHandlers[0]!.onOpen();
     await flush();
-    const before = rt.getStore().accounts;
     setHash('#/settings');
     await flush();
     expect(accounts).toHaveBeenCalledTimes(1);
-    expect(rt.getState().toasts).toEqual([]);
-    expect(rt.getStore().accounts).toBe(before);
+    expect(rt.getState().toasts.map((t) => t.message)).toContain('500 /api/accounts');
     expect(rt.getStore().statusline?.installed).toBe(true);
   });
   it('設定を開くと使用量を取り直す', async () => {
@@ -1052,17 +1057,6 @@ describe('同期とこの PC で再開', () => {
     await flush();
     expect(rt.getStore().sync).toMatchObject({ sweepPending: 0, skipped: [] });
   });
-  it('sync を持たない古いサーバの bootstrap では何もしない', async () => {
-    const { sync: _s, devices: _d, ...older } = boot;
-    const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => older as BootstrapDto) });
-    rt.start();
-    wsHandlers[0]!.onOpen();
-    await flush();
-    expect(rt.getStore().bootstrapped).toBe(true);
-    expect(rt.getState().sync).toEqual({ kind: 'off' });
-    expect(rt.getState().pending).toBe(0);
-    expect(rt.getStore().devices).toEqual([]);
-  });
   it('窓が前面に来たら syncFocus を呼び、失敗してもトーストを出さない', async () => {
     const { rt, api, fireFocus } = harness({ syncFocus: vi.fn(async () => { throw new Error('500 /api/sync/focus'); }) });
     rt.start();
@@ -1137,7 +1131,7 @@ describe('保持期間（ランタイム）', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
   const preview = { days: 365, path: '/c/settings.json', lines: [], baseSha256: 'abc', backupDir: '/h/backups/claude-config', projectedBytes: null };
   it('本文の無い会話を開いても、本文を読みに行かない', async () => {
-    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, memo: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null };
+    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, memo: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
     const { rt, api, wsHandlers, setHash } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [s1] })) });
     rt.start();
     wsHandlers[0]!.onOpen();
@@ -1205,7 +1199,7 @@ describe('保持期間（ランタイム）', () => {
 
 describe('入力待ちの知らせ', () => {
   const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
-  const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '請求書の書き出し', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, ...over });
+  const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '請求書の書き出し', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
   const live = (sessionId: string, status: 'busy' | 'waiting') => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
   function fakeNotifier(o: { available?: boolean; defaultOn?: boolean; granted?: boolean; background?: boolean; grant?: boolean; status?: NotifyPermission } = {}) {
     let open: ((id: string) => void) | null = null;
@@ -1730,10 +1724,6 @@ describe('アカウント', () => {
   it('bootstrap の accounts が Store に入る', async () => {
     const h = await started({ bootstrap: vi.fn(async () => ({ ...boot, accounts: accountsFixture })) });
     expect(h.rt.getStore().accounts).toEqual(accountsFixture);
-  });
-  it('accounts を持たない bootstrap では null のまま', async () => {
-    const h = await started();
-    expect(h.rt.getStore().accounts).toBeNull();
   });
   it('account.choose は setCurrentAccount を呼び、応答の AccountsDto を Store に入れる', async () => {
     const next = { ...accountsFixture, currentId: 'a1' };

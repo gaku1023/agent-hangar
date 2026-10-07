@@ -12,7 +12,7 @@ const IMPORT_AT = new Date(2026, 9, 1, 8, 0).getTime();
 const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
 const cand = (status: 'paused' | 'done', at: number) => ({ status, note: '直した', returnOn: status === 'paused' ? '2026-10-03' : null, returnTime: null, source: 'in_session' as const, at });
-const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, state: null, ...over });
+const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
 function storeOf(list: SessionDto[]): Store {
   const s = initialStore();
   s.bootstrapped = true;
@@ -70,13 +70,6 @@ describe('presentSessions のタブと節（★）', () => {
     };
     expect(at('nfd')).toBe(true);
     expect(at('backspace')).toBe(false);
-  });
-  it('state が欠けた古いサーバの行は Active の節とタブに入る', () => {
-    const old = dto('old', 1);
-    delete (old as { state?: unknown }).state;
-    const p = presentSessions(initialState(), storeOf([old]), NOW);
-    expect(shape(p.sections)).toEqual(['# active 1', 'old']);
-    expect(p.tabs.find((t) => t.tab === 'active')!.count).toBe('1');
   });
   it('タブを選ぶと節を消し、その状態の行だけを平らに並べ、条件の行にタブの名前を出す', () => {
     const p = presentSessions(withSearch({ text: '', filter: { status: 'paused' } }), scene(), NOW);

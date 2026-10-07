@@ -216,6 +216,19 @@ describe('startServer', () => {
     }
   });
 
+  it('joinedAt の無い cloud.json でも、床なし（0）にはせず今の時刻を床にする', async () => {
+    // 床の行が無い DB（作り直した DB、cloud.json だけを写した試しの HANGAR_HOME）で床なしにすると、手元の本文を全部上げてしまう。
+    // 宛先は誰も待ち受けていないループバックである。実物のクラウドには触らない。
+    saveCloudConfig(home, { url: 'http://127.0.0.1:9', joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 0 });
+    const before = Date.now();
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    try {
+      expect(Number(transcriptFloor())).toBeGreaterThanOrEqual(before);
+    } finally {
+      await s.close();
+    }
+  });
+
   it('websocket の sync.status が付録を運び、件数が減れば画面にも届く', async () => {
     // レビュアの再現筋である。
     // 付録を運ぶのが HTTP だけだと、サーバの取り残しが 0 になっても画面は 3 のまま固まる。

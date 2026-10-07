@@ -31,7 +31,7 @@ export function transcriptsFrom(state: SyncStateStore): number {
  *
  * 呼び出し元は 2 つある。
  * 本筋は CLI で、クラウドの設定を作る（setup cloud）か参加する（join）ときに stampTranscriptsFrom が呼ぶ。
- * もう 1 つはサーバ起動時の保険で、床の無い cloud.json を見つけたときだけ効く。
+ * もう 1 つはサーバ起動時の保険で、cloud.json があるのに DB に床の行が無いときだけ効く（DB を作り直した端末などで、本文を全部上げないため）。
  */
 export function markTranscriptsFrom(state: SyncStateStore, floor: number): void {
   if (state.get(TRANSCRIPTS_FROM) !== null) return;

@@ -361,6 +361,11 @@ describe('セッションの状態の同期', () => {
     const applied = applyRemoteBatch(db, [{ ...ch({ rowId: 'x', updatedAt: 5 }), tableName: 'future_states' as never }, ch({ rowId: 'p1', updatedAt: 5 })], o);
     expect(applied.map((c) => c.rowId)).toEqual(['p1']);
   });
+  it('共有テーブルの一覧から外した takeover_requests の変更は、表に書かずに捨てる', () => {
+    const db = openDb(':memory:');
+    expect(applyRemoteChange(db, { ...ch({ rowId: 'x', updatedAt: 5 }), tableName: 'takeover_requests' as never }, o)).toBe('skipped');
+    expect(db.prepare('select count(*) c from takeover_requests').get()).toEqual({ c: 0 });
+  });
   it('sessionIdOfChange は、状態・要約・セッションの行ではその id、run ではそのセッション、ほかは null', () => {
     const db = openDb(':memory:');
     seedSession(db);

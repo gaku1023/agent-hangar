@@ -2,7 +2,6 @@ import type { Input, State, Step } from './types.ts';
 
 /**
  * resumeHere 領域：他端末の本文を手元に降ろして再開するときの確認。
- * 引き継ぎ（session.takeover）はこのフェーズでは実装しないので、ここでは扱わない。
  *
  * この領域は overlayStep の後ろに置く。
  * 確認のダイアログを閉じるのは overlayStep の overlay.close であって、ここではない。

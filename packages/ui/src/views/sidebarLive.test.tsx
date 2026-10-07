@@ -12,7 +12,7 @@ import { initialStore, liveSessionIds, type Store } from '../store/store.ts';
 import { moveId, nudgeId, Sidebar } from './Sidebar.tsx';
 
 const NOW = 1_800_000_000_000;
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, cost: null }, ...over } as unknown as SessionDto);
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, cost: null }, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over } as unknown as SessionDto);
 const storeWith = (list: SessionDto[]): Store => ({ ...initialStore(), bootstrapped: true, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 const liveOf = (store: Store, state = initialState()) => presentShell(state, store, NOW).live;
 const at = (name: 'home' | 'projects') => ({ ...initialState(), screen: { name } });

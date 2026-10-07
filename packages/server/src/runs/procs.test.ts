@@ -1,14 +1,6 @@
 import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { parseBackgroundedId, parseJobs, parseProcStart, realProcOps, sameStartTime } from './procs.ts';
-
-describe('parseBackgroundedId', () => {
-  it('名前の有無どちらでも id を拾い、無ければ null', () => {
-    expect(parseBackgroundedId('backgrounded · a6860899 (idle — send a prompt to start)\n  claude agents')).toBe('a6860899');
-    expect(parseBackgroundedId('backgrounded · a173ca6d · wrap-test (idle — send a prompt to start)')).toBe('a173ca6d');
-    expect(parseBackgroundedId('Error: something went wrong')).toBeNull();
-  });
-});
+import { parseJobs, parseProcStart, realProcOps, sameStartTime } from './procs.ts';
 
 describe('parseJobs', () => {
   it('バックグラウンドのセッションだけを拾い、読めなければ null', () => {
