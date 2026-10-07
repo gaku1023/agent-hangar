@@ -11,7 +11,7 @@ import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalHostContext } from './TerminalPane.tsx';
 
-const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', route: { name: 'project', id: 'p1' } }, live: 'busy', aside: false, cwd: '/w/alpha', projectName: 'alpha', projectId: 'p1', summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1, sourceLabel: '自動', stateLabel: '進行中', summarizerLabel: null, generatedAt: '1970-01-01 09:00' }, summaryOpen: false, model: 'fable 5.1', effort: 'high', turns: 2, tokens: '1.2M', prUrl: null, memo: null, started: '2 時間前', lastActivity: '1 分前', hasTranscript: true,
+const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', route: { name: 'project', id: 'p1' } }, live: 'busy', aside: false, cwd: '/w/alpha', projectName: 'alpha', projectId: 'p1', summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1, sourceLabel: '自動', stateLabel: '進行中', summarizerLabel: null, generatedAt: '1970-01-01 09:00' }, model: 'fable 5.1', effort: 'high', turns: 2, tokens: '1.2M', prUrl: null, memo: null, started: '2 時間前', lastActivity: '1 分前', hasTranscript: true,
   items: [
     { kind: 'user', seq: 0, text: 'hi', when: '10:00' },
     toolItem(1, 'Agent', { description: 'x' }, { text: 'done', isError: false }, { when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } }),
@@ -801,7 +801,7 @@ describe('SessionScreen の読む面の印', () => {
 
 describe('SessionScreen（本文が消えた会話）', () => {
   const gone = { note: '本文は、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 };
-  const props = { ...base, live: null, hasTranscript: false, items: [], total: 0, loaded: 0, hasMore: false, summaryOpen: true, canResume: false, canFork: false, gone };
+  const props = { ...base, live: null, hasTranscript: false, items: [], total: 0, loaded: 0, hasMore: false, canResume: false, canFork: false, gone };
   it('注記と要約のみの印を出し、延ばす手を添え、作り直しと本文の欄は出さない', () => {
     const onIntent = vi.fn();
     const { container } = render(<IntentRoot onIntent={onIntent}><SS {...props} /></IntentRoot>);

@@ -32,7 +32,6 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, ...p })),
     rebuildIndex: vi.fn(async () => {}),
     ...fakeApiExtras(),
-    syncStatus: vi.fn(async () => syncStatus),
     syncNow: vi.fn(async () => syncStatus),
     syncPause: vi.fn(async () => ({ ...syncStatus, state: 'paused' as const })),
     syncFocus: vi.fn(async () => {}),
@@ -40,7 +39,6 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     joinToken: vi.fn(async () => ({ token: 'tok' })),
     configPreview: vi.fn(async () => ({ entries: [], confirmed: false })),
     configPull: vi.fn(async () => ({ applied: 2, conflicts: 1 })),
-    devices: vi.fn(async () => []),
     ...overrides,
   };
   const focusListeners = new Set<() => void>();
@@ -345,6 +343,15 @@ describe('createRuntime', () => {
     b.store.set('sv:s1', { showThinking: true, showRaw: true });
     b.rt.start();
     expect(b.rt.getState().sessionView.s1).toMatchObject({ showThinking: true, showRaw: true, follow: true });
+  });
+  it('古い保存に残る summaryOpen は、読み戻すときに捨て、書き戻さない', () => {
+    const b = harness();
+    b.store.set('sv:s1', { showThinking: true, summaryOpen: true });
+    b.rt.start();
+    expect(b.rt.getState().sessionView.s1).toMatchObject({ showThinking: true });
+    expect(b.rt.getState().sessionView.s1).not.toHaveProperty('summaryOpen');
+    b.rt.emit({ type: 'transcript.showRaw', sessionId: 's1', show: true });
+    expect(b.store.get('sv:s1')).not.toHaveProperty('summaryOpen');
   });
   it('右ペインの上下の比率を起動時に読み戻す。数でない値や範囲の外は丸める', () => {
     const a = harness();

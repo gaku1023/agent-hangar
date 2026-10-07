@@ -651,7 +651,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const v = deps.storage.get(k);
         if (!v || typeof v !== 'object') continue;
         // follow は残さない決まりだが、古い保存に残っていることがある。読み戻すときに落として既定（真）に戻す。
-        const { follow: _ignore, ...rest } = v as Partial<SessionViewState>;
+        // summaryOpen は使われていない欄として消した。古い保存に残っているので、読み戻すときに捨てる（捨てないと次の保存で書き戻る）。
+        const { follow: _ignore, summaryOpen: _gone, ...rest } = v as Partial<SessionViewState> & { summaryOpen?: unknown };
         sv[k.slice(3)] = { ...defaultSessionView(), ...rest, livePaneSplit: readSessionLivePaneSplit(rest.livePaneSplit) };
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。

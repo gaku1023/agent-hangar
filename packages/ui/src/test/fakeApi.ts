@@ -7,7 +7,7 @@ type Extras = Pick<
   | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs'
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
-  | 'syncStatus' | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull' | 'devices'
+  | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull'
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'live' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
@@ -69,7 +69,6 @@ export function fakeApiExtras(): Extras {
     summarizerModels: vi.fn(async () => ({ models: ['gemma'] })),
     testSummarizer: vi.fn(async () => ({ ok: false as const, tried: [] })),
     // フェーズ 4 の同期。状態を返すものは、使うテストが自分で上書きする。
-    syncStatus: vi.fn(async () => unused()),
     // 使用量は届いていない状態（null）が既定である。
     syncUsage: vi.fn(async () => null),
     syncNow: vi.fn(async () => unused()),
@@ -80,7 +79,6 @@ export function fakeApiExtras(): Extras {
     joinToken: vi.fn(async () => ({ token: null })),
     configPreview: vi.fn(async () => ({ entries: [], confirmed: false })),
     configPull: vi.fn(async () => ({ applied: 0, conflicts: 0 })),
-    devices: vi.fn(async () => []),
     retention: vi.fn(async () => ({ days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null })),
     retentionPreview: vi.fn(async () => unused()),
     writeRetention: vi.fn(async () => unused()),

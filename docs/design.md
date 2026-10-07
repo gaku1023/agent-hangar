@@ -180,7 +180,7 @@ type Intent =
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
   | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
   | { type: 'sync.joinToken.show' }
-  | { type: 'summary.toggle'; sessionId: SessionId } | { type: 'summary.regenerate'; sessionId: SessionId }
+  | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
   | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
@@ -220,7 +220,7 @@ type Intent =
 - `screen`：`booting | home | projects | project(id) | session(id) | sessions(query) | settings`。
 - `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
 外のターミナルの claude を引き取る確認は `confirm('adoptSession')`、ランを止める確認は `confirm('killRun')`、見つからないプロジェクトを一覧から削除する確認は `confirm('unlinkProject')` である。
-- `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉、要約パネルの開閉。
+- `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉。
 - `launch`：`idle | submitting | failed(message)`。場所の指定つきで起動するときは、送信中と失敗の状態が、途中で作れたプロジェクトの id を `createdProjectId` に持つ。
 - `projectCreate`：`idle | submitting | failed(message)`。作成のダイアログの送信の状態である。
 - `workspaceDirs`：ワークスペース直下の未登録のフォルダ（`{ name, path }[]`）。2 つのダイアログを開いたときに読み、まだ読んでいなければ null である。
@@ -263,7 +263,7 @@ type Intent =
 - 一覧は仮想スクロールで描く。1 行 44px の 2 段の行（1 段目に名前、2 段目に要約の 1 文）で、100 件を超えても遅くしない。
 - 時刻は相対表示（「3 分前」）を基本にし、ホバーで絶対時刻を出す。
 - 識別子、パス、時刻（04:28）、数だけの表示は等幅フォントで描く。数と仮名が混じる短い語（「12 分前」「1,222 件」「変更 5」）は本文の書体のまま、数字の幅だけをそろえる（`.num`）。
-- UI の一時状態（開いているタブ、分割、折りたたみ、要約パネルの開閉）は端末の localStorage に保存し、同期しない。
+- UI の一時状態（開いているタブ、分割、折りたたみ）は端末の localStorage に保存し、同期しない。
 
 ## データモデル
 

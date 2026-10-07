@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { SyncStatusBody } from '@agent-hangar/shared';
-import type { Input } from './types.ts';
+import type { Input, Overlay, SessionViewState } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
@@ -236,8 +236,8 @@ describe('索引の進み', () => {
 
 describe('セッション表示の一時状態', () => {
   it('思考と生 JSON と追従の切り替えを保存する', () => {
-    const { state, effects } = run([intent({ type: 'transcript.showThinking', sessionId: 's1', show: true }), intent({ type: 'summary.toggle', sessionId: 's1' })]);
-    expect(state.sessionView.s1).toMatchObject({ showThinking: true, summaryOpen: true, showRaw: false, follow: true });
+    const { state, effects } = run([intent({ type: 'transcript.showThinking', sessionId: 's1', show: true }), intent({ type: 'transcript.showRaw', sessionId: 's1', show: true })]);
+    expect(state.sessionView.s1).toMatchObject({ showThinking: true, showRaw: true, follow: true });
     expect(effects[0]).toMatchObject({ kind: 'storage.save', key: 'sv:s1' });
   });
   it('本文の追記は開いているセッションだけ読み直す', () => {
@@ -1634,5 +1634,12 @@ describe('アカウント', () => {
     const ng = run([runtime({ type: 'launch.failed', message: '同じアカウントです' })], submitted);
     expect(ng.state.launch).toEqual({ kind: 'failed', message: '同じアカウントです' });
     expect(ng.effects).toEqual([{ kind: 'toast', level: 'error', message: '同じアカウントです' }]);
+  });
+});
+
+describe('使われていない口を消した後', () => {
+  it('未実装の知らせのオーバーレイと、要約の開閉は持たない', () => {
+    expectTypeOf<Extract<Overlay, { kind: 'notYet' }>>().toBeNever();
+    expectTypeOf<SessionViewState>().not.toHaveProperty('summaryOpen');
   });
 });

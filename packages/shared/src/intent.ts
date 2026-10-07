@@ -85,7 +85,7 @@ export type Intent =
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
   | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
   | { type: 'sync.joinToken.show' }
-  | { type: 'summary.toggle'; sessionId: SessionId } | { type: 'summary.regenerate'; sessionId: SessionId }
+  | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
   | { type: 'sidebar.toggle' }

@@ -78,3 +78,9 @@ describe('引き継ぎを消した後', () => {
     expectTypeOf<Extract<ServerEvent, { type: 'takeover.update' }>>().toBeNever();
   });
 });
+
+describe('使われていない Intent を消した後', () => {
+  it('要約の開閉の Intent は無い', () => {
+    expectTypeOf<Extract<Intent, { type: 'summary.toggle' }>>().toBeNever();
+  });
+});
