@@ -1,0 +1,73 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Miniflare } from 'miniflare';
+import { afterEach, describe, expect, it } from 'vitest';
+import { bindingNames, bundleWorker, WORKER_METADATA, WORKER_MODULE, workerMetadata } from '../scripts/build-worker.ts';
+
+const cloudDir = fileURLToPath(new URL('..', import.meta.url));
+const temps: string[] = [];
+afterEach(() => {
+  while (temps.length) fs.rmSync(temps.pop()!, { recursive: true, force: true });
+});
+
+describe('同梱する Worker の束と束縛の定義', () => {
+  it('束縛の定義は、wrangler.jsonc の互換の日付と旗、D1 と R2 の束縛の名前を写し、手元の資源の名前は写さない', () => {
+    expect(WORKER_MODULE).toBe('worker.mjs');
+    expect(WORKER_METADATA).toBe('metadata.json');
+    expect(workerMetadata(cloudDir)).toEqual({
+      main_module: 'worker.mjs',
+      compatibility_date: '2026-08-01',
+      compatibility_flags: ['nodejs_compat'],
+      bindings: [
+        { type: 'd1', name: 'DB' },
+        { type: 'r2_bucket', name: 'BUCKET' },
+      ],
+    });
+    // 手元の開発用の名前（hangar-local）と、ゼロの database_id は運ばない。
+    expect(JSON.stringify(workerMetadata(cloudDir))).not.toContain('hangar-local');
+    expect(JSON.stringify(workerMetadata(cloudDir))).not.toContain('00000000-0000');
+  });
+
+  it('束は外への import を持たない 1 本の ESM で、定義の束縛で起こすと /health が通る', async () => {
+    const script = await bundleWorker(cloudDir);
+    expect(script).not.toMatch(/^import\s/m);
+    expect(script).toMatch(/as default/);
+    const meta = workerMetadata(cloudDir);
+    const mf = new Miniflare({
+      modules: true,
+      script,
+      // 絶対パスで作業ディレクトリの外を指すと、workerd は .. で抜けられずに起動を断る。名前だけを渡す。
+      scriptPath: meta.main_module,
+      compatibilityDate: meta.compatibility_date,
+      compatibilityFlags: meta.compatibility_flags,
+      d1Databases: bindingNames(meta, 'd1'),
+      r2Buckets: bindingNames(meta, 'r2_bucket'),
+      bindings: { JOIN_SECRET_HASH: '' },
+      outboundService: () => new Response('outbound fetch is not allowed in tests', { status: 599 }),
+    });
+    try {
+      const r = await mf.dispatchFetch('http://localhost/health');
+      expect(r.status).toBe(200);
+      expect(await r.json()).toMatchObject({ ok: true });
+    } finally {
+      await mf.dispose();
+    }
+  });
+
+  it('写し方を決めていない設定（KV、vars の中身）や、行の途中の注釈があれば、黙って落とさずに止める', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-wrangler-'));
+    temps.push(dir);
+    const file = path.join(dir, 'wrangler.jsonc');
+    const base = { name: 'x', main: 'src/index.ts', compatibility_date: '2026-08-01', compatibility_flags: ['nodejs_compat'], d1_databases: [{ binding: 'DB' }], r2_buckets: [{ binding: 'BUCKET' }], vars: {} };
+    fs.writeFileSync(file, `// 行頭の注釈は読み飛ばす。\n${JSON.stringify(base)}\n`);
+    expect(bindingNames(workerMetadata(dir), 'd1')).toEqual(['DB']);
+    fs.writeFileSync(file, JSON.stringify({ ...base, kv_namespaces: [{ binding: 'KV' }] }));
+    expect(() => workerMetadata(dir)).toThrow(/kv_namespaces/);
+    fs.writeFileSync(file, JSON.stringify({ ...base, vars: { MODE: 'x' } }));
+    expect(() => workerMetadata(dir)).toThrow(/vars/);
+    fs.writeFileSync(file, '{ "name": "x", // 行の途中の注釈\n "compatibility_date": "2026-08-01" }\n');
+    expect(() => workerMetadata(dir)).toThrow(/wrangler\.jsonc を読めません/);
+  });
+});

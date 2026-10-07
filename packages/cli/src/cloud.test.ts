@@ -2,12 +2,14 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PassThrough, Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backfillTranscripts, type CloudConfig, deriveFileKey, encryptBuffer, loadCloudConfig, readTranscriptsFrom, saveCloudConfig, stampTranscriptsFrom } from '@agent-hangar/server';
 import { decodeJoinToken, encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
-import { BUNDLED_CLOUD_MARKER, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth } from './cloud.ts';
+import { BUNDLED_CLOUD_MARKER, cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWorker, offerUsageToken, OVERWRITE_WORD, promptWord, rescueTargetPath, RENAME_WORD, ROTATE_WORD, requireCloudDir, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP, waitForHealth, writeWranglerConfig } from './cloud.ts';
+import { bindingNames, workerMetadata } from '../../cloud/scripts/build-worker.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
 import { expectMode } from '../../server/test/platform.ts';
@@ -1251,5 +1253,24 @@ describe('runSetupCloud の使用量のトークンの問い', () => {
   it('端末でも skipUsageToken なら尋ねない', async () => {
     setIsTTY(true);
     expect(await run({ skipUsageToken: true })).not.toContain('API トークン');
+  });
+});
+
+describe('setup cloud の書く wrangler の設定', () => {
+  it('互換の日付と旗、D1 と R2 の束縛の名前が、同梱する束縛の定義（packages/cloud/wrangler.jsonc から作る）とそろっている', () => {
+    // 片方だけ変えると、wrangler で上げた Worker と、段 5 で同梱の定義から上げる Worker が食い違う。
+    const { home } = dirs();
+    const file = writeWranglerConfig(home, { name: 'hangar', main: '/x/src/index.ts', dbName: 'hangar', dbId: DB_ID, bucketName: 'hangar-files' });
+    const cfg = JSON.parse(fs.readFileSync(file, 'utf8').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')) as {
+      compatibility_date: string;
+      compatibility_flags: string[];
+      d1_databases: { binding: string }[];
+      r2_buckets: { binding: string }[];
+    };
+    const meta = workerMetadata(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../cloud'));
+    expect(cfg.compatibility_date).toBe(meta.compatibility_date);
+    expect(cfg.compatibility_flags).toEqual(meta.compatibility_flags);
+    expect(cfg.d1_databases.map((d) => d.binding)).toEqual(bindingNames(meta, 'd1'));
+    expect(cfg.r2_buckets.map((b) => b.binding)).toEqual(bindingNames(meta, 'r2_bucket'));
   });
 });
