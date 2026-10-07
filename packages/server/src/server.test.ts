@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import type { ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
+import type { CompatDto, ReadinessDto, ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { Readable } from 'node:stream';
 import { saveCloudConfig } from './config/cloud.ts';
@@ -22,7 +22,9 @@ import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
 import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
-import { expectMode } from '../test/platform.ts';
+import { writeFakeTool } from '../test/fake-bin.ts';
+import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
+import { expectMode, posixIt } from '../test/platform.ts';
 
 /** 見本の登録の pid は実在しない。Windows の既定は動いていない pid の登録を読まないので、試験では全部読ませる。 */
 const ALL_ALIVE = (): boolean => false;
@@ -357,6 +359,38 @@ describe('startServer', () => {
       expect(fs.readFileSync(header, 'utf8')).toBe(`Authorization: Bearer ${tokenOf()}\n`);
     } finally {
       await second.close();
+    }
+  });
+
+  // 偽の claude は sh の case で引数を見るので、Windows では飛ばす。
+  posixIt('claude --help のサブコマンドで包みを書き直し、/api/compat と準備の確かめが版とずれを返す。閉じると compat.json に残る', async () => {
+    const bin = writeFakeTool(path.join(home, 'bin'), 'claude', {
+      sh: 'case "$1" in --version) echo "9.9.9 (Claude Code)" ;; --help) printf "Usage: claude\\n\\nCommands:\\n  agents [options]  Manage background agents\\n  newcmd            Something new\\n" ;; esac',
+      cmd: '',
+    });
+    const prev = process.env.HANGAR_CLAUDE_BIN;
+    process.env.HANGAR_CLAUDE_BIN = bin;
+    try {
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      try {
+        const script = path.join(home, 'shell', 'claude.zsh');
+        await until(async () => (fs.readFileSync(script, 'utf8').includes('    agents|newcmd) command claude') ? true : null));
+        const res = await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: { authorization: `Bearer ${tokenOf()}` } });
+        const body = (await res.json()) as CompatDto;
+        expect(body.verifiedVersion).toBe(VERIFIED_CLAUDE_VERSION);
+        expect(body.localVersion).toBe('9.9.9');
+        expect(body.drifts.map((d) => d.value)).toEqual(expect.arrayContaining(['subcommand.added=newcmd', 'subcommand.removed=purge']));
+        // 確認リストが読む要約にも、同じずれの件数が載る。
+        const ready = (await (await fetch(`http://127.0.0.1:${s.port}/api/readiness`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json()) as ReadinessDto;
+        expect(ready.compat.verifiedVersion).toBe(VERIFIED_CLAUDE_VERSION);
+        expect(ready.compat.driftCount).toBeGreaterThanOrEqual(body.drifts.length);
+      } finally {
+        await s.close();
+      }
+      const saved = JSON.parse(fs.readFileSync(path.join(home, 'compat.json'), 'utf8')) as { entries: { value: string }[] };
+      expect(saved.entries.map((e) => e.value)).toContain('subcommand.added=newcmd');
+    } finally {
+      if (prev === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prev;
     }
   });
 

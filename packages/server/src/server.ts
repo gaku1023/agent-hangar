@@ -9,7 +9,7 @@ import { backupsRoot, readCloudConfig, remoteRoot } from './config/cloud.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
 import { ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, shellWrapSupported, zshrcPath } from './config/shellHook.ts';
 import { claudeJsonPath } from './config/claudeJson.ts';
-import { createReadiness } from './config/readiness.ts';
+import { createReadiness, ToolVersions } from './config/readiness.ts';
 import { defaultManagedDir, RetentionService } from './config/retention.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
@@ -28,6 +28,10 @@ import { promoteSession } from './projects/promote.ts';
 import { assignSession, assignSessions, checkProjectRoots, registerWorkspaceChildOf, syncProjectsFromWorkspace } from './projects/registry.ts';
 import { ensureScratchProject } from './projects/scratch.ts';
 import { readRegistry, RegistryWatcher } from './provider/claude-code/registry.ts';
+import { BUILTIN_SUBCOMMANDS, readClaudeHelp, subcommandsFromHelp } from './provider/claude-code/compat/cli.ts';
+import { ClaudeDirWatch } from './provider/claude-code/compat/claudeDir.ts';
+import { CompatLog, compatPath } from './provider/claude-code/compat/log.ts';
+import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { AsideReader } from './live/aside.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
 import { nodePtySpawn } from './pty/nodePty.ts';
@@ -426,9 +430,16 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const claudeDir = opts.claudeDir ?? (settings.claudeDir || defaultClaudeDir());
   const db = openDb(dbPath(home));
   const hub = new EventHub(VERSION);
+  // 閉じたかどうか。閉じた後に届いた裏の読み取り（claude --help と --version）が、消えた置き場に書かないようにする。
+  let closed = false;
+  // Claude Code の形式のずれの記録（provider/claude-code/compat/）。端末ごとのファイルで、同期しない。
+  // 手元の claude の版は listen の後に裏で読む。読めるまでは、版の無いずれを null で記録する。
+  let claudeVersion: string | null = null;
+  const compatLog = new CompatLog({ file: compatPath(home), localVersion: () => claudeVersion });
+  compatLog.start();
   // 裏でサブエージェントだけが動いているものに、読み直しのたびに印を足す（live/aside.ts）。
   const aside = new AsideReader(db);
-  const registry = new RegistryWatcher(claudeDir, undefined, opts.registryIsGone, (live) => aside.apply(live, Date.now()));
+  const registry = new RegistryWatcher(claudeDir, undefined, opts.registryIsGone, (live) => aside.apply(live, Date.now()), compatLog);
 
   // クラウド同期。cloud.json が無ければ client は null で、同期の状態は off になる。
   const cloudRead = readCloudConfig(home);
@@ -572,6 +583,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     isYielded: (uuid) => syncState.isYielded(uuid),
     // 状態を外すのは resume した後の発言だけである。発言を出したプロセスの起動時刻を、登録と runs から引く。
     processStartOf: (q) => processStartOfPrompt(db, device.id, registry.current(), q),
+    // 手元の本文の行を見張る。手元の claude の版より古い行は昔の形として見ない。版が読めるまでは確かめた版を床にする。
+    compat: { sink: compatLog, since: () => claudeVersion ?? VERIFIED_CLAUDE_VERSION },
   });
 
   // 起動の途中かどうか。最初の全走査では未分類のセッションを数えきれないほど流すので、知らせるのは起動後だけにする。
@@ -688,6 +701,16 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
    * 起動と要約の両方が同じ絶対パスを使う。
    */
   const claudeBinOf = (s: Settings): string | null => process.env.HANGAR_CLAUDE_BIN ?? s.claudePath ?? which('claude');
+  // 手元の claude の版。ずれの記録の既定の版と、GET /api/compat の手元の版に使う。同じファイルなら起こし直さない。
+  const claudeVersions = new ToolVersions();
+  const refreshClaudeVersion = async (): Promise<string | null> => {
+    const bin = claudeBinOf(settings);
+    const v = bin ? await claudeVersions.get(bin, ['--version']) : null;
+    if (!closed) claudeVersion = v;
+    return v;
+  };
+  // 包みがそのまま渡すサブコマンド。起動のたびと claude のパスを変えたときに claude --help から作り直す。
+  let shellSubcommands: readonly string[] = BUILTIN_SUBCOMMANDS;
   // 同梱の hangar。アプリの中では server.mjs の隣の bin/hangar にある。リポジトリから動かすときは無い。
   const bundledHangar = ((): string | null => {
     const p = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'hangar');
@@ -697,12 +720,28 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 本体には実際に待ち受けているポートと tmux のパスを埋め込むので、listen の後に書き、tmux のパスが変われば書き直す。
   const writeShellScript = () => {
     try {
-      ensureShellScript(home, { url: `http://${host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host}:${port}`, tokenFile: path.join(home, 'token'), tmuxPath: settings.tmuxPath });
+      ensureShellScript(home, { url: `http://${host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host}:${port}`, tokenFile: path.join(home, 'token'), tmuxPath: settings.tmuxPath, subcommands: shellSubcommands });
     } catch (e) {
       console.error('[shell] 包み方の本体を書けませんでした', e instanceof Error ? e.message : e);
     }
   };
+  /**
+   * 包みがそのまま渡すサブコマンドを claude --help から作り直し、包みを書き直す。
+   * 読めなければ組み込みの一覧を使う。組み込みとの差は Claude Code との互換のずれとして記録する。
+   * 起動を待たせないよう裏で走らせ、閉じた後に届いたら何もしない。
+   */
+  const refreshSubcommands = async (): Promise<void> => {
+    const bin = claudeBinOf(settings);
+    const text = bin ? await readClaudeHelp(bin) : null;
+    if (closed) return;
+    const r = subcommandsFromHelp(text);
+    for (const d of r.drifts) compatLog.note(d);
+    shellSubcommands = r.subcommands;
+    writeShellScript();
+  };
   writeShellScript();
+  void refreshSubcommands();
+  void refreshClaudeVersion();
   // 包めるかは tmux を実行できるかで見る。ファイルを見るだけなので、毎回測る。
   const shellHook = (): ShellHookDto => {
     const shellSupported = shellWrapSupported(settings.tmuxPath);
@@ -711,7 +750,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   };
   // Claude Code のアカウント。置き場ごとのログインを切り替えるだけで、認証の中身は持たない。
   const accountStore = new AccountStore({ home, primaryDir: claudeDir });
-  const accountAuth = new AccountAuth({ claudeBin: () => claudeBinOf(settings) });
+  const accountAuth = new AccountAuth({ claudeBin: () => claudeBinOf(settings), compat: compatLog });
+  // 2 つ目以降のアカウントの置き場に、Claude Code が新しい項目を足していないかを見る。起動のときと、確認リストを開いたときに見る。
+  const claudeDirWatch = new ClaudeDirWatch({ dirs: () => accountStore.list().filter((a) => a.id !== PRIMARY_ACCOUNT_ID).map((a) => a.dir), sink: compatLog });
+  claudeDirWatch.check();
   const runs = new RunManager({
     db, deviceId: device.id, home, tmux: tmuxOf(settings), port, token,
     claudeBin: claudeBinOf(settings),
@@ -722,6 +764,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // 引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引く。
     live: () => registry.current(),
     accounts: accountStore,
+    compat: compatLog,
   });
   // 区切り（Paused・Done・Archived）を付けたセッションが休みになったら、Claude を止める。
   // 登録は 500 ミリ秒ごとの写しではなく、その場で読み直す。打ったばかりの発言で作業中に変わった会話を、古い写しのまま止めないためである。
@@ -739,6 +782,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       const id = s ? accountOfSession(db, s.id) : null;
       return id && accountStore.get(id) ? id : PRIMARY_ACCOUNT_ID;
     },
+    compat: compatLog,
   });
   // アカウントの HTTP と、起動後の認証の読み直しが、同じ組み立てを使う。
   const accountsDeps: AccountsDeps = {
@@ -752,7 +796,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const memos = new MemoStore({ db, deviceId: device.id, home });
   // Claude への切り替えの件数はプロセスの寿命で数えるので、要約器はここで 1 度だけ作り、
   // 設定の変更は列の組み立てで反映する。毎回作り直すと 1 時間の窓が空になる。
-  const claudeSummarizer = () => new ClaudeHeadlessSummarizer({ claudeBin: claudeBinOf(settings), hourlyCap: settings.summaryHourlyCap, usage: () => usage.current() });
+  const claudeSummarizer = () => new ClaudeHeadlessSummarizer({ claudeBin: claudeBinOf(settings), hourlyCap: settings.summaryHourlyCap, usage: () => usage.current(), compat: compatLog });
   let claude = claudeSummarizer();
   const summarizers = (): Summarizer[] => {
     const list: Summarizer[] = [new LmStudioSummarizer({ baseUrl: settings.lmStudioUrl, model: settings.lmStudioModel })];
@@ -883,10 +927,12 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       runs.setTmux(t);
       relay.setTmux(t);
       if (patch.tmuxPath !== undefined) writeShellScript();
-      // claudePath が変われば、これから起こす run と要約が新しい場所を使う。
+      // claudePath が変われば、これから起こす run と要約が新しい場所を使う。包みのサブコマンドと手元の版も読み直す。
       if (patch.claudePath !== undefined) {
         runs.setClaudeBin(claudeBinOf(settings));
         claude = claudeSummarizer();
+        void refreshSubcommands();
+        void refreshClaudeVersion();
       }
       // 上限だけは要約器が内側に持つので、変わったときに作り直す。
       if (patch.summaryHourlyCap !== undefined) claude = claudeSummarizer();
@@ -940,7 +986,13 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     readiness: createReadiness({
       settings: () => settings, claudeDir, claudeJson: claudeJsonPath(), db, deviceId: device.id,
       shellCommand: () => shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar }),
+      compatDriftCount: () => { claudeDirWatch.check(); return compatLog.count(); },
     }),
+    // Claude Code との互換の一覧。確認リストの 6 行目を開いたときに読む。
+    compat: async () => {
+      claudeDirWatch.check();
+      return { verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: await refreshClaudeVersion(), drifts: compatLog.list() };
+    },
     uiDist,
   });
   handler = app.fetch;
@@ -1042,6 +1094,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   return {
     port,
     close: async () => {
+      closed = true;
       // 待ちの上限は 1 本の締め切りで持つ。
       // 段ごとに数えると和が番犬の上限を超え、db.close() まで届かない（レビューの指摘 2）。
       const deadline = Date.now() + CLOSE_DEADLINE_MS;
@@ -1080,6 +1133,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (!(await waitForSummaryIdle(summary, summaryWait))) {
         console.warn(`[summary] 要約の終了を ${summaryWait} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
       }
+      // 記録の残りを書き出す。書けなくても閉じるのは止めない。
+      compatLog.stop();
       db.close();
     },
   };
