@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { parseStatusline, UsageTracker } from './statusline.ts';
+import type { Drift } from '../provider/claude-code/compat/types.ts';
 
 const first = { session_id: 'u1', session_name: 'n', cwd: '/x', transcript_path: '/t.jsonl', model: { id: 'claude-opus-4-1', display_name: 'Opus' }, effort: 'high', cost: { total_cost_usd: 0.05 }, context_window: { context_window_size: 200_000, current_usage: null } };
 const second = { ...first, cost: { total_cost_usd: 0.12 }, context_window: { context_window_size: 200_000, current_usage: { input_tokens: 40_000, output_tokens: 1_000, cache_creation_input_tokens: 5_000, cache_read_input_tokens: 5_000 } }, rate_limits: { five_hour: { used_percentage: 47, resets_at: 1_760_000_000 }, seven_day: { used_percentage: 7, resets_at: 1_760_500_000 } } };
@@ -21,6 +22,15 @@ describe('parseStatusline', () => {
 });
 
 describe('UsageTracker', () => {
+  it('resets_at がミリ秒に見える値ならそのまま使い、ずれとして知らせる', () => {
+    const db = openDb(':memory:');
+    const seen: Drift[] = [];
+    const tr = new UsageTracker(db, { now: () => 1_000, compat: { note: (d) => seen.push(d) } });
+    const r = tr.ingest({ ...second, version: '2.1.300', rate_limits: { five_hour: { used_percentage: 47, resets_at: 1_760_000_000_000 }, seven_day: { used_percentage: 7, resets_at: 1_760_500_000 } } })!;
+    expect(r.usage.fiveHour).toEqual({ usedPercent: 47, resetsAt: 1_760_000_000_000 });
+    expect(r.usage.sevenDay).toEqual({ usedPercent: 7, resetsAt: 1_760_500_000_000 });
+    expect(seen).toEqual([{ contract: 'statusline', value: 'rate_limits.five_hour.resets_at=ms', version: '2.1.300' }]);
+  });
   it('1 回目は rate_limits が無く、直前の値を保つ。2 回目で埋まる', () => {
     const db = openDb(':memory:');
     let t = 1_000;
