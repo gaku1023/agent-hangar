@@ -17,6 +17,7 @@ import { Tmux } from '../tmux/tmux.ts';
 import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
 import { createMcpApp } from '../mcp/app.ts';
 import { MemoStore } from '../projects/memo.ts';
+import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { LiveSession } from '../provider/types.ts';
 import { RunManager } from './manager.ts';
 import { realProcOps, type ProcOps } from './procs.ts';
@@ -1023,6 +1024,22 @@ describe('transcript の中の指示へ跳ぶ（tmux 不要）', () => {
     expect(await rm.jumpToPrompt(runId, ['a', 'b'], 0, 'bottom')).toEqual({ found: true });
     const keys = sent.filter((s) => s[0] !== 'capture');
     expect(keys).toEqual([[`hangar-${runId}`, '-l', 'G'], [`hangar-${runId}`, '-l', '{'], [`hangar-${runId}`, '-l', '{']]);
+  });
+
+  it('指示の行の記号は、続けて 3 回見つからなかったときに初めて互換のずれとして記録する', async () => {
+    // 描き直しの遅れなどで 1 回見つからないことは普段でも起きる。1 回ごとに記録すると誤報になる。
+    const { runId } = seedRun();
+    const tmux = {
+      capturePane: () => '  返答だけが見えている\n\n  Showing detailed transcript · ctrl+o to toggle',
+      sendKeys: () => {},
+    } as unknown as Tmux;
+    const seen: Drift[] = [];
+    const rm = make({ tmux, compat: { note: (d) => seen.push(d) } });
+    expect(await rm.jumpToPrompt(runId, ['a'], 0, 'bottom')).toEqual({ found: false, reason: 'notFound' });
+    expect(await rm.jumpToPrompt(runId, ['a'], 0, 'bottom')).toEqual({ found: false, reason: 'notFound' });
+    expect(seen).toEqual([]);
+    expect(await rm.jumpToPrompt(runId, ['a'], 0, 'bottom')).toEqual({ found: false, reason: 'notFound' });
+    expect(seen).toEqual([{ contract: 'screen', value: 'prompt-marker=(missing)', version: null }]);
   });
 
   it('終わった run と知らない run には送らない', async () => {

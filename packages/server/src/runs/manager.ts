@@ -23,7 +23,7 @@ import type { Tmux } from '../tmux/tmux.ts';
 import { RunError } from './errors.ts';
 import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
 import { realProcOpsWith, sameStartTime, type ProcOps } from './procs.ts';
-import { screenDrift } from '../provider/claude-code/compat/screen.ts';
+import { ScreenMissGate, screenDrift, type ScreenMark } from '../provider/claude-code/compat/screen.ts';
 import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type PaneIo } from './promptJump.ts';
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
@@ -81,6 +81,8 @@ export class RunManager {
   private parking = new Set<string>();
   /** 本物のプロセスに触る口。procs を渡されなかったときに、compat を結んで 1 度だけ作る。 */
   private realProcs: ProcOps | null = null;
+  /** 画面の目印が続けて見つからなかった回数。run をまたいで数える（形式が変われば、どの run でも見つからない）。 */
+  private readonly screenMisses = new ScreenMissGate();
 
   constructor(private readonly deps: RunManagerDeps) {}
 
@@ -816,8 +818,14 @@ export class RunManager {
   /** Claude のタブを transcript の中の指示へ跳ばす。手順と送るキーの制限は promptJump.ts にある。 */
   jumpToPrompt(runId: string, heads: string[], index: number, from: JumpFrom): Promise<JumpResult> {
     const io = this.agentPane(runId);
-    // 画面の目印が見つからなかったら、Claude Code との互換のずれとして記録する（provider/claude-code/compat/screen.ts）。
-    return this.queuePane(runId, () => jumpToPrompt(io, heads, index, from, (mark) => this.deps.compat?.note(screenDrift(mark))));
+    // 画面の目印が続けて見つからなかったら、Claude Code との互換のずれとして記録する（provider/claude-code/compat/screen.ts）。
+    // 1 回の見落としは描き直しの遅れなどでも起きるので、門を通して数える。跳び方そのものは変えない。
+    return this.queuePane(runId, async () => {
+      const missing: ScreenMark[] = [];
+      const result = await jumpToPrompt(io, heads, index, from, (mark) => missing.push(mark));
+      for (const mark of this.screenMisses.observe(missing, result)) this.deps.compat?.note(screenDrift(mark));
+      return result;
+    });
   }
 
   /** Claude のタブが transcript を開いていれば閉じて、入力欄のある画面へ戻す。 */
