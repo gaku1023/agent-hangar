@@ -410,7 +410,7 @@ cd apps/desktop && npx tauri build    # server-dist を作り、.app を src-tau
 `cloud/` は、後の版でアプリから Cloudflare へ Worker を上げるための下地で、いまはどこからも読んでいません。
 UI の sourcemap は入れません。
 UI の写しの 68 パーセント（実測 2.19MB）が `.map` で、利用者の役に立たないためです。
-実測で 7.7MB でした。
+実測で 6.5MB でした。
 
 配布は、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json` の版を揃えてから `git tag vX.Y.Z && git push origin vX.Y.Z` で行います。
 GitHub Actions が型検査とテストを回し、`.app` を zip と checksum 付きで Releases に置きます。
