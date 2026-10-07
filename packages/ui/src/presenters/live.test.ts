@@ -18,6 +18,7 @@ describe('状態の灯', () => {
   });
   it('裏だけ動いているときは、裏のものと、指揮役が空いていることを出す', () => {
     expect(presentLivePane(input({ aside: { shell: true, agents: 0 } })).lamp).toEqual({ tone: 'aside', head: '裏でシェルが動いている', sub: '指揮役は空いている' });
+    expect(presentLivePane(input({ aside: { shell: false, agents: 2 }, digest: digest({ agents: [agent({ agentId: 'a' }), agent({ agentId: 'b' })] }) })).lamp).toEqual({ tone: 'aside', head: '裏で 2 本動いている', sub: '指揮役は空いている' });
     // 入力待ちは裏の印より強い。
     expect(presentLivePane(input({ live: 'waiting', aside: { shell: true, agents: 0 } })).lamp.tone).toBe('wait');
   });

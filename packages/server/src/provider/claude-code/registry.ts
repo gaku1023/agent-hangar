@@ -35,6 +35,7 @@ export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean
     const status = STATUSES.has(rec.status as LiveStatus) ? (rec.status as LiveStatus) : 'busy';
     const l: LiveSession = { sessionId: rec.sessionId, status, name: typeof rec.name === 'string' ? rec.name : null, nameSource: typeof rec.nameSource === 'string' ? rec.nameSource : null, cwd: typeof rec.cwd === 'string' ? rec.cwd : '', pid: typeof rec.pid === 'number' ? rec.pid : 0 };
     if (rec.status === 'shell') l.aside = { shell: true, agents: 0 };
+    if (typeof rec.statusUpdatedAt === 'number' && Number.isFinite(rec.statusUpdatedAt)) l.statusAt = rec.statusUpdatedAt;
     // jobId が無いと `claude attach` に渡すものが無いので、bg と書いてあってもバックグラウンドとは扱わない。
     if (rec.kind === 'bg' && typeof rec.jobId === 'string' && rec.jobId !== '') l.background = { jobId: rec.jobId };
     if (typeof rec.procStart === 'string' && rec.procStart !== '') l.procStart = rec.procStart;
@@ -49,7 +50,11 @@ export class RegistryWatcher {
   private last: LiveSession[] = [];
   private lastKey = '';
   private listeners = new Set<(live: LiveSession[]) => void>();
-  constructor(private readonly claudeDir: string, private readonly intervalMs = 500, private readonly isGone: (pid: number) => boolean = goneOn(process.platform)) {}
+  /**
+   * enrich は、読んだ登録に裏だけの印などを足す関数（live/aside.ts）。読み直しのたびに通し、足した後の形で変化を見る。
+   * 本文の索引が進んだだけでも印は変わるので、登録のファイルが変わらなくても次の周期で知らせられる。
+   */
+  constructor(private readonly claudeDir: string, private readonly intervalMs = 500, private readonly isGone: (pid: number) => boolean = goneOn(process.platform), private readonly enrich: (live: LiveSession[]) => LiveSession[] = (l) => l) {}
 
   start(): void {
     this.poll(false);
@@ -66,7 +71,7 @@ export class RegistryWatcher {
    */
   private poll(notify: boolean): void {
     let live: LiveSession[];
-    try { live = readRegistry(this.claudeDir, this.isGone); } catch { return; }
+    try { live = this.enrich(readRegistry(this.claudeDir, this.isGone)); } catch { return; }
     const key = JSON.stringify(live);
     if (key === this.lastKey) return;
     this.last = live; this.lastKey = key;

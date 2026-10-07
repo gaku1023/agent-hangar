@@ -10,7 +10,7 @@ const ALL_ALIVE = (): boolean => false;
 describe('readRegistry', () => {
   it('json だけを読み、3 値の status と名前を返す', () => {
     expect(readRegistry(FIXTURE_CLAUDE_DIR)).toEqual([
-      { sessionId: SESSION_ALPHA, status: 'busy', name: 'channels-cleanup', nameSource: 'user', cwd: '/Users/me/workspace/alpha', pid: 12345, entrypoint: 'cli' },
+      { sessionId: SESSION_ALPHA, status: 'busy', name: 'channels-cleanup', nameSource: 'user', cwd: '/Users/me/workspace/alpha', pid: 12345, entrypoint: 'cli', statusAt: 1788256800000 },
     ]);
   });
   it('バックグラウンドのセッションには jobId を、起動時刻があれば procStart を付ける', () => {
@@ -42,6 +42,28 @@ describe('readRegistry', () => {
         { sessionId: 'u-busy', status: 'busy', name: null, nameSource: null, cwd: '/y', pid: 8 },
         { sessionId: 'u-shell', status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 7, aside: { shell: true, agents: 0 } },
       ]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+  it('動きが変わった時刻（statusUpdatedAt）があれば statusAt に写す', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const sessions = path.join(dir, 'sessions');
+      fs.rmSync(path.join(sessions, '12345.json'));
+      fs.writeFileSync(path.join(sessions, '7.json'), JSON.stringify({ pid: 7, sessionId: 'u-at', cwd: '/x', status: 'busy', statusUpdatedAt: 1791350329516 }));
+      fs.writeFileSync(path.join(sessions, '8.json'), JSON.stringify({ pid: 8, sessionId: 'u-bad', cwd: '/y', status: 'busy', statusUpdatedAt: 'x' }));
+      expect(readRegistry(dir, ALL_ALIVE)).toEqual([
+        { sessionId: 'u-at', status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 7, statusAt: 1791350329516 },
+        { sessionId: 'u-bad', status: 'busy', name: null, nameSource: null, cwd: '/y', pid: 8 },
+      ]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+  it('読み直しのたびに、裏だけの印を足す関数を通す', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const w = new RegistryWatcher(dir, 1_000_000, ALL_ALIVE, (live) => live.map((l) => ({ ...l, aside: { shell: false, agents: 2 } })));
+      w.start();
+      expect(w.current()[0]!.aside).toEqual({ shell: false, agents: 2 });
+      w.stop();
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
   it('ディレクトリが無ければ空', () => {

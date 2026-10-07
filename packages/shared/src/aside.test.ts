@@ -20,5 +20,7 @@ describe('裏だけ動いている（aside）', () => {
     expect(asideHead({ shell: true, agents: 0 })).toBe('裏でシェルが動いている');
     expect(asideHead({ shell: false, agents: 1 })).toBe('裏で 1 本動いている');
     expect(asideHead({ shell: true, agents: 2 })).toBe('裏で 2 本動いている');
+    // 裏の担当が数えられないとき（workflow など）。
+    expect(asideHead({ shell: false, agents: 0 })).toBe('裏で作業が動いている');
   });
 });
