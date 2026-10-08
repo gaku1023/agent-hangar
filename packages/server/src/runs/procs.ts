@@ -1,4 +1,5 @@
-import { execFile, spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { captureOutputSync } from '../platform/capture.ts';
 import { parseStartTime, sameStartTime, startTimeOf, terminate } from '../platform/proc.ts';
 import { agentsJsonDrifts } from '../provider/claude-code/compat/cli.ts';
 import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
@@ -30,11 +31,12 @@ export function realProcOpsWith(compat: CompatSink): ProcOps {
     startTimeOf: (pid) => startTimeOf(pid),
     terminate: (pid, timeoutMs) => terminate(pid, timeoutMs),
     listJobs(bin) {
-      // 起こせない相手（Windows の .cmd など）で spawnSync が投げても、読めなかったことにして返す。
+      // 起こせない相手（Windows の .cmd など）で投げても、読めなかったことにして返す。
+      // セッションが多いと出力はパイプの容量を越える。claude はパイプへ書き切る前に終わることがあるので、ファイルへ書かせて読む（platform/capture.ts）。
       try {
-        const r = spawnSync(bin, ['agents', '--json', '--all'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
-        if (r.status !== 0) return null;
-        const out = r.stdout ?? '';
+        const r = captureOutputSync(bin, ['agents', '--json', '--all'], { timeoutMs: 5000 });
+        if (r.code !== 0) return null;
+        const out = r.stdout;
         for (const d of agentsJsonDrifts(out)) compat.note(d);
         return parseJobs(out);
       } catch {
@@ -42,6 +44,7 @@ export function realProcOpsWith(compat: CompatSink): ProcOps {
       }
     },
     runClaude(bin, args, cwd) {
+      // 呼び手は `claude stop <id>` だけで、標準出力は読まない（失敗の知らせに標準エラーを使うだけ）。切れても困らないので、パイプのままにする。
       return new Promise((resolve, reject) => {
         execFile(bin, args, { cwd, encoding: 'utf8', timeout: 30_000, windowsHide: true }, (err, stdout, stderr) => {
           if (err) reject(new Error((stderr || err.message).trim()));

@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UsageDto } from '@agent-hangar/shared';
-import { ClaudeHeadlessSummarizer, type SpawnText } from './claude.ts';
+import { ClaudeHeadlessSummarizer, spawnText, type SpawnText } from './claude.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import { CANNED_INPUT } from './input.ts';
 import { SummarizerError } from './types.ts';
@@ -63,5 +66,36 @@ describe('ClaudeHeadlessSummarizer', () => {
     expect(seen).toEqual([{ contract: 'cli', value: 'print-json.structured_output=(missing)', version: null }]);
     await new ClaudeHeadlessSummarizer({ claudeBin: '/c', hourlyCap: 20, usage: () => usage(null), spawn: spawnOk, compat }).summarize(CANNED_INPUT);
     expect(seen).toHaveLength(1);
+  });
+});
+
+describe('spawnText', () => {
+  let tmp: string;
+  beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-summary-')); });
+  afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+  // -p の JSON は要約の本文を含むので、パイプの容量（8KB〜16KB）を越えうる。
+  // claude はパイプへ非同期に書いて書き切る前に終わることがあるので、標準出力はファイルへ書かせて読む。
+  it('標準入力を渡し、パイプの容量を越える標準出力を最後まで読む。標準エラーも集める', async () => {
+    const big = JSON.stringify({ ...good, result: 'x'.repeat(80 * 1024) });
+    const js = path.join(tmp, 'claude.mjs');
+    fs.writeFileSync(js, [
+      'let s = "";',
+      'for await (const c of process.stdin) s += c;',
+      'process.stderr.write(`read ${s.length}\\n`);',
+      `process.stdout.write(${JSON.stringify(big)});`,
+      'process.exit(0);',
+    ].join('\n'));
+    const r = await spawnText(process.execPath, [js], CANNED_INPUT.text, 10_000);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe(big);
+    expect(r.stderr).toBe(`read ${CANNED_INPUT.text.length}\n`);
+  });
+  it('0 以外の終了コードを返し、時間を過ぎたら止めて投げる', async () => {
+    const bad = path.join(tmp, 'bad.mjs');
+    fs.writeFileSync(bad, 'process.stderr.write("rate limited\\n");\nprocess.exit(2);\n');
+    expect(await spawnText(process.execPath, [bad], '', 10_000)).toEqual({ code: 2, stdout: '', stderr: 'rate limited\n' });
+    const hang = path.join(tmp, 'hang.mjs');
+    fs.writeFileSync(hang, 'setInterval(() => {}, 1000);\n');
+    await expect(spawnText(process.execPath, [hang], '', 300)).rejects.toThrow('300 ミリ秒で応答がありませんでした');
   });
 });

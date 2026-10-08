@@ -12,7 +12,11 @@ export type PortProbe = AuthProbe;
 /** claude が PATH に無いときの案内。spawnSync の ENOENT をそのまま出しても次の一手が分からない。 */
 const CLAUDE_MISSING = 'Claude Code が見つかりません。claude コマンドをインストールするか、PATH を通してから実行してください。';
 
-/** 外部コマンドを同期で呼ぶ。起こせなかったときは notFound を立てる。 */
+/**
+ * 外部コマンドを同期で呼ぶ。起こせなかったときは notFound を立てる。
+ * 出力はパイプで読む。claude はパイプへ書き切る前に終わることがあるが、ここで呼ぶ `--version` と `mcp remove` は、
+ * 起こせたかと失敗の知らせに短い出力を使うだけである。
+ */
 export const execCli: CliExec = (cmd, args) => {
   const r = spawnSync(cmd, args, { encoding: 'utf8' });
   const notFound = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
