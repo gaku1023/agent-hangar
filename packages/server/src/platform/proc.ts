@@ -5,29 +5,64 @@ import { spawnSync } from 'node:child_process';
 // macOS と Linux の procStart は UTC の ps の lstart（Thu Oct  2 02:30:05 2026）、
 // Windows は 1601 年からの 100 ナノ秒単位の整数（134354040350009738）である。
 
-export type ProcRun = (file: string, args: string[], env?: NodeJS.ProcessEnv) => { status: number | null; stdout: string };
+/**
+ * 外のコマンドを 1 回打った結果。status は締め切りで止められたときと、起こせなかったときに null になる。
+ * timedOut は締め切りで止められたこと。stderr は読めなかった理由を残すためだけに使う。
+ */
+export type ProcRunResult = { status: number | null; stdout: string; stderr?: string; timedOut?: boolean };
+export type ProcRun = (file: string, args: string[], env?: NodeJS.ProcessEnv) => ProcRunResult;
 
-const realRun: ProcRun = (file, args, env) => {
-  const r = spawnSync(file, args, { encoding: 'utf8', env: env ?? process.env, windowsHide: true, timeout: 10_000 });
-  return { status: r.status, stdout: r.stdout ?? '' };
-};
+/** timeoutMs を過ぎたら止める本物の実行。締め切りで止めたかは、spawnSync の ETIMEDOUT で見分ける。 */
+export function spawnRun(timeoutMs: number): ProcRun {
+  return (file, args, env) => {
+    const r = spawnSync(file, args, { encoding: 'utf8', env: env ?? process.env, windowsHide: true, timeout: timeoutMs });
+    return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', timedOut: (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT' };
+  };
+}
+
+const realRun = spawnRun(10_000);
 
 const validPid = (pid: number): boolean => Number.isInteger(pid) && pid > 0;
 
+/** 起動時刻を読んだ 1 回の記録。読めなかったときに、なぜ読めなかったかを後から見られるようにする。 */
+export type StartTimeTry = { status: number | null; timedOut: boolean; stdout: string; stderr: string; ms: number };
+export type StartTimeProbe = { value: string | null; tries: StartTimeTry[] };
+
+/** 締め切りで止められたときに、最初の 1 回を含めて何回まで聞くか。 */
+const START_TIME_TRIES = 2;
+
+/**
+ * pid の起動時刻を読み、読んだ経過も返す。value は startTimeOf と同じ。
+ * 締め切りで止められたときだけ、同じ問いでもう 1 度だけ聞く。
+ * CI の Windows では、PowerShell が 10 秒の締め切りを越えて止められ、生きているプロセスが居ないことになった（2026-10-07、08）。
+ * 同じ時に並んで走った別の読み取りが数秒で終わっていた回もあったので、止められた 1 回は外れ値と見て、締め切りを延ばすより聞き直す。
+ * 居ない（終了コード 1）、読めない答えが返った、起こせなかった、は聞き直しても変わらないので、そのまま null にする。
+ */
+export function probeStartTime(pid: number, platform: NodeJS.Platform = process.platform, run: ProcRun = realRun): StartTimeProbe {
+  const tries: StartTimeTry[] = [];
+  // pid はコマンドの文に埋めるので、整数であることを先に確かめる。
+  if (!validPid(pid)) return { value: null, tries };
+  for (let i = 0; i < START_TIME_TRIES; i++) {
+    const at = Date.now();
+    const r = platform === 'win32'
+      ? run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `try { (Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc() } catch { exit 1 }`])
+      // Claude は procStart を UTC で書く。手元の時刻帯で読むと、同じプロセスでも時刻がずれる。
+      : run('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { ...process.env, TZ: 'UTC', LC_ALL: 'C' });
+    const out = r.stdout.trim();
+    tries.push({ status: r.status, timedOut: r.timedOut === true, stdout: out.slice(0, 200), stderr: (r.stderr ?? '').trim().slice(0, 500), ms: Date.now() - at });
+    if (r.status === 0 && (platform === 'win32' ? /^\d+$/.test(out) : out !== '')) return { value: out, tries };
+    if (r.timedOut !== true) break;
+  }
+  return { value: null, tries };
+}
+
 /** pid の起動時刻を、Claude の procStart と同じ書式で返す。居なければ null。 */
 export function startTimeOf(pid: number, platform: NodeJS.Platform = process.platform, run: ProcRun = realRun): string | null {
-  // pid はコマンドの文に埋めるので、整数であることを先に確かめる。
-  if (!validPid(pid)) return null;
-  if (platform === 'win32') {
-    const script = `try { (Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc() } catch { exit 1 }`;
-    const r = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
-    const out = r.stdout.trim();
-    return r.status === 0 && /^\d+$/.test(out) ? out : null;
-  }
-  // Claude は procStart を UTC で書く。手元の時刻帯で読むと、同じプロセスでも時刻がずれる。
-  const r = run('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { ...process.env, TZ: 'UTC', LC_ALL: 'C' });
-  const out = r.stdout.trim();
-  return r.status === 0 && out !== '' ? out : null;
+  const { value, tries } = probeStartTime(pid, platform, run);
+  // 1 回で読めたときと、居ないと静かに答えたときのほかは、次に読めなかったときに理由が分かるよう経過を残す。
+  const usual = value !== null ? tries.length === 1 : tries.every((t) => t.status === 1 && t.stderr === '');
+  if (!usual) console.warn(`[proc] pid ${pid} の起動時刻を${value === null ? '読めませんでした' : '聞き直して読めました'}`, JSON.stringify(tries));
+  return value;
 }
 
 /** 書式の揺れを吸う。ps は 1 桁の日を空白で埋めるので、空白の並びを 1 つにまとめて比べる。 */
