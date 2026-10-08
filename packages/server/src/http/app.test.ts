@@ -4,7 +4,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
-import type { LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
+import type { CompatDto, LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
+import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { AccountAuth } from '../config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { RetentionConflictError } from '../config/retention.ts';
@@ -117,6 +118,7 @@ const READY: ReadinessDto = {
   tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
   workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: false, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
   commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+  compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
 };
 const RET: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: null };
 function fakeRetention() {
@@ -1624,5 +1626,14 @@ describe('組み立ての必須の口', () => {
   it('アカウントと使用量の口は、どの組み立ても必ず渡す', () => {
     expectTypeOf<undefined>().not.toExtend<AppDeps['accounts']>();
     expectTypeOf<undefined>().not.toExtend<AppDeps['cloudUsage']>();
+  });
+});
+
+describe('Claude Code との互換', () => {
+  it('GET /api/compat は互換の口の答えをそのまま返し、口が無ければ確かめた版だけを返す', async () => {
+    const COMPAT: CompatDto = { verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [{ contract: 'registry', value: 'status=thinking', version: '2.1.300', count: 2, firstSeenAt: 1, lastSeenAt: 2 }] };
+    const withCompat = createApp({ ...deps, compat: async () => COMPAT });
+    expect(await (await withCompat.request('/api/compat', { headers: H })).json()).toEqual(COMPAT);
+    expect((await json(await get('/api/compat'))).body).toEqual({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] });
   });
 });

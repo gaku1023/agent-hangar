@@ -13,3 +13,4 @@ export * from './sessionState.ts';
 export * from './searchTokens.ts';
 export * from './usage.ts';
 export * from './compat.ts';
+export * from './claudeCompat.ts';

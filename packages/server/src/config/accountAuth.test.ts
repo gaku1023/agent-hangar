@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountAuth, accountEnv, parseAuthStatus, type RunClaude } from './accountAuth.ts';
+import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { Account } from './accounts.ts';
 
 const primary: Account = { id: 'primary', name: '会社', dir: '/h/.claude', color: '#2a57b8' };
@@ -37,6 +38,17 @@ describe('AccountAuth', () => {
     expect(run).toHaveBeenCalledWith('/bin/claude', ['auth', 'status', '--json'], expect.objectContaining({ CLAUDE_CONFIG_DIR: '/h/.claude-2' }), 10_000);
     expect(auth.get('a1')?.email).toBe('taro@example.ac.jp');
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('auth status の形が違えば、ずれとして知らせる', async () => {
+    const seen: Drift[] = [];
+    const run = vi.fn<RunClaude>(async () => ({ code: 0, stdout: 'Not logged in' }));
+    const auth = new AccountAuth({ claudeBin: () => '/bin/claude', run, now: () => 9, compat: { note: (d) => seen.push(d) } });
+    expect(await auth.refresh(univ)).toBeNull();
+    expect(seen).toEqual([{ contract: 'cli', value: 'auth-status=(not-json)', version: null }]);
+    run.mockResolvedValueOnce({ code: 0, stdout: OK });
+    await auth.refresh(univ);
+    expect(seen).toHaveLength(1);
   });
 
   it('claude が無い、失敗した、JSON でないときは null を覚え、投げない', async () => {

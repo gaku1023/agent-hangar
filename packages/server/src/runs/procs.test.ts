@@ -1,6 +1,12 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseJobs, parseProcStart, realProcOps, sameStartTime } from './procs.ts';
+import { writeFakeTool } from '../../test/fake-bin.ts';
+import { posixIt } from '../../test/platform.ts';
+import type { Drift } from '../provider/claude-code/compat/types.ts';
+import { parseJobs, parseProcStart, realProcOps, realProcOpsWith, sameStartTime } from './procs.ts';
 
 describe('parseJobs', () => {
   it('バックグラウンドのセッションだけを拾い、読めなければ null', () => {
@@ -11,6 +17,19 @@ describe('parseJobs', () => {
     expect(parseJobs(out)).toEqual([{ id: 'eebc61e7', sessionId: 'eebc61e7-14c3' }]);
     expect(parseJobs('disabled')).toBeNull();
     expect(parseJobs('{}')).toBeNull();
+  });
+});
+
+describe('realProcOpsWith', () => {
+  // 偽の claude は sh で書く。Windows の .cmd は spawnSync で直に起こせないので飛ばす。
+  posixIt('agents --json の形が違えば、読まずにずれとして知らせる', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-procs-'));
+    try {
+      const bin = writeFakeTool(dir, 'claude', { sh: `echo '{"sessions":[]}'`, cmd: '' });
+      const seen: Drift[] = [];
+      expect(realProcOpsWith({ note: (d) => seen.push(d) }).listJobs(bin)).toBeNull();
+      expect(seen).toEqual([{ contract: 'cli', value: 'agents-json=(not-array)', version: null }]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });
 

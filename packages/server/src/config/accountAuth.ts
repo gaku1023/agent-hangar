@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
 import type { AccountAuthDto } from '@agent-hangar/shared';
+import { authStatusDrifts } from '../provider/claude-code/compat/cli.ts';
+import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 import { PRIMARY_ACCOUNT_ID, type Account } from './accounts.ts';
 
 export type RunClaude = (bin: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, signal?: AbortSignal) => Promise<{ code: number | null; stdout: string }>;
@@ -56,11 +58,13 @@ export class AccountAuth {
   private onChange: (() => void) | undefined;
   private readonly run: RunClaude;
   private readonly now: () => number;
+  private readonly compat: CompatSink;
 
-  constructor(private readonly o: { claudeBin: () => string | null; run?: RunClaude; now?: () => number; onChange?: () => void }) {
+  constructor(private readonly o: { claudeBin: () => string | null; run?: RunClaude; now?: () => number; onChange?: () => void; compat?: CompatSink }) {
     this.onChange = o.onChange;
     this.run = o.run ?? realRun;
     this.now = o.now ?? (() => Date.now());
+    this.compat = o.compat ?? NO_COMPAT;
   }
 
   /** 通知先が投げても、状態の更新は済んでいる。未処理の rejection にしない。 */
@@ -88,7 +92,12 @@ export class AccountAuth {
     let next: AccountAuthDto | null = null;
     this.refreshing.add(account.id);
     if (bin) {
-      try { next = parseAuthStatus((await this.run(bin, ['auth', 'status', '--json'], accountEnv(account), STATUS_TIMEOUT_MS)).stdout, this.now()); } catch { next = null; }
+      try {
+        const out = await this.run(bin, ['auth', 'status', '--json'], accountEnv(account), STATUS_TIMEOUT_MS);
+        // 形が違えば、Claude Code との互換のずれとして記録する。読み方（parseAuthStatus）はいまのまま。
+        for (const d of authStatusDrifts(out.stdout)) this.compat.note(d);
+        next = parseAuthStatus(out.stdout, this.now());
+      } catch { next = null; }
     }
     this.refreshing.delete(account.id);
     this.checked.add(account.id);

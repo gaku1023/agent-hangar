@@ -1,5 +1,7 @@
 import { PRIMARY_ACCOUNT_ID, type RateWindowDto, type UsageDto, usageAt } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { resetsAtMs, statuslineDrifts } from '../provider/claude-code/compat/statusline.ts';
+import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 
 // Claude Code が statusLine コマンドの標準入力に渡す JSON を読む。
 // 形はフェーズ 0 の spike 04 で観察したもので、無い項目は null にする。
@@ -20,8 +22,8 @@ function window_(v: unknown): RateWindowDto | null {
   const used = num(v.used_percentage);
   if (used === null) return null;
   const resets = num(v.resets_at);
-  // resets_at は秒の UNIX 時刻。
-  return { usedPercent: used, resetsAt: resets === null ? null : resets * 1000 };
+  // resets_at は秒の UNIX 時刻。ミリ秒と見られる値は、秒に直さずにそのまま使う（provider/claude-code/compat/statusline.ts）。
+  return { usedPercent: used, resetsAt: resets === null ? null : resetsAtMs(resets) };
 }
 
 /**
@@ -69,11 +71,13 @@ export class UsageTracker {
   private readonly now: () => number;
   private readonly keep: number;
   private readonly accountOf: (providerSessionId: string | null) => string;
+  private readonly compat: CompatSink;
 
-  constructor(private readonly db: Db, opts: { now?: () => number; keep?: number; accountOf?: (providerSessionId: string | null) => string } = {}) {
+  constructor(private readonly db: Db, opts: { now?: () => number; keep?: number; accountOf?: (providerSessionId: string | null) => string; compat?: CompatSink } = {}) {
     this.now = opts.now ?? (() => Date.now());
     this.keep = opts.keep ?? 500;
     this.accountOf = opts.accountOf ?? (() => PRIMARY_ACCOUNT_ID);
+    this.compat = opts.compat ?? NO_COMPAT;
     this.restore();
   }
 
@@ -104,6 +108,7 @@ export class UsageTracker {
   ingest(raw: unknown): IngestResult | null {
     const p = parseStatusline(raw);
     if (!p) return null;
+    for (const d of statuslineDrifts(raw)) this.compat.note(d);
     const accountId = this.accountOf(p.providerSessionId);
     const at = Math.max(this.now(), this.lastAt + 1);
     this.lastAt = at;

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import type { ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
+import type { CompatDto, ReadinessDto, ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { COMPAT_HEADER, COMPAT_VERSION } from '@agent-hangar/shared';
 import { Readable } from 'node:stream';
@@ -26,7 +26,9 @@ import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
 import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
-import { expectMode } from '../test/platform.ts';
+import { writeFakeTool } from '../test/fake-bin.ts';
+import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
+import { expectMode, posixIt } from '../test/platform.ts';
 
 /** 見本の登録の pid は実在しない。Windows の既定は動いていない pid の登録を読まないので、試験では全部読ませる。 */
 const ALL_ALIVE = (): boolean => false;
@@ -34,12 +36,18 @@ const ALL_ALIVE = (): boolean => false;
 let home: string;
 let claudeDir: string;
 let ws: string;
+let prevClaudeBin: string | undefined;
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-'));
   claudeDir = copyFixtureClaudeDir();
   ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws-'));
+  // サーバは起動の裏で claude --help と --version を読む。手元の本物の claude を起こさないよう、無いパスに向ける。
+  // 偽の claude を使う試験は、この値を上書きする。
+  prevClaudeBin = process.env.HANGAR_CLAUDE_BIN;
+  process.env.HANGAR_CLAUDE_BIN = path.join(home, 'no-claude');
 });
 afterEach(() => {
+  if (prevClaudeBin === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prevClaudeBin;
   fs.rmSync(home, { recursive: true, force: true });
   fs.rmSync(claudeDir, { recursive: true, force: true });
   fs.rmSync(ws, { recursive: true, force: true });
@@ -389,6 +397,190 @@ describe('startServer', () => {
       await second.close();
     }
   });
+
+  // 偽の claude は sh の case で引数を見るので、Windows では飛ばす。
+  posixIt('claude --help のサブコマンドで包みを書き直し、/api/compat と準備の確かめが版とずれを返す。閉じると compat.json に残る', async () => {
+    const bin = writeFakeTool(path.join(home, 'bin'), 'claude', {
+      sh: 'case "$1" in --version) echo "9.9.9 (Claude Code)" ;; --help) printf "Usage: claude\\n\\nCommands:\\n  agents [options]  Manage background agents\\n  newcmd            Something new\\n" ;; esac',
+      cmd: '',
+    });
+    const prev = process.env.HANGAR_CLAUDE_BIN;
+    process.env.HANGAR_CLAUDE_BIN = bin;
+    try {
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      try {
+        const script = path.join(home, 'shell', 'claude.zsh');
+        await until(async () => (fs.readFileSync(script, 'utf8').includes('    agents|newcmd) command claude') ? true : null));
+        const res = await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: { authorization: `Bearer ${tokenOf()}` } });
+        const body = (await res.json()) as CompatDto;
+        expect(body.verifiedVersion).toBe(VERIFIED_CLAUDE_VERSION);
+        expect(body.localVersion).toBe('9.9.9');
+        expect(body.drifts.map((d) => d.value)).toEqual(expect.arrayContaining(['subcommand.added=newcmd', 'subcommand.removed=purge']));
+        // 確認リストが読む要約にも、同じずれの件数が載る。
+        const ready = (await (await fetch(`http://127.0.0.1:${s.port}/api/readiness`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json()) as ReadinessDto;
+        expect(ready.compat.verifiedVersion).toBe(VERIFIED_CLAUDE_VERSION);
+        expect(ready.compat.driftCount).toBeGreaterThanOrEqual(body.drifts.length);
+      } finally {
+        await s.close();
+      }
+      const saved = JSON.parse(fs.readFileSync(path.join(home, 'compat.json'), 'utf8')) as { entries: { value: string }[] };
+      expect(saved.entries.map((e) => e.value)).toContain('subcommand.added=newcmd');
+    } finally {
+      if (prev === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prev;
+    }
+    // until の上限（8 秒）より長くし、失敗したときに until の言葉で落ちるようにする。
+  }, 15_000);
+
+  // 偽の claude は sh の case で引数を見るので、Windows では飛ばす。
+  posixIt('前の記録と手元の claude の版が違えば、読んだ版で記録を空にし、その版を compat.json に残す', async () => {
+    fs.writeFileSync(path.join(home, 'compat.json'), JSON.stringify({
+      version: 1, localVersion: '1.0.0',
+      entries: [{ contract: 'transcript', value: 'type=old', version: '1.0.0', count: 3, firstSeenAt: 1, lastSeenAt: 1 }],
+    }));
+    const bin = writeFakeTool(path.join(home, 'bin'), 'claude', { sh: 'case "$1" in --version) echo "9.9.9 (Claude Code)" ;; esac', cmd: '' });
+    const prev = process.env.HANGAR_CLAUDE_BIN;
+    process.env.HANGAR_CLAUDE_BIN = bin;
+    try {
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      try {
+        const body = (await (await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json()) as CompatDto;
+        expect(body.localVersion).toBe('9.9.9');
+        expect(body.drifts.map((d) => d.value)).not.toContain('type=old');
+      } finally {
+        await s.close();
+      }
+      const saved = JSON.parse(fs.readFileSync(path.join(home, 'compat.json'), 'utf8')) as { localVersion: unknown; entries: { value: string }[] };
+      expect(saved.localVersion).toBe('9.9.9');
+      expect(saved.entries.map((e) => e.value)).not.toContain('type=old');
+    } finally {
+      if (prev === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prev;
+    }
+  }, 15_000);
+
+  // 偽の claude は sh の case と sleep を使うので、Windows では飛ばす。
+  posixIt('版の変化で記録を空にしても、先に読み終えた claude --help のずれは数え直して残す', async () => {
+    fs.writeFileSync(path.join(home, 'compat.json'), JSON.stringify({
+      version: 1, localVersion: '1.0.0',
+      entries: [{ contract: 'transcript', value: 'type=old', version: '1.0.0', count: 3, firstSeenAt: 1, lastSeenAt: 1 }],
+    }));
+    // --help が先に終わり、そのずれを記録した後で --version が届いて記録を空にする順にする。
+    const bin = writeFakeTool(path.join(home, 'bin'), 'claude', {
+      sh: 'case "$1" in --version) sleep 1; echo "9.9.9 (Claude Code)" ;; --help) printf "Usage: claude\\n\\nCommands:\\n  agents [options]  Manage background agents\\n  newcmd            Something new\\n" ;; esac',
+      cmd: '',
+    });
+    process.env.HANGAR_CLAUDE_BIN = bin;
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    try {
+      const script = path.join(home, 'shell', 'claude.zsh');
+      await until(async () => (fs.readFileSync(script, 'utf8').includes('    agents|newcmd) command claude') ? true : null));
+      // 版の読み取り（1 秒）が終わり、記録を空にし終えるのを待つ。
+      await new Promise((res) => setTimeout(res, 1_500));
+      const body = (await (await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json()) as CompatDto;
+      expect(body.localVersion).toBe('9.9.9');
+      const values = body.drifts.map((d) => d.value);
+      expect(values).not.toContain('type=old');
+      expect(values).toContain('subcommand.added=newcmd');
+    } finally {
+      await s.close();
+    }
+  }, 15_000);
+
+  // 偽の claude は sh の case で引数を見るので、Windows では飛ばす。
+  posixIt('設定の claudePath が空でも、準備の確かめの手元の版は /api/compat と同じ引き方（環境変数）で読む', async () => {
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ claudePath: null }));
+    const bin = writeFakeTool(path.join(home, 'bin'), 'claude', { sh: 'case "$1" in --version) echo "9.9.9 (Claude Code)" ;; esac', cmd: '' });
+    const prev = process.env.HANGAR_CLAUDE_BIN;
+    process.env.HANGAR_CLAUDE_BIN = bin;
+    try {
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      try {
+        const auth = { authorization: `Bearer ${tokenOf()}` };
+        const ready = (await (await fetch(`http://127.0.0.1:${s.port}/api/readiness`, { headers: auth })).json()) as ReadinessDto;
+        const compat = (await (await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: auth })).json()) as CompatDto;
+        // 道具の行は設定の claudePath を見るので空のまま。互換の要約だけがサーバの引き方に従う。
+        expect(ready.tools.claude.path).toBeNull();
+        expect(compat.localVersion).toBe('9.9.9');
+        expect(ready.compat.localVersion).toBe(compat.localVersion);
+      } finally {
+        await s.close();
+      }
+    } finally {
+      if (prev === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prev;
+    }
+  }, 15_000);
+
+  it('試験の準備は claude を無いパスに向け、手元の本物の claude を起こさない', async () => {
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    try {
+      const body = (await (await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json()) as CompatDto;
+      expect(body.localVersion).toBeNull();
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('claude のパスが普通のファイルの下を指しても（ENOTDIR）、サーバは落ちず、/api/compat は手元の版を null で返す', async () => {
+    const plain = path.join(home, 'plain');
+    fs.writeFileSync(plain, 'not a directory\n');
+    const prev = process.env.HANGAR_CLAUDE_BIN;
+    process.env.HANGAR_CLAUDE_BIN = path.join(plain, 'claude');
+    try {
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      try {
+        // 起動のときの裏の読み取り（--help と --version）が終わるのを待つ。ここで投げると、捕まらない拒否で Node ごと落ちる。
+        await new Promise((res) => setTimeout(res, 500));
+        const auth = { authorization: `Bearer ${tokenOf()}` };
+        const res = await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: auth });
+        expect(res.status).toBe(200);
+        expect(((await res.json()) as CompatDto).localVersion).toBeNull();
+        // 閉じるまで生きていて、ほかの経路も答える。
+        expect((await fetch(`http://127.0.0.1:${s.port}/api/readiness`, { headers: auth })).status).toBe(200);
+      } finally {
+        await s.close();
+      }
+    } finally {
+      if (prev === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prev;
+    }
+  }, 15_000);
+
+  // 偽の claude は sh の case と sleep を使うので、Windows では飛ばす。
+  posixIt('claude のパスを変えた後に、前のパスの遅い読み取りが届いても、包みと手元の版は新しいパスのまま', async () => {
+    const slow = writeFakeTool(path.join(home, 'slow'), 'claude', {
+      sh: 'case "$1" in --version) sleep 2; echo "1.0.0 (Claude Code)" ;; --help) sleep 2; printf "Commands:\\n  oldcmd  Old\\n" ;; esac',
+      cmd: '',
+    });
+    const fast = writeFakeTool(path.join(home, 'fast'), 'claude', {
+      sh: 'case "$1" in --version) echo "9.9.9 (Claude Code)" ;; --help) printf "Commands:\\n  newcmd  New\\n" ;; esac',
+      cmd: '',
+    });
+    // claudePath を設定で渡す。HANGAR_CLAUDE_BIN があると設定より先に効くので外す。
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ claudePath: slow }));
+    const prev = process.env.HANGAR_CLAUDE_BIN;
+    delete process.env.HANGAR_CLAUDE_BIN;
+    try {
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      try {
+        const auth = { authorization: `Bearer ${tokenOf()}` };
+        const r = await fetch(`http://127.0.0.1:${s.port}/api/settings`, {
+          method: 'PATCH', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ claudePath: fast }),
+        });
+        expect(r.status).toBe(200);
+        const script = path.join(home, 'shell', 'claude.zsh');
+        await until(async () => (fs.readFileSync(script, 'utf8').includes('    newcmd) command claude') ? true : null));
+        // 前のパスの読み取り（2 秒）が終わるのを待ってから確かめる。
+        await new Promise((res) => setTimeout(res, 3_000));
+        const text = fs.readFileSync(script, 'utf8');
+        expect(text).toContain('    newcmd) command claude');
+        expect(text).not.toContain('oldcmd');
+        const body = (await (await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: auth })).json()) as CompatDto;
+        expect(body.localVersion).toBe('9.9.9');
+      } finally {
+        await s.close();
+      }
+    } finally {
+      if (prev === undefined) delete process.env.HANGAR_CLAUDE_BIN; else process.env.HANGAR_CLAUDE_BIN = prev;
+    }
+  }, 20_000);
 
   it('/ws はクエリ文字列のトークンを受け付けない', async () => {
     // URL は Referer、代理のログ、シェルの履歴、ブラウザの履歴に残る。秘密をそこに置く経路を残さない。

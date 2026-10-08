@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { UsageDto } from '@agent-hangar/shared';
 import { ClaudeHeadlessSummarizer, type SpawnText } from './claude.ts';
+import type { Drift } from '../provider/claude-code/compat/types.ts';
 import { CANNED_INPUT } from './input.ts';
 import { SummarizerError } from './types.ts';
 
@@ -53,5 +54,14 @@ describe('ClaudeHeadlessSummarizer', () => {
     const out = await new ClaudeHeadlessSummarizer({ claudeBin: '/c', hourlyCap: 20, usage: () => usage(null), spawn }).summarize(CANNED_INPUT);
     expect(out.proposal).toEqual({ status: 'done', note: '直して main に入れた', returnInDays: null });
     expect(JSON.parse(spawn.mock.calls[0]![1][6]!).required).toEqual(expect.arrayContaining(['proposed_status', 'proposed_note', 'proposed_return_in_days']));
+  });
+  it('-p の JSON に structured_output が無ければ、ずれとして知らせる。読めたときは知らせない', async () => {
+    const seen: Drift[] = [];
+    const compat = { note: (d: Drift) => seen.push(d) };
+    const bad = new ClaudeHeadlessSummarizer({ claudeBin: '/c', hourlyCap: 20, usage: () => usage(null), spawn: async () => ({ code: 0, stdout: '{"type":"result","result":"x"}', stderr: '' }), compat });
+    await expect(bad.summarize(CANNED_INPUT)).rejects.toBeInstanceOf(SummarizerError);
+    expect(seen).toEqual([{ contract: 'cli', value: 'print-json.structured_output=(missing)', version: null }]);
+    await new ClaudeHeadlessSummarizer({ claudeBin: '/c', hourlyCap: 20, usage: () => usage(null), spawn: spawnOk, compat }).summarize(CANNED_INPUT);
+    expect(seen).toHaveLength(1);
   });
 });

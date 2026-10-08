@@ -129,6 +129,29 @@ describe('jumpToPrompt', () => {
     expect(await jumpToPrompt(c.io, heads(PROMPTS), 1, 'bottom')).toEqual({ found: false, reason: 'mode' });
     expect(c.typed).toEqual([]);
   });
+  it('ctrl+o の後に最下行の文言が出なければ、footer が見つからないと知らせる', async () => {
+    const c = fakeClaude(PROMPTS, { ignoreCtrlO: true });
+    const marks: string[] = [];
+    expect(await jumpToPrompt(c.io, heads(PROMPTS), 3, 'bottom', (m) => marks.push(m))).toEqual({ found: false, reason: 'mode' });
+    expect(marks).toEqual(['footer']);
+  });
+  it('着けず、最後の画面に指示の行が 1 つも無ければ、指示の行の記号が見つからないと知らせる', async () => {
+    let inT = false;
+    const io: PaneIo = {
+      capture: () => (inT ? ['> 最初の指示です', '', '⏺ 返事', '', TRANSCRIPT_FOOTER].join('\n') : ['⏺ 返事', '', '❯ ', NORMAL_FOOTER, ''].join('\n')),
+      send: (k) => { if (k === 'C-o') inT = true; },
+      sleep: async () => {},
+    };
+    const marks: string[] = [];
+    expect(await jumpToPrompt(io, heads(PROMPTS), 0, 'top', (m) => marks.push(m))).toEqual({ found: false, reason: 'notFound' });
+    expect(marks).toEqual(['prompt-marker']);
+  });
+  it('指示の行が見えていて着けなかっただけなら、何も知らせない', async () => {
+    const c = fakeClaude(PROMPTS);
+    const marks: string[] = [];
+    expect(await jumpToPrompt(c.io, ['存在しない指示', ...heads(PROMPTS).slice(1)], 0, 'top', (m) => marks.push(m))).toEqual({ found: false, reason: 'notFound' });
+    expect(marks).toEqual([]);
+  });
 });
 
 describe('promptVisible', () => {

@@ -14,6 +14,7 @@
  * ctrl+o 以外は、送る直前に画面の最下行で transcript にいることを確かめる。
  */
 import { promptHead } from '@agent-hangar/shared';
+import type { ScreenMark } from '../provider/claude-code/compat/screen.ts';
 
 /** tmux のペインとのやりとり。テストは偽物を渡す。 */
 export type PaneIo = { capture(): string; send(key: string): void; sleep(ms: number): Promise<void> };
@@ -111,14 +112,16 @@ export type JumpFrom = 'top' | 'bottom';
  * heads は hangar が数えた指示の書き出しを古い順に並べたもの、index はその中の目的の指示。
  * 会話の途中から始まる（あるいは途中で終わる）切り出しでよい。どちらの端が会話の端かを from で言う。
  * 着けなかったときも transcript は開いたままにする。どこまで来たかは利用者が画面で見られる。
+ * onMissing は、読む目印が画面に見つからなかったことを受け取る（Claude Code との互換のずれ）。跳び方は変えない。
  */
-export async function jumpToPrompt(io: PaneIo, heads: string[], index: number, from: JumpFrom): Promise<JumpResult> {
+export async function jumpToPrompt(io: PaneIo, heads: string[], index: number, from: JumpFrom, onMissing?: (mark: ScreenMark) => void): Promise<JumpResult> {
   const target = heads[index] ?? '';
   if (!inTranscript(io)) {
     io.send('C-o');
     let entered = false;
     for (let i = 0; i < ENTER_TRIES && !entered; i++) { await io.sleep(ENTER_WAIT_MS); entered = inTranscript(io); }
-    if (!entered) return { found: false, reason: 'mode' };
+    // ctrl+o の後に最下行の文言が一度も出なければ、文言が変わったと見て知らせる。
+    if (!entered) { onMissing?.('footer'); return { found: false, reason: 'mode' }; }
   }
   // G は最後の指示より下へ行くので、そこから { を 1 回押すと最後の指示に着く。g は最初の指示が見える位置へ行く。
   const fromTop = from === 'top';
@@ -126,8 +129,9 @@ export async function jumpToPrompt(io: PaneIo, heads: string[], index: number, f
     ? (await sendInTranscript(io, 'g')) && (await repeat(io, '}', index))
     : (await sendInTranscript(io, 'G')) && (await repeat(io, '{', heads.length - index));
   if (!ok) return { found: false, reason: 'mode' };
+  let screen = '';
   for (let i = 0; i <= CORRECTIONS; i++) {
-    const screen = await settled(io);
+    screen = await settled(io);
     if (target !== '' && visiblePrompts(screen).some((p) => p.startsWith(target))) return { found: true };
     if (i === CORRECTIONS) break;
     const at = locate(screen, heads, index);
@@ -135,6 +139,8 @@ export async function jumpToPrompt(io: PaneIo, heads: string[], index: number, f
     const moved = at === null ? await repeat(io, fromTop ? '}' : '{', 1) : at > index ? await repeat(io, '{', at - index) : await repeat(io, '}', index - at);
     if (!moved) return { found: false, reason: 'mode' };
   }
+  // 着けず、最後の画面に指示の行が 1 つも無ければ、行の頭の記号が変わったと見て知らせる。
+  if (visiblePrompts(screen).length === 0) onMissing?.('prompt-marker');
   return { found: false, reason: 'notFound' };
 }
 

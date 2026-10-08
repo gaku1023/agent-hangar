@@ -6,6 +6,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { isWindows } from '../../test/platform.ts';
+import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { STATUSLINE_MARKER } from './statusline.ts';
 import type { Settings } from './paths.ts';
 import { checkToolPath, createReadiness, expandHome, hangarCommandPrefix, readMcpRegistration, ToolVersions } from './readiness.ts';
@@ -200,5 +201,25 @@ describe('createReadiness', () => {
     expect(r.workspace).toEqual({ path: path.join(tmp, 'ws'), exists: false, projectCount: 0 });
     expect(r.mcp.registered).toBe(false);
     expect(r.statusline).toEqual({ command: null, scriptPath: null, installed: false });
+  });
+  it('Claude Code との互換の要約に、確かめた版、手元の claude の版、ずれの件数を載せる', async () => {
+    const claude = fakeTool('claude', '2.1.300 (Claude Code)');
+    const read = createReadiness({ settings: () => baseSettings({ claudePath: claude }), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', compatDriftCount: () => 3 });
+    expect((await read()).compat).toEqual({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: '2.1.300', driftCount: 3 });
+    const none = createReadiness({ settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install' });
+    expect((await none()).compat).toEqual({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, driftCount: 0 });
+  });
+  it('手元の版を返す口を渡せば、設定の claude ではなくその版を互換の要約に載せ、件数は版を読んでから数える', async () => {
+    // 設定の claudePath が空でも、サーバは環境変数や PATH から claude を引く。/api/compat と同じ引き方にそろえる。
+    let drifts = 2;
+    const read = createReadiness({
+      settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install',
+      // 版が変われば記録が空になる。件数はその後に数える。
+      compatLocalVersion: async () => { drifts = 0; return '2.1.301'; },
+      compatDriftCount: () => drifts,
+    });
+    const r = await read();
+    expect(r.tools.claude.version).toBeNull();
+    expect(r.compat).toEqual({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: '2.1.301', driftCount: 0 });
   });
 });
