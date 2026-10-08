@@ -47,4 +47,9 @@ export class ClaudeDirWatch {
       }
     }
   }
+
+  /** 見た名前を忘れる。ずれの記録が空になったとき、次の check() でまだある項目を数え直す。 */
+  reset(): void {
+    this.seen.clear();
+  }
 }

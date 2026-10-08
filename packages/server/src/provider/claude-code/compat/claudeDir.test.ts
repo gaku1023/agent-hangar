@@ -45,4 +45,16 @@ describe('ClaudeDirWatch', () => {
     w.check();
     expect(seen).toEqual([entry('brand-new')]);
   });
+  it('reset() の後は、見た名前を忘れてもう一度知らせる', () => {
+    // ずれの記録が手元の版の変化で空になったとき、まだある項目を数え直すために使う。
+    const dir = path.join(tmp, 'second');
+    fs.mkdirSync(path.join(dir, 'brand-new'), { recursive: true });
+    const seen: Drift[] = [];
+    const w = new ClaudeDirWatch({ dirs: () => [dir], sink: { note: (d) => seen.push(d) } });
+    w.check();
+    w.reset();
+    w.check();
+    w.check();
+    expect(seen).toEqual([entry('brand-new'), entry('brand-new')]);
+  });
 });

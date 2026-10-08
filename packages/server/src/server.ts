@@ -31,6 +31,7 @@ import { readRegistry, RegistryWatcher } from './provider/claude-code/registry.t
 import { BUILTIN_SUBCOMMANDS, readClaudeHelp, subcommandsFromHelp } from './provider/claude-code/compat/cli.ts';
 import { ClaudeDirWatch } from './provider/claude-code/compat/claudeDir.ts';
 import { CompatLog, compatPath } from './provider/claude-code/compat/log.ts';
+import type { Drift } from './provider/claude-code/compat/types.ts';
 import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { AsideReader } from './live/aside.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
@@ -725,7 +726,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 裏で void で走らせるので、決して拒否しない（捕まらない拒否は Node ごと落とす）。
   // パスが普通のファイルの下を指すと stat が ENOTDIR で投げるので、読めないもの（null）として扱う。
   // 待つ間に閉じたか、claude のパスが変わったときは、遅れて届いた古い版で上書きしない。
-  // 読めた版はずれの記録にも知らせる。版が変わっていれば、記録を空にして数え直す。
+  // 読めた版はずれの記録にも知らせる。版が変わっていれば記録が空になるので、1 度しか数えない元から数え直す。
   const refreshClaudeVersion = async (): Promise<string | null> => {
     const bin = claudeBinOf(settings);
     let v: string | null = null;
@@ -736,9 +737,24 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     }
     if (!closed && claudeBinOf(settings) === bin) {
       claudeVersion = v;
-      compatLog.setLocalVersion(v);
+      if (compatLog.setLocalVersion(v)) renoteCompat(bin);
     }
     return v;
+  };
+  // 最後に claude --help から作り直したときのずれ。読んだ claude のパスと組で持つ。
+  let lastSubcommandDrifts: { bin: string | null; drifts: readonly Drift[] } | null = null;
+  /**
+   * 版の変化でずれの記録を空にしたあと、1 度しか数えない元から数え直す。
+   * 置き場の項目はサーバの寿命で 1 度、サブコマンドは --help を読んだときに 1 度、登録は登録が変わったときに 1 度しか数えないので、
+   * ここで数え直さないと、次に起動し直すか登録が変わるまで一覧から消えたままになる。
+   * トランスクリプトは新しい行を読むたびに数えるので、ここでは何もしない。
+   * 呼ばれるのは版の読み取りを待った後なので、下で作る claudeDirWatch はもうできている。
+   */
+  const renoteCompat = (bin: string | null): void => {
+    if (lastSubcommandDrifts && lastSubcommandDrifts.bin === bin) for (const d of lastSubcommandDrifts.drifts) compatLog.note(d);
+    registry.renoteDrifts();
+    claudeDirWatch.reset();
+    claudeDirWatch.check();
   };
   // 包みがそのまま渡すサブコマンド。起動のたびと claude のパスを変えたときに claude --help から作り直す。
   let shellSubcommands: readonly string[] = BUILTIN_SUBCOMMANDS;
@@ -769,6 +785,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (closed || claudeBinOf(settings) !== bin) return;
       const r = subcommandsFromHelp(text);
       for (const d of r.drifts) compatLog.note(d);
+      lastSubcommandDrifts = { bin, drifts: r.drifts };
       shellSubcommands = r.subcommands;
       writeShellScript();
     } catch (e) {
@@ -1023,7 +1040,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       settings: () => settings, claudeDir, claudeJson: claudeJsonPath(), db, deviceId: device.id,
       shellCommand: () => shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar }),
       compatDriftCount: () => { claudeDirWatch.check(); return compatLog.count(); },
-      // /api/compat と同じ引き方で読む。同じ版の覚えを使うので、claude を余計に起こさない。
+      // /api/compat と同じ引き方で読み、同じ版の覚え（claudeVersions）を使う。
+      // 道具の claude の行は準備の確かめが自分の覚えで読むので、同じ claude でもそれぞれ 1 度は起こす。
       compatLocalVersion: refreshClaudeVersion,
     }),
     // Claude Code との互換の一覧。確認リストの 6 行目を開いたときに読む。

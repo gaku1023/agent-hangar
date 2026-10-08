@@ -457,6 +457,34 @@ describe('startServer', () => {
     }
   }, 15_000);
 
+  // 偽の claude は sh の case と sleep を使うので、Windows では飛ばす。
+  posixIt('版の変化で記録を空にしても、先に読み終えた claude --help のずれは数え直して残す', async () => {
+    fs.writeFileSync(path.join(home, 'compat.json'), JSON.stringify({
+      version: 1, localVersion: '1.0.0',
+      entries: [{ contract: 'transcript', value: 'type=old', version: '1.0.0', count: 3, firstSeenAt: 1, lastSeenAt: 1 }],
+    }));
+    // --help が先に終わり、そのずれを記録した後で --version が届いて記録を空にする順にする。
+    const bin = writeFakeTool(path.join(home, 'bin'), 'claude', {
+      sh: 'case "$1" in --version) sleep 1; echo "9.9.9 (Claude Code)" ;; --help) printf "Usage: claude\\n\\nCommands:\\n  agents [options]  Manage background agents\\n  newcmd            Something new\\n" ;; esac',
+      cmd: '',
+    });
+    process.env.HANGAR_CLAUDE_BIN = bin;
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    try {
+      const script = path.join(home, 'shell', 'claude.zsh');
+      await until(async () => (fs.readFileSync(script, 'utf8').includes('    agents|newcmd) command claude') ? true : null));
+      // 版の読み取り（1 秒）が終わり、記録を空にし終えるのを待つ。
+      await new Promise((res) => setTimeout(res, 1_500));
+      const body = (await (await fetch(`http://127.0.0.1:${s.port}/api/compat`, { headers: { authorization: `Bearer ${tokenOf()}` } })).json()) as CompatDto;
+      expect(body.localVersion).toBe('9.9.9');
+      const values = body.drifts.map((d) => d.value);
+      expect(values).not.toContain('type=old');
+      expect(values).toContain('subcommand.added=newcmd');
+    } finally {
+      await s.close();
+    }
+  }, 15_000);
+
   // 偽の claude は sh の case で引数を見るので、Windows では飛ばす。
   posixIt('設定の claudePath が空でも、準備の確かめの手元の版は /api/compat と同じ引き方（環境変数）で読む', async () => {
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ claudePath: null }));

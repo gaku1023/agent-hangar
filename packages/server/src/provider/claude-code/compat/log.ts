@@ -62,12 +62,15 @@ export class CompatLog implements CompatSink {
    * 前の版で出たずれが、新しい版でも出るとは限らないためである。
    * 読めない版（null）では消さない。前の版が分からないときは「変わった」と言えないので、持つだけにする。
    * 持った版は、ずれが増えなくても書き出す。書かないと、次の起動でまた前の版が分からなくなる。
+   * 消したかを返す。消したときは、呼び手が 1 度しか数えない元（置き場の項目、サブコマンド、登録）から数え直す。
    */
-  setLocalVersion(v: string | null): void {
-    if (v === null || v === this.seenVersion) return;
-    if (this.seenVersion !== null) this.entries.clear();
+  setLocalVersion(v: string | null): boolean {
+    if (v === null || v === this.seenVersion) return false;
+    const cleared = this.seenVersion !== null;
+    if (cleared) this.entries.clear();
     this.seenVersion = v;
     this.dirty = true;
+    return cleared;
   }
 
   note(d: Drift): void {

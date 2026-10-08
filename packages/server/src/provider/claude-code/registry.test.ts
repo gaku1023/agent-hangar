@@ -159,6 +159,26 @@ describe('RegistryWatcher', () => {
     w.stop();
   });
 
+  it('renoteDrifts() の後は、登録が同じでも次の読み直しで 1 回だけ数え直す', () => {
+    // ずれの記録が手元の版の変化で空になったとき、残っている登録のずれを数え直すために使う。
+    const file = path.join(dir, 'sessions/12345.json');
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(file, JSON.stringify({ ...rec, status: 'thinking' }));
+    const seen: Drift[] = [];
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: (d) => seen.push(d) });
+    const changes: unknown[] = [];
+    w.onChange((l) => changes.push(l));
+    w.start();
+    vi.advanceTimersByTime(1000);
+    expect(seen.map((d) => d.value)).toEqual(['status=thinking']);
+    w.renoteDrifts();
+    vi.advanceTimersByTime(1500);
+    expect(seen.map((d) => d.value)).toEqual(['status=thinking', 'status=thinking']);
+    // 登録は変わっていないので、live の知らせは出さない。
+    expect(changes).toEqual([]);
+    w.stop();
+  });
+
   it('読み飛ばす登録が動いているセッションの隣に増えたら、live が変わらなくても 1 回だけ数える', () => {
     const seen: Drift[] = [];
     const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: (d) => seen.push(d) });

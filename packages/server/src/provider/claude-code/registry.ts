@@ -74,6 +74,8 @@ export class RegistryWatcher {
   stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; }
   current(): LiveSession[] { return this.last; }
   onChange(cb: (live: LiveSession[]) => void): () => void { this.listeners.add(cb); return () => this.listeners.delete(cb); }
+  /** 最後に数えた登録を忘れる。ずれの記録が空になったとき、次の読み直しで残っている登録のずれを 1 回だけ数え直す。 */
+  renoteDrifts(): void { this.lastRegKey = ''; }
 
   /**
    * 登録ディレクトリを読み直し、変わっていたら知らせる。

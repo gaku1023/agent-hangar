@@ -82,15 +82,16 @@ describe('CompatLog', () => {
     const log = new CompatLog({ file, localVersion: () => null, now: () => 1 });
     log.note({ contract: 'cli', value: 'subcommand.added=x', version: null });
     // 前の版が分からないうちは「変わった」と言えないので、持つだけで消さない。
-    log.setLocalVersion('2.1.292');
+    // 消したかを返す。サーバは消したときだけ、1 度しか数えない元から数え直す。
+    expect(log.setLocalVersion('2.1.292')).toBe(false);
     expect(log.count()).toBe(1);
-    log.setLocalVersion('2.1.292');
+    expect(log.setLocalVersion('2.1.292')).toBe(false);
     expect(log.count()).toBe(1);
     // 読めないときは消さない。
-    log.setLocalVersion(null);
+    expect(log.setLocalVersion(null)).toBe(false);
     expect(log.count()).toBe(1);
     log.flush();
-    log.setLocalVersion('2.1.300');
+    expect(log.setLocalVersion('2.1.300')).toBe(true);
     expect(log.count()).toBe(0);
     // 空にしたことも書き出す。
     log.flush();
