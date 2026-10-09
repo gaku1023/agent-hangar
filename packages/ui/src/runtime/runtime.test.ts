@@ -1204,12 +1204,6 @@ describe('保持期間（ランタイム）', () => {
     expect(api.events).not.toHaveBeenCalled();
     expect(rt.getState().toasts).toEqual([]);
   });
-  it('帯を閉じた覚えを起動時に読み戻す', () => {
-    const { rt, store } = harness();
-    store.set('retention.bannerDismissed', true);
-    rt.start();
-    expect(rt.getState().retentionBannerDismissed).toBe(true);
-  });
   it('書き込みは下見の指紋を送り、成功なら store.retention を入れ替えてトーストを出す', async () => {
     const written = { ...R, days: 365, source: 'user' as const, userValue: 365 };
     const retentionPreview = vi.fn(async () => preview);
@@ -1414,16 +1408,16 @@ describe('入力待ちの知らせ', () => {
       await flush();
       return { ...h, n };
     }
-    it('時刻の前は何も出さず、その時刻に見直す予約を入れ、時刻が来たら札と通知を 1 回出す', async () => {
+    it('時刻の前は何も出さず、その時刻に見直す予約を入れ、時刻が来たら通知を 1 回出す', async () => {
       const clock = { now: at(13, 0) };
       const h = await startedAt(clock, [timed('s1', '13:30'), timed('s2', null)]);
-      expect(h.rt.getState().returnToasts).toEqual([]);
+      expect(h.rt.getState().returnSeen).toEqual([]);
       expect(h.n.show).not.toHaveBeenCalled();
       const timer = h.timers.find((t) => t.ms === 30 * 60_000);
       expect(timer).toBeDefined();
       clock.now = at(13, 30);
       timer!.fn();
-      expect(h.rt.getState().returnToasts).toEqual(['s1']);
+      expect(h.rt.getState().returnSeen).toEqual(['s1|2026-10-05 13:30']);
       expect(h.n.show).toHaveBeenCalledTimes(1);
       expect(h.n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '会話 s1', body: '戻る時刻 13:30 を過ぎました · timer の初回を見る' });
       expect(h.store.get('return.notified')).toEqual(['s1|2026-10-05 13:30']);
@@ -1431,7 +1425,6 @@ describe('入力待ちの知らせ', () => {
       timer!.fn();
       h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: timed('s2', null, '別の理由') });
       expect(h.n.show).toHaveBeenCalledTimes(1);
-      expect(h.rt.getState().returnToasts).toEqual(['s1']);
     });
     it('ストアが変わるたびに予約を積まない（次の時点が同じなら予約は 1 つ）', async () => {
       const clock = { now: at(13, 0) };
@@ -1445,16 +1438,15 @@ describe('入力待ちの知らせ', () => {
     it('閉じている間に過ぎた今日の時点は、開いたときに 1 回知らせる。前に知らせ終えたものは出さない', async () => {
       const clock = { now: at(14, 0) };
       const fresh = await startedAt(clock, [timed('s1', '13:30')]);
-      expect(fresh.rt.getState().returnToasts).toEqual(['s1']);
+      expect(fresh.rt.getState().returnSeen).toEqual(['s1|2026-10-05 13:30']);
       expect(fresh.n.show).toHaveBeenCalledTimes(1);
       const again = await startedAt(clock, [timed('s1', '13:30')], fakeNotifier(), ['s1|2026-10-05 13:30']);
-      expect(again.rt.getState().returnToasts).toEqual([]);
       expect(again.n.show).not.toHaveBeenCalled();
     });
-    it('窓が前にあるときと、通知を受け取らないときは、札だけにする', async () => {
+    it('窓が前にあるときと、通知を受け取らないときは、OS の通知を出さない（ベルの一覧には行が出る）', async () => {
       const clock = { now: at(14, 0) };
       const front = await startedAt(clock, [timed('s1', '13:30')], fakeNotifier({ background: false }));
-      expect(front.rt.getState().returnToasts).toEqual(['s1']);
+      expect(front.rt.getState().returnSeen).toEqual(['s1|2026-10-05 13:30']);
       expect(front.n.show).not.toHaveBeenCalled();
       const off = fakeNotifier();
       const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [timed('s1', '13:30')] })) }, { notifier: off, now: () => clock.now });
@@ -1462,17 +1454,16 @@ describe('入力待ちの知らせ', () => {
       h.rt.start();
       h.wsHandlers[0]!.onOpen();
       await flush();
-      expect(h.rt.getState().returnToasts).toEqual(['s1']);
       expect(off.show).not.toHaveBeenCalled();
     });
     it('時刻を付け直すと、新しい時点でもう一度知らせる', async () => {
       const clock = { now: at(14, 0) };
       const h = await startedAt(clock, [timed('s1', '13:30')]);
       h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: timed('s1', '21:50') });
-      expect(h.rt.getState().returnToasts).toEqual([]);
+      expect(h.rt.getState().returnSeen).toEqual([]);
       clock.now = at(21, 50);
       h.timers.at(-1)!.fn();
-      expect(h.rt.getState().returnToasts).toEqual(['s1']);
+      expect(h.rt.getState().returnSeen).toEqual(['s1|2026-10-05 21:50']);
       expect(h.n.show).toHaveBeenCalledTimes(2);
       expect(h.n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '会話 s1', body: '戻る時刻 21:50 を過ぎました · timer の初回を見る' });
     });

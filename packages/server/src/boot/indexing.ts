@@ -56,7 +56,7 @@ export function bootIndexing(
     progress: (p) => hub.broadcast({ type: 'index.progress', progress: p }),
     // 本文が消えて hasTranscript が偽に変わったとき（transcriptGone）は、索引が行の変化の口へ知らせるので、ここでは受けない。
     sessionChanged: createSessionChangeHandler({
-      db, deviceId, hub, language: home.language,
+      db, deviceId, hub,
       started: () => life.started,
       workspaceRoot: () => settings.current.workspaceRoot,
       onLocalTranscript: (f) => sync.uploader?.noteChanged(f),

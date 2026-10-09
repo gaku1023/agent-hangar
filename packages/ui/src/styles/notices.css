@@ -2,7 +2,7 @@
    面は .menu-pop と .popover（controls.css）をそのまま使い、ここでは余白、行の並び、ベルの形だけを決める。 */
 
 /* ヘッダーのベル。押せる 28px の透明なボタンで、未読があれば右上に数の札を重ねる。
-   ヘッダーの区切り線と並べる位置は、ヘッダーに置く変更で決める。 */
+   区切りの線はヘッダーの .header-bell が持つ（base.css）。 */
 .bell { position: relative; flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .bell:hover, .bell[aria-expanded='true'] { background: var(--surface-2); color: var(--ink); }
 .bell:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

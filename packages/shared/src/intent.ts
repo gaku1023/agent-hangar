@@ -113,12 +113,10 @@ export type Intent =
   // 受け取るにするときは許可を求める。
   | { type: 'notify.set'; on: boolean }
   // 戻る時刻を過ぎた知らせの札を閉じる。
-  | { type: 'return.toast.dismiss'; id: SessionId }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'conn.retry' }
   // ベルの一覧の行を既読にする。keys は行の鍵（種類、対象、事実の版）で、「すべて既読にする」はいまある鍵を全部送る。
   | { type: 'notices.read'; keys: string[] }
-  | { type: 'retention.dismiss' }
   | { type: 'retention.edit'; days: number; from: RetentionFrom }
   | { type: 'retention.write' }
   | { type: 'retention.settings' }

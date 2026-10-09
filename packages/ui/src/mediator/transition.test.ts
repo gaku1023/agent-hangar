@@ -1405,11 +1405,6 @@ describe('次の入力待ちへ（C5）', () => {
 });
 
 describe('保持期間', () => {
-  it('閉じると覚え、保存する', () => {
-    const r = run([intent({ type: 'retention.dismiss' })]);
-    expect(r.state.retentionBannerDismissed).toBe(true);
-    expect(r.effects).toEqual([{ kind: 'storage.save', key: 'retention.bannerDismissed', value: true }]);
-  });
   it('開くと下見を取り、書くと送信中になり、書けたら閉じる', () => {
     let r = run([intent({ type: 'retention.edit', days: 365, from: 'banner' })]);
     expect(r.state.overlay).toEqual({ kind: 'retention', days: 365, from: 'banner', reloaded: false, writing: false, previewError: null });
@@ -1625,13 +1620,6 @@ describe('ストアが変わっただけのとき', () => {
   it('overlay が none のまま未解決のキューが残っていても、無関係な更新では問いを開かない', () => {
     const store = waitingStore('s1');
     const start: State = { ...initialState(), sidebarOrder: ['s1'], waitingSeen: ['s1'], unresolvedQueue: ['p1'] };
-    const r = transition(start, store, { kind: 'store' });
-    expect(r.state).toBe(start);
-    expect(r.effects).toEqual([]);
-  });
-  it('開いたセッションの戻る時刻の札が残っていても、無関係な更新では触らない', () => {
-    const store = waitingStore('s1');
-    const start: State = { ...initialState(), screen: { name: 'session', id: 's1' }, sidebarOrder: ['s1'], waitingSeen: ['s1'], returnToasts: ['s1'] };
     const r = transition(start, store, { kind: 'store' });
     expect(r.state).toBe(start);
     expect(r.effects).toEqual([]);

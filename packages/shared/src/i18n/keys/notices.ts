@@ -11,6 +11,7 @@ export const noticesKeys = {
   'notices.kind.sync': [],
   'notices.kind.compat': [],
   'notices.kind.retention': [],
+  'notices.kind.notify': [],
   'notices.ago.now': [],
   'notices.ago.min': ['n'],
   'notices.ago.hour': ['n'],
@@ -26,6 +27,7 @@ export const noticesKeys = {
   'notices.reminder.open': [],
   'notices.sync.pausedToo': [],
   'notices.sync.open': [],
+  'notices.sync.skipped': ['n'],
   'notices.compat.title': [],
   'notices.compat.detailOne': ['version'],
   'notices.compat.detailMany': ['version', 'n'],
@@ -36,4 +38,7 @@ export const noticesKeys = {
   'notices.retention.soonDetail': ['days'],
   'notices.retention.ruleDetail': [],
   'notices.retention.open': [],
+  'notices.notify.title': [],
+  'notices.notify.detail': [],
+  'notices.notify.open': [],
 } as const satisfies MessageSpec;

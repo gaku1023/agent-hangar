@@ -27,5 +27,4 @@ export const projectJa: AreaDictionary<typeof projectKeys> = {
   'project.promote.failedNothingMoved': '{name} を移せませんでした（{cause}）。ファイルは {from} にそのまま残っています',
   'project.promote.failedRolledBack': '{name} を移せませんでした（{cause}）。先に移したものは {from} に戻しました。ファイルは移動していません',
   'project.promote.failedLeftBoth': '{name} を移せませんでした（{cause}）。{left} は {to} にも残っています。{from} と {to} の両方を確かめてください',
-  'project.unassigned.appeared': 'どのプロジェクトにも属さないセッションが現れました（{cwd}）。未分類のまま置いてあります',
 };

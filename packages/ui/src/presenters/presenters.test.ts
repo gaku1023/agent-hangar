@@ -1554,26 +1554,17 @@ describe('保持期間の言い方と期限', () => {
   });
 });
 
-describe('presentShell の保持期間の帯', () => {
-  const DAY = 86_400_000;
-  const R: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
-  const withSessions = (list: SessionDto[], retention: RetentionDto | null = R): Store => ({ ...initialStore(), bootstrapped: true, retention, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
-  it('消えかけが無ければ、30 日で消えることと使用量を言う', () => {
-    expect(presentShell(initialState(), withSessions([]), NOW).retention).toEqual({ visible: true, title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも消えます ・ いま 1.5 GB', extendTo: 365 });
+describe('presentShell のベル', () => {
+  // 保持期間の帯はヘッダーの下から無くなり、ベルの一覧の行になった（PR 29）。行の組み方は notices.test.ts が試す。
+  it('ベルの props を渡し、保持期間の帯の props は持たない', () => {
+    const p = presentShell(initialState(), { ...initialStore(), bootstrapped: true }, NOW);
+    expect(p.notices).toMatchObject({ rows: [], unread: 0, label: '通知' });
+    expect('retention' in p).toBe(false);
   });
-  it('消えかけがあれば件数を言う', () => {
-    const s = [session('a', { transcriptMtime: NOW - 25 * DAY }), session('b', { transcriptMtime: NOW - 26 * DAY }), session('c', { transcriptMtime: NOW - 2 * DAY })];
-    expect(presentShell(initialState(), withSessions(s), NOW).retention).toMatchObject({ title: '2 件の会話が、まもなく削除されます', detail: 'Claude Code は 30 日で本文を消します ・ いま 1.5 GB' });
-  });
-  it('使用量をまだ測っていなければ、その部分を出さない', () => {
-    expect(presentShell(initialState(), withSessions([], { ...R, usage: null }), NOW).retention.detail).toBe('hangar の履歴からも消えます');
-  });
-  it('自分で値を入れた人、組織の設定、書けないとき、閉じた後には出さない', () => {
-    for (const r of [{ ...R, source: 'user' as const, userValue: 30 }, { ...R, source: 'managed' as const, writable: false }, { ...R, writable: false }]) {
-      expect(presentShell(initialState(), withSessions([], r), NOW).retention.visible).toBe(false);
-    }
-    expect(presentShell({ ...initialState(), retentionBannerDismissed: true }, withSessions([]), NOW).retention.visible).toBe(false);
-    expect(presentShell(initialState(), withSessions([], null), NOW).retention.visible).toBe(false);
+  it('既読の鍵は State から読み、未読の数をベルの名前に添える', () => {
+    const store: Store = { ...initialStore(), bootstrapped: true, sync: { state: 'paused', paused: true, url: 'https://w', lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false } };
+    expect(presentShell(initialState(), store, NOW).notices.unread).toBe(1);
+    expect(presentShell({ ...initialState(), noticesRead: ['sync|paused|user'] }, store, NOW).notices.unread).toBe(0);
   });
 });
 
@@ -1720,15 +1711,6 @@ describe('presentToasts（入力待ちのカード）', () => {
     expect(p.waiting).toEqual([]);
     expect(p.more).toBe(0);
   });
-  it('通知を出せるのに受け取っていないときだけ、「通知を受け取る」を添える', () => {
-    const base = { ...initialState(), waitingToasts: ['w1'] };
-    const store = waitingStore(['w1']);
-    expect(presentToasts(base, { ...store, notify: { available: true, on: false, blocked: false } }, NOW).offerNotify).toBe(true);
-    expect(presentToasts(base, { ...store, notify: { available: true, on: true, blocked: false } }, NOW).offerNotify).toBe(false);
-    expect(presentToasts(base, { ...store, notify: { available: false, on: false, blocked: false } }, NOW).offerNotify).toBe(false);
-    // OS で切られているときは、カードごとに勧めない。直し方は設定の通知の節に出す。
-    expect(presentToasts(base, { ...store, notify: { available: true, on: false, blocked: true } }, NOW).offerNotify).toBe(false);
-  });
   // 確認や入力のあるダイアログが開いている間は、カードを押しても画面を移さない（Mediator も止める）。押せないように見せる。
   it('確認や入力のあるダイアログが開いている間は、カードを押せないものとして渡す', () => {
     const base = { ...initialState(), waitingToasts: ['w1'] };
@@ -1741,6 +1723,12 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('info と error のトーストはそのまま渡す', () => {
     const toasts = [{ id: '1', level: 'error' as const, message: 'oops' }];
     expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);
+  });
+  // 右下に積むのは入力待ちだけで、戻る時刻の札と通知の誘いはベルの一覧へ移った（PR 29）。
+  it('入力待ちとトースト以外は渡さない（戻る時刻の札、通知の誘い）', () => {
+    const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
+    const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
+    expect(Object.keys(p).sort()).toEqual(['blocked', 'more', 'toasts', 'waiting']);
   });
 });
 

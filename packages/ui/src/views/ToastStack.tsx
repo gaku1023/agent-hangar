@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
-import type { ReturnDueCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import { Icon } from './primitives/Icon.tsx';
 
 /** info のトーストが出ている時間。 */
@@ -9,7 +9,8 @@ export const INFO_TOAST_MS = 4000;
 
 /**
  * 画面右下に積む知らせ。
- * 上から error と info のトースト、戻る時刻を過ぎた札、通知の誘い、並べきれない入力待ちの数、入力待ちのカードの順に積む。
+ * 上から error と info のトースト、並べきれない入力待ちの数、入力待ちのカードの順に積む。
+ * トーストは操作の結果だけである。戻る時刻の札、通知の誘い、保持期間の帯、互換の知らせはベルの一覧にある（PR 29）。
  * 入力待ちのカードは新しいものほど下（窓の角に近い側）に来る。
  * どの札も、種類の色を敷いた見出しと、その下の本文の 2 段でできている。
  * 時間で消すのは info だけで、時間切れはトーストごとに持つ。
@@ -21,9 +22,6 @@ export function ToastStack(props: ToastsProps) {
       {props.toasts.map((t) => (t.level === 'error' ? <ErrorToast key={t.id} toast={t} /> : <InfoToast key={t.id} toast={t} />))}
       {/* 新しく積まれたカードを読み上げに届ける。 */}
       <div className="toast-waiting-list" aria-live="polite">
-        {/* 通知の誘いはカードごとに繰り返さず、積みの上に 1 回だけ出す。 */}
-        {props.returning.map((c) => <ReturnDueCard key={c.sessionId} card={c} blocked={props.blocked} />)}
-        {props.offerNotify && props.waiting.length > 0 && <div className="toast toast-pill toast-offer">離れていても気づけます<button type="button" className="btn-link" onClick={() => emit({ type: 'notify.set', on: true })}>通知を受け取る</button></div>}
         {props.more > 0 && <button type="button" className="toast toast-pill toast-more" disabled={props.blocked} onClick={() => emit({ type: 'nav.go', to: { name: 'home' } })}>ほか {props.more} 件をホームで見る</button>}
         {props.waiting.map((c) => <WaitingCard key={c.sessionId} card={c} blocked={props.blocked} />)}
       </div>
@@ -53,31 +51,6 @@ function WaitingCard(props: { card: WaitingCardProps; blocked: boolean }) {
       </span>
       <span className="notice-body"><span className="notice-title">{c.question ?? c.name}</span></span>
     </button>
-  );
-}
-
-/**
- * 戻る時刻を過ぎた Paused の札。
- * 入力待ちと違って待たせている相手がいないので、閉じるボタンで下げられる。開いても下がる。
- * 見出しにどのセッションかと戻る時刻、その下に何を確かめに戻るかを出す。理由が無いときは、名前を本文の段へ上げる。
- * 本文が 1 つのボタンで、押すとそのセッションを開く。確認や入力のあるダイアログが開いている間（blocked）は押せない。
- */
-function ReturnDueCard(props: { card: ReturnDueCardProps; blocked: boolean }) {
-  const emit = useEmit();
-  const c = props.card;
-  return (
-    <div className="toast notice" data-kind="return">
-      <div className="notice-head">
-        <span className="notice-dot" aria-hidden="true" />
-        <span className="notice-label">戻る時刻</span>
-        {c.reason !== null && <><span className="notice-sep" aria-hidden="true">·</span><span className="notice-who">{c.name}</span></>}
-        <span className="notice-end">{c.time}</span>
-        <button type="button" className="notice-close" aria-label={`${c.name} の知らせを閉じる`} onClick={() => emit({ type: 'return.toast.dismiss', id: c.sessionId })}><Icon name="close" /></button>
-      </div>
-      <button type="button" className="notice-body notice-open" aria-label={c.reason === null ? `${c.name} を開く` : `${c.name} を開く：${c.reason}`} disabled={props.blocked} title={props.blocked ? 'ダイアログを閉じると開けます' : undefined} onClick={() => emit({ type: 'session.open', id: c.sessionId })}>
-        <span className="notice-title">{c.reason ?? c.name}</span>
-      </button>
-    </div>
   );
 }
 
