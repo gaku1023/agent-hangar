@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SERVER_DROPPED_ENV } from '../../../packages/server/src/launch/env.ts';
 import { COMPAT_VERSION } from '../../../packages/shared/src/compat.ts';
+import { LANGUAGES } from '../../../packages/shared/src/i18n/language.ts';
 
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p: string) => fs.readFileSync(path.join(app, p), 'utf8');
@@ -78,14 +79,27 @@ describe('読み込み画面', () => {
     expect(js).toContain('const LOGO = 128;');
   });
   // ロゴの中心を窓の中心に置く。名前と文は流れから外してロゴの下に下げる。
-  // 失敗の文言は何行にもなるので、そのときだけ流れに戻し、改行はそのまま描く。
+  // 失敗は 1 枚の札（#fail）で出し、そのとき読み込みの絵（main）ごと退ける。
   it('起動画面は、ロゴだけで真ん中を決め、名前と文をその下に下げる', () => {
     const html = read('loading/index.html');
     expect(html).toMatch(/<main>\s*<img id="logo"[^>]*>\s*<div class="caption">\s*<h1>Hangar<\/h1>\s*<p id="status">/);
     expect(html).toContain('.caption { position: absolute; top: 100%;');
-    expect(html).toContain("main:has(#status[data-level='error']) .caption { position: static;");
-    expect(html).toMatch(/#status \{[^}]*white-space: pre-wrap;/);
+    expect(html).not.toContain("main:has(#status[data-level='error'])");
     expect(html).not.toMatch(/main \{[^}]*white-space/);
+  });
+  // 窓の左上には信号の 3 点が重なる。失敗の札のロゴは、UI のヘッダーの左の空き（--lights-end）と同じだけ右に置く。
+  it('失敗の札のロゴは、信号の 3 点の右（UI の --lights-end と同じ幅）から始める', () => {
+    const tokens = fs.readFileSync(path.resolve(app, '../../packages/ui/src/styles/tokens.css'), 'utf8');
+    const lights = tokens.match(/--lights-end: (\d+)px;/)?.[1];
+    expect(lights).toBeDefined();
+    expect(read('loading/index.html')).toContain(`.fail-brand { position: fixed; left: ${lights}px;`);
+  });
+  // 札の操作の並びは Tab の順（命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す）で、DOM もこの順に置く。
+  it('失敗の札の操作は、DOM を Tab の順に置く', () => {
+    const html = read('loading/index.html');
+    const at = ['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-log', 'boot-retry'].map((id) => html.indexOf(`<${id.startsWith('fail-detail') ? 'pre' : 'button'} id="${id}"`));
+    expect(at.every((i) => i > 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
   // 殻は準備ができたら合図の口を呼び、光が満ち切るまで待ってから画面を移す。
   // 口の名前が食い違うと合図が打たれず、長さが食い違うと光が満ちる途中で画面が替わる。
@@ -98,6 +112,33 @@ describe('読み込み画面', () => {
   it('殻が進み具合を渡す口（__hangarBootProgress）を、起動画面が持つ', () => {
     expect(read('src-tauri/src/lib.rs')).toContain('"window.__hangarBootProgress && window.__hangarBootProgress({{');
     expect(read('loading/boot.js')).toContain('window.__hangarBootProgress = ');
+  });
+  // 殻は起動の失敗を、種類と数だけ決まった式で渡す。口の名前が食い違うと、札が出ないまま読み込み中の絵が残る。
+  it('殻が失敗を渡す口（__hangarBootFail）を、起動画面が持つ', () => {
+    expect(read('src-tauri/src/bootfail.rs')).toContain('"window.__hangarBootFail && window.__hangarBootFail({})"');
+    expect(read('loading/boot.js')).toContain('window.__hangarBootFail = ');
+  });
+  // 札の種類は、殻（bootfail.rs の KINDS）と頁の表（boot-fail.js の FAIL_KINDS）と、サーバが書く 4 種類（bootError.ts）で揃える。
+  it('失敗の種類は、殻と頁の表で同じ並びで、サーバが書く種類はその部分になる', async () => {
+    const rust = [...(read('src-tauri/src/bootfail.rs').match(/pub const KINDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
+    const page = (await import(pathToFileURL(path.join(app, 'loading', 'boot-fail.js')).href)) as { FAIL_KINDS: string[] };
+    expect(rust.length).toBeGreaterThan(0);
+    expect(rust).toEqual(page.FAIL_KINDS);
+    const serverSource = fs.readFileSync(path.resolve(app, '../../packages/server/src/boot/bootError.ts'), 'utf8');
+    const written = [...(serverSource.match(/export type BootErrorKind = ([^;]+);/)?.[1] ?? '').matchAll(/'([a-z-]+)'/g)].map((m) => m[1]!);
+    expect(written).toHaveLength(4);
+    for (const k of written) expect(page.FAIL_KINDS).toContain(k);
+    // サーバが書かない 2 種類は、殻が決める。
+    expect(page.FAIL_KINDS.filter((k) => !written.includes(k)).sort()).toEqual(['compat-mismatch', 'other']);
+    // 殻が読むファイルの名前は、サーバが書く名前と同じ。
+    const file = serverSource.match(/export const BOOT_ERROR_FILE = '([^']+)'/)?.[1];
+    expect(file).toBeDefined();
+    expect(read('src-tauri/src/bootfail.rs')).toContain(`pub const BOOT_ERROR_FILE: &str = "${file}";`);
+  });
+  // 頁の言語は、設定の言語（shared の LANGUAGES）と同じで、先頭が既定である。
+  it('失敗の札の言語は、shared の LANGUAGES と同じ', async () => {
+    const page = (await import(pathToFileURL(path.join(app, 'loading', 'boot-fail.js')).href)) as { LANGS: string[] };
+    expect(page.LANGS).toEqual([...LANGUAGES]);
   });
   it('殻が待つ長さ（lib.rs の BOOT_FINISH_MS）は、合図と光が満ちる長さ（boot-frames.js の FINISH_MS）と同じ', () => {
     const rust = read('src-tauri/src/lib.rs').match(/const BOOT_FINISH_MS: u64 = (\d+);/)?.[1];
