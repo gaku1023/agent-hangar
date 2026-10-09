@@ -1692,15 +1692,15 @@ describe('使われていない口を消した後', () => {
 describe('ストアが変わっただけのとき', () => {
   // 入力待ちの顔ぶれも動いているセッションの顔ぶれも変わらない更新（本文が伸びるなど）。
   it('overlay が none のまま未解決のキューが残っていても、無関係な更新では問いを開かない', () => {
-    const store = { ...initialStore(), sessions: { s1: { id: 's1', live: 'working', lastActivityAt: 1, parked: false } as SessionDto } };
-    const start: State = { ...initialState(), sidebarOrder: ['s1'], unresolvedQueue: ['p1'] };
+    const store = waitingStore('s1');
+    const start: State = { ...initialState(), sidebarOrder: ['s1'], waitingSeen: ['s1'], unresolvedQueue: ['p1'] };
     const r = transition(start, store, { kind: 'store' });
     expect(r.state).toBe(start);
     expect(r.effects).toEqual([]);
   });
   it('開いたセッションの戻る時刻の札が残っていても、無関係な更新では触らない', () => {
-    const store = { ...initialStore(), sessions: { s1: { id: 's1', live: 'working', lastActivityAt: 1, parked: false } as SessionDto } };
-    const start: State = { ...initialState(), screen: { name: 'session', id: 's1' }, sidebarOrder: ['s1'], returnToasts: ['s1'] };
+    const store = waitingStore('s1');
+    const start: State = { ...initialState(), screen: { name: 'session', id: 's1' }, sidebarOrder: ['s1'], waitingSeen: ['s1'], returnToasts: ['s1'] };
     const r = transition(start, store, { kind: 'store' });
     expect(r.state).toBe(start);
     expect(r.effects).toEqual([]);
