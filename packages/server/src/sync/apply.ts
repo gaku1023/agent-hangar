@@ -86,6 +86,12 @@ export type ApplyOptions = {
    */
   onSessionMemoBackup?: (o: SessionMemoBackup) => void;
   /**
+   * 束の中でやり直しても当てられなかった行（親の行がまだ無く、外部キーで落ちた行など）を受け取る。
+   * 渡すと、その行は記録に出さずに呼び手へ任せる。同期エンジンはこれで行を持ち越し、後で当て直す。
+   * 省くと、今までどおり記録に出して捨てる。
+   */
+  onFailed?: (c: ChangeOut, e: unknown) => void;
+  /**
    * 控えの置き場の親（hangar の home に当たるもの）。
    * 省くと `hangarHome()` に落ちるが、**呼び手は必ず明に渡すこと。**
    * 環境変数に頼ると、一時置き場で起こしたサーバやテストが実物の home に書いてしまう。
@@ -225,20 +231,27 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
  * 遅延させると違反が commit のときに出るので、1 行の親不明でそのページ全体が巻き戻ってしまう。
  * 即時に検査すれば、親がどこにも無い行だけを飛ばして残りは残せる。
  * SHARED_APPLY_ORDER は親を先に並べてあるので、同じバッチの中の親子は順番で解ける。
+ * 親が別の束（写しの後の頁、差分の後の頁）にある行は、ここでは当てられない。`onFailed` で呼び手へ渡す。
  */
 export function applyRemoteBatch(db: Db, changes: ChangeOut[], o: ApplyOptions): ChangeOut[] {
   const sorted = [...changes].sort((a, b) => (ORDER.get(a.tableName) ?? 99) - (ORDER.get(b.tableName) ?? 99) || a.seq - b.seq);
   const applied: ChangeOut[] = [];
+  const stillFailed: [ChangeOut, unknown][] = [];
   const run = db.transaction(() => {
     const failed: ChangeOut[] = [];
     for (const c of sorted) {
       try { if (applyRemoteChange(db, c, o) === 'applied') applied.push(c); } catch { failed.push(c); }
     }
     for (const c of failed) {
-      try { if (applyRemoteChange(db, c, o) === 'applied') applied.push(c); } catch (e) { console.error('[sync] apply failed', c.tableName, c.rowId, e instanceof Error ? e.message : e); }
+      try { if (applyRemoteChange(db, c, o) === 'applied') applied.push(c); } catch (e) { stillFailed.push([c, e]); }
     }
   });
   run();
+  // 当てられなかった行は、確定の後に渡す。巻き戻ったときに、持ち越しだけが残らないようにする。
+  for (const [c, e] of stillFailed) {
+    if (o.onFailed) o.onFailed(c, e);
+    else console.error('[sync] apply failed', c.tableName, c.rowId, e instanceof Error ? e.message : e);
+  }
   // 当てた行を、行の変化の口（db/notify.ts）へ知らせる。画面へ配るのは events/publisher.ts である。
   // 出どころは apply なので、同期の push のデバウンスはこれを拾わない（降りた行を push し返さない）。
   // 確定の後に知らせる。確定に失敗すれば run() が投げるので、ここには来ない。
