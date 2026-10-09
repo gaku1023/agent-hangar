@@ -61,7 +61,7 @@ export type ApiClient = {
   shellHook(): Promise<ShellHookDto>;
   /** 準備の確かめ。設定画面の検証と、空のホームの確認リストが読む。 */
   readiness(): Promise<ReadinessDto>;
-  /** Claude Code との互換。確認リストの 6 行目を開いたときに取る（計画 B）。 */
+  /** Claude Code との互換のずれの中身。準備の確かめでずれが 1 件以上あるときに、続けて取る（止めた機能の一覧を常に出すため）。 */
   compat(): Promise<CompatDto>;
   addTodo(projectId: string, text: string): Promise<TodoDto>;
   setTodoDone(id: string, done: boolean): Promise<TodoDto>;

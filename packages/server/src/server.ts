@@ -804,7 +804,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // Claude Code のアカウント。置き場ごとのログインを切り替えるだけで、認証の中身は持たない。
   const accountStore = new AccountStore({ home, primaryDir: claudeDir });
   const accountAuth = new AccountAuth({ claudeBin: () => claudeBinOf(settings), compat: compatLog });
-  // 2 つ目以降のアカウントの置き場に、Claude Code が新しい項目を足していないかを見る。起動のときと、確認リストを開いたときに見る。
+  // 2 つ目以降のアカウントの置き場に、Claude Code が新しい項目を足していないかを見る。起動のときと、準備の確かめ（GET /api/readiness）か GET /api/compat を読むたびに見る。
   const claudeDirWatch = new ClaudeDirWatch({ dirs: () => accountStore.list().filter((a) => a.id !== PRIMARY_ACCOUNT_ID).map((a) => a.dir), sink: compatLog });
   claudeDirWatch.check();
   const runs = new RunManager({
@@ -1044,7 +1044,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       // 道具の claude の行は準備の確かめが自分の覚えで読むので、同じ claude でもそれぞれ 1 度は起こす。
       compatLocalVersion: refreshClaudeVersion,
     }),
-    // Claude Code との互換の一覧。確認リストの 6 行目を開いたときに読む。
+    // Claude Code との互換の一覧。準備の確かめでずれがあるとき、画面が続けて読む。
     compat: async () => {
       claudeDirWatch.check();
       return { verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: await refreshClaudeVersion(), drifts: compatLog.list() };

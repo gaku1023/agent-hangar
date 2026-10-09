@@ -14,5 +14,5 @@ export type OnboardingProps = { checks: ChecksProps | null };
 export function presentOnboarding(store: Store): OnboardingProps | null {
   if (!store.bootstrapped || Object.keys(store.sessions).length > 0) return null;
   if (Object.values(store.projects).some((p) => !p.isScratch)) return null;
-  return { checks: store.readiness ? presentChecks(store.readiness) : null };
+  return { checks: store.readiness ? presentChecks(store.readiness, store.compat, store.version) : null };
 }

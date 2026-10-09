@@ -44,3 +44,18 @@ describe('設定のアカウントの行', () => {
     expect(css).toMatch(/\.account-set-dir, \.account-set-state \{ grid-column: 2 \/ 4; \}/);
   });
 });
+
+describe('Claude Code との互換の節と群の見出し', () => {
+  it('未確認の版の札は、印を持たない灰色の地と縁にする', () => {
+    expect(rule(".badge[data-tone='info']")).toBe(' color: var(--ink-2); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-strong); ');
+  });
+  it('版の並びは、狭い窓で折り返す', () => {
+    expect(rule('.cp-vers')).toContain('flex-wrap: wrap;');
+  });
+  // 連携の群の添えに「Claude Code との互換」が増えたので、狭い窓で見出しがはみ出さないようにする。
+  it('群の見出しは折り返し、行の間は空けない', () => {
+    const h = rule('.settings-group-h');
+    expect(h).toContain('flex-wrap: wrap;');
+    expect(h).toContain('gap: 0 calc(var(--u) * 2);');
+  });
+});

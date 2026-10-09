@@ -14,6 +14,7 @@ import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
+import { CompatSection } from './CompatSection.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
 
@@ -23,7 +24,7 @@ export const SAVED_TICK_MS = 2000;
 /** 設定の 5 つの群。目次（A1）と、頁の中の群の見出しが同じ表を読む。 */
 export const SETTINGS_GROUPS: { id: string; title: string; subs: string[]; icon: IconName }[] = [
   { id: 'settings-must', title: '必須', subs: ['ワークスペース', 'ツール', 'Node'], icon: 'tool' },
-  { id: 'settings-link', title: '連携', subs: ['MCP', 'statusline', '外のターミナル', '通知', 'アカウント'], icon: 'link' },
+  { id: 'settings-link', title: '連携', subs: ['Claude Code との互換', 'MCP', 'statusline', '外のターミナル', '通知', 'アカウント'], icon: 'link' },
   { id: 'settings-summary', title: '要約器', subs: ['LM Studio', '切り替え'], icon: 'permissionAuto' },
   { id: 'settings-sync', title: '同期', subs: ['状態', 'PC', '参加トークン', 'Claude Code の設定'], icon: 'cloud' },
   { id: 'settings-info', title: '情報', subs: ['使用量', '索引', 'この PC', '会話の保持'], icon: 'info' },
@@ -292,6 +293,8 @@ export function SettingsScreen(props: SettingsProps) {
             </section>
           </Group>
           <Group id="settings-link" todo={props.todo.link}>
+            {/* 互換のずれは利用者が直せるものではないので、todo には数えない（目次の点も灯さない）。 */}
+            <CompatSection compat={props.compat} />
             <section>
               <h3 className="h2">MCP<Badge ok={props.mcpRegistered} yes="登録済み" no="まだ登録されていません" /></h3>
               <div className="muted">Claude Code の user スコープに hangar の MCP サーバを登録すると、どのセッションからも検索と要約が使えます。ターミナルで次を実行してください。</div>
